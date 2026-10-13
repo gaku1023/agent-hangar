@@ -1,21 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { CandidateRow, ProjectCandidatesProps } from '../presenters/projectCandidates.ts';
+import { Check, useFolderBrowse } from './FolderBrowse.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { Segmented } from './primitives/Segmented.tsx';
 
-/** 小さなチェック。行の頭と、作成場所の行に置く。 */
-function Check(props: { label: string; title?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button type="button" role="checkbox" aria-label={props.label} title={props.title} aria-checked={props.checked} disabled={props.disabled} className="cand-check" onClick={() => props.onChange(!props.checked)}>
-      <Icon name="check" />
-    </button>
-  );
-}
+type Source = 'talked' | 'folder';
 
 /**
- * Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト。2026-10-13、試作の 4 節 3b の案 B）。
+ * まとめて登録のダイアログ。頭の切り替えで、Claude Code と会話したフォルダと、フォルダの中から（0.6.2、FolderBrowse.tsx）の 2 つの見方を持つ。
+ * 選んだものは見方ごとに持ち、送るのは開いている見方のものだけである。
+ *
+ * Claude Code と会話したフォルダの候補（初日のプロジェクト。2026-10-13、試作の 4 節 3b の案 B）。
  * 会話の多いフォルダ（よく使うフォルダ）は開いてチェックしておき、そのほかは畳んで件数だけを見せる。
  * 過半が同じ親にあるときは、その親を新しいフォルダの作成場所にするチェックを出す（既定で入れる）。
  * 作成場所にすると、その直下にある会話したフォルダはサーバが自動で登録するので、該当する行は外せないチェックにする（理由は乗せたときの説明で言う）。
@@ -24,6 +22,8 @@ function Check(props: { label: string; title?: string; checked: boolean; disable
 export function ProjectCandidatesDialog(props: ProjectCandidatesProps) {
   const emit = useEmit();
   const t = useT();
+  const [source, setSource] = useState<Source>(props.source);
+  const folder = useFolderBrowse(props.browse, source === 'folder');
   const ready = props.status === 'ready';
   const [checked, setChecked] = useState<Set<string>>(() => new Set(props.frequent.map((r) => r.path)));
   const [useRoot, setUseRoot] = useState(props.suggestedRoot !== null);
@@ -49,10 +49,16 @@ export function ProjectCandidatesDialog(props: ProjectCandidatesProps) {
     return next;
   });
   const close = () => emit({ type: 'overlay.close' });
+  const blocked = source === 'folder'
+    ? props.submitting || !folder.ready || (folder.items.length === 0 && folder.workspaceRoot === null)
+    : props.submitting || !ready || (paths.length === 0 && root === null);
+  const count = source === 'folder' ? folder.items.length : paths.length;
   const submit = () => {
-    if (props.submitting || !ready || (paths.length === 0 && root === null)) return;
-    emit({ type: 'project.candidates.submit', paths, workspaceRoot: root?.path ?? null });
+    if (blocked) return;
+    if (source === 'folder') emit({ type: 'project.candidates.submit', items: folder.items, workspaceRoot: folder.workspaceRoot });
+    else emit({ type: 'project.candidates.submit', items: paths.map((path) => ({ path })), workspaceRoot: root?.path ?? null });
   };
+  const sources = [{ value: 'talked', label: t('newProject.candidates.source.talked') }, { value: 'folder', label: t('newProject.candidates.source.folder') }];
 
   const line = (r: CandidateRow) => (
     <div key={r.path} className="cand-row" data-locked={locked(r) ? 'true' : undefined}>
@@ -100,14 +106,17 @@ export function ProjectCandidatesDialog(props: ProjectCandidatesProps) {
       onClose={close}
       closeOnBackdrop={false}
       footer={<>
-        <span className="cand-excl">{t('newProject.candidates.excluded')}</span>
+        {source === 'talked' && <span className="cand-excl">{t('newProject.candidates.excluded')}</span>}
         <span className="spacer" />
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
-        <button type="button" className="btn btn-primary" disabled={props.submitting || !ready || (paths.length === 0 && root === null)} onClick={submit}>{t('newProject.candidates.submit', { n: paths.length })}</button>
+        <button type="button" className="btn btn-primary" disabled={blocked} onClick={submit}>{t('newProject.candidates.submit', { n: count })}</button>
       </>}
     >
-      <div className="faint">{t('newProject.candidates.lead')}</div>
-      {body}
+      <div><Segmented label={t('newProject.candidates.source.aria')} value={source} options={sources} onChange={(v) => setSource(v as Source)} /></div>
+      {source === 'folder' ? folder.body : <>
+        <div className="faint">{t('newProject.candidates.lead')}</div>
+        {body}
+      </>}
       {props.error && <div className="error" role="alert">{props.error}</div>}
     </Dialog>
   );

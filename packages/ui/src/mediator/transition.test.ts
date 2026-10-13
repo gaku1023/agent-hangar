@@ -870,21 +870,42 @@ describe('設定', () => {
 describe('会話したフォルダの候補（初日のプロジェクト）', () => {
   it('開くと候補を取り、送ると登録を頼み、二重には送らない。閉じる手で閉じる', () => {
     const a = run([action({ type: 'project.candidates.open' })]);
-    expect(a.state.overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: null });
+    expect(a.state.overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: false, error: null });
     expect(a.effects).toEqual([{ kind: 'api.folderCandidates' }]);
-    const b = run([action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'projectCandidates', submitting: true, error: null });
-    expect(b.effects).toEqual([{ kind: 'api.registerFolders', paths: ['/a'], workspaceRoot: null }]);
-    expect(run([action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })], b.state).effects).toEqual([]);
+    const b = run([action({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: true, error: null });
+    expect(b.effects).toEqual([{ kind: 'api.registerFolders', items: [{ path: '/a' }], workspaceRoot: null }]);
+    expect(run([action({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null })], b.state).effects).toEqual([]);
     expect(run([action({ type: 'overlay.close' })], a.state).state.overlay).toEqual({ kind: 'none' });
   });
   it('登録が済めば閉じ、件数を知らせて準備の確かめを取り直す。ダイアログの上では開かない', () => {
-    const open = run([action({ type: 'project.candidates.open' }), action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })]).state;
-    const done = run([runtime({ type: 'project.candidates.done', registered: 2, failed: [] })], open);
+    const open = run([action({ type: 'project.candidates.open' }), action({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null })]).state;
+    const done = run([runtime({ type: 'project.candidates.done', registered: 2, linked: 0, failed: [] })], open);
     expect(done.state.overlay).toEqual({ kind: 'none' });
     expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 2 件登録しました' }, { kind: 'api.readiness' }]);
     const promote = run([action({ type: 'session.promote.open', id: 's1' })]).state;
     expect(run([action({ type: 'project.candidates.open' })], promote).state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+  });
+  // まとめて登録（0.6.2）。「フォルダの中から」で開く入口と、親フォルダの直下の読み込み、ほかの PC のプロジェクトに結び付けた件数。
+  it('「フォルダの中から」で開ける。新しいプロジェクトのダイアログのリンクからは、そのダイアログと入れ替える', () => {
+    expect(run([action({ type: 'project.candidates.open', source: 'folder' })]).state.overlay).toEqual({ kind: 'projectCandidates', source: 'folder', submitting: false, error: null });
+    const np = run([action({ type: 'project.new.open' })]).state;
+    const swapped = run([action({ type: 'project.candidates.open', source: 'folder' })], np);
+    expect(swapped.state.overlay).toEqual({ kind: 'projectCandidates', source: 'folder', submitting: false, error: null });
+    expect(swapped.state.projectCreate).toEqual({ kind: 'idle' });
+    expect(swapped.effects).toEqual([{ kind: 'api.folderCandidates' }]);
+    const promote = run([action({ type: 'session.promote.open', id: 's1' })]).state;
+    expect(run([action({ type: 'project.candidates.open', source: 'folder' })], promote).state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+  });
+  it('親フォルダの直下を読むのは、ダイアログが開いている間だけ', () => {
+    const open = run([action({ type: 'project.candidates.open', source: 'folder' })]).state;
+    expect(run([action({ type: 'project.folders.load', parent: '~/src' })], open).effects).toEqual([{ kind: 'api.workspaceChildren', parent: '~/src' }]);
+    expect(run([action({ type: 'project.folders.load', parent: '~/src' })]).effects).toEqual([]);
+  });
+  it('ほかの PC のプロジェクトに結び付けたものがあれば、その件数も知らせる', () => {
+    const open = run([action({ type: 'project.candidates.open', source: 'folder' }), action({ type: 'project.candidates.submit', items: [{ path: '/a', linkTo: 'p1' }], workspaceRoot: null })]).state;
+    const done = run([runtime({ type: 'project.candidates.done', registered: 3, linked: 1, failed: [] })], open);
+    expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 3 件登録しました（うち 1 件は、ほかの PC のプロジェクトに結び付けました）' }, { kind: 'api.readiness' }]);
   });
 });
 

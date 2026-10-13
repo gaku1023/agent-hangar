@@ -423,6 +423,14 @@ describe('NewProjectDialog', () => {
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
     expect(screen.queryByRole('button', { name: 'ほかの場所を選択…' })).toBeNull();
   });
+  // まとめて登録（0.6.2）。1 件ずつの登録のダイアログから、フォルダの中からまとめて選ぶダイアログへ送る。
+  it('既存のフォルダを登録の下の「フォルダの中からまとめて選ぶ…」で、まとめて登録のダイアログを開く', () => {
+    const { out } = collect({ desktop: false });
+    expect(screen.queryByRole('button', { name: 'フォルダの中からまとめて選ぶ…' })).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    fireEvent.click(screen.getByRole('button', { name: 'フォルダの中からまとめて選ぶ…' }));
+    expect(out.at(-1)).toEqual({ type: 'project.candidates.open', source: 'folder' });
+  });
   it('パスの欄の例は、画面の OS の形で出す', () => {
     const { view } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));

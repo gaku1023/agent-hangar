@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
+import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -57,9 +57,11 @@ export type UiAction =
   // プロジェクトの名前を変える。見出しの (i) のポップオーバーから出す。
   | { type: 'project.rename'; id: ProjectId; name: string }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
-  // Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト。2026-10-13）。
-  // submit は選んだフォルダをまとめて登録し、workspaceRoot があれば先に新しいフォルダの作成場所にする。
-  | { type: 'project.candidates.open' } | { type: 'project.candidates.submit'; paths: string[]; workspaceRoot: string | null }
+  // まとめて登録のダイアログ（初日のプロジェクト。2026-10-13）。source は開いた時点の見方で、省けば Claude Code と会話したフォルダ、folder はフォルダの中から（0.6.2）。
+  // submit は選んだフォルダをまとめて登録し、workspaceRoot があれば先に新しいフォルダの作成場所にする。items は行ごとの結び付け先（linkTo）と入れ子の明示（allowNested）を持つ。
+  | { type: 'project.candidates.open'; source?: 'talked' | 'folder' } | { type: 'project.candidates.submit'; items: FolderRegisterItem[]; workspaceRoot: string | null }
+  // 「フォルダの中から」の親フォルダの直下を読む（GET /api/workspace/children）。parent は打たれたままのパスで、~ はサーバが直す。
+  | { type: 'project.folders.load'; parent: string }
   // 起動と作成のダイアログの「ほかの場所を選ぶ…」と、作成場所が空のときの「作成場所」の「選ぶ…」。殻の中だけで出す。
   | { type: 'folder.pick' }
   | { type: 'project.resolve.open'; id: ProjectId }

@@ -564,12 +564,23 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
         return;
       // 候補のダイアログ（初日のプロジェクト）。取っている間と取れなかったことは、面が Store の folderCandidates から読む。
+      // ダイアログを開くたびに来るので、前に開いたときの「フォルダの中から」の一覧もここで捨てる。
       case 'api.folderCandidates':
-        setStore({ ...store, folderCandidates: { status: 'loading' } });
+        setStore({ ...store, folderCandidates: { status: 'loading' }, workspaceChildren: null });
         deps.api.folderCandidates()
           .then((data) => setStore({ ...store, folderCandidates: { status: 'ready', data } }))
           .catch(() => setStore({ ...store, folderCandidates: { status: 'failed' } }));
         return;
+      // 「フォルダの中から」の親の直下。後から頼んだ親の答えだけを採る（打ち直しや Finder で親を変えたとき、前の答えが遅れて届いても入れ替えない）。
+      case 'api.workspaceChildren': {
+        const parent = e.parent;
+        const latest = () => store.workspaceChildren?.status === 'loading' && store.workspaceChildren.parent === parent;
+        setStore({ ...store, workspaceChildren: { status: 'loading', parent } });
+        deps.api.workspaceChildren(parent)
+          .then((data) => { if (latest()) setStore({ ...store, workspaceChildren: { status: 'ready', parent, data } }); })
+          .catch((err: unknown) => { if (latest()) setStore({ ...store, workspaceChildren: { status: 'failed', parent, message: errMsg(err) } }); });
+        return;
+      }
       // 作成場所を決めてから登録する。先に決めると、その直下は保存のときにサーバが登録するので、登録の側は既にあるものとして返す。
       // 作成場所の保存に失敗したら、登録はせずに面へ理由を返す。
       case 'api.registerFolders': {
@@ -577,12 +588,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           ? deps.api.updateSettings({ workspaceRoot: e.workspaceRoot }).then((s) => setStore({ ...store, settings: s }))
           : Promise.resolve();
         save
-          .then(() => (e.paths.length ? deps.api.registerFolders(e.paths) : { projects: [], failed: [] }))
+          .then(() => (e.items.length ? deps.api.registerFolders(e.items) : { projects: [], failed: [] }))
           .then((r) => {
             const projects = { ...store.projects };
             for (const p of r.projects) projects[p.id] = p;
             setStore({ ...store, projects });
-            dispatch({ kind: 'runtime', event: { type: 'project.candidates.done', registered: r.projects.length, failed: r.failed.map((f) => f.error) } });
+            dispatch({ kind: 'runtime', event: { type: 'project.candidates.done', registered: r.projects.length, linked: r.linked?.length ?? 0, failed: r.failed.map((f) => f.error) } });
           })
           .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'project.candidates.failed', message: errMsg(err) } }));
         return;

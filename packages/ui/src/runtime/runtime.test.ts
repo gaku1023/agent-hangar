@@ -1,6 +1,6 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
 import { ApiConflictError, ApiNotFoundError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
@@ -672,16 +672,16 @@ describe('起動とターミナル', () => {
     const folderCandidates = vi.fn(async () => cands);
     const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     const updateSettings = vi.fn(async (patch: Partial<SettingsDto>) => { order.push(`settings:${patch.workspaceRoot}`); return { ...base, ...patch }; });
-    const registerFolders = vi.fn(async (paths: string[]) => { order.push(`register:${paths.join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path が存在するディレクトリではありません' }] }; });
+    const registerFolders = vi.fn(async (items: FolderRegisterItem[]) => { order.push(`register:${items.map((i) => i.path).join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path が存在するディレクトリではありません' }] }; });
     const { rt, api } = harness({ folderCandidates, updateSettings, registerFolders });
     rt.start();
     await flush();
     const readinessCalls = (api.readiness as ReturnType<typeof vi.fn>).mock.calls.length;
     rt.emit({ type: 'project.candidates.open' });
-    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: null });
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: false, error: null });
     await flush();
     expect(rt.getStore().folderCandidates).toEqual({ status: 'ready', data: cands });
-    rt.emit({ type: 'project.candidates.submit', paths: ['/Users/me/src/a', '/gone'], workspaceRoot: '/Users/me/src' });
+    rt.emit({ type: 'project.candidates.submit', items: [{ path: '/Users/me/src/a' }, { path: '/gone' }], workspaceRoot: '/Users/me/src' });
     expect(rt.getState().overlay).toMatchObject({ kind: 'projectCandidates', submitting: true });
     await flush();
     expect(order).toEqual(['settings:/Users/me/src', 'register:/Users/me/src/a,/gone']);
@@ -697,9 +697,48 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'project.candidates.open' });
     await flush();
     expect(rt.getStore().folderCandidates).toEqual({ status: 'failed' });
-    rt.emit({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null });
+    rt.emit({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null });
     await flush();
-    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: 'つながりません' });
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: false, error: 'つながりません' });
+  });
+  // まとめて登録の「フォルダの中から」（0.6.2）。親の直下は Store の workspaceChildren に入り、後から頼んだ親の答えだけを採る。
+  it('親フォルダの直下を取り、後から頼んだ親の答えだけを入れる。開き直すと前の一覧を捨てる', async () => {
+    const data = (parent: string): WorkspaceChildrenDto => ({ parent, enclosing: null, children: [] });
+    const waits: Record<string, (v: WorkspaceChildrenDto) => void> = {};
+    const workspaceChildren = vi.fn((parent: string) => new Promise<WorkspaceChildrenDto>((res) => { waits[parent] = res; }));
+    const { rt } = harness({ workspaceChildren });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    rt.emit({ type: 'project.folders.load', parent: '~/old' });
+    rt.emit({ type: 'project.folders.load', parent: '~/src' });
+    expect(rt.getStore().workspaceChildren).toEqual({ status: 'loading', parent: '~/src' });
+    waits['~/src']!(data('/Users/me/src'));
+    await flush();
+    waits['~/old']!(data('/Users/me/old'));
+    await flush();
+    expect(rt.getStore().workspaceChildren).toEqual({ status: 'ready', parent: '~/src', data: data('/Users/me/src') });
+    rt.emit({ type: 'overlay.close' });
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    expect(rt.getStore().workspaceChildren).toBeNull();
+  });
+  it('親フォルダを読めなければ、理由を添えて面に出す', async () => {
+    const { rt } = harness({ workspaceChildren: vi.fn(async () => { throw new Error('path が存在するディレクトリではありません'); }) });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    rt.emit({ type: 'project.folders.load', parent: '~/nope' });
+    await flush();
+    expect(rt.getStore().workspaceChildren).toEqual({ status: 'failed', parent: '~/nope', message: 'path が存在するディレクトリではありません' });
+  });
+  it('行ごとの結び付け先と入れ子の明示をそのまま送り、結び付けた件数を知らせる', async () => {
+    const registerFolders = vi.fn(async () => ({ projects: [{ ...created, id: 'p-a' }, { ...created, id: 'p-b' }], failed: [], linked: ['p-b'] }));
+    const { rt } = harness({ registerFolders });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    const items = [{ path: '/Users/me/src/a' }, { path: '/Users/me/src/b', linkTo: 'p-b' }, { path: '/Users/me/src/c', allowNested: true }];
+    rt.emit({ type: 'project.candidates.submit', items, workspaceRoot: null });
+    await flush();
+    expect(registerFolders).toHaveBeenCalledWith(items);
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['プロジェクトを 2 件登録しました（うち 1 件は、ほかの PC のプロジェクトに結び付けました）']);
   });
   it('作成のダイアログの送信は、作ってから done を返す', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created) });
