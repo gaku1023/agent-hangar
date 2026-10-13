@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, ApiNotFoundError, createApi, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -164,6 +164,23 @@ describe('保持期間の API', () => {
     // まとめられない 409（スクラッチの場所）は、型を付けずに理由だけを投げる。
     const plain = await harness(409, { error: 'あります' }).api.resolveProject('p2', { kind: 'repoint', path: '/w/x' }).catch((err: unknown) => err);
     expect(plain).not.toBeInstanceOf(ProjectSameFolderApiError);
+  });
+  // 0.6.2：フォルダとプロジェクトの結び付き。選んだフォルダの事前の問い合わせと、入れ子の 409。
+  it('選んだフォルダの事前の問い合わせは GET /api/workspace/inspect で、名前は渡したときだけ付ける', async () => {
+    const { api, calls } = harness(200, { path: '/w/a' });
+    await api.inspectFolder('/w/alpha/packages/ui');
+    await api.inspectFolder('/w/notes app', 'notes');
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'GET /api/workspace/inspect?path=%2Fw%2Falpha%2Fpackages%2Fui',
+      'GET /api/workspace/inspect?path=%2Fw%2Fnotes+app&name=notes',
+    ]);
+  });
+  it('409 の project_nested は ProjectNestedApiError にする。文はサーバの理由のまま', async () => {
+    const body = { error: 'このフォルダはプロジェクト alpha の中にあります', code: 'project_nested', enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha' } };
+    const e = await harness(409, body).api.createProject({ kind: 'dir', path: '/w/alpha/ui' }).catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(ProjectNestedApiError);
+    expect((e as ProjectNestedApiError).body).toEqual(body);
+    expect((e as Error).message).toBe(body.error);
   });
   it('404 は ApiNotFoundError にする。文はサーバの理由のまま', async () => {
     const { api } = harness(404, { error: 'プロジェクトが見つかりません' });

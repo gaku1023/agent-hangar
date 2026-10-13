@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -21,7 +21,8 @@ import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending }
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
-import { ApiConflictError, ApiNotFoundError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import { createGitWatch } from './gitWatch.ts';
@@ -276,6 +277,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+  // 登録が 409（入れ子）で断られたら、事前の問い合わせの答えの代わりに包むプロジェクトを持つ（0.6.2）。
+  // 問い合わせより先に送られたときでも、ダイアログがその場の 1 行と「別のプロジェクトにする」を出せるようにする。
+  const keepNested = (place: ProjectPlace, err: unknown) => {
+    if (place.kind === 'dir' && err instanceof ProjectNestedApiError) setStore({ ...store, folderInspect: nestedInspect(place.path, err.body) });
+  };
   /**
    * 通知を出せるか、受け取るかを Store に入れる。Runtime しか知らない事実なので、Mediator を通さない。
    * blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
@@ -553,7 +559,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
             dispatch({ kind: 'runtime', event: { type: 'project.created', projectId: p.id, params } });
             return deps.api.launch(params).then(launched);
           })
-          .catch(launchFailed);
+          .catch((err: unknown) => { keepNested(e.place, err); launchFailed(err); });
         return;
       case 'api.createProject':
         deps.api.createProject(e.place)
@@ -561,7 +567,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
             setStore({ ...store, projects: { ...store.projects, [p.id]: p } });
             dispatch({ kind: 'runtime', event: { type: 'project.create.done', projectId: p.id, startSession: e.startSession } });
           })
-          .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
+          .catch((err: unknown) => { keepNested(e.place, err); dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }); });
         return;
       // 候補のダイアログ（初日のプロジェクト）。取っている間と取れなかったことは、面が Store の folderCandidates から読む。
       // ダイアログを開くたびに来るので、前に開いたときの「フォルダの中から」の一覧もここで捨てる。

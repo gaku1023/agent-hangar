@@ -1734,6 +1734,31 @@ describe('プロジェクトを作る', () => {
     expect(state.overlay).toEqual({ kind: 'none' });
     expect(state.projectCreate).toEqual({ kind: 'idle' });
   });
+  // 0.6.2：登録済みのプロジェクトの下のフォルダを選んだとき、作成のダイアログは包むプロジェクトを開くか、そこで始める。
+  it('包むプロジェクトで始めるなら、閉じて、そのフォルダを選んだ新しいセッションのダイアログを開く', () => {
+    const { state, effects } = run([action({ type: 'project.new.open' }), action({ type: 'project.new.enclosing', projectId: 'p1', dir: '/w/alpha/packages/ui', startSession: true })]);
+    expect(state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false, dir: '/w/alpha/packages/ui' });
+    expect(state.projectCreate).toEqual({ kind: 'idle' });
+    expect(state.launch).toEqual({ kind: 'idle' });
+    expect(effects).toContainEqual({ kind: 'api.workspaceDirs' });
+  });
+  it('包むプロジェクトを開くなら、閉じてそのプロジェクトの画面へ移る。送信中は何もしない', () => {
+    const { state, effects } = run([action({ type: 'project.new.open' }), action({ type: 'project.new.enclosing', projectId: 'p1', dir: '/w/alpha/packages/ui', startSession: false })]);
+    expect(state.overlay).toEqual({ kind: 'none' });
+    expect(state.projectCreate).toEqual({ kind: 'idle' });
+    expect(effects).toContainEqual({ kind: 'navigate', route: { name: 'project', id: 'p1' } });
+    const busy = run([action({ type: 'project.new.open' }), action({ type: 'project.new.submit', place, startSession: false }), action({ type: 'project.new.enclosing', projectId: 'p1', dir: '/w/a/b', startSession: false })]);
+    expect(busy.state.overlay).toEqual({ kind: 'newProject' });
+  });
+  it('新しいセッションのダイアログは、渡されたフォルダを overlay に持って開く', () => {
+    const { state } = run([action({ type: 'session.new.open', projectId: 'p1', dir: '/w/alpha/packages/ui' })]);
+    expect(state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false, dir: '/w/alpha/packages/ui' });
+  });
+  it('作業の場所（cwd）は前回値に残さない（worktree と同じ）。起動にはそのまま渡す', () => {
+    const a = run([action({ type: 'session.new.submit', params: { projectId: 'p1', model: 'opus', cwd: '/w/alpha/packages/ui' } })]);
+    expect(a.state.launchPrefs).toEqual({ p1: { model: 'opus' } });
+    expect(a.effects).toContainEqual({ kind: 'api.launch', params: { projectId: 'p1', model: 'opus', cwd: '/w/alpha/packages/ui' } });
+  });
   it('パレットの「新しいプロジェクト」で作成のダイアログを開く', () => {
     const { state } = run([action({ type: 'palette.open' }), action({ type: 'palette.run', command: { id: 'cmd:new-project', label: '新しいプロジェクト' } })]);
     expect(state.overlay).toEqual({ kind: 'newProject' });

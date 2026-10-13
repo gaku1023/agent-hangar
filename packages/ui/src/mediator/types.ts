@@ -186,7 +186,8 @@ export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' }
   | { kind: 'shortcuts' }
   // worktree は、worktree の札をオンにして開くこと（同じファイルの編集の警告から開いたとき）。名前はダイアログが付ける。
-  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean }
+  // dir は、はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき。0.6.2）。
+  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean; dir?: string }
   | { kind: 'promote'; sessionId: string }
   | { kind: 'newProject' }
   // 設定の「アカウントを足す…」。入力はダイアログが持ち、送信の進みは accountAdd が持つ。

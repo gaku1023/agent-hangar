@@ -3,6 +3,7 @@ import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
+import type { FolderInspectState } from './folderInspect.ts';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { EditorMissingDto, EditorsDto, EditorTestDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
@@ -94,6 +95,8 @@ export type Store = {
   workspaceChildren: { status: 'loading'; parent: string } | { status: 'ready'; parent: string; data: WorkspaceChildrenDto } | { status: 'failed'; parent: string; message: string } | null;
   /** Finder で選んだフォルダ。殻が返した値である。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
   pickedFolder: { path: string; n: number } | null;
+  /** 選んだ 1 つのフォルダの事前の問い合わせ（0.6.2）。最後に頼んだ 1 件だけを持つ。頼む前は null（store/folderInspect.ts）。 */
+  folderInspect: FolderInspectState | null;
   /** アカウントを足す前の確かめの、最後に届いた答え（runtime/actionTable.ts の account.add.preview）。 */
   accountPreview: AccountDirPreviewDto | null;
   /** アプリの自動更新（store/update.ts）。殻が updater を持つかと、確認と取得の段階を、Runtime が入れる（runtime/updater.ts）。 */
@@ -136,7 +139,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, accountPreview: null,
+    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,

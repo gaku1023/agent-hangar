@@ -910,6 +910,12 @@ describe('presentNewSession', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
     expect(presentNewSession(state, store, NOW)!.takenNames).toEqual(['old-kadai']);
   });
+  it('作成のダイアログから渡されたフォルダと、選んだフォルダの事前の問い合わせを渡す（0.6.2）', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: 'p1', scratch: false, dir: '/w/alpha/ui' } };
+    const folderInspect = { path: '/w/alpha/ui', name: null, status: 'loading' as const };
+    expect(presentNewSession(state, { ...storeWithProjectAt('/w/alpha'), folderInspect }, NOW)).toMatchObject({ dir: '/w/alpha/ui', inspect: folderInspect });
+    expect(presentNewSession({ ...state, overlay: { kind: 'newSession', projectId: null, scratch: false } }, storeWithProjectAt('/w/alpha'), NOW)).toMatchObject({ dir: null, inspect: null });
+  });
   it('作れた後に起動だけ失敗したら、作ったプロジェクトを渡す', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, launch: { kind: 'failed' as const, message: 'x', createdProjectId: 'p9' } };
     expect(presentNewSession(state, storeWithProjectAt('/w/alpha'), NOW)!.createdProjectId).toBe('p9');

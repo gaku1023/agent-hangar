@@ -12,8 +12,11 @@ import { revealWithin } from './primitives/revealWithin.ts';
 import { CheckCard } from './primitives/OptionCard.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { ParentField, parentReady } from './ParentField.tsx';
+import { boldFirst, inspectOf } from './folderNote.tsx';
 
 type Mode = 'newDir' | 'dir';
+/** パスを打ち終えるのを待ってから事前の問い合わせを頼む間（ミリ秒）。打つたびに問い合わせないためである。 */
+const INSPECT_DELAY_MS = 300;
 /** 選んだフォルダの名前。根だけのパス（`/`、`C:\`）は名前を持たないので空にする。 */
 const folderName = (p: string) => (isRootPath(p) ? '' : baseName(p));
 
@@ -56,9 +59,32 @@ export function NewProjectDialog(props: NewProjectProps) {
     choosePath(p.path);
   }, [props.picked?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 既存のフォルダの事前の問い合わせ（0.6.2）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
+  // 名前を自分で直したときだけ名前を添える（弱い一致をその名前で見る）。
+  const target = mode === 'dir' ? path.trim() : '';
+  const askName = nameTouched ? name.trim() : '';
+  useEffect(() => {
+    if (!target) return;
+    const timer = setTimeout(() => emit({ type: 'folder.inspect', path: target, ...(askName ? { name: askName } : {}) }), INSPECT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [target, askName]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const { data: inspected, loading: inspecting } = inspectOf(props.inspect, target || null);
+  // 登録済みのプロジェクトの下なら、既定は作らずにそのプロジェクトを開く（試作の 6 の A）。「別のプロジェクトにする」で分けて登録する。
+  // ほかの PC から届いた同じプロジェクトがあれば、既定はそれに結び付ける。「新しく作る」で新しいプロジェクトにする。切り替えはパスごとである。
+  const [splitAt, setSplitAt] = useState<string | null>(null);
+  const [linkNewAt, setLinkNewAt] = useState<string | null>(null);
+  const enclosing = inspected && !inspected.registered ? inspected.enclosing : null;
+  const nested = enclosing !== null && splitAt !== target ? enclosing : null;
+  const link = !enclosing && inspected && !inspected.registered ? inspected.link : null;
+  const linking = link !== null && linkNewAt !== target ? link : null;
+  const linkWho = link ? (link.deviceName ? t('newProject.dir.linkWho', { device: link.deviceName, name: link.name }) : link.name) : '';
+
   const submit = (startSession: boolean) => {
-    if (props.submitting) return;
-    const place: ProjectPlace = mode === 'newDir' ? { kind: 'newDir', name, gitInit, ...(rootless ? { parent: parent.trim() } : {}) } : { kind: 'dir', path, name: name.trim() || undefined };
+    if (props.submitting || inspecting) return;
+    if (nested) { emit({ type: 'project.new.enclosing', projectId: nested.projectId, dir: target, startSession }); return; }
+    const place: ProjectPlace = mode === 'newDir' ? { kind: 'newDir', name, gitInit, ...(rootless ? { parent: parent.trim() } : {}) }
+      : linking ? { kind: 'dir', path, linkTo: linking.projectId }
+        : { kind: 'dir', path, name: name.trim() || undefined, ...(enclosing ? { allowNested: true } : {}) };
     emit({ type: 'project.new.submit', place, startSession });
   };
   // Enter は「作成して始める」。変換中の Enter は確定のための打鍵なので、送信に使わない。
@@ -92,7 +118,8 @@ export function NewProjectDialog(props: NewProjectProps) {
   // 作る場所。作成場所が空なら選んだ場所で、設定が届く前は仮の場所にする。区切りは画面の OS に合わせる。
   const root = rootless ? parent.trim() : props.workspaceRoot ?? joinPath('~', 'workspace');
   // 作成場所が空で、作る場所をまだ選んでいなければ送れない。
-  const blocked = mode === 'newDir' && !parentReady(props.workspaceRoot, parent);
+  // 既存のフォルダの事前の問い合わせを待つ間も送れない（開くか、分けるか、結び付けるかが決まらないため）。
+  const blocked = (mode === 'newDir' && !parentReady(props.workspaceRoot, parent)) || (mode === 'dir' && inspecting);
   const close = () => emit({ type: 'overlay.close' });
   // 名前を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
   return (
@@ -105,8 +132,8 @@ export function NewProjectDialog(props: NewProjectProps) {
       footer={<>
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
-        <button type="button" className="btn" disabled={props.submitting || blocked} onClick={() => submit(false)}>{t('newProject.footer.create')}</button>
-        <button type="button" className="btn btn-primary" disabled={props.submitting || blocked} onClick={() => submit(true)}>{t('newProject.footer.createAndStart')}</button>
+        <button type="button" className="btn" disabled={props.submitting || blocked} onClick={() => submit(false)}>{nested ? t('newProject.footer.openEnclosing', { name: nested.name }) : linking ? t('newProject.footer.link') : t('newProject.footer.create')}</button>
+        <button type="button" className="btn btn-primary" disabled={props.submitting || blocked} onClick={() => submit(true)}>{nested ? t('newProject.footer.startEnclosing', { name: nested.name }) : linking ? t('newProject.footer.linkAndStart') : t('newProject.footer.createAndStart')}</button>
       </>}
     >
       <div><Segmented label={t('newProject.mode.aria')} value={mode} options={modes} onChange={(v) => setMode(v as Mode)} /></div>
@@ -139,15 +166,33 @@ export function NewProjectDialog(props: NewProjectProps) {
               {props.desktop && <><button type="button" className="btn" onClick={() => emit({ type: 'folder.pick' })}><Icon name="folderOpen" />{t('newProject.folder.pick')}</button><span className="faint">{t('newProject.folder.or')}</span></>}
               <input className="input mono" style={{ flex: 1 }} aria-label={t('newProject.path.aria')} placeholder={t(clientPlatform() === 'win32' ? 'newProject.path.placeholderWindows' : 'newProject.path.placeholder')} value={path} onChange={(e) => choosePath(e.target.value)} onKeyDown={onEnter} />
             </div>
+            {enclosing && (
+              <div className="faint dir-note">
+                {nested
+                  ? <><span>{boldFirst(t('newProject.dir.nested', { name: enclosing.name }), enclosing.name)}</span><button type="button" className="linkish" onClick={() => setSplitAt(target)}>{t('newProject.dir.split')}</button></>
+                  : <><span>{boldFirst(t('newProject.dir.splitNote', { name: enclosing.name }), enclosing.name)}</span><button type="button" className="linkish" onClick={() => setSplitAt(null)}>{t('newProject.dir.keep', { name: enclosing.name })}</button></>}
+              </div>
+            )}
+            {link && (
+              <div className="faint dir-note">
+                {linking
+                  ? <><span>{boldFirst(t(link.match === 'remote' ? 'newProject.dir.linkRemote' : 'newProject.dir.linkName', { who: linkWho }), linkWho)}</span><button type="button" className="linkish" onClick={() => setLinkNewAt(target)}>{t('newProject.dir.linkNew')}</button></>
+                  : <><span>{boldFirst(t('newProject.dir.newNote', { who: linkWho }), linkWho)}</span><button type="button" className="linkish" onClick={() => setLinkNewAt(null)}>{t('newProject.dir.linkBack', { name: link.name })}</button></>}
+              </div>
+            )}
             {/* まとめて登録のダイアログの「フォルダの中から」へ送る（0.6.2）。このダイアログとは入れ替わる。 */}
             <div><button type="button" className="linkish" onClick={() => emit({ type: 'project.candidates.open', source: 'folder' })}>{t('newProject.folder.bulk')}</button></div>
           </div>
-          <label className="field" htmlFor="new-project-reg-name">{t('newProject.field.name')}
-            <input id="new-project-reg-name" className="input" value={name} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />
-          </label>
+          {/* 包むプロジェクトを開くときと、結び付けるときは、名前を使わない（結び付けた先の名前は変えない）ので欄を出さない。 */}
+          {!nested && !linking && (
+            <label className="field" htmlFor="new-project-reg-name">{t('newProject.field.name')}
+              <input id="new-project-reg-name" className="input" value={name} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />
+            </label>
+          )}
         </>
       )}
-      {props.error && <div className="error" role="alert">{props.error}</div>}
+      {/* 入れ子の 409 で断られたときは、文言の代わりにその場の 1 行と「別のプロジェクトにする」が出ている。 */}
+      {props.error && !nested && <div className="error" role="alert">{props.error}</div>}
     </Dialog>
   );
 }
