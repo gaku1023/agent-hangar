@@ -2,7 +2,7 @@
 rem agent-hangar CLI launcher for the installed Hangar app on Windows (counterpart of hangar.sh).
 rem This file must stay ASCII only: cmd reads it in the OEM code page, so UTF-8 text would be garbled.
 rem cmd cannot read JSON, so it only finds some Node that can read launch-cli.mjs and runs launch-cli.mjs with it.
-rem launch-cli.mjs then checks the Node version against manifest.json and, if needed, hands over to a matching Node
+rem launch-cli.mjs then checks the Node-API version and architecture against manifest.json and, if needed, hands over to a fitting Node
 rem (HANGAR_NODE, settings.json nodePath, the official installer locations, nvm-windows, fnm, Volta, scoop, then every node.exe on PATH).
 rem Order here: HANGAR_NODE, every node.exe on PATH, the official installer locations.
 rem A candidate is skipped when it does not exist, or when it does not answer as Node 16 or later
@@ -39,7 +39,7 @@ for /f "delims=" %%n in ('where $PATH:node.exe 2^>nul') do call :try "%%n"
 call :try "%ProgramFiles%\nodejs\node.exe"
 call :try "%LOCALAPPDATA%\Programs\nodejs\node.exe"
 if defined HANGAR_NODE goto run
-echo Node.js was not found (a Node.js older than 16 cannot start this command). Install Node 22 with "winget install -e --id OpenJS.NodeJS.22" in PowerShell, or with nvm-windows ("nvm install 22"). If it is somewhere else, set HANGAR_NODE to the full path of node.exe. 1>&2
+echo Node.js was not found (a Node.js older than 16 cannot start this command). Hangar needs Node.js 22.14 or later. Install it with "winget install -e --id OpenJS.NodeJS.LTS" in PowerShell, or with nvm-windows ("nvm install 22"). If it is somewhere else, set HANGAR_NODE to the full path of node.exe. 1>&2
 exit /b 1
 :run
 rem The batch must be over before node starts. Otherwise, after Ctrl+C stops node, cmd asks

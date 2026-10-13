@@ -225,18 +225,23 @@ export type StatuslineStatusDto = { command: string | null; scriptPath: string |
  * problem は動かせない理由で、動かせるときは null。
  * unset は設定が空、missing は無い、notFile はディレクトリなどファイルでない、notExecutable は実行権が無い。
  * 残りの 3 つは Node の設定だけのもの。notAbsolute はフルパスでない、notNode は Node として答えない、
- * wrongNode は同梱のサーバと違うメジャー版かアーキテクチャの Node（殻はその Node を使わない）。
+ * wrongNode は Node-API が足りないか、アーキテクチャが違う Node（殻はその Node を使わない）。
  * version は `--version` などで読んだ版で、読めなかったときは null。
  */
 export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable' | 'notAbsolute' | 'notNode' | 'wrongNode';
 export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
-/** Node のメジャー版とアーキテクチャ（`process.arch`）。同梱のサーバの manifest.json の nodeMajor と arch に当たる。 */
-export type NodeBuildDto = { major: number; arch: string };
+/** 候補の Node の版（v を除いたもの）、Node-API の版（`process.versions.napi`）、アーキテクチャ（`process.arch`）。 */
+export type NodeBuildDto = { version: string; napi: number; arch: string };
+/**
+ * 同梱のサーバが要る Node。manifest.json の nodeApi、nodeMin、arch に当たる。
+ * napi 以上の Node-API を持ち、アーキが同じ Node を使う。min は napi を持つ最初の Node の版で、案内に出すだけである。
+ */
+export type NodeNeedDto = { napi: number; min: string; arch: string };
 /**
  * Node の設定の確かめ。auto は設定が空で、サーバを動かしている Node をそのまま見せていること。
  * found と need は problem が wrongNode のときだけ持ち、見つけた Node と、同梱のサーバが要る Node を表す。
  */
-export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto; need?: NodeBuildDto };
+export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto; need?: NodeNeedDto };
 /**
  * 準備の確かめ（GET /api/readiness）。
  * 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの 1 つを読む。

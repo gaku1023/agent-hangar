@@ -107,7 +107,7 @@ Node は PATH に頼らず、Settings の `nodePath` のあと、`node.rs` の `
 Finder やスタートメニューから開いたアプリには端末で決めた環境変数が届かないので、見ると、開き方によって使う Node が変わるためである。
 環境変数で指せるのは同梱の CLI（`hangar` コマンド）だけで、CLI は `HANGAR_NODE`、`nodePath`、殻と同じ探索先の順に探す。
 並びは `/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の keg（`/opt/homebrew/opt/node@N/bin/node`、`/usr/local/opt/node@N/bin/node`）、nvm（`~/.nvm/versions/node/*/bin/node`）、fnm（`~/Library/Application Support/fnm`、`~/.local/share/fnm`、`~/.fnm` の `node-versions/*/installation/bin/node`）、Volta（`~/.volta/tools/image/node/*/bin/node`）、mise（`~/.local/share/mise/installs/node/*/bin/node`）、asdf（`~/.asdf/installs/nodejs/*/bin/node`）、nodenv（`~/.nodenv/versions/*/bin/node`）である。
-版ごとに並ぶ場所は、実在する `node` だけを新しい版から並べ、manifest と同じメジャー版とアーキテクチャの最初の 1 つを採る。
+版ごとに並ぶ場所は、実在する `node` だけを新しい版から並べ、manifest に合う（Node-API が `nodeApi` 以上で、アーキテクチャが同じ）最初の 1 つを採る。
 版と読む名前は `node@<数>` と `v<数>.<数>.<数>`、`<数>.<数>.<数>` だけで、mise の別名（`22`、`lts`）は実体と重なるので見ない。
 Homebrew の `node@22` は、前の版の Homebrew では keg-only で `/opt/homebrew/bin` にリンクされず、keg の場所を見ないと `brew install node@22` だけでは見つからなかった。
 今の Homebrew（7.0.9 で確かめた）は `/opt/homebrew/bin` にもリンクするので、どちらの場合も拾えるよう `bin/node` と keg の場所の両方を見る。
@@ -117,16 +117,23 @@ GUI のアプリの PATH は launchd の最小のものなので、PATH は見�
 対話のシェルとして起こすと rc の全部が走り、tmux を自動で起こす設定や、端末を前提にした出力や問い合わせを踏みうるうえ、遅い rc では読み込み画面を秒単位で止めるためである。
 上の場所に無い入れ方は、`nodePath` で指す。
 設定の画面は `nodePath` を保存する前に、殻と同じ条件で確かめる（`config/node.ts`、`PATCH /api/settings`）。
-フルパスであること、Node として答えること、同梱の `manifest.json` と同じメジャー版とアーキテクチャであること、の 3 つで、合わなければ理由を返して保存しない。
+フルパスであること、Node として答えること、Node-API が同梱の `manifest.json` の `nodeApi` 以上でアーキテクチャが同じであること、の 3 つで、合わなければ理由を返して保存しない。
+理由は、版が古い（`settings.node.tooOld`。見つけた版と、要る版と、Node-API の版を言う）とアーキテクチャが違う（`settings.node.wrongArch`）を分ける。
 フルパスかどうかは、`~` を展開する前の値で見る。殻と CLI（`launch-cli.ts`、`hangar.sh`）は `~` を展開しないので、`~/` で始まる値は、展開すれば実在しても `notAbsolute` にして保存しない（展開を殻と CLI に足すより、層の数が少なく済む）。
-新しいメジャー版も代わりにならないので断る。
+新しい版には上限を付けない（Node 24 も保存する）。
 準備の確かめ（欄の下の ✓ と ✗）も同じ 3 つを、同じく展開前の値で見て、`settings.json` を直に書き換えた値でも、殻が使わない Node には ✓ を付けない。
-要る版は、配布版では `server.mjs` の隣の `manifest.json` から読み、ソースから動かしているときはサーバを動かしている Node の版とアーキである。
+要る版は、配布版では `server.mjs` の隣の `manifest.json` から読み、ソースから動かしているときは規則の既定の値（`config/nodeRule.ts` の `NODE_API_MIN` と `NODE_MIN_LABEL`）とサーバを動かしている Node のアーキである。
 同梱の CLI（`hangar.sh`）は `HANGAR_NODE` と `nodePath` を先に見て、そのあとは同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
 `HANGAR_NODE` と `nodePath` は、殻と同じくフルパスだけを受け、そうでなければ「絶対パスではありません」と挙げて次へ進む。
-見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す。
-Windows では `winget install -e --id OpenJS.NodeJS.<版>` を先に案内し（README の Windows の前提と同じ命令。公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）、nvm-windows の `nvm install <版>` をほかの入れ方として添え、fnm、Volta、scoop で入れた版と PATH にある版も探すと言い添える（文は殻の `not_found_winget_*` と CLI の `launch-cli.ts` の `TEXT` で同じ中身にする。`node.rs` の `winget_command` と `not_found_winget_*`）。
-Linux は `nvm install <版>` を案内する。
+見つからないときの文（殻の詳細は `node.rs` の `describe_error_for`）は、何が起きたか（見つからない、版が古い、アーキテクチャが違う）、理由の 1 文（「Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node 22.14 以上が要ります。」）、入れ方、指し方、調べた場所とそれぞれが合わなかった理由の順に出す。
+入れ方は、合わない Node がすでにあるかで変える。
+今ある Node を置き換える入れ方を先に出すと、利用者が使っている Node を壊すおそれがあるためである（Node 24 だけがある Windows で、winget の 22 を案内していた。2026-10-13 の報告）。
+Node が何も無いときは一般の入れ方にする。macOS は `brew install node`、Windows は `winget install -e --id OpenJS.NodeJS.LTS`（公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）と nvm-windows、Linux は `nvm install --lts` である。
+古い Node があるときは、今の Node を置き換えない入れ方を先に出す。
+macOS は Homebrew の `node@22`（版つきの formula は既定の `node` を置き換えない）か nvm、Linux は nvm である。
+Windows は公式の zip を別のフォルダ（例 `%LOCALAPPDATA%\Programs\node22`）に展開して指す道を先に、nvm-windows を添え、winget の LTS は今の Node を置き換えると添えて最後に置く。
+指し方は、起動の失敗の札の「node を選ぶ…」（Windows は「node.exe を選ぶ…」）か `nodePath` である。
+CLI の `launch-cli.ts` の `TEXT` も同じ順にする（nvm-windows の行は殻と同じ文）。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
@@ -212,11 +219,11 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 
 #### 起動の失敗の札
 
-殻は起動の失敗を 7 種類の札のどれかに分け、読み込みの頁が 1 枚の札で出す（試作は `docs/superpowers/specs/2026-10-09-small-screens/options.html` の起動の失敗の B 案）。
+殻は起動の失敗を 9 種類の札のどれかに分け、読み込みの頁が 1 枚の札で出す（試作は `docs/superpowers/specs/2026-10-09-small-screens/options.html` の起動の失敗の B 案）。
 殻の側は `src-tauri/src/bootfail.rs`、頁の側は `loading/boot-fail.js`（文の表）と `loading/boot.js`（描画）である。
 
-- 種類は 7 つである。サーバが書く 4 つ（上の `kind`）に、殻が自分で決める 3 つを足す。`compat-mismatch`（互換の版の合わない別のサーバ。ポートと 2 つの版を `params` に持つ）と、`node-missing`（Node が見つからない。下の「Node が無いときの札」）と、`other`（殻のそれ以外の失敗：App Translocation、頁を移せない、応答が途切れた、など。理由は `detail` に殻の文で載せる）である。種類の並びは Rust の `KINDS` と頁の `FAIL_KINDS` で同じにし、`config.test.ts` が突き合わせる。
-- 殻が `boot-error.json` を読むのは、**自分の子が死んだとき**だけである（`wait_for_server` と `wait_for_ready` の死の枝）。読むときは、子を起こす直前の時刻（`AppState.child_started`）より更新の時刻が古いファイルを捨てる。読めない、古い、無い、のときは `server-exited` にし、詳細に `desktop.log` の終わりの 20 行を載せる（Node のネイティブモジュールが読めない、などは標準エラーにしか出ない）。ファイルが `compat-mismatch`、`node-missing`、`other` を名乗っても採らず、知らない種類と同じく `server-exited` に落とす。
+- 種類は 9 つである。サーバが書く 4 つ（上の `kind`）に、殻が自分で決める 5 つを足す。`compat-mismatch`（互換の版の合わない別のサーバ。ポートと 2 つの版を `params` に持つ）と、合う Node が無いときの 3 つ（`node-missing`、`node-version-mismatch`、`node-arch-mismatch`。下の「Node の札」）と、`other`（殻のそれ以外の失敗：App Translocation、頁を移せない、応答が途切れた、など。理由は `detail` に殻の文で載せる）である。種類の並びは Rust の `KINDS` と頁の `FAIL_KINDS` で同じにし、`config.test.ts` が突き合わせる。
+- 殻が `boot-error.json` を読むのは、**自分の子が死んだとき**だけである（`wait_for_server` と `wait_for_ready` の死の枝）。読むときは、子を起こす直前の時刻（`AppState.child_started`）より更新の時刻が古いファイルを捨てる。読めない、古い、無い、のときは `server-exited` にし、詳細に `desktop.log` の終わりの 20 行を載せる（Node のネイティブモジュールが読めない、などは標準エラーにしか出ない）。ファイルが殻の決める 5 つを名乗っても採らず、知らない種類と同じく `server-exited` に落とす。
 - 殻は札の文を書かない。頁へは、決まった式 `window.__hangarBootFail(<JSON>)` で `{ kind, params, detail, lang, version, os, home, sep }` だけを渡す。`home` は置き場の名前（利用者のホームを `~` に縮めたもの。`HANGAR_HOME` に従う）で、札の文と命令に入れる。
   `sep` は OS のパスの区切り（Windows は `\`）で、頁は置き場とファイルの名前（`desktop.log`、`hangar.db`、`backups` と `db`）をこれでつなぐ。
   `~` に縮めるときも、ホームの後ろの区切りはそのまま残す（Windows なら `~\.agent-hangar`）。
@@ -287,7 +294,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   帯の釦を押すと、`update_download` で取得しながら `update_status` で進みを読んで帯に出し、済んだら `update_install` を呼ぶ。インストールが済むと殻が再起動する。
   失敗は殻の分けた 4 つ（network、signature、permission、other）で理由を言い、もう一度押せるようにする。
   帯が主の釦を持つ間は、主の釦を 2 つにしないよう「もう一度試す」を主の見た目から外す。取得とインストールの途中は、頁を読み込み直させないよう「もう一度試す」を押せなくする。
-  Node が無いときの札では、新しいバージョンを入れても Node は入らないので、帯に「直っていることがあります」と添えない。
+  Node の札では、新しいバージョンを入れても Node は入らないので、帯に「直っていることがあります」と添えない。
   命令は UI と同じ 4 つで、起動画面にも与える（`capabilities/boot-screen.json`）。文は `boot-fail.js` の `updateView` の日英の表が持ち、語は UI の辞書（`update.*`）にそろえる（試験が突き合わせる）。
   殻も、起動に失敗したとき 1 度だけ自分で確かめる（`lib.rs` の `check_update_after_failure`）。
   確かめ始めるのは、起動画面が札を描いた後である。
@@ -302,18 +309,30 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   窓の大きさが変わったときと、札を出し直したときは、そのときの高さで真ん中に置き直す。
   以前は真ん中寄せのままで、殻が札を描いた後に見つけた版の帯が足されると、札が帯の高さの半分（約 37px）だけ上へ跳ねた（0.3.0 の確かめで見つけた）。
   UI の「更新を通知する」のスイッチ（`localStorage`）は殻から読めないが、起動できない版から抜け出す口なので、この 1 度の確認はスイッチに依らず行う。
-- Node が無いときの札（`node-missing`）は、ほかの札と並びを変え、入れるコマンドを主にする（利用者が選んだ形、2026-10-11）。
+- Node の札（`node-missing`、`node-version-mismatch`、`node-arch-mismatch`）は、ほかの札と並びを変え、入れ方を主にする（利用者が選んだ形、2026-10-11）。
   以前は種類が `other` で、見出しは「Hangar を起動できませんでした」、本文は「起動の途中で止まりました。理由は下の詳細にあります」の汎用の文で、入れ方は詳細の枠の中にしか無かった。
-  殻は `node.rs` の `failure_params` で、要る版（`major`）とアーキテクチャ（`arch`）と理由（`reason`）を `params` に入れる。
-  理由は、Node として答えた候補が無ければ `missing`、要る版が別のアーキテクチャで入っていれば `arch`（`foundArch` にその作り）、別の版だけがあれば `version`（`found` に最初に見つけた版）である。
-  要る版の別の作りを先に言うのは、入れ直すものがその版の正しい作りだからである。
-  見出しと本文は理由に合わせる（「Node.js 22 が入っていません」と「Hangar の動作には Node.js 22 が要ります。」、版が違えば見つかった版を、アーキテクチャが違えば見つかった作りを言う）。
-  次にすることの列の代わりに「ターミナルで次を実行してください：」（Windows は「PowerShell で次を実行してください：」）の 1 文とコマンドを置く。
-  コマンドは、macOS は `brew install node@22 tmux`、Windows は `winget install -e --id OpenJS.NodeJS.22`（psmux はホームの帯と始める前の案内が別に出すので Node だけ）、ほかは `nvm install 22` である。
-  主の釦は「入れたのでもう一度試す」で、コマンドのすぐ下へ移す（`boot.js` が `boot-retry` を `fail-primary` へ移す。動きは「もう一度試す」と同じ `retry_boot`）。
-  詳細の枠（調べた場所と、nvm などの別の入れ方と `nodePath`）は畳み、「詳細（調べた場所、別の入れ方）」の 1 行で開く。
-  詳細の文は `describe_error` のままで、CI の Windows の段が見る winget の命令も含む。
-  ほかの種類の札は、前置きの文を持たず、詳細を開いたまま、主の釦は下端の「もう一度試す」のままである。
+  種類は `node.rs` の `failure_kind` が決める。
+  要る Node-API を持つ別のアーキテクチャの Node があれば `node-arch-mismatch`、Node として答えた候補があれば `node-version-mismatch`、無ければ `node-missing` である。
+  要る作りの別のアーキを先に言うのは、入れ直すものがその作りだからである。
+  0.6.0 までは 1 つの `node-missing` に理由（`reason`）を添えていたので、ログは版が違うだけのときも `boot failed (node-missing)` で、Node 24 だけがある Windows で「見つかりません」と読まれた（2026-10-13 の報告）。
+  殻は `failure_params` で、要るもの（`min`、`napi`、`arch`）と、見つけた Node の版と作り（`found`、`foundArch`）を `params` に入れる。
+  見出しは種類に合わせる。
+  見つからないときは「Node.js が見つかりません」、版が古いときは「Node.js 20.18.0 は見つかりましたが、Hangar は Node.js 22.14 以上が要ります」、作りが違うときは「x64 用の Node.js は見つかりましたが、Hangar は arm64 用が要ります」である。
+  本文は理由の 1 文（Node-API 10 を使うため）で、古い Node があるときは「今の Node.js は置き換えずに、別の場所に入れられます。」を添える。
+  次にすることの列の代わりに、前置きの 1 文と入れ方を置く。
+  見つからないときのコマンドは、macOS は `brew install node tmux`、Windows は `winget install -e --id OpenJS.NodeJS.LTS`（psmux はホームの帯と始める前の案内が別に出すので Node だけ）、ほかは `nvm install --lts` である。
+  古い Node があるときは、今の Node を置き換えない入れ方にする。macOS は `brew install node@22`、ほかは `nvm install 22` のコマンドを出す。
+  Windows は winget の Node が `C:\Program Files\nodejs` の今の Node を置き換えるのでコマンドを出さず、公式の zip を取る、別のフォルダに展開する、「node.exe を選ぶ…」で選ぶ、の 3 つの手順（見出しの無い番号つきの列）を出す。
+  コマンドの下に主の釦と「node を選ぶ…」（Windows は「node.exe を選ぶ…」）を並べる（`boot.js` が `boot-retry` を `fail-primary` へ移す）。
+  主の釦は、コマンドのある札では「入れたのでもう一度試す」（動きは「もう一度試す」と同じ `retry_boot`）、コマンドの無い札（古い Node がある Windows）では「node.exe を選ぶ…」で、そのときは「もう一度試す」を並の釦にして後ろに置く。焦点は主の釦に置く。
+  「node を選ぶ…」は殻の命令 `pick_node` を呼ぶ（起動画面だけに与える。`capabilities/boot-screen.json`）。
+  殻はファイルの選択を開き（Windows は `node.exe` の絞り込みと `%LOCALAPPDATA%\Programs` から）、選んだ 1 つを、殻が Node を探すときと設定の「Node のパス」と同じ条件で確かめる（`node.rs` の `check_picked`）。
+  合えば `<HANGAR_HOME>/settings.json` の `nodePath` に書き（ほかの項目は残し、0600 で、一時のファイルから名前を替える。読めない設定は上書きしない）、頁が起動をやり直す。
+  合わなければ、Node として答えない、版が古い、作りが違う、保存できない、を分けた 1 文を釦の下に添え（`boot-fail.js` の `pickText`）、もう一度選べるようにする。取り消したら何もしない。
+  頁からパスは受け取らない。`nodePath` は次の起動で殻が起こす実行ファイルなので、利用者がダイアログで選んだものだけを書く。
+  詳細の枠（調べた場所と、別の入れ方と `nodePath`）は畳み、「詳細（調べた場所、別の入れ方）」の 1 行で開く。
+  詳細の文は `describe_error` のままで、CI の Windows の段が見る winget の命令（`OpenJS.NodeJS.LTS`）も、Node が何も無いときに含む。
+  ほかの種類の札は、前置きの文と選ぶ釦を持たず、詳細を開いたまま、主の釦は下端の「もう一度試す」のままである。
 - 「全文をコピー」は、版と OS、種類、詳細の順の文をクリップボードへ書く。そのまま報告に貼れる形である。クリップボードの口が無い頁では、選択と `copy` の命令で写す。
 - ポートと互換の失敗では、動いているサーバ（利用者が起こしたものかもしれない）を止めないと文で言う。
 - 命令は OS で出し分ける（`boot-fail.js` の `POSIX` と `POWERSHELL`）。OS の名前が `Windows` で始まれば PowerShell の形にする。
@@ -328,7 +347,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 - 頁の言語は、サーバと UI と同じく `<HANGAR_HOME>/settings.json` の `language` で決める（「言語の決め方」の節。`bootfail::page_language`）。
   設定で決まれば OS には聞かない。初めての起動で殻が先に動けば、起動の頭（`boot` の最初）で殻が OS の表示言語を設定に書く（`bootfail::ensure_language`）。
 - 頁の文は UI の辞書を使えないので、日英の表を頁に持つ（`boot-fail.js`）。言語の並びは shared の `LANGUAGES` と同じにし、試験が突き合わせる。
-- 殻が自分で書く `detail`（`other` と `node-missing` の理由と、時間切れの案内）は、頁と同じ言語で書く。
+- 殻が自分で書く `detail`（`other` と Node の札の理由と、時間切れの案内）は、頁と同じ言語で書く。
   英語の設定でも「Node 22（x64）が見つかりません」「調べた場所」が日本語のまま出ていた（2026-10-11、Windows の実機の確かめで見つけた）ためである。
   文の日英の表は殻に持つ（`src-tauri/src/bootmsg.rs` の `Msg`、Node が見つからないときは調べた場所を並べるので `node.rs` の `describe_error_in`）。
   言語は札と同じく `page_language` で決める。
@@ -5254,7 +5273,8 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 `.app` は Developer ID では署名せず、自作の証明書で署名する（署名の台本と手順は `docs/signing.md`）。dmg（主）と zip（予備）に SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、初めて開いて出る警告の後で、システム設定の「プライバシーとセキュリティ」の「このまま開く」で許可してから（管理者のパスワードを求められる）、`hangar setup` を走らせる。
 検疫属性を `xattr -rd com.apple.quarantine` で外す道は、最後の手段として残す。
-前提として Node 22 と tmux と `claude` が要り、Homebrew なら `brew install node@22 tmux` で足りる。
+前提として Node 22.14 以上（Node-API 10 以上）と tmux と `claude` が要り、Homebrew なら `brew install node tmux` で足りる。
+古い Node を置き換えたくない人は `brew install node@22` で入れる。
 `node@22` は Homebrew の版によって `/opt/homebrew/bin` にリンクされる場合とされない場合（keg-only）があるが、アプリも同梱の CLI も両方の場所（`/opt/homebrew/bin/node` と `/opt/homebrew/opt/node@22`）を探すので、`brew link` は要らない。
 探す場所に無い入れ方をした人には、README で `nodePath` の指定か `brew link --overwrite --force node@22` を補足として案内する。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
@@ -5485,14 +5505,25 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   `cloud/` は段 5 で Cloudflare の REST から Worker を上げるための下地で、いまは誰も読まない。
   UI の sourcemap は入れないので、実測で 6.5MB である。
   Node 本体は同梱しない。
-- Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、束が要る Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
-  新しいメジャー版も代わりにならないので、利用者に見せる文（起動の失敗の札、README）は「Node 22 以上」ではなく「Node 22」と書き、札は `manifest.json` の `nodeMajor` を埋める。
-  `manifest.json` の `nodeMajor` は、build した機械の Node から取らず、`bundle-server.ts` の `BUNDLE_NODE_MAJOR`（22）に固定する。
-  build している Node のメジャー版がそれと違えば、束を作らずに止める。
-  ネイティブモジュールは `npm ci` を走らせた Node に合わせて入るので、固定の値を書くだけにすると、別の版の Node で作った束が名乗った版で動く保証が無くなるためである。
-  版を上げるときは、`BUNDLE_NODE_MAJOR`、CI の setup-node、起動の失敗の札の `DEFAULT_NODE_MAJOR` を一緒に上げる（札の既定と束の版の一致は試験で縛る）。
+- Node の版の規則：同梱のネイティブモジュール（`better-sqlite3` 13、`node-pty` 1.1）は Node-API の prebuild で、Node の ABI（`NODE_MODULE_VERSION`）には縛られない。
+  `better-sqlite3` は Node-API 10 の関数を使う（`NAPI_VERSION=10`）ので、要るのは `process.versions.napi` が 10 以上の Node（22.14 以上。23 の系列では 23.6 以上）で、アーキテクチャが同じものである。上限は付けない。
+  手元で 0.6.0 の束を読ませて確かめた（2026-10-13）。Node 24.21（modules 137）と 22.14（Node-API 10）では SQLite の読み書きと `node-pty` の spawn が動き、Node 20.18（Node-API 9）は異常終了した。
+  0.6.0 までは「Node の ABI に縛られる」とみなして `manifest.json` の `nodeMajor`（22）と同じメジャー版だけを採っていたため、Node 24 だけがある PC で起動できなかった（2026-10-13 の報告）。
+  規則の値は `packages/server/src/config/nodeRule.ts` の 1 か所で決める（`NODE_API_MIN` = 10、`NODE_MIN_LABEL` = `22.14`）。
+  `bundle-server.ts` はこの値を `manifest.json` の `nodeApi` と `nodeMin` に書き、殻（`node.rs`）と `hangar.sh` は `manifest.json` を読んで同じ規則で比べる。`launch-cli.ts` と設定の確かめ（`config/node.ts`）は `nodeRule.ts` の関数をそのまま使う。
+  `nodeMin` は案内に出すだけで、比べるのには使わない（比べるのは Node-API の版）。
+  候補に訊く式も 1 つで（`node -p` に `NODE_PROBE_EXPR`、答えは `v<版> <アーキ> <Node-API の版>`）、殻、`hangar.sh`、設定の確かめ、`launch-cli.ts` が同じ式と同じ読み方を使う。
+  規則が各所で同じであることは、見本の表（`packages/server/src/config/node-rule-cases.json`）を各所の試験（`node.rs`、`nodeRule.test.ts`、`bundle-server.test.ts` の `hangar.sh` と `chooseNode`）が読んで縛る。
+  Node-API が足りず、アーキテクチャも違うときは、版が古いと言う（どこでも同じ順）。
+  候補の順と先頭優先は変えないので、今 Node 22 や `nodePath` を使っている人の振る舞いは変わらない。
+  起動の失敗の札が殻から値を受け取れなかったときの既定（`boot-fail.js` の `DEFAULT_NODE_MIN` と `DEFAULT_NODE_API`）は、規則の値と同じにする（試験で縛る）。
+  束を作る Node は `bundle-server.ts` の `BUNDLE_NODE_MAJOR`（22）に固定し、build している Node のメジャー版が違えば束を作らずに止める。
+  ネイティブモジュールは Node-API の prebuild なので作る Node の版に縛られないが、CI と配布の build の道筋を 1 つに固めておくためである。版を上げるときは CI の setup-node と一緒に上げる。
+  CI は Node 24 でも確かめる。`node24` ジョブがサーバの試験を Node 24 で回し、desktop ジョブが build した `.app` を `nodePath` で Node 24 を指して起こす（`ci-boot-normal-macos.sh --node`）。
   開発機の Node は、リポジトリの根の `.nvmrc`（22）で合わせる。`bundle-server.ts` の試験は `buildNodeMajor` に `BUNDLE_NODE_MAJOR` を渡し、開発機の既定の Node が 22 でなくても落ちない（違う版で止まる試験だけは違う版を渡す）。
-  リポジトリの `engines`（`>=22`）は、ソースから動かすときのもので、そのときのネイティブモジュールは動かしている Node に合わせて入るので、22 より新しい版でも動く。
+  リポジトリの `engines`（`>=22.14`）は、ソースから動かすときのもので、規則の版にそろえる（`nodeRule.test.ts` が縛る）。
+  ソースから動かすときのネイティブモジュールも Node-API 10 を使うためである。
+  Node 本体の同梱は見送る（入れ物が 6MB から 40〜50MB に増え、Node の更新の責任も負う。2026-10-13 の決定）。Node を持たない人の報告が続いたら考え直す。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。
 - 配布ターゲットは Apple silicon の macOS 13 以降と、x64 の Windows 11 である。同梱する prebuild は target（`<platform>-<arch>`）のものだけにする。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel の Mac と ARM64 の Windows は作らない。
@@ -5501,6 +5532,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH の各項目の `node.exe`（`where $PATH:node.exe`。作業ディレクトリは見ない）、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直しは `launch-cli.mjs` が行う。
   cmd は、無いファイルと、`-p` に Node 16 以上と答えないもの（古い Node、Node でない実行ファイル）を飛ばして次の候補へ進む。
   `launch-cli.mjs` は Node 16 を target に作る（`bundle-server.ts` の `LAUNCHER_MIN_NODE`。cmd の境目との一致は試験で縛る）ので、PATH の先頭に古い Node があっても、構文の誤りで落ちずに後ろの Node へ届く。
+  `launch-cli.mjs` が見る条件は、殻と同じ規則（`nodeRule.ts` の `nodeFit`。Node-API が `nodeApi` 以上で、アーキテクチャが同じ）である。
   利用者の HANGAR_NODE が無いファイルを指していれば、cmd はそれを使わずに次へ進む。値そのものは書き換えないので、`launch-cli.mjs` が調べた場所の 1 つとして「ファイルが無い」と挙げる。
   渡し直しの候補は、HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows（新しい版から）、fnm、Volta、scoop（それぞれ新しい版から）、PATH の各項目の `node.exe` の順で、HANGAR_NODE のあとは殻の `windows_node_paths` と同じ並びである。
   フルパスでない候補（名前だけの `nodePath` など）は起こさず「ファイルが無い」とする。起こすと PATH から引かれ、殻が使う Node と食い違う。
@@ -5508,11 +5540,12 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   子は読んだ直後に自分の環境から消すので、`cli.mjs` にも、`hangar start` が起こすサーバ、tmux、ペインにも届かない。
   前の版の入口から起こされたサーバのために、サーバの落とし名簿（`SERVER_DROPPED_ENV`、`RUN_DROPPED_ENV`）と殻の `INHERITED_ENV_DROPPED` にも入れてある。
   残すと、ペインの中で打った `hangar` が版の確かめを飛ばし、PATH の先頭の Node で `cli.mjs` を直に読む。
-  PATH は、実在する `node.exe` を PATH の順にすべて候補にする。fnm が別の版を PATH の先頭に置いていても、後ろの winget の Packages や Links、volta などにある合う版に届く（実機の A19）。
-  どれも合わなければ、いま動いている Node の版と、調べた場所を探した順に番号付きで挙げ、それぞれがファイルが無い、起動できない、時間内に答えない、版が違う、アーキテクチャが違う、のどれだったかを書く（`launch-cli.ts` の `describeNotFound`）。
-  最後の次の一手は、殻の札と同じく winget の命令を先に、nvm-windows を添え、ほかの場所なら HANGAR_NODE か `nodePath` を指すよう書く。
+  PATH は、実在する `node.exe` を PATH の順にすべて候補にする。fnm が古い版を PATH の先頭に置いていても、後ろの winget の Packages や Links、volta などにある合う版に届く（実機の A19）。
+  どれも合わなければ、要る版と理由の 1 文、いま動いている Node の版、調べた場所を探した順に番号付きで挙げ、それぞれがファイルが無い、起動できない、時間内に答えない、版が古い、アーキテクチャが違う、のどれだったかを書く（`launch-cli.ts` の `describeNotFound`）。
+  この入口は hangar.cmd が見つけた（合わない）Node で動いているので、次の一手は殻の札の古い Node があるときと同じ順にする。
+  公式の zip を別のフォルダに展開する道を先に、nvm-windows を添え、HANGAR_NODE か `nodePath` での指し方を続け、今の Node を置き換える winget の LTS は最後に置く。
   文は日本語と英語で、言語は殻の札とサーバと同じ決め方にする（「言語の決め方」の節。`cliLanguage` が `decideLanguage` を呼ぶ）。OS の言語は表示言語で読み、地域の書式（`Intl` の既定の locale）は見ない。
-  `hangar.cmd` がどこにも Node を見つけられないときの文（ASCII だけの英語）も、同じ winget の命令と nvm-windows を案内する。
+  `hangar.cmd` がどこにも Node を見つけられないときの文（ASCII だけの英語）は、要る版（22.14 以上。cmd は JSON を読めないので文に書き、規則の値との一致は試験で縛る）と、winget の LTS の命令と nvm-windows を案内する。
   `hangar.cmd` は、node を起こす最後の行で `endlocal & goto #_end_of_batch_# 2>nul || ver >nul & "<node>" …` の形を使い、node が動き出す前にバッチを終える（npm の cmd-shim と同じ手、npm/cli#969）。
   cmd は行を丸ごと読んで展開してから動かすので、無い label への goto でバッチが終わっても、行の残りは動く。
   バッチが終わっているので、Ctrl+C で node が止まったあとに cmd が「バッチ ジョブを終了しますか (Y/N)?」と問わず、node の終了コードがそのまま cmd の終了コードになる。

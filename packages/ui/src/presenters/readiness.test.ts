@@ -33,13 +33,17 @@ describe('欄の下の検証（設定の B1）', () => {
   it('Node の設定が空なら、自動で見つけた Node だと添える', () => {
     expect(toolLine(ja, 'node', READY.tools.node)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/node', note: 'v22.9.0、自動で見つけました', fix: null, fixCommand: null });
   });
-  // 殻は同梱のサーバと同じメジャー版とアーキの Node だけを使う。違う Node は、見つけたものと要るものを並べて言う。
-  it('Node の設定が使えないときは、フルパスでない、Node でない、版かアーキが違う、を分けて言う', () => {
-    expect(toolLine(ja, 'node', { path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false })).toMatchObject({ ok: false, text: 'node はフルパスではありません', fix: '同梱のサーバと同じメジャー版とアーキテクチャの Node を、node の実行ファイルのフルパスで入力してください' });
+  // 殻は Node-API が要る版以上で、アーキが同じ Node だけを使う。合わない Node は、版が古いのか、アーキが違うのかを分けて言う。
+  it('Node の設定が使えないときは、フルパスでない、Node でない、版が古い、アーキが違う、を分けて言う', () => {
+    expect(toolLine(ja, 'node', { path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false })).toMatchObject({ ok: false, text: 'node はフルパスではありません', fix: '同梱のサーバに合う版とアーキテクチャの Node を、node の実行ファイルのフルパスで入力してください' });
     expect(toolLine(ja, 'node', { path: '/x/node', ok: false, problem: 'notNode', version: null, auto: false })).toMatchObject({ ok: false, text: '/x/node は Node として答えません' });
-    const wrong = { path: '/x/node', ok: false, problem: 'wrongNode' as const, version: 'v24.1.0', auto: false, found: { major: 24, arch: 'arm64' }, need: { major: 22, arch: 'arm64' } };
-    expect(toolLine(ja, 'node', wrong)).toMatchObject({ ok: false, soft: false, text: '/x/node は Node 24（arm64）です。Node 22（arm64）が要ります' });
-    expect(toolLine(en, 'node', wrong)).toMatchObject({ text: '/x/node is Node 24 (arm64). Node 22 (arm64) is needed' });
+    const need = { napi: 10, min: '22.14', arch: 'arm64' };
+    const old = { path: '/x/node', ok: false, problem: 'wrongNode' as const, version: 'v20.18.0', auto: false, found: { version: '20.18.0', napi: 9, arch: 'arm64' }, need };
+    expect(toolLine(ja, 'node', old)).toMatchObject({ ok: false, soft: false, text: '/x/node は Node 20.18.0 です。Node 22.14 以上が要ります（Node-API 10 を使うため）' });
+    expect(toolLine(en, 'node', old)).toMatchObject({ text: '/x/node is Node 20.18.0. Node 22.14 or later is needed (Hangar uses Node-API 10)' });
+    const x64 = { ...old, version: 'v24.21.0', found: { version: '24.21.0', napi: 10, arch: 'x64' } };
+    expect(toolLine(ja, 'node', x64)).toMatchObject({ text: '/x/node は x64 用の Node です。arm64 用の Node が要ります' });
+    expect(toolLine(en, 'node', x64)).toMatchObject({ text: '/x/node is a Node for x64. A Node for arm64 is needed' });
   });
   it('ワークスペースは、登録したプロジェクトの数を出し、0 件なら理由を言う', () => {
     expect(workspaceLine(ja, { ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });

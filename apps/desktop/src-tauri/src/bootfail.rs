@@ -1,6 +1,6 @@
 //! 起動の失敗を、頁に出す札の種類と数に直す。
 //! サーバが書いた `boot-error.json`（packages/server/src/boot/bootError.ts）を読み、殻が自分で決める失敗
-//! （互換の版が合わない別のサーバ、Node が見つからない、殻のそれ以外の失敗）と合わせて、7 種類のどれかにする。
+//! （互換の版が合わない別のサーバ、合う Node が無い 3 つ、殻のそれ以外の失敗）と合わせて、9 種類のどれかにする。
 //! 殻は札の文を書かない。札の文は読み込みの頁の表（loading/boot-fail.js）が種類と数から作る。
 //! 殻が書くのは詳細（`detail`）だけで、殻が自分で書く詳細は頁の言語で作る（bootmsg.rs）。
 
@@ -16,10 +16,12 @@ pub const KINDS: &[&str] = &[
     "db-backup-failed",
     "compat-mismatch",
     "node-missing",
+    "node-version-mismatch",
+    "node-arch-mismatch",
     "other",
 ];
 
-/// サーバが `boot-error.json` に書いてよい種類。互換の別のサーバ、Node が見つからない、殻のそれ以外は、サーバが起きる前に殻が決めるので入れない。
+/// サーバが `boot-error.json` に書いてよい種類。互換の別のサーバ、合う Node が無い 3 つ、殻のそれ以外は、サーバが起きる前に殻が決めるので入れない。
 const SERVER_KINDS: &[&str] = &[
     "server-exited",
     "port-in-use",
@@ -60,10 +62,16 @@ impl BootFailure {
         }
     }
 
-    /// Node が見つからない（入っていない、版が違う、アーキテクチャが違う）。
-    /// 頁は params（node.rs の `failure_params`）から見出しと入れるコマンドを作り、詳細（調べた場所と別の入れ方）は畳んで出す。
-    pub fn node_missing(params: Map<String, Value>, detail: impl Into<String>) -> Self {
-        Self::new("node-missing", params, detail.into())
+    /// 合う Node が無い。種類は node.rs の `failure_kind` で、見つからない（`node-missing`）、版が古い（`node-version-mismatch`）、
+    /// アーキテクチャが違う（`node-arch-mismatch`）のどれか。知らない種類は `node-missing` にする。
+    /// 頁は params（node.rs の `failure_params`）から見出しと入れ方を作り、詳細（調べた場所と別の入れ方）は畳んで出す。
+    pub fn node(kind: &str, params: Map<String, Value>, detail: impl Into<String>) -> Self {
+        let kind = match kind {
+            "node-version-mismatch" => "node-version-mismatch",
+            "node-arch-mismatch" => "node-arch-mismatch",
+            _ => "node-missing",
+        };
+        Self::new(kind, params, detail.into())
     }
 
     /// 殻のそれ以外の失敗（App Translocation、頁を移せない、応答が途切れた、など）。
@@ -631,12 +639,18 @@ mod tests {
     const GOOD: &str = r#"{"kind":"port-in-use","params":{"port":4177,"host":"127.0.0.1"},"detail":"listen EADDRINUSE"}"#;
 
     #[test]
-    fn the_seven_kinds_are_the_four_the_server_writes_plus_the_three_the_shell_decides() {
-        assert_eq!(KINDS.len(), 7);
+    fn the_nine_kinds_are_the_four_the_server_writes_plus_the_five_the_shell_decides() {
+        assert_eq!(KINDS.len(), 9);
         for k in SERVER_KINDS {
             assert!(KINDS.contains(k));
         }
-        for k in ["compat-mismatch", "node-missing", "other"] {
+        for k in [
+            "compat-mismatch",
+            "node-missing",
+            "node-version-mismatch",
+            "node-arch-mismatch",
+            "other",
+        ] {
             assert!(KINDS.contains(&k) && !SERVER_KINDS.contains(&k), "{k}");
         }
     }
@@ -970,17 +984,38 @@ mod tests {
         assert_eq!(BootFailure::server_exited("x").kind, "server-exited");
     }
 
-    // Node が見つからないときは専用の種類にし、要る版などの数と、調べた場所の詳細を頁へ渡す。
+    // 合う Node が無いときは、見つからない、版が古い、アーキテクチャが違うの 3 つの種類に分け、要る版などの数と、調べた場所の詳細を頁へ渡す。
     #[test]
-    fn a_missing_node_is_its_own_kind_with_its_params_and_detail() {
-        let params = obj(serde_json::json!({"major": 22, "arch": "arm64", "reason": "missing"}));
-        let f = BootFailure::node_missing(params.clone(), "Node 22 (arm64) was not found.");
-        assert_eq!(f.kind, "node-missing");
+    fn a_node_failure_is_its_own_kind_with_its_params_and_detail() {
+        let params = obj(
+            serde_json::json!({"min": "22.14", "napi": 10, "arch": "x64", "found": "24.18.0", "foundArch": "ia32"}),
+        );
+        let f = BootFailure::node("node-arch-mismatch", params.clone(), "detail");
+        assert_eq!(f.kind, "node-arch-mismatch");
         assert_eq!(f.params, params);
-        assert_eq!(f.detail, "Node 22 (arm64) was not found.");
+        assert_eq!(f.detail, "detail");
         let v: Value = serde_json::from_str(&payload(&f, &env())).unwrap();
-        assert_eq!(v["kind"], "node-missing");
-        assert_eq!(v["params"]["major"], 22);
+        assert_eq!(v["kind"], "node-arch-mismatch");
+        assert_eq!(v["params"]["min"], "22.14");
+        assert_eq!(
+            BootFailure::node("node-version-mismatch", Map::new(), "").kind,
+            "node-version-mismatch"
+        );
+        assert_eq!(
+            BootFailure::node("node-missing", Map::new(), "").kind,
+            "node-missing"
+        );
+        assert_eq!(
+            BootFailure::node("weird", Map::new(), "").kind,
+            "node-missing"
+        );
+        for k in [
+            "node-missing",
+            "node-version-mismatch",
+            "node-arch-mismatch",
+        ] {
+            assert!(KINDS.contains(&k));
+        }
     }
 
     #[test]

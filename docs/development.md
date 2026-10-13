@@ -7,6 +7,9 @@ README は、入れて使う人のための手引きです。
 
 ## clone して動かす
 
+Node 22.14 以上が要ります（`package.json` の `engines`）。
+同梱のネイティブモジュール（better-sqlite3、node-pty）が Node-API 10 を使うためで、Node 24 など新しい版でも動きます。
+
 ```sh
 npm install
 npm run hangar -- setup     # ~/.agent-hangar を作り、tmux と claude と git の有無を報告する
@@ -37,7 +40,7 @@ API を `curl` から叩くときは、本文を送る要求に `-H 'Content-Typ
 
 ## Windows でソースから動かす
 
-1. Node 22、Git for Windows、Claude Code を入れます。
+1. Node 22.14 以上、Git for Windows、Claude Code を入れます。
 2. psmux を入れます（README の「[psmux を入れる](../README.md#psmux-を入れる)」）。
 3. `npm ci --ignore-scripts` のあと `npm run dev` で起こし、ブラウザで `http://127.0.0.1:5173/` を開きます。
    `--ignore-scripts` を付けないと、`better-sqlite3` が C++ のビルドを始めて、ビルドの道具が無い PC では失敗します。ネイティブモジュールは同梱の prebuild で動きます。
@@ -46,7 +49,8 @@ API を `curl` から叩くときは、本文を送る要求に `-H 'Content-Typ
 
 ## Windows のインストーラを作る
 
-Rust と Node 22 が要ります。
+Rust と Node 22（22.14 以上）が要ります。
+配布物を作る Node は 22 の系列に限ります（下の「開発」）。
 
 ```powershell
 npm ci --ignore-scripts
@@ -69,7 +73,8 @@ npm run typecheck
 npm test
 ```
 
-配布物は Node 22 で build します（`bundle-server` と `tauri build` は、それ以外の版では止まります）。
+試験と `npm run dev` は Node 22.14 以上ならどの版でも動きます。
+配布物は Node 22（22.14 以上）で build します（`bundle-server` と `tauri build` は、22 の系列でなければ止まります）。
 リポジトリの根の `.nvmrc` が 22 なので、`nvm use` で切り替えられます。
 
 デスクトップ版のビルドには Xcode Command Line Tools と Rust が要ります。

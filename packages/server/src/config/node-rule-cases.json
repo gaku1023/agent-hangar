@@ -1,0 +1,24 @@
+{
+  "note": "Node を採るかどうかの規則の見本。殻（node.rs）、同梱の CLI（hangar.sh、launch-cli.ts）、設定の確かめ（nodeRule.ts）の試験が同じこの表を読み、同じ答えを出すことを確かめる。answer は候補の Node の標準出力、fit は ok（採る）、version（Node-API が足りない）、arch（アーキテクチャが違う）、null（Node の答えとして読めない）。",
+  "need": { "napi": 10, "min": "22.14", "arch": "arm64" },
+  "cases": [
+    { "answer": "v22.14.0 arm64 10", "version": "22.14.0", "napi": 10, "arch": "arm64", "fit": "ok" },
+    { "answer": "v24.21.0 arm64 10", "version": "24.21.0", "napi": 10, "arch": "arm64", "fit": "ok" },
+    { "answer": "v26.1.0 arm64 11", "version": "26.1.0", "napi": 11, "arch": "arm64", "fit": "ok" },
+    { "answer": "v22.13.1 arm64 9", "version": "22.13.1", "napi": 9, "arch": "arm64", "fit": "version" },
+    { "answer": "v23.5.0 arm64 9", "version": "23.5.0", "napi": 9, "arch": "arm64", "fit": "version" },
+    { "answer": "v20.18.0 arm64 9", "version": "20.18.0", "napi": 9, "arch": "arm64", "fit": "version" },
+    { "answer": "v6.17.1 arm64 0", "version": "6.17.1", "napi": 0, "arch": "arm64", "fit": "version" },
+    { "answer": "v22.14.0 x64 10", "version": "22.14.0", "napi": 10, "arch": "x64", "fit": "arch" },
+    { "answer": "v20.18.0 x64 9", "version": "20.18.0", "napi": 9, "arch": "x64", "fit": "version" },
+    { "answer": "(node:1) ExperimentalWarning: x\nv24.21.0 arm64 10\n", "version": "24.21.0", "napi": 10, "arch": "arm64", "fit": "ok" },
+    { "answer": "v24.21.0 arm64 10\r\nbye\n", "version": "24.21.0", "napi": 10, "arch": "arm64", "fit": "ok" },
+    { "answer": "v24.21.0 arm64 10 extra", "fit": null },
+    { "answer": "v24 arm64 10", "fit": null },
+    { "answer": "v24.21.0 ARM64 10", "fit": null },
+    { "answer": "24 arm64", "fit": null },
+    { "answer": "v22.14.0 arm64", "fit": null },
+    { "answer": "hello", "fit": null },
+    { "answer": "", "fit": null }
+  ]
+}

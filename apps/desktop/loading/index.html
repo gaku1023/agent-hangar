@@ -27,7 +27,7 @@
       body[data-fail] { box-sizing: border-box; padding: 44px 16px 24px; }
       /* 札の上端は boot.js の placeCard が留める（出したときの真ん中の位置を margin-top で持つ）。帯や詳細で高くなっても、上へ跳ねずに下へ伸びる。 */
       body[data-fail-pinned] { align-items: start; }
-      main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden], .fail-detail[hidden], .fc-primary[hidden], .fail-toggle[hidden], .fail-update[hidden], .fu-bar[hidden], .fu-note[hidden], .btn[hidden], .btn-mini[hidden] { display: none; }
+      main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden], .fail-detail[hidden], .fc-primary[hidden], .fail-pick-note[hidden], .fail-toggle[hidden], .fail-update[hidden], .fu-bar[hidden], .fu-note[hidden], .btn[hidden], .btn-mini[hidden] { display: none; }
       .fail-brand { position: fixed; left: 16px; top: 8px; display: flex; align-items: center; gap: 8px; height: 28px; color: var(--ink); font-weight: 700; }
       [data-shell='desktop'] .fail-brand { left: 81px; }
       .fail-brand img { width: 28px; height: 28px; }
@@ -38,9 +38,12 @@
       .fail-card p { margin: 0 0 8px; line-height: 1.6; color: var(--ink-2); }
       .f-lbl { margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
       #fail-steps { margin: 0; padding-left: 20px; line-height: 1.7; color: var(--ink); }
-      /* Node が無いときの札は、次にすることの列の代わりに、命令の前に 1 文を置き、主の釦を命令のすぐ下に置く。 */
+      /* Node の札は、次にすることの列の代わりに、命令（または手順）の前に 1 文を置き、主の釦と「node を選ぶ…」を命令のすぐ下に並べる。 */
       #fail-lead { margin: 10px 0 0; color: var(--ink); }
-      .fc-primary { display: flex; margin-top: 12px; }
+      #fail-lead + #fail-next + #fail-steps { margin-top: 6px; }
+      .fc-primary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+      /* 選んだ Node が合わなかったときの 1 文。 */
+      .fail-pick-note { margin: 8px 0 0; font-size: 12px; color: var(--error); }
       /* 畳んだ詳細を開く 1 行。押すと下の詳細の枠が開き、印が下を向く。 */
       .fail-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 2px 4px 2px 0; border: 0; background: none; font: 560 12px 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif; color: var(--ink-2); cursor: pointer; }
       .fail-toggle svg { flex: none; width: 12px; height: 12px; transition: transform 0.15s; }
@@ -105,8 +108,9 @@
         <code id="fail-command"></code>
         <button id="fail-command-copy" class="btn-mini" type="button"></button>
       </div>
-      <!-- Node が無いときの札だけ、主の釦（boot-retry）をここへ移す（boot.js）。 -->
-      <div id="fail-primary" class="fc-primary" hidden></div>
+      <!-- Node の札だけ、主の釦（boot-retry）をここへ移し、「node を選ぶ…」と並べる（boot.js）。 -->
+      <div id="fail-primary" class="fc-primary" hidden><button id="boot-pick-node" class="btn" type="button" hidden></button></div>
+      <p id="fail-pick-note" class="fail-pick-note" role="status" hidden></p>
       <button id="fail-detail-toggle" class="fail-toggle" type="button" aria-expanded="false" aria-controls="fail-detail-box" hidden><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg><span id="fail-detail-toggle-label"></span></button>
       <div id="fail-detail-box" class="fail-detail">
         <div class="fd-head"><h3 id="fail-details-label"></h3><span id="fail-log-at" class="faint"></span></div>
