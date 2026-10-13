@@ -36,6 +36,12 @@ describe('ダイアログ類（英語）', () => {
     expect(screen.getByRole('button', { name: 'Remove from list' })).toBeInTheDocument();
     noJapanese();
   });
+  it('確認：同じフォルダのプロジェクトをまとめる', () => {
+    inEnglish(<ConfirmDialog confirm={{ kind: 'mergeProject', projectId: 'p2', path: '/w/demo', into: { projectId: 'p1', name: 'demo' }, roots: [{ deviceName: null, path: '/w/demo', here: true }, { deviceName: null, path: '/x/demo', here: false }], sessions: 3, fromSessions: 1 }} />);
+    expect(screen.getByRole('dialog', { name: 'Merge with demo?' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeInTheDocument();
+    noJapanese();
+  });
   it('確認：停止、hangar への移動、アカウント、トランスクリプトの置き換え', () => {
     const { unmount } = inEnglish(<ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, shellTabs: 2 }} />);
     expect(screen.getByRole('dialog', { name: 'Stop this session?' })).toBeInTheDocument();

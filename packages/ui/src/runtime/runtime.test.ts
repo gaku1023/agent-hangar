@@ -1,7 +1,7 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { ApiConflictError, ApiNotFoundError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
@@ -404,6 +404,34 @@ describe('createRuntime', () => {
       await flush();
       rt.emit({ type: 'project.resolve.open', id: 'p1' });
       expect(rt.getState().overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    });
+
+    it('「場所を再指定」の 409（同じフォルダ）は、まとめる確認になる。ほかの失敗はトーストのまま', async () => {
+      const conflict = { error: 'このフォルダは、プロジェクト shop の場所として登録済みです', code: 'project_same_folder' as const, from: { projectId: 'p1', name: 'shop' }, conflict: { projectId: 'p0', name: 'shop', path: '/w/shop' }, merged: { roots: [{ deviceName: null, path: '/w/shop', here: true }], sessions: 3, fromSessions: 1 } };
+      const resolveProject = vi.fn(async () => { throw new ProjectSameFolderApiError(conflict); });
+      const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [lost('p1')] })), resolveProject });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      rt.emit({ type: 'project.resolve.open', id: 'p1' });
+      rt.emit({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/shop' } });
+      await flush();
+      expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'mergeProject', projectId: 'p1', path: '/w/shop', into: { projectId: 'p0', name: 'shop' }, roots: conflict.merged.roots, sessions: 3, fromSessions: 1 } });
+      expect(rt.getState().toasts).toEqual([]);
+    });
+
+    it('まとめ終えたら、まとめた方を store から外し、残した方を入れ直して知らせる', async () => {
+      const into = { ...project('p0'), name: 'shop' };
+      const resolveProject = vi.fn(async () => into);
+      const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [project('p0'), project('p1')] })), resolveProject });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      rt.emit({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/shop', merge: true }, confirmed: true });
+      await flush();
+      expect(Object.keys(rt.getStore().projects)).toEqual(['p0']);
+      expect(rt.getStore().projects.p0!.name).toBe('shop');
+      expect(rt.getState().toasts).toEqual([expect.objectContaining({ level: 'info', message: 'shop と 1 つにまとめました' })]);
     });
 
     it('同期で他の PC のプロジェクトが降りたら、降りた分を覚える。3 件が別々の知らせで届いても、1 つの札にまとまる', async () => {

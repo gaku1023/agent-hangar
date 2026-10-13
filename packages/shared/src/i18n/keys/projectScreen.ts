@@ -15,6 +15,7 @@ export const projectScreenKeys = {
   'projectScreen.rail.open': [],
   'projectScreen.path.none': [],
   'projectScreen.path.missing': [],
+  'projectScreen.path.sameFolder': ['name'],
   'projectScreen.list.empty': [],
   'projectScreen.info.place': [],
   'projectScreen.info.sessions': [],

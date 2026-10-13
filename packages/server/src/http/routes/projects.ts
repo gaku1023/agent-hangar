@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import type { Hono } from 'hono';
-import type { FolderRegisterResultDto, ProjectDto, ResolveAction } from '@agent-hangar/shared';
+import type { FolderRegisterResultDto, ProjectDto, ProjectSameFolderDto, ResolveAction } from '@agent-hangar/shared';
 import { getProject, listProjects } from '../../db/queries.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { createProjectDir, ProjectCreateError, registerProjectDir } from '../../projects/create.ts';
 import { folderCandidates } from '../../projects/candidates.ts';
-import { assignSessions, candidateDirs, listWorkspaceDirs, normalizeDir, resolveProject } from '../../projects/registry.ts';
+import { assignSessions, candidateDirs, listWorkspaceDirs, mergeDirection, mergePreview, mergeProjects, normalizeDir, resolveProject, rootConflict } from '../../projects/registry.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, readJson, tooLargeResult } from './common.ts';
@@ -62,9 +62,34 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     // repoint のパスは、存在を確かめる前に正規化する。検査する値と保存する値を 1 つにしておく。
     // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
     // そのプロジェクトには永久にセッションが紐づかない（POST /api/projects と同じ理由である）。
-    const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: normalizeDir(action.path) } : action;
+    const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: normalizeDir(action.path), ...(action.merge === true ? { merge: true } : {}) } : action;
     if (target.kind === 'repoint' && (typeof target.path !== 'string' || !fs.existsSync(target.path))) return c.json({ error: tr('project.resolve.dirMissing') }, 400);
-    if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: tr('project.error.notFound') }, 404);
+    const project = getProject(db, deviceId, deps.live(), id);
+    if (!project) return c.json({ error: tr('project.error.notFound') }, 404);
+    // 選んだフォルダが、この PC で別のプロジェクトの場所になっているとき（他の PC が同じフォルダを別の ID で登録していた）。
+    // そのまま入れると同じフォルダを指すプロジェクトが 2 つになるので、まとめた後の姿を添えて断り、画面に確かめさせる。
+    // merge を付けて来たら、まとめる方を残す方へまとめ、残す方を返す。スクラッチはまとめず、理由だけで断る。
+    const conflict = target.kind === 'repoint' ? rootConflict(db, deviceId, id, target.path) : null;
+    if (conflict && target.kind === 'repoint') {
+      const error = tr('project.resolve.sameFolder', { name: conflict.name });
+      const other = getProject(db, deviceId, deps.live(), conflict.projectId);
+      if (project.isScratch || !other || other.isScratch) return c.json({ error }, 409);
+      const { fromId, intoId } = mergeDirection(db, deviceId, id, conflict.projectId, target.path);
+      if (target.merge !== true) {
+        const from = fromId === id ? project : other;
+        const into = intoId === id ? project : other;
+        const body: ProjectSameFolderDto = {
+          error, code: 'project_same_folder',
+          from: { projectId: from.id, name: from.name },
+          conflict: { projectId: into.id, name: into.name, path: target.path },
+          merged: mergePreview(db, deviceId, fromId, intoId),
+        };
+        return c.json(body, 409);
+      }
+      mergeProjects(db, deviceId, fromId, intoId);
+      assignSessions(db, deviceId);
+      return c.json(getProject(db, deviceId, deps.live(), intoId));
+    }
     // プロジェクトと、紐づけが変わったセッションは、書いた行から配る層が配る。
     resolveProject(db, deviceId, id, target);
     return c.json(getProject(db, deviceId, deps.live(), id) ?? { id, unlinked: true });

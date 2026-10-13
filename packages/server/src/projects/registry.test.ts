@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { assignSession, assignSessions, candidateDirs, checkProjectRoots, listWorkspaceDirs, registerWorkspaceChildOf, resolvedProjectCount, resolveProject, syncProjectsFromWorkspace, workspaceProjectCount } from './registry.ts';
+import { assignSession, assignSessions, candidateDirs, checkProjectRoots, listWorkspaceDirs, mergeDirection, mergePreview, mergeProjects, registerWorkspaceChildOf, rootConflict, resolvedProjectCount, resolveProject, sameFolderPairs, syncProjectsFromWorkspace, workspaceProjectCount } from './registry.ts';
 
 let ws: string;
 let db: Db;
@@ -159,6 +159,160 @@ describe('resolveProject', () => {
     expect(project(pid!).deleted_at).not.toBeNull();
     expect(root(pid!).deleted_at).not.toBeNull();
     expect(sessionProject('s-alpha')).toBeNull();
+  });
+});
+
+// 他の PC が同じフォルダを別の ID で登録していると、同期で同名のプロジェクトが 2 つ並ぶ。
+// 届いた方の場所に、この PC で登録済みのフォルダを選んだら、2 つを 1 つにまとめる。
+describe('同じフォルダのプロジェクトをまとめる', () => {
+  const OTHER = 'dev-2';
+  /** 他の PC で作られ、この PC にはまだ場所の無いプロジェクト。 */
+  function addElsewhere(id = 'p-win') {
+    upsertShared(db, 'projects', { id, name: 'alpha', status: 'active', is_scratch: 0 }, OTHER);
+    upsertShared(db, 'project_roots', { id: `r-${id}`, project_id: id, device_id: OTHER, path: 'D:\\workspace\\alpha', resolved: 1 }, OTHER);
+    upsertShared(db, 'sessions', { id: `s-${id}`, provider: 'claude-code', provider_session_id: `s-${id}`, cwd: 'D:\\workspace\\alpha', home_device: OTHER, project_id: id }, OTHER);
+  }
+  const liveRoots = (projectId: string) => (db.prepare('select device_id, path from project_roots where project_id = ? and deleted_at is null order by device_id').all(projectId) as { device_id: string; path: string }[]);
+
+  it('rootConflict は、この PC で同じフォルダを置き場にしている別のプロジェクトを返す', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    addElsewhere();
+    expect(rootConflict(db, DEV, 'p-win', path.join(ws, 'alpha'))).toEqual({ projectId: pid, name: 'alpha' });
+    // 自分自身、別のフォルダ、他の PC の置き場は当たらない。
+    expect(rootConflict(db, DEV, pid!, path.join(ws, 'alpha'))).toBeNull();
+    expect(rootConflict(db, DEV, 'p-win', path.join(ws, 'beta'))).toBeNull();
+    expect(rootConflict(db, DEV, pid!, 'D:\\workspace\\alpha')).toBeNull();
+  });
+  it('rootConflict は、一覧から削除したプロジェクトの置き場を数えない', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    addElsewhere();
+    resolveProject(db, DEV, pid!, { kind: 'unlink' });
+    expect(rootConflict(db, DEV, 'p-win', path.join(ws, 'alpha'))).toBeNull();
+  });
+  it('セッション、TODO、成果物を移し、相手の PC のパスを引き継ぎ、まとめた方を論理削除する', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    assignSessions(db, DEV);
+    addElsewhere();
+    upsertShared(db, 'todos', { id: 't-into', project_id: pid, text: '元からある', done: 0, position: 3 }, DEV);
+    upsertShared(db, 'todos', { id: 't-a', project_id: 'p-win', text: 'A', done: 0, position: 0 }, OTHER);
+    upsertShared(db, 'todos', { id: 't-b', project_id: 'p-win', text: 'B', done: 0, position: 1 }, OTHER);
+    upsertShared(db, 'artifacts', { id: 'a-1', project_id: 'p-win', url: 'https://example.test/a', first_published_at: 1, last_published_at: 1 }, OTHER);
+    mergeProjects(db, DEV, 'p-win', pid!);
+    expect(sessionProject('s-p-win')).toBe(pid);
+    expect(sessionProject('s-alpha')).toBe(pid);
+    // 移した TODO は、元からある TODO の後ろに、元の順で並ぶ。
+    expect(db.prepare('select id from todos where project_id = ? and deleted_at is null order by position').all(pid)).toEqual([{ id: 't-into' }, { id: 't-a' }, { id: 't-b' }]);
+    expect(db.prepare('select project_id from artifacts where id = ?').get('a-1')).toEqual({ project_id: pid });
+    expect(liveRoots(pid!)).toEqual([{ device_id: DEV, path: path.join(ws, 'alpha') }, { device_id: OTHER, path: 'D:\\workspace\\alpha' }]);
+    expect(project('p-win').deleted_at).not.toBeNull();
+    expect(liveRoots('p-win')).toEqual([]);
+    expect(project(pid!).deleted_at).toBeNull();
+  });
+  it('両方が同じ PC に置き場を持つときは、残す方の置き場を保つ', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    addElsewhere();
+    // 直す前の版で、届いた方にもこの PC の同じフォルダが結び付いてしまった状態。
+    upsertShared(db, 'project_roots', { id: 'r-dup', project_id: 'p-win', device_id: DEV, path: path.join(ws, 'alpha'), resolved: 1 }, DEV);
+    mergeProjects(db, DEV, 'p-win', pid!);
+    expect(liveRoots(pid!)).toEqual([{ device_id: DEV, path: path.join(ws, 'alpha') }, { device_id: OTHER, path: 'D:\\workspace\\alpha' }]);
+    expect(liveRoots('p-win')).toEqual([]);
+  });
+  it('残す方が相手の PC の置き場を前に消していても、まとめた方の置き場を引き継ぐ', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    addElsewhere();
+    upsertShared(db, 'project_roots', { id: 'r-old', project_id: pid, device_id: OTHER, path: 'C:\\old', resolved: 1, deleted_at: 1 }, OTHER);
+    mergeProjects(db, DEV, 'p-win', pid!);
+    expect(liveRoots(pid!)).toEqual([{ device_id: DEV, path: path.join(ws, 'alpha') }, { device_id: OTHER, path: 'D:\\workspace\\alpha' }]);
+  });
+  it('メモは、残す方が空なら移し、両方にあれば後ろへつなぐ', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    addElsewhere();
+    addElsewhere('p-win2');
+    const memo = (id: string) => db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null').get(id) as { markdown: string } | undefined;
+    upsertShared(db, 'project_memos', { project_id: 'p-win', markdown: 'Windows のメモ' }, OTHER, 'project_id');
+    mergeProjects(db, DEV, 'p-win', pid!);
+    expect(memo(pid!)).toEqual({ markdown: 'Windows のメモ' });
+    expect(memo('p-win')).toBeUndefined();
+    upsertShared(db, 'project_memos', { project_id: 'p-win2', markdown: '2 台目のメモ' }, OTHER, 'project_id');
+    mergeProjects(db, DEV, 'p-win2', pid!);
+    expect(memo(pid!)).toEqual({ markdown: 'Windows のメモ\n\n2 台目のメモ' });
+  });
+  it('mergePreview は、まとめた後の PC ごとの場所と、両方のセッションの数を返す', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    assignSessions(db, DEV);
+    addElsewhere();
+    upsertShared(db, 'devices', { id: OTHER, name: 'DESKTOP-01', platform: 'win32', last_seen_at: 1 }, OTHER);
+    upsertShared(db, 'project_roots', { id: 'r-third', project_id: 'p-win', device_id: 'dev-3', path: '/home/me/alpha', resolved: 1 }, 'dev-3');
+    expect(mergePreview(db, DEV, 'p-win', pid!)).toEqual({
+      roots: [
+        { deviceName: null, path: path.join(ws, 'alpha'), here: true },
+        { deviceName: 'DESKTOP-01', path: 'D:\\workspace\\alpha', here: false },
+        // 名前の分からない PC は後ろに置く。
+        { deviceName: null, path: '/home/me/alpha', here: false },
+      ],
+      sessions: 2,
+      fromSessions: 1,
+    });
+    // 両方が同じ PC に場所を持つときは、残す方の場所を見せる（mergeProjects と同じ規則）。
+    upsertShared(db, 'project_roots', { id: 'r-into-win', project_id: pid, device_id: OTHER, path: 'E:\\alpha', resolved: 1 }, OTHER);
+    expect(mergePreview(db, DEV, 'p-win', pid!).roots.map((r) => r.path)).toEqual([path.join(ws, 'alpha'), 'E:\\alpha', '/home/me/alpha']);
+  });
+  it('sameFolderPairs は、この PC で同じフォルダを場所にしている組を見つけ、まとめる方から残す方を引く', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    assignSessions(db, DEV);
+    addElsewhere();
+    expect(sameFolderPairs(db, DEV).size).toBe(0);
+    // 直す前の版で、届いた方にもこの PC の同じフォルダを結び付けてしまった状態。
+    upsertShared(db, 'project_roots', { id: 'r-dup', project_id: 'p-win', device_id: DEV, path: path.join(ws, 'alpha'), resolved: 1 }, DEV);
+    // セッションの多い方を残す。
+    expect([...sameFolderPairs(db, DEV)]).toEqual([['p-win', { projectId: pid, name: 'alpha' }]]);
+    // 一覧から削除したものと、スクラッチは数えない。
+    resolveProject(db, DEV, 'p-win', { kind: 'unlink' });
+    expect(sameFolderPairs(db, DEV).size).toBe(0);
+  });
+  it('sameFolderPairs は、セッションの数が同じなら先に作った方（id の小さい方）を残す', () => {
+    for (const id of ['p-b', 'p-a']) {
+      upsertShared(db, 'projects', { id, name: 'beta', status: 'active', is_scratch: 0 }, DEV);
+      upsertShared(db, 'project_roots', { id: `r-${id}`, project_id: id, device_id: DEV, path: path.join(ws, 'beta'), resolved: 1 }, DEV);
+    }
+    upsertShared(db, 'projects', { id: 'p-s', name: 'scratch', status: 'active', is_scratch: 1 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-p-s', project_id: 'p-s', device_id: DEV, path: path.join(ws, 'beta'), resolved: 1 }, DEV);
+    expect([...sameFolderPairs(db, DEV)]).toEqual([['p-b', { projectId: 'p-a', name: 'beta' }]]);
+  });
+  it('mergeDirection は、選び直すフォルダがまだ自分の場所でなければ、選んだ方をまとめる方にする', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    assignSessions(db, DEV);
+    addElsewhere();
+    const dir = path.join(ws, 'alpha');
+    expect(mergeDirection(db, DEV, 'p-win', pid!, dir)).toEqual({ fromId: 'p-win', intoId: pid });
+    // 既に両方の場所になっているときは、どちらから選んでも同じ向きにする。
+    upsertShared(db, 'project_roots', { id: 'r-dup', project_id: 'p-win', device_id: DEV, path: dir, resolved: 1 }, DEV);
+    expect(mergeDirection(db, DEV, pid!, 'p-win', dir)).toEqual({ fromId: 'p-win', intoId: pid });
+    expect(mergeDirection(db, DEV, 'p-win', pid!, dir)).toEqual({ fromId: 'p-win', intoId: pid });
+  });
+  it('まとめた後に他の PC が古い紐づけを書き戻しても、assignSessions が残した方へ紐づけ直す', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    assignSessions(db, DEV);
+    addElsewhere();
+    upsertShared(db, 'project_roots', { id: 'r-dup', project_id: 'p-win', device_id: DEV, path: path.join(ws, 'alpha'), resolved: 1 }, DEV);
+    mergeProjects(db, DEV, 'p-win', pid!);
+    // まとめる前の行を持っていた PC の索引が、消えたプロジェクトへの紐づけを後から書き戻した。
+    const s = db.prepare('select * from sessions where id = ?').get('s-alpha') as Record<string, unknown>;
+    upsertShared(db, 'sessions', { ...s, project_id: 'p-win' }, OTHER);
+    expect(assignSessions(db, DEV)).toBe(1);
+    expect(sessionProject('s-alpha')).toBe(pid);
+    // 場所の当たらないセッションは、そのままにする。
+    expect(sessionProject('s-p-win')).toBe(pid);
+  });
+  it('同じプロジェクト同士、無いプロジェクト、スクラッチはまとめない', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    addElsewhere();
+    upsertShared(db, 'projects', { id: 'p-s', name: 'scratch', status: 'active', is_scratch: 1 }, DEV);
+    expect(() => mergeProjects(db, DEV, pid!, pid!)).toThrow();
+    expect(() => mergeProjects(db, DEV, 'nope', pid!)).toThrow();
+    expect(() => mergeProjects(db, DEV, 'p-win', 'p-s')).toThrow();
+    expect(() => mergeProjects(db, DEV, 'p-s', pid!)).toThrow();
+    expect(project('p-win').deleted_at).toBeNull();
   });
 });
 

@@ -2,6 +2,7 @@ import { isParked, limitReset, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveSessionDto, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { parseStartTime as parseProcStart } from '../platform/proc.ts';
+import { sameFolderPairs } from '../projects/registry.ts';
 import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
 
@@ -396,7 +397,7 @@ function unresolvedOf(r: ProjectRow, db: Db): ProjectDto['unresolved'] {
   return { kind: 'elsewhere', previousPath: other?.path ?? null, deviceName: other?.name ?? null };
 }
 
-function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>): ProjectDto {
+function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>, sameFolder: Map<string, { projectId: string; name: string }>): ProjectDto {
   const psids = (db.prepare('select provider_session_id p from sessions where project_id = ? and deleted_at is null').all(r.id) as { p: string }[]).map((x) => x.p);
   return {
     id: r.id,
@@ -411,6 +412,7 @@ function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>): ProjectDto {
     memoHead: memoHead(r.memo_markdown),
     updatedAt: r.updated_at,
     unresolved: unresolvedOf(r, db),
+    sameFolder: sameFolder.get(r.id) ?? null,
   };
 }
 
@@ -421,12 +423,13 @@ function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>): ProjectDto {
 export function listProjects(db: Db, deviceId: string, live: LiveSessionDto[]): ProjectDto[] {
   const rows = db.prepare(`${PROJECT_SELECT} order by last_activity_at desc nulls last, p.name`).all(deviceId) as ProjectRow[];
   const liveIds = new Set(live.map((l) => l.sessionId));
-  return rows.map((r) => toProjectDto(r, db, liveIds));
+  const sameFolder = sameFolderPairs(db, deviceId);
+  return rows.map((r) => toProjectDto(r, db, liveIds, sameFolder));
 }
 
 export function getProject(db: Db, deviceId: string, live: LiveSessionDto[], id: string): ProjectDto | null {
   const r = db.prepare(`${PROJECT_SELECT} and p.id = ?`).get(deviceId, id) as ProjectRow | undefined;
-  return r ? toProjectDto(r, db, new Set(live.map((l) => l.sessionId))) : null;
+  return r ? toProjectDto(r, db, new Set(live.map((l) => l.sessionId)), sameFolderPairs(db, deviceId)) : null;
 }
 
 const accountIn = (launchParams: string | null): string | null => {

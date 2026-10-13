@@ -15,6 +15,7 @@ export const projectScreenEn: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.rail.open': 'Open right panel',
   'projectScreen.path.none': 'No path on this computer',
   'projectScreen.path.missing': 'Not found. Relocate',
+  'projectScreen.path.sameFolder': 'Same folder as {name}. Merge',
   'projectScreen.list.empty': 'No sessions in this project yet',
   'projectScreen.info.place': 'Location',
   'projectScreen.info.sessions': 'Sessions',

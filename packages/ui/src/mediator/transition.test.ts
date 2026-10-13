@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type { SyncStatusBody } from '@agent-hangar/shared';
+import type { ProjectSameFolderDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { Input, Overlay, SessionViewState } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import type { RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
@@ -1264,6 +1264,46 @@ describe('プロジェクトを一覧から削除する確認', () => {
     const a = run([action({ type: 'project.resolve.open', id: 'p1' }), action({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
     expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
     expect(a.state.overlay).toEqual({ kind: 'none' });
+  });
+});
+
+// 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所だった（サーバの 409）。まとめた後の姿を見せて確かめる。
+describe('同じフォルダのプロジェクトをまとめる確認', () => {
+  const conflict: ProjectSameFolderDto = {
+    error: 'このフォルダは、プロジェクト shop の場所として登録済みです', code: 'project_same_folder',
+    from: { projectId: 'p-win', name: 'shop' },
+    conflict: { projectId: 'p-mac', name: 'shop', path: '/w/shop' },
+    merged: { roots: [{ deviceName: null, path: '/w/shop', here: true }, { deviceName: 'DESKTOP-01', path: 'D:\\shop', here: false }], sessions: 98, fromSessions: 1 },
+  };
+  const merge = { kind: 'mergeProject' as const, projectId: 'p-win', path: '/w/shop', into: { projectId: 'p-mac', name: 'shop' }, roots: conflict.merged.roots, sessions: 98, fromSessions: 1 };
+  it('409 が届くと確認を出し、承諾で merge を付けて送り直して閉じる', () => {
+    const a = run([action({ type: 'project.resolve.open', id: 'p-win' }), action({ type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/w/shop/' } })]);
+    expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p-win', action: { kind: 'repoint', path: '/w/shop/' } }]);
+    const b = run([runtime({ type: 'api.conflict', kind: 'sameFolder', conflict })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: merge });
+    const c = run([action({ type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/w/shop', merge: true }, confirmed: true })], b.state);
+    expect(c.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p-win', action: { kind: 'repoint', path: '/w/shop', merge: true } }]);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('まとめ終えたとき、まとめた方の画面を開いていれば、残した方の画面へ移る', () => {
+    const onFrom = { ...initialState(), screen: { name: 'project' as const, id: 'p-win' } };
+    expect(run([runtime({ type: 'project.merged', fromId: 'p-win', intoId: 'p-mac' })], onFrom).effects).toEqual([{ kind: 'navigate', route: { name: 'project', id: 'p-mac' } }]);
+    // ほかの画面では動かさない。
+    const onHome = { ...initialState(), screen: { name: 'home' as const } };
+    expect(run([runtime({ type: 'project.merged', fromId: 'p-win', intoId: 'p-mac' })], onHome).effects).toEqual([]);
+  });
+  it('やめれば何も送らずに閉じる', () => {
+    const b = run([runtime({ type: 'api.conflict', kind: 'sameFolder', conflict })]);
+    const c = run([action({ type: 'overlay.close' })], b.state);
+    expect(c.effects).toEqual([]);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('入力のあるダイアログが開いていれば、差し替えずにトーストで理由を出す', () => {
+    const open = run([action({ type: 'session.new.open', scratch: false })]);
+    const b = run([runtime({ type: 'api.conflict', kind: 'sameFolder', conflict })], open.state);
+    expect(b.state.overlay).toEqual(open.state.overlay);
+    expect(b.effects).toEqual([]);
+    expect(b.state.toasts).toEqual([expect.objectContaining({ level: 'error', message: conflict.error })]);
   });
 });
 

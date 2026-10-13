@@ -8,6 +8,7 @@ export const runtimeEn: AreaDictionary<typeof runtimeKeys> = {
   'runtime.notify.returnBody': 'Return time {time} has passed',
   'runtime.notify.returnBodyNote': 'Return time {time} has passed · {note}',
   'runtime.copy.failed': 'Could not copy. Select the text and press {keys}',
+  'runtime.project.merged': 'Merged with {name}',
   'runtime.shell.openLogFailed': 'Could not open the log',
   'runtime.shell.restartFailed': 'Could not restart',
   'runtime.shell.pickFolderFailed': 'Could not select the folder',

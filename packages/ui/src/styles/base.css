@@ -359,6 +359,12 @@ a:hover { text-decoration: underline; }
 .dialog-head-text { display: flex; flex-direction: column; gap: var(--u); min-width: 0; padding-top: calc(var(--u) * 1.75); }
 .dialog-disc { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--error); background: color-mix(in srgb, var(--error) 11%, #ffffff); box-shadow: 0 0 0 5px color-mix(in srgb, var(--error) 5%, transparent); }
 .dialog-danger .dialog-body { padding-left: calc(var(--dialog-pad) + 36px + var(--u) * 3); }
+/* 同じフォルダのプロジェクトをまとめる確認（ConfirmDialog の mergeProject）。まとめた後の 1 つのプロジェクトが、PC ごとに持つ場所を枠の中に並べる。
+   PC の名前の列は幅をそろえ、パスは長くても枠の中で折り返す。 */
+.merge-preview { display: grid; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border: 1px solid var(--line-strong); border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.merge-roots { display: grid; gap: calc(var(--u) * 1.5); margin: 0; padding: 0; list-style: none; }
+.merge-roots > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: calc(var(--u) * 2); align-items: baseline; }
+.merge-roots .mono { overflow-wrap: anywhere; }
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 /* 右下に積む知らせ。
    上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */

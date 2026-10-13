@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { translator, type ProjectDto, type SessionDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
-import { arrivedCount, presentUnresolved, unresolvedKind } from './unresolved.ts';
+import { initialState } from '../mediator/transition.ts';
+import { presentHomeScreen } from './home.ts';
+import { arrivedCount, presentSameFolder, presentUnresolved, unresolvedKind } from './unresolved.ts';
 
 const ja = translator('ja');
 const en = translator('en');
@@ -91,5 +93,28 @@ describe('arrivedCount（他の PC から届いたトーストの件数）', () 
   });
   it('Archived にしたものは数えない', () => {
     expect(arrivedCount(storeOf([elsewhere('a', { status: 'archived' }), elsewhere('b')]), ['a', 'b'])).toBe(1);
+  });
+});
+
+// 直す前の版の「場所を再指定」が残した、この PC で同じフォルダを場所にしている 2 つ（ProjectDto の sameFolder）。
+describe('presentSameFolder（同じフォルダのプロジェクトの群）', () => {
+  const dup = (id: string, into: string) => project(id, { path: '/w/shop', sameFolder: { projectId: into, name: 'shop' } });
+  it('まとめる方の行を出し、押すと同じパスで「場所を再指定」を送る（サーバの 409 がまとめる確認を開く）', () => {
+    const g = presentSameFolder(storeOf([project('p-mac', { path: '/w/shop' }), dup('p-win', 'p-mac')]), ja)!;
+    expect(g).toMatchObject({ id: 'sameFolder', label: '同じフォルダのプロジェクト', icon: 'folder', tone: 'warn', count: 1, morning: false, summary: 'この PC で同じフォルダを指しています' });
+    const row = g.rows[0]!;
+    expect(row).toMatchObject({ key: 'sameFolder:p-win', lead: { kind: 'place' }, name: 'p-win', context: 'shop と同じフォルダ', detail: '/w/shop', open: { type: 'project.open', id: 'p-win' } });
+    expect(row.actions.map((a) => [a.id, a.label, a.primary, a.send])).toEqual([
+      ['merge', '1 つにまとめる', true, { type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/w/shop' } }],
+    ]);
+    expect(presentSameFolder(storeOf([project('p-mac'), dup('p-win', 'p-mac')]), en)!.label).toBe('Projects sharing a folder');
+  });
+  it('組が無いとき、古いサーバ（sameFolder を付けない）のとき、パスが無いときは群を出さない', () => {
+    expect(presentSameFolder(storeOf([project('a'), project('b')]), ja)).toBeNull();
+    expect(presentSameFolder(storeOf([project('a', { sameFolder: { projectId: 'b', name: 'b' }, path: null })]), ja)).toBeNull();
+  });
+  it('ホームの帯では、場所の不明なプロジェクトの次に並ぶ', () => {
+    const store = storeOf([missing('lost'), project('p-mac', { path: '/w/shop' }), dup('p-win', 'p-mac')]);
+    expect(presentHomeScreen(initialState(), store, 1).band.groups.map((g) => g.id)).toEqual(['unresolved', 'sameFolder']);
   });
 });
