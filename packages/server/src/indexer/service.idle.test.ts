@@ -280,6 +280,55 @@ describe('待機中の索引', { timeout: 120_000 }, () => {
     expect(db.prepare('select path, device_id from transcript_files where session_id = ?').all('s-both')).toEqual([{ path: lp, device_id: null }]);
   });
 
+  it('実行中のセッションの本文は、通知が無くても 2 秒ごとの stat で追記を拾い、実行中でないファイルは見ない', async () => {
+    const b = await boot({ liveSessions: () => [{ sessionId: sid(5), cwd: '/w/p5' }] });
+    fs.appendFileSync(fileOf(5), line(5, 'live', '2026-09-01T11:00:00.000Z'));
+    fs.appendFileSync(fileOf(6), line(6, 'not live', '2026-09-01T11:00:00.000Z'));
+    await advance(2_000);
+    expect(b.indexedPaths()).toEqual([fileOf(5)]);
+    // 実行中の主線 1 本と、サブエージェントの置き場の確かめだけ。全件は見ない。
+    expect(b.counts().statSync).toBeLessThanOrEqual(4);
+    // 変わっていなければ、次の周期では索引化しない。
+    vi.mocked(indexFile).mockClear();
+    await advance(2_000);
+    expect(b.counts().indexFile).toBe(0);
+    // 途中で現れたサブエージェントも拾う。
+    const sub = path.join(projects, projOf(5), sid(5), 'subagents', 'agent-ab1.jsonl');
+    fs.mkdirSync(path.dirname(sub), { recursive: true });
+    fs.writeFileSync(sub, line(5, 'sub', '2026-09-01T11:01:00.000Z'));
+    await advance(2_000);
+    expect(b.indexedPaths()).toEqual([sub]);
+  });
+
+  it('実行中のセッションが 0 本なら、見張りの周期を張らず、stat もしない', async () => {
+    let live: { sessionId: string; cwd: string }[] = [];
+    const b = await boot({ liveSessions: () => live });
+    // 張っているのは 5 分の全件走査だけ。
+    expect(timers.pendingCount()).toBe(1);
+    await advance(60_000);
+    expect(b.counts()).toMatchObject({ indexFile: 0, statSync: 0, readdirSync: 0 });
+    // 実行中が現れたと知らされたら張り、いなくなったら外す。
+    live = [{ sessionId: sid(2), cwd: '/w/p2' }];
+    svc!.noteLiveChanged();
+    expect(timers.pendingCount()).toBe(2);
+    live = [];
+    svc!.noteLiveChanged();
+    expect(timers.pendingCount()).toBe(1);
+  });
+
+  it('requestSweep は全件走査を 1 回だけ予約し、重ねて呼んでも重ならない', async () => {
+    const b = await boot();
+    fs.appendFileSync(fileOf(11), line(11, 'more', '2026-09-01T11:00:00.000Z'));
+    svc!.requestSweep();
+    svc!.requestSweep();
+    svc!.requestSweep();
+    expect(timers.pendingCount()).toBe(1);
+    await advance(1_000);
+    expect(b.indexedPaths()).toEqual([fileOf(11)]);
+    // 1 回分の全件走査だけが走った（1 ファイル 1 回の stat）。
+    expect(b.counts().statSync).toBeLessThanOrEqual(N_SMALL + 5);
+  });
+
   it('stop の後はタイマーを残さない', async () => {
     await boot();
     svc!.stop();

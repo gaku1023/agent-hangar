@@ -11,7 +11,7 @@ const UUID_RE = /^[0-9a-f-]{36}$/;
 
 const byPath = (a: DiscoveredFile, b: DiscoveredFile): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
-const AGENT_FILE_RE = /^agent-([0-9a-zA-Z]+)\.jsonl$/;
+export const AGENT_FILE_RE = /^agent-([0-9a-zA-Z]+)\.jsonl$/;
 
 /** 1 つの projects ディレクトリから本体とサブエージェントの jsonl をパス順に集める。 */
 function listUnderProjects(root: string, deviceId: string | null): DiscoveredFile[] {

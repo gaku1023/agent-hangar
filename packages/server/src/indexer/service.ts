@@ -5,7 +5,7 @@ import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
 import {
-  classifyProjectsEntry, classifyRemoteEntry, HistoryIndexReader, listRemoteTranscriptFiles, listTranscriptFiles, selectFilesToIndex,
+  AGENT_FILE_RE, classifyProjectsEntry, classifyRemoteEntry, HistoryIndexReader, listRemoteTranscriptFiles, listTranscriptFiles, mangleCwd, selectFilesToIndex,
   type HistoryEntry, type HistoryRead, type WatchedEntry,
 } from '../provider/claude-code/transcript/discover.ts';
 import type { TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
@@ -50,6 +50,14 @@ export type IndexerServiceOptions = {
   processStartOf?: ProcessStartOf;
   /** 手元の本文の行を Claude Code との互換の契約で見張る口。渡さなければ見張らない。 */
   compat?: TranscriptCompat;
+  /**
+   * いま実行中のセッション（Claude Code のセッション ID と cwd）。
+   * 渡すと、その主線とサブエージェントの本文だけは、通知に頼らず liveMs ごとに stat で見る。
+   * Windows では、Claude Code が本文を開いたまま書き足すと、監視の通知が遅れうるためである。
+   */
+  liveSessions?: () => { sessionId: string; cwd: string }[];
+  /** 実行中のセッションの本文を見る周期。既定は 2 秒。 */
+  liveMs?: number;
   /** 試験が時計を差し替える口。 */
   timers?: Timers;
   /** 試験が fs.watch を差し替える口。 */
@@ -68,6 +76,7 @@ const SWEEP_MS = 5 * 60_000;
 const POLL_FALLBACK_MS = 10_000;
 const DEBOUNCE_MS = 300;
 const RESCAN_DELAY_MS = 1000;
+const LIVE_MS = 2000;
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
 const realWatch: WatchFn = (dir, options, listener) => fs.watch(dir, options, listener);
 
@@ -103,6 +112,9 @@ export class IndexerService {
   private flushTimer: NodeJS.Timeout | null = null;
   private sweepTimer: NodeJS.Timeout | null = null;
   private historyTimer: NodeJS.Timeout | null = null;
+  private liveTimer: NodeJS.Timeout | null = null;
+  /** 実行中のセッションの本文ごとの、前に見た大きさと更新時刻。 */
+  private liveStamps = new Map<string, string>();
   /** sweepTimer が早めの全件走査（名前の分からない通知から）を待っているか。 */
   private sweepSoon = false;
   /** 全件走査の最中に、もう一度の全件走査を頼まれた。 */
@@ -478,8 +490,11 @@ export class IndexerService {
     }, this.opts.debounceMs ?? DEBOUNCE_MS);
   }
 
-  /** 全件走査を早めに 1 回予約する。走査中なら、済んでからもう 1 回回す。 */
-  private requestSweep(): void {
+  /**
+   * 全件走査を早めに 1 回予約する。走査中なら、済んでからもう 1 回回す。予約済みなら重ねない。
+   * 同期が他の PC の行や本文の写しを置いたときにも呼ばれる（boot/indexing.ts）。
+   */
+  requestSweep(): void {
     if (!this.running) return;
     if (this.sweeping || this.scanning) {
       this.sweepAgain = true;
@@ -514,6 +529,72 @@ export class IndexerService {
   private track(p: Promise<unknown>): void {
     this.inflight.add(p);
     void p.then(() => this.inflight.delete(p), () => this.inflight.delete(p));
+  }
+
+  /**
+   * 実行中のセッションの数が変わったかもしれない。実行中が 1 本でもあれば見張りの周期を張り、0 本なら外す。
+   * 登録の変化（boot/indexing.ts の registry.onChange）から呼ぶ。
+   */
+  noteLiveChanged(): void {
+    if (!this.running || !this.opts.liveSessions) return;
+    if (this.opts.liveSessions().length === 0) {
+      if (this.liveTimer) this.timers.clearTimeout(this.liveTimer);
+      this.liveTimer = null;
+      this.liveStamps.clear();
+      return;
+    }
+    if (this.liveTimer) return;
+    this.liveTimer = this.timers.setTimeout(() => {
+      this.liveTimer = null;
+      try {
+        this.checkLive();
+      } catch (e) {
+        this.emitError(this.projectsDir, errorMessage(e));
+      }
+      this.noteLiveChanged();
+    }, this.opts.liveMs ?? LIVE_MS);
+  }
+
+  /** 実行中のセッションの本文を stat し、前に見たときから変わったものだけを索引化する。 */
+  private checkLive(): void {
+    const live = this.opts.liveSessions?.() ?? [];
+    if (this.scanning) return;
+    const seen = new Set<string>();
+    let history: Map<string, HistoryEntry> | null = null;
+    for (const s of live) {
+      for (const f of this.liveFilesOf(s.sessionId, s.cwd)) {
+        const st = statOrNull(f.path);
+        if (!st) continue;
+        seen.add(f.path);
+        const stamp = `${st.size}:${st.mtimeMs}`;
+        if (this.liveStamps.get(f.path) === stamp) continue;
+        this.liveStamps.set(f.path, stamp);
+        history ??= this.history.read().index;
+        this.indexNamed(f, history);
+      }
+    }
+    for (const p of this.liveStamps.keys()) if (!seen.has(p)) this.liveStamps.delete(p);
+  }
+
+  /**
+   * 実行中のセッションの手元の本文。主線は全件走査で見た場所を使い、まだ見ていなければ cwd から組む。
+   * サブエージェントは、主線の隣の <セッション>/subagents を読んで、途中で増えたものも拾う。
+   */
+  private liveFilesOf(sessionId: string, cwd: string): DiscoveredFile[] {
+    const known = (this.groups.get(`${sessionId}:`) ?? []).find((f) => f.deviceId === null);
+    const main: DiscoveredFile = known ?? { path: path.join(this.projectsDir, mangleCwd(cwd), `${sessionId}.jsonl`), sessionId, agentId: null, deviceId: null };
+    const out = [main];
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(path.join(path.dirname(main.path), sessionId, 'subagents'));
+    } catch {
+      // サブエージェントがまだ無い。
+    }
+    for (const n of names) {
+      const m = AGENT_FILE_RE.exec(n);
+      if (m) out.push({ path: path.join(path.dirname(main.path), sessionId, 'subagents', n), sessionId, agentId: m[1]!, deviceId: null });
+    }
+    return out;
   }
 
   /** 走り出した索引化と全件走査が済むまで待つ。試験が時計を進めた後に使う。 */
@@ -590,6 +671,7 @@ export class IndexerService {
     this.ensureWatchers();
     await this.fullScan();
     this.armSweep();
+    this.noteLiveChanged();
   }
 
   stop(): void {
@@ -600,7 +682,9 @@ export class IndexerService {
     this.watchers.clear();
     if (this.flushTimer) this.timers.clearTimeout(this.flushTimer);
     if (this.historyTimer) this.timers.clearTimeout(this.historyTimer);
-    this.flushTimer = this.historyTimer = null;
+    if (this.liveTimer) this.timers.clearTimeout(this.liveTimer);
+    this.flushTimer = this.historyTimer = this.liveTimer = null;
+    this.liveStamps.clear();
     this.clearSweepTimer();
     this.pending.clear();
   }

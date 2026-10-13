@@ -19,6 +19,8 @@ export type PullerDeps = {
   key: Buffer;
   state: SyncStateStore;
   onError?: (key: string, message: string) => void;
+  /** 写しを 1 つ以上置いた回の終わりに、置いた数を知らせる。索引が全件走査を予約する（boot/sync.ts）。 */
+  onDownloaded?: (count: number) => void;
   now?: () => number;
   /**
    * いまの言語。諦めた項目の理由（利用者に見せる）を、この言語の文で残す。省くと日本語。
@@ -285,6 +287,7 @@ export class RemotePuller {
     }
     // 失敗した項目より手前で止めて、次の pull で取り直す。
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
+    if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
     return { downloaded };
   }
 
