@@ -56,6 +56,19 @@ describe('paths', () => {
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ claudeDir: '/c' }));
     expect(loadSettings(tmp).workspaceRoot).toBe(path.join(os.homedir(), 'workspace'));
   });
+  it('殻が起動の頭に書く言語だけの settings.json は、新しい利用者として作成場所を空で読む', () => {
+    // 殻（bootfail.rs の ensure_language）は、サーバより先に {"language": …} だけのファイルを作る。
+    // これを項目の無い古い settings.json と読むと、初日から ~/workspace の直下が自動で登録される（0.6.0-rc.1 の VM、B73）。
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ language: 'en' }) + '\n');
+    const s = loadSettings(tmp, process.platform, () => 'ja');
+    expect(s.workspaceRoot).toBe('');
+    // 殻が決めた言語はそのまま使う。
+    expect(s.language).toBe('en');
+    // 言語のほかに鍵が 1 つでもあれば、今までどおり既存の利用者として読む。
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ language: 'ja', claudeDir: '/c' }));
+    expect(loadSettings(tmp).workspaceRoot).toBe(path.join(os.homedir(), 'workspace'));
+  });
   it('設定は 0600 で保存し、緩い権限のまま残さない', () => {
     // claudeDir や workspaceRoot は端末の中身を明かすので、token や device.json と同じ扱いにする。
     ensureHome(tmp);

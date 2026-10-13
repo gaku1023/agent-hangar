@@ -222,7 +222,10 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
 const openEditor = (label: string): SessionAction => ({ id: 'openEditor', label, disabled: null, note: null });
 
 /** 見出しの行の操作を決めるのに要る事実。 */
-export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch'>;
+export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch'> & {
+  /** 要約エンジンが「使わない」。作り直しをサーバが受け付けないので、項目を出さない（冒頭の 1 枚の canRegenerate と同じ）。省けば使うものとして扱う。 */
+  summaryOff?: boolean;
+};
 
 /**
  * 見出しの行の操作（試作 session-layout-v2.html の A1 と、状態ごとの操作の表）。
@@ -244,7 +247,7 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
   };
   const resume: SessionAction = { id: 'resume', label: t('session.action.resume'), disabled: f.canResume ? null : why('resume'), note: f.fromScratch ? t('session.action.resumeQuickNote') : null };
   const fork: SessionAction = { id: 'fork', label: t('session.action.fork'), disabled: f.canFork ? null : why('fork'), note: f.canFork ? t('session.action.forkNote') : null };
-  const regenerate: SessionAction[] = f.gone ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
+  const regenerate: SessionAction[] = f.gone || f.summaryOff ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
   const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: t('session.action.promote'), disabled: null, note: null }] : [];
   const editor = openEditor(editorLabel);
   if (running) {
@@ -395,7 +398,9 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
       sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(t, sum.updatedAt) }),
     } : null,
     empty: sum || i.summaryOff ? null : t('session.lead.noSummary'),
-    enable: !sum && i.summaryOff ? { before: t('session.lead.summaryOff.before'), link: t('session.lead.summaryOff.link'), after: t('session.lead.summaryOff.after') } : null,
+    // 土台の要約（source baseline）は索引が最初と最後の依頼から組んだ事実で、要約ではない。どのセッションにも付くので、要約と数えると誘いの文がどこにも出ない（0.6.0-rc.1 の VM）。
+    // 事実はそのまま出し、その下に誘いの文を添える（LeadCard）。
+    enable: (!sum || sum.source === 'baseline') && i.summaryOff ? { before: t('session.lead.summaryOff.before'), link: t('session.lead.summaryOff.link'), after: t('session.lead.summaryOff.after') } : null,
     notice: i.summaryPending ? { kind: 'pending', text: t('session.lead.pending'), title: null } : i.summaryError !== null ? { kind: 'failed', text: t('session.lead.failed'), title: i.summaryError } : null,
     // 本文が無いと作り直しは必ず失敗するので、消えた会話では出さない。
     // 要約エンジンを使わないときも出さない（サーバが受け付けない）。
@@ -533,7 +538,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     liveHints: store.settings?.liveHints !== false,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
-  const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, summaryOff: (store.settings?.summaryEngine ?? 'off') === 'off', artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
+  const summaryOff = (store.settings?.summaryEngine ?? 'off') === 'off';
+  const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, summaryOff, artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
   const props: SessionProps = {
     ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null, reason,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
@@ -562,5 +568,5 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand,
   };
-  return { ...props, actions: sessionActions(props, t, openLabel(t, store.settings)) };
+  return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
 }

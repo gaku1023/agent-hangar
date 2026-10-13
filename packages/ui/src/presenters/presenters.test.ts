@@ -668,8 +668,10 @@ describe('presentSession（実行中）', () => {
 
 describe('presentSession（見出しの操作、A1）', () => {
   const ids = (a: { menu: { id: string }[] }) => a.menu.map((m) => m.id);
+  // 要約を作り直す項目は、要約エンジンを使うときだけ出る。ここの試験は使う設定で組む。
+  const summaryOn = (): Store => ({ ...storeWith(), settings: fullSettings({ summaryEngine: 'claude' }) });
   it('実行中は VS Code で開くを主にし、残りは「…」へ。停止は危険色で最後、フォークは理由を添えて押せない', () => {
-    const store = storeWith();
+    const store = summaryOn();
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
     const a = presentSession(initialState(), store, NOW, 's1').actions;
@@ -679,7 +681,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(a.menu.at(-1)).toMatchObject({ id: 'stop', label: '停止', danger: true, disabled: null });
   });
   it('終わったセッションは再開を主にし、フォーク、VS Code で開く、要約を作り直すを「…」へ', () => {
-    const store = storeWith();
+    const store = summaryOn();
     store.sessions.s2 = { ...store.sessions.s2!, live: null };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     expect(a.primary).toMatchObject({ id: 'resume', label: '再開', disabled: null });
@@ -692,7 +694,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(b.menu[0]!.disabled).toBe('トランスクリプトがありません');
   });
   it('他の PC で実行中は「この PC で再開」を主にし、再開とフォークはロックの理由で押せない', () => {
-    const store = storeWith();
+    const store = summaryOn();
     const lock = { deviceId: 'd2', deviceName: 'MacBook-Air', runId: 'r9', heartbeatAt: NOW - 20_000, stale: false };
     store.sessions.s2 = { ...store.sessions.s2!, live: null, lock, remoteOnly: true };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
@@ -729,6 +731,19 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(a.primary.note).toBe('再開しても作業ディレクトリはクイックセッションの置き場のままです');
     expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
+  });
+  it('要約エンジンを使わないときは、要約を作り直すを出さない（サーバが受け付けない。冒頭の 1 枚と同じ）', () => {
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false, summaryOff: true };
+    expect(ids(sessionActions(facts, ja))).not.toContain('regenerate');
+    expect(ids(sessionActions({ ...facts, live: 'busy', canResume: false, canFork: false }, ja))).not.toContain('regenerate');
+    // 実行中のセッションの「…」でも、設定が「使わない」なら出さない（0.6.0-rc.1 の Windows の確かめ）。
+    const store = storeWith();
+    store.settings = fullSettings({ summaryEngine: 'off' });
+    store.runs = { r1: runDto('r1', 's1') };
+    store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
+    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toEqual(['openTerminal', 'fork', 'stop']);
+    store.settings = fullSettings({ summaryEngine: 'claude' });
+    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toContain('regenerate');
   });
 });
 
@@ -977,6 +992,13 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     // 直すもの（目次の点と群の見出しの札）は、ずれの無いときと同じ数のまま。
     expect(p.todo).toEqual(presentSettings(initialState(), { ...initialStore(), readiness: READY }).todo);
     expect(p.todo).toEqual({ must: 1, link: 1 });
+  });
+  it('作成場所が無いときは注意にとどめ、ツールの「要修正」に数えない（作成場所は任意）', () => {
+    const r: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: '/x/claude', ok: true, problem: null, version: '2.1.292' } }, workspace: { path: 'C:\\Users\\me\\workspace', exists: false, projectCount: 0 } };
+    const p = presentSettings(initialState(), { ...initialStore(), readiness: r });
+    expect(p.verify.workspace).toMatchObject({ ok: false, soft: true });
+    expect(p.todo.must).toBe(0);
+    expect(p.toc.find((row) => row.id === 'tools')).toMatchObject({ state: 'すべて検出', tone: 'default' });
   });
   it('準備の確かめが届く前と、compat の無い古いサーバの答えでは、互換の節を null にする', () => {
     expect(presentSettings(initialState(), initialStore()).compat).toBeNull();

@@ -104,6 +104,13 @@ describe('LeadCard の要約を使わないとき', () => {
     expect(m.onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'summary' } });
     expect(within(card()).queryByRole('button', { name: '要約を再生成' })).toBeNull();
   });
+  it('土台の要約があるときは、その事実を出したまま、下に「要約は設定で有効にできます」を添える', () => {
+    const baseline = { title: 't', oneLiner: 'o', body: '最初の依頼：画像を遅延読み込みに', state: 'done' as const, nextSteps: [], source: 'baseline' as const, sourceId: null, sourceModel: null, basedOnTurns: 5, updatedAt: NOW - 3 * DAY };
+    mount({ session: session({ summary: baseline }), summaryOff: true });
+    expect(within(card()).getByText('最初の依頼：画像を遅延読み込みに')).toBeInTheDocument();
+    expect(card()).toHaveTextContent('要約は設定で有効にできます');
+    expect(within(card()).getByRole('button', { name: '設定' })).toBeInTheDocument();
+  });
 });
 
 describe('LeadCard の札', () => {

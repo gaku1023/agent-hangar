@@ -95,11 +95,13 @@ export function toolLine(t: Translate, key: ToolKey, c: ToolCheckDto & Partial<N
 
 /**
  * 新しいフォルダの作成場所の検証。作成場所は任意なので（2026-10-13）、空なら行を出さない（null）。
- * 決めた場所が無ければ直し方を言い、あればその直下から登録したプロジェクトの数を添える（0 件でも ✓）。
+ * 決めた場所が無ければ注意（soft）で直し方を言い、あればその直下から登録したプロジェクトの数を添える（0 件でも ✓）。
  */
 export function workspaceLine(t: Translate, w: ReadinessDto['workspace']): VerifyLine | null {
   if (w.path === '') return null;
-  if (!w.exists) return { ok: false, soft: false, text: t('readiness.problem.missing', { path: w.path }), note: null, fix: t('readiness.fix.workspace'), fixCommand: null };
+  // 決めた場所が無くても hangar は動く（作るときに場所を選ぶだけ）。赤の「要修正」ではなく注意にとどめる。
+  // 古い設定のままの今の利用者で、~/workspace がその PC に無いときに起きる（0.6.0-rc.1 の Windows の確かめ）。
+  if (!w.exists) return { ok: false, soft: true, text: t('readiness.workspace.missing'), note: null, fix: t('readiness.fix.workspace'), fixCommand: null };
   return { ok: true, soft: false, text: w.path, note: t('readiness.workspace.projects', { n: w.projectCount }), fix: null, fixCommand: null };
 }
 

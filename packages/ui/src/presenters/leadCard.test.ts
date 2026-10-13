@@ -94,6 +94,17 @@ describe('冒頭の 1 枚の要約', () => {
     expect(present({ session: session({ summary: null }) }).enable).toBeNull();
     expect(present({ session: session({ summary: null }), summaryOff: true }, en).enable).toEqual({ before: 'Turn on summaries in ', link: 'Settings', after: '.' });
   });
+  it('土台の要約（source baseline）は要約の無いものとして数え、使わないときは事実の下に「要約は設定で有効にできます」を出す（0.6.0-rc.1 の VM、B77）', () => {
+    // 索引はどのセッションにも土台の要約（最初と最後の依頼、触ったファイル）を付ける。これを要約と数えると、誘いの文がどこにも出ない。
+    const base = present({ session: session({ summary: summary({ source: 'baseline' }) }), summaryOff: true });
+    expect(base.summary).not.toBeNull();
+    expect(base.enable).toEqual({ before: '要約は', link: '設定', after: 'で有効にできます' });
+    expect(base.empty).toBeNull();
+    // 要約エンジンを使うときは、今どおり土台の要約だけを出す。
+    expect(present({ session: session({ summary: summary({ source: 'baseline' }) }) }).enable).toBeNull();
+    // 事後の要約は要約として数える。
+    expect(present({ session: session({ summary: summary({ source: 'post_hoc' }) }), summaryOff: true }).enable).toBeNull();
+  });
   it('作成中と失敗は、要約の上の注記にする。失敗の理由は title で読める', () => {
     expect(present({ summaryPending: true }).notice).toEqual({ kind: 'pending', text: '要約を作成しています', title: null });
     expect(present({ summaryError: 'LM Studio に届かない' }).notice).toEqual({ kind: 'failed', text: '要約を作成できませんでした', title: 'LM Studio に届かない' });

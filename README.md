@@ -715,6 +715,9 @@ hangar が入れるものは次のとおりです。
 - `set-clipboard on`（サーバ全体）。
   中のアプリが OSC 52 で写したものを、UI のターミナルへ通します。
   利用者が `on` か `off` を選んでいるときは触りません。
+- `focus-events on`（サーバ全体）。
+  中の Claude Code に、ターミナルが前に来たか後ろへ回ったかを渡します。
+  `off`（既定のまま）のときだけ `on` にします。Windows の psmux には入れません。
 - macOS だけ、外のターミナル（iTerm2 など）から attach する人のために、次を足します（Windows の psmux には入れません）。
   - `copy-command`：空か素の `pbcopy` のときだけ、`LC_CTYPE=UTF-8 pbcopy` にします。
     マウスで選んだ範囲を、日本語のままクリップボードへ渡すためです。
