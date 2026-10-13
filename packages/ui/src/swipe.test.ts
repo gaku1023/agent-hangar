@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_THRESHOLD } from './swipe.ts';
+import { createSwipeDetector, swipeModeOf, SWIPE_IDLE_MS, SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS, SWIPE_THRESHOLD } from './swipe.ts';
 
 const STEP = SWIPE_THRESHOLD / 6;
 
@@ -161,5 +161,36 @@ describe('横スワイプの検出', () => {
     let at = 0;
     for (let i = 0; i < 60; i++) feed({ deltaX: -3, deltaY: 0, at: (at += 16) });
     expect(release()).toBeNull();
+  });
+});
+
+describe('手勢の終わりの決め方', () => {
+  it('位相の届く殻では、位相で決める', () => {
+    expect(swipeModeOf({ phaseAware: true, desktop: true, platform: 'darwin' })).toBe('phase');
+  });
+
+  it('Windows の殻では、位相が無いので打鍵の途切れで決める', () => {
+    expect(swipeModeOf({ phaseAware: false, desktop: true, platform: 'win32' })).toBe('gap');
+  });
+
+  it('ブラウザでは自前の手勢を持たない', () => {
+    // ブラウザには元から戻る進むの手勢がある。二重に持たない。
+    expect(swipeModeOf({ phaseAware: false, desktop: false, platform: 'win32' })).toBe('off');
+    expect(swipeModeOf({ phaseAware: false, desktop: false, platform: 'darwin' })).toBe('off');
+    expect(swipeModeOf({ phaseAware: false, desktop: false, platform: 'linux' })).toBe('off');
+  });
+
+  it('macOS の殻で位相がまだ届いていなければ、時間では決めない', () => {
+    // macOS は位相の合図で決める作りである。印が立つ前に時間で決めると、指を置いたまま動く。
+    expect(swipeModeOf({ phaseAware: false, desktop: true, platform: 'darwin' })).toBe('off');
+  });
+
+  it('途切れの幅は、打鍵の間隔よりずっと長く、手応えが遅れるほどは長くない', () => {
+    // 指が動いている間の打鍵は 1 コマごと（60Hz で約 17ms）に来る。負荷でコマが数枚落ちても途切れと読まない幅が要る。
+    expect(SWIPE_RELEASE_GAP_MS).toBeGreaterThanOrEqual(6 * 17);
+    // 離してから動くまでの遅れは、0.2 秒を超えると手応えが鈍く感じる。
+    expect(SWIPE_RELEASE_GAP_MS).toBeLessThanOrEqual(200);
+    expect(SWIPE_RELEASE_GAP_MS).toBeLessThan(SWIPE_STALE_HIDE_MS);
+    expect(SWIPE_RELEASE_GAP_MS).toBeLessThan(SWIPE_IDLE_MS);
   });
 });
