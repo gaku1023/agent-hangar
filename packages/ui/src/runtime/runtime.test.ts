@@ -2801,7 +2801,7 @@ describe('隠れている間の配信', () => {
     let notified = 0;
     h.rt.subscribe(() => { notified++; });
     shown = false;
-    const base: SessionDto = { id: 's9', provider: 'claude-code', providerSessionId: 'u9', projectId: null, name: 'x', cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
+    const base: SessionDto = { id: 's9', provider: 'claude-code', providerSessionId: 'u9', projectId: null, name: 'x', cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
     h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: base });
     h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: { ...base, name: 'y' } });
     expect(h.rt.getStore().sessions.s9?.name).toBe('y');
