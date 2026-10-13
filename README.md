@@ -488,7 +488,7 @@ hangar は git に書きません（`--no-optional-locks` で読むだけ）。�
 ## クラウド同期（上級者向けのベータ）
 
 **これは上級者向けのベータです。**
-始めるのに、このリポジトリの clone、ターミナルで打つ CLI（clone した場所で `npm install` してから `npm run hangar -- setup cloud`）、自分の Cloudflare アカウントが要ります。
+始めるのに、このリポジトリの clone（アプリと同じ版のタグ）、ターミナルで打つ CLI（clone した場所で `npm ci` してから `npm run hangar -- setup cloud`）、自分の Cloudflare アカウントが要ります。
 配布版のアプリだけでは、クラウドを作れません（同梱の `hangar` は、wrangler が 205MB あるので wrangler を持たず、`setup cloud` と `teardown` は、Worker の源が無いことを告げて止まります）。
 アプリでできるのは、すでにあるクラウドへの参加（設定の「参加トークンで参加」）と、同期の状態を見ることです。
 同期を使わなくても、ほかの機能はそのまま使えます。
@@ -502,18 +502,54 @@ hangar は git に書きません（`--no-optional-locks` で読むだけ）。�
 他の人と 1 つの箱を共有する使い方は想定していません。
 別の人が使うときは、その人の Cloudflare アカウントで `setup cloud` を走らせます。
 
+### 始める前に
+
+- R2 を有効にしておきます。
+  Cloudflare のダッシュボードで R2 を有効にするには、支払い方法の登録が要ります。
+  無料枠に収まる使い方でも、有効にする操作そのものに登録が要ります。
+- Workers の `workers.dev` のサブドメインを、アカウントで 1 度だけ決めておきます（ダッシュボードの Workers & Pages で決められます）。
+  Worker の URL（`https://<Worker の名前>.<サブドメイン>.workers.dev`）にそのまま出るので、メールアドレスや本名とつながらない名前にしてください。
+  あとで変えると、Worker の URL が変わるので、参加トークンも作り直しになります。
+- Cloudflare のアカウントが複数あるときは、作る先を `--account-id <ID>` か環境変数 `CLOUDFLARE_ACCOUNT_ID` で選びます。
+  他の人も入っているアカウントに作ると、平文で置くメタデータがその人たちにも読めます（「[暗号化するもの、しないもの](#暗号化するもの、しないもの)」）。
+  作る先は、自分だけのアカウントを選んでください。
+
 ### 1 台目（同期を始める端末）
 
+次を、このリポジトリを clone する場所で順に打ちます。
+`<アプリの版>` は、使っているアプリの版です（設定の更新の節に出ます）。
+
 ```sh
+git clone https://github.com/gaku1023/agent-hangar.git
+cd agent-hangar
+git checkout v<アプリの版>      # 例：アプリが 0.6.1 なら v0.6.1
+npm ci
 npm run hangar -- setup cloud   # wrangler のログイン、資源の作成、デプロイ、参加トークンの表示
-hangar cloud status             # Worker とローカルサーバの状態
 ```
+
+clone の版は、アプリと同じ版のタグにしてください。
+互換の版は、クラウドと話せるかどうかだけを決めるもので、手元の DB は守りません。
+clone の CLI は `~/.agent-hangar/hangar.db` をマイグレーションしながら開くので、アプリより新しい版（たとえば main）の clone で打つと、アプリより先に DB が進んでしまうおそれがあります。
 
 資源の名前は既定で Worker と D1 が `hangar`、R2 が `hangar-files` です。
 `--name <名前>` で変えられます。
 
+途中で失敗したら、原因を直してから、同じコマンドをもう一度打ってかまいません。
+作成済みの D1 と R2 はそのまま使います。
+
+`npm ci` のとき npm 11 が install scripts の警告を出すことがあります。
+無視してかまいません（[docs/cloud-sync.md](docs/cloud-sync.md)）。
+
 最後に出る **参加トークン** を控えます。
 後から見るときは、UI の Settings のクラウド同期の節で「参加トークンを表示」を押します。
+
+設定が済んだら、アプリを終了して開き直してください。
+開き直すと、1 台目でも同期が始まります。
+同期の状態は、どこからでも次で見られます。
+
+```sh
+hangar cloud status             # Worker とローカルサーバの状態（配布版の hangar でも打てます）
+```
 
 ### 2 台目（自分の別の PC）
 
