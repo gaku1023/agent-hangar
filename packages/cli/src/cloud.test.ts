@@ -8,7 +8,8 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
 import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
+import { cliErrorText, DetailedError } from './probe.ts';
+import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
 import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
@@ -150,7 +151,7 @@ describe('runSetupCloud', () => {
     expectMode(path.join(home, 'cloud.json'), 0o600);
 
     const cmds = w.calls.map((c) => c.args.slice(0, 3).join(' '));
-    expect(cmds).toEqual(['whoami --json', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put JOIN_SECRET_HASH']);
+    expect(cmds).toEqual(['whoami --json', 'r2 bucket list', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put JOIN_SECRET_HASH']);
     expect(w.calls.slice(1).every((c) => c.env.CLOUDFLARE_ACCOUNT_ID === ACCOUNT)).toBe(true);
     expect(ff.urls.filter((u) => u.endsWith('/health'))).toHaveLength(3);
     expect(slept.filter((ms) => ms === 5000).length).toBeGreaterThanOrEqual(2);
@@ -185,7 +186,7 @@ describe('runSetupCloud', () => {
     const ff = fakeFetch();
     const r = await runSetupCloud({ home, name: 'hangar-dev', device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} });
     expect(decodeJoinToken(r.joinToken).secret).toBe(keep);
-    expect(w.calls.map((c) => c.args[0])).toEqual(['whoami', 'd1', 'r2', 'deploy', 'secret']);
+    expect(w.calls.map((c) => c.args[0])).toEqual(['whoami', 'r2', 'd1', 'r2', 'deploy', 'secret']);
     expect(loadCloudConfig(home)).toMatchObject({ workerName: 'hangar-dev', dbName: 'hangar-dev', bucketName: 'hangar-dev-files', url: 'https://hangar-dev.example.workers.dev' });
   });
 
@@ -1192,6 +1193,45 @@ describe('Worker のソースの置き場', () => {
     process.env.HANGAR_CLOUD_DIR = fakeCloudTree({ deps: ALL_DEPS, name: '@agent-hangar/server' });
     expect(() => requireCloudDir()).toThrow(/packages\/cloud ではありません/);
   });
+
+  it('配布版で packages/cloud が無いときは、存在しないパスを出さずに clone の手順を案内して止まる', () => {
+    delete process.env.HANGAR_CLOUD_DIR;
+    const gone = path.join(os.tmpdir(), 'hangar-no-such-cloud-' + process.pid, 'cloud');
+    let msg = '';
+    try {
+      requireCloudDir({ dir: gone, version: '0.6.1' });
+    } catch (e) {
+      expect(e).toBeInstanceOf(DetailedError);
+      msg = (e as Error).message;
+    }
+    expect(msg).not.toBe('');
+    // 最上位は DetailedError だけ全文を出す。そうでないと手順が 1 行目で切れる。
+    expect(cliErrorText(new DetailedError(msg))).toBe(msg);
+    expect(msg).not.toContain(gone);
+    expect(msg).not.toContain('src/index.ts');
+    expect(msg).toContain('クラウドを作るには、このリポジトリを clone した場所で実行します');
+    expect(msg).toContain('git clone');
+    expect(msg).toContain('git checkout v0.6.1');
+    expect(msg).toContain('npm ci');
+    expect(msg).toContain('npm run hangar -- setup cloud');
+  });
+
+  it('案内の手順は、アプリの版が分からないときは git checkout の行を省く', () => {
+    const msg = cloudDirMissingMessage(null);
+    expect(msg).toContain('git clone');
+    expect(msg).not.toContain('git checkout');
+    expect(msg).toContain('npm ci');
+  });
+
+  it('アプリの版は、cli.mjs の隣の manifest.json から読む。無ければ null', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-manifest-'));
+    temps.push(d);
+    expect(readAppVersion(d)).toBeNull();
+    fs.writeFileSync(path.join(d, 'manifest.json'), JSON.stringify({ version: '0.6.1-rc.2' }));
+    expect(readAppVersion(d)).toBe('0.6.1-rc.2');
+    fs.writeFileSync(path.join(d, 'manifest.json'), '{壊れた');
+    expect(readAppVersion(d)).toBeNull();
+  });
 });
 
 describe('cloudBackfill', () => {
@@ -1319,7 +1359,13 @@ describe('installUsageToken', () => {
     expect(USAGE_TOKEN_HELP.join('\n')).toContain('Account Analytics: Read');
     expect(USAGE_TOKEN_HELP.join('\n')).toContain('Billing: Read');
     // 入れた版の hangar には wrangler が無いので、clone した場所で打つと添える。
-    expect(USAGE_TOKEN_HELP.join('\n')).toContain('リポジトリを clone して npm install した場所で op read');
+    const help = USAGE_TOKEN_HELP.join('\n');
+    // ダッシュボードのどこで作るか、どう渡すかを日本語で述べる。op read は使っている人向けの例として添えるだけ。
+    expect(help).toContain('Create Token');
+    expect(help).toContain('npm run hangar -- setup cloud --usage-token');
+    expect(help).toContain('clone した場所');
+    expect(help).toMatch(/1Password を使っている(人|方)/);
+    expect(help.indexOf('op read')).toBeGreaterThan(help.indexOf('--usage-token'));
   });
 });
 
@@ -1602,6 +1648,30 @@ describe('runSetupCloud の wrangler の失敗', () => {
     expect(e.message).toMatch(/もう一度/);
     // アカウント ID は伏せる。
     expect(e.message).not.toContain(ACCOUNT);
+  });
+
+  it('R2 が有効でないアカウントは、D1 を作る前に止まる（何も作らず、有効にしてから再実行するよう案内する）', async () => {
+    const stderr = `✘ [ERROR] A request to the Cloudflare API (/accounts/${ACCOUNT}/r2/buckets) failed.\n\n  Please enable R2 through the Cloudflare Dashboard. [code: 10042]\n`;
+    const w = base({ 'r2 bucket list': () => ({ code: 1, stdout: '', stderr }) });
+    const e = await fail(w);
+    expect(e.message).toContain('R2');
+    expect(e.message).toContain('[code: 10042]');
+    expect(e.message).toMatch(/支払い方法/);
+    expect(e.message).toContain('何も作っていません');
+    expect(e.message).toMatch(/もう一度/);
+    expect(e.message).not.toContain(ACCOUNT);
+    const cmds = w.calls.map((c) => c.args.slice(0, 2).join(' '));
+    expect(cmds).toContain('r2 bucket');
+    expect(cmds).not.toContain('d1 create');
+    expect(cmds).not.toContain('d1 info');
+    expect(w.calls.some((c) => c.args[0] === 'deploy')).toBe(false);
+  });
+
+  it('R2 の確認が 10042 以外で失敗しても、そこでは止めない（あとの手順がそれぞれ理由を出す）', async () => {
+    const w = base({ 'r2 bucket list': () => ({ code: 1, stdout: '', stderr: 'network down' }), deploy: () => ({ code: 1, stdout: '', stderr: 'boom' }) });
+    const e = await fail(w);
+    expect(e.message).toContain('デプロイ');
+    expect(w.calls.some((c) => c.args[0] === 'd1' && c.args[1] === 'create')).toBe(true);
   });
 
   it('workers.dev のサブドメインが無ければ、Workers & Pages で決めてから再実行するよう添える', async () => {

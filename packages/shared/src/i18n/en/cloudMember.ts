@@ -16,7 +16,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.join.joined': 'Joined {host}. Restarting Hangar to start syncing…',
   'cloudMember.join.nothingWritten': 'Nothing was written to this computer\'s settings.',
   'cloudMember.join.retry': 'Try again',
-  'cloudMember.join.startNote': 'Setting up the cloud is done with hangar setup cloud in a terminal, because it needs a Cloudflare login and wrangler.',
+  'cloudMember.join.startNote': 'Setting up the cloud is done with hangar setup cloud in a terminal, because it needs a Cloudflare login and wrangler.\nRun it in a clone of this repository (the hangar bundled in the app cannot create the cloud).',
   'cloudMember.dest.label': 'Destination you are about to join',
   'cloudMember.dest.note': 'A join token is a secret that can read and write every session in this cloud. Check the host above with your own eyes and make sure it is the destination you created with hangar setup cloud. If you do not recognize the host, the transcripts on this computer will be sent to that server.',
   'cloudMember.dest.agree': 'This is the cloud I created with hangar setup cloud',

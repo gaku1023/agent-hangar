@@ -264,8 +264,11 @@ describe.skipIf(!host)('bundleServer', () => {
     // runHangar は PATH と LANG のほかは渡さないので、手元の HANGAR_CLOUD_DIR は届かない。
     const r = await runHangar(path.join(out, 'bin/hangar'), ['setup', 'cloud'], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HOME: userHome });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain('src/index.ts');
-    expect(r.stderr).toContain('clone して npm install');
+    // 存在しない .app の中のパスは見せず、clone してからの手順を全文で案内する。
+    expect(r.stderr).not.toContain('src/index.ts');
+    expect(r.stderr).toContain('クラウドを作るには、このリポジトリを clone した場所で実行します');
+    expect(r.stderr).toContain('git checkout v');
+    expect(r.stderr).toContain('npm run hangar -- setup cloud');
     // 資源を作りに行っていない。参加の記録も書かない。
     expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
   });

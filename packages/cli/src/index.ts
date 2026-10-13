@@ -43,7 +43,7 @@ const setup = program
 
 setup
   .command('cloud')
-  .description('自分の Cloudflare アカウントに同期用の Worker と D1 と R2 を作ってデプロイする')
+  .description('自分の Cloudflare アカウントに同期用の Worker と D1 と R2 を作ってデプロイする（リポジトリを clone した場所で実行します。アプリに入っている hangar では作れません）')
   .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
   .option('--rotate-secret', '参加用の秘密を作り直す（既存の暗号化ファイルが復号できなくなる。確認を求める）')
   .option('--usage-token', '使用量と費用を出す読み取り専用のトークンを Worker に入れる（標準入力から受け取る）')
