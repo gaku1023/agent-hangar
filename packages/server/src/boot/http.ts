@@ -85,7 +85,8 @@ export function bootHttp(p: {
   // 入口（main.ts）が読んで消してから opts.uiDist で渡す。無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');
   const app = createApp({
-    cloudUsage: sync.cloudUsage,
+    // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
+    cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
     accounts: runs.accounts,
     db, deviceId: device.id, deviceName: device.name, token: home.token, home: home.home, port, version: VERSION,
     // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
@@ -120,11 +121,11 @@ export function bootHttp(p: {
       pullBeforeLaunch: (timeoutMs) => sync.engine.pullBeforeLaunch(timeoutMs),
     },
     // 降ろすのを諦めた項目。onError は 1 度しか鳴らないので、状態にも載せて後から見られるようにする。
-    syncSkipped: sync.feed.skipped,
-    syncSweep: sync.feed.sweep,
-    syncOncePass: sync.feed.oncePass,
+    syncSkipped: () => sync.feed.skipped(),
+    syncSweep: () => sync.feed.sweep(),
+    syncOncePass: () => sync.feed.oncePass(),
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
-    configBundle: sync.configBundle,
+    get configBundle() { return sync.configBundle; },
     joinToken: sync.joinToken,
     devices: () => listDevices(db, device.id),
     cloudDevices: sync.cloudDevices,
