@@ -1,4 +1,8 @@
-//! Node の探索。PATH に頼らず、決まった候補を順に調べ、同梱したネイティブモジュールと ABI が合う版だけを採る。
+//! Node の探索。PATH に頼らず、決まった候補を順に調べ、同梱したネイティブモジュールが読める Node を採る。
+//! 同梱のネイティブモジュール（better-sqlite3、node-pty）は Node-API で作られていて、Node の ABI には縛られない。
+//! 採るのは、Node-API が manifest.json の `nodeApi` 以上で、アーキテクチャが同じ Node である（上限は付けない）。
+//! 規則の値は packages/server/src/config/nodeRule.ts の 1 か所で決め、束を作るときに manifest.json へ書く。
+//! 規則が同梱の CLI と設定の確かめと同じであることは、見本の表（node-rule-cases.json）を各所の試験が読んで縛る。
 use crate::bootmsg::Msg;
 use std::collections::HashSet;
 use std::io::Read;
@@ -22,19 +26,59 @@ const PROBE_OUTPUT_LIMIT: u64 = 64 * 1024;
 const PROBE_DRAIN: Duration = Duration::from_millis(500);
 
 /// 同梱サーバのビルド条件。`server-dist/manifest.json` の内容。
+/// `node_api` は要る Node-API の版、`node_min` はそれを持つ最初の Node の版（22.14。案内に出すだけで、比べるのには使わない）。
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct Manifest {
     pub version: String,
-    #[serde(rename = "nodeMajor")]
-    pub node_major: u32,
+    #[serde(rename = "nodeApi")]
+    pub node_api: u32,
+    #[serde(rename = "nodeMin")]
+    pub node_min: String,
     pub arch: String,
 }
 
-/// 候補の Node を起動して得た版とアーキテクチャ。
+impl Manifest {
+    /// 案内で入れる Node のメジャー版（brew install node@22、nvm install 22）。`node_min` の先頭の数である。
+    pub fn lts_major(&self) -> String {
+        self.node_min
+            .split('.')
+            .next()
+            .unwrap_or(&self.node_min)
+            .to_string()
+    }
+}
+
+/// 候補の Node を起動して得た版（v を除いたもの）、Node-API の版、アーキテクチャ。
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeProbe {
-    pub major: u32,
+    pub version: String,
+    pub napi: u32,
     pub arch: String,
+}
+
+/// 候補に訊く式（`node -p` に渡す）。出力は `v<版> <アーキ> <Node-API の版>` の 1 行（例 `v22.14.0 arm64 10`）。
+/// 設定の確かめ（nodeRule.ts の NODE_PROBE_EXPR）と hangar.sh と同じ式にする（試験が突き合わせる）。
+pub const PROBE_EXPR: &str = r#"process.version+" "+process.arch+" "+(process.versions.napi||0)"#;
+
+/// 候補が要るものに合うか。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Fit {
+    Ok,
+    /// Node-API が足りない（Node 22.14 より古い）。
+    Version,
+    /// Node-API は足りるが、アーキテクチャが違う。
+    Arch,
+}
+
+/// 合うかを決める。Node-API が足りなければ、アーキが違っても版を言う（nodeRule.ts の nodeFit と同じ順）。
+pub fn fit(p: &NodeProbe, m: &Manifest) -> Fit {
+    if p.napi < m.node_api {
+        Fit::Version
+    } else if p.arch != m.arch {
+        Fit::Arch
+    } else {
+        Fit::Ok
+    }
 }
 
 /// 候補 1 つを調べた結果。
@@ -165,7 +209,7 @@ pub enum Place {
     },
 }
 
-/// macOS（と Linux）の探索先。この順に調べ、manifest と同じメジャー版とアーキテクチャの最初の Node を採る。
+/// macOS（と Linux）の探索先。この順に調べ、manifest に合う（`fit`）最初の Node を採る。
 /// Homebrew の `node@22` は、今の Homebrew（7.0.9 で確かめた）では `/opt/homebrew/bin` にもリンクされるが、前の版では keg-only でリンクされなかった。
 /// どちらの場合も拾えるよう、`bin/node` に加えて keg の場所（`opt/node@N`）も見る。
 /// 版の管理ツールは、PATH を切り替える仕掛け（fnm の multishells、nvm の current など）ではなく、版ごとの実体の場所を見る。
@@ -410,33 +454,39 @@ fn candidates_from(hangar_home: &Path, fixed: Vec<PathBuf>) -> Vec<PathBuf> {
     all.into_iter().filter(|p| seen.insert(p.clone())).collect()
 }
 
-/// `node -e "console.log(process.version, process.arch)"` の出力（例 `v22.14.0 arm64`）を読む。
+/// `node -p PROBE_EXPR` の出力（例 `v22.14.0 arm64 10`）を読む。
 /// 候補は利用者が指定した任意のパスなので、期待した 1 行だけが出るとは限らない。
-/// 前置きや後書きの行が混ざっても、`v<版> <アーキ>` の形をした行を探し当てる。
+/// 前置きや後書きの行が混ざっても、`v<版> <アーキ> <Node-API の版>` の形をした行を探し当てる。
 /// 後ろの行から見るのは、答えが最後に出るためである。
 pub fn parse_probe(output: &str) -> Option<NodeProbe> {
     output.lines().rev().find_map(parse_probe_line)
 }
 
-/// 1 行が `v<版> <アーキ>` ちょうどの形かを見る。
-/// 語が 3 つ以上並ぶ行は、Node の答えと見なさない。
+/// 1 行が `v<版> <アーキ> <Node-API の版>` ちょうどの形かを見る。
+/// 語が 4 つ以上並ぶ行は、Node の答えと見なさない。
 /// `process.arch` の値はどれも英小文字と数字だけなので、それ以外を含む語も退ける。
 fn parse_probe_line(line: &str) -> Option<NodeProbe> {
     let mut it = line.split_whitespace();
     let version = it.next()?;
     let arch = it.next()?;
+    let napi = it.next()?;
     if it.next().is_some() {
         return None;
     }
-    if !arch
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    if arch.is_empty()
+        || !arch
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
     {
         return None;
     }
-    let (major, _, _) = parse_version(version)?;
+    if napi.is_empty() || !napi.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let (a, b, c) = parse_version(version)?;
     Some(NodeProbe {
-        major,
+        version: format!("{a}.{b}.{c}"),
+        napi: napi.parse().ok()?,
         arch: arch.to_string(),
     })
 }
@@ -474,7 +524,7 @@ pub fn probe_node_within(path: &Path, timeout: Duration) -> ProbeOutcome {
         return ProbeOutcome::Missing;
     }
     let mut cmd = Command::new(path);
-    cmd.args(["-e", "console.log(process.version, process.arch)"])
+    cmd.args(["-p", PROBE_EXPR])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -543,7 +593,7 @@ pub fn probe_node_within(path: &Path, timeout: Duration) -> ProbeOutcome {
     }
 }
 
-/// 候補を順に調べ、manifest と同じメジャー版かつ同じアーキテクチャの最初の Node を返す。
+/// 候補を順に調べ、manifest に合う（Node-API が足りて、アーキテクチャが同じ）最初の Node を返す。
 pub fn choose_node(
     candidates: &[PathBuf],
     manifest: &Manifest,
@@ -553,7 +603,7 @@ pub fn choose_node(
     for c in candidates {
         let outcome = probe(c);
         if let ProbeOutcome::Ok(pr) = &outcome {
-            if pr.major == manifest.node_major && pr.arch == manifest.arch {
+            if fit(pr, manifest) == Fit::Ok {
                 return Ok(c.clone());
             }
         }
@@ -568,33 +618,154 @@ pub fn choose_node(
     })
 }
 
-/// 起動の失敗の札（`node-missing`）に渡す数と短い名前。
-/// `major` と `arch` は要る版とアーキテクチャ、`reason` は見つからない理由である。
-/// 要る版が別のアーキテクチャで入っていれば `arch`（`foundArch` にその作り）、別の版だけがあれば `version`（`found` に最初に見つけた版）、
-/// Node として答えた候補が無ければ `missing` にする。
-/// 要る版の別の作りを先に言うのは、入れ直すものがその版の正しい作りだからである。
-pub fn failure_params(e: &NodeError) -> serde_json::Map<String, serde_json::Value> {
+/// 見つからなかった理由の見立て。
+/// 要る Node-API を持つ別のアーキの Node があれば `Arch`、Node として答えた候補があれば `Version`（最初に見つけたもの）、
+/// 無ければ `Missing`。
+/// 要る作りの別のアーキを先に言うのは、入れ直すものがその作りだからである。
+enum Found<'a> {
+    Missing,
+    Version(&'a NodeProbe),
+    Arch(&'a NodeProbe),
+}
+
+fn found_of(e: &NodeError) -> Found<'_> {
     let NodeError::NotFound { manifest, tried } = e;
-    let mut p = serde_json::Map::new();
-    p.insert("major".into(), manifest.node_major.into());
-    p.insert("arch".into(), manifest.arch.clone().into());
-    let found: Vec<&NodeProbe> = tried
+    let probes: Vec<&NodeProbe> = tried
         .iter()
         .filter_map(|t| match &t.outcome {
             ProbeOutcome::Ok(pr) => Some(pr),
             _ => None,
         })
         .collect();
-    if let Some(other_arch) = found.iter().find(|pr| pr.major == manifest.node_major) {
-        p.insert("reason".into(), "arch".into());
-        p.insert("foundArch".into(), other_arch.arch.clone().into());
-    } else if let Some(other) = found.first() {
-        p.insert("reason".into(), "version".into());
-        p.insert("found".into(), other.major.into());
+    if let Some(p) = probes.iter().find(|p| fit(p, manifest) == Fit::Arch) {
+        Found::Arch(p)
+    } else if let Some(p) = probes.first() {
+        Found::Version(p)
     } else {
-        p.insert("reason".into(), "missing".into());
+        Found::Missing
+    }
+}
+
+/// 起動の失敗の種類（ログの `boot failed (<種類>)` と頁の札）。
+/// 見つからない（`node-missing`）、版が古い（`node-version-mismatch`）、アーキテクチャが違う（`node-arch-mismatch`）を分ける。
+/// 0.6.0 までは、Node 24 だけがある PC でも `node-missing` と「見つかりません」を出していた（2026-10-13 の報告）。
+pub fn failure_kind(e: &NodeError) -> &'static str {
+    match found_of(e) {
+        Found::Missing => "node-missing",
+        Found::Version(_) => "node-version-mismatch",
+        Found::Arch(_) => "node-arch-mismatch",
+    }
+}
+
+/// 起動の失敗の札に渡す数と短い名前。
+/// `min`、`napi`、`arch` は要るもの、`found` と `foundArch` は見つけた Node の版と作り（見つからないときは持たない）。
+pub fn failure_params(e: &NodeError) -> serde_json::Map<String, serde_json::Value> {
+    let NodeError::NotFound { manifest, .. } = e;
+    let mut p = serde_json::Map::new();
+    p.insert("min".into(), manifest.node_min.clone().into());
+    p.insert("napi".into(), manifest.node_api.into());
+    p.insert("arch".into(), manifest.arch.clone().into());
+    if let Found::Version(f) | Found::Arch(f) = found_of(e) {
+        p.insert("found".into(), f.version.clone().into());
+        p.insert("foundArch".into(), f.arch.clone().into());
     }
     p
+}
+
+/// 起動の失敗の札の「node を選ぶ…」で選んだ 1 つを確かめた結果。
+#[derive(Debug, Clone, PartialEq)]
+pub enum Picked {
+    /// 合う。設定の nodePath に書いてよい。
+    Ok,
+    /// Node として答えない（無い、起動できない、答えが読めない、時間切れ）。
+    NotNode,
+    /// Node-API が足りない。
+    Version { found: String },
+    /// アーキテクチャが違う。
+    Arch { found_arch: String },
+}
+
+/// 選んだ 1 つを、設定の欄（packages/server の nodeBuildIssue）と同じ条件で確かめる。
+pub fn check_picked(
+    path: &Path,
+    manifest: &Manifest,
+    probe: impl Fn(&Path) -> ProbeOutcome,
+) -> Picked {
+    match probe(path) {
+        ProbeOutcome::Ok(p) => match fit(&p, manifest) {
+            Fit::Ok => Picked::Ok,
+            Fit::Version => Picked::Version { found: p.version },
+            Fit::Arch => Picked::Arch { found_arch: p.arch },
+        },
+        _ => Picked::NotNode,
+    }
+}
+
+/// 頁（loading/boot-fail.js の pickText）へ返す形。
+pub fn pick_answer(path: &Path, picked: &Picked, manifest: &Manifest) -> serde_json::Value {
+    let path = path.display().to_string();
+    match picked {
+        Picked::Ok => serde_json::json!({ "result": "ok", "path": path }),
+        Picked::NotNode => serde_json::json!({ "result": "notNode", "path": path }),
+        Picked::Version { found } => serde_json::json!({
+            "result": "version", "path": path, "found": found, "min": manifest.node_min, "arch": manifest.arch,
+        }),
+        Picked::Arch { found_arch } => serde_json::json!({
+            "result": "arch", "path": path, "foundArch": found_arch, "min": manifest.node_min, "arch": manifest.arch,
+        }),
+    }
+}
+
+/// 利用者だけが読める形（0600）でファイルを書き、ディスクへ流してから戻る。
+fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut open = std::fs::OpenOptions::new();
+    open.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open.mode(0o600);
+    }
+    let mut f = open.open(file)?;
+    std::io::Write::write_all(&mut f, bytes)?;
+    f.sync_all()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
+/// 設定（`<HANGAR_HOME>/settings.json`）の `nodePath` を書く。ほかの項目は残す。
+/// 設定が無ければ作る。読めない設定は上書きしない（ほかの項目を消さないため）。
+/// サーバの保存（paths.ts の saveSettings）と同じく、利用者だけが読める形（0600）にする。
+/// 一時のファイルに書いてから名前を替え、書きかけの設定を残さない。
+pub fn save_node_path(hangar_home: &Path, node: &Path) -> Result<(), String> {
+    let file = hangar_home.join("settings.json");
+    let mut obj = match std::fs::read_to_string(&file) {
+        Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(serde_json::Value::Object(o)) => o,
+            Ok(_) => return Err(format!("{} is not a JSON object", file.display())),
+            Err(e) => return Err(format!("{}: {e}", file.display())),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::Map::new(),
+        Err(e) => return Err(format!("{}: {e}", file.display())),
+    };
+    obj.insert(
+        "nodePath".into(),
+        node.to_string_lossy().into_owned().into(),
+    );
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(obj))
+        .map_err(|e| e.to_string())?
+        + "\n";
+    std::fs::create_dir_all(hangar_home).map_err(|e| e.to_string())?;
+    let tmp = hangar_home.join(format!("settings.json.tmp-{}", std::process::id()));
+    if let Err(e) = write_private(&tmp, text.as_bytes()).and_then(|()| std::fs::rename(&tmp, &file))
+    {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("{}: {e}", file.display()));
+    }
+    Ok(())
 }
 
 /// 利用者に見せる文言。読み込み画面の詳細にそのまま出す。
@@ -613,10 +784,10 @@ pub fn describe_error_in(e: &NodeError, hangar_home: &Path, lang: &str) -> Strin
 /// 見つからないときに案内する入れ方。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InstallHint {
-    /// macOS。`brew install node@22` で入れれば、`/opt/homebrew/bin` にリンクされてもされなくても（keg の場所も探すので）そのまま見つかる。
+    /// macOS。何も無ければ `brew install node`、古い Node があれば既定の node を置き換えない `brew install node@22`（殻は keg の場所も探す）。
     Homebrew,
-    /// Windows。`winget install -e --id OpenJS.NodeJS.22` を先に案内し、nvm-windows はほかの入れ方として添える。
-    /// winget の Node は公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探すので、そのまま見つかる。
+    /// Windows。何も無ければ `winget install -e --id OpenJS.NodeJS.LTS`（公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）。
+    /// 古い Node があれば、winget は今の Node を置き換えるので、公式の zip を別のフォルダに展開して選ぶ道を先に案内する。
     Winget,
     /// Linux。nvm で入れる。
     Nvm,
@@ -634,19 +805,59 @@ impl InstallHint {
     }
 }
 
+/// Windows で、何も無いときに Node（いまの LTS）を入れる命令。頁（boot-fail.js）、launch-cli.ts、hangar.cmd、README と同じ形にする。
+pub const WINGET_LTS: &str = "winget install -e --id OpenJS.NodeJS.LTS";
+
+/// 詳細の文に埋める値。
+struct Words {
+    min: String,
+    napi: u32,
+    arch: String,
+    lts: String,
+    settings: String,
+    /// 起動の失敗の札の「node を選ぶ…」の名前（Windows は node.exe）。
+    pick: &'static str,
+}
+
 /// 同上。案内する入れ方を引数で受け取る形。どの OS の上でも、両方の文を試験できるようにする。
+/// 1 行目は何が起きたか（見つからない、版が古い、アーキテクチャが違う）、2 行目は理由、続けて入れ方、指し方、調べた場所の順に並べる。
+/// 古い Node があるときは、今の Node を置き換えない入れ方を先に案内する。
 fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: InstallHint) -> String {
     let NodeError::NotFound { manifest, tried } = e;
-    let settings = hangar_home.join("settings.json").display().to_string();
     let en = lang == "en";
-    let mut lines = match (en, hint) {
-        (false, InstallHint::Nvm) => not_found_ja(manifest, &settings),
-        (true, InstallHint::Nvm) => not_found_en(manifest, &settings),
-        (false, InstallHint::Homebrew) => not_found_brew_ja(manifest, &settings),
-        (true, InstallHint::Homebrew) => not_found_brew_en(manifest, &settings),
-        (false, InstallHint::Winget) => not_found_winget_ja(manifest, &settings),
-        (true, InstallHint::Winget) => not_found_winget_en(manifest, &settings),
+    let w = Words {
+        min: manifest.node_min.clone(),
+        napi: manifest.node_api,
+        arch: manifest.arch.clone(),
+        lts: manifest.lts_major(),
+        settings: hangar_home.join("settings.json").display().to_string(),
+        pick: match (en, hint) {
+            (false, InstallHint::Winget) => "「node.exe を選ぶ…」",
+            (false, _) => "「node を選ぶ…」",
+            (true, InstallHint::Winget) => "\"Choose node.exe…\"",
+            (true, _) => "\"Choose node…\"",
+        },
     };
+    let found = found_of(e);
+    let has_node = !matches!(found, Found::Missing);
+    let mut lines = vec![
+        if en {
+            headline_en(&found, &w)
+        } else {
+            headline_ja(&found, &w)
+        },
+        if en { why_en(&w) } else { why_ja(&w) },
+    ];
+    lines.extend(if en {
+        ways_en(hint, has_node, &w)
+    } else {
+        ways_ja(hint, has_node, &w)
+    });
+    lines.push(if en {
+        "Places checked:".to_string()
+    } else {
+        "調べた場所:".to_string()
+    });
     for t in tried {
         let what = if en {
             outcome_en(&t.outcome, manifest)
@@ -660,74 +871,96 @@ fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: Insta
 
 // CI の rustfmt は日本語の幅を手元と違って数えるので、文の表は整形を止めて書いたままにする。
 #[rustfmt::skip]
-fn not_found_ja(m: &Manifest, settings: &str) -> Vec<String> {
-    vec![
-        format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
-        format!("nvm install {} を実行するか、{} の nodePath で場所を指定してください。", m.node_major, settings),
-        "調べた場所:".to_string(),
-    ]
+fn headline_ja(found: &Found, w: &Words) -> String {
+    match found {
+        Found::Missing => format!("Node {} 以上（{}）が見つかりません。", w.min, w.arch),
+        Found::Version(p) => format!("Node {} は見つかりましたが、Hangar は Node {} 以上（{}）が要ります。", p.version, w.min, w.arch),
+        Found::Arch(p) => format!("{} 用の Node {} は見つかりましたが、Hangar は {} 用の Node {} 以上が要ります。", p.arch, p.version, w.arch, w.min),
+    }
 }
 
 #[rustfmt::skip]
-fn not_found_en(m: &Manifest, settings: &str) -> Vec<String> {
-    vec![
-        format!("Node {} ({}) was not found.", m.node_major, m.arch),
-        format!("Run nvm install {}, or set nodePath in {} to its location.", m.node_major, settings),
-        "Places checked:".to_string(),
-    ]
+fn headline_en(found: &Found, w: &Words) -> String {
+    match found {
+        Found::Missing => format!("Node {} or later ({}) was not found.", w.min, w.arch),
+        Found::Version(p) => format!("Node {} was found, but Hangar needs Node {} or later ({}).", p.version, w.min, w.arch),
+        Found::Arch(p) => format!("Node {} for {} was found, but Hangar needs Node {} or later for {}.", p.version, p.arch, w.min, w.arch),
+    }
 }
 
 #[rustfmt::skip]
-fn not_found_brew_ja(m: &Manifest, settings: &str) -> Vec<String> {
-    vec![
-        format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
-        format!("brew install node@{} で入れれば、次に開いたときに見つけます（nvm、fnm、Volta、mise、asdf、nodenv で入れた版も探します）。", m.node_major),
-        format!("ほかの場所に入れたなら、{} の nodePath で場所を指定してください。", settings),
-        "調べた場所:".to_string(),
-    ]
+fn why_ja(w: &Words) -> String {
+    format!("Hangar のデータベースと端末の部品は Node-API {} を使うため、Node {} 以上が要ります。", w.napi, w.min)
 }
 
 #[rustfmt::skip]
-fn not_found_brew_en(m: &Manifest, settings: &str) -> Vec<String> {
-    vec![
-        format!("Node {} ({}) was not found.", m.node_major, m.arch),
-        format!("Install it with brew install node@{} and Hangar finds it the next time it opens (it also looks for versions installed with nvm, fnm, Volta, mise, asdf, and nodenv).", m.node_major),
-        format!("If it is installed somewhere else, set nodePath in {} to its location.", settings),
-        "Places checked:".to_string(),
-    ]
+fn why_en(w: &Words) -> String {
+    format!("Hangar's database and terminal parts use Node-API {}, so Node {} or later is needed.", w.napi, w.min)
 }
 
-/// Windows で Node を入れる命令。README の Windows の前提と同じ形にする（同梱の CLI の launch-cli.ts も同じ）。
-pub fn winget_command(node_major: u32) -> String {
-    format!("winget install -e --id OpenJS.NodeJS.{node_major}")
+/// 入れ方と指し方の行。古い Node があるとき（has_node）は、今の Node を置き換えない入れ方を先に置く。
+#[rustfmt::skip]
+fn ways_ja(hint: InstallHint, has_node: bool, w: &Words) -> Vec<String> {
+    let nvm_windows = format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。", w.lts);
+    let elsewhere = format!("ほかの場所に入れたなら、{}で選ぶか、{} の nodePath で場所を指定してください。", w.pick, w.settings);
+    let mut v = match (hint, has_node) {
+        (InstallHint::Homebrew, false) => vec![
+            "brew install node で入れれば、次に開いたときに見つけます（nvm、fnm、Volta、mise、asdf、nodenv で入れた版も探します）。".to_string(),
+        ],
+        (InstallHint::Homebrew, true) => vec![
+            format!("今の Node を置き換えずに入れるなら、brew install node@{0}（既定の node を置き換えません）か nvm install {0} で入れれば、次に開いたときに見つけます（fnm、Volta、mise、asdf、nodenv で入れた版も探します）。", w.lts),
+        ],
+        (InstallHint::Winget, false) => vec![
+            format!("PowerShell で {WINGET_LTS} を実行して入れれば、次に開いたときに見つけます。"),
+            nvm_windows,
+        ],
+        (InstallHint::Winget, true) => vec![
+            format!("今の Node を置き換えずに入れるなら、nodejs.org から Node {0} の Windows 用 zip（{1}）を取得して、別のフォルダ（例 %LOCALAPPDATA%\\Programs\\node{0}）に展開し、その node.exe を指定してください。", w.lts, w.arch),
+            nvm_windows,
+            format!("PowerShell で {WINGET_LTS} を実行しても入れられますが、公式のインストーラで入れた今の Node は置き換わります。"),
+        ],
+        (InstallHint::Nvm, false) => vec!["nvm install --lts を実行すれば、次に開いたときに見つけます。".to_string()],
+        (InstallHint::Nvm, true) => vec![format!("今の Node を置き換えずに入れるなら、nvm install {} を実行すれば、次に開いたときに見つけます。", w.lts)],
+    };
+    v.push(elsewhere);
+    v
 }
 
 #[rustfmt::skip]
-fn not_found_winget_ja(m: &Manifest, settings: &str) -> Vec<String> {
-    vec![
-        format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
-        format!("PowerShell で {} を実行して入れれば、次に開いたときに見つけます。", winget_command(m.node_major)),
-        format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。", m.node_major),
-        format!("ほかの場所に入れたなら、{} の nodePath で場所を指定してください。", settings),
-        "調べた場所:".to_string(),
-    ]
-}
-
-#[rustfmt::skip]
-fn not_found_winget_en(m: &Manifest, settings: &str) -> Vec<String> {
-    vec![
-        format!("Node {} ({}) was not found.", m.node_major, m.arch),
-        format!("Install it with {} in PowerShell and Hangar finds it the next time it opens.", winget_command(m.node_major)),
-        format!("With nvm-windows, a version installed with nvm install {} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).", m.node_major),
-        format!("If it is installed somewhere else, set nodePath in {} to its location.", settings),
-        "Places checked:".to_string(),
-    ]
+fn ways_en(hint: InstallHint, has_node: bool, w: &Words) -> Vec<String> {
+    let nvm_windows = format!("With nvm-windows, a version installed with nvm install {} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).", w.lts);
+    let elsewhere = format!("If it is installed somewhere else, choose it with {} or set nodePath in {} to its location.", w.pick, w.settings);
+    let mut v = match (hint, has_node) {
+        (InstallHint::Homebrew, false) => vec![
+            "Install it with brew install node and Hangar finds it the next time it opens (it also looks for versions installed with nvm, fnm, Volta, mise, asdf, and nodenv).".to_string(),
+        ],
+        (InstallHint::Homebrew, true) => vec![
+            format!("To keep your current Node, install brew install node@{0} (it does not replace the default node) or nvm install {0}, and Hangar finds it the next time it opens (it also looks in fnm, Volta, mise, asdf, and nodenv).", w.lts),
+        ],
+        (InstallHint::Winget, false) => vec![
+            format!("Install it with {WINGET_LTS} in PowerShell and Hangar finds it the next time it opens."),
+            nvm_windows,
+        ],
+        (InstallHint::Winget, true) => vec![
+            format!("To keep your current Node, get the Windows zip of Node {0} ({1}) from nodejs.org, extract it to a separate folder (for example %LOCALAPPDATA%\\Programs\\node{0}), and choose its node.exe.", w.lts, w.arch),
+            nvm_windows,
+            format!("{WINGET_LTS} in PowerShell also installs it, but it replaces a Node installed with the official installer."),
+        ],
+        (InstallHint::Nvm, false) => vec!["Run nvm install --lts and Hangar finds it the next time it opens.".to_string()],
+        (InstallHint::Nvm, true) => vec![format!("To keep your current Node, run nvm install {} and Hangar finds it the next time it opens.", w.lts)],
+    };
+    v.push(elsewhere);
+    v
 }
 
 #[rustfmt::skip]
 fn outcome_ja(o: &ProbeOutcome, m: &Manifest) -> String {
     match o {
-        ProbeOutcome::Ok(p) => format!("v{} {}（要る版は {} {}）", p.major, p.arch, m.node_major, m.arch),
+        ProbeOutcome::Ok(p) => match fit(p, m) {
+            Fit::Version => format!("v{} {}（Node-API {}。Node {} 以上が要ります）", p.version, p.arch, p.napi, m.node_min),
+            Fit::Arch => format!("v{} {}（{} 用が要ります）", p.version, p.arch, m.arch),
+            Fit::Ok => format!("v{} {}", p.version, p.arch),
+        },
         ProbeOutcome::Missing => "ありません".to_string(),
         ProbeOutcome::NotExecutable => "起動できません（実行権を確かめてください）".to_string(),
         ProbeOutcome::Failed => "Node ではありません（別の実行ファイルのようです）".to_string(),
@@ -738,7 +971,11 @@ fn outcome_ja(o: &ProbeOutcome, m: &Manifest) -> String {
 #[rustfmt::skip]
 fn outcome_en(o: &ProbeOutcome, m: &Manifest) -> String {
     match o {
-        ProbeOutcome::Ok(p) => format!("v{} {} (needs {} {})", p.major, p.arch, m.node_major, m.arch),
+        ProbeOutcome::Ok(p) => match fit(p, m) {
+            Fit::Version => format!("v{} {} (Node-API {}; Node {} or later is needed)", p.version, p.arch, p.napi, m.node_min),
+            Fit::Arch => format!("v{} {} ({} is needed)", p.version, p.arch, m.arch),
+            Fit::Ok => format!("v{} {}", p.version, p.arch),
+        },
         ProbeOutcome::Missing => "not found".to_string(),
         ProbeOutcome::NotExecutable => "cannot run it (check that it is executable)".to_string(),
         ProbeOutcome::Failed => "not Node (it looks like another program)".to_string(),
@@ -754,8 +991,17 @@ mod tests {
     fn manifest() -> Manifest {
         Manifest {
             version: "0.1.0".into(),
-            node_major: 22,
+            node_api: 10,
+            node_min: "22.14".into(),
             arch: "arm64".into(),
+        }
+    }
+
+    fn probe(version: &str, arch: &str, napi: u32) -> NodeProbe {
+        NodeProbe {
+            version: version.into(),
+            napi,
+            arch: arch.into(),
         }
     }
 
@@ -1180,66 +1426,106 @@ mod tests {
     }
 
     #[test]
-    fn parse_probe_reads_version_and_arch() {
+    fn parse_probe_reads_version_arch_and_node_api() {
         assert_eq!(
-            parse_probe("v22.14.0 arm64\n"),
-            Some(NodeProbe {
-                major: 22,
-                arch: "arm64".into()
-            })
+            parse_probe("v22.14.0 arm64 10\n"),
+            Some(probe("22.14.0", "arm64", 10))
         );
         assert_eq!(parse_probe("garbage"), None);
         assert_eq!(parse_probe(""), None);
+        // 0.6.0 までの答えの形（Node-API の版が無い）は読まない。
+        assert_eq!(parse_probe("v22.14.0 arm64"), None);
     }
 
     // 前置きの 1 行を出す環境（NODE_OPTIONS の警告、包みの script）でも、健全な Node を取り逃がさない。
     // 逆に、答えの行に余計な語が続く出力は Node の答えと見なさない。
     #[test]
     fn parse_probe_looks_past_the_lines_around_the_answer() {
-        let v22 = Some(NodeProbe {
-            major: 22,
-            arch: "arm64".into(),
-        });
+        let v22 = Some(probe("22.14.0", "arm64", 10));
         assert_eq!(
-            parse_probe("(node:1) ExperimentalWarning: x\nv22.14.0 arm64\n"),
+            parse_probe("(node:1) ExperimentalWarning: x\nv22.14.0 arm64 10\n"),
             v22
         );
-        assert_eq!(parse_probe("v22.14.0 arm64\nbye\n"), v22);
-        assert_eq!(parse_probe("v22.14.0 arm64 extra"), None);
-        assert_eq!(parse_probe("v1.2.3 v4.5.6"), None);
+        assert_eq!(parse_probe("v22.14.0 arm64 10\nbye\n"), v22);
+        assert_eq!(parse_probe("v22.14.0 arm64 10 extra"), None);
+        assert_eq!(parse_probe("v1.2.3 v4.5.6 7"), None);
         assert_eq!(parse_probe("not a node\nnot a node either\n"), None);
     }
 
+    /// 見本の表（packages/server/src/config/node-rule-cases.json）。
+    /// 設定の確かめ（nodeRule.ts）、launch-cli.ts、hangar.sh の試験も同じ表を読み、同じ答えを出すことを確かめる。
+    // CI の rustfmt は日本語の幅を手元と違って数えるので、整形を止めて書いたままにする。
+    #[rustfmt::skip]
     #[test]
-    fn choose_node_takes_first_compatible_and_reports_tried() {
+    fn the_rule_follows_the_shared_table() {
+        let table: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../packages/server/src/config/node-rule-cases.json"
+        ))
+        .unwrap();
+        let need = &table["need"];
+        let m = Manifest {
+            version: "0".into(),
+            node_api: need["napi"].as_u64().unwrap() as u32,
+            node_min: need["min"].as_str().unwrap().into(),
+            arch: need["arch"].as_str().unwrap().into(),
+        };
+        let cases = table["cases"].as_array().unwrap();
+        assert!(cases.len() >= 10);
+        for c in cases {
+            let answer = c["answer"].as_str().unwrap();
+            let got = parse_probe(answer);
+            match c["fit"].as_str() {
+                None => assert_eq!(got, None, "{answer:?}"),
+                Some(want) => {
+                    let p = got.unwrap_or_else(|| panic!("{answer:?} を読めない"));
+                    assert_eq!(p.version, c["version"].as_str().unwrap(), "{answer:?}");
+                    assert_eq!(p.napi as u64, c["napi"].as_u64().unwrap(), "{answer:?}");
+                    assert_eq!(p.arch, c["arch"].as_str().unwrap(), "{answer:?}");
+                    let f = match fit(&p, &m) {
+                        Fit::Ok => "ok",
+                        Fit::Version => "version",
+                        Fit::Arch => "arch",
+                    };
+                    assert_eq!(f, want, "{answer:?}");
+                }
+            }
+        }
+    }
+
+    /// 候補に訊く式は、設定の確かめ（nodeRule.ts の NODE_PROBE_EXPR）と hangar.sh と同じ。
+    #[test]
+    fn the_probe_expression_is_the_same_as_the_server_and_hangar_sh() {
+        let rule = include_str!("../../../../packages/server/src/config/nodeRule.ts");
+        assert!(
+            rule.contains(&format!("NODE_PROBE_EXPR = '{PROBE_EXPR}'")),
+            "{PROBE_EXPR}"
+        );
+        let sh = include_str!("../../scripts/hangar.sh");
+        assert!(sh.contains(&format!("-p '{PROBE_EXPR}'")), "{PROBE_EXPR}");
+    }
+
+    #[test]
+    fn choose_node_takes_first_fitting_and_reports_tried() {
         let probes: HashMap<PathBuf, ProbeOutcome> = HashMap::from([
             (
                 PathBuf::from("/a/node"),
-                ProbeOutcome::Ok(NodeProbe {
-                    major: 24,
-                    arch: "arm64".into(),
-                }),
+                ProbeOutcome::Ok(probe("20.18.0", "arm64", 9)),
             ),
             (PathBuf::from("/b/node"), ProbeOutcome::Missing),
             (
                 PathBuf::from("/c/node"),
-                ProbeOutcome::Ok(NodeProbe {
-                    major: 22,
-                    arch: "arm64".into(),
-                }),
+                ProbeOutcome::Ok(probe("24.21.0", "arm64", 10)),
             ),
             (
                 PathBuf::from("/d/node"),
-                ProbeOutcome::Ok(NodeProbe {
-                    major: 22,
-                    arch: "arm64".into(),
-                }),
+                ProbeOutcome::Ok(probe("22.14.0", "arm64", 10)),
             ),
         ]);
-        let probe = |p: &Path| probes.get(p).cloned().unwrap_or(ProbeOutcome::Missing);
+        let probe_of = |p: &Path| probes.get(p).cloned().unwrap_or(ProbeOutcome::Missing);
         let cands = ["/a/node", "/b/node", "/c/node", "/d/node"].map(PathBuf::from);
+        // 上限は付けない。Node 24 も採る。
         assert_eq!(
-            choose_node(&cands, &manifest(), probe),
+            choose_node(&cands, &manifest(), probe_of),
             Ok(PathBuf::from("/c/node"))
         );
 
@@ -1247,7 +1533,7 @@ mod tests {
             arch: "x64".into(),
             ..manifest()
         };
-        let err = choose_node(&cands, &x64, probe).unwrap_err();
+        let err = choose_node(&cands, &x64, probe_of).unwrap_err();
         let NodeError::NotFound { tried, .. } = &err;
         assert_eq!(tried.len(), 4);
         assert_eq!(
@@ -1263,10 +1549,11 @@ mod tests {
         let tried = vec![
             Tried {
                 path: PathBuf::from("/a/node"),
-                outcome: ProbeOutcome::Ok(NodeProbe {
-                    major: 24,
-                    arch: "arm64".into(),
-                }),
+                outcome: ProbeOutcome::Ok(probe("20.18.0", "x64", 9)),
+            },
+            Tried {
+                path: PathBuf::from("/f/node"),
+                outcome: ProbeOutcome::Ok(probe("24.21.0", "arm64", 10)),
             },
             Tried {
                 path: PathBuf::from("/b/node"),
@@ -1294,32 +1581,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn describe_error_names_the_real_settings_file_and_each_reason() {
-        let err = every_reason();
-        let text = describe_error_for(&err, Path::new("/elsewhere/hangar"), "ja", InstallHint::Nvm);
-        assert!(
-            text.starts_with("Node 22（x64）が見つかりません。"),
-            "{text}"
-        );
-        assert!(text.contains("nvm install 22"), "{text}");
-        // HANGAR_HOME を使っていれば、その場所を案内する。
-        let settings = Path::new("/elsewhere/hangar").join("settings.json");
-        assert!(text.contains(&settings.display().to_string()), "{text}");
-        assert!(!text.contains("~/.agent-hangar"), "{text}");
-        // 「無し」の理由が読み分けられる。
-        assert!(
-            text.contains("/a/node: v24 arm64（要る版は 22 x64）"),
-            "{text}"
-        );
-        assert!(text.contains("/b/node: ありません"), "{text}");
-        assert!(text.contains("/c/node: 起動できません"), "{text}");
-        assert!(text.contains("/d/node: Node ではありません"), "{text}");
-        assert!(text.contains("/e/node: 5 秒のあいだ応答しません"), "{text}");
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 8, "{text}");
-    }
-
     fn not_found(tried: Vec<(&str, ProbeOutcome)>) -> NodeError {
         NodeError::NotFound {
             manifest: manifest(),
@@ -1332,149 +1593,322 @@ mod tests {
                 .collect(),
         }
     }
-    fn ok(major: u32, arch: &str) -> ProbeOutcome {
-        ProbeOutcome::Ok(NodeProbe {
-            major,
-            arch: arch.into(),
+
+    fn ok(version: &str, arch: &str, napi: u32) -> ProbeOutcome {
+        ProbeOutcome::Ok(probe(version, arch, napi))
+    }
+
+    fn no_kana(text: &str) -> bool {
+        !text.chars().any(|c| {
+            matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ff08}' | '\u{ff09}')
         })
     }
 
-    // 頁の札（node-missing）は、要る版とアーキテクチャ、見つからない理由を数と短い名前で受け取り、見出しと本文を選ぶ。
+    // 見つからない理由ごとに、ログの種類と頁の札を分ける（Node 24 だけの Windows で node-missing と出ていた、2026-10-13）。
+    // 要る作りの別のアーキの Node があればそれを先に言う。入れ直すものがその作りだからである。
     #[test]
-    fn failure_params_say_missing_when_no_candidate_answered_as_node() {
-        let p = failure_params(&not_found(vec![
+    fn failure_kind_says_missing_version_or_arch() {
+        let missing = not_found(vec![
             ("/a/node", ProbeOutcome::Missing),
             ("/b/node", ProbeOutcome::Failed),
-        ]));
-        assert_eq!(
-            serde_json::Value::Object(p),
-            serde_json::json!({"major": 22, "arch": "arm64", "reason": "missing"})
-        );
-        let p = failure_params(&not_found(vec![]));
-        assert_eq!(p["reason"], "missing");
+        ]);
+        assert_eq!(failure_kind(&missing), "node-missing");
+        assert_eq!(failure_kind(&not_found(vec![])), "node-missing");
+        let old = not_found(vec![
+            ("/a/node", ProbeOutcome::Missing),
+            ("/b/node", ok("20.18.0", "arm64", 9)),
+        ]);
+        assert_eq!(failure_kind(&old), "node-version-mismatch");
+        let arch = not_found(vec![
+            ("/a/node", ok("20.18.0", "arm64", 9)),
+            ("/b/node", ok("24.18.0", "x64", 10)),
+        ]);
+        assert_eq!(failure_kind(&arch), "node-arch-mismatch");
+        // 種類は頁の表（bootfail.rs の KINDS）にあるものである。
+        for e in [&missing, &old, &arch] {
+            assert!(crate::bootfail::KINDS.contains(&failure_kind(e)));
+        }
     }
 
     #[test]
-    fn failure_params_name_the_first_other_version_found() {
+    fn failure_params_carry_the_need_and_what_was_found() {
+        let need = serde_json::json!({"min": "22.14", "napi": 10, "arch": "arm64"});
+        let p = failure_params(&not_found(vec![("/a/node", ProbeOutcome::Missing)]));
+        assert_eq!(serde_json::Value::Object(p), need);
         let p = failure_params(&not_found(vec![
             ("/a/node", ProbeOutcome::Missing),
-            ("/b/node", ok(24, "arm64")),
-            ("/c/node", ok(20, "arm64")),
+            ("/b/node", ok("20.18.0", "arm64", 9)),
+            ("/c/node", ok("18.20.0", "arm64", 9)),
         ]));
         assert_eq!(
             serde_json::Value::Object(p),
-            serde_json::json!({"major": 22, "arch": "arm64", "reason": "version", "found": 24})
+            serde_json::json!({"min": "22.14", "napi": 10, "arch": "arm64", "found": "20.18.0", "foundArch": "arm64"})
+        );
+        let p = failure_params(&not_found(vec![
+            ("/a/node", ok("20.18.0", "arm64", 9)),
+            ("/b/node", ok("24.18.0", "x64", 10)),
+        ]));
+        assert_eq!(
+            serde_json::Value::Object(p),
+            serde_json::json!({"min": "22.14", "napi": 10, "arch": "arm64", "found": "24.18.0", "foundArch": "x64"})
         );
     }
 
-    // 要る版が別のアーキテクチャで入っているなら、版が違う Node より先にそれを言う（入れ直すのは同じ版の別の作りである）。
+    /// 理由の 1 文（利用者が決めた文言）。
+    #[rustfmt::skip]
+    const WHY_JA: &str =
+        "Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node 22.14 以上が要ります。";
+    #[rustfmt::skip]
+    const WHY_EN: &str =
+        "Hangar's database and terminal parts use Node-API 10, so Node 22.14 or later is needed.";
+
+    // CI の rustfmt は日本語の幅を手元と違って数えるので、整形を止めて書いたままにする。
+    #[rustfmt::skip]
     #[test]
-    fn failure_params_prefer_the_right_version_built_for_another_arch() {
-        let p = failure_params(&not_found(vec![
-            ("/a/node", ok(24, "arm64")),
-            ("/b/node", ok(22, "x64")),
-        ]));
-        assert_eq!(
-            serde_json::Value::Object(p),
-            serde_json::json!({"major": 22, "arch": "arm64", "reason": "arch", "foundArch": "x64"})
+    fn describe_error_names_the_real_settings_file_and_each_reason() {
+        let err = every_reason();
+        let text = describe_error_for(&err, Path::new("/elsewhere/hangar"), "ja", InstallHint::Nvm);
+        // Node が見つかっているので、見つからないとは言わない。要る版を持つ別のアーキの Node を先に言う。
+        assert!(
+            text.starts_with(
+                "arm64 用の Node 24.21.0 は見つかりましたが、Hangar は x64 用の Node 22.14 以上が要ります。"
+            ),
+            "{text}"
         );
+        assert!(text.contains(WHY_JA), "{text}");
+        assert!(text.contains("nvm install 22"), "{text}");
+        // HANGAR_HOME を使っていれば、その場所を案内する。
+        let settings = Path::new("/elsewhere/hangar").join("settings.json");
+        assert!(text.contains(&settings.display().to_string()), "{text}");
+        assert!(!text.contains("~/.agent-hangar"), "{text}");
+        // 「無し」の理由が読み分けられる。
+        assert!(
+            text.contains("/a/node: v20.18.0 x64（Node-API 9。Node 22.14 以上が要ります）"),
+            "{text}"
+        );
+        assert!(
+            text.contains("/f/node: v24.21.0 arm64（x64 用が要ります）"),
+            "{text}"
+        );
+        assert!(text.contains("/b/node: ありません"), "{text}");
+        assert!(text.contains("/c/node: 起動できません"), "{text}");
+        assert!(text.contains("/d/node: Node ではありません"), "{text}");
+        assert!(text.contains("/e/node: 5 秒のあいだ応答しません"), "{text}");
     }
 
     // 英語の設定では、見つからない理由も調べた場所も英語で出す（Windows の実機で、ここだけ日本語のまま出ていた）。
+    // CI の rustfmt は日本語の幅を手元と違って数えるので、整形を止めて書いたままにする。
+    #[rustfmt::skip]
     #[test]
     fn describe_error_follows_the_page_language() {
         let err = every_reason();
         let text = describe_error_for(&err, Path::new("/elsewhere/hangar"), "en", InstallHint::Nvm);
-        assert!(text.starts_with("Node 22 (x64) was not found."), "{text}");
+        assert!(
+            text.starts_with(
+                "Node 24.21.0 for arm64 was found, but Hangar needs Node 22.14 or later for x64."
+            ),
+            "{text}"
+        );
+        assert!(text.contains(WHY_EN), "{text}");
         assert!(text.contains("nvm install 22"), "{text}");
         let settings = Path::new("/elsewhere/hangar").join("settings.json");
         assert!(text.contains(&settings.display().to_string()), "{text}");
         assert!(text.contains("Places checked:"), "{text}");
-        assert!(text.contains("/a/node: v24 arm64 (needs 22 x64)"), "{text}");
+        assert!(
+            text.contains("/a/node: v20.18.0 x64 (Node-API 9; Node 22.14 or later is needed)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("/f/node: v24.21.0 arm64 (x64 is needed)"),
+            "{text}"
+        );
         assert!(text.contains("/b/node: not found"), "{text}");
         assert!(text.contains("/c/node: cannot run it"), "{text}");
         assert!(text.contains("/d/node: not Node"), "{text}");
         assert!(text.contains("/e/node: no answer for 5 seconds"), "{text}");
-        assert!(
-            !text
-                .chars()
-                .any(|c| matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ff08}' | '\u{ff09}')),
-            "{text}"
-        );
-        assert_eq!(text.lines().count(), 8, "{text}");
+        assert!(no_kana(&text), "{text}");
     }
 
-    // macOS では、Homebrew の node@22 を入れるだけで足りることを案内する。
-    // 調べた場所はそのまま並べる。
+    // 見つからないときは見つからないと言い、何も無いときの一般の入れ方を案内する。
+    // CI の rustfmt は日本語の幅を手元と違って数えるので、整形を止めて書いたままにする。
+    #[rustfmt::skip]
     #[test]
-    fn describe_error_on_macos_says_brew_install_is_enough() {
+    fn describe_error_without_any_node_says_not_found_and_how_to_install() {
+        let err = not_found(vec![("/a/node", ProbeOutcome::Missing)]);
+        let home = Path::new("/elsewhere/hangar");
+        let ja = describe_error_for(&err, home, "ja", InstallHint::Homebrew);
+        assert!(
+            ja.starts_with("Node 22.14 以上（arm64）が見つかりません。"),
+            "{ja}"
+        );
+        assert!(ja.contains(WHY_JA), "{ja}");
+        assert!(ja.contains("brew install node で入れれば"), "{ja}");
+        let win = describe_error_for(&err, home, "ja", InstallHint::Winget);
+        assert!(win.contains(WINGET_LTS), "{win}");
+        assert!(win.contains("nvm-windows"), "{win}");
+        assert!(!win.contains("zip"), "{win}");
+        let en = describe_error_for(&err, home, "en", InstallHint::Winget);
+        assert!(
+            en.starts_with("Node 22.14 or later (arm64) was not found."),
+            "{en}"
+        );
+        assert!(en.contains(WINGET_LTS), "{en}");
+        assert!(no_kana(&en), "{en}");
+        let nvm = describe_error_for(&err, home, "ja", InstallHint::Nvm);
+        assert!(nvm.contains("nvm install --lts"), "{nvm}");
+    }
+
+    // macOS で古い Node があるときは、既定の node を置き換えない Homebrew の node@22 と nvm を案内する。
+    // CI の rustfmt は日本語の幅を手元と違って数えるので、整形を止めて書いたままにする。
+    #[rustfmt::skip]
+    #[test]
+    fn describe_error_on_macos_with_an_old_node_says_brew_node_at_22() {
         let err = every_reason();
         let home = Path::new("/elsewhere/hangar");
         let settings = home.join("settings.json").display().to_string();
         let ja = describe_error_for(&err, home, "ja", InstallHint::Homebrew);
-        assert!(ja.starts_with("Node 22（x64）が見つかりません。"), "{ja}");
-        assert!(ja.contains("brew install node@22"), "{ja}");
-        assert!(!ja.contains("nvm install"), "{ja}");
+        let lines: Vec<&str> = ja.lines().collect();
+        assert!(lines[2].contains("brew install node@22"), "{ja}");
+        assert!(lines[2].contains("置き換えません"), "{ja}");
+        assert!(lines[2].contains("nvm install 22"), "{ja}");
+        assert!(lines[3].contains(&settings), "{ja}");
+        assert!(lines[3].contains("「node を選ぶ…」"), "{ja}");
+        assert_eq!(lines[4], "調べた場所:", "{ja}");
         assert!(!ja.contains("brew link"), "{ja}");
-        assert!(ja.contains(&settings), "{ja}");
-        assert!(ja.contains("調べた場所:"), "{ja}");
-        assert!(ja.contains("/b/node: ありません"), "{ja}");
-        assert_eq!(ja.lines().count(), 9, "{ja}");
-
         let en = describe_error_for(&err, home, "en", InstallHint::Homebrew);
-        assert!(en.starts_with("Node 22 (x64) was not found."), "{en}");
         assert!(en.contains("brew install node@22"), "{en}");
-        assert!(!en.contains("nvm install"), "{en}");
-        assert!(en.contains(&settings), "{en}");
-        assert!(en.contains("Places checked:"), "{en}");
-        assert!(en.contains("/b/node: not found"), "{en}");
-        assert!(
-            !en.chars()
-                .any(|c| matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}')),
-            "{en}"
-        );
-        assert_eq!(en.lines().count(), 9, "{en}");
+        assert!(en.contains("\"Choose node…\""), "{en}");
+        assert!(no_kana(&en), "{en}");
     }
 
-    // Windows では、winget の 1 行で入れられることを先に案内し、nvm-windows はほかの入れ方として添える。
-    // winget の Node（OpenJS.NodeJS.22）は公式のインストーラで %ProgramFiles%\nodejs に入り、殻はそこを先に探す。
-    // 案内の命令は README の Windows の前提と同じものにする。
+    // Windows で古い Node があるときは、今の Node を置き換えない公式の zip を先に、nvm-windows を添え、
+    // 今の Node を置き換える winget は最後に、置き換わると添えて案内する。
+    // CI の rustfmt は日本語の幅を手元と違って数えるので、整形を止めて書いたままにする。
+    #[rustfmt::skip]
     #[test]
-    fn describe_error_on_windows_says_winget_first_and_nvm_windows_too() {
+    fn describe_error_on_windows_with_an_old_node_says_zip_first_and_winget_last() {
         let err = every_reason();
         let home = Path::new("/elsewhere/hangar");
         let settings = home.join("settings.json").display().to_string();
         let ja = describe_error_for(&err, home, "ja", InstallHint::Winget);
-        assert!(ja.starts_with("Node 22（x64）が見つかりません。"), "{ja}");
-        let ja_lines: Vec<&str> = ja.lines().collect();
-        assert!(ja_lines[1].contains(WINGET_NODE_22), "{ja}");
-        assert!(ja_lines[2].contains("nvm-windows"), "{ja}");
-        assert!(ja_lines[2].contains("nvm install 22"), "{ja}");
-        assert!(ja_lines[3].contains(&settings), "{ja}");
-        assert!(!ja.contains("brew"), "{ja}");
-        assert!(ja.contains("調べた場所:"), "{ja}");
-        assert!(ja.contains("/b/node: ありません"), "{ja}");
-        assert_eq!(ja.lines().count(), 10, "{ja}");
-
-        let en = describe_error_for(&err, home, "en", InstallHint::Winget);
-        assert!(en.starts_with("Node 22 (x64) was not found."), "{en}");
-        let en_lines: Vec<&str> = en.lines().collect();
-        assert!(en_lines[1].contains(WINGET_NODE_22), "{en}");
-        assert!(en_lines[2].contains("nvm-windows"), "{en}");
-        assert!(en_lines[2].contains("nvm install 22"), "{en}");
-        assert!(en_lines[3].contains(&settings), "{en}");
-        assert!(!en.contains("brew"), "{en}");
-        assert!(en.contains("Places checked:"), "{en}");
+        let lines: Vec<&str> = ja.lines().collect();
+        assert!(lines[2].contains("zip（x64）"), "{ja}");
         assert!(
-            !en.chars()
-                .any(|c| matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}')),
-            "{en}"
+            lines[2].contains("%LOCALAPPDATA%\\Programs\\node22"),
+            "{ja}"
         );
-        assert_eq!(en.lines().count(), 10, "{en}");
+        assert!(lines[3].contains("nvm-windows"), "{ja}");
+        assert!(lines[3].contains("nvm install 22"), "{ja}");
+        assert!(lines[4].contains(WINGET_LTS), "{ja}");
+        assert!(lines[4].contains("置き換わります"), "{ja}");
+        assert!(lines[5].contains(&settings), "{ja}");
+        assert!(lines[5].contains("「node.exe を選ぶ…」"), "{ja}");
+        assert!(!ja.contains("brew"), "{ja}");
+        assert_eq!(lines[6], "調べた場所:", "{ja}");
+        let en = describe_error_for(&err, home, "en", InstallHint::Winget);
+        let en_lines: Vec<&str> = en.lines().collect();
+        assert!(en_lines[2].contains("zip"), "{en}");
+        assert!(en_lines[3].contains("nvm-windows"), "{en}");
+        assert!(en_lines[4].contains(WINGET_LTS), "{en}");
+        assert!(en_lines[5].contains("\"Choose node.exe…\""), "{en}");
+        assert!(no_kana(&en), "{en}");
     }
 
-    /// README の Windows の前提と同じ、winget で Node 22 を入れる命令。
-    const WINGET_NODE_22: &str = "winget install -e --id OpenJS.NodeJS.22";
+    /// 何も無いときに案内する、winget で Node の LTS を入れる命令。頁（boot-fail.js）、launch-cli.ts、hangar.cmd、README と同じ。
+    const WINGET_LTS: &str = "winget install -e --id OpenJS.NodeJS.LTS";
+
+    // 「node を選ぶ…」で選んだ 1 つを、設定の欄と同じ条件で確かめる。
+    #[test]
+    fn a_picked_node_is_checked_with_the_same_rule() {
+        let m = manifest();
+        let p = Path::new("/picked/node");
+        let answer = |o: ProbeOutcome| check_picked(p, &m, |_| o.clone());
+        assert_eq!(answer(ok("24.21.0", "arm64", 10)), Picked::Ok);
+        assert_eq!(
+            answer(ok("20.18.0", "arm64", 9)),
+            Picked::Version {
+                found: "20.18.0".into()
+            }
+        );
+        assert_eq!(
+            answer(ok("22.14.0", "x64", 10)),
+            Picked::Arch {
+                found_arch: "x64".into()
+            }
+        );
+        for o in [
+            ProbeOutcome::Missing,
+            ProbeOutcome::NotExecutable,
+            ProbeOutcome::Failed,
+            ProbeOutcome::TimedOut,
+        ] {
+            assert_eq!(answer(o), Picked::NotNode);
+        }
+        // 頁（boot-fail.js の pickText）が読む形。
+        let path = p.display().to_string();
+        assert_eq!(
+            pick_answer(
+                p,
+                &Picked::Version {
+                    found: "20.18.0".into()
+                },
+                &m
+            ),
+            serde_json::json!({"result": "version", "path": path, "found": "20.18.0", "min": "22.14", "arch": "arm64"})
+        );
+        assert_eq!(
+            pick_answer(
+                p,
+                &Picked::Arch {
+                    found_arch: "x64".into()
+                },
+                &m
+            ),
+            serde_json::json!({"result": "arch", "path": path, "foundArch": "x64", "min": "22.14", "arch": "arm64"})
+        );
+        assert_eq!(pick_answer(p, &Picked::NotNode, &m)["result"], "notNode");
+        assert_eq!(pick_answer(p, &Picked::Ok, &m)["result"], "ok");
+    }
+
+    // 合った Node は設定の nodePath に書く。ほかの項目は残し、ファイルは利用者だけが読める形（0600）にする。
+    #[test]
+    fn save_node_path_keeps_the_other_settings() {
+        let home = tempfile::tempdir().unwrap();
+        let file = home.path().join("settings.json");
+        std::fs::write(
+            &file,
+            r#"{ "language": "en", "nodePath": "/old/node", "workspaceRoot": "/w" }"#,
+        )
+        .unwrap();
+        save_node_path(home.path(), Path::new("/new/node")).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({ "language": "en", "nodePath": "/new/node", "workspaceRoot": "/w" })
+        );
+        assert_eq!(
+            settings_node_path(home.path()),
+            Some(PathBuf::from("/new/node"))
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // 設定が無ければ作る。
+        let fresh = tempfile::tempdir().unwrap();
+        save_node_path(fresh.path(), Path::new("/n/node")).unwrap();
+        assert_eq!(
+            settings_node_path(fresh.path()),
+            Some(PathBuf::from("/n/node"))
+        );
+        // 読めない設定は上書きしない（ほかの項目を消さない）。
+        std::fs::write(&file, "{ broken").unwrap();
+        assert!(save_node_path(home.path(), Path::new("/x/node")).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{ broken");
+    }
 
     #[test]
     fn install_hint_is_homebrew_on_macos_winget_on_windows_and_nvm_elsewhere() {
@@ -1516,10 +1950,17 @@ mod tests {
         ));
         std::fs::write(
             dir.path().join("manifest.json"),
-            r#"{ "version": "0.1.0", "nodeMajor": 22, "arch": "arm64", "builtAt": "x" }"#,
+            r#"{ "version": "0.1.0", "nodeApi": 10, "nodeMin": "22.14", "arch": "arm64", "builtAt": "x" }"#,
         )
         .unwrap();
         assert_eq!(read_manifest(dir.path()).unwrap(), manifest());
+        // 0.6.0 までの形（メジャー版だけ）は壊れているとみなす。殻と束は同じ版で配るので、混ざらない。
+        std::fs::write(
+            dir.path().join("manifest.json"),
+            r#"{ "version": "0.1.0", "nodeMajor": 22, "arch": "arm64" }"#,
+        )
+        .unwrap();
+        assert!(read_manifest(dir.path()).is_err());
         std::fs::write(dir.path().join("manifest.json"), "{").unwrap();
         let broken = read_manifest(dir.path()).unwrap_err();
         assert!(
@@ -1554,13 +1995,10 @@ mod tests {
     #[test]
     fn probe_node_runs_the_child_and_reads_its_answer() {
         let dir = tempfile::tempdir().unwrap();
-        let ok = fake_node(dir.path(), "echo v22.14.0 arm64");
+        let ok = fake_node(dir.path(), "echo v22.14.0 arm64 10");
         assert_eq!(
             probe_node(&ok),
-            ProbeOutcome::Ok(NodeProbe {
-                major: 22,
-                arch: "arm64".into()
-            })
+            ProbeOutcome::Ok(probe("22.14.0", "arm64", 10))
         );
 
         let bad = tempfile::tempdir().unwrap();
@@ -1578,7 +2016,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("node");
-        std::fs::write(&p, "#!/bin/sh\necho v22.14.0 arm64\n").unwrap();
+        std::fs::write(&p, "#!/bin/sh\necho v22.14.0 arm64 10\n").unwrap();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert_eq!(probe_node(&p), ProbeOutcome::NotExecutable);
     }

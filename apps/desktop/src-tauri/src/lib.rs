@@ -624,13 +624,12 @@ fn accept_server_dir(
     inside.then_some(dir)
 }
 
-/// 同梱のサーバの置き場と、それを走らせる Node を決める。
-/// サーバを起こすときと、設定の同期の命令（CLI の cli.mjs は同じ置き場にある）が使う。
-/// Node が見つからないときは専用の種類（`node-missing`）で返し、頁が入れるコマンドを主にした札を出す。
-fn bundled_node_and_dir(
+/// 同梱のサーバの置き場と、その manifest.json を読む。
+/// サーバを起こすとき（`bundled_node_and_dir`）と、起動の失敗の札の「node を選ぶ…」（`pick_node`）が使う。
+fn bundled_dir_and_manifest(
     app: &AppHandle,
     hangar_home: &std::path::Path,
-) -> Result<(std::path::PathBuf, std::path::PathBuf), bootfail::BootFailure> {
+) -> Result<(std::path::PathBuf, node::Manifest), bootfail::BootFailure> {
     // Windows の resource_dir は `\\?\C:\…`（verbatim）の形で来る。子へ渡す前に普通の形へ直す。
     // Node 22.20 以降はその形の主スクリプトを読めず、起動の直後に落ちる。
     // 文は失敗したときだけ頁の言語で作る（言語を決めるのに OS へ聞くことがあるので、成功の道では聞かない）。
@@ -656,9 +655,22 @@ fn bundled_node_and_dir(
         .ok_or_else(|| say(hangar_home, bootmsg::Msg::ServerDirDevOnly))?;
     server::strip_quarantine(&dir);
     let manifest = node::read_manifest(&dir).map_err(|m| say(hangar_home, m))?;
+    Ok((dir, manifest))
+}
+
+/// 同梱のサーバの置き場と、それを走らせる Node を決める。
+/// サーバを起こすときと、設定の同期の命令（CLI の cli.mjs は同じ置き場にある）が使う。
+/// 合う Node が無いときは、見つからない、版が古い、アーキテクチャが違うを種類で分けて返し（`node::failure_kind`）、
+/// 頁が入れ方を主にした札を出す。
+fn bundled_node_and_dir(
+    app: &AppHandle,
+    hangar_home: &std::path::Path,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), bootfail::BootFailure> {
+    let (dir, manifest) = bundled_dir_and_manifest(app, hangar_home)?;
     let candidates = node::candidate_paths(&paths::user_home(), hangar_home);
     let node_path = node::choose_node(&candidates, &manifest, node::probe_node).map_err(|e| {
-        bootfail::BootFailure::node_missing(
+        bootfail::BootFailure::node(
+            node::failure_kind(&e),
             node::failure_params(&e),
             node::describe_error(&e, bootfail::page_language(hangar_home)),
         )
@@ -900,6 +912,7 @@ fn spawn_boot(app: AppHandle) -> bool {
 // ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）と、連携の書き込み（setup_integration）と、承諾の窓の 2 つ（approve_view、approve_answer。承諾の窓の頁だけ）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // pick_folder、boot_probe、restore_config_sync、setup_integration、approve_answer のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+// pick_node（起動画面だけ）も引数を受け取らない。選ぶのは利用者で、確かめる条件と書く先は殻が決める。
 
 /// 起動画面が口を作り終えた時点で引き取る、起動の今の様子（`Ui::boot_state`）。
 /// 口が出来る前に殻が評価で渡した失敗、進み具合、合図は捨てられるので、頁の側から取りに来る。
@@ -975,6 +988,58 @@ async fn pick_folder(app: AppHandle, default_path: Option<String>) -> Option<Str
         .into_path()
         .ok()
         .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// 起動の失敗の札（Node の札）の「node を選ぶ…」。ファイルの選択を開き、選んだ Node を確かめる。
+/// 確かめる条件は、殻が Node を探すときと、設定の画面の「Node のパス」と同じ（Node-API が manifest.json の nodeApi 以上で、アーキテクチャが同じ）。
+/// 合えば `<HANGAR_HOME>/settings.json` の `nodePath` に書く。頁はその答えを見て起動をやり直す。
+/// 答えは `node::pick_answer` の形で、取り消したら `{"result":"cancel"}`、書けなければ `{"result":"saveFailed","error":…}` を返す。
+/// 引数は受け取らない。nodePath は次の起動で殻が起こす実行ファイルなので、頁からパスを受け取らず、利用者がダイアログで選んだものだけを書く。
+/// 起動画面（capabilities/boot-screen.json）だけに与え、UI の出どころには与えない。
+#[tauri::command]
+async fn pick_node(app: AppHandle) -> serde_json::Value {
+    use tauri_plugin_dialog::DialogExt;
+    let home = paths::hangar_home();
+    let manifest = match bundled_dir_and_manifest(&app, &home) {
+        Ok((_, m)) => m,
+        Err(f) => return serde_json::json!({ "result": "other", "error": f.detail }),
+    };
+    let mut builder = app.dialog().file();
+    if let Some(parent) = dialog_parent(cfg!(windows), app.get_webview_window("main")) {
+        builder = builder.set_parent(&parent);
+    }
+    if cfg!(windows) {
+        builder = builder.add_filter("node.exe", &["exe"]);
+        // 札の手順は %LOCALAPPDATA%\Programs に展開するよう勧めるので、そこから開く。
+        if let Some(dir) = std::env::var_os("LOCALAPPDATA")
+            .map(|d| std::path::PathBuf::from(d).join("Programs"))
+            .filter(|d| d.is_dir())
+        {
+            builder = builder.set_directory(dir);
+        }
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || builder.blocking_pick_file())
+        .await
+        .ok()
+        .flatten()
+        .and_then(|p| p.into_path().ok());
+    let Some(path) = picked else {
+        return serde_json::json!({ "result": "cancel" });
+    };
+    // 候補を起こして訊くので、最大で PROBE_TIMEOUT（5 秒）かかる。非同期の実行の糸を塞がない。
+    let (p, m) = (path.clone(), manifest.clone());
+    let checked =
+        tauri::async_runtime::spawn_blocking(move || node::check_picked(&p, &m, node::probe_node))
+            .await
+            .unwrap_or(node::Picked::NotNode);
+    log(&format!("picked node {} ({:?})", path.display(), checked));
+    if checked == node::Picked::Ok {
+        if let Err(e) = node::save_node_path(&home, &path) {
+            log(&format!("could not save nodePath: {e}"));
+            return serde_json::json!({ "result": "saveFailed", "error": e });
+        }
+    }
+    node::pick_answer(&path, &checked, &manifest)
 }
 
 /// 設定の同期の確認と、その後の CLI の呼び出しに要るもの。
@@ -2035,6 +2100,7 @@ pub fn run() {
             boot_probe,
             open_log,
             pick_folder,
+            pick_node,
             restart_app,
             retry_boot,
             notify_waiting,

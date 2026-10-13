@@ -134,7 +134,7 @@ describe('CI の段', () => {
     expect(sh).toContain('PATH=/usr/bin:/bin:/usr/sbin:/sbin');
     expect(sh).toContain('nodePath');
     expect(sh).toContain('boot-probe-check.ts');
-    // Node が見つからないときの札は、専用の種類（node-missing）で出る（bootfail.rs の node_missing）。
+    // Node が見つからないときの札は、専用の種類（node-missing）で出る（node.rs の failure_kind）。
     expect(sh).toContain('--kind node-missing');
     expect(sh).not.toContain('--kind other');
   });
@@ -160,8 +160,8 @@ describe('CI の段', () => {
     expect(ps).toContain('$env:ProgramFiles = ');
     expect(ps).toContain('$env:ProgramW6432 = ');
     expect(ps).toContain('boot-probe-check.ts');
-    // Windows の札は、winget の命令（node.rs の winget_command）を案内していることまで見る。
-    expect(ps).toMatch(/--detail '[^']*winget install -e --id OpenJS\\\.NodeJS\\\.\[0-9\]\+'/);
+    // Windows の札は、Node が何も無いとき、winget で LTS を入れる命令（node.rs の WINGET_LTS）を案内していることまで見る。
+    expect(ps).toMatch(/--detail '[^']*winget install -e --id OpenJS\\\.NodeJS\\\.LTS'/);
     expect(ps).toContain('--kind node-missing');
     expect(ps).not.toContain('--kind other');
   });

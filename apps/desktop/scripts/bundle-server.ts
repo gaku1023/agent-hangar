@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bundleWorker, WORKER_METADATA, WORKER_MODULE, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
+import { NODE_API_MIN, NODE_MIN_LABEL } from '../../../packages/server/src/config/nodeRule.ts';
 
 /**
  * 配布物を作る相手。`<process.platform>-<process.arch>` の形で、prebuild の置き場の名前と同じである。
@@ -17,18 +18,18 @@ export function hostBundleTarget(platform: string = process.platform, arch: stri
 }
 
 /**
- * 束が要る Node のメジャー版。`manifest.json` の `nodeMajor` に書き、殻（node.rs）、`bin/hangar`、`launch-cli.mjs` は、この版と完全に一致する Node だけを使う。
- * build した機械の Node から取ると、別の版の Node で作った束が、その版を要ると名乗って配られる。
- * ネイティブモジュールは npm ci を走らせた Node に合わせて入るので、違う版の Node で作った束は、名乗った版でも動く保証が無い。
- * そこで版はここに固定し、build している Node のメジャー版が違えば止める。
- * 版を上げるときは、ここと、CI の setup-node と、起動の失敗の札（loading/boot-fail.js の DEFAULT_NODE_MAJOR）を一緒に上げる。
+ * 束を作る Node のメジャー版。build している Node のメジャー版が違えば止める。
+ * 束が要る Node は、これではなく規則の値（packages/server/src/config/nodeRule.ts の NODE_API_MIN と NODE_MIN_LABEL）で、`manifest.json` の `nodeApi` と `nodeMin` に書く。
+ * 殻（node.rs）、`bin/hangar`、`launch-cli.mjs` は、Node-API が `nodeApi` 以上でアーキが同じ Node を使う。
+ * 同梱のネイティブモジュール（better-sqlite3、node-pty）は Node-API の prebuild なので作る Node の版に縛られないが、CI と配布の build の道筋を 1 つに固めておく。
+ * 版を上げるときは、ここと CI の setup-node を一緒に上げる。
  */
 export const BUNDLE_NODE_MAJOR = 22;
 
 /**
  * Windows の `bin\hangar.cmd` が `launch-cli.mjs` を動かしてよい最も古い Node のメジャー版。
  * `launch-cli.mjs` はこの版を target に作る。cmd はこれより古い Node を飛ばし、次の候補へ進む（PATH の先頭の古い Node で構文の誤りで落ちないように）。
- * `launch-cli.mjs` は版とアーキテクチャを確かめて、合う Node（BUNDLE_NODE_MAJOR）へ渡し直すだけなので、古い版でも読めればよい。
+ * `launch-cli.mjs` は Node-API の版とアーキテクチャを確かめて、合う Node へ渡し直すだけなので、古い版でも読めればよい。
  */
 export const LAUNCHER_MIN_NODE = 16;
 
@@ -206,7 +207,8 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
 
   const pkg = JSON.parse(fs.readFileSync(path.join(opts.repoRoot, 'apps/desktop/package.json'), 'utf8')) as { version: string };
   // manifest の arch は、束の相手のもの。別の target の束を作るときに、作る機械のものを書かないためである。
-  const manifest = { version: pkg.version, nodeMajor: BUNDLE_NODE_MAJOR, arch: target.split('-')[1]!, builtAt: new Date().toISOString() };
+  // nodeApi は要る Node-API の版、nodeMin はそれを持つ最初の Node の版（案内に出すだけ）。値は nodeRule.ts の 1 か所で決める。
+  const manifest = { version: pkg.version, nodeApi: NODE_API_MIN, nodeMin: NODE_MIN_LABEL, arch: target.split('-')[1]!, builtAt: new Date().toISOString() };
   fs.writeFileSync(path.join(opts.outDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   // git が server-dist を追跡し続けられるように置き直す。
   // ディレクトリごと消すと tauri-build の resources の検査が通らなくなる。

@@ -105,12 +105,13 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const issue = toolPathIssue(raw);
       if (issue) return c.json({ error: issue.key === 'settings.path.notOnPath' ? tr(issue.key, { label: label(key), name: issue.name }) : tr(issue.key, { label: label(key), path: issue.path }) }, 400);
       const t = checkToolPath(raw);
-      // Node は、殻と同じ条件（manifest.json と同じメジャー版とアーキテクチャ）で確かめる。
+      // Node は、殻と同じ条件（Node-API が manifest.json の nodeApi 以上で、アーキテクチャが同じ）で確かめる。
       // 合わない Node を保存すると、画面では ✓ に見えても、次の起動で殻はその Node を使わず、ほかの場所を探す。
       if (key === 'nodePath' && t.path !== null) {
         const bad = await nodeBuildIssue(t.path, nodeCheck);
         if (bad?.kind === 'notNode') return c.json({ error: tr('settings.node.notNode', { label: label(key), path: t.path }) }, 400);
-        if (bad?.kind === 'mismatch') return c.json({ error: tr('settings.node.mismatch', { label: label(key), path: t.path, found: bad.found.major, foundArch: bad.found.arch, major: bad.need.major, arch: bad.need.arch }) }, 400);
+        if (bad?.kind === 'mismatch' && bad.fit === 'version') return c.json({ error: tr('settings.node.tooOld', { label: label(key), path: t.path, found: bad.found.version, min: bad.need.min, napi: bad.need.napi }) }, 400);
+        if (bad?.kind === 'mismatch') return c.json({ error: tr('settings.node.wrongArch', { label: label(key), path: t.path, foundArch: bad.found.arch, arch: bad.need.arch }) }, 400);
       }
       // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。
       patch[key] = name ? raw : t.path;

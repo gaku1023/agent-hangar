@@ -8,7 +8,7 @@ import { writeFakeTool } from '../../test/fake-bin.ts';
 import { isWindows } from '../../test/platform.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { STATUSLINE_MARKER } from '../provider/claude-code/config/statusline.ts';
-import type { NodeCheck } from './node.ts';
+import type { NodeBuild, NodeCheck } from './node.ts';
 import type { Settings } from './paths.ts';
 import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, recheckMuxPath, toolPathIssue, ToolVersions } from './readiness.ts';
 
@@ -29,8 +29,10 @@ function fakeTool(name: string, line: string, mode = 0o755): string {
   return writeFakeTool(path.join(tmp, 'bin'), name, { sh: `echo '${line}'`, cmd: `echo ${line}` }, mode);
 }
 
-/** 要る Node を 22（arm64）とし、どの候補にも found と答える確かめ。 */
-const nodeCheckAnswering = (found: { major: number; arch: string } | null): NodeCheck => ({ need: () => ({ major: 22, arch: 'arm64' }), probe: async () => found });
+/** 要る Node を Node-API 10（22.14 以上、arm64）とし、どの候補にも found と答える確かめ。 */
+const NEED = { napi: 10, min: '22.14', arch: 'arm64' };
+const nodeCheckAnswering = (found: NodeBuild | null): NodeCheck => ({ need: () => NEED, probe: async () => found });
+const v22 = { version: '22.14.0', napi: 10, arch: 'arm64' };
 
 const baseSettings = (over: Partial<Settings> = {}): Settings => ({
   workspaceRoot: path.join(tmp, 'ws'), claudeDir: path.join(tmp, 'claude'), tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' },
@@ -228,7 +230,7 @@ describe('createReadiness', () => {
     const settings = baseSettings({ tmuxPath: tmux, claudePath: claude, nodePath: node, workspaceRoot: ws, claudeDir });
     const git = fakeTool('git', 'git version 2.51.0');
     const editor = async () => ({ id: 'cursor' as const, state: 'app' as const, path: '/Applications/Cursor.app' });
-    const read = createReadiness({ settings: () => settings, claudeDir, claudeJson, homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', timeoutMs: 3000, nodeCheck: nodeCheckAnswering({ major: 22, arch: 'arm64' }), findGit: () => git, editor });
+    const read = createReadiness({ settings: () => settings, claudeDir, claudeJson, homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', timeoutMs: 3000, nodeCheck: nodeCheckAnswering(v22), findGit: () => git, editor });
     const r = await read();
     expect(r.tools.tmux).toEqual({ path: tmux, ok: true, problem: null, version: '3.4' });
     expect(r.tools.claude).toEqual({ path: claude, ok: true, problem: null, version: '2.3.1' });
@@ -259,26 +261,31 @@ describe('createReadiness', () => {
   });
   // 殻は manifest.json と同じメジャー版とアーキの Node だけを使う。設定の画面も同じ条件で見て、使われない Node に ✓ を付けない。
   describe('Node の設定', () => {
-    const readNode = async (nodePath: string, found: { major: number; arch: string } | null) =>
+    const readNode = async (nodePath: string, found: NodeBuild | null) =>
       (await createReadiness({ settings: () => baseSettings({ nodePath }), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', nodeCheck: nodeCheckAnswering(found) })()).tools.node;
-    it('同梱のサーバと違うメジャー版かアーキの Node は、新しい版でも ✗ にし、見つけたものと要るものを添える', async () => {
-      const node = fakeTool('node', 'v24.1.0');
-      expect(await readNode(node, { major: 24, arch: 'arm64' })).toEqual({ path: node, ok: false, problem: 'wrongNode', version: 'v24.1.0', auto: false, found: { major: 24, arch: 'arm64' }, need: { major: 22, arch: 'arm64' } });
-      expect(await readNode(node, { major: 22, arch: 'x64' })).toMatchObject({ ok: false, problem: 'wrongNode', found: { major: 22, arch: 'x64' } });
+    it('Node-API が足りないか、アーキが違う Node は ✗ にし、見つけたものと要るものを添える', async () => {
+      const node = fakeTool('node', 'v20.18.0');
+      const old = { version: '20.18.0', napi: 9, arch: 'arm64' };
+      expect(await readNode(node, old)).toEqual({ path: node, ok: false, problem: 'wrongNode', version: 'v20.18.0', auto: false, found: old, need: NEED });
+      expect(await readNode(node, { version: '22.14.0', napi: 10, arch: 'x64' })).toMatchObject({ ok: false, problem: 'wrongNode', found: { arch: 'x64' } });
+    });
+    it('新しい版の Node は ✓ にする（上限は付けない）', async () => {
+      const node = fakeTool('node', 'v24.21.0');
+      expect(await readNode(node, { version: '24.21.0', napi: 10, arch: 'arm64' })).toMatchObject({ ok: true, problem: null });
     });
     it('Node として答えないファイルは ✗ にする', async () => {
       const node = fakeTool('node', 'v22.9.0');
       expect(await readNode(node, null)).toMatchObject({ path: node, ok: false, problem: 'notNode', auto: false });
     });
     it('名前だけや相対のパスは、殻が使えないので ✗ にする（PATH からは探さない）', async () => {
-      expect(await readNode('node', { major: 22, arch: 'arm64' })).toEqual({ path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false });
-      expect(await readNode('./node', { major: 22, arch: 'arm64' })).toMatchObject({ ok: false, problem: 'notAbsolute' });
+      expect(await readNode('node', v22)).toEqual({ path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false });
+      expect(await readNode('./node', v22)).toMatchObject({ ok: false, problem: 'notAbsolute' });
     });
     it('~ で始まる値は、展開すれば実在しても ✗ にする（殻は ~ を展開しない）', async () => {
       const node = fakeTool('node', 'v22.9.0');
       const home = `~/${path.relative(tmp, node).split(path.sep).join('/')}`;
       expect(fs.existsSync(expandHome(home, tmp))).toBe(true);
-      expect(await readNode(home, { major: 22, arch: 'arm64' })).toEqual({ path: home, ok: false, problem: 'notAbsolute', version: null, auto: false });
+      expect(await readNode(home, v22)).toEqual({ path: home, ok: false, problem: 'notAbsolute', version: null, auto: false });
     });
   });
   it('設定が書き替わったら、次の呼び出しで新しい設定を読む（結果を持ちっぱなしにしない）', async () => {
