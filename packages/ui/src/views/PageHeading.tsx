@@ -10,7 +10,7 @@ import type { ParentLink } from '../presenters/heading.ts';
  * hero はセッションの上段の印で、一覧の行からこの行へ広がる動き（runtime/present.ts）が探す。
  * 窓が狭くて見出しの行に入り切らないときは、ボタンの名前（.btn-label）を隠して印だけにする（fitRow）。
  */
-export function PageHeading(props: { title: string; parent?: ParentLink | null; lead?: ReactNode; children?: ReactNode; titleClassName?: string; rowClassName?: string; hero?: string }) {
+export function PageHeading(props: { title: string; parent?: ParentLink | null; lead?: ReactNode; children?: ReactNode; titleClassName?: string; rowClassName?: string; hero?: string; /** 見出しの行の下、区切りの線の上に置くもの（セッション画面の押せない理由の行など）。 */ below?: ReactNode }) {
   const emit = useEmit();
   const parent = props.parent ?? null;
   const rowRef = useRef<HTMLDivElement>(null);
@@ -38,6 +38,7 @@ export function PageHeading(props: { title: string; parent?: ParentLink | null; 
         <h1 className={props.titleClassName ? `page-title ${props.titleClassName}` : 'page-title'} title={props.title}>{props.title}</h1>
         {props.children}
       </div>
+      {props.below}
     </div>
   );
 }

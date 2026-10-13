@@ -37,3 +37,26 @@
 /* 他端末が握っている間の札。応答が途絶えたら警告の色にする。 */
 .lock { color: var(--accent); }
 .warn { color: var(--waiting); }
+
+/* 「この PC で再開」の確認（試作の 2a の A）。前の PC とこの PC の 2 枚のカードを矢印でつなぎ、下に同期されないものの黄の帯を置く。 */
+.rh-dialog { width: 560px; }
+.rh-cards { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: calc(var(--u) * 2.5); align-items: stretch; }
+.rh-card { min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: 12px; background: var(--surface); box-shadow: var(--surface-shadow), inset 0 0 0 1px var(--line); }
+.rh-card[data-here='true'] { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.rh-card-k { font-size: var(--fs-xs); color: var(--ink-3); }
+.rh-card-n { font-weight: 700; overflow-wrap: anywhere; }
+.rh-card-o { font-size: var(--fs-sm); color: var(--ink-2); }
+/* パスが長いときは折り返す（2c）。 */
+.rh-card-p { margin-top: calc(var(--u) * 1.5); font-size: var(--fs-sm); word-break: break-all; }
+.rh-card-at { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); color: var(--ink-2); }
+.rh-arrow { align-self: center; color: var(--ink-3); font-size: 18px; }
+.rh-band { display: flex; gap: calc(var(--u) * 2); align-items: flex-start; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: 10px; font-size: var(--fs-sm); color: var(--st-paused); background: var(--st-paused-soft); }
+.rh-band > svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.rh-band b { display: block; color: var(--st-paused); }
+.rh-band span { color: var(--ink-2); }
+.rh-blocked { font-size: var(--fs-sm); color: var(--ink-2); }
+.rh-dialog .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+@media (max-width: 560px) {
+  .rh-cards { grid-template-columns: minmax(0, 1fr); }
+  .rh-arrow { transform: rotate(90deg); justify-self: center; }
+}

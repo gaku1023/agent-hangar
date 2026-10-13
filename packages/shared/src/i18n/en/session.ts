@@ -156,6 +156,8 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.action.stop': 'Stop',
   'session.action.resumeHere': 'Resume on this computer',
   'session.action.resumeHereBlocked': 'Running on {device}. Available once it stops or stops responding',
+  'session.action.resumeHereNoRoot': 'This computer has no folder for this project. Set its location first.',
+  'session.action.setLocation': 'Set location',
   'session.action.otherComputer': 'Another computer',
   'session.gone.note': 'The transcript appears to have been deleted because it passed the Claude Code retention period ({period}). Only the summary remains.',
   'session.lead.summarizerUnknown': 'Unknown / {model}',

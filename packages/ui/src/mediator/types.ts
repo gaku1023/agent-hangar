@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
@@ -35,6 +35,8 @@ export type RuntimeEvent =
   | { type: 'turnJump.done'; sessionId: string; seq: number; status: TurnJumpStatus }
   // サーバが 409 で断ったときに、ランタイムがこの形に直して返す。
   | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number }
+  // 「この PC で再開」の確認に出すもの（GET /api/sessions/:id/resume-here）が届いた。
+  | { type: 'resumeHere.plan'; plan: ResumeHerePlanDto }
   // 保持期間を書き込んだ結果。409 は下見の後にファイルが変わったことを表す。
   | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string }
   | { type: 'retention.previewFailed'; days: number; message: string }
@@ -140,6 +142,7 @@ export type Effect =
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
+  | { kind: 'api.resumeHerePlan'; sessionId: string }
   | { kind: 'api.joinToken' }
   // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
   | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
@@ -160,6 +163,8 @@ export type FocusTarget = 'newSessionName' | 'terminal' | 'palette' | 'promoteNa
  * 見つからないプロジェクトを一覧から削除する場面である。
  */
 export type ConfirmRequest =
+  // ほかの PC で進めた会話をこの PC で再開する前の確認（前の PC とこの PC、同期されないもの）。毎回出す。
+  | { kind: 'resumeHere'; sessionId: string; plan: ResumeHerePlanDto }
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
   | { kind: 'killRun'; runId: string; working: boolean; aside?: boolean; shellTabs: number }

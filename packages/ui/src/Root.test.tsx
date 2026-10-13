@@ -486,7 +486,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
     await flush();
     expect(screen.getByRole('dialog', { name: 'トランスクリプトを置き換えますか' })).toBeInTheDocument();
-    expect(screen.getByText('他の PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
+    expect(screen.getByText('ほかの PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
     // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
     key({ key: 'Escape' });
     await flush();

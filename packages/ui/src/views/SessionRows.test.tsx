@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
@@ -455,6 +455,22 @@ describe('セッションの状態の札と「⋯」', () => {
     fireEvent.click(screen.getAllByRole('menuitem')[1]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
     expect(opened(onAction)).toEqual([]);
+  });
+  it('ほかの PC の会話の「⋯」には、最後に「この PC で再開」を足し、押せないときは理由を添える', () => {
+    mount([sr('c')]);
+    fireEvent.click(screen.getByRole('button', { name: '名前 c のステータス' }));
+    expect(labels()).not.toContain('この PC で再開');
+    cleanup();
+    const onAction = mount([sr('a', { resumeHere: { disabled: null } }), sr('b', { resumeHere: { disabled: 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。' } })]);
+    fireEvent.click(screen.getByRole('button', { name: '名前 a のステータス' }));
+    expect(labels()).toEqual(['Paused にする…', 'Done にする', 'Archived にする', 'Active に戻す', 'この PC で再開']);
+    fireEvent.click(screen.getAllByRole('menuitem')[4]!);
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 'a' });
+    expect(opened(onAction)).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: '名前 b のステータス' }));
+    const blocked = screen.getAllByRole('menuitem')[4]!;
+    expect(blocked).toHaveAttribute('aria-disabled', 'true');
+    expect(blocked).toHaveTextContent('この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。');
   });
   it('付いている状態は選べず、Active に戻すは選べる。Active の行では「すでに Active です」と添えて押せない', () => {
     const onAction = mount([sr('a', { state: 'done' }), sr('b')]);

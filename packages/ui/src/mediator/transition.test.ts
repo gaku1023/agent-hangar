@@ -1352,6 +1352,28 @@ describe('この PC で再開', () => {
     expect(r.state.overlay).toEqual({ kind: 'palette' });
     expect(r.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
   });
+  it('押したら確認に出すものを取りに行き、届いたら確認の 1 枚を出し、承諾で写して再開する', () => {
+    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' } };
+    const a = run([action({ type: 'session.resumeHere.open', id: 's1' })]);
+    expect(a.effects).toEqual([{ kind: 'api.resumeHerePlan', sessionId: 's1' }]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.state.launch).toEqual({ kind: 'idle' });
+    const b = run([runtime({ type: 'resumeHere.plan', plan })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'resumeHere', sessionId: 's1', plan } });
+    const c = run([action({ type: 'session.resumeHere', id: 's1' })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+    expect(c.state.launch).toEqual({ kind: 'submitting' });
+    expect(c.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
+  });
+  it('確認の 1 枚は閉じれば何も送らず、送信中は取りに行かない', () => {
+    const plan = { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: null, path: null } };
+    const open = run([runtime({ type: 'resumeHere.plan', plan })]);
+    const closed = run([action({ type: 'overlay.close' })], open.state);
+    expect(closed.state.overlay).toEqual({ kind: 'none' });
+    expect(closed.effects).toEqual([]);
+    const busy = run([action({ type: 'session.resumeHere', id: 's2' }), action({ type: 'session.resumeHere.open', id: 's1' })]);
+    expect(busy.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's2', overwrite: false }]);
+  });
   it('409 の確認は他端末のセッションごとに置き換わる', () => {
     const a = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
     const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's2', localSize: 3, remoteSize: 4 })], a.state);

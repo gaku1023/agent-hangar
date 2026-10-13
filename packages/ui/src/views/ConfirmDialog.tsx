@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfirmRequest } from '../mediator/types.ts';
 import type { ConfirmProjectProps } from '../presenters/confirm.ts';
+import type { ResumeHereCard, ResumeHereProps } from '../presenters/resumeHere.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -18,12 +20,13 @@ const BACKUP_DIR = '~/.agent-hangar/backups/transcripts/';
  * どうするかを決めるのは利用者なので、View は起きることを並べるだけで判断をしない。
  * 開いた時点のフォーカスは、殻がやめる側に置く。Enter の押し違いで押し切らせないためである。
  */
-export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null; accountName?: string | null }) {
+export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null; accountName?: string | null; resumeHere?: ResumeHereProps | null }) {
   const emit = useEmit();
   const t = useT();
   const c = props.confirm;
   const close = () => emit({ type: 'overlay.close' });
   const cancel = <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>;
+  if (c.kind === 'resumeHere') return props.resumeHere ? <ResumeHereConfirm p={props.resumeHere} cancel={cancel} close={close} /> : null;
   if (c.kind === 'unlinkProject') {
     const name = props.project?.name ?? c.projectId;
     const sessions = props.project?.sessions ?? 0;
@@ -115,6 +118,51 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
         <div className="mono faint">{t('confirm.replaceTranscript.remote', { size: sizeLabel(c.remoteSize) })}</div>
       </div>
       <div className="faint">{t('confirm.replaceTranscript.backup', { dir: BACKUP_DIR })}</div>
+    </Dialog>
+  );
+}
+
+/** 確認の 1 枚の、PC 1 台分のカード。この PC の側は塗り分ける（data-here）。パスは長ければ折り返す。 */
+function Card(props: { card: ResumeHereCard; here: boolean }) {
+  const c = props.card;
+  return (
+    <div className="rh-card" data-here={props.here ? 'true' : undefined}>
+      <div className="rh-card-k">{c.label}</div>
+      <div className="rh-card-n">{c.name}</div>
+      {c.os && <div className="rh-card-o">{c.os}</div>}
+      {c.path && <div className="rh-card-p mono">{c.path}</div>}
+      {c.at && <div className="rh-card-at">{c.at}</div>}
+    </div>
+  );
+}
+
+/**
+ * 「この PC で再開」の確認（試作の 2a の A、2b の Y、2c の P）。
+ * 前の PC とこの PC の 2 枚のカードを矢印でつなぎ、下に同期されないものの黄の帯を置く。毎回出す。
+ * この PC で場所が決まらないときは、再開のボタンを押せなくして理由を添える。
+ */
+function ResumeHereConfirm(props: { p: ResumeHereProps; cancel: ReactNode; close: () => void }) {
+  const emit = useEmit();
+  const p = props.p;
+  return (
+    <Dialog
+      title={p.title}
+      icon="warning"
+      onClose={props.close}
+      className="rh-dialog"
+      footer={<>{props.cancel}<span className="spacer" /><button type="button" className="btn btn-primary" aria-disabled={p.blocked ? 'true' : undefined} title={p.blocked ?? undefined} onClick={() => { if (!p.blocked) emit({ type: 'session.resumeHere', id: p.sessionId }); }}><Icon name="resumeHere" />{p.action}</button></>}
+    >
+      <div className="muted">{p.lead}</div>
+      <div className="rh-cards">
+        <Card card={p.from} here={false} />
+        <span className="rh-arrow" aria-hidden="true">→</span>
+        <Card card={p.to} here />
+      </div>
+      <div className="rh-band" role="note">
+        <Icon name="warning" />
+        <div><b>{p.band.strong}</b><span>{p.band.text}</span></div>
+      </div>
+      {p.blocked && <div className="rh-blocked">{p.blocked}</div>}
     </Dialog>
   );
 }

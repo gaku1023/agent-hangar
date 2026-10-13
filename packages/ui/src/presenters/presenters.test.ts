@@ -712,8 +712,8 @@ describe('presentSession（見出しの操作、A1）', () => {
     store.sessions.s2 = { ...store.sessions.s2!, lock: null, remoteOnly: true };
     const c = presentSession(initialState(), store, NOW, 's2').actions;
     expect(c.primary).toMatchObject({ id: 'resumeHere', disabled: null });
-    expect(c.menu[0]!.disabled).toBe('トランスクリプトは他の PC にあります。「この PC で再開」でトランスクリプトを降ろして続けられます');
-    expect(c.menu[1]!.disabled).toBe('トランスクリプトは他の PC にあります');
+    expect(c.menu[0]!.disabled).toBe('トランスクリプトはほかの PC にあります。「この PC で再開」でトランスクリプトを降ろして続けられます');
+    expect(c.menu[1]!.disabled).toBe('トランスクリプトはほかの PC にあります');
   });
   it('hangar の外で動いているときは、つなぐか引き取るを「…」に入れる', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canFork: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };

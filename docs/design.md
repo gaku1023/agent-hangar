@@ -5187,6 +5187,12 @@ heartbeat は 30 秒ごとの push で更新する。
 「この PC で再開」は、本文を写す前に、この PC で起こせるか（再開の cwd の読み替えが決まるか）を確かめる（`RunManager.resumeCwdOf`）。決まらなければ写さずに断る。写してから再開で断ると、`~/.claude` に本文だけが残るためである。
 確認の 1 枚に出すもの（前の PC の名前と OS と cwd と最後に使った日時、この PC の名前と OS と読み替えた cwd）は `GET /api/sessions/:id/resume-here`（`ResumeHerePlanDto`）で返す。この PC で場所が決まらなければ、この PC のパスは null である。
 
+画面（0.6.1、試作 proto-crossdevice の推す案）：
+
+- 「この PC で再開」を押すと、確認に出すものを取りに行き（`session.resumeHere.open`、`api.resumeHerePlan`）、確認の 1 枚を毎回出す（`ConfirmRequest` の `resumeHere`、`views/ConfirmDialog.tsx`）。前の PC とこの PC の 2 枚のカード（名前、OS、作業フォルダ）を矢印でつなぎ、前の PC には最後に使った日時を添える。ブランチは出さない。下に黄の帯で「プロジェクトのファイル、未コミットの変更、開発環境（道具、環境変数、秘密の値）は同期されません。」「同期されるのは会話のトランスクリプトと hangar の記録だけです。」を出す。ボタンは「この PC で再開」で、承諾で `session.resumeHere` を送る。手元の本文の方が小さいときの上書きの確認は、その後に今までどおり出る。
+- この PC にプロジェクトのフォルダが無い（`ProjectDto.unresolved` がある）ほかの PC の会話は、「この PC で再開」を押せなくする（`presenters/resumeHere.ts` の `resumeHereOf`）。セッション画面では見出しの下に理由「この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。」を常に 1 行出し、同じ行に「場所を指定」（`project.resolve.open`）を置く。一覧の行の「⋯」では、ほかの PC の会話にだけ最後に「この PC で再開」を足し、押せないときは理由を項目の下に出す。ほかの PC で実行中（生きたロック）のときは、そちらを先に理由にする。プロジェクトに属さない会話とスクラッチは、場所では止めない。
+- この流れの文の「他の PC」は「ほかの PC」にそろえた。OS は `devices.platform` を辞書（`common.os.*`）で macOS、Windows、Linux にする（shared の `osName`）。
+
 「この PC で再開」は、手元に同じセッションの本文があり、それが降ろす本文より**小さいときだけ**確認を出す。
 承諾したら、上書きの前に `~/.agent-hangar/backups/transcripts/<sessionId>-<時刻>.jsonl` へ控えを取る。
 控えが取れなければ `~/.claude` を触らずに戻る。

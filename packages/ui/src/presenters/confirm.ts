@@ -1,5 +1,7 @@
 import type { ConfirmRequest, State } from '../mediator/types.ts';
 import { accountList, type Store } from '../store/store.ts';
+import { translatorOf } from './i18n.ts';
+import { presentResumeHere, type ResumeHereProps } from './resumeHere.ts';
 
 /** 一覧から削除するプロジェクトの名前と、未分類に戻るセッションの数。 */
 export type ConfirmProjectProps = { name: string; sessions: number };
@@ -7,7 +9,7 @@ export type ConfirmProjectProps = { name: string; sessions: number };
  * accountName は、切り替えと削除の確認が指すアカウントの名前。
  * ほかの確認と、一覧に無い id（消えた直後など）では null で、View は id を名前の代わりにする。
  */
-export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectProps | null; accountName: string | null };
+export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectProps | null; accountName: string | null; resumeHere?: ResumeHereProps | null };
 
 /**
  * 確認のダイアログ。
@@ -18,6 +20,8 @@ export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectPro
 export function presentConfirm(state: State, store: Store): ConfirmProps | null {
   if (state.overlay.kind !== 'confirm') return null;
   const confirm = state.overlay.confirm;
+  // この PC で再開の確認は、サーバの返したもの（前の PC とこの PC）を画面の言語で組む。この PC のパスはホームを ~ に縮める。
+  if (confirm.kind === 'resumeHere') return { confirm, project: null, accountName: null, resumeHere: presentResumeHere(translatorOf(store), confirm.plan, store.home) };
   if (confirm.kind === 'switchAccount' || confirm.kind === 'removeAccount') {
     return { confirm, project: null, accountName: accountList(store).find((a) => a.id === confirm.accountId)?.name ?? null };
   }

@@ -1,3 +1,4 @@
+import { resumeHereOf } from './resumeHere.ts';
 import { asideOf } from '../lib/aside.ts';
 import { gitDetailRows, gitUnsafeFix, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
 import { openForLabel, openLabel } from './editor.ts';
@@ -53,6 +54,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
   oneLiner: string | null;
   hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
+  /** この PC にプロジェクトのフォルダが無いほかの PC の会話の、押せない理由と場所を指定する先（presenters/resumeHere.ts）。省けば null として読む。 */
+  noRoot?: { reason: string; projectId: string } | null;
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
@@ -222,7 +225,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
 const openEditor = (label: string): SessionAction => ({ id: 'openEditor', label, disabled: null, note: null });
 
 /** 見出しの行の操作を決めるのに要る事実。 */
-export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch'> & {
+export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch' | 'noRoot'> & {
   /** 要約エンジンが「使わない」。作り直しをサーバが受け付けないので、項目を出さない（冒頭の 1 枚の canRegenerate と同じ）。省けば使うものとして扱う。 */
   summaryOff?: boolean;
 };
@@ -261,7 +264,9 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
     ] };
   }
   if (f.lock || f.remoteOnly) {
-    const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: f.canResumeHere ? null : t('session.action.resumeHereBlocked', { device: dev ?? t('session.action.otherComputer') }), note: null };
+    // 押せても、この PC にプロジェクトのフォルダが無ければ閉じる（理由は見出しの下にも出す、resumeHere.ts）。
+    const blocked = f.canResumeHere ? f.noRoot?.reason ?? null : t('session.action.resumeHereBlocked', { device: dev ?? t('session.action.otherComputer') });
+    const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: blocked, note: null };
     return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote] };
   }
   return { primary: resume, menu: [fork, editor, ...regenerate, ...promote] };
@@ -561,6 +566,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     // Ruling 14。heartbeat が途絶えたロック（stale）は行き止まりにせず、「この PC で再開」だけを開ける。
     // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly : s.lock.stale,
+    // この PC にプロジェクトのフォルダが無いほかの PC の会話。「この PC で再開」を閉じ、見出しの下に理由と場所の指定を出す（1a）。
+    noRoot: resumeHereOf(store, s, t)?.noRoot ?? null,
     // hangar の run が無いまま外で動いているとき、本文しか見せられない。hangar の端末で開く手を出す（store の outsideOpenOf）。
     outsideOpen: outsideOpenOf(store, s),
     summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null,

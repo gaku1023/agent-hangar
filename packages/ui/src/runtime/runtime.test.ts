@@ -41,6 +41,7 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     syncPause: vi.fn(async () => ({ ...syncStatus, state: 'paused' as const })),
     syncFocus: vi.fn(async () => {}),
     resumeHere: vi.fn(async () => launchResult),
+    resumeHerePlan: vi.fn(async () => { throw new Error('unused'); }),
     joinToken: vi.fn(async () => ({ token: 'tok' })),
     cloudDevices: vi.fn(async () => ({ state: 'off' as const, devices: [], creator: false, message: null })),
     ...overrides,
@@ -1281,6 +1282,22 @@ describe('同期とこの PC で再開', () => {
     expect(api.resumeHere).toHaveBeenCalledWith('s1', false);
     expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's1', localSize: 10, remoteSize: 99 } });
     expect(rt.getState().toasts).toEqual([]);
+  });
+  it('この PC で再開を押すと、確認に出すものを取りに行って確認の 1 枚を出す。取れなければトースト', async () => {
+    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' } };
+    const { rt, api } = harness({ resumeHerePlan: vi.fn(async () => plan) });
+    rt.start();
+    rt.emit({ type: 'session.resumeHere.open', id: 's1' });
+    await flush();
+    expect(api.resumeHerePlan).toHaveBeenCalledWith('s1');
+    expect(api.resumeHere).not.toHaveBeenCalled();
+    expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'resumeHere', sessionId: 's1', plan } });
+    const failing = harness({ resumeHerePlan: vi.fn(async () => { throw new Error('500 /api/sessions/s1/resume-here'); }) });
+    failing.rt.start();
+    failing.rt.emit({ type: 'session.resumeHere.open', id: 's1' });
+    await flush();
+    expect(failing.rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(failing.rt.getState().toasts[0]?.message).toContain('500 /api/sessions/s1/resume-here');
   });
   it('この PC で再開が通れば run がストアに入る', async () => {
     const { rt, api } = harness();
