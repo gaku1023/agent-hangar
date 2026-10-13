@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { oneLineError, probeAuthorized, probeHealth, probeReady, serverDownMessage, startErrorMessage } from './probe.ts';
+import { cliErrorText, DetailedError, oneLineError, probeAuthorized, probeHealth, probeReady, serverDownMessage, startErrorMessage } from './probe.ts';
 
 /** 使い捨ての受け口。自分で起こしたものだけを閉じる。ポート番号でプロセスを止めることはしない。 */
 const servers: ReturnType<typeof createServer>[] = [];
@@ -136,5 +136,13 @@ describe('oneLineError', () => {
     expect(oneLineError(new Error('壊れた\n    at x (y:1:1)'))).toBe('壊れた');
     expect(oneLineError('ただの文字列')).toBe('ただの文字列');
     expect(oneLineError(new Error(''))).toBe('原因の分からない失敗です');
+  });
+});
+
+describe('cliErrorText', () => {
+  it('ふつうの例外は 1 行に、DetailedError は全文を出す', () => {
+    expect(cliErrorText(new Error('壊れた\n    at x (y:1:1)'))).toBe('壊れた');
+    expect(cliErrorText(new DetailedError('見出し\n  理由 1\n  理由 2\n案内'))).toBe('見出し\n  理由 1\n  理由 2\n案内');
+    expect(cliErrorText('ただの文字列')).toBe('ただの文字列');
   });
 });

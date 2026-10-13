@@ -8,7 +8,7 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
 import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, writeWranglerConfig } from './cloud.ts';
+import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
 import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
@@ -19,7 +19,11 @@ const ok = (stdout = ''): ExecResult => ({ code: 0, stdout, stderr: '' });
 const device = { id: 'dev-a', name: 'mac', platform: 'darwin' };
 const DB_ID = 'a1b2c3d4-0000-4000-8000-000000000001';
 const ACCOUNT = '0123456789abcdef0123456789abcdef';
-const WHOAMI = `│ Acc │ ${ACCOUNT} │`;
+const ACCOUNT_B = 'fedcba9876543210fedcba9876543210';
+/** wrangler 4.135 の whoami --json の形（logger.json は 4 字下げの JSON.stringify）。 */
+const whoamiJson = (accounts: { id: string; name: string }[]): string => JSON.stringify({ loggedIn: true, authType: 'OAuth Token', email: 'x@example.com', accounts, tokenPermissions: [] }, null, 4);
+const WHOAMI = whoamiJson([{ id: ACCOUNT, name: 'Acc' }]);
+const TWO = whoamiJson([{ id: ACCOUNT, name: 'Personal' }, { id: ACCOUNT_B, name: 'Shared team' }]);
 
 const temps: string[] = [];
 afterEach(() => {
@@ -146,7 +150,7 @@ describe('runSetupCloud', () => {
     expectMode(path.join(home, 'cloud.json'), 0o600);
 
     const cmds = w.calls.map((c) => c.args.slice(0, 3).join(' '));
-    expect(cmds).toEqual(['whoami', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put JOIN_SECRET_HASH']);
+    expect(cmds).toEqual(['whoami --json', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put JOIN_SECRET_HASH']);
     expect(w.calls.slice(1).every((c) => c.env.CLOUDFLARE_ACCOUNT_ID === ACCOUNT)).toBe(true);
     expect(ff.urls.filter((u) => u.endsWith('/health'))).toHaveLength(3);
     expect(slept.filter((ms) => ms === 5000).length).toBeGreaterThanOrEqual(2);
@@ -189,7 +193,8 @@ describe('runSetupCloud', () => {
     const { home, cloudDir } = dirs();
     let asked = 0;
     const w = fakeWrangler({
-      whoami: () => (asked++ === 0 ? { code: 1, stdout: '', stderr: 'You are not authenticated' } : ok(WHOAMI)),
+      // ログインしていないときの --json は {"loggedIn":false} を出して 0 以外で終わる。
+      whoami: () => (asked++ === 0 ? { code: 1, stdout: '{"loggedIn":false}', stderr: '' } : ok(WHOAMI)),
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('https://hangar.example.workers.dev'),
@@ -1419,5 +1424,228 @@ describe('setup cloud の書く wrangler の設定', () => {
     expect(cfg.compatibility_flags).toEqual(meta.compatibility_flags);
     expect(cfg.d1_databases.map((d) => d.binding)).toEqual(bindingNames(meta, 'd1'));
     expect(cfg.r2_buckets.map((b) => b.binding)).toEqual(bindingNames(meta, 'r2_bucket'));
+  });
+});
+
+describe('runSetupCloud のアカウントの選び方', () => {
+  /** 資源を作る手順まで通す wrangler。whoami の出力だけを差し替える。 */
+  const full = (whoami: Script[string], extra: Script = {}) =>
+    fakeWrangler({
+      ...extra,
+      whoami,
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put JOIN_SECRET_HASH': () => ok(),
+    });
+  const run = (home: string, cloudDir: string, w: ReturnType<typeof fakeWrangler>, extra: Partial<Parameters<typeof runSetupCloud>[0]> = {}, lines: string[] = []) =>
+    runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: (l) => lines.push(l), env: {}, interactive: false, ...extra });
+  const made = (w: ReturnType<typeof fakeWrangler>): string[] => w.calls.map((c) => c.args[0]!).filter((a) => a !== 'whoami');
+
+  it('アカウントが 1 つなら、そのまま使い、作る前に名前を出す', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(WHOAMI));
+    const lines: string[] = [];
+    await run(home, cloudDir, w, {}, lines);
+    expect(lines.join('\n')).toContain('Acc');
+    expect(loadCloudConfig(home)!.accountId).toBe(ACCOUNT);
+  });
+
+  it('--json を知らない wrangler なら、表から全部読む', async () => {
+    const { home, cloudDir } = dirs();
+    const table = ['┌──────────┬──────────────────────────────────┐', '│ Account Name │ Account ID │', '├──────────┼──────────────────────────────────┤', `│ Personal │ ${ACCOUNT} │`, `│ Shared team │ ${ACCOUNT_B} │`, '└──────────┴──────────────────────────────────┘'].join('\n');
+    const w = full(() => ok(table), { 'whoami --json': () => ({ code: 1, stdout: '', stderr: '✘ [ERROR] Unknown argument: json' }) });
+    // 2 つあって選べないので止まる。表の 1 つ目で上書きしない。
+    await expect(run(home, cloudDir, w)).rejects.toThrow(/--account-id/);
+    expect(w.calls.map((c) => c.args.join(' '))).toEqual(['whoami --json', 'whoami']);
+  });
+
+  it('複数あって対話できないときは、一覧と --account-id を案内して何も作らない', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(TWO));
+    const err = await run(home, cloudDir, w).then(() => null, (e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toContain('--account-id');
+    expect(err!.message).toContain('Personal');
+    expect(err!.message).toContain('Shared team');
+    expect(err!.message).toContain(ACCOUNT_B);
+    expect(made(w)).toEqual([]);
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+  });
+
+  it('複数あって端末なら、一覧から選ばせ、選んだアカウントで作る', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(TWO));
+    let offered: { id: string; name: string }[] = [];
+    const lines: string[] = [];
+    await run(home, cloudDir, w, { interactive: true, chooseAccount: async (list) => { offered = list; return list[1]!; } }, lines);
+    expect(offered.map((a) => a.name)).toEqual(['Personal', 'Shared team']);
+    expect(w.calls.filter((c) => c.args[0] !== 'whoami').every((c) => c.env.CLOUDFLARE_ACCOUNT_ID === ACCOUNT_B)).toBe(true);
+    expect(loadCloudConfig(home)!.accountId).toBe(ACCOUNT_B);
+    expect(lines.join('\n')).toContain('Shared team');
+  });
+
+  it('一覧で選ばなければ、何も作らずに止める', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(TWO));
+    await expect(run(home, cloudDir, w, { interactive: true, chooseAccount: async () => null })).rejects.toThrow(/取りやめ/);
+    expect(made(w)).toEqual([]);
+  });
+
+  it('--account-id があれば、それを使って問わない', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(TWO));
+    await run(home, cloudDir, w, { accountId: ACCOUNT_B.toUpperCase(), chooseAccount: async () => { throw new Error('問うてはいけない'); } });
+    expect(loadCloudConfig(home)!.accountId).toBe(ACCOUNT_B);
+  });
+
+  it('CLOUDFLARE_ACCOUNT_ID があれば、それを使う', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(TWO));
+    await run(home, cloudDir, w, { env: { CLOUDFLARE_ACCOUNT_ID: ACCOUNT_B } });
+    expect(loadCloudConfig(home)!.accountId).toBe(ACCOUNT_B);
+  });
+
+  it('指定したアカウントがログインの一覧に無ければ、何も作らずに止める', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(TWO));
+    const other = '00000000000000000000000000000000';
+    await expect(run(home, cloudDir, w, { env: { CLOUDFLARE_ACCOUNT_ID: other } })).rejects.toThrow(/CLOUDFLARE_ACCOUNT_ID/);
+    await expect(run(home, cloudDir, w, { accountId: other })).rejects.toThrow(/--account-id/);
+    await expect(run(home, cloudDir, w, { accountId: 'not-an-id' })).rejects.toThrow(/--account-id/);
+    expect(made(w)).toEqual([]);
+  });
+
+  it('作り直しのときは、cloud.json のアカウントを使って問わない', async () => {
+    const { home, cloudDir } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://hangar.example.workers.dev', deviceToken: 't', workerName: 'hangar', accountId: ACCOUNT_B, dbName: 'hangar', bucketName: 'hangar-files' }));
+    const w = full(() => ok(TWO));
+    await run(home, cloudDir, w);
+    expect(loadCloudConfig(home)!.accountId).toBe(ACCOUNT_B);
+  });
+
+  it('作った資源と違うアカウントを指定したら、前の資源が置き去りになることを見せて確認する', async () => {
+    const { home, cloudDir } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://hangar.example.workers.dev', deviceToken: 't', workerName: 'hangar', accountId: ACCOUNT_B, dbName: 'hangar', bucketName: 'hangar-files' }));
+    const w = full(() => ok(TWO));
+    const asked: string[] = [];
+    const lines: string[] = [];
+    await expect(run(home, cloudDir, w, { accountId: ACCOUNT, confirm: async (_q, word) => { asked.push(word); return false; } }, lines)).rejects.toThrow(/取りやめ/);
+    expect(asked).toEqual([RENAME_WORD]);
+    expect(lines.join('\n')).toContain('片付けられなくなります');
+    expect(made(w)).toEqual([]);
+  });
+
+  it('ログインしても使えるアカウントが無ければ止める', async () => {
+    const { home, cloudDir } = dirs();
+    const w = full(() => ok(whoamiJson([])));
+    await expect(run(home, cloudDir, w)).rejects.toThrow(/アカウント/);
+    expect(made(w)).toEqual([]);
+  });
+});
+
+describe('chooseAccountByNumber', () => {
+  const list = [{ id: ACCOUNT, name: 'Personal' }, { id: ACCOUNT_B, name: 'Shared team' }];
+
+  it('名前と ID を番号つきで並べ、打った番号のアカウントを返す', async () => {
+    const lines: string[] = [];
+    const got = await chooseAccountByNumber(list, async () => '2', (l) => lines.push(l));
+    expect(got).toEqual(list[1]);
+    const out = lines.join('\n');
+    expect(out).toContain(`1. Personal（${ACCOUNT}）`);
+    expect(out).toContain(`2. Shared team（${ACCOUNT_B}）`);
+  });
+
+  it('空（EOF も）なら選ばない。範囲の外は聞き直し、3 回で諦める', async () => {
+    expect(await chooseAccountByNumber(list, async () => '', () => {})).toBeNull();
+    const answers = ['9', 'x', '1'];
+    expect(await chooseAccountByNumber(list, async () => answers.shift()!, () => {})).toEqual(list[0]);
+    let n = 0;
+    expect(await chooseAccountByNumber(list, async () => { n++; return '0'; }, () => {})).toBeNull();
+    expect(n).toBe(3);
+  });
+});
+
+describe('runSetupCloud の wrangler の失敗', () => {
+  const base = (over: Script): ReturnType<typeof fakeWrangler> =>
+    fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ({ code: 1, stdout: '', stderr: 'not found' }),
+      'd1 create hangar': () => ok(`database_id = "${DB_ID}"`),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put JOIN_SECRET_HASH': () => ok(),
+      ...over,
+    });
+  const fail = async (w: ReturnType<typeof fakeWrangler>): Promise<Error> => {
+    const { home, cloudDir } = dirs();
+    const e = await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: () => {}, env: {}, interactive: false }).then(() => null, (x: unknown) => x);
+    expect(e).toBeInstanceOf(WranglerStepError);
+    return e as Error;
+  };
+
+  it('R2 が有効でない（10042）なら、wrangler の理由を複数行で出し、有効にしてから再実行するよう添える', async () => {
+    // wrangler 4.135 の APIError の形。1 行目は見出しで、理由は後ろの行にある。
+    const stderr = [
+      `✘ [ERROR] A request to the Cloudflare API (/accounts/${ACCOUNT}/r2/buckets) failed.`,
+      '',
+      '  Please enable R2 through the Cloudflare Dashboard. [code: 10042]',
+      '',
+      '  If you think this is a bug, please open an issue at: https://github.com/cloudflare/workers-sdk/issues/new/choose',
+    ].join('\n');
+    const e = await fail(base({ 'r2 bucket create hangar-files': () => ({ code: 1, stdout: '', stderr }) }));
+    const lines = e.message.split('\n');
+    expect(lines.length).toBeGreaterThan(2);
+    expect(e.message).toContain('[code: 10042]');
+    expect(e.message).toContain('R2');
+    expect(e.message).toMatch(/有効/);
+    expect(e.message).toMatch(/もう一度/);
+    // アカウント ID は伏せる。
+    expect(e.message).not.toContain(ACCOUNT);
+  });
+
+  it('workers.dev のサブドメインが無ければ、Workers & Pages で決めてから再実行するよう添える', async () => {
+    // 対話が無いと wrangler は登録の問いを「いいえ」で抜け、WARNING と onboarding の URL を添えた UserError を出す。
+    const stderr = [
+      '▲ [WARNING] You need to register a workers.dev subdomain before publishing to workers.dev',
+      '',
+      '✘ [ERROR] You can either deploy your worker to one or more routes by specifying them in your wrangler.jsonc file, or register a workers.dev subdomain here:',
+      '',
+      `  https://dash.cloudflare.com/${ACCOUNT}/workers/onboarding`,
+    ].join('\n');
+    const e = await fail(base({ deploy: () => ({ code: 1, stdout: 'Total Upload: 120.00 KiB / gzip: 30.00 KiB\nUploaded hangar (2.00 sec)', stderr }) }));
+    expect(e.message).toContain('register a workers.dev subdomain');
+    expect(e.message).toContain('Workers & Pages');
+    expect(e.message).toContain('サブドメイン');
+    expect(e.message).toMatch(/もう一度/);
+  });
+
+  it('長い出力は 12 行までにし、D1 の作成の失敗も同じ形で出す', async () => {
+    const stderr = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n');
+    const e = await fail(base({ 'd1 create hangar': () => ({ code: 1, stdout: '', stderr }) }));
+    expect(e.message).toContain('D1');
+    expect(e.message).toContain('line 11');
+    expect(e.message).not.toMatch(/line 12\b/);
+    expect(e.message).toContain('残り 18 行');
+  });
+
+  it('secret put の失敗も同じ形で出す', async () => {
+    const e = await fail(base({ 'secret put JOIN_SECRET_HASH': () => ({ code: 1, stdout: '', stderr: '✘ [ERROR] first\n\n  real reason [code: 10000]' }) }));
+    expect(e.message).toContain('real reason');
+  });
+});
+
+describe('cloudStatus の同期が off のとき', () => {
+  it('cloud.json があってサーバが off なら、アプリを開き直すよう添える', async () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't', workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' }));
+    fs.writeFileSync(path.join(home, 'token'), 'local-token');
+    const f = (state: string) =>
+      (async (input: string | URL | Request) => {
+        if (String(input) === 'https://h/health') return new Response(JSON.stringify({ ok: true, version: '0.4.0' }), { status: 200 });
+        return new Response(JSON.stringify({ state, pending: 0, lastPullAt: null, lastPushAt: null, deviceCount: 0, url: null, error: null }), { status: 200 });
+      }) as typeof fetch;
+    expect(await cloudStatus({ home, fetch: f('off') })).toContain('アプリを終了して開き直すと同期が始まります');
+    expect(await cloudStatus({ home, fetch: f('idle') })).not.toContain('開き直すと');
   });
 });
