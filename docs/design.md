@@ -1581,7 +1581,14 @@ Windows で pty を閉じるとき、node-pty は子のコンソールの一覧�
   xterm.js 6 の `.composition-view` は `white-space: nowrap` の 1 行の箱で、確定せずに長く打つと右端を超えて伸び、外の箱が横に送られて表示が崩れていた。
   xterm が置く left と top はそのまま使い、箱の幅をターミナルの幅（`.xterm-screen`）にし、`margin-left` で左端まで戻し、`text-indent` で 1 行目だけカーソルの位置まで字下げする（`runtime/compositionWrap.ts`）。
   箱を塗ると 1 行目のカーソルより左を隠すので、文字を 1 つの span に入れて span だけを塗る。xterm は 1 行分の高さを直に書くので、高さは CSS の `!important` で行の数に任せる。
-  知らせの順に頼らないよう、箱の変化を MutationObserver で見て当て直す。xterm の内側に頼るのは、公開の CSS にもある 2 つの組の名前と、xterm が left を直に書くことだけである。
+  入力欄はターミナルの下の方にあるので、折り返した箱の下端がターミナル（`.xterm-screen`）の下端を超えるなら、超えた行の数だけ `margin-top` で箱を上へずらす（iTerm と同じ）。
+  1 行目の字下げの位置関係は保ち、1 行目はカーソルの行より上に来てよい。
+  xterm が置く top は書き換えないので、xterm が置き直しても、ずらしはその位置から計り直す。
+  ターミナルの高さより行が多いときは、箱の下端をターミナルの下端に合わせ、末尾（いま打っている所）を見せる。
+  知らせの順に頼らないよう、箱の変化を MutationObserver で見て当て直す。
+  変換中にターミナルの幅や高さが変わったとき（窓や分割の変更）は、`.xterm-screen` を ResizeObserver で見て、変換中（`active` の組が付いている間）だけ当て直す。
+  見張りはターミナルを捨てるときに止め、箱が文書から外れたときも次の知らせで外す。
+  xterm の内側に頼るのは、公開の CSS にもある 2 つの組の名前と、xterm が left、top、line-height を直に書くことと、変換中に `active` の組を付けることだけである。
   xterm は隠れた入力欄も箱の幅に合わせて伸ばすので、`.term-host` を `overflow: clip` にし、はみ出しで外の箱が横に送られないようにする。
 - 端末に出たリンクは、修飾キー付きのクリック（macOS は ⌘、ほかは Ctrl）で既定のブラウザに開く（`runtime/terminalLinks.ts`）。
   素のクリックは今までどおり文字の選択とフォーカスに使う。macOS の Ctrl+クリックは右クリックなので使わない。

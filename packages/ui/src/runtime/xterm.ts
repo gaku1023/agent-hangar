@@ -52,6 +52,8 @@ export function createXterm(): TerminalLike {
   // DOM の描画はブロック文字と罫線もフォントで描くので、行間に隙間が出て Claude のロゴが崩れる。WebGL はセルいっぱいに自前で描く。
   let gl: WebglAddon | null = null;
   const dropGpu = () => { const a = gl; gl = null; a?.dispose(); };
+  // 変換中の文字の見張り（compositionWrap.ts）を、ターミナルと同じ寿命で止める。
+  let stopWrap = () => {};
   return {
     get cols() { return term.cols; },
     get rows() { return term.rows; },
@@ -60,8 +62,8 @@ export function createXterm(): TerminalLike {
       term.open(el);
       // xterm が copy の処理を付けるのは open の中なので、その後ろに付ける。要素ごと捨てられるので外さない。
       if (term.element) guardEmptyCopy(term.element);
-      // 変換中の文字をターミナルの右端で折り返す（compositionWrap.ts）。要素ごと捨てられるので止めない。
-      if (term.element) wrapComposition(term.element);
+      // 変換中の文字をターミナルの右端で折り返し、下端を超える分は上へずらす（compositionWrap.ts）。捨てるときに止める。
+      if (term.element) { stopWrap(); stopWrap = wrapComposition(term.element); }
     },
     write: (d) => term.write(d),
     onData: (cb) => term.onData(cb),
@@ -82,6 +84,6 @@ export function createXterm(): TerminalLike {
         gl = a;
       } catch { /* WebGL2 が使えない環境では DOM の描画のまま */ }
     },
-    dispose: () => { gl = null; term.dispose(); },
+    dispose: () => { gl = null; stopWrap(); term.dispose(); },
   };
 }
