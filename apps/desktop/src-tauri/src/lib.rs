@@ -2080,7 +2080,9 @@ fn app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
     let menu = Menu::default(app)?;
     for item in menu.items()? {
-        let Some(sub) = item.as_submenu() else { continue };
+        let Some(sub) = item.as_submenu() else {
+            continue;
+        };
         if sub.text()? != "View" {
             continue;
         }
