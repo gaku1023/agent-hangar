@@ -3,12 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { posixIt } from '../../test/platform.ts';
+import { trustKeyOf } from '../provider/claude-code/config/claudeJson.ts';
 import { launchTrustDirs, trustBeforeLaunch, trustedPlaces, trustedWorkspaceOf, trustWorkspaceFolders, workspaceTrustDirs } from './folderTrust.ts';
 
 let root: string;
 let home: string;
 beforeEach(() => {
-  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ft-')));
+  // 実装と同じく native で解く。Windows の一時の置き場は 8.3 の短い名前（RUNNER~1）で返り、native だけが長い名前に直す。
+  root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ft-')));
   home = path.join(root, '.agent-hangar');
   fs.mkdirSync(home);
 });
@@ -26,8 +28,10 @@ describe('trustedPlaces', () => {
 
 describe('trustedWorkspaceOf', () => {
   it('同意した場所が、いまの作業フォルダと同じときだけ返す', () => {
-    expect(trustedWorkspaceOf({ workspaceRoot: '/w', trustedWorkspaceRoot: '/w' })).toBe('/w');
-    expect(trustedWorkspaceOf({ workspaceRoot: '/w/', trustedWorkspaceRoot: '/w' })).toBe('/w');
+    // 返すのは resolve の形（Windows ではいまのドライブが付く）。
+    const w = path.resolve('/w');
+    expect(trustedWorkspaceOf({ workspaceRoot: '/w', trustedWorkspaceRoot: '/w' })).toBe(w);
+    expect(trustedWorkspaceOf({ workspaceRoot: '/w/', trustedWorkspaceRoot: '/w' })).toBe(w);
     expect(trustedWorkspaceOf({ workspaceRoot: '/x', trustedWorkspaceRoot: '/w' })).toBeNull();
     expect(trustedWorkspaceOf({ workspaceRoot: '', trustedWorkspaceRoot: '' })).toBeNull();
     expect(trustedWorkspaceOf({ workspaceRoot: '/w' })).toBeNull();
@@ -150,12 +154,14 @@ describe('trustBeforeLaunch（起こすアカウントの .claude.json に書く
     fs.mkdirSync(cwd, { recursive: true });
     const deps = { hangarHome: home, homeDir: userHome, trustedWorkspace: () => null };
 
-    expect(trustBeforeLaunch(deps, univ, cwd)).toEqual([quick]);
-    expect(projects(univFile)[quick]).toEqual({ hasTrustDialogAccepted: true });
+    // 返すのも書くのも信頼の鍵（Windows では / 区切り）。
+    const key = trustKeyOf(quick);
+    expect(trustBeforeLaunch(deps, univ, cwd)).toEqual([key]);
+    expect(projects(univFile)[key]).toEqual({ hasTrustDialogAccepted: true });
     expect(projects(primaryFile)).toEqual({});
 
-    expect(trustBeforeLaunch(deps, null, cwd)).toEqual([quick]);
-    expect(projects(primaryFile)[quick]).toEqual({ hasTrustDialogAccepted: true });
+    expect(trustBeforeLaunch(deps, null, cwd)).toEqual([key]);
+    expect(projects(primaryFile)[key]).toEqual({ hasTrustDialogAccepted: true });
     // 2 回目からは書かない（控えも増えない）
     const backups = fs.readdirSync(path.join(home, 'backups')).length;
     expect(trustBeforeLaunch(deps, null, cwd)).toEqual([]);
@@ -177,21 +183,23 @@ describe('trustWorkspaceFolders', () => {
     const ok = path.join(root, 'a.json');
     const none = path.join(root, 'none.json');
     const broken = path.join(root, 'broken.json');
-    fs.writeFileSync(ok, JSON.stringify({ projects: { [ws]: { hasTrustDialogAccepted: true } } }));
+    // dirs はパスの形、added と .claude.json の鍵は信頼の鍵の形（Windows では / 区切り）。
+    const repoKey = trustKeyOf(path.join(ws, 'repo'));
+    fs.writeFileSync(ok, JSON.stringify({ projects: { [trustKeyOf(ws)]: { hasTrustDialogAccepted: true } } }));
     fs.writeFileSync(broken, '{ broken');
     const backupDir = path.join(home, 'backups');
 
     const dry = trustWorkspaceFolders({ root: ws, files: [ok, none, broken], backupDir, dryRun: true });
     expect(dry.dirs).toEqual([ws, path.join(ws, 'repo')]);
-    expect(dry.files[0]).toEqual({ file: ok, added: [path.join(ws, 'repo')], missing: false });
+    expect(dry.files[0]).toEqual({ file: ok, added: [repoKey], missing: false });
     expect(dry.files[1]).toEqual({ file: none, added: [], missing: true });
     expect(dry.files[2]!.error).toBeTruthy();
     expect(fs.existsSync(backupDir)).toBe(false);
 
     const done = trustWorkspaceFolders({ root: ws, files: [ok, none, broken], backupDir, dryRun: false });
-    expect(done.files[0]!.added).toEqual([path.join(ws, 'repo')]);
+    expect(done.files[0]!.added).toEqual([repoKey]);
     expect(fs.existsSync(none)).toBe(false);
     expect(fs.readFileSync(broken, 'utf8')).toBe('{ broken');
-    expect((JSON.parse(fs.readFileSync(ok, 'utf8')) as { projects: Record<string, unknown> }).projects[path.join(ws, 'repo')]).toEqual({ hasTrustDialogAccepted: true });
+    expect((JSON.parse(fs.readFileSync(ok, 'utf8')) as { projects: Record<string, unknown> }).projects[repoKey]).toEqual({ hasTrustDialogAccepted: true });
   });
 });

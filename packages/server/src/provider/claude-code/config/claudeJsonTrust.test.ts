@@ -10,8 +10,12 @@ let file: string;
 let backups: string;
 let a: string;
 let b: string;
+/** a と b の信頼の鍵（Windows では / 区切り）。 */
+let ka: string;
+let kb: string;
 beforeEach(() => {
-  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-trust-')));
+  // Windows の一時の置き場は 8.3 の短い名前（RUNNER~1）で返り、native だけが長い名前に直す。鍵は native の実体で作る。
+  root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-trust-')));
   fs.mkdirSync(path.join(root, 'home'));
   file = path.join(root, 'home', '.claude.json');
   backups = path.join(root, 'hangar', 'backups');
@@ -19,6 +23,8 @@ beforeEach(() => {
   b = path.join(root, 'work', 'b');
   fs.mkdirSync(a, { recursive: true });
   fs.mkdirSync(b, { recursive: true });
+  ka = trustKeyOf(a);
+  kb = trustKeyOf(b);
 });
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
@@ -39,6 +45,17 @@ describe('信頼の鍵', () => {
     expect(toTrustKey('/Users/me/work', 'darwin')).toBe('/Users/me/work');
   });
 
+  it('Windows の path で作ったパスも、区切りだけを / にし、ドライブと大小はそのまま残す', () => {
+    // 置き場とリポジトリの根は path.join と realpath の形（\ 区切り）で来る。それを鍵にしたときの形を、Mac でも押さえる。
+    const ws = path.win32.resolve('D:\\Work');
+    expect(toTrustKey(path.win32.join(ws, 'app', 'packages'), 'win32')).toBe('D:/Work/app/packages');
+    expect(toTrustKey(path.win32.join('C:\\Users\\runneradmin', '.agent-hangar', 'quick-sessions'), 'win32')).toBe('C:/Users/runneradmin/.agent-hangar/quick-sessions');
+    // ネットワークの共有（UNC）も同じく区切りだけを変える。
+    expect(toTrustKey('\\\\server\\share\\repo', 'win32')).toBe('//server/share/repo');
+    // Mac と Linux では \ はファイル名の一部なので変えない。
+    expect(toTrustKey('/tmp/a\\b', 'linux')).toBe('/tmp/a\\b');
+  });
+
   posixIt('リンクは実体のパスにする（claude は getcwd の実体で引く）', () => {
     const link = path.join(root, 'link');
     fs.symlinkSync(a, link);
@@ -50,22 +67,22 @@ describe('信頼の鍵', () => {
 
 describe('trustFolders', () => {
   it('projects.<path>.hasTrustDialogAccepted を true にし、ほかの鍵と同じ行のほかの項目を残す', () => {
-    fs.writeFileSync(file, JSON.stringify({ numStartups: 3, mcpServers: { x: { type: 'http' } }, projects: { [a]: { allowedTools: ['Bash'], hasTrustDialogAccepted: false }, '/other': { hasTrustDialogAccepted: true } } }), { mode: 0o640 });
+    fs.writeFileSync(file, JSON.stringify({ numStartups: 3, mcpServers: { x: { type: 'http' } }, projects: { [ka]: { allowedTools: ['Bash'], hasTrustDialogAccepted: false }, '/other': { hasTrustDialogAccepted: true } } }), { mode: 0o640 });
     const r = trustFolders(file, [a, b], { backupDir: backups });
-    expect(r.added).toEqual([a, b]);
+    expect(r.added).toEqual([ka, kb]);
     expect(r.missing).toBe(false);
     expect(r.backup).not.toBeNull();
     expect(read()).toEqual({
       numStartups: 3,
       mcpServers: { x: { type: 'http' } },
-      projects: { [a]: { allowedTools: ['Bash'], hasTrustDialogAccepted: true }, '/other': { hasTrustDialogAccepted: true }, [b]: { hasTrustDialogAccepted: true } },
+      projects: { [ka]: { allowedTools: ['Bash'], hasTrustDialogAccepted: true }, '/other': { hasTrustDialogAccepted: true }, [kb]: { hasTrustDialogAccepted: true } },
     });
     // 他人にも読める権限は、MCP の登録と同じく 0600 に狭める（Claude Code 自身も 0600 で書く）。
     expectMode(file, 0o600);
   });
 
   it('全部すでに信頼済みなら書かず、控えも取らない', () => {
-    fs.writeFileSync(file, JSON.stringify({ projects: { [a]: { hasTrustDialogAccepted: true } } }));
+    fs.writeFileSync(file, JSON.stringify({ projects: { [ka]: { hasTrustDialogAccepted: true } } }));
     const before = fs.readFileSync(file, 'utf8');
     const r = trustFolders(file, [a], { backupDir: backups });
     expect(r).toMatchObject({ added: [], backup: null, missing: false });
@@ -91,7 +108,7 @@ describe('trustFolders', () => {
       backupDir: backups,
       onBeforeWrite: () => fs.writeFileSync(file, JSON.stringify({ projects: { '/late': { hasTrustDialogAccepted: false } }, late: 1 })),
     });
-    expect(read()).toEqual({ late: 1, projects: { '/late': { hasTrustDialogAccepted: false }, [a]: { hasTrustDialogAccepted: true } } });
+    expect(read()).toEqual({ late: 1, projects: { '/late': { hasTrustDialogAccepted: false }, [ka]: { hasTrustDialogAccepted: true } } });
   });
 
   it('置き場のフォルダがまだ無ければ（登録したばかりのアカウント）、投げずに missing で返す', () => {
@@ -105,7 +122,7 @@ describe('trustFolders', () => {
     fs.writeFileSync(file, JSON.stringify({ projects: {} }));
     const r = trustFolders(file, [a], {
       backupDir: backups,
-      onBeforeWrite: () => fs.writeFileSync(file, JSON.stringify({ projects: { [a]: { hasTrustDialogAccepted: true } } })),
+      onBeforeWrite: () => fs.writeFileSync(file, JSON.stringify({ projects: { [ka]: { hasTrustDialogAccepted: true } } })),
     });
     expect(r).toMatchObject({ added: [], backup: null, missing: false });
     expect(fs.readdirSync(backups)).toEqual([]);
@@ -142,7 +159,7 @@ describe('trustFolders', () => {
 describe('untrustedFolders', () => {
   it('自分の鍵で信頼済みでないものの鍵を返す。ファイルが無ければ null', () => {
     expect(untrustedFolders(file, [a])).toBeNull();
-    fs.writeFileSync(file, JSON.stringify({ projects: { [a]: { hasTrustDialogAccepted: true }, [b]: { hasTrustDialogAccepted: false } } }));
-    expect(untrustedFolders(file, [a, b])).toEqual([b]);
+    fs.writeFileSync(file, JSON.stringify({ projects: { [ka]: { hasTrustDialogAccepted: true }, [kb]: { hasTrustDialogAccepted: false } } }));
+    expect(untrustedFolders(file, [a, b])).toEqual([kb]);
   });
 });
