@@ -1083,6 +1083,32 @@ describe('見出しの状態の札（4A）', () => {
     const pill = screen.getByRole('button', { name: LABEL });
     expect(pill.querySelector('.icon')).toHaveAttribute('data-icon', 'autoMark');
     expect(container.querySelector('.status-host')).toHaveAttribute('title', '自動の理由');
+    // ツールチップの理由は、読み上げでも札の説明として届く。
+    expect(pill).toHaveAccessibleDescription(/自動の理由/);
+  });
+  it('札に焦点があっても、全体のショートカット（window の keydown）へ打鍵が届く。選んだ直後も同じ', () => {
+    const onWindow = vi.fn();
+    window.addEventListener('keydown', onWindow);
+    try {
+      render(<ActionRoot onAction={() => {}}><SS {...base} statusPick={active} /></ActionRoot>);
+      const pill = screen.getByRole('button', { name: LABEL });
+      pill.focus();
+      fireEvent.keyDown(pill, { key: 'k', metaKey: true });
+      expect(onWindow).toHaveBeenCalledTimes(1);
+      pick(LABEL, 'Done');
+      expect(document.activeElement).toBe(pill);
+      fireEvent.keyDown(pill, { key: 'Escape' });
+      expect(onWindow).toHaveBeenCalledTimes(2);
+    } finally {
+      window.removeEventListener('keydown', onWindow);
+    }
+  });
+  it('Paused のときに Paused を選び直すと、戻る日のダイアログを開く', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><SS {...base} statusPick={{ ...active, value: 'paused' }} /></ActionRoot>);
+    pick(LABEL, 'Paused');
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.pause.open', id: 's1', from: 'menu' });
+    expect(onAction.mock.calls.some(([i]) => i.type === 'session.state.set')).toBe(false);
   });
   it('本文が消えた会話（statusPick が null）には札を出さず、1 行の状態の札も残す', () => {
     const gone = { note: 'n', canExtend: false, extendTo: 365 };

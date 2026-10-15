@@ -118,7 +118,8 @@ function ProjectRow(props: { row: ProjectRowProps; flipRef: (el: HTMLElement | n
     <>
       <div role="listitem" ref={props.flipRef} className="prow" data-archived={r.status === 'archived' ? 'true' : undefined} data-menu={menuAt ? 'true' : undefined}
         onClick={(e) => { if (!(e.target as HTMLElement).closest('a, button')) open(); }}
-        onContextMenu={(e) => { e.preventDefault(); setMenuAt({ top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 }); }}
+        // 「⋯」のメニューは portal に描かれ、その中の右クリックも React の木では行へ泡立つので、行の DOM の中で押したものだけを取る。
+        onContextMenu={(e) => { if (!e.currentTarget.contains(e.target as Node)) return; e.preventDefault(); setMenuAt({ top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 }); }}
         onKeyDown={onKeyDown}>
         <span className="prow-status"><span className="row-sq" data-s={r.status}>{STATUS_LABEL[r.status]}</span></span>
         <span className="pname">

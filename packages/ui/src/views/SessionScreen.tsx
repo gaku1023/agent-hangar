@@ -142,10 +142,12 @@ export function SessionScreen(props: SessionProps) {
   const statusPick = props.statusPick ?? null;
   const facts = props.lead ? <EndedFacts sessionId={id} {...props.lead} git={props.git} statusInHeading={statusPick !== null} /> : null;
   // 札で選んだ状態。Active は状態を外し、Paused は戻る日を決めるダイアログを開く（その場では付けない）。
+  // Paused のときに Paused を選び直したときも、戻る日を決め直せるようにダイアログを開く。
   const setStatus = (status: NonNullable<typeof statusPick>['value']) => {
     if (status === 'paused') emit({ type: 'session.pause.open', id, from: 'menu' });
     else emit({ type: 'session.state.set', id, status: status === 'active' ? null : status });
   };
+  const reselectStatus = (status: NonNullable<typeof statusPick>['value']) => { if (status === 'paused') setStatus(status); };
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
   const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
   const header = (
@@ -158,7 +160,7 @@ export function SessionScreen(props: SessionProps) {
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
       {/* 状態の札（4A）。操作の並びの先頭、主の操作の左に置く。見た目と一言はプロジェクト画面の札と同じ。 */}
-      {statusPick && <StatusSelect label={t('session.screen.status')} value={statusPick.value} auto={statusPick.auto} title={statusPick.title} onChange={setStatus} />}
+      {statusPick && <StatusSelect label={t('session.screen.status')} value={statusPick.value} auto={statusPick.auto} title={statusPick.title} onChange={setStatus} onReselect={reselectStatus} isolate={false} />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
       <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
         aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>

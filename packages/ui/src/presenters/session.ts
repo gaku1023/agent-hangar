@@ -427,10 +427,10 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   };
 }
 
-/** 見出しの名前の横に出す札。ロックと、トランスクリプトが他の PC にあること。どちらも操作できない理由なので、ポップオーバーには隠さない。 */
 /** 見出しの状態の札の中身。value は ProjectStatus と同じ 4 つで、状態の無い会話は active。 */
 export type StatusPick = { value: 'active' | 'paused' | 'done' | 'archived'; auto: boolean; title: string };
 
+/** 見出しの名前の横に出す札。ロックと、トランスクリプトが他の PC にあること。どちらも操作できない理由なので、ポップオーバーには隠さない。 */
 export type BadgeProps = { kind: 'lock' | 'stale' | 'remote'; label: string; title: string | null };
 
 /**

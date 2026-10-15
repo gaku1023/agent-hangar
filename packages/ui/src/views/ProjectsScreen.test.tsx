@@ -289,4 +289,12 @@ describe('ProjectsScreen の行の右クリックと .', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(link);
   });
+  it('「⋯」のメニューの上で右クリックしても、行のメニューを重ねて開かない', () => {
+    mount(props());
+    fireEvent.click(screen.getByRole('button', { name: 'alpha のメニュー' }));
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    fireEvent.contextMenu(screen.getAllByRole('menuitem')[0]!);
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(document.querySelector('.prow[data-menu]')).toBeNull();
+  });
 });
