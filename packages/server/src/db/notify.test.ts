@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { noteApplied, onRowChange, settleRowChanges, touchRow, type RowChange } from './notify.ts';
+import { noteApplied, onRowChange, settleRowChanges, touchRow, tryWrites, type RowChange } from './notify.ts';
 import { openDb } from './open.ts';
 import { softDeleteShared, upsertShared } from './shared.ts';
 
@@ -129,5 +129,51 @@ describe('トランザクションの中の知らせ', () => {
     await Promise.resolve();
     expect(w.seen).toEqual(['write:upsert:projects:p1']);
     w.off();
+  });
+});
+
+// 書かずに試す（hangar project add --dry-run などの試し、2026-10-15）。
+describe('tryWrites（書き込みを試して捨てる）', () => {
+  it('中で書いた行は残らず、changes にも積まれず、write も touch も届かない', async () => {
+    const db = openDb(':memory:');
+    const w = watch(db);
+    const out = tryWrites(db, () => {
+      upsertShared(db, 'projects', PROJECT('p1'), 'd');
+      touchRow(db, 'projects', 'p1');
+      return (db.prepare('select count(*) c from projects').get() as { c: number }).c;
+    });
+    // 中では書いた行が読める。
+    expect(out).toBe(1);
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from changes').get()).toEqual({ c: 0 });
+    await Promise.resolve();
+    settleRowChanges(db);
+    expect(w.seen).toEqual([]);
+    w.off();
+  });
+
+  it('前のトランザクションの、まだ配っていない知らせは捨てずに配る', async () => {
+    const db = openDb(':memory:');
+    const w = watch(db);
+    db.transaction(() => { upsertShared(db, 'projects', PROJECT('p0'), 'd'); })();
+    tryWrites(db, () => { upsertShared(db, 'projects', PROJECT('p1'), 'd'); touchRow(db, 'projects', 'p0'); });
+    await Promise.resolve();
+    expect(w.seen).toEqual(['write:upsert:projects:p0']);
+    w.off();
+  });
+
+  it('中で投げたら、巻き戻して同じ例外を投げ直す', async () => {
+    const db = openDb(':memory:');
+    const w = watch(db);
+    expect(() => tryWrites(db, () => { upsertShared(db, 'projects', PROJECT('p1'), 'd'); throw new Error('中で失敗'); })).toThrow('中で失敗');
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
+    await Promise.resolve();
+    expect(w.seen).toEqual([]);
+    w.off();
+  });
+
+  it('トランザクションの中からは呼べない（外側の確定まで巻き戻せないため）', () => {
+    const db = openDb(':memory:');
+    expect(() => db.transaction(() => tryWrites(db, () => 1))()).toThrow();
   });
 });

@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isSummaryEngine, languageOf, LANGUAGES, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
+import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isSummaryEngine, languageOf, LANGUAGES, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
-import { touchRow } from '../../db/notify.ts';
+import { touchRow, tryWrites } from '../../db/notify.ts';
+import { workspaceSyncOutcomes } from '../../projects/registerMany.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../../projects/registry.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
@@ -83,6 +84,20 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (!st) return c.json({ error: tr('settings.path.missing', { label: label('workspaceRoot'), path: root }) }, 400);
       if (!st.isDirectory()) return c.json({ error: tr('settings.path.notDirectory', { label: label('workspaceRoot'), path: root }) }, 400);
       patch.workspaceRoot = root;
+    }
+    // 試し（hangar workspace set --dry-run、2026-10-15）。作成場所だけを受け、上の検証を通したうえで、保存のときに自動で登録される直下のフォルダを返す。
+    // 保存の下の段と同じ関数（syncProjectsFromWorkspace と assignSessions）を走らせて巻き戻すので、何も書かず、何も配らない（db/notify.ts の tryWrites）。
+    if ('dryRun' in body) {
+      const dryRun = body.dryRun;
+      const onlyRoot = Object.keys(body).every((k) => k === 'workspaceRoot' || k === 'dryRun') && patch.workspaceRoot !== undefined;
+      if (typeof dryRun !== 'boolean' || (dryRun && !onlyRoot)) return c.json({ error: tr('settings.error.badValue', { label: 'dryRun' }) }, 400);
+      if (dryRun) {
+        const next = patch.workspaceRoot!;
+        const previous = deps.settings().workspaceRoot;
+        const unchanged = next === previous;
+        const preview: WorkspaceRootPreviewDto = { dryRun: true, workspaceRoot: next, previous, unchanged, register: next === '' || unchanged ? [] : tryWrites(db, () => workspaceSyncOutcomes(db, deviceId, next)) };
+        return c.json(preview);
+      }
     }
     for (const key of PATH_SETTING_KEYS) {
       if (!(key in body)) continue;
