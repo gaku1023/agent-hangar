@@ -14,6 +14,7 @@ pub mod deeplink;
 pub mod filedrop;
 pub mod health;
 pub mod instance;
+pub mod links;
 pub mod logfile;
 pub mod node;
 pub mod notify;
@@ -1516,6 +1517,13 @@ async fn open_log() -> Result<(), String> {
     logfile::open_log(&home).inspect_err(|e| log(&format!("open log failed: {e}")))
 }
 
+/// ターミナルに出たリンクを既定のブラウザで開く。UI のターミナルの修飾キー付きのクリックが呼ぶ（links.rs）。
+/// http と https のほかは断る。
+#[tauri::command]
+async fn open_link(url: String) -> Result<(), String> {
+    links::open_link(&url).inspect_err(|e| log(&format!("open link failed: {e}")))
+}
+
 /// アプリを再起動する。UI の切断の帯の「再起動」が呼ぶ。
 /// 終了の手続き（`RunEvent::Exit`）を通るので、子のサーバも止めてから起き直す。
 #[tauri::command]
@@ -2098,6 +2106,7 @@ pub fn run() {
             boot_state,
             boot_card_shown,
             boot_probe,
+            open_link,
             open_log,
             pick_folder,
             pick_node,
