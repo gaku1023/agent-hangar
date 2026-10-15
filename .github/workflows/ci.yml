@@ -16,12 +16,12 @@ jobs:
       fail-fast: false
       matrix:
         variant:
-          - name: threads
-            args: --pool=threads
-          - name: no-isolate
-            args: --no-isolate
           - name: workers-4
             args: --maxWorkers=4
+          - name: workers-6
+            args: --maxWorkers=6
+          - name: workers-8
+            args: --maxWorkers=8
     name: win-${{ matrix.variant.name }}
     runs-on: windows-latest
     timeout-minutes: 30
