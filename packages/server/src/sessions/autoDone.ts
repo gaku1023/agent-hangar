@@ -7,6 +7,8 @@ import type { Db } from '../db/open.ts';
  * 対象は、この端末で動いたもので、状態が無く、止まっているもののうち、次のどちらかに当たるもの。
  * - 使い捨て（disposable）：hangar の run が一度も無く、3 ターン以下。claude -p や試験、外のターミナルの短い問い。
  * - 要約が完了（summary）：会話の中か事後の要約の進捗が「完了」か「中止」。土台の要約は止まっていれば「完了」と書くので数えない。
+ * - 長く動いていない（idle）：最後に動いてから設定の日数（autoDoneIdleDays）たったもの。ターン数や要約に関係しない（2026-10-15 の利用者の決定）。
+ *   外で起こした長い会話は要約が回らないと上の 2 つに当たらず、hangar を入れる前の履歴も Active のまま残るためである。
  * 除くのは、Paused の提案があるもの（利用者に聞いている最中）、却下したもの、「Active に戻す」の後に動きが無いもの。
  * 他の端末のセッションはその端末に任せる。どの端末の run も生きていないことも見る。
  * 書いた後に resume して発言すれば、今までどおり状態は外れる（states.ts の stateClears）。
@@ -19,10 +21,12 @@ export const AUTO_DONE_SETTLE_MS = 60_000;
 /** 見回りの間隔。 */
 export const AUTO_DONE_POLL_MS = 15_000;
 
-export type AutoDoneReason = 'disposable' | 'summary';
+export type AutoDoneReason = 'disposable' | 'summary' | 'idle';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 export type AutoDoneCandidate = { id: string; reason: AutoDoneReason };
 
-type Row = { id: string; p: string; had_run: number; alive_run: number; turns: number; sum_source: string | null; sum_state: string | null };
+type Row = { id: string; p: string; last: number | null; had_run: number; alive_run: number; turns: number; sum_source: string | null; sum_state: string | null };
 
 /**
  * 状態の無い、この端末のセッションを、止まっているかどうかの材料と一緒に引く。
@@ -30,7 +34,7 @@ type Row = { id: string; p: string; had_run: number; alive_run: number; turns: n
  */
 function activeRows(db: Db, deviceId: string): Row[] {
   return db.prepare(`
-    select s.id, s.provider_session_id p,
+    select s.id, s.provider_session_id p, s.last_activity_at last,
       exists(select 1 from runs r where r.session_id = s.id and r.deleted_at is null) had_run,
       exists(select 1 from runs r where r.session_id = s.id and r.deleted_at is null and r.ended_at is null) alive_run,
       ifnull(ss.turns, 0) turns, sm.source sum_source, sm.state sum_state
@@ -48,13 +52,17 @@ function activeRows(db: Db, deviceId: string): Row[] {
 const stopped = (r: Row, liveProviderIds: ReadonlySet<string>): boolean => r.alive_run === 0 && !liveProviderIds.has(r.p);
 const realSummary = (r: Row): boolean => r.sum_source === 'in_session' || r.sum_source === 'post_hoc';
 
-/** いま自動で Done にしてよいセッション。要約を待っているもの（pending）は、要約が書かれてから見る。 */
-export function autoDoneCandidates(db: Db, deviceId: string, o: { liveProviderIds: ReadonlySet<string>; pending: ReadonlySet<string>; now: number }): AutoDoneCandidate[] {
+/**
+ * いま自動で Done にしてよいセッション。要約を待っているもの（pending）は、要約が書かれてから見る。
+ * idleDays は長く動いていないとみなす日数で、0 なら長さでは Done にしない。最後に動いた時刻が分からないものは長さでは数えない。
+ */
+export function autoDoneCandidates(db: Db, deviceId: string, o: { liveProviderIds: ReadonlySet<string>; pending: ReadonlySet<string>; now: number; idleDays: number }): AutoDoneCandidate[] {
   const out: AutoDoneCandidate[] = [];
   for (const r of activeRows(db, deviceId)) {
     if (!stopped(r, o.liveProviderIds) || o.pending.has(r.id)) continue;
     if (r.had_run === 0 && r.turns <= DISPOSABLE_MAX_TURNS) out.push({ id: r.id, reason: 'disposable' });
     else if (realSummary(r) && (r.sum_state === 'done' || r.sum_state === 'abandoned')) out.push({ id: r.id, reason: 'summary' });
+    else if (o.idleDays > 0 && r.last !== null && o.now - r.last >= o.idleDays * DAY_MS) out.push({ id: r.id, reason: 'idle' });
   }
   return out;
 }

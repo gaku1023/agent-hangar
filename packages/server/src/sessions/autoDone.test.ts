@@ -22,8 +22,44 @@ function run(db: Db, sessionId: string, o: { endedAt?: number | null } = {}) {
 function summary(db: Db, sessionId: string, state: 'in_progress' | 'done' | 'blocked' | 'abandoned', source: 'baseline' | 'in_session' | 'post_hoc' = 'in_session') {
   upsertShared(db, 'session_summaries', { session_id: sessionId, title: 't', one_liner: 'o', body: 'b', state, next_steps: '[]', source, based_on_turns: 1 }, 'd', 'session_id');
 }
-const cands = (db: Db, o: { live?: string[]; pending?: string[] } = {}) =>
-  autoDoneCandidates(db, 'd', { liveProviderIds: new Set(o.live ?? []), pending: new Set(o.pending ?? []), now: NOW });
+const cands = (db: Db, o: { live?: string[]; pending?: string[]; idleDays?: number } = {}) =>
+  autoDoneCandidates(db, 'd', { liveProviderIds: new Set(o.live ?? []), pending: new Set(o.pending ?? []), now: NOW, idleDays: o.idleDays ?? 0 });
+const DAY = 24 * 60 * MIN;
+
+describe('autoDoneCandidates：長く動いていない', () => {
+  it('止まって選んだ日数たったものは、ターン数や要約や run に関係なく対象', () => {
+    const db = seed();
+    session(db, 'old', { turns: 40, lastActivityAt: NOW - 7 * DAY });
+    run(db, 'old');
+    summary(db, 'old', 'in_progress');
+    session(db, 'fresh', { turns: 40, lastActivityAt: NOW - 7 * DAY + MIN });
+    expect(cands(db, { idleDays: 7 })).toEqual([{ id: 'old', reason: 'idle' }]);
+  });
+  it('使い捨てと要約が完了の理由が先に立つ', () => {
+    const db = seed();
+    session(db, 'short', { turns: 2, lastActivityAt: NOW - 30 * DAY });
+    expect(cands(db, { idleDays: 7 })).toEqual([{ id: 'short', reason: 'disposable' }]);
+  });
+  it('0 日（しない）なら対象にしない', () => {
+    const db = seed();
+    session(db, 'old', { turns: 40, lastActivityAt: NOW - 300 * DAY });
+    expect(cands(db, { idleDays: 0 })).toEqual([]);
+  });
+  it('最後の動きの時刻が無いものは対象にしない', () => {
+    const db = seed();
+    session(db, 'unknown', { turns: 40, lastActivityAt: null });
+    expect(cands(db, { idleDays: 3 })).toEqual([]);
+  });
+  it('動いているもの、Paused の提案があるもの、「Active に戻す」の後に動きが無いもの、他の端末のものは除く', () => {
+    const db = seed();
+    for (const id of ['reg', 'alive', 'prop', 'back']) session(db, id, { turns: 40, lastActivityAt: NOW - 10 * DAY });
+    run(db, 'alive', { endedAt: null });
+    proposeSessionState(db, 'd', 'prop', { status: 'paused', note: '見る', returnOn: '2026-10-12', source: 'post_hoc', now: NOW - 30 * MIN });
+    setSessionState(db, 'd', 'back', { status: null, setBy: 'user', now: NOW - 5 * DAY });
+    session(db, 'other', { device: 'd2', turns: 40, lastActivityAt: NOW - 10 * DAY });
+    expect(cands(db, { live: ['u-reg'], idleDays: 7 })).toEqual([]);
+  });
+});
 
 describe('autoDoneCandidates：使い捨て', () => {
   it('hangar の run が一度も無く、3 ターン以下で、止まっているものは使い捨て', () => {

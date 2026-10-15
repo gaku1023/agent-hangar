@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isLanguage, isModelName, isSummaryEngine, newId, terminalAppFor, type ConfigApproval, type EditorSetting, type Language, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isLanguage, isModelName, isSummaryEngine, newId, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
@@ -81,6 +81,11 @@ export type Settings = {
    */
   autoDone?: boolean;
   /**
+   * 自動の Done のうち、止まってから何日動きが無ければ Done にするか（sessions/autoDone.ts の idle）。0 はしない。既定は 7。
+   * autoDone を切っている間は、この日数に関係なく Done にしない。
+   */
+  autoDoneIdleDays?: AutoDoneIdleDays;
+  /**
    * 同じく、Done か Archived にした会話の Claude を、休みが 10 秒続いたら止めるか（sessions/park.ts）。既定は入り。
    * 切ると止めず、一覧でも実行中として見せる（db/queries.ts の setParkingSwitch）。
    */
@@ -150,7 +155,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, defaultModel: null, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: true, defaultModel: null, nodePath: null };
 }
 
 /**
@@ -191,6 +196,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (!isModelName(s.defaultModel)) s.defaultModel = null;
   // hangar が自分で行うことのスイッチも同じ。
   if (typeof s.autoDone !== 'boolean') s.autoDone = true;
+  if (!isAutoDoneIdleDays(s.autoDoneIdleDays)) s.autoDoneIdleDays = DEFAULT_AUTO_DONE_IDLE_DAYS;
   if (typeof s.autoPark !== 'boolean') s.autoPark = true;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;

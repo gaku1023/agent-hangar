@@ -397,7 +397,7 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   const sourceParts = sum ? [t(SUMMARY_SOURCE_KEY[sum.source]), summarizerLabel(sum.sourceId, sum.sourceModel, t)].filter((x): x is string => !!x) : [];
   return {
     label: t('session.lead.label'),
-    status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null, ...statusMark(t, s.state, s.stats, s.summary) },
+    status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null, ...statusMark(t, s.state, s.stats, s.summary, s.lastActivityAt) },
     ended: stopped || interrupted ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
     stopped,
     interrupted,

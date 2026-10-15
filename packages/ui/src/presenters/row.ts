@@ -1,5 +1,5 @@
 import { resumeHereOf } from './resumeHere.ts';
-import { CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
+import { AUTO_DONE_IDLE_DAYS, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -74,6 +74,10 @@ function reasonOf(t: Translate, s: SessionDto, now: number): { reason: StopReaso
   return { reason: null, reasonWord: null };
 }
 
+const DAY_MS = 86_400_000;
+/** 長く動いていなかったので付いた Done とみなす、動きの無い日数の下限（選べる日数の最小）。 */
+const MIN_IDLE_DAYS = Math.min(...AUTO_DONE_IDLE_DAYS.filter((d) => d > 0));
+
 /** 札の説明の鍵。札の語は英語のまま、意味を日本語で添える（用語集の「札の説明」）。 */
 const STATUS_TIP = { active: 'row.status.tip.active', paused: 'row.status.tip.paused', done: 'row.status.tip.done', archived: 'row.status.tip.archived' } as const;
 
@@ -82,14 +86,17 @@ const STATUS_TIP = { active: 'row.status.tip.active', paused: 'row.status.tip.pa
  * 自動の Done は set_by が import の Done で、理由を言う。理由は残していないので、手元の事実から読み直す。
  * 提案の理由（note）を持つものは、放っておかれた Done の提案を確定したもの（sessions/states.ts の expireCandidates）である。
  * ターンが 3 以下なら使い捨て、会話の中か事後の要約が「完了」か「中止」なら要約で決めたもの（sessions/autoDone.ts）。
+ * 付けた時点で最後の動きから 3 日（選べる日数の最小）以上たっていれば、長く動いていなかったもので、その日数を言う。
  * どれにも当たらないもの（導入時の一括 Done など）は、自動で付いたことだけを言う。
  */
-export function statusMark(t: Translate, state: SessionStateDto | null, stats: { turns: number }, summary: SessionSummaryDto | null): { title: string; auto: boolean } {
+export function statusMark(t: Translate, state: SessionStateDto | null, stats: { turns: number }, summary: SessionSummaryDto | null, lastActivityAt: number | null = null): { title: string; auto: boolean } {
   const status = state?.status ?? null;
   if (status === 'done' && state!.setBy === 'import') {
     if (state!.note) return { title: t('row.status.auto.expired', { days: CANDIDATE_EXPIRE_DAYS }), auto: true };
     if (stats.turns <= 3) return { title: t('row.status.auto.disposable'), auto: true };
     if (summary && summary.source !== 'baseline' && (summary.state === 'done' || summary.state === 'abandoned')) return { title: t('row.status.auto.summary'), auto: true };
+    const idleDays = state!.setAt !== null && lastActivityAt !== null ? Math.floor((state!.setAt - lastActivityAt) / DAY_MS) : 0;
+    if (idleDays >= MIN_IDLE_DAYS) return { title: t('row.status.auto.idle', { days: idleDays }), auto: true };
     return { title: t('row.status.auto.plain'), auto: true };
   }
   const tip = t(STATUS_TIP[status ?? 'active']);
@@ -105,7 +112,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   const returnOn = status === 'paused' && typeof st!.returnOn === 'string' && isReturnOn(st!.returnOn) ? st!.returnOn : null;
   // 時刻は日があってはじめて意味を持つ。古いサーバは returnTime を送らないので、欠けたものと形の違うものは時刻なしとして読む。
   const returnTime = returnOn !== null && typeof st!.returnTime === 'string' && isReturnTime(st!.returnTime) ? st!.returnTime : null;
-  const mark = statusMark(t, st, s.stats, s.summary);
+  const mark = statusMark(t, st, s.stats, s.summary, s.lastActivityAt);
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? t('common.label.noName'), oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : null,

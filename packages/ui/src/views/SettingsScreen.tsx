@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { Language, SettingsDto, SettingsField, SettingsSection, SummaryEngine, TerminalApp } from '@agent-hangar/shared';
+import { AUTO_DONE_IDLE_DAYS, type AutoDoneIdleDays, type Language, type SettingsDto, type SettingsField, type SettingsSection, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, tokensLabel } from '../presenters/format.ts';
@@ -358,6 +358,11 @@ export function SettingsScreen(props: SettingsProps) {
       <h3 className="h2">{t('settings.general.self.title')}</h3>
       <SetRow title={t('settings.general.autoDone.title')} desc={t('settings.general.autoDone.desc')}
         control={<Switch label={t('settings.general.autoDone.title')} checked={props.self.autoDone} onChange={(next) => setNow({ autoDone: next })} />} />
+      {/* 長く動いていない会話の日数（試作の案 A）。上のスイッチを切っている間は効かないので、選べなくする。 */}
+      <SetRow title={t('settings.general.autoDoneIdle.title')} desc={t('settings.general.autoDoneIdle.desc')}
+        control={<Segmented label={t('settings.general.autoDoneIdle.title')} value={String(props.self.autoDoneIdleDays)} disabled={!props.self.autoDone}
+          options={AUTO_DONE_IDLE_DAYS.map((d) => ({ value: String(d), label: d === 0 ? t('settings.general.autoDoneIdle.never') : t('settings.general.autoDoneIdle.days', { days: d }) }))}
+          onChange={(v) => setNow({ autoDoneIdleDays: Number(v) as AutoDoneIdleDays })} />} />
       <SetRow title={t('settings.general.autoPark.title')} desc={t('settings.general.autoPark.desc')}
         control={<Switch label={t('settings.general.autoPark.title')} checked={props.self.autoPark} onChange={(next) => setNow({ autoPark: next })} />} />
     </section>

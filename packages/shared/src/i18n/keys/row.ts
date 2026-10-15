@@ -51,6 +51,7 @@ export const rowKeys = {
   'row.status.tip.archived': [],
   'row.status.auto.disposable': [],
   'row.status.auto.summary': [],
+  'row.status.auto.idle': ['days'],
   'row.status.auto.expired': ['days'],
   'row.status.auto.plain': [],
   'row.soon.delete': [],

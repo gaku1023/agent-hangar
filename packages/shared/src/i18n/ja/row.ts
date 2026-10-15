@@ -52,6 +52,7 @@ export const rowJa: AreaDictionary<typeof rowKeys> = {
   'row.status.tip.archived': '一覧に表示しないもの',
   'row.status.auto.disposable': 'hangar が自動で Done にしました（3 ターン以下で止まった会話）',
   'row.status.auto.summary': 'hangar が自動で Done にしました（要約が「完了」か「中止」）',
+  'row.status.auto.idle': 'hangar が自動で Done にしました（{days} 日以上動きが無かった会話）',
   'row.status.auto.expired': 'Claude の Done の提案を、{days} 日たったので自動で確定しました',
   'row.status.auto.plain': 'hangar が自動で Done にしました',
   'row.soon.delete': 'まもなく削除',

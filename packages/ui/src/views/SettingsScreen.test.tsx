@@ -82,7 +82,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   focus: null,
   compat: null,
   update: updateProps(),
-  self: { autoDone: true, autoPark: true },
+  self: { autoDone: true, autoDoneIdleDays: 7, autoPark: true },
   ...over,
 });
 
@@ -212,13 +212,13 @@ describe('設定の一般', () => {
   });
   it('一般には、通知、ターミナルアプリ、エディタ、トランスクリプトの保持、hangar が自分で行うことを置く', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
-    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'エディタ', 'トランスクリプトの保持', '止まった会話を自動で Done にする', 'Done と Archived にした会話を停止する']);
+    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'エディタ', 'トランスクリプトの保持', '止まった会話を自動で Done にする', '長く動きの無い会話も Done にする', 'Done と Archived にした会話を停止する']);
   });
   it('一般の末尾に「hangar が自分で行うこと」の 1 枚を置き、自動の Done と自動の停止をスイッチで切り替える', () => {
     const onAction = vi.fn();
-    render(ui(at('general', { self: { autoDone: true, autoPark: false } }), onAction));
+    render(ui(at('general', { self: { autoDone: true, autoDoneIdleDays: 7, autoPark: false } }), onAction));
     const card = screen.getByRole('heading', { level: 3, name: 'hangar が自分で行うこと' }).closest('section')!;
-    expect([...card.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['止まった会話を自動で Done にする', 'Done と Archived にした会話を停止する']);
+    expect([...card.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['止まった会話を自動で Done にする', '長く動きの無い会話も Done にする', 'Done と Archived にした会話を停止する']);
     expect(within(card).getByText('止まって 1 分たった会話のうち、3 ターン以下のものと、要約が「完了」か「中止」のものを、自動で Done にします。一覧では ✦ の札で見分けられます。再開して話しかければ外れます。')).toBeInTheDocument();
     expect(within(card).getByText('区切りを付けてアイドルになった Claude Code を、10 秒後に停止します。Paused は停止しません。停止した会話は「再開」で続けられます。')).toBeInTheDocument();
     const done = screen.getByRole('switch', { name: '止まった会話を自動で Done にする' });
@@ -229,6 +229,21 @@ describe('設定の一般', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoDone: false } });
     fireEvent.click(park);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoPark: true } });
+  });
+  it('長く動いていない会話の日数を 3・7・14・30 日としないから選び、自動の Done を切っている間は選べない', () => {
+    const onAction = vi.fn();
+    const { unmount } = render(ui(at('general', { self: { autoDone: true, autoDoneIdleDays: 7, autoPark: true } }), onAction));
+    const group = screen.getByRole('radiogroup', { name: '長く動きの無い会話も Done にする' });
+    expect(within(group).getAllByRole('radio').map((e) => e.textContent)).toEqual(['3 日', '7 日', '14 日', '30 日', 'しない']);
+    expect(within(group).getByRole('radio', { name: '7 日' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('止まってから選んだ日数、動きの無い会話を Done にします。ターン数や要約には関係しません。')).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('radio', { name: '14 日' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoDoneIdleDays: 14 } });
+    fireEvent.click(within(group).getByRole('radio', { name: 'しない' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoDoneIdleDays: 0 } });
+    unmount();
+    render(ui(at('general', { self: { autoDone: false, autoDoneIdleDays: 7, autoPark: true } }), onAction));
+    for (const r of within(screen.getByRole('radiogroup', { name: '長く動きの無い会話も Done にする' })).getAllByRole('radio')) expect(r).toBeDisabled();
   });
   it('「通知を有効にする」のスイッチで切り替える', () => {
     const onAction = vi.fn();
