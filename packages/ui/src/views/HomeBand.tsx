@@ -1,4 +1,4 @@
-import { Fragment, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { GitChip } from './GitChip.tsx';
 import { useEmit } from '../action/chain.tsx';
 import type { BandAction, BandGroup, BandLead, BandRow, BandSection, HomeBandProps } from '../presenters/home.ts';
@@ -254,10 +254,16 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
     e.preventDefault();
     if (li.current) show(boxAnchor(li.current));
   };
+  const onContextMenu = (e: ReactMouseEvent<HTMLLIElement>) => {
+    // 開いたメニューは portal だが、React の右クリックは木を伝ってここへ上がってくる。メニューの中からのものは行の右クリックとして扱わない。
+    if ((e.target as HTMLElement).closest('[role="menu"]')) return;
+    e.preventDefault();
+    show(pointAnchor(e.clientX, e.clientY));
+  };
   return (
     <li ref={setLi} className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : r.lead.kind === 'guide' ? 'guide' : undefined)} aria-hidden={props.leaving ? true : undefined} inert={props.leaving || undefined}
       data-menu={menuAt ? 'true' : undefined}
-      onContextMenu={r.menu && !props.leaving ? (e) => { e.preventDefault(); show(pointAnchor(e.clientX, e.clientY)); } : undefined}
+      onContextMenu={r.menu && !props.leaving ? onContextMenu : undefined}
       onKeyDown={r.menu ? onKeyDown : undefined}>
       <Lead lead={r.lead} />
       {/* 小札（「任意」、提案の出どころ）は名前の後ろに置く。名前がボタンの行では、ボタンの外に置いて読み上げの名前に混ぜない。 */}

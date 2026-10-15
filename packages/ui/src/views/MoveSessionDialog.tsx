@@ -15,6 +15,8 @@ import { SLOT, slot } from './primitives/slot.tsx';
  * いまの所属の行は押せず、「現在のプロジェクト」を添える。
  * 動くのは hangar での分類だけで、トランスクリプトと再開するフォルダは元のままであることを、下の注意書きで伝える。
  * 開いたときのフォーカスは検索の欄（Dialog が入力の欄に当てる）。↑ ↓ で行を移り、Enter で選ぶ。押せない行は飛ばす。
+ * 選んだ行の上でもう一度 Enter を押すと、移すボタンと同じく移す。行に印が無いときは、選んだ先があれば検索の欄の Enter で移す。
+ * 選んだ行が絞り込みで一覧から消えたら、選択を外す。見えない先へ移さないためである。
  */
 export function MoveSessionDialog(props: MoveSessionProps) {
   const t = useT();
@@ -44,9 +46,12 @@ export function MoveSessionDialog(props: MoveSessionProps) {
   // 絞り込みで印の行が消えたら、印を外す。
   const shown = pickable.includes(active) ? active : -1;
   useEffect(() => { if (shown !== active) setActive(shown); }, [shown, active]);
+  // 絞り込みで選んだ行が消えたら、選択を外す。検索を戻しても選び直さない。
+  const chosen = choice !== null && items.some((i) => i.option.value === choice) ? choice : null;
+  useEffect(() => { if (chosen !== choice) setChoice(chosen); }, [chosen, choice]);
 
   const close = () => emit({ type: 'overlay.close' });
-  const target = props.projects.find((p) => p.id === choice && !p.current) ?? null;
+  const target = props.projects.find((p) => p.id === chosen && !p.current) ?? null;
   const submit = () => {
     if (!target) return;
     close();
@@ -60,7 +65,13 @@ export function MoveSessionDialog(props: MoveSessionProps) {
     switch (e.key) {
       case 'ArrowDown': if (pickable.length) setActive(pickable[at < 0 ? 0 : (at + 1) % pickable.length]!); break;
       case 'ArrowUp': if (pickable.length) setActive(pickable[at <= 0 ? pickable.length - 1 : at - 1]!); break;
-      case 'Enter': { const hit = items.find((i) => i.index === shown); if (hit) choose(hit.option); break; }
+      case 'Enter': {
+        // 印の行がまだ選んでいない行なら選ぶ。選んだ行の上か、印が無いときは移す（選んだ先が無ければ何もしない）。
+        const hit = items.find((i) => i.index === shown);
+        if (hit && hit.option.value !== chosen) choose(hit.option);
+        else submit();
+        break;
+      }
       default: return;
     }
     e.preventDefault();
@@ -71,7 +82,7 @@ export function MoveSessionDialog(props: MoveSessionProps) {
   const option = ({ option: o, index }: { option: ListboxOption; index: number }) => {
     const off = current.has(o.value);
     return (
-      <div key={o.value} id={optId(index)} role="option" aria-selected={o.value === choice} aria-disabled={off ? 'true' : undefined} aria-label={o.label}
+      <div key={o.value} id={optId(index)} role="option" aria-selected={o.value === chosen} aria-disabled={off ? 'true' : undefined} aria-label={o.label}
         className="listbox-opt" data-active={index === shown ? 'true' : undefined}
         onMouseMove={() => { if (!off && index !== shown) setActive(index); }} onClick={() => choose(o)}>
         {o.status ? <span className="st-dot" data-status={o.status} aria-hidden="true" /> : o.icon ? <Icon name={o.icon} /> : null}

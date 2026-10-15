@@ -132,6 +132,19 @@ describe('ホームの帯の行のメニュー（BandRowView）', () => {
     fireEvent.keyDown(name, { key: '.', metaKey: true });
     expect(screen.queryByRole('menu')).toBeNull();
   });
+  it('開いたメニューの上での右クリックは、行の右クリックとして扱わない（メニューを動かさず、既定のメニューも抑えない）', () => {
+    mountBand();
+    const li = screen.getByRole('button', { name: '動く s1' }).closest('li')!;
+    fireEvent(li, createEvent.contextMenu(li, { clientX: 10, clientY: 20 }));
+    const menu = screen.getByRole('menu', { name: '動く s1 のメニュー' });
+    const before = menu.getAttribute('style');
+    const item = within(menu).getAllByRole('menuitemradio')[0]!;
+    const ev = createEvent.contextMenu(item, { clientX: 400, clientY: 300 });
+    fireEvent(item, ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(screen.getByRole('menu', { name: '動く s1 のメニュー' })).toBe(menu);
+    expect(menu.getAttribute('style')).toBe(before);
+  });
 });
 
 const NOW = new Date(2026, 9, 16, 12, 0).getTime();
@@ -193,6 +206,50 @@ describe('移す先のダイアログ（2A）', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(screen.getByRole('option', { name: 'paper' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('button', { name: 'paper へ移動' })).toBeEnabled();
+  });
+  it('選んだ行の上でもう一度 Enter を押すと移す。押せない行では確定しない', () => {
+    const onAction = mountMove();
+    const box = screen.getByRole('combobox');
+    fireEvent.keyDown(box, { key: 'ArrowDown' });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onAction.mock.calls.map((c) => c[0])).toEqual([{ type: 'overlay.close' }, { type: 'session.move', id: 's1', projectId: 'p2' }]);
+  });
+  it('選んだあと、行に印が無いときの検索欄での Enter でも移す', () => {
+    const onAction = mountMove();
+    fireEvent.click(screen.getByRole('option', { name: 'home-lab' }));
+    const box = screen.getByRole('combobox');
+    expect(box).not.toHaveAttribute('aria-activedescendant');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onAction.mock.calls.map((c) => c[0])).toEqual([{ type: 'overlay.close' }, { type: 'session.move', id: 's1', projectId: 'p3' }]);
+  });
+  it('何も選んでいないとき、またはいまの所属だけのときの Enter では移さない', () => {
+    const onAction = mountMove();
+    const box = screen.getByRole('combobox');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    fireEvent.click(screen.getByRole('option', { name: 'app' }));
+    fireEvent.keyDown(box, { key: 'Enter' });
+    fireEvent.change(box, { target: { value: 'app' } });
+    expect(screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['app']);
+    fireEvent.keyDown(box, { key: 'ArrowDown' });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onAction).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '移動' })).toBeDisabled();
+  });
+  it('選んだ行が絞り込みで一覧から消えたら、選択を外す。検索を戻しても選び直さない', () => {
+    const onAction = mountMove();
+    fireEvent.click(screen.getByRole('option', { name: 'paper' }));
+    expect(screen.getByRole('button', { name: 'paper へ移動' })).toBeEnabled();
+    const box = screen.getByRole('combobox');
+    fireEvent.change(box, { target: { value: 'lab' } });
+    expect(screen.getByRole('button', { name: '移動' })).toBeDisabled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.change(box, { target: { value: '' } });
+    expect(screen.getByRole('option', { name: 'paper' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('button', { name: '移動' })).toBeDisabled();
   });
 });
 
