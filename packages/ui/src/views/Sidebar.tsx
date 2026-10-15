@@ -57,11 +57,17 @@ const DRAG_OVERSHOOT = 8;
 type Press = { id: string; pointer: number; x: number; y: number; active: boolean; cancelled: boolean };
 
 /**
- * 並べ替えの途中の形（5A）。
- * from は掴んだ行の席、to は入る席、dy は浮いた行の縦のずれ（両端で止めた後）、pitch は行の間隔（開いた帯 30px、畳んだ帯 26px）。
- * held はポインタに付いている間、settle は離して空いた席へ収まる間（取り消しなら元の席へ戻る間）。
+ * 並べ替えの途中の形（5A）。席の添字は持たず、行の id で持つ。途中で一覧の行が増えたり消えたりしても、指す行を取り違えないためである。
+ * held はポインタに付いている間で、from0 は掴んだときの席、pointerDy は押した点からのポインタの縦のずれである。
+ * settle は離して空いた席へ収まる間（取り消しなら元の席へ戻る間）で、target の行の前（before）か後ろへ入る。target が null なら元の席へ戻る。
+ * pitch は行の間隔（開いた帯 30px、畳んだ帯 26px）。
  */
-type Sort = { id: string; from: number; to: number; dy: number; pitch: number; phase: 'held' | 'settle' };
+type Sort =
+  | { phase: 'held'; id: string; from0: number; pointerDy: number; pitch: number }
+  | { phase: 'settle'; id: string; target: string | null; before: boolean; pitch: number };
+
+/** いまの行の並びでの、並べ替えの席。from は掴んだ行の席、to は入る席、dy は浮いた行の縦のずれ。掴んだ行か指した行が無ければ null。 */
+type SortAt = { from: number; to: number; dy: number; pitch: number };
 
 /** 掴んだ行の縦のずれから、入る席を決める。両端の先へは出さない。 */
 function sortSlot(from: number, n: number, pitch: number, rawDy: number): { to: number; dy: number } {
@@ -70,11 +76,25 @@ function sortSlot(from: number, n: number, pitch: number, rawDy: number): { to: 
   return { to, dy };
 }
 
+/**
+ * 並べ替えの途中の形を、いまの行の並び（rowIds）の席へ引き直す。描くたびに呼ぶ。
+ * 掴んでいる間に前の行が消えたり増えたりすると、掴んだ行の席が動くので、その分だけずれを足してポインタに付いたままにする。
+ */
+function sortAt(s: Sort, rowIds: string[]): SortAt | null {
+  const from = rowIds.indexOf(s.id);
+  if (from < 0) return null;
+  if (s.phase === 'held') return { from, ...sortSlot(from, rowIds.length, s.pitch, s.pointerDy + (s.from0 - from) * s.pitch), pitch: s.pitch };
+  if (s.target === null) return { from, to: from, dy: 0, pitch: s.pitch };
+  if (!rowIds.includes(s.target)) return null;
+  const to = moveId(rowIds, s.id, s.target, s.before).indexOf(s.id);
+  return { from, to, dy: (to - from) * s.pitch, pitch: s.pitch };
+}
+
 /** 並べ替えの途中で、席 j の行をずらす幅。掴んだ行が通り過ぎた行は、行の間隔だけ逆へよける。 */
-function shiftOf(s: Sort, j: number): number {
-  if (j === s.from) return s.phase === 'held' ? s.dy : (s.to - s.from) * s.pitch;
-  if (s.from < s.to && j > s.from && j <= s.to) return -s.pitch;
-  if (s.from > s.to && j >= s.to && j < s.from) return s.pitch;
+function shiftOf(a: SortAt, j: number): number {
+  if (j === a.from) return a.dy;
+  if (a.from < a.to && j > a.from && j <= a.to) return -a.pitch;
+  if (a.from > a.to && j >= a.to && j < a.from) return a.pitch;
   return 0;
 }
 
@@ -86,6 +106,8 @@ function shiftOf(s: Sort, j: number): number {
  * 押してから DRAG_SLOP を越えて動いたら並べ替えに入り、離したあとの click では行を開かない。
  * 並べ替えの間は、掴んだ行が浮いてポインタに付き（data-lift）、ほかの行は入る場所に合わせて滑ってよける（5A、base.css）。
  * 離すと空いた席へ収まってから並びを確定する。Esc とポインタの取り消しでは、同じ動きで元の席へ戻る。
+ * 確定は離したときに指した行の id で行い、途中で掴んだ行か指した行が一覧から消えたら、並べ替えを捨てる。
+ * 並べ替えの間は、⌥↑↓、.、右クリックを受けない。
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
  * 動かすのは行だけで、見出しは動かない。並べ替えの途中の形は、ここだけで持つ。
  * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。
@@ -115,8 +137,11 @@ function LiveSection(props: { live: SideLiveProps }) {
   // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
   const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
   useEffect(() => { if (gone) setMenu(null); }, [gone]);
-  // 並べ替えの途中で掴んだ行が消えたら、並べ替えごとやめる。
-  const sortGone = sort !== null && !props.live.rows.some((r) => r.id === sort.id);
+  // いまの行の並びでの席。描くたびに id から引き直す。
+  const rowIds = props.live.rows.map((r) => r.id);
+  const at = sort ? sortAt(sort, rowIds) : null;
+  // 並べ替えの途中で掴んだ行か指した行が消えたら、並べ替えごとやめる。
+  const sortGone = sort !== null && at === null;
   useEffect(() => {
     if (!sortGone) return;
     if (settleTimer.current) clearTimeout(settleTimer.current);
@@ -131,7 +156,10 @@ function LiveSection(props: { live: SideLiveProps }) {
     if (!holding) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || !press.current?.active) return;
+      // ほかの Esc の受け手（ダイアログの殻、ポップオーバー、Root の overlay.close、後から窓に付いた捕捉）へは届かせない。
+      // 届くと、並べ替えを取り消したのと同じ打鍵で、ダイアログを閉じたり画面を戻したりしてしまう。
       e.preventDefault();
+      e.stopImmediatePropagation();
       press.current.cancelled = true;
       settleRef.current(true);
     };
@@ -155,14 +183,19 @@ function LiveSection(props: { live: SideLiveProps }) {
   const settle = (cancel: boolean) => {
     const s = sortNow.current;
     if (!s || s.phase !== 'held') return;
-    const next: Sort = { ...s, to: cancel ? s.from : s.to, phase: 'settle' };
+    // 入る先は、離したこの時点で指している行の id として持つ。収まる間に行が増減しても、別の行の前後へ入れないためである。
+    const rows = liveNow.current.rows.map((r) => r.id);
+    const a = sortAt(s, rows);
+    if (!a) { setSort(null); return; }
+    const moved = !cancel && a.to !== a.from;
+    const next: Sort = { phase: 'settle', id: s.id, target: moved ? rows[a.to] ?? null : null, before: a.to < a.from, pitch: s.pitch };
     setSort(next);
     const finish = () => {
       settleTimer.current = null;
       if (sortNow.current !== next) return;
       const cur = liveNow.current;
-      const target = cur.rows[next.to]?.id;
-      const ids = next.to !== next.from && target ? moveId(cur.ids, next.id, target, next.to < next.from) : cur.ids;
+      const { target } = next;
+      const ids = target && cur.ids.includes(next.id) && cur.ids.includes(target) ? moveId(cur.ids, next.id, target, next.before) : cur.ids;
       flushSync(() => {
         if (ids !== cur.ids) emit({ type: 'sidebar.order', ids });
         setSort(null);
@@ -195,14 +228,16 @@ function LiveSection(props: { live: SideLiveProps }) {
       const first = boxes[0];
       const last = boxes[boxes.length - 1];
       const pitch = boxes.length > 1 && first && last ? (last.top - first.top) / (boxes.length - 1) : first?.height ?? 0;
-      sortNow.current = { id: p.id, from, to: from, dy: 0, pitch: pitch > 0 ? pitch : 30, phase: 'held' };
+      sortNow.current = { phase: 'held', id: p.id, from0: from, pointerDy: 0, pitch: pitch > 0 ? pitch : 30 };
     }
     const s = sortNow.current;
     if (!s || s.phase !== 'held') return;
-    const { to, dy } = sortSlot(s.from, live.rows.length, s.pitch, e.clientY - p.y);
-    // 席もずれも変わらなければ描き直さない。掴んだ最初の動きは、まだ描いていないので描く。
-    if (sort && to === s.to && dy === s.dy) return;
-    setSort({ ...s, to, dy });
+    const next: Sort = { ...s, pointerDy: e.clientY - p.y };
+    // 席もずれも変わらなければ描き直さない（両端の先で止まっている間など）。掴んだ最初の動きは、まだ描いていないので描く。
+    const was = sortAt(s, rowIds);
+    const now = sortAt(next, rowIds);
+    if (sort && was && now && was.to === now.to && was.dy === now.dy) { sortNow.current = next; return; }
+    setSort(next);
   };
   const onPointerUp = (e: PointerEvent) => {
     const p = press.current;
@@ -226,6 +261,8 @@ function LiveSection(props: { live: SideLiveProps }) {
     emit({ type: 'session.open', id: r.id });
   };
   const onKeyDown = (e: KeyboardEvent, r: SideLiveRow) => {
+    // 並べ替えの間は、並びもメニューも動かさない。
+    if (sortNow.current) return;
     // . は一覧の行の「⋯」と同じ打鍵。修飾の付いたものはアプリ全体の打鍵なので取らない。
     if (e.key === '.' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
@@ -241,10 +278,10 @@ function LiveSection(props: { live: SideLiveProps }) {
   return (
     <section className="side-live" aria-label={t('sidebar.live.label')}>
       <h2 className="side-live-h">{t('sidebar.live.title')}<span className="side-live-n">{live.count}</span></h2>
-      <ul className="side-live-list" ref={list} data-sorting={sort ? 'true' : undefined}>
+      <ul className="side-live-list" ref={list} data-sorting={at ? 'true' : undefined}>
         {live.rows.map((r, j) => {
-          const shift = sort ? shiftOf(sort, j) : 0;
-          const lift = sort?.id === r.id ? sort.phase : undefined;
+          const shift = at ? shiftOf(at, j) : 0;
+          const lift = at && sort?.id === r.id ? sort.phase : undefined;
           // 浮いた行には、元の席でも 0 を明示して持たせる（戻る動きの行き先が 0 であるため）。
           const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
           return (
@@ -253,7 +290,7 @@ function LiveSection(props: { live: SideLiveProps }) {
               data-live={r.live ?? undefined} data-lift={lift} style={style}
               title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
               onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
-              onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
+              onContextMenu={(e) => { e.preventDefault(); if (sortNow.current) return; setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
               onPointerDown={(e) => onPointerDown(e, r)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
               <StatusDot status={r.live} aside={r.aside} reason={r.reason} /><span className="side-live-name">{r.name}</span>{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
             </a>

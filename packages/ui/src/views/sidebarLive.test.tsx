@@ -183,10 +183,14 @@ const menuOf = (id: string, stop: SessionMenuProps['stop'] = { runId: `r-${id}`,
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: menuOf(id), ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
+// 並べ替えの途中で一覧が変わったことにする。行は ids の順に並べ、並びの計算にも同じ ids を渡す。
+const liveOfIds = (ids: string[]): SideLiveProps => ({ count: ids.length, ids, rows: ids.map((id) => row(id)), more: 0 });
+const remount = (m: ReturnType<typeof mount>, ids: string[]) => m.rerender(<ActionRoot onAction={m.onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveOfIds(ids)} /></ActionRoot>);
+const linkOf = (id: string) => screen.getByRole('link', { name: new RegExp(`name-${id}`) });
 
 // 行の縦の位置。a・b・c を h（既定 30px、畳んだ帯は 26px）ずつ上から並べる。jsdom は配置を測らないので、ここで与える。
-const placeRows = (h = 30) => {
-  ['a', 'b', 'c'].forEach((id, i) => {
+const placeRows = (h = 30, ids = ['a', 'b', 'c']) => {
+  ids.forEach((id, i) => {
     const top = 100 + i * h;
     screen.getByRole('link', { name: new RegExp(`name-${id}`) }).getBoundingClientRect = () => ({ top, height: h, bottom: top + h, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
   });
@@ -425,6 +429,196 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     onAction.mockClear();
     fireEvent.keyDown(b, { key: 'ArrowUp' });
     expect(onAction).not.toHaveBeenCalled();
+  });
+  it('掴んでいる間に前の行が消えても、浮いた行はポインタに付いたままで、ずらしは id から引き直し、離すと指した行の前に入る', () => {
+    const m = mount(liveOfIds(['x', 'a', 'b', 'c']));
+    placeRows(30, ['x', 'a', 'b', 'c']);
+    pointerAt('pointerDown', linkOf('c'), 205);
+    pointerAt('pointerMove', linkOf('c'), 134);
+    expect(linkOf('c').style.translate).toMatch(/-71px$/);
+    expect(linkOf('a').style.translate).toMatch(/ 30px$/);
+    // x が消えて行が 1 つ上へ詰まる。ポインタ（134）は、いまは b の上にある。
+    remount(m, ['a', 'b', 'c']);
+    expect(linkOf('c').style.translate).toMatch(/-41px$/);
+    expect(linkOf('b').style.translate).toMatch(/ 30px$/);
+    expect(linkOf('a').style.translate).toBe('');
+    pointerAt('pointerUp', linkOf('c'), 134);
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['a', 'c', 'b'] });
+  });
+  it('掴んでいる間に前へ行が増えても、浮いた行はポインタに付いたままで、離すとその下の行の前に入る', () => {
+    const m = mount(liveOfIds(['a', 'b', 'c']));
+    placeRows();
+    pointerAt('pointerDown', linkOf('c'), 175);
+    pointerAt('pointerMove', linkOf('c'), 104);
+    // y が先頭に入って行が 1 つ下へずれる。ポインタ（104）は、いまは y の上にあり、浮いた行は端で止まる。
+    remount(m, ['y', 'a', 'b', 'c']);
+    expect(linkOf('c').style.translate).toMatch(/-98px$/);
+    for (const id of ['y', 'a', 'b']) expect(linkOf(id).style.translate).toMatch(/ 30px$/);
+    pointerAt('pointerUp', linkOf('c'), 104);
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'y', 'a', 'b'] });
+  });
+  it('収まる間に前の行が消えても、離したときに指した行の前に入る', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const m = mount(liveOfIds(['x', 'a', 'b', 'c']));
+      placeRows(30, ['x', 'a', 'b', 'c']);
+      pointerAt('pointerDown', linkOf('c'), 205);
+      pointerAt('pointerMove', linkOf('c'), 134);
+      pointerAt('pointerUp', linkOf('c'), 134);
+      expect(linkOf('c').style.translate).toMatch(/-60px$/);
+      remount(m, ['a', 'b', 'c']);
+      expect(linkOf('c').style.translate).toMatch(/-60px$/);
+      expect(linkOf('a').style.translate).toMatch(/ 30px$/);
+      expect(linkOf('b').style.translate).toMatch(/ 30px$/);
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).toHaveBeenCalledTimes(1);
+      expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('収まる間に前へ行が増えても、離したときに指した行の前に入る', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const m = mount(liveOfIds(['a', 'b', 'c']));
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      pointerAt('pointerUp', linkOf('c'), 104);
+      remount(m, ['y', 'a', 'b', 'c']);
+      expect(linkOf('c').style.translate).toMatch(/-60px$/);
+      expect(linkOf('a').style.translate).toMatch(/ 30px$/);
+      expect(linkOf('b').style.translate).toMatch(/ 30px$/);
+      expect(linkOf('y').style.translate).toBe('');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).toHaveBeenCalledTimes(1);
+      expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['y', 'c', 'a', 'b'] });
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('収まる間に指した行が消えたら、並べ替えを捨てて並びを出さない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const m = mount(liveOfIds(['a', 'b', 'c']));
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      pointerAt('pointerUp', linkOf('c'), 104);
+      remount(m, ['b', 'c']);
+      expect(linkOf('c')).not.toHaveAttribute('data-lift');
+      expect(linkOf('c').style.translate).toBe('');
+      expect(linkOf('c').closest('ul')).not.toHaveAttribute('data-sorting');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('掴んでいる間に掴んだ行が消えたら、並べ替えを捨てて並びを出さない', () => {
+    const m = mount(liveOfIds(['a', 'b', 'c']));
+    placeRows();
+    const c = linkOf('c');
+    pointerAt('pointerDown', c, 175);
+    pointerAt('pointerMove', c, 104);
+    remount(m, ['a', 'b']);
+    expect(linkOf('a').closest('ul')).not.toHaveAttribute('data-sorting');
+    expect(linkOf('a').style.translate).toBe('');
+    pointerAt('pointerUp', c, 104);
+    expect(m.onAction).not.toHaveBeenCalled();
+  });
+  it('並べ替えの間（掴んでいる間と収まる間）は、⌥↑↓、.、右クリックを受けない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const [a, b, c] = ['a', 'b', 'c'].map(linkOf) as [HTMLElement, HTMLElement, HTMLElement];
+      const others = () => {
+        fireEvent.keyDown(b, { key: 'ArrowUp', altKey: true });
+        fireEvent.keyDown(a, { key: 'ArrowDown', altKey: true });
+        fireEvent.keyDown(b, { key: '.' });
+        const ev = createEvent.contextMenu(a, { clientX: 40, clientY: 120 });
+        fireEvent(a, ev);
+        // ブラウザのメニューも出さない。
+        expect(ev.defaultPrevented).toBe(true);
+        expect(screen.queryByRole('menu')).toBeNull();
+        for (const el of [a, b, c]) expect(el).not.toHaveAttribute('data-menu');
+        expect(onAction).not.toHaveBeenCalled();
+      };
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      expect(c).toHaveAttribute('data-lift', 'held');
+      others();
+      pointerAt('pointerUp', c, 104);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      others();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(onAction).toHaveBeenCalledTimes(1);
+      expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('並べ替えの途中の Esc は、ほかの Esc の受け手（窓の捕捉と浮上、Root、ダイアログの殻）へ届かせない。並べ替えの外では届く', () => {
+    // Esc を受けるのは、窓の浮上の段の Root（overlay.close）、要素の上のダイアログの殻とポップオーバー、窓の捕捉の段の EditorMissing である。
+    // サイドバーは掴んだときに窓の捕捉の段へ付けるので、それより後に付いた捕捉と、浮上の段の受け手のすべてより先に受ける。
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    const bubble = vi.fn();
+    const onBody = vi.fn();
+    const capture = vi.fn();
+    window.addEventListener('keydown', bubble);
+    document.body.addEventListener('keydown', onBody);
+    try {
+      mount(liveProps());
+      placeRows();
+      const c = linkOf('c');
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      window.addEventListener('keydown', capture, true);
+      const ev = createEvent.keyDown(document.body, { key: 'Escape' });
+      fireEvent(document.body, ev);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(capture).not.toHaveBeenCalled();
+      expect(onBody).not.toHaveBeenCalled();
+      expect(bubble).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(200); });
+      pointerAt('pointerUp', c, 104);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(onBody).toHaveBeenCalledTimes(1);
+      expect(bubble).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', bubble);
+      window.removeEventListener('keydown', capture, true);
+      document.body.removeEventListener('keydown', onBody);
+      vi.useRealTimers();
+      restore();
+    }
+  });
+  it('収まる間に節が消えても（アンマウント）、収まりの予約と窓の Esc を片付け、並びを出さない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    const removed = vi.spyOn(window, 'removeEventListener');
+    try {
+      const m = mount(liveProps());
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      pointerAt('pointerUp', linkOf('c'), 104);
+      m.unmount();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+      // 掴んでいる間に消えたときも、窓の Esc を外す。
+      const n = mount(liveProps());
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      removed.mockClear();
+      n.unmount();
+      expect(removed).toHaveBeenCalledWith('keydown', expect.any(Function), true);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(n.onAction).not.toHaveBeenCalled();
+    } finally { removed.mockRestore(); vi.useRealTimers(); restore(); }
   });
 });
 
