@@ -128,7 +128,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
-          prefix-key: v0-nolto
+          prefix-key: v0-thinlto
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri
       - run: cargo test
@@ -143,8 +143,7 @@ jobs:
           target: x86_64-pc-windows-msvc
           features: boot-probe
         env:
-          CARGO_PROFILE_RELEASE_LTO: 'false'
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+          CARGO_PROFILE_RELEASE_LTO: 'thin'
       - uses: actions/upload-artifact@v7
         with:
           name: Hangar-windows-x64-setup
@@ -177,8 +176,7 @@ jobs:
         timeout-minutes: 25
         shell: pwsh
         env:
-          CARGO_PROFILE_RELEASE_LTO: 'false'
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+          CARGO_PROFILE_RELEASE_LTO: 'thin'
         run: pwsh -NoProfile -File apps/desktop/scripts/ci-update-windows.ps1 -Target x86_64-pc-windows-msvc -Out (Join-Path $env:RUNNER_TEMP 'update-windows')
       - uses: actions/upload-artifact@v7
         if: always()
@@ -204,7 +202,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
-          prefix-key: v0-nolto
+          prefix-key: v0-thinlto
       - run: cargo fmt --check
         working-directory: apps/desktop/src-tauri
       - run: cargo clippy --all-targets -- -D warnings
@@ -229,8 +227,7 @@ jobs:
         id: app
         run: npm run tauri -- build --bundles app --features boot-probe
         env:
-          CARGO_PROFILE_RELEASE_LTO: 'false'
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+          CARGO_PROFILE_RELEASE_LTO: 'thin'
         working-directory: apps/desktop
       - name: Node の無い Mac で、読み込み画面が失敗の札に切り替わる
         timeout-minutes: 3
@@ -292,8 +289,7 @@ jobs:
       - name: 版 A から版 B へ、updater の経路で .app を入れ替える
         timeout-minutes: 20
         env:
-          CARGO_PROFILE_RELEASE_LTO: 'false'
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+          CARGO_PROFILE_RELEASE_LTO: 'thin'
         run: bash apps/desktop/scripts/ci-update-macos.sh "$RUNNER_TEMP/update-macos"
       - uses: actions/upload-artifact@v7
         if: always()
