@@ -588,7 +588,11 @@ export type StrayProcessDto = { error: string; code: 'stray_process'; pid: numbe
 export type ResumeHerePlanDto = {
   sessionId: string;
   from: { deviceName: string | null; platform: string | null; path: string; lastAt: number | null };
-  to: { deviceName: string | null; platform: string | null; path: string | null };
+  /**
+   * path は再開する作業ディレクトリで、場所が決まらなければ null。
+   * createsFolder は、そのフォルダを再開の前に作るか（ほかの PC のクイックセッションを quick-sessions/<元のフォルダ名> で再開するとき）。古いサーバは送らない。
+   */
+  to: { deviceName: string | null; platform: string | null; path: string | null; createsFolder?: boolean };
   /** この PC のトランスクリプトをほかの PC の写しで置き換えるとき（ResumeHereReplaceDto）。手元に無いか、手元の方が大きいか同じなら null。 */
   replace: ResumeHereReplaceDto | null;
 };

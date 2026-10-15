@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { deviceOfSession, handoverFacts, projectDeviceCount, resumeCwd, resumeHerePlan } from './handover.ts';
+import { deviceOfSession, handoverFacts, projectDeviceCount, resumeCwd, resumeHerePlan, resumeTarget } from './handover.ts';
 
 let db: Db;
 let here: string;
@@ -187,7 +187,7 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
     expect(resumeHerePlan(db, 'me', id)).toEqual({
       sessionId: id,
       from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: 99 },
-      to: { deviceName: 'this-mac', platform: 'darwin', path: here },
+      to: { deviceName: 'this-mac', platform: 'darwin', path: here, createsFolder: false },
       replace: null,
     });
   });
@@ -202,5 +202,61 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
     const id = session({ cwd: 'D:\\src\\notes-app' });
     expect(resumeHerePlan(db, 'me', id)?.to.path).toBeNull();
     expect(resumeHerePlan(db, 'me', 'nope')).toBeNull();
+  });
+});
+
+describe('ほかの PC のクイックセッションの再開', () => {
+  let quick: string;
+  beforeEach(() => {
+    quick = path.join(here, 'quick-sessions');
+    fs.mkdirSync(quick);
+    upsertShared(db, 'projects', { id: 'q', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'me');
+    upsertShared(db, 'project_roots', { id: 'rq-me', project_id: 'q', device_id: 'me', path: quick, resolved: 1 }, 'me');
+    upsertShared(db, 'project_roots', { id: 'rq-win', project_id: 'q', device_id: 'win', path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions', resolved: 1 }, 'win');
+    upsertShared(db, 'project_roots', { id: 'rq-mac2', project_id: 'q', device_id: 'mac2', path: '/Users/o/.agent-hangar/scratch', resolved: 1 }, 'mac2');
+  });
+
+  it('cwd がこの PC に無ければ、この PC の quick-sessions/<元のフォルダ名> を作る先にする（Windows の区切りも）', () => {
+    expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'q' })).toEqual({ path: path.join(quick, '20261016-101010'), createsFolder: true });
+    expect(resumeTarget(db, 'me', { cwd: '/Users/o/.agent-hangar/scratch/20260901-090000', project_id: 'q' })).toEqual({ path: path.join(quick, '20260901-090000'), createsFolder: true });
+    // 下位のフォルダで動いていた会話も、元のクイックセッションのフォルダの名前を使う。
+    expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010\\sub', project_id: 'q' })?.path).toBe(path.join(quick, '20261016-101010'));
+    // 前の置き場（scratch）の下でも、その PC の場所が quick-sessions に替わった後でも読める。
+    expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\scratch\\20250101-000000', project_id: 'q' })?.path).toBe(path.join(quick, '20250101-000000'));
+    // どの置き場の下か分からなければ、末尾のフォルダ名を使う。
+    expect(resumeTarget(db, 'me', { cwd: 'E:\\odd\\place\\20261016-111111', project_id: 'q' })?.path).toBe(path.join(quick, '20261016-111111'));
+    // 見積もりだけで、フォルダは作らない。
+    expect(fs.readdirSync(quick)).toEqual([]);
+    // resumeCwd も同じ先を返す。
+    expect(resumeCwd(db, 'me', { cwd: '/Users/o/.agent-hangar/scratch/20260901-090000', project_id: 'q' })).toBe(path.join(quick, '20260901-090000'));
+  });
+
+  it('同名のフォルダがすでにあれば、それを使い、作らない', () => {
+    fs.mkdirSync(path.join(quick, '20261016-101010'));
+    expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'q' })).toEqual({ path: path.join(quick, '20261016-101010'), createsFolder: false });
+  });
+
+  it('cwd がこの PC にあれば、前の置き場（scratch）の下でもそのまま使う', () => {
+    const legacy = path.join(here, 'scratch', '20260901-090000');
+    fs.mkdirSync(legacy, { recursive: true });
+    expect(resumeTarget(db, 'me', { cwd: legacy, project_id: 'q' })).toEqual({ path: legacy, createsFolder: false });
+  });
+
+  it('まとめる前の、別のスクラッチのプロジェクトに属していても、この PC のクイックセッションの場所で読み替える', () => {
+    upsertShared(db, 'projects', { id: 'q-win', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'win');
+    expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'q-win' })?.path).toBe(path.join(quick, '20261016-101010'));
+  });
+
+  it('再開の確認は、作って再開するフォルダのパスと、作ることを返す', () => {
+    const id = session({ cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project: 'q' });
+    run(id, 'win', 3);
+    expect(resumeHerePlan(db, 'me', id)?.to).toEqual({ deviceName: 'this-mac', platform: 'darwin', path: path.join(quick, '20261016-101010'), createsFolder: true });
+    expect(fs.existsSync(path.join(quick, '20261016-101010'))).toBe(false);
+  });
+
+  it('利用者が自分で作った scratch という名前のフォルダの会話は、クイックセッションの読み替えをしない', () => {
+    upsertShared(db, 'projects', { id: 'own', name: 'scratch', status: 'active', is_scratch: 0 }, 'win');
+    upsertShared(db, 'project_roots', { id: 'r-own', project_id: 'own', device_id: 'win', path: 'D:\\work\\scratch', resolved: 1 }, 'win');
+    expect(resumeTarget(db, 'me', { cwd: 'D:\\work\\scratch\\notes', project_id: 'own' })).toBeNull();
   });
 });

@@ -26,8 +26,11 @@ export function resumeHereOf(store: Store, s: SessionDto, t: Translate): ResumeH
   return { disabled: running ?? (noRoot ? reason : null), noRoot };
 }
 
-/** 確認の 1 枚の、PC 1 台分のカード。at は前の PC の最後に使った日時の行で、この PC では null。path が null ならこの PC で場所が決まっていない。 */
-export type ResumeHereCard = { label: string; name: string; os: string | null; path: string | null; at: string | null };
+/**
+ * 確認の 1 枚の、PC 1 台分のカード。at は前の PC の最後に使った日時の行で、この PC では null。path が null ならこの PC で場所が決まっていない。
+ * note はパスの下に添える 1 行で、ほかの PC のクイックセッションをこの PC の置き場に作って再開するときだけ出す（試作の 6A）。
+ */
+export type ResumeHereCard = { label: string; name: string; os: string | null; path: string | null; at: string | null; note: string | null };
 /**
  * 「この PC で再開」の確認（2 枚のカードと黄の帯、試作の 2a の A、2b の Y、2c の P）。
  * blocked は、この PC で場所が決まらないときの理由で、そのときは再開のボタンを押せなくする。
@@ -52,8 +55,8 @@ export function presentResumeHere(t: Translate, plan: ResumeHerePlanDto, home: s
     sessionId: plan.sessionId,
     title: t('confirm.resumeHere.title'),
     lead: t('confirm.resumeHere.lead', { device: prev }),
-    from: { label: t('confirm.resumeHere.from'), name: prev, os: osName(t, plan.from.platform), path: plan.from.path, at: t('confirm.resumeHere.lastAt', { at: absoluteTime(t, plan.from.lastAt) }) },
-    to: { label: t('confirm.resumeHere.to'), name: plan.to.deviceName ?? t('confirm.resumeHere.to'), os: osName(t, plan.to.platform), path: plan.to.path === null ? null : homePath(plan.to.path, home), at: null },
+    from: { label: t('confirm.resumeHere.from'), name: prev, os: osName(t, plan.from.platform), path: plan.from.path, at: t('confirm.resumeHere.lastAt', { at: absoluteTime(t, plan.from.lastAt) }), note: null },
+    to: { label: t('confirm.resumeHere.to'), name: plan.to.deviceName ?? t('confirm.resumeHere.to'), os: osName(t, plan.to.platform), path: plan.to.path === null ? null : homePath(plan.to.path, home), at: null, note: plan.to.path !== null && plan.to.createsFolder === true ? t('confirm.resumeHere.createQuick') : null },
     band: { strong: t('confirm.resumeHere.notSynced'), text: t('confirm.resumeHere.synced') },
     action: t('confirm.resumeHere.action'),
     blocked: plan.to.path === null ? t('session.action.resumeHereNoRoot') : null,

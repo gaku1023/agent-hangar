@@ -37,7 +37,7 @@ import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { forgetInterruption, interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { isAlive } from '../platform/proc.ts';
 import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
-import { handoverFacts, projectDeviceCount, resumeCwd } from './handover.ts';
+import { handoverFacts, projectDeviceCount, resumeTarget } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
@@ -224,10 +224,11 @@ export class RunManager {
 
   private project(projectId: string): ProjectInfo {
     const r = this.db
-      .prepare('select p.id, p.name, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
-      .get(this.deps.deviceId, projectId) as { id: string; name: string; path: string | null; resolved: number | null } | undefined;
+      .prepare('select p.id, p.name, p.is_scratch, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
+      .get(this.deps.deviceId, projectId) as { id: string; name: string; is_scratch: number; path: string | null; resolved: number | null } | undefined;
     if (!r) throw new RunError(404, msg('project.error.notFound'));
-    return { id: r.id, name: r.name, path: r.path, resolved: r.resolved === 1 };
+    // クイックセッションの DB の名前（スクラッチ）は内部のもので、画面と同じ辞書の名前で伝える。
+    return { id: r.id, name: r.is_scratch === 1 ? this.tr('project.name.quick') : r.name, path: r.path, resolved: r.resolved === 1 };
   }
 
   private mcpUrl(sessionId: string): string {
@@ -269,14 +270,18 @@ export class RunManager {
   }
 
   /**
-   * 再開とフォークの作業ディレクトリ（runs/handover.ts の resumeCwd）。
+   * 再開とフォークの作業ディレクトリ（runs/handover.ts の resumeTarget）。
    * 前の PC のパスは、この PC のプロジェクトの場所に読み替える。共有の行の sessions.cwd は書き換えない。
    * プロジェクトに属する会話で、この PC に場所が無いときは、起こす前に場所が無いと断る。
    * プロジェクトに属さない会話は今までどおり sessions.cwd を使い、無ければ precheck が断る。
    */
-  private cwdFor(s: SessionRow): string {
-    const local = resumeCwd(this.db, this.deps.deviceId, s);
-    if (local) return local;
+  private cwdFor(s: SessionRow, o: { create: boolean } = { create: true }): string {
+    const local = resumeTarget(this.db, this.deps.deviceId, s);
+    if (local) {
+      // ほかの PC のクイックセッションは、この PC の quick-sessions/<元のフォルダ名> を作ってそこで起こす。
+      if (local.createsFolder && o.create) fs.mkdirSync(local.path, { recursive: true });
+      return local.path;
+    }
     if (s.project_id) throw new RunError(400, msg('run.launch.projectDirMissing'));
     return s.cwd;
   }
@@ -287,7 +292,8 @@ export class RunManager {
    */
   resumeCwdOf(sessionId: string): string | null {
     const s = this.db.prepare('select * from sessions where id = ? and deleted_at is null').get(sessionId) as SessionRow | undefined;
-    return s ? this.cwdFor(s) : null;
+    // 確かめるだけなので、クイックセッションのフォルダはまだ作らない。写しに失敗したときに空のフォルダを残さないためである。
+    return s ? this.cwdFor(s, { create: false }) : null;
   }
 
   /**

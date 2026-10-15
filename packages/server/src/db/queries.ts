@@ -3,6 +3,7 @@ import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveSession
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { sameFolderPairs } from '../projects/registry.ts';
+import { scratchPlacesOf } from '../projects/scratch.ts';
 import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
 
@@ -261,8 +262,9 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
   // スクラッチのルートの下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
   // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。
   // スクラッチの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
+  // 場所が quick-sessions なら、同じ hangar のホームの前の置き場（scratch）の下も含める（projects/scratch.ts の scratchPlacesOf）。
   // projects/scratch.ts の isUnderScratch と同じ判定である。
-  const underScratch = r.scratch_root !== null && isStrictlyUnder(r.cwd, r.scratch_root);
+  const underScratch = r.scratch_root !== null && scratchPlacesOf(r.scratch_root).some((root) => isStrictlyUnder(r.cwd, root));
   return {
     id: r.id,
     provider: r.provider,

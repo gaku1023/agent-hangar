@@ -30,6 +30,7 @@ import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 import { interruptedGroup } from './interrupted.ts';
 import { expectMode } from '../../test/platform.ts';
+import { ensureScratchProject } from '../projects/scratch.ts';
 
 let db: Db;
 let home: string;
@@ -131,6 +132,7 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from projects where is_scratch = 1').get()).toEqual({ c: 0 });
     expect(fs.existsSync(path.join(home, 'scratch'))).toBe(false);
+    expect(fs.existsSync(path.join(home, 'quick-sessions'))).toBe(false);
   });
   it('Settings で claudePath が変わったら、次の run は新しい場所を使う', () => {
     const rm = make({ claudeBin: null });
@@ -146,6 +148,7 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from projects where is_scratch = 1').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from project_roots').get()).toEqual({ c: 2 });
     expect(fs.existsSync(path.join(home, 'scratch'))).toBe(false);
+    expect(fs.existsSync(path.join(home, 'quick-sessions'))).toBe(false);
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
@@ -316,12 +319,14 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     // projectId が一緒に来ても scratch を優先する。
     const r = rm.start({ scratch: true, projectId: 'p1', name: 'scratchy' });
     const s = { ...(db.prepare('select cwd, project_id from sessions where id = ?').get(r.sessionId) as { cwd: string; project_id: string }), name: getSessionNote(db, r.sessionId)?.name };
-    expect(s.cwd.startsWith(path.join(home, 'scratch') + path.sep)).toBe(true);
+    expect(s.cwd.startsWith(path.join(home, 'quick-sessions') + path.sep)).toBe(true);
+    expect(fs.existsSync(path.join(home, 'scratch'))).toBe(false);
     expect(fs.statSync(s.cwd).isDirectory()).toBe(true);
     expect(s.name).toBe('scratchy');
     expect(db.prepare('select is_scratch, name from projects where id = ?').get(s.project_id)).toEqual({ is_scratch: 1, name: 'スクラッチ' });
     const args = await launchedArgs(r.run.id);
-    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：スクラッチ（' + s.cwd + '）');
+    // DB の名前（スクラッチ）ではなく、画面と同じ「クイックセッション」で伝える。
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：クイックセッション（' + s.cwd + '）');
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
   });
 
@@ -912,6 +917,23 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(args).not.toContain('--add-dir');
     expect(args.at(-2)).toBe(args[args.indexOf('--append-system-prompt') + 1]);
     expect(() => rm.resume(id)).toThrow(expect.objectContaining({ status: 409 }));
+  });
+
+  it('ほかの PC のクイックセッションは、この PC の quick-sessions に同名のフォルダを作って再開する。確かめ（resumeCwdOf）では作らない', async () => {
+    const id = seedOldSession();
+    const qid = ensureScratchProject(db, 'd', home);
+    const remote = 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010';
+    db.prepare('update sessions set cwd = ?, project_id = ? where id = ?').run(remote, qid, id);
+    const target = path.join(home, 'quick-sessions', '20261016-101010');
+    const rm = make();
+    expect(rm.resumeCwdOf(id)).toBe(target);
+    expect(fs.existsSync(target)).toBe(false);
+    const r = rm.resume(id);
+    expect(fs.statSync(target).isDirectory()).toBe(true);
+    await launchedArgs(r.run.id);
+    expect(tmux!.run('display-message', '-p', '-t', `=${r.run.tmuxName}:`, '#{pane_current_path}').stdout.trim()).toBe(fs.realpathSync(target));
+    // 共有の行の cwd は書き換えない。
+    expect(db.prepare('select cwd from sessions where id = ?').get(id)).toEqual({ cwd: remote });
   });
 
   it('fork は新しいセッション行と kind = fork の run を作る', async () => {
