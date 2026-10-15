@@ -25,6 +25,7 @@ import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudRevokedBand } from '
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
+import { SetupGuideCard } from './SetupGuideCard.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
@@ -528,6 +529,8 @@ export function SettingsScreen(props: SettingsProps) {
       </section>}
       {/* アカウントの追加の入口はここだけ。1 件でも出す。届く前（一覧が空）は出さない。 */}
       {showAccounts && <AccountSettings {...props.accounts} />}
+      {/* セットアップのすゝめ（試作の案 C）。連携の最後に置き、Claude Code に貼る一言を見せる。写しが取れていなければ出さない。 */}
+      {props.setupGuide && <SetupGuideCard {...props.setupGuide} />}
     </>
   );
 

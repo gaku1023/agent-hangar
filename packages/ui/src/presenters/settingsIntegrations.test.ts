@@ -56,3 +56,18 @@ describe('連携の札の書き込み', () => {
     expect(present(store({ desktop: false })).desktop).toBe(false);
   });
 });
+
+describe('連携の末尾の「Claude Code に環境を見てもらう」の札', () => {
+  const guide = { path: '~/.agent-hangar/setup-guide.md', version: '0.7.0', sha: '3f9a1c2e', prompt: 'サーバの一言' };
+  const of = (s: Store) => presentSettings({ ...initialState(), screen: { name: 'settings' } }, s).setupGuide;
+
+  it('一言は画面の言語で作り直し、版を添える。サーバの一言はそのまま使わない（言語を変えても取り直さずに替わる）', () => {
+    expect(of(store({ setupGuide: guide }))).toEqual({ prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承諾してから', version: '0.7.0' });
+    const en = of(store({ setupGuide: guide, settings: { ...SETTINGS, language: 'en' } }));
+    expect(en?.prompt).toMatch(/^Read ~\/\.agent-hangar\/setup-guide\.md \(v0\.7\.0 sha256:3f9a1c2e\)/);
+  });
+
+  it('写しが取れていなければ null', () => {
+    expect(of(store())).toBeNull();
+  });
+});

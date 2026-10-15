@@ -11,6 +11,7 @@ import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { pick } from '../test/pick.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
+import { CopiedContext } from './primitives/CommandLine.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 const TITLES: Record<SettingsSection, string> = { general: '一般', tools: 'ツール', integrations: '連携', summary: '要約エンジン', update: '更新', cloud: 'クラウド同期', info: '情報' };
@@ -83,6 +84,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   compat: null,
   update: updateProps(),
   self: { autoDone: true, autoDoneIdleDays: 7, autoPark: true },
+  setupGuide: null,
   ...over,
 });
 
@@ -726,6 +728,46 @@ describe('設定の連携', () => {
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), DRIFT, DETAIL, ''), todo: { must: 0, link: 0 } })));
       expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).not.toHaveTextContent('要修正');
     });
+  });
+});
+
+describe('設定の連携の末尾の「Claude Code に環境を見てもらう」の札', () => {
+  const guide = { prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承諾してから', version: '0.7.0' };
+  const card = () => screen.getByRole('heading', { name: /Claude Code に環境を見てもらう/ }).closest('section') as HTMLElement;
+
+  it('連携の節の最後の札に、題、版の札、説明、貼る一言をそのまま見せる', () => {
+    const { container } = render(ui(at('integrations', { setupGuide: guide })));
+    const c = card();
+    const sections = container.querySelectorAll('.settings-group > section');
+    expect(sections[sections.length - 1]).toBe(c);
+    expect(within(c).getByText('v0.7.0')).toBeInTheDocument();
+    expect(within(c).getByText('この一言を Claude Code に貼ると、あなたの環境を読むだけで診断し、散らばった会話のフォルダの登録や連携を提案します。書き換えは、あなたが承諾してからです。')).toBeInTheDocument();
+    expect(within(c).getByText(guide.prompt).tagName).toBe('CODE');
+    expect(within(c).getByText(/フォルダの移動や削除はしません。CLAUDE\.md にも触れません。/)).toBeInTheDocument();
+  });
+
+  it('「コピー」は一言を clipboard.copy で渡し、写せたら「コピーしました」に替わる（ブラウザでも押せる）', () => {
+    const onAction = vi.fn();
+    const props = at('integrations', { setupGuide: guide });
+    const view = render(<ActionRoot onAction={onAction}><CopiedContext.Provider value={null}><SettingsScreen {...props} /></CopiedContext.Provider></ActionRoot>);
+    const button = within(card()).getByRole('button', { name: 'コピー' });
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: guide.prompt });
+    act(() => view.rerender(<ActionRoot onAction={onAction}><CopiedContext.Provider value={{ text: guide.prompt, n: 1 }}><SettingsScreen {...props} /></CopiedContext.Provider></ActionRoot>));
+    expect(within(card()).getByRole('button', { name: 'コピーしました' })).toBeInTheDocument();
+  });
+
+  it('「手引きの中身を見る」は写した md をエディタで開く', () => {
+    const onAction = vi.fn();
+    render(ui(at('integrations', { setupGuide: guide }), onAction));
+    fireEvent.click(within(card()).getByRole('button', { name: '手引きの中身を見る' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'setupGuide.openEditor' });
+  });
+
+  it('写しが取れていなければ札を出さない', () => {
+    render(ui(at('integrations', { setupGuide: null })));
+    expect(screen.queryByRole('heading', { name: /Claude Code に環境を見てもらう/ })).toBeNull();
   });
 });
 
