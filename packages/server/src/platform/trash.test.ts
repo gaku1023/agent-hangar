@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { moveToTrash, trashCommand, TrashError, type TrashRun } from './trash.ts';
+import { moveToTrash, realTrashRun, trashCommand, TrashError, TRASH_TIMEOUT_MS, type TrashRun } from './trash.ts';
 
 /**
  * OS のゴミ箱へ移す部品（platform/trash.ts）。
@@ -97,6 +97,35 @@ describe('moveToTrash（偽の実行）', () => {
     await expect(moveToTrash(f, { platform: 'linux', run })).rejects.toThrow(/gio ENOENT/);
     expect(fs.existsSync(f)).toBe(true);
   });
+  it('返らないコマンドは、上限の時間で止めて TrashError にする（止める合図を実行の口へ渡す）', async () => {
+    const f = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(f, 'x');
+    let aborted = false;
+    // Windows の SendToRecycleBin が誤りのダイアログを出して返らないときの代わり。
+    const run: TrashRun = (_file, _args, _env, signal) => new Promise(() => {
+      signal.addEventListener('abort', () => { aborted = true; });
+    });
+    await expect(moveToTrash(f, { platform: 'win32', run, timeoutMs: 50 })).rejects.toThrow(TrashError);
+    await expect(moveToTrash(f, { platform: 'win32', run, timeoutMs: 50 })).rejects.toThrow(/timed out/);
+    expect(aborted).toBe(true);
+    expect(fs.existsSync(f)).toBe(true);
+  });
+  it('既定の上限は 30 秒である', () => {
+    expect(TRASH_TIMEOUT_MS).toBe(30_000);
+  });
+});
+
+describe('moveToTrash（本物の子プロセスを上限で止める）', () => {
+  it('上限を過ぎたら子プロセスを殺して TrashError にする', async () => {
+    const f = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(f, 'x');
+    // ゴミ箱のコマンドの代わりに、眠り続ける node を本物の実行の口で起こす。
+    const sleeper: TrashRun = (_file, _args, env, signal) => realTrashRun(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], env, signal);
+    const started = Date.now();
+    await expect(moveToTrash(f, { run: sleeper, timeoutMs: 300 })).rejects.toThrow(/timed out/);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(fs.existsSync(f)).toBe(true);
+  }, 20_000);
 });
 
 describe.runIf(process.platform === 'darwin')('moveToTrash（macOS の本物のゴミ箱）', () => {
@@ -149,8 +178,9 @@ describe.runIf(process.platform === 'win32')('moveToTrash（Windows の本物の
     fs.mkdirSync(path.join(sub, 'subagents'), { recursive: true });
     fs.writeFileSync(path.join(sub, 'subagents', 'agent-a.jsonl'), 'x');
     try {
-      await moveToTrash(f);
-      await moveToTrash(sub);
+      // 1 回ごとに上限を付け、ごみ箱がダイアログで止まっても試験が必ず終わるようにする（2 回と片付けの 60 秒で、試験の 120 秒に収まる）。
+      await moveToTrash(f, { timeoutMs: 25_000 });
+      await moveToTrash(sub, { timeoutMs: 25_000 });
       expect(fs.existsSync(f)).toBe(false);
       expect(fs.existsSync(sub)).toBe(false);
     } finally {

@@ -79,6 +79,31 @@ describe('resumeCwd（再開とフォークの作業ディレクトリ）', () =
       fs.rmSync(other, { recursive: true, force: true });
     }
   });
+  it('移していない会話は、cwd を含む別のプロジェクトにこの PC の場所が無ければ、所属するプロジェクトの場所で起こす', () => {
+    // 所属（p1）の場所は cwd を含まない。cwd を含む H には、この PC の場所が無い。
+    upsertShared(db, 'projects', { id: 'h', name: 'work', status: 'active', is_scratch: 0 }, 'win');
+    upsertShared(db, 'project_roots', { id: 'rh-win', project_id: 'h', device_id: 'win', path: 'E:\\work', resolved: 1 }, 'win');
+    const id = session({ cwd: 'E:\\work\\x', project: 'p1' });
+    expect(resumeCwd(db, 'me', { id, cwd: 'E:\\work\\x', project_id: 'p1' })).toBe(here);
+    expect(resumeCwd(db, 'me', { cwd: 'E:\\work\\x', project_id: 'p1' })).toBe(here);
+  });
+  it('移した先のプロジェクトが一覧から消えていれば、移した印は無いものとして読む（移していない会話と同じに倒す）', () => {
+    upsertShared(db, 'projects', { id: 'gone', name: 'gone', status: 'active', is_scratch: 0 }, 'me');
+    db.prepare("update projects set deleted_at = 9 where id = 'gone'").run();
+    const id = session({ cwd: 'E:\\elsewhere', project: 'p1' });
+    upsertShared(db, 'session_states', { session_id: id, project_id: 'gone' }, 'me', 'session_id');
+    expect(resumeCwd(db, 'me', { id, cwd: 'E:\\elsewhere', project_id: 'p1' })).toBe(here);
+  });
+  it('移した先が親のワークスペースでも、cwd を含む場所のうちいちばん深いプロジェクトで読み替える', () => {
+    // p2 は親のワークスペースで、どの PC の場所も cwd を含む。本来のプロジェクト p1 の場所のほうが深い。
+    fs.mkdirSync(path.join(here, 'src'), { recursive: true });
+    upsertShared(db, 'projects', { id: 'p2', name: 'workspace', status: 'active', is_scratch: 0 }, 'me');
+    upsertShared(db, 'project_roots', { id: 'r2-me', project_id: 'p2', device_id: 'me', path: path.dirname(here), resolved: 1 }, 'me');
+    upsertShared(db, 'project_roots', { id: 'r2-win', project_id: 'p2', device_id: 'win', path: 'D:\\src', resolved: 1 }, 'win');
+    const id = session({ cwd: 'D:\\src\\notes-app\\src', project: 'p2' });
+    upsertShared(db, 'session_states', { session_id: id, project_id: 'p2' }, 'me', 'session_id');
+    expect(resumeCwd(db, 'me', { id, cwd: 'D:\\src\\notes-app\\src', project_id: 'p2' })).toBe(path.join(here, 'src'));
+  });
   it('この PC の場所の行があっても、フォルダが消えていれば読み替えない', () => {
     fs.rmSync(here, { recursive: true, force: true });
     expect(resumeCwd(db, 'me', { cwd: 'D:\\src\\notes-app', project_id: 'p1' })).toBeNull();

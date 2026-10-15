@@ -4,6 +4,7 @@ import type { ResumeHerePlanDto, ResumeHereReplaceDto } from '@agent-hangar/shar
 import type { Db } from '../db/open.ts';
 import { readGitHint } from '../git/hint.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
+import { pinnedProjectOf } from '../sessions/move.ts';
 
 /**
  * PC をまたいで会話を続けるときの事実（docs/design.md の「指示の注入」と「この PC で再開」）。
@@ -82,37 +83,35 @@ function relativeToAnyRoot(roots: string[], p: string): string[] | null {
   return null;
 }
 
-/** 消していないプロジェクトのうち、どれかの PC の場所が cwd を含むもの。いちばん深い場所のものを返す。無ければ null。 */
-function projectHolding(db: Db, cwd: string): string | null {
+/**
+ * 消していないプロジェクトのうち、どれかの PC の場所が cwd を含むもの。深い場所のものから順に返す（同じプロジェクトは 1 度だけ）。
+ * 深さは、そのプロジェクトの場所のうち cwd を含むものの段の数である。
+ */
+function projectsHolding(db: Db, cwd: string): string[] {
   const rows = db.prepare(`select r.project_id, r.path from project_roots r join projects p on p.id = r.project_id and p.deleted_at is null
     where r.deleted_at is null`).all() as { project_id: string; path: string }[];
-  let best: { id: string; depth: number } | null = null;
+  const depth = new Map<string, number>();
   for (const r of rows) {
     if (!relativeSegments(r.path, cwd)) continue;
-    const depth = segmentsOf(r.path).length;
-    if (!best || depth > best.depth) best = { id: r.project_id, depth };
+    const d = segmentsOf(r.path).length;
+    if (d > (depth.get(r.project_id) ?? -1)) depth.set(r.project_id, d);
   }
-  return best?.id ?? null;
-}
-
-/** 利用者がプロジェクトを移した会話か（session_states.project_id、sessions/move.ts）。 */
-function isMoved(db: Db, sessionId: string | undefined): boolean {
-  if (sessionId === undefined) return false;
-  return db.prepare('select 1 from session_states where session_id = ? and deleted_at is null and project_id is not null').get(sessionId) !== undefined;
+  return [...depth.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
 }
 
 /**
  * 前の cwd を読み替える元のプロジェクト。
- * 所属するプロジェクトの場所が cwd を含めば、それを使う。
- * 含まなければ、cwd を含む場所を持つほかのプロジェクトを使う。利用者が別のプロジェクトへ移した会話は、cwd が移した先の場所の下に無いからである。
- * どのプロジェクトの場所も cwd を含まないとき、移していない会話は所属するプロジェクトに倒す（前の cwd が場所の外にあった会話）。
+ * 所属より先に、cwd を含む場所を持つプロジェクトのうち、この PC に場所があるものでいちばん深いものを使う。
+ * 利用者が移した会話は、cwd が移した先の場所の下に無いか、移した先が親のワークスペースで浅すぎるからである。
+ * そういうプロジェクトが無いとき、移していない会話は所属するプロジェクトに倒す（前の cwd が場所の外にあった会話や、cwd を含むプロジェクトがこの PC に無い会話）。
  * 移した会話は倒さずに null を返す。再開の cwd は元のままで、移した先の場所で起こすと別の作業ディレクトリになるからである。
+ * 移したかどうかは pinnedProjectOf で見る。移した先が一覧から消えていれば、移していない会話と同じに読む。
  */
-function baseProjectOf(db: Db, s: { id?: string; cwd: string; project_id: string }): string | null {
-  if (relativeToAnyRoot(allRoots(db, s.project_id), s.cwd)) return s.project_id;
-  const holder = projectHolding(db, s.cwd);
+function baseProjectOf(db: Db, selfDeviceId: string, s: { id?: string; cwd: string; project_id: string }): string | null {
+  const holder = projectsHolding(db, s.cwd).find((id) => hereRoot(db, selfDeviceId, id) !== null);
   if (holder) return holder;
-  return isMoved(db, s.id) ? null : s.project_id;
+  const moved = s.id !== undefined && pinnedProjectOf(db, s.id) !== null;
+  return moved ? null : s.project_id;
 }
 
 /**
@@ -121,7 +120,7 @@ function baseProjectOf(db: Db, s: { id?: string; cwd: string; project_id: string
  * 無ければ、前の PC のプロジェクトの場所からの相対パスを、この PC のプロジェクトの場所に継ぐ（worktree や下位のフォルダも）。
  * 継いだ先がこの PC に無ければ、いちばん近いある親（プロジェクトの場所まで）に倒す。
  * 前の cwd がどの場所の下にも無ければ、この PC のプロジェクトの場所にする。
- * 読み替えに使うプロジェクトは、所属ではなく cwd を含む場所を持つもの（baseProjectOf）である。利用者が移した会話でも、元の場所で起こす。
+ * 読み替えに使うプロジェクトは、所属より先に、cwd を含む場所を持つもののうちこの PC に場所があるいちばん深いもの（baseProjectOf）である。利用者が移した会話でも、元の場所で起こす。
  * プロジェクトに属さない会話と、この PC に場所が無い会話は読み替えられないので null を返す。
  * 共有の行の sessions.cwd は書き換えない。本文の写しの置き場（sync/copy.ts）がその cwd から決まるからである。
  * id を渡すと、移した会話かどうかを見る。渡さなければ移していない会話として読む。
@@ -129,7 +128,7 @@ function baseProjectOf(db: Db, s: { id?: string; cwd: string; project_id: string
 export function resumeCwd(db: Db, selfDeviceId: string, s: { id?: string; cwd: string; project_id: string | null }): string | null {
   if (isDirectory(s.cwd)) return s.cwd;
   if (!s.project_id) return null;
-  const base = baseProjectOf(db, { id: s.id, cwd: s.cwd, project_id: s.project_id });
+  const base = baseProjectOf(db, selfDeviceId, { id: s.id, cwd: s.cwd, project_id: s.project_id });
   if (!base) return null;
   const root = hereRoot(db, selfDeviceId, base);
   if (!root) return null;

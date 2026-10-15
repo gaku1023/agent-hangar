@@ -290,7 +290,7 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
   db.prepare(`insert into ${c.tableName} (${keys.join(', ')}) values (${keys.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`).run(...keys.map((k) => bindable(row[k])));
   // 利用者が移したセッションは、届いた行が古い所属を持っていても、移した先に合わせ直す（sessions/move.ts）。
   // 移した印（session_states）が後から届いたときも、その時点で合わせる。どちらも手元の表だけを直し、押し返さない。
-  // 移した先の列（版 25）を持たない表では合わせない。版を上げる前の DB へ当てる試験の道である。
+  // 版 25 より古い DB（試験）には当てない。session_states に移した先の列が無いからである。
   if (c.op === 'upsert' && (c.tableName === 'sessions' || c.tableName === 'session_states') && tableColumns(db, 'session_states').has('project_id')) alignSessionProject(db, c.rowId);
   // 削除したセッション（sessions/trash.ts）は、古い sessions の upsert が届いても論理削除のまま保つ。印が外れたら論理削除を外す。
   // 手元の表だけを直し、押し返さない。印はどの PC にも届くので、それぞれが自分で合わせる。

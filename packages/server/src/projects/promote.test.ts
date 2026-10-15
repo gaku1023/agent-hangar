@@ -61,6 +61,17 @@ describe('promoteSession', () => {
     expect(db.prepare('select project_id, cwd from sessions where id = ?').get('s1')).toEqual({ project_id: r.projectId, cwd: dir });
   });
 
+  it('移した印のあるセッションは、移した先も新しいプロジェクトに書き換える。印の無いセッションには印を作らない', () => {
+    upsertShared(db, 'session_states', { session_id: 's1', project_id: scratchId }, 'd', 'session_id');
+    const r = promoteSession(deps(), { sessionId: 's1', name: 'pinned', gitInit: false, moveFiles: false });
+    expect(db.prepare('select project_id from session_states where session_id = ?').get('s1')).toEqual({ project_id: r.projectId });
+    expect(db.prepare('select project_id from sessions where id = ?').get('s1')).toEqual({ project_id: r.projectId });
+
+    upsertShared(db, 'sessions', { id: 's2', provider: 'claude-code', provider_session_id: 'u2', cwd: dir, home_device: 'd', project_id: scratchId }, 'd');
+    promoteSession(deps(), { sessionId: 's2', name: 'unpinned', gitInit: false, moveFiles: false });
+    expect(db.prepare('select 1 from session_states where session_id = ?').get('s2')).toBeUndefined();
+  });
+
   it('理由は、言語を決めていない文でも返すので、経路は英語でも出せる', () => {
     const r = promoteSession(deps({ runAlive: () => true }), { sessionId: 's1', name: 'p-en', gitInit: false, moveFiles: true });
     expect(r.reason).toBe('Claude が実行中なのでファイルは移しませんでした。終了してから手で移してください');

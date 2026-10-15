@@ -20,17 +20,24 @@ export class TrashError extends Error {
   }
 }
 
-/** コマンドを 1 回打った結果。error は起こせなかったとき（コマンドが無いなど）と、締め切りで止めたときに入る。 */
+/** コマンドを 1 回打った結果。error は起こせなかったとき（コマンドが無いなど）と、止める合図で殺したときに入る。 */
 export type TrashRunResult = { code: number | null; stdout: string; stderr: string; error?: Error };
-/** コマンドを打つ口。試験が差し替える。 */
-export type TrashRun = (file: string, args: string[], env: NodeJS.ProcessEnv) => Promise<TrashRunResult>;
+/**
+ * コマンドを打つ口。試験が差し替える。
+ * signal は上限の時間を過ぎたときに立つ止める合図で、受けたら子プロセスを殺す。
+ */
+export type TrashRun = (file: string, args: string[], env: NodeJS.ProcessEnv, signal: AbortSignal) => Promise<TrashRunResult>;
 /** 打つコマンド。 */
 export type TrashCommand = { file: string; args: string[]; env: NodeJS.ProcessEnv };
 /** ゴミ箱へ移す口。sessions/trash.ts が受け取る形である。 */
 export type TrashFn = (p: string) => Promise<void>;
 
-/** 1 回のコマンドの締め切り。PowerShell の起動は CI の Windows で数秒かかることがある。 */
-const TRASH_TIMEOUT_MS = 60_000;
+/**
+ * 1 回のコマンドの上限の時間。過ぎたら子プロセスを殺して TrashError にする。
+ * Windows の SendToRecycleBin は、誤りのときにダイアログを出して返らないことがある。サーバや CI がそこで止まったままにならないようにするためである。
+ * PowerShell の起動は CI の Windows で数秒かかることがあるので、余裕を見て 30 秒にする。
+ */
+export const TRASH_TIMEOUT_MS = 30_000;
 
 /**
  * macOS の台本。JavaScript for Automation で Foundation を呼ぶ。
@@ -73,9 +80,9 @@ export function trashCommand(p: string, platform: NodeJS.Platform = process.plat
   return { file: 'gio', args: ['trash', '--', p], env };
 }
 
-/** 本物の実行。終了コードと出力を受け取る。 */
-const realRun: TrashRun = (file, args, env) => new Promise((resolve) => {
-  execFile(file, args, { env, encoding: 'utf8', windowsHide: true, timeout: TRASH_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+/** 本物の実行。終了コードと出力を受け取る。止める合図を受けたら、子プロセスを SIGKILL で殺す（Windows では TerminateProcess になる）。 */
+export const realTrashRun: TrashRun = (file, args, env, signal) => new Promise((resolve) => {
+  execFile(file, args, { env, encoding: 'utf8', windowsHide: true, signal, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
     const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : null) : 0;
     resolve({ code, stdout: stdout ?? '', stderr: stderr ?? '', error: err && code === null ? err : undefined });
   });
@@ -93,13 +100,29 @@ function exists(p: string): boolean {
 
 /**
  * p（ファイルかフォルダ）を OS のゴミ箱へ移す。ゴミ箱の中のどこへ入ったかは返さない（OS が同じ名前を避けて名前を変えることがある）。
- * 無いパス、コマンドの失敗、コマンドが成功を返したのに元のパスが残っているときは TrashError を投げる。どの場合も元のパスには触らない。
+ * 無いパス、コマンドの失敗、上限の時間（timeoutMs、既定は TRASH_TIMEOUT_MS）を過ぎたとき、コマンドが成功を返したのに元のパスが残っているときは TrashError を投げる。
+ * 上限を過ぎたら、止める合図で子プロセスを殺し、返りを待たずに投げる。どの場合も元のパスには hangar から触らない。
  */
-export async function moveToTrash(p: string, o: { platform?: NodeJS.Platform; run?: TrashRun; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
+export async function moveToTrash(p: string, o: { platform?: NodeJS.Platform; run?: TrashRun; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): Promise<void> {
   if (!exists(p)) throw new TrashError(`not found: ${p}`);
   const platform = o.platform ?? process.platform;
   const c = trashCommand(p, platform, o.env ?? process.env);
-  const r = await (o.run ?? realRun)(c.file, c.args, c.env);
+  const limit = o.timeoutMs ?? TRASH_TIMEOUT_MS;
+  const stop = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      // 先に上限の誤りで決着させてから殺す。殺した子の返り（中断の誤り）が先に勝たないようにするためである。
+      reject(new TrashError(`${c.file} timed out after ${limit} ms`));
+      stop.abort();
+    }, limit);
+  });
+  let r: TrashRunResult;
+  try {
+    r = await Promise.race([(o.run ?? realTrashRun)(c.file, c.args, c.env, stop.signal), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
   if (r.error) throw new TrashError(r.error.message);
   if (r.code !== 0) throw new TrashError(r.stderr.trim() || `${c.file} exited with ${r.code}`);
   // 成功を返しても、移っていなければ移せなかったものとして扱う。黙って残ったままの本文を「消した」と記録しないためである。
