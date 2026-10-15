@@ -3,84 +3,35 @@ on:
   push:
     branches: [main]
   pull_request:
-# 既定の権限に頼らず、読み取りだけを渡す。
-# public のリポジトリなので、ここを明記しないと設定次第で書き込みの持ち主が走る。
 permissions:
   contents: read
-# group は ref ごと（PR は refs/pull/N/merge、main は refs/heads/main）なので、別の PR 同士や PR と main は互いを止めない。
-# PR は、同じ枝に続けて押したとき、走っている古い実行も打ち切る。
-# main への push は、走っている 1 本は最後まで走らせ、待っている分は最新の 1 本だけを残す。
-# GitHub は cancel-in-progress が false でも、同じ group で待っている run を新しい run が来たときに取り消す（cancelled）。
-# 並列でマージすると main の run が重なり、macOS と Windows のランナーを PR と取り合うので、途中のコミットは見送る（2026-10-15）。
-# 見送ったコミットにタグを打つなら、release の関門（release-plan.ts の checkCommitGate）が止まるので、その ci を Re-run する（docs/release.md）。
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
+# 実験 X3（マージしない）：Windows の npm test を、vitest の走らせ方を変えて全部回し、所要を比べる。
+# 基準は X1（#262）の windows ジョブの npm test。
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    # 試験が固まったときの上限。ふつうは数分で終わる。
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      # tmux を入れないと、tmux に依存する試験 33 件が describe.skipIf で黙って飛ぶ。
-      # 飛んでいたのは起動、寿命、resume と fork、トークンを argv に載せない、run ごとの秘密といった要所である。
-      # tmux -V を出すのは、入ったことを実行の記録に残して skipIf が解けたと言い切れるようにするためである。
-      - name: tmux を入れる
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tmux
-          tmux -V
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-  # 殻と同梱の CLI は、Node-API 10 以上（Node 22.14 以上）の Node を採る。上限は付けない（0.6.1 から）。
-  # 新しい Node（24）でもサーバが動くことを、サーバの試験で確かめる。
-  # CI の時間を延ばさないよう、ここで回すのはサーバの試験だけにする（殻が Node 24 で同梱のサーバを起こす試験は desktop ジョブにある）。
-  node24:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # check と同じく、tmux を入れないと tmux に依存する試験が黙って飛ぶ。
-      - name: tmux を入れる
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tmux
-          tmux -V
-      - run: npm ci
-      - run: node --version
-      - name: サーバの試験（Node 24）
-        run: npm test -- --project server
-  windows:
+  win-vitest:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: threads
+            args: --pool=threads
+          - name: no-isolate
+            args: --no-isolate
+          - name: workers-4
+            args: --maxWorkers=4
+    name: win-${{ matrix.variant.name }}
     runs-on: windows-latest
-    # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分、
-    # 配布物のビルド（release の Rust と NSIS）にさらに数分から十数分、更新の経路の 2 回の build に 8 分ほどかかる。
-    timeout-minutes: 75
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-      # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
-      # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      # psmux を入れないと、psmux を相手にする試験（tmux/psmux.win.test.ts）が describe.skipIf で黙って飛ぶ。
-      # 取得元は公式のリリースの zip で、版と SHA-256 を固定する。
-      # winget はランナーに入っていると限らず、cargo install はビルドで数分かかるので使わない。
-      # 版を上げるときは、この 2 つの値と、psmux.win.test.ts の隔離の試験を合わせて見直す。
-      # zip には psmux.exe、pmux.exe、tmux.exe が入っている。hangar は psmux を先に探す。
       - name: psmux を入れる
         shell: pwsh
         env:
@@ -95,174 +46,5 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      - run: npm test
-      # 殻（Tauri、Rust）が Windows で組み上がることを見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
-      # windows-latest に Rust は入っているが、版と components をここで決める。
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
-      - run: cargo check --all-targets
-        working-directory: apps/desktop/src-tauri
-      - run: cargo clippy --all-targets -- -D warnings
-        working-directory: apps/desktop/src-tauri
-      - run: cargo test
-        working-directory: apps/desktop/src-tauri
-      # 配布物（NSIS のインストーラ）を作り、入れて、同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る（段 6 の 6-8）。
-      # 手順は release の windows ジョブと同じものを、composite action の 1 か所で持つ。
-      # 署名はしない（利用者の決定）。Release には上げず、この実行の artifact に 7 日だけ残す。
-      # 下の起動の試しの段が使うので、試験のための書き出しの口（bootprobe.rs）を効かせる feature を立てる。release は立てない。
-      - id: installer
-        uses: ./.github/actions/windows-installer
-        with:
-          target: x86_64-pc-windows-msvc
-          features: boot-probe
-      - uses: actions/upload-artifact@v7
-        with:
-          name: Hangar-windows-x64-setup
-          path: ${{ steps.installer.outputs.setup }}
-          if-no-files-found: error
-          retention-days: 7
-      # Node の無い Windows で、入れた殻が読み込み画面を失敗の札に切り替えることを確かめる。
-      # 作ったインストーラで入れ直し、殻に渡す環境だけで Node を見えなくして起こす（apps/desktop/scripts/ci-boot-probe-windows.ps1）。
-      # 頁が描いた様子は、殻が HANGAR_BOOT_PROBE のファイルへ書き（bootprobe.rs）、それを読んで判定する。待ちの上限は 60 秒。
-      - name: Node の無い Windows で、読み込み画面が失敗の札に切り替わる
-        timeout-minutes: 4
-        shell: pwsh
-        env:
-          SETUP: ${{ steps.installer.outputs.setup }}
-        run: pwsh -NoProfile -File apps/desktop/scripts/ci-boot-probe-windows.ps1 -Setup $env:SETUP -Out (Join-Path $env:RUNNER_TEMP 'boot-probe-windows')
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: boot-probe-windows
-          path: ${{ runner.temp }}/boot-probe-windows
-          if-no-files-found: warn
-          retention-days: 7
-      # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-windows.ps1）。
-      # 版 A の殻を入れて起こし、殻の updater がインストーラを /P /UPDATE /R /ARGS で起こして版 B を入れ、起き直した殻のサーバが /health で版 B を名乗るまでを見る。
-      # 途中で、殻がインストーラへ渡す直前（on_before_exit）にサーバを止めることと、入れるときのフック（hooks.nsh）が殻の抜けるのを待って置き場を空にすることも見る。
-      # 鍵は CI の中で作る使い捨てのもので、目録と更新物はローカルの HTTP で配る。本物の secret は使わない。
-      # 版 A と版 B の 2 回の build（release の Rust と NSIS）に、キャッシュに当たって合わせて 8 分ほどかかる。
-      # 版 B が開いている間に、アンインストールを動いている殻の問いで取り消すと、PATH と入れた先が残ることも見る。
-      - name: 版 A から版 B へ、updater の経路で更新する
-        timeout-minutes: 25
-        shell: pwsh
-        run: pwsh -NoProfile -File apps/desktop/scripts/ci-update-windows.ps1 -Target x86_64-pc-windows-msvc -Out (Join-Path $env:RUNNER_TEMP 'update-windows')
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: update-windows
-          path: ${{ runner.temp }}/update-windows
-          if-no-files-found: warn
-          retention-days: 7
-  desktop:
-    runs-on: macos-latest
-    # Rust のビルドがキャッシュ外れで長引いたときの上限。
-    # キャッシュに当たれば数分で終わる。release の .app のビルド（更新の経路の 2 回を含めて 3 回）も含むので、その分を足してある。
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
-      - run: cargo fmt --check
-        working-directory: apps/desktop/src-tauri
-      - run: cargo clippy --all-targets -- -D warnings
-        working-directory: apps/desktop/src-tauri
-      - run: cargo test
-        working-directory: apps/desktop/src-tauri
-      - run: npm ci
-      # 同梱サーバの作り方を確かめる試験は Apple silicon でしか走らない。
-      # ubuntu の check では飛ぶので、走る場所はこの macOS のジョブだけである。
-      - name: 同梱サーバの試験
-        run: npm test -- --project desktop
-      # まっさらな Mac（Node も tmux も無い）で、入れた殻が読み込み画面を失敗の札に切り替えることを確かめる。
-      # rc.4 では、殻が 40ms で Node が無いと判断したのに、頁の口が出来る前に知らせが落ち、読み込み中のまま止まった（#123）。
-      # .app を build し、一時の場所へ写して、Node が見つからない状態で起こす（apps/desktop/scripts/ci-boot-probe-macos.sh）。
-      # ランナーの Homebrew の Node は、殻が探す場所のうちホームの外（bin/node と keg-only の node@N）にあるので、この段の間だけ脇へ退ける（--hide-system-node）。
-      # 頁が描いた様子は、殻が HANGAR_BOOT_PROBE のファイルへ書き（bootprobe.rs）、それを読んで判定する。待ちの上限は 60 秒。
-      # 撮れた画面（boot-screen.png）と殻の記録は、実行の artifact に 7 日だけ残す。
-      - name: UI とサーバをビルドする
-        run: npm run build
-      # 試験のための書き出しの口（bootprobe.rs）は、試験用の feature を立てた build だけで効く。配布の build（release.yml）は立てない。
-      - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
-        id: app
-        run: npm run tauri -- build --bundles app --features boot-probe
-        working-directory: apps/desktop
-      - name: Node の無い Mac で、読み込み画面が失敗の札に切り替わる
-        timeout-minutes: 3
-        run: bash apps/desktop/scripts/ci-boot-probe-macos.sh --hide-system-node apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app "$RUNNER_TEMP/boot-probe-macos"
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: boot-probe-macos
-          path: ${{ runner.temp }}/boot-probe-macos
-          if-no-files-found: warn
-          retention-days: 7
-      # Node のある Mac で、殻が同梱のサーバを起こし、本当の画面へ移ることを確かめる（正常な道）。
-      # 上の段は Node を隠して失敗の札を見るだけで、殻の server_command（nodePath の Node、HANGAR_UI_DIST、HANGAR_PARENT_PID、PATH の足し方）は通らない。
-      # bundle-server.test.ts の bin/hangar start の経路も、殻のこの経路とは別である。
-      # build した .app を一時の場所へ写し、一時のホームの settings.json の nodePath で setup-node の Node を指し、最小の PATH で起こす（apps/desktop/scripts/ci-boot-normal-macos.sh）。
-      # /health が ok と ready を返すこと、殻がその Node を選んだこと、サーバの環境、UI の配信、殻が画面を移して WebKit がサーバへつないだこと、
-      # 起動画面が失敗の札を出していないこと（HANGAR_BOOT_PROBE）、殻を止めるとサーバも降りることを見る（判定は boot-normal-check.ts、待ちの上限は 150 秒）。
-      # 上の段が落ちても走らせ、どちらの道が壊れたかを 1 回で見分ける。release の macos ジョブは、署名した .app で同じ台本を回す。
-      - name: Node のある Mac で、殻が同梱のサーバを起こし、本当の画面へ移る
-        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
-        timeout-minutes: 4
-        run: bash apps/desktop/scripts/ci-boot-normal-macos.sh --node "$(command -v node)" apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app "$RUNNER_TEMP/boot-normal-macos"
-      - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
-        with:
-          name: boot-normal-macos
-          path: ${{ runner.temp }}/boot-normal-macos
-          if-no-files-found: warn
-          retention-days: 7
-      # 同じ .app を、nodePath で Node 24 を指して起こす。
-      # 0.6.1 から、殻は Node-API 10 以上の Node を採る。Node 22 で作った束のネイティブモジュール（Node-API の prebuild）が、Node 24 でも読めることを確かめる。
-      # setup-node は PATH の先頭に置くので、後の段（Node 22 で build し直す更新の経路）のために、終わったら Node 22 に戻す。
-      - uses: actions/setup-node@v7
-        id: node24
-        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
-        with:
-          node-version: 24
-      - name: Node 24 を指した Mac で、殻が同梱のサーバを起こし、本当の画面へ移る
-        if: ${{ !cancelled() && steps.node24.outcome == 'success' }}
-        timeout-minutes: 4
-        run: |
-          node --version
-          bash apps/desktop/scripts/ci-boot-normal-macos.sh --node "$(command -v node)" apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app "$RUNNER_TEMP/boot-normal-macos-node24"
-      - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() && steps.node24.outcome == 'success' }}
-        with:
-          name: boot-normal-macos-node24
-          path: ${{ runner.temp }}/boot-normal-macos-node24
-          if-no-files-found: warn
-          retention-days: 7
-      - uses: actions/setup-node@v7
-        if: ${{ !cancelled() }}
-        with:
-          node-version: 22
-      # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-macos.sh）。
-      # 台本は bundle の置き場で版 A と版 B を build し直すので、build した .app を使う段の後に置く。
-      # 版 A の .app を一時の場所へ写して起こし、殻の updater が版 B の .app.tar.gz を取って .app を入れ替え、起き直した殻のサーバが /health で版 B を名乗るまでを見る。
-      # 鍵は CI の中で作る使い捨てのもので、目録と更新物はローカルの HTTP で配る。本物の secret は使わない。
-      - name: 版 A から版 B へ、updater の経路で .app を入れ替える
-        timeout-minutes: 20
-        run: bash apps/desktop/scripts/ci-update-macos.sh "$RUNNER_TEMP/update-macos"
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: update-macos
-          path: ${{ runner.temp }}/update-macos
-          if-no-files-found: warn
-          retention-days: 7
+      - run: node -e "console.log(require('os').availableParallelism())"
+      - run: npm test -- ${{ matrix.variant.args }}
