@@ -13,6 +13,11 @@ export type Settings = {
    * 空は「決めていない」で、作るたびに場所を選ぶ。新しい利用者は空から始まる（loadSettings）。
    */
   workspaceRoot: string;
+  /**
+   * 利用者がフォルダの信頼に同意した作業フォルダ（hangar workspace set --trust、POST /api/workspace/trust）。
+   * いまの workspaceRoot と同じときだけ効き（projects/folderTrust.ts の trustedWorkspaceOf）、作業フォルダを変えると空に戻す（PATCH /api/settings）。
+   */
+  trustedWorkspaceRoot?: string | null;
   claudeDir: string;
   tmuxPath: string | null;
   terminalApp: TerminalApp;

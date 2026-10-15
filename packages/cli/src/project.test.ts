@@ -260,6 +260,61 @@ describe('hangar workspace set / unset', () => {
     expect(s.calls.find((c) => c.method === 'PATCH')!.body).toEqual({ workspaceRoot: path.resolve('/w2') });
     expect(o.out).toEqual(['作成場所を /w2 にしました。', '直下の 1 件を登録しました:', '  /w2/a（名前 a）']);
   });
+  it('--trust の試しは、信頼済みにするフォルダと書く先を見せ、同意は残さない', async () => {
+    const s = fakeServer((c) => {
+      if (c.method === 'PATCH') return { body: { dryRun: true, workspaceRoot: '/w2', previous: '', unchanged: false, register: [] } };
+      if (c.method === 'POST' && c.path === '/api/workspace/trust') return { body: { dryRun: true, workspaceRoot: '/w2', dirs: ['/w2', '/w2/repo'], files: [
+        { file: '/h/.claude.json', added: ['/w2', '/w2/repo'], missing: false },
+        { file: '/h/.claude-univ/.claude.json', added: [], missing: true },
+      ] } };
+      return undefined;
+    });
+    const o = outs();
+    expect(await workspaceSetCommand({ ...base(o, s.fetchFn), dir: '/w2', dryRun: true, trust: true, cwd: '/', homeDir: '/h' })).toBe(0);
+    expect(s.calls.find((c) => c.path === '/api/workspace/trust')!.body).toEqual({ path: path.resolve('/w2'), dryRun: true });
+    expect(o.out).toEqual([
+      '作成場所: 未設定 → /w2',
+      '直下に、会話があってまだ登録していないフォルダはありません。',
+      'フォルダの信頼: 次のフォルダを Claude Code の信頼済みにします（2 件）:',
+      '  /w2',
+      '  /w2/repo',
+      '  /h/.claude.json: 2 件を書きます',
+      '  /h/.claude-univ/.claude.json: 設定ファイルが無いので書きません（その置き場で Claude Code を一度起こすと作られます）',
+      '後から作成場所の下に置いたリポジトリも、hangar から起こすときに信頼済みにします。',
+      '試しなので、何も書いていません。',
+    ]);
+  });
+  it('--trust の本番は、保存してから信頼を書く。書けなかった書く先があれば exit 1', async () => {
+    const s = fakeServer((c) => {
+      if (c.path === '/api/projects') return { body: [] };
+      if (c.method === 'PATCH') return { body: { workspaceRoot: '/w2' } };
+      if (c.method === 'POST' && c.path === '/api/workspace/trust') return { body: { dryRun: false, workspaceRoot: '/w2', dirs: ['/w2'], files: [
+        { file: '/h/.claude.json', added: [], missing: false },
+        { file: '/u/.claude.json', added: [], missing: false, error: 'ロックが取れません' },
+      ] } };
+      return undefined;
+    });
+    const o = outs();
+    expect(await workspaceSetCommand({ ...base(o, s.fetchFn), dir: '/w2', dryRun: false, trust: true, cwd: '/', homeDir: '/h' })).toBe(1);
+    const order = s.calls.map((c) => `${c.method} ${c.path}`);
+    expect(order.indexOf('POST /api/workspace/trust')).toBeGreaterThan(order.indexOf('PATCH /api/settings'));
+    expect(s.calls.find((c) => c.path === '/api/workspace/trust')!.body).toEqual({ path: '/w2' });
+    expect(o.out.slice(-5)).toEqual([
+      'フォルダの信頼: 次のフォルダを Claude Code の信頼済みにしました（1 件）:',
+      '  /w2',
+      '  /h/.claude.json: すでに信頼済みです',
+      '  /u/.claude.json: 書けませんでした（ロックが取れません）',
+      '後から作成場所の下に置いたリポジトリも、hangar から起こすときに信頼済みにします。',
+    ]);
+    const j = outs();
+    expect(await workspaceSetCommand({ ...base(j, s.fetchFn, true), dir: '/w2', dryRun: false, trust: true, cwd: '/', homeDir: '/h' })).toBe(1);
+    expect(JSON.parse(j.out[0]!)).toMatchObject({ ok: false, workspaceRoot: '/w2', trust: { dirs: ['/w2'] } });
+  });
+  it('--trust を付けなければ信頼の経路を呼ばない', async () => {
+    const s = fakeServer((c) => (c.method === 'PATCH' ? { body: { dryRun: true, workspaceRoot: '/w2', previous: '', unchanged: false, register: [] } } : undefined));
+    expect(await workspaceSetCommand({ ...base(outs(), s.fetchFn), dir: '/w2', dryRun: true, cwd: '/', homeDir: '/h' })).toBe(0);
+    expect(s.calls.some((c) => c.path === '/api/workspace/trust')).toBe(false);
+  });
   it('unset は作成場所を空にし、登録済みのプロジェクトが残ることを言う', async () => {
     const s = fakeServer((c) => {
       if (c.path === '/api/projects') return { body: [] };

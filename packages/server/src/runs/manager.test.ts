@@ -1183,6 +1183,23 @@ describe('アカウントの置き場と tmux サーバの環境（tmux 不要�
     expect(unsetOf(args)).not.toContain('CLAUDE_CONFIG_DIR');
     expect(args).toContain(`CLAUDE_CONFIG_DIR=${a.dir}`);
   });
+  it('起こす直前に、起こすアカウントの置き場（最初のアカウントは null）と cwd でフォルダの信頼を頼む', () => {
+    const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+    const a = accounts.add({ name: '大学' });
+    const asked: [string | null, string][] = [];
+    const c = capture();
+    const rm = make({ accounts, tmux: c.t, trustFolder: (dir, at) => { asked.push([dir, at]); } });
+    rm.start({ scratch: true, account: a.id });
+    rm.start({ projectId: 'p1' });
+    expect(asked[0]![0]).toBe(a.dir);
+    expect(asked[0]![1]).toContain(path.join(home, 'quick-sessions'));
+    expect(asked[1]).toEqual([null, cwd]);
+  });
+  it('信頼を書けなくても起動は止めない', () => {
+    const c = capture();
+    const r = make({ tmux: c.t, trustFolder: () => { throw new Error('locked'); } }).start({ scratch: true });
+    expect(r.run.id).toBeTruthy();
+  });
   // tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境にそのセッションの印が残る。
   // 印を持った claude は子のセッションと見なされ、再開の一覧から外れ、別のセッションのソケットへ話しかける。
   it('Claude Code の印と、サーバが読み終えた hangar の変数を、どのアカウントでも外す', () => {

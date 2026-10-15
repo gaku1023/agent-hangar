@@ -321,4 +321,6 @@ export const settingsKeys = {
   'settings.tools.register.desc': [],
   'settings.tools.register.action': [],
   'settings.tools.register.folder': [],
+  'settings.trust.noRoot': [],
+  'settings.trust.notRoot': ['path', 'root'],
 } as const satisfies MessageSpec;

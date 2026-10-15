@@ -22,7 +22,7 @@ Claude はまず読むだけで環境を調べ、いくつか質問し、提案�
 | `hangar project candidates --json` | 会話したフォルダの候補を出す（読むだけ） |
 | `hangar project add <パス…> [--dry-run]` | プロジェクトとして登録し、その下の会話を紐づける。パスは 1 つずつ別の引数に分け、空白を含むものは引用符で囲む（例：`hangar project add ~/src/app "~/Desktop/週報 2026" --dry-run`） |
 | `hangar project remove <パス> [--dry-run]` | 登録を外す（会話は未分類に戻るだけで、本文は消えない） |
-| `hangar workspace set <dir> [--dry-run]` / `hangar workspace unset` | 新しいフォルダの作成場所を決める／決めていない状態に戻す |
+| `hangar workspace set <dir> [--dry-run] [--trust]` / `hangar workspace unset` | 新しいフォルダの作成場所を決める／決めていない状態に戻す。`--trust` は、作成場所を Claude Code の信頼済みにする（3b の同意を取ってから付ける） |
 | `hangar mcp install` / `hangar statusline install` / `hangar shell install`（どれも `--dry-run` あり） | 連携を入れる。本番は承諾を得てから `--yes` を付けて打つ（ターミナルの y/n に答えられないため） |
 | `hangar shell status` | シェル連携が入っているかを見る（macOS だけ、読むだけ） |
 
@@ -93,6 +93,20 @@ AskUserQuestion で 1 問ずつ、3〜5 問だけ聞く。推す答えを先頭�
 `suggestedRoot` が出ているときだけ提案する。出ていなければ、決めないままでよい。
 決める前に `hangar workspace set <dir> --dry-run` を見せる。直下で会話のあるフォルダは、全部自動で登録されるからである。
 デスクトップ、ダウンロード、クラウド同期のフォルダは作成場所にしない（ホームフォルダとその上は CLI が断る）。
+
+作成場所を決めるときは、続けてフォルダの信頼を提案する。
+Claude Code は、まだ信頼していないフォルダで起動すると「このフォルダを信頼しますか」と尋ねる。
+`--trust` を付けると、作成場所そのものと直下の git のリポジトリを、hangar に登録したアカウントの全部で信頼済みにする。
+付ける前に、次のことを説明して同意を取る。
+
+- 親のフォルダを信頼すると、その下に後から置いたフォルダも、Claude Code は尋ねずに信頼済みとして扱う。
+- git のリポジトリの中には親の信頼が及ばないので、hangar は、作成場所の下に後から置いたリポジトリも、hangar から起動するときに信頼済みにする。
+- つまり、後から置いたリポジトリの hooks などのプロジェクトの設定も、尋ねられずに効く。人から受け取ったリポジトリを作成場所に置くときは、中身を先に確かめる必要がある。
+- 同意はこの作成場所にだけ効く。作成場所を変えるか空にすると、hangar が信頼済みにするのは止まる。すでに書いた信頼は Claude Code の設定に残る。
+
+同意を得たら `hangar workspace set <dir> --trust --dry-run` を見せ、もう一度承諾を取ってから `--trust` を付けて本番を打つ。
+同意が無ければ `--trust` を付けない。
+クイックセッションの置き場（`~/.agent-hangar/quick-sessions`）は、hangar がいつも信頼済みにするので、聞かなくてよい。
 
 ### 3c. 連携と保持期間
 

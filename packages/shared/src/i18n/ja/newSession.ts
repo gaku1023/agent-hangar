@@ -53,5 +53,5 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.button.starting': '起動しています',
   'newSession.button.uploading': '添付を送っています',
   'newSession.hint.quick': 'そのまま {keys} でクイックセッションを開始',
-  'newSession.note.trust': '新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。',
+  'newSession.note.trust': 'まだ信頼していないディレクトリでは、Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。',
 };

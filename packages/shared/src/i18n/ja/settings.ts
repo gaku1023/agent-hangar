@@ -322,4 +322,6 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.register.desc': 'フォルダをまとめてプロジェクトにします。',
   'settings.tools.register.action': 'Claude Code と会話したフォルダから…',
   'settings.tools.register.folder': 'フォルダの中から…',
+  'settings.trust.noRoot': '作業フォルダが決まっていません。先に作業フォルダを決めてください',
+  'settings.trust.notRoot': '{path} はいまの作業フォルダ（{root}）ではありません。信頼済みにできるのは、いまの作業フォルダだけです',
 };

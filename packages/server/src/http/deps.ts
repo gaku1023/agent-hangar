@@ -102,6 +102,11 @@ export type AppDeps = {
    */
   candidateEnv?: Partial<Pick<CandidateEnv, 'homeDir' | 'tmpDirs'>>;
   /**
+   * 作業フォルダのフォルダの信頼を、登録したアカウントの全部の .claude.json に書く（projects/folderTrust.ts の trustWorkspaceFolders）。
+   * dryRun なら書かずに、書くものを返す。渡さなければ POST /api/workspace/trust は断る。
+   */
+  trustWorkspace?: (root: string, dryRun: boolean) => import('@agent-hangar/shared').WorkspaceTrustDto;
+  /**
    * 同梱のセットアップのすゝめの md があるフォルダ（setupGuide/guide.ts）。
    * 試験だけが渡す（null は同梱物が無い形）。省けば、配布物の隣とリポジトリの docs から探す。
    */

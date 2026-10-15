@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { samePath } from '@agent-hangar/server/src/cliEntry.ts';
-import type { CandidateNote, FolderCandidateDto, FolderCandidatesDto, FolderRegisterOutcomeDto, FolderRegisterPreviewDto, FolderRegisterResultDto, ProjectDto, SettingsDto, UnlinkPreviewDto, WorkspaceRootPreviewDto } from '@agent-hangar/shared';
+import type { CandidateNote, FolderCandidateDto, FolderCandidatesDto, FolderRegisterOutcomeDto, FolderRegisterPreviewDto, FolderRegisterResultDto, ProjectDto, SettingsDto, UnlinkPreviewDto, WorkspaceRootPreviewDto, WorkspaceTrustDto } from '@agent-hangar/shared';
 import { serverDownMessage } from './probe.ts';
 
 /**
@@ -270,17 +270,40 @@ export function projectRemoveCommand(o: ApiCommandOptions & { target: string; dr
 
 // ---- workspace ----
 
+/** 後から置いたリポジトリがどうなるか（--trust）。 */
+const TRUST_LATER = '後から作成場所の下に置いたリポジトリも、hangar から起こすときに信頼済みにします。';
+
+/**
+ * フォルダの信頼の結果を、人向けの行にする。
+ * dirs は信頼済みにするフォルダ、files は書く先（登録したアカウントごとの .claude.json）である。
+ */
+export function trustLines(t: WorkspaceTrustDto): string[] {
+  const lines = [`フォルダの信頼: 次のフォルダを Claude Code の信頼済みに${t.dryRun ? 'します' : 'しました'}（${t.dirs.length} 件）:`, ...t.dirs.map((d) => `  ${d}`)];
+  for (const f of t.files) {
+    if (f.error) lines.push(`  ${f.file}: 書けませんでした（${f.error}）`);
+    else if (f.missing) lines.push(`  ${f.file}: 設定ファイルが無いので書きません（その置き場で Claude Code を一度起こすと作られます）`);
+    else if (f.added.length === 0) lines.push(`  ${f.file}: すでに信頼済みです`);
+    else lines.push(`  ${f.file}: ${f.added.length} 件を${t.dryRun ? '書きます' : '書きました'}`);
+  }
+  lines.push(TRUST_LATER);
+  return lines;
+}
+
+/** 信頼の書き込みに失敗した書く先があるか。 */
+const trustFailed = (t: WorkspaceTrustDto | null): boolean => !!t && t.files.some((f) => !!f.error);
+
 /**
  * 作成場所を root にする（空なら未設定にする）。
  * 設定の保存（PATCH /api/settings）と同じ経路を使う。
  * 試しは保存と同じ検証を通し、保存のときに自動で登録される直下のフォルダを全部見せる。
  * 本番は、保存の前後のプロジェクトの一覧の違いから、この PC に場所ができたものを登録したものとして出す。
  */
-function setRoot(o: ApiCommandOptions & { dryRun: boolean }, root: string): Promise<number> {
+function setRoot(o: ApiCommandOptions & { dryRun: boolean; trust?: boolean }, root: string): Promise<number> {
   return guarded(o, async (log) => {
     if (o.dryRun) {
       const pv = await call<WorkspaceRootPreviewDto>(o, 'PATCH', '/api/settings', { workspaceRoot: root, dryRun: true });
-      if (o.json) { log(JSON.stringify({ ok: true, ...pv })); return 0; }
+      const trust = o.trust ? await call<WorkspaceTrustDto>(o, 'POST', '/api/workspace/trust', { path: root, dryRun: true }) : null;
+      if (o.json) { log(JSON.stringify({ ok: !trustFailed(trust), ...pv, ...(trust ? { trust } : {}) })); return trustFailed(trust) ? 1 : 0; }
       log(`作成場所: ${pv.previous || '未設定'} → ${pv.workspaceRoot || '未設定'}`);
       if (pv.workspaceRoot === '') log(UNSET_EFFECT);
       else if (pv.unchanged) log('いまと同じ作成場所です。保存しても自動の登録は走りません。');
@@ -289,14 +312,18 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean }, root: string): Prom
         log(`保存すると、直下の次のフォルダを自動で登録します（${pv.register.length} 件）:`);
         for (const r of pv.register) log(`  ${outcomeLine(r, true)}`);
       }
+      if (trust) for (const l of trustLines(trust)) log(l);
       log(DRY_NOTE);
-      return 0;
+      return trustFailed(trust) ? 1 : 0;
     }
     const before = new Map((await call<ProjectDto[]>(o, 'GET', '/api/projects')).map((p) => [p.id, p.path]));
     const saved = await call<SettingsDto>(o, 'PATCH', '/api/settings', { workspaceRoot: root });
     const after = await call<ProjectDto[]>(o, 'GET', '/api/projects');
     const registered = after.filter((p) => !p.isScratch && p.path !== null && (before.get(p.id) ?? null) === null).map((p) => ({ id: p.id, name: p.name, path: p.path! }));
-    if (o.json) { log(JSON.stringify({ ok: true, dryRun: false, workspaceRoot: saved.workspaceRoot, registered })); return 0; }
+    // 信頼は保存の後に書く。サーバはいまの作業フォルダだけを信頼済みにする。
+    const trust = o.trust && saved.workspaceRoot !== '' ? await call<WorkspaceTrustDto>(o, 'POST', '/api/workspace/trust', { path: saved.workspaceRoot }) : null;
+    const code = trustFailed(trust) ? 1 : 0;
+    if (o.json) { log(JSON.stringify({ ok: code === 0, dryRun: false, workspaceRoot: saved.workspaceRoot, registered, ...(trust ? { trust } : {}) })); return code; }
     if (saved.workspaceRoot === '') {
       log('作成場所を空にしました（未設定）。');
       log(UNSET_EFFECT);
@@ -308,7 +335,8 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean }, root: string): Prom
       log(`直下の ${registered.length} 件を登録しました:`);
       for (const p of registered) log(`  ${p.path}（名前 ${p.name}）`);
     }
-    return 0;
+    if (trust) for (const l of trustLines(trust)) log(l);
+    return code;
   });
 }
 
@@ -317,8 +345,11 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean }, root: string): Prom
  * ホームフォルダとその上、ファイルシステムの根は、サーバに送らずに断る。
  * 保存のときに直下の会話のあるフォルダが全部登録され、ホームそのものも登録されうるからである。
  * 設定の保存はこれを確かめないので、Claude が打つこの入口で止める。
+ *
+ * trust（--trust）は、作成場所を Claude Code のフォルダの信頼の済んだ場所にする。セットアップのすゝめが利用者の同意を取ってから付ける。
+ * 作成場所そのものと直下の git のリポジトリを、登録したアカウントの全部の .claude.json に書き、同意をサーバの設定に残す（POST /api/workspace/trust）。
  */
-export function workspaceSetCommand(o: ApiCommandOptions & { dir: string; dryRun: boolean; cwd?: string; homeDir?: string }): Promise<number> {
+export function workspaceSetCommand(o: ApiCommandOptions & { dir: string; dryRun: boolean; trust?: boolean; cwd?: string; homeDir?: string }): Promise<number> {
   const root = absolutePath(o.dir, o);
   const home = path.resolve(o.homeDir ?? os.homedir());
   const rel = path.relative(root, home);

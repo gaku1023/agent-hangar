@@ -53,5 +53,5 @@ export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.button.starting': 'Launching',
   'newSession.button.uploading': 'Sending attachments',
   'newSession.hint.quick': 'Press {keys} to start a quick session as is',
-  'newSession.note.trust': 'In a new directory, Claude shows a trust dialog. Answer it in the terminal after launching.',
+  'newSession.note.trust': 'In a directory you have not trusted yet, Claude shows a trust dialog. Answer it in the terminal after launching.',
 };

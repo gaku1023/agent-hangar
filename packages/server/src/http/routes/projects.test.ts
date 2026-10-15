@@ -507,3 +507,53 @@ describe('書いた行のイベントは配る層から届く', () => {
     });
   });
 });
+
+// フォルダの信頼（hangar workspace set --trust）。同意を記録し、書く先への書き込みは deps.trustWorkspace に任せる。
+describe('POST /api/workspace/trust', () => {
+  const post = (body: unknown) => app.request('/api/workspace/trust', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let calls: [string, boolean][];
+  beforeEach(() => {
+    calls = [];
+    app = createApp({ ...deps, trustWorkspace: (root, dryRun) => { calls.push([root, dryRun]); return { dryRun, workspaceRoot: root, dirs: [root], files: [] }; } });
+  });
+
+  it('いまの作業フォルダなら、同意を設定に残してから書く', async () => {
+    const r = await post({ path: ws });
+    expect(r.status).toBe(200);
+    expect(calls).toEqual([[ws, false]]);
+    expect(deps.settings().trustedWorkspaceRoot).toBe(ws);
+  });
+
+  it('試しは同意を残さず、まだ作業フォルダにしていない場所でも書くものを見せる', async () => {
+    const other = path.join(ws, 'sub');
+    fs.mkdirSync(other, { recursive: true });
+    const r = await post({ path: other, dryRun: true });
+    expect(r.status).toBe(200);
+    expect(calls).toEqual([[other, true]]);
+    expect(deps.settings().trustedWorkspaceRoot ?? null).toBeNull();
+  });
+
+  it('作業フォルダを変えると同意は消える（同じ場所の保存では消えない）', async () => {
+    await post({ path: ws });
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await patch({ workspaceRoot: ws })).status).toBe(200);
+    expect(deps.settings().trustedWorkspaceRoot).toBe(ws);
+    const other = path.join(ws, 'sub');
+    fs.mkdirSync(other, { recursive: true });
+    const r = await patch({ workspaceRoot: other });
+    expect(r.status).toBe(200);
+    expect(deps.settings().trustedWorkspaceRoot).toBeNull();
+    expect(((await r.json()) as { trustedWorkspaceRoot: unknown }).trustedWorkspaceRoot).toBeNull();
+  });
+
+  it('いまの作業フォルダでない場所、作業フォルダが未設定、無い場所は断る', async () => {
+    const other = path.join(ws, 'sub');
+    fs.mkdirSync(other, { recursive: true });
+    expect((await post({ path: other })).status).toBe(400);
+    expect((await post({ path: path.join(ws, 'none'), dryRun: true })).status).toBe(400);
+    expect((await post({ path: 'relative' })).status).toBe(400);
+    deps.updateSettings({ workspaceRoot: '' });
+    expect((await post({ path: ws })).status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+});
