@@ -154,7 +154,10 @@ export function touchRow(db: Db, table: string, rowId: string): void {
   note(db, { table, rowId, op: 'upsert', origin: 'touch', seq: null });
 }
 
-/** tryWrites が巻き戻すために投げる印。fn の例外と見分ける。 */
+/**
+ * tryWrites が巻き戻すために投げる印。
+ * fn の例外と見分ける。
+ */
 class Discarded extends Error {}
 
 /**
@@ -164,7 +167,8 @@ class Discarded extends Error {}
  *
  * 外へは何も漏らさない。
  * - 行と changes は巻き戻る（同期が送るのは changes の行だけである）。
- * - 中で溜まった知らせ（write、touch）は、配る前に捨てる。write は巻き戻りを見分けて落ちるが、touch は見分けられないので、ここで捨てる。
+ * - 中で溜まった知らせ（write、touch）は、配る前に捨てる。
+ *   write は巻き戻りを見分けて落ちるが、touch は見分けられないので、ここで捨てる。
  *   前のトランザクションの、まだ配っていない知らせは残す。
  * fn が投げたら、巻き戻してその例外を投げ直す。
  * 外側のトランザクションの中では巻き戻しが外側の確定に呑まれるので、呼べない（投げる）。
@@ -186,7 +190,10 @@ export function tryWrites<T>(db: Db, fn: () => T): T {
   return out[0]!.value;
 }
 
-/** 溜めた知らせのうち、先頭から n 件だけを残す。残りが無ければ列ごと外す（予約済みのマイクロタスクは空振りする）。 */
+/**
+ * 溜めた知らせのうち、先頭から n 件だけを残す。
+ * 残りが無ければ列ごと外す（予約済みのマイクロタスクは空振りする）。
+ */
 function dropNoticesAfter(db: Db, n: number): void {
   const queue = pending.get(db);
   if (!queue) return;

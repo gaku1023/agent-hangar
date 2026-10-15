@@ -104,7 +104,9 @@ describe('folderCandidates', () => {
   });
 });
 
-// セットアップのすゝめ（2026-10-15）。hangar project candidates が読む項目。初日の画面の項目は変えずに足す。
+// セットアップのすゝめ（2026-10-15）。
+// hangar project candidates が読む項目。
+// 初日の画面の項目は変えずに足す。
 describe('folderCandidates の足した項目', () => {
   const DAY = 24 * 60 * 60 * 1000;
   const NOW = 1000 * DAY;

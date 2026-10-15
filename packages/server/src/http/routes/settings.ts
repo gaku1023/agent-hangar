@@ -85,7 +85,8 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (!st.isDirectory()) return c.json({ error: tr('settings.path.notDirectory', { label: label('workspaceRoot'), path: root }) }, 400);
       patch.workspaceRoot = root;
     }
-    // 試し（hangar workspace set --dry-run、2026-10-15）。作成場所だけを受け、上の検証を通したうえで、保存のときに自動で登録される直下のフォルダを返す。
+    // 試し（hangar workspace set --dry-run、2026-10-15）。
+    // 作成場所だけを受け、上の検証を通したうえで、保存のときに自動で登録される直下のフォルダを返す。
     // 保存の下の段と同じ関数（syncProjectsFromWorkspace と assignSessions）を走らせて巻き戻すので、何も書かず、何も配らない（db/notify.ts の tryWrites）。
     if ('dryRun' in body) {
       const dryRun = body.dryRun;

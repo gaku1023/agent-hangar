@@ -322,10 +322,15 @@ export type FolderCandidateDto = { path: string; sessionCount: number; lastActiv
  * desktop-direct と downloads-direct はデスクトップとダウンロードそのものか直下、not-git は git でない、stale-30d は最後の活動が 30 日より前、single-session は会話が 1 件だけである。
  */
 export type CandidateNote = 'desktop-direct' | 'downloads-direct' | 'not-git' | 'stale-30d' | 'single-session';
-/** クラウドで同期されている場所。icloud は macOS の iCloud Drive（デスクトップと書類を含む）、onedrive は Windows の OneDrive である。 */
+/**
+ * クラウドで同期されている場所。
+ * icloud は macOS の iCloud Drive（デスクトップと書類を含む）、onedrive は Windows の OneDrive である。
+ */
 export type CloudSyncedKind = 'icloud' | 'onedrive';
 /**
- * 候補に足した項目（2026-10-15、hangar project candidates が読む）。初日の画面は読まない。古いサーバは付けない。
+ * 候補に足した項目（2026-10-15、hangar project candidates が読む）。
+ * 初日の画面は読まない。
+ * 古いサーバは付けない。
  * recentTitles は最近の会話の題（無ければ要約の 1 文、無ければ最初の発言の冒頭）を新しい順に 3 件まで、
  * isGit と gitRemote はリポジトリか、その remote（正規化した形。無ければ null）、
  * enclosedBy はほかの候補（candidate）か登録済みのプロジェクト（project）の下にあるときの、その場所（いちばん深いもの）である。
@@ -339,8 +344,10 @@ export type FolderCandidateHintsDto = {
   notes: CandidateNote[];
 };
 /**
- * 候補の一覧。suggestedRoot は、作成場所が空で、過半の候補が同じ親フォルダにあるときの、その親（無ければ null）。
- * unassignedTotal はこの PC の未分類の会話の総数、workspaceRoot はいまの作成場所（空なら null）である。この 2 つは古いサーバは付けない。
+ * 候補の一覧。
+ * suggestedRoot は、作成場所が空で、過半の候補が同じ親フォルダにあるときの、その親（無ければ null）。
+ * unassignedTotal はこの PC の未分類の会話の総数、workspaceRoot はいまの作成場所（空なら null）である。
+ * この 2 つは古いサーバは付けない。
  */
 export type FolderCandidatesDto = { candidates: FolderCandidateDto[]; suggestedRoot: string | null; unassignedTotal?: number; workspaceRoot?: string | null };
 /**
@@ -362,10 +369,14 @@ export type FolderRegisterOutcomeDto = {
 /**
  * 候補からまとめて登録した結果（POST /api/workspace/register）。failed は登録できなかったパスと理由である。
  * linked は、新しく作らずにほかの PC のプロジェクトへ結び付けたもののプロジェクトの id（projects にも入っている）。古いサーバは付けない。
- * results は行ごとの結果で、本文の並びのままである。古いサーバは付けない。
+ * results は行ごとの結果で、本文の並びのままである。
+ * 古いサーバは付けない。
  */
 export type FolderRegisterResultDto = { projects: ProjectDto[]; failed: { path: string; error: string }[]; linked?: string[]; results?: FolderRegisterOutcomeDto[] };
-/** まとめて登録の試し（本文に dryRun: true）。何も書かずに、行ごとの結果だけを返す。 */
+/**
+ * まとめて登録の試し（本文に dryRun: true）。
+ * 何も書かずに、行ごとの結果だけを返す。
+ */
 export type FolderRegisterPreviewDto = { dryRun: true; results: FolderRegisterOutcomeDto[] };
 /**
  * 一覧から削除（resolve の unlink）の試し（本文に dryRun: true）。

@@ -55,7 +55,10 @@ export function folderCandidates(db: Db, deviceId: string, env: CandidateEnv): F
     || tmps.some((t) => isUnder(p, t)) || isUnder(p, scratch) || known.some((k) => isUnder(p, k));
 
   const groups = new Map<string, Group>();
-  /** 作業フォルダ（DB のままの文字列）から、入った候補の鍵。最近の会話の題を候補へ振り分けるのに使う。 */
+  /**
+   * 作業フォルダ（DB のままの文字列）から、入った候補の鍵。
+   * 最近の会話の題を候補へ振り分けるのに使う。
+   */
   const rootOfCwd = new Map<string, string>();
   for (const r of rows) {
     if (!r.cwd) continue;
@@ -109,7 +112,10 @@ const RECENT_TITLES = 3;
 /** 最初の発言から採るときの字数（一覧の表示名と同じ）。 */
 const PROMPT_HEAD = 40;
 
-/** 改行と続く空白を 1 つの空白にし、前後を落とす。空なら null。 */
+/**
+ * 改行と続く空白を 1 つの空白にし、前後を落とす。
+ * 空なら null。
+ */
 function oneLine(s: string | null): string | null {
   if (!s) return null;
   const t = s.replace(/\s+/g, ' ').trim();
@@ -118,7 +124,8 @@ function oneLine(s: string | null): string | null {
 
 /**
  * 候補ごとの最近の会話の題（新しい順に 3 件まで）。
- * 題は、本文の題（custom_title）、hangar で付けた名前、AI の題、要約の 1 文、最初の発言の冒頭の順に採る。どれも無い会話は飛ばす。
+ * 題は、本文の題（custom_title）、hangar で付けた名前、AI の題、要約の 1 文、最初の発言の冒頭の順に採る。
+ * どれも無い会話は飛ばす。
  * rootOfCwd は作業フォルダから候補の鍵（pathKey）を引く表で、候補に残らなかったものは数えない。
  */
 function recentTitlesOf(db: Db, deviceId: string, rootOfCwd: Map<string, string>, keep: Set<string>): Map<string, string[]> {

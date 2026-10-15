@@ -279,7 +279,8 @@ describe('会話したフォルダの候補', () => {
     for (const bad of [{}, { paths: 'x' }, { paths: [1] }]) expect((await post(bad)).status).toBe(400);
   });
 
-  // hangar project add（2026-10-15）。行ごとの結果と、書かない試し。
+  // hangar project add（2026-10-15）。
+  // 行ごとの結果と、書かない試し。
   const count = (sql: string) => (db.prepare(sql).get() as { c: number }).c;
   it('行ごとの結果を本文の並びで返す。登録済みは already、入れ子は nested、ほかの失敗は error で、続きは止めない', async () => {
     const one = path.join(ws, 'x', 'one');
@@ -357,7 +358,8 @@ describe('会話したフォルダの候補', () => {
     expect(sent).toEqual([]);
     expect(count('select count(*) c from changes')).toBe(changes);
     expect(count(`select count(*) c from sessions where project_id = '${id}' and deleted_at is null`)).toBe(mine);
-    // 試しは unlink だけで受ける。真偽でないものも断る。
+    // 試しは unlink だけで受ける。
+    // 真偽でないものも断る。
     expect((await resolve({ kind: 'archive', dryRun: true })).status).toBe(400);
     expect((await resolve({ kind: 'unlink', dryRun: 1 })).status).toBe(400);
   });

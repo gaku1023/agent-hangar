@@ -5,16 +5,23 @@ import type { CandidateNote, FolderCandidateDto, FolderCandidatesDto, FolderRegi
 import { serverDownMessage } from './probe.ts';
 
 /**
- * hangar project（candidates、add、remove）と hangar workspace（set、unset）。2026-10-15。
- * セットアップのすゝめで、Claude Code が Bash から叩く道具である。端末が無い（TTY が無い）前提なので、対話の y/n は作らない。
+ * hangar project（candidates、add、remove）と hangar workspace（set、unset）。
+ * 2026-10-15。
+ * セットアップのすゝめで、Claude Code が Bash から叩く道具である。
+ * 端末が無い（TTY が無い）前提なので、対話の y/n は作らない。
  * 承諾は Claude の会話の中で取り、書く前の見せ方は --dry-run だけにする（問いを飛ばす旗は作らない）。
  *
- * どれも動いているサーバの API を鍵（Bearer）付きで呼ぶ。サーバは起こさない。
+ * どれも動いているサーバの API を鍵（Bearer）付きで呼ぶ。
+ * サーバは起こさない。
  * 終了の符号は、全部成功が 0、一部でも失敗が 1、サーバが止まっているときが 2 である。
- * --json は標準出力に 1 行の JSON を出す。失敗は { error: 符号, message } の形で、サーバが止まっているときは { error: 'server_down', hint: 'hangar start' } である。
+ * --json は標準出力に 1 行の JSON を出す。
+ * 失敗は { error: 符号, message } の形で、サーバが止まっているときは { error: 'server_down', hint: 'hangar start' } である。
  */
 
-/** 呼び出しの共通の入力。log は標準出力、error は標準エラーの代わりで、試験が差し替える。 */
+/**
+ * 呼び出しの共通の入力。
+ * log は標準出力、error は標準エラーの代わりで、試験が差し替える。
+ */
 export type ApiCommandOptions = {
   port: number;
   token: string;
@@ -24,7 +31,10 @@ export type ApiCommandOptions = {
   error?: (line: string) => void;
 };
 
-/** 失敗の符号。server_down だけは終了の符号が 2 になる。 */
+/**
+ * 失敗の符号。
+ * server_down だけは終了の符号が 2 になる。
+ */
 type FailCode = 'server_down' | 'unauthorized' | 'rejected' | 'http_error' | 'timeout' | 'not_found' | 'scratch' | 'ambiguous' | 'outdated';
 
 class CommandError extends Error {
@@ -34,7 +44,10 @@ class CommandError extends Error {
   }
 }
 
-/** 応答を待つ上限。候補は会話の作業フォルダを全部たどるので、ほかより長めにとる。 */
+/**
+ * 応答を待つ上限。
+ * 候補は会話の作業フォルダを全部たどるので、ほかより長めにとる。
+ */
 const TIMEOUT_MS = 30_000;
 
 /** 試しの終わりに添える 1 行。 */
@@ -44,7 +57,10 @@ const REMOVE_KEEPS = '会話は未分類に戻るだけで、本文は消えま�
 /** 作成場所を空にしたときに、何が残り何が止まるか。 */
 const UNSET_EFFECT = '登録済みのプロジェクトはそのまま残ります。作成場所の直下の自動の登録は止まり、新しいフォルダはアプリで作るときに場所を選びます。';
 
-/** 鍵付きで 1 回呼ぶ。繋がらなければ server_down、鍵が合わなければ unauthorized、400 台はサーバの文のまま rejected にする。 */
+/**
+ * 鍵付きで 1 回呼ぶ。
+ * 繋がらなければ server_down、鍵が合わなければ unauthorized、400 台はサーバの文のまま rejected にする。
+ */
 async function call<T>(o: ApiCommandOptions, method: 'GET' | 'POST' | 'PATCH', apiPath: string, body?: unknown): Promise<T> {
   const fetchFn = o.fetch ?? fetch;
   let r: Response;
@@ -89,7 +105,10 @@ async function guarded(o: ApiCommandOptions, run: (log: (l: string) => void) => 
   }
 }
 
-/** 先頭の ~ をホームに直し、cwd から絶対にする。サーバは相対のパスを断るので、打った場所から解決して送る。 */
+/**
+ * 先頭の ~ をホームに直し、cwd から絶対にする。
+ * サーバは相対のパスを断るので、打った場所から解決して送る。
+ */
 export function absolutePath(raw: string, o: { cwd?: string; homeDir?: string } = {}): string {
   const home = o.homeDir ?? os.homedir();
   const expanded = raw === '~' ? home : /^~[\\/]/.test(raw) ? path.join(home, raw.slice(2)) : raw;
@@ -107,13 +126,19 @@ const NOTE_LABEL: Record<CandidateNote, string> = {
 };
 const CLOUD_LABEL = { icloud: 'iCloud で同期', onedrive: 'OneDrive で同期' } as const;
 
-/** 日付（YYYY-MM-DD）。timeZone を省けばこの PC の時刻で読む。 */
+/**
+ * 日付（YYYY-MM-DD）。
+ * timeZone を省けばこの PC の時刻で読む。
+ */
 function day(ms: number | null, timeZone: string | undefined): string {
   if (ms === null) return '----------';
   return new Date(ms).toLocaleDateString('sv-SE', { timeZone });
 }
 
-/** 候補 1 件の注記。サーバの符号を日本語の短い言葉にする。 */
+/**
+ * 候補 1 件の注記。
+ * サーバの符号を日本語の短い言葉にする。
+ */
 function candidateMarks(c: FolderCandidateDto): string[] {
   const marks = (c.notes ?? []).map((n) => NOTE_LABEL[n] ?? n);
   if (c.cloudSynced) marks.push(CLOUD_LABEL[c.cloudSynced]);
@@ -122,7 +147,10 @@ function candidateMarks(c: FolderCandidateDto): string[] {
   return marks;
 }
 
-/** 人向けの候補の一覧。1 行 1 候補で、会話の数、最終日、パス、注記を並べる。 */
+/**
+ * 人向けの候補の一覧。
+ * 1 行 1 候補で、会話の数、最終日、パス、注記を並べる。
+ */
 export function formatCandidates(dto: FolderCandidatesDto, o: { timeZone?: string } = {}): string[] {
   const lines: string[] = [];
   if (dto.unassignedTotal !== undefined) lines.push(`この PC の未分類の会話: ${dto.unassignedTotal} 件`);
@@ -151,7 +179,10 @@ export function candidatesCommand(o: ApiCommandOptions): Promise<number> {
 
 // ---- add ----
 
-/** 登録の 1 行の結果を、人向けの 1 行にする。dry は試し（これから行う形の言い方）。 */
+/**
+ * 登録の 1 行の結果を、人向けの 1 行にする。
+ * dry は試し（これから行う形の言い方）。
+ */
 export function outcomeLine(r: FolderRegisterOutcomeDto, dry: boolean): string {
   const into = (n: number | undefined) => `未分類の会話 ${n ?? 0} 件が${dry ? '入ります' : '入りました'}`;
   switch (r.status) {
@@ -163,7 +194,10 @@ export function outcomeLine(r: FolderRegisterOutcomeDto, dry: boolean): string {
   }
 }
 
-/** 失敗に数える結果か。登録済みは冪等なので失敗に数えない。 */
+/**
+ * 失敗に数える結果か。
+ * 登録済みは冪等なので失敗に数えない。
+ */
 const failed = (r: FolderRegisterOutcomeDto): boolean => r.status === 'nested' || r.status === 'error';
 
 /**
@@ -206,8 +240,10 @@ function pickProject(list: ProjectDto[], target: string, o: { cwd?: string; home
 
 /**
  * hangar project remove <パス|id>。
- * アプリの「一覧から削除」と同じ経路（resolve の unlink）を通す。会話は未分類に戻り、プロジェクトは論理削除になる。
- * 同期を使っているかは、試しの応答から読む。本番でも先に試しを呼んで、それを出す。
+ * アプリの「一覧から削除」と同じ経路（resolve の unlink）を通す。
+ * 会話は未分類に戻り、プロジェクトは論理削除になる。
+ * 同期を使っているかは、試しの応答から読む。
+ * 本番でも先に試しを呼んで、それを出す。
  */
 export function projectRemoveCommand(o: ApiCommandOptions & { target: string; dryRun: boolean; cwd?: string; homeDir?: string }): Promise<number> {
   return guarded(o, async (log) => {
@@ -235,7 +271,8 @@ export function projectRemoveCommand(o: ApiCommandOptions & { target: string; dr
 // ---- workspace ----
 
 /**
- * 作成場所を root にする（空なら未設定にする）。設定の保存（PATCH /api/settings）と同じ経路を使う。
+ * 作成場所を root にする（空なら未設定にする）。
+ * 設定の保存（PATCH /api/settings）と同じ経路を使う。
  * 試しは保存と同じ検証を通し、保存のときに自動で登録される直下のフォルダを全部見せる。
  * 本番は、保存の前後のプロジェクトの一覧の違いから、この PC に場所ができたものを登録したものとして出す。
  */
@@ -280,7 +317,10 @@ export function workspaceSetCommand(o: ApiCommandOptions & { dir: string; dryRun
   return setRoot(o, absolutePath(o.dir, o));
 }
 
-/** hangar workspace unset。作成場所は任意で、空は「決めていない」として保存できる（設定の既存の意味）。 */
+/**
+ * hangar workspace unset。
+ * 作成場所は任意で、空は「決めていない」として保存できる（設定の既存の意味）。
+ */
 export function workspaceUnsetCommand(o: ApiCommandOptions & { dryRun: boolean }): Promise<number> {
   return setRoot(o, '');
 }

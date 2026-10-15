@@ -7,11 +7,15 @@ import { assignSessions, syncProjectsFromWorkspace } from './registry.ts';
  * まとめて登録の本体（POST /api/workspace/register）。
  * 1 件ずつ registerProjectDir で登録し、最後に未分類の会話をまとめて紐づけ直す。
  * 登録できなかったものは断らずに理由を添えて返し、ほかの登録は残す。
- * 試し（--dry-run）は、これを tryWrites で包んで呼ぶ。書き込みも検証も本物と同じ関数を通り、最後に巻き戻る。
+ * 試し（--dry-run）は、これを tryWrites で包んで呼ぶ。
+ * 書き込みも検証も本物と同じ関数を通り、最後に巻き戻る。
  */
 export type RegisterManyDeps = { db: Db; deviceId: string; workspaceRoot: string };
 
-/** 断った理由の文。言語は経路が決める。 */
+/**
+ * 断った理由の文。
+ * 言語は経路が決める。
+ */
 export type DescribeError = (e: ProjectCreateError) => string;
 
 /**
@@ -34,7 +38,8 @@ export function newlyAssignedCounts(db: Db, before: Set<string>): Map<string, nu
 
 /**
  * 作成場所を root にしたときの、直下のフォルダの自動の登録（syncProjectsFromWorkspace）と紐づけ直しを走らせ、登録したものを返す。
- * 設定の保存（PATCH /api/settings）と同じ 2 つの関数を通す。試し（hangar workspace set --dry-run）は、これを tryWrites で包んで呼ぶ。
+ * 設定の保存（PATCH /api/settings）と同じ 2 つの関数を通す。
+ * 試し（hangar workspace set --dry-run）は、これを tryWrites で包んで呼ぶ。
  * status は added（新しく作る）か linked（ほかの PC から届いたプロジェクトへ結び付ける）で、並びはパスの順である。
  */
 export function workspaceSyncOutcomes(db: Db, deviceId: string, root: string): FolderRegisterOutcomeDto[] {
@@ -50,7 +55,10 @@ export function workspaceSyncOutcomes(db: Db, deviceId: string, root: string): F
   return [...r.created.map((id) => one(id, 'added')), ...r.linked.map((id) => one(id, 'linked'))].sort((a, b) => a.path.localeCompare(b.path));
 }
 
-/** 行ごとの結果を本文の並びで返す。同じプロジェクトに 2 行が当たったときは、紐づいた会話の数を先の行にだけ載せる。 */
+/**
+ * 行ごとの結果を本文の並びで返す。
+ * 同じプロジェクトに 2 行が当たったときは、紐づいた会話の数を先の行にだけ載せる。
+ */
 export function registerFolders(deps: RegisterManyDeps, items: FolderRegisterItem[], describe: DescribeError): FolderRegisterOutcomeDto[] {
   const { db, deviceId } = deps;
   const before = unassignedSessionIds(db);

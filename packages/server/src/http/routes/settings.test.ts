@@ -263,7 +263,8 @@ describe('routes', () => {
       fs.rmSync(ws2, { recursive: true, force: true });
     }
   });
-  // hangar workspace set --dry-run（2026-10-15）。保存と同じ検証を通し、自動で登録される直下のフォルダだけを返す。
+  // hangar workspace set --dry-run（2026-10-15）。
+  // 保存と同じ検証を通し、自動で登録される直下のフォルダだけを返す。
   it('作成場所の dryRun は、自動で登録される直下のフォルダと会話の数を返し、保存も登録もせず、何も配らない', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
     try {

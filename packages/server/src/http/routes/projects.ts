@@ -69,7 +69,8 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const action = (b.value ?? null) as ResolveAction | null;
     if (!action || !RESOLVE_KINDS.has(action.kind)) return c.json({ error: tr('project.resolve.badKind') }, 400);
-    // 試し（hangar project remove --dry-run）は一覧から削除（unlink）だけで受ける。名前と、未分類に戻る会話の数と、同期を使っているかを返し、何も書かない。
+    // 試し（hangar project remove --dry-run）は一覧から削除（unlink）だけで受ける。
+    // 名前と、未分類に戻る会話の数と、同期を使っているかを返し、何も書かない。
     const dryRun = (b.value as { dryRun?: unknown }).dryRun;
     if (dryRun !== undefined && (typeof dryRun !== 'boolean' || (dryRun && action.kind !== 'unlink'))) return c.json({ error: tr('common.field.required', { field: 'dryRun' }) }, 400);
     // repoint のパスは、存在を確かめる前に正規化する。検査する値と保存する値を 1 つにしておく。
@@ -190,7 +191,8 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
       items = paths.map((p) => ({ path: p }));
     }
     const run = () => registerFolders({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, items, (e) => errorText(language(), e));
-    // 試しは、登録と同じ関数を通してから巻き戻す（db/notify.ts の tryWrites）。行も changes も残らず、画面にも同期にも何も配らない。
+    // 試しは、登録と同じ関数を通してから巻き戻す（db/notify.ts の tryWrites）。
+    // 行も changes も残らず、画面にも同期にも何も配らない。
     if (dryRun === true) {
       const preview: FolderRegisterPreviewDto = { dryRun: true, results: tryWrites(db, run) };
       return c.json(preview);

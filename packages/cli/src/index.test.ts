@@ -128,7 +128,9 @@ describe('hangar cloud', () => {
   });
 });
 
-// セットアップのすゝめ（2026-10-15）。Claude Code が Bash から叩く。サーバは起こさず、止まっていれば exit 2。
+// セットアップのすゝめ（2026-10-15）。
+// Claude Code が Bash から叩く。
+// サーバは起こさず、止まっていれば exit 2。
 describe('hangar project と hangar workspace', () => {
   it('サーバが止まっていれば exit 2。--json は標準出力に server_down を 1 行、人向けは起動の案内', async () => {
     const port = String(await deadPort());

@@ -3,13 +3,17 @@ import { describe, expect, it } from 'vitest';
 import type { FolderCandidatesDto, FolderRegisterOutcomeDto, ProjectDto } from '@agent-hangar/shared';
 import { candidatesCommand, formatCandidates, projectAddCommand, projectRemoveCommand, workspaceSetCommand, workspaceUnsetCommand } from './project.ts';
 
-// hangar project と hangar workspace（2026-10-15）。動いているサーバの API を鍵付きで呼ぶ。
+// hangar project と hangar workspace（2026-10-15）。
+// 動いているサーバの API を鍵付きで呼ぶ。
 // サーバは偽の fetch で置き換え、呼ばれた経路と本文を控える。
 
 type Call = { method: string; path: string; body: unknown; auth: string | null };
 type Route = (call: Call) => { status?: number; body: unknown } | undefined;
 
-/** 経路ごとの応答を返す偽の fetch。どの経路にも当たらなければ 404。 */
+/**
+ * 経路ごとの応答を返す偽の fetch。
+ * どの経路にも当たらなければ 404。
+ */
 function fakeServer(route: Route) {
   const calls: Call[] = [];
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {

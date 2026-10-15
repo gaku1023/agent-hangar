@@ -12,12 +12,16 @@ import { isUnder, pathKey, samePath } from '../platform/paths.ts';
 
 /** Windows の形（ドライブ文字か UNC）のパスか。 */
 const isWinStyle = (p: string): boolean => /^[A-Za-z]:[\\/]|^\\\\/.test(p);
-/** パスの形に合った path の関数。macOS で Windows のパスを試験しても、同じ答えになるようにする。 */
+/**
+ * パスの形に合った path の関数。
+ * macOS で Windows のパスを試験しても、同じ答えになるようにする。
+ */
 const pathOf = (p: string): path.PlatformPath => (isWinStyle(p) ? path.win32 : path.posix);
 
 /**
  * クラウドの同期の判定に使う環境。
- * exists と realpath は、ファイルシステムへの問い合わせを差し替える口である。realpath は引けなければ null を返す。
+ * exists と realpath は、ファイルシステムへの問い合わせを差し替える口である。
+ * realpath は引けなければ null を返す。
  */
 export type CloudSyncEnv = {
   platform: NodeJS.Platform;
@@ -38,10 +42,16 @@ export function defaultCloudSyncEnv(homeDir: string = os.homedir()): CloudSyncEn
   };
 }
 
-/** Windows の OneDrive の置き場を指す環境変数。個人用と職場用で名前が分かれる。 */
+/**
+ * Windows の OneDrive の置き場を指す環境変数。
+ * 個人用と職場用で名前が分かれる。
+ */
 const ONEDRIVE_VARS = ['OneDrive', 'OneDriveConsumer', 'OneDriveCommercial'] as const;
 
-/** 末尾の区切りを落とす。ドライブの直下（C:\）と / は残す。 */
+/**
+ * 末尾の区切りを落とす。
+ * ドライブの直下（C:\）と / は残す。
+ */
 function trimSep(p: string): string {
   const P = pathOf(p);
   const root = P.parse(p).root;
@@ -51,7 +61,8 @@ function trimSep(p: string): string {
 /**
  * フォルダがクラウドで同期されている場所にあるか。
  * macOS は iCloud（~/Library/Mobile Documents の下、実体がそこにあるもの、iCloud の「デスクトップと書類」）、
- * Windows は OneDrive（環境変数の置き場の下、ホームの直下の OneDrive の名前のフォルダの下）を見る。ほかの OS は null。
+ * Windows は OneDrive（環境変数の置き場の下、ホームの直下の OneDrive の名前のフォルダの下）を見る。
+ * ほかの OS は null。
  * 同期の中のフォルダでは、git の作業と同期が同じファイルを取り合うので、セットアップのすゝめが注意を促す。
  */
 export function cloudSyncedOf(p: string, e: CloudSyncEnv): CloudSyncedKind | null {
@@ -96,7 +107,8 @@ function atOrDirectlyUnder(p: string, dir: string): boolean {
 }
 
 /**
- * 候補の注記の符号。並びは desktop-direct、downloads-direct、not-git、stale-30d、single-session の順である。
+ * 候補の注記の符号。
+ * 並びは desktop-direct、downloads-direct、not-git、stale-30d、single-session の順である。
  * desktop-direct と downloads-direct は、そのフォルダそのものか直下のフォルダに付ける（散らばった作業か、落とした物を開いた場所であることが多い）。
  */
 export function candidateNotes(c: NoteInput, e: { homeDir: string; now: number }): CandidateNote[] {

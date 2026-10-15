@@ -216,8 +216,10 @@ program
     console.log((await openInBrowser(url)) ? openedMessage(port) : openFailedMessage(port));
   });
 
-// プロジェクトの候補と登録（セットアップのすゝめ、2026-10-15）。Claude Code が Bash から叩くので、対話の問いは作らない。
-// 書く前の見せ方は --dry-run だけで、承諾は Claude の会話の中で取る。どれも動いているサーバの API を鍵付きで呼び、サーバは起こさない。
+// プロジェクトの候補と登録（セットアップのすゝめ、2026-10-15）。
+// Claude Code が Bash から叩くので、対話の問いは作らない。
+// 書く前の見せ方は --dry-run だけで、承諾は Claude の会話の中で取る。
+// どれも動いているサーバの API を鍵付きで呼び、サーバは起こさない。
 // 終了の符号は、全部成功が 0、一部でも失敗が 1、サーバが止まっているときが 2 である。
 const apiOptions = (o: { port: string; json?: boolean }) => ({ port: Number(o.port), token: readOrCreateToken(hangarHome()), json: o.json ?? false });
 
