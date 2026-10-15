@@ -61,6 +61,32 @@ jobs:
       - run: node --version
       - name: サーバの試験（Node 24）
         run: npm test -- --project server
+  windows-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: psmux を入れる
+        shell: pwsh
+        env:
+          PSMUX_VERSION: '3.3.8'
+          PSMUX_SHA256: 1ad127ba937194a890b933a73d9b023e297bd73dc742abd841bf159984c2effe
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'psmux.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'psmux'
+          Invoke-WebRequest -Uri "https://github.com/psmux/psmux/releases/download/v$env:PSMUX_VERSION/psmux-v$env:PSMUX_VERSION-windows-x64.zip" -OutFile $zip
+          $got = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          if ($got -ne $env:PSMUX_SHA256.ToUpper()) { throw "psmux の SHA-256 が合わない: $got" }
+          Expand-Archive -Path $zip -DestinationPath $dir
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+          & (Join-Path $dir 'psmux.exe') -V
+      # 実験 X2：OS で結果が割れる project だけを回す（cloud と ui は Linux の check で回る）。
+      - run: npm test -- --project server --project desktop --project cli --project shared
   windows:
     runs-on: windows-latest
     # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分、
@@ -75,7 +101,6 @@ jobs:
       # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
       # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
       # psmux を入れないと、psmux を相手にする試験（tmux/psmux.win.test.ts）が describe.skipIf で黙って飛ぶ。
       # 取得元は公式のリリースの zip で、版と SHA-256 を固定する。
       # winget はランナーに入っていると限らず、cargo install はビルドで数分かかるので使わない。
@@ -95,7 +120,6 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      - run: npm test
       # 殻（Tauri、Rust）が Windows で組み上がることを見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
       # windows-latest に Rust は入っているが、版と components をここで決める。
       - uses: dtolnay/rust-toolchain@stable
@@ -105,8 +129,6 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo check --all-targets
-        working-directory: apps/desktop/src-tauri
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri
       - run: cargo test
@@ -117,6 +139,9 @@ jobs:
       # 下の起動の試しの段が使うので、試験のための書き出しの口（bootprobe.rs）を効かせる feature を立てる。release は立てない。
       - id: installer
         uses: ./.github/actions/windows-installer
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         with:
           target: x86_64-pc-windows-msvc
           features: boot-probe
@@ -151,6 +176,9 @@ jobs:
       - name: 版 A から版 B へ、updater の経路で更新する
         timeout-minutes: 25
         shell: pwsh
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: pwsh -NoProfile -File apps/desktop/scripts/ci-update-windows.ps1 -Target x86_64-pc-windows-msvc -Out (Join-Path $env:RUNNER_TEMP 'update-windows')
       - uses: actions/upload-artifact@v7
         if: always()
@@ -200,6 +228,9 @@ jobs:
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
         id: app
         run: npm run tauri -- build --bundles app --features boot-probe
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         working-directory: apps/desktop
       - name: Node の無い Mac で、読み込み画面が失敗の札に切り替わる
         timeout-minutes: 3
@@ -260,6 +291,9 @@ jobs:
       # 鍵は CI の中で作る使い捨てのもので、目録と更新物はローカルの HTTP で配る。本物の secret は使わない。
       - name: 版 A から版 B へ、updater の経路で .app を入れ替える
         timeout-minutes: 20
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: bash apps/desktop/scripts/ci-update-macos.sh "$RUNNER_TEMP/update-macos"
       - uses: actions/upload-artifact@v7
         if: always()
