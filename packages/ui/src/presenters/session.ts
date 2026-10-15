@@ -90,6 +90,12 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   lead: LeadCardProps | null;
   /** 見出しの名前の横の札（ロック、トランスクリプトの在りか）。 */
   badges: BadgeProps[];
+  /**
+   * 見出しの状態の札（4A）。主の操作の左に置き、選ぶとセッションの状態を変える。
+   * 状態の無い会話は Active。auto と title は、hangar が自動で付けた状態の印と理由（row.ts の statusMark）。
+   * 本文が消えた会話では null で、札を出さない。省けば null として読む。
+   */
+  statusPick?: StatusPick | null;
   /** 見出しの (i) のポップオーバーの行。 */
   details: DetailRow[];
   /** 持ち主の違いで git が断ったときの、許すコマンド。(i) の行の下に、訳と一緒に写せる形で出す。断っていなければ null か無し。 */
@@ -421,6 +427,9 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   };
 }
 
+/** 見出しの状態の札の中身。value は ProjectStatus と同じ 4 つで、状態の無い会話は active。 */
+export type StatusPick = { value: 'active' | 'paused' | 'done' | 'archived'; auto: boolean; title: string };
+
 /** 見出しの名前の横に出す札。ロックと、トランスクリプトが他の PC にあること。どちらも操作できない理由なので、ポップオーバーには隠さない。 */
 export type BadgeProps = { kind: 'lock' | 'stale' | 'remote'; label: string; title: string | null };
 
@@ -580,6 +589,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: olderLeft, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
     strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t),
+    statusPick: gone ? null : { value: s.state?.status ?? 'active', ...statusMark(t, s.state, s.stats, s.summary, s.lastActivityAt) },
     // git の行は (i) の終わりに足す（ブランチ、worktree、作業ツリーの未コミット、このセッションの変更）。
     details: [...presentDetails(s, run, account, t, liveOf(store, s)?.address ?? null), ...gitDetailRows(t, store.git, id, store.sessions, store.gitChanges[id])],
     gitFix: gitUnsafeFix(store.git, id),

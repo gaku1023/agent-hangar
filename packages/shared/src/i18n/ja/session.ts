@@ -175,6 +175,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.screen.endedHint': 'Claude は終了しました。シェルタブは残っています。',
   'session.screen.loading': 'セッションを読み込んでいます',
   'session.screen.moreActions': 'ほかの操作',
+  'session.screen.status': 'セッションのステータス',
   'session.screen.extendRetention': '保持期間を延ばす…',
   'session.screen.mainConversation': 'メイン会話',
   'session.screen.thinkingLabel': '思考を表示',

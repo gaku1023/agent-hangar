@@ -24,6 +24,10 @@ export type ListboxProps = {
   /** 一覧の下端に固定で置く操作。行の続きとして矢印キーで辿れる。選ぶと onAction を呼び、onChange は呼ばない。 */
   actions?: (query: string) => ListboxAction[];
   onAction?: (value: string, query: string) => void;
+  /** いまの値と同じ行を選んだときに呼ぶ。onChange は値が変わったときだけ呼ぶので、選び直しに意味がある部品だけが渡す。 */
+  onReselect?: (value: string) => void;
+  /** 顔の説明に足す要素の id。選んだ値の隠し要素の後に読み上げる。 */
+  describedBy?: string;
 };
 
 /**
@@ -73,6 +77,7 @@ export function Listbox(props: ListboxProps) {
   const choose = (o: ListboxOption) => {
     hide(true);
     if (o.value !== props.value) props.onChange(o.value);
+    else props.onReselect?.(o.value);
   };
 
   const reposition = useCallback(() => {
@@ -189,7 +194,7 @@ export function Listbox(props: ListboxProps) {
   return (
     <>
       <button ref={face} type="button" id={props.id} className={props.faceClassName ?? 'listbox-face'} {...props.faceProps}
-        aria-label={props.label} aria-describedby={faceValueId} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
+        aria-label={props.label} aria-describedby={props.describedBy ? `${faceValueId} ${props.describedBy}` : faceValueId} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
         onClick={() => (open ? hide(false) : show())} onKeyDown={onFaceKey}>
         {props.renderFace ? props.renderFace(selected) : defaultFace}
       </button>
