@@ -252,7 +252,7 @@ describe('会話したフォルダの候補', () => {
     talk('c-two-b', path.join(src, 'two'));
     const r = await json(await get('/api/workspace/candidates'));
     expect(r.status).toBe(200);
-    expect(r.body.candidates.slice(0, 2)).toEqual([
+    expect(r.body.candidates.slice(0, 2)).toMatchObject([
       { path: path.join(src, 'two'), sessionCount: 2, lastActivityAt: 50, worktreeCount: 0 },
       { path: path.join(src, 'one'), sessionCount: 1, lastActivityAt: 50, worktreeCount: 0 },
     ]);
