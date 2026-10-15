@@ -9,6 +9,7 @@ import { initialStore } from '../store/store.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { HomeBand } from './HomeBand.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
+import { CopiedContext } from './primitives/CommandLine.tsx';
 
 const ja = translator('ja');
 const waiting = (id: string): AttentionCard => ({ id, name: `待ち ${id}`, projectName: 'alpha', waited: '12分', question: `問い ${id}`, answer: 'terminal' });
@@ -270,6 +271,27 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     expect(within(drawer().getByText('/opt/homebrew/bin/tmux（3.4）').closest('li')!).getByRole('img', { name: '準備できています' })).toBeInTheDocument();
     fireEvent.click(fold);
     expect(screen.queryByText('/opt/homebrew/bin/tmux（3.4）')).toBeNull();
+  });
+
+  it('すゝめの一言があれば、畳んだ行の後ろ（最後）に「仕上げ」の行を置く。押すと一言を写し、写せたら「コピーしました」にする', () => {
+    const prompt = '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで';
+    const g = presentReadiness(READY, ja, 'darwin', 'idle', { desktop: false, running: null, guide: prompt })!.group;
+    const onAction = vi.fn<(i: UiAction) => void>();
+    const ui = (copied: { text: string; n: number } | null) => (
+      <LanguageRoot language="ja"><ActionRoot onAction={onAction}><CopiedContext.Provider value={copied}><HomeBand {...presentHomeBand(none, ja, [g])} /></CopiedContext.Provider></ActionRoot></LanguageRoot>
+    );
+    const view = render(ui(null));
+    const items = drawer().getAllByRole('listitem');
+    const last = items[items.length - 1]!;
+    expect(last).toHaveTextContent('仕上げ：Claude Code に環境を見てもらう');
+    expect(last).toHaveTextContent('会話のフォルダの登録と連携を、診断から提案します');
+    // 畳んだ「準備完了」の行より後ろにある。
+    const fold = screen.getByRole('button', { name: /は準備完了$/ });
+    expect(fold.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(within(last).getByRole('button', { name: '一言をコピー、仕上げ：Claude Code に環境を見てもらう' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: prompt });
+    act(() => view.rerender(ui({ text: prompt, n: 1 })));
+    expect(within(last).getByRole('button')).toHaveTextContent('コピーしました');
   });
 
   it('検索の最中は、引き出しを閉じて錠剤を件数だけの札にする', () => {

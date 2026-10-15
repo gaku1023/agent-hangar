@@ -1,6 +1,6 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
 import { presentGitChip, type GitChipProps } from './git.ts';
-import { candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
+import { setupGuidePrompt, candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -189,17 +189,21 @@ export type BandAction = { id: string; label: string; ariaLabel: string; primary
   /** 押せない形にする（未ログインのアカウントの「再開」など）。 */
   disabled?: boolean;
   /** 文字の代わりに出す絵（行の「再開しない」の ×）。読み上げの名前は ariaLabel のまま。 */
-  icon?: IconName };
+  icon?: IconName;
+  /** send が clipboard.copy のとき、写せたら COPIED_MS のあいだ文字を「コピーしました」に替える（始める前の確認の「仕上げ」の行）。 */
+  copyFeedback?: boolean };
 /**
  * 行頭の印。dot は状態の点、tag は戻る日や提案の札（tone の due は戻る時点を過ぎて塗る、soon は時刻の前で文字だけ、cand は提案）、todo は TODO の完了の提案の印である。
  * check は始める前の確認の印で、色だけでなく形（✓、ⓘ、!、✗）でも分ける。label は読み上げの名前に添える状態の語である。
  * place は場所の不明なプロジェクトの印（フォルダの絵）である。
+ * guide は始める前の確認の最後の「仕上げ」の行の印（直すものではないので、状態の語を持たない）。
  */
 export type BandLead =
   | { kind: 'dot'; live: LiveStatus | null; aside: boolean; reason?: StopReason | null }
   | { kind: 'tag'; text: string; tone: 'due' | 'soon' | 'cand'; title?: string }
   | { kind: 'todo' }
   | { kind: 'place' }
+  | { kind: 'guide' }
   | { kind: 'check'; tone: 'ok' | 'info' | 'soft' | 'ng'; label: string }
   // 中断の印（中身の無い輪）。spin は再開を頼んで返事を待っている間で、輪が回る。label は読み上げの名前に添える語。
   | { kind: 'ring'; spin: boolean; label: string };
@@ -237,6 +241,8 @@ export type BandSection = { key: string; name: string; color: string; meter: { p
 export type BandGroup = {
   id: string; label: string; icon: IconName; tone: 'default' | 'wait' | 'cand' | 'warn'; count: number; summary: string; morning: boolean; rows: BandRow[];
   countText?: string; progress?: number; fold?: { text: string; rows: BandRow[] };
+  /** 引き出しの最後（fold の後ろ）に置く行。件数には数えない（始める前の確認の「仕上げ」の行）。 */
+  tail?: BandRow[];
   /** 引き出しの見出しの右に置くボタン（中断の群の「すべて再開」「閉じる」）。 */
   headActions?: BandAction[];
   /** 錠剤に添える琥珀の点（同じファイルを編集中のセッションがあること）。件数には入れない。文字は読み上げの名前に添える。 */
@@ -402,7 +408,7 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
   // プロジェクトの行は、画面が持っているプロジェクトの数で決める（登録した直後に、準備の確かめを取り直す前でも行を消す）。
-  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning, notifyAsk: store.notify.ask === true }) : null;
+  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning, notifyAsk: store.notify.ask === true, guide: store.setupGuide ? setupGuidePrompt(t, store.setupGuide) : null }) : null;
   const band0 = presentHomeBand(presentHome(state, store, now), t);
   // 実行中の行に、同じファイルの編集の札を重ねる（presenters/overlap.ts）。
   const base = { ...band0, groups: band0.groups.map((g) => withOverlaps(g, store, now)) };

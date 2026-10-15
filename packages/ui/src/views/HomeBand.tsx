@@ -4,6 +4,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { BandAction, BandGroup, BandLead, BandRow, BandSection, HomeBandProps } from '../presenters/home.ts';
 import { OverlapChip } from './OverlapPopover.tsx';
 import { CountChip } from './primitives/Chip.tsx';
+import { useCopy } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { collapseOut, fadeIn, fadeOut, growIn, motionOn, resizeFrom } from './primitives/motionKit.ts';
@@ -107,6 +108,8 @@ export function HomeBand(props: HomeBandProps & { searching?: boolean; note?: st
                 {foldOpen && <BandRows rows={d.fold.rows} scope={`${d.id}:fold`} folded id={`${drawerId(d)}-fold`} />}
               </>
             )}
+            {/* 最後に置く行（始める前の確認の「仕上げ」）。済んだものの畳みより後ろに置き、件数には数えない。 */}
+            {d.tail && d.tail.length > 0 && <div className="drawer-tail"><BandRows rows={d.tail} scope={`${d.id}:tail`} /></div>}
           </div>
         </div>
       )}
@@ -164,6 +167,7 @@ function Lead(props: { lead: BandLead }) {
       : <span className="return-when" data-due={l.tone === 'due' ? 'true' : undefined} title={l.title}>{l.text}</span>;
     case 'todo': return <span className="cand-mark" aria-hidden="true" />;
     case 'place': return <span className="place-mark" aria-hidden="true"><Icon name="folder" /></span>;
+    case 'guide': return <span className="guide-mark" aria-hidden="true"><Icon name="agent" /></span>;
     case 'check': return <span className="ck-mark" data-tone={l.tone} role="img" aria-label={l.label}><Icon name={CHECK_ICON[l.tone]} /></span>;
     case 'ring': return <span className="int-ring" data-spin={l.spin ? 'true' : undefined} role="img" aria-label={l.label} />;
   }
@@ -171,9 +175,29 @@ function Lead(props: { lead: BandLead }) {
 
 /** 行と見出しのボタン。icon があれば絵だけを出し、読み上げの名前は ariaLabel のままにする。 */
 function BandButton(props: { action: BandAction }) {
+  const a = props.action;
+  if (a.copyFeedback && a.send.type === 'clipboard.copy') return <BandCopyButton action={a} text={a.send.text} />;
+  return <BandPlainButton action={a} />;
+}
+
+const bandButtonClass = (a: BandAction) => `btn btn-sm${a.primary ? ' btn-primary' : ''}${a.ghost ? ' btn-ghost' : ''}${a.icon ? ' btn-icon' : ''}`;
+
+/** 写したら COPIED_MS のあいだ「コピーしました」に替わるボタン（始める前の確認の「仕上げ」の行）。読み上げの名前は ariaLabel のまま。 */
+function BandCopyButton(props: { action: BandAction; text: string }) {
+  const t = useT();
+  const a = props.action;
+  const { copied, press } = useCopy(props.text);
+  return (
+    <button type="button" className={bandButtonClass(a)} data-copied={copied ? 'true' : undefined} aria-label={a.ariaLabel} disabled={a.disabled} onClick={press}>
+      {copied ? t('common.button.copied') : a.label}
+    </button>
+  );
+}
+
+function BandPlainButton(props: { action: BandAction }) {
   const emit = useEmit();
   const a = props.action;
-  const cls = `btn btn-sm${a.primary ? ' btn-primary' : ''}${a.ghost ? ' btn-ghost' : ''}${a.icon ? ' btn-icon' : ''}`;
+  const cls = bandButtonClass(a);
   return (
     <button type="button" className={cls} aria-label={a.ariaLabel} title={a.icon ? a.label : undefined} disabled={a.disabled} onClick={() => emit(a.send)}>
       {a.icon ? <Icon name={a.icon} /> : a.label}
@@ -206,7 +230,7 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
   const r = props.row;
   const open = r.open;
   return (
-    <li ref={props.rowRef} className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : undefined)} aria-hidden={props.leaving ? true : undefined} inert={props.leaving || undefined}>
+    <li ref={props.rowRef} className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : r.lead.kind === 'guide' ? 'guide' : undefined)} aria-hidden={props.leaving ? true : undefined} inert={props.leaving || undefined}>
       <Lead lead={r.lead} />
       {/* 小札（「任意」、提案の出どころ）は名前の後ろに置く。名前がボタンの行では、ボタンの外に置いて読み上げの名前に混ぜない。 */}
       {open
