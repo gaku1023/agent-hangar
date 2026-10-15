@@ -72,6 +72,9 @@ type MarkRow = { id: string; t: number };
  */
 const SESSION_UUID = /^[0-9a-f-]{36}$/i;
 
+/** LIKE の型の中で、文字どおりに読ませたい文字を逃がす（sync/uploader.ts と同じ）。 */
+const escapeLike = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 /** そのパスに何かあるか。壊れたリンクも「ある」と見る。 */
 function exists(p: string): boolean {
   try {
@@ -371,6 +374,7 @@ export class SessionTrash {
   /**
    * ゴミ箱へ移した主線の本文が、元のパスに戻ってきたセッションを復元する。復元したセッションの ID を返す。
    * 印と論理削除を外し、どちらも同期に載せる。本文の索引は削除のときに片付けてあるので、索引し直してもらう。
+   * 上げた控えも忘れ、本文を上げ直してもらう（forgetUploads）。
    */
   checkRestores(): string[] {
     return this.restoresInner();
@@ -383,10 +387,27 @@ export class SessionTrash {
     return [...back];
   }
 
+  /**
+   * この PC が上げた本文（主線とサブエージェント）の控え（file_sync の自端末の行）を忘れる。
+   * 印から 30 日たつと、Worker の掃除がクラウドの写しを消す（packages/cloud/src/sweep.ts の sweepTrash）。
+   * 控えが残っていると、上げる側（sync/uploader.ts）は中身が同じなので上げ直さず、ほかの PC はその本文を降ろせない。
+   * 忘れれば、取り残しの走査が次の巡で上げ直す。
+   * 30 日より前に戻したときは、同じ鍵へ同じ中身を上書きするだけである（Worker の PUT は索引の行を置き直す）。
+   * 降ろした写しの台帳（ほかの端末の行）には触らない。
+   */
+  private forgetUploads(sessionId: string): void {
+    const s = this.facts(sessionId);
+    if (!s || !SESSION_UUID.test(s.provider_session_id)) return;
+    const head = `transcripts/${this.deps.deviceId}/${s.provider_session_id}`;
+    this.db.prepare("delete from file_sync where kind = 'transcript' and device_id = ? and (key = ? or key like ? escape '\\')")
+      .run(this.deps.deviceId, `${head}.jsonl.gz`, `${escapeLike(head)}/subagents/%`);
+  }
+
   private restore(sessionId: string): void {
     this.db.transaction(() => {
       this.db.prepare('delete from trashed_transcripts where session_id = ?').run(sessionId);
       this.db.prepare('delete from trash_applied where session_id = ?').run(sessionId);
+      this.forgetUploads(sessionId);
       if (trashedAtOf(this.db, sessionId) !== null) setSessionTrashed(this.db, this.deps.deviceId, sessionId, null, this.now());
       const s = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown> | undefined;
       if (s && s.deleted_at !== null) upsertShared(this.db, 'sessions', { ...s, deleted_at: null }, this.deps.deviceId);

@@ -1,8 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChangeOut } from '@agent-hangar/shared';
+import { FakeCloudClient } from '../../test/fake-cloud.ts';
+import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { indexFile } from '../indexer/indexFile.ts';
@@ -10,6 +13,9 @@ import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, mergeProjects } from '../projects/registry.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { applyRemoteBatch } from '../sync/apply.ts';
+import { decryptBuffer, deriveFileKey } from '../sync/crypto.ts';
+import { SyncStateStore } from '../sync/state.ts';
+import { TranscriptUploader } from '../sync/uploader.ts';
 import { aggregateUsage, localDay } from '../usage/aggregate.ts';
 import { TrashError } from '../platform/trash.ts';
 import { DeleteError, SessionTrash } from './trash.ts';
@@ -510,5 +516,83 @@ describe('削除は印の処理の後ろで待たされない', () => {
     const deleted = rest.indexOf(`${UUID}.jsonl`);
     expect(deleted).toBeGreaterThanOrEqual(0);
     expect(deleted).toBeLessThan(secondMark);
+  });
+});
+
+describe('持ち主の PC で戻したら、本文を上げ直す', () => {
+  // 削除の印から 30 日たつと、Worker の掃除がクラウドの写しを消す（packages/cloud/src/sweep.ts の sweepTrash）。
+  // その後に戻しても、上げた控え（file_sync）が残っていると、中身が同じなので上げ直さず、ほかの PC が降ろせない。
+  const fileKey = deriveFileKey('join-secret');
+  const MAIN_KEY = `transcripts/${DEV}/${UUID}.jsonl.gz`;
+  const SUB_KEY = `transcripts/${DEV}/${UUID}/subagents/agent-x.jsonl.gz`;
+  const subPath = () => path.join(subDir(), 'subagents', 'agent-x.jsonl');
+  let cloud: FakeCloudClient;
+  let timers: FakeTimers;
+  const uploader = () => new TranscriptUploader({ db, deviceId: DEV, claudeDir, client: cloud, key: fileKey, state: new SyncStateStore(db), now: () => timers.now, timers, isPaused: () => false });
+  const plain = async (k: string) => gunzipSync(await decryptBuffer(fileKey, cloud.files.get(k)!.body)).toString();
+  const ownUploads = () => (db.prepare("select key from file_sync where device_id = ? order by key").all(DEV) as { key: string }[]).map((r) => r.key);
+  const indexAll = () => {
+    indexMain();
+    indexFile(db, { path: subPath(), sessionId: UUID, agentId: 'x', deviceId: null }, { deviceId: DEV });
+  };
+  /** 消して、ゴミ箱から主線とサブエージェントのフォルダを元の場所へ戻し、復元を見る。 */
+  const trashAndRestore = async (beforeRestore: () => void = () => {}) => {
+    await service().deleteSession('s1');
+    beforeRestore();
+    fs.renameSync(binned.get(mainPath())!, mainPath());
+    fs.renameSync(binned.get(subDir())!, subDir());
+    expect(service().checkRestores()).toEqual(['s1']);
+    // 索引の全件走査（onRestored）の代わり。
+    indexAll();
+  };
+
+  beforeEach(async () => {
+    cloud = new FakeCloudClient({ deviceId: DEV });
+    timers = new FakeTimers();
+    writeTranscript();
+    indexAll();
+    const up = uploader();
+    expect(await up.uploadFile({ path: mainPath(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    expect(await up.uploadFile({ path: subPath(), sessionId: UUID, agentId: 'x' })).toBe('uploaded');
+    up.stop();
+    expect([...cloud.files.keys()].sort()).toEqual([MAIN_KEY, SUB_KEY]);
+  });
+
+  it('30 日を過ぎてクラウドの写しが消えていても、次の走査で主線とサブエージェントを上げ直す', async () => {
+    await trashAndRestore(() => cloud.files.clear());
+    expect(ownUploads()).toEqual([]);
+    const up = uploader();
+    expect(up.sweep()).toBe(2);
+    await up.idle();
+    up.stop();
+    expect([...cloud.files.keys()].sort()).toEqual([MAIN_KEY, SUB_KEY]);
+    expect(await plain(MAIN_KEY)).toBe(LINES);
+    expect(await plain(SUB_KEY)).toBe(LINES);
+    expect(ownUploads()).toEqual([MAIN_KEY, SUB_KEY]);
+  });
+
+  it('30 日より前に戻しても、同じ鍵へ同じ中身を上書きするだけで害は無い', async () => {
+    await trashAndRestore();
+    const up = uploader();
+    expect(await up.uploadFile({ path: mainPath(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    expect(await up.uploadFile({ path: subPath(), sessionId: UUID, agentId: 'x' })).toBe('uploaded');
+    up.stop();
+    expect([...cloud.files.keys()].sort()).toEqual([MAIN_KEY, SUB_KEY]);
+    expect(await plain(MAIN_KEY)).toBe(LINES);
+    expect(await plain(SUB_KEY)).toBe(LINES);
+  });
+
+  it('忘れるのは自分が上げたそのセッションの控えだけで、降ろした写しの台帳とほかのセッションの控えは残す', async () => {
+    const other = '11111111-2222-3333-4444-555555555556';
+    const ins = db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', ?, ?, 'x', 1, 1, 1, 1)");
+    ins.run(`transcripts/${OTHER}/${UUID}.jsonl.gz`, `projects/${mangleCwd(CWD)}/${UUID}.jsonl`, OTHER);
+    ins.run(`transcripts/${DEV}/${other}.jsonl.gz`, `projects/${mangleCwd(CWD)}/${other}.jsonl`, DEV);
+    ins.run(`transcripts/${DEV}/${UUID}x.jsonl.gz`, `projects/${mangleCwd(CWD)}/${UUID}x.jsonl`, DEV);
+    await trashAndRestore();
+    expect((db.prepare('select key from file_sync order by key').all() as { key: string }[]).map((r) => r.key)).toEqual([
+      `transcripts/${DEV}/${UUID}x.jsonl.gz`,
+      `transcripts/${DEV}/${other}.jsonl.gz`,
+      `transcripts/${OTHER}/${UUID}.jsonl.gz`,
+    ]);
   });
 });
