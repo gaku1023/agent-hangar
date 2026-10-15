@@ -45,9 +45,9 @@ plan が ci の結果で止まったら、次の順で回復する。
 2. その run が緑になるのを待つ。関門は同じコミットの run のうち、いちばん新しいもの（回し直したものを含む）を見る。
 3. release の run を開き、失敗したジョブ（plan）を Re-run する。plan が通れば、続きのジョブが走る。
 
-`ci.yml` の concurrency は、main への push をコミットごとの group にしてある。
-GitHub は、`cancel-in-progress` が `false` でも、同じ group で待っている run を新しい run が来たときに取り消すので、main の run を 1 つの group にしていた間は、続けて入れたコミットの ci が `cancelled` になることがあった。
-その頃のコミットにタグを打つときは、上の 1 から回す。
+`ci.yml` の concurrency は、main への push を 1 つの group（ref ごと）にし、走っている run は打ち切らない（`cancel-in-progress` は `false`）。
+GitHub は、`cancel-in-progress` が `false` でも、同じ group で待っている run を新しい run が来たときに取り消すので、続けて入れたコミットのうち、途中のものの ci は `cancelled` になる。
+タグは、ci が緑になった main のコミットに打つ。`cancelled` のコミットに打つときは、上の 1 から回す。
 
 タグは `v<semver>` で、ビルドメタデータ（`+`）は付けない。
 更新の比べ方（semver）は `+` を見ないので、`+` だけが違う版は更新として見つからないからである。
