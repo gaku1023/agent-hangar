@@ -11,6 +11,7 @@ import { externalEn } from './en/external.ts';
 import { gitEn } from './en/git.ts';
 import { gitUiEn } from './en/gitUi.ts';
 import { editorEn } from './en/editor.ts';
+import { setupGuideEn } from './en/setupGuide.ts';
 import { headerEn } from './en/header.ts';
 import { homeEn } from './en/home.ts';
 import { interruptedEn } from './en/interrupted.ts';
@@ -78,6 +79,7 @@ export const en: Dictionary = {
   ...gitEn,
   ...gitUiEn,
   ...editorEn,
+  ...setupGuideEn,
   ...externalEn,
   ...headerEn,
   ...homeEn,

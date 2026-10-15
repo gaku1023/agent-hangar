@@ -202,6 +202,20 @@ function toolProblem(t: Translate, c: ToolCheckDto): string {
 const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.tool.ok', { path: c.path ?? '', version: c.version }) : c.path ?? '');
 
 /**
+ * 始める前の確認の最後の「仕上げ」の行（セットアップのすゝめ、試作の案 C）。
+ * Claude Code に貼る一言（設定の連携の札と同じもの）をコピーさせる。直すものではないので、件数にも分母にも数えない。
+ * 群が出る・消える規則は変えない。この行のために群を出し続けることはせず、群が消えれば一緒に消える（設定の札は残る）。
+ */
+function guideRow(t: Translate, prompt: string): BandRow {
+  const name = t('home.ready.guide.name');
+  const label = t('home.ready.guide.copy');
+  return {
+    key: 'ready:guide', lead: { kind: 'guide' }, name, badge: null, context: null, text: t('home.ready.guide.text'), detail: null, tone: null, trail: [], open: null,
+    actions: [{ id: 'copyGuide', label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: false, ghost: false, send: { type: 'clipboard.copy', text: prompt }, copyFeedback: true }],
+  };
+}
+
+/**
  * 始める前の確認を、ホームの帯の群にする（設計書 2.11.4、試作の始める前の確認の B）。
  * 引き出しには直すものだけを 1 行ずつ出し（必須を先、任意を後ろ）、済んだものは 1 行に畳む（fold）。
  * 錠剤は「準備完了 3 / 6」（分母は任意の行も含めて数え、互換の未確認の版は済んだものに数える）で、件数は直すものの数である。
@@ -211,7 +225,7 @@ const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.too
  * 互換のずれは、直すものとして残る（任意の札は付けない）。
  * 右端のボタンは 1 つで、「設定を開く」か「コマンドをコピー」である。殻の中では、MCP とステータスラインの行を設定の連携の節と同じボタン（setup.run）にする。
  */
-export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean } = { desktop: false, running: null }): ReadinessBand | null {
+export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean; guide?: string | null } = { desktop: false, running: null }): ReadinessBand | null {
   // OS の通知の許可をまだ尋ねていなければ、任意の行「通知」を足す。押したときだけ OS に尋ねる（notify.set の on）。
   // この行だけは、答える（許可するか要らないを押す）まで群を残す。ほかの任意の行と違い、放っておくと通知が届かないまま気付けないからである。
   if (!readinessPending(r) && !setup.notifyAsk) return null;
@@ -343,6 +357,7 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
     id: 'readiness', label: t('home.ready.label'), icon: 'alert', tone: 'warn', count: todo.length, countText: t('home.ready.progress', { done: done.length, total }),
     progress: Math.round((done.length / total) * 100), summary: '', morning: true, rows: todo.map(fixRow),
     fold: done.length > 0 ? { text: t('home.ready.fold', { names: done.map((c) => name(c.key)).join(t('home.ready.separator')) }), rows: done.map(doneRow) } : undefined,
+    ...(setup.guide ? { tail: [guideRow(t, setup.guide)] } : {}),
   };
   return { group, note: lacking.length === 0 ? null : t('home.ready.noteNeed', { names: joinNames(t, lacking) }) };
 }

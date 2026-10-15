@@ -55,6 +55,17 @@ describe('置き場の用意', () => {
     }
   });
 
+  it('起動のたびに、同梱のセットアップのすゝめを置き場へ写す。利用者が書き換えたものは次の起動で戻る', () => {
+    bootHome({ home, claudeDir }).stop();
+    const file = path.join(home, 'setup-guide.md');
+    expect(fs.readFileSync(file, 'utf8')).toMatch(/^<!-- hangar-setup-guide v\S+ sha256:[0-9a-f]{8} -->\n/);
+    expect(fs.existsSync(path.join(home, 'setup-guide-habits.md'))).toBe(true);
+    const first = fs.readFileSync(file, 'utf8');
+    fs.writeFileSync(file, '書き換えた\n');
+    bootHome({ home, claudeDir }).stop();
+    expect(fs.readFileSync(file, 'utf8')).toBe(first);
+  });
+
   it('トークンを作り直すと、ヘッダのファイルも次の起動で揃う', () => {
     const header = path.join(home, 'statusline-header');
     bootHome({ home, claudeDir }).stop();

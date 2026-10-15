@@ -133,6 +133,21 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     ]);
     expect(b.group.countText).toBe('準備完了 4 / 7');
   });
+  it('すゝめの一言があれば、最後に「仕上げ」の 1 行を置き、一言をコピーさせる。件数と分母には数えない', () => {
+    const prompt = '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承諾してから';
+    const b = presentReadiness(READY, ja, 'darwin', 'idle', { desktop: false, running: null, guide: prompt })!;
+    expect(b.group).toMatchObject({ count: 3, countText: '準備完了 4 / 7' });
+    expect(b.group.rows.map((r) => r.key)).not.toContain('ready:guide');
+    expect(b.group.tail).toEqual([{
+      key: 'ready:guide', lead: { kind: 'guide' }, name: '仕上げ：Claude Code に環境を見てもらう', badge: null, context: null, text: '会話のフォルダの登録と連携を、診断から提案します', detail: null, tone: null, trail: [], open: null,
+      actions: [{ id: 'copyGuide', label: '一言をコピー', ariaLabel: '一言をコピー、仕上げ：Claude Code に環境を見てもらう', primary: false, ghost: false, send: { type: 'clipboard.copy', text: prompt }, copyFeedback: true }],
+    }]);
+    // 一言が無ければ（写しが取れていない）、行を置かない。
+    expect(presentReadiness(READY, ja)!.group.tail).toBeUndefined();
+  });
+  it('「仕上げ」の行のために群を出し続けない。必須が済めば、一言があっても群ごと消える', () => {
+    expect(presentReadiness(ALL_OK, ja, 'darwin', 'idle', { desktop: false, running: null, guide: 'p' })).toBeNull();
+  });
   // 帯の右端の文は、始めるのに要る道具（tmux と claude）のうち足りないものだけを名指しする。揃っていれば出さない。
   it('帯の文は、足りない道具だけを名指しし、揃っていれば出さない', () => {
     expect(presentReadiness(READY, ja)!.note).toBeNull();

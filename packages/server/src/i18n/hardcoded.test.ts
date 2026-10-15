@@ -29,7 +29,7 @@ const LEFT = '利用者に見える文で、まだ鍵へ移していない。次
 /** ファイル（server/src からの相対）ごとの、直書きの日本語の行の数と、残す理由。 */
 const ALLOWED: Record<string, { lines: number; why: string }> = {
   'boot/bootError.ts': { lines: 1, why: LOG },
-  'boot/home.ts': { lines: 1, why: LOG },
+  'boot/home.ts': { lines: 3, why: LOG },
   'boot/http.ts': { lines: 1, why: LOG },
   'boot/runs.ts': { lines: 2, why: LOG },
   'boot/stopping.ts': { lines: 2, why: LOG },

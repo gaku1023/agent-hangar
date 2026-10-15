@@ -1,4 +1,4 @@
-import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
@@ -142,6 +142,10 @@ export type ApiClient = {
   instructions(projectId: string): Promise<InstructionsDto>;
   /** 指示とメモリのファイルをエディタで開く。無いファイルは作らず、404 の一文で投げる。 */
   openInstruction(projectId: string, kind: InstructionFileKind, once?: KnownEditorId): Promise<void>;
+  /** セットアップのすゝめの写しの場所、版、ハッシュ、貼る一言。 */
+  setupGuide(): Promise<SetupGuideDto>;
+  /** 写したセットアップのすゝめをエディタで開く。エディタが見つからなければ EditorMissingApiError で投げる。 */
+  openSetupGuide(once?: KnownEditorId): Promise<void>;
   addArtifact(projectId: string, url: string): Promise<ArtifactDto>;
   openArtifact(id: string): Promise<void>;
   openArtifactEditor(id: string, once?: KnownEditorId): Promise<void>;
@@ -292,6 +296,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     instructions: (projectId) => call(`/api/projects/${projectId}/instructions`),
     openInstruction: (projectId, kind, once) => post(`/api/projects/${projectId}/instructions/open`, { kind, ...(once ? { once } : {}) }),
+    setupGuide: () => call('/api/setup-guide'),
+    openSetupGuide: (once) => post('/api/setup-guide/open', once ? { once } : undefined),
     addArtifact: (projectId, url) => post(`/api/projects/${projectId}/artifacts`, { url }),
     openArtifact: (id) => post(`/api/artifacts/${id}/open`),
     openArtifactEditor: (id, once) => post(`/api/artifacts/${id}/open-editor`, once ? { once } : undefined),

@@ -89,6 +89,8 @@ export type UiAction =
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
   // 指示とメモリ。load は読み直し（ダイアログを開いたとき）、openEditor はそのファイルをエディタで開く。
   | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind; once?: KnownEditorId }
+  // セットアップのすゝめ。写した md をエディタで開く（設定の連携の札の「手引きの中身を見る」）。
+  | { type: 'setupGuide.openEditor'; once?: KnownEditorId }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId; once?: KnownEditorId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }

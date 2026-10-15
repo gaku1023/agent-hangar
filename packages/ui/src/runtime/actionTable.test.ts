@@ -47,7 +47,7 @@ describe('表の鍵', () => {
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'editor.test', 'editors.load', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'memo.save',
       'overlap.dismiss', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
-      'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
+      'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'setupGuide.openEditor', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
     ]);
   });
@@ -174,6 +174,15 @@ describe('作業台', () => {
     expect(again.store.editorMissing).toBeNull();
     // ほかの失敗は、ふつうどおりトーストにする（投げ直す）。
     await expect(runRow({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts', line: 3 }, fakeApi({ openEditor: vi.fn(async () => { throw new Error('boom'); }) }))).rejects.toThrow('boom');
+  });
+  it('セットアップのすゝめの中身を見るは、写した md をエディタで開く。見つからなければ同じ面を出し、今回だけのエディタで送り直せる', async () => {
+    const missing = { code: 'editor_missing' as const, error: 'Cursor が見つかりません', editor: 'cursor' as const, name: 'Cursor', lastPath: null, others: ['vscode' as const] };
+    const openSetupGuide = vi.fn(async (once?: string) => { if (!once) throw new EditorMissingApiError(missing); });
+    const r = await runRow({ type: 'setupGuide.openEditor' }, fakeApi({ openSetupGuide }));
+    expect(r.store.editorMissing).toEqual({ ...missing, retry: { type: 'setupGuide.openEditor' }, n: 1 });
+    const again = await runRow({ type: 'setupGuide.openEditor', once: 'vscode' }, fakeApi({ openSetupGuide }), r.store);
+    expect(openSetupGuide.mock.calls).toEqual([[undefined], ['vscode']]);
+    expect(again.store.editorMissing).toBeNull();
   });
   it('アーティファクトの追加は、URL の前後の空白を落として送り、応答を Store に入れる', async () => {
     const added = { id: 'a1', projectId: 'p1' } as ArtifactDto;

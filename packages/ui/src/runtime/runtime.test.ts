@@ -2100,6 +2100,25 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
       expect(rt.getStore().readiness).toEqual(READY);
     }
   });
+  it('起動のたびに、セットアップのすゝめの写しの場所と版を取る。取れなくても知らせず、札を出さない（null のまま）', async () => {
+    const guide = { path: '~/.agent-hangar/setup-guide.md', version: '0.7.0', sha: '3f9a1c2e', prompt: 'p' };
+    const setupGuide = vi.fn(async () => guide);
+    const { rt, wsHandlers } = harness({ setupGuide });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(setupGuide).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().setupGuide).toEqual(guide);
+
+    const failing = harness({ setupGuide: vi.fn(async () => { throw new Error('boom'); }) });
+    failing.rt.start();
+    failing.wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(failing.rt.getStore().setupGuide).toBeNull();
+    expect(failing.rt.getState().toasts.filter((n) => n.message.includes('boom'))).toEqual([]);
+  });
   it('API やほかの窓から claudePath が直されたら（settings.changed）、準備の確かめを取り直して帯を新しい答えにする', async () => {
     const NOT_FOUND = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset' as const, version: null } } };
     const answers = [NOT_FOUND, READY];

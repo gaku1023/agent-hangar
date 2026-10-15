@@ -11,6 +11,7 @@ import { externalJa } from './ja/external.ts';
 import { gitJa } from './ja/git.ts';
 import { gitUiJa } from './ja/gitUi.ts';
 import { editorJa } from './ja/editor.ts';
+import { setupGuideJa } from './ja/setupGuide.ts';
 import { headerJa } from './ja/header.ts';
 import { homeJa } from './ja/home.ts';
 import { interruptedJa } from './ja/interrupted.ts';
@@ -78,6 +79,7 @@ export const ja: Dictionary = {
   ...gitJa,
   ...gitUiJa,
   ...editorJa,
+  ...setupGuideJa,
   ...externalJa,
   ...headerJa,
   ...homeJa,

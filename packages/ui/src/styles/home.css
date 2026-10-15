@@ -94,3 +94,10 @@
 .drawer-fold:hover { background: var(--surface-2); }
 .drawer-fold:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .drawer-folded .crow .c-text { color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-xs); }
+/* 始める前の確認の最後の「仕上げ」の行（セットアップのすゝめ）。直すものではないので、印は Claude の絵、本文は淡く、名前は長めに読ませる。 */
+.drawer-tail { border-top: 1px solid var(--line); }
+.guide-mark { flex: none; display: inline-flex; color: var(--accent); }
+.guide-mark .icon { width: 16px; height: 16px; }
+.crow[data-k='guide'] .c-name { max-width: 55%; }
+.crow[data-k='guide'] .c-text { color: var(--ink-3); }
+.crow .btn[data-copied] { color: var(--st-done); }
