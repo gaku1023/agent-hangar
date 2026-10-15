@@ -15,10 +15,15 @@ describe('triggerAt', () => {
     expect(triggerAt('/goal 速く', 6)).toBeNull();
     expect(triggerAt('/goal\n', 6)).toBeNull();
   });
-  it('先頭でない / は、きっかけにしない', () => {
+  it('空白か改行の直後の / も、/ のきっかけになる', () => {
+    expect(triggerAt(' /goal', 6)).toEqual({ kind: '/', query: 'goal', start: 1 });
+    expect(triggerAt('見て\n/goal', 8)).toEqual({ kind: '/', query: 'goal', start: 3 });
+    expect(triggerAt('これを見て /g 速く', 8)).toEqual({ kind: '/', query: 'g', start: 6 });
+  });
+  it('語の途中の /（パスや URL）は、きっかけにしない', () => {
     expect(triggerAt('src/a', 5)).toBeNull();
-    expect(triggerAt(' /goal', 6)).toBeNull();
-    expect(triggerAt('見て\n/goal', 8)).toBeNull();
+    expect(triggerAt('見て https://x', 13)).toBeNull();
+    expect(triggerAt('見て/goal', 7)).toBeNull();
   });
   it('先頭か空白の直後の @ は、@ のきっかけになる', () => {
     expect(triggerAt('@', 1)).toEqual({ kind: '@', query: '', start: 0 });
@@ -94,6 +99,9 @@ describe('acceptText', () => {
   });
   it('/ の名前は、空白があっても囲まない', () => {
     expect(acceptText('/g', 2, { kind: '/', query: 'g', start: 0 }, 'a b')).toEqual({ text: '/a b ', caret: 5 });
+  });
+  it('途中の / は、その語だけを置き換え、前後の文は残す', () => {
+    expect(acceptText('見て /g 速く', 5, { kind: '/', query: 'g', start: 3 }, 'goal')).toEqual({ text: '見て /goal 速く', caret: 9 });
   });
 });
 

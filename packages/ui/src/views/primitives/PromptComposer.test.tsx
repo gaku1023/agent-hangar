@@ -110,9 +110,27 @@ describe('PromptComposer の / の候補', () => {
     fireEvent.keyDown(ta, { key: 'Enter' });
     expect(outerKeyDown).toHaveBeenCalledTimes(2);
   });
-  it('先頭でない / では出さない', async () => {
+  it('語の途中の /（パスなど）では出さない', async () => {
     const { ta } = await mount();
     type(ta, 'src/');
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+  it('文の途中でも、空白の直後の / で候補を出し、その語だけを置き換える', async () => {
+    const onValue = vi.fn();
+    const { ta } = await mount({}, { onValue });
+    type(ta, 'これを見て /g');
+    expect(options()).toEqual(['goal', 'grill']);
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(onValue).toHaveBeenLastCalledWith('これを見て /goal ');
+  });
+  it('改行の直後の / でも候補を出す', async () => {
+    const { ta } = await mount();
+    type(ta, '一行目\n/');
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+  });
+  it('途中の語に / が入っていたら（貼ったパス）、候補を開かない', async () => {
+    const { ta } = await mount();
+    type(ta, '見て /Users/x');
     expect(screen.queryByRole('listbox')).toBeNull();
   });
   // 貼ったパス（/Users/x/y）の下に「一致なし」を出しても邪魔なだけ。スキルの名前に / は入らない。
@@ -121,13 +139,35 @@ describe('PromptComposer の / の候補', () => {
     type(ta, '/Users/x');
     expect(screen.queryByRole('listbox')).toBeNull();
   });
-  it('道具の段の「スキル」を押すと、先頭に / を入れて候補を開く', async () => {
+  it('道具の段の「スキル」を押すと、カーソルの位置に / を入れて候補を開く。前が空白でなければ空白を挟む', async () => {
     const onValue = vi.fn();
     const { ta } = await mount({}, { onValue });
     type(ta, '速くする');
     fireEvent.click(screen.getByRole('button', { name: 'スキル' }));
-    expect(onValue).toHaveBeenLastCalledWith('/速くする');
+    expect(onValue).toHaveBeenLastCalledWith('速くする /');
+    expect(ta.selectionStart).toBe(6);
     expect(screen.getByRole('listbox')).toBeInTheDocument();
+  });
+  it('「スキル」は、文の途中のカーソルでもその位置に入れ、選んだ名前はその位置に入る', async () => {
+    const onValue = vi.fn();
+    const { ta } = await mount({}, { onValue });
+    type(ta, '前の文後ろ');
+    ta.setSelectionRange(3, 3);
+    fireEvent.click(screen.getByRole('button', { name: 'スキル' }));
+    expect(onValue).toHaveBeenLastCalledWith('前の文 /後ろ');
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(onValue).toHaveBeenLastCalledWith('前の文 /find-session 後ろ');
+  });
+  it('「スキル」は、空白の直後や先頭のカーソルでは空白を足さない', async () => {
+    const onValue = vi.fn();
+    const { ta } = await mount({}, { onValue });
+    type(ta, '見て ');
+    fireEvent.click(screen.getByRole('button', { name: 'スキル' }));
+    expect(onValue).toHaveBeenLastCalledWith('見て /');
+    type(ta, 'fix');
+    ta.setSelectionRange(0, 0);
+    fireEvent.click(screen.getByRole('button', { name: 'スキル' }));
+    expect(onValue).toHaveBeenLastCalledWith('/fix');
   });
   it('候補が読めなければ、候補の中にその旨を出し、欄は打てる', async () => {
     const { ta } = await mount({ commands: () => Promise.reject(new Error('x')) });
@@ -167,11 +207,17 @@ describe('PromptComposer の / の候補', () => {
     const pop = screen.getByRole('listbox').parentElement!;
     expect(fireEvent.mouseDown(pop)).toBe(false);
   });
-  it('すでに / で始まる文で「スキル」を押しても、次の打鍵でカーソルが 1 へ跳ばない', async () => {
-    const { ta } = await mount();
+  it('カーソルがすでに / の語にあるとき「スキル」を押しても、文を変えずに候補を開き、次の打鍵でカーソルが跳ばない', async () => {
+    const onValue = vi.fn();
+    const { ta } = await mount({}, { onValue });
     type(ta, '/goal do');
+    ta.setSelectionRange(3, 3);
+    fireEvent.keyDown(ta, { key: 'Escape' });
+    onValue.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'スキル' }));
-    expect(ta.selectionStart).toBe(1);
+    expect(onValue).not.toHaveBeenCalled();
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(ta.selectionStart).toBe(3);
     fireEvent.change(ta, { target: { value: '/goal do!', selectionStart: 9, selectionEnd: 9 } });
     expect(ta.selectionStart).toBe(9);
   });
@@ -637,6 +683,7 @@ describe('PromptComposer の道具の段と、カーソルの後ろの文', () =
     const onValue = vi.fn();
     const { ta } = await mount({}, { onValue });
     type(ta, '速くする');
+    ta.setSelectionRange(0, 0);
     fireEvent.click(screen.getByRole('button', { name: 'スキル' }));
     fireEvent.keyDown(ta, { key: 'Enter' });
     // 先頭の候補は、よく使うの find-session。

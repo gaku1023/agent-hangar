@@ -46,7 +46,7 @@ function Marked(props: { text: string; query: string }) {
 }
 
 /**
- * 初期プロンプトの欄。先頭の / でスキルとコマンドの候補を、先頭か空白の直後の @ でプロジェクトのファイルの候補を出す。
+ * 初期プロンプトの欄。先頭か空白の直後の / でスキルとコマンドの候補を、同じく @ でプロジェクトのファイルの候補を出す。
  * 候補が開いている間だけ、↑↓・Enter・Tab・Esc をここで受けて外へ伝えない。
  * 閉じている間の打鍵は外（起動ダイアログ）へそのまま流す。Enter の改行と ⌘Enter の起動を変えないためである。
  * 貼り付け、ドロップ、添付ボタンで受けたファイルは置き場へ送り、欄の下に札で並べる（パスを文に足すのは起動のとき）。
@@ -346,28 +346,19 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
     e.stopPropagation();
   };
 
-  const startSlash = () => {
-    const el = ta.current;
-    if (!el) return;
-    const next = props.value.startsWith('/') ? props.value : `/${props.value}`;
-    placeCaret(1, next !== props.value);
-    setDismissed(null);
-    setFocused(true);
-    if (next !== props.value) props.onChange(next);
-    el.focus();
-  };
-
-  // カーソルの位置に @ を入れる。前が空白でなければ空白を挟む（語の途中の @ ではきっかけにならないため）。
-  const startAt = () => {
+  // カーソルの位置に記号（/ か @）を入れて候補を開く。前が空白でなければ空白を挟む（語の途中の記号ではきっかけにならないため）。
+  // カーソルがすでに同じ記号の語にあれば、文は変えずに開き直すだけにする（Esc で閉じた候補を、ボタンで開け直せる）。
+  const startTrigger = (kind: '/' | '@') => {
     const el = ta.current;
     if (!el) return;
     const at = el.selectionStart ?? props.value.length;
+    setDismissed(null);
+    setFocused(true);
+    if (triggerAt(props.value, at)?.kind === kind) { placeCaret(at, false); el.focus(); return; }
     const before = props.value.slice(0, at);
     const pad = before && !/\s$/.test(before) ? ' ' : '';
     placeCaret(at + pad.length + 1, true);
-    setDismissed(null);
-    setFocused(true);
-    props.onChange(`${before}${pad}@${props.value.slice(at)}`);
+    props.onChange(`${before}${pad}${kind}${props.value.slice(at)}`);
     el.focus();
   };
 
@@ -403,8 +394,8 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
           }}
         />
         <div className="pc-tools">
-          <button type="button" className="pc-tool" onMouseDown={(e) => e.preventDefault()} onClick={startSlash}><span className="pc-tool-key" aria-hidden="true">/</span>{t('composer.tool.skill')}</button>
-          <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? t('composer.tool.fileNeedsProject') : undefined} onMouseDown={(e) => e.preventDefault()} onClick={startAt}><span className="pc-tool-key" aria-hidden="true">@</span>{t('composer.tool.file')}</button>
+          <button type="button" className="pc-tool" onMouseDown={(e) => e.preventDefault()} onClick={() => startTrigger('/')}><span className="pc-tool-key" aria-hidden="true">/</span>{t('composer.tool.skill')}</button>
+          <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? t('composer.tool.fileNeedsProject') : undefined} onMouseDown={(e) => e.preventDefault()} onClick={() => startTrigger('@')}><span className="pc-tool-key" aria-hidden="true">@</span>{t('composer.tool.file')}</button>
           <button type="button" className="pc-tool" onClick={() => picker.current?.click()}><Icon name="attach" />{t('composer.tool.attach')}</button>
           <span className="pc-tools-hint">{t('composer.tool.pasteHint', { keys: keyLabel('⌘V') })}</span>
           <input ref={picker} type="file" multiple hidden data-testid="pc-picker" onChange={(e) => { send([...(e.target.files ?? [])]); e.target.value = ''; }} />
