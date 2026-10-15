@@ -15,14 +15,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # X3c：X2 の絞った project で、既定（3 本）・4・8 を 2 回ずつ。ランナーのぶれが大きいので繰り返す。
+        rep: [1, 2]
         variant:
+          - name: default
+            args: ''
           - name: workers-4
             args: --maxWorkers=4
-          - name: workers-6
-            args: --maxWorkers=6
           - name: workers-8
             args: --maxWorkers=8
-    name: win-${{ matrix.variant.name }}
+    name: win-${{ matrix.variant.name }}-${{ matrix.rep }}
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -47,4 +49,4 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
       - run: node -e "console.log(require('os').availableParallelism())"
-      - run: npm test -- ${{ matrix.variant.args }}
+      - run: npm test -- --project server --project desktop --project cli --project shared ${{ matrix.variant.args }}
