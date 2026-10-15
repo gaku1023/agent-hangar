@@ -420,17 +420,19 @@ describe('release.yml の配線', () => {
 
 // plan の関門は、タグのコミットへの main の push で走った ci の run が成功していることを見る。
 // GitHub の concurrency は、cancel-in-progress が false でも、同じ group で待っている run を新しい run が来たときに取り消す。
-// main の run を枝ごとの 1 つの group にすると、続けて入れたときに間のコミットの ci が cancelled になり、そのコミットにはタグを打てなくなる。
+// main も ref ごとの 1 つの group にするので、続けて入れたときに間のコミットの ci は cancelled になる（タグは ci が緑のコミットに打つ）。
+// 並列でマージすると main の run が重なり、PR とランナーを取り合うため、待ちは最新の 1 本だけにする（2026-10-15）。
 describe('ci.yml の concurrency', () => {
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
   const block = /^concurrency:\n {2}group: (.+)\n {2}cancel-in-progress: (.+)\n/m.exec(ci);
-  it('main への push はコミットごとの group にして、ほかの run に取り消されない', () => {
+  it('group は ref ごとにし、main への push は走っている run を取り消さない', () => {
     expect(block, 'top-level concurrency').not.toBeNull();
     const [, group, cancel] = block!;
-    expect(group).toBe("${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}");
-    // push の run は走っている途中でも取り消さない。PR は同じ枝に続けて押したとき、古い実行を畳む。
+    // ref ごとなので、別の PR 同士や PR と main は互いを止めない。
+    expect(group).toBe('ci-${{ github.ref }}');
+    // push の run は走っている途中でも取り消さない。PR は同じ枝に続けて押したとき、走っている古い実行も打ち切る。
     expect(cancel).toBe("${{ github.event_name != 'push' }}");
-    // push で走るのは main だけである（ほかの枝の push に広げると、group がコミットごとなので畳まれなくなる）。
+    // push で走るのは main だけである（ほかの枝の push に広げると、PR と同じ枝で 2 つの group が走る）。
     expect(ci).toMatch(/^on:\n {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n/m);
   });
 });

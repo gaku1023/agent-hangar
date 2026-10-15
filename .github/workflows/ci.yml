@@ -7,12 +7,14 @@ on:
 # public のリポジトリなので、ここを明記しないと設定次第で書き込みの持ち主が走る。
 permissions:
   contents: read
-# PR は、同じ枝に続けて押したとき、古い実行を畳む。
-# main への push は、コミットごとに別の group にして畳まない。
-# 畳むと、その手前のコミットが緑だったかどうかが記録に残らず、release の関門（release-plan.ts の checkCommitGate）がそのコミットで止まる。
-# cancel-in-progress を false にするだけでは足りない。GitHub は同じ group で待っている run を、新しい run が来たときに取り消す（cancelled）。
+# group は ref ごと（PR は refs/pull/N/merge、main は refs/heads/main）なので、別の PR 同士や PR と main は互いを止めない。
+# PR は、同じ枝に続けて押したとき、走っている古い実行も打ち切る。
+# main への push は、走っている 1 本は最後まで走らせ、待っている分は最新の 1 本だけを残す。
+# GitHub は cancel-in-progress が false でも、同じ group で待っている run を新しい run が来たときに取り消す（cancelled）。
+# 並列でマージすると main の run が重なり、macOS と Windows のランナーを PR と取り合うので、途中のコミットは見送る（2026-10-15）。
+# 見送ったコミットにタグを打つなら、release の関門（release-plan.ts の checkCommitGate）が止まるので、その ci を Re-run する（docs/release.md）。
 concurrency:
-  group: ${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 jobs:
   check:
