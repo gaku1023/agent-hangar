@@ -174,7 +174,7 @@ class Discarded extends Error {}
  * 外側のトランザクションの中では巻き戻しが外側の確定に呑まれるので、呼べない（投げる）。
  */
 export function tryWrites<T>(db: Db, fn: () => T): T {
-  if (db.inTransaction) throw new Error('tryWrites はトランザクションの外から呼んでください');
+  if (db.inTransaction) throw new Error('tryWrites must be called outside a transaction');
   const before = pending.get(db)?.length ?? 0;
   const stop = new Discarded();
   const out: { value: T }[] = [];

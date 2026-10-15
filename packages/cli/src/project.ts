@@ -312,9 +312,21 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean }, root: string): Prom
   });
 }
 
-/** hangar workspace set <dir>。 */
+/**
+ * hangar workspace set <dir>。
+ * ホームフォルダとその上、ファイルシステムの根は、サーバに送らずに断る。
+ * 保存のときに直下の会話のあるフォルダが全部登録され、ホームそのものも登録されうるからである。
+ * 設定の保存はこれを確かめないので、Claude が打つこの入口で止める。
+ */
 export function workspaceSetCommand(o: ApiCommandOptions & { dir: string; dryRun: boolean; cwd?: string; homeDir?: string }): Promise<number> {
-  return setRoot(o, absolutePath(o.dir, o));
+  const root = absolutePath(o.dir, o);
+  const home = path.resolve(o.homeDir ?? os.homedir());
+  const rel = path.relative(root, home);
+  const coversHome = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  if (coversHome || path.parse(root).root === root) {
+    return guarded(o, async () => { throw new CommandError('rejected', `${root} は作成場所にできません。ホームフォルダとその上、ファイルシステムの根を選ぶと、直下が全部プロジェクトとして登録されるためです`); });
+  }
+  return setRoot(o, root);
 }
 
 /**

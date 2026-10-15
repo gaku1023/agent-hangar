@@ -236,6 +236,15 @@ describe('hangar workspace set / unset', () => {
     expect(await workspaceSetCommand({ ...base(j, s.fetchFn, true), dir: '/x', dryRun: true, cwd: '/', homeDir: '/h' })).toBe(1);
     expect(JSON.parse(j.out[0]!)).toEqual({ error: 'rejected', message: '「新しいフォルダの作成場所」に /x が見つかりません' });
   });
+  it('ホームフォルダとその上、ファイルシステムの根は、サーバに送らずに断る', async () => {
+    for (const dir of ['~', '/home', '/']) {
+      const j = outs();
+      const s = fakeServer(() => ({ body: {} }));
+      expect(await workspaceSetCommand({ ...base(j, s.fetchFn, true), dir, dryRun: true, cwd: '/', homeDir: '/home/me' })).toBe(1);
+      expect(s.calls).toEqual([]);
+      expect(JSON.parse(j.out[0]!).error).toBe('rejected');
+    }
+  });
   it('本番は保存し、保存の前後のプロジェクトの違いから、登録したものを出す', async () => {
     let saved = false;
     const s = fakeServer((c) => {
