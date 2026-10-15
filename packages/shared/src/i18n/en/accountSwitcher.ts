@@ -10,5 +10,6 @@ export const accountSwitcherEn: AreaDictionary<typeof accountSwitcherKeys> = {
   'accountSwitcher.tag.current': 'Current account',
   'accountSwitcher.tag.session': 'Account for this session',
   'accountSwitcher.tag.switch': 'Switch',
+  'accountSwitcher.footer.add': 'Add account',
   'accountSwitcher.footer.settings': 'Account settings',
 };

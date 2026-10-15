@@ -1110,11 +1110,16 @@ describe('presentShell の使用量', () => {
 describe('presentShell のアカウント', () => {
   const two = (): Store => ({ ...storeWith(), accounts: accountsFixture });
   const at = (screen: State['screen']): State => ({ ...initialState(), screen });
-  it('アカウントが 1 件なら account は null で、計器はそのアカウントの値から作る。store.accounts が null なら計器も空', () => {
+  it('アカウントが 1 件でも account を渡し（2 件以上と同じ顔と面にする）、計器はそのアカウントの値から作る。一覧が空か store.accounts が null なら account は null で計器も空', () => {
     const u = { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 };
     const solo = presentShell(initialState(), { ...storeWith(), accounts: { ...accountsFixture, accounts: [{ ...accountsFixture.accounts[0]!, usage: u }] } }, NOW);
-    expect(solo.account).toBeNull();
+    expect(solo.account?.shown.id).toBe('primary');
+    expect(solo.account?.list.map((a) => a.id)).toEqual(['primary']);
+    expect(solo.account?.sessionId).toBeNull();
     expect(solo.usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+    const soloSession = presentShell(at({ name: 'session', id: 's1' }), { ...storeWith(), accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW);
+    expect(soloSession.account?.shown.id).toBe('primary');
+    expect(soloSession.account?.sessionId).toBe('s1');
     const none = presentShell(initialState(), storeWith(), NOW);
     expect(none.account).toBeNull();
     expect(none.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });

@@ -58,12 +58,13 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; ac
           {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
               最終更新を畳んでも読めるよう、各ゲージの title にも添える。 */}
           {props.account ? (
-            // アカウントが 2 件以上あるときは、計器の前に色の点と名前を置き、全体を 1 つのボタンにする（AccountSwitcher.tsx）。
-            // 値が無い間も、切り替えは押せる。リンクはボタンの中に入れられないので、設定への道は開いた先の「アカウントの設定」に任せる。
+            // アカウントが 1 件でもあれば、計器の前に色の点と名前を置き、全体を 1 つのボタンにする（AccountSwitcher.tsx）。1 件でも 2 件以上でも同じ顔と面である。
+            // 値が無い間も、押せる。リンクはボタンの中に入れられないので、設定への道は開いた先の「アカウントの設定」に任せる。
             <AccountSwitcher account={props.account}>
               {noUsage ? <span className="account-none" data-fold-at={foldAt('gauges')}>{t('header.gauge.none')}</span> : gauges}
             </AccountSwitcher>
           ) : noUsage ? (
+            // アカウントの一覧がまだ届いていない間だけ、ここへ来る。
             // 値が一度も届いていない間は、空の棒を 2 本並べない。1 語にまとめ、押すと設定へ行く。
             <a className="gauges gauges-none" data-fold-at={foldAt('gauges')} href={formatRoute(SETTINGS)} title={t('header.gauge.noneTitle')} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>{t('header.gauge.noneLink')}</a>
           ) : gauges}

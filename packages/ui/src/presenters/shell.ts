@@ -1,7 +1,7 @@
 import { asideOf } from '../lib/aside.ts';
 import { type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, shownReason, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, aliveRunOf, currentAccount, liveSessionIds, shownReason, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -229,12 +229,13 @@ const NO_USAGE: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
 
 /**
  * ヘッダの計器とアカウントの切り替え。
- * アカウントが 2 件以上あるときだけ切り替えを出し、計器は shown の値から作る。
- * 1 件以下のときは、いまのアカウント（最初のアカウント）の値から作る。使用率は accounts.update だけで届く。
+ * アカウントが 1 件でもあれば切り替えを出し、計器は shown の値から作る。1 件のときも 2 件以上と同じ顔と面にする（面でリセットの時刻と「アカウントを追加」が見えるため）。
+ * サーバは常にメインのアカウントを返すので、一覧が空なのは、まだ一覧が届いていない間だけである。その間は切り替えを出さず、計器は空にする。
+ * 使用率は accounts.update だけで届く。
  */
 function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps } {
   const t = translatorOf(store);
-  if (!hasMultipleAccounts(store)) {
+  if (accountList(store).length === 0) {
     const u = usageAt(currentAccount(store)?.usage ?? NO_USAGE, now);
     const limited = limitedSessions(store, null);
     return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), ...limitTimes(t, limited, now) } };
