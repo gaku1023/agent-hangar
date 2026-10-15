@@ -474,6 +474,28 @@ alter table session_states add column trashed_at integer;
 `;
 
 /**
+ * 版 26。セッションの削除（sessions/trash.ts）のための端末ローカルの表を 2 つ足す（2026-10-16）。
+ * どちらも同期に載らない。共有の列（updated_at など）を持たない。
+ * - trashed_transcripts は、この PC がゴミ箱へ移した本文（主線の jsonl とサブエージェントのフォルダ）の元のパスの控えである。
+ *   同じパスに主線のファイルが戻ってきたら、削除の印を外して索引し直す（ゴミ箱から戻す復元）。
+ * - trash_applied は、この PC が削除の印を処理し終えたセッションと、そのときの印の時刻である。
+ *   印を受け取るたびに同じ処理をくり返さないためで、印が付け直されたら時刻が変わるので処理し直す。
+ */
+const V26_SESSION_TRASH_SQL = `
+create table trashed_transcripts (
+  path text primary key,
+  session_id text not null,
+  kind text not null check (kind in ('file','dir')),
+  trashed_at integer not null
+);
+create index trashed_transcripts_session on trashed_transcripts(session_id);
+create table trash_applied (
+  session_id text primary key,
+  trashed_at integer not null
+);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -489,4 +511,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 23, sql: V23_SESSION_LIMITS_SQL },
   { version: 24, sql: V24_PROJECT_REMOTE_SQL },
   { version: 25, sql: V25_SESSION_PLACEMENT_SQL },
+  { version: 26, sql: V26_SESSION_TRASH_SQL },
 ];

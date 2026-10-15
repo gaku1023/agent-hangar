@@ -458,3 +458,28 @@ describe('RemotePuller の止め方', () => {
     p.stop();
   });
 });
+
+describe('削除したセッションの写し', () => {
+  const rel = `projects/-w-alpha/${UUID}.jsonl`;
+  const trash = (at: number | null) => {
+    db.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', ?, '/w/alpha', 'dev-b', 1, 'dev-b') on conflict(id) do nothing").run(UUID);
+    db.prepare("insert into session_states (session_id, trashed_at, updated_at, origin_device) values ('s1', ?, 1, 'dev-b') on conflict(session_id) do update set trashed_at = excluded.trashed_at").run(at);
+  };
+  it('削除の印のあるセッションの写しは降ろさない（区切りは先へ進める）', async () => {
+    trash(1);
+    await putRemote('dev-b', rel, '{"a":1}\n');
+    expect(await make().pullNow()).toEqual({ downloaded: 0 });
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', rel))).toBe(false);
+    expect(state.getNumber('filesSeq', 0)).toBe(1);
+  });
+  it('ほかの PC で戻されたら、台帳に残る写しを降ろし直す', async () => {
+    await putRemote('dev-b', rel, '{"a":1}\n');
+    const p = make();
+    await p.pullNow();
+    const target = remoteTranscriptPath(home, 'dev-b', rel);
+    // 消したときに写しを消した形にする。台帳（file_sync）の行は残っている。
+    fs.rmSync(target);
+    expect(await p.refetchSession(UUID)).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(target, 'utf8')).toBe('{"a":1}\n');
+  });
+});

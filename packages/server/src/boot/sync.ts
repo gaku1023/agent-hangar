@@ -69,6 +69,10 @@ export type SyncParts = {
    * sessions の行を当てたときと、本文の写しを置いたときに呼ぶ。索引が全件走査を 1 回予約する（boot/indexing.ts）。
    */
   onRemoteChange(cb: () => void): () => void;
+  /** 他の PC から session_states の行（削除の印を含む）が届いたときの受け手を足す。削除の受け持ちが次の回を回す（boot/trash.ts）。 */
+  onStatesApplied(cb: () => void): () => void;
+  /** 削除したセッションがほかの PC で戻されたとき、消した写しを降ろし直す（sync/puller.ts の refetchSession）。同期していなければ何もしない。 */
+  refetchSession(providerSessionId: string): void;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -120,6 +124,8 @@ export function bootSync(
   const syncState = new SyncStateStore(db);
   const remoteChangeListeners = new Set<() => void>();
   const remoteChanged = (): void => { for (const cb of remoteChangeListeners) cb(); };
+  const statesListeners = new Set<() => void>();
+  const statesApplied = (): void => { for (const cb of statesListeners) cb(); };
   const pruneBackups = backupPruner(home.home);
   const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
 
@@ -180,6 +186,8 @@ export function bootSync(
     engine.on(feed.listener());
     // 他の PC の sessions の行は、索引がどの本文を採るか（写しの行が届いたか、消されたか）に関わる。
     engine.on({ applied: (c) => { if (c.tableName === 'sessions') remoteChanged(); } });
+    // 削除の印（session_states.trashed_at）は、受け取った PC が本文をゴミ箱へ移す合図である（sessions/trash.ts）。
+    engine.on({ applied: (c) => { if (c.tableName === 'session_states') statesApplied(); } });
     return { cloud, client, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
   };
 
@@ -296,6 +304,10 @@ export function bootSync(
     syncNow: () => core.once.syncNow(),
     publishConfigSync,
     onRemoteChange: (cb) => { remoteChangeListeners.add(cb); return () => { remoteChangeListeners.delete(cb); }; },
+    onStatesApplied: (cb) => { statesListeners.add(cb); return () => { statesListeners.delete(cb); }; },
+    refetchSession: (uuid) => {
+      void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
+    },
     joinToken: () => (core.cloud ? encodeJoinToken({ url: core.cloud.url, secret: core.cloud.joinSecret }) : null),
     cloudDevices: () => loadCloudDevices({ client: core.client, deviceId, creator: core.cloud?.workerName != null, language: home.language }),
     start() {

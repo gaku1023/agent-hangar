@@ -269,6 +269,8 @@ export class RemotePuller {
         if (e.deviceId === this.deps.deviceId) continue;
         // 設定（kind が config）は降ろさない。束の本体は設定の同期が、束の行を見て自分で取りに行く。
         if (e.kind === 'config') continue;
+        // 削除したセッション（sessions/trash.ts）の写しは降ろさない。印を受け取る前の持ち主が上げた分でも、置けば消し直すだけになる。
+        if (this.isTrashed(e.path)) continue;
         try {
           if (await this.download(e)) { downloaded++; this.clearSkip(e.key); }
         } catch (err) {
@@ -289,6 +291,44 @@ export class RemotePuller {
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
     if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
     return { downloaded };
+  }
+
+  /**
+   * 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）のセッションに、削除の印があるか。
+   * 印は session_states.trashed_at にある（版 25）。
+   */
+  private isTrashed(rel: string): boolean {
+    const parts = path.posix.normalize(rel).split('/');
+    const uuid = (parts[2] ?? '').replace(/\.jsonl$/, '');
+    if (uuid === '') return false;
+    return this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
+      where s.provider_session_id = ? and st.trashed_at is not null`).get(uuid) !== undefined;
+  }
+
+  /**
+   * そのセッション（Claude Code のセッション ID）の写しを、台帳（file_sync）に残る項目から降ろし直す。
+   * 削除したセッションがほかの PC で戻されたときに呼ぶ（sessions/trash.ts）。削除のときに写しは消したが、台帳の行は残してある。
+   * 一覧の区切り（filesSeq）はもう先へ進んでいるので、控えた項目そのものから降ろす。失敗は onError に流し、次の項目へ進む。
+   */
+  refetchSession(uuid: string): Promise<{ downloaded: number }> {
+    return this.enqueue(async () => {
+      if (this.stopped) return { downloaded: 0 };
+      const rows = this.deps.db.prepare(`select key, path, device_id, sha256, size, mtime, remote_seq from file_sync
+        where kind = 'transcript' and device_id <> ? and (path like ? or path like ?)`)
+        .all(this.deps.deviceId, `%/${uuid}.jsonl`, `%/${uuid}/%`) as { key: string; path: string; device_id: string; sha256: string; size: number; mtime: number; remote_seq: number | null }[];
+      let downloaded = 0;
+      for (const r of rows) {
+        const e: FileEntry = { key: r.key, path: r.path, kind: 'transcript', sha256: r.sha256, size: r.size, mtime: r.mtime, encrypted: true, seq: r.remote_seq ?? 0, deviceId: r.device_id, uploadedAt: 0, storedSize: 0 };
+        try {
+          if (await this.download(e)) downloaded++;
+        } catch (err) {
+          if (err instanceof CompatError || err instanceof LimitError) throw err;
+          this.deps.onError?.(e.key, this.errorText(err));
+        }
+      }
+      if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
+      return { downloaded };
+    });
   }
 
   /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */

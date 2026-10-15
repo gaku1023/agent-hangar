@@ -13,6 +13,7 @@ import { dismissOverlap } from '../../sessions/overlap.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
+import { DeleteError } from '../../sessions/trash.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
@@ -20,7 +21,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -38,6 +39,8 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
   const digester = deps.digester ?? new LiveDigester(db);
   const external = externalOf(deps);
+  const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
+  const deletedSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is not null').get(id) !== undefined;
 
   api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));
   api.get('/sessions/:id', (c) => {
@@ -47,6 +50,8 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.get('/sessions/:id/events', (c) => {
     const q = c.req.query();
     const id = c.req.param('id');
+    // 削除したセッションの本文は読ませない（本文はゴミ箱にあり、索引も片付けてある）。
+    if (deletedSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     // 画面を開くと最新の側を求めてくる。そこが「セッションを開いたとき（主線）」なので、事後要約の契機はここに付ける。
     // 遡るとき（before）と追記を取り込むとき（fromSeq）は契機にしない。受け付けの可否は応答に影響しない。
     if (q.latest === '1' && !q.agentId) {
@@ -130,7 +135,6 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // run に配る MCP の秘密は /api を開けない（authMiddleware は本体のトークンしか見ない）。
   // 成功したら、書いた行（session_states）から配る層が session.upsert を配る。画面の正はその配信である。
   const noStateCandidate = () => tr('session.status.noSuggestion');
-  const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
   const stateResult = (c: Context, fn: () => { state: SessionStateDto; result?: string }) => {
     try {
       const r = fn();
@@ -185,6 +189,18 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       throw e;
     }
     return c.json(session(id));
+  });
+  // セッションを消す（sessions/trash.ts）。本文を OS のゴミ箱へ移し、削除の印を書いて行を論理削除する。同期でほかの PC からも消える。
+  // 実行中は 409、ゴミ箱へ移せなければ 500 で断り、何も変えない。利用者の操作なので、MCP の秘密では開けない（状態と同じ）。
+  // 画面の正は、配る層の session.removed である。
+  api.delete('/sessions/:id', async (c) => {
+    try {
+      await deps.trash.deleteSession(c.req.param('id'));
+    } catch (e) {
+      if (e instanceof DeleteError) return c.json({ error: errorText(language(), e) }, e.status);
+      throw e;
+    }
+    return c.json({ ok: true });
   });
   // 同じファイルの編集の警告の「このファイルでは表示しない」。相手（with）とパスの組で覚え、向きによらず効く。
   api.post('/sessions/:id/overlap/dismiss', async (c) => {

@@ -9,6 +9,8 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.file.notChanged': 'このセッションが変更したファイルではありません',
   'session.file.badOptions': 'エディタで開く指定の形が違います',
   'session.move.projectNotFound': '移動先のプロジェクトが見つかりません',
+  'session.delete.running': '実行中のセッションは削除できません。先に停止してください',
+  'session.delete.trashFailed': 'トランスクリプトをゴミ箱へ移動できませんでした（{reason}）。何も変更していません',
   'session.status.noSuggestion': 'このセッションには確認する提案がありません',
   'session.status.invalid': 'ステータスは paused、done、archived か、Active に戻す null です',
   'session.status.reasonMustBeString': '理由は文字列です',

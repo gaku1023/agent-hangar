@@ -211,6 +211,11 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'ready': return { ...store, version: ev.version };
     case 'project.upsert': return sameValue(store.projects[ev.project.id], ev.project) ? store : { ...store, projects: { ...store.projects, [ev.project.id]: ev.project } };
     case 'session.upsert': return sameValue(store.sessions[ev.session.id], ev.session) ? store : { ...store, sessions: { ...store.sessions, [ev.session.id]: ev.session } };
+    case 'session.removed': {
+      if (!(ev.id in store.sessions)) return store;
+      const { [ev.id]: _gone, ...sessions } = store.sessions;
+      return { ...store, sessions };
+    }
     case 'live.update': return sameValue(store.live, ev.live) ? store : { ...store, live: ev.live, sessions: relive(store.sessions, ev.live) };
     case 'index.progress': return sameValue(store.index, ev.progress) ? store : { ...store, index: ev.progress };
     case 'run.started': return applyLaunch(store, { run: ev.run, sessionId: ev.run.sessionId, tabs: ev.tabs });

@@ -1,0 +1,383 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { touchRow } from '../db/notify.ts';
+import type { Db } from '../db/open.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { MessageError, msg, type Message } from '../i18n/message.ts';
+import { forgetTranscriptFile } from '../indexer/indexFile.ts';
+import { stmt } from '../indexer/statements.ts';
+import { isStrictlyUnder } from '../platform/paths.ts';
+import type { TrashFn } from '../platform/trash.ts';
+import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
+import { setSessionTrashed } from './states.ts';
+
+/**
+ * セッションの削除（docs/design.md の「セッションの削除」）。
+ *
+ * 削除は利用者が決めることなので、印は session_states.trashed_at に置く（版 25）。
+ * 本文（主線の jsonl と、隣の `<uuid>/` のサブエージェントの本文）は OS のゴミ箱へ移し、rm はしない（platform/trash.ts）。
+ * 移せなかったら何も変えない。移せたら印を書き、sessions の行を論理削除する。
+ *
+ * 印を受け取った PC は、次の回（applyMarks）で同じことをする。
+ * - その PC が本文の持ち主（手元に本文がある）なら、ゴミ箱へ移す。その PC で実行中なら、止まるまで待つ。
+ * - hangar が降ろした写し（~/.agent-hangar/remote の下）は hangar の持ち物なので、ゴミ箱を通さずに消す。
+ * 起きていなかった PC は、起きて印を受け取った後の回で同じことをする。
+ *
+ * 生き返らないように、同期の取り込み（sync/apply.ts）は、印のあるセッションの sessions の行を論理削除のまま保つ（alignSessionTrash）。
+ * 索引（indexer/indexFile.ts）は、論理削除したセッションの本文を掘り起こさない。
+ *
+ * ゴミ箱へ移した本文の元のパスは、端末ローカルの trashed_transcripts に控える（版 26）。
+ * 同じパスに主線の本文が戻ってきたら、印と論理削除を外して索引し直す（checkRestores）。復元は同期でほかの PC にも届く。
+ */
+
+/** 削除の誤り。status は HTTP の応答の番号で、message はトーストにそのまま出せる一文である。 */
+export class DeleteError extends MessageError {
+  constructor(readonly status: 404 | 409 | 500, text: Message) {
+    super(text);
+    this.name = 'DeleteError';
+  }
+}
+
+export type SessionTrashDeps = {
+  db: Db;
+  deviceId: string;
+  /** Claude Code の置き場。索引に本文の行が無いときに、cwd から本文の場所を引くのに使う。 */
+  claudeDir: string;
+  /** hangar が他の PC から降ろした本文の置き場（~/.agent-hangar/remote）。この下は hangar の持ち物なので、ゴミ箱を通さずに消す。 */
+  remoteRoot: string;
+  /** ゴミ箱へ移す口（platform/trash.ts の moveToTrash）。試験が差し替える。 */
+  trash: TrashFn;
+  /** そのセッションがどこかの PC で動いているか（runs/announce.ts の sessionRunsAnywhere）。消すときに断る。 */
+  runsAnywhere: (sessionId: string) => boolean;
+  /** そのセッションがこの PC で動いているか。印を受け取ったとき、動いていれば止まるまで待つ。 */
+  runsHere: (sessionId: string) => boolean;
+  /** この PC で復元した。索引に全件走査を頼む（本文の索引は削除のときに片付けてある）。 */
+  onRestored?: (sessionId: string) => void;
+  /** ほかの PC で復元された。消した写しを降ろし直してもらう（sync/puller.ts）。引数は Claude Code のセッション ID。 */
+  onRestoredElsewhere?: (providerSessionId: string) => void;
+  /** 記録に残す口。省けば console.error。 */
+  log?: (message: string) => void;
+  now?: () => number;
+};
+
+type SessionFacts = { id: string; provider_session_id: string; cwd: string; project_id: string | null; deleted_at: number | null };
+type Target = { path: string; kind: 'file' | 'dir' };
+
+/** そのパスに何かあるか。壊れたリンクも「ある」と見る。 */
+function exists(p: string): boolean {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isDir(p: string): boolean {
+  try {
+    return fs.lstatSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** 印のある（削除した）セッションなら、その時刻。印が無ければ null。 */
+export function trashedAtOf(db: Db, sessionId: string): number | null {
+  const r = stmt(db, 'select trashed_at from session_states where session_id = ? and deleted_at is null').get(sessionId) as { trashed_at: number | null } | undefined;
+  return r?.trashed_at ?? null;
+}
+
+/**
+ * 同期で sessions か session_states の行が届いた後に、sessions の行の論理削除を印に合わせる（sync/apply.ts）。
+ * - 印があれば、sessions の行を論理削除のまま保つ。古い upsert（deleted_at が null）が後から届いても生き返らない。
+ * - 印が外れた（prevTrashedAt があって、いまは無い）なら、論理削除を外す。ほかの PC での復元である。
+ * どちらも手元の表だけを直し、押し返さない。印はどの PC にも届くので、それぞれが自分で合わせる。
+ */
+export function alignSessionTrash(db: Db, sessionId: string, prevTrashedAt: number | null = null): void {
+  const t = trashedAtOf(db, sessionId);
+  let changed = false;
+  if (t !== null) changed = db.prepare('update sessions set deleted_at = ? where id = ? and deleted_at is null').run(t, sessionId).changes > 0;
+  else if (prevTrashedAt !== null) changed = db.prepare('update sessions set deleted_at = null where id = ? and deleted_at is not null').run(sessionId).changes > 0;
+  if (!changed) return;
+  touchRow(db, 'sessions', sessionId);
+  const p = db.prepare('select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null } | undefined;
+  if (p?.project_id) touchRow(db, 'projects', p.project_id);
+}
+
+/** 1 回の処理の結果。trashed はこの回に処理し終えたセッション、waiting はこの PC で動いているので待ったセッション。 */
+export type MarksResult = { trashed: string[]; waiting: string[] };
+
+/** 周期の処理の間隔。この PC で動いていて待ったセッションと、移せなかった本文を、この間隔でやり直す。 */
+const PASS_MS = 60_000;
+/** 同期で印が届いたときなどに、まとめて 1 回にするための間。 */
+const SCHEDULE_DELAY_MS = 500;
+
+/**
+ * セッションの削除と、届いた印の処理と、ゴミ箱からの復元を受け持つ。
+ * 消すのも印を処理するのも本文のファイルを動かすので、1 本の鎖に並べて重ならないようにする。
+ */
+export class SessionTrash {
+  private chain: Promise<unknown> = Promise.resolve();
+  private timer: NodeJS.Timeout | null = null;
+  private soon: NodeJS.Timeout | null = null;
+  private stopped = false;
+
+  constructor(private readonly deps: SessionTrashDeps) {}
+
+  private get db(): Db { return this.deps.db; }
+  private now(): number { return (this.deps.now ?? Date.now)(); }
+  private log(m: string): void { (this.deps.log ?? ((s: string) => console.error('[trash]', s)))(m); }
+
+  /** 仕事を鎖の末尾につなぐ。前の仕事が転んでも次は走る。 */
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(work, work);
+    this.chain = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  private facts(sessionId: string): SessionFacts | undefined {
+    return this.db.prepare('select id, provider_session_id, cwd, project_id, deleted_at from sessions where id = ?').get(sessionId) as SessionFacts | undefined;
+  }
+
+  private underRemote(p: string): boolean { return isStrictlyUnder(p, this.deps.remoteRoot); }
+
+  /**
+   * この PC の手元にある本文（ゴミ箱へ移すもの）。主線の jsonl と、隣の `<uuid>/` のフォルダ。
+   * 索引の行（transcript_files）から引き、行が無ければ cwd の置き場（~/.claude/projects/<cwd を畳んだ名前>/）を見る。
+   * hangar が降ろした写し（remoteRoot の下）は含めない。いまあるものだけを返す。
+   */
+  private localTargets(s: SessionFacts): Target[] {
+    const rows = this.db.prepare('select path from transcript_files where session_id = ? and agent_id is null').all(s.id) as { path: string }[];
+    const mains = new Set(rows.map((r) => r.path).filter((p) => !this.underRemote(p)));
+    mains.add(path.join(this.deps.claudeDir, 'projects', mangleCwd(s.cwd), `${s.provider_session_id}.jsonl`));
+    const out: Target[] = [];
+    for (const m of mains) {
+      if (exists(m)) out.push({ path: m, kind: 'file' });
+      const dir = path.join(path.dirname(m), s.provider_session_id);
+      if (isDir(dir)) out.push({ path: dir, kind: 'dir' });
+    }
+    return out;
+  }
+
+  /**
+   * hangar が降ろした写し。索引の行と、降ろした台帳（file_sync）から引く。
+   * 主線の写しと、その隣の `<uuid>/` のフォルダを返す。remoteRoot の下にあるものだけで、いまあるものに限る。
+   */
+  private remoteTargets(s: SessionFacts): string[] {
+    const uuid = s.provider_session_id;
+    const fromIndex = (this.db.prepare('select path from transcript_files where session_id = ?').all(s.id) as { path: string }[]).map((r) => r.path).filter((p) => this.underRemote(p));
+    const fromLedger = (this.db.prepare("select path, device_id from file_sync where kind = 'transcript' and device_id <> ? and path like ?").all(this.deps.deviceId, `%/${uuid}.jsonl`) as { path: string; device_id: string }[])
+      .map((r) => path.join(this.deps.remoteRoot, r.device_id, ...r.path.split('/')))
+      .filter((p) => this.underRemote(p));
+    const out = new Set<string>();
+    for (const p of [...fromIndex, ...fromLedger]) {
+      // サブエージェントの写しは、主線の隣のフォルダごと消す。
+      const parts = p.split(path.sep);
+      const i = parts.lastIndexOf(uuid);
+      const main = i >= 0 ? path.join(parts.slice(0, i).join(path.sep) || path.sep, `${uuid}.jsonl`) : p;
+      const dir = path.join(path.dirname(main), uuid);
+      if (exists(main) && this.underRemote(main)) out.add(main);
+      if (isDir(dir) && this.underRemote(dir)) out.add(dir);
+    }
+    return [...out];
+  }
+
+  /** 写しを消す。消せなかったものの数を返す。 */
+  private removeRemote(targets: string[]): number {
+    let failed = 0;
+    for (const p of targets) {
+      try {
+        fs.rmSync(p, { recursive: true, force: true });
+      } catch (e) {
+        failed++;
+        this.log(`写しを消せませんでした: ${p}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return failed;
+  }
+
+  /** そのセッションの本文の索引を片付ける。索引は手元だけの表なので、同期には載らない。 */
+  private forgetIndex(sessionId: string): void {
+    for (const r of this.db.prepare('select path from transcript_files where session_id = ?').all(sessionId) as { path: string }[]) forgetTranscriptFile(this.db, r.path);
+  }
+
+  private record(sessionId: string, moved: Target[], at: number): void {
+    const ins = this.db.prepare('insert into trashed_transcripts (path, session_id, kind, trashed_at) values (?,?,?,?) on conflict(path) do update set session_id = excluded.session_id, kind = excluded.kind, trashed_at = excluded.trashed_at');
+    for (const t of moved) ins.run(t.path, sessionId, t.kind, at);
+  }
+
+  private markApplied(sessionId: string, trashedAt: number): void {
+    this.db.prepare('insert into trash_applied (session_id, trashed_at) values (?, ?) on conflict(session_id) do update set trashed_at = excluded.trashed_at').run(sessionId, trashedAt);
+  }
+
+  /**
+   * セッションを消す。実行中なら 409、無ければ 404、本文をゴミ箱へ移せなければ 500 の DeleteError を投げ、何も変えない。
+   * 主線の本文を先に移す。主線を移せた後にサブエージェントのフォルダや写しを片付けられなかったときは、印は書き、残りは次の回（applyMarks）でやり直す。
+   */
+  deleteSession(sessionId: string): Promise<void> {
+    return this.enqueue(() => this.deleteInner(sessionId));
+  }
+
+  private async deleteInner(sessionId: string): Promise<void> {
+    const s = this.facts(sessionId);
+    if (!s || s.deleted_at !== null) throw new DeleteError(404, msg('session.error.notFound'));
+    if (this.deps.runsAnywhere(sessionId)) throw new DeleteError(409, msg('session.delete.running'));
+    const targets = this.localTargets(s);
+    // 主線を先に移す。主線を移せなければ、何も変えずに断る。
+    targets.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'file' ? -1 : 1));
+    const moved: Target[] = [];
+    let incomplete = false;
+    for (const t of targets) {
+      try {
+        await this.deps.trash(t.path);
+        moved.push(t);
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        if (moved.length === 0) throw new DeleteError(500, msg('session.delete.trashFailed', { reason }));
+        incomplete = true;
+        this.log(`ゴミ箱へ移せませんでした（次の回でやり直します）: ${t.path}: ${reason}`);
+      }
+    }
+    if (this.removeRemote(this.remoteTargets(s)) > 0) incomplete = true;
+    const at = this.now();
+    this.db.transaction(() => {
+      this.record(sessionId, moved, at);
+      setSessionTrashed(this.db, this.deps.deviceId, sessionId, at);
+      softDeleteShared(this.db, 'sessions', sessionId, this.deps.deviceId);
+      this.forgetIndex(sessionId);
+      const t = trashedAtOf(this.db, sessionId);
+      if (!incomplete && t !== null) this.markApplied(sessionId, t);
+      if (s.project_id) touchRow(this.db, 'projects', s.project_id);
+    })();
+  }
+
+  /**
+   * 届いた印を処理する（この PC がまだ処理していない印だけ）。あわせて、ほかの PC での復元と、この PC での復元を見る。
+   * この PC で動いているセッションは待つ（次の回にやり直す）。移せなかった本文と消せなかった写しも、次の回にやり直す。
+   */
+  applyMarks(): Promise<MarksResult> {
+    return this.enqueue(() => this.marksInner());
+  }
+
+  private async marksInner(): Promise<MarksResult> {
+    const result: MarksResult = { trashed: [], waiting: [] };
+    this.restoresInner();
+    this.noteRestoredElsewhere();
+    const rows = this.db.prepare(`select st.session_id id, st.trashed_at t from session_states st
+      left join trash_applied ta on ta.session_id = st.session_id
+      where st.deleted_at is null and st.trashed_at is not null and (ta.trashed_at is null or ta.trashed_at <> st.trashed_at)`).all() as { id: string; t: number }[];
+    for (const r of rows) {
+      if (this.stopped) break;
+      const s = this.facts(r.id);
+      if (!s) continue;
+      if (this.deps.runsHere(r.id)) {
+        result.waiting.push(r.id);
+        continue;
+      }
+      const moved: Target[] = [];
+      let incomplete = false;
+      for (const t of this.localTargets(s)) {
+        try {
+          await this.deps.trash(t.path);
+          moved.push(t);
+        } catch (e) {
+          incomplete = true;
+          this.log(`ゴミ箱へ移せませんでした（次の回でやり直します）: ${t.path}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      if (this.removeRemote(this.remoteTargets(s)) > 0) incomplete = true;
+      // 待っている間に印が外れていたら（ほかの PC で復元された）、移したものだけを控えて、次の回の復元の確かめに任せる。
+      const t = trashedAtOf(this.db, r.id);
+      this.db.transaction(() => {
+        this.record(r.id, moved, r.t);
+        this.forgetIndex(r.id);
+        if (t === null) return;
+        // 本文の持ち主（移したものがある）か、行がまだ生きているなら、論理削除を自分でも書く。
+        // 持ち主が印を受け取る前に上げた upsert がクラウドで勝っていても、ここで書く削除がそれより新しい。
+        const cur = this.facts(r.id);
+        if (cur && (moved.length > 0 || cur.deleted_at === null)) softDeleteShared(this.db, 'sessions', r.id, this.deps.deviceId);
+        if (!incomplete) this.markApplied(r.id, t);
+      })();
+      if (!incomplete) result.trashed.push(r.id);
+    }
+    return result;
+  }
+
+  /** 処理し終えた印が、ほかの PC での復元で外れていたら、処理済みの印を外し、消した写しを降ろし直してもらう。 */
+  private noteRestoredElsewhere(): void {
+    const rows = this.db.prepare(`select ta.session_id id, s.provider_session_id uuid from trash_applied ta
+      left join session_states st on st.session_id = ta.session_id and st.deleted_at is null
+      left join sessions s on s.id = ta.session_id
+      where st.trashed_at is null`).all() as { id: string; uuid: string | null }[];
+    for (const r of rows) {
+      this.db.transaction(() => {
+        this.db.prepare('delete from trash_applied where session_id = ?').run(r.id);
+        this.db.prepare('delete from trashed_transcripts where session_id = ?').run(r.id);
+      })();
+      if (r.uuid) this.deps.onRestoredElsewhere?.(r.uuid);
+    }
+  }
+
+  /**
+   * ゴミ箱へ移した主線の本文が、元のパスに戻ってきたセッションを復元する。復元したセッションの ID を返す。
+   * 印と論理削除を外し、どちらも同期に載せる。本文の索引は削除のときに片付けてあるので、索引し直してもらう。
+   */
+  checkRestores(): string[] {
+    return this.restoresInner();
+  }
+
+  private restoresInner(): string[] {
+    const rows = this.db.prepare("select path, session_id from trashed_transcripts where kind = 'file'").all() as { path: string; session_id: string }[];
+    const back = new Set(rows.filter((r) => exists(r.path)).map((r) => r.session_id));
+    for (const id of back) this.restore(id);
+    return [...back];
+  }
+
+  private restore(sessionId: string): void {
+    this.db.transaction(() => {
+      this.db.prepare('delete from trashed_transcripts where session_id = ?').run(sessionId);
+      this.db.prepare('delete from trash_applied where session_id = ?').run(sessionId);
+      if (trashedAtOf(this.db, sessionId) !== null) setSessionTrashed(this.db, this.deps.deviceId, sessionId, null);
+      const s = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown> | undefined;
+      if (s && s.deleted_at !== null) upsertShared(this.db, 'sessions', { ...s, deleted_at: null }, this.deps.deviceId);
+      if (typeof s?.project_id === 'string') touchRow(this.db, 'projects', s.project_id);
+    })();
+    this.deps.onRestored?.(sessionId);
+  }
+
+  /** 次の回を少し後に回す。同期で印が届いたとき、索引が消したセッションの本文を見たときに呼ぶ。続けて呼ばれても 1 回にまとめる。 */
+  schedule(): void {
+    if (this.stopped || this.soon) return;
+    this.soon = setTimeout(() => {
+      this.soon = null;
+      void this.applyMarks().catch((e: unknown) => this.log(e instanceof Error ? e.message : String(e)));
+    }, SCHEDULE_DELAY_MS);
+    this.soon.unref?.();
+  }
+
+  /** 周期の処理を始め、すぐに 1 回回す。起きていなかった間に届いた印もここで処理する。 */
+  start(intervalMs = PASS_MS): void {
+    this.stopped = false;
+    this.schedule();
+    this.timer = setInterval(() => this.schedule(), intervalMs);
+    this.timer.unref?.();
+  }
+
+  /** 周期の処理を止める。走っている回は最後まで走るので、呼び手は idle() で待ち合わせる。 */
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+    if (this.soon) clearTimeout(this.soon);
+    this.timer = null;
+    this.soon = null;
+  }
+
+  /** いま鎖に並んでいる仕事が終わるまで待つ。 */
+  async idle(): Promise<void> {
+    for (;;) {
+      const c = this.chain;
+      await c.then(() => undefined, () => undefined);
+      if (this.chain === c) return;
+    }
+  }
+}

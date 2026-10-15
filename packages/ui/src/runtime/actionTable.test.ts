@@ -47,7 +47,7 @@ describe('表の鍵', () => {
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'editor.test', 'editors.load', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'memo.save',
       'overlap.dismiss', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
-      'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'setupGuide.openEditor', 'summarizer.test', 'summary.regenerate',
+      'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'setupGuide.openEditor', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
     ]);
   });
@@ -138,6 +138,13 @@ describe('セッション', () => {
     const r = await runRow({ type: 'session.move', id: 's1', projectId: 'p2' }, api);
     expect(vi.mocked(api.moveSession).mock.calls).toEqual([['s1', 'p2']]);
     // 画面の正は後から届く session.upsert である。
+    expect(r.store).toBe(r.during);
+  });
+  it('セッションの削除は deleteSession を呼び、応答は Store に入れない', async () => {
+    const api = fakeApi();
+    const r = await runRow({ type: 'session.delete', id: 's1' }, api);
+    expect(vi.mocked(api.deleteSession).mock.calls).toEqual([['s1']]);
+    // 画面の正は後から届く session.removed である。
     expect(r.store).toBe(r.during);
   });
   it('要約の作り直しは regenerateSummary を呼ぶだけで、結果は待たない', async () => {

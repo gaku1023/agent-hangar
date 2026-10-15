@@ -8,6 +8,8 @@ export const sessionKeys = {
   'session.file.notChanged': [],
   'session.file.badOptions': [],
   'session.move.projectNotFound': [],
+  'session.delete.running': [],
+  'session.delete.trashFailed': ['reason'],
   'session.status.noSuggestion': [],
   'session.status.invalid': [],
   'session.status.reasonMustBeString': [],

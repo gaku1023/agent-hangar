@@ -8,6 +8,7 @@ import { MIGRATED_NOTE_AT } from '../db/migrations.ts';
 import { noteApplied } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { alignSessionProject } from '../sessions/move.ts';
+import { alignSessionTrash, trashedAtOf } from '../sessions/trash.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 
 /** 親から子の順。pull の適用はこの順に並べ替える。 */
@@ -281,6 +282,9 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
   }
   if (!noteMemoConflict(db, c, row, o)) return 'skipped';
   if (!backupSessionNote(db, c, row, o)) return 'skipped';
+  // 削除の印（版 25）の移り変わりを見るため、当てる前の印を控える。印が外れたら、ほかの PC での復元である。
+  const trashCols = (c.tableName === 'sessions' || c.tableName === 'session_states') && tableColumns(db, 'session_states').has('trashed_at');
+  const prevTrash = trashCols && c.tableName === 'session_states' ? trashedAtOf(db, c.rowId) : null;
   const keys = Object.keys(row);
   const sets = keys.filter((k) => k !== pk).map((k) => `${k} = excluded.${k}`).join(', ');
   db.prepare(`insert into ${c.tableName} (${keys.join(', ')}) values (${keys.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`).run(...keys.map((k) => bindable(row[k])));
@@ -288,6 +292,9 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
   // 移した印（session_states）が後から届いたときも、その時点で合わせる。どちらも手元の表だけを直し、押し返さない。
   // 移した先の列（版 25）を持たない表では合わせない。版を上げる前の DB へ当てる試験の道である。
   if (c.op === 'upsert' && (c.tableName === 'sessions' || c.tableName === 'session_states') && tableColumns(db, 'session_states').has('project_id')) alignSessionProject(db, c.rowId);
+  // 削除したセッション（sessions/trash.ts）は、古い sessions の upsert が届いても論理削除のまま保つ。印が外れたら論理削除を外す。
+  // 手元の表だけを直し、押し返さない。印はどの PC にも届くので、それぞれが自分で合わせる。
+  if (trashCols) alignSessionTrash(db, c.rowId, prevTrash);
   if (carriesOldNote(c)) {
     if (o.onOldSessionNote) o.onOldSessionNote(c);
     else adoptNoteFromOldSession(db, c);

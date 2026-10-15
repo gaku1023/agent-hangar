@@ -138,6 +138,14 @@ export function setSessionPlacement(db: Db, deviceId: string, sessionId: string,
 }
 
 /**
+ * 削除の印を書く（sessions/trash.ts）。null は印を外す（ゴミ箱から戻した復元）。
+ * 状態、提案、移した先の列はそのまま残す。戻したときに、消す前の状態のまま戻るためである。
+ */
+export function setSessionTrashed(db: Db, deviceId: string, sessionId: string, at: number | null): void {
+  write(db, deviceId, sessionId, { trashed_at: at });
+}
+
+/**
  * 止まったセッションを自動で Done にする（sessions/autoDone.ts）。書いたら true。
  * 利用者が決めたものではないので set_by は import にする。新しい値を足すと、上げていない PC が同期で受け取った行を CHECK で弾くためである。
  * 書く直前に読み直し、状態が付いた、Paused の提案が出た、却下されたものは書かない。対象を引いてから書くまでの間に、利用者が触ったときのためである。

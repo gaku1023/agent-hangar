@@ -21,6 +21,11 @@ export type IndexerListener = {
   error?: (e: { path: string; message: string }) => void;
   /** 手元の本文ファイルが消え、そのセッションの索引を片付けた。hasTranscript が変わるので配り直す。 */
   transcriptGone?: (e: { sessionId: string }) => void;
+  /**
+   * 論理削除したセッションの、手元の主線の本文が見えた（索引は掘り起こさずに見送った）。
+   * ゴミ箱から戻した本文かもしれないので、削除の受け持ち（sessions/trash.ts）が復元を確かめる。
+   */
+  deletedSeen?: (e: { sessionId: string; path: string }) => void;
 };
 
 /** fs.watch の形。試験が通知を自分で起こすために差し替える。 */
@@ -246,6 +251,9 @@ export class IndexerService {
     try {
       const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null, processStartOf: this.opts.processStartOf, compat: this.opts.compat, stat: st ?? undefined });
       this.reportedErrors.delete(file.path);
+      if (r.skipped && r.sessionId !== '' && file.deviceId === null && file.agentId === null) {
+        for (const l of this.listeners) l.deletedSeen?.({ sessionId: r.sessionId, path: file.path });
+      }
       if (!r.changed) return false;
       // 土台の要約は共有テーブルなので、本文を持つ端末だけが書く。
       if (file.deviceId === null && (file.agentId === null || r.appended > 0)) {
@@ -380,6 +388,8 @@ export class IndexerService {
       const sessionId = ensureSession(db, providerSessionId, h.cwd, this.opts.deviceId);
       if (hasMain.get(sessionId)) continue;
       const cur = getSession.get(sessionId) as Record<string, unknown>;
+      // 論理削除したセッション（削除したもの、本文の無いまま片付けたもの）は書き直さない。history.jsonl には消した後も残っている。
+      if (cur.deleted_at != null) continue;
       const next = { ...cur, first_prompt: cur.first_prompt ?? h.firstDisplay, started_at: cur.started_at ?? h.firstTs, last_activity_at: h.lastTs };
       let touched = false;
       if (JSON.stringify(next) !== JSON.stringify(cur)) {

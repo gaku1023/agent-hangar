@@ -30,11 +30,12 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
 
 設計を貫く原則を先に置く。
 
-- **読み取り専用**：Claude Code の設定とデータを、hangar は原則として読むだけで書き換えない。`~/.claude` の中へ書く例外は次の 4 つだけである。
+- **読み取り専用**：Claude Code の設定とデータを、hangar は原則として読むだけで書き換えない。`~/.claude` の中へ書く例外は次の 5 つだけである。
   - statusline スクリプトへの追記。承諾を求め、追記の前に同じディレクトリへバックアップを取る。
   - 利用者が明示的に押した「この PC で再開」で、他端末のセッション本文を `~/.claude/projects/` に写すこと。手元の本文を上書きするときは `~/.agent-hangar/backups/transcripts/` へ控えを取り、控えが取れなければ写さない。
   - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。作り直した実装では、書くのは殻の承諾の窓を経た殻の命令と CLI の `hangar config apply` だけで、サーバは書かない（「設定の同期の作り直し」の節の「適用と世代へ戻す」と、「承諾の窓」の節）。
   - 利用者が確認のダイアログで押した「書き込む」で、`~/.claude/settings.json` の `cleanupPeriodDays` の 1 か所だけを書き換えること。書く前に差分を見せ、`~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ書かない。ほかのキーと書式には触れない（「会話の保持期間」の節）。
+  - 利用者がセッションを削除したときに、その本文（`~/.claude/projects/` の下の主線の jsonl と、隣の `<uuid>/` のフォルダ）を OS のゴミ箱へ移すこと。ほかの PC で削除された印を受け取ったときも同じことをする。ゴミ箱へ移せなければ何も変えず、`rm` には倒さない（「セッションの削除」の節）。
 - 初期プロンプトの欄の候補のために、`~/.claude` から次を読む。どれも読むだけで、書かない（「初期プロンプトの欄」の節）。
   - `skills/*/SKILL.md` と `commands/**/*.md`。選んだプロジェクトの `.claude/skills` と `.claude/commands` も同じに読む。
   - `plugins/installed_plugins.json` と、`settings.json` の `enabledPlugins`。有効なプラグインのスキルとコマンドを見つけるためである。
@@ -43,7 +44,7 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
 - `~/.claude` の外では、`hangar shell install` が `~/.zshrc` の末尾に 1 行を足す。statusline と同じく書くのは CLI だけで、端末では承諾を求め、画面のボタンからは殻の承諾の窓を経る。足す前に同じディレクトリへバックアップを取る。UTF-8 でない `~/.zshrc` は、ステータスラインのスクリプトと同じく書かずに断る。サーバは `GET /api/shell-hook` で有無を読むだけである（「外のターミナルのセッション」の節）。
   - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。解除（`hangar mcp uninstall`）も `claude mcp remove` に任せず、登録と同じ守りで自分で書く。承諾の窓で見せた差分と、書く中身をそろえるためである（0.4.0 から）。
 - **書く承諾は殻の窓で取る**：画面から利用者のファイル（`~/.claude.json`、`~/.zshrc`、ステータスラインのスクリプト、`~/.claude`）を書くときは、殻が自分の承諾の窓（サーバを通らない、殻に同梱した頁）で書く先と差分を見せ、承諾されたときだけ CLI が書く。サーバと HTTP の API は書かない。ブラウザで開いた画面からは書かず、コマンドを案内する（「承諾の窓」の節）。
-- **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
+- **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動と、セッションの削除で本文を OS のゴミ箱へ移すことである。ゴミ箱へ移すのは消すことではなく、利用者がゴミ箱から戻せば hangar にも戻る（「セッションの削除」の節）。hangar が他の PC から降ろした写し（`~/.agent-hangar/remote/`）は hangar の持ち物なので、削除のときに普通に消す。
 - **サーバが正**：状態はローカルサーバが持ち、UI は描画に必要な値だけを受け取る。ブラウザでも Tauri でも同じ UI が動く。
 - **正規化した形式で描く**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
 - **同期前提のスキーマ**：データはすべて端末間で同期できる形で持つ。フェーズ 1 から 3 では同期せずにこの形だけを保ち、フェーズ 4 で実際に同期した。
@@ -829,7 +830,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 
 | 表 | 配るイベント |
 | --- | --- |
-| `sessions`、`session_summaries`、`session_states`、`session_notes` | そのセッションの `session.upsert` |
+| `sessions`、`session_summaries`、`session_states`、`session_notes` | そのセッションの `session.upsert`。sessions の行が論理削除されていれば `session.removed`（画面は Store から外す） |
 | `runs` | 持ち主のセッションの `session.upsert`。同期で降りたときだけ配る（他端末のロックが変わるため）。この端末の run は `run.started`、`run.upsert`、`run.ended` が運ぶ |
 | `projects` | そのプロジェクトの `project.upsert` |
 | `project_roots` | そのプロジェクトの `project.upsert`。この端末のルートが未解決になった書き込みも配る。ホームの帯の件数と、プロジェクトの一覧の札が、再読み込みを待たずに変わるためである |
@@ -916,6 +917,19 @@ create table config_unsent (
   content_sha256 text not null,
   allowed integer not null default 0,
   found_at integer not null
+);
+
+-- この PC がゴミ箱へ移した本文の元のパス（版 26、「セッションの削除」の節）。同じパスに主線のファイルが戻ってきたら復元する。
+create table trashed_transcripts (
+  path text primary key,
+  session_id text not null,
+  kind text not null check (kind in ('file','dir')),  -- 主線の jsonl か、隣の <uuid>/ のフォルダか
+  trashed_at integer not null                         -- 削除の印の時刻
+);
+-- この PC が削除の印を処理し終えたセッション（版 26）。印が付け直されたら時刻が変わるので処理し直す。
+create table trash_applied (
+  session_id text primary key,
+  trashed_at integer not null
 );
 
 create table transcript_files (
@@ -2762,6 +2776,78 @@ N は UI の store に届いているセッションで数える。
 - 再開（resume）の所属は移した先で、注入する指示も移した先のプロジェクトのものを使う。
 - 再開の cwd は元のままである。cwd がこの PC に無いときの読み替え（`runs/handover.ts` の `resumeCwd`）は、移した先ではなく、どれかの PC の場所が cwd を含むプロジェクトの場所で行う。
   そういうプロジェクトが無ければ、移した会話は読み替えず、この PC では起こせないものとして扱う。
+
+### セッションの削除
+
+利用者はセッションを消せる（`DELETE /api/sessions/:id`、UiAction は `session.delete`、本体は `sessions/trash.ts`、組み立ては `boot/trash.ts`）。
+どちらの PC からでも消せる。
+消すと、本文を OS のゴミ箱へ移し、hangar の一覧から外し、同期しているほかの PC からも外す。
+利用者がゴミ箱から本文を戻せば、hangar にも戻る。
+
+**置き場。**
+削除は利用者が決めることなので、印は `session_states.trashed_at` に置く（版 25）。
+`sessions.deleted_at`（行の論理削除）は一覧から外すための写しで、印に合わせる。
+印を `sessions` に置かないのは、`sessions` の行は本文を持つ PC の索引が書き直し、同期が行ごとの後勝ちなので、印を受け取る前の持ち主の書き込みで生き返るからである。
+
+**実行中は消せない。**
+どこかの PC で動いている（`runs/announce.ts` の `sessionRunsAnywhere`）なら、409 と「実行中のセッションは削除できません。先に停止してください」で断る。
+
+**消した PC。**
+1. 自分の手元の本文（主線の jsonl と、隣の `<uuid>/` のサブエージェントの本文）を OS のゴミ箱へ移す。手元の本文は、索引の行（`transcript_files`）と、cwd の置き場（`~/.claude/projects/<cwd を畳んだ名前>/<uuid>.jsonl`）から探す。
+2. 主線を先に移す。主線を移せなければ、何も変えずに 500 と「トランスクリプトをゴミ箱へ移動できませんでした（理由）。何も変更していません」を返す。`rm` には倒さない。
+   主線を移せた後にフォルダを移せなかったときは、印は書き、残りは次の回でやり直す。
+3. hangar が降ろした写し（`~/.agent-hangar/remote/` の下）は hangar の持ち物なので、ゴミ箱を通さずに消す。
+4. 移した本文の元のパスを端末ローカルの `trashed_transcripts` に控える。
+5. 印（`trashed_at`）を書き、`sessions` の行を論理削除する。どちらも同期に載る。本文の索引（`transcript_files`、`event_index`、`event_fts`、`usage_daily`、`session_activity`、`session_limits`）は片付ける。
+
+**印を受け取った PC。**
+同期で `session_states` の行が届くと、次の回（`SessionTrash.applyMarks`）を回す。
+起動したときと、1 分ごとにも回す。
+起きていなかった PC は、起きて印を受け取った後の回で同じことをする。
+- その PC に本文があれば（本文の持ち主なら）、その PC のゴミ箱へ移す。その PC で動いていれば、止まるまで待つ（次の回にやり直す）。
+- 本文を移したら、`sessions` の論理削除を自分でも書き直して上げる。持ち主が印を受け取る前に上げた upsert がクラウドで勝っていても、それより新しい削除になる。
+- hangar が降ろした写しは消す。
+- 処理し終えた印は端末ローカルの `trash_applied` に覚え、二度処理しない。移せなかった本文や消せなかった写しがあれば覚えず、次の回でやり直す。
+- 写しの降ろし（`sync/puller.ts`）は、印のあるセッションの写しを降ろさない。
+
+**生き返らない。**
+- 同期の取り込み（`sync/apply.ts`）は、`sessions` と `session_states` の行を当てたあとで、印のあるセッションの `sessions` を論理削除のまま保つ（`alignSessionTrash`）。upsert が `deleted_at` を null にする所の後で直すので、古い `sessions` の upsert が後から届いても、同じ束で届いても戻らない。手元の表だけを直し、押し返さない。
+- 索引（`indexer/indexFile.ts`）は、論理削除したセッションの本文を掘り起こさない。`history.jsonl` にだけ残る会話の登録（`syncHistoryOnly`）も、論理削除した行を書き直さない。
+- 自動の振り分け（`assignSessions`）は論理削除した行を読まない。プロジェクトをまとめる（`mergeProjects`）と一覧から削除する（`unlink`）は、行全体を `deleted_at` ごと書き直すので戻らない。
+
+**関係する行。**
+| 行 | 扱い |
+| --- | --- |
+| `sessions` | 論理削除する。印に合わせる |
+| `session_states` | 残す。印（`trashed_at`）を持つ行である。状態、提案、移した先もそのまま残し、戻したときに消す前の状態で戻る |
+| `session_summaries`、`session_notes` | 残す。戻したときに、要約と hangar で付けた名前がそのまま戻る。一覧は `sessions` の論理削除で外れるので見えない |
+| `runs`、`run_tabs` | 残す。実行中は消せないので、残るのは終わった run だけである |
+| `todos`、`artifacts` | プロジェクトのものなので触らない |
+| 本文の索引（端末ローカル） | 片付ける。戻したときに索引し直す |
+
+クラウドの写し（R2 の `transcripts/<端末>/<uuid>.jsonl.gz` と D1 の索引）は、`trashed_at` から 30 日たったら Worker の掃除（sweep）で消す。
+Worker の側はまだ入っていない。
+
+**消したセッションへの操作。**
+一覧、1 件の取得、本文、状態の変更、移動、再開、フォーク、MCP の道具（`get_transcript`、`propose_session_status` など）は、どれも生きている `sessions` の行だけを読むので、消したセッションには 404 か「セッションが見つかりません」で断る。
+配る層は、論理削除された `sessions` の行に `session.removed` を配り、画面は Store から外す。
+
+**戻す。**
+ゴミ箱へ移した主線の本文が、元のパスに戻ってきたら復元する（`SessionTrash.checkRestores`）。
+見るのは、周期の回と、索引が論理削除したセッションの手元の本文を見たとき（`IndexerService` の `deletedSeen`）である。
+印を外し、`sessions` の論理削除も外す。
+どちらも同期に載り、ほかの PC にも届く。
+本文の索引は、索引の全件走査で作り直す。
+印が外れた行を受け取った PC は、`sessions` の論理削除を外し（`alignSessionTrash`）、処理済みの印を忘れ、消した写しを台帳（`file_sync`）から降ろし直す（`RemotePuller.refetchSession`）。
+
+**ゴミ箱へ移す方法（`platform/trash.ts`）。**
+- macOS：`osascript -l JavaScript` で `NSFileManager.defaultManager.trashItemAtURLResultingItemURLError` を呼ぶ。Finder を操作しないので、自動操作の許可を求められない。
+  移した先と誤りの受け口は null で渡す。JXA の `Ref()` を渡すと osascript ごと落ちる（終了コード 139、2026-10-16 に実測）。
+- Windows：PowerShell で `Microsoft.VisualBasic.FileIO.FileSystem` の `DeleteFile`（フォルダは `DeleteDirectory`）に `SendToRecycleBin` を渡す。
+- Linux：`gio trash`。
+- パスは台本の文字列に埋めず、macOS は引数、Windows は環境変数で渡す。
+- コマンドが成功を返しても元のパスが残っていれば、移せなかったとして扱う。
+- 試験は、macOS と Windows で本物のゴミ箱へ一時ファイルを移す（Windows は CI の windows のジョブが実機の代わり）。試験のファイルの名前は `hangar-trash-test-` で始め、ゴミ箱に残っても何のものか分かるようにする。
 
 ### 同じフォルダのプロジェクトをまとめる
 
@@ -5547,6 +5633,11 @@ Free は上限を超えても課金されず、失敗が返るだけである。
 Worker も量を数えない（段 1 の PR 6 で台帳を外した）。
 
 トランスクリプトは、jsonl の変化を検知して 30 秒のデバウンスでファイル全体を上げ直し、run の終了で確定する。
+
+削除したセッションは、行ごとの後勝ちに任せない。
+削除の印は `session_states.trashed_at` にあり、同期の取り込みは、印のあるセッションの `sessions` を論理削除のまま保つ。
+印を受け取る前の持ち主の upsert がクラウドで勝っても、各 PC の取り込みで論理削除に戻り、持ち主が印を処理したときに書く削除がクラウドでも勝つ。
+印のあるセッションの本文の写しは降ろさない。詳しくは「セッションの削除」の節にある。
 
 上げるのは、クラウドを使い始めた後に動いた本文だけである。
 参加より前に索引が済んで止まっている本文は上げない。
