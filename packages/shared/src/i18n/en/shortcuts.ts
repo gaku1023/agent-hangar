@@ -20,6 +20,7 @@ export const shortcutsEn: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.settingsOpen': 'Settings',
   'shortcuts.key.navBack': 'Back',
   'shortcuts.key.navForward': 'Forward',
+  'shortcuts.key.appReload': 'Reload',
   'shortcuts.key.sidebarToggle': 'Toggle sidebar',
   'shortcuts.key.shortcutsOpen': 'Keyboard shortcuts',
   'shortcuts.key.overlayClose': 'Close what is open (or leave the input field)',

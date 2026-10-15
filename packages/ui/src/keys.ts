@@ -13,7 +13,7 @@ type KeysKey = { [K in MessageKey]: [MessageParamName<K>] extends ['keys'] ? K :
  */
 
 export type KeyId =
-  | 'palette.open' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
+  | 'palette.open' | 'app.reload' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'tab.move' | 'turn.move'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
@@ -63,6 +63,10 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'nav.forward', group: 'global', keys: '⌘] / ⌘→', terminal: '⌃⇧]', labelKey: 'shortcuts.key.navForward', chords: [{ key: ']', mod: true, shift: false }, { key: 'ArrowRight', mod: true, shift: false }] },
   { id: 'sidebar.toggle', group: 'global', keys: '⌘B', terminal: '⌃⇧B', labelKey: 'shortcuts.key.sidebarToggle', chords: [{ key: 'b', mod: true, shift: false }] },
   { id: 'shortcuts.open', group: 'global', keys: '? / ⌘/', terminal: '⌃⇧/', labelKey: 'shortcuts.key.shortcutsOpen', chords: [{ key: '?' }, { key: '/', mod: true }] },
+  // 画面全体を読み直す。動いている Claude と tmux は止まらず、ターミナルはつなぎ直すだけである（サーバの pty/relay.ts は attach の口だけを閉じる）。
+  // macOS は ⌘R。ほかは F5 と Ctrl+Shift+R で、Ctrl+R はターミナルの履歴検索（readline と Claude Code）なので取らない。
+  // F5 と Ctrl+Shift+R はターミナルの中でも受ける。xterm は F5 を ESC [15~ として送るが、ターミナルの中の F5 を使うアプリは少ない。
+  { id: 'app.reload', group: 'global', keys: '⌘R', keysOther: 'F5 / ⌃⇧R', terminal: '⌃⇧R', labelKey: 'shortcuts.key.appReload', chords: [{ key: 'r', mod: true, shift: false, os: 'mac' }, { key: 'F5', os: 'other', inTerminal: true }, { key: 'r', mod: true, shift: true, os: 'other', inTerminal: true }] },
   { id: 'overlay.close', group: 'global', keys: 'Esc', labelKey: 'shortcuts.key.overlayClose', chords: [{ key: 'Escape' }] },
   { id: 'tab.select', group: 'session', keys: '⌘1–⌘9', terminal: '⌃⇧1–9', labelKey: 'shortcuts.key.tabSelect', also: '⌃⌥1–⌃⌥9', chords: [...digits.map((d) => ({ key: d, mod: true, shift: false })), ...digits.map((d) => ({ key: d, ctrlAlt: true }))] },
   { id: 'tab.close', group: 'session', keys: '⌘W', terminal: '⌃⇧W', labelKey: 'shortcuts.key.tabClose', chords: [{ key: 'w', mod: true, shift: false }] },
