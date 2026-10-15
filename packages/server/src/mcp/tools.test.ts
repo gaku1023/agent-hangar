@@ -301,7 +301,7 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(12);
+    expect(TOOL_NAMES).toHaveLength(14);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
@@ -547,5 +547,21 @@ describe('propose_session_status', () => {
     expect(() => call('propose_session_status', { status: 'done', note: 'n' })).toThrow(/session_id/);
     expect(call('propose_session_status', { session_id: alphaId, status: 'done', note: 'n' }).outcome).toBe('proposed');
     expect(() => call('propose_session_status', { session_id: 'other', status: 'done', note: 'n' }, scoped())).toThrow(ToolError);
+  });
+});
+
+describe('作者への問い合わせ', () => {
+  it('draft_issue_report と submit_issue_report は report の口へ渡す', async () => {
+    const draft = vi.fn(async () => ({ draft_id: 'x' }));
+    const submit = vi.fn(async () => ({ sent_via: 'gh', url: 'u' }));
+    deps = { ...deps, report: { draft, submit } as unknown as NonNullable<ToolDeps['report']> };
+    await expect(callTool(deps, { sessionId: null }, 'draft_issue_report', { kind: 'bug' })).resolves.toEqual({ draft_id: 'x' });
+    await expect(callTool(deps, { sessionId: alphaId }, 'submit_issue_report', { draft_id: 'x', confirmed: true })).resolves.toEqual({ sent_via: 'gh', url: 'u' });
+    expect(draft).toHaveBeenCalledWith({ kind: 'bug' });
+    expect(submit).toHaveBeenCalledWith({ draft_id: 'x', confirmed: true });
+  });
+
+  it('report の口が無ければ断る', () => {
+    expect(() => callTool(deps, { sessionId: null }, 'draft_issue_report', {})).toThrow(ToolError);
   });
 });

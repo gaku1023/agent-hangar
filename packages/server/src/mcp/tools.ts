@@ -13,6 +13,7 @@ import { searchSessions } from '../search/search.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
+import type { ReportService } from '../report/service.ts';
 
 export type ToolDeps = {
   db: Db;
@@ -27,6 +28,10 @@ export type ToolDeps = {
   language?: GetLanguage;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
   permissionAsks?: { put(providerSessionId: string, ask: PermissionAskDto, now: number): void };
+  /** 作者への問い合わせの口（report/service.ts）。無ければ draft_issue_report と submit_issue_report は断る。 */
+  report?: Pick<ReportService, 'draft' | 'submit'>;
+  /** URL を既定のブラウザで開く口。問い合わせの送信で gh が使えないときに使う。 */
+  openUrl?: (url: string) => Promise<void>;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
 export type ToolContext = { sessionId: string | null };
@@ -49,7 +54,7 @@ export class ToolError extends MessageError {
 export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
   'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
-  'propose_session_status',
+  'propose_session_status', 'draft_issue_report', 'submit_issue_report',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -449,7 +454,16 @@ export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<
   return { url: url(deps, `session/${id}`), deep_link: `hangar://session/${id}` };
 }
 
-/** 名前で振り分ける。MCP の層はこれを content に包むだけにする。 */
+/** 作者への問い合わせの口。共通 URL でもセッション別 URL でも、枠に関わりなく使える（プロジェクトもセッションも指さない）。 */
+function reportOf(deps: ToolDeps, name: string): NonNullable<ToolDeps['report']> {
+  if (!deps.report) throw new ToolError(msg('mcp.error.unknownTool', { name }));
+  return deps.report;
+}
+
+/**
+ * 名前で振り分ける。MCP の層はこれを content に包むだけにする。
+ * 問い合わせの 2 つは外と話すので Promise を返す。MCP の層は await してから包む。
+ */
 export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: Record<string, unknown>): unknown {
   switch (name) {
     case 'list_projects': return listProjectsTool(deps, ctx);
@@ -464,6 +478,8 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);
+    case 'draft_issue_report': return reportOf(deps, name).draft(args);
+    case 'submit_issue_report': return reportOf(deps, name).submit(args);
     default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }

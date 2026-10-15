@@ -19,6 +19,7 @@ import { httpJa } from './ja/http.ts';
 import { launchJa } from './ja/launch.ts';
 import { listJa } from './ja/list.ts';
 import { mcpJa } from './ja/mcp.ts';
+import { reportJa } from './ja/report.ts';
 import { newProjectJa } from './ja/newProject.ts';
 import { newSessionJa } from './ja/newSession.ts';
 import { noticesJa } from './ja/notices.ts';
@@ -86,6 +87,7 @@ export const ja: Dictionary = {
   ...launchJa,
   ...listJa,
   ...mcpJa,
+  ...reportJa,
   ...newProjectJa,
   ...newSessionJa,
   ...noticesJa,
