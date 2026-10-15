@@ -11,6 +11,10 @@ import { readQuestionHook } from '../provider/claude-code/hooks/question.ts';
 import { mcpSecretMatches } from '../runs/secrets.ts';
 import { applyPermissionHook } from '../sessions/permissionAsks.ts';
 import { applyQuestionHook } from '../sessions/questionHook.ts';
+import { openTargetCommand } from '../platform/browser.ts';
+import { execFile } from '../external/open.ts';
+import { realReportDeps } from '../report/real.ts';
+import { ReportService } from '../report/service.ts';
 import { callTool, type ToolContext, type ToolDeps } from './tools.ts';
 
 /**
@@ -35,7 +39,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   const reg = (name: string, description: string, inputSchema: Record<string, z.ZodTypeAny>) => {
     server.registerTool(name, { description, inputSchema }, async (args: Record<string, unknown>) => {
       try {
-        return { content: [{ type: 'text' as const, text: JSON.stringify(callTool(deps, ctx, name, args), null, 2) }] };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(await callTool(deps, ctx, name, args), null, 2) }] };
       } catch (e) {
         return { content: [{ type: 'text' as const, text: errorText(language(), e) }], isError: true };
       }
@@ -53,6 +57,14 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('propose_session_status', D(tr('mcp.tool.proposeSessionStatus')), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe(tr('mcp.sessionStatus.noteParam')), return_on: z.string().optional().describe(tr('mcp.sessionStatus.returnOnParam')), return_time: z.string().optional().describe(tr('mcp.sessionStatus.returnTimeParam')), confirmed: z.boolean().optional().describe(tr('mcp.sessionStatus.confirmedParam')) });
   reg('get_usage', D(tr('mcp.tool.getUsage')), {});
   reg('open_in_hangar', D(tr('mcp.tool.openInHangar')), { session_id: z.string().optional(), project_id: z.string().optional() });
+  // 節は種類ごとに必須が違うので、ここでは全部を任意にし、検査は report/compose.ts に任せる。断りの文で足りない節を名指しできる。
+  const section = z.string().optional();
+  reg('draft_issue_report', D(tr('report.tool.draft')), {
+    kind: z.enum(['bug', 'request']).describe(tr('report.param.kind')), title: z.string(),
+    symptom: section, steps: section, cause: section, fix: section, problem: section, proposal: section, alternatives: section, notes: section,
+  });
+  // confirmed を任意にするのは、渡し忘れを SDK の型の失敗でなく、承諾を求める断りの文で返すためである。
+  reg('submit_issue_report', D(tr('report.tool.submit')), { draft_id: z.string(), confirmed: z.boolean().optional().describe(tr('report.param.confirmed')) });
   return server;
 }
 
@@ -88,7 +100,19 @@ function mcpGuard(c: Context, deps: { token: string; port: number; db: ToolDeps[
  * 諦めた後は、hangar を起こし直しても、利用者が /mcp で繋ぎ直すまで ECONNREFUSED のままになる。
  * 開かなければ、止まっている間に呼ばれなかった claude は切れたことに気付かず、起こし直した後の次の呼び出しがそのまま通る。
  */
-export function createMcpApp(deps: ToolDeps & { token: string }): Hono {
+/** ブラウザで開く口が渡されなかったときの開き方。 */
+async function openWithOs(url: string): Promise<void> {
+  const c = openTargetCommand(url);
+  const r = await execFile(c.file, c.args, process.platform === 'win32' ? { untilExit: true } : undefined);
+  if (r.code !== 0) throw new Error(r.stderr.trim() || `${c.file} exit ${r.code}`);
+}
+
+export function createMcpApp(given: ToolDeps & { token: string }): Hono {
+  // 問い合わせの下書きは要求をまたいで残すので、口はアプリに 1 つだけ作る（MCP のサーバは要求ごとに作り直す）。
+  const deps = given.report ? given : {
+    ...given,
+    report: new ReportService(realReportDeps({ db: given.db, deviceId: given.deviceId, language: given.language ?? defaultLanguage, openUrl: given.openUrl ?? openWithOs })),
+  };
   const app = new Hono();
   const handle = async (req: Request, sessionId: string | null) => {
     if (req.method === 'GET') return new Response(null, { status: 405, headers: { allow: 'POST, DELETE' } });

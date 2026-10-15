@@ -143,7 +143,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, language, ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}) }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, language, openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}) }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);
