@@ -86,7 +86,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
       # 実験 X2：OS で結果が割れる project だけを回す（cloud と ui は Linux の check で回る）。
-      - run: npm test -- --project server --project desktop --project cli --project shared
+      - run: npm test -- --project server --project desktop --project cli --project shared --maxWorkers=4
   windows:
     runs-on: windows-latest
     # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分、
@@ -128,7 +128,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          prefix-key: v0-nolto
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri
       - run: cargo test
@@ -139,12 +139,12 @@ jobs:
       # 下の起動の試しの段が使うので、試験のための書き出しの口（bootprobe.rs）を効かせる feature を立てる。release は立てない。
       - id: installer
         uses: ./.github/actions/windows-installer
-        env:
-          CARGO_PROFILE_RELEASE_LTO: 'false'
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         with:
           target: x86_64-pc-windows-msvc
           features: boot-probe
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
       - uses: actions/upload-artifact@v7
         with:
           name: Hangar-windows-x64-setup
@@ -204,7 +204,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          prefix-key: v0-nolto
       - run: cargo fmt --check
         working-directory: apps/desktop/src-tauri
       - run: cargo clippy --all-targets -- -D warnings
