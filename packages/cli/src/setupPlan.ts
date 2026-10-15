@@ -221,7 +221,7 @@ const STATUSLINE_REASON: Record<string, string> = {
   'no-script': 'ステータスラインのスクリプトが見つかりません。Claude Code で /statusline を実行してスクリプトを作ってから、もう一度試してください。',
   unreadable: 'スクリプトの hangar の行の範囲を読み取れません（手で書き換えられています）。何も変えません。手で入れ替えてください。',
   'ps-param': 'スクリプトが param の塊で始まるので、先頭に自動では入れられません。param の後ろに手で入れてください。',
-  'ps-input': 'スクリプトが $input で標準入力を読むので、自動では入れられません。[Console]::In.ReadToEnd() で読む形にするか、手で入れてください。',
+  'ps-input': 'スクリプトが $input か [Console]::OpenStandardInput() で標準入力を読むので、自動では入れられません。[Console]::In.ReadToEnd() で読む形にしてから、もう一度試してください。',
 };
 
 function planStatusline(target: 'statusline-install' | 'statusline-uninstall', env: SetupEnv): SetupPlan {

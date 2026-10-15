@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendStatuslineSnippet, ensureStatuslineHeaderFile, planStatuslineRemoval, planStatuslineSnippet, removeStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineSnippetFor, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
+import { appendStatuslineSnippet, ensureStatuslineHeaderFile, planStatuslineRemoval, planStatuslineSnippet, powershellStatuslineSnippet, PS_STATUSLINE_MARKER, removeStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineSnippetFor, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
 import { expectMode, posixDescribe } from '../../../../test/platform.ts';
 
 let dir: string;
@@ -322,7 +322,7 @@ describe('UTF-8 でないスクリプト', () => {
     fs.writeFileSync(ps, psSrc);
     expect(appendStatuslineSnippet(ps, 4177).changed).toBe(true);
     const psNext = fs.readFileSync(ps, 'utf8');
-    expect(psNext.startsWith(`${bom}${STATUSLINE_MARKER}\r\n`)).toBe(true);
+    expect(psNext.startsWith(`${bom}${PS_STATUSLINE_MARKER}\r\n`)).toBe(true);
     expect(psNext.slice(1)).not.toContain(bom);
     expect(planStatuslineSnippet(psNext, ps, 4177)).toEqual({ kind: 'same' });
     expect(removeStatuslineSnippet(ps).changed).toBe(true);
@@ -477,13 +477,13 @@ describe('PowerShell のステータスライン（.ps1）', () => {
     const ps = path.join(dir, 's.ps1');
     const src = '$j = [Console]::In.ReadToEnd() | ConvertFrom-Json\r\nWrite-Output $j.model.display_name\r\n';
     const snippet = statuslineSnippetFor(ps, 4177);
-    expect(snippet.split('\n')[0]).toBe(STATUSLINE_MARKER);
+    expect(snippet.split('\n')[0]).toBe(PS_STATUSLINE_MARKER);
     expect(snippet).toContain('[Console]::SetIn(');
     expect(snippet).not.toContain('curl');
     const plan = planStatuslineSnippet(src, ps, 4177);
     expect(plan.kind).toBe('add');
     const next = (plan as { next: string }).next;
-    expect(next.startsWith(`${STATUSLINE_MARKER}\r\n`)).toBe(true);
+    expect(next.startsWith(`${PS_STATUSLINE_MARKER}\r\n`)).toBe(true);
     expect(next.endsWith(src)).toBe(true);
     expect(next.replace(/\r\n/g, '')).not.toContain('\n');
     expect(planStatuslineSnippet(next, ps, 4177)).toEqual({ kind: 'same' });
@@ -495,6 +495,76 @@ describe('PowerShell のステータスライン（.ps1）', () => {
     expect(planStatuslineSnippet('# 説明\n[CmdletBinding()]\nparam([string]$x)\n$j = [Console]::In.ReadToEnd()\n', ps, 4177)).toEqual({ kind: 'ps-param' });
     expect(planStatuslineSnippet('param($x)\n', ps, 4177)).toEqual({ kind: 'ps-param' });
     expect(planStatuslineSnippet('$j = $input | Out-String\n', ps, 4177)).toEqual({ kind: 'ps-input' });
+  });
+
+  it('[Console]::OpenStandardInput() で読むものにも自動では入れない（先に読み切ると元のスクリプトは 0 バイトしか読めない）', () => {
+    const ps = path.join(dir, 'o.ps1');
+    const src = '$s = [Console]::OpenStandardInput()\r\n$r = [System.IO.StreamReader]::new($s, [System.Text.Encoding]::UTF8)\r\n$j = $r.ReadToEnd()\r\n';
+    expect(planStatuslineSnippet(src, ps, 4177)).toEqual({ kind: 'ps-input' });
+  });
+
+  it('スニペットは ASCII だけで、Windows PowerShell 5.1 が CP932 で読んでも行の区切りが崩れない', () => {
+    // 5.1 は BOM なしの .ps1 を ANSI のコードページで読む。UTF-8 の日本語は区切りをずらし、改行をまたいで次の行をコメントにする。
+    const snippet = powershellStatuslineSnippet(4177);
+    expect([...snippet].filter((c) => c.charCodeAt(0) > 0x7f)).toEqual([]);
+    const asCp932 = new TextDecoder('shift_jis').decode(Buffer.from(snippet, 'utf8'));
+    expect(asCp932.split('\n')).toEqual(snippet.split('\n'));
+  });
+
+  it('標準入力はバイトで読み、UTF-8 で解釈する（5.1 の [Console]::In はコンソールのコードページで読むので日本語が化ける）', () => {
+    const snippet = powershellStatuslineSnippet(4177);
+    expect(snippet).toContain('[Console]::OpenStandardInput().CopyTo(');
+    expect(snippet).toContain('[System.Text.Encoding]::UTF8.GetString(');
+    expect(snippet).not.toContain('[Console]::In.ReadToEnd()');
+  });
+
+  /** 日本語の目印で入れていた形（0.6.1 まで）。5.1 では 2 行目までコメントになり、何も送らなかった。 */
+  const OLD_PS_FORM = [
+    '# agent-hangar: 使用量をローカルサーバへ渡す。失敗は無視する。',
+    '$__hangar_input = [Console]::In.ReadToEnd()',
+    "$__hangar_home = if ($env:HANGAR_HOME) { $env:HANGAR_HOME } else { Join-Path $HOME '.agent-hangar' }",
+    "$__hangar_header = Join-Path $__hangar_home 'statusline-header'",
+    'if (Test-Path -LiteralPath $__hangar_header) {',
+    '  try {',
+    '    Add-Type -AssemblyName System.Net.Http',
+    "    $__hangar_auth = ((Get-Content -LiteralPath $__hangar_header -Raw) -replace '^Authorization:\\s*', '').Trim()",
+    "    $__hangar_req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, 'http://127.0.0.1:4177/api/ingest/statusline')",
+    "    $null = $__hangar_req.Headers.TryAddWithoutValidation('Authorization', $__hangar_auth)",
+    "    $__hangar_req.Content = [System.Net.Http.StringContent]::new($__hangar_input, [System.Text.Encoding]::UTF8, 'application/json')",
+    '    $__hangar_http = [System.Net.Http.HttpClient]::new()',
+    '    $null = $__hangar_http.SendAsync($__hangar_req).Wait(300)',
+    '  } catch {}',
+    '}',
+    '[Console]::SetIn([System.IO.StringReader]::new($__hangar_input))',
+  ].join('\r\n') + '\r\n';
+
+  it('日本語の目印の古い形も「入っている」と認め、今の形に差し替え、外せる', () => {
+    const ps = path.join(dir, 'old.ps1');
+    const rest = '$j = [Console]::In.ReadToEnd() | ConvertFrom-Json\r\nWrite-Output $j.model.display_name\r\n';
+    fs.writeFileSync(ps, OLD_PS_FORM + rest);
+    settings(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps}"`);
+    expect(statuslineStatus(dir, home).installed).toBe(true);
+    expect(planStatuslineRemoval(OLD_PS_FORM + rest)).toEqual({ kind: 'remove', next: rest });
+    const plan = planStatuslineSnippet(OLD_PS_FORM + rest, ps, 4177);
+    expect(plan).toEqual({ kind: 'replace', next: statuslineSnippetFor(ps, 4177).replace(/\n/g, '\r\n') + rest });
+    expect(planStatuslineSnippet((plan as { next: string }).next, ps, 4177)).toEqual({ kind: 'same' });
+    fs.writeFileSync(ps, (plan as { next: string }).next);
+    expect(statuslineStatus(dir, home).installed).toBe(true);
+  });
+
+  it('古い形が入っていても、元のスクリプトが OpenStandardInput で読むなら差し替えない（差し替えると元の表示が空になる）', () => {
+    const ps = path.join(dir, 'old-o.ps1');
+    const src = `${OLD_PS_FORM}$s = [Console]::OpenStandardInput()\r\n`;
+    expect(planStatuslineSnippet(src, ps, 4177)).toEqual({ kind: 'ps-input' });
+    // 外すのはできる。
+    expect(planStatuslineRemoval(src)).toEqual({ kind: 'remove', next: '$s = [Console]::OpenStandardInput()\r\n' });
+  });
+
+  it('今の形が入っていれば、自分の行の OpenStandardInput を元のスクリプトのものと取り違えない', () => {
+    const ps = path.join(dir, 'cur.ps1');
+    const next = `${statuslineSnippetFor(ps, 4177)}$j = [Console]::In.ReadToEnd()\n`;
+    expect(planStatuslineSnippet(next, ps, 4177)).toEqual({ kind: 'same' });
+    expect(planStatuslineSnippet(next, ps, 4200).kind).toBe('replace');
   });
 });
 
@@ -532,6 +602,33 @@ describe.skipIf(process.platform !== 'win32')('PowerShell のスニペットを�
       expect(got).toHaveLength(1);
       expect(got[0]!.auth).toBe(`Bearer ${TOKEN}`);
       expect(got[0]!.body).toBe('{"session_id":"x"}');
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  }, 30_000);
+
+  it('日本語の本文を化けさせずに送り、元のスクリプトにも同じ内容を渡す', async () => {
+    // [Console]::In はコンソールのコードページで読むので、UTF-8 の日本語が化ける。バイトで読んで UTF-8 で解釈する。
+    const hangarHome = path.join(home, '.agent-hangar-ja');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    writeStatuslineHeaderFile(hangarHome, TOKEN);
+    const got: Buffer[] = [];
+    const server = createServer((req, res) => {
+      const parts: Buffer[] = [];
+      req.on('data', (c: Buffer) => parts.push(c));
+      req.on('end', () => { got.push(Buffer.concat(parts)); res.writeHead(200).end('{}'); });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const script = path.join(home, 'ja.ps1');
+      // 元のスクリプトは受け取った文字の数を出す。化ければ数が変わる。
+      fs.writeFileSync(script, '$j = [Console]::In.ReadToEnd()\r\n[Console]::Out.Write("len:" + $j.Length)\r\n');
+      fs.writeFileSync(script, (planStatuslineSnippet(fs.readFileSync(script, 'utf8'), script, port) as { next: string }).next);
+      const body = '{"session_name":"使用量の確認"}';
+      expect(await runPs(script, hangarHome, body)).toBe(`len:${body.length}`);
+      expect(got).toHaveLength(1);
+      expect(got[0]!.toString('utf8')).toBe(body);
     } finally {
       await new Promise((r) => server.close(r));
     }

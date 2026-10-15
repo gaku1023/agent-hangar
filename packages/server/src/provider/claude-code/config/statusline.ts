@@ -10,6 +10,22 @@ import { hasMode } from '../../../platform/secure.ts';
 
 export const STATUSLINE_MARKER = '# agent-hangar: 使用量をローカルサーバへ渡す。失敗は無視する。';
 
+/**
+ * PowerShell の形の目印。ASCII だけで書く。
+ * Windows PowerShell 5.1 は BOM の無い .ps1 を ANSI のコードページ（日本語なら CP932）で読む。
+ * UTF-8 の日本語は 2 バイトの区切りをずらして改行をまたぎ、次の行まで 1 つのコメントにしてしまう。
+ * BOM を足して直すと、CP932 で書かれた利用者のスクリプトのほうが壊れるので、目印の側を ASCII にする。
+ */
+export const PS_STATUSLINE_MARKER = '# agent-hangar: forward usage to local server; errors ignored.';
+
+/** 入っているスニペットの目印として認めるもの。0.6.1 までの .ps1 は日本語の目印で入っている。 */
+const MARKERS = [STATUSLINE_MARKER, PS_STATUSLINE_MARKER];
+
+/** スクリプトの中身に hangar のスニペットが入っているか。目印の行で見る（古い形の目印も含む）。 */
+export function hasStatuslineMarker(text: string): boolean {
+  return text.split(/\r?\n/).some((l) => MARKERS.includes(l));
+}
+
 /** スニペットの終わりの行。目印と合わせて、入っているスニペットの範囲を決める。 */
 const SNIPPET_END = 'exec <<<"$__hangar_input"';
 
@@ -185,7 +201,7 @@ export function resolveStatuslineScript(claudeDir: string, homeDir: string = os.
 
 export function statuslineStatus(claudeDir: string, homeDir: string = os.homedir()): StatuslineStatusDto {
   const r = resolveStatuslineScript(claudeDir, homeDir);
-  const installed = r.scriptPath !== null && fs.readFileSync(r.scriptPath, 'utf8').includes(STATUSLINE_MARKER);
+  const installed = r.scriptPath !== null && hasStatuslineMarker(fs.readFileSync(r.scriptPath, 'utf8'));
   return { command: r.command, scriptPath: r.scriptPath, installed };
 }
 
@@ -204,13 +220,20 @@ export function isPowerShellScript(scriptPath: string): boolean {
  * PowerShell のスクリプト（Windows の .ps1）に入れるスニペット。bash の形と同じことをする。
  * 標準入力を読み、ヘッダのファイルが読めるときだけ、短い時間（0.3 秒）を区切ってサーバへ送る。失敗は黙る。
  * 送り終えたら、読んだ内容を [Console]::SetIn で標準入力に戻す。元のスクリプトは [Console]::In.ReadToEnd() で同じ内容を読める。
+ * 全体を ASCII だけで書く（PS_STATUSLINE_MARKER）。
+ * 標準入力はバイトのまま読んで UTF-8 で解釈する。5.1 の [Console]::In はコンソールのコードページで読むので、
+ * session_name などの日本語が化けて届く。
+ * バイトで読み切った後は、元のスクリプトが [Console]::OpenStandardInput() で読んでも 0 バイトしか残らない。
+ * そのため OpenStandardInput で読むスクリプトには自動では入れない（powershellBlock の ps-input）。
  * トークンはどのプロセスの引数にも載せない（同じプロセスの中で、ヘッダのファイルから読む）。
  * PowerShell には裏で送る軽い道が無い（Start-Job は別のプロセスを起こして 1 秒近くかかる）ので、送るのは待つ。宛先は同じ PC なので短い。
  */
 export function powershellStatuslineSnippet(port: number): string {
   return [
-    STATUSLINE_MARKER,
-    '$__hangar_input = [Console]::In.ReadToEnd()',
+    PS_STATUSLINE_MARKER,
+    '$__hangar_buf = [System.IO.MemoryStream]::new()',
+    '[Console]::OpenStandardInput().CopyTo($__hangar_buf)',
+    '$__hangar_input = [System.Text.Encoding]::UTF8.GetString($__hangar_buf.ToArray())',
     "$__hangar_home = if ($env:HANGAR_HOME) { $env:HANGAR_HOME } else { Join-Path $HOME '.agent-hangar' }",
     `$__hangar_header = Join-Path $__hangar_home '${STATUSLINE_HEADER_FILE}'`,
     'if (Test-Path -LiteralPath $__hangar_header) {',
@@ -248,7 +271,7 @@ function splitLines(src: string): { lines: string[]; eol: string } {
  * 手で書き換えられていて終わりの行が見つからないときは null を返し、呼び手は何もしない。
  */
 function snippetRange(lines: string[]): { from: number; to: number } | null {
-  const from = lines.indexOf(STATUSLINE_MARKER);
+  const from = lines.findIndex((l) => MARKERS.includes(l));
   if (from === -1) return null;
   const limit = Math.min(lines.length, from + 24);
   for (let i = from + 1; i < limit; i++) if (lines[i] === SNIPPET_END || lines[i] === PS_SNIPPET_END) return { from, to: i };
@@ -267,13 +290,15 @@ export function statuslineSnippetUpToDate(scriptPath: string, port: number): boo
  * PowerShell のスクリプトの先頭に、自動で入れてよいか。
  * param の塊は最初の文でなければならないので、その前には入れられない（ps-param）。
  * $input で標準入力を読むスクリプトは、[Console]::SetIn で戻した内容を読めないことがある（ps-input）。
+ * [Console]::OpenStandardInput() で読むスクリプトは、スニペットが読み切った後なので 0 バイトしか読めない（これも ps-input）。
+ * src には hangar のスニペットを含めない（スニペット自身が OpenStandardInput を使う）。
  * どちらも、何も書かずに断り、手で入れる道を案内する。
  */
 function powershellBlock(src: string): 'ps-param' | 'ps-input' | null {
   const body = src.replace(/^﻿/, '').replace(/<#[\s\S]*?#>/g, '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#'));
   const head = (body[0] ?? '').toLowerCase();
   if (/^param\s*\(/.test(head) || /^\[cmdletbinding/.test(head)) return 'ps-param';
-  if (/\$input\b/i.test(src)) return 'ps-input';
+  if (/\$input\b|OpenStandardInput/i.test(src)) return 'ps-input';
   return null;
 }
 
@@ -295,11 +320,16 @@ export function planStatuslineSnippet(full: string, scriptPath: string, port: nu
 function planWithoutBom(src: string, scriptPath: string, port: number): StatuslineEdit {
   const { lines, eol } = splitLines(src);
   const want = snippetLines(scriptPath, port);
-  if (lines.includes(STATUSLINE_MARKER)) {
+  if (lines.some((l) => MARKERS.includes(l))) {
     const range = snippetRange(lines);
     if (!range) return { kind: 'unreadable' };
     const cur = lines.slice(range.from, range.to + 1);
     if (cur.length === want.length && cur.every((l, i) => l === want[i])) return { kind: 'same' };
+    // 今の形はバイトで読み切るので、元のスクリプトが OpenStandardInput で読むなら差し替えると表示が空になる。
+    if (isPowerShellScript(scriptPath)) {
+      const rest = [...lines.slice(0, range.from), ...lines.slice(range.to + 1)].join(eol);
+      if (powershellBlock(rest) === 'ps-input') return { kind: 'ps-input' };
+    }
     return { kind: 'replace', next: [...lines.slice(0, range.from), ...want, ...lines.slice(range.to + 1)].join(eol) };
   }
   if (isPowerShellScript(scriptPath)) {
@@ -321,7 +351,7 @@ export type StatuslineRemoval = { kind: 'remove'; next: string } | { kind: 'abse
 export function planStatuslineRemoval(full: string): StatuslineRemoval {
   const bom = full.startsWith(BOM) ? BOM : '';
   const { lines, eol } = splitLines(full.slice(bom.length));
-  if (!lines.includes(STATUSLINE_MARKER)) return { kind: 'absent' };
+  if (!lines.some((l) => MARKERS.includes(l))) return { kind: 'absent' };
   const range = snippetRange(lines);
   if (!range) return { kind: 'unreadable' };
   return { kind: 'remove', next: bom + [...lines.slice(0, range.from), ...lines.slice(range.to + 1)].join(eol) };
