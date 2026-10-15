@@ -2471,6 +2471,24 @@ describe('終わった扱いの run の claude が動き続けているときの
     expect(e.body).toBeUndefined();
   });
 
+  it('登録に載っているのが終わった扱いの run の claude（pid が同じ）なら、外ではないので確認を先に出す', async () => {
+    const id = seedEnded();
+    const provider = (db.prepare('select provider_session_id p from sessions where id = ?').get(id) as { p: string }).p;
+    const f = strayProcs();
+    // 登録は止めた後もしばらく残りうる。止めた後の再開がそれで外の実行と断られないこと。
+    const live = () => [{ sessionId: provider, pid: 4242 } as LiveSession];
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive, isLive: () => true, live });
+    expect(strayError(() => rm.resume(id)).body).toEqual({ code: 'stray_process', pid: 4242 });
+    expect((await rm.resumeWith(id, { stray: 'stop' })).run.kind).toBe('resume');
+    expect(f.terminated).toEqual([4242]);
+    // 登録の pid が違えば、これまでどおり外で実行中として断る。
+    const other = make({ panes: panes(), procs: strayProcs().procs, pidAlive: () => true, isLive: () => true, live: () => [{ sessionId: provider, pid: 9999 } as LiveSession] });
+    db.prepare('delete from runs').run();
+    seedEnded({ sessionId: id });
+    expect(strayError(() => other.resume(id)).body).toBeUndefined();
+    await expect(other.resumeWith(id, { stray: 'ignore' })).rejects.toMatchObject({ status: 409 });
+  });
+
   it('ignore は判定を飛ばして再開する。フォークは判定しない', async () => {
     const id = seedEnded();
     const f = strayProcs();

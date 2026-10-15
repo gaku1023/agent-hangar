@@ -482,13 +482,28 @@ export class RunManager {
    * strayCheck が真なら、終わった扱いの run の claude が動き続けているか（strayPid）も見て、残っていれば pid を添えて 409 で断る。
    * 見るのは同じ会話を続ける再開だけで、新しい会話になるフォークは見ない。
    */
-  private assertResumable(s: SessionRow, strayCheck = false): void {
+  private assertResumable(s: SessionRow, stray: 'off' | 'check' | 'ignore' = 'off'): void {
     if (!this.hasBody(s.id)) throw new RunError(400, msg('run.resume.noTranscript'));
     if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
-    if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, msg('run.error.runningOutside'));
-    if (!strayCheck) return;
+    const strayError = (pid: number) => new RunError(409, msg('run.error.strayProcess', { pid }), { code: 'stray_process', pid });
+    if (this.deps.isLive?.(s.provider_session_id)) {
+      // 登録に載っていても、その pid が終わった扱いの run の claude なら、hangar の外ではなく見失った自分の claude である（issue #258 の場面そのもの）。
+      // 止めた後も登録はしばらく残りうるので、ignore（止めた後の再開も含む）はそれで断らない。
+      if (stray === 'off' || !this.ownLive(s)) throw new RunError(409, msg('run.error.runningOutside'));
+      if (stray === 'ignore') return;
+      const pid = this.strayPid(s);
+      throw pid === null ? new RunError(409, msg('run.error.runningOutside')) : strayError(pid);
+    }
+    if (stray !== 'check') return;
     const pid = this.strayPid(s);
-    if (pid !== null) throw new RunError(409, msg('run.error.strayProcess', { pid }), { code: 'stray_process', pid });
+    if (pid !== null) throw strayError(pid);
+  }
+
+  /** 登録に載っているそのセッションの claude が、この端末の最も新しい終わった扱い（exited か lost）の run の claude（pid が同じ）か。 */
+  private ownLive(s: SessionRow): boolean {
+    const r = latestRunForSession(this.db, s.id, this.deviceId);
+    if (!r || r.endedAt === null || (r.endReason !== 'exited' && r.endReason !== 'lost') || r.pid === null) return false;
+    return (this.deps.live?.() ?? []).some((l) => l.sessionId === s.provider_session_id && l.pid === r.pid);
   }
 
   /**
@@ -517,10 +532,10 @@ export class RunManager {
   async resumeWith(sessionId: string, o: { stray?: ResumeStray } = {}): Promise<LaunchResult> {
     if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray });
     const s = this.session(sessionId);
-    this.assertResumable(s);
+    this.assertResumable(s, 'ignore');
     const pid = this.strayPid(s);
     if (pid !== null && !(await this.procs().terminate(pid, TERMINATE_MS))) throw new RunError(409, msg('run.error.strayNotStopped', { pid }));
-    return this.resume(sessionId);
+    return this.resume(sessionId, { stray: 'ignore' });
   }
 
   /**
@@ -531,7 +546,7 @@ export class RunManager {
    */
   resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string; stray?: 'ignore' } = {}): LaunchResult {
     const s = this.session(sessionId);
-    this.assertResumable(s, extra.stray !== 'ignore');
+    this.assertResumable(s, extra.stray === 'ignore' ? 'ignore' : 'check');
     const cwd = this.cwdFor(s);
     const account = extra.account !== undefined ? this.accounts.resolve(extra.account) : this.accounts.lastUsed(s.id);
     const bin = this.claudeBin();
