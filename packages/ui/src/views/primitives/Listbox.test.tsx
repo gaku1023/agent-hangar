@@ -16,7 +16,7 @@ const face = () => screen.getByRole('button', { name: 'プロジェクト' });
 describe('Listbox の顔', () => {
   it('何も選んでいなければ置き文字、選べば名前を描く', () => {
     const { rerender } = render(<Listbox label="プロジェクト" value={null} options={few} onChange={() => {}} />);
-    expect(face()).toHaveTextContent('選んでください');
+    expect(face()).toHaveTextContent('選択してください');
     expect(face()).toHaveAttribute('aria-haspopup', 'listbox');
     expect(face()).toHaveAttribute('aria-expanded', 'false');
     rerender(<Listbox label="プロジェクト" value="b" options={few} onChange={() => {}} showSubInFace />);
@@ -266,15 +266,15 @@ describe('Listbox の操作', () => {
     const onChange = vi.fn();
     const onAction = vi.fn();
     render(<Listbox label="場所" value={null} options={[...rows, { value: 'u', label: 'url-short', searchOnly: true, tag: '未登録' }]} onChange={onChange}
-      actions={(q) => [{ value: 'new', label: q ? `「${q}」を新しいフォルダとして作る` : '新しいフォルダを作る…', icon: 'folderPlus' }]} onAction={onAction} />);
+      actions={(q) => [{ value: 'new', label: q ? `「${q}」を作成` : '新しいディレクトリを作成…', icon: 'folderPlus' }]} onAction={onAction} />);
     fireEvent.click(screen.getByRole('button', { name: '場所' }));
     return { onChange, onAction };
   };
   it('下端に操作を出し、語に合わせて名前を変える', () => {
     setup();
-    expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '新しいディレクトリを作成…' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
-    expect(screen.getByRole('option', { name: '「zzz」を新しいフォルダとして作る' })).toHaveAttribute('data-active', 'true');
+    expect(screen.getByRole('option', { name: '「zzz」を作成' })).toHaveAttribute('data-active', 'true');
   });
   it('一致する行が無ければ Enter で最初の操作を選び、onChange は呼ばない', () => {
     const { onChange, onAction } = setup();
@@ -298,16 +298,16 @@ describe('Listbox の操作', () => {
   });
   it('操作は listbox の中にあり、操作に印があるときは combobox の aria-activedescendant が指す', () => {
     setup();
-    expect(within(screen.getByRole('listbox')).getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    expect(within(screen.getByRole('listbox')).getByRole('option', { name: '新しいディレクトリを作成…' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
-    const active = within(screen.getByRole('listbox')).getByRole('option', { name: '「zzz」を新しいフォルダとして作る' });
+    const active = within(screen.getByRole('listbox')).getByRole('option', { name: '「zzz」を作成' });
     expect(active).toHaveAttribute('data-active', 'true');
     expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', active.id);
     expect(screen.getByRole('combobox')).toHaveAttribute('aria-controls', screen.getByRole('listbox').id);
   });
   it('操作をクリックすると onAction を呼んで閉じる', () => {
     const { onChange, onAction } = setup();
-    fireEvent.click(screen.getByRole('option', { name: '新しいフォルダを作る…' }));
+    fireEvent.click(screen.getByRole('option', { name: '新しいディレクトリを作成…' }));
     expect(onAction).toHaveBeenCalledWith('new', '');
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByRole('listbox')).toBeNull();

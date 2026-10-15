@@ -74,7 +74,7 @@ describe('本文の中の検索の欄（S1）', () => {
     expect(screen.getByRole('button', { name: '前の一致（⇧⏎）' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '次の一致（⏎）' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '大文字と小文字を区別' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: '閉じる（esc）' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '閉じる（Esc）' })).toBeInTheDocument();
   });
   it('打つと語と見ていた行を覚え、⏎ で次、⇧⏎ で前、esc で閉じる。Mediator には検索のことを送らない', () => {
     const t = draw(items, findOf(items, ''));

@@ -19,7 +19,7 @@ function mount(node: React.ReactNode) {
   return { onAction, background };
 }
 
-const chip = (p: Partial<GitChipProps> = {}): GitChipProps => ({ kind: 'ok', worktree: false, name: 'fix-login', title: 'fix-login', value: '未コミット 7', count: 7, dirty: true, shared: 2, sharedTitle: '同じ作業ツリーで実行中のセッションがほかに 1 本あります', label: 'ブランチ fix-login、未コミット 7', ...p });
+const chip = (p: Partial<GitChipProps> = {}): GitChipProps => ({ kind: 'ok', worktree: false, name: 'fix-login', title: 'fix-login', value: '未コミット 7', count: 7, dirty: true, shared: 2, sharedTitle: '同じ作業ツリーで実行中のセッションがほかに 1 件あります', label: 'ブランチ fix-login、未コミット 7', ...p });
 
 const files = presentGitFiles(ja, {
   state: 'ok', root: '/w', tree: null,
@@ -32,7 +32,7 @@ describe('GitChip', () => {
     mount(<GitChip id="c1" chip={chip()} />);
     expect(screen.getByText('ブランチ fix-login、未コミット 7')).toHaveClass('sr-only');
     expect(screen.getByText('fix-login')).toBeInTheDocument();
-    expect(screen.getByText('共有 2')).toHaveAttribute('title', '同じ作業ツリーで実行中のセッションがほかに 1 本あります');
+    expect(screen.getByText('共有 2')).toHaveAttribute('title', '同じ作業ツリーで実行中のセッションがほかに 1 件あります');
   });
   it('worktree は小札を添える', () => {
     mount(<GitChip id="c2" chip={chip({ worktree: true, name: 'pay', shared: null, sharedTitle: null })} />);
@@ -49,7 +49,7 @@ describe('GitFileList', () => {
     expect(screen.queryByText('x.json')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'ほかに作業ツリーで変わったファイル 1 件' }));
     expect(screen.getByText('x.json')).toBeInTheDocument();
-    expect(screen.getByText(/このセッションとは限りません/)).toBeInTheDocument();
+    expect(screen.getByText(/このセッションの変更とは限りません/)).toBeInTheDocument();
   });
 });
 
@@ -81,7 +81,7 @@ describe('DiffDialog', () => {
   it('git でなければ切り替えを出さず、このセッションの編集だけと言う', () => {
     mount(<DiffDialog {...props({ canGit: false, source: 'session', body: { kind: 'note', text: 'このファイルへの編集はトランスクリプトにありません。', line: 1 } })} />);
     expect(screen.queryByRole('radio', { name: '作業ツリーとの差（git）' })).toBeNull();
-    expect(screen.getByText('git の作業ツリーの外なので、このセッションの編集だけを表示します。')).toBeInTheDocument();
+    expect(screen.getByText('git の作業ツリーの外のため、このセッションの編集だけを表示します。')).toBeInTheDocument();
   });
 });
 

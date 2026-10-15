@@ -45,7 +45,7 @@ describe('冒頭の 1 枚の 1 行目', () => {
   });
   it('区切りを付けたので止めたときは、終了の代わりにその知らせを出す', () => {
     const c = present({ session: session({ stoppedByStatus: true, state: state({ status: 'paused' }) }) });
-    expect(c.stopped).toBe('Paused にしたので停止しました。再開で続けられます');
+    expect(c.stopped).toBe('Paused にしたため停止しました。再開すると続けられます');
     expect(c.ended).toBeNull();
     expect(present({ session: session({ stoppedByStatus: true, state: state({ status: 'done' }) }) }, en).stopped).toBe('Stopped because it was marked Done. Resume to continue');
   });
@@ -94,7 +94,7 @@ describe('冒頭の 1 枚の要約', () => {
     expect(present({ session: session({ summary: summary({ source: 'post_hoc' }) }) }).summary).not.toBeNull();
   });
   it('作成中と失敗は、要約の上の注記にする。失敗の理由は title で読める', () => {
-    expect(present({ summaryPending: true }).notice).toEqual({ kind: 'pending', text: '要約を作成しています', title: null });
+    expect(present({ summaryPending: true }).notice).toEqual({ kind: 'pending', text: '要約を作成中…', title: null });
     expect(present({ summaryError: 'LM Studio に届かない' }).notice).toEqual({ kind: 'failed', text: '要約を作成できませんでした', title: 'LM Studio に届かない' });
     expect(present({ summaryPending: true, summaryError: 'x' }).notice?.kind).toBe('pending');
     expect(present().notice).toBeNull();
@@ -121,7 +121,7 @@ describe('冒頭の 1 枚の札（変更したファイル、アーティファ�
     ]);
     // 数の分からない行は、編集の回数で添える。窓にある分だけの数であることも言う。
     expect(c.rows[1]!.edits).toBe('1 回');
-    expect(c.note).toBe('足した行と消した行は、読み込んだ分だけ出ています');
+    expect(c.note).toBe('追加した行と削除した行は、読み込んだ分だけ表示しています');
     expect(c.rows[0]!.openLabel).toBe('/w/web-shop/src/a.ts を VS Code で開く');
   });
   it('Windows のパスでも、作業ディレクトリからの相対の場所と名前に分ける', () => {
@@ -168,7 +168,7 @@ describe('見出しの名前の横の札（ロックと、トランスクリプ�
     expect(presentSessionBadges(session({ lock: lock(true) }), NOW, en)).toEqual([{ kind: 'stale', label: 'office-pc is not responding', title: 'Last seen 5 min ago' }]);
   });
   it('トランスクリプトが他の PC にあるときは、ロックと同じ扱いの札を出す。両方あれば、ロック、トランスクリプトの順', () => {
-    expect(presentSessionBadges(session({ remoteOnly: true }), NOW, ja)).toEqual([{ kind: 'remote', label: 'トランスクリプトはほかの PC にあります', title: null }]);
+    expect(presentSessionBadges(session({ remoteOnly: true }), NOW, ja)).toEqual([{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]);
     expect(presentSessionBadges(session({ remoteOnly: true, lock: lock(false) }), NOW, ja).map((b) => b.kind)).toEqual(['lock', 'remote']);
   });
   it('どちらも無ければ札は出さない', () => {

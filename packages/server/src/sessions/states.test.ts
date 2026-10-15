@@ -68,7 +68,7 @@ describe('会話で選ぶ・手で選ぶ', () => {
     expect(setSessionState(db, 'd', 's1', { status: 'paused', note: '', returnOn: '2026-10-02', setBy: 'user', now: 3 })).toEqual({ status: 'paused', note: null, returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: 3, candidate: null });
     expect(setSessionState(db, 'd', 's1', { status: 'paused', setBy: 'user', now: 4 })).toEqual({ status: 'paused', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: 4, candidate: null });
     // 時刻だけでは戻る時点にならない。
-    expect(() => setSessionState(db, 'd', 's1', { status: 'paused', returnTime: '13:30', setBy: 'user' })).toThrow(new StateInputError('リマインダーの時刻は、日付と一緒に渡してください'));
+    expect(() => setSessionState(db, 'd', 's1', { status: 'paused', returnTime: '13:30', setBy: 'user' })).toThrow(new StateInputError('リマインダーの時刻は日付と一緒に指定してください'));
   });
   it('Active に戻す：状態・理由・戻る日・提案を消し、rejected_at は残す', () => {
     const db = seed();
@@ -207,7 +207,7 @@ describe('検査と読み方', () => {
   it('requireNote を立てた確定は、根拠が空なら何も書かずに誤りにする。省けば今までどおり', () => {
     const db = seed();
     for (const note of [undefined, null, '', '   ']) {
-      expect(() => setSessionState(db, 'd', 's1', { status: 'done', note, setBy: 'conversation', requireNote: true }), String(note)).toThrow(new StateInputError('根拠の一文が空です'));
+      expect(() => setSessionState(db, 'd', 's1', { status: 'done', note, setBy: 'conversation', requireNote: true }), String(note)).toThrow(new StateInputError('理由が空です'));
     }
     expect(lastSeq(db)).toBeNull();
     expect(setSessionState(db, 'd', 's1', { status: 'done', note: '済', setBy: 'conversation', requireNote: true }).note).toBe('済');
@@ -215,15 +215,15 @@ describe('検査と読み方', () => {
   });
   it('Done の戻る日は捨てるが、形は先に検査する', () => {
     const db = seed();
-    expect(() => setSessionState(db, 'd', 's1', { status: 'done', note: 'n', returnOn: 'garbage', setBy: 'user' })).toThrow(new StateInputError('リマインダーの日付は YYYY-MM-DD の形の、暦にある日付です'));
+    expect(() => setSessionState(db, 'd', 's1', { status: 'done', note: 'n', returnOn: 'garbage', setBy: 'user' })).toThrow(new StateInputError('リマインダーの日付は YYYY-MM-DD 形式の、実在する日付で指定してください'));
     expect(() => proposeSessionState(db, 'd', 's1', { status: 'done', note: 'n', returnOn: '2026-02-30', source: 'in_session' })).toThrow(StateInputError);
     expect(lastSeq(db)).toBeNull();
     expect(setSessionState(db, 'd', 's1', { status: 'done', note: 'n', returnOn: '2026-10-02', setBy: 'user' }).returnOn).toBeNull();
   });
   it('提案の根拠は 1 字以上が要る。戻る日は暦にある日だけ。どれも何も書かない', () => {
     const db = seed();
-    expect(() => proposeSessionState(db, 'd', 's1', { ...paused, note: '   ' })).toThrow(new StateInputError('根拠の一文が空です'));
-    expect(() => proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2026-02-30' })).toThrow(new StateInputError('リマインダーの日付は YYYY-MM-DD の形の、暦にある日付です'));
+    expect(() => proposeSessionState(db, 'd', 's1', { ...paused, note: '   ' })).toThrow(new StateInputError('理由が空です'));
+    expect(() => proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2026-02-30' })).toThrow(new StateInputError('リマインダーの日付は YYYY-MM-DD 形式の、実在する日付で指定してください'));
     expect(lastSeq(db)).toBeNull();
   });
   it('日付なしの Paused も提案でき、確定すると日付なしの Paused になる', () => {
@@ -269,7 +269,7 @@ describe('戻る時刻', () => {
   it('00:00〜23:59 の外や形の違う時刻は、何が悪いかを言って何も書かない', () => {
     const db = seed();
     for (const t of ['25:00', '24:00', '12:60', '9:05', '13時半']) {
-      expect(() => setSessionState(db, 'd', 's1', { status: 'paused', returnOn: '2026-10-05', returnTime: t, setBy: 'user' }), t).toThrow(new StateInputError(`リマインダーの時刻は HH:MM の形で、00:00〜23:59 です（${t}）`));
+      expect(() => setSessionState(db, 'd', 's1', { status: 'paused', returnOn: '2026-10-05', returnTime: t, setBy: 'user' }), t).toThrow(new StateInputError(`リマインダーの時刻は HH:MM 形式の 00:00〜23:59 で指定してください（${t}）`));
     }
     expect(getSessionState(db, 's1')).toBeNull();
   });

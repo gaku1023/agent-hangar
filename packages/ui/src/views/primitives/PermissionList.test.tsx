@@ -11,7 +11,7 @@ const labels = () => within(list()).getAllByRole('option').map((o) => o.textCont
 describe('PermissionList（権限モードの縦の一覧）', () => {
   it('既定、Plan、Manual、Accept edits、Auto、Don\'t ask、Bypass permissions の順に並べる', () => {
     render(<PermissionList value="" onChange={() => {}} />);
-    expect(labels()).toEqual(['既定', 'Plan', 'Manual', 'Accept edits', 'Auto', "Don't ask", 'Bypass permissions']);
+    expect(labels()).toEqual(['デフォルト', 'Plan', 'Manual', 'Accept edits', 'Auto', "Don't ask", 'Bypass permissions']);
     expect(PERMISSION_MODES.map((m) => m.value)).toEqual(['', 'plan', 'manual', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions']);
   });
   it('権限モードの名前は English では訳さず、既定だけが言語で替わる', () => {
@@ -48,7 +48,7 @@ describe('PermissionList（権限モードの縦の一覧）', () => {
     render(<PermissionList value="" onChange={onChange} />);
     fireEvent.click(screen.getByRole('option', { name: 'Auto' }));
     fireEvent.click(screen.getByRole('option', { name: /Bypass permissions/ }));
-    fireEvent.click(screen.getByRole('option', { name: '既定' }));
+    fireEvent.click(screen.getByRole('option', { name: 'デフォルト' }));
     expect(onChange.mock.calls).toEqual([['auto'], ['bypassPermissions'], ['']]);
   });
   it('↑ ↓ で印を動かし、Enter で選ぶ。動かしただけでは選ばない。端では止まる', () => {
@@ -70,9 +70,9 @@ describe('PermissionList（権限モードの縦の一覧）', () => {
     // 端で止まる（回らない）。
     fireEvent.keyDown(box, { key: 'ArrowUp' });
     fireEvent.keyDown(box, { key: 'ArrowUp' });
-    expect(active()).toBe('既定');
+    expect(active()).toBe('デフォルト');
     fireEvent.keyDown(box, { key: 'ArrowUp' });
-    expect(active()).toBe('既定');
+    expect(active()).toBe('デフォルト');
   });
   it('Home と End で端へ、Space でも選べる。End は Bypass permissions で、赤い行に印が移る', () => {
     const onChange = vi.fn();
@@ -83,7 +83,7 @@ describe('PermissionList（権限モードの縦の一覧）', () => {
     fireEvent.keyDown(box, { key: ' ' });
     expect(onChange).toHaveBeenLastCalledWith('bypassPermissions');
     fireEvent.keyDown(box, { key: 'Home' });
-    expect(box.querySelector('[data-active="true"]')?.textContent).toBe('既定');
+    expect(box.querySelector('[data-active="true"]')?.textContent).toBe('デフォルト');
   });
   it('Enter と Space は外へ伝えない（起動のダイアログが Enter で起動しないため）', () => {
     const outer = vi.fn();
@@ -103,7 +103,7 @@ describe('PermissionList（権限モードの縦の一覧）', () => {
     render(<Host />);
     fireEvent.click(screen.getByRole('option', { name: "Don't ask" }));
     expect(screen.getByRole('option', { name: "Don't ask" })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('option', { name: '既定' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('option', { name: 'デフォルト' })).toHaveAttribute('aria-selected', 'false');
   });
   it('開いたときに焦点を受けられるよう、data-autofocus を持ち、Tab で入れる', () => {
     render(<PermissionList value="" onChange={() => {}} />);

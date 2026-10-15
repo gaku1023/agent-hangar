@@ -191,7 +191,7 @@ describe('routes', () => {
       expect(notice).toContain('hangar start');
       // 起動した後に URL を見直す道も案内する。案内にトークンそのものは出さない。
       expect(notice).toContain('hangar url');
-      expect(notice).toContain('ターミナルで <code>hangar url</code> を実行すれば');
+      expect(notice).toContain('ターミナルで <code>hangar url</code> を実行すると');
       // 鍵が違うときも同じ扱いにする。
       const wrong = await ui.request('/?t=nope');
       expect(wrong.status).toBe(401);
@@ -255,7 +255,7 @@ describe('失敗の理由', () => {
     expect(await reason(await patch(`/api/projects/${id}`, { status: 'bogus' }))).toBe('ステータスは active、paused、done、archived のいずれかです');
     expect(await reason(await patch('/api/projects/nope', { status: 'done' }))).toBe('プロジェクトが見つかりません');
     expect(await reason(await post(`/api/projects/${id}/resolve`, { kind: 'bogus' }))).toBe('操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください');
-    expect(await reason(await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: `${ws}/nowhere` }))).toBe('指定したディレクトリが見つかりません。存在するディレクトリを選び直してください');
+    expect(await reason(await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: `${ws}/nowhere` }))).toBe('指定したディレクトリが見つかりません。存在するディレクトリを選択し直してください');
     expect(await reason(await post('/api/projects/nope/resolve', { kind: 'archive' }))).toBe('プロジェクトが見つかりません');
     expect(await reason(await get('/api/sessions/nope'))).toBe('セッションが見つかりません');
     expect(await reason(await patch('/api/settings', { token: 'stolen' }))).toBe('更新できる設定が含まれていません');
@@ -264,7 +264,7 @@ describe('失敗の理由', () => {
   it('認証が通らない失敗は日本語で、Origin の拒否は機械向けの語を残す', async () => {
     // クッキーは UI の HTML を配る経路で発行するので、トークンが変わった後に
     // 開きっぱなしのタブが API を叩くと 401 になり、この文がそのままトーストに出る。
-    expect(await reason(await get('/api/bootstrap', {}))).toBe('認証が切れました。ページを再読み込みしてください');
+    expect(await reason(await get('/api/bootstrap', {}))).toBe('認証の有効期限が切れました。ページを再読み込みしてください');
     // Origin の拒否は別サイトからの要求を入口で断る応答で、利用者の画面には届かない。
     expect(await reason(await get('/api/bootstrap', { ...H, origin: 'https://evil.example' }))).toBe('origin not allowed');
   });
@@ -382,7 +382,7 @@ describe('言語', () => {
       expect(html).toContain('<code>hangar url</code>');
       const ja = await (await createApp({ ...deps, uiDist: dist }).request('/')).text();
       expect(ja).toContain('<html lang="ja">');
-      expect(ja).toContain('<p><code>hangar start</code> が印字した鍵付きの URL から開いてください。</p>');
+      expect(ja).toContain('<p><code>hangar start</code> が出力したトークン付きの URL から開いてください。</p>');
     } finally {
       fs.rmSync(dist, { recursive: true, force: true });
     }

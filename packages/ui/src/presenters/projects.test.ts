@@ -195,10 +195,10 @@ describe('presentProjects のリマインダー（セッションのいちばん
 describe('presentProjects の 1 行', () => {
   const row = (store: Store) => present(store).sections[0]!.rows[0]!;
   it('セッションの数は、そのプロジェクトのセッションを全部数える（終わったものも）', () => {
-    expect(row(storeWith())).toMatchObject({ sessionCount: 2, sessionsText: '2 本' });
+    expect(row(storeWith())).toMatchObject({ sessionCount: 2, sessionsText: '2 件' });
     const store = storeWith();
     store.sessions = {};
-    expect(row(store)).toMatchObject({ sessionCount: 0, sessionsText: '0 本' });
+    expect(row(store)).toMatchObject({ sessionCount: 0, sessionsText: '0 件' });
   });
   it('最後の活動は相対の時刻、活動が無ければ「不明」', () => {
     expect(row(storeWith()).lastActivity).toBe('1 時間前');

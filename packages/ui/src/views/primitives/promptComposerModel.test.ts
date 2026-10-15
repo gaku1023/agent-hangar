@@ -46,7 +46,7 @@ describe('arrangeCommands', () => {
   it('打つ前は、よく使う 5 つを先頭に、このプロジェクト、自分の、プラグイン、組み込みの順の群にする', () => {
     const s = arrangeCommands(ja, all, '');
     // 組み込みの init と review は「よく使う」に入ったので、組み込みの群は空になり、出ない。
-    expect(s.map((x) => x.title)).toEqual(['よく使う', 'このプロジェクト', '自分の', 'プラグイン']);
+    expect(s.map((x) => x.title)).toEqual(['よく使う', 'このプロジェクト', 'ユーザー', 'プラグイン']);
     expect(s[0]!.items.map((c) => c.name)).toEqual(['find-session', 'goal', 'toggle', 'review', 'init']);
     expect(s[2]!.items.map((c) => c.name)).toEqual(['alpha', 'playwright', 'grill']);
   });
@@ -55,7 +55,7 @@ describe('arrangeCommands', () => {
   });
   it('回数が 0 のものは、よく使うに入れない。空の群は出さない', () => {
     const s = arrangeCommands(ja, [cmd('a'), cmd('b', 'builtin')], '');
-    expect(s.map((x) => x.title)).toEqual(['自分の', '組み込み']);
+    expect(s.map((x) => x.title)).toEqual(['ユーザー', '組み込み']);
   });
   it('打ったら群を解き、名前の頭、名前の途中、説明の順に並べ、同じなら回数の多い順にする', () => {
     const list = [cmd('code-review', 'builtin', 0), cmd('review', 'builtin', 5), cmd('rewind', 'user', 9), cmd('x', 'user', 0, 'review を助ける')];

@@ -109,7 +109,7 @@ describe('設定の同期の経路（作り直した実装）', () => {
     expect(r.body.items[0]).toMatchObject({ id, allowed: true });
     expect(cloud.files.size).toBe(1);
     const missing = await json(await send('POST', '/api/config-sync/unsent/nope/send'));
-    expect(missing).toEqual({ status: 404, body: { error: '送らなかった項目「nope」が見つかりません' } });
+    expect(missing).toEqual({ status: 404, body: { error: '未送信の項目「nope」が見つかりません' } });
   });
 
   it('届いた変更の一覧と、競合の差分と、バックアップの世代', async () => {
@@ -153,7 +153,7 @@ describe('設定の同期の経路（作り直した実装）', () => {
     write(peer.claudeDir, 'CLAUDE.md', 'rules');
     await peerSends();
     const put = async (body: unknown) => json(await send('PUT', '/api/config-sync/apply-order', body));
-    expect(await put({ items: [{ id: 'file:nothing.md' }] })).toEqual({ status: 404, body: { error: '「file:nothing.md」は、届いている変更にありません' } });
+    expect(await put({ items: [{ id: 'file:nothing.md' }] })).toEqual({ status: 404, body: { error: '「file:nothing.md」は受信した変更にありません' } });
     expect((await put({ items: [] })).status).toBe(400);
     expect((await put({})).status).toBe(400);
     expect((await put({ items: 'x' })).status).toBe(400);

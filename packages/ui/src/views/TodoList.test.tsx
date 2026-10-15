@@ -17,7 +17,7 @@ const row = (text: string) => screen.getByText(text).closest('li') as HTMLElemen
 describe('TodoList', () => {
   it('末尾の「TODO を足す」を押すと入力欄になり、Enter で足して欄に残る。Esc で抜ける', () => {
     const { onAction } = list({ todos: [item('t1', '買う')] });
-    fireEvent.click(screen.getByRole('button', { name: 'TODO を足す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'TODO を追加' }));
     const input = screen.getByLabelText('TODO を追加');
     expect(input.getAttribute('id')).toBe('todo-input');
     fireEvent.change(input, { target: { value: '書く' } });
@@ -30,7 +30,7 @@ describe('TodoList', () => {
 
   it('空の入力と、日本語の変換中の Enter では足さない', () => {
     const { onAction } = list();
-    fireEvent.click(screen.getByRole('button', { name: 'TODO を足す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'TODO を追加' }));
     const input = screen.getByLabelText('TODO を追加');
     fireEvent.keyDown(input, { key: 'Enter' });
     fireEvent.change(input, { target: { value: 'かう' } });
@@ -80,18 +80,18 @@ describe('TodoList', () => {
   it('ダブルクリックで直す。Enter で確定、Esc で戻す、空にして確定すると消す', () => {
     const { onAction } = list({ todos: [item('t1', '買う')] });
     fireEvent.doubleClick(screen.getByText('買う'));
-    let box = screen.getByLabelText('買う（1 件目）を直す');
+    let box = screen.getByLabelText('買う（1 件目） を編集');
     fireEvent.change(box, { target: { value: '牛乳を買う' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(onAction).toHaveBeenCalledWith({ type: 'todo.edit', id: 't1', text: '牛乳を買う' });
     // サーバの知らせが届くまでは、直した文言を出しておく。
     fireEvent.doubleClick(screen.getByText('牛乳を買う'));
-    box = screen.getByLabelText(/を直す/);
+    box = screen.getByLabelText(/ を編集/);
     fireEvent.change(box, { target: { value: 'ちがう' } });
     fireEvent.keyDown(box, { key: 'Escape' });
     expect(onAction).toHaveBeenCalledTimes(1);
     fireEvent.doubleClick(screen.getByText('牛乳を買う'));
-    box = screen.getByLabelText(/を直す/);
+    box = screen.getByLabelText(/ を編集/);
     fireEvent.change(box, { target: { value: '  ' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.remove', id: 't1' });
@@ -100,7 +100,7 @@ describe('TodoList', () => {
   it('変換中の Enter では確定しない', () => {
     const { onAction } = list({ todos: [item('t1', '買う')] });
     fireEvent.doubleClick(screen.getByText('買う'));
-    const box = screen.getByLabelText('買う（1 件目）を直す');
+    const box = screen.getByLabelText('買う（1 件目） を編集');
     fireEvent.change(box, { target: { value: 'かう' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
     expect(onAction).not.toHaveBeenCalled();
@@ -108,23 +108,23 @@ describe('TodoList', () => {
 
   it('消すと、その場に「元に戻す」の帯が出て、押すとその TODO の削除を戻す', () => {
     const { onAction, rerender } = list({ todos: [item('t1', '買う'), item('t2', '書く', { position: 2 })] });
-    fireEvent.click(screen.getByRole('button', { name: '買う（1 件目）を削除' }));
+    fireEvent.click(screen.getByRole('button', { name: '買う（1 件目） を削除' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'todo.remove', id: 't1' });
     rerender({ todos: [item('t2', '書く', { position: 2 })] });
-    expect(screen.getByText('「買う」を消しました')).toBeTruthy();
+    expect(screen.getByText('「買う」を削除しました')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '「買う」を元に戻す' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.undo', projectId: 'p1', todoId: 't1' });
-    expect(screen.queryByText('「買う」を消しました')).toBeNull();
+    expect(screen.queryByText('「買う」 を削除しました')).toBeNull();
   });
 
   it('消した帯は、しばらくすると畳む', () => {
     vi.useFakeTimers();
     try {
       const { rerender } = list({ todos: [item('t1', '買う')] });
-      fireEvent.click(screen.getByRole('button', { name: '買う（1 件目）を削除' }));
+      fireEvent.click(screen.getByRole('button', { name: '買う（1 件目） を削除' }));
       rerender({ todos: [] });
       act(() => { vi.advanceTimersByTime(7000); });
-      expect(screen.queryByText('「買う」を消しました')).toBeNull();
+      expect(screen.queryByText('「買う」 を削除しました')).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -156,7 +156,7 @@ describe('TodoList', () => {
     fireEvent.keyDown(row('い'), { key: 'z', metaKey: true });
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.undo', projectId: 'p1' });
     fireEvent.keyDown(row('い'), { key: 'Enter' });
-    fireEvent.keyDown(screen.getByLabelText('い（3 件目）を直す'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('い（3 件目） を編集'), { key: 'Escape' });
     fireEvent.keyDown(row('い'), { key: ' ' });
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.toggle', id: 'b' });
     // 完了にした行は動かさない（並べ替えるのは未完だけ）。
@@ -178,19 +178,19 @@ describe('TodoList', () => {
     const cand = { note: '直して確かめた', sessionId: 's1', sessionName: '起動画面の作り直し', ago: '12 分前' };
     const { onAction } = list({ todos: [item('t1', '窓を掴める', { candidate: cand }), item('t2', '影の値', { position: 2, candidate: { ...cand, sessionId: null, sessionName: '不明なセッション' } })] });
     expect(screen.queryByText('直して確かめた')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目）の完了の提案' }));
+    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目） の完了の提案' }));
     expect(screen.getByText('直して確かめた')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '起動画面の作り直し' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.open', id: 's1' });
-    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目）を却下' }));
+    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目） を却下' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't1' });
     // 却下すると中身は閉じる。開き直して確定する。
     expect(screen.queryByText('直して確かめた')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目）の完了の提案' }));
-    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目）を確定' }));
+    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目） の完了の提案' }));
+    fireEvent.click(screen.getByRole('button', { name: '窓を掴める（1 件目） を確定' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't1' });
     // 開けないセッションは押せる形にしない。
-    fireEvent.click(screen.getByRole('button', { name: '影の値（2 件目）の完了の提案' }));
+    fireEvent.click(screen.getByRole('button', { name: '影の値（2 件目） の完了の提案' }));
     expect(screen.queryByRole('button', { name: '不明なセッション' })).toBeNull();
     expect(screen.getByText('不明なセッション')).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: '影の値（2 件目、完了の候補）' }));
@@ -209,9 +209,9 @@ describe('TodoList', () => {
     const { onAction } = list({ todos: [item('t1', '買う')], suggestions: [sugg('s1', '計測を CI で回す'), sugg('s2', '英語版も直す', { sessionId: null, sessionName: '不明なセッション' })] });
     const sec = screen.getByRole('group', { name: /Claude の提案/ });
     expect(sec.textContent).toContain('2');
-    fireEvent.click(screen.getByRole('button', { name: '計測を CI で回す（1 件目）を受け入れる' }));
+    fireEvent.click(screen.getByRole('button', { name: '計測を CI で回す（1 件目） を受け入れる' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.accept', id: 's1' });
-    fireEvent.click(screen.getByRole('button', { name: '英語版も直す（2 件目）を見送る' }));
+    fireEvent.click(screen.getByRole('button', { name: '英語版も直す（2 件目） を見送る' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.dismiss', id: 's2' });
     fireEvent.click(screen.getByRole('button', { name: 'すべて受け入れ' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'todo.accept', id: 's2' });

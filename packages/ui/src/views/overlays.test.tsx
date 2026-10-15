@@ -141,7 +141,7 @@ describe('CommandPalette', () => {
 
   it('下に打鍵の案内を出し、トランスクリプトはホームの欄で探すと添える', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></ActionRoot>);
-    expect(container.querySelector('.palette-foot')).toHaveTextContent('↑↓ 選択↵ 開くesc 閉じるトランスクリプトはホームの欄で');
+    expect(container.querySelector('.palette-foot')).toHaveTextContent('↑↓ 選択↵ 開くesc 閉じるトランスクリプトはホームで検索');
     expect(screen.getByPlaceholderText('セッションへ移動、または操作を実行')).toBeInTheDocument();
   });
 
@@ -225,7 +225,7 @@ describe('PromoteDialog', () => {
     const { rerender } = render(<ActionRoot onAction={onAction}><PromoteDialog {...p} place={{ workspaceRoot: '', desktop: true, picked: null }} /></ActionRoot>);
     fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'newp' } });
     expect(screen.getByRole('button', { name: '昇格' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、作成場所' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択…、作成先' }));
     rerender(<ActionRoot onAction={onAction}><PromoteDialog {...p} place={{ workspaceRoot: '', desktop: true, picked: { path: '/Users/me/src', n: 1 } }} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '昇格' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: true, moveFiles: true, parent: '/Users/me/src' });
@@ -233,7 +233,7 @@ describe('PromoteDialog', () => {
   it('run が生きているとファイルを移動できない', () => {
     render(<ActionRoot onAction={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive submitting={false} error={null} /></ActionRoot>);
     expect(screen.getByLabelText('ファイルを移動')).toBeDisabled();
-    expect(screen.getByText('実行中のセッションがあるので、ファイルは移動しません')).toBeTruthy();
+    expect(screen.getByText('実行中のセッションがあるため、ファイルは移動しません')).toBeTruthy();
   });
 
   it('run が生きているときは moveFiles を偽にして送る', () => {
@@ -261,8 +261,8 @@ describe('PromoteDialog', () => {
 
   it('2 つの選択は、何が起きるかを添えたカードで並ぶ', () => {
     render(<ActionRoot onAction={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></ActionRoot>);
-    expect(screen.getByRole('checkbox', { name: 'git init を実行' })).toHaveAccessibleDescription('空のリポジトリを作成してから移します');
-    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAccessibleDescription('クイックセッションのファイルを新しいプロジェクトのフォルダへ移します');
+    expect(screen.getByRole('checkbox', { name: 'git init を実行' })).toHaveAccessibleDescription('空のリポジトリを作成してから移動します');
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAccessibleDescription('クイックセッションのファイルを新しいプロジェクトのディレクトリへ移動します');
     expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true']);
   });
   it('run が生きているとき、ファイルを移動するのカードは印を外して押せない', () => {
@@ -316,7 +316,7 @@ describe('ResolveProjectDialog', () => {
     expect(screen.getByText('Mac mini でのパス')).toBeInTheDocument();
     expect(screen.getByText('/o/alpha')).toBeInTheDocument();
     // 移動や改名の説明ではなく、他の PC のものだという説明を出す。
-    expect(screen.getByText(/ほかの PC のプロジェクトです/)).toBeInTheDocument();
+    expect(screen.getByText(/他の PC のプロジェクトです/)).toBeInTheDocument();
     unmount();
     render(<ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" elsewhere deviceName={null} previousPath={null} candidates={[]} onQueryCandidates={() => {}} /></ActionRoot>);
     expect(screen.getByText('前のパス')).toBeInTheDocument();
@@ -328,7 +328,7 @@ describe('PromotedDialog', () => {
   it('移動の可否と次の一手を出す', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><PromotedDialog projectId="p9" projectName="newp" moved reason={null} /></ActionRoot>);
-    expect(screen.getByText('ファイルを移しました')).toBeTruthy();
+    expect(screen.getByText('ファイルを移動しました')).toBeTruthy();
     fireEvent.click(screen.getByText('ここで新しいセッションを開始'));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p9' });
     fireEvent.click(screen.getByText('プロジェクトを開く'));

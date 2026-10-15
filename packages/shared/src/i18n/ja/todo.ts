@@ -7,7 +7,7 @@ export const todoJa: AreaDictionary<typeof todoKeys> = {
   'todo.error.emptyText': 'TODO の本文が空です',
   'todo.error.notSuggestion': 'この TODO は Claude の提案ではありません',
   'todo.error.notAccepted': 'この TODO は Claude の提案で、まだ受け入れていません',
-  'todo.error.orderMismatch': 'TODO の並びが今の一覧と合いません',
+  'todo.error.orderMismatch': 'TODO の並びが現在の一覧と一致しません',
   'todo.error.restoreMismatch': '元に戻す TODO が見つからないか、別のプロジェクトのものです',
-  'todo.error.patchEmpty': 'done か text を送ってください',
+  'todo.error.patchEmpty': 'done か text を指定してください',
 };

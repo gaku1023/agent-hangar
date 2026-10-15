@@ -90,7 +90,7 @@ describe('presentInterrupted（帯の「前回実行中」の群）', () => {
     const accounts = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!, { ...accountsFixture.accounts[1]!, auth: { ...accountsFixture.accounts[1]!.auth!, loggedIn: false } }] };
     const g = presentInterrupted(initialState(), storeOf({ accounts }), NOW)!;
     expect(g.rows.map((r) => [r.key, r.section?.key])).toEqual([['int:r-busy2', 'primary'], ['int:r-busy1', 'primary'], ['int:r-idle1', 'primary'], ['int:r-wait1', 'a1']]);
-    expect(g.rows[0]!.section).toMatchObject({ name: '会社', meter: { percent: 82, high: true }, note: { text: '使用制限に達するかもしれません', tone: 'warn' } });
+    expect(g.rows[0]!.section).toMatchObject({ name: '会社', meter: { percent: 82, high: true }, note: { text: '使用制限に近づいています', tone: 'warn' } });
     expect(g.rows[3]!.section).toMatchObject({ name: '大学', note: { text: '未ログイン', tone: 'faint' }, action: { label: 'ログイン', send: { type: 'account.login', accountId: 'a1' } } });
     expect(g.rows[3]!.actions[0]).toMatchObject({ disabled: true });
     // すべて再開は未ログインの行を飛ばす。

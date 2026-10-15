@@ -16,7 +16,7 @@ function fakeHost(platform: NodeJS.Platform, files: string[], onPath: Record<str
 describe('ターミナルとエディタへの受け渡し', () => {
   it('tmux のパスが無ければ、外のターミナルは開かずに設定の欄を案内する', () => {
     const api = createExternalApi({ home: '/nope', settings: () => ({ tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const } }) });
-    expect(() => api.openTerminal({ tmuxName: 'hangar-r1' })).toThrow('tmux が見つかりません。設定の「tmux のパス」を入力してください');
+    expect(() => api.openTerminal({ tmuxName: 'hangar-r1' })).toThrow('tmux が見つかりません。設定の「tmux のパス」にパスを入力してください');
   });
 
   it('外のターミナルは hangar の専用の tmux サーバへつなぎ、前の版のセッションは居るサーバへつなぐ', async () => {

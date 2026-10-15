@@ -63,7 +63,7 @@ describe('promoteSession', () => {
 
   it('理由は、言語を決めていない文でも返すので、経路は英語でも出せる', () => {
     const r = promoteSession(deps({ runAlive: () => true }), { sessionId: 's1', name: 'p-en', gitInit: false, moveFiles: true });
-    expect(r.reason).toBe('Claude が実行中なのでファイルは移しませんでした。終了してから手で移してください');
+    expect(r.reason).toBe('Claude が実行中のため、ファイルを移動しませんでした。終了してから手動で移動してください');
     expect(render('en', r.reasonMessage!)).toBe('Claude is running, so the files were not moved. End it, then move them by hand');
     expect(promoteSession(deps(), { sessionId: 's1', name: 'p-none', gitInit: false, moveFiles: false })).toMatchObject({ reason: null, reasonMessage: null });
   });
@@ -71,7 +71,7 @@ describe('promoteSession', () => {
   it('run が生きていれば移動せず、理由を返す。gitInit が偽なら呼ばない', () => {
     const gitInit = vi.fn();
     const r = promoteSession(deps({ runAlive: () => true, gitInit }), { sessionId: 's1', name: 'p2', gitInit: false, moveFiles: true });
-    expect(r).toMatchObject({ moved: false, reason: 'Claude が実行中なのでファイルは移しませんでした。終了してから手で移してください' });
+    expect(r).toMatchObject({ moved: false, reason: 'Claude が実行中のため、ファイルを移動しませんでした。終了してから手動で移動してください' });
     expect(gitInit).not.toHaveBeenCalled();
     expect(fs.existsSync(path.join(dir, 'a.txt'))).toBe(true);
     expect(fs.existsSync(path.join(ws, 'p2'))).toBe(true);
@@ -162,7 +162,7 @@ describe('promoteSession', () => {
     fs.symlinkSync(outside, link);
     upsertShared(db, 'sessions', { id: 's2', provider: 'claude-code', provider_session_id: 'u2', cwd: link, home_device: 'd', project_id: scratchId }, 'd');
     const r = promoteSession(deps(), { sessionId: 's2', name: 'linkproj', gitInit: false, moveFiles: true });
-    expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('クイックセッションの置き場の外') });
+    expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('クイックセッションの保存先の外') });
     expect(fs.readFileSync(path.join(outside, 'secret.txt'), 'utf8')).toBe('S');
     expect(fs.existsSync(path.join(ws, 'linkproj', 'secret.txt'))).toBe(false);
     expect(fs.existsSync(link)).toBe(true);

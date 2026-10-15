@@ -121,7 +121,7 @@ describe('SessionScreen（終わった画面）', () => {
   });
   it('セッションの情報がまだ届いていないときは読み込み中', () => {
     render(<ActionRoot onAction={() => {}}><SS {...base} loadingSession /></ActionRoot>);
-    expect(screen.getByText('セッションを読み込んでいます')).toBeInTheDocument();
+    expect(screen.getByText('セッションを読み込み中…')).toBeInTheDocument();
     expect(screen.queryByText('セッションが見つかりません')).toBeNull();
   });
 });
@@ -158,7 +158,7 @@ describe('見出しの段（A1、C1）', () => {
     expect(m.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')!.textContent)).toEqual(['ターミナルで開く', 'フォーク', '要約を再生成', '宛先をコピー', '停止']);
     // 押せない項目は理由を 1 行添える。
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
-    expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveTextContent('実行中は押せません。停止すると押せます');
+    expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveTextContent('実行中は使えません。停止すると使えます');
     fireEvent.click(m.getByRole('menuitem', { name: /ターミナルで開く/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.openTerminalApp', runId: 'r1', tabId: 'r1' });
     fireEvent.click(menu().getByRole('menuitem', { name: /要約を再生成/ }));
@@ -251,7 +251,7 @@ describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
   });
   it('(i) の行の操作（差分の一覧）を押すと、吹き出しを閉じてからダイアログを開く（ダイアログの上に吹き出しを残さない）', () => {
     const onAction = vi.fn();
-    const rows = [{ name: 'このセッションの変更', value: '1 件が未コミット', link: { label: '一覧', send: { type: 'diff.open' as const, sessionId: 's1' } } }];
+    const rows = [{ name: 'このセッションの変更', value: '1 件', link: { label: '一覧', send: { type: 'diff.open' as const, sessionId: 's1' } } }];
     render(<ActionRoot onAction={onAction}><SS {...base} details={rows} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '詳細' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: '詳細' })).getByRole('button', { name: '一覧' }));
@@ -259,12 +259,12 @@ describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
     expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
   });
   it('持ち主の違いで git が断ったときは、(i) に訳と許すコマンド（写せる）を出す', () => {
-    const rows = [{ name: 'git', value: '持ち主が違うので、読むのを断りました' }];
+    const rows = [{ name: 'git', value: '所有者が異なるため、git で読み取れません' }];
     render(<ActionRoot onAction={() => {}}><SS {...base} details={rows} gitFix="git config --global --add safe.directory /w/alpha" /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '詳細' }));
     const dialog = screen.getByRole('dialog', { name: '詳細' });
     expect(within(dialog).getByText('git config --global --add safe.directory /w/alpha')).toBeInTheDocument();
-    expect(within(dialog).getByText(/Hangar は git の設定を変えません/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/hangar は git の設定を変更しません/)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /コピー/ })).toBeInTheDocument();
   });
   it('バッジの文は presenter が組む（ロックの札と見出しの札の種類）', () => {
@@ -329,7 +329,7 @@ describe('見出しの下の 1 行、要約の札、目次（終わった画面�
     fireEvent.click(screen.getByRole('button', { name: '要約を再生成' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
     rerender(<ActionRoot onAction={onAction}><SS {...base} lead={leadOf({}, { summaryPending: true })} /></ActionRoot>);
-    expect(screen.getByText('要約を作成しています').closest('.summary-card')).not.toBeNull();
+    expect(screen.getByText('要約を作成中…').closest('.summary-card')).not.toBeNull();
     rerender(<ActionRoot onAction={onAction}><SS {...base} lead={leadOf({}, { summaryError: 'LM Studio に繋がりません' })} /></ActionRoot>);
     expect(screen.getByText('要約を作成できませんでした').closest('.summary-card')).not.toBeNull();
   });
@@ -647,16 +647,16 @@ describe('ターミナルの知らせ（F1）', () => {
     expect(within(screen.getByTestId('term-r1')).queryByText('ターミナルとの接続が切れました')).toBeNull();
     const right = within(screen.getByTestId('term-t1'));
     expect(right.getByText('ターミナルとの接続が切れました')).toBeInTheDocument();
-    expect(right.getByText(/シェルは動き続けています。5 秒後に再接続します。/)).toBeInTheDocument();
+    expect(right.getByText(/シェルは実行を続けています。5 秒後に再接続します。/)).toBeInTheDocument();
     fireEvent.click(right.getByRole('button', { name: '再接続' }));
     expect(h.reconnect).toHaveBeenCalledWith('t1');
   });
   it('目次から跳ばしている間は、Claude の枠の上端に帯と「最新へ戻る」を出す', () => {
     const onAction = withHost(<SS {...running} canSplit split={{ left: 'r1', right: 't1' }} transcriptBand={{ when: '12:09' }} />);
     const left = within(screen.getByTestId('term-r1'));
-    expect(left.getByText('transcript を表示中')).toBeInTheDocument();
-    expect(left.getByText('12:09 のターン · Claude は裏で動き続けています')).toBeInTheDocument();
-    expect(within(screen.getByTestId('term-t1')).queryByText('transcript を表示中')).toBeNull();
+    expect(left.getByText('トランスクリプト表示中')).toBeInTheDocument();
+    expect(left.getByText('12:09 のターン · Claude はバックグラウンドで実行中です')).toBeInTheDocument();
+    expect(within(screen.getByTestId('term-t1')).queryByText('トランスクリプト表示中')).toBeNull();
     fireEvent.click(left.getByRole('button', { name: /最新へ移動/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
   });
@@ -720,7 +720,7 @@ describe('フェーズ 4 のセッション画面', () => {
     render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} canFork={false} lock={lock} badges={[{ kind: 'lock', label: 'mini で実行中', title: '最終確認 1 分前' }]} /></ActionRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAccessibleDescription('mini で実行中です。止まるか応答が無くなると選べます');
+    expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAccessibleDescription('mini で実行中です。停止するか応答が無くなると選択できます');
     const m = menu();
     expect(m.getByRole('menuitem', { name: /再開/ })).toHaveAttribute('aria-disabled', 'true');
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
@@ -759,7 +759,7 @@ describe('フェーズ 4 のセッション画面', () => {
   });
   it('この PC にプロジェクトのフォルダが無ければ、この PC で再開を押せなくし、見出しの下に理由と場所の指定を常に出す', () => {
     const onAction = vi.fn();
-    const reason = 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。';
+    const reason = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
     render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere noRoot={{ reason, projectId: 'p1' }} /></ActionRoot>);
     const button = screen.getByRole('button', { name: 'この PC で再開' });
     expect(button).toHaveAttribute('aria-disabled', 'true');
@@ -767,7 +767,7 @@ describe('フェーズ 4 のセッション画面', () => {
     expect(onAction).not.toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
     const line = document.querySelector('.session-reason')!;
     expect(line).toHaveTextContent(reason);
-    fireEvent.click(screen.getByRole('button', { name: '場所を指定' }));
+    fireEvent.click(screen.getByRole('button', { name: 'パスを指定' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'p1' });
   });
   it('フォルダがあれば理由の行は出さない', () => {
@@ -956,7 +956,7 @@ describe('SessionScreen の読む面の印', () => {
 });
 
 describe('SessionScreen（本文が消えた会話）', () => {
-  const gone = { note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
+  const gone = { note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
   const props = { ...base, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, turnRows: [], canResume: false, canFork: false, gone, lead: leadOf({ hasTranscript: false }, { gone: true }) };
   it('注記と要約のみの印を出し、延ばす手を添え、本文の欄と目次は出さない', () => {
     const onAction = vi.fn();

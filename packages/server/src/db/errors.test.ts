@@ -13,13 +13,13 @@ describe('DB の起動の失敗の文', () => {
   it('古すぎる DB は、見つけた版と開ける版を日本語と英語で言う', () => {
     const e = new DbTooOldError('/x/hangar.db', 3, 16);
     expect(e).toBeInstanceOf(MessageError);
-    expect(e.message).toContain('DB（/x/hangar.db）はバージョン 3 で、このアプリが開けるのはバージョン 16 以降です');
+    expect(e.message).toContain('DB（/x/hangar.db）はバージョン 3 です。このアプリが開けるのはバージョン 16 以降です');
     expect(errorText('en', e)).toBe('The database (/x/hangar.db) is at version 3, but this app can only open version 16 or later. There is no upgrade path from older versions, so the database was left untouched and no migrations were applied. Move the database aside under another name, then start this app again. The index will be rebuilt from Claude Code transcripts (names and statuses cannot be kept)');
   });
 
   it('控えが取れなかった失敗は、控えの置き場と理由を言語ごとに言い、理由も同じ言語で出す', () => {
     const e = new DbBackupError('/x/backups/db/a.db', new Error('ENOSPC'));
-    expect(e.message).toBe('DB のバックアップを /x/backups/db/a.db に作成できなかったので、マイグレーションを適用せずに停止しました（ENOSPC）。フォルダに書き込めるか、空き容量があるかを確認してください');
+    expect(e.message).toBe('DB のバックアップを /x/backups/db/a.db に作成できなかったため、マイグレーションを適用せずに停止しました（ENOSPC）。ディレクトリへの書き込み権限と空き容量を確認してください');
     expect(errorText('en', e)).toBe('Could not save a database backup to /x/backups/db/a.db, so startup stopped without applying migrations (ENOSPC). Check that the folder is writable and has free space');
   });
 
@@ -36,7 +36,7 @@ describe('DB の起動の失敗の文', () => {
       const db = { prepare: () => ({ run: () => undefined }) } as never;
       const e = (() => { try { backupDb(db, dir, 16, new Date()); } catch (x) { return x; } return null; })();
       expect(e).toBeInstanceOf(DbBackupError);
-      expect(errorText('ja', e)).toContain('backups/db がシンボリックリンクなので、バックアップを作成しません');
+      expect(errorText('ja', e)).toContain('backups/db がシンボリックリンクのため、バックアップを作成しません');
       expect(errorText('en', e)).toContain('backups/db is a symbolic link, so no backup was made');
       expect(errorText('en', e)).not.toContain('シンボリックリンク');
     });

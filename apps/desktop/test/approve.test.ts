@@ -64,7 +64,7 @@ describe('承諾の窓の出し方', () => {
     expect(v.title).toBe('MCP サーバーを登録');
     expect(v.files[0]).toMatchObject({ path: '~/.claude.json', opLabel: '変更', what: approveJa['approve.what.mcpAdd'] });
     // 名前の日時は書き込みを押したときに決まるので、窓では日時の形のまま見せ、何の日時かを添える。
-    expect(v.kv[0]).toEqual(['バックアップ', '~/.agent-hangar/backups/claude.json-YYYYMMDDhhmmss（YYYYMMDDhhmmss は書き込んだ日時）']);
+    expect(v.kv[0]).toEqual(['バックアップ', '~/.agent-hangar/backups/claude.json-YYYYMMDDhhmmss（YYYYMMDDhhmmss は書き込み日時）']);
     expect(m.model(setupView('en')).kv[0]![1]).toBe('~/.agent-hangar/backups/claude.json-YYYYMMDDhhmmss (YYYYMMDDhhmmss is the date and time of writing)');
     // 日時の形を持たない名前（古い CLI の見立て）は、そのまま出す。
     expect(m.model(setupView('ja', { plan: { ...mcpPlan, backup: '/Users/u/.agent-hangar/backups/claude.json-20261012103105' } })).kv[0]![1]).toBe('~/.agent-hangar/backups/claude.json-20261012103105');
@@ -87,14 +87,14 @@ describe('承諾の窓の出し方', () => {
     expect(done.done).toMatchObject({ title: '書き込みました。', backups: ['~/.agent-hangar/backups/claude.json-1'] });
     expect(m.render(done)).toContain('閉じる');
     const fail = m.model(setupView('ja', { stage: 'fail', failure: { code: 'changed', message: 'x' } }));
-    expect(fail.fail).toEqual({ title: '書き込めませんでした。何も変えていません。', detail: approveJa['approve.fail.changed'], reasonLabel: '理由', reload: true });
+    expect(fail.fail).toEqual({ title: '書き込めませんでした。ファイルは変更していません。', detail: approveJa['approve.fail.changed'], reasonLabel: '理由', reload: true });
     expect(m.render(fail)).toContain('再読み込み');
     const other = m.model(setupView('ja', { stage: 'fail', failure: { code: 'write-failed', message: 'ロックを取れません' } }));
     expect(other.fail!.detail).toBe('ロックを取れません');
   });
   it('設定の適用：実行される指示とフックを補足に書き、注意の見た目にする', () => {
     const v = m.model(applyView('ja'));
-    expect(v.title).toBe('届いた設定を適用');
+    expect(v.title).toBe('同期された設定を適用');
     expect(v.warn).toBe(true);
     expect(v.files.map((f) => [f.path, f.opLabel])).toEqual([['~/.claude/CLAUDE.md', '変更'], ['~/.claude/skills/a/SKILL.md', '新規']]);
     expect(v.kv[0]![1]).toBe('~/.agent-hangar/backups/claude-config/（新しい世代）');
@@ -103,9 +103,9 @@ describe('承諾の窓の出し方', () => {
   });
   it('世代へ戻す：題に世代の時刻を出し、同じコマンドは世代の名前つき', () => {
     const v = m.model({ ...applyView('ja'), job: 'restore', target: 'restore', name: '20261011-210400' });
-    expect(v.title).toBe('バックアップに戻す（2026-10-11 21:04）');
+    expect(v.title).toBe('バックアップから復元（2026-10-11 21:04）');
     expect(v.command).toBe('hangar config restore 20261011-210400');
-    expect(v.primary.label).toBe('戻す');
+    expect(v.primary.label).toBe('復元');
   });
   it('英語では、題、何をどこに、補足、釦に日本語が混ざらない', () => {
     for (const view of [setupView('en'), setupView('en', { target: 'statusline-uninstall' }), applyView('en'), setupView('en', { stage: 'fail', failure: { code: 'changed', message: '日本語' } })]) {

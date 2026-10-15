@@ -294,7 +294,7 @@ describe('セッションの状態', () => {
     expect((await r.json()).state).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' });
     const bad = await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: '25:00' }, 'PUT');
     expect(bad.status).toBe(400);
-    expect(await err(bad)).toBe('リマインダーの時刻は HH:MM の形で、00:00〜23:59 です（25:00）');
+    expect(await err(bad)).toBe('リマインダーの時刻は HH:MM 形式の 00:00〜23:59 で指定してください（25:00）');
     expect((await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: 1330 }, 'PUT')).status).toBe(400);
     await send(`/api/sessions/${id}/state`, { status: null }, 'PUT');
     proposeSessionState(db, 'd', id, { status: 'paused', note: '明日見る', returnOn: '2026-10-02', returnTime: '09:00', source: 'in_session' });
@@ -338,7 +338,7 @@ describe('セッションの状態', () => {
     }
     const timeOnly = await send(`/api/sessions/${id}/state`, { status: 'paused', returnTime: '10:00' }, 'PUT');
     expect(timeOnly.status).toBe(400);
-    expect(await err(timeOnly)).toBe('リマインダーの時刻は、日付と一緒に渡してください');
+    expect(await err(timeOnly)).toBe('リマインダーの時刻は日付と一緒に指定してください');
   });
   it('confirm は提案を状態にし、日を変えればその日にする。提案が無ければ 409', async () => {
     const id = alphaId();

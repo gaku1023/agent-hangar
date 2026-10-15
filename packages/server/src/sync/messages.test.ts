@@ -22,7 +22,7 @@ import { SyncStateStore } from './state.ts';
 describe('クラウドの失敗の文', () => {
   it('互換の版の失敗は、どちらを上げるかを日本語と英語で言う', () => {
     const device = new CompatError('device', COMPAT_VERSION, 3);
-    expect(errorText('ja', device)).toContain('この PC の hangar が古いので');
+    expect(errorText('ja', device)).toContain('この PC の hangar が古いため');
     expect(errorText('en', device)).toBe(`This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is ${COMPAT_VERSION}; the cloud requires 3 or later). Update hangar on this computer`);
     // 版の下限が読めなかったとき
     expect(errorText('en', new CompatError('device', COMPAT_VERSION, null))).toContain('requires a newer version');
@@ -31,7 +31,7 @@ describe('クラウドの失敗の文', () => {
     expect(errorText('en', worker)).toContain('"Sync now"');
     // Worker の入れ替えは wrangler が要るので、clone した場所での呼び方と、どこで打つかを言う。
     expect(errorText('en', worker)).toContain('npm run hangar -- setup cloud again in the folder where you cloned the repository');
-    expect(errorText('ja', worker)).toContain('リポジトリを clone して npm install した場所で npm run hangar -- setup cloud');
+    expect(errorText('ja', worker)).toContain('リポジトリを clone して npm install したディレクトリから npm run hangar -- setup cloud');
   });
 
   it('message は日本語のままで、言語を知らない呼び手とログは今までどおり読める', () => {
@@ -56,17 +56,17 @@ describe('クラウドの失敗の文', () => {
 describe('同期の知らせの文', () => {
   it('上限で止めた知らせは、戻る時刻をその言語の書き方で言う', () => {
     const noon = Date.UTC(2026, 9, 9, 15);
-    expect(limitedMessage(noon, 'UTC')).toBe('Cloudflare の無料枠の上限に達したので、15:00 まで同期を停止します。枠がリセットされると自動で再開します');
+    expect(limitedMessage(noon, 'UTC')).toBe('Cloudflare の無料枠の上限に達したため、15:00 まで同期を停止します。枠がリセットされると自動で再開します');
     expect(limitedMessage(noon, 'UTC', 'en')).toBe('The Cloudflare free tier limit was reached, so sync is paused until 3:00 PM. It resumes automatically after the limit resets');
   });
 
   it('一時停止のまま頼んだ 1 巡が上限で断られた知らせは、時刻も自動の再開も言わない', () => {
-    expect(limitedWhilePausedMessage()).toBe('Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです');
+    expect(limitedWhilePausedMessage()).toBe('Cloudflare の無料枠の上限に達したため、同期できませんでした。同期は一時停止のままです');
     expect(limitedWhilePausedMessage('en')).toBe('Could not sync because the Cloudflare free tier limit was reached. Sync is still paused');
   });
 
   it('変更ログが古くなって作り直した知らせ', () => {
-    expect(resyncedMessage()).toBe('クラウドの変更ログが古くなっていたので、全体を再同期しました');
+    expect(resyncedMessage()).toBe('クラウドの変更ログが古くなっていたため、全体を再同期しました');
     expect(resyncedMessage('en')).toBe("The cloud's change log had expired, so sync was redone from the beginning");
   });
 });
@@ -83,12 +83,12 @@ describe('復号の失敗の文', () => {
   it('暗号化ファイルでないものと、切り詰められたものは、辞書の文を持つ失敗になる', async () => {
     const notEncrypted = await decrypt(Buffer.alloc(64, 1));
     expect(notEncrypted).toBeInstanceOf(MessageError);
-    expect(errorText('ja', notEncrypted)).toBe('暗号化ファイルの形式が違います');
+    expect(errorText('ja', notEncrypted)).toBe('暗号化ファイルの形式が正しくありません');
     expect(errorText('en', notEncrypted)).toBe('Not an encrypted file (unrecognized format)');
 
     const whole = await encryptBuffer(deriveFileKey('s'), Buffer.from('hello'));
     const cut = await decrypt(whole.subarray(0, whole.length - 5));
-    expect(errorText('ja', cut)).toBe('暗号化ファイルが切り詰められています（truncated）');
+    expect(errorText('ja', cut)).toBe('暗号化ファイルが途中で切れています（truncated）');
     expect(errorText('en', cut)).toBe('The encrypted file is truncated');
 
     const extra = await decrypt(Buffer.concat([whole, Buffer.alloc(40, 7)]));

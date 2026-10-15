@@ -222,7 +222,7 @@ describe('StopNoticeWatch：使用制限', () => {
     w.tick();
     limitRow(s2, resetsAt, 1);
     w.tick();
-    expect(pushed).toEqual([{ kind: 'limit', sessionId: s1, title: '使用制限（5 時間）', body: '請求書の書き出し が止まりました。16:50 にリセットされます', bare: false }]);
+    expect(pushed).toEqual([{ kind: 'limit', sessionId: s1, title: '使用制限（5 時間）', body: '請求書の書き出し が停止しました。16:50 にリセットされます', bare: false }]);
   });
 
   it('同じ時に当たったものは件数で言う。アカウントが違えば別に知らせる', () => {
@@ -242,7 +242,7 @@ describe('StopNoticeWatch：使用制限', () => {
     limitRow(s1, resetsAt + 60_000);
     limitRow(s2, resetsAt + 60_000);
     w2.tick();
-    expect(pushed.map((p) => p.body)).toEqual(['2 件のセッションが止まりました。16:51 にリセットされます']);
+    expect(pushed.map((p) => p.body)).toEqual(['2 件のセッションが停止しました。16:51 にリセットされます']);
   });
 
   it('起動したときに当たっていたものは知らせない', () => {

@@ -19,35 +19,35 @@ describe('欄の下の検証（設定の B1）', () => {
   });
   it('動かせないときは、理由と直し方。tmux は入れるコマンドを添える', () => {
     expect(toolLine(ja, 'tmux', { path: null, ok: false, problem: 'unset', version: null })).toEqual({ ok: false, soft: false, text: '見つかりません', note: null, fix: null, fixCommand: 'brew install tmux' });
-    expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null })).toMatchObject({ ok: false, text: '/x/claude には実行権がありません', fix: 'claude コマンドの絶対パスを入力してください' });
+    expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null })).toMatchObject({ ok: false, text: '/x/claude には実行権限がありません', fix: 'claude コマンドの絶対パスを入力してください' });
     expect(toolLine(ja, 'claude', { path: '/x', ok: false, problem: 'notFile', version: null })).toMatchObject({ text: '/x はファイルではありません' });
     expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'missing', version: null })).toMatchObject({ text: '/x/claude が見つかりません' });
   });
   it('git は無くても動くので、弱い印にして一言添え、OS の入れ方を出す', () => {
     const missing = { path: null, ok: false, problem: 'unset' as const, version: null };
-    expect(toolLine(ja, 'git', missing, 'darwin')).toEqual({ ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'git をインストールしてください。無くても動きますが、ブランチと未コミットの件数は出ません', fixCommand: 'xcode-select --install' });
+    expect(toolLine(ja, 'git', missing, 'darwin')).toEqual({ ok: false, soft: true, text: '見つかりません', note: 'なくても動作します', fix: 'git をインストールしてください。git がなくても動作しますが、ブランチと未コミットの件数は表示されません', fixCommand: 'xcode-select --install' });
     expect(toolLine(ja, 'git', missing, 'win32').fixCommand).toBe('winget install --id Git.Git -e');
     expect(toolLine(ja, 'git', missing, 'linux').fixCommand).toBeNull();
     expect(toolLine(ja, 'git', READY.tools.git!)).toMatchObject({ ok: true, text: '/usr/bin/git', note: '2.51.0' });
   });
   it('Node の設定が空なら、自動で見つけた Node だと添える', () => {
-    expect(toolLine(ja, 'node', READY.tools.node)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/node', note: 'v22.9.0、自動で見つけました', fix: null, fixCommand: null });
+    expect(toolLine(ja, 'node', READY.tools.node)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/node', note: 'v22.9.0、自動で検出しました', fix: null, fixCommand: null });
   });
   // 殻は Node-API が要る版以上で、アーキが同じ Node だけを使う。合わない Node は、版が古いのか、アーキが違うのかを分けて言う。
   it('Node の設定が使えないときは、フルパスでない、Node でない、版が古い、アーキが違う、を分けて言う', () => {
-    expect(toolLine(ja, 'node', { path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false })).toMatchObject({ ok: false, text: 'node はフルパスではありません', fix: '同梱のサーバに合う版とアーキテクチャの Node を、node の実行ファイルのフルパスで入力してください' });
-    expect(toolLine(ja, 'node', { path: '/x/node', ok: false, problem: 'notNode', version: null, auto: false })).toMatchObject({ ok: false, text: '/x/node は Node として答えません' });
+    expect(toolLine(ja, 'node', { path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false })).toMatchObject({ ok: false, text: 'node は絶対パスではありません', fix: '同梱のサーバに対応するバージョンとアーキテクチャの Node を、node の実行ファイルの絶対パスで入力してください' });
+    expect(toolLine(ja, 'node', { path: '/x/node', ok: false, problem: 'notNode', version: null, auto: false })).toMatchObject({ ok: false, text: '/x/node は Node として応答しません' });
     const need = { napi: 10, min: '22.14', arch: 'arm64' };
     const old = { path: '/x/node', ok: false, problem: 'wrongNode' as const, version: 'v20.18.0', auto: false, found: { version: '20.18.0', napi: 9, arch: 'arm64' }, need };
-    expect(toolLine(ja, 'node', old)).toMatchObject({ ok: false, soft: false, text: '/x/node は Node 20.18.0 です。Node 22.14 以上が要ります（Node-API 10 を使うため）' });
+    expect(toolLine(ja, 'node', old)).toMatchObject({ ok: false, soft: false, text: '/x/node は Node 20.18.0 です。Node 22.14 以上が必要です（Node-API 10 を使うため）' });
     expect(toolLine(en, 'node', old)).toMatchObject({ text: '/x/node is Node 20.18.0. Node 22.14 or later is needed (Hangar uses Node-API 10)' });
     const x64 = { ...old, version: 'v24.21.0', found: { version: '24.21.0', napi: 10, arch: 'x64' } };
-    expect(toolLine(ja, 'node', x64)).toMatchObject({ text: '/x/node は x64 用の Node です。arm64 用の Node が要ります' });
+    expect(toolLine(ja, 'node', x64)).toMatchObject({ text: '/x/node は x64 用の Node です。arm64 用の Node が必要です' });
     expect(toolLine(en, 'node', x64)).toMatchObject({ text: '/x/node is a Node for x64. A Node for arm64 is needed' });
   });
   it('ワークスペースは、登録したプロジェクトの数を出し、0 件なら理由を言う', () => {
     expect(workspaceLine(ja, { ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });
-    expect(workspaceLine(ja, { ...READY.workspace, exists: false })).toMatchObject({ ok: false, soft: true, text: 'この場所が見つかりません' });
+    expect(workspaceLine(ja, { ...READY.workspace, exists: false })).toMatchObject({ ok: false, soft: true, text: 'このディレクトリが見つかりません' });
   });
 });
 
@@ -106,11 +106,11 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('直すものだけを 1 行ずつ。必須を先に、任意は「任意」の札を付けて後ろに置く', () => {
     const b = presentReadiness(READY, ja)!;
     expect(b.group.rows.map((r) => [r.key, r.name, r.badge ?? null])).toEqual([
-      ['ready:workspace', '新しいフォルダの作成場所', null],
+      ['ready:workspace', '新しいディレクトリの作成先', null],
       ['ready:mcp', 'MCP サーバー', '任意'],
       ['ready:statusline', 'ステータスライン', '任意'],
     ]);
-    expect(b.group.rows[0]).toMatchObject({ lead: { kind: 'check', tone: 'ng', label: '準備できていません' }, text: '/Users/me/workspace の直下に、Claude のセッションがあるフォルダがありません', detail: null });
+    expect(b.group.rows[0]).toMatchObject({ lead: { kind: 'check', tone: 'ng', label: '未完了' }, text: '/Users/me/workspace の直下に、Claude のセッションがあるディレクトリがありません', detail: null });
     expect(b.group.rows[1]).toMatchObject({ lead: { kind: 'check', tone: 'soft', label: '未設定' }, detail: 'hangar mcp install' });
   });
   it('右端のボタンは 1 つ。親フォルダは設定を開き、MCP と statusline は命令をコピーする', () => {
@@ -126,9 +126,9 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     const b = presentReadiness(withCompat({ localVersion: '2.1.300' }), ja)!;
     expect(b.group.fold!.text).toBe('tmux、claude、git、Claude Code との互換性 は準備完了');
     expect(b.group.fold!.rows.map((r) => [r.name, r.text, r.lead])).toEqual([
-      ['tmux', '/opt/homebrew/bin/tmux（3.4）', { kind: 'check', tone: 'ok', label: '準備できています' }],
-      ['claude', '/Users/me/.local/bin/claude（2.3.1）', { kind: 'check', tone: 'ok', label: '準備できています' }],
-      ['git', '/usr/bin/git（2.51.0）', { kind: 'check', tone: 'ok', label: '準備できています' }],
+      ['tmux', '/opt/homebrew/bin/tmux（3.4）', { kind: 'check', tone: 'ok', label: '準備完了' }],
+      ['claude', '/Users/me/.local/bin/claude（2.3.1）', { kind: 'check', tone: 'ok', label: '準備完了' }],
+      ['git', '/usr/bin/git（2.51.0）', { kind: 'check', tone: 'ok', label: '準備完了' }],
       ['Claude Code との互換性', '2.1.300（確認済みのバージョンは 2.1.292）', { kind: 'check', tone: 'info', label: '未確認のバージョン' }],
     ]);
     expect(b.group.countText).toBe('準備完了 4 / 7');
@@ -139,8 +139,8 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     expect(b.group).toMatchObject({ count: 3, countText: '準備完了 4 / 7' });
     expect(b.group.rows.map((r) => r.key)).not.toContain('ready:guide');
     expect(b.group.tail).toEqual([{
-      key: 'ready:guide', lead: { kind: 'guide' }, name: '仕上げ：Claude Code に環境を見てもらう', badge: null, context: null, text: '会話のフォルダの登録と連携を、診断から提案します', detail: null, tone: null, trail: [], open: null,
-      actions: [{ id: 'copyGuide', label: '一言をコピー', ariaLabel: '一言をコピー、仕上げ：Claude Code に環境を見てもらう', primary: false, ghost: false, send: { type: 'clipboard.copy', text: prompt }, copyFeedback: true }],
+      key: 'ready:guide', lead: { kind: 'guide' }, name: '仕上げ：Claude Code で環境を診断', badge: null, context: null, text: '診断の結果から、会話のディレクトリの登録と連携を提案します', detail: null, tone: null, trail: [], open: null,
+      actions: [{ id: 'copyGuide', label: 'プロンプトをコピー', ariaLabel: 'プロンプトをコピー、仕上げ：Claude Code で環境を診断', primary: false, ghost: false, send: { type: 'clipboard.copy', text: prompt }, copyFeedback: true }],
     }]);
     // 一言が無ければ（写しが取れていない）、行を置かない。
     expect(presentReadiness(READY, ja)!.group.tail).toBeUndefined();
@@ -208,7 +208,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('statusline のスクリプトが無ければ、先に作るよう言う', () => {
     const r = presentReadiness({ ...READY, statusline: { command: null, scriptPath: null, installed: false } }, ja)!.group.rows.find((x) => x.key === 'ready:statusline')!;
-    expect(r.text).toBe('Claude Code の /statusline でスクリプトを作ってから、次を実行してください');
+    expect(r.text).toBe('Claude Code の /statusline でスクリプトを作成してから、次を実行してください');
   });
   it('文は辞書の言語で引く', () => {
     const b = presentReadiness(READY, en)!;
@@ -244,7 +244,7 @@ describe('psmux と tmux の案内', () => {
     ]);
   });
   it('再確認しても無ければ、再起動が要るかもしれないと添える。確かめている間はボタンの文を変える', () => {
-    expect(presentReadiness(noTmux, ja, 'win32', 'missing')!.group.rows[0]!.text).toBe('psmux がまだ見つかりません。インストールしたあと、Hangar の再起動が必要な場合があります');
+    expect(presentReadiness(noTmux, ja, 'win32', 'missing')!.group.rows[0]!.text).toBe('psmux がまだ見つかりません。インストール後に hangar の再起動が必要な場合があります');
     expect(presentReadiness(noTmux, ja, 'win32', 'checking')!.group.rows[0]!.actions[1]!.label).toBe('確認中…');
     expect(presentReadiness(noTmux, en, 'win32', 'missing')!.group.rows[0]!.text).toBe('psmux still not found. You may need to restart Hangar after installing it');
   });
@@ -266,7 +266,7 @@ describe('psmux と tmux の案内', () => {
       expect(readinessPending(OLD)).toBe(true);
       const band = presentReadiness(OLD, ja, 'win32')!;
       const row = band.group.rows[0]!;
-      expect(row).toMatchObject({ key: 'ready:tmux', name: 'psmux', lead: { tone: 'soft' }, text: 'psmux 3.3.8 では、端末をホイールで上へスクロールできません。3.4.0 以上に上げてください（手順は設定にあります）', detail: null });
+      expect(row).toMatchObject({ key: 'ready:tmux', name: 'psmux', lead: { tone: 'soft' }, text: 'psmux 3.3.8 では、ターミナルをホイールで上へスクロールできません。3.4.0 以上にアップデートしてください（手順は設定にあります）', detail: null });
       expect(row.actions.map((a) => a.send)).toEqual([{ type: 'nav.go', to: { name: 'settings', at: 'tmux' } }]);
       // 始められるので、右端の「始めるには」は言わない。
       expect(band.note).toBeNull();
@@ -303,11 +303,11 @@ describe('始める前の確認の通知の行（9c）', () => {
   it('まだ OS に尋ねていなければ、任意の行「通知」と主ボタン「許可する」を出し、押すと受け取りを入れる（OS に尋ねる）', () => {
     const rows = presentReadiness(READY, ja, 'darwin', 'idle', setup(true))!.group.rows;
     const row = rows.find((r) => r.key === 'ready:notify')!;
-    expect(row).toMatchObject({ name: '通知', badge: '任意', text: '背面のとき、入力待ちを OS の通知で知らせます', detail: null, lead: { kind: 'check', tone: 'soft' } });
+    expect(row).toMatchObject({ name: '通知', badge: '任意', text: 'アプリが背面にあるとき、入力待ちになったことを OS で通知します', detail: null, lead: { kind: 'check', tone: 'soft' } });
     expect(row.actions.map((a) => [a.label, a.primary, a.ghost, a.send])).toEqual([
       ['許可する', true, false, { type: 'notify.set', on: true }],
       // 要らない人は、通知をオフにして行を消せる（オフにすると ask も下りる）。
-      ['要らない', false, true, { type: 'notify.set', on: false }],
+      ['許可しない', false, true, { type: 'notify.set', on: false }],
     ]);
     // 任意の行なので、必須の行より後ろ。
     expect(rows.at(-1)!.key).toBe('ready:notify');
@@ -348,7 +348,7 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
   it('git とエディタの行（0.5.0）。git は入れるコマンドをコピーし、エディタは一般の節のエディタの欄を開く。どちらも任意', () => {
     const noGit: ReadinessDto = { ...ALL_OK, tools: { ...READY.tools, git: { path: null, ok: false, problem: 'unset', version: null } }, workspace: READY.workspace };
     const row = presentReadiness(noGit, ja, 'darwin')!.group.rows.find((r) => r.key === 'ready:git')!;
-    expect(row).toMatchObject({ name: 'git', badge: '任意', text: 'git が見つかりません。無くても始められますが、ブランチと未コミットの件数は出ません', detail: 'xcode-select --install', lead: { tone: 'soft' } });
+    expect(row).toMatchObject({ name: 'git', badge: '任意', text: 'git が見つかりません。無くても使えますが、ブランチと未コミットの件数は表示されません', detail: 'xcode-select --install', lead: { tone: 'soft' } });
     expect(row.actions[0]).toMatchObject({ label: 'コマンドをコピー', send: { type: 'clipboard.copy', text: 'xcode-select --install' } });
     expect(presentReadiness(noGit, ja, 'win32')!.group.rows.find((r) => r.key === 'ready:git')!.detail).toBe('winget install --id Git.Git -e');
     expect(presentReadiness(noGit, ja, 'linux')!.group.rows.find((r) => r.key === 'ready:git')!.actions[0]).toMatchObject({ send: { type: 'nav.go', to: { name: 'settings', at: 'tools' } } });
@@ -362,7 +362,7 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
     expect(custom.text).toBe('エディタのコマンド subl が見つかりません');
     // アプリだけでも開けるので、済んだものに数える。
     const app = presentReadiness({ ...READY, editor: { id: 'zed', name: 'Zed', state: 'app', path: '/Applications/Zed.app' } }, ja)!;
-    expect(app.group.fold!.rows.find((r) => r.key === 'ready:editor')!.text).toBe('Zed（/Applications/Zed.app、アプリだけ）');
+    expect(app.group.fold!.rows.find((r) => r.key === 'ready:editor')!.text).toBe('Zed（/Applications/Zed.app、アプリのみ）');
   });
   it('MCP とステータスラインは連携の節（命令をコピーする行なので、欄までは指さない）', () => {
     expect(READINESS_AT.mcp).toBe('integrations');
@@ -384,7 +384,7 @@ describe('始める前の確認の MCP とステータスラインの行（殻�
   it('返事を待つあいだは「確認中…」、スクリプトが無ければ設定を開く', () => {
     expect(rowOf(READY, 'ready:mcp', { desktop: true, running: 'mcp-install' as const }).actions[0]!.label).toBe('確認中…');
     const none = rowOf({ ...READY, statusline: { command: null, scriptPath: null, installed: false } }, 'ready:statusline');
-    expect(none.text).toBe('Claude Code の /statusline でスクリプトを作ってから、設定の連携の節で設定してください');
+    expect(none.text).toBe('Claude Code の /statusline でスクリプトを作成してから、設定の「連携」で設定してください');
     expect(none.actions[0]!.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'integrations' } });
   });
   it('ブラウザでは今までどおりコマンドをコピーする', () => {
@@ -398,15 +398,15 @@ describe('始める前の確認の「プロジェクト」の行', () => {
   it('プロジェクトが 0 件なら、注意の印で件数と「選ぶ…」を出し、押すと候補のダイアログを開く', () => {
     const b = presentReadiness(day1(9), ja)!;
     expect(b.group.rows.map((r) => r.key)).toEqual(['ready:projects']);
-    expect(b.group.rows[0]).toMatchObject({ name: 'プロジェクト', badge: null, lead: { kind: 'check', tone: 'soft', label: '未設定' }, text: 'Claude Code と会話したフォルダが 9 件見つかりました。プロジェクトにするものを選んでください' });
-    expect(b.group.rows[0]!.actions.map((a) => [a.label, a.primary, a.send])).toEqual([['選ぶ…', true, { type: 'project.candidates.open' }]]);
+    expect(b.group.rows[0]).toMatchObject({ name: 'プロジェクト', badge: null, lead: { kind: 'check', tone: 'soft', label: '未設定' }, text: 'Claude Code と会話したディレクトリが 9 件見つかりました。プロジェクトにするものを選択してください' });
+    expect(b.group.rows[0]!.actions.map((a) => [a.label, a.primary, a.send])).toEqual([['選択…', true, { type: 'project.candidates.open' }]]);
     expect(b.group.countText).toBe('準備完了 6 / 7');
     expect(b.note).toBeNull();
     expect(presentReadiness(day1(9), en)!.group.rows[0]!.text).toBe('Found 9 folders where you have talked with Claude Code. Choose which ones become projects');
   });
   it('候補が 0 件なら、新しいプロジェクトの作成へ案内する', () => {
     const row = presentReadiness(day1(0), ja)!.group.rows[0]!;
-    expect(row.text).toBe('まだありません。新しいプロジェクトを作るか、フォルダを登録してください');
+    expect(row.text).toBe('まだありません。新しいプロジェクトを作成するか、ディレクトリを登録してください');
     expect(row.actions.map((a) => [a.label, a.send])).toEqual([['新しいプロジェクト…', { type: 'project.new.open' }]]);
   });
   it('1 件以上なら済みに数え、畳んだ行に件数を出す。作成場所は問わない', () => {
@@ -438,7 +438,7 @@ describe('作成場所の欄の下の検証', () => {
     expect(workspaceLine(ja, { path: '', exists: false, projectCount: 0 })).toBeNull();
     expect(workspaceLine(ja, { path: '/Users/me/src', exists: true, projectCount: 0 })).toEqual({ ok: true, soft: false, text: '/Users/me/src', note: 'プロジェクト 0 件', fix: null, fixCommand: null });
     // 作成場所は任意なので、決めた場所が無くても注意（soft）にとどめる。古い設定の ~/workspace がその PC に無い今の利用者で起きる（0.6.0-rc.1 の Windows の確かめ）。
-    expect(workspaceLine(ja, { path: '/x', exists: false, projectCount: 0 })).toEqual({ ok: false, soft: true, text: 'この場所が見つかりません', note: null, fix: '空にするか、別の場所を選んでください', fixCommand: null });
+    expect(workspaceLine(ja, { path: '/x', exists: false, projectCount: 0 })).toEqual({ ok: false, soft: true, text: 'このディレクトリが見つかりません', note: null, fix: '空にするか、別のディレクトリを選択してください', fixCommand: null });
     expect(workspaceLine(en, { path: '/x', exists: false, projectCount: 0 })).toMatchObject({ text: 'This location was not found', fix: 'Leave it empty or choose another location' });
   });
 });

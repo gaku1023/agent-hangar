@@ -31,7 +31,7 @@ describe('ProjectsScreen の見出し', () => {
   it('名前の欄は打った語を渡す。アーカイブを出し入れするボタンは見出しに置かない', () => {
     const onFilter = vi.fn();
     mount(props(), { onFilter });
-    fireEvent.change(screen.getByRole('textbox', { name: '名前で絞る' }), { target: { value: 'al' } });
+    fireEvent.change(screen.getByRole('textbox', { name: '名前で絞り込み' }), { target: { value: 'al' } });
     expect(onFilter).toHaveBeenCalledWith('al');
     expect(screen.queryByText(/アーカイブを表示/)).toBeNull();
   });
@@ -40,7 +40,7 @@ describe('ProjectsScreen の見出し', () => {
 describe('ProjectsScreen の表', () => {
   it('列の名前は、ステータス、名前と場所、いま、セッション、最後の活動の順に出す', () => {
     const { container } = mount(props());
-    expect([...container.querySelectorAll('.pcols > span')].map((c) => c.textContent)).toEqual(['ステータス', '名前と場所', 'いま', 'セッション', '最後の活動', '']);
+    expect([...container.querySelectorAll('.pcols > span')].map((c) => c.textContent)).toEqual(['ステータス', '名前とパス', '現在', 'セッション', '最終アクティビティ', '']);
   });
   it('節ごとに見出しと件数を出し、見出しは 2 段目の見出しにする', () => {
     mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('a'), row('b')] }, { status: 'paused', label: 'Paused', rows: [row('c', { status: 'paused' })] }] }));
@@ -140,12 +140,12 @@ describe('ProjectsScreen の「…」のメニュー', () => {
   it('場所を再指定は、パスが見つからない行にだけ出す', () => {
     const { onAction } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { place: { kind: 'missing' } })] }] }));
     menuOf('alpha');
-    fireEvent.click(screen.getByRole('menuitem', { name: '場所を再指定' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'パスを再指定' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
     cleanup();
     mount(props());
     menuOf('alpha');
-    expect(screen.queryByRole('menuitem', { name: '場所を再指定' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'パスを再指定' })).toBeNull();
   });
 });
 
@@ -184,8 +184,8 @@ describe('ProjectsScreen の空の状態', () => {
   it('プロジェクトが無い人には、できるようになることの 2 文と「新しいプロジェクト」を出し、表と名前の欄は出さない', () => {
     const { container, onAction } = mount(none());
     expect(screen.getByRole('heading', { name: 'プロジェクトはまだありません' })).toBeInTheDocument();
-    expect(screen.getByText('フォルダを登録すると、そのフォルダのセッションがここにまとまります。')).toBeInTheDocument();
-    expect(screen.getByText('TODO も、プロジェクトごとに置けるようになります。')).toBeInTheDocument();
+    expect(screen.getByText('ディレクトリを登録すると、そのディレクトリのセッションがここにまとまります。')).toBeInTheDocument();
+    expect(screen.getByText('TODO も、プロジェクトごとに管理できます。')).toBeInTheDocument();
     expect(container.querySelector('.pcols')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
     const buttons = screen.getAllByRole('button', { name: '新しいプロジェクト' });
@@ -203,8 +203,8 @@ describe('ProjectsScreen の空の状態', () => {
   });
   it('絞り込みで 0 件のときは、表の代わりに一言だけ出し、名前の欄は残す', () => {
     mount(props({ sections: [], total: 5, empty: 'noMatch' }), { filter: 'zzz' });
-    expect(screen.getByText('あてはまるプロジェクトはありません')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: '名前で絞る' })).toHaveValue('zzz');
+    expect(screen.getByText('一致するプロジェクトはありません')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '名前で絞り込み' })).toHaveValue('zzz');
   });
 });
 

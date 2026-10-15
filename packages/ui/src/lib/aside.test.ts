@@ -16,9 +16,9 @@ describe('裏だけ動いている（aside）', () => {
     expect(asideOf(null, a)).toBeNull();
   });
   it('灯の見出しは、サブエージェントなら本数、シェルだけならシェルと言う', () => {
-    expect(asideHead(ja, { shell: true, agents: 0 })).toBe('バックグラウンドでシェル');
-    expect(asideHead(ja, { shell: false, agents: 1 })).toBe('バックグラウンドで 1 本');
-    expect(asideHead(ja, { shell: true, agents: 2 })).toBe('バックグラウンドで 2 本');
+    expect(asideHead(ja, { shell: true, agents: 0 })).toBe('バックグラウンドでシェルを実行中');
+    expect(asideHead(ja, { shell: false, agents: 1 })).toBe('バックグラウンドでサブエージェント 1 件');
+    expect(asideHead(ja, { shell: true, agents: 2 })).toBe('バックグラウンドでサブエージェント 2 件');
     // 裏の担当が数えられないとき（workflow など）。
     expect(asideHead(ja, { shell: false, agents: 0 })).toBe('バックグラウンドで作業中');
   });

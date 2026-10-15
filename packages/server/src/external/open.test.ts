@@ -157,7 +157,7 @@ describe('openInTerminalApp（Windows）', () => {
     expect(seen.map((c) => c.cmd)).toEqual(['wt.exe', 'cmd.exe']);
   });
   it('既定のターミナルも開けなければ投げる', async () => {
-    await expect(openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', app: 'windowsDefault', exec: winExec({ 'cmd.exe': 1 }) })).rejects.toThrow(/既定のターミナル/);
+    await expect(openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', app: 'windowsDefault', exec: winExec({ 'cmd.exe': 1 }) })).rejects.toThrow(/デフォルトのターミナル/);
   });
   // " は Windows のファイル名に使えず、どちらの経路でも引用を破る。開けるふりをして別のものを起こさないよう、断る。
   it('" や改行を含む名前とパスは、起こさずに断る', async () => {

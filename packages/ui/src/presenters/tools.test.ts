@@ -118,8 +118,8 @@ describe('presentTool の中身', () => {
   });
   it('TodoWrite は項目ごとの状態と中身', () => {
     const v = presentTool(call('TodoWrite', { todos: [{ content: '読む', status: 'completed' }, { content: '直す', status: 'in_progress' }, { content: '流す', status: 'pending' }] }), ok('ok'), CWD, ja);
-    expect(v.head).toEqual({ main: 'TODO 3 件', dim: '済み 1', meta: [] });
-    expect(v.body).toEqual({ kind: 'args', rows: [{ key: '済み', value: '読む' }, { key: '作業中', value: '直す' }, { key: '未着手', value: '流す' }] });
+    expect(v.head).toEqual({ main: 'TODO 3 件', dim: '完了 1', meta: [] });
+    expect(v.body).toEqual({ kind: 'args', rows: [{ key: '完了', value: '読む' }, { key: '作業中', value: '直す' }, { key: '未着手', value: '流す' }] });
   });
   it('その他のツールは引数を 1 つずつ並べ、文字でない値は整形した JSON にする', () => {
     const v = presentTool({ ...call('mcp__hangar__search', { q: 'x', limit: 5, opts: { a: 1 } }), summary: 'mcp__hangar__search x' }, ok('結果'), CWD, ja);

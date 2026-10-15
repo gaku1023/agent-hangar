@@ -93,7 +93,7 @@ describe('routes', () => {
     expect((await postProject({ kind: 'newDir', name: 'fresh', gitInit: false })).status).toBe(409);
     const bad = await postProject({ kind: 'newDir', name: 'a/b', gitInit: false });
     expect(bad.status).toBe(400);
-    expect((await bad.json()).error).toBe('名前はディレクトリ名として使える 1 字以上で、/ と \\ を含められません');
+    expect((await bad.json()).error).toBe('名前はディレクトリ名として使える 1 文字以上にしてください。/ と \\ は使えません');
     expect((await postProject({ kind: 'newDir', gitInit: false })).status).toBe(400);
   });
   // 作成場所は任意（2026-10-13）。空のときは、作る場所を画面が parent で渡す。
@@ -101,7 +101,7 @@ describe('routes', () => {
     deps.updateSettings({ workspaceRoot: '' });
     const none = await postProject({ kind: 'newDir', name: 'fresh', gitInit: false });
     expect(none.status).toBe(400);
-    expect((await none.json()).error).toBe('新しいフォルダを作る場所が決まっていません。場所を選んでください');
+    expect((await none.json()).error).toBe('新しいディレクトリの作成先が決まっていません。作成先を選択してください');
     const parent = path.join(ws, 'picked');
     fs.mkdirSync(parent);
     const r = await postProject({ kind: 'newDir', name: 'fresh', gitInit: false, parent });
@@ -178,7 +178,7 @@ describe('routes', () => {
       // まとめた後の姿。この PC の場所と、届いた方の PC の場所を並べる。
       merged: { roots: [{ deviceName: null, path: path.join(ws, 'alpha'), here: true }, { deviceName: 'DESKTOP-01', path: 'D:\\workspace\\alpha', here: false }], fromSessions: 1 },
     });
-    expect((await r.json()).error).toBe('このフォルダは、プロジェクト alpha の場所として登録済みです');
+    expect((await r.json()).error).toBe('このディレクトリは、プロジェクト alpha のパスとして登録済みです');
     // 断っただけで、何も書いていない。
     expect(db.prepare('select count(*) c from project_roots where project_id = ? and deleted_at is null').get('p-win')).toEqual({ c: 1 });
     const merged = await post('/api/projects/p-win/resolve', { kind: 'repoint', path: path.join(ws, 'alpha'), merge: true });
@@ -221,7 +221,7 @@ describe('routes', () => {
       expect(r.status).toBe(409);
       const body = await r.json();
       expect(body.code).toBeUndefined();
-      expect(body.error).toBe('このフォルダは、プロジェクト scratch の場所として登録済みです');
+      expect(body.error).toBe('このディレクトリは、プロジェクト scratch のパスとして登録済みです');
     }
     expect(db.prepare('select deleted_at from projects where id = ?').get(id)).toEqual({ deleted_at: null });
   });
@@ -272,7 +272,7 @@ describe('会話したフォルダの候補', () => {
     const body = await r.json();
     expect(body.projects).toHaveLength(1);
     expect(body.projects[0]).toMatchObject({ name: 'one', path: one });
-    expect(body.failed).toEqual([{ path: path.join(ws, 'nope'), error: 'path が存在するディレクトリではありません' }]);
+    expect(body.failed).toEqual([{ path: path.join(ws, 'nope'), error: 'path は既存のディレクトリではありません' }]);
     expect((db.prepare("select project_id from sessions where id = 'c-one'").get() as { project_id: string }).project_id).toBe(body.projects[0].id);
   });
   it('paths が文字列の配列でなければ断る', async () => {
@@ -295,8 +295,8 @@ describe('会話したフォルダの候補', () => {
     expect(body.results).toEqual([
       { path: one, status: 'added', projectId: expect.any(String), name: 'one', sessionCount: 2 },
       { path: alpha, status: 'already', projectId: list0ProjectId(), name: 'alpha', sessionCount: 0 },
-      { path: path.join(alpha, 'inner'), status: 'nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: alpha }, error: 'このフォルダはプロジェクト alpha の中にあります' },
-      { path: path.join(ws, 'nope'), status: 'error', error: 'path が存在するディレクトリではありません' },
+      { path: path.join(alpha, 'inner'), status: 'nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: alpha }, error: 'このディレクトリはプロジェクト alpha の中にあります' },
+      { path: path.join(ws, 'nope'), status: 'error', error: 'path は既存のディレクトリではありません' },
       { path: one, status: 'already', projectId: body.results[0].projectId, name: 'one', sessionCount: 0 },
     ]);
     // 今までの項目はそのまま返す。
@@ -330,8 +330,8 @@ describe('会話したフォルダの候補', () => {
           // 同じ一括の前の行で登録したものは、本物と同じく登録済みになる。
           { path: path.join(one, '..', 'one'), status: 'already', projectId: expect.any(String), name: 'one', sessionCount: 0 },
           { path: alpha, status: 'already', projectId: list0ProjectId(), name: 'alpha', sessionCount: 0, restored: true },
-          { path: path.join(alpha, 'inner'), status: 'nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: alpha }, error: 'このフォルダはプロジェクト alpha の中にあります' },
-          { path: path.join(ws, 'nope'), status: 'error', error: 'path が存在するディレクトリではありません' },
+          { path: path.join(alpha, 'inner'), status: 'nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: alpha }, error: 'このディレクトリはプロジェクト alpha の中にあります' },
+          { path: path.join(ws, 'nope'), status: 'error', error: 'path は既存のディレクトリではありません' },
         ],
       });
       await new Promise((res) => setTimeout(res, 10));
@@ -411,7 +411,7 @@ describe('フォルダの中から登録する', () => {
     fs.mkdirSync(ui);
     const r = await send('/api/projects', { kind: 'dir', path: ui });
     expect(r.status).toBe(409);
-    expect(await r.json()).toEqual({ error: 'このフォルダはプロジェクト alpha の中にあります', code: 'project_nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: path.join(ws, 'alpha') } });
+    expect(await r.json()).toEqual({ error: 'このディレクトリはプロジェクト alpha の中にあります', code: 'project_nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: path.join(ws, 'alpha') } });
     const ok = await send('/api/projects', { kind: 'dir', path: ui, allowNested: true });
     expect(ok.status).toBe(201);
     expect(await ok.json()).toMatchObject({ name: 'ui', path: ui });
@@ -438,7 +438,7 @@ describe('フォルダの中から登録する', () => {
     const body = await r.json();
     expect(body.linked).toEqual(['far']);
     expect(body.projects.map((p: { name: string }) => p.name).sort()).toEqual(['a-old', 'b']);
-    expect(body.failed).toEqual([{ path: nested, error: 'このフォルダはプロジェクト alpha の中にあります' }]);
+    expect(body.failed).toEqual([{ path: nested, error: 'このディレクトリはプロジェクト alpha の中にあります' }]);
     expect(rootHere('far')).toEqual({ path: a, resolved: 1 });
     // 結び付けた先へ、その下の未分類の会話が入る。
     expect((db.prepare("select project_id from sessions where id = 'c-a'").get() as { project_id: string }).project_id).toBe('far');

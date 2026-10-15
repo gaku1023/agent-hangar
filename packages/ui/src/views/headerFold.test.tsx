@@ -122,12 +122,12 @@ describe('畳んでも読める', () => {
   it('同期のリンクは点を含み、title に状態と件数を持つ', () => {
     renderShell();
     const link = screen.getByRole('link', { name: '同期 1 分前' });
-    expect(link).toHaveAttribute('title', '同期 1 分前、未送信の変更 6、未送信のトランスクリプト 44、送信に失敗したトランスクリプト 2（押すと同期の設定を開く）');
+    expect(link).toHaveAttribute('title', '同期 1 分前、未送信の変更 6、未送信のトランスクリプト 44、送信に失敗したトランスクリプト 2（クリックして同期の設定を開く）');
     expect(link.querySelector('.sync-dot')).not.toBeNull();
   });
   it('件数が無いときは title に足さない', () => {
     render(<ActionRoot onAction={() => {}}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></ActionRoot>);
-    expect(screen.getByRole('link', { name: '同期 1 分前' })).toHaveAttribute('title', '同期 1 分前（押すと同期の設定を開く）');
+    expect(screen.getByRole('link', { name: '同期 1 分前' })).toHaveAttribute('title', '同期 1 分前（クリックして同期の設定を開く）');
   });
   it('最終更新を畳んでも、ゲージの title から読める', () => {
     renderShell();
@@ -155,7 +155,7 @@ describe('アカウントの名前を畳んでも読める', () => {
     const noValue = { ...withAccount, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null } };
     render(<ActionRoot onAction={() => {}}><Shell {...noValue} overlays={null}><div /></Shell></ActionRoot>);
     const face = screen.getByRole('button', { name: /^アカウントを切り替え（現在は 会社/ });
-    expect(face).toHaveTextContent('まだ値がありません');
+    expect(face).toHaveTextContent('未取得');
     expect(screen.queryByRole('link', { name: /使用率/ })).toBeNull();
   });
   it('アカウントが無くて値も無いときは、今までどおり設定へ行くリンクを出す', () => {

@@ -24,7 +24,7 @@ describe('statusMark（状態の札の説明と自動の印）', () => {
   it('自動で付いた Done（set_by が import）は印を立て、理由を言う', () => {
     expect(statusMark(ja, st({ setBy: 'import' }), turns(2), null)).toEqual({ title: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）', auto: true });
     expect(statusMark(ja, st({ setBy: 'import' }), turns(9), sum('abandoned'))).toEqual({ title: 'hangar が自動で Done にしました（要約が「完了」か「中止」）', auto: true });
-    expect(statusMark(ja, st({ setBy: 'import', note: '直して main に入れた' }), turns(9), sum('done'))).toEqual({ title: 'Claude の Done の提案を、7 日たったので自動で確定しました', auto: true });
+    expect(statusMark(ja, st({ setBy: 'import', note: '直して main に入れた' }), turns(9), sum('done'))).toEqual({ title: 'Claude の Done の提案を、7 日経過したため自動で確定しました', auto: true });
     // 理由の分からないもの（導入時の一括 Done など）は、自動で付いたことだけを言う。
     expect(statusMark(ja, st({ setBy: 'import' }), turns(9), sum('done', 'baseline'))).toEqual({ title: 'hangar が自動で Done にしました', auto: true });
     expect(statusMark(en, st({ setBy: 'import' }), turns(2), null).title).toBe('Hangar marked this Done automatically (stopped with 3 turns or fewer)');
@@ -32,8 +32,8 @@ describe('statusMark（状態の札の説明と自動の印）', () => {
   it('長く動いていなかったので付いた Done は、付けた時点までの動きの無い日数を言う', () => {
     const DAY = 86_400_000;
     const at = 100 * DAY;
-    expect(statusMark(ja, st({ setBy: 'import', setAt: at }), turns(9), sum('in_progress', 'in_session'), at - 7 * DAY - 5_000)).toEqual({ title: 'hangar が自動で Done にしました（7 日以上動きが無かった会話）', auto: true });
-    expect(statusMark(ja, st({ setBy: 'import', setAt: at }), turns(9), null, at - 45 * DAY).title).toBe('hangar が自動で Done にしました（45 日以上動きが無かった会話）');
+    expect(statusMark(ja, st({ setBy: 'import', setAt: at }), turns(9), sum('in_progress', 'in_session'), at - 7 * DAY - 5_000)).toEqual({ title: 'hangar が自動で Done にしました（7 日以上アクティビティがなかった会話）', auto: true });
+    expect(statusMark(ja, st({ setBy: 'import', setAt: at }), turns(9), null, at - 45 * DAY).title).toBe('hangar が自動で Done にしました（45 日以上アクティビティがなかった会話）');
     // 3 日に満たないものや、最後の動きが分からないものは、理由を言わない。
     expect(statusMark(ja, st({ setBy: 'import', setAt: at }), turns(9), null, at - 2 * DAY).title).toBe('hangar が自動で Done にしました');
     expect(statusMark(ja, st({ setBy: 'import', setAt: at }), turns(9), null, null).title).toBe('hangar が自動で Done にしました');

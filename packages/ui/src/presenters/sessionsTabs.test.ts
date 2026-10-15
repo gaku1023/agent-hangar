@@ -106,8 +106,8 @@ describe('presentSessionList のタブと平らな一覧（★）', () => {
     const store = { ...scene(), search: { params: { q: 'is:pasued' }, result: { hits: [], total: 0 }, loading: false } };
     const p = presentSessionList(withSearch({ text: 'is:pasued', filter: { status: 'done', projectId: 'alpha', days: 7 } }), store, NOW);
     expect(p.tokens).toEqual([{ key: 'status', token: 'is:done' }, { key: 'days', token: 'since:7d' }, { key: 'projectId', token: 'project:alpha' }]);
-    expect(p.conditions).toEqual(['『is:pasued』', 'Done', '7 日', 'alpha']);
-    expect(p.hints).toEqual(['「is:pasued」は条件として読めないので、語としてトランスクリプトを検索しています。is: の後は paused・done・archived・active・proposed・running・waiting のどれかです。']);
+    expect(p.conditions).toEqual(['「is:pasued」', 'Done', '7 日', 'alpha']);
+    expect(p.hints).toEqual(['「is:pasued」は条件として解釈できないため、キーワードとしてトランスクリプトを検索しています。is: には paused、done、archived、active、proposed、running、waiting のいずれかを指定します。']);
   });
   it('件数は桁を区切り、条件の無い一覧はページに分ける（Done の直近 3 件で打ち切らない）', () => {
     const many = Array.from({ length: 1221 }, (_, i) => dto(`d${i}`, 30 + i, { state: st({ status: 'done', setBy: 'import', setAt: IMPORT_AT }) }));
@@ -133,9 +133,9 @@ describe('presentSessionList のタブと平らな一覧（★）', () => {
   });
   it('読めなかったトークンは、種類ごとに書き方を添える', () => {
     const hints = (text: string) => presentSessionList(withSearch({ text, filter: {} }), scene(), NOW).hints;
-    expect(hints('since:abc')[0]).toContain('since: の後は 7d のように日数と d を書きます');
-    expect(hints('project:zzz')[0]).toContain('その名前で始まるプロジェクトがありません');
-    expect(hints('file:')[0]).toContain('file: の後にパスがありません');
+    expect(hints('since:abc')[0]).toContain('since: には 7d のように日数と d を指定します');
+    expect(hints('project:zzz')[0]).toContain('その名前で始まるプロジェクトはありません');
+    expect(hints('file:')[0]).toContain('file: の後にパスを指定してください');
     expect(hints('is:done 動画')).toEqual([]);
   });
 });

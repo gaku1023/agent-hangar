@@ -35,7 +35,7 @@ const props = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy): 
   return { band, idle: band.groups.every((g) => g.count === 0), searching: false, list: listProps(), allCount: 1241, loadMore: null, note: null, setup: false, ...over };
 };
 const mount = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy, onAction = vi.fn<(i: UiAction) => void>()) => ({ ...render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...props(over, cards)} /></ActionRoot></LanguageRoot>), onAction });
-const tabs = () => within(screen.getByRole('group', { name: '状態' }));
+const tabs = () => within(screen.getByRole('group', { name: 'ステータス' }));
 
 describe('HomeScreen の並び（試作 B）', () => {
   it('見出し、帯、一覧の見出し、タブ、欄と絞り込みのボタン、行の順に置く。最近とプロジェクトの 1 行は無い', () => {
@@ -77,7 +77,7 @@ describe('HomeScreen の帯と引き出し', () => {
     mount({ searching: true });
     expect(screen.queryByRole('region', { name: '要対応' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^要対応/ })).toBeNull();
-    expect(screen.getByText('検索中は引き出しを閉じています')).toBeInTheDocument();
+    expect(screen.getByText('検索中は折りたたんで表示します')).toBeInTheDocument();
     expect(screen.getByText('要対応').closest('.count-chip')).toHaveTextContent('3');
   });
   it('検索が終われば、元の開き方へ戻る', () => {
@@ -169,7 +169,7 @@ describe('HomeScreen の絞り込みのボタン', () => {
     mount();
     const btn = screen.getByRole('button', { name: '絞り込み' });
     expect(btn).toHaveAttribute('aria-expanded', 'false');
-    expect(btn.closest('.search-row')).toContainElement(screen.getByLabelText('キーワード'));
+    expect(btn.closest('.search-row')).toContainElement(screen.getByLabelText('検索'));
     expect(screen.queryByRole('radiogroup', { name: '期間' })).toBeNull();
     expect(screen.queryByLabelText('操作したファイル')).toBeNull();
     fireEvent.click(btn);
@@ -185,7 +185,7 @@ describe('HomeScreen の絞り込みのボタン', () => {
     expect(document.querySelector('.filter-n')).toBeNull();
     unmount();
     mount({ list: listProps({ filter: { projectId: 'p1', days: 7, file: 'a.ts' } }) });
-    const btn = screen.getByRole('button', { name: '絞り込み、条件 3' });
+    const btn = screen.getByRole('button', { name: '絞り込み（条件 3 件）' });
     expect(btn.querySelector('.filter-n')).toHaveTextContent('3');
   });
   it('語と状態は欄とタブがもう言っているので、ボタンの数には入れない', () => {
@@ -212,8 +212,8 @@ describe('HomeScreen の状態のタブ（★）', () => {
   });
   it('検索の最中もタブと欄は出す', () => {
     mount({ searching: true, list: listProps({ text: '動画', mode: 'search' }) });
-    expect(screen.getByRole('group', { name: '状態' })).toBeInTheDocument();
-    expect(screen.getByLabelText('キーワード')).toHaveValue('動画');
+    expect(screen.getByRole('group', { name: 'ステータス' })).toBeInTheDocument();
+    expect(screen.getByLabelText('検索')).toHaveValue('動画');
   });
   it('タブを押すと状態で絞り、「すべて」は外し、いまのタブは何も出さない', () => {
     const { onAction } = mount({ list: listProps({ tab: 'paused' }) });
@@ -227,7 +227,7 @@ describe('HomeScreen の状態のタブ（★）', () => {
   });
   it('行の状態の札を押すと、そのタブへ移る', () => {
     const { onAction } = mount({ list: listProps({ rows: [row('a', { state: 'archived' }), row('b')], total: 2, conditions: ['7 日'] }) });
-    fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを見る' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを表示' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'archived' } });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
@@ -236,7 +236,7 @@ describe('HomeScreen の状態のタブ（★）', () => {
 describe('HomeScreen の欄（欄が正）', () => {
   it('欄の案内は、名前、要約、トランスクリプトを探すことと、条件の書き方を言う。「名前はコマンドパレットで」は言わない', () => {
     mount();
-    const kw = screen.getByLabelText('キーワード');
+    const kw = screen.getByLabelText('検索');
     expect(kw.getAttribute('placeholder')).toContain('名前、要約、トランスクリプトを検索');
     expect(kw.getAttribute('placeholder')).toContain('is:paused');
     expect(kw.getAttribute('placeholder')).not.toContain('コマンドパレット');
@@ -252,7 +252,7 @@ describe('HomeScreen の欄（欄が正）', () => {
   });
   it('Enter で欄のトークンを読み、今の条件に重ねて search.query を出し、読めた分は欄から消す', () => {
     const { onAction } = mount({ list: listProps({ filter: { projectId: 'p1' } }) });
-    const kw = screen.getByLabelText('キーワード') as HTMLInputElement;
+    const kw = screen.getByLabelText('検索') as HTMLInputElement;
     fireEvent.change(kw, { target: { value: 'is:paused 動画 project:"my app"' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.query', text: '動画', filter: { projectId: 'p4', status: 'paused' } });
@@ -264,7 +264,7 @@ describe('HomeScreen の欄（欄が正）', () => {
     expect(within(box).getByText('is:paused')).toBeInTheDocument();
     fireEvent.click(within(box).getByRole('button', { name: 'is:paused を削除' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: undefined } });
-    const kw = screen.getByLabelText('キーワード');
+    const kw = screen.getByLabelText('検索');
     fireEvent.keyDown(kw, { key: 'Backspace' });
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { days: undefined } });
     onAction.mockClear();
@@ -273,8 +273,8 @@ describe('HomeScreen の欄（欄が正）', () => {
     expect(onAction).not.toHaveBeenCalled();
   });
   it('読めなかったトークンは、欄の下で語として探していることを知らせる', () => {
-    mount({ list: listProps({ text: 'is:pasued', hints: ['「is:pasued」は条件として読めないので、語として本文を探しています。'] }) });
-    expect(screen.getByRole('note')).toHaveTextContent('「is:pasued」は条件として読めないので、語として本文を探しています。');
+    mount({ list: listProps({ text: 'is:pasued', hints: ['「is:pasued」は条件として読めないので、語として本文を検出中…。'] }) });
+    expect(screen.getByRole('note')).toHaveTextContent('「is:pasued」は条件として読めないので、語として本文を検出中…。');
   });
   it('帯に無い期間（since:14d）では、期間の帯のどれにも印を付けない', () => {
     mount({ list: listProps({ filter: { days: 14 }, tokens: [{ key: 'days', token: 'since:14d' }] }) });
@@ -285,9 +285,9 @@ describe('HomeScreen の欄（欄が正）', () => {
     const onAction = vi.fn();
     const ui = (text: string) => <LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...props({ list: listProps({ text }) })} /></ActionRoot></LanguageRoot>;
     const { rerender } = render(ui('動画'));
-    expect(screen.getByLabelText('キーワード')).toHaveValue('動画');
+    expect(screen.getByLabelText('検索')).toHaveValue('動画');
     rerender(ui(''));
-    expect(screen.getByLabelText('キーワード')).toHaveValue('');
+    expect(screen.getByLabelText('検索')).toHaveValue('');
   });
 });
 
@@ -341,7 +341,7 @@ describe('HomeScreen の続きの読み方', () => {
   });
   it('読み込んでいる間は押せない', () => {
     mount({ searching: true, list: listProps({ text: '動画', mode: 'search', total: 132 }), loadMore: { remaining: 82, step: 50, loading: true } });
-    expect(screen.getByRole('button', { name: '読み込んでいます' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '読み込み中…' })).toBeDisabled();
   });
   it('条件の無い一覧はページ送りで、25、50、100、200 の件数を選べる', () => {
     const { onAction } = mount({ list: listProps({ total: 60, pager: pagerOf(1, 25, 60) }) });

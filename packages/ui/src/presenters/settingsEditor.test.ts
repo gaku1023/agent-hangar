@@ -28,9 +28,9 @@ describe('設定のエディタの欄（試作の 1-1 の A）', () => {
       ['zed', 'Zed', 'Ze', 'app', false], ['idea', 'IntelliJ IDEA', 'IJ', 'none', false], ['webstorm', 'WebStorm', 'WS', 'none', false],
       ['custom', '任意のコマンド', '{ }', null, false],
     ]);
-    expect(e.choices[0]).toMatchObject({ path: '/usr/local/bin/code', version: '1.105.1', badge: { text: '見つかりました', tone: 'ok' } });
+    expect(e.choices[0]).toMatchObject({ path: '/usr/local/bin/code', version: '1.105.1', badge: { text: '検出済み', tone: 'ok' } });
     expect(e.choices[3]).toMatchObject({ path: '/Applications/Zed.app', badge: { text: 'アプリだけ', tone: 'warn' } });
-    expect(e.choices[2]).toMatchObject({ path: null, badge: { text: '見つかりません', tone: 'mute' } });
+    expect(e.choices[2]).toMatchObject({ path: null, badge: { text: '未検出', tone: 'mute' } });
     expect(e.loading).toBe(false);
   });
   it('一覧が届く前は、見つかり方を出さずに確かめている印にする', () => {
@@ -48,10 +48,10 @@ describe('設定のエディタの欄（試作の 1-1 の A）', () => {
   it('テストの答えを、通り道ごとの文にする', () => {
     expect(present(store({ editors: EDITORS, editorTest: 'running' })).test).toEqual({ running: true, result: null });
     expect(present(store({ editors: EDITORS, editorTest: { ok: true, via: 'cli', file: '/h/hangar-editor-test.md', message: null } })).test.result)
-      .toEqual({ tone: 'ok', text: 'VS Code で hangar-editor-test.md の 3 行目を開きました。カーソルが 3 行目にあれば、行の指定も効いています。' });
+      .toEqual({ tone: 'ok', text: 'VS Code で hangar-editor-test.md の 3 行目を開きました。カーソルが 3 行目にあれば、行の指定も有効です。' });
     expect(present(store({ editors: EDITORS, editorTest: { ok: true, via: 'openA', file: '/h/hangar-editor-test.md', message: null } })).test.result)
       .toMatchObject({ tone: 'warn' });
     expect(present(store({ editors: EDITORS, editorTest: { ok: false, via: null, file: '/h/hangar-editor-test.md', message: 'Cursor が見つかりません', missing: true } })).test.result)
-      .toEqual({ tone: 'ng', text: 'Cursor が見つかりません。インストールしたあと「再確認」を押すか、パスを指定してください。' });
+      .toEqual({ tone: 'ng', text: 'Cursor が見つかりません。インストール後に「再確認」をクリックするか、パスを指定してください。' });
   });
 });

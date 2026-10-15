@@ -16,7 +16,7 @@ const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps =
 const TABS: StatusTabProps[] = ([['all', 'すべて', '2'], ['proposed', '確認待ち', '0'], ['active', 'Active', '2'], ['paused', 'Paused', '0'], ['done', 'Done', '0'], ['archived', 'Archived', '0']] as [StatusTab, string, string][]).map(([tab, label, count]) => ({ tab, label, count, hot: false }));
 const list = (over: Partial<SessionListProps> = {}): SessionListProps => ({ text: '', filter: {}, projects: [{ id: 'alpha', name: 'alpha' }], rows: [row('a'), row('b')], total: 2, loading: false, mode: 'all', conditions: [], tabs: TABS, tab: 'all', pager: null, statusColumn: true, tokens: [], hints: [], allCount: 2, ...over });
 const claudeRow: InstructionRowProps = { kind: 'project', name: 'CLAUDE.md', desc: 'プロジェクト指示・チームで共有', meta: '2.3 KB · 2 日前', off: false, markdown: '# 見本\n\n- 試験を先に書く', truncated: false };
-const agentsRow: InstructionRowProps = { kind: 'agents', name: 'AGENTS.md', desc: 'CLAUDE.md があるため読まれない', meta: '0.4 KB · 1 か月前', off: true, markdown: '# agents', truncated: false };
+const agentsRow: InstructionRowProps = { kind: 'agents', name: 'AGENTS.md', desc: 'CLAUDE.md があるため読み込まれない', meta: '0.4 KB · 1 か月前', off: true, markdown: '# agents', truncated: false };
 const INSTRUCTIONS: InstructionsProps = { state: 'ready', rows: [claudeRow, agentsRow], legacyNote: null };
 const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
   id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', notFound: false, isScratch: false,
@@ -31,8 +31,8 @@ const openInfo = () => { fireEvent.click(screen.getByRole('button', { name: '詳
 describe('ProjectScreen の左の一覧（ホームと同じ部品）', () => {
   it('状態のタブ、欄、行を並べ、見出しの「セッション N 件」は置かない。絞り込みにプロジェクトの選択は出さない', () => {
     const { container } = mount();
-    expect(screen.getByRole('group', { name: '状態' })).toBeInTheDocument();
-    expect(screen.getByLabelText('キーワード')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'ステータス' })).toBeInTheDocument();
+    expect(screen.getByLabelText('検索')).toBeInTheDocument();
     expect(container.querySelectorAll('[role="row"]')).toHaveLength(2);
     expect(container.querySelector('.list-head')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '絞り込み' }));
@@ -43,7 +43,7 @@ describe('ProjectScreen の左の一覧（ホームと同じ部品）', () => {
   it('状態のタブ、ページ送りは search.* と list.pageSize の意図で出す', () => {
     const onAction = vi.fn();
     mount(props({ list: list({ pager: pagerOf(1, 25, 60), total: 60 }) }), onAction);
-    fireEvent.click(within(screen.getByRole('group', { name: '状態' })).getByRole('button', { name: /^Active/ }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'ステータス' })).getByRole('button', { name: /^Active/ }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'active' } });
     fireEvent.click(within(screen.getByRole('navigation', { name: 'セッションのページ' })).getByRole('button', { name: '次のページ' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.page', page: 2 });
@@ -96,7 +96,7 @@ describe('ProjectScreen の見出し', () => {
     for (const name of ['VS Code で開く', 'ターミナルで開く']) {
       const btn = screen.getByRole('button', { name });
       expect(btn).toHaveAttribute('aria-disabled', 'true');
-      expect(btn).toHaveAttribute('title', 'この PC にパスが無いので開けません');
+      expect(btn).toHaveAttribute('title', 'この PC にパスがないため開けません');
       fireEvent.click(btn);
     }
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.openEditor' }));
@@ -108,7 +108,7 @@ describe('ProjectScreen の見出し', () => {
     render(<ActionRoot onAction={onAction} background={background}><ProjectScreen {...props({ path: null, resolved: false, git: { state: 'noPath', root: null, rows: [], fix: null } })} /></ActionRoot>);
     expect(background).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.git.load' }));
     const rail = screen.getByText('ブランチと worktree').closest('section')!;
-    expect(within(rail).getByText('この PC にパスが無いので、git を読みません')).toBeInTheDocument();
+    expect(within(rail).getByText('この PC にパスがないため、git の情報を取得しません')).toBeInTheDocument();
     expect(within(rail).queryByText('取得中…')).toBeNull();
   });
   it('パスがあれば、プロジェクトの git を読む。持ち主の違いで git が断ったら、訳と許すコマンドを出す', () => {
@@ -116,13 +116,13 @@ describe('ProjectScreen の見出し', () => {
     render(<ActionRoot onAction={vi.fn()} background={background}><ProjectScreen {...props({ git: { state: 'unsafe', root: null, rows: [], fix: 'git config --global --add safe.directory /w/alpha' } })} /></ActionRoot>);
     expect(background).toHaveBeenCalledWith({ type: 'project.git.load', projectId: 'alpha' });
     const rail = screen.getByText('ブランチと worktree').closest('section')!;
-    expect(within(rail).getByText(/持ち主が今のユーザーと違うので/)).toBeInTheDocument();
+    expect(within(rail).getByText(/所有者が現在のユーザーと異なるため/)).toBeInTheDocument();
     expect(within(rail).getByText('git config --global --add safe.directory /w/alpha')).toBeInTheDocument();
   });
   it('パスのフォルダがこの PC に無いときは、git でないとは言わず、見つからない旨を出す', () => {
     mount(props({ resolved: false, git: { state: 'missing', root: null, rows: [], fix: null } }));
     const rail = screen.getByText('ブランチと worktree').closest('section')!;
-    expect(within(rail).getByText('フォルダがこの PC で見つからないので、git を読みません')).toBeInTheDocument();
+    expect(within(rail).getByText('ディレクトリがこの PC に見つからないため、git の情報を取得しません')).toBeInTheDocument();
   });
   it('パスがあれば、外で開く操作は押せる形のまま', () => {
     mount();
@@ -132,13 +132,13 @@ describe('ProjectScreen の見出し', () => {
   it('パスがこの PC で見つからないときは押せる札を出し、場所の再指定へ進む', () => {
     const onAction = vi.fn();
     mount(props({ resolved: false }), onAction);
-    fireEvent.click(screen.getByRole('button', { name: '見つかりません。場所を再指定' }));
+    fireEvent.click(screen.getByRole('button', { name: '見つかりません。パスを再指定' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
   });
   it('同じフォルダを場所にしている別のプロジェクトがあれば押せる札を出し、同じパスで再指定を送る（まとめる確認へ進む）', () => {
     const onAction = vi.fn();
     mount(props({ path: '/w/alpha', sameFolder: { name: 'alpha' } }), onAction);
-    fireEvent.click(screen.getByRole('button', { name: 'alpha と同じフォルダです。1 つにまとめる' }));
+    fireEvent.click(screen.getByRole('button', { name: 'alpha と同じディレクトリです。1 つにまとめる' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'repoint', path: '/w/alpha' } });
   });
   it('クイックセッションの置き場は、状態と外で開く操作を出さず、始める操作を出す', () => {
@@ -156,13 +156,13 @@ describe('ProjectScreen の (i) の詳細', () => {
     mount();
     const pop = openInfo();
     const rows = [...pop.querySelectorAll('.pop-row')].map((r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent]);
-    expect(rows).toEqual([['場所', '/w/alpha'], ['セッション', '2 本'], ['最後の活動', '3 時間前']]);
+    expect(rows).toEqual([['パス', '/w/alpha'], ['セッション', '2 本'], ['最終アクティビティ', '3 時間前']]);
     expect(within(pop).queryByText('作成')).toBeNull();
   });
   it('場所を再指定は、ダイアログを開く意図を出して面を閉じる', () => {
     const onAction = vi.fn();
     mount(props(), onAction);
-    fireEvent.click(within(openInfo()).getByRole('button', { name: '場所を再指定' }));
+    fireEvent.click(within(openInfo()).getByRole('button', { name: 'パスを再指定' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
     expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
   });
@@ -214,7 +214,7 @@ describe('ProjectScreen の (i) の詳細', () => {
     mount(props({ isScratch: true }));
     const pop = openInfo();
     expect(within(pop).getByRole('button', { name: 'パスをコピー' })).toBeInTheDocument();
-    for (const name of ['場所を再指定', '名前を変更', '一覧から削除']) expect(within(pop).queryByRole('button', { name })).toBeNull();
+    for (const name of ['パスを再指定', '名前変更', '一覧から削除']) expect(within(pop).queryByRole('button', { name })).toBeNull();
   });
   it('パスの無いプロジェクトは、場所の行にそう言い、パスのコピーを出さない', () => {
     mount(props({ path: null, resolved: false }));
@@ -227,13 +227,13 @@ describe('ProjectScreen の (i) の詳細', () => {
 describe('ProjectScreen の右パネル', () => {
   it('TODO、指示とメモリ、アーティファクトを並べ、折りたためる', () => {
     mount();
-    expect(screen.getByRole('button', { name: 'TODO を足す' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'TODO を追加' })).toBeTruthy();
     expect(screen.getByText('CLAUDE.md')).toBeTruthy();
     expect(screen.getByText('題名 a1')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
-    expect(screen.queryByRole('button', { name: 'TODO を足す' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'TODO を追加' })).toBeNull();
     fireEvent.click(screen.getByLabelText('右パネルを開く'));
-    expect(screen.getByRole('button', { name: 'TODO を足す' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'TODO を追加' })).toBeTruthy();
   });
   it('開閉のボタンは、左の列の外で両方の列にかかる見出しの行の右端にあり、閉じても同じ場所で開き直せる', () => {
     const { container } = mount();
@@ -250,8 +250,8 @@ describe('ProjectScreen の右パネル', () => {
     expect(at('右パネルを開く')).toBe(open);
   });
   it('アーティファクトの追加が断られた理由は、右パネルの追加欄の下に出る', () => {
-    mount(props({ artifactAddError: { url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「beta」に付いています' } }));
-    expect(screen.getByRole('alert')).toHaveTextContent('すでにプロジェクト「beta」に付いています');
+    mount(props({ artifactAddError: { url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「beta」に追加されています' } }));
+    expect(screen.getByRole('alert')).toHaveTextContent('すでにプロジェクト「beta」に追加されています');
   });
   // アーティファクトの節も白い面に載せ、面の中のカードは淡い地で重ねる（見出しと空のときの文が光の上に出ないように）。
   it('3 つの節は白い面に載り、真ん中の見出しは「指示とメモリ」である', () => {
@@ -291,7 +291,7 @@ describe('ProjectScreen の指示とメモリ', () => {
     expect(rows[0]).not.toHaveAttribute('data-off');
     expect(rows[1]).toHaveAttribute('data-off', 'true');
     // 読まれるものの全体の見方を、節の下に添える。
-    expect(section()).toHaveTextContent('読み込まれるものの全体は、セッションで /context を実行すると確認できます。');
+    expect(section()).toHaveTextContent('読み込まれる内容の全体は、セッションで /context を実行すると確認できます。');
     expect(within(section()).getByText('/context').tagName).toBe('CODE');
   });
 
@@ -321,10 +321,10 @@ describe('ProjectScreen の指示とメモリ', () => {
   it('先頭だけのときと読めなかったときは、ダイアログで知らせる', () => {
     mount(props({ instructions: { ...INSTRUCTIONS, rows: [{ ...claudeRow, truncated: true }, { ...agentsRow, markdown: null }] } }));
     fireEvent.click(screen.getByRole('button', { name: 'CLAUDE.md を表示' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('長いので先頭だけを表示しています。全体はエディタで開いてください。');
+    expect(screen.getByRole('dialog')).toHaveTextContent('長いため先頭だけを表示しています。全体はエディタで開いてください。');
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: 'AGENTS.md を表示' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('このファイルは読めませんでした。エディタで開いてください。');
+    expect(screen.getByRole('dialog')).toHaveTextContent('このファイルを読み込めませんでした。エディタで開いてください。');
   });
 
   it('ファイルが無ければ説明だけを出す。読み込む前は何も言わない。フォルダが無ければそう言う', () => {
@@ -335,7 +335,7 @@ describe('ProjectScreen の指示とメモリ', () => {
     expect(section()).not.toHaveTextContent('指示のファイルはありません');
     r.unmount();
     mount(props({ instructions: { state: 'missing', rows: [], legacyNote: null } }));
-    expect(section()).toHaveTextContent('この PC にはフォルダがありません');
+    expect(section()).toHaveTextContent('この PC にはディレクトリがありません');
     expect(section()).not.toHaveTextContent('/context');
   });
 
@@ -378,7 +378,7 @@ describe('ProjectScreen の右パネルの節の折りたたみ', () => {
     const { onAction } = mount(props({ pendingTodos: 2, railFolded: ['todo', 'artifacts'] }));
     expect(toggleOf(/^TODO/)).toHaveAttribute('aria-expanded', 'false');
     expect(bodyOf(/^TODO/)).toHaveAttribute('hidden');
-    expect(screen.queryByRole('button', { name: 'TODO を足す' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'TODO を追加' })).toBeNull();
     expect(within(headOf(/^TODO/)).getByText('確認待ち 2')).toBeInTheDocument();
     expect(within(headOf(/^TODO/)).getByText('1')).toBeInTheDocument();
     expect(bodyOf(/^アーティファクト/)).toHaveAttribute('hidden');
@@ -392,7 +392,7 @@ describe('ProjectScreen の右パネルの節の折りたたみ', () => {
     const { rerender } = mount(props({ railFolded: ['todo'] }));
     rerender(<ActionRoot onAction={vi.fn()}><ProjectScreen {...props({ railFolded: [] })} /></ActionRoot>);
     expect(bodyOf(/^TODO/)).not.toHaveAttribute('hidden');
-    expect(screen.getByRole('button', { name: 'TODO を足す' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'TODO を追加' })).toBeInTheDocument();
   });
 });
 
@@ -414,7 +414,7 @@ describe('ProjectScreen のアーティファクトの「すべて表示」', ()
     expect(all.compareDocumentPosition(screen.getByLabelText('アーティファクトの URL')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(all);
     expect(cards()).toEqual(['題名 a1', '題名 a2', '題名 a3', '題名 a4', '題名 a5']);
-    const less = screen.getByRole('button', { name: '少なく表示' });
+    const less = screen.getByRole('button', { name: '折りたたむ' });
     expect(less).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(less);
     expect(cards()).toEqual(['題名 a1', '題名 a2', '題名 a3']);
@@ -439,11 +439,11 @@ describe('ProjectScreen のアーティファクトの「すべて表示」', ()
     section.getBoundingClientRect = () => ({ top: 100 + 400 - rail.scrollTop } as DOMRect);
     fireEvent.click(screen.getByRole('button', { name: 'すべて表示（8 件）' }));
     rail.scrollTop = 900;
-    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }));
     expect(rail.scrollTop).toBe(400);
     fireEvent.click(screen.getByRole('button', { name: 'すべて表示（8 件）' }));
     rail.scrollTop = 150;
-    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }));
     expect(rail.scrollTop).toBe(150);
   });
   it('言語を English にすると、「すべて表示」と「少なく表示」も英語になる', () => {
@@ -546,7 +546,7 @@ describe('ProjectScreen の右パネルの動き', () => {
     fireEvent.click(screen.getByRole('button', { name: 'すべて表示（5 件）' }));
     const more = container.querySelector('.artifacts-more')!;
     expect(on(more)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
-    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }));
     expect(container.querySelector('.artifacts-more')).toBe(more);
     expect(on(more).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
     await done();
@@ -561,7 +561,7 @@ describe('ProjectScreen の右パネルの動き', () => {
     rerender(ui({ artifacts: artN(5), railFolded: [] }));
     expect(body).not.toHaveAttribute('hidden');
     fireEvent.click(screen.getByRole('button', { name: 'すべて表示（5 件）' }));
-    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }));
     expect(container.querySelector('.artifacts-more')).toBeNull();
     expect(animations).toHaveLength(0);
   });

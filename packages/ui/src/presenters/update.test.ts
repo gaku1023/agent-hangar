@@ -19,7 +19,7 @@ describe('presentUpdateCard：右下の札', () => {
 
   it('新しい版があれば、版といまの版を言い、取得とあとでを置く', () => {
     const c = presentUpdateCard(storeOf(up({ kind: 'available', version: '1.5.0' })))!;
-    expect(c).toMatchObject({ kind: 'available', tone: 'info', head: '更新あり', title: 'Hangar 1.5.0 を利用できます', detail: '現在は 1.4.2 です。', progress: null });
+    expect(c).toMatchObject({ kind: 'available', tone: 'info', head: '更新あり', title: 'Hangar 1.5.0 を利用できます', detail: '現在のバージョンは 1.4.2 です。', progress: null });
     expect(c.actions).toEqual([
       { label: 'ダウンロードしてインストール', action: { type: 'update.download' }, primary: true },
       { label: 'あとで', action: { type: 'update.dismiss' }, primary: false },
@@ -30,7 +30,7 @@ describe('presentUpdateCard：右下の札', () => {
     const c = presentUpdateCard(storeOf(up({ kind: 'downloading', version: '1.5.0', done: 62, total: 100 })))!;
     expect(c).toMatchObject({ kind: 'downloading', head: 'ダウンロード中', title: 'Hangar 1.5.0', progress: { percent: 62, label: '62%' }, actions: [] });
     // 大きさが分からないときは、割合を出さずに取得中とだけ言う。
-    expect(presentUpdateCard(storeOf(up({ kind: 'downloading', version: '1.5.0', done: 10, total: null }))))!.toMatchObject({ progress: { percent: null, label: 'ダウンロードしています…' } });
+    expect(presentUpdateCard(storeOf(up({ kind: 'downloading', version: '1.5.0', done: 10, total: null }))))!.toMatchObject({ progress: { percent: null, label: 'ダウンロード中…' } });
   });
 
   it('準備ができたら、実行中のセッションが止まらないことを言い、再起動して更新とあとでだけを置く', () => {
@@ -51,7 +51,7 @@ describe('presentUpdateCard：右下の札', () => {
 
   it('失敗したら、いまの版が変わらないことと理由を言い、もう一度試すと閉じるを置く', () => {
     const c = presentUpdateCard(storeOf(up({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'signature' })))!;
-    expect(c).toMatchObject({ kind: 'failed', tone: 'err', head: '更新に失敗', title: 'インストールできませんでした', detail: 'いまのバージョン 1.4.2 は変わりません。署名を確認できませんでした。' });
+    expect(c).toMatchObject({ kind: 'failed', tone: 'err', head: '更新に失敗', title: 'インストールできませんでした', detail: '現在のバージョン 1.4.2 は変わりません。署名を確認できませんでした。' });
     expect(c.actions).toEqual([
       { label: 'もう一度試す', action: { type: 'update.download' }, primary: true },
       { label: '閉じる', action: { type: 'update.dismiss' }, primary: false },
@@ -73,14 +73,14 @@ describe('presentUpdateSection：設定の「更新」の節', () => {
   it('最新なら、版と最終確認の時刻、最新の札を出す', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'latest' }, { checkedAt: NOW - 5 * MIN })), NOW);
     expect(p).toMatchObject({ supported: true, badge: { text: '最新', tone: 'ok' }, version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false }, pending: null });
-    expect(p.notify).toEqual({ on: true, desc: '新しいバージョンが出たら知らせます。インストールは押したときだけ行います。' });
+    expect(p.notify).toEqual({ on: true, desc: '新しいバージョンが出たら通知します。自動ではインストールしません。' });
     expect(p.tocState).toBe('最新');
   });
 
   it('確認中はボタンを押せず、通知オフなら札は通知オフにする', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'checking' }, { notify: false })), NOW);
     expect(p).toMatchObject({ badge: { text: '通知オフ', tone: 'off' }, version: { sub: '確認中…', checkLabel: '確認中…', checkDisabled: true } });
-    expect(p.notify).toEqual({ on: false, desc: '無効です。手動の確認だけ使えます。' });
+    expect(p.notify).toEqual({ on: false, desc: '無効です。手動での確認だけ使えます。' });
   });
 
   it('まだ確認していなければ、そう言う', () => {
@@ -92,7 +92,7 @@ describe('presentUpdateSection：設定の「更新」の節', () => {
 
   it('確認に失敗したら、理由を版の行に出す', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'failed', step: 'check', version: null, reason: 'network' })), NOW);
-    expect(p.version.sub).toBe('確認できませんでした。ネットワークか配布元に接続できませんでした。');
+    expect(p.version.sub).toBe('確認できませんでした。ネットワークまたは配布元に接続できませんでした。');
     expect(p.pending).toBeNull();
   });
 
@@ -123,6 +123,6 @@ describe('presentUpdateSection：設定の「更新」の節', () => {
   it('殻が updater を持たないとき（ブラウザ）は、デスクトップのアプリで確認すると言う', () => {
     const p = presentUpdateSection(storeOf(initialUpdate()), NOW);
     expect(p.supported).toBe(false);
-    expect(p.unsupported).toBe('更新はデスクトップのアプリで確認します。');
+    expect(p.unsupported).toBe('更新の確認はデスクトップアプリで行います。');
   });
 });

@@ -59,7 +59,7 @@ describe('AccountMeters', () => {
   });
   it('値が無ければ「まだ値がありません」と言い、棒は出さない', () => {
     render(<AccountMeters account={view({ usage: { fiveHour: null, sevenDay: null, updatedAt: null } })} showResets />);
-    expect(screen.getByText('まだ値がありません')).toBeInTheDocument();
+    expect(screen.getByText('未取得')).toBeInTheDocument();
     expect(screen.queryByRole('meter')).toBeNull();
   });
   it('一方の枠だけ値が無いときは、その枠の数字を「—」にする', () => {

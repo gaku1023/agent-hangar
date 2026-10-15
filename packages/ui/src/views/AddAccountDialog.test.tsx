@@ -16,8 +16,8 @@ function mount(p: Partial<AddAccountProps> = {}) {
   return { onAction, rerender };
 }
 const nameField = () => screen.getByRole('textbox', { name: '名前' });
-const dirField = () => screen.getByRole('textbox', { name: '場所' });
-const submit = () => screen.getByRole('button', { name: '登録してログイン' });
+const dirField = () => screen.getByRole('textbox', { name: '設定ディレクトリ' });
+const submit = () => screen.getByRole('button', { name: '追加してログイン' });
 const sent = (onAction: ReturnType<typeof vi.fn>, type: string) => onAction.mock.calls.map((c) => c[0]).filter((a: { type: string }) => a.type === type);
 
 afterEach(() => vi.restoreAllMocks());
@@ -68,7 +68,7 @@ describe('AddAccountDialog', () => {
     expect(submit()).toBeDisabled();
     rerender({ preview: preview({ name: 'x', registeredAs: '会社' }) });
     expect(submit()).toBeDisabled();
-    expect(screen.getByText('この場所は「会社」で登録済みです。')).toBeInTheDocument();
+    expect(screen.getByText('この設定ディレクトリは「会社」で登録済みです。')).toBeInTheDocument();
   });
 
   it('共有するもの 4 組と、分けるもの 3 つを、2 列で見せる', () => {
@@ -76,25 +76,25 @@ describe('AddAccountDialog', () => {
     const shared = screen.getByRole('list', { name: '~/.claude と共有する（リンク）' });
     expect(within(shared).getAllByRole('listitem').map((li) => li.firstChild?.textContent)).toEqual(['設定と指示', 'スキル、コマンド、プラグイン', 'メモリと計画', '会話の履歴']);
     expect(within(shared).getByText('projects、history.jsonl ほか 6 項目')).toBeInTheDocument();
-    const separate = screen.getByRole('list', { name: '分ける（共有しない）' });
-    expect(within(separate).getAllByRole('listitem').map((li) => li.firstChild?.textContent)).toEqual(['ログイン', '組織から配られる設定', 'キャッシュと常駐の状態']);
+    const separate = screen.getByRole('list', { name: '共有しない（アカウントごと）' });
+    expect(within(separate).getAllByRole('listitem').map((li) => li.firstChild?.textContent)).toEqual(['ログイン', '組織から配布される設定', 'キャッシュと常駐プロセスの状態']);
   });
 
   it('場所に同じ名前の実ファイルがあれば、名前を挙げて触らないと言う。無いときは決まりの 1 行だけ', () => {
     const { rerender } = mount();
-    expect(screen.getByText('場所に同じ名前の実ファイルがあるときは、触らずに知らせます。')).toBeInTheDocument();
+    expect(screen.getByText('設定ディレクトリに同じ名前の実ファイルがあるときは、変更せずに通知します。')).toBeInTheDocument();
     fireEvent.change(nameField(), { target: { value: 'univ' } });
     rerender({ preview: preview({ name: 'univ', dir: `${HOME}/.claude-univ`, exists: true, conflicts: ['settings.json', 'skills'] }) });
-    expect(screen.getByText('~/.claude-univ には settings.json、skills が実ファイルとしてあります。上書きせず、このまま残します。共有するときは、中身を確認してから削除してください。')).toBeInTheDocument();
+    expect(screen.getByText('~/.claude-univ には settings.json、skills が実ファイルとしてあります。上書きせずに残します。共有するときは、中身を確認してから削除してください。')).toBeInTheDocument();
     rerender({ preview: preview({ name: 'univ', dir: `${HOME}/.claude-univ`, exists: true }) });
-    expect(screen.getByText('この場所は既にあります。足りないリンクだけを足します。')).toBeInTheDocument();
+    expect(screen.getByText('この設定ディレクトリはすでにあります。足りないリンクだけを追加します。')).toBeInTheDocument();
   });
 
   it('「選ぶ…」はホームから Finder を開き、選んだフォルダを場所に入れる。殻が無ければ出さない', () => {
     const { onAction, rerender } = mount({ picked: { path: '/old', n: 3 } });
     // 開く前に選んだ結果は使わない。
     expect(dirField()).toHaveValue('');
-    fireEvent.click(screen.getByRole('button', { name: '選ぶ…' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択…' }));
     expect(sent(onAction, 'account.add.pick')).toEqual([{ type: 'account.add.pick', defaultPath: HOME }]);
     rerender({ picked: { path: `${HOME}/.claude-univ`, n: 4 } });
     expect(dirField()).toHaveValue('~/.claude-univ');
@@ -103,7 +103,7 @@ describe('AddAccountDialog', () => {
 
   it('殻の外では「選ぶ…」を出さない', () => {
     mount({ desktop: false });
-    expect(screen.queryByRole('button', { name: '選ぶ…' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '選択…' })).toBeNull();
   });
 
   it('断られた理由を出す', () => {

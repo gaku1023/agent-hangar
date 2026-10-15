@@ -44,7 +44,7 @@ describe('送るものの一覧（a1）', () => {
       unsent: { items: [{ id: 'secret:file:skills/x/SKILL.md', kind: 'secret', itemId: 'file:skills/x/SKILL.md', label: 'skills/x/SKILL.md', reason: 'secret:ghp_', allowed: false }, { id: 'rule:allow:1', kind: 'permission-rule', itemId: 'settings:permissions.allow', label: 'Read(//v/**)', reason: 'absolute-path', allowed: false }] },
     }));
     if (p?.part !== 'send') throw new Error('part');
-    expect(p.dropped?.rows.map((r) => [r.label, r.side])).toEqual([['env', '実行される設定'], ['permissions.additionalDirectories', '絶対パス'], ['skills/x/SKILL.md', '秘密らしい文字列（ghp_ の形）'], ['Read(//v/**)', '絶対パスの規則']]);
+    expect(p.dropped?.rows.map((r) => [r.label, r.side])).toEqual([['env', '実行される設定'], ['permissions.additionalDirectories', '絶対パス'], ['skills/x/SKILL.md', 'シークレットらしい文字列（ghp_ 形式）'], ['Read(//v/**)', '絶対パスのルール']]);
   });
   it('読み込み前は loading で、すでに入っていれば alreadyOn', () => {
     const p = presentConfigDialog(open('send'), storeOf(dto()));
@@ -132,8 +132,8 @@ describe('競合の札（d1）', () => {
   it('片側が消えているときは「消えています」と言う', () => {
     const r = presentConfigDialog(open('conflicts'), storeOf(dto(), { conflicts: [{ ...c, remote: null }, { ...c, local: null }] }));
     if (r?.part !== 'conflicts') throw new Error('part');
-    expect([r.cards[0]!.remoteWhen, r.cards[1]!.localWhen]).toEqual(['削除されています', '削除されています']);
-    expect(r.cards[0]!.remoteName).toBe('相手');
+    expect([r.cards[0]!.remoteWhen, r.cards[1]!.localWhen]).toEqual(['削除済み', '削除済み']);
+    expect(r.cards[0]!.remoteName).toBe('他の PC');
   });
 });
 
@@ -159,7 +159,7 @@ describe('設定の節の常設の行', () => {
   });
   it('「それでも送る」を押した項目は、送ると札で言い、もう押させない', () => {
     const p = presentConfigSection(storeOf(dto({ unsent: 1 }), { unsent: { items: [{ id: 'u', kind: 'secret', itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: true }] } }), NOW);
-    expect(p.unsent.rows[0]).toMatchObject({ sendId: null, tag: { text: '送ります' } });
+    expect(p.unsent.rows[0]).toMatchObject({ sendId: null, tag: { text: '送信します' } });
   });
   it('適用の待ちと、Worker の更新待ちと、最後に送った時刻を出す。ターミナルのコマンドは入れ方の呼び方にそろえる', () => {
     const store = storeOf(dto({ workerPending: true, lastSentAt: NOW - 120_000, applyOrder: { count: 5, createdAt: NOW - 60_000 } }), {}, { shellHook: { state: 'off', zshrc: '/z', line: 'l', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install' } });
