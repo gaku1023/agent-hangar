@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import { wrapComposition } from './compositionWrap.ts';
 import { createDesktopBridge } from './desktop.ts';
 import type { TerminalLike } from './terminals.ts';
 import { activateLink, createLinkGate, linkOpener, linkProvidersOf, type LinkGate } from './terminalLinks.ts';
@@ -59,6 +60,8 @@ export function createXterm(): TerminalLike {
       term.open(el);
       // xterm が copy の処理を付けるのは open の中なので、その後ろに付ける。要素ごと捨てられるので外さない。
       if (term.element) guardEmptyCopy(term.element);
+      // 変換中の文字をターミナルの右端で折り返す（compositionWrap.ts）。要素ごと捨てられるので止めない。
+      if (term.element) wrapComposition(term.element);
     },
     write: (d) => term.write(d),
     onData: (cb) => term.onData(cb),
