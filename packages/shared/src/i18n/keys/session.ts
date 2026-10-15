@@ -7,6 +7,7 @@ export const sessionKeys = {
   'session.file.mustBeAbsolute': [],
   'session.file.notChanged': [],
   'session.file.badOptions': [],
+  'session.move.projectNotFound': [],
   'session.status.noSuggestion': [],
   'session.status.invalid': [],
   'session.status.reasonMustBeString': [],

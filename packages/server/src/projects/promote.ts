@@ -4,6 +4,7 @@ import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { checkDirName, exists, makeProjectDir, parentDirOf, ProjectCreateError } from './create.ts';
 import { insertProject } from './registry.ts';
+import { repinIfPinned } from '../sessions/move.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { isUnderScratch, scratchRoot } from './scratch.ts';
 import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
@@ -168,6 +169,8 @@ export function promoteSession(
     projectId = insertProject(deps.db, deps.deviceId, name, dir);
     const row = deps.db.prepare('select * from sessions where id = ?').get(s.id) as Record<string, unknown>;
     upsertShared(deps.db, 'sessions', { ...row, project_id: projectId }, deps.deviceId);
+    // 利用者が移したセッションなら、移した先も新しいプロジェクトにする。残すと合わせ直しが昇格の前の所属へ戻す。
+    repinIfPinned(deps.db, deps.deviceId, s.id, projectId);
   });
   write();
 

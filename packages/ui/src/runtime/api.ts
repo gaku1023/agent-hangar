@@ -138,6 +138,8 @@ export type ApiClient = {
   /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
   confirmSessionState(id: string, body: { returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
   rejectSessionState(id: string): Promise<{ state: SessionStateDto }>;
+  /** セッションを別のプロジェクトへ移す。移した後のセッションを返す。返り値は使わない（画面の正は session.upsert）。 */
+  moveSession(id: string, projectId: string): Promise<SessionDto>;
   /** 中断の群の「再開しない」（dismissed が真）と、その取り消し。新しい群を返す。 */
   dismissInterrupted(runIds: string[], dismissed: boolean): Promise<{ interrupted: InterruptedDto | null }>;
   /** 同じファイルの編集の「このファイルでは表示しない」。 */
@@ -297,6 +299,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     setSessionState: (id, body) => call(`/api/sessions/${id}/state`, { method: 'PUT', body: JSON.stringify(body) }),
     confirmSessionState: (id, body) => post(`/api/sessions/${id}/state/confirm`, body),
     rejectSessionState: (id) => post(`/api/sessions/${id}/state/reject`),
+    moveSession: (id, projectId) => call(`/api/sessions/${id}/project`, { method: 'PUT', body: JSON.stringify({ projectId }) }),
     dismissInterrupted: (runIds, dismissed) => post('/api/interrupted/dismiss', { runIds, dismissed }),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     memo: (projectId) => call(`/api/projects/${projectId}/memo`),

@@ -64,6 +64,21 @@ describe('resumeCwd（再開とフォークの作業ディレクトリ）', () =
     db.prepare("update project_roots set resolved = 1, deleted_at = 5 where id = 'r-me'").run();
     expect(resumeCwd(db, 'me', { cwd: 'D:\\src\\notes-app', project_id: 'p1' })).toBeNull();
   });
+  it('移した会話は、移した先ではなく、cwd を含む場所を持つプロジェクトの場所で読み替える', () => {
+    const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-handover-moved-')));
+    try {
+      fs.mkdirSync(path.join(here, 'src'), { recursive: true });
+      upsertShared(db, 'projects', { id: 'p2', name: 'docs', status: 'active', is_scratch: 0 }, 'me');
+      upsertShared(db, 'project_roots', { id: 'r2-me', project_id: 'p2', device_id: 'me', path: other, resolved: 1 }, 'me');
+      const id = session({ cwd: 'D:\\src\\notes-app\\src', project: 'p2' });
+      upsertShared(db, 'session_states', { session_id: id, project_id: 'p2' }, 'me', 'session_id');
+      expect(resumeCwd(db, 'me', { id, cwd: 'D:\\src\\notes-app\\src', project_id: 'p2' })).toBe(path.join(here, 'src'));
+      // cwd を含む場所を持つプロジェクトが無ければ、移した先の場所には倒さない。
+      expect(resumeCwd(db, 'me', { id, cwd: 'E:\\elsewhere', project_id: 'p2' })).toBeNull();
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
   it('この PC の場所の行があっても、フォルダが消えていれば読み替えない', () => {
     fs.rmSync(here, { recursive: true, force: true });
     expect(resumeCwd(db, 'me', { cwd: 'D:\\src\\notes-app', project_id: 'p1' })).toBeNull();

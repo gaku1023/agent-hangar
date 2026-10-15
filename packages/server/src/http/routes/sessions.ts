@@ -8,6 +8,7 @@ import { EDIT_TOOLS } from '../../indexer/indexFile.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
+import { MoveError, moveSession } from '../../sessions/move.ts';
 import { dismissOverlap } from '../../sessions/overlap.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
@@ -167,6 +168,23 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const id = c.req.param('id');
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     return stateResult(c, () => rejectSessionState(db, deviceId, id));
+  });
+  // セッションを別のプロジェクトへ移す（sessions/move.ts）。動くのは hangar 上の所属だけで、本文と cwd は元のまま。
+  // 利用者の操作なので、MCP の秘密では開けない（状態と同じ）。成功したら移した後の SessionDto を返す。画面の正は配る層の session.upsert である。
+  api.put('/sessions/:id/project', async (c) => {
+    const id = c.req.param('id');
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const projectId = (b.value as { projectId?: unknown } | undefined)?.projectId;
+    if (typeof projectId !== 'string' || projectId === '') return c.json({ error: tr('common.field.required', { field: 'projectId' }) }, 400);
+    try {
+      moveSession(db, deviceId, id, projectId);
+    } catch (e) {
+      if (e instanceof MoveError) return c.json({ error: errorText(language(), e) }, e.status);
+      throw e;
+    }
+    return c.json(session(id));
   });
   // 同じファイルの編集の警告の「このファイルでは表示しない」。相手（with）とパスの組で覚え、向きによらず効く。
   api.post('/sessions/:id/overlap/dismiss', async (c) => {

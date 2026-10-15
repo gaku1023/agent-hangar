@@ -8,6 +8,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.file.mustBeAbsolute': 'Send file as an absolute path string',
   'session.file.notChanged': 'This session did not change that file',
   'session.file.badOptions': 'The options for opening in the editor are not valid',
+  'session.move.projectNotFound': 'The destination project was not found',
   'session.status.noSuggestion': 'This session has no suggestion to review',
   'session.status.invalid': 'Status must be paused, done, archived, or null to mark as Active',
   'session.status.reasonMustBeString': 'Reason must be a string',

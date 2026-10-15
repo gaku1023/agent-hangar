@@ -23,6 +23,10 @@ type StateRow = {
   status: SessionStatus | null; note: string | null; return_on: string | null; return_time: string | null; set_by: StateSetBy | null; set_at: number | null;
   candidate_status: 'paused' | 'done' | null; candidate_note: string | null; candidate_return_on: string | null; candidate_return_time: string | null; candidate_source: CandidateSource | null; candidate_at: number | null;
   rejected_at: number | null;
+  /** 利用者が移した先（版 25）。null なら cwd からの自動の振り分けに従う。状態の書き込みでは触らない（sessions/move.ts）。 */
+  project_id: string | null;
+  /** 削除の印（版 25）。null なら生きている。 */
+  trashed_at: number | null;
   updated_at: number; deleted_at: number | null; origin_device: string;
 };
 /** DTO に写すのに要る列。db/queries.ts の左結合の行も、この形に詰め直して渡す。 */
@@ -123,6 +127,14 @@ export function setSessionState(db: Db, deviceId: string, sessionId: string, o: 
   if (o.status === null) return write(db, deviceId, sessionId, { ...NO_STATUS, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
   const { note, returnOn, returnTime } = validateStateInput(o.status, { note: o.note, returnOn: o.returnOn, returnTime: o.returnTime, requireNote: o.requireNote ?? false });
   return write(db, deviceId, sessionId, { status: o.status, note, return_on: returnOn, return_time: returnTime, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
+}
+
+/**
+ * 利用者が移した先を書く（sessions/move.ts）。null は移した印を外し、cwd からの自動の振り分けに戻す。
+ * 状態と提案の列はそのまま残す。行が無ければ、状態の無い（Active の）行を作る。
+ */
+export function setSessionPlacement(db: Db, deviceId: string, sessionId: string, projectId: string | null): void {
+  write(db, deviceId, sessionId, { project_id: projectId });
 }
 
 /**

@@ -6,6 +6,7 @@ import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/transcript/lines.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts } from '../provider/claude-code/transcript/normalize.ts';
+import { pinnedProjectOf } from '../sessions/move.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { foldActivity, type Activity } from '../provider/claude-code/transcript/activity.ts';
 import { foldLimit, type Limit } from '../provider/claude-code/transcript/limit.ts';
@@ -301,6 +302,7 @@ function refreshFilesChanged(db: Db, sessionId: string): void {
 /**
  * 主線から得た事実を sessions と session_stats に重ねる。sessions は全列を読んでから差分を乗せて upsertShared に渡す。他端末の写しではこの関数を呼ばない。
  * 本文の題名（Claude Code の側で付けた名前）は sessions.custom_title に書く。hangar で付けた名前（session_notes）には触らない。
+ * 利用者が移したセッションは、所属を移した先に合わせ直す。
  */
 function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, deviceId: string): void {
   const cur = stmt(db, 'select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
@@ -312,6 +314,10 @@ function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, 
   if (title) next.custom_title = title;
   if (acc.firstTs !== undefined) next.started_at = reset || cur.started_at == null ? acc.firstTs : Math.min(cur.started_at as number, acc.firstTs);
   if (acc.lastTs !== undefined) next.last_activity_at = reset || cur.last_activity_at == null ? acc.lastTs : Math.max(cur.last_activity_at as number, acc.lastTs);
+  // 所属は本文から読み取る事実ではなく利用者が決めることなので、移した先（sessions/move.ts）があればそれに合わせ直す。
+  // 古い所属が同期で書き戻されていても、ここで直した値が上がる。
+  const pin = pinnedProjectOf(db, sessionId);
+  if (pin !== null) next.project_id = pin;
   delete next.updated_at; delete next.origin_device;
   if (JSON.stringify(next) !== JSON.stringify(Object.fromEntries(Object.entries(cur).filter(([k]) => k !== 'updated_at' && k !== 'origin_device')))) {
     upsertShared(db, 'sessions', next, deviceId);

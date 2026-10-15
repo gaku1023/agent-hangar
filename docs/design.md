@@ -619,6 +619,23 @@ create table session_notes (
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 
+-- セッションについて利用者が決めること（状態、提案、所属、削除）。索引は書かない。
+-- 本文から読み取れる事実（件名、cwd、時刻）は sessions に置き、本文を持つ PC が書き直してよい。
+-- 利用者の決めたことはここに置くので、索引の書き直しや sessions の後勝ちで戻らない。
+create table session_states (
+  session_id text primary key references sessions(id),
+  status text check (status in ('paused','done','archived')),  -- null は Active
+  note text, return_on text, set_by text check (set_by in ('user','conversation','import')), set_at integer,
+  candidate_status text check (candidate_status in ('paused','done')),
+  candidate_note text, candidate_return_on text,
+  candidate_source text check (candidate_source in ('in_session','exit','post_hoc')), candidate_at integer,
+  rejected_at integer,
+  updated_at integer not null, deleted_at integer, origin_device text not null,
+  return_time text, candidate_return_time text,   -- 戻る時刻（版 14）
+  project_id text,                                -- 利用者が移した先。null なら cwd からの自動の振り分けに従う（版 25）
+  trashed_at integer                              -- 削除の印。null なら生きている。行の論理削除の deleted_at とは別物（版 25）
+);
+
 -- 1 回の起動または再開。tmux 上の寿命と一致する。
 create table runs (
   id text primary key, session_id text not null references sessions(id),
@@ -2726,6 +2743,25 @@ N は UI の store に届いているセッションで数える。
 開いたら新しいパスの欄にフォーカスを入れる。
 自動推定やマーカーファイルは持たない。
 再指定のダイアログには、ワークスペースルート直下で名前が近いディレクトリを候補として並べる。
+
+### セッションを別のプロジェクトへ移す
+
+セッションの所属は、ふつうは cwd からの自動の振り分け（この PC の場所の最長一致）で決まる。
+利用者はこれを別のプロジェクトへ移せる（`PUT /api/sessions/:id/project`、UiAction は `session.move`、本体は `sessions/move.ts`）。
+動かすのは hangar 上の所属だけで、本文（jsonl）と `sessions.cwd` は元のままにする。
+
+- 移した先は `session_states.project_id` に書き、`sessions.project_id` も同じ値にする。どちらも同期に載る。
+- 移した先は利用者が決めたことなので、本文から読み取る事実を置く `sessions` ではなく、利用者の操作でしか書かれない `session_states` を正とする。
+- 索引（`applySessionFacts`）、自動の振り分け（`assignSessions`、`assignSession`）、同期の取り込み（`sync/apply.ts` の `sessions` と `session_states` の upsert）のあとで、`sessions.project_id` を移した先に合わせ直す。
+  古い所属を持った `sessions` の upsert が後から届いても、移した先のままになる。
+  同期の取り込みでの合わせ直しは手元の表だけを直し、押し返さない。どの PC も移した印を受け取れば自分で合わせ直すからである。
+- 移した先が一覧から削除されたプロジェクトなら、移した印は無いものとして読み、cwd からの自動の振り分けに戻る。
+- プロジェクトをまとめる（`mergeProjects`）ときは、移した先もまとめ先へ付け替える。一覧から削除する（`unlink`）ときは、移した先を null に戻す。
+- クイックセッションを新しいプロジェクトへ昇格する（`projects/promote.ts`）ときは、移した印があれば新しいプロジェクトに書き換える。
+- 無いセッションと、無いか一覧から削除したプロジェクトへの移動は 404 で断る。
+- 再開（resume）の所属は移した先で、注入する指示も移した先のプロジェクトのものを使う。
+- 再開の cwd は元のままである。cwd がこの PC に無いときの読み替え（`runs/handover.ts` の `resumeCwd`）は、移した先ではなく、どれかの PC の場所が cwd を含むプロジェクトの場所で行う。
+  そういうプロジェクトが無ければ、移した会話は読み替えず、この PC では起こせないものとして扱う。
 
 ### 同じフォルダのプロジェクトをまとめる
 
@@ -5935,6 +5971,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   版 20 は、`todos` に Claude の提案の 2 列（`suggested_at`、`suggested_note`）を足した（「TODO の提案」）。
   版 22 は、中断の再開と同じファイルの編集の警告に使う端末ローカルの表（`interrupted_runs`、`run_last_live`、`session_overlaps`、`overlap_dismissals`）を足した（「中断と再開」「同じファイルの編集の警告」、0.5.0）。
   版 23 は、使用制限で止まっているセッションを持つ端末ローカルの表（`session_limits`）を足した（「止まっている理由」、0.5.0）。
+  版 25 は、`session_states` に利用者が移した先（`project_id`）と削除の印（`trashed_at`）を足した（「セッションを別のプロジェクトへ移す」）。
   足した版は今までと同じに扱う。既存の DB には控えを取ってからその版だけを当て、新しい DB には起点から順に当てる。
   畳む前のマイグレーションは、試験の側（`packages/server/test/legacyMigrations.ts`）に残してある。
   `db/baseline.test.ts` が、起点だけを当てた DB と版 1 から順に当てた DB で、`sqlite_master` の全行（表、索引、FTS の仮想表とその影の表）、表ごとの列（順、型、not null、既定値、主キー）、外部キー、索引の列、表の中身が一致することを突き合わせる。

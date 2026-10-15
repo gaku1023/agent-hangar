@@ -7,6 +7,7 @@ import { hangarHome } from '../config/paths.ts';
 import { MIGRATED_NOTE_AT } from '../db/migrations.ts';
 import { noteApplied } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
+import { alignSessionProject } from '../sessions/move.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 
 /** 親から子の順。pull の適用はこの順に並べ替える。 */
@@ -283,6 +284,10 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
   const keys = Object.keys(row);
   const sets = keys.filter((k) => k !== pk).map((k) => `${k} = excluded.${k}`).join(', ');
   db.prepare(`insert into ${c.tableName} (${keys.join(', ')}) values (${keys.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`).run(...keys.map((k) => bindable(row[k])));
+  // 利用者が移したセッションは、届いた行が古い所属を持っていても、移した先に合わせ直す（sessions/move.ts）。
+  // 移した印（session_states）が後から届いたときも、その時点で合わせる。どちらも手元の表だけを直し、押し返さない。
+  // 移した先の列（版 25）を持たない表では合わせない。版を上げる前の DB へ当てる試験の道である。
+  if (c.op === 'upsert' && (c.tableName === 'sessions' || c.tableName === 'session_states') && tableColumns(db, 'session_states').has('project_id')) alignSessionProject(db, c.rowId);
   if (carriesOldNote(c)) {
     if (o.onOldSessionNote) o.onOldSessionNote(c);
     else adoptNoteFromOldSession(db, c);

@@ -377,6 +377,41 @@ describe('セッションの状態', () => {
   });
 });
 
+describe('セッションの移動', () => {
+  const send = (p: string, body?: unknown, headers: Record<string, string> = H) =>
+    app.request(p, { method: 'PUT', headers: { ...headers, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  const err = async (r: Response) => ((await r.json()) as { error: string }).error;
+  it('PUT は所属を移し、移した後の SessionDto を返して session.upsert を配る', async () => {
+    const id = alphaId();
+    upsertShared(db, 'projects', { id: 'p-move', name: 'move-target', status: 'active', is_scratch: 0 }, 'd');
+    sent.length = 0;
+    const r = await send(`/api/sessions/${id}/project`, { projectId: 'p-move' });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ id, projectId: 'p-move' });
+    expect(sent.filter((e) => e.type === 'session.upsert').at(-1)).toMatchObject({ type: 'session.upsert', session: { id, projectId: 'p-move' } });
+    expect(db.prepare('select project_id from session_states where session_id = ?').get(id)).toEqual({ project_id: 'p-move' });
+  });
+  it('無いプロジェクトへは 404、形の誤りは 400、無いセッションは 404。本文はトーストに出せる日本語の一文', async () => {
+    const id = alphaId();
+    const missing = await send(`/api/sessions/${id}/project`, { projectId: 'nope' });
+    expect(missing.status).toBe(404);
+    expect(await err(missing)).toBe('移動先のプロジェクトが見つかりません');
+    for (const body of [{}, { projectId: 5 }, { projectId: '' }]) {
+      const bad = await send(`/api/sessions/${id}/project`, body);
+      expect([JSON.stringify(body), bad.status]).toEqual([JSON.stringify(body), 400]);
+      expect(await err(bad)).toMatch(/[ぁ-んァ-ン一-龥]/);
+    }
+    expect((await send('/api/sessions/nope/project', { projectId: list0ProjectId() })).status).toBe(404);
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+  });
+  it('MCP の秘密では呼べない', async () => {
+    const id = alphaId();
+    const auth = { authorization: `Bearer ${issueMcpSecret(db, id, 1)}` };
+    expect((await send(`/api/sessions/${id}/project`, { projectId: list0ProjectId() }, auth)).status).toBe(401);
+  });
+});
+
 // 経路は行を書くだけで、画面へのイベントは配る層（events/publisher.ts）が組む。
 // 書いた行のイベントが、1 回だけ、最新の中身で届くことを経路ごとに押さえる。
 describe('書いた行のイベントは配る層から届く', () => {

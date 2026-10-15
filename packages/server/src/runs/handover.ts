@@ -82,21 +82,58 @@ function relativeToAnyRoot(roots: string[], p: string): string[] | null {
   return null;
 }
 
+/** 消していないプロジェクトのうち、どれかの PC の場所が cwd を含むもの。いちばん深い場所のものを返す。無ければ null。 */
+function projectHolding(db: Db, cwd: string): string | null {
+  const rows = db.prepare(`select r.project_id, r.path from project_roots r join projects p on p.id = r.project_id and p.deleted_at is null
+    where r.deleted_at is null`).all() as { project_id: string; path: string }[];
+  let best: { id: string; depth: number } | null = null;
+  for (const r of rows) {
+    if (!relativeSegments(r.path, cwd)) continue;
+    const depth = segmentsOf(r.path).length;
+    if (!best || depth > best.depth) best = { id: r.project_id, depth };
+  }
+  return best?.id ?? null;
+}
+
+/** 利用者がプロジェクトを移した会話か（session_states.project_id、sessions/move.ts）。 */
+function isMoved(db: Db, sessionId: string | undefined): boolean {
+  if (sessionId === undefined) return false;
+  return db.prepare('select 1 from session_states where session_id = ? and deleted_at is null and project_id is not null').get(sessionId) !== undefined;
+}
+
+/**
+ * 前の cwd を読み替える元のプロジェクト。
+ * 所属するプロジェクトの場所が cwd を含めば、それを使う。
+ * 含まなければ、cwd を含む場所を持つほかのプロジェクトを使う。利用者が別のプロジェクトへ移した会話は、cwd が移した先の場所の下に無いからである。
+ * どのプロジェクトの場所も cwd を含まないとき、移していない会話は所属するプロジェクトに倒す（前の cwd が場所の外にあった会話）。
+ * 移した会話は倒さずに null を返す。再開の cwd は元のままで、移した先の場所で起こすと別の作業ディレクトリになるからである。
+ */
+function baseProjectOf(db: Db, s: { id?: string; cwd: string; project_id: string }): string | null {
+  if (relativeToAnyRoot(allRoots(db, s.project_id), s.cwd)) return s.project_id;
+  const holder = projectHolding(db, s.cwd);
+  if (holder) return holder;
+  return isMoved(db, s.id) ? null : s.project_id;
+}
+
 /**
  * 再開とフォークの作業ディレクトリ。
  * 前の cwd（sessions.cwd）がこの PC にあれば、そのまま使う。
  * 無ければ、前の PC のプロジェクトの場所からの相対パスを、この PC のプロジェクトの場所に継ぐ（worktree や下位のフォルダも）。
  * 継いだ先がこの PC に無ければ、いちばん近いある親（プロジェクトの場所まで）に倒す。
  * 前の cwd がどの場所の下にも無ければ、この PC のプロジェクトの場所にする。
+ * 読み替えに使うプロジェクトは、所属ではなく cwd を含む場所を持つもの（baseProjectOf）である。利用者が移した会話でも、元の場所で起こす。
  * プロジェクトに属さない会話と、この PC に場所が無い会話は読み替えられないので null を返す。
  * 共有の行の sessions.cwd は書き換えない。本文の写しの置き場（sync/copy.ts）がその cwd から決まるからである。
+ * id を渡すと、移した会話かどうかを見る。渡さなければ移していない会話として読む。
  */
-export function resumeCwd(db: Db, selfDeviceId: string, s: { cwd: string; project_id: string | null }): string | null {
+export function resumeCwd(db: Db, selfDeviceId: string, s: { id?: string; cwd: string; project_id: string | null }): string | null {
   if (isDirectory(s.cwd)) return s.cwd;
   if (!s.project_id) return null;
-  const root = hereRoot(db, selfDeviceId, s.project_id);
+  const base = baseProjectOf(db, { id: s.id, cwd: s.cwd, project_id: s.project_id });
+  if (!base) return null;
+  const root = hereRoot(db, selfDeviceId, base);
   if (!root) return null;
-  const rel = relativeToAnyRoot(allRoots(db, s.project_id), s.cwd) ?? [];
+  const rel = relativeToAnyRoot(allRoots(db, base), s.cwd) ?? [];
   for (let n = rel.length; n > 0; n--) {
     const p = path.join(root, ...rel.slice(0, n));
     if (isDirectory(p)) return p;
@@ -212,7 +249,7 @@ export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, 
   return {
     sessionId,
     from: { deviceName: prev?.name ?? null, platform: prev?.platform ?? null, path: prevPathOf(db, sessionId, prev, s), lastAt: s.last_activity_at },
-    to: { deviceName: self.name, platform: self.platform, path: resumeCwd(db, selfDeviceId, s) },
+    to: { deviceName: self.name, platform: self.platform, path: resumeCwd(db, selfDeviceId, { ...s, id: sessionId }) },
     replace: o.replace?.(sessionId) ?? null,
   };
 }
