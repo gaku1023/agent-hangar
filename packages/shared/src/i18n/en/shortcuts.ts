@@ -28,6 +28,7 @@ export const shortcutsEn: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.tabClose': 'Close the shell tab in the focused pane',
   'shortcuts.key.splitToggle': 'Split side by side',
   'shortcuts.key.transcriptToggle': 'Toggle right panel',
+  'shortcuts.key.sessionCopyAddress': 'Copy the session address',
   'shortcuts.key.transcriptFind': 'Find in transcript',
   'shortcuts.key.tabMove': 'Move to the next tab in the tab row (Enter to select)',
   'shortcuts.key.turnMove': 'Move down / up in the turn outline (Enter to open)',

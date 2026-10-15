@@ -167,7 +167,7 @@ describe('言語', () => {
     expect(textOf(missing)).toBe('Project not found: nope');
     expect(textOf(await rpc('/', 'tools/call', { name: 'update_project', arguments: { project_id: 'p1', propose_done: [{ todo_id: 'x', note: ' ' }] } }, 4))).toBe('The note (one-sentence reason) in propose_done is empty');
     expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'propose_session_status', arguments: { status: 'paused', note: 'x', return_time: '10:00' } }, 5))).toBe('Give the reminder time together with a date');
-    expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'get_transcript', arguments: { session_id: 'other' } }, 6))).toBe(`This MCP URL is for session ${alphaId} only. You cannot specify another session_id`);
+    expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_turn_intent', arguments: { session_id: 'other', text: 'x' } }, 6))).toBe(`This MCP URL is for session ${alphaId} only. You cannot specify another session_id`);
   });
 
   it('言語は要求のたびに読む', async () => {

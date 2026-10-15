@@ -352,17 +352,18 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     otherId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string }).id;
   });
 
-  it('get_transcript は別のセッションの本文を渡さない', () => {
-    // 共通 URL からは読める。閉じ込めは URL でセッションが決まっているときだけ効く。
+  it('get_transcript は、セッション別 URL からでも別のセッションの本文を読める', () => {
+    // 画面からコピーした宛先の 1 行を渡された Claude が、そのセッションの様子を読むためである（2026-10-15 の利用者の決定）。
+    // 書き込みの道具は今までどおり自分のセッションに閉じる（次の it）。
     expect((call('get_transcript', { session_id: otherId }).events as unknown[]).length).toBeGreaterThan(0);
-    expect(() => call('get_transcript', { session_id: otherId }, scoped())).toThrow(ToolError);
+    expect(call('get_transcript', { session_id: otherId }, scoped()).session_id).toBe(otherId);
     // 自分のセッションは、明示しても省いても読める。
     expect(call('get_transcript', { session_id: alphaId }, scoped()).session_id).toBe(alphaId);
     expect(call('get_transcript', {}, scoped()).session_id).toBe(alphaId);
   });
 
-  it('セッションを取るほかの道具も、別のセッションを断る', () => {
-    for (const [name, args] of SESSION_TOOL_CALLS) {
+  it('セッションを取るほかの道具は、別のセッションを断る', () => {
+    for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript')) {
       expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
     }
     // 別のセッションの要約は書かれていない。

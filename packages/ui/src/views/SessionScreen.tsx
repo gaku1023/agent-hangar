@@ -27,7 +27,7 @@ import { useNarrow } from './useNarrow.ts';
 
 const ACTION_ICON: Record<SessionActionId, IconName> = {
   openEditor: 'openEditor', resume: 'resume', resumeHere: 'resumeHere', fork: 'fork', openTerminal: 'openTerminal',
-  attach: 'shell', adopt: 'resumeHere', regenerate: 'rebuild', promote: 'promote', stop: 'stop',
+  attach: 'shell', adopt: 'resumeHere', regenerate: 'rebuild', promote: 'promote', copyAddress: 'copy', stop: 'stop',
 };
 
 /**
@@ -104,6 +104,7 @@ export function SessionScreen(props: SessionProps) {
       case 'adopt': emit({ type: 'session.adopt', id }); return;
       case 'regenerate': emit({ type: 'summary.regenerate', sessionId: id }); return;
       case 'promote': emit({ type: 'session.promote.open', id }); return;
+      case 'copyAddress': emit({ type: 'session.copyAddress', id }); return;
       // 停止は取り消せない。
       // 作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。
       case 'stop': if (run) emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', aside: props.aside, shellTabs: props.tabs.filter((t) => t.kind === 'shell').length }); return;
@@ -116,7 +117,7 @@ export function SessionScreen(props: SessionProps) {
     name: d.name,
     value: (
       <>
-        {d.dot && <span className="st-dot" style={{ color: d.dot }} aria-hidden="true" />}{d.value}
+        {d.dot && <span className="st-dot" style={{ color: d.dot }} aria-hidden="true" />}{d.link ? <span className="detail-value" title={d.value}>{d.value}</span> : d.value}
         {d.note && <span className="faint detail-note"> {d.note}</span>}
         {d.link && <> <button type="button" className="btn-link" onClick={() => { api.close(); emit(d.link!.send); }}>{d.link.label}</button></>}
       </>

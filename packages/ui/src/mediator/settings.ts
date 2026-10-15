@@ -1,4 +1,5 @@
 import { translatorOf } from '../presenters/i18n.ts';
+import { sessionAddressLine } from '../presenters/session.ts';
 import type { Store } from '../store/store.ts';
 import type { Effect, Input, SaveMark, State, Step } from './types.ts';
 
@@ -44,7 +45,11 @@ export function settingsStep(state: State, store: Store, input: Input): Step | n
     case 'readiness.check': return { state, effects: [{ kind: 'api.readiness' }] };
     case 'shell.openLog': return { state, effects: [{ kind: 'shell.openLog' }] };
     case 'shell.restart': return { state, effects: [{ kind: 'shell.restart' }] };
-    case 'clipboard.copy': return { state, effects: [{ kind: 'clipboard.copy', text: i.text }] };
+    case 'clipboard.copy': return { state, effects: [{ kind: 'clipboard.copy', text: i.text, ...(i.done !== undefined ? { done: i.done } : {}) }] };
+    case 'session.copyAddress': {
+      const text = sessionAddressLine(store, i.id);
+      return { state, effects: text === null ? [] : [{ kind: 'clipboard.copy', text, done: translatorOf(store)('session.address.copied') }] };
+    }
     default: return null;
   }
 }

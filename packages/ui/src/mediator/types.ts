@@ -88,7 +88,7 @@ export type Effect =
   | { kind: 'api.readiness' }
   // psmux（tmux）を探し直させる（POST /api/readiness/mux）。答えは準備の確かめとして Store に入り、mux.checked で知らせる。
   | { kind: 'api.recheckMux' }
-  | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string }
+  | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }

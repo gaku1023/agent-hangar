@@ -2287,6 +2287,15 @@ describe('殻の操作（ランタイム）', () => {
     // 写せたことを状態に返す。ボタンはこれを見てから「コピーしました」を出す。
     expect(rt.getState().copied).toEqual({ text: '~/.agent-hangar/desktop.log', n: 1 });
   });
+  it('写せたときの知らせ（done）があれば、写せた後にトーストで出す', async () => {
+    const clipboard = vi.fn(async () => {});
+    const { rt } = harness({}, { clipboard });
+    rt.start();
+    rt.emit({ type: 'clipboard.copy', text: 'line', done: 'コピーしました' });
+    await flush();
+    expect(clipboard).toHaveBeenCalledWith('line');
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['コピーしました']);
+  });
   // 参加トークンのような秘密も写すので、写せなかったときに中身をトーストへ出さない。
   it('コピーに失敗したら、中身を出さずに知らせ、写せた印は付けない', async () => {
     const clipboard = vi.fn(async () => { throw new Error('denied'); });

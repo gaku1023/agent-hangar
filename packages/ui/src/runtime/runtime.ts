@@ -543,7 +543,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 書けない（クリップボードの権限が無いなど）ときは知らせるだけで、中身はトーストに出さない。
         // 参加トークンのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
         Promise.resolve().then(() => write(e.text)).then(
-          () => dispatch({ kind: 'runtime', event: { type: 'clipboard.copied', text: e.text } }),
+          () => { dispatch({ kind: 'runtime', event: { type: 'clipboard.copied', text: e.text } }); if (e.done !== undefined) toast(e.done); },
           () => toast(tr()('runtime.copy.failed', { keys: keyLabel('⌘C') })),
         );
         return;
