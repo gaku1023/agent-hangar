@@ -2761,7 +2761,7 @@ Claude は Bash から叩く（TTY が無い）ので、対話の y/n は作ら�
 候補には、CLI のための項目を足した（初日の画面の項目は変えない）。
 `recentTitles`（最近の会話の題、無ければ要約の 1 文、無ければ最初の発言の冒頭を、新しい順に 3 件まで）、`isGit` と `gitRemote`、`enclosedBy`（ほかの候補か登録済みのプロジェクトの下にあるときの、いちばん深いもの）、`cloudSynced`、`notes` である。
 `cloudSynced` は、macOS の iCloud（`~/Library/Mobile Documents` の下、実体がそこにあるもの、「デスクトップと書類」を iCloud に入れたときのデスクトップと書類）と、Windows の OneDrive（環境変数 `OneDrive`、`OneDriveConsumer`、`OneDriveCommercial` の下と、ホームの直下の OneDrive の名前のフォルダの下）を見る（`projects/candidateHints.ts` の `cloudSyncedOf`）。
-`notes` は機械の符号の配列で、`desktop-direct` と `downloads-direct`（デスクトップとダウンロードそのものか直下）、`not-git`、`stale-30d`（最後の活動が 30 日より前）、`single-session`（会話 1 件）である（`candidateNotes`）。
+`notes` は機械の符号の配列で、`desktop-direct` と `downloads-direct`（デスクトップとダウンロードそのものか直下。Windows では OneDrive の置き場の下の Desktop と Downloads も見る。既知のフォルダを OneDrive に移すと、デスクトップの実体は `~\OneDrive\Desktop` になるため。2026-10-15）、`not-git`、`stale-30d`（最後の活動が 30 日より前）、`single-session`（会話 1 件）である（`candidateNotes`）。
 どちらの判定も、パスの形と差し替えられる問い合わせだけで決める純粋な関数で、Windows のパス（区切り、ドライブ文字、大文字小文字）も試験する。
 上の段には、この PC の未分類の会話の総数（`unassignedTotal`）と、いまの作成場所（`workspaceRoot`、空なら null）を添える。
 
