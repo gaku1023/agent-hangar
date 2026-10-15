@@ -77,6 +77,11 @@ describe('normalizeRecord', () => {
     const ev = normalizeRecord({ type: 'ai-title', aiTitle: '題名', sessionId: 'aaaa' }, 7, null);
     expect(ev).toEqual([{ kind: 'meta', seq: 7, ts: undefined, name: 'ai-title', value: { aiTitle: '題名' } }]);
   });
+  it('API の要求の記録（2.1.300 で現れた api-request 系の行）は捨てる', () => {
+    for (const type of ['api-request', 'api-request-blob', 'api-request-shape']) {
+      expect(normalizeRecord({ type, sessionId: 'aaaa', version: '2.1.300', timestamp: base.timestamp }, 0, null), type).toEqual([]);
+    }
+  });
   it('オブジェクトでなければ空', () => {
     expect(normalizeRecord('x', 0, null)).toEqual([]);
     expect(normalizeRecord(null, 0, null)).toEqual([]);

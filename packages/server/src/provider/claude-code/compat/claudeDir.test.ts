@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { posixIt } from '../../../../test/platform.ts';
-import { ClaudeDirWatch, claudeDirDrifts } from './claudeDir.ts';
+import { ClaudeDirWatch, claudeDirDrifts, isClaudeDirDrift } from './claudeDir.ts';
 import type { Drift } from './types.ts';
 
 let tmp: string;
@@ -29,6 +29,13 @@ describe('claudeDirDrifts', () => {
     fs.mkdirSync(path.join(dir, 'zeta-new'));
     fs.writeFileSync(path.join(dir, 'alpha-new.json'), '{}');
     expect(claudeDirDrifts(dir)).toEqual([entry('alpha-new.json'), entry('zeta-new')]);
+  });
+  it('remote-settings.json.synced-at（2.1.300 で現れた、組織の設定を取りに行った時刻）はアカウントごとに持つ項目', () => {
+    const dir = path.join(tmp, 'second');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'remote-settings.json.synced-at'), '1792041336763');
+    expect(claudeDirDrifts(dir)).toEqual([]);
+    expect(isClaudeDirDrift('entry=remote-settings.json.synced-at')).toBe(false);
   });
   it('読めない置き場は空', () => {
     expect(claudeDirDrifts(path.join(tmp, 'none'))).toEqual([]);
