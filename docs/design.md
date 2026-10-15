@@ -4672,6 +4672,9 @@ Windows の形で下にあるかを比べるときは、区切りの違いと大
 macOS の殻は、Tauri の既定のメニューの「View」の頭に「Reload」（⌘R）を足す（`apps/desktop/src-tauri/src/lib.rs` の `app_menu`）。既定のメニューが英語なので、項目名も英語にそろえる。
 ⌘R は先に頁の keydown が受けて既定を止めるので、メニューの項目が同じ打鍵でもう一度読み直すことはない。メニューから選んだときは殻が `location.reload()` を評価する。
 Windows と Linux の窓はメニューバーを持たないので、項目は足さない。
+殻の中では、右クリックで WebKit が出す既定のメニュー（Back と Reload）を出さない（`packages/ui/src/runtime/nativeMenu.ts`、2026-10-16 の利用者の決定）。
+その Reload は鍵のクッキーを送らずに読み直し、「認証できていません」の画面になった。最初の画面は殻の読み込み画面から別のサイトとして移ってきたもので、クッキーは `SameSite=Strict` だからである。Back は殻の読み込み画面へ戻ってしまう。
+入力欄、contenteditable、ターミナルの中と、文字を選んでいるときは、貼り付けとコピーに要るので残す。ブラウザで開いたときは止めない。
 
 入力欄の Esc は、何も開いていなければその欄を離れる（blur）。
 ダイアログの中の Esc は、ダイアログの殻（`views/primitives/Dialog.tsx`）が受けて閉じ、既定を止める。
