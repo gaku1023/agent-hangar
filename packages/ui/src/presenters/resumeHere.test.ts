@@ -99,8 +99,8 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
       sessionId: 's1',
       title: 'ほかの PC で進めた会話を、この PC で再開しますか',
       lead: 'この会話は work-pc で進めたものです。',
-      from: { label: '前の PC', name: 'work-pc', os: 'Windows', path: 'D:\\src\\notes-app', at: '最後に使った日時：2026-10-12 18:42' },
-      to: { label: 'この PC', name: 'this-mac', os: 'macOS', path: '~/src/notes-app', at: null },
+      from: { label: '前の PC', name: 'work-pc', os: 'Windows', path: 'D:\\src\\notes-app', at: '最後に使った日時：2026-10-12 18:42', note: null },
+      to: { label: 'この PC', name: 'this-mac', os: 'macOS', path: '~/src/notes-app', at: null, note: null },
       band: { strong: 'プロジェクトのファイル、未コミットの変更、開発環境（道具、環境変数、秘密の値）は同期されません。', text: '同期されるのは会話のトランスクリプトと hangar の記録だけです。' },
       action: 'この PC で再開',
       blocked: null,
@@ -121,6 +121,15 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
     expect(p.from).toMatchObject({ name: 'ほかの PC', os: null, at: '最後に使った日時：不明' });
     expect(p.to).toMatchObject({ name: 'この PC', os: 'Linux', path: null });
     expect(p.blocked).toBe(NO_ROOT);
+  });
+  it('ほかの PC のクイックセッションは、作って再開するフォルダのパスと、作ることの 1 行を出し、場所の指定は求めない（6A）', () => {
+    const quick: ResumeHerePlanDto = { ...plan, from: { ...plan.from, path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010' }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/.agent-hangar/quick-sessions/20261016-101010', createsFolder: true } };
+    const p = presentResumeHere(ja, quick, '/Users/me');
+    expect(p.to).toEqual({ label: 'この PC', name: 'this-mac', os: 'macOS', path: '~/.agent-hangar/quick-sessions/20261016-101010', at: null, note: 'クイックセッションの置き場に同名の空フォルダを作成して再開します' });
+    expect(p.blocked).toBeNull();
+    expect(presentResumeHere(translator('en'), quick, '/Users/me').to.note).toMatch(/quick session/i);
+    // 作らないとき（フォルダがある、古いサーバ）は添えない。
+    expect(presentResumeHere(ja, { ...quick, to: { ...quick.to, createsFolder: false } }, '/Users/me').to.note).toBeNull();
   });
   it('英語の画面では英語で出す', () => {
     const p = presentResumeHere(translator('en'), plan, '/Users/me');

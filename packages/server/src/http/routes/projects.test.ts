@@ -507,3 +507,86 @@ describe('書いた行のイベントは配る層から届く', () => {
     });
   });
 });
+
+// フォルダの信頼（hangar workspace set --trust）。同意を記録し、書く先への書き込みは deps.trustWorkspace に任せる。
+describe('POST /api/workspace/trust', () => {
+  const post = (body: unknown) => app.request('/api/workspace/trust', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let calls: [string, boolean][];
+  beforeEach(() => {
+    calls = [];
+    app = createApp({ ...deps, trustWorkspace: (root, dryRun) => { calls.push([root, dryRun]); return { dryRun, workspaceRoot: root, dirs: [root], files: [] }; } });
+  });
+
+  it('いまの作業フォルダなら、同意を設定に残してから書く', async () => {
+    const r = await post({ path: ws });
+    expect(r.status).toBe(200);
+    expect(calls).toEqual([[ws, false]]);
+    expect(deps.settings().trustedWorkspaceRoot).toBe(ws);
+    // 書き込みが全部失敗しても同意は残るので、そのことを返事で明示する。
+    expect(await r.json()).toMatchObject({ consentRecorded: true, note: expect.stringContaining('同意は記録しました') });
+  });
+
+  it('書き込みが全部失敗しても、同意は残し、そのことを返事で伝える', async () => {
+    app = createApp({ ...deps, trustWorkspace: (root, dryRun) => ({ dryRun, workspaceRoot: root, dirs: [root], files: [{ file: '/h/.claude.json', added: [], missing: false, error: 'locked' }] }) });
+    const r = await post({ path: ws });
+    expect(r.status).toBe(200);
+    expect(deps.settings().trustedWorkspaceRoot).toBe(ws);
+    expect(await r.json()).toMatchObject({ consentRecorded: true, note: expect.stringContaining('Claude を起こすとき') });
+  });
+
+  it('試しの返事は同意を記録していないと言う', async () => {
+    const r = await post({ path: ws, dryRun: true });
+    const body = (await r.json()) as { consentRecorded: boolean; note?: string };
+    expect(body.consentRecorded).toBe(false);
+    expect(body.note).toBeUndefined();
+  });
+
+  it('ホームそのもの、ホームより上、ファイルシステムの根は、試しでも断る（CLI と同じ規則）', async () => {
+    const userHome = path.join(ws, 'home');
+    fs.mkdirSync(userHome, { recursive: true });
+    app = createApp({ ...deps, candidateEnv: { homeDir: userHome, tmpDirs: [] }, trustWorkspace: (root, dryRun) => { calls.push([root, dryRun]); return { dryRun, workspaceRoot: root, dirs: [root], files: [] }; } });
+    deps.updateSettings({ workspaceRoot: userHome });
+    for (const p of [userHome, ws, path.parse(ws).root]) {
+      for (const dryRun of [true, false]) {
+        const r = await post({ path: p, dryRun });
+        expect(r.status, `${p} ${dryRun}`).toBe(400);
+        expect(((await r.json()) as { error: string }).error).toContain('ホーム');
+      }
+    }
+    expect(calls).toEqual([]);
+    expect(deps.settings().trustedWorkspaceRoot ?? null).toBeNull();
+  });
+
+  it('試しは同意を残さず、まだ作業フォルダにしていない場所でも書くものを見せる', async () => {
+    const other = path.join(ws, 'sub');
+    fs.mkdirSync(other, { recursive: true });
+    const r = await post({ path: other, dryRun: true });
+    expect(r.status).toBe(200);
+    expect(calls).toEqual([[other, true]]);
+    expect(deps.settings().trustedWorkspaceRoot ?? null).toBeNull();
+  });
+
+  it('作業フォルダを変えると同意は消える（同じ場所の保存では消えない）', async () => {
+    await post({ path: ws });
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await patch({ workspaceRoot: ws })).status).toBe(200);
+    expect(deps.settings().trustedWorkspaceRoot).toBe(ws);
+    const other = path.join(ws, 'sub');
+    fs.mkdirSync(other, { recursive: true });
+    const r = await patch({ workspaceRoot: other });
+    expect(r.status).toBe(200);
+    expect(deps.settings().trustedWorkspaceRoot).toBeNull();
+    expect(((await r.json()) as { trustedWorkspaceRoot: unknown }).trustedWorkspaceRoot).toBeNull();
+  });
+
+  it('いまの作業フォルダでない場所、作業フォルダが未設定、無い場所は断る', async () => {
+    const other = path.join(ws, 'sub');
+    fs.mkdirSync(other, { recursive: true });
+    expect((await post({ path: other })).status).toBe(400);
+    expect((await post({ path: path.join(ws, 'none'), dryRun: true })).status).toBe(400);
+    expect((await post({ path: 'relative' })).status).toBe(400);
+    deps.updateSettings({ workspaceRoot: '' });
+    expect((await post({ path: ws })).status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+});

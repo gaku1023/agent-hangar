@@ -6,7 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { render } from '../i18n/message.ts';
 import { upsertShared } from '../db/shared.ts';
 import { promoteSession, PromoteError, type PromoteDeps } from './promote.ts';
-import { ensureScratchProject, newScratchDir } from './scratch.ts';
+import { ensureScratchProject, legacyScratchRoot, newScratchDir } from './scratch.ts';
 import { posixIt } from '../../test/platform.ts';
 
 let home: string;
@@ -61,6 +61,15 @@ describe('promoteSession', () => {
     expect(db.prepare('select project_id, cwd from sessions where id = ?').get('s1')).toEqual({ project_id: r.projectId, cwd: dir });
   });
 
+  it('前の置き場（~/.agent-hangar/scratch）の下の会話も、いままでどおり昇格してファイルを移せる', () => {
+    const old = path.join(legacyScratchRoot(home), '20260901-100000');
+    fs.mkdirSync(old, { recursive: true });
+    fs.writeFileSync(path.join(old, 'old.txt'), 'O');
+    upsertShared(db, 'sessions', { id: 's-old', provider: 'claude-code', provider_session_id: 'u-old', cwd: old, home_device: 'd', project_id: scratchId }, 'd');
+    const r = promoteSession(deps(), { sessionId: 's-old', name: 'fromold', gitInit: false, moveFiles: true });
+    expect(r.moved).toBe(true);
+    expect(fs.readFileSync(path.join(ws, 'fromold', 'old.txt'), 'utf8')).toBe('O');
+  });
   it('理由は、言語を決めていない文でも返すので、経路は英語でも出せる', () => {
     const r = promoteSession(deps({ runAlive: () => true }), { sessionId: 's1', name: 'p-en', gitInit: false, moveFiles: true });
     expect(r.reason).toBe('Claude が実行中なのでファイルは移しませんでした。終了してから手で移してください');

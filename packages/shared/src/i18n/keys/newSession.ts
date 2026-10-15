@@ -9,7 +9,6 @@ export const newSessionKeys = {
   'newSession.project.label': [],
   'newSession.project.quick': [],
   'newSession.project.quickSub': [],
-  'newSession.project.quickPath': [],
   'newSession.project.groupQuick': [],
   'newSession.project.groupRecent': [],
   'newSession.project.groupAll': [],

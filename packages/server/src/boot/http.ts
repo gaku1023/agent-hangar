@@ -110,6 +110,7 @@ export function bootHttp(p: {
     }, patch),
     live: () => delivery.registry.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, osNotices: delivery.osNotices,
     summary: summary.api,
+    trustWorkspace: runs.trustWorkspace,
     promote: (o) => promoteSession({
       db, deviceId: device.id, home: home.home, workspaceRoot: settings.current.workspaceRoot,
       runAlive: (id) => sessionRunsAnywhere({ db, live: () => delivery.registry.current() }, id),

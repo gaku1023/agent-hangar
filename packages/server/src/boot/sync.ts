@@ -23,6 +23,7 @@ import type { HomeParts } from './home.ts';
 import { stopAfterIdle, stopUploader } from './stopping.ts';
 import { t } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
+import { followRemoteScratch } from '../projects/scratch.ts';
 
 /**
  * 上がっていない本文を拾い直す走査の間隔。
@@ -180,6 +181,8 @@ export function bootSync(
     engine.on(feed.listener());
     // 他の PC の sessions の行は、索引がどの本文を採るか（写しの行が届いたか、消されたか）に関わる。
     engine.on({ applied: (c) => { if (c.tableName === 'sessions') remoteChanged(); } });
+    // ほかの PC のスクラッチのプロジェクトや場所の行が届いたら、次の起動を待たずに 1 つにまとめ直す（projects/scratch.ts）。
+    engine.on({ applied: followRemoteScratch(db, deviceId, home.home, { onError: (e) => console.error('[sync] 届いたクイックセッションの行をまとめ直せませんでした', e instanceof Error ? e.message : e) }) });
     return { cloud, client, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
   };
 

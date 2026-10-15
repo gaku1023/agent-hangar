@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { folderCandidates, type CandidateEnv } from './candidates.ts';
-import { scratchRoot } from './scratch.ts';
+import { legacyScratchRoot, quickSessionsRoot } from './scratch.ts';
 
 // 初日のプロジェクト（2026-10-13）。Claude Code と会話したフォルダを、git の根でまとめて候補にする。
 let tmp: string;
@@ -61,7 +61,8 @@ describe('folderCandidates', () => {
     talk(home, 3);
     talk(tmp, 3);
     talk(mk(tmp, 'tmpdir', 'x'), 3);
-    talk(mk(scratchRoot(hangar), '2026-10-13-1'), 3);
+    talk(mk(legacyScratchRoot(hangar), '2026-10-13-1'), 3);
+    talk(mk(quickSessionsRoot(hangar), '2026-10-16-1'), 3);
     talk(mk(home, '.config', 'thing'), 3);
     talk(path.join(home, 'gone'), 3);
     const kept = mk(home, 'kept');

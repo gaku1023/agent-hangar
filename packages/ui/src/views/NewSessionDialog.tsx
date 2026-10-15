@@ -366,7 +366,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         </div>
       )}
       {dirPath && !enclosing && !link && <div className="faint">{outside ? t('newSession.dir.outside') : t('newSession.dir.unregistered', { path: dirPath })}</div>}
-      <div className="faint">{t('newSession.note.trust')}</div>
+      {!scratch && <div className="faint">{t('newSession.note.trust')}</div>}
       {props.error && props.error !== staleError && <div className="error" role="alert">{props.error}</div>}
     </Dialog>
   );

@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { Hono } from 'hono';
 import type { FolderRegisterItem, FolderRegisterPreviewDto, FolderRegisterResultDto, ProjectDto, ProjectNestedDto, ProjectSameFolderDto, ResolveAction, UnlinkPreviewDto } from '@agent-hangar/shared';
 import { getProject, listProjects } from '../../db/queries.ts';
@@ -8,13 +10,14 @@ import { inspectFolder, workspaceChildren } from '../../projects/folders.ts';
 import { folderCandidates } from '../../projects/candidates.ts';
 import { registerFolders } from '../../projects/registerMany.ts';
 import { tryWrites } from '../../db/notify.ts';
-import { assignSessions, candidateDirs, listWorkspaceDirs, mergeDirection, mergePreview, mergeProjects, normalizeDir, resolveProject, rootConflict } from '../../projects/registry.ts';
+import { assignSessions, candidateDirs, hasWorkspaceRoot, listWorkspaceDirs, mergeDirection, mergePreview, mergeProjects, normalizeDir, resolveProject, rootConflict } from '../../projects/registry.ts';
+import { coversHome, samePath } from '../../platform/paths.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, readJson, tooLargeResult } from './common.ts';
 
 /** プロジェクトの経路が使う依存。 */
-export type ProjectRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'home' | 'live' | 'settings' | 'gitInit' | 'external' | 'token' | 'candidateEnv' | 'sync'> & LanguageDeps;
+export type ProjectRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'home' | 'live' | 'settings' | 'updateSettings' | 'gitInit' | 'external' | 'token' | 'candidateEnv' | 'sync' | 'trustWorkspace'> & LanguageDeps;
 
 /** まとめて登録できるフォルダの数の上限。候補のダイアログで全部を選んでも収まる数にする。 */
 const REGISTER_MAX = 500;
@@ -177,6 +180,33 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
   // 候補からまとめて登録する。1 件ずつ POST /api/projects の dir と同じ規則で登録し、最後に未分類の会話をまとめて紐づけ直す。
   // 本文は paths（パスの配列。どれも新しく作る）か items（行ごとに結び付け先 linkTo と入れ子の明示 allowNested を持つ）のどちらか一方である。
   // 登録できなかったものは、断らずに理由を添えて返す（ほかの登録は残す）。プロジェクトと紐づけ直した会話は、書いた行から配る層が配る。
+  // 作業フォルダのフォルダの信頼（hangar workspace set --trust）。セットアップのすゝめが利用者の同意を取ってから呼ぶ。
+  // 本番はいまの作業フォルダだけを受け、同意を設定（trustedWorkspaceRoot）に残してから、登録したアカウントの .claude.json に書く。
+  // 同意を残すので、後から作業フォルダの下に置いたリポジトリも、hangar から起こすときに信頼済みにする（runs/manager.ts の trustFolder）。
+  // 試しは、作業フォルダを保存する前の見せ方にも使うので、まだ作業フォルダにしていない場所も受ける。何も書かず、同意も残さない。
+  api.post('/workspace/trust', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const { path: raw, dryRun } = (b.value ?? {}) as { path?: unknown; dryRun?: unknown };
+    if (typeof raw !== 'string' || !path.isAbsolute(raw)) return c.json({ error: tr('common.field.required', { field: 'path' }) }, 400);
+    if (dryRun !== undefined && typeof dryRun !== 'boolean') return c.json({ error: tr('common.field.required', { field: 'dryRun' }) }, 400);
+    if (!deps.trustWorkspace) return c.json({ error: tr('common.field.required', { field: 'trustWorkspace' }) }, 400);
+    const root = path.resolve(raw);
+    // ホームそのもの、ホームより上、ファイルシステムの根は、試しでも断る（CLI の hangar workspace set と同じ規則）。
+    if (coversHome(root, path.resolve(deps.candidateEnv?.homeDir ?? os.homedir()))) return c.json({ error: tr('settings.trust.homeOrAbove', { path: root }) }, 400);
+    const label = tr('settings.label.workspaceRoot');
+    const st = fs.statSync(root, { throwIfNoEntry: false });
+    if (!st) return c.json({ error: tr('settings.path.missing', { label, path: root }) }, 400);
+    if (!st.isDirectory()) return c.json({ error: tr('settings.path.notDirectory', { label, path: root }) }, 400);
+    if (dryRun === true) return c.json({ ...deps.trustWorkspace(root, true), consentRecorded: false });
+    const current = deps.settings().workspaceRoot;
+    if (!hasWorkspaceRoot(current)) return c.json({ error: tr('settings.trust.noRoot') }, 400);
+    if (!samePath(normalizeDir(root), normalizeDir(current))) return c.json({ error: tr('settings.trust.notRoot', { path: root, root: current }) }, 400);
+    // 同意は、書き込みが全部失敗しても残す。以後の起動で、起こすアカウントの設定に書くからである（runs/manager.ts の trustFolder）。
+    // そのことを返事の note で明示し、失敗の行だけを見て「同意も取り消された」と読まれないようにする。
+    deps.updateSettings({ trustedWorkspaceRoot: current });
+    return c.json({ ...deps.trustWorkspace(current, false), consentRecorded: true, note: tr('settings.trust.consentRecorded') });
+  });
   api.post('/workspace/register', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
