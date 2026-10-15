@@ -74,6 +74,22 @@ describe('candidateNotes（候補の注記の符号）', () => {
     expect(notes(c('C:/Users/Taro/Downloads/x'), WIN_HOME)).toEqual(['downloads-direct']);
     expect(notes(c('C:\\Users\\Taro\\src\\x'), WIN_HOME)).toEqual([]);
   });
+  it('Windows で OneDrive がデスクトップとダウンロードを握っているときは、OneDrive の下のものも直下とみなす（2026-10-15）', () => {
+    const od = (p: string, env: Record<string, string | undefined> = {}) => candidateNotes(c(p), { homeDir: WIN_HOME, now: NOW, env });
+    // 環境変数の置き場の下。
+    expect(od('C:\\Users\\Taro\\OneDrive\\Desktop\\週報', { OneDrive: 'C:\\Users\\Taro\\OneDrive' })).toEqual(['desktop-direct']);
+    expect(od('D:\\Sync\\Desktop', { OneDriveConsumer: 'd:\\sync\\' })).toEqual(['desktop-direct']);
+    expect(od('C:\\Users\\Taro\\OneDrive - Contoso\\Downloads\\x', { OneDriveCommercial: 'C:\\Users\\Taro\\OneDrive - Contoso' })).toEqual(['downloads-direct']);
+    // 環境変数が無くても、ホームの直下の OneDrive の名前のフォルダの下。
+    expect(od('c:\\users\\taro\\onedrive\\desktop\\app')).toEqual(['desktop-direct']);
+    expect(od('C:\\Users\\Taro\\OneDrive - Contoso\\Desktop')).toEqual(['desktop-direct']);
+    // もっと深いもの、OneDrive の中のほかのフォルダ、名前の似たフォルダには付けない。
+    expect(od('C:\\Users\\Taro\\OneDrive\\Desktop\\a\\b')).toEqual([]);
+    expect(od('C:\\Users\\Taro\\OneDrive\\Documents\\Desktop')).toEqual([]);
+    expect(od('C:\\Users\\Taro\\OneDriveTools\\Desktop\\x')).toEqual([]);
+    // macOS では OneDrive の環境変数を見ない。
+    expect(candidateNotes(c(`${MAC_HOME}/OneDrive/Desktop/x`), { homeDir: MAC_HOME, now: NOW, env: { OneDrive: `${MAC_HOME}/OneDrive` } })).toEqual([]);
+  });
   it('git でない、最後の活動が 30 日より前、会話が 1 件だけ、を符号で返す', () => {
     expect(notes(c(`${MAC_HOME}/x`, { isGit: false }))).toEqual(['not-git']);
     expect(notes(c(`${MAC_HOME}/x`, { lastActivityAt: NOW - 31 * DAY }))).toEqual(['stale-30d']);

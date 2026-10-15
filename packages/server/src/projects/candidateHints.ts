@@ -109,16 +109,45 @@ function atOrDirectlyUnder(p: string, dir: string): boolean {
 }
 
 /**
+ * name（Desktop か Downloads）の置き場の候補。
+ * ホームの直下に加えて、Windows では OneDrive の置き場の直下も入れる。
+ * OneDrive に既知のフォルダを移すと、デスクトップの実体は ~\OneDrive\Desktop になり、~\Desktop は無くなるからである（2026-10-15、実機で確かめた）。
+ * 置き場は環境変数のものと、ホームの直下の OneDrive の名前のフォルダ（環境変数が無いとき）の両方を見る。
+ */
+function knownFolderDirs(name: string, homeDir: string, env: Record<string, string | undefined>): string[] {
+  const P = pathOf(homeDir);
+  const dirs = [P.join(homeDir, name)];
+  if (!isWinStyle(homeDir)) return dirs;
+  for (const v of ONEDRIVE_VARS) {
+    const root = env[v]?.trim();
+    if (root && isWinStyle(root)) dirs.push(path.win32.join(trimSep(root), name));
+  }
+  return dirs;
+}
+
+/** Windows で、ホームの直下の OneDrive の名前のフォルダ（「OneDrive - 組織名」を含む）の直下の name か、その直下か。 */
+function underHomeOneDrive(p: string, name: string, homeDir: string): boolean {
+  if (!isWinStyle(homeDir) || !isWinStyle(p)) return false;
+  const home = pathKey(trimSep(homeDir), 'win32');
+  const key = pathKey(p, 'win32');
+  if (!key.startsWith(`${home}\\`)) return false;
+  const parts = key.slice(home.length + 1).split('\\');
+  return /^onedrive( - .+)?$/.test(parts[0] ?? '') && parts[1] === name.toLowerCase() && parts.length <= 3;
+}
+
+/**
  * 候補の注記の符号。
  * 並びは desktop-direct、downloads-direct、not-git、stale-30d、single-session の順である。
  * desktop-direct と downloads-direct は、そのフォルダそのものか直下のフォルダに付ける（散らばった作業か、落とした物を開いた場所であることが多い）。
+ * env は OneDrive の置き場を引く環境変数で、Windows のときだけ見る。
  */
-export function candidateNotes(c: NoteInput, e: { homeDir: string; now: number }): CandidateNote[] {
-  const P = pathOf(e.homeDir);
+export function candidateNotes(c: NoteInput, e: { homeDir: string; now: number; env?: Record<string, string | undefined> }): CandidateNote[] {
   const out: CandidateNote[] = [];
   const p = isWinStyle(c.path) ? path.win32.normalize(c.path) : c.path;
-  if (atOrDirectlyUnder(p, P.join(e.homeDir, 'Desktop'))) out.push('desktop-direct');
-  if (atOrDirectlyUnder(p, P.join(e.homeDir, 'Downloads'))) out.push('downloads-direct');
+  const env = e.env ?? {};
+  const direct = (name: string) => knownFolderDirs(name, e.homeDir, env).some((d) => atOrDirectlyUnder(p, d)) || underHomeOneDrive(p, name, e.homeDir);
+  if (direct('Desktop')) out.push('desktop-direct');
+  if (direct('Downloads')) out.push('downloads-direct');
   if (!c.isGit) out.push('not-git');
   if (c.lastActivityAt !== null && e.now - c.lastActivityAt > STALE_MS) out.push('stale-30d');
   if (c.sessionCount === 1) out.push('single-session');

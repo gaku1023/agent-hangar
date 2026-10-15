@@ -96,7 +96,7 @@ export function folderCandidates(db: Db, deviceId: string, env: CandidateEnv): F
         gitRemote: isGit ? gitRemoteOf(g.path) : null,
         enclosedBy: enclosedByOf(g.path, kept.map((k) => k.path), known),
         cloudSynced: cloudSyncedOf(g.path, cloud),
-        notes: candidateNotes({ ...base, isGit }, { homeDir: home, now }),
+        notes: candidateNotes({ ...base, isGit }, { homeDir: home, now, env: cloud.env }),
       };
     })
     .sort((a, b) => b.sessionCount - a.sessionCount || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0) || a.path.localeCompare(b.path));
