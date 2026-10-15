@@ -10,7 +10,7 @@ import { EditorSettings } from './EditorSettings.tsx';
 const props = (over: Partial<EditorSettingsProps> = {}): EditorSettingsProps => ({
   setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code', loading: false, test: { running: false, result: null },
   choices: [
-    { id: 'vscode', name: 'VS Code', tile: 'VS', state: 'found', path: '/usr/local/bin/code', version: '1.105.1', selected: true, badge: { text: '見つかりました', tone: 'ok' } },
+    { id: 'vscode', name: 'VS Code', tile: 'VS', state: 'found', path: '/usr/local/bin/code', version: '1.105.1', selected: true, badge: { text: '検出済み', tone: 'ok' } },
     { id: 'zed', name: 'Zed', tile: 'Ze', state: 'app', path: '/Applications/Zed.app', version: null, selected: false, badge: { text: 'アプリだけ', tone: 'warn' } },
     { id: 'custom', name: '任意のコマンド', tile: '{ }', state: null, path: null, version: null, selected: false, badge: null },
   ],
@@ -25,10 +25,10 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'editors.load' });
     const rows = screen.getAllByRole('radio');
     expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
-    expect(rows[0]).toHaveTextContent('VS Code1.105.1/usr/local/bin/code見つかりました');
+    expect(rows[0]).toHaveTextContent('VS Code1.105.1/usr/local/bin/code検出済み');
     expect(rows[1]).toHaveTextContent('アプリだけ');
     // 見つからないものも並ぶので、「見つけたものを並べています」とは言わない。
-    expect(screen.getByText(/対応しているエディタを並べ、この PC で見つかったかを添えています/)).toBeInTheDocument();
+    expect(screen.getByText(/対応しているエディタと、この PC での検出状況を表示します/)).toBeInTheDocument();
   });
   it('選んだ時点で保存し、前のエディタのパスは持ち越さない。テストは選んだ行にだけある', () => {
     const onAction = vi.fn();
@@ -52,8 +52,8 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { editor: { id: 'vscode', path: '/opt/code', fileCmd: '', dirCmd: '', terminal: 'none' } }, field: 'editor' });
   });
   it('テストの答えは、選んだ行（テストのボタン）のすぐ下に出す。欄の下端に出すと右下の札に隠れるため', () => {
-    ui(props({ test: { running: false, result: { tone: 'ng', text: 'Cursor が見つかりません。インストールしたあと「再確認」を押すか、パスを指定してください。' } } }));
-    expect(screen.getByRole('status')).toHaveTextContent('Cursor が見つかりません');
+    ui(props({ test: { running: false, result: { tone: 'ng', text: 'Cursor が未検出。インストール後に「再確認」をクリックするか、パスを指定してください。' } } }));
+    expect(screen.getByRole('status')).toHaveTextContent('Cursor が未検出');
     expect(screen.getByRole('radio', { name: /VS Code/ }).nextElementSibling).toBe(screen.getByRole('status'));
   });
   it('テストの最中の文も、選んだ行のすぐ下に出す', () => {
@@ -89,7 +89,7 @@ describe('任意のコマンド（試作の 1-4 の A）', () => {
 
 describe('エディタが見つからないときの面（試作の 1-3 の B）', () => {
   const missing = (n = 1): EditorMissingProps => ({
-    n, title: 'Cursor が見つかりません', lastPath: '/usr/local/bin/cursor',
+    n, title: 'Cursor が未検出', lastPath: '/usr/local/bin/cursor',
     choices: [
       { key: 'settings', label: '設定でエディタを選ぶ', icon: 'settings', send: { type: 'nav.go', to: { name: 'settings', at: 'editor' } } },
       { key: 'once:vscode', label: '今回は VS Code で開く', icon: 'openEditor', send: { type: 'project.openEditor', id: 'p1', once: 'vscode' } },
@@ -99,7 +99,7 @@ describe('エディタが見つからないときの面（試作の 1-3 の B）
   it('理由と次の手を出し、押したら送って閉じる。新しい断りでまた出す', () => {
     const onAction = vi.fn();
     const { rerender } = render(<ActionRoot onAction={onAction}><EditorMissing {...missing()} /></ActionRoot>);
-    expect(screen.getByRole('dialog', { name: 'Cursor が見つかりません' })).toHaveTextContent('最後に見つけた場所：/usr/local/bin/cursor');
+    expect(screen.getByRole('dialog', { name: 'Cursor が未検出' })).toHaveTextContent('前回検出したパス：/usr/local/bin/cursor');
     fireEvent.click(screen.getByRole('button', { name: '今回は VS Code で開く' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.openEditor', id: 'p1', once: 'vscode' });
     expect(screen.queryByRole('dialog')).toBeNull();

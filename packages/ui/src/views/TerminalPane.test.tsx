@@ -22,7 +22,7 @@ describe('TerminalPane', () => {
     expect(screen.getByRole('status')).toHaveTextContent('待っています');
     rerender(<TerminalHostContext.Provider value={host}><TerminalPane tabId="t2" hint={null} live={null} /></TerminalHostContext.Provider>);
     expect(host.mount).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('接続していません')).toBeInTheDocument();
+    expect(screen.getByText('未接続')).toBeInTheDocument();
   });
   it('タブを替えても枠の中のターミナルは 1 つだけ', () => {
     // 前のタブの要素が残ると、見えている端末と入力先がずれる。
@@ -160,7 +160,7 @@ describe('TerminalPane', () => {
     const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: at, dropped: true, gaveUp: false, detached: false }) };
     const { container, rerender } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
     expect(screen.getByText('ターミナルとの接続が切れました')).toBeInTheDocument();
-    expect(screen.getByText('Claude は動き続けています。5 秒後に再接続します。')).toBeInTheDocument();
+    expect(screen.getByText('Claude は実行を続けています。5 秒後に再接続します。')).toBeInTheDocument();
     // 板は暗く沈め、縁の灯も消す。
     expect(container.querySelector('.term-pane')).toHaveAttribute('data-off', 'true');
     fireEvent.click(screen.getByRole('button', { name: '再接続' }));
@@ -168,7 +168,7 @@ describe('TerminalPane', () => {
     // つなぎ直している間は秒ではなく、そうしていると言う。
     const trying = { ...host, status: () => 'connecting' as const, link: () => ({ retryAt: null, dropped: true, gaveUp: false, detached: false }) };
     rerender(<TerminalHostContext.Provider value={trying}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
-    expect(screen.getByText('Claude は動き続けています。再接続しています。')).toBeInTheDocument();
+    expect(screen.getByText('Claude は実行を続けています。再接続しています。')).toBeInTheDocument();
   });
   it('切れた印が残っていても、つながっている間はカードを出さない', () => {
     // つながった瞬間に Host が知らせる前の 1 コマでも、つながっている端末を覆わない。
@@ -181,7 +181,7 @@ describe('TerminalPane', () => {
     const reconnect = vi.fn();
     const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: null, dropped: true, gaveUp: true, detached: false }) };
     render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
-    expect(screen.getByText('つなげませんでした。')).toBeInTheDocument();
+    expect(screen.getByText('接続できませんでした。')).toBeInTheDocument();
     expect(screen.queryByText(/動き続けています/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '再接続' }));
     expect(reconnect).toHaveBeenCalledWith('r1');
@@ -191,9 +191,9 @@ describe('TerminalPane', () => {
     const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: true }) };
     const { container } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
     expect(screen.getByText('ターミナルから切り離されました')).toBeInTheDocument();
-    expect(screen.getByText('Claude は動き続けています。')).toBeInTheDocument();
+    expect(screen.getByText('Claude は実行を続けています。')).toBeInTheDocument();
     expect(container.querySelector('.term-pane')).toHaveAttribute('data-off', 'true');
-    expect(screen.queryByText('接続していません')).toBeNull();
+    expect(screen.queryByText('未接続')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '再接続' }));
     expect(reconnect).toHaveBeenCalledWith('r1');
   });
@@ -204,7 +204,7 @@ describe('TerminalPane', () => {
     expect(screen.getByRole('button', { name: '再接続' })).toBeInTheDocument();
     rerender(<TerminalHostContext.Provider value={{ ...host, status: () => 'connecting' as const }}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);
     expect(screen.queryByRole('button', { name: '再接続' })).toBeNull();
-    expect(screen.getByText('接続しています')).toBeInTheDocument();
+    expect(screen.getByText('接続中…')).toBeInTheDocument();
   });
   it('Host が無ければ描くだけで落ちない', () => {
     render(<TerminalPane tabId="t1" hint={null} live={null} />);

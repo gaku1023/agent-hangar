@@ -108,7 +108,7 @@ describe('runMcpInstall', () => {
     try {
       const r = await runMcpInstall({ home, port: 4177, claudeJson, exec: okExec([]), probe: async () => ({ ok: true } as const), lockWaitMs: 50 });
       expect(r.ok).toBe(false);
-      expect(r.message).toContain('Claude Code が設定を書いている最中のようです');
+      expect(r.message).toContain('Claude Code が設定を書き込み中の可能性があります');
       expect(JSON.parse(fs.readFileSync(claudeJson, 'utf8'))).toEqual({ userID: 'u1' });
     } finally {
       fs.unlinkSync(lock);

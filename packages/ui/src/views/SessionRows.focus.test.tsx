@@ -67,23 +67,23 @@ describe('SessionRows の状態の札（★ の E）', () => {
   it('badgeAction があれば、状態の札がそのタブへ移るボタンになり、行は開かない', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SessionRows rows={[row('d1', { state: 'done' }), row('a1', { state: 'archived' }), row('p1', { state: 'paused', returnOn: '2026-10-09' })]} height={400} variant="search" badgeAction={(status) => ({ type: 'search.filter', patch: { status } })} /></ActionRoot>);
-    fireEvent.click(screen.getByRole('button', { name: 'Done のセッションだけを見る' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done のセッションだけを表示' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'done' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを見る' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを表示' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'archived' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Paused のセッションだけを見る' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Paused のセッションだけを表示' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'paused' } });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
   it('badgeAction が無ければ札は押せない', () => {
     render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[row('d1', { state: 'done' })]} height={400} variant="project" /></ActionRoot>);
-    expect(screen.queryByRole('button', { name: /のセッションだけを見る$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /のセッションだけを表示$/ })).toBeNull();
   });
   // F1：Paused も状態の列に語の札で出すので、その札がタブへ移るボタンになる（戻る日は時刻の列で、ボタンではない）。
   it('Paused の札も、Paused のタブへ移るボタンになる', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SessionRows rows={[row('p1', { state: 'paused', returnOn: null })]} height={400} variant="search" badgeAction={(status) => ({ type: 'search.filter', patch: { status } })} /></ActionRoot>);
-    const b = screen.getByRole('button', { name: 'Paused のセッションだけを見る' });
+    const b = screen.getByRole('button', { name: 'Paused のセッションだけを表示' });
     expect(b).toHaveTextContent('Paused');
     fireEvent.click(b);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'paused' } });

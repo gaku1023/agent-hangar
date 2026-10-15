@@ -174,7 +174,7 @@ describe('移す先のダイアログ（2A）', () => {
     expect(screen.getByRole('group', { name: '最近' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'すべて' })).toBeInTheDocument();
     expect(screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['app', 'paper', 'home-lab', 'クイックセッション']);
-    expect(dialog).toHaveTextContent('変わるのは hangar での分類だけです。トランスクリプトと、再開するフォルダ（~/src/app）はそのままです。');
+    expect(dialog).toHaveTextContent('変わるのは hangar での分類だけです。トランスクリプトと、再開するディレクトリ（~/src/app）はそのままです。');
     // 開いたときのフォーカスは検索の欄。
     expect(screen.getByRole('combobox')).toHaveFocus();
   });

@@ -100,7 +100,7 @@ describe('presentProject の見出しと (i) の詳細', () => {
   it('場所、セッションの数（Archived も数える）、最後の活動を持つ。作成日は持たない', () => {
     const sessions = [dto('a1'), dto('a2', { state: st({ status: 'archived', setBy: 'user', setAt: NOW }) }), dto('b1', { projectId: 'beta' })];
     const p = presentProject(initialState(), storeOf(sessions), NOW, 'alpha');
-    expect(p.info).toEqual({ sessionsText: '2 本', lastActivity: '3 時間前' });
+    expect(p.info).toEqual({ sessionsText: '2 件', lastActivity: '3 時間前' });
     expect(p).toMatchObject({ path: '/w/alpha', resolved: true, status: 'active', isScratch: false });
     expect(Object.keys(p.info)).not.toContain('createdAt');
   });
@@ -163,12 +163,12 @@ describe('presentProject の右パネル', () => {
         file({ kind: 'projectDotClaude', name: '.claude/CLAUDE.md' }), file({ kind: 'local', name: 'CLAUDE.local.md' }), file({ kind: 'agents', name: 'AGENTS.md', read: false }), file({ kind: 'memory', name: 'MEMORY.md', size: 512 }),
       ])).rows;
       expect(rows.map((r) => [r.desc, r.off])).toEqual([
-        ['プロジェクト指示・チームで共有', false], ['ローカル指示・自分だけ', false], ['CLAUDE.md があるため読まれない', true], ['自動メモリ・Claude が書く', false],
+        ['プロジェクト指示・チームで共有', false], ['ローカル指示・個人用', false], ['CLAUDE.md があるため読み込まれない', true], ['自動メモリ・Claude が書き込む', false],
       ]);
       expect(rows[3]!.meta).toBe('512 B · 2 日前');
-      expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md' })])).rows[0]!.desc).toBe('CLAUDE.md の代わりに読まれる');
+      expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md' })])).rows[0]!.desc).toBe('CLAUDE.md の代わりに読み込まれる');
       // CLAUDE.md の類が並んでいないのに読まれないのは、上のフォルダの CLAUDE.md か設定のせいなので、理由を言い切らない。
-      expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md', read: false })])).rows[0]!.desc).toBe('起動時には読まれない');
+      expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md', read: false })])).rows[0]!.desc).toBe('起動時には読み込まれない');
     });
 
     it('以前のノートは中身があるときだけ返す', () => {
@@ -185,7 +185,7 @@ describe('presentProject の右パネル', () => {
   it('候補の TODO の、根拠が無いとき、出したセッションが手元に無いときの文は、言語に従う', () => {
     const t = todo('t1', { candidate: { sessionId: 'gone', note: null, at: NOW - 60_000 } });
     const ja = storeOf([]);
-    expect(presentTodoCandidate(t, ja, NOW)).toEqual({ note: '根拠は書かれていません', sessionId: null, sessionName: '不明なセッション', ago: '1 分前' });
+    expect(presentTodoCandidate(t, ja, NOW)).toEqual({ note: '根拠はありません', sessionId: null, sessionName: '不明なセッション', ago: '1 分前' });
     const en = withLanguage(ja, 'en');
     expect(presentTodoCandidate(t, en, NOW)).toMatchObject({ note: 'No reason was written', sessionName: 'Unknown session' });
     const named = storeOf([dto('s1', { name: null })]);

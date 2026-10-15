@@ -540,10 +540,10 @@ describe('propose_session_status', () => {
     expect((r.state as { candidate: unknown }).candidate).toMatchObject({ status: 'paused', returnOn: null, returnTime: null, returnAt: null });
   });
   it('不正な時刻は、何が悪いかを言って何も書かない', () => {
-    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: '25:00', confirmed: true }, scoped())).toThrow(new ToolError('リマインダーの時刻は HH:MM の形で、00:00〜23:59 です（25:00）'));
-    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: 1330 }, scoped())).toThrow(new ToolError('return_time は HH:MM の形の文字列です'));
+    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: '25:00', confirmed: true }, scoped())).toThrow(new ToolError('リマインダーの時刻は HH:MM 形式の 00:00〜23:59 で指定してください（25:00）'));
+    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: 1330 }, scoped())).toThrow(new ToolError('return_time は HH:MM の形式の文字列です'));
     // 時刻だけでは戻る時点にならない。
-    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_time: '13:30' }, scoped())).toThrow(new ToolError('リマインダーの時刻は、日付と一緒に渡してください'));
+    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_time: '13:30' }, scoped())).toThrow(new ToolError('リマインダーの時刻は日付と一緒に指定してください'));
     expect(sent).toEqual([]);
     expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
   });
@@ -551,9 +551,9 @@ describe('propose_session_status', () => {
     const offset = /[+-]\d{2}:\d{2}/.source;
     // 今は 2026-10-01 12:00。同じ日の 11:59 と、ちょうど今は過去。
     for (const confirmed of [true, undefined]) {
-      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '11:59', confirmed }, scoped())).toThrow(new RegExp(`^リマインダーが過去です（2026-10-01 11:59。いまは 2026-10-01 12:00 ${offset}）$`));
+      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '11:59', confirmed }, scoped())).toThrow(new RegExp(`^リマインダーが過去です（2026-10-01 11:59。現在は 2026-10-01 12:00 ${offset}）$`));
       expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '12:00', confirmed }, scoped())).toThrow(/^リマインダーが過去です/);
-      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-09-30', confirmed }, scoped())).toThrow(new RegExp(`^リマインダーの日付が過去です（2026-09-30。いまは 2026-10-01 12:00 ${offset}）$`));
+      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-09-30', confirmed }, scoped())).toThrow(new RegExp(`^リマインダーの日付が過去です（2026-09-30。現在は 2026-10-01 12:00 ${offset}）$`));
       expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-09-30', return_time: '23:59', confirmed }, scoped())).toThrow(/^リマインダーが過去です（2026-09-30 23:59。/);
     }
     expect(sent).toEqual([]);

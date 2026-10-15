@@ -195,7 +195,7 @@ describe('要約と、run の出来事の受け手の組み立て', () => {
     expect(tried.length).toBeGreaterThan(0);
     for (const t of tried) expect(t.message).toBe('Not available (cannot connect, or the limit has been reached)');
     h.settings.current = { ...h.settings.current, language: 'ja' };
-    for (const t of ((await summary.api.test()) as { tried: { message: string }[] }).tried) expect(t.message).toBe('使えません（接続できないか、上限に達しています）');
+    for (const t of ((await summary.api.test()) as { tried: { message: string }[] }).tried) expect(t.message).toBe('使用できません（接続できないか、上限に達しています）');
   });
 
   it('止めるときは、走っている要約を待つ。待ち行列が空ならすぐ返る', async () => {

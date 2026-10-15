@@ -63,7 +63,7 @@ describe('ensureAccountLinks', () => {
 
   it('conflicts を文にする', () => {
     expect(linkProblem([])).toBeNull();
-    expect(linkProblem(['settings.json', 'skills'])).toBe('置き場の settings.json、skills が共有のリンクではありません。中身を確認して、要らなければ削除してください');
+    expect(linkProblem(['settings.json', 'skills'])).toBe('設定ディレクトリの settings.json、skills が共有のリンクではありません。中身を確認して、不要なら削除してください');
   });
 });
 

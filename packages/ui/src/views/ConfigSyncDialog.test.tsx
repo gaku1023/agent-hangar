@@ -24,11 +24,11 @@ describe('送る一覧（a1）', () => {
   it('種類ごとの折りたたみで、見出しに件数、settings.json は鍵と値を出し、承諾すると送る', () => {
     const onAction = vi.fn();
     show(open('send'), store({ outgoing: outgoing([out('settings:model', 'settings', 'model', { value: '"opus"' }), out('file:CLAUDE.md', 'claude-md', 'CLAUDE.md')]) }, dto({ enabled: false })), onAction);
-    expect(screen.getByRole('dialog', { name: 'ほかの PC へ送るもの' })).toBeInTheDocument();
-    expect(screen.getByText(/次の 2 項目をクラウドへ送ります/)).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '他の PC へ送信する項目' })).toBeInTheDocument();
+    expect(screen.getByText(/次の 2 項目をクラウドへ送信します/)).toBeInTheDocument();
     expect(screen.getByText('"opus"')).toBeInTheDocument();
-    expect(screen.getByText('送らないもの')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '2 項目を送る' }));
+    expect(screen.getByText('送信しない項目')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '2 項目を送信' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.send.confirm' });
   });
   it('読み込み前は押せず、送るものが無ければ「有効にする」と言う', () => {
@@ -37,7 +37,7 @@ describe('送る一覧（a1）', () => {
     unmount();
     show(open('send'), store({ outgoing: outgoing([]) }, dto({ enabled: false })));
     expect(screen.getByRole('button', { name: '有効にする' })).toBeEnabled();
-    expect(screen.getByText(/送るものはまだありません/)).toBeInTheDocument();
+    expect(screen.getByText(/送信する項目はまだありません/)).toBeInTheDocument();
   });
   it('すでに入っているときは、見るだけで閉じる（承諾の操作を出さない）', () => {
     show(open('send'), store({ outgoing: outgoing([out('file:CLAUDE.md', 'claude-md', 'CLAUDE.md')]) }));
@@ -66,12 +66,12 @@ describe('適用内容の確認（b1）', () => {
     const onAction = vi.fn();
     show(open('review'), store({ inbox: { items, approval: 'each' } }), onAction);
     fireEvent.click(screen.getByRole('button', { name: '競合 1 件を選択…' }));
-    fireEvent.click(screen.getByRole('button', { name: '承諾が要るもの 1 件を選択…' }));
+    fireEvent.click(screen.getByRole('button', { name: '承諾が必要な項目 1 件を選択…' }));
     expect(onAction.mock.calls.map((c) => (c[0] as { part: string }).part)).toEqual(['conflicts', 'approve']);
   });
   it('適用の最中は、押せず「適用しています…」と出し、ブラウザでは指示書のあとにターミナルで実行すると書く', () => {
     show(open('review', true), store({ inbox: { items, approval: 'each' } }, dto(), false));
-    expect(screen.getByRole('button', { name: '適用しています…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '適用中…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'キャンセル' })).toBeDisabled();
     expect(screen.getByText(/hangar config apply を実行します/)).toBeInTheDocument();
   });
@@ -92,7 +92,7 @@ describe('承諾の表（c2）', () => {
   it('「すべて選択」は置かず、印の無い行だけをまとめて選べる', () => {
     view();
     expect(screen.queryByRole('button', { name: /すべて選択/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '印の無いものを選択 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'マークの無い項目を選択 2' }));
     expect(cb('commands/a.md')).toBeChecked();
     expect(cb('agents/b.md')).toBeChecked();
     expect(cb('skills/h/SKILL.md')).not.toBeChecked();
@@ -114,11 +114,11 @@ describe('承諾の表（c2）', () => {
   it('選んだ項目だけを渡して適用し、0 件では押せない', () => {
     const onAction = vi.fn();
     view(onAction);
-    expect(screen.getByRole('button', { name: '選んだ 0 件を承諾して適用…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '選択した 0 件を承諾して適用…' })).toBeDisabled();
     fireEvent.click(cb('commands/a.md'));
     fireEvent.click(screen.getByRole('button', { name: 'skills/h/SKILL.md の内容' }));
     fireEvent.click(cb('skills/h/SKILL.md'));
-    fireEvent.click(screen.getByRole('button', { name: '選んだ 2 件を承諾して適用…' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択した 2 件を承諾して適用…' }));
     const sent = onAction.mock.calls.map((x) => x[0] as { type: string; entries?: { id: string }[] }).find((x) => x.type === 'configSync.apply');
     expect(sent?.entries?.map((e) => e.id).sort()).toEqual(['file:commands/a.md', 'file:skills/h/SKILL.md']);
   });
@@ -136,18 +136,18 @@ describe('競合の札（d1）', () => {
     const onAction = vi.fn();
     show(open('conflicts'), store({ conflicts: [c('file:CLAUDE.md', 'CLAUDE.md'), c('settings:model', 'model')] }, dto({ conflicts: 2 })), onAction);
     expect(screen.getAllByText(/theirs/)).toHaveLength(2);
-    expect(screen.getByRole('button', { name: '選んだ 0 件を適用…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '選択した 0 件を適用…' })).toBeDisabled();
     const cards = document.querySelectorAll('.cfg-card');
-    fireEvent.click(within(cards[0] as HTMLElement).getByRole('button', { name: '相手（Studio）を採用' }));
-    fireEvent.click(within(cards[1] as HTMLElement).getByRole('button', { name: '自分（この PC）を採用' }));
-    expect(within(cards[0] as HTMLElement).getByRole('button', { name: '相手（Studio）を採用' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(cards[0] as HTMLElement).getByRole('button', { name: 'Studio を採用' }));
+    fireEvent.click(within(cards[1] as HTMLElement).getByRole('button', { name: 'この PC を採用' }));
+    expect(within(cards[0] as HTMLElement).getByRole('button', { name: 'Studio を採用' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('選択 2 / 2 件')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '選んだ 2 件を適用…' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択した 2 件を適用…' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md', take: 'remote' }, { id: 'settings:model', take: 'mine' }] });
   });
   it('選んだ側をもう一度押すと、選びを外す', () => {
     show(open('conflicts'), store({ conflicts: [c('file:CLAUDE.md', 'CLAUDE.md')] }, dto({ conflicts: 1 })));
-    const b = screen.getByRole('button', { name: '自分（この PC）を採用' });
+    const b = screen.getByRole('button', { name: 'この PC を採用' });
     fireEvent.click(b);
     expect(b).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(b);

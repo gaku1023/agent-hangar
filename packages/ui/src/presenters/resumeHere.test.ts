@@ -12,7 +12,7 @@ const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', pro
 const project = (over: Partial<ProjectDto> = {}): ProjectDto => ({ id: 'p1', name: 'notes-app', status: 'active', isScratch: false, path: '/Users/me/src/notes-app', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: null, ...over });
 const lock = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'win', deviceName: 'work-pc', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 const storeWith = (s: SessionDto, p: ProjectDto | null = project()): Store => ({ ...initialStore(), sessions: { [s.id]: s }, projects: p ? { [p.id]: p } : {} } as Store);
-const NO_ROOT = 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。';
+const NO_ROOT = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
 
 describe('この PC で再開を押せるか（resumeHereOf）', () => {
   it('ほかの PC の会話でなければ出さない', () => {
@@ -35,7 +35,7 @@ describe('この PC で再開を押せるか（resumeHereOf）', () => {
   it('ほかの PC で実行中なら、場所より先に実行中を理由にする', () => {
     const s = session({ lock: lock() });
     const r = resumeHereOf(storeWith(s, project({ resolved: false, path: null, unresolved: { kind: 'elsewhere', previousPath: null, deviceName: null } })), s, ja)!;
-    expect(r.disabled).toBe('work-pc で実行中です。止まるか応答が無くなると選べます');
+    expect(r.disabled).toBe('work-pc で実行中です。停止するか応答が無くなると選択できます');
     expect(r.noRoot).toEqual({ reason: NO_ROOT, projectId: 'p1' });
   });
 });
@@ -49,14 +49,14 @@ describe('ほかの PC の続きの方が新しい会話（A → B → A）', ()
     const p = presentSession(initialState(), storeWith(back), NOW, 's1');
     expect(p.actions.primary).toMatchObject({ id: 'resumeHere', disabled: null });
     const resume = p.actions.menu.find((a) => a.id === 'resume');
-    expect(resume).toMatchObject({ label: 'この PC のトランスクリプトのまま再開', disabled: null, note: 'ほかの PC で進めた続きは入りません' });
+    expect(resume).toMatchObject({ label: 'この PC のトランスクリプトのまま再開', disabled: null, note: '他の PC で進めた続きは反映されません' });
   });
   it('一覧の行の「⋯」にも「この PC で再開」を足す', () => {
     expect(presentSessionRow(back, storeWith(back), NOW).resumeHere).toEqual({ disabled: null });
   });
   it('ほかの PC で実行中（生きたロック）なら、今までどおり押せない', () => {
     const s = session({ remoteOnly: false, newerElsewhere: true, lock: lock() });
-    expect(presentSession(initialState(), storeWith(s), NOW, 's1').actions.primary).toMatchObject({ id: 'resumeHere', disabled: 'work-pc で実行中です。止まるか応答が無くなると選べます' });
+    expect(presentSession(initialState(), storeWith(s), NOW, 's1').actions.primary).toMatchObject({ id: 'resumeHere', disabled: 'work-pc で実行中です。停止するか応答が無くなると選択できます' });
   });
   it('新しい続きが無ければ、今までどおり「再開」が主', () => {
     const s = session({ remoteOnly: false, newerElsewhere: false });
@@ -97,11 +97,11 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
   it('前の PC とこの PC を 2 枚のカードにし、最後に使った日時と同期されないものを添える', () => {
     expect(presentResumeHere(ja, plan, '/Users/me')).toEqual({
       sessionId: 's1',
-      title: 'ほかの PC で進めた会話を、この PC で再開しますか',
+      title: '他の PC で進めた会話を、この PC で再開しますか',
       lead: 'この会話は work-pc で進めたものです。',
-      from: { label: '前の PC', name: 'work-pc', os: 'Windows', path: 'D:\\src\\notes-app', at: '最後に使った日時：2026-10-12 18:42', note: null },
+      from: { label: '前の PC', name: 'work-pc', os: 'Windows', path: 'D:\\src\\notes-app', at: '最終使用日時：2026-10-12 18:42', note: null },
       to: { label: 'この PC', name: 'this-mac', os: 'macOS', path: '~/src/notes-app', at: null, note: null },
-      band: { strong: 'プロジェクトのファイル、未コミットの変更、開発環境（道具、環境変数、秘密の値）は同期されません。', text: '同期されるのは会話のトランスクリプトと hangar の記録だけです。' },
+      band: { strong: 'プロジェクトのファイル、未コミットの変更、開発環境（ツール、環境変数、シークレット）は同期されません。', text: '同期されるのは会話のトランスクリプトと hangar の記録だけです。' },
       action: 'この PC で再開',
       blocked: null,
       replace: null,
@@ -110,22 +110,22 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
   });
   it('手元のトランスクリプトを置き換えるときは、バックアップに残すことを 1 行で言い、承諾は上書きつきにする（A → B → A）', () => {
     const ahead = presentResumeHere(ja, { ...plan, replace: { kind: 'ahead', localSize: 10, remoteSize: 99 } }, '/Users/me');
-    expect(ahead).toMatchObject({ replace: 'この PC の古いトランスクリプトはバックアップに残し、ほかの PC で進めた続きで再開します。', overwrite: true, action: 'この PC で再開' });
+    expect(ahead).toMatchObject({ replace: 'この PC の古いトランスクリプトはバックアップに残し、他の PC で進めた続きから再開します。', overwrite: true, action: 'この PC で再開' });
     const diverged = presentResumeHere(ja, { ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } }, '/Users/me');
-    expect(diverged).toMatchObject({ replace: 'この PC で進めた続きはバックアップに残し、ほかの PC の続きで再開します。', overwrite: true });
+    expect(diverged).toMatchObject({ replace: 'この PC で進めた続きはバックアップに残し、他の PC の続きから再開します。', overwrite: true });
     expect(presentResumeHere(translator('en'), { ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } }, '/Users/me').replace).toMatch(/backup/);
   });
   it('分からない名前と OS は言い換え、この PC で場所が決まらなければ押せなくして理由を言う', () => {
     const p = presentResumeHere(ja, { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: 'linux', path: null }, replace: null }, null);
-    expect(p.lead).toBe('この会話は ほかの PC で進めたものです。');
-    expect(p.from).toMatchObject({ name: 'ほかの PC', os: null, at: '最後に使った日時：不明' });
+    expect(p.lead).toBe('この会話は 他の PC で進めたものです。');
+    expect(p.from).toMatchObject({ name: '他の PC', os: null, at: '最終使用日時：不明' });
     expect(p.to).toMatchObject({ name: 'この PC', os: 'Linux', path: null });
     expect(p.blocked).toBe(NO_ROOT);
   });
   it('ほかの PC のクイックセッションは、作って再開するフォルダのパスと、作ることの 1 行を出し、場所の指定は求めない（6A）', () => {
     const quick: ResumeHerePlanDto = { ...plan, from: { ...plan.from, path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010' }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/.agent-hangar/quick-sessions/20261016-101010', createsFolder: true } };
     const p = presentResumeHere(ja, quick, '/Users/me');
-    expect(p.to).toEqual({ label: 'この PC', name: 'this-mac', os: 'macOS', path: '~/.agent-hangar/quick-sessions/20261016-101010', at: null, note: 'クイックセッションの置き場に同名の空フォルダを作成して再開します' });
+    expect(p.to).toEqual({ label: 'この PC', name: 'this-mac', os: 'macOS', path: '~/.agent-hangar/quick-sessions/20261016-101010', at: null, note: 'クイックセッションの保存先に同じ名前の空のディレクトリを作成して、そこで再開します' });
     expect(p.blocked).toBeNull();
     expect(presentResumeHere(translator('en'), quick, '/Users/me').to.note).toMatch(/quick session/i);
     // 作らないとき（フォルダがある、古いサーバ）は添えない。

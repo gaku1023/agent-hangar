@@ -107,7 +107,7 @@ describe('RunAccounts', () => {
   it('envFor：リンクの場所に別のものがあれば 400 で断り、触らない', () => {
     const a = store.add({ name: '別' });
     fs.mkdirSync(path.join(a.dir, 'projects'), { recursive: true });
-    expect(() => make().envFor(a)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('置き場の projects が共有のリンクではありません') }));
+    expect(() => make().envFor(a)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('設定ディレクトリの projects が共有のリンクではありません') }));
     expect(fs.lstatSync(path.join(a.dir, 'projects')).isDirectory()).toBe(true);
   });
 });
@@ -151,11 +151,11 @@ describe('switchAccount（run の寿命は偽物）', () => {
     const a = store.add({ name: '別' });
     const cases: [Parameters<typeof host>[0], string, number, string][] = [
       [{ alive: true }, 'nope', 400, 'アカウントが見つかりません'],
-      [{ alive: true }, 'primary', 409, 'このセッションはもうそのアカウントで実行中です'],
-      [{ alive: true, body: false }, a.id, 400, 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを始めてください'],
+      [{ alive: true }, 'primary', 409, 'このセッションはすでにそのアカウントで実行中です'],
+      [{ alive: true, body: false }, a.id, 400, 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを開始してください'],
       [{ alive: true, cwdOk: false }, a.id, 400, 'ディレクトリが見つかりません: x'],
-      [{ alive: true, background: true }, a.id, 409, 'バックグラウンドセッションは、アカウントを切り替えられません。停止してから、そのアカウントで再開してください'],
-      [{ alive: false, liveFor: 99 }, a.id, 409, 'このセッションは hangar の外で実行中です'],
+      [{ alive: true, background: true }, a.id, 409, 'バックグラウンドセッションはアカウントを切り替えられません。停止してから、そのアカウントで再開してください'],
+      [{ alive: false, liveFor: 99 }, a.id, 409, 'このセッションは hangar の外部で実行中です'],
     ];
     for (const [o, account, status, message] of cases) {
       const { h, calls } = host(o);
@@ -175,7 +175,7 @@ describe('switchAccount（run の寿命は偽物）', () => {
   it('止めたあとも 5 秒残り続けたら 409 で断り、再開しない', async () => {
     const a = store.add({ name: '別' });
     const { h, calls } = host({ alive: true, liveFor: 999 });
-    await expect(switchAccount(make(), h, 's1', a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('前の Claude がまだ終了していません') }));
+    await expect(switchAccount(make(), h, 's1', a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('直前の Claude Code がまだ終了していません') }));
     expect(calls[0]).toBe('kill r-old');
     expect(calls.filter((c) => c.startsWith('sleep'))).toHaveLength(20);
     expect(calls.some((c) => c.startsWith('resume'))).toBe(false);

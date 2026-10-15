@@ -19,7 +19,7 @@ export const interruptedJa: AreaDictionary<typeof interruptedKeys> = {
   'interrupted.row.skip': '再開しない',
   'interrupted.account.loggedOut': '未ログイン',
   'interrupted.account.login': 'ログイン',
-  'interrupted.account.nearLimit': '使用制限に達するかもしれません',
+  'interrupted.account.nearLimit': '使用制限に近づいています',
   'interrupted.toast.skipped': '「{name}」は再開しません',
   'interrupted.toast.closed': '前回実行中の {n} 件を閉じました',
   'interrupted.toast.undo': '元に戻す',

@@ -36,7 +36,7 @@ describe('ほかの PC から届いたプロジェクトの札', () => {
   it('件数の入った 1 文と、「プロジェクトで見る」「あとで決める」の 2 つのボタンを出す', () => {
     mount(props({ arrived: { count: 3 } }));
     const card = screen.getByRole('status');
-    expect(card).toHaveTextContent('ほかの PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません');
+    expect(card).toHaveTextContent('他の PC のプロジェクト 3 件が届きました。この PC にはディレクトリがありません');
     expect(screen.getByRole('button', { name: 'プロジェクトで見る' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'あとで決める' })).toBeInTheDocument();
   });

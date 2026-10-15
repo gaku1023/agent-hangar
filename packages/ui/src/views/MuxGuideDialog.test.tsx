@@ -16,7 +16,7 @@ describe('MuxGuideDialog', () => {
     expect(screen.getByText('Windows では psmux が tmux の代わりにセッションを保持します。PowerShell で次のコマンドを実行してください')).toBeInTheDocument();
     expect(screen.getByText('winget install marlocarlo.psmux')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /コピー/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'インストールしたので再確認' }));
+    fireEvent.click(screen.getByRole('button', { name: 'インストール後に再確認' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'mux.recheck' });
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'overlay.close' });
@@ -31,7 +31,7 @@ describe('MuxGuideDialog', () => {
     expect(screen.getByRole('button', { name: '確認中…' })).toBeDisabled();
     unmount();
     ui({ ...missing, stillMissing: true });
-    expect(screen.getByText('psmux がまだ見つかりません。インストールしたあと、Hangar の再起動が必要な場合があります')).toBeInTheDocument();
+    expect(screen.getByText('psmux がまだ見つかりません。インストール後に hangar の再起動が必要な場合があります')).toBeInTheDocument();
   });
   it('見つかったら版を出し、開始で止めていた操作を進める', () => {
     const onAction = vi.fn();

@@ -28,7 +28,7 @@ describe('一覧の絞り込みと欄', () => {
     pick('プロジェクト', 'alpha');
     expect(onAction).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
     expect(screen.queryByRole('radiogroup', { name: '状態' })).toBeNull();
-    const kw = screen.getByLabelText('キーワード');
+    const kw = screen.getByLabelText('検索');
     fireEvent.change(kw, { target: { value: 'x y' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
     expect(onAction).toHaveBeenCalledWith({ type: 'search.query', text: 'x y', filter: {} });
@@ -49,7 +49,7 @@ describe('一覧の絞り込みと欄', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><List text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
-    const kw = screen.getByLabelText('キーワード');
+    const kw = screen.getByLabelText('検索');
     fireEvent.change(kw, { target: { value: '動画' } });
     fireEvent.keyDown(kw, { key: 'Enter', isComposing: true });
     fireEvent.keyDown(kw, { key: 'Enter', keyCode: 229 });
@@ -128,7 +128,7 @@ describe('一覧の絞り込みと欄', () => {
   });
   it('検索中は条件の行の件数の代わりにそう言う', () => {
     render(<ActionRoot onAction={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" conditions={['『q』']} /></ActionRoot>);
-    expect(screen.getByText('検索しています')).toBeInTheDocument();
+    expect(screen.getByText('検索中…')).toBeInTheDocument();
   });
   it('検索で何も当たらなければ「一致するセッションはありません」', () => {
     render(<ActionRoot onAction={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" conditions={[]} /></ActionRoot>);
@@ -160,7 +160,7 @@ describe('ResolveProjectDialog', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={['/w/alpha-moved']} onQueryCandidates={() => {}} /></ActionRoot>);
     fireEvent.click(screen.getByText('/w/alpha-moved'));
-    fireEvent.click(screen.getByText('この場所にする'));
+    fireEvent.click(screen.getByText('このパスを使用'));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/alpha-moved' } });
     fireEvent.click(screen.getByText('Archived にする'));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } });
@@ -223,7 +223,7 @@ describe('ResolveProjectDialog のアイコン', () => {
   it('三つの解決はそれぞれのアイコンを持つ', () => {
     render(<ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></ActionRoot>);
     const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon') ?? null;
-    expect(iconOf('この場所にする')).toBe('repoint');
+    expect(iconOf('このパスを使用')).toBe('repoint');
     expect(iconOf('Archived にする')).toBe('archive');
     expect(iconOf('一覧から削除')).toBe('unlink');
   });
@@ -231,13 +231,13 @@ describe('ResolveProjectDialog のアイコン', () => {
 
 const USAGE: CloudUsageProps = {
   tiles: [
-    { key: 'bill', label: '今月の請求', value: '$0.00', sub: '9/30 分まで', tone: 'ok' },
+    { key: 'bill', label: '今月の請求', value: '$0.00', sub: '9/30 時点', tone: 'ok' },
     { key: 'd1', label: 'D1 の書き込み（今日）', value: '86%', sub: '86,120 行', tone: 'warn' },
     { key: 'plan', label: 'プラン', value: 'Workers 無料', sub: 'R2 従量', tone: 'ok' },
   ],
   bars: [
     { label: 'D1 の書き込み', when: 'day', pct: 86.12, value: '86,120 / 100,000 行', tone: 'warn' },
-    { label: 'R2 の保存', when: 'month', pct: 1.65, value: '0.17 / 10 GB-月', tone: 'ok' },
+    { label: 'R2 のストレージ', when: 'month', pct: 1.65, value: '0.17 / 10 GB-月', tone: 'ok' },
     { label: 'R2 Infrequent Access Data Retrieval', when: 'month', pct: null, value: '3 GB', tone: 'ok' },
   ],
   splitAfter: 1, legend: ['あと 13,880 行で無料枠の上限です · 9:00 にリセット'], source: 'Cloudflare の実測値 · 2 分前', strip: null, command: null, commandWhere: null,
@@ -256,8 +256,8 @@ describe('CloudUsage', () => {
     expect(within(sec).getByText('Cloudflare の実測値 · 2 分前')).toBeTruthy();
   });
   it('停止の帯は alert、案内のコマンドは等幅で出し、どこで打つかを前に添える', () => {
-    render(<CloudUsage {...USAGE} strip={{ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を停止しています。9:00 に枠がリセットされると、自動で再開します。' }} command="npm run hangar -- setup cloud --usage-token" commandWhere="リポジトリを clone して npm install した場所で、次を実行してください。" />);
-    expect(screen.getByText('リポジトリを clone して npm install した場所で、次を実行してください。')).toBeTruthy();
+    render(<CloudUsage {...USAGE} strip={{ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したため、同期を停止しています。9:00 に枠がリセットされると、自動で再開します。' }} command="npm run hangar -- setup cloud --usage-token" commandWhere="リポジトリをクローンして npm install したディレクトリで、次を実行してください。" />);
+    expect(screen.getByText('リポジトリをクローンして npm install したディレクトリで、次を実行してください。')).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain('同期を停止しています');
     expect(screen.getByText('npm run hangar -- setup cloud --usage-token').className).toContain('mono');
   });

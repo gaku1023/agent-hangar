@@ -33,14 +33,14 @@ describe('AccountSettings の一覧', () => {
     mount();
     expect(screen.getByRole('heading', { name: 'アカウント' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem').map((li) => li.querySelector('.account-set-name')?.textContent)).toEqual(['会社', '大学']);
-    expect(within(row('会社')).getByText('いま')).toBeInTheDocument();
-    expect(within(row('大学')).queryByText('いま')).toBeNull();
+    expect(within(row('会社')).getByText('現在')).toBeInTheDocument();
+    expect(within(row('大学')).queryByText('現在')).toBeNull();
     expect(screen.queryByText('最初のアカウント')).toBeNull();
   });
   it('いまのアカウントが大学なら「いま」は大学に付く', () => {
     mount(props({}, 'a1'));
-    expect(within(row('大学')).getByText('いま')).toBeInTheDocument();
-    expect(within(row('会社')).queryByText('いま')).toBeNull();
+    expect(within(row('大学')).getByText('現在')).toBeInTheDocument();
+    expect(within(row('会社')).queryByText('現在')).toBeNull();
   });
   it('点は 8px の色の点で、名前の前に置き、頭文字の四角い印は作らない', () => {
     mount();
@@ -61,11 +61,11 @@ describe('AccountSettings の一覧', () => {
   it('1 件だけでも節を出し、追加の入口を持つ（この節だけが追加の入口）', () => {
     mount({ list: props().list.slice(0, 1), colors: ACCOUNT_COLORS });
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'アカウントを足す…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'アカウントを追加…' })).toBeInTheDocument();
   });
   it('説明の 1 行を出す', () => {
     mount();
-    expect(screen.getByText('Claude Code のアカウントを足すと、設定・スキル・履歴は共有したまま、ログインだけを切り替えられます。hangar はログインの中身を読みません。')).toBeInTheDocument();
+    expect(screen.getByText('Claude Code のアカウントを追加すると、設定、スキル、履歴を共有したまま、ログインだけを切り替えられます。hangar はログイン情報を読み取りません。')).toBeInTheDocument();
   });
 });
 
@@ -89,14 +89,14 @@ describe('AccountSettings の状態', () => {
   it('初めてのログインの途中は「ブラウザで承認してください…」だけを出し、「やめる」を押すと account.login.cancel を出す', () => {
     const onAction = mount(props({ a1: { loginRunning: true, auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 } } }));
     expect(row('大学').querySelector('.account-set-state')).toHaveTextContent(/^ブラウザで承認してください…$/);
-    fireEvent.click(within(row('大学')).getByRole('button', { name: 'やめる' }));
+    fireEvent.click(within(row('大学')).getByRole('button', { name: 'キャンセル' }));
     expect(onAction.mock.calls).toEqual([[{ type: 'account.login.cancel', accountId: 'a1' }]]);
     // 途中の行には「ログイン」を出さない。
     expect(within(row('大学')).queryByRole('button', { name: 'ログイン' })).toBeNull();
   });
   it('途中でない行には「やめる」を出さない', () => {
     mount();
-    expect(screen.queryByRole('button', { name: 'やめる' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'キャンセル' })).toBeNull();
   });
   it('未ログインの行には「ログイン」を直に出し、押すと account.login を出す', () => {
     const onAction = mount(props({ a1: { auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 } } }));
@@ -137,7 +137,7 @@ describe('AccountSettings の「ログイン」と「やめる」の入れ替わ
     fireEvent.click(within(row('大学')).getByRole('button', { name: 'ログイン' }));
     expect(onAction.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
     swap({ a1: { auth: OUT, loginRunning: true } });
-    const stop = within(row('大学')).getByRole('button', { name: 'やめる' });
+    const stop = within(row('大学')).getByRole('button', { name: 'キャンセル' });
     expect(stop).toBeDisabled();
     fireEvent.click(stop);
     expect(onAction).toHaveBeenCalledTimes(1);
@@ -151,8 +151,8 @@ describe('AccountSettings の「ログイン」と「やめる」の入れ替わ
   it('逆向きも同じで、「やめる」を押して「ログイン」へ戻った直後は押せない', () => {
     vi.useFakeTimers();
     const { onAction, swap } = mountSwap({ a1: { auth: OUT, loginRunning: true } });
-    expect(within(row('大学')).getByRole('button', { name: 'やめる' })).toBeEnabled();
-    fireEvent.click(within(row('大学')).getByRole('button', { name: 'やめる' }));
+    expect(within(row('大学')).getByRole('button', { name: 'キャンセル' })).toBeEnabled();
+    fireEvent.click(within(row('大学')).getByRole('button', { name: 'キャンセル' }));
     swap({ a1: { auth: OUT } });
     const login = within(row('大学')).getByRole('button', { name: 'ログイン' });
     expect(login).toBeDisabled();
@@ -272,7 +272,7 @@ describe('AccountSettings の一覧から外す', () => {
 describe('AccountSettings の追加', () => {
   it('一覧の下に「アカウントを足す…」を置き、押すとダイアログを開く', () => {
     const onAction = mount();
-    fireEvent.click(screen.getByRole('button', { name: 'アカウントを足す…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを追加…' }));
     expect(onAction.mock.calls).toEqual([[{ type: 'account.add.open' }]]);
     // 名前だけの欄は、ダイアログに移した。
     expect(screen.queryByRole('textbox', { name: 'アカウントの名前' })).toBeNull();

@@ -355,7 +355,7 @@ describe('SessionRows の本文の期限', () => {
   it('消えかけにはチップ、消えた会話には文字の無い印を出す', () => {
     render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[{ ...row('a'), transcript: 'expiring' }, { ...row('b'), transcript: 'gone' }, { ...row('c'), transcript: 'none' }]} height={400} variant="recent" /></ActionRoot>);
     expect(screen.getByText('まもなく削除')).toBeInTheDocument();
-    expect(screen.getAllByRole('img', { name: '要約のみ。トランスクリプトは Claude Code の保持期間で削除されたとみられます' })).toHaveLength(1);
+    expect(screen.getAllByRole('img', { name: '要約のみ。トランスクリプトは Claude Code の保持期間で削除された可能性があります' })).toHaveLength(1);
   });
   it('印は行の高さを持たない', () => {
     for (const sel of ['.row-soon', '.row-gone']) {
@@ -407,7 +407,7 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(when('名前 e')).toHaveTextContent('2 日過ぎ');
     expect(screen.getByText('2 日過ぎ')).toHaveAttribute('data-due', 'true');
     expect(screen.getByText('10/2（金）')).not.toHaveAttribute('data-due');
-    expect(screen.getByText('10/2（金）')).toHaveAttribute('title', 'リマインダーの日付 · 最後の活動 3 分前');
+    expect(screen.getByText('10/2（金）')).toHaveAttribute('title', 'リマインダーの日付 · 最終アクティビティ 3 分前');
     expect(when('名前 c')).toHaveTextContent('3 分前');
     // Paused の行も 2 段目の頭は要約の見立てになる。
     expect(rowOf('名前 e').querySelector('.row-sub > .row-state')).toHaveTextContent('済んだ');
@@ -542,7 +542,7 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
     const menu = screen.getByRole('menu', { name: '名前 a への Claude の提案' });
     expect(menu).toHaveTextContent('Paused · 10/2（金） にしますか');
     expect(menu).toHaveTextContent('明日の朝、CPU の数字を確かめる');
-    expect(menu).toHaveTextContent('出どころ：抜けるとき · 12 分前');
+    expect(menu).toHaveTextContent('提案元：終了時 · 12 分前');
     expect(labels()).toEqual(['確定', '日付を変更', '却下']);
     // 頭の段にはフォーカスが止まらず、確定から始まる。
     expect(document.activeElement).toBe(screen.getAllByRole('menuitem')[0]);
@@ -565,7 +565,7 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
   it('根拠の無い提案は「根拠は書かれていません」と出す', () => {
     mount([sr('a', { candidate: { ...cand, note: null } })]);
     fireEvent.click(screen.getByRole('button', { name: 'Paused？' }));
-    expect(screen.getByRole('menu')).toHaveTextContent('根拠は書かれていません');
+    expect(screen.getByRole('menu')).toHaveTextContent('根拠はありません');
   });
   it.each([['y', 'session.state.confirm'], ['n', 'session.state.reject']])('札から Enter で開いて %s で選び、札が消えても、フォーカスは行に残る', (key, type) => {
     const onAction = vi.fn();

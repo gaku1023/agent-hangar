@@ -343,7 +343,7 @@ describe('起動', () => {
     expect(b.state).toMatchObject({ overlay: { kind: 'none' }, launch: { kind: 'idle' } });
   });
   it('プロジェクト無しの送信は failed、スクラッチはプロジェクトを選ばずに開く', () => {
-    expect(run([action({ type: 'session.new.submit', params: {} })]).state.launch).toEqual({ kind: 'failed', message: 'プロジェクトを選んでください' });
+    expect(run([action({ type: 'session.new.submit', params: {} })]).state.launch).toEqual({ kind: 'failed', message: 'プロジェクトを選択してください' });
     const s = run([action({ type: 'session.new.open', scratch: true })]);
     expect(s.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
     expect(s.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
@@ -876,7 +876,7 @@ describe('アプリの更新', () => {
 describe('設定', () => {
   it('iTerm2 を選ぶと許可ダイアログの案内を出す', () => {
     const { effects } = run([action({ type: 'settings.update', patch: { terminalApp: 'iterm' } })]);
-    expect(effects).toEqual([{ kind: 'api.updateSettings', patch: { terminalApp: 'iterm' } }, { kind: 'toast', level: 'info', message: 'iTerm2 で開くとき、初回に macOS の自動化の許可ダイアログが出ます' }]);
+    expect(effects).toEqual([{ kind: 'api.updateSettings', patch: { terminalApp: 'iterm' } }, { kind: 'toast', level: 'info', message: 'iTerm2 で開くとき、初回に macOS の自動化の許可ダイアログが表示されます' }]);
   });
   it('terminalApp を含まない保存では案内を出さない', () => {
     const { effects } = run([action({ type: 'settings.update', patch: { tmuxPath: '/opt/homebrew/bin/tmux' } })]);
@@ -922,7 +922,7 @@ describe('会話したフォルダの候補（初日のプロジェクト）', (
   it('ほかの PC のプロジェクトに結び付けたものがあれば、その件数も知らせる', () => {
     const open = run([action({ type: 'project.candidates.open', source: 'folder' }), action({ type: 'project.candidates.submit', items: [{ path: '/a', linkTo: 'p1' }], workspaceRoot: null })]).state;
     const done = run([runtime({ type: 'project.candidates.done', registered: 3, linked: 1, failed: [] })], open);
-    expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 3 件登録しました（うち 1 件は、ほかの PC のプロジェクトに結び付けました）' }, { kind: 'api.readiness' }]);
+    expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 3 件登録しました（うち 1 件は、他の PC のプロジェクトに関連付けました）' }, { kind: 'api.readiness' }]);
   });
 });
 

@@ -88,8 +88,8 @@ describe('入力待ちのカード', () => {
     const { onAction } = mount(props({ waiting: [card('s1')], more: 2, blocked: true }));
     const c = screen.getByRole('button', { name: '名前 s1 が入力待ちです：問い s1' });
     expect(c).toBeDisabled();
-    expect(c).toHaveAttribute('title', 'ダイアログを閉じると開けます');
-    expect(screen.queryByText('ダイアログを閉じると開けます')).toBeNull();
+    expect(c).toHaveAttribute('title', 'ダイアログを閉じてから開いてください');
+    expect(screen.queryByText('ダイアログを閉じてから開いてください')).toBeNull();
     expect(screen.getByRole('button', { name: 'ほか 2 件をホームで見る' })).toBeDisabled();
     fireEvent.click(screen.getByText('問い s1'));
     expect(onAction).not.toHaveBeenCalled();
@@ -179,7 +179,7 @@ describe('info と error のトースト', () => {
     const box = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40);
     try {
       mount(props({ toasts: [error('1', '長い失敗の文')] }));
-      const more = screen.getByRole('button', { name: '詳しく' });
+      const more = screen.getByRole('button', { name: '詳細' });
       expect(more).toHaveAttribute('aria-expanded', 'false');
       fireEvent.click(more);
       expect(more).toHaveAttribute('aria-expanded', 'true');
@@ -188,7 +188,7 @@ describe('info と error のトースト', () => {
   });
   it('2 行に収まる error には「詳しく」を出さない', () => {
     mount(props({ toasts: [error('1')] }));
-    expect(screen.queryByRole('button', { name: '詳しく' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '詳細' })).toBeNull();
   });
 });
 
@@ -211,7 +211,7 @@ describe('更新の札', () => {
   });
   it('取得中は進みの棒と割合を出す', () => {
     mount(props({ update: upd({ kind: 'downloading', head: 'ダウンロード中', title: 'Hangar 1.5.0', detail: null, progress: { percent: 62, label: '62%' }, actions: [] }) }));
-    const bar = screen.getByRole('progressbar', { name: 'ダウンロードの進み具合' });
+    const bar = screen.getByRole('progressbar', { name: 'ダウンロードの進行状況' });
     expect(bar).toHaveAttribute('aria-valuenow', '62');
     expect(screen.getByText('62%')).toBeInTheDocument();
   });

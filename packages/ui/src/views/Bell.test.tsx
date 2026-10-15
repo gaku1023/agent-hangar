@@ -41,7 +41,7 @@ describe('Bell：ヘッダーの注意', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(bell);
     const dialog = screen.getByRole('dialog', { name: '注意' });
-    expect(dialog.querySelector('.pop-h')).toHaveTextContent('画面のほかの場所には出ていないこと');
+    expect(dialog.querySelector('.pop-h')).toHaveTextContent('画面のほかの箇所に表示されていない項目');
     expect(bell).toHaveAttribute('aria-expanded', 'true');
     expect(dialog).toHaveFocus();
     expect(within(dialog).getAllByRole('listitem')).toHaveLength(3);

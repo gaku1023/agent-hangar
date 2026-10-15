@@ -8,7 +8,7 @@ export const pagerJa: AreaDictionary<typeof pagerKeys> = {
   'pager.nav.next': '次のページ',
   'pager.nav.page': '{n} ページ目',
   'pager.jump.label': 'ページ',
-  'pager.jump.input': 'ページの番号',
+  'pager.jump.input': 'ページ番号',
   'pager.size.label': '1 ページの件数',
   'pager.size.option': '{n} 件ずつ',
 };

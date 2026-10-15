@@ -11,7 +11,7 @@ const props = (over: Partial<ProjectCandidatesProps> = {}): ProjectCandidatesPro
   source: 'talked',
   browse: idle,
   status: 'ready',
-  frequent: [row('src/notes-app', 24, { worktrees: 'worktree 2 本を含む' }), row('src/api-server', 11), row('work/report', 5)],
+  frequent: [row('src/notes-app', 24, { worktrees: 'worktree 2 件を含む' }), row('src/api-server', 11), row('work/report', 5)],
   others: [row('src/blog', 2), row('src/cli', 1)],
   frequentMin: 3, othersMax: 2,
   suggestedRoot: { path: '/Users/me/src', label: '~/src' },
@@ -27,20 +27,20 @@ const box = (name: string) => screen.getByRole('checkbox', { name });
 describe('ProjectCandidatesDialog', () => {
   it('よく使うフォルダはチェック済みで、そのほかは畳み、件数だけを見せる', () => {
     mount(props({ suggestedRoot: null }));
-    expect(screen.getByText('よく使うフォルダ')).toBeInTheDocument();
+    expect(screen.getByText('よく使うディレクトリ')).toBeInTheDocument();
     expect(box('~/src/notes-app')).toHaveAttribute('aria-checked', 'true');
     expect(box('~/work/report')).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText(/^worktree 2 本を含む/)).toBeInTheDocument();
+    expect(screen.getByText(/^worktree 2 件を含む/)).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: '~/src/blog' })).toBeNull();
     const fold = screen.getByRole('button', { name: /そのほか 2 件/ });
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(fold);
     expect(box('~/src/blog')).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByText('ホームフォルダと一時フォルダは除いています')).toBeInTheDocument();
+    expect(screen.getByText('ホームディレクトリと一時ディレクトリは対象外です')).toBeInTheDocument();
   });
   it('作成場所にするチェックを入れると、その直下の候補は自動で登録するので、外せないチェックにする', () => {
     const { onAction } = mount();
-    const root = box('~/src を新しいフォルダの作成場所にする');
+    const root = box('~/src を新しいディレクトリの作成先にする');
     expect(root).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByRole('button', { name: /そのほか/ }));
     expect(box('~/src/blog')).toHaveAttribute('aria-checked', 'true');
@@ -51,30 +51,30 @@ describe('ProjectCandidatesDialog', () => {
   });
   it('作成場所のチェックを外せば、選んだものだけを登録し、作成場所は決めない', () => {
     const { onAction } = mount();
-    fireEvent.click(box('~/src を新しいフォルダの作成場所にする'));
+    fireEvent.click(box('~/src を新しいディレクトリの作成先にする'));
     fireEvent.click(box('~/src/api-server'));
     fireEvent.click(screen.getByRole('button', { name: '2 件を登録' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'project.candidates.submit', items: [{ path: '/Users/me/src/notes-app' }, { path: '/Users/me/work/report' }], workspaceRoot: null });
   });
   it('作成場所の候補が無ければチェックを出さない。よく使うものが無ければ、そのほかを開いて並べる', () => {
     mount(props({ suggestedRoot: null, frequent: [] }));
-    expect(screen.queryByRole('checkbox', { name: /作成場所/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /作成先/ })).toBeNull();
     expect(box('~/src/blog')).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('button', { name: '0 件を登録' })).toBeDisabled();
   });
   it('読み込み中と、読めなかったときと、候補が無いときは、それを言う', () => {
     const { rerender } = mount(props({ status: 'loading', frequent: [], others: [], suggestedRoot: null }));
-    expect(screen.getByText('Claude Code と会話したフォルダを探しています…')).toBeInTheDocument();
+    expect(screen.getByText('Claude Code で会話したディレクトリを検索中…')).toBeInTheDocument();
     rerender(props({ status: 'failed', frequent: [], others: [], suggestedRoot: null }));
-    expect(screen.getByText('Claude Code と会話したフォルダを読めませんでした')).toBeInTheDocument();
+    expect(screen.getByText('Claude Code で会話したディレクトリを読み込めませんでした')).toBeInTheDocument();
     rerender(props({ frequent: [], others: [], suggestedRoot: null }));
-    expect(screen.getByText(/Claude Code と会話したフォルダは見つかりませんでした/)).toBeInTheDocument();
+    expect(screen.getByText(/Claude Code で会話したディレクトリは見つかりませんでした/)).toBeInTheDocument();
   });
   it('候補が後から届いたら、よく使うフォルダをチェックしておく', () => {
     const { rerender } = mount(props({ status: 'loading', frequent: [], others: [], suggestedRoot: null }));
     rerender(props());
     expect(box('~/src/notes-app')).toHaveAttribute('aria-checked', 'true');
-    expect(box('~/src を新しいフォルダの作成場所にする')).toHaveAttribute('aria-checked', 'true');
+    expect(box('~/src を新しいディレクトリの作成先にする')).toHaveAttribute('aria-checked', 'true');
   });
   it('送っている間は押せず、失敗の理由を出す。キャンセルで閉じる', () => {
     const { onAction } = mount(props({ submitting: true, error: 'つながりません' }));
@@ -92,10 +92,10 @@ const frow = (name: string, over: Partial<FolderRow> = {}): FolderRow => ({
 });
 const ROWS: FolderRow[] = [
   frow('api-gateway', { count: '24', sessions: 24, when: '昨日' }),
-  frow('clients', { git: false, note: 'git のフォルダ 2 件を含みます。開いて選べます', children: [frow('a', { path: '/Users/me/src/clients/a' }), frow('b', { path: '/Users/me/src/clients/b' })] }),
+  frow('clients', { git: false, note: 'git リポジトリ 2 件を含みます。展開して選択できます', children: [frow('a', { path: '/Users/me/src/clients/a' }), frow('b', { path: '/Users/me/src/clients/b' })] }),
   frow('dotfiles-old', { git: false }),
-  frow('infra', { count: '8', sessions: 8, link: { projectId: 'p-infra', note: 'work-pc の infra と同じリポジトリです。この PC の場所として結び付けます' } }),
-  frow('notes-app', { count: '41', sessions: 41, registered: true, note: 'すでにプロジェクトです（notes-app）' }),
+  frow('infra', { count: '8', sessions: 8, link: { projectId: 'p-infra', note: 'work-pc の infra と同じリポジトリです。この PC のパスとして関連付けます' } }),
+  frow('notes-app', { count: '41', sessions: 41, registered: true, note: '登録済みのプロジェクト（notes-app）' }),
   frow('notes-app-hotfix', { worktree: true, note: 'notes-app の worktree です' }),
 ];
 const ready = (over: Partial<FolderBrowseProps> = {}): FolderBrowseProps => ({ ...idle, status: 'ready', parent: { path: '/Users/me/src', label: '~/src' }, rows: ROWS, ...over });
@@ -105,27 +105,27 @@ const submitted = (onAction: ReturnType<typeof vi.fn>) => onAction.mock.calls.ma
 describe('ProjectCandidatesDialog（フォルダの中から）', () => {
   it('頭の切り替えで見方を変える。「フォルダの中から」は開いた時点の親を入れて、すぐ直下を読む', () => {
     const { onAction } = mount(props());
-    expect(screen.getByRole('radio', { name: 'Claude Code と会話したフォルダ' })).toHaveAttribute('aria-checked', 'true');
-    fireEvent.click(screen.getByRole('radio', { name: 'フォルダの中から' }));
-    expect(screen.getByLabelText('親フォルダ')).toHaveValue('~/src');
+    expect(screen.getByRole('radio', { name: 'Claude Code で会話したディレクトリ' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: 'ディレクトリの中から' }));
+    expect(screen.getByLabelText('親ディレクトリ')).toHaveValue('~/src');
     expect(onAction).toHaveBeenLastCalledWith({ type: 'project.folders.load', parent: '~/src' });
-    expect(screen.getByText('直下のフォルダを並べます。隠しフォルダは除いています。')).toBeInTheDocument();
+    expect(screen.getByText('直下のディレクトリを表示します。隠しディレクトリは対象外です。')).toBeInTheDocument();
   });
   it('開いた時点の親が決まるまで待ち、決まらなければ空の欄で選ばせる', () => {
     const { onAction, rerender } = mount(props({ source: 'folder', browse: { ...idle, initialParent: undefined } }));
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.folders.load' }));
     rerender(props({ source: 'folder', browse: { ...idle, initialParent: null } }));
-    expect(screen.getByLabelText('親フォルダ')).toHaveValue('');
-    expect(screen.getByText('親フォルダを選んでください')).toBeInTheDocument();
+    expect(screen.getByLabelText('親ディレクトリ')).toHaveValue('');
+    expect(screen.getByText('親ディレクトリを選択してください')).toBeInTheDocument();
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.folders.load' }));
   });
   it('親を打って Enter で読み直す。「選ぶ…」の Finder の結果を ~ の形で入れて読む', () => {
     const { onAction, rerender } = mount(folder());
-    const input = screen.getByLabelText('親フォルダ');
+    const input = screen.getByLabelText('親ディレクトリ');
     fireEvent.change(input, { target: { value: ' ~/work ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onAction).toHaveBeenLastCalledWith({ type: 'project.folders.load', parent: '~/work' });
-    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、親フォルダ' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択…、親ディレクトリ' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'folder.pick' });
     rerender(props({ source: 'folder', browse: ready({ picked: { path: '/Users/me/Documents/research', n: 1 } }) }));
     expect(input).toHaveValue('~/Documents/research');
@@ -136,7 +136,7 @@ describe('ProjectCandidatesDialog（フォルダの中から）', () => {
     for (const n of ['api-gateway', 'clients', 'dotfiles-old', 'infra', 'notes-app-hotfix']) expect(box(n)).toHaveAttribute('aria-checked', 'false');
     expect(box('notes-app')).toHaveAttribute('aria-checked', 'true');
     expect(box('notes-app')).toBeDisabled();
-    expect(screen.getByText('すでにプロジェクトです（notes-app）')).toBeInTheDocument();
+    expect(screen.getByText('登録済みのプロジェクト（notes-app）')).toBeInTheDocument();
     expect(screen.getByText('notes-app の worktree です')).toBeInTheDocument();
     expect(screen.getByText(/^work-pc の infra と同じリポジトリです/)).toBeInTheDocument();
     expect(box('すべて選択')).toHaveAttribute('aria-checked', 'false');
@@ -148,7 +148,7 @@ describe('ProjectCandidatesDialog（フォルダの中から）', () => {
     fireEvent.click(box('すべて選択'));
     expect(box('すべて選択')).toHaveAttribute('aria-checked', 'true');
     expect(box('notes-app-hotfix')).toHaveAttribute('aria-checked', 'false');
-    expect(document.querySelector('.reg-sum')!.textContent).toBe('新しく作る 3 件、ほかの PC のプロジェクトに結び付ける 1 件');
+    expect(document.querySelector('.reg-sum')!.textContent).toBe('新規作成 3 件、他の PC のプロジェクトに関連付ける 1 件');
     fireEvent.click(box('dotfiles-old'));
     expect(box('すべて選択')).toHaveAttribute('aria-checked', 'mixed');
     fireEvent.click(screen.getByRole('button', { name: '3 件を登録' }));
@@ -163,12 +163,12 @@ describe('ProjectCandidatesDialog（フォルダの中から）', () => {
   it('結び付く行は「新しく作る」で行ごとに切り替え、戻せる', () => {
     const { onAction } = mount(folder());
     fireEvent.click(box('infra'));
-    fireEvent.click(screen.getByRole('button', { name: '新しく作る' }));
+    fireEvent.click(screen.getByRole('button', { name: '新規作成' }));
     expect(screen.getByText('新しいプロジェクトとして登録します')).toBeInTheDocument();
-    expect(document.querySelector('.reg-sum')!.textContent).toBe('新しく作る 1 件');
+    expect(document.querySelector('.reg-sum')!.textContent).toBe('新規作成 1 件');
     fireEvent.click(screen.getByRole('button', { name: '1 件を登録' }));
     expect(submitted(onAction).items).toEqual([{ path: '/Users/me/src/infra' }]);
-    fireEvent.click(screen.getByRole('button', { name: '結び付ける' }));
+    fireEvent.click(screen.getByRole('button', { name: '関連付ける' }));
     fireEvent.click(screen.getByRole('button', { name: '1 件を登録' }));
     expect(submitted(onAction).items).toEqual([{ path: '/Users/me/src/infra', linkTo: 'p-infra' }]);
   });
@@ -193,17 +193,17 @@ describe('ProjectCandidatesDialog（フォルダの中から）', () => {
     const { onAction } = mount(folder());
     fireEvent.click(box('dotfiles-old'));
     fireEvent.click(box('api-gateway'));
-    fireEvent.click(box('git のフォルダだけ'));
+    fireEvent.click(box('git リポジトリのみ'));
     expect(screen.queryByRole('checkbox', { name: 'dotfiles-old' })).toBeNull();
-    expect(screen.queryByText('git のフォルダはありません')).toBeNull();
+    expect(screen.queryByText('git リポジトリはありません')).toBeNull();
     expect(screen.getByRole('button', { name: 'clients', expanded: false })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '1 件を登録' }));
     expect(submitted(onAction).items).toEqual([{ path: '/Users/me/src/api-gateway' }]);
   });
   it('親そのものがプロジェクトの中なら黄の帯で言い、選んだ行は分けることを明示して送る', () => {
     const { onAction } = mount(folder({ band: 'agent-hangar', parent: { path: '/Users/me/src/agent-hangar/packages', label: '~/src/agent-hangar/packages' }, rows: ['server', 'ui'].map((n) => frow(n, { inside: true, path: `/Users/me/src/agent-hangar/packages/${n}` })) }));
-    expect(screen.getByText('agent-hangar の中のフォルダです')).toBeInTheDocument();
-    expect(screen.getByText('ここから登録すると、そのフォルダのこれからの会話は agent-hangar から分かれます。')).toBeInTheDocument();
+    expect(screen.getByText('agent-hangar 内のディレクトリです')).toBeInTheDocument();
+    expect(screen.getByText('ここから登録すると、そのディレクトリの今後の会話は agent-hangar から分かれます。')).toBeInTheDocument();
     expect(box('ui')).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(box('ui'));
     fireEvent.click(screen.getByRole('button', { name: '1 件を登録' }));
@@ -212,14 +212,14 @@ describe('ProjectCandidatesDialog（フォルダの中から）', () => {
   // 作成場所にするチェックは開いた時点では入れない（入れると直下の会話のある行がチェックされ、開いた時点で何もチェックしない決まりと食い違う）。
   it('作成場所が空なら、読んだ親を作成場所にするチェックを出し、入れると直下の会話のある行は外せないチェックにする', () => {
     const { onAction } = mount(folder({ rootable: true }));
-    const root = box('~/src を新しいフォルダの作成場所にする');
+    const root = box('~/src を新しいディレクトリの作成先にする');
     expect(root).toHaveAttribute('aria-checked', 'false');
     expect(box('api-gateway')).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(root);
     expect(box('api-gateway')).toHaveAttribute('aria-checked', 'true');
     expect(box('api-gateway')).toBeDisabled();
     expect(box('infra')).toBeDisabled();
-    expect(screen.queryByRole('button', { name: '新しく作る' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '新規作成' })).toBeNull();
     expect(box('dotfiles-old')).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: '2 件を登録' }));
     expect(submitted(onAction)).toEqual({ type: 'project.candidates.submit', workspaceRoot: '/Users/me/src', items: [{ path: '/Users/me/src/api-gateway' }, { path: '/Users/me/src/infra' }] });
@@ -230,17 +230,17 @@ describe('ProjectCandidatesDialog（フォルダの中から）', () => {
     mount(folder({ rootable: true, rows: [frow('clients', { git: false, sessions: 3, count: '3', children: [frow('a', { path: '/Users/me/src/clients/a', sessions: 3 })] })] }));
     fireEvent.click(screen.getByRole('button', { name: 'clients', expanded: false }));
     expect(box('clients/a')).toBeEnabled();
-    fireEvent.click(box('~/src を新しいフォルダの作成場所にする'));
+    fireEvent.click(box('~/src を新しいディレクトリの作成先にする'));
     expect(box('clients')).toBeDisabled();
     expect(box('clients/a')).toBeDisabled();
-    expect(box('clients/a')).toHaveAttribute('title', 'clients ごと自動で登録するので、選べません');
+    expect(box('clients/a')).toHaveAttribute('title', 'clients とまとめて自動で登録するため、選択できません');
   });
   it('読み込み中、読めなかったとき、直下にフォルダが無いときは、それを言う', () => {
     const { rerender } = mount(props({ source: 'folder', browse: { ...idle, status: 'loading' } }));
-    expect(screen.getByText('フォルダを読んでいます…')).toBeInTheDocument();
-    rerender(props({ source: 'folder', browse: { ...idle, status: 'failed', failure: 'path が存在するディレクトリではありません' } }));
-    expect(screen.getByRole('alert')).toHaveTextContent('フォルダを読めませんでした（path が存在するディレクトリではありません）');
+    expect(screen.getByText('ディレクトリを読み込み中…')).toBeInTheDocument();
+    rerender(props({ source: 'folder', browse: { ...idle, status: 'failed', failure: 'path は既存のディレクトリではありません' } }));
+    expect(screen.getByRole('alert')).toHaveTextContent('ディレクトリを読み込めませんでした（path は既存のディレクトリではありません）');
     rerender(folder({ rows: [] }));
-    expect(screen.getByText('このフォルダの直下にはフォルダがありません')).toBeInTheDocument();
+    expect(screen.getByText('このディレクトリの直下にはディレクトリがありません')).toBeInTheDocument();
   });
 });

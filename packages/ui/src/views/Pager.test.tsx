@@ -12,7 +12,7 @@ describe('ページ送りの帯（A4）', () => {
     expect(within(nav).getByText('101–150')).toBeInTheDocument();
     expect(nav).toHaveTextContent('/ 1,223 件');
     expect(within(nav).getByRole('button', { name: '3 ページ目' })).toHaveAttribute('aria-current', 'page');
-    expect(within(nav).getByRole('spinbutton', { name: 'ページの番号' })).toHaveValue(3);
+    expect(within(nav).getByRole('spinbutton', { name: 'ページ番号' })).toHaveValue(3);
     expect(nav).toHaveTextContent('/ 25');
     expect(within(nav).getByRole('button', { name: '1 ページの件数' })).toHaveTextContent('50 件ずつ');
   });
@@ -32,7 +32,7 @@ describe('ページ送りの帯（A4）', () => {
   it('ページの番号を打って Enter で跳ぶ。範囲の外は端に丸める', () => {
     const onPage = vi.fn();
     render(<Pager label="x" pager={props()} onPage={onPage} onSize={vi.fn()} />);
-    const input = screen.getByRole('spinbutton', { name: 'ページの番号' });
+    const input = screen.getByRole('spinbutton', { name: 'ページ番号' });
     fireEvent.change(input, { target: { value: '12' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onPage).toHaveBeenLastCalledWith(12);

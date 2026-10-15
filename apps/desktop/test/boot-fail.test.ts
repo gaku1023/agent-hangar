@@ -485,42 +485,42 @@ describe('札の中の更新', () => {
     expect(v.check.hidden).toBe(true);
     expect(v.demote).toBe(true);
     expect(v.band).toMatchObject({ tone: 'info', title: 'Hangar 0.2.1 を利用できます', action: 'ダウンロードしてインストール', progress: null });
-    expect(v.band!.detail).toContain('現在は 0.2.0-rc.5 です。');
+    expect(v.band!.detail).toContain('現在のバージョンは 0.2.0-rc.5 です。');
     expect(en({ phase: 'available', version: '0.2.1' }).band).toMatchObject({ title: 'Hangar 0.2.1 is available', action: 'Download and install' });
   });
   // Node が無いときは、新しいバージョンを入れても Node は入らない。直ると言わず、今の版だけを言う。
   it('Node が無いときの札では、新しいバージョンで直るとは言わない', () => {
-    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'node-missing').band!.detail).toBe('現在は 0.2.0-rc.5 です。');
+    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'node-missing').band!.detail).toBe('現在のバージョンは 0.2.0-rc.5 です。');
     expect(m.updateView('en', { phase: 'available', version: '0.2.1' }, cur, 'node-missing').band!.detail).toBe('You have 0.2.0-rc.5.');
-    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'node-version-mismatch').band!.detail).toBe('現在は 0.2.0-rc.5 です。');
-    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'node-arch-mismatch').band!.detail).toBe('現在は 0.2.0-rc.5 です。');
-    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'server-exited').band!.detail).toContain('直っていることがあります');
+    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'node-version-mismatch').band!.detail).toBe('現在のバージョンは 0.2.0-rc.5 です。');
+    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'node-arch-mismatch').band!.detail).toBe('現在のバージョンは 0.2.0-rc.5 です。');
+    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'server-exited').band!.detail).toContain('修正されている可能性があります');
   });
   it('ダウンロード中は進みを出し、大きさが分からなければ文だけにする', () => {
     const v = ja({ phase: 'downloading', version: '0.2.1', done: 25, total: 100 });
-    expect(v.band).toMatchObject({ tone: 'info', title: 'Hangar 0.2.1', detail: '25%', action: null, progress: 0.25, progressLabel: 'ダウンロードの進み具合' });
+    expect(v.band).toMatchObject({ tone: 'info', title: 'Hangar 0.2.1', detail: '25%', action: null, progress: 0.25, progressLabel: 'ダウンロードの進行状況' });
     expect(v.demote).toBe(true);
-    expect(ja({ phase: 'downloading', version: '0.2.1', done: 25, total: null }).band).toMatchObject({ detail: 'ダウンロードしています…', progress: null });
+    expect(ja({ phase: 'downloading', version: '0.2.1', done: 25, total: null }).band).toMatchObject({ detail: 'ダウンロード中…', progress: null });
   });
   it('インストール中は、終わると再起動することを言う', () => {
     const v = ja({ phase: 'installing', version: '0.2.1' });
     expect(v.band).toMatchObject({ title: 'Hangar 0.2.1', action: null });
-    expect(v.band!.detail).toContain('インストールしています…');
+    expect(v.band!.detail).toContain('インストール中…');
     expect(v.band!.detail).toContain('再起動');
   });
   it('確認に失敗したら、理由を帯に出し、もう一度確かめられるよう確認の釦を戻す', () => {
     const v = ja({ phase: 'failed', step: 'check', version: null, reason: 'network' });
     expect(v.check).toEqual({ hidden: false, disabled: false, label: '更新を確認' });
     expect(v.demote).toBe(false);
-    expect(v.band).toMatchObject({ tone: 'error', title: '更新を確認できませんでした', detail: 'ネットワークか配布元に接続できませんでした。', action: null });
+    expect(v.band).toMatchObject({ tone: 'error', title: '更新を確認できませんでした', detail: 'ネットワークまたは配布元に接続できませんでした。', action: null });
   });
   it('ダウンロードかインストールに失敗したら、いまのバージョンは変わらないことと理由を出し、やり直せるようにする', () => {
     const d = ja({ phase: 'failed', step: 'download', version: '0.2.1', reason: 'signature' });
-    expect(d.band).toMatchObject({ tone: 'error', title: 'ダウンロードできませんでした', detail: 'いまのバージョン 0.2.0-rc.5 は変わりません。署名を確認できませんでした。', action: 'ダウンロードしてインストール' });
+    expect(d.band).toMatchObject({ tone: 'error', title: 'ダウンロードできませんでした', detail: '現在のバージョン 0.2.0-rc.5 は変わりません。署名を確認できませんでした。', action: 'ダウンロードしてインストール' });
     expect(d.check.hidden).toBe(true);
     expect(d.demote).toBe(true);
     const i = ja({ phase: 'failed', step: 'install', version: '0.2.1', reason: 'permission' });
-    expect(i.band).toMatchObject({ title: 'インストールできませんでした', detail: 'いまのバージョン 0.2.0-rc.5 は変わりません。インストールの許可が得られませんでした。' });
+    expect(i.band).toMatchObject({ title: 'インストールできませんでした', detail: '現在のバージョン 0.2.0-rc.5 は変わりません。インストールの権限を取得できませんでした。' });
     // 知らない理由は other と読む。
     expect(ja({ phase: 'failed', step: 'install', version: '0.2.1', reason: 'what' }).band!.detail).toContain('詳しくはログを確認してください。');
   });

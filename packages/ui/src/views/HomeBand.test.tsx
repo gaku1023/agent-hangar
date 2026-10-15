@@ -133,10 +133,10 @@ describe('HomeBand の引き出し', () => {
     expect(screen.queryByRole('region', { name: '要対応' })).toBeNull();
     expect(screen.queryByRole('button', { name: '要対応 3' })).toBeNull();
     expect(screen.getByText('要対応').closest('.count-chip')).toHaveTextContent('要対応 3');
-    expect(screen.getByText('検索中は引き出しを閉じています')).toBeInTheDocument();
+    expect(screen.getByText('検索中は折りたたんで表示します')).toBeInTheDocument();
     act(() => m.rerender(busy, false));
     expect(screen.getByRole('region', { name: '要対応' })).toBeInTheDocument();
-    expect(screen.queryByText('検索中は引き出しを閉じています')).toBeNull();
+    expect(screen.queryByText('検索中は折りたたんで表示します')).toBeNull();
   });
 
   it('帯の右端に、画面が渡した 1 行の注記を出せる', () => {
@@ -236,7 +236,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     open();
     const rows = drawer().getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    expect(within(rows[0]!).getByText('新しいフォルダの作成場所')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('新しいディレクトリの作成先')).toBeInTheDocument();
     expect(within(rows[0]!).queryByText('任意')).toBeNull();
     expect(within(rows[1]!).getByText('MCP サーバー')).toBeInTheDocument();
     expect(within(rows[1]!).getByText('任意')).toBeInTheDocument();
@@ -248,13 +248,13 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
   it('印は色だけでなく読み上げの名前でも状態を言う', () => {
     open();
     const rows = drawer().getAllByRole('listitem');
-    expect(within(rows[0]!).getByRole('img', { name: '準備できていません' })).toBeInTheDocument();
+    expect(within(rows[0]!).getByRole('img', { name: '未完了' })).toBeInTheDocument();
     expect(within(rows[1]!).getByRole('img', { name: '未設定' })).toBeInTheDocument();
   });
 
   it('「設定を開く」は設定へ、「コマンドをコピー」は命令を写す', () => {
     const { onAction } = open();
-    fireEvent.click(screen.getByRole('button', { name: '設定を開く、新しいフォルダの作成場所' }));
+    fireEvent.click(screen.getByRole('button', { name: '設定を開く、新しいディレクトリの作成先' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'workspace' } });
     fireEvent.click(screen.getByRole('button', { name: 'コマンドをコピー、MCP サーバー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
@@ -268,7 +268,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     fireEvent.click(fold);
     expect(fold).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('/opt/homebrew/bin/tmux（3.4）')).toBeInTheDocument();
-    expect(within(drawer().getByText('/opt/homebrew/bin/tmux（3.4）').closest('li')!).getByRole('img', { name: '準備できています' })).toBeInTheDocument();
+    expect(within(drawer().getByText('/opt/homebrew/bin/tmux（3.4）').closest('li')!).getByRole('img', { name: '準備完了' })).toBeInTheDocument();
     fireEvent.click(fold);
     expect(screen.queryByText('/opt/homebrew/bin/tmux（3.4）')).toBeNull();
   });
@@ -283,12 +283,12 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     const view = render(ui(null));
     const items = drawer().getAllByRole('listitem');
     const last = items[items.length - 1]!;
-    expect(last).toHaveTextContent('仕上げ：Claude Code に環境を見てもらう');
-    expect(last).toHaveTextContent('会話のフォルダの登録と連携を、診断から提案します');
+    expect(last).toHaveTextContent('仕上げ：Claude Code で環境を診断');
+    expect(last).toHaveTextContent('診断の結果から、会話のディレクトリの登録と連携を提案します');
     // 畳んだ「準備完了」の行より後ろにある。
     const fold = screen.getByRole('button', { name: /は準備完了$/ });
     expect(fold.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(within(last).getByRole('button', { name: '一言をコピー、仕上げ：Claude Code に環境を見てもらう' }));
+    fireEvent.click(within(last).getByRole('button', { name: 'プロンプトをコピー、仕上げ：Claude Code で環境を診断' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: prompt });
     act(() => view.rerender(ui({ text: prompt, n: 1 })));
     expect(within(last).getByRole('button')).toHaveTextContent('コピーしました');
@@ -316,33 +316,33 @@ describe('HomeBand の場所の不明なプロジェクト（2.11.5）', () => {
 
   it('4 つ目の錠剤として並ぶ。群を足すだけで、View は変えない', () => {
     mount(busy, { extra: [group([lost('alpha'), lost('beta')])] });
-    expect(pill('場所の不明なプロジェクト 2')).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getAllByRole('button', { name: /^(要対応|実行中|確認待ち|場所の不明なプロジェクト) \d+$/ })).toHaveLength(4);
+    expect(pill('パスが不明なプロジェクト 2')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getAllByRole('button', { name: /^(要対応|実行中|確認待ち|パスが不明なプロジェクト) \d+$/ })).toHaveLength(4);
   });
 
   it('押すと引き出しが開き、1 件 1 行で、名前、セッションの数、前のパス、3 つのボタンを出す', () => {
     mount(busy, { extra: [group([lost('alpha')])] });
-    fireEvent.click(pill('場所の不明なプロジェクト 1'));
-    const drawer = screen.getByRole('region', { name: '場所の不明なプロジェクト' });
-    expect(within(drawer).getByText('この PC にパスがありません')).toBeInTheDocument();
+    fireEvent.click(pill('パスが不明なプロジェクト 1'));
+    const drawer = screen.getByRole('region', { name: 'パスが不明なプロジェクト' });
+    expect(within(drawer).getByText('この PC でのパスがありません')).toBeInTheDocument();
     const row = within(drawer).getByText('alpha').closest('li')!;
     expect(row).toHaveAttribute('data-k', 'place');
     expect(within(row).getByText('セッション 1 件')).toBeInTheDocument();
     expect(within(row).getByText('/w/alpha')).toBeInTheDocument();
-    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['alpha', '場所を再指定', 'Archived にする', '一覧から削除']);
+    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['alpha', 'パスを再指定', 'Archived にする', '一覧から削除']);
   });
 
   it('「場所を再指定」は project.resolve.open を発行する。ダイアログを開くのは、この UiAction だけである', () => {
     const { onAction } = mount(busy, { extra: [group([lost('alpha')])] });
     expect(onAction).not.toHaveBeenCalled();
-    fireEvent.click(pill('場所の不明なプロジェクト 1'));
-    fireEvent.click(screen.getByRole('button', { name: '場所を再指定、alpha' }));
+    fireEvent.click(pill('パスが不明なプロジェクト 1'));
+    fireEvent.click(screen.getByRole('button', { name: 'パスを再指定、alpha' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
   });
 
   it('「Archived にする」と「一覧から削除」は、それぞれの解決の UiAction を発行する', () => {
     const { onAction } = mount(busy, { extra: [group([lost('alpha')])] });
-    fireEvent.click(pill('場所の不明なプロジェクト 1'));
+    fireEvent.click(pill('パスが不明なプロジェクト 1'));
     fireEvent.click(screen.getByRole('button', { name: 'Archived にする、alpha' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'archive' } });
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除、alpha' }));
@@ -351,7 +351,7 @@ describe('HomeBand の場所の不明なプロジェクト（2.11.5）', () => {
 
   it('朝には開かない（要対応が開いている）', () => {
     mount(busy, { extra: [group([lost('alpha')])] });
-    expect(screen.queryByRole('region', { name: '場所の不明なプロジェクト' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'パスが不明なプロジェクト' })).toBeNull();
     expect(screen.getByRole('region', { name: '要対応' })).toBeInTheDocument();
   });
 });

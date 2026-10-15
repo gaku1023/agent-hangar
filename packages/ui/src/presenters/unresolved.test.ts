@@ -58,7 +58,7 @@ describe('presentUnresolved（帯の 4 つ目の錠剤）', () => {
 
   it('群の形：場所の不明なプロジェクト、警告の色、朝には開かない', () => {
     const g = presentUnresolved(storeOf([missing('a')]), ja)!;
-    expect(g).toMatchObject({ id: 'unresolved', label: '場所の不明なプロジェクト', icon: 'folder', tone: 'warn', morning: false, summary: 'この PC にパスがありません' });
+    expect(g).toMatchObject({ id: 'unresolved', label: 'パスが不明なプロジェクト', icon: 'folder', tone: 'warn', morning: false, summary: 'この PC でのパスがありません' });
     expect(presentUnresolved(storeOf([missing('a')]), en)!.label).toBe('Projects without a folder');
   });
 
@@ -67,12 +67,12 @@ describe('presentUnresolved（帯の 4 つ目の錠剤）', () => {
     const row = presentUnresolved(store, ja)!.rows[0]!;
     expect(row).toMatchObject({ key: 'unresolved:alpha', lead: { kind: 'place' }, name: 'alpha', context: 'セッション 2 件', text: '', detail: '/w/alpha', open: { type: 'project.open', id: 'alpha' } });
     expect(row.actions.map((a) => [a.id, a.label, a.primary, a.ghost, a.send])).toEqual([
-      ['relocate', '場所を再指定', true, false, { type: 'project.resolve.open', id: 'alpha' }],
+      ['relocate', 'パスを再指定', true, false, { type: 'project.resolve.open', id: 'alpha' }],
       ['archive', 'Archived にする', false, false, { type: 'project.resolve', id: 'alpha', action: { kind: 'archive' } }],
       ['unlink', '一覧から削除', false, true, { type: 'project.resolve', id: 'alpha', action: { kind: 'unlink' } }],
     ]);
     // 読み上げの名前に、相手のプロジェクトを含める。
-    expect(row.actions[0]!.ariaLabel).toBe('場所を再指定、alpha');
+    expect(row.actions[0]!.ariaLabel).toBe('パスを再指定、alpha');
   });
 
   it('前のパスが分からなければ、詳細は出さない', () => {
@@ -101,9 +101,9 @@ describe('presentSameFolder（同じフォルダのプロジェクトの群）',
   const dup = (id: string, into: string) => project(id, { path: '/w/shop', sameFolder: { projectId: into, name: 'shop' } });
   it('まとめる方の行を出し、押すと同じパスで「場所を再指定」を送る（サーバの 409 がまとめる確認を開く）', () => {
     const g = presentSameFolder(storeOf([project('p-mac', { path: '/w/shop' }), dup('p-win', 'p-mac')]), ja)!;
-    expect(g).toMatchObject({ id: 'sameFolder', label: '同じフォルダのプロジェクト', icon: 'folder', tone: 'warn', count: 1, morning: false, summary: 'この PC で同じフォルダを指しています' });
+    expect(g).toMatchObject({ id: 'sameFolder', label: '同じディレクトリのプロジェクト', icon: 'folder', tone: 'warn', count: 1, morning: false, summary: 'この PC で同じディレクトリを指しています' });
     const row = g.rows[0]!;
-    expect(row).toMatchObject({ key: 'sameFolder:p-win', lead: { kind: 'place' }, name: 'p-win', context: 'shop と同じフォルダ', detail: '/w/shop', open: { type: 'project.open', id: 'p-win' } });
+    expect(row).toMatchObject({ key: 'sameFolder:p-win', lead: { kind: 'place' }, name: 'p-win', context: 'shop と同じディレクトリ', detail: '/w/shop', open: { type: 'project.open', id: 'p-win' } });
     expect(row.actions.map((a) => [a.id, a.label, a.primary, a.send])).toEqual([
       ['merge', '1 つにまとめる', true, { type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/w/shop' } }],
     ]);

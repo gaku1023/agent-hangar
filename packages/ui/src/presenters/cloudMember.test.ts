@@ -69,11 +69,11 @@ describe('presentCloudMember', () => {
   it('別のクラウドへの参加し直しと、同じ宛先で秘密が違うときは、上書きの警告を出す', () => {
     const plan = { url: 'https://n.example', host: 'n.example', current: { url: 'https://o.example' }, change: 'other-cloud' as const };
     const p = presentCloudMember(store({ cloudMember: member({ join: { kind: 'confirm', plan } }) }), NOW);
-    expect(p.join).toMatchObject({ kind: 'confirm', host: 'n.example', url: 'https://n.example', rejoin: { title: 'この PC は既に別のクラウドに参加しています。', current: 'https://o.example', next: 'https://n.example' } });
+    expect(p.join).toMatchObject({ kind: 'confirm', host: 'n.example', url: 'https://n.example', rejoin: { title: 'この PC はすでに別のクラウドに参加しています。', current: 'https://o.example', next: 'https://n.example' } });
     const same = presentCloudMember(store({ cloudMember: member({ join: { kind: 'confirm', plan: { ...plan, change: 'same' } } }) }), NOW);
     expect(same.join.rejoin).toBeNull();
     const secret = presentCloudMember(store({ cloudMember: member({ join: { kind: 'confirm', plan: { ...plan, change: 'new-secret' } } }) }), NOW);
-    expect(secret.join.rejoin!.title).toContain('参加用の秘密');
+    expect(secret.join.rejoin!.title).toContain('参加トークン');
   });
 
   it('殻の中か、クラウドを作った PC か、ターミナルのコマンドを渡す', () => {

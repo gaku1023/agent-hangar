@@ -8,7 +8,7 @@ const textOf = (pieces: { text: string }[] | { kind: string; text: string }[]) =
 describe('足す指示の全文', () => {
   it('5 つの段に、どのスイッチのものかの名前を添えて、サーバが足す順に並べる', () => {
     const parts = presentInjection(ja, { askStatusAtEnd: true, liveHints: true });
-    expect(parts.map((p) => p.label)).toEqual(['基本（常に）', 'ほかの PC で進めた会話を再開したとき', '2 台以上の PC で使うプロジェクト', '区切りで Done／Paused を聞く（オン）', 'ターンの意図と操作の短い説明を送る（オン）']);
+    expect(parts.map((p) => p.label)).toEqual(['基本（常に）', '他の PC で進めたセッションを再開したとき', '2 台以上の PC で使うプロジェクト', '作業の区切りで Done／Paused を確認する（オン）', 'ターンの意図と操作の短い説明を送る（オン）']);
     expect(parts.map((p) => p.off)).toEqual([false, false, false, false, false]);
     // PC をまたぐ 2 段には、同期を使っているときだけ足すことを印で添える。
     expect(parts.map((p) => p.mark)).toEqual([null, '同期を使っているときだけ', '同期を使っているときだけ', null, null]);
@@ -16,8 +16,8 @@ describe('足す指示の全文', () => {
   it('PC をまたぐ 2 段も辞書の全文で、差し込む値は印にする', () => {
     const [, handover, multi] = presentInjection(ja, { askStatusAtEnd: true, liveHints: true });
     const tokens = handover!.pieces.filter((p) => p.kind === 'token').map((p) => p.text);
-    expect(tokens).toEqual(['前の PC', '前の PC の OS', '最後に使った日時', '前のパス', 'この PC', 'この PC の OS', 'この PC のパス', 'この PC のパス', 'ブランチ', '件数', '無いファイルの一覧']);
-    expect(textOf(handover!.pieces)).toBe(translate('ja', 'launch.injection.handover', { prevDevice: '前の PC', prevOs: '前の PC の OS', lastAt: '最後に使った日時', prevPath: '前のパス', device: 'この PC', os: 'この PC の OS', path: 'この PC のパス', branch: 'ブランチ', editedCount: '件数', missing: '無いファイルの一覧' }));
+    expect(tokens).toEqual(['前の PC', '前の PC の OS', '最後に使った日時', '前のパス', 'この PC', 'この PC の OS', 'この PC のパス', 'この PC のパス', 'ブランチ', '件数', '見つからないファイルの一覧']);
+    expect(textOf(handover!.pieces)).toBe(translate('ja', 'launch.injection.handover', { prevDevice: '前の PC', prevOs: '前の PC の OS', lastAt: '最後に使った日時', prevPath: '前のパス', device: 'この PC', os: 'この PC の OS', path: 'この PC のパス', branch: 'ブランチ', editedCount: '件数', missing: '見つからないファイルの一覧' }));
     expect(multi!.pieces.filter((p) => p.kind === 'token').map((p) => p.text)).toEqual(['台数']);
     expect(textOf(multi!.pieces)).toBe(translate('ja', 'launch.injection.multiDevice', { deviceCount: '台数' }));
   });
@@ -31,9 +31,9 @@ describe('足す指示の全文', () => {
   });
   it('切った段は消さずに残し、名前で「足しません」と言う', () => {
     const parts = presentInjection(ja, { askStatusAtEnd: false, liveHints: true });
-    expect(parts[3]).toMatchObject({ label: '区切りで Done／Paused を聞く（オフ・足しません）', off: true });
+    expect(parts[3]).toMatchObject({ label: '作業の区切りで Done／Paused を確認する（オフ・追加しません）', off: true });
     expect(parts[4]).toMatchObject({ off: false });
-    expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: false })[4]).toMatchObject({ label: 'ターンの意図と操作の短い説明を送る（オフ・足しません）', off: true });
+    expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: false })[4]).toMatchObject({ label: 'ターンの意図と操作の短い説明を送る（オフ・追加しません）', off: true });
   });
   it('英語の画面では英語の指示を出す', () => {
     const [body] = presentInjection(translator('en'), { askStatusAtEnd: true, liveHints: true });

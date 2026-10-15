@@ -176,7 +176,7 @@ describe('presentPalette（打ち始めた後）', () => {
     expect(ids(p, '設定')).toEqual(['settings:cloud']);
     const side = presentPalette(withPalette(), store(), 'サイドバー', NOW)!;
     expect(ids(side, '操作')).toEqual(['cmd:sidebar']);
-    const idx = presentPalette(withPalette(), store(), '索引', NOW)!;
+    const idx = presentPalette(withPalette(), store(), 'インデックス', NOW)!;
     expect(ids(idx, '操作')).toEqual(['cmd:rebuild-index']);
   });
   it('Windows では、打鍵を Ctrl で見せる', () => {

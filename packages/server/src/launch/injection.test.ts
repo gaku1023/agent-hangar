@@ -13,16 +13,16 @@ const BODY_JA = [
   '依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、',
   'set_session_summary で題名、2〜3 文の要約、進捗、次のステップを更新してください。',
   'TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。',
-  '完了にするのは利用者です。確認できていないものは出さないでください。',
+  '完了にするのはユーザーです。確認できていないものは出さないでください。',
 ];
 /** 区切りの問いの段（launch.injection.status）。明確に終わったときだけ聞く。 */
 const STATUS_JA = [
   '頼まれたことが明確に終わったときだけ、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。',
-  '明確に終わったときとは、利用者が終わりを告げたとき（「ありがとう」「ここまで」「マージした」「今日はここまで」など）、頼まれたことが全部済んで次のステップが残っていないとき、利用者が外の出来事（CI、レビュー、明日の確認など）を待つと言ったときです。',
-  '一手が済んだだけのとき、質問に答えただけのとき、直しのやりとりの途中、利用者が次の指示を続けているとき、次のステップが残っているときは聞かないでください。迷ったら聞かないでください。',
+  '明確に終わったときとは、ユーザーが終わりを告げたとき（「ありがとう」「ここまで」「マージした」「今日はここまで」など）、頼まれたことが全部済んで次のステップが残っていないとき、ユーザーが外の出来事（CI、レビュー、明日の確認など）を待つと言ったときです。',
+  '一手が済んだだけのとき、質問に答えただけのとき、修正のやりとりの途中、ユーザーが次の指示を続けているとき、次のステップが残っているときは聞かないでください。迷ったら聞かないでください。',
   '聞かないときは、set_session_summary の進捗を正直に書いてください。待ちが明らかなら、propose_session_status に confirmed なしで提案だけ出してください。',
-  '利用者が Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。',
-  'Paused のリマインダーの日付は return_on（YYYY-MM-DD）に、確認する時刻が決まっているときは return_time（HH:MM、手元の時刻）にも渡してください。時刻を note の文だけに書かないでください。',
+  'ユーザーが Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。',
+  'Paused のリマインダーの日付は return_on（YYYY-MM-DD）に、確認する時刻が決まっているときは return_time（HH:MM、この PC の時刻）にも渡してください。時刻を note の文だけに書かないでください。',
 ];
 /** ターンの意図と短い手の説明の段（launch.injection.live）。 */
 const LIVE_JA = [
@@ -127,13 +127,13 @@ const BASE = { projectName: 'alpha', projectPath: '/Users/me/src/app', todos: []
 describe('renderInjection の PC をまたぐ段', () => {
   it('引き継ぎの段は、前と今の PC、時刻、パス、ブランチ、無いファイルを埋め、基本の段の直後に置く', () => {
     const t = renderInjection({ ...BASE, handover: FACTS });
-    expect(t).toContain('この会話は work-pc（Windows）で 2026-10-12 18:05 まで進め、作業ディレクトリは D:\\src\\app でした。いまは this-mac（macOS）の /Users/me/src/app で続けています。\n');
-    expect(t).toContain('同期されたのは会話のトランスクリプトと hangar の記録だけです。ファイル、git の作業ツリー、未コミットの変更、環境（インストール、環境変数、秘密）は同期されていません。\n');
-    expect(t).toContain('この PC では /Users/me/src/app からの相対パスで読み替え、前の PC の絶対パスをそのまま打たないでください。\n');
+    expect(t).toContain('この会話は work-pc（Windows）で 2026-10-12 18:05 まで進め、作業ディレクトリは D:\\src\\app でした。現在は this-mac（macOS）の /Users/me/src/app で続けています。\n');
+    expect(t).toContain('同期されたのは会話のトランスクリプトと hangar の記録だけです。ファイル、git の作業ツリー、未コミットの変更、環境（インストール、環境変数、シークレット）は同期されていません。\n');
+    expect(t).toContain('この PC では /Users/me/src/app からの相対パスで読み替え、前の PC の絶対パスをそのまま使わないでください。\n');
     expect(t).toContain('会話の終わりのブランチは feature/x でした。この会話で編集したファイル 3 件のうち、この PC に無いもの：1 件\n- src/new.ts\n');
     expect(t).toContain('git status と git log -1 と現在のブランチを見て');
-    expect(t).toContain('AskUserQuestion で聞いてください。選択肢は「この PC で環境をそろえて続ける（足りないものを一緒に用意する）」「前の PC からファイルを持ってくる（手順を示す。実行するのは利用者）」「前の PC で続ける（この PC では何もしない）」「差を承知でこのまま進める」です。');
-    expect(t).toContain('ssh、scp、rsync は自分で打たないでください。1 度合っていると確認したものは、その後は疑わないでください。\n');
+    expect(t).toContain('AskUserQuestion で聞いてください。選択肢は「この PC で環境をそろえて続ける（足りないものを一緒に用意する）」「前の PC からファイルを持ってくる（手順を示す。実行するのはユーザー）」「前の PC で続ける（この PC では何もしない）」「差を承知でこのまま進める」です。');
+    expect(t).toContain('ssh、scp、rsync は自分で実行しないでください。1 度合っていると確認したものは、その後は疑わないでください。\n');
     const at = (s: string) => t.indexOf(s);
     expect(at('あなたは agent-hangar')).toBeLessThan(at('この会話は work-pc'));
     expect(at('この会話は work-pc')).toBeLessThan(at('頼まれたことが明確に終わったとき'));

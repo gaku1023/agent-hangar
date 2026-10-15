@@ -34,13 +34,13 @@ describe('アカウント', () => {
     expect(errorText('ja', e)).toBe('アカウントが見つかりません');
     expect(errorText('en', e)).toBe('Account not found');
     const long = caught(() => store.update('primary', { name: 'x'.repeat(41) }));
-    expect(errorText('ja', long)).toBe('アカウントの名前は 40 字までです');
+    expect(errorText('ja', long)).toBe('アカウント名は 40 文字までです');
     expect(errorText('en', long)).toBe('Account name must be 40 characters or fewer');
   });
 
   it('リンクの問題は、並びをその言語の区切りでつなぐ', () => {
     expect(linkProblemMessage([])).toBeNull();
-    expect(linkProblem(['skills', 'projects'])).toBe('置き場の skills、projects が共有のリンクではありません。中身を確認して、要らなければ削除してください');
+    expect(linkProblem(['skills', 'projects'])).toBe('設定ディレクトリの skills、projects が共有のリンクではありません。中身を確認して、不要なら削除してください');
     expect(render('en', linkProblemMessage(['skills', 'projects'])!)).toBe('These items in the config directory are not shared links: skills, projects. Check their contents and delete them if they are not needed');
   });
 });
@@ -50,13 +50,13 @@ describe('プロジェクト', () => {
     expect(errorText('en', caught(() => checkDirName('a/b')))).toBe('Name must be at least one character that can be used as a directory name, and cannot contain / or \\');
     fs.mkdirSync(path.join(dir, 'taken'));
     const e = caught(() => makeProjectDir(dir, 'taken', false));
-    expect(errorText('ja', e)).toMatch(/taken は既にあります$/);
+    expect(errorText('ja', e)).toMatch(/taken はすでにあります$/);
     expect(errorText('en', e)).toMatch(/taken already exists$/);
   });
 
   it('入れ子の理由も、外側の文と同じ言語で出る', () => {
     const e = caught(() => makeProjectDir(dir, 'fresh', true, () => { throw new SummarizerError('lmstudio', msg('summary.lmstudio.noModel')); }));
-    expect(errorText('ja', e)).toBe('git init に失敗しました: 要約エンジンの URL にモデルがありません');
+    expect(errorText('ja', e)).toBe('git init に失敗しました: 要約エンジンの URL でモデルが見つかりません');
     expect(errorText('en', e)).toBe('git init failed: The summary engine URL has no model');
   });
 });
@@ -64,7 +64,7 @@ describe('プロジェクト', () => {
 describe('設定のファイルと外部の道具', () => {
   it('保持期間を書けない理由', () => {
     const o = { claudeDir: path.join(dir, 'nowhere'), managedDir: null };
-    expect(readRetention(o).unwritableReason).toBe('設定の置き場が見つからないので書き換えません');
+    expect(readRetention(o).unwritableReason).toBe('設定の保存先のディレクトリが見つからないため、変更できません');
     expect(readRetention({ ...o, language: () => 'en' }).unwritableReason).toBe('The settings directory was not found, so it will not be changed');
   });
 
@@ -88,7 +88,7 @@ describe('設定のファイルと外部の道具', () => {
 describe('初期プロンプトの候補', () => {
   it('組み込みのコマンドの説明と引数の手がかり', () => {
     const builtin = (language?: 'ja' | 'en') => listPromptCommands({ claudeDir: dir, projectPath: null, language }).filter((c) => c.source === 'builtin');
-    expect(builtin().find((c) => c.name === 'review')).toMatchObject({ description: 'プルリクエストを審査する', argumentHint: '[PR 番号]' });
+    expect(builtin().find((c) => c.name === 'review')).toMatchObject({ description: 'プルリクエストをレビューする', argumentHint: '[PR 番号]' });
     expect(builtin('en').find((c) => c.name === 'review')).toMatchObject({ description: 'Review a pull request', argumentHint: '[PR number]' });
     expect(builtin('en').find((c) => c.name === 'code-review')!.argumentHint).toBe('[low|medium|high]');
     for (const c of builtin('en')) expect(JAPANESE.test(JSON.stringify(c)), c.name).toBe(false);
@@ -125,7 +125,7 @@ describe('要約', () => {
     const off: Summarizer = { id: 'lmstudio', available: async () => false, summarize: async () => { throw new Error('unused'); } };
     const broken: Summarizer = { id: 'claude-headless', available: async () => true, summarize: async () => { throw new SummarizerError('claude-headless', msg('summary.claude.exited', { code: 2, detail: 'boom' })); } };
     const job = (language: () => 'ja' | 'en' = () => 'ja') => new SummaryJob({ db: null as never, deviceId: 'd', summarizers: () => [off, broken], live: () => [], hub: { broadcast: () => {} }, language });
-    expect(await job().test()).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: '使えません（接続できないか、上限に達しています）' }, { id: 'claude-headless', message: 'claude が 2 で終了しました: boom' }] });
+    expect(await job().test()).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: '使用できません（接続できないか、上限に達しています）' }, { id: 'claude-headless', message: 'claude が 2 で終了しました: boom' }] });
     expect(await job(() => 'en').test()).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'Not available (cannot connect, or the limit has been reached)' }, { id: 'claude-headless', message: 'claude exited with 2: boom' }] });
   });
 });

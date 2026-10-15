@@ -60,7 +60,7 @@ describe('この PC で再開の写しの失敗', () => {
     fs.symlinkSync(outside, path.join(claudeDir, 'projects', '-w-alpha'));
     const ja = await post('ja');
     expect(ja.status).toBe(409);
-    expect((await body(ja)).error).toContain('がシンボリックリンクなので、~/.claude の外に出ます');
+    expect((await body(ja)).error).toContain('がシンボリックリンクのため、~/.claude の外を指しています');
     const en = await post('en');
     expect(en.status).toBe(409);
     expect((await body(en)).error).toBe('projects/-w-alpha is a symbolic link, so it would leave ~/.claude');
@@ -75,7 +75,7 @@ describe('この PC で再開の写しの失敗', () => {
     fs.symlinkSync(outside, path.join(home, 'backups', 'transcripts'));
     const ja = await post('ja');
     expect(ja.status).toBe(409);
-    expect((await body(ja)).error).toBe('バックアップを作成できなかったので、トランスクリプトを置き換えませんでした: transcripts がシンボリックリンクなので、バックアップのフォルダ の外に出ます');
+    expect((await body(ja)).error).toBe('バックアップを作成できなかったため、トランスクリプトを置き換えませんでした: transcripts がシンボリックリンクのため、バックアップのディレクトリ の外を指しています');
     const en = await post('en');
     expect(en.status).toBe(409);
     expect((await body(en)).error).toBe('The transcript was not replaced because a backup could not be made: transcripts is a symbolic link, so it would leave the backup folder');
@@ -85,7 +85,7 @@ describe('この PC で再開の写しの失敗', () => {
     db.prepare('update sessions set provider_session_id = ? where id = ?').run('../../../evil', 's1');
     const ja = await post('ja');
     expect(ja.status).toBe(400);
-    expect((await body(ja)).error).toBe('セッションの識別子がファイル名として不正です');
+    expect((await body(ja)).error).toBe('セッション ID がファイル名として不正です');
     const en = await post('en');
     expect(en.status).toBe(400);
     expect((await body(en)).error).toBe('The session ID is not valid as a file name');

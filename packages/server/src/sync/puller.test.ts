@@ -106,7 +106,7 @@ describe('RemotePuller', () => {
     await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'swapped\n');
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 0 });
-    expect(errors[0]!.message).toContain('鍵');
+    expect(errors[0]!.message).toContain('キー');
     expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${other}.jsonl`))).toBe(false);
     expect(state.getNumber('filesSeq', -1)).toBe(0);
   });

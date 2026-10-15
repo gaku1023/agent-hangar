@@ -64,21 +64,21 @@ describe('readRetention', () => {
     ];
     for (const c of cases) {
       fs.writeFileSync(path.join(claudeDir, 'settings.json'), c);
-      expect(readRetention({ claudeDir, managedDir })).toMatchObject({ writable: false, unwritableReason: '設定ファイルを読み取れないので書き換えません' });
+      expect(readRetention({ claudeDir, managedDir })).toMatchObject({ writable: false, unwritableReason: '設定ファイルを読み取れないため、変更できません' });
     }
   });
   it('設定の置き場そのものが無ければ、書けない', () => {
-    expect(readRetention({ claudeDir: path.join(root, 'nowhere'), managedDir })).toMatchObject({ writable: false, unwritableReason: '設定の置き場が見つからないので書き換えません' });
+    expect(readRetention({ claudeDir: path.join(root, 'nowhere'), managedDir })).toMatchObject({ writable: false, unwritableReason: '設定の保存先のディレクトリが見つからないため、変更できません' });
   });
   it('JSON として読めなければ、書けない', () => {
     settings('{ "a": ');
-    expect(readRetention({ claudeDir, managedDir })).toEqual({ days: 30, source: 'default', userValue: null, writable: false, unwritableReason: '設定ファイルを読み取れないので書き換えません' });
+    expect(readRetention({ claudeDir, managedDir })).toEqual({ days: 30, source: 'default', userValue: null, writable: false, unwritableReason: '設定ファイルを読み取れないため、変更できません' });
   });
   it('組織の設定があればそれが効き、書けない。drop-in は名前の順で後が勝つ', () => {
     settings('{ "cleanupPeriodDays": 365 }');
     fs.mkdirSync(path.join(managedDir, 'managed-settings.d'), { recursive: true });
     fs.writeFileSync(path.join(managedDir, 'managed-settings.json'), '{ "cleanupPeriodDays": 14 }');
-    expect(readRetention({ claudeDir, managedDir })).toEqual({ days: 14, source: 'managed', userValue: 365, writable: false, unwritableReason: '組織の設定で決まっています' });
+    expect(readRetention({ claudeDir, managedDir })).toEqual({ days: 14, source: 'managed', userValue: 365, writable: false, unwritableReason: '組織の設定で管理されています' });
     fs.writeFileSync(path.join(managedDir, 'managed-settings.d', '20-b.json'), '{ "cleanupPeriodDays": 60 }');
     fs.writeFileSync(path.join(managedDir, 'managed-settings.d', '10-a.json'), '{ "cleanupPeriodDays": 7 }');
     expect(readRetention({ claudeDir, managedDir }).days).toBe(60);

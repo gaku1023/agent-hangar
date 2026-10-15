@@ -14,7 +14,7 @@ export const sidebarJa: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.toggle.close': 'サイドバーを閉じる',
   'sidebar.toggle.tipOpen': '開く',
   'sidebar.toggle.tipClose': '閉じる',
-  'sidebar.nav.label': '主ナビゲーション',
+  'sidebar.nav.label': 'メインナビゲーション',
   'sidebar.nav.home': 'ホーム',
   'sidebar.nav.projects': 'プロジェクト',
   'sidebar.nav.settings': '設定',

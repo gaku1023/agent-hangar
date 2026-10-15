@@ -125,7 +125,7 @@ describe('アカウントの HTTP', () => {
     expect(first.json.accounts[1]!.loginRunning).toBe(true);
     const second = await post(`/accounts/${id}/login`);
     expect(second.status).toBe(409);
-    expect(second.json.error).toContain('もう始まっています');
+    expect(second.json.error).toContain('すでに始まっています');
     const cancelled = await post(`/accounts/${id}/login/cancel`);
     expect(cancelled.status).toBe(200);
     expect(cancelled.json.accounts[1]!.loginRunning).toBe(false);

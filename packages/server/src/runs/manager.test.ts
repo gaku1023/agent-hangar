@@ -90,10 +90,10 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
   it('projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
     const rm = make({ tmux: null });
     // 文は画面のトーストに出るので、内部のキー名ではなく画面の語で書く。
-    expect(() => rm.start({})).toThrow('プロジェクトを選んでください');
+    expect(() => rm.start({})).toThrow('プロジェクトを選択してください');
     expect(() => rm.start({ projectId: 'nope' })).toThrow(expect.objectContaining({ status: 404 }));
     expect(() => rm.start({ projectId: 'p2' })).toThrow(expect.objectContaining({ status: 400, message: 'プロジェクトのディレクトリがこの PC で見つかりません' }));
-    expect(() => rm.start({ projectId: 'p1' })).toThrow('tmux が見つかりません。設定の「tmux のパス」を入力してください');
+    expect(() => rm.start({ projectId: 'p1' })).toThrow('tmux が見つかりません。設定の「tmux のパス」にパスを入力してください');
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
@@ -102,7 +102,7 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-outside-'));
     try {
       for (const bad of [outside, 'sub', path.join(cwd, '..', path.basename(outside))]) {
-        expect(() => rm.start({ projectId: 'p1', cwd: bad })).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('作業の場所は、プロジェクトの場所の下のフォルダにしてください') }));
+        expect(() => rm.start({ projectId: 'p1', cwd: bad })).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('作業ディレクトリは、プロジェクトのディレクトリ配下にしてください') }));
       }
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
@@ -117,7 +117,7 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(errorText('en', caught(() => rm.start({ projectId: 'p2' })))).toBe('The project directory was not found on this computer');
     // 文の中の設定の欄の名前も、同じ言語になる。
     expect(errorText('en', caught(() => rm.start({ projectId: 'p1' })))).toBe('tmux was not found. Enter the "tmux path" in Settings');
-    expect(errorText('ja', caught(() => rm.start({ projectId: 'p1' })))).toBe('tmux が見つかりません。設定の「tmux のパス」を入力してください');
+    expect(errorText('ja', caught(() => rm.start({ projectId: 'p1' })))).toBe('tmux が見つかりません。設定の「tmux のパス」にパスを入力してください');
     expect(errorText('en', caught(() => rm.kill('nope')))).toBe('The Claude that was started was not found');
   });
   it('claude の場所が分からなければ、tmux を起こす前に断る', () => {
@@ -126,7 +126,7 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     // 応答は成功になり、利用者はターミナルを開くまで理由が分からない。
     // tmux はある前提にする。実物の tmux を使わない OS でも、claude の検査まで進ませる。
     const rm = make({ claudeBin: null, tmux: fakeTmux({ status: 0 }) });
-    expect(() => rm.start({ projectId: 'p1' })).toThrow('claude が見つかりません。設定の「claude のパス」を入力してください');
+    expect(() => rm.start({ projectId: 'p1' })).toThrow('claude が見つかりません。設定の「claude のパス」にパスを入力してください');
     expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => rm.start({ scratch: true })).toThrow(/claude/);
     // 断ったのだから、行も使い捨てのディレクトリも残ってはならない。
@@ -478,7 +478,7 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
     upsertShared(db, 'runs', { id: 'r0', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: 2, end_reason: 'exited', heartbeat_at: 1 }, 'd');
     const rm = make({ tmux: null });
     expect(() => rm.kill('nope')).toThrow(expect.objectContaining({ status: 404, message: '起動した Claude が見つかりません' }));
-    expect(() => rm.kill('r0')).toThrow(expect.objectContaining({ status: 409, message: 'この Claude はもう終了しています' }));
+    expect(() => rm.kill('r0')).toThrow(expect.objectContaining({ status: 409, message: 'この Claude はすでに終了しています' }));
   });
 
   it('startPolling は tick が投げてもサーバを落とさず、stop で止まる', async () => {
@@ -1921,7 +1921,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     fs.mkdirSync(a.dir);
     fs.mkdirSync(path.join(a.dir, 'projects'));
     const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
-    expect(() => make({ accounts }).start({ projectId: 'p1', account: a.id })).toThrow('置き場の projects が共有のリンクではありません');
+    expect(() => make({ accounts }).start({ projectId: 'p1', account: a.id })).toThrow('設定ディレクトリの projects が共有のリンクではありません');
     expect(fs.lstatSync(path.join(a.dir, 'projects')).isDirectory()).toBe(true);
     expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
   });
@@ -1986,7 +1986,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     fs.rmSync(path.join(a.dir, 'projects'));
     fs.mkdirSync(path.join(a.dir, 'projects'));
     const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
-    expect(() => m.fork(first.sessionId)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('置き場の projects が共有のリンクではありません') }));
+    expect(() => m.fork(first.sessionId)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('設定ディレクトリの projects が共有のリンクではありません') }));
     expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
   });
 
@@ -2012,7 +2012,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     accounts.setCurrent(a.id);
     fs.mkdirSync(path.join(a.dir, 'projects'), { recursive: true });
     const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
-    expect(() => make({ accounts }).startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '' }))).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('置き場の projects が共有のリンクではありません') }));
+    expect(() => make({ accounts }).startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '' }))).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('設定ディレクトリの projects が共有のリンクではありません') }));
     expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
   });
 
@@ -2083,7 +2083,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     const first = m.start({ projectId: 'p1' });
     await envOf(first.run.id);
     addTranscript(first.sessionId);
-    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('前の Claude がまだ終了していません') }));
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('直前の Claude Code がまだ終了していません') }));
     expect(slept).toBeGreaterThanOrEqual(5000);
     expect(endReason(first.run.id)).toBe('killed');
   });
@@ -2093,7 +2093,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     const first = m.start({ projectId: 'p1' });
     await envOf(first.run.id);
     addTranscript(first.sessionId);
-    await expect(m.switchAccount(first.sessionId, 'primary')).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションはもうそのアカウントで実行中です' }));
+    await expect(m.switchAccount(first.sessionId, 'primary')).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションはすでにそのアカウントで実行中です' }));
     expect(endedAt(first.run.id)).toBeNull();
   });
 
@@ -2102,7 +2102,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     const m = make({ accounts });
     const first = m.start({ projectId: 'p1' });
     await envOf(first.run.id);
-    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを始めてください' }));
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを開始してください' }));
     expect(endedAt(first.run.id)).toBeNull();
     expect(db.prepare('select 1 from sessions where id = ?').get(first.sessionId)).toBeTruthy();
   });
@@ -2127,7 +2127,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     await envOf(first.run.id);
     addTranscript(first.sessionId);
     m.kill(first.run.id);
-    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションは hangar の外で実行中です' }));
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションは hangar の外部で実行中です' }));
     expect(slept).toBe(0);
   });
 
@@ -2139,7 +2139,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     addTranscript(first.sessionId);
     const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p;
     const live = [{ sessionId: uuid, status: 'idle' as const, name: null, nameSource: null, cwd, pid: 777, background: { jobId: 'abcd1234' } }];
-    const message = 'バックグラウンドセッションは、アカウントを切り替えられません。停止してから、そのアカウントで再開してください';
+    const message = 'バックグラウンドセッションはアカウントを切り替えられません。停止してから、そのアカウントで再開してください';
     // hangar の run（claude attach）が動いているとき。
     const m = make({ accounts, live: () => live });
     await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message }));
@@ -2227,7 +2227,7 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     expect(p.opened[0]!.cwd).toBe(path.join(cwd, 'pkg'));
     const prompt = promptOf(p.opened[0]!.command);
     expect(prompt).toContain(`この会話は work-pc（Windows）で`);
-    expect(prompt).toContain(`いまは this-mac（macOS）の ${path.join(cwd, 'pkg')} で続けています。`);
+    expect(prompt).toContain(`現在は this-mac（macOS）の ${path.join(cwd, 'pkg')} で続けています。`);
     expect(prompt).toContain(`プロジェクト：alpha（${path.join(cwd, 'pkg')}）`);
     expect(prompt).toContain('このプロジェクトは 2 台の PC で使っています。');
     expect((db.prepare('select cwd from sessions where id = ?').get(id) as { cwd: string }).cwd).toBe('D:\\src\\alpha\\pkg');
