@@ -7,17 +7,17 @@ export type Trigger = { kind: '/' | '@'; query: string; start: number };
 
 /**
  * カーソルの位置で、候補を出すきっかけがあるかを見る。
- * / は欄の先頭だけ。Claude Code がコマンドとして読むのは先頭だけだからである。
- * @ は先頭か空白の直後だけ。語の途中の @（メールアドレスなど）で候補を出さないためである。
- * どちらも、記号から空白までの語にカーソルがある間だけきっかけになる。
+ * / も @ も、先頭か空白（改行を含む）の直後だけ。語の途中の記号（パスや URL の /、メールアドレスの @）で候補を出さないためである。
+ * / は文の途中でも出す。Claude Code が直にコマンドとして開くのは先頭の / だけだが、途中の /名前 も本文として渡り、Claude が Skill で呼ぶ（docs/design.md の「初期プロンプト欄」）。
+ * どちらも、記号から空白までの語にカーソルがある間だけきっかけになる。/ の語の中の @ は、/ のきっかけとして読む。
  */
 export function triggerAt(text: string, caret: number): Trigger | null {
   const before = text.slice(0, caret);
-  const slash = /^\/(\S*)$/.exec(before);
-  if (slash) return { kind: '/', query: slash[1]!, start: 0 };
-  const at = /(?:^|\s)@(\S*)$/.exec(before);
-  if (at) return { kind: '@', query: at[1]!, start: before.length - at[1]!.length - 1 };
-  return null;
+  const m = /(?:^|\s)([/@])(\S*)$/.exec(before);
+  if (!m) return null;
+  const kind = m[1] as '/' | '@';
+  const query = m[2]!;
+  return { kind, query, start: before.length - query.length - 1 };
 }
 
 /** 候補の行の右に出す、出どころの名前。 */
