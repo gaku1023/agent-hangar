@@ -34,7 +34,8 @@ import { ScreenMissGate, screenDrift, type ScreenMark } from '../provider/claude
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from '../provider/claude-code/screen/promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
-import { interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
+import { forgetInterruption, interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
+import { isAlive } from '../platform/proc.ts';
 import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
 import { handoverFacts, projectDeviceCount, resumeCwd } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
@@ -64,6 +65,16 @@ export function withUtf8Locale(env: Record<string, string> = {}, platform: NodeJ
 
 /** 引き取るときに、止めた claude がレジストリから消えるのを待つ長さ。 */
 const GONE_WAIT_MS = 5_000;
+/**
+ * 生きた run の tmux 名が、続けてこの回数の見回りで一覧に無かったら閉じる。
+ * Windows の psmux は、CPU を使い切っているセッションの返事が遅れると、一覧からそのセッションだけが一瞬抜ける（issue #258）。
+ */
+const MISSES_TO_END = 2;
+/**
+ * 見回りが run を exited か lost で閉じた後、生きた run が無くなっても一覧を読み続ける長さ。
+ * 閉じた run の tmux 名が一覧に戻ってきたら、生き返らせるためである（revive）。
+ */
+const REVIVE_WATCH_MS = 10 * 60_000;
 
 export { RunError };
 
@@ -79,7 +90,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
@@ -102,6 +113,13 @@ export class RunManager {
   private adopting = new Set<string>();
   /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
   private parking = new Set<string>();
+  /**
+   * 一覧に無かった生きた run ごとの、続けて抜けた見回りの回数と、最初に抜けたときに tmux のサーバごと消えて見えたか（mux）。
+   * 一覧に出たら消す。メモリだけに持ち、サーバを起こし直したら数え直す。
+   */
+  private misses = new Map<string, { count: number; mux: boolean }>();
+  /** この時刻までは、生きた run が無くても一覧を読む（REVIVE_WATCH_MS）。 */
+  private reviveWatchUntil = -Infinity;
   /** 本物のプロセスに触る口。procs を渡されなかったときに、compat を結んで 1 度だけ作る。 */
   private realProcs: ProcOps | null = null;
   /** 画面の目印が続けて見つからなかった回数。run をまたいで数える（形式が変われば、どの run でも見つからない）。 */
@@ -350,6 +368,7 @@ export class RunManager {
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
     this.parking.delete(runId);
+    this.misses.delete(runId);
     const run = getRun(this.db, runId)!;
     // claude はもう居ない。秘密の入った設定ファイルを残さず、秘密そのものも無効にする。
     removeMcpConfig(this.deps.home, run.sessionId);
@@ -636,14 +655,15 @@ export class RunManager {
     // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間や、
     // tmux のバイナリが一瞬消えた隙に、実際には動いている run が全部 exited になって二度と戻らない。
     // 見張るものが無ければ tmux を呼ばない。一覧の読み取りは子プロセスを 1 つ起こす。
+    // 閉じたばかりの run があれば、しばらくは読み続ける。戻ってきたら生き返らせる（revive）。
     const shellTabs = this.openShellTabs();
-    if (shellTabs.length === 0 && listAliveRuns(this.db, this.deviceId).length === 0) return { ended: [], closedTabs: [] };
+    const now = this.now();
+    if (shellTabs.length === 0 && listAliveRuns(this.db, this.deviceId).length === 0 && now >= this.reviveWatchUntil) return { ended: [], closedTabs: [] };
     const listed = this.deps.panes?.list() ?? null;
     if (listed === null) return { ended: [], closedTabs: [] };
     const names = new Set(listed);
     const ended: RunDto[] = [];
     const closedTabs: TabDto[] = [];
-    const now = this.now();
     // 消えたタブを先に閉じる。run を閉じるときの後始末が、既に死んだシェルタブを
     // 「まだ動いている」と読み違えないようにするため。
     for (const t of shellTabs) {
@@ -653,18 +673,31 @@ export class RunManager {
       }
     }
     const alive = listAliveRuns(this.db, this.deviceId);
-    // tmux のサーバごと消えた（一覧が空になり、止めにいっていない生きた run が 2 件以上まとめて消えた）なら、利用者が終わらせたのではなく中断である。
+    // 止めにいっていない run は、一覧から 1 回抜けただけでは閉じない（MISSES_TO_END）。
+    // psmux は CPU を使い切っているセッションの返事が遅れて、一覧から一瞬抜けることがある（issue #258）。
+    // tmux のサーバごと消えた（一覧が空になり、止めにいっていない生きた run が 2 件以上まとめて抜けた）なら、利用者が終わらせたのではなく中断である。
+    // この見分けは、run が抜け始めた見回りで行い、閉じるときまで覚えておく。猶予の間に抜けた順がずれても、まとめて消えたものだけを lost にするためである。
     // 1 件だけなら、最後の 1 本が終わって tmux のサーバも終わったのと見分けられないので、これまでどおり exited にする。
-    const vanished = alive.filter((r) => !names.has(r.tmuxName) && !this.parking.has(r.id));
-    const muxGone = listed.length === 0 && vanished.length >= 2;
+    const newlyVanished = alive.filter((r) => !names.has(r.tmuxName) && !this.parking.has(r.id) && !this.misses.has(r.id));
+    const muxGone = listed.length === 0 && newlyVanished.length >= 2;
     const lost: RunDto[] = [];
     for (const run of alive) {
       if (!names.has(run.tmuxName)) {
-        const e = this.end(run.id, this.parking.has(run.id) ? 'parked' : muxGone ? 'lost' : 'exited');
+        if (this.parking.has(run.id)) {
+          const e = this.end(run.id, 'parked');
+          if (e) ended.push(e);
+          continue;
+        }
+        const miss = this.misses.get(run.id) ?? { count: 0, mux: muxGone };
+        miss.count++;
+        this.misses.set(run.id, miss);
+        if (miss.count < MISSES_TO_END || this.stillRunning(run)) continue;
+        const e = this.end(run.id, miss.mux ? 'lost' : 'exited');
         if (e) ended.push(e);
-        if (e && muxGone && e.endReason === 'lost') lost.push(e);
+        if (e && e.endReason === 'lost') lost.push(e);
         continue;
       }
+      this.misses.delete(run.id);
       // 落としにいったのに残っているなら、落とせていない。後で自分で終わったときに parked と書かないよう、印を外す。
       this.parking.delete(run.id);
       // heartbeat は同期で他の PC へ届けるための書き込みで、この PC の画面は読まない（他の PC の run のロックだけが読む）。
@@ -676,7 +709,55 @@ export class RunManager {
     }
     if (lost.length) this.interrupted(lost, 'mux', now);
     if (ended.length) pruneLastLive(this.db, listAliveRuns(this.db, this.deviceId).map((r) => r.id));
+    if (ended.some((e) => e.endReason === 'exited' || e.endReason === 'lost')) this.reviveWatchUntil = now + REVIVE_WATCH_MS;
+    this.revive(names, shellTabs.map((t) => t.tmuxName), now);
     return { ended, closedTabs };
+  }
+
+  /**
+   * 一覧に無い run の claude が、まだ動いているか。
+   * pid が生きていて、Claude の登録にそのセッションがその pid で載っているときだけ真にする。
+   * pid だけで見ると、OS が pid を別のプロセスに使い回したとき、永久に閉じなくなる。登録を読む口が無ければ、pid の生存だけで決める。
+   */
+  private stillRunning(run: RunDto): boolean {
+    if (run.pid === null || !(this.deps.pidAlive ?? isAlive)(run.pid)) return false;
+    if (!this.deps.live) return true;
+    const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
+    return !!s && this.deps.live().some((l) => l.sessionId === s.provider_session_id && l.pid === run.pid);
+  }
+
+  /**
+   * 一覧にある tmux 名のうち、生きた run もシェルタブも持たないものについて、閉じた run を同じ run として開き直す。
+   * 選ぶのは、この端末の run で、同じ tmux 名、exited か lost で閉じ、そのセッションに生きた run が他に無い、最も新しい行である。
+   * killed と parked は hangar が止めにいったものなので、画面が残っていても生き返らせない。
+   * 閉じたときに MCP の設定と秘密は消している。秘密は作り直せないので、生き返った claude からは hangar の MCP を使えない（受け入れる）。
+   * 画面には起動と同じ知らせ（runStarted）を出し、ターミナルと入力欄を戻す。
+   */
+  private revive(names: Set<string>, tabNames: string[], now: number): RunDto[] {
+    const taken = new Set([...listAliveRuns(this.db, this.deviceId).map((r) => r.tmuxName), ...tabNames]);
+    const candidates = [...names].filter((n) => !taken.has(n));
+    if (candidates.length === 0) return [];
+    const rows = this.db.prepare(`select r.* from runs r join sessions s on s.id = r.session_id and s.deleted_at is null
+      where r.deleted_at is null and r.device_id = ? and r.ended_at is not null and r.end_reason in ('exited', 'lost')
+        and r.tmux_name in (${candidates.map(() => '?').join(',')})
+      order by r.started_at desc`).all(this.deviceId, ...candidates) as Record<string, unknown>[];
+    const seen = new Set<string>();
+    const out: RunDto[] = [];
+    let forgot = false;
+    for (const row of rows) {
+      const name = row.tmux_name as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      if (aliveRunForSession(this.db, row.session_id as string)) continue;
+      upsertShared(this.db, 'runs', { ...row, ended_at: null, end_reason: null, heartbeat_at: now }, this.deviceId);
+      if (forgetInterruption(this.db, row.id as string)) forgot = true;
+      const run = getRun(this.db, row.id as string)!;
+      out.push(run);
+      this.emit('runStarted', { run, sessionId: run.sessionId, tabs: listTabs(this.db, run.id) });
+    }
+    if (forgot) this.emit('interrupted', interruptedGroup(this.db));
+    if (out.length) console.log(`[runs] tmux セッションが残っていた run を ${out.length} 件生き返らせました`);
+    return out;
   }
 
   /** 中断の束を記録し、新しい群を知らせる。 */
@@ -718,7 +799,12 @@ export class RunManager {
       }
     }
     // lost で閉じた run は、ホームの帯の「前回実行中」の群になる。無ければ前の群を残す。
-    if (out.length) this.interrupted(out, 'restart', this.now());
+    if (out.length) {
+      this.interrupted(out, 'restart', this.now());
+      this.reviveWatchUntil = this.now() + REVIVE_WATCH_MS;
+    }
+    // 前のサーバが閉じたが、tmux の画面は残っている run を生き返らせる（tick の revive と同じ）。
+    this.revive(names, this.openShellTabs().map((t) => t.tmuxName), this.now());
     pruneLastLive(this.db, listAliveRuns(this.db, this.deviceId).map((r) => r.id));
     // 前回サーバが落ちた拍子に残った設定と秘密も、ここで落とす。
     // tmux の上で生き残った run の分は残る。その claude は再起動後も同じ秘密で繋ぎに来る。

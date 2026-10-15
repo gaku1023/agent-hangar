@@ -37,6 +37,14 @@ export function recordInterruption(db: Db, runs: RunDto[], cause: InterruptCause
   })();
 }
 
+/**
+ * 中断の束からその run を外す。外したら true を返す。
+ * 閉じた run を、tmux の画面が残っていたので生き返らせたときに使う（RunManager の revive）。動いている run は中断ではない。
+ */
+export function forgetInterruption(db: Db, runId: string): boolean {
+  return db.prepare('delete from interrupted_runs where run_id = ?').run(runId).changes > 0;
+}
+
 /** 「再開しない」の印を付ける（dismissed が真）か、元に戻す。 */
 export function setInterruptedDismissed(db: Db, runIds: string[], dismissed: boolean, now: number): void {
   if (runIds.length === 0) return;
