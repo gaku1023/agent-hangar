@@ -67,13 +67,15 @@ function trimSep(p: string): string {
  */
 export function cloudSyncedOf(p: string, e: CloudSyncEnv): CloudSyncedKind | null {
   if (e.platform === 'darwin') {
-    const mobile = path.posix.join(e.homeDir, 'Library', 'Mobile Documents');
+    // 組み立てはホームの形に合わせる（Windows の試験機で macOS の判定を試すときも、同じ答えになるように）。
+    const P = pathOf(e.homeDir);
+    const mobile = P.join(e.homeDir, 'Library', 'Mobile Documents');
     if (isUnder(p, mobile)) return 'icloud';
     const real = e.realpath(p);
     if (real !== null && isUnder(real, mobile)) return 'icloud';
     // 「デスクトップと書類」を iCloud に入れると、iCloud Drive の中に Desktop と Documents が現れる。
     for (const name of ['Desktop', 'Documents']) {
-      if (isUnder(p, path.posix.join(e.homeDir, name)) && e.exists(path.posix.join(mobile, 'com~apple~CloudDocs', name))) return 'icloud';
+      if (isUnder(p, P.join(e.homeDir, name)) && e.exists(P.join(mobile, 'com~apple~CloudDocs', name))) return 'icloud';
     }
     return null;
   }

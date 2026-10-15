@@ -44,6 +44,13 @@ describe('cloudSyncedOf（クラウドで同期しているフォルダか）', 
     expect(cloudSyncedOf('C:\\Users\\Taro\\OneDriveTools', win())).toBeNull();
     expect(cloudSyncedOf('C:\\Users\\Taro\\src\\app', win())).toBeNull();
   });
+  it('macOS の判定も、ホームの形に合った区切りでパスを組む（Windows の試験機で macOS の判定を試しても同じ答えになる）', () => {
+    const home = 'D:\\a\\home';
+    const synced = (p: string) => p === 'D:\\a\\home\\Library\\Mobile Documents\\com~apple~CloudDocs\\Desktop';
+    expect(cloudSyncedOf('D:\\a\\home\\Desktop\\thing', mac({ homeDir: home, exists: synced }))).toBe('icloud');
+    expect(cloudSyncedOf('D:\\a\\home\\Library\\Mobile Documents\\x', mac({ homeDir: home }))).toBe('icloud');
+    expect(cloudSyncedOf('D:\\a\\home\\src\\thing', mac({ homeDir: home, exists: () => true }))).toBeNull();
+  });
   it('Linux では判定しない', () => {
     expect(cloudSyncedOf('/home/taro/Documents/x', { ...mac(), platform: 'linux', homeDir: '/home/taro', exists: () => true })).toBeNull();
   });

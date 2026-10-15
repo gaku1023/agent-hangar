@@ -163,7 +163,10 @@ describe('hangar project add', () => {
 const project = (over: Partial<ProjectDto>): ProjectDto => ({ id: 'p', name: 'n', status: 'active', isScratch: false, path: null, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, ...over });
 
 describe('hangar project remove', () => {
-  const list = [project({ id: 'p1', name: 'alpha', path: '/w/alpha' }), project({ id: 'scr', name: 'scratch', path: '/h/scratch', isScratch: true }), project({ id: 'p2', name: 'beta', path: null })];
+  // 一覧のパスは、試験機の形の絶対パスにする。
+  // Windows では /w/alpha が D:\w\alpha に解決されるためである。
+  const alpha = path.resolve('/w/alpha');
+  const list = [project({ id: 'p1', name: 'alpha', path: alpha }), project({ id: 'scr', name: 'scratch', path: '/h/scratch', isScratch: true }), project({ id: 'p2', name: 'beta', path: null })];
   const server = (syncing: boolean) => fakeServer((c) => {
     if (c.path === '/api/projects') return { body: list };
     const m = /^\/api\/projects\/([^/]+)\/resolve$/.exec(c.path);
@@ -180,7 +183,7 @@ describe('hangar project remove', () => {
     expect(await projectRemoveCommand({ ...base(o, s.fetchFn), target: '/w/alpha/', dryRun: true, cwd: '/' })).toBe(0);
     expect(s.calls.map((c) => [c.method, c.path, c.body])).toEqual([['GET', '/api/projects', undefined], ['POST', '/api/projects/p1/resolve', { kind: 'unlink', dryRun: true }]]);
     expect(o.out).toEqual([
-      '一覧から削除します: alpha（/w/alpha）',
+      `一覧から削除します: alpha（${alpha}）`,
       '会話 3 件が未分類に戻ります。',
       '会話は未分類に戻るだけで、本文は消えません。フォルダにも触れません。',
       '同期しているほかの PC の一覧からも消えます。',
@@ -193,13 +196,13 @@ describe('hangar project remove', () => {
     expect(await projectRemoveCommand({ ...base(o, s.fetchFn), target: 'p1', dryRun: false, cwd: '/' })).toBe(0);
     expect(s.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/projects/p1/resolve', body: { kind: 'unlink' } });
     expect(o.out).toEqual([
-      '一覧から削除しました: alpha（/w/alpha）',
+      `一覧から削除しました: alpha（${alpha}）`,
       '会話 3 件を未分類に戻しました。',
       '会話は未分類に戻るだけで、本文は消えません。フォルダにも触れません。',
     ]);
     const j = outs();
     expect(await projectRemoveCommand({ ...base(j, s.fetchFn, true), target: 'p1', dryRun: false, cwd: '/' })).toBe(0);
-    expect(JSON.parse(j.out[0]!)).toEqual({ ok: true, dryRun: false, project: { id: 'p1', name: 'alpha', path: '/w/alpha' }, sessionCount: 3, syncing: false });
+    expect(JSON.parse(j.out[0]!)).toEqual({ ok: true, dryRun: false, project: { id: 'p1', name: 'alpha', path: alpha }, sessionCount: 3, syncing: false });
   });
   it('見つからない、スクラッチは exit 1 で断り、書かない', async () => {
     const s = server(false);
@@ -254,7 +257,7 @@ describe('hangar workspace set / unset', () => {
     });
     const o = outs();
     expect(await workspaceSetCommand({ ...base(o, s.fetchFn), dir: '/w2', dryRun: false, cwd: '/', homeDir: '/h' })).toBe(0);
-    expect(s.calls.find((c) => c.method === 'PATCH')!.body).toEqual({ workspaceRoot: '/w2' });
+    expect(s.calls.find((c) => c.method === 'PATCH')!.body).toEqual({ workspaceRoot: path.resolve('/w2') });
     expect(o.out).toEqual(['作成場所を /w2 にしました。', '直下の 1 件を登録しました:', '  /w2/a（名前 a）']);
   });
   it('unset は作成場所を空にし、登録済みのプロジェクトが残ることを言う', async () => {
