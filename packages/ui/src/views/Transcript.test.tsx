@@ -407,13 +407,50 @@ describe('Transcript の本文', () => {
   });
   it('長い返答は高さで切り、「全文を表示（残り N 行）」で開く', () => {
     const text = Array.from({ length: 64 }, (_, i) => `段落 ${i + 1}`).join('\n');
-    const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text, when: '10:00' }];
+    // いちばん新しい返答は畳まないので、後ろにもう 1 つ返答を置く。
+    const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text, when: '10:00' }, { kind: 'assistant', seq: 1, text: '続き', when: '10:01' }];
     const { container, getByRole } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></ActionRoot>);
     expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).not.toBeNull();
     fireEvent.click(getByRole('button', { name: '全文を表示（残り 49 行）' }));
     expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).toBeNull();
     expect(getByRole('button', { name: '折りたたむ' })).toBeInTheDocument();
     cleanup();
+  });
+  describe('いちばん新しい返答は畳まずに開く', () => {
+    const long = Array.from({ length: 64 }, (_, i) => `段落 ${i + 1}`).join('\n');
+    const two: TranscriptItem[] = [
+      { kind: 'user', seq: 0, text: '一つ目', when: '10:00' },
+      { kind: 'assistant', seq: 1, text: long, when: '10:01' },
+      { kind: 'user', seq: 2, text: '二つ目', when: '10:02' },
+      { kind: 'assistant', seq: 3, text: long, when: '10:03' },
+    ];
+    const clamped = (c: HTMLElement, seq: number) => c.querySelector(`[data-seq="${seq}"] .clamp[data-clamped="true"]`) !== null;
+    const view = (items: TranscriptItem[], hasNewer = false) => <ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={true} live={false} remaining={0} hasNewer={hasNewer} /></ActionRoot>;
+    it('終わったセッションを開くと、最後の返答は全文で、前の返答は畳んだまま', () => {
+      const { container } = render(view(two));
+      expect(clamped(container, 1)).toBe(true);
+      expect(clamped(container, 3)).toBe(false);
+      // 開いていても「折りたたむ」で畳める。
+      expect(container.querySelector('[data-seq="3"] .clamp-more button')?.textContent).toBe('折りたたむ');
+      cleanup();
+    });
+    it('最後の行がツールでも、最後の返答を開く', () => {
+      const { container } = render(view([...two, toolItem(4, 'Bash', { command: 'ls' }, { text: 'a', isError: false })]));
+      expect(clamped(container, 3)).toBe(false);
+      cleanup();
+    });
+    it('後ろをまだ読んでいない（hasNewer）ときは、手元の最後の返答を最新とみなさない', () => {
+      const { container } = render(view(two, true));
+      expect(clamped(container, 3)).toBe(true);
+      cleanup();
+    });
+    it('新しい返答が届いても、前に開いた返答は畳み直さない', () => {
+      const { container, rerender } = render(view(two));
+      rerender(view([...two, { kind: 'assistant', seq: 5, text: long, when: '10:05' }]));
+      expect(clamped(container, 3)).toBe(false);
+      expect(clamped(container, 5)).toBe(false);
+      cleanup();
+    });
   });
   it('利用者の本文は打ったとおりに出す', () => {
     const md: TranscriptItem[] = [{ kind: 'user', seq: 0, text: '**そのまま**', when: '10:00' }];

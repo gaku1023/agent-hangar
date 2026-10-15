@@ -139,14 +139,15 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     const moved = input.event.moved;
     if (moved !== undefined) {
       const here = state.screen.name === 'booting' ? null : state.screen;
-      // いまの画面と同じ URL に着いた（ダイアログの裏で戻し直した後など）。読み込み直さない。
-      if (here && formatRoute(here) === formatRoute(route)) return { state, effects: [] };
+      // いまの画面と同じ URL に着いた（ダイアログの裏で戻し直した後、開いている画面への hangar:// のリンクなど）。読み込み直さない。
+      // セッション画面なら、ダイアログが無いときだけ端末へフォーカスする。
+      if (here && formatRoute(here) === formatRoute(route)) return { state, effects: route.name === 'session' && state.overlay.kind === 'none' ? [{ kind: 'focus', target: 'terminal' }] : [] };
       // 確認や入力のあるダイアログの裏では移さず、同じ段だけ履歴を戻して URL をいまの画面に合わせる（nav.back と同じ規則）。
       // 段が分からない（URL を手で書き換えた）ときは、いまの画面の URL を入れ直す。
       if (!canMoveBehind(state)) return { state, effects: moved !== 0 ? [{ kind: 'history.go', delta: -moved }] : here ? [{ kind: 'navigate', route: here }] : [] };
     }
     const effects: Effect[] = [];
-    let next: State = { ...state, screen: route, overlay: closeTransient(state), focusOnOpen: null };
+    let next: State = { ...state, screen: route, overlay: closeTransient(state) };
     // 見ていないセッションの接続は残さない。
     // xterm とバッファは残るので、戻れば tmux attach が現在の画面を描き直す。
     const left = state.screen.name === 'session' ? state.screen.id : null;
@@ -166,8 +167,9 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
       const jump = next.sessionView[route.id]?.jump;
       effects.push(jump ? { kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0, aroundSeq: jump.seq } : { kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });
     }
-    // 「ターミナルで答える」で開いた画面なら、つないだ端末にそのままフォーカスする。
-    if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
+    // 開き方を問わず（一覧、サイドバー、通知、パレット、戻る・進む、hangar:// のリンク）、つないだ端末にそのままフォーカスする。
+    // 確認や入力のあるダイアログが残っていれば奪わない。端末が無い（終わったセッション）ときは Runtime が何もしない。
+    if (route.name === 'session' && next.overlay.kind === 'none') effects.push({ kind: 'focus', target: 'terminal' });
     if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id }, { kind: 'api.loadInstructions', projectId: route.id });
     // 設定の中で節を切り替えるだけ（左の目次）のときは、付属の値を取り直さない。
     if (route.name === 'settings' && state.screen.name !== 'settings') {
@@ -214,7 +216,8 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
       // 検索の結果から開いたときだけ跳び先を持つ。ほかの開き方では、前の跳び先を忘れる。
       state = jumpStep(state, i.id, i.seq !== undefined ? { seq: i.seq, query: i.q ?? '' } : null);
       const overlay = closeTransient(state);
-      if (i.focus !== 'terminal') return { state: { ...state, overlay, focusOnOpen: null }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
+      // 着いた先（hash.changed）が端末へフォーカスする。focus: terminal で違うのは、答える先の Claude のタブへ戻すことだけである。
+      if (i.focus !== 'terminal') return { state: { ...state, overlay }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
       // 答える先は Claude のタブなので、シェルのタブを選んでいたら戻す。
       // もうその画面にいればハッシュは変わらないので、戻した Claude のタブをつないでからフォーカスだけを出す。
       if (state.screen.name === 'session' && state.screen.id === i.id) {
@@ -223,7 +226,7 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
         return { state: { ...(back?.state ?? state), overlay }, effects: [...connect, { kind: 'focus', target: 'terminal' }] };
       }
       const back = agentTabStep(state, i.id) ?? { state, effects: [] };
-      return { state: { ...back.state, overlay, focusOnOpen: i.id }, effects: [...back.effects, { kind: 'navigate', route: { name: 'session', id: i.id } }] };
+      return { state: { ...back.state, overlay }, effects: [...back.effects, { kind: 'navigate', route: { name: 'session', id: i.id } }] };
     }
     case 'session.nextWaiting': return nextWaitingStep(state, store);
     case 'search.query': return searchQueryStep(state, i.text, i.filter);

@@ -31,10 +31,10 @@ function fakeTerm(): FakeTerm {
   };
   return t;
 }
-function make(fontSize?: { load(): unknown; save(px: number): void }, alive?: (tabId: string) => boolean) {
+function make(fontSize?: { load(): unknown; save(px: number): void }, alive?: (tabId: string) => boolean, front?: { held: () => boolean; nextFrame: (cb: () => void) => void }) {
   FakeWs.all = [];
   const terms: FakeTerm[] = [];
-  const host = createTerminalHost({ wsUrl: (id) => `ws://x/ws/pty?tab=${id}`, createTerminal: () => { const t = fakeTerm(); terms.push(t); return t; }, wsFactory: (u) => new FakeWs(u) as unknown as WebSocket, fontSize, alive });
+  const host = createTerminalHost({ wsUrl: (id) => `ws://x/ws/pty?tab=${id}`, createTerminal: () => { const t = fakeTerm(); terms.push(t); return t; }, wsFactory: (u) => new FakeWs(u) as unknown as WebSocket, fontSize, alive, ...front });
   return { host, terms };
 }
 
@@ -153,6 +153,49 @@ describe('createTerminalHost', () => {
     const next = { appendChild: vi.fn((c: { parentElement: unknown; hostDetached: boolean }) => { c.parentElement = next; c.hostDetached = false; }) } as unknown as HTMLElement;
     host.mount('t1', next);
     expect(terms[0]!.focused).toBe(1);
+  });
+  describe('ダイアログやメニューが前にある間はフォーカスを奪わない', () => {
+    const setup = () => {
+      let held = true;
+      const frames: (() => void)[] = [];
+      const m = make(undefined, undefined, { held: () => held, nextFrame: (cb) => { frames.push(cb); } });
+      const tick = () => { const f = frames.splice(0); for (const cb of f) cb(); return f.length; };
+      return { ...m, release: () => { held = false; }, tick };
+    };
+    it('mount のときに前にあれば、保留の focus を捨てる', () => {
+      const { host, terms, release } = setup();
+      host.connect('t1');
+      host.focus('t1');
+      host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+      expect(terms[0]!.focused).toBe(0);
+      // 閉じた後に枠を移しても、捨てた focus は当て直さない。
+      release();
+      host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+      expect(terms[0]!.focused).toBe(0);
+    });
+    it('開いている端末への focus は、閉じる途中（次の描画で消える）なら閉じたあとに当てる', () => {
+      // パレットから開くと、Mediator はパレットを閉じた状態で focus を出すが、DOM からはまだ消えていない。
+      const { host, terms, release, tick } = setup();
+      host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+      host.focus('t1');
+      expect(terms[0]!.focused).toBe(0);
+      tick();
+      expect(terms[0]!.focused).toBe(0);
+      release();
+      tick();
+      expect(terms[0]!.focused).toBe(1);
+      expect(tick()).toBe(0);
+    });
+    it('ずっと前にあるなら、何枚か待ってあきらめる', () => {
+      const { host, terms, tick } = setup();
+      host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+      host.focus('t1');
+      let n = 0;
+      while (tick() > 0) n++;
+      expect(n).toBeGreaterThan(0);
+      expect(n).toBeLessThanOrEqual(10);
+      expect(terms[0]!.focused).toBe(0);
+    });
   });
   it('壊れた本文では落ちず、dispose は購読も捨てる', () => {
     const { host, terms } = make();

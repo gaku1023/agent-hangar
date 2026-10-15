@@ -131,11 +131,21 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   // 行の中で開いたもの（ツールの中身、畳んだ長い本文）。行は窓の外へ出ると DOM から外れるので、ここで覚える。
   const opened = useRef(new Map<string, boolean>());
   const revealed = useRef(new Set<number>());
+  // いちばん新しい返答は畳まずに開く。開いてすぐ末尾に見えるのが、その返答の「全文を表示」の行にならないように。
+  // 一度開いた返答は、次の返答が届いても畳み直さない。読んでいる途中の返答が縮んで、見ていた位置が飛ぶからである。
+  // 後ろをまだ読んでいない（hasNewer）ときは、手元の最後の返答は最新ではないので開かない。
+  const latest = useRef(new Set<number>());
+  if (!props.hasNewer) {
+    for (let i = props.items.length - 1; i >= 0; i--) {
+      const it = props.items[i]!;
+      if (it.kind === 'assistant') { latest.current.add(it.seq); break; }
+    }
+  }
   const [, reopened] = useReducer((n: number) => n + 1, 0);
   const openStore = useMemo<OpenStore>(() => ({
     get: (seq, part) => opened.current.get(`${seq}:${part}`),
     set: (seq, part, open) => { opened.current.set(`${seq}:${part}`, open); reopened(); },
-    revealed: (seq) => revealed.current.has(seq),
+    revealed: (seq) => revealed.current.has(seq) || latest.current.has(seq),
   }), []);
   // 追従を切っている間に届いた新着の件数だけを、この View の局所状態として持つ。
   const [unseen, setUnseen] = useState(0);

@@ -311,8 +311,6 @@ export type State = {
   arrivedProjects: string[];
   /** 戻る時刻を過ぎたと OS の通知で知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
   returnSeen: string[];
-  /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */
-  focusOnOpen: string | null;
   /**
    * 昇格ダイアログの進み。
    * 起動と同じ形の状態を使う。
