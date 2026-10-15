@@ -14,6 +14,12 @@ describe('createDesktopBridge', () => {
     await b.restart();
     expect(invoke.mock.calls).toEqual([['open_log'], ['restart_app']]);
   });
+  it('ターミナルのリンクは open_link に URL を渡して殻に開かせる', async () => {
+    const invoke = vi.fn(async () => null);
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    await b.openLink!('https://example.com/');
+    expect(invoke.mock.calls).toEqual([['open_link', { url: 'https://example.com/' }]]);
+  });
   it('フォルダの選択は既定の場所を渡し、選んだパスか、取り消しなら null を返す', async () => {
     const invoke = vi.fn(async (): Promise<string | null> => '/Users/me/thesis');
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;

@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-link",
+  "description": "サーバの UI（127.0.0.1:4177）から、ターミナルに出たリンクを既定のブラウザで開くことを殻に頼むためだけの権限。殻は http と https だけを開く。",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:4177/*"
+    ]
+  },
+  "permissions": [
+    "allow-open-link"
+  ]
+}

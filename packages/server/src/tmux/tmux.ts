@@ -30,6 +30,9 @@ function muxEnv(platform: NodeJS.Platform, env: NodeJS.ProcessEnv | undefined): 
 /** 外の端末が拡張キーを送れることを tmux に知らせる terminal-features の項目。 */
 const EXTKEYS_FEATURE = 'xterm*:extkeys';
 
+/** 外の端末が OSC 8 のハイパーリンクを描けることを tmux に知らせる terminal-features の項目。hangar の画面の端末（xterm.js）は描ける。 */
+const HYPERLINKS_FEATURE = 'xterm*:hyperlinks';
+
 /** マウスで選んだ範囲を渡すコマンド。tmux は copy-command をシェルで走らせるので、ロケールを前に置ける。 */
 const COPY_COMMAND = 'LC_CTYPE=UTF-8 pbcopy';
 
@@ -161,6 +164,7 @@ export class Tmux {
    * copy-command：iTerm2 は既定で OSC 52 の書き込みを許さないので、マウスで選んだ範囲を pbcopy で直接クリップボードへ渡す。
    * pbcopy はロケールで文字コードを決める。tmux サーバの環境には LANG が無いことが多く、そのままでは日本語を写すとクリップボードが空になる。
    * extended-keys と terminal-features：外の端末から Shift+Enter を区別して受ける。
+   * terminal-features の hyperlinks：中の Claude Code が出す OSC 8 のリンクを外の端末へ通す。
    * focus-events：中の Claude Code に、端末が前に来たか後ろへ回ったかを渡す。off のままだと Claude Code は画面の下に「tmux focus-events off」の注意を出す。
    * S-Enter：tmux は CSI u の Shift+Enter を素の CR に潰すので、hangar の run でだけ、Claude Code が改行と読む ESC CR に変える。
    * シェルタブ（hangar-<id>-t<n>）と利用者自身のセッションには Shift+Enter のまま送る。
@@ -184,7 +188,11 @@ export class Tmux {
       this.run('set-option', '-s', 'extended-keys', 'on');
       if (modern) this.run('set-option', '-s', 'extended-keys-format', 'csi-u');
     }
-    if (!show('terminal-features').stdout.includes(EXTKEYS_FEATURE)) this.run('set-option', '-as', 'terminal-features', EXTKEYS_FEATURE);
+    const features = show('terminal-features').stdout;
+    if (!features.includes(EXTKEYS_FEATURE)) this.run('set-option', '-as', 'terminal-features', EXTKEYS_FEATURE);
+    // 外の端末が OSC 8 を描けると知らせないと、tmux は中のプログラムのハイパーリンクを捨てる（tmux 3.4 から）。
+    // 利用者がどこかの項目に入れていれば足さない。
+    if (!features.includes('hyperlinks')) this.run('set-option', '-as', 'terminal-features', HYPERLINKS_FEATURE);
     const bound = this.run('list-keys', '-T', 'root', 'S-Enter');
     if (bound.code === 0 && bound.stdout.trim() !== '' && !bound.stdout.includes(RUN_SESSION_FORMAT)) return;
     // 3.4 までの send-keys S-Enter は、中のプログラムが拡張キーを求めていないと「S-Enter」という文字をそのまま打ち込む

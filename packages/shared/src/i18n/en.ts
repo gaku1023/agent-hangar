@@ -19,6 +19,7 @@ import { httpEn } from './en/http.ts';
 import { launchEn } from './en/launch.ts';
 import { listEn } from './en/list.ts';
 import { mcpEn } from './en/mcp.ts';
+import { reportEn } from './en/report.ts';
 import { newProjectEn } from './en/newProject.ts';
 import { newSessionEn } from './en/newSession.ts';
 import { noticesEn } from './en/notices.ts';
@@ -86,6 +87,7 @@ export const en: Dictionary = {
   ...launchEn,
   ...listEn,
   ...mcpEn,
+  ...reportEn,
   ...newProjectEn,
   ...newSessionEn,
   ...noticesEn,
