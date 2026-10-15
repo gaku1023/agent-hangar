@@ -6,7 +6,7 @@
  * cli.mjs がサーバを抱えていないことは apps/desktop/test/bundle-server.test.ts が確かめる。
  */
 export { hangarHome, defaultClaudeDir, dbPath, ensureHome, readOrCreateToken, readOrCreateDevice, loadSettings, saveSettings } from './config/paths.ts';
-export { STATUSLINE_MARKER, appendStatuslineSnippet, isPowerShellScript, planStatuslineRemoval, planStatuslineSnippet, removeStatuslineSnippet, statuslineSnippetFor, type StatuslineEdit, type StatuslineRemoval, ensureStatuslineHeaderFile, resolveStatuslineScript, statuslineHeaderPath, statuslineSnippet, statuslineSnippetUpToDate, statuslineStatus, writeStatuslineHeaderFile } from './provider/claude-code/config/statusline.ts';
+export { PS_STATUSLINE_MARKER, STATUSLINE_MARKER, appendStatuslineSnippet, hasStatuslineMarker, isPowerShellScript, planStatuslineRemoval, planStatuslineSnippet, removeStatuslineSnippet, statuslineSnippetFor, type StatuslineEdit, type StatuslineRemoval, ensureStatuslineHeaderFile, resolveStatuslineScript, statuslineHeaderPath, statuslineSnippet, statuslineSnippetUpToDate, statuslineStatus, writeStatuslineHeaderFile } from './provider/claude-code/config/statusline.ts';
 export { claudeJsonPath, readUserMcpServers, removeUserMcpServer, upsertUserMcpServer } from './provider/claude-code/config/claudeJson.ts';
 export { readUtf8Text, utf8Problem } from './config/textEncoding.ts';
 export { SHELL_MARKER, ensureShellScript, installShellHook, planShellHook, planShellUnhook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, shellWrapOsSupported, shellWrapSupported, uninstallShellHook, zshrcPath, type ShellHookState, type ShellScriptOptions } from './config/shellHook.ts';

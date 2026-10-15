@@ -32,6 +32,6 @@ export const runtimeJa: AreaDictionary<typeof runtimeKeys> = {
   'runtime.setup.reason.unreadable': 'スクリプトの hangar の行の範囲を読み取れません。手で直してください。',
   'runtime.setup.reason.notUtf8': 'ファイルが UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。',
   'runtime.setup.reason.psParam': 'スクリプトが param の塊で始まるので、自動では入れられません。param の後ろに手で追記してください。',
-  'runtime.setup.reason.psInput': 'スクリプトが $input で標準入力を読むので、自動では入れられません。[Console]::In.ReadToEnd() で読む形にしてください。',
+  'runtime.setup.reason.psInput': 'スクリプトが $input か [Console]::OpenStandardInput() で標準入力を読むので、自動では入れられません。[Console]::In.ReadToEnd() で読む形にしてから、もう一度試してください。',
   'runtime.setup.reason.changed': '表示した後に、書く先のファイルが変更されました。何も書いていません。もう一度押して確認してください。',
 };

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { STATUSLINE_MARKER, statuslineHeaderPath } from '@agent-hangar/server';
+import { PS_STATUSLINE_MARKER, STATUSLINE_MARKER, statuslineHeaderPath } from '@agent-hangar/server';
 import { runStatuslineInstall } from './statusline.ts';
 import { expectMode } from '../../server/test/platform.ts';
 
@@ -90,6 +90,24 @@ describe('runStatuslineInstall', () => {
     expect(fs.readFileSync(b.file, 'utf8')).toContain('Bearer $(cat');
     fs.rmSync(a.home, { recursive: true, force: true });
     fs.rmSync(b.home, { recursive: true, force: true });
+  });
+
+  it('.ps1 に日本語の目印の古い形が入っていれば、PowerShell の今の形に差し替える', async () => {
+    // 0.6.1 までの .ps1 は日本語の目印で入っていた。Windows PowerShell 5.1 は CP932 で読むので、何も送っていなかった。
+    const a = claudeDir(null);
+    const ps = path.join(a.dir, 'sl.ps1');
+    const old = ['# agent-hangar: 使用量をローカルサーバへ渡す。失敗は無視する。', '$__hangar_input = [Console]::In.ReadToEnd()', '[Console]::SetIn([System.IO.StringReader]::new($__hangar_input))', ''].join('\r\n');
+    fs.writeFileSync(ps, `${old}$j = [Console]::In.ReadToEnd()\r\n`);
+    fs.writeFileSync(path.join(a.dir, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: `powershell -NoProfile -File "${ps}"` } }));
+    const log: string[] = [];
+    const r = await runStatuslineInstall({ claudeDir: a.dir, port: 4177, yes: true, home: hangarHome(), log: (s) => log.push(s) });
+    expect(r).toEqual({ installed: true, message: '差し替えました' });
+    expect(log.join('\n')).toContain(PS_STATUSLINE_MARKER);
+    expect(log.join('\n')).not.toContain('curl');
+    const after = fs.readFileSync(ps, 'utf8');
+    expect(after.startsWith(`${PS_STATUSLINE_MARKER}\r\n`)).toBe(true);
+    expect(after).not.toContain('使用量');
+    fs.rmSync(a.home, { recursive: true, force: true });
   });
 
   it('追記する前に、ヘッダのファイルを 0600 で置く', async () => {

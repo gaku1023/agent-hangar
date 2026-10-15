@@ -3,11 +3,12 @@ import {
   appendStatuslineSnippet,
   ensureHome,
   hangarHome,
+  hasStatuslineMarker,
   readOrCreateToken,
   readUtf8Text,
   resolveStatuslineScript,
-  STATUSLINE_MARKER,
   statuslineSnippet,
+  statuslineSnippetFor,
   statuslineSnippetUpToDate,
   writeStatuslineHeaderFile,
 } from '@agent-hangar/server/src/cliEntry.ts';
@@ -62,12 +63,12 @@ export async function runStatuslineInstall(o: {
     return { installed: false, message: 'UTF-8 でないので書き換えませんでした' };
   }
   // 目印だけを見て終わると、トークンを argv に載せる古い形が入ったまま残る。中身まで見て差し替える。
-  const has = read.text.includes(STATUSLINE_MARKER);
+  const has = hasStatuslineMarker(read.text);
   if (has && statuslineSnippetUpToDate(r.scriptPath, o.port)) { log('既に追記されています'); return { installed: true, message: '既に追記されています' }; }
   log(`${has ? '差し替え先' : '追記先'}: ${r.scriptPath}`);
-  if (has) log('古い形のスニペットが入っています。トークンを curl の引数に載せない形に差し替えます。');
+  if (has) log('古い形のスニペットが入っています。今の形に差し替えます。');
   log(`${has ? '差し替える' : '追記する'}内容:`);
-  log(statuslineSnippet(o.port));
+  log(statuslineSnippetFor(r.scriptPath, o.port));
   const question = has ? 'この内容に差し替えますか？差し替え前にバックアップを取ります。' : 'この内容を追記しますか？追記前にバックアップを取ります。';
   if (!o.yes && !(await ask(question))) return { installed: false, message: has ? '差し替えませんでした' : '追記しませんでした' };
   const done = appendStatuslineSnippet(r.scriptPath, o.port);

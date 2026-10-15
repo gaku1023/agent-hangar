@@ -32,6 +32,6 @@ export const runtimeEn: AreaDictionary<typeof runtimeKeys> = {
   'runtime.setup.reason.unreadable': "Hangar's lines in the script could not be located. Edit the script by hand.",
   'runtime.setup.reason.notUtf8': 'The file is not saved as UTF-8 (it may be UTF-16), so it is left as it is. Save it as UTF-8 again, or add the lines by hand.',
   'runtime.setup.reason.psParam': 'The script starts with a param block, so the lines cannot be added automatically. Add them after the param block by hand.',
-  'runtime.setup.reason.psInput': 'The script reads standard input with $input, so the lines cannot be added automatically. Read it with [Console]::In.ReadToEnd() instead.',
+  'runtime.setup.reason.psInput': 'The script reads standard input with $input or [Console]::OpenStandardInput(), so the lines cannot be added automatically. Read it with [Console]::In.ReadToEnd() instead, then try again.',
   'runtime.setup.reason.changed': 'A file changed after it was shown. Nothing was written. Press the button again to review.',
 };
