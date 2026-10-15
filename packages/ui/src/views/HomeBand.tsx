@@ -1,4 +1,4 @@
-import { Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { GitChip } from './GitChip.tsx';
 import { useEmit } from '../action/chain.tsx';
 import type { BandAction, BandGroup, BandLead, BandRow, BandSection, HomeBandProps } from '../presenters/home.ts';
@@ -10,6 +10,8 @@ import { useT } from './primitives/language.tsx';
 import { collapseOut, fadeIn, fadeOut, growIn, motionOn, resizeFrom } from './primitives/motionKit.ts';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { useMotionList } from './primitives/useMotionList.ts';
+import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
+import { boxAnchor, pointAnchor, SessionMenuPop } from './sessionMenu.tsx';
 import { usePresence } from './primitives/usePresence.ts';
 
 /**
@@ -224,13 +226,45 @@ function BandSectionHead(props: { section: BandSection }) {
   );
 }
 
-/** 引き出しの 1 行。1 件を 1 行で読み、ボタンは右端に置く。 */
+/**
+ * 引き出しの 1 行。1 件を 1 行で読み、ボタンは右端に置く。
+ * セッションの行（menu を持つ行）は、右クリックで押した点に、行の中の部品にフォーカスがあるときの . で行に、セッションのメニュー（1A）を出す。
+ * 閉じたら（選んだとき、Esc のとき）、開く前にフォーカスのあった部品へ戻す。行が消えていれば戻す先は無い。
+ */
 function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTMLElement | null) => void }) {
   const emit = useEmit();
   const r = props.row;
   const open = r.open;
+  const [menuAt, setMenuAt] = useState<MenuAnchor | null>(null);
+  const back = useRef<HTMLElement | null>(null);
+  const li = useRef<HTMLLIElement | null>(null);
+  const setLi = (el: HTMLLIElement | null) => { li.current = el; props.rowRef?.(el); };
+  const show = (at: MenuAnchor) => {
+    back.current = document.activeElement instanceof HTMLElement && li.current?.contains(document.activeElement) ? document.activeElement : null;
+    setMenuAt(at);
+  };
+  const closeMenu = (how: MenuCloseHow) => {
+    setMenuAt(null);
+    if (how !== 'outside') (back.current?.isConnected ? back.current : li.current?.querySelector<HTMLElement>('button'))?.focus();
+  };
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLLIElement>) => {
+    if (!r.menu || e.key !== '.' || e.metaKey || e.ctrlKey || e.altKey) return;
+    // メニューの中の打鍵は、portal の中から React の木を伝ってここへ上がってくる。開き直さない。
+    if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"], [role="menu"]')) return;
+    e.preventDefault();
+    if (li.current) show(boxAnchor(li.current));
+  };
+  const onContextMenu = (e: ReactMouseEvent<HTMLLIElement>) => {
+    // 開いたメニューは portal だが、React の右クリックは木を伝ってここへ上がってくる。メニューの中からのものは行の右クリックとして扱わない。
+    if ((e.target as HTMLElement).closest('[role="menu"]')) return;
+    e.preventDefault();
+    show(pointAnchor(e.clientX, e.clientY));
+  };
   return (
-    <li ref={props.rowRef} className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : r.lead.kind === 'guide' ? 'guide' : undefined)} aria-hidden={props.leaving ? true : undefined} inert={props.leaving || undefined}>
+    <li ref={setLi} className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : r.lead.kind === 'guide' ? 'guide' : undefined)} aria-hidden={props.leaving ? true : undefined} inert={props.leaving || undefined}
+      data-menu={menuAt ? 'true' : undefined}
+      onContextMenu={r.menu && !props.leaving ? onContextMenu : undefined}
+      onKeyDown={r.menu ? onKeyDown : undefined}>
       <Lead lead={r.lead} />
       {/* 小札（「任意」、提案の出どころ）は名前の後ろに置く。名前がボタンの行では、ボタンの外に置いて読み上げの名前に混ぜない。 */}
       {open
@@ -251,6 +285,7 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
         {r.actions.map((a) => <BandButton key={a.id} action={a} />)}
       </span>
+      {menuAt && r.menu && !props.leaving && <SessionMenuPop menu={r.menu} at={menuAt} onClose={closeMenu} />}
     </li>
   );
 }

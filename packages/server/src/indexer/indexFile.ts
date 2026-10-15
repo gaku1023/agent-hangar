@@ -6,6 +6,7 @@ import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/transcript/lines.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts } from '../provider/claude-code/transcript/normalize.ts';
+import { pinnedProjectOf } from '../sessions/move.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { foldActivity, type Activity } from '../provider/claude-code/transcript/activity.ts';
 import { foldLimit, type Limit } from '../provider/claude-code/transcript/limit.ts';
@@ -88,8 +89,12 @@ export function markTruncatedForReindex(db: Db): number {
       and not exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and e.file_path_ref = transcript_files.path and e.byte_offset = 0)`).run().changes;
 }
 
-/** 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。 */
-export function forgetTranscriptFile(db: Db, filePath: string): void {
+/**
+ * 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。
+ * keepUsage を立てると、日別の使用量（usage_daily）は残す。セッションの削除（sessions/trash.ts）が使う。
+ * 実際に使った量なので、会話を消しても集計からは消さない。ゴミ箱から戻して索引し直すときは、先頭からの作り直しで同じファイル由来のぶんを消してから積むので、二重に数えない。
+ */
+export function forgetTranscriptFile(db: Db, filePath: string, o: { keepUsage?: boolean } = {}): void {
   const row = stmt(db, 'select session_id, agent_id from transcript_files where path = ?').get(filePath) as { session_id: string; agent_id: string | null } | undefined;
   if (!row) return;
   const agentKey = row.agent_id ?? '';
@@ -99,7 +104,7 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
     // 日別の集計はこのファイル由来のぶんを鍵に持っている。
     // 残すと、同じ会話を別のパス（写しから手元へ切り替わったとき）で積み直したぶんと足し合わさり、
     // event_index が正しいのに使用量のゲージだけが静かに倍になる。indexFile の reset 側と同じ 1 文である。
-    stmt(db, 'delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
+    if (!o.keepUsage) stmt(db, 'delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
     // 「いま何をしているか」は主線の行だけが持つ。主線のファイルそのものを手放すときは、
     // 残すと後で息を吹き返したセッションに、答え済みの問いなど古い「いま」を見せてしまう。
     // サブエージェントのファイルを手放すだけなら、主線の行はそのまま正しいので触らない。
@@ -301,6 +306,7 @@ function refreshFilesChanged(db: Db, sessionId: string): void {
 /**
  * 主線から得た事実を sessions と session_stats に重ねる。sessions は全列を読んでから差分を乗せて upsertShared に渡す。他端末の写しではこの関数を呼ばない。
  * 本文の題名（Claude Code の側で付けた名前）は sessions.custom_title に書く。hangar で付けた名前（session_notes）には触らない。
+ * 利用者が移したセッションは、所属を移した先に合わせ直す。
  */
 function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, deviceId: string): void {
   const cur = stmt(db, 'select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
@@ -312,6 +318,10 @@ function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, 
   if (title) next.custom_title = title;
   if (acc.firstTs !== undefined) next.started_at = reset || cur.started_at == null ? acc.firstTs : Math.min(cur.started_at as number, acc.firstTs);
   if (acc.lastTs !== undefined) next.last_activity_at = reset || cur.last_activity_at == null ? acc.lastTs : Math.max(cur.last_activity_at as number, acc.lastTs);
+  // 所属は本文から読み取る事実ではなく利用者が決めることなので、移した先（sessions/move.ts）があればそれに合わせ直す。
+  // 古い所属が同期で書き戻されていても、ここで直した値が上がる。
+  const pin = pinnedProjectOf(db, sessionId);
+  if (pin !== null) next.project_id = pin;
   delete next.updated_at; delete next.origin_device;
   if (JSON.stringify(next) !== JSON.stringify(Object.fromEntries(Object.entries(cur).filter(([k]) => k !== 'updated_at' && k !== 'origin_device')))) {
     upsertShared(db, 'sessions', next, deviceId);

@@ -1,4 +1,6 @@
 import { getSessionNote, setSessionName } from '../sessions/notes.ts';
+import { moveSession } from '../sessions/move.ts';
+import { assignSessions } from '../projects/registry.ts';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -2250,6 +2252,26 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     expect(p.opened[0]!.cwd).toBe(path.join(cwd, 'pkg'));
     expect((db.prepare('select cwd from sessions where id = ?').get(f.sessionId) as { cwd: string }).cwd).toBe(path.join(cwd, 'pkg'));
     expect(promptOf(p.opened[0]!.command)).toContain('この会話は work-pc（Windows）で');
+  });
+
+  it('移した会話をフォークすると、新しい会話にも移した印を写す。起こす場所は元の cwd の読み替えのまま', () => {
+    const id = seedRemote();
+    upsertShared(db, 'projects', { id: 'p2', name: 'docs', status: 'active', is_scratch: 0 }, 'd');
+    moveSession(db, 'd', id, 'p2');
+    const p = capturing();
+    const f = make({ panes: p.panes }).fork(id);
+    expect(p.opened[0]!.cwd).toBe(path.join(cwd, 'pkg'));
+    expect(db.prepare('select project_id from session_states where session_id = ?').get(f.sessionId)).toEqual({ project_id: 'p2' });
+    expect(db.prepare('select project_id from sessions where id = ?').get(f.sessionId)).toEqual({ project_id: 'p2' });
+    // 索引の自動の振り分けが cwd から元のプロジェクトへ戻そうとしても、移した先のまま。
+    assignSessions(db, 'd');
+    expect(db.prepare('select project_id from sessions where id = ?').get(f.sessionId)).toEqual({ project_id: 'p2' });
+  });
+
+  it('移していない会話のフォークは、移した印を作らない', () => {
+    const id = seedRemote();
+    const f = make({ panes: capturing().panes }).fork(id);
+    expect(db.prepare('select project_id from session_states where session_id = ?').get(f.sessionId)).toBeUndefined();
   });
 
   it('この PC に場所が無ければ、行も run も作らずに場所が無いと断る', () => {

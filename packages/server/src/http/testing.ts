@@ -23,6 +23,8 @@ import { MemoStore } from '../projects/memo.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { RunError } from '../runs/manager.ts';
+import { sessionRunsAnywhere } from '../runs/announce.ts';
+import { SessionTrash } from '../sessions/trash.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import type { AccountsDeps } from './accounts.ts';
@@ -194,6 +196,14 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     live: () => [], indexer, ready: () => true,
     hub: publisher,
     runs, external, usage, memos, summary,
+    // 本物の削除に、偽のゴミ箱（ワークスペースの .test-trash へ移すだけ）を渡す。
+    trash: new SessionTrash({
+      db, deviceId: 'd', claudeDir, remoteRoot: path.join(ws, 'remote'),
+      trash: async (p) => { const bin = path.join(ws, '.test-trash'); fs.mkdirSync(bin, { recursive: true }); fs.renameSync(p, path.join(bin, path.basename(p))); },
+      runsAnywhere: (id) => sessionRunsAnywhere({ db, live: () => [] }, id),
+      runsHere: () => false,
+      log: () => {},
+    }),
     promote: (o) => { if (o.name === 'taken') throw new PromoteError(409, 'あります'); return { projectId: alphaProjectId(), moved: o.moveFiles, reason: null }; },
     // git を呼ばない。
     gitInit: () => {},

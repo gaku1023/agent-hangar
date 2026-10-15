@@ -267,7 +267,7 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([]);
   });
 
-  it('消えた行は配らない（読み直して無ければ何も送らない）', () => {
+  it('消えた行は配らない（読み直して無ければ何も送らない）。論理削除したセッションだけは session.removed を配る', () => {
     const t = setup();
     seedProject(t.db);
     seedSession(t.db);
@@ -276,7 +276,8 @@ describe('表から DTO とイベントへ', () => {
     softDeleteShared(t.db, 'projects', 'p1', ME);
     touchRow(t.db, 'sessions', 'never-existed');
     t.publisher.flush();
-    expect(t.sent).toEqual([]);
+    // 画面が Store からセッションを外せるように、論理削除したセッションは知らせる（セッションの削除）。
+    expect(t.sent).toEqual([{ type: 'session.removed', id: 's1' }]);
   });
 
   it('別の DB の知らせは拾わない', () => {

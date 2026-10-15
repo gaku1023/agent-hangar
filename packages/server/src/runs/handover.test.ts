@@ -64,6 +64,46 @@ describe('resumeCwd（再開とフォークの作業ディレクトリ）', () =
     db.prepare("update project_roots set resolved = 1, deleted_at = 5 where id = 'r-me'").run();
     expect(resumeCwd(db, 'me', { cwd: 'D:\\src\\notes-app', project_id: 'p1' })).toBeNull();
   });
+  it('移した会話は、移した先ではなく、cwd を含む場所を持つプロジェクトの場所で読み替える', () => {
+    const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-handover-moved-')));
+    try {
+      fs.mkdirSync(path.join(here, 'src'), { recursive: true });
+      upsertShared(db, 'projects', { id: 'p2', name: 'docs', status: 'active', is_scratch: 0 }, 'me');
+      upsertShared(db, 'project_roots', { id: 'r2-me', project_id: 'p2', device_id: 'me', path: other, resolved: 1 }, 'me');
+      const id = session({ cwd: 'D:\\src\\notes-app\\src', project: 'p2' });
+      upsertShared(db, 'session_states', { session_id: id, project_id: 'p2' }, 'me', 'session_id');
+      expect(resumeCwd(db, 'me', { id, cwd: 'D:\\src\\notes-app\\src', project_id: 'p2' })).toBe(path.join(here, 'src'));
+      // cwd を含む場所を持つプロジェクトが無ければ、移した先の場所には倒さない。
+      expect(resumeCwd(db, 'me', { id, cwd: 'E:\\elsewhere', project_id: 'p2' })).toBeNull();
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+  it('移していない会話は、cwd を含む別のプロジェクトにこの PC の場所が無ければ、所属するプロジェクトの場所で起こす', () => {
+    // 所属（p1）の場所は cwd を含まない。cwd を含む H には、この PC の場所が無い。
+    upsertShared(db, 'projects', { id: 'h', name: 'work', status: 'active', is_scratch: 0 }, 'win');
+    upsertShared(db, 'project_roots', { id: 'rh-win', project_id: 'h', device_id: 'win', path: 'E:\\work', resolved: 1 }, 'win');
+    const id = session({ cwd: 'E:\\work\\x', project: 'p1' });
+    expect(resumeCwd(db, 'me', { id, cwd: 'E:\\work\\x', project_id: 'p1' })).toBe(here);
+    expect(resumeCwd(db, 'me', { cwd: 'E:\\work\\x', project_id: 'p1' })).toBe(here);
+  });
+  it('移した先のプロジェクトが一覧から消えていれば、移した印は無いものとして読む（移していない会話と同じに倒す）', () => {
+    upsertShared(db, 'projects', { id: 'gone', name: 'gone', status: 'active', is_scratch: 0 }, 'me');
+    db.prepare("update projects set deleted_at = 9 where id = 'gone'").run();
+    const id = session({ cwd: 'E:\\elsewhere', project: 'p1' });
+    upsertShared(db, 'session_states', { session_id: id, project_id: 'gone' }, 'me', 'session_id');
+    expect(resumeCwd(db, 'me', { id, cwd: 'E:\\elsewhere', project_id: 'p1' })).toBe(here);
+  });
+  it('移した先が親のワークスペースでも、cwd を含む場所のうちいちばん深いプロジェクトで読み替える', () => {
+    // p2 は親のワークスペースで、どの PC の場所も cwd を含む。本来のプロジェクト p1 の場所のほうが深い。
+    fs.mkdirSync(path.join(here, 'src'), { recursive: true });
+    upsertShared(db, 'projects', { id: 'p2', name: 'workspace', status: 'active', is_scratch: 0 }, 'me');
+    upsertShared(db, 'project_roots', { id: 'r2-me', project_id: 'p2', device_id: 'me', path: path.dirname(here), resolved: 1 }, 'me');
+    upsertShared(db, 'project_roots', { id: 'r2-win', project_id: 'p2', device_id: 'win', path: 'D:\\src', resolved: 1 }, 'win');
+    const id = session({ cwd: 'D:\\src\\notes-app\\src', project: 'p2' });
+    upsertShared(db, 'session_states', { session_id: id, project_id: 'p2' }, 'me', 'session_id');
+    expect(resumeCwd(db, 'me', { id, cwd: 'D:\\src\\notes-app\\src', project_id: 'p2' })).toBe(path.join(here, 'src'));
+  });
   it('この PC の場所の行があっても、フォルダが消えていれば読み替えない', () => {
     fs.rmSync(here, { recursive: true, force: true });
     expect(resumeCwd(db, 'me', { cwd: 'D:\\src\\notes-app', project_id: 'p1' })).toBeNull();
@@ -245,6 +285,22 @@ describe('ほかの PC のクイックセッションの再開', () => {
     expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'q-win' })?.path).toBe(path.join(quick, '20261016-101010'));
   });
 
+  it('クイックセッションへ移した普通の会話は、普通の読み替えにする（クイックの分岐は所属でなく cwd で決める）', () => {
+    fs.mkdirSync(path.join(here, 'src'), { recursive: true });
+    const id = session({ cwd: 'D:\\src\\notes-app\\src', project: 'q' });
+    upsertShared(db, 'session_states', { session_id: id, project_id: 'q' }, 'me', 'session_id');
+    expect(resumeTarget(db, 'me', { id, cwd: 'D:\\src\\notes-app\\src', project_id: 'q' })).toEqual({ path: path.join(here, 'src'), createsFolder: false });
+    expect(resumeHerePlan(db, 'me', id)?.to.path).toBe(path.join(here, 'src'));
+    // cwd を含む場所を持つプロジェクトが無ければ、移した先（クイックセッションの置き場）には倒さない。
+    expect(resumeTarget(db, 'me', { id, cwd: 'E:\\elsewhere', project_id: 'q' })).toBeNull();
+  });
+
+  it('普通のプロジェクトへ移したクイックセッションの会話は、クイックの分岐で読み替える', () => {
+    const id = session({ cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project: 'p1' });
+    upsertShared(db, 'session_states', { session_id: id, project_id: 'p1' }, 'me', 'session_id');
+    expect(resumeTarget(db, 'me', { id, cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'p1' })).toEqual({ path: path.join(quick, '20261016-101010'), createsFolder: true });
+  });
+
   it('再開の確認は、作って再開するフォルダのパスと、作ることを返す', () => {
     const id = session({ cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project: 'q' });
     run(id, 'win', 3);
@@ -273,7 +329,8 @@ describe('ほかの PC のクイックセッションの再開', () => {
     // クイックセッションから普通のプロジェクトへ移した会話も、置き場の下の cwd ならこの PC の quick-sessions で再開する。
     expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'p1' })).toEqual({ path: path.join(quick, '20261016-101010'), createsFolder: true });
     // クイックセッションへ移した普通の会話は、置き場の下ではないので、quick-sessions の下にも置き場そのものにも読み替えない。
-    expect(resumeTarget(db, 'me', { cwd: 'D:\\src\\notes-app\\sub', project_id: 'q' })).toBeNull();
+    // cwd を含む場所を持つプロジェクト（p1）の、この PC の場所で読み替える（下位のフォルダが無ければ場所そのもの）。
+    expect(resumeTarget(db, 'me', { cwd: 'D:\\src\\notes-app\\sub', project_id: 'q' })).toEqual({ path: here, createsFolder: false });
     // 普通のプロジェクトの会話は、今までどおりそのプロジェクトの場所で読み替える。
     expect(resumeTarget(db, 'me', { cwd: 'D:\\src\\notes-app', project_id: 'p1' })).toEqual({ path: here, createsFolder: false });
   });

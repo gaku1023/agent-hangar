@@ -13,6 +13,7 @@ import { projectDisplayName } from './projectName.ts';
 import { liveReadiness, presentReadiness } from './readiness.ts';
 import { presentInterrupted } from './interrupted.ts';
 import { withOverlaps } from './overlap.ts';
+import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { presentSameFolder, presentUnresolved } from './unresolved.ts';
 import { candidateLabel, returnHasCome, returnKey, returnOnLabel, sortSessions } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
@@ -225,7 +226,9 @@ export type BandRow = { key: string; lead: BandLead; name: string; badge?: strin
   /** 同じファイルの編集の警告。行の右端に琥珀の札を置き、押すと中身が開く（presenters/overlap.ts）。 */
   overlap?: OverlapProps | null;
   /** 右端の git の札（実行中の行だけ）。trail の左に置く。 */
-  git?: { id: string; chip: GitChipProps } | null };
+  git?: { id: string; chip: GitChipProps } | null;
+  /** セッションの行の右クリックと . で開くメニュー（1A）。セッションを開く行だけが持つ（withSessionMenus）。 */
+  menu?: SessionMenuProps };
 /**
  * 引き出しの中の小見出し（アカウント）。color は色の点、meter は 5 時間の使用率、note は添える一言（未ログイン、制限に近い）、action は見出しのボタン（ログイン）。
  */
@@ -404,6 +407,23 @@ export type LoadMoreProps = { remaining: number; step: number; loading: boolean 
  */
 export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: boolean; list: SessionListProps; allCount: number; loadMore: LoadMoreProps | null; note: string | null; setup: boolean };
 
+/**
+ * 帯の行のうち、セッションを開く行（入力待ち、戻る、実行中、確認待ち、中断）に、セッションのメニューを添える。
+ * どの群から来た行でも、開く先（open の session.open）でセッションを見分ける。セッションが Store に無い行には付けない。
+ */
+export function withSessionMenus(group: BandGroup, store: Store, t: Translate): BandGroup {
+  const add = (rows: BandRow[]) => rows.map((r) => {
+    const s = r.open?.type === 'session.open' ? store.sessions[r.open.id] : undefined;
+    return s ? { ...r, menu: presentSessionMenu(store, s, t) } : r;
+  });
+  return {
+    ...group,
+    rows: add(group.rows),
+    ...(group.fold ? { fold: { ...group.fold, rows: add(group.fold.rows) } } : {}),
+    ...(group.tail ? { tail: add(group.tail) } : {}),
+  };
+}
+
 export function presentHomeScreen(state: State, store: Store, now: number): HomeScreenProps {
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
@@ -417,7 +437,7 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   // 静かな日は、3 つの群がどれも 0 件のこと。足す群があれば、薄い 3 つの錠剤は出さず、足す群だけを帯に置く。
   const quiet = base.groups.every((g) => g.count === 0);
   const groups = quiet ? extra : [...base.groups, ...extra];
-  const band: HomeBandProps = { groups: groups.length === 0 ? base.groups : groups, morning: morningGroup(groups) };
+  const band: HomeBandProps = { groups: (groups.length === 0 ? base.groups : groups).map((g) => withSessionMenus(g, store, t)), morning: morningGroup(groups) };
   const list = presentSessionList(state, store, now);
   const remaining = list.total - list.rows.length;
   return {

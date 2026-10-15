@@ -6,7 +6,7 @@ import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { recordArtifactPublish } from '../artifacts/extract.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { Publisher } from '../events/publisher.ts';
-import { upsertShared } from '../db/shared.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { latestIntent } from '../live/intents.ts';
 import { addTodo } from '../projects/todos.ts';
@@ -255,6 +255,27 @@ describe('MCP tools', () => {
     expect((withTools.events as unknown[]).length).toBe(2);
     expect(withTools.next_seq).toBe(3);
     expect(() => call('get_transcript')).toThrow(/session_id/);
+  });
+  it('削除したセッション（論理削除）は、本文も要約の書き込みも断る', () => {
+    upsertShared(db, 'session_states', { session_id: alphaId, trashed_at: 1 }, 'd', 'session_id');
+    softDeleteShared(db, 'sessions', alphaId, 'd');
+    const notFound = /セッションが見つかりません/;
+    expect(() => call('get_transcript', { session_id: alphaId })).toThrow(notFound);
+    expect(() => call('get_transcript', {}, { sessionId: alphaId })).toThrow(notFound);
+    expect(() => call('propose_session_status', { session_id: alphaId, status: 'done', note: '済んだ' })).toThrow(notFound);
+  });
+  it('削除したセッションは、一覧にも検索にもプロジェクトの直近にも出ない', () => {
+    const pid = (db.prepare('select project_id from sessions where id = ?').get(alphaId) as { project_id: string | null }).project_id;
+    const ids = (v: unknown) => (v as { id?: string; session_id?: string }[]).map((s) => s.id ?? s.session_id);
+    expect(pid).not.toBeNull();
+    expect(ids(call('list_sessions'))).toContain(alphaId);
+    expect(ids(call('search_sessions', { query: 'チャンネル' }).hits)).toContain(alphaId);
+    expect(ids(call('get_project', { project_id: pid }).recent_sessions)).toContain(alphaId);
+    upsertShared(db, 'session_states', { session_id: alphaId, trashed_at: 1 }, 'd', 'session_id');
+    softDeleteShared(db, 'sessions', alphaId, 'd');
+    expect(ids(call('list_sessions'))).not.toContain(alphaId);
+    expect(ids(call('search_sessions', { query: 'チャンネル' }).hits)).not.toContain(alphaId);
+    expect(ids(call('get_project', { project_id: pid }).recent_sessions)).not.toContain(alphaId);
   });
   it('create_session は runs.start を呼び、URL を返す', () => {
     const r = call('create_session', { project_id: 'p1', name: 'n', prompt: 'p', permission_mode: 'default' });

@@ -458,3 +458,58 @@ describe('RemotePuller の止め方', () => {
     p.stop();
   });
 });
+
+describe('削除したセッションの写し', () => {
+  const rel = `projects/-w-alpha/${UUID}.jsonl`;
+  const trash = (at: number | null) => {
+    db.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', ?, '/w/alpha', 'dev-b', 1, 'dev-b') on conflict(id) do nothing").run(UUID);
+    db.prepare("insert into session_states (session_id, trashed_at, updated_at, origin_device) values ('s1', ?, 1, 'dev-b') on conflict(session_id) do update set trashed_at = excluded.trashed_at").run(at);
+  };
+  it('削除の印のあるセッションの写しは降ろさない（区切りは先へ進める）', async () => {
+    trash(1);
+    await putRemote('dev-b', rel, '{"a":1}\n');
+    expect(await make().pullNow()).toEqual({ downloaded: 0 });
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', rel))).toBe(false);
+    expect(state.getNumber('filesSeq', 0)).toBe(1);
+  });
+  it('ほかの PC で戻されたら、台帳に残る写しを降ろし直す', async () => {
+    await putRemote('dev-b', rel, '{"a":1}\n');
+    const p = make();
+    await p.pullNow();
+    const target = remoteTranscriptPath(home, 'dev-b', rel);
+    // 消したときに写しを消した形にする。台帳（file_sync）の行は残っている。
+    fs.rmSync(target);
+    expect(await p.refetchSession(UUID)).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(target, 'utf8')).toBe('{"a":1}\n');
+  });
+  it('台帳に行が無くても（印の後に一覧を見た PC）、写しの一覧を引き直して降ろす', async () => {
+    trash(1);
+    await putRemote('dev-b', rel, '{"a":1}\n');
+    const p = make();
+    await p.pullNow();
+    expect(db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 0 });
+    trash(null);
+    expect(await p.refetchSession(UUID)).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', rel), 'utf8')).toBe('{"a":1}\n');
+    expect(errors).toEqual([]);
+  });
+  it('台帳の指紋が古くても、一覧の最新の項目を降ろす（指紋の食い違いを繰り返さない）', async () => {
+    await putRemote('dev-b', rel, '{"a":1}\n');
+    const p = make();
+    await p.pullNow();
+    const target = remoteTranscriptPath(home, 'dev-b', rel);
+    fs.rmSync(target);
+    // 消えている間に持ち主が続きを上げた。印があるので通常の pull では降ろさず、台帳は古い指紋のまま。
+    trash(1);
+    await putRemote('dev-b', rel, '{"a":1}\n{"b":2}\n');
+    await p.pullNow();
+    trash(null);
+    expect(await p.refetchSession(UUID)).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(target, 'utf8')).toBe('{"a":1}\n{"b":2}\n');
+    expect(errors).toEqual([]);
+  });
+  it('ほかのセッションと自分の写しは降ろさない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/22222222-2222-4222-8222-222222222222.jsonl`, '{"x":1}\n', 'transcripts/dev-b/22222222-2222-4222-8222-222222222222.jsonl.gz');
+    expect(await make().refetchSession(UUID)).toEqual({ downloaded: 0 });
+  });
+});

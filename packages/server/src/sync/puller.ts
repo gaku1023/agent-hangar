@@ -11,6 +11,12 @@ import { CompatError, LimitError, type CloudClient } from './client.ts';
 import { decryptStream, sha256Stream } from './crypto.ts';
 import type { SyncStateStore } from './state.ts';
 
+/** 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）から、セッションの ID を取り出す。取れなければ空。 */
+function uuidOfTranscript(rel: string): string {
+  const parts = path.posix.normalize(rel).split('/');
+  return (parts[2] ?? '').replace(/\.jsonl$/, '');
+}
+
 export type PullerDeps = {
   db: Db;
   deviceId: string;
@@ -269,6 +275,8 @@ export class RemotePuller {
         if (e.deviceId === this.deps.deviceId) continue;
         // 設定（kind が config）は降ろさない。束の本体は設定の同期が、束の行を見て自分で取りに行く。
         if (e.kind === 'config') continue;
+        // 削除したセッション（sessions/trash.ts）の写しは降ろさない。印を受け取る前の持ち主が上げた分でも、置けば消し直すだけになる。
+        if (this.isTrashed(e.path)) continue;
         try {
           if (await this.download(e)) { downloaded++; this.clearSkip(e.key); }
         } catch (err) {
@@ -289,6 +297,52 @@ export class RemotePuller {
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
     if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
     return { downloaded };
+  }
+
+  /**
+   * 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）のセッションに、削除の印があるか。
+   * 印は session_states.trashed_at にある（版 25）。
+   */
+  private isTrashed(rel: string): boolean {
+    const uuid = uuidOfTranscript(rel);
+    if (uuid === '') return false;
+    return this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
+      where s.provider_session_id = ? and st.trashed_at is not null`).get(uuid) !== undefined;
+  }
+
+  /**
+   * そのセッション（Claude Code のセッション ID）の写しを降ろし直す。削除したセッションがほかの PC で戻されたときに呼ぶ（sessions/trash.ts）。
+   * 台帳（file_sync）には頼らず、写しの一覧を先頭から引き直して、そのセッションの項目の最新を降ろす。
+   * 印の後に一覧を見た PC や、後から参加した PC は、印のある写しを飛ばしたので台帳に行が無い。行があっても、消えている間に上がった続きの指紋とは食い違う。
+   * 一覧の区切り（filesSeq）は動かさない。失敗は onError に流し、次の項目へ進む。
+   */
+  refetchSession(uuid: string): Promise<{ downloaded: number }> {
+    return this.enqueue(async () => {
+      if (this.stopped) return { downloaded: 0 };
+      const latest = new Map<string, FileEntry>();
+      let since = 0;
+      for (;;) {
+        const page = await this.deps.client.listFiles(since, PULL_LIMIT);
+        for (const e of page.files) {
+          if (e.deviceId === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid) continue;
+          const prev = latest.get(e.key);
+          if (!prev || prev.seq < e.seq) latest.set(e.key, e);
+        }
+        if (!page.more || page.nextSeq <= since) break;
+        since = page.nextSeq;
+      }
+      let downloaded = 0;
+      for (const e of latest.values()) {
+        try {
+          if (await this.download(e)) downloaded++;
+        } catch (err) {
+          if (err instanceof CompatError || err instanceof LimitError) throw err;
+          this.deps.onError?.(e.key, this.errorText(err));
+        }
+      }
+      if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
+      return { downloaded };
+    });
   }
 
   /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */

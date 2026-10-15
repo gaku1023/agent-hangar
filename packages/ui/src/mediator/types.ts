@@ -183,6 +183,8 @@ export type ConfirmRequest =
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
   | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
   | { kind: 'removeAccount'; accountId: string }
+  // セッションを消す（本文をゴミ箱へ移し、同期しているほかの PC からも消す）前の確認（試作の 3A）。
+  | { kind: 'deleteSession'; sessionId: string }
   // 同じフォルダのプロジェクトをまとめる（サーバの 409 の ProjectSameFolderDto から組む）。
   // projectId はまとめる方で、承諾するとそのプロジェクトへ path と merge: true を送り直す。into は残す方、roots と件数はまとめた後の姿である。
   | { kind: 'mergeProject'; projectId: string; path: string; into: { projectId: string; name: string }; roots: { deviceName: string | null; path: string; here: boolean }[]; sessions: number; fromSessions: number };
@@ -206,6 +208,8 @@ export type Overlay =
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
   | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' }
+  // セッションを別のプロジェクトへ移す先を選ぶダイアログ（試作の 2A）。選んでいる先と検索の語は、ダイアログが持つ。
+  | { kind: 'moveSession'; sessionId: string }
   // 差分のダイアログ（git の表示）。file は選んだファイルで、null なら画面が最初の未コミットを選ぶ。source は差分の出どころで、null なら画面が決める（git でなければこのセッションの編集）。
   | { kind: 'diff'; sessionId: string; file: string | null; source: 'git' | 'session' | null }
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。

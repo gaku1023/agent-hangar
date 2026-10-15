@@ -24,7 +24,7 @@ import { listTodos } from '../projects/todos.ts';
  */
 
 /** この層だけが組む、行のイベント。 */
-export type RowEvent = Extract<ServerEvent, { type: 'session.upsert' | 'project.upsert' | 'devices.update' | 'memo.update' | 'artifact.upsert' | 'todos.update' | 'config.update' }>;
+export type RowEvent = Extract<ServerEvent, { type: 'session.upsert' | 'session.removed' | 'project.upsert' | 'devices.update' | 'memo.update' | 'artifact.upsert' | 'todos.update' | 'config.update' }>;
 /** 呼び手が `broadcast` で渡せる知らせ。表の変化に対応しないものだけである。 */
 export type NoticeEvent = Exclude<ServerEvent, RowEvent>;
 
@@ -39,7 +39,12 @@ type Kind = (ctx: Ctx, id: string) => RowEvent | null;
 
 const KINDS = {
   // ロックを出すために自端末の ID を渡す。渡さないと他端末の run が一切見えない。
-  session: (ctx, id) => { const s = getSession(ctx.db, ctx.live(), id, { deviceId: ctx.deviceId }); return s ? { type: 'session.upsert', session: s } : null; },
+  // 論理削除した行は session.removed にする。画面が Store から外せるようにするためである。行が無いときは何も配らない。
+  session: (ctx, id) => {
+    const s = getSession(ctx.db, ctx.live(), id, { deviceId: ctx.deviceId });
+    if (s) return { type: 'session.upsert', session: s };
+    return ctx.db.prepare('select 1 from sessions where id = ? and deleted_at is not null').get(id) ? { type: 'session.removed', id } : null;
+  },
   project: (ctx, id) => { const p = getProject(ctx.db, ctx.deviceId, ctx.live(), id); return p ? { type: 'project.upsert', project: p } : null; },
   // 端末は一覧ごと配るので、ID は持たない。
   devices: (ctx) => ({ type: 'devices.update', devices: listDevices(ctx.db, ctx.deviceId) }),

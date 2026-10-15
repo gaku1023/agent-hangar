@@ -10,6 +10,7 @@ import type { CandidateEnv } from '../projects/candidates.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
+import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
@@ -95,6 +96,8 @@ export type AppDeps = {
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
+  /** セッションの削除（sessions/trash.ts）。本文を OS のゴミ箱へ移し、削除の印を書く。 */
+  trash: Pick<SessionTrash, 'deleteSession'>;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }) => { projectId: string; moved: boolean; reason: string | null; /** reason と同じ理由の、言語を決めていない文。あれば経路がこちらを応答の言語で出す。 */ reasonMessage?: Message | null };
   /**
    * Claude Code と会話したフォルダの候補を探すときの、ホームと一時フォルダの差し替え（projects/candidates.ts）。

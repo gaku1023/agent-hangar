@@ -10,8 +10,15 @@ import { place, type Placement } from './listboxModel.ts';
  * note は押せる項目に添える補足の 1 行。
  * danger は取り消せない操作で、区切りの後ろに危険色で置く。
  * kbd は打鍵の印。メニューが開いている間、その 1 字で選べる（「⋯」の p・d・a・u など）。
+ * checked を持つ項目は、いまの値に ✓ を付けて並べる択一の項目である（セッションのメニューの状態）。
  */
-export type MenuItem = { key: string; label: string; icon?: IconName; note?: string | null; disabled?: string | null; danger?: boolean; kbd?: string; onSelect: () => void };
+export type MenuItem = { key: string; label: string; icon?: IconName; note?: string | null; disabled?: string | null; danger?: boolean; kbd?: string; onSelect: () => void;
+  /** この項目の前に区切りを置く。最初の危険な項目の前の区切りとは重ねない。 */
+  separatorBefore?: boolean;
+  /** 選べる状態の 1 つ（menuitemradio）。真なら頭に ✓ を付ける。持たない項目はふつうの menuitem である。 */
+  checked?: boolean;
+  /** 語の前に添える印（状態の色の点など）。 */
+  lead?: ReactNode };
 
 export type MenuCloseHow = 'select' | 'escape' | 'tab' | 'outside';
 
@@ -81,7 +88,8 @@ export function MenuPop(props: { id?: string; label: string; items: MenuItem[]; 
   const close = useRef(props.onClose);
   close.current = props.onClose;
 
-  const rows = () => [...(pop.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+  // 項目は menuitem と menuitemradio の両方を数える。並びは props.items と同じ順である。
+  const rows = () => [...(pop.current?.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]') ?? [])];
 
   const reposition = useCallback(() => {
     const r = anchor();
@@ -125,7 +133,7 @@ export function MenuPop(props: { id?: string; label: string; items: MenuItem[]; 
     const all = rows();
     // キーを受けた項目から数える。
     // フォーカスの位置と打鍵の宛先はふつう同じだが、宛先の方を信じる。
-    const at = all.indexOf((e.target as HTMLElement).closest<HTMLElement>('[role="menuitem"]') as HTMLElement);
+    const at = all.indexOf((e.target as HTMLElement).closest<HTMLElement>('[role="menuitem"], [role="menuitemradio"]') as HTMLElement);
     const go = (i: number) => all[(i + all.length) % all.length]?.focus();
     switch (e.key) {
       case 'ArrowDown': go(at + 1); break;
@@ -155,12 +163,14 @@ export function MenuPop(props: { id?: string; label: string; items: MenuItem[]; 
       {props.head && <div className="menu-head">{props.head}</div>}
       {props.items.map((item, i) => (
         <Fragment key={item.key}>
-          {i === firstDanger && i > 0 && <div role="separator" className="menu-sep" />}
-          <button type="button" role="menuitem" tabIndex={-1} className="menu-item" aria-disabled={item.disabled ? 'true' : undefined} data-danger={item.danger ? 'true' : undefined}
+          {(i === firstDanger || item.separatorBefore) && i > 0 && <div role="separator" className="menu-sep" />}
+          <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={item.checked === undefined ? undefined : item.checked} tabIndex={-1} className="menu-item"
+            aria-disabled={item.disabled ? 'true' : undefined} data-danger={item.danger ? 'true' : undefined}
             onClick={() => choose(item)}>
+            {item.checked !== undefined && <span className="menu-check" aria-hidden="true">{item.checked && <Icon name="check" />}</span>}
             {item.icon && <Icon name={item.icon} />}
             <span className="menu-item-text">
-              <span>{item.label}</span>
+              <span>{item.lead}{item.label}</span>
               {(item.disabled || item.note) && <small>{item.disabled ?? item.note}</small>}
             </span>
             {item.kbd && <kbd className="menu-kbd">{item.kbd}</kbd>}

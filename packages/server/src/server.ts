@@ -4,6 +4,7 @@ import { CLOSE_DEADLINE_MS, STOP_WATCHDOG_MS } from './boot/budget.ts';
 import { bootDelivery } from './boot/delivery.ts';
 import { bootHome } from './boot/home.ts';
 import { bootHttp, bootListen } from './boot/http.ts';
+import { bootTrash } from './boot/trash.ts';
 import { bootIndexing } from './boot/indexing.ts';
 import type { StartOptions } from './boot/options.ts';
 import { bootRuns } from './boot/runs.ts';
@@ -98,7 +99,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   home.persistSettings();
   const runs = bootRuns(home, delivery, listening, { serverDir, launcher: opts.launcher });
   const summary = bootSummary(home, delivery, runs, sync);
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, opts, serverDir });
+  const trash = bootTrash(home, delivery, sync, indexing);
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.registry.start();
@@ -110,6 +112,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   home.life.started = true;
   runs.startPresence();
   sync.start();
+  // 削除の印の処理（sessions/trash.ts）。索引と紐づけが済んでから回す。起きていなかった間に届いた印も、ここで処理する。
+  trash.start();
 
   // 起動の手続き（最初の索引づけと紐づけ）が済んだ。.app はここまで起動画面に残る。
   console.log(`agent-hangar ready in ${((performance.now() - bootAt) / 1000).toFixed(1)}s (index ${indexing.indexer.progress().total} files)`);
@@ -127,6 +131,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       summary.stopAutoDone();
       runs.stopPresence();
       sync.stopTimers();
+      // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。
+      await trash.stop();
       await sync.drain(left);
       // 見張りを止める。書き手が止まってから、配る層と待ち受けを畳む。
       indexing.stopMemoWatch();

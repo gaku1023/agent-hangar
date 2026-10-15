@@ -44,8 +44,27 @@ function openMerge(state: State, c: ProjectSameFolderDto): Step | null {
   return { state: { ...state, overlay: { kind: 'confirm', confirm } }, effects: [] };
 }
 
+/** いまのオーバーレイが、そのセッションについてのものか（Paused の入力、移す先、削除の確認）。 */
+function overlayOfSession(o: Overlay, id: string): boolean {
+  if (o.kind === 'pause' || o.kind === 'moveSession') return o.sessionId === id;
+  return o.kind === 'confirm' && o.confirm.kind === 'deleteSession' && o.confirm.sessionId === id;
+}
+
+/**
+ * セッションが消えた（この PC で消した、ほかの PC で消した印が届いた）。
+ * その画面を開いていたらホームへ戻る。そのセッションについてのダイアログが開いていれば閉じる。
+ * どちらでもなければ応答しない（ほかの領域に任せる）。
+ */
+function sessionRemoved(state: State, id: string): Step | null {
+  const onScreen = state.screen.name === 'session' && state.screen.id === id;
+  const closes = overlayOfSession(state.overlay, id);
+  if (!onScreen && !closes) return null;
+  return { state: closes ? { ...state, overlay: { kind: 'none' } } : state, effects: onScreen ? [{ kind: 'navigate', route: { name: 'home' } }] : [] };
+}
+
 /** overlay 領域：ダイアログとパレット。未解決のプロジェクトのダイアログは、押したときだけ開く。 */
 export function overlayStep(state: State, input: Input): Step | null {
+  if (input.kind === 'server' && input.event.type === 'session.removed') return sessionRemoved(state, input.event.id);
   if (input.kind === 'runtime' && input.event.type === 'api.conflict' && input.event.kind === 'sameFolder') return openMerge(state, input.event.conflict);
   // まとめた方は一覧から消えるので、その画面を開いていたら、残した方の画面へ移る。
   if (input.kind === 'runtime' && input.event.type === 'project.merged') {
@@ -78,6 +97,9 @@ export function overlayStep(state: State, input: Input): Step | null {
     case 'diff.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'diff', sessionId: i.sessionId, file: i.file ?? null, source: null } }, effects: [] } : { state, effects: [] };
     case 'diff.select': return { state: state.overlay.kind === 'diff' ? { ...state, overlay: { ...state.overlay, file: i.file } } : state, effects: [] };
     case 'diff.source': return { state: state.overlay.kind === 'diff' ? { ...state, overlay: { ...state.overlay, source: i.source } } : state, effects: [] };
+    // セッションのメニューの「プロジェクトを変更…」と「削除…」。確認や入力のあるダイアログの上には重ねない。
+    case 'session.move.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'moveSession', sessionId: i.id } }, effects: [] } : { state, effects: [] };
+    case 'session.delete.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'deleteSession', sessionId: i.id } } }, effects: [] } : { state, effects: [] };
     case 'session.pause.close': return { state: state.overlay.kind === 'pause' ? { ...state, overlay: { kind: 'none' } } : state, effects: [] };
     default: return null;
   }

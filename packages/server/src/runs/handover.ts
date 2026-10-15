@@ -5,6 +5,7 @@ import type { Db } from '../db/open.ts';
 import { readGitHint } from '../git/hint.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { scratchPlacesOf } from '../projects/scratch.ts';
+import { pinnedProjectOf } from '../sessions/move.ts';
 
 /**
  * PC をまたいで会話を続けるときの事実（docs/design.md の「指示の注入」と「この PC で再開」）。
@@ -118,6 +119,37 @@ export function scratchFolderName(segment: string | undefined): string | null {
 }
 
 /**
+ * 消していないプロジェクトのうち、どれかの PC の場所が cwd を含むもの。深い場所のものから順に返す（同じプロジェクトは 1 度だけ）。
+ * 深さは、そのプロジェクトの場所のうち cwd を含むものの段の数である。
+ */
+function projectsHolding(db: Db, cwd: string): string[] {
+  const rows = db.prepare(`select r.project_id, r.path from project_roots r join projects p on p.id = r.project_id and p.deleted_at is null
+    where r.deleted_at is null`).all() as { project_id: string; path: string }[];
+  const depth = new Map<string, number>();
+  for (const r of rows) {
+    if (!relativeSegments(r.path, cwd)) continue;
+    const d = segmentsOf(r.path).length;
+    if (d > (depth.get(r.project_id) ?? -1)) depth.set(r.project_id, d);
+  }
+  return [...depth.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+}
+
+/**
+ * 前の cwd を読み替える元のプロジェクト。
+ * 所属より先に、cwd を含む場所を持つプロジェクトのうち、この PC に場所があるものでいちばん深いものを使う。
+ * 利用者が移した会話は、cwd が移した先の場所の下に無いか、移した先が親のワークスペースで浅すぎるからである。
+ * そういうプロジェクトが無いとき、移していない会話は所属するプロジェクトに倒す（前の cwd が場所の外にあった会話や、cwd を含むプロジェクトがこの PC に無い会話）。
+ * 移した会話は倒さずに null を返す。再開の cwd は元のままで、移した先の場所で起こすと別の作業ディレクトリになるからである。
+ * 移したかどうかは pinnedProjectOf で見る。移した先が一覧から消えていれば、移していない会話と同じに読む。
+ */
+function baseProjectOf(db: Db, selfDeviceId: string, s: { id?: string; cwd: string; project_id: string }): string | null {
+  const holder = projectsHolding(db, s.cwd).find((id) => hereRoot(db, selfDeviceId, id) !== null);
+  if (holder) return holder;
+  const moved = s.id !== undefined && pinnedProjectOf(db, s.id) !== null;
+  return moved ? null : s.project_id;
+}
+
+/**
  * 再開とフォークの作業ディレクトリ。
  * 前の cwd（sessions.cwd）がこの PC にあれば、そのまま使う（前の置き場 ~/.agent-hangar/scratch の下の会話も）。
  * cwd がどれかの PC のクイックセッションの置き場（quick-sessions と前の scratch）の下にあれば、この PC の quick-sessions/<元のフォルダ名> にする。
@@ -129,10 +161,12 @@ export function scratchFolderName(segment: string | undefined): string | null {
  * 継いだ先がこの PC に無ければ、いちばん近いある親（プロジェクトの場所まで）に倒す。
  * 前の cwd がどの場所の下にも無ければ、この PC のプロジェクトの場所にする。ただし、その場所がクイックセッションの置き場そのものなら null にする。
  * 置き場の外の cwd を置き場で起こさないためである。
+ * 読み替えに使うプロジェクトは、所属より先に、cwd を含む場所を持つもののうちこの PC に場所があるいちばん深いもの（baseProjectOf）である。利用者が移した会話でも、元の場所で起こす。
  * プロジェクトに属さない会話と、この PC に場所が無い会話は読み替えられないので null を返す。
  * 共有の行の sessions.cwd は書き換えない。本文の写しの置き場（sync/copy.ts）がその cwd から決まるからである。
+ * id を渡すと、移した会話かどうかを見る。渡さなければ移していない会話として読む。
  */
-export function resumeTarget(db: Db, selfDeviceId: string, s: { cwd: string; project_id: string | null }): ResumeTarget | null {
+export function resumeTarget(db: Db, selfDeviceId: string, s: { id?: string; cwd: string; project_id: string | null }): ResumeTarget | null {
   if (isDirectory(s.cwd)) return { path: s.cwd, createsFolder: false };
   if (!s.project_id) return null;
   const places = quickPlaces(db);
@@ -144,9 +178,11 @@ export function resumeTarget(db: Db, selfDeviceId: string, s: { cwd: string; pro
     const p = path.join(root, name);
     return { path: p, createsFolder: !isDirectory(p) };
   }
-  const root = hereRoot(db, selfDeviceId, s.project_id);
+  const base = baseProjectOf(db, selfDeviceId, { id: s.id, cwd: s.cwd, project_id: s.project_id });
+  if (!base) return null;
+  const root = hereRoot(db, selfDeviceId, base);
   if (!root) return null;
-  const rel = relativeToAnyRoot(allRoots(db, s.project_id), s.cwd) ?? [];
+  const rel = relativeToAnyRoot(allRoots(db, base), s.cwd) ?? [];
   for (let n = rel.length; n > 0; n--) {
     const p = path.join(root, ...rel.slice(0, n));
     if (isDirectory(p)) return { path: p, createsFolder: false };
@@ -156,7 +192,7 @@ export function resumeTarget(db: Db, selfDeviceId: string, s: { cwd: string; pro
 }
 
 /** 再開とフォークの作業ディレクトリ（resumeTarget の場所だけ）。 */
-export function resumeCwd(db: Db, selfDeviceId: string, s: { cwd: string; project_id: string | null }): string | null {
+export function resumeCwd(db: Db, selfDeviceId: string, s: { id?: string; cwd: string; project_id: string | null }): string | null {
   return resumeTarget(db, selfDeviceId, s)?.path ?? null;
 }
 
@@ -265,7 +301,7 @@ export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, 
   if (!s) return null;
   const prev = deviceOfSession(db, sessionId);
   const self = deviceRow(db, selfDeviceId);
-  const target = resumeTarget(db, selfDeviceId, s);
+  const target = resumeTarget(db, selfDeviceId, { ...s, id: sessionId });
   return {
     sessionId,
     from: { deviceName: prev?.name ?? null, platform: prev?.platform ?? null, path: prevPathOf(db, sessionId, prev, s), lastAt: s.last_activity_at },

@@ -13,6 +13,7 @@ import { presentProjectCandidates } from './presenters/projectCandidates.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentPause } from './presenters/pause.ts';
+import { presentMoveSession } from './presenters/moveSession.ts';
 import { presentResolveDialog } from './presenters/unresolved.ts';
 import { presentMuxGuide } from './presenters/readiness.ts';
 import { presentProject } from './presenters/project.ts';
@@ -42,6 +43,7 @@ import { AddAccountDialog } from './views/AddAccountDialog.tsx';
 import { ProjectCandidatesDialog } from './views/ProjectCandidatesDialog.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { PauseDialog } from './views/PauseDialog.tsx';
+import { MoveSessionDialog } from './views/MoveSessionDialog.tsx';
 import { MuxGuideDialog } from './views/MuxGuideDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
@@ -431,6 +433,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const newSession = presentNewSession(state, store, now);
   // Paused の入力は開くたびに作り直す（札と下書きの初期値を、開いたセッションと入口から取り直すため）。
   const pause = presentPause(state, store, now);
+  // セッションを移す先のダイアログ（試作の 2A）。検索の語と選んだ先はダイアログが持つので、開くたびに作り直す。
+  const moveSession = presentMoveSession(state, store);
   // 設定の同期のダイアログ（作り直した実装）。開いたときに取った中身（Store の configDetail）から組む。
   const configDialog = presentConfigDialog(state, store);
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
@@ -451,6 +455,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}
       {pause && <PauseDialog key={`${pause.sessionId}:${pause.from}`} {...pause} />}
+      {moveSession && <MoveSessionDialog key={moveSession.sessionId} {...moveSession} />}
       {configDialog && <ConfigSyncDialog {...configDialog} />}
       {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}

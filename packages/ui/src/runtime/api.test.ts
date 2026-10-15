@@ -220,6 +220,16 @@ describe('createApi（セッションの状態）', () => {
       'POST /api/sessions/s1/state/reject ',
     ]);
   });
+  it('移動は PUT /api/sessions/:id/project に移す先を送る', async () => {
+    const { api, calls } = harness(200, { id: 's1', projectId: 'p2' });
+    expect(await api.moveSession('s1', 'p2')).toMatchObject({ id: 's1', projectId: 'p2' });
+    expect(calls.map((c) => `${c.method} ${c.url} ${c.body ?? ''}`)).toEqual(['PUT /api/sessions/s1/project {"projectId":"p2"}']);
+  });
+  it('削除は DELETE /api/sessions/:id を送る', async () => {
+    const { api, calls } = harness(200, { ok: true });
+    await api.deleteSession('s1');
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['DELETE /api/sessions/s1']);
+  });
   it('409 の本文の一文をそのまま投げる', async () => {
     const ng = harness(409, { error: 'このセッションには確認する提案がありません' });
     await expect(ng.api.confirmSessionState('s1', {})).rejects.toThrow('このセッションには確認する提案がありません');
