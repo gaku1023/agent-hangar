@@ -424,6 +424,8 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
     const rm = make({ panes, now: () => 900 });
     const groups: unknown[] = [];
     rm.on({ interrupted: (g) => groups.push(g) });
+    // 1 回抜けただけでは閉じない（psmux の一覧の一瞬の欠け、issue #258）。
+    expect(rm.tick().ended).toEqual([]);
     expect(rm.tick().ended.map((r) => r.endReason)).toEqual(['lost', 'lost']);
     expect(interruptedGroup(db)).toMatchObject({ at: 900, cause: 'mux', items: [{ runId: 'r1' }, { runId: 'r2' }] });
     expect(groups).toHaveLength(1);
@@ -434,6 +436,7 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
     upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-1', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
     const panes: PaneOps = { open: () => {}, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
     const rm = make({ panes });
+    expect(rm.tick().ended).toEqual([]);
     expect(rm.tick().ended.map((r) => r.endReason)).toEqual(['exited']);
     expect(interruptedGroup(db)).toBeNull();
   });
@@ -582,6 +585,8 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     rm.on({ runEnded: (r) => ended.push(r.id) });
     const r = rm.start({ projectId: 'p1' });
     await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    // 続けて 2 回の見回りで一覧に無ければ閉じる。
+    expect(rm.tick().ended).toEqual([]);
     expect(rm.tick().ended.map((x) => x.id)).toEqual([r.run.id]);
     expect(ended).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)).toMatchObject({ endReason: 'exited' });
@@ -594,6 +599,7 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     const t = rm.openTab(r.run.id);
     tmux!.killSession(r.run.tmuxName);
     await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    rm.tick();
     expect(rm.tick().ended.map((x) => x.id)).toEqual([r.run.id]);
     expect(rm.getTab(t.id)?.closedAt).toBeNull();
     expect(tmux!.hasSession(t.tmuxName)).toBe(true);
@@ -688,6 +694,7 @@ describe.skipIf(!TMUX)('専用の tmux サーバへの移行（tmux 上）', () 
     const r = make().start({ projectId: 'p1' });
     const rm = updated();
     await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    rm.tick();
     expect(rm.tick().ended.map((x) => [x.id, x.endReason])).toEqual([[r.run.id, 'exited']]);
   });
 });
@@ -1246,9 +1253,11 @@ describe('tmux を呼べないとき（tmux 不要）', () => {
     // 呼び出しは成功していて、本当にセッションが 1 つも無い。これは観測できている。
     seedRun();
     const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'no server running on /tmp/tmux-501/default\n' }) });
+    // タブはその場で閉じ、run は続けて 2 回の見回りで一覧に無ければ閉じる。
     const r = rm.tick();
-    expect(r.ended.map((x) => x.id)).toEqual(['r1']);
     expect(r.closedTabs.map((x) => x.id)).toEqual(['t1']);
+    expect(r.ended).toEqual([]);
+    expect(rm.tick().ended.map((x) => x.id)).toEqual(['r1']);
   });
 });
 
@@ -1302,6 +1311,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
     // ここで消すと、生きているシェルに UI から到達も停止もできなくなる。
     const { runId, sessionId, tabId } = seedRun();
     const rm = make({ tmux: fakeTmux({ status: 0, stdout: 'hangar-r1-t1\n' }) });
+    rm.tick();
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(rm.getTab(tabId)?.closedAt).toBeNull();
     expect(deletedAt(sessionId)).toBeNull();
@@ -1310,6 +1320,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
   it('シェルタブも消えていれば tick 経由でも消す', () => {
     const { runId, sessionId } = seedRun();
     const rm = make({ tmux: fakeTmux({ status: 0 }) });
+    rm.tick();
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(deletedAt(sessionId)).not.toBeNull();
   });
@@ -1481,6 +1492,7 @@ describe('画面の口を偽物に差し替える（tmux 不要）', () => {
     const rm = make({ panes: f.panes });
     const r = rm.start({ projectId: 'p1' });
     f.open.clear();
+    expect(rm.tick().ended).toEqual([]);
     expect(rm.tick().ended.map((e) => [e.id, e.endReason])).toEqual([[r.run.id, 'exited']]);
   });
 
@@ -1693,6 +1705,7 @@ describe('区切りを付けたセッションを止める（tmux 不要）', ()
     expect(rm.getRun(runId)!.endedAt).toBeNull();
     expect(rm.tick().ended).toEqual([]);
     rm.setPanes(tmuxPaneOps(tmuxWithoutRun()));
+    rm.tick();
     expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'exited']]);
   });
 
@@ -2152,5 +2165,364 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     expect(p.opened[0]!.cwd).toBe(cwd);
     expect(promptOf(p.opened[0]!.command)).not.toContain('この会話は');
     expect(promptOf(p.opened[0]!.command)).not.toContain('台の PC');
+  });
+});
+
+describe('一覧から一瞬抜けた run（tmux 不要、issue #258）', () => {
+  /** 一覧に出す名前を試験から変えられる偽の画面。 */
+  function listedPanes(initial: string[] = []) {
+    const names = new Set(initial);
+    const panes: PaneOps = { open: () => {}, close: (n) => { names.delete(n); }, list: () => [...names], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+    return { panes, names };
+  }
+  /** 再開の run を 1 つ置く。新規の run は、閉じるときに本文の無いセッションごと片付くので使わない。 */
+  function seed(o: { id?: string; pid?: number | null; endReason?: 'exited' | 'lost' | 'killed' | 'parked' | null; startedAt?: number; sessionId?: string } = {}): { runId: string; sessionId: string; tmuxName: string; uuid: string } {
+    const id = o.id ?? '1';
+    const sessionId = o.sessionId ?? `s${id}`;
+    const uuid = `u-${sessionId}`;
+    if (!db.prepare('select id from sessions where id = ?').get(sessionId)) upsertShared(db, 'sessions', { id: sessionId, provider: 'claude-code', provider_session_id: uuid, cwd, home_device: 'd' }, 'd');
+    const ended = o.endReason ? 50 : null;
+    upsertShared(db, 'runs', { id: `r${id}`, session_id: sessionId, device_id: 'd', kind: 'resume', tmux_name: `hangar-${id}`, pid: o.pid ?? null, launch_params: '{}', started_at: o.startedAt ?? 1, ended_at: ended, end_reason: o.endReason ?? null, heartbeat_at: 1 }, 'd');
+    return { runId: `r${id}`, sessionId, tmuxName: `hangar-${id}`, uuid };
+  }
+  const liveOf = (uuid: string, pid: number): LiveSession => ({ sessionId: uuid, status: 'busy', name: null, nameSource: null, cwd, pid });
+
+  it('一覧から 1 回抜けただけでは閉じず、続けて 2 回抜けたら exited で閉じる', () => {
+    const { runId } = seed();
+    const f = listedPanes();
+    const rm = make({ panes: f.panes });
+    expect(rm.tick().ended).toEqual([]);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'exited']]);
+  });
+
+  it('抜けた次の一覧に戻れば数え直す', () => {
+    const { runId, tmuxName } = seed();
+    const f = listedPanes();
+    const rm = make({ panes: f.panes });
+    expect(rm.tick().ended).toEqual([]);
+    f.names.add(tmuxName);
+    expect(rm.tick().ended).toEqual([]);
+    f.names.delete(tmuxName);
+    expect(rm.tick().ended).toEqual([]);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    expect(rm.tick().ended.map((r) => r.id)).toEqual([runId]);
+  });
+
+  it('pid が生きていて、Claude の登録にそのセッションがその pid で載っていれば、何度抜けても閉じない', () => {
+    const { runId, uuid } = seed({ pid: 4242 });
+    const f = listedPanes();
+    let live = [liveOf(uuid, 4242)];
+    const rm = make({ panes: f.panes, live: () => live, pidAlive: (pid) => pid === 4242 });
+    for (let i = 0; i < 4; i++) expect(rm.tick().ended).toEqual([]);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    // claude が終わって登録から消えたら、それまで抜け続けていたので、次の見回りで閉じる。
+    live = [];
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'exited']]);
+  });
+
+  it('pid が生きていても、登録に別の pid で載っている（pid の使い回し）なら、2 回で閉じる', () => {
+    const { runId, uuid } = seed({ pid: 4242 });
+    const f = listedPanes();
+    const rm = make({ panes: f.panes, live: () => [liveOf(uuid, 999)], pidAlive: () => true });
+    expect(rm.tick().ended).toEqual([]);
+    expect(rm.tick().ended.map((r) => r.id)).toEqual([runId]);
+  });
+
+  it('pid が死んでいれば、登録に載っていても 2 回で閉じる', () => {
+    const { runId, uuid } = seed({ pid: 4242 });
+    const f = listedPanes();
+    const rm = make({ panes: f.panes, live: () => [liveOf(uuid, 4242)], pidAlive: () => false });
+    expect(rm.tick().ended).toEqual([]);
+    expect(rm.tick().ended.map((r) => r.id)).toEqual([runId]);
+  });
+
+  it('登録を読む口が無ければ、pid の生存だけで閉じないと決める', () => {
+    const { runId } = seed({ pid: 4242 });
+    const f = listedPanes();
+    const rm = make({ panes: f.panes, pidAlive: () => true });
+    for (let i = 0; i < 3; i++) expect(rm.tick().ended).toEqual([]);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+  });
+
+  it('止めにいった run は、1 回抜けたら待たずに parked で閉じる', () => {
+    const { runId, sessionId, tmuxName } = seed();
+    const f = listedPanes([tmuxName]);
+    // 閉じたのを一覧で確かめられないよう、close では名前を消さない。
+    const rm = make({ panes: { ...f.panes, close: () => {} } });
+    expect(rm.park(sessionId)).toBe(true);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    f.names.delete(tmuxName);
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'parked']]);
+  });
+
+  it('一覧が空のまま 2 件以上が続けて 2 回消えたら、lost で閉じて 1 つの中断の群にする', () => {
+    seed({ id: '1' });
+    seed({ id: '2' });
+    const f = listedPanes();
+    const rm = make({ panes: f.panes, now: () => 900 });
+    const groups: unknown[] = [];
+    rm.on({ interrupted: (g) => groups.push(g) });
+    expect(rm.tick().ended).toEqual([]);
+    expect(rm.tick().ended.map((r) => r.endReason)).toEqual(['lost', 'lost']);
+    expect(interruptedGroup(db)).toMatchObject({ cause: 'mux', items: [{ runId: 'r1' }, { runId: 'r2' }] });
+    expect(groups).toHaveLength(1);
+  });
+
+  it('1 件が先に自分で終わってから一覧が空になっても、その 1 件は exited、後の 1 件も exited のまま', () => {
+    seed({ id: '1' });
+    const b = seed({ id: '2' });
+    const f = listedPanes([b.tmuxName]);
+    const rm = make({ panes: f.panes });
+    expect(rm.tick().ended).toEqual([]);
+    f.names.clear();
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([['r1', 'exited']]);
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([['r2', 'exited']]);
+    expect(interruptedGroup(db)).toBeNull();
+  });
+
+  it('閉じた run の tmux 名が一覧に戻ったら、同じ run として生き返らせ、起動と同じ知らせを出す', () => {
+    const { runId, tmuxName, sessionId } = seed();
+    upsertShared(db, 'run_tabs', { id: 't1', run_id: runId, tmux_name: `${tmuxName}-t1`, title: 'シェル 1', created_at: 1, closed_at: null }, 'd');
+    const f = listedPanes([`${tmuxName}-t1`]);
+    const rm = make({ panes: f.panes, now: () => 2000 });
+    const started: { run: RunDto; sessionId: string; tabs: TabDto[] }[] = [];
+    rm.on({ runStarted: (r) => started.push(r) });
+    rm.tick();
+    expect(rm.tick().ended.map((r) => r.id)).toEqual([runId]);
+    f.names.add(tmuxName);
+    rm.tick();
+    expect(rm.getRun(runId)).toMatchObject({ endedAt: null, endReason: null, heartbeatAt: 2000 });
+    expect(started).toHaveLength(1);
+    expect(started[0]!.run).toMatchObject({ id: runId, endedAt: null });
+    expect(started[0]!.sessionId).toBe(sessionId);
+    expect(started[0]!.tabs.map((t) => t.id)).toEqual([runId, 't1']);
+    // 同期にも載せる（共有の行の書き込みは changes に残る）。
+    const last = db.prepare("select payload from changes where table_name = 'runs' and row_id = ? order by rowid desc limit 1").get(runId) as { payload: string };
+    expect(JSON.parse(last.payload)).toMatchObject({ ended_at: null, end_reason: null });
+    // 生き返った run は、ふつうの生きた run として見張る。
+    expect(rm.tick().ended).toEqual([]);
+    expect(started).toHaveLength(1);
+  });
+
+  it('生きた run が 1 つも無くなっても、閉じた直後の間は一覧を読み、戻った run を生き返らせる', () => {
+    const { runId, tmuxName } = seed();
+    const f = listedPanes();
+    const rm = make({ panes: f.panes });
+    rm.tick();
+    rm.tick();
+    expect(rm.getRun(runId)!.endedAt).not.toBeNull();
+    f.names.add(tmuxName);
+    rm.tick();
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+  });
+
+  it('lost で閉じて中断の群に入った run は、生き返らせたら群から外す', () => {
+    seed({ id: '1' });
+    seed({ id: '2' });
+    const f = listedPanes();
+    const rm = make({ panes: f.panes });
+    const groups: unknown[] = [];
+    rm.on({ interrupted: (g) => groups.push(g) });
+    rm.tick();
+    rm.tick();
+    expect(interruptedGroup(db)?.items).toHaveLength(2);
+    f.names.add('hangar-1');
+    rm.tick();
+    expect(rm.getRun('r1')!.endedAt).toBeNull();
+    expect(interruptedGroup(db)?.items.map((i) => i.runId)).toEqual(['r2']);
+    expect(groups.at(-1)).toMatchObject({ items: [{ runId: 'r2' }] });
+  });
+
+  it('killed と parked の run、そのセッションに生きた run が他にある run、ほかの PC の run は生き返らせない', () => {
+    seed({ id: '1', endReason: 'killed' });
+    seed({ id: '2', endReason: 'parked' });
+    seed({ id: '3', endReason: 'exited', sessionId: 'sx' });
+    seed({ id: '4', sessionId: 'sx', startedAt: 9 });
+    upsertShared(db, 'sessions', { id: 'so', provider: 'claude-code', provider_session_id: 'u-so', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r5', session_id: 'so', device_id: 'other', kind: 'resume', tmux_name: 'hangar-5', pid: null, launch_params: '{}', started_at: 1, ended_at: 50, end_reason: 'exited', heartbeat_at: 1 }, 'd');
+    const f = listedPanes(['hangar-1', 'hangar-2', 'hangar-3', 'hangar-4', 'hangar-5']);
+    const rm = make({ panes: f.panes });
+    const started: string[] = [];
+    rm.on({ runStarted: (r) => started.push(r.run.id) });
+    rm.tick();
+    expect(started).toEqual([]);
+    for (const id of ['r1', 'r2', 'r3', 'r5']) expect(rm.getRun(id)!.endedAt).not.toBeNull();
+  });
+
+  it('起動の見回りでも、一覧にある tmux 名の閉じた run を生き返らせる', () => {
+    const { runId, tmuxName } = seed({ endReason: 'exited' });
+    const lostOne = seed({ id: '2', endReason: 'lost' });
+    const f = listedPanes([tmuxName, lostOne.tmuxName]);
+    const rm = make({ panes: f.panes });
+    const started: string[] = [];
+    rm.on({ runStarted: (r) => started.push(r.run.id) });
+    expect(rm.recoverAtStartup()).toEqual([]);
+    expect(started.sort()).toEqual([runId, lostOne.runId].sort());
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    expect(rm.getRun(lostOne.runId)!.endedAt).toBeNull();
+  });
+});
+
+describe('終わった扱いの run の claude が動き続けているときの再開（tmux 不要、issue #258）', () => {
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  /** epoch のミリ秒を、ps の lstart の書式（UTC）にする。 */
+  const lstart = (ms: number) => {
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${String(d.getUTCDate()).padStart(2, ' ')} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} ${d.getUTCFullYear()}`;
+  };
+  const STARTED = Date.UTC(2026, 9, 16, 1, 0, 0);
+  const ENDED = STARTED + 7 * 60_000;
+  /** 名前の集合だけを持つ偽の画面。 */
+  function panes(): PaneOps {
+    const names = new Set<string>();
+    return { open: (o) => { names.add(o.name); }, close: (n) => { names.delete(n); }, list: () => [...names], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+  }
+  /** 本文のある会話に、終わった run を 1 つ置く。 */
+  function seedEnded(o: { id?: string; pid?: number | null; endReason?: 'exited' | 'lost' | 'killed' | 'parked'; startedAt?: number; endedAt?: number; deviceId?: string; sessionId?: string } = {}): string {
+    const sessionId = o.sessionId ?? seedOldSession();
+    upsertShared(db, 'runs', { id: `r${o.id ?? '1'}`, session_id: sessionId, device_id: o.deviceId ?? 'd', kind: 'resume', tmux_name: `hangar-${o.id ?? '1'}`, pid: o.pid === undefined ? 4242 : o.pid, launch_params: '{}', started_at: o.startedAt ?? STARTED, ended_at: o.endedAt ?? ENDED, end_reason: o.endReason ?? 'exited', heartbeat_at: STARTED }, 'd');
+    return sessionId;
+  }
+  /** 起動時刻を返し、止めたら死んだことにする偽の口。 */
+  function strayProcs(o: { startedAt?: number | null; stops?: boolean } = {}) {
+    const alive = new Set([4242]);
+    const terminated: number[] = [];
+    const procs: ProcOps = {
+      ...noJobs,
+      startTimeOf: (pid) => (alive.has(pid) && o.startedAt !== null ? lstart(o.startedAt ?? STARTED + 2_000) : null),
+      terminate: async (pid) => { terminated.push(pid); if (o.stops ?? true) alive.delete(pid); return o.stops ?? true; },
+    };
+    return { procs, terminated, pidAlive: (pid: number) => alive.has(pid) };
+  }
+  const strayError = (fn: () => unknown) => {
+    try { fn(); } catch (e) { return e as { status: number; body?: unknown; message: string }; }
+    throw new Error('断られなかった');
+  };
+
+  it('最も新しい run が exited で、その pid の claude がその run の間に起動していれば、pid を添えて 409 で断る', () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    const e = strayError(() => rm.resume(id));
+    expect(e.status).toBe(409);
+    expect(e.body).toEqual({ code: 'stray_process', pid: 4242 });
+    expect(e.message).toContain('4242');
+    expect(f.terminated).toEqual([]);
+  });
+
+  it('lost で終わった run も同じに断る', () => {
+    const id = seedEnded({ endReason: 'lost' });
+    const f = strayProcs();
+    expect(strayError(() => make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id)).body).toEqual({ code: 'stray_process', pid: 4242 });
+  });
+
+  it('起動時刻が run の起動の 60 秒より前か、終わった後なら、pid の使い回しと見て断らない', () => {
+    const id = seedOldSession();
+    for (const startedAt of [STARTED - 61_000, ENDED + 1_000]) {
+      seedEnded({ sessionId: id });
+      const f = strayProcs({ startedAt });
+      expect(make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id).run.kind).toBe('resume');
+      db.prepare('delete from runs').run();
+    }
+  });
+
+  it('run の起動の 60 秒前までは同じ claude と見る', () => {
+    const id = seedEnded();
+    const f = strayProcs({ startedAt: STARTED - 59_000 });
+    expect(strayError(() => make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id)).status).toBe(409);
+  });
+
+  it('起動時刻が読めない、pid が死んでいる、pid が無い、killed か parked で終わった、なら断らない', () => {
+    const cases: { seed: Parameters<typeof seedEnded>[0]; procs: ReturnType<typeof strayProcs> }[] = [
+      { seed: {}, procs: strayProcs({ startedAt: null }) },
+      { seed: { pid: 5555 }, procs: strayProcs() },
+      { seed: { pid: null }, procs: strayProcs() },
+      { seed: { endReason: 'killed' }, procs: strayProcs() },
+      { seed: { endReason: 'parked' }, procs: strayProcs() },
+    ];
+    const id = seedOldSession();
+    for (const c of cases) {
+      seedEnded({ ...c.seed, sessionId: id });
+      expect(make({ panes: panes(), procs: c.procs.procs, pidAlive: c.procs.pidAlive }).resume(id).run.kind).toBe('resume');
+      db.prepare('delete from runs').run();
+    }
+  });
+
+  it('見るのはこの端末の最も新しい run だけである', () => {
+    const id = seedEnded({ id: '1' });
+    // 後から起きた run が killed で終わっていれば、前の run の pid は見ない。
+    seedEnded({ id: '2', sessionId: id, pid: null, endReason: 'killed', startedAt: ENDED + 60_000, endedAt: ENDED + 120_000 });
+    const f = strayProcs();
+    expect(make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id).run.kind).toBe('resume');
+    // ほかの端末の run は、この端末の pid ではないので見ない。
+    db.prepare('delete from runs').run();
+    seedEnded({ id: '3', deviceId: 'other', sessionId: id });
+    expect(make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id).run.kind).toBe('resume');
+  });
+
+  it('Claude の登録に載っていれば、これまでどおり外で実行中として断る', () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const e = strayError(() => make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive, isLive: () => true }).resume(id));
+    expect(e.status).toBe(409);
+    expect(e.body).toBeUndefined();
+  });
+
+  it('登録に載っているのが終わった扱いの run の claude（pid が同じ）なら、外ではないので確認を先に出す', async () => {
+    const id = seedEnded();
+    const provider = (db.prepare('select provider_session_id p from sessions where id = ?').get(id) as { p: string }).p;
+    const f = strayProcs();
+    // 登録は止めた後もしばらく残りうる。止めた後の再開がそれで外の実行と断られないこと。
+    const live = () => [{ sessionId: provider, pid: 4242 } as LiveSession];
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive, isLive: () => true, live });
+    expect(strayError(() => rm.resume(id)).body).toEqual({ code: 'stray_process', pid: 4242 });
+    expect((await rm.resumeWith(id, { stray: 'stop' })).run.kind).toBe('resume');
+    expect(f.terminated).toEqual([4242]);
+    // 登録の pid が違えば、これまでどおり外で実行中として断る。
+    const other = make({ panes: panes(), procs: strayProcs().procs, pidAlive: () => true, isLive: () => true, live: () => [{ sessionId: provider, pid: 9999 } as LiveSession] });
+    db.prepare('delete from runs').run();
+    seedEnded({ sessionId: id });
+    expect(strayError(() => other.resume(id)).body).toBeUndefined();
+    await expect(other.resumeWith(id, { stray: 'ignore' })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('ignore は判定を飛ばして再開する。フォークは判定しない', async () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    expect(rm.fork(id).run.kind).toBe('fork');
+    expect((await rm.resumeWith(id, { stray: 'ignore' })).run.kind).toBe('resume');
+    expect(f.terminated).toEqual([]);
+  });
+
+  it('stop は残った claude を止めてから再開する', async () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    await expect(rm.resumeWith(id)).rejects.toMatchObject({ status: 409, body: { code: 'stray_process', pid: 4242 } });
+    const r = await rm.resumeWith(id, { stray: 'stop' });
+    expect(f.terminated).toEqual([4242]);
+    expect(r.run.kind).toBe('resume');
+  });
+
+  it('stop で止められなければ、わかる言葉で 409 を返し、再開しない', async () => {
+    const id = seedEnded();
+    const f = strayProcs({ stops: false });
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    const e = await rm.resumeWith(id, { stray: 'stop' }).then(() => null, (x: unknown) => x as { status: number; message: string });
+    expect(e?.status).toBe(409);
+    expect(e?.message).toMatch(/停止できませんでした/);
+    expect(e?.message).toContain('4242');
+    expect(rm.listAlive().runs).toEqual([]);
+  });
+
+  it('stop でも、残った claude が無ければそのまま再開する', async () => {
+    const id = seedEnded({ endReason: 'killed' });
+    const f = strayProcs();
+    expect((await make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resumeWith(id, { stray: 'stop' })).run.kind).toBe('resume');
+    expect(f.terminated).toEqual([]);
   });
 });

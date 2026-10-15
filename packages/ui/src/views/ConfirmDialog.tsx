@@ -16,7 +16,8 @@ const BACKUP_DIR = '~/.agent-hangar/backups/transcripts/';
 /**
  * 取り消せない操作の確認。
  * 「この PC で再開」で手元のトランスクリプトを他の PC のトランスクリプトに置き換える場面、外部ターミナルの claude を hangar に移動する場面、ランを止める場面、
- * 見つからないプロジェクトを一覧から削除する場面、アカウントを切り替える場面とアカウントを一覧から外す場面を扱う。
+ * 見つからないプロジェクトを一覧から削除する場面、アカウントを切り替える場面とアカウントを一覧から外す場面、
+ * 終わった扱いの claude が動き続けている会話を再開する場面を扱う。
  * どうするかを決めるのは利用者なので、View は起きることを並べるだけで判断をしない。
  * 開いた時点のフォーカスは、殻がやめる側に置く。Enter の押し違いで押し切らせないためである。
  */
@@ -96,6 +97,24 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
         <div className="muted">{t('confirm.adopt.lead')}</div>
         <div className="faint">{t('confirm.adopt.pendingQuestion')}</div>
         <div className="faint">{slot(t('confirm.adopt.backToHangar', { command: SLOT }), <span className="mono">claude -r</span>)}</div>
+      </Dialog>
+    );
+  }
+  if (c.kind === 'strayProcess') {
+    // hangar では終わった扱いなのに、その会話の claude が動き続けている（試作の案 A）。
+    // 推すのは止めて再開する方で、青く塗る。止めずに再開する方は、2 つの claude が同じ会話を進めるので、左端の控えめな危険のボタンにする。
+    // まとめて再開の 1 本なら、選び方を添えて順番待ちに入れ直す。
+    const choose = (stray: 'stop' | 'ignore') => emit(c.queued ? { type: 'interrupted.resume', ids: [c.sessionId], stray } : { type: 'session.resume', id: c.sessionId, stray });
+    return (
+      <Dialog
+        title={t('confirm.strayProcess.title')}
+        icon="warning"
+        onClose={close}
+        footer={<><button type="button" className="btn btn-danger" onClick={() => choose('ignore')}>{t('confirm.strayProcess.ignore')}</button><span className="spacer" />{cancel}<button type="button" className="btn btn-primary" onClick={() => choose('stop')}>{t('confirm.strayProcess.stop')}</button></>}
+      >
+        <div>{slot(t('confirm.strayProcess.lead', { pid: SLOT }), <span className="mono">{c.pid}</span>)}</div>
+        <div className="muted">{t('confirm.strayProcess.risk')}</div>
+        <div className="faint">{t('confirm.strayProcess.note')}</div>
       </Dialog>
     );
   }

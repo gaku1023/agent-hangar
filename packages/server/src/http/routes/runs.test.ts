@@ -65,6 +65,19 @@ describe('routes', () => {
     expect((await app.request('/api/runs/nope', { method: 'DELETE', headers: H })).status).toBe(404);
     expect((await json(await get('/api/runs'))).body.tabs).toHaveLength(2);
   });
+  it('再開は、残った claude の選び方（stray）を渡し、断られたら pid を添えて返す', async () => {
+    const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    expect((await post('/api/sessions/s1/resume')).status).toBe(201);
+    expect(runs.resumeWith).toHaveBeenLastCalledWith('s1', {});
+    expect((await post('/api/sessions/s1/resume', { stray: 'stop' })).status).toBe(201);
+    expect(runs.resumeWith).toHaveBeenLastCalledWith('s1', { stray: 'stop' });
+    expect((await post('/api/sessions/s1/resume', { stray: 'ignore' })).status).toBe(201);
+    expect(runs.resumeWith).toHaveBeenLastCalledWith('s1', { stray: 'ignore' });
+    expect((await post('/api/sessions/s1/resume', { stray: 'kill' })).status).toBe(400);
+    const r = await post('/api/sessions/stray/resume');
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ error: 'still running', code: 'stray_process', pid: 4242 });
+  });
   it('タブの追加と削除', async () => {
     const r = await app.request('/api/runs/r1/tabs', { method: 'POST', headers: H });
     expect(r.status).toBe(201);

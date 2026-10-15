@@ -54,6 +54,11 @@ export function fakeRuns(): RunsApi {
   return {
     start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'プロジェクトを選んでください'); return launched; }),
     resume: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
+    resumeWith: vi.fn(async (id: string): Promise<LaunchResultDto> => {
+      if (id === 'busy') throw new RunError(409, 'busy');
+      if (id === 'stray') throw new RunError(409, 'still running', { code: 'stray_process', pid: 4242 });
+      return { ...launched, run: { ...run, kind: 'resume' } };
+    }),
     fork: vi.fn((): LaunchResultDto => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
     attach: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     adopt: vi.fn(async (id: string): Promise<LaunchResultDto> => { if (id === 'busy') throw new RunError(409, '作業中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),

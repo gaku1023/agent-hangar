@@ -104,6 +104,35 @@ describe('ConfirmDialog（引き取り）', () => {
   });
 });
 
+describe('ConfirmDialog（終わった扱いの claude が動き続けているときの再開）', () => {
+  it('pid と、2 つの Claude が同じ会話を進めることを書き、止めて再開するか、止めずに再開するかを選ぶ', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'strayProcess', sessionId: 's1', pid: 4242 }} /></ActionRoot>);
+    const dialog = screen.getByRole('dialog', { name: 'この会話の Claude はまだ終了していません' });
+    expect(dialog).toHaveTextContent('hangar では終了と表示していますが、Claude のプロセス（PID 4242）は動き続けています。');
+    expect(dialog).toHaveTextContent('このまま再開すると、2 つの Claude が同じ会話を同時に進め、トランスクリプトが混ざるおそれがあります。');
+    expect(dialog).toHaveTextContent('停止すると、進行中の作業は中断されます。トランスクリプトは残ります。');
+    // 押し違いで押し切らないよう、はじめのフォーカスはキャンセルに置く。並びは、止めずに再開、キャンセル、止めて再開の順。
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
+    const foot = [...dialog.querySelectorAll('.dialog-foot button')].map((b) => b.textContent);
+    expect(foot).toEqual(['停止せずに再開', 'キャンセル', '停止して再開']);
+    expect(screen.getByRole('button', { name: '停止して再開' }).classList.contains('btn-primary')).toBe(true);
+    expect(screen.getByRole('button', { name: '停止せずに再開' }).classList.contains('btn-danger')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '停止して再開' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.resume', id: 's1', stray: 'stop' });
+    fireEvent.click(screen.getByRole('button', { name: '停止せずに再開' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.resume', id: 's1', stray: 'ignore' });
+  });
+  it('まとめて再開の 1 本なら、選び方を添えて順番待ちに入れ直す', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'strayProcess', sessionId: 's1', pid: 4242, queued: true }} /></ActionRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '停止して再開' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'interrupted.resume', ids: ['s1'], stray: 'stop' });
+    fireEvent.click(screen.getByRole('button', { name: '停止せずに再開' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'interrupted.resume', ids: ['s1'], stray: 'ignore' });
+  });
+});
+
 describe('ConfirmDialog（停止）', () => {
   it('作業中であることとシェルタブの数を書き、承諾で止める', () => {
     const onAction = vi.fn();

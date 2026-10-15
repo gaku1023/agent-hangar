@@ -36,6 +36,12 @@ export function aliveRunForSession(db: Db, sessionId: string): RunDto | null {
   return r ? toRunDto(r) : null;
 }
 
+/** その端末のそのセッションの run のうち、最も新しく起きたもの（終わったものも含める）。 */
+export function latestRunForSession(db: Db, sessionId: string, deviceId: string): RunDto | null {
+  const r = db.prepare(`${RUN_SELECT} and session_id = ? and device_id = ? order by started_at desc limit 1`).get(sessionId, deviceId) as RunRow | undefined;
+  return r ? toRunDto(r) : null;
+}
+
 /** 生きた run と、終了したが開いたシェルタブが残る run。シェルタブは Claude が終了しても残るので、UI のタブ列はこれを使う。 */
 export function listActiveRuns(db: Db, deviceId: string): RunDto[] {
   const sql = `${RUN_SELECT} and device_id = ? and (ended_at is null or exists (select 1 from run_tabs t where t.run_id = runs.id and t.closed_at is null and t.deleted_at is null)) order by started_at`;

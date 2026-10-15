@@ -19,6 +19,8 @@ export const runKeys = {
   'run.error.alreadyEnded': [],
   'run.error.sessionRunning': [],
   'run.error.runningOutside': [],
+  'run.error.strayProcess': ['pid'],
+  'run.error.strayNotStopped': ['pid'],
   'run.jump.badRequest': ['headLen', 'maxHeads'],
   'run.resume.noTranscript': [],
   'run.terminal.notInHangar': [],

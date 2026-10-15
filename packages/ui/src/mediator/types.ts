@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
@@ -39,6 +39,8 @@ export type RuntimeEvent =
   | { type: 'resumeHere.plan'; plan: ResumeHerePlanDto }
   // 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所だった。まとめる確認を出す。
   | { type: 'api.conflict'; kind: 'sameFolder'; conflict: ProjectSameFolderDto }
+  // 再開を、終わった扱いの run の claude（pid）が動き続けていることで断られた。message は断った理由、queued はまとめて再開の 1 本だったこと。
+  | { type: 'api.conflict'; kind: 'strayProcess'; sessionId: string; pid: number; message: string; queued: boolean }
   // 同じフォルダのプロジェクトを、from から into へまとめ終えた。from の画面を開いていれば into へ移る。
   | { type: 'project.merged'; fromId: string; intoId: string }
   // 保持期間を書き込んだ結果。409 は下見の後にファイルが変わったことを表す。
@@ -90,10 +92,10 @@ export type Effect =
   | { kind: 'api.recheckMux' }
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
-  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
+  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray } | { kind: 'api.fork'; sessionId: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
   // まとめて再開（中断の群）の 1 本。起きても画面は移さず、結果は resumeQueue.done か resumeQueue.failed で返る。
-  | { kind: 'api.resumeQueued'; sessionId: string }
+  | { kind: 'api.resumeQueued'; sessionId: string; stray?: ResumeStray }
   // 中断の群の「再開しない」と、その取り消し。返った群を Store に入れる。
   | { kind: 'api.dismissInterrupted'; runIds: string[]; dismissed: boolean }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
@@ -166,13 +168,15 @@ export type FocusTarget = 'newSessionName' | 'terminal' | 'palette' | 'promoteNa
 /**
  * 押し切る前に一言聞く必要があるもの。
  * 他端末の本文で手元を上書きする場面、外のターミナルの claude を引き取る場面、作業中かシェルタブのあるランを止める場面、
- * 見つからないプロジェクトを一覧から削除する場面である。
+ * 見つからないプロジェクトを一覧から削除する場面、終わった扱いの claude が動き続けている会話を再開する場面である。
  */
 export type ConfirmRequest =
   // ほかの PC で進めた会話をこの PC で再開する前の確認（前の PC とこの PC、同期されないもの）。毎回出す。
   | { kind: 'resumeHere'; sessionId: string; plan: ResumeHerePlanDto }
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
+  // hangar では終わった扱いの run の claude（pid）が動き続けているときの再開（issue #258）。queued はまとめて再開の 1 本で、選んだら順番待ちに入れ直す。
+  | { kind: 'strayProcess'; sessionId: string; pid: number; queued?: true }
   | { kind: 'killRun'; runId: string; working: boolean; aside?: boolean; shellTabs: number }
   // fromDialog は、未解決のプロジェクトのダイアログから来たこと。やめるとそのダイアログへ戻る。
   | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
@@ -246,7 +250,8 @@ export type Toast = { id: string; level: 'info' | 'error'; message: string; hold
  * まとめて再開（中断の群）の進み。queued は順番待ち、active は再開を頼んで返事を待っているもの、failed は断られた理由（セッションの id から）。
  * 同時に頼むのは RESUME_CONCURRENCY 本までである。
  */
-export type ResumeQueue = { queued: string[]; active: string[]; failed: Record<string, string> };
+/** stray は、残った claude の確認で選んだもの（セッションごと）。そのセッションの再開に添え、済むか断られたら外す。無ければ項目ごと持たない。 */
+export type ResumeQueue = { queued: string[]; active: string[]; failed: Record<string, string>; stray?: Record<string, ResumeStray> };
 /**
  * 欄ごとの保存の知らせ。
  * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。

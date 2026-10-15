@@ -21,7 +21,7 @@ import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending }
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
-import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
 import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
@@ -285,6 +285,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+  const strayConflict = (sessionId: string, err: StrayProcessApiError, queued: boolean) =>
+    dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'strayProcess', sessionId, pid: err.body.pid, message: err.body.error, queued } });
   // 登録が 409（入れ子）で断られたら、事前の問い合わせの答えの代わりに包むプロジェクトを持つ（0.6.1）。
   // 問い合わせより先に送られたときでも、ダイアログがその場の 1 行と「別のプロジェクトにする」を出せるようにする。
   const keepNested = (place: ProjectPlace, err: unknown) => {
@@ -641,14 +643,24 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .then((path) => { if (path) setStore(applyPickedFolder(store, path)); })
           .catch((err: unknown) => failWith(tr()('runtime.shell.pickFolderFailed'), err));
         return;
-      case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
+      // 終わった扱いの run の claude が動き続けていて断られたら、止めて再開するかを聞く確認にする（issue #258）。
+      case 'api.resume':
+        (e.stray ? deps.api.resume(e.sessionId, e.stray) : deps.api.resume(e.sessionId)).then(launched).catch((err: unknown) => {
+          if (err instanceof StrayProcessApiError) strayConflict(e.sessionId, err, false);
+          else launchFailed(err);
+        });
+        return;
       case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
       // まとめて再開の 1 本。画面は移さない。起きた run は Store に入れ、順番待ちを進めるのは Mediator である。
       case 'api.resumeQueued': {
         const id = e.sessionId;
-        deps.api.resume(id)
+        // 断られた理由は行に残し、残った claude で断られたときは、続けて確認を出す。
+        (e.stray ? deps.api.resume(id, e.stray) : deps.api.resume(id))
           .then((r) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'resumeQueue.done', sessionId: id } }); })
-          .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'resumeQueue.failed', sessionId: id, message: errMsg(err) } }));
+          .catch((err: unknown) => {
+            dispatch({ kind: 'runtime', event: { type: 'resumeQueue.failed', sessionId: id, message: errMsg(err) } });
+            if (err instanceof StrayProcessApiError) strayConflict(id, err, true);
+          });
         return;
       }
       case 'api.dismissInterrupted':

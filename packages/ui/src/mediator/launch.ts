@@ -76,10 +76,26 @@ function setDraft(state: State, draft: NewSessionDraft | null): Step {
   return { state: { ...state, newSessionDraft: next }, effects: [{ kind: 'storage.save', key: NEW_SESSION_DRAFT_KEY, value: next }] };
 }
 
+/**
+ * 再開を、終わった扱いの run の claude が動き続けていることで断られた（issue #258）。止めて再開するかを聞く確認を開く。
+ * 1 本の再開は送信中を解き、確認を出せない（決めるまで閉じないダイアログが開いている）ときは、起動の失敗と同じくトーストで理由を出す。
+ * まとめて再開の 1 本は、理由を行に残してある（resumeQueue.failed）ので、確認を出せなければ何もしない。
+ */
+function strayConflict(state: State, ev: Extract<Input, { kind: 'runtime' }>['event'] & { type: 'api.conflict'; kind: 'strayProcess' }): Step {
+  const launch = ev.queued ? state.launch : { kind: 'idle' as const };
+  if (overlayReplaceable(state.overlay)) {
+    const confirm = { kind: 'strayProcess' as const, sessionId: ev.sessionId, pid: ev.pid, ...(ev.queued ? { queued: true as const } : {}) };
+    return { state: { ...state, launch, overlay: { kind: 'confirm', confirm } }, effects: [] };
+  }
+  if (ev.queued) return { state, effects: [] };
+  return { state: { ...state, launch: { kind: 'failed', message: ev.message } }, effects: [{ kind: 'toast', level: 'error', message: ev.message }] };
+}
+
 /** launch 領域：起動ダイアログ、送信中、失敗。再開とフォークも同じ送信中の状態を使う。 */
 export function launchStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const ev = input.event;
+    if (ev.type === 'api.conflict' && ev.kind === 'strayProcess') return strayConflict(state, ev);
     if (ev.type === 'project.created') {
       // 作ってから起動する送信の途中で、プロジェクトができた。起動だけが失敗しても押し直しで二重に作らないよう印を持ち、
       // 送った詳細をそのプロジェクトの前回値にする（送った時点ではプロジェクトの id が無かったため）。
@@ -137,7 +153,11 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       // overlayStep の overlay.close はキューを進めるだけで、launch を idle に戻せない。
       if (state.overlay.kind !== 'newSession') return null;
       return { state: { ...state, overlay: { kind: 'none' }, launch: { kind: 'idle' } }, effects: [] };
-    case 'session.resume': return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.resume', sessionId: i.id }] };
+    case 'session.resume': {
+      // 残った claude の確認から選んだときは、確認を閉じてから送る。
+      const overlay = i.stray && state.overlay.kind === 'confirm' && state.overlay.confirm.kind === 'strayProcess' ? { kind: 'none' as const } : state.overlay;
+      return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.resume', sessionId: i.id, ...(i.stray ? { stray: i.stray } : {}) }] };
+    }
     case 'session.fork': return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.fork', sessionId: i.id }] };
     case 'session.attach':
       if (state.launch.kind === 'submitting') return { state, effects: [] };

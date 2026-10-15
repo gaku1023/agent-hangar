@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, ApiNotFoundError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -164,6 +164,17 @@ describe('保持期間の API', () => {
     // まとめられない 409（スクラッチの場所）は、型を付けずに理由だけを投げる。
     const plain = await harness(409, { error: 'あります' }).api.resolveProject('p2', { kind: 'repoint', path: '/w/x' }).catch((err: unknown) => err);
     expect(plain).not.toBeInstanceOf(ProjectSameFolderApiError);
+  });
+  it('再開は、選び方（stray）があれば本文で送り、409 の stray_process は StrayProcessApiError にする', async () => {
+    const { api, calls } = harness(201, {});
+    await api.resume('s1');
+    await api.resume('s1', 'stop');
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([['POST', '/api/sessions/s1/resume', undefined], ['POST', '/api/sessions/s1/resume', '{"stray":"stop"}']]);
+    const body = { error: 'この会話の Claude はまだ終了していません（PID 4242）', code: 'stray_process', pid: 4242 };
+    const e = await harness(409, body).api.resume('s1').catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(StrayProcessApiError);
+    expect((e as StrayProcessApiError).body).toEqual(body);
+    expect((e as Error).message).toBe(body.error);
   });
   // 0.6.1：フォルダとプロジェクトの結び付き。選んだフォルダの事前の問い合わせと、入れ子の 409。
   it('選んだフォルダの事前の問い合わせは GET /api/workspace/inspect で、名前は渡したときだけ付ける', async () => {

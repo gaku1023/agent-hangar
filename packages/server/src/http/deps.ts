@@ -23,7 +23,7 @@ import type { GitService } from '../git/service.ts';
  */
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
+export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'resume' | 'resumeWith' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
 /** git の表示（git/service.ts）のうち HTTP から触る部分だけ。 */
 export type GitApi = Pick<GitService, 'sessions' | 'changes' | 'diff' | 'edits' | 'project'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */

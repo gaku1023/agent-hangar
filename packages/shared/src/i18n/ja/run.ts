@@ -20,6 +20,8 @@ export const runJa: AreaDictionary<typeof runKeys> = {
   'run.error.alreadyEnded': 'この Claude はもう終了しています',
   'run.error.sessionRunning': 'このセッションは実行中です',
   'run.error.runningOutside': 'このセッションは hangar の外で実行中です',
+  'run.error.strayProcess': 'この会話の Claude はまだ終了していません（PID {pid}）',
+  'run.error.strayNotStopped': '残っていた Claude（PID {pid}）を停止できませんでした。そのプロセスを終了してから、もう一度再開してください',
   'run.jump.badRequest': 'heads（{headLen} 字までの文字列を {maxHeads} 個まで）、その中の index、from（top か bottom）を送ってください',
   'run.resume.noTranscript': 'このセッションにはトランスクリプトがありません',
   'run.terminal.notInHangar': 'この会話は hangar に載っていません',
