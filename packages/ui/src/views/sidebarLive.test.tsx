@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SessionDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
@@ -10,6 +10,7 @@ import { initialState, transition } from '../mediator/transition.ts';
 import { presentShell, SIDE_LIVE_MAX, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
 import type { SessionMenuProps } from '../presenters/sessionMenu.ts';
 import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
 
 const NOW = 1_800_000_000_000;
@@ -183,11 +184,11 @@ const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id,
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 
-// 行の縦の位置。a・b・c を 30px ずつ上から並べる。jsdom は配置を測らないので、ここで与える。
-const placeRows = () => {
+// 行の縦の位置。a・b・c を h（既定 30px、畳んだ帯は 26px）ずつ上から並べる。jsdom は配置を測らないので、ここで与える。
+const placeRows = (h = 30) => {
   ['a', 'b', 'c'].forEach((id, i) => {
-    const top = 100 + i * 30;
-    screen.getByRole('link', { name: new RegExp(`name-${id}`) }).getBoundingClientRect = () => ({ top, height: 30, bottom: top + 30, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
+    const top = 100 + i * h;
+    screen.getByRole('link', { name: new RegExp(`name-${id}`) }).getBoundingClientRect = () => ({ top, height: h, bottom: top + h, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
   });
 };
 // jsdom はポインタのイベントに位置やボタンを載せないことがあるので、作ったイベントに足してから送る。
@@ -231,32 +232,76 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     fireEvent.click(screen.getByText('ほか 8 件'));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
   });
-  it('行を掴んで別の行の上半分まで動かして離すと、その前へ入る並びを出す。離したあとの click では行を開かない', () => {
-    const { onAction } = mount(liveProps());
+  it('行を掴んで動かすと、その行が浮いてポインタに付き、ほかの行は入る場所に合わせて行の高さ分ずつよける', () => {
+    mount(liveProps());
     placeRows();
-    const c = screen.getByRole('link', { name: /name-c/ });
-    const a = screen.getByRole('link', { name: /name-a/ });
+    const [a, b, c] = ['a', 'b', 'c'].map((id) => screen.getByRole('link', { name: new RegExp(`name-${id}`) })) as [HTMLElement, HTMLElement, HTMLElement];
     pointerAt('pointerDown', c, 175);
+    pointerAt('pointerMove', c, 145);
+    expect(c).toHaveAttribute('data-lift', 'held');
+    expect(c.closest('ul')).toHaveAttribute('data-sorting', 'true');
+    expect(c.style.translate).toMatch(/-30px$/);
+    // c は b の席へ入るので、b だけが 1 行下がる。
+    expect(b.style.translate).toMatch(/ 30px$/);
+    expect(a.style.translate).toBe('');
     pointerAt('pointerMove', c, 104);
-    expect(c).toHaveAttribute('data-dragging', 'true');
-    expect(a).toHaveAttribute('data-over', 'before');
-    pointerAt('pointerUp', c, 104);
-    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
-    expect(c).not.toHaveAttribute('data-dragging');
-    expect(a).not.toHaveAttribute('data-over');
-    fireEvent.click(c);
-    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+    expect(c.style.translate).toMatch(/-68px$/);
+    expect(a.style.translate).toMatch(/ 30px$/);
+    expect(b.style.translate).toMatch(/ 30px$/);
+    // 入る場所の線は出さない。
+    expect(document.querySelector('[data-over]')).toBeNull();
   });
-  it('下半分まで動かして離すと、その後ろへ入る', () => {
+  it('浮いた行は、両端では行 1 つ分の手前より先（8px）で止まる', () => {
+    mount(liveProps());
+    placeRows();
+    const a = screen.getByRole('link', { name: /name-a/ });
+    pointerAt('pointerDown', a, 115);
+    pointerAt('pointerMove', a, 400);
+    expect(a.style.translate).toMatch(/ 68px$/);
+    pointerAt('pointerMove', a, -200);
+    expect(a.style.translate).toMatch(/-8px$/);
+  });
+  it('離すと空いた場所へ収まってから並びを確定し、確定と同時に浮きとずらしを外す。離したあとの click では行を開かない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const [a, b, c] = ['a', 'b', 'c'].map((id) => screen.getByRole('link', { name: new RegExp(`name-${id}`) })) as [HTMLElement, HTMLElement, HTMLElement];
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      pointerAt('pointerUp', c, 104);
+      // 離したあとの click（ブラウザは離した直後に送る）では、行を開かない。
+      fireEvent.click(c);
+      // 収まる間は、空いた席（2 行上）へ向かい、浮きの印は収まりへ替わる。並びはまだ出さない。
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(c.style.translate).toMatch(/-60px$/);
+      expect(a.style.translate).toMatch(/ 30px$/);
+      expect(onAction).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+      for (const el of [a, b, c]) { expect(el.style.translate).toBe(''); expect(el).not.toHaveAttribute('data-lift'); }
+      expect(c.closest('ul')).not.toHaveAttribute('data-sorting');
+      expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('下へ動かして離すと、その後ろへ入る', () => {
     const { onAction } = mount(liveProps());
     placeRows();
     const a = screen.getByRole('link', { name: /name-a/ });
-    const b = screen.getByRole('link', { name: /name-b/ });
     pointerAt('pointerDown', a, 115);
     pointerAt('pointerMove', a, 155);
-    expect(b).toHaveAttribute('data-over', 'after');
     pointerAt('pointerUp', a, 155);
     expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a', 'c'] });
+  });
+  it('行の外まで動かして離しても、端の席に収まる', () => {
+    const { onAction } = mount(liveProps());
+    placeRows();
+    const a = screen.getByRole('link', { name: /name-a/ });
+    pointerAt('pointerDown', a, 115);
+    pointerAt('pointerMove', a, 300);
+    pointerAt('pointerUp', a, 300);
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'c', 'a'] });
   });
   it('押しただけ、または少しだけ動いて離したときは、並べ替えずに行を開く', () => {
     const { onAction } = mount(liveProps());
@@ -264,35 +309,43 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     const a = screen.getByRole('link', { name: /name-a/ });
     pointerAt('pointerDown', a, 115);
     pointerAt('pointerMove', a, 117);
-    expect(a).not.toHaveAttribute('data-dragging');
+    expect(a).not.toHaveAttribute('data-lift');
     pointerAt('pointerUp', a, 117);
     fireEvent.click(a);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'sidebar.order' }));
   });
-  it('自分の上や行の外で離したときは並びを出さない。そのあとの click でも行を開かない', () => {
+  it('元の席のまま離したときは並びを出さない。そのあとの click でも行を開かない', () => {
     const { onAction } = mount(liveProps());
     placeRows();
     const a = screen.getByRole('link', { name: /name-a/ });
     pointerAt('pointerDown', a, 115);
-    pointerAt('pointerMove', a, 300);
-    expect(a).toHaveAttribute('data-dragging', 'true');
-    expect(document.querySelector('[data-over]')).toBeNull();
-    pointerAt('pointerUp', a, 300);
+    pointerAt('pointerMove', a, 126);
+    expect(a).toHaveAttribute('data-lift', 'held');
+    pointerAt('pointerUp', a, 126);
+    expect(a).not.toHaveAttribute('data-lift');
     fireEvent.click(a);
     expect(onAction).not.toHaveBeenCalled();
   });
-  it('ドラッグが取り消されたら（pointercancel）、印を消して並びを出さない', () => {
-    const { onAction } = mount(liveProps());
-    placeRows();
-    const c = screen.getByRole('link', { name: /name-c/ });
-    const a = screen.getByRole('link', { name: /name-a/ });
-    pointerAt('pointerDown', c, 175);
-    pointerAt('pointerMove', c, 104);
-    pointerAt('pointerCancel', c, 104);
-    expect(c).not.toHaveAttribute('data-dragging');
-    expect(a).not.toHaveAttribute('data-over');
-    expect(onAction).not.toHaveBeenCalled();
+  it('ドラッグが取り消されたら（pointercancel）、元の席へ同じ動きで戻り、並びを出さない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const c = screen.getByRole('link', { name: /name-c/ });
+      const a = screen.getByRole('link', { name: /name-a/ });
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      pointerAt('pointerCancel', c, 104);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(c.style.translate).toMatch(/^0(px)? 0px$/);
+      expect(a.style.translate).toBe('');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(c).not.toHaveAttribute('data-lift');
+      expect(c.style.translate).toBe('');
+      expect(onAction).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); restore(); }
   });
   it('右ボタンや control を押しながらの押し下げでは、ドラッグを始めない', () => {
     const { onAction } = mount(liveProps());
@@ -300,26 +353,63 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     const c = screen.getByRole('link', { name: /name-c/ });
     pointerAt('pointerDown', c, 175, { button: 2 });
     pointerAt('pointerMove', c, 104);
-    expect(c).not.toHaveAttribute('data-dragging');
+    expect(c).not.toHaveAttribute('data-lift');
     pointerAt('pointerUp', c, 104);
     pointerAt('pointerDown', c, 175, { ctrlKey: true });
     pointerAt('pointerMove', c, 104);
-    expect(c).not.toHaveAttribute('data-dragging');
+    expect(c).not.toHaveAttribute('data-lift');
     pointerAt('pointerUp', c, 104);
     expect(onAction).not.toHaveBeenCalled();
   });
-  it('ドラッグの途中で Esc を押すと、印を消して並びを出さない。離したあとの click でも行を開かない', () => {
+  it('ドラッグの途中で Esc を押すと、元の席へ戻り、並びを出さない。離したあとの click でも行を開かない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const c = screen.getByRole('link', { name: /name-c/ });
+      const a = screen.getByRole('link', { name: /name-a/ });
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      // WebKit はリンクを押しても焦点を移さないので、Esc は行ではなく窓で受ける。
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(c.style.translate).toMatch(/^0(px)? 0px$/);
+      expect(a.style.translate).toBe('');
+      // 戻る途中のポインタの動きでは、また掴まない。
+      pointerAt('pointerMove', c, 150);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(c).not.toHaveAttribute('data-lift');
+      pointerAt('pointerUp', c, 104);
+      fireEvent.click(c);
+      expect(onAction).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('reduced motion（長さが 0）では待たずに、離したその場で並びを確定して浮きを外す', () => {
+    const restore = fakeMotionTokens({ '--dur-fast': '0ms', '--ease-out': 'ease-out' });
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const c = screen.getByRole('link', { name: /name-c/ });
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      pointerAt('pointerUp', c, 104);
+      expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+      expect(c).not.toHaveAttribute('data-lift');
+      expect(c.style.translate).toBe('');
+    } finally { restore(); }
+  });
+  it('畳んだ帯（26px の行）でも、行の間隔を測って同じに動く', () => {
     const { onAction } = mount(liveProps());
-    placeRows();
-    const c = screen.getByRole('link', { name: /name-c/ });
-    pointerAt('pointerDown', c, 175);
-    pointerAt('pointerMove', c, 104);
-    fireEvent.keyDown(c, { key: 'Escape' });
-    expect(c).not.toHaveAttribute('data-dragging');
-    expect(document.querySelector('[data-over]')).toBeNull();
-    pointerAt('pointerUp', c, 104);
-    fireEvent.click(c);
-    expect(onAction).not.toHaveBeenCalled();
+    placeRows(26);
+    const [a, , c] = ['a', 'b', 'c'].map((id) => screen.getByRole('link', { name: new RegExp(`name-${id}`) })) as [HTMLElement, HTMLElement, HTMLElement];
+    pointerAt('pointerDown', c, 165);
+    pointerAt('pointerMove', c, 90);
+    expect(c.style.translate).toMatch(/-60px$/);
+    expect(a.style.translate).toMatch(/ 26px$/);
+    pointerAt('pointerUp', c, 90);
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
   });
   it('行は HTML のドラッグを使わない（デスクトップのアプリでは窓の中の dragover と drop が届かないため）', () => {
     mount(liveProps());
@@ -433,9 +523,14 @@ describe('行のメニュー（右クリックと .）', () => {
 
 describe('サイドバーの「実行中」の見た目', () => {
   const base = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../styles/base.css'), 'utf8');
-  it('入る場所は行の上か下の線で示す', () => {
-    expect(base).toMatch(/\.side-live-row\[data-over='before'\] \{[^}]*box-shadow: inset 0 2px 0 var\(--accent\)/);
-    expect(base).toMatch(/\.side-live-row\[data-over='after'\] \{[^}]*box-shadow: inset 0 -2px 0 var\(--accent\)/);
+  it('掴んだ行は白い面と影と 102% で浮き、ほかの行は --dur-fast で滑る。入る場所の線は出さない', () => {
+    expect(base).not.toContain('data-over');
+    expect(base).toMatch(/\.side-live-list \.side-live-row\[data-lift='held'\] \{[^}]*background: rgba\(255, 255, 255, 0\.9\d\)[^}]*box-shadow: var\(--glass-drop\)[^}]*scale: 1\.02/);
+    expect(base).toMatch(/\.side-live-list\[data-sorting='true'\] \.side-live-row \{[^}]*translate var\(--dur-fast\) var\(--ease-out\)/);
+    expect(base).toMatch(/\.side-live-list \.side-live-row\[data-lift='settle'\] \{[^}]*translate var\(--dur-fast\) var\(--ease-out\)/);
+  });
+  it('reduced motion では浮いた行を大きくしない', () => {
+    expect(base).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[^@]*\.side-live-list \.side-live-row\[data-lift='held'\] \{ scale: none; \}/);
   });
   it('畳んだ帯では見出しと名前を出さず、点だけを並べる', () => {
     expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-h, [^{]*\.side-live-name, [^{]*\{ display: none; \}/);

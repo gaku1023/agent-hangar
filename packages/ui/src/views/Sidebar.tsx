@@ -1,5 +1,6 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { useEmit } from '../action/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -8,6 +9,7 @@ import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
 import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
 import { SessionMenuPop } from './sessionMenu.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
+import { motionMs } from './primitives/motion.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
 const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', settings: 'settings' };
@@ -48,8 +50,33 @@ export function nudgeId(ids: string[], id: string, delta: -1 | 1): string[] {
  */
 const DRAG_SLOP = 4;
 
+/** 浮いた行が、両端の席より先へ出られる幅（px）。端に当たったことを、止まる手応えで見せる。 */
+const DRAG_OVERSHOOT = 8;
+
 /** 押し下げてから離すまでの、ポインタの記録。active はしきいを越えて並べ替えに入ったかどうか。 */
 type Press = { id: string; pointer: number; x: number; y: number; active: boolean; cancelled: boolean };
+
+/**
+ * 並べ替えの途中の形（5A）。
+ * from は掴んだ行の席、to は入る席、dy は浮いた行の縦のずれ（両端で止めた後）、pitch は行の間隔（開いた帯 30px、畳んだ帯 26px）。
+ * held はポインタに付いている間、settle は離して空いた席へ収まる間（取り消しなら元の席へ戻る間）。
+ */
+type Sort = { id: string; from: number; to: number; dy: number; pitch: number; phase: 'held' | 'settle' };
+
+/** 掴んだ行の縦のずれから、入る席を決める。両端の先へは出さない。 */
+function sortSlot(from: number, n: number, pitch: number, rawDy: number): { to: number; dy: number } {
+  const dy = Math.max(-from * pitch - DRAG_OVERSHOOT, Math.min((n - 1 - from) * pitch + DRAG_OVERSHOOT, rawDy));
+  const to = Math.max(0, Math.min(n - 1, Math.round(from + dy / pitch)));
+  return { to, dy };
+}
+
+/** 並べ替えの途中で、席 j の行をずらす幅。掴んだ行が通り過ぎた行は、行の間隔だけ逆へよける。 */
+function shiftOf(s: Sort, j: number): number {
+  if (j === s.from) return s.phase === 'held' ? s.dy : (s.to - s.from) * s.pitch;
+  if (s.from < s.to && j > s.from && j <= s.to) return -s.pitch;
+  if (s.from > s.to && j >= s.to && j < s.from) return s.pitch;
+  return 0;
+}
 
 /**
  * 「実行中」の節。
@@ -57,8 +84,10 @@ type Press = { id: string; pointer: number; x: number; y: number; active: boolea
  * 掴んで動かすのは、HTML のドラッグ（draggable と dragover と drop）ではなく、ポインタのイベントで作る。
  * デスクトップのアプリ（Tauri）は、Finder からファイルを落とすために窓のドラッグを殻で受けており、窓の中のドラッグでも dragover と drop が画面へ届かないからである。
  * 押してから DRAG_SLOP を越えて動いたら並べ替えに入り、離したあとの click では行を開かない。
+ * 並べ替えの間は、掴んだ行が浮いてポインタに付き（data-lift）、ほかの行は入る場所に合わせて滑ってよける（5A、base.css）。
+ * 離すと空いた席へ収まってから並びを確定する。Esc とポインタの取り消しでは、同じ動きで元の席へ戻る。
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
- * 動かすのは行だけで、見出しは動かない。ドラッグの途中の印（入る場所の線）は、ここだけで持つ。
+ * 動かすのは行だけで、見出しは動かない。並べ替えの途中の形は、ここだけで持つ。
  * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。
  * 行を右クリックするか、行に焦点があるときに . を押すと、その行のセッションのメニュー（1A）を出す。中身は一覧の行の「⋯」と同じである（views/sessionMenu.tsx）。
  * メニューは節に 1 つだけ持ち、開いている行には印（data-menu）を付けて、どの行のものかを見せる。
@@ -66,19 +95,49 @@ type Press = { id: string; pointer: number; x: number; y: number; active: boolea
 function LiveSection(props: { live: SideLiveProps }) {
   const emit = useEmit();
   const t = useT();
-  const [drag, setDrag] = useState<string | null>(null);
-  const [over, setOver] = useState<{ id: string; before: boolean } | null>(null);
+  const [sort, setSortState] = useState<Sort | null>(null);
   // 開いているメニュー。at は吊るす相手で、右クリックなら押した点、打鍵なら行の矩形。
   const [menu, setMenu] = useState<{ id: string; at: MenuAnchor } | null>(null);
   const list = useRef<HTMLUListElement>(null);
-  // 押し下げの記録と、いまの入る場所の写し。ポインタのイベントの間で、描き直しを待たずに読むため ref にも持つ。
+  // 押し下げの記録と、並べ替えの途中の形の写し。ポインタのイベントの間で、描き直しを待たずに読むため ref にも持つ。
   const press = useRef<Press | null>(null);
-  const overNow = useRef<{ id: string; before: boolean } | null>(null);
+  const sortNow = useRef<Sort | null>(null);
+  const setSort = (next: Sort | null) => { sortNow.current = next; setSortState(next); };
+  // 収まりを待つ予約。並びの確定は、ここから最新の行で組み立てる（待つ間に行が増減しても、古い並びで上書きしない）。
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveNow = useRef(props.live);
+  // 窓の Esc から呼ぶ、いまの描画の settle。
+  const settleRef = useRef<(cancel: boolean) => void>(() => {});
+  liveNow.current = props.live;
+  useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
   // 並べ替えで離した直後の click を 1 回だけ飲み込む。
   const swallowClick = useRef(false);
   // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
   const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
   useEffect(() => { if (gone) setMenu(null); }, [gone]);
+  // 並べ替えの途中で掴んだ行が消えたら、並べ替えごとやめる。
+  const sortGone = sort !== null && !props.live.rows.some((r) => r.id === sort.id);
+  useEffect(() => {
+    if (!sortGone) return;
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = null;
+    press.current = null;
+    setSort(null);
+  }, [sortGone]);
+  // 並べ替えの途中の Esc は、並べ替えをやめて元の席へ戻す。離すまでの記録は残し、離したあとの click を飲み込む。
+  // 窓で受けるのは、WebKit（Safari と Tauri の殻）がリンクを押しても焦点を移さず、行が Esc を受け取らないからである。
+  const holding = sort?.phase === 'held';
+  useEffect(() => {
+    if (!holding) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || !press.current?.active) return;
+      e.preventDefault();
+      press.current.cancelled = true;
+      settleRef.current(true);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [holding]);
   const { live } = props;
   if (live.count === 0) return null;
   const menuRow = menu ? live.rows.find((r) => r.id === menu.id) ?? null : null;
@@ -88,10 +147,37 @@ function LiveSection(props: { live: SideLiveProps }) {
     // 外を押したときは、押した先にフォーカスを任せる。ほかは行へ戻す（止めて行が消えたら、戻す先は無い）。
     if (how !== 'outside' && id) list.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
   };
-  const end = () => { setDrag(null); setOver(null); overNow.current = null; };
+  /**
+   * 浮いた行を、空いた席（取り消しなら元の席）へ --dur-fast で収め、収まってから並びを確定する。
+   * 確定（sidebar.order）と浮きを外すのを 1 回の描画にまとめ、行が入れ替わる前後でちらつかせない。
+   * reduced motion では長さが 0 なので、待たずにその場で確定する。
+   */
+  const settle = (cancel: boolean) => {
+    const s = sortNow.current;
+    if (!s || s.phase !== 'held') return;
+    const next: Sort = { ...s, to: cancel ? s.from : s.to, phase: 'settle' };
+    setSort(next);
+    const finish = () => {
+      settleTimer.current = null;
+      if (sortNow.current !== next) return;
+      const cur = liveNow.current;
+      const target = cur.rows[next.to]?.id;
+      const ids = next.to !== next.from && target ? moveId(cur.ids, next.id, target, next.to < next.from) : cur.ids;
+      flushSync(() => {
+        if (ids !== cur.ids) emit({ type: 'sidebar.order', ids });
+        setSort(null);
+      });
+    };
+    const ms = motionMs('--dur-fast');
+    if (ms > 0) settleTimer.current = setTimeout(finish, ms);
+    else finish();
+  };
+  settleRef.current = settle;
   const onPointerDown = (e: PointerEvent, r: SideLiveRow) => {
     // 右ボタンと control を押しながらの押し下げは、メニューを出すためのものなので掴まない。
     if (e.button !== 0 || e.ctrlKey || e.isPrimary === false) return;
+    // 収まる途中の行は、収まりきるまで掴み直さない。
+    if (sortNow.current) return;
     press.current = { id: r.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, active: false, cancelled: false };
   };
   const onPointerMove = (e: PointerEvent) => {
@@ -99,23 +185,24 @@ function LiveSection(props: { live: SideLiveProps }) {
     if (!p || p.cancelled || e.pointerId !== p.pointer) return;
     if (!p.active) {
       if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_SLOP) return;
+      const from = live.rows.findIndex((r) => r.id === p.id);
+      if (from < 0) return;
       p.active = true;
       // 掴んだ行の外へ出ても動きと離したことを受け取れるよう、ポインタをこの行に捕まえる。
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* 捕まえられなくても、行の上にいる間は動く */ }
-      setDrag(p.id);
+      // 行の間隔は、並んだ行の上端の差で測る。開いた帯と畳んだ帯で行の高さが違うからである。
+      const boxes = [...list.current?.querySelectorAll<HTMLElement>('.side-live-row') ?? []].map((el) => el.getBoundingClientRect());
+      const first = boxes[0];
+      const last = boxes[boxes.length - 1];
+      const pitch = boxes.length > 1 && first && last ? (last.top - first.top) / (boxes.length - 1) : first?.height ?? 0;
+      sortNow.current = { id: p.id, from, to: from, dy: 0, pitch: pitch > 0 ? pitch : 30, phase: 'held' };
     }
-    // ポインタの高さにある行を探し、上半分なら前、下半分なら後ろに入る線を出す。自分の上と行の外では線を出さない。
-    let next: { id: string; before: boolean } | null = null;
-    for (const el of list.current?.querySelectorAll<HTMLElement>('.side-live-row') ?? []) {
-      const id = el.dataset.id;
-      if (!id || id === p.id) continue;
-      const box = el.getBoundingClientRect();
-      if (e.clientY >= box.top && e.clientY < box.bottom) { next = { id, before: e.clientY < box.top + box.height / 2 }; break; }
-    }
-    const cur = overNow.current;
-    if (cur?.id === next?.id && cur?.before === next?.before) return;
-    overNow.current = next;
-    setOver(next);
+    const s = sortNow.current;
+    if (!s || s.phase !== 'held') return;
+    const { to, dy } = sortSlot(s.from, live.rows.length, s.pitch, e.clientY - p.y);
+    // 席もずれも変わらなければ描き直さない。掴んだ最初の動きは、まだ描いていないので描く。
+    if (sort && to === s.to && dy === s.dy) return;
+    setSort({ ...s, to, dy });
   };
   const onPointerUp = (e: PointerEvent) => {
     const p = press.current;
@@ -125,16 +212,13 @@ function LiveSection(props: { live: SideLiveProps }) {
     swallowClick.current = true;
     // click が来なかったとき（行の外で離した、など）に、次の押し下げまで飲み込みを残さない。
     setTimeout(() => { swallowClick.current = false; }, 0);
-    const o = overNow.current;
-    end();
-    if (p.cancelled || !o) return;
-    const ids = moveId(live.ids, p.id, o.id, o.before);
-    if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
+    if (p.cancelled) return;
+    settle(false);
   };
   const onPointerCancel = (e: PointerEvent) => {
     if (press.current?.pointer !== e.pointerId) return;
     press.current = null;
-    end();
+    settle(true);
   };
   const onClick = (e: MouseEvent, r: SideLiveRow) => {
     e.preventDefault();
@@ -142,13 +226,6 @@ function LiveSection(props: { live: SideLiveProps }) {
     emit({ type: 'session.open', id: r.id });
   };
   const onKeyDown = (e: KeyboardEvent, r: SideLiveRow) => {
-    // 並べ替えの途中の Esc は、並べ替えをやめる。離すまでの記録は残し、離したあとの click を飲み込む。
-    if (e.key === 'Escape' && press.current?.active) {
-      e.preventDefault();
-      press.current.cancelled = true;
-      end();
-      return;
-    }
     // . は一覧の行の「⋯」と同じ打鍵。修飾の付いたものはアプリ全体の打鍵なので取らない。
     if (e.key === '.' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
@@ -164,11 +241,16 @@ function LiveSection(props: { live: SideLiveProps }) {
   return (
     <section className="side-live" aria-label={t('sidebar.live.label')}>
       <h2 className="side-live-h">{t('sidebar.live.title')}<span className="side-live-n">{live.count}</span></h2>
-      <ul className="side-live-list" ref={list}>
-        {live.rows.map((r) => (
+      <ul className="side-live-list" ref={list} data-sorting={sort ? 'true' : undefined}>
+        {live.rows.map((r, j) => {
+          const shift = sort ? shiftOf(sort, j) : 0;
+          const lift = sort?.id === r.id ? sort.phase : undefined;
+          // 浮いた行には、元の席でも 0 を明示して持たせる（戻る動きの行き先が 0 であるため）。
+          const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
+          return (
           <li key={r.id}>
             <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={menu?.id === r.id ? 'true' : undefined}
-              data-live={r.live ?? undefined} data-dragging={drag === r.id ? 'true' : undefined} data-over={over?.id === r.id ? (over.before ? 'before' : 'after') : undefined}
+              data-live={r.live ?? undefined} data-lift={lift} style={style}
               title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
               onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
@@ -176,7 +258,8 @@ function LiveSection(props: { live: SideLiveProps }) {
               <StatusDot status={r.live} aside={r.aside} reason={r.reason} /><span className="side-live-name">{r.name}</span>{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
             </a>
           </li>
-        ))}
+          );
+        })}
       </ul>
       {menuRow && menu && <SessionMenuPop key={menuRow.id} menu={menuRow.menu} at={menu.at} onClose={closeMenu} />}
       {live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>{t('sidebar.live.more', { n: live.more })}</a>}
