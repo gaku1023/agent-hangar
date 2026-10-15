@@ -1663,9 +1663,9 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
   // Paused の入力（B1）。Dialog の殻が持つ Esc と、開いた元へのフォーカスの戻りを Root ごしに確かめる。
   it('「⋯」から Paused の入力を開き、Esc で閉じると「⋯」へフォーカスが戻る', async () => {
     await mounted();
-    const more = screen.getByRole('button', { name: 'せっしょん のステータス' });
+    const more = screen.getByRole('button', { name: 'せっしょん のメニュー' });
     fireEvent.click(more);
-    fireEvent.click(screen.getByRole('menuitem', { name: /Paused にする/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Paused/ }));
     const dialog = screen.getByRole('dialog', { name: 'Paused にする' });
     expect(dialog).toBeInTheDocument();
     expect(dialog.contains(document.activeElement)).toBe(true);
@@ -1677,12 +1677,51 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
   it('Paused の入力で送ると、API の結果を待たずに閉じて、PUT に戻る日と理由が載る', async () => {
     const setSessionState = vi.fn(() => new Promise<never>(() => {}));
     await mounted({ api: { setSessionState } });
-    fireEvent.click(screen.getByRole('button', { name: 'せっしょん のステータス' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Paused にする/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'せっしょん のメニュー' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Paused/ }));
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '数字を見る' } });
     fireEvent.click(screen.getByRole('button', { name: 'Paused にする' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(setSessionState).toHaveBeenCalledWith('s1', expect.objectContaining({ status: 'paused', note: '数字を見る', returnOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
+  });
+});
+
+describe('セッションのメニューから移す・消す（1A・2A・3A）', () => {
+  const two = { ...boot, sessions: [session], projects: [...boot.projects, { ...boot.projects[0]!, id: 'p2', name: 'beta', path: '/w/beta', lastActivityAt: null }] };
+  it('「プロジェクトを変更…」で移す先のダイアログを開き、選んで移すと閉じて API を呼ぶ', async () => {
+    const moveSession = vi.fn(async () => ({}) as Awaited<ReturnType<ApiClient['moveSession']>>);
+    await mounted({ boot: two, api: { moveSession } });
+    fireEvent.click(screen.getByRole('button', { name: 'せっしょん のメニュー' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /プロジェクトを変更/ }));
+    const dialog = screen.getByRole('dialog', { name: 'プロジェクトの変更' });
+    expect(dialog).toHaveTextContent('再開するフォルダ（/w/alpha）');
+    fireEvent.click(screen.getByRole('option', { name: 'beta' }));
+    fireEvent.click(screen.getByRole('button', { name: 'beta へ移動' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await flush();
+    expect(moveSession).toHaveBeenCalledWith('s1', 'p2');
+  });
+  it('「削除…」で確認を出し、ゴミ箱へ移動で API を呼ぶ。断られた理由はトーストに出す', async () => {
+    const deleteSession = vi.fn(async () => { throw new Error('実行中のセッションは削除できません。先に停止してください'); });
+    await mounted({ boot: two, api: { deleteSession } });
+    fireEvent.click(screen.getByRole('button', { name: 'せっしょん のメニュー' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '削除…' }));
+    expect(screen.getByRole('dialog', { name: '「せっしょん」を削除しますか？' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'ゴミ箱へ移動' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await flush();
+    expect(deleteSession).toHaveBeenCalledWith('s1');
+    expect(screen.getByText('実行中のセッションは削除できません。先に停止してください')).toBeInTheDocument();
+  });
+  it('開いていたセッションが消えたら、ホームへ戻る', async () => {
+    const m = await mounted({ boot: two });
+    act(() => m.setHash('#/session/s1'));
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s1');
+    act(() => m.wsHandlers[0]!.onEvent({ type: 'session.removed', id: 's1' }));
+    await flush();
+    expect(m.deps.location.getHash()).toMatch(/^#\/?$/);
   });
 });
 

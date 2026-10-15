@@ -1,11 +1,12 @@
-import { formatRoute, type Translate } from '@agent-hangar/shared';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { formatRoute } from '@agent-hangar/shared';
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
-import { MenuPop, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
+import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
+import { SessionMenuPop } from './sessionMenu.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
@@ -59,7 +60,7 @@ type Press = { id: string; pointer: number; x: number; y: number; active: boolea
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
  * 動かすのは行だけで、見出しは動かない。ドラッグの途中の印（入る場所の線）は、ここだけで持つ。
  * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。
- * 行を右クリックするか、行に焦点があるときに . を押すと、その行のメニューを出す。中身は「停止」だけで、画面を移らずに Claude を終わらせるためのものである。
+ * 行を右クリックするか、行に焦点があるときに . を押すと、その行のセッションのメニュー（1A）を出す。中身は一覧の行の「⋯」と同じである（views/sessionMenu.tsx）。
  * メニューは節に 1 つだけ持ち、開いている行には印（data-menu）を付けて、どの行のものかを見せる。
  */
 function LiveSection(props: { live: SideLiveProps }) {
@@ -75,7 +76,6 @@ function LiveSection(props: { live: SideLiveProps }) {
   const overNow = useRef<{ id: string; before: boolean } | null>(null);
   // 並べ替えで離した直後の click を 1 回だけ飲み込む。
   const swallowClick = useRef(false);
-  const anchor = useCallback(() => menu?.at ?? null, [menu]);
   // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
   const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
   useEffect(() => { if (gone) setMenu(null); }, [gone]);
@@ -178,20 +178,10 @@ function LiveSection(props: { live: SideLiveProps }) {
           </li>
         ))}
       </ul>
-      {menuRow && <MenuPop key={menuRow.id} label={t('sidebar.live.menuLabel', { name: menuRow.name })} items={rowItems(t, menuRow, emit)} anchor={anchor} minWidth={260} align="start" onClose={closeMenu} />}
+      {menuRow && menu && <SessionMenuPop key={menuRow.id} menu={menuRow.menu} at={menu.at} onClose={closeMenu} />}
       {live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>{t('sidebar.live.more', { n: live.more })}</a>}
     </section>
   );
-}
-
-/**
- * 行のメニューの項目。「停止」だけにする。
- * 状態（Paused・Done）は会話の終わりと一覧の「⋯」で付けるので、ここには置かない。置くと、付けたのに行が残って見える。
- * 言葉と色はセッション画面の「停止」に合わせ、何が起きるかを 1 行添える。hangar の外で動いているものは止められないので、押せない形で理由を言う。
- */
-function rowItems(t: Translate, r: SideLiveRow, emit: ReturnType<typeof useEmit>): MenuItem[] {
-  const stop = r.stop;
-  return [{ key: 'stop', label: t('sidebar.live.stop'), danger: true, note: t('sidebar.live.stopNote'), disabled: stop ? null : t('sidebar.live.stopExternal'), onSelect: () => { if (stop) emit({ type: 'session.kill', ...stop }); } }];
 }
 
 /** 「ほか N 件」の行き先。ホームの実行中と要対応に全部が並ぶ。 */

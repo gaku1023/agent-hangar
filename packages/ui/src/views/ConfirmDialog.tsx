@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfirmRequest } from '../mediator/types.ts';
-import type { ConfirmProjectProps } from '../presenters/confirm.ts';
+import type { ConfirmDeleteSessionProps, ConfirmProjectProps } from '../presenters/confirm.ts';
 import type { ResumeHereCard, ResumeHereProps } from '../presenters/resumeHere.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -21,7 +21,7 @@ const BACKUP_DIR = '~/.agent-hangar/backups/transcripts/';
  * どうするかを決めるのは利用者なので、View は起きることを並べるだけで判断をしない。
  * 開いた時点のフォーカスは、殻がやめる側に置く。Enter の押し違いで押し切らせないためである。
  */
-export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null; accountName?: string | null; resumeHere?: ResumeHereProps | null }) {
+export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null; accountName?: string | null; resumeHere?: ResumeHereProps | null; deleteSession?: ConfirmDeleteSessionProps | null }) {
   const emit = useEmit();
   const t = useT();
   const c = props.confirm;
@@ -43,6 +43,25 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
       >
         <div className="muted">{t('confirm.unlinkProject.otherPcs')}</div>
         <div className="faint">{t('confirm.unlinkProject.keeps')}</div>
+      </Dialog>
+    );
+  }
+  if (c.kind === 'deleteSession') {
+    const d = props.deleteSession;
+    // 消えた直後（ほかの PC で消えた）などで中身が無ければ描かない。Mediator が session.removed で閉じる。
+    if (!d) return null;
+    // 本文はゴミ箱へ移り、同期でほかの PC からも消えるので、赤い丸と赤く塗ったボタンで示す（試作の 3A）。
+    // 確定は先に閉じてから送る。断られた理由（実行中の 409、ゴミ箱へ移せない 500）はトーストに出る。
+    return (
+      <Dialog
+        title={t('confirm.deleteSession.title', { name: d.name })}
+        danger
+        icon="trash"
+        lead={t('confirm.deleteSession.facts', { project: d.project, n: d.turns })}
+        onClose={close}
+        footer={<><span className="spacer" />{cancel}<button type="button" className="btn btn-danger btn-danger-fill" onClick={() => { close(); emit({ type: 'session.delete', id: c.sessionId }); }}><Icon name="trash" />{t('confirm.deleteSession.action')}</button></>}
+      >
+        <div className="muted">{t('confirm.deleteSession.lead')}</div>
       </Dialog>
     );
   }

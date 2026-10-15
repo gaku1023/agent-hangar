@@ -32,7 +32,7 @@ const jsonOf = (value: unknown) => JSON.stringify(value);
 const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 5 * MIN, startedAt: NOW - 10 * MIN, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
 const storeIn = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, settings: { language: 'en' } as SettingsDto, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 
-const row = (over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id: 'a', name: 'alpha work', oneLiner: 'one', projectName: null, live: 'waiting', aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 min ago', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, cost: '', runId: null, transcript: 'expiring', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const row = (over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id: 'a', name: 'alpha work', oneLiner: 'one', projectName: null, live: 'waiting', aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 min ago', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, cost: '', runId: null, transcript: 'expiring', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, menu: { id: 'a', name: 'alpha work', status: over.state ?? null, resumeHere: null, stop: null, moveBlocked: null, deleteBlocked: null }, ...over });
 
 describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () => {
   it('戻る日と提案の札：日付、超過の複数形、曜日、時刻', () => {
@@ -136,7 +136,11 @@ describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () =
     expect(screen.getByText('Deleting soon')).toBeInTheDocument();
     expect(document.querySelector('.row-live')).toHaveTextContent('Needs input');
     expect(screen.getByText('10/9 09:30')).toHaveAttribute('title', 'Reminder time Fri 10/9 09:30 · Last activity 3 min ago');
-    expect(screen.getByRole('button', { name: 'Status of alpha work' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Menu for alpha work' }));
+    expect(screen.getByRole('menu', { name: 'Menu for alpha work' })).toHaveTextContent('Change project…');
+    expect(screen.getByRole('menuitem', { name: /Delete…/ })).toBeInTheDocument();
+    noJapanese();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     expect(screen.getByRole('button', { name: 'Paused?' })).toHaveAttribute('title', 'Paused · Fri 10/9?');
     fireEvent.click(screen.getByRole('button', { name: 'Paused?' }));
     expect(screen.getByRole('menu', { name: 'Claude\'s suggestion for beta' })).toBeInTheDocument();

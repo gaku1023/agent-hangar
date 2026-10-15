@@ -1,4 +1,5 @@
 import { resumeHereOf } from './resumeHere.ts';
+import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { AUTO_DONE_IDLE_DAYS, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
@@ -49,7 +50,9 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   interrupted?: { label: string; title: string };
 
   /** git の札（2 段目の右端、試作の 2-1 の A）。まだ届いていないものと git でないものは null。 */
-  git?: GitChipProps | null };
+  git?: GitChipProps | null;
+  /** 行の「⋯」と右クリックで開くセッションのメニュー（1A）。無ければ「⋯」を置かない。 */
+  menu?: SessionMenuProps };
 
 /**
  * 見立ての札を作る。
@@ -132,6 +135,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   if (excerpt) row.excerpt = excerpt;
   const here = resumeHereOf(store, s, t);
   if (here) row.resumeHere = { disabled: here.disabled };
+  row.menu = presentSessionMenu(store, s, t);
   if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
   return row;
 }

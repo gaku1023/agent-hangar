@@ -53,6 +53,9 @@ const ICONS = {
   permissionBypass: ShieldAlert,
   gitInit: GitBranch,
   moveFiles: FolderInput,
+  // セッションのメニューの「プロジェクトを変更…」と「削除…」（ゴミ箱へ移す）。
+  moveSession: FolderInput,
+  trash: Trash2,
   appWindow: AppWindow,
   latest: ArrowDownToLine,
   retention: Clock,

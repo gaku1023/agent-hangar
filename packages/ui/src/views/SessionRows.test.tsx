@@ -47,7 +47,8 @@ describe('SessionRows', () => {
 
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({
   id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high',
-  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over,
+  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null,
+  menu: { id, name: '名前 ' + id, status: over.state ?? null, resumeHere: null, stop: null, moveBlocked: null, deleteBlocked: null }, ...over,
 });
 
 describe('SessionRows のフェーズ 3', () => {
@@ -272,7 +273,7 @@ describe('一覧のキー操作（C1）', () => {
 
   it('行の中のボタンで押した Enter は行を開かない', () => {
     const { onAction } = mount();
-    const more = screen.getByLabelText('名前 s1 のステータス');
+    const more = screen.getByLabelText('名前 s1 のメニュー');
     act(() => more.focus());
     fireEvent.keyDown(more, { key: 'Enter' });
     // 行は開かない（「⋯」の Enter はメニューを開く）。
@@ -365,7 +366,9 @@ describe('SessionRows の本文の期限', () => {
 });
 
 /** 状態の試験の行。Task 13 の提案の試験も使う。 */
-const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null,
+  menu: { id, name: '名前 ' + id, status: over.state ?? null, resumeHere: over.resumeHere ?? null, stop: null, moveBlocked: null, deleteBlocked: null }, ...over });
+const radios = () => screen.getAllByRole('menuitemradio').map((i) => i.querySelector('.menu-item-text > span')?.textContent);
 const mount = (rows: SessionRowProps[], onAction = vi.fn()) => {
   render(<ActionRoot onAction={onAction}><SessionRows rows={rows} height={400} variant="project" /></ActionRoot>);
   return onAction;
@@ -446,51 +449,51 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(rowsCss).toMatch(/\.rows-host\[data-status-col='true'\] \.row-2 \{[^}]*grid-template-columns: 16px 62px minmax\(0, 1fr\) auto;/);
     expect(rowsCss).toMatch(/\.row-time \{[^}]*justify-content: flex-end;[^}]*width: 72px;/);
   });
-  it('「⋯」から 4 択を選ぶ。押しても行は開かない', () => {
+  it('「⋯」からセッションのメニュー（1A）を開き、状態を選ぶ。押しても行は開かない', () => {
     const onAction = mount([sr('a')]);
-    fireEvent.click(screen.getByRole('button', { name: '名前 a のステータス' }));
-    expect(labels()).toEqual(['Paused にする…', 'Done にする', 'Archived にする', 'Active に戻す']);
-    expect(screen.getAllByRole('menuitem').map((i) => i.querySelector('kbd')?.textContent)).toEqual(['p', 'd', 'a', 'u']);
-    expect(screen.getAllByRole('menuitem')[3]).toHaveAttribute('aria-disabled', 'true');
-    fireEvent.click(screen.getAllByRole('menuitem')[1]!);
+    fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
+    expect(radios()).toEqual(['Active', 'Paused', 'Done', 'Archived']);
+    expect(screen.getAllByRole('menuitemradio').map((i) => i.querySelector('kbd')?.textContent)).toEqual(['u', 'p', 'd', 'a']);
+    expect(labels()).toEqual(['プロジェクトを変更…', '削除…']);
+    fireEvent.click(screen.getAllByRole('menuitemradio')[2]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
     expect(opened(onAction)).toEqual([]);
   });
-  it('ほかの PC の会話の「⋯」には、最後に「この PC で再開」を足し、押せないときは理由を添える', () => {
+  it('ほかの PC の会話の「⋯」には、先頭に「この PC で再開」を置き、押せないときは理由を添える', () => {
     mount([sr('c')]);
-    fireEvent.click(screen.getByRole('button', { name: '名前 c のステータス' }));
+    fireEvent.click(screen.getByRole('button', { name: '名前 c のメニュー' }));
     expect(labels()).not.toContain('この PC で再開');
     cleanup();
     const onAction = mount([sr('a', { resumeHere: { disabled: null } }), sr('b', { resumeHere: { disabled: 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。' } })]);
-    fireEvent.click(screen.getByRole('button', { name: '名前 a のステータス' }));
-    expect(labels()).toEqual(['Paused にする…', 'Done にする', 'Archived にする', 'Active に戻す', 'この PC で再開']);
-    fireEvent.click(screen.getAllByRole('menuitem')[4]!);
+    fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
+    expect(labels()).toEqual(['この PC で再開', 'プロジェクトを変更…', '削除…']);
+    fireEvent.click(screen.getAllByRole('menuitem')[0]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 'a' });
     expect(opened(onAction)).toEqual([]);
-    fireEvent.click(screen.getByRole('button', { name: '名前 b のステータス' }));
-    const blocked = screen.getAllByRole('menuitem')[4]!;
+    fireEvent.click(screen.getByRole('button', { name: '名前 b のメニュー' }));
+    const blocked = screen.getAllByRole('menuitem')[0]!;
     expect(blocked).toHaveAttribute('aria-disabled', 'true');
     expect(blocked).toHaveTextContent('この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。');
   });
-  it('付いている状態は選べず、Active に戻すは選べる。Active の行では「すでに Active です」と添えて押せない', () => {
+  it('いまの状態に ✓ を付け、選び直しても何も送らない。ほかの状態と Active へは移れる', () => {
     const onAction = mount([sr('a', { state: 'done' }), sr('b')]);
-    fireEvent.click(screen.getByRole('button', { name: '名前 a のステータス' }));
-    const items = screen.getAllByRole('menuitem');
-    expect(items[1]).toHaveAttribute('aria-disabled', 'true');
-    expect(items[1]).toHaveTextContent('すでに Done です');
-    fireEvent.click(items[3]!);
+    fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
+    const items = screen.getAllByRole('menuitemradio');
+    expect(items.map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true', 'false']);
+    fireEvent.click(items[2]!);
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
+    fireEvent.click(screen.getAllByRole('menuitemradio')[0]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: null });
-    fireEvent.click(screen.getByRole('button', { name: '名前 b のステータス' }));
-    const last = screen.getAllByRole('menuitem')[3]!;
-    expect(last).toHaveAttribute('aria-disabled', 'true');
-    expect(last).toHaveTextContent('すでに Active です');
+    fireEvent.click(screen.getByRole('button', { name: '名前 b のメニュー' }));
+    expect(screen.getAllByRole('menuitemradio')[0]).toHaveAttribute('aria-checked', 'true');
   });
   it('打鍵 . でカーソルの行の「⋯」を開き、印の 1 字で選ぶ', () => {
     const onAction = mount([sr('a'), sr('b', { state: 'done' })]);
     const rb = screen.getByText('名前 b').closest('[role="row"]') as HTMLElement;
     act(() => rb.focus());
     fireEvent.keyDown(rb, { key: '.' });
-    expect(screen.getByRole('menu', { name: '名前 b のステータス' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: '名前 b のメニュー' })).toBeInTheDocument();
     fireEvent.keyDown(document.activeElement!, { key: 'p' });
     expect(onAction).toHaveBeenCalledWith({ type: 'session.pause.open', id: 'b', from: 'menu' });
     expect(screen.queryByRole('menu')).toBeNull();
@@ -522,7 +525,7 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(ra);
     fireEvent.keyDown(ra, { key: '.' });
-    expect(screen.getByRole('menu', { name: '名前 a のステータス' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: '名前 a のメニュー' })).toBeInTheDocument();
   });
 });
 

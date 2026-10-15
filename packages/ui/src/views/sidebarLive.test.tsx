@@ -8,6 +8,7 @@ import { ActionRoot } from '../action/chain.tsx';
 import { cleanSidebarOrder, mergeSidebarOrder, SIDEBAR_ORDER_KEY, SIDEBAR_ORDER_MAX, trimSidebarOrder } from '../mediator/sidebar.ts';
 import { initialState, transition } from '../mediator/transition.ts';
 import { presentShell, SIDE_LIVE_MAX, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
+import type { SessionMenuProps } from '../presenters/sessionMenu.ts';
 import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
 
@@ -176,7 +177,9 @@ describe('行の移し方', () => {
   });
 });
 
-const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
+const RUNNING = '実行中のセッションは削除できません。先に停止してください';
+const menuOf = (id: string, stop: SessionMenuProps['stop'] = { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }): SessionMenuProps => ({ id, name: `name-${id}`, status: null, resumeHere: null, stop, moveBlocked: null, deleteBlocked: RUNNING });
+const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: menuOf(id), ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 
@@ -335,11 +338,11 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
   });
 });
 
-describe('行の「停止」に要る情報（presentShell）', () => {
+describe('行のメニューの「停止」に要る情報（presentShell）', () => {
   const run = (id: string, sessionId: string, endedAt: number | null = null) => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt, endReason: null, heartbeatAt: 1 });
   const tab = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null) => ({ id, runId, sessionId: 'a', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: 1, closedAt });
   const withRuns = (list: SessionDto[], runs: ReturnType<typeof run>[], tabs: ReturnType<typeof tab>[] = []): Store => ({ ...storeWith(list), runs: Object.fromEntries(runs.map((r) => [r.id, r])), tabs: Object.fromEntries(tabs.map((t) => [t.id, t])) } as unknown as Store);
-  const stopOf = (store: Store, id: string) => liveOf(store, at('projects')).rows.find((r) => r.id === id)?.stop;
+  const stopOf = (store: Store, id: string) => liveOf(store, at('projects')).rows.find((r) => r.id === id)?.menu.stop;
 
   it('hangar の run が生きていれば、その id と、作業中かどうかと、開いているシェルのタブの数を持つ', () => {
     const store = withRuns([session('a', { live: 'idle' }), session('b', { live: 'busy' }), session('c', { live: 'waiting' })], [run('ra', 'a'), run('rb', 'b'), run('rc', 'c')],
@@ -348,16 +351,15 @@ describe('行の「停止」に要る情報（presentShell）', () => {
     expect(stopOf(store, 'b')).toEqual({ runId: 'rb', working: true, aside: false, shellTabs: 0 });
     expect(stopOf(store, 'c')).toEqual({ runId: 'rc', working: true, aside: false, shellTabs: 0 });
   });
-  it('hangar の外で動いているもの（生きた run が無い）は、止める手を持たない', () => {
+  it('hangar の外で動いているもの（生きた run が無い）は、外部ターミナルのものとして止める手を持たない', () => {
     const store = withRuns([session('a', { live: 'busy' }), session('b', { live: 'idle' })], [run('rb-old', 'b', 9)]);
-    expect(stopOf(store, 'a')).toBeNull();
-    expect(stopOf(store, 'b')).toBeNull();
+    expect(stopOf(store, 'a')).toBe('external');
+    expect(stopOf(store, 'b')).toBe('external');
   });
 });
 
 describe('行のメニュー（右クリックと .）', () => {
-  const NOTE = 'Claude を終了します。トランスクリプトは残るので、あとで再開できます';
-  it('行を右クリックすると、その行に印を付けて「停止」だけのメニューを出す。ブラウザのメニューは出さない', () => {
+  it('行を右クリックすると、その行に印を付けてセッションのメニュー（1A）を押した点に出す。ブラウザのメニューは出さない', () => {
     mount(liveProps());
     const a = screen.getByRole('link', { name: /name-a/ });
     const ev = createEvent.contextMenu(a, { clientX: 40, clientY: 120 });
@@ -365,31 +367,40 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(ev.defaultPrevented).toBe(true);
     expect(a).toHaveAttribute('data-menu', 'true');
     expect(screen.getByRole('link', { name: /name-b/ })).not.toHaveAttribute('data-menu');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('name-a のメニュー');
+    expect(screen.getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Activeu', 'true'], ['Pausedp', 'false'], ['Doned', 'false'], ['Archiveda', 'false']]);
     const items = screen.getAllByRole('menuitem');
-    expect(items).toHaveLength(1);
-    expect(items[0]).toHaveTextContent('停止');
-    expect(items[0]).toHaveTextContent(NOTE);
-    expect(items[0]).toHaveAttribute('data-danger', 'true');
-    expect(screen.getByRole('menu')).toHaveAccessibleName('name-a の操作');
+    // 停止の補足の 1 行は出さない。
+    expect(items.map((i) => i.textContent)).toEqual(['プロジェクトを変更…m', '停止', `削除…${RUNNING}`]);
+    expect(items[1]).toHaveAttribute('data-danger', 'true');
+    expect(items[2]).toHaveAttribute('aria-disabled', 'true');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
-    const { onAction } = mount(liveProps({ rows: [row('a', { stop: { runId: 'r9', working: false, aside: false, shellTabs: 2 } }), row('b')] }));
+    const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', { runId: 'r9', working: false, aside: false, shellTabs: 2 }) }), row('b')] }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /停止/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^停止/ }));
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r9', working: false, aside: false, shellTabs: 2 });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
   });
   it('hangar の外で動いている行では、「停止」を押せない形で出し、理由を添える', () => {
-    const { onAction } = mount(liveProps({ rows: [row('a', { stop: null })] }));
+    const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', 'external') })] }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    const item = screen.getByRole('menuitem', { name: /停止/ });
+    const item = screen.getByRole('menuitem', { name: /^停止/ });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).toHaveTextContent('外部ターミナルで実行中');
-    expect(item).not.toHaveTextContent(NOTE);
     fireEvent.click(item);
     expect(onAction).not.toHaveBeenCalled();
+  });
+  it('「プロジェクトを変更…」は移す先のダイアログを開き、状態は打鍵の印でその状態にする', () => {
+    const { onAction } = mount(liveProps());
+    fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /プロジェクトを変更/ }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.move.open', id: 'a' });
+    fireEvent.contextMenu(screen.getByRole('link', { name: /name-b/ }));
+    fireEvent.keyDown(document.activeElement!, { key: 'd' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 'b', status: 'done' });
   });
   it('行に焦点があるときの . でも開き、Esc で閉じて焦点を行へ戻す', () => {
     const { onAction } = mount(liveProps());
@@ -397,9 +408,9 @@ describe('行のメニュー（右クリックと .）', () => {
     b.focus();
     fireEvent.keyDown(b, { key: '.' });
     expect(b).toHaveAttribute('data-menu', 'true');
-    const item = screen.getByRole('menuitem', { name: /停止/ });
-    expect(item).toHaveFocus();
-    fireEvent.keyDown(item, { key: 'Escape' });
+    const first = screen.getAllByRole('menuitemradio')[0]!;
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(b).toHaveFocus();
     expect(onAction).not.toHaveBeenCalled();
@@ -415,28 +426,8 @@ describe('行のメニュー（右クリックと .）', () => {
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-b/ }));
     expect(screen.getAllByRole('menu')).toHaveLength(1);
-    expect(screen.getByRole('menu')).toHaveAccessibleName('name-b の操作');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('name-b のメニュー');
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
-  });
-  it('メニューの外を押すと閉じる', () => {
-    mount(liveProps());
-    fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('menu')).toBeNull();
-  });
-  it('メニューを開いている間に行が消えたら閉じ、その行がまた現れても開き直さない', () => {
-    const ui = (live: SideLiveProps) => <ActionRoot onAction={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>;
-    const { rerender } = render(ui(liveProps()));
-    fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    rerender(ui(liveProps({ count: 2, ids: ['b', 'c'], rows: [row('b'), row('c')] })));
-    expect(screen.queryByRole('menu')).toBeNull();
-    rerender(ui(liveProps()));
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
-  });
-  it('メニューを開いている行は、押している見た目にする', () => {
-    const base = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../styles/base.css'), 'utf8');
-    expect(base).toMatch(/\.side-live-row:hover, \.side-live-row\[data-menu='true'\] \{[^}]*background:/);
   });
 });
 

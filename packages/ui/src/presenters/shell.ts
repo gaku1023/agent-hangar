@@ -1,7 +1,8 @@
 import { asideOf } from '../lib/aside.ts';
+import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, shownReason, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hasMultipleAccounts, liveSessionIds, shownReason, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -54,18 +55,12 @@ export const HARD_AFTER_FAILURES = 3;
  * セッション画面だけ外し、ターミナルに幅と高さを渡す（UX 刷新 2 の案 b）。
  */
 /**
- * 行のメニューの「停止」に要るもの（session.kill にそのまま渡す）。
- * working は作業中か入力待ちで、shellTabs は開いているシェルのタブの数。どちらかがあれば、止める前に確認を挟む（mediator/launch.ts）。
- * aside は裏だけ動いていることで、確認の文言を「バックグラウンドの作業も終わる」にする。
- */
-export type SideLiveStop = { runId: string; working: boolean; aside: boolean; shellTabs: number };
-/**
  * サイドバーの「実行中」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
  * reason は止まっている理由で、点を盾（許可待ち）か砂時計（使用制限）に替える。waited も「許可待ち 4 分」、リセットの時刻（16:50）、「リセット済み」に替える。
  * aside は裏だけ動いていること。丸を薄いオレンジにするだけで、名前の横に語は添えない（利用者の決定）。
- * stop は hangar の run が生きているときだけ持つ。hangar の外で動いているもの（VS Code の中の claude など）は hangar から止められないので null にする。
+ * menu は行の右クリックと . で開くセッションのメニュー（1A）。一覧とホームの帯と同じものである。
  */
-export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; stop: SideLiveStop | null;
+export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
   overlap?: string | null };
 /**
@@ -180,16 +175,12 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const current = state.screen.name === 'session' ? state.screen.id : null;
   const rows = ids.slice(0, SIDE_LIVE_MAX).map((id): SideLiveRow => {
     const s = store.sessions[id]!;
-    const run = aliveRunOf(store, id);
-    // 作業中の数え方と、数えるタブは、セッション画面の「停止」と同じにする（views/SessionScreen.tsx）。
-    // 裏だけ動いているものも作業中として確かめる。止めると裏の作業も消える。
     const aside = asideOf(s.live, s.liveAside);
-    const stop = run ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: aside !== null, shellTabs: tabsOf(store, run.id).filter((tab) => tab.kind === 'shell').length } : null;
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, stop, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null };
   });
   return { count: ids.length, ids, rows, more: ids.length - rows.length };
 }
