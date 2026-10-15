@@ -1,5 +1,5 @@
 import { formatRoute, type ProjectStatus } from '@agent-hangar/shared';
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit, type Emit } from '../action/chain.tsx';
 import { STATUS_LABEL } from '../presenters/format.ts';
 import type { ProjectNowItem, ProjectRowProps, ProjectsProps } from '../presenters/projects.ts';
@@ -7,7 +7,7 @@ import { PageHeading } from './PageHeading.tsx';
 import { useFlip } from './primitives/flip.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
+import { MenuButton, MenuPop, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { fitCount } from './nowFit.ts';
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -79,7 +79,7 @@ function moveFocus(e: KeyboardEvent<HTMLElement>) {
   links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
 }
 
-/** 「…」のメニューの項目。新しいセッション、（場所が見つからなければ）場所を再指定、いまのもの以外のステータスの順。 */
+/** 「…」と、行の右クリック（と .）のメニューの項目。新しいセッション、（場所が見つからなければ）場所を再指定、いまのもの以外のステータスの順。 */
 function menuItems(row: ProjectRowProps, emit: Emit, t: ReturnType<typeof useT>): MenuItem[] {
   const items: MenuItem[] = [{ key: 'new', label: t('projects.menu.newSession'), icon: 'add', onSelect: () => emit({ type: 'session.new.open', projectId: row.id }) }];
   if (row.place?.kind === 'missing') items.push({ key: 'relocate', label: t('projects.menu.relocate'), icon: 'repoint', onSelect: () => emit({ type: 'project.resolve.open', id: row.id }) });
@@ -90,30 +90,54 @@ function menuItems(row: ProjectRowProps, emit: Emit, t: ReturnType<typeof useT>)
   return items;
 }
 
+/**
+ * 表の 1 行。
+ * 行を右クリックするか、行に焦点があるときに . を押すと、「…」と同じ項目（menuItems）のメニューを出す（サイドバーの行と同じ作り）。
+ * 右クリックなら押した点に、打鍵なら行に吊るす。開いている行には印（data-menu）を付ける。
+ * メニューは行の外（React の木で行の兄弟）に描き、メニューの中のクリックと打鍵が行の onClick と onKeyDown へ泡立たないようにする。
+ */
 function ProjectRow(props: { row: ProjectRowProps; flipRef: (el: HTMLElement | null) => void }) {
   const emit = useEmit();
   const t = useT();
   const r = props.row;
   const open = () => emit({ type: 'project.open', id: r.id });
+  const [menuAt, setMenuAt] = useState<MenuAnchor | null>(null);
+  const anchor = useCallback(() => menuAt, [menuAt]);
+  const link = useRef<HTMLAnchorElement>(null);
+  // 外を押したときは、押した先に焦点を任せる。ほかは名前へ戻す。
+  const closeMenu = (how: MenuCloseHow) => { setMenuAt(null); if (how !== 'outside') link.current?.focus(); };
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // . は一覧の行の「⋯」と同じ打鍵。修飾の付いたものはアプリ全体の打鍵なので取らない。
+    // 「⋯」のメニューは portal に描かれ、その中の打鍵も React の木では行へ泡立つので、行の DOM の中で押したものだけを取る。
+    if (e.key !== '.' || e.metaKey || e.ctrlKey || e.altKey || !e.currentTarget.contains(e.target as Node)) return;
+    e.preventDefault();
+    const box = e.currentTarget.getBoundingClientRect();
+    setMenuAt({ top: box.top, bottom: box.bottom, left: box.left, width: box.width });
+  };
   return (
-    <div role="listitem" ref={props.flipRef} className="prow" data-archived={r.status === 'archived' ? 'true' : undefined}
-      onClick={(e) => { if (!(e.target as HTMLElement).closest('a, button')) open(); }}>
-      <span className="prow-status"><span className="row-sq" data-s={r.status}>{STATUS_LABEL[r.status]}</span></span>
-      <span className="pname">
-        <a className="pname-link" href={formatRoute({ name: 'project', id: r.id })} aria-label={r.label} onClick={(e) => { e.preventDefault(); open(); }}>{r.name}</a>
-        {r.place?.kind === 'outside' && (
-          // 頭を省略して末尾を残す（.ppath の direction）。bdi が無いと、記号で始まるパスの並びが崩れる。
-          <span className="ppath mono" title={r.place.path}><bdi>{r.place.path}</bdi></span>
-        )}
-        {r.place?.kind === 'missing' && (
-          <button type="button" className="pwarn" title={t('projects.place.missing')} onClick={() => emit({ type: 'project.resolve.open', id: r.id })}><Icon name="warning" /><span className="pwarn-text">{t('projects.place.missing')}</span></button>
-        )}
-      </span>
-      <NowCell items={r.now} />
-      <span className="pn">{r.sessionsText}</span>
-      <span className="pn">{r.lastActivity}</span>
-      <span className="pmore"><MenuButton label={t('projects.row.menu', { name: r.name })} items={menuItems(r, emit, t)} faceClassName="btn btn-icon pmore-btn" minWidth={200} /></span>
-    </div>
+    <>
+      <div role="listitem" ref={props.flipRef} className="prow" data-archived={r.status === 'archived' ? 'true' : undefined} data-menu={menuAt ? 'true' : undefined}
+        onClick={(e) => { if (!(e.target as HTMLElement).closest('a, button')) open(); }}
+        onContextMenu={(e) => { e.preventDefault(); setMenuAt({ top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 }); }}
+        onKeyDown={onKeyDown}>
+        <span className="prow-status"><span className="row-sq" data-s={r.status}>{STATUS_LABEL[r.status]}</span></span>
+        <span className="pname">
+          <a ref={link} className="pname-link" href={formatRoute({ name: 'project', id: r.id })} aria-label={r.label} onClick={(e) => { e.preventDefault(); open(); }}>{r.name}</a>
+          {r.place?.kind === 'outside' && (
+            // 頭を省略して末尾を残す（.ppath の direction）。bdi が無いと、記号で始まるパスの並びが崩れる。
+            <span className="ppath mono" title={r.place.path}><bdi>{r.place.path}</bdi></span>
+          )}
+          {r.place?.kind === 'missing' && (
+            <button type="button" className="pwarn" title={t('projects.place.missing')} onClick={() => emit({ type: 'project.resolve.open', id: r.id })}><Icon name="warning" /><span className="pwarn-text">{t('projects.place.missing')}</span></button>
+          )}
+        </span>
+        <NowCell items={r.now} />
+        <span className="pn">{r.sessionsText}</span>
+        <span className="pn">{r.lastActivity}</span>
+        <span className="pmore"><MenuButton label={t('projects.row.menu', { name: r.name })} items={menuItems(r, emit, t)} faceClassName="btn btn-icon pmore-btn" minWidth={200} /></span>
+      </div>
+      {menuAt && <MenuPop label={t('projects.row.menu', { name: r.name })} items={menuItems(r, emit, t)} anchor={anchor} minWidth={200} align="start" onClose={closeMenu} />}
+    </>
   );
 }
 

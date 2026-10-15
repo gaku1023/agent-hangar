@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { ActionRoot, type Emit } from '../action/chain.tsx';
 import type { ProjectRowProps, ProjectsProps } from '../presenters/projects.ts';
@@ -259,5 +259,34 @@ describe('ProjectsScreen の言語と見た目', () => {
   it('列の見出しと行は、同じ列の幅の変数を引く（ずれない）', () => {
     expect(rowsCss).toMatch(/\.pcols \{[^}]*grid-template-columns: var\(--pcols\);/);
     expect(rowsCss).toMatch(/\.prow \{[^}]*grid-template-columns: var\(--pcols\);/);
+  });
+});
+
+describe('ProjectsScreen の行の右クリックと .', () => {
+  it('行を右クリックすると、「…」と同じ項目のメニューを押した点に出す。ブラウザのメニューは出さない', () => {
+    const { onAction } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha'), row('beta')] }] }));
+    const target = screen.getByText('3 本', { selector: '.prow:first-child .pn' });
+    const ev = createEvent.contextMenu(target, { clientX: 40, clientY: 120 });
+    fireEvent(target, ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.getByRole('menu')).toHaveAccessibleName('alpha のメニュー');
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['新しいセッション', 'Paused にする', 'Done にする', 'Archived にする']);
+    expect(target.closest('.prow')).toHaveAttribute('data-menu', 'true');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Done にする' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'done' });
+    expect(opened(onAction)).toHaveLength(0);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+  it('名前に焦点があるときの . でも開き、Esc で閉じて焦点を名前へ戻す。修飾つきの . は取らない', () => {
+    mount(props());
+    const link = screen.getByRole('link', { name: 'alpha、Active' });
+    link.focus();
+    fireEvent.keyDown(link, { key: '.', metaKey: true });
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.keyDown(link, { key: '.' });
+    expect(screen.getByRole('menu')).toHaveAccessibleName('alpha のメニュー');
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(link);
   });
 });

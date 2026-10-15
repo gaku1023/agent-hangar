@@ -632,6 +632,8 @@ a:hover { text-decoration: underline; }
 .status-pill:hover { filter: brightness(0.97); }
 .status-pill[aria-expanded='true'] > .icon:last-child { transform: rotate(180deg); }
 .status-pill > .icon:last-child { transition: transform var(--dur-fast) var(--ease-out); }
+/* hangar が自動で付けた状態の印（✦）。セッション画面の見出しの札だけが付ける。見出しの下の 1 行の札（.lead-status[data-auto]）と同じ大きさにする。 */
+.status-pill[data-auto] > .icon:first-child { width: 10px; height: 10px; }
 .st-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .st-dot[data-status='active'] { background: var(--st-active); }
 .st-dot[data-status='paused'] { background: var(--st-paused); }

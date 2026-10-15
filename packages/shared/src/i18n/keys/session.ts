@@ -174,6 +174,7 @@ export const sessionKeys = {
   'session.screen.endedHint': [],
   'session.screen.loading': [],
   'session.screen.moreActions': [],
+  'session.screen.status': [],
   'session.screen.extendRetention': [],
   'session.screen.mainConversation': [],
   'session.screen.thinkingLabel': [],

@@ -1034,3 +1034,60 @@ describe('SessionScreen（英語）', () => {
     expect(screen.getAllByRole('status').some((e) => (e.textContent ?? '').includes('If a trust dialog appears'))).toBe(true);
   });
 });
+
+describe('見出しの状態の札（4A）', () => {
+  const active = { value: 'active' as const, auto: false, title: '進行中のもの' };
+  const LABEL = 'セッションのステータス';
+  it('主の操作の左に札を置き、一言はプロジェクト画面と同じものを並べる', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} statusPick={active} /></ActionRoot>);
+    const hero = container.querySelector('.session-hero') as HTMLElement;
+    const buttons = within(hero).getAllByRole('button');
+    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([LABEL, '再開', 'ほかの操作', '詳細']);
+    expect(buttons[0]).toHaveClass('status-pill');
+    expect(buttons[0]).toHaveAttribute('data-status', 'active');
+    fireEvent.click(buttons[0]!);
+    expect(screen.getByRole('option', { name: 'Done' })).toHaveAccessibleDescription('完了したもの');
+    expect(screen.getByRole('option', { name: 'Active' })).toHaveAttribute('aria-selected', 'true');
+  });
+  it('Done を選ぶと session.state.set を出し、Active に戻すと状態を外す', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><SS {...base} statusPick={active} /></ActionRoot>);
+    pick(LABEL, 'Done');
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'done' });
+    cleanup();
+    const back = vi.fn();
+    render(<ActionRoot onAction={back}><SS {...base} statusPick={{ ...active, value: 'done' }} /></ActionRoot>);
+    pick(LABEL, 'Active');
+    expect(back).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: null });
+  });
+  it('Paused は戻る日のダイアログを開く（その場では付けない）', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><SS {...base} statusPick={active} /></ActionRoot>);
+    pick(LABEL, 'Paused');
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.pause.open', id: 's1', from: 'menu' });
+    expect(onAction.mock.calls.some(([i]) => i.type === 'session.state.set')).toBe(false);
+  });
+  it('実行中の画面にも出す', () => {
+    const onAction = withHost(<SS {...running} statusPick={active} />);
+    pick(LABEL, 'Archived');
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'archived' });
+  });
+  it('終わった画面では、見出しの下の 1 行から状態の札を外し（二重に出さない）、設定した日は残す', () => {
+    const lead = leadOf({ state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 86_400_000, candidate: null } });
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} lead={lead} statusPick={{ ...active, value: 'done' }} /></ActionRoot>);
+    expect(container.querySelector('.ended-facts .lead-status')).toBeNull();
+    expect(within(container.querySelector('.ended-facts') as HTMLElement).getByText(/に設定$/)).toBeInTheDocument();
+  });
+  it('自動で付いた状態は、札の頭に ✦ を置き、理由をツールチップで言う', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} statusPick={{ value: 'done', auto: true, title: '自動の理由' }} /></ActionRoot>);
+    const pill = screen.getByRole('button', { name: LABEL });
+    expect(pill.querySelector('.icon')).toHaveAttribute('data-icon', 'autoMark');
+    expect(container.querySelector('.status-host')).toHaveAttribute('title', '自動の理由');
+  });
+  it('本文が消えた会話（statusPick が null）には札を出さず、1 行の状態の札も残す', () => {
+    const gone = { note: 'n', canExtend: false, extendTo: 365 };
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} hasTranscript={false} items={[]} gone={gone} lead={leadOf({ hasTranscript: false }, { gone: true })} statusPick={null} /></ActionRoot>);
+    expect(screen.queryByRole('button', { name: LABEL })).toBeNull();
+    expect(container.querySelector('.ended-facts .lead-status')).not.toBeNull();
+  });
+});
