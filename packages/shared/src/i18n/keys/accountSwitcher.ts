@@ -9,5 +9,6 @@ export const accountSwitcherKeys = {
   'accountSwitcher.tag.current': [],
   'accountSwitcher.tag.session': [],
   'accountSwitcher.tag.switch': [],
+  'accountSwitcher.footer.add': [],
   'accountSwitcher.footer.settings': [],
 } as const satisfies MessageSpec;

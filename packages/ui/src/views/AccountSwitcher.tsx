@@ -4,6 +4,7 @@ import { useEmit } from '../action/chain.tsx';
 import { isPickableAccount, switchLabel, type AccountView } from '../presenters/accounts.ts';
 import type { HeaderAccountProps } from '../presenters/shell.ts';
 import { AccountMeters } from './primitives/AccountMeters.tsx';
+import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { place, type Placement } from './primitives/listboxModel.ts';
 import { foldAt } from './headerFold.ts';
@@ -16,6 +17,7 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
 /**
  * ヘッダのアカウントの切り替え。
  * 色の点、名前、計器（children）、▾ の全体が 1 つのボタンで、押すとアカウントの一覧が開く。
+ * アカウントが 1 件のときも同じ顔と同じ面にする。面の札でリセットの時刻が読め、下の段から 2 件目を足せる。
  * ヘッダは窓を掴む領域なので、押す部品はボタンにする。
  * 一覧はアカウントごとに 1 枚の札で、選ぶと、ホームなら「いまのアカウント」を、セッション画面ならそのセッションのアカウントを替える。
  * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札と初めてのログインの途中の札は押せない（右上は空で、理由は札の中身が言う）。ログインし直しの途中の札は、いまのログインが生きているので押せる。
@@ -116,7 +118,10 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
               );
             })}
           </div>
+          {/* 下の段は、左に「アカウントを追加」、右に「アカウントの設定」。1 件でも 2 件以上でも同じ並びにする（試作の 1A）。
+              追加は、設定の画面にある「アカウントを足す」のダイアログを直接開く。 */}
           <div className="account-pop-foot">
+            <button type="button" className="account-add" onClick={() => { hide(true); emit({ type: 'account.add.open' }); }}><Icon name="add" />{t('accountSwitcher.footer.add')}</button>
             <button type="button" className="account-settings" onClick={() => { hide(true); emit({ type: 'nav.go', to: SETTINGS }); }}>{t('accountSwitcher.footer.settings')}</button>
           </div>
         </div>,
