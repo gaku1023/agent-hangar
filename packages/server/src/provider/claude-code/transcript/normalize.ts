@@ -8,6 +8,12 @@ const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
 
+/**
+ * 中身を読まず、イベントも作らずに捨てる行の種類。
+ * api-request 系は 2.1.300 で現れた、API に送った要求の記録である。1 行が 10〜90KB あり、会話の本文は別の行にあるので、meta として持ち回さない。
+ */
+export const DROPPED_LINE_TYPES: ReadonlySet<string> = new Set(['api-request', 'api-request-blob', 'api-request-shape']);
+
 export type RecordFacts = {
   cwd?: string; ts?: number; model?: string; effort?: string;
   usage?: { input: number; output: number };
@@ -140,6 +146,7 @@ export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string
     return [{ kind: 'system', seq, ts, text: str(raw.content) || subtype, subtype }];
   }
 
+  if (DROPPED_LINE_TYPES.has(type)) return [];
   // 知らない type は捨てずに meta として残す。
   const { type: _t, sessionId: _s, ...rest } = raw;
   return [{ kind: 'meta', seq, ts, name: type, value: rest }];

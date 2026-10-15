@@ -168,9 +168,15 @@ function redactCostState(r: Rec): Rec {
  * 利用者の発言でない user の行（isMeta）も、本文を伏せる。
  * どの欄の文字列でも、system-reminder の塊は中身を伏せる（isMeta でない所にも文脈が差し込まれる）。考えの塊も中身を伏せる。
  * cost-state の行は、費用と累計の時間を決まった値にする。
+ * API の要求の記録（api-request で始まる種類、2.1.300 から）は、種類、会話、版、時刻だけを残す。システムプロンプト、環境、道具の定義、送った本文がまるごと入り、hangar は中身を読まないためである。
+ * 種類を名指しせず頭で拾うのは、仲間の種類が増えても伏せ漏らさないためである。
  */
 export function redactTranscriptLine(rec: unknown, pairs: Pairs): unknown {
   if (!isRec(rec)) return rec;
+  if (typeof rec.type === 'string' && rec.type.startsWith('api-request')) {
+    const { type, sessionId, version, timestamp } = rec;
+    return redactDeep({ type, sessionId, ...(version !== undefined ? { version } : {}), ...(timestamp !== undefined ? { timestamp } : {}) }, pairs);
+  }
   let r: Rec = rec;
   if (r.type === 'attachment' && isRec(r.attachment) && !KEEP_ATTACHMENTS.has(String(r.attachment.type))) r = { ...r, attachment: { type: r.attachment.type } };
   if (r.type === 'user' && r.isMeta === true && isRec(r.message)) r = { ...r, message: { ...r.message, content: '(redacted)' } };

@@ -114,6 +114,14 @@ describe('redactTranscriptLine', () => {
   it('利用者の発言でない user の行（isMeta）は、本文を伏せる', () => {
     expect(redactTranscriptLine({ type: 'user', isMeta: true, message: { role: 'user', content: 'Contents of /Users/someone/CLAUDE.md' } }, P)).toEqual({ type: 'user', isMeta: true, message: { role: 'user', content: '(redacted)' } });
   });
+  it('API の要求の記録（api-request 系）は、種類、会話、版、時刻だけを残す。システムプロンプトと環境と道具の定義が入るためである', () => {
+    const ts = '2026-10-15T05:09:11.691Z';
+    expect(redactTranscriptLine({ type: 'api-request-shape', sessionId: 's', shapeHash: 'h', timestamp: ts, version: '2.1.300', shape: { system: 'OS Version: Darwin' } }, P))
+      .toEqual({ type: 'api-request-shape', sessionId: 's', timestamp: ts, version: '2.1.300' });
+    expect(redactTranscriptLine({ type: 'api-request-blob', sessionId: 's', hash: 'h', message: { content: 'private' } }, P)).toEqual({ type: 'api-request-blob', sessionId: 's' });
+    expect(redactTranscriptLine({ type: 'api-request', sessionId: 's', id: 'i', timestamp: ts, version: '2.1.300', params: { model: 'x' }, tail: [] }, P))
+      .toEqual({ type: 'api-request', sessionId: 's', timestamp: ts, version: '2.1.300' });
+  });
 });
 
 describe('redactTranscriptLine の cost-state', () => {

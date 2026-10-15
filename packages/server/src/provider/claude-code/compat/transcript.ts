@@ -1,9 +1,11 @@
 import { compareClaudeVersions } from '@agent-hangar/shared';
+import { DROPPED_LINE_TYPES } from '../transcript/normalize.ts';
 import { isRec, splitDriftValue, versionOfRecord, type CompatSink, type Drift } from './types.ts';
 
 // 知っている値の集合。正規化（normalize.ts）が名前で読む値と、2.1.284 から 2.1.295 の実物の記録で見た値である。
 // 集合に足すのは、その値を正規化でどう扱うか（読むか、meta として残すか、捨てるか）を決めたときだけにする。
 // isolation-latch は 2.1.295 で現れた。atis-latch と同じ仲間で、side と sessionId だけを持つ行なので、meta として残す。
+// api-request、api-request-blob、api-request-shape は 2.1.300 で現れた API の要求の記録で、正規化で捨てる（DROPPED_LINE_TYPES）。
 
 /** 正規化が中身を読む行の種類。 */
 export const KNOWN_LINE_TYPES: ReadonlySet<string> = new Set(['user', 'assistant', 'system', 'attachment']);
@@ -60,7 +62,7 @@ export function transcriptDrifts(raw: unknown): Drift[] {
   if (!isRec(raw)) return [];
   const type = typeof raw.type === 'string' ? raw.type : null;
   if (type === null) return [d('type=(missing)')];
-  if (!KNOWN_LINE_TYPES.has(type)) return KNOWN_META_TYPES.has(type) ? [] : [d(`type=${type}`)];
+  if (!KNOWN_LINE_TYPES.has(type)) return KNOWN_META_TYPES.has(type) || DROPPED_LINE_TYPES.has(type) ? [] : [d(`type=${type}`)];
   if (type === 'system') {
     const s = typeof raw.subtype === 'string' ? raw.subtype : null;
     if (s === null) return [d('system.subtype=(missing)')];
@@ -97,7 +99,7 @@ export function isTranscriptDrift(value: string): boolean {
   if (kv === null) return true;
   const [key, got] = kv;
   switch (key) {
-    case 'type': return !KNOWN_LINE_TYPES.has(got) && !KNOWN_META_TYPES.has(got);
+    case 'type': return !KNOWN_LINE_TYPES.has(got) && !KNOWN_META_TYPES.has(got) && !DROPPED_LINE_TYPES.has(got);
     case 'system.subtype': return !KNOWN_SYSTEM_SUBTYPES.has(got);
     case 'attachment.type': return got !== READ_ATTACHMENT_TYPE;
     case 'user.content': return !KNOWN_USER_BLOCKS.has(got);

@@ -1068,6 +1068,7 @@ Claude Code の保存先と、その読み方を定める。
 - 本文は `~/.claude/projects/<変換名>/<sessionId>.jsonl` にある。変換名は cwd の英数字以外を `-` に置き換えたもので、日本語を含むパスは不可逆になる。cwd は行内の `cwd` か `~/.claude/history.jsonl` の `project` から読む。
 - `~/.claude/history.jsonl` は利用者の発言だけの軽い索引で、初回列挙に使う。
 - ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`isolation-latch`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
+- 2.1.300 からは、API に送った要求の記録（`api-request`、`api-request-blob`、`api-request-shape`）が呼び出しごとに書かれる。1 行が 10〜90KB あり、会話の本文は別の行にあるので、正規化でイベントを作らずに捨てる（`DROPPED_LINE_TYPES`）。この変更より前に索引へ入った行は、読み出すときに正規化し直すので、何も返さない。
 - `user` 行の `message.content` は配列ではなく文字列のことがある。抽出は両方を受ける。
 - サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy、idle、waiting、shell）を持つ。ファイルの出現と消失が起動と終了に対応する。
@@ -1219,6 +1220,7 @@ statusline の JSON は、`--settings` で差し込んだスクリプトで写�
 tmux は専用のソケットを `-S` で名指しし、止めるのはそのソケットのそのセッションだけで、`kill-server` は呼ばない。
 終えたら、一時ディレクトリとホームと設定の置き場のパス、Claude Code が uid ごとに使う一時の置き場（`/tmp/claude-<uid>`）、ホスト名、どのメールアドレスも、組織名、組織の識別子、使用率、戻る時刻、費用と時間の累計（statusline と `cost-state` の行）を決まった値に伏せる。
 system-reminder の塊と考えの塊は中身を伏せ、添付は積んだ指示のほかは種類だけにする。
+API の要求の記録（`api-request` で始まる種類）は、システムプロンプト、環境、道具の定義がまるごと入るので、種類、会話、版、時刻だけにする。
 伏せ残し（手元の CLAUDE.md の行を含む）があれば、ファイルと行の場所だけを値を出さずに示し、書き出さない。
 伏せた後に筋書きの 2 つの指示が残っているかも確かめる。
 最後に `claude purge <作業ディレクトリ> -y` で、その会話の記録を設定の置き場から消す。
