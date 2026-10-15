@@ -155,6 +155,53 @@ export function touchRow(db: Db, table: string, rowId: string): void {
 }
 
 /**
+ * tryWrites が巻き戻すために投げる印。
+ * fn の例外と見分ける。
+ */
+class Discarded extends Error {}
+
+/**
+ * 書き込みを試して、全部捨てる（hangar project add --dry-run などの試し、2026-10-15）。
+ * fn を 1 つのトランザクションの中で走らせ、戻り値を取ってから巻き戻す。
+ * 登録と同じ関数をそのまま通すので、検証も、同じ一括の中の前の行の影響（入れ子、登録済み）も本物と同じになる。
+ *
+ * 外へは何も漏らさない。
+ * - 行と changes は巻き戻る（同期が送るのは changes の行だけである）。
+ * - 中で溜まった知らせ（write、touch）は、配る前に捨てる。
+ *   write は巻き戻りを見分けて落ちるが、touch は見分けられないので、ここで捨てる。
+ *   前のトランザクションの、まだ配っていない知らせは残す。
+ * fn が投げたら、巻き戻してその例外を投げ直す。
+ * 外側のトランザクションの中では巻き戻しが外側の確定に呑まれるので、呼べない（投げる）。
+ */
+export function tryWrites<T>(db: Db, fn: () => T): T {
+  if (db.inTransaction) throw new Error('tryWrites must be called outside a transaction');
+  const before = pending.get(db)?.length ?? 0;
+  const stop = new Discarded();
+  const out: { value: T }[] = [];
+  try {
+    db.transaction(() => {
+      out.push({ value: fn() });
+      throw stop;
+    })();
+  } catch (e) {
+    if (e !== stop) { dropNoticesAfter(db, before); throw e; }
+  }
+  dropNoticesAfter(db, before);
+  return out[0]!.value;
+}
+
+/**
+ * 溜めた知らせのうち、先頭から n 件だけを残す。
+ * 残りが無ければ列ごと外す（予約済みのマイクロタスクは空振りする）。
+ */
+function dropNoticesAfter(db: Db, n: number): void {
+  const queue = pending.get(db);
+  if (!queue) return;
+  if (n === 0) pending.delete(db);
+  else queue.length = n;
+}
+
+/**
  * 確定済みなのにまだ配っていない通知を、その場で配る。
  * トランザクションの中の変化はマイクロタスクまで遅れるので、同じ tick の終わりに配る層が、自分の番の前にこれを呼んで順番を確かにする。
  * トランザクションの最中に呼ばれたら何もしない。

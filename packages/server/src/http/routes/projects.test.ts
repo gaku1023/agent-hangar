@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeFakeTool } from '../../../test/fake-bin.ts';
 import type { ServerEvent } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
+import { onRowChange } from '../../db/notify.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { SESSION_OTHER } from '../../../test/fixtures.ts';
 import { ensureSession } from '../../indexer/indexFile.ts';
@@ -252,7 +253,7 @@ describe('会話したフォルダの候補', () => {
     talk('c-two-b', path.join(src, 'two'));
     const r = await json(await get('/api/workspace/candidates'));
     expect(r.status).toBe(200);
-    expect(r.body.candidates.slice(0, 2)).toEqual([
+    expect(r.body.candidates.slice(0, 2)).toMatchObject([
       { path: path.join(src, 'two'), sessionCount: 2, lastActivityAt: 50, worktreeCount: 0 },
       { path: path.join(src, 'one'), sessionCount: 1, lastActivityAt: 50, worktreeCount: 0 },
     ]);
@@ -276,6 +277,94 @@ describe('会話したフォルダの候補', () => {
   });
   it('paths が文字列の配列でなければ断る', async () => {
     for (const bad of [{}, { paths: 'x' }, { paths: [1] }]) expect((await post(bad)).status).toBe(400);
+  });
+
+  // hangar project add（2026-10-15）。
+  // 行ごとの結果と、書かない試し。
+  const count = (sql: string) => (db.prepare(sql).get() as { c: number }).c;
+  it('行ごとの結果を本文の並びで返す。登録済みは already、入れ子は nested、ほかの失敗は error で、続きは止めない', async () => {
+    const one = path.join(ws, 'x', 'one');
+    fs.mkdirSync(path.join(one, 'sub'), { recursive: true });
+    talk('c-one', path.join(one, 'sub'));
+    talk('c-one-b', one);
+    const alpha = path.join(ws, 'alpha');
+    fs.mkdirSync(path.join(alpha, 'inner'), { recursive: true });
+    const r = await post({ paths: [one, alpha, path.join(alpha, 'inner'), path.join(ws, 'nope'), one] });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.results).toEqual([
+      { path: one, status: 'added', projectId: expect.any(String), name: 'one', sessionCount: 2 },
+      { path: alpha, status: 'already', projectId: list0ProjectId(), name: 'alpha', sessionCount: 0 },
+      { path: path.join(alpha, 'inner'), status: 'nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: alpha }, error: 'このフォルダはプロジェクト alpha の中にあります' },
+      { path: path.join(ws, 'nope'), status: 'error', error: 'path が存在するディレクトリではありません' },
+      { path: one, status: 'already', projectId: body.results[0].projectId, name: 'one', sessionCount: 0 },
+    ]);
+    // 今までの項目はそのまま返す。
+    expect(body.failed.map((f: { path: string }) => f.path)).toEqual([path.join(alpha, 'inner'), path.join(ws, 'nope')]);
+  });
+  it('アーカイブしていたプロジェクトを登録し直すと、restored を付けて戻す', async () => {
+    const id = list0ProjectId();
+    db.prepare("update projects set status = 'archived' where id = ?").run(id);
+    const body = await (await post({ paths: [path.join(ws, 'alpha')] })).json();
+    expect(body.results).toEqual([expect.objectContaining({ status: 'already', restored: true })]);
+  });
+  it('dryRun は同じ検証を通して行ごとの結果だけを返し、何も書かず、画面にも同期にも何も配らない', async () => {
+    const one = path.join(ws, 'x', 'one');
+    fs.mkdirSync(one, { recursive: true });
+    talk('c-one', one);
+    const alpha = path.join(ws, 'alpha');
+    fs.mkdirSync(path.join(alpha, 'inner'), { recursive: true });
+    db.prepare("update projects set status = 'archived' where id = ?").run(list0ProjectId());
+    await Promise.resolve();
+    sent.length = 0;
+    const before = { projects: count('select count(*) c from projects'), roots: count('select count(*) c from project_roots'), changes: count('select count(*) c from changes'), unassigned: count('select count(*) c from sessions where project_id is null') };
+    const writes: string[] = [];
+    const off = onRowChange((c) => { if (c.db === db) writes.push(`${c.origin}:${c.table}:${c.rowId}`); });
+    try {
+      const r = await post({ paths: [one, path.join(one, '..', 'one'), alpha, path.join(alpha, 'inner'), path.join(ws, 'nope')], dryRun: true });
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual({
+        dryRun: true,
+        results: [
+          { path: one, status: 'added', projectId: expect.any(String), name: 'one', sessionCount: 1 },
+          // 同じ一括の前の行で登録したものは、本物と同じく登録済みになる。
+          { path: path.join(one, '..', 'one'), status: 'already', projectId: expect.any(String), name: 'one', sessionCount: 0 },
+          { path: alpha, status: 'already', projectId: list0ProjectId(), name: 'alpha', sessionCount: 0, restored: true },
+          { path: path.join(alpha, 'inner'), status: 'nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: alpha }, error: 'このフォルダはプロジェクト alpha の中にあります' },
+          { path: path.join(ws, 'nope'), status: 'error', error: 'path が存在するディレクトリではありません' },
+        ],
+      });
+      await new Promise((res) => setTimeout(res, 10));
+      expect(writes).toEqual([]);
+      expect(sent).toEqual([]);
+    } finally {
+      off();
+    }
+    expect({ projects: count('select count(*) c from projects'), roots: count('select count(*) c from project_roots'), changes: count('select count(*) c from changes'), unassigned: count('select count(*) c from sessions where project_id is null') }).toEqual(before);
+    expect((db.prepare('select status from projects where id = ?').get(list0ProjectId()) as { status: string }).status).toBe('archived');
+  });
+  it('一覧から削除の dryRun は、名前と未分類に戻る会話の数と同期の有無だけを返し、何も書かず何も配らない', async () => {
+    const id = list0ProjectId();
+    const mine = count(`select count(*) c from sessions where project_id = '${id}' and deleted_at is null`);
+    expect(mine).toBeGreaterThan(0);
+    await Promise.resolve();
+    sent.length = 0;
+    const changes = count('select count(*) c from changes');
+    const resolve = (body: unknown) => app.request(`/api/projects/${id}/resolve`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect(await (await resolve({ kind: 'unlink', dryRun: true })).json()).toEqual({ dryRun: true, id, name: 'alpha', path: path.join(ws, 'alpha'), sessionCount: mine, syncing: true });
+    app = createApp({ ...deps, sync: { ...deps.sync, status: () => ({ ...deps.sync.status(), state: 'off' }) } });
+    expect((await (await resolve({ kind: 'unlink', dryRun: true })).json()).syncing).toBe(false);
+    await new Promise((res) => setTimeout(res, 10));
+    expect(sent).toEqual([]);
+    expect(count('select count(*) c from changes')).toBe(changes);
+    expect(count(`select count(*) c from sessions where project_id = '${id}' and deleted_at is null`)).toBe(mine);
+    // 試しは unlink だけで受ける。
+    // 真偽でないものも断る。
+    expect((await resolve({ kind: 'archive', dryRun: true })).status).toBe(400);
+    expect((await resolve({ kind: 'unlink', dryRun: 1 })).status).toBe(400);
+  });
+  it('dryRun が真偽でなければ断る', async () => {
+    expect((await post({ paths: [ws], dryRun: 'yes' })).status).toBe(400);
   });
 });
 
@@ -394,7 +483,7 @@ describe('書いた行のイベントは配る層から届く', () => {
       const mine = (await sessionsOf()).filter((s) => s.projectId === id).map((s) => s.id).sort();
       expect(mine.length).toBeGreaterThan(0);
       const r = await send(`/api/projects/${id}/resolve`, { kind: 'unlink' });
-      expect(await r.json()).toEqual({ id, unlinked: true });
+      expect(await r.json()).toEqual({ id, unlinked: true, sessionCount: mine.length });
       expect(of('project.upsert')).toEqual([]);
       expect(of('session.upsert').map((e) => e.session.id).sort()).toEqual(mine);
       expect(of('session.upsert').every((e) => e.session.projectId === null)).toBe(true);

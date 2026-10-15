@@ -316,14 +316,79 @@ export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean; par
  * path は git のリポジトリの根（worktree は元のリポジトリ）で、sessionCount はその下のまだプロジェクトに入っていない会話の数、
  * lastActivityAt はその中の最後の活動、worktreeCount はまとめた worktree の数である。
  */
-export type FolderCandidateDto = { path: string; sessionCount: number; lastActivityAt: number | null; worktreeCount: number };
-/** 候補の一覧。suggestedRoot は、作成場所が空で、過半の候補が同じ親フォルダにあるときの、その親（無ければ null）。 */
-export type FolderCandidatesDto = { candidates: FolderCandidateDto[]; suggestedRoot: string | null };
+export type FolderCandidateDto = { path: string; sessionCount: number; lastActivityAt: number | null; worktreeCount: number } & Partial<FolderCandidateHintsDto>;
+/**
+ * 候補の注記の符号（セットアップのすゝめ、2026-10-15）。
+ * desktop-direct と downloads-direct はデスクトップとダウンロードそのものか直下、not-git は git でない、stale-30d は最後の活動が 30 日より前、single-session は会話が 1 件だけである。
+ */
+export type CandidateNote = 'desktop-direct' | 'downloads-direct' | 'not-git' | 'stale-30d' | 'single-session';
+/**
+ * クラウドで同期されている場所。
+ * icloud は macOS の iCloud Drive（デスクトップと書類を含む）、onedrive は Windows の OneDrive である。
+ */
+export type CloudSyncedKind = 'icloud' | 'onedrive';
+/**
+ * 候補に足した項目（2026-10-15、hangar project candidates が読む）。
+ * 初日の画面は読まない。
+ * 古いサーバは付けない。
+ * recentTitles は最近の会話の題（無ければ要約の 1 文、無ければ最初の発言の冒頭）を新しい順に 3 件まで、
+ * isGit と gitRemote はリポジトリか、その remote（正規化した形。無ければ null）、
+ * enclosedBy はほかの候補（candidate）か登録済みのプロジェクト（project）の下にあるときの、その場所（いちばん深いもの）である。
+ */
+export type FolderCandidateHintsDto = {
+  recentTitles: string[];
+  isGit: boolean;
+  gitRemote: string | null;
+  enclosedBy: { kind: 'candidate' | 'project'; path: string } | null;
+  cloudSynced: CloudSyncedKind | null;
+  notes: CandidateNote[];
+};
+/**
+ * 候補の一覧。
+ * suggestedRoot は、作成場所が空で、過半の候補が同じ親フォルダにあるときの、その親（無ければ null）。
+ * unassignedTotal はこの PC の未分類の会話の総数、workspaceRoot はいまの作成場所（空なら null）である。
+ * この 2 つは古いサーバは付けない。
+ */
+export type FolderCandidatesDto = { candidates: FolderCandidateDto[]; suggestedRoot: string | null; unassignedTotal?: number; workspaceRoot?: string | null };
+/**
+ * まとめて登録の 1 行の結果（2026-10-15）。
+ * status は added（新しく登録した。試しなら登録する）、already（登録済み。失敗ではない）、linked（ほかの PC から届いたプロジェクトへ結び付けた）、
+ * nested（登録済みのプロジェクトの下なので断った。enclosing が包むプロジェクト）、error（そのほかの理由で断った。error が理由）である。
+ * name は登録する名前、sessionCount はその場で紐づく未分類の会話の数、restored はアーカイブから戻すことである。
+ */
+export type FolderRegisterOutcomeDto = {
+  path: string;
+  status: 'added' | 'already' | 'linked' | 'nested' | 'error';
+  projectId?: string;
+  name?: string;
+  sessionCount?: number;
+  restored?: boolean;
+  enclosing?: EnclosingProjectDto;
+  error?: string;
+};
 /**
  * 候補からまとめて登録した結果（POST /api/workspace/register）。failed は登録できなかったパスと理由である。
  * linked は、新しく作らずにほかの PC のプロジェクトへ結び付けたもののプロジェクトの id（projects にも入っている）。古いサーバは付けない。
+ * results は行ごとの結果で、本文の並びのままである。
+ * 古いサーバは付けない。
  */
-export type FolderRegisterResultDto = { projects: ProjectDto[]; failed: { path: string; error: string }[]; linked?: string[] };
+export type FolderRegisterResultDto = { projects: ProjectDto[]; failed: { path: string; error: string }[]; linked?: string[]; results?: FolderRegisterOutcomeDto[] };
+/**
+ * まとめて登録の試し（本文に dryRun: true）。
+ * 何も書かずに、行ごとの結果だけを返す。
+ */
+export type FolderRegisterPreviewDto = { dryRun: true; results: FolderRegisterOutcomeDto[] };
+/**
+ * 一覧から削除（resolve の unlink）の試し（本文に dryRun: true）。
+ * sessionCount は未分類に戻る会話の数、syncing はクラウド同期を使っているか（真ならほかの PC の一覧からも消える）である。
+ */
+export type UnlinkPreviewDto = { dryRun: true; id: string; name: string; path: string | null; sessionCount: number; syncing: boolean };
+/**
+ * 作成場所を保存する前の試し（PATCH /api/settings に workspaceRoot と dryRun: true）。
+ * workspaceRoot は保存する値（~ を展開したもの。空は未設定）、previous はいまの値、unchanged は値が変わらないこと（変わらなければ自動の登録は走らない）、
+ * register は保存のときに自動で登録される直下のフォルダ（status は added か linked、会話の数つき）である。
+ */
+export type WorkspaceRootPreviewDto = { dryRun: true; workspaceRoot: string; previous: string; unchanged: boolean; register: FolderRegisterOutcomeDto[] };
 /**
  * まとめて登録の 1 行（POST /api/workspace/register の items）。
  * linkTo はほかの PC から届いたプロジェクトの id で、渡すと新しく作らずにそのプロジェクトのこの PC の場所にする。省けば新しく作る。

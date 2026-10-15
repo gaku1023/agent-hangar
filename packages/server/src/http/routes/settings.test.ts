@@ -263,6 +263,49 @@ describe('routes', () => {
       fs.rmSync(ws2, { recursive: true, force: true });
     }
   });
+  // hangar workspace set --dry-run（2026-10-15）。
+  // 保存と同じ検証を通し、自動で登録される直下のフォルダだけを返す。
+  it('作成場所の dryRun は、自動で登録される直下のフォルダと会話の数を返し、保存も登録もせず、何も配らない', async () => {
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
+    try {
+      fs.mkdirSync(`${ws2}/other`);
+      fs.mkdirSync(`${ws2}/quiet`);
+      const other = db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string };
+      db.prepare('update sessions set cwd = ?, project_id = null where id = ?').run(`${ws2}/other`, other.id);
+      await Promise.resolve();
+      sent.length = 0;
+      const count = (sql: string) => (db.prepare(sql).get() as { c: number }).c;
+      const changes = count('select count(*) c from changes');
+      const projects = count('select count(*) c from projects');
+      const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await patch({ workspaceRoot: ws2, dryRun: true });
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual({
+        dryRun: true, workspaceRoot: ws2, previous: ws, unchanged: false,
+        register: [{ path: path.join(ws2, 'other'), status: 'added', projectId: expect.any(String), name: 'other', sessionCount: 1 }],
+      });
+      await new Promise((res) => setTimeout(res, 10));
+      expect(sent).toEqual([]);
+      expect(count('select count(*) c from changes')).toBe(changes);
+      expect(count('select count(*) c from projects')).toBe(projects);
+      expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
+      // いまと同じ値なら、自動の登録は走らない。
+      expect(await (await patch({ workspaceRoot: ws, dryRun: true })).json()).toEqual({ dryRun: true, workspaceRoot: ws, previous: ws, unchanged: true, register: [] });
+      // 空にする試しは、登録するものが無い。
+      expect(await (await patch({ workspaceRoot: '', dryRun: true })).json()).toEqual({ dryRun: true, workspaceRoot: '', previous: ws, unchanged: false, register: [] });
+      // 保存と同じ検証で断る。
+      const missing = path.join(ws2, 'no-such-root');
+      const bad = await patch({ workspaceRoot: missing, dryRun: true });
+      expect(bad.status).toBe(400);
+      expect(((await bad.json()) as { error: string }).error).toBe(`「新しいフォルダの作成場所」に ${missing} が見つかりません`);
+      // 試しは作成場所だけで受ける。
+      expect((await patch({ workspaceRoot: ws2, liveHints: false, dryRun: true })).status).toBe(400);
+      expect((await patch({ liveHints: false, dryRun: true })).status).toBe(400);
+      expect((await patch({ workspaceRoot: ws2, dryRun: 'yes' })).status).toBe(400);
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+    }
+  });
   it('設定の新しい項目を検査する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     // 実物の置き場（/opt/homebrew/bin/tmux）は PC によって無いので、偽の道具を置いて指す。

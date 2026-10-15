@@ -2741,6 +2741,36 @@ N は UI の store に届いているセッションで数える。
 選んだものは `POST /api/workspace/register` でまとめて登録し、最後に未分類の会話を紐づけ直す。
 作成場所の候補を選んだときは、先に作成場所として保存する（保存のときに直下が登録されるので、ダイアログではその行を外せないチェックにする）。
 
+同じ候補と登録は、端末の CLI からも使える（2026-10-15、セットアップのすゝめの土台）。
+導入のときに Claude Code が利用者の環境を診断し、散らばった会話のフォルダをプロジェクトに登録する道具である。
+`hangar project candidates`、`hangar project add <パス…>`、`hangar project remove <パス|id>`、`hangar workspace set <dir>`、`hangar workspace unset` の 5 つで、どれも動いているサーバの API を鍵（Bearer）付きで呼ぶ（`packages/cli/src/project.ts`）。
+CLI はサーバを起こさない。
+止まっていれば終了の符号 2 で、`--json` のときは標準出力に `{"error":"server_down","hint":"hangar start"}` を出す。
+一部でも失敗なら 1、全部成功なら 0 である。
+登録済みのパスは失敗にせず `already` で返す（冪等）。
+Claude は Bash から叩く（TTY が無い）ので、対話の y/n は作らない。
+承諾は Claude の会話の中で取り、書く前の見せ方は `--dry-run` だけにする。
+問いを飛ばす旗（`--yes`）も、入れ子を分ける旗（`allowNested`）も作らない。
+入れ子を分けるかは、利用者がアプリで決める。
+`remove` はアプリの「一覧から削除」（resolve の `unlink`）と同じ経路で、会話は未分類に戻るだけで本文もフォルダも消えないことを必ず出す。
+`workspace unset` は作成場所を空にする。
+空は設定の既存の意味（「決めていない」）なので足した。
+登録済みのプロジェクトは残り、直下の自動の登録が止まる。
+
+候補には、CLI のための項目を足した（初日の画面の項目は変えない）。
+`recentTitles`（最近の会話の題、無ければ要約の 1 文、無ければ最初の発言の冒頭を、新しい順に 3 件まで）、`isGit` と `gitRemote`、`enclosedBy`（ほかの候補か登録済みのプロジェクトの下にあるときの、いちばん深いもの）、`cloudSynced`、`notes` である。
+`cloudSynced` は、macOS の iCloud（`~/Library/Mobile Documents` の下、実体がそこにあるもの、「デスクトップと書類」を iCloud に入れたときのデスクトップと書類）と、Windows の OneDrive（環境変数 `OneDrive`、`OneDriveConsumer`、`OneDriveCommercial` の下と、ホームの直下の OneDrive の名前のフォルダの下）を見る（`projects/candidateHints.ts` の `cloudSyncedOf`）。
+`notes` は機械の符号の配列で、`desktop-direct` と `downloads-direct`（デスクトップとダウンロードそのものか直下）、`not-git`、`stale-30d`（最後の活動が 30 日より前）、`single-session`（会話 1 件）である（`candidateNotes`）。
+どちらの判定も、パスの形と差し替えられる問い合わせだけで決める純粋な関数で、Windows のパス（区切り、ドライブ文字、大文字小文字）も試験する。
+上の段には、この PC の未分類の会話の総数（`unassignedTotal`）と、いまの作成場所（`workspaceRoot`、空なら null）を添える。
+
+書かない試し（`dryRun`）は、登録と同じ関数を 1 つのトランザクションの中で走らせてから巻き戻す（`db/notify.ts` の `tryWrites`）。
+検証も、同じ一括の前の行の影響（同じパスの 2 回目は登録済み、前の行の下は入れ子）も本物と同じになり、紐づく会話の数も本物の紐づけ直しを数える。
+行と `changes` は巻き戻るので同期は何も送らない。
+中で溜まった行の知らせ（`write` と `touch`）は配る前に捨てるので、画面へ配る層にも届かない（`write` は巻き戻りを見分けて落ちるが、`touch` は見分けられないため）。
+前のトランザクションの、まだ配っていない知らせは捨てない。
+外側のトランザクションの中からは呼べない（巻き戻しが外側の確定に呑まれるため）。
+
 作成場所を決めていれば、起動時に、その直下で cwd がそのディレクトリ以下の Claude セッションが 1 つ以上あるものを自動でプロジェクトにする。
 ただし、ほかの PC から届いた同じプロジェクト（下の節の強い一致と弱い一致）があれば、新しく作らずにそれへ結び付ける（0.6.1）。
 セッションのない直下ディレクトリは、新しいセッションのダイアログの検索と、作成のダイアログの未登録の一覧にだけ出す。
@@ -5865,6 +5895,15 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   以前は呼んでおらず、次の起動まで未分類のまま残っていた。
   すでにほかのプロジェクトに入っているセッションは動かさない。
 - 会話したフォルダの候補：`GET /api/workspace/candidates` は `{ candidates: { path, sessionCount, lastActivityAt, worktreeCount }[], suggestedRoot }` を返す（初日のプロジェクト。上の「プロジェクトの登録」の規則）。`POST /api/workspace/register { paths }` か `{ items: { path, linkTo?, allowNested? }[] }` は 1 件ずつ `registerProjectDir` で登録し、最後に `assignSessions` で未分類の会話を紐づけ直して `{ projects, failed: { path, error }[], linked }` を返す（登録できないものがあっても断らない。500 件まで）。
+  候補の 1 件には `recentTitles`、`isGit`、`gitRemote`、`enclosedBy`、`cloudSynced`、`notes` を、上の段には `unassignedTotal` と `workspaceRoot` を足した（2026-10-15、hangar project candidates が読む。上の「プロジェクトの登録」の規則）。
+  登録の応答には、行ごとの結果 `results: FolderRegisterOutcomeDto[]`（本文の並び。`status` は `added`、`already`、`linked`、`nested`、`error` で、名前、その場で紐づいた未分類の会話の数、アーカイブから戻したか、包むプロジェクト、理由を添える）を足した。
+  本文に `dryRun: true` を付けると、何も書かずに `{ dryRun: true, results }` だけを返す（`tryWrites`）。
+- 一覧から削除の試し：`POST /api/projects/:id/resolve` の `{ kind: 'unlink', dryRun: true }` は、何も書かずに `{ dryRun: true, id, name, path, sessionCount, syncing }` を返す（未分類に戻る会話の数と、同期を使っているか）。
+  `dryRun` は `unlink` だけで受け、ほかの `kind` は 400 である。
+  本番の `unlink` の応答にも `sessionCount` を足した。
+- 作成場所の試し：`PATCH /api/settings` の `{ workspaceRoot, dryRun: true }` は、保存と同じ検証（無いパス、ディレクトリでないパス）を通してから、保存のときに自動で登録される直下のフォルダを `{ dryRun: true, workspaceRoot, previous, unchanged, register }` で返す（`registerMany.ts` の `workspaceSyncOutcomes` を `tryWrites` で包む）。
+  `dryRun` は `workspaceRoot` だけの本文で受け、ほかの欄が混ざれば 400 である。
+  いまと同じ値なら自動の登録は走らないので `register` は空である。
 - フォルダの中から：`GET /api/workspace/children?parent=` は親の直下の一覧（`WorkspaceChildrenDto`）を、`GET /api/workspace/inspect?path=&name=` は 1 つのフォルダの入れ子と結び付く候補（`FolderInspectDto`）を返す（「フォルダとプロジェクトの結び付き」）。
 - 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
 - その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。

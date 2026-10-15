@@ -5,6 +5,7 @@ import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToke
 import { devicesCommand, joinCommand, leaveCommand, revokeCommand } from './membership.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { cliErrorText, probeHealth, serverDownMessage } from './probe.ts';
+import { candidatesCommand, projectAddCommand, projectRemoveCommand, workspaceSetCommand, workspaceUnsetCommand } from './project.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { runStart } from './start.ts';
@@ -213,6 +214,66 @@ program
     // 開けなかったときも鍵は出さず、鍵の無い URL と hangar url の案内だけを出す。
     const url = entryUrl(port, readOrCreateToken(hangarHome()));
     console.log((await openInBrowser(url)) ? openedMessage(port) : openFailedMessage(port));
+  });
+
+// プロジェクトの候補と登録（セットアップのすゝめ、2026-10-15）。
+// Claude Code が Bash から叩くので、対話の問いは作らない。
+// 書く前の見せ方は --dry-run だけで、承諾は Claude の会話の中で取る。
+// どれも動いているサーバの API を鍵付きで呼び、サーバは起こさない。
+// 終了の符号は、全部成功が 0、一部でも失敗が 1、サーバが止まっているときが 2 である。
+const apiOptions = (o: { port: string; json?: boolean }) => ({ port: Number(o.port), token: readOrCreateToken(hangarHome()), json: o.json ?? false });
+
+const project = program.command('project').description('プロジェクトの候補と登録（動いているサーバに頼む）');
+
+project
+  .command('candidates')
+  .description('Claude Code と会話した、まだプロジェクトに入っていないフォルダの候補を一覧する（1 行 1 候補）')
+  .option('--port <n>', 'ポート', '4177')
+  .option('--json', '結果を JSON で 1 行出す')
+  .action(async (o: { port: string; json?: boolean }) => {
+    process.exitCode = await candidatesCommand(apiOptions(o));
+  });
+
+project
+  .command('add <paths...>')
+  .description('フォルダをプロジェクトに登録する（登録済みは成功のまま already。入れ子は断る）')
+  .option('--dry-run', '書かずに、登録する名前、紐づく会話の数、断られるものを出す')
+  .option('--port <n>', 'ポート', '4177')
+  .option('--json', '結果を JSON で 1 行出す')
+  .action(async (paths: string[], o: { port: string; json?: boolean; dryRun?: boolean }) => {
+    process.exitCode = await projectAddCommand({ ...apiOptions(o), paths, dryRun: o.dryRun ?? false });
+  });
+
+project
+  .command('remove <target>')
+  .description('プロジェクトを一覧から削除する（パスか id で選ぶ。会話は未分類に戻り、本文とフォルダは消えない）')
+  .option('--dry-run', '書かずに、未分類に戻る会話の数と、ほかの PC に及ぶかを出す')
+  .option('--port <n>', 'ポート', '4177')
+  .option('--json', '結果を JSON で 1 行出す')
+  .action(async (target: string, o: { port: string; json?: boolean; dryRun?: boolean }) => {
+    process.exitCode = await projectRemoveCommand({ ...apiOptions(o), target, dryRun: o.dryRun ?? false });
+  });
+
+const workspace = program.command('workspace').description('新しいフォルダの作成場所（動いているサーバに頼む）');
+
+workspace
+  .command('set <dir>')
+  .description('作成場所を決める（保存すると、直下の会話のあるフォルダを自動で登録する）')
+  .option('--dry-run', '書かずに、自動で登録される直下のフォルダを全部出す')
+  .option('--port <n>', 'ポート', '4177')
+  .option('--json', '結果を JSON で 1 行出す')
+  .action(async (dir: string, o: { port: string; json?: boolean; dryRun?: boolean }) => {
+    process.exitCode = await workspaceSetCommand({ ...apiOptions(o), dir, dryRun: o.dryRun ?? false });
+  });
+
+workspace
+  .command('unset')
+  .description('作成場所を空にする（登録済みのプロジェクトは残る）')
+  .option('--dry-run', '書かずに、いまの作成場所と、空にしたときに何が変わるかを出す')
+  .option('--port <n>', 'ポート', '4177')
+  .option('--json', '結果を JSON で 1 行出す')
+  .action(async (o: { port: string; json?: boolean; dryRun?: boolean }) => {
+    process.exitCode = await workspaceUnsetCommand({ ...apiOptions(o), dryRun: o.dryRun ?? false });
   });
 
 const mcp = program.command('mcp').description('Claude Code への MCP 登録');
