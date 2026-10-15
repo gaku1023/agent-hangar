@@ -98,6 +98,8 @@ export const actionTable = {
   // 指示とメモリ。ファイルは外で書き換わるので、表示するたびに読み直す。
   'instructions.load': (i) => call((api) => api.instructions(i.projectId), { apply: (store, d) => ({ ...store, instructions: { ...store.instructions, [d.projectId]: d } }) }),
   'instructions.openEditor': (i) => editorOpen(i, (api) => api.openInstruction(i.projectId, i.kind, i.once)),
+  // セットアップのすゝめの中身を見る。写した md を、ほかの「<名前> で開く」と同じ道で開く（見つからなければ同じ面を出す）。
+  'setupGuide.openEditor': (i) => editorOpen(i, (api) => api.openSetupGuide(i.once)),
   'artifact.open': (i) => call((api) => api.openArtifact(i.id)),
 
   // git の表示（0.5.0）。見えている行の git（git.watch）は取り直しの周期を持つので表に置かず、Runtime が受ける。

@@ -257,6 +257,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     deps.api.readiness().then((r) => takeReadiness(seq, r)).catch(fail);
   };
   /**
+   * セットアップのすゝめの写しの場所と版を取りに行く（設定の連携の札と、ホームの始める前の確認の最後の行が読む）。
+   * サーバは起動のたびに写し直すので、bootstrap を取り直すたびに取る（アプリを入れ替えた後の版とハッシュに合わせる）。
+   * 取れないのは同梱物が壊れているときだけで、そのときは札も行も出さない。知らせは出さない（直す手が利用者に無いため）。
+   */
+  const loadSetupGuide = () => {
+    deps.api.setupGuide().then((g) => setStore({ ...store, setupGuide: g })).catch(() => setStore({ ...store, setupGuide: null }));
+  };
+  /**
    * 要約エンジンのモデルの一覧を取りに行く。OpenAI 互換を選んでいなければ、サーバは問い合わせずに空を返す。
    * 宛先が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
    */
@@ -428,6 +436,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
           // ホームの帯は、直すものがあれば始める前の確認を出す。誰にでも出すので、起動のたびにその中身を取りに行く（遅れは 1 回の which の数回分）。
           loadReadiness();
+          loadSetupGuide();
         }).catch(fail);
         return;
       case 'api.loadEvents': {
