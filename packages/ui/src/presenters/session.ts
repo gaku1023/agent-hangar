@@ -22,6 +22,7 @@ import { statusMark } from './row.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
 import { bandsOf, presentNowCard, resultsOf, type NowCardProps } from './live.ts';
 import { buildTurns } from './turns.ts';
+import { tocFolds } from './tocFold.ts';
 import type { JumpState, TurnJumpStatus } from '../mediator/types.ts';
 
 export type TranscriptItem =
@@ -305,7 +306,7 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
   return [...files.values()];
 }
 
-/* ---- 冒頭の 1 枚と見出しの札（セッション画面 C。画面を切り替えるまでは、今の画面は使わない） ---- */
+/* ---- 終わった画面の見出しの下の 1 行と要約の札、見出しの札 ---- */
 
 /** 冒頭の 1 枚の「変更したファイル」の 1 行。added と removed は、読み込んだ本文の窓にある分だけ持つ（無ければ null）。 */
 export type LeadFileRow = { path: string; dir: string; base: string; created: boolean; added: number | null; removed: number | null; edits: string; byAgent: string | null; openLabel: string };
@@ -321,12 +322,12 @@ export type LeadCardProps = {
   turns: string; tokens: string; cost: string | null;
   /** 「要約のみ」「トランスクリプトがありません」。 */
   flags: string[];
+  /**
+   * 要約の札（S5）の中身。sourceLine（作成元）は札に行として出さず、進捗の title に置く。
+   * 土台の要約（索引が組んだ事実）は要約ではないので null にする。本文が消えた会話だけは、残った手がかりとして出す。
+   */
   summary: { body: string; nextSteps: string[]; nextStepsLabel: string; progress: string; sourceLine: string } | null;
-  /** 要約が無いときの文。 */
-  empty: string | null;
-  /** 要約エンジンを使わない設定で要約が無いときの文（「要約は設定で有効にできます」）。link は押すと設定の要約エンジンへ跳ぶ語。 */
-  enable: { before: string; link: string; after: string } | null;
-  /** 要約の上の注記（作成中、作成できなかった）。失敗の理由は title で読める。 */
+  /** 要約の札の注記（作成中、作成できなかった）。要約が無くても札を出して言う。失敗の理由は title で読める。 */
   notice: { kind: 'pending' | 'failed'; text: string; title: string | null } | null;
   canRegenerate: boolean; regenerate: string;
   files: { label: string; count: number; rows: LeadFileRow[]; note: string | null };
@@ -382,15 +383,17 @@ function leadFiles(i: LeadInput, t: Translate): LeadCardProps['files'] {
 }
 
 /**
- * 終わったセッションの、トランスクリプトの冒頭の 1 枚（設計書 2.3 の C）。
- * 1 行目にステータスの札と設定した日、終了、ターンとトークンとコスト。続けて要約、次のステップ、変更したファイルとアーティファクトと PR の札、ノート。
- * 右パネルの要約と変更したファイルの箱が、ここへ移る。
+ * 終わったセッションの、見出しの下の 1 行（H1）と、右の欄の要約の札（S5）の中身（2026-10-16 の試作）。
+ * 1 行にはステータスの札と設定した日、終了、ターンとトークンとコスト、git と変更したファイルとアーティファクトと PR の札を並べる。
+ * 要約の札には、要約の本文、次のステップ、進捗、作成中と失敗の知らせ、「要約を再生成」を入れる。
+ * 土台の要約（索引が組んだ事実の羅列）と、「要約はありません」「要約は設定で有効にできます」は出さない（見出しと重なる事実の羅列になっていた）。
  */
 export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   const s = i.session;
   const status = s.state?.status ?? 'active';
   const stats = s.stats;
-  const sum = s.summary;
+  // 土台の要約は要約として出さない。本文が消えた会話だけは、残った手がかりとして出す。
+  const sum = s.summary && (i.gone || s.summary.source !== 'baseline') ? s.summary : null;
   const stopped = s.stoppedByStatus && s.state?.status && s.live === null ? t('session.lead.stopped', { status: STATUS_LABEL[s.state.status] }) : null;
   const interrupted = !stopped && s.interrupted && !s.state?.status ? interruptMark(t, s.interrupted, i.now).title : null;
   const flags = [...(i.gone ? [t('session.lead.summaryOnly')] : []), ...(!s.hasTranscript && !i.gone ? [t('session.lead.noTranscript')] : [])];
@@ -408,10 +411,6 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
       progress: t('session.lead.progress', { state: t(SUMMARY_STATE_KEY[sum.state]), turns: sum.basedOnTurns }),
       sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(t, sum.updatedAt) }),
     } : null,
-    empty: sum || i.summaryOff ? null : t('session.lead.noSummary'),
-    // 土台の要約（source baseline）は索引が最初と最後の依頼から組んだ事実で、要約ではない。どのセッションにも付くので、要約と数えると誘いの文がどこにも出ない（0.6.0-rc.1 の VM）。
-    // 事実はそのまま出し、その下に誘いの文を添える（LeadCard）。
-    enable: (!sum || sum.source === 'baseline') && i.summaryOff ? { before: t('session.lead.summaryOff.before'), link: t('session.lead.summaryOff.link'), after: t('session.lead.summaryOff.after') } : null,
     notice: i.summaryPending ? { kind: 'pending', text: t('session.lead.pending'), title: null } : i.summaryError !== null ? { kind: 'failed', text: t('session.lead.failed'), title: i.summaryError } : null,
     // 本文が無いと作り直しは必ず失敗するので、消えた会話では出さない。
     // 要約エンジンを使わないときも出さない（サーバが受け付けない）。
@@ -496,7 +495,9 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const s = store.sessions[id];
   const t = translatorOf(store);
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
+  // ターンの少ない終わった会話は、右の欄をはじめ畳み、その画面だけの開閉（tocPeek）に従う。
+  const transcriptOpen = tocFolds(store, view, id) ? view.tocPeek : view.transcriptOpen;
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -569,7 +570,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     reason, permission: s.permission, limit: s.limit, waitingFor: s.waitingFor,
     liveHints: store.settings?.liveHints !== false,
   }, t) : null;
-  // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
+  // 終わったセッションの見出しの下の 1 行と要約の札。ターミナルが出る間（run がある間）は出さない。
   const summaryOff = (store.settings?.summaryEngine ?? 'off') === 'off';
   const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, summaryOff, artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
   const props: SessionProps = {

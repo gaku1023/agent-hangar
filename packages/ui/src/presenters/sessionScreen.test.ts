@@ -67,6 +67,29 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
     });
   });
 
+  describe('ターンの少ない終わった会話の右の欄', () => {
+    const peek = (open: boolean) => ({ ...initialState(), sessionView: { s1: { ...defaultSessionView(), tocPeek: open } } });
+    const few = (over: Partial<SessionDto> = {}) => session({ stats: { ...stats, turns: 2 }, ...over });
+    it('ターンが 2 つ以下で要約の札が無ければ、はじめは畳み、その画面で開いた間だけ開く', () => {
+      expect(present(store(few())).transcriptOpen).toBe(false);
+      expect(presentSession(peek(true), store(few()), NOW, 's1').transcriptOpen).toBe(true);
+      // 土台の要約は札にならないので、畳む。
+      const baseline = { title: 't', oneLiner: 'o', body: '最初の依頼', state: 'done' as const, nextSteps: [], source: 'baseline' as const, sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: NOW };
+      expect(present(store(few({ summary: baseline }))).transcriptOpen).toBe(false);
+    });
+    it('要約の札があるか、ターンが 3 つ以上なら、保存した開閉に従う', () => {
+      expect(present(store(session({ stats: { ...stats, turns: 3 } }))).transcriptOpen).toBe(true);
+      const written = { title: 't', oneLiner: 'o', body: 'b', state: 'done' as const, nextSteps: [], source: 'in_session' as const, sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: NOW };
+      expect(present(store(few({ summary: written }))).transcriptOpen).toBe(true);
+      const pending = store(few());
+      pending.summaryPending = { s1: true };
+      expect(present(pending).transcriptOpen).toBe(true);
+    });
+    it('実行中の画面は畳まない', () => {
+      expect(present(store(few({ live: 'busy' }), run())).transcriptOpen).toBe(true);
+    });
+  });
+
   describe('見出しの名前の横の札', () => {
     it('他の PC で実行中なら札を出す。無ければ空', () => {
       const lock = { deviceId: 'd2', deviceName: 'MacBook', runId: 'r9', heartbeatAt: NOW - 30_000, stale: false };

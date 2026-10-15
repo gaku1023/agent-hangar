@@ -80,14 +80,12 @@ a.chip { color: var(--accent); text-decoration: none; }
 .c-body[data-narrow] .toc-slot { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; width: 240px; grid-row: auto; grid-column: auto; overflow: visible; filter: drop-shadow(0 16px 28px rgba(30, 40, 90, 0.28)); }
 .c-body[data-narrow] .toc-slot[data-collapsed='true'] { display: none; }
 .tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* 冒頭の 1 枚はトランスクリプトの先頭にあり、スクロールの箱の中で縮まない。 */
-.tr > .lead-card { flex: none; }
-/* 本文が消えた会話は、注記と冒頭の 1 枚を 1 列に積む。 */
+/* 本文の無い会話は右の列を持たないので、要約の札を本文の欄の上に置く（縮めない）。 */
+.c-main > .summary-card { flex: none; max-height: none; }
+/* 本文が消えた会話は、注記と要約の札を 1 列に積む。 */
 .session-body[data-gone] { flex: 1; min-height: 160px; display: flex; flex-direction: column; gap: calc(var(--u) * 3); max-width: 760px; overflow: auto; }
 .session-body[data-gone] > .gone-note { margin-bottom: 0; }
-.sum-body { margin: 0 0 calc(var(--u) * 2); line-height: 1.6; white-space: pre-wrap; }
-.sum-next { margin: 0 0 calc(var(--u) * 2); padding-left: 18px; font-size: var(--fs-sm); }
-.sum-src { font-size: var(--fs-xs); color: var(--ink-3); }
+.session-body[data-gone] > .summary-card { flex: none; max-height: none; }
 
 /* ターミナルの知らせ（F1）。
    切れている間は板を暗く沈め、縁の灯を消し、中央に白いカードを置く。 */

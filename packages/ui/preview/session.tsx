@@ -5,7 +5,8 @@ import { translator, type LiveAgentDto, type SessionDto, type StepCell, type Tra
 import { presentNowCard, type CardInput, type NowCardProps } from '../src/presenters/live.ts';
 import type { ArtifactCardProps } from '../src/presenters/project.ts';
 import { presentLeadCard, presentSessionBadges, type LeadCardProps, type TurnRowProps } from '../src/presenters/session.ts';
-import { LeadCard } from '../src/views/LeadCard.tsx';
+import { EndedFacts } from '../src/views/EndedFacts.tsx';
+import { SummaryCard } from '../src/views/SummaryCard.tsx';
 import { NowCard } from '../src/views/NowCard.tsx';
 import { PageHeading } from '../src/views/PageHeading.tsx';
 import { InfoPopover } from '../src/views/primitives/Popover.tsx';
@@ -160,19 +161,21 @@ function LiveMock(props: { card: NowCardProps }) {
   );
 }
 
-/** 終わった後の画面に近い並び：見出し、冒頭の 1 枚、右の目次。 */
+/** 終わった後の画面に近い並び：見出しと事実の 1 行、本文、右の要約の札と目次。 */
 function EndedMock(props: { lead: LeadCardProps }) {
   const s = session();
   return (
     <div style={frame} id="mock-ended">
       <Heading badges={presentSessionBadges(s, NOW, ja)} live={null} name={s.name ?? ''} oneLiner="IntersectionObserver で置き換え、PR #88 をマージ" primary="再開" />
+      <EndedFacts sessionId="s7" {...props.lead} />
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: 8, height: 560, marginTop: 12 }}>
-        <section className="tr-sheet" style={{ minWidth: 0, padding: '8px 12px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', boxShadow: 'var(--surface-shadow)', overflow: 'hidden' }}>
-          <LeadCard sessionId="s7" {...props.lead} />
-        </section>
+        <section className="tr-sheet" style={{ minWidth: 0, padding: '8px 12px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', boxShadow: 'var(--surface-shadow)', overflow: 'hidden' }} />
+        <div className="toc-slot-inner">
+        <SummaryCard sessionId="s7" {...props.lead} />
         <TocPane>
           <TurnIndex sessionId="s7" runId={null} rows={turnRows.map((r) => ({ ...r, open: r.seq === 6 }))} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} trail={<TocToggle open />} />
         </TocPane>
+        </div>
       </div>
     </div>
   );
@@ -196,9 +199,9 @@ export function SessionCases() {
           ))}
         </div>
       </section>
-      <section style={box}><h2 style={h2}>終わった後の並び（見出し、冒頭の 1 枚、目次）</h2><EndedMock lead={LEAD_CASES[0]!.lead} /></section>
+      <section style={box}><h2 style={h2}>終わった後の並び（見出しと事実の 1 行、要約の札、目次）</h2><EndedMock lead={LEAD_CASES[0]!.lead} /></section>
       {LEAD_CASES.map((c) => (
-        <section key={c.id} style={box}><h2 style={h2}>冒頭の 1 枚：{c.title}</h2><div id={`lead-${c.id}`} style={{ width: 760, background: 'var(--surface)' }}><LeadCard sessionId="s7" {...c.lead} /></div></section>
+        <section key={c.id} style={box}><h2 style={h2}>事実の 1 行と要約の札：{c.title}</h2><div id={`lead-${c.id}`} style={{ width: 760, background: 'var(--surface)' }}><EndedFacts sessionId="s7" {...c.lead} /><div style={{ width: 240, marginTop: 12 }}><SummaryCard sessionId="s7" {...c.lead} /></div></div></section>
       ))}
       <section style={box}>
         <h2 style={h2}>見出しの名前の横の札</h2>

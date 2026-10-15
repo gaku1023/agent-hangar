@@ -22,3 +22,25 @@ export function useOpen(seq: number, part: string, initial = false): [boolean, (
 /** 一致の数を、畳んだツールの行に出すための表（seq から一致の数）。検索していなければ null。 */
 export const HitsContext = createContext<Map<number, number> | null>(null);
 export const useHits = (seq: number): number => useContext(HitsContext)?.get(seq) ?? 0;
+
+/** いくつかの行の一致の数の合計。まとめたツールの行（T1）が、畳んでいる間に中の一致を数で出すのに使う。 */
+export function useHitsOf(seqs: number[]): number {
+  const hits = useContext(HitsContext);
+  if (!hits) return 0;
+  let n = 0;
+  for (const s of seqs) n += hits.get(s) ?? 0;
+  return n;
+}
+
+/**
+ * まとめたツールの行（T1）の開閉。控えは先頭の seq の 'group' に置く。
+ * 利用者が開け閉めしていなければ、本文の中の検索や検索の結果がまとめの中のどれかへ跳んだときに開く。
+ */
+export function useGroupOpen(seqs: number[]): [boolean, (open: boolean) => void] {
+  const store = useContext(OpenContext);
+  const [local, setLocal] = useState(false);
+  if (!store) return [local, setLocal];
+  const first = seqs[0]!;
+  const v = store.get(first, 'group');
+  return [v ?? seqs.some((s) => store.revealed(s)), (open) => store.set(first, 'group', open)];
+}

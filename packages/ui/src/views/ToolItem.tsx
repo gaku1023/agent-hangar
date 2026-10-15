@@ -132,8 +132,11 @@ function Body(props: { item: ToolItemProps }): ReactNode {
   }
 }
 
-/** ツールの 1 行（T1）。押すと下に中身を開く。札の色は手の種類（K1、色は live-explainer の色帯に合わせる）。 */
-export function ToolItem({ sessionId, item }: { sessionId: string; item: ToolItemProps }) {
+/**
+ * ツールの 1 行（T1）。押すと下に中身を開く。札の色は手の種類（K1、色は live-explainer の色帯に合わせる）。
+ * compact は、続けて呼んだツールのまとめ（ToolGroup）を開いた中の 1 行で、字を小さくして同じ中身を開く。
+ */
+export function ToolItem({ sessionId, item, compact = false }: { sessionId: string; item: ToolItemProps; compact?: boolean }) {
   const emit = useEmit();
   const t = useT();
   const [open, setOpen] = useOpen(item.seq, 'tool');
@@ -141,7 +144,7 @@ export function ToolItem({ sessionId, item }: { sessionId: string; item: ToolIte
   const v = item.view;
   const title = v.head.dim ? `${v.head.main} · ${v.head.dim}` : v.head.main;
   return (
-    <div className="tool" data-open={open ? 'true' : undefined} data-failed={v.step === 'fail' ? 'true' : undefined}>
+    <div className={compact ? 'tool tool-compact' : 'tool'} data-open={open ? 'true' : undefined} data-failed={v.step === 'fail' ? 'true' : undefined}>
       <button type="button" className="trow" aria-expanded={open} title={title} onClick={() => setOpen(!open)}>
         <span className="chev"><Icon name="chevron" /></span>
         <span className="badge" data-k={v.step}>{item.name}</span>

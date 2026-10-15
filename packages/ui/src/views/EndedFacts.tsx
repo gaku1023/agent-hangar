@@ -10,13 +10,14 @@ import { useEditorLabels } from './primitives/editorName.tsx';
 type Open = 'files' | 'artifacts' | null;
 
 /**
- * 終わったセッションの、トランスクリプトの冒頭の 1 枚（設計書 2.3 の C、試作 C の `.lead-card`）。
- * 1 行目にステータスの札と、設定した日、終了、ターンとトークンとコスト、右端に要約の進捗と「要約を再生成」。
- * 続けて要約の本文、次のステップ、変更したファイルとアーティファクトと PR の札、ノート。
- * 変更したファイルとアーティファクトの札は、押すとこの 1 枚の中へ一覧が開く（同時には 1 つ）。
- * ノートはここで読み書きする（実行中は帯の札のポップオーバー）。
+ * 終わったセッションの、見出しの下の小さい 1 行（2026-10-16 の試作の H1）。
+ * ステータスの札と設定した日、終了（止めた知らせ、中断）、「要約のみ」などの印、ターン、トークンとコスト、
+ * git の札、変更したファイルとアーティファクトの札、PR を並べる。
+ * 変更したファイルとアーティファクトの札は、押すとこの 1 行の下へ一覧が開く（同時には 1 つ）。
+ * 変更したファイルの一覧の下に、差分のダイアログの入口を置く。
+ * 要約は右の欄の要約の札（SummaryCard）にあり、ここには置かない。
  */
-export function LeadCard(props: LeadCardProps & { sessionId: string; /** git の札（読むだけ）。変更したファイルの一覧の下に、差分のダイアログの入口を置く。 */ git?: SessionGitView | null }) {
+export function EndedFacts(props: LeadCardProps & { sessionId: string; /** git の札（読むだけ）。 */ git?: SessionGitView | null }) {
   const t = useT();
   const editorLabels = useEditorLabels();
   const emit = useEmit();
@@ -26,45 +27,19 @@ export function LeadCard(props: LeadCardProps & { sessionId: string; /** git の
   const panelId = (which: string) => `${uid}-${which}`;
   const { files, artifacts } = props;
   return (
-    <section className="lead-card" aria-label={props.label}>
-      <div className="lead-h">
+    <div className="ended-facts" role="group" aria-label={props.label}>
+      <div className="ef-line">
         <span className="lead-status" data-s={props.status.value} data-auto={props.status.auto ? 'true' : undefined} title={props.status.title}>{props.status.auto && <Icon name="autoMark" />}{props.status.label}</span>
-        {props.status.since && <span className="faint">{props.status.since}</span>}
-        <span className="lead-facts">
-          {props.stopped ? <span>{props.stopped}</span> : props.interrupted ? <span className="lead-interrupted"><span className="int-ring" aria-hidden="true" />{props.interrupted}</span> : props.ended && <span>{props.ended}</span>}
-          {props.flags.map((f) => <span key={f}>{f}</span>)}
-          <span>{props.turns}</span>
-          <span>{props.tokens}</span>
-          {props.cost && <span><b>{props.cost}</b></span>}
-        </span>
-        <span className="lead-end">
-          {props.summary && <span className="faint">{props.summary.progress}</span>}
-          {props.canRegenerate && <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'summary.regenerate', sessionId: props.sessionId })}><Icon name="rebuild" />{props.regenerate}</button>}
-        </span>
-      </div>
-      {props.notice && <div className="lead-notice" data-kind={props.notice.kind} title={props.notice.title ?? undefined}>{props.notice.text}</div>}
-      {props.summary && (
-        <>
-          <p className="sum-body">{props.summary.body}</p>
-          {props.summary.nextSteps.length > 0 && (
-            <>
-              <div className="lead-sub">{props.summary.nextStepsLabel}</div>
-              <ul className="sum-next">{props.summary.nextSteps.map((n, i) => <li key={i}>{n}</li>)}</ul>
-            </>
-          )}
-          <div className="sum-src">{props.summary.sourceLine}</div>
-        </>
-      )}
-      {props.enable
-        // 要約エンジンを使わないとき。「設定」は押せる語で、設定の要約エンジンへ跳ぶ（試作 3 節の 2c の推す案 B）。
-        // 土台の要約（索引が組んだ事実）があるときは、その下に添える。
-        ? <div className="faint lead-enable">{props.enable.before}<button type="button" className="btn-link" onClick={() => emit({ type: 'nav.go', to: { name: 'settings', at: 'summary' } })}>{props.enable.link}</button>{props.enable.after}</div>
-        : !props.summary && props.empty && <div className="faint">{props.empty}</div>}
-      <div className="lead-chips">
+        {props.status.since && <span>{props.status.since}</span>}
+        {props.stopped ? <span>{props.stopped}</span> : props.interrupted ? <span className="lead-interrupted"><span className="int-ring" aria-hidden="true" />{props.interrupted}</span> : props.ended && <span>{props.ended}</span>}
+        {props.flags.map((f) => <span key={f}>{f}</span>)}
+        <span>{props.turns}</span>
+        <span>{props.tokens}</span>
+        {props.cost && <span>{props.cost}</span>}
+        {props.git?.chip && <span className="chip lead-git"><GitChip id={`lead:${props.sessionId}`} chip={props.git.chip} /></span>}
         {files.count > 0 && <CountChip size="sm" label={files.label} count={files.count} icon="fileEdited" expanded={open === 'files'} aria-controls={open === 'files' ? panelId('files') : undefined} onClick={() => toggle('files')} />}
         {artifacts.count > 0 && <CountChip size="sm" label={artifacts.label} count={artifacts.count} icon="artifacts" expanded={open === 'artifacts'} aria-controls={open === 'artifacts' ? panelId('artifacts') : undefined} onClick={() => toggle('artifacts')} />}
         {props.pr && <a className="chip lead-pr" href={props.pr.url} target="_blank" rel="noreferrer"><Icon name="externalLink" />{props.pr.label}</a>}
-        {props.git?.chip && <span className="chip lead-git"><GitChip id={`lead:${props.sessionId}`} chip={props.git.chip} /></span>}
       </div>
       {open === 'files' && (
         <div id={panelId('files')} className="lead-panel" role="region" aria-label={files.label}>
@@ -108,6 +83,6 @@ export function LeadCard(props: LeadCardProps & { sessionId: string; /** git の
           </ul>
         </div>
       )}
-    </section>
+    </div>
   );
 }

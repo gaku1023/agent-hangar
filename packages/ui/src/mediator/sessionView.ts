@@ -1,9 +1,10 @@
 import { translatorOf } from '../presenters/i18n.ts';
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 import { currentRunOf, tabsOf, type Store } from '../store/store.ts';
+import { tocFolds } from '../presenters/tocFold.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, jump: null };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, jump: null, tocPeek: false };
 }
 
 /**
@@ -12,9 +13,10 @@ export function defaultSessionView(): SessionViewState {
  * 追うかどうかはその場の操作で決まるものなので、開くたびに既定（真）から始める。
  * 目次で開いたターンと、そこへ跳ばした結果も同じくその場のものなので残さない。
  * 検索の結果から開いたときの跳び先も残さない。
+ * ターンの少ない終わった会話で、その画面だけ右の欄を開いたこと（tocPeek）も残さない。
  */
-export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow' | 'openTurn' | 'turnJump' | 'jump'> {
-  const { follow: _drop, openTurn: _turn, turnJump: _jump, jump: _to, ...rest } = v;
+export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow' | 'openTurn' | 'turnJump' | 'jump' | 'tocPeek'> {
+  const { follow: _drop, openTurn: _turn, turnJump: _jump, jump: _to, tocPeek: _peek, ...rest } = v;
   return rest;
 }
 
@@ -51,8 +53,11 @@ export function jumpStep(state: State, id: string, jump: { seq: number; query: s
  */
 export function openAtLatestStep(state: State, id: string): State {
   const cur = state.sessionView[id] ?? defaultSessionView();
-  if (cur.jump !== null || cur.follow) return state;
-  return local(state, id, { follow: true }).state;
+  // ターンの少ない終わった会話で、前にその画面だけ開いた右の欄は、開き直したら畳んだ形に戻す。
+  const p: Partial<SessionViewState> = {};
+  if (cur.jump === null && !cur.follow) p.follow = true;
+  if (cur.tocPeek) p.tocPeek = false;
+  return Object.keys(p).length > 0 ? local(state, id, p).state : state;
 }
 
 /**
@@ -195,7 +200,12 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
     }
     case 'transcript.toggle': {
       const sid = currentSession(state);
-      return sid ? patch(state, sid, { transcriptOpen: !viewOf(state, sid).transcriptOpen }) : { state, effects: [] };
+      if (!sid) return { state, effects: [] };
+      // ターンの少ない終わった会話では、右の欄ははじめ畳んである（presenters の tocFolds）。
+      // そのときは保存する開閉を替えず、その画面だけの開閉を替える。
+      const v = viewOf(state, sid);
+      if (tocFolds(store, v, sid)) return local(state, sid, { tocPeek: !v.tocPeek });
+      return patch(state, sid, { transcriptOpen: !v.transcriptOpen });
     }
     case 'tab.open': {
       if (i.kind === 'shell') return { state, effects: [{ kind: 'api.openTab', sessionId: i.sessionId }] };

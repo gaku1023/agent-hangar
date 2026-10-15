@@ -25,7 +25,7 @@ type TranscriptProps = Parameters<typeof Transcript>[0];
  * 検索の状態は View の側の置き場（FindRoot）に持つ。
  * 試験では置き場を作って渡し、find を変えるときは置き場を書き換える。
  */
-function draw(items: TranscriptItem[], find: FindState | null, follow = false) {
+function draw(items: TranscriptItem[], find: FindState | null, follow = false, extra: Partial<TranscriptProps> = {}) {
   const onAction = vi.fn();
   const finds = createFindStore();
   const put = (f: FindState | null) => {
@@ -35,7 +35,7 @@ function draw(items: TranscriptItem[], find: FindState | null, follow = false) {
     if (f.step !== 0) finds.step('s1', f.step);
   };
   put(find);
-  const props: TranscriptProps = { sessionId: 's1', items, hasMore: false, loading: false, follow, live: false, remaining: 0 };
+  const props: TranscriptProps = { sessionId: 's1', items, hasMore: false, loading: false, follow, live: false, remaining: 0, ...extra };
   const ui = (p: TranscriptProps) => <ActionRoot onAction={onAction}><FindRoot store={finds}><Transcript {...p} /></FindRoot></ActionRoot>;
   const r = render(ui(props));
   const el = r.container.querySelector('.tr') as HTMLDivElement;
@@ -193,6 +193,39 @@ describe('検索の結果から開いたとき（J1）', () => {
     act(() => t.redraw({ hasNewer: true }));
     fireEvent.click(screen.getByRole('button', { name: '新しい行を読み込む' }));
     expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.loadNewer', sessionId: 's1' });
+  });
+});
+
+describe('まとめたツールの中の一致（T1）', () => {
+  const grouped: TranscriptItem[] = [
+    { kind: 'user', seq: 0, text: '色を調べて', when: '' },
+    toolItem(1, 'Bash', { command: 'ls', description: '一覧' }, { text: 'a', isError: false }),
+    toolItem(2, 'Bash', { command: 'grep band', description: '探す' }, { text: 'turn-band は帯', isError: false }),
+    toolItem(3, 'Bash', { command: 'cat x', description: '読む' }, { text: 'b', isError: false }),
+    { kind: 'assistant', seq: 4, text: 'おわり', when: '' },
+  ];
+  it('今の一致がまとめの中の呼び出しにあれば、まとめもその呼び出しも開き、その呼び出しの印を濃くする', () => {
+    const t = draw(grouped, findOf(grouped, 'turn-band'), false, { groupTools: true });
+    const row = t.container.querySelector('.tr-row[data-seq="1"]')!;
+    expect(row.querySelector('.tg-list')).not.toBeNull();
+    const item = row.querySelector('[data-item="2"]')!;
+    expect(item.querySelector('.bash')).not.toBeNull();
+    expect(item.querySelector('mark.cur')?.textContent).toBe('turn-band');
+    expect(row.querySelector('[data-item="1"] .bash')).toBeNull();
+  });
+  it('今の一致が外にあれば、まとめは畳んだまま、中の一致の数を添える', () => {
+    const list: TranscriptItem[] = [...grouped, { kind: 'user', seq: 5, text: '帯の色', when: '' }];
+    const t = draw(list, { query: '帯', caseSensitive: false, from: 5, step: 0, n: 1 }, false, { groupTools: true });
+    expect(t.container.querySelector('.tr-row[data-seq="1"] .tg-list')).toBeNull();
+    expect(t.container.querySelector('.tr-row[data-seq="1"] .hitcount')?.textContent).toBe('一致 1');
+  });
+  it('検索の結果からまとめの中の呼び出しへ跳ぶと、まとめを開いて、その行を光らせる', () => {
+    const t = draw(grouped, null, false, { groupTools: true });
+    act(() => t.redraw({ jump: { seq: 3, query: 'cat', n: 1 } }));
+    const row = t.container.querySelector('.tr-row[data-seq="1"]')!;
+    expect(row.classList.contains('tr-flash')).toBe(true);
+    expect(row.querySelector('.tg-list')).not.toBeNull();
+    expect(row.querySelector('[data-item="3"] mark.hit')?.textContent).toBe('cat');
   });
 });
 

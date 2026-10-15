@@ -3,6 +3,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { JumpState } from '../mediator/types.ts';
 import { findIn, type TranscriptFind } from '../presenters/find.ts';
 import type { TranscriptItem } from '../presenters/session.ts';
+import { groupRows, type TranscriptRow } from '../presenters/toolGroups.ts';
 import { useFind, type FindHandle } from './findStore.tsx';
 import { Clamp, estimateLines, MSG_LINES } from './primitives/Clamp.tsx';
 import { createGlide, type Glide } from './primitives/glide.ts';
@@ -12,6 +13,7 @@ import { useT } from './primitives/language.tsx';
 import { keyLabel } from '../keys.ts';
 import { isComposing } from './ime.ts';
 import { Markdown } from './primitives/Markdown.tsx';
+import { ToolGroup } from './ToolGroup.tsx';
 import { ToolItem } from './ToolItem.tsx';
 import { HitsContext, OpenContext, type OpenStore } from './transcriptOpen.tsx';
 
@@ -42,8 +44,10 @@ const FALLBACK_VIEWPORT = 800;
 /** 本文は 60vh で頭打ちになるので、見積もりもそのあたりで止める。 */
 const ROW_MAX = 420;
 
-/** 測る前の高さの見積もり。ツールは畳んだ 1 行、本文は 80 字で折り返した行数から当てる。 */
-function estimateRow(it: TranscriptItem): number {
+/** 測る前の高さの見積もり。ツールは畳んだ 1 行（まとめも畳んだ 1 行）、本文は 80 字で折り返した行数から当てる。 */
+function estimateRow(row: TranscriptRow): number {
+  const it = row.items[0]!;
+  if (row.tools) return GAP + 28 + (row.items.length === 1 && it.kind === 'tool' && it.subagent ? 32 : 0);
   if (it.kind === 'tool') return GAP + 28 + (it.subagent ? 32 : 0);
   const text = it.kind === 'meta' ? `${it.name} ${it.json}` : it.text;
   let lines = 0;
@@ -109,10 +113,13 @@ function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () =
 }
 
 /**
- * head は本文の先頭（スクロールの内側、古い行を読み込むボタンの上）に置くもの。終わったセッションの冒頭の 1 枚が入る。
+ * head は本文の先頭（スクロールの内側、古い行を読み込むボタンの上）に置くもの。
  * 行の高さの計算は、行の一覧の上端の位置（rowsTop）を測って足すので、head の高さに左右されない。
+ * groupTools が真なら、続けて呼んだツールを 1 行にまとめる（T1、presenters/toolGroups.ts）。
+ * 仮想スクロールの単位はまとめた後の行で、行の鍵は先頭の seq である。
+ * 跳び先や検索の一致は呼び出しの seq で来るので、それを含む行を引いて送る（rowAt）。
  */
-export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; jump?: JumpState | null; hasNewer?: boolean; head?: ReactNode }) {
+export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; jump?: JumpState | null; hasNewer?: boolean; head?: ReactNode; groupTools?: boolean }) {
   const emit = useEmit();
   const t = useT();
   const boxRef = useRef<HTMLDivElement>(null);
@@ -152,6 +159,16 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   // 行は seq の順に並んでいるので、いちばん新しい seq は末尾から取れる。
   const n = props.items.length;
   const maxSeq = n > 0 ? props.items[n - 1]!.seq : null;
+  // 描く行。まとめないときは 1 件が 1 行である。
+  const groupTools = props.groupTools === true;
+  const rows = useMemo(() => groupRows(props.items, groupTools), [props.items, groupTools]);
+  const rn = rows.length;
+  // 呼び出しの seq から、それを含む行の位置。
+  const rowAt = useMemo(() => {
+    const m = new Map<number, number>();
+    rows.forEach((r, i) => { for (const it of r.items) m.set(it.seq, i); });
+    return m;
+  }, [rows]);
   // 追うのをやめた時点で見えていた最大の seq。新着はこれより新しい行だけを数える。
   const seenMax = useRef<number | null>(maxSeq);
   // 見ている行の目印（その行の seq と、器の上端からその行の上端までのずれ）。
@@ -229,7 +246,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     const el = boxRef.current; if (!el) return;
     const top = Math.max(el.scrollTop - box.rowsTop, 0);
     const at = rowWindow(offsets, top, top).first;
-    anchor.current = n > 0 && at < n ? { seq: props.items[at]!.seq, delta: top - offsets[at]! } : null;
+    anchor.current = rn > 0 && at < rn ? { seq: rows[at]!.key, delta: top - offsets[at]! } : null;
   };
   // 古い行を読み込むとき。追っている最中なら、追うのをやめてから読み込む。
   // 追ったままだと、前に足した行の分だけ末尾へ引き戻され、見ていた位置が失われる。
@@ -240,13 +257,13 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   };
 
   // 高さは描くたびに積み直す。5,000 行でも足し算 5,000 回で、描画そのものより十分に軽い。
-  const offsets = new Array<number>(n + 1);
+  const offsets = new Array<number>(rn + 1);
   offsets[0] = 0;
-  for (let i = 0; i < n; i++) {
-    const it = props.items[i]!;
-    offsets[i + 1] = offsets[i]! + (measured.current.get(it.seq) ?? estimateRow(it));
+  for (let i = 0; i < rn; i++) {
+    const r = rows[i]!;
+    offsets[i + 1] = offsets[i]! + (measured.current.get(r.key) ?? estimateRow(r));
   }
-  const total = offsets[n]!;
+  const total = offsets[rn]!;
   const vh = box.height > 0 ? box.height : FALLBACK_VIEWPORT;
   // 追っている間は、測った高さのずれでスクロール位置が遅れても末尾を外さないよう、窓を下端に張り付ける。
   const viewTop = props.follow ? Math.max(total - vh, 0) : Math.max(box.top - box.rowsTop, 0);
@@ -258,16 +275,16 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const padBottom = Math.max(total - (offsets[last + 1] ?? 0), 0);
 
   // この描画で実際に使った行の上端と高さ。測り直したあとに、どれだけ位置がずれたかを出すために控える。
-  const drawn = props.items.slice(first, last + 1);
+  const drawn = rows.slice(first, last + 1);
   const usedRows = new Map<number, { top: number; height: number }>();
   for (let i = 0; i < drawn.length; i++) {
     const idx = first + i;
-    usedRows.set(drawn[i]!.seq, { top: offsets[idx]!, height: offsets[idx + 1]! - offsets[idx]! });
+    usedRows.set(drawn[i]!.key, { top: offsets[idx]!, height: offsets[idx + 1]! - offsets[idx]! });
   }
 
   // 行が前に入ったか、並びか器の位置が変わったか。目印を当て直すのはこのときと、高さを測り直したときだけでよい。
   const firstSeq = n > 0 ? props.items[0]!.seq : null;
-  const layoutKey = `${n}:${firstSeq}:${maxSeq}:${box.rowsTop}`;
+  const layoutKey = `${rn}:${n}:${firstSeq}:${maxSeq}:${box.rowsTop}`;
   const lastLayoutKey = useRef(layoutKey);
 
   useLayoutEffect(() => {
@@ -301,10 +318,10 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
       // 目印の行の上端を、いま分かっている高さで出し直して、そこへ戻す。
       // 前に入った行の見積もりの誤差も、窓の中の行の測り直しも、まとめてここで吸収する。
       const a = anchor.current;
-      const idx = a ? props.items.findIndex((it) => it.seq === a.seq) : -1;
+      const idx = a ? rowAt.get(a.seq) ?? -1 : -1;
       if (a && idx >= 0) {
         let top = 0;
-        for (let i = 0; i < idx; i++) top += measured.current.get(props.items[i]!.seq) ?? estimateRow(props.items[i]!);
+        for (let i = 0; i < idx; i++) top += measured.current.get(rows[i]!.key) ?? estimateRow(rows[i]!);
         const rowsTop = rowsRef.current ? rowsRef.current.offsetTop - el.offsetTop : box.rowsTop;
         const want = Math.max(top + a.delta + rowsTop, 0);
         if (Math.abs(el.scrollTop - want) >= 1) { jumpTo(el, want); moved = true; }
@@ -325,10 +342,10 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const topSeq = useCallback((): number | null => {
     const el = boxRef.current;
     const { offsets: o, rowsTop } = layout.current;
-    if (!el || n === 0) return null;
+    if (!el || rn === 0) return null;
     const top = Math.max(el.scrollTop - rowsTop, 0);
-    return props.items[rowWindow(o, top, top).first]?.seq ?? null;
-  }, [n, props.items]);
+    return rows[rowWindow(o, top, top).first]?.key ?? null;
+  }, [rn, rows]);
 
   /**
    * seq の行を器の上から 3 分の 1 のあたりへ送る。追っていたらやめる。
@@ -336,16 +353,16 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
    */
   const scrollToSeq = useCallback((seq: number) => {
     const el = boxRef.current;
-    const idx = props.items.findIndex((it) => it.seq === seq);
+    const idx = rowAt.get(seq) ?? -1;
     if (!el || idx < 0) return;
     const { offsets: o, rowsTop } = layout.current;
     const lead = Math.round(el.clientHeight / 3);
     jumpTo(el, Math.max(o[idx]! + rowsTop - lead, 0));
     lastScrollTop.current = el.scrollTop;
-    anchor.current = { seq, delta: Math.max(el.scrollTop - rowsTop, 0) - o[idx]! };
+    anchor.current = { seq: rows[idx]!.key, delta: Math.max(el.scrollTop - rowsTop, 0) - o[idx]! };
     if (props.follow) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
     measureBox();
-  }, [props.items, props.follow, props.sessionId, emit, measureBox]);
+  }, [rows, rowAt, props.follow, props.sessionId, emit, measureBox]);
 
   // 本文の中の検索。今の一致が変わったら、その行の畳んだものを開き、行まで送る。
   // 欄の状態は View の側の置き場に持ち、一致はここで数える。数えるのは描く行（思考と生の記録の切り替えを通した後）の中である。
@@ -362,8 +379,10 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     lastFindKey.current = findKey;
     if (!find || find.seq === null) return;
     const seq = find.seq;
-    // その行で利用者が畳んだものも、一致を見せるために開き直す。
+    // その行で利用者が畳んだものも、一致を見せるために開き直す。ツールのまとめの中なら、まとめの開閉（先頭の seq の 'group'）も忘れる。
     for (const k of [...opened.current.keys()]) if (k.startsWith(`${seq}:`)) opened.current.delete(k);
+    const owner = rows[rowAt.get(seq) ?? -1];
+    if (owner) opened.current.delete(`${owner.key}:group`);
     revealed.current.add(seq);
     scrollToSeq(seq);
     pendingMark.current = true;
@@ -375,9 +394,12 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     if (!el) return;
     for (const m of el.querySelectorAll('mark.cur')) m.classList.remove('cur');
     if (!find || find.seq === null) return;
-    const row = rowEls.current.get(find.seq);
+    const owner = rows[rowAt.get(find.seq) ?? -1];
+    const row = owner ? rowEls.current.get(owner.key) : undefined;
     if (!row) return;
-    const marks = row.querySelectorAll('mark.hit');
+    // まとめた行では、印は今の一致のある呼び出し（data-item）の中で数える。
+    const host = owner && owner.tools ? row.querySelector(`[data-item="${find.seq}"]`) ?? row : row;
+    const marks = host.querySelectorAll('mark.hit');
     const m = marks[Math.min(find.ordinal, marks.length - 1)];
     if (!m) return;
     m.classList.add('cur');
@@ -407,7 +429,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     lastJump.current = key;
     revealed.current.add(jumpTarget);
     scrollToSeq(jumpTarget);
-    setFlashSeq(jumpTarget);
+    setFlashSeq(rows[rowAt.get(jumpTarget) ?? -1]?.key ?? jumpTarget);
   });
   // 光らせるのは 1 度だけ。消し終えたら外す。外さないと、窓の外へ出て戻るたびに光り直す。
   // 光る行は窓の出入りで作り直されるので、行ではなく器で animationend を受ける。
@@ -423,7 +445,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
 
   // スクロールバーの脇の一致の印。行の上端の位置を、全体の高さに対する割合で置く。
   const ticks = find && find.ticks.length > 0 && total > 0
-    ? find.ticks.map((seq) => { const idx = props.items.findIndex((it) => it.seq === seq); return { seq, top: idx < 0 ? 0 : (offsets[idx]! / total) * 100 }; })
+    ? find.ticks.map((seq) => { const idx = rowAt.get(seq) ?? -1; return { seq, top: idx < 0 ? 0 : (offsets[idx]! / total) * 100 }; })
     : null;
 
   return (
@@ -439,11 +461,14 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
         {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
         {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={loadOlder}>{props.loading ? t('common.state.loading') : t('transcript.more.older', { n: props.remaining })}</button>}
         <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
-          {drawn.map((it) => (
-            <div key={it.seq} className={it.seq === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={it.seq} ref={setRowEl(it.seq)}>
-              {!marking && it.seq === jumpTarget && jumpMark ? <MarkProvider value={jumpMark}>{renderItem(props.sessionId, it)}</MarkProvider> : renderItem(props.sessionId, it)}
-            </div>
-          ))}
+          {drawn.map((r) => {
+            const body = r.tools ? <ToolGroup sessionId={props.sessionId} items={r.items as Extract<TranscriptItem, { kind: 'tool' }>[]} /> : renderItem(props.sessionId, r.items[0]!);
+            return (
+              <div key={r.key} className={r.key === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={r.key} ref={setRowEl(r.key)}>
+                {!marking && jumpMark && r.items.some((it) => it.seq === jumpTarget) ? <MarkProvider value={jumpMark}>{body}</MarkProvider> : body}
+              </div>
+            );
+          })}
         </div>
         {/* 検索の結果から真ん中の頁だけを読んで開いたときは、後ろ（新しい側）を読み足すボタンを一覧の下に置く。 */}
         {props.hasNewer && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadNewer', sessionId: props.sessionId })}>{props.loading ? t('common.state.loading') : t('transcript.more.newer')}</button>}
