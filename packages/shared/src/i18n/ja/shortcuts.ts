@@ -20,6 +20,7 @@ export const shortcutsJa: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.settingsOpen': '設定',
   'shortcuts.key.navBack': '戻る',
   'shortcuts.key.navForward': '進む',
+  'shortcuts.key.appReload': '画面を再読み込み',
   'shortcuts.key.sidebarToggle': 'サイドバーの開閉',
   'shortcuts.key.shortcutsOpen': 'キーボードショートカット',
   'shortcuts.key.overlayClose': '開いているものを閉じる（無ければ入力欄を離れる）',

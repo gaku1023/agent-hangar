@@ -81,8 +81,12 @@ function useTerminalHost(host: TerminalHost): void {
   useEffect(() => host.subscribe(force), [host]);
 }
 
-export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: TerminalHost }) {
+/** 画面全体を読み直す。試験は偽物を渡す。 */
+const reloadPage = () => location.reload();
+
+export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: TerminalHost; reload?: () => void }) {
   const rt = props.runtime;
+  const reload = props.reload ?? reloadPage;
   const { state, store } = useRuntime(rt);
   // 切れているあいだは「あと何秒で再接続するか」を出すので、30 秒刻みでは数字が嘘になる。そのあいだだけ秒で刻む。
   const now = useNow(state.connection === 'disconnected' ? 1000 : 30_000);
@@ -176,6 +180,15 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       const inTerminal = !!el?.closest?.('.term-host');
       const id = matchKey(e, { mac, terminal: inTerminal });
       if (!id) return;
+      // 再読み込みは、ターミナルと入力欄とダイアログのどこにフォーカスがあっても受ける（F5 は入力欄の文字でもない）。
+      // macOS は ⌘R だけで、Ctrl+R は入力欄とターミナルのものとして渡す。
+      // デスクトップの殻のメニューにも同じ ⌘R の項目があるが、頁が既定を止めるので二度は読み直さない。
+      if (id === 'app.reload') {
+        if (mac && !e.metaKey) return;
+        e.preventDefault();
+        reload();
+        return;
+      }
       // 何も開いていないときの入力欄の Esc は、その欄を離れる打鍵にする。ヘッダーの検索欄から抜ける手がほかに無いからである。
       // ダイアログやパレットの入力欄では、そのダイアログが自分で Esc を処理して閉じるので、ここでは触らない。
       // 部品が先に Esc を処理した（既定を止めた）ときも重ねない。ターミナルの Esc は上で xterm へ渡している。
@@ -251,7 +264,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown, finds]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown, finds, reload]);
 
   // 確認や入力のあるダイアログの裏では、スワイプで画面を移さない（Mediator の canMoveBehind と同じ規則）。
   // Mediator も nav.back を捨てるが、それだけだと矢印が出て「動いた」と見えてしまうので、手勢そのものを受けない。

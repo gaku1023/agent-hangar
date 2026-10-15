@@ -46,10 +46,10 @@ const rootRun = (id: string, sessionId: string): RunDto => ({ id, sessionId, dev
 const rootTab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '')), closedAt: null });
 
 /** 起動が終わったところまで進めた Root。ショートカットのテストの出発点である。 */
-async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost; desktop?: RuntimeDeps['desktop'] } = {}) {
+async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost; desktop?: RuntimeDeps['desktop']; reload?: () => void } = {}) {
   const m = make({ boot: { ...boot, sessions: [session] }, ...over });
   m.rt.start();
-  render(<Root runtime={m.rt} api={m.deps.api} terminals={m.terminals} />);
+  render(<Root runtime={m.rt} api={m.deps.api} terminals={m.terminals} {...(over.reload ? { reload: over.reload } : {})} />);
   act(() => m.handlers[0]!.onOpen());
   await flush();
   return { ...m, wsHandlers: m.handlers };
@@ -282,6 +282,50 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(emit).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
     key({ key: ',', metaKey: true });
     expect(emit).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+  });
+
+  describe('画面の再読み込み', () => {
+    const ua = (v: string) => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(v);
+    afterEach(() => vi.restoreAllMocks());
+
+    it('macOS は ⌘R で読み直す。ターミナルにフォーカスがあっても効く', async () => {
+      ua('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15');
+      const reload = vi.fn();
+      await mounted({ reload });
+      const term = document.createElement('div');
+      term.className = 'term-host';
+      const ta = document.createElement('textarea');
+      term.appendChild(ta);
+      document.body.appendChild(term);
+      fields.push(term);
+      const ev = new KeyboardEvent('keydown', { key: 'r', code: 'KeyR', metaKey: true, bubbles: true, cancelable: true });
+      act(() => { ta.dispatchEvent(ev); });
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it('Windows は F5 と Ctrl+Shift+R で読み直す。Ctrl+R はターミナルの履歴検索なので取らない', async () => {
+      ua('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/130.0');
+      const reload = vi.fn();
+      await mounted({ reload });
+      const term = document.createElement('div');
+      term.className = 'term-host';
+      const ta = document.createElement('textarea');
+      term.appendChild(ta);
+      document.body.appendChild(term);
+      fields.push(term);
+      const fire = (init: KeyboardEventInit) => { const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }); act(() => { ta.dispatchEvent(ev); }); return ev; };
+      expect(fire({ key: 'r', code: 'KeyR', ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(reload).not.toHaveBeenCalled();
+      expect(fire({ key: 'F5', code: 'F5' }).defaultPrevented).toBe(true);
+      expect(fire({ key: 'R', code: 'KeyR', ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+      expect(reload).toHaveBeenCalledTimes(2);
+      // 入力欄の F5 も読み直す（文字ではない）。
+      key({ key: 'F5', code: 'F5' });
+      const field = textField();
+      fireEvent.keyDown(field, { key: 'F5', code: 'F5' });
+      expect(reload).toHaveBeenCalledTimes(4);
+    });
   });
 
   // 今いるプロジェクト、今見ているセッションのプロジェクトを、ダイアログで最初から選んでおく。

@@ -84,6 +84,26 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'k', metaKey: true, altKey: true })).toBeNull();
   });
 
+  it('画面の再読み込みは macOS が ⌘R、ほかは F5 と Ctrl+Shift+R。Ctrl+R はターミナルの履歴検索なので取らない', () => {
+    const MAC = { mac: true, terminal: false };
+    expect(matchKey({ key: 'r', code: 'KeyR', metaKey: true }, MAC)).toBe('app.reload');
+    expect(matchKey({ key: 'r', code: 'KeyR', metaKey: true }, { mac: true, terminal: true })).toBe('app.reload');
+    expect(matchKey({ key: 'R', code: 'KeyR', metaKey: true, shiftKey: true }, MAC)).toBeNull();
+    const W = { mac: false, terminal: false };
+    const WT = { mac: false, terminal: true };
+    for (const ctx of [W, WT]) {
+      expect(matchKey({ key: 'F5', code: 'F5' }, ctx)).toBe('app.reload');
+      expect(matchKey({ key: 'R', code: 'KeyR', ctrlKey: true, shiftKey: true }, ctx)).toBe('app.reload');
+      expect(matchKey({ key: 'r', code: 'KeyR', ctrlKey: true }, ctx)).toBeNull();
+    }
+    const b = KEYMAP.find((k) => k.id === 'app.reload')!;
+    expect(b.group).toBe('global');
+    expect(displayKeys(b, true)).toBe('⌘R');
+    expect(displayKeys(b, false)).toBe('F5 / Ctrl+Shift+R');
+    expect(terminalKeysLabel(b, false)).toBe('Ctrl+Shift+R');
+    expect(labelOf('app.reload')).toBe('画面を再読み込み');
+  });
+
   it('同じ打鍵を 2 つの操作に割り当てていない', () => {
     const seen = new Map<string, string>();
     for (const b of KEYMAP) {

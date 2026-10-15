@@ -19,6 +19,7 @@ export const shortcutsKeys = {
   'shortcuts.key.settingsOpen': [],
   'shortcuts.key.navBack': [],
   'shortcuts.key.navForward': [],
+  'shortcuts.key.appReload': [],
   'shortcuts.key.sidebarToggle': [],
   'shortcuts.key.shortcutsOpen': [],
   'shortcuts.key.overlayClose': [],

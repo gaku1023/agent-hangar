@@ -2067,8 +2067,40 @@ fn fit_main_window(app: &AppHandle) {
     ));
 }
 
+/// 「View」の「Reload」の項目の id。
+#[cfg(target_os = "macos")]
+const RELOAD_MENU_ID: &str = "hangar-reload";
+
+/// macOS のメニュー。Tauri の既定のメニューの「View」の頭に「Reload」（⌘R）を足す。
+/// 既定のメニューの項目名は英語なので、足す項目も英語でそろえる。
+/// ⌘R は先に頁の keydown が受けて既定を止める（keys.ts の app.reload）ので、打鍵で二度は読み直さない。メニューから選んだときだけここが読み直す。
+/// Windows と Linux の窓はメニューバーを持たないので、足さない（F5 と Ctrl+Shift+R は頁が受ける）。
+#[cfg(target_os = "macos")]
+fn app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    let menu = Menu::default(app)?;
+    for item in menu.items()? {
+        let Some(sub) = item.as_submenu() else {
+            continue;
+        };
+        if sub.text()? != "View" {
+            continue;
+        }
+        let reload = MenuItem::with_id(app, RELOAD_MENU_ID, "Reload", true, Some("CmdOrCtrl+R"))?;
+        sub.prepend_items(&[&reload, &PredefinedMenuItem::separator(app)?])?;
+    }
+    Ok(menu)
+}
+
 pub fn run() {
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu).on_menu_event(|app, event| {
+        if event.id() == RELOAD_MENU_ID {
+            log("reload from the menu");
+            eval_main(app, "location.reload()");
+        }
+    });
     // 二つ目の起動を最初の殻へまとめる。プラグインの決まりで、ほかのプラグインより先に付ける。
     // 二つ目の殻は、窓を作る前にここで降りる。
     #[cfg(not(target_os = "macos"))]
