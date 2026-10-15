@@ -162,6 +162,27 @@ describe('消した PC', () => {
     expect(sessionRow().deleted_at).toBeNull();
     expect(unpushed('session_states')).toEqual([]);
   });
+  it('ゴミ箱へ移せなかった本文は、元のパスの控えを残さない', async () => {
+    writeTranscript();
+    failTrash = true;
+    await service().deleteSession('s1').catch(() => {});
+    expect(db.prepare("select count(*) n from trashed_transcripts where session_id = 's1'").get()).toEqual({ n: 0 });
+  });
+  it('本文を移した後に DB の書き込みで転んでも、元のパスの控えは残り、戻せば復元できる', async () => {
+    writeTranscript();
+    indexMain();
+    db.exec("create trigger boom before insert on changes when new.table_name = 'session_states' begin select raise(abort, 'boom'); end");
+    await expect(service().deleteSession('s1')).rejects.toThrow();
+    db.exec('drop trigger boom');
+    expect(fs.existsSync(mainPath())).toBe(false);
+    expect(trashedAt()).toBeNull();
+    expect(db.prepare("select path, kind from trashed_transcripts where session_id = 's1' order by kind").all()).toEqual([
+      { path: subDir(), kind: 'dir' }, { path: mainPath(), kind: 'file' },
+    ]);
+    fs.renameSync(binned.get(mainPath())!, mainPath());
+    expect(service().checkRestores()).toEqual(['s1']);
+    expect(restored).toEqual(['s1']);
+  });
   it('無いセッションと、消したセッションは 404', async () => {
     await expect(service().deleteSession('nope')).rejects.toMatchObject({ status: 404 });
     await service().deleteSession('s1');
@@ -418,6 +439,68 @@ describe('削除の印は、明示の復元でしか外れない', () => {
     const r = db.prepare("select trashed_at, restored_at from session_states where session_id = 's1'").get() as { trashed_at: number | null; restored_at: number | null };
     expect(r.trashed_at).toBeNull();
     expect(r.restored_at).toBeGreaterThanOrEqual(t0);
+  });
+  /** この PC で消してから、ゴミ箱から戻す。戻した時刻（restored_at）と印の時刻を返す。 */
+  const deleteAndRestore = async (): Promise<{ t0: number; r: number }> => {
+    writeTranscript();
+    indexMain();
+    await service().deleteSession('s1');
+    const t0 = trashedAt()!;
+    fs.renameSync(binned.get(mainPath())!, mainPath());
+    service().checkRestores();
+    const r = (db.prepare("select restored_at from session_states where session_id = 's1'").get() as { restored_at: number }).restored_at;
+    db.prepare('update changes set pushed_at = 1').run();
+    return { t0, r };
+  };
+  it('戻した後に、戻す前の印を持つ行が新しい updated_at で届いても、戻ったままで本文を移さず、戻した行を上げ直す', async () => {
+    const { t0, r } = await deleteAndRestore();
+    const calls = trashCalls.length;
+    const t = r + 60_000;
+    applyRemoteBatch(db, [staleRow(t, { trashed_at: t0, restored_at: null })], { ownDeviceId: DEV, skipOwn: true });
+    expect(trashedAt()).toBeNull();
+    expect((db.prepare("select restored_at from session_states where session_id = 's1'").get() as { restored_at: number | null }).restored_at).toBe(r);
+    expect(sessionRow().deleted_at).toBeNull();
+    // 状態の変更は取り込む。
+    expect(getSessionState(db, 's1')).toMatchObject({ status: 'done' });
+    await service().applyMarks();
+    expect(trashCalls).toHaveLength(calls);
+    expect(fs.existsSync(mainPath())).toBe(true);
+    // 戻した行を、届いた行より新しい時刻で上げ直す。クラウドでも印の無い行が勝つ。
+    const out = outgoing(db);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.payload).toMatchObject({ trashed_at: null, restored_at: r, status: 'done' });
+    expect(out[0]!.updatedAt).toBeGreaterThan(t);
+  });
+  it('往復しない：戻す前の印を持つほかの PC と、戻した PC の間で、上げ直しは 1 回で止まる', async () => {
+    const { t0 } = await deleteAndRestore();
+    const other = openDb(':memory:');
+    try {
+      // ほかの PC は印を受け取り、戻したことはまだ受け取っていない。その間に状態を変えた（印を持つ行を新しい時刻で上げる）。
+      upsertShared(other, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: UUID, cwd: CWD, home_device: DEV, project_id: null }, DEV);
+      upsertShared(other, 'session_states', { session_id: 's1', trashed_at: t0 }, DEV, 'session_id', t0);
+      other.prepare('update changes set pushed_at = 1').run();
+      setSessionState(other, OTHER, 's1', { status: 'done', setBy: 'user' });
+      const later = Date.now() + 60_000;
+      other.prepare("update session_states set updated_at = ? where session_id = 's1'").run(later);
+      const fromOther = outgoing(other).map((c) => ({ ...c, updatedAt: later, payload: { ...c.payload, updated_at: later } }));
+      expect(fromOther[0]!.payload).toMatchObject({ trashed_at: t0 });
+      other.prepare('update changes set pushed_at = 1').run();
+      applyRemoteBatch(db, fromOther, { ownDeviceId: DEV, skipOwn: true });
+      expect(trashedAt()).toBeNull();
+      const reraised = outgoing(db);
+      expect(reraised).toHaveLength(1);
+      db.prepare('update changes set pushed_at = 1').run();
+      // 上げ直した行がほかの PC に届く。印を外し、上げ返さない。
+      applyRemoteBatch(other, reraised, { ownDeviceId: OTHER, skipOwn: true });
+      expect((other.prepare("select trashed_at from session_states where session_id = 's1'").get() as { trashed_at: number | null }).trashed_at).toBeNull();
+      expect(outgoing(other)).toEqual([]);
+      // 自分の上げ直しの戻りと、同じ古い行の届き直しでは、何も上げない。
+      applyRemoteBatch(db, [...reraised, ...fromOther], { ownDeviceId: DEV, skipOwn: true });
+      expect(outgoing(db)).toEqual([]);
+      expect(trashedAt()).toBeNull();
+    } finally {
+      other.close();
+    }
   });
 });
 

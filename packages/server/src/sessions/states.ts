@@ -57,11 +57,14 @@ export function toStateDto(r: StateCols): SessionStateDto {
 
 const liveRow = (db: Db, id: string) => db.prepare('select * from session_states where session_id = ? and deleted_at is null').get(id) as StateRow | undefined;
 
-/** 今の行（無ければ空の行）に差分を重ねて書く。updated_at と origin_device は upsertShared が補う。 */
-function write(db: Db, deviceId: string, sessionId: string, patch: Partial<StateRow>): SessionStateDto {
+/**
+ * 今の行（無ければ空の行）に差分を重ねて書く。updated_at と origin_device は upsertShared が補う。
+ * at は updated_at に使う時刻で、省けば今の時刻である（upsertShared の at）。
+ */
+function write(db: Db, deviceId: string, sessionId: string, patch: Partial<StateRow>, at?: number): SessionStateDto {
   const cur = db.prepare('select * from session_states where session_id = ?').get(sessionId) as StateRow | undefined;
   const base = cur ?? { session_id: sessionId, ...CLEARED };
-  upsertShared(db, 'session_states', { ...base, ...patch, session_id: sessionId, deleted_at: null }, deviceId, 'session_id');
+  upsertShared(db, 'session_states', { ...base, ...patch, session_id: sessionId, deleted_at: null }, deviceId, 'session_id', at);
   return toStateDto(liveRow(db, sessionId)!);
 }
 
@@ -143,15 +146,20 @@ export function setSessionPlacement(db: Db, deviceId: string, sessionId: string,
  * 削除の印を書く（sessions/trash.ts）。null は印を外す（ゴミ箱から戻した復元）。
  * 印を外すときは restored_at に今の時刻を書く。印は明示の復元でしか外れず、ほかの PC はこの時刻が印より新しいときだけ印を外す（sync/apply.ts）。
  * 状態、提案、移した先の列はそのまま残す。戻したときに、消す前の状態のまま戻るためである。
+ *
+ * 行の updated_at は、今と、手元の行の updated_at より 1 だけ後の、遅い方にする。
+ * 手元の行は時計の進んだほかの PC が書いたことがある。クラウドは行ごとの後勝ち（packages/cloud/src/changes.ts）なので、今の時刻で書くと印や復元がその行に負ける。
  */
 export function setSessionTrashed(db: Db, deviceId: string, sessionId: string, at: number | null, now = Date.now()): void {
+  const cur = db.prepare('select trashed_at, restored_at, updated_at from session_states where session_id = ?').get(sessionId) as Pick<StateRow, 'trashed_at' | 'restored_at' | 'updated_at'> | undefined;
+  const rowAt = Math.max(now, (cur?.updated_at ?? 0) + 1);
   if (at !== null) {
-    write(db, deviceId, sessionId, { trashed_at: at });
+    // 印は前の復元より後にする。取り込み（sync/apply.ts）は、restored_at 以下の印を古い印として外すからである。
+    write(db, deviceId, sessionId, { trashed_at: Math.max(at, (cur?.restored_at ?? 0) + 1) }, rowAt);
     return;
   }
   // 印の時刻は消した PC の時計なので、この PC の今より先のことがある。復元の時刻は必ず印より後にする。
-  const cur = liveRow(db, sessionId);
-  write(db, deviceId, sessionId, { trashed_at: null, restored_at: Math.max(now, (cur?.trashed_at ?? 0) + 1) });
+  write(db, deviceId, sessionId, { trashed_at: null, restored_at: Math.max(now, (cur?.trashed_at ?? 0) + 1) }, rowAt);
 }
 
 /**

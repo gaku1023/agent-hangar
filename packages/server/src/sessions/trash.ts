@@ -25,9 +25,11 @@ import { setSessionTrashed } from './states.ts';
  *
  * 生き返らないように、同期の取り込み（sync/apply.ts）は、印のあるセッションの sessions の行を論理削除のまま保つ（alignSessionTrash）。
  * 印は明示の復元でしか外れない。印の無い session_states の行が後勝ちで届いても、restored_at が印より新しくなければ印を保つ（版 27）。
+ * 戻した後に、戻す前の印を持つ行が届いても、印は restored_at 以下なので付き直らない（sync/apply.ts の mergeTrash）。
  * 索引（indexer/indexFile.ts）は、論理削除したセッションの本文を掘り起こさない。
  *
- * ゴミ箱へ移した本文の元のパスは、端末ローカルの trashed_transcripts に控える（版 26）。
+ * ゴミ箱へ移す本文の元のパスは、移す前に端末ローカルの trashed_transcripts に控え、移せなかったら取り消す（版 26）。
+ * 移した後の DB の書き込みで転んでも、控えが残るので、利用者がゴミ箱から戻せば元に戻る。
  * 同じパスに主線の本文が戻ってきたら、印と論理削除を外して索引し直す（checkRestores）。復元は同期でほかの PC にも届く。
  */
 
@@ -260,11 +262,16 @@ export class SessionTrash {
     targets.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'file' ? -1 : 1));
     const moved: Target[] = [];
     let incomplete = false;
+    const at = this.now();
     for (const t of targets) {
+      // 元のパスの控えを、ゴミ箱へ移す前に書く。移した後の DB の書き込みで転んでも、控えから戻せる（checkRestores）。
+      // 移せなかったら控えを取り消す。
+      this.record(sessionId, [t], at);
       try {
         await this.deps.trash(t.path);
         moved.push(t);
       } catch (e) {
+        this.db.prepare('delete from trashed_transcripts where path = ?').run(t.path);
         const reason = e instanceof Error ? e.message : String(e);
         if (moved.length === 0) throw new DeleteError(500, msg('session.delete.trashFailed', { reason }));
         incomplete = true;
@@ -272,9 +279,7 @@ export class SessionTrash {
       }
     }
     if (this.removeRemote(this.remoteTargets(s)) > 0) incomplete = true;
-    const at = this.now();
     this.db.transaction(() => {
-      this.record(sessionId, moved, at);
       setSessionTrashed(this.db, this.deps.deviceId, sessionId, at);
       softDeleteShared(this.db, 'sessions', sessionId, this.deps.deviceId);
       this.forgetIndex(sessionId);
