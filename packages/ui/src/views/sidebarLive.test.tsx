@@ -1,14 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SessionDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { cleanSidebarOrder, mergeSidebarOrder, SIDEBAR_ORDER_KEY, SIDEBAR_ORDER_MAX, trimSidebarOrder } from '../mediator/sidebar.ts';
 import { initialState, transition } from '../mediator/transition.ts';
 import { presentShell, SIDE_LIVE_MAX, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
+import type { SessionMenuProps } from '../presenters/sessionMenu.ts';
 import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
 
 const NOW = 1_800_000_000_000;
@@ -176,15 +178,21 @@ describe('行の移し方', () => {
   });
 });
 
-const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
+const RUNNING = '実行中のセッションは削除できません。先に停止してください';
+const menuOf = (id: string, stop: SessionMenuProps['stop'] = { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }): SessionMenuProps => ({ id, name: `name-${id}`, status: null, resumeHere: null, stop, moveBlocked: null, deleteBlocked: RUNNING });
+const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: menuOf(id), ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
+// 並べ替えの途中で一覧が変わったことにする。行は ids の順に並べ、並びの計算にも同じ ids を渡す。
+const liveOfIds = (ids: string[]): SideLiveProps => ({ count: ids.length, ids, rows: ids.map((id) => row(id)), more: 0 });
+const remount = (m: ReturnType<typeof mount>, ids: string[]) => m.rerender(<ActionRoot onAction={m.onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveOfIds(ids)} /></ActionRoot>);
+const linkOf = (id: string) => screen.getByRole('link', { name: new RegExp(`name-${id}`) });
 
-// 行の縦の位置。a・b・c を 30px ずつ上から並べる。jsdom は配置を測らないので、ここで与える。
-const placeRows = () => {
-  ['a', 'b', 'c'].forEach((id, i) => {
-    const top = 100 + i * 30;
-    screen.getByRole('link', { name: new RegExp(`name-${id}`) }).getBoundingClientRect = () => ({ top, height: 30, bottom: top + 30, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
+// 行の縦の位置。a・b・c を h（既定 30px、畳んだ帯は 26px）ずつ上から並べる。jsdom は配置を測らないので、ここで与える。
+const placeRows = (h = 30, ids = ['a', 'b', 'c']) => {
+  ids.forEach((id, i) => {
+    const top = 100 + i * h;
+    screen.getByRole('link', { name: new RegExp(`name-${id}`) }).getBoundingClientRect = () => ({ top, height: h, bottom: top + h, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
   });
 };
 // jsdom はポインタのイベントに位置やボタンを載せないことがあるので、作ったイベントに足してから送る。
@@ -228,32 +236,76 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     fireEvent.click(screen.getByText('ほか 8 件'));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
   });
-  it('行を掴んで別の行の上半分まで動かして離すと、その前へ入る並びを出す。離したあとの click では行を開かない', () => {
-    const { onAction } = mount(liveProps());
+  it('行を掴んで動かすと、その行が浮いてポインタに付き、ほかの行は入る場所に合わせて行の高さ分ずつよける', () => {
+    mount(liveProps());
     placeRows();
-    const c = screen.getByRole('link', { name: /name-c/ });
-    const a = screen.getByRole('link', { name: /name-a/ });
+    const [a, b, c] = ['a', 'b', 'c'].map((id) => screen.getByRole('link', { name: new RegExp(`name-${id}`) })) as [HTMLElement, HTMLElement, HTMLElement];
     pointerAt('pointerDown', c, 175);
+    pointerAt('pointerMove', c, 145);
+    expect(c).toHaveAttribute('data-lift', 'held');
+    expect(c.closest('ul')).toHaveAttribute('data-sorting', 'true');
+    expect(c.style.translate).toMatch(/-30px$/);
+    // c は b の席へ入るので、b だけが 1 行下がる。
+    expect(b.style.translate).toMatch(/ 30px$/);
+    expect(a.style.translate).toBe('');
     pointerAt('pointerMove', c, 104);
-    expect(c).toHaveAttribute('data-dragging', 'true');
-    expect(a).toHaveAttribute('data-over', 'before');
-    pointerAt('pointerUp', c, 104);
-    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
-    expect(c).not.toHaveAttribute('data-dragging');
-    expect(a).not.toHaveAttribute('data-over');
-    fireEvent.click(c);
-    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+    expect(c.style.translate).toMatch(/-68px$/);
+    expect(a.style.translate).toMatch(/ 30px$/);
+    expect(b.style.translate).toMatch(/ 30px$/);
+    // 入る場所の線は出さない。
+    expect(document.querySelector('[data-over]')).toBeNull();
   });
-  it('下半分まで動かして離すと、その後ろへ入る', () => {
+  it('浮いた行は、両端では行 1 つ分の手前より先（8px）で止まる', () => {
+    mount(liveProps());
+    placeRows();
+    const a = screen.getByRole('link', { name: /name-a/ });
+    pointerAt('pointerDown', a, 115);
+    pointerAt('pointerMove', a, 400);
+    expect(a.style.translate).toMatch(/ 68px$/);
+    pointerAt('pointerMove', a, -200);
+    expect(a.style.translate).toMatch(/-8px$/);
+  });
+  it('離すと空いた場所へ収まってから並びを確定し、確定と同時に浮きとずらしを外す。離したあとの click では行を開かない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const [a, b, c] = ['a', 'b', 'c'].map((id) => screen.getByRole('link', { name: new RegExp(`name-${id}`) })) as [HTMLElement, HTMLElement, HTMLElement];
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      pointerAt('pointerUp', c, 104);
+      // 離したあとの click（ブラウザは離した直後に送る）では、行を開かない。
+      fireEvent.click(c);
+      // 収まる間は、空いた席（2 行上）へ向かい、浮きの印は収まりへ替わる。並びはまだ出さない。
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(c.style.translate).toMatch(/-60px$/);
+      expect(a.style.translate).toMatch(/ 30px$/);
+      expect(onAction).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+      for (const el of [a, b, c]) { expect(el.style.translate).toBe(''); expect(el).not.toHaveAttribute('data-lift'); }
+      expect(c.closest('ul')).not.toHaveAttribute('data-sorting');
+      expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('下へ動かして離すと、その後ろへ入る', () => {
     const { onAction } = mount(liveProps());
     placeRows();
     const a = screen.getByRole('link', { name: /name-a/ });
-    const b = screen.getByRole('link', { name: /name-b/ });
     pointerAt('pointerDown', a, 115);
     pointerAt('pointerMove', a, 155);
-    expect(b).toHaveAttribute('data-over', 'after');
     pointerAt('pointerUp', a, 155);
     expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a', 'c'] });
+  });
+  it('行の外まで動かして離しても、端の席に収まる', () => {
+    const { onAction } = mount(liveProps());
+    placeRows();
+    const a = screen.getByRole('link', { name: /name-a/ });
+    pointerAt('pointerDown', a, 115);
+    pointerAt('pointerMove', a, 300);
+    pointerAt('pointerUp', a, 300);
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'c', 'a'] });
   });
   it('押しただけ、または少しだけ動いて離したときは、並べ替えずに行を開く', () => {
     const { onAction } = mount(liveProps());
@@ -261,35 +313,43 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     const a = screen.getByRole('link', { name: /name-a/ });
     pointerAt('pointerDown', a, 115);
     pointerAt('pointerMove', a, 117);
-    expect(a).not.toHaveAttribute('data-dragging');
+    expect(a).not.toHaveAttribute('data-lift');
     pointerAt('pointerUp', a, 117);
     fireEvent.click(a);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'sidebar.order' }));
   });
-  it('自分の上や行の外で離したときは並びを出さない。そのあとの click でも行を開かない', () => {
+  it('元の席のまま離したときは並びを出さない。そのあとの click でも行を開かない', () => {
     const { onAction } = mount(liveProps());
     placeRows();
     const a = screen.getByRole('link', { name: /name-a/ });
     pointerAt('pointerDown', a, 115);
-    pointerAt('pointerMove', a, 300);
-    expect(a).toHaveAttribute('data-dragging', 'true');
-    expect(document.querySelector('[data-over]')).toBeNull();
-    pointerAt('pointerUp', a, 300);
+    pointerAt('pointerMove', a, 126);
+    expect(a).toHaveAttribute('data-lift', 'held');
+    pointerAt('pointerUp', a, 126);
+    expect(a).not.toHaveAttribute('data-lift');
     fireEvent.click(a);
     expect(onAction).not.toHaveBeenCalled();
   });
-  it('ドラッグが取り消されたら（pointercancel）、印を消して並びを出さない', () => {
-    const { onAction } = mount(liveProps());
-    placeRows();
-    const c = screen.getByRole('link', { name: /name-c/ });
-    const a = screen.getByRole('link', { name: /name-a/ });
-    pointerAt('pointerDown', c, 175);
-    pointerAt('pointerMove', c, 104);
-    pointerAt('pointerCancel', c, 104);
-    expect(c).not.toHaveAttribute('data-dragging');
-    expect(a).not.toHaveAttribute('data-over');
-    expect(onAction).not.toHaveBeenCalled();
+  it('ドラッグが取り消されたら（pointercancel）、元の席へ同じ動きで戻り、並びを出さない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const c = screen.getByRole('link', { name: /name-c/ });
+      const a = screen.getByRole('link', { name: /name-a/ });
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      pointerAt('pointerCancel', c, 104);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(c.style.translate).toMatch(/^0(px)? 0px$/);
+      expect(a.style.translate).toBe('');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(c).not.toHaveAttribute('data-lift');
+      expect(c.style.translate).toBe('');
+      expect(onAction).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); restore(); }
   });
   it('右ボタンや control を押しながらの押し下げでは、ドラッグを始めない', () => {
     const { onAction } = mount(liveProps());
@@ -297,26 +357,63 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     const c = screen.getByRole('link', { name: /name-c/ });
     pointerAt('pointerDown', c, 175, { button: 2 });
     pointerAt('pointerMove', c, 104);
-    expect(c).not.toHaveAttribute('data-dragging');
+    expect(c).not.toHaveAttribute('data-lift');
     pointerAt('pointerUp', c, 104);
     pointerAt('pointerDown', c, 175, { ctrlKey: true });
     pointerAt('pointerMove', c, 104);
-    expect(c).not.toHaveAttribute('data-dragging');
+    expect(c).not.toHaveAttribute('data-lift');
     pointerAt('pointerUp', c, 104);
     expect(onAction).not.toHaveBeenCalled();
   });
-  it('ドラッグの途中で Esc を押すと、印を消して並びを出さない。離したあとの click でも行を開かない', () => {
+  it('ドラッグの途中で Esc を押すと、元の席へ戻り、並びを出さない。離したあとの click でも行を開かない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const c = screen.getByRole('link', { name: /name-c/ });
+      const a = screen.getByRole('link', { name: /name-a/ });
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      // WebKit はリンクを押しても焦点を移さないので、Esc は行ではなく窓で受ける。
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(c.style.translate).toMatch(/^0(px)? 0px$/);
+      expect(a.style.translate).toBe('');
+      // 戻る途中のポインタの動きでは、また掴まない。
+      pointerAt('pointerMove', c, 150);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(c).not.toHaveAttribute('data-lift');
+      pointerAt('pointerUp', c, 104);
+      fireEvent.click(c);
+      expect(onAction).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('reduced motion（長さが 0）では待たずに、離したその場で並びを確定して浮きを外す', () => {
+    const restore = fakeMotionTokens({ '--dur-fast': '0ms', '--ease-out': 'ease-out' });
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const c = screen.getByRole('link', { name: /name-c/ });
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      pointerAt('pointerUp', c, 104);
+      expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+      expect(c).not.toHaveAttribute('data-lift');
+      expect(c.style.translate).toBe('');
+    } finally { restore(); }
+  });
+  it('畳んだ帯（26px の行）でも、行の間隔を測って同じに動く', () => {
     const { onAction } = mount(liveProps());
-    placeRows();
-    const c = screen.getByRole('link', { name: /name-c/ });
-    pointerAt('pointerDown', c, 175);
-    pointerAt('pointerMove', c, 104);
-    fireEvent.keyDown(c, { key: 'Escape' });
-    expect(c).not.toHaveAttribute('data-dragging');
-    expect(document.querySelector('[data-over]')).toBeNull();
-    pointerAt('pointerUp', c, 104);
-    fireEvent.click(c);
-    expect(onAction).not.toHaveBeenCalled();
+    placeRows(26);
+    const [a, , c] = ['a', 'b', 'c'].map((id) => screen.getByRole('link', { name: new RegExp(`name-${id}`) })) as [HTMLElement, HTMLElement, HTMLElement];
+    pointerAt('pointerDown', c, 165);
+    pointerAt('pointerMove', c, 90);
+    expect(c.style.translate).toMatch(/-60px$/);
+    expect(a.style.translate).toMatch(/ 26px$/);
+    pointerAt('pointerUp', c, 90);
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
   });
   it('行は HTML のドラッグを使わない（デスクトップのアプリでは窓の中の dragover と drop が届かないため）', () => {
     mount(liveProps());
@@ -333,13 +430,203 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     fireEvent.keyDown(b, { key: 'ArrowUp' });
     expect(onAction).not.toHaveBeenCalled();
   });
+  it('掴んでいる間に前の行が消えても、浮いた行はポインタに付いたままで、ずらしは id から引き直し、離すと指した行の前に入る', () => {
+    const m = mount(liveOfIds(['x', 'a', 'b', 'c']));
+    placeRows(30, ['x', 'a', 'b', 'c']);
+    pointerAt('pointerDown', linkOf('c'), 205);
+    pointerAt('pointerMove', linkOf('c'), 134);
+    expect(linkOf('c').style.translate).toMatch(/-71px$/);
+    expect(linkOf('a').style.translate).toMatch(/ 30px$/);
+    // x が消えて行が 1 つ上へ詰まる。ポインタ（134）は、いまは b の上にある。
+    remount(m, ['a', 'b', 'c']);
+    expect(linkOf('c').style.translate).toMatch(/-41px$/);
+    expect(linkOf('b').style.translate).toMatch(/ 30px$/);
+    expect(linkOf('a').style.translate).toBe('');
+    pointerAt('pointerUp', linkOf('c'), 134);
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['a', 'c', 'b'] });
+  });
+  it('掴んでいる間に前へ行が増えても、浮いた行はポインタに付いたままで、離すとその下の行の前に入る', () => {
+    const m = mount(liveOfIds(['a', 'b', 'c']));
+    placeRows();
+    pointerAt('pointerDown', linkOf('c'), 175);
+    pointerAt('pointerMove', linkOf('c'), 104);
+    // y が先頭に入って行が 1 つ下へずれる。ポインタ（104）は、いまは y の上にあり、浮いた行は端で止まる。
+    remount(m, ['y', 'a', 'b', 'c']);
+    expect(linkOf('c').style.translate).toMatch(/-98px$/);
+    for (const id of ['y', 'a', 'b']) expect(linkOf(id).style.translate).toMatch(/ 30px$/);
+    pointerAt('pointerUp', linkOf('c'), 104);
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'y', 'a', 'b'] });
+  });
+  it('収まる間に前の行が消えても、離したときに指した行の前に入る', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const m = mount(liveOfIds(['x', 'a', 'b', 'c']));
+      placeRows(30, ['x', 'a', 'b', 'c']);
+      pointerAt('pointerDown', linkOf('c'), 205);
+      pointerAt('pointerMove', linkOf('c'), 134);
+      pointerAt('pointerUp', linkOf('c'), 134);
+      expect(linkOf('c').style.translate).toMatch(/-60px$/);
+      remount(m, ['a', 'b', 'c']);
+      expect(linkOf('c').style.translate).toMatch(/-60px$/);
+      expect(linkOf('a').style.translate).toMatch(/ 30px$/);
+      expect(linkOf('b').style.translate).toMatch(/ 30px$/);
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).toHaveBeenCalledTimes(1);
+      expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('収まる間に前へ行が増えても、離したときに指した行の前に入る', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const m = mount(liveOfIds(['a', 'b', 'c']));
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      pointerAt('pointerUp', linkOf('c'), 104);
+      remount(m, ['y', 'a', 'b', 'c']);
+      expect(linkOf('c').style.translate).toMatch(/-60px$/);
+      expect(linkOf('a').style.translate).toMatch(/ 30px$/);
+      expect(linkOf('b').style.translate).toMatch(/ 30px$/);
+      expect(linkOf('y').style.translate).toBe('');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).toHaveBeenCalledTimes(1);
+      expect(m.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['y', 'c', 'a', 'b'] });
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('収まる間に指した行が消えたら、並べ替えを捨てて並びを出さない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const m = mount(liveOfIds(['a', 'b', 'c']));
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      pointerAt('pointerUp', linkOf('c'), 104);
+      remount(m, ['b', 'c']);
+      expect(linkOf('c')).not.toHaveAttribute('data-lift');
+      expect(linkOf('c').style.translate).toBe('');
+      expect(linkOf('c').closest('ul')).not.toHaveAttribute('data-sorting');
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('掴んでいる間に掴んだ行が消えたら、並べ替えを捨てて並びを出さない', () => {
+    const m = mount(liveOfIds(['a', 'b', 'c']));
+    placeRows();
+    const c = linkOf('c');
+    pointerAt('pointerDown', c, 175);
+    pointerAt('pointerMove', c, 104);
+    remount(m, ['a', 'b']);
+    expect(linkOf('a').closest('ul')).not.toHaveAttribute('data-sorting');
+    expect(linkOf('a').style.translate).toBe('');
+    pointerAt('pointerUp', c, 104);
+    expect(m.onAction).not.toHaveBeenCalled();
+  });
+  it('並べ替えの間（掴んでいる間と収まる間）は、⌥↑↓、.、右クリックを受けない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(liveProps());
+      placeRows();
+      const [a, b, c] = ['a', 'b', 'c'].map(linkOf) as [HTMLElement, HTMLElement, HTMLElement];
+      const others = () => {
+        fireEvent.keyDown(b, { key: 'ArrowUp', altKey: true });
+        fireEvent.keyDown(a, { key: 'ArrowDown', altKey: true });
+        fireEvent.keyDown(b, { key: '.' });
+        const ev = createEvent.contextMenu(a, { clientX: 40, clientY: 120 });
+        fireEvent(a, ev);
+        // ブラウザのメニューも出さない。
+        expect(ev.defaultPrevented).toBe(true);
+        expect(screen.queryByRole('menu')).toBeNull();
+        for (const el of [a, b, c]) expect(el).not.toHaveAttribute('data-menu');
+        expect(onAction).not.toHaveBeenCalled();
+      };
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      expect(c).toHaveAttribute('data-lift', 'held');
+      others();
+      pointerAt('pointerUp', c, 104);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      others();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(onAction).toHaveBeenCalledTimes(1);
+      expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+    } finally { vi.useRealTimers(); restore(); }
+  });
+  it('並べ替えの途中の Esc は、ほかの Esc の受け手（窓の捕捉と浮上、Root、ダイアログの殻）へ届かせない。並べ替えの外では届く', () => {
+    // Esc を受けるのは、窓の浮上の段の Root（overlay.close）、要素の上のダイアログの殻とポップオーバー、窓の捕捉の段の EditorMissing である。
+    // サイドバーは掴んだときに窓の捕捉の段へ付けるので、それより後に付いた捕捉と、浮上の段の受け手のすべてより先に受ける。
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    const bubble = vi.fn();
+    const onBody = vi.fn();
+    const capture = vi.fn();
+    window.addEventListener('keydown', bubble);
+    document.body.addEventListener('keydown', onBody);
+    try {
+      mount(liveProps());
+      placeRows();
+      const c = linkOf('c');
+      pointerAt('pointerDown', c, 175);
+      pointerAt('pointerMove', c, 104);
+      window.addEventListener('keydown', capture, true);
+      const ev = createEvent.keyDown(document.body, { key: 'Escape' });
+      fireEvent(document.body, ev);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(c).toHaveAttribute('data-lift', 'settle');
+      expect(capture).not.toHaveBeenCalled();
+      expect(onBody).not.toHaveBeenCalled();
+      expect(bubble).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(200); });
+      pointerAt('pointerUp', c, 104);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(onBody).toHaveBeenCalledTimes(1);
+      expect(bubble).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', bubble);
+      window.removeEventListener('keydown', capture, true);
+      document.body.removeEventListener('keydown', onBody);
+      vi.useRealTimers();
+      restore();
+    }
+  });
+  it('収まる間に節が消えても（アンマウント）、収まりの予約と窓の Esc を片付け、並びを出さない', () => {
+    const restore = fakeMotionTokens();
+    vi.useFakeTimers();
+    const removed = vi.spyOn(window, 'removeEventListener');
+    try {
+      const m = mount(liveProps());
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      pointerAt('pointerUp', linkOf('c'), 104);
+      m.unmount();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(m.onAction).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+      // 掴んでいる間に消えたときも、窓の Esc を外す。
+      const n = mount(liveProps());
+      placeRows();
+      pointerAt('pointerDown', linkOf('c'), 175);
+      pointerAt('pointerMove', linkOf('c'), 104);
+      removed.mockClear();
+      n.unmount();
+      expect(removed).toHaveBeenCalledWith('keydown', expect.any(Function), true);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(n.onAction).not.toHaveBeenCalled();
+    } finally { removed.mockRestore(); vi.useRealTimers(); restore(); }
+  });
 });
 
-describe('行の「停止」に要る情報（presentShell）', () => {
+describe('行のメニューの「停止」に要る情報（presentShell）', () => {
   const run = (id: string, sessionId: string, endedAt: number | null = null) => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt, endReason: null, heartbeatAt: 1 });
   const tab = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null) => ({ id, runId, sessionId: 'a', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: 1, closedAt });
   const withRuns = (list: SessionDto[], runs: ReturnType<typeof run>[], tabs: ReturnType<typeof tab>[] = []): Store => ({ ...storeWith(list), runs: Object.fromEntries(runs.map((r) => [r.id, r])), tabs: Object.fromEntries(tabs.map((t) => [t.id, t])) } as unknown as Store);
-  const stopOf = (store: Store, id: string) => liveOf(store, at('projects')).rows.find((r) => r.id === id)?.stop;
+  const stopOf = (store: Store, id: string) => liveOf(store, at('projects')).rows.find((r) => r.id === id)?.menu.stop;
 
   it('hangar の run が生きていれば、その id と、作業中かどうかと、開いているシェルのタブの数を持つ', () => {
     const store = withRuns([session('a', { live: 'idle' }), session('b', { live: 'busy' }), session('c', { live: 'waiting' })], [run('ra', 'a'), run('rb', 'b'), run('rc', 'c')],
@@ -348,16 +635,15 @@ describe('行の「停止」に要る情報（presentShell）', () => {
     expect(stopOf(store, 'b')).toEqual({ runId: 'rb', working: true, aside: false, shellTabs: 0 });
     expect(stopOf(store, 'c')).toEqual({ runId: 'rc', working: true, aside: false, shellTabs: 0 });
   });
-  it('hangar の外で動いているもの（生きた run が無い）は、止める手を持たない', () => {
+  it('hangar の外で動いているもの（生きた run が無い）は、外部ターミナルのものとして止める手を持たない', () => {
     const store = withRuns([session('a', { live: 'busy' }), session('b', { live: 'idle' })], [run('rb-old', 'b', 9)]);
-    expect(stopOf(store, 'a')).toBeNull();
-    expect(stopOf(store, 'b')).toBeNull();
+    expect(stopOf(store, 'a')).toBe('external');
+    expect(stopOf(store, 'b')).toBe('external');
   });
 });
 
 describe('行のメニュー（右クリックと .）', () => {
-  const NOTE = 'Claude を終了します。トランスクリプトは残るため、あとで再開できます';
-  it('行を右クリックすると、その行に印を付けて「停止」だけのメニューを出す。ブラウザのメニューは出さない', () => {
+  it('行を右クリックすると、その行に印を付けてセッションのメニュー（1A）を押した点に出す。ブラウザのメニューは出さない', () => {
     mount(liveProps());
     const a = screen.getByRole('link', { name: /name-a/ });
     const ev = createEvent.contextMenu(a, { clientX: 40, clientY: 120 });
@@ -365,31 +651,40 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(ev.defaultPrevented).toBe(true);
     expect(a).toHaveAttribute('data-menu', 'true');
     expect(screen.getByRole('link', { name: /name-b/ })).not.toHaveAttribute('data-menu');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('name-a のメニュー');
+    expect(screen.getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Activeu', 'true'], ['Pausedp', 'false'], ['Doned', 'false'], ['Archiveda', 'false']]);
     const items = screen.getAllByRole('menuitem');
-    expect(items).toHaveLength(1);
-    expect(items[0]).toHaveTextContent('停止');
-    expect(items[0]).toHaveTextContent(NOTE);
-    expect(items[0]).toHaveAttribute('data-danger', 'true');
-    expect(screen.getByRole('menu')).toHaveAccessibleName('name-a の操作');
+    // 停止の補足の 1 行は出さない。
+    expect(items.map((i) => i.textContent)).toEqual(['プロジェクトを変更…m', '停止', `削除…${RUNNING}`]);
+    expect(items[1]).toHaveAttribute('data-danger', 'true');
+    expect(items[2]).toHaveAttribute('aria-disabled', 'true');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
-    const { onAction } = mount(liveProps({ rows: [row('a', { stop: { runId: 'r9', working: false, aside: false, shellTabs: 2 } }), row('b')] }));
+    const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', { runId: 'r9', working: false, aside: false, shellTabs: 2 }) }), row('b')] }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /停止/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^停止/ }));
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r9', working: false, aside: false, shellTabs: 2 });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
   });
   it('hangar の外で動いている行では、「停止」を押せない形で出し、理由を添える', () => {
-    const { onAction } = mount(liveProps({ rows: [row('a', { stop: null })] }));
+    const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', 'external') })] }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    const item = screen.getByRole('menuitem', { name: /停止/ });
+    const item = screen.getByRole('menuitem', { name: /^停止/ });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).toHaveTextContent('外部ターミナルで実行中');
-    expect(item).not.toHaveTextContent(NOTE);
     fireEvent.click(item);
     expect(onAction).not.toHaveBeenCalled();
+  });
+  it('「プロジェクトを変更…」は移す先のダイアログを開き、状態は打鍵の印でその状態にする', () => {
+    const { onAction } = mount(liveProps());
+    fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /プロジェクトを変更/ }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.move.open', id: 'a' });
+    fireEvent.contextMenu(screen.getByRole('link', { name: /name-b/ }));
+    fireEvent.keyDown(document.activeElement!, { key: 'd' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 'b', status: 'done' });
   });
   it('行に焦点があるときの . でも開き、Esc で閉じて焦点を行へ戻す', () => {
     const { onAction } = mount(liveProps());
@@ -397,9 +692,9 @@ describe('行のメニュー（右クリックと .）', () => {
     b.focus();
     fireEvent.keyDown(b, { key: '.' });
     expect(b).toHaveAttribute('data-menu', 'true');
-    const item = screen.getByRole('menuitem', { name: /停止/ });
-    expect(item).toHaveFocus();
-    fireEvent.keyDown(item, { key: 'Escape' });
+    const first = screen.getAllByRole('menuitemradio')[0]!;
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(b).toHaveFocus();
     expect(onAction).not.toHaveBeenCalled();
@@ -415,36 +710,21 @@ describe('行のメニュー（右クリックと .）', () => {
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-b/ }));
     expect(screen.getAllByRole('menu')).toHaveLength(1);
-    expect(screen.getByRole('menu')).toHaveAccessibleName('name-b の操作');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('name-b のメニュー');
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
-  });
-  it('メニューの外を押すと閉じる', () => {
-    mount(liveProps());
-    fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('menu')).toBeNull();
-  });
-  it('メニューを開いている間に行が消えたら閉じ、その行がまた現れても開き直さない', () => {
-    const ui = (live: SideLiveProps) => <ActionRoot onAction={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>;
-    const { rerender } = render(ui(liveProps()));
-    fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
-    rerender(ui(liveProps({ count: 2, ids: ['b', 'c'], rows: [row('b'), row('c')] })));
-    expect(screen.queryByRole('menu')).toBeNull();
-    rerender(ui(liveProps()));
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
-  });
-  it('メニューを開いている行は、押している見た目にする', () => {
-    const base = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../styles/base.css'), 'utf8');
-    expect(base).toMatch(/\.side-live-row:hover, \.side-live-row\[data-menu='true'\] \{[^}]*background:/);
   });
 });
 
 describe('サイドバーの「実行中」の見た目', () => {
   const base = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../styles/base.css'), 'utf8');
-  it('入る場所は行の上か下の線で示す', () => {
-    expect(base).toMatch(/\.side-live-row\[data-over='before'\] \{[^}]*box-shadow: inset 0 2px 0 var\(--accent\)/);
-    expect(base).toMatch(/\.side-live-row\[data-over='after'\] \{[^}]*box-shadow: inset 0 -2px 0 var\(--accent\)/);
+  it('掴んだ行は白い面と影と 102% で浮き、ほかの行は --dur-fast で滑る。入る場所の線は出さない', () => {
+    expect(base).not.toContain('data-over');
+    expect(base).toMatch(/\.side-live-list \.side-live-row\[data-lift='held'\] \{[^}]*background: rgba\(255, 255, 255, 0\.9\d\)[^}]*box-shadow: var\(--glass-drop\)[^}]*scale: 1\.02/);
+    expect(base).toMatch(/\.side-live-list\[data-sorting='true'\] \.side-live-row \{[^}]*translate var\(--dur-fast\) var\(--ease-out\)/);
+    expect(base).toMatch(/\.side-live-list \.side-live-row\[data-lift='settle'\] \{[^}]*translate var\(--dur-fast\) var\(--ease-out\)/);
+  });
+  it('reduced motion では浮いた行を大きくしない', () => {
+    expect(base).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[^@]*\.side-live-list \.side-live-row\[data-lift='held'\] \{ scale: none; \}/);
   });
   it('畳んだ帯では見出しと名前を出さず、点だけを並べる', () => {
     expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-h, [^{]*\.side-live-name, [^{]*\{ display: none; \}/);

@@ -1,6 +1,7 @@
 import type { ConfirmRequest, State } from '../mediator/types.ts';
 import { accountList, type Store } from '../store/store.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { presentResumeHere, type ResumeHereProps } from './resumeHere.ts';
 
 /** 一覧から削除するプロジェクトの名前と、未分類に戻るセッションの数。 */
@@ -9,7 +10,9 @@ export type ConfirmProjectProps = { name: string; sessions: number };
  * accountName は、切り替えと削除の確認が指すアカウントの名前。
  * ほかの確認と、一覧に無い id（消えた直後など）では null で、View は id を名前の代わりにする。
  */
-export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectProps | null; accountName: string | null; resumeHere?: ResumeHereProps | null };
+/** 消すセッションの名前と、下の 1 行に出す所属とターンの数（試作の 3A）。 */
+export type ConfirmDeleteSessionProps = { name: string; project: string; turns: number };
+export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectProps | null; accountName: string | null; resumeHere?: ResumeHereProps | null; deleteSession?: ConfirmDeleteSessionProps | null };
 
 /**
  * 確認のダイアログ。
@@ -24,6 +27,13 @@ export function presentConfirm(state: State, store: Store): ConfirmProps | null 
   if (confirm.kind === 'resumeHere') return { confirm, project: null, accountName: null, resumeHere: presentResumeHere(translatorOf(store), confirm.plan, store.home) };
   if (confirm.kind === 'switchAccount' || confirm.kind === 'removeAccount') {
     return { confirm, project: null, accountName: accountList(store).find((a) => a.id === confirm.accountId)?.name ?? null };
+  }
+  if (confirm.kind === 'deleteSession') {
+    const t = translatorOf(store);
+    const s = store.sessions[confirm.sessionId];
+    const p = s?.projectId ? store.projects[s.projectId] : undefined;
+    const deleteSession = s ? { name: s.name ?? t('common.label.noName'), project: p ? projectDisplayName(p, t) : t('common.label.uncategorized'), turns: s.stats.turns } : null;
+    return { confirm, project: null, accountName: null, deleteSession };
   }
   if (confirm.kind !== 'unlinkProject') return { confirm, project: null, accountName: null };
   const id = confirm.projectId;

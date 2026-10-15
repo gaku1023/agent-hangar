@@ -65,6 +65,12 @@ describe('store', () => {
     s = applyServerEvent(s, { type: 'live.update', live: [] });
     expect(s.sessions.s1?.live).toBeNull();
   });
+  it('session.removed は Store からセッションを外し、知らないセッションなら同じ Store を返す', () => {
+    const s = applyBootstrap(initialStore(), boot);
+    const out = applyServerEvent(s, { type: 'session.removed', id: 's1' });
+    expect(out.sessions.s1).toBeUndefined();
+    expect(applyServerEvent(out, { type: 'session.removed', id: 's1' })).toBe(out);
+  });
   it('live.update は裏だけ動いている印も引き直す', () => {
     let s = applyBootstrap(initialStore(), boot);
     const base = { sessionId: 'u1', status: 'busy' as const, name: null, nameSource: null, cwd: '/x', pid: 1 };

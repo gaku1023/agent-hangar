@@ -5,6 +5,8 @@ export type ServerEvent =
   | { type: 'project.upsert'; project: ProjectDto }
   | { type: 'project.unresolved'; projectId: string }
   | { type: 'session.upsert'; session: SessionDto }
+  // セッションが一覧から消えた（削除した、本文の無いまま片付けた）。画面は Store から外す。
+  | { type: 'session.removed'; id: string }
   | { type: 'live.update'; live: LiveSessionDto[] }
   | { type: 'transcript.appended'; sessionId: string; count: number }
   | { type: 'index.progress'; progress: IndexProgressDto }

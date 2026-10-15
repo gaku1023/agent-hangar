@@ -87,6 +87,10 @@ export const actionTable = {
   'session.openFile': (i) => editorOpen(i, (api) => api.openEditor(i.sessionId, i.path, { line: i.line, once: i.once })),
   // 画面の正は後から届く session.upsert なので、返り値は Store に入れない。
   'session.state.reject': (i) => call((api) => api.rejectSessionState(i.id)),
+  // 別のプロジェクトへ移す。画面の正は後から届く session.upsert なので、返り値は Store に入れない。
+  'session.move': (i) => call((api) => api.moveSession(i.id, i.projectId)),
+  // 消す。画面の正は後から届く session.removed なので、返り値は Store に入れない。
+  'session.delete': (i) => call((api) => api.deleteSession(i.id)),
   // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
   'overlap.dismiss': (i) => call((api) => api.dismissOverlap(i.sessionId, i.with, i.paths)),
   // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。

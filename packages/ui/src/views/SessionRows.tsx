@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import type { UiAction, SessionStatus, StatusFilter, Translate } from '@agent-hangar/shared';
+import type { UiAction, StatusFilter, Translate } from '@agent-hangar/shared';
 import { useBackgroundEmit, useEmit, type Emit } from '../action/chain.tsx';
 import { ACTIVE_LABEL, candidateLabel, candidateSourceLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem } from '../presenters/listItem.ts';
 import { GitChip } from './GitChip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
+import { MenuButton, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
+import { pointAnchor, SessionMenuPop, sessionMenuItems, sessionMenuWidth } from './sessionMenu.tsx';
 
 /**
  * 動きの語。入力待ちと実行中だけを語にし、止まっているものは点だけにする。
@@ -22,20 +23,6 @@ const LIVE_WORD_KEY = { waiting: 'list.live.waiting', busy: 'list.live.running',
  * メニューは document.body への portal に描くが、React のイベントは portal の中からも React の木を伝ってここへ上がるので、項目のクリックもここで止まる。
  */
 const stopClick = (e: ReactMouseEvent) => e.stopPropagation();
-
-/** 「⋯」の 4 択（A2）。打鍵の印は試作 rest.html の A2 のとおり。付いている状態と、外すものの無い「Active に戻す」は理由を添えて押せなくする。 */
-function stateItems(t: Translate, r: SessionRowProps, emit: Emit): MenuItem[] {
-  const set = (status: SessionStatus | null) => () => emit({ type: 'session.state.set', id: r.id, status });
-  return [
-    { key: 'paused', label: t('row.menu.paused'), kbd: 'p', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'menu' }) },
-    { key: 'done', label: t('row.menu.done'), kbd: 'd', disabled: r.state === 'done' ? t('row.menu.alreadyDone') : null, onSelect: set('done') },
-    { key: 'archived', label: t('row.menu.archived'), kbd: 'a', disabled: r.state === 'archived' ? t('row.menu.alreadyArchived') : null, onSelect: set('archived') },
-    { key: 'active', label: t('row.menu.active'), kbd: 'u', disabled: r.state === null && r.candidate === null ? t('row.menu.alreadyActive') : null, onSelect: set(null) },
-    // ほかの PC の会話だけに、最後に「この PC で再開」を足す。押せないときは理由を項目の下に出す（試作の 1b）。
-    // 印は付けない。ほかの項目に印が無いので、付けると語の頭がずれる。
-    ...(r.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), disabled: r.resumeHere.disabled, onSelect: () => emit({ type: 'session.resumeHere.open', id: r.id }) }] : []),
-  ];
-}
 
 /**
  * 提案の札（Q3 の枠だけの札）と、押すと開くポップ（Q1）。
@@ -131,6 +118,12 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   // 戻さないと、フォーカスは「⋯」のボタンに残り、一覧は行以外から来た打鍵を捨てるので j・Enter・2 回目の . が効かなくなる。
   const menuFromKey = useRef<string | null>(null);
   const cursorRow = () => hostRef.current?.querySelector<HTMLElement>('[data-cursor="true"]') ?? null;
+  // 右クリックで開いたメニュー。at は押した点。一覧に 1 つだけ持つ。
+  const [ctx, setCtx] = useState<{ id: string; at: MenuAnchor } | null>(null);
+  const ctxMenu = ctx ? rows.find((r) => r.id === ctx.id)?.menu ?? null : null;
+  // 開いている間に行が消えたら（ほかの場所で消した、絞り込みから外れた）、開いていたことも忘れる。
+  const ctxGone = ctx !== null && ctxMenu === null;
+  useEffect(() => { if (ctxGone) setCtx(null); }, [ctxGone]);
 
   // 仮想リストは画面の外の行を描かないので、カーソルが可視範囲を出たら見える位置まで運ぶ。
   // これをしないと、見えていない行が選ばれたまま Enter で開けてしまう。
@@ -166,6 +159,13 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     const fromKey = menuFromKey.current === id;
     menuFromKey.current = null;
     if (fromKey && (how === 'select' || how === 'escape')) cursorRow()?.focus({ preventScroll: true });
+  };
+
+  // 右クリックのメニューが閉じた。項目を選んだときと Esc で閉じたときは、フォーカスをその行へ戻す。外を押したときは押した先に任せる。
+  const ctxClosed = (how: MenuCloseHow) => {
+    const id = ctx?.id;
+    setCtx(null);
+    if (id && (how === 'select' || how === 'escape')) hostRef.current?.querySelector<HTMLElement>(`[role="row"][data-morph-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
   };
 
   // 提案のポップが閉じた。項目を選んだときは、開き方を問わずフォーカスを札の行へ戻す。
@@ -221,7 +221,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       case 'Enter': if (cur) emit(openAction(cur)); break;
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
-      // 状態の 4 択。カーソルの行の「⋯」を押したのと同じにする（見えていなくても押せる）。
+      // セッションのメニュー。カーソルの行の「⋯」を押したのと同じにする（見えていなくても押せる）。
       case '.': if (cur) { cursorRow()?.querySelector<HTMLButtonElement>('.row-more button')?.click(); menuFromKey.current = cur.id; } break;
       default: return;
     }
@@ -274,9 +274,11 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {r.interrupted && <span className="row-interrupted" title={r.interrupted.title}>{r.interrupted.label}<span className="sr-only">{` ${r.interrupted.title}`}</span></span>}
         {/* 止まっている理由があれば、右端の語をそれに替える（「許可待ち」「使用制限 · 16:50」「リセット済み」、試作の L1）。 */}
         {r.live && <span className="row-live" data-live={r.reason === 'limit' ? 'limit' : r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{r.reasonWord ?? t(LIVE_WORD_KEY[r.live])}</span>}
-        <span className="row-act row-more" onClick={stopClick}>
-          <MenuButton label={t('row.menu.stateLabel', { name: r.name })} items={stateItems(t, r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={r.resumeHere ? 300 : 220} onClose={(how) => menuClosed(r.id, how)} />
-        </span>
+        {r.menu && (
+          <span className="row-act row-more" onClick={stopClick}>
+            <MenuButton label={t('row.menu.label', { name: r.name })} items={sessionMenuItems(t, r.menu, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={sessionMenuWidth(r.menu)} onClose={(how) => menuClosed(r.id, how)} />
+          </span>
+        )}
         {time(r)}
       </span>
     </span>
@@ -328,7 +330,8 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const cursorRowId = cursor >= 0 ? rows[cursor]!.id : null;
   const rowEl = (r: SessionRowProps) => (
     <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
-      onClick={() => emit(openAction(r))} onFocus={() => setCursorId(r.id)}>
+      onClick={() => emit(openAction(r))} onFocus={() => setCursorId(r.id)}
+      onContextMenu={r.menu ? (e) => { e.preventDefault(); setCursorId(r.id); setCtx({ id: r.id, at: pointAnchor(e.clientX, e.clientY) }); } : undefined}>
       <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />
       {statusColumn && status(r)}
       <span className="row-main">
@@ -344,6 +347,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     <div className="rows-host" id={props.id} data-testid="session-rows" data-status-col={String(statusColumn)} ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown} onFocus={onHostFocus} onBlur={onHostBlur}>
       <VirtualList items={items} rowHeight={(it) => (it.kind === 'head' ? SECTION_HEAD_H : SESSION_ROW_H)} height={props.height} keyOf={(it) => (it.kind === 'head' ? `head:${it.id}` : it.row.id)}
         scope={props.scope} render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
+      {ctx && ctxMenu && <SessionMenuPop key={ctx.id} menu={ctxMenu} at={ctx.at} onClose={ctxClosed} />}
     </div>
   );
 }

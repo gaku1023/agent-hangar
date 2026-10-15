@@ -28,7 +28,7 @@ function storeWith(): Store {
 describe('裏だけ動いているセッションの見せ方', () => {
   it('サイドバーの行は、丸を裏だけにする（語は添えない）。止めるときは作業中として確かめる', () => {
     const rows = presentShell(initialState(), storeWith(), NOW).live.rows;
-    expect(rows.find((r) => r.id === 'a')).toMatchObject({ live: 'busy', aside: true, waited: null, stop: { runId: 'r1', working: true, aside: true } });
+    expect(rows.find((r) => r.id === 'a')).toMatchObject({ live: 'busy', aside: true, waited: null, menu: { stop: { runId: 'r1', working: true, aside: true } } });
     expect(rows.find((r) => r.id === 'b')).toMatchObject({ live: 'busy', aside: false });
   });
   it('一覧の行とパレットの丸も裏だけにする', () => {

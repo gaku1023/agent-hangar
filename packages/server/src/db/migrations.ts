@@ -458,6 +458,55 @@ alter table projects add column git_remote text;
 `;
 
 /**
+ * 版 25。session_states に利用者が移した先（project_id）と削除の印（trashed_at）を足す（2026-10-16）。
+ *
+ * 所属と削除は利用者が決めることなので、本文から読み取れる事実を置く sessions ではなく、利用者の操作でしか書かれない session_states に置く。
+ * 索引の書き直しや、古い所属を持った sessions の後勝ちで戻らないようにするためである。
+ * - project_id は移した先。null なら cwd からの自動の振り分けに従う。sessions.project_id はこれに合わせ直す（sessions/move.ts）。
+ *   外部キーは付けない。同期の最初の写しは session_states が projects より先に降りることがあり、一覧から削除した先を指す行も残りうるからである。読む側が生きているプロジェクトだけを採る。
+ * - trashed_at は削除の印。null なら生きている。行の論理削除の deleted_at とは別物である。
+ * 同期は行を JSON の payload のまま運ぶので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない（版 24 と同じ）。
+ * 列を持たない古い PC は、適用のときに自分の表に無い列を捨てる。
+ */
+const V25_SESSION_PLACEMENT_SQL = `
+alter table session_states add column project_id text;
+alter table session_states add column trashed_at integer;
+`;
+
+/**
+ * 版 26。セッションの削除（sessions/trash.ts）のための端末ローカルの表を 2 つ足す（2026-10-16）。
+ * どちらも同期に載らない。共有の列（updated_at など）を持たない。
+ * - trashed_transcripts は、この PC がゴミ箱へ移した本文（主線の jsonl とサブエージェントのフォルダ）の元のパスの控えである。
+ *   同じパスに主線のファイルが戻ってきたら、削除の印を外して索引し直す（ゴミ箱から戻す復元）。
+ * - trash_applied は、この PC が削除の印を処理し終えたセッションと、そのときの印の時刻である。
+ *   印を受け取るたびに同じ処理をくり返さないためで、印が付け直されたら時刻が変わるので処理し直す。
+ */
+const V26_SESSION_TRASH_SQL = `
+create table trashed_transcripts (
+  path text primary key,
+  session_id text not null,
+  kind text not null check (kind in ('file','dir')),
+  trashed_at integer not null
+);
+create index trashed_transcripts_session on trashed_transcripts(session_id);
+create table trash_applied (
+  session_id text primary key,
+  trashed_at integer not null
+);
+`;
+
+/**
+ * 版 27。session_states に restored_at（明示の復元の時刻）を足す（2026-10-16）。
+ * 削除の印（trashed_at）は、明示の復元でしか外れない。
+ * 印を受け取る前のほかの PC が同じ行を書く（自動の Done、状態の変更）と、印の無い行が後勝ちで届く。
+ * 取り込み（sync/apply.ts）は、届いた行の restored_at が手元の印より新しいときだけ印を外し、そうでなければ印を保って上げ直す。
+ * 版 25 と同じく列を足すだけなので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。
+ */
+const V27_SESSION_RESTORED_SQL = `
+alter table session_states add column restored_at integer;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -472,4 +521,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 22, sql: V22_RESUME_CONFLICT_SQL },
   { version: 23, sql: V23_SESSION_LIMITS_SQL },
   { version: 24, sql: V24_PROJECT_REMOTE_SQL },
+  { version: 25, sql: V25_SESSION_PLACEMENT_SQL },
+  { version: 26, sql: V26_SESSION_TRASH_SQL },
+  { version: 27, sql: V27_SESSION_RESTORED_SQL },
 ];

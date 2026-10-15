@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { CANDIDATE_EXPIRE_DAYS } from '@agent-hangar/shared';
-import { clearOnNewPrompt, confirmSessionState, expireCandidates, getSessionState, NO_STATE, proposeSessionState, rejectSessionState, setSessionState, StateInputError } from './states.ts';
+import { clearOnNewPrompt, confirmSessionState, expireCandidates, getSessionState, NO_STATE, proposeSessionState, rejectSessionState, setSessionState, setSessionTrashed, StateInputError } from './states.ts';
 
 function seed() {
   const db = openDb(':memory:');
@@ -330,5 +330,30 @@ describe('放っておかれた提案', () => {
     expect(expireCandidates(db, 'd', T0 + 30 * DAY)).toEqual({ confirmed: [], dropped: [] });
     expect(lastSeq(db)).toBe(before);
     expect(getSessionState(db, 's2')!.candidate).not.toBeNull();
+  });
+});
+
+// 削除の印と復元（sessions/trash.ts）。クラウドは行ごとの後勝ち（packages/cloud/src/changes.ts）なので、手元の行より必ず新しい時刻で書く。
+describe('削除の印と復元の時刻', () => {
+  const stateRow = (db: Db) => db.prepare("select trashed_at, restored_at, updated_at from session_states where session_id = 's1'").get() as { trashed_at: number | null; restored_at: number | null; updated_at: number };
+  it('印を書いた PC の時計が進んでいても、復元の行は手元の行より新しい updated_at で書く', () => {
+    const db = seed();
+    const future = Date.now() + 3_600_000;
+    upsertShared(db, 'session_states', { session_id: 's1', trashed_at: future }, 'other', 'session_id', future);
+    setSessionTrashed(db, 'd', 's1', null, Date.now());
+    const r = stateRow(db);
+    expect(r.trashed_at).toBeNull();
+    expect(r.restored_at).toBeGreaterThan(future);
+    expect(r.updated_at).toBeGreaterThan(future);
+  });
+  it('印の行も、手元の行より新しい updated_at で書き、印は前の復元より後にする', () => {
+    const db = seed();
+    const future = Date.now() + 3_600_000;
+    upsertShared(db, 'session_states', { session_id: 's1', trashed_at: null, restored_at: future }, 'other', 'session_id', future);
+    const now = Date.now();
+    setSessionTrashed(db, 'd', 's1', now, now);
+    const r = stateRow(db);
+    expect(r.updated_at).toBeGreaterThan(future);
+    expect(r.trashed_at).toBeGreaterThan(future);
   });
 });

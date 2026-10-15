@@ -20,9 +20,12 @@ export function onSharedWrite(cb: (table: string, rowId: string, db: Db) => void
   return onRowChange((c) => { if (c.origin === 'write') cb(c.table, c.rowId, c.db); });
 }
 
-/** 共有テーブルへの書き込み。updated_at と origin_device を補い、changes に追記する。 */
-export function upsertShared(db: Db, table: string, row: Record<string, unknown>, deviceId: string, pk = 'id'): void {
-  const full: Record<string, unknown> = { ...row, updated_at: Date.now(), origin_device: deviceId };
+/**
+ * 共有テーブルへの書き込み。updated_at と origin_device を補い、changes に追記する。
+ * at は updated_at に使う時刻で、省けば今の時刻である。同期で届いた行より確実に新しく書き直したいとき（sync/apply.ts）だけ渡す。
+ */
+export function upsertShared(db: Db, table: string, row: Record<string, unknown>, deviceId: string, pk = 'id', at = Date.now()): void {
+  const full: Record<string, unknown> = { ...row, updated_at: at, origin_device: deviceId };
   const cols = Object.keys(full);
   const sets = cols.filter((c) => c !== pk).map((c) => `${c} = excluded.${c}`).join(', ');
   const sql = `insert into ${table} (${cols.join(', ')}) values (${cols.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`;

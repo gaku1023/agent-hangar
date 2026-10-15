@@ -6,6 +6,7 @@ import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { gitRemoteOf } from '../git/remote.ts';
 import { isStrictlyUnder, isUnder, pathKey, samePath } from '../platform/paths.ts';
+import { pinnedProjectOf, repointPins } from '../sessions/move.ts';
 import { moveProjectContents } from './contents.ts';
 import { fillProjectRemote, linkCandidateFor, placelessProjects } from './link.ts';
 import { scratchPlacesOf } from './scratch.ts';
@@ -180,12 +181,23 @@ function longestMatch(roots: RootRow[], cwd: string): RootRow | undefined {
  * 一覧から削除したプロジェクトに紐づいたままのセッションも、未分類として拾う。
  * まとめる（mergeProjects）前の行を持っていた PC の索引が、消えたプロジェクトへの紐づけを後から書き戻すことがあるからである。
  * 場所の当たらないものは、そのままにする。
+ * 利用者が移したセッション（sessions/move.ts）は、場所ではなく移した先に合わせ直す。古い所属が書き戻されていても戻す。
  */
 export function assignSessions(db: Db, deviceId: string): number {
   const roots = resolvedRoots(db, deviceId);
+  let n = 0;
+  const pinned = db.prepare(`select s.*, st.project_id pin from sessions s
+    join session_states st on st.session_id = s.id and st.deleted_at is null and st.project_id is not null
+    join projects p on p.id = st.project_id and p.deleted_at is null
+    where s.deleted_at is null and (s.project_id is null or s.project_id <> st.project_id)`).all() as Record<string, unknown>[];
+  for (const { pin, ...s } of pinned) {
+    upsertShared(db, 'sessions', { ...s, project_id: pin }, deviceId);
+    touchRow(db, 'projects', pin as string);
+    if (typeof s.project_id === 'string') touchRow(db, 'projects', s.project_id);
+    n++;
+  }
   const sessions = db.prepare(`select * from sessions s where s.deleted_at is null
     and (s.project_id is null or exists (select 1 from projects p where p.id = s.project_id and p.deleted_at is not null))`).all() as Record<string, unknown>[];
-  let n = 0;
   for (const s of sessions) {
     const match = longestMatch(roots, s.cwd as string);
     if (!match) continue;
@@ -199,15 +211,16 @@ export function assignSessions(db: Db, deviceId: string): number {
 
 /**
  * 未分類のセッション 1 件を、この端末の解決済みルートの最長一致で紐づける。
+ * 利用者が移したセッション（sessions/move.ts）は、場所ではなく移した先に紐づける。
  * 紐づけたらプロジェクトの id を返し、既に紐づいているか当たるルートが無ければ null を返す。
  */
 export function assignSession(db: Db, deviceId: string, sessionId: string): string | null {
   const s = db.prepare('select * from sessions where id = ? and project_id is null and deleted_at is null').get(sessionId) as Record<string, unknown> | undefined;
   if (!s) return null;
-  const match = longestMatch(resolvedRoots(db, deviceId), s.cwd as string);
-  if (!match) return null;
-  upsertShared(db, 'sessions', { ...s, project_id: match.project_id }, deviceId);
-  return match.project_id;
+  const projectId = pinnedProjectOf(db, sessionId) ?? longestMatch(resolvedRoots(db, deviceId), s.cwd as string)?.project_id;
+  if (!projectId) return null;
+  upsertShared(db, 'sessions', { ...s, project_id: projectId }, deviceId);
+  return projectId;
 }
 
 /**
@@ -308,6 +321,7 @@ export function mergePreview(db: Db, deviceId: string, fromId: string, intoId: s
  * メモは、into が空なら移し、両方にあれば into の後ろへ空行を挟んでつなぐ。
  * 置き場は PC ごとに 1 つなので、into がその PC に置き場を持てば into のものを保ち、持たなければ from のものを引き継ぐ。
  * 行の project_id は書き換えず、into の行を作る（消した行があれば戻す）。`(project_id, device_id)` が一意で、消した行もそれに数えるからである。
+ * from へ移したセッション（sessions/move.ts）の移した先も into へ付け替える。
  * 途中で失敗したら全部を巻き戻す。
  */
 export function mergeProjects(db: Db, deviceId: string, fromId: string, intoId: string): void {
@@ -342,7 +356,10 @@ export function checkProjectRoots(db: Db, deviceId: string): { unresolved: strin
   return out;
 }
 
-/** 未解決のプロジェクトに対する操作を適用する。unlink は行の論理削除だけで、ディレクトリには触れない。 */
+/**
+ * 未解決のプロジェクトに対する操作を適用する。unlink は行の論理削除だけで、ディレクトリには触れない。
+ * unlink では、そのプロジェクトへ移したセッション（sessions/move.ts）の移した印も外す。外したセッションは cwd からの自動の振り分けに戻る。
+ */
 export function resolveProject(db: Db, deviceId: string, projectId: string, action: ResolveAction): void {
   const root = db.prepare('select * from project_roots where project_id = ? and device_id = ? and deleted_at is null').get(projectId, deviceId) as RootRow | undefined;
   const project = db.prepare('select * from projects where id = ?').get(projectId) as Record<string, unknown> | undefined;
@@ -375,6 +392,7 @@ export function resolveProject(db: Db, deviceId: string, projectId: string, acti
     case 'unlink': {
       const sessions = db.prepare('select * from sessions where project_id = ?').all(projectId) as Record<string, unknown>[];
       for (const s of sessions) upsertShared(db, 'sessions', { ...s, project_id: null }, deviceId);
+      repointPins(db, deviceId, projectId, null);
       if (root) softDeleteShared(db, 'project_roots', root.id, deviceId);
       softDeleteShared(db, 'projects', projectId, deviceId);
       return;

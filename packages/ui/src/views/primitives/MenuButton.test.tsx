@@ -123,4 +123,37 @@ describe('MenuButton', () => {
     expect(menu.firstElementChild).toHaveTextContent('根拠の一文');
     expect(document.activeElement).toBe(screen.getByRole('menuitem'));
   });
+  it('separatorBefore の項目の前に区切りを置き、最初の危険な項目の前の区切りと重ねない', () => {
+    const onSelect = vi.fn();
+    render(<MenuButton label="メニュー" items={[
+      { key: 'a', label: 'A', onSelect },
+      { key: 'b', label: 'B', separatorBefore: true, onSelect },
+      { key: 'c', label: 'C', danger: true, separatorBefore: true, onSelect },
+      { key: 'd', label: 'D', danger: true, onSelect },
+    ]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }));
+    const menu = screen.getByRole('menu');
+    expect([...menu.children].map((el) => (el.getAttribute('role') === 'separator' ? '|' : el.textContent))).toEqual(['A', '|', 'B', '|', 'C', 'D']);
+  });
+  it('checked を持つ項目は menuitemradio にし、aria-checked と ✓ で選んでいるものを示す。矢印と打鍵の印でも辿れる', () => {
+    const onSelect = vi.fn();
+    render(<MenuButton label="状態" items={[
+      { key: 'x', label: 'X', checked: true, kbd: 'x', onSelect },
+      { key: 'y', label: 'Y', checked: false, kbd: 'y', lead: <span className="st-dot" data-status="done" />, onSelect },
+      { key: 'z', label: 'Z', separatorBefore: true, onSelect },
+    ]} />);
+    fireEvent.click(screen.getByRole('button', { name: '状態' }));
+    const radios = screen.getAllByRole('menuitemradio');
+    expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    expect(radios[0]!.querySelector('.menu-check [data-icon="check"]')).not.toBeNull();
+    expect(radios[1]!.querySelector('.menu-check [data-icon="check"]')).toBeNull();
+    expect(radios[1]!.querySelector('.st-dot[data-status="done"]')).not.toBeNull();
+    expect(screen.getByRole('menuitem')).toHaveTextContent('Z');
+    expect(document.activeElement).toBe(radios[0]);
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem'));
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
 });

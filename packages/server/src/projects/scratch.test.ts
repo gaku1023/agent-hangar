@@ -7,6 +7,7 @@ import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { applyRemoteBatch } from '../sync/apply.ts';
+import { setSessionPlacement } from '../sessions/states.ts';
 import { assignSessions } from './registry.ts';
 import { ensureScratchProject, followRemoteScratch, isUnderScratch, legacyScratchRoot, newScratchDir, quickSessionsRoot, SCRATCH_PROJECT_NAME, scratchPlacesOf } from './scratch.ts';
 
@@ -146,6 +147,17 @@ describe('PC ごとのスクラッチのプロジェクトを 1 つにまとめ�
     // 冪等である。
     expect(ensureScratchProject(db, 'd', home)).toBe(OLD);
     expect(db.prepare('select id, position from todos where project_id = ? order by position').all(OLD)).toHaveLength(3);
+  });
+
+  it('まとめる元へ移した会話は、移した先（session_states.project_id）もまとめ先へ付け替える', () => {
+    scratchProject(OLD, 'mac2', '/Users/other/.agent-hangar/scratch');
+    scratchProject(NEW, 'd', legacyScratchRoot(home));
+    session('s-moved', '/Users/me/src/app', NEW);
+    setSessionPlacement(db, 'd', 's-moved', NEW);
+
+    expect(ensureScratchProject(db, 'd', home)).toBe(OLD);
+    expect(db.prepare('select project_id from session_states where session_id = ?').get('s-moved')).toEqual({ project_id: OLD });
+    expect(projectOf('s-moved')).toBe(OLD);
   });
 
   it('どちらの PC でも同じまとめ先を選ぶ', () => {

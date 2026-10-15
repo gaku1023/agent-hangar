@@ -5,7 +5,7 @@ import { accountsFixture } from './accounts.ts';
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'joinToken' | 'cloudDevices'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
@@ -81,6 +81,9 @@ export function fakeApiExtras(): Extras {
     restoreTodos: vi.fn(async () => []),
     setSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
     confirmSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
+    // 返り値は使わない（画面の正は session.upsert）ので、中身の無い応答を返す。
+    moveSession: vi.fn(async () => ({}) as Awaited<ReturnType<ApiClient['moveSession']>>),
+    deleteSession: vi.fn(async () => ({ ok: true as const })),
     rejectSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
     dismissInterrupted: vi.fn(async () => ({ interrupted: null })),
     dismissOverlap: vi.fn(async () => {}),

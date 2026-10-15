@@ -44,7 +44,7 @@ export function scratchPlacesOf(root: string): string[] {
  *
  * 前の版は PC ごとに別のスクラッチのプロジェクトを作っていた。ここで 1 つにまとめる。
  * - まとめ先は、消していないスクラッチのプロジェクトのうち id の最も小さいもの。id は uuidv7 なので、作った日時の古いもの（同じなら id の小さいもの）になり、どの PC でも同じ先を選ぶ。
- * - ほかのスクラッチのプロジェクトの会話、TODO、成果物、メモはまとめ先へ移す（registry.ts の moveProjectContents）。状態（session_states）は会話の id に付くので引き継がれる。
+ * - ほかのスクラッチのプロジェクトの会話、TODO、成果物、メモはまとめ先へ移す（registry.ts の moveProjectContents）。状態（session_states）は会話の id に付くので引き継がれる。移した先（session_states.project_id）がまとめる元を指していれば、まとめ先へ付け替える。
  * - 動かす場所の行は、この PC の行だけである。同じ PC の行を 2 台が別々に作ると `(project_id, device_id)` の一意の制約が同期でぶつかるからである。
  *   ほかの PC の行が残っている方は消さずに置き、その PC が新しい版で起きて自分の行を外したときに消す。
  * - この PC の場所は `~/.agent-hangar/quick-sessions` にする。前の置き場 `~/.agent-hangar/scratch` は動かさず消さない。

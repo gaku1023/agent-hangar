@@ -19,6 +19,7 @@ import { VERSION, type StartOptions } from './options.ts';
 import type { RunsParts } from './runs.ts';
 import type { SummaryParts } from './summary.ts';
 import type { SyncParts } from './sync.ts';
+import type { TrashParts } from './trash.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
@@ -73,10 +74,10 @@ export type HttpParts = {
  * serverDir は、サーバの入口のファイルがある場所である。UI の置き場所の既定をそこから決める。
  */
 export function bootHttp(p: {
-  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts;
+  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts;
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
 }): HttpParts {
-  const { home, delivery, sync, indexing, listening, runs, summary } = p;
+  const { home, delivery, sync, indexing, listening, runs, summary, trash } = p;
   const { db, settings, device } = home;
   const { server, port } = listening;
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
@@ -110,6 +111,7 @@ export function bootHttp(p: {
     }, patch),
     live: () => delivery.registry.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, osNotices: delivery.osNotices,
     summary: summary.api,
+    trash: trash.trash,
     trustWorkspace: runs.trustWorkspace,
     promote: (o) => promoteSession({
       db, deviceId: device.id, home: home.home, workspaceRoot: settings.current.workspaceRoot,
