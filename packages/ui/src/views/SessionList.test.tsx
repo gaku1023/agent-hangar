@@ -30,7 +30,7 @@ describe('SessionList（ホームとプロジェクトの画面が使う部品�
   });
   it('状態のタブ、欄、絞り込みの語は search.* の意図で出す', () => {
     const { onAction } = mountList();
-    fireEvent.click(within(screen.getByRole('group', { name: '状態' })).getByRole('button', { name: /^Done/ }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'ステータス' })).getByRole('button', { name: /^Done/ }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'done' } });
     fireEvent.click(screen.getByRole('button', { name: '絞り込み' }));
     fireEvent.keyDown(screen.getByLabelText('操作したファイル'), { key: 'Enter' });
@@ -100,7 +100,7 @@ describe('LoadMore（検索の「さらに読み込む」）', () => {
   });
   it('読み込んでいる間は押せない', () => {
     render(<LoadMore remaining={12} step={50} loading onLoad={vi.fn()} />);
-    expect(screen.getByRole('button', { name: '読み込んでいます' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '読み込み中…' })).toBeDisabled();
   });
   it('一覧は、読み込む指定があればページ送りの代わりに末尾へ出す', () => {
     const onLoad = vi.fn();

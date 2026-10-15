@@ -319,7 +319,7 @@ describe('起動の失敗の札', () => {
     expect(($('boot-retry') as HTMLButtonElement).disabled).toBe(true);
   });
   it('やり直しを殻が断ったら、もう一度押せるように戻す', async () => {
-    tauri.__TAURI_INTERNALS__ = { invoke: vi.fn(async () => { throw new Error('もう起動しています'); }) };
+    tauri.__TAURI_INTERNALS__ = { invoke: vi.fn(async () => { throw new Error('もう起動中…'); }) };
     await boot();
     await fail();
     click('boot-retry');
@@ -750,7 +750,7 @@ describe('札の中の更新', () => {
     await flush();
     expect(shown('fail-update')).toBe(true);
     expect($('fail-update-title').textContent).toBe('Hangar 0.2.1 を利用できます');
-    expect($('fail-update-detail').textContent).toContain('現在は 0.2.0-rc.5 です。');
+    expect($('fail-update-detail').textContent).toContain('現在のバージョンは 0.2.0-rc.5 です。');
     expect(btn('fail-update-go').textContent).toBe('ダウンロードしてインストール');
     expect(shown('boot-update')).toBe(false);
     expect($('boot-retry').classList.contains('btn-primary')).toBe(false);
@@ -766,7 +766,7 @@ describe('札の中の更新', () => {
     btn('fail-update-go').click();
     expect(calls().at(-1)).toBe('update_download');
     expect(shown('fail-update-go')).toBe(false);
-    expect($('fail-update-detail').textContent).toBe('ダウンロードしています…');
+    expect($('fail-update-detail').textContent).toBe('ダウンロード中…');
     status = { current: '0.2.0-rc.5', done: 50, total: 200 };
     vi.advanceTimersByTime(300);
     await flush();
@@ -776,7 +776,7 @@ describe('札の中の更新', () => {
     settle('update_download', true, null);
     await flush();
     expect(calls().at(-1)).toBe('update_install');
-    expect($('fail-update-detail').textContent).toContain('インストールしています…');
+    expect($('fail-update-detail').textContent).toContain('インストール中…');
     // 取得が済んだら、進みを読みに行かない。
     const n = calls().length;
     vi.advanceTimersByTime(1000);
@@ -797,7 +797,7 @@ describe('札の中の更新', () => {
     expect(btn('boot-retry').disabled).toBe(false);
     expect($('fail-update').dataset.tone).toBe('error');
     expect($('fail-update-title').textContent).toBe('ダウンロードできませんでした');
-    expect($('fail-update-detail').textContent).toBe('いまのバージョン 0.2.0-rc.5 は変わりません。ネットワークか配布元に接続できませんでした。');
+    expect($('fail-update-detail').textContent).toBe('現在のバージョン 0.2.0-rc.5 は変わりません。ネットワークまたは配布元に接続できませんでした。');
     expect(shown('fail-update-go')).toBe(true);
     btn('fail-update-go').click();
     expect(calls().at(-1)).toBe('update_download');

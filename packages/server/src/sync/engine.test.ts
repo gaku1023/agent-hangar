@@ -598,7 +598,7 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.level).toBe('error');
     expect(toasts[0]?.message).toContain('big');
-    expect(toasts[0]?.message).toMatch(/ほかの PC には届きません$/);
+    expect(toasts[0]?.message).toMatch(/他の PC には同期されません$/);
     expect(e.status()).toMatchObject({ state: 'idle', error: null });
 
     // 同じ行がまた大きいまま書き直されても、知らせるのは 1 度だけである。
@@ -958,8 +958,8 @@ describe('上限で退く', () => {
   };
 
   it('知らせの文は、戻る時刻を渡した時間帯の時刻で書く', () => {
-    expect(limitedMessage(Date.UTC(2026, 9, 9), 'Asia/Tokyo')).toBe('Cloudflare の無料枠の上限に達したので、9:00 まで同期を停止します。枠がリセットされると自動で再開します');
-    expect(limitedMessage(Date.UTC(2026, 9, 9), 'UTC')).toBe('Cloudflare の無料枠の上限に達したので、0:00 まで同期を停止します。枠がリセットされると自動で再開します');
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'Asia/Tokyo')).toBe('Cloudflare の無料枠の上限に達したため、9:00 まで同期を停止します。枠がリセットされると自動で再開します');
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'UTC')).toBe('Cloudflare の無料枠の上限に達したため、0:00 まで同期を停止します。枠がリセットされると自動で再開します');
   });
 
   it('上限の失敗を受けたら、次の UTC の 0 時まで外へ出ず、戻る時刻を見せ、1 度だけ知らせる', async () => {
@@ -1074,7 +1074,7 @@ describe('上限で退く', () => {
       project('p1');
       cloud.limited = 'd1-write';
       await e.syncNow({ evenIfPaused: true });
-      expect(toasts).toEqual(['Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです']);
+      expect(toasts).toEqual(['Cloudflare の無料枠の上限に達したため、同期できませんでした。同期は一時停止のままです']);
       expect(toasts[0]).toBe(limitedWhilePausedMessage());
       expect(toasts.join('')).not.toContain('自動で再開します');
       expect(toasts.join('')).not.toMatch(/\d:\d\d/);

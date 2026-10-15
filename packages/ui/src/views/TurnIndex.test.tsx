@@ -328,7 +328,7 @@ describe('TurnIndex の動き', () => {
     const btn = () => document.querySelector('.turns-more') as HTMLElement;
     expect(btn()).toHaveTextContent('古いターンを読み込む');
     rerender(indexUi({ rows: [row(0)], hasMore: true, loading: true }));
-    expect(btn()).toHaveTextContent('読み込んでいます');
+    expect(btn()).toHaveTextContent('読み込み中…');
     expect(btn()).toBeDisabled();
     const swaps = animations.filter((a) => btn().contains(a.el));
     expect(swaps).toHaveLength(1);

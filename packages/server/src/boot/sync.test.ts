@@ -593,7 +593,7 @@ describe('互換の版', () => {
       expect(st.pending).toBeGreaterThan(0);
       expect(onceToasts(b)).toEqual([]);
       // 知らせは、止めたのは利用者だと分かる文の 1 件だけである。
-      expect(b.toasts().map((e) => e.message).filter((m) => m.includes('Cloudflare'))).toEqual(['Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです']);
+      expect(b.toasts().map((e) => e.message).filter((m) => m.includes('Cloudflare'))).toEqual(['Cloudflare の無料枠の上限に達したため、同期できませんでした。同期は一時停止のままです']);
     });
   });
 });

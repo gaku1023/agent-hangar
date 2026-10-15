@@ -34,7 +34,7 @@ const choose = (chipName: string, option: string | RegExp) => {
 };
 /** 「＋」から札を足す。足した札の入力欄が開く。 */
 const addChip = (label: string) => {
-  fireEvent.click(chip('札を足す'));
+  fireEvent.click(chip('設定を追加'));
   fireEvent.click(screen.getByRole('menuitem', { name: label }));
 };
 /** 名前の札を足して打ち、Enter で閉じる。 */
@@ -59,9 +59,9 @@ describe('NewSessionDialog（N2）', () => {
     pick('プロジェクト', 'alpha');
     fireEvent.change(prompt(), { target: { value: 'やって' } });
     setName('n');
-    choose('モデル、既定', 'opus');
-    choose('effort レベル、既定', 'high');
-    choose('権限モード、既定', 'Plan');
+    choose('モデル、デフォルト', 'opus');
+    choose('effort レベル、デフォルト', 'high');
+    choose('権限モード、デフォルト', 'Plan');
     fireEvent.click(chip('worktree、なし'));
     fireEvent.change(screen.getByRole('textbox', { name: 'worktree' }), { target: { value: ' wt-1 ' } });
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'worktree' }), { key: 'Enter' });
@@ -83,12 +83,12 @@ describe('NewSessionDialog（N2）', () => {
     expect(screen.queryByLabelText('名前（任意）')).toBeNull();
     expect(screen.queryByText(/^詳細/)).toBeNull();
     expect(screen.getByRole('dialog').querySelector('details')).toBeNull();
-    expect(within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.getAttribute('title'))).toEqual(['プロジェクト', 'モデル、既定', 'effort レベル、既定', '権限モード、既定', 'worktree、なし', '札を足す']);
+    expect(within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.getAttribute('title'))).toEqual(['プロジェクト', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
   });
   it('何も選ばなければ札は「クイックセッション」と言い、そのまま起動すると scratch で始まる', () => {
     const params = collectParams();
     expect(chip('プロジェクト')).toHaveTextContent('クイックセッション');
-    expect(screen.getByText(/プロジェクトを選ばないと、クイックセッション/)).toBeInTheDocument();
+    expect(screen.getByText(/プロジェクトを選ばない場合は、クイックセッション/)).toBeInTheDocument();
     start();
     expect(params).toEqual([{ scratch: true }]);
   });
@@ -97,7 +97,7 @@ describe('NewSessionDialog（N2）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
     const groups = within(screen.getByRole('listbox')).getAllByRole('group');
     expect(groups[0]).toHaveAccessibleName('クイックスタート');
-    expect(within(groups[0]!).getByRole('option', { name: 'クイックセッション' })).toHaveAccessibleDescription('名前は決めずに始めて、あとでプロジェクトに昇格できる');
+    expect(within(groups[0]!).getByRole('option', { name: 'クイックセッション' })).toHaveAccessibleDescription('名前を決めずに開始し、あとでプロジェクトに昇格できます');
     expect(within(screen.getByRole('group', { name: '最近' })).getByRole('option', { name: 'alpha' })).toHaveAccessibleDescription('/w/alpha');
     expect(within(screen.getByRole('group', { name: 'すべて' })).getByRole('option', { name: 'beta' })).toHaveTextContent('昨日');
   });
@@ -134,7 +134,7 @@ describe('NewSessionDialog（N2）', () => {
     render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} /></ActionRoot>);
     expect(screen.getByRole('button', { name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '初期プロンプト（任意）' })).toBeInTheDocument();
-    for (const name of ['モデル、既定', 'effort レベル、既定', '権限モード、既定', 'worktree、なし']) {
+    for (const name of ['モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし']) {
       const c = chip(name);
       expect(c).toHaveTextContent(name.split('、')[1]!);
     }
@@ -150,23 +150,23 @@ describe('NewSessionDialog（N2）', () => {
   });
   it('effort レベルと権限モードの選択肢は CLI の値に合わせ、権限モードは英語の名前で並べる', () => {
     render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} /></ActionRoot>);
-    fireEvent.click(chip('effort レベル、既定'));
-    expect(within(screen.getByRole('listbox', { name: 'effort レベル' })).getAllByRole('option').map((r) => r.textContent)).toEqual(['既定', 'low', 'medium', 'high', 'xhigh', 'max']);
+    fireEvent.click(chip('effort レベル、デフォルト'));
+    expect(within(screen.getByRole('listbox', { name: 'effort レベル' })).getAllByRole('option').map((r) => r.textContent)).toEqual(['デフォルト', 'low', 'medium', 'high', 'xhigh', 'max']);
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'effort レベル' }), { key: 'Escape' });
-    fireEvent.click(chip('権限モード、既定'));
-    expect(within(screen.getByRole('listbox', { name: '権限モード' })).getAllByRole('option').map((r) => r.textContent)).toEqual(['既定', 'Plan', 'Manual', 'Accept edits', 'Auto', "Don't ask", 'Bypass permissions']);
+    fireEvent.click(chip('権限モード、デフォルト'));
+    expect(within(screen.getByRole('listbox', { name: '権限モード' })).getAllByRole('option').map((r) => r.textContent)).toEqual(['デフォルト', 'Plan', 'Manual', 'Accept edits', 'Auto', "Don't ask", 'Bypass permissions']);
   });
   it('「ほか」で打った model を、前後の空白を落として入れる', () => {
     const params = collectParams({ projectId: 'p1' });
-    fireEvent.click(chip('モデル、既定'));
-    fireEvent.change(screen.getByRole('textbox', { name: 'ほかのモデルの名前' }), { target: { value: ' claude-opus-5-5 ' } });
+    fireEvent.click(chip('モデル、デフォルト'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'その他のモデル名' }), { target: { value: ' claude-opus-5-5 ' } });
     start();
     expect(params[0]).toEqual({ projectId: 'p1', model: 'claude-opus-5-5' });
   });
   it('「ほか」に空白だけを打ったら model を入れない', () => {
     const params = collectParams({ projectId: 'p1' });
-    fireEvent.click(chip('モデル、既定'));
-    fireEvent.change(screen.getByRole('textbox', { name: 'ほかのモデルの名前' }), { target: { value: '   ' } });
+    fireEvent.click(chip('モデル、デフォルト'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'その他のモデル名' }), { target: { value: '   ' } });
     start();
     expect(Object.keys(params[0]!)).toEqual(['projectId']);
   });
@@ -174,7 +174,7 @@ describe('NewSessionDialog（N2）', () => {
     it('選ぶと札が赤くなり、起動のボタンが赤い「Bypass permissions で起動」になる。確認のダイアログも注意の文も出さない', () => {
       const params = collectParams({ projectId: 'p1' });
       expect(screen.getByRole('button', { name: '起動' })).toHaveClass('btn-primary');
-      choose('権限モード、既定', /Bypass permissions/);
+      choose('権限モード、デフォルト', /Bypass permissions/);
       expect(chip('権限モード、Bypass permissions')).toHaveAttribute('data-tone', 'danger');
       const go = screen.getByRole('button', { name: 'Bypass permissions で起動' });
       expect(go).toHaveClass('btn-danger-fill');
@@ -195,14 +195,14 @@ describe('NewSessionDialog（N2）', () => {
     });
     it('起動を送っている間は、赤いままで「起動しています」と言う', () => {
       render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} projectId="p1" prefs={{ p1: { permissionMode: 'bypassPermissions' } }} submitting /></ActionRoot>);
-      expect(screen.getByRole('button', { name: '起動しています' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '起動中…' })).toBeDisabled();
     });
   });
   it('送信中と失敗の表示', () => {
-    render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} projectId="p1" submitting error="tmux が見つかりません" /></ActionRoot>);
-    expect(screen.getByRole('button', { name: '起動しています' })).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('tmux が見つかりません');
-    expect(screen.getByText(/信頼確認/)).toBeInTheDocument();
+    render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} projectId="p1" submitting error="tmux が未検出" /></ActionRoot>);
+    expect(screen.getByRole('button', { name: '起動中…' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('tmux が未検出');
+    expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
   });
   // クイックセッションの置き場は hangar が前もって信頼済みにするので、信頼確認の注意は出さない。
   it('クイックセッションでは信頼確認の注意を出さない', () => {
@@ -213,13 +213,13 @@ describe('NewSessionDialog（N2）', () => {
   it('失敗の文言は、プロジェクトを選び直したら消え、送り直して同じ失敗ならまた出す', () => {
     const onAction = vi.fn();
     const ui = (error: string | null) => <ActionRoot onAction={onAction}><NewSessionDialog {...base} error={error} /></ActionRoot>;
-    const { rerender } = render(ui('プロジェクトを選んでください'));
-    expect(screen.getByRole('alert')).toHaveTextContent('プロジェクトを選んでください');
+    const { rerender } = render(ui('プロジェクトを選択してください'));
+    expect(screen.getByRole('alert')).toHaveTextContent('プロジェクトを選択してください');
     pick('プロジェクト', 'alpha');
     expect(screen.queryByRole('alert')).toBeNull();
     start();
-    rerender(ui('プロジェクトを選んでください'));
-    expect(screen.getByRole('alert')).toHaveTextContent('プロジェクトを選んでください');
+    rerender(ui('プロジェクトを選択してください'));
+    expect(screen.getByRole('alert')).toHaveTextContent('プロジェクトを選択してください');
   });
   it('名前の入力欄の変換中の Enter では閉じず、変換が済んだ Enter で閉じる。どちらも起動はしない', () => {
     const onAction = vi.fn();
@@ -238,7 +238,7 @@ describe('NewSessionDialog（N2）', () => {
   it('札やボタンの上の Enter は、その部品の操作であって起動ではない', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><NewSessionDialog {...base} projectId="p1" /></ActionRoot>);
-    for (const target of [chip('権限モード、既定'), chip('モデル、既定'), chip('札を足す'), screen.getByRole('button', { name: 'キャンセル' })]) {
+    for (const target of [chip('権限モード、デフォルト'), chip('モデル、デフォルト'), chip('設定を追加'), screen.getByRole('button', { name: 'キャンセル' })]) {
       fireEvent.keyDown(target, { key: 'Enter' });
     }
     expect(onAction).not.toHaveBeenCalled();
@@ -257,8 +257,8 @@ describe('NewSessionDialog（N2）', () => {
     it('札の上でも ⌘Enter なら起動する', () => {
       const onAction = vi.fn();
       render(<ActionRoot onAction={onAction}><NewSessionDialog {...base} projectId="p1" /></ActionRoot>);
-      fireEvent.keyDown(chip('権限モード、既定'), { key: 'Enter', metaKey: true });
-      fireEvent.keyDown(chip('モデル、既定'), { key: 'Enter', metaKey: true });
+      fireEvent.keyDown(chip('権限モード、デフォルト'), { key: 'Enter', metaKey: true });
+      fireEvent.keyDown(chip('モデル、デフォルト'), { key: 'Enter', metaKey: true });
       expect(onAction).toHaveBeenCalledTimes(2);
     });
     it('変換中の ⌘Enter と、送信中の ⌘Enter では起動しない', () => {
@@ -314,7 +314,7 @@ describe('NewSessionDialog の名前と追加ディレクトリ（「＋」）',
     render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} projectId="p1" /></ActionRoot>);
     expect(within(group()).queryByRole('button', { name: /^名前/ })).toBeNull();
     expect(within(group()).queryByRole('button', { name: /^追加ディレクトリ/ })).toBeNull();
-    fireEvent.click(chip('札を足す'));
+    fireEvent.click(chip('設定を追加'));
     expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['名前', '追加ディレクトリ']);
   });
   it('名前を足すと札が増えて入力欄が開き、打った名前で起動する', () => {
@@ -337,7 +337,7 @@ describe('NewSessionDialog の名前と追加ディレクトリ（「＋」）',
   it('下書きの名前があれば、はじめから名前の札を出す', () => {
     render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} draft={{ name: 'API の節', prompt: '', attachments: [] }} /></ActionRoot>);
     expect(chip('名前、API の節')).toBeInTheDocument();
-    fireEvent.click(chip('札を足す'));
+    fireEvent.click(chip('設定を追加'));
     expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['追加ディレクトリ']);
   });
   it('前回の追加ディレクトリがあれば、はじめから札を出す。プロジェクトを選び直して入れ替わっても出る', () => {
@@ -483,19 +483,19 @@ describe('NewSessionDialog の下書き（C1）', () => {
       const t = pending();
       fireEvent.change(prompt(), { target: { value: '見て' } });
       paste();
-      const btn = screen.getByRole('button', { name: '添付を送っています' });
+      const btn = screen.getByRole('button', { name: '添付ファイルをアップロード中…' });
       expect(btn).toBeDisabled();
       fireEvent.keyDown(prompt(), { key: 'Enter', metaKey: true });
       expect(t.actions.filter((i) => i.type === 'session.new.submit')).toEqual([]);
       await act(async () => { t.finish(); });
-      expect(screen.queryByRole('button', { name: '添付を送っています' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '添付ファイルをアップロード中…' })).toBeNull();
       start();
       expect(t.actions.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: { projectId: 'p1', prompt: '見て\n\n/h/.agent-hangar/drops/1-0-a.png' } }]);
     });
     it('失敗したら、起動できる状態に戻る', async () => {
       const t = pending();
       paste();
-      expect(screen.getByRole('button', { name: '添付を送っています' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '添付ファイルをアップロード中…' })).toBeDisabled();
       await act(async () => { t.fail(new Error('x')); });
       expect(screen.getByRole('button', { name: /起動/ })).toBeEnabled();
     });
@@ -560,7 +560,7 @@ describe('NewSessionDialog の前回値（D1）', () => {
     expect(chip('権限モード、Accept edits')).toBeInTheDocument();
     expect(prev()).toBeInTheDocument();
     expect(screen.getByText('alpha で最後に起動したときの設定です')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '既定に戻す' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'デフォルトに戻す' })).toBeInTheDocument();
     // 札の列の下にある。
     expect(Boolean(group().compareDocumentPosition(prev()!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     start();
@@ -585,10 +585,10 @@ describe('NewSessionDialog の前回値（D1）', () => {
   });
   it('「既定に戻す」で札を全部既定に戻し、「前回と同じ」を外す', () => {
     const params = collectParams({ projectId: 'p1', prefs });
-    fireEvent.click(screen.getByRole('button', { name: '既定に戻す' }));
-    for (const name of ['モデル、既定', 'effort レベル、既定', '権限モード、既定', 'worktree、なし']) expect(chip(name)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'デフォルトに戻す' }));
+    for (const name of ['モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし']) expect(chip(name)).toBeInTheDocument();
     expect(prev()).toBeNull();
-    expect(screen.queryByRole('button', { name: '既定に戻す' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'デフォルトに戻す' })).toBeNull();
     start();
     expect(params).toEqual([{ projectId: 'p1' }]);
   });
@@ -641,7 +641,7 @@ describe('NewSessionDialog の前回値（D1）', () => {
   });
   it('「既定に戻す」は、モデルを設定の既定のモデルに戻す', () => {
     const params = collectParams({ projectId: 'p1', prefs, defaultModel: 'haiku' });
-    fireEvent.click(screen.getByRole('button', { name: '既定に戻す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'デフォルトに戻す' }));
     expect(chip('モデル、haiku')).toBeInTheDocument();
     start();
     expect(params).toEqual([{ projectId: 'p1', model: 'haiku' }]);
@@ -687,11 +687,11 @@ describe('NewSessionDialog から作って始める', () => {
     const { out } = collect();
     openList();
     typeQuery('price');
-    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいフォルダで始める');
+    fireEvent.click(screen.getByRole('option', { name: '新しいディレクトリ「price」を作成' }));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいディレクトリで開始');
     expect(chip('プロジェクト')).toHaveTextContent('price');
-    expect(screen.getByLabelText('フォルダの名前')).toHaveValue('price');
-    expect(screen.getByText('/w/price を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+    expect(screen.getByLabelText('ディレクトリ名')).toHaveValue('price');
+    expect(screen.getByText('/w/price を作成し、プロジェクトに登録して起動します')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'git init を実行' })).toHaveAttribute('aria-checked', 'true');
     start();
     expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: 'price', gitInit: true } }]);
@@ -701,12 +701,12 @@ describe('NewSessionDialog から作って始める', () => {
     const { out, view } = collect({ workspaceRoot: '', dirs: [] });
     openList();
     typeQuery('price');
-    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
+    fireEvent.click(screen.getByRole('option', { name: '新しいディレクトリ「price」を作成' }));
     expect(screen.getByRole('button', { name: /^(Bypass permissions で)?起動$/ })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、作成場所' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択…、作成先' }));
     view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} workspaceRoot="" dirs={[]} picked={{ path: '/Users/me/src', n: 1 }} /></ActionRoot>);
-    expect(screen.getByLabelText('作成場所')).toHaveValue('/Users/me/src');
-    expect(screen.getByText('/Users/me/src/price を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+    expect(screen.getByLabelText('作成先')).toHaveValue('/Users/me/src');
+    expect(screen.getByText('/Users/me/src/price を作成し、プロジェクトに登録して起動します')).toBeInTheDocument();
     start();
     expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: 'price', gitInit: true, parent: '/Users/me/src' } }]);
   });
@@ -714,8 +714,8 @@ describe('NewSessionDialog から作って始める', () => {
     const { out } = collect();
     openList();
     typeQuery('price');
-    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
-    const box = screen.getByLabelText('フォルダの名前');
+    fireEvent.click(screen.getByRole('option', { name: '新しいディレクトリ「price」を作成' }));
+    const box = screen.getByLabelText('ディレクトリ名');
     fireEvent.keyDown(box, { key: 'Enter', keyCode: 229 });
     expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([]);
     fireEvent.keyDown(box, { key: 'Enter' });
@@ -725,18 +725,18 @@ describe('NewSessionDialog から作って始める', () => {
     collect();
     openList();
     typeQuery('alpha');
-    expect(screen.queryByRole('option', { name: '「alpha」を新しいフォルダとして作る' })).toBeNull();
-    expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '新しいディレクトリ「alpha」を作成' })).toBeNull();
+    expect(screen.getByRole('option', { name: '新しいディレクトリを作成…' })).toBeInTheDocument();
     typeQuery('url-short');
-    expect(screen.queryByRole('option', { name: '「url-short」を新しいフォルダとして作る' })).toBeNull();
+    expect(screen.queryByRole('option', { name: '新しいディレクトリ「url-short」を作成' })).toBeNull();
   });
   it('アーカイブのプロジェクトのフォルダ名と、大文字小文字だけ違う名前にも、作る操作をその名前にしない', () => {
     collect({ takenNames: ['alpha', 'beta', 'old-kadai'] });
     openList();
     for (const q of ['old-kadai', 'Old-Kadai', 'ALPHA', 'URL-Short']) {
       typeQuery(q);
-      expect(screen.queryByRole('option', { name: `「${q}」を新しいフォルダとして作る` })).toBeNull();
-      expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: `「${q}」を作成` })).toBeNull();
+      expect(screen.getByRole('option', { name: '新しいディレクトリを作成…' })).toBeInTheDocument();
     }
   });
   it('未登録のフォルダは語に一致したときだけ「未登録」の札付きで出て、選ぶと登録して始める', () => {
@@ -745,7 +745,7 @@ describe('NewSessionDialog から作って始める', () => {
     expect(screen.queryByRole('option', { name: 'url-short' })).toBeNull();
     typeQuery('url');
     fireEvent.click(screen.getByRole('option', { name: 'url-short' }));
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('ディレクトリを登録して開始');
     expect(screen.getByText('/w/url-short はまだプロジェクトではありません。起動すると登録します')).toBeInTheDocument();
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/url-short' } });
@@ -753,40 +753,40 @@ describe('NewSessionDialog から作って始める', () => {
   it('「ほかの場所を選ぶ…」は殻の中だけで出て、押すと folder.pick を送る', () => {
     const { out, view } = collect();
     openList();
-    fireEvent.click(screen.getByRole('option', { name: 'ほかの場所を選択…' }));
+    fireEvent.click(screen.getByRole('option', { name: '他のディレクトリを選択…' }));
     expect(out).toContainEqual({ type: 'folder.pick' });
     view.unmount();
     collect({ desktop: false });
     openList();
-    expect(screen.queryByRole('option', { name: 'ほかの場所を選択…' })).toBeNull();
+    expect(screen.queryByRole('option', { name: '他のディレクトリを選択…' })).toBeNull();
   });
   it('「ほかの場所を選択…」に添える選び手の名前は、macOS は Finder、Windows はエクスプローラー', () => {
     const { view } = collect();
     openList();
-    expect(screen.getByRole('option', { name: 'ほかの場所を選択…' })).toHaveTextContent('Finder');
+    expect(screen.getByRole('option', { name: '他のディレクトリを選択…' })).toHaveTextContent('Finder');
     view.unmount();
     setClientUserAgent(WINDOWS_UA);
     collect();
     openList();
-    const option = screen.getByRole('option', { name: 'ほかの場所を選択…' });
+    const option = screen.getByRole('option', { name: '他のディレクトリを選択…' });
     expect(option).toHaveTextContent('エクスプローラー');
     expect(option).not.toHaveTextContent('Finder');
   });
   it('Finder で選んだプロジェクトの親フォルダの外のフォルダは、外である旨を添えて登録して始める', () => {
     const { out, view } = collect();
     view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/Users/me/thesis', n: 1 }} /></ActionRoot>);
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('ディレクトリを登録して開始');
     expect(chip('プロジェクト')).toHaveTextContent('thesis');
-    expect(screen.getByText(/新しいフォルダの作成場所の外のフォルダです。この PC でのパスだけを覚えます/)).toBeInTheDocument();
+    expect(screen.getByText(/新しいディレクトリの作成先の外のディレクトリです。この PC でのパスだけを保存します/)).toBeInTheDocument();
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/Users/me/thesis' } });
   });
   it('Finder で選んだのが未登録の一覧にあるフォルダなら、未登録のフォルダと同じ 1 行で登録して始める', () => {
     const { out, view } = collect();
     view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/w/url-short', n: 1 }} /></ActionRoot>);
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('ディレクトリを登録して開始');
     expect(screen.getByText('/w/url-short はまだプロジェクトではありません。起動すると登録します')).toBeInTheDocument();
-    expect(screen.queryByText(/親フォルダの外のフォルダです/)).toBeNull();
+    expect(screen.queryByText(/親ディレクトリの外のディレクトリです/)).toBeNull();
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/url-short' } });
   });
@@ -801,10 +801,10 @@ describe('NewSessionDialog から作って始める', () => {
     const { out } = collect({ workspaceRoot: 'C:\\Users\\me\\workspace' });
     openList();
     typeQuery('価格');
-    const option = screen.getByRole('option', { name: '「価格」を新しいフォルダとして作る' });
+    const option = screen.getByRole('option', { name: '新しいディレクトリ「価格」を作成' });
     expect(option).toHaveTextContent('C:\\Users\\me\\workspace\\価格');
     fireEvent.click(option);
-    expect(screen.getByText('C:\\Users\\me\\workspace\\価格 を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+    expect(screen.getByText('C:\\Users\\me\\workspace\\価格 を作成し、プロジェクトに登録して起動します')).toBeInTheDocument();
     start();
     expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: '価格', gitInit: true } }]);
   });
@@ -813,8 +813,8 @@ describe('NewSessionDialog から作って始める', () => {
     collect({ workspaceRoot: null });
     openList();
     typeQuery('price');
-    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
-    expect(screen.getByText('~\\workspace\\price を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: '新しいディレクトリ「price」を作成' }));
+    expect(screen.getByText('~\\workspace\\price を作成し、プロジェクトに登録して起動します')).toBeInTheDocument();
   });
   it('エクスプローラーで選んだ Windows のフォルダは、最後の名前を札にし、パスはそのまま送る', () => {
     const { out, view } = collect({ workspaceRoot: 'C:\\Users\\me\\workspace' });
@@ -833,10 +833,10 @@ describe('NewSessionDialog から作って始める', () => {
     const { out, view } = collect();
     openList();
     typeQuery('price');
-    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
-    view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} projects={projectsWithNew} error="tmux が見つかりません" createdProjectId="p9" /></ActionRoot>);
+    fireEvent.click(screen.getByRole('option', { name: '新しいディレクトリ「price」を作成' }));
+    view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} projects={projectsWithNew} error="tmux が未検出" createdProjectId="p9" /></ActionRoot>);
     expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('price');
-    expect(screen.getByRole('alert')).toHaveTextContent('tmux が見つかりません');
+    expect(screen.getByRole('alert')).toHaveTextContent('tmux が未検出');
     start();
     expect(out.filter((i) => i.type === 'session.new.submit').at(-1)).toEqual({ type: 'session.new.submit', params: { projectId: 'p9' } });
   });
@@ -868,7 +868,7 @@ describe('NewSessionDialog のアカウントの札', () => {
   });
   it('札は、プロジェクトの札の次、モデルの札の前に、アカウントの色の点つきで出る', () => {
     collect({ accounts: accountsOf() });
-    expect(within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-label')).slice(0, 3)).toEqual(['プロジェクト', 'アカウント、会社', 'モデル、既定']);
+    expect(within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-label')).slice(0, 3)).toEqual(['プロジェクト', 'アカウント、会社', 'モデル、デフォルト']);
     expect((accountChip('会社').querySelector('.st-dot') as HTMLElement).style.color).toBe('rgb(42, 87, 184)');
   });
   it('一覧は 2 件のアカウントを色の点つきで並べ、はじめはいまのアカウントを選ぶ。そのまま起動すると account に入れる', () => {
@@ -1014,7 +1014,7 @@ describe('NewSessionDialog の選んだフォルダとプロジェクトの結�
     expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいセッション');
     expect(chip('プロジェクト')).toHaveTextContent('alpha');
     expect(chip('プロジェクト')).toHaveTextContent('packages/ui');
-    expect(note()).toHaveTextContent('alpha の中のフォルダなので、alpha のセッションとして packages/ui で始めます。');
+    expect(note()).toHaveTextContent('alpha の中のディレクトリのため、alpha のセッションとして packages/ui で開始します。');
     expect(screen.queryByText(/はまだプロジェクトではありません/)).toBeNull();
     start();
     expect(submits(out)).toEqual([{ type: 'session.new.submit', params: { projectId: 'p1', cwd: ui } }]);
@@ -1022,10 +1022,10 @@ describe('NewSessionDialog の選んだフォルダとプロジェクトの結�
   it('「別のプロジェクトにする」を押すと、分けて登録する旨を言い、allowNested を付けて登録してから始める。戻すこともできる', () => {
     const { out } = pickWith(ui, nested);
     fireEvent.click(screen.getByRole('button', { name: '別のプロジェクトにする' }));
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('ディレクトリを登録して開始');
     expect(chip('プロジェクト')).toHaveTextContent('ui');
     expect(chip('プロジェクト')).not.toHaveTextContent('alpha');
-    expect(note()).toHaveTextContent('alpha から分けて、別のプロジェクトとして登録します。いまある会話は alpha に残り、これからの会話が分かれます。');
+    expect(note()).toHaveTextContent('alpha から分けて、別のプロジェクトとして登録します。既存の会話は alpha に残り、以降の会話が分かれます。');
     start();
     expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: ui, allowNested: true } });
     fireEvent.click(screen.getByRole('button', { name: 'alpha のセッションにする' }));
@@ -1041,23 +1041,23 @@ describe('NewSessionDialog の選んだフォルダとプロジェクトの結�
     const { out } = pickWith('/w/notes-app', link, { dirs: [{ name: 'notes-app', path: '/w/notes-app' }] });
     expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいセッション');
     expect(chip('プロジェクト')).toHaveTextContent('notes-app');
-    expect(chip('プロジェクト')).toHaveTextContent('ほかの PC');
-    expect(note()).toHaveTextContent('work-pc の notes-app と同じリポジトリです。この PC の場所（/w/notes-app）として結び付けて始めます。');
+    expect(chip('プロジェクト')).toHaveTextContent('他の PC');
+    expect(note()).toHaveTextContent('work-pc の notes-app と同じリポジトリです。この PC のパス（/w/notes-app）に関連付けて開始します。');
     start();
     expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' } });
-    fireEvent.click(screen.getByRole('button', { name: '新しく作る' }));
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
-    expect(note()).toHaveTextContent('work-pc の notes-app には結び付けず、新しいプロジェクトとして登録します。');
+    fireEvent.click(screen.getByRole('button', { name: '新規作成' }));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('ディレクトリを登録して開始');
+    expect(note()).toHaveTextContent('work-pc の notes-app には関連付けず、新しいプロジェクトとして登録します。');
     start();
     expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/notes-app' } });
-    fireEvent.click(screen.getByRole('button', { name: 'notes-app に結び付ける' }));
+    fireEvent.click(screen.getByRole('button', { name: 'notes-app に関連付ける' }));
     start();
     expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' } });
   });
   it('名前だけが同じときは「同じ名前です」と言う。場所を持つ PC が分からなければ名前だけで言い、札に「ほかの PC」を添えない', () => {
     pickWith('/w/notes', ready('/w/notes', { link: { projectId: 'p7', name: 'notes', match: 'name', remote: null, deviceName: null, previousPath: null } }));
-    expect(note()).toHaveTextContent('notes と同じ名前です。この PC の場所（/w/notes）として結び付けて始めます。');
-    expect(chip('プロジェクト')).not.toHaveTextContent('ほかの PC');
+    expect(note()).toHaveTextContent('notes と同じ名前です。この PC のパス（/w/notes）に関連付けて開始します。');
+    expect(chip('プロジェクト')).not.toHaveTextContent('他の PC');
   });
   it('問い合わせの答えを待つ間は起動できない。読めなかったら今までどおり登録して始める', () => {
     const { out, again } = pickWith('/Users/me/thesis', { path: '/Users/me/thesis', name: null, status: 'loading' });

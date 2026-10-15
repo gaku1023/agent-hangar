@@ -45,11 +45,11 @@ describe('presentProjectCandidates（フォルダの中から）', () => {
       child('vendor', { enclosing: { projectId: 'p2', name: 'mono', path: '/Users/me/src/mono' } }),
     ] }));
     expect(b.rows.map((r) => [r.name, r.note])).toEqual([
-      ['clients', 'git のフォルダ 2 件を含みます。開いて選べます'],
-      ['notes-app', 'すでにプロジェクトです（notes-app）'],
+      ['clients', 'git リポジトリ 2 件を含みます。展開して選択できます'],
+      ['notes-app', '登録済みのプロジェクト（notes-app）'],
       ['notes-app-hotfix', 'notes-app の worktree です'],
       ['orphan-wt', 'git の worktree です'],
-      ['vendor', 'mono の中のフォルダです。登録すると、これからの会話は mono から分かれます'],
+      ['vendor', 'mono 内のディレクトリです。登録すると、今後の会話は mono から分かれます'],
     ]);
     expect(b.rows[0]!.children!.map((r) => r.name)).toEqual(['a', 'b', 'notes']);
     expect(b.rows.map((r) => [r.registered, r.worktree, r.inside])).toEqual([[false, false, false], [true, false, false], [false, true, false], [false, true, false], [false, false, true]]);
@@ -63,10 +63,10 @@ describe('presentProjectCandidates（フォルダの中から）', () => {
       child('far', { link: link('name', null, null) }),
     ] }));
     expect(b.rows.map((r) => r.link)).toEqual([
-      { projectId: 'p9', note: 'work-pc の infra と同じリポジトリです。この PC の場所として結び付けます' },
-      { projectId: 'p9', note: 'laptop の infra と同じ名前です。この PC の場所として結び付けます' },
-      { projectId: 'p9', note: 'この PC で場所が見つからない infra と同じリポジトリです。この PC の場所として結び付けます' },
-      { projectId: 'p9', note: 'ほかの PC の infra と同じ名前です。この PC の場所として結び付けます' },
+      { projectId: 'p9', note: 'work-pc の infra と同じリポジトリです。この PC のパスとして関連付けます' },
+      { projectId: 'p9', note: 'laptop の infra と同じ名前です。この PC のパスとして関連付けます' },
+      { projectId: 'p9', note: 'この PC でパスが見つからない infra と同じリポジトリです。この PC のパスとして関連付けます' },
+      { projectId: 'p9', note: '他の PC の infra と同じ名前です。この PC のパスとして関連付けます' },
     ]);
     expect(b.rows.map((r) => r.note)).toEqual([null, null, null, null]);
   });

@@ -80,7 +80,7 @@ describe('設定の目次（S1）', () => {
     expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: undefined } })).toc, 'summary').state).toBe('オフ');
   });
   it('要約エンジンが Claude なら、使用枠を使うことを言う', () => {
-    expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: 'claude' } })).toc, 'summary')).toMatchObject({ state: 'Claude（枠を使う）', tone: 'default' });
+    expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: 'claude' } })).toc, 'summary')).toMatchObject({ state: 'Claude（使用量を消費）', tone: 'default' });
   });
   it('要約エンジンが OpenAI 互換なら、モデルの一覧が取れたか、接続テストの結果で言う', () => {
     const openai = (over: Partial<Store> = {}) => store({ settings: { ...SETTINGS, summaryEngine: 'openai' }, ...over });

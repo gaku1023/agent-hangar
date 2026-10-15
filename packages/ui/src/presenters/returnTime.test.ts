@@ -139,7 +139,7 @@ describe('returnOnRowLabel（行の時刻の列は 72px）', () => {
 
 describe('時刻を過ぎた当日の札は、過ぎた長さを言う', () => {
   it('returnOnLabel：1 分未満は「いま」、60 分未満は分、それ以上は時間（切り捨て）', () => {
-    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 0)).toBe('いま');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 0)).toBe('現在');
     expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 3)).toBe('3 分過ぎ');
     expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 59)).toBe('59 分過ぎ');
     expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 60)).toBe('1 時間過ぎ');

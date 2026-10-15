@@ -75,7 +75,7 @@ describe('同じファイルの編集', () => {
     const pop = screen.getByRole('dialog', { name: '同じファイルを編集中' });
     expect(pop.textContent).toContain('src/rank.ts');
     expect(pop.textContent).toContain('交互');
-    expect(pop.textContent).toContain('Bash で書き換えた分は含みません');
+    expect(pop.textContent).toContain('Bash での変更は含みません');
     fireEvent.click(within(pop).getByRole('button', { name: 'worktree で新しいセッション' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'overlap.worktree', sessionId: 'x' });
     fireEvent.click(screen.getByRole('button', { name: '同じファイル 1、n-x' }));

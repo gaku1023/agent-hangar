@@ -56,14 +56,14 @@ describe('routes', () => {
     };
     // 実在しないルートと、ファイルを指したルートは弾く。どちらも 500 にはしない。
     const missing = path.join(ws, 'no-such-root');
-    expect(await error({ workspaceRoot: missing })).toBe(`「新しいフォルダの作成場所」に ${missing} が見つかりません`);
+    expect(await error({ workspaceRoot: missing })).toBe(`「新しいディレクトリの作成先」に ${missing} が見つかりません`);
     const asFile = path.join(ws, 'root-is-a-file');
     fs.writeFileSync(asFile, 'x');
-    expect(await error({ workspaceRoot: asFile })).toBe(`「新しいフォルダの作成場所」の ${asFile} はディレクトリではありません`);
+    expect(await error({ workspaceRoot: asFile })).toBe(`「新しいディレクトリの作成先」の ${asFile} はディレクトリではありません`);
     // ツールは、無い、ファイルでない、実行できないを分けて言う。
     expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
     expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
-    expect(await error({ editor: { id: 'vscode', path: asFile } })).toBe(`「エディタのパス」の ${asFile} には実行権がありません`);
+    expect(await error({ editor: { id: 'vscode', path: asFile } })).toBe(`「エディタのパス」の ${asFile} には実行権限がありません`);
     expect(await error({ nodePath: path.join(ws, 'no-node') })).toBe(`「Node のパス」に ${path.join(ws, 'no-node')} が見つかりません`);
     // 弾いた値は保存していない。
     expect((await json(await get('/api/settings'))).body).toMatchObject({ workspaceRoot: ws, tmuxPath: null, claudePath: null, editor: { id: 'vscode', path: null }, nodePath: null });
@@ -85,7 +85,7 @@ describe('routes', () => {
       for (const rel of ['./mytmux', 'bin/mytmux']) {
         const bad = await patch({ claudePath: rel });
         expect(bad.status).toBe(400);
-        expect(((await bad.json()) as { error: string }).error).toBe('「claude のパス」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください');
+        expect(((await bad.json()) as { error: string }).error).toBe('「claude のパス」には / か ~ で始まるパスか、tmux などのコマンド名を入力してください');
       }
       expect((await json(await get('/api/settings'))).body).toMatchObject({ tmuxPath: 'mytmux', claudePath: null });
     } finally {
@@ -114,37 +114,37 @@ describe('routes', () => {
       expect(r.status).toBe(400);
       return ((await r.json()) as { error: string }).error;
     };
-    expect(await error({ workspaceRoot: 3 })).toBe('「新しいフォルダの作成場所」の値の形が違います');
+    expect(await error({ workspaceRoot: 3 })).toBe('「新しいディレクトリの作成先」の値の形式が正しくありません');
     expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
-    expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形が違います');
-    expect(await error({ editor: 3 })).toBe('「エディタ」の値の形が違います');
-    expect(await error({ editor: { id: 'emacs' } })).toBe('「エディタ」の値の形が違います');
-    expect(await error({ editor: { id: 'vscode', path: 3 } })).toBe('「エディタのパス」の値の形が違います');
+    expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形式が正しくありません');
+    expect(await error({ editor: 3 })).toBe('「エディタ」の値の形式が正しくありません');
+    expect(await error({ editor: { id: 'emacs' } })).toBe('「エディタ」の値の形式が正しくありません');
+    expect(await error({ editor: { id: 'vscode', path: 3 } })).toBe('「エディタのパス」の値の形式が正しくありません');
     // 任意のコマンドは、どのファイルを開くかを渡す {path} が要る。
     expect(await error({ editor: { id: 'custom', fileCmd: 'subl' } })).toBe('「ファイルを開くコマンド」に {path} を含めてください');
     // 選んだばかりの空のコマンドは保存できる（欄を出してから書く）。
     expect((await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ editor: { id: 'custom', fileCmd: '' } }) })).status).toBe(200);
-    expect(await error({ editor: { id: 'custom', fileCmd: 'subl {path}', dirCmd: 'subl .' } })).toBe('「フォルダを開くコマンド」に {path} を含めてください');
-    expect(await error({ nodePath: 3 })).toBe('「Node のパス」の値の形が違います');
-    expect(await error({ claudePath: 3 })).toBe('「claude のパス」の値の形が違います');
+    expect(await error({ editor: { id: 'custom', fileCmd: 'subl {path}', dirCmd: 'subl .' } })).toBe('「ディレクトリを開くコマンド」に {path} を含めてください');
+    expect(await error({ nodePath: 3 })).toBe('「Node のパス」の値の形式が正しくありません');
+    expect(await error({ claudePath: 3 })).toBe('「claude のパス」の値の形式が正しくありません');
     // 選択肢は動いている OS のものだけで、文も OS で変わる。
-    expect(await error({ terminalApp: 'kitty' })).toBe(isWindows ? '「ターミナルアプリ」は Windows Terminal か既定のターミナルから選んでください' : '「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください');
+    expect(await error({ terminalApp: 'kitty' })).toBe(isWindows ? '「ターミナルアプリ」は Windows Terminal かデフォルトのターミナルから選択してください' : '「ターミナルアプリ」は Terminal.app か iTerm2 から選択してください');
     expect(await error({ terminalApp: isWindows ? 'iterm' : 'windowsTerminal' })).toMatch(/^「ターミナルアプリ」は/);
-    expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「OpenAI 互換の URL」は http か https で始まる URL にしてください');
-    expect(await error({ lmStudioModel: 3 })).toBe('「モデル」の値の形が違います');
-    expect(await error({ summaryFallback: 'yes' })).toBe('「接続できないときは Claude を使う」の値の形が違います');
-    expect(await error({ summaryEngine: 'lmstudio' })).toBe('「要約エンジン」の値の形が違います');
-    expect(await error({ summaryClaudeModel: '' })).toBe('「要約に使う Claude のモデル」の値の形が違います');
-    expect(await error({ summaryClaudeModel: '--tools' })).toBe('「要約に使う Claude のモデル」の値の形が違います');
-    expect(await error({ summaryApiKey: 3 })).toBe('「API キー」の値の形が違います');
-    expect(await error({ defaultModel: 'opus sonnet' })).toBe('「既定のモデル」の値の形が違います');
-    expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
+    expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「OpenAI 互換の URL」には http か https で始まる URL を入力してください');
+    expect(await error({ lmStudioModel: 3 })).toBe('「モデル」の値の形式が正しくありません');
+    expect(await error({ summaryFallback: 'yes' })).toBe('「接続できないときは Claude を使う」の値の形式が正しくありません');
+    expect(await error({ summaryEngine: 'lmstudio' })).toBe('「要約エンジン」の値の形式が正しくありません');
+    expect(await error({ summaryClaudeModel: '' })).toBe('「要約に使う Claude のモデル」の値の形式が正しくありません');
+    expect(await error({ summaryClaudeModel: '--tools' })).toBe('「要約に使う Claude のモデル」の値の形式が正しくありません');
+    expect(await error({ summaryApiKey: 3 })).toBe('「API キー」の値の形式が正しくありません');
+    expect(await error({ defaultModel: 'opus sonnet' })).toBe('「デフォルトのモデル」の値の形式が正しくありません');
+    expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」には 1 から 200 までの整数を入力してください');
     // 画面の入力と同じく 200 までにする。
-    expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
-    expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形が違います');
-    expect(await error({ askStatusAtEnd: 'no' })).toBe('「区切りで Done／Paused を聞く」の値の形が違います');
-    expect(await error({ liveHints: 0 })).toBe('「ターンの意図と操作の短い説明を送る」の値の形が違います');
-    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの宛先は 127.0.0.1 か localhost だけです。トランスクリプトが送られるため、ほかの宛先は、設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
+    expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」には 1 から 200 までの整数を入力してください');
+    expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形式が正しくありません');
+    expect(await error({ askStatusAtEnd: 'no' })).toBe('「作業の区切りで Done／Paused を確認する」の値の形式が正しくありません');
+    expect(await error({ liveHints: 0 })).toBe('「ターンの意図と操作の短い説明を送る」の値の形式が正しくありません');
+    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの宛先に指定できるのは 127.0.0.1 か localhost だけです。トランスクリプトを送信するため、その他の宛先は設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -221,10 +221,10 @@ describe('routes', () => {
     };
     const right = withNode({ version: '22.14.0', napi: 10, arch: 'arm64' });
     // ~ で始まる値も弾く。殻は ~ を展開しないので、展開すれば保存できても殻は使えない。
-    for (const p of ['node', './node', 'bin/node', '~/bin/node', '~']) expect(await error(right, p), p).toBe('「Node のパス」は node の実行ファイルのフルパスにしてください');
-    expect(await error(withNode({ version: '20.18.0', napi: 9, arch: 'arm64' }), node)).toBe(`「Node のパス」の ${node} は Node 20.18.0 です。Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node 22.14 以上が要ります`);
-    expect(await error(withNode({ version: '22.14.0', napi: 10, arch: 'x64' }), node)).toBe(`「Node のパス」の ${node} は x64 用の Node です。Hangar には arm64 用の Node が要ります`);
-    expect(await error(withNode(null), node)).toBe(`「Node のパス」の ${node} は Node として答えません`);
+    for (const p of ['node', './node', 'bin/node', '~/bin/node', '~']) expect(await error(right, p), p).toBe('「Node のパス」には node の実行ファイルのフルパスを入力してください');
+    expect(await error(withNode({ version: '20.18.0', napi: 9, arch: 'arm64' }), node)).toBe(`「Node のパス」の ${node} は Node 20.18.0 です。hangar のデータベースとターミナルのネイティブモジュールは Node-API 10 を使うため、Node 22.14 以上が必要です`);
+    expect(await error(withNode({ version: '22.14.0', napi: 10, arch: 'x64' }), node)).toBe(`「Node のパス」の ${node} は x64 用の Node です。hangar には arm64 用の Node が必要です`);
+    expect(await error(withNode(null), node)).toBe(`「Node のパス」の ${node} は Node として応答しません`);
     expect((await json(await get('/api/settings'))).body.nodePath).toBeNull();
     // 新しい版の Node も保存する（上限は付けない）。
     const newer = await withNode({ version: '24.21.0', napi: 10, arch: 'arm64' }).request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) });
@@ -297,7 +297,7 @@ describe('routes', () => {
       const missing = path.join(ws2, 'no-such-root');
       const bad = await patch({ workspaceRoot: missing, dryRun: true });
       expect(bad.status).toBe(400);
-      expect(((await bad.json()) as { error: string }).error).toBe(`「新しいフォルダの作成場所」に ${missing} が見つかりません`);
+      expect(((await bad.json()) as { error: string }).error).toBe(`「新しいディレクトリの作成先」に ${missing} が見つかりません`);
       // 試しは作成場所だけで受ける。
       expect((await patch({ workspaceRoot: ws2, liveHints: false, dryRun: true })).status).toBe(400);
       expect((await patch({ liveHints: false, dryRun: true })).status).toBe(400);
@@ -446,7 +446,7 @@ describe('設定の往復', () => {
     for (const v of ['always', 'AUTO', '', null, true, ['auto']]) {
       const r = await patch({ configApproval: v });
       expect([v, r.status]).toEqual([v, 400]);
-      expect((await r.json()).error).toBe('「届いた設定の承諾の仕方」の値の形が違います');
+      expect((await r.json()).error).toBe('「受信した設定の承諾方法」の値の形式が正しくありません');
     }
     expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
   });
@@ -494,8 +494,8 @@ describe('設定の往復', () => {
       for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
       expect((await json(await get('/api/settings'))).body[key]).toBe(false);
     }
-    expect((await (await patch({ autoDone: 'no' })).json()).error).toBe('「止まった会話を自動で Done にする」の値の形が違います');
-    expect((await (await patch({ autoPark: 'no' })).json()).error).toBe('「Done と Archived にした会話を停止する」の値の形が違います');
+    expect((await (await patch({ autoDone: 'no' })).json()).error).toBe('「停止したセッションを自動で Done にする」の値の形式が正しくありません');
+    expect((await (await patch({ autoPark: 'no' })).json()).error).toBe('「Done と Archived にしたセッションを停止する」の値の形式が正しくありません');
   });
   it('長く動いていない会話を Done にする日数は、既定が 7 日で、3・7・14・30・0（しない）だけを受ける', async () => {
     expect((await json(await get('/api/settings'))).body.autoDoneIdleDays).toBe(7);
@@ -503,7 +503,7 @@ describe('設定の往復', () => {
     for (const v of [3, 14, 30, 0]) expect((await (await patch({ autoDoneIdleDays: v })).json()).autoDoneIdleDays).toBe(v);
     for (const v of [1, 5, -7, '7', null, 7.5]) expect([v, (await patch({ autoDoneIdleDays: v })).status]).toEqual([v, 400]);
     expect((await json(await get('/api/settings'))).body.autoDoneIdleDays).toBe(0);
-    expect((await (await patch({ autoDoneIdleDays: 5 })).json()).error).toBe('「長く動きの無い会話も Done にする」の値の形が違います');
+    expect((await (await patch({ autoDoneIdleDays: 5 })).json()).error).toBe('「長期間アクティビティの無いセッションも Done にする」の値の形式が正しくありません');
   });
   it('自動の停止を切り替えたら、動いている Done と Archived の行を配り直す（実行中に数えるかが変わる）', async () => {
     t.dispose();
@@ -546,7 +546,7 @@ describe('設定の往復', () => {
   it('日本語のままなら、知らない言語を日本語で断る', async () => {
     const r = await patch({ language: 'fr' });
     expect(r.status).toBe(400);
-    expect((await r.json()).error).toBe('「言語」は ja か en から選んでください');
+    expect((await r.json()).error).toBe('「言語」は ja か en から選択してください');
   });
   it('言語を英語にすると、経路のエラーが英語になり、日本語に戻すと日本語になる', async () => {
     const missing = async () => ((await (await get('/api/projects/no-such-project')).json()) as { error: string }).error;

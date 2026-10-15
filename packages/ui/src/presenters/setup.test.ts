@@ -19,7 +19,7 @@ describe('setupNotice', () => {
     expect(setupNotice(en, { status: 'busy', message: null, code: null })!.message).toContain('already open');
   });
   it('UTF-8 でないファイルは、書き換えない理由と直し方を言う', () => {
-    expect(setupNotice(ja, { status: 'failed', message: '日本語の文', code: 'not-utf8' })).toEqual({ level: 'error', message: 'ファイルが UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。' });
+    expect(setupNotice(ja, { status: 'failed', message: '日本語の文', code: 'not-utf8' })).toEqual({ level: 'error', message: 'ファイルが UTF-8 で保存されていない（UTF-16 など）ため、変更しません。UTF-8 で保存し直すか、手動で追記してください。' });
     expect(setupNotice(en, { status: 'failed', message: '日本語の文', code: 'not-utf8' })!.message).toContain('UTF-8');
   });
 });

@@ -81,7 +81,7 @@ describe('PauseDialog（B1）', () => {
   it('理由は文字単位で数え、絵文字の 200 字は送れて 201 字は送れない', () => {
     mount();
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '😀'.repeat(200) } });
-    expect(screen.getByText('200 / 200 字')).toBeInTheDocument();
+    expect(screen.getByText('200 / 200 文字')).toBeInTheDocument();
     expect(submit()).toBeEnabled();
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '😀'.repeat(201) } });
     expect(submit()).toBeDisabled();
@@ -94,7 +94,7 @@ describe('PauseDialog（B1）', () => {
     fireEvent.keyDown(document.activeElement!, { key: '0' });
     expect(radio(/^日付なし/)).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByLabelText('リマインダーの時刻（任意）')).toBeDisabled();
-    expect(screen.getByText('日付なしは、ホームの「今日」には出ず、一覧の Paused で見られます')).toBeInTheDocument();
+    expect(screen.getByText('日付なしの場合、ホームの「今日」には表示されません。一覧の Paused で確認できます')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: 'レビューの返事を待つ' } });
     fireEvent.click(submit());
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', note: 'レビューの返事を待つ' });

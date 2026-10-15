@@ -76,7 +76,7 @@ describe('Root', () => {
     const { rt, deps, handlers, setHash } = make();
     rt.start();
     render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
-    expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
+    expect(screen.getByText('読み込み中…')).toBeInTheDocument();
     act(() => handlers[0]!.onOpen());
     await flush();
     // Home は一覧が主役で、見出しは「セッション」。最近とプロジェクトの 1 行は無い。
@@ -98,21 +98,21 @@ describe('Root', () => {
     it('起動時には、場所の消えたプロジェクトがあってもダイアログを出さない。帯の 4 つ目の錠剤に 1 件と出て、届いただけの 3 件は数えない', async () => {
       await mounted({ boot: bootWith([lost, arrived('x1'), arrived('x2'), arrived('x3')]) });
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'パスが不明なプロジェクト 1' })).toBeInTheDocument();
     });
 
     it('錠剤から引き出しを開き、「場所を再指定」を押したときだけダイアログが開く。Esc で閉じ、錠剤は残る', async () => {
       await mounted({ boot: bootWith([lost]) });
-      fireEvent.click(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' }));
+      fireEvent.click(screen.getByRole('button', { name: 'パスが不明なプロジェクト 1' }));
       expect(screen.queryByRole('dialog')).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: '場所を再指定、old-shop' }));
+      fireEvent.click(screen.getByRole('button', { name: 'パスを再指定、old-shop' }));
       await flush();
       const dialog = screen.getByRole('dialog', { name: 'old-shop のディレクトリが見つかりません' });
       expect(dialog).toHaveTextContent('/w/old-shop');
       fireEvent.keyDown(screen.getByLabelText('新しいパス'), { key: 'Escape' });
       await flush();
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'パスが不明なプロジェクト 1' })).toBeInTheDocument();
     });
 
     it('サーバが project.unresolved を流しても、ダイアログは出ない', async () => {
@@ -124,7 +124,7 @@ describe('Root', () => {
 
     it('ほかの PC から届いただけのプロジェクトは、帯に数えず、プロジェクトの一覧に「この PC にパスがありません」の札で出る。札から「場所を再指定」が開く', async () => {
       const { setHash } = await mounted({ boot: bootWith([arrived('x1'), arrived('x2')]) });
-      expect(screen.queryByRole('button', { name: /^場所の不明なプロジェクト/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^パスが不明なプロジェクト/ })).toBeNull();
       act(() => setHash('#/projects'));
       await flush();
       const flags = screen.getAllByRole('button', { name: 'この PC にパスがありません' });
@@ -139,7 +139,7 @@ describe('Root', () => {
       act(() => { for (const id of ['x1', 'x2', 'x3']) handlers[0]!.onEvent({ type: 'project.upsert', project: arrived(id) }); });
       await flush();
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getAllByText('ほかの PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません')).toHaveLength(1);
+      expect(screen.getAllByText('他の PC のプロジェクト 3 件が届きました。この PC にはディレクトリがありません')).toHaveLength(1);
       fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
       expect(screen.queryByText(/件が届きました/)).toBeNull();
     });
@@ -537,7 +537,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
     await flush();
     expect(screen.getByRole('dialog', { name: 'トランスクリプトを置き換えますか' })).toBeInTheDocument();
-    expect(screen.getByText('ほかの PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
+    expect(screen.getByText('他の PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
     // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
     key({ key: 'Escape' });
     await flush();
@@ -794,8 +794,8 @@ describe('キーの見直し', () => {
     expect(row('コマンドパレット（検索と移動）')).toHaveTextContent('Ctrl+Shift+K');
     expect(row('クイックセッションを開始')).toHaveTextContent('Ctrl+Alt+N');
     expect(row('クイックセッションを開始')).not.toHaveTextContent('Ctrl+Shift+N');
-    expect(within(dialog).getByText('ターミナルの中')).toBeInTheDocument();
-    expect(within(dialog).getByText(/Ctrl\+Shift を加えて打つと/)).toBeInTheDocument();
+    expect(within(dialog).getByText('ターミナル内')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Ctrl\+Shift と組み合わせると/)).toBeInTheDocument();
   });
 
   it('macOS のキーの一覧には、ターミナルの中の欄を足さない', async () => {
@@ -803,7 +803,7 @@ describe('キーの見直し', () => {
     key({ key: '?', shiftKey: true });
     await flush();
     const dialog = screen.getByRole('dialog', { name: 'キーボードショートカット' });
-    expect(within(dialog).queryByText('ターミナルの中')).toBeNull();
+    expect(within(dialog).queryByText('ターミナル内')).toBeNull();
     expect(within(dialog).getByText('⌘⇧N')).toBeInTheDocument();
   });
 
@@ -1584,7 +1584,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     act(() => setHash('#/sessions?q=%E5%8B%95%E7%94%BB'));
     await flush();
     expect(screen.getByRole('heading', { level: 1, name: 'ホーム' })).toBeInTheDocument();
-    expect(screen.getByLabelText('キーワード')).toHaveValue('動画');
+    expect(screen.getByLabelText('検索')).toHaveValue('動画');
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: '動画' }));
   });
 

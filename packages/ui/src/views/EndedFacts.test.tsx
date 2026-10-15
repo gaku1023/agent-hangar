@@ -65,7 +65,7 @@ describe('見出しの下の 1 行（H1）', () => {
   });
   it('区切りを付けたので止めたときは、終了の代わりにその知らせを出す', () => {
     mount({ session: session({ stoppedByStatus: true, state: { status: 'paused', note: null, returnOn: '2026-10-12', returnTime: null, setBy: 'user', setAt: NOW, candidate: null } }) });
-    expect(within(facts()).getByText('Paused にしたので停止しました。再開で続けられます')).toBeInTheDocument();
+    expect(within(facts()).getByText('Paused にしたため停止しました。再開すると続けられます')).toBeInTheDocument();
     expect(within(facts()).queryByText(/^終了/)).toBeNull();
   });
   it('本文が消えた会話は「要約のみ」と言う', () => {
@@ -109,7 +109,7 @@ describe('見出しの下の 1 行の札', () => {
     expect(second).toHaveTextContent('サブエージェント abc');
     expect(second).toHaveTextContent('1 回');
     expect(within(panel).getByRole('button', { name: '/w/web-shop/NOTES.md を VS Code で開く' })).toHaveTextContent('新規');
-    expect(within(panel).getByText('足した行と消した行は、読み込んだ分だけ出ています')).toBeInTheDocument();
+    expect(within(panel).getByText('追加した行と削除した行は、読み込んだ分だけ表示しています')).toBeInTheDocument();
     fireEvent.click(first);
     expect(m.onAction).toHaveBeenCalledWith({ type: 'session.openFile', sessionId: 's1', path: '/w/web-shop/src/ProductImage.tsx' });
   });
@@ -170,7 +170,7 @@ describe('要約の札（S5）', () => {
     const m = mount({ session: session({ summary: null }) });
     expect(screen.queryByRole('region', { name: '要約' })).toBeNull();
     m.rerender({ session: session({ summary: null }), summaryPending: true });
-    expect(within(card()).getByText('要約を作成しています')).toBeInTheDocument();
+    expect(within(card()).getByText('要約を作成中…')).toBeInTheDocument();
     m.rerender({ session: session({ summary: null }), summaryError: 'LM Studio に届かない' });
     expect(within(card()).getByText('要約を作成できませんでした')).toHaveAttribute('title', 'LM Studio に届かない');
   });

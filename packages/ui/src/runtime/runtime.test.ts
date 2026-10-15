@@ -408,7 +408,7 @@ describe('createRuntime', () => {
     });
 
     it('「場所を再指定」の 409（同じフォルダ）は、まとめる確認になる。ほかの失敗はトーストのまま', async () => {
-      const conflict = { error: 'このフォルダは、プロジェクト shop の場所として登録済みです', code: 'project_same_folder' as const, from: { projectId: 'p1', name: 'shop' }, conflict: { projectId: 'p0', name: 'shop', path: '/w/shop' }, merged: { roots: [{ deviceName: null, path: '/w/shop', here: true }], sessions: 3, fromSessions: 1 } };
+      const conflict = { error: 'このディレクトリは、プロジェクト shop のパスとして登録済みです', code: 'project_same_folder' as const, from: { projectId: 'p1', name: 'shop' }, conflict: { projectId: 'p0', name: 'shop', path: '/w/shop' }, merged: { roots: [{ deviceName: null, path: '/w/shop', here: true }], sessions: 3, fromSessions: 1 } };
       const resolveProject = vi.fn(async () => { throw new ProjectSameFolderApiError(conflict); });
       const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [lost('p1')] })), resolveProject });
       rt.start();
@@ -422,7 +422,7 @@ describe('createRuntime', () => {
     });
 
     it('再開の 409（終わった扱いの claude が動き続けている）は確認になる。まとめて再開の 1 本は、行に理由を残して確認を出す', async () => {
-      const stray = { error: 'この会話の Claude はまだ終了していません（PID 4242）', code: 'stray_process' as const, pid: 4242 };
+      const stray = { error: 'この会話の Claude のプロセスはまだ終了していません（PID 4242）', code: 'stray_process' as const, pid: 4242 };
       const resume = vi.fn(async () => { throw new StrayProcessApiError(stray); });
       const { rt, wsHandlers } = harness({ resume });
       rt.start();
@@ -457,7 +457,7 @@ describe('createRuntime', () => {
       await flush();
       expect(Object.keys(rt.getStore().projects)).toEqual(['p0']);
       expect(rt.getStore().projects.p0!.name).toBe('shop');
-      expect(rt.getState().toasts).toEqual([expect.objectContaining({ level: 'info', message: 'shop と 1 つにまとめました' })]);
+      expect(rt.getState().toasts).toEqual([expect.objectContaining({ level: 'info', message: 'shop に統合しました' })]);
     });
 
     it('同期で他の PC のプロジェクトが降りたら、降りた分を覚える。3 件が別々の知らせで届いても、1 つの札にまとまる', async () => {
@@ -644,22 +644,22 @@ describe('起動とターミナル', () => {
     expect(rt.getState()).toMatchObject({ launch: { kind: 'idle' }, screen: { name: 'session', id: 's1' } });
   });
   it('作れた後に起動だけ失敗したら、作ったプロジェクトを失敗の状態に持つ', async () => {
-    const { rt } = harness({ createProject: vi.fn(async () => created), launch: vi.fn(async () => { throw new Error('tmux が見つかりません'); }) });
+    const { rt } = harness({ createProject: vi.fn(async () => created), launch: vi.fn(async () => { throw new Error('tmux が未検出'); }) });
     rt.start();
     rt.emit({ type: 'session.new.open' });
     rt.emit({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/fresh' } });
     await flush();
-    expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません', createdProjectId: 'p9' });
+    expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が未検出', createdProjectId: 'p9' });
   });
   it('作れなければ起動せず、失敗の文言を出す', async () => {
     const launch = vi.fn(async () => launched);
-    const { rt } = harness({ createProject: vi.fn(async () => { throw new Error('/w/fresh は既にあります'); }), launch });
+    const { rt } = harness({ createProject: vi.fn(async () => { throw new Error('/w/fresh はすでにあります'); }), launch });
     rt.start();
     rt.emit({ type: 'session.new.open' });
     rt.emit({ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: 'fresh', gitInit: false } });
     await flush();
     expect(launch).not.toHaveBeenCalled();
-    expect(rt.getState().launch).toEqual({ kind: 'failed', message: '/w/fresh は既にあります' });
+    expect(rt.getState().launch).toEqual({ kind: 'failed', message: '/w/fresh はすでにあります' });
   });
   it('ダイアログを開くと未登録の一覧を取り、Finder の結果を持つ', async () => {
     const pickFolder = vi.fn(async () => '/Users/me/thesis');
@@ -697,7 +697,7 @@ describe('起動とターミナル', () => {
     const folderCandidates = vi.fn(async () => cands);
     const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     const updateSettings = vi.fn(async (patch: Partial<SettingsDto>) => { order.push(`settings:${patch.workspaceRoot}`); return { ...base, ...patch }; });
-    const registerFolders = vi.fn(async (items: FolderRegisterItem[]) => { order.push(`register:${items.map((i) => i.path).join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path が存在するディレクトリではありません' }] }; });
+    const registerFolders = vi.fn(async (items: FolderRegisterItem[]) => { order.push(`register:${items.map((i) => i.path).join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path は既存のディレクトリではありません' }] }; });
     const { rt, api } = harness({ folderCandidates, updateSettings, registerFolders });
     rt.start();
     await flush();
@@ -713,7 +713,7 @@ describe('起動とターミナル', () => {
     expect(rt.getStore().projects['p-a']).toMatchObject({ path: '/Users/me/src/a' });
     expect(rt.getStore().settings?.workspaceRoot).toBe('/Users/me/src');
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
-    expect(rt.getState().toasts.map((t) => [t.level, t.message])).toEqual([['info', 'プロジェクトを 1 件登録しました'], ['error', '1 件を登録できませんでした（path が存在するディレクトリではありません）']]);
+    expect(rt.getState().toasts.map((t) => [t.level, t.message])).toEqual([['info', 'プロジェクトを 1 件登録しました'], ['error', '1 件を登録できませんでした（path は既存のディレクトリではありません）']]);
     expect((api.readiness as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(readinessCalls);
   });
   it('候補が取れなければ、読めなかったことを面に出す。登録に失敗したら面を開いたまま理由を出す', async () => {
@@ -747,12 +747,12 @@ describe('起動とターミナル', () => {
     expect(rt.getStore().workspaceChildren).toBeNull();
   });
   it('親フォルダを読めなければ、理由を添えて面に出す', async () => {
-    const { rt } = harness({ workspaceChildren: vi.fn(async () => { throw new Error('path が存在するディレクトリではありません'); }) });
+    const { rt } = harness({ workspaceChildren: vi.fn(async () => { throw new Error('path は既存のディレクトリではありません'); }) });
     rt.start();
     rt.emit({ type: 'project.candidates.open', source: 'folder' });
     rt.emit({ type: 'project.folders.load', parent: '~/nope' });
     await flush();
-    expect(rt.getStore().workspaceChildren).toEqual({ status: 'failed', parent: '~/nope', message: 'path が存在するディレクトリではありません' });
+    expect(rt.getStore().workspaceChildren).toEqual({ status: 'failed', parent: '~/nope', message: 'path は既存のディレクトリではありません' });
   });
   it('行ごとの結び付け先と入れ子の明示をそのまま送り、結び付けた件数を知らせる', async () => {
     const registerFolders = vi.fn(async () => ({ projects: [{ ...created, id: 'p-a' }, { ...created, id: 'p-b' }], failed: [], linked: ['p-b'] }));
@@ -763,7 +763,7 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'project.candidates.submit', items, workspaceRoot: null });
     await flush();
     expect(registerFolders).toHaveBeenCalledWith(items);
-    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['プロジェクトを 2 件登録しました（うち 1 件は、ほかの PC のプロジェクトに結び付けました）']);
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['プロジェクトを 2 件登録しました（うち 1 件は、他の PC のプロジェクトに関連付けました）']);
   });
   it('作成のダイアログの送信は、作ってから done を返す', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created) });
@@ -808,7 +808,7 @@ describe('起動とターミナル', () => {
       expect(rt.getStore().folderInspect).toEqual({ path: '/w/x', name: null, status: 'failed' });
       expect(rt.getState().toasts).toEqual([]);
     });
-    const nested = { error: 'このフォルダはプロジェクト alpha の中にあります', code: 'project_nested' as const, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha' } };
+    const nested = { error: 'このディレクトリはプロジェクト alpha の中にあります', code: 'project_nested' as const, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha' } };
     it('作成のダイアログの登録が 409（入れ子）なら、包むプロジェクトを問い合わせの答えとして Store に持つ', async () => {
       const { rt } = harness({ createProject: vi.fn(async () => { throw new ProjectNestedApiError(nested); }) });
       rt.start();
@@ -845,12 +845,12 @@ describe('起動とターミナル', () => {
     expect(terminals.connected).toEqual(['r1']);
   });
   it('起動の失敗は failed だけで、トーストは重ねない', async () => {
-    const { rt } = harness({ launch: vi.fn(async () => { throw new Error('tmux が見つかりません'); }) });
+    const { rt } = harness({ launch: vi.fn(async () => { throw new Error('tmux が未検出'); }) });
     rt.start();
     rt.emit({ type: 'session.new.open', projectId: 'p1' });
     rt.emit({ type: 'session.new.submit', params: { projectId: 'p1' } });
     await flush();
-    expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません' });
+    expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が未検出' });
     expect(rt.getState().toasts).toEqual([]);
   });
   it('セッション画面に入ると生きた run の Claude タブに繋ぎ、終了した run には繋がない', async () => {
@@ -900,7 +900,7 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
     await flush();
     expect(api.openTab).not.toHaveBeenCalled();
-    expect(rt.getState().toasts.at(-1)?.message).toBe('Claude が実行中ではないので、シェルタブを開けません');
+    expect(rt.getState().toasts.at(-1)?.message).toBe('Claude が実行中ではないため、シェルタブを開けません');
   });
   it('セッションを渡り歩いても、離れたセッションの接続は残らない', () => {
     const forSession = (sid: string) => ({ run: { ...launched.run, id: `r-${sid}`, sessionId: sid }, tabs: [{ ...launched.tabs[0]!, id: `r-${sid}`, runId: `r-${sid}`, sessionId: sid }] });
@@ -1006,7 +1006,7 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'project.openTerminalApp', id: 'p1' });
     await flush();
     const shown = rt.getState().toasts.map((t) => [t.level, t.message, t.holdMs]);
-    const line = ['info', 'Windows Terminal が見つからなかったので既定のターミナルで開きました', LONG_TOAST_MS];
+    const line = ['info', 'Windows Terminal が見つからなかったため、デフォルトのターミナルで開きました', LONG_TOAST_MS];
     expect(shown).toEqual([line, line]);
   });
 });
@@ -1145,14 +1145,14 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().artifacts.a1).toEqual(artifact);
   });
   it('アーティファクトの追加が断られたら、トーストにはせず、理由と URL を Store に残す', async () => {
-    const addArtifact = vi.fn(async () => { throw new Error('すでにプロジェクト「alpha」に付いています'); });
+    const addArtifact = vi.fn(async () => { throw new Error('すでにプロジェクト「alpha」に追加されています'); });
     const { rt, wsHandlers } = harness({ addArtifact });
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
     rt.emit({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' });
     await flush();
-    expect(rt.getStore().artifactAddError).toEqual({ projectId: 'p1', url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「alpha」に付いています' });
+    expect(rt.getStore().artifactAddError).toEqual({ projectId: 'p1', url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「alpha」に追加されています' });
     expect(rt.getState().toasts).toEqual([]);
   });
   it('変更したファイルを開くときはそのファイルを送り、エディタで開くときは作業ディレクトリ（file なし）を頼む', async () => {
@@ -1530,7 +1530,7 @@ describe('保持期間（ランタイム）', () => {
     expect(writeRetention).toHaveBeenCalledWith(365, 'abc');
     expect(rt.getStore().retention).toEqual(written);
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
-    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['保持期間を 1 年にしました']);
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['保持期間を 1 年 に設定しました']);
   });
   it('409 なら読み直したことを出し、下見を取り直す', async () => {
     const retentionPreview = vi.fn(async () => preview);
@@ -1545,12 +1545,12 @@ describe('保持期間（ランタイム）', () => {
     expect(retentionPreview).toHaveBeenCalledTimes(2);
   });
   it('下見に失敗したら、トーストではなくダイアログに理由を出す', async () => {
-    const retentionPreview = vi.fn(async () => { throw new Error('設定ファイルの書式を読み取れなかったので書き換えませんでした'); });
+    const retentionPreview = vi.fn(async () => { throw new Error('設定ファイルの形式を読み取れないため、変更しませんでした'); });
     const { rt } = harness({ retentionPreview });
     rt.start();
     rt.emit({ type: 'retention.edit', days: 365, from: 'banner' });
     await flush();
-    expect(rt.getState().overlay).toMatchObject({ kind: 'retention', previewError: '設定ファイルの書式を読み取れなかったので書き換えませんでした' });
+    expect(rt.getState().overlay).toMatchObject({ kind: 'retention', previewError: '設定ファイルの形式を読み取れないため、変更しませんでした' });
     expect(rt.getState().toasts).toEqual([]);
   });
   it('設定画面に入ると保持期間を読み直す', async () => {
@@ -1757,7 +1757,7 @@ describe('入力待ちの知らせ', () => {
       const { rt } = await started(n);
       rt.emit({ type: 'notify.set', on: true });
       await flush();
-      expect(rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。Windows の設定の「通知」で Hangar を許可してください');
+      expect(rt.getState().toasts.at(-1)?.message).toBe('通知がオフになっています。Windows の設定の「通知」で Hangar を許可してください');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1809,7 +1809,7 @@ describe('入力待ちの知らせ', () => {
     rt.emit({ type: 'notify.set', on: true });
     await flush();
     expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
-    expect(rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
+    expect(rt.getState().toasts.at(-1)?.message).toBe('通知がオフになっています。システム設定の「通知」で Hangar を許可してください');
     n.request.mockResolvedValue(true);
     rt.emit({ type: 'notify.set', on: true });
     await flush();
@@ -1953,7 +1953,7 @@ describe('入力待ちの知らせ', () => {
       h.fireVisible();
       await flush();
       expect(h.rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
-      expect(h.rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
+      expect(h.rt.getState().toasts.at(-1)?.message).toBe('通知がオフになっています。システム設定の「通知」で Hangar を許可してください');
       // 利用者の選んだ値は書き換えない。許可し直して戻れば、受け取るに戻る。
       expect(h.store.has('notify.waiting')).toBe(false);
       n.set('granted');
@@ -2094,11 +2094,11 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(summarizerModels).toHaveBeenCalledTimes(2);
   });
   it('保存を断られたら、理由を欄に返し、トーストにしない', async () => {
-    const { rt } = harness({ updateSettings: vi.fn(async () => { throw new Error('「tmux のパス」に /x が見つかりません'); }) });
+    const { rt } = harness({ updateSettings: vi.fn(async () => { throw new Error('「tmux のパス」に /x が未検出'); }) });
     rt.start();
     rt.emit({ type: 'settings.update', patch: { tmuxPath: '/x' }, field: 'tmuxPath' });
     await flush();
-    expect(rt.getState().settingsSave.tmuxPath).toEqual({ kind: 'error', message: '「tmux のパス」に /x が見つかりません' });
+    expect(rt.getState().settingsSave.tmuxPath).toEqual({ kind: 'error', message: '「tmux のパス」に /x が未検出' });
     expect(rt.getState().toasts).toEqual([]);
   });
   it('設定の画面に入ると準備の確かめも取る。もう一度確かめるでも取る', async () => {
@@ -2348,7 +2348,7 @@ describe('殻の操作（ランタイム）', () => {
     rt.emit({ type: 'clipboard.copy', text: 'secret-token-123' });
     await flush();
     const messages = rt.getState().toasts.map((t) => t.message);
-    expect(messages).toEqual(['コピーできませんでした。文字を選択して ⌘C でコピーしてください']);
+    expect(messages).toEqual(['コピーできませんでした。テキストを選択して ⌘C でコピーしてください']);
     expect(messages.join('')).not.toContain('secret-token-123');
     expect(rt.getState().copied).toBeNull();
   });
@@ -2359,7 +2359,7 @@ describe('殻の操作（ランタイム）', () => {
     rt.start();
     rt.emit({ type: 'clipboard.copy', text: 'x' });
     await flush();
-    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['コピーできませんでした。文字を選択して Ctrl+C でコピーしてください']);
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['コピーできませんでした。テキストを選択して Ctrl+C でコピーしてください']);
   });
 });
 
@@ -2505,11 +2505,11 @@ describe('アカウント', () => {
     expect(h.rt.getState()).toMatchObject({ launch: { kind: 'idle' }, overlay: { kind: 'none' }, screen: { name: 'session', id: 's1' } });
   });
   it('account.switchSession の失敗は、サーバの文をトーストに出し、launch は submitting のまま残らない', async () => {
-    const h = await started({ switchAccount: vi.fn(async () => { throw new Error('このセッションはもうそのアカウントで実行中です'); }) });
+    const h = await started({ switchAccount: vi.fn(async () => { throw new Error('このセッションはすでにそのアカウントで実行中です'); }) });
     h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
     await flush();
-    expect(h.rt.getState().launch).toEqual({ kind: 'failed', message: 'このセッションはもうそのアカウントで実行中です' });
-    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['このセッションはもうそのアカウントで実行中です']);
+    expect(h.rt.getState().launch).toEqual({ kind: 'failed', message: 'このセッションはすでにそのアカウントで実行中です' });
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['このセッションはすでにそのアカウントで実行中です']);
   });
   it('account.login が 409 で失敗したら、その文をトーストに出す', async () => {
     const h = await started({ loginAccount: vi.fn(async () => { throw new Error('ログインはすでに始まっています'); }) });
@@ -2618,19 +2618,19 @@ describe('設定の同期（作り直した実装）', () => {
     await flush();
     expect(api.configPutOrder).toHaveBeenCalledWith([{ id: 'file:CLAUDE.md', take: 'mine' }]);
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
-    expect(toasts(rt)[0]![1]).toContain('適用の指示書を書きました');
+    expect(toasts(rt)[0]![1]).toContain('適用の指示書を作成しました');
   });
 
   it('指示書を書けなかったら、殻の確認へ進まず、理由を赤で知らせて押せる状態に戻す', async () => {
     const desktop = desktopOf(async () => shellOutcome('applied'));
-    const { rt } = withConfig(cfg(), { configPutOrder: vi.fn(async () => { throw new Error('適用する項目が選ばれていません'); }) }, { desktop });
+    const { rt } = withConfig(cfg(), { configPutOrder: vi.fn(async () => { throw new Error('適用する項目が選択されていません'); }) }, { desktop });
     rt.start();
     await flush();
     rt.emit({ type: 'configSync.open', part: 'review' });
     rt.emit({ type: 'configSync.apply', entries: [{ id: 'x' }] });
     await flush();
     expect(desktop.applyConfigSync).not.toHaveBeenCalled();
-    expect(toasts(rt)).toEqual([['error', '適用する項目が選ばれていません']]);
+    expect(toasts(rt)).toEqual([['error', '適用する項目が選択されていません']]);
     expect(rt.getState().overlay).toEqual({ kind: 'configSync', part: 'review', working: false });
   });
 
@@ -2649,14 +2649,14 @@ describe('設定の同期（作り直した実装）', () => {
   });
 
   it('世代へ戻すのは殻の命令へ名前だけを渡し、戻せたら状態を取り直す', async () => {
-    const desktop = desktopOf(async () => shellOutcome('applied'), async () => shellOutcome('restored', '戻しました。'));
+    const desktop = desktopOf(async () => shellOutcome('applied'), async () => shellOutcome('restored', '復元しました。'));
     const { rt, api } = withConfig(cfg({ backups: 2 }), {}, { desktop });
     rt.start();
     await flush();
     rt.emit({ type: 'configSync.restore', name: '20261010-120000' });
     await flush();
     expect(desktop.restoreConfigSync).toHaveBeenCalledWith('20261010-120000');
-    expect(toasts(rt)).toEqual([['info', '戻しました。']]);
+    expect(toasts(rt)).toEqual([['info', '復元しました。']]);
     expect(api.configSyncState).toHaveBeenCalledTimes(1);
   });
 
@@ -2798,7 +2798,7 @@ describe('連携の書き込み（setup.run）', () => {
   });
 
   it('書けなければ理由を赤で知らせ、ボタンを押せる状態に戻す', async () => {
-    const desktop = desktopWith(async () => ({ status: 'failed', message: 'スクリプトが見つかりません', code: 'no-script' }));
+    const desktop = desktopWith(async () => ({ status: 'failed', message: 'スクリプトが未検出', code: 'no-script' }));
     const { rt } = harness({}, { desktop: desktop as never });
     rt.start();
     await flush();
@@ -2822,7 +2822,7 @@ describe('連携の書き込み（setup.run）', () => {
 describe('中断の群（ランタイム）', () => {
   it('まとめて再開は画面を移さず、起きた run を Store に入れ、断られたら理由を残して次へ進む', async () => {
     const resume = vi.fn(async (id: string) => {
-      if (id === 's2') throw new Error('作業ディレクトリが見つかりません');
+      if (id === 's2') throw new Error('作業ディレクトリが未検出');
       return { ...launchResult, run: { ...launchResult.run, id: `r-${id}`, sessionId: id }, sessionId: id };
     });
     const { rt, wsHandlers } = harness({ resume });
@@ -2834,7 +2834,7 @@ describe('中断の群（ランタイム）', () => {
     await flush();
     await flush();
     expect(resume.mock.calls.map((c) => c[0])).toEqual(['s1', 's2', 's3']);
-    expect(rt.getState().resumeQueue).toEqual({ queued: [], active: [], failed: { s2: '作業ディレクトリが見つかりません' } });
+    expect(rt.getState().resumeQueue).toEqual({ queued: [], active: [], failed: { s2: '作業ディレクトリが未検出' } });
     expect(rt.getStore().runs['r-s1']).toMatchObject({ sessionId: 's1' });
     expect(rt.getState().screen).toEqual(before);
   });
@@ -2945,7 +2945,7 @@ describe('git の表示（ランタイム）', () => {
   it('読み直しでプロジェクトが無い（404）と分かったら、Store から外し、札は出さず、それ以後は読まない', async () => {
     let gone = false;
     const projectGit = vi.fn(async () => {
-      if (gone) throw new ApiNotFoundError('プロジェクトが見つかりません');
+      if (gone) throw new ApiNotFoundError('プロジェクトが未検出');
       return { root: null, worktrees: [] };
     });
     const { rt, poll, front } = await projectOpen(projectGit);

@@ -172,7 +172,7 @@ describe('PromptComposer の / の候補', () => {
   it('候補が読めなければ、候補の中にその旨を出し、欄は打てる', async () => {
     const { ta } = await mount({ commands: () => Promise.reject(new Error('x')) });
     type(ta, '/');
-    expect(screen.getByText('読めませんでした')).toBeInTheDocument();
+    expect(screen.getByText('読み込めませんでした')).toBeInTheDocument();
     type(ta, '/goal やる');
     expect(ta.value).toBe('/goal やる');
   });
@@ -296,7 +296,7 @@ describe('PromptComposer の @ の候補', () => {
     const { ta } = await mount({ files: () => Promise.reject(new Error('x')) }, { projectId: 'p1' });
     type(ta, '@a');
     await settle();
-    expect(screen.getByText('読めませんでした')).toBeInTheDocument();
+    expect(screen.getByText('読み込めませんでした')).toBeInTheDocument();
   });
 
   it('速く打ち進めたら、問いは 1 回だけ、打ち終わった語で送る', async () => {
@@ -315,7 +315,7 @@ describe('PromptComposer の @ の候補', () => {
     type(ta, '@');
     await act(async () => {});
     expect(f).toHaveBeenCalledWith('p1', '');
-    expect(screen.getByText('最近変えたファイル')).toBeInTheDocument();
+    expect(screen.getByText('最近変更したファイル')).toBeInTheDocument();
   });
   it('語を打ち進めて新しい返事を待つ間は、前の一覧を出したままにし、「読み込んでいます」に替えない', async () => {
     let second: (v: string[]) => void = () => {};
@@ -326,7 +326,7 @@ describe('PromptComposer の @ の候補', () => {
     expect(options()).toEqual(['src/views/Dialog.tsx', 'docs/dialogs.md']);
     type(ta, '@di');
     await settle();
-    expect(screen.queryByText('読み込んでいます')).toBeNull();
+    expect(screen.queryByText('読み込み中…')).toBeNull();
     expect(options()).toEqual(['src/views/Dialog.tsx', 'docs/dialogs.md']);
     await act(async () => { second(['docs/dialogs.md']); });
     expect(options()).toEqual(['docs/dialogs.md']);
@@ -335,7 +335,7 @@ describe('PromptComposer の @ の候補', () => {
     const { ta } = await mount({ files: () => new Promise<string[]>(() => {}) }, { projectId: 'p1' });
     type(ta, '@d');
     await settle();
-    expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
+    expect(screen.getByText('読み込み中…')).toBeInTheDocument();
   });
   it('一致が無ければ、その旨を出す', async () => {
     const { ta } = await mount({ files: () => Promise.resolve([]) }, { projectId: 'p1' });
@@ -523,7 +523,7 @@ describe('PromptComposer の @ の候補', () => {
       const { ta, outerKeyDown } = await mount({ files: f }, { projectId: 'p1', onValue });
       type(ta, '@sr');
       await settle();
-      expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
+      expect(screen.getByText('読み込み中…')).toBeInTheDocument();
       expect(fireEvent.keyDown(ta, { key: 'Enter' })).toBe(false);
       expect(fireEvent.keyDown(ta, { key: 'Tab' })).toBe(false);
       expect(ta.value).toBe('@sr');
@@ -572,7 +572,7 @@ describe('PromptComposer の @ の候補', () => {
       expect(ta.value).toBe('@docs/dialogs.md ');
       type(ta, '@docs/dialogs.md @x');
       await settle();
-      expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
+      expect(screen.getByText('読み込み中…')).toBeInTheDocument();
       expect(screen.queryAllByRole('option')).toHaveLength(0);
     });
     it('Esc で閉じた後に同じ位置で打ち直した @ も、前の一覧を持ち越さない', async () => {
@@ -584,7 +584,7 @@ describe('PromptComposer の @ の候補', () => {
       expect(screen.queryByRole('listbox')).toBeNull();
       type(ta, '@dx');
       await settle();
-      expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
+      expect(screen.getByText('読み込み中…')).toBeInTheDocument();
       expect(screen.queryAllByRole('option')).toHaveLength(0);
     });
     it('欄を外して戻ったときも、前の一覧を持ち越さない', async () => {
@@ -595,7 +595,7 @@ describe('PromptComposer の @ の候補', () => {
       fireEvent.blur(ta);
       type(ta, '@dz');
       await settle();
-      expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
+      expect(screen.getByText('読み込み中…')).toBeInTheDocument();
       expect(screen.queryAllByRole('option')).toHaveLength(0);
     });
   });
@@ -790,7 +790,7 @@ describe('PromptComposer の添付', () => {
     fireEvent.paste(ta, { clipboardData: { files: [big] } });
     await act(async () => {});
     expect(up).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith('big.bin は 20 MB を超えているので添付できません');
+    expect(notify).toHaveBeenCalledWith('big.bin は 20 MB を超えているため添付できません');
   });
   it('送るのに失敗したら知らせを出し、札は足さない', async () => {
     const notify = vi.fn();
@@ -963,7 +963,7 @@ describe('PromptComposer の送っている最中の札', () => {
     fireEvent.paste(ta, { clipboardData: { files: [file('a.png')] } });
     const busy = screen.getByRole('listitem', { name: 'a.png' });
     expect(busy).toHaveAttribute('aria-busy', 'true');
-    expect(busy).toHaveTextContent('送っています');
+    expect(busy).toHaveTextContent('送信中');
     expect(within(busy).queryByRole('button')).toBeNull();
     expect(onPending.mock.calls).toEqual([[1]]);
     await act(async () => { resolvers[0]!.ok('/h/.agent-hangar/drops/1-0-a.png'); });

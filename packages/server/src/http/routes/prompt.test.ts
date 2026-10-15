@@ -109,7 +109,7 @@ describe('/api/drops', () => {
   });
   it('413 の文言は、上限を MB で読ませる（20480KB ではなく 20MB）', async () => {
     const r = await post('big.bin', new Uint8Array(20 * 1024 * 1024 + 1));
-    expect((await r.json()).error).toBe('本文が大きすぎます（上限は 20MB です）');
+    expect((await r.json()).error).toBe('リクエストボディが大きすぎます（上限は 20MB です）');
   });
   it('長さの申告が 20 MB を超えていれば、読む前に 413 にする', async () => {
     expect((await post('lie.bin', new Uint8Array([1]), { 'content-length': String(20 * 1024 * 1024 + 1) })).status).toBe(413);

@@ -4,5 +4,5 @@ import type { SyncProps } from '../presenters/shell.ts';
 export function syncFixture(over: Partial<SyncProps> = {}): SyncProps {
   const label = over.label ?? '同期 1 分前';
   const counts = [over.pending, over.sweepPending, over.skipped].filter((c): c is string => typeof c === 'string');
-  return { visible: true, state: 'idle', label, title: `${[label, ...counts].join('、')}（押すと同期の設定を開く）`, pending: null, sweepPending: null, skipped: null, reason: null, once: false, ...over };
+  return { visible: true, state: 'idle', label, title: `${[label, ...counts].join('、')}（クリックして同期の設定を開く）`, pending: null, sweepPending: null, skipped: null, reason: null, once: false, ...over };
 }

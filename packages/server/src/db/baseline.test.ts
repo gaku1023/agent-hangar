@@ -142,7 +142,7 @@ describe('起点より古い版の DB', () => {
       expect(e.message).toContain(`バージョン ${from}`);
       expect(e.message).toContain(`バージョン ${BASELINE_VERSION}`);
       expect(e.message).toContain(file);
-      expect(e.message).toContain('もう一度起動してください');
+      expect(e.message).toContain('再起動してください');
       // 起動の札の手順（退避して索引を作り直す）と食い違わない。配布版では以前の版の Hangar は手に入らないので、それを勧めない。
       expect(e.message).toContain('別の名前に退避');
       expect(e.message).toContain('再構築します');

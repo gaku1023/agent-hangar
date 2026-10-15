@@ -95,7 +95,7 @@ describe('routes', () => {
     expect(await (await post(`/api/todos/${a.id}`, { text: '両方', done: true }, 'PATCH')).json()).toMatchObject({ text: '両方', done: true });
     const empty = await post(`/api/todos/${a.id}`, {}, 'PATCH');
     expect(empty.status).toBe(400);
-    expect((await empty.json()).error).toBe('done か text を送ってください');
+    expect((await empty.json()).error).toBe('done か text を指定してください');
     const blank = await post(`/api/todos/${a.id}`, { text: '   ' }, 'PATCH');
     expect(blank.status).toBe(400);
     expect((await blank.json()).error).toBe('TODO の本文が空です');
@@ -148,7 +148,7 @@ describe('routes', () => {
     expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
     const stale = await post(`/api/projects/${pid}/todos/order`, { ids: [a.id, 'nope'] });
     expect(stale.status).toBe(409);
-    expect((await stale.json()).error).toBe('TODO の並びが今の一覧と合いません');
+    expect((await stale.json()).error).toBe('TODO の並びが現在の一覧と一致しません');
     expect((await post(`/api/projects/${pid}/todos/order`, { ids: [a.id, 3] })).status).toBe(400);
     expect((await post(`/api/projects/${pid}/todos/order`, {})).status).toBe(400);
     expect((await post('/api/projects/nope/todos/order', { ids: [] })).status).toBe(404);

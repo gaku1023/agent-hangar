@@ -74,10 +74,10 @@ describe('断る文の言語', () => {
   const caught = (fn: () => unknown): unknown => { try { fn(); } catch (e) { return e; } throw new Error('投げなかった'); };
   it('日本語と英語のどちらでも出せる', () => {
     const noId = caught(() => splitTerminalArgs(['-r']));
-    expect(errorText('ja', noId)).toBe('会話の id を付けない再開は hangar では開けません');
+    expect(errorText('ja', noId)).toBe('会話の ID を指定しない再開は hangar では開けません');
     expect(errorText('en', noId)).toBe('A resume without a conversation ID cannot be opened in Hangar');
     const flag = caught(() => splitTerminalArgs(['--session-id=abc']));
-    expect(errorText('ja', flag)).toBe('--session-id を付けた起動は hangar では開けません');
+    expect(errorText('ja', flag)).toBe('--session-id を指定した起動は hangar では開けません');
     expect(errorText('en', flag)).toBe('A launch with --session-id cannot be opened in Hangar');
   });
 });

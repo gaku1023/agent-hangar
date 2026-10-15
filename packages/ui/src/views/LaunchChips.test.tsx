@@ -30,19 +30,19 @@ const chipNames = () => within(group()).getAllByRole('button').map((b) => b.getA
 describe('LaunchChips（札の列）', () => {
   it('プロジェクトの札、モデル、effort レベル、権限モード、worktree、「＋」の順に並べる', () => {
     render(<Host />);
-    expect(chipNames()).toEqual(['web-shop', 'モデル、既定', 'effort レベル、既定', '権限モード、既定', 'worktree、なし', '札を足す']);
+    expect(chipNames()).toEqual(['web-shop', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
   });
   it('アカウントを渡したときだけ、プロジェクトの次にアカウントの札を出す', () => {
     const { unmount } = render(<Host />);
     expect(screen.queryByRole('button', { name: /^アカウント/ })).toBeNull();
     unmount();
     render(<Host account />);
-    expect(chipNames().slice(0, 3)).toEqual(['web-shop', 'アカウント、仕事用', 'モデル、既定']);
+    expect(chipNames().slice(0, 3)).toEqual(['web-shop', 'アカウント、仕事用', 'モデル、デフォルト']);
   });
   it('既定のままの札は薄く、値のある札は濃く出す', () => {
     render(<Host initial={{ model: 'opus' }} />);
     expect(chip('モデル、opus')).not.toHaveAttribute('data-tone', 'muted');
-    expect(chip('effort レベル、既定')).toHaveAttribute('data-tone', 'muted');
+    expect(chip('effort レベル、デフォルト')).toHaveAttribute('data-tone', 'muted');
     expect(chip('worktree、なし')).toHaveAttribute('data-tone', 'muted');
   });
   it('名前を札に見せる（モデル opus、権限モード Accept edits）', () => {
@@ -60,11 +60,11 @@ describe('LaunchChips（札の列）', () => {
     it('モデルの札を押すと一覧が開き、選ぶと値を渡して閉じる', () => {
       const onChange = vi.fn();
       render(<Host onChange={onChange} />);
-      const opener = chip('モデル、既定');
+      const opener = chip('モデル、デフォルト');
       fireEvent.click(opener);
       const pop = screen.getByRole('dialog', { name: 'モデル' });
       expect(opener).toHaveAttribute('aria-expanded', 'true');
-      expect(within(pop).getAllByRole('option').map((o) => o.textContent)).toEqual(['既定', 'fable', 'opus', 'sonnet', 'haiku']);
+      expect(within(pop).getAllByRole('option').map((o) => o.textContent)).toEqual(['デフォルト', 'fable', 'opus', 'sonnet', 'haiku']);
       fireEvent.click(within(pop).getByRole('option', { name: 'sonnet' }));
       expect(onChange).toHaveBeenCalledWith({ model: 'sonnet' });
       expect(screen.queryByRole('dialog')).toBeNull();
@@ -74,8 +74,8 @@ describe('LaunchChips（札の列）', () => {
       const onChange = vi.fn();
       const outer = vi.fn();
       render(<Host onChange={onChange} onKeyDown={outer} />);
-      fireEvent.click(chip('モデル、既定'));
-      const box = screen.getByRole('textbox', { name: 'ほかのモデルの名前' });
+      fireEvent.click(chip('モデル、デフォルト'));
+      const box = screen.getByRole('textbox', { name: 'その他のモデル名' });
       fireEvent.change(box, { target: { value: 'claude-x' } });
       fireEvent.keyDown(box, { key: 'Enter' });
       expect(onChange).toHaveBeenLastCalledWith({ model: 'claude-x' });
@@ -86,8 +86,8 @@ describe('LaunchChips（札の列）', () => {
     it('一覧に無いモデルの名前は、打つたびに値を渡す。Enter を押さずに閉じても残る', () => {
       const onChange = vi.fn();
       render(<Host onChange={onChange} />);
-      fireEvent.click(chip('モデル、既定'));
-      fireEvent.change(screen.getByRole('textbox', { name: 'ほかのモデルの名前' }), { target: { value: 'claude-z' } });
+      fireEvent.click(chip('モデル、デフォルト'));
+      fireEvent.change(screen.getByRole('textbox', { name: 'その他のモデル名' }), { target: { value: 'claude-z' } });
       expect(onChange).toHaveBeenLastCalledWith({ model: 'claude-z' });
       fireEvent.keyDown(screen.getByRole('dialog', { name: 'モデル' }), { key: 'Escape' });
       expect(chip('モデル、claude-z')).toBeInTheDocument();
@@ -95,14 +95,14 @@ describe('LaunchChips（札の列）', () => {
     it('一覧に無い値は、開いたとき欄に入っている', () => {
       render(<Host initial={{ model: 'claude-y' }} />);
       fireEvent.click(chip('モデル、claude-y'));
-      expect(screen.getByRole('textbox', { name: 'ほかのモデルの名前' })).toHaveValue('claude-y');
+      expect(screen.getByRole('textbox', { name: 'その他のモデル名' })).toHaveValue('claude-y');
     });
     it('effort レベルは 既定、low、medium、high、xhigh、max', () => {
       const onChange = vi.fn();
       render(<Host onChange={onChange} />);
-      fireEvent.click(chip('effort レベル、既定'));
+      fireEvent.click(chip('effort レベル、デフォルト'));
       const pop = screen.getByRole('dialog', { name: 'effort レベル' });
-      expect(within(pop).getAllByRole('option').map((o) => o.textContent)).toEqual(['既定', 'low', 'medium', 'high', 'xhigh', 'max']);
+      expect(within(pop).getAllByRole('option').map((o) => o.textContent)).toEqual(['デフォルト', 'low', 'medium', 'high', 'xhigh', 'max']);
       fireEvent.click(within(pop).getByRole('option', { name: 'high' }));
       expect(onChange).toHaveBeenCalledWith({ effort: 'high' });
     });
@@ -112,7 +112,7 @@ describe('LaunchChips（札の列）', () => {
     it('札を押すと縦の一覧が開き、選ぶと値を渡して閉じる。一覧に焦点が入る', () => {
       const onChange = vi.fn();
       render(<Host onChange={onChange} previousPermission="acceptEdits" />);
-      fireEvent.click(chip('権限モード、既定'));
+      fireEvent.click(chip('権限モード、デフォルト'));
       const pop = screen.getByRole('dialog', { name: '権限モード' });
       const list = within(pop).getByRole('listbox', { name: '権限モード' });
       expect(list).toHaveFocus();
@@ -125,7 +125,7 @@ describe('LaunchChips（札の列）', () => {
     });
     it('Bypass permissions を選ぶと、札が赤い縁と警告の印になる。確認のダイアログは出さない', () => {
       render(<Host />);
-      fireEvent.click(chip('権限モード、既定'));
+      fireEvent.click(chip('権限モード、デフォルト'));
       fireEvent.click(screen.getByRole('option', { name: /Bypass permissions/ }));
       const c = chip('権限モード、Bypass permissions');
       expect(c).toHaveAttribute('data-tone', 'danger');
@@ -149,7 +149,7 @@ describe('LaunchChips（札の列）', () => {
       fireEvent.click(chip('worktree、なし'));
       const box = screen.getByRole('textbox', { name: 'worktree' });
       expect(box).toHaveFocus();
-      expect(box).toHaveAttribute('placeholder', '空なら通常の作業ディレクトリ');
+      expect(box).toHaveAttribute('placeholder', '空欄の場合は通常の作業ディレクトリ');
       fireEvent.change(box, { target: { value: 'fix-login' } });
       expect(onChange).toHaveBeenLastCalledWith({ worktree: 'fix-login' });
       fireEvent.keyDown(box, { key: 'Enter' });
@@ -168,15 +168,15 @@ describe('LaunchChips（札の列）', () => {
   describe('「＋」で足せる札（名前、追加ディレクトリ）', () => {
     it('「＋」を押すと、まだ出ていない札が一覧に並ぶ', () => {
       render(<Host />);
-      fireEvent.click(chip('札を足す'));
+      fireEvent.click(chip('設定を追加'));
       expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['名前', '追加ディレクトリ']);
     });
     it('名前を選ぶと名前の札が増え、入力欄が開いて焦点が入る。もう一覧には出ない', () => {
       const onChange = vi.fn();
       render(<Host onChange={onChange} />);
-      fireEvent.click(chip('札を足す'));
+      fireEvent.click(chip('設定を追加'));
       fireEvent.click(screen.getByRole('menuitem', { name: '名前' }));
-      expect(chipNames()).toEqual(['web-shop', 'モデル、既定', 'effort レベル、既定', '権限モード、既定', 'worktree、なし', '名前、なし', '札を足す']);
+      expect(chipNames()).toEqual(['web-shop', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '名前、なし', '設定を追加']);
       const box = screen.getByRole('textbox', { name: '名前' });
       expect(box).toHaveFocus();
       expect(box).toHaveAttribute('placeholder', '一覧での表示名');
@@ -184,23 +184,23 @@ describe('LaunchChips（札の列）', () => {
       expect(onChange).toHaveBeenLastCalledWith({ name: '決済の検証' });
       fireEvent.keyDown(box, { key: 'Enter' });
       expect(chip('名前、決済の検証')).toBeInTheDocument();
-      fireEvent.click(chip('札を足す'));
+      fireEvent.click(chip('設定を追加'));
       expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['追加ディレクトリ']);
     });
     it('両方足したら、「＋」は消える', () => {
       render(<Host />);
-      fireEvent.click(chip('札を足す'));
+      fireEvent.click(chip('設定を追加'));
       fireEvent.click(screen.getByRole('menuitem', { name: '名前' }));
       fireEvent.keyDown(screen.getByRole('textbox', { name: '名前' }), { key: 'Escape' });
-      fireEvent.click(chip('札を足す'));
+      fireEvent.click(chip('設定を追加'));
       fireEvent.click(screen.getByRole('menuitem', { name: '追加ディレクトリ' }));
-      expect(screen.queryByRole('button', { name: '札を足す' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '設定を追加' })).toBeNull();
       expect(chipNames().slice(-2)).toEqual(['名前、なし', '追加ディレクトリ、なし']);
     });
     it('値が入っているとき（下書き、前回の値）は、はじめから札を出し、「＋」の一覧には出さない', () => {
       render(<Host initial={{ name: '決済の検証', addDirs: '/work/shared\n/work/docs' }} />);
       expect(chipNames().slice(-2)).toEqual(['名前、決済の検証', '追加ディレクトリ、2 件']);
-      expect(screen.queryByRole('button', { name: '札を足す' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '設定を追加' })).toBeNull();
     });
     it('あとから値が入った（下書きを戻した、前回の値に入れ替えた）ときも、札が出る', () => {
       function Late() {
@@ -227,7 +227,7 @@ describe('LaunchChips（札の列）', () => {
     it('追加ディレクトリの欄は 1 行に 1 つで、打つたびに値を渡す。札には件数を出す', () => {
       const onChange = vi.fn();
       render(<Host onChange={onChange} />);
-      fireEvent.click(chip('札を足す'));
+      fireEvent.click(chip('設定を追加'));
       fireEvent.click(screen.getByRole('menuitem', { name: '追加ディレクトリ' }));
       const box = screen.getByRole('textbox', { name: '追加ディレクトリ' });
       expect(box).toHaveFocus();

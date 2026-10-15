@@ -16,7 +16,7 @@ afterEach(() => { db.close(); fs.rmSync(ws, { recursive: true, force: true }); }
 
 const deps = (over: { gitInit?: (dir: string) => void } = {}) => ({ db, deviceId: 'd', workspaceRoot: ws, gitInit: vi.fn(), ...over });
 const rootOf = (id: string) => db.prepare('select path, resolved from project_roots where project_id = ? and device_id = ?').get(id, 'd');
-const ROOT_NOT_ALLOWED = '新しいフォルダの作成場所と、その上のフォルダ、ホームフォルダはプロジェクトにできません';
+const ROOT_NOT_ALLOWED = '新しいディレクトリの作成先とその親ディレクトリ、ホームディレクトリはプロジェクトにできません';
 const projectOf = (id: string) => db.prepare('select name, status, is_scratch from projects where id = ?').get(id);
 
 describe('createProjectDir', () => {
@@ -64,8 +64,8 @@ describe('createProjectDir', () => {
     fs.writeFileSync(path.join(ws, 'file'), '');
     const root = path.join(ws, 'file');
     expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: root, gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(ProjectCreateError);
-    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: root, gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(`${path.join(root, 'p')} を作れません: `);
-    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: path.join(root, 'sub'), gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(/を作れません: /);
+    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: root, gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(`${path.join(root, 'p')} を作成できません: `);
+    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: path.join(root, 'sub'), gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(/を作成できません: /);
     expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
   });
   it('ワークスペースのルートが無ければ作る', () => {
@@ -84,7 +84,7 @@ describe('createProjectDir の作る場所', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(ProjectCreateError);
       expect((e as ProjectCreateError).status).toBe(400);
-      expect((e as Error).message).toBe('新しいフォルダを作る場所が決まっていません。場所を選んでください');
+      expect((e as Error).message).toBe('新しいディレクトリの作成先が決まっていません。作成先を選択してください');
     }
     expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
   });
@@ -137,7 +137,7 @@ describe('registerProjectDir', () => {
   it('無いパスとファイルは 400', () => {
     fs.writeFileSync(path.join(ws, 'file'), '');
     for (const p of ['/nonexistent-hangar', path.join(ws, 'file'), '']) {
-      expect(() => registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: p })).toThrow('path が存在するディレクトリではありません');
+      expect(() => registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: p })).toThrow('path は既存のディレクトリではありません');
     }
   });
   it('登録済みのパスなら既存を返し、.. を含んでも同じものに当てる', () => {
@@ -204,7 +204,7 @@ describe('registerProjectDir の入れ子と結び付け', () => {
     const e = caught(() => reg({ path: path.join(top, 'packages', 'ui') }));
     expect(e).toBeInstanceOf(ProjectNestedError);
     expect(e).toMatchObject({ status: 409, enclosing: { projectId: outer, name: 'hangar', path: top } });
-    expect((e as Error).message).toBe('このフォルダはプロジェクト hangar の中にあります');
+    expect((e as Error).message).toBe('このディレクトリはプロジェクト hangar の中にあります');
     expect(count()).toBe(1);
   });
   it('allowNested を明示すれば、中のフォルダを別のプロジェクトにする', () => {
@@ -245,7 +245,7 @@ describe('registerProjectDir の入れ子と結び付け', () => {
     fs.mkdirSync(placed);
     const here = reg({ path: placed }).projectId;
     const e = caught(() => reg({ path: dir, linkTo: here }));
-    expect(e).toMatchObject({ status: 409, message: 'プロジェクト placed は、この PC で既に場所があります' });
+    expect(e).toMatchObject({ status: 409, message: 'プロジェクト placed は、この PC ですでにパスが設定されています' });
     expect(rootOf(here)).toEqual({ path: placed, resolved: 1 });
   });
   it('linkTo のフォルダが別のプロジェクトの場所なら 409 で断る', () => {
@@ -253,7 +253,7 @@ describe('registerProjectDir の入れ子と結び付け', () => {
     fs.mkdirSync(dir);
     reg({ path: dir });
     elsewhere('far', 'far');
-    expect(caught(() => reg({ path: dir, linkTo: 'far' }))).toMatchObject({ status: 409, message: 'このフォルダは、プロジェクト taken の場所として登録済みです' });
+    expect(caught(() => reg({ path: dir, linkTo: 'far' }))).toMatchObject({ status: 409, message: 'このディレクトリは、プロジェクト taken のパスとして登録済みです' });
     expect(rootOf('far')).toBeUndefined();
   });
   it('linkTo でも、登録済みのプロジェクトの下のフォルダは allowNested が無ければ 409', () => {

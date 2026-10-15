@@ -131,9 +131,9 @@ describe('presentNotices：事実から行を組む', () => {
   // 設定の同期で送らなかった項目（段 4 の PR 19）。事実は ConfigSyncDto.unsent の件数で、件数が 0 に戻れば行も消える。
   it('設定の同期で送らなかった項目があれば、件数を言う行にして、送らなかった項目の常設の行へ移る', () => {
     const [row] = presentNotices(initialState(), storeOf({ configSync: cfgSync({ unsent: 3 }) }), NOW).rows;
-    expect(row).toMatchObject({ key: 'config|unsent|3', kind: 'config', tone: 'warn', icon: 'settings', kindLabel: '設定の同期', title: '送らなかった項目 3 件', when: null, unread: true });
+    expect(row).toMatchObject({ key: 'config|unsent|3', kind: 'config', tone: 'warn', icon: 'settings', kindLabel: '設定の同期', title: '送信しなかった項目 3 件', when: null, unread: true });
     expect(row!.detail).toContain('それでも送る');
-    expect(row!.action).toEqual({ label: '送らなかった項目を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } });
+    expect(row!.action).toEqual({ label: '送信しなかった項目を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } });
   });
 
   it('送らなかった項目が 0 件、設定の同期が切、まだ届いていない（古いサーバ）なら行にしない', () => {

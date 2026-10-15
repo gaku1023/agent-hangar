@@ -189,7 +189,7 @@ describe('SummaryJob', () => {
     expect(r).toMatchObject({ ok: true, id: 'lmstudio', summary: { title: 'T', source: 'post_hoc', sourceModel: 'qwen3-27b' } });
     expect((db.prepare('select count(*) c from changes').get() as { c: number }).c).toBe(before);
     const bad = await make([fake('lmstudio', { fail: true }), fake('claude-headless', { available: false })]).test();
-    expect(bad).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'lmstudio failed' }, { id: 'claude-headless', message: '使えません（接続できないか、上限に達しています）' }] });
+    expect(bad).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'lmstudio failed' }, { id: 'claude-headless', message: '使用できません（接続できないか、上限に達しています）' }] });
   });
   it('test は、そのときの言語の決め打ちの入力を要約器へ渡す', async () => {
     const seen: SummaryInput[] = [];

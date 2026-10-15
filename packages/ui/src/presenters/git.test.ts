@@ -28,7 +28,7 @@ describe('presentGitChip', () => {
   });
   it('変更なし、件数なし（時間切れ）、1,000+', () => {
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 0 }) } }), 's1', {})).toMatchObject({ value: '変更なし', dirty: false, count: 0 });
-    expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: null, slow: true }) } }), 's1', {})).toMatchObject({ value: '件数なし', dirty: false, count: null, title: 'fix-login\ngit が 3 秒で応答しなかったので、件数を省きました' });
+    expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: null, slow: true }) } }), 's1', {})).toMatchObject({ value: '件数不明', dirty: false, count: null, title: 'fix-login\ngit が 3 秒以内に応答しなかったため、件数を省略しました' });
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 1000, capped: true }) } }), 's1', {})).toMatchObject({ value: '未コミット 1,000+', dirty: true, count: 1000 });
   });
   it('worktree は worktree の名前、ブランチは title', () => {
@@ -38,12 +38,12 @@ describe('presentGitChip', () => {
   it('同じ作業ツリーで実行中のセッションが 2 本以上なら、実行中の行に「共有 N」を添える', () => {
     const g = git({ sessions: { s1: { state: 'ok', root: '/w/alpha', branch: 'fix-login', worktree: null }, s2: { state: 'ok', root: '/w/alpha', branch: 'fix-login', worktree: null }, s3: { state: 'ok', root: '/w/alpha', branch: 'fix-login', worktree: null } } });
     const sessions = { s1: session('s1', { live: 'busy' }), s2: session('s2', { live: 'idle' }), s3: session('s3') };
-    expect(presentGitChip(ja, g, 's1', sessions)).toMatchObject({ shared: 2, sharedTitle: '同じ作業ツリーで実行中のセッションがほかに 1 本あります' });
+    expect(presentGitChip(ja, g, 's1', sessions)).toMatchObject({ shared: 2, sharedTitle: '同じ作業ツリーで実行中のセッションがほかに 1 件あります' });
     // 終わった行には添えない。
     expect(presentGitChip(ja, g, 's3', sessions)?.shared).toBeNull();
   });
   it('ほかの PC は本文の gitBranch、git でないものと未取得は出さない、消えた worktree は削除済み', () => {
-    expect(presentGitChip(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'feature-x', worktree: null } } }), 's1', {})).toMatchObject({ kind: 'remote', name: 'feature-x', value: 'ほかの PC', dirty: false });
+    expect(presentGitChip(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'feature-x', worktree: null } } }), 's1', {})).toMatchObject({ kind: 'remote', name: 'feature-x', value: '他の PC', dirty: false });
     expect(presentGitChip(ja, git({ sessions: { s1: { state: 'nogit', root: null, branch: null, worktree: null } } }), 's1', {})).toBeNull();
     expect(presentGitChip(ja, git(), 'nope', {})).toBeNull();
     expect(presentGitChip(ja, git({ sessions: { s1: { state: 'gone', root: null, branch: 'worktree-old', worktree: 'old' } } }), 's1', {})).toMatchObject({ kind: 'gone', worktree: true, name: 'old', value: '削除済み' });
@@ -65,23 +65,23 @@ describe('gitDetailRows', () => {
   it('ブランチ、作業ツリーの未コミット、このセッションの変更', () => {
     const rows = gitDetailRows(ja, git({ trees: { '/w/alpha': tree({ ahead: 2 }) } }), 's1', {}, changes());
     expect(rows.map((r) => [r.name, r.value, r.note ?? null])).toEqual([
-      ['ブランチ', 'fix-login', 'origin より 2 件先'],
+      ['ブランチ', 'fix-login', 'origin より 2 コミット先行'],
       ['作業ツリーの未コミット', '7 件', null],
-      ['このセッションの変更', '2 件が未コミット', null],
+      ['このセッションの変更', '未コミット 2 件', null],
     ]);
     expect(rows[2]!.link).toEqual({ label: '一覧', send: { type: 'diff.open', sessionId: 's1' } });
   });
   it('git でない、ほかの PC、時間切れ、消えた worktree', () => {
-    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'nogit', root: null, branch: null, worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['git のリポジトリではありません']);
-    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'x', worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['x', 'ほかの PC で実行中なので、この PC では読みません']);
-    expect(gitDetailRows(ja, git({ trees: { '/w/alpha': tree({ slow: true, dirty: null }) } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['fix-login', 'git が 3 秒で応答しませんでした']);
-    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'gone', root: null, branch: 'worktree-old', worktree: 'old' } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['old', '削除済み（ブランチ worktree-old は残っていることがあります）']);
+    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'nogit', root: null, branch: null, worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['git リポジトリではありません']);
+    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'x', worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['x', '他の PC で実行中のため、この PC では取得しません']);
+    expect(gitDetailRows(ja, git({ trees: { '/w/alpha': tree({ slow: true, dirty: null }) } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['fix-login', 'git が 3 秒以内に応答しませんでした']);
+    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'gone', root: null, branch: 'worktree-old', worktree: 'old' } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['old', '削除済み（ブランチ worktree-old は残っている場合があります）']);
     expect(gitDetailRows(ja, git(), 'nope', {}, undefined)).toEqual([]);
   });
   it('持ち主の違いで git が断ったものは、札を出さず、(i) に訳と許すコマンドを出す（git の設定は書かない）', () => {
     const g = git({ sessions: { s1: { state: 'unsafe', root: 'C:/Users/you/work/alpha', branch: 'main', worktree: null } }, trees: {} });
     expect(presentGitChip(ja, g, 's1', {})).toBeNull();
-    expect(gitDetailRows(ja, g, 's1', {}, undefined).map((r) => [r.name, r.value])).toEqual([['ブランチ', 'main'], ['git', '持ち主が違うので、読むのを断りました']]);
+    expect(gitDetailRows(ja, g, 's1', {}, undefined).map((r) => [r.name, r.value])).toEqual([['ブランチ', 'main'], ['git', '所有者が異なるため、git で読み取れません']]);
     expect(gitDetailRows(en, g, 's1', {}, undefined).at(-1)!.value).toBe('Refused: owned by another user');
     expect(gitUnsafeFix(g, 's1', 'win32')).toBe('git config --global --add safe.directory C:/Users/you/work/alpha');
     expect(gitUnsafeFix(git({ sessions: { s1: { state: 'unsafe', root: '/Users/you/my work', branch: null, worktree: null } } }), 's1', 'darwin')).toBe("git config --global --add safe.directory '/Users/you/my work'");
@@ -101,10 +101,10 @@ describe('presentGitFiles', () => {
   });
   it('取得中、git でない、ほかの PC、時間切れの注記', () => {
     expect(presentGitFiles(ja, undefined).state).toBe('loading');
-    expect(presentGitFiles(ja, changes({ state: 'nogit', root: null, tree: null, others: [] })).note).toBe('Bash などのコマンドで書き換えたファイルは、この一覧に載りません。');
-    expect(presentGitFiles(ja, changes({ state: 'remote', others: [] })).note).toBe('ほかの PC で実行中です。この PC の作業ツリーは読みません。');
-    expect(presentGitFiles(ja, changes({ state: 'slow', others: [] })).note).toBe('git が 3 秒で応答しませんでした。');
-    expect(presentGitFiles(ja, changes({ state: 'unsafe', root: null, tree: null, others: [] })).note).toBe('フォルダの持ち主が違うので、git が読むのを断りました。このセッションの編集だけを表示します。');
+    expect(presentGitFiles(ja, changes({ state: 'nogit', root: null, tree: null, others: [] })).note).toBe('Bash などのコマンドで変更したファイルは、この一覧に表示されません。');
+    expect(presentGitFiles(ja, changes({ state: 'remote', others: [] })).note).toBe('他の PC で実行中です。この PC の作業ツリーは読み取りません。');
+    expect(presentGitFiles(ja, changes({ state: 'slow', others: [] })).note).toBe('git が 3 秒以内に応答しませんでした。');
+    expect(presentGitFiles(ja, changes({ state: 'unsafe', root: null, tree: null, others: [] })).note).toBe('ディレクトリの所有者が異なるため、git で読み取れません。このセッションの編集だけを表示します。');
     expect(presentGitFiles(ja, changes({ othersCapped: true })).othersLabel).toBe('ほかに作業ツリーで変わったファイル 1 件以上');
   });
 });
@@ -117,7 +117,7 @@ describe('presentDiffBody', () => {
   });
   it('コミット済み、バイナリ、取得中、編集', () => {
     expect(presentDiffBody(ja, { source: 'git', file: changes().files[2]!, diff: undefined, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'このファイルへの変更はコミット済みです。作業ツリーとの差はありません。' });
-    expect(presentDiffBody(ja, { source: 'git', file: changes().files[0]!, diff: { file: '/w/alpha/src/a.ts', rel: 'src/a.ts', status: 'M', text: '', truncated: false, binary: true }, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'バイナリのファイルなので、差分を表示しません。' });
+    expect(presentDiffBody(ja, { source: 'git', file: changes().files[0]!, diff: { file: '/w/alpha/src/a.ts', rel: 'src/a.ts', status: 'M', text: '', truncated: false, binary: true }, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'バイナリファイルのため、差分を表示しません。' });
     expect(presentDiffBody(ja, { source: 'git', file: changes().files[0]!, diff: undefined, edits: undefined, cwd: '/w' }).kind).toBe('loading');
     const edits: SessionEditsDto = { file: '/w/alpha/src/a.ts', truncated: false, edits: [
       { seq: 3, ts: Date.UTC(2026, 9, 1, 1, 2), agentId: null, call: { toolId: 't1', name: 'Edit', input: { file_path: '/w/alpha/src/a.ts', old_string: 'b', new_string: 'B' }, summary: '' }, result: { text: 'ok', isError: false } },

@@ -25,7 +25,7 @@ describe('SessionBadges（見出しの名前の横の札）', () => {
   it('応答が途絶えたロックは stale、トランスクリプトが他の PC にあるときは remote の札で、両方あれば 2 つ並ぶ', () => {
     const badges = presentSessionBadges(session({ lock: { deviceId: 'd2', deviceName: 'office-pc', runId: 'r', heartbeatAt: NOW - 60 * 60_000, stale: true }, remoteOnly: true }), NOW, ja);
     const { container } = render(<SessionBadges badges={badges} />);
-    expect([...container.querySelectorAll('.session-badge')].map((b) => [b.getAttribute('data-kind'), b.firstChild?.textContent])).toEqual([['stale', 'office-pc から応答がありません'], ['remote', 'トランスクリプトはほかの PC にあります']]);
+    expect([...container.querySelectorAll('.session-badge')].map((b) => [b.getAttribute('data-kind'), b.firstChild?.textContent])).toEqual([['stale', 'office-pc から応答がありません'], ['remote', 'トランスクリプトは他の PC にあります']]);
   });
 
   it('札が無ければ何も描かない', () => {
@@ -44,7 +44,7 @@ describe('TocPane（目次だけの右パネル）', () => {
     setClientUserAgent(WINDOWS_UA);
     render(<LanguageRoot language="ja"><ActionRoot onAction={() => {}}><TocToggle open /></ActionRoot></LanguageRoot>);
     const btn = screen.getByRole('button', { name: '右パネルを閉じる' });
-    expect(btn).toHaveAttribute('title', '右パネルの開閉（Ctrl+J、ターミナルの中では Ctrl+Shift+J）');
+    expect(btn).toHaveAttribute('title', '右パネルの開閉（Ctrl+J、ターミナル内では Ctrl+Shift+J）');
     expect(btn).toHaveAttribute('aria-keyshortcuts', 'Control+J Control+Shift+J');
   });
 

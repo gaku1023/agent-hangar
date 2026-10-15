@@ -77,7 +77,7 @@ describe('NowCard の状態の行', () => {
     expect(card()).toHaveAttribute('data-tone', 'wait');
     expect(within(card()).getByText('4 分')).toBeInTheDocument();
     const q = within(card()).getByText('既存のテストを書き換えてよいですか？').closest('.nc-question')!;
-    expect(q).toHaveTextContent('Claude の問い');
+    expect(q).toHaveTextContent('Claude からの質問');
   });
 
   it('作業中、アイドル、裏だけ動いている、の灯の色を替える。裏の 1 行は問いの見出しを付けない', () => {
@@ -184,7 +184,7 @@ describe('NowCard の意図', () => {
     expect(intent).toHaveAttribute('title', 'Claude が記入、10:01、以降のツール呼び出し 3 回');
     expect(intent.textContent).not.toContain('「');
     m.rerender({ digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] } });
-    expect(within(card()).getByText('まだ意図が届いていません')).toBeInTheDocument();
+    expect(within(card()).getByText('意図は未記入')).toBeInTheDocument();
   });
 
   it('意図を送らない設定では、同じ場所に灰色の「依頼 · 時刻」と依頼の冒頭を出す（試作 2 節の推す案 A）', () => {
@@ -193,7 +193,7 @@ describe('NowCard の意図', () => {
     const req = card().querySelector('.nc-intent[data-kind="request"]')!;
     expect(req.querySelector('.nc-request-label')).toHaveTextContent('依頼 · 10:01');
     expect(req.querySelector('.nc-request-text')).toHaveTextContent('README の導入手順を直して');
-    expect(within(card()).queryByText('まだ意図が届いていません')).toBeNull();
+    expect(within(card()).queryByText('意図は未記入')).toBeNull();
     // 頭が読み込めていなければ、何も出さない。
     m.rerender({ events: [], turnFrom: 999 });
     expect(card().querySelector('.nc-intent-none')).toBeNull();
@@ -249,7 +249,7 @@ describe('NowCard のツール呼び出し', () => {
   it('サブエージェントの札は、1 本も無ければ出さない。あれば件数の名前で、押すと 1 本ずつの一覧が開く', () => {
     const m = mount();
     expect(within(card()).queryByRole('button', { name: /^サブエージェント/ })).toBeNull();
-    m.rerender({ digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a', title: 'テストの一覧を集める', state: 'done', report: 'checkout/ の 12 件を列挙した' }), agent({ agentId: 'b', title: '型を直す', linked: false })] } });
+    m.rerender({ digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a', title: 'テストの一覧を集める', state: 'done', report: 'checkout/ の 12 件を列挙した' }), agent({ agentId: 'b', title: '型 を編集', linked: false })] } });
     const chip = within(card()).getByRole('button', { name: 'サブエージェント 2' });
     expect(chip.querySelector('.live-dot')).toHaveAttribute('data-tone', 'running');
     fireEvent.click(chip);
@@ -257,7 +257,7 @@ describe('NowCard のツール呼び出し', () => {
     const rows = within(dialog).getAllByRole('button');
     expect(rows).toHaveLength(2);
     // 実行中が先、完了が後。本文を持たない（linked でない）本は押せない。
-    expect(rows[0]).toHaveTextContent('型を直す');
+    expect(rows[0]).toHaveTextContent('型 を編集');
     expect(rows[0]).toBeDisabled();
     expect(rows[1]).toHaveTextContent('「checkout/ の 12 件を列挙した」');
   });

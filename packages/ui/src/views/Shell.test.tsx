@@ -22,7 +22,7 @@ describe('Shell のホームの入力待ちの数', () => {
   const withCount = (n: number) => ({ ...props, nav: [{ ...props.nav[0]!, count: n }, props.nav[1]!] });
   it('入力待ちがあれば、ホームの項目に数を添え、読み上げでは何の数かを言う', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><Shell {...withCount(2)} overlays={null}><div>body</div></Shell></ActionRoot>);
-    const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const nav = within(screen.getByRole('navigation', { name: 'メインナビゲーション' }));
     const home = nav.getByRole('link', { name: 'ホーム、入力待ち 2' });
     expect(home.querySelector('.nav-count')).toHaveTextContent('2');
     expect(container.querySelectorAll('.nav-count')).toHaveLength(1);
@@ -38,7 +38,7 @@ describe('Shell のホームの入力待ちの数', () => {
 });
 
 describe('Shell のサイドバーの並び', () => {
-  const side = () => screen.getByRole('navigation', { name: '主ナビゲーション' });
+  const side = () => screen.getByRole('navigation', { name: 'メインナビゲーション' });
   const live = { count: 2, ids: ['a', 'b'], rows: [{ id: 'a', name: 'name-a', live: 'busy' as const, aside: false, reason: null, waited: null, current: false, stop: null }, { id: 'b', name: 'name-b', live: 'idle' as const, aside: false, reason: null, waited: null, current: false, stop: null }], more: 0 };
   it('項目は「ホーム」「プロジェクト」の 2 つと「実行中」の節で、設定は下端に置く。「セッション」の項目は無い', () => {
     render(<ActionRoot onAction={vi.fn()}><Shell {...props} live={live} overlays={null}><div>body</div></Shell></ActionRoot>);
@@ -61,7 +61,7 @@ describe('Shell', () => {
   it('ナビと検索が UiAction になる', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><Shell {...props} overlays={null}><div>body</div></Shell></ActionRoot>);
-    const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const nav = within(screen.getByRole('navigation', { name: 'メインナビゲーション' }));
     fireEvent.click(nav.getByRole('link', { name: 'プロジェクト', current: false }));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'projects' } });
     fireEvent.click(screen.getByRole('button', { name: '移動・操作' }));
@@ -81,7 +81,7 @@ describe('Shell', () => {
   it('サイドバーの中のボタンで開閉し、閉じてもナビの名前は残る', () => {
     const onAction = vi.fn();
     const { container, rerender } = render(<ActionRoot onAction={onAction}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);
-    const side = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const side = within(screen.getByRole('navigation', { name: 'メインナビゲーション' }));
     expect(within(screen.getByRole('banner')).queryByRole('button', { name: /サイドバー/ })).toBeNull();
     const toggle = side.getByRole('button', { name: 'サイドバーを閉じる' });
     expect(toggle.parentElement).toHaveClass('nav-row');
@@ -98,7 +98,7 @@ describe('Shell', () => {
     expect(side.getByRole('button', { name: 'サイドバーを開く' })).toHaveAttribute('aria-expanded', 'false');
     expect(side.getByRole('button', { name: 'サイドバーを開く' }).querySelector('.toggle-tip')).toHaveTextContent('開く⌘B');
     expect(container.querySelector('.shell')).toHaveAttribute('data-sidebar', 'collapsed');
-    const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const nav = within(screen.getByRole('navigation', { name: 'メインナビゲーション' }));
     expect(nav.getByRole('link', { name: 'プロジェクト' })).toBeInTheDocument();
     // 畳んでも組み立ては変えない。開閉の動きは、印だけを戻して前の形を測るからである（sidebarMotion.ts）。
     expect(side.getByRole('button', { name: 'サイドバーを開く' }).parentElement).toHaveClass('nav-row');
@@ -112,12 +112,12 @@ describe('Shell', () => {
     expect(header.queryByText('ホーム')).toBeNull();
     expect(header.queryByText('プロジェクト')).toBeNull();
     expect(screen.getByRole('banner').querySelector('.crumbs')).toBeNull();
-    expect(within(screen.getByRole('navigation', { name: '主ナビゲーション' })).queryByRole('link', { name: 'Hangar' })).toBeNull();
+    expect(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).queryByRole('link', { name: 'Hangar' })).toBeNull();
   });
   it('ワードマークを押すと Home へ行く', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);
-    const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const nav = within(screen.getByRole('navigation', { name: 'メインナビゲーション' }));
     const brand = within(screen.getByRole('banner')).getByRole('link', { name: 'Hangar' });
     expect(brand).toHaveAttribute('href', nav.getByRole('link', { name: 'ホーム' }).getAttribute('href'));
     fireEvent.click(brand);
@@ -156,7 +156,7 @@ describe('Shell', () => {
     const banner = within(screen.getByRole('status', { name: '接続の状態' }));
     expect(banner.getByText('アプリを再起動してください。ログ: ~/.agent-hangar/desktop.log')).toBeInTheDocument();
     expect(banner.queryByRole('button', { name: '再起動' })).toBeNull();
-    fireEvent.click(banner.getByRole('button', { name: 'ログの場所 をコピー' }));
+    fireEvent.click(banner.getByRole('button', { name: 'ログのパス をコピー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' });
   });
   it('ヘッダーに注意を置く。未読の数を札に出し、押すと一覧が開いて、行の操作を送れる', () => {
@@ -292,7 +292,7 @@ describe('Shell', () => {
     const pill = screen.getByRole('button', { name: '移動・操作' });
     expect(pill.querySelector('kbd')).toHaveTextContent('Ctrl+K');
     expect(pill).toHaveAttribute('title', '移動・操作（Ctrl+K または /）');
-    const side = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const side = within(screen.getByRole('navigation', { name: 'メインナビゲーション' }));
     expect(side.getByRole('button', { name: 'サイドバーを閉じる' }).querySelector('.toggle-tip')).toHaveTextContent('閉じるCtrl+B');
     // 読み上げには、ターミナルの中の Ctrl+Shift の打鍵も添える。
     expect(pill).toHaveAttribute('aria-keyshortcuts', 'Control+K Control+Shift+K');

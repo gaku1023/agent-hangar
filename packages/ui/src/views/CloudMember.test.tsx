@@ -42,7 +42,7 @@ describe('参加の段', () => {
     expect(screen.getByText('h.example')).toBeInTheDocument();
     const go = screen.getByRole('button', { name: 'この宛先に参加' });
     expect(go).toBeDisabled();
-    fireEvent.click(screen.getByRole('checkbox', { name: /hangar setup cloud で作ったクラウドです/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /hangar setup cloud で自分が作成したクラウドです/ }));
     fireEvent.click(go);
     expect(onAction).toHaveBeenCalledWith({ type: 'cloud.join.go', overwrite: false });
   });
@@ -51,7 +51,7 @@ describe('参加の段', () => {
     const onAction = vi.fn();
     const other = { ...plan, url: 'https://n.example', host: 'n.example', current: { url: 'https://o.example' }, change: 'other-cloud' as const };
     render(ui(<CloudJoinSteps m={props({ join: { kind: 'confirm', plan: other } })} onClose={() => {}} />, onAction));
-    expect(screen.getByText('この PC は既に別のクラウドに参加しています。')).toBeInTheDocument();
+    expect(screen.getByText('この PC はすでに別のクラウドに参加しています。')).toBeInTheDocument();
     expect(screen.getByText('https://o.example')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: '上書きして参加' }));
@@ -62,8 +62,8 @@ describe('参加の段', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(<CloudJoinSteps m={props({ join: { kind: 'failed', plan, failure: { code: 'forbidden', message: '' } } })} onClose={() => {}} />, onAction));
     expect(screen.getByRole('alert')).toHaveTextContent('この参加トークンは使えません');
-    expect(screen.getByText('この PC の設定には何も書いていません。')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '貼り直す' }));
+    expect(screen.getByText('この PC の設定は変更していません。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '貼り付け直す' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.join.cancel' });
     rerender(ui(<CloudJoinSteps m={props({ join: { kind: 'failed', plan, failure: { code: 'network', message: '' } } })} onClose={() => {}} />, onAction));
     fireEvent.click(screen.getByRole('button', { name: 'もう一度試す' }));
@@ -83,7 +83,7 @@ describe('PC の表', () => {
     expect(within(table).getByText('Chiba, Chiba, JP')).toBeInTheDocument();
     expect(within(table).getByText('192.0.2.10')).toBeInTheDocument();
     expect(within(table).getByText('Windows')).toBeInTheDocument();
-    expect(screen.getByText(/市区はよく外れます/)).toBeInTheDocument();
+    expect(screen.getByText(/市区は正確でないことがあります/)).toBeInTheDocument();
   });
 
   it('IPv6 の長い IP でも場所を先に置き、切られるのは IP だけで、IP の全文は title で読める', () => {
@@ -109,8 +109,8 @@ describe('PC の表', () => {
     render(ui(<CloudPcTable m={props()} heading="PC" />, onAction));
     expect(screen.queryByRole('button', { name: 'studio を同期から解除' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'desk を同期から解除' }));
-    expect(screen.getByText('desk を同期から解除しますか。')).toBeInTheDocument();
-    expect(screen.getByText('手放した PC、なくした PC のとき')).toBeInTheDocument();
+    expect(screen.getByText('desk を同期から解除しますか')).toBeInTheDocument();
+    expect(screen.getByText('PC を手放したとき、紛失したとき')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '解除' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.device.revoke', id: 'desk' });
   });
@@ -155,7 +155,7 @@ describe('この PC の参加を解除', () => {
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true })], creator: true, message: null };
     render(ui(<CloudLeaveBand m={props({ devices })} />));
     fireEvent.click(screen.getByRole('button', { name: '参加を解除…' }));
-    expect(screen.getByText('この PC はクラウドを作った PC です。')).toBeInTheDocument();
+    expect(screen.getByText('この PC はクラウドを作成した PC です')).toBeInTheDocument();
   });
 
   it('クラウドで解除できなかったときは理由を出し、再起動は押してもらう', () => {
@@ -177,7 +177,7 @@ describe('この PC が解除されたとき', () => {
   it('節の先頭に帯を出し、参加し直すか、同期の設定を削除するかを選べる', () => {
     const onAction = vi.fn();
     render(ui(<CloudRevokedBand m={props({}, { sync: { ...SYNC, state: 'error', revoked: true, pending: 3 } })} joinCommand="hangar join <token>" />, onAction));
-    expect(screen.getByRole('alert')).toHaveTextContent('この PC は同期から解除されました。');
+    expect(screen.getByRole('alert')).toHaveTextContent('この PC は同期から解除されました');
     expect(screen.getByRole('alert')).toHaveTextContent('3 件');
     fireEvent.click(screen.getByRole('button', { name: 'この PC の同期の設定を削除' }));
     expect(screen.queryByRole('checkbox', { name: /クラウドでもこの PC を解除する/ })).toBeNull();
@@ -212,7 +212,7 @@ describe('設定のクラウド同期の節', () => {
 
   it('この PC が解除されていれば、節の先頭に帯を出し、参加の解除の帯は出さない', () => {
     render(ui(<SettingsScreen {...page({ desktop: true, sync: { ...SYNC, state: 'error', revoked: true } })} />));
-    expect(screen.getByText('この PC は同期から解除されました。')).toBeInTheDocument();
+    expect(screen.getByText('この PC は同期から解除されました')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'この PC の参加を解除' })).toBeNull();
   });
 });
