@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSwipeDetector, swipeModeOf, SWIPE_IDLE_MS, SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS, SWIPE_THRESHOLD } from './swipe.ts';
+import WHEEL_LOG from './test/fixtures/windows-touchpad-wheel.json';
+import { createLiftDetector, createSwipeDetector, swipeModeOf, SWIPE_IDLE_MS, SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS, SWIPE_THRESHOLD } from './swipe.ts';
 
 const STEP = SWIPE_THRESHOLD / 6;
 
@@ -192,5 +193,113 @@ describe('手勢の終わりの決め方', () => {
     expect(SWIPE_RELEASE_GAP_MS).toBeLessThanOrEqual(200);
     expect(SWIPE_RELEASE_GAP_MS).toBeLessThan(SWIPE_STALE_HIDE_MS);
     expect(SWIPE_RELEASE_GAP_MS).toBeLessThan(SWIPE_IDLE_MS);
+  });
+});
+
+describe('Windows の殻で、0 の打鍵を指が離れた合図にする', () => {
+  it('手勢の最中の 0 の打鍵は lift、続く惰性は途切れるまで捨てる', () => {
+    const d = createLiftDetector();
+    expect(d.wheel({ deltaX: -40, deltaY: 0 }, false)).toBe('feed');
+    expect(d.wheel({ deltaX: -90, deltaY: 0 }, true)).toBe('feed');
+    expect(d.wheel({ deltaX: 0, deltaY: 0 }, true)).toBe('lift');
+    // 惰性の頭の細い打鍵も、同じ向きの太い惰性も捨てる。
+    expect(d.wheel({ deltaX: -2, deltaY: 0 }, false)).toBe('drop');
+    expect(d.wheel({ deltaX: -190, deltaY: 0 }, false)).toBe('drop');
+    expect(d.wheel({ deltaX: 0, deltaY: 0 }, false)).toBe('drop');
+    d.gap();
+    expect(d.wheel({ deltaX: -30, deltaY: 0 }, false)).toBe('feed');
+  });
+
+  it('離した後でも、逆向きに本気で引かれたら新しい手勢として受ける', () => {
+    const d = createLiftDetector();
+    d.wheel({ deltaX: 80, deltaY: 0 }, false);
+    expect(d.wheel({ deltaX: 0, deltaY: 0 }, true)).toBe('lift');
+    expect(d.wheel({ deltaX: 20, deltaY: 0 }, false)).toBe('drop');
+    expect(d.wheel({ deltaX: -2, deltaY: 0 }, false)).toBe('drop');
+    expect(d.wheel({ deltaX: -60, deltaY: 0 }, false)).toBe('feed');
+  });
+
+  it('手勢の外の 0 の打鍵（止めた指を後で離したとき）は捨てる', () => {
+    const d = createLiftDetector();
+    expect(d.wheel({ deltaX: 0, deltaY: 0 }, false)).toBe('drop');
+    expect(d.wheel({ deltaX: 30, deltaY: 0 }, false)).toBe('feed');
+  });
+});
+
+/**
+ * 記録の再生。Windows 11 の高精度タッチパッドを Edge で左右に 28 回引いたときの wheel の列（時刻、deltaX、deltaY だけ）。
+ * 弾いた回は「指の動き → 0 の打鍵 1 つ → 約 2 秒の惰性」の形で届く。
+ * Root の gap 分岐と同じ手順を、擬似の時計で流す。lift が false なら、途切れだけで離したとみなす前の作りである。
+ */
+type WheelRec = { n: number; result: 'back' | 'forward' | null; events: [number, number, number][] };
+const RECS = WHEEL_LOG as unknown as WheelRec[];
+
+function replayGap(events: [number, number, number][], lift: boolean) {
+  const swipe = createSwipeDetector();
+  const lifted = createLiftDetector();
+  let ended = false;
+  let timer: { at: number; run: (at: number) => void } | null = null;
+  const navs: { at: number; r: 'back' | 'forward' }[] = [];
+  const arms: number[] = [];
+  let armedSeen = false;
+  const release = (at: number) => {
+    ended = true;
+    armedSeen = false;
+    const r = swipe.release();
+    if (r) navs.push({ at, r });
+  };
+  for (const [t, dx, dy] of events) {
+    if (timer && timer.at <= t) { const f = timer; timer = null; f.run(f.at); }
+    if (lift) {
+      const step = lifted.wheel({ deltaX: dx, deltaY: dy }, !ended);
+      if (step !== 'feed') {
+        timer = { at: t + SWIPE_RELEASE_GAP_MS, run: () => lifted.gap() };
+        if (step === 'lift') release(t);
+        continue;
+      }
+    }
+    if (ended) { ended = false; swipe.begin(); }
+    timer = { at: t + SWIPE_RELEASE_GAP_MS, run: release };
+    swipe.feed({ deltaX: dx, deltaY: dy, at: t });
+    if (swipe.progress().armed && !armedSeen) { armedSeen = true; arms.push(t); }
+  }
+  if (timer) timer.run(timer.at);
+  return { navs, arms };
+}
+
+describe('Windows のタッチパッドの記録を再生する', () => {
+  const all = RECS.flatMap((r) => r.events).sort((a, b) => a[0] - b[0]);
+  const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]!; };
+  /** 身構えてから、その後の最初の遷移までの待ち。 */
+  const waits = (run: ReturnType<typeof replayGap>, arms: number[]) => arms.map((a) => run.navs.find((n) => n.at >= a)!.at - a);
+  const before = replayGap(all, false);
+  const after = replayGap(all, true);
+
+  it('途切れだけで決める前の作りは、弾いた回で惰性が尽きるまで（約 2 秒）待たされていた', () => {
+    expect(before.navs).toHaveLength(19);
+    expect(median(waits(before, before.arms))).toBeGreaterThan(1000);
+    expect(Math.max(...waits(before, before.arms))).toBeGreaterThan(4000);
+  });
+
+  it('0 の打鍵で離したとみなすと、身構えてから動くまでが 0.6 秒を超えない', () => {
+    const w = waits(after, before.arms);
+    expect(Math.max(...w)).toBeLessThan(600);
+    // 弾いた回（前の作りで 1 秒を超えて待たされた回）は 0.2 秒以内に動く。
+    const flicks = waits(before, before.arms).map((x, i) => [x, w[i]!] as const).filter(([x]) => x > 1000);
+    expect(flicks).toHaveLength(11);
+    expect(median(flicks.map(([, y]) => y))).toBeLessThan(200);
+  });
+
+  it('惰性で二度動かない。増えるのは、弾いた直後に逆へ引いた 1 回だけ', () => {
+    expect(after.navs).toHaveLength(20);
+    for (const rec of RECS) {
+      const from = rec.events[0]![0];
+      const to = rec.events[rec.events.length - 1]![0] + SWIPE_RELEASE_GAP_MS;
+      const here = after.navs.filter((n) => n.at >= from && n.at <= to).map((n) => n.r);
+      expect(new Set(here).size, `#${rec.n}`).toBe(here.length);
+      // 遷移した回は、記録の時と同じ向きで終わる。
+      if (rec.result) expect(here.at(-1), `#${rec.n}`).toBe(rec.result);
+      else expect(here, `#${rec.n}`).toEqual([]);
+    }
   });
 });
