@@ -68,6 +68,16 @@ describe('folderCandidates', () => {
     talk(kept, 1);
     expect(folderCandidates(db, DEV, env()).candidates.map((c) => c.path)).toEqual([kept]);
   });
+  it('作成場所そのものとその上は、登録できないので候補にしない（2026-10-15）', () => {
+    const ws = mk(home, 'ws');
+    talk(ws, 3);
+    talk(mk(home, 'ws-parent-sibling'), 1);
+    const outer = mk(tmp, 'outer');
+    const inner = mk(outer, 'root');
+    talk(outer, 2);
+    expect(folderCandidates(db, DEV, env({ workspaceRoot: ws })).candidates.map((c) => c.path)).toEqual([outer, path.join(home, 'ws-parent-sibling')]);
+    expect(folderCandidates(db, DEV, env({ workspaceRoot: inner })).candidates.map((c) => c.path)).not.toContain(outer);
+  });
   it('ホームフォルダを git で管理していても、ホームへはまとめない', () => {
     repo(home);
     const a = mk(home, 'a');

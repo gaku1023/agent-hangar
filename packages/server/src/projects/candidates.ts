@@ -51,7 +51,10 @@ export function folderCandidates(db: Db, deviceId: string, env: CandidateEnv): F
 
   /** ホームフォルダかその上（根を含む）。 */
   const aboveHome = (p: string) => samePath(p, home) || isStrictlyUnder(home, p) || p === path.parse(p).root;
-  const excluded = (p: string) => aboveHome(p) || hasHiddenPart(path.relative(path.parse(p).root, p))
+  /** 作成場所そのものかその上。登録が断るので、候補に出すと選んでも通らない（2026-10-15）。 */
+  const ws = hasWorkspaceRoot(env.workspaceRoot) ? normalizeDir(env.workspaceRoot) : null;
+  const aboveRoot = (p: string) => ws !== null && (samePath(p, ws) || isStrictlyUnder(ws, p));
+  const excluded = (p: string) => aboveHome(p) || aboveRoot(p) || hasHiddenPart(path.relative(path.parse(p).root, p))
     || tmps.some((t) => isUnder(p, t)) || isUnder(p, scratch) || known.some((k) => isUnder(p, k));
 
   const groups = new Map<string, Group>();
