@@ -20,12 +20,14 @@ Claude はまず読むだけで環境を調べ、いくつか質問し、提案�
 | 使ってよい hangar の CLI | すること |
 |---|---|
 | `hangar project candidates --json` | 会話したフォルダの候補を出す（読むだけ） |
-| `hangar project add <パス…> [--dry-run]` | プロジェクトとして登録し、その下の会話を紐づける |
+| `hangar project add <パス…> [--dry-run]` | プロジェクトとして登録し、その下の会話を紐づける。パスは 1 つずつ別の引数に分け、空白を含むものは引用符で囲む（例：`hangar project add ~/src/app "~/Desktop/週報 2026" --dry-run`） |
 | `hangar project remove <パス> [--dry-run]` | 登録を外す（会話は未分類に戻るだけで、本文は消えない） |
 | `hangar workspace set <dir> [--dry-run]` / `hangar workspace unset` | 新しいフォルダの作成場所を決める／決めていない状態に戻す |
-| `hangar mcp install` / `hangar statusline install` / `hangar shell install`（どれも `--dry-run` あり） | 連携を入れる |
+| `hangar mcp install` / `hangar statusline install` / `hangar shell install`（どれも `--dry-run` あり） | 連携を入れる。本番は承諾を得てから `--yes` を付けて打つ（ターミナルの y/n に答えられないため） |
+| `hangar shell status` | シェル連携が入っているかを見る（macOS だけ、読むだけ） |
 
 `--json` の答えは、成功なら `{"ok": true, …}`、失敗なら `{"error": "<符号>", "message": "…"}` の形になる。
+`project add` は、1 件でも `nested` か `error` が混ざると全体が `"ok": false` になる。全体の失敗と読まず、`results` を 1 件ずつ見る。
 `hangar` が PATH に無いとき、macOS は `/Applications/Hangar.app/Contents/Resources/server/bin/hangar` をそのまま使う。Windows はインストーラが PATH に足すので、新しいターミナルで開き直してもらう。
 サーバが止まっている（`server_down`、終了コード 2）ときは、アプリを開くよう頼み、開いてから続ける。
 
@@ -60,24 +62,30 @@ AskUserQuestion で 1 問ずつ、3〜5 問だけ聞く。推す答えを先頭�
 
 - 作業のまとまりを、フォルダ名ではなく本人の言葉で（「仕事のレポート」「趣味のアプリ」など）。候補の `recentTitles` を見せて、どれが同じまとまりかを確かめる。
 - 1 つのリポジトリの中の小さなフォルダ（モノレポのパッケージ）で起動しているとき、根で 1 つにまとめるか、分けるか。
-- 新しいフォルダを作る場所を決めたいか（下の 3b）。
+- 新しいフォルダを作る場所を決めたいか（下の 3b）。`suggestedRoot` が出ているときだけ聞く。
+
+「聞きたい」に入る候補が多いときは、同じ親の下にあるもの（デスクトップの下の 3 件など）を 1 問にまとめてよい。
 
 ## 3. 提案
 
 ### 3a. プロジェクトの表
 
 先に、候補を全部まとめて `hangar project add <候補のパス…> --dry-run --json` に通す（書かない）。
+この試しは、渡した順に前のものを登録したことにして判定するので、候補どうしの入れ子では `nested` が出たり出なかったりする。候補どうしの入れ子は、試しの結果ではなく候補の `enclosedBy`（`kind` が `candidate`）で見る。
+包む候補（例：デスクトップそのもの）と、その下の候補（例：デスクトップの下の資料のフォルダ）は、まとめて「どれを登録するか」の 1 問にする。包む側を登録すると、その下の会話も全部そこに入るからである。
 そのうえで、候補を次の順に見て、最初に当たった分け方に入れる。全部を登録しようとしない。
 
 | 順 | 当てはまるもの | 分け方 |
 |---|---|---|
-| 1 | dry-run の `status` が `nested` か `error` | しない（理由を添える） |
-| 2 | `notes` に `desktop-direct`、`downloads-direct`、`not-git` があるか、`enclosedBy` があるもの | 聞きたい |
-| 3 | 会話が 2 件以上か、最終日が 30 日以内 | 登録する |
-| 4 | 上のどれでもないもの（`single-session` かつ `stale-30d` など） | しない（未分類のまま残る） |
+| 1 | dry-run の `status` が `error`、または `nested` で相手（`enclosing`）が登録済みのプロジェクト（候補どうしの入れ子は除く） | しない（理由を添える） |
+| 2 | `notes` に `single-session` と `stale-30d` の両方がある | しない（未分類のまま残る） |
+| 3 | `notes` に `desktop-direct`、`downloads-direct`、`not-git` があるか、`enclosedBy` があるもの | 聞きたい |
+| 4 | 会話が 2 件以上か、最終日が 30 日以内 | 登録する |
+| 5 | 上のどれでもないもの | しない（未分類のまま残る） |
 
 迷ったら「しない」に入れる。あとから登録するのは簡単で、外すほうが手間だからである。
 「登録する」は束で 1 回だけ承諾を取る（外したい行は言ってもらえば外す）。「聞きたい」だけ 1 件ずつ聞く。
+聞き終えて登録するものが決まったら、その一覧だけでもう一度 `--dry-run` を通し、結果を見せてから本番を打つ。
 ホームフォルダの直下で起動した会話は候補に出ない。未分類のまま残してよい。
 
 ### 3b. 作成場所
@@ -102,13 +110,17 @@ AskUserQuestion で 1 問ずつ、3〜5 問だけ聞く。推す答えを先頭�
 
 | status | 意味 |
 |---|---|
-| `added` | 新しく登録した（`sessionCount` 件の会話が入る） |
+| `added` | 新しく登録した（`sessionCount` 件の会話が入る。下のフォルダの未分類の会話も含むので、候補の会話の数より多いことがある） |
 | `linked` | ほかの PC から届いた同じプロジェクトに結び付けた |
 | `already` | 登録済みだった。何もしていない |
 | `nested` | 登録済みのプロジェクト（`enclosing`）の下なので断られた |
 | `error` | そのほかの理由で断られた（`error` に理由） |
 
 `nested` は自分で回避せず、利用者に伝えてアプリで決めてもらう。
+
+連携が前提の不足で入れられないとき（`--dry-run` が失敗したとき）は、本番は打たずに、何を先にすればよいかだけを伝える。
+- MCP：`claude` が見つからないと入れられない。Claude Code を入れてから、もう一度この手引きを渡してもらう。
+- ステータスライン：Claude Code の `statusLine.command` が無いと入れられない。先に Claude Code で `/statusline` を実行してもらう。
 失敗した項目は、理由と一緒に最後にまとめて伝える。
 
 ## 5. 締め
