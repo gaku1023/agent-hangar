@@ -24,3 +24,4 @@ export * from './i18n/language.ts';
 export * from './i18n/keys.ts';
 export * from './i18n/t.ts';
 export * from './device.ts';
+export * from './setupGuide.ts';

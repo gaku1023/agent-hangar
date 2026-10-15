@@ -78,8 +78,8 @@ describe.skipIf(!host)('bundleServer', () => {
     // macOS の同梱物は、Windows の対応を足す前から変わらない。launch-cli.mjs は Windows だけに入る。
     expect(r.files.sort()).toEqual(
       onWindows
-        ? ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'hangar-run.mjs', 'launch-cli.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui']
-        : ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'hangar-run.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui'],
+        ? ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'docs', 'hangar-run.mjs', 'launch-cli.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui']
+        : ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'docs', 'hangar-run.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui'],
     );
 
     // バンドルが外部のまま残した import の宛先と、同梱した node_modules がぴたり一致することを見る。
@@ -147,6 +147,11 @@ describe.skipIf(!host)('bundleServer', () => {
       const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
       const html = await (await fetch(`http://127.0.0.1:4199/?t=${token}`)).text();
       expect(html).toContain('bundled-ui');
+      // 同梱のセットアップのすゝめ（隣の docs/）を、束ねたサーバが置き場へ写している。版の行は束ねたときのアプリの版である。
+      for (const name of ['setup-guide.md', 'setup-guide-habits.md']) {
+        expect(fs.readFileSync(path.join(out, 'docs', name), 'utf8')).toBe(fs.readFileSync(path.join(repoRoot, 'docs', name), 'utf8'));
+        expect(fs.readFileSync(path.join(home, name), 'utf8').split('\n')[0]).toMatch(new RegExp(`^<!-- hangar-setup-guide v${desktopVersion.replace(/\./g, '\\.')} sha256:[0-9a-f]{8} -->$`));
+      }
     } finally {
       child.kill('SIGTERM');
       await new Promise((r) => child.on('exit', r));

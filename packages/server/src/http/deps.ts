@@ -101,6 +101,11 @@ export type AppDeps = {
    * 試験だけが渡す。省けば、利用者のホームと OS の一時フォルダを使う。
    */
   candidateEnv?: Partial<Pick<CandidateEnv, 'homeDir' | 'tmpDirs'>>;
+  /**
+   * 同梱のセットアップのすゝめの md があるフォルダ（setupGuide/guide.ts）。
+   * 試験だけが渡す（null は同梱物が無い形）。省けば、配布物の隣とリポジトリの docs から探す。
+   */
+  setupGuideDir?: string | null;
   /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する（boot/http.ts は渡さない）。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;

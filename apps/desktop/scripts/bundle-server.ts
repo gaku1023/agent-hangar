@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bundleWorker, WORKER_METADATA, WORKER_MODULE, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 import { NODE_API_MIN, NODE_MIN_LABEL } from '../../../packages/server/src/config/nodeRule.ts';
+import { SETUP_GUIDE_FILES } from '../../../packages/server/src/setupGuide/guide.ts';
 
 /**
  * 配布物を作る相手。`<process.platform>-<process.arch>` の形で、prebuild の置き場の名前と同じである。
@@ -174,6 +175,11 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
 
   // Windows で claude を包むスクリプト。束には入らない単独のファイルで、server.mjs が隣から読む（launch/wrapper.ts）。
   fs.copyFileSync(path.join(opts.repoRoot, 'packages/server/src/launch/hangar-run.mjs'), path.join(opts.outDir, 'hangar-run.mjs'));
+
+  // セットアップのすゝめの md。束には入らない単独のファイルで、server.mjs が隣の docs/ から読み、起動のたびに置き場へ写す（setupGuide/guide.ts）。
+  // 束と同じく build のときの中身が入るので、版とハッシュは配布物ごとに決まる。
+  fs.mkdirSync(path.join(opts.outDir, 'docs'));
+  for (const name of SETUP_GUIDE_FILES) fs.copyFileSync(path.join(opts.repoRoot, 'docs', name), path.join(opts.outDir, 'docs', name));
 
   // sourcemap は配布物に入れない。
   // UI の写しの 68 パーセント（実測 2.19 MB）が index-*.js.map で、利用者の役には立たない。

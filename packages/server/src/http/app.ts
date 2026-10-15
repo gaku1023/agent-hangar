@@ -11,6 +11,7 @@ import { notifyRoutes } from './routes/notify.ts';
 import { bootstrapRoutes } from './routes/bootstrap.ts';
 import { beforeLaunchOf } from './routes/common.ts';
 import { instructionRoutes } from './routes/instructions.ts';
+import { setupGuideRoutes } from './routes/setupGuide.ts';
 import { memoRoutes } from './routes/memos.ts';
 import { projectRoutes } from './routes/projects.ts';
 import { promptRoutes } from './routes/prompt.ts';
@@ -137,6 +138,7 @@ export function createApp(deps: AppDeps): Hono {
   todoRoutes(api, deps);
   memoRoutes(api, deps);
   instructionRoutes(api, deps);
+  setupGuideRoutes(api, deps);
   artifactRoutes(api, deps);
   notifyRoutes(api, deps);
   gitRoutes(api, { ...deps, git: deps.git ?? new GitService({ db, deviceId, live: deps.live, broadcast: (git) => deps.hub.broadcast({ type: 'git.upsert', git }), exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; } }) });

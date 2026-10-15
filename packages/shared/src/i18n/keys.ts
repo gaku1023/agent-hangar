@@ -11,6 +11,7 @@ import { externalKeys } from './keys/external.ts';
 import { gitKeys } from './keys/git.ts';
 import { gitUiKeys } from './keys/gitUi.ts';
 import { editorKeys } from './keys/editor.ts';
+import { setupGuideKeys } from './keys/setupGuide.ts';
 import { headerKeys } from './keys/header.ts';
 import { homeKeys } from './keys/home.ts';
 import { interruptedKeys } from './keys/interrupted.ts';
@@ -90,6 +91,7 @@ export const MESSAGES = {
   ...gitKeys,
   ...gitUiKeys,
   ...editorKeys,
+  ...setupGuideKeys,
   ...externalKeys,
   ...headerKeys,
   ...homeKeys,

@@ -4,7 +4,8 @@ import { resolveToolPaths } from '../config/tools.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureWrapperScript } from '../launch/wrapper.ts';
 import { ensureSpawnHelper } from '../pty/helper.ts';
-import type { StartOptions } from './options.ts';
+import { VERSION, type StartOptions } from './options.ts';
+import { bundledGuideDir, syncSetupGuide } from '../setupGuide/guide.ts';
 import { languageReader, type GetLanguage } from '../i18n/language.ts';
 
 /**
@@ -40,6 +41,20 @@ export type HomeParts = {
 };
 
 /**
+ * 同梱のセットアップのすゝめ（docs/setup-guide.md）を置き場へ写す。中身が同じなら書かない。
+ * 写せなくても起動は止めない。画面の札が取りに来たとき（GET /api/setup-guide）にもう一度写す。
+ */
+function copySetupGuide(home: string): void {
+  try {
+    const dir = bundledGuideDir();
+    if (!dir) { console.warn('[setup-guide] 同梱の md が見つかりません'); return; }
+    syncSetupGuide(home, { version: VERSION, sourceDir: dir });
+  } catch (e) {
+    console.warn('[setup-guide] 置き場へ写せませんでした:', e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
  * 置き場と、そこに置く物を用意する。
  * 置き場、DB、トークン、statusline のヘッダ、端末の ID、設定、起動の包み、spawn-helper の順である。
  * DB を先に開くのは、起動を断る確かめだからである。起点より古い DB（DbTooOldError）と控えの取れない DB（DbBackupError）はここで投げ、
@@ -61,6 +76,7 @@ export function bootHome(opts: Pick<StartOptions, 'home' | 'claudeDir'> = {}): H
     // 書き戻すのは起動が通ってから（persistSettings）。
     const settings = { current: resolveToolPaths(loadSettings(home)) };
     ensureWrapperScript(home);
+    copySetupGuide(home);
     const fixed = ensureSpawnHelper();
     if (fixed.length) console.log('[pty] spawn-helper に実行権限を付けました:', fixed.join(', '));
 
