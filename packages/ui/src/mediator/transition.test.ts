@@ -85,7 +85,7 @@ describe('ナビゲーション', () => {
   });
   it('session 画面に入ると本文の先頭ページを読む', () => {
     const { effects } = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]);
-    expect(effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0 }, { kind: 'terminal.connect', sessionId: 's1', tabId: null }]);
+    expect(effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0 }, { kind: 'terminal.connect', sessionId: 's1', tabId: null }, { kind: 'focus', target: 'terminal' }]);
   });
   it('検索語は URL に乗り、sessions 画面で検索効果になる', () => {
     const a = run([action({ type: 'search.query', text: '動画' })]);
@@ -504,11 +504,13 @@ describe('タブと接続', () => {
       { kind: 'terminal.disconnectSession', sessionId: 's1' },
       { kind: 'api.loadEvents', sessionId: 's2', fromSeq: 0 },
       { kind: 'terminal.connect', sessionId: 's2', tabId: null },
+      { kind: 'focus', target: 'terminal' },
     ]);
     // 同じセッションに入り直すときは切らない。
     expect(run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], s).effects).toEqual([
       { kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0 },
       { kind: 'terminal.connect', sessionId: 's1', tabId: null },
+      { kind: 'focus', target: 'terminal' },
     ]);
   });
   it('見ていないセッションのタブが閉じても、そのセッションに繋ぎ直さない', () => {
@@ -1550,14 +1552,49 @@ describe('開いたら端末にフォーカス', () => {
     const { state, effects } = run([action({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]);
     expect(effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
     expect(effects).toContainEqual(focus);
-    expect(state.focusOnOpen).toBeNull();
   });
-  it('ふつうに開いたときと、別の画面に着いたときはフォーカスしない', () => {
-    const a = run([action({ type: 'session.open', id: 's1' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]);
-    expect(a.effects).not.toContainEqual(focus);
+  it('別の画面に着いたときはフォーカスしない', () => {
     const b = run([action({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'home' } })]);
     expect(b.effects).not.toContainEqual(focus);
-    expect(b.state.focusOnOpen).toBeNull();
+  });
+  // 開き方を問わず、セッション画面に着いたら端末へフォーカスする。端末が無ければ（終わったセッション）Runtime が何もしない。
+  const home = () => run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
+  const arrive = (moved?: number) => runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' }, ...(moved !== undefined ? { moved } : {}) });
+  it('一覧やサイドバーの行（session.open）で開いても、着いたら端末へフォーカスする', () => {
+    const a = run([action({ type: 'session.open', id: 's1' }), arrive()], home());
+    expect(a.effects).toContainEqual(focus);
+  });
+  it('パレットの行（nav.go）で開くと、パレットを閉じて端末へフォーカスする', () => {
+    const open: State = { ...home(), overlay: { kind: 'palette' } };
+    const a = run([action({ type: 'nav.go', to: { name: 'session', id: 's1' } }), arrive()], open);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.effects).toContainEqual(focus);
+  });
+  it('戻る・進む（スワイプやマウスのボタン）で着いても端末へフォーカスする', () => {
+    expect(run([arrive(-1)], home()).effects).toContainEqual(focus);
+    expect(run([arrive(1)], home()).effects).toContainEqual(focus);
+  });
+  it('URL を直に書き換えて（hangar:// のリンク、open_in_hangar）着いても端末へフォーカスする', () => {
+    expect(run([arrive(0)], home()).effects).toContainEqual(focus);
+    // 起動の直後（booting から最初の画面）も同じ。
+    expect(run([arrive()]).effects).toContainEqual(focus);
+  });
+  it('もう開いている画面へのリンク（同じ URL）でも、ダイアログが無ければ端末へフォーカスする', () => {
+    const at = run([arrive()], home()).state;
+    expect(run([arrive(0)], at).effects).toEqual([focus]);
+  });
+  it('確認や入力のあるダイアログが開いている間は、着いてもフォーカスを奪わない', () => {
+    const at = run([arrive()], home()).state;
+    const dialog: State = { ...at, overlay: { kind: 'newProject' } };
+    // 同じ URL に戻し直した（ダイアログの裏で戻る）ときも奪わない。
+    expect(run([arrive(0)], dialog).effects).not.toContainEqual(focus);
+    // ダイアログの中から意図して移る経路（起動の完了など）でダイアログが残っていても奪わない。
+    const fromDialog: State = { ...home(), overlay: { kind: 'newProject' } };
+    expect(run([arrive()], fromDialog).effects).not.toContainEqual(focus);
+  });
+  it('Claude のタブへ切り替えても端末へフォーカスする', () => {
+    const at = run([arrive()], home()).state;
+    expect(run([action({ type: 'tab.open', sessionId: 's1', kind: 'agent' })], at).effects).toContainEqual(focus);
   });
   it('もうその画面にいれば、移らずにフォーカスだけする', () => {
     const at = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;

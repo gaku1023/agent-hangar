@@ -839,6 +839,18 @@ describe('起動とターミナル', () => {
     setHash('#/session/s1');
     expect(terminals.connected).toEqual(['r1']);
   });
+  it('セッション画面に入ると生きた Claude タブにフォーカスし、終わったセッションでは何もしない', async () => {
+    const { rt, terminals, setHash } = harness();
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: launched.run, tabs: launched.tabs } });
+    setHash('#/session/s1');
+    expect(terminals.focus).toHaveBeenCalledWith('r1');
+    setHash('#/');
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...launched.run, endedAt: 2, endReason: 'exited' } } });
+    (terminals.focus as ReturnType<typeof vi.fn>).mockClear();
+    setHash('#/session/s1');
+    expect(terminals.focus).not.toHaveBeenCalled();
+  });
   it('tab.open は run を引いて API を呼び、届いたタブに繋ぐ', async () => {
     const tab = { id: 't1', runId: 'r1', sessionId: 's1', kind: 'shell' as const, title: 'シェル 1', tmuxName: 'hangar-r1-t1', createdAt: 2, closedAt: null };
     const { rt, api, terminals, setHash } = harness({ openTab: vi.fn(async () => tab) });

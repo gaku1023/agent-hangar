@@ -200,7 +200,7 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
     case 'tab.open': {
       if (i.kind === 'shell') return { state, effects: [{ kind: 'api.openTab', sessionId: i.sessionId }] };
       const r = patch(state, i.sessionId, { selectedTab: null });
-      return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: i.sessionId, tabId: null }] };
+      return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: i.sessionId, tabId: null }, { kind: 'focus', target: 'terminal' }] };
     }
     case 'tab.select': {
       const sid = currentSession(state);

@@ -55,6 +55,9 @@ function clampFontSize(v: unknown): number {
  */
 export const RETRY = { first: 1000, max: 30_000, attempts: 5 } as const;
 
+/** 前にあるダイアログが閉じるのを待つ描画の枚数。View Transitions で描き替えが 1 から 2 枚遅れても間に合う数にしてある（focusSoon と同じ）。 */
+const FOCUS_FRAMES = 10;
+
 /**
  * want は利用者の側がつないでおきたいタブか（connect の後、disconnect の前）。
  * 思いがけず切れたときだけつなぎ直すために持つ。
@@ -76,8 +79,29 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
    * 自動でつなぎ直す前に確かめ、生きていなければつなぎ直さない。
    * 渡さなければ生きているとみなす。
    */
-  alive?: (tabId: string) => boolean }): TerminalHost {
+  alive?: (tabId: string) => boolean;
+  /** ダイアログやメニューが前に出ているか。その間はフォーカスを奪わない。渡さなければ DOM の aria-modal と role="menu" を見る。 */
+  held?: () => boolean;
+  /** 次の描画を待つ。閉じる途中のダイアログが DOM から消えるのを待つのに使う。 */
+  nextFrame?: (cb: () => void) => void }): TerminalHost {
   const entries = new Map<string, Entry>();
+  const held = deps.held ?? (() => typeof document !== 'undefined' && document.querySelector('[aria-modal="true"], [role="menu"]') !== null);
+  const nextFrame = deps.nextFrame ?? ((cb: () => void) => { if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(cb); });
+  /**
+   * 開いている端末へのフォーカス。前にダイアログやメニューがあれば当てない。
+   * パレットから開いたときのように、閉じたことになっていても DOM からまだ消えていないことがあるので、何枚かの描画のあいだ当て直しを試す。
+   * 待つ間に次の focus が来たら、前の試しはやめる。
+   */
+  let focusTry = 0;
+  const focusWhenFree = (e: Entry, tries = FOCUS_FRAMES) => {
+    const my = ++focusTry;
+    const attempt = (left: number) => {
+      if (my !== focusTry) return;
+      if (!held()) { e.term.focus(); return; }
+      if (left > 0) nextFrame(() => attempt(left - 1));
+    };
+    attempt(tries);
+  };
   let fontSize: number = FONT_SIZE.default;
   try { fontSize = clampFontSize(deps.fontSize?.load() ?? FONT_SIZE.default); } catch { /* 読めなければ既定のまま */ }
   const listeners = new Set<() => void>();
@@ -203,7 +227,8 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       for (const [id, other] of entries) if (id !== tabId && other.opened) other.term.setGpu(false);
       e.term.setGpu(true);
       e.term.fit();
-      if (pendingFocus === tabId) { pendingFocus = null; e.term.focus(); }
+      // 描き終えた後の mount なので、前にダイアログやメニューがあれば、それは本当に開いている。当てずに捨てる。
+      if (pendingFocus === tabId) { pendingFocus = null; if (!held()) e.term.focus(); }
     },
     paste(tabId, text) {
       const e = entries.get(tabId);
@@ -226,7 +251,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       // 画面に戻ったときの focus は、新しい枠が付く前に走る。文書から外れた要素には当てずに mount を待つ。
       if (!e?.opened || !e.term.element?.isConnected) { pendingFocus = tabId; return; }
       if (pendingFocus === tabId) pendingFocus = null;
-      e.term.focus();
+      focusWhenFree(e);
     },
     subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
     dispose() {
