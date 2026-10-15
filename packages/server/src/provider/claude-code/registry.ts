@@ -4,7 +4,7 @@ import { waitKindOf, type LiveStatus } from '@agent-hangar/shared';
 import { Pacer } from '../../platform/pacer.ts';
 import { isAlive } from '../../platform/proc.ts';
 import type { LiveSession } from './types.ts';
-import { RegistryMissGate, registryDrifts, registryKey, registryStartedAt } from './compat/registry.ts';
+import { RegistryMissGate, registryDrifts, registryKey, registryRef, registryStartedAt } from './compat/registry.ts';
 import { isRec, NO_COMPAT, type CompatSink, type Drift } from './compat/types.ts';
 
 const STATUSES = new Set<LiveStatus>(['busy', 'idle', 'waiting']);
@@ -67,6 +67,7 @@ export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean
   const dir = path.join(claudeDir, 'sessions');
   if (!fs.existsSync(dir)) { carry?.clear(); return []; }
   const out: LiveSession[] = [];
+  const sockets = new Map<LiveSession, string>();
   const names = fs.readdirSync(dir);
   // 消えた登録の覚えは捨てる。同じ名前で書き直されたものを、前の中身で続けないためである。
   if (carry) { const present = new Set(names); for (const f of [...carry.keys()]) if (!present.has(f)) carry.delete(f); }
@@ -94,8 +95,14 @@ export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean
     if (rec.kind === 'bg' && typeof rec.jobId === 'string' && rec.jobId !== '') l.background = { jobId: rec.jobId };
     if (typeof rec.procStart === 'string' && rec.procStart !== '') l.procStart = rec.procStart;
     if (typeof rec.entrypoint === 'string' && rec.entrypoint !== '') l.entrypoint = rec.entrypoint;
+    if (l.name) l.address = l.name;
+    if (l.name && typeof rec.messagingSocketPath === 'string' && rec.messagingSocketPath !== '') sockets.set(l, rec.messagingSocketPath);
     out.push(l);
   }
+  // 同じ名前が 2 つ以上あると、名前だけでは SendMessage の相手が決まらない。ListAgents と同じ [ref] を添える。
+  const count = new Map<string, number>();
+  for (const l of out) if (l.name) count.set(l.name, (count.get(l.name) ?? 0) + 1);
+  for (const [l, sock] of sockets) if ((count.get(l.name!) ?? 0) > 1) l.address = `${l.name} [${registryRef(sock)}]`;
   return out.sort((a, b) => a.sessionId.localeCompare(b.sessionId));
 }
 

@@ -15,7 +15,7 @@ type KeysKey = { [K in MessageKey]: [MessageParamName<K>] extends ['keys'] ? K :
 export type KeyId =
   | 'palette.open' | 'app.reload' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'overlay.close'
-  | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'tab.move' | 'turn.move'
+  | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'session.copyAddress' | 'tab.move' | 'turn.move'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.state'
   | 'todo.move' | 'todo.toggle' | 'todo.edit' | 'todo.remove' | 'todo.reorder' | 'todo.reject' | 'todo.add' | 'todo.undo';
@@ -72,6 +72,9 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'tab.close', group: 'session', keys: '⌘W', terminal: '⌃⇧W', labelKey: 'shortcuts.key.tabClose', chords: [{ key: 'w', mod: true, shift: false }] },
   { id: 'split.toggle', group: 'session', keys: '⌘\\', terminal: '⌃⇧\\', labelKey: 'shortcuts.key.splitToggle', chords: [{ key: '\\', mod: true, shift: false }] },
   { id: 'transcript.toggle', group: 'session', keys: '⌘J', terminal: '⌃⇧J', labelKey: 'shortcuts.key.transcriptToggle', chords: [{ key: 'j', mod: true, shift: false }] },
+  // セッションの宛先（別の Claude に渡す 1 行）をコピーする。macOS の ⌘⇧C は、xterm も Claude Code も使っていない。
+  // ほかの OS の Ctrl+Shift+C はターミナルのコピーなので取らず、Ctrl+Alt+C にする（ターミナルの外だけで受ける）。
+  { id: 'session.copyAddress', group: 'session', keys: '⌘⇧C', keysOther: '⌃⌥C', labelKey: 'shortcuts.key.sessionCopyAddress', chords: [{ key: 'c', mod: true, shift: true, os: 'mac' }, { key: 'c', ctrlAlt: true, os: 'other' }] },
   // 終わったセッションのトランスクリプトが出ているときだけ受ける。ターミナルが出ているときは奪わない（Root.tsx）。
   { id: 'transcript.find', group: 'session', keys: '⌘F', labelKey: 'shortcuts.key.transcriptFind', chords: [{ key: 'f', mod: true, shift: false }] },
   { id: 'tab.move', group: 'session', keys: '← / →', labelKey: 'shortcuts.key.tabMove', chords: [] },

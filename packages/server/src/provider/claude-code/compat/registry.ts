@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { KNOWN_WAITING_FOR } from '@agent-hangar/shared';
 import { isRec, splitDriftValue, versionOfRecord, type Drift } from './types.ts';
 
@@ -88,4 +89,14 @@ export class RegistryMissGate {
     this.firstSeen = next;
     return out;
   }
+}
+
+/**
+ * SendMessage の宛先の [ref]（ListAgents が名前の後ろに添える 6 桁）。
+ * 同じ名前のセッションが 2 つ以上あるときに、名前と組にして相手を決める（`名前 [ref]`）。
+ * Claude Code は登録の messagingSocketPath から `session:<パス>` の sha256 を作り、先頭の 6 桁を使う。
+ * 公開の文書には無い形で、2.1.300 の本体と ListAgents の出力で確かめた（2026-10-15）。
+ */
+export function registryRef(socketPath: string): string {
+  return createHash('sha256').update(`session:${socketPath}`).digest('hex').slice(0, 6);
 }

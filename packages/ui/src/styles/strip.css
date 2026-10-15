@@ -135,3 +135,7 @@
 .turns-more-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* (i) のポップオーバーの、アカウントの色の点。 */
 .pop-row dd > .st-dot { margin-right: calc(var(--u) * 1.5); }
+/* 後ろにボタン（宛先の「コピー」、git の「一覧」）がある行。長い値（session_id など）は値の側だけを省き、ボタンは隠さない。 */
+.pop-row dd:has(> .detail-value) { display: flex; align-items: baseline; gap: calc(var(--u) * 1); }
+.pop-row dd > .detail-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pop-row dd > .detail-value ~ * { flex: none; }

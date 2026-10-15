@@ -12,7 +12,7 @@ const ALL_ALIVE = (): boolean => false;
 describe('readRegistry', () => {
   it('json だけを読み、3 値の status と名前を返す', () => {
     expect(readRegistry(FIXTURE_CLAUDE_DIR)).toEqual([
-      { sessionId: SESSION_ALPHA, status: 'busy', name: 'channels-cleanup', nameSource: 'user', cwd: '/Users/me/workspace/alpha', pid: 12345, entrypoint: 'cli', statusAt: 1788256800000 },
+      { sessionId: SESSION_ALPHA, status: 'busy', name: 'channels-cleanup', nameSource: 'user', cwd: '/Users/me/workspace/alpha', pid: 12345, entrypoint: 'cli', statusAt: 1788256800000, address: 'channels-cleanup' },
     ]);
   });
   it('バックグラウンドのセッションには jobId を、起動時刻があれば procStart を付ける', () => {
@@ -110,6 +110,29 @@ describe('readRegistry', () => {
       expect(readRegistry(dir, ALL_ALIVE, (d) => seen.push(d))).toEqual([{ sessionId: 'u-new', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 7 }]);
       expect(seen).toEqual([{ contract: 'registry', value: 'status=thinking', version: '2.1.300' }]);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('readRegistry の宛先（address）', () => {
+  it('名前が 1 つだけなら名前そのもの、重なれば [ref] を添え、名前が無ければ付けない', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.rmSync(path.join(sessions, '12345.json'));
+      const put = (pid: number, sessionId: string, name: string | undefined, sock?: string) =>
+        fs.writeFileSync(path.join(sessions, `${pid}.json`), JSON.stringify({ pid, sessionId, cwd: '/w', status: 'idle', ...(name ? { name } : {}), ...(sock ? { messagingSocketPath: sock } : {}) }));
+      put(1, 'u-a', 'solo', '/tmp/cc-socks/1.sock');
+      put(2, 'u-b', 'agent-hangar-ae', '/tmp/cc-socks/89008.sock');
+      put(3, 'u-c', 'agent-hangar-ae', '/tmp/cc-socks/15338.sock');
+      // 重なっていてもソケットが無ければ ref を作れないので、名前だけにする。
+      put(4, 'u-d', 'twin');
+      put(5, 'u-e', 'twin');
+      put(6, 'u-f', undefined, '/tmp/cc-socks/6.sock');
+      const by = Object.fromEntries(readRegistry(dir, ALL_ALIVE).map((l) => [l.sessionId, l.address]));
+      expect(by).toEqual({ 'u-a': 'solo', 'u-b': 'agent-hangar-ae [7cb314]', 'u-c': 'agent-hangar-ae [11e520]', 'u-d': 'twin', 'u-e': 'twin', 'u-f': undefined });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -314,7 +314,9 @@ export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Recor
 }
 
 export function getTranscriptTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const id = sessionIdOf(ctx, args);
+  // 読むだけの道具なので、セッション別 URL でも別のセッションを指せる。
+  // 画面からコピーした宛先の 1 行（session_id 入り）を渡された Claude が、そのセッションの様子を読むためである。
+  const id = str(args.session_id) ?? sessionIdOf(ctx, args);
   requireSession(deps, id);
   const includeTools = bool(args.include_tools) ?? false;
   const page = readEvents(deps.db, id, { fromSeq: num(args.from_seq), limit: num(args.limit) });

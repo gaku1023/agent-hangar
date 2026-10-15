@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRegistryDrift, registryDrifts } from './registry.ts';
+import { isRegistryDrift, registryDrifts, registryRef } from './registry.ts';
 
 describe('registryDrifts', () => {
   it('知っている status と、sessionId と pid があればずれは無い', () => {
@@ -26,5 +26,13 @@ describe('registryDrifts', () => {
   it('オブジェクトでない登録は 1 件のずれにする', () => {
     expect(registryDrifts([])).toEqual([{ contract: 'registry', value: 'entry=(not-object)', version: null }]);
     expect(registryDrifts(null)).toEqual([{ contract: 'registry', value: 'entry=(not-object)', version: null }]);
+  });
+});
+
+describe('registryRef', () => {
+  // 2.1.300 の ListAgents が出した [ref] と、そのセッションの登録の messagingSocketPath の組（2026-10-15 に手元で確かめた）。
+  it('ソケットのパスから、ListAgents の [ref] と同じ 6 桁を作る', () => {
+    expect(registryRef('/tmp/cc-socks/89008.sock')).toBe('7cb314');
+    expect(registryRef('/tmp/cc-socks/15338.sock')).toBe('11e520');
   });
 });

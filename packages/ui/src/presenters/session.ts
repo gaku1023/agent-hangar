@@ -101,7 +101,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
 /** セッション画面の git。 */
 export type SessionGitView = { chip: GitChipProps | null; files: GitFilesView };
 
-export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'stop';
+export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'copyAddress' | 'stop';
 /**
  * 操作の 1 つ。
  * disabled は押せない理由（押せるなら null）、note は下に添える 1 行。
@@ -257,13 +257,15 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
   const regenerate: SessionAction[] = f.gone || f.summaryOff ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
   const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: t('session.action.promote'), disabled: null, note: null }] : [];
   const editor = openEditor(editorLabel);
+  // 別の Claude に渡す宛先の 1 行。動いていても終わっていても写せる（終わったら session_id だけ）。
+  const copyAddress: SessionAction = { id: 'copyAddress', label: t('session.action.copyAddress'), disabled: null, note: null };
   if (running) {
     const alive = f.run?.alive === true;
     const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: t('session.action.attach'), disabled: null, note: t('session.action.attachNote') }]
       : f.outsideOpen === 'adopt' ? [{ id: 'adopt', label: t('session.action.adopt'), disabled: null, note: t('session.action.adoptNote') }] : [];
     return { primary: editor, menu: [
       ...(alive ? [{ id: 'openTerminal', label: t('session.action.openTerminal'), disabled: null, note: t('session.action.openTerminalNote') } satisfies SessionAction] : []),
-      ...outside, fork, ...regenerate, ...promote,
+      ...outside, fork, ...regenerate, ...promote, copyAddress,
       ...(alive ? [{ id: 'stop', label: t('session.action.stop'), disabled: null, note: null, danger: true } satisfies SessionAction] : []),
     ] };
   }
@@ -271,9 +273,9 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
     // 押せても、この PC にプロジェクトのフォルダが無ければ閉じる（理由は見出しの下にも出す、resumeHere.ts）。
     const blocked = f.canResumeHere ? f.noRoot?.reason ?? null : t('session.action.resumeHereBlocked', { device: dev ?? t('session.action.otherComputer') });
     const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: blocked, note: null };
-    return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote] };
+    return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote, copyAddress] };
   }
-  return { primary: resume, menu: [fork, editor, ...regenerate, ...promote] };
+  return { primary: resume, menu: [fork, editor, ...regenerate, ...promote, copyAddress] };
 }
 
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -449,8 +451,10 @@ const LAUNCH_KEY = { start: 'session.launch.start', resume: 'session.launch.resu
  * 値の無い行は出さない（効果レベルを選んでいない、権限モードを選ばなかった起動、変更も PR も無い、など）。
  * 権限モードは、起動のときに選んだ値で、起動のあとに Claude の中で切り替えた値は分からない（`RunDto.permissionMode`）。
  */
-export function presentDetails(s: SessionDto, run: RunDto | null, account: { name: string; color: string } | null, t: Translate): DetailRow[] {
-  const rows: DetailRow[] = [];
+export function presentDetails(s: SessionDto, run: RunDto | null, account: { name: string; color: string } | null, t: Translate, address: string | null = null): DetailRow[] {
+  // 先頭は、別の Claude に渡す宛先。動いていれば SendMessage の宛先、無ければ hangar の session_id を出す。コピーは同じ 1 行（sessionAddressLine）。
+  const copy = { label: t('session.details.copy'), send: { type: 'session.copyAddress', id: s.id } } satisfies DetailRow['link'];
+  const rows: DetailRow[] = [address ? { name: t('session.details.address'), value: address, mono: true, link: copy } : { name: t('session.details.id'), value: s.id, mono: true, link: copy }];
   const model = shortModel(s.stats.model);
   if (model) rows.push({ name: t('session.details.model'), value: model });
   if (s.stats.effort) rows.push({ name: t('session.details.effort'), value: s.stats.effort });
@@ -467,6 +471,25 @@ export function presentDetails(s: SessionDto, run: RunDto | null, account: { nam
   if (s.stats.prUrl) rows.push({ name: t('session.details.pr'), value: prLabel(s.stats.prUrl, t) });
   if (s.fromScratch) rows.push({ name: t('session.details.quick'), value: t('session.details.quickValue') });
   return rows;
+}
+
+/** そのセッションの登録（Claude Code の ~/.claude/sessions）。動いていなければ undefined。 */
+const liveOf = (store: Store, s: SessionDto) => (s.live === null ? undefined : store.live.find((l) => l.sessionId === s.providerSessionId));
+
+/**
+ * 別の Claude に渡す、そのセッションを指す 1 行（セッション画面の「宛先をコピー」）。
+ * 動いていれば SendMessage の宛先（登録の名前。重なるときは [ref] 付き、LiveSessionDto.address）と hangar の session_id、
+ * 終わっていれば session_id だけにして終了と添える（宛先はもう届かない）。session_id は get_transcript などの MCP で使う。
+ * 知らないセッションは null。
+ */
+export function sessionAddressLine(store: Store, id: string): string | null {
+  const s = store.sessions[id];
+  if (!s) return null;
+  const t = translatorOf(store);
+  const name = s.name ?? t('common.label.noName');
+  const address = liveOf(store, s)?.address;
+  if (address) return t('session.address.lineLive', { name, address, id });
+  return t(s.live === null ? 'session.address.lineEnded' : 'session.address.line', { name, id });
 }
 
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
@@ -557,7 +580,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: olderLeft, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
     strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t),
     // git の行は (i) の終わりに足す（ブランチ、worktree、作業ツリーの未コミット、このセッションの変更）。
-    details: [...presentDetails(s, run, account, t), ...gitDetailRows(t, store.git, id, store.sessions, store.gitChanges[id])],
+    details: [...presentDetails(s, run, account, t, liveOf(store, s)?.address ?? null), ...gitDetailRows(t, store.git, id, store.sessions, store.gitChanges[id])],
     gitFix: gitUnsafeFix(store.git, id),
     git: store.git.sessions[id] ? { chip: presentGitChip(t, store.git, id, store.sessions), files: presentGitFiles(t, store.gitChanges[id]) } : null,
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,

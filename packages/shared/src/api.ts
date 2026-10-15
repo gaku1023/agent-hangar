@@ -32,8 +32,9 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
  * entrypoint は claude を起こしたもの。ターミナルの CLI は cli、VS Code の拡張は claude-vscode になる。
  * aside は、本体は入力を受け付けていて、裏の作業だけが動いていることの印（LiveAsideDto）。無ければ付かない。
  * statusAt は動きが最後に変わった時刻（登録の statusUpdatedAt、ミリ秒）。裏だけかを決めるのに使う（server の live/aside.ts）。古い Claude は書かない。
+ * address は SendMessage の宛先（ListAgents の名前）。名前が重なるときだけ `名前 [ref]` にする。名前の無い登録には付かない。
  */
-export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number; waitingFor?: WaitKind; permission?: PermissionAskDto };
+export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; address?: string; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number; waitingFor?: WaitKind; permission?: PermissionAskDto };
 /**
  * 入力待ちが何を待っているか（登録の waitingFor を shared の waitKindOf で読み替えたもの）。
  * permission はツールの許可（Bash の確認など）、question は入力（MCP の入力など）、other はダイアログや知らない値である。

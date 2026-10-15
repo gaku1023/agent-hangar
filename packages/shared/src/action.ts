@@ -230,4 +230,7 @@ export type UiAction =
   | { type: 'account.refresh'; accountId: string }
   // デスクトップの殻に頼む操作。殻の無いブラウザでは、画面が場所のコピーと文の案内に落とす。
   | { type: 'shell.openLog' } | { type: 'shell.restart' }
-  | { type: 'clipboard.copy'; text: string };
+  // done は写せたときにトーストで出す知らせ。書けなかったときは出さない。
+  | { type: 'clipboard.copy'; text: string; done?: string }
+  // セッションの宛先（別の Claude に渡す 1 行、presenters/session.ts の sessionAddressLine）をコピーする。
+  | { type: 'session.copyAddress'; id: string };

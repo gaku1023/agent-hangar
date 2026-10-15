@@ -5,7 +5,7 @@ import { initialState } from '../mediator/transition.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { applyEventsPage, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime } from './format.ts';
-import { presentSession } from './session.ts';
+import { presentSession, sessionAddressLine } from './session.ts';
 
 const ja = translator('ja');
 
@@ -77,9 +77,9 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
 
   describe('詳細（i）の行', () => {
     const names = (p: ReturnType<typeof present>) => p.details.map((d) => d.name);
-    it('モデル、effort レベル、権限モード、開始、作業ディレクトリ、起動、ターンとトークンを順に並べる', () => {
+    it('宛先（登録が無ければ ID）の後に、モデル、effort レベル、権限モード、開始、作業ディレクトリ、起動、ターンとトークンを順に並べる', () => {
       const p = present(store(session({ live: 'busy' }), { ...run(), permissionMode: 'acceptEdits' }));
-      expect(names(p)).toEqual(['モデル', 'effort レベル', '権限モード', '開始', '作業ディレクトリ', '起動', 'ターンとトークン', 'コンテキスト使用量', 'コスト', '変更したファイル', 'PR']);
+      expect(names(p)).toEqual(['ID', 'モデル', 'effort レベル', '権限モード', '開始', '作業ディレクトリ', '起動', 'ターンとトークン', 'コンテキスト使用量', 'コスト', '変更したファイル', 'PR']);
       const row = (name: string) => p.details.find((d) => d.name === name)!;
       expect(row('モデル').value).toBe('sonnet 4.5');
       expect(row('effort レベル').value).toBe('high');
@@ -107,7 +107,7 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
     });
     it('値が無い行は出さない（権限モード、effort、起動の run、コンテキスト使用量、コスト、変更、PR）', () => {
       const bare = session({ stats: { ...stats, effort: null, filesChanged: 0, prUrl: null, contextPercent: null, costUsd: null } });
-      expect(names(present(store(bare)))).toEqual(['モデル', '開始', '作業ディレクトリ', 'ターンとトークン']);
+      expect(names(present(store(bare)))).toEqual(['ID', 'モデル', '開始', '作業ディレクトリ', 'ターンとトークン']);
     });
     it('アカウントが 2 件以上あるときだけアカウントの行を出す。色の点を添える', () => {
       const two = { ...store(), accounts: accountsFixture };
@@ -123,7 +123,7 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
     it('英語では行の名前も英語になる', () => {
       const st = store(session({ live: 'busy' }), { ...run(), permissionMode: 'plan' });
       st.settings = { language: 'en' } as SettingsDto;
-      expect(names(present(st)).slice(0, 3)).toEqual(['Model', 'Effort level', 'Permission mode']);
+      expect(names(present(st)).slice(0, 4)).toEqual(['ID', 'Model', 'Effort level', 'Permission mode']);
     });
   });
 
@@ -177,5 +177,36 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
         expect(presentSession(state, filled, NOW, 's1').turnCount).toEqual({ n: 1, plus: false });
       });
     });
+  });
+});
+
+describe('宛先のコピー（別の Claude に渡す 1 行）', () => {
+  const liveStore = (address?: string) => {
+    const st = store(session({ live: 'idle' }), run());
+    st.live = [{ sessionId: 'u1', status: 'idle', name: address ?? null, nameSource: 'user', cwd: '/w/web-shop', pid: 1, ...(address ? { address } : {}) }];
+    return st;
+  };
+  it('動いていれば、宛先と session_id の 1 行にする', () => {
+    expect(sessionAddressLine(liveStore('agent-hangar-ae [7cb314]'), 's1')).toBe('hangar のセッション「画像の遅延読み込み」（宛先: agent-hangar-ae [7cb314]、session_id: s1）');
+  });
+  it('登録に名前が無ければ session_id だけ、終わっていれば終了と添える', () => {
+    expect(sessionAddressLine(liveStore(), 's1')).toBe('hangar のセッション「画像の遅延読み込み」（session_id: s1）');
+    expect(sessionAddressLine(store(), 's1')).toBe('hangar のセッション「画像の遅延読み込み」（session_id: s1、終了）');
+    expect(sessionAddressLine(store(), 'ghost')).toBeNull();
+  });
+  it('英語でも 1 行にする', () => {
+    const st = liveStore('alpha');
+    st.settings = { ...st.settings, language: 'en' } as SettingsDto;
+    expect(sessionAddressLine(st, 's1')).toBe('hangar session "画像の遅延読み込み" (address: alpha, session_id: s1)');
+  });
+  it('(i) の先頭に宛先の行を置き、コピーの印を添える。終わったら ID の行にする', () => {
+    const p = present(liveStore('agent-hangar-ae'));
+    expect(p.details[0]).toEqual({ name: '宛先', value: 'agent-hangar-ae', mono: true, link: { label: 'コピー', send: { type: 'session.copyAddress', id: 's1' } } });
+    expect(present(store()).details[0]).toEqual({ name: 'ID', value: 's1', mono: true, link: { label: 'コピー', send: { type: 'session.copyAddress', id: 's1' } } });
+  });
+  it('「…」のメニューに「宛先をコピー」を、動いていても終わっていても置く', () => {
+    for (const st of [liveStore('a'), store()]) {
+      expect(present(st).actions.menu.find((a) => a.id === 'copyAddress')).toMatchObject({ label: '宛先をコピー', disabled: null });
+    }
   });
 });

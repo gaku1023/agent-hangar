@@ -328,3 +328,17 @@ describe('ターミナルの中の打鍵の表示', () => {
     expect(ariaKeyShortcuts('sidebar.toggle', false)).toBe('Control+B Control+Shift+B');
   });
 });
+
+describe('宛先のコピーの打鍵', () => {
+  it('macOS は ⌘⇧C で、ターミナルの中でも受ける。⌘C はコピーのまま', () => {
+    expect(matchKey({ key: 'C', code: 'KeyC', metaKey: true, shiftKey: true }, { mac: true })).toBe('session.copyAddress');
+    expect(matchKey({ key: 'C', code: 'KeyC', metaKey: true, shiftKey: true }, { mac: true, terminal: true })).toBe('session.copyAddress');
+    expect(matchKey({ key: 'c', code: 'KeyC', metaKey: true }, { mac: true })).toBeNull();
+  });
+  it('Windows と Linux は Ctrl+Alt+C で、Ctrl+Shift+C（ターミナルのコピー）は取らない', () => {
+    expect(matchKey({ key: 'c', code: 'KeyC', ctrlKey: true, altKey: true }, { mac: false })).toBe('session.copyAddress');
+    expect(matchKey({ key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true }, { mac: false })).toBeNull();
+    expect(matchKey({ key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true }, { mac: false, terminal: true })).toBeNull();
+    expect(labelOf('session.copyAddress')).toBe('セッションの宛先をコピー');
+  });
+});
