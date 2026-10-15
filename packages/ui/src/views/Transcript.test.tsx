@@ -425,13 +425,18 @@ describe('Transcript の本文', () => {
       { kind: 'assistant', seq: 3, text: long, when: '10:03' },
     ];
     const clamped = (c: HTMLElement, seq: number) => c.querySelector(`[data-seq="${seq}"] .clamp[data-clamped="true"]`) !== null;
-    const view = (items: TranscriptItem[], hasNewer = false) => <ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={true} live={false} remaining={0} hasNewer={hasNewer} /></ActionRoot>;
-    it('終わったセッションを開くと、最後の返答は全文で、前の返答は畳んだまま', () => {
+    const view = (items: TranscriptItem[], hasNewer = false, live = false) => <ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={true} live={live} remaining={0} hasNewer={hasNewer} /></ActionRoot>;
+    it('終わったセッションでは、返答をどれも畳まず全文で出し、開閉のボタンも置かない', () => {
       const { container } = render(view(two));
-      expect(clamped(container, 1)).toBe(true);
+      expect(clamped(container, 1)).toBe(false);
       expect(clamped(container, 3)).toBe(false);
-      // 開いていても「折りたたむ」で畳める。
-      expect(container.querySelector('[data-seq="3"] .clamp-more button')?.textContent).toBe('折りたたむ');
+      expect(container.querySelector('.msg-assistant .clamp-more')).toBeNull();
+      expect(container.querySelector('[data-seq="1"] .md')?.textContent).toContain('段落 64');
+      cleanup();
+    });
+    it('終わったセッションでも、利用者の長い指示は畳む', () => {
+      const { container } = render(view([{ kind: 'user', seq: 0, text: long, when: '10:00' }, ...two.slice(1)]));
+      expect(clamped(container, 0)).toBe(true);
       cleanup();
     });
     it('最後の行がツールでも、最後の返答を開く', () => {
@@ -439,8 +444,8 @@ describe('Transcript の本文', () => {
       expect(clamped(container, 3)).toBe(false);
       cleanup();
     });
-    it('後ろをまだ読んでいない（hasNewer）ときは、手元の最後の返答を最新とみなさない', () => {
-      const { container } = render(view(two, true));
+    it('後ろをまだ読んでいない（hasNewer）ときは、手元の最後の返答を最新とみなさない（返答を畳むのは動いているセッションだけ）', () => {
+      const { container } = render(view(two, true, true));
       expect(clamped(container, 3)).toBe(true);
       cleanup();
     });
