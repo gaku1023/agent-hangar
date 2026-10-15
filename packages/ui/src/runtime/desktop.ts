@@ -23,6 +23,8 @@ export type DesktopBridge = {
   update: UpdateBridge;
   /** クラウド同期への参加と、PC の解除と、この PC の参加の解除（0.4.0）。殻は必ず持つ。試験の偽物は省ける。 */
   cloud?: CloudBridge;
+  /** ターミナルに出たリンクを既定のブラウザで開く。殻が http と https だけを開く（src-tauri/src/links.rs）。殻は必ず持つ。試験の偽物は省ける。 */
+  openLink?(url: string): Promise<void>;
 };
 
 /** 殻のクラウド同期の命令の答え。失敗は符号（CLI の code か、殻の cannot-start、timeout など）と文で返す。 */
@@ -89,7 +91,7 @@ export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' 
 export type SetupShellOutcome = { status: 'written' | 'none' | 'cancelled' | 'failed' | 'busy'; message: string | null; code: string | null };
 
 /** 殻の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧にそろえる。 */
-export const DESKTOP_COMMANDS = { openLog: 'open_log', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration' } as const;
+export const DESKTOP_COMMANDS = { openLog: 'open_log', openLink: 'open_link', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration' } as const;
 
 const SETUP_STATUSES: ReadonlySet<string> = new Set(['written', 'none', 'cancelled', 'failed', 'busy']);
 
@@ -124,6 +126,7 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
   const invoke = internals.invoke.bind(internals);
   return {
     openLog: async () => { await invoke(DESKTOP_COMMANDS.openLog); },
+    openLink: async (url) => { await invoke(DESKTOP_COMMANDS.openLink, { url }); },
     restart: async () => { await invoke(DESKTOP_COMMANDS.restart); },
     // 取り消したら殻は null を返す。文字列でなければ取り消しと同じに扱う。
     pickFolder: async (defaultPath) => { const r = await invoke(DESKTOP_COMMANDS.pickFolder, { defaultPath }); return typeof r === 'string' ? r : null; },

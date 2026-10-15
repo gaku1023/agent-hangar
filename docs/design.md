@@ -1557,6 +1557,18 @@ Windows で pty を閉じるとき、node-pty は子のコンソールの一覧�
   Option を押しながら選んだ範囲は、これまでどおり ⌘C で写る。
 - macOS の ⌘⌫ は Ctrl+U（行の頭まで消す）を送る。
   xterm は ⌘⌫ を素の Backspace として送り、1 文字しか消えないので、Terminal.app と iTerm2 の動きにそろえる。
+- 端末に出たリンクは、修飾キー付きのクリック（macOS は ⌘、ほかは Ctrl）で既定のブラウザに開く（`runtime/terminalLinks.ts`）。
+  素のクリックは今までどおり文字の選択とフォーカスに使う。macOS の Ctrl+クリックは右クリックなので使わない。
+  地の文の URL は `@xterm/addon-web-links` で拾い、折り返しをまたぐ長い URL も 1 本として拾う（tmux を通しても、tmux が折り返しの印を付けて描き直すので切れない。2026-10-15 に tmux 3.6a で確かめた）。
+  Claude Code が出す OSC 8 のハイパーリンクは xterm の `linkHandler` で受ける。
+  開くのは http と https だけで、`file:` などは開かない。頁でも殻でも同じ線を引く。
+  開く先は、デスクトップ版では殻の命令 `open_link`（`src-tauri/src/links.rs`。ログを開くのと同じく macOS は `/usr/bin/open`、Windows は `url.dll,FileProtocolHandler`）、ブラウザで開いた UI では新しいタブである。
+  下線とポインタは、修飾キーを押している間だけ出す（試作 terminal-links の案 A、2026-10-15 の利用者の決定）。
+  xterm は置いただけで下線とポインタを出すので、リンクの提供元を包み、提供するリンクの飾りを押し下げに合わせる。
+  OSC 8 の提供元は xterm の組み込みで公開の API では差し替えられないので、xterm の内側の一覧（`_core._linkProviderService.linkProviders`）を包む。
+  置き場が変われば包まずに xterm の既定の飾りに戻り、`views/xtermLinkProviders.test.ts` が落ちて知らせる。
+  OSC 8 のリンクの文字には、置いていなくても xterm 自身が点線の下線を描く（xterm 6 はセルの属性で下線の種類を点線に固定する）。これは設定で消せないので残している。
+  `mouse on` の tmux では、修飾キー付きのクリックも tmux へマウスの列として届く（素のクリックと同じ）。
   ⌘← と ⌘→ は hangar の「戻る」「進む」なので、行の頭と終わりへの移動には割り当てない。
 - ⌘+ と ⌘− と ⌘0 はターミナルの文字の大きさを 1px ずつ変える（既定 13、8 から 32）。
   全部のタブに効かせて寸法を合わせ直し、大きさは localStorage に覚える。
@@ -4407,6 +4419,7 @@ hangar は、専用の tmux サーバ（`-L hangar`）に端末のための設�
 - `copy-command` を `LC_CTYPE=UTF-8 pbcopy` にする（空か、前の版が入れた素の `pbcopy` のときだけ）。iTerm2 は既定で端末のアプリからのクリップボードへの書き込み（OSC 52）を許さないので、マウスで選んだ範囲を直接クリップボードへ渡す。
   pbcopy はロケールで文字コードを決める。tmux サーバの環境には `LANG` が無いことが多く、素の `pbcopy` では日本語を写すとクリップボードが空になる（2026-10-02 に hangar の画面で起きた）。
 - `extended-keys` を `on` にし（`off` のときだけ）、`extended-keys-format` を `csi-u` にし、`terminal-features` に `xterm*:extkeys` を足す。外の端末から Shift+Enter を区別して受けるためである。
+- `terminal-features` に `xterm*:hyperlinks` を足す（どこかの項目にもう `hyperlinks` があれば足さない）。無いと tmux は中のプログラムの OSC 8 のハイパーリンクを捨て、hangar の画面でリンクにならない（2026-10-15 に tmux 3.6a で確かめた）。hyperlinks は tmux 3.4 からの項目で、Windows の psmux には入れない。
 - `focus-events` を `on` にする（`off` のときだけ）。中の Claude Code に端末の前後の切り替わりを渡す。`off` のままだと、Claude Code は画面の下に「tmux focus-events off」の注意を出す（0.6.0-rc.1 で専用のサーバに移ったあとに見つけた）。既定が `off` なので、`extended-keys` と同じく `off` を利用者の値と見分けられず、`on` にする。Windows の psmux には入れない。
 - `S-Enter` を、hangar の run のセッション（`hangar-<id>`）でだけ ESC CR に変える。tmux は CSI u の Shift+Enter を素の CR に潰すので、Claude Code が改行と読む ESC CR を送る。シェルタブとほかのセッションには Shift+Enter のまま送る。
 2026-10-01 に、この設定の tmux へ iTerm2 からつなぎ、Shift+Enter の改行、スクロール、ドラッグでのコピーが動くことを確かめた。通知は確かめていない。

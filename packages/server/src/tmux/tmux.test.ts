@@ -120,6 +120,15 @@ describe('Tmux.ensureTerminalOptions（偽の実行）', () => {
     new Tmux({ tmuxPath: 'psmux', platform: 'win32', exec }).ensureTerminalOptions();
     expect(calls.filter((a) => a.includes('set-option') || a.includes('bind-key'))).toEqual([]);
   });
+  it('OSC 8 のハイパーリンクを通す hyperlinks を足し、どこかの項目にもうあれば足さない', () => {
+    const add = ['set-option', '-as', 'terminal-features', 'xterm*:hyperlinks'];
+    const a = recorder({ 'show-options -s -v extended-keys': 'on', 'show-options -s -v terminal-features': 'xterm*:clipboard:title\nxterm*:extkeys' });
+    new Tmux({ tmuxPath: 'tmux', platform: 'darwin', exec: a.exec }).ensureTerminalOptions();
+    expect(a.calls).toContainEqual(add);
+    const b = recorder({ 'show-options -s -v extended-keys': 'on', 'show-options -s -v terminal-features': 'xterm*:clipboard:hyperlinks:title\nxterm*:extkeys' });
+    new Tmux({ tmuxPath: 'tmux', platform: 'darwin', exec: b.exec }).ensureTerminalOptions();
+    expect(b.calls).not.toContainEqual(add);
+  });
   it('macOS では、空の copy-command に pbcopy を入れる', () => {
     const { calls, exec } = recorder({ 'show-options -s -v extended-keys': 'on' });
     new Tmux({ tmuxPath: 'tmux', platform: 'darwin', exec }).ensureTerminalOptions();
@@ -298,6 +307,8 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
       expect(show(t, 'extended-keys')).toBe('on');
       if (HAS_FORMAT) expect(show(t, 'extended-keys-format')).toBe('csi-u');
       expect(show(t, 'terminal-features')).toContain('xterm*:extkeys');
+      // 無いと tmux は中のプログラムの OSC 8 のハイパーリンクを捨て、hangar の画面のリンクにならない。
+      expect(show(t, 'terminal-features')).toContain('xterm*:hyperlinks');
       expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
       done();
     });
@@ -316,6 +327,7 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
       t.ensureTerminalOptions();
       t.ensureTerminalOptions();
       expect(show(t, 'terminal-features').split('\n').filter((l) => l.includes('xterm*:extkeys'))).toHaveLength(1);
+      expect(show(t, 'terminal-features').split('\n').filter((l) => l.includes('hyperlinks'))).toHaveLength(1);
       done();
     });
 
