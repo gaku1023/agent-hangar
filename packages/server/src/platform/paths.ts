@@ -37,3 +37,18 @@ export function isStrictlyUnder(p: string, dir: string, platform: NodeJS.Platfor
 export function isUnder(p: string, dir: string, platform: NodeJS.Platform = styleOf(dir)): boolean {
   return samePath(p, dir, platform) || isStrictlyUnder(p, dir, platform);
 }
+
+/** ファイルシステムの根か（/、C:\、\\server\share）。 */
+export function isFsRoot(p: string, platform: NodeJS.Platform = styleOf(p)): boolean {
+  if (platform !== 'win32') return p === '/';
+  return /^[A-Za-z]:[\\/]?$/.test(p) || /^\\\\[^\\/]+[\\/][^\\/]+[\\/]?$/.test(p);
+}
+
+/**
+ * 作業フォルダにも、フォルダの信頼の置き場にもできない場所か。ホームそのもの、ホームより上（ホームを中に含む場所）、ファイルシステムの根である。
+ * 作業フォルダにすると直下が全部プロジェクトとして登録され、信頼の置き場にするとホームの下が全部信頼済みになる。
+ * CLI の hangar workspace set と、サーバの POST /api/workspace/trust が同じ規則で断る。dir と home は resolve 済みのものを渡す。
+ */
+export function coversHome(dir: string, home: string): boolean {
+  return isUnder(home, dir) || isFsRoot(dir);
+}

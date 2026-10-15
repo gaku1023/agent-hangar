@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Hono } from 'hono';
 import type { FolderRegisterItem, FolderRegisterPreviewDto, FolderRegisterResultDto, ProjectDto, ProjectNestedDto, ProjectSameFolderDto, ResolveAction, UnlinkPreviewDto } from '@agent-hangar/shared';
@@ -10,7 +11,7 @@ import { folderCandidates } from '../../projects/candidates.ts';
 import { registerFolders } from '../../projects/registerMany.ts';
 import { tryWrites } from '../../db/notify.ts';
 import { assignSessions, candidateDirs, hasWorkspaceRoot, listWorkspaceDirs, mergeDirection, mergePreview, mergeProjects, normalizeDir, resolveProject, rootConflict } from '../../projects/registry.ts';
-import { samePath } from '../../platform/paths.ts';
+import { coversHome, samePath } from '../../platform/paths.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, readJson, tooLargeResult } from './common.ts';
@@ -191,16 +192,20 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     if (dryRun !== undefined && typeof dryRun !== 'boolean') return c.json({ error: tr('common.field.required', { field: 'dryRun' }) }, 400);
     if (!deps.trustWorkspace) return c.json({ error: tr('common.field.required', { field: 'trustWorkspace' }) }, 400);
     const root = path.resolve(raw);
+    // ホームそのもの、ホームより上、ファイルシステムの根は、試しでも断る（CLI の hangar workspace set と同じ規則）。
+    if (coversHome(root, path.resolve(deps.candidateEnv?.homeDir ?? os.homedir()))) return c.json({ error: tr('settings.trust.homeOrAbove', { path: root }) }, 400);
     const label = tr('settings.label.workspaceRoot');
     const st = fs.statSync(root, { throwIfNoEntry: false });
     if (!st) return c.json({ error: tr('settings.path.missing', { label, path: root }) }, 400);
     if (!st.isDirectory()) return c.json({ error: tr('settings.path.notDirectory', { label, path: root }) }, 400);
-    if (dryRun === true) return c.json(deps.trustWorkspace(root, true));
+    if (dryRun === true) return c.json({ ...deps.trustWorkspace(root, true), consentRecorded: false });
     const current = deps.settings().workspaceRoot;
     if (!hasWorkspaceRoot(current)) return c.json({ error: tr('settings.trust.noRoot') }, 400);
     if (!samePath(normalizeDir(root), normalizeDir(current))) return c.json({ error: tr('settings.trust.notRoot', { path: root, root: current }) }, 400);
+    // 同意は、書き込みが全部失敗しても残す。以後の起動で、起こすアカウントの設定に書くからである（runs/manager.ts の trustFolder）。
+    // そのことを返事の note で明示し、失敗の行だけを見て「同意も取り消された」と読まれないようにする。
     deps.updateSettings({ trustedWorkspaceRoot: current });
-    return c.json(deps.trustWorkspace(current, false));
+    return c.json({ ...deps.trustWorkspace(current, false), consentRecorded: true, note: tr('settings.trust.consentRecorded') });
   });
   api.post('/workspace/register', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);

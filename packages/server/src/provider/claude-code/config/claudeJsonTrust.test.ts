@@ -94,6 +94,41 @@ describe('trustFolders', () => {
     expect(read()).toEqual({ late: 1, projects: { '/late': { hasTrustDialogAccepted: false }, [a]: { hasTrustDialogAccepted: true } } });
   });
 
+  it('置き場のフォルダがまだ無ければ（登録したばかりのアカウント）、投げずに missing で返す', () => {
+    const none = path.join(root, 'none', '.claude.json');
+    expect(trustFolders(none, [a], { backupDir: backups })).toMatchObject({ added: [], backup: null, missing: true });
+    expect(untrustedFolders(none, [a])).toBeNull();
+    expect(fs.existsSync(path.join(root, 'none'))).toBe(false);
+  });
+
+  it('読み直したら書き足すものが無くなっていたときは、控えを残さない', () => {
+    fs.writeFileSync(file, JSON.stringify({ projects: {} }));
+    const r = trustFolders(file, [a], {
+      backupDir: backups,
+      onBeforeWrite: () => fs.writeFileSync(file, JSON.stringify({ projects: { [a]: { hasTrustDialogAccepted: true } } })),
+    });
+    expect(r).toMatchObject({ added: [], backup: null, missing: false });
+    expect(fs.readdirSync(backups)).toEqual([]);
+  });
+
+  it('信頼の控えは新しいものから 5 つだけ残す。MCP の登録の控えには触らない', () => {
+    fs.mkdirSync(backups, { recursive: true });
+    fs.writeFileSync(path.join(backups, 'claude.json-20260101000000'), '{}');
+    fs.writeFileSync(file, JSON.stringify({ projects: {} }));
+    const kept: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = path.join(root, 'work', `d${i}`);
+      fs.mkdirSync(d);
+      const r = trustFolders(file, [d], { backupDir: backups, now: new Date(2026, 9, 16, 12, 0, i) });
+      kept.push(path.basename(r.backup!));
+    }
+    // 同じ秒に取った控え（-2 の付いたもの）も、取った順に数える。
+    const same = trustFolders(file, [path.join(root, 'work', 'late')], { backupDir: backups, now: new Date(2026, 9, 16, 12, 0, 6) });
+    kept.push(path.basename(same.backup!));
+    expect(kept.at(-1)).toMatch(/-2$/);
+    expect(fs.readdirSync(backups).sort()).toEqual(['claude.json-20260101000000', ...kept.slice(-5)].sort());
+  });
+
   posixIt('シンボリックリンクの .claude.json はリンクのまま残し、実体に書く', () => {
     const real = path.join(root, 'dotfiles.json');
     fs.writeFileSync(real, JSON.stringify({ projects: {} }));

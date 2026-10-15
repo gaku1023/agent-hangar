@@ -324,4 +324,6 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.register.folder': 'フォルダの中から…',
   'settings.trust.noRoot': '作業フォルダが決まっていません。先に作業フォルダを決めてください',
   'settings.trust.notRoot': '{path} はいまの作業フォルダ（{root}）ではありません。信頼済みにできるのは、いまの作業フォルダだけです',
+  'settings.trust.homeOrAbove': '{path} は信頼済みにできません。ホームフォルダとその上、ファイルシステムの根を信頼すると、その下が全部信頼済みになるためです',
+  'settings.trust.consentRecorded': '同意は記録しました。書けなかった分も含め、次の書き込みは hangar から Claude を起こすときに行います',
 };

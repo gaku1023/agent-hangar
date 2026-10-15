@@ -71,8 +71,11 @@ export class RunAccounts {
 export type SwitchHost = {
   session(sessionId: string): { id: string; provider_session_id: string; cwd: string };
   hasBody(sessionId: string): boolean;
-  /** その cwd で起動できるかを確かめる。 */
-  precheck(cwd: string): void;
+  /**
+   * そのセッションを再開する cwd で起動できるかを確かめる。
+   * cwd は共有の行のものではなく、再開に使う形（ほかの PC のパスをこの PC へ読み替えた後）である。
+   */
+  precheck(sessionId: string): void;
   /** Claude のバックグラウンドのサービスが持つセッションか。 */
   isBackground(providerSessionId: string): boolean;
   /** Claude のレジストリに残っているか。 */
@@ -97,7 +100,7 @@ export async function switchAccount(accounts: RunAccounts, host: SwitchHost, ses
   accounts.envFor(account);
   // resume の前提も止める前に確かめる。本文が無いと、止めた時点でセッションの行ごと消え、起こし直せない。
   if (!host.hasBody(s.id)) throw new RunError(400, msg('account.switch.noTranscript'));
-  host.precheck(s.cwd);
+  host.precheck(s.id);
   // バックグラウンドのサービスは置き場ごとに別で、jobs と sessions は共有のリンクになる。この組み合わせの動きは実物で確かめていないので、確かめが済むまで断る。
   if (host.isBackground(s.provider_session_id)) throw new RunError(409, msg('account.switch.background'));
   const alive = host.aliveRun(s.id);

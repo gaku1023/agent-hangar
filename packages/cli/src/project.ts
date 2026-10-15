@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { samePath } from '@agent-hangar/server/src/cliEntry.ts';
+import { coversHome, samePath } from '@agent-hangar/server/src/cliEntry.ts';
 import type { CandidateNote, FolderCandidateDto, FolderCandidatesDto, FolderRegisterOutcomeDto, FolderRegisterPreviewDto, FolderRegisterResultDto, ProjectDto, SettingsDto, UnlinkPreviewDto, WorkspaceRootPreviewDto, WorkspaceTrustDto } from '@agent-hangar/shared';
 import { serverDownMessage } from './probe.ts';
 
@@ -270,6 +270,9 @@ export function projectRemoveCommand(o: ApiCommandOptions & { target: string; dr
 
 // ---- workspace ----
 
+/** 同意を残したこと（--trust の本番）。書き込みが全部失敗しても同意は残り、以後の起動で書く。 */
+const CONSENT_RECORDED = '同意は記録しました。書けなかった分も含め、次の書き込みは hangar から Claude を起こすときに行います。';
+
 /** 後から置いたリポジトリがどうなるか（--trust）。 */
 const TRUST_LATER = '後から作成場所の下に置いたリポジトリも、hangar から起こすときに信頼済みにします。';
 
@@ -323,7 +326,7 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean; trust?: boolean }, ro
     // 信頼は保存の後に書く。サーバはいまの作業フォルダだけを信頼済みにする。
     const trust = o.trust && saved.workspaceRoot !== '' ? await call<WorkspaceTrustDto>(o, 'POST', '/api/workspace/trust', { path: saved.workspaceRoot }) : null;
     const code = trustFailed(trust) ? 1 : 0;
-    if (o.json) { log(JSON.stringify({ ok: code === 0, dryRun: false, workspaceRoot: saved.workspaceRoot, registered, ...(trust ? { trust } : {}) })); return code; }
+    if (o.json) { log(JSON.stringify({ ok: code === 0, dryRun: false, workspaceRoot: saved.workspaceRoot, registered, ...(trust ? { consentRecorded: trust.consentRecorded === true, trust } : {}) })); return code; }
     if (saved.workspaceRoot === '') {
       log('作成場所を空にしました（未設定）。');
       log(UNSET_EFFECT);
@@ -336,6 +339,8 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean; trust?: boolean }, ro
       for (const p of registered) log(`  ${p.path}（名前 ${p.name}）`);
     }
     if (trust) for (const l of trustLines(trust)) log(l);
+    // 同意は書き込みが全部失敗しても残る（以後の起動で書く）。exit 1 でも同意が消えたと読まれないよう、ここで言う。
+    if (trust?.consentRecorded) log(CONSENT_RECORDED);
     return code;
   });
 }
@@ -352,9 +357,7 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean; trust?: boolean }, ro
 export function workspaceSetCommand(o: ApiCommandOptions & { dir: string; dryRun: boolean; trust?: boolean; cwd?: string; homeDir?: string }): Promise<number> {
   const root = absolutePath(o.dir, o);
   const home = path.resolve(o.homeDir ?? os.homedir());
-  const rel = path.relative(root, home);
-  const coversHome = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-  if (coversHome || path.parse(root).root === root) {
+  if (coversHome(root, home)) {
     return guarded(o, async () => { throw new CommandError('rejected', `${root} は作成場所にできません。ホームフォルダとその上、ファイルシステムの根を選ぶと、直下が全部プロジェクトとして登録されるためです`); });
   }
   return setRoot(o, root);

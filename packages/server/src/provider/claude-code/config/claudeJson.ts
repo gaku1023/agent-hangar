@@ -79,10 +79,10 @@ const stamp = (d: Date) =>
  * 書く前の中身を控えとして残す。もとのファイルが無ければ、失うものが無いので何もしない。
  * 控えにもトークンが入るので 0600 で置く。
  */
-function takeBackup(realFile: string, backupDir: string, now: Date): string | null {
+function takeBackup(realFile: string, backupDir: string, now: Date, prefix = 'claude.json'): string | null {
   if (!fs.existsSync(realFile)) return null;
   fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
-  const base = path.join(backupDir, `claude.json-${stamp(now)}`);
+  const base = path.join(backupDir, `${prefix}-${stamp(now)}`);
   let dest = base;
   for (let i = 2; fs.existsSync(dest); i++) dest = `${base}-${i}`;
   fs.copyFileSync(realFile, dest);
@@ -192,8 +192,16 @@ const isTrusted = (projects: JsonObject, key: string): boolean => {
   return !!p && typeof p === 'object' && (p as JsonObject).hasTrustDialogAccepted === true;
 };
 
-/** dirs のうち、まだ自分の鍵で信頼済みになっていないものの鍵。ファイルが無ければ null。読むだけで書かない。 */
+/**
+ * 置き場のフォルダがまだ無いか。
+ * アカウントを登録しただけで、まだその置き場のフォルダが作られていないことがある。
+ * resolveRealFile は親を realpath で解くので、そのままでは ENOENT で投げる。ファイルが無いときと同じく、書かずに済ませる。
+ */
+const parentMissing = (file: string): boolean => !fs.existsSync(path.dirname(file));
+
+/** dirs のうち、まだ自分の鍵で信頼済みになっていないものの鍵。ファイル（か置き場のフォルダ）が無ければ null。読むだけで書かない。 */
 export function untrustedFolders(file: string, dirs: string[]): string[] | null {
+  if (parentMissing(file)) return null;
   const realFile = resolveRealFile(file);
   if (!fs.existsSync(realFile)) return null;
   const projects = projectsOf(readJsonObject(realFile));
@@ -211,14 +219,39 @@ export type TrustResult = {
   missing: boolean;
 };
 
+/** 信頼の書き込みの控えの名前の頭。MCP の登録の控え（claude.json-<時刻>）と分け、こちらだけを数を決めて残す。 */
+const TRUST_BACKUP_PREFIX = 'claude.json-trust';
+/** 信頼の書き込みの控えを、新しいものから何個残すか。 */
+export const TRUST_BACKUPS_KEPT = 5;
+
+/** 控えの名前を、取った順に並べられる形にする（時刻、同じ秒の通し番号）。 */
+function backupOrder(name: string): [string, number] {
+  const m = /^claude\.json-trust-(\d{14})(?:-(\d+))?$/.exec(name);
+  return m ? [m[1]!, m[2] ? Number(m[2]) : 1] : ['', 0];
+}
+
+/** 信頼の書き込みの控えのうち、新しいものから keep 個を残して消す。ほかの控えには触らない。 */
+function pruneTrustBackups(backupDir: string, keep: number): void {
+  const mine = fs.readdirSync(backupDir).filter((n) => backupOrder(n)[0] !== '');
+  mine.sort((x, y) => {
+    const [a, i] = backupOrder(x);
+    const [b, j] = backupOrder(y);
+    return a === b ? j - i : a < b ? 1 : -1;
+  });
+  for (const n of mine.slice(keep)) fs.rmSync(path.join(backupDir, n), { force: true });
+}
+
 /**
  * Claude Code の「このフォルダを信頼しますか」を、答えたのと同じ形（projects.<path>.hasTrustDialogAccepted = true）で書く。
  * 同じ行のほかの項目（allowedTools など）とほかの鍵には触らない。
  * MCP の登録と同じ 4 つの守り（ロック、リンクの実体、権限、控え）で書く。
  * 全部すでに信頼済みなら、書かず、控えも取らない（起動のたびに呼ばれても控えが溜まらない）。
- * ファイルが無ければ作らない。まだ一度も claude を起こしていない置き場で、Claude Code の初回の流れより先にファイルを置かないためである。
+ * ファイルが無ければ作らない。まだ一度も claude を起こしていない置き場で、Claude Code の初回の流れより先にファイルを置かないためである。置き場のフォルダが無いときも同じ。
+ * 控えは claude.json-trust-<時刻> の名前で取り、新しいものから TRUST_BACKUPS_KEPT 個だけ残す（起動のたびに書くことがあるので、溜めない）。
+ * 読み直したら書き足すものが無くなっていたときは、書かず、取った控えも消す。
  */
 export function trustFolders(file: string, dirs: string[], o: UpsertOptions): TrustResult {
+  if (parentMissing(file)) return { file: path.resolve(file), added: [], backup: null, missing: true };
   const realFile = resolveRealFile(file);
   if (!fs.existsSync(realFile)) return { file: realFile, added: [], backup: null, missing: true };
   const keys = [...new Set(dirs.map((d) => trustKeyOf(d)))];
@@ -227,7 +260,7 @@ export function trustFolders(file: string, dirs: string[], o: UpsertOptions): Tr
     const first = readJsonObject(realFile);
     o.check?.(first);
     if (keys.every((k) => isTrusted(projectsOf(first), k))) return { file: realFile, added: [], backup: null, missing: false };
-    const backup = takeBackup(realFile, o.backupDir, o.now ?? new Date());
+    const backup = takeBackup(realFile, o.backupDir, o.now ?? new Date(), TRUST_BACKUP_PREFIX);
     o.onBeforeWrite?.();
     // 読んでから書くまでの間に Claude Code が書いたかもしれないので、書く直前にもう一度読む。
     const cur = readJsonObject(realFile);
@@ -239,7 +272,13 @@ export function trustFolders(file: string, dirs: string[], o: UpsertOptions): Tr
       projects[k] = { ...(prev && typeof prev === 'object' && !Array.isArray(prev) ? (prev as JsonObject) : {}), hasTrustDialogAccepted: true };
       added.push(k);
     }
-    if (added.length > 0) writeJsonObject(realFile, { ...cur, projects });
+    if (added.length === 0) {
+      // 割り込みで信頼済みになっていた。書かないので、控えも残さない。
+      if (backup) fs.rmSync(backup, { force: true });
+      return { file: realFile, added, backup: null, missing: false };
+    }
+    writeJsonObject(realFile, { ...cur, projects });
+    if (backup) pruneTrustBackups(o.backupDir, TRUST_BACKUPS_KEPT);
     return { file: realFile, added, backup, missing: false };
   } finally {
     release();

@@ -253,9 +253,10 @@ export class RunManager {
    * 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。
    * create は、cwd がまだ無く、確かめが通ったら作るとき（ほかの PC のクイックセッション、resumeTarget の createsFolder）。
    * 作るのは claude と tmux の確かめの後である。断ったときに空のフォルダを残さない。
+   * mayCreate は、後で作るので無くてもよいが、ここでは作らないとき（アカウントの切り替えの、止める前の確かめ）。
    */
-  private precheck(cwd: string, o: { create?: boolean } = {}): PaneOps {
-    if (!o.create && !isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
+  private precheck(cwd: string, o: { create?: boolean; mayCreate?: boolean } = {}): PaneOps {
+    if (!o.create && !o.mayCreate && !isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
     this.claudeBin();
     const panes = this.startPanes();
     if (o.create) fs.mkdirSync(cwd, { recursive: true });
@@ -640,7 +641,9 @@ export class RunManager {
     return switchAccount(this.accounts, {
       session: (id) => this.session(id),
       hasBody: (id) => this.hasBody(id),
-      precheck: (cwd) => { this.precheck(cwd); },
+      // 共有の行の cwd ではなく、再開に使う cwd（ほかの PC のパスをこの PC へ読み替えた後）で確かめる。
+      // ほかの PC のクイックセッションのフォルダがまだ無ければ、ここでは作らず、再開（launch）が確かめの後に作る。
+      precheck: (id) => { const t = this.cwdFor(this.session(id)); this.precheck(t.path, { mayCreate: t.createsFolder }); },
       isBackground: (providerSessionId) => !!this.liveOf(providerSessionId)?.background,
       isLive: (providerSessionId) => !!this.deps.isLive?.(providerSessionId),
       aliveRun: (id) => aliveRunForSession(this.db, id),

@@ -99,6 +99,7 @@ export type AppDeps = {
   /**
    * Claude Code と会話したフォルダの候補を探すときの、ホームと一時フォルダの差し替え（projects/candidates.ts）。
    * 試験だけが渡す。省けば、利用者のホームと OS の一時フォルダを使う。
+   * homeDir は、POST /api/workspace/trust がホームとその上を断るときのホームにも使う。
    */
   candidateEnv?: Partial<Pick<CandidateEnv, 'homeDir' | 'tmpDirs'>>;
   /**

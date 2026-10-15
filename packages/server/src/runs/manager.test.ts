@@ -1228,6 +1228,31 @@ describe('アカウントの置き場と tmux サーバの環境（tmux 不要�
       expect(fs.existsSync(target())).toBe(false);
     });
 
+    it('アカウントの切り替えは、共有の行の cwd ではなく、この PC へ読み替えた cwd で確かめる', async () => {
+      const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+      const a = accounts.add({ name: '大学' });
+      const id = seedRemoteQuick();
+      const c = capture();
+      const rm = make({ accounts, tmux: c.t });
+      // 動いている会話（この PC の quick-sessions/<名前> で起きている）
+      const first = rm.resume(id);
+      expect(c.launched()).toContain(target());
+      const next = await rm.switchAccount(id, a.id);
+      expect(next.sessionId).toBe(id);
+      expect(next.run.id).not.toBe(first.run.id);
+      const last = () => c.calls.filter((x) => x[0] === 'new-session').at(-1)!;
+      expect(last()).toContain(`CLAUDE_CONFIG_DIR=${a.dir}`);
+      expect(last()).toContain(target());
+      // 止まっていて、この PC のフォルダがまだ無い会話も、確かめでは断らず、起こす直前に作る。
+      rm.kill(next.run.id);
+      fs.rmSync(target(), { recursive: true, force: true });
+      const b = accounts.add({ name: '会社 2' });
+      const third = await rm.switchAccount(id, b.id);
+      expect(third.sessionId).toBe(id);
+      expect(fs.statSync(target()).isDirectory()).toBe(true);
+      expect(last()).toContain(`CLAUDE_CONFIG_DIR=${b.dir}`);
+    });
+
     it('作ったフォルダで起こし、そのフォルダに信頼を書く（再開とフォーク）', () => {
       const id = seedRemoteQuick();
       for (const how of ['resume', 'fork'] as const) {
@@ -2087,7 +2112,8 @@ describe.skipIf(!TMUX)('アカウント', () => {
     await envOf(first.run.id);
     addTranscript(first.sessionId);
     fs.rmSync(cwd, { recursive: true, force: true });
-    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('ディレクトリが見つかりません') }));
+    // 確かめは再開と同じ cwd で行うので、断る文も再開と同じ（プロジェクトの場所がこの PC に無い）になる。
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: 'プロジェクトのディレクトリがこの PC で見つかりません' }));
     expect(endedAt(first.run.id)).toBeNull();
   });
 

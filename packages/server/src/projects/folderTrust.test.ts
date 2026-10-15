@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixIt } from '../../test/platform.ts';
 import { launchTrustDirs, trustBeforeLaunch, trustedPlaces, trustedWorkspaceOf, trustWorkspaceFolders, workspaceTrustDirs } from './folderTrust.ts';
 
 let root: string;
@@ -66,6 +67,44 @@ describe('launchTrustDirs', () => {
     fs.mkdirSync(wt, { recursive: true });
     fs.writeFileSync(path.join(wt, '.git'), 'gitdir: /elsewhere\n');
     expect(launchTrustDirs(wt, trustedPlaces({ hangarHome: home, trustedWorkspace: ws }))).toEqual([ws, wt]);
+  });
+
+  it('入れ子のリポジトリの中では、いちばん近いリポジトリの根だけを書く', () => {
+    const ws = path.join(root, 'workspace');
+    const outer = path.join(ws, 'outer');
+    const inner = path.join(outer, 'vendor', 'inner');
+    const sub = path.join(inner, 'src');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.mkdirSync(path.join(outer, '.git'));
+    fs.mkdirSync(path.join(inner, '.git'));
+    const places = trustedPlaces({ hangarHome: home, trustedWorkspace: ws });
+    expect(launchTrustDirs(sub, places)).toEqual([ws, inner]);
+    expect(launchTrustDirs(path.join(outer, 'vendor'), places)).toEqual([ws, outer]);
+  });
+
+  posixIt('置き場の下のリンクが置き場の外を指すときは書かない（リンクの先の実体で判定する）', () => {
+    const ws = path.join(root, 'workspace');
+    const outside = path.join(root, 'elsewhere', 'repo');
+    fs.mkdirSync(path.join(outside, '.git'), { recursive: true });
+    fs.mkdirSync(ws, { recursive: true });
+    fs.symlinkSync(outside, path.join(ws, 'link'));
+    const quick = path.join(home, 'quick-sessions');
+    fs.mkdirSync(quick, { recursive: true });
+    fs.symlinkSync(outside, path.join(quick, 'link'));
+    const places = trustedPlaces({ hangarHome: home, trustedWorkspace: ws });
+    expect(launchTrustDirs(path.join(ws, 'link'), places)).toEqual([]);
+    expect(launchTrustDirs(path.join(quick, 'link'), places)).toEqual([]);
+  });
+
+  posixIt('置き場そのものがリンクでも、実体どうしで比べるので書く', () => {
+    const real = path.join(root, 'real-ws');
+    const repo = path.join(real, 'app');
+    fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+    const ws = path.join(root, 'ws-link');
+    fs.symlinkSync(real, ws);
+    const places = trustedPlaces({ hangarHome: home, trustedWorkspace: ws });
+    expect(launchTrustDirs(path.join(ws, 'app'), places)).toEqual([real, repo]);
+    expect(launchTrustDirs(repo, places)).toEqual([real, repo]);
   });
 
   it('置き場の外は何もしない。同意していない作業フォルダの下も、名前が scratch なだけのフォルダも', () => {

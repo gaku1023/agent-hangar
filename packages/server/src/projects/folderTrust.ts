@@ -36,13 +36,24 @@ export function trustedWorkspaceOf(s: { workspaceRoot: string; trustedWorkspaceR
 
 const hasGit = (dir: string): boolean => fs.existsSync(path.join(dir, '.git'));
 
+/** リンクを実体まで解いたパス。まだ無ければ resolve の形にする。 */
+const realOf = (p: string): string => {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
+
 /**
  * cwd で claude を起こす前に信頼済みにするフォルダ。置き場の外なら空。
  * 置き場そのものと、cwd から置き場までの間（置き場は除く）でいちばん近い git のリポジトリの根を返す。
+ * cwd と置き場は、リンクを実体まで解いてから比べる。claude は getcwd の実体で信頼を引くので、
+ * 置き場の下のリンクが置き場の外のリポジトリを指していても、その実体は置き場の外として書かない。
  */
 export function launchTrustDirs(cwd: string, places: string[]): string[] {
-  const c = path.resolve(cwd);
-  const place = places.map((p) => path.resolve(p)).filter((p) => isUnder(c, p)).sort((x, y) => y.length - x.length)[0];
+  const c = realOf(cwd);
+  const place = places.map(realOf).filter((p) => isUnder(c, p)).sort((x, y) => y.length - x.length)[0];
   if (!place) return [];
   for (let d = c; !samePath(d, place); d = path.dirname(d)) {
     if (hasGit(d)) return [place, d];

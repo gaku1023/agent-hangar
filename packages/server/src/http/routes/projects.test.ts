@@ -522,6 +522,39 @@ describe('POST /api/workspace/trust', () => {
     expect(r.status).toBe(200);
     expect(calls).toEqual([[ws, false]]);
     expect(deps.settings().trustedWorkspaceRoot).toBe(ws);
+    // 書き込みが全部失敗しても同意は残るので、そのことを返事で明示する。
+    expect(await r.json()).toMatchObject({ consentRecorded: true, note: expect.stringContaining('同意は記録しました') });
+  });
+
+  it('書き込みが全部失敗しても、同意は残し、そのことを返事で伝える', async () => {
+    app = createApp({ ...deps, trustWorkspace: (root, dryRun) => ({ dryRun, workspaceRoot: root, dirs: [root], files: [{ file: '/h/.claude.json', added: [], missing: false, error: 'locked' }] }) });
+    const r = await post({ path: ws });
+    expect(r.status).toBe(200);
+    expect(deps.settings().trustedWorkspaceRoot).toBe(ws);
+    expect(await r.json()).toMatchObject({ consentRecorded: true, note: expect.stringContaining('Claude を起こすとき') });
+  });
+
+  it('試しの返事は同意を記録していないと言う', async () => {
+    const r = await post({ path: ws, dryRun: true });
+    const body = (await r.json()) as { consentRecorded: boolean; note?: string };
+    expect(body.consentRecorded).toBe(false);
+    expect(body.note).toBeUndefined();
+  });
+
+  it('ホームそのもの、ホームより上、ファイルシステムの根は、試しでも断る（CLI と同じ規則）', async () => {
+    const userHome = path.join(ws, 'home');
+    fs.mkdirSync(userHome, { recursive: true });
+    app = createApp({ ...deps, candidateEnv: { homeDir: userHome, tmpDirs: [] }, trustWorkspace: (root, dryRun) => { calls.push([root, dryRun]); return { dryRun, workspaceRoot: root, dirs: [root], files: [] }; } });
+    deps.updateSettings({ workspaceRoot: userHome });
+    for (const p of [userHome, ws, path.parse(ws).root]) {
+      for (const dryRun of [true, false]) {
+        const r = await post({ path: p, dryRun });
+        expect(r.status, `${p} ${dryRun}`).toBe(400);
+        expect(((await r.json()) as { error: string }).error).toContain('ホーム');
+      }
+    }
+    expect(calls).toEqual([]);
+    expect(deps.settings().trustedWorkspaceRoot ?? null).toBeNull();
   });
 
   it('試しは同意を残さず、まだ作業フォルダにしていない場所でも書くものを見せる', async () => {

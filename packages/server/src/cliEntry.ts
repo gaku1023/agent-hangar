@@ -34,5 +34,6 @@ export { openDb, type Db } from './db/open.ts';
 export { openTargetCommand } from './platform/browser.ts';
 // パスの比べ方（区切り、Windows の大文字小文字）。
 // CLI の hangar project remove が、この PC の場所のパスでプロジェクトを選ぶのに使う。
-export { samePath } from './platform/paths.ts';
+// coversHome は hangar workspace set が、サーバの POST /api/workspace/trust と同じ規則でホームとその上を断るのに使う。
+export { coversHome, samePath } from './platform/paths.ts';
 export { findInDirs, knownDirs, MUX_NAMES, splitPathEnv } from './platform/exec.ts';

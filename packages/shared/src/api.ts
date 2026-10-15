@@ -392,9 +392,11 @@ export type WorkspaceRootPreviewDto = { dryRun: true; workspaceRoot: string; pre
 /**
  * 作業フォルダの信頼（POST /api/workspace/trust）の結果。
  * dirs は信頼済みにするフォルダ（作業フォルダと、直下の git のリポジトリ）。
- * files は書く先（登録したアカウントごとの .claude.json）で、added は新しく信頼済みにした（dryRun ならする）鍵、missing はファイルが無くて書かなかったこと、error はそのファイルだけの失敗である。
+ * files は書く先（登録したアカウントごとの .claude.json）で、added は新しく信頼済みにした（dryRun ならする）鍵、missing はファイル（か置き場のフォルダ）が無くて書かなかったこと、error はそのファイルだけの失敗である。
+ * consentRecorded は同意を設定に残したか（本番は書き込みが全部失敗しても残す。以後の起動で書くため）。試しは false。
+ * note は、同意を残したときに利用者へ見せる 1 文（書けなかった分も含め、次の書き込みは起動のときに行う）。
  */
-export type WorkspaceTrustDto = { dryRun: boolean; workspaceRoot: string; dirs: string[]; files: { file: string; added: string[]; missing: boolean; error?: string }[] };
+export type WorkspaceTrustDto = { dryRun: boolean; workspaceRoot: string; dirs: string[]; files: { file: string; added: string[]; missing: boolean; error?: string }[]; consentRecorded?: boolean; note?: string };
 /**
  * まとめて登録の 1 行（POST /api/workspace/register の items）。
  * linkTo はほかの PC から届いたプロジェクトの id で、渡すと新しく作らずにそのプロジェクトのこの PC の場所にする。省けば新しく作る。
