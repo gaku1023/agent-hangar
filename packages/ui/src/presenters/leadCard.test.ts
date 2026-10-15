@@ -57,7 +57,7 @@ describe('冒頭の 1 枚の 1 行目', () => {
 });
 
 describe('冒頭の 1 枚の要約', () => {
-  it('本文、次のステップ、進捗とターン時点、作成元の行を出す', () => {
+  it('本文、次のステップ、進捗とターン時点、作成元（札の進捗の title に置く）を出す', () => {
     const s = present().summary!;
     expect(s.body).toContain('遅延読み込み');
     expect(s.nextSteps).toEqual(['詳細の頁の画像にも同じ部品を使う']);
@@ -74,36 +74,24 @@ describe('冒頭の 1 枚の要約', () => {
     const s = present({ session: session({ summary: summary({ source: 'in_session', sourceId: null, sourceModel: null }) }) }, en).summary!;
     expect(s.sourceLine).toMatch(/^Source: In session, generated 2026-10-06/);
   });
-  it('次のステップが無ければ空の並び。要約が無ければ「要約はありません」', () => {
+  it('次のステップが無ければ空の並び。要約が無ければ null（「要約はありません」の文は持たない）', () => {
     expect(present({ session: session({ summary: summary({ nextSteps: [] }) }) }).summary!.nextSteps).toEqual([]);
     const none = present({ session: session({ summary: null }) });
     expect(none.summary).toBeNull();
-    expect(none.empty).toBe('要約はありません');
-    expect(present().empty).toBeNull();
+    expect(none).not.toHaveProperty('empty');
+    expect(none).not.toHaveProperty('enable');
   });
-  it('要約エンジンを使わないときは、空の文を「要約は設定で有効にできます」にし、作り直しを出さない（2c）', () => {
-    const off = present({ session: session({ summary: null }), summaryOff: true });
-    expect(off.empty).toBeNull();
-    expect(off.enable).toEqual({ before: '要約は', link: '設定', after: 'で有効にできます' });
-    expect(off.canRegenerate).toBe(false);
-    // 会話の中で書いた要約は今どおり出す。作り直しは出さない。
+  it('要約エンジンを使わないときは、作り直しを出さない。会話の中で書いた要約は今どおり出す', () => {
+    expect(present({ session: session({ summary: null }), summaryOff: true }).canRegenerate).toBe(false);
     const inSession = present({ session: session({ summary: summary({ source: 'in_session' }) }), summaryOff: true });
     expect(inSession.summary).not.toBeNull();
-    expect(inSession.enable).toBeNull();
     expect(inSession.canRegenerate).toBe(false);
-    expect(present({ session: session({ summary: null }) }).enable).toBeNull();
-    expect(present({ session: session({ summary: null }), summaryOff: true }, en).enable).toEqual({ before: 'Turn on summaries in ', link: 'Settings', after: '.' });
   });
-  it('土台の要約（source baseline）は要約の無いものとして数え、使わないときは事実の下に「要約は設定で有効にできます」を出す（0.6.0-rc.1 の VM、B77）', () => {
-    // 索引はどのセッションにも土台の要約（最初と最後の依頼、触ったファイル）を付ける。これを要約と数えると、誘いの文がどこにも出ない。
-    const base = present({ session: session({ summary: summary({ source: 'baseline' }) }), summaryOff: true });
-    expect(base.summary).not.toBeNull();
-    expect(base.enable).toEqual({ before: '要約は', link: '設定', after: 'で有効にできます' });
-    expect(base.empty).toBeNull();
-    // 要約エンジンを使うときは、今どおり土台の要約だけを出す。
-    expect(present({ session: session({ summary: summary({ source: 'baseline' }) }) }).enable).toBeNull();
-    // 事後の要約は要約として数える。
-    expect(present({ session: session({ summary: summary({ source: 'post_hoc' }) }), summaryOff: true }).enable).toBeNull();
+  it('土台の要約（source baseline）は索引が組んだ事実なので、要約として出さない。本文が消えた会話だけは残った手がかりとして出す', () => {
+    expect(present({ session: session({ summary: summary({ source: 'baseline' }) }) }).summary).toBeNull();
+    expect(present({ session: session({ summary: summary({ source: 'baseline' }) }), summaryOff: true }).summary).toBeNull();
+    expect(present({ gone: true, session: session({ hasTranscript: false, summary: summary({ source: 'baseline' }) }) }).summary?.body).toContain('遅延読み込み');
+    expect(present({ session: session({ summary: summary({ source: 'post_hoc' }) }) }).summary).not.toBeNull();
   });
   it('作成中と失敗は、要約の上の注記にする。失敗の理由は title で読める', () => {
     expect(present({ summaryPending: true }).notice).toEqual({ kind: 'pending', text: '要約を作成しています', title: null });

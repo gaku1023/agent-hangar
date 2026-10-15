@@ -227,6 +227,8 @@ export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed
 export type JumpState = { seq: number; query: string; n: number };
 export type SessionViewState = {
   agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
+  /** ターンの少ない終わった会話で、その画面だけ右の欄を開いたか（保存しない。presenters の tocFolds）。 */
+  tocPeek: boolean;
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
   openTurn: number | null;
   /**

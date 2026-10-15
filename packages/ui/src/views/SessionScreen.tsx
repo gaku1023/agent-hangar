@@ -1,11 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
-import { LeadCard } from './LeadCard.tsx';
+import { EndedFacts } from './EndedFacts.tsx';
 import { NowCard } from './NowCard.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
+import { SummaryCard } from './SummaryCard.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -33,8 +34,10 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
 /**
  * セッション画面（設計は docs/superpowers/specs/2026-10-09-stage4-screens-design.md の 2.3、試作は 2026-10-09-session-screen/options.html の C）。
  * 上から、見出しの段（点、名前、ロックの札、要約の 1 文、主の操作、「…」、(i)）、実行中ならタブの列、そして残りの高さを全部使う本体を置く。
- * 本体は左に主役（実行中はターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に 240px の列を置く。
- * 実行中は、右の列の上に現在の札（NowCard）、その下に目次を積む。終わった後は目次だけである。
+ * 本体は左に主役（実行中はターミナル、終わった後はトランスクリプト）、右に 240px の列を置く。
+ * 実行中は、右の列の上に現在の札（NowCard）、その下に目次を積む。
+ * 終わった後は、見出しの下に事実の小さい 1 行（EndedFacts）を置き、右の列は書かれた要約があれば要約の札（SummaryCard）、その下に目次を積む（2026-10-16 の試作の H1 と S5）。
+ * ターンが少なく要約の札も無い終わった会話は、右の列をはじめ畳む（presenters の tocFolds。開閉は presenter が transcriptOpen に入れて渡す）。
  * 右の列は札も目次もひとまとめに、⌘J と列の右上のボタンで畳める。畳むと列が 0px になり、本文（ターミナル）が右端まで広がる。
  * 畳むボタンは、タブの列のある画面では右の列の頭の行（タブの列と同じ高さ、2026-10-12 の試作の A）の右端に、タブの列の無い画面では目次の見出しの行の右端に置く。
  * 畳むと、同じ右上の場所に、タブの列（終わった後は切り替えの行）の「目次 N」の札が出る。開閉はセッションごとに覚える（sessionView.transcriptOpen）。
@@ -133,13 +136,17 @@ export function SessionScreen(props: SessionProps) {
       <button type="button" className="btn-link" onClick={() => emit({ type: 'project.resolve.open', id: noRoot.projectId })}>{t('session.action.setLocation')}</button>
     </div>
   ) : null;
+  // 終わった画面の事実の 1 行（H1）。押せない理由の行があれば、その下に並べる。
+  const facts = props.lead ? <EndedFacts sessionId={id} {...props.lead} git={props.git} /> : null;
+  // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
+  const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
   const header = (
     // 見出しの行。
     // 一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。
     // 名前は見出しにだけ出し、要約の題は出さない（C1）。
     // 名前の横に、他の PC で実行中の札（操作できない理由なので隠さない）。右端の (i) に、毎回は見ない属性を入れる。
     // 操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。
-    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={noRootLine}>
+    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={<>{facts}{noRootLine}</>}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
@@ -176,6 +183,8 @@ export function SessionScreen(props: SessionProps) {
           {withStrip && <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>}
           {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
           {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} overlap={props.overlap ?? null} git={props.git} />}
+          {/* 終わった画面の要約の札も、同じ場所（目次の上）に置き、目次といっしょに畳む。 */}
+          {!hasCard && summaryCard}
           <TocPane>
             <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} trail={withStrip ? undefined : toggle} />
           </TocPane>
@@ -186,7 +195,7 @@ export function SessionScreen(props: SessionProps) {
   const bodyStyle = narrow ? undefined : { gridTemplateColumns: tocOpen ? PANE_SHAPE.toc.open.cols : PANE_SHAPE.toc.closed.cols, columnGap: tocOpen ? undefined : PANE_SHAPE.toc.closed.gap };
 
   // 本文が消えた会話は、会話の欄も目次も持たない。
-  // 残っている冒頭の 1 枚（要約、ノートなど）だけを見せる。
+  // 右の欄が無いので、残っている要約を本文の場所に出す（土台の要約も、残った手がかりとして出す）。
   if (props.gone) {
     return (
       <div className="screen session-screen">
@@ -196,7 +205,7 @@ export function SessionScreen(props: SessionProps) {
             {props.gone.note}
             {props.gone.canExtend && <> <button type="button" className="btn-link" onClick={() => emit({ type: 'retention.edit', days: props.gone!.extendTo, from: 'session' })}>{t('session.screen.extendRetention')}</button></>}
           </div>
-          {props.lead && <LeadCard sessionId={id} {...props.lead} git={props.git} />}
+          {props.lead && (props.lead.summary || props.lead.notice ? summaryCard : <div className="faint">{t('session.lead.noSummary')}</div>)}
         </div>
       </div>
     );
@@ -246,17 +255,17 @@ export function SessionScreen(props: SessionProps) {
       {props.hasTranscript && !tocOpen && opener}
     </div>
   );
-  // 冒頭の 1 枚は、トランスクリプトの先頭（スクロールの内側）に置く。
-  const head: ReactNode = props.lead ? <LeadCard sessionId={id} {...props.lead} git={props.git} /> : null;
-  const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} jump={props.jump} hasNewer={props.hasNewer} head={head} />;
+  // 続けて呼んだツールは 1 行にまとめる（T1）。詳細表示の間は、今までどおり 1 件ずつにする。
+  const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} jump={props.jump} hasNewer={props.hasNewer} groupTools={!props.showRaw} />;
 
   // 終わった画面。
-  // 本文の右に、実行中と同じ目次を置く。要約、変更したファイル、アーティファクト、PR、ノートは本文の先頭の 1 枚にある。
+  // 本文の右に、要約の札と、実行中と同じ目次を置く。変更したファイル、アーティファクト、PR は見出しの下の 1 行にある。
+  // 本文の無い会話は右の列を持たないので、要約の札を本文の欄の上に置く。
   return (
     <div className="screen session-screen">
       {header}
       <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} data-toc={props.hasTranscript ? undefined : 'none'} style={props.hasTranscript ? bodyStyle : undefined}>
-        <div className="c-main"><section className="tr-sheet">{toggles}{transcript}</section></div>
+        <div className="c-main">{!props.hasTranscript && summaryCard}<section className="tr-sheet">{toggles}{transcript}</section></div>
         {props.hasTranscript && toc}
       </div>
     </div>

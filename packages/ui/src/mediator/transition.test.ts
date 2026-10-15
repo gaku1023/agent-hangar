@@ -635,6 +635,21 @@ describe('タブと接続', () => {
     expect(persistedSessionView(v)).not.toHaveProperty('openTurn');
     expect(persistedSessionView(v)).not.toHaveProperty('turnJump');
   });
+  it('ターンが少なく要約の札も無い終わった会話では、⌘J は保存する開閉を替えず、その画面だけ右の欄を開閉する', () => {
+    const few = { id: 's1', hasTranscript: true, live: null, summary: null, stats: { turns: 1 } } as SessionDto;
+    const st: Store = { ...initialStore(), sessions: { s1: few } };
+    const a = run([action({ type: 'transcript.toggle' })], onSession(), st);
+    expect(a.state.sessionView.s1).toMatchObject({ transcriptOpen: true, tocPeek: true });
+    expect(a.effects).toEqual([]);
+    expect(persistedSessionView(a.state.sessionView.s1!)).not.toHaveProperty('tocPeek');
+    expect(run([action({ type: 'transcript.toggle' })], a.state, st).state.sessionView.s1).toMatchObject({ transcriptOpen: true, tocPeek: false });
+    // 画面を離れて開き直すと、はじめの畳んだ形に戻る。
+    const back = run([runtime({ type: 'hash.changed', route: { name: 'projects' } }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], a.state, st);
+    expect(back.state.sessionView.s1?.tocPeek).toBe(false);
+    // ターンが 3 つ以上なら、今までどおり保存する開閉を替える。
+    const many: Store = { ...st, sessions: { s1: { ...few, stats: { turns: 3 } } as SessionDto } };
+    expect(run([action({ type: 'transcript.toggle' })], onSession(), many).state.sessionView.s1).toMatchObject({ transcriptOpen: false, tocPeek: false });
+  });
   it('トランスクリプトの折りたたみ', () => {
     const a = run([action({ type: 'transcript.toggle' })], onSession());
     expect(a.state.sessionView.s1?.transcriptOpen).toBe(false);

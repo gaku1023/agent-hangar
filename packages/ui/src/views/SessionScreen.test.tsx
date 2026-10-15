@@ -73,6 +73,13 @@ describe('SessionScreen（終わった画面）', () => {
     expect(raw).toHaveTextContent('詳細表示');
     expect(screen.queryByText('生の記録')).toBeNull();
   });
+  it('詳細表示の間は、ツールの呼び出しをまとめず、今までどおり 1 行ずつにする', () => {
+    const { container, rerender } = render(<ActionRoot onAction={() => {}}><SS {...base} /></ActionRoot>);
+    expect(container.querySelectorAll('.tr .tool-group')).toHaveLength(2);
+    rerender(<ActionRoot onAction={() => {}}><SS {...base} showRaw /></ActionRoot>);
+    expect(container.querySelector('.tr .tool-group')).toBeNull();
+    expect(container.querySelectorAll('.tr .tool')).toHaveLength(2);
+  });
   it('詳細表示を押すと、本文の記録の表示を切り替える', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
@@ -96,12 +103,15 @@ describe('SessionScreen（終わった画面）', () => {
     expect(screen.getByRole('radio', { name: 'メイン会話' })).toBeInTheDocument();
     expect(screen.queryByText('主線')).toBeNull();
   });
-  it('ツール呼び出しは畳まれ、エラーは印が付き、サブエージェントへ飛べる', () => {
+  it('ツール呼び出しはまとめの 1 行に畳まれ、エラーは印が付き、サブエージェントへ飛べる', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
-    const edit = screen.getByTitle('/a').closest('.tool')!;
+    const edit = screen.getByTitle('/a').closest('.tool-group')!;
     expect(edit).toHaveAttribute('data-failed', 'true');
-    expect(edit.querySelector('.badge')).toHaveAttribute('data-k', 'fail');
+    expect(edit.querySelector('.tg-failed')).toHaveTextContent('失敗 1');
+    // 開くと、今までのツールの行（失敗の札は赤）が出る。
+    fireEvent.click(screen.getByTitle('/a'));
+    expect(edit.querySelector('.tool .badge')).toHaveAttribute('data-k', 'fail');
     fireEvent.click(screen.getByText('サブエージェント abc を見る'));
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
@@ -264,15 +274,41 @@ describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
   });
 });
 
-describe('冒頭の 1 枚と目次（終わった画面）', () => {
-  it('冒頭の 1 枚は、トランスクリプトのスクロールの先頭（古い行を読み込むボタンの上）に置く', () => {
+describe('見出しの下の 1 行、要約の札、目次（終わった画面）', () => {
+  const written = { title: 'T', oneLiner: 'ONE', body: 'WRITTEN', state: 'done' as const, nextSteps: ['next1'], source: 'in_session' as const, sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 };
+  it('トランスクリプトの先頭に札を置かず、事実は見出しの下の 1 行に置く（土台の要約は出さない）', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} /></ActionRoot>);
     const tr = container.querySelector('.tr-sheet .tr')!;
-    expect(tr.firstElementChild).toHaveClass('lead-card');
-    expect(within(tr as HTMLElement).getByText('BODY')).toBeInTheDocument();
-    expect(within(tr as HTMLElement).getByText('next1')).toBeInTheDocument();
+    expect(tr.querySelector('.lead-card')).toBeNull();
+    expect(tr.querySelector('.ended-facts')).toBeNull();
+    const facts = container.querySelector('.page-head > .ended-facts')!;
+    expect(facts).toHaveAccessibleName('このセッションのまとめ');
+    expect(facts).toHaveTextContent('2 ターン');
+    expect(screen.queryByText('BODY')).toBeNull();
+    expect(container.querySelector('.summary-card')).toBeNull();
   });
-  it('右には、実行中と同じ目次だけを置く（要約、TODO、変更したファイルの箱は無い）', () => {
+  it('押せない理由の行があるときは、事実の 1 行の下に並べる', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} noRoot={{ reason: 'R', projectId: 'p1' }} /></ActionRoot>);
+    const head = container.querySelector('.page-head')!;
+    expect([...head.children].map((c) => c.className.split(' ')[0]).slice(-2)).toEqual(['ended-facts', 'session-reason']);
+  });
+  it('書かれた要約は、右の欄の目次の上に要約の札として置く（実行中の現在の札と同じ場所）', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} lead={leadOf({ summary: written })} /></ActionRoot>);
+    const inner = container.querySelector('.toc-slot-inner')!;
+    expect([...inner.children].map((c) => c.className.split(' ')[0])).toEqual(['summary-card', 'toc-pane']);
+    expect(within(inner.querySelector('.summary-card') as HTMLElement).getByText('WRITTEN')).toBeInTheDocument();
+    expect(within(inner.querySelector('.summary-card') as HTMLElement).getByText('next1')).toBeInTheDocument();
+  });
+  it('右の欄を畳むと、要約の札も目次と一緒に消える', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} lead={leadOf({ summary: written })} transcriptOpen={false} /></ActionRoot>);
+    expect(container.querySelector('.summary-card')).toBeNull();
+    expect(screen.getByRole('button', { name: /目次 104/ })).toBeInTheDocument();
+  });
+  it('右の欄と右上の畳むボタンは、要約の札があっても目次の見出しの行の右端に置く', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} lead={leadOf({ summary: written })} /></ActionRoot>);
+    expect(container.querySelector('.turns-head > :last-child')).toBe(screen.getByRole('button', { name: '右パネルを閉じる' }));
+  });
+  it('右には、要約の札と目次のほかに箱を置かない（TODO、変更したファイルの箱は無い）', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} /></ActionRoot>);
     const pane = container.querySelector('.toc-pane')!;
     expect(pane).toHaveAccessibleName('目次');
@@ -281,21 +317,21 @@ describe('冒頭の 1 枚と目次（終わった画面）', () => {
     expect(container.querySelector('.rail-panel')).toBeNull();
     expect(screen.queryByText('TODO')).toBeNull();
   });
-  it('終わったセッションの冒頭の 1 枚に、ノートの欄もボタンも無い（ノートは 0.4.0 で外した）', () => {
+  it('終わったセッションに、ノートの欄もボタンも無い（ノートは 0.4.0 で外した）', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
     expect(screen.queryByRole('button', { name: /ノート/ })).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
     expect(container.querySelector('.lead-note')).toBeNull();
   });
-  it('要約の再生成は冒頭の 1 枚にあり、作成中と失敗を言う', () => {
+  it('要約の再生成は要約の札にあり、作成中と失敗も札で言う', () => {
     const onAction = vi.fn();
-    const { rerender } = render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
+    const { rerender } = render(<ActionRoot onAction={onAction}><SS {...base} lead={leadOf({ summary: written })} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '要約を再生成' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
     rerender(<ActionRoot onAction={onAction}><SS {...base} lead={leadOf({}, { summaryPending: true })} /></ActionRoot>);
-    expect(screen.getByText('要約を作成しています')).toBeInTheDocument();
+    expect(screen.getByText('要約を作成しています').closest('.summary-card')).not.toBeNull();
     rerender(<ActionRoot onAction={onAction}><SS {...base} lead={leadOf({}, { summaryError: 'LM Studio に繋がりません' })} /></ActionRoot>);
-    expect(screen.getByText('要約を作成できませんでした')).toBeInTheDocument();
+    expect(screen.getByText('要約を作成できませんでした').closest('.summary-card')).not.toBeNull();
   });
   it('目次の見出しは「目次」と、ターンの数', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} /></ActionRoot>);
@@ -326,12 +362,13 @@ describe('冒頭の 1 枚と目次（終わった画面）', () => {
     rerender(<ActionRoot onAction={() => {}}><SS {...base} turnCount={null} turnsPending turnRows={[]} transcriptOpen={false} /></ActionRoot>);
     expect(screen.getByRole('button', { name: /目次/ })).not.toHaveTextContent(/\d/);
   });
-  it('トランスクリプトの無いセッションは、目次を持たず、冒頭の 1 枚だけを出す', () => {
-    const lead = leadOf({ hasTranscript: false });
+  it('トランスクリプトの無いセッションは、目次を持たず、見出しの下の 1 行でそう言う。書かれた要約は本文の欄の上に置く', () => {
+    const lead = leadOf({ hasTranscript: false, summary: written });
     const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} turnRows={[]} lead={lead} /></ActionRoot>);
     expect(container.querySelector('.toc-pane')).toBeNull();
-    expect(screen.getByText('トランスクリプトがありません', { selector: '.lead-facts span' })).toBeInTheDocument();
+    expect(screen.getByText('トランスクリプトがありません', { selector: '.ef-line span' })).toBeInTheDocument();
     expect(container.querySelector('.c-body')).toHaveAttribute('data-toc', 'none');
+    expect(container.querySelector('.c-main > .summary-card')).not.toBeNull();
   });
 });
 
@@ -670,9 +707,9 @@ describe('SessionScreen のアイコン', () => {
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
-    const tool = screen.getByTitle('/a').closest('.tool')!;
+    const tool = screen.getByTitle('/a').closest('.tool-group')!;
     expect(tool.querySelector('.chev svg')?.getAttribute('data-icon')).toBe('chevron');
-    expect(tool.querySelector('.badge')?.textContent).toBe('Edit');
+    expect(tool.querySelector('.tg-badge')?.textContent).toBe('Edit');
     expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を見る' }))).toBe('subagent');
   });
 });
@@ -962,8 +999,9 @@ describe('SessionScreen（英語）', () => {
     expect(screen.getByRole('button', { name: 'Show thinking' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Main conversation' })).toBeInTheDocument();
     expect(screen.getByText('Load older lines (6 left)')).toBeInTheDocument();
+    fireEvent.click(document.querySelector('.tg-row')!);
     expect(screen.getByText(/New file/)).toBeInTheDocument();
-    expect(screen.getByText('2 lines')).toBeInTheDocument();
+    expect(screen.getAllByText('2 lines').length).toBeGreaterThan(0);
     expect(screen.getByText('View subagent abc')).toBeInTheDocument();
     noJapanese();
   });

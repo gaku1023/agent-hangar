@@ -80,9 +80,11 @@
 .nc-art-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nc-art-when { flex: none; font-size: var(--fs-xs); }
 
-/* ---- 冒頭の 1 枚（終わったセッションのトランスクリプトの先頭）。 ---- */
-.lead-card { margin: 0 0 calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); }
-.lead-h { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 2); margin-bottom: calc(var(--u) * 1.5); min-width: 0; font-size: var(--fs-sm); color: var(--ink-2); }
+/* ---- 終わったセッションの見出しの下の 1 行（H1）。事実を小さく 1 行に並べ、札を押すと一覧がその下に開く。 ---- */
+.ended-facts { margin-top: calc(var(--u) * 1.5); min-width: 0; }
+.ef-line { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1) calc(var(--u) * 3); min-width: 0; font-size: var(--fs-sm); color: var(--ink-3); }
+.ef-line > span { white-space: nowrap; }
+.ended-facts > .lead-panel { max-width: 760px; box-shadow: var(--surface-shadow); }
 .lead-status { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--st-active); background: var(--st-active-soft); }
 .lead-status[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .lead-status[data-s='done'] { color: var(--st-done); background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
@@ -90,16 +92,6 @@
 /* 自動で付けた Done（一覧の行の .row-sq[data-auto] と同じ見た目）。 */
 .lead-status[data-auto] { gap: 3px; box-shadow: none; outline: 1px dashed color-mix(in srgb, var(--st-done) 55%, transparent); outline-offset: -1px; }
 .lead-status[data-auto] .icon { flex: none; width: 10px; height: 10px; }
-.lead-facts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
-.lead-facts b { font-weight: 600; color: var(--ink); }
-.lead-end { margin-left: auto; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
-.lead-notice { margin-bottom: calc(var(--u) * 1.5); font-size: var(--fs-sm); color: var(--ink-2); }
-.lead-notice[data-kind='failed'] { color: var(--error); }
-.lead-card .sum-body { margin-bottom: calc(var(--u) * 1.5); }
-/* 土台の要約の下に添える「要約は設定で有効にできます」は、作成元の行と離す。 */
-.lead-card .sum-src + .lead-enable { margin-top: calc(var(--u) * 1.5); }
-.lead-sub { margin: calc(var(--u) * 0.5) 0 var(--u); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
-.lead-chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2); }
 .lead-pr { display: inline-flex; align-items: center; gap: var(--u); height: 22px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.08); font-size: var(--fs-sm); font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
 .lead-pr > .icon { width: 13px; height: 13px; }
 .lead-pr:hover { text-decoration: underline; }
@@ -116,6 +108,20 @@
 .lead-file-add { flex: none; font-size: var(--fs-xs); color: var(--st-done); }
 .lead-file-del { flex: none; font-size: var(--fs-xs); color: var(--error); }
 .lead-panel-note { margin-top: var(--u); font-size: var(--fs-xs); }
+
+/* ---- 終わったセッションの要約の札（S5）。右の列の目次の上で、現在の札と同じ形に左の完了の色の線を引く。
+   本文が長いときは札の中でスクロールし、下の目次を押しつぶさない。 ---- */
+.summary-card { flex: 0 1 auto; max-height: 60%; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow), inset 3px 0 0 var(--st-done); font-size: var(--fs-sm); }
+.sc-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: calc(var(--u) * 2); row-gap: 2px; }
+.sc-title { font-size: var(--fs-xs); font-weight: 600; color: var(--st-done); }
+.sc-progress { font-size: var(--fs-xs); color: var(--ink-3); }
+.sc-notice { margin: 0; color: var(--ink-2); }
+.sc-notice[data-kind='failed'] { color: var(--error); }
+.sc-body { margin: 0; line-height: 1.7; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sc-next { display: flex; flex-direction: column; gap: 2px; }
+.sc-sub { font-size: var(--fs-xs); color: var(--ink-3); }
+.sc-next ul { margin: 0; padding-left: 16px; color: var(--ink-2); line-height: 1.6; }
+.sc-foot { display: flex; justify-content: flex-end; }
 
 /* ---- 見出しの名前の横の札（ロック、トランスクリプトの在りか）。操作できない理由なので、隠さずに見出しへ出す。 ---- */
 .session-badges { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }

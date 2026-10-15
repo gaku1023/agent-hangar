@@ -55,6 +55,25 @@
 
 /* ツールの行（T1）。28px の 1 行に、札、要約、結果の印、時刻を並べる。押すと下に中身を開く。 */
 .tool { min-width: 0; }
+/* 続けて呼んだツールのまとめ（T1）。畳んだ 1 行は控えめな小さい字にし、押すと左の細い線の下に小さい等幅の行で開く。 */
+.tool-group { min-width: 0; }
+.tg-row { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); max-width: 100%; min-height: 26px; padding: 0 calc(var(--u) * 2.5) 0 6px; border: 0; border-radius: var(--r); background: none; color: var(--ink-3); font: inherit; font-size: 12.5px; text-align: left; white-space: nowrap; cursor: pointer; }
+.tg-row:hover { background: var(--surface-2); }
+.tg-row > .chev { display: inline-flex; flex: none; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.tool-group[data-open='true'] > .tg-row > .chev { transform: rotate(90deg); }
+.tg-badge { flex: none; padding: 0 6px; border-radius: 5px; background: var(--surface-2); color: var(--ink-2); font: 11.5px/18px var(--font-mono); }
+.tg-row:hover .tg-badge { background: #e6e8f0; }
+.tg-desc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tg-failed { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--error); }
+.tool-group[data-failed='true'] .tg-badge { color: var(--error); background: #fcecea; }
+.tg-when { flex: none; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); opacity: 0.8; }
+.tg-list { display: flex; flex-direction: column; margin: 2px 0 4px 14px; padding-left: calc(var(--u) * 3); border-left: 2px solid var(--line); }
+/* まとめの中の 1 行。今のツールの行と同じ中身を、小さい等幅で 1 行に置く。 */
+.tool-compact > .trow { height: 24px; gap: calc(var(--u) * 1.5); padding-left: 2px; }
+.tool-compact > .trow .badge { height: 16px; min-width: 0; padding: 0 5px; font-size: 10.5px; line-height: 16px; }
+.tool-compact .tool-sum { font: 11.5px var(--font-mono); color: var(--ink-2); }
+.tool-compact > .tbody { margin-left: 20px; }
+.tool-compact > .sub { margin-left: 20px; }
 .trow { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--row-h); padding: 0 calc(var(--u) * 2) 0 6px; border: 0; border-radius: var(--r); background: none; color: var(--ink-2); font: inherit; text-align: left; white-space: nowrap; cursor: pointer; }
 .trow:hover { background: var(--surface-2); }
 .trow > .chev { display: inline-flex; flex: none; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
