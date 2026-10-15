@@ -254,6 +254,19 @@ describe('フェーズ 3 の項目', () => {
     db.prepare('update sessions set cwd = ? where id = ?').run('/Users/other/.agent-hangar/scratch/20260901-100000', alpha.id);
     expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
   });
+  it('場所が quick-sessions に替わった後も、前の置き場（scratch）の下で始めた会話は fromScratch のまま。利用者の scratch という名前のフォルダは入れない', () => {
+    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/quick-sessions', resolved: 1 }, 'd');
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    for (const cwd of ['/Users/me/.agent-hangar/quick-sessions/20261016-100000', '/Users/me/.agent-hangar/scratch/20260901-100000']) {
+      db.prepare('update sessions set cwd = ? where id = ?').run(cwd, alpha.id);
+      expect(getSession(db, live, alpha.id)!.fromScratch).toBe(true);
+    }
+    for (const cwd of ['/Users/me/.agent-hangar/scratch', '/Users/me/workspace/scratch/notes', '/Users/me/.agent-hangar/scratchpad/x']) {
+      db.prepare('update sessions set cwd = ? where id = ?').run(cwd, alpha.id);
+      expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
+    }
+  });
   it('fromScratch はスクラッチの下にあって別のプロジェクトに属するときだけ真', () => {
     upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');

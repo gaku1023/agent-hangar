@@ -6,7 +6,9 @@ import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { gitRemoteOf } from '../git/remote.ts';
 import { isStrictlyUnder, isUnder, pathKey, samePath } from '../platform/paths.ts';
+import { moveProjectContents } from './contents.ts';
 import { fillProjectRemote, linkCandidateFor, placelessProjects } from './link.ts';
+import { scratchPlacesOf } from './scratch.ts';
 
 /**
  * パスを比べられる形にそろえる。`..` や末尾の `/` を除き、Unicode を NFC にする。
@@ -155,9 +157,16 @@ export function resolvedProjectCount(db: Db, deviceId: string): number {
     where r.device_id = ? and r.resolved = 1 and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 0`).get(deviceId) as { c: number }).c;
 }
 
-/** この端末の解決済みルートを返す。 */
+/**
+ * この端末の解決済みルートを返す。
+ * スクラッチのプロジェクトの場所が quick-sessions なら、同じ hangar のホームの前の置き場（scratch）も同じプロジェクトの場所として足す（scratch.ts の scratchPlacesOf）。
+ * 前の置き場の下の会話（既存の会話、そこから外のターミナルで始めたものやフォーク）も、いままでどおりクイックセッションに入れるためである。
+ * 足すのは完全なパスなので、利用者が自分で作った scratch という名前のフォルダは当たらない。
+ */
 function resolvedRoots(db: Db, deviceId: string): RootRow[] {
-  return db.prepare('select * from project_roots where device_id = ? and resolved = 1 and deleted_at is null').all(deviceId) as RootRow[];
+  const rows = db.prepare(`select r.*, p.is_scratch from project_roots r left join projects p on p.id = r.project_id
+    where r.device_id = ? and r.resolved = 1 and r.deleted_at is null`).all(deviceId) as (RootRow & { is_scratch: number | null })[];
+  return rows.flatMap(({ is_scratch, ...r }) => (is_scratch === 1 ? scratchPlacesOf(r.path).map((p) => ({ ...r, path: p })) : [r]));
 }
 
 /** cwd を含むルートのうち、最も深いものを返す。NFC と NFD の違いは無視する。 */
@@ -306,19 +315,7 @@ export function mergeProjects(db: Db, deviceId: string, fromId: string, intoId: 
   const live = db.prepare('select * from projects where id = ? and deleted_at is null and is_scratch = 0');
   if (!live.get(fromId) || !live.get(intoId)) throw new Error('mergeProjects: both projects must be live and not scratch');
   db.transaction(() => {
-    for (const s of db.prepare('select * from sessions where project_id = ?').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'sessions', { ...s, project_id: intoId }, deviceId);
-    let position = (db.prepare('select coalesce(max(position), -1) m from todos where project_id = ?').get(intoId) as { m: number }).m;
-    for (const t of db.prepare('select * from todos where project_id = ? order by position, id').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'todos', { ...t, project_id: intoId, position: ++position }, deviceId);
-    for (const a of db.prepare('select * from artifacts where project_id = ?').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'artifacts', { ...a, project_id: intoId }, deviceId);
-
-    const memoOf = db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null');
-    const fromMemo = (memoOf.get(fromId) as { markdown: string } | undefined)?.markdown ?? '';
-    if (fromMemo.trim() !== '') {
-      const intoMemo = (memoOf.get(intoId) as { markdown: string } | undefined)?.markdown ?? '';
-      const markdown = intoMemo.trim() === '' ? fromMemo : `${intoMemo.replace(/\s+$/, '')}\n\n${fromMemo}`;
-      upsertShared(db, 'project_memos', { project_id: intoId, markdown, deleted_at: null }, deviceId, 'project_id');
-    }
-    if (db.prepare('select 1 from project_memos where project_id = ? and deleted_at is null').get(fromId)) softDeleteShared(db, 'project_memos', fromId, deviceId, 'project_id');
+    moveProjectContents(db, deviceId, fromId, intoId);
 
     const intoRoot = db.prepare('select * from project_roots where project_id = ? and device_id = ?');
     for (const r of db.prepare('select * from project_roots where project_id = ? and deleted_at is null').all(fromId) as RootRow[]) {

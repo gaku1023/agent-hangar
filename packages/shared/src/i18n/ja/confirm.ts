@@ -53,6 +53,7 @@ export const confirmJa: AreaDictionary<typeof confirmKeys> = {
   'confirm.resumeHere.action': 'この PC で再開',
   'confirm.resumeHere.replaceAhead': 'この PC の古いトランスクリプトはバックアップに残し、他の PC で進めた続きから再開します。',
   'confirm.resumeHere.replaceDiverged': 'この PC で進めた続きはバックアップに残し、他の PC の続きから再開します。',
+  'confirm.resumeHere.createQuick': 'クイックセッションの保存先に同じ名前の空のディレクトリを作成して、そこで再開します',
   'confirm.replaceTranscript.lead': 'この PC のトランスクリプトは、他の PC のものよりサイズが小さいままです。他の PC のトランスクリプトで置き換えますか？',
   'confirm.replaceTranscript.local': 'この PC のトランスクリプト {size}',
   'confirm.replaceTranscript.remote': '他の PC のトランスクリプト {size}',

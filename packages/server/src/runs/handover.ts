@@ -4,6 +4,7 @@ import type { ResumeHerePlanDto, ResumeHereReplaceDto } from '@agent-hangar/shar
 import type { Db } from '../db/open.ts';
 import { readGitHint } from '../git/hint.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
+import { scratchPlacesOf } from '../projects/scratch.ts';
 
 /**
  * PC をまたいで会話を続けるときの事実（docs/design.md の「指示の注入」と「この PC で再開」）。
@@ -82,26 +83,81 @@ function relativeToAnyRoot(roots: string[], p: string): string[] | null {
   return null;
 }
 
+/** 再開とフォークの作業ディレクトリと、そこを起こす前に作る必要があるか（ほかの PC のクイックセッション）。 */
+export type ResumeTarget = { path: string; createsFolder: boolean };
+
+/** この PC のクイックセッションの置き場（スクラッチのプロジェクトのこの PC の場所）。起動時に quick-sessions にそろえてある。行が無ければ null。 */
+function hereScratchRoot(db: Db, selfDeviceId: string): string | null {
+  const r = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
+    where r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 1
+    order by r.updated_at desc limit 1`).get(selfDeviceId) as { path: string } | undefined;
+  return r?.path ?? null;
+}
+
+/**
+ * すべての PC のクイックセッションの置き場（quick-sessions と前の scratch）の完全なパス。
+ * スクラッチのプロジェクトの場所の行から組む（projects/scratch.ts の scratchPlacesOf）。深い順に並べる。
+ */
+function quickPlaces(db: Db): string[] {
+  const rows = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
+    where r.deleted_at is null and p.is_scratch = 1`).all() as { path: string }[];
+  return rows.flatMap((r) => scratchPlacesOf(r.path)).sort((a, b) => segmentsOf(b).length - segmentsOf(a).length);
+}
+
+/** Windows のフォルダ名に使えない文字（制御文字を含む）。 */
+const WINDOWS_INVALID = /[<>:"/\\|?*\u0000-\u001f]/g;
+
+/**
+ * ほかの PC のクイックセッションの元のフォルダ名を、この PC で作れる名前にする。segment は置き場の直下の段（<yyyymmdd-HHmmss>）である。
+ * 段が無い、`.` か `..`、ドライブ文字だけ（`C:`）なら null を返す。置き場そのものや、置き場の外へ出る名前を作らないためである。
+ * Windows で使えない文字（<>:"/\|?* と制御文字）と、末尾の点と空白は、どの PC でも同じ名前になるよう _ に置き換える。
+ */
+export function scratchFolderName(segment: string | undefined): string | null {
+  if (segment === undefined || segment === '' || segment === '.' || segment === '..' || /^[A-Za-z]:$/.test(segment)) return null;
+  return segment.replace(WINDOWS_INVALID, '_').replace(/[. ]+$/, (m) => '_'.repeat(m.length));
+}
+
 /**
  * 再開とフォークの作業ディレクトリ。
- * 前の cwd（sessions.cwd）がこの PC にあれば、そのまま使う。
- * 無ければ、前の PC のプロジェクトの場所からの相対パスを、この PC のプロジェクトの場所に継ぐ（worktree や下位のフォルダも）。
+ * 前の cwd（sessions.cwd）がこの PC にあれば、そのまま使う（前の置き場 ~/.agent-hangar/scratch の下の会話も）。
+ * cwd がどれかの PC のクイックセッションの置き場（quick-sessions と前の scratch）の下にあれば、この PC の quick-sessions/<元のフォルダ名> にする。
+ * 決めるのは cwd で、所属がスクラッチかどうかでは分けない。ほかのプロジェクトへ移した会話も、クイックセッションへ移した普通の会話もあるからである。
+ * 元のフォルダ名は置き場の直下の段で、下位のフォルダで動いていた会話も同じフォルダにまとめる。
+ * 無ければ起こす前に作る（createsFolder）。ここでは作らない。確認の 1 枚の見積もりにも使うからである。
+ * cwd が置き場そのもの（直下の段が無い）か、名前を決められなければ null（場所が無い）にする。
+ * ほかのプロジェクトは、前の PC のプロジェクトの場所からの相対パスを、この PC のプロジェクトの場所に継ぐ（worktree や下位のフォルダも）。
  * 継いだ先がこの PC に無ければ、いちばん近いある親（プロジェクトの場所まで）に倒す。
- * 前の cwd がどの場所の下にも無ければ、この PC のプロジェクトの場所にする。
+ * 前の cwd がどの場所の下にも無ければ、この PC のプロジェクトの場所にする。ただし、その場所がクイックセッションの置き場そのものなら null にする。
+ * 置き場の外の cwd を置き場で起こさないためである。
  * プロジェクトに属さない会話と、この PC に場所が無い会話は読み替えられないので null を返す。
  * 共有の行の sessions.cwd は書き換えない。本文の写しの置き場（sync/copy.ts）がその cwd から決まるからである。
  */
-export function resumeCwd(db: Db, selfDeviceId: string, s: { cwd: string; project_id: string | null }): string | null {
-  if (isDirectory(s.cwd)) return s.cwd;
+export function resumeTarget(db: Db, selfDeviceId: string, s: { cwd: string; project_id: string | null }): ResumeTarget | null {
+  if (isDirectory(s.cwd)) return { path: s.cwd, createsFolder: false };
   if (!s.project_id) return null;
+  const places = quickPlaces(db);
+  const quickRel = relativeToAnyRoot(places, s.cwd);
+  if (quickRel) {
+    const root = hereScratchRoot(db, selfDeviceId);
+    const name = scratchFolderName(quickRel[0]);
+    if (!root || !name) return null;
+    const p = path.join(root, name);
+    return { path: p, createsFolder: !isDirectory(p) };
+  }
   const root = hereRoot(db, selfDeviceId, s.project_id);
   if (!root) return null;
   const rel = relativeToAnyRoot(allRoots(db, s.project_id), s.cwd) ?? [];
   for (let n = rel.length; n > 0; n--) {
     const p = path.join(root, ...rel.slice(0, n));
-    if (isDirectory(p)) return p;
+    if (isDirectory(p)) return { path: p, createsFolder: false };
   }
-  return root;
+  if (relativeToAnyRoot(places, root)?.length === 0) return null;
+  return { path: root, createsFolder: false };
+}
+
+/** 再開とフォークの作業ディレクトリ（resumeTarget の場所だけ）。 */
+export function resumeCwd(db: Db, selfDeviceId: string, s: { cwd: string; project_id: string | null }): string | null {
+  return resumeTarget(db, selfDeviceId, s)?.path ?? null;
 }
 
 function deviceRow(db: Db, id: string): DeviceRef {
@@ -209,10 +265,11 @@ export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, 
   if (!s) return null;
   const prev = deviceOfSession(db, sessionId);
   const self = deviceRow(db, selfDeviceId);
+  const target = resumeTarget(db, selfDeviceId, s);
   return {
     sessionId,
     from: { deviceName: prev?.name ?? null, platform: prev?.platform ?? null, path: prevPathOf(db, sessionId, prev, s), lastAt: s.last_activity_at },
-    to: { deviceName: self.name, platform: self.platform, path: resumeCwd(db, selfDeviceId, s) },
+    to: { deviceName: self.name, platform: self.platform, path: target?.path ?? null, createsFolder: target?.createsFolder ?? false },
     replace: o.replace?.(sessionId) ?? null,
   };
 }

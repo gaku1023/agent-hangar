@@ -260,10 +260,11 @@ workspace
   .command('set <dir>')
   .description('作成場所を決める（保存すると、直下の会話のあるフォルダを自動で登録する）')
   .option('--dry-run', '書かずに、自動で登録される直下のフォルダを全部出す')
+  .option('--trust', '作成場所と直下のリポジトリを Claude Code の信頼済みにする（利用者の同意を取ってから付ける）')
   .option('--port <n>', 'ポート', '4177')
   .option('--json', '結果を JSON で 1 行出す')
-  .action(async (dir: string, o: { port: string; json?: boolean; dryRun?: boolean }) => {
-    process.exitCode = await workspaceSetCommand({ ...apiOptions(o), dir, dryRun: o.dryRun ?? false });
+  .action(async (dir: string, o: { port: string; json?: boolean; dryRun?: boolean; trust?: boolean }) => {
+    process.exitCode = await workspaceSetCommand({ ...apiOptions(o), dir, dryRun: o.dryRun ?? false, trust: o.trust ?? false });
   });
 
 workspace

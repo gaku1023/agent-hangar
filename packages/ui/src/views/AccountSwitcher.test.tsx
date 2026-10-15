@@ -247,3 +247,46 @@ describe('AccountSwitcher の閉じ方と設定への道', () => {
     expect(onAction.mock.calls.filter(([i]) => i.type === 'accounts.load')).toHaveLength(2);
   });
 });
+
+describe('AccountSwitcher の下の段', () => {
+  it('左に「アカウントを追加」、右に「アカウントの設定」を並べる', () => {
+    const { face } = mount(home());
+    fireEvent.click(face);
+    const foot = screen.getByRole('dialog').querySelector('.account-pop-foot')!;
+    const buttons = within(foot as HTMLElement).getAllByRole('button');
+    expect(buttons.map((b) => b.textContent)).toEqual(['アカウントを追加', 'アカウントの設定']);
+  });
+  it('「アカウントを追加」を押すと閉じて account.add.open を出す', () => {
+    const { face, onAction } = mount(home());
+    fireEvent.click(face);
+    onAction.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを追加' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.add.open' }]]);
+  });
+});
+
+describe('AccountSwitcher でアカウントが 1 つ', () => {
+  const one = [{ ...list[0]!, fiveHour: { percent: 24, high: false, resets: '14:00' }, sevenDay: { percent: 11, high: false, resets: '10/20 9:00' } }];
+  it('同じ顔で押せて、面にその 1 枚の札とリセットの時刻を出す', () => {
+    const { face, onAction } = mount(home({ shown: one[0]!, list: one }));
+    expect(face.querySelector('.account-name')).toHaveTextContent('会社');
+    expect(face.querySelector('.account-caret')).not.toBeNull();
+    fireEvent.click(face);
+    expect(onAction.mock.calls).toEqual([[{ type: 'accounts.load' }]]);
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(1);
+    const c = card(/会社/);
+    expect(c).toHaveAttribute('aria-checked', 'true');
+    expect(within(c).getByText('現在のアカウント')).toBeInTheDocument();
+    expect(c.textContent).toContain('14:00');
+    expect(c.textContent).toContain('10/20 9:00');
+    expect(screen.getByRole('button', { name: 'アカウントを追加' })).toBeInTheDocument();
+  });
+  it('「アカウントを追加」は 1 つのときも account.add.open を出す', () => {
+    const { face, onAction } = mount(home({ shown: one[0]!, list: one }));
+    fireEvent.click(face);
+    onAction.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを追加' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.add.open' }]]);
+  });
+});

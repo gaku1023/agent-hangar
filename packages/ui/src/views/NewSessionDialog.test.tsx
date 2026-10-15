@@ -204,6 +204,11 @@ describe('NewSessionDialog（N2）', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('tmux が未検出');
     expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
   });
+  // クイックセッションの置き場は hangar が前もって信頼済みにするので、信頼確認の注意は出さない。
+  it('クイックセッションでは信頼確認の注意を出さない', () => {
+    render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} scratch /></ActionRoot>);
+    expect(screen.queryByText(/信頼確認/)).toBeNull();
+  });
   // 未選択で送った後にプロジェクトを選んでも、「プロジェクトを選んでください」が残っていた。
   it('失敗の文言は、プロジェクトを選び直したら消え、送り直して同じ失敗ならまた出す', () => {
     const onAction = vi.fn();

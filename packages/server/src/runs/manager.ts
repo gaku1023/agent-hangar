@@ -37,7 +37,7 @@ import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { forgetInterruption, interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { isAlive } from '../platform/proc.ts';
 import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
-import { handoverFacts, projectDeviceCount, resumeCwd } from './handover.ts';
+import { handoverFacts, projectDeviceCount, resumeTarget, type ResumeTarget } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
@@ -95,7 +95,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
@@ -224,10 +224,11 @@ export class RunManager {
 
   private project(projectId: string): ProjectInfo {
     const r = this.db
-      .prepare('select p.id, p.name, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
-      .get(this.deps.deviceId, projectId) as { id: string; name: string; path: string | null; resolved: number | null } | undefined;
+      .prepare('select p.id, p.name, p.is_scratch, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
+      .get(this.deps.deviceId, projectId) as { id: string; name: string; is_scratch: number; path: string | null; resolved: number | null } | undefined;
     if (!r) throw new RunError(404, msg('project.error.notFound'));
-    return { id: r.id, name: r.name, path: r.path, resolved: r.resolved === 1 };
+    // クイックセッションの DB の名前（スクラッチ）は内部のもので、画面と同じ辞書の名前で伝える。
+    return { id: r.id, name: r.is_scratch === 1 ? this.tr('project.name.quick') : r.name, path: r.path, resolved: r.resolved === 1 };
   }
 
   private mcpUrl(sessionId: string): string {
@@ -248,11 +249,18 @@ export class RunManager {
     }
   }
 
-  /** 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。 */
-  private precheck(cwd: string): PaneOps {
-    if (!isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
+  /**
+   * 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。
+   * create は、cwd がまだ無く、確かめが通ったら作るとき（ほかの PC のクイックセッション、resumeTarget の createsFolder）。
+   * 作るのは claude と tmux の確かめの後である。断ったときに空のフォルダを残さない。
+   * mayCreate は、後で作るので無くてもよいが、ここでは作らないとき（アカウントの切り替えの、止める前の確かめ）。
+   */
+  private precheck(cwd: string, o: { create?: boolean; mayCreate?: boolean } = {}): PaneOps {
+    if (!o.create && !o.mayCreate && !isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
     this.claudeBin();
-    return this.startPanes();
+    const panes = this.startPanes();
+    if (o.create) fs.mkdirSync(cwd, { recursive: true });
+    return panes;
   }
 
   /**
@@ -269,16 +277,17 @@ export class RunManager {
   }
 
   /**
-   * 再開とフォークの作業ディレクトリ（runs/handover.ts の resumeCwd）。
+   * 再開とフォークの作業ディレクトリ（runs/handover.ts の resumeTarget）。
    * 前の PC のパスは、この PC のプロジェクトの場所に読み替える。共有の行の sessions.cwd は書き換えない。
    * プロジェクトに属する会話で、この PC に場所が無いときは、起こす前に場所が無いと断る。
    * プロジェクトに属さない会話は今までどおり sessions.cwd を使い、無ければ precheck が断る。
+   * ここではフォルダを作らない。ほかの PC のクイックセッションの quick-sessions/<元のフォルダ名> は、起動の確かめ（precheck）が通ってから作る。
    */
-  private cwdFor(s: SessionRow): string {
-    const local = resumeCwd(this.db, this.deps.deviceId, s);
+  private cwdFor(s: SessionRow): ResumeTarget {
+    const local = resumeTarget(this.db, this.deps.deviceId, s);
     if (local) return local;
     if (s.project_id) throw new RunError(400, msg('run.launch.projectDirMissing'));
-    return s.cwd;
+    return { path: s.cwd, createsFolder: false };
   }
 
   /**
@@ -287,7 +296,8 @@ export class RunManager {
    */
   resumeCwdOf(sessionId: string): string | null {
     const s = this.db.prepare('select * from sessions where id = ? and deleted_at is null').get(sessionId) as SessionRow | undefined;
-    return s ? this.cwdFor(s) : null;
+    // 確かめるだけなので、クイックセッションのフォルダはまだ作らない。写しに失敗したときに空のフォルダを残さないためである。
+    return s ? this.cwdFor(s).path : null;
   }
 
   /**
@@ -325,8 +335,9 @@ export class RunManager {
    * run の行を作り、tmux セッションで claude を起こす。失敗したら run を閉じて 400 を投げる。
    * claude の argv は provider が組み立てたものをそのまま受け取る。
    */
-  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams; env?: Record<string, string>; account?: Account | null }): LaunchResult {
-    const panes = this.precheck(o.cwd);
+  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams; env?: Record<string, string>; account?: Account | null; /** cwd がまだ無く、確かめが通ったら作る（precheck の create）。 */ createFolder?: boolean }): LaunchResult {
+    // フォルダを作るのは確かめの後で、信頼を書く（trustFolder）より前である。作ったフォルダに信頼を書く。
+    const panes = this.precheck(o.cwd, { create: o.createFolder });
     // 利用者が自分で付けた CLAUDE_CONFIG_DIR（o.env）は、アカウントの置き場で上書きしない。
     // その置き場が登録済みならそのアカウントとして、未登録なら何も記録しない。呼び手が別のアカウントを渡していても、実際に動く置き場に合わせる。
     const own = o.env?.CLAUDE_CONFIG_DIR;
@@ -342,6 +353,13 @@ export class RunManager {
     // tmux サーバを別のアカウントのシェルから起こしていると、足さないだけではその置き場で動いてしまう。
     const unset = env.CLAUDE_CONFIG_DIR ? RUN_DROPPED_ENV : [...RUN_DROPPED_ENV, 'CLAUDE_CONFIG_DIR'];
     const wrapped = runCommand({ runId, wrapper, log, command: o.command, unset });
+    // クイックセッションの置き場と、同意を得た作業フォルダでは、信頼の確認を出さずに始められるよう、起こすアカウントの設定に前もって書く。
+    // 書けなくても（Claude Code がロックを握っている、設定が壊れているなど）起動は止めない。そのときは claude がいつもどおり確認を出す。
+    try {
+      this.deps.trustFolder?.(env.CLAUDE_CONFIG_DIR || null, o.cwd);
+    } catch (e) {
+      console.error('[runs] フォルダの信頼を書けませんでした', e instanceof Error ? e.message : e);
+    }
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
@@ -547,14 +565,15 @@ export class RunManager {
   resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string; stray?: 'ignore' } = {}): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s, extra.stray === 'ignore' ? 'ignore' : 'check');
-    const cwd = this.cwdFor(s);
+    // ほかの PC のクイックセッションのフォルダは、アカウント、バックグラウンドの一覧、起動の確かめが通ってから launch が作る。
+    const { path: cwd, createsFolder: createFolder } = this.cwdFor(s);
     const account = extra.account !== undefined ? this.accounts.resolve(extra.account) : this.accounts.lastUsed(s.id);
     const bin = this.claudeBin();
     const job = this.procs().listJobs(bin)?.find((j) => j.sessionId === s.provider_session_id) ?? null;
-    if (job) return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
+    if (job) return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder });
     // claude -r <uuid> は、cwd が前と違っても、どのプロジェクトの置き場にある本文でも見つけて、その本文に書き足す（Claude Code 2.1 で確かめた）。
     const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, cwd, {}, s.id), { providerSessionId: s.provider_session_id }, false);
-    return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
+    return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder });
   }
 
   /**
@@ -605,8 +624,9 @@ export class RunManager {
     this.accounts.envFor(account);
     // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
     // フォークした本文はこの PC の cwd の置き場に生まれるので、新しい行の cwd は読み替えた方にする。
-    const cwd = this.cwdFor(s);
-    this.precheck(cwd);
+    // ほかの PC のクイックセッションのフォルダは、この確かめが通ってから作る（precheck の create）。
+    const { path: cwd, createsFolder } = this.cwdFor(s);
+    this.precheck(cwd, { create: createsFolder });
     const newUuid = crypto.randomUUID();
     const newSessionId = ensureSession(this.db, newUuid, cwd, this.deps.deviceId);
     const now = this.now();
@@ -621,7 +641,9 @@ export class RunManager {
     return switchAccount(this.accounts, {
       session: (id) => this.session(id),
       hasBody: (id) => this.hasBody(id),
-      precheck: (cwd) => { this.precheck(cwd); },
+      // 共有の行の cwd ではなく、再開に使う cwd（ほかの PC のパスをこの PC へ読み替えた後）で確かめる。
+      // ほかの PC のクイックセッションのフォルダがまだ無ければ、ここでは作らず、再開（launch）が確かめの後に作る。
+      precheck: (id) => { const t = this.cwdFor(this.session(id)); this.precheck(t.path, { mayCreate: t.createsFolder }); },
       isBackground: (providerSessionId) => !!this.liveOf(providerSessionId)?.background,
       isLive: (providerSessionId) => !!this.deps.isLive?.(providerSessionId),
       aliveRun: (id) => aliveRunForSession(this.db, id),

@@ -322,4 +322,8 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.register.desc': 'Turns several folders into projects at once.',
   'settings.tools.register.action': 'From folders used with Claude Code…',
   'settings.tools.register.folder': 'From inside a folder…',
+  'settings.trust.noRoot': 'No working folder is set. Set the working folder first',
+  'settings.trust.notRoot': '{path} is not the current working folder ({root}). Only the current working folder can be trusted',
+  'settings.trust.homeOrAbove': '{path} cannot be trusted. Trusting the home folder, a folder above it, or the file system root would trust everything under it',
+  'settings.trust.consentRecorded': 'Your consent is recorded. Anything not written now, and any later writes, happen when hangar starts Claude',
 };

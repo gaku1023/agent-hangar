@@ -322,4 +322,8 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.register.desc': 'ディレクトリをまとめてプロジェクトとして登録します。',
   'settings.tools.register.action': 'Claude Code を使ったディレクトリから…',
   'settings.tools.register.folder': 'ディレクトリの中から…',
+  'settings.trust.noRoot': '作業ディレクトリが設定されていません。先に作業ディレクトリを設定してください',
+  'settings.trust.notRoot': '{path} は現在の作業ディレクトリ（{root}）ではありません。信頼済みにできるのは、現在の作業ディレクトリだけです',
+  'settings.trust.homeOrAbove': '{path} は信頼済みにできません。ホームディレクトリやその上位、ファイルシステムのルートを信頼すると、その下のすべてが信頼済みになるためです',
+  'settings.trust.consentRecorded': '同意を記録しました。書き込めなかった分も含め、以降の書き込みは hangar が Claude を起動するときに行います',
 };

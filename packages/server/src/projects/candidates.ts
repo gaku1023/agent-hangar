@@ -8,7 +8,7 @@ import { gitRootOf } from '../git/repoRoot.ts';
 import { isStrictlyUnder, isUnder, pathKey, samePath } from '../platform/paths.ts';
 import { hasWorkspaceRoot, normalizeDir } from './registry.ts';
 import { candidateNotes, cloudSyncedOf, defaultCloudSyncEnv, type CloudSyncEnv } from './candidateHints.ts';
-import { scratchRoot } from './scratch.ts';
+import { legacyScratchRoot, quickSessionsRoot } from './scratch.ts';
 
 /**
  * Claude Code と会話したフォルダの候補（初日のプロジェクト。2026-10-13）。
@@ -43,7 +43,7 @@ type Group = { path: string; sessions: number; last: number | null; worktrees: S
 export function folderCandidates(db: Db, deviceId: string, env: CandidateEnv): FolderCandidatesDto {
   const home = normalizeDir(env.homeDir ?? os.homedir());
   const tmps = (env.tmpDirs ?? defaultTmpDirs()).map((p) => normalizeDir(p));
-  const scratch = normalizeDir(scratchRoot(env.hangarHome));
+  const scratch = [quickSessionsRoot(env.hangarHome), legacyScratchRoot(env.hangarHome)].map((p) => normalizeDir(p));
   const known = (db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.deleted_at is null and p.deleted_at is null`).all(deviceId) as { path: string }[]).map((r) => normalizeDir(r.path));
   const rows = db.prepare(`select cwd, count(*) n, max(last_activity_at) last from sessions
@@ -55,7 +55,7 @@ export function folderCandidates(db: Db, deviceId: string, env: CandidateEnv): F
   const ws = hasWorkspaceRoot(env.workspaceRoot) ? normalizeDir(env.workspaceRoot) : null;
   const aboveRoot = (p: string) => ws !== null && (samePath(p, ws) || isStrictlyUnder(ws, p));
   const excluded = (p: string) => aboveHome(p) || aboveRoot(p) || hasHiddenPart(path.relative(path.parse(p).root, p))
-    || tmps.some((t) => isUnder(p, t)) || isUnder(p, scratch) || known.some((k) => isUnder(p, k));
+    || tmps.some((t) => isUnder(p, t)) || scratch.some((sc) => isUnder(p, sc)) || known.some((k) => isUnder(p, k));
 
   const groups = new Map<string, Group>();
   /**

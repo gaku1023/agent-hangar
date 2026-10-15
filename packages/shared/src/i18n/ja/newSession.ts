@@ -10,7 +10,6 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.project.label': 'プロジェクト',
   'newSession.project.quick': 'クイックセッション',
   'newSession.project.quickSub': '名前を決めずに開始し、あとでプロジェクトに昇格できます',
-  'newSession.project.quickPath': '~/.agent-hangar/scratch/<日時>/',
   'newSession.project.groupQuick': 'クイックスタート',
   'newSession.project.groupRecent': '最近',
   'newSession.project.groupAll': 'すべて',
@@ -53,5 +52,5 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.button.starting': '起動中…',
   'newSession.button.uploading': '添付ファイルをアップロード中…',
   'newSession.hint.quick': 'そのまま {keys} でクイックセッションを開始',
-  'newSession.note.trust': '新しいディレクトリでは、Claude Code が信頼の確認ダイアログを表示します。起動後にターミナルで回答してください。',
+  'newSession.note.trust': 'まだ信頼していないディレクトリでは、Claude Code が信頼の確認ダイアログを表示します。起動後にターミナルで回答してください。',
 };
