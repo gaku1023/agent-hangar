@@ -1152,6 +1152,45 @@ describe('キーの見直し', () => {
       expect(hint.dataset.done).toBe('true');
     });
 
+    it('弾いて離したら、指を離した瞬間の 0 の打鍵で動き、続く惰性では二度動かない', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      const tick = () => act(() => { vi.advanceTimersByTime(16); });
+      for (let i = 0; i < 6; i++) { wheel(-60); tick(); }
+      expect(screen.getByTestId('swipe-hint').dataset.armed).toBe('true');
+      // Windows の Chromium は、指を離した瞬間に deltaX も deltaY も 0 の打鍵を 1 つ送る。
+      wheel(0);
+      expect(go).toHaveBeenCalledTimes(1);
+      expect(go).toHaveBeenCalledWith(-1);
+      // 惰性は細い値で始まり、途切れずに約 2 秒流れる。そのあいだ身構えも遷移もしない。
+      wheel(-2); tick();
+      for (let i = 0; i < 120; i++) { wheel(-Math.max(1, Math.round(190 * 0.97 ** i))); tick(); }
+      expect(go).toHaveBeenCalledTimes(1);
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).toHaveBeenCalledTimes(1);
+      // 惰性が途切れた後は新しい手勢で、また引けば動く。
+      for (let i = 0; i < 6; i++) { wheel(-60); tick(); }
+      wheel(0);
+      expect(go).toHaveBeenCalledTimes(2);
+    });
+
+    it('離した後の惰性の途中でも、逆向きに引けば新しい手勢として動く', async () => {
+      const { go, rt } = await windowsShell();
+      act(() => rt.emit({ type: 'nav.go', to: { name: 'settings' } }));
+      act(() => rt.emit({ type: 'nav.back' }));
+      vi.useFakeTimers();
+      const tick = () => act(() => { vi.advanceTimersByTime(16); });
+      go.mockClear();
+      for (let i = 0; i < 6; i++) { wheel(60); tick(); }
+      wheel(0);
+      expect(go).toHaveBeenLastCalledWith(1);
+      for (let i = 0; i < 5; i++) { wheel(80 - i * 10); tick(); }
+      for (let i = 0; i < 8; i++) { wheel(-60); tick(); }
+      wheel(0);
+      expect(go).toHaveBeenCalledTimes(2);
+      expect(go).toHaveBeenLastCalledWith(-1);
+    });
+
     it('打鍵が続いている間は、どれだけ長く引いても動かない', async () => {
       const { go } = await windowsShell();
       vi.useFakeTimers();

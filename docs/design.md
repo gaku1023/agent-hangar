@@ -1068,6 +1068,7 @@ Claude Code の保存先と、その読み方を定める。
 - 本文は `~/.claude/projects/<変換名>/<sessionId>.jsonl` にある。変換名は cwd の英数字以外を `-` に置き換えたもので、日本語を含むパスは不可逆になる。cwd は行内の `cwd` か `~/.claude/history.jsonl` の `project` から読む。
 - `~/.claude/history.jsonl` は利用者の発言だけの軽い索引で、初回列挙に使う。
 - ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`isolation-latch`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
+- 2.1.300 からは、API に送った要求の記録（`api-request`、`api-request-blob`、`api-request-shape`）が呼び出しごとに書かれる。1 行が 10〜90KB あり、会話の本文は別の行にあるので、正規化でイベントを作らずに捨てる（`DROPPED_LINE_TYPES`）。この変更より前に索引へ入った行は、読み出すときに正規化し直すので、何も返さない。
 - `user` 行の `message.content` は配列ではなく文字列のことがある。抽出は両方を受ける。
 - サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy、idle、waiting、shell）を持つ。ファイルの出現と消失が起動と終了に対応する。
@@ -1219,6 +1220,7 @@ statusline の JSON は、`--settings` で差し込んだスクリプトで写�
 tmux は専用のソケットを `-S` で名指しし、止めるのはそのソケットのそのセッションだけで、`kill-server` は呼ばない。
 終えたら、一時ディレクトリとホームと設定の置き場のパス、Claude Code が uid ごとに使う一時の置き場（`/tmp/claude-<uid>`）、ホスト名、どのメールアドレスも、組織名、組織の識別子、使用率、戻る時刻、費用と時間の累計（statusline と `cost-state` の行）を決まった値に伏せる。
 system-reminder の塊と考えの塊は中身を伏せ、添付は積んだ指示のほかは種類だけにする。
+API の要求の記録（`api-request` で始まる種類）は、システムプロンプト、環境、道具の定義がまるごと入るので、種類、会話、版、時刻だけにする。
 伏せ残し（手元の CLAUDE.md の行を含む）があれば、ファイルと行の場所だけを値を出さずに示し、書き出さない。
 伏せた後に筋書きの 2 つの指示が残っているかも確かめる。
 最後に `claude purge <作業ディレクトリ> -y` で、その会話の記録を設定の置き場から消す。
@@ -4767,8 +4769,21 @@ WebView2 には、頁へ指の上げ下げを渡す口が無い。
 長く取るほど、離してから動くまでが遅れて鈍く感じる（0.2 秒を超えると目立つ）。
 引き換えは 2 つある。
 1 つは、引き切ったまま指を 150ms 止めると、離していなくても動くこと。位相の無い環境では、止めたのか離したのかを見分けられない。
-もう 1 つは、勢いよく離した回は惰性の打鍵が途切れずに続くので、惰性が尽きてから動くこと。
+もう 1 つは、勢いよく離した回は惰性の打鍵が途切れずに続くので、途切れだけでは惰性が尽きてから動くこと（下の 0 の打鍵で縮めた）。
 打鍵の細りは、macOS と同じ理由で合図に使わない。
+
+**離した瞬間の 0 の打鍵**。
+Windows の Chromium（Edge と WebView2）は、高精度タッチパッドから指を離した瞬間に、deltaX も deltaY も 0 の打鍵を 1 つ送る。
+弾いた回は「指の動き（約 100〜160ms）→ 0 の打鍵 1 つ → 細い値 1 つ → 約 2 秒の惰性」の形で届く（2026-10-14 に Windows 11 と Edge 155 で 28 回記録した報告）。
+途切れだけで決めると、そのあいだ遷移が待たされる（弾いた 11 回で中央値 2249ms）。
+そこで、手勢の最中に 0 の打鍵が来たら、その場で離したとみなす（`swipe.ts` の `createLiftDetector` が `lift` を返す）。
+続く惰性は、150ms 途切れるか、逆向きに本気で（`SWIPE_PUSH_DELTA` 以上）引かれるまで丸ごと捨てる。
+`createSwipeDetector` の掛け金（`firedDir`）だけに任せると、惰性の頭の細い値で掛け金が外れ、惰性で再び身構えて二度動くからである。
+手勢の外の 0 の打鍵（引いて止めた指を、途切れた後に離したとき）は捨てる。
+途切れの時計は、0 の打鍵が来ない環境（高精度でないタッチパッドなど）のための保険として残す。
+記録をそのまま流す試験（`swipe.test.ts`、入力は `src/test/fixtures/windows-touchpad-wheel.json`）で、身構えてから動くまでが全 19 回で 0.6 秒未満、弾いた 11 回の中央値が 0.2 秒未満になり、惰性で二度動かないことを確かめている。
+遷移が 1 回増えるのは、弾いた直後に惰性の途中で逆へ引いた回で、「進む → 戻る」の 2 回になる。
+WebView2 の中での実測はまだ無い（記録は Edge で取った）。
 
 Windows の Chromium は Shift+ホイールを横の打鍵（deltaX）にして渡す。
 マウスで横へ流す操作なので、Windows の殻では Shift の付いた打鍵を手勢にしない。

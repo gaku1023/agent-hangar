@@ -28,7 +28,7 @@ import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { clientPlatform, isMacClient, matchKey } from './keys.ts';
-import { createSwipeDetector, swipeModeOf, SWIPE_IDLE_MS, SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
+import { createLiftDetector, createSwipeDetector, swipeModeOf, SWIPE_IDLE_MS, SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
 import { usePaletteFound } from './views/usePaletteFound.ts';
@@ -69,7 +69,7 @@ import { useNow } from './views/primitives/useNow.ts';
  * 指の位相の受け口。
  * macOS のデスクトップの殻（Rust）が、NSEvent の位相から「指が離れた」を `__hangarSwipeEnd` で叩き、
  * 位相を読める環境であることを `__hangarPhaseAware` で知らせてくる。
- * Windows の殻は位相を送らないので、打鍵の途切れを離した合図にする（swipe.ts の swipeModeOf）。
+ * Windows の殻は位相を送らないので、離した瞬間の 0 の打鍵と、打鍵の途切れを離した合図にする（swipe.ts の swipeModeOf と createLiftDetector）。
  */
 type PhaseWindow = Window & { __hangarPhaseAware?: boolean; __hangarSwipeBegin?: () => void; __hangarSwipeEnd?: () => void };
 const phaseWindow = (): PhaseWindow => window as PhaseWindow;
@@ -299,8 +299,10 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
   useEffect(() => {
     const swipe = createSwipeDetector();
+    // Windows の殻で、0 の打鍵から指が離れたことを読む。
+    const lift = createLiftDetector();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // 打鍵の途切れで離したとみなす決め方（Windows の殻）の時計。打鍵のたびに張り直す。
+    // 打鍵の途切れで離したとみなす決め方（Windows の殻）の時計。打鍵のたびに張り直す。離した後は、惰性の途切れを待つ時計になる。
     let releaseTimer: ReturnType<typeof setTimeout> | undefined;
     const mode = () => swipeModeOf({ phaseAware: phaseAware(), desktop: inShell.current, platform: clientPlatform() });
     // 矢印は DOM を直に触って動かす。毎打鍵で React を回すと、画面ごと 60 回／秒で描き直すことになる。
@@ -358,11 +360,18 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       if (m === 'gap') {
         // Windows の Chromium は Shift+ホイールを横の打鍵にして渡す。マウスで横へ流す操作なので、手勢にしない。
         if (e.shiftKey) return;
-        // 位相の無い殻では、途切れた後の最初の打鍵が新しい手勢の始まりである。
-        if (ended) begin();
-        // 打鍵が途切れたら、そこで指が離れたとみなす。
-        // 指が動いている間の打鍵は途切れない。惰性が流れている間も途切れないので、勢いよく離した回は惰性が尽きてから動く。
+        // 指を離した瞬間に届く 0 の打鍵を、離した合図にする（swipe.ts の createLiftDetector）。
+        // 離した後の惰性と、手勢の外の 0 の打鍵は捨てる。惰性が途切れたら、次の打鍵からは新しい手勢である。
+        const step = lift.wheel(e, !ended);
         clearTimeout(releaseTimer);
+        if (step !== 'feed') {
+          releaseTimer = setTimeout(lift.gap, SWIPE_RELEASE_GAP_MS);
+          if (step === 'lift') onRelease();
+          return;
+        }
+        // 位相の無い殻では、途切れた後（か離した後）の最初の打鍵が新しい手勢の始まりである。
+        if (ended) begin();
+        // 0 の打鍵が来ない環境（高精度でないタッチパッドなど）のために、打鍵の途切れも離した合図として残す。
         releaseTimer = setTimeout(onRelease, SWIPE_RELEASE_GAP_MS);
       }
       // 指が離れた後の惰性は、終わった手勢の残りである。次の手勢が始まるまで何もしない。
@@ -386,7 +395,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       // 指が離れたことは、macOS の殻では OS の位相が教えてくれる（__hangarSwipeEnd）。
       // 手勢の終わりは合図が決める。位相の届く環境では、時間で画面を動かすことはしない。
       // 時間で打ち切る経路を残すと、合図が遅れた回に、指を置いたまま画面が動く。
-      // 位相の無い Windows の殻だけは、上の途切れの時計が合図の代わりになる。
+      // 位相の無い Windows の殻だけは、上の 0 の打鍵と途切れの時計が合図の代わりになる。
       // ただし身構えていない手勢は、合図を取りこぼしても矢印が居残らないように、消すだけの保険を置く。
       if (!p.armed) timer = setTimeout(hide, SWIPE_STALE_HIDE_MS);
     };

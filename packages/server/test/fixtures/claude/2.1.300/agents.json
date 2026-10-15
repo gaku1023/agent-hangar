@@ -1,0 +1,11 @@
+[
+  {
+    "pid": 42898,
+    "cwd": "/tmp/hangar-fixture/work",
+    "kind": "interactive",
+    "startedAt": 1792043785252,
+    "sessionId": "ad576bf6-2459-4f4e-8311-792b930672dc",
+    "name": "hangar-fixture",
+    "status": "idle"
+  }
+]
