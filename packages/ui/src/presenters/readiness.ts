@@ -239,8 +239,8 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         const tool = r.tools[c.key];
         // 古い psmux は、症状と下限を言い、上げ方は設定の節（注意とコピー）へ案内する。
         if (c.key === 'tmux' && tool.ok && tool.outdated) {
-          text = t('home.ready.mux.outdated', { name: muxName(platform), version: tool.version ?? '' });
-          detail = t('home.ready.mux.outdatedDetail', { min: tool.outdated.min });
+          // detail は等幅の欄（コマンド用）なので使わず、互換の行と同じく 1 つの文にする。
+          text = t('home.ready.mux.outdated', { name: muxName(platform), version: tool.version ?? '', min: tool.outdated.min });
           act = toSettings('tmux');
           break;
         }

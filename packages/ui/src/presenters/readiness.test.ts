@@ -251,11 +251,11 @@ describe('psmux と tmux の案内', () => {
       expect(readinessPending(OLD)).toBe(true);
       const band = presentReadiness(OLD, ja, 'win32')!;
       const row = band.group.rows[0]!;
-      expect(row).toMatchObject({ key: 'ready:tmux', name: 'psmux', lead: { tone: 'soft' }, text: 'psmux 3.3.8 では、端末をホイールで上へスクロールできません（プロンプトの履歴が呼ばれます）', detail: '3.4.0 以上に上げてください。手順は設定にあります' });
+      expect(row).toMatchObject({ key: 'ready:tmux', name: 'psmux', lead: { tone: 'soft' }, text: 'psmux 3.3.8 では、端末をホイールで上へスクロールできません。3.4.0 以上に上げてください（手順は設定にあります）', detail: null });
       expect(row.actions.map((a) => a.send)).toEqual([{ type: 'nav.go', to: { name: 'settings', at: 'tmux' } }]);
       // 始められるので、右端の「始めるには」は言わない。
       expect(band.note).toBeNull();
-      expect(presentReadiness(OLD, en, 'win32')!.group.rows[0]!.text).toBe('With psmux 3.3.8, scrolling the terminal up with the mouse wheel does not work (it recalls prompt history instead)');
+      expect(presentReadiness(OLD, en, 'win32')!.group.rows[0]!.text).toBe('With psmux 3.3.8, scrolling the terminal up with the mouse wheel does not work. Upgrade to 3.4.0 or later (steps in Settings)');
     });
     it('設定の節に、古いことと下限を渡す', () => {
       expect(presentMux(OLD, 'idle', 'win32')).toMatchObject({ installed: true, version: '3.3.8', outdated: { min: '3.4.0', command: 'Get-Process psmux -ErrorAction SilentlyContinue | Stop-Process -Force; winget upgrade marlocarlo.psmux; tmux -V' } });
