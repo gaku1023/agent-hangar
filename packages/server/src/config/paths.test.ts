@@ -81,7 +81,7 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp, 'darwin');
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, defaultModel: null, nodePath: null, language: 'ja' });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, defaultModel: null, nodePath: null, language: 'ja' });
   });
   it('0.4.0 までの codePath は、VS Code とその場所のエディタに読み替え、古い鍵は持たない', () => {
     ensureHome(tmp);
@@ -173,6 +173,11 @@ describe('paths', () => {
     // 手で書き換えた真偽値でない値は、既定（入り）に寄せる。
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', autoDone: 'no', autoPark: 0 }));
     expect(loadSettings(tmp)).toMatchObject({ autoDone: true, autoPark: true });
+    // 長く動いていない会話の日数も、選べる値でなければ既定の 7 日に寄せる。
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', autoDoneIdleDays: 5 }));
+    expect(loadSettings(tmp)).toMatchObject({ autoDoneIdleDays: 7 });
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', autoDoneIdleDays: 0 }));
+    expect(loadSettings(tmp)).toMatchObject({ autoDoneIdleDays: 0 });
   });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);

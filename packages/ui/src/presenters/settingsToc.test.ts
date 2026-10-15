@@ -159,8 +159,11 @@ describe('言語の行', () => {
 
 describe('設定の一般：hangar が自分で行うこと', () => {
   it('自動の Done と自動の停止は、設定の値をそのまま出し、値が無ければ入り', () => {
-    expect(present(store()).self).toEqual({ autoDone: true, autoPark: true });
-    expect(present(store({ settings: { ...SETTINGS, autoDone: false, autoPark: true } })).self).toEqual({ autoDone: false, autoPark: true });
-    expect(present(store({ settings: { ...SETTINGS, autoPark: false } })).self).toEqual({ autoDone: true, autoPark: false });
+    expect(present(store()).self).toEqual({ autoDone: true, autoDoneIdleDays: 7, autoPark: true });
+    expect(present(store({ settings: { ...SETTINGS, autoDone: false, autoPark: true } })).self).toEqual({ autoDone: false, autoDoneIdleDays: 7, autoPark: true });
+    expect(present(store({ settings: { ...SETTINGS, autoPark: false } })).self).toEqual({ autoDone: true, autoDoneIdleDays: 7, autoPark: false });
+    // 日数を知らない古いサーバは 7 日として読み、選んだ値と 0（しない）はそのまま。
+    expect(present(store({ settings: { ...SETTINGS, autoDoneIdleDays: 30 } })).self.autoDoneIdleDays).toBe(30);
+    expect(present(store({ settings: { ...SETTINGS, autoDoneIdleDays: 0 } })).self.autoDoneIdleDays).toBe(0);
   });
 });

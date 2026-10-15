@@ -123,3 +123,15 @@ export function returnDue(returnOn: string, returnTime: string | null, now: numb
   if (days > 0 || returnTime === null || !isReturnTime(returnTime)) return true;
   return now >= returnAtMs(returnOn, returnTime);
 }
+
+/**
+ * 長く動いていない会話を自動で Done にする日数の選択肢（設定の autoDoneIdleDays、2026-10-15 の利用者の決定）。0 はしない。
+ * 既定は 7 日。週末をはさんだ作業は残し、hangar を入れる前の履歴や放ったままの会話は 1 週間で Active から外す。
+ */
+export const AUTO_DONE_IDLE_DAYS = [3, 7, 14, 30, 0] as const;
+export type AutoDoneIdleDays = (typeof AUTO_DONE_IDLE_DAYS)[number];
+export const DEFAULT_AUTO_DONE_IDLE_DAYS: AutoDoneIdleDays = 7;
+
+export function isAutoDoneIdleDays(v: unknown): v is AutoDoneIdleDays {
+  return typeof v === 'number' && (AUTO_DONE_IDLE_DAYS as readonly number[]).includes(v);
+}

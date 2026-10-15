@@ -1,4 +1,4 @@
-import { CANDIDATE_EXPIRE_DAYS, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
+import { CANDIDATE_EXPIRE_DAYS, DEFAULT_AUTO_DONE_IDLE_DAYS, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { SummaryApi } from '../http/deps.ts';
 import { RunAccounts } from '../runs/accounts.ts';
 import type { SummaryAccount } from '../provider/claude-code/summary/claude.ts';
@@ -67,7 +67,7 @@ export function bootSummary(
   const bootedAt = Date.now();
   const liveProviderIds = () => new Set(delivery.registry.current().map((l) => l.sessionId));
   const autoDone = new AutoDoneWatch({
-    candidates: () => autoDoneCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), pending: new Set(summary.pending()), now: Date.now() }),
+    candidates: () => autoDoneCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), pending: new Set(summary.pending()), now: Date.now(), idleDays: home.settings.current.autoDoneIdleDays ?? DEFAULT_AUTO_DONE_IDLE_DAYS }),
     mark: (id) => markAutoDone(db, home.device.id, id),
     toSummarize: () => summaryCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), since: bootedAt }),
     enqueue: (id) => { summary.enqueue(id); },

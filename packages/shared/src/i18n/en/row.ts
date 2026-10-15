@@ -52,6 +52,7 @@ export const rowEn: AreaDictionary<typeof rowKeys> = {
   'row.status.tip.archived': 'Hidden from lists',
   'row.status.auto.disposable': 'Hangar marked this Done automatically (stopped with 3 turns or fewer)',
   'row.status.auto.summary': 'Hangar marked this Done automatically (the summary says Finished or Dropped)',
+  'row.status.auto.idle': 'Hangar marked this Done automatically (no activity for {days} days or more)',
   'row.status.auto.expired': 'Claude\'s Done suggestion was confirmed automatically after {days} days',
   'row.status.auto.plain': 'Hangar marked this Done automatically',
   'row.soon.delete': 'Deleting soon',

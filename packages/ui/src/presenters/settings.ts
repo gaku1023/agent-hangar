@@ -1,4 +1,4 @@
-import { DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
+import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -192,7 +192,8 @@ export type SettingsProps = {
   /** アプリの更新の節（presenters/update.ts）。 */
   update: UpdateSectionProps;
   /** 一般の「hangar が自分で行うこと」の 2 つのスイッチ。設定の値が無ければ入り（サーバの読み方と同じ）。 */
-  self: { autoDone: boolean; autoPark: boolean };
+  /** autoDoneIdleDays は長く動いていない会話を Done にする日数（0 はしない）。 */
+  self: { autoDone: boolean; autoDoneIdleDays: AutoDoneIdleDays; autoPark: boolean };
 };
 
 /**
@@ -407,6 +408,6 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked, ...(store.notify.ask ? { ask: true } : {}) },
-    self: { autoDone: s?.autoDone !== false, autoPark: s?.autoPark !== false },
+    self: { autoDone: s?.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s?.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s?.autoPark !== false },
   };
 }
