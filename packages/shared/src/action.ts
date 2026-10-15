@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
+import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -111,7 +111,8 @@ export type UiAction =
   | { type: 'session.new.draft'; name: string; prompt: string; attachments?: { path: string; name: string; size: number | null }[] }
   // ダイアログを閉じた後に送り終えた添付を、いまの下書きへ足す。名前と本文には触れない（開き直したダイアログの書きかけを上書きしないため）。下書きが無ければ、名前と本文が空のものを作る。
   | { type: 'session.new.draft.attach'; attachments: { path: string; name: string; size: number | null }[] }
-  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
+  // stray は、終わった扱いの run の claude が動き続けていたときの確認で選んだもの（stop は止めてから、ignore は止めずに再開する）。
+  | { type: 'session.resume'; id: SessionId; stray?: ResumeStray } | { type: 'session.fork'; id: SessionId }
   // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
   | { type: 'session.kill'; runId: RunId; working: boolean; aside?: boolean; shellTabs: number; confirmed?: boolean }
   // attach はバックグラウンドのサービスが持つセッションに hangar からつなぐ。adopt は外のターミナルの claude を引き取る。confirmed が無ければ先に確認を出す。
@@ -138,7 +139,8 @@ export type UiAction =
    * 中断の群（ホームの帯の「前回実行中」）。resume は渡したセッションを順番待ちに足し、同時に 2 本まで再開する（画面は移さない）。
    * cancel は順番待ちのものだけを外す（再開しかけたものは止めない）。dismiss は「再開しない」（dismissed が偽なら元に戻す）。
    */
-  | { type: 'interrupted.resume'; ids: SessionId[] } | { type: 'interrupted.cancel' }
+  // stray は、まとめて再開の 1 本で残った claude の確認を出したときの選び方。渡した ids の再開に添える。
+  | { type: 'interrupted.resume'; ids: SessionId[]; stray?: ResumeStray } | { type: 'interrupted.cancel' }
   | { type: 'interrupted.dismiss'; runIds: RunId[]; dismissed: boolean; name?: string }
   /**
    * 同じファイルの編集の警告。dismiss は相手（with）とパスの組で「このファイルでは表示しない」にする。

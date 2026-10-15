@@ -2363,3 +2363,148 @@ describe('一覧から一瞬抜けた run（tmux 不要、issue #258）', () => 
     expect(rm.getRun(lostOne.runId)!.endedAt).toBeNull();
   });
 });
+
+describe('終わった扱いの run の claude が動き続けているときの再開（tmux 不要、issue #258）', () => {
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  /** epoch のミリ秒を、ps の lstart の書式（UTC）にする。 */
+  const lstart = (ms: number) => {
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${String(d.getUTCDate()).padStart(2, ' ')} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} ${d.getUTCFullYear()}`;
+  };
+  const STARTED = Date.UTC(2026, 9, 16, 1, 0, 0);
+  const ENDED = STARTED + 7 * 60_000;
+  /** 名前の集合だけを持つ偽の画面。 */
+  function panes(): PaneOps {
+    const names = new Set<string>();
+    return { open: (o) => { names.add(o.name); }, close: (n) => { names.delete(n); }, list: () => [...names], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+  }
+  /** 本文のある会話に、終わった run を 1 つ置く。 */
+  function seedEnded(o: { id?: string; pid?: number | null; endReason?: 'exited' | 'lost' | 'killed' | 'parked'; startedAt?: number; endedAt?: number; deviceId?: string; sessionId?: string } = {}): string {
+    const sessionId = o.sessionId ?? seedOldSession();
+    upsertShared(db, 'runs', { id: `r${o.id ?? '1'}`, session_id: sessionId, device_id: o.deviceId ?? 'd', kind: 'resume', tmux_name: `hangar-${o.id ?? '1'}`, pid: o.pid === undefined ? 4242 : o.pid, launch_params: '{}', started_at: o.startedAt ?? STARTED, ended_at: o.endedAt ?? ENDED, end_reason: o.endReason ?? 'exited', heartbeat_at: STARTED }, 'd');
+    return sessionId;
+  }
+  /** 起動時刻を返し、止めたら死んだことにする偽の口。 */
+  function strayProcs(o: { startedAt?: number | null; stops?: boolean } = {}) {
+    const alive = new Set([4242]);
+    const terminated: number[] = [];
+    const procs: ProcOps = {
+      ...noJobs,
+      startTimeOf: (pid) => (alive.has(pid) && o.startedAt !== null ? lstart(o.startedAt ?? STARTED + 2_000) : null),
+      terminate: async (pid) => { terminated.push(pid); if (o.stops ?? true) alive.delete(pid); return o.stops ?? true; },
+    };
+    return { procs, terminated, pidAlive: (pid: number) => alive.has(pid) };
+  }
+  const strayError = (fn: () => unknown) => {
+    try { fn(); } catch (e) { return e as { status: number; body?: unknown; message: string }; }
+    throw new Error('断られなかった');
+  };
+
+  it('最も新しい run が exited で、その pid の claude がその run の間に起動していれば、pid を添えて 409 で断る', () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    const e = strayError(() => rm.resume(id));
+    expect(e.status).toBe(409);
+    expect(e.body).toEqual({ code: 'stray_process', pid: 4242 });
+    expect(e.message).toContain('4242');
+    expect(f.terminated).toEqual([]);
+  });
+
+  it('lost で終わった run も同じに断る', () => {
+    const id = seedEnded({ endReason: 'lost' });
+    const f = strayProcs();
+    expect(strayError(() => make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id)).body).toEqual({ code: 'stray_process', pid: 4242 });
+  });
+
+  it('起動時刻が run の起動の 60 秒より前か、終わった後なら、pid の使い回しと見て断らない', () => {
+    const id = seedOldSession();
+    for (const startedAt of [STARTED - 61_000, ENDED + 1_000]) {
+      seedEnded({ sessionId: id });
+      const f = strayProcs({ startedAt });
+      expect(make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id).run.kind).toBe('resume');
+      db.prepare('delete from runs').run();
+    }
+  });
+
+  it('run の起動の 60 秒前までは同じ claude と見る', () => {
+    const id = seedEnded();
+    const f = strayProcs({ startedAt: STARTED - 59_000 });
+    expect(strayError(() => make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id)).status).toBe(409);
+  });
+
+  it('起動時刻が読めない、pid が死んでいる、pid が無い、killed か parked で終わった、なら断らない', () => {
+    const cases: { seed: Parameters<typeof seedEnded>[0]; procs: ReturnType<typeof strayProcs> }[] = [
+      { seed: {}, procs: strayProcs({ startedAt: null }) },
+      { seed: { pid: 5555 }, procs: strayProcs() },
+      { seed: { pid: null }, procs: strayProcs() },
+      { seed: { endReason: 'killed' }, procs: strayProcs() },
+      { seed: { endReason: 'parked' }, procs: strayProcs() },
+    ];
+    const id = seedOldSession();
+    for (const c of cases) {
+      seedEnded({ ...c.seed, sessionId: id });
+      expect(make({ panes: panes(), procs: c.procs.procs, pidAlive: c.procs.pidAlive }).resume(id).run.kind).toBe('resume');
+      db.prepare('delete from runs').run();
+    }
+  });
+
+  it('見るのはこの端末の最も新しい run だけである', () => {
+    const id = seedEnded({ id: '1' });
+    // 後から起きた run が killed で終わっていれば、前の run の pid は見ない。
+    seedEnded({ id: '2', sessionId: id, pid: null, endReason: 'killed', startedAt: ENDED + 60_000, endedAt: ENDED + 120_000 });
+    const f = strayProcs();
+    expect(make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id).run.kind).toBe('resume');
+    // ほかの端末の run は、この端末の pid ではないので見ない。
+    db.prepare('delete from runs').run();
+    seedEnded({ id: '3', deviceId: 'other', sessionId: id });
+    expect(make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resume(id).run.kind).toBe('resume');
+  });
+
+  it('Claude の登録に載っていれば、これまでどおり外で実行中として断る', () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const e = strayError(() => make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive, isLive: () => true }).resume(id));
+    expect(e.status).toBe(409);
+    expect(e.body).toBeUndefined();
+  });
+
+  it('ignore は判定を飛ばして再開する。フォークは判定しない', async () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    expect(rm.fork(id).run.kind).toBe('fork');
+    expect((await rm.resumeWith(id, { stray: 'ignore' })).run.kind).toBe('resume');
+    expect(f.terminated).toEqual([]);
+  });
+
+  it('stop は残った claude を止めてから再開する', async () => {
+    const id = seedEnded();
+    const f = strayProcs();
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    await expect(rm.resumeWith(id)).rejects.toMatchObject({ status: 409, body: { code: 'stray_process', pid: 4242 } });
+    const r = await rm.resumeWith(id, { stray: 'stop' });
+    expect(f.terminated).toEqual([4242]);
+    expect(r.run.kind).toBe('resume');
+  });
+
+  it('stop で止められなければ、わかる言葉で 409 を返し、再開しない', async () => {
+    const id = seedEnded();
+    const f = strayProcs({ stops: false });
+    const rm = make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive });
+    const e = await rm.resumeWith(id, { stray: 'stop' }).then(() => null, (x: unknown) => x as { status: number; message: string });
+    expect(e?.status).toBe(409);
+    expect(e?.message).toMatch(/停止できませんでした/);
+    expect(e?.message).toContain('4242');
+    expect(rm.listAlive().runs).toEqual([]);
+  });
+
+  it('stop でも、残った claude が無ければそのまま再開する', async () => {
+    const id = seedEnded({ endReason: 'killed' });
+    const f = strayProcs();
+    expect((await make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resumeWith(id, { stray: 'stop' })).run.kind).toBe('resume');
+    expect(f.terminated).toEqual([]);
+  });
+});

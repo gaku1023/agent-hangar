@@ -20,6 +20,8 @@ export const runEn: AreaDictionary<typeof runKeys> = {
   'run.error.alreadyEnded': 'This Claude has already ended',
   'run.error.sessionRunning': 'This session is running',
   'run.error.runningOutside': 'This session is running outside Hangar',
+  'run.error.strayProcess': "This conversation's Claude has not exited yet (PID {pid})",
+  'run.error.strayNotStopped': 'Could not stop the remaining Claude (PID {pid}). End that process, then resume again',
   'run.jump.badRequest': 'Send heads (up to {maxHeads} strings of up to {headLen} characters each), an index into heads, and from (top or bottom)',
   'run.resume.noTranscript': 'This session has no transcript',
   'run.terminal.notInHangar': 'This conversation is not in Hangar',

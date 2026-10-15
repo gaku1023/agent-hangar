@@ -48,6 +48,12 @@ describe('ダイアログ類（英語）', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     noJapanese();
     unmount();
+    const stray = inEnglish(<ConfirmDialog confirm={{ kind: 'strayProcess', sessionId: 's1', pid: 4242 }} />);
+    expect(screen.getByRole('dialog', { name: "This conversation's Claude is still running" })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop and resume' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resume without stopping' })).toBeInTheDocument();
+    noJapanese();
+    stray.unmount();
     const adopt = inEnglish(<ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} />);
     expect(screen.getByRole('dialog', { name: 'Move to Hangar?' })).toBeInTheDocument();
     expect(screen.getByText('claude -r')).toBeInTheDocument();

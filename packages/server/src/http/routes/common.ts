@@ -65,7 +65,7 @@ export function runResult<T>(c: Context, language: GetLanguage, fn: () => T, sta
   try {
     return c.json(fn() as object, status);
   } catch (e) {
-    if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
+    if (e instanceof RunError) return c.json({ error: errorText(language(), e), ...e.body }, e.status);
     throw e;
   }
 }
@@ -75,7 +75,7 @@ export async function runResultAsync<T>(c: Context, language: GetLanguage, fn: (
   try {
     return c.json((await fn()) as object, status);
   } catch (e) {
-    if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
+    if (e instanceof RunError) return c.json({ error: errorText(language(), e), ...e.body }, e.status);
     throw e;
   }
 }

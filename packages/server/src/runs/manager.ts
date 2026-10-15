@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { newId, runTmuxId, type EndReason, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -28,8 +28,8 @@ import type { LaunchInput, LiveSession } from '../provider/claude-code/types.ts'
 import type { PaneOps } from '../tmux/pane.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';
-import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
-import { realProcOpsWith, sameStartTime, type ProcOps } from '../provider/claude-code/process/procs.ts';
+import { aliveRunForSession, getRun, getTab, latestRunForSession, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
+import { parseProcStart, realProcOpsWith, sameStartTime, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { ScreenMissGate, screenDrift, type ScreenMark } from '../provider/claude-code/compat/screen.ts';
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from '../provider/claude-code/screen/promptJump.ts';
@@ -75,6 +75,11 @@ const MISSES_TO_END = 2;
  * 閉じた run の tmux 名が一覧に戻ってきたら、生き返らせるためである（revive）。
  */
 const REVIVE_WATCH_MS = 10 * 60_000;
+/**
+ * 終わった扱いの run の pid の claude が、その run の claude と同じかを起動時刻で見るときの、run の起動より前の余裕。
+ * run の行は tmux を開く前に書くので、claude はふつう run の起動より後に起きる。時計の粒（起動時刻は秒まで）と書く順のずれを見込む。
+ */
+const STRAY_SLACK_MS = 60_000;
 
 export { RunError };
 
@@ -472,21 +477,61 @@ export class RunManager {
     return !!this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(sessionId);
   }
 
-  /** 再開できる状態かを確かめる。本文の有無、hangar の run、hangar の外で動いている Claude は、どれも別の原因である。 */
-  private assertResumable(s: SessionRow): void {
+  /**
+   * 再開できる状態かを確かめる。本文の有無、hangar の run、hangar の外で動いている Claude は、どれも別の原因である。
+   * strayCheck が真なら、終わった扱いの run の claude が動き続けているか（strayPid）も見て、残っていれば pid を添えて 409 で断る。
+   * 見るのは同じ会話を続ける再開だけで、新しい会話になるフォークは見ない。
+   */
+  private assertResumable(s: SessionRow, strayCheck = false): void {
     if (!this.hasBody(s.id)) throw new RunError(400, msg('run.resume.noTranscript'));
     if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
     if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, msg('run.error.runningOutside'));
+    if (!strayCheck) return;
+    const pid = this.strayPid(s);
+    if (pid !== null) throw new RunError(409, msg('run.error.strayProcess', { pid }), { code: 'stray_process', pid });
+  }
+
+  /**
+   * hangar では終わった扱い（exited か lost）なのに、その run の claude がまだ動いているときの pid。無ければ null。
+   * 見張りが一覧の読み違いで run を閉じたとき（issue #258）に起きる。このまま再開すると、2 つの claude が同じ会話を進める。
+   * 見るのは、この端末のそのセッションの最も新しい run だけである。
+   * pid は使い回されるので、そのプロセスの起動時刻が、run の起動の少し前（STRAY_SLACK_MS）から終わりまでの間にあるときだけ、同じ claude と見る。
+   * 起動時刻が読めなければ、同じとは言えないので null にする（関係の無いプロセスを止めないため）。
+   */
+  private strayPid(s: SessionRow): number | null {
+    const r = latestRunForSession(this.db, s.id, this.deviceId);
+    if (!r || r.endedAt === null || (r.endReason !== 'exited' && r.endReason !== 'lost') || r.pid === null) return null;
+    if (!(this.deps.pidAlive ?? isAlive)(r.pid)) return null;
+    const raw = this.procs().startTimeOf(r.pid);
+    const at = raw === null ? null : parseProcStart(raw);
+    if (at === null || at < r.startedAt - STRAY_SLACK_MS || at > r.endedAt) return null;
+    return r.pid;
+  }
+
+  /**
+   * 画面の「再開」。終わった扱いの run の claude が動き続けていたときの選び方（stray）を受ける。
+   * 付けなければ、残っていれば 409（run.error.strayProcess）で断り、画面が確認を出す。
+   * stop は、その claude を止め、止まったのを確かめてから再開する。止められなければ 409（run.error.strayNotStopped）で断り、再開しない。
+   * ignore は、この判定を飛ばして再開する（2 つの claude が同じ会話を進めることを、利用者が承知している）。
+   */
+  async resumeWith(sessionId: string, o: { stray?: ResumeStray } = {}): Promise<LaunchResult> {
+    if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray });
+    const s = this.session(sessionId);
+    this.assertResumable(s);
+    const pid = this.strayPid(s);
+    if (pid !== null && !(await this.procs().terminate(pid, TERMINATE_MS))) throw new RunError(409, msg('run.error.strayNotStopped', { pid }));
+    return this.resume(sessionId);
   }
 
   /**
    * 同じ cwd で claude -r <uuid> を実行し、同じセッションに kind = 'resume' の run を付ける。
    * Claude のバックグラウンドのサービスが持っていたセッション（止まったもの、1 時間つながれずに止まったもの）は、
    * claude -r ではなく `claude attach` で起こす。-r で hangar の tmux に開くと、元のターミナルから attach で戻れなくなる。
+   * 終わった扱いの run の claude が動き続けていれば 409 で断る（strayPid）。stray が ignore なら、その判定を飛ばす。
    */
-  resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string } = {}): LaunchResult {
+  resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string; stray?: 'ignore' } = {}): LaunchResult {
     const s = this.session(sessionId);
-    this.assertResumable(s);
+    this.assertResumable(s, extra.stray !== 'ignore');
     const cwd = this.cwdFor(s);
     const account = extra.account !== undefined ? this.accounts.resolve(extra.account) : this.accounts.lastUsed(s.id);
     const bin = this.claudeBin();

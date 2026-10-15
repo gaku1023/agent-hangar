@@ -1,10 +1,15 @@
 import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
   constructor(public readonly body: ResumeHereConflictDto) { super('local_smaller'); this.name = 'ApiConflictError'; }
+}
+
+/** 再開を、終わった扱いの run の claude（pid）が動き続けていることで断った（409）。UI は止めて再開するかを聞く確認にする。 */
+export class StrayProcessApiError extends Error {
+  constructor(public readonly body: StrayProcessDto) { super(body.error); this.name = 'StrayProcessApiError'; }
 }
 
 /** エディタが見つからなかった（409）。UI は「<名前> が見つかりません」の面を出す。 */
@@ -77,7 +82,8 @@ export type ApiClient = {
   updateSettings(patch: Partial<SettingsDto>): Promise<SettingsDto>;
   rebuildIndex(): Promise<void>;
   launch(params: LaunchParams): Promise<LaunchResultDto>;
-  resume(sessionId: string): Promise<LaunchResultDto>;
+  /** stray は、残った claude の確認で選んだもの。付けなければ、残っていれば StrayProcessApiError で投げる。 */
+  resume(sessionId: string, stray?: ResumeStray): Promise<LaunchResultDto>;
   fork(sessionId: string): Promise<LaunchResultDto>;
   attach(sessionId: string): Promise<LaunchResultDto>;
   adopt(sessionId: string): Promise<LaunchResultDto>;
@@ -216,6 +222,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && body?.error === 'retention_conflict') throw new RetentionConflictApiError();
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'editor_missing') throw new EditorMissingApiError(body as unknown as EditorMissingDto);
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_same_folder') throw new ProjectSameFolderApiError(body as unknown as ProjectSameFolderDto);
+      if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'stray_process') throw new StrayProcessApiError(body as unknown as StrayProcessDto);
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_nested') throw new ProjectNestedApiError(body as unknown as ProjectNestedDto);
       const message = body?.error ?? `${r.status} ${path}`;
       if (r.status === 404) throw new ApiNotFoundError(message);
@@ -251,7 +258,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     updateSettings: (patch) => call('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
     rebuildIndex: () => post('/api/index/rebuild'),
     launch: (params) => post('/api/runs', params),
-    resume: (sessionId) => post(`/api/sessions/${sessionId}/resume`),
+    resume: (sessionId, stray) => post(`/api/sessions/${sessionId}/resume`, stray ? { stray } : undefined),
     fork: (sessionId) => post(`/api/sessions/${sessionId}/fork`),
     attach: (sessionId) => post(`/api/sessions/${sessionId}/attach`),
     adopt: (sessionId) => post(`/api/sessions/${sessionId}/adopt`),

@@ -1838,6 +1838,26 @@ hangar の外で起こした 4 ターン以上のものは、止まったとき�
 フォークは `claude -r <uuid> --fork-session --session-id <新 uuid>` で、新しいセッション行と `kind = 'fork'` の run を作る。
 同じセッションに生きた run があるときは、再開を無効にする。
 
+hangar では終わった扱いなのに、その会話の claude がまだ動いていることがある（見回りの読み違いで閉じたとき、issue #258）。
+このまま再開すると、2 つの claude が同じ会話を同時に進め、本文が混ざる。
+そこで再開の前に、次をすべて満たすかを見る（`RunManager.strayPid`）。
+Claude の登録に載っていれば、その前に「hangar の外で実行中」（`run.error.runningOutside`）で断っているので、見るのはそれに当たらないときである。
+
+- そのセッションのこの端末の run のうち最も新しいものが、`exited` か `lost` で終わっている。
+- その run の `pid` が生きている（`platform/proc.ts` の `isAlive`）。
+- そのプロセスの起動時刻（`startTimeOf` と `parseStartTime`）が、run の `started_at` の 60 秒前（`STRAY_SLACK_MS`）から `ended_at` までの間にある。
+
+起動時刻で絞るのは、pid の使い回しで関係の無いプロセスを止めないためである。起動時刻が読めなければ、同じ claude とは言えないので見逃す。
+当たったら、`POST /api/sessions/:id/resume` は pid を添えた 409（`{ error, code: 'stray_process', pid }`、文は `run.error.strayProcess`）で断る。
+画面はこれを確認のダイアログにする（試作の案 A）。ふだんの見た目は変えず、押したときだけ出す。
+選び方は 2 つで、選んだものを要求の本文の `stray` で送り直す（`RunManager.resumeWith`）。
+
+- 「停止して再開」（`stray: 'stop'`、推す方）は、その claude を `terminate` で止め、止まったのを確かめてから再開する。止められなければ `run.error.strayNotStopped` の 409 で断り、再開しない。
+- 「停止せずに再開」（`stray: 'ignore'`）は、この判定を飛ばして再開する。
+
+まとめて再開（中断の群）の 1 本で断られたときは、行に理由を残したうえで同じ確認を出し、選んだら選び方を添えて順番待ちに入れ直す。
+フォークは新しい会話になるので、この判定をしない。
+
 前の cwd（`sessions.cwd`）がこの PC に無いときは、この PC のプロジェクトの場所に読み替える（`runs/handover.ts` の `resumeCwd`、0.6.1）。
 前の PC のプロジェクトの場所（その PC の `project_roots` の行）からの相対パスを、この PC の場所に継ぐ。worktree や下位のフォルダも継ぎ、継いだ先が無ければいちばん近いある親（場所まで）に倒す。
 前の cwd がどの PC の場所の下にも無ければ、この PC の場所にする。Windows の形のパスは `/` と `\` のどちらの区切りでも読み、大文字と小文字を区別しない。

@@ -117,7 +117,16 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     return runResultAsync(c, language, () => deps.runs.jumpToPrompt(c.req.param('id'), heads as string[], index, body.from as JumpFrom));
   });
   api.post('/runs/:id/leave-transcript', (c) => runResultAsync(c, language, () => deps.runs.leaveTranscript(c.req.param('id'))));
-  api.post('/sessions/:id/resume', async (c) => { await beforeLaunch(); return runResult(c, language, () => deps.runs.resume(c.req.param('id')), 201); });
+  // 再開。hangar では終わった扱いの run の claude が動き続けていれば、pid を添えた 409（code: stray_process）で断る。
+  // 画面は確認を出し、利用者の選び方を stray（stop は止めてから、ignore は止めずに）で送り直す。
+  api.post('/sessions/:id/resume', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const stray = ((b.value ?? {}) as { stray?: unknown }).stray;
+    if (stray !== undefined && stray !== 'stop' && stray !== 'ignore') return c.json({ error: tr('http.request.badShape') }, 400);
+    await beforeLaunch();
+    return runResultAsync(c, language, () => deps.runs.resumeWith(c.req.param('id'), stray ? { stray } : {}), 201);
+  });
   api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); return runResult(c, language, () => deps.runs.fork(c.req.param('id')), 201); });
   // バックグラウンドのサービスが持つセッションに、hangar の tmux からつなぐ。本文はその claude が書くので、他端末の取り込みは待たない。
   api.post('/sessions/:id/attach', (c) => runResult(c, language, () => deps.runs.attach(c.req.param('id')), 201));

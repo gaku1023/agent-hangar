@@ -572,6 +572,13 @@ export type ProjectSameFolderDto = {
 };
 export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };
 /**
+ * 再開の要求（POST /api/sessions/:id/resume）で、hangar では終わった扱いの run の claude がまだ動いているときにどうするか。
+ * stop はその claude を止めてから再開し、ignore は止めずに再開する。付けなければ、残っていれば StrayProcessDto の 409 で断る。
+ */
+export type ResumeStray = 'stop' | 'ignore';
+/** 再開を、終わった扱いの run の claude（pid）が動き続けていることで断った 409。 */
+export type StrayProcessDto = { error: string; code: 'stray_process'; pid: number };
+/**
  * 「この PC で再開」の確認に出すもの（GET /api/sessions/:id/resume-here）。
  * from は会話を最後に動かした PC（run が無ければ作った PC）と、その作業ディレクトリと、最後に使った日時である。
  * to はこの PC と、再開するときの作業ディレクトリ（前の PC のプロジェクトの場所からの相対を、この PC の場所に継いだもの）。

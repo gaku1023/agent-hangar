@@ -1,7 +1,7 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
-import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
@@ -419,6 +419,31 @@ describe('createRuntime', () => {
       await flush();
       expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'mergeProject', projectId: 'p1', path: '/w/shop', into: { projectId: 'p0', name: 'shop' }, roots: conflict.merged.roots, sessions: 3, fromSessions: 1 } });
       expect(rt.getState().toasts).toEqual([]);
+    });
+
+    it('再開の 409（終わった扱いの claude が動き続けている）は確認になる。まとめて再開の 1 本は、行に理由を残して確認を出す', async () => {
+      const stray = { error: 'この会話の Claude はまだ終了していません（PID 4242）', code: 'stray_process' as const, pid: 4242 };
+      const resume = vi.fn(async () => { throw new StrayProcessApiError(stray); });
+      const { rt, wsHandlers } = harness({ resume });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      rt.emit({ type: 'session.resume', id: 's1' });
+      await flush();
+      expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'strayProcess', sessionId: 's1', pid: 4242 } });
+      expect(rt.getState().launch).toEqual({ kind: 'idle' });
+      expect(rt.getState().toasts).toEqual([]);
+      rt.emit({ type: 'session.resume', id: 's1', stray: 'stop' });
+      expect(resume).toHaveBeenLastCalledWith('s1', 'stop');
+      await flush();
+      rt.emit({ type: 'overlay.close' });
+      rt.emit({ type: 'interrupted.resume', ids: ['s2'] });
+      await flush();
+      expect(resume).toHaveBeenLastCalledWith('s2');
+      expect(rt.getState().resumeQueue.failed).toEqual({ s2: stray.error });
+      expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'strayProcess', sessionId: 's2', pid: 4242, queued: true } });
+      rt.emit({ type: 'interrupted.resume', ids: ['s2'], stray: 'ignore' });
+      expect(resume).toHaveBeenLastCalledWith('s2', 'ignore');
     });
 
     it('まとめ終えたら、まとめた方を store から外し、残した方を入れ直して知らせる', async () => {
