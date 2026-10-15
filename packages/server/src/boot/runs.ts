@@ -1,7 +1,10 @@
-import { PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto } from '@agent-hangar/shared';
+import os from 'node:os';
+import path from 'node:path';
+import { PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
-import { claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
+import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
+import { trustBeforeLaunch, trustedWorkspaceOf, trustWorkspaceFolders } from '../projects/folderTrust.ts';
 import { DEVICE_TOUCH_MS, measureShellHook, touchDevice } from '../config/devicePresence.ts';
 import type { Settings } from '../config/paths.ts';
 import { createReadiness } from '../config/readiness.ts';
@@ -55,6 +58,8 @@ export type RunsParts = {
   usage: UsageTracker;
   /** アカウントの HTTP と、起動後の認証の読み直しが、同じ組み立てを使う。 */
   accounts: AccountsDeps;
+  /** 作業フォルダのフォルダの信頼を、登録したアカウントの全部の .claude.json に書く（POST /api/workspace/trust）。 */
+  trustWorkspace(root: string, dryRun: boolean): WorkspaceTrustDto;
   /** いまの claude の場所。 */
   claudeBin(): string | null;
   /** 手元の claude を裏で読む係。claude のパスが変わったら、呼び手が読み直させる。 */
@@ -136,6 +141,8 @@ export function bootRuns(
     language: home.language,
     // 足す段の入り切り（設定の askStatusAtEnd と liveHints）。起動のたびに今の設定を読む。
     injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false }),
+    // クイックセッションの置き場と、同意を得た作業フォルダでは、起こすアカウントの .claude.json へ前もってフォルダの信頼を書く。
+    trustFolder: (configDir, cwd) => { trustBeforeLaunch({ hangarHome: home.home, homeDir: os.homedir(), trustedWorkspace: () => trustedWorkspaceOf(settings.current) }, configDir, cwd); },
   });
   // 区切り（Done、Archived）を付けたセッションが休みになったら、Claude を止める。Paused は戻ってくる会話なので止めない。
   // 止める候補があれば、登録は写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
@@ -179,6 +186,11 @@ export function bootRuns(
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   return {
     runs, usage, accounts, claudeBin, localClaude, overlaps,
+    // 最初のアカウントは CLAUDE_CONFIG_DIR を付けずに起こすので、ホームの直下の .claude.json を読む（RunAccounts.envFor）。
+    trustWorkspace: (root, dryRun) => trustWorkspaceFolders({
+      root, dryRun, backupDir: path.join(home.home, 'backups'),
+      files: accountStore.list().map((a) => claudeJsonFor(a.id === PRIMARY_ACCOUNT_ID ? null : a.dir, os.homedir())),
+    }),
     writeShellScript: shell.write,
     mux: () => mux,
     applyTmux: (s) => {

@@ -6,7 +6,7 @@ import { checkDirName, exists, makeProjectDir, parentDirOf, ProjectCreateError }
 import { insertProject } from './registry.ts';
 import { repinIfPinned } from '../sessions/move.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
-import { isUnderScratch, scratchRoot } from './scratch.ts';
+import { isUnderScratch, legacyScratchRoot, quickSessionsRoot } from './scratch.ts';
 import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
 import { msg, render, type Message } from '../i18n/message.ts';
 
@@ -42,10 +42,12 @@ const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * 実体がスクラッチの下に無ければ、外のファイルを動かさないために断る。
  */
 function resolveScratchDir(home: string, from: string): { real: string } | { reason: Message } {
+  // 置き場は 2 つある（quick-sessions と前の scratch）。cwd がどちらの綴りの下にあるかで、実体を比べる置き場を決める。
+  const root = [quickSessionsRoot(home), legacyScratchRoot(home)].find((r) => isStrictlyUnder(path.resolve(from), path.resolve(r))) ?? quickSessionsRoot(home);
   let realRoot: string;
   let real: string;
   try {
-    realRoot = fs.realpathSync(scratchRoot(home));
+    realRoot = fs.realpathSync(root);
   } catch (e) {
     return { reason: msg('project.promote.scratchUnverified', { reason: why(e) }) };
   }

@@ -11,13 +11,13 @@ type Open = 'files' | 'artifacts' | null;
 
 /**
  * 終わったセッションの、見出しの下の小さい 1 行（2026-10-16 の試作の H1）。
- * ステータスの札と設定した日、終了（止めた知らせ、中断）、「要約のみ」などの印、ターン、トークンとコスト、
+ * ステータスの札（見出しに状態の札があるときは出さない）と設定した日、終了（止めた知らせ、中断）、「要約のみ」などの印、ターン、トークンとコスト、
  * git の札、変更したファイルとアーティファクトの札、PR を並べる。
  * 変更したファイルとアーティファクトの札は、押すとこの 1 行の下へ一覧が開く（同時には 1 つ）。
  * 変更したファイルの一覧の下に、差分のダイアログの入口を置く。
  * 要約は右の欄の要約の札（SummaryCard）にあり、ここには置かない。
  */
-export function EndedFacts(props: LeadCardProps & { sessionId: string; /** git の札（読むだけ）。 */ git?: SessionGitView | null }) {
+export function EndedFacts(props: LeadCardProps & { sessionId: string; /** git の札（読むだけ）。 */ git?: SessionGitView | null; /** 状態を見出しの札（4A）が出しているか。出していれば、ここには状態の札を置かず、設定した日だけを残す。 */ statusInHeading?: boolean }) {
   const t = useT();
   const editorLabels = useEditorLabels();
   const emit = useEmit();
@@ -29,7 +29,7 @@ export function EndedFacts(props: LeadCardProps & { sessionId: string; /** git �
   return (
     <div className="ended-facts" role="group" aria-label={props.label}>
       <div className="ef-line">
-        <span className="lead-status" data-s={props.status.value} data-auto={props.status.auto ? 'true' : undefined} title={props.status.title}>{props.status.auto && <Icon name="autoMark" />}{props.status.label}</span>
+        {!props.statusInHeading && <span className="lead-status" data-s={props.status.value} data-auto={props.status.auto ? 'true' : undefined} title={props.status.title}>{props.status.auto && <Icon name="autoMark" />}{props.status.label}</span>}
         {props.status.since && <span>{props.status.since}</span>}
         {props.stopped ? <span>{props.stopped}</span> : props.interrupted ? <span className="lead-interrupted"><span className="int-ring" aria-hidden="true" />{props.interrupted}</span> : props.ended && <span>{props.ended}</span>}
         {props.flags.map((f) => <span key={f}>{f}</span>)}

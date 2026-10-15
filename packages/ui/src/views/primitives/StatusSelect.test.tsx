@@ -28,6 +28,28 @@ describe('StatusSelect', () => {
     fireEvent.keyDown(screen.getByRole('button', { name: 's' }), { key: 'Enter' });
     expect(onParent).not.toHaveBeenCalled();
   });
+  it('isolate={false} なら、札の打鍵は親へ伝わる（セッション画面で全体のショートカットを止めない）', () => {
+    const onParent = vi.fn();
+    render(<div onKeyDown={onParent}><StatusSelect label="s" value="active" onChange={() => {}} isolate={false} /></div>);
+    fireEvent.keyDown(screen.getByRole('button', { name: 's' }), { key: 'k', metaKey: true });
+    expect(onParent).toHaveBeenCalledTimes(1);
+  });
+  it('いまと同じ値を選び直すと、onChange ではなく onReselect を呼ぶ。onReselect が無ければ何も呼ばない', () => {
+    const onChange = vi.fn();
+    const onReselect = vi.fn();
+    const { unmount } = render(<StatusSelect label="s" value="paused" onChange={onChange} onReselect={onReselect} />);
+    pick('s', 'Paused');
+    expect(onReselect).toHaveBeenCalledWith('paused');
+    expect(onChange).not.toHaveBeenCalled();
+    unmount();
+    render(<StatusSelect label="s" value="paused" onChange={onChange} />);
+    pick('s', 'Paused');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it('title は札のツールチップと、読み上げの説明の両方に出す', () => {
+    render(<StatusSelect label="s" value="done" onChange={() => {}} auto title="自動の理由" />);
+    expect(screen.getByRole('button', { name: 's' })).toHaveAccessibleDescription(/自動の理由/);
+  });
 });
 
 describe('StatusSelect の見た目', () => {

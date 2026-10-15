@@ -23,6 +23,7 @@ import type { HomeParts } from './home.ts';
 import { stopAfterIdle, stopUploader } from './stopping.ts';
 import { t } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
+import { followRemoteScratch } from '../projects/scratch.ts';
 
 /**
  * 上がっていない本文を拾い直す走査の間隔。
@@ -188,6 +189,8 @@ export function bootSync(
     engine.on({ applied: (c) => { if (c.tableName === 'sessions') remoteChanged(); } });
     // 削除の印（session_states.trashed_at）は、受け取った PC が本文をゴミ箱へ移す合図である（sessions/trash.ts）。
     engine.on({ applied: (c) => { if (c.tableName === 'session_states') statesApplied(); } });
+    // ほかの PC のスクラッチのプロジェクトや場所の行が届いたら、次の起動を待たずに 1 つにまとめ直す（projects/scratch.ts）。
+    engine.on({ applied: followRemoteScratch(db, deviceId, home.home, { onError: (e) => console.error('[sync] 届いたクイックセッションの行をまとめ直せませんでした', e instanceof Error ? e.message : e) }) });
     return { cloud, client, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
   };
 

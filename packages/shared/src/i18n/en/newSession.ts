@@ -10,7 +10,6 @@ export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.project.label': 'Project',
   'newSession.project.quick': 'Quick session',
   'newSession.project.quickSub': 'Start without a name and promote it to a project later',
-  'newSession.project.quickPath': '~/.agent-hangar/scratch/<date and time>/',
   'newSession.project.groupQuick': 'Quick start',
   'newSession.project.groupRecent': 'Recent',
   'newSession.project.groupAll': 'All',
@@ -53,5 +52,5 @@ export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.button.starting': 'Launching',
   'newSession.button.uploading': 'Sending attachments',
   'newSession.hint.quick': 'Press {keys} to start a quick session as is',
-  'newSession.note.trust': 'In a new directory, Claude shows a trust dialog. Answer it in the terminal after launching.',
+  'newSession.note.trust': 'In a directory you have not trusted yet, Claude shows a trust dialog. Answer it in the terminal after launching.',
 };

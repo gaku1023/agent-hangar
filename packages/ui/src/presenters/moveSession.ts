@@ -19,7 +19,7 @@ export type MoveSessionProps = { sessionId: string; name: string; cwd: string; p
 
 /**
  * overlay が moveSession のときだけ props を作る。セッションが Store に無ければ（消えた直後）null にする。
- * 並べるのは移せる先（しまったプロジェクトと、ほかの PC のクイックセッションを除く）と、いまの所属である。
+ * 並べるのは移せる先（しまったプロジェクトを除く。クイックセッションは全 PC で 1 つなので、その 1 つ）と、いまの所属である。
  * いまの所属は、しまったプロジェクトでも「現在のプロジェクト」として押せない形で並べる。
  */
 export function presentMoveSession(state: State, store: Store): MoveSessionProps | null {

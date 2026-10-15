@@ -56,6 +56,7 @@ export const confirmKeys = {
   'confirm.resumeHere.action': [],
   'confirm.resumeHere.replaceAhead': [],
   'confirm.resumeHere.replaceDiverged': [],
+  'confirm.resumeHere.createQuick': [],
   'confirm.replaceTranscript.lead': [],
   'confirm.replaceTranscript.local': ['size'],
   'confirm.replaceTranscript.remote': ['size'],

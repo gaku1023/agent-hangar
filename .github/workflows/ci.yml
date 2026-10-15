@@ -61,11 +61,12 @@ jobs:
       - run: node --version
       - name: サーバの試験（Node 24）
         run: npm test -- --project server
-  windows:
+  # Windows の試験は、Rust とインストーラのジョブ（windows）から分けて並列に回す。
+  # 1 本のジョブで続けて回すと、試験の 7 分ほどが CI 全体の長さにそのまま乗っていた（2026-10-16 の実測）。
+  windows-test:
     runs-on: windows-latest
-    # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分、
-    # 配布物のビルド（release の Rust と NSIS）にさらに数分から十数分、更新の経路の 2 回の build に 8 分ほどかかる。
-    timeout-minutes: 75
+    # 試験が固まったときの上限。ふつうは 3〜4 分で終わる。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -75,7 +76,6 @@ jobs:
       # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
       # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
       # psmux を入れないと、psmux を相手にする試験（tmux/psmux.win.test.ts）が describe.skipIf で黙って飛ぶ。
       # 取得元は公式のリリースの zip で、版と SHA-256 を固定する。
       # winget はランナーに入っていると限らず、cargo install はビルドで数分かかるので使わない。
@@ -95,7 +95,40 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      - run: npm test
+      # 型の検査（typecheck）は OS に依らないので、Linux の check だけで回す。
+      # OS で結果が割れうる project（server、desktop、cli、shared）だけを回す。
+      # cloud（Miniflare の上の Worker）と ui（jsdom）は OS に依らないので、Linux の check だけで回す。Windows では cloud だけで 6 分近くかかっていた。
+      # 4 コアのランナーで既定の 3 本より速かったので、ワーカーは 4 本にする（2026-10-16 の実測）。
+      - run: npm test -- --project server --project desktop --project cli --project shared --maxWorkers=4
+  windows:
+    runs-on: windows-latest
+    # ビルドが固まったときの上限。Rust のビルドがキャッシュ外れで数分、配布物のビルド（Rust と NSIS）に数分、
+    # 更新の経路の 2 回の build に数分かかる。キャッシュに当たれば全体で 9 分ほどで終わる（2026-10-16 の実測）。
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
+      # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
+      - run: npm ci --ignore-scripts
+      # 入れた殻とサーバを起こす試しも、利用者の機械と同じく psmux のある状態で回す。版と SHA-256 は windows-test と同じものにする。
+      - name: psmux を入れる
+        shell: pwsh
+        env:
+          PSMUX_VERSION: '3.3.8'
+          PSMUX_SHA256: 1ad127ba937194a890b933a73d9b023e297bd73dc742abd841bf159984c2effe
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'psmux.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'psmux'
+          Invoke-WebRequest -Uri "https://github.com/psmux/psmux/releases/download/v$env:PSMUX_VERSION/psmux-v$env:PSMUX_VERSION-windows-x64.zip" -OutFile $zip
+          $got = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          if ($got -ne $env:PSMUX_SHA256.ToUpper()) { throw "psmux の SHA-256 が合わない: $got" }
+          Expand-Archive -Path $zip -DestinationPath $dir
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+          & (Join-Path $dir 'psmux.exe') -V
       # 殻（Tauri、Rust）が Windows で組み上がることを見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
       # windows-latest に Rust は入っているが、版と components をここで決める。
       - uses: dtolnay/rust-toolchain@stable
@@ -104,8 +137,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
-      - run: cargo check --all-targets
-        working-directory: apps/desktop/src-tauri
+          # 保存は main だけにする。PR は main のキャッシュを読める。PR ごとに 1GB 前後を保存すると、リポジトリの上限（10GB）を超えて
+          # 古いものから消え、main のキャッシュまで当たらなくなっていた（2026-10-15、直近の実行がすべて No cache found）。
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # clippy が型の検査も兼ねるので、cargo check は回さない。
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri
       - run: cargo test
@@ -119,6 +154,14 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
           features: boot-probe
+        # CI の release の build は LTO を切り、codegen-units を 16 にする（Cargo.toml の release は lto = true、codegen-units = 1）。
+        # 版 A と版 B の build では殻のクレートだけを作り直すが、全体を 1 本で最適化し直すので 1 回に 3 分前後かかっていた。
+        # 切ると Windows で 171 秒から 85 秒前後、macOS で 180 秒前後から 50〜70 秒になった（2026-10-16 の実測）。thin LTO（codegen-units は 1）では縮まなかった。
+        # 配布の build（release.yml）は立てず、配布物はそこで同じ起動と更新の試しを通る。
+        # job の env にしないのは、rust-cache がキャッシュの鍵に CARGO_ で始まる環境変数を混ぜ、main のキャッシュに当たらなくなるからである。
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
       - uses: actions/upload-artifact@v7
         with:
           name: Hangar-windows-x64-setup
@@ -150,6 +193,10 @@ jobs:
       - name: 版 A から版 B へ、updater の経路で更新する
         timeout-minutes: 25
         shell: pwsh
+        # LTO を切る理由は、windows ジョブのインストーラの段の注記を見る。
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: pwsh -NoProfile -File apps/desktop/scripts/ci-update-windows.ps1 -Target x86_64-pc-windows-msvc -Out (Join-Path $env:RUNNER_TEMP 'update-windows')
       - uses: actions/upload-artifact@v7
         if: always()
@@ -175,6 +222,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+          # 保存は main だけにする。PR は main のキャッシュを読める。PR ごとに 1GB 前後を保存すると、リポジトリの上限（10GB）を超えて
+          # 古いものから消え、main のキャッシュまで当たらなくなっていた（2026-10-15、直近の実行がすべて No cache found）。
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --check
         working-directory: apps/desktop/src-tauri
       - run: cargo clippy --all-targets -- -D warnings
@@ -198,6 +248,10 @@ jobs:
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
         id: app
         run: npm run tauri -- build --bundles app --features boot-probe
+        # LTO を切る理由は、windows ジョブのインストーラの段の注記を見る。
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         working-directory: apps/desktop
       - name: Node の無い Mac で、読み込み画面が失敗の札に切り替わる
         timeout-minutes: 3
@@ -258,6 +312,10 @@ jobs:
       # 鍵は CI の中で作る使い捨てのもので、目録と更新物はローカルの HTTP で配る。本物の secret は使わない。
       - name: 版 A から版 B へ、updater の経路で .app を入れ替える
         timeout-minutes: 20
+        # LTO を切る理由は、windows ジョブのインストーラの段の注記を見る。
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: bash apps/desktop/scripts/ci-update-macos.sh "$RUNNER_TEMP/update-macos"
       - uses: actions/upload-artifact@v7
         if: always()

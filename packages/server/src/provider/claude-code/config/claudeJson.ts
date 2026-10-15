@@ -79,10 +79,10 @@ const stamp = (d: Date) =>
  * 書く前の中身を控えとして残す。もとのファイルが無ければ、失うものが無いので何もしない。
  * 控えにもトークンが入るので 0600 で置く。
  */
-function takeBackup(realFile: string, backupDir: string, now: Date): string | null {
+function takeBackup(realFile: string, backupDir: string, now: Date, prefix = 'claude.json'): string | null {
   if (!fs.existsSync(realFile)) return null;
   fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
-  const base = path.join(backupDir, `claude.json-${stamp(now)}`);
+  const base = path.join(backupDir, `${prefix}-${stamp(now)}`);
   let dest = base;
   for (let i = 2; fs.existsSync(dest); i++) dest = `${base}-${i}`;
   fs.copyFileSync(realFile, dest);
@@ -153,6 +153,133 @@ export function removeUserMcpServer(file: string, name: string, o: UpsertOptions
     const { [name]: _gone, ...rest } = cur.mcpServers as JsonObject;
     writeJsonObject(realFile, { ...cur, mcpServers: rest });
     return { file: realFile, changed: true, backup };
+  } finally {
+    release();
+  }
+}
+
+/**
+ * その置き場で動く claude が読む user スコープの設定ファイル。
+ * configDir は起動に付ける CLAUDE_CONFIG_DIR で、付けない（最初のアカウント）なら null。
+ * claudeJsonPath と違い、このプロセスの環境ではなく、起こす claude の環境で決める。
+ */
+export function claudeJsonFor(configDir: string | null, homeDir: string): string {
+  return path.join(configDir ?? homeDir, '.claude.json');
+}
+
+/** 信頼の鍵の区切り。Claude Code は Windows でも / で書き、/ で引く（2.1.301 の配布物の判定のコードで確かめた）。 */
+export function toTrustKey(p: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? p.replaceAll('\\', '/') : p;
+}
+
+/**
+ * フォルダの信頼の鍵（projects の鍵）。
+ * claude は作業フォルダを getcwd の実体のパスで引くので、リンクは実体まで解く。まだ無いフォルダは resolve の形にする。
+ */
+export function trustKeyOf(dir: string, platform: NodeJS.Platform = process.platform): string {
+  let p: string;
+  try {
+    p = fs.realpathSync.native(dir);
+  } catch {
+    p = path.resolve(dir);
+  }
+  return toTrustKey(p, platform);
+}
+
+const projectsOf = (cur: JsonObject): JsonObject => (cur.projects && typeof cur.projects === 'object' && !Array.isArray(cur.projects) ? (cur.projects as JsonObject) : {});
+const isTrusted = (projects: JsonObject, key: string): boolean => {
+  const p = projects[key];
+  return !!p && typeof p === 'object' && (p as JsonObject).hasTrustDialogAccepted === true;
+};
+
+/**
+ * 置き場のフォルダがまだ無いか。
+ * アカウントを登録しただけで、まだその置き場のフォルダが作られていないことがある。
+ * resolveRealFile は親を realpath で解くので、そのままでは ENOENT で投げる。ファイルが無いときと同じく、書かずに済ませる。
+ */
+const parentMissing = (file: string): boolean => !fs.existsSync(path.dirname(file));
+
+/** dirs のうち、まだ自分の鍵で信頼済みになっていないものの鍵。ファイル（か置き場のフォルダ）が無ければ null。読むだけで書かない。 */
+export function untrustedFolders(file: string, dirs: string[]): string[] | null {
+  if (parentMissing(file)) return null;
+  const realFile = resolveRealFile(file);
+  if (!fs.existsSync(realFile)) return null;
+  const projects = projectsOf(readJsonObject(realFile));
+  return [...new Set(dirs.map((d) => trustKeyOf(d)))].filter((k) => !isTrusted(projects, k));
+}
+
+export type TrustResult = {
+  /** 実際に書いたファイル。リンクだったときは実体の側。 */
+  file: string;
+  /** 新しく信頼済みにした鍵。 */
+  added: string[];
+  /** 取った控え。書かなかったときは null。 */
+  backup: string | null;
+  /** 設定ファイルが無かったので書かなかったか。 */
+  missing: boolean;
+};
+
+/** 信頼の書き込みの控えの名前の頭。MCP の登録の控え（claude.json-<時刻>）と分け、こちらだけを数を決めて残す。 */
+const TRUST_BACKUP_PREFIX = 'claude.json-trust';
+/** 信頼の書き込みの控えを、新しいものから何個残すか。 */
+export const TRUST_BACKUPS_KEPT = 5;
+
+/** 控えの名前を、取った順に並べられる形にする（時刻、同じ秒の通し番号）。 */
+function backupOrder(name: string): [string, number] {
+  const m = /^claude\.json-trust-(\d{14})(?:-(\d+))?$/.exec(name);
+  return m ? [m[1]!, m[2] ? Number(m[2]) : 1] : ['', 0];
+}
+
+/** 信頼の書き込みの控えのうち、新しいものから keep 個を残して消す。ほかの控えには触らない。 */
+function pruneTrustBackups(backupDir: string, keep: number): void {
+  const mine = fs.readdirSync(backupDir).filter((n) => backupOrder(n)[0] !== '');
+  mine.sort((x, y) => {
+    const [a, i] = backupOrder(x);
+    const [b, j] = backupOrder(y);
+    return a === b ? j - i : a < b ? 1 : -1;
+  });
+  for (const n of mine.slice(keep)) fs.rmSync(path.join(backupDir, n), { force: true });
+}
+
+/**
+ * Claude Code の「このフォルダを信頼しますか」を、答えたのと同じ形（projects.<path>.hasTrustDialogAccepted = true）で書く。
+ * 同じ行のほかの項目（allowedTools など）とほかの鍵には触らない。
+ * MCP の登録と同じ 4 つの守り（ロック、リンクの実体、権限、控え）で書く。
+ * 全部すでに信頼済みなら、書かず、控えも取らない（起動のたびに呼ばれても控えが溜まらない）。
+ * ファイルが無ければ作らない。まだ一度も claude を起こしていない置き場で、Claude Code の初回の流れより先にファイルを置かないためである。置き場のフォルダが無いときも同じ。
+ * 控えは claude.json-trust-<時刻> の名前で取り、新しいものから TRUST_BACKUPS_KEPT 個だけ残す（起動のたびに書くことがあるので、溜めない）。
+ * 読み直したら書き足すものが無くなっていたときは、書かず、取った控えも消す。
+ */
+export function trustFolders(file: string, dirs: string[], o: UpsertOptions): TrustResult {
+  if (parentMissing(file)) return { file: path.resolve(file), added: [], backup: null, missing: true };
+  const realFile = resolveRealFile(file);
+  if (!fs.existsSync(realFile)) return { file: realFile, added: [], backup: null, missing: true };
+  const keys = [...new Set(dirs.map((d) => trustKeyOf(d)))];
+  const release = acquireFileLock(realFile, o.lockWaitMs ?? 2000, o.staleLockMs ?? 10_000);
+  try {
+    const first = readJsonObject(realFile);
+    o.check?.(first);
+    if (keys.every((k) => isTrusted(projectsOf(first), k))) return { file: realFile, added: [], backup: null, missing: false };
+    const backup = takeBackup(realFile, o.backupDir, o.now ?? new Date(), TRUST_BACKUP_PREFIX);
+    o.onBeforeWrite?.();
+    // 読んでから書くまでの間に Claude Code が書いたかもしれないので、書く直前にもう一度読む。
+    const cur = readJsonObject(realFile);
+    const projects = { ...projectsOf(cur) };
+    const added: string[] = [];
+    for (const k of keys) {
+      if (isTrusted(projects, k)) continue;
+      const prev = projects[k];
+      projects[k] = { ...(prev && typeof prev === 'object' && !Array.isArray(prev) ? (prev as JsonObject) : {}), hasTrustDialogAccepted: true };
+      added.push(k);
+    }
+    if (added.length === 0) {
+      // 割り込みで信頼済みになっていた。書かないので、控えも残さない。
+      if (backup) fs.rmSync(backup, { force: true });
+      return { file: realFile, added, backup: null, missing: false };
+    }
+    writeJsonObject(realFile, { ...cur, projects });
+    if (backup) pruneTrustBackups(o.backupDir, TRUST_BACKUPS_KEPT);
+    return { file: realFile, added, backup, missing: false };
   } finally {
     release();
   }

@@ -29,11 +29,12 @@ export type SessionMenuDot = 'active' | 'paused' | 'done' | 'archived';
 export type SessionMenuEntry = { key: string; label: string; send: UiAction | null; disabled: string | null; kbd?: string; icon?: IconName; dot?: SessionMenuDot; checked?: boolean; separatorBefore?: boolean; danger?: boolean; note?: string };
 
 /**
- * 移せる先があるか。いまの所属のほかに、一覧から消していないプロジェクトが 1 つでもあればよい。
- * 移す先の選び方（presenters/moveSession.ts）と同じく、しまったプロジェクトとほかの PC のクイックセッションは数えない。
+ * 移せる先。いまの所属のほかの、一覧から消していないプロジェクトである。しまったプロジェクトは数えない。
+ * クイックセッションは全 PC で 1 つのプロジェクトにまとめてある（projects/scratch.ts）ので、その 1 つを並べる。この PC の場所は quick-sessions である。
+ * 移す先の選び方（presenters/moveSession.ts）も、メニューの押せるかどうかも、これで決める。
  */
 export function moveTargetIds(store: Store, current: string | null): string[] {
-  return Object.values(store.projects).filter((p) => p.id !== current && p.status !== 'archived' && (!p.isScratch || p.path !== null)).map((p) => p.id);
+  return Object.values(store.projects).filter((p) => p.id !== current && p.status !== 'archived').map((p) => p.id);
 }
 
 /**

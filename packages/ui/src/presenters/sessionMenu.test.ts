@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { translator, type ProjectDto, type RunDto, type SessionDto, type TabDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
-import { presentSessionMenu, sessionMenuEntries, type SessionMenuProps } from './sessionMenu.ts';
+import { moveTargetIds, presentSessionMenu, sessionMenuEntries, type SessionMenuProps } from './sessionMenu.ts';
 
 const NOW = new Date(2026, 9, 16, 12, 0).getTime();
 const ja = translator('ja');
@@ -54,6 +54,17 @@ describe('セッションのメニューの中身（presentSessionMenu）', () =
     const m = presentSessionMenu(storeWith(s), s, ja);
     expect(keys(m)[0]).toBe('resumeHere');
     expect(entry(m, 'resumeHere')).toMatchObject({ label: 'この PC で再開', disabled: null, send: { type: 'session.resumeHere.open', id: 's1' } });
+  });
+});
+
+describe('移せる先（moveTargetIds）', () => {
+  it('クイックセッションは全 PC で 1 つなので、この PC の場所がまだ無くても移せる先に並べる。しまったプロジェクトといまの所属は除く', () => {
+    const store = { ...initialStore(), projects: {
+      p1: project(), p2: project({ id: 'p2', name: 'paper', status: 'archived' }),
+      q: project({ id: 'q', name: 'quick', isScratch: true, path: null }),
+    } } as Store;
+    expect(moveTargetIds(store, 'p1')).toEqual(['q']);
+    expect(moveTargetIds(store, 'q')).toEqual(['p1']);
   });
 });
 

@@ -17,6 +17,7 @@ import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
 import { InfoPopover, type PopoverRow } from './primitives/Popover.tsx';
 import { GitUnsafeNote } from './GitUnsafeNote.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
+import { StatusSelect } from './primitives/StatusSelect.tsx';
 import { usePresence } from './primitives/usePresence.ts';
 import { SplitPane } from './SplitPane.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -33,7 +34,7 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
 
 /**
  * セッション画面（設計は docs/superpowers/specs/2026-10-09-stage4-screens-design.md の 2.3、試作は 2026-10-09-session-screen/options.html の C）。
- * 上から、見出しの段（点、名前、ロックの札、要約の 1 文、主の操作、「…」、(i)）、実行中ならタブの列、そして残りの高さを全部使う本体を置く。
+ * 上から、見出しの段（点、名前、ロックの札、要約の 1 文、状態の札、主の操作、「…」、(i)）、実行中ならタブの列、そして残りの高さを全部使う本体を置く。
  * 本体は左に主役（実行中はターミナル、終わった後はトランスクリプト）、右に 240px の列を置く。
  * 実行中は、右の列の上に現在の札（NowCard）、その下に目次を積む。
  * 終わった後は、見出しの下に事実の小さい 1 行（EndedFacts）を置き、右の列は書かれた要約があれば要約の札（SummaryCard）、その下に目次を積む（2026-10-16 の試作の H1 と S5）。
@@ -137,7 +138,16 @@ export function SessionScreen(props: SessionProps) {
     </div>
   ) : null;
   // 終わった画面の事実の 1 行（H1）。押せない理由の行があれば、その下に並べる。
-  const facts = props.lead ? <EndedFacts sessionId={id} {...props.lead} git={props.git} /> : null;
+  // 状態は見出しの札（4A）が持つので、札のある間は 1 行の側に状態の札を出さない（二重に出さない）。
+  const statusPick = props.statusPick ?? null;
+  const facts = props.lead ? <EndedFacts sessionId={id} {...props.lead} git={props.git} statusInHeading={statusPick !== null} /> : null;
+  // 札で選んだ状態。Active は状態を外し、Paused は戻る日を決めるダイアログを開く（その場では付けない）。
+  // Paused のときに Paused を選び直したときも、戻る日を決め直せるようにダイアログを開く。
+  const setStatus = (status: NonNullable<typeof statusPick>['value']) => {
+    if (status === 'paused') emit({ type: 'session.pause.open', id, from: 'menu' });
+    else emit({ type: 'session.state.set', id, status: status === 'active' ? null : status });
+  };
+  const reselectStatus = (status: NonNullable<typeof statusPick>['value']) => { if (status === 'paused') setStatus(status); };
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
   const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
   const header = (
@@ -149,6 +159,8 @@ export function SessionScreen(props: SessionProps) {
     <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={<>{facts}{noRootLine}</>}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
+      {/* 状態の札（4A）。操作の並びの先頭、主の操作の左に置く。見た目と一言はプロジェクト画面の札と同じ。 */}
+      {statusPick && <StatusSelect label={t('session.screen.status')} value={statusPick.value} auto={statusPick.auto} title={statusPick.title} onChange={setStatus} onReselect={reselectStatus} isolate={false} />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
       <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
         aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>

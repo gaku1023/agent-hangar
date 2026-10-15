@@ -233,3 +233,19 @@ describe('宛先のコピー（別の Claude に渡す 1 行）', () => {
     }
   });
 });
+
+describe('見出しの状態の札（4A）', () => {
+  it('状態の無い会話は Active、付いていればその状態を、実行中でも終わった後でも渡す', () => {
+    expect(present(store()).statusPick).toMatchObject({ value: 'active', auto: false });
+    expect(present(store(session({ live: 'busy' }), run())).statusPick).toMatchObject({ value: 'active' });
+    const paused = session({ state: { status: 'paused', note: null, returnOn: '2026-09-05', returnTime: null, setBy: 'user', setAt: NOW, candidate: null } });
+    expect(present(store(paused)).statusPick).toMatchObject({ value: 'paused', auto: false });
+  });
+  it('自動で付いた Done は印と理由を添える', () => {
+    const auto = session({ stats: { ...stats, turns: 2 }, state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: NOW, candidate: null } });
+    expect(present(store(auto)).statusPick).toEqual({ value: 'done', auto: true, title: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）' });
+  });
+  it('本文が消えた会話には出さない', () => {
+    expect(present(store(session({ hasTranscript: false, lastActivityAt: NOW - 40 * 86_400_000 }))).statusPick).toBeNull();
+  });
+});

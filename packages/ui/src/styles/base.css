@@ -567,7 +567,13 @@ a:hover { text-decoration: underline; }
 /* 耳の下の板は、左上だけを角張らせて耳とつなぐ。タブの列は本体（.c-body）の 1 行目にあり、耳の直下はターミナルで、分割しているときは左の板をつなぐ（現在の札は右の列にあり、耳にはつながない）。 */
 .c-body > .tabs + .c-main > :first-child.term-pane, .c-body > .tabs + .c-main > .split-h:first-child > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
 /* 初めてつなぐときは、最初のデータが届くまで面を透明にし、届いたら --dur で現す（設計書 ⑨）。一度描いたタブは付け替えても透明にしない。 */
-.term-host { flex: 1; min-height: 0; padding: var(--u); transition: opacity var(--dur) var(--ease-out); }
+.term-host { flex: 1; min-height: 0; padding: var(--u); overflow: clip; transition: opacity var(--dur) var(--ease-out); }
+/* 変換中の文字（xterm の .composition-view）は、ターミナルの右端で折り返して次の行の左端から続ける（試作の 2A、runtime/compositionWrap.ts）。
+   幅と字下げは compositionWrap.ts が当てる。xterm は 1 行分の高さを直に書くので、高さだけは !important で行の数に任せる。
+   箱を塗ると 1 行目のカーソルより左を隠すので、箱は透かし、文字の span だけを xterm の既定の色で塗る。
+   入力欄（textarea）も箱の幅に合わせて伸びるので、ターミナルの外へはみ出した分は .term-host で切り、外の箱が横に送られないようにする（clip は送れる箱を作らない）。 */
+.term-host .xterm .composition-view { height: auto !important; box-sizing: border-box; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; background: transparent; }
+.term-host .xterm .composition-text { background: #000; color: #fff; }
 .term-host[data-painted='false'] { opacity: 0; }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
@@ -638,6 +644,8 @@ a:hover { text-decoration: underline; }
 .status-pill:hover { filter: brightness(0.97); }
 .status-pill[aria-expanded='true'] > .icon:last-child { transform: rotate(180deg); }
 .status-pill > .icon:last-child { transition: transform var(--dur-fast) var(--ease-out); }
+/* hangar が自動で付けた状態の印（✦）。セッション画面の見出しの札だけが付ける。見出しの下の 1 行の札（.lead-status[data-auto]）と同じ大きさにする。 */
+.status-pill[data-auto] > .icon:first-child { width: 10px; height: 10px; }
 .st-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .st-dot[data-status='active'] { background: var(--st-active); }
 .st-dot[data-status='paused'] { background: var(--st-paused); }

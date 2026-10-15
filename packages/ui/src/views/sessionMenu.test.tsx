@@ -154,7 +154,7 @@ const store = (): Store => ({
   ...initialStore(), home: '/Users/me', sessions: { s1: session() },
   projects: {
     p1: project('p1', 'app', { lastActivityAt: NOW }), p2: project('p2', 'paper', { lastActivityAt: NOW - 1000 }), p3: project('p3', 'home-lab', { status: 'paused' }),
-    p4: project('p4', 'old', { status: 'archived' }), q: project('q', 'quick', { isScratch: true, path: '/Users/me/.agent-hangar/scratch' }), qx: project('qx', 'quick-other', { isScratch: true, path: null }),
+    p4: project('p4', 'old', { status: 'archived' }), q: project('q', 'quick', { isScratch: true, path: '/Users/me/.agent-hangar/quick-sessions' }),
   },
 } as Store);
 
@@ -166,7 +166,7 @@ describe('移す先のダイアログ（2A）', () => {
     render(<ActionRoot onAction={onAction}><MoveSessionDialog {...props} /></ActionRoot>);
     return onAction;
   };
-  it('見出し、本文、検索の欄、最近とすべての区切り、注意書きを出す。しまったものとほかの PC のクイックセッションは並べない', () => {
+  it('見出し、本文、検索の欄、最近とすべての区切り、注意書きを出す。しまったものは並べず、全 PC で 1 つのクイックセッションを並べる', () => {
     mountMove();
     const dialog = screen.getByRole('dialog', { name: 'プロジェクトの変更' });
     expect(dialog).toHaveTextContent('「ログイン画面の直し」の移動先を選んでください。');

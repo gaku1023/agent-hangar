@@ -194,6 +194,7 @@ function Card(props: { card: ResumeHereCard; here: boolean }) {
       <div className="rh-card-n">{c.name}</div>
       {c.os && <div className="rh-card-o">{c.os}</div>}
       {c.path && <div className="rh-card-p mono">{c.path}</div>}
+      {c.note && <div className="rh-card-note">{c.note}</div>}
       {c.at && <div className="rh-card-at">{c.at}</div>}
     </div>
   );

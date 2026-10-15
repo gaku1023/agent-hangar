@@ -186,6 +186,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.screen.endedHint': 'Claude has ended. Shell tabs remain.',
   'session.screen.loading': 'Loading session',
   'session.screen.moreActions': 'More actions',
+  'session.screen.status': 'Session status',
   'session.screen.extendRetention': 'Extend retention period…',
   'session.screen.mainConversation': 'Main conversation',
   'session.screen.thinkingLabel': 'Show thinking',
