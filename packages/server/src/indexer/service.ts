@@ -12,7 +12,7 @@ import type { TranscriptCompat } from '../provider/claude-code/compat/transcript
 import type { DiscoveredFile } from '../provider/claude-code/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
-import { ensureSession, forgetTranscriptFile, indexFile, isUnchanged, type FileStat, type ProcessStartOf } from './indexFile.ts';
+import { ensureSession, forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat, type ProcessStartOf } from './indexFile.ts';
 import { stmt } from './statements.ts';
 
 export type IndexerListener = {
@@ -669,6 +669,8 @@ export class IndexerService {
     // 他端末の会話の本文なので、本人だけが読める権限で作る（puller 側も同じ 0700 で作る）。
     if (this.opts.remoteRoot) fs.mkdirSync(this.opts.remoteRoot, { recursive: true, mode: 0o700 });
     this.ensureWatchers();
+    // 前の版が先頭からの索引を消してしまったファイルは、この全走査で先頭から読み直す。
+    markTruncatedForReindex(this.opts.db);
     await this.fullScan();
     this.armSweep();
     this.noteLiveChanged();

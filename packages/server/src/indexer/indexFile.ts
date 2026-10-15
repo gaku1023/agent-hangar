@@ -76,6 +76,18 @@ export function findSession(db: Db, providerSessionId: string): string | null {
   return row && row.deleted_at === null ? row.id : null;
 }
 
+/**
+ * 先頭からの索引が抜けたファイルを、先頭から読み直させる（版を 0 にする）。直した件数を返す。
+ * 前の版の forgetTranscriptFile は、移った先のパスの索引まで消して読み進めた位置だけを残した。そのファイルは続きしか積まれていない。
+ * 索引がある（読めた行がある）のに先頭の行の索引が無いものを壊れたと見る。起動のたびに呼んでも、揃ったものには触らない。
+ */
+export function markTruncatedForReindex(db: Db): number {
+  return stmt(db, `update transcript_files set indexer_version = 0
+    where indexer_version <> 0
+      and exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and e.file_path_ref = transcript_files.path)
+      and not exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and e.file_path_ref = transcript_files.path and e.byte_offset = 0)`).run().changes;
+}
+
 /** 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。 */
 export function forgetTranscriptFile(db: Db, filePath: string): void {
   const row = stmt(db, 'select session_id, agent_id from transcript_files where path = ?').get(filePath) as { session_id: string; agent_id: string | null } | undefined;
@@ -95,6 +107,10 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
     // 使用制限の行も主線のものである。
     if (row.agent_id === null) stmt(db, 'delete from session_limits where session_id = ?').run(row.session_id);
     stmt(db, 'delete from transcript_files where path = ?').run(filePath);
+    // 上の 2 つの delete は位置ごとに消すので、同じ位置を別のパスで読んでいたぶんも消える。
+    // EnterWorktree は本文を worktree 用の projects の下へ移すので、移った先を読み終えた後に元のパスを手放す順がありうる。
+    // そのパスの読み進めた位置だけが残ると、続きしか積まれず、最初の依頼が目次から抜ける。版を 0 にして先頭から読み直させる。
+    stmt(db, "update transcript_files set indexer_version = 0 where session_id = ? and ifnull(agent_id, '') = ?").run(row.session_id, agentKey);
   });
   run();
 }
