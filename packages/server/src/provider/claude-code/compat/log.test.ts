@@ -34,6 +34,18 @@ describe('CompatLog', () => {
     log.note({ contract: 'screen', value: 'prompt-marker=(missing)', version: null });
     expect(log.list().find((e) => e.contract === 'screen')!.version).toBeNull();
   });
+  it('遅かっただけと分かったずれは settle で落とし、書き出しに載せない', () => {
+    const file = compatPath(tmp);
+    const log = new CompatLog({ file, localVersion: () => '2.1.300', now: () => 1 });
+    log.note({ contract: 'registry', value: 'status=(missing)', version: '2.1.300' });
+    log.note({ contract: 'registry', value: 'status=thinking', version: '2.1.300' });
+    log.flush();
+    log.settle({ contract: 'registry', value: 'status=(missing)', version: '2.1.300' });
+    log.settle({ contract: 'transcript', value: 'type=x', version: null });
+    expect(log.list().map((e) => e.value)).toEqual(['status=thinking']);
+    log.flush();
+    expect(new CompatLog({ file, localVersion: () => '2.1.300' }).list().map((e) => e.value)).toEqual(['status=thinking']);
+  });
   it('上限を超えたら、最後に見た時刻の古いものから落とす', () => {
     let t = 0;
     const log = new CompatLog({ file: null, localVersion: () => null, now: () => t, max: 3 });

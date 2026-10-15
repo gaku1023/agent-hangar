@@ -5,8 +5,11 @@ import type { CompatContract } from '@agent-hangar/shared';
  * version は値を読んだ元に載っていた claude の版で、無ければ null（記録の側で手元の版を入れる）。
  */
 export type Drift = { contract: CompatContract; value: string; version: string | null };
-/** ずれを受け取る口。CompatLog が実物で、試験は配列に積むだけのものを渡す。 */
-export type CompatSink = { note(d: Drift): void };
+/**
+ * ずれを受け取る口。CompatLog が実物で、試験は配列に積むだけのものを渡す。
+ * settle は、一瞬の欠けが遅かっただけと分かったずれを、記録から落とす（compat/registry.ts の RegistryMissGate）。
+ */
+export type CompatSink = { note(d: Drift): void; settle?(d: Drift): void };
 /** 何もしない口。渡されなかったときの既定である。 */
 export const NO_COMPAT: CompatSink = { note: () => {} };
 

@@ -114,6 +114,11 @@ export class CompatLog implements CompatSink {
     this.dirty = true;
   }
 
+  /** 遅かっただけと分かったずれを落とす。記録に無ければ何もしない。 */
+  settle(d: Drift): void {
+    if (this.entries.delete(this.key(d.contract, d.value.slice(0, COMPAT_MAX_VALUE)))) this.dirty = true;
+  }
+
   /** 上限を超えた分を、最後に見た時刻の古いものから落とす。 */
   private trim(): void {
     while (this.entries.size > this.max) {
