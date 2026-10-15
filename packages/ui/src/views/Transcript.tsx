@@ -23,11 +23,14 @@ export type { TranscriptFind };
  * 本文の 1 行。
  * 利用者の指示は打ったとおりに右寄せの吹き出しで見せ、Claude の返答は吹き出しをやめて地の文の Markdown にする（M2）。
  * 長いものは入れ子のスクロールにせず、高さで切って下端をぼかす（F1）。
+ * ただし終わったセッションでは、結論を読みに開くので Claude の返答は畳まず全文で出す（fullReply、2026-10-16 の利用者の決定）。
+ * 利用者の長い貼り付けと思考は、終わった後も畳む。
  */
-export function renderItem(sessionId: string, it: TranscriptItem): ReactNode {
+export function renderItem(sessionId: string, it: TranscriptItem, opts?: { fullReply?: boolean }): ReactNode {
   switch (it.kind) {
     case 'user': return <div className="msg msg-user"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text, 60)} shown={MSG_LINES} tone="accent" height>{() => <Hl text={it.text} />}</Clamp></div>;
-    case 'assistant': return <div className="msg msg-assistant"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
+    case 'assistant': if (opts?.fullReply) return <div className="msg msg-assistant"><Markdown text={it.text} /></div>;
+      return <div className="msg msg-assistant"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
     case 'thinking': return <div className="msg msg-thinking"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
     case 'system': return <div className="msg msg-system"><Hl text={it.text} /></div>;
     case 'tool': return <ToolItem sessionId={sessionId} item={it} />;
@@ -462,7 +465,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
         {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={loadOlder}>{props.loading ? t('common.state.loading') : t('transcript.more.older', { n: props.remaining })}</button>}
         <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
           {drawn.map((r) => {
-            const body = r.tools ? <ToolGroup sessionId={props.sessionId} items={r.items as Extract<TranscriptItem, { kind: 'tool' }>[]} /> : renderItem(props.sessionId, r.items[0]!);
+            const body = r.tools ? <ToolGroup sessionId={props.sessionId} items={r.items as Extract<TranscriptItem, { kind: 'tool' }>[]} /> : renderItem(props.sessionId, r.items[0]!, { fullReply: !props.live });
             return (
               <div key={r.key} className={r.key === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={r.key} ref={setRowEl(r.key)}>
                 {!marking && jumpMark && r.items.some((it) => it.seq === jumpTarget) ? <MarkProvider value={jumpMark}>{body}</MarkProvider> : body}
