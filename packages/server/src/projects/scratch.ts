@@ -60,7 +60,8 @@ export function ensureScratchProject(db: Db, deviceId: string, home: string): st
       into = newId();
       upsertShared(db, 'projects', { id: into, name: SCRATCH_PROJECT_NAME, status: 'active', is_scratch: 1 }, deviceId);
     }
-    for (const from of live.slice(1)) moveProjectContents(db, deviceId, from, into);
+    let moved = false;
+    for (const from of live.slice(1)) if (moveProjectContents(db, deviceId, from, into)) moved = true;
 
     // この PC の場所の行は、まとめ先の 1 行だけにする。消したスクラッチのプロジェクトに残った行も外す。
     const mineElsewhere = db.prepare(`select r.id from project_roots r join projects p on p.id = r.project_id
@@ -76,9 +77,42 @@ export function ensureScratchProject(db: Db, deviceId: string, home: string): st
       if ((rootsLeft.get(from) as { c: number }).c === 0) softDeleteShared(db, 'projects', from, deviceId);
     }
     // まとめ先は、行は変わらないが中身（セッション、最終の活動、TODO の数）が変わる。
-    if (live.length > 1) touchRow(db, 'projects', into);
+    // 知らせるのは、実際に何か移したときだけにする。前の版の PC の行が残る間は live が 2 つのままなので、数で見ると起動のたびに知らせてしまう。
+    if (moved) touchRow(db, 'projects', into);
     return into;
   })();
+}
+
+/** 同期で当てた 1 行が、スクラッチのプロジェクトの行か、スクラッチのプロジェクトの場所の行か。当てた後の DB で見る。 */
+export function isScratchRow(db: Db, c: { tableName: string; rowId: string }): boolean {
+  if (c.tableName === 'projects') return (db.prepare('select is_scratch from projects where id = ?').get(c.rowId) as { is_scratch: number } | undefined)?.is_scratch === 1;
+  if (c.tableName === 'project_roots') {
+    return (db.prepare('select p.is_scratch from project_roots r join projects p on p.id = r.project_id where r.id = ?').get(c.rowId) as { is_scratch: number } | undefined)?.is_scratch === 1;
+  }
+  return false;
+}
+
+/**
+ * 同期の取り込みの受け手（sync/engine.ts の applied）。スクラッチのプロジェクトかその場所の行が届いたら、まとめ直す（ensureScratchProject）。
+ * 前の版の PC が作った会話が、次の起動まで別のスクラッチのプロジェクトに割れたままにならないようにする。
+ * 1 回の取り込みで届いた行は同期のうちに続けて渡されるので、マイクロタスクで 1 回にまとめる。ほかの表の行では何もしない。
+ * まとめに失敗しても投げずに onError へ渡す（マイクロタスクで投げるとプロセスごと落ちる）。
+ */
+export function followRemoteScratch(db: Db, deviceId: string, home: string, o: { onError: (e: unknown) => void; ensure?: typeof ensureScratchProject }): (c: { tableName: string; rowId: string }) => void {
+  const ensure = o.ensure ?? ensureScratchProject;
+  let queued = false;
+  return (c) => {
+    if (queued || !isScratchRow(db, c)) return;
+    queued = true;
+    queueMicrotask(() => {
+      queued = false;
+      try {
+        if (db.open) ensure(db, deviceId, home);
+      } catch (e) {
+        o.onError(e);
+      }
+    });
+  };
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');

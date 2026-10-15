@@ -10,7 +10,6 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.project.label': 'プロジェクト',
   'newSession.project.quick': 'クイックセッション',
   'newSession.project.quickSub': '名前は決めずに始めて、あとでプロジェクトに昇格できる',
-  'newSession.project.quickPath': '~/.agent-hangar/scratch/<日時>/',
   'newSession.project.groupQuick': 'クイックスタート',
   'newSession.project.groupRecent': '最近',
   'newSession.project.groupAll': 'すべて',

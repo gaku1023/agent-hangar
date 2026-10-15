@@ -7,12 +7,14 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
  * メモは、into が空なら移し、両方にあれば into の後ろへ空行を挟んでつなぐ。
  * 呼ぶ側のトランザクションの中で呼ぶ。プロジェクトをまとめる（registry.ts の mergeProjects）ときと、
  * PC ごとのスクラッチのプロジェクトを 1 つにまとめる（scratch.ts の ensureScratchProject）ときに使う。
+ * 何か 1 行でも移したら真を返す。移すものが無ければ何も書かない。
  */
-export function moveProjectContents(db: Db, deviceId: string, fromId: string, intoId: string): void {
-  for (const s of db.prepare('select * from sessions where project_id = ?').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'sessions', { ...s, project_id: intoId }, deviceId);
+export function moveProjectContents(db: Db, deviceId: string, fromId: string, intoId: string): boolean {
+  let moved = false;
+  for (const s of db.prepare('select * from sessions where project_id = ?').all(fromId) as Record<string, unknown>[]) { upsertShared(db, 'sessions', { ...s, project_id: intoId }, deviceId); moved = true; }
   let position = (db.prepare('select coalesce(max(position), -1) m from todos where project_id = ?').get(intoId) as { m: number }).m;
-  for (const t of db.prepare('select * from todos where project_id = ? order by position, id').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'todos', { ...t, project_id: intoId, position: ++position }, deviceId);
-  for (const a of db.prepare('select * from artifacts where project_id = ?').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'artifacts', { ...a, project_id: intoId }, deviceId);
+  for (const t of db.prepare('select * from todos where project_id = ? order by position, id').all(fromId) as Record<string, unknown>[]) { upsertShared(db, 'todos', { ...t, project_id: intoId, position: ++position }, deviceId); moved = true; }
+  for (const a of db.prepare('select * from artifacts where project_id = ?').all(fromId) as Record<string, unknown>[]) { upsertShared(db, 'artifacts', { ...a, project_id: intoId }, deviceId); moved = true; }
 
   const memoOf = db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null');
   const fromMemo = (memoOf.get(fromId) as { markdown: string } | undefined)?.markdown ?? '';
@@ -20,6 +22,8 @@ export function moveProjectContents(db: Db, deviceId: string, fromId: string, in
     const intoMemo = (memoOf.get(intoId) as { markdown: string } | undefined)?.markdown ?? '';
     const markdown = intoMemo.trim() === '' ? fromMemo : `${intoMemo.replace(/\s+$/, '')}\n\n${fromMemo}`;
     upsertShared(db, 'project_memos', { project_id: intoId, markdown, deleted_at: null }, deviceId, 'project_id');
+    moved = true;
   }
-  if (db.prepare('select 1 from project_memos where project_id = ? and deleted_at is null').get(fromId)) softDeleteShared(db, 'project_memos', fromId, deviceId, 'project_id');
+  if (db.prepare('select 1 from project_memos where project_id = ? and deleted_at is null').get(fromId)) { softDeleteShared(db, 'project_memos', fromId, deviceId, 'project_id'); moved = true; }
+  return moved;
 }

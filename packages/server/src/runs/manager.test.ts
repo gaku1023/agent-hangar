@@ -922,6 +922,8 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
   it('ほかの PC のクイックセッションは、この PC の quick-sessions に同名のフォルダを作って再開する。確かめ（resumeCwdOf）では作らない', async () => {
     const id = seedOldSession();
     const qid = ensureScratchProject(db, 'd', home);
+    // Windows の PC の置き場。読み替えは、cwd がどれかの PC の置き場の下にあるかで決める。
+    upsertShared(db, 'project_roots', { id: 'rq-win', project_id: qid, device_id: 'win', path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions', resolved: 1 }, 'win');
     const remote = 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010';
     db.prepare('update sessions set cwd = ?, project_id = ? where id = ?').run(remote, qid, id);
     const target = path.join(home, 'quick-sessions', '20261016-101010');
@@ -1199,6 +1201,46 @@ describe('アカウントの置き場と tmux サーバの環境（tmux 不要�
     const c = capture();
     const r = make({ tmux: c.t, trustFolder: () => { throw new Error('locked'); } }).start({ scratch: true });
     expect(r.run.id).toBeTruthy();
+  });
+  describe('ほかの PC のクイックセッションのフォルダは、起動の直前に作る', () => {
+    const remote = 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010';
+    const target = () => path.join(home, 'quick-sessions', '20261016-101010');
+    const seedRemoteQuick = () => {
+      const id = seedOldSession();
+      const qid = ensureScratchProject(db, 'd', home);
+      upsertShared(db, 'project_roots', { id: 'rq-win', project_id: qid, device_id: 'win', path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions', resolved: 1 }, 'win');
+      db.prepare('update sessions set cwd = ?, project_id = ? where id = ?').run(remote, qid, id);
+      return id;
+    };
+
+    it('アカウント、バックグラウンドの一覧、起動の確かめのどれかで断ったら、空のフォルダを残さない', () => {
+      const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+      const id = seedRemoteQuick();
+      expect(() => make({ accounts, tmux: capture().t }).resume(id, { account: 'nope' })).toThrow('アカウントが見つかりません');
+      expect(fs.existsSync(target())).toBe(false);
+      expect(() => make({ tmux: capture().t, procs: { ...noJobs, listJobs: () => { throw new Error('jobs'); } } }).resume(id)).toThrow('jobs');
+      expect(fs.existsSync(target())).toBe(false);
+      expect(() => make({ tmux: null }).resume(id)).toThrow(/tmux/);
+      expect(fs.existsSync(target())).toBe(false);
+      expect(() => make({ tmux: null }).fork(id)).toThrow(/tmux/);
+      expect(fs.existsSync(target())).toBe(false);
+      expect(() => make({ tmux: capture().t, claudeBin: null }).fork(id)).toThrow(/claude/);
+      expect(fs.existsSync(target())).toBe(false);
+    });
+
+    it('作ったフォルダで起こし、そのフォルダに信頼を書く（再開とフォーク）', () => {
+      const id = seedRemoteQuick();
+      for (const how of ['resume', 'fork'] as const) {
+        fs.rmSync(target(), { recursive: true, force: true });
+        const seen: [string, boolean][] = [];
+        const c = capture();
+        const rm = make({ tmux: c.t, trustFolder: (_dir, at) => { seen.push([at, fs.existsSync(at)]); } });
+        const r = how === 'resume' ? rm.resume(id) : rm.fork(id);
+        expect(seen, how).toEqual([[target(), true]]);
+        expect(c.launched(), how).toContain(target());
+        rm.kill(r.run.id);
+      }
+    });
   });
   // tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境にそのセッションの印が残る。
   // 印を持った claude は子のセッションと見なされ、再開の一覧から外れ、別のセッションのソケットへ話しかける。

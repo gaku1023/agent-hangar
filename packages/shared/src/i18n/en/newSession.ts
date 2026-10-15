@@ -10,7 +10,6 @@ export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.project.label': 'Project',
   'newSession.project.quick': 'Quick session',
   'newSession.project.quickSub': 'Start without a name and promote it to a project later',
-  'newSession.project.quickPath': '~/.agent-hangar/scratch/<date and time>/',
   'newSession.project.groupQuick': 'Quick start',
   'newSession.project.groupRecent': 'Recent',
   'newSession.project.groupAll': 'All',

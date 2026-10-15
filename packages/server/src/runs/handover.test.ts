@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { deviceOfSession, handoverFacts, projectDeviceCount, resumeCwd, resumeHerePlan, resumeTarget } from './handover.ts';
+import { deviceOfSession, handoverFacts, projectDeviceCount, resumeCwd, resumeHerePlan, resumeTarget, scratchFolderName } from './handover.ts';
 
 let db: Db;
 let here: string;
@@ -223,8 +223,6 @@ describe('ほかの PC のクイックセッションの再開', () => {
     expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010\\sub', project_id: 'q' })?.path).toBe(path.join(quick, '20261016-101010'));
     // 前の置き場（scratch）の下でも、その PC の場所が quick-sessions に替わった後でも読める。
     expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\scratch\\20250101-000000', project_id: 'q' })?.path).toBe(path.join(quick, '20250101-000000'));
-    // どの置き場の下か分からなければ、末尾のフォルダ名を使う。
-    expect(resumeTarget(db, 'me', { cwd: 'E:\\odd\\place\\20261016-111111', project_id: 'q' })?.path).toBe(path.join(quick, '20261016-111111'));
     // 見積もりだけで、フォルダは作らない。
     expect(fs.readdirSync(quick)).toEqual([]);
     // resumeCwd も同じ先を返す。
@@ -252,6 +250,47 @@ describe('ほかの PC のクイックセッションの再開', () => {
     run(id, 'win', 3);
     expect(resumeHerePlan(db, 'me', id)?.to).toEqual({ deviceName: 'this-mac', platform: 'darwin', path: path.join(quick, '20261016-101010'), createsFolder: true });
     expect(fs.existsSync(path.join(quick, '20261016-101010'))).toBe(false);
+  });
+
+  it('置き場の外の cwd と、置き場そのものの cwd は、フォルダを作らず場所が無い（null）にする', () => {
+    for (const cwd of [
+      'E:\\odd\\place\\20261016-111111',
+      'C:\\Users\\x\\.agent-hangar\\quick-sessions',
+      'C:\\Users\\x\\.agent-hangar\\quick-sessions\\',
+      'C:\\Users\\x\\.agent-hangar\\quick-sessions\\.',
+      '/Users/o/.agent-hangar/scratch/',
+      '/Users/o/.agent-hangar/scratch/..',
+      '/Users/o/.agent-hangar/scratch/../elsewhere',
+      '/Users/o/.agent-hangar/scratch/C:',
+      '',
+    ]) {
+      expect(resumeTarget(db, 'me', { cwd, project_id: 'q' }), cwd).toBeNull();
+    }
+    expect(fs.readdirSync(quick)).toEqual([]);
+  });
+
+  it('読み替えは、所属ではなく cwd がどれかの PC の置き場の下にあるかで決める', () => {
+    // クイックセッションから普通のプロジェクトへ移した会話も、置き場の下の cwd ならこの PC の quick-sessions で再開する。
+    expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'p1' })).toEqual({ path: path.join(quick, '20261016-101010'), createsFolder: true });
+    // クイックセッションへ移した普通の会話は、置き場の下ではないので、quick-sessions の下にも置き場そのものにも読み替えない。
+    expect(resumeTarget(db, 'me', { cwd: 'D:\\src\\notes-app\\sub', project_id: 'q' })).toBeNull();
+    // 普通のプロジェクトの会話は、今までどおりそのプロジェクトの場所で読み替える。
+    expect(resumeTarget(db, 'me', { cwd: 'D:\\src\\notes-app', project_id: 'p1' })).toEqual({ path: here, createsFolder: false });
+  });
+
+  it('元のフォルダ名の Windows で使えない文字は _ に置き換える', () => {
+    expect(resumeTarget(db, 'me', { cwd: '/Users/o/.agent-hangar/scratch/a<b>c:d"e|f?g*h', project_id: 'q' })?.path).toBe(path.join(quick, 'a_b_c_d_e_f_g_h'));
+    expect(resumeTarget(db, 'me', { cwd: '/Users/o/.agent-hangar/scratch/tab\there\u0001/sub', project_id: 'q' })?.path).toBe(path.join(quick, 'tab_here_'));
+    expect(resumeTarget(db, 'me', { cwd: '/Users/o/.agent-hangar/scratch/name. .', project_id: 'q' })?.path).toBe(path.join(quick, 'name___'));
+  });
+
+  it('scratchFolderName は、空、. と ..、ドライブ文字だけの段を断り、Windows で使えない文字を _ にする', () => {
+    for (const bad of [undefined, '', '.', '..', 'C:', 'z:']) expect(scratchFolderName(bad), String(bad)).toBeNull();
+    expect(scratchFolderName('20261016-101010')).toBe('20261016-101010');
+    expect(scratchFolderName('a:b')).toBe('a_b');
+    expect(scratchFolderName('...')).toBe('___');
+    expect(scratchFolderName('x ')).toBe('x_');
+    expect(scratchFolderName('q?')).toBe('q_');
   });
 
   it('利用者が自分で作った scratch という名前のフォルダの会話は、クイックセッションの読み替えをしない', () => {

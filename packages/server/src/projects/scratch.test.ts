@@ -2,10 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ChangeOut, SharedTable } from '@agent-hangar/shared';
+import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { applyRemoteBatch } from '../sync/apply.ts';
 import { assignSessions } from './registry.ts';
-import { ensureScratchProject, isUnderScratch, legacyScratchRoot, newScratchDir, quickSessionsRoot, SCRATCH_PROJECT_NAME, scratchPlacesOf } from './scratch.ts';
+import { ensureScratchProject, followRemoteScratch, isUnderScratch, legacyScratchRoot, newScratchDir, quickSessionsRoot, SCRATCH_PROJECT_NAME, scratchPlacesOf } from './scratch.ts';
 
 let db: Db;
 let home: string;
@@ -179,5 +182,130 @@ describe('PC ごとのスクラッチのプロジェクトを 1 つにまとめ�
     db.prepare('update projects set deleted_at = 5 where id = ?').run(NEW);
     expect(ensureScratchProject(db, 'd', home)).toBe(OLD);
     expect(db.prepare("select project_id, path from project_roots where device_id = 'd' and deleted_at is null").all()).toEqual([{ project_id: OLD, path: quickSessionsRoot(home) }]);
+  });
+});
+
+describe('まとめを繰り返しても、同期の変更を出し続けない', () => {
+  const OLD = '0190a000-0000-7000-8000-000000000001';
+  const NEW = '0190b000-0000-7000-8000-000000000002';
+  const pendingChanges = () => (db.prepare('select count(*) c from changes').get() as { c: number }).c;
+
+  it('前の版の PC の行が残る間、2 回目からは何も書かず、まとめ先の行の変化も知らせない', async () => {
+    scratchProject(OLD, 'd', quickSessionsRoot(home));
+    scratchProject(NEW, 'mac2', '/Users/other/.agent-hangar/scratch');
+    session('s-mac2', '/Users/other/.agent-hangar/scratch/20260901-100000', NEW, 'mac2');
+    expect(ensureScratchProject(db, 'd', home)).toBe(OLD);
+    expect(projectOf('s-mac2')).toBe(OLD);
+    const notices: string[] = [];
+    const off = onRowChange((c) => { if (c.db === db) notices.push(`${c.table}:${c.rowId}:${c.origin}`); });
+    try {
+      const before = pendingChanges();
+      await Promise.resolve();
+      notices.length = 0;
+      expect(ensureScratchProject(db, 'd', home)).toBe(OLD);
+      expect(ensureScratchProject(db, 'd', home)).toBe(OLD);
+      await Promise.resolve();
+      expect(pendingChanges()).toBe(before);
+      expect(notices).toEqual([]);
+      // 前の版の PC がまた自分のプロジェクトに会話を作れば、それは移し、まとめ先の中身が変わったことを知らせる。
+      session('s-mac2-b', '/Users/other/.agent-hangar/scratch/20260903-100000', NEW, 'mac2');
+      notices.length = 0;
+      await Promise.resolve();
+      notices.length = 0;
+      ensureScratchProject(db, 'd', home);
+      await Promise.resolve();
+      expect(projectOf('s-mac2-b')).toBe(OLD);
+      expect(notices).toContain(`projects:${OLD}:touch`);
+    } finally {
+      off();
+    }
+    // ほかの PC の行は残したまま、そのプロジェクトも消さない。
+    expect(liveScratch()).toEqual([OLD, NEW]);
+  });
+});
+
+describe('別々に作った 2 つのスクラッチのプロジェクトは、両側から同じ先へ収束する', () => {
+  /** db の未送の変更を、同期で降りたものとして to に当てる。 */
+  const deliver = (from: Db, to: Db, toDevice: string) => {
+    const rows = from.prepare('select * from changes where pushed_at is null order by seq').all() as { seq: number; table_name: SharedTable; row_id: string; op: 'upsert' | 'delete'; payload: string; updated_at: number; device_id: string }[];
+    from.prepare('update changes set pushed_at = 1 where pushed_at is null').run();
+    const changes: ChangeOut[] = rows.map((r) => ({ seq: r.seq, tableName: r.table_name, rowId: r.row_id, op: r.op, payload: JSON.parse(r.payload) as Record<string, unknown>, updatedAt: r.updated_at, deviceId: r.device_id }));
+    applyRemoteBatch(to, changes, { ownDeviceId: toDevice, skipOwn: true, home });
+  };
+  const live = (d: Db) => (d.prepare('select id from projects where is_scratch = 1 and deleted_at is null order by id').all() as { id: string }[]).map((r) => r.id);
+  const roots = (d: Db, id: string) => d.prepare('select device_id from project_roots where project_id = ? and deleted_at is null order by device_id').all(id);
+  const projectIn = (d: Db, sid: string) => (d.prepare('select project_id from sessions where id = ?').get(sid) as { project_id: string }).project_id;
+
+  it('どちらの PC も、作った日時の古い方へまとめ、場所の行と会話がそろう', () => {
+    const dbB = openDb(':memory:');
+    const homeA = path.join(home, 'a');
+    const homeB = path.join(home, 'b');
+    try {
+      const pa = ensureScratchProject(db, 'a', homeA);
+      const pb = ensureScratchProject(dbB, 'b', homeB);
+      upsertShared(db, 'sessions', { id: 's-a', provider: 'claude-code', provider_session_id: 'u-a', cwd: path.join(quickSessionsRoot(homeA), '20261016-100000'), home_device: 'a', project_id: pa }, 'a');
+      upsertShared(dbB, 'sessions', { id: 's-b', provider: 'claude-code', provider_session_id: 'u-b', cwd: path.join(quickSessionsRoot(homeB), '20261016-100001'), home_device: 'b', project_id: pb }, 'b');
+      const into = [pa, pb].sort()[0]!;
+      // 互いの行が届き、それぞれが次の起動か取り込みでまとめる。往復を 2 回くり返す。
+      for (let i = 0; i < 2; i++) {
+        deliver(db, dbB, 'b');
+        deliver(dbB, db, 'a');
+        ensureScratchProject(db, 'a', homeA);
+        ensureScratchProject(dbB, 'b', homeB);
+      }
+      deliver(db, dbB, 'b');
+      deliver(dbB, db, 'a');
+      for (const d of [db, dbB]) {
+        expect(live(d)).toEqual([into]);
+        expect(roots(d, into)).toEqual([{ device_id: 'a' }, { device_id: 'b' }]);
+        expect(projectIn(d, 's-a')).toBe(into);
+        expect(projectIn(d, 's-b')).toBe(into);
+      }
+      // そろった後は、どちらももう何も書かない。
+      ensureScratchProject(db, 'a', homeA);
+      ensureScratchProject(dbB, 'b', homeB);
+      expect(db.prepare('select count(*) c from changes where pushed_at is null').get()).toEqual({ c: 0 });
+      expect(dbB.prepare('select count(*) c from changes where pushed_at is null').get()).toEqual({ c: 0 });
+    } finally {
+      dbB.close();
+    }
+  });
+});
+
+describe('同期でスクラッチの行が届いたら、まとめ直す', () => {
+  const OLD = '0190a000-0000-7000-8000-000000000001';
+  const NEW = '0190b000-0000-7000-8000-000000000002';
+
+  it('スクラッチのプロジェクトかその場所の行のときだけ、取り込みの後に 1 回まとめる', async () => {
+    const calls: string[] = [];
+    const errors: unknown[] = [];
+    const follow = followRemoteScratch(db, 'd', home, { onError: (e) => errors.push(e), ensure: (d, device, h) => { calls.push(device); return ensureScratchProject(d, device, h); } });
+    scratchProject(OLD, 'd', quickSessionsRoot(home));
+    upsertShared(db, 'projects', { id: 'p1', name: 'app', status: 'active', is_scratch: 0 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'r-p1', project_id: 'p1', device_id: 'd', path: '/src/app', resolved: 1 }, 'd');
+    follow({ tableName: 'projects', rowId: 'p1' });
+    follow({ tableName: 'project_roots', rowId: 'r-p1' });
+    follow({ tableName: 'sessions', rowId: 'x' });
+    await Promise.resolve();
+    expect(calls).toEqual([]);
+    // 前の版の PC が作ったスクラッチのプロジェクトと会話が、同じ取り込みで届いた。
+    scratchProject(NEW, 'mac2', '/Users/other/.agent-hangar/scratch');
+    session('s-mac2', '/Users/other/.agent-hangar/scratch/20260901-100000', NEW, 'mac2');
+    follow({ tableName: 'projects', rowId: NEW });
+    follow({ tableName: 'project_roots', rowId: `r-${NEW}-mac2` });
+    expect(calls).toEqual([]);
+    await Promise.resolve();
+    expect(calls).toEqual(['d']);
+    expect(projectOf('s-mac2')).toBe(OLD);
+    expect(errors).toEqual([]);
+  });
+
+  it('まとめに失敗しても投げず、onError へ渡す', async () => {
+    const errors: unknown[] = [];
+    scratchProject(OLD, 'd', quickSessionsRoot(home));
+    const follow = followRemoteScratch(db, 'd', home, { onError: (e) => errors.push(e), ensure: () => { throw new Error('boom'); } });
+    expect(() => follow({ tableName: 'projects', rowId: OLD })).not.toThrow();
+    await Promise.resolve();
+    expect(errors).toHaveLength(1);
   });
 });
