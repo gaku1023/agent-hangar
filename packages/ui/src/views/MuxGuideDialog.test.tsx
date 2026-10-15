@@ -5,7 +5,7 @@ import type { MuxStatus } from '../presenters/readiness.ts';
 import { MuxGuideDialog } from './MuxGuideDialog.tsx';
 
 // セッションを始めようとしたときの案内（段 6 の B2）。
-const missing: MuxStatus = { name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false };
+const missing: MuxStatus = { name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false, outdated: null };
 const ui = (mux: MuxStatus, onAction = vi.fn()) => render(<ActionRoot onAction={onAction}><MuxGuideDialog mux={mux} /></ActionRoot>);
 
 describe('MuxGuideDialog', () => {

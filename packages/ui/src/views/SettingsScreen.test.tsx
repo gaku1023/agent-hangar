@@ -1187,7 +1187,7 @@ describe('設定の読む面', () => {
 
 // 段 6 の B3。ツールの節の先頭に、psmux（tmux）の状態の行を置く。
 describe('設定のツールの psmux と tmux の行', () => {
-  const missing = { name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false };
+  const missing = { name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false, outdated: null };
   it('未インストールなら札と入れるコマンドと再確認を出す', () => {
     const onAction = vi.fn();
     render(ui(at('tools', { mux: missing }), onAction));
@@ -1211,6 +1211,21 @@ describe('設定のツールの psmux と tmux の行', () => {
     expect(sec.getByText('バージョン 3.4')).toBeInTheDocument();
     expect(sec.queryByText('brew install tmux')).toBeNull();
     expect(sec.getByRole('button', { name: '再確認' })).toBeEnabled();
+  });
+  // psmux 3.4.0 未満（issue #245）。上げ方の注意 2 点とコマンドを本文に出す（設定 A）。
+  it('古い psmux なら「更新が必要」の札と、止まることと外の PowerShell の注意、上げるコマンド、再確認を出す', () => {
+    const command = 'Get-Process psmux -ErrorAction SilentlyContinue | Stop-Process -Force; winget upgrade marlocarlo.psmux; tmux -V';
+    const onAction = vi.fn();
+    render(ui(at('tools', { mux: { ...missing, installed: true, version: '3.3.8', path: 'C:\\x\\psmux.exe', outdated: { min: '3.4.0', command } } }), onAction));
+    const sec = within(screen.getByRole('region', { name: 'psmux' }));
+    expect(sec.getByText('更新が必要')).toBeInTheDocument();
+    expect(sec.queryByText('インストール済み')).toBeNull();
+    expect(sec.getByText('バージョン 3.3.8（3.4.0 以上が必要です）')).toBeInTheDocument();
+    expect(sec.getByText(/実行中のセッションは全部止まります/)).toBeInTheDocument();
+    expect(sec.getByText(/外の PowerShell/)).toBeInTheDocument();
+    expect(sec.getByText(command)).toBeInTheDocument();
+    fireEvent.click(sec.getByRole('button', { name: '再確認' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'mux.recheck' });
   });
   it('準備の確かめが届く前は行を出さない', () => {
     render(ui(at('tools', { mux: null })));

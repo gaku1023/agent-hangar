@@ -99,6 +99,7 @@ export const homeKeys = {
   'home.ready.notify.allow': [],
   'home.ready.notify.decline': [],
   'home.ready.git.text': [],
+  'home.ready.mux.outdated': ['name', 'version', 'min'],
   'home.ready.editor.missing': ['name'],
   'home.ready.editor.customMissing': ['command'],
   'home.ready.editor.ok': ['name', 'path'],

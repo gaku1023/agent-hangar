@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { editorNameOf, type EditorDetectState, type EditorId, type NodeCheckDto, type ReadinessDto, type ToolCheckDto } from '@agent-hangar/shared';
+import { editorNameOf, PSMUX_MIN_VERSION, psmuxTooOld, type EditorDetectState, type EditorId, type NodeCheckDto, type ReadinessDto, type ToolCheckDto } from '@agent-hangar/shared';
 import { findGit as defaultFindGit } from '../git/find.ts';
 import type { Db } from '../db/open.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
@@ -167,6 +167,8 @@ export type ReadinessOptions = {
    * 渡さなければ 0 とする。
    */
   candidateCount?: () => number;
+  /** 版の下限を当てる OS。psmux の下限は Windows だけに当てる（macOS の tmux には当てない）。既定はサーバの OS。 */
+  platform?: NodeJS.Platform;
 };
 
 /** 準備の確かめを返す関数を作る。版の覚えは、この関数が生きている間だけ持つ。 */
@@ -195,12 +197,18 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
     if (bad?.kind === 'mismatch') return { ...c, ok: false, problem: 'wrongNode', auto: false, found: bad.found, need: bad.need };
     return { ...c, auto: false };
   };
+  /**
+   * Windows の psmux が下限より古ければ、そのことを添える（issue #245）。動かせるので ok は変えない。
+   * 版は同じファイルなら覚えたものを使うが、上げると更新時刻が変わるので、再確認や取り直しで読み直す。
+   */
+  const platform = o.platform ?? process.platform;
+  const muxCheck = (c: ToolCheckDto): ToolCheckDto => (platform === 'win32' && c.ok && psmuxTooOld(c.version) ? { ...c, outdated: { min: PSMUX_MIN_VERSION } } : c);
   return async () => {
     const s = o.settings();
     const nodeSet = s.nodePath !== null && s.nodePath !== undefined && s.nodePath.trim() !== '';
     const gitFile = (o.findGit ?? (() => defaultFindGit()))();
     const [tmux, claude, git, node, compatLocal, editor] = await Promise.all([
-      tool(s.tmuxPath, ['-V']),
+      tool(s.tmuxPath, ['-V']).then(muxCheck),
       tool(s.claudePath ?? null, ['--version']),
       tool(gitFile, ['--version']),
       nodeSet ? nodeTool(s.nodePath ?? '') : Promise.resolve<NodeCheckDto>({ path: serverNode.path, ok: true, problem: null, version: serverNode.version, auto: true }),

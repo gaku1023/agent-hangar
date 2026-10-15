@@ -234,9 +234,10 @@ export type StatuslineStatusDto = { command: string | null; scriptPath: string |
  * 残りの 3 つは Node の設定だけのもの。notAbsolute はフルパスでない、notNode は Node として答えない、
  * wrongNode は Node-API が足りないか、アーキテクチャが違う Node（殻はその Node を使わない）。
  * version は `--version` などで読んだ版で、読めなかったときは null。
+ * outdated は tmux の行だけのもので、Windows の psmux が下限（PSMUX_MIN_VERSION）より古いときだけ持つ。動かせるので ok は変えない（issue #245）。
  */
 export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable' | 'notAbsolute' | 'notNode' | 'wrongNode';
-export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
+export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null; outdated?: { min: string } };
 /** 候補の Node の版（v を除いたもの）、Node-API の版（`process.versions.napi`）、アーキテクチャ（`process.arch`）。 */
 export type NodeBuildDto = { version: string; napi: number; arch: string };
 /**

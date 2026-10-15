@@ -276,6 +276,26 @@ psmux -V
 `psmux`、`pmux`、`tmux` の 3 つの名前で入ります。hangar は `psmux` を先に探します。
 hangar のセッションは psmux の専用の名前空間で動くので、`psmux -L hangar ls` で見えます。
 
+psmux は 3.4.0 以上を使ってください。
+3.4.0 より前（3.3.5〜3.3.8）は、Claude Code が動いているペインでホイールを回すと、`↑` キーに変えてアプリへ送ります（[psmux#548](https://github.com/psmux/psmux/issues/548)）。
+端末を上へスクロールできず、Claude Code のプロンプトの履歴が呼ばれます。
+古い版のときは、ホームの「セットアップの確認」、設定のツールの節、`hangar setup` の出力が知らせます。
+
+#### psmux を上げる
+
+psmux が 1 つでも動いていると、winget は `psmux.exe` を置き換えられずに失敗します（`remove: Access is denied`、0x8a150003）。
+失敗すると、別名の `pmux.exe` だけが消えた状態で止まります。
+そのため、先に psmux を止めてから上げます。
+
+1. hangar のセッションを全部閉じます。psmux を止めると、その中で動いているセッションは全部止まります（hangar を再起動しても psmux の中のセッションは止まらないので、ここで止まります）。
+2. hangar の端末ではなく、外の PowerShell で次の 1 行を打ちます。hangar のセッションを開き直すと psmux がまた起動するので、止めることと上げることを続けて打ちます。
+
+   ```powershell
+   Get-Process psmux -ErrorAction SilentlyContinue | Stop-Process -Force; winget upgrade marlocarlo.psmux; tmux -V
+   ```
+
+3. 最後に `tmux 3.4.0` 以上が出れば上がっています。hangar の設定のツールの節で「再確認」を押すと、知らせが消えます。
+
 winget の id は `marlocarlo.psmux` です。
 リポジトリは `psmux/psmux` に移りましたが、winget の id は移っていません（2026-10-10 に winget-pkgs の `manifests/m/marlocarlo/psmux` で 3.3.8 を確かめました。`psmux/psmux` という id はありません）。
 手元で確かめるときは `winget search psmux` を使います。

@@ -242,6 +242,20 @@ describe('createReadiness', () => {
     expect(r.statusline).toEqual({ command: script, scriptPath: script, installed: true });
     expect(r.commands).toEqual({ mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' });
   });
+  // psmux 3.4.0 未満はホイールが ↑ に化ける（issue #245）。動かせるので ok のまま、古いことだけを添える。
+  describe('psmux の版', () => {
+    const readMux = async (line: string, platform: NodeJS.Platform) =>
+      (await createReadiness({ settings: () => baseSettings({ tmuxPath: fakeTool('tmux', line) }), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', platform })()).tools.tmux;
+    it('Windows で 3.4.0 未満なら outdated を添える（ok は変えない）', async () => {
+      expect(await readMux('tmux 3.3.8', 'win32')).toMatchObject({ ok: true, version: '3.3.8', outdated: { min: '3.4.0' } });
+    });
+    it('3.4.0 以上、読めない版、macOS の tmux には添えない', async () => {
+      expect((await readMux('tmux 3.4.0', 'win32')).outdated).toBeUndefined();
+      expect((await readMux('tmux next-3.5a', 'win32')).outdated).toBeUndefined();
+      expect((await readMux('tmux 3.3a', 'darwin')).outdated).toBeUndefined();
+      expect((await readMux('tmux 3.3', 'darwin')).outdated).toBeUndefined();
+    });
+  });
   it('git が見つからなければ unset、エディタの口が無ければエディタの行を持たない', async () => {
     const read = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', findGit: () => null });
     const r = await read();

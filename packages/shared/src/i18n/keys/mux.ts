@@ -21,4 +21,10 @@ export const muxKeys = {
   'mux.guide.found.lead': ['version'],
   'mux.guide.found.leadNoVersion': [],
   'mux.guide.start': [],
+  'mux.badge.outdated': [],
+  'mux.info.versionNeed': ['version', 'min'],
+  'mux.outdated.lead': ['min'],
+  'mux.outdated.stop': [],
+  'mux.outdated.outside': [],
+  'mux.outdated.after': ['min'],
 } as const satisfies MessageSpec;

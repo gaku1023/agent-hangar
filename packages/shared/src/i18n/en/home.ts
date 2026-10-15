@@ -100,6 +100,7 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.ready.notify.allow': 'Allow',
   'home.ready.notify.decline': 'No thanks',
   'home.ready.git.text': 'git was not found. You can start without it, but branches and uncommitted counts are not shown',
+  'home.ready.mux.outdated': 'With {name} {version}, scrolling the terminal up with the mouse wheel does not work. Upgrade to {min} or later (steps in Settings)',
   'home.ready.editor.missing': '{name} was not found',
   'home.ready.editor.customMissing': 'The editor command {command} was not found',
   'home.ready.editor.ok': '{name} ({path})',

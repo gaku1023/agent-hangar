@@ -213,8 +213,8 @@ describe('psmux と tmux の案内', () => {
   });
   it('状態を、名前、インストール済みか、版、入れるコマンド、再確認の進みにまとめる', () => {
     expect(presentMux(null, 'idle', 'win32')).toBeNull();
-    expect(presentMux(READY, 'idle', 'darwin')).toEqual({ name: 'tmux', windows: false, installed: true, version: '3.4', path: '/opt/homebrew/bin/tmux', command: 'brew install tmux', checking: false, stillMissing: false });
-    expect(presentMux(noTmux, 'idle', 'win32')).toEqual({ name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false });
+    expect(presentMux(READY, 'idle', 'darwin')).toEqual({ name: 'tmux', windows: false, installed: true, version: '3.4', path: '/opt/homebrew/bin/tmux', command: 'brew install tmux', checking: false, stillMissing: false, outdated: null });
+    expect(presentMux(noTmux, 'idle', 'win32')).toEqual({ name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false, outdated: null });
     expect(presentMux(noTmux, 'checking', 'win32')).toMatchObject({ checking: true, stillMissing: false });
     expect(presentMux(noTmux, 'missing', 'win32')).toMatchObject({ checking: false, stillMissing: true });
     // 見つかったあとは、前の「まだ見つかりません」を引きずらない。
@@ -242,6 +242,25 @@ describe('psmux と tmux の案内', () => {
     expect(presentReadiness(noTmux, en, 'win32')!.note).toBe('You need psmux to start');
     expect(presentReadiness(noBoth, ja, 'win32')!.note).toBe('始めるには psmux と claude が必要です');
     expect(presentReadiness(noBoth, en, 'win32')!.note).toBe('You need psmux and claude to start');
+  });
+  // psmux 3.4.0 未満（issue #245）。動かせるので始めるのは止めず、注意の行で設定の手順へ案内する。
+  describe('古い psmux', () => {
+    const OLD: ReadinessDto = { ...ALL_OK, tools: { ...ALL_OK.tools, tmux: { path: 'C:\\x\\psmux.exe', ok: true, problem: null, version: '3.3.8', outdated: { min: '3.4.0' } } } };
+    it('準備が全部済んでいても、帯に注意の行を出す（既存の利用者にも届く）', () => {
+      expect(readinessPending(ALL_OK)).toBe(false);
+      expect(readinessPending(OLD)).toBe(true);
+      const band = presentReadiness(OLD, ja, 'win32')!;
+      const row = band.group.rows[0]!;
+      expect(row).toMatchObject({ key: 'ready:tmux', name: 'psmux', lead: { tone: 'soft' }, text: 'psmux 3.3.8 では、端末をホイールで上へスクロールできません。3.4.0 以上に上げてください（手順は設定にあります）', detail: null });
+      expect(row.actions.map((a) => a.send)).toEqual([{ type: 'nav.go', to: { name: 'settings', at: 'tmux' } }]);
+      // 始められるので、右端の「始めるには」は言わない。
+      expect(band.note).toBeNull();
+      expect(presentReadiness(OLD, en, 'win32')!.group.rows[0]!.text).toBe('With psmux 3.3.8, scrolling the terminal up with the mouse wheel does not work. Upgrade to 3.4.0 or later (steps in Settings)');
+    });
+    it('設定の節に、古いことと下限を渡す', () => {
+      expect(presentMux(OLD, 'idle', 'win32')).toMatchObject({ installed: true, version: '3.3.8', outdated: { min: '3.4.0', command: 'Get-Process psmux -ErrorAction SilentlyContinue | Stop-Process -Force; winget upgrade marlocarlo.psmux; tmux -V' } });
+      expect(presentMux(ALL_OK, 'idle', 'win32')!.outdated).toBeNull();
+    });
   });
   it('パスはあるのに実行できないものは、再確認では直らないので設定へ案内するだけにする', () => {
     const broken: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: '/x/tmux', ok: false, problem: 'notExecutable', version: null } } };

@@ -265,3 +265,6 @@
 .inject-off { color: var(--ink-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink-3) 60%, transparent); }
 .inject-token { padding: 0 4px; border-radius: 4px; color: var(--accent); background: var(--accent-soft); border: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); }
 .inject-note { margin-top: calc(var(--u) * 2); }
+/* 古い psmux の上げ方の注意（issue #245）。止まることと外の PowerShell の 2 点を、本文の続きとして並べる。 */
+.mux-notes { margin: calc(var(--u) * 0.75) 0 0; padding-left: calc(var(--u) * 5); }
+.mux-notes li { margin: calc(var(--u) * 0.5) 0; font-weight: 600; }
