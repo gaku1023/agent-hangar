@@ -496,6 +496,17 @@ create table trash_applied (
 `;
 
 /**
+ * 版 27。session_states に restored_at（明示の復元の時刻）を足す（2026-10-16）。
+ * 削除の印（trashed_at）は、明示の復元でしか外れない。
+ * 印を受け取る前のほかの PC が同じ行を書く（自動の Done、状態の変更）と、印の無い行が後勝ちで届く。
+ * 取り込み（sync/apply.ts）は、届いた行の restored_at が手元の印より新しいときだけ印を外し、そうでなければ印を保って上げ直す。
+ * 版 25 と同じく列を足すだけなので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。
+ */
+const V27_SESSION_RESTORED_SQL = `
+alter table session_states add column restored_at integer;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -512,4 +523,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 24, sql: V24_PROJECT_REMOTE_SQL },
   { version: 25, sql: V25_SESSION_PLACEMENT_SQL },
   { version: 26, sql: V26_SESSION_TRASH_SQL },
+  { version: 27, sql: V27_SESSION_RESTORED_SQL },
 ];

@@ -89,8 +89,12 @@ export function markTruncatedForReindex(db: Db): number {
       and not exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and e.file_path_ref = transcript_files.path and e.byte_offset = 0)`).run().changes;
 }
 
-/** 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。 */
-export function forgetTranscriptFile(db: Db, filePath: string): void {
+/**
+ * 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。
+ * keepUsage を立てると、日別の使用量（usage_daily）は残す。セッションの削除（sessions/trash.ts）が使う。
+ * 実際に使った量なので、会話を消しても集計からは消さない。ゴミ箱から戻して索引し直すときは、先頭からの作り直しで同じファイル由来のぶんを消してから積むので、二重に数えない。
+ */
+export function forgetTranscriptFile(db: Db, filePath: string, o: { keepUsage?: boolean } = {}): void {
   const row = stmt(db, 'select session_id, agent_id from transcript_files where path = ?').get(filePath) as { session_id: string; agent_id: string | null } | undefined;
   if (!row) return;
   const agentKey = row.agent_id ?? '';
@@ -100,7 +104,7 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
     // 日別の集計はこのファイル由来のぶんを鍵に持っている。
     // 残すと、同じ会話を別のパス（写しから手元へ切り替わったとき）で積み直したぶんと足し合わさり、
     // event_index が正しいのに使用量のゲージだけが静かに倍になる。indexFile の reset 側と同じ 1 文である。
-    stmt(db, 'delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
+    if (!o.keepUsage) stmt(db, 'delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
     // 「いま何をしているか」は主線の行だけが持つ。主線のファイルそのものを手放すときは、
     // 残すと後で息を吹き返したセッションに、答え済みの問いなど古い「いま」を見せてしまう。
     // サブエージェントのファイルを手放すだけなら、主線の行はそのまま正しいので触らない。

@@ -10,17 +10,21 @@ export function localDay(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** 集計に数えるセッション。生きているものと、利用者が削除した（session_states.trashed_at のある）もの。 */
+const COUNTED = `(s.deleted_at is null or exists (select 1 from session_states ts where ts.session_id = s.id and ts.deleted_at is null and ts.trashed_at is not null))`;
+
 /** jsonl の usage から導いたトークン数を、日別とプロジェクト別に束ねる。副情報なので推定コストは statusline の値の和だけを出す。 */
 export function aggregateUsage(db: Db, opts: { days: number; now?: number; /** プロジェクトの無い行の名前の言語。渡さなければ日本語で出す。 */ language?: Language }): UsageAggregateDto {
   const tr = translator(opts.language ?? DEFAULT_LANGUAGE);
   const now = opts.now ?? Date.now();
   const since = localDay(now - (opts.days - 1) * 86_400_000);
   // 論理削除したセッションはプロジェクト別でも数えないので、日別でも同じように外す。
+  // ただし利用者が削除した（ゴミ箱へ移した）会話は数える。実際に使った量なので、会話を消しても集計からは消さない。
   const days = (db.prepare(`
     select u.day day, sum(u.input_tokens) i, sum(u.output_tokens) o, count(distinct u.session_id) n
     from usage_daily u
     join sessions s on s.id = u.session_id
-    where u.day >= ? and s.deleted_at is null
+    where u.day >= ? and ${COUNTED}
     group by u.day order by u.day desc`).all(since) as { day: string; i: number; o: number; n: number }[])
     .map((r) => ({ day: r.day, inputTokens: r.i, outputTokens: r.o, sessions: r.n }));
   // プロジェクト別も日別と同じ窓、同じ供給源（usage_daily）で束ねる。
@@ -31,7 +35,7 @@ export function aggregateUsage(db: Db, opts: { days: number; now?: number; /** �
       select u.session_id sid, sum(u.input_tokens) i, sum(u.output_tokens) o
       from usage_daily u
       join sessions s on s.id = u.session_id
-      where u.day >= ? and s.deleted_at is null
+      where u.day >= ? and ${COUNTED}
       group by u.session_id
     )
     select s.project_id pid, p.name name, sum(w.i) i, sum(w.o) o, count(*) n,

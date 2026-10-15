@@ -10,9 +10,10 @@ import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, mergeProjects } from '../projects/registry.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { applyRemoteBatch } from '../sync/apply.ts';
+import { aggregateUsage, localDay } from '../usage/aggregate.ts';
 import { TrashError } from '../platform/trash.ts';
 import { DeleteError, SessionTrash } from './trash.ts';
-import { getSessionState, setSessionState } from './states.ts';
+import { getSessionState, markAutoDone, setSessionState } from './states.ts';
 
 /**
  * セッションの削除（docs/design.md の「セッションの削除」）。
@@ -306,7 +307,7 @@ describe('戻せる', () => {
     await service().applyMarks();
     const t = at + 1000;
     applyRemoteBatch(db, [
-      { seq: 20, tableName: 'session_states', op: 'upsert', deviceId: OTHER, rowId: 's1', updatedAt: t, payload: { session_id: 's1', status: null, trashed_at: null, updated_at: t, deleted_at: null, origin_device: OTHER } },
+      { seq: 20, tableName: 'session_states', op: 'upsert', deviceId: OTHER, rowId: 's1', updatedAt: t, payload: { session_id: 's1', status: null, trashed_at: null, restored_at: t, updated_at: t, deleted_at: null, origin_device: OTHER } },
     ], { ownDeviceId: DEV, skipOwn: true });
     expect(sessionRow().deleted_at).toBeNull();
     await service().applyMarks();
@@ -317,5 +318,197 @@ describe('戻せる', () => {
     await service().deleteSession('s1');
     setSessionState(db, DEV, 's1', { status: 'done', setBy: 'user' });
     expect(trashedAt()).toEqual(expect.any(Number));
+  });
+});
+
+describe('戻せるのは、元のパスに本文の jsonl が戻ったときだけ', () => {
+  it('大きさが 0 のファイルや、同じパスのフォルダでは復元しない', async () => {
+    writeTranscript();
+    indexMain();
+    await service().deleteSession('s1');
+    fs.writeFileSync(mainPath(), '');
+    expect(service().checkRestores()).toEqual([]);
+    fs.rmSync(mainPath());
+    fs.mkdirSync(mainPath());
+    expect(service().checkRestores()).toEqual([]);
+    expect(trashedAt()).toEqual(expect.any(Number));
+  });
+});
+
+describe('削除の印は、明示の復元でしか外れない', () => {
+  /** 印を受け取る前のほかの PC（OTHER）が、印の無い行を書いた形。自動の Done や状態の変更である。 */
+  const staleRow = (t: number, extra: Record<string, unknown> = {}): ChangeOut => ({
+    seq: 30, tableName: 'session_states', op: 'upsert', deviceId: OTHER, rowId: 's1', updatedAt: t,
+    payload: { session_id: 's1', status: 'done', set_by: 'import', set_at: t, trashed_at: null, restored_at: null, updated_at: t, deleted_at: null, origin_device: OTHER, ...extra },
+  });
+  /** この PC が積んだ、まだ上げていない session_states の変更を、届く形にする。 */
+  const outgoing = (from: Db): ChangeOut[] => (from.prepare("select seq, table_name, row_id, op, payload, updated_at, device_id from changes where table_name = 'session_states' and pushed_at is null order by seq").all() as { seq: number; table_name: string; row_id: string; op: 'upsert' | 'delete'; payload: string; updated_at: number; device_id: string }[])
+    .map((r) => ({ seq: r.seq, tableName: r.table_name as ChangeOut['tableName'], op: r.op, deviceId: r.device_id, rowId: r.row_id, updatedAt: r.updated_at, payload: JSON.parse(r.payload) as Record<string, unknown> }));
+
+  it('印を受け取る前のほかの PC の行（自動の Done）が後から届いても、消えたままで、状態の変更は取り込み、印を上げ直す', async () => {
+    await service().deleteSession('s1');
+    const t0 = trashedAt()!;
+    db.prepare('update changes set pushed_at = 1').run();
+    const t = Date.now() + 60_000;
+    applyRemoteBatch(db, [staleRow(t)], { ownDeviceId: DEV, skipOwn: true });
+    expect(trashedAt()).toBe(t0);
+    expect(sessionRow().deleted_at).toEqual(expect.any(Number));
+    expect(getSessionState(db, 's1')).toMatchObject({ status: 'done' });
+    // 保った印をクラウドへ上げ直す。届いた行より新しい時刻で書くので、クラウドでも勝つ。
+    const out = outgoing(db);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.payload).toMatchObject({ trashed_at: t0, status: 'done' });
+    expect(out[0]!.updatedAt).toBeGreaterThan(t);
+  });
+  it('往復しない：上げ直した行を受け取った PC は印をそのまま取り込み、何も上げ返さない。同じ行がまた届いても上げ直さない', async () => {
+    await service().deleteSession('s1');
+    db.prepare('update changes set pushed_at = 1').run();
+    // ほかの PC の DB。印を受け取る前に自動の Done を書いた。
+    const other = openDb(':memory:');
+    try {
+      upsertShared(other, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: UUID, cwd: CWD, home_device: DEV, project_id: null }, DEV);
+      markAutoDone(other, OTHER, 's1', Date.now() + 60_000);
+      other.prepare("update session_states set updated_at = ? where session_id = 's1'").run(Date.now() + 60_000);
+      const fromOther = outgoing(other).map((c) => ({ ...c, updatedAt: Date.now() + 60_000, payload: { ...c.payload, updated_at: Date.now() + 60_000 } }));
+      other.prepare('update changes set pushed_at = 1').run();
+      applyRemoteBatch(db, fromOther, { ownDeviceId: DEV, skipOwn: true });
+      const reraised = outgoing(db);
+      expect(reraised).toHaveLength(1);
+      db.prepare('update changes set pushed_at = 1').run();
+      // 上げ直した行がほかの PC に届く。印を取り込み、上げ返さない。
+      applyRemoteBatch(other, reraised, { ownDeviceId: OTHER, skipOwn: true });
+      expect((other.prepare("select trashed_at from session_states where session_id = 's1'").get() as { trashed_at: number | null }).trashed_at).toBe(trashedAt());
+      expect(outgoing(other)).toEqual([]);
+      // 自分の上げ直しの戻りと、同じ古い行の届き直しでは、何も上げない。
+      applyRemoteBatch(db, [...reraised, ...fromOther], { ownDeviceId: DEV, skipOwn: true });
+      expect(outgoing(db)).toEqual([]);
+    } finally {
+      other.close();
+    }
+  });
+  it('明示の復元（restored_at が印より新しい）は届く', async () => {
+    await service().deleteSession('s1');
+    const t0 = trashedAt()!;
+    db.prepare('update changes set pushed_at = 1').run();
+    const t = t0 + 1000;
+    applyRemoteBatch(db, [staleRow(t, { status: null, set_by: null, set_at: null, restored_at: t })], { ownDeviceId: DEV, skipOwn: true });
+    expect(trashedAt()).toBeNull();
+    expect(sessionRow().deleted_at).toBeNull();
+    expect(outgoing(db)).toEqual([]);
+  });
+  it('印より古い復元の行は、印を外さない', async () => {
+    await service().deleteSession('s1');
+    const t0 = trashedAt()!;
+    applyRemoteBatch(db, [staleRow(t0 + 60_000, { restored_at: t0 - 1 })], { ownDeviceId: DEV, skipOwn: true });
+    expect(trashedAt()).toBe(t0);
+  });
+  it('この PC での復元は restored_at を書いて印を外す', async () => {
+    writeTranscript();
+    indexMain();
+    await service().deleteSession('s1');
+    const t0 = trashedAt()!;
+    fs.renameSync(binned.get(mainPath())!, mainPath());
+    service().checkRestores();
+    const r = db.prepare("select trashed_at, restored_at from session_states where session_id = 's1'").get() as { trashed_at: number | null; restored_at: number | null };
+    expect(r.trashed_at).toBeNull();
+    expect(r.restored_at).toBeGreaterThanOrEqual(t0);
+  });
+});
+
+describe('同期で届く ID の検査', () => {
+  /** provider_session_id が UUID でないセッションを作り、ほかの PC の印が届いた形にする。 */
+  const badSession = (psid: string) => {
+    upsertShared(db, 'sessions', { id: 's9', provider: 'claude-code', provider_session_id: psid, cwd: CWD, home_device: DEV, project_id: 'pa' }, DEV);
+    const at = Date.now() + 60_000;
+    applyRemoteBatch(db, [
+      { seq: 40, tableName: 'session_states', op: 'upsert', deviceId: OTHER, rowId: 's9', updatedAt: at, payload: { session_id: 's9', status: null, trashed_at: at, updated_at: at, deleted_at: null, origin_device: OTHER } },
+    ], { ownDeviceId: DEV, skipOwn: true });
+  };
+  for (const psid of ['', '..']) {
+    it(`provider_session_id が ${JSON.stringify(psid)} なら、何もゴミ箱へ移さず、写しの置き場も消さない`, async () => {
+      writeTranscript();
+      fs.mkdirSync(path.dirname(remoteMain()), { recursive: true });
+      fs.writeFileSync(remoteMain(), LINES);
+      badSession(psid);
+      await service().applyMarks();
+      expect(trashCalls).toEqual([]);
+      expect(fs.existsSync(mainPath())).toBe(true);
+      expect(fs.existsSync(subDir())).toBe(true);
+      expect(fs.existsSync(remoteMain())).toBe(true);
+    });
+  }
+  it('消す PC でも、UUID でない ID なら何もゴミ箱へ移さずに印だけを書く', async () => {
+    writeTranscript();
+    upsertShared(db, 'sessions', { id: 's9', provider: 'claude-code', provider_session_id: '..', cwd: CWD, home_device: DEV, project_id: 'pa' }, DEV);
+    await service().deleteSession('s9');
+    expect(trashCalls).toEqual([]);
+    expect(fs.existsSync(path.join(claudeDir, 'projects'))).toBe(true);
+  });
+});
+
+describe('使用量は残す', () => {
+  it('消しても usage_daily は消さず、集計にも残る。戻して索引し直しても二重に数えない', async () => {
+    writeTranscript();
+    indexMain();
+    const day = localDay(Date.now());
+    db.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)').run('s1', day, mainPath(), 100, 20);
+    await service().deleteSession('s1');
+    expect(db.prepare("select sum(input_tokens) i from usage_daily where session_id = 's1'").get()).toEqual({ i: 100 });
+    const agg = aggregateUsage(db, { days: 1 });
+    expect(agg.days.find((d) => d.day === day)).toMatchObject({ inputTokens: 100, outputTokens: 20 });
+    // 戻して索引し直すと、そのファイル由来のぶんは作り直される（足し合わさない）。
+    fs.renameSync(binned.get(mainPath())!, mainPath());
+    service().checkRestores();
+    indexMain();
+    expect(db.prepare("select count(*) n from usage_daily where session_id = 's1' and input_tokens = 100").get()).toEqual({ n: 0 });
+  });
+  it('印を受け取った PC でも usage_daily を消さない', async () => {
+    writeTranscript();
+    indexMain();
+    db.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)').run('s1', localDay(Date.now()), mainPath(), 7, 3);
+    receiveMark();
+    await service().applyMarks();
+    expect(db.prepare("select sum(input_tokens) i from usage_daily where session_id = 's1'").get()).toEqual({ i: 7 });
+  });
+});
+
+describe('削除は印の処理の後ろで待たされない', () => {
+  it('印の処理が 1 件ごとに譲るので、途中で頼んだ削除が残りの印より先に走る', async () => {
+    // 印のある 2 件（sA、sB）と、これから消す s1。
+    const ids = { sA: 'aaaaaaaa-0000-0000-0000-000000000001', sB: 'bbbbbbbb-0000-0000-0000-000000000002' };
+    const at = Date.now() + 60_000;
+    for (const [id, psid] of Object.entries(ids)) {
+      upsertShared(db, 'sessions', { id, provider: 'claude-code', provider_session_id: psid, cwd: CWD, home_device: DEV, project_id: 'pa' }, DEV);
+      fs.mkdirSync(path.dirname(mainPath()), { recursive: true });
+      fs.writeFileSync(path.join(path.dirname(mainPath()), `${psid}.jsonl`), LINES);
+      applyRemoteBatch(db, [{ seq: 50, tableName: 'session_states', op: 'upsert', deviceId: OTHER, rowId: id, updatedAt: at, payload: { session_id: id, status: null, trashed_at: at, updated_at: at, deleted_at: null, origin_device: OTHER } }], { ownDeviceId: DEV, skipOwn: true });
+    }
+    writeTranscript();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const order: string[] = [];
+    const svc = new SessionTrash({
+      db, deviceId: DEV, claudeDir, remoteRoot,
+      trash: async (p) => {
+        order.push(path.basename(p));
+        if (order.length === 1) await gate;
+        fs.renameSync(p, path.join(bin, `${order.length}-${path.basename(p)}`));
+      },
+      runsAnywhere: () => false, runsHere: () => false, log: () => {},
+    });
+    const marks = svc.applyMarks();
+    // 1 件目の印の処理がゴミ箱の中で止まっている間に、削除を頼む。
+    await new Promise((r) => setTimeout(r, 10));
+    expect(order).toHaveLength(1);
+    const del = svc.deleteSession('s1');
+    release();
+    await del;
+    await marks;
+    const firstMark = order[0]!;
+    const rest = order.slice(1);
+    const secondMark = rest.findIndex((n) => n.endsWith('.jsonl') && n !== `${UUID}.jsonl` && n !== firstMark);
+    const deleted = rest.indexOf(`${UUID}.jsonl`);
+    expect(deleted).toBeGreaterThanOrEqual(0);
+    expect(deleted).toBeLessThan(secondMark);
   });
 });

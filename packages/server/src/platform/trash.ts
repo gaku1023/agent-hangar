@@ -60,6 +60,8 @@ const MAC_SCRIPT = [
 /**
  * Windows の台本。パスは環境変数 HANGAR_TRASH_PATH で受ける。
  * UICancelOption を ThrowException にし、失敗を終了コードで返す。
+ * 文は `; ` でつなぐので、if と elseif と else は 1 つの文（配列の 1 つの要素）に書く。
+ * 区切りの後に elseif を置くと、PowerShell は elseif をコマンド名と読んで落ちる（フォルダは移った後なのに失敗になる）。
  */
 const WIN_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
@@ -68,9 +70,11 @@ const WIN_SCRIPT = [
   '$ui = [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs',
   '$bin = [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin',
   '$cancel = [Microsoft.VisualBasic.FileIO.UICancelOption]::ThrowException',
-  'if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, $ui, $bin, $cancel) }',
-  "elseif (Test-Path -LiteralPath $p -PathType Leaf) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, $ui, $bin, $cancel) }",
-  "else { throw ('not found: ' + $p) }",
+  [
+    'if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, $ui, $bin, $cancel) }',
+    'elseif (Test-Path -LiteralPath $p -PathType Leaf) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, $ui, $bin, $cancel) }',
+    "else { throw ('not found: ' + $p) }",
+  ].join(' '),
 ].join('; ');
 
 /** OS ごとに打つコマンドを組む。 */
@@ -100,8 +104,11 @@ function exists(p: string): boolean {
 
 /**
  * p（ファイルかフォルダ）を OS のゴミ箱へ移す。ゴミ箱の中のどこへ入ったかは返さない（OS が同じ名前を避けて名前を変えることがある）。
- * 無いパス、コマンドの失敗、上限の時間（timeoutMs、既定は TRASH_TIMEOUT_MS）を過ぎたとき、コマンドが成功を返したのに元のパスが残っているときは TrashError を投げる。
- * 上限を過ぎたら、止める合図で子プロセスを殺し、返りを待たずに投げる。どの場合も元のパスには hangar から触らない。
+ * 成否は元のパスの有無で決める。コマンドの答えより、パスが無くなったかどうかを正とする。
+ * - コマンドが失敗した、上限の時間（timeoutMs、既定は TRASH_TIMEOUT_MS）を過ぎた、起こせなかったときでも、元のパスが無くなっていれば成功とみなす。移した後に誤りを返すことがあるからである。
+ * - 元のパスが残っていれば、コマンドが成功を返しても TrashError を投げる。
+ * 無いパスは、コマンドを打たずに TrashError を投げる。
+ * 上限を過ぎたら、止める合図で子プロセスを殺し、返りを待たずにパスの有無を見る。どの場合も元のパスには hangar から触らない。
  */
 export async function moveToTrash(p: string, o: { platform?: NodeJS.Platform; run?: TrashRun; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): Promise<void> {
   if (!exists(p)) throw new TrashError(`not found: ${p}`);
@@ -117,14 +124,19 @@ export async function moveToTrash(p: string, o: { platform?: NodeJS.Platform; ru
       stop.abort();
     }, limit);
   });
-  let r: TrashRunResult;
+  let failure: TrashError | null = null;
   try {
-    r = await Promise.race([(o.run ?? realTrashRun)(c.file, c.args, c.env, stop.signal), expired]);
+    const r = await Promise.race([(o.run ?? realTrashRun)(c.file, c.args, c.env, stop.signal), expired]);
+    if (r.error) failure = new TrashError(r.error.message);
+    else if (r.code !== 0) failure = new TrashError(r.stderr.trim() || `${c.file} exited with ${r.code}`);
+  } catch (e) {
+    failure = e instanceof TrashError ? e : new TrashError(e instanceof Error ? e.message : String(e));
   } finally {
     clearTimeout(timer);
   }
-  if (r.error) throw new TrashError(r.error.message);
-  if (r.code !== 0) throw new TrashError(r.stderr.trim() || `${c.file} exited with ${r.code}`);
+  // 元のパスが無くなっていれば、コマンドの答えにかかわらず移せている。
+  if (!exists(p)) return;
+  if (failure) throw failure;
   // 成功を返しても、移っていなければ移せなかったものとして扱う。黙って残ったままの本文を「消した」と記録しないためである。
-  if (exists(p)) throw new TrashError(`still exists after trashing: ${p}`);
+  throw new TrashError(`still exists after trashing: ${p}`);
 }

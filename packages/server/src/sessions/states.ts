@@ -27,6 +27,8 @@ type StateRow = {
   project_id: string | null;
   /** 削除の印（版 25）。null なら生きている。 */
   trashed_at: number | null;
+  /** 明示の復元の時刻（版 27）。印はこれが印より新しいときだけ外れる（sync/apply.ts）。 */
+  restored_at: number | null;
   updated_at: number; deleted_at: number | null; origin_device: string;
 };
 /** DTO に写すのに要る列。db/queries.ts の左結合の行も、この形に詰め直して渡す。 */
@@ -139,10 +141,17 @@ export function setSessionPlacement(db: Db, deviceId: string, sessionId: string,
 
 /**
  * 削除の印を書く（sessions/trash.ts）。null は印を外す（ゴミ箱から戻した復元）。
+ * 印を外すときは restored_at に今の時刻を書く。印は明示の復元でしか外れず、ほかの PC はこの時刻が印より新しいときだけ印を外す（sync/apply.ts）。
  * 状態、提案、移した先の列はそのまま残す。戻したときに、消す前の状態のまま戻るためである。
  */
-export function setSessionTrashed(db: Db, deviceId: string, sessionId: string, at: number | null): void {
-  write(db, deviceId, sessionId, { trashed_at: at });
+export function setSessionTrashed(db: Db, deviceId: string, sessionId: string, at: number | null, now = Date.now()): void {
+  if (at !== null) {
+    write(db, deviceId, sessionId, { trashed_at: at });
+    return;
+  }
+  // 印の時刻は消した PC の時計なので、この PC の今より先のことがある。復元の時刻は必ず印より後にする。
+  const cur = liveRow(db, sessionId);
+  write(db, deviceId, sessionId, { trashed_at: null, restored_at: Math.max(now, (cur?.trashed_at ?? 0) + 1) });
 }
 
 /**

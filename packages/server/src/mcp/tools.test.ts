@@ -264,6 +264,19 @@ describe('MCP tools', () => {
     expect(() => call('get_transcript', {}, { sessionId: alphaId })).toThrow(notFound);
     expect(() => call('propose_session_status', { session_id: alphaId, status: 'done', note: '済んだ' })).toThrow(notFound);
   });
+  it('削除したセッションは、一覧にも検索にもプロジェクトの直近にも出ない', () => {
+    const pid = (db.prepare('select project_id from sessions where id = ?').get(alphaId) as { project_id: string | null }).project_id;
+    const ids = (v: unknown) => (v as { id?: string; session_id?: string }[]).map((s) => s.id ?? s.session_id);
+    expect(pid).not.toBeNull();
+    expect(ids(call('list_sessions'))).toContain(alphaId);
+    expect(ids(call('search_sessions', { query: 'チャンネル' }).hits)).toContain(alphaId);
+    expect(ids(call('get_project', { project_id: pid }).recent_sessions)).toContain(alphaId);
+    upsertShared(db, 'session_states', { session_id: alphaId, trashed_at: 1 }, 'd', 'session_id');
+    softDeleteShared(db, 'sessions', alphaId, 'd');
+    expect(ids(call('list_sessions'))).not.toContain(alphaId);
+    expect(ids(call('search_sessions', { query: 'チャンネル' }).hits)).not.toContain(alphaId);
+    expect(ids(call('get_project', { project_id: pid }).recent_sessions)).not.toContain(alphaId);
+  });
   it('create_session は runs.start を呼び、URL を返す', () => {
     const r = call('create_session', { project_id: 'p1', name: 'n', prompt: 'p', permission_mode: 'default' });
     expect(started[0]).toEqual({ projectId: 'p1', name: 'n', prompt: 'p', model: undefined, effort: undefined, permissionMode: 'default', scratch: undefined });

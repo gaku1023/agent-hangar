@@ -11,6 +11,12 @@ import { CompatError, LimitError, type CloudClient } from './client.ts';
 import { decryptStream, sha256Stream } from './crypto.ts';
 import type { SyncStateStore } from './state.ts';
 
+/** 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）から、セッションの ID を取り出す。取れなければ空。 */
+function uuidOfTranscript(rel: string): string {
+  const parts = path.posix.normalize(rel).split('/');
+  return (parts[2] ?? '').replace(/\.jsonl$/, '');
+}
+
 export type PullerDeps = {
   db: Db;
   deviceId: string;
@@ -298,27 +304,35 @@ export class RemotePuller {
    * 印は session_states.trashed_at にある（版 25）。
    */
   private isTrashed(rel: string): boolean {
-    const parts = path.posix.normalize(rel).split('/');
-    const uuid = (parts[2] ?? '').replace(/\.jsonl$/, '');
+    const uuid = uuidOfTranscript(rel);
     if (uuid === '') return false;
     return this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
       where s.provider_session_id = ? and st.trashed_at is not null`).get(uuid) !== undefined;
   }
 
   /**
-   * そのセッション（Claude Code のセッション ID）の写しを、台帳（file_sync）に残る項目から降ろし直す。
-   * 削除したセッションがほかの PC で戻されたときに呼ぶ（sessions/trash.ts）。削除のときに写しは消したが、台帳の行は残してある。
-   * 一覧の区切り（filesSeq）はもう先へ進んでいるので、控えた項目そのものから降ろす。失敗は onError に流し、次の項目へ進む。
+   * そのセッション（Claude Code のセッション ID）の写しを降ろし直す。削除したセッションがほかの PC で戻されたときに呼ぶ（sessions/trash.ts）。
+   * 台帳（file_sync）には頼らず、写しの一覧を先頭から引き直して、そのセッションの項目の最新を降ろす。
+   * 印の後に一覧を見た PC や、後から参加した PC は、印のある写しを飛ばしたので台帳に行が無い。行があっても、消えている間に上がった続きの指紋とは食い違う。
+   * 一覧の区切り（filesSeq）は動かさない。失敗は onError に流し、次の項目へ進む。
    */
   refetchSession(uuid: string): Promise<{ downloaded: number }> {
     return this.enqueue(async () => {
       if (this.stopped) return { downloaded: 0 };
-      const rows = this.deps.db.prepare(`select key, path, device_id, sha256, size, mtime, remote_seq from file_sync
-        where kind = 'transcript' and device_id <> ? and (path like ? or path like ?)`)
-        .all(this.deps.deviceId, `%/${uuid}.jsonl`, `%/${uuid}/%`) as { key: string; path: string; device_id: string; sha256: string; size: number; mtime: number; remote_seq: number | null }[];
+      const latest = new Map<string, FileEntry>();
+      let since = 0;
+      for (;;) {
+        const page = await this.deps.client.listFiles(since, PULL_LIMIT);
+        for (const e of page.files) {
+          if (e.deviceId === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid) continue;
+          const prev = latest.get(e.key);
+          if (!prev || prev.seq < e.seq) latest.set(e.key, e);
+        }
+        if (!page.more || page.nextSeq <= since) break;
+        since = page.nextSeq;
+      }
       let downloaded = 0;
-      for (const r of rows) {
-        const e: FileEntry = { key: r.key, path: r.path, kind: 'transcript', sha256: r.sha256, size: r.size, mtime: r.mtime, encrypted: true, seq: r.remote_seq ?? 0, deviceId: r.device_id, uploadedAt: 0, storedSize: 0 };
+      for (const e of latest.values()) {
         try {
           if (await this.download(e)) downloaded++;
         } catch (err) {

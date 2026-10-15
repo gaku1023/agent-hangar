@@ -634,7 +634,8 @@ create table session_states (
   updated_at integer not null, deleted_at integer, origin_device text not null,
   return_time text, candidate_return_time text,   -- 戻る時刻（版 14）
   project_id text,                                -- 利用者が移した先。null なら cwd からの自動の振り分けに従う（版 25）
-  trashed_at integer                              -- 削除の印。null なら生きている。行の論理削除の deleted_at とは別物（版 25）
+  trashed_at integer,                             -- 削除の印。null なら生きている。行の論理削除の deleted_at とは別物（版 25）
+  restored_at integer                             -- 明示の復元の時刻。印はこれが印より新しいときだけ外れる（版 27）
 );
 
 -- 1 回の起動または再開。tmux 上の寿命と一致する。
@@ -2661,6 +2662,7 @@ tmux の役の道具（Windows は psmux、ほかは tmux）は、設定の `tmu
 止める、画面を読むといった既存の run への操作は、この確かめを通さない。
 副情報として、jsonl の `usage` からトークン数を日別とプロジェクト別に集計する。
 日別とプロジェクト別は同じ窓（直近 30 日）と同じ供給源（`usage_daily`）で束ねるので、2 つの表のトークン数の合計は一致する。
+論理削除したセッションは数えないが、利用者が削除した（削除の印のある）セッションは数える。実際に使った量だからである（「セッションの削除」の節）。
 ただし推定コストだけは、そのセッションの走り全体の累計である。
 唯一の供給源が statusline の渡してくる `cost` で、日ごとの内訳を持たないためである。
 プロジェクト別の推定コストは、窓に入ったセッションについて 1 件につき一度だけ足す。
@@ -2805,7 +2807,9 @@ N は UI の store に届いているセッションで数える。
    主線を移せた後にフォルダを移せなかったときは、印は書き、残りは次の回でやり直す。
 3. hangar が降ろした写し（`~/.agent-hangar/remote/` の下）は hangar の持ち物なので、ゴミ箱を通さずに消す。
 4. 移した本文の元のパスを端末ローカルの `trashed_transcripts` に控える。
-5. 印（`trashed_at`）を書き、`sessions` の行を論理削除する。どちらも同期に載る。本文の索引（`transcript_files`、`event_index`、`event_fts`、`usage_daily`、`session_activity`、`session_limits`）は片付ける。
+5. 印（`trashed_at`）を書き、`sessions` の行を論理削除する。どちらも同期に載る。本文の索引（`transcript_files`、`event_index`、`event_fts`、`session_activity`、`session_limits`）は片付ける。
+   日別の使用量（`usage_daily`）は残す。実際に使った量なので、会話を消しても使用量の集計からは消さない（`usage/aggregate.ts` は、削除の印のあるセッションも数える）。
+   戻して索引し直すときは、先頭からの作り直しでそのファイル由来のぶんを消してから積むので、二重に数えない。
 
 **印を受け取った PC。**
 同期で `session_states` の行が届くと、次の回（`SessionTrash.applyMarks`）を回す。
@@ -2816,8 +2820,20 @@ N は UI の store に届いているセッションで数える。
 - hangar が降ろした写しは消す。
 - 処理し終えた印は端末ローカルの `trash_applied` に覚え、二度処理しない。移せなかった本文や消せなかった写しがあれば覚えず、次の回でやり直す。
 - 写しの降ろし（`sync/puller.ts`）は、印のあるセッションの写しを降ろさない。
+- 印は 1 件ごとに処理の鎖へ並び直す。印が多くても、途中で頼まれた削除（`DELETE /api/sessions/:id`）が残りの印の後ろで待たされない。並んでいる間に処理し終えた印や、変わった印は飛ばす。
+
+**同期で届く ID の検査。**
+本文のパスは `sessions.provider_session_id` から組む。
+この値は同期で届くので、組む前に UUID の形（`/^[0-9a-f-]{36}$/i`）かを見る。
+合わなければ、手元の本文も hangar の写しも対象なしにし、何もゴミ箱へ移さない（印と論理削除は書く）。
+空や `..` のような値でパスを組むと、本文の置き場のフォルダごとゴミ箱へ移しかねないからである。
 
 **生き返らない。**
+- 削除の印は、明示の復元でしか外れない。
+  印を受け取る前のほかの PC が同じ `session_states` の行を書く（自動の Done、状態の変更）と、印の無い行が行ごとの後勝ちで届く。
+  同期の取り込み（`sync/apply.ts`）は、手元に印があり、届いた行に印が無く、届いた行の `restored_at` が手元の印より新しくないときは、印を保ち、ほかの列（状態など）は届いた行のものを取り込む。
+  保ったときは、その結果の行を、届いた行より新しい時刻で手元から上げ直し（`upsertShared`）、クラウドとほかの PC もそろえる。
+  上げ直した行は印を持つので、受け取った PC はそのまま取り込み、上げ返さない。往復はそこで止まる。
 - 同期の取り込み（`sync/apply.ts`）は、`sessions` と `session_states` の行を当てたあとで、印のあるセッションの `sessions` を論理削除のまま保つ（`alignSessionTrash`）。upsert が `deleted_at` を null にする所の後で直すので、古い `sessions` の upsert が後から届いても、同じ束で届いても戻らない。手元の表だけを直し、押し返さない。
 - 索引（`indexer/indexFile.ts`）は、論理削除したセッションの本文を掘り起こさない。`history.jsonl` にだけ残る会話の登録（`syncHistoryOnly`）も、論理削除した行を書き直さない。
 - 自動の振り分け（`assignSessions`）は論理削除した行を読まない。プロジェクトをまとめる（`mergeProjects`）と一覧から削除する（`unlink`）は、行全体を `deleted_at` ごと書き直すので戻らない。
@@ -2827,6 +2843,7 @@ N は UI の store に届いているセッションで数える。
 | --- | --- |
 | `sessions` | 論理削除する。印に合わせる |
 | `session_states` | 残す。印（`trashed_at`）を持つ行である。状態、提案、移した先もそのまま残し、戻したときに消す前の状態で戻る |
+| `usage_daily`（端末ローカル） | 残す。実際に使った量なので、使用量の集計に数え続ける |
 | `session_summaries`、`session_notes` | 残す。戻したときに、要約と hangar で付けた名前がそのまま戻る。一覧は `sessions` の論理削除で外れるので見えない |
 | `runs`、`run_tabs` | 残す。実行中は消せないので、残るのは終わった run だけである |
 | `todos`、`artifacts` | プロジェクトのものなので触らない |
@@ -2837,15 +2854,20 @@ Worker の側はまだ入っていない。
 
 **消したセッションへの操作。**
 一覧、1 件の取得、本文、状態の変更、移動、再開、フォーク、MCP の道具（`get_transcript`、`propose_session_status` など）は、どれも生きている `sessions` の行だけを読むので、消したセッションには 404 か「セッションが見つかりません」で断る。
+MCP の `list_sessions`、`search_sessions`、`get_project` の直近のセッションも、消したセッションを返さない（`mcp/tools.test.ts` で確かめる）。
 配る層は、論理削除された `sessions` の行に `session.removed` を配り、画面は Store から外す。
 
 **戻す。**
 ゴミ箱へ移した主線の本文が、元のパスに戻ってきたら復元する（`SessionTrash.checkRestores`）。
+戻ったとみなすのは、元のパスにある物が `.jsonl` のファイルで、大きさが 0 でないときだけである。同じ名前の空のファイルやフォルダができただけでは復元しない。
 見るのは、周期の回と、索引が論理削除したセッションの手元の本文を見たとき（`IndexerService` の `deletedSeen`）である。
-印を外し、`sessions` の論理削除も外す。
+印を外して `restored_at` に今の時刻を書き（印の時刻より前にはしない）、`sessions` の論理削除も外す。
 どちらも同期に載り、ほかの PC にも届く。
 本文の索引は、索引の全件走査で作り直す。
-印が外れた行を受け取った PC は、`sessions` の論理削除を外し（`alignSessionTrash`）、処理済みの印を忘れ、消した写しを台帳（`file_sync`）から降ろし直す（`RemotePuller.refetchSession`）。
+印が外れた行を受け取った PC は、`sessions` の論理削除を外し（`alignSessionTrash`）、処理済みの印を忘れ、消した写しを降ろし直す（`RemotePuller.refetchSession`）。
+降ろし直しは台帳（`file_sync`）に頼らず、写しの一覧を先頭から引き直して、そのセッションの項目の最新を降ろす。
+印の後に一覧を見た PC や後から参加した PC は、印のある写しを飛ばしたので台帳に行が無い。行があっても、消えている間に上がった続きの指紋とは食い違うからである。
+一覧の区切り（`filesSeq`）は動かさない。
 
 **ゴミ箱へ移す方法（`platform/trash.ts`）。**
 - macOS：`osascript -l JavaScript` で `NSFileManager.defaultManager.trashItemAtURLResultingItemURLError` を呼ぶ。Finder を操作しないので、自動操作の許可を求められない。
@@ -2853,8 +2875,9 @@ Worker の側はまだ入っていない。
 - Windows：PowerShell で `Microsoft.VisualBasic.FileIO.FileSystem` の `DeleteFile`（フォルダは `DeleteDirectory`）に `SendToRecycleBin` を渡す。
 - Linux：`gio trash`。
 - パスは台本の文字列に埋めず、macOS は引数、Windows は環境変数で渡す。
-- コマンドが成功を返しても元のパスが残っていれば、移せなかったとして扱う。
-- 1 回のコマンドには 30 秒の上限を付け、過ぎたら子プロセスを殺して移せなかったとして扱う。Windows の `SendToRecycleBin` は誤りのときにダイアログを出して返らないことがあり、サーバや CI がそこで止まったままにならないようにするためである。
+- 成否は元のパスの有無で決める。コマンドが成功を返しても元のパスが残っていれば、移せなかったとして扱う。コマンドが失敗を返しても、元のパスが無くなっていれば移せたとして扱う。
+- 1 回のコマンドには 30 秒の上限を付け、過ぎたら子プロセスを殺す。そのときも、元のパスが残っていれば移せなかったとして扱い、無くなっていれば移せたとして扱う。Windows の `SendToRecycleBin` は誤りのときにダイアログを出して返らないことがあり、サーバや CI がそこで止まったままにならないようにするためである。
+- Windows の台本は文を `; ` でつなぐので、`if`、`elseif`、`else` は 1 つの文に書く。区切りの後に `elseif` を置くと、PowerShell は `elseif` をコマンド名と読んで落ちる。
 - 試験は、macOS と Windows で本物のゴミ箱へ一時ファイルを移す（Windows は CI の windows のジョブが実機の代わり）。試験のファイルの名前は `hangar-trash-test-` で始め、ゴミ箱に残っても何のものか分かるようにする。
 
 ### 同じフォルダのプロジェクトをまとめる
@@ -6071,6 +6094,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   版 22 は、中断の再開と同じファイルの編集の警告に使う端末ローカルの表（`interrupted_runs`、`run_last_live`、`session_overlaps`、`overlap_dismissals`）を足した（「中断と再開」「同じファイルの編集の警告」、0.5.0）。
   版 23 は、使用制限で止まっているセッションを持つ端末ローカルの表（`session_limits`）を足した（「止まっている理由」、0.5.0）。
   版 25 は、`session_states` に利用者が移した先（`project_id`）と削除の印（`trashed_at`）を足した（「セッションを別のプロジェクトへ移す」）。
+  版 27 は、`session_states` に明示の復元の時刻（`restored_at`）を足した（「セッションの削除」の「生き返らない」）。
   足した版は今までと同じに扱う。既存の DB には控えを取ってからその版だけを当て、新しい DB には起点から順に当てる。
   畳む前のマイグレーションは、試験の側（`packages/server/test/legacyMigrations.ts`）に残してある。
   `db/baseline.test.ts` が、起点だけを当てた DB と版 1 から順に当てた DB で、`sqlite_master` の全行（表、索引、FTS の仮想表とその影の表）、表ごとの列（順、型、not null、既定値、主キー）、外部キー、索引の列、表の中身が一致することを突き合わせる。

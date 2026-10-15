@@ -55,6 +55,13 @@ describe('trashCommand（OS ごとのコマンド）', () => {
     expect(script).not.toContain('x\'y.jsonl');
     expect(c.env.HANGAR_TRASH_PATH).toBe('C:\\Users\\a\\x\'y.jsonl');
   });
+  it('Windows の台本は if と elseif と else を 1 つの文にする（文の区切りの後の elseif はコマンド名と読まれて落ちる）', () => {
+    const script = trashCommand('C:\\x.jsonl', 'win32').args.at(-1)!;
+    expect(script).toMatch(/\bif \(/);
+    expect(script).toMatch(/\} elseif \(/);
+    expect(script).toMatch(/\} else \{/);
+    expect(script).not.toMatch(/\}\s*[;\n]\s*else/);
+  });
   it('Linux は gio trash を打つ', () => {
     const c = trashCommand('/home/a/x.jsonl', 'linux');
     expect(c.file).toBe('gio');
@@ -109,6 +116,20 @@ describe('moveToTrash（偽の実行）', () => {
     await expect(moveToTrash(f, { platform: 'win32', run, timeoutMs: 50 })).rejects.toThrow(/timed out/);
     expect(aborted).toBe(true);
     expect(fs.existsSync(f)).toBe(true);
+  });
+  it('コマンドが非 0 で終わっても、元のパスが無くなっていれば成功とみなす', async () => {
+    const f = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(f, 'x');
+    // 移した後に誤りを返す形（PowerShell の後始末の誤りなど）。
+    const run: TrashRun = async () => { fs.rmSync(f); return { code: 1, stdout: '', stderr: 'late error' }; };
+    await expect(moveToTrash(f, { platform: 'win32', run })).resolves.toBeUndefined();
+  });
+  it('上限を過ぎて止めても、元のパスが無くなっていれば成功とみなす', async () => {
+    const f = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(f, 'x');
+    // 移し終えてから返らなくなった形。
+    const run: TrashRun = () => { fs.rmSync(f); return new Promise(() => {}); };
+    await expect(moveToTrash(f, { platform: 'win32', run, timeoutMs: 50 })).resolves.toBeUndefined();
   });
   it('既定の上限は 30 秒である', () => {
     expect(TRASH_TIMEOUT_MS).toBe(30_000);
