@@ -26,7 +26,8 @@ Claude はまず読むだけで環境を調べ、いくつか質問し、提案�
 | `hangar mcp install` / `hangar statusline install` / `hangar shell install`（どれも `--dry-run` あり） | 連携を入れる |
 
 `--json` の答えは、成功なら `{"ok": true, …}`、失敗なら `{"error": "<符号>", "message": "…"}` の形になる。
-`hangar` が見つからない、またはサーバが止まっている（`server_down`、終了コード 2）ときは、アプリを開くよう頼み、開いてから続ける。
+`hangar` が PATH に無いとき、macOS は `/Applications/Hangar.app/Contents/Resources/server/bin/hangar` をそのまま使う。Windows はインストーラが PATH に足すので、新しいターミナルで開き直してもらう。
+サーバが止まっている（`server_down`、終了コード 2）ときは、アプリを開くよう頼み、開いてから続ける。
 
 ## 0. 分かれ道
 
@@ -34,18 +35,21 @@ Claude はまず読むだけで環境を調べ、いくつか質問し、提案�
 
 - OS：macOS か Windows か。Windows ではシェル連携が無く、パスは `C:\Users\…` の形になる。
 - 2 台目の PC か：クラウド同期を使っていて、別の PC で既にプロジェクトを登録しているなら、先にアプリでクラウドに参加してもらう。そのあと続ける。
-- アカウントが複数か：`~/.claude-*` のフォルダや、環境変数 `CLAUDE_CONFIG_DIR` があるとき、どのアカウントを見るかを聞く。
+- アカウントが複数か：`~/.claude-*` のフォルダや、環境変数 `CLAUDE_CONFIG_DIR` があるとき、どのアカウントの設定（`settings.json`）を見るかを聞く。
+  hangar で足したアカウントの置き場は、中身が `~/.claude` へのリンクなので、見る先は `~/.claude` の 1 つでよい（リンクかどうかは `ls -l` で分かる）。
 
 ## 1. 診断（読むだけ）
 
 次を調べ、結果を 1 枚の表にする。表は「項目／いまの状態／意味」の 3 列にし、「意味」にはエンジニアでない人にも分かる言葉で、hangar からどう見えるかを書く。
 
-1. **消える予定の会話**：`~/.claude/settings.json` の `cleanupPeriodDays`（無ければ 30 日）。`~/.claude/projects/` の下の `.jsonl` のうち、最終更新がその日数の 7 日前より古いものの数。表の先頭に置く。
+1. **消える予定の会話**：`~/.claude/settings.json` の `cleanupPeriodDays`（無ければ 30 日）を N として、1 週間以内に消える会話の数を数える。表の先頭に置く。
+   macOS：`find ~/.claude/projects -name '*.jsonl' -mtime +<N-7> | wc -l`
+   Windows（PowerShell）：`(Get-ChildItem $HOME\.claude\projects -Recurse -Filter *.jsonl | Where-Object LastWriteTime -lt (Get-Date).AddDays(-(<N>-7))).Count`
 2. **会話した場所**：`hangar project candidates --json`。未分類の会話の総数（`unassignedTotal`）、候補の数、上位の候補。
    候補 1 件には、会話の数（`sessionCount`）、最終日（`lastActivityAt`）、最近の会話の題（`recentTitles`）、git の有無と remote（`isGit`、`gitRemote`）、ほかの候補や登録済みの下にあるか（`enclosedBy`）、クラウド同期のフォルダか（`cloudSynced`）、注記（`notes`）が付く。
    注記は `desktop-direct`（デスクトップの直下）、`downloads-direct`（ダウンロードの直下）、`not-git`、`stale-30d`（最終が 30 日より前）、`single-session`（会話 1 件）。
-   ホームフォルダ、一時フォルダ、隠しフォルダ、消えたフォルダ、登録済みの下は、hangar が先に候補から外している。
-3. **起動の経路**：`type claude`（別名や関数で包んでいないか）、シェル連携が入っているか（`hangar shell status`、macOS だけ）。外のターミナルで起動した claude は、シェル連携が無いと hangar の機能（要約、意図、許可待ちの知らせ）が付かない。
+   ホームフォルダとその上、作成場所そのものとその上、一時フォルダ、隠しフォルダ、消えたフォルダ、登録済みの下は、hangar が先に候補から外している。
+3. **起動の経路**：`claude` を別名や関数で包んでいないか。Claude Code の中の `type` はシェルの写しを見るので、macOS は `zsh -ic 'type -a claude'`、Windows は `Get-Command claude -All` で確かめる。シェル連携が入っているか（`hangar shell status`、macOS だけ）。外のターミナルで起動した claude は、シェル連携が無いと hangar の機能（要約、意図、許可待ちの知らせ）が付かない。
 4. **連携**：`hangar mcp install --dry-run`、`hangar statusline install --dry-run` の結果。ステータスラインは、Claude Code 側の `statusLine.command` が無いと入れられない（そのときは「先に Claude Code で /statusline を実行する」と伝える）。
 5. **クラウド同期のフォルダ**：候補の `cloudSynced`。iCloud の「デスクトップと書類」や OneDrive の下にあるもの。
 6. **実行中の claude**：あれば、登録はしてよいが、その会話を止めたり動かしたりしない。
@@ -62,13 +66,15 @@ AskUserQuestion で 1 問ずつ、3〜5 問だけ聞く。推す答えを先頭�
 
 ### 3a. プロジェクトの表
 
-候補を次の 3 つに分けて、1 枚の表で見せる。全部を登録しようとしない。
+先に、候補を全部まとめて `hangar project add <候補のパス…> --dry-run --json` に通す（書かない）。
+そのうえで、候補を次の順に見て、最初に当たった分け方に入れる。全部を登録しようとしない。
 
-| 分け方 | 当てはまるもの |
-|---|---|
-| 登録する | 会話が 2 件以上か、最終日が 30 日以内 |
-| 聞きたい | `notes` に `desktop-direct`、`downloads-direct`、`not-git` があるもの、`enclosedBy` があるもの |
-| しない | 上のどちらでもないもの（`single-session` かつ `stale-30d` など）。未分類のまま残る |
+| 順 | 当てはまるもの | 分け方 |
+|---|---|---|
+| 1 | dry-run の `status` が `nested` か `error` | しない（理由を添える） |
+| 2 | `notes` に `desktop-direct`、`downloads-direct`、`not-git` があるか、`enclosedBy` があるもの | 聞きたい |
+| 3 | 会話が 2 件以上か、最終日が 30 日以内 | 登録する |
+| 4 | 上のどれでもないもの（`single-session` かつ `stale-30d` など） | しない（未分類のまま残る） |
 
 迷ったら「しない」に入れる。あとから登録するのは簡単で、外すほうが手間だからである。
 「登録する」は束で 1 回だけ承諾を取る（外したい行は言ってもらえば外す）。「聞きたい」だけ 1 件ずつ聞く。
@@ -107,7 +113,7 @@ AskUserQuestion で 1 問ずつ、3〜5 問だけ聞く。推す答えを先頭�
 
 ## 5. 締め
 
-1. 前と後を表で見せる：プロジェクトの数、未分類の会話の数、連携の状態。
+1. 前と後を表で見せる：登録したプロジェクトの数（`project add` の `added` と `linked`）、未分類の会話の数（もう一度 `hangar project candidates --json` の `unassignedTotal`）、連携の状態。
 2. hangar のホームを開いてもらい、プロジェクトの一覧に登録したものが並んでいることを確かめてもらう。
 3. 新しいセッションを 1 本、スクラッチ（⌘⇧N）で起動してもらう。右の欄に「意図」が出る、ヘッダーに使用量のゲージが出る、の 2 つが見えれば連携が通っている。
 4. 最後に「慣れてきたら `~/.agent-hangar/setup-guide-habits.md` に、最初の 1 週間で試すことがあります」と伝えて終える。
