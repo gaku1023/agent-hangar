@@ -93,7 +93,7 @@ describe('readRegistry', () => {
       fs.writeFileSync(path.join(sessions, '7.json'), '[]');
       fs.writeFileSync(path.join(sessions, '8.json'), 'null');
       const seen: Drift[] = [];
-      expect(readRegistry(dir, ALL_ALIVE, (d) => seen.push(d)).map((l) => l.sessionId)).toEqual([SESSION_ALPHA]);
+      expect(readRegistry(dir, ALL_ALIVE, (_k, _a, ds) => seen.push(...ds)).map((l) => l.sessionId)).toEqual([SESSION_ALPHA]);
       expect(seen).toEqual([
         { contract: 'registry', value: 'entry=(not-object)', version: null },
         { contract: 'registry', value: 'entry=(not-object)', version: null },
@@ -107,7 +107,7 @@ describe('readRegistry', () => {
       fs.rmSync(path.join(sessions, '12345.json'));
       fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ pid: 7, sessionId: 'u-new', cwd: '/x', status: 'thinking', version: '2.1.300' }));
       const seen: Drift[] = [];
-      expect(readRegistry(dir, ALL_ALIVE, (d) => seen.push(d))).toEqual([{ sessionId: 'u-new', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 7 }]);
+      expect(readRegistry(dir, ALL_ALIVE, (_k, _a, ds) => seen.push(...ds))).toEqual([{ sessionId: 'u-new', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 7 }]);
       expect(seen).toEqual([{ contract: 'registry', value: 'status=thinking', version: '2.1.300' }]);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
@@ -246,7 +246,8 @@ describe('RegistryWatcher', () => {
     w.stop();
   });
 
-  // Claude Code は、登録を status の無い形で書き始め、100 ミリ秒ほど後に status を足す（2.1.295 と 2.1.296 で確かめた）。
+  // Claude Code は、登録を status の無い形で書き始め、REPL の画面ができてから status を足す。
+  // 新しく始めたときは 100 ミリ秒ほど後（2.1.295 と 2.1.296 で確かめた）、再開したときは 4〜10 秒後だった（2.1.300、2026-10-16）。
   // 機械が混んでいると、その間に続けて何度も読むことがある（2026-10-10 に、続けて 2 回の欠けがこれで記録された）。
   // 欠けは、登録が書かれてから猶予（REGISTRY_STATUS_GRACE_MS）を過ぎても続いているときだけ数える。
   const withoutStatus = (over: Record<string, unknown> = {}): Record<string, unknown> => {
@@ -331,6 +332,44 @@ describe('RegistryWatcher', () => {
     w.renoteDrifts();
     vi.advanceTimersByTime(1500);
     expect(seen.map((d) => d.value)).toEqual(['status=(missing)', 'status=(missing)']);
+    w.stop();
+  });
+
+  it('猶予を過ぎて数えた欠けも、後で同じ登録に status が見えたら記録から落とす', () => {
+    // 再開した会話が重く、画面ができるまでに猶予を過ぎたときである。遅かっただけで、形のずれではない。
+    const slow = withoutStatus({ startedAt: Date.now() });
+    write(slow);
+    const seen: Drift[] = [];
+    const settled: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d), settle: (d) => settled.push(d) });
+    w.start();
+    vi.advanceTimersByTime(REGISTRY_STATUS_GRACE_MS);
+    expect(seen.map((d) => d.value)).toEqual(['status=(missing)']);
+    expect(settled).toEqual([]);
+    write({ ...slow, status: 'idle' });
+    vi.advanceTimersByTime(500);
+    expect(settled.map((d) => d.value)).toEqual(['status=(missing)']);
+    vi.advanceTimersByTime(REGISTRY_STATUS_GRACE_MS);
+    expect(settled).toHaveLength(1);
+    expect(seen).toHaveLength(1);
+    w.stop();
+  });
+
+  it('ほかの登録で欠けが続いているか、欠けたまま登録が無くなったなら、記録から落とさない', () => {
+    const sessions = path.join(dir, 'sessions');
+    const slow = withoutStatus({ startedAt: Date.now() });
+    write(slow);
+    fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ ...slow, pid: 7, sessionId: 'u-other' }));
+    const settled: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: () => {}, settle: (d) => settled.push(d) });
+    w.start();
+    vi.advanceTimersByTime(REGISTRY_STATUS_GRACE_MS);
+    write({ ...slow, status: 'idle' });
+    vi.advanceTimersByTime(500);
+    expect(settled).toEqual([]);
+    fs.rmSync(path.join(sessions, '7.json'));
+    vi.advanceTimersByTime(500);
+    expect(settled).toEqual([]);
     w.stop();
   });
 
