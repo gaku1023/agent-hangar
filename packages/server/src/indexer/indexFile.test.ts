@@ -6,7 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/transcript/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
+import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION, markTruncatedForReindex } from './indexFile.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { localDay } from '../usage/aggregate.ts';
 import { setSessionName } from '../sessions/notes.ts';
@@ -344,6 +344,38 @@ describe('最後のツール呼び出し（session_activity）', () => {
     expect(activity(first.sessionId)).toBeDefined();
     forgetTranscriptFile(db, alphaMain().path);
     expect(activity(first.sessionId)).toBeUndefined();
+  });
+
+  it('移った先のファイルを読んだ後に元のファイルを忘れても、移った先の索引は先頭から揃う', () => {
+    // EnterWorktree は会話の本文を worktree 用の projects の下へ移す。新しい場所を先に読み、元の場所が消えたのを後で見る順になりうる。
+    const old = alphaMain();
+    const { sessionId } = indexFile(db, old, { deviceId: DEV });
+    const movedDir = path.join(dir, 'projects', '-Users-me-workspace-alpha--claude-worktrees-x');
+    fs.mkdirSync(movedDir, { recursive: true });
+    const moved = { ...old, path: path.join(movedDir, path.basename(old.path)) };
+    fs.copyFileSync(old.path, moved.path);
+    indexFile(db, moved, { deviceId: DEV });
+    forgetTranscriptFile(db, old.path);
+    appendJson(moved.path, { type: 'user', message: { role: 'user', content: '移った後の依頼です' }, uuid: 'u-moved', timestamp: '2026-09-01T11:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+    indexFile(db, moved, { deviceId: DEV });
+    const rows = db.prepare('select seq, kind, byte_offset, file_path_ref from event_index where session_id = ? and parent_agent is null order by seq').all(sessionId) as { seq: number; kind: string; byte_offset: number; file_path_ref: string }[];
+    expect(rows).toHaveLength(18);
+    expect(rows[0]).toMatchObject({ seq: 0, byte_offset: 0, file_path_ref: moved.path });
+    expect(rows.filter((r) => r.kind === 'user')).toHaveLength(3);
+    expect(count('select count(*) c from event_fts where session_id = ? and text match ?', sessionId, '"チャンネル"')).toBe(1);
+  });
+
+  it('先頭の索引が抜けたファイルだけを、先頭から読み直させる', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    // 前の版の forgetTranscriptFile が残した壊れ方：先頭からの索引が消え、読み進めた位置だけが残っている。
+    db.prepare("delete from event_index where session_id = ? and parent_agent is null and seq < 5").run(sessionId);
+    expect(markTruncatedForReindex(db)).toBe(1);
+    const versions = db.prepare('select agent_id, indexer_version from transcript_files order by agent_id').all();
+    expect(versions).toEqual([{ agent_id: null, indexer_version: 0 }, { agent_id: 'abc123', indexer_version: INDEXER_VERSION }]);
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(count('select count(*) c from event_index where session_id = ? and parent_agent is null', sessionId)).toBe(17);
+    expect(markTruncatedForReindex(db)).toBe(0);
   });
 
   it('サブエージェントのファイルを忘れても、主線の activity は残る', () => {
