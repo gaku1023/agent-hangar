@@ -16,15 +16,28 @@ export function MuxSection(props: { mux: MuxStatus }) {
   const t = useT();
   const m = props.mux;
   const id = useId();
+  const old = m.installed ? m.outdated : null;
   return (
     <section aria-labelledby={id}>
       <h3 className="h2">
         <span id={id}>{m.name}</span>
-        <span className="badge" data-tone={m.installed ? 'ok' : 'warn'}><Icon name={m.installed ? 'check' : 'alert'} />{m.installed ? t('mux.badge.installed') : t('mux.badge.missing')}</span>
+        <span className="badge" data-tone={m.installed && !old ? 'ok' : 'warn'}><Icon name={m.installed && !old ? 'check' : 'alert'} />{old ? t('mux.badge.outdated') : m.installed ? t('mux.badge.installed') : t('mux.badge.missing')}</span>
       </h3>
       <div className="muted">{t(m.windows ? 'mux.desc.windows' : 'mux.desc.other')}</div>
-      {m.installed && m.version && <div className="faint">{t('mux.info.version', { version: m.version })}</div>}
+      {m.installed && m.version && <div className="faint">{old ? t('mux.info.versionNeed', { version: m.version, min: old.min }) : t('mux.info.version', { version: m.version })}</div>}
       {m.installed && m.path && <div className="faint mono">{m.path}</div>}
+      {/* 古い psmux（issue #245）。上げると psmux の中のセッションが全部止まり、hangar の端末からは打てないので、その 2 点を先に言う。 */}
+      {old && (
+        <>
+          <div style={{ marginTop: 8 }}>{t('mux.outdated.lead', { min: old.min })}</div>
+          <ul className="mux-notes">
+            <li>{t('mux.outdated.stop')}</li>
+            <li>{t('mux.outdated.outside')}</li>
+          </ul>
+          <CommandLine command={old.command} />
+          <div className="faint" style={{ marginTop: 4 }}>{t('mux.outdated.after', { min: old.min })}</div>
+        </>
+      )}
       {!m.installed && (
         <>
           <div className="faint" style={{ marginTop: 8 }}>{t(m.windows ? 'mux.run.windows' : 'mux.run.other')}</div>

@@ -1,4 +1,4 @@
-import { compatState, gitInstallCommand, type SetupTarget, type SettingsAt, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import { compatState, gitInstallCommand, PSMUX_UPGRADE_COMMAND, type SetupTarget, type SettingsAt, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
 import type { MuxCheck, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { readinessCompat } from './compat.ts';
@@ -32,13 +32,17 @@ export function muxName(platform: string): string {
  * windows は文を選ぶ印（PowerShell かターミナルか）、command は入れるコマンドである。
  * checking は再確認の答えを待っている間、stillMissing は再確認しても見つからなかったこと（見つかったら立てない）。
  */
-export type MuxStatus = { name: string; windows: boolean; installed: boolean; version: string | null; path: string | null; command: string; checking: boolean; stillMissing: boolean };
+export type MuxStatus = {
+  name: string; windows: boolean; installed: boolean; version: string | null; path: string | null; command: string; checking: boolean; stillMissing: boolean;
+  /** Windows の psmux が下限より古いときの、下限と上げる 1 行（issue #245）。古くなければ null。 */
+  outdated: { min: string; command: string } | null;
+};
 
 /** 準備の確かめと再確認の進みから、psmux（tmux）の状態を作る。準備の確かめが届く前は null。 */
 export function presentMux(r: ReadinessDto | null, check: MuxCheck, platform: string = clientPlatform()): MuxStatus | null {
   if (r === null) return null;
   const c = r.tools.tmux;
-  return { name: muxName(platform), windows: platform === 'win32', installed: c.ok, version: c.ok ? c.version : null, path: c.ok ? c.path : null, command: muxInstallCommand(platform), checking: check === 'checking', stillMissing: !c.ok && check === 'missing' };
+  return { name: muxName(platform), windows: platform === 'win32', installed: c.ok, version: c.ok ? c.version : null, path: c.ok ? c.path : null, command: muxInstallCommand(platform), checking: check === 'checking', stillMissing: !c.ok && check === 'missing', outdated: c.ok && c.outdated ? { min: c.outdated.min, command: PSMUX_UPGRADE_COMMAND } : null };
 }
 
 /** 始める前の案内のダイアログ（B2）。開いていなければ null。 */
@@ -142,7 +146,8 @@ type Check = { key: ReadinessKey; ok: boolean; tone: Tone };
 function checksOf(r: ReadinessDto): Check[] {
   const ws = r.workspace;
   const rows: Check[] = [
-    { key: 'tmux', ok: r.tools.tmux.ok, tone: r.tools.tmux.ok ? 'ok' : 'ng' },
+    // 古い psmux（issue #245）は始められるので注意にとどめ、任意にはしない。任意にすると、準備を済ませた既存の利用者には帯ごと出なくなる。
+    r.tools.tmux.ok && r.tools.tmux.outdated ? { key: 'tmux', ok: false, tone: 'soft' } : { key: 'tmux', ok: r.tools.tmux.ok, tone: r.tools.tmux.ok ? 'ok' : 'ng' },
     { key: 'claude', ok: r.tools.claude.ok, tone: r.tools.claude.ok ? 'ok' : 'ng' },
     // プロジェクトの行（2026-10-13）。この PC に場所の分かっているプロジェクトが 1 件以上で済み、0 件は注意（任意の札は付けない）。
     // projects を持たない古いサーバの答えは、今までの「プロジェクトの親フォルダ」の行で見る。
@@ -232,6 +237,13 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
       case 'tmux':
       case 'claude': {
         const tool = r.tools[c.key];
+        // 古い psmux は、症状と下限を言い、上げ方は設定の節（注意とコピー）へ案内する。
+        if (c.key === 'tmux' && tool.ok && tool.outdated) {
+          text = t('home.ready.mux.outdated', { name: muxName(platform), version: tool.version ?? '' });
+          detail = t('home.ready.mux.outdatedDetail', { min: tool.outdated.min });
+          act = toSettings('tmux');
+          break;
+        }
         text = toolProblem(t, tool);
         // 見つからないものだけ、入れる命令を添える（tmux）。claude と、パスはあるのに使えないものは設定で直す。
         const missing = tool.path === null || tool.problem === 'unset';
@@ -325,7 +337,8 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
   const done = checks.filter((c) => c.ok);
   const total = checks.length;
   // 始めるのに要る道具のうち、足りないもの。tmux の役の道具は OS の名で言う（Windows は psmux）。
-  const lacking = checks.filter((c) => (c.key === 'tmux' || c.key === 'claude') && !c.ok).map((c) => name(c.key));
+  // 古い psmux は始められるので数えない（道具の ok で見る）。
+  const lacking = (['tmux', 'claude'] as const).filter((k) => !r.tools[k].ok).map((k) => name(k));
   const group: BandGroup = {
     id: 'readiness', label: t('home.ready.label'), icon: 'alert', tone: 'warn', count: todo.length, countText: t('home.ready.progress', { done: done.length, total }),
     progress: Math.round((done.length / total) * 100), summary: '', morning: true, rows: todo.map(fixRow),

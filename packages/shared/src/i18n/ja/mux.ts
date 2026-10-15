@@ -21,4 +21,10 @@ export const muxJa: AreaDictionary<typeof muxKeys> = {
   'mux.guide.found.lead': 'バージョン {version} が見つかりました。セッションを開始します',
   'mux.guide.found.leadNoVersion': '見つかりました。セッションを開始します',
   'mux.guide.start': '開始',
+  'mux.badge.outdated': '更新が必要',
+  'mux.info.versionNeed': 'バージョン {version}（{min} 以上が必要です）',
+  'mux.outdated.lead': '{min} より前の psmux では、端末をホイールで上へスクロールすると、Claude Code のプロンプトの履歴が呼ばれます。上げる前に：',
+  'mux.outdated.stop': 'psmux を停止するので、実行中のセッションは全部止まります。hangar のセッションを全部閉じてから打ってください',
+  'mux.outdated.outside': 'hangar の端末ではなく、外の PowerShell で打ってください（hangar の端末も psmux の中で実行されています）',
+  'mux.outdated.after': '最後に {min} 以上が出れば上がっています。上げたら「再確認」を押してください',
 };

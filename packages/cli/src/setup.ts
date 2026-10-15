@@ -1,13 +1,15 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { StatuslineStatusDto } from '@agent-hangar/shared';
+import { PSMUX_MIN_VERSION, PSMUX_UPGRADE_COMMAND, psmuxTooOld, type StatuslineStatusDto } from '@agent-hangar/shared';
 import { defaultClaudeDir, ensureHome, findInDirs, knownDirs, loadSettings, MUX_NAMES, readOrCreateDevice, readOrCreateToken, saveSettings, splitPathEnv, statuslineStatus } from '@agent-hangar/server/src/cliEntry.ts';
 
 export type SetupReport = {
   home: string;
   deviceId: string;
-  tools: { name: string; found: boolean; path: string | null }[];
+  /** outdated は tmux の行だけのもので、Windows の psmux が下限より古いときだけ持つ（issue #245）。 */
+  tools: { name: string; found: boolean; path: string | null; outdated?: { version: string; min: string } }[];
   workspaceRoot: string;
   workspaceExists: boolean;
   statusline: StatuslineStatusDto;
@@ -32,6 +34,19 @@ export function whichMuxCmd(which: (cmd: string) => string | null = whichCmd, pl
   return null;
 }
 
+/**
+ * psmux の版を `-V` で読む（1 行目は `tmux 3.3.8` の形）。読めなければ null を返す。
+ * 子プロセスは 3 秒で切る（サーバの config/readiness.ts の ToolVersions と同じ上限）。
+ */
+export function readMuxVersion(file: string): string | null {
+  try {
+    const out = execFileSync(file, ['-V'], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    return out.match(/\d+(?:\.\d+)+[a-z]?/)?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** 先頭の ~ をホームに直す。Windows では ~\ も直す。 */
 function expandTilde(p: string, platform: NodeJS.Platform): string {
   const m = platform === 'win32' ? /^~(?=$|[\\/])/ : /^~(?=$|\/)/;
@@ -44,7 +59,7 @@ function expandTilde(p: string, platform: NodeJS.Platform): string {
  * statusline への追記はここでは行わず、承諾を得たうえで runStatuslineInstall が行う。
  * プロジェクトの登録はサーバ起動時に行う。
  */
-export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir?: string; which?: (cmd: string) => string | null; platform?: NodeJS.Platform }): SetupReport {
+export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir?: string; which?: (cmd: string) => string | null; platform?: NodeJS.Platform; readMuxVersion?: (file: string) => string | null }): SetupReport {
   const which = opts.which ?? whichCmd;
   const platform = opts.platform ?? process.platform;
   ensureHome(opts.home);
@@ -56,6 +71,11 @@ export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir
   // code（VS Code）は 0.5.0 でエディタの選択に替えたので見ない。git は無くても動くが、ブランチと未コミットの件数に使う。
   const tools = ['tmux', 'claude', 'git'].map((name) => {
     const p = name === 'tmux' ? whichMuxCmd(which, platform) : which(name);
+    // psmux の下限は Windows だけに当てる（macOS の tmux の版は読まない）。読めない版は知らせない。
+    if (name === 'tmux' && p !== null && platform === 'win32') {
+      const version = (opts.readMuxVersion ?? readMuxVersion)(p);
+      if (version !== null && psmuxTooOld(version)) return { name, found: true, path: p, outdated: { version, min: PSMUX_MIN_VERSION } };
+    }
     return { name, found: p !== null, path: p };
   });
   return {
@@ -70,7 +90,14 @@ export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir
 
 export function formatSetupReport(r: SetupReport): string {
   const lines = [`データディレクトリ: ${r.home}`, `端末 ID: ${r.deviceId}`];
-  for (const t of r.tools) lines.push(`${t.name}: ${t.found ? t.path : '見つかりません'}`);
+  for (const t of r.tools) {
+    lines.push(`${t.name}: ${t.found ? t.path : '見つかりません'}`);
+    if (t.outdated) {
+      lines.push(`  注意: psmux ${t.outdated.version} は古い版です。${t.outdated.min} 未満では、端末をホイールで上へスクロールできません。`);
+      lines.push('  hangar のセッションを全部閉じてから（実行中のセッションは止まります）、外の PowerShell で次を打ってください:');
+      lines.push(`  ${PSMUX_UPGRADE_COMMAND}`);
+    }
+  }
   // 作成場所は任意（2026-10-13）。空なら決めていないと言い、プロジェクトはアプリのホームで選べることを添える。
   if (r.workspaceRoot === '') lines.push('新しいフォルダの作成場所: 未設定（任意。hangar setup --workspace <dir> で決められます）');
   else lines.push(`新しいフォルダの作成場所: ${r.workspaceRoot}${r.workspaceExists ? '' : '（存在しません。hangar setup --workspace <dir> で変えられます）'}`);

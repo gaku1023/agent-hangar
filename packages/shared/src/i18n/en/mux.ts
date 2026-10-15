@@ -21,4 +21,10 @@ export const muxEn: AreaDictionary<typeof muxKeys> = {
   'mux.guide.found.lead': 'Found version {version}. Starting the session',
   'mux.guide.found.leadNoVersion': 'Found it. Starting the session',
   'mux.guide.start': 'Start',
+  'mux.badge.outdated': 'Update needed',
+  'mux.info.versionNeed': 'Version {version} ({min} or later is required)',
+  'mux.outdated.lead': 'With psmux older than {min}, scrolling the terminal up with the mouse wheel recalls Claude Code prompt history instead. Before upgrading:',
+  'mux.outdated.stop': 'This stops psmux, so every running session stops. Close all hangar sessions first',
+  'mux.outdated.outside': 'Run it in a separate PowerShell window, not in a hangar terminal (hangar terminals run inside psmux too)',
+  'mux.outdated.after': 'If the last line shows {min} or later, the upgrade worked. Then press Check again',
 };

@@ -49,6 +49,35 @@ describe('runSetup（Windows）', () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
+  // psmux 3.4.0 未満はホイールが ↑ に化ける（issue #245）。報告に注意と上げ方を添える。
+  it('psmux が 3.4.0 未満なら、止まることと外の PowerShell で打つことを添えて上げ方を言う', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cli-'));
+    const read: string[] = [];
+    const r = runSetup({ home, claudeDir: path.join(home, 'claude-empty'), platform: 'win32', which: (c) => (c === 'psmux' ? 'C:\\tools\\psmux.exe' : null), readMuxVersion: (p) => { read.push(p); return '3.3.8'; } });
+    expect(read).toEqual(['C:\\tools\\psmux.exe']);
+    expect(r.tools[0]).toEqual({ name: 'tmux', found: true, path: 'C:\\tools\\psmux.exe', outdated: { version: '3.3.8', min: '3.4.0' } });
+    const text = formatSetupReport(r);
+    expect(text).toContain('注意: psmux 3.3.8 は古い版です');
+    expect(text).toContain('実行中のセッションは止まります');
+    expect(text).toContain('外の PowerShell');
+    expect(text).toContain('Get-Process psmux -ErrorAction SilentlyContinue | Stop-Process -Force; winget upgrade marlocarlo.psmux; tmux -V');
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('3.4.0 以上か版が読めなければ何も添えず、macOS では版を読まない', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cli-'));
+    const which = (c: string) => (c === 'psmux' || c === 'tmux' ? 'C:\\tools\\psmux.exe' : null);
+    for (const v of ['3.4.0', null]) {
+      const r = runSetup({ home, claudeDir: path.join(home, 'claude-empty'), platform: 'win32', which, readMuxVersion: () => v });
+      expect(r.tools[0]).toEqual({ name: 'tmux', found: true, path: 'C:\\tools\\psmux.exe' });
+      expect(formatSetupReport(r)).not.toContain('注意: psmux');
+    }
+    let asked = false;
+    runSetup({ home, claudeDir: path.join(home, 'claude-empty'), platform: 'darwin', which, readMuxVersion: () => { asked = true; return '3.3'; } });
+    expect(asked).toBe(false);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   it('Windows では、ワークスペースの ~\\ もホームに直す', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cli-'));
     const r = runSetup({ home, workspaceRoot: '~\\ws-hangar-test', claudeDir: path.join(home, 'claude-empty'), platform: 'win32', which: () => null });
