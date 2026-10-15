@@ -128,6 +128,45 @@ describe('hangar cloud', () => {
   });
 });
 
+// セットアップのすゝめ（2026-10-15）。Claude Code が Bash から叩く。サーバは起こさず、止まっていれば exit 2。
+describe('hangar project と hangar workspace', () => {
+  it('サーバが止まっていれば exit 2。--json は標準出力に server_down を 1 行、人向けは起動の案内', async () => {
+    const port = String(await deadPort());
+    const j = await runCli(['project', 'candidates', '--port', port, '--json']);
+    expect(j.code).toBe(2);
+    expect(j.out.trim()).toBe('{"error":"server_down","hint":"hangar start"}');
+    const h = await runCli(['project', 'add', '/nowhere', '--dry-run', '--port', port]);
+    expect(h.code).toBe(2);
+    expect(h.out).toContain('hangar start');
+  }, 20_000);
+
+  it('動いているサーバの API を鍵付きで呼び、引数と --dry-run を本文に載せる', async () => {
+    const seen: { method: string; url: string; auth: string | undefined; body: string }[] = [];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (b: Buffer) => { body += b.toString(); });
+      req.on('end', () => {
+        seen.push({ method: req.method ?? '', url: req.url ?? '', auth: req.headers.authorization, body });
+        const reply = req.url === '/api/workspace/candidates'
+          ? { candidates: [], suggestedRoot: null, unassignedTotal: 0, workspaceRoot: null }
+          : { dryRun: true, workspaceRoot: '/w', previous: '', unchanged: false, register: [] };
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    closers.push(() => new Promise<void>((r) => { server.close(() => r()); }));
+    const port = String((server.address() as AddressInfo).port);
+    const c = await runCli(['project', 'candidates', '--port', port, '--json']);
+    expect(c.code).toBe(0);
+    expect(JSON.parse(c.out)).toEqual({ candidates: [], suggestedRoot: null, unassignedTotal: 0, workspaceRoot: null });
+    const w = await runCli(['workspace', 'set', path.join(path.dirname(home), 'w'), '--dry-run', '--port', port]);
+    expect(w.code).toBe(0);
+    expect(w.out).toContain('試しなので、何も書いていません。');
+    expect(seen.map((s) => [s.method, s.url, s.auth])).toEqual([['GET', '/api/workspace/candidates', `Bearer ${readToken()}`], ['PATCH', '/api/settings', `Bearer ${readToken()}`]]);
+    expect(JSON.parse(seen[1]!.body)).toEqual({ workspaceRoot: path.join(path.dirname(home), 'w'), dryRun: true });
+  }, 20_000);
+});
+
 describe('hangar url', () => {
   it('鍵付きの URL を印字するだけで、ブラウザは開かない', async () => {
     const port = await listenHealth();

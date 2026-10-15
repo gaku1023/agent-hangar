@@ -32,4 +32,6 @@ export { diffLines } from './config/jsonTextEdit.ts';
 export { openDb, type Db } from './db/open.ts';
 // OS の違いを吸う口。CLI の hangar open（ブラウザを開く）と hangar setup（道具を探す）が使う。
 export { openTargetCommand } from './platform/browser.ts';
+// パスの比べ方（区切り、Windows の大文字小文字）。CLI の hangar project remove が、この PC の場所のパスでプロジェクトを選ぶのに使う。
+export { samePath } from './platform/paths.ts';
 export { findInDirs, knownDirs, MUX_NAMES, splitPathEnv } from './platform/exec.ts';
