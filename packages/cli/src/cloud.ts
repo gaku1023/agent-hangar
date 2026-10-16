@@ -11,7 +11,7 @@ import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfi
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import { COMPAT_VERSION, compatHeaders, configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, parseCompat, PULL_LIMIT, readCompatRefusal, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
 import { DetailedError } from './probe.ts';
-import { type CfAccount, type ExecResult, isAccountId, parseDatabaseId, parseWhoamiJson, parseWhoamiTable, parseWorkerUrl, type WhoamiResult, WranglerRunner } from './wrangler.ts';
+import { type CfAccount, defaultExec, type Exec, type ExecResult, isAccountId, parseDatabaseId, parseWhoamiJson, parseWhoamiTable, parseWorkerUrl, type WhoamiResult, WranglerRunner } from './wrangler.ts';
 
 export type DeviceLike = { id: string; name: string; platform: string };
 
@@ -40,6 +40,8 @@ export type SetupCloudOptions = {
   interactive?: boolean;
   /** アカウントが複数あるときに選ばせる。null は選ばなかった（中止）。 */
   chooseAccount?: ChooseAccount;
+  /** スマホの画面（packages/mobile）を建てる。引数は mobile の置き場。既定は buildMobileApp。試験で差し替える。 */
+  buildMobile?: (mobileDir: string) => Promise<void>;
 };
 
 /** 複数のアカウントから 1 つを選ばせる。null は選ばなかった。 */
@@ -403,7 +405,7 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
  * 実物の資源を指す wrangler の設定を ~/.agent-hangar/cloud/wrangler.jsonc に書く。
  * アカウント ID はここに書かず、実行のたびに環境変数で渡す。
  */
-export function writeWranglerConfig(home: string, o: { name: string; main: string; dbName: string; dbId: string; bucketName: string }): string {
+export function writeWranglerConfig(home: string, o: { name: string; main: string; dbName: string; dbId: string; bucketName: string; assetsDir: string }): string {
   const dir = cloudDirIn(home);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = wranglerConfigPath(home);
@@ -414,6 +416,8 @@ export function writeWranglerConfig(home: string, o: { name: string; main: strin
     compatibility_flags: ['nodejs_compat'],
     d1_databases: [{ binding: 'DB', database_name: o.dbName, database_id: o.dbId }],
     r2_buckets: [{ binding: 'BUCKET', bucket_name: o.bucketName }],
+    // スマホの画面（/app/ 以下）は静的ファイルとして Worker より先に返る。run_worker_first は置かない。
+    assets: { directory: o.assetsDir },
     vars: {},
   };
   const head = [
@@ -424,6 +428,32 @@ export function writeWranglerConfig(home: string, o: { name: string; main: strin
   ].join('\n');
   fs.writeFileSync(file, head + JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
   return file;
+}
+
+/** スマホの画面の置き場（packages/mobile）。cloudDir（packages/cloud）の隣である。 */
+export function mobileDirOf(cloudDir: string): string {
+  return path.resolve(cloudDir, '..', 'mobile');
+}
+
+/**
+ * スマホの画面を建てる。出力は <mobileDir>/dist/app で、配信の根は <mobileDir>/dist（_headers もそこに置かれる）。
+ * npm や npx を通さず、node で vite を直に走らせる。シェルも PATH も要らないので、Windows でも同じに動く。
+ */
+export async function buildMobileApp(mobileDir: string, o: { exec?: Exec; resolveVite?: (mobileDir: string) => string } = {}): Promise<void> {
+  const vite = (o.resolveVite ?? resolveViteBin)(mobileDir);
+  const r = await (o.exec ?? defaultExec)(process.execPath, [vite, 'build'], { cwd: mobileDir, env: process.env });
+  if (r.code !== 0) {
+    const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-12).join('\n');
+    throw new DetailedError(`スマホの画面の build に失敗しました（vite build、終了コード ${r.code}）。\n${tail}`);
+  }
+}
+
+function resolveViteBin(mobileDir: string): string {
+  const pkgPath = createRequire(path.join(mobileDir, 'package.json')).resolve('vite/package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin?: string | Record<string, string> };
+  const rel = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.vite;
+  if (!rel) throw new Error(`${pkgPath} に vite の実行ファイルがありません`);
+  return path.resolve(path.dirname(pkgPath), rel);
 }
 
 /** --rotate-secret の警告と確認。作り直すと R2 の既存の暗号化ファイルを誰も復号できなくなる。 */
@@ -620,6 +650,19 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   if (o.rotateSecret && !prev) log('まだ参加用の秘密がないので、作り直しではなく新しく作ります。');
   const secret = prev && !o.rotateSecret ? prev.joinSecret : randomBytes(32).toString('base64url');
 
+  // スマホの画面を建てる。配備は Worker と一緒にこの dist を上げるので、資源を作る前に済ませる。
+  // 源が無い（clone していない）か、建てても index.html が出なければ、Cloudflare にはまだ何も作らずに止まる。
+  const mobileDir = mobileDirOf(cloudDir);
+  if (!fs.existsSync(path.join(mobileDir, 'package.json'))) {
+    throw new DetailedError(`スマホの画面の源（packages/mobile）が ${mobileDir} にありません。クラウド同期の設定は、リポジトリを clone して npm install した場所から実行してください。Cloudflare にはまだ何も作っていません`);
+  }
+  log('スマホの画面を build します');
+  await (o.buildMobile ?? ((d) => buildMobileApp(d)))(mobileDir);
+  const assetsDir = path.join(mobileDir, 'dist');
+  if (!fs.existsSync(path.join(assetsDir, 'app', 'index.html'))) {
+    throw new DetailedError(`スマホの画面を build しましたが ${path.join(assetsDir, 'app', 'index.html')} がありません。空の画面を配備しないよう、ここで止めます。Cloudflare にはまだ何も作っていません`);
+  }
+
   // DB を先に開く。
   // マイグレーションの前の控え（db/backup.ts）が取れなければ、ここで投げて止まる。
   // Cloudflare にはまだ何も作っていないので、直してからもう一度実行すればよい。
@@ -673,7 +716,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
     log(bucket.code === 0 ? `R2 ${bucketName} を作りました` : `R2 ${bucketName} は既にあります`);
 
     // 3. 設定と 4. デプロイ
-    const cfg = writeWranglerConfig(o.home, { name, main: path.join(cloudDir, 'src', 'index.ts'), dbName, dbId, bucketName });
+    const cfg = writeWranglerConfig(o.home, { name, main: path.join(cloudDir, 'src', 'index.ts'), dbName, dbId, bucketName, assetsDir });
     const dep = await wr.run(['deploy', '--config', cfg]);
     const url = parseWorkerUrl(dep.stdout + dep.stderr);
     if (dep.code !== 0 || !url) throw wranglerFailure('デプロイ', dep);

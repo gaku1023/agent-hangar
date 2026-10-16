@@ -62,6 +62,9 @@ export function InjectionSettings(props: { injection: InjectionSettingsProps }) 
           </details>
         </AddItem>
       </ul>
+      {/* 起動のときに claude へ付ける --remote-control（試作 B1）。システムプロンプトの追記ではないので、線の外の 1 行にする。 */}
+      <SetRow title={t('settings.label.remoteControl')} desc={t('settings.integrations.inject.remoteControl.desc')}
+        control={<Switch label={t('settings.label.remoteControl')} checked={i.remoteControl} onChange={(next) => emit({ type: 'settings.update', patch: { remoteControl: next } })} />} />
       <SetRow title={t('settings.label.defaultModel')} desc={t('settings.integrations.inject.model.desc')}
         control={<ModelPicker label={t('settings.label.defaultModel')} value={i.defaultModel} withDefault onChange={(m) => emit({ type: 'settings.update', patch: { defaultModel: m } })} />} />
       <div className="faint inject-note">{t('settings.integrations.inject.note')}</div>

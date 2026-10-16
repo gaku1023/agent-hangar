@@ -218,6 +218,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const cloudMember = createCloudMemberRunner({
     bridge: deps.desktop?.cloud ?? null,
     load: () => deps.api.cloudDevices(),
+    pair: () => deps.api.mobilePairing(),
+    now: () => clock(),
     restart: () => { void deps.desktop?.restart().catch(fail); },
     setTimeout: deps.setTimeout,
     get: () => store.cloudMember,

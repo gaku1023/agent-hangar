@@ -28,6 +28,7 @@ import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { RunAccounts } from './accounts.ts';
 import { RUN_STIR_MS, RunManager } from './manager.ts';
+import { FakeTimers } from '../../test/fake-timers.ts';
 import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 import { interruptedGroup, noteLastLive } from './interrupted.ts';
@@ -766,6 +767,25 @@ describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
     expect(sys2).not.toContain('AskUserQuestion');
     expect(sys2).not.toContain('set_turn_intent');
     off.kill(r2.run.id);
+  });
+  it('Remote Control は、門を通ったときだけ --remote-control を足し、名前は指示の先頭になる（Windows でも同じ argv の別の要素）', async () => {
+    const asked: { account: string | null; env: Record<string, string | undefined> }[] = [];
+    const on = make({ remoteControl: ({ account, env }) => { asked.push({ account: account?.id ?? null, env }); return true; } });
+    const r1 = on.start({ projectId: 'p1', prompt: '最初の指示 -x $(touch /tmp/never)' });
+    const a1 = await launchedArgs(r1.run.id);
+    expect(a1[a1.indexOf('--remote-control') + 1]).toBe('最初の指示 -x $(touch /tmp/never)');
+    // 初期プロンプトは末尾のままで、名前に飲まれない。
+    expect(a1.at(-2)).toBe('最初の指示 -x $(touch /tmp/never)');
+    expect(asked).toEqual([{ account: null, env: {} }]);
+    on.kill(r1.run.id);
+    const off = make({ remoteControl: () => false });
+    const r2 = off.start({ projectId: 'p1' });
+    expect(await launchedArgs(r2.run.id)).not.toContain('--remote-control');
+    off.kill(r2.run.id);
+    const none = make();
+    const r3 = none.start({ projectId: 'p1' });
+    expect(await launchedArgs(r3.run.id)).not.toContain('--remote-control');
+    none.kill(r3.run.id);
   });
   it('openTab は連番の tmux セッションを作り、closeTab は閉じ、番号は再利用しない', async () => {
     const rm = make();
@@ -1962,6 +1982,105 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
   });
 
+  describe('Remote Control の門に渡るアカウントと環境', () => {
+    type Ask = { account: string | null; configDir: string | undefined };
+    const gate = (asked: Ask[], allow = true) => ({ remoteControl: ({ account, env }: { account: { id: string } | null; env: Record<string, string | undefined> }) => { asked.push({ account: account?.id ?? null, configDir: env.CLAUDE_CONFIG_DIR }); return allow; } });
+
+    it('2 つ目のアカウントで起こすと、そのアカウントと置き場が門に渡り、--remote-control が付く', async () => {
+      const a = accounts.add({ name: '大学' });
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.start({ projectId: 'p1', account: a.id });
+      expect(asked).toEqual([{ account: a.id, configDir: a.dir }]);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('再開は前に使ったアカウントで判定する', async () => {
+      const a = accounts.add({ name: '大学' });
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.start({ projectId: 'p1', account: a.id });
+      await launchedArgs(r.run.id);
+      addTranscript(r.sessionId);
+      rm.kill(r.run.id);
+      await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+      rm.tick();
+      asked.length = 0;
+      const again = rm.resume(r.sessionId);
+      expect(asked).toEqual([{ account: a.id, configDir: a.dir }]);
+      await launchedArgs(again.run.id);
+      rm.kill(again.run.id);
+    });
+
+    it('利用者が自分で付けた登録済みの置き場は、そのアカウントとして判定する', async () => {
+      const a = accounts.add({ name: '大学' });
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.startFromTerminal(fromTerminal(cwd, [], { CLAUDE_CONFIG_DIR: a.dir }));
+      expect(asked).toEqual([{ account: a.id, configDir: a.dir }]);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('利用者が自分で付けた未登録の置き場は、認証を知れないので門を通さず、付けない', async () => {
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.startFromTerminal(fromTerminal(cwd, [], { CLAUDE_CONFIG_DIR: path.join(userHome, 'unregistered') }));
+      expect(asked).toEqual([]);
+      expect(await launchedArgs(r.run.id)).not.toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('利用者がターミナルで付けた --remote-control と --rc があれば、門を通さず足さない', async () => {
+      for (const flag of ['--remote-control', '--rc', '--remote-control=mine', '--rc=mine']) {
+        const asked: Ask[] = [];
+        const rm = make({ accounts, ...gate(asked) });
+        const r = rm.startFromTerminal(fromTerminal(cwd, [flag]));
+        const args = await launchedArgs(r.run.id);
+        expect([flag, asked.length]).toEqual([flag, 0]);
+        // 利用者が付けた 1 つだけで、hangar は足していない。
+        expect([flag, args.filter((x) => x.startsWith('--remote-control') || x.startsWith('--rc')).length]).toEqual([flag, 1]);
+        rm.kill(r.run.id);
+      }
+      // 対照：付けていなければ門を通り、足される。
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.startFromTerminal(fromTerminal(cwd, []));
+      expect(asked.length).toBe(1);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('再開に渡された利用者の引数に -p、--print、--rc、--remote-control があれば、門を通さず足さない（-p と --print はターミナルの入口が先に断るので、ここは念のための守り）', async () => {
+      const first = make({ accounts });
+      const r0 = first.start({ projectId: 'p1' });
+      await launchedArgs(r0.run.id);
+      addTranscript(r0.sessionId);
+      first.kill(r0.run.id);
+      await waitFor(() => !tmux!.hasSession(r0.run.tmuxName));
+      first.tick();
+      for (const flag of ['-p', '--print', '--rc', '--remote-control']) {
+        const asked: Ask[] = [];
+        const rm = make({ accounts, ...gate(asked) });
+        const r = rm.resume(r0.sessionId, { args: [flag] });
+        const args = await launchedArgs(r.run.id);
+        expect([flag, asked.length]).toEqual([flag, 0]);
+        expect([flag, args.filter((x) => x === '--remote-control').length]).toEqual([flag, flag === '--remote-control' ? 1 : 0]);
+        rm.kill(r.run.id);
+        await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+        rm.tick();
+      }
+      // 対照：引数が無ければ門を通り、足される。
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.resume(r0.sessionId);
+      expect(asked.length).toBe(1);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+  });
+
   it('知らないアカウントは 400 で断り、セッションの行を作らない', () => {
     const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
     expect(() => make({ accounts }).start({ projectId: 'p1', account: 'nope' })).toThrow('アカウントが見つかりません');
@@ -2741,5 +2860,72 @@ describe('終わった扱いの run の claude が動き続けているときの
     const f = strayProcs();
     expect((await make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resumeWith(id, { stray: 'stop' })).run.kind).toBe('resume');
     expect(f.terminated).toEqual([]);
+  });
+});
+
+describe('Remote Control の URL を画面から拾う（tmux 不要）', () => {
+  const URL_A = 'https://claude.ai/code/session_01AbCdEfGhIjKlMnOpQrStUv';
+  const SCREEN = `  ▘▘ ▝▝    ~/w/project-a · /rc active\n           /remote-control is active · Continue here, on your phone, or at ${URL_A}\n`;
+  /** 何回目の読みで URL を出すかを決められる偽の画面。読んだ名前と指定を覚える。 */
+  const screenPanes = (showAt: number) => {
+    const reads: { name: string; joinWrapped: boolean }[] = [];
+    const panes: PaneOps = {
+      open: () => {}, close: () => {}, list: () => [], sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {},
+      capture: () => { throw new Error('captureUnwrapped で読む'); },
+      captureUnwrapped: (name) => { reads.push({ name, joinWrapped: true }); return { text: reads.length >= showAt ? SCREEN : '', width: null }; },
+    };
+    return { panes, reads };
+  };
+  const rows = () => db.prepare('select session_id, url, at from run_remote_urls').all();
+
+  it('--remote-control を付けて起こした run の画面を 2 秒ごとに読み、拾った URL を表に書いて知らせる', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(2);
+    const rm = make({ panes: p.panes, remoteControl: () => true, timers, now: () => timers.now });
+    const heard: { sessionId: string; url: string }[] = [];
+    rm.on({ remoteUrl: (e) => heard.push({ sessionId: e.sessionId, url: e.url }) });
+    const r = rm.start({ projectId: 'p1' });
+    expect(p.reads).toEqual([]);
+    await timers.advance(4_000);
+    expect(p.reads).toEqual([{ name: r.run.tmuxName, joinWrapped: true }, { name: r.run.tmuxName, joinWrapped: true }]);
+    expect(rows()).toEqual([{ session_id: r.sessionId, url: URL_A, at: timers.now }]);
+    expect(heard).toEqual([{ sessionId: r.sessionId, url: URL_A }]);
+    await timers.advance(60_000);
+    expect(p.reads).toHaveLength(2);
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('--remote-control を付けなかった run の画面は読まない', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(1);
+    make({ panes: p.panes, remoteControl: () => false, timers }).start({ projectId: 'p1' });
+    make({ panes: p.panes, timers }).start({ projectId: 'p1' });
+    await timers.advance(10_000);
+    expect(p.reads).toEqual([]);
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('run が終わったら見張りを止める', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(Infinity);
+    const rm = make({ panes: p.panes, remoteControl: () => true, timers, now: () => timers.now });
+    const r = rm.start({ projectId: 'p1' });
+    await timers.advance(2_000);
+    expect(p.reads).toHaveLength(1);
+    rm.kill(r.run.id);
+    expect(timers.pendingCount()).toBe(0);
+    await timers.advance(10_000);
+    expect(p.reads).toHaveLength(1);
+    expect(rows()).toEqual([]);
+  });
+
+  it('再開でも --remote-control を付けたら見張る', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(1);
+    const id = seedOldSession();
+    const rm = make({ panes: p.panes, remoteControl: () => true, timers, now: () => timers.now });
+    rm.resume(id);
+    await timers.advance(2_000);
+    expect(rows()).toEqual([{ session_id: id, url: URL_A, at: timers.now }]);
   });
 });

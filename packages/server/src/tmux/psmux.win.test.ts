@@ -7,6 +7,7 @@ import { waitFor } from '../../test/tmux.ts';
 import { runCommand } from '../launch/command.ts';
 import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
+import { extractRemoteUrl } from '../mobile/remoteUrl.ts';
 import { psmuxPaneOps } from './pane.ts';
 import { MuxServers } from './servers.ts';
 import { Tmux } from './tmux.ts';
@@ -105,6 +106,16 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     // 無い名前を止めても黙って通る。
     panes.close('hangar-pane');
   }, 40_000);
+
+  // Remote Control の URL は端末の幅で折り返す。PaneOps の captureUnwrapped と extractRemoteUrl で 1 つの URL に戻る。
+  // psmux 3.3.8 は -J を受けて 0 で終わるがつながないので、-J の画面を信じると URL が 2 行に割れたまま拾えない（以前はここで 10 秒の時間切れになった）。
+  it('幅で折り返した URL を、captureUnwrapped で読んで取り出せる', async () => {
+    const url = 'https://claude.ai/code/session_01AbCdEfGhIjKlMnOpQrStUv';
+    made.push('hangar-wrap');
+    tmux.newSession({ name: 'hangar-wrap', cwd, command: ['cmd.exe', '/k', `echo ${url}`], width: 40, height: 20 });
+    const panes = psmuxPaneOps(tmux);
+    await waitFor(() => { const s = panes.captureUnwrapped!('hangar-wrap'); return extractRemoteUrl(s.text, s.width) === url; }, 10_000);
+  }, 20_000);
 
   it('無い作業フォルダは、作る前に断る', () => {
     expect(() => tmux.newSession({ name: 'hangar-nocwd', cwd: path.join(cwd, 'nope'), command: ['cmd.exe'] })).toThrow(/cwd not found/);

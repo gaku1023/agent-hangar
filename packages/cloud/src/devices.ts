@@ -23,6 +23,7 @@ const toOut = (r: DeviceRow): CloudDeviceOut => ({
   lastCity: r.last_city ?? null,
   lastRegion: r.last_region ?? null,
   lastCountry: r.last_country ?? null,
+  kind: r.kind ?? 'pc',
 });
 
 /** PC の数は数台なので、1 回で全部を返す。 */

@@ -38,3 +38,16 @@ export function authMiddleware(): MiddlewareHandler<{ Bindings: Env; Variables: 
     await next();
   };
 }
+
+/**
+ * 認証を通した端末の種類を確かめる（互換の版 7）。authMiddleware の後に置く。
+ * スマホのトークンは `/m/` のスマホ用の口だけを通し、PC の口（同期、本文、一覧、使用量）は 403 で断る。
+ * 逆に、PC だけの口（券を取る、受信箱の素を書く）とスマホだけの口（受信箱を読む）も分ける。
+ * 列を足す前の行（kind が無い）は PC として読む。
+ */
+export function requireKind(kind: 'pc' | 'mobile'): MiddlewareHandler<{ Bindings: Env; Variables: Vars }> {
+  return async (c, next) => {
+    if ((c.get('device').kind ?? 'pc') !== kind) return c.json({ error: 'forbidden' }, 403);
+    await next();
+  };
+}

@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
-import type { CloudMemberProps, CloudPcRow } from '../presenters/cloudMember.ts';
-import { CommandLine } from './primitives/CommandLine.tsx';
+import { PAIR_TTL_MS, type CloudMemberProps, type CloudPcRow, type CloudPhoneProps } from '../presenters/cloudMember.ts';
+import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { collapseOut, fadeIn, growIn, motionOn } from './primitives/motionKit.ts';
+import { QrCode } from './primitives/QrCode.tsx';
+import { useNow } from './primitives/useNow.ts';
+import { usePresence } from './primitives/usePresence.ts';
 
 /**
  * 設定のクラウド同期の節の、参加と、PC の一覧と解除と、この PC の参加の解除（0.4.0）。
@@ -150,6 +154,22 @@ function RevokeConfirm(props: { row: CloudPcRow; onCancel: () => void }) {
   const emit = useEmit();
   const t = useT();
   const name = props.row.name;
+  // スマホは券なしでは戻れず、なくすと全部の PC に会話を起動される。PC と違う文で確かめる（試作 A1）。
+  if (props.row.phone) {
+    return (
+      <div className="cm-rowx">
+        <Strip tone="danger">
+          <p><b>{t('cloudMember.phone.confirmTitle', { name })}</b></p>
+          <p>{t('cloudMember.phone.confirmBody')}</p>
+          <p>{t('cloudMember.phone.confirmRisk')}</p>
+          <div className="btns">
+            <button type="button" className="btn btn-sm" onClick={props.onCancel}>{t('cloudMember.common.cancel')}</button>
+            <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.row.id })}>{t('cloudMember.pcs.do')}</button>
+          </div>
+        </Strip>
+      </div>
+    );
+  }
   return (
     <div className="cm-rowx">
       <Strip tone="danger">
@@ -165,6 +185,15 @@ function RevokeConfirm(props: { row: CloudPcRow; onCancel: () => void }) {
   );
 }
 
+/** 表の 1 台分（行と、その下に開く確認）。enter なら、現れたときに growIn で伸びて入る。 */
+function RowGroup(props: { enter: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // 現れた描画でだけ動かす。後から enter が替わっても動かし直さない。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { if (props.enter && ref.current) growIn(ref.current); }, []);
+  return <div ref={ref} role="rowgroup">{props.children}</div>;
+}
+
 /**
  * PC の表（試作の A）。名前（下に最後の IP と場所）、OS、参加日、最終同期と、ほかの PC には「解除…」を置く。
  * 解除した PC は表から抜けて、下の「解除した PC」へ移る。
@@ -178,6 +207,10 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
   // 解除が済むか失敗したら、開いていた確認を閉じる（失敗は行の下に理由を出す）。
   useEffect(() => { if (revoke && revoke.kind !== 'busy') setAsking(null); }, [revoke]);
   const canRevoke = desktop && pcs.state === 'ok';
+  // QR を出している間に参加したスマホの行は、表に伸びて入る。表を描いた後に現れたときだけ動かす（はじめの描画では動かさない）。
+  const live = useRef(false);
+  useEffect(() => { live.current = true; }, []);
+  const entering = props.m.phone.kind === 'paired' ? props.m.phone.id : null;
   return (
     <>
       <h4 className="sub-h">{props.heading}<span className="n">{pcs.rows.length}</span></h4>
@@ -193,10 +226,10 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
           const busy = revoke?.id === r.id && revoke.kind === 'busy';
           const failed = revoke?.id === r.id && revoke.kind === 'failed' ? revoke : null;
           return (
-            <div key={r.id} role="rowgroup">
+            <RowGroup key={r.id} enter={live.current && entering === r.id}>
               <div className="cm-row" role="row" data-focus={asking === r.id || failed ? 'true' : undefined}>
                 <span className="cm-name" role="cell">
-                  <span>{r.name}{r.self && <span className="cm-self">{t('settings.cloud.thisPc')}</span>}</span>
+                  <span>{r.name}{r.self && <span className="cm-self">{t('settings.cloud.thisPc')}</span>}{r.phone && <span className="cm-chip">{t('cloudMember.phone.chip')}</span>}</span>
                   <Where row={r} />
                 </span>
                 <span className="cm-faint" role="cell">{r.os}</span>
@@ -204,7 +237,7 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
                 <span className="cm-faint cm-col" role="cell">{r.lastSeen}</span>
                 <span className="cm-act" role="cell">
                   {canRevoke && !r.self && (
-                    <button type="button" className="btn btn-ghost btn-sm" aria-label={t('cloudMember.pcs.removeAria', { name: r.name })} aria-expanded={asking === r.id} disabled={busy || revoke?.kind === 'busy'} onClick={() => { emit({ type: 'cloud.revoke.dismiss' }); setAsking(asking === r.id ? null : r.id); }}>
+                    <button type="button" className="btn btn-ghost btn-sm" aria-label={t(r.phone ? 'cloudMember.phone.removeAria' : 'cloudMember.pcs.removeAria', { name: r.name })} aria-expanded={asking === r.id} disabled={busy || revoke?.kind === 'busy'} onClick={() => { emit({ type: 'cloud.revoke.dismiss' }); setAsking(asking === r.id ? null : r.id); }}>
                       {busy ? t('cloudMember.pcs.busy') : t('cloudMember.pcs.remove')}
                     </button>
                   )}
@@ -222,7 +255,7 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
                   </Strip>
                 </div>
               )}
-            </div>
+            </RowGroup>
           );
         })}
       </div>
@@ -358,5 +391,153 @@ export function CloudRevokedBand(props: { m: CloudMemberProps; joinCommand: stri
       {mode === 'clear' && m.leave.kind === 'idle' && <LeaveConfirm m={m} revokeChoice={false} onCancel={() => setMode('none')} />}
       <LeaveProgress m={m} />
     </>
+  );
+}
+
+/** QR の段が開いている段。段を開いたまま新しい券を待つ間（loading の renew）も、段を畳まずに薄い図で待つ。 */
+type PanelStage = Extract<CloudPhoneProps, { kind: 'ready' | 'expired' | 'paired' }> | { kind: 'loading'; renew: true };
+const isPanel = (p: CloudPhoneProps): p is PanelStage => p.kind === 'ready' || p.kind === 'expired' || p.kind === 'paired' || (p.kind === 'loading' && p.renew === true);
+
+/** QR の一辺（px）。 */
+const QR_SIZE = 172;
+/**
+ * 期限切れと接続の後に薄く描く図の中身。QR の中身（スマホ用の暗号鍵）はもう持たないので、意味の無い文字列を描く。
+ * 升目の細かさが本物の QR と近くなるよう、本物と同じくらいの長さにする。
+ */
+const QR_PLACEHOLDER = 'hangar-qr-placeholder/'.repeat(14);
+
+/** 現れた描画でだけ fadeIn で現れる箱。animate が偽（段のはじめの描画）なら動かさない。 */
+function Appear(props: { animate: boolean; className?: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { if (props.animate && ref.current) fadeIn(ref.current); }, []);
+  return <div ref={ref} className={props.className}>{props.children}</div>;
+}
+
+const clock = (ms: number): string => {
+  const s = Math.ceil(Math.max(0, ms) / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/**
+ * QR の段（試作 A1）。左に QR、右に 3 つの手順、残り時間の棒、「この QR を人に見せない」の黄色の帯、「文字列をコピー」と「閉じる」。
+ * 5 分を過ぎたら QR を薄くして「新しい QR を出す」を重ね、スマホが参加したら「〈名前〉が接続しました」を重ねる（どちらも fadeIn）。
+ */
+function PairPanel(props: { p: PanelStage }) {
+  const emit = useEmit();
+  const t = useT();
+  const p = props.p;
+  const ready = p.kind === 'ready';
+  const now = useNow(1000, { active: ready, sync: ready ? p.expiresAt : null });
+  const leftMs = ready ? Math.max(0, p.expiresAt - now) : 0;
+  const dead = !ready || leftMs <= 0;
+  // 新しい券を待つ間（loading）は重ねず、薄い図のまま待つ。
+  const over = p.kind === 'paired' ? 'paired' : p.kind === 'loading' ? null : dead ? 'expired' : null;
+  // 段のはじめの描画で重なりがあるとき（期限切れのまま設定を開き直したなど）は動かさない。
+  const shown = useRef(false);
+  useEffect(() => { shown.current = true; }, []);
+  const close = () => emit({ type: 'cloud.phone.close' });
+  return (
+    <div className="cm-pair-in">
+      <div className="cm-qr-wrap">
+        <div className="cm-qr" data-dead={dead ? 'true' : undefined} aria-hidden={dead ? 'true' : undefined}>
+          <QrCode text={ready ? p.pairUrl : QR_PLACEHOLDER} size={QR_SIZE} label={t('cloudMember.phone.qrLabel')} fallback={t('cloudMember.phone.qrTooLong')} />
+        </div>
+        {over === 'expired' && (
+          <Appear key="expired" animate={shown.current} className="cm-qr-over">
+            <b>{t('cloudMember.phone.expired')}</b>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => emit({ type: 'cloud.phone.pair' })}>{t('cloudMember.phone.again')}</button>
+          </Appear>
+        )}
+        {p.kind === 'paired' && (
+          <Appear key="paired" animate={shown.current} className="cm-qr-over" >
+            <span className="cm-qr-ok"><Icon name="check" /></span>
+            <b>{t('cloudMember.phone.paired', { name: p.name })}</b>
+            <span>{t('cloudMember.phone.used')}</span>
+          </Appear>
+        )}
+      </div>
+      <div className="cm-pair-body">
+        <div className="cm-pair-title">{t('cloudMember.phone.title')}</div>
+        {p.kind === 'paired' ? (
+          <Appear animate={shown.current}>
+            <Strip tone="ok" role="status"><p>{t('cloudMember.phone.pairedNote', { name: p.name })}</p></Strip>
+          </Appear>
+        ) : (
+          <>
+            <ol className="cm-steps">
+              <li>{t('cloudMember.phone.step1')}</li>
+              <li>{t('cloudMember.phone.step2')}</li>
+              <li>{t('cloudMember.phone.step3')}</li>
+            </ol>
+            {p.kind === 'loading' ? <div className="cm-wait" role="status">{t('cloudMember.phone.loading')}</div> : <div className="cm-timer">
+              <span>{t('cloudMember.phone.left', { time: clock(leftMs) })}</span>
+              <span className="cm-bar" role="progressbar" aria-label={t('cloudMember.phone.bar')} aria-valuemin={0} aria-valuemax={PAIR_TTL_MS / 1000} aria-valuenow={Math.ceil(leftMs / 1000)}>
+                <i style={{ width: `${Math.min(1, leftMs / PAIR_TTL_MS) * 100}%` }} />
+              </span>
+            </div>}
+            <Strip tone="warn"><p>{t('cloudMember.phone.warn')}</p></Strip>
+          </>
+        )}
+        <div className="btns">
+          {!dead && ready && <CopyButton text={p.pairText} label={t('cloudMember.phone.copy')} ariaLabel={t('cloudMember.phone.copy')} />}
+          <button type="button" className="btn btn-sm btn-ghost" onClick={close}>{t('cloudMember.common.close')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 「スマホ」の小見出しと「スマホを接続」（試作 A1）。PC の表の下に置き、押すと節の中に QR の段が開く（growIn、閉じると collapseOut）。
+ * QR の中身は Runtime が取り、ready の間だけ持つ。参加したスマホは PC と同じ表に「スマホ」の札つきで並ぶ。
+ * 「Remote Control を付けて起動する」の設定は「連携」にあるので、その旨を 1 行で案内する（試作 B1）。
+ */
+export function CloudPhones(props: { m: CloudMemberProps }) {
+  const emit = useEmit();
+  const t = useT();
+  const p = props.m.phone;
+  const open = isPanel(p);
+  const panel = usePresence<HTMLDivElement>(open, (el) => (motionOn(el) ? collapseOut(el) : null));
+  // 閉じる動きの間は、最後に開いていた段の姿で描く。
+  const last = useRef<PanelStage | null>(open ? p : null);
+  if (open) last.current = p;
+  const live = useRef(false);
+  useEffect(() => { live.current = true; }, []);
+  // 節が外れたら（設定の画面を離れたなど）QR を閉じる。3 秒ごとの再読み込みを止め、QR の中身を Store から捨てる。
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
+  useEffect(() => () => { emitRef.current({ type: 'cloud.phone.close' }); }, []);
+  const wasOpen = useRef(open);
+  useLayoutEffect(() => {
+    if (open && !wasOpen.current && live.current && panel.ref.current) growIn(panel.ref.current);
+    wasOpen.current = open;
+  }, [open, panel.ref]);
+  const heading = t('cloudMember.phone.heading');
+  return (
+    <section className="cm-phones" aria-label={heading}>
+      <h4 className="sub-h">
+        {heading}
+        <span className="cm-sp" />
+        {!open && <button type="button" className="btn btn-sm" disabled={p.kind === 'loading'} onClick={() => emit({ type: 'cloud.phone.pair' })}>{t('cloudMember.phone.pair')}</button>}
+      </h4>
+      {!open && (
+        <>
+          <div className="cm-note">{t('cloudMember.phone.lead')}</div>
+          <div className="cm-note">{t('cloudMember.phone.rcPointer')}</div>
+        </>
+      )}
+      {p.kind === 'loading' && !open && <div className="cm-wait" role="status">{t('cloudMember.phone.loading')}</div>}
+      {p.kind === 'old' && (
+        <Strip tone="warn">
+          <p>{p.compat !== null ? t('cloudMember.phone.old', { compat: p.compat }) : t('cloudMember.phone.oldUnknown')}</p>
+          <p className="cm-faint">{t('cloudMember.phone.oldHint')}</p>
+        </Strip>
+      )}
+      {p.kind === 'limited' && <Strip tone="warn" role="alert"><p>{t('cloudMember.phone.limited')}</p></Strip>}
+      {p.kind === 'notJoined' && <Strip tone="warn"><p>{t('cloudMember.phone.notJoined')}</p></Strip>}
+      {p.kind === 'failed' && <Strip tone="danger" role="alert"><p>{t('cloudMember.phone.failed', { message: p.message })}</p></Strip>}
+      {panel.mounted && last.current && <div ref={panel.ref} className="cm-pair"><PairPanel p={last.current} /></div>}
+    </section>
   );
 }

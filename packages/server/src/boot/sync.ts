@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { encodeJoinToken, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
+import { encodeJoinToken, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
 import { cloudConfigPath, readCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
-import { HttpCloudClient } from '../sync/client.ts';
+import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
 import { deriveFileKey } from '../sync/crypto.ts';
 import { loadCloudDevices } from '../sync/devices.ts';
 import { SyncEngine } from '../sync/engine.ts';
@@ -63,8 +63,13 @@ export type SyncParts = {
   publishConfigSync(): void;
   /** 参加トークン。全セッションの読み書き権を持つ。作るのはここだけで、ログにも例外にも出さない。 */
   joinToken(): string | null;
-  /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。 */
+  /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
+  /**
+   * cloudDevices が一覧を読むたびに呼ぶ受け手を足す。設定の画面の読み込み（QR を出している間の 3 秒ごとを含む）と、受信箱の書き手の見回り（boot/mobile.ts）の両方で届く。
+   * 受信箱の書き手は、これでスマホがつながっているかを知る。
+   */
+  onCloudDevices(cb: (d: CloudDevicesDto) => void): () => void;
   /**
    * 他の PC から、索引の選び方に関わるものが届いたときの受け手を足す。
    * sessions の行を当てたときと、本文の写しを置いたときに呼ぶ。索引が全件走査を 1 回予約する（boot/indexing.ts）。
@@ -91,6 +96,17 @@ export type SyncParts = {
    * 版 5 までの Worker は 2 表の行を含む push を丸ごと断るので、満たさないあいだは行を書かない。まだ話していない（版が分からない）あいだも偽である。
    */
   canCarryTakeover(): boolean;
+  /**
+   * スマホ向けの口（/m/）に書いてよいか。canCarryTakeover と同じ形で、Worker が名乗る版が MOBILE_MIN_WORKER_COMPAT に届いているとき真。
+   * 版 6 の Worker は /m/ を知らないので、満たさないあいだは受信箱の素を書かず、依頼も扱わない。まだ話していないあいだも偽である。
+   */
+  canCarryMobile(): boolean;
+  /**
+   * スマホ向けの書き手が使う、今の client と参加の秘密。同期を設定していなければ null。
+   * cloud.json が後から現れて組み直すと、別の client を返す。書き手は client が変わったら組み直す（boot/mobile.ts）。
+   * 秘密はこの PC の中の部品にだけ渡し、ログにも画面にも出さない。
+   */
+  mobileLink(): { client: CloudClient; joinSecret: string; url: string } | null;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -146,6 +162,7 @@ export function bootSync(
   const statesListeners = new Set<() => void>();
   const statesApplied = (): void => { for (const cb of statesListeners) cb(); };
   const takeoverListeners = new Set<() => void>();
+  const cloudDeviceListeners = new Set<(d: CloudDevicesDto) => void>();
   const takeoversApplied = (): void => { for (const cb of takeoverListeners) cb(); };
   const pruneBackups = backupPruner(home.home);
   const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
@@ -342,6 +359,14 @@ export function bootSync(
     }
   };
 
+  /** 同期が設定済みで、一時停止でも、版や解除や上限で止まってもおらず、Worker が名乗る版が min に届いているか。 */
+  const canCarry = (min: number): boolean => {
+    const { client, engine } = core;
+    if (!client) return false;
+    if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
+    return (client.lastWorkerCompat() ?? 0) >= min;
+  };
+
   return {
     get engine() { return core.engine; },
     syncState,
@@ -362,17 +387,21 @@ export function bootSync(
       await core.engine.pullNow();
       await core.puller?.pullNow();
     },
-    canCarryTakeover: () => {
-      const { client, engine } = core;
-      if (!client) return false;
-      if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
-      return (client.lastWorkerCompat() ?? 0) >= TAKEOVER_MIN_WORKER_COMPAT;
-    },
+    canCarryTakeover: () => canCarry(TAKEOVER_MIN_WORKER_COMPAT),
+    canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
+    mobileLink: () => (core.client && core.cloud ? { client: core.client, joinSecret: core.cloud.joinSecret, url: core.cloud.url } : null),
     refetchSession: (uuid) => {
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
     joinToken: () => (core.cloud ? encodeJoinToken({ url: core.cloud.url, secret: core.cloud.joinSecret }) : null),
-    cloudDevices: () => loadCloudDevices({ client: core.client, deviceId, creator: core.cloud?.workerName != null, language: home.language }),
+    cloudDevices: async () => {
+      const d = await loadCloudDevices({ client: core.client, deviceId, creator: core.cloud?.workerName != null, language: home.language });
+      for (const cb of [...cloudDeviceListeners]) {
+        try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
+      }
+      return d;
+    },
+    onCloudDevices: (cb) => { cloudDeviceListeners.add(cb); return () => { cloudDeviceListeners.delete(cb); }; },
     start() {
       startCore(core);
       retention.start();

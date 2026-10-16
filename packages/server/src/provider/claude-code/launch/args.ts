@@ -18,6 +18,8 @@ export function buildClaudeArgs(input: LaunchInput): string[] {
   else if (m.kind === 'resume') a.push('-r', m.sessionUuid);
   else a.push('-r', m.sessionUuid, '--fork-session', '--session-id', m.newSessionUuid);
   if (input.name) a.push('-n', input.name);
+  // 名前は別の要素で渡す（シェルを通さない。Windows の psmux でも同じ）。空文字は付けない。後ろの初期プロンプトを名前として飲むため。
+  if (input.remoteControl) a.push('--remote-control', input.remoteControl);
   a.push('--append-system-prompt', input.systemPrompt);
   if (input.model) a.push('--model', input.model);
   if (input.effort) a.push('--effort', input.effort);

@@ -26,6 +26,7 @@ import {
   type CloudUsageBody,
   type FileMetaIn,
   type ListFilesResponse,
+  type MobilePairingResponse,
   type PullChangesResponse,
   type PushChangesResponse,
   type SnapshotResponse,
@@ -214,6 +215,23 @@ export interface CloudClient {
    * 設定の同期が、Worker が束の行を知る版に届くまで行を書かないために読む。実装しない偽物は null を返してよい。
    */
   lastWorkerCompat?(): number | null;
+  /**
+   * この PC の受信箱の素（封じたもの）を置く（PUT /m/feed、互換の版 7 の Worker から）。
+   * 呼ぶのは MobileFeedPublisher で、Worker の版が MOBILE_MIN_WORKER_COMPAT に届いてからにする。偽物は実装しなくてよい。
+   */
+  putMobileFeed?(sealed: string): Promise<void>;
+  /**
+   * スマホを接続する使い捨ての券を取る（POST /m/pairings、互換の版 7 の Worker から）。5 分で失効し、1 回で使い切る。
+   * 1 台の PC から 10 分に 5 枚までで、超えると Worker は 429 を返す（CloudError(429) で投げる）。偽物は実装しなくてよい。
+   */
+  createPairing?(): Promise<MobilePairingResponse>;
+  /**
+   * スマホからの起動の依頼を受け取る（POST /m/launches/:id/claim、互換の版 7 の Worker から）。
+   * 自分宛てで、まだ誰も受け取っておらず、時間切れでないときだけ true で、PC は true のときだけ起こす。409 は false。ほかの失敗は投げる。偽物は実装しなくてよい。
+   */
+  claimLaunch?(id: string): Promise<boolean>;
+  /** 受け取った依頼の結果を返す（POST /m/launches/:id/answer）。sealedAnswer はスマホ用の鍵で封じた MobileLaunchAnswer。409 も投げる。 */
+  answerLaunch?(id: string, ok: boolean, sealedAnswer: string): Promise<void>;
 }
 
 export type HttpCloudClientOptions = {
@@ -431,6 +449,30 @@ export class HttpCloudClient implements CloudClient {
     // ID は URL の断片に入る。Worker も入口で断るが、形の違うものは外へ出さない。
     if (!isSafeKeyId(id)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
     return (await this.json<CloudDeviceRevokeResponse>(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' })).device;
+  }
+
+  async putMobileFeed(sealed: string): Promise<void> {
+    await this.ensureWorkerCompat();
+    await this.json<{ ok: boolean }>('/m/feed', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sealed }) });
+  }
+
+  createPairing(): Promise<MobilePairingResponse> {
+    return this.json<MobilePairingResponse>('/m/pairings', { method: 'POST' });
+  }
+
+  async claimLaunch(id: string): Promise<boolean> {
+    try {
+      await this.json<{ ok: boolean }>(`/m/launches/${encodeURIComponent(id)}/claim`, { method: 'POST' });
+      return true;
+    } catch (e) {
+      // 2 回目、宛先でない、時間切れ、無い ID。どれも起こさない。
+      if (e instanceof CloudError && e.status === 409) return false;
+      throw e;
+    }
+  }
+
+  async answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> {
+    await this.json<{ ok: boolean }>(`/m/launches/${encodeURIComponent(id)}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ok, sealedAnswer }) });
   }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {

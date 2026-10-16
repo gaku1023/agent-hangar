@@ -33,12 +33,13 @@ export type WorkerMetadata = {
 
 /**
  * wrangler.jsonc の鍵のうち、定義へ写すものと、写さずに捨てるもの。
- * name、main、$schema は手元の開発用の値なので捨てる。vars は空であることだけを確かめる。
+ * name、main、$schema は手元の開発用の値なので捨てる。
+ * assets（スマホの画面の静的ファイル）は束縛ではないので、定義へは写さず捨てる。段 5 の REST で上げるときは assets を別に運ぶ要がある。vars は空であることだけを確かめる。
  * ここに無い鍵があれば止める。束縛の種類が増えたのに定義から黙って落ちると、段 5 で上げた Worker がその束縛を持たない。
  * d1_databases と r2_buckets の各項目から写すのは binding だけで、ほかの欄（R2 の jurisdiction など）は写さず、止めもしない。
  * 段 5 で REST から上げる処理を書くときに、そうした項目ごとの欄を運ぶ要があるかを決める。
  */
-const KNOWN_KEYS = ['$schema', 'name', 'main', 'compatibility_date', 'compatibility_flags', 'd1_databases', 'r2_buckets', 'vars'];
+const KNOWN_KEYS = ['$schema', 'name', 'main', 'compatibility_date', 'compatibility_flags', 'd1_databases', 'r2_buckets', 'vars', 'assets'];
 
 type WranglerConfig = {
   compatibility_date?: unknown;

@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import {
+  LAUNCH_TTL_MS,
   MAX_PUSH_BATCH,
   PULL_LIMIT,
   SHARED_TABLES,
   type ChangeIn,
   type ChangeOut,
   type CloudPeer,
+  type MobileLaunchOut,
   type PullChangesResponse,
   type PushChangesResponse,
   type SnapshotResponse,
@@ -171,10 +173,19 @@ changesApp.post('/', async (c) => {
 });
 
 type PeerRow = { id: string; last_seen_at: number | null };
+type LaunchRow = { id: string; created_at: number; sealed: string };
+
+/**
+ * 1 回の pull に載せる起動の依頼の上限。
+ * スマホ 1 台は 10 分に 10 件まで（mobile.ts の LAUNCH_RATE）で、依頼は 75 秒で時間切れになるので、ふつうはこれに届かない。
+ * 届いたときは古い順に返し、残りは次の pull で降りる。
+ */
+const PULL_LAUNCH_LIMIT = 50;
 
 /**
  * 自端末以外の行を連番の昇順で返す。
  * 解除していない PC の最終確認（peers）と、Worker の時刻（now）を添える。端末は「now − lastSeenAt」を PC の年齢として、他の PC の生存を見る。
+ * この PC 宛ての起動の依頼（launches）も添える。要求を増やさずに、PC の 30 秒ごとの pull で依頼を受け取るためである。
  * 変更ログを持たないので、どれだけ古い since でも断らない（版 5 までの 410 は無くなった）。
  */
 changesApp.get('/', async (c) => {
@@ -190,7 +201,13 @@ changesApp.get('/', async (c) => {
     ...(touch ? [touch] : []),
     db.prepare('select seq, table_name, row_id, op, payload, updated_at, device_id from rows where seq > ? and device_id != ? order by seq limit ?').bind(since, device.id, limit + 1),
     maxSeqStmt(db),
-    db.prepare('select id, last_seen_at from devices where revoked_at is null order by id'),
+    // スマホ（kind = 'mobile'）は会話を動かさないので、PC の生存に混ぜない。
+    db.prepare("select id, last_seen_at from devices where revoked_at is null and kind = 'pc' order by id"),
+    // この PC 宛ての、まだ受け取っていない依頼（互換の版 7）。索引 launch_requests_target で引き、表を走査しない。
+    // 時間切れの行は書き換えずに外すだけである（expired に書き換えるのはスマホの GET だけ）。
+    db
+      .prepare("select id, created_at, sealed from launch_requests where target_device = ? and status = 'pending' and created_at > ? order by created_at limit ?")
+      .bind(device.id, now - LAUNCH_TTL_MS, PULL_LAUNCH_LIMIT),
   ];
   const results = await db.batch(stmts);
   const off = touch ? 1 : 0;
@@ -200,7 +217,8 @@ changesApp.get('/', async (c) => {
   // 最後まで返せたときは表全体の末尾まで進める。自端末の行で止まったままにしないためである。
   const nextSeq = more ? page[page.length - 1]!.seq : firstNum(results[off + 1] as D1Result<{ s: number }> | undefined);
   const peers: CloudPeer[] = ((results[off + 2]?.results ?? []) as PeerRow[]).map((p) => ({ id: p.id, lastSeenAt: p.last_seen_at ?? null }));
-  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now };
+  const launches: MobileLaunchOut[] = ((results[off + 3]?.results ?? []) as LaunchRow[]).map((l) => ({ id: l.id, createdAt: l.created_at, sealed: l.sealed }));
+  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now, launches };
   return c.json(res);
 });
 

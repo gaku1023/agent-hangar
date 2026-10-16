@@ -152,7 +152,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja' });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -412,6 +412,7 @@ describe('設定の往復', () => {
         ['autoDone', false],
         ['autoDoneIdleDays', 14],
         ['autoPark', false],
+        ['remoteControl', false],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -496,6 +497,15 @@ describe('設定の往復', () => {
     }
     expect((await (await patch({ autoDone: 'no' })).json()).error).toBe('「停止したセッションを自動で Done にする」の値の形式が正しくありません');
     expect((await (await patch({ autoPark: 'no' })).json()).error).toBe('「Done と Archived にしたセッションを停止する」の値の形式が正しくありません');
+  });
+  it('PATCH で remoteControl を false にできる（既定は true）。真偽以外は 400', async () => {
+    expect((await json(await get('/api/settings'))).body.remoteControl).toBe(true);
+    expect((await json(await get('/api/bootstrap'))).body.settings.remoteControl).toBe(true);
+    expect((await (await patch({ remoteControl: false })).json()).remoteControl).toBe(false);
+    expect((await json(await get('/api/settings'))).body.remoteControl).toBe(false);
+    for (const v of ['false', 0, null, []]) expect([v, (await patch({ remoteControl: v })).status]).toEqual([v, 400]);
+    expect((await json(await get('/api/settings'))).body.remoteControl).toBe(false);
+    expect((await (await patch({ remoteControl: true })).json()).remoteControl).toBe(true);
   });
   it('長く動いていない会話を Done にする日数は、既定が 7 日で、3・7・14・30・0（しない）だけを受ける', async () => {
     expect((await json(await get('/api/settings'))).body.autoDoneIdleDays).toBe(7);

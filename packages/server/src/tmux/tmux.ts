@@ -62,6 +62,8 @@ export class Tmux {
   private readonly socketPath: string | undefined;
   private readonly platform: NodeJS.Platform;
   private readonly exec: TmuxExec;
+  /** この裏が capture-pane の -J を断ったか（captureUnwrapped）。 */
+  private joinRefused = false;
 
   /**
    * env は tmux を起こすときの環境に足す変数である。
@@ -209,6 +211,34 @@ export class Tmux {
   /** ペインにいま見えている文字だけを返す。色や属性は落とす。 */
   capturePane(name: string): string {
     return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout.replace(/\r\n/g, '\n');
+  }
+
+  /**
+   * 端末の幅で折り返した行をつないだ画面（-J）。width は null を返す。
+   * Windows（psmux）では -J を付けず、まだ折り返したままの画面とペインの幅を返す（つなぐのは呼び手）。
+   * psmux 3.3.8 は -J を受けて 0 で終わるが、行の末尾の空白を落とすだけで折り返しをつながない。
+   * 0 で終わるので、断られたかどうかでは見分けられない。
+   * ほかの裏で -J を断られたら、付けずに読み直して同じ形で返す。
+   * 断られたことはこの Tmux に覚え、次からは -J を試さない。画面そのものが読めなかった（名前が無いなど）ときは覚えない。
+   * 幅を読めなければ width は null である。
+   */
+  captureUnwrapped(name: string): { text: string; width: number | null } {
+    const norm = (t: string): string => t.replace(/\r\n/g, '\n');
+    if (this.platform !== 'win32' && !this.joinRefused) {
+      const r = this.run('capture-pane', '-p', '-J', '-t', `=${name}:`);
+      if (r.code === 0) return { text: norm(r.stdout), width: null };
+    }
+    const plain = this.run('capture-pane', '-p', '-t', `=${name}:`);
+    if (plain.code !== 0) return { text: '', width: null };
+    this.joinRefused = true;
+    return { text: norm(plain.stdout), width: this.paneWidth(name) };
+  }
+
+  /** ペインの幅（桁）。読めなければ null。 */
+  paneWidth(name: string): number | null {
+    const r = this.run('display-message', '-p', '-t', `=${name}:`, '#{pane_width}');
+    const n = r.code === 0 ? Number(r.stdout.trim()) : NaN;
+    return Number.isInteger(n) && n > 0 ? n : null;
   }
 
   /**

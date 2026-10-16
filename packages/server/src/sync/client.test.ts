@@ -583,6 +583,50 @@ describe('PC の一覧と解除', () => {
     expect(f.calls[0]!.init.method).toBe('POST');
   });
 
+  it('putMobileFeed は PUT /m/feed に { sealed } を JSON で送る', async () => {
+    const f = fakeFetch(() => json({ ok: true, updatedAt: 1 }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    await c.putMobileFeed('sealed-text');
+    expect(f.calls[0]!.url).toBe('https://w.example/m/feed');
+    expect(f.calls[0]!.init.method).toBe('PUT');
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ sealed: 'sealed-text' });
+    expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
+  });
+
+  it('createPairing は POST /m/pairings を送り、券と期限を返す。429 は CloudError(429) で投げる', async () => {
+    const f = fakeFetch(() => json({ code: 'c0de', expiresAt: 5 }, 201));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.createPairing()).toEqual({ code: 'c0de', expiresAt: 5 });
+    expect(f.calls[0]!.url).toBe('https://w.example/m/pairings');
+    expect(f.calls[0]!.init.method).toBe('POST');
+    const limited = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'rate limited' }, 429)).fetch });
+    await expect(limited.createPairing()).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('claimLaunch は POST /m/launches/:id/claim を送り、200 は true、409 は false、ほかの失敗は投げる', async () => {
+    const f = fakeFetch(() => json({ ok: true }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.claimLaunch('l 1/x')).toBe(true);
+    expect(f.calls[0]!.url).toBe('https://w.example/m/launches/l%201%2Fx/claim');
+    expect(f.calls[0]!.init.method).toBe('POST');
+    const taken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'conflict' }, 409)).fetch });
+    expect(await taken.claimLaunch('l1')).toBe(false);
+    const broken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'boom' }, 500)).fetch });
+    await expect(broken.claimLaunch('l1')).rejects.toMatchObject({ status: 500 });
+  });
+
+  it('answerLaunch は POST /m/launches/:id/answer に ok と封じた答えを送る。409 は投げる', async () => {
+    const f = fakeFetch(() => json({ ok: true }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    await c.answerLaunch('l1', false, 'sealed-answer');
+    expect(f.calls[0]!.url).toBe('https://w.example/m/launches/l1/answer');
+    expect(f.calls[0]!.init.method).toBe('POST');
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ ok: false, sealedAnswer: 'sealed-answer' });
+    expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
+    const taken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'conflict' }, 409)).fetch });
+    await expect(taken.answerLaunch('l1', true, 's')).rejects.toMatchObject({ status: 409 });
+  });
+
   it('形の違う ID は送る前に断る', async () => {
     const f = fakeFetch(() => json({}));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });

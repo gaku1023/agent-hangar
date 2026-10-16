@@ -1,5 +1,7 @@
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { aadFeed, decodePairing, deriveMobileKey, importMobileKey, open, seal } from '@agent-hangar/shared';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CloudError } from '../../sync/client.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 
@@ -122,5 +124,76 @@ describe('PC の一覧（Worker の devices）', () => {
       const r = await app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: '{}' });
       expect([p, r.status]).toEqual([p, 404]);
     }
+  });
+});
+
+describe('スマホの接続の QR（POST /api/sync/mobile-pairing）', () => {
+  const SECRET = 'join-secret-for-test-0123456789';
+  const URL_ = 'https://w.example';
+  const pair = (a: ReturnType<typeof createApp>) => a.request('/api/sync/mobile-pairing', { method: 'POST', headers: { ...H, 'content-type': 'application/json' } });
+  type FakeClient = { createPairing?: () => Promise<{ code: string; expiresAt: number }>; lastWorkerCompat: () => number | null; health: () => Promise<{ ok: boolean; version: string }> };
+  const withLink = (client: FakeClient) => createApp({ ...deps, mobileLink: () => ({ client: client as never, joinSecret: SECRET, url: URL_ }) });
+  const ok = async () => ({ ok: true, version: 'x' });
+
+  it('認証の下にあり、GET では取れない', async () => {
+    expect((await app.request('/api/sync/mobile-pairing', { method: 'POST' })).status).toBe(401);
+    expect((await get('/api/sync/mobile-pairing')).status).toBe(404);
+  });
+
+  it('参加していなければ not-joined', async () => {
+    expect(await json(await pair(app))).toEqual({ status: 200, body: { state: 'not-joined' } });
+  });
+
+  it('Worker の版が 6 なら worker-too-old で、券を取りに行かない', async () => {
+    const createPairing = vi.fn(async () => ({ code: 'c', expiresAt: 1 }));
+    const a = withLink({ createPairing, lastWorkerCompat: () => 6, health: ok });
+    expect((await json(await pair(a))).body).toEqual({ state: 'worker-too-old', compat: 6 });
+    expect(createPairing).not.toHaveBeenCalled();
+  });
+
+  it('まだ版を知らなければ /health で確かめてから決める', async () => {
+    let compat: number | null = null;
+    const health = vi.fn(async () => { compat = 6; return { ok: true, version: 'x' }; });
+    const a = withLink({ createPairing: async () => ({ code: 'c', expiresAt: 1 }), lastWorkerCompat: () => compat, health });
+    expect((await json(await pair(a))).body).toEqual({ state: 'worker-too-old', compat: 6 });
+    expect(health).toHaveBeenCalledTimes(1);
+  });
+
+  it('Worker が /m/pairings を知らない（404）ときも worker-too-old', async () => {
+    const a = withLink({ createPairing: async () => { throw new CloudError(404, 'not found'); }, lastWorkerCompat: () => 7, health: ok });
+    expect((await json(await pair(a))).body).toEqual({ state: 'worker-too-old', compat: 7 });
+  });
+
+  it('券の取りすぎ（429）は rate-limited', async () => {
+    const a = withLink({ createPairing: async () => { throw new CloudError(429, '{"error":"rate limited"}'); }, lastWorkerCompat: () => 7, health: ok });
+    expect((await json(await pair(a))).body).toEqual({ state: 'rate-limited' });
+  });
+
+  it('ready の pairText を decodePairing すると url と券と鍵が入り、参加の秘密の文字列はどこにも含まれない', async () => {
+    const createPairing = vi.fn(async () => ({ code: 'c0de-ticket', expiresAt: 1_700_000_300_000 }));
+    const a = withLink({ createPairing, lastWorkerCompat: () => 7, health: ok });
+    const r = await pair(a);
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    const { status, body } = await json(r);
+    expect(status).toBe(200);
+    expect(body.state).toBe('ready');
+    expect(body.expiresAt).toBe(1_700_000_300_000);
+    expect(body.pairUrl).toBe(`${URL_}/app/#pair=${body.pairText}`);
+    const blob = decodePairing(body.pairText);
+    expect(blob).toMatchObject({ url: URL_, code: 'c0de-ticket', pcName: 'mac', expiresAt: 1_700_000_300_000 });
+    expect(Buffer.from(blob.key, 'base64url')).toHaveLength(32);
+    expect(JSON.stringify(body)).not.toContain(SECRET);
+    expect(JSON.stringify(blob)).not.toContain(SECRET);
+    // 押すたびに新しい券を取る。
+    await pair(a);
+    expect(createPairing).toHaveBeenCalledTimes(2);
+  });
+
+  it('鍵で封じたものを deriveMobileKey(joinSecret) で開ける', async () => {
+    const a = withLink({ createPairing: async () => ({ code: 'c', expiresAt: 1 }), lastWorkerCompat: () => 7, health: ok });
+    const blob = decodePairing((await json(await pair(a))).body.pairText);
+    const phoneKey = await importMobileKey(new Uint8Array(Buffer.from(blob.key, 'base64url')));
+    const sealed = await seal(phoneKey, aadFeed('d'), { hello: 'phone' });
+    expect(await open(await deriveMobileKey(SECRET), aadFeed('d'), sealed)).toEqual({ hello: 'phone' });
   });
 });

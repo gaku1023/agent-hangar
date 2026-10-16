@@ -531,6 +531,36 @@ create table takeover_answers (
 `;
 
 /**
+ * スマホからの起動の依頼のうち、この PC が扱い終えたもの（版 29）。同期しない（この PC だけの記録）。
+ * 起こす前に Worker で claim し、起こしたら答えを送る前にここへ書く。答えを送れなくても、同じ依頼を二度起こさない。
+ * result は started か、断った理由（bad-payload、expired、project-missing、account-missing、launch-failed）。
+ */
+const V29_MOBILE_LAUNCHES_SQL = `
+create table mobile_launches (id text primary key, handled_at integer not null, result text not null);
+`;
+
+/**
+ * --remote-control で起こした run の画面から拾った Remote Control の URL（mobile/remoteUrl.ts）。
+ * 会話ごとに最新の 1 つを残す。at は拾った時刻で、受信箱は今の run の起動より後に拾ったものだけを使う。
+ * その PC の claude につなぐ URL なので、同期しない。
+ */
+const V30_RUN_REMOTE_URLS_SQL = `
+create table run_remote_urls (session_id text primary key, url text not null, at integer not null);
+`;
+
+/**
+ * スマホからの起動の依頼に返した答えの控え（版 31）。
+ * sealed_answer はスマホ用の鍵で封じた答え、ok はその ok、answered は Worker が答えを受け取った（または 409 で、もう受け取れない）か。
+ * 答えを送れなかった行は、扱ってから 10 分のあいだ、同じ封のまま送り直す（mobile/launchInbox.ts）。
+ * 版 29 の前からある行は封を持たないので、送り直さない。
+ */
+const V31_MOBILE_LAUNCH_ANSWERS_SQL = `
+alter table mobile_launches add column sealed_answer text;
+alter table mobile_launches add column ok integer;
+alter table mobile_launches add column answered integer not null default 0;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -549,4 +579,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 26, sql: V26_SESSION_TRASH_SQL },
   { version: 27, sql: V27_SESSION_RESTORED_SQL },
   { version: 28, sql: V28_TAKEOVER_SQL },
+  { version: 29, sql: V29_MOBILE_LAUNCHES_SQL },
+  { version: 30, sql: V30_RUN_REMOTE_URLS_SQL },
+  { version: 31, sql: V31_MOBILE_LAUNCH_ANSWERS_SQL },
 ];

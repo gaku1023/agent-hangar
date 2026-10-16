@@ -1,4 +1,6 @@
 /** 端末とクラウド Worker の間の契約。サーバ、CLI、Worker が共有する。 */
+import type { MobileLaunchOut } from './mobile.ts';
+
 export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'session_states' | 'session_notes' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions' | 'config_snapshots' | 'takeovers' | 'takeover_answers';
 
 /**
@@ -31,7 +33,18 @@ export type CloudPeer = { id: string; lastSeenAt: number | null };
  * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
  * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
  */
-export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean; peers: CloudPeer[]; now: number };
+export type PullChangesResponse = {
+  changes: ChangeOut[];
+  nextSeq: number;
+  more: boolean;
+  peers: CloudPeer[];
+  now: number;
+  /**
+   * この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。
+   * 版 6 の Worker は載せないので省ける。版 6 の PC は知らない欄として読み飛ばす。
+   */
+  launches?: MobileLaunchOut[];
+};
 export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
 export type FileKind = 'transcript' | 'config';
@@ -60,6 +73,12 @@ export type CloudDeviceOut = {
   lastCity: string | null;
   lastRegion: string | null;
   lastCountry: string | null;
+  /**
+   * PC かスマホか（互換の版 7）。
+   * スマホは `POST /m/join` で参加した行で、platform は `mobile` である。
+   * 版 6 までの Worker は返さないので、無ければ PC として読む。
+   */
+  kind?: 'pc' | 'mobile';
 };
 export type CloudDevicesResponse = { devices: CloudDeviceOut[] };
 export type CloudDeviceRevokeResponse = { device: CloudDeviceOut };

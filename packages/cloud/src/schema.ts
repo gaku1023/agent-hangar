@@ -22,6 +22,17 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `create table if not exists rows (${ROWS_COLUMNS})`,
   'create table if not exists files (seq integer primary key autoincrement, key text not null unique, path text not null, kind text not null, device_id text not null, sha256 text not null, size integer not null, stored_size integer not null, mtime integer not null, encrypted integer not null, uploaded_at integer not null)',
   'create index if not exists files_kind on files(kind, seq)',
+  // スマホ向けの表（互換の版 7）。rows には足さないので、版 6 の PC は何も見ず、締め出されもしない（mobile.ts）。
+  'create table if not exists mobile_feeds (device_id text primary key, sealed text not null, updated_at integer not null)',
+  'create table if not exists mobile_pairings (code_hash text primary key, created_by text not null, created_at integer not null, used_at integer)',
+  'create index if not exists mobile_pairings_by on mobile_pairings(created_by, created_at)',
+  'create index if not exists mobile_pairings_at on mobile_pairings(created_at)',
+  // スマホからの起動の依頼。中身（sealed、sealed_answer）は封をしたまま置き、Worker が平文で持つのは宛先と送り手と時刻と状態だけである。
+  'create table if not exists launch_requests (id text primary key, target_device text not null, from_device text not null, sealed text not null, status text not null, created_at integer not null, claimed_at integer, answered_at integer, sealed_answer text)',
+  'create index if not exists launch_requests_target on launch_requests(target_device, status, created_at)',
+  'create index if not exists launch_requests_from on launch_requests(from_device, created_at)',
+  // 7 日より古い行を消す文（mobile.ts の POST /m/launches）が表を走査しないための索引。
+  'create index if not exists launch_requests_at on launch_requests(created_at)',
 ];
 
 /**
@@ -35,6 +46,8 @@ export const DEVICE_ADDED_COLUMNS: readonly [name: string, type: string][] = [
   ['last_city', 'text'],
   ['last_region', 'text'],
   ['last_country', 'text'],
+  // PC かスマホか（互換の版 7）。前からある行は PC である。
+  ['kind', "text not null default 'pc'"],
 ];
 
 /**

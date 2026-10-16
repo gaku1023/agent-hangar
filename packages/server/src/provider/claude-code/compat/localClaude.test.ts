@@ -96,6 +96,30 @@ describe('手元の claude の読み取り', () => {
   });
 
   // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
+  posixIt('--help の Options に --remote-control があるときだけ、Remote Control を付けられると言う', async () => {
+    const withRc = writeFakeTool(path.join(dir, 'rc'), 'claude', {
+      sh: 'case "$1" in --help) printf "Options:\\n  --remote-control [name]  Start\\n  --remote-control-session-name-prefix <p>  Prefix\\nCommands:\\n  agents  Manage\\n" ;; esac',
+      cmd: '',
+    });
+    const without = writeFakeTool(path.join(dir, 'old'), 'claude', {
+      sh: 'case "$1" in --help) printf "Options:\\n  --remote-control-session-name-prefix <p>  Prefix\\n  --model <m>  Model\\nCommands:\\n  agents  Manage\\n" ;; esac',
+      cmd: '',
+    });
+    const t = setup({ bin: withRc });
+    // 読む前は分からないので付けない。
+    expect(t.local.remoteControlSupported()).toBe(false);
+    await t.local.refreshSubcommands();
+    expect(t.local.remoteControlSupported()).toBe(true);
+    t.setBin(without);
+    await t.local.refreshSubcommands();
+    expect(t.local.remoteControlSupported()).toBe(false);
+    // 読めない（claude が無い）ときも付けない。
+    t.setBin(path.join(dir, 'no-claude'));
+    await t.local.refreshSubcommands();
+    expect(t.local.remoteControlSupported()).toBe(false);
+  });
+
+  // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
   posixIt('閉じた後に届いた読み取りは、置き場にも包みにも書かない', async () => {
     const bin = writeFakeTool(path.join(dir, 'bin'), 'claude', {
       sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; --help) printf "Commands:\\n  newcmd  New\\n" ;; esac',

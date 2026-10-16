@@ -3,7 +3,7 @@ import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { COMPAT_VERSION, MAX_PUSH_BATCH } from '@agent-hangar/shared';
 import { CloudError, CompatError } from '../src/sync/client.ts';
-import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT, TOUCH_EVERY_MS } from './fake-cloud.ts';
+import { FakeCloudClient, MAX_BODY_BYTES, MAX_ANSWER_BODY_BYTES, MAX_FEED_BODY_BYTES, MAX_LAUNCH_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT, PULL_LAUNCH_LIMIT, TOUCH_EVERY_MS } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
 /** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
@@ -16,7 +16,7 @@ const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 
  * 偽物は実物を写したものなので、実物だけが変わったら落ちて写し直しを促す。
  * `packages/server` は `packages/cloud` に依存しないので、import ではなく原本の文字列から読む。
  */
-function workerConstant(file: 'changes.ts' | 'files.ts' | 'compat.ts' | 'seen.ts', name: string): number {
+function workerConstant(file: 'changes.ts' | 'files.ts' | 'compat.ts' | 'seen.ts' | 'mobile.ts', name: string): number {
   const src = fs.readFileSync(new URL(`../../cloud/src/${file}`, import.meta.url), 'utf8');
   const m = new RegExp(`export const ${name} = ([0-9_*\\s]+);`).exec(src);
   if (!m) throw new Error(`${name} を packages/cloud/src/${file} から読めない`);
@@ -378,6 +378,11 @@ describe('FakeCloudClient', () => {
     expect(MAX_ROW_ID_CHARS).toBe(workerConstant('changes.ts', 'MAX_ROW_ID_CHARS'));
     expect(MAX_BODY_BYTES).toBe(workerConstant('files.ts', 'MAX_BODY_BYTES'));
     expect(TOUCH_EVERY_MS).toBe(workerConstant('seen.ts', 'TOUCH_EVERY_MS'));
+    expect(MAX_FEED_BODY_BYTES).toBe(workerConstant('mobile.ts', 'MAX_FEED_BODY_BYTES'));
+    expect(MAX_LAUNCH_BODY_BYTES).toBe(workerConstant('mobile.ts', 'MAX_LAUNCH_BODY_BYTES'));
+    expect(MAX_ANSWER_BODY_BYTES).toBe(workerConstant('mobile.ts', 'MAX_ANSWER_BODY_BYTES'));
+    // PULL_LAUNCH_LIMIT は export されていないので、宣言の形で読む。
+    expect(PULL_LAUNCH_LIMIT).toBe(Number(/const PULL_LAUNCH_LIMIT = ([0-9_]+);/.exec(fs.readFileSync(new URL('../../cloud/src/changes.ts', import.meta.url), 'utf8'))![1]!.replace(/_/g, '')));
   });
 });
 

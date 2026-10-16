@@ -9,5 +9,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [{ "binding": "DB", "database_name": "hangar-local", "database_id": "00000000-0000-0000-0000-000000000000" }],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "hangar-local-files" }],
+  // スマホの画面（packages/mobile の build の出力）。dist/app が /app/ に出る。Worker のコードより先に返る。
+  // 先に npm run build -w @agent-hangar/mobile が要る。
+  "assets": { "directory": "../mobile/dist" },
   "vars": {}
 }

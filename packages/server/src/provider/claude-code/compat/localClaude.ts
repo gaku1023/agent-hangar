@@ -2,7 +2,7 @@ import type { CompatDto } from '@agent-hangar/shared';
 import type { Settings } from '../../../config/paths.ts';
 import { ToolVersions } from '../../../config/readiness.ts';
 import { which } from '../../../config/tools.ts';
-import { BUILTIN_SUBCOMMANDS, readClaudeHelp, subcommandsFromHelp } from './cli.ts';
+import { BUILTIN_SUBCOMMANDS, parseHelp, readClaudeHelp, subcommandsFromHelp } from './cli.ts';
 import type { CompatLog } from './log.ts';
 import type { Drift } from './types.ts';
 import { VERIFIED_CLAUDE_VERSION } from './version.ts';
@@ -50,6 +50,8 @@ export class LocalClaude {
   private lastSubcommandDrifts: { bin: string | null; drifts: readonly Drift[] } | null = null;
   /** 包みがそのまま渡すサブコマンド。読めるまでは組み込みの一覧である。 */
   subcommands: readonly string[] = BUILTIN_SUBCOMMANDS;
+  /** --help の Options の引数。読めていない、または読めなかったときは null。 */
+  private options: ReadonlySet<string> | null = null;
 
   constructor(private readonly deps: LocalClaudeDeps) {}
 
@@ -91,6 +93,8 @@ export class LocalClaude {
       const text = bin ? await readClaudeHelp(bin) : null;
       if (this.deps.closed() || this.deps.bin() !== bin) return;
       const r = subcommandsFromHelp(text);
+      const help = text ? parseHelp(text) : null;
+      this.options = help ? new Set(help.options) : null;
       for (const d of r.drifts) this.deps.log.note(d);
       this.lastSubcommandDrifts = { bin, drifts: r.drifts };
       this.subcommands = r.subcommands;
@@ -99,6 +103,14 @@ export class LocalClaude {
       (this.deps.errorLog ?? console.error)('[shell] claude --help からサブコマンドを作り直せませんでした', e instanceof Error ? e.message : e);
     }
   };
+
+  /**
+   * 手元の claude が `--remote-control` を知っているか。最後に読んだ --help の Options に載っているときだけ true。
+   * まだ読んでいない、読めなかったときは false（付けずに起こす安全な側）。
+   */
+  remoteControlSupported(): boolean {
+    return this.options?.has('--remote-control') ?? false;
+  }
 
   /** Claude Code との互換の一覧。準備の確かめでずれがあるとき、画面が続けて読む。 */
   compat = async (): Promise<CompatDto> => {

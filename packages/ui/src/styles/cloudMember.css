@@ -73,3 +73,35 @@
 .cm-leave-title { font-weight: 600; }
 .cm-leave-desc { font-size: var(--fs-sm); color: var(--ink-3); }
 .cm-leave .kv { margin-top: calc(var(--u) * 2); }
+
+/* スマホ（試作 A1）。PC と同じ表に「スマホ」の札つきで並べ、表の下の小見出しから QR の段を開く。 */
+.cm-chip { display: inline-flex; align-items: center; margin-left: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 1.75); height: 18px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; vertical-align: 1px; background: var(--st-active-soft); color: var(--st-active); }
+.cm-phones .sub-h { margin-top: calc(var(--u) * 6); }
+.cm-sp { flex: 1; }
+.cm-pair { margin-top: calc(var(--u) * 2.5); }
+.cm-pair-in { display: flex; gap: calc(var(--u) * 5); padding: calc(var(--u) * 4); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.cm-qr-wrap { position: relative; flex: none; align-self: flex-start; }
+.cm-qr { display: block; padding: calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); transition: opacity var(--dur) var(--ease-out), filter var(--dur) var(--ease-out); }
+.cm-qr .qr-code { display: block; }
+/* QR に収まらなかったときの文。図の代わりに同じ幅で置き、文字列のコピーへ案内する。 */
+.cm-qr .qr-fallback { font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); }
+/* 期限切れと接続の後は薄くして、上に知らせを重ねる。 */
+.cm-qr[data-dead] { opacity: 0.12; filter: grayscale(1); }
+.cm-qr-over { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2); text-align: center; font-size: var(--fs-sm); color: var(--ink-2); }
+.cm-qr-over b { font-size: var(--fs); color: var(--ink); }
+.cm-qr-ok { display: inline-flex; color: var(--st-done); }
+.cm-qr-ok .icon { width: 32px; height: 32px; }
+.cm-pair-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 2.5); }
+.cm-pair-body .cm-strip { margin-top: 0; }
+.cm-pair-body .btns { margin-top: 0; }
+.cm-pair-title { font-weight: 600; font-size: var(--fs-md); }
+.cm-steps { margin: 0; padding-left: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
+.cm-steps li + li { margin-top: var(--u); }
+.cm-timer { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cm-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.cm-bar > i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+
+/* 狭い窓では、QR の下に手順を回す。 */
+@media (max-width: 760px) {
+  .cm-pair-in { flex-direction: column; }
+}

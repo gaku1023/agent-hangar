@@ -162,3 +162,36 @@ describe('互換の版（下限を上げた Worker）', () => {
     expect(t?.n).toBe(0);
   });
 });
+
+describe('互換の版 7（スマホの口を足した版）', () => {
+  it('/health の compat が 7', async () => {
+    const c = await boot();
+    const h = await c.RAW.fetch('https://x/health');
+    expect(h.status).toBe(200);
+    expect(await h.json()).toMatchObject({ compat: 7 });
+    expect(h.headers.get(COMPAT_HEADER)).toBe('7');
+  });
+
+  it('版 6 の PC（x-hangar-compat: 6）の参加と push と pull が通る', async () => {
+    // 版 7 はスマホの口と専用の表を足しただけで、rows には足していない。版 6 の PC を締め出さない。
+    const c = await boot();
+    const v6 = { [COMPAT_HEADER]: '6' };
+    const j = await c.RAW.fetch('https://x/join', joinInit(v6));
+    expect(j.status).toBe(201);
+    const { deviceToken } = (await j.json()) as { deviceToken: string };
+    const auth = { ...v6, authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' };
+    const change = { tableName: 'projects', rowId: 'p1', op: 'upsert', updatedAt: 100, payload: { id: 'p1', name: 'project-a' } };
+    const push = await c.RAW.fetch('https://x/changes', { method: 'POST', headers: auth, body: JSON.stringify({ changes: [change] }) });
+    expect(push.status).toBe(200);
+    expect(await push.json()).toMatchObject({ accepted: 1, skipped: 0 });
+    // 別の版 6 の PC が pull で受け取る。
+    const j2 = await c.RAW.fetch('https://x/join', { ...joinInit(v6), body: JSON.stringify({ secret: SECRET, device: { id: 'dev-b', name: 'dev-b', platform: 'darwin' } }) });
+    expect(j2.status).toBe(201);
+    const tokB = ((await j2.json()) as { deviceToken: string }).deviceToken;
+    const pull = await c.RAW.fetch('https://x/changes?since=0', { headers: { ...v6, authorization: `Bearer ${tokB}` } });
+    expect(pull.status).toBe(200);
+    const body = (await pull.json()) as { changes: { rowId: string }[]; peers: { id: string }[] };
+    expect(body.changes.map((x) => x.rowId)).toEqual(['p1']);
+    expect(body.peers.map((p) => p.id)).toEqual(['dev-a', 'dev-b']);
+  });
+});

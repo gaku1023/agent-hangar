@@ -1,4 +1,4 @@
-import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type Language, type ChangeOut, type PullChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type Language, type ChangeOut, type MobileLaunchOut, type PullChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -47,7 +47,22 @@ export type SyncListener = {
   applied?(c: ChangeOut): void;
   pulled?(): void;
   toast?(level: 'info' | 'error', message: string): void;
+  /**
+   * pull の応答に載った、この PC 宛ての起動の依頼（互換の版 7）。1 巡に 1 回、空でなければ呼ぶ。
+   * Worker は差分のどの頁にも同じ依頼を添えるので、ID で重ねずにまとめて渡す。受け手は投げない（受け取りは非同期に扱う）。
+   */
+  launches?(l: MobileLaunchOut[]): void;
 };
+
+/** pull の応答の launches から、形の合うものだけを ID で重ねずに拾う。 */
+function collectLaunches(into: Map<string, MobileLaunchOut>, raw: unknown): void {
+  if (!Array.isArray(raw)) return;
+  for (const v of raw as unknown[]) {
+    const l = v as Partial<MobileLaunchOut> | null;
+    if (!l || typeof l.id !== 'string' || !l.id || typeof l.sealed !== 'string' || typeof l.createdAt !== 'number') continue;
+    if (!into.has(l.id)) into.set(l.id, { id: l.id, createdAt: l.createdAt, sealed: l.sealed });
+  }
+}
 
 /** 送り終えた changes をどれだけ残すか。再送はしないが、何を送ったかを少しだけ追えるようにする。 */
 const LOCAL_CHANGES_KEEP_MS = 7 * 86_400_000;
@@ -428,6 +443,16 @@ export class SyncEngine {
     }
   }
 
+  /** 拾った起動の依頼を受け手へ渡す。受け手の失敗で pull を倒さない。 */
+  private emitLaunches(l: MobileLaunchOut[]): void {
+    if (l.length === 0) return;
+    try {
+      this.emit('launches', l);
+    } catch (e) {
+      console.error('[sync] could not hand over the launch requests', e instanceof Error ? e.constructor.name : typeof e);
+    }
+  }
+
   /** pull の応答の peers を覚える（sync/peers.ts）。形の違う応答は黙って捨てる。 */
   private notePeers(page: { peers?: unknown; now?: unknown }): void {
     if (!Array.isArray(page.peers) || typeof page.now !== 'number' || !Number.isFinite(page.now)) return;
@@ -756,16 +781,23 @@ export class SyncEngine {
       this.state.set('snapshotDone', true);
     }
     let since = this.state.getNumber('lastSeq', 0);
-    for (;;) {
-      const at = since;
-      const page = await client.pullChanges(at, PULL_LIMIT);
-      this.notePeers(page);
-      count.applied += this.applyPage(page.changes, true);
-      since = page.nextSeq;
-      // 持ち越しを先に覚えてから、区切りを進める。逆だと、その間に落ちたときに持ち越した行を失う。
-      this.saveCarriedQuietly();
-      this.state.set('lastSeq', since);
-      if (!page.more) break;
+    const launches = new Map<string, MobileLaunchOut>();
+    try {
+      for (;;) {
+        const at = since;
+        const page = await client.pullChanges(at, PULL_LIMIT);
+        this.notePeers(page);
+        collectLaunches(launches, page.launches);
+        count.applied += this.applyPage(page.changes, true);
+        since = page.nextSeq;
+        // 持ち越しを先に覚えてから、区切りを進める。逆だと、その間に落ちたときに持ち越した行を失う。
+        this.saveCarriedQuietly();
+        this.state.set('lastSeq', since);
+        if (!page.more) break;
+      }
+    } finally {
+      // 途中の頁で倒れても、受け取った依頼は渡す（時間切れまで 75 秒しかない）。
+      this.emitLaunches([...launches.values()]);
     }
     count.applied += this.settleCarried(true);
   }

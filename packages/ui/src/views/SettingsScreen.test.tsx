@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { translator, type CompatDto, type UiAction, type SettingsSection } from '@agent-hangar/shared';
+import { translator, type CompatDto, type SettingsDto, type UiAction, type SettingsSection } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentAccounts } from '../presenters/accounts.ts';
@@ -61,7 +61,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' },
   summaryEngine: 'openai', summaryClaudeModel: 'haiku', summaryApiKeySet: false,
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
-  injection: { askStatusAtEnd: true, liveHints: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true }) },
+  injection: { askStatusAtEnd: true, liveHints: true, remoteControl: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true }) },
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
@@ -794,6 +794,21 @@ describe('設定の連携の「足すもの」（1e）', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'ターンの意図と操作の短い説明を送る' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { liveHints: false } });
   });
+  it('「Remote Control を付けて起動する」の切り替えが PATCH { remoteControl } を送る。説明に、claude.ai のログインのアカウントだけで効く旨がある', () => {
+    const onAction = vi.fn();
+    render(ui(at('integrations'), onAction));
+    const sw = screen.getByRole('switch', { name: 'Remote Control を付けて起動する' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText(/claude\.ai でログインしたアカウントだけで有効です/)).toBeInTheDocument();
+    fireEvent.click(sw);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { remoteControl: false } });
+  });
+  it('設定から remoteControl を読み、無ければ入りとして出す', () => {
+    const base: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const page = (settings: Partial<SettingsDto>) => presentSettings({ ...initialState(), screen: { name: 'settings', at: 'integrations' } }, { ...initialStore(), settings: { ...base, ...settings } }, 0, 'darwin');
+    expect(page({}).injection.remoteControl).toBe(true);
+    expect(page({ remoteControl: false }).injection.remoteControl).toBe(false);
+  });
   it('既定のモデルは一覧から選んで保存し、「Claude Code の既定」は null を送る。一覧に無い名前も打って使える', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(at('integrations'), onAction));
@@ -811,7 +826,7 @@ describe('設定の連携の「足すもの」（1e）', () => {
   });
   it('全文の畳みは、段落の名前を添え、切った段落は打ち消し線で残し、差し込む値は印にする', () => {
     const full = presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: false });
-    render(ui(at('integrations', { injection: { askStatusAtEnd: true, liveHints: false, defaultModel: null, full } })));
+    render(ui(at('integrations', { injection: { askStatusAtEnd: true, liveHints: false, remoteControl: true, defaultModel: null, full } })));
     const details = screen.getByText('追加する指示の全文を表示').closest('details')!;
     expect(details.open).toBe(false);
     fireEvent.click(screen.getByText('追加する指示の全文を表示'));

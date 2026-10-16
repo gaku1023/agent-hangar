@@ -15,6 +15,8 @@ describe('クラウド同期の参加と解除の操作', () => {
       [{ type: 'cloud.revoke.dismiss' }, { op: 'revokeDismiss' }],
       [{ type: 'cloud.leave', revoke: false }, { op: 'leave', revoke: false }],
       [{ type: 'cloud.leave.dismiss' }, { op: 'leaveDismiss' }],
+      [{ type: 'cloud.phone.pair' }, { op: 'pair' }],
+      [{ type: 'cloud.phone.close' }, { op: 'pairClose' }],
     ];
     const s = initialState();
     for (const [a, command] of cases) {

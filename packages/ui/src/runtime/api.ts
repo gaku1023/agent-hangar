@@ -1,6 +1,6 @@
 import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairingDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -182,6 +182,8 @@ export type ApiClient = {
   joinToken(): Promise<{ token: string | null }>;
   /** Worker の PC の一覧（参加日、解除日、最後に同期した IP と場所）。解除と参加の口は HTTP に無い（殻の命令だけ）。 */
   cloudDevices(): Promise<CloudDevicesDto>;
+  /** スマホを接続する QR。押すたびに新しい券を取る。中身にスマホ用の暗号鍵が入るので、QR と「文字列をコピー」にだけ使う。 */
+  mobilePairing(): Promise<MobilePairingDto>;
   // 設定の同期（作り直した実装）。同期を組んでいない端末のサーバは 404 を返す。読む経路はどれも ~/.claude に触れず、書くのは hangar の置き場の指示書だけである。
   configSyncState(): Promise<ConfigSyncDto>;
   configOutgoing(): Promise<ConfigOutgoingDto>;
@@ -333,6 +335,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     takeoverCancel: (sessionId) => call(`/api/sessions/${sessionId}/takeover`, { method: 'DELETE' }),
     joinToken: () => call('/api/sync/joinToken'),
     cloudDevices: () => call('/api/sync/cloud-devices'),
+    mobilePairing: () => post('/api/sync/mobile-pairing'),
     configSyncState: () => call('/api/config-sync'),
     configOutgoing: () => call('/api/config-sync/outgoing'),
     configInbox: () => call('/api/config-sync/inbox'),

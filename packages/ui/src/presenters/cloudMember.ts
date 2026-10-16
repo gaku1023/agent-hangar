@@ -1,5 +1,5 @@
 import type { CloudDeviceDto, Translate } from '@agent-hangar/shared';
-import type { CloudFailure, JoinStage } from '../store/cloudMember.ts';
+import type { CloudFailure, JoinStage, PhoneStage } from '../store/cloudMember.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -14,7 +14,26 @@ import { translatorOf } from './i18n.ts';
  * PC の 1 行。joined と ip と place は Worker の一覧があるときだけで、同期の表に戻したときは null。
  * ip（最後の IP）と place（場所）を分けて持つ。IPv6 の IP は長く、1 本の文字列にすると後ろの場所が切られて見えなくなるからである。
  */
-export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; ip: string | null; place: string | null; removedOn: string | null };
+export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; ip: string | null; place: string | null; removedOn: string | null; /** スマホ（Worker の kind が mobile）。名前に「スマホ」の札を付け、解除の確認の文を替える。 */ phone: boolean };
+
+/**
+ * スマホを接続する QR の段（store/cloudMember.ts の PhoneStage から基準の ID の控えを除いたもの）。
+ * QR の中身（pairUrl、pairText）は ready の間だけ持つ。期限切れと参加の後は、薄くした QR を中身の無い図で描く。
+ */
+export type CloudPhoneProps =
+  | { kind: 'idle' } | { kind: 'loading'; renew?: true } | { kind: 'expired' } | { kind: 'limited' } | { kind: 'notJoined' }
+  | { kind: 'ready'; pairUrl: string; pairText: string; expiresAt: number }
+  | { kind: 'paired'; id: string; name: string }
+  | { kind: 'old'; compat: number | null }
+  | { kind: 'failed'; message: string };
+
+/** 券の有効期間（Worker の PAIRING_TTL_MS と同じ 5 分）。残り時間の棒の長さの基準にする。 */
+export const PAIR_TTL_MS = 5 * 60_000;
+
+function presentPhone(p: PhoneStage): CloudPhoneProps {
+  if (p.kind === 'ready') return { kind: 'ready', pairUrl: p.pairUrl, pairText: p.pairText, expiresAt: p.expiresAt };
+  return p;
+}
 
 /**
  * PC の一覧。state の ok は Worker の一覧、fallback は Worker が古いか繋がらないので同期の表（共有テーブルの devices）に戻したもの、
@@ -48,6 +67,8 @@ export type CloudMemberProps = {
   leave: { kind: 'idle' | 'busy' | 'left' | 'failed'; revokeError: string | null; message: string | null };
   /** ブラウザで案内するコマンド。hangar の呼び方は、準備の確かめの参加のコマンドからそろえる。 */
   commands: { leave: string; revoke: string; devices: string };
+  /** スマホを接続する QR の段。 */
+  phone: CloudPhoneProps;
 };
 
 const OS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' };
@@ -112,12 +133,14 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
   const m = store.cloudMember;
   const cloud = m.devices;
   const row = (d: CloudDeviceDto): CloudPcRow => ({
-    id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform,
+    // スマホの OS は Worker が持たない（platform は mobile）。名前の横の札で見分けるので、OS の列は空ける。
+    id: d.id, name: d.name, self: d.self, os: d.kind === 'mobile' ? '—' : OS[d.platform] ?? d.platform,
     joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now), ip: d.lastIp, place: placeOf(d),
     removedOn: d.revokedAt === null ? null : t('cloudMember.pcs.removedOn', { date: md(d.revokedAt) }),
+    phone: d.kind === 'mobile',
   });
   // Worker の一覧が無いときは、同期の表の一覧を出しておく（参加日と場所は無い）。
-  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), ip: null, place: null, removedOn: null }));
+  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), ip: null, place: null, removedOn: null, phone: false }));
   const pcs: CloudPcsProps = cloud?.state === 'ok'
     ? { state: 'ok', rows: cloud.devices.filter((d) => d.revokedAt === null).map(row), removed: cloud.devices.filter((d) => d.revokedAt !== null).map(row), note: null }
     : cloud && cloud.state !== 'off'
@@ -142,5 +165,6 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
     revoke,
     leave: { kind: lv.kind, revokeError: lv.kind === 'left' ? lv.revokeError : null, message: lv.kind === 'failed' ? failureMessage(t, lv.failure) : null },
     commands: { leave: `${base} cloud leave`, revoke: `${base} cloud revoke <ID>`, devices: `${base} cloud devices` },
+    phone: presentPhone(m.phone),
   };
 }

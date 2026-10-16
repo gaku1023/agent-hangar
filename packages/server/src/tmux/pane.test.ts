@@ -38,6 +38,12 @@ describe('tmuxPaneOps（tmux 不要）', () => {
     expect(calls).toEqual([['kill-session', '-t', '=hangar-a'], ['capture-pane', '-p', '-t', '=hangar-a:']]);
   });
 
+  it('captureUnwrapped は折り返しをつないで読み（-J）、幅は返さない', () => {
+    const { panes, calls } = recording(() => ({ status: 0, stdout: 'a\r\nb\n' }));
+    expect(panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'a\nb\n', width: null });
+    expect(calls).toEqual([['capture-pane', '-p', '-J', '-t', '=hangar-a:']]);
+  });
+
   it('list は名前の一覧を返し、観測できなかったときは null を返す', () => {
     expect(recording(() => ({ status: 0, stdout: 'hangar-a\nhangar-a-t1\n' })).panes.list()).toEqual(['hangar-a', 'hangar-a-t1']);
     expect(recording(() => ({ status: 1, stderr: 'no server running on /x\n' })).panes.list()).toEqual([]);
@@ -98,6 +104,23 @@ describe('psmuxPaneOps（psmux 不要）', () => {
       ['-L', 'ns', 'send-keys', '-t', '=hangar-a:', '-l', '{q} 日本語'],
       ['-L', 'ns', 'send-keys', '-t', '=hangar-a:', 'C-o'],
     ]);
+  });
+
+  // psmux 3.3.8 は -J を受けて 0 で終わるが、つながない。0 で終わるので断られたとは見分けられず、-J の画面を信じると URL が割れたまま拾えない。
+  it('captureUnwrapped は -J を付けずに読み、折り返したままの画面にペインの幅を添える', () => {
+    const { panes, calls } = recordingPsmux((args) => (args.includes('display-message') ? { status: 0, stdout: '80\r\n' } : { status: 0, stdout: 'b\r\n' }));
+    const plain = ['-L', 'ns', 'capture-pane', '-p', '-t', '=hangar-a:'];
+    const width = ['-L', 'ns', 'display-message', '-p', '-t', '=hangar-a:', '#{pane_width}'];
+    expect(panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(calls).toEqual([plain, width, plain, width]);
+  });
+
+  it('captureUnwrapped は画面そのものが読めなければ空の画面を、幅を読めなければ null を返す', () => {
+    const gone = recordingPsmux(() => ({ status: 1, stderr: "can't find session\n" }));
+    expect(gone.panes.captureUnwrapped!('hangar-a')).toEqual({ text: '', width: null });
+    const noWidth = recordingPsmux((args) => (args.includes('display-message') ? { status: 1, stderr: 'unknown command\n' } : { status: 0, stdout: 'b\n' }));
+    expect(noWidth.panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: null });
   });
 
   it('list は観測できなかったとき null を返す（空の一覧とは別）', () => {

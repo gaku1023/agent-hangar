@@ -1,4 +1,4 @@
-import type { CloudDevicesDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
 import { reduceCloudMember, type CloudMemberEvent, type CloudMemberState } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
 
@@ -14,13 +14,21 @@ export type CloudMemberCommand =
   | { op: 'load' }
   | { op: 'plan'; token: string } | { op: 'join'; overwrite: boolean } | { op: 'joinCancel' }
   | { op: 'revoke'; id: string } | { op: 'revokeDismiss' }
-  | { op: 'leave'; revoke: boolean } | { op: 'leaveDismiss' };
+  | { op: 'leave'; revoke: boolean } | { op: 'leaveDismiss' }
+  | { op: 'pair' } | { op: 'pairClose' };
+
+/** QR を出している間、端末の一覧を再読み込みする間隔。スマホが参加したのを、この間隔で知る。 */
+export const PAIR_POLL_MS = 3_000;
 
 export type CloudMemberRunnerDeps = {
   /** 殻のクラウド同期の命令。ブラウザでは null で、参加と解除は何もしない（画面がコマンドを案内する）。 */
   bridge: CloudBridge | null;
   /** Worker の PC の一覧を取る（GET /api/sync/cloud-devices）。 */
   load: () => Promise<CloudDevicesDto>;
+  /** スマホを接続する QR の券を取る（POST /api/sync/mobile-pairing）。 */
+  pair: () => Promise<MobilePairingDto>;
+  /** 今の時刻（ms）。QR の期限までの予約に使う。 */
+  now: () => number;
   /** アプリを再起動する（殻の restart_app）。 */
   restart: () => void;
   setTimeout: (fn: () => void, ms: number) => unknown;
@@ -93,6 +101,33 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
     });
   }
 
+  /**
+   * スマホを接続する QR。出すたびに世代を進め、前の QR の予約（再読み込みと期限）は世代が違えば何もしない。
+   * 再読み込みは QR を出している間（ready）だけ PAIR_POLL_MS ごとに 1 本ずつ走らせ、閉じる、期限が切れる、スマホが参加する、のどれかで止まる。
+   */
+  let pairGen = 0;
+  const pairLive = (gen: number) => gen === pairGen && d.get().phone.kind === 'ready';
+  function pollPhones(gen: number): void {
+    d.setTimeout(() => {
+      if (!pairLive(gen)) return;
+      d.load().then((devices) => { if (gen === pairGen) apply({ type: 'devices.loaded', devices }); pollPhones(gen); }, () => pollPhones(gen));
+    }, PAIR_POLL_MS);
+  }
+  function pair(): void {
+    if (d.get().phone.kind === 'loading') return;
+    const gen = ++pairGen;
+    apply({ type: 'phone.loading' });
+    d.pair().then((pairing) => {
+      if (gen !== pairGen) return;
+      apply({ type: 'phone.loaded', pairing });
+      if (pairing.state !== 'ready') return;
+      pollPhones(gen);
+      d.setTimeout(() => { if (pairLive(gen)) apply({ type: 'phone.expired' }); }, Math.max(0, pairing.expiresAt - d.now()));
+    }, (e: unknown) => {
+      if (gen === pairGen) apply({ type: 'phone.failed', message: e instanceof Error ? e.message : String(e) });
+    });
+  }
+
   function run(c: CloudMemberCommand): void {
     switch (c.op) {
       case 'load': load(); return;
@@ -103,6 +138,8 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
       case 'revokeDismiss': apply({ type: 'revoke.reset' }); return;
       case 'leave': leave(c.revoke); return;
       case 'leaveDismiss': apply({ type: 'leave.reset' }); return;
+      case 'pair': pair(); return;
+      case 'pairClose': pairGen++; apply({ type: 'phone.reset' }); return;
     }
   }
 
