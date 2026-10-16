@@ -1,19 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
+import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
-  it('版は整数で（いまは 6。変更ログをやめ、生存を Worker の観測で見て、引き継ぎの表を知る版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
-    expect(COMPAT_VERSION).toBe(6);
+  it('版は整数で（いまは 7。スマホ向けの口を知る版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
+    expect(COMPAT_VERSION).toBe(7);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(DEVICE_ADMIN_MIN_WORKER_COMPAT);
     expect(Number.isSafeInteger(COMPAT_VERSION)).toBe(true);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
-    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '6' });
+    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '7' });
+  });
+
+  it('版 7 はスマホ向けの口を知る Worker の版で、版 6 の端末を締め出さない', () => {
+    expect(COMPAT_VERSION).toBe(7);
+    expect(MOBILE_MIN_WORKER_COMPAT).toBe(7);
+    expect(shared.MOBILE_MIN_WORKER_COMPAT).toBe(7);
   });
 
   it('版 6 は引き継ぎの表を知る Worker の版', () => {
-    expect(COMPAT_VERSION).toBe(6);
+    expect(COMPAT_VERSION).toBeGreaterThanOrEqual(6);
     expect(TAKEOVER_MIN_WORKER_COMPAT).toBe(6);
     expect(shared.TAKEOVER_MIN_WORKER_COMPAT).toBe(6);
   });

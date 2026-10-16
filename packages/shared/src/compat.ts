@@ -30,10 +30,14 @@
  * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ操作になるための表である。
  * 版 5 までの Worker は、この 2 表の行を含む push を 400 で丸ごと断るが、両方の下限が 6 なので、版 6 の端末がそうした Worker と話すことはない。
  *
+ * 版 7（スマホ版 PWA、2026-10-17）：Worker が、スマホ向けの口（/m/）と専用の表（mobile_feeds、launch_requests、mobile_pairings）を持つ。
+ * 共有表（rows）には足さないので、版 6 の端末が同期から締め出されることはない（MIN_DEVICE_COMPAT は 6 のまま）。
+ * 端末は、Worker が名乗る版が MOBILE_MIN_WORKER_COMPAT に届くまで、スマホ向けの書き込みも依頼の処理もしない。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 6;
+export const COMPAT_VERSION = 7;
 
 /**
  * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。
@@ -57,6 +61,13 @@ export const CONFIG_BUNDLE_MIN_WORKER_COMPAT = 3;
  * 版 6 で MIN_WORKER_COMPAT も 6 に上げたので、話せる Worker ではいつも届いている。それでも、確かめる口と定数は残す。
  */
 export const TAKEOVER_MIN_WORKER_COMPAT = 6;
+
+/**
+ * スマホ向けの口（/m/）と専用の表を持つ Worker の版。
+ * 版 6 までの Worker はこの口を 404 で返す。端末は、Worker が名乗る版がこの値に届くまで、スマホ向けの書き込みも依頼の処理もせず、
+ * 設定の画面で「Worker を更新すると使えます」と案内する。端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
+ */
+export const MOBILE_MIN_WORKER_COMPAT = 7;
 
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';
