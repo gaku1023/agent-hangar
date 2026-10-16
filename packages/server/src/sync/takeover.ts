@@ -77,7 +77,7 @@ function landed(db: Db, sessionId: string, target: string, a: TakeoverAnswer): b
 
 /**
  * 「この PC で再開」を通してよいか。生きたロックのある会話は、頼まずには引き継げない。
- * 通すのは、ロックが無い、ロックが stale（相手の heartbeat が途切れている）、
+ * 通すのは、ロックが無い、ロックが stale（Worker が相手の PC を 3 分より前から見ていない、sync/peers.ts）、
  * またはこの PC が書いた取り下げていない頼みがロックの run を指し、force であるか、応答があって本文の版が台帳に降りきっているときである。
  */
 export function resumeHereAllowed(db: Db, self: string, sessionId: string, now: number): { ok: true } | { ok: false; deviceName: string } {
