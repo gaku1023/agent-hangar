@@ -1981,6 +1981,105 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
   });
 
+  describe('Remote Control の門に渡るアカウントと環境', () => {
+    type Ask = { account: string | null; configDir: string | undefined };
+    const gate = (asked: Ask[], allow = true) => ({ remoteControl: ({ account, env }: { account: { id: string } | null; env: Record<string, string | undefined> }) => { asked.push({ account: account?.id ?? null, configDir: env.CLAUDE_CONFIG_DIR }); return allow; } });
+
+    it('2 つ目のアカウントで起こすと、そのアカウントと置き場が門に渡り、--remote-control が付く', async () => {
+      const a = accounts.add({ name: '大学' });
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.start({ projectId: 'p1', account: a.id });
+      expect(asked).toEqual([{ account: a.id, configDir: a.dir }]);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('再開は前に使ったアカウントで判定する', async () => {
+      const a = accounts.add({ name: '大学' });
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.start({ projectId: 'p1', account: a.id });
+      await launchedArgs(r.run.id);
+      addTranscript(r.sessionId);
+      rm.kill(r.run.id);
+      await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+      rm.tick();
+      asked.length = 0;
+      const again = rm.resume(r.sessionId);
+      expect(asked).toEqual([{ account: a.id, configDir: a.dir }]);
+      await launchedArgs(again.run.id);
+      rm.kill(again.run.id);
+    });
+
+    it('利用者が自分で付けた登録済みの置き場は、そのアカウントとして判定する', async () => {
+      const a = accounts.add({ name: '大学' });
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.startFromTerminal(fromTerminal(cwd, [], { CLAUDE_CONFIG_DIR: a.dir }));
+      expect(asked).toEqual([{ account: a.id, configDir: a.dir }]);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('利用者が自分で付けた未登録の置き場は、認証を知れないので門を通さず、付けない', async () => {
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.startFromTerminal(fromTerminal(cwd, [], { CLAUDE_CONFIG_DIR: path.join(userHome, 'unregistered') }));
+      expect(asked).toEqual([]);
+      expect(await launchedArgs(r.run.id)).not.toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('利用者がターミナルで付けた --remote-control と --rc があれば、門を通さず足さない', async () => {
+      for (const flag of ['--remote-control', '--rc', '--remote-control=mine', '--rc=mine']) {
+        const asked: Ask[] = [];
+        const rm = make({ accounts, ...gate(asked) });
+        const r = rm.startFromTerminal(fromTerminal(cwd, [flag]));
+        const args = await launchedArgs(r.run.id);
+        expect([flag, asked.length]).toEqual([flag, 0]);
+        // 利用者が付けた 1 つだけで、hangar は足していない。
+        expect([flag, args.filter((x) => x.startsWith('--remote-control') || x.startsWith('--rc')).length]).toEqual([flag, 1]);
+        rm.kill(r.run.id);
+      }
+      // 対照：付けていなければ門を通り、足される。
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.startFromTerminal(fromTerminal(cwd, []));
+      expect(asked.length).toBe(1);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+
+    it('再開に渡された利用者の引数に -p、--print、--rc、--remote-control があれば、門を通さず足さない（-p と --print はターミナルの入口が先に断るので、ここは念のための守り）', async () => {
+      const first = make({ accounts });
+      const r0 = first.start({ projectId: 'p1' });
+      await launchedArgs(r0.run.id);
+      addTranscript(r0.sessionId);
+      first.kill(r0.run.id);
+      await waitFor(() => !tmux!.hasSession(r0.run.tmuxName));
+      first.tick();
+      for (const flag of ['-p', '--print', '--rc', '--remote-control']) {
+        const asked: Ask[] = [];
+        const rm = make({ accounts, ...gate(asked) });
+        const r = rm.resume(r0.sessionId, { args: [flag] });
+        const args = await launchedArgs(r.run.id);
+        expect([flag, asked.length]).toEqual([flag, 0]);
+        expect([flag, args.filter((x) => x === '--remote-control').length]).toEqual([flag, flag === '--remote-control' ? 1 : 0]);
+        rm.kill(r.run.id);
+        await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+        rm.tick();
+      }
+      // 対照：引数が無ければ門を通り、足される。
+      const asked: Ask[] = [];
+      const rm = make({ accounts, ...gate(asked) });
+      const r = rm.resume(r0.sessionId);
+      expect(asked.length).toBe(1);
+      expect(await launchedArgs(r.run.id)).toContain('--remote-control');
+      rm.kill(r.run.id);
+    });
+  });
+
   it('知らないアカウントは 400 で断り、セッションの行を作らない', () => {
     const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
     expect(() => make({ accounts }).start({ projectId: 'p1', account: 'nope' })).toThrow('アカウントが見つかりません');
