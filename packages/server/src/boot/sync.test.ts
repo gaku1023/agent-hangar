@@ -523,10 +523,11 @@ describe('互換の版', () => {
 
   it('canCarryTakeover は Worker の版が TAKEOVER_MIN_WORKER_COMPAT に届くまで偽', async () => {
     // 版 5 の Worker は、引き継ぎの 2 表の行を含む push を丸ごと断る。名乗る版が届くまで行を書かない。
+    // 引き継ぎの 2 表は同期の版 6 に含めたので、版 5 の Worker とはそもそも同期しない（MIN_WORKER_COMPAT も 6）。
     await worker(answerAll(String(TAKEOVER_MIN_WORKER_COMPAT - 1)));
     const old = boot({ start: true });
     expect(old.sync.canCarryTakeover()).toBe(false);
-    await until(() => (old.status().lastPullAt !== null ? true : null));
+    await until(() => (old.status().state === 'error' ? true : null));
     expect(old.sync.canCarryTakeover()).toBe(false);
     await old.close();
     await w?.close();
