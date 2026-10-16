@@ -109,6 +109,17 @@ button, input, textarea { font: inherit; color: inherit; }
 .p-btn:active { transform: scale(0.98); }
 .p-btn:disabled { opacity: 0.55; cursor: default; transform: none; }
 .p-btn.sec { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 600; }
+.strip.info { background: var(--accent-soft); color: #2a3a96; }
+.ctx { align-self: flex-start; font-size: 11px; font-weight: 700; border-radius: 99px; padding: 2px 10px; background: var(--surface); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--card-line); }
+.ctx.home { background: var(--accent-soft); color: var(--accent); }
+.steps3 { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.steps3 li { display: flex; gap: 12px; align-items: center; background: var(--surface); border-radius: 14px; padding: 11px 12px; box-shadow: inset 0 0 0 1px var(--card-line); }
+.steps3 li > i { width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-style: normal; font-weight: 700; display: grid; place-items: center; flex: none; }
+.steps3 b { display: block; font-size: 14px; }
+.steps3 span { font-size: 11.5px; color: var(--ink-3); }
+.lnk { align-self: center; border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13px; padding: 10px; min-height: 44px; cursor: pointer; transition: opacity var(--dur-fast) var(--ease-out); }
+.lnk:active { opacity: 0.6; }
+.cd { font-variant-numeric: tabular-nums; }
 .ok-big { width: 52px; height: 52px; margin-top: 18px; border-radius: 50%; background: var(--st-done-soft); color: var(--st-done); display: flex; align-items: center; justify-content: center; }
 .steps { margin: 0; padding-left: 20px; font-size: 13px; color: var(--ink-2); }
 .steps li + li { margin-top: 6px; }
@@ -157,6 +168,9 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .wait-text { margin: 6px 0 8px; font-size: 16px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
 .wait-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--ink-2); }
 .wait-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* アカウントの札（色の丸と名前）。受信箱の行に付く。 */
+.acct-tag { display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 7em; font-size: 11px; font-weight: 700; line-height: 1.5; border-radius: 99px; padding: 1px 8px 1px 6px; background: var(--accent-soft); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct-tag i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ink-3); }
 .wait-open { flex: none; color: var(--accent); font-weight: 600; font-size: 12.5px; }
 
 .sec { padding-top: 10px; }

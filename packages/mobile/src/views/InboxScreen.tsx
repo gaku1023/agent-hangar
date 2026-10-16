@@ -152,7 +152,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
         <header className="inbox-head">
           <div className="inbox-title-row">
             <h1 className="inbox-title">
-              あなたの番{view && !allUnreadable ? <span className="inbox-count"> {view.waiting.length}</span> : null}
+              入力待ち{view && !allUnreadable ? <span className="inbox-count"> {view.waiting.length}</span> : null}
             </h1>
             <span className="inbox-date">{dayLabel(today)}</span>
           </div>
@@ -225,7 +225,7 @@ function Fold({ phase, children, className = '' }: { phase: Present<unknown>['ph
 function WaitingList({ rows, now }: { rows: Row[]; now: number }): ReactNode {
   const list = usePresence(rows, rowKey);
   return (
-    <section className="waiting" aria-label="あなたの番">
+    <section className="waiting" aria-label="入力待ち">
       {rows.length === 0 && <p className="empty m-fade">待っている会話はありません</p>}
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
@@ -240,6 +240,17 @@ function AccountDot({ color }: { color: string | null }): ReactNode {
   return <span className="acct-dot" style={color ? { background: color } : undefined} aria-hidden="true" />;
 }
 
+/** アカウントの札（色の丸と名前）。受信箱の素にアカウントが無い行には出さない。 */
+function AccountTag({ row }: { row: Row }): ReactNode {
+  if (!row.accountName) return null;
+  return (
+    <span className="acct-tag">
+      <i style={row.accountColor ? { backgroundColor: row.accountColor } : undefined} aria-hidden="true" />
+      {row.accountName}
+    </span>
+  );
+}
+
 function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
   const kind = waitingKind(row);
   return (
@@ -248,12 +259,13 @@ function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
         <AccountDot color={row.accountColor} />
         <span className="wait-proj">{row.projectName}</span>
         <span className="wait-title">· {row.title}</span>
+        <AccountTag row={row} />
         <span className="wait-for">{row.at !== null ? waitedFor(now - row.at) : ''}</span>
       </div>
       <div className="wait-text">{waitingText(row)}</div>
       <div className="wait-foot">
         <span className="wait-meta">{kind ? `${row.deviceName} · ${kind}` : row.deviceName}</span>
-        <span className="wait-open">Claude アプリで開く ›</span>
+        <span className="wait-open">{row.accountName ? `${row.accountName}のアカウントで開く ›` : 'Claude アプリで開く ›'}</span>
       </div>
     </a>
   );
@@ -311,7 +323,8 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
           <span className="thin-sep"> · </span>
           <span className="thin-intent">{row.intent?.trim() || row.title}</span>
         </span>
-        <span className="thin-meta">{unknown ? `${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`}</span>
+        <AccountTag row={row} />
+        <span className="thin-meta">{unknown ?`${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`}</span>
       </a>
     );
   }
@@ -320,6 +333,7 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
       <div className="thin">
         <span className="dot returning" aria-hidden="true" />
         <span className="thin-text">{row.title || row.projectName}</span>
+        <AccountTag row={row} />
         <span className="thin-meta">{row.returnOn && row.returnOn < today ? monthDay(row.returnOn) : (row.returnTime ?? '今日')}</span>
       </div>
     );

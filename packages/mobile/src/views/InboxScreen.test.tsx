@@ -40,7 +40,7 @@ afterEach(() => {
 const now = () => Date.now();
 
 describe('InboxScreen', () => {
-  it('見出しが「あなたの番 N」', async () => {
+  it('見出しが「入力待ち N」', async () => {
     await serveFeeds([
       feedOf('pc-1', 'Mac', {
         live: [
@@ -51,7 +51,7 @@ describe('InboxScreen', () => {
       }),
     ]);
     render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
-    expect(await screen.findByRole('heading', { level: 1, name: /あなたの番\s*2/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /入力待ち\s*2/ })).toBeInTheDocument();
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/inbox`);
     const headers = init.headers as Record<string, string>;
@@ -73,7 +73,7 @@ describe('InboxScreen', () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
     render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
     expect(await screen.findByText('待っている会話はありません')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: /あなたの番\s*0/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /入力待ち\s*0/ })).toBeInTheDocument();
   });
 
   it('rcUrl の無い行は claude.ai/code へのリンク', async () => {
@@ -234,7 +234,7 @@ describe('InboxScreen', () => {
     ]);
     render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
     expect(await screen.findByText('今日戻る')).toBeInTheDocument();
-    const rows = [...document.querySelectorAll('.thin')].map((r) => r.textContent);
+    const rows = [...document.querySelectorAll('.thin')].map((r) => `${r.querySelector('.thin-text')!.textContent}${r.querySelector('.thin-meta')!.textContent}`);
     expect(rows).toEqual([`会話 2${past.getMonth() + 1}月${past.getDate()}日`, '会話 118:00']);
   });
 
@@ -294,5 +294,45 @@ describe('InboxScreen', () => {
       </StrictMode>,
     );
     expect(await screen.findByText('動いている')).toBeInTheDocument();
+  });
+
+  it('入力待ちの行にアカウントの札が付き、開くボタンが「〈アカウント〉のアカウントで開く ›」になる', async () => {
+    await serveFeeds([
+      feedOf('pc-1', 'Mac', {
+        accounts: [
+          { id: 'acc-1', name: '大学', color: '#4a63e8', fiveHour: 0, sevenDay: 0 },
+          { id: 'acc-2', name: '会社', color: '#3a8f5c', fiveHour: 0, sevenDay: 0 },
+        ],
+        live: [liveItem({ sessionId: 's-1', status: 'waiting', accountId: 'acc-2', waiting: { kind: 'question', text: '質問 1' } })],
+      }),
+    ]);
+    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    const card = (await screen.findByText('質問 1')).closest('a')!;
+    const tag = within(card).getByText('会社', { selector: '.acct-tag' });
+    expect(tag.querySelector('i')!.getAttribute('style')).toContain('background-color: rgb(58, 143, 92)');
+    expect(within(card).getByText('会社のアカウントで開く ›')).toBeInTheDocument();
+    expect(within(card).queryByText('Claude アプリで開く ›')).not.toBeInTheDocument();
+  });
+
+  it('動いている行にもアカウントの札が付く', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'busy', intent: '試験を足す' })] })]);
+    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    const row = (await screen.findByText('試験を足す')).closest('a')!;
+    expect(within(row).getByText('アカウント 1', { selector: '.acct-tag' })).toBeInTheDocument();
+  });
+
+  it('アカウントが受信箱の素に無い行は、札を出さず、文言は「Claude アプリで開く ›」のまま', async () => {
+    await serveFeeds([
+      feedOf('pc-1', 'Mac', {
+        live: [
+          liveItem({ sessionId: 's-1', status: 'waiting', accountId: 'acc-gone', waiting: { kind: 'question', text: '質問 1' } }),
+          liveItem({ sessionId: 's-2', status: 'busy', accountId: 'acc-gone', intent: '試験を足す' }),
+        ],
+      }),
+    ]);
+    const { container } = render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    const card = (await screen.findByText('質問 1')).closest('a')!;
+    expect(within(card).getByText('Claude アプリで開く ›')).toBeInTheDocument();
+    expect(container.querySelector('.acct-tag')).toBeNull();
   });
 });

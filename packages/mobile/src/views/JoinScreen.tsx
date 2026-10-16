@@ -1,5 +1,7 @@
 import type { PairingBlob } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { remaining, useNow } from '../countdown.ts';
+import { isStandalone } from '../platform.ts';
 import { JoinError, joinPhone, readPairText } from '../api.ts';
 import { savePairing, type Pairing } from '../store.ts';
 
@@ -17,15 +19,6 @@ export function guessDeviceName(ua: string = navigator.userAgent): string {
   if (/iPad/.test(ua)) return 'iPad';
   if (/Android/.test(ua)) return 'Android';
   return 'スマホ';
-}
-
-/** ホーム画面から開いたアプリとして動いているか。 */
-function standalone(): boolean {
-  try {
-    return window.matchMedia?.('(display-mode: standalone)').matches === true || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  } catch {
-    return false;
-  }
 }
 
 function initialStep(pairText: string | null): Step {
@@ -63,10 +56,12 @@ type Props = {
 /** 参加の画面（画面のメモの C1 の ①〜④）。段が替わるたびに薄れから現す。 */
 export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
   const [step, setStep] = useState<Step>(() => initialStep(pairText));
+  // ホーム画面のアプリでは、接続の画面を開いたらすぐカメラで QR を読む。
+  const [home] = useState(isStandalone);
 
   const onJoined = (pairing: Pairing, key: CryptoKey): void => {
     // ホーム画面のアプリの中で接続したなら、ホーム画面に追加する案内は要らない。
-    if (standalone()) onEnter(pairing, key);
+    if (isStandalone()) onEnter(pairing, key);
     else setStep({ kind: 'joined', pairing, key });
   };
   const onText = (text: string): string | null => {
@@ -94,10 +89,20 @@ export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
         {step.kind === 'start' && (
           <>
             <Logo />
-            <h1 className="p-h">このスマホはまだ接続していません</h1>
-            <p className="p-t">ホーム画面から開くと、Safari で接続した情報が引き継がれないことがあります。PC で新しい QR を出して、このアプリのまま読み込んでください。</p>
+            {home ? (
+              <>
+                <span className="ctx home">ホーム画面アプリ</span>
+                <h1 className="p-h">PC の QR を読み取ります</h1>
+                <p className="p-t">PC の画面の QR を枠に合わせてください。QR は PC で出してから 5 分有効です。</p>
+              </>
+            ) : (
+              <>
+                <h1 className="p-h">このスマホはまだ接続していません</h1>
+                <p className="p-t">ホーム画面から開くと、Safari で接続した情報が引き継がれないことがあります。PC で新しい QR を出して、このアプリのまま読み込んでください。</p>
+              </>
+            )}
             {step.note && <p className="strip danger m-fade">{step.note}</p>}
-            <ReadControls onText={onText} />
+            <ReadControls onText={onText} autoScan={home} />
           </>
         )}
       </div>
@@ -112,20 +117,6 @@ function Logo(): ReactNode {
       hangar
     </div>
   );
-}
-
-function useNow(everyMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), everyMs);
-    return () => clearInterval(t);
-  }, [everyMs]);
-  return now;
-}
-
-function remaining(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 /** ① QR を読んだ直後の 1 枚。どこへ、どの PC の QR で、残り何分かを見てから押す。 */
@@ -228,8 +219,8 @@ function Joined({ onLater }: { onLater: () => void }): ReactNode {
 }
 
 /** ④ の読み取り。アプリの中のカメラで QR を読むか、接続の文字列を貼る。 */
-function ReadControls({ onText }: { onText: (text: string) => string | null }): ReactNode {
-  const [scanning, setScanning] = useState(false);
+function ReadControls({ onText, autoScan = false }: { onText: (text: string) => string | null; autoScan?: boolean }): ReactNode {
+  const [scanning, setScanning] = useState(autoScan);
   const [note, setNote] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
   const video = useRef<HTMLVideoElement>(null);

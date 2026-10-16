@@ -1,12 +1,28 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { InboxView } from './inbox.ts';
 import { exitMs } from './presence.ts';
+import { readPairText } from './api.ts';
 import { loadKey, loadPairing, type Pairing } from './store.ts';
+import { isIosSafari, isStandalone } from './platform.ts';
+import { InstallGuide } from './views/InstallGuide.tsx';
 import { InboxScreen } from './views/InboxScreen.tsx';
 import { NewSessionScreen } from './views/NewSessionScreen.tsx';
 import { JoinScreen } from './views/JoinScreen.tsx';
 
-type Screen = { kind: 'loading' } | { kind: 'join'; pairText: string | null } | { kind: 'inbox'; pairing: Pairing; key: CryptoKey };
+type Screen = { kind: 'loading' } | { kind: 'join'; pairText: string | null; guide: boolean } | { kind: 'inbox'; pairing: Pairing; key: CryptoKey };
+
+/** 入口の案内（A1）を先に出すか。iPhone と iPad の Safari で、ホーム画面のアプリでなく、未接続のとき。 */
+const needsGuide = (): boolean => isIosSafari() && !isStandalone() && !loadPairing();
+
+/** 開いた QR の期限。QR から開いたのでなければ、読めなければ null。 */
+function expiryOf(pairText: string | null): number | null {
+  if (!pairText) return null;
+  try {
+    return readPairText(pairText).expiresAt;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 画面の切り替え。
@@ -14,7 +30,7 @@ type Screen = { kind: 'loading' } | { kind: 'join'; pairText: string | null } | 
  * 接続と鍵の両方が手元にあれば受信箱、どちらかが無ければ参加の画面（④）。
  */
 export function App({ pairText }: { pairText: string | null }): ReactNode {
-  const [screen, setScreen] = useState<Screen>(() => (pairText ? { kind: 'join', pairText } : { kind: 'loading' }));
+  const [screen, setScreen] = useState<Screen>(() => (pairText ? { kind: 'join', pairText, guide: needsGuide() } : { kind: 'loading' }));
 
   useEffect(() => {
     if (screen.kind !== 'loading') return;
@@ -23,7 +39,7 @@ export function App({ pairText }: { pairText: string | null }): ReactNode {
       const pairing = loadPairing();
       const key = pairing ? await loadKey() : null;
       if (off) return;
-      setScreen(pairing && key ? { kind: 'inbox', pairing, key } : { kind: 'join', pairText: null });
+      setScreen(pairing && key ? { kind: 'inbox', pairing, key } : { kind: 'join', pairText: null, guide: !pairing && needsGuide() });
     })();
     return () => {
       off = true;
@@ -39,7 +55,7 @@ export function App({ pairText }: { pairText: string | null }): ReactNode {
   const [refresh, setRefresh] = useState(0);
   const onUnpaired = useCallback(() => {
     setSheet(null);
-    setScreen({ kind: 'join', pairText: null });
+    setScreen({ kind: 'join', pairText: null, guide: false });
   }, []);
   const onNewSession = useCallback((view: InboxView) => {
     opened.current += 1;
@@ -58,6 +74,7 @@ export function App({ pairText }: { pairText: string | null }): ReactNode {
   }, []);
 
   if (screen.kind === 'loading') return <div className="boot" />;
+  if (screen.kind === 'join' && screen.guide) return <InstallGuide expiresAt={expiryOf(screen.pairText)} onContinue={() => setScreen({ ...screen, guide: false })} />;
   if (screen.kind === 'join') return <JoinScreen pairText={screen.pairText} onEnter={onEnter} />;
   return (
     <>
