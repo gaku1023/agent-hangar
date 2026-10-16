@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ChangeIn, ChangeOut } from '@agent-hangar/shared';
-import { MAX_ROW_BYTES, MAX_ROW_ID_CHARS, mirrorUpsert } from '../src/changes.ts';
+import type { ChangeIn, ChangeOut, PullChangesResponse } from '@agent-hangar/shared';
+import { MAX_ROW_BYTES, MAX_ROW_ID_CHARS } from '../src/changes.ts';
+import { TOUCH_EVERY_MS } from '../src/seen.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
 
 const SECRET = 'join-secret-1';
-const DAY = 86_400_000;
 
 let cloud: CloudHarness;
 let tokA = '';
@@ -34,14 +34,14 @@ const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; acc
 /** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
 const pushResult = (o: { seq: number; accepted: number; skipped: number }) => o;
 
-/** pull の応答の形。 */
-const pullResult = (o: { changes: unknown[]; nextSeq: number; more: boolean }) => o;
+/** pull の応答のうち、変更の頁の部分。生存の知らせ（peers と now）は別の試験で見る。 */
+const pageOf = (o: PullChangesResponse) => ({ changes: o.changes, nextSeq: o.nextSeq, more: o.more });
 
 const pullRaw = (tok: string, since: number, limit = 500): Promise<Response> =>
   cloud.SELF.fetch(`https://x/changes?since=${since}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } });
 
-const pull = async (tok: string, since: number, limit = 500): Promise<{ changes: ChangeOut[]; nextSeq: number; more: boolean }> =>
-  (await (await pullRaw(tok, since, limit)).json()) as { changes: ChangeOut[]; nextSeq: number; more: boolean };
+const pull = async (tok: string, since: number, limit = 500): Promise<PullChangesResponse> =>
+  (await (await pullRaw(tok, since, limit)).json()) as PullChangesResponse;
 
 const rows = async (tok: string, after = '', limit = 500): Promise<{ changes: ChangeOut[]; nextAfter: string | null; seq: number }> =>
   (await (
@@ -69,17 +69,20 @@ const bodyOf = async (r: Response): Promise<Record<string, unknown>> => (await r
 const payloadOf = async (k: string): Promise<Record<string, unknown>> =>
   JSON.parse((await cloud.env.DB.prepare('select payload from rows where k = ?').bind(k).first<{ payload: string }>())!.payload) as Record<string, unknown>;
 
+/** rows の連番を、鍵ごとに連番の順で返す。 */
 const seqs = async (): Promise<number[]> =>
-  (await cloud.env.DB.prepare('select seq from changes order by seq').all<{ seq: number }>()).results.map((r) => r.seq);
+  (await cloud.env.DB.prepare('select seq from rows order by seq').all<{ seq: number }>()).results.map((r) => r.seq);
+
+const seqOf = async (k: string): Promise<number | undefined> =>
+  (await cloud.env.DB.prepare('select seq from rows where k = ?').bind(k).first<{ seq: number }>())?.seq;
 
 const meta = async (key: string): Promise<string | null> =>
   (await cloud.env.DB.prepare('select value from meta where key = ?').bind(key).first<{ value: string }>())?.value ?? null;
 
-/** 圧縮が「古い」とみなすところまで受信時刻を巻き戻す。 */
-const ageChanges = (): Promise<unknown> => cloud.env.DB.prepare('update changes set received_at = 0').run();
+const lastSeen = async (id: string): Promise<number | null> =>
+  (await cloud.env.DB.prepare('select last_seen_at from devices where id = ?').bind(id).first<{ last_seen_at: number | null }>())!.last_seen_at;
 
-/** 次に振られる連番を狙った値にする。1 回の push で最大 40 飛ぶ実物の粗さを、テストから作るための細工である。 */
-const setNextSeq = (n: number): Promise<unknown> => cloud.env.DB.prepare("update sqlite_sequence set seq = ? where name = 'changes'").bind(n).run();
+const setLastSeen = (id: string, at: number): Promise<unknown> => cloud.env.DB.prepare('update devices set last_seen_at = ? where id = ?').bind(at, id).run();
 
 beforeEach(async () => {
   resetSchemaCache();
@@ -152,9 +155,7 @@ describe('GET /changes と GET /rows', () => {
     expect(a.more).toBe(false);
     const b = await pull(tokB, 0);
     expect(b.changes.map((c) => c.rowId)).toEqual(['p1', 'p3']);
-    expect(await pull(tokB, 3)).toEqual(pullResult({ changes: [], nextSeq: 3, more: false }));
-    const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
-    expect(dev?.last_pulled_seq).toBe(3);
+    expect(pageOf(await pull(tokB, 3))).toEqual({ changes: [], nextSeq: 3, more: false });
   });
 
   it('limit を超えると more が立ち、nextSeq は返した最後の連番', async () => {
@@ -193,7 +194,6 @@ describe('1 行の大きさ', () => {
     });
     // 何も書かないので、同じ要求を投げ直しても結果は変わらない。
     expect(await seqs()).toEqual([]);
-    expect((await cloud.env.DB.prepare('select count(*) c from rows').first<{ c: number }>())!.c).toBe(0);
   });
 
   it('413 の本文は、端末が切り詰めた後も JSON として読める 200 字に収まる', async () => {
@@ -236,126 +236,123 @@ describe('1 行の大きさ', () => {
   });
 });
 
-describe('鏡（rows）の書き込み', () => {
-  it('古い書き込みが後から届いても、鏡には新しい方が残る', async () => {
-    await push(tokA, [ch('p1', 200, 'new')]);
-    // 同じ行への push が 2 本重なり、どちらも rows を空だと読んだ後で、古い方が後から書きに来た状況である。
-    // 本番と同じ文を、順序だけ入れ替えて流す。
-    const stale = ch('p1', 100, 'old');
-    await mirrorUpsert(cloud.env.DB, 'projects:p1', stale, 'dev-b', JSON.stringify(stale.payload)).run();
+describe('行の書き込み（rows）', () => {
+  it('古い書き込みが後から届いても、新しい方が残り、連番も動かない', async () => {
+    await pushed(tokA, [ch('p1', 200, 'new')]);
+    const before = await seqOf('projects:p1');
+    expect(await pushed(tokB, [ch('p1', 100, 'old')])).toEqual(pushResult({ seq: before!, accepted: 0, skipped: 1 }));
     const row = await cloud.env.DB.prepare('select payload, updated_at, device_id from rows where k = ?')
       .bind('projects:p1')
       .first<{ payload: string; updated_at: number; device_id: string }>();
     expect(JSON.parse(row!.payload).name).toBe('new');
     expect(row!.updated_at).toBe(200);
     expect(row!.device_id).toBe('dev-a');
+    expect(await seqOf('projects:p1')).toBe(before);
   });
 
-  it('新しい書き込みは今までどおり鏡を進める', async () => {
-    await push(tokA, [ch('p1', 100, 'old')]);
-    const fresh = ch('p1', 300, 'new');
-    await mirrorUpsert(cloud.env.DB, 'projects:p1', fresh, 'dev-b', JSON.stringify(fresh.payload)).run();
-    const row = await cloud.env.DB.prepare('select payload, updated_at, device_id from rows where k = ?')
-      .bind('projects:p1')
-      .first<{ payload: string; updated_at: number; device_id: string }>();
-    expect(JSON.parse(row!.payload).name).toBe('new');
-    expect(row!.updated_at).toBe(300);
-    expect(row!.device_id).toBe('dev-b');
+  it('同着（updated_at が等しい）は書き換えず、先に着いた方を残す', async () => {
+    await pushed(tokA, [ch('p1', 200, 'first')]);
+    expect(await pushed(tokB, [ch('p1', 200, 'second')])).toEqual(pushResult({ seq: 1, accepted: 0, skipped: 1 }));
+    expect((await payloadOf('projects:p1')).name).toBe('first');
+    expect(await seqOf('projects:p1')).toBe(1);
+  });
+
+  it('新しい書き込みは行を書き換え、表の末尾の新しい連番を振り直す', async () => {
+    await pushed(tokA, [ch('p1', 100, 'old'), ch('p2', 100)]);
+    expect(await pushed(tokB, [ch('p1', 300, 'new')])).toEqual(pushResult({ seq: 3, accepted: 1, skipped: 0 }));
+    expect((await payloadOf('projects:p1')).name).toBe('new');
+    expect(await seqOf('projects:p1')).toBe(3);
+    // 1 つの鍵は 1 行だけで、古い連番の行は残らない。
+    expect(await seqs()).toEqual([2, 3]);
+  });
+
+  it('変更ログの表（changes）を作らず、圧縮の meta も書かない', async () => {
+    await pushed(tokA, Array.from({ length: 30 }, (_, i) => ch(`p${i}`, 1)));
+    await pull(tokB, 0);
+    const names = (await cloud.env.DB.prepare("select name from sqlite_master where type = 'table'").all<{ name: string }>()).results.map((r) => r.name);
+    expect(names).not.toContain('changes');
+    for (const k of ['changes_floor', 'last_compact_seq', 'seq_high']) expect(await meta(k)).toBeNull();
   });
 });
 
-describe('圧縮', () => {
-  it('全端末が読み終えた古い変更を消し、rows は残す', async () => {
-    await push(tokA, [ch('p1', 1)]);
-    await pull(tokB, 0);
-    await pull(tokA, 0);
-    await ageChanges();
-    await setNextSeq(199);
-    await push(tokB, [ch('p2', 1)]); // 連番 200 で圧縮が走る
-    expect(await seqs()).toEqual([200]);
-    expect((await cloud.env.DB.prepare('select count(*) c from rows').first<{ c: number }>())!.c).toBe(2);
-    expect(await meta('changes_floor')).toBe('1');
-    expect(await meta('last_compact_seq')).toBe('200');
+describe('差分の取り出し（GET /changes）', () => {
+  it('頁を送っている間に書き換えられた行は、後ろの頁で降りてくる', async () => {
+    await push(tokA, Array.from({ length: 5 }, (_, i) => ch(`p${i}`, 1)));
+    const r1 = await pull(tokB, 0, 2);
+    expect(r1.changes.map((c) => c.rowId)).toEqual(['p0', 'p1']);
+    // 読み終えた p0 と、まだ読んでいない p2 を、頁送りの途中で書き換える。
+    await push(tokA, [ch('p0', 2, 'p0-new'), ch('p2', 2, 'p2-new')]);
+    const seen: ChangeOut[] = [...r1.changes];
+    let since = r1.nextSeq;
+    for (;;) {
+      const r = await pull(tokB, since, 2);
+      seen.push(...r.changes);
+      since = r.nextSeq;
+      if (!r.more) break;
+    }
+    // 取り込みは updated_at の新しい方を採るので、最後に見た版がそれぞれの行の今の値になる。
+    const last = new Map(seen.map((c) => [c.rowId, c.payload.name]));
+    expect(Object.fromEntries(last)).toEqual({ p0: 'p0-new', p1: 'p1', p2: 'p2-new', p3: 'p3', p4: 'p4' });
+    expect(since).toBe(7);
   });
 
-  it('連番が 200 の倍数を飛び越しても、前回の圧縮からの差で走る', async () => {
+  it('自分の端末が書いた行は返さない', async () => {
     await push(tokA, [ch('p1', 1)]);
-    await pull(tokB, 0);
-    await pull(tokA, 0);
-    await ageChanges();
-    await setNextSeq(205); // 次の連番は 206 で、200 の倍数には当たらない
     await push(tokB, [ch('p2', 1)]);
-    expect(await seqs()).toEqual([206]);
-    expect(await meta('last_compact_seq')).toBe('206');
-    expect(await meta('changes_floor')).toBe('1');
+    expect((await pull(tokA, 0)).changes.map((c) => c.rowId)).toEqual(['p2']);
+    expect((await pull(tokB, 0)).changes.map((c) => c.rowId)).toEqual(['p1']);
+    // 他の端末が書き換えた行は、元が自分の行でも返す。
+    await push(tokB, [ch('p1', 2, 'by-b')]);
+    expect((await pull(tokA, 0)).changes.map((c) => [c.rowId, c.payload.name])).toEqual([['p2', 'p2'], ['p1', 'by-b']]);
   });
 
-  it('前回の圧縮から 200 に満たなければ走らない', async () => {
+  it('でたらめに大きい since でも、nextSeq は表の末尾を返す', async () => {
     await push(tokA, [ch('p1', 1)]);
-    await pull(tokB, 0);
-    await pull(tokA, 0);
-    await ageChanges();
-    await push(tokB, [ch('p2', 1)]);
-    expect(await seqs()).toEqual([1, 2]);
-    expect(await meta('last_compact_seq')).toBeNull();
-    expect(await meta('changes_floor')).toBeNull();
+    expect(pageOf(await pull(tokB, 999_999))).toEqual({ changes: [], nextSeq: 1, more: false });
   });
 
-  it('圧縮で changes が空になっても連番は巻き戻らない', async () => {
+  it('どれだけ古い since でも 410 にせず、残っている行を返す', async () => {
     await push(tokA, [ch('p1', 1)]);
-    await pull(tokB, 0);
-    await pull(tokA, 0);
-    await ageChanges();
-    await setNextSeq(205);
-    await push(tokB, [ch('p2', 1)]); // 連番 206 で圧縮が走る
-    expect(await seqs()).toEqual([206]);
-    // 圧縮は押し込まれたばかりの 1 件だけは残すので、要求 1 回では空にならない。
-    // ここでは、その 1 件も 14 日を過ぎて次の周の圧縮に消された後を作る。
-    // 条件は compact() の delete と同じものである。
-    await ageChanges();
-    await cloud.env.DB.prepare('delete from changes where seq <= ? and received_at < ?').bind(206, Date.now() - 14 * DAY).run();
-    expect(await seqs()).toEqual([]);
-
-    expect((await rows(tokA)).seq).toBe(206);
-    expect(await pull(tokB, 1)).toEqual(pullResult({ changes: [], nextSeq: 206, more: false }));
-    const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
-    expect(dev?.last_pulled_seq).toBe(206);
-    // 次の push も連番を振り直さない。
-    expect((await pushed(tokA, [ch('p9', 1)])).seq).toBe(207);
+    await push(tokA, [ch('p1', 2)]);
+    const r = await pullRaw(tokB, 0);
+    expect(r.status).toBe(200);
+    expect(pageOf((await r.json()) as PullChangesResponse)).toMatchObject({ nextSeq: 2, more: false });
   });
 
-  it('でたらめに大きい since は読み位置を水増ししない', async () => {
-    await push(tokA, [ch('p1', 1)]);
-    expect(await pull(tokB, 999_999)).toEqual(pullResult({ changes: [], nextSeq: 1, more: false }));
-    const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
-    expect(dev?.last_pulled_seq).toBe(1); // ここが水増しされると、圧縮が未読の変更まで消しにいく
-  });
-
-  it('圧縮で消えた区間を指す since は 410 と floor を返し、未読の変更を黙って落とさない', async () => {
+  it('解除していない PC の最終確認と、Worker の時刻を添える', async () => {
     const tokC = await join('dev-c');
-    await push(tokA, [ch('p1', 1)]);
-    await pull(tokC, 0); // dev-c は連番 1 まで読んで、ここから離脱する
-    await push(tokA, [ch('p2', 1)]); // dev-c が読まないまま置き去りになる変更
-    await pull(tokB, 0);
-    await pull(tokA, 0);
-    await cloud.env.DB.prepare('update devices set last_seen_at = ? where id = ?').bind(Date.now() - 40 * DAY, 'dev-c').run();
-    await ageChanges();
-    await setNextSeq(205);
-    await push(tokB, [ch('p3', 1)]);
-    expect(await seqs()).toEqual([206]);
-    expect(await meta('changes_floor')).toBe('2');
+    await setLastSeen('dev-a', 1000);
+    await setLastSeen('dev-c', 2000);
+    await cloud.env.DB.prepare('update devices set revoked_at = 1 where id = ?').bind('dev-c').run();
+    const before = Date.now();
+    const r = await pull(tokB, 0);
+    const after = Date.now();
+    expect(r.now).toBeGreaterThanOrEqual(before);
+    expect(r.now).toBeLessThanOrEqual(after);
+    const peers = new Map(r.peers.map((p) => [p.id, p.lastSeenAt]));
+    expect([...peers.keys()].sort()).toEqual(['dev-a', 'dev-b']);
+    expect(peers.get('dev-a')).toBe(1000);
+    expect(peers.get('dev-b')).toBeGreaterThanOrEqual(before - TOUCH_EVERY_MS);
+    expect(tokC).not.toBe('');
+  });
+});
 
-    const gone = await pullRaw(tokC, 1);
-    expect(gone.status).toBe(410);
-    expect(await gone.json()).toEqual({ error: 'gone', floor: 2 });
-    // 410 は端末の読み位置を進めない。進めると取りこぼしが確定してしまう。
-    const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-c').first<{ last_pulled_seq: number }>();
-    expect(dev?.last_pulled_seq).toBe(1);
-    // 落ちた区間は GET /rows から取り直せる。
-    const snap = await rows(tokC);
-    expect(snap.changes.map((c) => c.rowId).sort()).toEqual(['p1', 'p2', 'p3']);
-    expect(snap.seq).toBe(206);
-    // floor 以降を指す端末は今までどおり通る。
-    expect((await pullRaw(tokB, 2)).status).toBe(200);
+describe('最終確認の書き込みの間引き', () => {
+  it('前回から 1 分たっていなければ、push でも pull でも last_seen_at を書かない', async () => {
+    const recent = Date.now() - 30_000;
+    await setLastSeen('dev-a', recent);
+    await push(tokA, [ch('p1', 1)]);
+    await pull(tokA, 0);
+    expect(await lastSeen('dev-a')).toBe(recent);
+  });
+
+  it('1 分を過ぎていれば書く', async () => {
+    const old = Date.now() - TOUCH_EVERY_MS - 1000;
+    await setLastSeen('dev-a', old);
+    await pull(tokA, 0);
+    expect(await lastSeen('dev-a')).toBeGreaterThan(old);
+    await setLastSeen('dev-b', old);
+    await push(tokB, []);
+    expect(await lastSeen('dev-b')).toBeGreaterThan(old);
   });
 });

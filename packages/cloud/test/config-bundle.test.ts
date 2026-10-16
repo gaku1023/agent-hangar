@@ -138,9 +138,9 @@ describe('共有表 config_snapshots（POST /changes と GET /changes と GET /r
     expect((await pull(tokB)).changes.map((c) => c.tableName)).toEqual(['projects', 'config_snapshots']);
   });
 
-  it('版 3 までを名乗る端末の push は、表を問わず 426 で断られる（下限は旧実装を持たない版 4。段 4 の PR 18）', async () => {
+  it('下限より古い版を名乗る端末の push は、表を問わず 426 で断られる（段 4 の PR 18 で 4、同期の版 6 で 6）', async () => {
     const project = { tableName: 'projects', rowId: 'p1', op: 'upsert', updatedAt: 5, payload: { id: 'p1', name: 'p', status: 'active', is_scratch: 0, updated_at: 5, deleted_at: null, origin_device: 'dev-a' } };
-    for (const v of ['2', '3']) {
+    for (const v of ['2', '3', '5']) {
       const old = await push(tokA, [project], { [COMPAT_HEADER]: v });
       expect([v, old.status]).toEqual([v, 426]);
       expect(old.headers.get(COMPAT_HEADER)).toBe(String(COMPAT_VERSION));
@@ -148,8 +148,8 @@ describe('共有表 config_snapshots（POST /changes と GET /changes と GET /r
     }
     // 断った要求は、何も書いていない。
     expect((await pull(tokB)).changes).toEqual([]);
-    // 版 4 を名乗る端末は、束の行も、ほかの表の行も、1 回で通る。
-    expect((await push(tokA, [project, snapshot('dev-a', 6)], { [COMPAT_HEADER]: '4' })).status).toBe(200);
+    // いまの版を名乗る端末は、束の行も、ほかの表の行も、1 回で通る。
+    expect((await push(tokA, [project, snapshot('dev-a', 6)], { [COMPAT_HEADER]: String(COMPAT_VERSION) })).status).toBe(200);
   });
 
   it('知らない表の行は、これまでどおり 400 で丸ごと断る', async () => {

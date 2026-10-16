@@ -22,10 +22,15 @@
  * 版 4 の端末は一覧と解除を呼ばないので、混ざっても困らない（MIN_DEVICE_COMPAT は 4 のまま）。端末は、Worker が名乗る版が DEVICE_ADMIN_MIN_WORKER_COMPAT に届くまで、一覧と解除を「Worker の更新が要る」と出す。
  * 版を上げたのは殻とサーバの合図のためでもある。版 4 の殻が版 5 のサーバを採ると、画面が殻に無い命令を呼ぶ。
  *
+ * 版 6（同期の版 6、2026-10-16）：Worker の変更ログ（changes）と圧縮と 410 をやめ、rows に連番を持たせて差分を引く。
+ * pull の応答に、解除していない PC の最終確認（peers）と Worker の時刻（now）を添え、端末は他の PC の生存をこれで見る。
+ * 端末は runs.heartbeat_at を共有の行に書かなくなる。版 5 の端末は heartbeat で生存を見るので、混ざると 2 分で「応答がありません」になり、二重に起動しうる。
+ * そこでこの版だけは、MIN_DEVICE_COMPAT と MIN_WORKER_COMPAT を同時に 6 へ上げ、一斉に切り替える（docs/design.md「互換の版番号」）。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 5;
+export const COMPAT_VERSION = 6;
 
 /**
  * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。

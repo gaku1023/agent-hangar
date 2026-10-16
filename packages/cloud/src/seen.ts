@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { Env, Vars } from './env.ts';
+import type { DeviceRow, Env, Vars } from './env.ts';
 
 /** 1 つの値の上限。IPv6 でも 45 字なので、ふつうはこれに届かない。 */
 const MAX_SEEN_CHARS = 64;
@@ -27,16 +27,31 @@ export function seenOf(c: Context<{ Bindings: Env; Variables: Vars }>): Seen {
 }
 
 /**
+ * 最終確認を書き直す間隔（同期の版 6）。
+ * push、pull、本文の PUT のたびに書くと、PC 1 台で 1 日に数万行を書く。
+ * 他の PC の生存は「Worker の now − lastSeenAt」で見て、約 3 分（端末の PEER_STALE_MS）で古いとみなすので、1 分の粗さで足りる。
+ */
+export const TOUCH_EVERY_MS = 60_000;
+
+/**
  * 最後に同期した時刻と、IP と場所を書く文。
  * 持つのは PC ごとに最後の 1 件だけで、履歴は持たない。
  * IP の無い要求（端を通らない試し）では、前の IP と場所を消さずに時刻だけを書く。
- * 同じ行を書き換えるだけなので、D1 の書き込みの行数は今までと変わらない。
  */
-export function touchDevice(db: D1Database, deviceId: string, now: number, seen: Seen, pulledSeq?: number): D1PreparedStatement {
-  const pulled = pulledSeq === undefined ? '' : ', last_pulled_seq = max(last_pulled_seq, ?)';
-  const pulledArg = pulledSeq === undefined ? [] : [pulledSeq];
-  if (seen.ip === null) return db.prepare(`update devices set last_seen_at = ?${pulled} where id = ?`).bind(now, ...pulledArg, deviceId);
+export function touchDevice(db: D1Database, deviceId: string, now: number, seen: Seen): D1PreparedStatement {
+  if (seen.ip === null) return db.prepare('update devices set last_seen_at = ? where id = ?').bind(now, deviceId);
   return db
-    .prepare(`update devices set last_seen_at = ?${pulled}, last_ip = ?, last_city = ?, last_region = ?, last_country = ? where id = ?`)
-    .bind(now, ...pulledArg, seen.ip, seen.city, seen.region, seen.country, deviceId);
+    .prepare('update devices set last_seen_at = ?, last_ip = ?, last_city = ?, last_region = ?, last_country = ? where id = ?')
+    .bind(now, seen.ip, seen.city, seen.region, seen.country, deviceId);
+}
+
+/**
+ * 書く必要があるときだけ、最終確認を書く文を返す。要らなければ null である。
+ * 認証で読んだ行（`device`）を見るので、判定のために D1 を読み直さない。
+ * 前回から TOUCH_EVERY_MS たったときと、IP が変わったときに書く。IP は一覧に出すので、間引きで古いまま残さない。
+ */
+export function touchIfDue(db: D1Database, device: DeviceRow, now: number, seen: Seen): D1PreparedStatement | null {
+  const last = device.last_seen_at;
+  const due = last === null || last === undefined || now - last >= TOUCH_EVERY_MS || (seen.ip !== null && seen.ip !== (device.last_ip ?? null));
+  return due ? touchDevice(db, device.id, now, seen) : null;
 }

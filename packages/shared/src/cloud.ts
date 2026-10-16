@@ -19,7 +19,18 @@ export type ChangeIn = { tableName: SharedTable; rowId: string; op: ChangeOp; pa
 export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
 /** push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は新しくなかったので捨てた行の数である。 */
 export type PushChangesResponse = { seq: number; accepted: number; skipped: number };
-export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean };
+/**
+ * 解除していない PC の 1 台と、Worker がその PC を最後に見た時刻（互換の版 6）。
+ * lastSeenAt は Worker の時計で、1 分おきにしか書かないので最大 1 分遅れる。参加の前の行など、まだ見ていなければ null である。
+ */
+export type CloudPeer = { id: string; lastSeenAt: number | null };
+/**
+ * pull の応答である。
+ * changes は自端末以外の行を連番の昇順で、nextSeq は次に渡す since である。
+ * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
+ * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
+ */
+export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean; peers: CloudPeer[]; now: number };
 export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
 export type FileKind = 'transcript' | 'config';
