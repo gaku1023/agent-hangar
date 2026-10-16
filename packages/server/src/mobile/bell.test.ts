@@ -173,6 +173,19 @@ describe('MobileBell', () => {
     });
   }
 
+  it('断られた後につなぎ先が一度無くなり、同じ先が戻ったら、もう一度試す', async () => {
+    const s = await setup({ reject: 401 });
+    s.bell.check();
+    await settle(() => s.w.attempts.length === 1 && s.bell.state() === 'idle');
+    // クラウドから抜けて、同じ先とトークンで入り直した。
+    s.setTarget(null);
+    s.bell.check();
+    s.w.state.reject = false;
+    s.setTarget({ url: s.w.url, headers: { authorization: 'Bearer pc-token', [COMPAT_HEADER]: String(COMPAT_VERSION) } });
+    s.bell.check();
+    await settle(() => s.w.attempts.length === 2 && s.bell.state() === 'open');
+  });
+
   for (const status of [503, 404, 426]) {
     it(`${status}（呼び鈴の無い Worker）では、待ちを上限の 60 秒にして張り直す`, async () => {
       const s = await setup({ reject: status });

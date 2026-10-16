@@ -108,6 +108,8 @@ export class MobileBell {
       this.drop();
       this.cancelRetry();
       this.key = null;
+      // つなぎ先が無くなったら、断られた覚えも捨てる。抜けて同じ先へ入り直したときに、もう一度試すため。
+      this.refusedKey = null;
       this.backoff = BELL_RETRY_MIN_MS;
       return;
     }
