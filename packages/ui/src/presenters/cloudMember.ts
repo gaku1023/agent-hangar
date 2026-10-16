@@ -21,7 +21,7 @@ export type CloudPcRow = { id: string; name: string; self: boolean; os: string; 
  * QR の中身（pairUrl、pairText）は ready の間だけ持つ。期限切れと参加の後は、薄くした QR を中身の無い図で描く。
  */
 export type CloudPhoneProps =
-  | { kind: 'idle' } | { kind: 'loading' } | { kind: 'expired' } | { kind: 'limited' } | { kind: 'notJoined' }
+  | { kind: 'idle' } | { kind: 'loading'; renew?: true } | { kind: 'expired' } | { kind: 'limited' } | { kind: 'notJoined' }
   | { kind: 'ready'; pairUrl: string; pairText: string; expiresAt: number }
   | { kind: 'paired'; id: string; name: string }
   | { kind: 'old'; compat: number | null }

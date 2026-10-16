@@ -794,10 +794,10 @@ describe('設定の連携の「足すもの」（1e）', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'ターンの意図と操作の短い説明を送る' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { liveHints: false } });
   });
-  it('「会話を Claude アプリに接続する」の切り替えが PATCH { remoteControl } を送る。説明に、claude.ai のログインのアカウントだけで効く旨がある', () => {
+  it('「Remote Control を付けて起動する」の切り替えが PATCH { remoteControl } を送る。説明に、claude.ai のログインのアカウントだけで効く旨がある', () => {
     const onAction = vi.fn();
     render(ui(at('integrations'), onAction));
-    const sw = screen.getByRole('switch', { name: '会話を Claude アプリに接続する' });
+    const sw = screen.getByRole('switch', { name: 'Remote Control を付けて起動する' });
     expect(sw).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByText(/claude\.ai でログインしたアカウントだけで有効です/)).toBeInTheDocument();
     fireEvent.click(sw);

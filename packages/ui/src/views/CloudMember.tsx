@@ -394,9 +394,9 @@ export function CloudRevokedBand(props: { m: CloudMemberProps; joinCommand: stri
   );
 }
 
-/** QR の段が開いている段。 */
-type PanelStage = Extract<CloudPhoneProps, { kind: 'ready' | 'expired' | 'paired' }>;
-const isPanel = (p: CloudPhoneProps): p is PanelStage => p.kind === 'ready' || p.kind === 'expired' || p.kind === 'paired';
+/** QR の段が開いている段。段を開いたまま新しい券を待つ間（loading の renew）も、段を畳まずに薄い図で待つ。 */
+type PanelStage = Extract<CloudPhoneProps, { kind: 'ready' | 'expired' | 'paired' }> | { kind: 'loading'; renew: true };
+const isPanel = (p: CloudPhoneProps): p is PanelStage => p.kind === 'ready' || p.kind === 'expired' || p.kind === 'paired' || (p.kind === 'loading' && p.renew === true);
 
 /** QR の一辺（px）。 */
 const QR_SIZE = 172;
@@ -431,7 +431,8 @@ function PairPanel(props: { p: PanelStage }) {
   const now = useNow(1000, { active: ready, sync: ready ? p.expiresAt : null });
   const leftMs = ready ? Math.max(0, p.expiresAt - now) : 0;
   const dead = !ready || leftMs <= 0;
-  const over = p.kind === 'paired' ? 'paired' : dead ? 'expired' : null;
+  // 新しい券を待つ間（loading）は重ねず、薄い図のまま待つ。
+  const over = p.kind === 'paired' ? 'paired' : p.kind === 'loading' ? null : dead ? 'expired' : null;
   // 段のはじめの描画で重なりがあるとき（期限切れのまま設定を開き直したなど）は動かさない。
   const shown = useRef(false);
   useEffect(() => { shown.current = true; }, []);
@@ -440,7 +441,7 @@ function PairPanel(props: { p: PanelStage }) {
     <div className="cm-pair-in">
       <div className="cm-qr-wrap">
         <div className="cm-qr" data-dead={dead ? 'true' : undefined} aria-hidden={dead ? 'true' : undefined}>
-          <QrCode text={ready ? p.pairUrl : QR_PLACEHOLDER} size={QR_SIZE} label={t('cloudMember.phone.qrLabel')} />
+          <QrCode text={ready ? p.pairUrl : QR_PLACEHOLDER} size={QR_SIZE} label={t('cloudMember.phone.qrLabel')} fallback={t('cloudMember.phone.qrTooLong')} />
         </div>
         {over === 'expired' && (
           <Appear key="expired" animate={shown.current} className="cm-qr-over">
@@ -469,12 +470,12 @@ function PairPanel(props: { p: PanelStage }) {
               <li>{t('cloudMember.phone.step2')}</li>
               <li>{t('cloudMember.phone.step3')}</li>
             </ol>
-            <div className="cm-timer">
+            {p.kind === 'loading' ? <div className="cm-wait" role="status">{t('cloudMember.phone.loading')}</div> : <div className="cm-timer">
               <span>{t('cloudMember.phone.left', { time: clock(leftMs) })}</span>
               <span className="cm-bar" role="progressbar" aria-label={t('cloudMember.phone.bar')} aria-valuemin={0} aria-valuemax={PAIR_TTL_MS / 1000} aria-valuenow={Math.ceil(leftMs / 1000)}>
                 <i style={{ width: `${Math.min(1, leftMs / PAIR_TTL_MS) * 100}%` }} />
               </span>
-            </div>
+            </div>}
             <Strip tone="warn"><p>{t('cloudMember.phone.warn')}</p></Strip>
           </>
         )}
@@ -490,7 +491,7 @@ function PairPanel(props: { p: PanelStage }) {
 /**
  * 「スマホ」の小見出しと「スマホを接続」（試作 A1）。PC の表の下に置き、押すと節の中に QR の段が開く（growIn、閉じると collapseOut）。
  * QR の中身は Runtime が取り、ready の間だけ持つ。参加したスマホは PC と同じ表に「スマホ」の札つきで並ぶ。
- * 会話を Claude アプリに接続する設定は「連携」にあるので、その旨を 1 行で案内する（試作 B1）。
+ * 「Remote Control を付けて起動する」の設定は「連携」にあるので、その旨を 1 行で案内する（試作 B1）。
  */
 export function CloudPhones(props: { m: CloudMemberProps }) {
   const emit = useEmit();
@@ -503,6 +504,10 @@ export function CloudPhones(props: { m: CloudMemberProps }) {
   if (open) last.current = p;
   const live = useRef(false);
   useEffect(() => { live.current = true; }, []);
+  // 節が外れたら（設定の画面を離れたなど）QR を閉じる。3 秒ごとの再読み込みを止め、QR の中身を Store から捨てる。
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
+  useEffect(() => () => { emitRef.current({ type: 'cloud.phone.close' }); }, []);
   const wasOpen = useRef(open);
   useLayoutEffect(() => {
     if (open && !wasOpen.current && live.current && panel.ref.current) growIn(panel.ref.current);
@@ -522,7 +527,7 @@ export function CloudPhones(props: { m: CloudMemberProps }) {
           <div className="cm-note">{t('cloudMember.phone.rcPointer')}</div>
         </>
       )}
-      {p.kind === 'loading' && <div className="cm-wait" role="status">{t('cloudMember.phone.loading')}</div>}
+      {p.kind === 'loading' && !open && <div className="cm-wait" role="status">{t('cloudMember.phone.loading')}</div>}
       {p.kind === 'old' && (
         <Strip tone="warn">
           <p>{p.compat !== null ? t('cloudMember.phone.old', { compat: p.compat }) : t('cloudMember.phone.oldUnknown')}</p>

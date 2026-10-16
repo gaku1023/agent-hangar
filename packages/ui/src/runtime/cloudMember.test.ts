@@ -2,10 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
 import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
+import { PAIR_TTL_MS as PAIR_TTL_SHOWN_MS } from '../presenters/cloudMember.ts';
 import { CLOUD_RESTART_MS, createCloudMemberRunner, PAIR_POLL_MS } from './cloudMember.ts';
-
-/** 券の有効期間（Worker の 5 分）。試験では expiresAt を NOW からこれだけ先に置く。 */
-const PAIR_TTL_SHOWN_MS = 300_000;
 
 const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' as const };
 const devices: CloudDevicesDto = { state: 'ok', devices: [], creator: false, message: null };
@@ -106,6 +104,18 @@ describe('スマホの接続の QR', () => {
     expect(JSON.stringify(x.get())).not.toContain('PAIRTEXT');
     await x.fire(PAIR_POLL_MS);
     expect(x.load).not.toHaveBeenCalled();
+  });
+
+  it('QR の段を開いたまま新しい QR を頼むと renew つきの loading にし（段を畳まない）、届いたら ready に戻る', async () => {
+    const x = phoneRig();
+    x.r.run({ op: 'pair' });
+    await flush();
+    x.tick(PAIR_TTL_SHOWN_MS);
+    await x.fire(PAIR_TTL_SHOWN_MS);
+    x.r.run({ op: 'pair' });
+    expect(x.get().phone).toEqual({ kind: 'loading', renew: true });
+    await flush();
+    expect(x.get().phone.kind).toBe('ready');
   });
 
   it('新しい QR を出すと、前の QR の予約は効かなくなる', async () => {

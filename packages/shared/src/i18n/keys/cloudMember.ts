@@ -104,6 +104,7 @@ export const cloudMemberKeys = {
   'cloudMember.phone.bar': [],
   'cloudMember.phone.warn': [],
   'cloudMember.phone.copy': [],
+  'cloudMember.phone.qrTooLong': [],
   'cloudMember.phone.qrLabel': [],
   'cloudMember.phone.expired': [],
   'cloudMember.phone.again': [],

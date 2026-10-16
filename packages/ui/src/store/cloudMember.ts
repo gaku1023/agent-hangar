@@ -31,11 +31,11 @@ export type LeaveStage = { kind: 'idle' } | { kind: 'busy' } | { kind: 'left'; r
 
 /**
  * スマホを接続する QR の段。loading は券を取っている、ready は QR を出している（known は出した時点で参加していたスマホの ID。一覧がまだ無ければ null で、最初に届いた一覧を基準にする）、
- * expired は 5 分を過ぎた、paired は QR を出している間に新しいスマホが参加した、old は Worker の版が足りない、limited は券の取りすぎ、notJoined は同期に参加していない、failed はそれ以外の失敗。
+ * loading の renew は、QR の段を開いたまま新しい券を待っている（段を畳まない）。expired は 5 分を過ぎた、paired は QR を出している間に新しいスマホが参加した、old は Worker の版が足りない、limited は券の取りすぎ、notJoined は同期に参加していない、failed はそれ以外の失敗。
  * QR の中身（pairUrl と pairText、スマホ用の暗号鍵を含む）を持つのは ready の間だけで、閉じる、期限が切れる、参加する、のどれでも捨てる。
  */
 export type PhoneStage =
-  | { kind: 'idle' } | { kind: 'loading' }
+  | { kind: 'idle' } | { kind: 'loading'; renew?: true }
   | { kind: 'ready'; pairUrl: string; pairText: string; expiresAt: number; known: string[] | null }
   | { kind: 'expired' } | { kind: 'paired'; id: string; name: string }
   | { kind: 'old'; compat: number | null } | { kind: 'limited' } | { kind: 'notJoined' } | { kind: 'failed'; message: string };
@@ -105,7 +105,8 @@ export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): Clo
     case 'leave.done': return { ...s, leave: { kind: 'left', revokeError: e.revokeError } };
     case 'leave.failed': return { ...s, leave: { kind: 'failed', failure: e.failure } };
     case 'leave.reset': return { ...s, leave: { kind: 'idle' } };
-    case 'phone.loading': return { ...s, phone: { kind: 'loading' } };
+    // QR の段を開いたまま新しい QR を頼んだとき（期限切れの「新しい QR を出す」など）は renew を立て、段を畳まずに待つ。
+    case 'phone.loading': return { ...s, phone: s.phone.kind === 'ready' || s.phone.kind === 'expired' || s.phone.kind === 'paired' ? { kind: 'loading', renew: true } : { kind: 'loading' } };
     case 'phone.loaded': return { ...s, phone: phoneOf(e.pairing, s.devices) };
     case 'phone.failed': return { ...s, phone: { kind: 'failed', message: e.message } };
     case 'phone.expired': return s.phone.kind === 'ready' ? { ...s, phone: { kind: 'expired' } } : s;

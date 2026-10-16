@@ -110,7 +110,7 @@ export type RetentionSettingsProps = { days: number; options: { value: string; l
  * 連携の「hangar が起動する Claude Code に足すもの」（試作 1 節の推す案 B）。
  * 2 つのスイッチ（askStatusAtEnd、liveHints）と既定のモデル（null は Claude Code の既定）と、足す指示の全文。
  */
-export type InjectionSettingsProps = { askStatusAtEnd: boolean; liveHints: boolean; /** 会話を Claude アプリに接続する（--remote-control）。この項目を知らない古いサーバは返さないので入りとして読む。 */ remoteControl: boolean; defaultModel: string | null; full: InjectionPart[] };
+export type InjectionSettingsProps = { askStatusAtEnd: boolean; liveHints: boolean; /** Remote Control を付けて起動する（--remote-control）。この項目を知らない古いサーバは返さないので入りとして読む。 */ remoteControl: boolean; defaultModel: string | null; full: InjectionPart[] };
 
 /** アカウントに付けられる 5 色（#rrggbb）。サーバは何色でも受けるが、画面からはここから選ぶ。 */
 export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f'];
