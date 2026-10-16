@@ -208,7 +208,7 @@ describe('スマホの接続（試作 A1）', () => {
     expect(qr.tagName.toLowerCase()).toBe('svg');
     expect(qr.querySelector('path')?.getAttribute('d')).toMatch(/^M\d+ \d+h1v1h-1z/);
     expect(screen.getByText('残り 5:00')).toBeInTheDocument();
-    expect(screen.getByText(/この QR を人に見せたり、写真で送ったりしないでください/)).toBeInTheDocument();
+    expect(screen.getByText(/この QR と「文字列をコピー」でコピーした文字列は同じ中身です。どちらも人に見せたり、写真やメッセージで送ったりしないでください/)).toBeInTheDocument();
     expect(screen.getByText('スマホのカメラで QR を読む')).toBeInTheDocument();
     // QR を出している間は見出しのボタンを隠す（閉じるか期限が切れたら戻る）。
     expect(screen.queryByRole('button', { name: 'スマホを接続' })).toBeNull();

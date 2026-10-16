@@ -102,7 +102,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.phone.step3': 'Safari の共有から「ホーム画面に追加」',
   'cloudMember.phone.left': '残り {time}',
   'cloudMember.phone.bar': 'QR の残り時間',
-  'cloudMember.phone.warn': 'この QR を人に見せたり、写真で送ったりしないでください。読んだスマホは、受信箱を見て、全部の PC で会話を始められるようになります。',
+  'cloudMember.phone.warn': 'この QR と「文字列をコピー」でコピーした文字列は同じ中身です。どちらも人に見せたり、写真やメッセージで送ったりしないでください。読んだスマホは、受信箱を見て、全部の PC で会話を始められるようになります。',
   'cloudMember.phone.copy': '文字列をコピー',
   'cloudMember.phone.qrTooLong': 'QR に収まりませんでした。「文字列をコピー」を使って、スマホの hangar に貼り付けてください。',
   'cloudMember.phone.qrLabel': 'スマホを接続する QR',
