@@ -44,8 +44,14 @@ export const MAX_ACTIVE_PHONES = 10;
 export const LAUNCH_RATE = { max: 10, windowMs: 10 * 60_000 } as const;
 /** 起動の依頼の行を残す期間。過ぎた行は、依頼を出すついでに消す。 */
 export const LAUNCH_KEEP_MS = 7 * 24 * 60 * 60_000;
-/** 起動の依頼と応答の本文の上限。中身は権限モードとモデルと最初の指示ぐらいなので、封をして base64 にしても収まる。 */
-export const MAX_LAUNCH_BODY_BYTES = 16 * 1024;
+/**
+ * 起動の依頼の本文の上限。
+ * 最初の指示は MOBILE_PROMPT_MAX（8,000 字）までで、日本語なら UTF-8 で約 24 KB になる。
+ * 封をして base64url にすると 4/3 倍に膨らみ約 33 KB になるので、JSON の枠と残りの欄に余裕を見て 48 KiB にする。
+ */
+export const MAX_LAUNCH_BODY_BYTES = 48 * 1024;
+/** 応答の本文の上限。中身は会話の ID と題か、断った理由と 300 字までの説明なので、封をしても収まる。 */
+export const MAX_ANSWER_BODY_BYTES = 16 * 1024;
 /** 依頼の ID の文字数の上限。スマホは UUID（36 字）を振る。 */
 const MAX_LAUNCH_ID_CHARS = 64;
 /** 宛先の端末の ID の文字数の上限。 */
@@ -315,8 +321,8 @@ const isAnswerBody = (v: unknown): v is { ok: boolean; sealedAnswer: string } =>
  * 自分が受け取った（claimed の）自分宛ての行だけを started か failed にする。それ以外は 409 である。
  */
 mobileApp.post('/launches/:id/answer', authMiddleware(), requireKind('pc'), async (c) => {
-  const read = await readLimitedJson(c, MAX_LAUNCH_BODY_BYTES);
-  if (read.tooLarge) return c.json({ error: 'payload too large', limit: MAX_LAUNCH_BODY_BYTES }, 413);
+  const read = await readLimitedJson(c, MAX_ANSWER_BODY_BYTES);
+  if (read.tooLarge) return c.json({ error: 'payload too large', limit: MAX_ANSWER_BODY_BYTES }, 413);
   if (!isAnswerBody(read.value)) return c.json({ error: 'invalid body' }, 400);
   const body = read.value;
   const device = c.get('device');

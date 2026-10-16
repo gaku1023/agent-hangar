@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, LAUNCH_TTL_MS, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse, type PullChangesResponse, readCloudLimit } from '@agent-hangar/shared';
-import { LAUNCH_KEEP_MS, LAUNCH_RATE, MAX_LAUNCH_BODY_BYTES } from '../src/mobile.ts';
+import { aadLaunch, COMPAT_HEADER, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_PROMPT_MAX, seal, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse, type PullChangesResponse, readCloudLimit } from '@agent-hangar/shared';
+import { LAUNCH_KEEP_MS, LAUNCH_RATE, MAX_ANSWER_BODY_BYTES, MAX_LAUNCH_BODY_BYTES } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -107,17 +107,38 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     expect(await countRows()).toBe(0);
   });
 
-  it('形の違う本文は 400、16 KiB を超える本文は 413', async () => {
+  it('形の違う本文は 400、48 KiB を超える本文は 413', async () => {
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
-    expect(MAX_LAUNCH_BODY_BYTES).toBe(16 * 1024);
+    expect(MAX_LAUNCH_BODY_BYTES).toBe(48 * 1024);
     for (const bad of [{}, { id: '', targetDevice: 'pc-a', sealed: 's' }, { id: 'x', targetDevice: 'pc-a', sealed: '' }, { id: 'x', targetDevice: 1, sealed: 's' }, { id: 'x'.repeat(65), targetDevice: 'pc-a', sealed: 's' }]) {
       expect((await post(phone.token, '/m/launches', bad)).status, JSON.stringify(bad).slice(0, 40)).toBe(400);
     }
     expect((await send('/m/launches', { method: 'POST', headers: auth(phone.token, { 'content-type': 'application/json' }), body: 'not json' })).status).toBe(400);
-    expect((await launch(phone.token, { id: 'big', targetDevice: 'pc-a', sealed: 'x'.repeat(16 * 1024) })).status).toBe(413);
-    expect((await launch(phone.token, { id: 'ok', targetDevice: 'pc-a', sealed: 'x'.repeat(15 * 1024) })).status).toBe(201);
+    expect((await launch(phone.token, { id: 'big', targetDevice: 'pc-a', sealed: 'x'.repeat(48 * 1024) })).status).toBe(413);
+    expect((await launch(phone.token, { id: 'ok', targetDevice: 'pc-a', sealed: 'x'.repeat(47 * 1024) })).status).toBe(201);
     expect(await countRows()).toBe(1);
+  });
+
+  it('3 バイトの字で上限いっぱい（MOBILE_PROMPT_MAX 字）の最初の指示を封じた依頼も受け取る', async () => {
+    const pc = await joinPc('pc-a');
+    const phone = await joinPhone(pc);
+    const key = await deriveMobileKey(SECRET);
+    const payload = { v: 1, createdAt: Date.now(), projectId: 'p'.repeat(128), scratch: false, accountId: 'a'.repeat(128), permissionMode: 'bypassPermissions', model: 'claude-sonnet-4-5', prompt: 'あ'.repeat(MOBILE_PROMPT_MAX) };
+    const body = { id: '00000000-0000-4000-8000-000000000000', targetDevice: 'pc-a', sealed: await seal(key, aadLaunch('00000000-0000-4000-8000-000000000000', 'pc-a'), payload) };
+    // 16 KiB には収まらない大きさである（前の上限で断られていた）。
+    expect(new TextEncoder().encode(JSON.stringify(body)).byteLength).toBeGreaterThan(16 * 1024);
+    expect((await launch(phone.token, body)).status).toBe(201);
+  });
+
+  it('応答の本文の上限は 16 KiB のまま', async () => {
+    expect(MAX_ANSWER_BODY_BYTES).toBe(16 * 1024);
+    const pc = await joinPc('pc-a');
+    const phone = await joinPhone(pc);
+    expect((await launch(phone.token, { id: 'l-1', targetDevice: 'pc-a', sealed: 's' })).status).toBe(201);
+    expect((await claim(pc, 'l-1')).status).toBe(200);
+    expect((await answer(pc, 'l-1', { ok: true, sealedAnswer: 'x'.repeat(16 * 1024) })).status).toBe(413);
+    expect((await answer(pc, 'l-1', { ok: true, sealedAnswer: 'x'.repeat(15 * 1024) })).status).toBe(200);
   });
 
   it('同じスマホの 11 件目（10 分以内）は 429、同じ id の再送は数えない', async () => {

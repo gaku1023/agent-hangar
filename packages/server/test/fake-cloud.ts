@@ -79,8 +79,10 @@ export const MAX_ROW_ID_CHARS = 64;
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
 /** PUT /m/feed の本文の上限（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES の写し）。 */
 export const MAX_FEED_BODY_BYTES = 96 * 1024;
-/** 起動の依頼とその答えの本文の上限（packages/cloud/src/mobile.ts の MAX_LAUNCH_BODY_BYTES の写し）。 */
-export const MAX_LAUNCH_BODY_BYTES = 16 * 1024;
+/** 起動の依頼の本文の上限（packages/cloud/src/mobile.ts の MAX_LAUNCH_BODY_BYTES の写し）。 */
+export const MAX_LAUNCH_BODY_BYTES = 48 * 1024;
+/** 応答の本文の上限（packages/cloud/src/mobile.ts の MAX_ANSWER_BODY_BYTES の写し）。 */
+export const MAX_ANSWER_BODY_BYTES = 16 * 1024;
 /** 1 回の pull に載せる起動の依頼の数（packages/cloud/src/changes.ts の PULL_LAUNCH_LIMIT の写し）。 */
 export const PULL_LAUNCH_LIMIT = 50;
 
@@ -331,6 +333,7 @@ export class FakeCloudClient implements CloudClient {
    * 置いた時刻は Worker の時計で、同じ ID の再送は行を増やさない。
    */
   postLaunch(l: MobileLaunchIn): void {
+    if (ENC.encode(JSON.stringify(l)).byteLength > MAX_LAUNCH_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
     if (this.store.launches.has(l.id)) return;
     this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null });
   }
@@ -352,7 +355,7 @@ export class FakeCloudClient implements CloudClient {
   async answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> {
     this.guard('answerLaunch', id, ok, sealedAnswer);
     if (this.store.workerCompat < MOBILE_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
-    if (ENC.encode(JSON.stringify({ ok, sealedAnswer })).byteLength > MAX_LAUNCH_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
+    if (ENC.encode(JSON.stringify({ ok, sealedAnswer })).byteLength > MAX_ANSWER_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
     if (sealedAnswer.length === 0) throw new CloudError(400, errorBody('invalid body'));
     const l = this.store.launches.get(id);
     if (!l || l.targetDevice !== this.deviceId || l.status !== 'claimed') throw new CloudError(409, errorBody('conflict'));
