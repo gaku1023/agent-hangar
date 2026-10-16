@@ -448,7 +448,7 @@ UiAction の一覧は型が正である。
 `packages/shared/src/action.ts` の `UiAction` を見る。
 名前は `対象.動詞` で揃える。
 
-他端末で動いているセッションに対して View が出すのは `session.resumeHere` だけで、引き継ぎの握手の UiAction は持たない（後述）。
+他端末で動いているセッションに対して View が出すのは、`session.resumeHere`（確認の 1 枚を開く）と、停止を頼んで引き継ぐ `session.takeover.start`（`force` つき）、`session.takeover.extend`、`session.takeover.cancel` である（「他端末セッションのロックと『この PC で再開』」）。
 
 `transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
 末尾へ送るスムーズスクロールの途中では発行しない。
@@ -645,8 +645,9 @@ create table runs (
   kind text not null check (kind in ('start','resume','fork')),
   tmux_name text not null, pid integer,
   launch_params text not null,                    -- JSON
-  started_at integer not null, ended_at integer, end_reason text,
+  started_at integer not null, ended_at integer, end_reason text,   -- 'exited' | 'killed' | 'lost' | 'parked' | 'taken_over'
   heartbeat_at integer not null,
+  live_status text,                               -- 持ち主が heartbeat に載せる最後の状態（'busy' | 'idle' | 'waiting'）。版 28
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 
@@ -699,6 +700,7 @@ create table artifact_versions (
 
 -- 引き継ぎの握手のために v1 で作った表。握手は作らないと決め、共有テーブルの一覧（SHARED_TABLES）からも外した。
 -- 表はマイグレーションに残るが、誰も書かず、同期でも運ばない。
+-- 2026-10-16 に「停止を頼んで引き継ぐ」を入れたが、この表は使わない。頼みと応答は版 28 の takeovers と takeover_answers で運ぶ（下）。
 create table takeover_requests (
   id text primary key, run_id text not null references runs(id),
   from_device text not null, requested_at integer not null,
@@ -718,6 +720,31 @@ create table config_snapshots (
   bundle_size integer not null,
   item_count integer not null,
   manifest text,                                  -- 目録 [[項目の id, 指紋, 大きさ], …] の JSON。96 KiB を超えるときは null（束の中に同じ目録がある）
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+```
+
+ほかの PC で動いている会話を止めて引き継ぐための 2 つの共有表は、マイグレーション version 28 で足した（2026-10-16）。
+どちらも `SHARED_TABLES` の末尾に足してある。
+同期する表なので `check` も外部キーも付けない。
+後の版が値を足しても古い PC の適用が落ちないようにするためで、頼みは相手の行より先に届きうる一時の行だからでもある。
+
+```sql
+-- 引き継ぐ側が書く「止めて」の頼み。書き手は頼む側の PC だけ。
+create table takeovers (
+  id text primary key, session_id text not null, run_id text not null,   -- run_id は止めてほしい run（頼まれた側の PC の run）
+  target_device text not null, from_device text not null, requested_at integer not null,
+  mode text not null,                             -- 'ask'（返事を待つ）| 'force'（待たずに引き継ぐと決めた印）
+  cancelled_at integer,                           -- 取り下げた時刻。行は残す
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+create index takeovers_target on takeovers(target_device, run_id);
+-- 頼まれた側が書く応答。主キーは頼みの id なので、頼み 1 件に応答は 1 行。書き手は頼まれた側の PC だけ。
+create table takeover_answers (
+  ask_id text primary key, run_id text not null,
+  result text not null,                           -- 'stopped'（頼まれて止めた）| 'not_running'（届いたときすでに動いていなかった）
+  answered_at integer not null,
+  transcript_sha256 text, transcript_size integer, -- 止めたあとに上げた最後の本文の版。上げていなければ null
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 ```
@@ -1564,8 +1591,10 @@ pid だけで見ないのは、OS が pid を別のプロセスに使い回す�
 画面には起動と同じ `run.started`（タブの一覧つき）を配り、開いているセッションの画面はターミナルにつなぎ直す。
 中断の群に入っていたら、そこから外す（`forgetInterruption`）。
 `killed` と `parked` は hangar が止めにいったものなので生き返らせない。
+ほかの PC から止めてほしいと頼まれた run（取り下げられていない `takeovers` の `run_id`）と、ほかの PC が後から始めた run があるセッションの古い run も生き返らせない（終わった run も数える）。
+引き継がれた会話を手元で開き直すと、二つの PC で同じ会話が動くためである。
 閉じたときに MCP の設定と秘密は消しているので、生き返った claude からは hangar の MCP を使えない。秘密は作り直せないので、これは受け入れる。
-ふつうは `exited` で、区切り（Done、Archived）を付けて止めたものは `parked`、利用者が止めたものは `killed` である。
+ふつうは `exited` で、区切り（Done、Archived）を付けて止めたものは `parked`、利用者が止めたものは `killed`、ほかの PC から頼まれて止めたものは `taken_over` である。
 自動の停止（`sessions/park.ts` の `ParkWatch`）は、Done か Archived を付けたセッションの休みが 10 秒続いたら Claude を止める。
 Paused は止めない（2026-10-13 の決定。それまでは Paused も止めていた）。
 戻ってくる会話なので Claude を残し、一覧でも実行中のまま数える（shared の `isParked` が Done と Archived だけを真にする）。
@@ -4147,7 +4176,9 @@ hangar が自動で付けた状態は、札の頭に ✦ を置き、説明は�
 理由は presenter（`sessionActions`）が再開とフォークを閉じている事実から言う。
 押せない主の操作は `disabled` ではなく `aria-disabled` にし、理由を title と読み上げの説明に持たせる。
 乗せたときの吹き出しとキーボードで、理由に届くようにするためである。
-生きているロックの「この PC で再開」は、Ruling 14 のとおり閉じたままにする（試作は押せる形で描いていたが、ロックの規則を優先した）。
+生きているロックの「この PC で再開」は押せる（2026-10-16）。
+押すと、相手の claude に停止を頼んでから引き継ぐ確認の 1 枚が出る。
+再開とフォークは閉じたままで、理由を添える。
 メニューは menu ボタンの作法に従い、↓ と Enter と Space で最初の項目、↑ で最後の項目を開き、開いている間は ↑ ↓（端で回る）、Home、End で移り、Enter と Space で選び、Esc で閉じてボタンへ戻る（`views/primitives/MenuButton.tsx`）。
 名前は見出しにだけ出し、要約の題は出さない（C1）。
 
@@ -4313,8 +4344,8 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 要約器は「OpenAI 互換 / モデル名」「claude / モデル名」と言う。
 source_id の `lmstudio` は LM Studio だけだった頃の名前のまま残したが、中身は OpenAI 互換の要約器なので、画面には LM Studio と出さない（`summarizerLabel`）。
 他の PC で実行中なら、見出しの名前の横に「MacBook で実行中」（heartbeat が 2 分より古ければ「MacBook から応答がありません」）の札を出し、最終確認の時刻を title と読み上げに持たせ、再開とフォークは理由を添えて押せなくする。
-手元に本文が無いセッションと、ロックが `stale` になったセッションでは「この PC で再開」を押せる。
-「引き継ぐ」は作らなかった。
+手元に本文が無いセッションと、他の PC のロックがあるセッションでは「この PC で再開」を押せる（ロックが生きていれば、押すと停止を頼む確認の 1 枚が出る）。
+停止を頼んで引き継ぐ操作は、2026-10-16 に入れた（「他端末セッションのロックと『この PC で再開』」）。
 
 ターミナルの接続はタブごとに持ち、思いがけず切れたら、そのタブだけを 1 秒、2 秒、4 秒と間を延ばし、30 秒を上限にしてつなぎ直す（`runtime/terminals.ts`）。
 本体の WebSocket の再接続を待たない。
@@ -5975,7 +6006,7 @@ D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
 hangar の部品のうち、別々に上がりうるのは、端末どうし（同期で Worker を挟む）、端末と Worker、殻と 4177 で動いている既存のサーバである。
 UI とサーバと CLI は同じ束で配るので、版番号を持たない。
-別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 5。版 3 は、Worker が設定の束の行を受け取る版。版 4 は、設定の同期の旧実装を消した版で、段 4 の PR 18 が Worker の下限を 4 に上げた。版 5 は、Worker が PC の一覧と解除の口を持ち、殻が参加と解除の命令を持つ版）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
+別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 6。版 3 は、Worker が設定の束の行を受け取る版。版 4 は、設定の同期の旧実装を消した版で、段 4 の PR 18 が Worker の下限を 4 に上げた。版 5 は、Worker が PC の一覧と解除の口を持ち、殻が参加と解除の命令を持つ版。版 6 は、Worker が引き継ぎの頼みと応答の行を受け取る版）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
 古い版のための分岐を部品ごとに抱える代わりに、下限より古い相手とは話さずに、理由を出して止まる。
 
 **見出し。**
@@ -6044,7 +6075,11 @@ Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端�
 | 3 | Worker が設定の束の行（共有表 `config_snapshots`）を受け取る。端末は Worker の版が 3 に届くまで束の行を送らない | 上げない |
 | 4 | 設定の同期の旧実装を消す（項目ごとに R2 の `config/<端末>/<相対パス>` へ置く方式）。Worker は旧い置き場を掃除する | `MIN_DEVICE_COMPAT` を 4 に（`MIN_WORKER_COMPAT` は 1 のまま） |
 | 5 | Worker が PC の一覧（`GET /devices`）と解除（`POST /devices/:id/revoke`）を持ち、解除した PC の端末トークンを 401 の `revoked` で断る。殻は参加と解除の命令（`cloud_join_plan`、`cloud_join`、`cloud_revoke`、`cloud_leave`）を持ち、画面がそれを呼ぶ。端末は、Worker の版が 5（`DEVICE_ADMIN_MIN_WORKER_COMPAT`）に届くまで、一覧と解除を「Worker の更新が要る」と出す | 上げない |
+| 6 | Worker が引き継ぎの頼みと応答の行（共有表 `takeovers` と `takeover_answers`）を受け取る。端末は、Worker の版が 6（`TAKEOVER_MIN_WORKER_COMPAT`）に届くまで、この 2 表の行を書かない | 上げない |
 
+版 6 で下限を上げないのは、版 5 までの端末が 2 表を知らない表として捨てるだけで、ほかの表は今までどおり運べるからである。
+古い PC には頼みが届かず、頼んだ側は 90 秒の打ち切りの経路に落ちる（「他端末セッションのロックと『この PC で再開』」）。
+版 5 までの Worker は、2 表の行を含む push を 400 で丸ごと断るので、端末は Worker の版が 6 に届くまで行を書かない。
 版 2 で下限を両方とも上げたのは、版 1 と版 2 が混ざると名前とメモが消えるからである。
 版 1 の端末は `session_notes` を知らない表として捨て、名前とメモを `sessions` の payload に載せる。版 2 の端末はその 2 つの列を知らない列として捨てる。
 版 1 の Worker は、共有テーブルの一覧に `session_notes` を持たず、その行を含む push を丸ごと断る。
@@ -6149,9 +6184,14 @@ heartbeat が 2 分（`LOCK_STALE_MS`）より古いときは、ロックを解�
 古い heartbeat でロックを解いてしまうと、相手がまだ走っているのに手元から再開できてしまうからである。
 UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき「<端末名> が応答がありません」と表示する。
 ロックされている間は再開とフォークを止める。
-`stale` のときだけは「この PC で再開」を押せるようにする。
+「この PC で再開」は、ロックがあっても押せる。
+生きているロックでは、相手の claude に停止を頼み、その最後の本文が降りてから引き継ぐ（後述の「停止を頼んで引き継ぐ」）。
+`stale` のときは、頼まずにそのまま引き継げる。
 相手が落ちて heartbeat だけが残った状態を、行き止まりにしないためである。
 heartbeat は 30 秒ごとの push で更新する。
+heartbeat の行には、持ち主が最後に見た run の状態（`runs.live_status`、`busy`、`idle`、`waiting` のどれか。版 28）も載せる。
+ほかの PC が「作業中」かどうかを確認の 1 枚に出すためで、状態が変わるたびには書かない（書き込みを増やさない）。
+古い PC は知らない列として捨てる。
 heartbeat の書き直しはこの PC の画面へは配らない（`run.upsert` を出さない）。この PC の画面は自分の run の heartbeat を読まないので、配ると待機中も 30 秒ごとに run の数だけ画面が描き直されるためである（2026-10-14、0.6.1）。
 
 「この PC で再開」は、本文を写す前に、この PC で起こせるか（再開の cwd の読み替えが決まるか）を確かめる（`RunManager.resumeCwdOf`）。決まらなければ写さずに断る。写してから再開で断ると、`~/.claude` に本文だけが残るためである。
@@ -6160,7 +6200,11 @@ heartbeat の書き直しはこの PC の画面へは配らない（`run.upsert`
 画面（0.6.1、試作 proto-crossdevice の推す案）：
 
 - 「この PC で再開」を押すと、確認に出すものを取りに行き（`session.resumeHere.open`、`api.resumeHerePlan`）、確認の 1 枚を毎回出す（`ConfirmRequest` の `resumeHere`、`views/ConfirmDialog.tsx`）。前の PC とこの PC の 2 枚のカード（名前、OS、作業フォルダ）を矢印でつなぎ、前の PC には最後に使った日時を添える。ブランチは出さない。下に黄の帯で「プロジェクトのファイル、未コミットの変更、開発環境（道具、環境変数、秘密の値）は同期されません。」「同期されるのは会話のトランスクリプトと hangar の記録だけです。」を出す。ボタンは「この PC で再開」で、承諾で `session.resumeHere` を送る。手元の本文の方が小さいときの上書きの確認は、その後に今までどおり出る。
-- この PC にプロジェクトのフォルダが無い（`ProjectDto.unresolved` がある）ほかの PC の会話は、「この PC で再開」を押せなくする（`presenters/resumeHere.ts` の `resumeHereOf`）。セッション画面では見出しの下に理由「この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。」を常に 1 行出し、同じ行に「場所を指定」（`project.resolve.open`）を置く。一覧の行の「⋯」（セッションのメニュー）では、ほかの PC の会話にだけ先頭に「この PC で再開」を置き、押せないときは理由を項目の下に出す。ほかの PC で実行中（生きたロック）のときは、そちらを先に理由にする。プロジェクトに属さない会話とスクラッチは、場所では止めない。
+- この PC にプロジェクトのフォルダが無い（`ProjectDto.unresolved` がある）ほかの PC の会話は、「この PC で再開」を押せなくする（`presenters/resumeHere.ts` の `resumeHereOf`）。
+  セッション画面では見出しの下に理由「この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。」を常に 1 行出し、同じ行に「場所を指定」（`project.resolve.open`）を置く。
+  一覧の行の「⋯」（セッションのメニュー）では、ほかの PC の会話にだけ先頭に「この PC で再開」を置き、押せないときは理由を項目の下に出す。
+  ほかの PC で実行中（生きたロック）でも、この理由で止めるのは同じである。
+  プロジェクトに属さない会話とスクラッチは、場所では止めない。
 - この流れの文の「他の PC」は「ほかの PC」にそろえた。OS は `devices.platform` を辞書（`common.os.*`）で macOS、Windows、Linux にする（shared の `osName`）。
 
 「この PC で再開」は、手元に同じセッションの本文があり、それが降ろす本文より**小さいときだけ**確認を出す。
@@ -6178,14 +6222,99 @@ heartbeat の書き直しはこの PC の画面へは配らない（`run.upsert`
 - 前の PC の作業ディレクトリ（確認の 1 枚の前の PC のパスと、引き継ぎの段の `prevPath`）は、会話を作った PC の `sessions.cwd` ではなく、前の PC の最後の run から取る（`runs/handover.ts` の `prevPathOf`）。`runs` は cwd を持たないので、その PC から降ろした写しの末尾の cwd を使い、その PC の `project_roots` の場所の下にあるときだけ採る。採れなければ、前の PC が会話を作った PC なら `sessions.cwd`、そうでなければその PC の `project_roots` の場所にする。
 - 再開に使うアカウントは、この PC の run だけから引く（`RunAccounts.accountFor`、`accountOfSession` と `sessionAccounts` の `deviceId`）。アカウントの id と名前は PC ごとの設定なので、ほかの PC の run のアカウントは引かない。この PC に run が無ければ、この PC でいま選んでいるアカウントにする。
 
-**引き継ぎは作らない。**
-2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞った。
-段 1（2026-10-07）で、型、UiAction、ServerEvent を消し、`takeover_requests` を共有テーブルの一覧からも外した。
-表は v1 のマイグレーションに残るが、誰も書かず、同期でも運ばない。
-`EndReason` に `taken_over` は足していない。
-引き継ぎが無いので、他端末の run はこちらの操作では止まらない。
-「この PC で再開」は本文を降ろして手元で新しい run を立てるだけなので、同じセッションの本文が 2 か所で伸びうる。
-この枝分かれは受け入れる。
+**停止を頼んで引き継ぐ（2026-10-16）。**
+2026-09-19 の判断では、ロックの表示と「この PC で再開」までに絞り、引き継ぎは作らなかった。
+段 1（2026-10-07）で、型、UiAction、ServerEvent を消し、`takeover_requests` を共有テーブルの一覧からも外した（表は v1 のマイグレーションに残り、誰も書かない）。
+その形では、他端末の run がこちらの操作では止まらず、同じセッションの本文が 2 か所で伸びた。
+そこで、頼まずに奪うのではなく、相手の claude に停止を頼み、その最後の本文が降りてから引き継ぐ形で入れた。
+握手は新しい 2 つの共有表（上の `takeovers` と `takeover_answers`、版 28）で運ぶ。
+`takeover_requests` は使わない。
+`EndReason` には `taken_over` を足した。
+
+- **書き手は 1 台ずつ。**
+  `takeovers` は頼む側の PC だけが書き（取り下げと `force` への切り替えも同じ行の書き直し）、`takeover_answers` は頼まれた側の PC だけが書く。
+  行が別なので、頼む側の取り下げと相手の応答が行き違っても消し合わない。
+  応答の主キーは頼みの id である。
+  行は書いた PC が、`updated_at` が 30 日（`TAKEOVER_ROW_TTL_MS`）より古くなったら論理削除する。
+  ほかの PC が書いた行は触らない。
+  刈るのはサーバの起動のときである（`pruneTakeoverRows`）。
+- **頼む側（`sync/takeover.ts` の `TakeoverService`）。**
+  待ちの状態は会話ごとにメモリだけに持ち、サーバを立て直せば消える。
+  段は `TakeoverStage`（`asking`、`waiting`、`receiving`、`ready`、`timeout`、`cancelled`）で、`takeover.update`（`TakeoverDto`：`sessionId`、`deviceName`、`stage`、`startedAt`、`deadline`）として画面へ配る。
+  経路は `POST /api/sessions/:id/takeover`（本文の `force`）、`GET` 同、`POST /api/sessions/:id/takeover/extend`、`DELETE /api/sessions/:id/takeover`（取り下げ）である。
+  - 始め方。
+    ロックが無ければ行を書かずに `ready`。
+    `stale` か `force` なら `force` の頼みを書いて送り、`ready`。
+    生きたロックでは `ask` を書いて送り（`asking`）、送り終えたら `waiting` に進む。
+  - 頼みを運べるか（`canCarryTakeover`）は、同期が設定済みで、一時停止でも、版、解除、上限で止まってもおらず、Worker の版が 6（`TAKEOVER_MIN_WORKER_COMPAT`）に届いているときである。
+    運べないときは行を書かない。
+    書くと、版 5 までの Worker は push 全体を 400 で断り、ほかの表の同期まで止まるためである。
+  - 運べないとき、生きたロックでは 90 秒を待たずにすぐ `timeout` にする。
+    運べないまま `force` で進めた分は行が書けないので、`TakeoverService` が `forcedWithoutRow` のメモリの印（会話と run の組）で `POST /resume-here` を通す。
+    サーバの再起動で消え、もう一度押せば立つ。
+  - 待つ間は 5 秒ごと（`TAKEOVER_POLL_MS`）に、行と本文の写しを 1 回ずつ取りに行く。
+    ふだんの pull の周期（30 秒）は変えない。
+    応答や台帳の行が届いたときも確かめ直す。
+  - 応答の版と台帳の突き合わせ。
+    応答に `transcript_sha256` が無ければ（相手に上げた本文が無い）そのまま `ready`。
+    あれば、手元の `file_sync` の台帳（`transcripts/<相手>/<uuid>.jsonl.gz`）の sha256 と大きさが応答と同じになるまで `receiving` のまま待つ。
+    応答が届いても本文が降りきる前に再開すると、古い本文のまま起こしてしまうためである。
+  - 打ち切りは 90 秒（`TAKEOVER_TIMEOUT_MS`）で、`timeout` にする。
+    「もう少し待つ」（`extend`）は、いまから同じ長さを足して待ち直す。
+    取り下げ（`cancel`）は頼みに `cancelled_at` を書いて送り、状態を捨てて `cancelled` を 1 度配る。
+    取り下げた後に届いた応答は、状態が無いので何も起こさない。
+- **頼まれた側（`sync/takeoverResponder.ts` の `TakeoverResponder`）。**
+  頼みの行が pull で届くと、この PC あてで、取り下げも応答もされていないものを古い順に扱う（`asksForMe`）。
+  重なった呼び出しは 1 本にまとめ、同じ頼みを並行して 2 度扱わない。
+  - 頼みの run がこの PC の生きた run なら、止める直前に、その run の端末に接続中の画面があれば 1 行を流し（`sync.takeover.paneNote`、「[hangar] <端末名> に引き継がれたため、この PC の claude を停止しました。」）、`kill(runId, 'taken_over')` で止める。
+  - claude は終わる直前まで本文に書き足すので、本文を上げ、5 秒（`FLUSH_AGAIN_MS`）置いてもう 1 度上げる（run が終わったときの上げ方と同じ）。
+  - そのあと、台帳の本文の版（sha256 と大きさ）を載せて応答（`stopped`）を書き、すぐ送る。
+    動いていなかったときは `not_running` で答える。
+    止められなかった頼みは答えずに残し、次の走査で、動いていなければ `not_running` になる。
+  - サーバの起動のときにも 1 度走査する。
+    Hangar が止まっていた間に届いた頼みと、再起動のあとも tmux に残っている奪われた claude を、ここで止める。
+- **`POST /api/sessions/:id/resume-here` の見直し。**
+  生きたロックのある会話は、頼まずには引き継げない。
+  `resumeHereAllowed` が通すのは、ロックが無い、ロックが `stale`、またはこの PC が書いた取り下げていない頼みがロックの run を指し、`force` であるか、応答があって本文の版が台帳に降りきっているとき、である。
+  通らず、`forcedWithoutRow` の印も無ければ、409 と `{ error, code: 'locked' }`（`TakeoverLockedDto`、文は `sync.takeover.locked`、「<端末名> で実行中です。先に停止して引き継いでください。」）を返す。
+- **引き継がれた側の表示。**
+  引き継がれた会話の画面は、見出しの下に灰色の 1 行を出す（D1、`SessionDto.takenOver`、`session.takenOver.line`、「<端末名> に引き継がれました（<日時>）。現在は <端末名> で実行中です。」）。
+  この PC の最後の run が `taken_over` で終わっているときだけ値を持ち、この PC で後から run を起こせば消える。
+  端末名は、その run を指す頼みの `from_device`、無ければその後に始まったほかの PC の run の PC である。
+  知らせの札は出さない（自分で引き継いだ操作の裏側なので）。
+  もう 1 つは、止める直前に開いている端末へ流す 1 行（上の `paneNote`）で、端末を開いていないと見えない。
+- **古い PC。**
+  版 5 までの PC は 2 つの表を知らずに捨てるので、頼みが届かない。
+  頼んだ側は 90 秒で打ち切る経路に落ち、返事がないことを伝えるだけで、ほかの表は今までどおり運ぶ（互換の版 6、下限は上げない）。
+- **会話が分かれる場合。**
+  返事がないまま「このまま引き継ぐ」を選ぶと、相手の claude がまだ動いていて、そちらで書かれた続きがこの PC の会話に入らないことがある。
+  その claude は、次に相手の Hangar が起動したとき、頼みの行を見て停止する。
+  この枝分かれは受け入れる。
+
+画面（試作の A1、B1、C2、D1。文言は `confirm.takeover.*` と `session.takenOver.line` から写した）：
+
+- **A1：確認の 1 枚。**
+  ロックがあるときの「この PC で再開」の確認は、ロックの状態で変わる（`ResumeHerePlanDto.lock`、`presentResumeHere`）。
+  生きていれば、題は「ほかの PC で実行中の会話を、この PC で引き継ぎますか」、ボタンは「停止して引き継ぐ」で、赤みの帯に「<端末名> で実行中です」と「引き継ぐと、<端末名> の claude を停止してから、この PC で再開します。」を出す。
+  相手が作業中（`liveStatus` が `busy`）なら、「<端末名> で作業中です」と「停止するとそのターンは途中で切れます。そのあと、この PC で再開します。」にする。
+  `stale` なら、題は「<端末名> が応答していません。この PC で引き継ぎますか」、前の PC の行に「最後の応答：<相対時刻>」、ボタンは「このまま引き継ぐ」で、頼まずに `force` で送る。
+  ロックが無ければ今までどおりの確認である。
+- **B1：進み具合。**
+  承諾すると、同じ 1 枚が進み具合に変わる（題は「<端末名> から引き継いでいます」）。
+  段は「停止を依頼しました」「<端末名> が停止するのを待っています」「最後のトランスクリプトを受け取る」「この PC で再開する」の 4 つで、`asking`、`waiting`、`receiving`、`ready` が順にいまの段になる。
+  90 秒の目安の細い線と経過秒を添える。
+  線と秒は `startedAt` と `deadline` から View が 1 秒ごとに描き直す（Mediator は時計を持たない）。
+  注記に「<端末名> の Hangar がクラウドを見に来るまで、最大 30 秒ほどかかります。」を出し、ボタンは「取り消す」だけである。
+  `ready` になれば閉じて、今の再開（`api.resumeHere`）に入る。
+- **C2：返事がないとき。**
+  `timeout` で同じ 1 枚が警告に変わる（題は「<端末名> から返事がありません」）。
+  「<端末名> の Hangar が閉じているか、ネットワークに接続されていない可能性があります。」と「このまま引き継ぐと、会話が分かれることがあります」の帯を出し、選びは「取り消す」「もう少し待つ」「このまま引き継ぐ」の 3 つである。
+- **D1：引き継がれた側。** 上の見出しの下の 1 行だけで、札は出さない。
+- 閉じられるのは取り消し（`session.takeover.cancel`）だけである。
+  Esc と外側のクリックも、`overlay.close` の代わりに取り消しを送る（閉じるとサーバに待ちが残るため）。
+  再開が通ったあとには取り下げを送らない（`cancel` は `force` の頼みも取り下げるため）。
+- 一覧の行の「⋯」とセッション画面の「この PC で再開」は、ロックが生きていても押せる。
+  再開とフォークは閉じたままで、理由を添える。
 
 他端末の本文を索引化するときは、共有テーブルの `sessions` と `session_summaries` には書かず、端末ローカルの表（`transcript_files`、`event_index`、`event_fts`）だけを書く。
 同じセッションの同じ位置につき索引化するファイルは常に 1 つで、手元の本文があればそれを優先し、無ければ更新時刻が最新の写しを 1 つだけ採る。
@@ -6257,7 +6386,10 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。計画は `docs/plans/phase1-readonly.md`。
 - **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
 - **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/phase3-workbench.md`。
-- **フェーズ 4**：クラウド同期。Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り（段 1 で消し、上限で退く形に替えた）、他端末のロックと「この PC で再開」まで実装した。引き継ぎの握手は作らなかった（段 1 で作らないと決めた）。計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
+- **フェーズ 4**：クラウド同期。
+  Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り（段 1 で消し、上限で退く形に替えた）、他端末のロックと「この PC で再開」まで実装した。
+  引き継ぎの握手は、このフェーズでは作らなかった（段 1 で作らないと決め、2026-10-16 に停止を頼んで引き継ぐ形で入れた）。
+  計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
 - **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。公証は行わず、自作の証明書で署名する（段 5 で加えた。「署名の身元」と「Gatekeeper」の項）。計画は `docs/plans/phase5-desktop.md`。
 
 ## 会話の保持期間
@@ -6418,8 +6550,12 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 端末ローカルの `file_sync` で、上げ下ろしの最後の SHA-256 を持つ。指紋は上げる側も降ろす側も、圧縮と暗号化の前の平文のものである。
 - 本文は差分ではなくファイル全体を上げ直す。R2 が部分更新を持たないためである。
 - 設定の R2 の鍵にも端末 ID を入れて `config/<端末 ID>/<相対パス>` にする。入れずに実物で 2 台を動かすと、同じ鍵を奪い合って、負けた端末が「SHA-256 が一致しません」で永久に取り込めなくなった（2026-09-19 の実物確認で判明）。
-- 引き継ぎの握手は作らない。ロックの表示と「この PC で再開」までに絞った（2026-09-19 の判断）。段 1 で型と共有テーブルの一覧からも外した。`EndReason` に `taken_over` は足さない。
-- ロックは他端末の生きた run で引き、heartbeat の新旧では解かない。2 分を超えたら `stale` を立て、そのときだけ「この PC で再開」を押せるようにする。
+- 引き継ぎの握手は、はじめは作らなかった（2026-09-19 の判断）。
+  段 1 で型と共有テーブルの一覧からも外した。
+  2026-10-16 に、頼まずに奪うのではなく、相手に停止を頼んで最後の本文が降りてから引き継ぐ形で入れた（`EndReason` に `taken_over`、共有表 `takeovers` と `takeover_answers`）。
+- ロックは他端末の生きた run で引き、heartbeat の新旧では解かない。
+  2 分を超えたら `stale` を立てる。
+  `stale` のときは頼まずに引き継げ、生きているときは停止を頼んでから引き継ぐ。
 - 同期は自分の端末同士のためのもので、他人と 1 つの箱を共有しない。別の人は自分の Cloudflare アカウントで `setup cloud` を走らせる。
 - 段 1（D4）で、端末の無料枠の見張りを消した。
   端末側の見積もりと、端末の数で割る仕組みは、もう無い。
