@@ -74,6 +74,12 @@ export type SyncParts = {
   onStatesApplied(cb: () => void): () => void;
   /** 削除したセッションがほかの PC で戻されたとき、消した写しを降ろし直す（sync/puller.ts の refetchSession）。同期していなければ何もしない。 */
   refetchSession(providerSessionId: string): void;
+  /** 手元の変更を今すぐクラウドへ押し出す。同期していなければ何もしない。 */
+  pushNow(): Promise<void>;
+  /** そのセッションの本文を今すぐ上げる（run の終わりと同じ上げ方）。同期していなければ何もしない。 */
+  flushSession(uuid: string): Promise<void>;
+  /** 他の PC から引き継ぎの頼みか応答（takeovers、takeover_answers）の行が届いたときの受け手を足す。 */
+  onTakeoversApplied(cb: () => void): () => void;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -127,6 +133,8 @@ export function bootSync(
   const remoteChanged = (): void => { for (const cb of remoteChangeListeners) cb(); };
   const statesListeners = new Set<() => void>();
   const statesApplied = (): void => { for (const cb of statesListeners) cb(); };
+  const takeoverListeners = new Set<() => void>();
+  const takeoversApplied = (): void => { for (const cb of takeoverListeners) cb(); };
   const pruneBackups = backupPruner(home.home);
   const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
 
@@ -189,6 +197,8 @@ export function bootSync(
     engine.on({ applied: (c) => { if (c.tableName === 'sessions') remoteChanged(); } });
     // 削除の印（session_states.trashed_at）は、受け取った PC が本文をゴミ箱へ移す合図である（sessions/trash.ts）。
     engine.on({ applied: (c) => { if (c.tableName === 'session_states') statesApplied(); } });
+    // 引き継ぎの頼みか応答が届いたら、頼まれた側が止めに行き、頼んだ側が応答を読みに行く（sync/takeoverResponder.ts）。
+    engine.on({ applied: (c) => { if (c.tableName === 'takeovers' || c.tableName === 'takeover_answers') takeoversApplied(); } });
     // ほかの PC のスクラッチのプロジェクトや場所の行が届いたら、次の起動を待たずに 1 つにまとめ直す（projects/scratch.ts）。
     engine.on({ applied: followRemoteScratch(db, deviceId, home.home, { onError: (e) => console.error('[sync] 届いたクイックセッションの行をまとめ直せませんでした', e instanceof Error ? e.message : e) }) });
     return { cloud, client, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
@@ -308,6 +318,9 @@ export function bootSync(
     publishConfigSync,
     onRemoteChange: (cb) => { remoteChangeListeners.add(cb); return () => { remoteChangeListeners.delete(cb); }; },
     onStatesApplied: (cb) => { statesListeners.add(cb); return () => { statesListeners.delete(cb); }; },
+    pushNow: async () => { await core.engine.pushNow(); },
+    flushSession: async (uuid) => { await core.uploader?.flushSession(uuid); },
+    onTakeoversApplied: (cb) => { takeoverListeners.add(cb); return () => { takeoverListeners.delete(cb); }; },
     refetchSession: (uuid) => {
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },

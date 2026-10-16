@@ -10,6 +10,7 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.once.leftChanges': 'Synced once, but {pending} unsent changes remain. Sync is still paused',
   'sync.once.leftTranscripts': 'Synced once, but {transcripts} unsent transcripts remain. Sync is still paused',
   'sync.resume.noTranscript': "This session's transcript was not found",
+  'sync.takeover.paneNote': "[hangar] {device} took this session over, so claude on this PC was stopped.",
   'sync.compat.deviceNeed': "This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is {have}; the cloud requires {need} or later). Update hangar on this computer",
   'sync.compat.deviceNewer': "This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is {have}; the cloud requires a newer version). Update hangar on this computer",
   'sync.compat.worker': 'The Worker in your cloud is out of date, so sync was stopped (the Worker\'s compatibility version is {have}; this computer requires {need} or later). On the computer where you set up the cloud, run npm run hangar -- setup cloud again in the folder where you cloned the repository and ran npm install, to replace the Worker, then press "Sync now"',

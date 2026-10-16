@@ -9,6 +9,7 @@ export const syncKeys = {
   'sync.once.leftChanges': ['pending'],
   'sync.once.leftTranscripts': ['transcripts'],
   'sync.resume.noTranscript': [],
+  'sync.takeover.paneNote': ['device'],
   'sync.compat.deviceNeed': ['have', 'need'],
   'sync.compat.deviceNewer': ['have'],
   'sync.compat.worker': ['have', 'need'],

@@ -10,6 +10,7 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.once.leftChanges': '1 回だけ同期しましたが、未送信 {pending} 件が残りました。同期は一時停止のままです',
   'sync.once.leftTranscripts': '1 回だけ同期しましたが、未送信のトランスクリプト {transcripts} 件が残りました。同期は一時停止のままです',
   'sync.resume.noTranscript': 'このセッションのトランスクリプトがありません',
+  'sync.takeover.paneNote': '[hangar] {device} に引き継がれたため、この PC の claude を停止しました。',
   'sync.compat.deviceNeed': 'この PC の hangar が古いため、クラウドが同期を拒否しました（この PC の互換バージョンは {have}、必要なバージョンは {need} 以上）。この PC の hangar を更新してください',
   'sync.compat.deviceNewer': 'この PC の hangar が古いため、クラウドが同期を拒否しました（この PC の互換バージョンは {have}、必要なのはそれより新しいバージョン）。この PC の hangar を更新してください',
   'sync.compat.worker': 'クラウドの Worker が古いため、同期を停止しました（Worker の互換バージョンは {have}、この PC に必要なバージョンは {need} 以上）。setup した PC で、リポジトリを clone して npm install したディレクトリから npm run hangar -- setup cloud をもう一度実行し、Worker を更新してから「今すぐ同期」をクリックしてください',

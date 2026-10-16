@@ -19,6 +19,7 @@ import { VERSION, type StartOptions } from './options.ts';
 import type { RunsParts } from './runs.ts';
 import type { SummaryParts } from './summary.ts';
 import type { SyncParts } from './sync.ts';
+import type { TakeoverParts } from './takeover.ts';
 import type { TrashParts } from './trash.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
@@ -74,15 +75,17 @@ export type HttpParts = {
  * serverDir は、サーバの入口のファイルがある場所である。UI の置き場所の既定をそこから決める。
  */
 export function bootHttp(p: {
-  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts;
+  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane'>;
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
 }): HttpParts {
-  const { home, delivery, sync, indexing, listening, runs, summary, trash } = p;
+  const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
   const { db, settings, device } = home;
   const { server, port } = listening;
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
   // attach が終わったら、画面が閉じたかもしれないので run の見張りを急がせる（待機中の見張りは間が空く）。
   const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn, onExit: () => runs.runs.stir() });
+  // 引き継がれて止める claude の端末へ、止める理由の 1 行を差し込めるようにする。
+  takeover.setNotePane((tmuxName, text) => { relay.note(tmuxName, text); });
   // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
   // 入口（main.ts）が読んで消してから opts.uiDist で渡す。無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');
