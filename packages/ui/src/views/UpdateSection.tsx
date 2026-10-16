@@ -44,9 +44,8 @@ export function UpdateSection(props: { update: UpdateSectionProps }) {
       </section>
       {u.notes.length > 0 && (
         <section className="release-notes">
-          <h3 className="h2">{u.notesTitle}</h3>
           {/* 開く版が変わったら（更新後の札から読みに来た）、開き閉じを選び直す。 */}
-          <NoteList key={u.notes.filter((n) => n.open).map((n) => n.version).join(' ')} notes={u.notes} beforeLabel={u.beforeLabel} />
+          <NoteList key={u.notes.filter((n) => n.open).map((n) => n.version).join(' ')} title={u.notesTitle} notes={u.notes} beforeLabel={u.beforeLabel} />
         </section>
       )}
     </>
@@ -55,12 +54,22 @@ export function UpdateSection(props: { update: UpdateSectionProps }) {
 
 /**
  * 版ごとのノートの行（試作の A1）。押すと本文を開き閉じする。はじめに開くのは presenter が決めた版である。
+ * 見出しの右端の文字のボタン（試作の D1）は、開いている版が 1 つでもあれば「すべて閉じる」、全部畳んでいれば「すべて開く」になる。
  * 開き閉じは画面の中だけの状態で、覚えない。
  */
-function NoteList(props: { notes: UpdateNoteRow[]; beforeLabel: string }) {
+function NoteList(props: { title: string; notes: UpdateNoteRow[]; beforeLabel: string }) {
+  const t = useT();
   const [open, setOpen] = useState(() => new Set(props.notes.filter((n) => n.open).map((n) => n.version)));
   const toggle = (v: string) => setOpen((s) => { const next = new Set(s); if (!next.delete(v)) next.add(v); return next; });
+  const anyOpen = open.size > 0;
   return (
+    <>
+    <div className="note-list-head">
+      <h3 className="h2">{props.title}</h3>
+      <button type="button" className="btn-link note-all" onClick={() => setOpen(anyOpen ? new Set() : new Set(props.notes.map((n) => n.version)))}>
+        {anyOpen ? t('update.notes.collapseAll') : t('update.notes.expandAll')}
+      </button>
+    </div>
     <div className="note-list">
       {props.notes.map((n) => {
         const isOpen = open.has(n.version);
@@ -77,5 +86,6 @@ function NoteList(props: { notes: UpdateNoteRow[]; beforeLabel: string }) {
         );
       })}
     </div>
+    </>
   );
 }

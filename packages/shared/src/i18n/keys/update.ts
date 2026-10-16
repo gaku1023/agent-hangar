@@ -51,6 +51,8 @@ export const updateKeys = {
   'update.notes.title': [],
   'update.notes.inUse': [],
   'update.notes.next': [],
+  'update.notes.collapseAll': [],
+  'update.notes.expandAll': [],
   'update.whatsNew.head': [],
   'update.whatsNew.title': ['version'],
   'update.whatsNew.includes': ['versions'],

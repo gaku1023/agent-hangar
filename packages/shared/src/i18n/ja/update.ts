@@ -51,6 +51,8 @@ export const updateJa: AreaDictionary<typeof updateKeys> = {
   'update.notes.title': 'リリースノート',
   'update.notes.inUse': '使用中',
   'update.notes.next': '新しい版',
+  'update.notes.collapseAll': 'すべて閉じる',
+  'update.notes.expandAll': 'すべて開く',
   'update.whatsNew.head': '更新しました',
   'update.whatsNew.title': 'Hangar {version} になりました',
   'update.whatsNew.includes': '{versions} の分も含みます',

@@ -277,6 +277,9 @@
 
 /* 更新の節のリリースノート（試作の A1）。版ごとの 1 行で、押すと下に本文を開く。 */
 .release-notes { margin-top: calc(var(--u) * 6); }
+.note-list-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
+.note-list-head > .h2 { flex: 1; min-width: 0; }
+.btn-link.note-all { flex: none; font-size: var(--fs-sm); font-weight: 600; }
 .note-list { margin-top: calc(var(--u) * 2); border-top: 1px solid var(--line); }
 .note-row { border-bottom: 1px solid var(--line); }
 .note-head { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; min-height: 40px; padding: calc(var(--u) * 1.25) 0; border: 0; background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }

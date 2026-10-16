@@ -1343,4 +1343,17 @@ describe('更新の節', () => {
     fireEvent.click(screen.getByRole('button', { name: /1\.4\.2/ }));
     expect(screen.queryByText('直した。')).toBeNull();
   });
+  it('開いている版があれば「すべて閉じる」で全部畳み、全部畳んでいれば「すべて開く」で全部開く', () => {
+    mountAt(at('update', { update: updateProps({ notes: [
+      { version: '1.4.2', tag: '使用中', hasBefore: false, open: true, body: '- 直した。' },
+      { version: '1.4.1', tag: null, hasBefore: false, open: false, body: '- 足した。' },
+    ] }) }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて閉じる' }));
+    expect(screen.queryByText('直した。')).toBeNull();
+    expect(screen.getByRole('button', { name: /1\.4\.2/ })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'すべて開く' }));
+    expect(screen.getByText('直した。')).toBeInTheDocument();
+    expect(screen.getByText('足した。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'すべて閉じる' })).toBeInTheDocument();
+  });
 });
