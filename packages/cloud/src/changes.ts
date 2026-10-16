@@ -13,7 +13,7 @@ import {
   type SnapshotResponse,
 } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
-import { seenOf, touchIfDue } from './seen.ts';
+import { touchIfDue } from './seen.ts';
 
 /**
  * 1 行の payload（直列化した後のバイト数）の上限である。
@@ -161,7 +161,7 @@ changesApp.post('/', async (c) => {
     stmts.push(del);
     inserts.push(stmts.push(ins) - 1);
   }
-  const touch = touchIfDue(db, device, now, seenOf(c));
+  const touch = touchIfDue(db, device, now);
   if (touch) stmts.push(touch);
   // 高水位は同じ batch（1 つの取引）の中で読む。別の要求に割り込まれた値を返さない。
   const maxAt = stmts.push(maxSeqStmt(db)) - 1;
@@ -194,7 +194,7 @@ changesApp.get('/', async (c) => {
   const since = Math.max(Number(c.req.query('since') ?? 0) || 0, 0);
   const limit = clampLimit(c.req.query('limit'));
   const now = Date.now();
-  const touch = touchIfDue(db, device, now, seenOf(c));
+  const touch = touchIfDue(db, device, now);
   // 頁と高水位と生存を 1 つの batch（1 つの取引）で読む。
   // 別々に読むと、間に入った push の行を高水位だけが越えて、この端末がその行を読み飛ばす。
   const stmts: D1PreparedStatement[] = [

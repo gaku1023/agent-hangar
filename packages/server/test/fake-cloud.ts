@@ -90,7 +90,7 @@ export const PULL_LAUNCH_LIMIT = 50;
  * 実物の Worker が端末に求める互換の版の下限（packages/cloud/src/compat.ts の写し）。
  * ずれていないことは fake-cloud.test.ts の「端末に求める下限は実物の Worker の写し」が原本を読んで縛る。
  */
-export const MIN_DEVICE_COMPAT = 6;
+export const MIN_DEVICE_COMPAT = 9;
 
 /**
  * 実物の Worker が最終確認（devices.last_seen_at）を書き直す間隔（packages/cloud/src/seen.ts の写し）。

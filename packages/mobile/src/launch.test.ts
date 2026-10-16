@@ -81,7 +81,7 @@ describe('requestLaunch', () => {
     expect(init.method).toBe('POST');
     const headers = init.headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer tok-1');
-    expect(headers['x-hangar-compat']).toBe('7');
+    expect(headers['x-hangar-compat']).toBe('9');
     const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
     expect(body.id).toBe(id);
     expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -150,7 +150,7 @@ describe('waitLaunch', () => {
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('started', answer));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/launches/l-1`);
-    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe('7');
+    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe('9');
     const calls = fetchMock.mock.calls.length;
     await vi.advanceTimersByTimeAsync(30_000);
     expect(fetchMock.mock.calls.length).toBe(calls);

@@ -3,17 +3,17 @@ import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
-  it('版は整数で（いまは 7。スマホ向けの口を知る版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
-    expect(COMPAT_VERSION).toBe(7);
+  it('版は整数で（いまは 9。E2E の作り直しの版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
+    expect(COMPAT_VERSION).toBe(9);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(DEVICE_ADMIN_MIN_WORKER_COMPAT);
     expect(Number.isSafeInteger(COMPAT_VERSION)).toBe(true);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
-    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '7' });
+    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '9' });
   });
 
-  it('版 7 はスマホ向けの口を知る Worker の版で、版 6 の端末を締め出さない', () => {
-    expect(COMPAT_VERSION).toBe(7);
+  it('版 7 はスマホ向けの口を知る Worker の版', () => {
+    expect(COMPAT_VERSION).toBeGreaterThanOrEqual(7);
     expect(MOBILE_MIN_WORKER_COMPAT).toBe(7);
     expect(shared.MOBILE_MIN_WORKER_COMPAT).toBe(7);
   });

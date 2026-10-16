@@ -77,7 +77,7 @@ beforeEach(async () => {
   resetSchemaCache();
   cloud = await startCloud();
   resetSchemaCache();
-  await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+  await ensureSchema(cloud.env);
   tokA = await join('dev-a');
   tokB = await join('dev-b');
 });

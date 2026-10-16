@@ -6,7 +6,6 @@ import { compatMiddleware } from './compat.ts';
 import { devicesApp } from './devices.ts';
 import type { AppType, Env, Vars } from './env.ts';
 import { filesApp } from './files.ts';
-import { joinHandler } from './join.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
 import { mobileApp } from './mobile.ts';
 import { ensureSchema } from './schema.ts';
@@ -31,10 +30,8 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
     await ensureSchema(c.env);
     await next();
   });
-  app.get('/health', (c) => c.json({ ok: true, version: VERSION, compat: COMPAT_VERSION }));
-
-  // 参加だけは端末トークンを持たずに叩ける。中で参加用の秘密のハッシュを検査する。
-  app.post('/join', joinHandler);
+  // cloudId は表を作ったときに 1 度だけ置いた印で、PC はこれで作り直しを見分ける。isolate ごとに用意の結果を覚えているので、D1 を読み直さない。
+  app.get('/health', async (c) => c.json({ ok: true, version: VERSION, compat: COMPAT_VERSION, cloudId: await ensureSchema(c.env) }));
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。

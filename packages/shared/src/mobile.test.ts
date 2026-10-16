@@ -15,7 +15,7 @@ describe('定数', () => {
     expect(MOBILE_FEED_MAX_BYTES).toBe(48 * 1024);
     expect(LAUNCH_TTL_MS).toBe(75_000);
     expect(PEER_STALE_MS).toBe(180_000);
-    expect(COMPAT_VERSION).toBe(7);
+    expect(COMPAT_VERSION).toBe(9);
     expect(MOBILE_MIN_WORKER_COMPAT).toBe(7);
   });
 });

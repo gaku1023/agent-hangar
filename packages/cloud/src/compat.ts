@@ -12,10 +12,12 @@ import type { Env, Vars } from './env.ts';
  * 同期の版 6（2026-10-16）で 6 に上げた。版 5 の端末は他の PC の生存を runs.heartbeat_at で見るが、版 6 の端末は heartbeat を共有の行に書かない。
  * 混ざると版 5 の端末から見て 2 分で「応答がありません」になり、二重に起動しうるので、版 5 の端末は 426 で断る。
  * この版だけは、端末の MIN_WORKER_COMPAT も同時に 6 へ上げ、一斉に切り替える例外である。
+ * E2E の作り直し（版 9）で 9 に上げた。表を封じた形で作り直し、参加用の秘密を参加コードに替えたので、版 8 以下の PC は話せない。
+ * 作り直しなので混在はさせず、版 8 以下の PC は 426 で断る。
  * 上げるのは、同期に参加しているすべての端末が、その版を名乗る版に上がってからである（docs/design.md「互換の版番号」）。
  * packages/server/test/fake-cloud.test.ts がこの行を文字列で読んで、偽物の写しと突き合わせる。
  */
-export const MIN_DEVICE_COMPAT = 6;
+export const MIN_DEVICE_COMPAT = 9;
 
 /**
  * 互換の版の関所。どの経路よりも先に通す。

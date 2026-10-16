@@ -63,7 +63,7 @@ beforeEach(async () => {
   resetSchemaCache();
   // 当番の覚えは isolate ごとなので、テストごとに落とす（本番では isolate が入れ替わるときに落ちる）。
   resetSweepThrottle();
-  cloud = await startCloud({ JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+  cloud = await startCloud();
   await ensureSchema(cloud.env);
   tok = await join('a');
 });

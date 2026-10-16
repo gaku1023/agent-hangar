@@ -45,6 +45,7 @@ describe('Worker の応答', () => {
       batch: async () => { throw new Error(message); },
     } as unknown as D1Database,
     BUCKET: {} as R2Bucket,
+    BOOTSTRAP_TOKEN_HASH: '',
   });
   const request = (env: Env) => createApp({ minDeviceCompat: 0 }).request('/changes?since=0', { headers: { [COMPAT_HEADER]: String(COMPAT_VERSION) } }, env);
 
@@ -107,10 +108,12 @@ describe('Worker の応答（経路の中の失敗）', () => {
         prepare: (sql: string) => stmt(sql),
         batch: async (stmts: { sql: string }[]) => {
           if (stmts.some((x) => failOn(x.sql))) throw new Error(LIMIT_MESSAGE);
-          return stmts.map(() => ({ results: [], meta: { rows_written: 0 } }));
+          // スキーマの用意は、同じ batch の最後の文で cloud_id を読む。
+          return stmts.map((x) => ({ results: x.sql.includes('from meta') ? [{ value: 'cloud-test' }] : [], meta: { rows_written: 0 } }));
         },
       } as unknown as D1Database,
       BUCKET: {} as R2Bucket,
+      BOOTSTRAP_TOKEN_HASH: '',
     };
   };
 

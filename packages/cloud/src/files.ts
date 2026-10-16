@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { CLOUD_HEADERS, MAX_KEY_BYTES, PULL_LIMIT, decodeHeaderText, isSafeKeyId, isSafeRelPath, splitFileKey, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
-import { seenOf, touchIfDue } from './seen.ts';
+import { touchIfDue } from './seen.ts';
 import { sweepIfDue } from './sweep.ts';
 
 type FileRow = {
@@ -209,7 +209,7 @@ filesApp.put('/:key{.+}', async (c) => {
   const obj = await c.env.BUCKET.put(key, body, { customMetadata });
   const storedSize = obj?.size ?? declared;
   const now = Date.now();
-  const touch = touchIfDue(c.env.DB, device, now, seenOf(c));
+  const touch = touchIfDue(c.env.DB, device, now);
   const r = await c.env.DB.batch([
     c.env.DB.prepare('delete from files where key = ?').bind(key),
     c.env.DB

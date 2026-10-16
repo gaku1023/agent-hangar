@@ -60,7 +60,7 @@ const copies = (uuid: string): string[] => [
 beforeEach(async () => {
   resetSchemaCache();
   resetSweepThrottle();
-  cloud = await startCloud({ JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+  cloud = await startCloud();
   await ensureSchema(cloud.env);
   await join('a');
   await join('b');

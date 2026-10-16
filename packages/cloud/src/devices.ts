@@ -14,16 +14,18 @@ export const devicesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 /** 一覧に出す形。端末トークンのハッシュと読み位置は出さない。 */
 const toOut = (r: DeviceRow): CloudDeviceOut => ({
   id: r.id,
-  name: r.name,
-  platform: r.platform,
+  // 名前と OS は devices に置かない（互換の版 9）。封じた名簿から読むまでは ID を名前の代わりに出す。
+  name: r.id,
+  platform: '',
   joinedAt: r.joined_at,
   lastSeenAt: r.last_seen_at,
   revokedAt: r.revoked_at ?? null,
-  lastIp: r.last_ip ?? null,
-  lastCity: r.last_city ?? null,
-  lastRegion: r.last_region ?? null,
-  lastCountry: r.last_country ?? null,
-  kind: r.kind ?? 'pc',
+  // IP と所在地は保存しない（互換の版 9）。
+  lastIp: null,
+  lastCity: null,
+  lastRegion: null,
+  lastCountry: null,
+  kind: r.kind,
 });
 
 /** PC の数は数台なので、1 回で全部を返す。 */

@@ -58,7 +58,7 @@ describe('JoinScreen', () => {
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/join`);
     expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe('7');
+    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe('9');
     const body = JSON.parse(init.body as string);
     expect(body.code).toBe('code-1');
     expect(body.device.name).toBe('スマホ 1');

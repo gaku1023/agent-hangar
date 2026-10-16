@@ -56,7 +56,7 @@ describe('InboxScreen', () => {
     expect(url).toBe(`${WORKER}/m/inbox`);
     const headers = init.headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer tok-1');
-    expect(headers['x-hangar-compat']).toBe('7');
+    expect(headers['x-hangar-compat']).toBe('9');
   });
 
   it('待っている内容の 1 行と PC 名が出る', async () => {
