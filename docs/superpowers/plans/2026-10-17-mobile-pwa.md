@@ -127,7 +127,7 @@
     - `deriveMobileKeyBytes(joinSecret: string): Promise<Uint8Array>`（PC だけが呼ぶ。QR に入れる 32 バイト）
     - `importMobileKey(bytes: Uint8Array, extractable = false): Promise<CryptoKey>`
     - `deriveMobileKey(joinSecret: string): Promise<CryptoKey>`（= 上の 2 つ）
-    - `type PairingBlob = { url: string; code: string; key: string }`（key は base64url）、`encodePairing(b: PairingBlob): string`、`decodePairing(s: string): PairingBlob`（壊れていれば `MobilePairingError`）
+    - `type PairingBlob = { url: string; code: string; key: string; pcName: string; expiresAt: number }`（key は base64url）、`encodePairing(b: PairingBlob): string`、`decodePairing(s: string): PairingBlob`（壊れていれば `MobilePairingError`）
     - `isRemoteControlUrl(u: string): boolean` — `https://claude.ai/` で始まり、URL として解釈できるものだけ true
     - `seal(key: CryptoKey, aad: string, value: unknown): Promise<string>` — 戻りは base64url(`iv(12) || ciphertext||tag`)
     - `open<T>(key: CryptoKey, aad: string, sealed: string): Promise<T>` — 失敗は `MobileOpenError` を投げる
@@ -426,6 +426,7 @@ Task 0 で選ばれた案で作る。
   - 読み直し：開いたとき、`visibilitychange` で見えたとき、下に引いたとき、見えている間 30 秒ごと
   - `#pair=` 付きで開かれたら、まずフラグメントを `history.replaceState` で消して手元の変数に持ち、JoinScreen で端末名を入れて参加する
   - すべての feed が開けないとき（秘密の作り直しの後）は「つなぎ直してください」と出す
+  - 参加の画面は「画面のメモ」の C1 の①〜④。④の「カメラで QR を読む」は `src/scanQr.ts` の `scanQr(video: HTMLVideoElement, signal: AbortSignal): Promise<string>`（`jsqr` で `#pair=` を含む文字列が読めたら返す）。試験は jsQR を偽物に差し替えて、読めた文字列で参加の流れに入ることだけを見る
 
 - [ ] **Step 1: 落ちる試験を書く**
   - `inbox.test.ts`：`waiting は statusAt の古い順（長く待っているものが上）`、`3 分見ていない PC の会話は unknown で running の末尾、waiting に出ない`、`開けない PC は unreadable に入り、ほかの PC の行は出る`、`今日戻るは returnOn が今日のものだけ`、`同じ会話が 2 つの PC から来たら live の方`
@@ -500,4 +501,15 @@ Task 0 で選ばれた案で作る。
 
 ## 画面のメモ
 
-（Task 0 で追記する：Design キャンバスの 2 枚の要点と、選ばれた試作の案）
+試作は `~/workspace/hangar-explainers/mobile-pwa-2026-10-17/mobile-pairing-proto.html`。利用者が 2026-10-17 に選んだもの：
+
+- **A1**：クラウドの節の「参加している端末」の表の下に「スマホ」の小見出しと「スマホをつなぐ」。押すと節の中に QR の段が開く（左に QR、右に 3 つの手順、残り時間の棒、「この QR を人に見せない」の黄色の帯、「文字列をコピー」「閉じる」）。5 分過ぎたら QR を薄くして「新しい QR を出す」。スマホが参加したら QR の上に「〈名前〉がつながりました／この QR はもう使えません」、表に「スマホ」の札つきの行が増える（参加の検知は `cloud-devices` の再読み込み。QR を出している間だけ 3 秒ごと）。スマホも PC と同じ表、同じ「外す」。外す確認の文は試作のとおり。
+- **B1**：一般の「会話を起こすとき」の並びに「会話を Claude アプリにつなぐ」（説明「hangar から起こした会話を、スマホの Claude アプリや claude.ai/code から開いて続けられるようにする。claude.ai でログインしたアカウントだけ。API キーのアカウントでは付けずに起こす。」）。スマホの節に「この設定は一般にあります」の 1 行。
+- **C1**：①QR を読んだ直後の 1 枚（つなぐ先の Worker のホスト、QR を出した PC と残り時間、スマホの名前（既定 iPhone／Android など UA から）、「つなぐ」）、②「つながりました」とホーム画面に追加の 3 手順と「あとで（このまま受信箱へ）」、③期限切れ・使用済み、④ホーム画面から開いたらつながっていなかった（「カメラで QR を読む」と「つなぐ文字列を貼る」）。
+
+試作から増えたもの：
+
+- `PairingBlob` に `pcName: string` と `expiresAt: number` を足す（Task 1、Task 9）。秘密ではない。
+- ④のアプリ内の QR 読み取り（Task 10）：`getUserMedia` と `jsqr@1.4.0`。iOS の Safari には `BarcodeDetector` が無い。CSP に `media-src 'self' blob:` を足す。
+
+（Task 0 の Step 2：Design キャンバスの受信箱と新しい会話の 2 枚の要点を、ここに追記する）
