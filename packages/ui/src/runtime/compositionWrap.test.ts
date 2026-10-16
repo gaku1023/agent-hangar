@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wrapComposition } from './compositionWrap.ts';
+import { createTerminalHost, type TerminalLike } from './terminals.ts';
 
 /**
  * xterm.js 6 の要素の並びをまねた偽物。
@@ -210,12 +211,33 @@ describe('wrapComposition（ターミナルの大きさが変わったら当て�
     stop();
     expect(FakeResizeObserver.watching(x.screen)).toBe(false);
   });
-  it('箱が文書から外れたら、次の知らせで見張りを外す', () => {
+  it('文書から外れても見張りを止めず、付け直したあとの変換で幅と字下げを当てる', async () => {
+    // アプリはターミナルを捨てずに取っておき、別の画面へ移ると文書から外し、戻ると付け直す（terminals.ts）。
     const x = fakeXterm(640, 200);
     wrapComposition(x.root);
     x.root.remove();
+    // 外れている間は大きさが 0 になる。知らせが来ても何もしないで返す。
+    x.size.width = 0;
     FakeResizeObserver.fire(x.screen);
-    expect(FakeResizeObserver.watching(x.screen)).toBe(false);
+    expect(FakeResizeObserver.watching(x.screen)).toBe(true);
+    document.body.append(x.root);
+    x.size.width = 924;
+    FakeResizeObserver.fire(x.screen);
+    x.compose('ながいながいもじ');
+    await flush();
+    expect(px(x.view.style.width)).toBe(924);
+    expect(px(x.view.style.marginLeft)).toBe(-200);
+    expect(px(x.view.style.textIndent)).toBe(200);
+  });
+  it('外れている間に変換中の知らせが来ても、幅を 0 にしない', async () => {
+    const x = fakeXterm(640, 200);
+    wrapComposition(x.root);
+    x.compose('かんじ');
+    await flush();
+    x.root.remove();
+    x.size.width = 0;
+    FakeResizeObserver.fire(x.screen);
+    expect(px(x.view.style.width)).toBe(640);
   });
   it('ResizeObserver が無い環境でも動く', async () => {
     vi.stubGlobal('ResizeObserver', undefined);
@@ -225,5 +247,57 @@ describe('wrapComposition（ターミナルの大きさが変わったら当て�
     await flush();
     expect(px(x.view.style.width)).toBe(640);
     expect(() => stop()).not.toThrow();
+  });
+});
+
+describe('wrapComposition（取っておいたターミナルを付け直す流れ）', () => {
+  /** open で偽の xterm の要素を枠に入れ、xterm.ts と同じく wrapComposition を掛ける TerminalLike。 */
+  function hostWithFakeXterm() {
+    const xs: ReturnType<typeof fakeXterm>[] = [];
+    const createTerminal = (): TerminalLike => {
+      let x: ReturnType<typeof fakeXterm> | null = null;
+      let stopWrap = () => {};
+      return {
+        cols: 80, rows: 24,
+        get element() { return x?.root ?? null; },
+        open(el) { x = fakeXterm(924, 200); xs.push(x); el.appendChild(x.root); stopWrap(); stopWrap = wrapComposition(x.root); },
+        write() {}, onData: () => ({ dispose() {} }), onResize: () => ({ dispose() {} }),
+        fit() {}, focus() {}, dispose() { stopWrap(); }, setGpu() {}, paste() {}, setFontSize() {},
+      };
+    };
+    const host = createTerminalHost({ wsUrl: (id) => `ws://x/${id}`, createTerminal, wsFactory: () => ({ close() {} }) as unknown as WebSocket, held: () => false });
+    return { host, xs };
+  }
+  it('別の画面へ移って戻ったあとも、変換中の文字に幅と字下げを当てる', async () => {
+    const { host, xs } = hostWithFakeXterm();
+    const first = document.createElement('div');
+    document.body.append(first);
+    host.mount('t1', first);
+    const x = xs[0]!;
+    // 別の画面へ移ると、React が枠ごと文書から外す。外れている間の大きさは 0 で、ResizeObserver が知らせる。
+    first.remove();
+    x.size.width = 0;
+    FakeResizeObserver.fire(x.screen);
+    // 戻ると新しい枠に付け直す。
+    const second = document.createElement('div');
+    document.body.append(second);
+    host.mount('t1', second);
+    x.size.width = 924;
+    FakeResizeObserver.fire(x.screen);
+    x.compose('ながいながいもじ');
+    await flush();
+    expect(x.root.parentElement).toBe(second);
+    expect(px(x.view.style.width)).toBe(924);
+    expect(px(x.view.style.marginLeft)).toBe(-200);
+    expect(px(x.view.style.textIndent)).toBe(200);
+  });
+  it('ターミナルを捨てると見張りを止める', () => {
+    const { host, xs } = hostWithFakeXterm();
+    const el = document.createElement('div');
+    document.body.append(el);
+    host.mount('t1', el);
+    expect(FakeResizeObserver.watching(xs[0]!.screen)).toBe(true);
+    host.dispose();
+    expect(FakeResizeObserver.watching(xs[0]!.screen)).toBe(false);
   });
 });

@@ -17,8 +17,9 @@
  * xterm の内側に頼るのは、公開の CSS にもある .composition-view と .xterm-screen の名前と、xterm が left、top、line-height を直に書くことと、変換中に active の組を付けることだけである。
  * 知らせの順（xterm の compositionupdate の後か前か）に頼らないよう、箱の変化を MutationObserver で見て、そのたびに当て直す。
  * 変換中にターミナルの大きさが変わったとき（窓や分割の変更）は、.xterm-screen を ResizeObserver で見て当て直す。
- * 箱が文書から外れたら（ターミナルを捨てたら）、次の知らせで ResizeObserver を外す。
- * 返す関数で見張りを止める。
+ * アプリはターミナルを捨てずに取っておき、別の画面へ移ると文書から外し、戻ると付け直す（terminals.ts）。
+ * そのため文書から外れても見張りは止めず、外れている間の ResizeObserver の知らせは何もしないで返す。
+ * 見張りを止めるのは返す関数（ターミナルを捨てるとき）だけである。
  */
 export function wrapComposition(root: HTMLElement): () => void {
   const view = root.querySelector<HTMLElement>('.composition-view');
@@ -57,13 +58,13 @@ export function wrapComposition(root: HTMLElement): () => void {
   const mo = new MutationObserver(apply);
   mo.observe(view, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
   let ro: ResizeObserver | null = null;
-  const stop = () => { mo.disconnect(); ro?.disconnect(); ro = null; };
   if (screen && typeof ResizeObserver !== 'undefined') {
     ro = new ResizeObserver(() => {
-      if (!view.isConnected) { stop(); return; }
+      // 外れている間は大きさが 0 なので当てない。付け直されたら次の知らせか箱の変化で当て直す。
+      if (!view.isConnected) return;
       if (view.classList.contains('active')) apply();
     });
     ro.observe(screen);
   }
-  return stop;
+  return () => { mo.disconnect(); ro?.disconnect(); ro = null; };
 }
