@@ -25,7 +25,7 @@ export function fileKeyFrom(bytes: Uint8Array): Buffer {
   return Buffer.from(bytes);
 }
 
-const nonceOf =(prefix: Buffer, idx: number): Buffer => { const n = Buffer.alloc(12); prefix.copy(n, 0); n.writeUInt32BE(idx, 8); return n; };
+const nonceOf = (prefix: Buffer, idx: number): Buffer => { const n = Buffer.alloc(12); prefix.copy(n, 0); n.writeUInt32BE(idx, 8); return n; };
 const aadOf = (idx: number, flag: number): Buffer => { const a = Buffer.alloc(5); a.writeUInt32BE(idx, 0); a[4] = flag; return a; };
 
 /** 平文を 1MB ごとに AES-256-GCM で包む Transform。最後のチャンクは flag = 1 で出す。 */

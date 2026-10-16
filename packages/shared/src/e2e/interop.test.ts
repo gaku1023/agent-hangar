@@ -19,7 +19,7 @@ import { openRow, rowAadString, sealRow, type RowAad } from './seal.ts';
 const PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
 const SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
 
-const raw32 = (s: string): Buffer => Buffer.from(fromBase64UrlLen(s, 32, '鍵'));
+const raw32 = (s: string): Buffer => Buffer.from(fromBase64UrlLen(s, 32, 'key'));
 const nodePriv = (priv: string) => createPrivateKey({ key: Buffer.concat([PKCS8_PREFIX, raw32(priv)]), format: 'der', type: 'pkcs8' });
 const nodePub = (pub: string) => createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw32(pub)]), format: 'der', type: 'spki' });
 const nodeEcdh = (priv: string, pub: string): Buffer => diffieHellman({ privateKey: nodePriv(priv), publicKey: nodePub(pub) });
