@@ -13,7 +13,7 @@ export const transcriptJa: AreaDictionary<typeof transcriptKeys> = {
   'transcript.tool.hits': '一致 {n}',
   'transcript.tool.result': '結果',
   'transcript.tool.raw': '詳細表示',
-  'transcript.tool.viewSubagent': 'サブエージェント {id} を見る',
+  'transcript.tool.viewSubagent': 'サブエージェント {id} を表示',
   'transcript.toolGroup.same': '{name} ×{n}',
   'transcript.toolGroup.mixed': 'ツール ×{n}',
   'transcript.toolGroup.failed': '失敗 {n}',

@@ -81,7 +81,7 @@ describe('presentConfirm', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'gone' } } };
     expect(presentConfirm(state, storeWith(), NOW)?.project).toEqual({ name: 'gone', sessions: 0 });
   });
-  it('ほかの確認には何も添えず、確認が出ていなければ null', () => {
+  it('他の確認には何も添えず、確認が出ていなければ null', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'adoptSession' as const, sessionId: 's1' } } };
     expect(presentConfirm(state, storeWith(), NOW)).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null, accountName: null });
     expect(presentConfirm(initialState(), storeWith(), NOW)).toBeNull();
@@ -113,7 +113,7 @@ describe('presentShell', () => {
     expect(presentShell(state, { ...store, index: { phase: 'idle', done: 0, total: 0 } }, NOW).indexLabel).toBeNull();
   });
   // セッション画面だけ本文の幅の上限を外す（案 b）。
-  // ほかの画面は 1200px のまま。
+  // 他の画面は 1200px のまま。
   it('セッション画面だけ幅を広げる', () => {
     expect(presentShell({ ...initialState(), screen: { name: 'session', id: 's1' } }, storeWith(), NOW).wide).toBe(true);
     expect(presentShell({ ...initialState(), screen: { name: 'home' } }, storeWith(), NOW).wide).toBe(false);
@@ -218,7 +218,7 @@ describe('presentHome', () => {
     store.todos = {
       a: todoDto('a', 1, false, { sessionId: 's1', note: '新しい', at: NOW - 60_000 }, 'alpha'),
       b: todoDto('b', 1, false, { sessionId: null, note: null, at: NOW - 30 * 60_000 }, 'beta'),
-      // done かつ candidate は DTO では起きない（サーバが null にする）が、同期の競り合いで食い違っても数えない。
+      // done かつ candidate は DTO では起きない（サーバーが null にする）が、同期の競り合いで食い違っても数えない。
       c: todoDto('c', 2, true, { sessionId: 's1', note: 'x', at: NOW - 90 * 60_000 }, 'alpha'),
       d: todoDto('d', 3, false, null, 'alpha'),
     };
@@ -589,7 +589,7 @@ describe('presentSessionList', () => {
     const today = presentSessionList({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } , page: 1 } }, store, NOW);
     expect(today.conditions).toEqual(['実行中', '今日']);
   });
-  it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
+  it('キーワードが無くても、触ったファイルで絞るときはサーバーの結果を並べる', () => {
     let store = storeWith();
     store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
     const state = { ...initialState(), screen: { name: 'home' as const }, search: { text: '', filter: { file: 'a.md' } , page: 1 } };
@@ -731,7 +731,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
   });
-  it('要約エンジンを使わないときは、要約を作り直すを出さない（サーバが受け付けない。冒頭の 1 枚と同じ）', () => {
+  it('要約エンジンを使わないときは、要約を作り直すを出さない（サーバーが受け付けない。冒頭の 1 枚と同じ）', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false, summaryOff: true };
     expect(ids(sessionActions(facts, ja))).not.toContain('regenerate');
     expect(ids(sessionActions({ ...facts, live: 'busy', canResume: false, canFork: false }, ja))).not.toContain('regenerate');
@@ -749,7 +749,7 @@ describe('presentSession（見出しの操作、A1）', () => {
 describe('presentSession（冒頭の 1 枚の変更したファイル）', () => {
   const call = (seq: number, name: string, input: Record<string, unknown>): TranscriptEvent => ({ kind: 'tool_call', seq, toolId: `t${seq}`, name, input, summary: name });
   const result = (seq: number, text: string): TranscriptEvent => ({ kind: 'tool_result', seq, toolId: `t${seq - 1}`, text, isError: false });
-  it('サーバの一覧が届く前は、読み込んだ本文から、最初に触った順に、足した行と消した行の数と、新しいファイルかを添えて並べる', () => {
+  it('サーバーの一覧が届く前は、読み込んだ本文から、最初に触った順に、足した行と消した行の数と、新しいファイルかを添えて並べる', () => {
     let store = storeWith();
     store.sessions.s2 = { ...store.sessions.s2!, live: null, stats: { ...store.sessions.s2!.stats, filesChanged: 4 } };
     const events: TranscriptEvent[] = [
@@ -810,7 +810,7 @@ describe('newSessionTarget', () => {
     expect(newSessionTarget(at({ name: 'session', id: 's1' }), store)).toEqual({ projectId: 'alpha' });
     expect(presentShell(at({ name: 'session', id: 's1' }), store, NOW).newSession).toEqual({ projectId: 'alpha' });
   });
-  it('ほかの画面と、プロジェクトの無いセッションでは何も選ばない', () => {
+  it('他の画面と、プロジェクトの無いセッションでは何も選ばない', () => {
     const store = storeWith();
     expect(newSessionTarget(at({ name: 'home' }), store)).toEqual({});
     expect(newSessionTarget(at({ name: 'home' }), store)).toEqual({});
@@ -1005,7 +1005,7 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     expect(p.todo.must).toBe(0);
     expect(p.toc.find((row) => row.id === 'tools')).toMatchObject({ state: 'すべて検出', tone: 'default' });
   });
-  it('準備の確かめが届く前と、compat の無い古いサーバの答えでは、互換の節を null にする', () => {
+  it('準備の確かめが届く前と、compat の無い古いサーバーの答えでは、互換の節を null にする', () => {
     expect(presentSettings(initialState(), initialStore()).compat).toBeNull();
     const { compat: _drop, ...older } = READY;
     expect(presentSettings(initialState(), { ...initialStore(), readiness: older as ReadinessDto }).compat).toBeNull();
@@ -1045,7 +1045,7 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
 });
 
 describe('homePath', () => {
-  it('サーバが返したホームの下を ~ で始まる形に縮める（presenters/accounts.ts からも使える）', () => {
+  it('サーバーが返したホームの下を ~ で始まる形に縮める（presenters/accounts.ts からも使える）', () => {
     expect(homePath('/Users/taro/.claude-univ', '/Users/taro')).toBe('~/.claude-univ');
     expect(homePath('/Users/Shared/x', '/Users/taro')).toBe('/Users/Shared/x');
     expect(homePath('C:\\Users\\taro\\.claude-univ', 'C:\\Users\\taro')).toBe('~\\.claude-univ');
@@ -1403,7 +1403,7 @@ const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ worksp
 const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
-describe('ヘッダーの無料枠で停止', () => {
+describe('ヘッダーの無料枠の上限で停止', () => {
   const at = (iso: string) => Date.parse(iso);
   const RESET = at('2026-10-03T00:00:00Z');
   // 実際のエンジンは、上限で退いている間は一時停止の印を立てない（limitedUntil は一時停止していないときだけ出る）。
@@ -1413,11 +1413,11 @@ describe('ヘッダーの無料枠で停止', () => {
 
   it('上限で退いている間は、戻る時刻を端末の時刻で言い、利用者が止めたことにはしない', () => {
     const p = shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo');
-    expect(p).toMatchObject({ label: '無料枠で停止 · 9:00 にリセット', reason: 'quota', state: 'paused' });
+    expect(p).toMatchObject({ label: '無料枠の上限で停止 · 9:00 にリセット', reason: 'quota', state: 'paused' });
     expect(p).not.toHaveProperty('quotaBack');
   });
   it('時差に依らない（ニューヨークでも同じ境目）', () => {
-    expect(shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T23:59:00Z'), 'America/New_York').label).toBe('無料枠で停止 · 20:00 にリセット');
+    expect(shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T23:59:00Z'), 'America/New_York').label).toBe('無料枠の上限で停止 · 20:00 にリセット');
   });
   it('一時停止のまま 1 回だけ同期している最中は、そのことを言う', () => {
     expect(shellSync(paused({ oncePass: true }), at('2026-10-02T06:48:00Z'))).toMatchObject({ label: '1 回だけ同期中…', once: true });
@@ -1440,14 +1440,14 @@ describe('ヘッダーの無料枠で停止', () => {
     const settings = presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({ limitedUntil: RESET }) }, at('2026-10-02T06:48:00Z')).cloud;
     expect(settings.paused).toBe(false);
     expect(settings.limited).toBe(true);
-    expect(settings.stateLabel).toMatch(/^無料枠で停止 · \d{1,2}:\d{2} にリセット$/);
+    expect(settings.stateLabel).toMatch(/^無料枠の上限で停止 · \d{1,2}:\d{2} にリセット$/);
     // 手で止めたときは limited ではない。
     expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({}) }).cloud).toMatchObject({ paused: true, limited: false });
   });
 });
 
 describe('一時停止中に版で止まったとき', () => {
-  const REASON = 'この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は 1、必要なバージョンは 2 以上）。この PC の hangar を更新してください';
+  const REASON = 'この PC の hangar が古いので、クラウドと同期できません（この PC の互換の版は 1、必要なバージョンは 2 以上）。この PC の hangar を更新してください';
   const shellSync = (sync: SyncStatusBody) => presentShell(initialState(), { ...initialStore(), sync }, NOW).sync;
   it('状態は error のまま、文の頭に「一時停止中 · 」を添え、一時停止の印を渡す', () => {
     const sync = syncStatus({ state: 'error', error: REASON, paused: true });
@@ -1672,7 +1672,7 @@ describe('presentShell のベル', () => {
   // 保持期間の帯はヘッダーの下から無くなり、ベルの一覧の行になった（PR 29）。行の組み方は notices.test.ts が試す。
   it('ベルの props を渡し、保持期間の帯の props は持たない', () => {
     const p = presentShell(initialState(), { ...initialStore(), bootstrapped: true }, NOW);
-    expect(p.notices).toMatchObject({ rows: [], unread: 0, label: '注意' });
+    expect(p.notices).toMatchObject({ rows: [], unread: 0, label: '通知' });
     expect('retention' in p).toBe(false);
   });
   it('既読の鍵は State から読み、未読の数をベルの名前に添える', () => {
@@ -1764,7 +1764,7 @@ describe('presentSession の本文が消えた会話', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   it('注記を出し、既定のままなら延ばす手を添える', () => {
     const p = presentSession(initialState(), { ...initialStore(), retention: R, sessions: { g: gone } }, NOW, 'g');
-    expect(p.gone).toEqual({ note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。残っているのは要約だけです。', canExtend: true, extendTo: 365 });
+    expect(p.gone).toEqual({ note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。表示できるのは要約のみです。', canExtend: true, extendTo: 365 });
   });
   it('自分で値を入れた後は、延ばす手を出さない。まだ 30 日を過ぎていなければ gone は null', () => {
     expect(presentSession(initialState(), { ...initialStore(), retention: { ...R, source: 'user', userValue: 365 }, sessions: { g: gone } }, NOW, 'g').gone!.canExtend).toBe(false);
@@ -1827,7 +1827,7 @@ describe('presentToasts（入力待ちのカード）', () => {
     const state = { ...initialState(), screen: { name: 'session' as const, id: 'w1' }, waitingToasts: ['w1', 'w2'] };
     expect(presentToasts(state, waitingStore(['w1', 'w2']), NOW).waiting.map((c) => c.sessionId)).toEqual(['w2']);
   });
-  it('ほかの画面では今までどおり出す', () => {
+  it('他の画面では今までどおり出す', () => {
     const state = { ...initialState(), screen: { name: 'projects' as const }, waitingToasts: ['w1'] };
     expect(presentToasts(state, waitingStore(['w1']), NOW).waiting.map((c) => c.sessionId)).toEqual(['w1']);
   });
@@ -1884,7 +1884,7 @@ describe('presentShell のサイドバーの項目', () => {
 });
 
 describe('presentShell の入力待ちの数', () => {
-  it('ホームの項目に入力待ちの数を添え、ほかの項目には添えない', () => {
+  it('ホームの項目に入力待ちの数を添え、他の項目には添えない', () => {
     const store = storeWith();
     store.sessions.w1 = session('w1', { live: 'waiting' });
     store.sessions.w2 = session('w2', { live: 'waiting' });

@@ -68,6 +68,20 @@ const FORBIDDEN_JA: Array<{ pattern: RegExp; use: string }> = [
   { pattern: /困って|代わりの案|直し方の案/, use: '課題、代替案、修正案' },
   { pattern: /最後の活動|審査|聞いたこと/, use: '最終アクティビティ、レビュー、プロンプト' },
   { pattern: /\} 本/, use: '{n} 件' },
+  // 2026-10-17 の文言の洗い直し（用語集 18 章）。造語と擬人化、揺れを見張る。
+  { pattern: /届(?:い|く)/, use: '受信する' },
+  { pattern: /らしい/, use: 'と思われる' },
+  { pattern: /延ばす/, use: '延長' },
+  { pattern: /新しい版/, use: '新しいバージョン' },
+  { pattern: /1 つにまとめる/, use: '統合' },
+  { pattern: /端末(?!トークン)/, use: 'PC' },
+  { pattern: /に出ています|と出ます|を出します/, use: '表示されています、表示します' },
+  { pattern: /残(?:ります|します|るため|るもの)|に残し/, use: '保存する、保持する、削除されません' },
+  { pattern: /指示書/, use: '適用内容' },
+  { pattern: /サーバ(?!ー)/, use: 'サーバー' },
+  { pattern: /ほかの/, use: '他の' },
+  { pattern: /昇格/, use: 'プロジェクトにする' },
+  { pattern: /入力を受け付けている/, use: '入力可能' },
 ];
 
 /** 古い語に見えても、用語集が別の意味で認める場所。鍵ごとに理由を添えて、ここだけ外す。 */
@@ -76,6 +90,8 @@ const ALLOWED: Record<string, string> = {
   'settings.integrations.statusline.port': '動いている（サーバのプロセス）',
   // Claude に頼む指示の文で、検索の操作ではなく「誤りを見つける」の意味。
   'prompt.builtin.codeReview': '探す（誤りを見つける）',
+  // Claude に渡す指示の文で、画面には出ない。起動の指示は別の作業が直すため、ここでは外す（2026-10-17）。
+  'launch.injection.handover': 'らしい（Claude 向けの指示）',
 };
 
 /** 「本文」が HTTP やモデルの応答の本体（body）を指す鍵。トランスクリプトの意味では使わない。 */

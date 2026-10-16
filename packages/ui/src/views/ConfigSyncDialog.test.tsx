@@ -66,7 +66,7 @@ describe('適用内容の確認（b1）', () => {
     const onAction = vi.fn();
     show(open('review'), store({ inbox: { items, approval: 'each' } }), onAction);
     fireEvent.click(screen.getByRole('button', { name: '競合 1 件を選択…' }));
-    fireEvent.click(screen.getByRole('button', { name: '承諾が必要な項目 1 件を選択…' }));
+    fireEvent.click(screen.getByRole('button', { name: '承認が必要な項目 1 件を選択…' }));
     expect(onAction.mock.calls.map((c) => (c[0] as { part: string }).part)).toEqual(['conflicts', 'approve']);
   });
   it('適用の最中は、押せず「適用しています…」と出し、ブラウザでは指示書のあとにターミナルで実行すると書く', () => {
@@ -77,7 +77,7 @@ describe('適用内容の確認（b1）', () => {
   });
   it('何も無ければ空の言葉を出し、適用…は押せない', () => {
     show(open('review'), store({ inbox: { items: [], approval: 'each' } }));
-    expect(screen.getByText('届いている変更はありません')).toBeInTheDocument();
+    expect(screen.getByText('受信した変更はありません')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '適用…' })).toBeDisabled();
   });
 });
@@ -114,11 +114,11 @@ describe('承諾の表（c2）', () => {
   it('選んだ項目だけを渡して適用し、0 件では押せない', () => {
     const onAction = vi.fn();
     view(onAction);
-    expect(screen.getByRole('button', { name: '選択した 0 件を承諾して適用…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '選択した 0 件を承認して適用…' })).toBeDisabled();
     fireEvent.click(cb('commands/a.md'));
     fireEvent.click(screen.getByRole('button', { name: 'skills/h/SKILL.md の内容' }));
     fireEvent.click(cb('skills/h/SKILL.md'));
-    fireEvent.click(screen.getByRole('button', { name: '選択した 2 件を承諾して適用…' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択した 2 件を承認して適用…' }));
     const sent = onAction.mock.calls.map((x) => x[0] as { type: string; entries?: { id: string }[] }).find((x) => x.type === 'configSync.apply');
     expect(sent?.entries?.map((e) => e.id).sort()).toEqual(['file:commands/a.md', 'file:skills/h/SKILL.md']);
   });

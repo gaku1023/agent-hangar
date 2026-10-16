@@ -9,7 +9,7 @@ import { NowCard } from './NowCard.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 import { useCardHeight } from './useCardHeight.ts';
 
-// 札の背の決め方そのものは useCardHeight.test で見る。ここでは、札が何を節目の鍵として渡すかだけを見る。
+// 札の背の決め方そのものは useCardHeight.test で見る。ここでは、札が何を節目の鍵として渡すかだけを表示。
 vi.mock('./useCardHeight.ts', async (original) => {
   const m = await original<typeof import('./useCardHeight.ts')>();
   return { ...m, useCardHeight: vi.fn(m.useCardHeight) };
@@ -89,7 +89,7 @@ describe('NowCard の状態の行', () => {
     m.rerender({ live: 'busy', activity: null, aside: { shell: true, agents: 0 } });
     expect(card()).toHaveAttribute('data-tone', 'aside');
     expect(screen.getByRole('status')).toHaveTextContent('バックグラウンドで作業中');
-    expect(within(card()).getByText('シェルが実行中、メイン会話は入力を受け付けている')).toBeInTheDocument();
+    expect(within(card()).getByText('シェルが実行中、メイン会話は入力可能')).toBeInTheDocument();
     expect(card().querySelector('.nc-question')).toBeNull();
   });
 
@@ -191,7 +191,7 @@ describe('NowCard の意図', () => {
     const head: TranscriptEvent = { kind: 'user', seq: seq++, ts: 0, text: 'README の導入手順を直して' };
     const m = mount({ liveHints: false, events: [head], turnFrom: head.seq, live: 'busy', activity: null });
     const req = card().querySelector('.nc-intent[data-kind="request"]')!;
-    expect(req.querySelector('.nc-request-label')).toHaveTextContent('依頼 · 10:01');
+    expect(req.querySelector('.nc-request-label')).toHaveTextContent('プロンプト · 10:01');
     expect(req.querySelector('.nc-request-text')).toHaveTextContent('README の導入手順を直して');
     expect(within(card()).queryByText('意図は未記入')).toBeNull();
     // 頭が読み込めていなければ、何も出さない。
@@ -214,7 +214,7 @@ describe('NowCard のツール呼び出し', () => {
     const list = within(card()).getByRole('list', { name: 'ツール呼び出し' });
     const items = within(list).getAllByRole('listitem');
     // 済んだ呼び出しの読み上げの語は「済」。要約の進捗の「完了」と分ける（2026-10-13 の決定）。
-    expect(items.map((i) => i.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['✓済 form.ts Read', '●入力待ち AskUserQuestion']);
+    expect(items.map((i) => i.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['✓完了 form.ts Read', '●入力待ち AskUserQuestion']);
     expect(items[1]).toHaveAttribute('data-mark', 'wait');
   });
 

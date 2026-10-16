@@ -19,12 +19,12 @@ const mount = (p: ResumeHerePlanDto) => {
   return onAction;
 };
 
-describe('ほかの PC で動いている会話を引き継ぐ確認', () => {
+describe('他の PC で動いている会話を引き継ぐ確認', () => {
   it('takeover の 1 枚は赤みの帯を出し、承諾で session.takeover.start（force: false）を送る', () => {
     const onAction = mount(plan({ deviceName: 'pc-b', stale: false, heartbeatAt: NOW - 10_000 }));
-    expect(screen.getByRole('dialog', { name: 'ほかの PC で実行中の会話を、この PC で引き継ぎますか' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '他の PC で実行中の会話を、この PC で引き継ぎますか' })).toBeInTheDocument();
     const note = screen.getByRole('note', { name: /pc-b で実行中です/ });
-    expect(note).toHaveTextContent('停止すると、作業中のターンは途中で切れます。そのあと、この PC で再開します。');
+    expect(note).toHaveTextContent('停止すると、作業中のターンは中断されます。そのあと、この PC で再開します。');
     // 黄の帯は残る。
     expect(screen.getAllByRole('note')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: '停止して引き継ぐ' }));
@@ -67,7 +67,7 @@ describe('引き継ぎの待ちと返事がないとき', () => {
     expect(items[1]).toHaveTextContent('pc-b が停止するのを待っています');
     expect(items[1]).toHaveTextContent('12 秒');
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', String(Math.round((12_000 / TAKEOVER_TIMEOUT_MS) * 100)));
-    expect(screen.getByText('pc-b の Hangar がクラウドを見に来るまで、最大 30 秒ほどかかります。')).toBeInTheDocument();
+    expect(screen.getByText('pc-b の Hangar が次にクラウドを確認するまで、最大 30 秒ほどかかります。')).toBeInTheDocument();
     expect(screen.getAllByRole('button').filter((b) => b.textContent === '取り消す')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'もう少し待つ' })).toBeNull();
     // 1 秒ごとに描き直す。
@@ -88,7 +88,7 @@ describe('引き継ぎの待ちと返事がないとき', () => {
   });
   it('返事がない 1 枚は 3 つのボタンを出し、それぞれの UiAction を送る', () => {
     const onAction = mountTakeover('timeout');
-    expect(screen.getByRole('dialog', { name: 'pc-b から返事がありません' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'pc-b から応答がありません' })).toBeInTheDocument();
     expect(screen.getByRole('note', { name: 'このまま引き継ぐと、会話が分かれることがあります' })).toHaveTextContent('次に pc-b で Hangar が起動したときに停止します。');
     expect(screen.queryByRole('listitem')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '取り消す' }));

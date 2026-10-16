@@ -8,7 +8,7 @@ export const projectJa: AreaDictionary<typeof projectKeys> = {
   'project.resolve.dirMissing': '指定したディレクトリが見つかりません。存在するディレクトリを選択し直してください',
   'project.resolve.sameFolder': 'このディレクトリは、プロジェクト {name} のパスとして登録済みです',
   'project.instructions.badKind': 'kind は project、projectDotClaude、local、agents、memory のいずれかです',
-  'project.instructions.fileMissing': 'ファイルが見つかりません。プロジェクトの画面を開き直してください',
+  'project.instructions.fileMissing': 'ファイルが見つかりません。プロジェクトの画面を再読み込みしてください',
   'project.create.pathNotDir': 'path は既存のディレクトリではありません',
   'project.create.badKind': 'kind は newDir か dir です',
   'project.create.nameRule': '名前はディレクトリ名として使える 1 文字以上にしてください。/ と \\ は使えません',

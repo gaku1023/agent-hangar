@@ -55,7 +55,7 @@ async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; te
   return { ...m, wsHandlers: m.handlers };
 }
 
-/** デスクトップの殻の偽物。殻の中かどうかだけを見る試験に使い、どの命令も呼ばれない前提で置く。 */
+/** デスクトップの殻の偽物。殻の中かどうかだけを表示試験に使い、どの命令も呼ばれない前提で置く。 */
 const fakeShell = (): NonNullable<RuntimeDeps['desktop']> => ({
   openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(),
   update: { status: vi.fn(async () => { throw new Error('not allowed'); }), check: vi.fn(), download: vi.fn(), install: vi.fn() },
@@ -115,14 +115,14 @@ describe('Root', () => {
       expect(screen.getByRole('button', { name: 'パスが不明なプロジェクト 1' })).toBeInTheDocument();
     });
 
-    it('サーバが project.unresolved を流しても、ダイアログは出ない', async () => {
+    it('サーバーが project.unresolved を流しても、ダイアログは出ない', async () => {
       const { handlers } = await mounted({ boot: bootWith([lost]) });
       act(() => handlers[0]!.onEvent({ type: 'project.unresolved', projectId: 'p9' }));
       await flush();
       expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    it('ほかの PC から届いただけのプロジェクトは、帯に数えず、プロジェクトの一覧に「この PC にパスがありません」の札で出る。札から「場所を再指定」が開く', async () => {
+    it('他の PC から届いただけのプロジェクトは、帯に数えず、プロジェクトの一覧に「この PC にパスがありません」の札で出る。札から「場所を再指定」が開く', async () => {
       const { setHash } = await mounted({ boot: bootWith([arrived('x1'), arrived('x2')]) });
       expect(screen.queryByRole('button', { name: /^パスが不明なプロジェクト/ })).toBeNull();
       act(() => setHash('#/projects'));
@@ -134,24 +134,24 @@ describe('Root', () => {
       expect(screen.getByRole('dialog', { name: 'x1 はこの PC にパスがありません' })).toHaveTextContent('Mac mini でのパス');
     });
 
-    it('同期でほかの PC のプロジェクトが降りたら、札を 1 枚だけ出す。「あとで決める」で下がる', async () => {
+    it('同期で他の PC のプロジェクトが降りたら、札を 1 枚だけ出す。「あとで決める」で下がる', async () => {
       const { handlers } = await mounted();
       act(() => { for (const id of ['x1', 'x2', 'x3']) handlers[0]!.onEvent({ type: 'project.upsert', project: arrived(id) }); });
       await flush();
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getAllByText('他の PC のプロジェクト 3 件が届きました。この PC にはディレクトリがありません')).toHaveLength(1);
+      expect(screen.getAllByText('他の PC からプロジェクト 3 件を受信しました。この PC にはディレクトリがありません')).toHaveLength(1);
       fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
-      expect(screen.queryByText(/件が届きました/)).toBeNull();
+      expect(screen.queryByText(/件を受信しました/)).toBeNull();
     });
 
-    it('札の「プロジェクトで見る」で、プロジェクトの一覧へ移る', async () => {
+    it('札の「プロジェクトで表示」で、プロジェクトの一覧へ移る', async () => {
       const { handlers } = await mounted();
       act(() => handlers[0]!.onEvent({ type: 'project.upsert', project: arrived('x1') }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'プロジェクトで見る' }));
+      fireEvent.click(screen.getByRole('button', { name: 'プロジェクトで表示' }));
       await flush();
       expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
-      expect(screen.queryByText(/件が届きました/)).toBeNull();
+      expect(screen.queryByText(/件を受信しました/)).toBeNull();
     });
   });
   it('トーストは出て、5 秒で消える', async () => {
@@ -190,7 +190,7 @@ describe('Root', () => {
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
-    // ほかの入力欄で打つ / も文字である。
+    // 他の入力欄で打つ / も文字である。
     const field = textField();
     field.focus();
     fireEvent.keyDown(field, { key: '/' });
@@ -519,7 +519,7 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(screen.getByText('ここで新しいセッションを開始')).toBeTruthy();
   });
 
-  it('Esc は未解決のダイアログだけは閉じず、ほかのオーバーレイは閉じる', async () => {
+  it('Esc は未解決のダイアログだけは閉じず、他のオーバーレイは閉じる', async () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'session.promote.open', id: 's1' }));
     await flush();
@@ -621,7 +621,7 @@ describe('キーの見直し', () => {
     expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
   });
 
-  // セッション画面の ⌘W は窓（アプリ）を閉じない。閉じてよいのはフォーカスのある枠のシェルタブだけである。
+  // セッション画面の ⌘W は窓（アプリ）を閉じない。閉じてよいのはフォーカスのあるペインのシェルタブだけである。
   const sessionWithShell = async () => {
     const m = await mounted();
     act(() => m.setHash('#/session/s1'));
@@ -648,7 +648,7 @@ describe('キーの見直し', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it('分割中の ⌘W は、フォーカスのある枠のタブがシェルのときだけそれを閉じる', async () => {
+  it('分割中の ⌘W は、フォーカスのあるペインのタブがシェルのときだけそれを閉じる', async () => {
     const { rt } = await sessionWithShell();
     act(() => rt.emit({ type: 'split.toggle' }));
     await flush();
@@ -1057,7 +1057,7 @@ describe('キーの見直し', () => {
   });
 
   it('アプリの最初の頁からはスワイプでも戻らない', async () => {
-    // デスクトップでは、その手前がサーバの起動を待つ頁である。そこへ戻ると二度と遷移せず詰む。
+    // デスクトップでは、その手前がサーバーの起動を待つ頁である。そこへ戻ると二度と遷移せず詰む。
     const { go } = await mounted();
     phaseOn();
     beginGesture();
@@ -1355,7 +1355,7 @@ describe('キーの見直し', () => {
       term.remove();
     });
 
-    it('ほかのボタンには触らない', async () => {
+    it('他のボタンには触らない', async () => {
       const { go, setHash } = await mounted({ desktop: fakeShell() });
       act(() => setHash('#/projects'));
       for (const b of [0, 1, 2]) expect(mouseUp(b).defaultPrevented).toBe(false);
@@ -1679,10 +1679,10 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     await mounted({ api: { setSessionState } });
     fireEvent.click(screen.getByRole('button', { name: 'せっしょん のメニュー' }));
     fireEvent.click(screen.getByRole('menuitemradio', { name: /^Paused/ }));
-    fireEvent.change(screen.getByLabelText('理由'), { target: { value: '数字を見る' } });
+    fireEvent.change(screen.getByLabelText('理由'), { target: { value: '数字を表示' } });
     fireEvent.click(screen.getByRole('button', { name: 'Paused にする' }));
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(setSessionState).toHaveBeenCalledWith('s1', expect.objectContaining({ status: 'paused', note: '数字を見る', returnOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
+    expect(setSessionState).toHaveBeenCalledWith('s1', expect.objectContaining({ status: 'paused', note: '数字を表示', returnOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
   });
 });
 
@@ -1765,7 +1765,7 @@ describe('アカウントの切り替え（セッション画面）', () => {
     expect(screen.queryByRole('dialog', { name: '大学 に切り替えますか？' })).toBeNull();
   });
 
-  it('サーバが断ったら、その文がトーストに出て、確認は閉じたまま、画面は元のセッションである', async () => {
+  it('サーバーが断ったら、その文がトーストに出て、確認は閉じたまま、画面は元のセッションである', async () => {
     const refusal = 'このセッションにはまだ本文がありません。先に会話を始めてから切り替えてください。';
     const switchAccount = vi.fn(async () => { throw new Error(refusal); });
     const { go } = await open({ switchAccount });

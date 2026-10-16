@@ -73,7 +73,7 @@ describe('presentHomeBand の止まっている理由（試作 stop-reason-proto
   it('許可の中身が届いていなければ、ターミナルに出ていると言う', () => {
     const row = presentHomeBand({ ...none, attention: [waiting('p', { reason: 'permission', permission: null })] }, ja).groups[0]!.rows[0]!;
     expect(row.ask ?? null).toBeNull();
-    expect(row.text).toBe('許可を待っています（内容はターミナルに出ています）');
+    expect(row.text).toBe('許可を待っています（内容はターミナルに表示されています）');
   });
 
   it('自動で続かずにリセットを過ぎたものは、要対応に「続きを指示して」と出す', () => {
@@ -88,12 +88,12 @@ describe('presentHomeBand の止まっている理由（試作 stop-reason-proto
   });
 
   it('使用制限は実行中に砂時計で置き、リセットの時刻と自動で続くかを言う。アイドルには数えない', () => {
-    const band = presentHomeBand({ ...none, running: [running('a'), running('l', { live: 'idle', limit: { text: '使用制限（5 時間）· 16:50 にリセット · 自動で続きます', left: 'あと 8 分' } }), running('i', { live: 'idle' })] }, ja);
+    const band = presentHomeBand({ ...none, running: [running('a'), running('l', { live: 'idle', limit: { text: '使用制限（5 時間）· 16:50 にリセット · 自動で再開します', left: 'あと 8 分' } }), running('i', { live: 'idle' })] }, ja);
     const g = band.groups[1]!;
     expect(g.summary).toBe('作業中 1、アイドル 1、使用制限 1');
     const row = g.rows[1]!;
     expect(row.lead).toEqual({ kind: 'dot', live: 'idle', aside: false, reason: 'limit' });
-    expect(row.text).toBe('使用制限（5 時間）· 16:50 にリセット · 自動で続きます');
+    expect(row.text).toBe('使用制限（5 時間）· 16:50 にリセット · 自動で再開します');
     expect(row.trail).toEqual([{ text: 'あと 8 分', tone: 'limit' }]);
     expect(row.actions.map((a) => a.label)).toEqual(['開く']);
   });

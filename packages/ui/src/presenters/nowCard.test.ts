@@ -33,14 +33,14 @@ describe('現在の札の止まっている理由（試作 stop-reason-proto の
     const resetsAt = new Date(2026, 9, 12, 16, 50).getTime();
     const s = present({ now, live: 'idle', reason: 'limit', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } });
     expect(s).toMatchObject({ tone: 'limit', state: '使用制限', sub: 'あと 8 分' });
-    expect(s.stop).toEqual({ kind: 'limit', head: '5 時間の使用制限', at: '16:50 にリセット（あと 8 分）', meter: 97, hint: 'リセットされると Claude Code が自動で続きを始めます。' });
+    expect(s.stop).toEqual({ kind: 'limit', head: '5 時間の使用制限', at: '16:50 にリセット（あと 8 分）', meter: 97, hint: 'リセットされると Claude Code が自動で再開します。' });
     const no = present({ now, live: 'idle', reason: 'limit', limit: { kind: 'other', resetsAt, auto: false, reset: false } });
-    expect(no.stop).toMatchObject({ head: '使用制限', meter: null, hint: '自動で続く予約はありません。リセット後にターミナルで続きを指示してください。' });
+    expect(no.stop).toMatchObject({ head: '使用制限', meter: null, hint: '自動で再開する予約はありません。リセット後にターミナルで続きを指示してください。' });
   });
   it('リセット済みは入力待ちの色で、続きを指示するよう言う', () => {
     const s = present({ live: 'idle', reason: 'reset', limit: { kind: 'five_hour', resetsAt: 0, auto: false, reset: true } });
     expect(s).toMatchObject({ tone: 'wait', state: 'リセット済み' });
-    expect(s.stop).toEqual({ kind: 'reset', head: '使用制限がリセットされました', body: '自動では続きを開始していません。ターミナルで続きを指示してください。' });
+    expect(s.stop).toEqual({ kind: 'reset', head: '使用制限がリセットされました', body: '自動では再開していません。ターミナルで続きを指示してください。' });
   });
   it('理由が無ければ stop は null', () => {
     expect(present({ live: 'waiting' }).stop).toBeNull();
@@ -88,12 +88,12 @@ describe('現在の札の状態の行', () => {
     expect(present({ live: 'waiting', aside: { shell: true, agents: 0 }, digest: digest({ agents: [agent({})] }) }).tone).toBe('wait');
   });
   it('裏だけ動いているときは、バックグラウンドで作業中と、メイン会話が空いていることを言う（問いではない）', () => {
-    expect(present({ aside: { shell: true, agents: 0 } })).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中、メイン会話は入力を受け付けている', question: false });
+    expect(present({ aside: { shell: true, agents: 0 } })).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中、メイン会話は入力可能', question: false });
     const two = present({ aside: { shell: false, agents: 2 }, digest: digest({ agents: [agent({ agentId: 'a' }), agent({ agentId: 'b' })] }) });
-    expect(two).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'サブエージェント 2 件が実行中、メイン会話は入力を受け付けている' });
+    expect(two).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'サブエージェント 2 件が実行中、メイン会話は入力可能' });
   });
   it('裏の担当が数えられないとき（workflow など）は、何が動いているかを言わず、メイン会話が空いていることだけを言う', () => {
-    expect(present({ aside: { shell: false, agents: 0 } }).detail).toBe('メイン会話は入力を受け付けている');
+    expect(present({ aside: { shell: false, agents: 0 } }).detail).toBe('メイン会話は入力可能');
   });
   it('作業中は、手の数とターンの経過を添える（hangar 自身の MCP は数えず、Agent の起こしは数える）', () => {
     seq = 0;
@@ -146,8 +146,8 @@ describe('現在の札の依頼（意図を送らないとき、1f）', () => {
   it('意図を送らない設定では、「まだ意図が届いていません」の代わりに、このターンの利用者の発言の冒頭を「依頼 · 時刻」で出す', () => {
     const head = prompt('README の導入手順が古いので、Node 22 前提に書き直して。', 1_000);
     const s = present({ liveHints: false, events: [head, call('Read', { file_path: '/r/README.md' })], turnFrom: head.seq, digest: digest({ turnStartSeq: head.seq }) });
-    expect(s.intent).toEqual({ kind: 'request', text: 'README の導入手順が古いので、Node 22 前提に書き直して。', label: '依頼 · t1000' });
-    expect(present({ liveHints: false, events: [head], turnFrom: head.seq }, en).intent).toMatchObject({ label: 'Request · t1000' });
+    expect(s.intent).toEqual({ kind: 'request', text: 'README の導入手順が古いので、Node 22 前提に書き直して。', label: 'プロンプト · t1000' });
+    expect(present({ liveHints: false, events: [head], turnFrom: head.seq }, en).intent).toMatchObject({ label: 'Prompt · t1000' });
   });
   it('前のターンの意図しか無いときも、依頼を出す。このターンの意図が届いていれば、意図を先に出す', () => {
     const head = prompt('直して', 5);
@@ -168,7 +168,7 @@ describe('現在の札の依頼（意図を送らないとき、1f）', () => {
     expect(present({ liveHints: false, events: [], turnFrom: 99 }).intent).toEqual({ kind: 'none', text: '' });
     // 時刻の無い発言は、見出しを「依頼」だけにする。
     const noTs = prompt('直して');
-    expect(present({ liveHints: false, events: [noTs], turnFrom: noTs.seq }).intent).toEqual({ kind: 'request', text: '直して', label: '依頼' });
+    expect(present({ liveHints: false, events: [noTs], turnFrom: noTs.seq }).intent).toEqual({ kind: 'request', text: '直して', label: 'プロンプト' });
   });
   it('意図を送る設定（既定）では、今までどおり「まだ意図が届いていません」と言う', () => {
     const head = prompt('直して', 5);

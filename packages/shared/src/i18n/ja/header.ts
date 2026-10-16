@@ -15,7 +15,7 @@ export const headerJa: AreaDictionary<typeof headerKeys> = {
   'header.sync.errorDetail': '同期エラー: {message}',
   'header.sync.pausedError': '同期を一時停止中 · 同期エラー: {message}',
   'header.sync.pausedErrorShort': '同期を一時停止中 · 同期エラー',
-  'header.sync.limited': '無料枠で停止 · {time} にリセット',
+  'header.sync.limited': '無料枠の上限で停止 · {time} にリセット',
   'header.sync.pending': '未送信の変更 {n}',
   'header.sync.sweepPending': '未送信のトランスクリプト {n}',
   'header.sync.skipped': '送信に失敗したトランスクリプト {n}',

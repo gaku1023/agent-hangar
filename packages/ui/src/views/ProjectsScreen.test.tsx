@@ -195,7 +195,7 @@ describe('ProjectsScreen の空の状態', () => {
   });
   it('クイックセッションがあれば、昇格の入口を出す。無ければ出さない', () => {
     const { onAction } = mount(none({ promoteSessionId: 'q1' }));
-    fireEvent.click(screen.getByRole('button', { name: 'クイックセッションをプロジェクトに昇格' }));
+    fireEvent.click(screen.getByRole('button', { name: 'クイックセッションをプロジェクトにする' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.promote.open', id: 'q1' });
     cleanup();
     mount(none());

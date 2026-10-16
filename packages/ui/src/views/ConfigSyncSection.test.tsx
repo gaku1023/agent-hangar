@@ -14,16 +14,16 @@ const ui = (cfg: ConfigSyncSectionProps, onAction: (i: UiAction) => void = () =>
 const sw = () => screen.getByRole('switch', { name: 'この PC で有効にする' });
 
 describe('Claude Code の設定の同期の節', () => {
-  it('クラウドに参加していなければ、スイッチは押せず、ほかの行は出さない', () => {
+  it('クラウドに参加していなければ、スイッチは押せず、他の行は出さない', () => {
     render(ui(propsOf(null), () => {}, true));
     expect(sw()).toBeDisabled();
     expect(screen.getByText('クラウド同期を開始すると使えます')).toBeInTheDocument();
-    expect(screen.queryByText('届いている変更')).toBeNull();
+    expect(screen.queryByText('受信した変更')).toBeNull();
   });
   it('切のスイッチを入れるときは、送る一覧のダイアログを開く（承諾するまで入れない）。入っているものを切るのはその場で保存する', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(propsOf(dto({ enabled: false })), onAction));
-    expect(screen.queryByText('届いている変更')).toBeNull();
+    expect(screen.queryByText('受信した変更')).toBeNull();
     fireEvent.click(sw());
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'settings.update' }));
@@ -31,7 +31,7 @@ describe('Claude Code の設定の同期の節', () => {
     fireEvent.click(sw());
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configBundleSync: false } });
   });
-  it('入っているとき、最後に送った時刻と「送るものを見る」を出し、Worker の更新待ちを注意の帯で言う', () => {
+  it('入っているとき、最後に送った時刻と「送るものを表示」を出し、Worker の更新待ちを注意の帯で言う', () => {
     const onAction = vi.fn();
     render(ui(propsOf(dto({ lastSentAt: NOW - 120_000, workerPending: true })), onAction));
     expect(screen.getByText(/最終送信: 2 分前/)).toBeInTheDocument();
@@ -46,13 +46,13 @@ describe('Claude Code の設定の同期の節', () => {
     rerender(ui(propsOf(dto({ enabled: false, workerPending: true }))));
     expect(screen.queryByRole('status')).toBeNull();
   });
-  it('届いている変更、承諾待ち、競合は、押すとそれぞれのダイアログを開く。0 件のものは押せない', () => {
+  it('受信した変更、承諾待ち、競合は、押すとそれぞれのダイアログを開く。0 件のものは押せない', () => {
     const onAction = vi.fn();
     const inbox = { items: [{ id: 'a', kind: 'skills' as const, label: 'skills/a/SKILL.md', op: 'create' as const, fromDeviceId: 'x', fromDevice: 'Studio', size: 1, marks: [], head: '', held: null, needsApproval: true }], approval: 'each' as const };
     render(ui(propsOf(dto({ incoming: 1, conflicts: 2 }), { inbox }), onAction));
     expect(screen.getByText('1 件、Studio から')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '適用内容を確認' }));
-    fireEvent.click(screen.getByRole('button', { name: '選択して承諾…' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択して承認…' }));
     fireEvent.click(screen.getByRole('button', { name: '差分を表示' }));
     expect(onAction.mock.calls.map((c) => (c[0] as { part?: string }).part)).toEqual(['review', 'approve', 'conflicts']);
     expect(screen.getByText('競合 2 件')).toBeInTheDocument();
@@ -62,13 +62,13 @@ describe('Claude Code の設定の同期の節', () => {
     expect(screen.getAllByText('ありません', { selector: '.set-row-d' })).toHaveLength(2);
     expect(screen.getByRole('button', { name: '適用内容を確認' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '差分を表示' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: '選択して承諾…' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '選択して承認…' })).toBeNull();
   });
   it('自動で適用に切り替えるときは、注意の文と、キャンセル、自動にする、を出し、押すまで保存しない', () => {
     const onAction = vi.fn();
     render(ui(propsOf(dto()), onAction));
-    const seg = screen.getByRole('radiogroup', { name: '届いたスキル、コマンド、エージェント' });
-    expect(within(seg).getByRole('radio', { name: '毎回承諾する' })).toHaveAttribute('aria-checked', 'true');
+    const seg = screen.getByRole('radiogroup', { name: '受信したスキル、コマンド、エージェント' });
+    expect(within(seg).getByRole('radio', { name: '毎回承認する' })).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(within(seg).getByRole('radio', { name: '自動で適用' }));
     const strip = screen.getByRole('group', { name: '自動で適用にする前の確認' });
     expect(strip).toHaveTextContent('乗っ取られたとき');
@@ -85,10 +85,10 @@ describe('Claude Code の設定の同期の節', () => {
     const onAction = vi.fn();
     render(ui(propsOf(dto({ approval: 'auto' })), onAction));
     expect(screen.getByText(/自動で適用する設定です/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', { name: '毎回承諾する' }));
+    fireEvent.click(screen.getByRole('radio', { name: '毎回承認する' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configApproval: 'each' } });
   });
-  it('送らなかった項目は、0 件でも行を残し、開くと理由と「それでも送る」を出す', () => {
+  it('送らなかった項目は、0 件でも行を残し、開くと理由と「それでも送信」を出す', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(propsOf(dto()), onAction));
     expect(screen.getByText('送信しなかった項目 0 件')).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe('Claude Code の設定の同期の節', () => {
     expect(screen.queryByText('skills/x/SKILL.md')).toBeNull();
     fireEvent.click(rowBtn());
     expect(screen.getByText('skills/x/SKILL.md')).toBeInTheDocument();
-    expect(screen.getByText('シークレットらしい文字列（ghp_ 形式）')).toBeInTheDocument();
+    expect(screen.getByText('シークレットと思われる文字列（ghp_ 形式）')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'skills/x/SKILL.md をそれでも送信' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.unsent.send', id: 'secret:x' });
   });
@@ -129,7 +129,7 @@ describe('Claude Code の設定の同期の節', () => {
     const onAction = vi.fn();
     const order = dto({ applyOrder: { count: 5, createdAt: NOW - 60_000 } });
     const { unmount } = render(ui(propsOf(order, {}, true), onAction));
-    expect(screen.getByText(/承諾した 5 項目を/)).toBeInTheDocument();
+    expect(screen.getByText(/承認した 5 項目の適用内容を/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '適用…' }));
     fireEvent.click(screen.getByRole('button', { name: '取り消す' }));
     expect(onAction.mock.calls.map((c) => (c[0] as UiAction).type)).toEqual(['configSync.order.apply', 'configSync.order.cancel']);

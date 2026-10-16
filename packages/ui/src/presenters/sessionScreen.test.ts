@@ -253,7 +253,7 @@ describe('見出しの状態の札（4A）', () => {
   });
   it('自動で付いた Done は印と理由を添える', () => {
     const auto = session({ stats: { ...stats, turns: 2 }, state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: NOW, candidate: null } });
-    expect(present(store(auto)).statusPick).toEqual({ value: 'done', auto: true, title: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）' });
+    expect(present(store(auto)).statusPick).toEqual({ value: 'done', auto: true, title: 'hangar が自動で Done にしました（3 ターン以下で終了した会話）' });
   });
   it('本文が消えた会話には出さない', () => {
     expect(present(store(session({ hasTranscript: false, lastActivityAt: NOW - 40 * 86_400_000 }))).statusPick).toBeNull();

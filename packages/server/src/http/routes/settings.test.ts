@@ -81,7 +81,7 @@ describe('routes', () => {
       const missing = await patch({ tmuxPath: 'no-such-tool' });
       expect(missing.status).toBe(400);
       expect(((await missing.json()) as { error: string }).error).toBe('「tmux のパス」の no-such-tool が PATH に見つかりません');
-      // 相対パスは、サーバの作業ディレクトリで読むとどこを指すかが分からないので弾く。
+      // 相対パスは、サーバーの作業ディレクトリで読むとどこを指すかが分からないので弾く。
       for (const rel of ['./mytmux', 'bin/mytmux']) {
         const bad = await patch({ claudePath: rel });
         expect(bad.status).toBe(400);
@@ -144,7 +144,7 @@ describe('routes', () => {
     expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形式が正しくありません');
     expect(await error({ askStatusAtEnd: 'no' })).toBe('「作業の区切りで Done／Paused を確認する」の値の形式が正しくありません');
     expect(await error({ liveHints: 0 })).toBe('「ターンの意図と操作の短い説明を送る」の値の形式が正しくありません');
-    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの宛先に指定できるのは 127.0.0.1 か localhost だけです。トランスクリプトを送信するため、その他の宛先は設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
+    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの接続先に指定できるのは 127.0.0.1 か localhost だけです。トランスクリプトを送信するため、その他の接続先は設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -226,7 +226,7 @@ describe('routes', () => {
     expect(await error(withNode({ version: '22.14.0', napi: 10, arch: 'x64' }), node)).toBe(`「Node のパス」の ${node} は x64 用の Node です。hangar には arm64 用の Node が必要です`);
     expect(await error(withNode(null), node)).toBe(`「Node のパス」の ${node} は Node として応答しません`);
     expect((await json(await get('/api/settings'))).body.nodePath).toBeNull();
-    // 新しい版の Node も保存する（上限は付けない）。
+    // 新しいバージョンの Node も保存する（上限は付けない）。
     const newer = await withNode({ version: '24.21.0', napi: 10, arch: 'arm64' }).request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) });
     expect(newer.status).toBe(200);
     const ok = await right.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) });
@@ -390,7 +390,7 @@ describe('設定の往復', () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws3-'));
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cd-'));
     try {
-      // 1 項目ずつ送って、応答と GET の両方に載ることを見る。UI は 1 項目だけの patch を送る。
+      // 1 項目ずつ送って、応答と GET の両方に載ることを表示。UI は 1 項目だけの patch を送る。
       const cases: [keyof SettingsDto, unknown][] = [
         ['workspaceRoot', ws2],
         ['claudeDir', dir2],
@@ -447,7 +447,7 @@ describe('設定の往復', () => {
     for (const v of ['always', 'AUTO', '', null, true, ['auto']]) {
       const r = await patch({ configApproval: v });
       expect([v, r.status]).toEqual([v, 400]);
-      expect((await r.json()).error).toBe('「受信した設定の承諾方法」の値の形式が正しくありません');
+      expect((await r.json()).error).toBe('「受信した設定の承認方法」の値の形式が正しくありません');
     }
     expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
   });
