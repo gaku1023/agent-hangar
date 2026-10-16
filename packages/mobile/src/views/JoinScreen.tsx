@@ -1,7 +1,7 @@
 import type { PairingBlob } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { JoinError, joinPhone, readPairText } from '../api.ts';
-import { saveKey, savePairing, type Pairing } from '../store.ts';
+import { savePairing, type Pairing } from '../store.ts';
 
 type Step =
   | { kind: 'start'; note: string | null }
@@ -38,8 +38,10 @@ function initialStep(pairText: string | null): Step {
 }
 
 const joinMessage = (e: unknown): string => {
-  if (!(e instanceof JoinError)) return 'このブラウザに鍵を置けませんでした。プライベートブラウズを切ってから、PC で QR を出し直してください。';
+  if (!(e instanceof JoinError)) return `接続できませんでした（${e instanceof Error ? e.message : '不明'}）。もう一度押してください。`;
   switch (e.reason) {
+    case 'storage':
+      return 'このブラウザに鍵を置けませんでした。プライベートブラウズを切ってから、もう一度押してください（この QR はまだ使えます）。';
     case 'too-many-phones':
       return 'スマホは 10 台まで接続できます。PC の設定 › クラウド で使っていないスマホを外してから、QR を出し直してください。';
     case 'upgrade':
@@ -85,7 +87,7 @@ export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
           <>
             <Logo />
             <h1 className="p-h">この QR は使えません</h1>
-            <p className="strip danger">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド で、QR を出し直してください。</p>
+            <p className="strip danger m-fade">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド で、QR を出し直してください。</p>
             <ReadControls onText={onText} />
           </>
         )}
@@ -94,7 +96,7 @@ export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
             <Logo />
             <h1 className="p-h">このスマホはまだ接続していません</h1>
             <p className="p-t">ホーム画面から開くと、Safari で接続した情報が引き継がれないことがあります。PC で新しい QR を出して、このアプリのまま読み込んでください。</p>
-            {step.note && <p className="strip danger">{step.note}</p>}
+            {step.note && <p className="strip danger m-fade">{step.note}</p>}
             <ReadControls onText={onText} />
           </>
         )}
@@ -146,7 +148,6 @@ function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: Pairi
     setError(null);
     try {
       const { pairing, key } = await joinPhone(text, n);
-      await saveKey(key);
       savePairing(pairing);
       onJoined(pairing, key);
     } catch (err) {
@@ -175,7 +176,7 @@ function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: Pairi
         <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} autoComplete="off" />
       </label>
       {error && (
-        <p className="strip danger" role="alert">
+        <p className="strip danger m-fade" role="alert" key={error}>
           {error}
         </p>
       )}
@@ -288,7 +289,7 @@ function ReadControls({ onText }: { onText: (text: string) => string | null }): 
         </button>
       )}
       {note && (
-        <p className="strip danger" role="alert">
+        <p className="strip danger m-fade" role="alert" key={note}>
           {note}
         </p>
       )}

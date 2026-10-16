@@ -49,6 +49,26 @@ describe('openInbox', () => {
     ]);
   });
 
+  it('ちょうど 180,000 ms 前に見た PC はまだ生きている、1 ms 過ぎたら unknown', async () => {
+    const key = await makeKey();
+    const feeds = [feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting' })] })];
+    const edge = await openInbox(await inboxOf(key, feeds, { lastSeen: { 'pc-1': NOW - 180_000 } }), key, now);
+    expect(edge.devices[0]!.alive).toBe(true);
+    expect(edge.waiting.map((r) => r.sessionId)).toEqual(['s-1']);
+    const past = await openInbox(await inboxOf(key, feeds, { lastSeen: { 'pc-1': NOW - 180_001 } }), key, now);
+    expect(past.devices[0]!.alive).toBe(false);
+    expect(past.running.map((r) => r.status)).toEqual(['unknown']);
+  });
+
+  it('時計の差は res.now（Worker）から測る', async () => {
+    const key = await makeKey();
+    const ahead = await openInbox(await inboxOf(key, [feedOf('pc-1', 'Mac')], { now: NOW + 2 * 60 * MIN }), key, now);
+    expect(ahead.skewMs).toBe(2 * 60 * MIN);
+    const res = await inboxOf(key, [feedOf('pc-1', 'Mac')]);
+    const noNow = await openInbox({ ...res, now: undefined as unknown as number }, key, now);
+    expect(noNow.skewMs).toBe(0);
+  });
+
   it('一度も見ていない PC（lastSeenAt が null）も unknown', async () => {
     const key = await makeKey();
     const res = await inboxOf(key, [feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting' })] })], { lastSeen: { 'pc-1': null } });
@@ -79,12 +99,14 @@ describe('openInbox', () => {
     expect(v.unreadable).toEqual(['Mac', 'Mac']);
   });
 
-  it('今日戻るは returnOn が今日のものだけ', async () => {
+  it('今日戻るは returnOn が今日か過ぎた日のもの。過ぎたものが先、明日以降と日付の無いものは出ない', async () => {
     const key = await makeKey();
     const res = await inboxOf(key, [
       feedOf('pc-1', 'Mac', {
         returns: [
           { sessionId: 'r-yesterday', projectName: 'project-a', title: '会話 1', accountId: 'acc-1', returnOn: '2026-10-16', returnTime: null },
+          { sessionId: 'r-blank', projectName: 'project-a', title: '会話 7', accountId: 'acc-1', returnOn: '', returnTime: null },
+          { sessionId: 'r-week', projectName: 'project-a', title: '会話 8', accountId: 'acc-1', returnOn: '2026-10-10', returnTime: '20:00' },
           { sessionId: 'r-late', projectName: 'project-a', title: '会話 2', accountId: 'acc-1', returnOn: '2026-10-17', returnTime: '18:00' },
           { sessionId: 'r-early', projectName: 'project-a', title: '会話 3', accountId: 'acc-1', returnOn: '2026-10-17', returnTime: '09:30' },
           { sessionId: 'r-tomorrow', projectName: 'project-a', title: '会話 4', accountId: 'acc-1', returnOn: '2026-10-18', returnTime: null },
@@ -96,8 +118,9 @@ describe('openInbox', () => {
       }),
     ]);
     const v = await openInbox(res, key, now);
-    expect(v.returning.map((r) => r.sessionId)).toEqual(['r-early', 'r-late']);
-    expect(v.returning[0]!.returnTime).toBe('09:30');
+    expect(v.returning.map((r) => r.sessionId)).toEqual(['r-week', 'r-yesterday', 'r-early', 'r-late']);
+    expect(v.returning[0]!.returnOn).toBe('2026-10-10');
+    expect(v.returning[2]!.returnTime).toBe('09:30');
     expect(v.doneToday.map((r) => r.sessionId)).toEqual(['d-today']);
     expect(v.doneToday[0]!.oneLiner).toBe('片付けた');
   });

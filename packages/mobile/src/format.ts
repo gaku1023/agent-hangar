@@ -42,6 +42,12 @@ export function dayLabel(d: Date): string {
   return `${d.getMonth() + 1}月${d.getDate()}日（${WEEK[d.getDay()]}）`;
 }
 
+/** YYYY-MM-DD を「10月15日」にする。形が違えばそのまま返す。 */
+export function monthDay(ymd: string): string {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(ymd);
+  return m ? `${Number(m[1])}月${Number(m[2])}日` : ymd;
+}
+
 /** 時刻（例「09:30」）。 */
 export function clock(ms: number): string {
   const d = new Date(ms);

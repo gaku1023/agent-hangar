@@ -1,8 +1,10 @@
+import { aadFeed, open, seal } from '@agent-hangar/shared';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App.tsx';
 import { takePairFragment } from '../api.ts';
 import * as store from '../store.ts';
+import { makeKey } from '../test/fixtures.ts';
 import { json, makePairText, WORKER } from '../test/pairText.ts';
 import { JoinScreen } from './JoinScreen.tsx';
 
@@ -101,7 +103,6 @@ describe('JoinScreen', () => {
     expect(await screen.findByText('この QR は使えません')).toBeInTheDocument();
     expect(screen.getByText(/QR を出し直してください/)).toBeInTheDocument();
     expect(store.savePairing).not.toHaveBeenCalled();
-    expect(store.saveKey).not.toHaveBeenCalled();
   });
 
   it('スマホが 10 台に達していたら（409）外すよう案内する', async () => {
@@ -109,7 +110,41 @@ describe('JoinScreen', () => {
     const { text } = makePairText();
     render(<JoinScreen pairText={text} onEnter={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '接続する' }));
-    expect(await screen.findByText(/10 台まで/)).toBeInTheDocument();
+    const strip = await screen.findByText(/10 台まで/);
+    expect(strip).toHaveClass('m-fade');
+  });
+
+  it('鍵は券を使う前（POST /m/join の前）に置く', async () => {
+    const { text } = makePairText();
+    render(<JoinScreen pairText={text} onEnter={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '接続する' }));
+    await screen.findByText('接続しました');
+    expect(vi.mocked(store.saveKey).mock.invocationCallOrder[0]!).toBeLessThan(fetchMock.mock.invocationCallOrder[0]!);
+  });
+
+  it('鍵を置けなければ券を使わず、理由を出す', async () => {
+    vi.mocked(store.saveKey).mockRejectedValueOnce(new Error('quota'));
+    const { text } = makePairText();
+    render(<JoinScreen pairText={text} onEnter={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '接続する' }));
+    expect(await screen.findByText(/鍵を置けませんでした/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.savePairing).not.toHaveBeenCalled();
+  });
+
+  it('参加に失敗したら、前から置いてあった鍵に戻す', async () => {
+    const old = await makeKey();
+    await store.saveKey(old);
+    const sealed = await seal(old, aadFeed('pc-1'), { n: 1 });
+    vi.mocked(store.saveKey).mockClear();
+    fetchMock.mockImplementation(async () => json({ error: 'used' }, 401));
+    const { text } = makePairText();
+    render(<JoinScreen pairText={text} onEnter={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '接続する' }));
+    await screen.findByText('この QR は使えません');
+    await waitFor(() => expect(store.saveKey).toHaveBeenCalledTimes(2));
+    const back = await store.loadKey();
+    expect(await open(back!, aadFeed('pc-1'), sealed)).toEqual({ n: 1 });
   });
 
   it('カメラで QR を読むと、読めた文字列で参加の流れに入る', async () => {

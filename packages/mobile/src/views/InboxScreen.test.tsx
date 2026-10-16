@@ -200,6 +200,52 @@ describe('InboxScreen', () => {
     vis.mockRestore();
   });
 
+  it('動いている行は、意図があってもプロジェクト名を出し、丸はどれも作業中の橙', async () => {
+    await serveFeeds([
+      feedOf('pc-1', 'Mac', {
+        live: [
+          liveItem({ sessionId: 's-1', status: 'busy', projectName: 'project-a', intent: '試験を足す' }),
+          liveItem({ sessionId: 's-2', status: 'idle', projectName: 'project-b', title: '会話 2', intent: null }),
+        ],
+      }),
+    ]);
+    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    const a = (await screen.findByText('試験を足す')).closest('a')!;
+    expect(a.querySelector('.thin-text')).toHaveTextContent('project-a · 試験を足す');
+    expect(within(a).getByText('project-a')).toHaveClass('thin-proj');
+    const b = screen.getByText('会話 2').closest('a')!;
+    expect(b.querySelector('.thin-text')).toHaveTextContent('project-b · 会話 2');
+    expect(a.querySelector('.dot')).toHaveClass('busy');
+    expect(b.querySelector('.dot')).toHaveClass('busy');
+  });
+
+  it('戻る日を過ぎたものは日付、今日のものは時刻を出す', async () => {
+    const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const past = new Date();
+    past.setDate(past.getDate() - 2);
+    await serveFeeds([
+      feedOf('pc-1', 'Mac', {
+        returns: [
+          { sessionId: 'r-1', projectName: 'project-a', title: '会話 1', accountId: 'acc-1', returnOn: day(new Date()), returnTime: '18:00' },
+          { sessionId: 'r-2', projectName: 'project-a', title: '会話 2', accountId: 'acc-1', returnOn: day(past), returnTime: '09:00' },
+        ],
+      }),
+    ]);
+    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    expect(await screen.findByText('今日戻る')).toBeInTheDocument();
+    const rows = [...document.querySelectorAll('.thin')].map((r) => r.textContent);
+    expect(rows).toEqual([`会話 2${past.getMonth() + 1}月${past.getDate()}日`, '会話 118:00']);
+  });
+
+  it('待った時間はスマホの時計でなく Worker の時刻に寄せて測る', async () => {
+    const workerNow = now() + 60 * MIN;
+    await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting', statusAt: workerNow - 10 * MIN, waiting: { kind: 'question', text: '質問 1' } })] })], { now: workerNow, lastSeen: { 'pc-1': workerNow - 2 * MIN } });
+    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    const card = (await screen.findByText('質問 1')).closest('a')!;
+    expect(within(card).getByText('10分')).toBeInTheDocument();
+    expect(screen.getByText('2 分前')).toBeInTheDocument();
+  });
+
   it('今日戻ると今日終わったの節が出る', async () => {
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

@@ -1,8 +1,8 @@
 import { isRemoteControlUrl } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent } from 'react';
 import { fetchInbox, UnpairedError } from '../api.ts';
-import { ago, clock, dayLabel, elapsed, waitedFor } from '../format.ts';
-import { openInbox, type InboxView, type Row } from '../inbox.ts';
+import { ago, clock, dayLabel, elapsed, monthDay, waitedFor } from '../format.ts';
+import { localDay, openInbox, type InboxView, type Row } from '../inbox.ts';
 import { phaseClass, usePresence, type Present } from '../presence.ts';
 import { clearPairing, type Pairing } from '../store.ts';
 
@@ -124,6 +124,8 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession }: Pr
   const pullHeight = pull.phase === 'pulling' ? pull.dist : pull.phase === 'refreshing' ? 44 : 0;
   const pullLabel = pull.phase === 'refreshing' ? '読み直しています…' : pull.phase === 'pulling' && pull.dist >= PULL_TRIGGER * 0.9 ? '離すと読み直します' : '引くと読み直します';
   const today = new Date(now);
+  // PC と Worker の時刻（statusAt、startedAt、lastSeenAt）との差は、Worker の時刻に寄せたスマホの時刻で測る（スマホの時計のずれを消す）。
+  const pcNow = now + (view?.skewMs ?? 0);
 
   return (
     <div className="inbox">
@@ -150,7 +152,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession }: Pr
                 <span key={d.id} className={`alive ${d.alive ? '' : 'stale'}`}>
                   <span className="dot" aria-hidden="true" />
                   <span className="alive-name">{d.name}</span>
-                  <span className="alive-age">{d.alive && d.lastSeenAt !== null ? ago(now - d.lastSeenAt) : '不明'}</span>
+                  <span className="alive-age">{d.alive && d.lastSeenAt !== null ? ago(pcNow - d.lastSeenAt) : '不明'}</span>
                 </span>
               ))}
             </div>
@@ -182,8 +184,8 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession }: Pr
                 {view.unreadable.join('、')} の一覧を開けません。その PC の hangar が古いか、鍵が合っていません。
               </p>
             )}
-            <WaitingList rows={view.waiting} now={now} />
-            <Sections view={view} now={now} />
+            <WaitingList rows={view.waiting} now={pcNow} />
+            <Sections view={view} now={pcNow} today={localDay(today)} />
           </>
         )}
       </div>
@@ -249,7 +251,7 @@ function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
 
 type SectionDef = { key: 'running' | 'returning' | 'done'; label: string; rows: Row[] };
 
-function Sections({ view, now }: { view: InboxView; now: number }): ReactNode {
+function Sections({ view, now, today }: { view: InboxView; now: number; today: string }): ReactNode {
   const defs: SectionDef[] = [
     { key: 'running', label: '動いている', rows: view.running },
     { key: 'returning', label: '今日戻る', rows: view.returning },
@@ -265,7 +267,7 @@ function Sections({ view, now }: { view: InboxView; now: number }): ReactNode {
         <Fold key={p.key} phase={p.phase}>
           <section className="sec" aria-label={p.item.label}>
             <h2 className="sec-h">{p.item.label}</h2>
-            <SectionRows def={p.item} now={now} />
+            <SectionRows def={p.item} now={now} today={today} />
           </section>
         </Fold>
       ))}
@@ -273,26 +275,30 @@ function Sections({ view, now }: { view: InboxView; now: number }): ReactNode {
   );
 }
 
-function SectionRows({ def, now }: { def: SectionDef; now: number }): ReactNode {
+function SectionRows({ def, now, today }: { def: SectionDef; now: number; today: string }): ReactNode {
   const list = usePresence(def.rows, rowKey);
   return (
     <>
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
-          <ThinRow kind={def.key} row={p.item} now={now} />
+          <ThinRow kind={def.key} row={p.item} now={now} today={today} />
         </Fold>
       ))}
     </>
   );
 }
 
-function ThinRow({ kind, row, now }: { kind: SectionDef['key']; row: Row; now: number }): ReactNode {
+function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row; now: number; today: string }): ReactNode {
   if (kind === 'running') {
     const unknown = row.status === 'unknown';
     return (
       <a className={`thin ${unknown ? 'unknown' : ''}`} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
-        <span className={`dot ${unknown ? 'unknown' : row.status === 'idle' ? 'idle' : 'busy'}`} aria-hidden="true" />
-        <span className="thin-text">{row.intent?.trim() || `${row.projectName} · ${row.title}`}</span>
+        <span className={`dot ${unknown ? 'unknown' : 'busy'}`} aria-hidden="true" />
+        <span className="thin-text">
+          <span className="thin-proj">{row.projectName}</span>
+          <span className="thin-sep"> · </span>
+          <span className="thin-intent">{row.intent?.trim() || row.title}</span>
+        </span>
         <span className="thin-meta">{unknown ? `${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`}</span>
       </a>
     );
@@ -302,7 +308,7 @@ function ThinRow({ kind, row, now }: { kind: SectionDef['key']; row: Row; now: n
       <div className="thin">
         <span className="dot returning" aria-hidden="true" />
         <span className="thin-text">{row.title || row.projectName}</span>
-        <span className="thin-meta">{row.returnTime ?? '今日'}</span>
+        <span className="thin-meta">{row.returnOn && row.returnOn < today ? monthDay(row.returnOn) : (row.returnTime ?? '今日')}</span>
       </div>
     );
   }

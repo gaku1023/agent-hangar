@@ -2,7 +2,7 @@
 import { compatHeaders } from '@agent-hangar/shared/src/compat.ts';
 import type { MobileInboxResponse, MobileJoinResponse } from '@agent-hangar/shared/src/mobile.ts';
 import { decodePairing, importMobileKey, MobilePairingError, type PairingBlob } from '@agent-hangar/shared/src/mobileCrypto.ts';
-import type { Pairing } from './store.ts';
+import { loadKey, saveKey, type Pairing } from './store.ts';
 
 /** トークンが外された、または知らないトークン（401）。参加の画面に戻る。 */
 export class UnpairedError extends Error {
@@ -12,7 +12,7 @@ export class UnpairedError extends Error {
   }
 }
 
-export type JoinFailure = 'ticket' | 'too-many-phones' | 'upgrade' | 'network' | 'server';
+export type JoinFailure = 'ticket' | 'too-many-phones' | 'upgrade' | 'network' | 'server' | 'storage';
 
 /** 参加に失敗した。reason で画面の文を分ける。 */
 export class JoinError extends Error {
@@ -85,6 +85,8 @@ function keyBytes(s: string): Uint8Array {
 
 /**
  * QR の中身で参加する。鍵は取り出せない CryptoKey にしてから Worker に券だけを送る（鍵は送らない）。
+ * 鍵は券を使う前に IndexedDB に置く。置けない端末で券と台数の枠を無駄に使わないため。
+ * 参加に失敗したら、前から置いてあった鍵に戻す（前の接続の受信箱を開けなくしない）。
  * Worker は新しい deviceId を割り当てるので、応答の deviceId を持つ。
  */
 export async function joinPhone(pairText: string, name: string): Promise<{ pairing: Pairing; key: CryptoKey }> {
@@ -93,12 +95,27 @@ export async function joinPhone(pairText: string, name: string): Promise<{ pairi
   const bytes = keyBytes(blob.key);
   const key = await importMobileKey(bytes, false);
   bytes.fill(0);
+  const before = await loadKey();
+  try {
+    await saveKey(key);
+  } catch {
+    throw new JoinError('storage');
+  }
+  try {
+    return await postJoin(origin, blob.code, name, key);
+  } catch (e) {
+    if (before) await saveKey(before).catch(() => undefined);
+    throw e;
+  }
+}
+
+async function postJoin(origin: string, code: string, name: string, key: CryptoKey): Promise<{ pairing: Pairing; key: CryptoKey }> {
   let res: Response;
   try {
     res = await fetch(`${origin}/m/join`, {
       method: 'POST',
       headers: { ...compatHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ code: blob.code, device: { id: globalThis.crypto.randomUUID(), name } }),
+      body: JSON.stringify({ code, device: { id: globalThis.crypto.randomUUID(), name } }),
     });
   } catch {
     throw new JoinError('network');

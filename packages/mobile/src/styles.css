@@ -71,8 +71,8 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 @keyframes m-spin { to { transform: rotate(360deg); } }
 .m-fade { animation: m-fade var(--dur) var(--ease-out); }
-.fold { display: grid; grid-template-rows: 1fr; }
-.fold-in { min-height: 0; }
+.fold { display: grid; grid-template-rows: 1fr; grid-template-columns: minmax(0, 1fr); }
+.fold-in { min-height: 0; min-width: 0; }
 .fold-pad { padding-bottom: 8px; }
 .fold.m-grow { animation: m-grow var(--dur) var(--ease-out); }
 .fold.m-collapse { animation: m-collapse calc(var(--dur-exit) + var(--dur-fast)) var(--ease-in) forwards; pointer-events: none; }
@@ -83,7 +83,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .strip { margin: 0; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.55; }
 .strip.warn { background: var(--st-paused-soft); color: #5a3d07; }
 .strip.danger { background: color-mix(in srgb, var(--error) 8%, #fff); color: #7a1b15; }
-.dot { width: 8px; height: 8px; flex: none; border-radius: 50%; display: inline-block; background: var(--ended); }
+.dot { width: 8px; height: 8px; flex: none; border-radius: 50%; display: inline-block; background: var(--ended); transition: background-color var(--dur-fast) var(--ease-out); }
 .dot.busy { background: var(--busy); }
 .dot.idle { background: var(--idle); }
 .dot.unknown { background: var(--ended); }
@@ -150,7 +150,7 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .wait-card { padding: 13px 16px 12px; transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .wait-card:active, .thin:is(a):active { background: var(--surface-2); transform: scale(0.99); }
 .wait-top { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
-.acct-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--ink-3); }
+.acct-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--ink-3); transition: background-color var(--dur-fast) var(--ease-out); }
 .wait-proj { font-weight: 700; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wait-title { flex: 1; min-width: 0; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wait-for { flex: none; font: 600 12.5px var(--font-mono); color: var(--waiting); }
@@ -164,6 +164,8 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .thin { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--card-line); transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .thin.unknown .thin-text { color: var(--ink-2); }
 .thin-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thin-proj { font-weight: 700; }
+.thin-sep { color: var(--ink-3); }
 .thin-meta { flex: none; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* 下の帯は動かさない（固定の白い帯と黒の大きなボタン）。 */
