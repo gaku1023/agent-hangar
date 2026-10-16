@@ -3,6 +3,7 @@ import type { RunDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { upsertShared } from '../db/shared.ts';
+import { recordPeers } from '../sync/peers.ts';
 import { answerOf, askOf, writeAnswer, writeAsk } from '../sync/takeoverRows.ts';
 import { bootTakeover } from './takeover.ts';
 
@@ -98,6 +99,7 @@ describe('引き継ぎの頼みを受ける部品の組み立て', () => {
     // 相手（pc-a）で動いている会話を、この PC（pc-b）が引き継ぐ。
     const peer = ensureSession(db, '33333333-3333-4333-8333-333333333333', '/w', 'pc-a');
     upsertShared(db, 'runs', { id: 'r9', session_id: peer, device_id: 'pc-a', kind: 'start', tmux_name: 'hangar-r9', pid: null, launch_params: '{}', started_at: Date.now() - 1000, ended_at: null, end_reason: null, heartbeat_at: Date.now() }, 'pc-a');
+    recordPeers(db, { selfDeviceId: SELF, peers: [{ id: 'pc-a', lastSeenAt: Date.now() }], workerNow: Date.now(), localNow: Date.now() });
     t.start();
     expect(t.service.start(peer, { force: false }).stage).toBe('asking');
     await settle();

@@ -6,6 +6,7 @@ import { RunError } from '../../runs/manager.ts';
 import { SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { EditorMissingError } from '../../external/open.ts';
 import { upsertShared } from '../../db/shared.ts';
+import { recordPeers } from '../../sync/peers.ts';
 import { writeAnswer, writeAsk } from '../../sync/takeoverRows.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi } from '../app.ts';
 import { H, launched, run, testDeps, type TestWorld } from '../testing.ts';
@@ -200,11 +201,13 @@ describe('同期の経路', () => {
     expect(calls).toEqual([`resumeHere:${id}:false`, `resumeHere:${id}:false`]);
   });
 
-  /** ほかの PC（dev-b）で、いま動いている run を足す。 */
-  const remoteRun = (sessionId: string, o: { id?: string; heartbeat?: number } = {}): string => {
+  /** ほかの PC（dev-b）で、いま動いている run を足す。seenAt は、Worker が dev-b を最後に見た時刻（pull の応答の peers）。 */
+  const remoteRun = (sessionId: string, o: { id?: string; seenAt?: number } = {}): string => {
     const id = o.id ?? 'r-remote';
+    const seenAt = o.seenAt ?? Date.now();
     upsertShared(db, 'devices', { id: 'dev-b', name: 'pc-b', platform: 'darwin', last_seen_at: Date.now() }, 'dev-b');
-    upsertShared(db, 'runs', { id, session_id: sessionId, device_id: 'dev-b', kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: Date.now() - 60_000, ended_at: null, end_reason: null, heartbeat_at: o.heartbeat ?? Date.now() }, 'dev-b');
+    upsertShared(db, 'runs', { id, session_id: sessionId, device_id: 'dev-b', kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: Date.now() - 60_000, ended_at: null, end_reason: null, heartbeat_at: seenAt }, 'dev-b');
+    recordPeers(db, { selfDeviceId: 'self', peers: [{ id: 'dev-b', lastSeenAt: seenAt }], workerNow: Date.now(), localNow: Date.now() });
     return id;
   };
   const sid = async (): Promise<string> => (await json(await get('/api/sessions'))).body[0].id;
@@ -220,7 +223,7 @@ describe('同期の経路', () => {
 
   it('生きたロックでも、stale か、force の頼みか、応答のある頼みなら再開を通す', async () => {
     const id = await sid();
-    remoteRun(id, { heartbeat: Date.now() - 10 * 60_000 });
+    remoteRun(id, { seenAt: Date.now() - 10 * 60_000 });
     expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(200);
     remoteRun(id);
     expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(409);

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { recordPeers } from '../sync/peers.ts';
 import { deviceOfSession, handoverFacts, projectDeviceCount, resumeCwd, resumeHerePlan, resumeTarget, scratchFolderName } from './handover.ts';
 
 let db: Db;
@@ -237,6 +238,7 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
     const now = 1_000_000;
     const hb = now - 10_000;
     upsertShared(db, 'runs', { id: 'run-live', session_id: id, device_id: 'win', kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: hb, live_status: 'busy' }, 'win');
+    recordPeers(db, { selfDeviceId: 'me', peers: [{ id: 'win', lastSeenAt: hb }], workerNow: now, localNow: now });
     expect(resumeHerePlan(db, 'me', id, { now })?.lock).toEqual({ deviceName: 'work-pc', stale: false, working: true, heartbeatAt: hb });
     // 応答が途絶えた相手は stale で、working は live_status の読みのまま。
     expect(resumeHerePlan(db, 'me', id, { now: hb + 200_000 })?.lock).toMatchObject({ stale: true });

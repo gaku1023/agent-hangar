@@ -4,6 +4,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { resumeHereAllowed, TAKEOVER_POLL_MS, TakeoverService } from './takeover.ts';
+import { recordPeers } from './peers.ts';
 import { askOf, cancelAsk, writeAnswer, writeAsk, type TakeoverAsk } from './takeoverRows.ts';
 
 // 頼む側の流れ。時計とタイマーは偽物、同期の口（pushNow、pull、canCarry）は差し替える。
@@ -33,8 +34,10 @@ const flush = async (): Promise<void> => { await timers.advance(0); await Promis
 /** 時計を進める。進めた時刻で書かれる行の updated_at を、直前の書き込みと分けるためにも使う。 */
 const advance = async (ms: number): Promise<void> => { await timers.advance(ms); await Promise.resolve(); await Promise.resolve(); };
 
-function addRun(id: string, heartbeat: number): void {
-  upsertShared(db, 'runs', { id, session_id: 's1', device_id: OTHER, kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: T0 - 60_000, ended_at: null, end_reason: null, heartbeat_at: heartbeat }, OTHER);
+/** 相手の生きた run を足す。seenAt は、Worker が相手を最後に見た時刻（pull の応答の peers、同期の版 6）。 */
+function addRun(id: string, seenAt: number): void {
+  upsertShared(db, 'runs', { id, session_id: 's1', device_id: OTHER, kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: T0 - 60_000, ended_at: null, end_reason: null, heartbeat_at: seenAt }, OTHER);
+  recordPeers(db, { selfDeviceId: SELF, peers: [{ id: OTHER, lastSeenAt: seenAt }], workerNow: now(), localNow: now() });
 }
 function setLedger(sha256: string, size: number): void {
   db.prepare('insert or replace into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
