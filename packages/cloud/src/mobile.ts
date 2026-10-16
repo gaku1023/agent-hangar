@@ -4,6 +4,7 @@ import { authMiddleware, requireKind } from './auth.ts';
 import { BELL_DEVICE_HEADER, BELL_NAME } from './bellWire.ts';
 import type { Env, Vars } from './env.ts';
 import { isSafeName, issueDeviceToken } from './join.ts';
+import { MAX_LAUNCH_ID_CHARS, blobsApp, deleteLaunchImages, sweepOldImages } from './mobileBlobs.ts';
 import { seenOf, touchIfDue } from './seen.ts';
 import { randomToken, sha256Hex } from './util.ts';
 
@@ -57,8 +58,6 @@ export const LAUNCH_KEEP_MS = 7 * 24 * 60 * 60_000;
 export const MAX_LAUNCH_BODY_BYTES = 48 * 1024;
 /** 応答の本文の上限。中身は会話の ID と題か、断った理由と 300 字までの説明なので、封をしても収まる。 */
 export const MAX_ANSWER_BODY_BYTES = 16 * 1024;
-/** 依頼の ID の文字数の上限。スマホは UUID（36 字）を振る。 */
-const MAX_LAUNCH_ID_CHARS = 64;
 /** 宛先の端末の ID の文字数の上限。 */
 const MAX_TARGET_CHARS = 128;
 
@@ -190,6 +189,15 @@ mobileApp.put('/feed', authMiddleware(), requireKind('pc'), async (c) => {
   return c.json({ ok: true, updatedAt: now });
 });
 
+/**
+ * PC が自分の受信箱の素を消す。最後のスマホを解除したときに、PC が呼ぶ。
+ * 消すのは自分の行だけで、行が無くても 200 である。
+ */
+mobileApp.delete('/feed', authMiddleware(), requireKind('pc'), async (c) => {
+  await c.env.DB.prepare('delete from mobile_feeds where device_id = ?').bind(c.get('device').id).run();
+  return c.json({ ok: true });
+});
+
 type InboxDeviceRow = { id: string; name: string; platform: string; last_seen_at: number | null };
 type InboxFeedRow = { device_id: string; updated_at: number; sealed: string };
 
@@ -259,6 +267,12 @@ mobileApp.post('/launches', authMiddleware(), requireKind('mobile'), async (c) =
   const device = c.get('device');
   const db = c.env.DB;
   const now = Date.now();
+  // そのスマホの置いたままの画像のうち、24 時間より古いものを消す。失敗しても依頼は通す。
+  try {
+    await sweepOldImages(c.env.BUCKET, device.id, now);
+  } catch (e) {
+    console.error('image sweep failed', e instanceof Error ? e.name : typeof e);
+  }
   const [, existing, target] = await db.batch([
     db.prepare('delete from launch_requests where created_at < ?').bind(now - LAUNCH_KEEP_MS),
     db.prepare(LAUNCH_SELECT).bind(body.id),
@@ -342,9 +356,21 @@ mobileApp.post('/launches/:id/answer', authMiddleware(), requireKind('pc'), asyn
   const r = await c.env.DB.prepare("update launch_requests set status = ?, answered_at = ?, sealed_answer = ? where id = ? and target_device = ? and status = 'claimed'")
     .bind(body.ok ? 'started' : 'failed', Date.now(), body.sealedAnswer, c.req.param('id'), device.id)
     .run();
-  if (Number(r.meta?.changes ?? 0) === 1) return c.json({ ok: true });
+  if (Number(r.meta?.changes ?? 0) === 1) {
+    // 答えが通ったら、その依頼の画像を消す。消すのに失敗しても答えは成功のまま（残りは 24 時間の掃除で消える）。
+    try {
+      const row = await c.env.DB.prepare('select from_device from launch_requests where id = ?').bind(c.req.param('id')).first<{ from_device: string }>();
+      if (row) await deleteLaunchImages(c.env.BUCKET, row.from_device, c.req.param('id'));
+    } catch (e) {
+      console.error('image delete failed', e instanceof Error ? e.name : typeof e);
+    }
+    return c.json({ ok: true });
+  }
   return c.json({ error: 'conflict' }, 409);
 });
+
+/** スマホの画像の置き場（互換の版 8）。 */
+mobileApp.route('/blobs', blobsApp);
 
 /** 呼び鈴の実体。束縛が無い（rc.1 の設定のまま再配備していない）Worker では null。 */
 function bellOf(env: Env): DurableObjectStub | null {
