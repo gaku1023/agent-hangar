@@ -22,6 +22,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `create table if not exists rows (${ROWS_COLUMNS})`,
   'create table if not exists files (seq integer primary key autoincrement, key text not null unique, path text not null, kind text not null, device_id text not null, sha256 text not null, size integer not null, stored_size integer not null, mtime integer not null, encrypted integer not null, uploaded_at integer not null)',
   'create index if not exists files_kind on files(kind, seq)',
+  // スマホ向けの表（互換の版 7）。rows には足さないので、版 6 の PC は何も見ず、締め出されもしない（mobile.ts）。
+  'create table if not exists mobile_feeds (device_id text primary key, sealed text not null, updated_at integer not null)',
+  'create table if not exists mobile_pairings (code_hash text primary key, created_by text not null, created_at integer not null, used_at integer)',
+  'create index if not exists mobile_pairings_by on mobile_pairings(created_by, created_at)',
 ];
 
 /**
@@ -35,6 +39,8 @@ export const DEVICE_ADDED_COLUMNS: readonly [name: string, type: string][] = [
   ['last_city', 'text'],
   ['last_region', 'text'],
   ['last_country', 'text'],
+  // PC かスマホか（互換の版 7）。前からある行は PC である。
+  ['kind', "text not null default 'pc'"],
 ];
 
 /**

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
-import { authMiddleware } from './auth.ts';
+import { authMiddleware, requireKind } from './auth.ts';
 import { changesApp, rowsApp } from './changes.ts';
 import { compatMiddleware } from './compat.ts';
 import { devicesApp } from './devices.ts';
@@ -8,6 +8,7 @@ import type { AppType, Env, Vars } from './env.ts';
 import { filesApp } from './files.ts';
 import { joinHandler } from './join.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
+import { mobileApp } from './mobile.ts';
 import { ensureSchema } from './schema.ts';
 import { collectUsage } from './usage.ts';
 import { VERSION } from './util.ts';
@@ -35,21 +36,18 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   // 参加だけは端末トークンを持たずに叩ける。中で参加用の秘密のハッシュを検査する。
   app.post('/join', joinHandler);
 
-  // ここから下は端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
-  app.use('/changes', authMiddleware());
-  app.use('/changes/*', authMiddleware());
-  app.use('/rows', authMiddleware());
-  app.use('/rows/*', authMiddleware());
-  app.use('/files', authMiddleware());
-  app.use('/files/*', authMiddleware());
-  app.use('/usage', authMiddleware());
-  app.use('/devices', authMiddleware());
-  app.use('/devices/*', authMiddleware());
+  // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
+  // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/usage', '/devices', '/devices/*']) {
+    app.use(path, authMiddleware(), requireKind('pc'));
+  }
 
   app.route('/changes', changesApp);
   app.route('/rows', rowsApp);
   app.route('/files', filesApp);
   app.route('/devices', devicesApp);
+  // スマホの参加と受信箱。認証と種類の検査は経路ごとに mobile.ts の中で付ける（参加の口だけはトークンなし）。
+  app.route('/m', mobileApp);
 
   // 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。
   app.get('/usage', async (c) => {

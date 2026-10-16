@@ -15,6 +15,8 @@ export type DeviceRow = {
   last_city?: string | null;
   last_region?: string | null;
   last_country?: string | null;
+  /** PC かスマホか（互換の版 7）。起動のたびの用意で足す列なので、足す前の読みでは省ける形にする。無ければ PC。 */
+  kind?: 'pc' | 'mobile';
 };
 
 /**

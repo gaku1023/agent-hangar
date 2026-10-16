@@ -19,7 +19,7 @@ const NAME_BANNED_RE = /[<>:"/\\|?*]/;
  * ホスト名がそのまま入るので、空白と非 ASCII は通す。
  * 制御文字とパスの区切りだけを断る。
  */
-const isSafeName = (s: string): boolean => s.trim().length > 0 && s.length <= MAX_NAME_CHARS && !CONTROL_RE.test(s) && !NAME_BANNED_RE.test(s);
+export const isSafeName = (s: string): boolean => s.trim().length > 0 && s.length <= MAX_NAME_CHARS && !CONTROL_RE.test(s) && !NAME_BANNED_RE.test(s);
 
 /** `process.platform` がそのまま入る。短い ASCII だけを通す。 */
 const isSafePlatform = (s: string): boolean => s.length <= MAX_PLATFORM_CHARS && isSafeKeyId(s);
@@ -45,6 +45,16 @@ const isDevice = (d: unknown): d is JoinRequest['device'] => {
 };
 
 /**
+ * 端末トークンを 1 つ発行する。PC の参加（joinHandler）とスマホの参加（mobile.ts）が共有する。
+ * 返す平文のトークンは応答にだけ載せ、D1 には SHA-256 のハッシュだけを置く。
+ * 何を確かめてから発行するか（参加用の秘密か、使い捨ての券か）は呼び手ごとに違うので、ここでは照合しない。
+ */
+export async function issueDeviceToken(): Promise<{ token: string; tokenHash: string }> {
+  const token = randomToken(32);
+  return { token, tokenHash: await sha256Hex(token) };
+}
+
+/**
  * 参加用の秘密を検査し、端末トークンを発行する。
  * 秘密もトークンも D1 には SHA-256 だけを置き、平文は Worker のどこにも残さない。
  * 応答に載せるのは発行したトークンだけで、受け取った秘密は返さずログにも出さない。
@@ -60,17 +70,21 @@ export async function joinHandler(c: Context<{ Bindings: Env; Variables: Vars }>
   let ok = false;
   for (const r of active.results) ok = timingSafeEqualHex(r.secret_hash, hash) || ok;
   if (!ok) return c.json({ error: 'forbidden' }, 403);
-  const token = randomToken(32);
+  const { token, tokenHash } = await issueDeviceToken();
   const now = Date.now();
   const seen = seenOf(c);
   // 参加し直したときは、名前とトークンを差し替える。
   // 解除した PC が参加し直したときだけ、解除を外して参加日を今にする（解除していなければ参加日は最初のまま）。
   // 解除した PC の行は消さずに残っているので、同じ ID で戻ってくると同じ行に戻る。
   // IP と場所は、端を通った要求（IP がある）のときだけ書き換える。
+  // スマホの行（kind = 'mobile'）と同じ ID なら書き換えず、409 で断る（互換の版 7）。
+  // 付け替えを許すと、スマホの行が PC のトークンと権限を持ち、外したスマホが PC として戻れてしまう。
+  // 断るかどうかは、別に読まずに、書き換えの where で決める。読んでから書く間に割り込まれない。
   const upsert = c.env.DB.prepare(
-    'insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, last_ip, last_city, last_region, last_country) values (?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?) on conflict(id) do update set name = excluded.name, platform = excluded.platform, token_hash = excluded.token_hash, last_seen_at = excluded.last_seen_at, joined_at = case when devices.revoked_at is null then devices.joined_at else excluded.joined_at end, revoked_at = null, last_ip = coalesce(excluded.last_ip, devices.last_ip), last_city = case when excluded.last_ip is null then devices.last_city else excluded.last_city end, last_region = case when excluded.last_ip is null then devices.last_region else excluded.last_region end, last_country = case when excluded.last_ip is null then devices.last_country else excluded.last_country end',
-  ).bind(body.device.id, body.device.name, body.device.platform, await sha256Hex(token), now, now, seen.ip, seen.city, seen.region, seen.country);
-  await upsert.run();
+    "insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, last_ip, last_city, last_region, last_country, kind) values (?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?, 'pc') on conflict(id) do update set name = excluded.name, platform = excluded.platform, token_hash = excluded.token_hash, last_seen_at = excluded.last_seen_at, joined_at = case when devices.revoked_at is null then devices.joined_at else excluded.joined_at end, revoked_at = null, last_ip = coalesce(excluded.last_ip, devices.last_ip), last_city = case when excluded.last_ip is null then devices.last_city else excluded.last_city end, last_region = case when excluded.last_ip is null then devices.last_region else excluded.last_region end, last_country = case when excluded.last_ip is null then devices.last_country else excluded.last_country end where devices.kind = 'pc'",
+  ).bind(body.device.id, body.device.name, body.device.platform, tokenHash, now, now, seen.ip, seen.city, seen.region, seen.country);
+  const done = await upsert.run();
+  if (Number(done.meta?.changes ?? 0) === 0) return c.json({ error: 'conflict' }, 409);
   const res: JoinResponse = { deviceToken: token, deviceId: body.device.id };
   return c.json(res, 201);
 }

@@ -60,6 +60,12 @@ export type CloudDeviceOut = {
   lastCity: string | null;
   lastRegion: string | null;
   lastCountry: string | null;
+  /**
+   * PC かスマホか（互換の版 7）。
+   * スマホは `POST /m/join` で参加した行で、platform は `mobile` である。
+   * 版 6 までの Worker は返さないので、無ければ PC として読む。
+   */
+  kind?: 'pc' | 'mobile';
 };
 export type CloudDevicesResponse = { devices: CloudDeviceOut[] };
 export type CloudDeviceRevokeResponse = { device: CloudDeviceOut };

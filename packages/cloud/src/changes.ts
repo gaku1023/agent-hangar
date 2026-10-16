@@ -190,7 +190,8 @@ changesApp.get('/', async (c) => {
     ...(touch ? [touch] : []),
     db.prepare('select seq, table_name, row_id, op, payload, updated_at, device_id from rows where seq > ? and device_id != ? order by seq limit ?').bind(since, device.id, limit + 1),
     maxSeqStmt(db),
-    db.prepare('select id, last_seen_at from devices where revoked_at is null order by id'),
+    // スマホ（kind = 'mobile'）は会話を動かさないので、PC の生存に混ぜない。
+    db.prepare("select id, last_seen_at from devices where revoked_at is null and kind = 'pc' order by id"),
   ];
   const results = await db.batch(stmts);
   const off = touch ? 1 : 0;
