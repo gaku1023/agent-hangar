@@ -63,7 +63,7 @@ rc.1 の一覧に足す。
 
 ### 2. 問い合わせの種類（封の中身）
 
-封の AAD は `ask|<id>|<宛先>` と `reply|<id>`。封の中身は JSON。
+封の AAD は `ask:<id>:<宛先>` と `reply:<id>`。封の中身は JSON。
 
 - `{ kind: 'files', projectId, q }` → `{ files: [{ path, changed }] }`。`q` が空なら、git の変更ありのファイルと、変更時刻が新しいファイルを合わせて最大 30 件（変更ありを先に）。`q` があれば PC の指示欄と同じ検索（`listProjectFiles`）で最大 50 件。パスはプロジェクトの根からの相対で、外に出るものは返さない。git でないフォルダは変更時刻だけで並べる。
 - `{ kind: 'commands', projectId | null, accountId }` → `{ commands: [{ name, description, kind: 'skill' | 'command' }] }`。PC の指示欄と同じ `listPromptCommands` を、そのアカウントの設定フォルダで呼ぶ。最大 200 件、説明は 120 字で切る。
@@ -75,7 +75,7 @@ handoff では `/` の候補を受信箱の素に載せる案だったが、プ�
 ### 3. 画像
 
 - スマホは選んだ画像を、送る前に長い辺 2048 px、JPEG（品質 0.85）に縮める。縮めた後で 5 MB を超えるものと、5 枚目は受け付けない（試作の文言）。
-- 画像ごとに `sealBytes(key, aad, bytes)`（AES-GCM、AAD は `image|<依頼の ID>|<番号>`）で封をし、`PUT /m/blobs/<依頼の ID>/<番号>`（スマホのトークン、本文は封をしたバイト列そのまま）で R2 の `mobile/<スマホの ID>/<依頼の ID>/<番号>` に置く。番号は 0〜3。
+- 画像ごとに `sealBytes(key, aad, bytes)`（AES-GCM、AAD は `image:<依頼の ID>:<番号>`）で封をし、`PUT /m/blobs/<依頼の ID>/<番号>`（スマホのトークン、本文は封をしたバイト列そのまま）で R2 の `mobile/<スマホの ID>/<依頼の ID>/<番号>` に置く。番号は 0〜3。
 - 起動の依頼の封の中身に `images: [{ n, mime, bytes }]` を足す。依頼は画像を全部置いてから出す。
 - PC は依頼を受け取ったら、`GET /m/blobs/<依頼の ID>/<番号>`（PC のトークン。宛先がその PC の依頼の画像だけ）で取り、開き、PC の指示欄と同じ `saveDrop` で drops に置いて、PC の指示欄と同じ形（`composePrompt` と同じ並び）で最初の指示の末尾にパスを足す。取れなかった画像があれば起動せず、`images-missing` で失敗を返す。
 - 消す時期：PC が答えを返したとき（started でも failed でも）、Worker がその依頼の画像を消す。答えが来ない画像は、スマホが次に画像を置くときと依頼を出すときに、Worker が `mobile/<スマホの ID>/` の下で 24 時間を過ぎたものを消す。

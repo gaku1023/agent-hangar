@@ -6066,7 +6066,7 @@ D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
 hangar の部品のうち、別々に上がりうるのは、端末どうし（同期で Worker を挟む）、端末と Worker、殻と 4177 で動いている既存のサーバである。
 UI とサーバと CLI は同じ束で配るので、版番号を持たない。
-別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 7。版 3 は、Worker が設定の束の行を受け取る版。版 4 は、設定の同期の旧実装を消した版で、段 4 の PR 18 が Worker の下限を 4 に上げた。版 5 は、Worker が PC の一覧と解除の口を持ち、殻が参加と解除の命令を持つ版。版 6 は、Worker の変更ログをやめ、生存を Worker の観測で見る版で、両方の下限を同時に 6 に上げた。Worker が引き継ぎの頼みと応答の行を受け取るのも版 6 から。版 7 は、Worker がスマホ向けの口（`/m/`）と専用の 3 表を持つ版で、下限は上げない）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
+別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 8。版 3 は、Worker が設定の束の行を受け取る版。版 4 は、設定の同期の旧実装を消した版で、段 4 の PR 18 が Worker の下限を 4 に上げた。版 5 は、Worker が PC の一覧と解除の口を持ち、殻が参加と解除の命令を持つ版。版 6 は、Worker の変更ログをやめ、生存を Worker の観測で見る版で、両方の下限を同時に 6 に上げた。Worker が引き継ぎの頼みと応答の行を受け取るのも版 6 から。版 7 は、Worker がスマホ向けの口（`/m/`）と専用の 3 表を持つ版で、下限は上げない。版 8 は、Worker が呼び鈴と画像の口を持つ版で、下限は上げない）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
 古い版のための分岐を部品ごとに抱える代わりに、下限より古い相手とは話さずに、理由を出して止まる。
 
 **見出し。**
@@ -6143,6 +6143,7 @@ Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端�
 | 5 | Worker が PC の一覧（`GET /devices`）と解除（`POST /devices/:id/revoke`）を持ち、解除した PC の端末トークンを 401 の `revoked` で断る。殻は参加と解除の命令（`cloud_join_plan`、`cloud_join`、`cloud_revoke`、`cloud_leave`）を持ち、画面がそれを呼ぶ。端末は、Worker の版が 5（`DEVICE_ADMIN_MIN_WORKER_COMPAT`）に届くまで、一覧と解除を「Worker の更新が要る」と出す | 上げない |
 | 6 | Worker の変更ログ（`changes`）と圧縮と `410` をやめ、`rows` の連番で差分を引く。pull の応答に `peers` と `now` を添え、端末は他の PC の生存をそれで見て、`runs.heartbeat_at` を共有の行に書かない。Worker は引き継ぎの頼みと応答の行（共有表 `takeovers` と `takeover_answers`）も受け取る | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 6 に（例外） |
 | 7 | Worker がスマホ向けの口（`/m/`）と専用の 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）を持ち、`devices` に列 `kind` を足す。`GET /changes` に `launches` を添える。共有表（`rows`）には何も足さない。PC は Worker の版が 7（`MOBILE_MIN_WORKER_COMPAT`）に届くまでスマホ向けの書き込みも依頼の処理もしない（「スマホ（試験的）」） | 上げない |
+| 8 | Worker が呼び鈴（Durable Object `HangarBell`。`GET /m/bell`、`POST /m/ask`）、画像の口（`PUT` と `GET /m/blobs`）、`DELETE /m/feed` を持つ。PC は Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）に届くまで呼び鈴を張らない（「スマホ（試験的）」） | 上げない |
 
 引き継ぎの 2 表は、同期の版 6 と一緒に 0.7.1 で出すので、別の版を立てずに版 6 に含めた。
 端末は Worker の版が `TAKEOVER_MIN_WORKER_COMPAT`（6）に届くまでこの 2 表の行を書かないが、`MIN_WORKER_COMPAT` も 6 なので、話せる Worker ではいつも届いている。
@@ -6428,17 +6429,21 @@ UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき
 
 スマホで「いま自分の番の会話」を見て、会話を起こせるようにする。
 互換の版 7 で入れた。
+0.8.0 の rc.2 で、呼び鈴（Durable Object）、`@` と `/` の問い合わせ、画像の添付、effort の選択を足し、互換の版を 8 に上げた。
 スマホの画面は自分の Worker が配る小さな PWA（`packages/mobile`、React と Vite）で、PC の受信箱をスマホ向けに見せる。
 会話そのものは扱わない。
 会話を開いて続けるのは、Claude の Remote Control（`claude --remote-control`）に任せる。
 スマホから会話の状態は変えない（Done や Paused にする操作は無い）。
 
 **範囲。**
-見るのは、あなたの番（許可待ちと入力待ち）、動いている会話、今日戻る会話、今日終わった会話、PC ごとの生存である。
+見るのは、入力待ち（許可待ちと入力待ち）、実行中の会話、今日のリマインダー（今日戻る会話）、今日終わった会話、PC ごとの生存である。
 できるのは、選んだ PC に新しい会話を起こすことだけである。
-選べるのは、プロジェクト（フォルダなしの「すぐ始める」を含む）、PC、アカウント、権限モード、モデル、最初の指示である。
+選べるのは、プロジェクト（ディレクトリなしの「クイックセッション」を含む）、PC、アカウント、権限モード、モデル、effort、初期プロンプトである。
 権限モードの値は、PC の新規セッションのダイアログと同じである。
-PC 側で権限モードやモデルに上限は設けず、スマホで選んだ権限モードのまま起こす。
+effort の値（デフォルト、low、medium、high、xhigh、max）も、PC の新規セッションのダイアログと同じ表（shared の `EFFORT_VALUES`）を使う。
+PC 側で権限モードやモデルや effort に上限は設けず、スマホで選んだ値のまま起こす。
+初期プロンプトの欄には、PC の指示欄と同じ `/`（スキルとコマンド）、`@`（ファイル）、画像の添付がある。
+`/` と `@` の候補は PC に問い合わせて返してもらい（「呼び鈴と問い合わせ」）、画像は暗号化して R2 に預けて PC に取らせる（「画像」）。
 
 **Worker の表と口。**
 スマホ向けの表は、共有テーブル（`rows`、`SHARED_TABLES`）に足さず、専用の 3 表にする。
@@ -6464,12 +6469,19 @@ Worker が平文で持つのは、PC の ID と更新時刻、依頼の ID と�
 | `PUT /m/feed` | PC | 受信箱の素を置く（PC ごとに 1 行を上書き） |
 | `GET /m/inbox` | スマホ | 解除していない PC の一覧と、その PC の素を返す |
 | `POST /m/launches`、`GET /m/launches/:id` | スマホ | 起動の依頼を出す、状態を読む |
-| `POST /m/launches/:id/claim`、`POST /m/launches/:id/answer` | PC | 依頼を受け取る、答える |
+| `POST /m/launches/:id/claim`、`POST /m/launches/:id/answer` | PC | 依頼を受け取る、答える。答えが通ったら、その依頼の画像を R2 から消す |
+| `GET /m/bell` | PC | 呼び鈴の WebSocket につなぐ |
+| `POST /m/ask` | スマホ | `@` と `/` の問い合わせを、宛先の PC に渡して答えを返す |
+| `PUT /m/blobs/<依頼の ID>/<番号>` | スマホ | 封をした画像を R2 に置く |
+| `GET /m/blobs/<依頼の ID>/<番号>` | PC | 自分宛ての依頼の画像を読む |
+| `DELETE /m/feed` | PC | 自分の受信箱の素の行を消す |
 
 依頼を PC へ届けるために、専用の口は足さない。
 `GET /changes` の応答に `launches`（その PC 宛ての未処理の依頼、最大 50 件）を載せる。
 索引 `launch_requests_target` で、宛先が自分で、状態が `pending` で、時間内の行だけを引く。
 要求の数は増えず、PC の 30 秒ごとの pull がそのまま依頼を運ぶ。
+呼び鈴（後述）が張れているときは、依頼を置いた直後に呼び鈴で鳴らし、PC はすぐ pull する。
+呼び鈴は依頼を運ばず、pull を早めるだけである。
 
 **トークンの種類。**
 端末トークンは 2 種類で、`devices.kind` で分ける。
@@ -6504,7 +6516,11 @@ QR を出している間だけ、3 秒ごとに PC の一覧を読み直して�
 スマホでは、鍵を取り出せない `CryptoKey`（non-extractable）にして IndexedDB に置き、Worker 用のトークンと宛先は `localStorage` に置く。
 画面に XSS があっても、鍵の値は持ち出せない。
 ホーム画面に追加したアプリは Safari と保存場所が分かれることがある。
-保存が空のときは、「カメラで QR を読む」と「文字列を貼る」（QR と同じ中身）を出す。
+保存が空のときは、「カメラで QR を読む」と「接続コードを貼る」（QR と同じ中身）を出す。
+Safari で接続してからホーム画面に追加すると、ホーム画面のアプリは未接続で開き、2 回接続することになる。
+そこで、iPhone と iPad の Safari で、ホーム画面のアプリでなく、未接続のときは、接続より先に「ホーム画面に追加して、そこから開く」を案内する（`display-mode: standalone` と `navigator.standalone` で見分ける）。
+ホーム画面のアプリは、接続の画面でアプリの中のカメラで QR を読む。
+QR が有効なのは、PC の画面に出ている残り時間の間である。
 
 **暗号の鍵と AAD。**
 受信箱の素、起動の依頼、その答えは、スマホ用の鍵で封じて Worker に預ける（`packages/shared/src/mobileCrypto.ts`）。
@@ -6518,6 +6534,14 @@ R2 の本文の鍵（info は `hangar-file-v1`）とは別の用途の鍵で、�
 | 受信箱の素 | `feed:<PC の ID>` |
 | 起動の依頼 | `launch:<依頼の ID>:<宛先の PC の ID>` |
 | 依頼の答え | `answer:<依頼の ID>` |
+| `@` と `/` の問い合わせ | `ask:<問い合わせの ID>:<宛先の PC の ID>` |
+| 問い合わせの答え | `reply:<問い合わせの ID>` |
+| 画像 | `image:<依頼の ID>:<番号>` |
+
+区切りはコロンである（shared の `aadAsk`、`aadReply`、`aadImage`）。
+問い合わせと画像の封にも、同じスマホ用の鍵を使う。
+問い合わせの AAD に宛先の PC の ID を入れるので、別の PC に渡った問い合わせは開けない。
+画像の封は `sealBytes` で、文字列にせず、バイト列のまま `IV || 暗号文 || タグ` を置く（base64url にしない）。
 
 PC は、復号できた依頼だけを起こす。
 スマホの Worker 用トークンだけが漏れても、鍵が無いので、有効な依頼は作れない。
@@ -6550,6 +6574,9 @@ PC は、復号できた依頼だけを起こす。
 最初のスマホが現れたら、前に書いた中身を忘れてすぐ書く。
 外していた間に同じ中身のままでも、新しくつながったスマホに素を置くためである。
 外したことは、次の読み直し（最長 5 分）で知る。
+最後のスマホを外したと知ったら、その PC は `DELETE /m/feed` を 1 回呼んで、Worker の自分の素の行を消し、以後は書かない。
+消しておくのは、スマホが 1 台も無いのに、古い素が D1 に残り続けないようにするためである。
+`cloud.json` を替えてつなぎ先が変わったときは、「スマホが有る」という覚え（5 分）を捨てて、すぐ読み直す。
 
 書き込みは、素の JSON のハッシュが前回と変わったときと、前に書いてから 1 日たったとき（`FEED_REFRESH_MS`）だけ行う。
 1 日ごとに書き直すのは、スマホが更新の 7 日より古い素を隠すので、動きの無い PC が消えないようにするためである。
@@ -6570,10 +6597,12 @@ Worker が最後に見てから 3 分（`PEER_STALE_MS`）を過ぎた PC は、
 
 1. スマホが依頼（`MobileLaunchPayload`）を `launch:` の AAD で封じ、`POST /m/launches` で置く。同じ ID の再送は行を増やさない。
 2. 宛先の PC が、30 秒ごとの pull で `launches` を受け取る。
+   呼び鈴が張れているときは、Worker が依頼を置いた直後に宛先の PC を鳴らし（`{t:'launch'}`）、PC は `pullNow()` で今すぐ pull する。
+   鳴らすのに失敗しても依頼は通り、30 秒の pull で拾う。
 3. PC が `POST /m/launches/:id/claim` を呼ぶ。条件つきの 1 文で、自分宛てで、まだ誰も受け取っておらず、時間内の行だけを `claimed` にする。1 行を変えたときだけ 200 で、それ以外は 409 である。PC は 200 のときだけ起こす。
 4. PC が封を開き、プロジェクトとアカウントを確かめて会話を起こし、答え（会話の ID と題、または断った理由）を `answer:` の AAD で封じる。結果と封じた答えを、手元の表 `mobile_launches` に書く。
 5. PC が封じた答えを `POST /m/launches/:id/answer` で返す。
-6. スマホが 3 秒ごとに `GET /m/launches/:id` で状態を読み、答えを開いて「受信箱へ」を出す。
+6. スマホが 2 秒ごとに `GET /m/launches/:id` で状態を読み、答えを開いて「受信箱へ」を出す。
 
 依頼は 75 秒（`LAUNCH_TTL_MS`）で切れる。
 PC の pull が 30 秒ごとなので、2 周分の余裕を見た値である。
@@ -6588,7 +6617,9 @@ Worker が受け取るか、409（もう答えた、時間切れ）を返した�
 claim が通ったのに応答が失われた場合は、起こされず、スマホは時間切れと言う。
 二度起こすより、起こさない側へ倒す設計である。
 claim が通信で倒れたときは記録せず、次の pull で試し直す。
-断る理由は `project-missing`、`account-missing`、`bad-payload`、`expired`、`launch-failed` である。
+断る理由は `project-missing`、`account-missing`、`bad-payload`、`expired`、`launch-failed`、`images-missing` である。
+`images-missing` は、依頼に付いた画像を 1 枚でも取れない、または開けないときで、起こさずに返す。
+依頼の封の中身には、`effort`（無ければデフォルト）と `images`（番号、MIME、バイト数の並び）を足せる（「effort」「画像」）。
 PC が一時停止しているときと、Worker の版が 7 に届かないときは、claim せずに残す。
 
 上限は次のとおりである。
@@ -6604,11 +6635,112 @@ PC が一時停止しているときと、Worker の版が 7 に届かないと�
 | 最初の指示 | 8,000 字まで（`MOBILE_PROMPT_MAX`） |
 | 依頼に入るプロジェクトとアカウントの ID | 128 字まで |
 | 依頼の行を残す期間 | 7 日（依頼を出すついでに消す） |
+| 問い合わせ（`POST /m/ask`） | 本文 4 KiB まで（`MOBILE_ASK_MAX_BYTES`）、答え 64 KiB まで（`MOBILE_REPLY_MAX_BYTES`）、1 台のスマホから 10 秒に 20 回まで（超えたら 429）、PC の答えを待つのは 5 秒（`MOBILE_ASK_TIMEOUT_MS`） |
+| 画像 | 1 枚 5 MiB まで（`MOBILE_IMAGE_MAX_BYTES`。封の 28 バイトを足して受ける）、1 件の依頼に 4 枚、1 台のスマホが置いたままにできるのは 40 枚 |
+| 画像を残す期間 | PC が答えを返したら消す。答えが来ないものは 24 時間（スマホが次に置くときと、依頼を出すときに消す） |
+| 手元の `mobile_launches` を残す期間 | 7 日（依頼を受け取るついでに消す） |
 | ペアリング券の行を残す期間 | 24 時間（券を取るついでに消す） |
 
 日本語の 8,000 字は UTF-8 で約 24 KB、封じて base64url にすると約 33 KB になる。
 そのため、依頼の本文の上限を 48 KiB にした。
 回数の上限は、盗まれたトークンで D1 の書き込みの枠を食い潰されないためである。
+
+**呼び鈴と問い合わせ。**
+`@` と `/` の候補を 1 秒から 3 秒で返し、起動の依頼もすぐ拾うために、Worker に Durable Object のクラス `HangarBell` を 1 つ足した（`packages/cloud/src/bell.ts`）。
+名前の決まった 1 つの実体（`idFromName('bell')`）だけを使い、PC と WebSocket でつなぎっぱなしにする。
+SQLite 型で作る（無料プランで使えるのはこれだけ）。
+ほかの案は、スマホが居る間だけ PC が速く聞く案と、待たない形に変える案だった。
+
+- **つなぎ方。**
+  PC は `GET /m/bell`（`Upgrade: websocket`、`Authorization: Bearer <PC のトークン>`）でつなぐ。
+  Worker が `authMiddleware` と `requireKind('pc')` を通してから、端末の ID（`x-hangar-device`）を添えて Durable Object へ渡す。
+  Durable Object は外から直に届かないので、この見出しは Worker が認証の後に付けたものだけである。
+  トークンが無い、違う、解除した PC は 401、スマホのトークンは 403、WebSocket でない要求は 426、呼び鈴の束縛が無い Worker は 503 である。
+  Durable Object は Hibernation API（`acceptWebSocket`、端末の ID は `serializeAttachment`）で受ける。
+  同じ PC の 2 本目がつながったら、古いほうを閉じる（符号 4000）。
+- **生存の確かめ。**
+  PC は 30 秒ごとに文字列の `ping` を送り、Durable Object は `setWebSocketAutoResponse` で `pong` を返す。
+  自動応答なので、Durable Object を起こさず、リクエストにも数えない。
+  PC は 75 秒のあいだ何も届かなければつなぎ直す。
+  つなぎ直しの待ちは 1 秒から倍々で 60 秒までである。
+  401 と 403 を返されたときは張り直さず、つなぎ先（`cloud.json`）かトークンが変わるまで止める。
+  404、426、503、閉じる符号 4000 のときは、待ちを 60 秒にして叩きすぎない。
+- **鳴らす。**
+  スマホの起動の依頼（`POST /m/launches`）が行を新しく入れたときだけ、Worker は `waitUntil` で Durable Object に宛先の PC を鳴らさせる（`{"t":"launch"}`。再送では鳴らさない）。
+  PC は鳴ったら `engine.pullNow()` を呼び、今の pull の道で依頼を受け取る。
+  鳴らすのに失敗しても、呼び鈴が無い Worker でも、依頼は 201 のまま通り、PC は 30 秒の pull で拾う。
+- **問い合わせ。**
+  スマホは `POST /m/ask`（スマホのトークン、本文は `{ id, targetDevice, sealed }`）を送る。
+  Worker は宛先が解除していない PC であることを D1 で 1 行読んで確かめ、Durable Object に渡す。
+  Durable Object は宛先の PC の WebSocket に `{"t":"ask","id","sealed"}` を送り、PC の `{"t":"reply","id","sealed"}` を最大 5 秒待って、封じたまま返す。
+  PC の `reply` は、待っている問い合わせの宛先と送ってきた WebSocket の端末が一致するものだけを答えにする。
+  **D1 には書かない。**
+- **返りの符号。**
+  200（`{ sealed }`）、400（形が違う）、404（宛先が無い、スマホ、解除した PC）、409（同じ ID の問い合わせが待ち中）、413（本文が 4 KiB 超）、429（10 秒に 20 回超）、502（答えが 64 KiB 超）、503（`pc-offline`。宛先がつないでいない、呼び鈴が無い Worker、待ち中に切れた）、504（`pc-timeout`。5 秒で答えが無い）。
+  PC のトークンは 403 である。
+  回数は 503 になったものも数える。
+  数えるのは Durable Object のメモリで、眠れば消える緩い上限である。
+- **封の中身。**
+  問い合わせの本文は、スマホが `ask:` の AAD で封じ、Durable Object と Worker は読めない。
+  中身は JSON である。
+  - `{ kind: 'files', projectId, q }` に、`{ files: [{ path, changed }] }` を返す。
+    `q` が空（空白だけも）なら、git の変更ありのファイルと、最近のコミットに入った変更時刻の新しいファイルを合わせて最大 30 件（変更ありを先に）。
+    `q` があれば、PC の指示欄と同じ検索（`listProjectFiles`）で最大 50 件。
+    パスはプロジェクトの根からの相対で、外に出るものは返さない。
+    git でないディレクトリは変更時刻だけで並べる。
+  - `{ kind: 'commands', projectId | null, accountId }` に、`{ commands: [{ name, description, kind: 'skill' | 'command' }] }` を返す。
+    PC の指示欄と同じ一覧を、そのアカウントの設定ディレクトリで読む。
+    使った回数の多い順に最大 200 件で、説明は 120 字で切る。
+    `projectId` が null ならプロジェクトのスキルは含めない。
+  - 失敗は `{ error: 'project-missing' | 'account-missing' | 'bad-request' }` である。
+  - 答えは `reply:` の AAD で封じる。
+    PC は、開けない問い合わせには答えない（スマホは 5 秒で時間切れになる）。
+- **スマホ側。**
+  答えは画面の間だけ覚える（同じ PC、プロジェクト、アカウントの `/` は 1 回、`@` は同じ `q` を 30 秒）。
+  打つたびの問い合わせは 250 ms 待ってから出す。
+  PC がつないでいない、答えない、呼び鈴が無い Worker のときは、候補の欄にその旨を出し、指示は手で打てる。
+- **PC 側の張る条件。**
+  書き込みの間引きと同じ部品（`packages/server/src/mobile/bell.ts` と `boot/mobile.ts`）が、スマホを運べる PC で、Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）に届き、外していないスマホが 1 台以上あるときだけ張る。
+  Worker の版は pull の応答で分かるので、Worker を配備し直した直後は、最大 60 秒ほど張らない。
+
+問い合わせの上限を Worker の側に置くのは、盗まれたスマホのトークンで PC を叩かれすぎないためである。
+問い合わせは PC の中身を返すので、答えに入るのは、プロジェクトの根の下のパスと、そのアカウントが持つスキルの名前と説明に限る。
+
+**画像。**
+スマホは、選んだ画像を送る前に、長い辺 2048 px の JPEG（品質 0.85）に縮める。
+縮めた後で 5 MiB を超えるものと、5 枚目は受け付けない。
+
+1. 画像ごとに `sealBytes`（AAD は `image:<依頼の ID>:<番号>`）で封をし、`PUT /m/blobs/<依頼の ID>/<番号>` で R2 の `mobile/<スマホの ID>/<依頼の ID>/<番号>` に置く。
+   番号は 0 から 3 である。
+   本文は封をしたバイト列そのままで、`content-length` が要る（無ければ 411）。
+   ストリームでなく、Blob か ArrayBuffer で送る。
+2. 依頼の封の中身の `images`（`{ n, mime, bytes }` の並び）に、置いた画像を書く。
+   依頼は画像を全部置いてから出す。
+3. PC は依頼を受け取って claim したら、`GET /m/blobs/<依頼の ID>/<番号>` で画像を取る。
+   Worker は、依頼の宛先がその PC で、状態が `claimed` のときだけ読ませる。
+   PC は開き、PC の指示欄と同じ `saveDrop` で drops に置き、PC の指示欄と同じ並びで、初期プロンプトの末尾にパスを足して起こす。
+   1 枚でも取れない、または開けないときは、起こさずに `images-missing` を返す。
+   画像が 4 枚を超える、番号が重なる、MIME が許し（JPEG、PNG、WebP）の外のときは、取りに行かずに `bad-payload` で断る。
+4. 消す時期は 2 つである。
+   PC が答えを返したとき（`started` でも断りでも）、Worker がその依頼の画像を消す。
+   答えが来ない画像は、そのスマホが次に画像を置くときと依頼を出すときに、Worker が `mobile/<スマホの ID>/` の下で 24 時間を過ぎたものを消す。
+   消すのに失敗しても、答えと依頼は通る。
+
+触れる鍵は絞る。
+スマホのトークンは、`mobile/<自分の ID>/` の下に置くことだけができる（読めず、一覧にもできない）。
+PC のトークンは、自分宛ての依頼の画像を読むことだけができる。
+`files` の口（`validKey`）は変えず、本文の鍵の空間とは混ざらない。
+依頼の ID は、64 字までで、英数字で始まり英数字と `._-` だけにする（R2 の鍵に入るので、スラッシュなどは通さない）。
+置くときの返りは、201、400（番号が 0 から 3 の整数でない、ID の形が違う、本文が空）、411、413（5 MiB と封の 28 バイトを超える）、429（置いたままが 40 枚）である。
+置く前に、そのスマホの下の 24 時間より古いものを消してから数えるので、置きっぱなしで詰まらない。
+スマホの画面の CSP の `img-src` には、サムネイルを出すために `blob:` を足した。
+
+**effort。**
+`MobileLaunchPayload` に `effort?: string` を足した（`v` は 1 のまま）。
+値は `EFFORT_VALUES`（空、low、medium、high、xhigh、max）で、PC の新規セッションのダイアログの選択肢（`LaunchChips.tsx`）、スマホ、PC の受け取りが同じ表を使う。
+PC の受け取りは、値表に無いものを `bad-payload` で断り、あれば起動の引数（`LaunchParams.effort`）に写す。
+無ければ付けず、claude の既定のままにする。
+受信箱の素のスキーマは変えない。
 
 **Remote Control。**
 会話をスマホで続けるために、hangar が起こす claude に `--remote-control <名前>` を足す。
@@ -6658,15 +6790,17 @@ Windows の psmux は `-J` を受けて 0 で終わるが、折り返しをつ�
 `packages/mobile/dist/app/index.html` が出なければ、Cloudflare に何も作らずに止まる。
 配備は、その `dist` を Worker と一緒に上げる。
 `wrangler.jsonc` に `assets` が無い古い設定は、`hangar setup cloud` をもう一度実行して書き直す。
-`_headers` で、`/app/*` と、入口の `/app/` に次の見出しを付ける。
-`/app/` も書くのは、`*` が入口（`index.html`）に当たらない場合に備えるためである。
+`_headers` で、`/app/*` に次の見出しを付ける。
+入口の `/app/` だけの段は置かない。
+`/app/*` と重なって、見出しが二重に付くからである。
 
-- `Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'`
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: no-referrer`
 
 外のスクリプトを読まず、外への通信もしない。
 `media-src 'self' blob:` は、画面の中で QR を読むカメラのために要る。
+`img-src` の `blob:` は、添付する画像のサムネイルを出すために要る。
 画面は `dangerouslySetInnerHTML` を使わない（試験で縛る）。
 色は PC の hangar と同じ明るい配色だけで、暗い配色を持たない。
 動きは PC の画面と同じ決まりで、時間と曲線は PC のトークンの値を `packages/mobile` の CSS へ写して使い、動きを減らす設定を守る。
@@ -6681,6 +6815,19 @@ PC は、Worker が名乗る版が `MOBILE_MIN_WORKER_COMPAT`（7）に届くま
 スマホは、受信箱を置いた PC だけを宛先に出すからである。
 shared の `COMPAT_VERSION` は PC と Worker で共通で、殻の `health.rs` の写しも 7 にそろえた。
 殻と既存のサーバは一致で比べるので、版 7 の殻は版 6 のサーバを採らない。
+
+**互換の版 8。**
+Worker の `COMPAT_VERSION` を 8 に上げ、呼び鈴（`/m/bell`、`/m/ask`）と画像の口（`/m/blobs`）と `DELETE /m/feed` を持つ版にした。
+`MIN_DEVICE_COMPAT` は 6 のままで、版 6 と 7 の PC は締め出されない。
+PC は、Worker が名乗る版が `MOBILE_BELL_MIN_WORKER_COMPAT`（8）に届くまで、呼び鈴を張らない。
+呼び鈴の無い Worker（rc.1 のまま再配備していないもの）と、つながらない PC では、起動は版 7 と同じ 30 秒の pull で動く。
+そのとき、スマホの `/` と `@` は「この PC は候補を返せません（hangar を更新してください）」と出し、指示は手で打てる。
+画像の口（`/m/blobs`）は版 7 の Worker に無いので、画像つきの依頼は版 8 の Worker が要る。
+shared の `COMPAT_VERSION` と、殻の `health.rs` の写しを 8 にそろえた。
+殻と既存のサーバは一致で比べるので、版 8 の殻は版 7 のサーバを採らない。
+Worker を配備し直すときは、Durable Object の `migrations`（`bell-v1`、`new_sqlite_classes: ['HangarBell']`）が要る。
+`hangar setup cloud` が書く `wrangler.jsonc` に、`durable_objects.bindings`（`BELL`）と `migrations` が入る。
+`migrations` は 1 段だけで、あとから足すときは追記し、過去の段は消さない（消すと、wrangler が全段を当て直す警告を出す）。
 
 **書き込みと読み取りの見積もり。**
 無料枠は、D1 の書き込み 10 万行と読み取り 500 万行である（どちらも 1 日で、UTC の 0 時に戻る）。
@@ -6703,7 +6850,7 @@ shared の `COMPAT_VERSION` は PC と Worker で共通で、殻の `health.rs` 
 | --- | --- | --- | --- | --- |
 | 受信箱を開く（`GET /m/inbox`） | PC の数×2 行程度（`devices` と `mobile_feeds`。PC 2 台で 10 行前後） | 30 秒ごとに 1 日開けっぱなしで 2,880 回、約 3 万行 | 約 0.6% | （未実測） |
 | 依頼の引き（pull の `launches`） | 索引で、該当の行の数だけ（ふだんは 0 行） | 依頼の数だけ | 無視できる | （未実測） |
-| 依頼の状態の読み | 1 行 | 1 件につき 3 秒ごとに最大 27 回 | 無視できる | （未実測） |
+| 依頼の状態の読み | 1 行 | 1 件につき 2 秒ごとに最大 40 回（80 秒で諦める） | 無視できる | （未実測） |
 | スマホの有無の読み直し（`GET /devices`） | 端末の数の行 | 1 台の PC で 5 分ごとに 288 回、端末 4 台で約 1,200 行 | 約 0.02% | （未実測） |
 
 Worker の要求数は、無料枠が 1 日 10 万である。
@@ -6712,9 +6859,43 @@ Worker の要求数は、無料枠が 1 日 10 万である。
 受信箱の取得は 1 回で全 PC の素を返すので、応答は PC ごとに、上限いっぱいで約 65.6 KB になる。
 ふだんは数 KB である。
 
+呼び鈴と画像で、Durable Object と R2 の使用が増える。
+1 日に、PC 2 台、スマホ 1 台、起動 10 回、`@` と `/` の問い合わせ 200 回、画像 10 枚として見積もる。
+Durable Object の無料枠は、リクエスト 1 日 10 万と、時間 1 日 13,000 GB-s である。
+R2 の無料枠は、Class A（置く、一覧）が月 100 万、Class B（読む）が月 1,000 万、保存が 10 GB である。
+
+| 物 | 1 日の見込み | 無料枠 | 実測 |
+| --- | --- | --- | --- |
+| Durable Object のリクエスト | 問い合わせ 200、鳴らす 10、PC のつなぎ直し 数十、WebSocket の受信（20 通で 1 回に数える）20 ほどで、約 300 | 10 万（約 0.3%） | （未実測） |
+| Durable Object の時間 | 問い合わせを待つ間だけ（最大 5 秒 × 200 回）。眠っている間と ping の自動応答は数えない | 13,000 GB-s | （未実測） |
+| D1 の書き込み | 増えない（問い合わせは D1 に書かない） | 10 万行 | （未実測） |
+| D1 の読み取り | 問い合わせのたびに宛先の `devices` を 1 行読む（200 行）。画像の読みで依頼の行を 1 行読む | 500 万行 | （未実測） |
+| R2 の Class A | 画像を置く 10、置く前の一覧 10、依頼を出すときの一覧 10、答えのときの一覧 10 で、約 40 | 月 100 万 | （未実測） |
+| R2 の Class B | 画像を読む 10 | 月 1,000 万 | （未実測） |
+| R2 の保存 | 置いたままは 1 台で最大 40 枚 × 5 MiB で、通常は答えのときに消える | 10 GB | （未実測） |
+
+R2 の一覧は、画像を置くたび（置く前の掃除と数え）、依頼を出すたび（古いものの掃除）、依頼に答えが付いたたび（その依頼の画像を消す前の一覧）に 1 回ずつ呼ぶ。
+画像が無い依頼でも、答えのたびに 1 回呼ぶ。
+一覧は 1,000 件を超えなければ 1 回で済み、1 台のスマホの置いたままは 40 枚までなので、ふだんは超えない。
+消す操作は Class A に数えない。
+呼び鈴をつなぎっぱなしにしても、Hibernation API なので、使っていない間は Durable Object が眠り、時間の枠は減らない。
+PC のつなぎ直し（Cloudflare 側の切断や配備のたび）は、そのつどリクエストを 1 つ使う。
+
 **割り切り。**
 スマホの割り切りは `docs/cloud-sync.md` の「割り切りと限界」に書いた。
 参加の秘密を持たないこと、承諾なしで起こせること、配る画面を差し替えられうること、秘密を作り直すと接続し直しになることである。
+rc.2 で足した割り切りは次のとおりである。
+
+- 問い合わせの中身（`@` で打った文字、ファイルのパス、`/` の候補）と画像は、スマホ用の鍵で封じて通し、Worker、Durable Object、D1、R2 は平文で持たない。
+  ただし、問い合わせの宛先、時刻、回数は Worker が見える。
+- 問い合わせの回数の上限（10 秒に 20 回）は、Durable Object のメモリで数える。
+  眠れば数えが消える緩い上限で、盗まれたトークンを完全には止めない。
+- 呼び鈴は、依頼を運ぶのではなく、pull を早めるだけである。
+  つながっていない PC は、今までどおり 30 秒の pull で拾う。
+- 呼び鈴は、受信箱の即時の更新には使わない。
+  受信箱は 30 秒ごとの読み直しのままである。
+- 画像のほかのファイルは添付できない。
+- 宛先でない PC には、問い合わせも画像も渡らない（AAD に宛先を入れ、Worker も宛先を確かめる）。
 
 ## セットアップのすゝめ
 
