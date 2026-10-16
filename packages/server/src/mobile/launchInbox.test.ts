@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { aadAnswer, aadImage, aadLaunch, appendPaths, deriveMobileKey, EFFORT_VALUES, LAUNCH_TTL_MS, MOBILE_IMAGE_MAX_BYTES, sealBytes, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
+import { aadAnswer, aadImage, aadLaunch, appendPaths, quotePath, deriveMobileKey, EFFORT_VALUES, LAUNCH_TTL_MS, MOBILE_IMAGE_MAX_BYTES, sealBytes, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import type { CloudClient } from '../sync/client.ts';
@@ -369,7 +369,7 @@ describe('MobileLaunchInbox の画像', () => {
     expect(paths[0]).toMatch(/\.jpg$/);
     expect(paths[1]).toMatch(/\.png$/);
     expect(start.mock.calls[0]![0].prompt).toBe(appendPaths('TODO の先頭をやって', paths));
-    expect(start.mock.calls[0]![0].prompt).toContain(`\n\n${paths[0]}\n${paths[1]}`);
+    expect(start.mock.calls[0]![0].prompt).toContain(`\n\n${quotePath(paths[0]!)}\n${quotePath(paths[1]!)}`);
   });
 
   it('指示が空でも、画像のパスだけの指示で起こす', async () => {
@@ -378,7 +378,7 @@ describe('MobileLaunchInbox の画像', () => {
     await putImage('l1', 0, IMG(5));
     await inbox.receive(l);
     const [f] = fs.readdirSync(dropsDir);
-    expect(start.mock.calls[0]![0].prompt).toBe(path.join(dropsDir, f!));
+    expect(start.mock.calls[0]![0].prompt).toBe(quotePath(path.join(dropsDir, f!)));
   });
 
   it('画像が取れない（Worker に無い）なら起こさず images-missing と答える。置いた分は消す', async () => {

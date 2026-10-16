@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
+import { aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
 import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
@@ -414,7 +414,7 @@ describe('bootMobile', () => {
       await deliver(s, 'l1', { effort: 'high', images: [{ n: 0, mime: 'image/png', bytes: 3 }] });
       await settle(() => s.client.launches.get('l1')!.status === 'started');
       const [f] = fs.readdirSync(path.join(s.homeDir, 'drops'));
-      expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', effort: 'high', prompt: `会話 1 を始める\n\n${path.join(s.homeDir, 'drops', f!)}` });
+      expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', effort: 'high', prompt: `会話 1 を始める\n\n${quotePath(path.join(s.homeDir, 'drops', f!))}` });
       s.mobile.stop();
     });
 
