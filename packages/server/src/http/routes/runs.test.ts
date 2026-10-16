@@ -238,6 +238,16 @@ describe('同期の経路', () => {
     expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(200);
   });
 
+  it('頼みを運べないとき、応答の無い ask が前からあっても force の後は再開を通す', async () => {
+    const id = await sid();
+    remoteRun(id);
+    writeAsk(db, 'd', { sessionId: id, runId: 'r-remote', targetDevice: 'dev-b', mode: 'ask', now: Date.now() });
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(409);
+    t.canCarry.value = false;
+    expect((await json(await post(`/api/sessions/${id}/takeover`, { force: true }))).body.stage).toBe('ready');
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(200);
+  });
+
   it('POST /sessions/:id/takeover は TakeoverDto を返し、GET で同じものが読め、extend で待ち直し、DELETE で 404 に戻る', async () => {
     const id = await sid();
     remoteRun(id);

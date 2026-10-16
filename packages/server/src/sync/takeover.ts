@@ -2,7 +2,7 @@ import { TAKEOVER_TIMEOUT_MS, type TakeoverDto, type TakeoverStage } from '@agen
 import type { Db } from '../db/open.ts';
 import { sessionLock } from '../db/queries.ts';
 import type { Timers } from './engine.ts';
-import { answerOf, askOf, cancelAsk, setAskForce, writeAsk, type TakeoverAsk } from './takeoverRows.ts';
+import { answerOf, askOf, cancelAsk, setAskForce, writeAsk, type TakeoverAnswer, type TakeoverAsk } from './takeoverRows.ts';
 
 /**
  * 「この PC で再開」の頼む側。ほかの PC で動いている会話を止めてもらい、その最後の本文が降りてくるのを待つ。
@@ -64,15 +64,29 @@ function liveAsks(db: Db, self: string, sessionId: string, runId?: string): Take
 }
 
 /**
+ * 応答の本文の版が、手元の台帳（file_sync）に降りきっているか。
+ * 応答の sha256 が null（相手に上げた本文が無い）なら台帳を見ずに真。あれば、台帳の sha256 と大きさが応答と同じになるまで偽。
+ */
+function landed(db: Db, sessionId: string, target: string, a: TakeoverAnswer): boolean {
+  if (a.transcriptSha256 === null) return true;
+  const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(sessionId) as { p: string } | undefined)?.p ?? null;
+  if (!uuid) return false;
+  const led = db.prepare('select sha256, size from file_sync where key = ?').get(`transcripts/${target}/${uuid}.jsonl.gz`) as { sha256: string; size: number } | undefined;
+  return !!led && led.sha256 === a.transcriptSha256 && led.size === a.transcriptSize;
+}
+
+/**
  * 「この PC で再開」を通してよいか。生きたロックのある会話は、頼まずには引き継げない。
  * 通すのは、ロックが無い、ロックが stale（相手の heartbeat が途切れている）、
- * またはこの PC が書いた取り下げていない頼みがロックの run を指し、force であるか応答があるときである。
+ * またはこの PC が書いた取り下げていない頼みがロックの run を指し、force であるか、応答があって本文の版が台帳に降りきっているときである。
  */
 export function resumeHereAllowed(db: Db, self: string, sessionId: string, now: number): { ok: true } | { ok: false; deviceName: string } {
   const lock = sessionLock(db, self, sessionId, now);
   if (!lock || lock.stale) return { ok: true };
   for (const ask of liveAsks(db, self, sessionId, lock.runId)) {
-    if (ask.mode === 'force' || answerOf(db, ask.id)) return { ok: true };
+    if (ask.mode === 'force') return { ok: true };
+    const a = answerOf(db, ask.id);
+    if (a && landed(db, sessionId, ask.targetDevice, a)) return { ok: true };
   }
   return { ok: false, deviceName: lock.deviceName };
 }
@@ -127,7 +141,8 @@ export class TakeoverService {
       if (carry) {
         st.askId = this.writeForce(st, existing);
         this.pushQuietly();
-      } else if (!existing) {
+      } else if (existing?.mode !== 'force') {
+        // 行を書けないので、再開を通す印だけをメモリに持つ。応答の無い ask が前からあっても同じ。
         this.forcedBare.set(sessionId, lock.runId);
       }
       return this.settle(st, 'ready');
@@ -147,6 +162,12 @@ export class TakeoverService {
     }
     const t = this.now();
     st.deadline = t + TAKEOVER_TIMEOUT_MS;
+    if (st.stage === 'asking' && st.askId !== null) {
+      // 頼みを送っている最中は段を変えない（送り終えれば waiting へ進む）。期限だけ延ばして時計を張り直す。
+      this.arm(st);
+      this.broadcast(st);
+      return this.dto(st);
+    }
     if (st.askId === null) {
       // 運べなかったときに始めた会話。いまの様子を見直して頼みを書く。
       const lock = sessionLock(this.deps.db, this.deps.deviceId, sessionId, t);
@@ -271,15 +292,9 @@ export class TakeoverService {
     if (!st.askId) return;
     const a = answerOf(this.deps.db, st.askId);
     if (!a) return;
-    if (a.transcriptSha256 !== null) {
-      const uuid = (this.deps.db.prepare('select provider_session_id p from sessions where id = ?').get(st.sessionId) as { p: string } | undefined)?.p ?? null;
-      const led = uuid && st.target
-        ? (this.deps.db.prepare('select sha256, size from file_sync where key = ?').get(`transcripts/${st.target}/${uuid}.jsonl.gz`) as { sha256: string; size: number } | undefined)
-        : undefined;
-      if (!led || led.sha256 !== a.transcriptSha256 || led.size !== a.transcriptSize) {
-        this.settle(st, 'receiving');
-        return;
-      }
+    if (!st.target || !landed(this.deps.db, st.sessionId, st.target, a)) {
+      this.settle(st, 'receiving');
+      return;
     }
     this.settle(st, 'ready');
   }

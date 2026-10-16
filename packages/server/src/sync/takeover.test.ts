@@ -213,6 +213,40 @@ describe('TakeoverService', () => {
     expect(svc.get('s1')?.stage).toBe('waiting');
   });
 
+  it('頼みを運べないとき、応答の無い ask が前からあっても force は ready にして再開を通す印を覚える', async () => {
+    addRun('r1', T0 - 1_000);
+    svc.start('s1', { force: false });
+    await flush();
+    const id = onlyAsk().id;
+    canCarry = false;
+    expect(svc.start('s1', { force: true }).stage).toBe('ready');
+    // 運べないので行は書き換えない（mode は ask のまま）。再開は印で通す。
+    expect(onlyAsk()).toMatchObject({ id, mode: 'ask' });
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: false, deviceName: 'pc-b' });
+    expect(svc.forcedWithoutRow('s1', 'r1')).toBe(true);
+  });
+
+  it('asking の間の extend は段を変えず、期限だけ延ばす', async () => {
+    addRun('r1', T0 - 1_000);
+    let release: () => void = () => {};
+    svc = new TakeoverService({
+      db, deviceId: SELF, canCarry: () => true, pushNow: () => new Promise<void>((r) => { release = r; }),
+      pull: async () => { pulls++; }, broadcast: (d) => { broadcasts.push(d); }, now, timers,
+    });
+    svc.start('s1', { force: false });
+    await advance(10_000);
+    expect(svc.get('s1')?.stage).toBe('asking');
+    expect(svc.extend('s1')).toMatchObject({ stage: 'asking', deadline: T0 + 10_000 + 90_000 });
+    expect(lastBroadcast()).toMatchObject({ stage: 'asking', deadline: T0 + 100_000 });
+    // 送り終えたら、これまでどおり waiting へ進む。
+    release();
+    await flush();
+    expect(svc.get('s1')?.stage).toBe('waiting');
+    // 延ばした期限で打ち切られる。
+    await advance(95_000);
+    expect(svc.get('s1')?.stage).toBe('timeout');
+  });
+
   it('頼みを運べないときの force は行を書かずに ready にし、再開を通す印だけを覚える', () => {
     addRun('r1', T0 - 1_000);
     canCarry = false;
@@ -320,7 +354,19 @@ describe('resumeHereAllowed', () => {
   it('応答のある ask なら通し、応答の無い ask は断る', () => {
     const a = writeAsk(db, SELF, { sessionId: 's1', runId: 'r1', targetDevice: OTHER, mode: 'ask', now: now() });
     expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: false, deviceName: 'pc-b' });
-    answerStopped(a.id);
+    answerStopped(a.id, { sha: null, size: null });
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: true });
+  });
+
+  it('応答の本文の版が台帳に降りきるまでは通さない（receiving の間に直に叩かれても古い本文で再開しない）', () => {
+    const a = writeAsk(db, SELF, { sessionId: 's1', runId: 'r1', targetDevice: OTHER, mode: 'ask', now: now() });
+    answerStopped(a.id, { sha: 'v2', size: 20 });
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: false, deviceName: 'pc-b' });
+    setLedger('v1', 20);
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: false, deviceName: 'pc-b' });
+    setLedger('v2', 10);
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: false, deviceName: 'pc-b' });
+    setLedger('v2', 20);
     expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: true });
   });
 
