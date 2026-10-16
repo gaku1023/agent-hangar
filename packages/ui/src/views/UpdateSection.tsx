@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { UpdateNoteRow, UpdateSectionProps } from '../presenters/update.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Markdown } from './primitives/Markdown.tsx';
+import { collapseOut, fadeIn, growIn, motionOn, resizeFrom } from './primitives/motionKit.ts';
+import { usePresence } from './primitives/usePresence.ts';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
@@ -72,23 +74,37 @@ function NoteList(props: { title: string; notes: UpdateNoteRow[]; beforeLabel: s
       </button>
     </div>
     <div className="note-list">
-      {props.notes.map((n) => {
-        const isOpen = open.has(n.version);
-        return (
-          <div key={n.version} className="note-row" data-open={isOpen || undefined}>
-            <button type="button" className="note-head" aria-expanded={isOpen} onClick={() => toggle(n.version)}>
-              <span className="note-ver">{n.version}</span>
-              {n.tag !== null && <span className="badge" data-tone="ok">{n.tag}</span>}
-              {n.before !== null && <span className="badge" data-tone="warn">{props.beforeLabel}</span>}
-              {n.count !== null && <span className="note-count">{n.count}</span>}
-              <Icon name="chevron" />
-            </button>
-            {isOpen && <NoteBody note={n} beforeLabel={props.beforeLabel} />}
-          </div>
-        );
-      })}
+      {props.notes.map((n) => <NoteRow key={n.version} note={n} open={open.has(n.version)} onToggle={() => toggle(n.version)} beforeLabel={props.beforeLabel} />)}
     </div>
     </>
+  );
+}
+
+/**
+ * 版の 1 行。押して開くと本文が伸びて入り、閉じると薄れながら畳んでから外れる（アプリの決まった動き、motionKit の growIn と collapseOut）。
+ * はじめから開いている版（いまの版、更新後の札から読みに来た版）は動かさない。畳んでいる間も中身は残し、開き直せばそこから戻る。
+ */
+function NoteRow(props: { note: UpdateNoteRow; open: boolean; onToggle: () => void; beforeLabel: string }) {
+  const n = props.note;
+  const body = usePresence<HTMLDivElement>(props.open, (el) => (motionOn(el) ? collapseOut(el) : null));
+  const wasOpen = useRef(props.open);
+  useLayoutEffect(() => {
+    if (props.open && !wasOpen.current && body.ref.current) growIn(body.ref.current);
+    wasOpen.current = props.open;
+    // 開き閉じが替わったときだけ動かす。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open]);
+  return (
+    <div className="note-row" data-open={props.open || undefined}>
+      <button type="button" className="note-head" aria-expanded={props.open} onClick={props.onToggle}>
+        <span className="note-ver">{n.version}</span>
+        {n.tag !== null && <span className="badge" data-tone="ok">{n.tag}</span>}
+        {n.before !== null && <span className="badge" data-tone="warn">{props.beforeLabel}</span>}
+        {n.count !== null && <span className="note-count">{n.count}</span>}
+        <Icon name="chevron" />
+      </button>
+      {body.mounted && <NoteBody note={n} beforeLabel={props.beforeLabel} boxRef={body.ref} />}
+    </div>
   );
 }
 
@@ -96,12 +112,26 @@ function NoteList(props: { title: string; notes: UpdateNoteRow[]; beforeLabel: s
  * 開いた版の中身（試作の L1）。「更新の前に」の注意と要点の箇条だけを出し、本文は「全文を読む」で出す。
  * 要点を拾えない版（前書きだけなど）は、はじめから本文を出す。
  */
-function NoteBody(props: { note: UpdateNoteRow; beforeLabel: string }) {
+function NoteBody(props: { note: UpdateNoteRow; beforeLabel: string; boxRef: RefObject<HTMLDivElement | null> }) {
   const t = useT();
   const n = props.note;
   const [full, setFull] = useState(n.points.length === 0);
+  // 要点と全文を替える前の高さ。替えた描画で、その高さから今の高さへ補間し、中身を薄れから現す。
+  const from = useRef<number | null>(null);
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = props.boxRef.current;
+    if (el && from.current !== null) {
+      resizeFrom(el, from.current);
+      if (content.current) fadeIn(content.current, '--dur-fast');
+    }
+    from.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full]);
+  const switchTo = (next: boolean) => { from.current = props.boxRef.current?.offsetHeight ?? null; setFull(next); };
   return (
-    <div className="note-body">
+    <div className="note-body" ref={props.boxRef}>
+      <div ref={content}>
       {!full && (
         <>
           {n.before !== null && <div className="note-before"><strong>{props.beforeLabel}</strong>{n.before}</div>}
@@ -109,8 +139,9 @@ function NoteBody(props: { note: UpdateNoteRow; beforeLabel: string }) {
         </>
       )}
       {full && <Markdown text={n.body} />}
+      </div>
       {n.points.length > 0 && (
-        <button type="button" className="btn-link note-full" onClick={() => setFull(!full)}>{full ? t('update.notes.pointsOnly') : t('update.notes.readFull')}</button>
+        <button type="button" className="btn-link note-full" onClick={() => switchTo(!full)}>{full ? t('update.notes.pointsOnly') : t('update.notes.readFull')}</button>
       )}
     </div>
   );
