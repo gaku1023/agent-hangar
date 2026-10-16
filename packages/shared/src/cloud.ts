@@ -18,6 +18,7 @@ export const TABLE_PK: Record<SharedTable, string> = {
 };
 
 export type ChangeOp = 'upsert' | 'delete';
+/** 平文の行の形。Task 9/10 で封じた行（SealedChangeIn）に置き換わって消える。 */
 export type ChangeIn = { tableName: SharedTable; rowId: string; op: ChangeOp; payload: Record<string, unknown>; updatedAt: number };
 export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
 /** push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は新しくなかったので捨てた行の数である。 */
@@ -32,6 +33,7 @@ export type CloudPeer = { id: string; lastSeenAt: number | null };
  * changes は自端末以外の行を連番の昇順で、nextSeq は次に渡す since である。
  * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
  * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
+ * 平文の行の形なので、Task 9/10 で SealedPullChangesResponse に置き換わって消える。
  */
 export type PullChangesResponse = {
   changes: ChangeOut[];
@@ -45,12 +47,61 @@ export type PullChangesResponse = {
    */
   launches?: MobileLaunchOut[];
 };
+/** 平文の行の取り直し。Task 9/10 で SealedSnapshotResponse に置き換わって消える。 */
 export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
+/**
+ * 封じた行（互換の版 9）。
+ * `k` は PC が表名と行 ID から求めた HMAC の base64url（43 字）で、Worker は表名も行 ID も知らない。
+ * `sealed` は `/row` の鍵で封じた中身（base64url）で、Worker は開けない。`epoch` は封じた鍵の世代である。
+ * 名簿の印の行（`ROSTER_MARKER_K`）だけは `sealed` が空で、Worker が書く。
+ */
+export type SealedChangeIn = { k: string; op: ChangeOp; updatedAt: number; epoch: number; sealed: string };
+export type SealedChangeOut = SealedChangeIn & { seq: number; deviceId: string };
+/** 封じた行の pull（`GET /changes`）。形は行のほかは PullChangesResponse と同じである。 */
+export type SealedPullChangesResponse = {
+  changes: SealedChangeOut[];
+  nextSeq: number;
+  more: boolean;
+  peers: CloudPeer[];
+  now: number;
+  launches?: MobileLaunchOut[];
+};
+/** 封じた行の取り直し（`GET /rows`）。`k` の順に並び、`nextAfter` は次に渡す `after` である。 */
+export type SealedSnapshotResponse = { changes: SealedChangeOut[]; nextAfter: string | null; seq: number };
+/** 封じた行の `k` の形（HMAC-SHA256 の base64url、詰め物なし）。 */
+export const SEALED_ROW_K_RE = /^[A-Za-z0-9_-]{43}$/;
+
 export type FileKind = 'transcript' | 'config';
+/** 平文のメタを持つファイルの形。Task 9/10 で SealedFileIn に置き換わって消える。 */
 export type FileMetaIn = { key: string; path: string; kind: FileKind; sha256: string; size: number; mtime: number; encrypted: boolean };
 export type FileEntry = FileMetaIn & { seq: number; deviceId: string; uploadedAt: number; storedSize: number };
 export type ListFilesResponse = { files: FileEntry[]; nextSeq: number; more: boolean };
+
+/**
+ * 封じたメタを持つファイル（互換の版 9）。
+ * `key` は `b/<端末 ID>/<HMAC の base64url>`（e2e/names.ts）で、パスは平文で残らない。
+ * `sealedMeta` はパス、平文の SHA-256、mtime、元の PC を封じたもの（base64url）である。
+ */
+export type SealedFileIn = { key: string; kind: FileKind; size: number; epoch: number; sealedMeta: string };
+export type SealedFileEntry = SealedFileIn & { seq: number; deviceId: string; uploadedAt: number; storedSize: number };
+export type SealedListFilesResponse = { files: SealedFileEntry[]; nextSeq: number; more: boolean };
+/** `x-hangar-meta` の見出しの長さの上限（字）。 */
+export const MAX_SEALED_META_CHARS = 8192;
+
+/**
+ * PC が決めた本文の削除（`DELETE /blobs`、互換の版 9）。
+ * 自分の端末 ID の下（`b/<自分>/`）の鍵だけを消せる。置いてから 1 時間たっていないものは消さない。
+ * 断ったものは `refused` に入れて返す。索引に無い鍵は消えたものとして `deleted` に入れる。
+ */
+export type BlobsDeleteIn = { keys: string[] };
+export type BlobsDeleteOut = { deleted: string[]; refused: string[] };
+/** 1 回の `DELETE /blobs` の鍵の数の上限。 */
+export const MAX_BLOB_DELETE_KEYS = 50;
+/** 1 台の端末が 1 日（UTC）に消せる本文の数。超えると 429。 */
+export const BLOB_DELETE_DAILY = 500;
+/** 置いてからこれだけたっていない本文は消さない。 */
+export const BLOB_DELETE_GRACE_MS = 3_600_000;
 
 export type JoinRequest = { secret: string; device: { id: string; name: string; platform: string } };
 export type JoinResponse = { deviceToken: string; deviceId: string };
@@ -165,10 +216,25 @@ export type CloudDeviceOut = {
 };
 export type CloudDevicesResponse = { devices: CloudDeviceOut[] };
 export type CloudDeviceRevokeResponse = { device: CloudDeviceOut };
+
+/**
+ * Worker の `GET /devices` が返す端末の 1 行（互換の版 9）。
+ * 名前と OS は封じた名簿にあり、IP と所在地は保存しないので、ここには無い。
+ * `expiresAt` はトークンの期限で、null なら期限なし。
+ * CloudDeviceOut は Task 9/10 でこの形に置き換わって消える。
+ */
+export type DeviceOut = { id: string; kind: 'pc' | 'mobile'; joinedAt: number; lastSeenAt: number | null; revokedAt: number | null; expiresAt: number | null };
+export type DevicesOut = { devices: DeviceOut[] };
+export type DeviceRevokeOut = { device: DeviceOut };
 /** 解除した PC の端末トークンで来た要求に、Worker が 401 で返す本文の error。トークンが合ったときにだけ返す（違うトークンには一律の unauthorized）。 */
 export const REVOKED_ERROR = 'revoked';
 
-export const CLOUD_HEADERS = { path: 'x-hangar-path', kind: 'x-hangar-kind', sha256: 'x-hangar-sha256', size: 'x-hangar-size', mtime: 'x-hangar-mtime', encrypted: 'x-hangar-encrypted' } as const;
+/**
+ * `PUT /files/:key` の見出し。
+ * 互換の版 9 の Worker が読むのは kind、size、epoch、meta（封じたメタの base64url）だけである。
+ * path、sha256、mtime、encrypted は版 8 までの端末の写しで、Task 9/10 で消える。
+ */
+export const CLOUD_HEADERS = { path: 'x-hangar-path', kind: 'x-hangar-kind', sha256: 'x-hangar-sha256', size: 'x-hangar-size', mtime: 'x-hangar-mtime', encrypted: 'x-hangar-encrypted', epoch: 'x-hangar-epoch', meta: 'x-hangar-meta' } as const;
 
 /** 1 回の POST /changes に載せる上限。Worker は 1 行を 2 文で書くので 81 文以内に収まる。 */
 export const MAX_PUSH_BATCH = 40;
@@ -326,6 +392,7 @@ export function encodeFileKeyPath(key: string): string {
  * R2 の鍵。端末ごとに分けるので、同じセッション ID の本文が端末間で上書きされない。
  * ID は他端末から届いた値が混ざる経路があるので、組み立ての側でも形を検査する。
  * 検査が無いと、スラッシュ入りのセッション ID がサブエージェントの鍵と衝突して上書きし合う。
+ * 平文の鍵名なので、Task 9/10 で e2e/names.ts の transcriptBlobKey に置き換わって消える。
  */
 export function transcriptKey(deviceId: string, sessionUuid: string, agentId: string | null): string {
   if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
@@ -341,6 +408,7 @@ export function transcriptKey(deviceId: string, sessionUuid: string, agentId: st
  * 負けた側の索引（`file_sync`）には自分が上げた指紋が残るのに中身は相手のものなので、
  * 取り込みは「SHA-256 が一致しません」で永久に止まる。
  * 端末ごとに分ければ、受け取る側が相対パスごとに新しい方を選べる。
+ * 平文の鍵名なので、Task 9/10 で e2e/names.ts の configBlobKey に置き換わって消える。
  */
 export function configKey(deviceId: string, rel: string): string {
   if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');

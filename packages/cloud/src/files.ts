@@ -1,119 +1,73 @@
 import { Hono } from 'hono';
-import { CLOUD_HEADERS, MAX_KEY_BYTES, PULL_LIMIT, decodeHeaderText, isSafeKeyId, isSafeRelPath, splitFileKey, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
+import {
+  BLOB_DELETE_DAILY,
+  BLOB_DELETE_GRACE_MS,
+  CLOUD_HEADERS,
+  MAX_BLOB_DELETE_KEYS,
+  MAX_SEALED_META_CHARS,
+  PULL_LIMIT,
+  isBlobKey,
+  isSafeKeyId,
+  type BlobsDeleteOut,
+  type FileKind,
+  type SealedFileEntry,
+  type SealedListFilesResponse,
+} from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
 import { touchIfDue } from './seen.ts';
 import { sweepIfDue } from './sweep.ts';
+import { blobToSealed, isSealedText, sealedToBlob } from './util.ts';
 
 type FileRow = {
   seq: number;
   key: string;
-  path: string;
   kind: FileKind;
   device_id: string;
-  sha256: string;
   size: number;
   stored_size: number;
-  mtime: number;
-  encrypted: number;
   uploaded_at: number;
+  epoch: number;
+  sealed_meta: unknown;
 };
 
-const toEntry = (r: FileRow): FileEntry => ({
+const FILE_COLS = 'seq, key, kind, device_id, size, stored_size, uploaded_at, epoch, sealed_meta';
+
+const toEntry = (r: FileRow): SealedFileEntry => ({
   seq: r.seq,
   key: r.key,
-  path: r.path,
   kind: r.kind,
   deviceId: r.device_id,
-  sha256: r.sha256,
   size: r.size,
   storedSize: r.stored_size,
-  mtime: r.mtime,
-  encrypted: r.encrypted === 1,
   uploadedAt: r.uploaded_at,
+  epoch: r.epoch,
+  sealedMeta: blobToSealed(r.sealed_meta),
 });
 
-// R2 の鍵の上限である。物差しは端末側と共有する（`packages/shared/src/cloud.ts`）。
-// ここで独自の文字種の表を持つと、日本語や空白を含む `~/.claude` のファイルが
-// 端末側では鍵を作れるのに Worker で 400 になる、という食い違いが起きる。
-export { MAX_KEY_BYTES };
+/** 自端末の下の鍵の頭。端末 ID の形が違えば null で、どの鍵にも書かせない。 */
+const ownPrefix = (deviceId: string): string | null => (isSafeKeyId(deviceId) ? `b/${deviceId}/` : null);
 
 /**
- * 鍵の形と権限である。
- * `transcripts/<端末 ID>/...` も `config/<端末 ID>/...` も、自端末の分だけ書ける。
+ * 鍵の形と権限である（互換の版 9）。
+ * 鍵は `b/<端末 ID>/<HMAC の base64url>`（shared の e2e/names.ts）だけを受け、パスを平文で持つ鍵名は受けない。
+ * 書けるのは自端末の下（`b/<自分>/`）だけである。
  * `GET` は形さえ合っていれば誰でもよい。他端末の本文と設定を降ろすのが同期の目的だからである。
- *
- * 設定を端末で分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合い、
- * 負けた端末の取り込みが「SHA-256 が一致しません」で永久に止まる。
- * 守りの形は `transcripts/` と揃える。他人の設定を上書きできる穴を残さない。
- * 本文と設定を消す経路（DELETE）は持たない。使われていなかったので段 1 で消した。
+ * 前方一致は末尾の `/` まで見るので、`dev-a` が `dev-ab` の下に書くことはできない。
  */
 export function validKey(key: string, deviceId: string, method: 'PUT' | 'GET'): boolean {
-  const s = splitFileKey(key);
-  if (!s) return false;
+  if (!isBlobKey(key)) return false;
   if (method === 'GET') return true;
   // 端末 ID にスラッシュが混ざっていると、他端末の接頭辞の下に潜り込める。
   // 参加のときの検査に頼らず、ここでも形を見る。
-  if (!isSafeKeyId(deviceId)) return false;
-  return s.rel.startsWith(`${deviceId}/`);
+  const own = ownPrefix(deviceId);
+  return own !== null && key.startsWith(own);
 }
-
-/** 権限を抜きにした形だけの検査である。形が違えば 400、形は合っていて権限が無ければ 403 に分ける。 */
-const keyShapeOk = (key: string): boolean => validKey(key, '', 'GET');
-
-const isSha = (s: string | undefined): s is string => !!s && /^[0-9a-f]{64}$/.test(s);
 
 /** 見出しの数値である。空、符号、小数、桁あふれを断る。 */
 function toInt(s: string | undefined): number | null {
   if (s === undefined || !/^\d+$/.test(s)) return null;
   const n = Number(s);
   return Number.isSafeInteger(n) ? n : null;
-}
-
-/**
- * R2 の customMetadata の上限である。
- *
- * 実測で決めた（miniflare の R2 に対して二分した）。
- * 鍵の名前と値を合わせた UTF-8 のバイト数が 2048 ちょうどまで通り、1 バイト超えると投げる。
- *
- * ```
- * 単一キー a=      通る最大 2047 バイト / 合計 2048
- * 鍵名 20 字       通る最大 2028 バイト / 合計 2048
- * path と sha256 と device の 3 つ  通る最大 2036 バイト / 合計 2048
- * 超えたとき: put: Your metadata headers exceed the maximum allowed metadata size. (10012)
- * ```
- *
- * どの形でも境目は「名前と値の合計 2048 バイト」で一致した。
- * miniflare は非 ASCII の値をバイトではなく文字の数で測るようだが、実物の R2 は見出しとして運ぶので、
- * 厳しい側（UTF-8 のバイト数）で測る。
- */
-export const MAX_R2_META_BYTES = 2048;
-
-const utf8Len = (s: string): number => new TextEncoder().encode(s).length;
-
-const metaBytes = (m: Record<string, string>): number => Object.entries(m).reduce((n, [k, v]) => n + utf8Len(k) + utf8Len(v), 0);
-
-/**
- * R2 に付ける覚え書きを組み立てる。入り切らなければ null で、呼び手は R2 に触る前に断る。
- *
- * `path` は見出しの形（`encodeURIComponent`）で運ばれるので、非 ASCII は 1 バイトが 3 バイトに伸びる。
- * 日本語なら 1 文字 9 バイトである。
- * `isSafeRelPath` が許すのは 512 **文字**なので、符号化すると 4608 バイトになりうる。
- * つまり上限を超える組み合わせが現実に作れる。
- *
- * 超えたときは `path` を落とし、`sha256` と `device` だけにする。
- * **索引の正本は D1 の `files` で、R2 側の写しを読む者は本番の経路に 1 人もいない**（自分を説明する
- * ための控えでしかない）。
- * 落とせば済むものを理由に 400 を返すと、`~/.claude` の深い日本語の道に置かれた 1 本が
- * 二度と上がらなくなる。控えを 1 つ諦める方が、本文を諦めるよりずっと軽い。
- *
- * `sha256`（64）と `device`（参加の入口で 64 文字までに限られる）だけなら高々 144 バイトなので、
- * null は実際には返らない。それでも、R2 の上限を当てにした 500 を作らないための最後の網として置く。
- */
-export function buildMetadata(wirePath: string, sha256: string, device: string): Record<string, string> | null {
-  const full = { path: wirePath, sha256, device };
-  if (metaBytes(full) <= MAX_R2_META_BYTES) return full;
-  const lean = { sha256, device };
-  return metaBytes(lean) <= MAX_R2_META_BYTES ? lean : null;
 }
 
 /** 1 本の本文の上限である。Workers 自体の上限より手前で断ち、記憶を食い潰されないようにする。 */
@@ -155,7 +109,7 @@ filesApp.get('/', async (c) => {
   // 端末は読み位置を進める側にしか動かない（puller.ts の `Math.max`）ので、その 1 件は二度と読まれない。
   // 先に読めば、末尾は必ず実際以下になり、同じ索引をもう一度読む側にしか倒れない。
   const end = await maxFileSeq(c.env.DB);
-  const rows = await c.env.DB.prepare('select * from files where seq > ? order by seq limit ?')
+  const rows = await c.env.DB.prepare(`select ${FILE_COLS} from files where seq > ? order by seq limit ?`)
     .bind(since, limit + 1)
     .all<FileRow>();
   const more = rows.results.length > limit;
@@ -163,58 +117,45 @@ filesApp.get('/', async (c) => {
   // 端末が送ってきた `since` を返さない。`/changes`（changes.ts の `GET /`）と同じ形である。
   // 返すと、一度でも壊れた `since` を控えた端末の一覧が、その値のまま固まって永久に空になる。
   const nextSeq = more ? page[page.length - 1]!.seq : Math.max(end, page.length ? page[page.length - 1]!.seq : 0);
-  const res: ListFilesResponse = { files: page.map(toEntry), nextSeq, more };
+  const res: SealedListFilesResponse = { files: page.map(toEntry), nextSeq, more };
   return c.json(res);
 });
 
-/** 本文をそのまま R2 へ流し、索引を置き直す。中身は端末側で暗号化済みで、Worker は覗かない。 */
+/**
+ * 本文をそのまま R2 へ流し、索引を置き直す（互換の版 9）。
+ * 中身は端末側で暗号化済みで、Worker は覗かない。
+ * パス、平文の SHA-256、mtime、元の PC は、端末が封じたメタ（`x-hangar-meta`）の中にあり、Worker は開けない。
+ * R2 の覚え書き（customMetadata）には何も付けない。
+ */
 filesApp.put('/:key{.+}', async (c) => {
   const key = c.req.param('key');
   const device = c.get('device');
-  if (!keyShapeOk(key)) return c.json({ error: 'invalid key' }, 400);
+  if (!isBlobKey(key)) return c.json({ error: 'invalid key' }, 400);
   if (!validKey(key, device.id, 'PUT')) return c.json({ error: 'forbidden' }, 403);
   const h = (name: string): string | undefined => c.req.header(name);
-  // 見出しの値は ByteString しか運べないので、端末は `encodeHeaderText` で符号化して送る。
-  // 復号は共有の関数で行う。片方だけ変えると、索引に百分率のままの文字列が黙って残る。
-  const wirePath = h(CLOUD_HEADERS.path);
-  const path = wirePath === undefined ? undefined : (decodeHeaderText(wirePath) ?? undefined);
   const kind = h(CLOUD_HEADERS.kind);
-  const sha = h(CLOUD_HEADERS.sha256);
   const size = toInt(h(CLOUD_HEADERS.size));
-  const mtime = toInt(h(CLOUD_HEADERS.mtime));
-  const enc = h(CLOUD_HEADERS.encrypted);
-  if (path === undefined || !isSafeRelPath(path)) return c.json({ error: 'invalid headers' }, 400);
+  const epoch = toInt(h(CLOUD_HEADERS.epoch));
+  const sealedMeta = h(CLOUD_HEADERS.meta);
   if (kind !== 'transcript' && kind !== 'config') return c.json({ error: 'invalid headers' }, 400);
-  // 種別と接頭辞が食い違うと、索引の kind から鍵の置き場を当てにしている側が取り違える。
-  if ((kind === 'config') !== key.startsWith('config/')) return c.json({ error: 'invalid headers' }, 400);
-  if (!isSha(sha) || size === null || mtime === null || (enc !== '1' && enc !== '0')) return c.json({ error: 'invalid headers' }, 400);
-  // 本文は端末で暗号化してから預ける約束である（決定 5）。
-  // 降ろす側（packages/server/src/sync/puller.ts）だけが守っていると、置く側は約束の外に出られる。
-  // R2 に触る前に断るので、平文が一瞬でも R2 に載ることはない。
-  if (kind === 'transcript' && enc !== '1') return c.json({ error: 'unencrypted transcript' }, 400);
+  if (size === null || epoch === null || epoch < 1 || !isSealedText(sealedMeta, MAX_SEALED_META_CHARS)) return c.json({ error: 'invalid headers' }, 400);
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
-  // customMetadata の値も見出し由来なので、ここに秘密は入らない（path と sha と端末 ID だけ）。
-  // 値も見出しとして運ばれるので、符号化したままの形で置く。
-  // 組み立ては R2 に触る前に済ませる。上限に当ててから倒れると、半端な本体が R2 に残るうえ、
-  // 500 は「あとで直るかもしれない失敗」なので上げる側が永久に送り直す。
-  const customMetadata = buildMetadata(wirePath!, sha, device.id);
-  if (!customMetadata) return c.json({ error: 'metadata too large' }, 413);
   // 長さを名乗らない本文は受けない。
   // 長さの分かっている本文は、読まずにそのまま R2 へ渡せるので、workerd が JS を通さずに流し、CPU の時間が本文の大きさに比例しない。
   // 長さを名乗らずに本文を流していたのは互換の版 1 より前の端末で、それは版の関所（compat.ts）で断られている。
   const declared = toInt(h('content-length'));
   if (declared === null) return c.json({ error: 'length required' }, 411);
   if (declared > MAX_BODY_BYTES) return c.json({ error: 'too large' }, 413);
-  const obj = await c.env.BUCKET.put(key, body, { customMetadata });
+  const obj = await c.env.BUCKET.put(key, body);
   const storedSize = obj?.size ?? declared;
   const now = Date.now();
   const touch = touchIfDue(c.env.DB, device, now);
   const r = await c.env.DB.batch([
     c.env.DB.prepare('delete from files where key = ?').bind(key),
     c.env.DB
-      .prepare('insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(key, path, kind, device.id, sha, size, storedSize, mtime, enc === '1' ? 1 : 0, now),
+      .prepare('insert into files (key, kind, device_id, size, stored_size, uploaded_at, epoch, sealed_meta) values (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(key, kind, device.id, size, storedSize, now, epoch, sealedToBlob(sealedMeta)),
     ...(touch ? [touch] : []),
   ]);
   const seq = Number(r[1]!.meta.last_row_id);
@@ -231,4 +172,103 @@ filesApp.get('/:key{.+}', async (c) => {
     status: 200,
     headers: { 'content-type': 'application/octet-stream', 'content-length': String(obj.size), etag: obj.httpEtag },
   });
+});
+
+/** 1 日の削除の数えを置く meta の鍵の頭。後ろに端末 ID を付ける。値は `{"day":"YYYY-MM-DD","n":数}` の JSON である。 */
+export const META_BLOB_DELETE = 'blob_delete:';
+
+export const blobsApp = new Hono<{ Bindings: Env; Variables: Vars }>();
+
+type CountRow = { value: string };
+
+/** meta の数えの値から、今日の分の数を読む。日が違えば 0 である。 */
+function countOf(row: CountRow | undefined, day: string): number {
+  if (!row) return 0;
+  try {
+    const v = JSON.parse(row.value) as { day?: unknown; n?: unknown };
+    return v.day === day && typeof v.n === 'number' ? v.n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * PC が決めた本文の削除（互換の版 9）。
+ *
+ * ゴミ箱の 30 日の判定は PC が手元の DB で行い、消す鍵だけを渡す（設計書「掃除」）。
+ * Worker は中身を読めないので、守るのは次の 3 つだけである。
+ *
+ * - 自端末の下（`b/<自分>/`）の鍵だけを消す。ほかの端末の下の鍵は `refused` に入れる。
+ * - 置いてから 1 時間たっていないものは消さない（`refused`）。置き直したばかりの 1 本を消さないためである。
+ * - 端末ごとに 1 日（UTC）500 件まで。数えは meta の 1 行に日付と数で持つ。残りが 0 なら 429、足りなければ残りの分だけ消して、あふれた分は `refused` に入れる。
+ *
+ * 索引に無い自分の鍵は、消えたものとして `deleted` に入れ、R2 には触らない。
+ * 索引に無い本文は PUT の途中かもしれないので、R2 の孤児は掃除（sweep.ts の `sweepBodies`）に任せる。
+ *
+ * 数えの取り分は 1 つの batch（1 つの取引）で、前の値の読み、upsert、後の値の読みを流して決める。
+ * 同時の 2 本でも、取り分の合計は残りを超えない。
+ * R2 を先に消し、索引は後で消す。索引の文には猶予の条件を付け、その間に置き直された行は消さない。
+ *
+ * 読みは、索引の一意の索引で鍵を引く 1 文（50 行まで）と、meta の主キーの 2 行である。
+ */
+blobsApp.delete('/', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { keys?: unknown } | null;
+  const keys = body?.keys;
+  if (!Array.isArray(keys) || keys.length === 0 || keys.length > MAX_BLOB_DELETE_KEYS || !keys.every((k) => typeof k === 'string' && isBlobKey(k))) {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  const device = c.get('device');
+  const db = c.env.DB;
+  const now = Date.now();
+  const cutoff = now - BLOB_DELETE_GRACE_MS;
+  const own = ownPrefix(device.id);
+  const unique = [...new Set(keys as string[])];
+  const refused: string[] = [];
+  const mine = unique.filter((k) => {
+    const ok = own !== null && k.startsWith(own);
+    if (!ok) refused.push(k);
+    return ok;
+  });
+  // 索引に載っている自分の鍵と、置いた時刻を引く。
+  const indexed = new Map<string, number>();
+  if (mine.length) {
+    const found = await db.prepare(`select key, uploaded_at from files where key in (${mine.map(() => '?').join(',')})`).bind(...mine).all<{ key: string; uploaded_at: number }>();
+    for (const r of found.results) indexed.set(r.key, r.uploaded_at);
+  }
+  const eligible = mine.filter((k) => {
+    const at = indexed.get(k);
+    const young = at !== undefined && at >= cutoff;
+    if (young) refused.push(k);
+    return !young;
+  });
+  if (eligible.length === 0) {
+    const res: BlobsDeleteOut = { deleted: [], refused };
+    return c.json(res);
+  }
+  // 1 日の数えから取り分を取る。
+  const day = new Date(now).toISOString().slice(0, 10);
+  const metaKey = `${META_BLOB_DELETE}${device.id}`;
+  const want = eligible.length;
+  const counted = await db.batch([
+    db.prepare('select value from meta where key = ?').bind(metaKey),
+    db
+      .prepare(
+        "insert into meta (key, value) values (?, json_object('day', ?, 'n', min(?, ?))) on conflict(key) do update set value = json_object('day', ?, 'n', case when json_extract(meta.value, '$.day') = ? then min(ifnull(json_extract(meta.value, '$.n'), 0) + ?, ?) else min(?, ?) end)",
+      )
+      .bind(metaKey, day, want, BLOB_DELETE_DAILY, day, day, want, BLOB_DELETE_DAILY, want, BLOB_DELETE_DAILY),
+    db.prepare('select value from meta where key = ?').bind(metaKey),
+  ]);
+  const before = countOf((counted[0]?.results as CountRow[] | undefined)?.[0], day);
+  const after = countOf((counted[2]?.results as CountRow[] | undefined)?.[0], day);
+  const granted = Math.max(0, Math.min(want, after - before));
+  if (granted === 0) return c.json({ error: 'too many deletes', limit: BLOB_DELETE_DAILY }, 429);
+  const taken = eligible.slice(0, granted);
+  refused.push(...eligible.slice(granted));
+  const inIndex = taken.filter((k) => indexed.has(k));
+  if (inIndex.length) {
+    await c.env.BUCKET.delete(inIndex);
+    await db.prepare(`delete from files where key in (${inIndex.map(() => '?').join(',')}) and uploaded_at < ?`).bind(...inIndex, cutoff).run();
+  }
+  const res: BlobsDeleteOut = { deleted: taken, refused };
+  return c.json(res);
 });

@@ -3,75 +3,67 @@ import {
   LAUNCH_TTL_MS,
   MAX_PUSH_BATCH,
   PULL_LIMIT,
-  SHARED_TABLES,
-  type ChangeIn,
-  type ChangeOut,
+  SEALED_ROW_K_RE,
   type CloudPeer,
   type MobileLaunchOut,
-  type PullChangesResponse,
   type PushChangesResponse,
-  type SnapshotResponse,
+  type SealedChangeIn,
+  type SealedChangeOut,
+  type SealedPullChangesResponse,
+  type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
 import { touchIfDue } from './seen.ts';
+import { blobToSealed, isSealedText, sealedToBlob } from './util.ts';
 
 /**
- * 1 行の payload（直列化した後のバイト数）の上限である。
+ * 1 行の `sealed`（base64url の字数）の上限である。
  *
- * D1 は 1 つの TEXT の値を 2,000,000 バイトで打ち切るので、それを超える行は必ず 500 になる。
+ * D1 は 1 つの値を 2,000,000 バイトで打ち切るので、それを超える行は必ず 500 になる。
  * 500 は端末から見ると一時的な失敗なので、同じ batch を永久に送り直して、その端末の push が止まる。
  * 手前で 413 に落として、端末がその行を諦められるようにする。
  *
- * 128 KiB にした根拠は 3 つである。
- * D1 の限界の 2,000,000 バイトから十分に遠いこと。
- * 共有テーブルに載るいちばん長いものはメモの本文（決定 5 で D1 に平文で置く）で、
- * 日本語なら 1 文字 3 バイトなので 4 万字あまり、原稿用紙 100 枚を超えること。
- * 1 回の push は 40 行までなので、要求 1 本を 5 MiB に抑えられること。
- *
- * ここに置いてあるが、本来は `packages/shared/src/cloud.ts` の `MAX_PUSH_BATCH` の隣にある方がよい。
- * 端末が積む前に弾ければ、断られる往復そのものが要らなくなる。
+ * 平文の上限は今までどおり 128 KiB とし、それを封じて base64url にした大きさが収まる値にした。
+ * 封は先頭の 1 バイト、iv の 12 バイト、gzip の印の 1 バイト、GCM の 16 バイトを足し、gzip で縮まないときがいちばん大きい。
+ * それを base64url にすると約 4/3 倍の 174,800 字ほどなので、余裕を見て 180 KiB にした。
+ * 1 回の push は 40 行までなので、要求 1 本は 8 MiB に収まる。
  */
-export const MAX_ROW_BYTES = 128 * 1024;
+export const MAX_ROW_BYTES = 180 * 1024;
+
+const isEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 
 /**
- * 413 の本文に載せる `rowId` の文字数の上限である。
- *
- * `packages/server/src/sync/client.ts` の `CloudError` は応答本文の先頭 200 字しか持たない。
- * 超えると端末の手元で JSON として読めなくなるので、本文は何があっても 200 字に収める。
- * 実物の `rowId` は UUID（36 字）までなので、切り詰めが効くのは壊れた入力のときだけである。
+ * 封じた行の形である（互換の版 9）。
+ * `k` は HMAC の base64url（43 字）だけを受け、名簿の印の行（`~roster`）は受けない。印の行は keys.ts が書く。
+ * `sealed` の大きさと字の形はここでは見ず、413 で名指しするために後で測ってから確かめる。
  */
-export const MAX_ROW_ID_CHARS = 64;
-
-const ENC = new TextEncoder();
-const TABLES = new Set<string>(SHARED_TABLES);
-const keyOf = (c: { tableName: string; rowId: string }): string => `${c.tableName}:${c.rowId}`;
-
-function isChange(v: unknown): v is ChangeIn {
-  const c = v as Partial<ChangeIn> | null;
+function isChange(v: unknown): v is SealedChangeIn {
+  const c = v as Partial<SealedChangeIn> | null;
   return (
     !!c &&
-    typeof c.tableName === 'string' &&
-    TABLES.has(c.tableName) &&
-    typeof c.rowId === 'string' &&
-    c.rowId.length > 0 &&
+    typeof c.k === 'string' &&
+    SEALED_ROW_K_RE.test(c.k) &&
     (c.op === 'upsert' || c.op === 'delete') &&
-    typeof c.payload === 'object' &&
-    c.payload !== null &&
-    !Array.isArray(c.payload) &&
     typeof c.updatedAt === 'number' &&
-    Number.isFinite(c.updatedAt)
+    Number.isSafeInteger(c.updatedAt) &&
+    c.updatedAt >= 0 &&
+    isEpoch(c.epoch) &&
+    typeof c.sealed === 'string' &&
+    c.sealed.length > 0
   );
 }
 
-type ChangeRow = { seq: number; table_name: string; row_id: string; op: 'upsert' | 'delete'; payload: string; updated_at: number; device_id: string };
+type ChangeRow = { seq: number; k: string; op: 'upsert' | 'delete'; updated_at: number; device_id: string; epoch: number; sealed: unknown };
 
-const toOut = (r: ChangeRow): ChangeOut => ({
+const ROW_COLS = 'seq, k, op, updated_at, device_id, epoch, sealed';
+
+const toOut = (r: ChangeRow): SealedChangeOut => ({
   seq: r.seq,
-  tableName: r.table_name as ChangeOut['tableName'],
-  rowId: r.row_id,
+  k: r.k,
   op: r.op,
-  payload: JSON.parse(r.payload) as Record<string, unknown>,
   updatedAt: r.updated_at,
+  epoch: r.epoch,
+  sealed: blobToSealed(r.sealed),
   deviceId: r.device_id,
 });
 
@@ -101,32 +93,27 @@ const firstNum = (r: D1Result<{ s: number }> | undefined): number => Number(r?.r
  * 2 文目の `where not exists` は連番の欠番を防ぐためにある。
  * `on conflict do nothing` だけだと、入れなかった行にも SQLite が連番を 1 つ使い、捨てた行の数だけ連番が飛ぶ（miniflare で確かめた）。
  * `on conflict` は守りとして残す。
+ * 中身（`sealed`）は封じたバイト列のまま BLOB に置く。Worker は開けない。
  */
-const writeRow = (db: D1Database, k: string, c: ChangeIn, deviceId: string, payload: string): [D1PreparedStatement, D1PreparedStatement] => [
-  db.prepare('delete from rows where k = ? and updated_at < ?').bind(k, c.updatedAt),
+const writeRow = (db: D1Database, c: SealedChangeIn, deviceId: string): [D1PreparedStatement, D1PreparedStatement] => [
+  db.prepare('delete from rows where k = ? and updated_at < ?').bind(c.k, c.updatedAt),
   db
-    .prepare(
-      'insert into rows (k, table_name, row_id, op, payload, updated_at, device_id) select ?, ?, ?, ?, ?, ?, ? where not exists (select 1 from rows where k = ?) on conflict(k) do nothing',
-    )
-    .bind(k, c.tableName, c.rowId, c.op, payload, c.updatedAt, deviceId, k),
+    .prepare('insert into rows (k, op, updated_at, device_id, epoch, sealed) select ?, ?, ?, ?, ?, ? where not exists (select 1 from rows where k = ?) on conflict(k) do nothing')
+    .bind(c.k, c.op, c.updatedAt, deviceId, c.epoch, sealedToBlob(c.sealed), c.k),
 ];
 
 export const changesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-/** 端末から届いた変更を受ける。行ごとに `updated_at` の新しい方を採り、採った行には表の末尾の連番が付く。 */
+/** 端末から届いた封じた行を受ける。行ごとに `updated_at` の新しい方を採り、採った行には表の末尾の連番が付く。 */
 changesApp.post('/', async (c) => {
   const body = (await c.req.json().catch(() => null)) as { changes?: unknown } | null;
   if (!body || !Array.isArray(body.changes) || body.changes.length > MAX_PUSH_BATCH || !body.changes.every(isChange)) return c.json({ error: 'invalid body' }, 400);
   const device = c.get('device');
   const db = c.env.DB;
   const now = Date.now();
-  // payload はここで 1 回だけ直列化し、大きさの検査と書き込みで同じ文字列を使う。
-  const incoming = (body.changes as ChangeIn[]).map((row) => {
-    const payload = JSON.stringify(row.payload);
-    return { row, payload, bytes: ENC.encode(payload).byteLength };
-  });
+  const incoming = body.changes as SealedChangeIn[];
   // 大きすぎる行は名指しで断る。端末はその行だけを諦めて、残りを送り直せばよい。
-  const oversize = incoming.filter((x) => x.bytes > MAX_ROW_BYTES);
+  const oversize = incoming.filter((x) => x.sealed.length > MAX_ROW_BYTES);
   if (oversize.length) {
     const first = oversize[0]!;
     return c.json(
@@ -136,28 +123,30 @@ changesApp.post('/', async (c) => {
         count: oversize.length,
         // 名指しは先頭の 1 件だけにする。全部並べると本文が 200 字を超え、端末の側で JSON として読めなくなる。
         // 端末は名指しされた 1 件を落として送り直せばよく、次の 1 件があれば次の 413 で名指しされる。
-        row: { tableName: first.row.tableName, rowId: first.row.rowId.slice(0, MAX_ROW_ID_CHARS), bytes: first.bytes },
+        // k は 43 字に決まっているので、切り詰めは要らない。
+        row: { k: first.k, bytes: first.sealed.length },
       },
       413,
     );
   }
+  // 大きさの収まった行は、字の形（詰め物の無い base64url）を確かめてから BLOB に戻す。
+  if (!incoming.every((x) => isSealedText(x.sealed, MAX_ROW_BYTES))) return c.json({ error: 'invalid body' }, 400);
   // 同じ鍵の重複は updatedAt の大きい方だけを見る。
-  const latest = new Map<string, (typeof incoming)[number]>();
+  const latest = new Map<string, SealedChangeIn>();
   let skipped = 0;
-  for (const item of incoming) {
-    const k = keyOf(item.row);
-    const cur = latest.get(k);
-    if (!cur) latest.set(k, item);
+  for (const row of incoming) {
+    const cur = latest.get(row.k);
+    if (!cur) latest.set(row.k, row);
     else {
       skipped++;
-      if (item.row.updatedAt > cur.row.updatedAt) latest.set(k, item);
+      if (row.updatedAt > cur.updatedAt) latest.set(row.k, row);
     }
   }
   const stmts: D1PreparedStatement[] = [];
   // 行ごとの insert の位置。meta.changes を読んで採った数を数える。
   const inserts: number[] = [];
-  for (const [k, { row, payload }] of latest) {
-    const [del, ins] = writeRow(db, k, row, device.id, payload);
+  for (const row of latest.values()) {
+    const [del, ins] = writeRow(db, row, device.id);
     stmts.push(del);
     inserts.push(stmts.push(ins) - 1);
   }
@@ -184,6 +173,7 @@ const PULL_LAUNCH_LIMIT = 50;
 
 /**
  * 自端末以外の行を連番の昇順で返す。
+ * 名簿の印の行（`~roster`）もほかの行と同じく返す。見た PC だけが名簿と keybox を読み直す。
  * 解除していない PC の最終確認（peers）と、Worker の時刻（now）を添える。端末は「now − lastSeenAt」を PC の年齢として、他の PC の生存を見る。
  * この PC 宛ての起動の依頼（launches）も添える。要求を増やさずに、PC の 30 秒ごとの pull で依頼を受け取るためである。
  * 変更ログを持たないので、どれだけ古い since でも断らない（版 5 までの 410 は無くなった）。
@@ -199,7 +189,7 @@ changesApp.get('/', async (c) => {
   // 別々に読むと、間に入った push の行を高水位だけが越えて、この端末がその行を読み飛ばす。
   const stmts: D1PreparedStatement[] = [
     ...(touch ? [touch] : []),
-    db.prepare('select seq, table_name, row_id, op, payload, updated_at, device_id from rows where seq > ? and device_id != ? order by seq limit ?').bind(since, device.id, limit + 1),
+    db.prepare(`select ${ROW_COLS} from rows where seq > ? and device_id != ? order by seq limit ?`).bind(since, device.id, limit + 1),
     maxSeqStmt(db),
     // スマホ（kind = 'mobile'）は会話を動かさないので、PC の生存に混ぜない。
     db.prepare("select id, last_seen_at from devices where revoked_at is null and kind = 'pc' order by id"),
@@ -211,31 +201,28 @@ changesApp.get('/', async (c) => {
   ];
   const results = await db.batch(stmts);
   const off = touch ? 1 : 0;
-  const rows = ((results[off]?.results ?? []) as ChangeRow[]);
+  const rows = (results[off]?.results ?? []) as ChangeRow[];
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
   // 最後まで返せたときは表全体の末尾まで進める。自端末の行で止まったままにしないためである。
   const nextSeq = more ? page[page.length - 1]!.seq : firstNum(results[off + 1] as D1Result<{ s: number }> | undefined);
   const peers: CloudPeer[] = ((results[off + 2]?.results ?? []) as PeerRow[]).map((p) => ({ id: p.id, lastSeenAt: p.last_seen_at ?? null }));
   const launches: MobileLaunchOut[] = ((results[off + 3]?.results ?? []) as LaunchRow[]).map((l) => ({ id: l.id, createdAt: l.created_at, sealed: l.sealed }));
-  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now, launches };
+  const res: SealedPullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now, launches };
   return c.json(res);
 });
 
 export const rowsApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-/** rows の写しを k 順に返す。新しい端末の初回の取り込みが使う。自端末の行も含める。 */
+/** rows の写しを k 順に返す。新しい端末の初回の取り込みが使う。自端末の行も含める。k の一意の索引で引く。 */
 rowsApp.get('/', async (c) => {
   const db = c.env.DB;
   const after = c.req.query('after') ?? '';
   const limit = clampLimit(c.req.query('limit'));
-  const results = await db.batch([
-    db.prepare('select 0 seq, table_name, row_id, op, payload, updated_at, device_id, k from rows where k > ? order by k limit ?').bind(after, limit + 1),
-    maxSeqStmt(db),
-  ]);
-  const rows = (results[0]?.results ?? []) as (ChangeRow & { k: string })[];
+  const results = await db.batch([db.prepare(`select ${ROW_COLS} from rows where k > ? order by k limit ?`).bind(after, limit + 1), maxSeqStmt(db)]);
+  const rows = (results[0]?.results ?? []) as ChangeRow[];
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
-  const res: SnapshotResponse = { changes: page.map(toOut), nextAfter: more ? page[page.length - 1]!.k : null, seq: firstNum(results[1] as D1Result<{ s: number }> | undefined) };
+  const res: SealedSnapshotResponse = { changes: page.map(toOut), nextAfter: more ? page[page.length - 1]!.k : null, seq: firstNum(results[1] as D1Result<{ s: number }> | undefined) };
   return c.json(res);
 });

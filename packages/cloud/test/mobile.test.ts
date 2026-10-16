@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, readCloudLimit, seal, type CloudDevicesResponse, type MobileInboxResponse, type MobileJoinResponse, type MobilePairingResponse, type PullChangesResponse } from '@agent-hangar/shared';
+import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, readCloudLimit, seal, type DevicesOut, type MobileInboxResponse, type MobileJoinResponse, type MobilePairingResponse, type PullChangesResponse } from '@agent-hangar/shared';
 import { MAX_ACTIVE_PHONES, MAX_FEED_BODY_BYTES, PAIRING_RATE, PAIRING_TTL_MS } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
@@ -72,8 +72,8 @@ describe('スマホの参加（POST /m/pairings と POST /m/join）', () => {
     // 新しい ID を Worker が振る。スマホが名乗る ID で既存の行を指させない。
     expect(body.deviceId).not.toBe('pc-a');
     expect(body.deviceId).not.toBe('phone-1');
-    const row = await cloud.env.DB.prepare('select kind, platform, name, token_hash, revoked_at from devices where id = ?').bind(body.deviceId).first<{ kind: string; platform: string; name: string; token_hash: string; revoked_at: number | null }>();
-    expect(row).toEqual({ kind: 'mobile', platform: 'mobile', name: 'iPhone', token_hash: await sha256Hex(body.token), revoked_at: null });
+    const row = await cloud.env.DB.prepare('select kind, token_hash, revoked_at from devices where id = ?').bind(body.deviceId).first<{ kind: string; token_hash: string; revoked_at: number | null }>();
+    expect(row).toEqual({ kind: 'mobile', token_hash: await sha256Hex(body.token), revoked_at: null });
     const pcRow = await cloud.env.DB.prepare('select kind from devices where id = ?').bind('pc-a').first<{ kind: string }>();
     expect(pcRow?.kind).toBe('pc');
     // スマホのトークンで受信箱を読める。
@@ -123,8 +123,8 @@ describe('スマホの参加（POST /m/pairings と POST /m/join）', () => {
     expect((await inbox(first.token)).status).toBe(401);
     // 前に使った券では戻れない。
     expect((await phoneJoin(code)).status).toBe(401);
-    // 券なしで、PC の参加の口から同じ ID を名乗っても戻れない。
-    expect((await send('/join', json({ secret: 'wrong', device: { id: first.deviceId, name: 'iPhone', platform: 'mobile' } }))).status).toBe(403);
+    // 券なしで、最初の PC の口から同じ ID を名乗っても戻れない。
+    expect((await send('/bootstrap', json({ deviceId: first.deviceId, token: 'x'.repeat(32) }))).status).toBe(401);
     const revokedRow = await cloud.env.DB.prepare('select revoked_at from devices where id = ?').bind(first.deviceId).first<{ revoked_at: number | null }>();
     expect(revokedRow?.revoked_at).not.toBeNull();
     // 新しい券なら、新しい行として参加できる。解除した行はそのまま残る。
@@ -183,7 +183,7 @@ describe('スマホの参加（POST /m/pairings と POST /m/join）', () => {
   it('上限に達していても、無い券は 401（券の照合が先）', async () => {
     const pc = await joinPc('pc-a');
     await cloud.env.DB.prepare(
-      "insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, kind) with recursive n(i) as (select 1 union all select i + 1 from n where i < 10) select 'm' || i, 'm' || i, 'mobile', 'h' || i, 1, 1, 0, null, 'mobile' from n",
+      "insert into devices (id, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, kind) with recursive n(i) as (select 1 union all select i + 1 from n where i < 10) select 'm' || i, 'h' || i, 1, 1, 0, null, 'mobile' from n",
     ).run();
     expect((await phoneJoin('A'.repeat(22))).status).toBe(401);
     expect((await phoneJoin(await pairCode(pc))).status).toBe(409);
@@ -202,17 +202,6 @@ describe('スマホの参加（POST /m/pairings と POST /m/join）', () => {
     await cloud.env.DB.prepare('update mobile_pairings set created_at = created_at - ?').bind(24 * 60 * 60_000 + 1).run();
     await pairCode(pc);
     expect((await cloud.env.DB.prepare('select count(*) n from mobile_pairings').first<{ n: number }>())?.n).toBe(1);
-  });
-
-  it('スマホの行の ID で POST /join すると 409 で、スマホの行は変わらない', async () => {
-    const pc = await joinPc('pc-a');
-    const phone = await joinPhone(pc);
-    const r = await send('/join', json({ secret: SECRET, device: { id: phone.deviceId, name: 'evil', platform: 'darwin' } }));
-    expect(r.status).toBe(409);
-    const row = await cloud.env.DB.prepare('select kind, name, token_hash from devices where id = ?').bind(phone.deviceId).first<{ kind: string; name: string; token_hash: string }>();
-    expect(row).toEqual({ kind: 'mobile', name: 'iPhone', token_hash: await sha256Hex(phone.token) });
-    // PC の参加し直しは今までどおり通る。
-    expect((await send('/join', json({ secret: SECRET, device: { id: 'pc-a', name: 'pc-a', platform: 'darwin' } }))).status).toBe(201);
   });
 });
 
@@ -271,7 +260,8 @@ describe('受信箱（PUT /m/feed と GET /m/inbox）', () => {
     expect(typeof body.now).toBe('number');
     expect(body.feeds).toEqual([{ deviceId: 'pc-a', updatedAt: expect.any(Number), sealed: 'sealed-2' }]);
     // devices は PC だけで、スマホ自身は出さない。
-    expect(body.devices).toEqual([{ id: 'pc-a', name: 'pc-a', platform: 'darwin', lastSeenAt: expect.any(Number) }]);
+    // 名前と OS は devices に無い（互換の版 9）。封じた名簿から読むまでは ID と空の OS を返す。
+    expect(body.devices).toEqual([{ id: 'pc-a', name: 'pc-a', platform: '', lastSeenAt: expect.any(Number) }]);
   });
 
   it('PUT /m/feed は 96 KiB を超えたら 413、上限いっぱい（48 KiB）の素を封をした本文は通る、形の違う本文は 400', async () => {
@@ -335,7 +325,7 @@ describe('受信箱（PUT /m/feed と GET /m/inbox）', () => {
     const phone = await joinPhone(pc);
     await putFeed(pc, 'sealed-a');
     await cloud.env.DB.prepare(
-      "insert into rows (k, table_name, row_id, op, payload, updated_at, device_id) with recursive n(i) as (select 1 union all select i + 1 from n where i < 2000) select 'projects:p' || i, 'projects', 'p' || i, 'upsert', '{}', i, 'pc-a' from n",
+      "insert into rows (k, op, updated_at, device_id, epoch, sealed) with recursive n(i) as (select 1 union all select i + 1 from n where i < 2000) select 'k' || i, 'upsert', i, 'pc-a', 1, 'c2VhbGVk' from n",
     ).run();
     expect((await cloud.env.DB.prepare('select count(*) n from rows').first<{ n: number }>())?.n).toBe(2000);
     await cloud.env.DB.prepare('drop table rows').run();
@@ -360,10 +350,10 @@ describe('PC の一覧と生存', () => {
   it('GET /devices は kind を返し、スマホも同じ表に並ぶ', async () => {
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
-    const list = ((await (await send('/devices', { headers: auth(pc) })).json()) as CloudDevicesResponse).devices;
-    const byId = new Map(list.map((d) => [d.id, [d.kind, d.platform]]));
+    const list = ((await (await send('/devices', { headers: auth(pc) })).json()) as DevicesOut).devices;
+    const byId = new Map(list.map((d) => [d.id, d.kind]));
     expect(byId.size).toBe(2);
-    expect(byId.get('pc-a')).toEqual(['pc', 'darwin']);
-    expect(byId.get(phone.deviceId)).toEqual(['mobile', 'mobile']);
+    expect(byId.get('pc-a')).toBe('pc');
+    expect(byId.get(phone.deviceId)).toBe('mobile');
   });
 });

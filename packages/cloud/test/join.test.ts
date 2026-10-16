@@ -94,6 +94,12 @@ describe('POST /bootstrap（最初の端末トークン）', () => {
     expect(await pcIds()).toEqual(['pc-r']);
   });
 
+  it('端末 ID recovery は予約済みなので 400 で、secret も使ったことにしない', async () => {
+    expect((await bootstrap('recovery', BOOT)).status).toBe(400);
+    expect(await pcIds()).toEqual([]);
+    expect((await bootstrap('pc-a', BOOT)).status).toBe(201);
+  });
+
   it('既にある端末 ID には入れず、secret も使ったことにしない', async () => {
     await addPcDevice(cloud.env, 'pc-a');
     expect((await bootstrap('pc-a', BOOT)).status).toBe(401);
@@ -275,6 +281,13 @@ describe('参加コード', () => {
     const bodies = new Set<string>();
     for (const h of [hash, old, unknown]) bodies.add(await (await request(h, 'pc-c')).text());
     expect(bodies.size).toBe(1);
+  });
+
+  it('端末 ID recovery ではリクエストを置けない（400）', async () => {
+    const { hash } = await newCode(pcA);
+    expect((await request(hash, 'recovery')).status).toBe(400);
+    // 予約の ID は総当たりの回数に数えず、コードはまだ使える。
+    expect((await request(hash, 'pc-b')).status).toBe(202);
   });
 
   it('既にある端末の ID でリクエストを置くことはできない', async () => {

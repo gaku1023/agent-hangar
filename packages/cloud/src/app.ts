@@ -5,7 +5,7 @@ import { changesApp, rowsApp } from './changes.ts';
 import { compatMiddleware } from './compat.ts';
 import { devicesApp } from './devices.ts';
 import type { AppType, Env, Vars } from './env.ts';
-import { filesApp } from './files.ts';
+import { blobsApp, filesApp } from './files.ts';
 import { bootstrapHandler, joinApp, joinCodesApp } from './join.ts';
 import { keysApp } from './keys.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
@@ -37,13 +37,15 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
   app.route('/changes', changesApp);
   app.route('/rows', rowsApp);
   app.route('/files', filesApp);
+  // PC が決めた本文の削除（互換の版 9）。ゴミ箱の 30 日の判定は PC が行う。
+  app.route('/blobs', blobsApp);
   app.route('/devices', devicesApp);
   // PC の参加（互換の版 9）。発行と承認（/join-codes）は PC の端末トークンが要る。
   // 新しい PC の口（/join）と、最初の PC の /bootstrap はトークンなしで、照合は join.ts の中で行う。

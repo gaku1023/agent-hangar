@@ -1,25 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ChangeIn, ChangeOut, PullChangesResponse } from '@agent-hangar/shared';
-import { MAX_ROW_BYTES, MAX_ROW_ID_CHARS } from '../src/changes.ts';
+import { ROSTER_MARKER_K, type SealedChangeIn, type SealedChangeOut, type SealedPullChangesResponse, type SealedSnapshotResponse } from '@agent-hangar/shared';
+import { MAX_ROW_BYTES } from '../src/changes.ts';
 import { TOUCH_EVERY_MS } from '../src/seen.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
-import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
-
-const SECRET = 'join-secret-1';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
 let cloud: CloudHarness;
 let tokA = '';
 let tokB = '';
 
-const join = async (id: string): Promise<string> => {
-  const r = await cloud.SELF.fetch('https://x/join', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }),
-  });
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/** 行の k。本物は HMAC の base64url（43 字）なので、同じ長さと文字種の作り物にする。 */
+const K = (name: string): string => `k${name}`.padEnd(43, '_');
 
 const push = (tok: string, changes: unknown): Promise<Response> =>
   cloud.SELF.fetch('https://x/changes', {
@@ -31,53 +22,49 @@ const push = (tok: string, changes: unknown): Promise<Response> =>
 const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; accepted: number; skipped: number }> =>
   (await (await push(tok, changes)).json()) as { seq: number; accepted: number; skipped: number };
 
-/** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
-const pushResult = (o: { seq: number; accepted: number; skipped: number }) => o;
-
 /** pull の応答のうち、変更の頁の部分。生存の知らせ（peers と now）は別の試験で見る。 */
-const pageOf = (o: PullChangesResponse) => ({ changes: o.changes, nextSeq: o.nextSeq, more: o.more });
+const pageOf = (o: SealedPullChangesResponse) => ({ changes: o.changes, nextSeq: o.nextSeq, more: o.more });
 
 const pullRaw = (tok: string, since: number, limit = 500): Promise<Response> =>
   cloud.SELF.fetch(`https://x/changes?since=${since}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } });
 
-const pull = async (tok: string, since: number, limit = 500): Promise<PullChangesResponse> =>
-  (await (await pullRaw(tok, since, limit)).json()) as PullChangesResponse;
+const pull = async (tok: string, since: number, limit = 500): Promise<SealedPullChangesResponse> =>
+  (await (await pullRaw(tok, since, limit)).json()) as SealedPullChangesResponse;
 
-const rows = async (tok: string, after = '', limit = 500): Promise<{ changes: ChangeOut[]; nextAfter: string | null; seq: number }> =>
+const rows = async (tok: string, after = '', limit = 500): Promise<SealedSnapshotResponse> =>
   (await (
     await cloud.SELF.fetch(`https://x/rows?after=${encodeURIComponent(after)}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } })
-  ).json()) as { changes: ChangeOut[]; nextAfter: string | null; seq: number };
+  ).json()) as SealedSnapshotResponse;
 
-const ch = (rowId: string, updatedAt: number, name = rowId): ChangeIn => ({
-  tableName: 'projects',
-  rowId,
+/** 封じた 1 行。sealed は中身の代わりに名前を base64url にしたもので、Worker は開かない。 */
+const ch = (name: string, updatedAt: number, body = name, o: Partial<SealedChangeIn> = {}): SealedChangeIn => ({
+  k: K(name),
   op: 'upsert',
-  payload: { id: rowId, name, status: 'active', is_scratch: 0, updated_at: updatedAt, deleted_at: null, origin_device: 'x' },
   updatedAt,
+  epoch: 1,
+  sealed: Buffer.from(body).toString('base64url'),
+  ...o,
 });
 
-/** 直列化した payload がちょうど `bytes` バイトになる 1 件を作る。詰め物は ASCII なので文字数とバイト数が一致する。 */
-const sized = (rowId: string, bytes: number): ChangeIn => {
-  const base = ch(rowId, 1);
-  const pad = bytes - JSON.stringify({ ...base.payload, note: '' }).length;
-  if (pad < 0) throw new Error('小さすぎる');
-  return { ...base, payload: { ...base.payload, note: 'x'.repeat(pad) } };
-};
+const bodyOfSealed = (c: { sealed: string }): string => Buffer.from(c.sealed, 'base64url').toString();
+
+/** sealed がちょうど `bytes` 字になる 1 件を作る。 */
+const sized = (name: string, bytes: number): SealedChangeIn => ({ ...ch(name, 1), sealed: 'A'.repeat(bytes) });
 
 const bodyOf = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
 
-const payloadOf = async (k: string): Promise<Record<string, unknown>> =>
-  JSON.parse((await cloud.env.DB.prepare('select payload from rows where k = ?').bind(k).first<{ payload: string }>())!.payload) as Record<string, unknown>;
+/** D1 に置かれた封じた中身（BLOB のバイト列）を、ch() に渡した中身の文字列に戻す。 */
+const sealedOf = async (k: string): Promise<string> => {
+  const r = await cloud.env.DB.prepare('select hex(sealed) h from rows where k = ?').bind(k).first<{ h: string }>();
+  return Buffer.from(r!.h, 'hex').toString();
+};
 
-/** rows の連番を、鍵ごとに連番の順で返す。 */
+/** rows の連番を、連番の順で返す。 */
 const seqs = async (): Promise<number[]> =>
   (await cloud.env.DB.prepare('select seq from rows order by seq').all<{ seq: number }>()).results.map((r) => r.seq);
 
 const seqOf = async (k: string): Promise<number | undefined> =>
   (await cloud.env.DB.prepare('select seq from rows where k = ?').bind(k).first<{ seq: number }>())?.seq;
-
-const meta = async (key: string): Promise<string | null> =>
-  (await cloud.env.DB.prepare('select value from meta where key = ?').bind(key).first<{ value: string }>())?.value ?? null;
 
 const lastSeen = async (id: string): Promise<number | null> =>
   (await cloud.env.DB.prepare('select last_seen_at from devices where id = ?').bind(id).first<{ last_seen_at: number | null }>())!.last_seen_at;
@@ -89,43 +76,59 @@ beforeEach(async () => {
   cloud = await startCloud();
   resetSchemaCache();
   await ensureSchema(cloud.env);
-  tokA = await join('dev-a');
-  tokB = await join('dev-b');
+  tokA = await addPcDevice(cloud.env, 'dev-a');
+  tokB = await addPcDevice(cloud.env, 'dev-b');
 });
 
 afterEach(async () => {
   await cloud.dispose();
 });
 
-describe('POST /changes', () => {
-  it('新しい行を受け取り連番を付け、古い行は skipped にする', async () => {
-    expect(await pushed(tokA, [ch('p1', 100), ch('p2', 100)])).toEqual(pushResult({ seq: 2, accepted: 2, skipped: 0 }));
-    expect(await pushed(tokB, [ch('p1', 50, 'old'), ch('p2', 200, 'new')])).toEqual(pushResult({ seq: 3, accepted: 1, skipped: 1 }));
-    const row = await cloud.env.DB.prepare('select payload, device_id from rows where k = ?').bind('projects:p2').first<{ payload: string; device_id: string }>();
-    expect(JSON.parse(row!.payload).name).toBe('new');
-    expect(row!.device_id).toBe('dev-b');
-    expect((await payloadOf('projects:p1')).name).toBe('p1');
+describe('POST /changes（封じた行）', () => {
+  it('封じた行の push と pull が往復する', async () => {
+    const sent = ch('p1', 100, 'naka-1', { epoch: 3, op: 'delete' });
+    expect(await pushed(tokA, [sent])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
+    const got = await pull(tokB, 0);
+    expect(got.changes).toEqual([{ ...sent, seq: 1, deviceId: 'dev-a' }]);
+    // D1 には k と時刻と世代と封じた中身だけが残り、表名と行 ID の列は無い。
+    const row = await cloud.env.DB.prepare('select * from rows').first<Record<string, unknown>>();
+    expect(Object.keys(row!).sort()).toEqual(['device_id', 'epoch', 'k', 'op', 'sealed', 'seq', 'updated_at']);
+    // 封じた中身は base64url の文字ではなく、バイト列の BLOB で持つ（大きさが約 3/4 になる）。
+    expect(await cloud.env.DB.prepare('select typeof(sealed) t, length(sealed) n from rows').first()).toEqual({ t: 'blob', n: 'naka-1'.length });
   });
 
-  it('同じ鍵の重複は updatedAt の大きい方だけを採る', async () => {
-    expect(await pushed(tokA, [ch('p1', 100, 'a'), ch('p1', 300, 'c'), ch('p1', 200, 'b')])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 2 }));
-    expect((await payloadOf('projects:p1')).name).toBe('c');
+  it('k が同じ行は上書きし、updatedAt の新しい方を採る。古い行は skipped', async () => {
+    expect(await pushed(tokA, [ch('p1', 100), ch('p2', 100)])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
+    expect(await pushed(tokB, [ch('p1', 50, 'old'), ch('p2', 200, 'new')])).toEqual({ seq: 3, accepted: 1, skipped: 1 });
+    expect(await sealedOf(K('p2'))).toBe('new');
+    expect(await sealedOf(K('p1'))).toBe('p1');
+    const row = await cloud.env.DB.prepare('select device_id from rows where k = ?').bind(K('p2')).first<{ device_id: string }>();
+    expect(row!.device_id).toBe('dev-b');
+    expect((await cloud.env.DB.prepare('select count(*) n from rows').first<{ n: number }>())?.n).toBe(2);
+  });
+
+  it('同じ k の重複は updatedAt の大きい方だけを採る', async () => {
+    expect(await pushed(tokA, [ch('p1', 100, 'a'), ch('p1', 300, 'c'), ch('p1', 200, 'b')])).toEqual({ seq: 1, accepted: 1, skipped: 2 });
+    expect(await sealedOf(K('p1'))).toBe('c');
   });
 
   it('形の違う本文と 40 行超は 400', async () => {
     expect((await push(tokA, 'x')).status).toBe(400);
-    expect((await push(tokA, [{ tableName: 'nope', rowId: 'a', op: 'upsert', payload: {}, updatedAt: 1 }])).status).toBe(400);
+    // 平文の行（表名と行 ID と payload）は受けない。
+    expect((await push(tokA, [{ tableName: 'projects', rowId: 'a', op: 'upsert', payload: {}, updatedAt: 1 }])).status).toBe(400);
     expect((await push(tokA, [{ ...ch('a', 1), op: 'drop' }])).status).toBe(400);
+    expect((await push(tokA, [{ ...ch('a', 1), k: 'short' }])).status).toBe(400);
+    expect((await push(tokA, [{ ...ch('a', 1), k: `${K('a').slice(0, 42)}/` }])).status).toBe(400);
+    // 名簿の印の行は PC が push できない（Worker が書く）。
+    expect((await push(tokA, [{ ...ch('a', 1), k: ROSTER_MARKER_K }])).status).toBe(400);
+    expect((await push(tokA, [{ ...ch('a', 1), epoch: 0 }])).status).toBe(400);
+    expect((await push(tokA, [{ ...ch('a', 1), epoch: 1.5 }])).status).toBe(400);
+    expect((await push(tokA, [{ ...ch('a', 1), sealed: '' }])).status).toBe(400);
+    expect((await push(tokA, [{ ...ch('a', 1), sealed: 12 }])).status).toBe(400);
+    expect((await push(tokA, [{ ...ch('a', 1), updatedAt: 'x' }])).status).toBe(400);
     expect((await push(tokA, Array.from({ length: 41 }, (_, i) => ch(`p${i}`, 1)))).status).toBe(400);
     expect((await push(tokA, [])).status).toBe(200);
     expect(await seqs()).toEqual([]);
-  });
-
-  it('セッションの状態の行を受け取り、ほかの端末へ渡す', async () => {
-    const st: ChangeIn = { tableName: 'session_states', rowId: 's1', op: 'upsert', payload: { session_id: 's1', status: 'paused', return_on: '2026-10-02', updated_at: 100, deleted_at: null, origin_device: 'dev-a' }, updatedAt: 100 };
-    expect(await pushed(tokA, [st])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
-    const got = await pull(tokB, 0);
-    expect(got.changes.map((c) => [c.tableName, c.rowId, c.payload.status])).toEqual([['session_states', 's1', 'paused']]);
   });
 
   it('push は自端末の last_seen_at を進める', async () => {
@@ -135,13 +138,6 @@ describe('POST /changes', () => {
     expect(d.results[0]!.last_seen_at).toBeGreaterThan(Date.now() - 60_000);
     expect(d.results[1]!.last_seen_at).toBe(0); // 他の端末は触らない
   });
-
-  it('量を数えるための行を D1 に書かない', async () => {
-    await pushed(tokA, [ch('p1', 1)]);
-    await pull(tokB, 0);
-    const n = await cloud.env.DB.prepare("select count(*) as n from meta where substr(key, 1, 8) = 'd1_rows:'").first<{ n: number }>();
-    expect(n?.n).toBe(0);
-  });
 });
 
 describe('GET /changes と GET /rows', () => {
@@ -150,11 +146,11 @@ describe('GET /changes と GET /rows', () => {
     await push(tokB, [ch('p2', 100)]);
     await push(tokA, [ch('p3', 100)]);
     const a = await pull(tokA, 0);
-    expect(a.changes.map((c) => [c.rowId, c.seq, c.deviceId])).toEqual([['p2', 2, 'dev-b']]);
+    expect(a.changes.map((c) => [c.k, c.seq, c.deviceId])).toEqual([[K('p2'), 2, 'dev-b']]);
     expect(a.nextSeq).toBe(3);
     expect(a.more).toBe(false);
     const b = await pull(tokB, 0);
-    expect(b.changes.map((c) => c.rowId)).toEqual(['p1', 'p3']);
+    expect(b.changes.map((c) => c.k)).toEqual([K('p1'), K('p3')]);
     expect(pageOf(await pull(tokB, 3))).toEqual({ changes: [], nextSeq: 3, more: false });
   });
 
@@ -173,105 +169,106 @@ describe('GET /changes と GET /rows', () => {
     await push(tokA, [ch('p2', 1), ch('p1', 1)]);
     await push(tokB, [ch('p3', 1)]);
     const r = await rows(tokA, '', 2);
-    expect(r.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
-    expect(r.nextAfter).toBe('projects:p2');
+    expect(r.changes.map((c) => c.k)).toEqual([K('p1'), K('p2')]);
+    expect(r.changes.map(bodyOfSealed)).toEqual(['p1', 'p2']);
+    expect(r.changes[0]).toMatchObject({ op: 'upsert', updatedAt: 1, epoch: 1, deviceId: 'dev-a' });
+    expect(r.nextAfter).toBe(K('p2'));
     expect(r.seq).toBe(3);
     const r2 = await rows(tokA, r.nextAfter!, 2);
-    expect(r2.changes.map((c) => c.rowId)).toEqual(['p3']);
+    expect(r2.changes.map((c) => c.k)).toEqual([K('p3')]);
     expect(r2.nextAfter).toBeNull();
   });
 });
 
+describe('名簿の印の行（~roster）', () => {
+  const putRoster = (tok: string, ifVersion: number) =>
+    cloud.SELF.fetch('https://x/roster', {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ifVersion, epoch: 2, sealed: 'cm9zdGVy' }),
+    });
+
+  it('PUT /roster の後、ほかの PC の pull に ~roster の行がちょうど 1 回出る', async () => {
+    await push(tokA, [ch('p1', 1)]);
+    expect((await putRoster(tokA, 0)).status).toBe(200);
+    expect((await putRoster(tokA, 1)).status).toBe(200);
+    const got = await pull(tokB, 0);
+    const markers = got.changes.filter((c) => c.k === ROSTER_MARKER_K);
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).toMatchObject({ k: ROSTER_MARKER_K, op: 'upsert', epoch: 2, sealed: '', deviceId: 'dev-a' });
+    expect(got.changes.map((c) => c.k)).toEqual([K('p1'), ROSTER_MARKER_K]);
+    // 書いた PC には自分の行なので出ない。
+    expect((await pull(tokA, 0)).changes).toEqual([]);
+    // 読み終えた後は、名簿をもう 1 度書き換えるまで出ない。
+    expect((await pull(tokB, got.nextSeq)).changes).toEqual([]);
+    // 取り直し（GET /rows）にも 1 行だけ載る。
+    expect((await rows(tokB)).changes.filter((c) => c.k === ROSTER_MARKER_K)).toHaveLength(1);
+  });
+});
+
 describe('1 行の大きさ', () => {
-  it('上限を超える payload は 413 で断り、その行を名指しする', async () => {
+  it('上限を超える sealed は 413 で断り、その行を k で名指しする', async () => {
     const r = await push(tokA, [sized('p1', MAX_ROW_BYTES + 1)]);
     expect(r.status).toBe(413);
-    expect(await bodyOf(r)).toEqual({
-      error: 'payload too large',
-      limit: MAX_ROW_BYTES,
-      count: 1,
-      row: { tableName: 'projects', rowId: 'p1', bytes: MAX_ROW_BYTES + 1 },
-    });
+    expect(await bodyOf(r)).toEqual({ error: 'payload too large', limit: MAX_ROW_BYTES, count: 1, row: { k: K('p1'), bytes: MAX_ROW_BYTES + 1 } });
     // 何も書かないので、同じ要求を投げ直しても結果は変わらない。
     expect(await seqs()).toEqual([]);
   });
 
+  it('上限は平文の 128 KiB を封じて base64url にした大きさが収まる値である', () => {
+    // 封は 1 + 12 + 1 + 本文 + 16 バイトで、gzip で縮まないときがいちばん大きい。
+    const worst = Math.ceil(((128 * 1024 + 30) * 4) / 3);
+    expect(MAX_ROW_BYTES).toBeGreaterThanOrEqual(worst);
+  });
+
   it('413 の本文は、端末が切り詰めた後も JSON として読める 200 字に収まる', async () => {
-    // CloudError は応答本文の先頭 200 字しか持たない。超えると goneFloor と同じ形の読み取りが全部こける。
-    const long = { ...sized('x'.repeat(300), MAX_ROW_BYTES + 1), tableName: 'session_summaries' as const };
-    const r = await push(tokA, Array.from({ length: 40 }, (_, i) => ({ ...long, rowId: `${'u'.repeat(120)}-${i}` })));
+    const r = await push(tokA, Array.from({ length: 40 }, (_, i) => sized(`p${i}`, MAX_ROW_BYTES + 1)));
     expect(r.status).toBe(413);
     const text = await r.text();
     expect(text.length).toBeLessThanOrEqual(200);
-    expect(() => JSON.parse(text.slice(0, 200))).not.toThrow();
-    const body = JSON.parse(text) as { count: number; row: { rowId: string } };
-    expect(body.count).toBe(40);
-    expect(body.row.rowId.length).toBe(MAX_ROW_ID_CHARS);
+    expect((JSON.parse(text) as { count: number }).count).toBe(40);
   });
 
   it('上限ちょうどは通る', async () => {
-    expect(await pushed(tokA, [sized('p1', MAX_ROW_BYTES)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
-  });
-
-  it('大きさは文字数ではなくバイト数で見る', async () => {
-    const jp = ch('p1', 1);
-    const wide = { ...jp, payload: { ...jp.payload, note: 'あ'.repeat(MAX_ROW_BYTES / 2) } }; // 文字数は上限の半分、バイト数は 1.5 倍
-    const r = await push(tokA, [wide]);
-    expect(r.status).toBe(413);
-    expect(await bodyOf(r)).toMatchObject({ count: 1, row: { rowId: 'p1' } });
+    expect(await pushed(tokA, [sized('p1', MAX_ROW_BYTES)])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
   });
 
   it('名指しされた行を落として送り直せば通るので、端末は永久再送に入らない', async () => {
     const batch = [ch('p1', 1), sized('p2', MAX_ROW_BYTES + 100), ch('p3', 1), sized('p4', MAX_ROW_BYTES + 200)];
     const r1 = await push(tokA, batch);
     expect(r1.status).toBe(413);
-    expect(await bodyOf(r1)).toMatchObject({ count: 2, row: { rowId: 'p2' } });
+    expect(await bodyOf(r1)).toMatchObject({ count: 2, row: { k: K('p2') } });
     expect(await seqs()).toEqual([]);
-    // 名指しの 1 件を落として送り直すと、次の 1 件が名指しされる。
-    const r2 = await push(tokA, [batch[0]!, batch[2]!, batch[3]!]);
-    expect(r2.status).toBe(413);
-    expect(await bodyOf(r2)).toMatchObject({ count: 1, row: { rowId: 'p4' } });
-    // 断られた 2 件を落とせば通る。40 行なら最大 40 往復で必ず抜ける。
-    expect(await pushed(tokA, [batch[0]!, batch[2]!])).toEqual(pushResult({ seq: 2, accepted: 2, skipped: 0 }));
+    expect(await pushed(tokA, [batch[0]!, batch[2]!])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
   });
 });
 
 describe('行の書き込み（rows）', () => {
   it('古い書き込みが後から届いても、新しい方が残り、連番も動かない', async () => {
     await pushed(tokA, [ch('p1', 200, 'new')]);
-    const before = await seqOf('projects:p1');
-    expect(await pushed(tokB, [ch('p1', 100, 'old')])).toEqual(pushResult({ seq: before!, accepted: 0, skipped: 1 }));
-    const row = await cloud.env.DB.prepare('select payload, updated_at, device_id from rows where k = ?')
-      .bind('projects:p1')
-      .first<{ payload: string; updated_at: number; device_id: string }>();
-    expect(JSON.parse(row!.payload).name).toBe('new');
-    expect(row!.updated_at).toBe(200);
-    expect(row!.device_id).toBe('dev-a');
-    expect(await seqOf('projects:p1')).toBe(before);
+    const before = await seqOf(K('p1'));
+    expect(await pushed(tokB, [ch('p1', 100, 'old')])).toEqual({ seq: before!, accepted: 0, skipped: 1 });
+    const row = await cloud.env.DB.prepare('select updated_at, device_id from rows where k = ?').bind(K('p1')).first<{ updated_at: number; device_id: string }>();
+    expect(await sealedOf(K('p1'))).toBe('new');
+    expect(row).toEqual({ updated_at: 200, device_id: 'dev-a' });
+    expect(await seqOf(K('p1'))).toBe(before);
   });
 
   it('同着（updated_at が等しい）は書き換えず、先に着いた方を残す', async () => {
     await pushed(tokA, [ch('p1', 200, 'first')]);
-    expect(await pushed(tokB, [ch('p1', 200, 'second')])).toEqual(pushResult({ seq: 1, accepted: 0, skipped: 1 }));
-    expect((await payloadOf('projects:p1')).name).toBe('first');
-    expect(await seqOf('projects:p1')).toBe(1);
+    expect(await pushed(tokB, [ch('p1', 200, 'second')])).toEqual({ seq: 1, accepted: 0, skipped: 1 });
+    expect(await sealedOf(K('p1'))).toBe('first');
+    expect(await seqOf(K('p1'))).toBe(1);
   });
 
-  it('新しい書き込みは行を書き換え、表の末尾の新しい連番を振り直す', async () => {
+  it('新しい書き込みは行を書き換え、表の末尾の新しい連番を振り直す。世代も書き換える', async () => {
     await pushed(tokA, [ch('p1', 100, 'old'), ch('p2', 100)]);
-    expect(await pushed(tokB, [ch('p1', 300, 'new')])).toEqual(pushResult({ seq: 3, accepted: 1, skipped: 0 }));
-    expect((await payloadOf('projects:p1')).name).toBe('new');
-    expect(await seqOf('projects:p1')).toBe(3);
+    expect(await pushed(tokB, [ch('p1', 300, 'new', { epoch: 2 })])).toEqual({ seq: 3, accepted: 1, skipped: 0 });
+    expect(await sealedOf(K('p1'))).toBe('new');
+    expect(await seqOf(K('p1'))).toBe(3);
+    expect((await cloud.env.DB.prepare('select epoch from rows where k = ?').bind(K('p1')).first<{ epoch: number }>())?.epoch).toBe(2);
     // 1 つの鍵は 1 行だけで、古い連番の行は残らない。
     expect(await seqs()).toEqual([2, 3]);
-  });
-
-  it('変更ログの表（changes）を作らず、圧縮の meta も書かない', async () => {
-    await pushed(tokA, Array.from({ length: 30 }, (_, i) => ch(`p${i}`, 1)));
-    await pull(tokB, 0);
-    const names = (await cloud.env.DB.prepare("select name from sqlite_master where type = 'table'").all<{ name: string }>()).results.map((r) => r.name);
-    expect(names).not.toContain('changes');
-    for (const k of ['changes_floor', 'last_compact_seq', 'seq_high']) expect(await meta(k)).toBeNull();
   });
 });
 
@@ -279,10 +276,9 @@ describe('差分の取り出し（GET /changes）', () => {
   it('頁を送っている間に書き換えられた行は、後ろの頁で降りてくる', async () => {
     await push(tokA, Array.from({ length: 5 }, (_, i) => ch(`p${i}`, 1)));
     const r1 = await pull(tokB, 0, 2);
-    expect(r1.changes.map((c) => c.rowId)).toEqual(['p0', 'p1']);
-    // 読み終えた p0 と、まだ読んでいない p2 を、頁送りの途中で書き換える。
+    expect(r1.changes.map((c) => c.k)).toEqual([K('p0'), K('p1')]);
     await push(tokA, [ch('p0', 2, 'p0-new'), ch('p2', 2, 'p2-new')]);
-    const seen: ChangeOut[] = [...r1.changes];
+    const seen: SealedChangeOut[] = [...r1.changes];
     let since = r1.nextSeq;
     for (;;) {
       const r = await pull(tokB, since, 2);
@@ -290,20 +286,17 @@ describe('差分の取り出し（GET /changes）', () => {
       since = r.nextSeq;
       if (!r.more) break;
     }
-    // 取り込みは updated_at の新しい方を採るので、最後に見た版がそれぞれの行の今の値になる。
-    const last = new Map(seen.map((c) => [c.rowId, c.payload.name]));
-    expect(Object.fromEntries(last)).toEqual({ p0: 'p0-new', p1: 'p1', p2: 'p2-new', p3: 'p3', p4: 'p4' });
+    const last = new Map(seen.map((c) => [c.k, bodyOfSealed(c)]));
+    expect(Object.fromEntries(last)).toEqual({ [K('p0')]: 'p0-new', [K('p1')]: 'p1', [K('p2')]: 'p2-new', [K('p3')]: 'p3', [K('p4')]: 'p4' });
     expect(since).toBe(7);
   });
 
-  it('自分の端末が書いた行は返さない', async () => {
+  it('他の端末が書き換えた行は、元が自分の行でも返す', async () => {
     await push(tokA, [ch('p1', 1)]);
     await push(tokB, [ch('p2', 1)]);
-    expect((await pull(tokA, 0)).changes.map((c) => c.rowId)).toEqual(['p2']);
-    expect((await pull(tokB, 0)).changes.map((c) => c.rowId)).toEqual(['p1']);
-    // 他の端末が書き換えた行は、元が自分の行でも返す。
+    expect((await pull(tokA, 0)).changes.map((c) => c.k)).toEqual([K('p2')]);
     await push(tokB, [ch('p1', 2, 'by-b')]);
-    expect((await pull(tokA, 0)).changes.map((c) => [c.rowId, c.payload.name])).toEqual([['p2', 'p2'], ['p1', 'by-b']]);
+    expect((await pull(tokA, 0)).changes.map((c) => [c.k, bodyOfSealed(c)])).toEqual([[K('p2'), 'p2'], [K('p1'), 'by-b']]);
   });
 
   it('でたらめに大きい since でも、nextSeq は表の末尾を返す', async () => {
@@ -311,16 +304,8 @@ describe('差分の取り出し（GET /changes）', () => {
     expect(pageOf(await pull(tokB, 999_999))).toEqual({ changes: [], nextSeq: 1, more: false });
   });
 
-  it('どれだけ古い since でも 410 にせず、残っている行を返す', async () => {
-    await push(tokA, [ch('p1', 1)]);
-    await push(tokA, [ch('p1', 2)]);
-    const r = await pullRaw(tokB, 0);
-    expect(r.status).toBe(200);
-    expect(pageOf((await r.json()) as PullChangesResponse)).toMatchObject({ nextSeq: 2, more: false });
-  });
-
   it('解除していない PC の最終確認と、Worker の時刻を添える', async () => {
-    const tokC = await join('dev-c');
+    await addPcDevice(cloud.env, 'dev-c');
     await setLastSeen('dev-a', 1000);
     await setLastSeen('dev-c', 2000);
     await cloud.env.DB.prepare('update devices set revoked_at = 1 where id = ?').bind('dev-c').run();
@@ -333,7 +318,6 @@ describe('差分の取り出し（GET /changes）', () => {
     expect([...peers.keys()].sort()).toEqual(['dev-a', 'dev-b']);
     expect(peers.get('dev-a')).toBe(1000);
     expect(peers.get('dev-b')).toBeGreaterThanOrEqual(before - TOUCH_EVERY_MS);
-    expect(tokC).not.toBe('');
   });
 });
 

@@ -63,7 +63,7 @@ describe('認証', () => {
   });
 
   it('認証の要る道はすべて middleware の下にある', async () => {
-    for (const path of ['/changes', '/changes/x', '/rows', '/files', '/files/x', '/devices', '/devices/x/revoke', '/join-codes', '/join-codes/mine', '/join-codes/x/approve']) {
+    for (const path of ['/changes', '/changes/x', '/rows', '/files', '/files/x', '/blobs', '/devices', '/devices/x/revoke', '/join-codes', '/join-codes/mine', '/join-codes/x/approve']) {
       expect((await cloud.SELF.fetch(`https://x${path}`)).status).toBe(401);
     }
   });

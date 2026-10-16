@@ -88,8 +88,10 @@ describe('互換の版（本番の下限）', () => {
   it('R2 の本文をそのまま返す応答にも版を載せ、本文と長さは崩さない', async () => {
     const c = await boot();
     const token = await addPc(c, 'pc-a');
-    await c.env.BUCKET.put('transcripts/pc-a/u1.jsonl.gz', 'abc');
-    const g = await c.SELF.fetch('https://x/files/transcripts/pc-a/u1.jsonl.gz', { headers: { authorization: `Bearer ${token}` } });
+    // 鍵名は互換の版 9 の形（b/<端末 ID>/<HMAC の base64url 43 字>）である。
+    const key = `b/pc-a/${'h'.padEnd(43, '_')}`;
+    await c.env.BUCKET.put(key, 'abc');
+    const g = await c.SELF.fetch(`https://x/files/${key}`, { headers: { authorization: `Bearer ${token}` } });
     expect(g.status).toBe(200);
     expect(g.headers.get(COMPAT_HEADER)).toBe(String(COMPAT_VERSION));
     expect(g.headers.get('content-length')).toBe('3');

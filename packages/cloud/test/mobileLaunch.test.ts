@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { aadLaunch, COMPAT_HEADER, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_PROMPT_MAX, seal, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse, type PullChangesResponse, readCloudLimit } from '@agent-hangar/shared';
+import { aadLaunch, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_PROMPT_MAX, seal, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse, type PullChangesResponse, readCloudLimit } from '@agent-hangar/shared';
 import { LAUNCH_KEEP_MS, LAUNCH_RATE, MAX_ANSWER_BODY_BYTES, MAX_LAUNCH_BODY_BYTES } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
@@ -178,17 +178,16 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     expect(await plan("select id, created_at, sealed from launch_requests where target_device = ? and status = 'pending' and created_at > ? order by created_at limit ?", 'p', 1, 50)).toContain('launch_requests_target');
   });
 
-  it('版 6 の PC の pull でも応答の形は壊れない', async () => {
+  it('pull の応答は封じた行の欄に launches を添えた形である', async () => {
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
     await launch(phone.token, { id: 'l-1', targetDevice: 'pc-a', sealed: 's' });
-    const body = await pull(pc, { [COMPAT_HEADER]: '6' });
+    const body = await pull(pc);
     expect(Array.isArray(body.changes)).toBe(true);
     expect(typeof body.nextSeq).toBe('number');
     expect(typeof body.more).toBe('boolean');
     expect(body.peers.map((p) => p.id)).toEqual(['pc-a']);
     expect(typeof body.now).toBe('number');
-    // launches は版 6 の PC にとって余分な欄で、ほかの欄の形は変えない。
     expect(Object.keys(body).sort()).toEqual(['changes', 'launches', 'more', 'nextSeq', 'now', 'peers']);
   });
 

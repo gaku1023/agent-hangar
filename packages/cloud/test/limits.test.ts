@@ -131,7 +131,7 @@ describe('Worker の応答（経路の中の失敗）', () => {
 
   it('POST /changes の中の batch が上限の失敗を投げても 429 で返す', async () => {
     const env = envFailingOn((sql) => sql.includes('insert into rows'));
-    const body = JSON.stringify({ changes: [{ tableName: 'projects', rowId: 'p1', op: 'upsert', payload: { id: 'p1' }, updatedAt: 1 }] });
+    const body = JSON.stringify({ changes: [{ k: 'k'.padEnd(43, '_'), op: 'upsert', updatedAt: 1, epoch: 1, sealed: 'c2VhbGVk' }] });
     const r = await createApp({ minDeviceCompat: 0 }).request('/changes', { method: 'POST', headers, body }, env);
     await expectLimitResponse(r);
   });
