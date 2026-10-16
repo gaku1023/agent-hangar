@@ -57,6 +57,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
   /** この PC にプロジェクトのフォルダが無いほかの PC の会話の、押せない理由と場所を指定する先（presenters/resumeHere.ts）。省けば null として読む。 */
   noRoot?: { reason: string; projectId: string } | null;
+  /** ほかの PC に引き継がれたことを伝える見出しの下の 1 行（SessionDto.takenOver）。引き継がれていなければ null、省けば出さない。 */
+  takenOver?: string | null;
   /** ほかの PC の続きの方が新しい（SessionDto.newerElsewhere）。「この PC で再開」を主にし、素の再開は名前を替えて「…」に残す。省けば偽として読む。 */
   newerElsewhere?: boolean;
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
@@ -607,6 +609,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock !== null || s.remoteOnly || s.newerElsewhere === true, newerElsewhere: s.newerElsewhere === true,
     // この PC にプロジェクトのフォルダが無いほかの PC の会話。「この PC で再開」を閉じ、見出しの下に理由と場所の指定を出す（1a）。
     noRoot: resumeHereOf(store, s, t)?.noRoot ?? null,
+    takenOver: s.takenOver ? t('session.takenOver.line', { device: s.takenOver.deviceName, at: absoluteTime(t, s.takenOver.at) }) : null,
     // hangar の run が無いまま外で動いているとき、本文しか見せられない。hangar の端末で開く手を出す（store の outsideOpenOf）。
     outsideOpen: outsideOpenOf(store, s),
     summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null,

@@ -137,6 +137,12 @@ export function SessionScreen(props: SessionProps) {
       <button type="button" className="btn-link" onClick={() => emit({ type: 'project.resolve.open', id: noRoot.projectId })}>{t('session.action.setLocation')}</button>
     </div>
   ) : null;
+  // ほかの PC に引き継がれたことを、見出しの下の灰色の 1 行で伝える（D1）。自分で奪った操作の裏側なので、知らせの札は出さない。
+  const takenOverLine = props.takenOver ? (
+    <div className="session-reason" role="note">
+      <Icon name="info" /><span>{props.takenOver}</span>
+    </div>
+  ) : null;
   // 終わった画面の事実の 1 行（H1）。押せない理由の行があれば、その下に並べる。
   // 状態は見出しの札（4A）が持つので、札のある間は 1 行の側に状態の札を出さない（二重に出さない）。
   const statusPick = props.statusPick ?? null;
@@ -156,7 +162,7 @@ export function SessionScreen(props: SessionProps) {
     // 名前は見出しにだけ出し、要約の題は出さない（C1）。
     // 名前の横に、他の PC で実行中の札（操作できない理由なので隠さない）。右端の (i) に、毎回は見ない属性を入れる。
     // 操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。
-    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={<>{facts}{noRootLine}</>}>
+    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={<>{facts}{noRootLine}{takenOverLine}</>}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
       {/* 状態の札（4A）。操作の並びの先頭、主の操作の左に置く。見た目と一言はプロジェクト画面の札と同じ。 */}

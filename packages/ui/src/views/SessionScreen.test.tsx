@@ -46,6 +46,16 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
  * 画面の試験でも同じ関数で作り、事実と操作が食い違わないようにする。
  */
 const SS = (props: SessionProps) => <SessionScreen {...props} actions={sessionActions(props, ja)} />;
+
+describe('引き継がれた側の 1 行', () => {
+  it('takenOver の 1 行を見出しの下に出し、無ければ出さない', () => {
+    const { container, rerender } = render(<ActionRoot onAction={() => {}}><SS {...base} takenOver="pc-a に引き継がれました（2026-10-16 10:00）。現在は pc-a で実行中です。" /></ActionRoot>);
+    expect(screen.getByText(/に引き継がれました/)).toBeTruthy();
+    expect(container.querySelector('.page-head .session-reason')).not.toBeNull();
+    rerender(<ActionRoot onAction={() => {}}><SS {...base} takenOver={null} /></ActionRoot>);
+    expect(screen.queryByText(/に引き継がれました/)).toBeNull();
+  });
+});
 /** 「…」のメニューを開いて、その中の項目を返す。 */
 const menu = () => { fireEvent.click(screen.getByRole('button', { name: 'ほかの操作' })); return within(screen.getByRole('menu', { name: 'ほかの操作' })); };
 const menuOf = (name: string) => { fireEvent.click(screen.getByRole('button', { name })); return within(screen.getByRole('menu', { name })); };

@@ -76,6 +76,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.lock.stale': '{device} から応答がありません',
   'session.lock.lastSeen': '最終確認 {when}',
   'session.lock.remoteTranscript': 'トランスクリプトは他の PC にあります',
+  'session.takenOver.line': '{device} に引き継がれました（{at}）。現在は {device} で実行中です。',
   'session.toc.label': '目次',
   'session.toc.close': '右パネルを閉じる',
   'session.toc.open': '右パネルを開く',

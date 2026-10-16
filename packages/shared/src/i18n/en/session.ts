@@ -76,6 +76,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.lock.stale': '{device} is not responding',
   'session.lock.lastSeen': 'Last seen {when}',
   'session.lock.remoteTranscript': 'Transcript is on another computer',
+  'session.takenOver.line': 'Resumed on {device} ({at}). It is now running on {device}.',
   'session.toc.label': 'Outline',
   'session.toc.close': 'Close right panel',
   'session.toc.open': 'Open right panel',

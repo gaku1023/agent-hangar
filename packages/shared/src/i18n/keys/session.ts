@@ -75,6 +75,7 @@ export const sessionKeys = {
   'session.lock.stale': ['device'],
   'session.lock.lastSeen': ['when'],
   'session.lock.remoteTranscript': [],
+  'session.takenOver.line': ['device', 'at'],
   'session.toc.label': [],
   'session.toc.close': [],
   'session.toc.open': [],

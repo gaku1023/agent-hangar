@@ -94,7 +94,12 @@ export type SessionDto = { id: string; provider: 'claude-code'; providerSessionI
    * 最後の run がほかの PC のもので、手元に降ろしたその写しが手元のトランスクリプトより大きいときだけ真。
    * 真のとき、画面は手元にトランスクリプトがあっても「この PC で再開」を主にする。
    */
-  newerElsewhere: boolean };
+  newerElsewhere: boolean;
+  /**
+   * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持つ（古いサーバは送らない）。
+   * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
+   */
+  takenOver?: { deviceName: string; at: number } | null };
 /**
  * 中断の原因。
  * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。

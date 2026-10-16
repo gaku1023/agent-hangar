@@ -212,6 +212,34 @@ function newerElsewhereSet(db: Db, selfDeviceId: string | undefined): Set<string
 }
 
 /**
+ * ほかの PC に引き継がれた、この PC の会話（SessionDto.takenOver）。
+ * この PC の最後の run（started_at の降順、同じなら id の降順）が taken_over で終わっているものだけ。この PC で後から run を起こせば、最後の run が替わって消える。
+ * PC の名前は、その run を指す takeovers の from_device、無ければその後に始まったほかの PC の run の PC。devices に行が無ければ ID をそのまま使う。どちらの手がかりも無ければ載せない。
+ * PC を渡さなければ空にする。一覧の 1 回の問い合わせで引く（会話ごとには引かない）。
+ */
+function takenOverMap(db: Db, selfDeviceId: string | undefined): Map<string, { deviceName: string; at: number }> {
+  const out = new Map<string, { deviceName: string; at: number }>();
+  if (!selfDeviceId) return out;
+  const rows = db.prepare(`
+    select x.session_id, x.at, x.dev, d.name
+    from (
+      select l.session_id, ifnull(l.ended_at, l.started_at) at,
+        coalesce(
+          (select t.from_device from takeovers t where t.run_id = l.id and t.deleted_at is null order by t.requested_at desc limit 1),
+          (select r2.device_id from runs r2 where r2.session_id = l.session_id and r2.deleted_at is null and r2.device_id <> ? and r2.started_at > l.started_at order by r2.started_at, r2.id limit 1)
+        ) dev
+      from (
+        select r.*, row_number() over (partition by r.session_id order by r.started_at desc, r.id desc) n
+        from runs r where r.deleted_at is null and r.device_id = ?
+      ) l
+      where l.n = 1 and l.end_reason = 'taken_over'
+    ) x left join devices d on d.id = x.dev and d.deleted_at is null
+    where x.dev is not null`).all(selfDeviceId, selfDeviceId) as { session_id: string; at: number; dev: string; name: string | null }[];
+  for (const r of rows) out.set(r.session_id, { deviceName: r.name ?? r.dev, at: r.at });
+  return out;
+}
+
+/**
  * いま動いている claude のプロセスが、いつ起動したか（epoch のミリ秒）。分からなければ null。
  * Claude の登録の procStart を先に見て、無ければ hangar の生きた run の始まりを使う。
  * run は claude より先に始まるので、run の始まりで代えても「印より後に起動した」の判定は変わらない。
@@ -241,7 +269,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>): SessionDto {
+function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -321,6 +349,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     overlap: live ? overlapOf(r.overlap_payload) : null,
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),
+    takenOver: taken.get(r.id) ?? null,
   };
 }
 
@@ -369,14 +398,15 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const runStarts = aliveRunStarts(db, opts.deviceId);
   const parking = parkingOn(db);
   const newer = newerElsewhereSet(db, opts.deviceId);
-  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking, newer));
+  const taken = takenOverMap(db, opts.deviceId);
+  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking, newer, taken));
 }
 
 export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
   if (!r) return null;
   const now = opts.now ? opts.now() : Date.now();
-  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId));
+  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId));
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */
