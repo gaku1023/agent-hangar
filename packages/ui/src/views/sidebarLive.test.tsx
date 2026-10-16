@@ -178,8 +178,7 @@ describe('行の移し方', () => {
   });
 });
 
-const RUNNING = '実行中のセッションは削除できません。先に停止してください';
-const menuOf = (id: string, stop: SessionMenuProps['stop'] = { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }): SessionMenuProps => ({ id, name: `name-${id}`, status: null, resumeHere: null, stop, moveBlocked: null, deleteBlocked: RUNNING });
+const menuOf = (id: string, stop: SessionMenuProps['stop'] = { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }): SessionMenuProps => ({ id, name: `name-${id}`, status: null, resumeHere: null, stop, moveBlocked: null });
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: menuOf(id), ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
@@ -655,9 +654,8 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Activeu', 'true'], ['Pausedp', 'false'], ['Doned', 'false'], ['Archiveda', 'false']]);
     const items = screen.getAllByRole('menuitem');
     // 停止の補足の 1 行は出さない。
-    expect(items.map((i) => i.textContent)).toEqual(['プロジェクトを変更…m', '停止', `削除…${RUNNING}`]);
+    expect(items.map((i) => i.textContent)).toEqual(['プロジェクトを変更…m', '停止']);
     expect(items[1]).toHaveAttribute('data-danger', 'true');
-    expect(items[2]).toHaveAttribute('aria-disabled', 'true');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
     const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', { runId: 'r9', working: false, aside: false, shellTabs: 2 }) }), row('b')] }));

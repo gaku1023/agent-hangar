@@ -13,9 +13,10 @@ export type SessionMenuStop = { runId: string; working: boolean; aside: boolean;
  * status は状態で、Active は null。
  * resumeHere はほかの PC の会話の「この PC で再開」で、disabled は押せない理由。ほかの PC の会話でなければ null。
  * stop は動いている会話の停止。hangar の run があればその中身、hangar の外で動いていれば external、動いていなければ null。
- * moveBlocked と deleteBlocked は、移動と削除を押せない理由。押せるなら null。
+ * moveBlocked は、移動を押せない理由。押せるなら null。
+ * 削除は動いていない（stop が null の）ときだけ出す。動いている間は停止を出し、止めると削除に入れ替わる。
  */
-export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null; stop: SessionMenuStop | 'external' | null; moveBlocked: string | null; deleteBlocked: string | null };
+export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null; stop: SessionMenuStop | 'external' | null; moveBlocked: string | null };
 
 /** 状態の色の点。プロジェクトの状態の点（.st-dot）と同じ 4 色を使う。 */
 export type SessionMenuDot = 'active' | 'paused' | 'done' | 'archived';
@@ -40,7 +41,7 @@ export function moveTargetIds(store: Store, current: string | null): string[] {
 /**
  * 1 つのセッションのメニューの中身を、Store から作る。
  * 動いているかは、Claude が見えているか（live）か、hangar の run が生きているかで決める。
- * サーバの削除は、この PC で run が生きているか Claude が見えていれば 409 で断るので、それと同じ見方にする。
+ * サーバの削除は、この PC で run が生きているか Claude が見えていれば 409 で断るので、削除を出すかどうかも同じ見方（stop の有無）にする。
  * 区切りを付けて休みのまま残っているもの（parked）も、プロセスが残っている間は動いているものとして扱う。
  */
 export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): SessionMenuProps {
@@ -57,7 +58,6 @@ export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): S
     resumeHere: here ? { disabled: here.disabled } : null,
     stop,
     moveBlocked: moveTargetIds(store, s.projectId).length === 0 ? t('row.menu.moveNone') : null,
-    deleteBlocked: running ? t('session.delete.running') : null,
   };
 }
 
@@ -65,7 +65,8 @@ const STATES: { key: SessionMenuDot; kbd: string }[] = [{ key: 'active', kbd: 'u
 
 /**
  * メニューの項目を並べる（試作の 1A）。
- * 条件付きの「この PC で再開」、状態の 4 つ、区切り、「プロジェクトを変更…」、区切り、「停止」（動いているときだけ）、「削除…」の順に置く。
+ * 条件付きの「この PC で再開」、状態の 4 つ、区切り、「プロジェクトを変更…」、区切り、「停止」（動いているとき）か「削除…」（動いていないとき）の順に置く。
+ * 動いている間に押せない「削除…」を並べない。サイドバーは動いているものだけを並べるので、そこでは削除がいつも押せないまま出ることになるからである。
  * 状態はいまのものに ✓ を付ける。いまの状態を選び直したときは、Paused なら戻る日のダイアログを開き（日を変えるため）、ほかは何もしない。
  * 停止は確認の要否を Mediator に任せる（作業中やシェルタブがあれば確認を出す）。hangar の外で動いているものは押せない理由を添える。
  * 危険色は停止と削除だけにする。停止の補足の 1 行は出さない。
@@ -83,7 +84,8 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
     ...states,
     { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: true, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
-    ...(stop ? [{ key: 'stop', label: t('sidebar.live.stop'), icon: 'stop' as const, danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : { type: 'session.kill', ...stop } as const }] : []),
-    { key: 'delete', label: t('row.menu.delete'), icon: 'trash', danger: true, separatorBefore: !stop, disabled: m.deleteBlocked, send: { type: 'session.delete.open', id: m.id } },
+    stop
+      ? { key: 'stop', label: t('sidebar.live.stop'), icon: 'stop', danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : { type: 'session.kill', ...stop } }
+      : { key: 'delete', label: t('row.menu.delete'), icon: 'trash', danger: true, separatorBefore: true, disabled: null, send: { type: 'session.delete.open', id: m.id } },
   ];
 }
