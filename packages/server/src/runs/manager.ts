@@ -339,11 +339,11 @@ export class RunManager {
    */
   private remoteControlFor(rc: RemoteControlAsk | undefined, o: { projectId: string | null; name?: string; prompt?: string; handoverFrom?: string }): string | null {
     if (!rc || !this.deps.remoteControl) return null;
-    if (rc.userArgs?.some((a) => a === '--remote-control' || a.startsWith('--remote-control=') || a === '--rc' || a.startsWith('--rc=') || a === '-p' || a === '--print')) return null;
+    if (rc.userArgs?.some((a) => a === '--remote-control' || a.startsWith('--remote-control=') || a === '--rc' || a.startsWith('--rc=') || a === '-p' || a === '--print')) { console.log('[runs] launching without --remote-control (user-args)'); return null; }
     // launch() と同じ決め方で、利用者が自分で付けた置き場（rc.env）があればそれを優先する。未登録の置き場は認証を知れないので足さない。
     const own = rc.env?.CLAUDE_CONFIG_DIR;
     const account = own ? this.accounts.byDir(own) : rc.account;
-    if (own && !account) return null;
+    if (own && !account) { console.log('[runs] launching without --remote-control (unregistered-config-dir)'); return null; }
     const env = { ...this.accounts.envFor(own ? null : account), ...rc.env };
     if (!this.deps.remoteControl({ account, env })) return null;
     return remoteControlName({ name: o.name ?? (o.handoverFrom ? sessionTitleOf(this.db, o.handoverFrom) ?? undefined : undefined), prompt: o.prompt, projectName: o.projectId ? this.project(o.projectId).name : null });

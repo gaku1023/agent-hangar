@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AccountAuth, accountEnv, parseAuthStatus, type RunClaude } from './accountAuth.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { AccountAuth, accountEnv, claudeExecOf, parseAuthStatus, type RunClaude } from './accountAuth.ts';
 import type { Drift } from '../compat/types.ts';
 import type { Account } from '../../../config/accounts.ts';
+import { writeFakeTool } from '../../../../test/fake-bin.ts';
+import { isWindows } from '../../../../test/platform.ts';
 
 const primary: Account = { id: 'primary', name: '会社', dir: '/h/.claude', color: '#2a57b8' };
 const univ: Account = { id: 'a1', name: '大学', dir: '/h/.claude-2', color: '#7a4a9e' };
@@ -222,5 +227,36 @@ describe('AccountAuth', () => {
       const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run: async () => ({ code: 0, stdout: OK }), onChange: boom });
       await expect(auth.refresh(univ)).resolves.toMatchObject({ loggedIn: true });
     });
+  });
+});
+
+// npm で入れた Windows の claude は claude.cmd である。.cmd は cmd.exe を通さないと execFile が起こせず（EINVAL）、
+// 認証が読めないまま --remote-control が付かなかった。--help の読み取り（compat/cli.ts の readClaudeHelp）と同じく、.cmd と .bat だけ cmd.exe を通す。
+describe('claudeExecOf', () => {
+  const ARGS = ['auth', 'status', '--json'];
+  it('Windows の .cmd と .bat は cmd.exe を通し、引用符で包んだパスと引数を 1 本の命令にする', () => {
+    expect(claudeExecOf('C:\\Users\\u\\App Data\\npm\\claude.cmd', ARGS, 'win32')).toEqual({ file: '"C:\\Users\\u\\App Data\\npm\\claude.cmd" auth status --json', args: [], shell: true });
+    expect(claudeExecOf('C:\\tools\\claude.BAT', ['auth', 'login'], 'win32')).toEqual({ file: '"C:\\tools\\claude.BAT" auth login', args: [], shell: true });
+  });
+  it('.exe と、Windows 以外はそのまま起こす', () => {
+    expect(claudeExecOf('C:\\Users\\u\\.local\\bin\\claude.exe', ARGS, 'win32')).toEqual({ file: 'C:\\Users\\u\\.local\\bin\\claude.exe', args: ARGS, shell: false });
+    expect(claudeExecOf('/usr/local/bin/claude.cmd', ARGS, 'darwin')).toEqual({ file: '/usr/local/bin/claude.cmd', args: ARGS, shell: false });
+  });
+});
+
+describe('AccountAuth の本物の起こし方', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-auth-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  // Windows では偽の claude が .cmd になる。cmd.exe を通さないと起こせない。
+  it('偽の claude（Windows では .cmd）から認証を読む', async () => {
+    const bin = writeFakeTool(dir, 'claude', {
+      sh: `echo '{"loggedIn":true,"email":"user@example.com"}'`,
+      cmd: 'echo {"loggedIn":true,"email":"user@example.com"}',
+    });
+    if (isWindows) expect(bin.endsWith('.cmd')).toBe(true);
+    const auth = new AccountAuth({ claudeBin: () => bin });
+    await expect(auth.refresh(primary)).resolves.toMatchObject({ loggedIn: true, email: 'user@example.com' });
   });
 });

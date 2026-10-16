@@ -15,7 +15,7 @@ import { currentEditor, defaultEditorHost } from '../external/editors.ts';
 import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from '../http/accounts.ts';
 import type { ExternalApi } from '../http/deps.ts';
 import { ClaudeDirWatch } from '../provider/claude-code/compat/claudeDir.ts';
-import { remoteControlAllowed } from '../provider/claude-code/launch/remoteControl.ts';
+import { remoteControlRefusal } from '../provider/claude-code/launch/remoteControl.ts';
 import { claudeBinOf, LocalClaude } from '../provider/claude-code/compat/localClaude.ts';
 import { readRegistry } from '../provider/claude-code/registry.ts';
 import { RunAccounts } from '../runs/accounts.ts';
@@ -122,6 +122,9 @@ export function bootRuns(
   // Claude Code のアカウント。置き場ごとのログインを切り替えるだけで、認証の中身は持たない。
   const accountStore = new AccountStore({ home: home.home, primaryDir: claudeDir });
   const accountAuth = new AccountAuth({ claudeBin, compat: compatLog });
+  // 認証は、画面がアカウントを読むとき（GET /api/accounts）にも読むが、組んだときにも裏で 1 回読んでおく。
+  // 画面を開かずに起こした会話（スマホからの起動など）でも、--remote-control を付けてよいかを判定できるようにするためである。
+  for (const a of accountStore.list()) accountAuth.ensureChecked(a);
   // 2 つ目以降のアカウントの置き場に、Claude Code が新しい項目を足していないかを見る。起動のときと、準備の確かめ（GET /api/readiness）か GET /api/compat を読むたびに見る。
   const claudeDirWatch = new ClaudeDirWatch({ dirs: () => accountStore.list().filter((a) => a.id !== PRIMARY_ACCOUNT_ID).map((a) => a.dir), sink: compatLog });
   claudeDirWatch.check();
@@ -146,7 +149,15 @@ export function bootRuns(
     // 環境は、このサーバの環境に、アカウントの置き場を足した後のもの（runs/manager.ts）を重ねる。
     // accountAuth.get は最初の読み取りが済むまで null を返す。そのときは意図して --remote-control を付けずに起こす（安全な側）。
     // 手元の claude の --help に --remote-control が無い（古い claude）か、まだ読めていないときも付けない。
-    remoteControl: ({ account, env }) => remoteControlAllowed({ enabled: settings.current.remoteControl !== false, supported: localClaude.remoteControlSupported(), auth: accountAuth.get(account?.id ?? PRIMARY_ACCOUNT_ID), env: { ...process.env, ...env } }),
+    // 付けないときは、どの条件で落ちたかを 1 行だけ残す（秘密は含まない）。認証をまだ読めていなければ、次の起動に間に合うよう裏で読ませる。
+    remoteControl: ({ account, env }) => {
+      const id = account?.id ?? PRIMARY_ACCOUNT_ID;
+      const why = remoteControlRefusal({ enabled: settings.current.remoteControl !== false, supported: localClaude.remoteControlSupported(), auth: accountAuth.get(id), env: { ...process.env, ...env } });
+      if (why === null) return true;
+      if (why === 'auth-unknown') { const a = accountStore.get(id); if (a) accountAuth.ensureChecked(a); }
+      console.log(`[runs] launching without --remote-control (${why}, account ${id})`);
+      return false;
+    },
     // クイックセッションの置き場と、同意を得た作業フォルダでは、起こすアカウントの .claude.json へ前もってフォルダの信頼を書く。
     trustFolder: (configDir, cwd) => { trustBeforeLaunch({ hangarHome: home.home, homeDir: os.homedir(), trustedWorkspace: () => trustedWorkspaceOf(settings.current) }, configDir, cwd); },
   });

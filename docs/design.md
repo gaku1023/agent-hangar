@@ -6616,13 +6616,17 @@ PC が一時停止しているときと、Worker の版が 7 に届かないと�
 次のときは足さない。
 
 - 手元の claude の `--help` の Options に `--remote-control` が無いとき、または `--help` をまだ読めていないとき（`compat/localClaude.ts` の `remoteControlSupported`）。古い claude は知らない引数で起動に失敗しうるからである。
-- アカウントの認証が claude.ai のログインでないとき（API キーのアカウント）。
+- アカウントの認証が claude.ai のログインでないとき（API キーのアカウント）、または認証をまだ読めていないとき。
+  認証（`claude auth status --json`）は、サーバを組んだときに全部のアカウントのぶんを裏で 1 回読み、画面がアカウントを読むときにも読む。
+  組んだときに読むのは、画面を開かずにスマホから起こした会話でも判定できるようにするためである。
+  読めていないまま起こしたときは、次の起動に間に合うよう、そのアカウントの認証を裏で読ませる。
 - `ANTHROPIC_BASE_URL` か `ANTHROPIC_API_KEY` が設定されているとき。
 - 利用者がターミナルで自分の引数に `--remote-control` か `--rc` を付けているとき、または対話でない起動（`-p`、`--print`）のとき。
 
 API キーの claude は `--remote-control` を黙って無視して普通に起動した。
 付けても害は無いが、URL は出ない。
 そのため、付けない側へ倒している。
+足さないときは、サーバの標準出力に、どの条件で落ちたか（`disabled`、`unsupported`、`auth-unknown`、`logged-out`、`no-email`、`base-url`、`api-key`、`user-args`、`unregistered-config-dir`）を 1 行だけ書く。秘密は書かない。
 名前は、会話の名前があればそれ、無ければ最初の指示の先頭 40 字、それも無ければプロジェクト名で、どれも無ければ「Hangar」である。
 スマホから起こすときは名前の欄が無いので、最初の指示から決まる。
 

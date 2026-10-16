@@ -267,6 +267,18 @@ describe('run とアカウントと使用量', () => {
     expect(b.r.usage.current()).toBeDefined();
   });
 
+  // 認証は画面がアカウントを読むとき（GET /api/accounts）にしか読まれていなかった。
+  // 画面を開かずにスマホから起こした会話は、最初のアカウントの認証が分からないまま --remote-control を付けずに起きた。
+  posixIt('組んだときに、最初のアカウントの認証を裏で読んでおく（画面を開かずに起こしても --remote-control の判定に使える）', async () => {
+    process.env.HANGAR_CLAUDE_BIN = writeFakeTool(path.join(home, 'bin'), 'claude', {
+      sh: 'if [ "$1" = auth ]; then echo \'{"loggedIn":true,"email":"user@example.com","subscriptionType":"max"}\'; fi',
+      cmd: '',
+    });
+    const b = boot();
+    const auth = await until(() => b.r.accounts.auth.get('primary'));
+    expect(auth).toMatchObject({ loggedIn: true, email: 'user@example.com' });
+   }, 15_000);
+
   it('自端末の生存を刻む。包み方の状態も同じ行に載る', () => {
     const b = boot();
     const row = () => b.h.db.prepare('select name, shell_hook from devices where id = ?').get(b.h.device.id) as { name: string; shell_hook: string } | undefined;

@@ -29,8 +29,26 @@ export function remoteControlName(o: { name?: string; prompt?: string; projectNa
  * claude.ai のログインには email があり、API キーや外部のプロバイダには無いので、email が無ければ claude.ai のログインとは見なさない。
  * env は、アカウントの CLAUDE_CONFIG_DIR を足した後の、claude を起こす環境である。
  */
-export function remoteControlAllowed(o: { enabled: boolean; supported: boolean; auth: AccountAuthDto | null; env: Record<string, string | undefined> }): boolean {
-  if (!o.enabled || !o.supported) return false;
-  if (!o.auth || !o.auth.loggedIn || !o.auth.email) return false;
-  return !o.env.ANTHROPIC_BASE_URL && !o.env.ANTHROPIC_API_KEY;
+export function remoteControlAllowed(o: RemoteControlGateInput): boolean {
+  return remoteControlRefusal(o) === null;
+}
+
+/** `--remote-control` を付けない理由。どの条件で落ちたかを、秘密を含まない名前で表す。 */
+export type RemoteControlRefusal = 'disabled' | 'unsupported' | 'auth-unknown' | 'logged-out' | 'no-email' | 'base-url' | 'api-key';
+
+type RemoteControlGateInput = { enabled: boolean; supported: boolean; auth: AccountAuthDto | null; env: Record<string, string | undefined> };
+
+/**
+ * remoteControlAllowed と同じ判定で、付けないときはその理由を返す。付けてよければ null。
+ * auth-unknown は、そのアカウントの認証をまだ読んでいない（または読めなかった）ことを表す。
+ */
+export function remoteControlRefusal(o: RemoteControlGateInput): RemoteControlRefusal | null {
+  if (!o.enabled) return 'disabled';
+  if (!o.supported) return 'unsupported';
+  if (!o.auth) return 'auth-unknown';
+  if (!o.auth.loggedIn) return 'logged-out';
+  if (!o.auth.email) return 'no-email';
+  if (o.env.ANTHROPIC_BASE_URL) return 'base-url';
+  if (o.env.ANTHROPIC_API_KEY) return 'api-key';
+  return null;
 }
