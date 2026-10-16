@@ -1,5 +1,30 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { bundledNotes, compareVersions, notesBetween, parseNote } from './releaseNotes.ts';
+
+const NOTES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../docs/release-notes');
+
+describe('docs/release-notes のノート（書き方は docs/release.md の「リリースノートを書く」）', () => {
+  const files = fs.readdirSync(NOTES_DIR).filter((f) => f.endsWith('.md'));
+
+  it('名前は <版>.md で、1 行目は「# Hangar <版>」', () => {
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      const version = f.slice(0, -'.md'.length);
+      expect(version, f).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(fs.readFileSync(path.join(NOTES_DIR, f), 'utf8').split('\n')[0], f).toBe(`# Hangar ${version}`);
+    }
+  });
+
+  it('どの版も、札に出す要点を 1 つ以上拾える', () => {
+    for (const f of files) {
+      const note = parseNote(f.slice(0, -'.md'.length), fs.readFileSync(path.join(NOTES_DIR, f), 'utf8'));
+      expect(note.points.length, f).toBeGreaterThan(0);
+    }
+  });
+});
 
 const FIX = `# Hangar 0.7.2
 
