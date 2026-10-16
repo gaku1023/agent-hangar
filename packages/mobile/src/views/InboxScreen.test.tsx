@@ -335,4 +335,14 @@ describe('InboxScreen', () => {
     expect(within(card).getByText('Claude アプリで開く ›')).toBeInTheDocument();
     expect(container.querySelector('.acct-tag')).toBeNull();
   });
+
+  it('読めた受信箱を onView で渡す（読み直すたびに）', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'busy' })] })]);
+    const onView = vi.fn();
+    const { rerender } = render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} onView={onView} refresh={0} />);
+    await waitFor(() => expect(onView).toHaveBeenCalledTimes(1));
+    expect(onView.mock.calls[0]![0].running.map((r: { sessionId: string }) => r.sessionId)).toEqual(['s-1']);
+    rerender(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} onView={onView} refresh={1} />);
+    await waitFor(() => expect(onView).toHaveBeenCalledTimes(2));
+  });
 });

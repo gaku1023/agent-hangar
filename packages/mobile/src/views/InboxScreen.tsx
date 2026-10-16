@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { fetchInbox, UnpairedError } from '../api.ts';
 import { ago, clock, dayLabel, elapsed, monthDay, waitedFor } from '../format.ts';
 import { localDay, openInbox, type InboxView, type Row } from '../inbox.ts';
-import { phaseClass, usePresence, type Present } from '../presence.ts';
+import { usePresence } from '../presence.ts';
 import { clearPairing, type Pairing } from '../store.ts';
+import { AccountTag } from './AccountTag.tsx';
+import { Fold } from './Fold.tsx';
 
 /** /rc の URL が拾えなかったとき、または PC から来た値が claude.ai でないときに開く先。 */
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
@@ -32,13 +34,15 @@ type Props = {
   onUnpaired: () => void;
   /** 「＋ 新しい会話」。読んだ受信箱を渡す（新しい会話の画面が PC ごとのプロジェクトとアカウントを読む）。無いとき、まだ読めていないときは押せない。 */
   onNewSession?: (view: InboxView) => void;
+  /** 受信箱を読めるたびに、読んだものを渡す（起動のシートが、始まった会話の URL をここから探す）。 */
+  onView?: (view: InboxView) => void;
   /** 変わったら読み直す（新しい会話を始めて戻ったときなど）。 */
   refresh?: number;
 };
 
 type Pull = { phase: 'idle' } | { phase: 'pulling'; dist: number } | { phase: 'refreshing' };
 
-export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refresh }: Props): ReactNode {
+export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, onView, refresh }: Props): ReactNode {
   const [view, setView] = useState<InboxView | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -47,6 +51,8 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
   const alive = useRef(true);
   const start = useRef<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const viewHandler = useRef(onView);
+  viewHandler.current = onView;
 
   const load = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
@@ -56,6 +62,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
         const v = await openInbox(res, cryptoKey, new Date());
         if (!alive.current) return;
         setView(v);
+        viewHandler.current?.(v);
         setFailed(false);
         setNow(Date.now());
       } catch (e) {
@@ -211,17 +218,6 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
 
 const rowKey = (r: Row): string => r.sessionId;
 
-/** 出入りの段階の箱。中の .fold-in が高さの補間の間だけはみ出しを隠す（styles.css）。 */
-function Fold({ phase, children, className = '' }: { phase: Present<unknown>['phase']; children: ReactNode; className?: string }): ReactNode {
-  return (
-    <div className={`fold ${phaseClass(phase)} ${className}`} aria-hidden={phase === 'leave' ? true : undefined}>
-      <div className="fold-in">
-        <div className="fold-pad">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 function WaitingList({ rows, now }: { rows: Row[]; now: number }): ReactNode {
   const list = usePresence(rows, rowKey);
   return (
@@ -240,17 +236,6 @@ function AccountDot({ color }: { color: string | null }): ReactNode {
   return <span className="acct-dot" style={color ? { background: color } : undefined} aria-hidden="true" />;
 }
 
-/** アカウントの札（色の丸と名前）。受信箱の素にアカウントが無い行には出さない。 */
-function AccountTag({ row }: { row: Row }): ReactNode {
-  if (!row.accountName) return null;
-  return (
-    <span className="acct-tag">
-      <i style={row.accountColor ? { backgroundColor: row.accountColor } : undefined} aria-hidden="true" />
-      {row.accountName}
-    </span>
-  );
-}
-
 function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
   const kind = waitingKind(row);
   return (
@@ -259,7 +244,7 @@ function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
         <AccountDot color={row.accountColor} />
         <span className="wait-proj">{row.projectName}</span>
         <span className="wait-title">· {row.title}</span>
-        <AccountTag row={row} />
+        <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="wait-for">{row.at !== null ? waitedFor(now - row.at) : ''}</span>
       </div>
       <div className="wait-text">{waitingText(row)}</div>
@@ -323,7 +308,7 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
           <span className="thin-sep"> · </span>
           <span className="thin-intent">{row.intent?.trim() || row.title}</span>
         </span>
-        <AccountTag row={row} />
+        <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="thin-meta">{unknown ?`${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`}</span>
       </a>
     );
@@ -333,7 +318,7 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
       <div className="thin">
         <span className="dot returning" aria-hidden="true" />
         <span className="thin-text">{row.title || row.projectName}</span>
-        <AccountTag row={row} />
+        <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="thin-meta">{row.returnOn && row.returnOn < today ? monthDay(row.returnOn) : (row.returnTime ?? '今日')}</span>
       </div>
     );

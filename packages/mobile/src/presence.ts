@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /**
  * 出入りの段階。
@@ -77,4 +77,39 @@ export function usePresence<T>(items: readonly T[], keyOf: (t: T) => string): Pr
   }, [leaving]);
 
   return list;
+}
+
+/**
+ * 下から出るシートの出入り。
+ * open が true の間は載せ、false になったら畳む動きの間（exitMs）だけ leaving で残してから外す。
+ * 動きの長さが 0 のとき（動きを減らす設定、jsdom）はすぐ外す。
+ */
+export function useSheetPhase(open: boolean): { mounted: boolean; leaving: boolean } {
+  const [mounted, setMounted] = useState(open);
+  const [leaving, setLeaving] = useState(false);
+  const was = useRef(open);
+  useLayoutEffect(() => {
+    const before = was.current;
+    was.current = open;
+    if (open) {
+      setMounted(true);
+      setLeaving(false);
+      return;
+    }
+    if (!before) return;
+    const ms = exitMs();
+    if (ms <= 0) {
+      setMounted(false);
+      setLeaving(false);
+      return;
+    }
+    setLeaving(true);
+    const t = setTimeout(() => {
+      setMounted(false);
+      setLeaving(false);
+    }, ms);
+    return () => clearTimeout(t);
+  }, [open]);
+  // 開いた最初の描画から載せる（effect を待たない）。
+  return { mounted: mounted || open, leaving: leaving && !open };
 }

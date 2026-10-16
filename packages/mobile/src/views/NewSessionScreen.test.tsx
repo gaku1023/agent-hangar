@@ -1,52 +1,24 @@
-import { aadAnswer, aadLaunch, open, PERMISSION_MODE_VALUES, seal, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { EFFORT_VALUES, PERMISSION_MODE_VALUES, type MobileFeed } from '@agent-hangar/shared';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openInbox, type InboxView } from '../inbox.ts';
+import type { LaunchSpec } from '../launchRun.ts';
 import { feedOf, inboxOf, liveItem, makeKey, MIN } from '../test/fixtures.ts';
-import { json, WORKER } from '../test/pairText.ts';
 import { NewSessionScreen } from './NewSessionScreen.tsx';
 
-const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
 let key: CryptoKey;
-let fetchMock: ReturnType<typeof vi.fn>;
-/** 送られた依頼。GET の答えを作るのに id を使う。 */
-let sent: { id: string; targetDevice: string; sealed: string }[];
 
 beforeEach(async () => {
   key = await makeKey();
-  sent = [];
-  fetchMock = vi.fn();
-  vi.stubGlobal('fetch', fetchMock);
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
 async function viewOf(feeds: MobileFeed[], opts?: Parameters<typeof inboxOf>[2]): Promise<InboxView> {
   return openInbox(await inboxOf(key, feeds, { now: Date.now(), ...opts }), key, new Date());
-}
-
-/** POST は受けて pending、GET は answers を順に返す（最後のものを繰り返す）。 */
-function serve(answers: ({ status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; answer?: MobileLaunchAnswer } | { http: number; body: unknown })[]): void {
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (init?.method === 'POST') {
-      const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
-      sent.push(body);
-      const first = answers[0];
-      if (first && 'http' in first) {
-        answers.shift();
-        return json(first.body, first.http);
-      }
-      return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
-    }
-    const id = url.split('/').pop()!;
-    const a = answers.length > 1 ? answers.shift()! : answers[0]!;
-    if ('http' in a) return json(a.body, a.http);
-    return json({ id, status: a.status, sealedAnswer: a.answer ? await seal(key, aadAnswer(id), a.answer) : null });
-  });
 }
 
 const twoPcs = (): MobileFeed[] => [
@@ -67,147 +39,213 @@ const twoPcs = (): MobileFeed[] => [
   }),
 ];
 
+async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof inboxOf>[2]) {
+  const onLaunch = vi.fn<(s: LaunchSpec) => void>();
+  const onClose = vi.fn();
+  const view = await viewOf(feeds, opts);
+  render(<NewSessionScreen view={view} onLaunch={onLaunch} onClose={onClose} />);
+  return { onLaunch, onClose };
+}
+
 const group = (name: string) => screen.getByRole('radiogroup', { name });
 const pick = (groupName: string, option: RegExp | string) => fireEvent.click(within(group(groupName)).getByRole('radio', { name: option }));
+const prompt = () => screen.getByRole('textbox', { name: '初期プロンプト' });
+const advanced = () => screen.getByRole('button', { name: /詳しい設定/ });
+const specOf = (fn: ReturnType<typeof vi.fn<(s: LaunchSpec) => void>>): LaunchSpec => fn.mock.calls[0]![0];
 
 describe('NewSessionScreen', () => {
-  it('4 つを選んで始めると「受け取るのを待っています」→「始まりました」', async () => {
-    serve([{ status: 'pending' }, { status: 'claimed' }, { status: 'started', answer: { ok: true, sessionId: 's-9', title: '会話 9' } }]);
-    const onClose = vi.fn();
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} everyMs={10} />);
+  it('4 つを選んで始めると、選んだものを持った依頼を渡す', async () => {
+    const { onLaunch } = await setup();
     pick('プロジェクト', /project-a/);
     pick('PC', /Mini/);
     pick('アカウント', /アカウント 3/);
+    fireEvent.click(advanced());
     pick('権限モード', 'Plan');
     pick('モデル', 'opus');
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'テストを足して' } });
+    fireEvent.change(prompt(), { target: { value: 'テストを足して' } });
     const start = screen.getByRole('button', { name: 'Mini で始める' });
     expect(start).toBeEnabled();
     fireEvent.click(start);
-    expect(await screen.findByText('Mini が受け取るのを待っています（最大 30 秒ほど）')).toBeInTheDocument();
-    expect(await screen.findByText(/始まりました/)).toBeInTheDocument();
-    expect(sent).toHaveLength(1);
-    expect(sent[0]!.targetDevice).toBe('pc-2');
-    const payload = await open<MobileLaunchPayload>(key, aadLaunch(sent[0]!.id, 'pc-2'), sent[0]!.sealed);
-    expect(payload).toMatchObject({ projectId: 'p-a', scratch: false, accountId: 'acc-3', permissionMode: 'plan', model: 'opus', prompt: 'テストを足して' });
-    fireEvent.click(screen.getByRole('button', { name: /受信箱へ/ }));
-    expect(onClose).toHaveBeenCalledWith(true);
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+    expect(specOf(onLaunch)).toEqual({
+      targetDevice: 'pc-2',
+      pcName: 'Mini',
+      projectName: 'project-a',
+      accountId: 'acc-3',
+      accountName: 'アカウント 3',
+      accountColor: '#c77a1a',
+      payload: { projectId: 'p-a', scratch: false, accountId: 'acc-3', permissionMode: 'plan', model: 'opus', prompt: 'テストを足して' },
+      skewMs: expect.any(Number),
+    });
+    // 押したあとは、もう一度押せない。
+    expect(screen.getByRole('button', { name: 'Mini で始める' })).toBeDisabled();
   });
 
-  it('最初の指示が空なら始められない', async () => {
-    serve([{ status: 'pending' }]);
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
+  it('始めるボタンの文言は、足りないものを順に言う', async () => {
+    await setup();
+    expect(screen.getByRole('button', { name: 'プロジェクトを選んでください' })).toBeDisabled();
+    pick('プロジェクト', /project-a/);
+    expect(screen.getByRole('button', { name: 'PC を選んでください' })).toBeDisabled();
+    pick('PC', /Mac/);
+    expect(screen.getByRole('button', { name: 'Mac で始める' })).toBeDisabled();
+  });
+
+  it('初期プロンプトが空なら始められない', async () => {
+    const { onLaunch } = await setup();
     pick('プロジェクト', /project-b/);
-    // PC と アカウントが 1 つずつなら、それが選ばれている。
+    // PC もアカウントも 1 つずつなら、それが選ばれている。
     expect(within(group('PC')).getByRole('radio', { name: /Mini/ })).toHaveAttribute('aria-checked', 'true');
     pick('アカウント', /アカウント 2/);
     const start = screen.getByRole('button', { name: 'Mini で始める' });
     expect(start).toBeDisabled();
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: '   ' } });
+    fireEvent.change(prompt(), { target: { value: '   ' } });
     expect(start).toBeDisabled();
     fireEvent.click(start);
-    expect(sent).toHaveLength(0);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'はじめて' } });
+    expect(onLaunch).not.toHaveBeenCalled();
+    fireEvent.change(prompt(), { target: { value: 'はじめて' } });
     expect(start).toBeEnabled();
   });
 
-  it('最初の指示は 8,000 字まで。近づくまで何も出さず、超えたら始められない', async () => {
-    serve([{ status: 'pending' }]);
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
+  it('初期プロンプトは 8,000 字まで。近づくまで何も出さず、超えたら始められない', async () => {
+    await setup();
     pick('プロジェクト', /project-b/);
     pick('アカウント', /アカウント 2/);
-    const box = screen.getByRole('textbox', { name: '最初の指示' });
     const start = screen.getByRole('button', { name: 'Mini で始める' });
-    fireEvent.change(box, { target: { value: 'あ'.repeat(7000) } });
+    fireEvent.change(prompt(), { target: { value: 'あ'.repeat(7000) } });
     expect(screen.queryByText(/字/)).not.toBeInTheDocument();
-    fireEvent.change(box, { target: { value: 'あ'.repeat(7900) } });
+    fireEvent.change(prompt(), { target: { value: 'あ'.repeat(7900) } });
     expect(screen.getByText('あと 100 字')).toBeInTheDocument();
-    fireEvent.change(box, { target: { value: 'あ'.repeat(8000) } });
+    fireEvent.change(prompt(), { target: { value: 'あ'.repeat(8000) } });
     expect(start).toBeEnabled();
-    fireEvent.change(box, { target: { value: 'あ'.repeat(8001) } });
+    fireEvent.change(prompt(), { target: { value: 'あ'.repeat(8001) } });
     expect(start).toBeDisabled();
     expect(screen.getByText(/8,000 字まで/)).toBeInTheDocument();
   });
 
-  it('project-missing の答えは「その PC にプロジェクトの場所がありません」と出る', async () => {
-    serve([{ status: 'failed', answer: { ok: false, reason: 'project-missing' } }]);
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText(/その PC にプロジェクトの場所がありません/)).toBeInTheDocument();
-    // もう一度送れる（選んだものは残る）。
-    fireEvent.click(screen.getByRole('button', { name: 'もう一度' }));
-    expect(screen.getByRole('button', { name: 'Mac で始める' })).toBeEnabled();
-  });
-
-  it('launch-failed の detail は文として出る', async () => {
-    serve([{ status: 'failed', answer: { ok: false, reason: 'launch-failed', detail: '<b>tmux</b> が無い' } }]);
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText('<b>tmux</b> が無い')).toBeInTheDocument();
-  });
-
-  it('送りすぎ（429）は回数の上限を言う', async () => {
-    serve([{ http: 429, body: { error: 'rate limited' } }]);
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText(/10 分に 10 件まで/)).toBeInTheDocument();
-  });
-
-  it('権限モードの選択肢が PC のダイアログと同じ 7 つ', async () => {
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} />);
-    const radios = within(group('権限モード')).getAllByRole('radio');
-    expect(radios.map((r) => r.getAttribute('data-value'))).toEqual([...PERMISSION_MODE_VALUES]);
-    expect(radios.map((r) => r.textContent)).toEqual(['デフォルト', 'Plan', 'Manual', 'Accept edits', 'Auto', "Don't ask", 'Bypass permissions']);
-    expect(radios[0]).toHaveAttribute('aria-checked', 'true');
-    const models = within(group('モデル')).getAllByRole('radio');
-    expect(models.map((r) => r.textContent)).toEqual(['デフォルト', 'fable', 'opus', 'sonnet', 'haiku']);
-    expect(models[0]).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('すぐ始めるが先頭で、選ぶと生きている PC が全部出て、依頼は projectId null・scratch true', async () => {
-    serve([{ status: 'pending' }]);
+  it('クイックセッションが先頭で、選ぶと生きている PC が全部出て、依頼は projectId null・scratch true', async () => {
     const feeds = [...twoPcs(), feedOf('pc-3', 'Old')];
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(feeds, { lastSeen: { 'pc-3': Date.now() - 4 * MIN } })} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
+    const { onLaunch } = await setup(feeds, { lastSeen: { 'pc-3': Date.now() - 4 * MIN } });
     const projects = within(group('プロジェクト')).getAllByRole('radio');
-    expect(projects[0]).toHaveTextContent('すぐ始める（フォルダなし）');
-    expect(projects.map((r) => r.textContent)).toEqual([expect.stringContaining('すぐ始める'), expect.stringContaining('project-b'), expect.stringContaining('project-a')]);
-    pick('プロジェクト', /すぐ始める/);
+    expect(projects.map((r) => r.textContent)).toEqual([expect.stringContaining('クイックセッション'), 'project-b', 'project-a']);
+    pick('プロジェクト', /クイックセッション/);
     const pcs = within(group('PC')).getAllByRole('radio');
     expect(pcs.map((r) => r.textContent)).toEqual([expect.stringContaining('Mac'), expect.stringContaining('Mini')]);
-    expect(pcs[0]).toHaveTextContent('動いている 1');
-    expect(pcs[1]).toHaveTextContent('空いている');
+    expect(pcs[0]).toHaveTextContent('実行中 1');
+    expect(pcs[1]).toHaveTextContent('空き');
     pick('PC', /Mac/);
     expect(within(group('アカウント')).getByRole('radio', { name: /アカウント 1/ })).toHaveTextContent('5時間 32%');
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
+    fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    await screen.findByText(/受け取るのを待っています/);
-    const payload = await open<MobileLaunchPayload>(key, aadLaunch(sent[0]!.id, 'pc-1'), sent[0]!.sealed);
-    expect(payload).toMatchObject({ projectId: null, scratch: true, accountId: 'acc-1', permissionMode: '', model: '' });
+    expect(specOf(onLaunch)).toMatchObject({ projectName: null, targetDevice: 'pc-1' });
+    expect(specOf(onLaunch).payload).toMatchObject({ projectId: null, scratch: true, accountId: 'acc-1', permissionMode: '', model: '' });
   });
 
-  it('動きの長さがあっても（実機の CSS）StrictMode で開いて選べる', async () => {
+  it('PC の欄は、選んだプロジェクトを持つ生きている PC だけ', async () => {
+    // 3 分見ていない PC（Old）だけが持つプロジェクトは選べず、Old は PC の欄にも出ない。
+    const feeds = [...twoPcs(), feedOf('pc-3', 'Old', { projects: [{ id: 'p-a', name: 'project-a', lastUsedAt: Date.now() }, { id: 'p-z', name: 'project-z', lastUsedAt: Date.now() }] })];
+    await setup(feeds, { lastSeen: { 'pc-3': Date.now() - 4 * MIN } });
+    expect(within(group('プロジェクト')).queryByRole('radio', { name: /project-z/ })).not.toBeInTheDocument();
+    pick('プロジェクト', /project-a/);
+    expect(within(group('PC')).getAllByRole('radio').map((r) => r.textContent)).toEqual([expect.stringContaining('Mac'), expect.stringContaining('Mini')]);
+    pick('プロジェクト', /project-b/);
+    expect(within(group('PC')).getAllByRole('radio').map((r) => r.textContent)).toEqual([expect.stringContaining('Mini')]);
+  });
+
+  it('プロジェクトが 5 件を超えると、最近の 5 件の札、検索、すべてのシートから選べる', async () => {
+    const many: MobileFeed = feedOf('pc-1', 'Mac', { projects: Array.from({ length: 9 }, (_, i) => ({ id: `p-${i}`, name: `proj-${i}`, lastUsedAt: Date.now() - i * MIN })) });
+    const { onLaunch } = await setup([many]);
+    expect(within(group('プロジェクト')).getAllByRole('radio')).toHaveLength(6);
+    fireEvent.change(screen.getByRole('textbox', { name: 'プロジェクトを検索' }), { target: { value: 'proj-8' } });
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: '検索結果' })).getByRole('radio', { name: /proj-8/ }));
+    fireEvent.change(prompt(), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(specOf(onLaunch)).toMatchObject({ projectName: 'proj-8' });
+  });
+
+  describe('詳しい設定（C3）', () => {
+    it('閉じていて要約 1 行。開くと権限モード、モデル、effort が出る', async () => {
+      await setup();
+      expect(advanced()).toHaveAttribute('aria-expanded', 'false');
+      expect(advanced()).toHaveTextContent('すべてデフォルト');
+      expect(screen.queryByRole('radiogroup', { name: '権限モード' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('radiogroup', { name: 'effort' })).not.toBeInTheDocument();
+      fireEvent.click(advanced());
+      expect(advanced()).toHaveAttribute('aria-expanded', 'true');
+      const perms = within(group('権限モード')).getAllByRole('radio');
+      expect(perms.map((r) => r.getAttribute('data-value'))).toEqual([...PERMISSION_MODE_VALUES]);
+      expect(perms.map((r) => r.textContent)).toEqual(['デフォルト', 'Plan', 'Manual', 'Accept edits', 'Auto', "Don't ask", 'Bypass permissions']);
+      const models = within(group('モデル')).getAllByRole('radio');
+      expect(models.map((r) => r.textContent)).toEqual(['デフォルト', 'fable', 'opus', 'sonnet', 'haiku']);
+      const efforts = within(group('effort')).getAllByRole('radio');
+      expect(efforts.map((r) => r.getAttribute('data-value'))).toEqual([...EFFORT_VALUES]);
+      expect(efforts.map((r) => r.textContent)).toEqual(['デフォルト', 'low', 'medium', 'high', 'xhigh', 'max']);
+      for (const g of [perms, models, efforts]) expect(g[0]).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(advanced());
+      expect(screen.queryByRole('radiogroup', { name: 'effort' })).not.toBeInTheDocument();
+    });
+
+    it('選んだものは、閉じても要約に出る', async () => {
+      await setup();
+      fireEvent.click(advanced());
+      pick('権限モード', 'Plan');
+      pick('モデル', 'opus');
+      pick('effort', 'high');
+      fireEvent.click(advanced());
+      expect(advanced()).toHaveTextContent('権限 Plan · モデル opus · effort high');
+    });
+
+    it('選んだ effort が依頼に入る。デフォルトは入れない', async () => {
+      const { onLaunch } = await setup();
+      pick('プロジェクト', /project-b/);
+      pick('アカウント', /アカウント 2/);
+      fireEvent.change(prompt(), { target: { value: 'a' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Mini で始める' }));
+      expect(specOf(onLaunch).payload).not.toHaveProperty('effort');
+    });
+
+    it('effort high は依頼の effort に入る。選び直してデフォルトに戻せば消える', async () => {
+      const { onLaunch } = await setup();
+      pick('プロジェクト', /project-b/);
+      pick('アカウント', /アカウント 2/);
+      fireEvent.change(prompt(), { target: { value: 'a' } });
+      fireEvent.click(advanced());
+      pick('effort', 'high');
+      pick('effort', 'デフォルト');
+      pick('effort', 'xhigh');
+      fireEvent.click(screen.getByRole('button', { name: 'Mini で始める' }));
+      expect(specOf(onLaunch).payload).toMatchObject({ effort: 'xhigh' });
+    });
+
+    it('xhigh と max には使用量の注意が出る', async () => {
+      await setup();
+      fireEvent.click(advanced());
+      expect(screen.queryByText(/使用量が増えます/)).not.toBeInTheDocument();
+      pick('effort', 'xhigh');
+      expect(screen.getByText('xhigh と max は考える時間が長く、使用量が増えます。')).toBeInTheDocument();
+      pick('effort', 'max');
+      expect(screen.getByText(/使用量が増えます/)).toBeInTheDocument();
+      pick('effort', 'medium');
+      expect(screen.queryByText(/使用量が増えます/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('動きの長さがあっても（実機の CSS）StrictMode で開いて選べ、詳しい設定を畳める', async () => {
     document.documentElement.style.setProperty('--dur-exit', '250ms');
     document.documentElement.style.setProperty('--dur-fast', '200ms');
     try {
       const view = await viewOf(twoPcs());
       render(
         <StrictMode>
-          <NewSessionScreen pairing={pairing} cryptoKey={key} view={view} onClose={vi.fn()} onUnpaired={vi.fn()} />
+          <NewSessionScreen view={view} onLaunch={vi.fn()} onClose={vi.fn()} />
         </StrictMode>,
       );
       pick('プロジェクト', /project-a/);
       pick('PC', /Mac/);
       pick('プロジェクト', /project-b/);
       expect(within(group('PC')).getByRole('radio', { name: /Mini/ })).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(advanced());
+      pick('effort', 'high');
+      fireEvent.click(advanced());
     } finally {
       document.documentElement.style.removeProperty('--dur-exit');
       document.documentElement.style.removeProperty('--dur-fast');
@@ -215,156 +253,14 @@ describe('NewSessionScreen', () => {
   });
 
   it('閉じるで受信箱へ戻る', async () => {
-    const onClose = vi.fn();
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} />);
+    const { onClose } = await setup();
     fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
-    expect(onClose).toHaveBeenCalledWith(false);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('届いたか分からない失敗の後の「もう一度」は同じ id で送り、中身を変えたら新しい id', async () => {
-    let failPosts = 2;
-    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') {
-        const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
-        sent.push(body);
-        if (failPosts > 0) {
-          failPosts--;
-          throw new TypeError('Failed to fetch');
-        }
-        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
-      }
-      return json({ id: url.split('/').pop(), status: 'pending', sealedAnswer: null });
-    });
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    const box = screen.getByRole('textbox', { name: '最初の指示' });
-    fireEvent.change(box, { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText(/通信を確かめて/)).toBeInTheDocument();
-    expect(sent).toHaveLength(2);
-    expect(sent[1]!.id).toBe(sent[0]!.id);
-
-    // 同じ中身で送り直す：同じ id（前のが置けていれば Worker は行を増やさない）。
-    failPosts = 2;
-    fireEvent.click(screen.getByRole('button', { name: 'もう一度' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    await waitFor(() => expect(sent).toHaveLength(4));
-    expect(await screen.findByText(/通信を確かめて/)).toBeInTheDocument();
-    expect(sent.map((b) => b.id)).toEqual([sent[0]!.id, sent[0]!.id, sent[0]!.id, sent[0]!.id]);
-
-    // 中身を変えたら別の依頼：新しい id。
-    fireEvent.click(screen.getByRole('button', { name: 'もう一度' }));
-    fireEvent.change(box, { target: { value: 'b' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText(/受け取るのを待っています/)).toBeInTheDocument();
-    expect(sent).toHaveLength(5);
-    expect(sent[4]!.id).not.toBe(sent[0]!.id);
-    const payload = await open<MobileLaunchPayload>(key, aadLaunch(sent[4]!.id, 'pc-1'), sent[4]!.sealed);
-    expect(payload.prompt).toBe('b');
-  });
-
-  it('始まったと言えない答え（開けない）は「返事を読めませんでした」と出し、接続し直しを勧めない', async () => {
-    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') {
-        const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
-        sent.push(body);
-        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
-      }
-      return json({ id: url.split('/').pop(), status: 'started', sealedAnswer: 'not-a-sealed-value' });
-    });
-    const onClose = vi.fn();
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText(/返事を読めませんでした/)).toBeInTheDocument();
-    expect(screen.queryByText(/始まりました/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '接続し直す' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /受信箱へ/ }));
-    expect(onClose).toHaveBeenCalledWith(true);
-  });
-
-  it('PC が受け取った後に答えが届かないまま時間切れなら「受け取りましたが、結果がまだ届いていません」と出し、もう一度を出さない', async () => {
-    serve([{ status: 'pending' }, { status: 'claimed' }]);
-    const onClose = vi.fn();
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} everyMs={10} giveUpMs={200} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText('Mac は受け取りましたが、結果がまだ届いていません。受信箱で確かめてから送り直してください。')).toBeInTheDocument();
-    expect(screen.queryByText(/受け取りませんでした/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'もう一度' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Mac で始める' })).not.toBeInTheDocument();
-    expect(sent).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: /受信箱へ/ }));
-    expect(onClose).toHaveBeenCalledWith(true);
-  });
-
-  it('PC が受け取らないまま時間切れなら「受け取りませんでした」と出す', async () => {
-    serve([{ status: 'pending' }]);
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} giveUpMs={200} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    expect(await screen.findByText(/Mac が受け取りませんでした/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'もう一度' })).toBeInTheDocument();
-  });
-
-  it('待っている間に 401 なら接続し直しの画面へ', async () => {
-    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') {
-        const body = JSON.parse(init.body as string) as { id: string };
-        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
-      }
-      return json({ error: 'unauthorized' }, 401);
-    });
-    const onUnpaired = vi.fn();
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={onUnpaired} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    await waitFor(() => expect(onUnpaired).toHaveBeenCalledTimes(1));
-  });
-
-  it('送っている間も始めるボタンは同じ要素のまま（フォーカスを落とさない）', async () => {
-    let release: (() => void) | null = null;
-    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') {
-        const body = JSON.parse(init.body as string) as { id: string };
-        await new Promise<void>((r) => (release = r));
-        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
-      }
-      return json({ status: 'pending', sealedAnswer: null });
-    });
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    const btn = screen.getByRole('button', { name: 'Mac で始める' });
-    btn.focus();
-    fireEvent.click(btn);
-    const sending = await screen.findByRole('button', { name: '送っています…' });
-    expect(sending).toBe(btn);
-    await waitFor(() => expect(release).not.toBeNull());
-    release!();
-    expect(await screen.findByText(/受け取るのを待っています/)).toBeInTheDocument();
-  });
-
-  it('待っている間に閉じても、受信箱を読み直す', async () => {
-    serve([{ status: 'pending' }]);
-    const onClose = vi.fn();
-    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} everyMs={10} />);
-    pick('プロジェクト', /project-a/);
-    pick('PC', /Mac/);
-    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
-    await screen.findByText(/受け取るのを待っています/);
-    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
-    expect(onClose).toHaveBeenCalledWith(true);
+  it('受けられる PC が無ければ、その旨だけ出す', async () => {
+    await setup([feedOf('pc-1', 'Mac')], { lastSeen: { 'pc-1': Date.now() - 10 * MIN } });
+    expect(screen.getByRole('status')).toHaveTextContent('新しい会話を受けられる PC がありません');
+    expect(screen.queryByRole('radiogroup', { name: 'プロジェクト' })).not.toBeInTheDocument();
   });
 });

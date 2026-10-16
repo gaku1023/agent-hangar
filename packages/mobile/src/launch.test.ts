@@ -1,7 +1,7 @@
 import { COMPAT_VERSION, aadAnswer, aadLaunch, open, seal, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LaunchError } from './api.ts';
-import { launchChoices, requestLaunch, waitLaunch } from './launch.ts';
+import { LAUNCH_POLL_MS, launchChoices, requestLaunch, waitLaunch } from './launch.ts';
 import { feedOf, makeKey, MIN, NOW } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
@@ -132,6 +132,10 @@ describe('requestLaunch', () => {
 });
 
 describe('waitLaunch', () => {
+  it('読み直しの間隔は 2 秒（呼び鈴で数秒のうちに答えが来る）', () => {
+    expect(LAUNCH_POLL_MS).toBe(2_000);
+  });
+
   const status = async (id: string, s: 'pending' | 'claimed' | 'started' | 'failed' | 'expired', answer?: MobileLaunchAnswer) =>
     json({ id, status: s, sealedAnswer: answer ? await seal(key, aadAnswer(id), answer) : null });
 
@@ -143,10 +147,10 @@ describe('waitLaunch', () => {
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-1', { onStage });
     expect(onStage).toHaveBeenLastCalledWith('waiting');
-    await vi.advanceTimersByTimeAsync(3000);
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage).not.toHaveBeenCalledWith('started', expect.anything());
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('started', answer));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/launches/l-1`);
@@ -156,6 +160,20 @@ describe('waitLaunch', () => {
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
+  it('最初に claimed を見たときだけ onClaimed を呼ぶ', async () => {
+    vi.useFakeTimers();
+    const replies = [await status('l-c', 'pending'), await status('l-c', 'claimed'), await status('l-c', 'claimed')];
+    fetchMock.mockImplementation(async () => replies.shift() ?? (await status('l-c', 'claimed')));
+    const onClaimed = vi.fn();
+    waitLaunch(pairing, key, 'l-c', { onStage: vi.fn(), onClaimed });
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
+    expect(onClaimed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
+    expect(onClaimed).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS * 3);
+    expect(onClaimed).toHaveBeenCalledTimes(1);
+  });
+
   it('failed は開いた答えを渡す', async () => {
     vi.useFakeTimers();
     const answer: MobileLaunchAnswer = { ok: false, reason: 'project-missing' };
@@ -163,7 +181,7 @@ describe('waitLaunch', () => {
     fetchMock.mockImplementation(async () => reply.clone());
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-2', { onStage });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('failed', answer));
   });
 
@@ -197,7 +215,7 @@ describe('waitLaunch', () => {
     fetchMock.mockImplementation(async () => status('l-4', 'expired'));
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-4', { onStage });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage).toHaveBeenLastCalledWith('expired');
   });
 
@@ -219,10 +237,10 @@ describe('waitLaunch', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockImplementation(async () => reply.clone());
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-6', { onStage });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage).toHaveBeenLastCalledWith('waiting');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('started', answer));
   });
 
@@ -233,7 +251,7 @@ describe('waitLaunch', () => {
     fetchMock.mockImplementation(async () => bad.clone());
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-7', { onStage });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('unreadable'));
     expect(onStage).not.toHaveBeenCalledWith('started', expect.anything());
 
@@ -241,7 +259,7 @@ describe('waitLaunch', () => {
     fetchMock.mockImplementation(async () => none.clone());
     const onStage2 = vi.fn();
     waitLaunch(pairing, key, 'l-8', { onStage: onStage2 });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage2).toHaveBeenLastCalledWith('unreadable'));
   });
 
@@ -251,7 +269,7 @@ describe('waitLaunch', () => {
     fetchMock.mockImplementation(async () => reply.clone());
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-9', { onStage });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('unreadable'));
   });
 
@@ -262,14 +280,14 @@ describe('waitLaunch', () => {
     fetchMock.mockImplementation(async () => r1.clone());
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-10', { onStage });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('failed', no));
 
     const r2 = await status('l-11', 'failed', { ok: true, sessionId: 's', title: 't' });
     fetchMock.mockImplementation(async () => r2.clone());
     const onStage2 = vi.fn();
     waitLaunch(pairing, key, 'l-11', { onStage: onStage2 });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage2).toHaveBeenLastCalledWith('unreadable'));
   });
 
@@ -278,13 +296,13 @@ describe('waitLaunch', () => {
     fetchMock.mockImplementation(async () => json({ error: 'unauthorized' }, 401));
     const onStage = vi.fn();
     waitLaunch(pairing, key, 'l-12', { onStage });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage).toHaveBeenLastCalledWith('unpaired');
 
     fetchMock.mockImplementation(async () => json({ error: 'not found' }, 404));
     const onStage2 = vi.fn();
     waitLaunch(pairing, key, 'l-13', { onStage: onStage2 });
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage2).toHaveBeenLastCalledWith('failed');
   });
 });
