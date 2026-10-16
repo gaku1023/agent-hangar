@@ -1,5 +1,6 @@
 import { isSafeKeyId } from '@agent-hangar/shared';
 import type { Env } from './env.ts';
+import { IMAGE_KEEP_MS } from './mobileBlobs.ts';
 
 /**
  * R2 と D1 の食い違いを後から拾う掃除である。
@@ -124,27 +125,40 @@ export async function sweepOnce(env: Env, now: number): Promise<SweepResult> {
   return { bodies: bodies.deleted, entries: entries.deleted, trashed: trashed.deleted };
 }
 
-/** R2 を一覧し、索引に無い本体を消す。 */
+/** スマホの画像の鍵の頭。この下は `files` の索引に載らない（mobileBlobs.ts）。 */
+const IMAGE_PREFIX = 'mobile/';
+const isImage = (key: string): boolean => key.startsWith(IMAGE_PREFIX);
+
+/**
+ * R2 を一覧し、索引に無い本体と、残す時間を過ぎたスマホの画像を消す。
+ *
+ * スマホの画像（`mobile/` の下）は索引に載らないので、索引では判定しない。
+ * 置いてから IMAGE_KEEP_MS（24 時間）より古いものだけを消す。
+ * ふだんは PC の答えと、スマホが置くときの掃除で消える。
+ * 解除したスマホの画像は、その掃除が二度と走らないので、ここでしか消えない。
+ */
 async function sweepBodies(env: Env, now: number): Promise<{ deleted: string[]; cursor: string }> {
   const cutoff = now - SWEEP_GRACE_MS;
+  const imageCutoff = now - IMAGE_KEEP_MS;
   const cursor = (await readMeta(env.DB, META_SWEEP_CURSOR)) ?? '';
   const listed = await env.BUCKET.list({ limit: SWEEP_LIST_LIMIT, cursor: cursor === '' ? undefined : cursor });
   // 続きは、まだ先があるときだけ控える。末尾まで来たら空に戻して次の回は先頭から読み直す。
   const next = listed.truncated ? listed.cursor : '';
-  const old = listed.objects.filter((o) => o.uploaded.getTime() < cutoff).map((o) => o.key);
-  if (old.length === 0) return { deleted: [], cursor: next };
+  const images = listed.objects.filter((o) => isImage(o.key) && o.uploaded.getTime() < imageCutoff).map((o) => o.key);
+  const old = listed.objects.filter((o) => !isImage(o.key) && o.uploaded.getTime() < cutoff).map((o) => o.key);
   const doomed = await unreferenced(env, old);
-  if (doomed.length === 0) return { deleted: [], cursor: next };
+  if (doomed.length === 0 && images.length === 0) return { deleted: [], cursor: next };
   // 消す直前にもう一度確かめる。
   // 一覧と索引の引き当てはどちらも読んだ時点の写しなので、その間に着地した `PUT` を見ていない。
   // R2 に条件付きの削除は無いので窓を 0 にはできないが、ここで取り直せば 1 往復ぶんまで縮む。
   // `PUT` は R2 を先に、索引を後に書くので、索引まで終わっていれば引き当てが拾い、
   // 索引の手前で止まっていれば `uploaded` の新しさが拾う。
-  const still = await unreferenced(env, doomed);
+  // 画像は同じ鍵に置き直されたかを `uploaded` の新しさだけで見る。
+  const still = [...(await unreferenced(env, doomed)), ...images];
   const heads = await Promise.all(still.map((k) => env.BUCKET.head(k)));
-  const safe = still.filter((_, i) => {
+  const safe = still.filter((k, i) => {
     const h = heads[i];
-    return !!h && h.uploaded.getTime() < cutoff;
+    return !!h && h.uploaded.getTime() < (isImage(k) ? imageCutoff : cutoff);
   });
   if (safe.length) await env.BUCKET.delete(safe);
   return { deleted: safe, cursor: next };
