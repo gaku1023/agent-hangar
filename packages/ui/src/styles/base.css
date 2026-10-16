@@ -390,6 +390,19 @@ a:hover { text-decoration: underline; }
 .notice[data-kind='update'] { --k: var(--accent); cursor: default; }
 .notice[data-kind='update'][data-tone='ok'] { --k: var(--st-done); }
 .notice[data-kind='update'][data-tone='err'] { --k: var(--error); }
+.notice[data-kind='whats-new'] { --k: var(--st-done); cursor: default; }
+/* リリースノートの注意（「更新の前に」の節）。ほかの PC や Worker とそろえる話なので、Paused と同じ黄の地で目立たせ、3 行まで見せる。 */
+.notice-before { margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--st-paused-soft); color: color-mix(in srgb, var(--st-paused) 70%, var(--ink)); font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; }
+.notice-before > span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.notice-before strong { margin-right: calc(var(--u) * 2); color: var(--st-paused); }
+/* 要点は 1 つ 2 行まで。全部は設定の「更新」の節で読む。 */
+.notice-points { margin: calc(var(--u) * 1.5) 0 0; padding: 0; list-style: none; font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-2); }
+/* 点は自前で描く。WebKit は、行を切る箱だけを子に持つ項目に点を描かない。 */
+.notice-points > li { position: relative; padding-left: 14px; }
+.notice-points > li::before { content: ''; position: absolute; left: 3px; top: calc(0.75em - 2px); width: 4px; height: 4px; border-radius: 50%; background: var(--ink-3); }
+.notice-points > li > span { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.notice-points > li + li { margin-top: 2px; }
+.btn-link.notice-link { margin-right: auto; font-size: var(--fs-sm); font-weight: 600; }
 .notice-sub { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 /* 取得の進み。大きさが分からないときは、短い帯が左右に行き来する（動きを減らす設定では止めて全幅を薄く敷く）。 */
 .update-bar { position: relative; height: 4px; margin-top: calc(var(--u) * 2); border-radius: var(--r-pill); background: var(--line-strong); overflow: hidden; }

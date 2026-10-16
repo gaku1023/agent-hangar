@@ -55,13 +55,13 @@ function cloudReplyOf<T>(r: unknown, key: 'plan' | 'result'): CloudReply<T> {
 /**
  * 殻の updater に頼む口（src-tauri/src/updater.rs）。
  * status は動いている版と取得の進み（total は大きさが分からなければ null）を返す。取得の最中に繰り返し読む。
- * check は GitHub の Release の目録を引き、新しい版があればその版を、無ければ null を返す。
+ * check は GitHub の Release の目録を引き、新しい版があればその版とノート（目録の notes、無ければ null）を、無ければ版も null を返す。
  * download は check で見つけた版を取得し、署名を確かめて殻の中に持つ。install はそれを入れて再起動する（戻らないことがある）。
  * 失敗は UpdateFailure で投げる。
  */
 export type UpdateBridge = {
   status(): Promise<{ current: string; done: number; total: number | null }>;
-  check(): Promise<{ version: string | null }>;
+  check(): Promise<{ version: string | null; notes: string | null }>;
   download(): Promise<void>;
   install(): Promise<void>;
 };
@@ -148,8 +148,8 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
         return { current: r.current, done: count(r.done), total: typeof r.total === 'number' && r.total > 0 ? r.total : null };
       },
       check: async () => {
-        const r = await invoke(UPDATE_COMMANDS.check).catch((e: unknown) => { throw updateFailureOf(e); }) as { version?: unknown } | null;
-        return { version: typeof r?.version === 'string' ? r.version : null };
+        const r = await invoke(UPDATE_COMMANDS.check).catch((e: unknown) => { throw updateFailureOf(e); }) as { version?: unknown; notes?: unknown } | null;
+        return { version: typeof r?.version === 'string' ? r.version : null, notes: typeof r?.notes === 'string' ? r.notes : null };
       },
       download: async () => { await invoke(UPDATE_COMMANDS.download).catch((e: unknown) => { throw updateFailureOf(e); }); },
       install: async () => { await invoke(UPDATE_COMMANDS.install).catch((e: unknown) => { throw updateFailureOf(e); }); },

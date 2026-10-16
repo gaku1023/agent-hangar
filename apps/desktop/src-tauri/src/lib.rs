@@ -484,6 +484,7 @@ fn check_update_after_failure(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let Ok(updater::Found {
             version: Some(version),
+            ..
         }) = find_update(&app).await
         else {
             return;
@@ -1570,6 +1571,7 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
         log(&format!("update: checked while {version} is in progress"));
         return Ok(updater::Found {
             version: Some(version),
+            notes: None,
         });
     }
     let handle = app.clone();
@@ -1587,14 +1589,18 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
         .await
         .map_err(|e| update_failed("check", &e))?;
     let seen = found.as_ref().map(|u| u.version.clone());
+    let notes = found
+        .as_ref()
+        .and_then(|u| u.body.clone())
+        .filter(|b| !b.trim().is_empty());
     let checked = slot.flow.lock().unwrap().checked(found);
-    let version = match checked {
+    let (version, notes) = match checked {
         updater::Checked::Kept(version) => {
             log(&format!(
                 "update: checked, found {}",
                 version.as_deref().unwrap_or("none")
             ));
-            version
+            (version, notes)
         }
         // 目録を引いている間に、別の頁が取得を始めていた。見つけた版は捨て、途中の版を答える。
         updater::Checked::Busy(version) => {
@@ -1602,10 +1608,10 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
                 "update: checked, found {} but kept {version} in progress",
                 seen.as_deref().unwrap_or("none")
             ));
-            Some(version)
+            (Some(version), None)
         }
     };
-    Ok(updater::Found { version })
+    Ok(updater::Found { version, notes })
 }
 
 /// 見つけた版を取得し、公開鍵で署名を確かめて持っておく。進みは update_status で読める。

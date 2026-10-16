@@ -2338,7 +2338,7 @@ describe('殻の操作（ランタイム）', () => {
     expect(desktop.restart).toHaveBeenCalled();
   });
   it('殻が updater を持てば、起動したら確認して Store の update に置き、画面の操作を殻に頼む', async () => {
-    const update = { status: vi.fn(async () => ({ current: '1.4.2', done: 0, total: null })), check: vi.fn(async () => ({ version: '1.5.0' })), download: vi.fn(async () => {}), install: vi.fn(async () => {}) };
+    const update = { status: vi.fn(async () => ({ current: '1.4.2', done: 0, total: null })), check: vi.fn(async () => ({ version: '1.5.0', notes: null })), download: vi.fn(async () => {}), install: vi.fn(async () => {}) };
     const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update };
     const { rt } = harness({}, { desktop });
     rt.start();

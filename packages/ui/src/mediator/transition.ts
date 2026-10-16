@@ -59,6 +59,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
   const todos = (s: State, i: Input) => todosStep(s, store, i);
   const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
+  const update = (s: State, i: Input) => updateStep(s, store, i);
   const configSync = (s: State, i: Input) => configSyncStep(s, store, i);
   const connection = (s: State, i: Input) => connectionStep(s, store, i);
   const launch = (s: State, i: Input) => launchStep(s, store, i);
@@ -68,7 +69,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
   const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, projectRailStep, returnStep, arrived, noticesStep, notifyStep, updateStep, cloudMemberStep, todos, workbench]) {
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, projectRailStep, returnStep, arrived, noticesStep, notifyStep, update, cloudMemberStep, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }

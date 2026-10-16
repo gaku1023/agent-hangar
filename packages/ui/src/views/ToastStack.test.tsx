@@ -8,7 +8,7 @@ import type { UpdateCardProps } from '../presenters/update.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, reason: null, ask: null, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, ...over });
 function mount(p: ToastsProps) {
   const onAction = vi.fn();
   const r = render(<ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot>);
@@ -195,6 +195,7 @@ describe('info と error のトースト', () => {
 describe('更新の札', () => {
   const upd = (over: Partial<UpdateCardProps> = {}): UpdateCardProps => ({
     kind: 'available', tone: 'info', head: '更新あり', title: 'Hangar 1.5.0 を利用できます', detail: '現在は 1.4.2 です。', progress: null,
+    beforeLabel: '更新の前に', before: null, points: [],
     actions: [{ label: 'ダウンロードしてインストール', action: { type: 'update.download' }, primary: true }, { label: 'あとで', action: { type: 'update.dismiss' }, primary: false }],
     ...over,
   });
@@ -218,6 +219,26 @@ describe('更新の札', () => {
   it('大きさが分からないときの棒は値を持たない', () => {
     mount(props({ update: upd({ kind: 'downloading', head: 'ダウンロード中', title: 'Hangar 1.5.0', detail: null, progress: { percent: null, label: 'ダウンロードしています…' }, actions: [] }) }));
     expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+  });
+  it('ノートがあれば、注意を先頭に、要点を箇条書きで載せ、ノートを読むを文字だけのボタンにする', () => {
+    const { onAction } = mount(props({ update: upd({ before: 'すべての PC を上げてください。', points: ['一つ目', '二つ目'], actions: [{ label: 'ノートを読む', action: { type: 'nav.go', to: { name: 'settings', at: 'update' } }, primary: false, link: true }] }) }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="update"]')!;
+    expect(within(c).getByText('更新の前に')).toBeInTheDocument();
+    expect(within(c).getByText('すべての PC を上げてください。')).toBeInTheDocument();
+    expect(within(c).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['一つ目', '二つ目']);
+    const read = within(c).getByRole('button', { name: 'ノートを読む' });
+    expect(read).toHaveClass('btn-link');
+    fireEvent.click(read);
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'update' } });
+  });
+  it('更新したあとの札は、要点と含む版を出し、閉じるとすべて読むを置く', () => {
+    const { onAction } = mount(props({ whatsNew: { head: '更新しました', title: 'Hangar 1.4.2 になりました', beforeLabel: '更新の前に', before: null, points: ['直した。'], sub: '1.4.1 の分も含みます', actions: [{ label: '閉じる', action: { type: 'update.notesClose' }, primary: false }, { label: 'すべて読む', action: { type: 'update.notesRead' }, primary: true }] } }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="whats-new"]')!;
+    expect(c).toHaveAttribute('data-tone', 'ok');
+    expect(within(c).getByText('Hangar 1.4.2 になりました')).toBeInTheDocument();
+    expect(within(c).getByText('1.4.1 の分も含みます')).toBeInTheDocument();
+    fireEvent.click(within(c).getByRole('button', { name: 'すべて読む' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'update.notesRead' });
   });
   it('入力待ちのカードより上（窓の角から遠い側）に積む', () => {
     mount(props({ update: upd(), waiting: [card('s1')] }));

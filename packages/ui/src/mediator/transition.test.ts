@@ -871,6 +871,14 @@ describe('アプリの更新', () => {
       expect(r.state).toBe(start);
     }
   });
+
+  it('更新後の札を閉じると札で見せた版を渡し、すべて読むは設定の更新の節へも移る', () => {
+    const note = (version: string) => ({ version, body: '', before: null, points: [] });
+    const store: Store = { ...initialStore(), update: { ...initialStore().update, supported: true, current: '1.4.2', seenNotes: '1.4.0', notes: [note('1.4.2'), note('1.4.1'), note('1.4.0')] } };
+    const seen = { kind: 'update', command: { op: 'notesSeen', open: ['1.4.2', '1.4.1'] } };
+    expect(run([action({ type: 'update.notesClose' })], initialState(), store).effects).toEqual([seen]);
+    expect(run([action({ type: 'update.notesRead' })], initialState(), store).effects).toEqual([seen, { kind: 'navigate', route: { name: 'settings', at: 'update' } }]);
+  });
 });
 
 describe('設定', () => {

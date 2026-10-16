@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
-import type { UpdateCardProps } from '../presenters/update.ts';
+import type { UpdateAct, UpdateCardProps, WhatsNewCardProps } from '../presenters/update.ts';
 import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -27,14 +27,14 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'arrived'; count: number };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
 const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind);
 const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${c.card.sessionId}`);
 
 /**
  * 画面右下に積む知らせ。
- * 上から error と info のトースト、更新の札、他の PC から届いたプロジェクトの札、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 上から error と info のトースト、更新の札、更新したあとの札、他の PC から届いたプロジェクトの札、並べきれない入力待ちの数、入力待ちのカードの順に積む。
  * トーストは操作の結果だけである。戻る時刻の札はホームの帯に、通知の誘いは始める前の確認に、保持期間と互換の知らせはヘッダーの注意にある。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
@@ -48,6 +48,7 @@ export function ToastStack(props: ToastsProps) {
   const tops: TopCard[] = [
     ...props.toasts.map((toast) => ({ kind: 'toast' as const, toast })),
     ...(props.update ? [{ kind: 'update' as const, card: props.update }] : []),
+    ...(props.whatsNew ? [{ kind: 'whatsNew' as const, card: props.whatsNew }] : []),
     ...(props.arrived ? [{ kind: 'arrived' as const, count: props.arrived.count }] : []),
   ];
   const waits: WaitingItem[] = [
@@ -62,6 +63,7 @@ export function ToastStack(props: ToastsProps) {
         const m = { ref: top.ref(key), leaving };
         if (item.kind === 'toast') return item.toast.level === 'error' ? <ErrorToast key={key} toast={item.toast} motion={m} /> : <InfoToast key={key} toast={item.toast} motion={m} />;
         if (item.kind === 'update') return <UpdateCard key={key} card={item.card} motion={m} />;
+        if (item.kind === 'whatsNew') return <WhatsNewCard key={key} card={item.card} motion={m} />;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
       })}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
@@ -144,7 +146,6 @@ function ArrivedCard(props: { count: number; blocked: boolean; motion: CardMotio
  * 画面を移さないので、ダイアログが開いていても押せる。
  */
 function UpdateCard(props: { card: UpdateCardProps; motion: CardMotion }) {
-  const emit = useEmit();
   const t = useT();
   const c = props.card;
   return (
@@ -164,12 +165,53 @@ function UpdateCard(props: { card: UpdateCardProps; motion: CardMotion }) {
           </>
         )}
         {c.detail !== null && <div className="notice-sub">{c.detail}</div>}
-        {c.actions.length > 0 && (
-          <div className="notice-acts">
-            {c.actions.map((a) => <button key={a.label} type="button" className={`btn btn-sm ${a.primary ? 'btn-primary' : 'btn-ghost'}`} onClick={() => emit(a.action)}>{a.label}</button>)}
-          </div>
-        )}
+        <NotePoints beforeLabel={c.beforeLabel} before={c.before} points={c.points} />
+        <NoticeActs actions={c.actions} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * 更新したあと、初めて開いたときの札（試作の B1）。要点と、版を飛ばしたときに含む版を言い、閉じるかすべて読むで下げる。
+ * 時間では消えない。読みに行かなくても、閉じれば次の版までは出さない。
+ */
+function WhatsNewCard(props: { card: WhatsNewCardProps; motion: CardMotion }) {
+  const c = props.card;
+  return (
+    <div className="toast notice" data-kind="whats-new" data-tone="ok" role="status" {...motionAttrs(props.motion)}>
+      <div className="notice-head">
+        <Icon name="check" />
+        <span className="notice-label">{c.head}</span>
+      </div>
+      <div className="notice-body">
+        <div className="notice-title">{c.title}</div>
+        <NotePoints beforeLabel={c.beforeLabel} before={c.before} points={c.points} />
+        {c.sub !== null && <div className="notice-sub">{c.sub}</div>}
+        <NoticeActs actions={c.actions} />
+      </div>
+    </div>
+  );
+}
+
+/** リリースノートの注意（黄色い地、試作の C1）と要点の箇条書き。どちらも無ければ何も描かない。 */
+function NotePoints(props: { beforeLabel: string; before: string | null; points: string[] }) {
+  return (
+    <>
+      {/* 行を切るのは内側の span にする。外側で切ると、地の余白に次の行が覗き、箇条書きの点も消える。 */}
+      {props.before !== null && <div className="notice-before"><span><strong>{props.beforeLabel}</strong>{props.before}</span></div>}
+      {props.points.length > 0 && <ul className="notice-points">{props.points.map((p) => <li key={p}><span>{p}</span></li>)}</ul>}
+    </>
+  );
+}
+
+/** 札の操作の段。link の操作は枠の無い文字だけにして、左に寄せる。 */
+function NoticeActs(props: { actions: UpdateAct[] }) {
+  const emit = useEmit();
+  if (props.actions.length === 0) return null;
+  return (
+    <div className="notice-acts">
+      {props.actions.map((a) => <button key={a.label} type="button" className={a.link ? 'btn-link notice-link' : `btn btn-sm ${a.primary ? 'btn-primary' : 'btn-ghost'}`} onClick={() => emit(a.action)}>{a.label}</button>)}
     </div>
   );
 }

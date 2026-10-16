@@ -46,4 +46,13 @@ export const updateKeys = {
   'update.settings.notifyOn': [],
   'update.settings.notifyOff': [],
   'update.settings.unsupported': [],
+  'update.card.readNotes': [],
+  'update.notes.before': [],
+  'update.notes.title': [],
+  'update.notes.inUse': [],
+  'update.notes.next': [],
+  'update.whatsNew.head': [],
+  'update.whatsNew.title': ['version'],
+  'update.whatsNew.includes': ['versions'],
+  'update.whatsNew.readAll': [],
 } as const satisfies MessageSpec;

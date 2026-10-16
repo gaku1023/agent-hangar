@@ -1,6 +1,7 @@
 // updater の目録（latest.json）を作る。release.yml の publish ジョブが動かす。
-// 使い方: node --experimental-strip-types scripts/updater-manifest.ts <置き場> <タグ> <owner/repo>
+// 使い方: node --experimental-strip-types scripts/updater-manifest.ts <置き場> <タグ> <owner/repo> [<リリースノート>]
 // 置き場には、各 OS の更新物の署名（Release の資産の名前 + .sig）が入っている。
+// リリースノート（正式な版の docs/release-notes/<版>.md）を渡せば、中身を notes に入れる。アプリは新しい版の札と設定の「更新」の節に出す。試しの版は渡さず、空にする。
 // 目録は tauri-plugin-updater の静的な形で、アプリは tauri.conf.json の endpoints（Release の最新の latest.json）からこれを引く。
 // CI のこのジョブは npm ci をしないので、Node が型を剥がすだけで動く書き方（import は node: だけ）にしておく。
 import fs from 'node:fs';
@@ -38,11 +39,12 @@ export function readEntries(dir: string): ManifestEntry[] {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [dir, tag, repo] = process.argv.slice(2);
+  const [dir, tag, repo, notesPath] = process.argv.slice(2);
   if (!dir || !tag || !repo) {
-    console.error('usage: updater-manifest.ts <dir> <tag> <owner/repo>');
+    console.error('usage: updater-manifest.ts <dir> <tag> <owner/repo> [<release-notes.md>]');
     process.exit(2);
   }
-  const m = buildManifest({ tag, repo, pubDate: new Date().toISOString(), notes: '', entries: readEntries(dir) });
+  const notes = notesPath ? fs.readFileSync(notesPath, 'utf8') : '';
+  const m = buildManifest({ tag, repo, pubDate: new Date().toISOString(), notes, entries: readEntries(dir) });
   process.stdout.write(`${JSON.stringify(m, null, 2)}\n`);
 }

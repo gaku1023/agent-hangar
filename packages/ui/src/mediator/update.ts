@@ -1,4 +1,7 @@
 import type { UpdateCommand } from '../runtime/updater.ts';
+import type { Store } from '../store/store.ts';
+import { whatsNew } from '../store/update.ts';
+import { screenStep } from './screen.ts';
 import type { Input, State, Step } from './types.ts';
 
 /**
@@ -6,10 +9,17 @@ import type { Input, State, Step } from './types.ts';
  * 更新の段階（確認中、新しい版あり、取得中、準備完了、失敗）は殻の updater の結果で、Runtime しか知らない事実なので、Store が持つ（store/update.ts）。
  * ここは画面の操作を効果にするだけで、State は変えない（通知の切り替えの notify.ts と同じ作り）。
  * 効果は Runtime が runtime/updater.ts の run に渡す。
+ * 更新後の札（リリースノート）を閉じると、札で見せた版を渡し、設定の履歴でその版を開いておく。読みに行くときは設定の「更新」の節へも移る。
  */
-export function updateStep(state: State, input: Input): Step | null {
+export function updateStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind !== 'action') return null;
   const a = input.action;
+  if (a.type === 'update.notesClose' || a.type === 'update.notesRead') {
+    const seen: Step = { state, effects: [{ kind: 'update', command: { op: 'notesSeen', open: whatsNew(store.update).map((n) => n.version) } }] };
+    if (a.type === 'update.notesClose') return seen;
+    const moved = screenStep(state, store, { kind: 'action', action: { type: 'nav.go', to: { name: 'settings', at: 'update' } } });
+    return moved ? { state: moved.state, effects: [...seen.effects, ...moved.effects] } : seen;
+  }
   const command: UpdateCommand | null = a.type === 'update.check' ? { op: 'check' }
     : a.type === 'update.download' ? { op: 'download' }
       : a.type === 'update.install' ? { op: 'install' }
