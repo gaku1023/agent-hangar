@@ -7,22 +7,25 @@ const apiKey: AccountAuthDto = { loggedIn: true, email: null, plan: null, orgNam
 
 describe('remoteControlAllowed', () => {
   it('設定が入で、claude.ai のログインで、環境が空なら true', () => {
-    expect(remoteControlAllowed({ enabled: true, auth: claudeAi, env: {} })).toBe(true);
-    expect(remoteControlAllowed({ enabled: true, auth: claudeAi, env: { ANTHROPIC_BASE_URL: '', ANTHROPIC_API_KEY: undefined, PATH: '/usr/bin' } })).toBe(true);
+    expect(remoteControlAllowed({ enabled: true, supported: true, auth: claudeAi, env: {} })).toBe(true);
+    expect(remoteControlAllowed({ enabled: true, supported: true, auth: claudeAi, env: { ANTHROPIC_BASE_URL: '', ANTHROPIC_API_KEY: undefined, PATH: '/usr/bin' } })).toBe(true);
   });
   it('設定が切なら false', () => {
-    expect(remoteControlAllowed({ enabled: false, auth: claudeAi, env: {} })).toBe(false);
+    expect(remoteControlAllowed({ enabled: false, supported: true, auth: claudeAi, env: {} })).toBe(false);
   });
   it('API キーの認証では false', () => {
-    expect(remoteControlAllowed({ enabled: true, auth: apiKey, env: {} })).toBe(false);
-    expect(remoteControlAllowed({ enabled: true, auth: claudeAi, env: { ANTHROPIC_API_KEY: 'sk-ant-fake' } })).toBe(false);
+    expect(remoteControlAllowed({ enabled: true, supported: true, auth: apiKey, env: {} })).toBe(false);
+    expect(remoteControlAllowed({ enabled: true, supported: true, auth: claudeAi, env: { ANTHROPIC_API_KEY: 'sk-ant-fake' } })).toBe(false);
   });
   it('ANTHROPIC_BASE_URL があれば false', () => {
-    expect(remoteControlAllowed({ enabled: true, auth: claudeAi, env: { ANTHROPIC_BASE_URL: 'https://proxy.example.com' } })).toBe(false);
+    expect(remoteControlAllowed({ enabled: true, supported: true, auth: claudeAi, env: { ANTHROPIC_BASE_URL: 'https://proxy.example.com' } })).toBe(false);
+  });
+  it('手元の claude の --help に --remote-control が無い（または読めていない）なら false', () => {
+    expect(remoteControlAllowed({ enabled: true, supported: false, auth: claudeAi, env: {} })).toBe(false);
   });
   it('auth が null（読めない）なら false、ログインしていなくても false', () => {
-    expect(remoteControlAllowed({ enabled: true, auth: null, env: {} })).toBe(false);
-    expect(remoteControlAllowed({ enabled: true, auth: { ...claudeAi, loggedIn: false }, env: {} })).toBe(false);
+    expect(remoteControlAllowed({ enabled: true, supported: true, auth: null, env: {} })).toBe(false);
+    expect(remoteControlAllowed({ enabled: true, supported: true, auth: { ...claudeAi, loggedIn: false }, env: {} })).toBe(false);
   });
 });
 
