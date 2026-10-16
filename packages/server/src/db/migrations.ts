@@ -507,6 +507,32 @@ alter table session_states add column restored_at integer;
 `;
 
 /**
+ * 版 28。ほかの PC で動いている会話を止めて引き継ぐための共有表を 2 つと、runs.live_status を足す（2026-10-16）。
+ * - takeovers は、引き継ぐ側が書く「止めて」の頼みである。mode が ask なら相手の返事を待ち、force なら待たずに引き継ぐ印である。
+ * - takeover_answers は、頼まれた側が書く応答である。止めたか（stopped）、すでに動いていなかったか（not_running）と、最後に上げた本文の sha256 と大きさを載せる。
+ * - runs.live_status は、持ち主が書く run の状態（作業中、入力待ち、アイドル）の写しである。
+ * 同期する表には check を付けない。後の版が値を足しても、古い PC の適用が落ちないようにするためである。
+ * 外部キーも付けない。頼みは相手の行より先に届きうる一時の行だからである。
+ * クラウド（Worker）のマイグレーションは要らない（行は JSON の payload のまま運ぶ）が、表を知る版が要るので互換の版を 6 に上げた。
+ * 古い PC は知らない列（live_status）を適用で捨てる（sync/apply.ts の tableColumns）。
+ */
+const V28_TAKEOVER_SQL = `
+create table takeovers (
+  id text primary key, session_id text not null, run_id text not null,
+  target_device text not null, from_device text not null, requested_at integer not null,
+  mode text not null, cancelled_at integer,
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+create index takeovers_target on takeovers(target_device, run_id);
+create table takeover_answers (
+  ask_id text primary key, run_id text not null, result text not null, answered_at integer not null,
+  transcript_sha256 text, transcript_size integer,
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+alter table runs add column live_status text;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -524,4 +550,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 25, sql: V25_SESSION_PLACEMENT_SQL },
   { version: 26, sql: V26_SESSION_TRASH_SQL },
   { version: 27, sql: V27_SESSION_RESTORED_SQL },
+  { version: 28, sql: V28_TAKEOVER_SQL },
 ];

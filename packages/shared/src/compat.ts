@@ -22,10 +22,16 @@
  * 版 4 の端末は一覧と解除を呼ばないので、混ざっても困らない（MIN_DEVICE_COMPAT は 4 のまま）。端末は、Worker が名乗る版が DEVICE_ADMIN_MIN_WORKER_COMPAT に届くまで、一覧と解除を「Worker の更新が要る」と出す。
  * 版を上げたのは殻とサーバの合図のためでもある。版 4 の殻が版 5 のサーバを採ると、画面が殻に無い命令を呼ぶ。
  *
+ * 版 6（0.7.1）：Worker が、引き継ぎの頼みと応答の行（共有表 takeovers と takeover_answers）を受け取れる。
+ * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ操作になるための表である。
+ * 版 5 までの Worker は、この 2 表の行を含む push を 400 で丸ごと断る。端末は、Worker が名乗る版が TAKEOVER_MIN_WORKER_COMPAT に届くまで、この 2 表の行を書かない。
+ * 版 5 までの端末はこの 2 表を知らずに捨てるので、頼みが届かない。頼んだ側は 90 秒で打ち切る経路に落ちるだけで、ほかの表は今までどおり運ぶ。
+ * そのため下限は上げない（MIN_DEVICE_COMPAT は 4、MIN_WORKER_COMPAT は今のまま）。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 5;
+export const COMPAT_VERSION = 6;
 
 /**
  * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。
@@ -41,6 +47,14 @@ export const DEVICE_ADMIN_MIN_WORKER_COMPAT = 5;
  * 端末に求める下限（MIN_DEVICE_COMPAT）と MIN_WORKER_COMPAT は、これでは上げない。上げると配備前の Worker を使う端末が全部止まる。
  */
 export const CONFIG_BUNDLE_MIN_WORKER_COMPAT = 3;
+
+/**
+ * 引き継ぎの頼みと応答の行（共有表 takeovers と takeover_answers）を受け取れる Worker の版。
+ * 版 5 までの Worker は、この 2 表の行を含む push を 400 で丸ごと断るので、他の表の同期まで止まる。
+ * 端末は、Worker が名乗る版がこの値に届くまで、この 2 表の行を書かない（CONFIG_BUNDLE_MIN_WORKER_COMPAT と同じ扱い）。
+ * 端末に求める下限（MIN_DEVICE_COMPAT）と MIN_WORKER_COMPAT は、これでは上げない。
+ */
+export const TAKEOVER_MIN_WORKER_COMPAT = 6;
 
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';

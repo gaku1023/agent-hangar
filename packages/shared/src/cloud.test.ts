@@ -27,8 +27,8 @@ describe('鍵と表', () => {
     expect(configKey('dev1', 'CLAUDE.md')).not.toBe(configKey('dev2', 'CLAUDE.md'));
     expect(splitFileKey(configKey('dev1', 'skills/x/SKILL.md'))).toEqual({ prefix: 'config', rel: 'dev1/skills/x/SKILL.md' });
   });
-  it('共有テーブルは 14 で、主キーは session_summaries と session_states と project_memos と config_snapshots だけが違う', () => {
-    expect(SHARED_TABLES).toHaveLength(14);
+  it('共有テーブルは 16 で、主キーは session_summaries と session_states と project_memos と config_snapshots だけが違う', () => {
+    expect(SHARED_TABLES).toHaveLength(16);
     expect(SHARED_TABLES).not.toContain('takeover_requests');
     expect(Object.keys(TABLE_PK).sort()).toEqual([...SHARED_TABLES].sort());
     expect(TABLE_PK.session_summaries).toBe('session_id');
@@ -36,9 +36,16 @@ describe('鍵と表', () => {
     expect(TABLE_PK.session_notes).toBe('session_id');
     expect(TABLE_PK.project_memos).toBe('project_id');
     expect(TABLE_PK.runs).toBe('id');
-    // 設定の束（PC ごとに 1 行）。主キーは端末の ID で、子として親を持たないので末尾に置く。
+    // 設定の束（PC ごとに 1 行）。主キーは端末の ID で、子として親を持たない。
     expect(TABLE_PK.config_snapshots).toBe('device_id');
-    expect(SHARED_TABLES[SHARED_TABLES.length - 1]).toBe('config_snapshots');
+    // 引き継ぎの頼みと応答は、親を持たない一時の行なので末尾に置く。
+    expect(SHARED_TABLES.slice(-2)).toEqual(['takeovers', 'takeover_answers']);
+  });
+  it('引き継ぎの頼みと応答は共有表で運ぶ', () => {
+    expect(SHARED_TABLES).toContain('takeovers');
+    expect(SHARED_TABLES).toContain('takeover_answers');
+    expect(TABLE_PK.takeovers).toBe('id');
+    expect(TABLE_PK.takeover_answers).toBe('ask_id');
   });
   it('session_states は session_summaries の直後に適用する（親の sessions より後）', () => {
     expect(SHARED_TABLES.indexOf('session_states')).toBe(SHARED_TABLES.indexOf('session_summaries') + 1);

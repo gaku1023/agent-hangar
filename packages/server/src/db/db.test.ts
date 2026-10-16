@@ -12,9 +12,16 @@ describe('openDb', () => {
   it('共有テーブル、ローカルテーブル、FTS を作る', () => {
     const db = openDb(':memory:');
     const names = db.prepare("select name from sqlite_master where type in ('table') order by name").all().map((r) => (r as { name: string }).name);
-    for (const t of ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'todos', 'project_memos', 'artifacts', 'artifact_versions', 'takeover_requests', 'changes', 'transcript_files', 'event_index', 'event_fts', 'session_stats', 'usage_snapshots', 'sync_state', 'settings_local', 'mcp_secrets', 'schema_migrations', 'session_activity', 'session_states']) {
+    for (const t of ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'todos', 'project_memos', 'artifacts', 'artifact_versions', 'takeover_requests', 'takeovers', 'takeover_answers', 'changes', 'transcript_files', 'event_index', 'event_fts', 'session_stats', 'usage_snapshots', 'sync_state', 'settings_local', 'mcp_secrets', 'schema_migrations', 'session_activity', 'session_states']) {
       expect(names, t).toContain(t);
     }
+  });
+  it('引き継ぎの表と runs.live_status がある（版 28）', () => {
+    const db = openDb(':memory:');
+    const cols = (t: string) => (db.prepare(`select name from pragma_table_info('${t}')`).all() as { name: string }[]).map((r) => r.name);
+    expect(cols('runs')).toContain('live_status');
+    expect(cols('takeovers')).toEqual(expect.arrayContaining(['id', 'session_id', 'run_id', 'target_device', 'from_device', 'requested_at', 'mode', 'cancelled_at', 'updated_at', 'deleted_at', 'origin_device']));
+    expect(cols('takeover_answers')).toEqual(expect.arrayContaining(['ask_id', 'run_id', 'result', 'answered_at', 'transcript_sha256', 'transcript_size', 'updated_at', 'deleted_at', 'origin_device']));
   });
   it('二度開いてもマイグレーションを重ねて適用しない', () => {
     const db = openDb(':memory:');
