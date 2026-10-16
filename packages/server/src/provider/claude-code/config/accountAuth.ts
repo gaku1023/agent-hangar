@@ -3,6 +3,7 @@ import type { AccountAuthDto } from '@agent-hangar/shared';
 import { authStatusDrifts } from '../compat/cli.ts';
 import { NO_COMPAT, type CompatSink } from '../compat/types.ts';
 import { PRIMARY_ACCOUNT_ID, type Account } from '../../../config/accounts.ts';
+import { needsShell } from '../../../platform/exec.ts';
 
 export type RunClaude = (bin: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal) => Promise<{ code: number | null; stdout: string }>;
 
@@ -16,8 +17,19 @@ const AUTH_OVERRIDES = ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUT
  * 標準出力はパイプで読む。claude はパイプへ書き切る前に終わることがあり、パイプの容量（8KB〜16KB）を越える出力は切れうるが、
  * ここで読むのは `auth status --json`（1 つのログインを表す数項目の JSON、1KB に満たない）だけで、`auth login` の出力は読まない。
  */
-const realRun: RunClaude = (bin, args, env, timeoutMs, signal) => new Promise((resolve, reject) => {
-  execFile(bin, args, { env, timeout: timeoutMs, signal, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 1024 * 1024 }, (err, stdout) => {
+/**
+ * claude の起こし方。Windows の .cmd と .bat（npm で入れた claude）は cmd.exe を通さないと起こせない（execFile が EINVAL で投げる）。
+ * そのときはパスを引用符で包み、引数と 1 本の命令にして cmd.exe に渡す。
+ * 引数を別に渡すと、Node が shell と引数の組み合わせに DEP0190 の警告を出すためである。
+ * 引数は hangar が決めた固定の語（auth status --json、auth login）だけなので、引用の心配は無い。
+ */
+export function claudeExecOf(bin: string, args: string[], platform: NodeJS.Platform = process.platform): { file: string; args: string[]; shell: boolean } {
+  return needsShell(bin, platform) ? { file: [`"${bin}"`, ...args].join(' '), args: [], shell: true } : { file: bin, args, shell: false };
+}
+
+const realRun: RunClaude = (bin, argv, env, timeoutMs, signal) => new Promise((resolve, reject) => {
+  const { file, args, shell } = claudeExecOf(bin, argv);
+  execFile(file, args, { env, shell, windowsHide: true, timeout: timeoutMs, signal, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 1024 * 1024 }, (err, stdout) => {
     // 終了コードが 0 でないだけなら、標準出力を読む側に任せる。起動できない、時間切れは失敗にする。
     if (err) {
       const code: unknown = (err as { code?: unknown }).code;
