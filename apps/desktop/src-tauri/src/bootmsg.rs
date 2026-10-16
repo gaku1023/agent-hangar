@@ -57,29 +57,29 @@ impl Msg {
                 format!("サーバが {secs} 秒以内に応答しませんでした。{log} を確認してください。")
             }
             Msg::TokenUnreadable { file, log } => {
-                format!("入場の鍵が読めません: {file}\nサーバが鍵を作れたか {log} を確認してください。")
+                format!("認証トークンを読み取れません: {file}\nサーバが認証トークンを作成できたか、{log} を確認してください。")
             }
-            Msg::NoWindow => "ウィンドウが見つからないので、サーバの画面へ移れません。".to_string(),
-            Msg::BadUrl { err } => format!("URL を組み立てられません: {err}"),
+            Msg::NoWindow => "ウィンドウが見つからないため、サーバの画面に移動できません。".to_string(),
+            Msg::BadUrl { err } => format!("URL を生成できません: {err}"),
             Msg::CannotNavigate { port, err } => {
-                format!("サーバの画面（ポート {port}）へ移れません: {err}")
+                format!("サーバの画面（ポート {port}）に移動できません: {err}")
             }
-            Msg::NoResourceDir { err } => format!("リソースの場所が分かりません: {err}"),
+            Msg::NoResourceDir { err } => format!("リソースのディレクトリを取得できません: {err}"),
             Msg::NoBundledServer { dir } => format!("同梱のサーバが見つかりません: {dir}"),
             Msg::ServerDirDevOnly => concat!(
-                "HANGAR_SERVER_DIR は開発のときだけ効きます。\n",
-                "配布版はアプリの中に同梱したサーバだけを使います。"
+                "HANGAR_SERVER_DIR は開発時だけ有効です。\n",
+                "配布版はアプリに同梱したサーバだけを使います。"
             )
             .to_string(),
             Msg::Translocated => concat!(
-                "この .app は読み取り専用の写しから起動されています（macOS の App Translocation）。\n",
-                "Hangar.app を /Applications へ移してから開き直してください。\n",
-                "移さずに使うときは、ダウンロードした Hangar.app に対して次を実行してください。\n",
+                "この .app は読み取り専用のコピーから起動しています（macOS の App Translocation）。\n",
+                "Hangar.app を /Applications に移動してから、もう一度開いてください。\n",
+                "移動せずに使う場合は、ダウンロードした Hangar.app に対して次を実行してください。\n",
                 "xattr -rd com.apple.quarantine /path/to/Hangar.app"
             )
             .to_string(),
             Msg::CannotSpawn { err } => format!("サーバを起動できません: {err}"),
-            Msg::ManifestUnreadable { file, err } => format!("{file} を読めません: {err}"),
+            Msg::ManifestUnreadable { file, err } => format!("{file} を読み取れません: {err}"),
             Msg::ManifestBroken { file, err } => format!("{file} が壊れています: {err}"),
         }
     }

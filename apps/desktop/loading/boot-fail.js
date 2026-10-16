@@ -78,31 +78,31 @@ const NODE_INSTALL = {
 /** Node の札の文（日本語）。理由は、見つからない（missing）、版が古い（version）、アーキテクチャが違う（arch）の 3 つ。 */
 function nodeJa(c) {
   const { min, napi, lts, arch, reason, found, foundArch } = c.node;
-  const tryAgain = '入れたのでもう一度試す';
+  const tryAgain = 'インストール後にもう一度試す';
   if (reason === 'missing') {
     return {
       title: 'Node.js が見つかりません',
-      what: `Hangar のデータベースと端末の部品は Node-API ${napi} を使うため、Node.js ${min} 以上が要ります。`,
+      what: `Hangar のデータベースとターミナルのネイティブモジュールは Node-API ${napi} を使うため、Node.js ${min} 以上が必要です。`,
       lead: c.windows ? 'PowerShell で次を実行してください：' : 'ターミナルで次を実行してください：',
       steps: [],
       command: c.node.install.fresh(lts),
       tryAgain,
     };
   }
-  const title = reason === 'version' ? `Node.js ${found} は見つかりましたが、Hangar は Node.js ${min} 以上が要ります` : `${foundArch} 用の Node.js は見つかりましたが、Hangar は ${arch} 用が要ります`;
-  const keep = '今の Node.js は置き換えずに、別の場所に入れられます。';
-  const what = reason === 'version' ? `Hangar のデータベースと端末の部品が Node-API ${napi} を使うためです。${keep}` : `${c.mac ? 'この Mac' : 'この PC'} で Hangar を動かすには、${arch} 用の Node.js ${min} 以上が要ります。${keep}`;
+  const title = reason === 'version' ? `Node.js ${found} を検出しましたが、Hangar には Node.js ${min} 以上が必要です` : `${foundArch} 用の Node.js を検出しましたが、Hangar には ${arch} 用が必要です`;
+  const keep = '現在の Node.js を置き換えずに、別のディレクトリにインストールできます。';
+  const what = reason === 'version' ? `Hangar のデータベースとターミナルのネイティブモジュールが Node-API ${napi} を使うためです。${keep}` : `${c.mac ? 'この Mac' : 'この PC'} で Hangar を実行するには、${arch} 用の Node.js ${min} 以上が必要です。${keep}`;
   if (c.windows) {
     return {
       title,
       what,
-      lead: '今の Node.js を置き換えずに入れるには：',
-      steps: [`nodejs.org から Node.js ${lts} の Windows 用 zip（${arch}）を取得します`, `今の Node.js とは別のフォルダ（例 %LOCALAPPDATA%\\Programs\\node${lts}）に展開します`, `「${c.node.pickLabel}」を押して、展開したフォルダの node.exe を選びます`],
+      lead: '現在の Node.js を置き換えずにインストールするには：',
+      steps: [`nodejs.org から Node.js ${lts} の Windows 用 zip（${arch}）を取得します`, `現在の Node.js とは別のディレクトリ（例 %LOCALAPPDATA%\\Programs\\node${lts}）に展開します`, `「${c.node.pickLabel}」をクリックして、展開したディレクトリの node.exe を選択します`],
       command: null,
       tryAgain: 'もう一度試す',
     };
   }
-  return { title, what, lead: '今の Node.js を置き換えずに入れるには、ターミナルで次を実行してください：', steps: [], command: c.node.install.beside(lts), tryAgain };
+  return { title, what, lead: '現在の Node.js を置き換えずにインストールするには、ターミナルで次を実行してください：', steps: [], command: c.node.install.beside(lts), tryAgain };
 }
 
 /** 同上（英語）。 */
@@ -137,7 +137,7 @@ function nodeEn(c) {
 
 /** 「node を選ぶ…」の釦の名前。Windows では実行ファイルの名前どおり node.exe と言う。 */
 const PICK_LABEL = {
-  ja: (windows) => (windows ? 'node.exe を選ぶ…' : 'node を選ぶ…'),
+  ja: (windows) => (windows ? 'node.exe を選択…' : 'node を選択…'),
   en: (windows) => (windows ? 'Choose node.exe…' : 'Choose node…'),
 };
 
@@ -147,42 +147,42 @@ const TABLE = {
   ja: {
     'server-exited': (c) => ({
       title: 'サーバを起動できませんでした',
-      what: `同梱のサーバが起動の途中で終了しました。Node が見つからないか、${c.home} に書けないときに多く起きます。`,
+      what: `同梱のサーバが起動の途中で終了しました。主な原因は、Node が見つからないか、${c.home} に書き込めないことです。`,
       // 殻と hangar コマンドは、Node-API が要る版以上の Node を使う（上限は無い）。
-      steps: ['「もう一度試す」を押します', '直らなければ、ログを開いて最後の数行を読みます', `Node ${c.node.min} 以上が入っているか確認します`, '直らないときは、ログの全文を添えて報告してください'],
+      steps: ['「もう一度試す」をクリックします', '解決しない場合は、ログを開いて最後の数行を確認します', `Node ${c.node.min} 以上がインストールされているか確認します`, 'それでも解決しない場合は、ログの全文を添えて報告してください'],
       command: 'node --version',
     }),
     'port-in-use': (c) => ({
-      title: `ポート ${c.port} を別のアプリが使っています`,
-      what: `hangar はポート ${c.port} で動きます。別のプロセスがそのポートで待ち受けていて、hangar のサーバではありません。hangar はそのプロセスを止めません。`,
-      steps: ['そのプロセスを調べて、止められるなら止めます', '「もう一度試す」を押します', '止められないときは、そのアプリを閉じてから Hangar を開き直してください'],
+      title: `ポート ${c.port} を別のアプリが使用しています`,
+      what: `hangar はポート ${c.port} を使用します。このポートでは、hangar のサーバではない別のプロセスが待ち受けています。そのプロセスは自動では停止しません。`,
+      steps: ['そのプロセスを確認し、停止できる場合は停止します', '「もう一度試す」をクリックします', '停止できない場合は、そのアプリを終了してから Hangar を再起動してください'],
       command: c.cmd.listening(c.port),
     }),
     'compat-mismatch': (c) => (c.theirs !== null && c.ours !== null && c.theirs > c.ours
       ? {
-          title: `この ${c.app} が、${c.port} で動いている hangar のサーバより古い版です`,
-          what: `動いているサーバは版 ${c.theirs}、この ${c.app} は版 ${c.ours} です。そのサーバは、この ${c.app} より新しい hangar が起こしたものです。hangar はそのサーバを止めません。`,
+          title: `この ${c.app} は、ポート ${c.port} で動作中の hangar のサーバより古いバージョンです`,
+          what: `動作中のサーバはバージョン ${c.theirs}、この ${c.app} はバージョン ${c.ours} です。そのサーバは、この ${c.app} より新しいバージョンの hangar が起動したものです。そのサーバは自動では停止しません。`,
           steps: c.mac
-            ? ['Hangar.app を新しい版に入れ替えます', '入れ替えずに使うときは、そのサーバを止めてから「もう一度試す」を押します']
-            : ['Hangar の新しい版をインストールします', 'インストールせずに使うときは、そのサーバを止めてから「もう一度試す」を押します'],
+            ? ['Hangar.app を新しいバージョンに置き換えます', '置き換えずに使う場合は、そのサーバを停止してから「もう一度試す」をクリックします']
+            : ['Hangar の新しいバージョンをインストールします', 'インストールせずに使う場合は、そのサーバを停止してから「もう一度試す」をクリックします'],
           command: c.cmd.listening(c.port),
         }
       : {
-          title: `${c.port} で動いている hangar のサーバが、この ${c.app} より古い版です`,
-          what: `動いているサーバは版 ${c.theirs ?? '?'}、この ${c.app} は版 ${c.ours ?? '?'} です。hangar start や npm run dev で起こしたサーバが残っています。hangar はそのサーバを止めません。`,
-          steps: ['そのサーバを止めます', `「もう一度試す」を押します。この ${c.app} が同梱のサーバを起こします`],
+          title: `ポート ${c.port} で動作中の hangar のサーバは、この ${c.app} より古いバージョンです`,
+          what: `動作中のサーバはバージョン ${c.theirs ?? '?'}、この ${c.app} はバージョン ${c.ours ?? '?'} です。hangar start または npm run dev で起動したサーバが残っています。そのサーバは自動では停止しません。`,
+          steps: ['そのサーバを停止します', `「もう一度試す」をクリックします。この ${c.app} が同梱のサーバを起動します`],
           command: c.cmd.listening(c.port),
         }),
     'db-too-old': (c) => ({
       title: 'データベースが古く、自動では更新できません',
-      what: `${c.file} は${c.found !== null ? `版 ${c.found} で作られていて、この ${c.app} が更新できるのは版 ${c.baseline ?? '?'} 以降です` : `、この ${c.app} が更新できる版より古いものです`}。索引は Claude Code のトランスクリプトから作り直せますが、ノートとステータスは残せません。`,
-      steps: ['hangar.db を別の名前に退避します', '「もう一度試す」を押します。索引を作り直します', 'ノートとステータスが要るときは、退避したファイルを添えて報告してください'],
+      what: `${c.file} は${c.found !== null ? `バージョン ${c.found} のもので、この ${c.app} が更新できるのはバージョン ${c.baseline ?? '?'} 以降です` : `、この ${c.app} が更新できるバージョンより古いものです`}。インデックスは Claude Code のトランスクリプトから再構築できますが、ノートとステータスは引き継げません。`,
+      steps: ['hangar.db を別の名前で退避します', '「もう一度試す」をクリックします。インデックスを再構築します', 'ノートとステータスが必要な場合は、退避したファイルを添えて報告してください'],
       command: c.cmd.move(c.file, sibling(c.file, c.found !== null ? `hangar-v${c.found}.db` : 'hangar-old.db')),
     }),
     'db-backup-failed': (c) => ({
-      title: 'データベースのバックアップが取れないため、起動を止めました',
-      what: `更新の前にバックアップを ${c.dir} に置きますが、書けませんでした。ディスクの空きが無いか、フォルダに書く権限が無いときに起きます。`,
-      steps: ['ディスクの空きを確認します', `backups${c.sep}db に書けるか確認します`, '「もう一度試す」を押します'],
+      title: 'データベースのバックアップを作成できないため、起動を停止しました',
+      what: `更新の前に ${c.dir} へバックアップを保存しようとしましたが、書き込めませんでした。ディスクの空き容量が不足しているか、ディレクトリへの書き込み権限がない可能性があります。`,
+      steps: ['ディスクの空き容量を確認します', `backups${c.sep}db に書き込めるか確認します`, '「もう一度試す」をクリックします'],
       command: c.cmd.list(c.dir),
     }),
     'node-missing': nodeJa,
@@ -190,8 +190,8 @@ const TABLE = {
     'node-arch-mismatch': nodeJa,
     other: () => ({
       title: 'Hangar を起動できませんでした',
-      what: '起動の途中で止まりました。理由は下の詳細にあります。',
-      steps: ['「もう一度試す」を押します', '直らなければ、詳細とログを読みます', '直らないときは、詳細とログの全文を添えて報告してください'],
+      what: '起動の途中で停止しました。理由は下の詳細にあります。',
+      steps: ['「もう一度試す」をクリックします', '解決しない場合は、詳細とログを確認します', 'それでも解決しない場合は、詳細とログの全文を添えて報告してください'],
       command: null,
     }),
   },
@@ -247,7 +247,7 @@ const TABLE = {
 
 // 札の見出しや操作の名前。種類に依らない。
 const LABELS = {
-  ja: { whatNext: '次にすること', details: '詳細', detailsToggle: '詳細（調べた場所、別の入れ方）', logAt: (log) => `記録はこの PC の ${log} にあります`, copyAll: '全文をコピー', copyCommand: 'コピー', copied: 'コピーしました', tryAgain: 'もう一度試す', openLog: 'ログを開く' },
+  ja: { whatNext: '次にすること', details: '詳細', detailsToggle: '詳細（確認したパス、別のインストール方法）', logAt: (log) => `ログはこの PC の ${log} にあります`, copyAll: '全文をコピー', copyCommand: 'コピー', copied: 'コピーしました', tryAgain: 'もう一度試す', openLog: 'ログを開く' },
   en: { whatNext: 'What to do next', details: 'Details', detailsToggle: 'Details (places checked, other ways to install)', logAt: (log) => `The log is at ${log} on this computer`, copyAll: 'Copy all', copyCommand: 'Copy', copied: 'Copied', tryAgain: 'Try again', openLog: 'Open log' },
 };
 
@@ -414,11 +414,11 @@ export function updateView(lang, u, current, kind) {
 // 「node を選ぶ…」で選んだ Node が合わなかったときの文。殻（lib.rs の pick_node）の答えから作る。
 const PICK = {
   ja: {
-    notNode: (r) => `${r.path} は Node.js として答えませんでした。node の実行ファイルを選んでください。`,
-    version: (r) => `選んだ Node.js は ${r.found} です。Node.js ${r.min} 以上を選んでください。`,
-    arch: (r) => `選んだ Node.js は ${r.foundArch} 用です。${r.arch} 用を選んでください。`,
+    notNode: (r) => `${r.path} は Node.js として応答しませんでした。node の実行ファイルを選択してください。`,
+    version: (r) => `選択した Node.js は ${r.found} です。Node.js ${r.min} 以上を選択してください。`,
+    arch: (r) => `選択した Node.js は ${r.foundArch} 用です。${r.arch} 用を選択してください。`,
     saveFailed: (r) => `設定に保存できませんでした（${r.error}）。`,
-    other: () => '選んだ Node.js を確かめられませんでした。',
+    other: () => '選択した Node.js を確認できませんでした。',
   },
   en: {
     notNode: (r) => `${r.path} did not answer as Node.js. Choose the node executable.`,
