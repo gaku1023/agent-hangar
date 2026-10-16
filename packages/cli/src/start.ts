@@ -105,7 +105,7 @@ export async function runStart(o: StartOptions): Promise<number> {
       if (!ready) await new Promise((r) => setTimeout(r, READY_POLL_MS));
     }
     if (ready && !stopping) o.onReady();
-    else if (!ready && !stopping) console.error('サーバが起動の途中で終わりました。上に出た子のログを見てください。');
+    else if (!ready && !stopping) console.error('サーバが起動の途中で終了しました。上に表示された子プロセスのログを確認してください。');
     return await exited;
   } finally {
     for (const [sig, h] of handlers) process.off(sig, h);

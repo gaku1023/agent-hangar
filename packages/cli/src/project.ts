@@ -51,11 +51,11 @@ class CommandError extends Error {
 const TIMEOUT_MS = 30_000;
 
 /** 試しの終わりに添える 1 行。 */
-const DRY_NOTE = '試しなので、何も書いていません。';
+const DRY_NOTE = '--dry-run のため、何も書き込んでいません。';
 /** 一覧から削除で、会話がどうなるか。 */
-const REMOVE_KEEPS = '会話は未分類に戻るだけで、本文は消えません。フォルダにも触れません。';
+const REMOVE_KEEPS = '会話は未分類に戻るだけです。トランスクリプトとディレクトリはそのまま残ります。';
 /** 作成場所を空にしたときに、何が残り何が止まるか。 */
-const UNSET_EFFECT = '登録済みのプロジェクトはそのまま残ります。作成場所の直下の自動の登録は止まり、新しいフォルダはアプリで作るときに場所を選びます。';
+const UNSET_EFFECT = '登録済みのプロジェクトはそのまま残ります。新しいディレクトリの作成先の直下は自動で登録しなくなります。新しいディレクトリは、アプリで作成するときにパスを選択します。';
 
 /**
  * 鍵付きで 1 回呼ぶ。
@@ -72,12 +72,12 @@ async function call<T>(o: ApiCommandOptions, method: 'GET' | 'POST' | 'PATCH', a
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
-    if (e instanceof Error && e.name === 'TimeoutError') throw new CommandError('timeout', `サーバが ${TIMEOUT_MS / 1000} 秒のうちに応えませんでした`);
+    if (e instanceof Error && e.name === 'TimeoutError') throw new CommandError('timeout', `サーバが ${TIMEOUT_MS / 1000} 秒以内に応答しませんでした`);
     throw new CommandError('server_down', serverDownMessage(o.port));
   }
   let parsed: unknown = null;
   try { parsed = await r.json(); } catch { parsed = null; }
-  if (r.status === 401 || r.status === 403) throw new CommandError('unauthorized', '鍵が合いません。サーバと同じ HANGAR_HOME で実行しているか確かめてください');
+  if (r.status === 401 || r.status === 403) throw new CommandError('unauthorized', 'トークンが一致しません。サーバと同じ HANGAR_HOME で実行しているか確認してください');
   if (!r.ok) {
     const message = typeof (parsed as { error?: unknown } | null)?.error === 'string' ? (parsed as { error: string }).error : `HTTP ${r.status}`;
     if (r.status >= 400 && r.status < 500 && r.status !== 404) throw new CommandError('rejected', message);
@@ -154,7 +154,7 @@ function candidateMarks(c: FolderCandidateDto): string[] {
 export function formatCandidates(dto: FolderCandidatesDto, o: { timeZone?: string } = {}): string[] {
   const lines: string[] = [];
   if (dto.unassignedTotal !== undefined) lines.push(`この PC の未分類の会話: ${dto.unassignedTotal} 件`);
-  if (dto.workspaceRoot !== undefined) lines.push(`作成場所: ${dto.workspaceRoot ?? '未設定'}`);
+  if (dto.workspaceRoot !== undefined) lines.push(`新しいディレクトリの作成先: ${dto.workspaceRoot ?? '未設定'}`);
   if (dto.candidates.length === 0) lines.push('候補はありません。');
   else {
     lines.push(`候補 ${dto.candidates.length} 件（会話の多い順）:`);
@@ -163,7 +163,7 @@ export function formatCandidates(dto: FolderCandidatesDto, o: { timeZone?: strin
       lines.push(`  会話 ${String(c.sessionCount).padStart(3)} 件  ${day(c.lastActivityAt, o.timeZone)}  ${c.path}${marks.length ? `  [${marks.join('、')}]` : ''}`);
     }
   }
-  if (dto.suggestedRoot) lines.push(`作成場所の候補: ${dto.suggestedRoot}（hangar workspace set で決められます）`);
+  if (dto.suggestedRoot) lines.push(`新しいディレクトリの作成先の候補: ${dto.suggestedRoot}（hangar workspace set で設定できます）`);
   return lines;
 }
 
@@ -188,9 +188,9 @@ export function outcomeLine(r: FolderRegisterOutcomeDto, dry: boolean): string {
   switch (r.status) {
     case 'added': return `${dry ? '登録します' : '登録しました'}: ${r.path}（名前 ${r.name}、${into(r.sessionCount)}）`;
     case 'already': return `登録済み: ${r.path}（名前 ${r.name}${r.restored ? `。アーカイブから${dry ? '戻します' : '戻しました'}` : ''}）`;
-    case 'linked': return `${dry ? '結び付けます' : '結び付けました'}: ${r.path}（ほかの PC のプロジェクト ${r.name}、${into(r.sessionCount)}）`;
+    case 'linked': return `${dry ? '関連付けます' : '関連付けました'}: ${r.path}（ほかの PC のプロジェクト ${r.name}、${into(r.sessionCount)}）`;
     case 'nested': return `登録できません: ${r.path}（プロジェクト ${r.enclosing?.name}（${r.enclosing?.path}）の中にあります。別のプロジェクトに分けるかは、アプリで決めてください）`;
-    default: return `登録できません: ${r.path}（${r.error ?? '理由が分かりません'}）`;
+    default: return `登録できません: ${r.path}（${r.error ?? '理由不明'}）`;
   }
 }
 
@@ -211,7 +211,7 @@ export function projectAddCommand(o: ApiCommandOptions & { paths: string[]; dryR
     const body = o.dryRun ? { paths, dryRun: true } : { paths };
     const res = await call<FolderRegisterPreviewDto | FolderRegisterResultDto>(o, 'POST', '/api/workspace/register', body);
     const results = res.results;
-    if (!results) throw new CommandError('outdated', 'サーバが古く、行ごとの結果を返しません。アプリを新しくしてください');
+    if (!results) throw new CommandError('outdated', 'サーバが古いため、行ごとの結果を取得できません。アプリを更新してください');
     const ok = !results.some(failed);
     if (o.json) log(JSON.stringify({ ok, dryRun: o.dryRun, results }));
     else {
@@ -231,10 +231,10 @@ function pickProject(list: ProjectDto[], target: string, o: { cwd?: string; home
     const want = absolutePath(target, o).normalize('NFC');
     return list.filter((p) => p.path !== null && samePath(p.path.normalize('NFC'), want));
   })();
-  if (hits.length === 0) throw new CommandError('not_found', `${target} に当たるプロジェクトがありません（id か、この PC の場所のパスを渡してください）`);
-  if (hits.length > 1) throw new CommandError('ambiguous', `${target} に当たるプロジェクトが ${hits.length} 件あります。id で選んでください: ${hits.map((p) => `${p.id}（${p.name}）`).join('、')}`, { ids: hits.map((p) => p.id) });
+  if (hits.length === 0) throw new CommandError('not_found', `${target} に該当するプロジェクトがありません（id か、この PC でのパスを指定してください）`);
+  if (hits.length > 1) throw new CommandError('ambiguous', `${target} に該当するプロジェクトが ${hits.length} 件あります。id で指定してください: ${hits.map((p) => `${p.id}（${p.name}）`).join('、')}`, { ids: hits.map((p) => p.id) });
   const hit = hits[0]!;
-  if (hit.isScratch) throw new CommandError('scratch', 'スクラッチ（クイックセッションの置き場）は一覧から削除できません');
+  if (hit.isScratch) throw new CommandError('scratch', 'クイックセッションの保存先は一覧から削除できません');
   return hit;
 }
 
@@ -259,10 +259,10 @@ export function projectRemoveCommand(o: ApiCommandOptions & { target: string; dr
       log(JSON.stringify({ ok: true, dryRun: o.dryRun, project: { id: p.id, name: p.name, path: p.path }, sessionCount, syncing: preview.syncing }));
       return 0;
     }
-    log(`${o.dryRun ? '一覧から削除します' : '一覧から削除しました'}: ${p.name}（${p.path ?? 'この PC に場所なし'}）`);
+    log(`${o.dryRun ? '一覧から削除します' : '一覧から削除しました'}: ${p.name}（${p.path ?? 'この PC にパスなし'}）`);
     log(o.dryRun ? `会話 ${sessionCount} 件が未分類に戻ります。` : `会話 ${sessionCount} 件を未分類に戻しました。`);
     log(REMOVE_KEEPS);
-    if (preview.syncing) log(o.dryRun ? '同期しているほかの PC の一覧からも消えます。' : '同期しているほかの PC の一覧からも消えます（次の同期で届きます）。');
+    if (preview.syncing) log(o.dryRun ? '同期しているほかの PC の一覧からも削除されます。' : '同期しているほかの PC の一覧からも削除されます（次の同期で反映されます）。');
     if (o.dryRun) log(DRY_NOTE);
     return 0;
   });
@@ -271,22 +271,22 @@ export function projectRemoveCommand(o: ApiCommandOptions & { target: string; dr
 // ---- workspace ----
 
 /** 同意を残したこと（--trust の本番）。書き込みが全部失敗しても同意は残り、以後の起動で書く。 */
-const CONSENT_RECORDED = '同意は記録しました。書けなかった分も含め、次の書き込みは hangar から Claude を起こすときに行います。';
+const CONSENT_RECORDED = '同意は記録しました。書き込めなかった分も含め、次の書き込みは hangar から Claude Code を起動するときに行います。';
 
 /** 後から置いたリポジトリがどうなるか（--trust）。 */
-const TRUST_LATER = '後から作成場所の下に置いたリポジトリも、hangar から起こすときに信頼済みにします。';
+const TRUST_LATER = 'あとから新しいディレクトリの作成先に追加したリポジトリも、hangar から Claude Code を起動するときに信頼済みにします。';
 
 /**
  * フォルダの信頼の結果を、人向けの行にする。
  * dirs は信頼済みにするフォルダ、files は書く先（登録したアカウントごとの .claude.json）である。
  */
 export function trustLines(t: WorkspaceTrustDto): string[] {
-  const lines = [`フォルダの信頼: 次のフォルダを Claude Code の信頼済みに${t.dryRun ? 'します' : 'しました'}（${t.dirs.length} 件）:`, ...t.dirs.map((d) => `  ${d}`)];
+  const lines = [`ディレクトリの信頼: 次のディレクトリを Claude Code の信頼済みに${t.dryRun ? 'します' : 'しました'}（${t.dirs.length} 件）:`, ...t.dirs.map((d) => `  ${d}`)];
   for (const f of t.files) {
-    if (f.error) lines.push(`  ${f.file}: 書けませんでした（${f.error}）`);
-    else if (f.missing) lines.push(`  ${f.file}: 設定ファイルが無いので書きません（その置き場で Claude Code を一度起こすと作られます）`);
+    if (f.error) lines.push(`  ${f.file}: 書き込めませんでした（${f.error}）`);
+    else if (f.missing) lines.push(`  ${f.file}: 設定ファイルが無いため書き込みません（その設定ディレクトリで Claude Code を一度起動すると作成されます）`);
     else if (f.added.length === 0) lines.push(`  ${f.file}: すでに信頼済みです`);
-    else lines.push(`  ${f.file}: ${f.added.length} 件を${t.dryRun ? '書きます' : '書きました'}`);
+    else lines.push(`  ${f.file}: ${f.added.length} 件を${t.dryRun ? '書き込みます' : '書き込みました'}`);
   }
   lines.push(TRUST_LATER);
   return lines;
@@ -307,12 +307,12 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean; trust?: boolean }, ro
       const pv = await call<WorkspaceRootPreviewDto>(o, 'PATCH', '/api/settings', { workspaceRoot: root, dryRun: true });
       const trust = o.trust ? await call<WorkspaceTrustDto>(o, 'POST', '/api/workspace/trust', { path: root, dryRun: true }) : null;
       if (o.json) { log(JSON.stringify({ ok: !trustFailed(trust), ...pv, ...(trust ? { trust } : {}) })); return trustFailed(trust) ? 1 : 0; }
-      log(`作成場所: ${pv.previous || '未設定'} → ${pv.workspaceRoot || '未設定'}`);
+      log(`新しいディレクトリの作成先: ${pv.previous || '未設定'} → ${pv.workspaceRoot || '未設定'}`);
       if (pv.workspaceRoot === '') log(UNSET_EFFECT);
-      else if (pv.unchanged) log('いまと同じ作成場所です。保存しても自動の登録は走りません。');
-      else if (pv.register.length === 0) log('直下に、会話があってまだ登録していないフォルダはありません。');
+      else if (pv.unchanged) log('現在と同じディレクトリです。保存しても自動登録は実行しません。');
+      else if (pv.register.length === 0) log('直下に、会話があって未登録のディレクトリはありません。');
       else {
-        log(`保存すると、直下の次のフォルダを自動で登録します（${pv.register.length} 件）:`);
+        log(`保存すると、直下の次のディレクトリを自動で登録します（${pv.register.length} 件）:`);
         for (const r of pv.register) log(`  ${outcomeLine(r, true)}`);
       }
       if (trust) for (const l of trustLines(trust)) log(l);
@@ -328,12 +328,12 @@ function setRoot(o: ApiCommandOptions & { dryRun: boolean; trust?: boolean }, ro
     const code = trustFailed(trust) ? 1 : 0;
     if (o.json) { log(JSON.stringify({ ok: code === 0, dryRun: false, workspaceRoot: saved.workspaceRoot, registered, ...(trust ? { consentRecorded: trust.consentRecorded === true, trust } : {}) })); return code; }
     if (saved.workspaceRoot === '') {
-      log('作成場所を空にしました（未設定）。');
+      log('新しいディレクトリの作成先を空にしました（未設定）。');
       log(UNSET_EFFECT);
       return 0;
     }
-    log(`作成場所を ${saved.workspaceRoot} にしました。`);
-    if (registered.length === 0) log('直下に、自動で登録したフォルダはありません。');
+    log(`新しいディレクトリの作成先を ${saved.workspaceRoot} に設定しました。`);
+    if (registered.length === 0) log('直下に、自動で登録したディレクトリはありません。');
     else {
       log(`直下の ${registered.length} 件を登録しました:`);
       for (const p of registered) log(`  ${p.path}（名前 ${p.name}）`);
@@ -358,7 +358,7 @@ export function workspaceSetCommand(o: ApiCommandOptions & { dir: string; dryRun
   const root = absolutePath(o.dir, o);
   const home = path.resolve(o.homeDir ?? os.homedir());
   if (coversHome(root, home)) {
-    return guarded(o, async () => { throw new CommandError('rejected', `${root} は作成場所にできません。ホームフォルダとその上、ファイルシステムの根を選ぶと、直下が全部プロジェクトとして登録されるためです`); });
+    return guarded(o, async () => { throw new CommandError('rejected', `${root} は新しいディレクトリの作成先にできません。ホームディレクトリとその上、ファイルシステムのルートを選ぶと、直下がすべてプロジェクトとして登録されるためです`); });
   }
   return setRoot(o, root);
 }

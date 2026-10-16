@@ -47,8 +47,8 @@ export async function runMcpInstall(o: { home: string; port: number; claudeJson:
     const server = { type: 'http', url: `http://127.0.0.1:${o.port}/mcp`, headers: { Authorization: `Bearer ${token}` } };
     const r = upsertUserMcpServer(o.claudeJson, 'hangar', server, { backupDir: path.join(o.home, 'backups'), lockWaitMs: o.lockWaitMs, check: o.check, now: o.now });
     backup = r.backup;
-    if (r.backup) lines.push(`書き換える前の控え: ${r.backup}`);
-    if (r.tightened) lines.push(`${r.file} は他人にも読める権限だったので、トークンを書く前に 0600 へ狭めました。`);
+    if (r.backup) lines.push(`変更前のバックアップ: ${r.backup}`);
+    if (r.tightened) lines.push(`${r.file} は他のユーザーも読み取れる権限だったため、トークンを書き込む前に 0600 に変更しました。`);
   } catch (e) {
     return { ok: false, message: `${o.claudeJson} の書き換えに失敗しました: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -56,7 +56,7 @@ export async function runMcpInstall(o: { home: string; port: number; claudeJson:
   const tail = lines.length ? `\n${lines.join('\n')}` : '';
   const probed = await (o.probe ?? probeAuthorized)(o.port, token);
   // 書いたトークンで実際に通ったときだけ「確認できます」と言う。
-  if (probed.ok) return { ok: true, backup, wrote: true, message: `${done}書いたトークンで ${o.port} の認証を通せました。claude mcp list で Connected を確認できます。${tail}` };
+  if (probed.ok) return { ok: true, backup, wrote: true, message: `${done}書き込んだトークンで、ポート ${o.port} の認証に成功しました。claude mcp list で Connected を確認できます。${tail}` };
   // ポートがずれていても気付く手掛かりが無いので、ここで言う。
   if (probed.reason === 'down') {
     return { ok: true, backup, wrote: true, message: `${done}\nただし、そのポートで hangar が応答しません。\`hangar start --port ${o.port}\` で起動してから、claude mcp list で Connected を確認してください。${tail}` };
@@ -69,13 +69,13 @@ export async function runMcpInstall(o: { home: string; port: number; claudeJson:
       wrote: true,
       message: [
         done,
-        `ただし、書いたトークンでは ${o.port} の認証を通せませんでした（${probed.status}）。`,
-        `書いたのは ${path.join(o.home, 'token')} のトークンです。ポート ${o.port} のサーバは別のデータディレクトリで動いています。`,
-        `HANGAR_HOME がサーバと同じところを指しているか確かめてから、もう一度 hangar mcp install を実行してください。`,
+        `ただし、書き込んだトークンでは、ポート ${o.port} の認証に失敗しました（${probed.status}）。`,
+        `書き込んだのは ${path.join(o.home, 'token')} のトークンです。ポート ${o.port} のサーバは別のデータディレクトリで実行中です。`,
+        `HANGAR_HOME がサーバと同じディレクトリを指しているか確認してから、もう一度 hangar mcp install を実行してください。`,
       ].join('\n') + tail,
     };
   }
-  return { ok: false, backup, wrote: true, message: `${done}\nただし、確かめの問い合わせに ${probed.status} が返りました。ポート ${o.port} で動いているのが hangar か確かめてください。${tail}` };
+  return { ok: false, backup, wrote: true, message: `${done}\nただし、確認のリクエストに ${probed.status} が返りました。ポート ${o.port} で実行中のサーバが hangar か確認してください。${tail}` };
 }
 
 /**
@@ -87,7 +87,7 @@ export async function runMcpUninstall(o: { home: string; claudeJson: string; loc
   try {
     const r = removeUserMcpServer(o.claudeJson, 'hangar', { backupDir: path.join(o.home, 'backups'), lockWaitMs: o.lockWaitMs, check: o.check, now: o.now });
     if (!r.changed) return { ok: true, message: 'user スコープに MCP サーバ hangar は登録されていません。' };
-    const tail = r.backup ? `\n書き換える前の控え: ${r.backup}` : '';
+    const tail = r.backup ? `\n変更前のバックアップ: ${r.backup}` : '';
     return { ok: true, message: `user スコープの MCP サーバ hangar を削除しました。${tail}`, backup: r.backup };
   } catch (e) {
     return { ok: false, message: `${o.claudeJson} の書き換えに失敗しました: ${e instanceof Error ? e.message : String(e)}` };

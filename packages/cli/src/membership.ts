@@ -35,7 +35,7 @@ function decode(token: string): { url: string; secret: string } {
     const t = decodeJoinToken(token);
     return { url: t.url.replace(/\/+$/, ''), secret: t.secret };
   } catch (e) {
-    throw new MembershipError('invalid-token', e instanceof Error ? e.message : '参加トークンを読めません');
+    throw new MembershipError('invalid-token', e instanceof Error ? e.message : '参加トークンを読み取れません');
   }
 }
 
@@ -60,7 +60,7 @@ export function joinPlan(o: { home: string; token: string }): JoinPlan {
 export async function runJoinQuiet(o: { home: string; token: string; device: DeviceLike; overwrite: boolean; fetch?: typeof fetch; sleep?: (ms: number) => Promise<void> }): Promise<{ url: string; host: string }> {
   const plan = joinPlan(o);
   if ((plan.change === 'other-cloud' || plan.change === 'new-secret') && !o.overwrite) {
-    throw new MembershipError('overwrite-required', 'この PC は既に別のクラウドに参加しています。上書きして参加するときは --overwrite を付けてください');
+    throw new MembershipError('overwrite-required', 'この PC はすでに別のクラウドに参加しています。上書きして参加するには --overwrite を指定してください');
   }
   try {
     await runJoin({ home: o.home, token: o.token, device: o.device, fetch: o.fetch, sleep: o.sleep, force: true, log: () => {} });
@@ -88,7 +88,7 @@ function membershipErrorOf(e: unknown): MembershipError {
 }
 
 const outdatedError = (): MembershipError =>
-  new MembershipError('outdated', 'クラウドの Worker が古いので、PC の一覧と解除を使えません。クラウドを作った PC で hangar setup cloud をもう一度実行して Worker を入れ替えてください');
+  new MembershipError('outdated', 'クラウドの Worker が古いため、PC の一覧と解除を使えません。クラウドを作成した PC で hangar setup cloud をもう一度実行して、Worker を更新してください');
 
 /** Worker が版を名乗っていて、一覧と解除の口に届かなければ断る。 */
 function requireAdmin(client: HttpCloudClient): void {
@@ -122,9 +122,9 @@ export async function cloudDevicesText(o: { home: string; deviceId: string; fetc
   const lines = rows.map((d) => {
     const mark = d.id === o.deviceId ? '（この PC）' : '';
     const state = d.revokedAt !== null ? `${day(d.revokedAt)} に解除` : `最終同期 ${day(d.lastSeenAt)}`;
-    return `${d.name}${mark}  ${d.platform}  ID ${d.id}  参加 ${day(d.joinedAt)}  ${state}  IP ${d.lastIp ?? '-'}  場所 ${place(d)}`;
+    return `${d.name}${mark}  ${d.platform}  ID ${d.id}  参加 ${day(d.joinedAt)}  ${state}  IP ${d.lastIp ?? '-'}  所在地 ${place(d)}`;
   });
-  lines.push('場所は Cloudflare が IP から推定したもので、市区はよく外れます。');
+  lines.push('所在地は Cloudflare が IP アドレスから推定したもので、市区町村は正確でないことがよくあります。');
   return lines.join('\n');
 }
 
@@ -134,7 +134,7 @@ export async function cloudDevicesText(o: { home: string; deviceId: string; fetc
  */
 export async function revokeCloudDevice(o: { home: string; deviceId: string; id: string; fetch?: typeof fetch }): Promise<CloudDeviceOut> {
   const { client } = clientOf(o.home, o.fetch);
-  if (o.id === o.deviceId) throw new MembershipError('self', 'この PC の参加を解除するときは hangar cloud leave を使ってください');
+  if (o.id === o.deviceId) throw new MembershipError('self', 'この PC の参加を解除するには hangar cloud leave を使ってください');
   try {
     requireAdmin(client);
     return await client.revokeDevice(o.id);
@@ -193,7 +193,7 @@ function fail(o: Out, e: unknown): number {
 }
 
 const confirmRequired = (o: Out, what: string): number => {
-  logOf(o)(o.json ? JSON.stringify({ ok: false, code: 'confirm-required', message: `確認を取れないので、${what}。--yes を付けてください` }) : `標準入力が対話ではないので確認を取れません。端末から実行するか、--yes を付けてください`);
+  logOf(o)(o.json ? JSON.stringify({ ok: false, code: 'confirm-required', message: `確認できないため、${what}。--yes を指定してください` }) : `標準入力が対話型ではないため、確認できません。ターミナルから実行するか、--yes を指定してください`);
   return 1;
 };
 
@@ -210,7 +210,7 @@ export async function joinCommand(o: Out & { home: string; token: string; device
       if (o.json) log(JSON.stringify({ ok: true, plan }));
       else {
         log(`宛先: ${plan.url}（ホスト ${plan.host}）`);
-        if (plan.current) log(`いまの宛先: ${plan.current.url}（${plan.change === 'same' ? '同じクラウド' : '別のクラウド、または参加用の秘密が違う'}）`);
+        if (plan.current) log(`現在の宛先: ${plan.current.url}（${plan.change === 'same' ? '同じクラウド' : '別のクラウド、または参加トークンが違う'}）`);
       }
       return 0;
     }
@@ -244,7 +244,7 @@ export async function revokeCommand(o: Out & { home: string; deviceId: string; i
       const target = (await listCloudDevices(o)).find((d) => d.id === o.id);
       if (!target) throw new MembershipError('unreachable', `PC ${o.id} はこのクラウドに参加していません`);
       log(`${target.name}（${o.id}）を同期から解除します。その PC はこのクラウドと送受信できなくなります。クラウドにあるその PC のトランスクリプトは残ります。`);
-      log('解除しても、その PC が参加トークンを持っていれば参加し直せます。締め出すには、解除したうえで、クラウドを作った PC で hangar setup cloud --rotate-secret を実行して参加用の秘密を作り直してください。');
+      log('解除しても、その PC が参加トークンを持っていれば参加し直せます。再参加を防ぐには、解除したうえで、クラウドを作成した PC で hangar setup cloud --rotate-secret を実行して参加トークンを再生成してください。');
       if (!(await o.confirm('解除しますか。', 'y'))) { log('解除しませんでした'); return 1; }
     }
     const result = await revokeCloudDevice(o);
@@ -262,16 +262,16 @@ export async function leaveCommand(o: Out & { home: string; deviceId: string; re
     if (!o.yes) {
       if (o.json || !o.confirm) return confirmRequired(o, '参加を解除していません');
       const read = readCloudConfig(o.home);
-      if (read.config?.workerName) log('この PC はクラウドを作った PC です。参加を解除すると、hangar cloud teardown で片付けられなくなります。クラウドごと片付けるなら、先に teardown を実行してください。');
+      if (read.config?.workerName) log('この PC はクラウドを作成した PC です。参加を解除すると、hangar cloud teardown でクラウドを削除できなくなります。クラウドごと削除する場合は、先に teardown を実行してください。');
       log(`この PC の同期の設定（${cloudConfigPath(o.home)}）を削除します${o.revoke ? '。クラウドの一覧でも、この PC を解除します' : ''}。`);
-      log('クラウドのトランスクリプト、ほかの PC の同期、この PC に受信済みのトランスクリプトは残ります。戻すときは、参加トークンでもう一度参加します。');
+      log('クラウドのトランスクリプト、ほかの PC の同期、この PC に受信済みのトランスクリプトは残ります。元に戻すには、参加トークンでもう一度参加します。');
       if (!(await o.confirm('この PC の参加を解除しますか。', 'y'))) { log('参加を解除しませんでした'); return 1; }
     }
     const result = await leaveCloud(o);
     if (o.json) log(JSON.stringify({ ok: true, result }));
     else {
-      log('この PC の参加を解除しました。hangar を再起動すると同期が止まります。');
-      if (result.revokeError) log(`クラウドでの解除はできませんでした（${result.revokeError}）。ほかの PC の設定のクラウド同期から、この PC を解除してください。`);
+      log('この PC の参加を解除しました。hangar を再起動すると同期が停止します。');
+      if (result.revokeError) log(`クラウドでの解除に失敗しました（${result.revokeError}）。ほかの PC の設定のクラウド同期から、この PC を解除してください。`);
     }
     return 0;
   } catch (e) {

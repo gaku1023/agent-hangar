@@ -98,7 +98,7 @@ describe('hangar setup', () => {
     const r = await runCli(['setup', '--skip-statusline', '--skip-shell']);
     expect(r.code).toBe(0);
     expect(r.out).toContain('データディレクトリ:');
-    expect(r.out).toContain('MCP の登録は hangar mcp install で行えます。');
+    expect(r.out).toContain('MCP サーバは hangar mcp install で登録できます。');
     const h = await runCli(['setup', '--help']);
     expect(h.out).toContain('--skip-statusline');
     expect(h.out).toContain('--skip-shell');
@@ -163,7 +163,7 @@ describe('hangar project と hangar workspace', () => {
     expect(JSON.parse(c.out)).toEqual({ candidates: [], suggestedRoot: null, unassignedTotal: 0, workspaceRoot: null });
     const w = await runCli(['workspace', 'set', path.join(path.dirname(home), 'w'), '--dry-run', '--port', port]);
     expect(w.code).toBe(0);
-    expect(w.out).toContain('試しなので、何も書いていません。');
+    expect(w.out).toContain('--dry-run のため、何も書き込んでいません。');
     expect(seen.map((s) => [s.method, s.url, s.auth])).toEqual([['GET', '/api/workspace/candidates', `Bearer ${readToken()}`], ['PATCH', '/api/settings', `Bearer ${readToken()}`]]);
     expect(JSON.parse(seen[1]!.body)).toEqual({ workspaceRoot: path.join(path.dirname(home), 'w'), dryRun: true });
   }, 20_000);
@@ -191,7 +191,7 @@ describe('hangar open', () => {
     const port = await deadPort();
     const r = await runCli(['open', '--port', String(port)]);
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain('サーバが動いていません');
+    expect(r.out).toContain('サーバが起動していません');
     expect(r.out).toContain('hangar start');
     // 開かない。鍵も出さない。
     expect(await waitOpened(400)).toBe('');
@@ -228,7 +228,7 @@ describe('hangar start', () => {
     const port = await listenHealth();
     const r = await runCli(['start', '--port', String(port), '--no-open']);
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain(`ポート ${port} は既に使われています`);
+    expect(r.out).toContain(`ポート ${port} はすでに使われています`);
     expect(r.out).not.toContain('EADDRINUSE');
     expect(r.out).not.toContain('node:net');
     expect(r.out).not.toMatch(/^\s+at /m);
@@ -328,7 +328,7 @@ describe('hangar start', () => {
     expect(r.code).toBe(1);
     expect(r.out).toContain(`バージョン ${BASELINE_DB_VERSION - 1} です。このアプリが開けるのはバージョン ${BASELINE_DB_VERSION} 以降です`);
     expect(r.out).toContain('マイグレーションも適用せずに停止しました');
-    expect(r.out).toContain('起動の途中で終わりました');
+    expect(r.out).toContain('起動の途中で終了しました');
     expect(r.out).not.toContain('?t=');
     expect(dbVersionOf(file)).toBe(BASELINE_DB_VERSION - 1);
     expect(fs.readFileSync(file).equals(before)).toBe(true);

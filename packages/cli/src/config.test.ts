@@ -65,11 +65,11 @@ describe('hangar config apply', () => {
     expect(t).toContain('新規 2 件');
     expect(t).toContain('上書き 1 件');
     expect(t).toContain('スキル 1');
-    expect(t).toContain('settings.json の鍵 1');
+    expect(t).toContain('settings.json のキー 1');
     expect(t).toContain('実行される内容');
     expect(t).toContain('skills/demo/SKILL.md');
     expect(t).toContain('フック');
-    expect(t).toContain('控え');
+    expect(t).toContain('バックアップ');
     expect(read('commands/hello.md')).toBe('old hello');
     expect(fs.existsSync(applyOrderPath(home))).toBe(true);
   });
@@ -148,7 +148,7 @@ describe('hangar config apply', () => {
 describe('hangar config restore', () => {
   it('名前を省くと、世代の一覧を出す（無ければ無いと言う）', async () => {
     expect(await runConfigRestore({ ...opts() })).toBe(0);
-    expect(text()).toContain('控えの世代はありません');
+    expect(text()).toContain('バックアップの世代はありません');
     arrive();
     await runConfigApply({ ...opts(), yes: true });
     out = [];

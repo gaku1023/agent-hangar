@@ -115,7 +115,7 @@ describe('runStart', () => {
     expect(code).toBe(1);
     expect(onReady).not.toHaveBeenCalled();
     expect(fs.existsSync(marker)).toBe(false);
-    expect(errors(err)).toContain('は既に使われています');
+    expect(errors(err)).toContain('はすでに使われています');
   });
 
   it('ポートが 1 から 65535 の整数でなければ、子を起こさずに断る。0 で起こすと、子の選んだポートを知る手が無く待ち続けてしまう', async () => {
@@ -134,7 +134,7 @@ describe('runStart', () => {
     const code = await runStart({ port: await deadPort(), onReady, args: ['-e', 'process.exit(3)'] });
     expect(code).toBe(3);
     expect(onReady).not.toHaveBeenCalled();
-    expect(errors(err)).toContain('起動の途中で終わりました');
+    expect(errors(err)).toContain('起動の途中で終了しました');
   });
 
   it('起動の途中で利用者が止めたら（CLI に SIGTERM）、子へ渡し、失敗の行も URL も出さずに子の終了コードを返す', async () => {
@@ -153,7 +153,7 @@ describe('runStart', () => {
     emitSigtermToRunStart(before);
     expect(await run).toBe(STOPPED_CODE);
     expect(onReady).not.toHaveBeenCalled();
-    expect(errors(err)).not.toContain('起動の途中で終わりました');
+    expect(errors(err)).not.toContain('起動の途中で終了しました');
   });
 
   it('止めた後に起動が済んでも、onReady を呼ばない（URL を出さず、ブラウザも開かない）', async () => {
@@ -175,7 +175,7 @@ describe('runStart', () => {
     emitSigtermToRunStart(before);
     expect(await run).toBe(STOPPED_CODE);
     expect(onReady).not.toHaveBeenCalled();
-    expect(errors(err)).not.toContain('起動の途中で終わりました');
+    expect(errors(err)).not.toContain('起動の途中で終了しました');
   });
 
   it('子に HANGAR_PORT と HANGAR_PARENT_PID を渡し、/health が ready を返したら onReady を 1 度だけ呼び、子が終わるまで待つ', async () => {

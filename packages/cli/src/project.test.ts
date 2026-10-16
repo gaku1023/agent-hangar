@@ -62,15 +62,15 @@ describe('hangar project candidates', () => {
     const lines = formatCandidates(candidates, { timeZone: 'UTC' });
     expect(lines).toEqual([
       'この PC の未分類の会話: 9 件',
-      '作成場所: 未設定',
+      '新しいディレクトリの作成先: 未設定',
       '候補 2 件（会話の多い順）:',
       '  会話   5 件  2026-10-14  /Users/someone/src/app  [worktree 1]',
       '  会話   1 件  2026-09-05  /Users/someone/Desktop/memo  [デスクトップの直下、git なし、30 日より前、会話 1 件、iCloud で同期、候補 /Users/someone/Desktop の中]',
-      '作成場所の候補: /Users/someone/src（hangar workspace set で決められます）',
+      '新しいディレクトリの作成先の候補: /Users/someone/src（hangar workspace set で設定できます）',
     ]);
     expect(formatCandidates({ candidates: [], suggestedRoot: null, unassignedTotal: 0, workspaceRoot: '/w' }, { timeZone: 'UTC' })).toEqual([
       'この PC の未分類の会話: 0 件',
-      '作成場所: /w',
+      '新しいディレクトリの作成先: /w',
       '候補はありません。',
     ]);
   });
@@ -84,7 +84,7 @@ describe('hangar project candidates', () => {
   it('サーバが止まっていれば exit 2。人向けは案内を標準エラーへ、--json は標準出力に server_down', async () => {
     const o = outs();
     expect(await candidatesCommand(base(o, downFetch))).toBe(2);
-    expect(o.err).toEqual(['ポート 4177 でサーバが動いていません。`hangar start` で起動してください。']);
+    expect(o.err).toEqual(['ポート 4177 でサーバが起動していません。`hangar start` で起動してください。']);
     expect(o.out).toEqual([]);
     const j = outs();
     expect(await candidatesCommand(base(j, downFetch, true))).toBe(2);
@@ -114,8 +114,8 @@ describe('hangar project add', () => {
     expect(o.out).toEqual([
       '登録します: /w/one（名前 one、未分類の会話 2 件が入ります）',
       '登録済み: /w/alpha（名前 alpha。アーカイブから戻します）',
-      '結び付けます: /w/far（ほかの PC のプロジェクト far-old、未分類の会話 1 件が入ります）',
-      '試しなので、何も書いていません。',
+      '関連付けます: /w/far（ほかの PC のプロジェクト far-old、未分類の会話 1 件が入ります）',
+      '--dry-run のため、何も書き込んでいません。',
     ]);
   });
   it('本番は登録しましたの形で出し、登録済みは失敗にしない', async () => {
@@ -126,7 +126,7 @@ describe('hangar project add', () => {
     expect(o.out).toEqual([
       '登録しました: /w/one（名前 one、未分類の会話 2 件が入りました）',
       '登録済み: /w/alpha（名前 alpha。アーカイブから戻しました）',
-      '結び付けました: /w/far（ほかの PC のプロジェクト far-old、未分類の会話 1 件が入りました）',
+      '関連付けました: /w/far（ほかの PC のプロジェクト far-old、未分類の会話 1 件が入りました）',
     ]);
   });
   it('入れ子とそのほかの失敗も全件出し、1 件でもあれば exit 1。入れ子はアプリで決めるよう案内する', async () => {
@@ -185,9 +185,9 @@ describe('hangar project remove', () => {
     expect(o.out).toEqual([
       `一覧から削除します: alpha（${alpha}）`,
       '会話 3 件が未分類に戻ります。',
-      '会話は未分類に戻るだけで、本文は消えません。フォルダにも触れません。',
-      '同期しているほかの PC の一覧からも消えます。',
-      '試しなので、何も書いていません。',
+      '会話は未分類に戻るだけです。トランスクリプトとディレクトリはそのまま残ります。',
+      '同期しているほかの PC の一覧からも削除されます。',
+      '--dry-run のため、何も書き込んでいません。',
     ]);
   });
   it('id でも選べる。本番は一覧から削除し、同期を使っていなければその行を出さない', async () => {
@@ -198,7 +198,7 @@ describe('hangar project remove', () => {
     expect(o.out).toEqual([
       `一覧から削除しました: alpha（${alpha}）`,
       '会話 3 件を未分類に戻しました。',
-      '会話は未分類に戻るだけで、本文は消えません。フォルダにも触れません。',
+      '会話は未分類に戻るだけです。トランスクリプトとディレクトリはそのまま残ります。',
     ]);
     const j = outs();
     expect(await projectRemoveCommand({ ...base(j, s.fetchFn, true), target: 'p1', dryRun: false, cwd: '/' })).toBe(0);
@@ -211,7 +211,7 @@ describe('hangar project remove', () => {
     expect(JSON.parse(j.out[0]!)).toMatchObject({ error: 'not_found' });
     const o = outs();
     expect(await projectRemoveCommand({ ...base(o, s.fetchFn), target: 'scr', dryRun: false, cwd: '/' })).toBe(1);
-    expect(o.err.join('\n')).toContain('スクラッチ');
+    expect(o.err.join('\n')).toContain('クイックセッション');
     expect(s.calls.some((c) => c.method === 'POST')).toBe(false);
   });
 });
@@ -226,11 +226,11 @@ describe('hangar workspace set / unset', () => {
     expect(await workspaceSetCommand({ ...base(o, s.fetchFn), dir: '~/w2', dryRun: true, cwd: '/', homeDir: '/home/me' })).toBe(0);
     expect(s.calls[0]!.body).toEqual({ workspaceRoot: path.resolve('/home/me', 'w2'), dryRun: true });
     expect(o.out).toEqual([
-      '作成場所: 未設定 → /w2',
-      '保存すると、直下の次のフォルダを自動で登録します（2 件）:',
+      '新しいディレクトリの作成先: 未設定 → /w2',
+      '保存すると、直下の次のディレクトリを自動で登録します（2 件）:',
       '  登録します: /w2/a（名前 a、未分類の会話 4 件が入ります）',
-      '  結び付けます: /w2/b（ほかの PC のプロジェクト b-old、未分類の会話 0 件が入ります）',
-      '試しなので、何も書いていません。',
+      '  関連付けます: /w2/b（ほかの PC のプロジェクト b-old、未分類の会話 0 件が入ります）',
+      '--dry-run のため、何も書き込んでいません。',
     ]);
   });
   it('断られた値は理由を出して exit 1', async () => {
@@ -258,7 +258,7 @@ describe('hangar workspace set / unset', () => {
     const o = outs();
     expect(await workspaceSetCommand({ ...base(o, s.fetchFn), dir: '/w2', dryRun: false, cwd: '/', homeDir: '/h' })).toBe(0);
     expect(s.calls.find((c) => c.method === 'PATCH')!.body).toEqual({ workspaceRoot: path.resolve('/w2') });
-    expect(o.out).toEqual(['作成場所を /w2 にしました。', '直下の 1 件を登録しました:', '  /w2/a（名前 a）']);
+    expect(o.out).toEqual(['新しいディレクトリの作成先を /w2 に設定しました。', '直下の 1 件を登録しました:', '  /w2/a（名前 a）']);
   });
   it('--trust の試しは、信頼済みにするフォルダと書く先を見せ、同意は残さない', async () => {
     const s = fakeServer((c) => {
@@ -273,15 +273,15 @@ describe('hangar workspace set / unset', () => {
     expect(await workspaceSetCommand({ ...base(o, s.fetchFn), dir: '/w2', dryRun: true, trust: true, cwd: '/', homeDir: '/h' })).toBe(0);
     expect(s.calls.find((c) => c.path === '/api/workspace/trust')!.body).toEqual({ path: path.resolve('/w2'), dryRun: true });
     expect(o.out).toEqual([
-      '作成場所: 未設定 → /w2',
-      '直下に、会話があってまだ登録していないフォルダはありません。',
-      'フォルダの信頼: 次のフォルダを Claude Code の信頼済みにします（2 件）:',
+      '新しいディレクトリの作成先: 未設定 → /w2',
+      '直下に、会話があって未登録のディレクトリはありません。',
+      'ディレクトリの信頼: 次のディレクトリを Claude Code の信頼済みにします（2 件）:',
       '  /w2',
       '  /w2/repo',
-      '  /h/.claude.json: 2 件を書きます',
-      '  /h/.claude-univ/.claude.json: 設定ファイルが無いので書きません（その置き場で Claude Code を一度起こすと作られます）',
-      '後から作成場所の下に置いたリポジトリも、hangar から起こすときに信頼済みにします。',
-      '試しなので、何も書いていません。',
+      '  /h/.claude.json: 2 件を書き込みます',
+      '  /h/.claude-univ/.claude.json: 設定ファイルが無いため書き込みません（その設定ディレクトリで Claude Code を一度起動すると作成されます）',
+      'あとから新しいディレクトリの作成先に追加したリポジトリも、hangar から Claude Code を起動するときに信頼済みにします。',
+      '--dry-run のため、何も書き込んでいません。',
     ]);
   });
   it('--trust の本番は、保存してから信頼を書く。書けなかった書く先があれば exit 1', async () => {
@@ -300,12 +300,12 @@ describe('hangar workspace set / unset', () => {
     expect(order.indexOf('POST /api/workspace/trust')).toBeGreaterThan(order.indexOf('PATCH /api/settings'));
     expect(s.calls.find((c) => c.path === '/api/workspace/trust')!.body).toEqual({ path: '/w2' });
     expect(o.out.slice(-6)).toEqual([
-      'フォルダの信頼: 次のフォルダを Claude Code の信頼済みにしました（1 件）:',
+      'ディレクトリの信頼: 次のディレクトリを Claude Code の信頼済みにしました（1 件）:',
       '  /w2',
       '  /h/.claude.json: すでに信頼済みです',
-      '  /u/.claude.json: 書けませんでした（ロックが取れません）',
-      '後から作成場所の下に置いたリポジトリも、hangar から起こすときに信頼済みにします。',
-      '同意は記録しました。書けなかった分も含め、次の書き込みは hangar から Claude を起こすときに行います。',
+      '  /u/.claude.json: 書き込めませんでした（ロックが取れません）',
+      'あとから新しいディレクトリの作成先に追加したリポジトリも、hangar から Claude Code を起動するときに信頼済みにします。',
+      '同意は記録しました。書き込めなかった分も含め、次の書き込みは hangar から Claude Code を起動するときに行います。',
     ]);
     const j = outs();
     expect(await workspaceSetCommand({ ...base(j, s.fetchFn, true), dir: '/w2', dryRun: false, trust: true, cwd: '/', homeDir: '/h' })).toBe(1);
@@ -325,7 +325,7 @@ describe('hangar workspace set / unset', () => {
     const o = outs();
     expect(await workspaceUnsetCommand({ ...base(o, s.fetchFn), dryRun: true })).toBe(0);
     expect(s.calls[0]!.body).toEqual({ workspaceRoot: '', dryRun: true });
-    expect(o.out).toEqual(['作成場所: /w → 未設定', '登録済みのプロジェクトはそのまま残ります。作成場所の直下の自動の登録は止まり、新しいフォルダはアプリで作るときに場所を選びます。', '試しなので、何も書いていません。']);
+    expect(o.out).toEqual(['新しいディレクトリの作成先: /w → 未設定', '登録済みのプロジェクトはそのまま残ります。新しいディレクトリの作成先の直下は自動で登録しなくなります。新しいディレクトリは、アプリで作成するときにパスを選択します。', '--dry-run のため、何も書き込んでいません。']);
     const j = outs();
     expect(await workspaceUnsetCommand({ ...base(j, s.fetchFn, true), dryRun: false })).toBe(0);
     expect(JSON.parse(j.out[0]!)).toEqual({ ok: true, dryRun: false, workspaceRoot: '', registered: [] });
