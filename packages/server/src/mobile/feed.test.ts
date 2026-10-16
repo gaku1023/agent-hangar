@@ -1,0 +1,247 @@
+import { describe, expect, it } from 'vitest';
+import { MOBILE_TEXT_MAX, PRIMARY_ACCOUNT_ID, type LiveSessionDto } from '@agent-hangar/shared';
+import { openDb, type Db } from '../db/open.ts';
+import { upsertShared } from '../db/shared.ts';
+import { addIntent } from '../live/intents.ts';
+import { buildMobileFeed, type FeedSources } from './feed.ts';
+
+const ME = 'pc-me';
+const OTHER = 'pc-other';
+const TZ = 'Asia/Tokyo';
+const HOUR = 3_600_000;
+// 2026-10-17 12:00 (Asia/Tokyo)。
+const NOW = Date.UTC(2026, 9, 17, 3, 0, 0);
+
+function seed(): Db {
+  const db = openDb(':memory:');
+  upsertShared(db, 'projects', { id: 'p-a', name: 'project-a', status: 'active', is_scratch: 0 }, ME);
+  upsertShared(db, 'project_roots', { id: 'r-a', project_id: 'p-a', device_id: ME, path: '/w/project-a', resolved: 1 }, ME);
+  return db;
+}
+
+function session(db: Db, id: string, o: { projectId?: string | null; name?: string | null } = {}): void {
+  upsertShared(db, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, project_id: o.projectId === undefined ? 'p-a' : o.projectId, cwd: '/w/project-a', first_prompt: null, ai_title: o.name ?? null, home_device: ME }, ME);
+}
+
+function run(db: Db, id: string, sessionId: string, o: { device?: string; startedAt?: number; endedAt?: number | null; account?: string } = {}): void {
+  upsertShared(
+    db,
+    'runs',
+    { id, session_id: sessionId, device_id: o.device ?? ME, kind: 'start', tmux_name: `t-${id}`, launch_params: JSON.stringify(o.account ? { account: o.account } : {}), started_at: o.startedAt ?? NOW - HOUR, ended_at: o.endedAt ?? null, heartbeat_at: NOW },
+    ME,
+  );
+}
+
+function state(db: Db, sessionId: string, o: { status: 'paused' | 'done'; returnOn?: string | null; returnTime?: string | null; setAt?: number }): void {
+  upsertShared(db, 'session_states', { session_id: sessionId, status: o.status, return_on: o.returnOn ?? null, return_time: o.returnTime ?? null, set_by: 'user', set_at: o.setAt ?? NOW }, ME, 'session_id');
+}
+
+const liveOf = (sessionId: string, o: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId: `u-${sessionId}`, status: 'busy', name: null, nameSource: null, cwd: '/w/project-a', pid: 1, statusAt: NOW - 1000, ...o });
+
+function src(db: Db, o: Partial<FeedSources> = {}): FeedSources {
+  return { db, deviceId: ME, deviceName: 'Mac 1', live: [], accounts: [{ id: PRIMARY_ACCOUNT_ID, name: 'メイン', dir: '/h/.claude', color: '#2a57b8' }], usageOf: () => null, now: NOW, tz: TZ, ...o };
+}
+
+describe('buildMobileFeed', () => {
+  it('入力待ちの run は waiting に問いの文が入り、300 字で切られる', () => {
+    const db = seed();
+    session(db, 's1', { name: '会話 1' });
+    run(db, 'run1', 's1');
+    const long = 'あ'.repeat(MOBILE_TEXT_MAX + 50);
+    db.prepare("insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values ('s1', 'AskUserQuestion', '', 't', ?, ?)").run(long, NOW);
+    const feed = buildMobileFeed(src(db, { live: [liveOf('s1', { status: 'waiting', waitingFor: 'question', statusAt: NOW - 5000 })] }));
+    expect(feed.live).toHaveLength(1);
+    const item = feed.live[0]!;
+    expect(item).toMatchObject({ sessionId: 's1', projectId: 'p-a', projectName: 'project-a', title: '会話 1', accountId: PRIMARY_ACCOUNT_ID, status: 'waiting', statusAt: NOW - 5000, startedAt: NOW - HOUR, rcUrl: null });
+    expect(item.waiting?.kind).toBe('question');
+    expect(item.waiting?.text).toBe('あ'.repeat(MOBILE_TEXT_MAX) + '…');
+  });
+
+  it('許可待ちはツール名と命令を waiting に入れ、busy の run の waiting は null', () => {
+    const db = seed();
+    session(db, 's1');
+    session(db, 's2');
+    run(db, 'run1', 's1');
+    run(db, 'run2', 's2');
+    const feed = buildMobileFeed(
+      src(db, {
+        live: [
+          liveOf('s1', { status: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'npm test', description: null }, statusAt: NOW - 1 }),
+          liveOf('s2', { status: 'busy', statusAt: NOW - 2 }),
+        ],
+      }),
+    );
+    expect(feed.live.map((l) => l.sessionId)).toEqual(['s1', 's2']);
+    expect(feed.live[0]!.waiting).toEqual({ kind: 'permission', text: 'Bash: npm test' });
+    expect(feed.live[1]!.waiting).toBeNull();
+  });
+
+  it('ほかの PC の run と、終わった run は live に入らない', () => {
+    const db = seed();
+    session(db, 's1');
+    session(db, 's2');
+    session(db, 's3');
+    run(db, 'run1', 's1', { device: OTHER });
+    run(db, 'run2', 's2', { endedAt: NOW - 10 });
+    run(db, 'run3', 's3');
+    const feed = buildMobileFeed(src(db, { live: [liveOf('s1'), liveOf('s2'), liveOf('s3'), liveOf('nothing')] }));
+    expect(feed.live.map((l) => l.sessionId)).toEqual(['s3']);
+  });
+
+  it('意図は最新の 1 つだけで、300 字で切られる', () => {
+    const db = seed();
+    session(db, 's1');
+    run(db, 'run1', 's1');
+    addIntent(db, 's1', '古い意図', NOW - 2000);
+    addIntent(db, 's1', 'い'.repeat(400), NOW - 1000);
+    const a = buildMobileFeed(src(db, { live: [liveOf('s1')] })).live[0]!;
+    expect(a.intent).toBe('い'.repeat(MOBILE_TEXT_MAX) + '…');
+    addIntent(db, 's1', '新しい意図', NOW - 500);
+    expect(buildMobileFeed(src(db, { live: [liveOf('s1')] })).live[0]!.intent).toBe('新しい意図');
+  });
+
+  it('live は statusAt の降順に並ぶ', () => {
+    const db = seed();
+    for (const id of ['s1', 's2', 's3']) {
+      session(db, id);
+      run(db, `run-${id}`, id);
+    }
+    const feed = buildMobileFeed(src(db, { live: [liveOf('s1', { statusAt: 100 }), liveOf('s3', { statusAt: 300 }), liveOf('s2', { statusAt: 200 })] }));
+    expect(feed.live.map((l) => l.sessionId)).toEqual(['s3', 's2', 's1']);
+  });
+
+  it('2 つ目のアカウントで起こした run はそのアカウントの id が付く', () => {
+    const db = seed();
+    session(db, 's1');
+    run(db, 'run1', 's1', { account: 'acc-2' });
+    expect(buildMobileFeed(src(db, { live: [liveOf('s1')] })).live[0]!.accountId).toBe('acc-2');
+  });
+
+  it('今日戻る Paused は returns に、明日までは入り、明後日のものは入らない', () => {
+    const db = seed();
+    for (const id of ['s-today', 's-tomorrow', 's-later', 's-overdue', 's-nodate']) {
+      session(db, id, { name: id });
+      run(db, `run-${id}`, id, { endedAt: NOW - 100 });
+    }
+    state(db, 's-today', { status: 'paused', returnOn: '2026-10-17', returnTime: '15:00' });
+    state(db, 's-tomorrow', { status: 'paused', returnOn: '2026-10-18' });
+    state(db, 's-later', { status: 'paused', returnOn: '2026-10-19' });
+    state(db, 's-overdue', { status: 'paused', returnOn: '2026-10-10' });
+    state(db, 's-nodate', { status: 'paused', returnOn: null });
+    const feed = buildMobileFeed(src(db));
+    expect(feed.returns.map((r) => r.sessionId)).toEqual(['s-tomorrow', 's-today', 's-overdue']);
+    expect(feed.returns.find((r) => r.sessionId === 's-today')).toEqual({ sessionId: 's-today', projectName: 'project-a', title: 's-today', accountId: PRIMARY_ACCOUNT_ID, returnOn: '2026-10-17', returnTime: '15:00' });
+  });
+
+  it('「明日」は tz のその PC の日付で決まる', () => {
+    const db = seed();
+    session(db, 's1');
+    run(db, 'run1', 's1', { endedAt: NOW - 100 });
+    state(db, 's1', { status: 'paused', returnOn: '2026-10-19' });
+    // UTC では 10-17 でも、Pacific/Kiritimati（+14）では 10-18 の朝。明日は 10-19。
+    const at = Date.UTC(2026, 9, 17, 20, 0, 0);
+    expect(buildMobileFeed(src(db, { now: at, tz: 'Pacific/Kiritimati' })).returns).toHaveLength(1);
+    expect(buildMobileFeed(src(db, { now: at, tz: 'UTC' })).returns).toHaveLength(0);
+  });
+
+  it('Done は 36 時間以内だけで、一言は session_summaries から取る', () => {
+    const db = seed();
+    for (const id of ['s-new', 's-old']) {
+      session(db, id, { name: id });
+      run(db, `run-${id}`, id, { endedAt: NOW - 100 });
+    }
+    state(db, 's-new', { status: 'done', setAt: NOW - 35 * HOUR });
+    state(db, 's-old', { status: 'done', setAt: NOW - 37 * HOUR });
+    upsertShared(db, 'session_summaries', { session_id: 's-new', title: 't', one_liner: '一言のまとめ', body: 'b', state: 'done', next_steps: '[]', source: 'baseline', based_on_turns: 1 }, ME, 'session_id');
+    const feed = buildMobileFeed(src(db));
+    expect(feed.done).toEqual([{ sessionId: 's-new', projectName: 'project-a', title: 's-new', oneLiner: '一言のまとめ', doneAt: NOW - 35 * HOUR }]);
+  });
+
+  it('最後の run がほかの PC の会話は returns と done に入らない', () => {
+    const db = seed();
+    session(db, 's1');
+    session(db, 's2');
+    run(db, 'run1a', 's1', { startedAt: NOW - 5 * HOUR, endedAt: NOW - 4 * HOUR });
+    run(db, 'run1b', 's1', { device: OTHER, startedAt: NOW - 3 * HOUR, endedAt: NOW - 2 * HOUR });
+    run(db, 'run2', 's2', { device: OTHER });
+    state(db, 's1', { status: 'paused', returnOn: '2026-10-17' });
+    state(db, 's2', { status: 'done', setAt: NOW - HOUR });
+    const feed = buildMobileFeed(src(db));
+    expect(feed.returns).toEqual([]);
+    expect(feed.done).toEqual([]);
+  });
+
+  it('run の無い会話は returns と done に入らない', () => {
+    const db = seed();
+    session(db, 's1');
+    state(db, 's1', { status: 'done', setAt: NOW - HOUR });
+    expect(buildMobileFeed(src(db)).done).toEqual([]);
+  });
+
+  it('動いている会話は returns と done に重ねて入れない', () => {
+    const db = seed();
+    session(db, 's1');
+    run(db, 'run1', 's1');
+    state(db, 's1', { status: 'done', setAt: NOW - HOUR });
+    const feed = buildMobileFeed(src(db, { live: [liveOf('s1')] }));
+    expect(feed.live).toHaveLength(1);
+    expect(feed.done).toEqual([]);
+  });
+
+  it('この PC に場所の無いプロジェクトは projects に入らず、lastUsedAt は最後の run の開始時刻', () => {
+    const db = seed();
+    upsertShared(db, 'projects', { id: 'p-b', name: 'project-b', status: 'active', is_scratch: 0 }, ME);
+    upsertShared(db, 'project_roots', { id: 'r-b', project_id: 'p-b', device_id: OTHER, path: '/x/project-b', resolved: 1 }, ME);
+    upsertShared(db, 'projects', { id: 'p-c', name: 'project-c', status: 'active', is_scratch: 0 }, ME);
+    upsertShared(db, 'project_roots', { id: 'r-c', project_id: 'p-c', device_id: ME, path: '/w/project-c', resolved: 1 }, ME);
+    upsertShared(db, 'projects', { id: 'p-d', name: 'project-d', status: 'active', is_scratch: 0 }, ME);
+    upsertShared(db, 'project_roots', { id: 'r-d', project_id: 'p-d', device_id: ME, path: '/w/project-d', resolved: 1, deleted_at: NOW }, ME);
+    upsertShared(db, 'projects', { id: 'p-s', name: 'scratch', status: 'active', is_scratch: 1 }, ME);
+    upsertShared(db, 'project_roots', { id: 'r-s', project_id: 'p-s', device_id: ME, path: '/w/scratch', resolved: 1 }, ME);
+    session(db, 's1');
+    session(db, 's2');
+    run(db, 'run1', 's1', { startedAt: NOW - 3 * HOUR, endedAt: NOW - 2 * HOUR });
+    run(db, 'run2', 's2', { startedAt: NOW - 1 * HOUR, endedAt: NOW - 1 });
+    const feed = buildMobileFeed(src(db));
+    expect(feed.projects).toEqual([
+      { id: 'p-a', name: 'project-a', lastUsedAt: NOW - HOUR },
+      { id: 'p-c', name: 'project-c', lastUsedAt: null },
+    ]);
+  });
+
+  it('accounts は AccountStore の一覧と使用率', () => {
+    const db = seed();
+    const feed = buildMobileFeed(
+      src(db, {
+        accounts: [
+          { id: PRIMARY_ACCOUNT_ID, name: 'メイン', dir: '/h/.claude', color: '#2a57b8' },
+          { id: 'acc-2', name: 'サブ', dir: '/h/.claude-2', color: '#7a4a9e' },
+        ],
+        usageOf: (id) => (id === PRIMARY_ACCOUNT_ID ? { fiveHour: { usedPercent: 32, resetsAt: NOW + HOUR }, sevenDay: { usedPercent: 10, resetsAt: null }, updatedAt: NOW } : null),
+      }),
+    );
+    expect(feed.accounts).toEqual([
+      { id: PRIMARY_ACCOUNT_ID, name: 'メイン', color: '#2a57b8', fiveHour: 32, sevenDay: 10 },
+      { id: 'acc-2', name: 'サブ', color: '#7a4a9e', fiveHour: null, sevenDay: null },
+    ]);
+    expect(feed).toMatchObject({ v: 1, deviceId: ME, deviceName: 'Mac 1' });
+  });
+
+  it('同じ入力からは同じ JSON になる', () => {
+    const db = seed();
+    for (const id of ['s1', 's2', 's3', 's4']) {
+      session(db, id, { name: id });
+      run(db, `run-${id}`, id, { endedAt: NOW - 100 });
+    }
+    state(db, 's1', { status: 'done', setAt: NOW - HOUR });
+    state(db, 's2', { status: 'done', setAt: NOW - HOUR });
+    state(db, 's3', { status: 'paused', returnOn: '2026-10-17' });
+    state(db, 's4', { status: 'paused', returnOn: '2026-10-17' });
+    const a = JSON.stringify(buildMobileFeed(src(db)));
+    const b = JSON.stringify(buildMobileFeed(src(db)));
+    expect(a).toBe(b);
+    const f = buildMobileFeed(src(db));
+    expect(f.done.map((d) => d.sessionId)).toEqual(['s1', 's2']);
+    expect(f.returns.map((d) => d.sessionId)).toEqual(['s3', 's4']);
+  });
+});
