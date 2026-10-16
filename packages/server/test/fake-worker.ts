@@ -7,12 +7,19 @@ import { COMPAT_HEADER, COMPAT_VERSION } from '@agent-hangar/shared';
  * 全体を起動する試験（src/server.test.ts）と、同期の組み立ての試験（src/boot/sync.test.ts）が同じものを使う。
  */
 
-/** 受けた要求を記録するだけの立て替えの Worker。実物のクラウドには触らない。 */
+/** 受けた要求を記録するだけの立て替えの Worker。/health のほかは 401 で断る。実物のクラウドには触らない。 */
 export async function recorder(): Promise<{ url: string; seen: string[]; close: () => Promise<void> }> {
   const seen: string[] = [];
   const srv = http.createServer((req, res) => {
-    seen.push(`${req.method} ${(req.url ?? '').split('?')[0]}`);
+    const p = (req.url ?? '').split('?')[0];
+    seen.push(`${req.method} ${p}`);
     req.resume();
+    // /health は実物と同じく認証を問わずに版を名乗る。同期は書き込みの前にここで Worker の版を確かめる。
+    if (p === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json', [COMPAT_HEADER]: String(COMPAT_VERSION) });
+      res.end(JSON.stringify({ ok: true, version: 'fake', compat: COMPAT_VERSION }));
+      return;
+    }
     res.writeHead(401, { 'content-type': 'application/json' });
     res.end('{"error":"no"}');
   });
@@ -90,5 +97,39 @@ export const answerAll = (compat: string | undefined) => (method: string, p: str
   if (p === '/files') return ok(200, { files: [], nextSeq: 0, more: false });
   if (p.startsWith('/files/') && method === 'PUT') return ok(201, { seq: 1 });
   if (p === '/usage') return ok(200, { configured: false });
+  if (p === '/health') return ok(200, { ok: true, version: 'fake', compat: compat === undefined ? 0 : Number(compat) });
   return ok(404, { error: 'not found' });
 };
+
+export type TokenSeen = Seen & { bearer: string | null; status: number };
+
+/**
+ * 端末トークンを 1 つだけ受け付ける立て替えの Worker。実物のクラウドには触らない。
+ * 違うトークンには、実物の認証（packages/cloud/src/auth.ts）と同じく 401 の `{ error: 'unauthorized' }` を返す。
+ * setToken は、参加し直しで Worker の token_hash が入れ替わったことの真似である。
+ * 受け付けたら、いまの Worker の真似（answerAll）で答える。
+ */
+export async function tokenWorker(token: string, compat: string = String(COMPAT_VERSION)): Promise<{ url: string; seen: TokenSeen[]; setToken: (t: string) => void; close: () => Promise<void> }> {
+  let current = token;
+  const seen: TokenSeen[] = [];
+  const answer = answerAll(compat);
+  const srv = http.createServer((req, res) => {
+    const p = (req.url ?? '').split('?')[0]!;
+    const h = req.headers[COMPAT_HEADER];
+    const auth = req.headers.authorization;
+    const bearer = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : null;
+    req.resume();
+    const a: Answer = p !== '/health' && bearer !== current ? { status: 401, body: { error: 'unauthorized' }, compat } : answer(req.method ?? '', p);
+    seen.push({ method: req.method ?? '', path: p, compat: Array.isArray(h) ? h[0] : h, bearer, status: a.status });
+    res.writeHead(a.status, { 'content-type': 'application/json', ...(a.compat === undefined ? {} : { [COMPAT_HEADER]: a.compat }) });
+    res.end(JSON.stringify(a.body));
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const port = (srv.address() as net.AddressInfo).port;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    seen,
+    setToken: (t) => { current = t; },
+    close: async () => { srv.closeAllConnections?.(); await new Promise<void>((r) => srv.close(() => r())); },
+  };
+}
