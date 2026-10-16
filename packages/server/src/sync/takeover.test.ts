@@ -345,8 +345,16 @@ describe('resumeHereAllowed', () => {
     expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: false, deviceName: 'pc-b' });
   });
 
-  it('stale なら通す', () => {
-    expect(resumeHereAllowed(db, SELF, 's1', now() + 10 * 60_000)).toEqual({ ok: true });
+  it('受け取ったばかりの peers で stale なら通す。この PC の覚えが古いままなら、分からないので通さない', () => {
+    const later = now() + 10 * 60_000;
+    expect(resumeHereAllowed(db, SELF, 's1', later)).toEqual({ ok: false, deviceName: 'pc-b' });
+    recordPeers(db, { selfDeviceId: SELF, peers: [{ id: OTHER, lastSeenAt: T0 - 1_000 }], workerNow: later, localNow: later });
+    expect(resumeHereAllowed(db, SELF, 's1', later)).toEqual({ ok: true });
+  });
+
+  it('peers を受け取っていなければ、相手の生死は分からないので通さない', () => {
+    db.prepare("delete from sync_state where key = 'peers'").run();
+    expect(resumeHereAllowed(db, SELF, 's1', now() + 10 * 60_000)).toEqual({ ok: false, deviceName: 'pc-b' });
   });
 
   it('force の頼みなら通す', () => {

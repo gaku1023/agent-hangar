@@ -9,7 +9,7 @@ import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { setSessionName } from '../sessions/notes.ts';
-import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
+import { PEER_STALE_MS, PEERS_FRESH_MS, recordPeers } from '../sync/peers.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { displayName, getProject, getSession, listDevices, listProjects, listSessions, sessionLock, setParkingSwitch } from './queries.ts';
 
@@ -294,8 +294,8 @@ describe('ロックと remoteOnly と端末一覧', () => {
   const one = (d2: Db) => listSessions(d2, [], { deviceId: 'dev-a', now: () => NOW })[0]!;
 
   /** dev-b を、Worker が ageMs 前に見た PC として覚える（pull の応答の peers）。 */
-  const seen = (d2: Db, peers: { id: string; age: number | null }[]) =>
-    recordPeers(d2, { selfDeviceId: 'dev-a', peers: peers.map((p) => ({ id: p.id, lastSeenAt: p.age === null ? null : 9_000_000 - p.age })), workerNow: 9_000_000, localNow: NOW });
+  const seen = (d2: Db, peers: { id: string; age: number | null }[], localNow = NOW) =>
+    recordPeers(d2, { selfDeviceId: 'dev-a', peers: peers.map((p) => ({ id: p.id, lastSeenAt: p.age === null ? null : 9_000_000 - p.age })), workerNow: 9_000_000, localNow });
 
   it('他端末の生きた run をロックとして出し、自端末と終わった run は出さない。heartbeatAt はその PC の最終接続', () => {
     const d2 = setup();
@@ -341,14 +341,29 @@ describe('ロックと remoteOnly と端末一覧', () => {
     expect(one(d2).lock).toMatchObject({ stale: false });
   });
 
-  it('run の heartbeat が新しくても、peers を受け取っていない、peers に居ない、Worker がまだ見ていない PC は stale', () => {
+  it('run の heartbeat が新しくても、受け取ったばかりの peers に居ない、Worker がまだ見ていない PC は stale', () => {
     const d2 = setup();
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW });
-    // 受け取っていない。最終接続は分からないので、run の行の時刻を見せる。
-    expect(one(d2).lock).toMatchObject({ stale: true, heartbeatAt: NOW });
     seen(d2, [{ id: 'dev-a', age: 0 }]);
     expect(one(d2).lock).toMatchObject({ stale: true });
     seen(d2, [{ id: 'dev-b', age: null }]);
+    expect(one(d2).lock).toMatchObject({ stale: true });
+  });
+
+  it('peers を受け取っていないか、受け取ってから PEERS_FRESH_MS を過ぎていれば、分からないので stale にしない', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW });
+    // 受け取っていない。最終接続は分からないので、run の行の時刻を見せる。
+    expect(one(d2).lock).toMatchObject({ stale: false, heartbeatAt: NOW });
+    // 古い覚えでは、居ない、まだ見ていない、年齢超過のどれでも stale にしない。
+    seen(d2, [{ id: 'dev-a', age: 0 }], NOW - PEERS_FRESH_MS - 1);
+    expect(one(d2).lock).toMatchObject({ stale: false });
+    seen(d2, [{ id: 'dev-b', age: null }], NOW - PEERS_FRESH_MS - 1);
+    expect(one(d2).lock).toMatchObject({ stale: false });
+    seen(d2, [{ id: 'dev-b', age: PEER_STALE_MS + 1 }], NOW - PEERS_FRESH_MS - 1);
+    expect(one(d2).lock).toMatchObject({ stale: false });
+    // ちょうど PEERS_FRESH_MS ならまだ新しい覚えとして使う。
+    seen(d2, [{ id: 'dev-b', age: null }], NOW - PEERS_FRESH_MS);
     expect(one(d2).lock).toMatchObject({ stale: true });
   });
 

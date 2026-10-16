@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
+import { PEER_STALE_MS, PEERS_FRESH_MS, recordPeers } from '../sync/peers.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs, toRunDto, type RunRow } from './queries.ts';
 
 function seed() {
@@ -33,14 +33,23 @@ describe('runs/queries', () => {
     const db = openDb(':memory:');
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'b' }, 'b');
     upsertShared(db, 'runs', { id: 'rb', session_id: 's1', device_id: 'b', kind: 'start', tmux_name: 'hangar-rb', pid: null, launch_params: '{}', started_at: 200, ended_at: null, end_reason: null, heartbeat_at: NOW }, 'b');
-    // peers を受け取っていなければ、他の PC の run は古い。
+    // peers を受け取っていなければ、他の PC の生死は分からないので、ふさいでいるとみなす。
+    expect(aliveRunForSession(db, 's1', 'a', NOW)?.id).toBe('rb');
+    // 受け取ったばかりの peers に居なければ古い。
+    recordPeers(db, { selfDeviceId: 'a', peers: [], workerNow: 1_000, localNow: NOW });
     expect(aliveRunForSession(db, 's1', 'a', NOW)).toBeNull();
     recordPeers(db, { selfDeviceId: 'a', peers: [{ id: 'b', lastSeenAt: 1_000 }], workerNow: 1_000, localNow: NOW });
     expect(aliveRunForSession(db, 's1', 'a', NOW)?.id).toBe('rb');
-    expect(aliveRunForSession(db, 's1', 'a', NOW + PEER_STALE_MS + 1)).toBeNull();
+    const later = NOW + PEER_STALE_MS + 1;
+    // 覚えが PEERS_FRESH_MS より古いままなら、年齢が超えていても分からないのでふさぐ。
+    expect(later - NOW).toBeGreaterThan(PEERS_FRESH_MS);
+    expect(aliveRunForSession(db, 's1', 'a', later)?.id).toBe('rb');
+    // 受け取り直した覚えで年齢が超えていれば古い。
+    recordPeers(db, { selfDeviceId: 'a', peers: [{ id: 'b', lastSeenAt: 1_000 }], workerNow: 1_000 + PEER_STALE_MS + 1, localNow: later });
+    expect(aliveRunForSession(db, 's1', 'a', later)).toBeNull();
     // 自分の PC の run は、peers に依らずふさぐ。新しい方を採るのも今どおり。
     upsertShared(db, 'runs', { id: 'ra', session_id: 's1', device_id: 'a', kind: 'start', tmux_name: 'hangar-ra', pid: null, launch_params: '{}', started_at: 100, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'a');
-    expect(aliveRunForSession(db, 's1', 'a', NOW + PEER_STALE_MS + 1)?.id).toBe('ra');
+    expect(aliveRunForSession(db, 's1', 'a', later)?.id).toBe('ra');
     expect(aliveRunForSession(db, 's1', 'a', NOW)?.id).toBe('rb');
   });
 

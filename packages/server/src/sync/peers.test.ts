@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
-import { PEER_STALE_MS, peerSeenAt, peerStale, readPeers, recordPeers } from './peers.ts';
+import { PEER_STALE_MS, PEERS_FRESH_MS, peerSeenAt, peerStale, readPeers, recordPeers } from './peers.ts';
 
 const SELF = 'dev-a';
 const W = 5_000_000_000_000; // Worker の時計
@@ -25,10 +25,10 @@ function touched(db: Db, fn: () => void): string[] {
 }
 
 describe('他の PC の生存（pull の応答の peers）', () => {
-  it('一度も受け取っていなければ、どの PC も古い', () => {
+  it('一度も受け取っていなければ、分からないので古いとはしない', () => {
     const db = seed();
     expect(readPeers(db)).toBeNull();
-    expect(peerStale(readPeers(db), 'dev-b', L)).toBe(true);
+    expect(peerStale(readPeers(db), 'dev-b', L)).toBe(false);
     expect(peerSeenAt(readPeers(db), 'dev-b')).toBeNull();
   });
 
@@ -38,9 +38,23 @@ describe('他の PC の生存（pull の応答の peers）', () => {
     const book = readPeers(db);
     expect(peerSeenAt(book, 'dev-b')).toBe(L - 40_000);
     expect(peerStale(book, 'dev-b', L)).toBe(false);
-    // ちょうど PEER_STALE_MS はまだ古くない。1 ms 過ぎたら古い。
-    expect(peerStale(book, 'dev-b', L - 40_000 + PEER_STALE_MS)).toBe(false);
-    expect(peerStale(book, 'dev-b', L - 40_000 + PEER_STALE_MS + 1)).toBe(true);
+  });
+
+  it('年齢がちょうど PEER_STALE_MS ならまだ古くなく、1 ms 過ぎたら古い', () => {
+    const db = seed();
+    recordPeers(db, { selfDeviceId: SELF, peers: [{ id: 'dev-b', lastSeenAt: W - PEER_STALE_MS }, { id: 'dev-c', lastSeenAt: W - PEER_STALE_MS - 1 }], workerNow: W, localNow: L });
+    const book = readPeers(db);
+    expect(peerStale(book, 'dev-b', L)).toBe(false);
+    expect(peerStale(book, 'dev-c', L)).toBe(true);
+  });
+
+  it('この PC の覚えが PEERS_FRESH_MS より古ければ、分からないので古いとはしない', () => {
+    const db = seed();
+    recordPeers(db, { selfDeviceId: SELF, peers: [{ id: 'dev-b', lastSeenAt: W - PEER_STALE_MS - 1 }], workerNow: W, localNow: L });
+    const book = readPeers(db);
+    expect(peerStale(book, 'dev-b', L + PEERS_FRESH_MS)).toBe(true);
+    // 起動直後や同期が止まっている間は、この PC の目が古い。相手を死んだとは言わない。
+    expect(peerStale(book, 'dev-b', L + PEERS_FRESH_MS + 1)).toBe(false);
   });
 
   it('Worker の時計で未来の lastSeenAt は年齢 0 に丸める', () => {
@@ -57,14 +71,15 @@ describe('他の PC の生存（pull の応答の peers）', () => {
     expect(peerStale(book, 'dev-c', L)).toBe(true);
   });
 
-  it('覚えは sync_state に残り、立て直した後もこの PC の時計で歳を取る', () => {
+  it('覚えは sync_state に残り、立て直した後に古くなっていれば分からないとする', () => {
     const db = seed();
     recordPeers(db, { selfDeviceId: SELF, peers: [{ id: 'dev-b', lastSeenAt: W }], workerNow: W, localNow: L });
     expect(db.prepare("select count(*) c from sync_state where key = 'peers'").get()).toEqual({ c: 1 });
     // 共有の changes には積まない。
     expect(db.prepare("select count(*) c from changes where table_name = 'sync_state'").get()).toEqual({ c: 0 });
     const later = readPeers(db);
-    expect(peerStale(later, 'dev-b', L + 10 * 60_000)).toBe(true);
+    expect(peerSeenAt(later, 'dev-b')).toBe(L);
+    expect(peerStale(later, 'dev-b', L + 10 * 60_000)).toBe(false);
   });
 
   it('他の PC の生きた run のセッションを、生死が変わったときと最終接続が進んだときだけ配り直す', () => {
