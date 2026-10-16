@@ -1,4 +1,6 @@
 import type { RunManager } from '../runs/manager.ts';
+import type { NoticeEvent } from '../events/publisher.ts';
+import { TakeoverService } from '../sync/takeover.ts';
 import { TakeoverResponder } from '../sync/takeoverResponder.ts';
 import { pruneTakeoverRows } from '../sync/takeoverRows.ts';
 import type { HomeParts } from './home.ts';
@@ -7,6 +9,8 @@ import type { SyncParts } from './sync.ts';
 export type TakeoverParts = {
   /** ほかの PC から頼まれた「この会話を止めてほしい」を扱う。 */
   responder: TakeoverResponder;
+  /** 「この PC で再開」の頼む側。ほかの PC で動く会話を止めてもらい、最後の本文が降りるのを待つ。 */
+  service: TakeoverService;
   /** 古い自分の行を刈り、起動前に届いていた頼みを 1 度扱い、以後は頼みの行が届くたびに扱う。 */
   start(): void;
   stop(): void;
@@ -15,14 +19,15 @@ export type TakeoverParts = {
 };
 
 /**
- * 引き継ぎの頼みの受け手（sync/takeoverResponder.ts）を組む。
+ * 引き継ぎの頼みの受け手（sync/takeoverResponder.ts）と、頼む側（sync/takeover.ts）を組む。
  * start で 1 度 scan するのは、Hangar が止まっていた間に届いた頼みと、再起動後も tmux に残っている奪われた claude のためである。
  * 同期より後に始める（頼みの行は pull で届くので、始める前に受け手の口が要る）。
  */
 export function bootTakeover(p: {
   home: Pick<HomeParts, 'db' | 'language'> & { device: Pick<HomeParts['device'], 'id' | 'name'> };
   runs: { runs: Pick<RunManager, 'getRun' | 'kill'> };
-  sync: Pick<SyncParts, 'flushSession' | 'pushNow' | 'onTakeoversApplied'>;
+  sync: Pick<SyncParts, 'flushSession' | 'pushNow' | 'onTakeoversApplied' | 'pullForTakeover' | 'canCarryTakeover'>;
+  delivery: { hub: { broadcast(ev: NoticeEvent): void } };
   againMs?: number;
 }): TakeoverParts {
   const { db, language } = p.home;
@@ -38,10 +43,22 @@ export function bootTakeover(p: {
     language,
     ...(p.againMs !== undefined ? { againMs: p.againMs } : {}),
   });
-  const run = (): void => { void responder.scan().catch((e: unknown) => console.error('[takeover]', e instanceof Error ? e.message : e)); };
+  const service = new TakeoverService({
+    db, deviceId,
+    canCarry: () => p.sync.canCarryTakeover(),
+    pushNow: p.sync.pushNow,
+    pull: p.sync.pullForTakeover,
+    broadcast: (takeover) => { p.delivery.hub.broadcast({ type: 'takeover.update', takeover }); },
+  });
+  const run = (): void => {
+    // 応答や本文の行が届いたら、頼んで待っている会話も確かめ直す。
+    service.noteApplied();
+    void responder.scan().catch((e: unknown) => console.error('[takeover]', e instanceof Error ? e.message : e));
+  };
   let off: (() => void) | null = null;
   return {
     responder,
+    service,
     start() {
       try { pruneTakeoverRows(db, deviceId, Date.now()); } catch (e) { console.error('[takeover] 古い行を刈れませんでした', e instanceof Error ? e.message : e); }
       off ??= p.sync.onTakeoversApplied(run);
@@ -50,6 +67,7 @@ export function bootTakeover(p: {
     stop() {
       off?.();
       off = null;
+      service.stop();
     },
     setNotePane(fn) { notePane = fn; },
   };

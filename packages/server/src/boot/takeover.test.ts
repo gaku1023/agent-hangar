@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
-import { answerOf, writeAsk } from '../sync/takeoverRows.ts';
+import { upsertShared } from '../db/shared.ts';
+import { answerOf, writeAnswer, writeAsk } from '../sync/takeoverRows.ts';
 import { bootTakeover } from './takeover.ts';
 
 const UUID = '22222222-2222-4222-8222-222222222222';
@@ -15,6 +16,7 @@ describe('引き継ぎの頼みを受ける部品の組み立て', () => {
   let calls: string[];
   let applied: Set<() => void>;
   let t: ReturnType<typeof bootTakeover>;
+  let sent: unknown[];
 
   beforeEach(() => {
     db = openDb(':memory:');
@@ -22,13 +24,16 @@ describe('引き継ぎの頼みを受ける部品の組み立て', () => {
     runs = new Map([['r1', { id: 'r1', sessionId, deviceId: SELF, kind: 'resume', tmuxName: 'hangar-r1', pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 } as RunDto]]);
     calls = [];
     applied = new Set();
+    sent = [];
     t = bootTakeover({
       home: { db, device: { id: SELF, name: 'self' }, language: () => 'ja' },
       runs: { runs: { getRun: (id) => runs.get(id) ?? null, kill: (id, reason) => { calls.push(`kill:${id}:${reason}`); const r = { ...runs.get(id)!, endedAt: 2 } as RunDto; runs.set(id, r); return r; } } },
       sync: {
         flushSession: async () => {}, pushNow: async () => { calls.push('push'); },
         onTakeoversApplied: (cb) => { applied.add(cb); return () => { applied.delete(cb); }; },
+        pullForTakeover: async () => {}, canCarryTakeover: () => true,
       },
+      delivery: { hub: { broadcast: (ev) => { sent.push(ev); } } },
       againMs: 0,
     });
   });
@@ -64,5 +69,22 @@ describe('引き継ぎの頼みを受ける部品の組み立て', () => {
     ask();
     await t.responder.scan();
     expect(notes).toEqual([['hangar-r1', '[hangar] ノート PC に引き継がれたため、この PC の claude を停止しました。']]);
+  });
+
+  it('頼む側の service を組み、頼みの行が届くたびに待っている会話を確かめ直し、段を hub へ配る', async () => {
+    // 相手（pc-a）で動いている会話を、この PC（pc-b）が引き継ぐ。
+    const peer = ensureSession(db, '33333333-3333-4333-8333-333333333333', '/w', 'pc-a');
+    upsertShared(db, 'runs', { id: 'r9', session_id: peer, device_id: 'pc-a', kind: 'start', tmux_name: 'hangar-r9', pid: null, launch_params: '{}', started_at: Date.now() - 1000, ended_at: null, end_reason: null, heartbeat_at: Date.now() }, 'pc-a');
+    t.start();
+    expect(t.service.start(peer, { force: false }).stage).toBe('asking');
+    await settle();
+    expect(t.service.get(peer)?.stage).toBe('waiting');
+    const mine = (db.prepare('select id from takeovers where from_device = ?').get(SELF) as { id: string }).id;
+    writeAnswer(db, 'pc-a', { askId: mine, runId: 'r9', result: 'stopped', answeredAt: Date.now(), transcriptSha256: null, transcriptSize: null });
+    for (const cb of applied) cb();
+    expect(t.service.get(peer)?.stage).toBe('ready');
+    expect(sent).toContainEqual({ type: 'takeover.update', takeover: expect.objectContaining({ sessionId: peer, stage: 'ready' }) });
+    t.stop();
+    expect(t.service.get(peer)).toBeNull();
   });
 });

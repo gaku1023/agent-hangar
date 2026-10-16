@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
+import type { TakeoverDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -35,6 +35,8 @@ export type ServerEvent =
   | { type: 'retention.changed'; retention: RetentionDto }
   /** 中断の群が変わった（tmux のサーバが消えた、再開しないと決めた、元に戻した）。群が無くなれば null。 */
   | { type: 'interrupted.update'; interrupted: InterruptedDto | null }
+  /** 「この PC で再開」の引き継ぎの段が変わった。取り下げたあとは stage が cancelled のものを 1 度だけ配る。 */
+  | { type: 'takeover.update'; takeover: TakeoverDto }
   /**
    * git の状態が変わった（git.ts）。実行中のセッションが書いたあと、サーバが読み直して値が変わったときだけ配る。
    * 部分なので、受け取る側は前の値に重ねる。

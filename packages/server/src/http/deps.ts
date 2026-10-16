@@ -14,6 +14,7 @@ import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
+import type { TakeoverService } from '../sync/takeover.ts';
 import type { AccountsDeps } from './accounts.ts';
 import type { GitService } from '../git/service.ts';
 
@@ -132,6 +133,8 @@ export type AppDeps = {
   syncSweep: () => number | null;
   /** 一時停止のまま頼まれた 1 巡の最中か。 */
   syncOncePass: () => boolean;
+  /** 「この PC で再開」の頼む側（sync/takeover.ts）。ほかの PC で動く会話を止めてもらい、最後の本文が降りるのを待つ。 */
+  takeover: Pick<TakeoverService, 'start' | 'extend' | 'cancel' | 'get' | 'forcedWithoutRow'>;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
   /**

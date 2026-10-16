@@ -101,7 +101,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const runs = bootRuns(home, delivery, listening, { serverDir, launcher: opts.launcher });
   const summary = bootSummary(home, delivery, runs, sync);
   const trash = bootTrash(home, delivery, sync, indexing);
-  const takeover = bootTakeover({ home, runs, sync });
+  const takeover = bootTakeover({ home, runs, sync, delivery });
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。

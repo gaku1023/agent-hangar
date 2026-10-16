@@ -455,6 +455,17 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean;
   /** 持ち主が heartbeat に載せる run の状態。古いサーバは送らない。null は不明。 */
   liveStatus?: LiveStatus | null };
+/**
+ * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ流れ（server/src/sync/takeover.ts）。
+ * asking は頼みを書いて送っている間、waiting は相手の応答を待っている間、receiving は相手が止まったあと本文が降りきるのを待っている間である。
+ * ready は引き継げる、timeout は打ち切り（TAKEOVER_TIMEOUT_MS）または頼みを運べない、cancelled は取り下げである。
+ */
+export type TakeoverStage = 'asking' | 'waiting' | 'receiving' | 'ready' | 'timeout' | 'cancelled';
+export type TakeoverDto = { sessionId: string; deviceName: string; stage: TakeoverStage; startedAt: number; deadline: number };
+/** 相手の応答を待つ長さ。「もう少し待つ」はその時点から同じ長さを足す。 */
+export const TAKEOVER_TIMEOUT_MS = 90_000;
+/** 生きたロックのある会話を、頼まずに「この PC で再開」しようとして断られたときの本文（409）。 */
+export type TakeoverLockedDto = { error: string; code: 'locked' };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 /**
  * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻である。

@@ -69,6 +69,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/engine.ts': { lines: 7, why: LOG },
   'sync/pruneBackups.ts': { lines: 3, why: LOG },
   'sync/puller.ts': { lines: 1, why: LOG },
+  'sync/takeover.ts': { lines: 3, why: LOG },
   'sync/takeoverResponder.ts': { lines: 2, why: LOG },
   'sync/uploader.ts': { lines: 2, why: LOG },
   'sync/usage.ts': { lines: 1, why: PROTOCOL },

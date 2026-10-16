@@ -75,7 +75,7 @@ export type HttpParts = {
  * serverDir は、サーバの入口のファイルがある場所である。UI の置き場所の既定をそこから決める。
  */
 export function bootHttp(p: {
-  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane'>;
+  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane' | 'service'>;
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
@@ -131,6 +131,7 @@ export function bootHttp(p: {
     syncSkipped: () => sync.feed.skipped(),
     syncSweep: () => sync.feed.sweep(),
     syncOncePass: () => sync.feed.oncePass(),
+    takeover: takeover.service,
     resumeHereReplace: (sessionId) => compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
     get configBundle() { return sync.configBundle; },

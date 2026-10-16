@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
+import { TAKEOVER_TIMEOUT_MS } from './index.ts';
 import type { ArtifactDto, BootstrapDto, DeviceDto, UiAction, LaunchResultDto, MemoDto, PromoteResultDto, RunDto, ServerEvent, SessionDto, SessionLockDto, SettingsDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, SyncStatusDto, TabDto, TodoDto, UsageDto } from './index.ts';
 
 describe('フェーズ 2 の DTO', () => {
@@ -72,10 +73,12 @@ describe('フェーズ 4 の DTO', () => {
   });
 });
 
-describe('引き継ぎを消した後', () => {
-  it('引き継ぎの UiAction と ServerEvent は無い', () => {
+describe('引き継ぎ（この PC で再開が相手を止める流れ）', () => {
+  it('旧い実装の UiAction は無く、段の変化は takeover.update で届く', () => {
     expectTypeOf<Extract<UiAction, { type: 'session.takeover' | 'session.takeover.cancel' }>>().toBeNever();
-    expectTypeOf<Extract<ServerEvent, { type: 'takeover.update' }>>().toBeNever();
+    const ev: ServerEvent = { type: 'takeover.update', takeover: { sessionId: 's1', deviceName: 'pc-b', stage: 'waiting', startedAt: 1, deadline: 1 + TAKEOVER_TIMEOUT_MS } };
+    expect(ev.type).toBe('takeover.update');
+    expect(TAKEOVER_TIMEOUT_MS).toBe(90_000);
   });
 });
 

@@ -10,6 +10,7 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.once.leftChanges': 'Synced once, but {pending} unsent changes remain. Sync is still paused',
   'sync.once.leftTranscripts': 'Synced once, but {transcripts} unsent transcripts remain. Sync is still paused',
   'sync.resume.noTranscript': "This session's transcript was not found",
+  'sync.takeover.locked': "It is running on {device}. Stop it there first, then take it over.",
   'sync.takeover.paneNote': "[hangar] {device} took this session over, so claude on this PC was stopped.",
   'sync.compat.deviceNeed': "This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is {have}; the cloud requires {need} or later). Update hangar on this computer",
   'sync.compat.deviceNewer': "This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is {have}; the cloud requires a newer version). Update hangar on this computer",
