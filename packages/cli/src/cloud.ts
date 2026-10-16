@@ -418,6 +418,10 @@ export function writeWranglerConfig(home: string, o: { name: string; main: strin
     r2_buckets: [{ binding: 'BUCKET', bucket_name: o.bucketName }],
     // スマホの画面（/app/ 以下）は静的ファイルとして Worker より先に返る。run_worker_first は置かない。
     assets: { directory: o.assetsDir },
+    // 呼び鈴（Durable Object の HangarBell）。PC が WebSocket でつなぎ、スマホの起動と問い合わせを渡す。
+    // 無料プランで使えるのは SQLite 型だけなので、new_sqlite_classes で足す。packages/cloud/wrangler.jsonc と同じにする。
+    durable_objects: { bindings: [{ name: 'BELL', class_name: 'HangarBell' }] },
+    migrations: [{ tag: 'bell-v1', new_sqlite_classes: ['HangarBell'] }],
     vars: {},
   };
   const head = [
