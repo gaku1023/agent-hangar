@@ -206,8 +206,16 @@ export class Tmux {
     this.run('send-keys', '-t', `=${name}:`, ...keys);
   }
 
-  /** ペインにいま見えている文字だけを返す。色や属性は落とす。 */
-  capturePane(name: string): string {
+  /**
+   * ペインにいま見えている文字だけを返す。色や属性は落とす。
+   * joinWrapped は、端末の幅で折り返した行をつないで返す（-J）。
+   * psmux が -J を解するかは確かめていないので、断られたら付けずに読み直す（つなぐのは呼び手に任せる）。
+   */
+  capturePane(name: string, o: { joinWrapped?: boolean } = {}): string {
+    if (o.joinWrapped) {
+      const r = this.run('capture-pane', '-p', '-J', '-t', `=${name}:`);
+      if (r.code === 0) return r.stdout.replace(/\r\n/g, '\n');
+    }
     return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout.replace(/\r\n/g, '\n');
   }
 

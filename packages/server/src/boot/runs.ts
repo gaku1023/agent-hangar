@@ -142,7 +142,7 @@ export function bootRuns(
     language: home.language,
     // 足す段の入り切り（設定の askStatusAtEnd と liveHints）。起動のたびに今の設定を読む。
     injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false }),
-    // 会話を Claude アプリにつなぐ --remote-control（設定の remoteControl）。足してよいかは、起こすアカウントの認証と、claude を起こす環境で決める。
+    // 設定の「Remote Control を付けて起動する」（remoteControl）で足す --remote-control。足してよいかは、起こすアカウントの認証と、claude を起こす環境で決める。
     // 環境は、このサーバの環境に、アカウントの置き場を足した後のもの（runs/manager.ts）を重ねる。
     // accountAuth.get は最初の読み取りが済むまで null を返す。そのときは意図して --remote-control を付けずに起こす（安全な側）。
     remoteControl: ({ account, env }) => remoteControlAllowed({ enabled: settings.current.remoteControl !== false, auth: accountAuth.get(account?.id ?? PRIMARY_ACCOUNT_ID), env: { ...process.env, ...env } }),

@@ -24,8 +24,11 @@ export interface PaneOps {
    * 空の一覧（1 つも無い）と null（分からない）は別である。
    */
   list(): string[] | null;
-  /** 画面にいま見えている文字。色や属性は落とす。 */
-  capture(name: string): string;
+  /**
+   * 画面にいま見えている文字。色や属性は落とす。
+   * joinWrapped は、端末の幅で折り返した行をつないで読む。裏がつなげないときは折り返したまま返すので、呼び手もつなぐ用意をする。
+   */
+  capture(name: string, o?: { joinWrapped?: boolean }): string;
   /** 文字をそのまま打ち込む。キーの名前としては読ませない。 */
   sendText(name: string, text: string): void;
   /** 名前の付いたキーを 1 つ送る。 */
@@ -56,7 +59,7 @@ function muxPaneOps(mux: MuxServers): Omit<PaneOps, 'prepareForOutsideTerminals'
     // psmux の kill-server は別の名前空間のセッションまで落とすので、どちらの裏でもここでは使わない。
     close: (name) => at(name).killSession(name),
     list: () => mux.list(),
-    capture: (name) => at(name).capturePane(name),
+    capture: (name, o) => at(name).capturePane(name, o),
     // -l を付けて 1 文字として送る。{ や q をキー名として読ませない。
     sendText: (name, text) => at(name).sendKeys(name, '-l', text),
     sendKey: (name, key) => at(name).sendKeys(name, MUX_KEYS[key]),

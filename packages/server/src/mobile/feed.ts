@@ -1,4 +1,4 @@
-import { addDays, clampText, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileWaiting, type UsageDto } from '@agent-hangar/shared';
+import { addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileWaiting, type UsageDto } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import { accountOfSession, displayName } from '../db/queries.ts';
 import type { Db } from '../db/open.ts';
@@ -53,18 +53,48 @@ function dateIn(now: number, tz: string | undefined): string {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
-/** 入力待ちの中身。待っていなければ null。問いの文は session_activity、許可の中身は登録の permission から取る。 */
+/**
+ * 入力待ちの中身。待っていなければ null。問いの文は session_activity、許可の中身は登録の permission から取る。
+ * 画面の札（ui の presenters/live.ts の staleWait、shared の stopReasonOf）と同じく、今の待ちに合わない中身は出さない。
+ * 許可の待ちでは、前の AskUserQuestion の問いが残っていても許可の中身を出す。
+ * 問いの待ちでは、AskUserQuestion でない許可の中身を問いとして出さない。
+ * Claude Code の版によっては AskUserQuestion の待ちに permission を書くので、許可の中身が AskUserQuestion なら問いとして扱う。
+ */
 function waitingOf(db: Db, sessionId: string, live: LiveSessionDto): MobileWaiting | null {
   if (live.status !== 'waiting') return null;
   const act = db.prepare('select tool, question from session_activity where session_id = ?').get(sessionId) as { tool: string; question: string | null } | undefined;
-  if (act?.question && (act.tool === 'AskUserQuestion' || live.waitingFor === 'question')) return { kind: 'question', text: clampText(act.question) ?? '' };
+  const question = act?.tool === 'AskUserQuestion' && act.question ? act.question : null;
   const p = live.permission;
+  const asking = live.waitingFor === 'question' || p?.tool === 'AskUserQuestion';
+  if (asking) return { kind: 'question', text: clampText(question) ?? '' };
   if (p) {
     const body = p.input.trim() || (p.description ?? '').trim();
     return { kind: live.waitingFor ?? 'permission', text: clampText(body ? `${p.tool}: ${body}` : p.tool) ?? '' };
   }
+  if (question) return { kind: 'question', text: clampText(question) ?? '' };
   return { kind: live.waitingFor ?? 'other', text: '' };
 }
+
+/**
+ * Remote Control の URL（mobile/remoteUrl.ts が画面から拾ったもの）。今の run の起動より後に拾ったものだけを使う。
+ * 前の run の URL は、その claude が終わった今はつながらない。claude.ai のものでなければ出さない。
+ */
+function rcUrlOf(db: Db, sessionId: string, runStartedAt: number): string | null {
+  const row = db.prepare('select url from run_remote_urls where session_id = ? and at >= ?').get(sessionId, runStartedAt) as { url: string } | undefined;
+  return row && isRemoteControlUrl(row.url) ? row.url : null;
+}
+
+/**
+ * この PC に場所のあるプロジェクトごとの、最後の run の開始時刻。1 回の集計で引く。
+ * project_roots（小さい表）から、sessions_project（project_id）と runs_session_started（session_id, started_at）の索引で辿る。
+ * cross join で辿る順を固定する。並べ替えのために sessions を索引ごと全部なめる計画を選ばせない。
+ */
+export const LAST_USED_SQL = `select s.project_id id, max(r.started_at) at
+  from project_roots pr
+  cross join sessions s on s.project_id = pr.project_id and s.deleted_at is null
+  cross join runs r on r.session_id = s.id and r.deleted_at is null
+  where pr.device_id = ? and pr.deleted_at is null and pr.resolved = 1
+  group by s.project_id`;
 
 /**
  * 受信箱の素を、手元の DB と実行中の状態から組む。純粋な関数で、同じ入力からは同じ JSON になる。
@@ -95,7 +125,7 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
       startedAt: r.started_at,
       waiting: waitingOf(db, s.id, l),
       intent: clampText(latestIntent(db, s.id)?.text),
-      rcUrl: null,
+      rcUrl: rcUrlOf(db, s.id, r.started_at),
     });
   }
   liveItems.sort((a, b) => b.statusAt - a.statusAt || a.sessionId.localeCompare(b.sessionId));
@@ -137,9 +167,8 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
   const projectRows = db
     .prepare('select p.id, p.name from project_roots r join projects p on p.id = r.project_id where r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 0')
     .all(deviceId) as { id: string; name: string }[];
-  // 最後の run の開始時刻。sessions_project（project_id）から runs_session_started（session_id, started_at）へ辿る。
-  const lastUsed = db.prepare('select max(r.started_at) at from sessions s join runs r on r.session_id = s.id and r.deleted_at is null where s.project_id = ? and s.deleted_at is null');
-  const projects: MobileProject[] = projectRows.map((p) => ({ id: p.id, name: p.name, lastUsedAt: (lastUsed.get(p.id) as { at: number | null }).at }));
+  const lastUsed = new Map((db.prepare(LAST_USED_SQL).all(deviceId) as { id: string; at: number }[]).map((r) => [r.id, r.at]));
+  const projects: MobileProject[] = projectRows.map((p) => ({ id: p.id, name: p.name, lastUsedAt: lastUsed.get(p.id) ?? null }));
   projects.sort((a, b) => (b.lastUsedAt ?? -Infinity) - (a.lastUsedAt ?? -Infinity) || a.id.localeCompare(b.id));
 
   const accounts: MobileAccount[] = src.accounts.map((a) => {

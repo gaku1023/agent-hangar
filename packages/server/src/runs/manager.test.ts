@@ -28,6 +28,7 @@ import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { RunAccounts } from './accounts.ts';
 import { RUN_STIR_MS, RunManager } from './manager.ts';
+import { FakeTimers } from '../../test/fake-timers.ts';
 import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 import { interruptedGroup, noteLastLive } from './interrupted.ts';
@@ -2859,5 +2860,71 @@ describe('終わった扱いの run の claude が動き続けているときの
     const f = strayProcs();
     expect((await make({ panes: panes(), procs: f.procs, pidAlive: f.pidAlive }).resumeWith(id, { stray: 'stop' })).run.kind).toBe('resume');
     expect(f.terminated).toEqual([]);
+  });
+});
+
+describe('Remote Control の URL を画面から拾う（tmux 不要）', () => {
+  const URL_A = 'https://claude.ai/code/session_01AbCdEfGhIjKlMnOpQrStUv';
+  const SCREEN = `  ▘▘ ▝▝    ~/w/project-a · /rc active\n           /remote-control is active · Continue here, on your phone, or at ${URL_A}\n`;
+  /** 何回目の読みで URL を出すかを決められる偽の画面。読んだ名前と指定を覚える。 */
+  const screenPanes = (showAt: number) => {
+    const reads: { name: string; joinWrapped: boolean }[] = [];
+    const panes: PaneOps = {
+      open: () => {}, close: () => {}, list: () => [], sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {},
+      capture: (name, o) => { reads.push({ name, joinWrapped: o?.joinWrapped === true }); return reads.length >= showAt ? SCREEN : ''; },
+    };
+    return { panes, reads };
+  };
+  const rows = () => db.prepare('select session_id, url, at from run_remote_urls').all();
+
+  it('--remote-control を付けて起こした run の画面を 2 秒ごとに読み、拾った URL を表に書いて知らせる', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(2);
+    const rm = make({ panes: p.panes, remoteControl: () => true, timers, now: () => timers.now });
+    const heard: { sessionId: string; url: string }[] = [];
+    rm.on({ remoteUrl: (e) => heard.push({ sessionId: e.sessionId, url: e.url }) });
+    const r = rm.start({ projectId: 'p1' });
+    expect(p.reads).toEqual([]);
+    await timers.advance(4_000);
+    expect(p.reads).toEqual([{ name: r.run.tmuxName, joinWrapped: true }, { name: r.run.tmuxName, joinWrapped: true }]);
+    expect(rows()).toEqual([{ session_id: r.sessionId, url: URL_A, at: timers.now }]);
+    expect(heard).toEqual([{ sessionId: r.sessionId, url: URL_A }]);
+    await timers.advance(60_000);
+    expect(p.reads).toHaveLength(2);
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('--remote-control を付けなかった run の画面は読まない', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(1);
+    make({ panes: p.panes, remoteControl: () => false, timers }).start({ projectId: 'p1' });
+    make({ panes: p.panes, timers }).start({ projectId: 'p1' });
+    await timers.advance(10_000);
+    expect(p.reads).toEqual([]);
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('run が終わったら見張りを止める', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(Infinity);
+    const rm = make({ panes: p.panes, remoteControl: () => true, timers, now: () => timers.now });
+    const r = rm.start({ projectId: 'p1' });
+    await timers.advance(2_000);
+    expect(p.reads).toHaveLength(1);
+    rm.kill(r.run.id);
+    expect(timers.pendingCount()).toBe(0);
+    await timers.advance(10_000);
+    expect(p.reads).toHaveLength(1);
+    expect(rows()).toEqual([]);
+  });
+
+  it('再開でも --remote-control を付けたら見張る', async () => {
+    const timers = new FakeTimers();
+    const p = screenPanes(1);
+    const id = seedOldSession();
+    const rm = make({ panes: p.panes, remoteControl: () => true, timers, now: () => timers.now });
+    rm.resume(id);
+    await timers.advance(2_000);
+    expect(rows()).toEqual([{ session_id: id, url: URL_A, at: timers.now }]);
   });
 });

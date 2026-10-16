@@ -38,6 +38,12 @@ describe('tmuxPaneOps（tmux 不要）', () => {
     expect(calls).toEqual([['kill-session', '-t', '=hangar-a'], ['capture-pane', '-p', '-t', '=hangar-a:']]);
   });
 
+  it('capture は joinWrapped で折り返しをつないで読む（-J）', () => {
+    const { panes, calls } = recording(() => ({ status: 0, stdout: 'a\r\nb\n' }));
+    expect(panes.capture('hangar-a', { joinWrapped: true })).toBe('a\nb\n');
+    expect(calls).toEqual([['capture-pane', '-p', '-J', '-t', '=hangar-a:']]);
+  });
+
   it('list は名前の一覧を返し、観測できなかったときは null を返す', () => {
     expect(recording(() => ({ status: 0, stdout: 'hangar-a\nhangar-a-t1\n' })).panes.list()).toEqual(['hangar-a', 'hangar-a-t1']);
     expect(recording(() => ({ status: 1, stderr: 'no server running on /x\n' })).panes.list()).toEqual([]);
@@ -98,6 +104,15 @@ describe('psmuxPaneOps（psmux 不要）', () => {
       ['-L', 'ns', 'send-keys', '-t', '=hangar-a:', '-l', '{q} 日本語'],
       ['-L', 'ns', 'send-keys', '-t', '=hangar-a:', 'C-o'],
     ]);
+  });
+
+  it('capture の joinWrapped は -J を付けて読み、-J が断られたら付けずに読み直す', () => {
+    const ok = recordingPsmux(() => ({ status: 0, stdout: 'a\r\n' }));
+    expect(ok.panes.capture('hangar-a', { joinWrapped: true })).toBe('a\n');
+    expect(ok.calls).toEqual([['-L', 'ns', 'capture-pane', '-p', '-J', '-t', '=hangar-a:']]);
+    const refused = recordingPsmux((args) => (args.includes('-J') ? { status: 1, stderr: 'unknown flag -J\n' } : { status: 0, stdout: 'b\r\n' }));
+    expect(refused.panes.capture('hangar-a', { joinWrapped: true })).toBe('b\n');
+    expect(refused.calls).toEqual([['-L', 'ns', 'capture-pane', '-p', '-J', '-t', '=hangar-a:'], ['-L', 'ns', 'capture-pane', '-p', '-t', '=hangar-a:']]);
   });
 
   it('list は観測できなかったとき null を返す（空の一覧とは別）', () => {

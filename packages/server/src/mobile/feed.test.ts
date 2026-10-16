@@ -3,7 +3,8 @@ import { MOBILE_TEXT_MAX, PRIMARY_ACCOUNT_ID, type LiveSessionDto } from '@agent
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent } from '../live/intents.ts';
-import { buildMobileFeed, type FeedSources } from './feed.ts';
+import { buildMobileFeed, LAST_USED_SQL, type FeedSources } from './feed.ts';
+import { saveRemoteUrl } from './remoteUrl.ts';
 
 const ME = 'pc-me';
 const OTHER = 'pc-other';
@@ -74,6 +75,80 @@ describe('buildMobileFeed', () => {
     expect(feed.live.map((l) => l.sessionId)).toEqual(['s1', 's2']);
     expect(feed.live[0]!.waiting).toEqual({ kind: 'permission', text: 'Bash: npm test' });
     expect(feed.live[1]!.waiting).toBeNull();
+  });
+
+  it('許可待ちの長い命令は 300 字で切られ、説明だけ、ツール名だけの許可も入る', () => {
+    const db = seed();
+    for (const id of ['s1', 's2', 's3']) {
+      session(db, id);
+      run(db, `run-${id}`, id);
+    }
+    const wait = (permission: LiveSessionDto['permission']) => ({ status: 'waiting' as const, waitingFor: 'permission' as const, permission });
+    const feed = buildMobileFeed(
+      src(db, {
+        live: [
+          liveOf('s1', { ...wait({ tool: 'Bash', input: 'x'.repeat(400), description: null }), statusAt: NOW - 1 }),
+          liveOf('s2', { ...wait({ tool: 'WebFetch', input: '  ', description: 'example.com を読む' }), statusAt: NOW - 2 }),
+          liveOf('s3', { ...wait({ tool: 'Edit', input: '', description: null }), statusAt: NOW - 3 }),
+        ],
+      }),
+    );
+    expect(feed.live.map((l) => l.waiting)).toEqual([
+      { kind: 'permission', text: `Bash: ${'x'.repeat(MOBILE_TEXT_MAX - 'Bash: '.length)}…` },
+      { kind: 'permission', text: 'WebFetch: example.com を読む' },
+      { kind: 'permission', text: 'Edit' },
+    ]);
+  });
+
+  it('許可待ちの間は、前の AskUserQuestion の問いを出さず許可の中身を出す。問いの待ちでは前の許可を出さない', () => {
+    const db = seed();
+    for (const id of ['s1', 's2', 's3']) {
+      session(db, id);
+      run(db, `run-${id}`, id);
+      db.prepare("insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?, 'AskUserQuestion', '', 't', '前の問い', ?)").run(id, NOW - 9000);
+    }
+    const feed = buildMobileFeed(
+      src(db, {
+        live: [
+          liveOf('s1', { status: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'npm test', description: null }, statusAt: NOW - 1 }),
+          liveOf('s2', { status: 'waiting', waitingFor: 'question', permission: { tool: 'Bash', input: 'rm -rf build', description: null }, statusAt: NOW - 2 }),
+          // Claude Code の版によっては、AskUserQuestion の待ちに permission を書く。そのときは問いとして出す。
+          liveOf('s3', { status: 'waiting', waitingFor: 'permission', permission: { tool: 'AskUserQuestion', input: '{"questions":[]}', description: null }, statusAt: NOW - 3 }),
+        ],
+      }),
+    );
+    expect(feed.live.map((l) => l.waiting)).toEqual([
+      { kind: 'permission', text: 'Bash: npm test' },
+      { kind: 'question', text: '前の問い' },
+      { kind: 'question', text: '前の問い' },
+    ]);
+  });
+
+  it('問いの待ちで問いの文がまだ無ければ、許可の命令を問いとして出さず空にする', () => {
+    const db = seed();
+    session(db, 's1');
+    run(db, 'run1', 's1');
+    const feed = buildMobileFeed(src(db, { live: [liveOf('s1', { status: 'waiting', waitingFor: 'question', permission: { tool: 'Bash', input: 'npm test', description: null } })] }));
+    expect(feed.live[0]!.waiting).toEqual({ kind: 'question', text: '' });
+  });
+
+  it('run_remote_urls にある会話は rcUrl が入る（今の run の起動より後に拾ったものだけ、claude.ai のものだけ）', () => {
+    const db = seed();
+    for (const id of ['s1', 's2', 's3', 's4']) {
+      session(db, id);
+      run(db, `run-${id}`, id, { startedAt: NOW - HOUR });
+    }
+    saveRemoteUrl(db, 's1', 'https://claude.ai/code/session_01AbCd', NOW - HOUR + 4000);
+    // 前の run で拾ったものは、その run が終わった今はつながらない。
+    saveRemoteUrl(db, 's2', 'https://claude.ai/code/session_02Old', NOW - 2 * HOUR);
+    db.prepare("insert into run_remote_urls (session_id, url, at) values ('s3', 'https://claude.ai.evil.example/code/x', ?)").run(NOW - 1);
+    const feed = buildMobileFeed(src(db, { live: ['s1', 's2', 's3', 's4'].map((id, i) => liveOf(id, { statusAt: NOW - i })) }));
+    expect(feed.live.map((l) => [l.sessionId, l.rcUrl])).toEqual([
+      ['s1', 'https://claude.ai/code/session_01AbCd'],
+      ['s2', null],
+      ['s3', null],
+      ['s4', null],
+    ]);
   });
 
   it('ほかの PC の run と、終わった run は live に入らない', () => {
@@ -207,6 +282,25 @@ describe('buildMobileFeed', () => {
       { id: 'p-a', name: 'project-a', lastUsedAt: NOW - HOUR },
       { id: 'p-c', name: 'project-c', lastUsedAt: null },
     ]);
+  });
+
+  it('lastUsedAt は 1 回の集計で、sessions と runs を索引で引き、消した run は数えない', () => {
+    const db = seed();
+    upsertShared(db, 'projects', { id: 'p-c', name: 'project-c', status: 'active', is_scratch: 0 }, ME);
+    upsertShared(db, 'project_roots', { id: 'r-c', project_id: 'p-c', device_id: ME, path: '/w/project-c', resolved: 1 }, ME);
+    session(db, 's1');
+    session(db, 's2', { projectId: 'p-c' });
+    run(db, 'run1', 's1', { startedAt: NOW - 3 * HOUR, endedAt: NOW - 2 * HOUR });
+    run(db, 'run2', 's2', { startedAt: NOW - 5 * HOUR, endedAt: NOW - 4 * HOUR });
+    upsertShared(db, 'runs', { id: 'run3', session_id: 's2', device_id: ME, kind: 'start', tmux_name: 't-run3', launch_params: '{}', started_at: NOW - HOUR, ended_at: NOW - 1, heartbeat_at: NOW, deleted_at: NOW }, ME);
+    expect(buildMobileFeed(src(db)).projects).toEqual([
+      { id: 'p-a', name: 'project-a', lastUsedAt: NOW - 3 * HOUR },
+      { id: 'p-c', name: 'project-c', lastUsedAt: NOW - 5 * HOUR },
+    ]);
+    const plan = (db.prepare(`explain query plan ${LAST_USED_SQL}`).all(ME) as { detail: string }[]).map((p) => p.detail);
+    expect(plan.join(' | ')).toContain('runs_session_started');
+    expect(plan.join(' | ')).toContain('sessions_project');
+    expect(plan.some((d) => /^SCAN (r|s)\b/.test(d))).toBe(false);
   });
 
   it('accounts は AccountStore の一覧と使用率', () => {

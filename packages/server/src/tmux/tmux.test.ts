@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
+import { extractRemoteUrl } from '../mobile/remoteUrl.ts';
 import { Tmux, type TmuxExec } from './tmux.ts';
 
 const socketPath = testSocketPath();
@@ -271,6 +272,20 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     await waitFor(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8') !== '');
     expect(fs.readFileSync(out, 'utf8')).toBe("a b|c'd=e");
     tmux!.killSession('hangar-test-env-first');
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('capturePane の joinWrapped は、幅で折り返した行を 1 行につないで返す', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+    const name = 'hangar-test-wrap';
+    const url = 'https://claude.ai/code/session_01AbCdEfGhIjKlMnOpQrStUv';
+    tmux!.newSession({ name, cwd, command: ['sh', '-c', `printf 'or at %s\\n' '${url}'; sleep 30`], width: 30, height: 10 });
+    await waitFor(() => tmux!.capturePane(name).includes('or at'));
+    expect(tmux!.capturePane(name).split('\n').some((l) => l.includes(url))).toBe(false);
+    expect(tmux!.capturePane(name, { joinWrapped: true }).split('\n')).toContain(`or at ${url}`);
+    // -J の無い裏（psmux）のために、折り返したままの画面からも URL を取り出せる。
+    expect(extractRemoteUrl(tmux!.capturePane(name))).toBe(url);
+    tmux!.killSession(name);
     fs.rmSync(cwd, { recursive: true, force: true });
   });
 

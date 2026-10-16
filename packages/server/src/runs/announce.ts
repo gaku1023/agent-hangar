@@ -25,6 +25,8 @@ export function runAnnouncer(o: { db: Db; hub: { broadcast(ev: NoticeEvent): voi
     },
     tabChanged: (tab) => o.hub.broadcast({ type: 'tab.upsert', tab }),
     interrupted: (group) => o.hub.broadcast({ type: 'interrupted.update', interrupted: group }),
+    // Remote Control の URL はスマホの受信箱（boot/mobile.ts）だけが使う。PC の画面へは配らない。
+    remoteUrl: () => {},
   };
 }
 

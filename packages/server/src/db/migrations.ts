@@ -540,6 +540,15 @@ create table mobile_launches (id text primary key, handled_at integer not null, 
 `;
 
 /**
+ * --remote-control で起こした run の画面から拾った Remote Control の URL（mobile/remoteUrl.ts）。
+ * 会話ごとに最新の 1 つを残す。at は拾った時刻で、受信箱は今の run の起動より後に拾ったものだけを使う。
+ * その PC の claude につなぐ URL なので、同期しない。
+ */
+const V30_RUN_REMOTE_URLS_SQL = `
+create table run_remote_urls (session_id text primary key, url text not null, at integer not null);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -559,4 +568,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 27, sql: V27_SESSION_RESTORED_SQL },
   { version: 28, sql: V28_TAKEOVER_SQL },
   { version: 29, sql: V29_MOBILE_LAUNCHES_SQL },
+  { version: 30, sql: V30_RUN_REMOTE_URLS_SQL },
 ];

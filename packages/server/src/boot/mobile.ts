@@ -34,7 +34,8 @@ type Link = { client: CloudClient; joinSecret: string };
 /**
  * スマホの受信箱に預ける素（mobile/feed.ts）を、封じて Worker に書く仕事を組む（mobile/publisher.ts）。
  *
- * きっかけは、実行中の一覧の変化、意図の書き込み、受信箱に関わる表の変化、アカウントの配り（使用率の更新を含む）、書き手の 60 秒の安全網である。
+ * きっかけは、実行中の一覧の変化、意図の書き込み、受信箱に関わる表の変化、アカウントの配り（使用率の更新を含む）、
+ * run の画面から Remote Control の URL を拾ったこと（run_remote_urls は同期の表でないので行の変化が届かない）、書き手の 60 秒の安全網である。
  * 使用率の更新には専用の口が無いので、画面へアカウントを配る口（accounts.broadcast）を包んで拾う。止めると元に戻す。
  * 書いてよいかは同期の canCarryMobile が決める（Worker の版 7 から、止まっていないとき）。
  * client と参加の秘密は同期から引き、cloud.json を後から拾って組み直したときは書き手も組み直す。
@@ -48,7 +49,7 @@ type Link = { client: CloudClient; joinSecret: string };
 export function bootMobile(p: {
   home: { db: Db; device: { id: string; name: string } };
   delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'> };
-  runs: { runs: Pick<RunManager, 'start'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
+  runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
   sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink'> & { readonly engine: Pick<SyncEngine, 'on'> };
   timers?: Timers;
@@ -134,6 +135,7 @@ export function bootMobile(p: {
       started = true;
       offs.push(p.delivery.registry.onChange(() => kick()));
       offs.push(onIntent(() => kick()));
+      offs.push(p.runs.runs.on({ remoteUrl: () => kick() }));
       offs.push(onRowChange((c) => { if (c.db === db && FEED_TABLES.has(c.table)) kick(); }));
       accounts.broadcast = wrapped;
       offs.push(() => { if (accounts.broadcast === wrapped) accounts.broadcast = original; });

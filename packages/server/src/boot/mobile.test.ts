@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { aadAnswer, aadFeed, aadLaunch, open, seal, type AccountsDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
-import type { LaunchResult } from '../runs/manager.ts';
+import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
 import { openDb } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
@@ -38,6 +38,8 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
     broadcast: (dto: AccountsDto) => { broadcasts.push(dto); },
   };
   const start = vi.fn((params: LaunchParams): LaunchResult => ({ run: { id: 'run-1', sessionId: 's-new' } as LaunchResult['run'], sessionId: 's-new', tabs: [] }));
+  const runListeners = new Set<RunListener>();
+  const on = (l: RunListener): (() => void) => { runListeners.add(l); return () => { runListeners.delete(l); }; };
   let engine = new FakeEngine();
   const sync = {
     canCarryMobile: o.canCarry ?? (() => true),
@@ -47,12 +49,12 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
   const mobile = bootMobile({
     home: { db, device: { id: 'pc-a', name: 'PC A' } },
     delivery: { registry },
-    runs: { runs: { start }, accounts },
+    runs: { runs: { start, on }, accounts },
     sync,
     timers,
   });
   return {
-    db, timers, client, mobile, registryListeners, accounts, broadcasts, start,
+    db, timers, client, mobile, registryListeners, accounts, broadcasts, start, runListeners,
     engine: () => engine,
     setEngine: (e: FakeEngine) => { engine = e; },
     setLink: (l: typeof link) => { link = l; },
@@ -70,6 +72,16 @@ describe('bootMobile', () => {
     const feed = await open<MobileFeed>(await mobileKeyFor(SECRET), aadFeed('pc-a'), client.mobileFeeds.get('pc-a')!.sealed);
     expect(feed).toMatchObject({ v: 1, deviceId: 'pc-a', deviceName: 'PC A', accounts: [{ id: 'primary', name: 'メイン' }] });
     mobile.stop();
+  });
+
+  it('run の画面から Remote Control の URL を拾ったら nudge し、止めたら購読を外す', () => {
+    const { mobile, runListeners } = setup();
+    mobile.start();
+    const nudge = vi.spyOn(mobile.publisher()!, 'nudge');
+    for (const l of runListeners) l.remoteUrl?.({ runId: 'run-1', sessionId: 's1', url: 'https://claude.ai/code/session_01AbCd' });
+    expect(nudge).toHaveBeenCalledTimes(1);
+    mobile.stop();
+    expect(runListeners.size).toBe(0);
   });
 
   it('登録の変化、意図、受信箱に関わる表の変化、アカウントの配りで nudge し、関わらない表では nudge しない', () => {
