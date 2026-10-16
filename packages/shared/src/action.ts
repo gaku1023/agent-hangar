@@ -243,4 +243,5 @@ export type UiAction =
   // done は写せたときにトーストで出す知らせ。書けなかったときは出さない。
   | { type: 'clipboard.copy'; text: string; done?: string }
   // セッションの宛先（別の Claude に渡す 1 行、presenters/session.ts の sessionAddressLine）をコピーする。
-  | { type: 'session.copyAddress'; id: string };
+  | { type: 'session.copyAddress'; id: string }
+  | { type: 'session.copyId'; id: string };

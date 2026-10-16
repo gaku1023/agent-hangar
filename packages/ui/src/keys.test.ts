@@ -342,3 +342,17 @@ describe('宛先のコピーの打鍵', () => {
     expect(labelOf('session.copyAddress')).toBe('セッションの宛先をコピー');
   });
 });
+
+describe('セッション ID のコピーの打鍵', () => {
+  it('macOS は ⌘⌥C で、⌥ で文字が変わっても（ç）物理キーで受ける。ターミナルの中でも受ける', () => {
+    expect(matchKey({ key: 'ç', code: 'KeyC', metaKey: true, altKey: true }, { mac: true })).toBe('session.copyId');
+    expect(matchKey({ key: 'c', code: 'KeyC', metaKey: true, altKey: true }, { mac: true, terminal: true })).toBe('session.copyId');
+    // ⌘⇧C は宛先のまま。
+    expect(matchKey({ key: 'C', code: 'KeyC', metaKey: true, shiftKey: true }, { mac: true })).toBe('session.copyAddress');
+  });
+  it('Windows と Linux は Ctrl+Alt+Shift+C で、Ctrl+Alt+C は宛先のまま', () => {
+    expect(matchKey({ key: 'C', code: 'KeyC', ctrlKey: true, altKey: true, shiftKey: true }, { mac: false })).toBe('session.copyId');
+    expect(matchKey({ key: 'c', code: 'KeyC', ctrlKey: true, altKey: true }, { mac: false })).toBe('session.copyAddress');
+    expect(labelOf('session.copyId')).toBe('セッション ID をコピー');
+  });
+});

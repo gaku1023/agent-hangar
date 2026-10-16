@@ -65,7 +65,7 @@ const STATES: { key: SessionMenuDot; kbd: string }[] = [{ key: 'active', kbd: 'u
 
 /**
  * メニューの項目を並べる（試作の 1A）。
- * 条件付きの「この PC で再開」、状態の 4 つ、区切り、「プロジェクトを変更…」、区切り、「停止」（動いているときだけ）、「削除…」の順に置く。
+ * 条件付きの「この PC で再開」、状態の 4 つ、区切り、「プロジェクトを変更…」、「セッション ID をコピー」、区切り、「停止」（動いているときだけ）、「削除…」の順に置く。
  * 状態はいまのものに ✓ を付ける。いまの状態を選び直したときは、Paused なら戻る日のダイアログを開き（日を変えるため）、ほかは何もしない。
  * 停止は確認の要否を Mediator に任せる（作業中やシェルタブがあれば確認を出す）。hangar の外で動いているものは押せない理由を添える。
  * 危険色は停止と削除だけにする。停止の補足の 1 行は出さない。
@@ -83,6 +83,7 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
     ...states,
     { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: true, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
+    { key: 'copyId', label: t('session.action.copyId'), icon: 'copy', disabled: null, send: { type: 'session.copyId', id: m.id } },
     ...(stop ? [{ key: 'stop', label: t('sidebar.live.stop'), icon: 'stop' as const, danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : { type: 'session.kill', ...stop } as const }] : []),
     { key: 'delete', label: t('row.menu.delete'), icon: 'trash', danger: true, separatorBefore: !stop, disabled: m.deleteBlocked, send: { type: 'session.delete.open', id: m.id } },
   ];

@@ -155,7 +155,7 @@ describe('見出しの段（A1、C1）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'VS Code で開く' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.openEditor', sessionId: 's1' });
     const m = menu();
-    expect(m.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')!.textContent)).toEqual(['ターミナルで開く', 'フォーク', '要約を再生成', '宛先をコピー', '停止']);
+    expect(m.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')!.textContent)).toEqual(['ターミナルで開く', 'フォーク', '要約を再生成', '宛先をコピー', 'セッション ID をコピー', '停止']);
     // 押せない項目は理由を 1 行添える。
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveTextContent('実行中は使えません。停止すると使えます');
@@ -165,6 +165,8 @@ describe('見出しの段（A1、C1）', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
     fireEvent.click(menu().getByRole('menuitem', { name: /宛先をコピー/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.copyAddress', id: 's1' });
+    fireEvent.click(menu().getByRole('menuitem', { name: /セッション ID をコピー/ }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.copyId', id: 's1' });
   });
   it('停止は危険色でメニューの最後。作業中か、シェルタブの数を添えて送り、確認は Mediator が出す', () => {
     const onAction = withHost(<SS {...running} live="waiting" />);
