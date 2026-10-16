@@ -556,6 +556,8 @@ describe('互換の版', () => {
     // 行の pull が合図で降ろしを積むので、その後ろに並ぶ分と合わせて 1 回以上。
     expect(count('/files')).toBeGreaterThanOrEqual(files + 1);
     // cloud.json の無い端末では、呼んでも落ちない。
+    // Windows は開いたままの DB を消せないので、先に閉じる。
+    await b.close();
     fs.rmSync(home, { recursive: true, force: true });
     fs.mkdirSync(home, { recursive: true });
     const off = boot();
