@@ -627,6 +627,33 @@ describe('PC の一覧と解除', () => {
     await expect(taken.answerLaunch('l1', true, 's')).rejects.toMatchObject({ status: 409 });
   });
 
+  it('getMobileBlob は GET /m/blobs/<依頼>/<番号> のバイト列をそのまま返す。404 と形の違う ID は投げる', async () => {
+    const bytes = new Uint8Array([0, 1, 2, 250, 251, 252]);
+    const f = fakeFetch(() => new Response(bytes, { status: 200, headers: { 'content-type': 'application/octet-stream', 'x-hangar-compat': String(COMPAT_VERSION) } }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect([...await c.getMobileBlob('l-1.x', 2)]).toEqual([...bytes]);
+    expect(f.calls[0]!.url).toBe('https://w.example/m/blobs/l-1.x/2');
+    expect(f.calls[0]!.init.method ?? 'GET').toBe('GET');
+    const missing = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'not found' }, 404)).fetch });
+    await expect(missing.getMobileBlob('l1', 0)).rejects.toMatchObject({ status: 404 });
+    const bad = fakeFetch(() => json({}));
+    const c2 = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: bad.fetch });
+    await expect(c2.getMobileBlob('../x', 0)).rejects.toBeInstanceOf(CloudError);
+    await expect(c2.getMobileBlob('l1', 4)).rejects.toBeInstanceOf(CloudError);
+    await expect(c2.getMobileBlob('l1', -1)).rejects.toBeInstanceOf(CloudError);
+    expect(bad.calls).toHaveLength(0);
+  });
+
+  it('deleteMobileFeed は DELETE /m/feed を送る', async () => {
+    const f = fakeFetch(() => json({ ok: true }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    await c.deleteMobileFeed();
+    expect(f.calls[0]!.url).toBe('https://w.example/m/feed');
+    expect(f.calls[0]!.init.method).toBe('DELETE');
+    const broken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'boom' }, 500)).fetch });
+    await expect(broken.deleteMobileFeed()).rejects.toMatchObject({ status: 500 });
+  });
+
   it('形の違う ID は送る前に断る', async () => {
     const f = fakeFetch(() => json({}));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });

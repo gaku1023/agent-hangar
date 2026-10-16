@@ -14,6 +14,7 @@ import {
   isSafeKeyId,
   isSafeRelPath,
   isValidFileKey,
+  MOBILE_IMAGES_PER_LAUNCH,
   parseCompat,
   readCloudLimit,
   readCompatRefusal,
@@ -238,6 +239,16 @@ export interface CloudClient {
    * 呼ぶのは mobile/bell.ts で、Worker の版が MOBILE_BELL_MIN_WORKER_COMPAT に届いてからにする。偽物は実装しなくてよい。
    */
   bellTarget?(): BellTarget;
+  /**
+   * スマホが置いた画像（封じたままのバイト列）を取る（GET /m/blobs/<依頼>/<番号>、互換の版 8 の Worker から）。
+   * 自分宛てで、受け取った（claimed）依頼の画像だけが読める。無いもの、宛先でないものは CloudError(404)。偽物は実装しなくてよい。
+   */
+  getMobileBlob?(launchId: string, n: number): Promise<Uint8Array>;
+  /**
+   * この PC の受信箱の素を Worker から消す（DELETE /m/feed、互換の版 8 の Worker から）。行が無くても成功する。
+   * 最後のスマホを解除したあとに 1 回呼ぶ。偽物は実装しなくてよい。
+   */
+  deleteMobileFeed?(): Promise<void>;
 }
 
 /** 呼び鈴の WebSocket のつなぎ先。url は wss（手元の Worker では ws）で、headers は Bearer と互換の版。 */
@@ -467,6 +478,24 @@ export class HttpCloudClient implements CloudClient {
   async putMobileFeed(sealed: string): Promise<void> {
     await this.ensureWorkerCompat();
     await this.json<{ ok: boolean }>('/m/feed', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sealed }) });
+  }
+
+  async deleteMobileFeed(): Promise<void> {
+    await this.json<{ ok: boolean }>('/m/feed', { method: 'DELETE' });
+  }
+
+  async getMobileBlob(launchId: string, n: number): Promise<Uint8Array> {
+    // ID は URL の断片に入る。Worker も入口で断るが、形の違うものは外へ出さない。番号は 0 から 1 依頼の上限の手前まで。
+    if (!isSafeKeyId(launchId) || !Number.isInteger(n) || n < 0 || n >= MOBILE_IMAGES_PER_LAUNCH) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
+    const { res, d } = await this.send(`/m/blobs/${encodeURIComponent(launchId)}/${n}`, {}, this.transferTimeoutMs);
+    try {
+      return new Uint8Array(await d.race(res.arrayBuffer()));
+    } catch (e) {
+      void res.body?.cancel().catch(() => {});
+      throw toCloudError(e);
+    } finally {
+      d.clear();
+    }
   }
 
   createPairing(): Promise<MobilePairingResponse> {

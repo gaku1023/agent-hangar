@@ -1,4 +1,7 @@
-import { isWindowsPath } from '../lib/paths.ts';
+import { quotePath } from '@agent-hangar/shared';
+
+/** パスの囲み方は shared にある（スマホの起動を受けるサーバと同じ規則）。既存の呼び出しのために、ここからも出す。 */
+export { quotePath };
 
 /**
  * Hangar.app の殻から届く、ファイルを落とした知らせ（`hangar:drop`）。
@@ -27,21 +30,6 @@ export function parseDrop(detail: unknown): Drop | null {
   if (!Array.isArray(d.paths) || d.paths.length === 0 || !d.paths.every((p) => typeof p === 'string' && p !== '')) return null;
   if (typeof d.x !== 'number' || typeof d.y !== 'number' || !Number.isFinite(d.x) || !Number.isFinite(d.y)) return null;
   return { paths: d.paths as string[], x: d.x, y: d.y };
-}
-
-/**
- * 空白や引用符を含むパスは引用符で囲む。ほかの端末へ落としたときと同じ形なので、Claude Code がパスとして読める。
- * macOS と Linux のパスは、POSIX のシェルの単引用符で囲む。
- * Windows のパスは、ペインで動く claude と PowerShell（シェルタブは powershell.exe、psmux の既定のシェルも PowerShell）に向けて囲む。
- * Windows の名前に " は使えないので二重引用符で囲めば足り、Windows Terminal へ落としたときと同じ形になる。cmd でも同じに読める。
- * ただし PowerShell は二重引用符の中の $ と ` を展開するので、それを含むパスは単引用符で囲み、中の単引用符は 2 つにする。
- */
-export function quotePath(p: string): string {
-  if (isWindowsPath(p)) {
-    if (/^[\p{L}\p{N}\\/._+\-:=]+$/u.test(p)) return p;
-    return /[$`]/.test(p) ? `'${p.replaceAll("'", "''")}'` : `"${p}"`;
-  }
-  return /^[\p{L}\p{N}/._+\-@:,%=]+$/u.test(p) ? p : `'${p.replaceAll("'", "'\\''")}'`;
 }
 
 /** 端末にファイルを落としたときと同じく、パスを空白で区切って末尾に空白を 1 つ付ける。 */

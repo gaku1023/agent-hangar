@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { aadAnswer, aadLaunch, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { aadAnswer, aadImage, aadLaunch, appendPaths, deriveMobileKey, EFFORT_VALUES, LAUNCH_TTL_MS, MOBILE_IMAGE_MAX_BYTES, sealBytes, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import type { CloudClient } from '../sync/client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { ANSWER_RESEND_WINDOW_MS, MobileLaunchInbox } from './launchInbox.ts';
+import { ANSWER_RESEND_WINDOW_MS, MOBILE_LAUNCH_KEEP_MS, MobileLaunchInbox } from './launchInbox.ts';
 import { mobileKeyFor } from './publisher.ts';
 
 const SECRET = 'join-secret-for-tests-0123456789abcdef';
@@ -17,15 +20,20 @@ const payload = (over: Partial<MobileLaunchPayload> = {}): MobileLaunchPayload =
 
 const result = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sessionId } as LaunchResult['run'], sessionId, tabs: [] });
 
+const tmpDirs: string[] = [];
+afterEach(() => { for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
+
 function setup(o: { start?: (p: LaunchParams) => LaunchResult } = {}) {
   const db = openDb(':memory:');
+  const dropsDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-inbox-')), 'drops');
+  tmpDirs.push(path.dirname(dropsDir));
   let now = T0;
   let canProcess = true;
   const cloud = new FakeCloudClient({ deviceId: 'pc-a', now: () => now });
   const start = vi.fn(o.start ?? (() => result('s-new')));
   const hasProjectHere = vi.fn((id: string) => id === 'project-a');
   const inbox = new MobileLaunchInbox({
-    db, client: cloud, joinSecret: SECRET, deviceId: 'pc-a', start, hasProjectHere,
+    db, client: cloud, joinSecret: SECRET, deviceId: 'pc-a', dropsDir, start, hasProjectHere,
     hasAccount: (id) => id === 'primary', canProcess: () => canProcess, now: () => now,
   });
   /** スマホの依頼を置き、pull で届く形（launches）を返す。 */
@@ -36,7 +44,12 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult } = {}) {
   };
   const answerOf = async (id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKeyFor(SECRET), aadAnswer(id), cloud.launches.get(id)!.sealedAnswer!);
   const recorded = (id: string) => db.prepare('select id, handled_at, result from mobile_launches where id = ?').get(id) as { id: string; handled_at: number; result: string } | undefined;
-  return { db, cloud, start, hasProjectHere, inbox, post, answerOf, recorded, setNow: (t: number) => { now = t; }, setCanProcess: (v: boolean) => { canProcess = v; } };
+  /** スマホが画像を置く真似。aadN で封の番号を取り違えた画像も置ける。 */
+  const putImage = async (id: string, n: number, bytes: Uint8Array, o2: { secret?: string; aadN?: number } = {}) => {
+    const key = o2.secret ? await deriveMobileKey(o2.secret) : await mobileKeyFor(SECRET);
+    cloud.putBlob(id, n, await sealBytes(key, aadImage(id, o2.aadN ?? n), bytes));
+  };
+  return { db, cloud, dropsDir, putImage, start, hasProjectHere, inbox, post, answerOf, recorded, setNow: (t: number) => { now = t; }, setCanProcess: (v: boolean) => { canProcess = v; } };
 }
 
 describe('MobileLaunchInbox', () => {
@@ -258,7 +271,7 @@ describe('MobileLaunchInbox', () => {
     const l = await post('l1', payload());
     const answerLaunch = vi.fn();
     const bare = { answerLaunch } as unknown as CloudClient;
-    const inbox = new MobileLaunchInbox({ db: openDb(':memory:'), client: bare, joinSecret: SECRET, deviceId: 'pc-a', start, hasProjectHere: () => true, hasAccount: () => true, canProcess: () => true, now: () => T0 });
+    const inbox = new MobileLaunchInbox({ db: openDb(':memory:'), client: bare, joinSecret: SECRET, deviceId: 'pc-a', dropsDir: os.tmpdir(), start, hasProjectHere: () => true, hasAccount: () => true, canProcess: () => true, now: () => T0 });
     await inbox.receive(l);
     expect(start).not.toHaveBeenCalled();
     expect(answerLaunch).not.toHaveBeenCalled();
@@ -309,5 +322,186 @@ describe('MobileLaunchInbox', () => {
     expect(hasProjectHere).not.toHaveBeenCalled();
     expect(start).toHaveBeenCalledWith({ scratch: true, account: 'primary', permissionMode: 'acceptEdits', model: 'sonnet', prompt: 'TODO の先頭をやって' });
     expect((await answerOf('l1')).ok).toBe(true);
+  });
+});
+
+describe('MobileLaunchInbox の effort', () => {
+  it('値表にある effort は params に写る', async () => {
+    const { start, inbox, post } = setup();
+    for (const [i, e] of EFFORT_VALUES.filter((x) => x !== '').entries()) await inbox.receive(await post(`e${i}`, payload({ effort: e })));
+    expect(start.mock.calls.map((c) => c[0].effort)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+  });
+
+  it('effort が無い、または空（既定）なら params に付けない', async () => {
+    const { start, inbox, post } = setup();
+    await inbox.receive(await post('l1', payload()));
+    await inbox.receive(await post('l2', payload({ effort: '' })));
+    expect(start.mock.calls[0]![0]).not.toHaveProperty('effort');
+    expect(start.mock.calls[1]![0]).not.toHaveProperty('effort');
+  });
+
+  it('値表に無い effort は bad-payload で起こさない', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', payload({ effort: 'ultra' })));
+    await inbox.receive(await post('l2', { ...payload(), effort: 3 }));
+    await inbox.receive(await post('l3', payload({ effort: '--dangerous' })));
+    expect(start).not.toHaveBeenCalled();
+    for (const id of ['l1', 'l2', 'l3']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+});
+
+const IMG = (...v: number[]) => new Uint8Array(v);
+const ref = (n: number, bytes: number, mime: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg') => ({ n, mime, bytes });
+
+describe('MobileLaunchInbox の画像', () => {
+  it('画像を取って開き、drops に置き、指示の末尾にパスを足して起こす（指示欄と同じ並び）', async () => {
+    const { start, inbox, post, putImage, answerOf, dropsDir } = setup();
+    const l = await post('l1', payload({ images: [ref(0, 3), ref(1, 4, 'image/png')] }));
+    await putImage('l1', 0, IMG(1, 2, 3));
+    await putImage('l1', 1, IMG(9, 8, 7, 6));
+    await inbox.receive(l);
+    expect((await answerOf('l1')).ok).toBe(true);
+    const files = fs.readdirSync(dropsDir).sort();
+    expect(files).toHaveLength(2);
+    const paths = files.map((f) => path.join(dropsDir, f));
+    expect([...fs.readFileSync(paths[0]!)]).toEqual([1, 2, 3]);
+    expect([...fs.readFileSync(paths[1]!)]).toEqual([9, 8, 7, 6]);
+    expect(paths[0]).toMatch(/\.jpg$/);
+    expect(paths[1]).toMatch(/\.png$/);
+    expect(start.mock.calls[0]![0].prompt).toBe(appendPaths('TODO の先頭をやって', paths));
+    expect(start.mock.calls[0]![0].prompt).toContain(`\n\n${paths[0]}\n${paths[1]}`);
+  });
+
+  it('指示が空でも、画像のパスだけの指示で起こす', async () => {
+    const { start, inbox, post, putImage, dropsDir } = setup();
+    const l = await post('l1', payload({ prompt: '', images: [ref(0, 1, 'image/webp')] }));
+    await putImage('l1', 0, IMG(5));
+    await inbox.receive(l);
+    const [f] = fs.readdirSync(dropsDir);
+    expect(start.mock.calls[0]![0].prompt).toBe(path.join(dropsDir, f!));
+  });
+
+  it('画像が取れない（Worker に無い）なら起こさず images-missing と答える。置いた分は消す', async () => {
+    const { cloud, start, inbox, post, putImage, answerOf, dropsDir, recorded } = setup();
+    const l = await post('l1', payload({ images: [ref(0, 3), ref(1, 3)] }));
+    await putImage('l1', 0, IMG(1, 2, 3));
+    await inbox.receive(l);
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'images-missing' });
+    expect(cloud.launches.get('l1')!.status).toBe('failed');
+    expect(recorded('l1')?.result).toBe('images-missing');
+    expect(fs.existsSync(dropsDir) ? fs.readdirSync(dropsDir) : []).toEqual([]);
+  });
+
+  it('別の秘密、番号を取り違えた封、壊れた封の画像は開けず images-missing', async () => {
+    for (const bad of ['secret', 'aad', 'junk'] as const) {
+      const { cloud, start, inbox, post, putImage, answerOf } = setup();
+      const l = await post('l1', payload({ images: [ref(0, 3)] }));
+      if (bad === 'secret') await putImage('l1', 0, IMG(1, 2, 3), { secret: OTHER_SECRET });
+      else if (bad === 'aad') await putImage('l1', 0, IMG(1, 2, 3), { aadN: 1 });
+      else cloud.putBlob('l1', 0, IMG(1, 2, 3, 4, 5));
+      await inbox.receive(l);
+      expect(start, bad).not.toHaveBeenCalled();
+      expect(await answerOf('l1'), bad).toMatchObject({ ok: false, reason: 'images-missing' });
+    }
+  });
+
+  it('開いた画像が 1 枚の上限を超えるなら images-missing', async () => {
+    const { start, inbox, post, putImage, answerOf } = setup();
+    const l = await post('l1', payload({ images: [ref(0, MOBILE_IMAGE_MAX_BYTES)] }));
+    await putImage('l1', 0, new Uint8Array(MOBILE_IMAGE_MAX_BYTES + 1));
+    await inbox.receive(l);
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'images-missing' });
+  });
+
+  it('画像の置き場に書けないときも起こさず images-missing', async () => {
+    const { start, inbox, post, putImage, answerOf, dropsDir } = setup();
+    // 置き場の場所をファイルで塞ぐ。
+    fs.mkdirSync(path.dirname(dropsDir), { recursive: true });
+    fs.writeFileSync(dropsDir, 'not a dir');
+    const l = await post('l1', payload({ images: [ref(0, 1)] }));
+    await putImage('l1', 0, IMG(1));
+    await inbox.receive(l);
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'images-missing' });
+  });
+
+  it('画像の控えが形の違うものは bad-payload（4 枚を超える、番号が重なる、範囲外、mime が許しの外、大きさが不正）', async () => {
+    const { cloud, start, inbox, post, answerOf } = setup();
+    const cases: Record<string, unknown> = {
+      five: [ref(0, 1), ref(1, 1), ref(2, 1), ref(3, 1), ref(4, 1)],
+      dup: [ref(0, 1), ref(0, 1)],
+      range: [ref(4, 1)],
+      negative: [ref(-1, 1)],
+      fraction: [ref(0.5, 1)],
+      mime: [{ n: 0, mime: 'image/gif', bytes: 1 }],
+      svg: [{ n: 0, mime: 'image/svg+xml', bytes: 1 }],
+      bytes: [{ n: 0, mime: 'image/jpeg', bytes: -1 }],
+      huge: [ref(0, MOBILE_IMAGE_MAX_BYTES + 1)],
+      notArray: 'x',
+      notObject: [null],
+    };
+    for (const [name, images] of Object.entries(cases)) {
+      await inbox.receive(await post(`l-${name}`, { ...payload(), images }));
+      expect(await answerOf(`l-${name}`), name).toMatchObject({ ok: false, reason: 'bad-payload' });
+    }
+    expect(start).not.toHaveBeenCalled();
+    // 画像は 1 枚も取りに行っていない。
+    expect(cloud.calls.filter((c) => c.method === 'getMobileBlob')).toHaveLength(0);
+  });
+
+  it('4 枚までは通り、images が空の配列なら画像なしと同じ', async () => {
+    const { start, inbox, post, putImage } = setup();
+    const l = await post('l1', payload({ images: [ref(0, 1), ref(1, 1), ref(2, 1), ref(3, 1)] }));
+    for (let n = 0; n < 4; n++) await putImage('l1', n, IMG(n));
+    await inbox.receive(l);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[0]![0].prompt!.split('\n')).toHaveLength(2 + 4);
+    await inbox.receive(await post('l2', payload({ images: [] })));
+    expect(start.mock.calls[1]![0].prompt).toBe('TODO の先頭をやって');
+  });
+
+  it('プロジェクトが無い依頼では、画像を取りに行かない', async () => {
+    const { cloud, inbox, post, putImage, answerOf } = setup();
+    const l = await post('l1', payload({ projectId: 'project-b', images: [ref(0, 1)] }));
+    await putImage('l1', 0, IMG(1));
+    await inbox.receive(l);
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'project-missing' });
+    expect(cloud.calls.filter((c) => c.method === 'getMobileBlob')).toHaveLength(0);
+  });
+
+  it('起こすのに失敗したら置いた画像を消す', async () => {
+    const { inbox, post, putImage, answerOf, dropsDir } = setup({ start: () => { throw new Error('boom'); } });
+    const l = await post('l1', payload({ images: [ref(0, 1)] }));
+    await putImage('l1', 0, IMG(1));
+    await inbox.receive(l);
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'launch-failed' });
+    expect(fs.readdirSync(dropsDir)).toEqual([]);
+  });
+
+  it('起こした会話の題は、パスを足す前の指示から付ける', async () => {
+    const { inbox, post, putImage, answerOf } = setup();
+    const l = await post('l1', payload({ prompt: '画像を見て直して', images: [ref(0, 1)] }));
+    await putImage('l1', 0, IMG(1));
+    await inbox.receive(l);
+    expect(await answerOf('l1')).toMatchObject({ ok: true, title: '画像を見て直して' });
+  });
+});
+
+describe('MobileLaunchInbox の記録の掃除', () => {
+  it('手元の mobile_launches の 7 日より古い行を、受け取るついでに消す', async () => {
+    const { db, inbox, post, recorded, setNow } = setup();
+    const ins = db.prepare('insert into mobile_launches (id, handled_at, result, answered) values (?, ?, ?, 1)');
+    ins.run('old', T0 - MOBILE_LAUNCH_KEEP_MS - 1, 'started');
+    ins.run('edge', T0 - MOBILE_LAUNCH_KEEP_MS, 'started');
+    ins.run('new', T0 - 60_000, 'started');
+    expect(MOBILE_LAUNCH_KEEP_MS).toBe(7 * 24 * 60 * 60_000);
+    setNow(T0);
+    await inbox.receive(await post('l1', payload()));
+    expect(recorded('old')).toBeUndefined();
+    expect(recorded('edge')).toBeDefined();
+    expect(recorded('new')).toBeDefined();
+    expect(recorded('l1')).toBeDefined();
   });
 });

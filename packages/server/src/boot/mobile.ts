@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type WebSocket from 'ws';
 import { MOBILE_BELL_MIN_WORKER_COMPAT, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
@@ -57,12 +58,15 @@ type Link = { client: CloudClient; joinSecret: string };
  * スマホの有無は同期の cloudDevices が読んだ一覧で知る（設定の画面の読み込みと、PHONE_RECHECK_MS ごとの見回り）。
  * 一覧が分からないあいだは書かない。スマホが 1 台も無い PC は、Worker に受信箱の素を 1 行も書かない。
  * 最初のスマホが現れたら、前に書いた中身を忘れてすぐ書く（外していた間に同じ中身のままでも置き直す）。
+ * 外していないスマホが居るのを見た後で、読めた一覧にそれが無くなったら、Worker の受信箱の素を消す（DELETE /m/feed、書き手の dropFeed）。
+ * 消せなければ、次の読み直しでやり直す。つなぎ先（cloud.json）が替わったら、スマホの有無の覚えを捨て、5 分を待たずに読み直す。
  * client と参加の秘密は同期から引き、cloud.json を後から拾って組み直したときは書き手も組み直す。
  * どのきっかけも投げない。購読の先（同期の輪、登録の読み直し、MCP の道具）へ失敗を返さない。
  *
  * スマホからの起動の依頼（mobile/launchInbox.ts）も、書き手の隣に組む。依頼は同期の engine の pull で届く（launches）。
  * engine は cloud.json を拾い直すと別のものになるので、見回りときっかけのたびに今の engine を購読し直す。
  * 依頼を扱うのも canCarryMobile が真のときだけで、版 6 の Worker には claim を送らない。
+ * 依頼の effort と画像（drops に置いてパスを指示の末尾に足す）も受け取る。画像の置き場は hangar の home の下の drops である。
  * 起こせたら書き手を nudge し、スマホの受信箱に新しい会話を早く出す。
  * 答えを送れなかった依頼は、ANSWER_RESEND_TICK_MS ごとの見回りで送り直す。
  *
@@ -73,7 +77,8 @@ type Link = { client: CloudClient; joinSecret: string };
  * 呼び鈴が張れなくても、依頼は今までどおり 30 秒の pull で届く。
  */
 export function bootMobile(p: {
-  home: { db: Db; device: { id: string; name: string } };
+  /** home は hangar の home（置き場 drops の親）。 */
+  home: { db: Db; device: { id: string; name: string }; home: string };
   delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'> };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
@@ -102,6 +107,8 @@ export function bootMobile(p: {
   /** 外していないスマホがあるか。null は分からない（まだ読めていない、同期していない）。 */
   let phones: boolean | null = null;
   let phonesAt: number | null = null;
+  /** 外していないスマホが居るのを見たあとで、受信箱の素をまだ Worker から消していないか。真のあいだは、スマホが居なくなったと分かるたびに消しに行く。 */
+  let hadPhones = false;
   let checking = false;
 
   const build = () => buildMobileFeed({
@@ -126,6 +133,8 @@ export function bootMobile(p: {
     follow();
     const link = p.sync.mobileLink();
     if (cur && link && cur.link.client === link.client && cur.link.joinSecret === link.joinSecret) return cur.pub;
+    // つなぎ先が替わったら、前の先で読んだスマホの有無は当てにならない。覚えを捨て、次のきっかけで読み直す（5 分は待たない）。
+    if (cur) { phones = null; phonesAt = null; hadPhones = false; }
     cur?.pub.stop();
     cur?.bell.stop();
     cur = null;
@@ -133,6 +142,7 @@ export function bootMobile(p: {
     const pub = new MobileFeedPublisher({ build, client: link.client, joinSecret: link.joinSecret, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile() });
     const inbox = new MobileLaunchInbox({
       db, client: link.client, joinSecret: link.joinSecret, deviceId,
+      dropsDir: path.join(p.home.home, 'drops'),
       start: (params) => {
         const r = p.runs.runs.start(params);
         kick();
@@ -188,10 +198,23 @@ export function bootMobile(p: {
     const next = d.state === 'ok' ? d.devices.some((x) => x.kind === 'mobile' && x.revokedAt === null) : d.state === 'outdated' ? false : null;
     const appeared = next === true && phones !== true;
     phones = next;
+    if (next === true) hadPhones = true;
+    // 最後のスマホを外した（一覧が読めて、外していないスマホが無い）ら、Worker の受信箱の素を消す。
+    if (d.state === 'ok' && next === false && hadPhones) dropFeed();
     // スマホが居なくなったら呼び鈴を閉じ、現れたら張る。
     if (!appeared) { ringCheck(); return; }
     cur?.pub.forget();
     kick();
+  }
+  /** 受信箱の素を Worker から消す。消せたら、次に居なくなるまで消さない。消せなければ、次の読み直しでやり直す。投げない。 */
+  function dropFeed(): void {
+    try {
+      const pub = cur?.pub;
+      if (!pub || !p.sync.canCarryMobile()) return;
+      void pub.dropFeed().then((done) => { if (done) hadPhones = false; }).catch((e: unknown) => { console.error('[mobile] could not drop the mobile feed', e instanceof Error ? e.constructor.name : typeof e); });
+    } catch (e) {
+      console.error('[mobile] could not drop the mobile feed', e instanceof Error ? e.constructor.name : typeof e);
+    }
   }
   /** スマホの有無を読み直す時期なら、一覧を読みに行く。読めた一覧は onCloudDevices で notePhones に届く。投げない。 */
   function checkPhones(): void {

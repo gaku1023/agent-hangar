@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { aadAnswer, aadAsk, aadFeed, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, seal, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
+import { aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
 import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
@@ -36,6 +36,9 @@ const devicesDto = (devices: CloudDevicesDto['devices'], state: CloudDevicesDto[
 const withPhone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc'), device('phone-1', 'mobile')]);
 /** PC だけの一覧。 */
 const noPhone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc'), device('pc-b', 'pc')]);
+
+const homeDirs: string[] = [];
+afterEach(() => { for (const d of homeDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
 function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () => never; devices?: CloudDevicesDto } = {}) {
   const db = openDb(':memory:');
@@ -71,8 +74,10 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
     cloudDevices,
     onCloudDevices: (cb: (d: CloudDevicesDto) => void) => { deviceListeners.add(cb); return () => { deviceListeners.delete(cb); }; },
   };
+  const homeDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-boot-mobile-')), 'home');
+  homeDirs.push(path.dirname(homeDir));
   const mobile = bootMobile({
-    home: { db, device: { id: 'pc-a', name: 'PC A' } },
+    home: { db, device: { id: 'pc-a', name: 'PC A' }, home: homeDir },
     delivery: { registry },
     runs: { runs: { start, on }, accounts },
     sync,
@@ -80,7 +85,7 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
     now: () => timers.now,
   });
   return {
-    db, timers, client, mobile, registryListeners, accounts, broadcasts, start, runListeners,
+    db, timers, client, mobile, homeDir, registryListeners, accounts, broadcasts, start, runListeners,
     engine: () => engine,
     setEngine: (e: FakeEngine) => { engine = e; },
     setLink: (l: typeof link) => { link = l; },
@@ -253,6 +258,109 @@ describe('bootMobile', () => {
       s.mobile.stop();
     });
 
+    const deletes = (s: ReturnType<typeof setup>, c: { calls: { method: string }[] } = s.client): number => c.calls.filter((x) => x.method === 'deleteMobileFeed').length;
+
+    it('最後のスマホを外したら、見回りの読み直しで知り、受信箱の素を Worker から 1 回だけ消す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(true);
+      s.setDevices(devicesDto([device('pc-a', 'pc'), device('phone-1', 'mobile', 5)]));
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await settle(() => deletes(s) === 1);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(false);
+      // 以後は消す要求も書き込みも出さない（読み直しが何度来ても）。
+      s.accounts.broadcast({} as AccountsDto);
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await quiet();
+      expect(deletes(s)).toBe(1);
+      expect(writes(s)).toBe(1);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(false);
+      s.mobile.stop();
+    });
+
+    it('消した後にスマホがまたつながったら、素を置き直す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      s.uiLoads(noPhone());
+      await settle(() => deletes(s) === 1);
+      s.uiLoads(withPhone());
+      await s.timers.advance(FEED_MIN_GAP_MS + FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 2);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(true);
+      s.mobile.stop();
+    });
+
+    it('スマホが一度も無かった PC は、消す要求を出さない', async () => {
+      const s = setup({ devices: noPhone() });
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await quiet();
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await quiet();
+      expect(s.cloudDevices).toHaveBeenCalled();
+      expect(deletes(s)).toBe(0);
+      s.mobile.stop();
+    });
+
+    it('消すのに失敗したら、次の読み直しでやり直す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      s.setDevices(noPhone());
+      s.client.offline = true;
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await settle(() => deletes(s) === 1);
+      s.client.offline = false;
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await settle(() => deletes(s) === 2);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(false);
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await quiet();
+      expect(deletes(s)).toBe(2);
+      s.mobile.stop();
+    });
+
+    it('つなぎ先（cloud.json）が変わったら、スマホが有るという覚えを捨てて、5 分を待たずに読み直す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      expect(s.cloudDevices).toHaveBeenCalledTimes(1);
+      const next = s.client.asDevice('pc-a');
+      await next.health();
+      // 新しいつなぎ先にはスマホが居ない。
+      s.setDevices(noPhone());
+      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      await s.timers.advance(FEED_SAFETY_MS);
+      await settle(() => s.cloudDevices.mock.calls.length === 2);
+      // 新しいつなぎ先には書かず、前のつなぎ先に居たスマホのための消す要求も出さない。
+      s.accounts.broadcast({} as AccountsDto);
+      await s.timers.advance(FEED_MIN_GAP_MS + FEED_DEBOUNCE_MS);
+      await quiet();
+      expect(next.calls.filter((c) => c.method === 'putMobileFeed')).toHaveLength(0);
+      expect(deletes(s, next)).toBe(0);
+      s.mobile.stop();
+    });
+
+    it('つなぎ先が変わった後、新しい先にスマホが居れば新しい先へ書く', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      const next = s.client.asDevice('pc-a');
+      await next.health();
+      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      await s.timers.advance(FEED_SAFETY_MS + FEED_DEBOUNCE_MS);
+      await settle(() => next.calls.some((c) => c.method === 'putMobileFeed'));
+      s.mobile.stop();
+    });
+
     it('止めたら一覧の購読を外す', () => {
       const s = setup();
       s.mobile.start();
@@ -294,6 +402,19 @@ describe('bootMobile', () => {
       expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', prompt: '会話 1 を始める' });
       expect(await answerOf(s, 'l1')).toMatchObject({ ok: true, sessionId: 's-new' });
       expect(nudge).toHaveBeenCalled();
+      s.mobile.stop();
+    });
+
+    it('effort と画像つきの依頼を、hangar の home の drops に画像を置き、effort とパスつきの指示で起こす', async () => {
+      const s = setup();
+      placeProject(s.db);
+      s.mobile.start();
+      const key = await mobileKeyFor(SECRET);
+      s.client.putBlob('l1', 0, await sealBytes(key, aadImage('l1', 0), new Uint8Array([7, 7, 7])));
+      await deliver(s, 'l1', { effort: 'high', images: [{ n: 0, mime: 'image/png', bytes: 3 }] });
+      await settle(() => s.client.launches.get('l1')!.status === 'started');
+      const [f] = fs.readdirSync(path.join(s.homeDir, 'drops'));
+      expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', effort: 'high', prompt: `会話 1 を始める\n\n${path.join(s.homeDir, 'drops', f!)}` });
       s.mobile.stop();
     });
 

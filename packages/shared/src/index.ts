@@ -28,3 +28,4 @@ export * from './setupGuide.ts';
 export * from './mobile.ts';
 export * from './mobileCrypto.ts';
 export * from './launchChoices.ts';
+export * from './promptPaths.ts';
