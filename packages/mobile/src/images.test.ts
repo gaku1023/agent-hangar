@@ -47,7 +47,12 @@ describe('imageFailureText', () => {
 
 /** XMLHttpRequest の代わり。送った中身を持ち、呼び手が応答を決める。 */
 class FakeXhr {
-  static last: FakeXhr | null = null;
+  /** send が呼ばれたら、待っている試験へ渡す。waitFor の見回りは使わない（古い値を拾い、重いと取り違える）。 */
+  static waiters: Array<(x: FakeXhr) => void> = [];
+  /** 次に送られる XHR を待つ。putImage を呼ぶ前に作る。 */
+  static nextSend(): Promise<FakeXhr> {
+    return new Promise((resolve) => FakeXhr.waiters.push(resolve));
+  }
   method = '';
   url = '';
   headers: Record<string, string> = {};
@@ -59,9 +64,6 @@ class FakeXhr {
   onerror: (() => void) | null = null;
   onabort: (() => void) | null = null;
   aborted = false;
-  constructor() {
-    FakeXhr.last = this;
-  }
   open(m: string, u: string): void {
     this.method = m;
     this.url = u;
@@ -71,6 +73,7 @@ class FakeXhr {
   }
   send(b: unknown): void {
     this.body = b;
+    for (const w of FakeXhr.waiters.splice(0)) w(this);
   }
   abort(): void {
     this.aborted = true;
@@ -96,12 +99,16 @@ async function sentOf(x: FakeXhr): Promise<Uint8Array> {
 }
 
 describe('putImage', () => {
+  beforeEach(() => {
+    FakeXhr.waiters = [];
+  });
+
   it('aadImage(依頼, 番号) で封じ、XMLHttpRequest で PUT /m/blobs/<依頼>/<番号> に Blob を送る（進みを渡す）', async () => {
     const data = new Uint8Array([1, 2, 3, 4, 5]);
     const pct: number[] = [];
+    const sent = FakeXhr.nextSend();
     const p = putImage(pairing, key, 'L-1', 2, data, { xhr, onProgress: (n) => pct.push(n) });
-    await waitFor(() => expect(FakeXhr.last?.body).toBeTruthy());
-    const x = FakeXhr.last!;
+    const x = await sent;
     expect(x.method).toBe('PUT');
     expect(x.url).toBe(`${WORKER}/m/blobs/L-1/2`);
     expect(x.headers.authorization).toBe('Bearer tok-1');
@@ -116,17 +123,15 @@ describe('putImage', () => {
 
   it('断りの理由を分ける', async () => {
     const reasonOf = async (status: number, body: unknown, compat: number | null = null): Promise<string> => {
+      const sent = FakeXhr.nextSend();
       const p = putImage(pairing, key, 'L-1', 0, new Uint8Array([1]), { xhr });
-      await waitFor(() => expect(FakeXhr.last?.body).toBeTruthy());
-      FakeXhr.last!.respond(status, body, compat);
+      (await sent).respond(status, body, compat);
       try {
         await p;
         return 'ok';
       } catch (e) {
         expect(e).toBeInstanceOf(ImageError);
         return (e as ImageError).reason;
-      } finally {
-        FakeXhr.last = null;
       }
     };
     expect(await reasonOf(413, { error: 'payload too large' })).toBe('too-large');
@@ -141,17 +146,17 @@ describe('putImage', () => {
   });
 
   it('通信が切れたら network、外したら aborted', async () => {
+    const sent = FakeXhr.nextSend();
     const p = putImage(pairing, key, 'L-1', 0, new Uint8Array([1]), { xhr });
-    await waitFor(() => expect(FakeXhr.last?.body).toBeTruthy());
-    FakeXhr.last!.onerror?.();
+    (await sent).onerror?.();
     await expect(p).rejects.toMatchObject({ reason: 'network' });
-    FakeXhr.last = null;
     const ac = new AbortController();
+    const sent2 = FakeXhr.nextSend();
     const q = putImage(pairing, key, 'L-1', 0, new Uint8Array([1]), { xhr, signal: ac.signal });
-    await waitFor(() => expect(FakeXhr.last?.body).toBeTruthy());
+    const x2 = await sent2;
     ac.abort();
     await expect(q).rejects.toMatchObject({ reason: 'aborted' });
-    expect(FakeXhr.last!.aborted).toBe(true);
+    expect(x2.aborted).toBe(true);
   });
 });
 
