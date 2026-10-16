@@ -16,6 +16,15 @@ export function deriveFileKey(joinSecret: string): Buffer {
   return Buffer.from(hkdfSync('sha256', Buffer.from(joinSecret, 'utf8'), 'hangar-salt-v1', 'hangar-file-v1', 32));
 }
 
+/**
+ * E2E の世代鍵から導いた file の用途の鍵（deriveEpochKeys の fileBytes）を、ストリーム暗号に渡す Buffer にする。
+ * 32 バイト以外は断る。元の配列とはメモリを共有しない。
+ */
+export function fileKeyFrom(bytes: Uint8Array): Buffer {
+  if (bytes.length !== 32) throw new Error('file key must be 32 bytes');
+  return Buffer.from(bytes);
+}
+
 const nonceOf = (prefix: Buffer, idx: number): Buffer => { const n = Buffer.alloc(12); prefix.copy(n, 0); n.writeUInt32BE(idx, 8); return n; };
 const aadOf = (idx: number, flag: number): Buffer => { const a = Buffer.alloc(5); a.writeUInt32BE(idx, 0); a[4] = flag; return a; };
 
