@@ -1,6 +1,6 @@
 import { aadAsk, aadReply, COMPAT_HEADER, open, seal, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { askPc, AskError, ASK_DEBOUNCE_MS, createAsker, debounce, FILES_CACHE_MS, type AskFailure } from './ask.ts';
+import { askPc, AskError, ASK_DEBOUNCE_MS, createAsker, debounce, FILES_CACHE_MS, MOBILE_ASK_COMMANDS_MAX, MOBILE_ASK_FILES_MAX, type AskFailure } from './ask.ts';
 import { makeKey } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
@@ -99,6 +99,50 @@ describe('askPc', () => {
     expect(await failureOf(q())).toBe('server');
     fetchMock.mockRejectedValue(new TypeError('offline'));
     expect(await failureOf(q())).toBe('network');
+  });
+
+  it('files は 50 件まで。重なり、改行を含むもの、300 字を超えるパスは落とす', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ path: `src/f${i}.ts`, changed: false }));
+    serve({
+      files: [
+        { path: 'src/a.ts', changed: true },
+        { path: 'src/a.ts', changed: false },
+        { path: 'bad\nname.ts', changed: false },
+        { path: `${'d/'.repeat(150)}x.ts`, changed: false },
+        { path: 'my notes/a b.md', changed: false },
+        ...many,
+      ],
+    });
+    const r = await askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
+    if (!('files' in r)) throw new Error('files でない');
+    expect(r.files).toHaveLength(MOBILE_ASK_FILES_MAX);
+    expect(MOBILE_ASK_FILES_MAX).toBe(50);
+    expect(r.files[0]).toEqual({ path: 'src/a.ts', changed: true });
+    expect(r.files.filter((f) => f.path === 'src/a.ts')).toHaveLength(1);
+    expect(r.files.some((f) => f.path.includes('\n') || f.path.length > 300)).toBe(false);
+    expect(r.files[1]).toEqual({ path: 'my notes/a b.md', changed: false });
+  });
+
+  it('commands は 200 件まで。重なり、空白や改行を含む名前、300 字を超える名前は落とし、説明は 120 字で切る', async () => {
+    const many = Array.from({ length: 250 }, (_, i) => ({ name: `s${i}`, description: '', kind: 'skill' as const }));
+    serve({
+      commands: [
+        { name: 'review', description: 'あ'.repeat(200), kind: 'skill' },
+        { name: 'review', description: '重なり', kind: 'skill' },
+        { name: 'review', description: '種類が違う', kind: 'command' },
+        { name: 'two words', description: '', kind: 'skill' },
+        { name: 'line\nbreak', description: '', kind: 'skill' },
+        { name: 'n'.repeat(301), description: '', kind: 'skill' },
+        ...many,
+      ],
+    });
+    const r = await askPc(pairing, key, 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' });
+    if (!('commands' in r)) throw new Error('commands でない');
+    expect(r.commands).toHaveLength(MOBILE_ASK_COMMANDS_MAX);
+    expect(MOBILE_ASK_COMMANDS_MAX).toBe(200);
+    expect(r.commands[0]!.description).toHaveLength(120);
+    expect(r.commands.filter((c) => c.name === 'review').map((c) => c.kind)).toEqual(['skill', 'command']);
+    expect(r.commands.some((c) => /\s/.test(c.name) || c.name.length > 300)).toBe(false);
   });
 
   it('答えの中の形の違う行は落とし、説明は切らずに文字列だけ通す', async () => {

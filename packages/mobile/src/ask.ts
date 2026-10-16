@@ -51,27 +51,58 @@ export const FILES_CACHE_MS = 30_000;
 
 const PC_REFUSALS = new Set<AskFailure>(['project-missing', 'account-missing', 'bad-request']);
 
+/** 画面が受け取り、描く数の上限（設計書の答えの上限と同じ）。PC がこれを超えて返しても、画面の側で切る。 */
+export const MOBILE_ASK_FILES_MAX = 50;
+export const MOBILE_ASK_COMMANDS_MAX = 200;
+/** パスと名前はこれを超えたら落とす（切ると別のパス、別の名前になる）。 */
+export const MOBILE_ASK_NAME_MAX = 300;
+/** 説明はこれで切る。 */
+export const MOBILE_ASK_DESCRIPTION_MAX = 120;
+
+const LINE_BREAK = /[\r\n\u2028\u2029]/;
+
+/** files を、形の合う、改行を含まない、長すぎない、重ならない行に絞り、上限で切る。 */
+export function capFiles(list: readonly unknown[]): FileHit[] {
+  const seen = new Set<string>();
+  const out: FileHit[] = [];
+  for (const f of list) {
+    if (out.length >= MOBILE_ASK_FILES_MAX) break;
+    const x = f as Partial<FileHit> | null;
+    if (!x || typeof x !== 'object' || typeof x.path !== 'string' || typeof x.changed !== 'boolean') continue;
+    const path = x.path;
+    if (!path || path.length > MOBILE_ASK_NAME_MAX || LINE_BREAK.test(path) || seen.has(path)) continue;
+    seen.add(path);
+    out.push({ path, changed: x.changed });
+  }
+  return out;
+}
+
+/** commands を、形の合う、空白を含まない、長すぎない、重ならない行に絞り、説明を切り、上限で切る。 */
+export function capCommands(list: readonly unknown[]): CommandHit[] {
+  const seen = new Set<string>();
+  const out: CommandHit[] = [];
+  for (const c of list) {
+    if (out.length >= MOBILE_ASK_COMMANDS_MAX) break;
+    const x = c as Partial<CommandHit> | null;
+    if (!x || typeof x !== 'object' || typeof x.name !== 'string' || typeof x.description !== 'string' || (x.kind !== 'skill' && x.kind !== 'command')) continue;
+    const name = x.name;
+    // 「/名前」は空白で切れるので、空白や改行を含む名前は入れられない。
+    if (!name || name.length > MOBILE_ASK_NAME_MAX || /\s/.test(name)) continue;
+    const k = `${x.kind}:${name}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ name, description: [...x.description].slice(0, MOBILE_ASK_DESCRIPTION_MAX).join(''), kind: x.kind });
+  }
+  return out;
+}
+
 /** 開いた答えから、形の合う行だけを残す。形の違う答えは null。 */
 function readReply(v: unknown): AskReply | { error: AskFailure } | null {
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
   if (typeof o.error === 'string') return PC_REFUSALS.has(o.error as AskFailure) ? { error: o.error as AskFailure } : null;
-  if (Array.isArray(o.files)) {
-    const files = (o.files as unknown[]).flatMap((f) => {
-      const x = f as Partial<FileHit> | null;
-      return x && typeof x === 'object' && typeof x.path === 'string' && x.path && typeof x.changed === 'boolean' ? [{ path: x.path, changed: x.changed }] : [];
-    });
-    return { files };
-  }
-  if (Array.isArray(o.commands)) {
-    const commands = (o.commands as unknown[]).flatMap((c) => {
-      const x = c as Partial<CommandHit> | null;
-      return x && typeof x === 'object' && typeof x.name === 'string' && x.name && typeof x.description === 'string' && (x.kind === 'skill' || x.kind === 'command')
-        ? [{ name: x.name, description: x.description, kind: x.kind }]
-        : [];
-    });
-    return { commands };
-  }
+  if (Array.isArray(o.files)) return { files: capFiles(o.files as unknown[]) };
+  if (Array.isArray(o.commands)) return { commands: capCommands(o.commands as unknown[]) };
   return null;
 }
 

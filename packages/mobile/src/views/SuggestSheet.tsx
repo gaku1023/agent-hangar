@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
-import type { CommandHit, FileHit } from '../ask.ts';
+import { capCommands, capFiles, type CommandHit, type FileHit } from '../ask.ts';
 import { useSheetPhase } from '../presence.ts';
 
 /** シートの中身。 */
@@ -69,7 +69,12 @@ function rankOf(c: CommandHit, q: string): number {
   return 3;
 }
 
-function Commands({ q, list, onPick }: { q: string; list: CommandHit[]; onPick: (t: string) => void }): ReactNode {
+/** `@` の後ろに入れる形。空白を含むパスは PC の指示欄と同じく `"…"` で囲む（囲まないと @ の語が空白で切れる）。 */
+export const mentionOf = (path: string): string => `@${/\s/.test(path) ? `"${path}"` : path}`;
+
+function Commands({ q, list: given, onPick }: { q: string; list: CommandHit[]; onPick: (t: string) => void }): ReactNode {
+  // 描く行も上限まで。重なった行は落とす（React の key が重ならないため）。
+  const list = capCommands(given);
   const group = (title: string, kind: CommandHit['kind']): ReactNode => {
     const rows = list
       .filter((c) => c.kind === kind)
@@ -110,7 +115,8 @@ function Commands({ q, list, onPick }: { q: string; list: CommandHit[]; onPick: 
   );
 }
 
-function Files({ q, list, onPick }: { q: string; list: FileHit[]; onPick: (t: string) => void }): ReactNode {
+function Files({ q, list: given, onPick }: { q: string; list: FileHit[]; onPick: (t: string) => void }): ReactNode {
+  const list = capFiles(given);
   if (list.length === 0) {
     return <div className="cm-empty">{q ? `「${q}」に合うファイルはありません。` : '最近変更したファイルはありません。名前を入力すると検索できます。'}</div>;
   }
@@ -122,7 +128,7 @@ function Files({ q, list, onPick }: { q: string; list: FileHit[]; onPick: (t: st
         const dir = i < 0 ? '' : f.path.slice(0, i + 1);
         const base = f.path.slice(i + 1);
         return (
-          <button key={f.path} type="button" className="cm-frow" onClick={() => onPick(`@${f.path}`)}>
+          <button key={f.path} type="button" className="cm-frow" onClick={() => onPick(mentionOf(f.path))}>
             <span className="cm-fic" aria-hidden="true">
               ▤
             </span>

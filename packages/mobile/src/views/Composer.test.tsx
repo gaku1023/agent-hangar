@@ -144,6 +144,28 @@ describe('Composer の / の候補', () => {
   });
 });
 
+describe('Composer の候補の数と形', () => {
+  it('空白を含むパスは PC の指示欄と同じく @"…" で入れる', async () => {
+    const { ta, type } = setup({ asker: { files: vi.fn(async () => [{ path: 'my notes/a b.md', changed: false }]) } });
+    type('@');
+    fireEvent.click(await within(sheet()!).findByRole('button', { name: /a b\.md/ }));
+    expect(ta.value).toBe('@"my notes/a b.md" ');
+  });
+
+  it('描く行は files 50、commands 200 まで。重なった行があっても 1 行にする', async () => {
+    const files = Array.from({ length: 60 }, (_, i) => ({ path: `f${i % 55}.ts`, changed: false }));
+    const commands = Array.from({ length: 230 }, (_, i) => ({ name: `s${i % 210}`, description: '', kind: 'skill' as const }));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { type } = setup({ asker: { files: vi.fn(async () => files), commands: vi.fn(async () => commands) } });
+    type('@');
+    await waitFor(() => expect(within(sheet()!).getAllByRole('button', { name: /\.ts/ })).toHaveLength(50));
+    type('/');
+    await waitFor(() => expect(within(sheet()!).getAllByRole('button', { name: /^\/s\d+/ })).toHaveLength(200));
+    expect(errors.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false);
+    errors.mockRestore();
+  });
+});
+
 describe('Composer の @ の候補', () => {
   it('問い合わせ中は骨組み、答えが来たら最近変更したファイル（変更の印）。押すと「@パス 」が入る', async () => {
     let resolve!: (f: FileHit[]) => void;
