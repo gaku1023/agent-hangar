@@ -4,7 +4,7 @@ import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
-import { addIntent, INTENT_MAX } from '../live/intents.ts';
+import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg, render, type Message } from '../i18n/message.ts';
@@ -364,6 +364,7 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const text = typeof args.text === 'string' ? args.text.trim() : '';
   if (text.length === 0 || [...text].length > INTENT_MAX) throw new ToolError(msg('mcp.intent.badLength', { max: INTENT_MAX }));
   const it = addIntent(deps.db, id, text, now);
+  noteIntent(id);
   return { ok: true, session_id: id, at: it.at };
 }
 

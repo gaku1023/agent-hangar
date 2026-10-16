@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { encodeJoinToken, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
+import { encodeJoinToken, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
 import { cloudConfigPath, readCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
-import { HttpCloudClient } from '../sync/client.ts';
+import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
 import { deriveFileKey } from '../sync/crypto.ts';
 import { loadCloudDevices } from '../sync/devices.ts';
 import { SyncEngine } from '../sync/engine.ts';
@@ -91,6 +91,17 @@ export type SyncParts = {
    * 版 5 までの Worker は 2 表の行を含む push を丸ごと断るので、満たさないあいだは行を書かない。まだ話していない（版が分からない）あいだも偽である。
    */
   canCarryTakeover(): boolean;
+  /**
+   * スマホ向けの口（/m/）に書いてよいか。canCarryTakeover と同じ形で、Worker が名乗る版が MOBILE_MIN_WORKER_COMPAT に届いているとき真。
+   * 版 6 の Worker は /m/ を知らないので、満たさないあいだは受信箱の素を書かず、依頼も扱わない。まだ話していないあいだも偽である。
+   */
+  canCarryMobile(): boolean;
+  /**
+   * スマホ向けの書き手が使う、今の client と参加の秘密。同期を設定していなければ null。
+   * cloud.json が後から現れて組み直すと、別の client を返す。書き手は client が変わったら組み直す（boot/mobile.ts）。
+   * 秘密はこの PC の中の部品にだけ渡し、ログにも画面にも出さない。
+   */
+  mobileLink(): { client: CloudClient; joinSecret: string } | null;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -342,6 +353,14 @@ export function bootSync(
     }
   };
 
+  /** 同期が設定済みで、一時停止でも、版や解除や上限で止まってもおらず、Worker が名乗る版が min に届いているか。 */
+  const canCarry = (min: number): boolean => {
+    const { client, engine } = core;
+    if (!client) return false;
+    if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
+    return (client.lastWorkerCompat() ?? 0) >= min;
+  };
+
   return {
     get engine() { return core.engine; },
     syncState,
@@ -362,12 +381,9 @@ export function bootSync(
       await core.engine.pullNow();
       await core.puller?.pullNow();
     },
-    canCarryTakeover: () => {
-      const { client, engine } = core;
-      if (!client) return false;
-      if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
-      return (client.lastWorkerCompat() ?? 0) >= TAKEOVER_MIN_WORKER_COMPAT;
-    },
+    canCarryTakeover: () => canCarry(TAKEOVER_MIN_WORKER_COMPAT),
+    canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
+    mobileLink: () => (core.client && core.cloud ? { client: core.client, joinSecret: core.cloud.joinSecret } : null),
     refetchSession: (uuid) => {
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },

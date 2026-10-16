@@ -583,6 +583,16 @@ describe('PC の一覧と解除', () => {
     expect(f.calls[0]!.init.method).toBe('POST');
   });
 
+  it('putMobileFeed は PUT /m/feed に { sealed } を JSON で送る', async () => {
+    const f = fakeFetch(() => json({ ok: true, updatedAt: 1 }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    await c.putMobileFeed('sealed-text');
+    expect(f.calls[0]!.url).toBe('https://w.example/m/feed');
+    expect(f.calls[0]!.init.method).toBe('PUT');
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ sealed: 'sealed-text' });
+    expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
+  });
+
   it('形の違う ID は送る前に断る', async () => {
     const f = fakeFetch(() => json({}));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });

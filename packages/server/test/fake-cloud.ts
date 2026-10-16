@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import {
   COMPAT_VERSION,
   MAX_PUSH_BATCH,
+  MOBILE_MIN_WORKER_COMPAT,
   PULL_LIMIT,
   SHARED_TABLES,
   decodeHeaderText,
@@ -50,6 +51,8 @@ export type FakeCloudStore = {
   limited: CloudLimitKind | null;
   /** 参加している PC の行。要求を受けた端末を、初めて見たときに足す（実物は /join で足す）。 */
   devices: Map<string, CloudDeviceOut>;
+  /** PC ごとの受信箱の素（PUT /m/feed）。実物の mobile_feeds の表に当たる。 */
+  mobileFeeds: Map<string, { sealed: string; updatedAt: number }>;
   now: () => number;
 };
 
@@ -66,6 +69,8 @@ const TABLES = new Set<string>(SHARED_TABLES);
 export const MAX_ROW_BYTES = 128 * 1024;
 export const MAX_ROW_ID_CHARS = 64;
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
+/** PUT /m/feed の本文の上限（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES の写し）。 */
+export const MAX_FEED_BODY_BYTES = 64 * 1024;
 
 /**
  * 実物の Worker が端末に求める互換の版の下限（packages/cloud/src/compat.ts の写し）。
@@ -137,6 +142,7 @@ export class FakeCloudClient implements CloudClient {
       minDeviceCompat: MIN_DEVICE_COMPAT,
       limited: null,
       devices: new Map(),
+      mobileFeeds: new Map(),
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -159,6 +165,7 @@ export class FakeCloudClient implements CloudClient {
   get changes(): ChangeOut[] { return this.store.changes; }
   get rows(): Map<string, ChangeOut> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
+  get mobileFeeds(): Map<string, { sealed: string; updatedAt: number }> { return this.store.mobileFeeds; }
 
   /**
    * 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。
@@ -403,6 +410,18 @@ export class FakeCloudClient implements CloudClient {
     // 返すと、一度でも壊れた since を控えた端末の一覧が、その値のまま固まって永久に空になる。
     const nextSeq = more ? page[page.length - 1]!.seq : entries.reduce((m, e) => Math.max(m, e.seq), 0);
     return { files: page.map((e) => ({ ...e })), nextSeq, more };
+  }
+
+  /**
+   * PUT /m/feed。版 7 より前の Worker はこの口を知らないので 404 で断る。
+   * 本文の上限は実物（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES）と同じ 64 KiB。
+   */
+  async putMobileFeed(sealed: string): Promise<void> {
+    this.guard('putMobileFeed', sealed);
+    if (this.store.workerCompat < MOBILE_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+    if (ENC.encode(JSON.stringify({ sealed })).byteLength > MAX_FEED_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
+    if (sealed.length === 0) throw new CloudError(400, errorBody('invalid body'));
+    this.store.mobileFeeds.set(this.deviceId, { sealed, updatedAt: this.store.now() });
   }
 
   /** GET /usage の応答。試験が差し替える。既定はトークンの無い Worker と同じ。 */

@@ -329,6 +329,18 @@ describe('MCP tools', () => {
     expect(r).toMatchObject({ ok: true, session_id: alphaId });
     expect(latestIntent(db, alphaId)).toEqual({ at: r.at, text: '抜けたあと、答え終えた会話だけ止める' });
   });
+  it('set_turn_intent は積んだ後に onIntent の購読へ会話の ID を知らせ、断ったときは知らせない', async () => {
+    const { onIntent } = await import('../live/intents.ts');
+    const seen: string[] = [];
+    const off = onIntent((id) => seen.push(id));
+    try {
+      call('set_turn_intent', { text: '受信箱へ知らせる' }, { sessionId: alphaId });
+      expect(() => call('set_turn_intent', { text: '   ' }, { sessionId: alphaId })).toThrow(ToolError);
+      expect(seen).toEqual([alphaId]);
+    } finally {
+      off();
+    }
+  });
   it('set_turn_intent は空と 201 字以上を断る', () => {
     expect(() => call('set_turn_intent', { text: '   ' }, { sessionId: alphaId })).toThrow(ToolError);
     expect(() => call('set_turn_intent', { text: 'あ'.repeat(201) }, { sessionId: alphaId })).toThrow(ToolError);

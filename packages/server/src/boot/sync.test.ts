@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COMPAT_VERSION, TAKEOVER_MIN_WORKER_COMPAT, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { COMPAT_VERSION, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { saveCloudConfig } from '../config/cloud.ts';
 import { dbPath } from '../config/paths.ts';
 import { openDb } from '../db/open.ts';
@@ -544,6 +544,28 @@ describe('互換の版', () => {
     expect(fresh.sync.canCarryTakeover()).toBe(true);
   });
 
+  it('canCarryMobile は Worker の版が MOBILE_MIN_WORKER_COMPAT に届くまで偽で、mobileLink は client と参加の秘密を渡す', async () => {
+    // 版 6 の Worker とは同期するが、スマホ向けの口（/m/）を知らないので受信箱の素を書かない。
+    await worker(answerAll(String(MOBILE_MIN_WORKER_COMPAT - 1)));
+    const old = boot({ start: true });
+    await until(() => (old.sync.mobileLink()?.client.lastWorkerCompat?.() != null ? true : null));
+    expect(old.sync.canCarryMobile()).toBe(false);
+    expect(old.sync.mobileLink()?.joinSecret).toBeTruthy();
+    await old.close();
+    await w?.close();
+    await worker(answerAll(String(MOBILE_MIN_WORKER_COMPAT)));
+    const fresh = boot({ start: true });
+    await until(() => (fresh.sync.canCarryMobile() ? true : null));
+    fresh.sync.engine.setPaused(true);
+    expect(fresh.sync.canCarryMobile()).toBe(false);
+    fresh.sync.engine.setPaused(false);
+    expect(fresh.sync.canCarryMobile()).toBe(true);
+    const link = fresh.sync.mobileLink();
+    expect(link?.client.putMobileFeed).toBeTypeOf('function');
+    // 同じ core のあいだは同じ client を返す（受信箱の書き手を組み直さない）。
+    expect(fresh.sync.mobileLink()?.client).toBe(link?.client);
+  });
+
   it('pullForTakeover は行の pull と本文の写しの pull を 1 回ずつ回し、同期していなければ何もしない', async () => {
     const wk = await worker(answerAll(String(COMPAT_VERSION)));
     const b = boot({ start: true });
@@ -563,6 +585,8 @@ describe('互換の版', () => {
     const off = boot();
     await expect(off.sync.pullForTakeover()).resolves.toBeUndefined();
     expect(off.sync.canCarryTakeover()).toBe(false);
+    expect(off.sync.canCarryMobile()).toBe(false);
+    expect(off.sync.mobileLink()).toBeNull();
   });
 
   it('Worker が版の見出しを返さなければ（版 0）、同期を止めて Worker を上げるよう出す', async () => {

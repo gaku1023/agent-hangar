@@ -214,6 +214,11 @@ export interface CloudClient {
    * 設定の同期が、Worker が束の行を知る版に届くまで行を書かないために読む。実装しない偽物は null を返してよい。
    */
   lastWorkerCompat?(): number | null;
+  /**
+   * この PC の受信箱の素（封じたもの）を置く（PUT /m/feed、互換の版 7 の Worker から）。
+   * 呼ぶのは MobileFeedPublisher で、Worker の版が MOBILE_MIN_WORKER_COMPAT に届いてからにする。偽物は実装しなくてよい。
+   */
+  putMobileFeed?(sealed: string): Promise<void>;
 }
 
 export type HttpCloudClientOptions = {
@@ -431,6 +436,11 @@ export class HttpCloudClient implements CloudClient {
     // ID は URL の断片に入る。Worker も入口で断るが、形の違うものは外へ出さない。
     if (!isSafeKeyId(id)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
     return (await this.json<CloudDeviceRevokeResponse>(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' })).device;
+  }
+
+  async putMobileFeed(sealed: string): Promise<void> {
+    await this.ensureWorkerCompat();
+    await this.json<{ ok: boolean }>('/m/feed', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sealed }) });
   }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
