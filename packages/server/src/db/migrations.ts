@@ -531,6 +531,15 @@ create table takeover_answers (
 `;
 
 /**
+ * スマホからの起動の依頼のうち、この PC が扱い終えたもの（版 29）。同期しない（この PC だけの記録）。
+ * 起こす前に Worker で claim し、起こしたら答えを送る前にここへ書く。答えを送れなくても、同じ依頼を二度起こさない。
+ * result は started か、断った理由（bad-payload、expired、project-missing、account-missing、launch-failed）。
+ */
+const V29_MOBILE_LAUNCHES_SQL = `
+create table mobile_launches (id text primary key, handled_at integer not null, result text not null);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -549,4 +558,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 26, sql: V26_SESSION_TRASH_SQL },
   { version: 27, sql: V27_SESSION_RESTORED_SQL },
   { version: 28, sql: V28_TAKEOVER_SQL },
+  { version: 29, sql: V29_MOBILE_LAUNCHES_SQL },
 ];

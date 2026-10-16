@@ -508,6 +508,27 @@ describe('他の PC の生存（同期の版 6）', () => {
     e.stop();
   });
 
+  it('engine は pull の応答の launches を listener に渡す。頁をまたいでも 1 巡に 1 回で、空なら呼ばない', async () => {
+    const e = make();
+    const got: string[][] = [];
+    e.on({ launches: (l) => got.push(l.map((x) => x.id)) });
+    await e.start();
+    expect(got).toEqual([]);
+    cloud.asDevice('phone').postLaunch({ id: 'l1', targetDevice: 'a', sealed: 'x' });
+    cloud.asDevice('phone').postLaunch({ id: 'l2', targetDevice: 'b', sealed: 'y' });
+    // 2 頁にまたがる pull（どの頁にも同じ依頼が載る）。
+    const b = cloud.asDevice('b');
+    const bdb = openDb(':memory:');
+    const eb = new SyncEngine({ db: bdb, deviceId: 'b', client: b, now: () => timers.now, timers, url: 'https://h' });
+    for (let i = 0; i < 3; i++) upsertShared(bdb, 'projects', { id: `p${i}`, name: `p${i}`, status: 'active', is_scratch: 0 }, 'b');
+    await eb.pushNow();
+    const pull = cloud.pullChanges.bind(cloud);
+    cloud.pullChanges = (since, _limit) => pull(since, 2);
+    await e.pullNow();
+    expect(got).toEqual([['l1']]);
+    e.stop(); eb.stop();
+  });
+
   it('一時停止中も 1 分に 1 回だけ Worker に生存を知らせる。行は当てず、区切りも送信も進めない', async () => {
     let w = 9_000_000;
     cloud = new FakeCloudClient({ deviceId: 'a', now: () => w });

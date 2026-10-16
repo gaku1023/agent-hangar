@@ -225,6 +225,13 @@ export interface CloudClient {
    * 1 台の PC から 10 分に 5 枚までで、超えると Worker は 429 を返す（CloudError(429) で投げる）。偽物は実装しなくてよい。
    */
   createPairing?(): Promise<MobilePairingResponse>;
+  /**
+   * スマホからの起動の依頼を受け取る（POST /m/launches/:id/claim、互換の版 7 の Worker から）。
+   * 自分宛てで、まだ誰も受け取っておらず、時間切れでないときだけ true で、PC は true のときだけ起こす。409 は false。ほかの失敗は投げる。偽物は実装しなくてよい。
+   */
+  claimLaunch?(id: string): Promise<boolean>;
+  /** 受け取った依頼の結果を返す（POST /m/launches/:id/answer）。sealedAnswer はスマホ用の鍵で封じた MobileLaunchAnswer。409 も投げる。 */
+  answerLaunch?(id: string, ok: boolean, sealedAnswer: string): Promise<void>;
 }
 
 export type HttpCloudClientOptions = {
@@ -451,6 +458,21 @@ export class HttpCloudClient implements CloudClient {
 
   createPairing(): Promise<MobilePairingResponse> {
     return this.json<MobilePairingResponse>('/m/pairings', { method: 'POST' });
+  }
+
+  async claimLaunch(id: string): Promise<boolean> {
+    try {
+      await this.json<{ ok: boolean }>(`/m/launches/${encodeURIComponent(id)}/claim`, { method: 'POST' });
+      return true;
+    } catch (e) {
+      // 2 回目、宛先でない、時間切れ、無い ID。どれも起こさない。
+      if (e instanceof CloudError && e.status === 409) return false;
+      throw e;
+    }
+  }
+
+  async answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> {
+    await this.json<{ ok: boolean }>(`/m/launches/${encodeURIComponent(id)}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ok, sealedAnswer }) });
   }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {

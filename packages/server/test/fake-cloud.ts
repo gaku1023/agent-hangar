@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import {
   COMPAT_VERSION,
+  LAUNCH_TTL_MS,
   MAX_PUSH_BATCH,
   MOBILE_MIN_WORKER_COMPAT,
   PULL_LIMIT,
@@ -17,6 +18,8 @@ import {
   type FileEntry,
   type FileMetaIn,
   type ListFilesResponse,
+  type MobileLaunchIn,
+  type MobileLaunchOut,
   type PullChangesResponse,
   type PushChangesResponse,
   type SnapshotResponse,
@@ -53,8 +56,13 @@ export type FakeCloudStore = {
   devices: Map<string, CloudDeviceOut>;
   /** PC ごとの受信箱の素（PUT /m/feed）。実物の mobile_feeds の表に当たる。 */
   mobileFeeds: Map<string, { sealed: string; updatedAt: number }>;
+  /** スマホからの起動の依頼（POST /m/launches）。実物の launch_requests の表に当たる。 */
+  launches: Map<string, FakeLaunch>;
   now: () => number;
 };
+
+/** 偽物の Worker が持つ起動の依頼の 1 行。状態の進み方は実物（packages/cloud/src/mobile.ts）と同じ。 */
+export type FakeLaunch = { id: string; targetDevice: string; createdAt: number; sealed: string; status: 'pending' | 'claimed' | 'started' | 'failed'; sealedAnswer: string | null };
 
 const ENC = new TextEncoder();
 const TABLES = new Set<string>(SHARED_TABLES);
@@ -70,7 +78,11 @@ export const MAX_ROW_BYTES = 128 * 1024;
 export const MAX_ROW_ID_CHARS = 64;
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
 /** PUT /m/feed の本文の上限（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES の写し）。 */
-export const MAX_FEED_BODY_BYTES = 64 * 1024;
+export const MAX_FEED_BODY_BYTES = 96 * 1024;
+/** 起動の依頼とその答えの本文の上限（packages/cloud/src/mobile.ts の MAX_LAUNCH_BODY_BYTES の写し）。 */
+export const MAX_LAUNCH_BODY_BYTES = 16 * 1024;
+/** 1 回の pull に載せる起動の依頼の数（packages/cloud/src/changes.ts の PULL_LAUNCH_LIMIT の写し）。 */
+export const PULL_LAUNCH_LIMIT = 50;
 
 /**
  * 実物の Worker が端末に求める互換の版の下限（packages/cloud/src/compat.ts の写し）。
@@ -143,6 +155,7 @@ export class FakeCloudClient implements CloudClient {
       limited: null,
       devices: new Map(),
       mobileFeeds: new Map(),
+      launches: new Map(),
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -166,6 +179,7 @@ export class FakeCloudClient implements CloudClient {
   get rows(): Map<string, ChangeOut> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
   get mobileFeeds(): Map<string, { sealed: string; updatedAt: number }> { return this.store.mobileFeeds; }
+  get launches(): Map<string, FakeLaunch> { return this.store.launches; }
 
   /**
    * 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。
@@ -291,13 +305,59 @@ export class FakeCloudClient implements CloudClient {
       .filter((d) => d.revokedAt === null)
       .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
       .map((d) => ({ id: d.id, lastSeenAt: d.lastSeenAt }));
-    return {
+    const now = this.store.now();
+    const res: PullChangesResponse = {
       changes: page.map((c) => structuredClone(c)),
       nextSeq: more ? page[page.length - 1]!.seq : rows.reduce((m, c) => Math.max(m, c.seq), 0),
       more,
       peers,
-      now: this.store.now(),
+      now,
     };
+    // 版 7 の Worker は、この PC 宛ての、まだ受け取られていない TTL の内の依頼を、どの頁にも添える。版 6 は載せない。
+    if (this.store.workerCompat >= MOBILE_MIN_WORKER_COMPAT) res.launches = this.pendingLaunches(now);
+    return res;
+  }
+
+  private pendingLaunches(now: number): MobileLaunchOut[] {
+    return [...this.store.launches.values()]
+      .filter((l) => l.targetDevice === this.deviceId && l.status === 'pending' && l.createdAt > now - LAUNCH_TTL_MS)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, PULL_LAUNCH_LIMIT)
+      .map((l) => ({ id: l.id, createdAt: l.createdAt, sealed: l.sealed }));
+  }
+
+  /**
+   * スマホの POST /m/launches の真似（試験が依頼を置くための口で、CloudClient には無い）。
+   * 置いた時刻は Worker の時計で、同じ ID の再送は行を増やさない。
+   */
+  postLaunch(l: MobileLaunchIn): void {
+    if (this.store.launches.has(l.id)) return;
+    this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null });
+  }
+
+  /**
+   * POST /m/launches/:id/claim。自分宛てで、まだ誰も受け取っておらず、TTL の内の行だけを claimed にして true を返す。
+   * それ以外（2 回目、宛先でない PC、時間切れ、無い ID）は実物の 409 に当たる false である。版 7 より前の Worker は 404 で断る。
+   */
+  async claimLaunch(id: string): Promise<boolean> {
+    this.guard('claimLaunch', id);
+    if (this.store.workerCompat < MOBILE_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+    const l = this.store.launches.get(id);
+    if (!l || l.targetDevice !== this.deviceId || l.status !== 'pending' || l.createdAt <= this.store.now() - LAUNCH_TTL_MS) return false;
+    l.status = 'claimed';
+    return true;
+  }
+
+  /** POST /m/launches/:id/answer。自分が受け取った自分宛ての行だけを started か failed にする。それ以外は 409 で断る。 */
+  async answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> {
+    this.guard('answerLaunch', id, ok, sealedAnswer);
+    if (this.store.workerCompat < MOBILE_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+    if (ENC.encode(JSON.stringify({ ok, sealedAnswer })).byteLength > MAX_LAUNCH_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
+    if (sealedAnswer.length === 0) throw new CloudError(400, errorBody('invalid body'));
+    const l = this.store.launches.get(id);
+    if (!l || l.targetDevice !== this.deviceId || l.status !== 'claimed') throw new CloudError(409, errorBody('conflict'));
+    l.status = ok ? 'started' : 'failed';
+    l.sealedAnswer = sealedAnswer;
   }
 
   async snapshot(after: string | null, limit: number): Promise<SnapshotResponse> {
@@ -414,7 +474,7 @@ export class FakeCloudClient implements CloudClient {
 
   /**
    * PUT /m/feed。版 7 より前の Worker はこの口を知らないので 404 で断る。
-   * 本文の上限は実物（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES）と同じ 64 KiB。
+   * 本文の上限は実物（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES）と同じ 96 KiB。
    */
   async putMobileFeed(sealed: string): Promise<void> {
     this.guard('putMobileFeed', sealed);

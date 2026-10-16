@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { aadFeed, open, type AccountsDto, type LiveSessionDto, type MobileFeed } from '@agent-hangar/shared';
+import { aadAnswer, aadFeed, aadLaunch, open, seal, type AccountsDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
+import { upsertShared } from '../db/shared.ts';
+import type { LaunchResult } from '../runs/manager.ts';
+import type { SyncListener } from '../sync/engine.ts';
 import { openDb } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { noteIntent } from '../live/intents.ts';
@@ -11,7 +14,14 @@ import { bootMobile } from './mobile.ts';
 
 const SECRET = 'join-secret-for-tests-0123456789abcdef';
 
-function setup(o: { link?: boolean } = {}) {
+/** 同期の engine の真似。購読（on）だけを持ち、試験が launches を流す。 */
+class FakeEngine {
+  readonly listeners = new Set<SyncListener>();
+  on(l: SyncListener): () => void { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
+  emitLaunches(l: MobileLaunchOut[]): void { for (const x of [...this.listeners]) x.launches?.(l); }
+}
+
+function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () => never } = {}) {
   const db = openDb(':memory:');
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now });
@@ -27,14 +37,26 @@ function setup(o: { link?: boolean } = {}) {
     usage: { of: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) },
     broadcast: (dto: AccountsDto) => { broadcasts.push(dto); },
   };
+  const start = vi.fn((params: LaunchParams): LaunchResult => ({ run: { id: 'run-1', sessionId: 's-new' } as LaunchResult['run'], sessionId: 's-new', tabs: [] }));
+  let engine = new FakeEngine();
+  const sync = {
+    canCarryMobile: o.canCarry ?? (() => true),
+    mobileLink: o.mobileLink ?? (() => link),
+    get engine() { return engine; },
+  };
   const mobile = bootMobile({
     home: { db, device: { id: 'pc-a', name: 'PC A' } },
     delivery: { registry },
-    runs: { accounts },
-    sync: { canCarryMobile: () => true, mobileLink: () => link },
+    runs: { runs: { start }, accounts },
+    sync,
     timers,
   });
-  return { db, timers, client, mobile, registryListeners, accounts, broadcasts, setLink: (l: typeof link) => { link = l; } };
+  return {
+    db, timers, client, mobile, registryListeners, accounts, broadcasts, start,
+    engine: () => engine,
+    setEngine: (e: FakeEngine) => { engine = e; },
+    setLink: (l: typeof link) => { link = l; },
+  };
 }
 
 const settle = (cond: () => boolean): Promise<void> => vi.waitFor(() => { if (!cond()) throw new Error('not yet'); }, { timeout: 2000, interval: 5 });
@@ -95,5 +117,81 @@ describe('bootMobile', () => {
     mobile.stop();
     expect(mobile.publisher()).toBeNull();
     expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('start の最初の組み立てが投げても、サーバの起動を止めない', () => {
+    const { mobile } = setup({ mobileLink: () => { throw new Error('cloud.json を読めない'); } });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => mobile.start()).not.toThrow();
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+    mobile.stop();
+  });
+
+  describe('起動の依頼', () => {
+    const sealedLaunch = async (id: string, over: Record<string, unknown> = {}): Promise<string> =>
+      seal(await mobileKeyFor(SECRET), aadLaunch(id, 'pc-a'), { v: 1, createdAt: Date.now(), projectId: 'project-a', scratch: false, accountId: 'primary', permissionMode: '', model: '', prompt: '会話 1 を始める', ...over });
+    const deliver = async (s: ReturnType<typeof setup>, id: string, over: Record<string, unknown> = {}): Promise<void> => {
+      s.client.asDevice('phone').postLaunch({ id, targetDevice: 'pc-a', sealed: await sealedLaunch(id, over) });
+      s.engine().emitLaunches((await s.client.pullChanges(0, 10)).launches ?? []);
+    };
+    const answerOf = async (s: ReturnType<typeof setup>, id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKeyFor(SECRET), aadAnswer(id), s.client.launches.get(id)!.sealedAnswer!);
+    const placeProject = (db: ReturnType<typeof setup>['db'], deviceId = 'pc-a') => {
+      upsertShared(db, 'projects', { id: 'project-a', name: 'project-a', status: 'active', is_scratch: 0 }, 'pc-a');
+      upsertShared(db, 'project_roots', { id: `r-${deviceId}`, project_id: 'project-a', device_id: deviceId, path: '/w/project-a', resolved: 1 }, 'pc-a');
+    };
+
+    it('pull で届いた依頼でこの PC の場所のあるプロジェクトに会話を起こし、受信箱の素を書き直す', async () => {
+      const s = setup();
+      placeProject(s.db);
+      s.mobile.start();
+      const nudge = vi.spyOn(s.mobile.publisher()!, 'nudge');
+      await deliver(s, 'l1');
+      await settle(() => s.client.launches.get('l1')!.status === 'started');
+      expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', prompt: '会話 1 を始める' });
+      expect(await answerOf(s, 'l1')).toMatchObject({ ok: true, sessionId: 's-new' });
+      expect(nudge).toHaveBeenCalled();
+      s.mobile.stop();
+    });
+
+    it('ほかの PC にしか場所の無いプロジェクトは project-missing、知らないアカウントは account-missing', async () => {
+      const s = setup();
+      placeProject(s.db, 'pc-b');
+      s.mobile.start();
+      await deliver(s, 'l1');
+      await deliver(s, 'l2', { scratch: true, projectId: null, accountId: 'account-z' });
+      await settle(() => s.client.launches.get('l2')!.status === 'failed');
+      expect(await answerOf(s, 'l1')).toMatchObject({ ok: false, reason: 'project-missing' });
+      expect(await answerOf(s, 'l2')).toMatchObject({ ok: false, reason: 'account-missing' });
+      expect(s.start).not.toHaveBeenCalled();
+      s.mobile.stop();
+    });
+
+    it('Worker が版 6（canCarryMobile が偽）のあいだは依頼を扱わない', async () => {
+      const s = setup({ canCarry: () => false });
+      placeProject(s.db);
+      s.mobile.start();
+      await deliver(s, 'l1');
+      await new Promise((r) => { setTimeout(r, 20); });
+      expect(s.client.calls.filter((c) => c.method === 'claimLaunch')).toHaveLength(0);
+      expect(s.client.launches.get('l1')!.status).toBe('pending');
+      s.mobile.stop();
+    });
+
+    it('engine が組み直されたら新しい engine を購読し直し、止めたら購読を外す', async () => {
+      const s = setup();
+      placeProject(s.db);
+      s.mobile.start();
+      const old = s.engine();
+      s.setEngine(new FakeEngine());
+      // 組み直しは見回りかきっかけで拾う。
+      await s.timers.advance(FEED_SAFETY_MS);
+      expect(old.listeners.size).toBe(0);
+      expect(s.engine().listeners.size).toBe(1);
+      await deliver(s, 'l1');
+      await settle(() => s.client.launches.get('l1')!.status === 'started');
+      s.mobile.stop();
+      expect(s.engine().listeners.size).toBe(0);
+    });
   });
 });
