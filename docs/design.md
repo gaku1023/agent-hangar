@@ -6628,6 +6628,8 @@ API キーの claude は `--remote-control` を黙って無視して普通に起
 
 Remote Control の URL を取る公式の手段は無い。
 起動から 60 秒、2 秒ごとに tmux の画面を折り返しをつなげて（`capture-pane -J`）読み、`https://claude.ai/code/session_…` の形を拾って、手元の表 `run_remote_urls` に残す。
+Windows の psmux は `-J` を受けて 0 で終わるが、折り返しをつながない（3.3.8 で、行の末尾の空白を落とすだけ）。
+そのため psmux では `-J` を付けずに読み、ペインの幅（`#{pane_width}`）いっぱいまで埋まった行を、URL の続きのときだけ hangar がつなぐ。
 会話ごとに最新の 1 つを持つ。
 受信箱に載せるのは、今の run の起動より後に拾ったものだけである。
 拾えなかったときは、スマホの札は `claude.ai/code` を開く。

@@ -107,7 +107,8 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     panes.close('hangar-pane');
   }, 40_000);
 
-  // Remote Control の URL は端末の幅で折り返す。-J を解しても解さなくても、PaneOps の captureUnwrapped と extractRemoteUrl で 1 つの URL に戻る。
+  // Remote Control の URL は端末の幅で折り返す。PaneOps の captureUnwrapped と extractRemoteUrl で 1 つの URL に戻る。
+  // psmux 3.3.8 は -J を受けて 0 で終わるがつながないので、-J の画面を信じると URL が 2 行に割れたまま拾えない（以前はここで 10 秒の時間切れになった）。
   it('幅で折り返した URL を、captureUnwrapped で読んで取り出せる', async () => {
     const url = 'https://claude.ai/code/session_01AbCdEfGhIjKlMnOpQrStUv';
     made.push('hangar-wrap');

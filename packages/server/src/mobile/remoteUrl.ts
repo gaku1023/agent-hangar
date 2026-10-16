@@ -37,7 +37,7 @@ function continues(tail: string, next: string): boolean {
 }
 
 /**
- * 端末の幅 width で折り返された URL をつなぐ。tmux は capture-pane -J でつないで返すので、ここを通るのは -J を断られたとき（psmux）だけである。
+ * 端末の幅 width で折り返された URL をつなぐ。tmux は capture-pane -J でつないで返すので、ここを通るのは psmux（-J を受けてもつながない）と、-J を断る裏だけである。
  * つなぐのは、行の長さが端末の幅にちょうど等しく（折り返した行は幅いっぱいまで埋まる）、
  * つないだ後の末尾の語が書きかけの URL で、次の行がその続き（continues）のときだけである。
  */

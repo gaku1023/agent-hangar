@@ -215,13 +215,16 @@ export class Tmux {
 
   /**
    * 端末の幅で折り返した行をつないだ画面（-J）。width は null を返す。
-   * psmux が -J を解するかは確かめていないので、断られたら付けずに読み直し、まだ折り返したままの画面とペインの幅を返す（つなぐのは呼び手）。
+   * Windows（psmux）では -J を付けず、まだ折り返したままの画面とペインの幅を返す（つなぐのは呼び手）。
+   * psmux 3.3.8 は -J を受けて 0 で終わるが、行の末尾の空白を落とすだけで折り返しをつながない。
+   * 0 で終わるので、断られたかどうかでは見分けられない。
+   * ほかの裏で -J を断られたら、付けずに読み直して同じ形で返す。
    * 断られたことはこの Tmux に覚え、次からは -J を試さない。画面そのものが読めなかった（名前が無いなど）ときは覚えない。
    * 幅を読めなければ width は null である。
    */
   captureUnwrapped(name: string): { text: string; width: number | null } {
     const norm = (t: string): string => t.replace(/\r\n/g, '\n');
-    if (!this.joinRefused) {
+    if (this.platform !== 'win32' && !this.joinRefused) {
       const r = this.run('capture-pane', '-p', '-J', '-t', `=${name}:`);
       if (r.code === 0) return { text: norm(r.stdout), width: null };
     }

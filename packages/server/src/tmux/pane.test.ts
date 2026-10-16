@@ -106,25 +106,20 @@ describe('psmuxPaneOps（psmux 不要）', () => {
     ]);
   });
 
-  it('captureUnwrapped は -J を付けて読み、断られたら付けずに読み直して画面の幅を添える。断られたことは覚え、次からは -J を試さない', () => {
-    const ok = recordingPsmux(() => ({ status: 0, stdout: 'a\r\n' }));
-    expect(ok.panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'a\n', width: null });
-    expect(ok.calls).toEqual([['-L', 'ns', 'capture-pane', '-p', '-J', '-t', '=hangar-a:']]);
-    const refused = recordingPsmux((args) => (args.includes('-J') ? { status: 1, stderr: 'unknown flag -J\n' } : args.includes('display-message') ? { status: 0, stdout: '80\r\n' } : { status: 0, stdout: 'b\r\n' }));
+  // psmux 3.3.8 は -J を受けて 0 で終わるが、つながない。0 で終わるので断られたとは見分けられず、-J の画面を信じると URL が割れたまま拾えない。
+  it('captureUnwrapped は -J を付けずに読み、折り返したままの画面にペインの幅を添える', () => {
+    const { panes, calls } = recordingPsmux((args) => (args.includes('display-message') ? { status: 0, stdout: '80\r\n' } : { status: 0, stdout: 'b\r\n' }));
     const plain = ['-L', 'ns', 'capture-pane', '-p', '-t', '=hangar-a:'];
     const width = ['-L', 'ns', 'display-message', '-p', '-t', '=hangar-a:', '#{pane_width}'];
-    expect(refused.panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: 80 });
-    expect(refused.calls).toEqual([['-L', 'ns', 'capture-pane', '-p', '-J', '-t', '=hangar-a:'], plain, width]);
-    expect(refused.panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: 80 });
-    expect(refused.calls.slice(3)).toEqual([plain, width]);
+    expect(panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(calls).toEqual([plain, width, plain, width]);
   });
 
-  it('captureUnwrapped は画面そのものが読めなかったときは -J を断られたと覚えず、幅を読めなければ null', () => {
+  it('captureUnwrapped は画面そのものが読めなければ空の画面を、幅を読めなければ null を返す', () => {
     const gone = recordingPsmux(() => ({ status: 1, stderr: "can't find session\n" }));
     expect(gone.panes.captureUnwrapped!('hangar-a')).toEqual({ text: '', width: null });
-    gone.panes.captureUnwrapped!('hangar-a');
-    expect(gone.calls.filter((c) => c.includes('-J'))).toHaveLength(2);
-    const noWidth = recordingPsmux((args) => (args.includes('-J') ? { status: 1 } : args.includes('display-message') ? { status: 1, stderr: 'unknown command\n' } : { status: 0, stdout: 'b\n' }));
+    const noWidth = recordingPsmux((args) => (args.includes('display-message') ? { status: 1, stderr: 'unknown command\n' } : { status: 0, stdout: 'b\n' }));
     expect(noWidth.panes.captureUnwrapped!('hangar-a')).toEqual({ text: 'b\n', width: null });
   });
 

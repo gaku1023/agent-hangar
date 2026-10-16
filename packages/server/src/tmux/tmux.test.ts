@@ -67,6 +67,54 @@ describe('Tmux.killServer', () => {
   });
 });
 
+describe('Tmux.captureUnwrapped（偽の tmux）', () => {
+  /** -J を受けて 0 で終わるが、つながずに折り返したまま返す裏（psmux 3.3.8 の実物の振る舞い）。 */
+  const fake = (platform: NodeJS.Platform) => {
+    const calls: string[][] = [];
+    const exec: TmuxExec = (_f, a) => {
+      calls.push(a);
+      if (a[2] === 'display-message') return { status: 0, stdout: '40\n', stderr: '' };
+      return { status: 0, stdout: 'https://claude.ai/code/session_01AbCdEfG\r\nhIjKlMnOpQrStUv\r\n', stderr: '' };
+    };
+    return { t: new Tmux({ tmuxPath: '/x/tmux', socketName: 's', platform, exec }), calls };
+  };
+
+  // psmux は -J を受けても行の末尾の空白を落とすだけで、折り返しをつながない（connection.rs の capture-pane）。
+  // 0 で終わるので断られたとは分からず、幅を渡さないと URL が 2 行に割れたまま拾えなかった（CI の windows で時間切れ）。
+  it('Windows（psmux）では -J を付けず、折り返したままの画面とペインの幅を返す', () => {
+    const { t, calls } = fake('win32');
+    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: 'https://claude.ai/code/session_01AbCdEfG\nhIjKlMnOpQrStUv\n', width: 40 });
+    expect(calls.some((a) => a.includes('-J'))).toBe(false);
+  });
+
+  it('macOS と Linux（tmux）では -J でつないだ画面を、幅なしで返す', () => {
+    const { t, calls } = fake('darwin');
+    expect(t.captureUnwrapped('hangar-a').width).toBeNull();
+    expect(calls).toEqual([['-L', 's', 'capture-pane', '-p', '-J', '-t', '=hangar-a:']]);
+  });
+
+  it('-J を断る裏では、付けずに読み直して幅を添え、断られたことを覚える。画面そのものが読めなかったときは覚えない', () => {
+    const calls: string[][] = [];
+    let gone = true;
+    const exec: TmuxExec = (_f, a) => {
+      calls.push(a);
+      if (gone) return { status: 1, stdout: '', stderr: "can't find session\n" };
+      if (a.includes('-J')) return { status: 1, stdout: '', stderr: 'unknown flag -J\n' };
+      if (a[2] === 'display-message') return { status: 0, stdout: '80\n', stderr: '' };
+      return { status: 0, stdout: 'b\n', stderr: '' };
+    };
+    const t = new Tmux({ tmuxPath: '/x/tmux', socketName: 's', platform: 'linux', exec });
+    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: '', width: null });
+    gone = false;
+    const joined = ['-L', 's', 'capture-pane', '-p', '-J', '-t', '=hangar-a:'];
+    const plain = ['-L', 's', 'capture-pane', '-p', '-t', '=hangar-a:'];
+    const width = ['-L', 's', 'display-message', '-p', '-t', '=hangar-a:', '#{pane_width}'];
+    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(calls).toEqual([joined, plain, joined, plain, width, plain, width]);
+  });
+});
+
 describe('Tmux.enableClipboard（偽の tmux）', () => {
   it('tmux を呼べなくても投げない', () => {
     expect(() => new Tmux({ tmuxPath: '/nonexistent/tmux' }).enableClipboard()).not.toThrow();
