@@ -29,7 +29,7 @@ pub fn run_if_requested(args: &[OsString]) -> Option<i32> {
         return None;
     }
     let Some(program) = args.get(2) else {
-        eprintln!("{FLAG}: 起こすものがありません");
+        eprintln!("{FLAG}: 起動するプログラムの指定がありません");
         return Some(2);
     };
     let line = args.get(3).cloned().unwrap_or_default();

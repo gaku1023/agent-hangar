@@ -178,7 +178,7 @@ fn fallbacks(lang: &str) -> (&'static str, &'static str) {
     if lang == "en" {
         ("(No name)", "Waiting for input")
     } else {
-        ("（名前なし）", "入力を待っています")
+        ("（名前なし）", "入力待ちです")
     }
 }
 
@@ -1092,7 +1092,7 @@ mod tests {
     fn empty_texts_fall_back_to_the_words_the_ui_uses() {
         let w = waiting(Kind::Waiting, "s1", "  ", "", "ja").unwrap();
         assert_eq!(w.title, "（名前なし）");
-        assert_eq!(w.body, "入力を待っています");
+        assert_eq!(w.body, "入力待ちです");
     }
 
     #[test]

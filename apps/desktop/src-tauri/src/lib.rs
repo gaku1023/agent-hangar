@@ -1704,7 +1704,7 @@ async fn retry_boot(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     if !state.ui.lock().unwrap().retry() {
-        return Err("もう起動しています".to_string());
+        return Err("すでに起動しています".to_string());
     }
     let previous = state.server.lock().unwrap().take();
     if let Some(mut p) = previous {
