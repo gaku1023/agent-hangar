@@ -1,5 +1,5 @@
 import { isRemoteControlUrl } from '@agent-hangar/shared/src/mobileCrypto.ts';
-import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from 'react';
 import { fetchInbox, UnpairedError } from '../api.ts';
 import { ago, clock, dayLabel, elapsed, monthDay, waitedFor } from '../format.ts';
 import { localDay, openInbox, type InboxView, type Row } from '../inbox.ts';
@@ -30,13 +30,15 @@ type Props = {
   cryptoKey: CryptoKey;
   /** 接続が外された（401）か、接続し直すと決めた。参加の画面に戻る。 */
   onUnpaired: () => void;
-  /** 「＋ 新しい会話」。まだ無いときは押せない。 */
-  onNewSession?: () => void;
+  /** 「＋ 新しい会話」。読んだ受信箱を渡す（新しい会話の画面が PC ごとのプロジェクトとアカウントを読む）。無いとき、まだ読めていないときは押せない。 */
+  onNewSession?: (view: InboxView) => void;
+  /** 変わったら読み直す（新しい会話を始めて戻ったときなど）。 */
+  refresh?: number;
 };
 
 type Pull = { phase: 'idle' } | { phase: 'pulling'; dist: number } | { phase: 'refreshing' };
 
-export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession }: Props): ReactNode {
+export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refresh }: Props): ReactNode {
   const [view, setView] = useState<InboxView | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -89,6 +91,14 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession }: Pr
       clearInterval(timer);
     };
   }, [load]);
+
+  // 呼び手が読み直しを頼んだ（最初の描画では読まない。開いたときの読み込みは上で済む）。
+  const lastRefresh = useRef(refresh);
+  useEffect(() => {
+    if (lastRefresh.current === refresh) return;
+    lastRefresh.current = refresh;
+    void load();
+  }, [refresh, load]);
 
   // 下に引いて読み直す。いちばん上までスクロールしているときだけ引ける。
   const onTouchStart = (e: TouchEvent): void => {
@@ -191,7 +201,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession }: Pr
       </div>
 
       <div className="bottom-bar">
-        <button type="button" className="new-btn" onClick={onNewSession} disabled={!onNewSession}>
+        <button type="button" className="new-btn" onClick={view && onNewSession ? () => onNewSession(view) : undefined} disabled={!onNewSession || !view || allUnreadable}>
           ＋ 新しい会話
         </button>
       </div>
@@ -252,15 +262,17 @@ function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
 type SectionDef = { key: 'running' | 'returning' | 'done'; label: string; rows: Row[] };
 
 function Sections({ view, now, today }: { view: InboxView; now: number; today: string }): ReactNode {
-  const defs: SectionDef[] = [
-    { key: 'running', label: '動いている', rows: view.running },
-    { key: 'returning', label: '今日戻る', rows: view.returning },
-    { key: 'done', label: '今日終わった', rows: view.doneToday },
-  ];
-  const shown = usePresence(
-    defs.filter((d) => d.rows.length > 0),
-    (d) => d.key,
+  // 読み直したときだけ作り直す（描くたびに新しい並びを渡すと usePresence が揃え直し続ける）。
+  const defs = useMemo(
+    (): SectionDef[] =>
+      [
+        { key: 'running' as const, label: '動いている', rows: view.running },
+        { key: 'returning' as const, label: '今日戻る', rows: view.returning },
+        { key: 'done' as const, label: '今日終わった', rows: view.doneToday },
+      ].filter((d) => d.rows.length > 0),
+    [view],
   );
+  const shown = usePresence(defs, (d) => d.key);
   return (
     <>
       {shown.map((p) => (

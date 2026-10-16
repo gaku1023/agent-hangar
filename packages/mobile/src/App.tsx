@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import type { InboxView } from './inbox.ts';
+import { exitMs } from './presence.ts';
 import { loadKey, loadPairing, type Pairing } from './store.ts';
 import { InboxScreen } from './views/InboxScreen.tsx';
+import { NewSessionScreen } from './views/NewSessionScreen.tsx';
 import { JoinScreen } from './views/JoinScreen.tsx';
 
 type Screen = { kind: 'loading' } | { kind: 'join'; pairText: string | null } | { kind: 'inbox'; pairing: Pairing; key: CryptoKey };
@@ -28,9 +31,34 @@ export function App({ pairText }: { pairText: string | null }): ReactNode {
   }, [screen.kind]);
 
   const onEnter = useCallback((pairing: Pairing, key: CryptoKey) => setScreen({ kind: 'inbox', pairing, key }), []);
-  const onUnpaired = useCallback(() => setScreen({ kind: 'join', pairText: null }), []);
+  // 新しい会話の画面は受信箱の上に重ねる（受信箱は読んだものと位置を保ったまま裏に残る）。
+  // 閉じるときは下がって消える動きの間だけ残す（動きを減らす設定ではすぐ外す）。
+  const [sheet, setSheet] = useState<{ view: InboxView; leaving: boolean } | null>(null);
+  const [refresh, setRefresh] = useState(0);
+  const onUnpaired = useCallback(() => {
+    setSheet(null);
+    setScreen({ kind: 'join', pairText: null });
+  }, []);
+  const onNewSession = useCallback((view: InboxView) => setSheet({ view, leaving: false }), []);
+  const onCloseSheet = useCallback((started: boolean) => {
+    if (started) setRefresh((n) => n + 1);
+    const ms = exitMs();
+    if (ms <= 0) {
+      setSheet(null);
+      return;
+    }
+    setSheet((s) => (s ? { ...s, leaving: true } : s));
+    setTimeout(() => setSheet((s) => (s?.leaving ? null : s)), ms);
+  }, []);
 
   if (screen.kind === 'loading') return <div className="boot" />;
   if (screen.kind === 'join') return <JoinScreen pairText={screen.pairText} onEnter={onEnter} />;
-  return <InboxScreen pairing={screen.pairing} cryptoKey={screen.key} onUnpaired={onUnpaired} />;
+  return (
+    <>
+      <div className="under" inert={!!sheet && !sheet.leaving}>
+        <InboxScreen pairing={screen.pairing} cryptoKey={screen.key} onUnpaired={onUnpaired} onNewSession={onNewSession} refresh={refresh} />
+      </div>
+      {sheet && <NewSessionScreen pairing={screen.pairing} cryptoKey={screen.key} view={sheet.view} leaving={sheet.leaving} onClose={onCloseSheet} onUnpaired={onUnpaired} />}
+    </>
+  );
 }

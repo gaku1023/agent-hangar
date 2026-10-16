@@ -57,7 +57,11 @@ export function usePresence<T>(items: readonly T[], keyOf: (t: T) => string): Pr
     const keep = exitMs() > 0;
     setList((prev) => {
       const same = prev.length === items.length && prev.every((p, i) => p.phase !== 'leave' && p.item === items[i]);
-      return same ? prev : merge(prev, items, keyOf, keep);
+      if (same) return prev;
+      // 呼び手が描くたびに新しい配列を渡しても、中身が変わらなければ前の並びのまま返す（返さないと描き直しが止まらない）。
+      const next = merge(prev, items, keyOf, keep);
+      const unchanged = next.length === prev.length && next.every((n, i) => n.key === prev[i]!.key && n.phase === prev[i]!.phase && n.item === prev[i]!.item);
+      return unchanged ? prev : next;
     });
     // keyOf は呼び手ごとに作り直されることがあるので、並びが変わったときだけ揃える。
     // eslint-disable-next-line react-hooks/exhaustive-deps

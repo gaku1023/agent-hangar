@@ -1,5 +1,6 @@
 import type { MobileFeed, MobileInboxResponse } from '@agent-hangar/shared';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as store from '../store.ts';
 import { feedOf, inboxOf, liveItem, makeKey, MIN } from '../test/fixtures.ts';
@@ -260,5 +261,38 @@ describe('InboxScreen', () => {
     expect(screen.getByText('18:00')).toBeInTheDocument();
     expect(screen.getByText('今日終わった')).toBeInTheDocument();
     expect(screen.getByText('片付けた')).toBeInTheDocument();
+  });
+
+  it('「＋ 新しい会話」は読み込めてから押せて、読んだものを渡す', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac')]);
+    const onNewSession = vi.fn();
+    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} onNewSession={onNewSession} />);
+    const btn = screen.getByRole('button', { name: '＋ 新しい会話' });
+    expect(btn).toBeDisabled();
+    await screen.findByText('待っている会話はありません');
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+    expect(onNewSession).toHaveBeenCalledTimes(1);
+    expect(onNewSession.mock.calls[0]![0].feeds.map((f: MobileFeed) => f.deviceId)).toEqual(['pc-1']);
+  });
+
+  it('refresh が変わると読み直す', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac')]);
+    const onUnpaired = vi.fn();
+    const { rerender } = render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={onUnpaired} refresh={0} />);
+    await screen.findByText('待っている会話はありません');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    rerender(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={onUnpaired} refresh={1} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('StrictMode でも節が出て描き直しが止まる（main.tsx と同じ包み）', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'busy' }), liveItem({ sessionId: 's-2', status: 'waiting' })] })]);
+    render(
+      <StrictMode>
+        <InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />
+      </StrictMode>,
+    );
+    expect(await screen.findByText('動いている')).toBeInTheDocument();
   });
 });

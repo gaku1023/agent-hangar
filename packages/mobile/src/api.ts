@@ -1,6 +1,6 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
 import { compatHeaders } from '@agent-hangar/shared/src/compat.ts';
-import type { MobileInboxResponse, MobileJoinResponse } from '@agent-hangar/shared/src/mobile.ts';
+import type { MobileInboxResponse, MobileJoinResponse, MobileLaunchIn, MobileLaunchStatus } from '@agent-hangar/shared/src/mobile.ts';
 import { decodePairing, importMobileKey, MobilePairingError, type PairingBlob } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { loadKey, saveKey, type Pairing } from './store.ts';
 
@@ -154,4 +154,46 @@ export async function fetchInbox(p: Pairing): Promise<MobileInboxResponse> {
   } catch {
     throw new InboxError(res.status);
   }
+}
+
+export type LaunchFailure = 'rate-limited' | 'not-found' | 'conflict' | 'too-large' | 'unpaired' | 'network' | 'server';
+
+/** 起動の依頼を送れなかった、または状態を読めなかった。reason で画面の文を分ける。 */
+export class LaunchError extends Error {
+  constructor(
+    readonly reason: LaunchFailure,
+    readonly status: number | null = null,
+  ) {
+    super(`起動の依頼が通りませんでした（${reason}）`);
+    this.name = 'LaunchError';
+  }
+}
+
+const launchFailure = (status: number): LaunchFailure =>
+  status === 401 ? 'unpaired' : status === 404 ? 'not-found' : status === 409 ? 'conflict' : status === 413 ? 'too-large' : status === 429 ? 'rate-limited' : 'server';
+
+async function launchFetch(p: Pairing, path: string, init: RequestInit): Promise<MobileLaunchStatus> {
+  let res: Response;
+  try {
+    res = await fetch(`${originOf(p.url)}${path}`, { ...init, cache: 'no-store' });
+  } catch (e) {
+    if (e instanceof MobilePairingError) throw new LaunchError('unpaired');
+    throw new LaunchError('network');
+  }
+  if (!res.ok) throw new LaunchError(launchFailure(res.status), res.status);
+  try {
+    return (await res.json()) as MobileLaunchStatus;
+  } catch {
+    throw new LaunchError('server', res.status);
+  }
+}
+
+/** 起動の依頼を置く（POST /m/launches）。同じ id の再送は、行を増やさずに今の状態が返る。 */
+export function postLaunch(p: Pairing, body: MobileLaunchIn): Promise<MobileLaunchStatus> {
+  return launchFetch(p, '/m/launches', { method: 'POST', headers: { ...mobileHeaders(p), 'content-type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+/** 自分の依頼の状態を読む（GET /m/launches/:id）。 */
+export function getLaunch(p: Pairing, id: string): Promise<MobileLaunchStatus> {
+  return launchFetch(p, `/m/launches/${encodeURIComponent(id)}`, { headers: mobileHeaders(p) });
 }
