@@ -87,7 +87,7 @@
 
 ### Task 0: 実物の下調べと設定の画面の試作
 
-目で見える変更（PC の設定の追加、スマホの参加の画面）は試作を先に選んでもらう（CLAUDE.local.md）。受信箱と新しい会話の 2 枚は Design キャンバス「hangar スマホ版」（`ct/BgTSM7qWoUarkhpmWTq6XK`）の試作が決まった形なので作らない。
+目で見える変更（PC の設定の追加、スマホの参加の画面）は試作を先に選んでもらう（CLAUDE.local.md）。受信箱と新しい会話の 2 枚は Design キャンバス「hangar スマホ版」の試作が決まった形なので作らない。
 
 **Files:**
 - Create: `/private/tmp/.../scratchpad/mobile-settings-proto.html`（リポジトリに入れない）
