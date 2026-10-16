@@ -488,12 +488,12 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
       const line = r.stderr.split('\n').find((l) => l.startsWith(`  ${at}: `));
       expect(line, `${label} ${r.stderr}`).toBeDefined();
       if (c.fit === null) expect(line, label).toContain('Node ではありません');
-      if (c.fit === 'version') expect(line, label).toContain(`Node ${table.need.min} 以上が要ります`);
-      if (c.fit === 'arch') expect(line, label).toContain(`${arch} 用が要ります`);
+      if (c.fit === 'version') expect(line, label).toContain(`Node ${table.need.min} 以上が必要です`);
+      if (c.fit === 'arch') expect(line, label).toContain(`${arch} 用が必要です`);
     }
   });
 
-  it('どの候補も合わなければ、理由と、今の Node を置き換えない入れ方と、調べた場所とその理由を述べて exit 1 になる', async () => {
+  it('どの候補も合わなければ、理由と、現在の Node を置き換えないインストール方法と、確認したパスとその理由を述べて exit 1 になる', async () => {
     const dist = fakeDist();
     const home = emptyDirFor('hangar home-');
     const userHome = emptyDirFor('hangar user home-');
@@ -505,18 +505,18 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: userHome });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain(`Node ${UNREACHABLE_API}.0 以上（${process.arch}）が見つかりません`);
-    expect(r.stderr).toContain(`Node-API ${UNREACHABLE_API} を使うため、Node ${UNREACHABLE_API}.0 以上が要ります`);
+    expect(r.stderr).toContain(`Node-API ${UNREACHABLE_API} を使うため、Node ${UNREACHABLE_API}.0 以上が必要です`);
     expect(r.stderr).toContain(`brew install node@${UNREACHABLE_API}`);
     expect(r.stderr).toContain(`nvm install ${UNREACHABLE_API}`);
     expect(r.stderr).toContain(path.join(home, 'settings.json'));
     const lines = r.stderr.split('\n');
-    const checked = lines.indexOf('調べた場所:');
+    const checked = lines.indexOf('確認したパス:');
     expect(checked, r.stderr).toBeGreaterThan(0);
     const listed = lines.slice(checked + 1).filter((l) => l !== '');
     // 固定の場所は、無くても挙げる。この機械に実物があるかどうかで理由は変わるので、場所だけを見る。
     expect(listed.some((l) => l.startsWith('  /opt/homebrew/bin/node: ')), r.stderr).toBe(true);
     expect(listed.some((l) => l.startsWith('  /usr/local/bin/node: ')), r.stderr).toBe(true);
-    expect(listed).toContain(`  ${older}: v98.0.0 ${process.arch}（Node-API 98。Node ${UNREACHABLE_API}.0 以上が要ります）`);
+    expect(listed).toContain(`  ${older}: v98.0.0 ${process.arch}（Node-API 98。Node ${UNREACHABLE_API}.0 以上が必要です）`);
     expect(listed).toContain(`  ${broken}: Node ではありません（別の実行ファイルのようです）`);
     expect(listed.findIndex((l) => l.includes(older))).toBeLessThan(listed.findIndex((l) => l.includes(broken)));
   });
@@ -527,7 +527,7 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     expect(r.code).toBe(1);
     expect(r.stderr).not.toContain('sed:');
     expect(r.stderr).toContain('manifest.json');
-    expect(r.stderr).toContain('入れ直してください');
+    expect(r.stderr).toContain('再インストールしてください');
   });
 
   it('manifest.json が壊れていれば、sed の生のエラーではなく何が起きたかを述べて止まる', async () => {
@@ -538,7 +538,7 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     expect(r.code).toBe(1);
     expect(r.stderr).not.toContain('sed:');
     expect(r.stderr).toContain('manifest.json');
-    expect(r.stderr).toContain('入れ直してください');
+    expect(r.stderr).toContain('再インストールしてください');
   });
 
   // 殻（node.rs）は nodePath を絶対パスとしてしか読まない。相対のまま読むと、打った場所にある node を掴み、アプリと CLI で使う Node が食い違う。
@@ -568,7 +568,7 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: emptyDirFor('hangar userhome-') });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain(`Node ${UNREACHABLE_API}.0 以上（${process.arch}）が見つかりません`);
-    expect(r.stderr).toContain(`  ${wrong}: v${fakeVersion(UNREACHABLE_API)} ${otherArch}（${process.arch} 用が要ります）`);
+    expect(r.stderr).toContain(`  ${wrong}: v${fakeVersion(UNREACHABLE_API)} ${otherArch}（${process.arch} 用が必要です）`);
 
     // 同じ並びに正しいアーキの Node があれば、そちらを採る。
     const right = fakeNode(path.join(nodes, 'ok', 'node'));
@@ -930,7 +930,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     const r = run(dist, []);
     expect(r.code).toBe(1);
     expect(r.stderr).toContain('manifest.json');
-    expect(r.stderr).toContain('入れ直してください');
+    expect(r.stderr).toContain('再インストールしてください');
   });
 
   it('manifest.json が壊れていれば、版を読めないと述べて止まる', async () => {
@@ -975,33 +975,33 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
   });
 
   // 殻（node.rs）は nodePath を絶対パスとしてしか読まない。名前だけの nodePath を PATH から引くと、アプリと CLI で使う Node が食い違う。
-  it('設定の nodePath が絶対パスでなければ、PATH から引かずに「ファイルが無い」と扱う', async () => {
+  it('設定の nodePath が絶対パスでなければ、PATH から引かずに「ありません」と扱う', async () => {
     const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: 'node', language: 'ja' }));
     const r = run(dist, [], { HANGAR_HOME: home });
     expect(r.code).toBe(1);
     const line = r.stderr.split(/\r?\n/).find((l) => /^\s+\d+\. node：/.test(l));
-    expect(line, r.stderr).toContain('ファイルが無い');
+    expect(line, r.stderr).toContain('ありません');
   });
 
-  it('どの候補も合わなければ、調べた場所を探した順に挙げ、それぞれが合わなかった理由を述べる', async () => {
+  it('どの候補も合わなければ、確認したパスを検索した順に挙げ、それぞれが合わなかった理由を述べる', async () => {
     const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     const missing = path.join(emptyDirFor('hangar nodes-'), 'none', 'node.exe');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: missing, language: 'ja' }));
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`いま動いている Node：${version}（${process.arch}）`);
-    expect(r.stderr).toContain('調べた場所');
+    expect(r.stderr).toContain(`実行中の Node：${version}（${process.arch}）`);
+    expect(r.stderr).toContain('確認したパス');
     const lines = r.stderr.split(/\r?\n/);
     // 調べた場所の行（番号付き）の中で探す。
     const at = (p: string) => lines.findIndex((l) => /^\s+\d+\. /.test(l) && l.includes(p));
     expect(at(process.execPath)).toBeGreaterThan(-1);
     expect(at(missing)).toBeGreaterThan(at(process.execPath));
     expect(lines[at(process.execPath)]).toContain(`Node ${version}（${process.arch}）`);
-    expect(lines[at(process.execPath)]).toContain('版が古い');
-    expect(lines[at(missing)]).toContain('ファイルが無い');
+    expect(lines[at(process.execPath)]).toContain(`Node ${UNREACHABLE_API}.0 以上が必要です`);
+    expect(lines[at(missing)]).toContain('ありません');
   });
 
   describe('chooseNode', () => {
@@ -1059,23 +1059,23 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
       { node: 'C:\\y\\node.exe', result: 'timeout' as const },
       { node: 'C:\\z\\node.exe', result: { version: '22.14.0', napi: 10, arch: 'arm64' } },
     ];
-    it('探した順に番号を振り、ファイルが無い、答えない、時間切れ、版が古い、アーキが違う、を分けて書く', () => {
+    it('検索した順に番号を振り、ファイルが無い、応答しない、タイムアウト、バージョンが古い、アーキテクチャが違う、を分けて書く', () => {
       const text = describeNotFound(want, { path: 'C:\\fnm\\node.exe', result: { version: '20.18.0', napi: 9, arch: 'x64' } }, tried, 'C:\\Users\\me\\.agent-hangar\\settings.json');
       expect(text).toContain('Node 22.14 以上（x64）が見つかりません。');
-      expect(text).toContain('Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node 22.14 以上が要ります。');
-      expect(text).toContain('いま動いている Node：20.18.0（x64）、C:\\fnm\\node.exe');
+      expect(text).toContain('Hangar のデータベースとターミナルのネイティブモジュールは Node-API 10 を使うため、Node 22.14 以上が必要です。');
+      expect(text).toContain('実行中の Node：20.18.0（x64）、C:\\fnm\\node.exe');
       const lines = text.split('\n');
-      expect(lines).toContain('  1. C:\\Program Files\\nodejs\\node.exe：ファイルが無い');
-      expect(lines).toContain('  2. C:\\fnm\\node.exe：Node 20.18.0（x64）。版が古い');
-      expect(lines).toContain('  3. C:\\x\\node.exe：起動できないか、Node として答えない');
-      expect(lines).toContain('  4. C:\\y\\node.exe：時間内に答えない');
-      expect(lines).toContain('  5. C:\\z\\node.exe：Node 22.14.0（arm64）。アーキテクチャが違う');
+      expect(lines).toContain('  1. C:\\Program Files\\nodejs\\node.exe：ありません');
+      expect(lines).toContain('  2. C:\\fnm\\node.exe：Node 20.18.0（x64）。Node 22.14 以上が必要です');
+      expect(lines).toContain('  3. C:\\x\\node.exe：起動できないか、Node として応答しません');
+      expect(lines).toContain('  4. C:\\y\\node.exe：5 秒以内に応答しませんでした（タイムアウト）');
+      expect(lines).toContain('  5. C:\\z\\node.exe：Node 22.14.0（arm64）。x64 用が必要です');
       expect(text).toContain('HANGAR_NODE');
       expect(text).toContain('C:\\Users\\me\\.agent-hangar\\settings.json');
     });
     it('候補が 1 つも無ければ、そう述べる', () => {
       const text = describeNotFound(want, { path: 'node', result: v24 }, [], 'settings.json');
-      expect(text).toContain('調べた場所はありません');
+      expect(text).toContain('確認したパスはありません');
     });
     // 今の Node（hangar.cmd が見つけて、この入口を動かしている Node）は合わないので、置き換えない入れ方を先に案内する。
     // 公式の zip を別のフォルダに展開する道、nvm-windows、指し方、最後に winget の LTS（今の Node を置き換える）の順である。
@@ -1096,7 +1096,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     // 探す場所は殻と README に合わせる（fnm、Volta、scoop、PATH）。殻の文（node.rs の詳細）と同じ中身である。
     it('nvm-windows の行は、fnm、Volta、scoop と PATH も探すと言い、殻の札と同じ文にする', () => {
       const me = { path: 'node', result: 'failed' as const };
-      expect(describeNotFound(want, me, [], 's.json').split('\n')).toContain('nvm-windows を使うなら、nvm install 22 で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。');
+      expect(describeNotFound(want, me, [], 's.json').split('\n')).toContain('nvm-windows を使う場合は、nvm install 22 でインストールしたバージョンも検出します（fnm、Volta、scoop でインストールしたバージョンと、PATH にあるバージョンも検索します）。');
       expect(describeNotFound(want, me, [], 's.json', 'en').split('\n')).toContain('With nvm-windows, a version installed with nvm install 22 is found too (Hangar also looks in fnm, Volta, scoop, and PATH).');
     });
     it('英語でも、同じ並びで、日本語を混ぜずに書く', () => {
