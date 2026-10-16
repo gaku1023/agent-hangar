@@ -144,7 +144,7 @@ export class MobileFeedPublisher {
   private async writeOnce(): Promise<FeedWriteResult> {
     const put = this.deps.client.putMobileFeed?.bind(this.deps.client);
     if (this.stopped || !put || !this.deps.canWrite()) return 'skipped';
-    // 48 KiB を超えたら、done、returns、projects の順に古いものから落とす（shared の fitFeed）。
+    // 48 KiB を超えたら、done、returns、projects、待っていない live の順に古いものから落とし、live の文を詰める（shared の fitFeed）。
     const feed = fitFeed(this.deps.build());
     const hash = createHash('sha256').update(JSON.stringify(feed)).digest('hex');
     const now = (this.deps.now ?? Date.now)();

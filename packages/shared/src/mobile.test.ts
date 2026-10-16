@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LAUNCH_TTL_MS, MOBILE_FEED_MAX_BYTES, MOBILE_TEXT_MAX, PEER_STALE_MS, clampText, fitFeed, type MobileFeed } from './mobile.ts';
 import { COMPAT_VERSION, MOBILE_MIN_WORKER_COMPAT } from './compat.ts';
+import { aadFeed, deriveMobileKey, seal } from './mobileCrypto.ts';
 
 const bytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;
 
@@ -85,11 +86,67 @@ describe('fitFeed', () => {
     expect(out2.live.length).toBe(5);
   });
 
-  it('live だけで超えても live は落とさない', () => {
-    const out = fitFeed(feed({ live: live(200), done: done(5), returns: returns(5), projects: projects(5) }));
-    expect(out.live.length).toBe(200);
+  it('live だけで超えたら、done、returns、projects を落とした後に、待っていない live を古いものから落とす（idle が先）', () => {
+    const items = live(200).map((l, i) => ({ ...l, status: (i % 2 === 0 ? 'idle' : 'busy') as 'idle' | 'busy', statusAt: 1000 + i }));
+    const out = fitFeed(feed({ live: items, done: done(5), returns: returns(5), projects: projects(5) }));
+    expect(bytes(out)).toBeLessThanOrEqual(MOBILE_FEED_MAX_BYTES);
     expect(out.done).toEqual([]);
     expect(out.returns).toEqual([]);
     expect(out.projects).toEqual([]);
+    expect(out.live.length).toBeGreaterThan(0);
+    expect(out.live.length).toBeLessThan(200);
+    // 新しい busy は残り、古い idle から消える。
+    expect(out.live.map((l) => l.sessionId)).toContain('l199');
+    expect(out.live.map((l) => l.sessionId)).not.toContain('l0');
+    const keptIdle = out.live.filter((l) => l.status === 'idle').length;
+    const keptBusy = out.live.filter((l) => l.status === 'busy').length;
+    expect(keptIdle).toBeLessThanOrEqual(keptBusy);
+  });
+
+  /** 文の欄を上限（300 字）まで埋めた live。JSON で膨らむ字（制御文字は 6 バイト）も混ぜる。 */
+  const maxText = (c: string) => c.repeat(MOBILE_TEXT_MAX);
+  const heavy = (n: number, status: 'idle' | 'busy' | 'waiting', from: number) => Array.from({ length: n }, (_, i) => ({
+    sessionId: `${status}-${i}`, projectId: `p-${i}`, projectName: maxText('あ'), title: maxText('\u0001'), accountId: 'acct-1',
+    status, statusAt: from + i, startedAt: from + i,
+    waiting: status === 'waiting' ? { kind: 'question' as const, text: maxText('"') } : null,
+    intent: maxText('い'), rcUrl: `https://claude.ai/code/session_${'a'.repeat(24)}`,
+  }));
+  const sealedBodyBytes = async (f: MobileFeed): Promise<number> => {
+    const key = await deriveMobileKey('join-secret-for-tests-0123456789abcdef');
+    return bytes({ sealed: await seal(key, aadFeed(f.deviceId), f) });
+  };
+
+  it('文を上限まで埋めた live が 60 件（待っているもの 30、動いているもの 30）でも、封じた本文は 96 KiB に収まる', async () => {
+    const f = feed({ live: [...heavy(30, 'busy', 1000), ...heavy(30, 'waiting', 2000)], done: done(50), projects: projects(50) });
+    expect(bytes(f)).toBeGreaterThan(2 * MOBILE_FEED_MAX_BYTES);
+    const out = fitFeed(f);
+    expect(bytes(out)).toBeLessThanOrEqual(MOBILE_FEED_MAX_BYTES);
+    expect(await sealedBodyBytes(out)).toBeLessThanOrEqual(96 * 1024);
+    // 待っているものを先に残す。
+    expect(out.live.some((l) => l.status === 'waiting')).toBe(true);
+    expect(out.live.filter((l) => l.status === 'busy').length).toBe(0);
+  });
+
+  it('待っている live だけが 60 件でも収まる。意図を詰め、それでも足りなければ文を詰め、最後に古い待ちから落とす', async () => {
+    const f = feed({ live: heavy(60, 'waiting', 1000) });
+    const out = fitFeed(f);
+    expect(bytes(out)).toBeLessThanOrEqual(MOBILE_FEED_MAX_BYTES);
+    expect(await sealedBodyBytes(out)).toBeLessThanOrEqual(96 * 1024);
+    expect(out.live.length).toBeGreaterThan(0);
+    // 意図は詰めるか消す。
+    for (const l of out.live) expect((l.intent ?? '').length).toBeLessThan(MOBILE_TEXT_MAX);
+    // 残すのは新しい待ち。
+    expect(out.live.map((l) => l.sessionId)).toContain('waiting-59');
+    expect(f.live[0]!.intent!.length).toBe(MOBILE_TEXT_MAX);
+  });
+
+  it('意図を詰めれば収まるなら、待っている live を落とさない', () => {
+    const items = heavy(50, 'waiting', 1000).map((l) => ({ ...l, title: '会話', projectName: 'project-a', waiting: { kind: 'question' as const, text: '進めてよいですか' } }));
+    const f = feed({ live: items });
+    expect(bytes(f)).toBeGreaterThan(MOBILE_FEED_MAX_BYTES);
+    const out = fitFeed(f);
+    expect(bytes(out)).toBeLessThanOrEqual(MOBILE_FEED_MAX_BYTES);
+    expect(out.live.length).toBe(50);
+    expect(out.live[0]!.title).toBe('会話');
   });
 });

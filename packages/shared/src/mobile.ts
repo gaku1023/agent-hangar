@@ -91,24 +91,50 @@ export function clampText(s: string | null | undefined, max: number = MOBILE_TEX
 
 const sizeOf = (v: unknown): number => new TextEncoder().encode(JSON.stringify(v)).length;
 
+/** 収まらないときに、live の文を詰める長さ（字数）。 */
+const SHORT_TEXT_MAX = 60;
+
 /**
- * 受信箱の素を上限に収める。超えたら done、returns、projects の順に、古いものから 1 件ずつ落とす。live は落とさない。
+ * 受信箱の素を上限に収める。超えたら次の順に、収まったところでやめる。
+ *
+ * 1. done、returns、projects の順に、古いものから 1 件ずつ落とす。
+ * 2. 待っていない live（status が waiting でないもの）を、idle、busy の順に、statusAt の古いものから落とす。
+ * 3. live の意図を SHORT_TEXT_MAX 字に詰め、それでも収まらなければ意図を消す。
+ * 4. live の題、プロジェクト名、待っている内容を SHORT_TEXT_MAX 字に詰める。
+ * 5. 残った（待っている）live を、statusAt の古いものから落とす。
+ *
+ * これで暗号化の前の JSON は必ず maxBytes 以下になり、封じた本文（base64 で 4/3 倍と少し）は Worker の 96 KiB に収まる。
  * done は doneAt が小さいもの、returns は戻る日時が早いもの、projects は lastUsedAt が小さいもの（無いものが最も古い）が古い。
  * 元の feed は変えず、残したものの並びも変えない。
  */
 export function fitFeed(feed: MobileFeed, maxBytes: number = MOBILE_FEED_MAX_BYTES): MobileFeed {
   if (sizeOf(feed) <= maxBytes) return feed;
   let out = feed;
-  const trim = <K extends 'done' | 'returns' | 'projects'>(key: K, oldestFirst: (a: MobileFeed[K][number], b: MobileFeed[K][number]) => number): void => {
+  const over = (): boolean => sizeOf(out) > maxBytes;
+  const trim = <K extends 'done' | 'returns' | 'projects' | 'live'>(key: K, oldestFirst: (a: MobileFeed[K][number], b: MobileFeed[K][number]) => number, droppable: (x: MobileFeed[K][number]) => boolean = () => true): void => {
     const list = out[key] as MobileFeed[K][number][];
-    const order = list.map((_, i) => i).sort((a, b) => oldestFirst(list[a]!, list[b]!) || a - b);
-    for (let n = 1; n <= order.length && sizeOf(out) > maxBytes; n++) {
+    const order = list.map((_, i) => i).filter((i) => droppable(list[i]!)).sort((a, b) => oldestFirst(list[a]!, list[b]!) || a - b);
+    for (let n = 1; n <= order.length && over(); n++) {
       const drop = new Set(order.slice(0, n));
-      out = { ...feed, ...out, [key]: list.filter((_, i) => !drop.has(i)) };
+      out = { ...out, [key]: list.filter((_, i) => !drop.has(i)) };
     }
   };
+  const mapLive = (f: (l: MobileLiveItem) => MobileLiveItem): void => { out = { ...out, live: out.live.map(f) }; };
   trim('done', (a, b) => a.doneAt - b.doneAt);
   trim('returns', (a, b) => (a.returnOn + ' ' + (a.returnTime ?? '')).localeCompare(b.returnOn + ' ' + (b.returnTime ?? '')));
   trim('projects', (a, b) => (a.lastUsedAt ?? -Infinity) - (b.lastUsedAt ?? -Infinity));
+  const idleFirst = (l: MobileLiveItem): number => (l.status === 'idle' ? 0 : 1);
+  trim('live', (a, b) => idleFirst(a) - idleFirst(b) || a.statusAt - b.statusAt, (l) => l.status !== 'waiting');
+  if (over()) mapLive((l) => ({ ...l, intent: clampText(l.intent, SHORT_TEXT_MAX) }));
+  if (over()) mapLive((l) => ({ ...l, intent: null }));
+  if (over()) {
+    mapLive((l) => ({
+      ...l,
+      title: clampText(l.title, SHORT_TEXT_MAX) ?? '',
+      projectName: clampText(l.projectName, SHORT_TEXT_MAX) ?? '',
+      waiting: l.waiting ? { ...l.waiting, text: clampText(l.waiting.text, SHORT_TEXT_MAX) ?? '' } : null,
+    }));
+  }
+  trim('live', (a, b) => a.statusAt - b.statusAt);
   return out;
 }
