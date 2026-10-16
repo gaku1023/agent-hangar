@@ -87,7 +87,13 @@ export function overlayStep(state: State, input: Input): Step | null {
       const closes = state.overlay.kind === 'resolveProject' || (state.overlay.kind === 'confirm' && (state.overlay.confirm.kind === 'unlinkProject' || state.overlay.confirm.kind === 'mergeProject'));
       return { state: closes ? { ...state, overlay: { kind: 'none' } } : state, effects: [{ kind: 'api.resolveProject', projectId: i.id, action: i.action }] };
     }
-    case 'overlay.close': return { state: closeOverlay(state), effects: [] };
+    case 'overlay.close': {
+      // 引き継ぎの 1 枚（takeover）は、黙って閉じるとサーバに待ちが残り、相手の claude が後から停止される。
+      // ボタンのフォーカスが外れたあとの Esc は Root からこの形で届くので、取り消し（session.takeover.cancel）と同じに読む。
+      const o = state.overlay;
+      if (o.kind === 'confirm' && o.confirm.kind === 'takeover') return { state: { ...state, overlay: { kind: 'none' } }, effects: [{ kind: 'api.takeoverCancel', sessionId: o.confirm.sessionId }] };
+      return { state: closeOverlay(state), effects: [] };
+    }
     case 'palette.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'palette' } }, effects: [] } : { state, effects: [] };
     case 'shortcuts.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'shortcuts' } }, effects: [] } : { state, effects: [] };
     case 'palette.close': return { state: { ...state, overlay: { kind: 'none' } }, effects: [] };

@@ -211,6 +211,16 @@ export class RunManager {
   }
 
   /**
+   * この PC でセッションを起こせるかだけを確かめ、起こせなければ起動と同じ RunError で断る。何も書かない。
+   * 引き継ぎ（sync/takeover.ts）はほかの PC の claude を停止してからこの PC で再開するので、頼む前に確かめる。
+   * 確かめないと、相手を止めたあとで再開に失敗する（adopt が startPanes を止める前に通すのと同じ理由）。
+   */
+  assertCanStart(): void {
+    this.startPanes();
+    this.claudeBin();
+  }
+
+  /**
    * claude の絶対パス。分からなければ起動そのものを断る。
    * tmux のペインは hangar の PATH を継ぐので、.app から起こしたときは裸の `claude` を引けない。
    * 引けない名前をそのまま渡すと、応答は成功のままペインの中で 127 で落ち、

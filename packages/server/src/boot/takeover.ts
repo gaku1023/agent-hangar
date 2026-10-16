@@ -2,7 +2,7 @@ import type { RunManager } from '../runs/manager.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { TakeoverService } from '../sync/takeover.ts';
 import { TakeoverResponder } from '../sync/takeoverResponder.ts';
-import { pruneTakeoverRows } from '../sync/takeoverRows.ts';
+import { cancelOrphanAsks, pruneTakeoverRows } from '../sync/takeoverRows.ts';
 import type { HomeParts } from './home.ts';
 import type { SyncParts } from './sync.ts';
 
@@ -11,7 +11,7 @@ export type TakeoverParts = {
   responder: TakeoverResponder;
   /** 「この PC で再開」の頼む側。ほかの PC で動く会話を止めてもらい、最後の本文が降りるのを待つ。 */
   service: TakeoverService;
-  /** 古い自分の行を刈り、起動前に届いていた頼みを 1 度扱い、以後は頼みの行が届くたびに扱う。 */
+  /** 古い自分の行を刈り、再起動の前に出したまま答えの無い ask を取り下げ、起動前に届いていた頼みを 1 度扱い、以後は頼みの行が届くたびに扱う。 */
   start(): void;
   stop(): void;
   /** 止める前に端末へ 1 行を残す口を渡す。端末の中継（PtyRelay）は待ち受けの後に作られるので、後から差す。 */
@@ -61,6 +61,12 @@ export function bootTakeover(p: {
     service,
     start() {
       try { pruneTakeoverRows(db, deviceId, Date.now()); } catch (e) { console.error('[takeover] 古い行を刈れませんでした', e instanceof Error ? e.message : e); }
+      // 待つ状態はメモリにしか無く、再起動で消える。残った ask が生きていると、利用者が諦めた後で相手が claude を停止する。
+      // だから、この PC が出したまま答えの無い ask は取り下げて送る。force は相手の次の起動で止める約束なので残す。
+      try {
+        // ログはサーバの直書きの日本語を増やさないよう英語にする（i18n/hardcoded.test.ts）。
+        if (cancelOrphanAsks(db, deviceId, Date.now()) > 0) void p.sync.pushNow().catch((e: unknown) => console.error('[takeover] could not push the cancelled asks yet', e instanceof Error ? e.message : e));
+      } catch (e) { console.error('[takeover] could not cancel the asks left from before the restart', e instanceof Error ? e.message : e); }
       off ??= p.sync.onTakeoversApplied(run);
       run();
     },

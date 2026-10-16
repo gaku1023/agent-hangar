@@ -88,3 +88,23 @@ describe('引き継ぎの流れ（takeover）', () => {
     expect(r.state.overlay).toMatchObject({ kind: 'confirm', confirm: { kind: 'takeover', takeover: { stage: 'waiting' } } });
   });
 });
+
+// 進み具合の 1 枚で「取り消す」のフォーカスが外れると、Esc は Root の overlay.close として届く。
+// そのまま閉じるとサーバに待ちが残るので、takeover の 1 枚では取り消しと同じに読む。
+describe('引き継ぎの 1 枚に届いた overlay.close', () => {
+  it('待っている 1 枚の overlay.close は取り下げを送って閉じる', () => {
+    const r = transition(waiting, store, action({ type: 'overlay.close' }));
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+    expect(r.effects).toEqual([{ kind: 'api.takeoverCancel', sessionId: 's1' }]);
+  });
+  it('返事がない 1 枚の overlay.close も取り下げを送って閉じる', () => {
+    const r = transition(timedOut, store, action({ type: 'overlay.close' }));
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+    expect(r.effects).toEqual([{ kind: 'api.takeoverCancel', sessionId: 's1' }]);
+  });
+  it('確認の 1 枚（頼む前）の overlay.close は、取り下げを送らずに閉じる', () => {
+    const r = transition(withResumeHereConfirm, store, action({ type: 'overlay.close' }));
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+    expect(r.effects).toEqual([]);
+  });
+});

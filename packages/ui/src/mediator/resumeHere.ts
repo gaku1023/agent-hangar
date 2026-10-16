@@ -53,6 +53,7 @@ export function resumeHereStep(state: State, input: Input): Step | null {
  *
  * 閉じるのは取り消し（session.takeover.cancel）だけにする。overlay.close で閉じるとサーバに待ちが残る。
  * 1 枚の Esc と外側のクリックは、View が overlay.close の代わりに cancel を送る。
+ * フォーカスが外れて Root から overlay.close が届いたときも、overlayStep が取り消しと同じに読む（閉じて api.takeoverCancel）。
  * 再開が通ったあとに取り下げは送らない。サーバの cancel は force の頼みも取り下げるからである。
  */
 function takeoverOf(state: State, input: Input): Step | null {

@@ -104,6 +104,16 @@ describe('引き継ぎの待ちと返事がないとき', () => {
       { type: 'session.takeover.start', id: 's1', force: true },
     ]);
   });
+  it('待ちから返事がない 1 枚に変わっても、「取り消す」のフォーカスは外れない', () => {
+    const view = (stage: TakeoverDto['stage']) => <ActionRoot onAction={vi.fn()}><ConfirmDialog confirm={{ kind: 'takeover', sessionId: 's1', plan: p, takeover: dto(stage) }} takeover={presentTakeover(translator('ja'), p, dto(stage))} /></ActionRoot>;
+    const { rerender } = render(view('waiting'));
+    const cancel = screen.getByRole('button', { name: '取り消す' });
+    cancel.focus();
+    expect(document.activeElement).toBe(cancel);
+    rerender(view('timeout'));
+    expect(screen.getByRole('button', { name: '取り消す' })).toBe(cancel);
+    expect(document.activeElement).toBe(cancel);
+  });
   it('返事がない 1 枚の Esc も取り下げを送る', () => {
     const onAction = mountTakeover('timeout');
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });

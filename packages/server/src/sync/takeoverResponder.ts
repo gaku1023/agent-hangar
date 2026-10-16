@@ -1,7 +1,10 @@
+import fs from 'node:fs';
+import { Readable } from 'node:stream';
 import type { Language } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { msg, render } from '../i18n/message.ts';
 import type { RunManager } from '../runs/manager.ts';
+import { sha256Stream } from './crypto.ts';
 import { FLUSH_AGAIN_MS } from './flushOnRunEnd.ts';
 import { asksForMe, writeAnswer, type TakeoverAsk, type TakeoverResult } from './takeoverRows.ts';
 
@@ -27,6 +30,7 @@ export type TakeoverResponderDeps = {
  * ほかの PC から「この会話を止めてほしい」と頼まれたとき、止めて応答を書く。
  * 頼みの行は pull で届き、この PC あてで、取り下げも応答もされていないものだけを扱う（asksForMe）。
  * 頼んだ側は、応答の版（本文の sha256 と size）が台帳に降りてくるのを待ってから引き継ぐ。
+ * 応答の版は、止めたあとの手元の本文のファイルから作る（手元に無ければ台帳の版）。
  * 先に頼みを扱った方が止め、同じ run への後の頼みは、すでに動いていないので not_running になる。
  */
 export class TakeoverResponder {
@@ -79,7 +83,7 @@ export class TakeoverResponder {
       await (this.deps.sleep ?? ((ms) => new Promise<void>((r) => { setTimeout(r, ms); })))(this.deps.againMs ?? FLUSH_AGAIN_MS);
       if (uuid) await this.deps.flushSession(uuid);
     }
-    const version = uuid ? this.transcriptVersion(uuid) : null;
+    const version = (await this.localVersion(ask.sessionId)) ?? (uuid ? this.transcriptVersion(uuid) : null);
     writeAnswer(db, deviceId, {
       askId: ask.id, runId: ask.runId, result, answeredAt: now(),
       transcriptSha256: version?.sha256 ?? null, transcriptSize: version?.size ?? null,
@@ -88,7 +92,30 @@ export class TakeoverResponder {
     await this.deps.pushNow().catch((e: unknown) => console.error('[takeover] 応答をすぐには送れませんでした', e instanceof Error ? e.message : e));
   }
 
-  /** 台帳（file_sync）にある、この PC の主線の本文の版。上げていなければ null。 */
+  /**
+   * 止めたあとの、この PC の主線の本文のファイルそのものの版（平文の sha256 と大きさ）。ファイルが無ければ null。
+   * 台帳ではなくファイルを読むのは、上げ損ねても flushSession は黙って戻るからである。
+   * 台帳の古い版で答えると、頼んだ側は最後のターンの欠けた本文で再開する。
+   * ファイルの版で答えれば、頼んだ側は台帳がそこへ追いつくまで receiving のまま待ち、追いつかなければ返事がないに落ちる。
+   * 形は上げる側（uploader.ts）が台帳へ書くものと同じである（gzip と暗号の前の平文の指紋と、そのバイト数）。
+   */
+  private async localVersion(sessionId: string): Promise<{ sha256: string; size: number } | null> {
+    const f = this.deps.db.prepare('select path from transcript_files where session_id = ? and agent_id is null and device_id is null order by mtime desc limit 1').get(sessionId) as { path: string } | undefined;
+    if (!f) return null;
+    let size: number;
+    try {
+      const st = fs.statSync(f.path);
+      if (!st.isFile()) return null;
+      size = st.size;
+    } catch {
+      return null;
+    }
+    // 上げる側と同じく、stat した長さまでに限って読む（止めたあとなので伸びないはずだが、指紋と大きさを食い違わせない）。
+    const sha256 = await sha256Stream(size === 0 ? Readable.from([]) : fs.createReadStream(f.path, { start: 0, end: size - 1 }));
+    return { sha256, size };
+  }
+
+  /** 台帳（file_sync）にある、この PC の主線の本文の版。上げていなければ null。手元のファイルが無いときだけ使う。 */
   private transcriptVersion(uuid: string): { sha256: string; size: number } | null {
     return (this.deps.db.prepare('select sha256, size from file_sync where key = ?').get(`transcripts/${this.deps.deviceId}/${uuid}.jsonl.gz`) as { sha256: string; size: number } | undefined) ?? null;
   }

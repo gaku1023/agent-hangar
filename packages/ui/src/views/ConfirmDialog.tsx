@@ -207,6 +207,7 @@ function Card(props: { card: ResumeHereCard; here: boolean }) {
  * progress は 4 つの段と 90 秒の目安の細い線を出し、ボタンは「取り消す」だけにする。経過秒と線は 1 秒ごとに描き直す。
  * timeout は返事がない警告で、「取り消す」「もう少し待つ」「このまま引き継ぐ」を選ばせる。
  * Esc と外側のクリックと × は、閉じずに取り下げを送る。overlay.close で閉じるとサーバに待ちが残る。
+ * ボタンは鍵を付けて、段が変わっても「取り消す」を作り直さない（フォーカスを保つ）。
  */
 function TakeoverProgress(props: { p: TakeoverProps }) {
   const emit = useEmit();
@@ -223,7 +224,9 @@ function TakeoverProgress(props: { p: TakeoverProps }) {
   const cancel = () => emit({ type: 'session.takeover.cancel', id: p.sessionId });
   const seconds = Math.max(0, Math.floor((now - p.startedAt) / 1000));
   const ratio = timed ? Math.min(1, Math.max(0, (now - p.startedAt) / (p.deadline - p.startedAt))) : 0;
-  const cancelButton = <button type="button" className="btn" onClick={cancel}>{t('confirm.takeover.cancel')}</button>;
+  // 待ちから返事がないへ変わるとき、「取り消す」を作り直さないよう鍵で同じものとして扱う。
+  // 作り直すとフォーカスが外れ、次の Esc が Root の overlay.close になる（mediator はそれも取り消しと読む）。
+  const cancelButton = <button key="cancel" type="button" className="btn" onClick={cancel}>{t('confirm.takeover.cancel')}</button>;
   return (
     <Dialog
       title={p.title}
@@ -231,8 +234,8 @@ function TakeoverProgress(props: { p: TakeoverProps }) {
       onClose={cancel}
       className="rh-dialog"
       footer={p.kind === 'timeout'
-        ? <>{cancelButton}<span className="spacer" /><button type="button" className="btn" onClick={() => emit({ type: 'session.takeover.extend', id: p.sessionId })}>{t('confirm.takeover.wait')}</button><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.takeover.start', id: p.sessionId, force: true })}>{t('confirm.takeover.forceAction')}</button></>
-        : <><span className="spacer" />{cancelButton}</>}
+        ? <>{cancelButton}<span key="spacer" className="spacer" /><button key="wait" type="button" className="btn" onClick={() => emit({ type: 'session.takeover.extend', id: p.sessionId })}>{t('confirm.takeover.wait')}</button><button key="force" type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.takeover.start', id: p.sessionId, force: true })}>{t('confirm.takeover.forceAction')}</button></>
+        : <><span key="spacer" className="spacer" />{cancelButton}</>}
     >
       {p.lead && <div className="muted">{p.lead}</div>}
       {p.steps.length > 0 && (

@@ -90,6 +90,21 @@ export function cancelAsk(db: Db, self: string, askId: string, now: number): voi
   rewriteAsk(db, self, askId, now, { cancelledAt: now });
 }
 
+/**
+ * この PC が出した ask のうち、取り下げも削除もされておらず、まだ答えの無いものを取り下げ、取り下げた数を返す。
+ * 起動のときに呼ぶ。待つ状態はメモリにしか無いので、再起動の前の ask を待つ者はもう居ない。
+ * force の行は残す（相手の次の起動で止める約束である）。
+ */
+export function cancelOrphanAsks(db: Db, self: string, now: number): number {
+  const ids = db.prepare(`
+    select t.id from takeovers t
+    where t.from_device = ? and t.mode = 'ask' and t.cancelled_at is null and t.deleted_at is null
+      and not exists (select 1 from takeover_answers a where a.ask_id = t.id and a.deleted_at is null)
+  `).all(self) as { id: string }[];
+  for (const { id } of ids) cancelAsk(db, self, id, now);
+  return ids.length;
+}
+
 /** 応答を書く。応答の主キーは頼みの id なので、頼み 1 件に応答は 1 行である。 */
 export function writeAnswer(db: Db, self: string, a: TakeoverAnswer): void {
   upsertShared(db, 'takeover_answers', {

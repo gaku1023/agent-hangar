@@ -64,6 +64,13 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     const force = ((b.value ?? {}) as { force?: unknown }).force;
     if (force !== undefined && typeof force !== 'boolean') return c.json({ error: tr('http.request.badShape') }, 400);
     if (!hasSession(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    // 頼むと相手の claude は停止する。この PC で起こせない（tmux や psmux、claude が無い）なら、頼む前に起動と同じ理由で断る。
+    try {
+      deps.runs.assertCanStart();
+    } catch (e) {
+      if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
+      throw e;
+    }
     return c.json(deps.takeover.start(id, { force: force === true }));
   });
   api.get('/sessions/:id/takeover', (c) => {

@@ -267,6 +267,17 @@ describe('同期の経路', () => {
     expect((await post(`/api/sessions/${id}/takeover/extend`)).status).toBe(404);
   });
 
+  it('この PC で起動できない（tmux や psmux が無い）ときは、頼みを出さずに起動と同じ理由で断る', async () => {
+    // 頼みを出すと相手の claude は止まるのに、この PC で再開できない。だから頼む前に断る。
+    const id = await sid();
+    remoteRun(id);
+    vi.mocked(runs.assertCanStart).mockImplementation(() => { throw new RunError(400, 'tmux のパスが設定されていません'); });
+    const r = await json(await post(`/api/sessions/${id}/takeover`, {}));
+    expect(r).toEqual({ status: 400, body: { error: 'tmux のパスが設定されていません' } });
+    expect((await get(`/api/sessions/${id}/takeover`)).status).toBe(404);
+    expect(t.events).not.toContainEqual(expect.objectContaining({ type: 'takeover.update' }));
+  });
+
   it('takeover は force を真偽で受け、無い会話は 404、本文の形が違えば 400', async () => {
     const id = await sid();
     remoteRun(id);

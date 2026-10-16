@@ -3,7 +3,7 @@ import type { RunDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { upsertShared } from '../db/shared.ts';
-import { answerOf, writeAnswer, writeAsk } from '../sync/takeoverRows.ts';
+import { answerOf, askOf, writeAnswer, writeAsk } from '../sync/takeoverRows.ts';
 import { bootTakeover } from './takeover.ts';
 
 const UUID = '22222222-2222-4222-8222-222222222222';
@@ -41,6 +41,29 @@ describe('引き継ぎの頼みを受ける部品の組み立て', () => {
 
   const ask = () => writeAsk(db, 'pc-a', { sessionId, runId: 'r1', targetDevice: SELF, mode: 'ask', now: 1000 });
   const settle = () => new Promise((r) => setTimeout(r, 50));
+
+  it('start は、この PC が出したまま答えの無い ask を取り下げて送る。force、答えのある頼み、ほかの PC の頼みには触らない', async () => {
+    // 待つ状態はメモリにしか無いので、再起動のあとに ask が生きていると、利用者が諦めた後で相手の claude が停止される。
+    const peer = ensureSession(db, '33333333-3333-4333-8333-333333333333', '/w', 'pc-a');
+    const open = writeAsk(db, SELF, { sessionId: peer, runId: 'r9', targetDevice: 'pc-a', mode: 'ask', now: Date.now() });
+    const forced = writeAsk(db, SELF, { sessionId: peer, runId: 'r9', targetDevice: 'pc-a', mode: 'force', now: Date.now() });
+    const answered = writeAsk(db, SELF, { sessionId: peer, runId: 'r8', targetDevice: 'pc-a', mode: 'ask', now: Date.now() });
+    writeAnswer(db, 'pc-a', { askId: answered.id, runId: 'r8', result: 'stopped', answeredAt: Date.now(), transcriptSha256: null, transcriptSize: null });
+    const theirs = writeAsk(db, 'pc-c', { sessionId: peer, runId: 'r9', targetDevice: 'pc-a', mode: 'ask', now: Date.now() });
+    t.start();
+    await settle();
+    expect(askOf(db, open.id)?.cancelledAt).not.toBeNull();
+    expect(askOf(db, forced.id)?.cancelledAt).toBeNull();
+    expect(askOf(db, answered.id)?.cancelledAt).toBeNull();
+    expect(askOf(db, theirs.id)?.cancelledAt).toBeNull();
+    expect(calls).toContain('push');
+  });
+
+  it('取り下げるものが無ければ、start は送らない', async () => {
+    t.start();
+    await settle();
+    expect(calls).not.toContain('push');
+  });
 
   it('起動前に届いていた頼みは start の最初の scan で止める（tmux に残った claude）', async () => {
     const a = ask();

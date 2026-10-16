@@ -14,10 +14,11 @@ const muxMissing = (store: Store): boolean => store.readiness !== null && !store
  * 止める操作か。新しいセッション、再開、フォーク、この PC で再開、hangar に移動（adopt）、接続（attach）である。
  * adopt は外の claude を終わらせてから hangar の tmux で起こすので、無いまま進むと元の会話を止めたまま失敗する。確認の前でも後でも止める。
  * attach は Claude のバックグラウンドのサービスにつなぐが、つなぐ口（`claude attach`）は hangar の tmux のペインで起こすので、無ければ断られる。
+ * 引き継ぎ（session.takeover.start）は、ほかの PC の claude を停止してからこの PC で再開するので、無いまま進むと相手を止めたまま再開に失敗する。
  */
 function pendingOf(a: Extract<Input, { kind: 'action' }>['action']): MuxPending | null {
   switch (a.type) {
-    case 'session.new.submit': case 'session.resume': case 'session.fork': case 'session.resumeHere': case 'session.adopt': case 'session.attach': case 'interrupted.resume': return a;
+    case 'session.new.submit': case 'session.resume': case 'session.fork': case 'session.resumeHere': case 'session.adopt': case 'session.attach': case 'interrupted.resume': case 'session.takeover.start': return a;
     default: return null;
   }
 }
@@ -25,7 +26,7 @@ function pendingOf(a: Extract<Input, { kind: 'action' }>['action']): MuxPending 
 /** 止めていた操作を、受け持つ領域へそのまま渡す。 */
 function forward(state: State, store: Store, pending: MuxPending): Step {
   const input: Input = { kind: 'action', action: pending };
-  const step = pending.type === 'session.resumeHere' ? resumeHereStep(state, input) : pending.type === 'interrupted.resume' ? interruptedStep(state, store, input) : launchStep(state, store, input);
+  const step = pending.type === 'session.resumeHere' || pending.type === 'session.takeover.start' ? resumeHereStep(state, input) : pending.type === 'interrupted.resume' ? interruptedStep(state, store, input) : launchStep(state, store, input);
   return step ?? { state, effects: [] };
 }
 
@@ -58,6 +59,7 @@ export function muxGuideStep(state: State, store: Store, input: Input): Step | n
   if (pending === null || !muxMissing(store)) return null;
   // 送信中の重ね押しは、受け持つ領域の歯止めに任せる。
   if (state.launch.kind === 'submitting') return null;
-  const back = o.kind === 'newSession' ? o : null;
+  // 引き継ぎは確認の 1 枚（または返事がない 1 枚）から来るので、そこへ戻す。戻ってから送ると、resumeHere の領域が 1 枚を進み具合に変える。
+  const back = o.kind === 'newSession' || (pending.type === 'session.takeover.start' && o.kind === 'confirm' && (o.confirm.kind === 'resumeHere' || o.confirm.kind === 'takeover')) ? o : null;
   return { state: { ...state, overlay: { kind: 'muxGuide', pending, back } }, effects: [] };
 }

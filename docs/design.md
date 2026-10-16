@@ -3764,7 +3764,7 @@ psmux が下限（`PSMUX_MIN_VERSION`、3.4.0）より古いとき（準備の�
 始められるので右端の「始めるには」には数えないが、任意の行にはしない。任意にすると、準備を済ませた既存の利用者には帯ごと出ないからである。
 上げて再確認すると版を読み直し（覚えた版の鍵に更新時刻が入っている）、行は消える。
 
-psmux（tmux）が無いと分かっているときに、新しいセッションの開始、再開、フォーク、この PC で再開を押すと、送らずに案内のダイアログで止める（段 6 の B2、`mediator/muxGuide.ts`、`views/MuxGuideDialog.tsx`）。
+psmux（tmux）が無いと分かっているときに、新しいセッションの開始、再開、フォーク、この PC で再開（停止を頼んで引き継ぐ承諾も含む）を押すと、送らずに案内のダイアログで止める（段 6 の B2、`mediator/muxGuide.ts`、`views/MuxGuideDialog.tsx`）。
 hangar に移動（adopt）と接続（attach）も止める。
 adopt は外の claude を終わらせてから hangar の tmux で起こすので、無いまま進むと元の会話を止めたまま失敗するからである。確認の前でも、確認で承諾した後でも止め、見つかれば止めた操作から続ける（確認の前なら確認を出す）。
 attach は Claude のバックグラウンドのサービスにつなぐが、つなぐ口（`claude attach`）は hangar の tmux のペインで起こすので、無ければ断られる。
@@ -6240,8 +6240,13 @@ heartbeat の書き直しはこの PC の画面へは配らない（`run.upsert`
   刈るのはサーバの起動のときである（`pruneTakeoverRows`）。
 - **頼む側（`sync/takeover.ts` の `TakeoverService`）。**
   待ちの状態は会話ごとにメモリだけに持ち、サーバを立て直せば消える。
+  だからサーバの起動のときに、この PC が出したまま答えの無い `ask` の行を取り下げて送る（`cancelOrphanAsks`）。
+  残すと、待つ者が居ないのに、相手が後から頼みを見て claude を停止するためである。
+  `force` の行は残す（相手の次の起動で止める約束である）。
   段は `TakeoverStage`（`asking`、`waiting`、`receiving`、`ready`、`timeout`、`cancelled`）で、`takeover.update`（`TakeoverDto`：`sessionId`、`deviceName`、`stage`、`startedAt`、`deadline`）として画面へ配る。
   経路は `POST /api/sessions/:id/takeover`（本文の `force`）、`GET` 同、`POST /api/sessions/:id/takeover/extend`、`DELETE /api/sessions/:id/takeover`（取り下げ）である。
+  - `POST /api/sessions/:id/takeover` は、この PC でセッションを起こせない（tmux や psmux、claude が無い）とき、頼みを書かずに起動と同じ理由で断る（`RunManager.assertCanStart`、400）。
+    頼むと相手の claude は停止するのに、この PC で再開できないためである。
   - 始め方。
     ロックが無ければ行を書かずに `ready`。
     `stale` か `force` なら `force` の頼みを書いて送り、`ready`。
@@ -6268,7 +6273,11 @@ heartbeat の書き直しはこの PC の画面へは配らない（`run.upsert`
   重なった呼び出しは 1 本にまとめ、同じ頼みを並行して 2 度扱わない。
   - 頼みの run がこの PC の生きた run なら、止める直前に、その run の端末に接続中の画面があれば 1 行を流し（`sync.takeover.paneNote`、「[hangar] <端末名> に引き継がれたため、この PC の claude を停止しました。」）、`kill(runId, 'taken_over')` で止める。
   - claude は終わる直前まで本文に書き足すので、本文を上げ、5 秒（`FLUSH_AGAIN_MS`）置いてもう 1 度上げる（run が終わったときの上げ方と同じ）。
-  - そのあと、台帳の本文の版（sha256 と大きさ）を載せて応答（`stopped`）を書き、すぐ送る。
+  - そのあと、手元の本文のファイルの版（平文の sha256 と大きさ、台帳と同じ形）を載せて応答（`stopped`）を書き、すぐ送る。
+    台帳ではなくファイルから作るのは、上げ損ねても本文を上げる処理は黙って戻るからである。
+    台帳の古い版で答えると、頼んだ側は最後のターンの欠けた本文で再開する。
+    ファイルの版なら、頼んだ側は台帳が追いつくまで `receiving` で待ち、追いつかなければ返事がないに落ちて、利用者が選べる。
+    手元にファイルが無いときは台帳の版（それも無ければ null）を載せる。
     動いていなかったときは `not_running` で答える。
     止められなかった頼みは答えずに残し、次の走査で、動いていなければ `not_running` になる。
   - サーバの起動のときにも 1 度走査する。
@@ -6312,6 +6321,10 @@ heartbeat の書き直しはこの PC の画面へは配らない（`run.upsert`
 - **D1：引き継がれた側。** 上の見出しの下の 1 行だけで、札は出さない。
 - 閉じられるのは取り消し（`session.takeover.cancel`）だけである。
   Esc と外側のクリックも、`overlay.close` の代わりに取り消しを送る（閉じるとサーバに待ちが残るため）。
+  フォーカスが 1 枚の外へ出ていて Esc が `Root` の `overlay.close` として届いたときも、Mediator が取り消しと同じに読む（閉じて `api.takeoverCancel`）。
+  段が変わっても「取り消す」を作り直さないよう、ボタンには鍵を付ける（作り直すとフォーカスが外れる）。
+- psmux（tmux）が無いと分かっているときは、承諾（`session.takeover.start`）も始める前の案内で止める。
+  案内を閉じれば確認の 1 枚へ戻り、見つかったあとの「開始」では確認の 1 枚へ戻してから頼みを送る。
   再開が通ったあとには取り下げを送らない（`cancel` は `force` の頼みも取り下げるため）。
 - 一覧の行の「⋯」とセッション画面の「この PC で再開」は、ロックが生きていても押せる。
   再開とフォークは閉じたままで、理由を添える。

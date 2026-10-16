@@ -87,6 +87,20 @@ const launchedArgs = async (runId: string) => {
   return readArgs(fake.argsFile);
 };
 
+describe('RunManager.assertCanStart（起こす前の確かめだけ）', () => {
+  // 引き継ぎは相手の claude を停止してから再開するので、頼む前にこの PC で起こせるかだけを確かめる。
+  it('tmux の口が無い、指したものが無い、claude が無いときは起動と同じ理由で断る', () => {
+    expect(() => make({ tmux: null }).assertCanStart()).toThrow(expect.objectContaining({ status: 400, message: 'tmux が見つかりません。設定の「tmux のパス」にパスを入力してください' }));
+    const gone = path.join(home, 'gone-tmux');
+    expect(() => make({ tmux: new Tmux({ tmuxPath: gone }), muxPath: () => gone }).assertCanStart()).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => make({ tmux: null, panes: {} as never, claudeBin: null }).assertCanStart()).toThrow(expect.objectContaining({ status: 400 }));
+  });
+  it('起こせるなら何もしない（run も会話も作らない）', () => {
+    expect(() => make({ tmux: null, panes: {} as never }).assertCanStart()).not.toThrow();
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+  });
+});
+
 describe('RunManager.start の入力検査（tmux 不要）', () => {
   it('projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
     const rm = make({ tmux: null });

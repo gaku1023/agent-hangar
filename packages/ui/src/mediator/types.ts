@@ -220,10 +220,11 @@ export type Overlay =
   // 差分のダイアログ（git の表示）。file は選んだファイルで、null なら画面が最初の未コミットを選ぶ。source は差分の出どころで、null なら画面が決める（git でなければこのセッションの編集）。
   | { kind: 'diff'; sessionId: string; file: string | null; source: 'git' | 'session' | null }
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
-  // pending は止めた操作で、見つかったあとの「開始」でそのまま進める。back は止めたときに開いていた新しいセッションのダイアログで、閉じたらそこへ戻る。
-  | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | null };
+  // pending は止めた操作で、見つかったあとの「開始」でそのまま進める。
+  // back は止めたときに開いていた新しいセッションのダイアログか、引き継ぎの確認の 1 枚で、閉じたらそこへ戻る。
+  | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | Extract<Overlay, { kind: 'confirm' }> | null };
 /** psmux（tmux）が無いときに止める、セッションを始める操作。 */
-export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' }>;
+export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' | 'session.takeover.start' }>;
 /** psmux（tmux）の再確認の進み。missing は、再確認しても見つからなかったこと。 */
 export type MuxCheck = 'idle' | 'checking' | 'missing';
 /**

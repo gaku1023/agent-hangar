@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
@@ -84,6 +88,31 @@ describe('頼まれた側の応答', () => {
     const a = ask();
     await responder.scan();
     expect(answerOf(db, a.id)).toMatchObject({ result: 'stopped', transcriptSha256: null, transcriptSize: null });
+  });
+
+  it('上げ損ねて台帳が古いままでも、止めたあとの手元の本文の版で答える', async () => {
+    // flushSession は上げ損ねても黙って戻る。台帳（sha-1、42）のまま答えると、頼んだ側は最後のターンの欠けた本文で再開する。
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-takeover-'));
+    try {
+      const body = '{"type":"user"}\n{"type":"assistant"}\n';
+      const local = path.join(dir, `${UUID}.jsonl`);
+      fs.writeFileSync(local, body);
+      const remote = path.join(dir, 'remote.jsonl');
+      fs.writeFileSync(remote, 'other\n');
+      const add = db.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?, ?, null, ?, ?, ?, 0, 1)');
+      add.run(local, sessionId, null, 1, 10);
+      // 降ろした相手の写しは、新しくても使わない。
+      add.run(remote, sessionId, 'pc-a', 6, 99);
+      const a = ask();
+      await responder.scan();
+      expect(answerOf(db, a.id)).toMatchObject({
+        result: 'stopped',
+        transcriptSha256: createHash('sha256').update(body).digest('hex'),
+        transcriptSize: Buffer.byteLength(body),
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('run がもう終わっていれば止めずに not_running と今の版で答える', async () => {
