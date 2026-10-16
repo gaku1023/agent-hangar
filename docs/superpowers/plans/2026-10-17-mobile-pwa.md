@@ -23,9 +23,15 @@
 | 暗号化の範囲 | 受信箱の素は全体を暗号化する（状態と時刻も）。Worker が平文で持つのは PC の ID と更新時刻だけ | 件数は手元で数えられるので平文の状態は要らない |
 | 鍵 | `HKDF-SHA256(joinSecret, salt="hangar-salt-v1", info="hangar-mobile-v1", 32 bytes)`、AES-256-GCM、IV 12 バイト乱数、AAD で用途と宛先を縛る | R2 の本文の鍵（info `hangar-file-v1`）とは別の用途の鍵 |
 | 起動の依頼の偽造 | 依頼の中身は暗号化されており、PC は復号できたものだけを起こす | スマホの Worker 用トークンだけ漏れても起動はできない |
-| スマホのトークン | `devices` に `kind`（`pc`/`mobile`）を足す。スマホのトークンは `/m/` のスマホ用の口だけ通し、PC の口は 403。有効期限なし（外すのは PC の一覧から） | 設計書の「受信箱と起動の依頼だけ」 |
-| ペアリングの QR | 中身は `<workerUrl>/app/#join=<参加トークン>`。使い捨てにしない。QR の横に「これは参加の秘密です」と出す | 参加トークンそのものが復号に要るので、使い捨ての符号を挟んでも秘密は渡る。フラグメントはサーバへ送られない |
-| スマホの保存 | 参加トークンとスマホ用トークンは `localStorage`。無いときは「参加トークンを貼る」欄を出す | iOS のホーム画面のアプリは Safari と保存場所が分かれることがある（実物で確かめる） |
+| スマホに渡すもの | 参加の秘密は渡さない。渡すのはスマホ用の鍵（`HKDF(joinSecret, info="hangar-mobile-v1")` の 32 バイト）と、使い捨てのペアリング券だけ（利用者の決定、2026-10-17） | スマホや QR が漏れても PC として参加できず、R2 の本文も読めない。外せば締め出せる |
+| ペアリング券 | PC が `POST /m/pairings` で取る。128 bit の乱数、D1 にはハッシュだけ、5 分で失効、1 回で使い切り | QR の写真や履歴が残っても 5 分で無効 |
+| ペアリングの QR | 中身は `<workerUrl>/app/#pair=<base64url(JSON {url, code, key})>`。フラグメントはサーバへ送られず、読んだらすぐ `history.replaceState` で消す | |
+| スマホのトークン | `devices` に `kind`（`pc`/`mobile`）を足す。スマホのトークンは `/m/` のスマホ用の口だけ通し、PC の口は 403。有効期限なし（外すのは PC の一覧から）。解除したスマホは、券なしでは参加し直せない | 設計書の「受信箱と起動の依頼だけ」 |
+| スマホの保存 | 鍵は IndexedDB に取り出せない（non-extractable）`CryptoKey` として、Worker 用トークンは `localStorage` に置く。無いときは「つなぐ文字列を貼る」欄を出す（QR と同じ中身） | 画面に XSS があっても鍵の値は持ち出せない。iOS のホーム画面のアプリは Safari と保存場所が分かれることがある（実物で確かめる） |
+| 秘密の作り直し | 参加の秘密を作り直すとスマホ用の鍵も変わる。スマホは開けない受信箱を「つなぎ直してください」と出す | |
+| 画面の守り | `_headers` で `Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'`。外部のスクリプトを読まない。`dangerouslySetInnerHTML` を使わない。`rcUrl` は `https://claude.ai/` で始まるものだけを通す（PC で拾うときとスマホで開くときの両方） | 会話から来た文は攻撃者が操れる（プロンプトインジェクション） |
+| 回数の制限 | 起動の依頼は 1 台のスマホから 10 分に 10 件まで（超えたら 429）。ペアリング券は 1 台の PC から 10 分に 5 枚まで | 盗まれたトークンで D1 の無料枠を食い潰されない |
+| PC 側の上限 | 設けない（利用者の決定、2026-10-17）。スマホで選んだ権限モードのまま起こす | |
 | 依頼の時間切れ | `LAUNCH_TTL_MS = 75_000`。Worker はこれを過ぎた依頼を claim させない。スマホは 3 秒ごとに状態を見て、80 秒で時間切れと言う | PC の pull は 30 秒ごと。2 周分の余裕。スマホが諦めた後に起動されない |
 | 依頼の受け取り | Worker は `GET /changes` の応答に、その PC 宛ての未処理の依頼を `launches` として載せる（索引で引く） | 要求を増やさない |
 | `/rc` の URL | 起動から 60 秒、2 秒ごとに tmux の画面を読み、`https://claude.ai/code/` で始まる URL を拾って手元の表に残す。拾えなければ claude.ai/code を開く | 公式の取得手段が無い。形は Task 0 で実物から確かめる |
@@ -53,7 +59,8 @@
 2. **止まった PC の行。** hangar を閉じても tmux の会話は動き続けるので、PC の行は消さない。Worker が 3 分見ていない PC の会話は「不明」として出し、「実行中」と言い切らない。→ Task 10 に試験を置く。
 3. **同じ依頼の二重起動。** スマホの再送、PC の 2 回の pull、Worker の行の巻き戻しのどれでも 1 回しか起こさない。→ Task 3（claim の原子性）と Task 6（手元の済みの印）に試験を置く。
 4. **復号できない行。** 参加の秘密を作り直した後の古い行や壊れた行は、その PC の分だけ「読めない」と出し、画面全体を落とさない。→ Task 10 に試験を置く。
-5. **`/rc` の付けられないアカウント。** API キーの認証や `ANTHROPIC_BASE_URL` のあるアカウントでも、設定が入のまま起動できる。→ Task 7 に試験を置く。
+5. **会話から来た文の注入。** 題、待っている内容、意図に `<script>` や `<img onerror>` が、`rcUrl` に `javascript:` やほかのホストが入っていても、文字として出し、リンクは claude.ai/code に落とす。→ Task 8（拾う側）と Task 10（出す側）に試験を置く。
+6. **`/rc` の付けられないアカウント。** API キーの認証や `ANTHROPIC_BASE_URL` のあるアカウントでも、設定が入のまま起動できる。→ Task 7 に試験を置く。
 
 ---
 
@@ -87,7 +94,7 @@
 
 - [ ] **Step 1: `/rc` の URL の形を実物で確かめる。** 専用の tmux（`tmux -S <scratchpad>/rc.sock`、`kill-server` は呼ばない）で `claude --remote-control "rc-probe"` を起こし、20 秒後に `capture-pane -p` を読んで、URL の行の形を記録する。終わったら `/exit` で抜け、ソケットの tmux を `kill-session` で閉じる。API キーで認証したときの振る舞い（警告で続くか、落ちるか）も、手元にその構成があれば見る。無ければ「未確認」として Task 7 の門を保守的に（付けない側に）倒す。
 - [ ] **Step 2: Design キャンバスの 2 枚を読む**（DesignSync か Artifact の read）。配置、文言、色を Task 10・11 の実装者に渡すメモにまとめ、この計画の末尾「画面のメモ」に追記する。
-- [ ] **Step 3: 試作を作る。** 1 枚の HTML に次を案ごとに並べる。(a) PC の設定のクラウドの節に「スマホをつなぐ」（ボタン→QR と注意書き→つないだスマホが PC の一覧に「スマホ」の印で並ぶ）を 2〜3 案、(b) 設定の「会話を Claude アプリにつなぐ」の置き場所（一般の節／起動時に効く設定の並び）2 案、(c) スマホの参加の画面（QR から開いた直後の「この端末を参加させる」と、トークンを貼る欄）2 案。
+- [ ] **Step 3: 試作を作る。** 1 枚の HTML に次を案ごとに並べる。(a) PC の設定のクラウドの節に「スマホをつなぐ」（ボタン→QR と注意書き→つないだスマホが PC の一覧に「スマホ」の印で並ぶ）を 2〜3 案、(b) 設定の「会話を Claude アプリにつなぐ」の置き場所（一般の節／起動時に効く設定の並び）2 案、(c) スマホの参加の画面（QR から開いた直後の「この端末を参加させる」と、つなぐ文字列を貼る欄）2 案。QR には 5 分の残り時間と「人に見せない」旨を出す。
 - [ ] **Step 4: 利用者に AskUserQuestion で 1 問ずつ選んでもらう。** 選ばれた案を「画面のメモ」に追記する。選ばれるまで Task 9・10 の画面に入らない（Task 1〜8 は並行して進めてよい）。
 
 ---
@@ -113,11 +120,15 @@
     - `type MobileFeed = { v: 1; deviceId: string; deviceName: string; accounts: MobileAccount[]; projects: MobileProject[]; live: MobileLiveItem[]; returns: MobileReturnItem[]; done: MobileDoneItem[] }`
     - `type MobileLaunchPayload = { v: 1; createdAt: number; projectId: string; accountId: string; permissionMode: string; model: string; prompt: string }`
     - `type MobileLaunchAnswer = { ok: true; sessionId: string; title: string } | { ok: false; reason: 'project-missing' | 'account-missing' | 'bad-payload' | 'expired' | 'launch-failed'; detail?: string }`
-    - Worker の口の型：`MobileJoinRequest = { secret: string; device: { id: string; name: string } }`、`MobileJoinResponse = { token: string; deviceId: string }`、`MobileInboxResponse = { now: number; devices: { id: string; name: string; platform: string; lastSeenAt: number | null }[]; feeds: { deviceId: string; updatedAt: number; sealed: string }[] }`、`MobileLaunchIn = { id: string; targetDevice: string; sealed: string }`、`MobileLaunchOut = { id: string; createdAt: number; sealed: string }`、`MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null }`
+    - Worker の口の型：`MobilePairingResponse = { code: string; expiresAt: number }`、`MobileJoinRequest = { code: string; device: { id: string; name: string } }`、`MobileJoinResponse = { token: string; deviceId: string }`、`MobileInboxResponse = { now: number; devices: { id: string; name: string; platform: string; lastSeenAt: number | null }[]; feeds: { deviceId: string; updatedAt: number; sealed: string }[] }`、`MobileLaunchIn = { id: string; targetDevice: string; sealed: string }`、`MobileLaunchOut = { id: string; createdAt: number; sealed: string }`、`MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null }`
     - `clampText(s: string | null | undefined, max = MOBILE_TEXT_MAX): string | null`
     - `fitFeed(feed: MobileFeed, maxBytes = MOBILE_FEED_MAX_BYTES): MobileFeed`
   - `mobileCrypto.ts`:
-    - `deriveMobileKey(joinSecret: string): Promise<CryptoKey>`
+    - `deriveMobileKeyBytes(joinSecret: string): Promise<Uint8Array>`（PC だけが呼ぶ。QR に入れる 32 バイト）
+    - `importMobileKey(bytes: Uint8Array, extractable = false): Promise<CryptoKey>`
+    - `deriveMobileKey(joinSecret: string): Promise<CryptoKey>`（= 上の 2 つ）
+    - `type PairingBlob = { url: string; code: string; key: string }`（key は base64url）、`encodePairing(b: PairingBlob): string`、`decodePairing(s: string): PairingBlob`（壊れていれば `MobilePairingError`）
+    - `isRemoteControlUrl(u: string): boolean` — `https://claude.ai/` で始まり、URL として解釈できるものだけ true
     - `seal(key: CryptoKey, aad: string, value: unknown): Promise<string>` — 戻りは base64url(`iv(12) || ciphertext||tag`)
     - `open<T>(key: CryptoKey, aad: string, sealed: string): Promise<T>` — 失敗は `MobileOpenError` を投げる
     - AAD の作り方：`aadFeed(deviceId)` = `feed:<deviceId>`、`aadLaunch(id, targetDevice)` = `launch:<id>:<targetDevice>`、`aadAnswer(id)` = `answer:<id>`
@@ -129,6 +140,9 @@
     - `AAD が違うと open が MobileOpenError を投げる`（`aadFeed('a')` で封じて `aadFeed('b')` で開く）
     - `別の joinSecret の鍵では開けない`
     - `同じ値を 2 回封じると別の文字列になる`（IV が乱数）
+    - `importMobileKey(deriveMobileKeyBytes(s)) で封じたものを deriveMobileKey(s) で開ける`、`既定の import は exportKey できない`
+    - `decodePairing(encodePairing(b))` が元に戻る／壊れた文字列は `MobilePairingError`
+    - `isRemoteControlUrl`：`https://claude.ai/code/x` は true、`javascript:alert(1)`、`https://claude.ai.evil.example/`、`http://claude.ai/` は false
     - `R2 の鍵と別物である`：`deriveMobileKey(s)` を `exportKey` できないので、代わりに同じ秘密で Node の `deriveFileKey(s)` の生バイトを AES-GCM の鍵として import して開くと失敗することを確かめる（`packages/server/src/sync/crypto.ts` を試験から読む）
   - `mobile.test.ts`
     - `clampText は 300 字で切り、末尾に … を付ける`／`null と空文字は null`
@@ -153,17 +167,25 @@
   - D1：
     - `DEVICE_ADDED_COLUMNS` に `kind text not null default 'pc'`
     - `create table if not exists mobile_feeds (device_id text primary key, sealed text not null, updated_at integer not null)`
+    - `create table if not exists mobile_pairings (code_hash text primary key, created_by text not null, created_at integer not null, used_at integer)` と `create index if not exists mobile_pairings_by on mobile_pairings(created_by, created_at)`
+  - 定数：`PAIRING_TTL_MS = 5 * 60_000`、`PAIRING_RATE = { max: 5, windowMs: 10 * 60_000 }`
   - `requireKind(kind: 'pc' | 'mobile'): MiddlewareHandler` — 違えば 403 `{error:'forbidden'}`
   - 口（`/m/` 以下。参加以外は Bearer）：
-    - `POST /m/join`（トークン不要）：`MobileJoinRequest` → 201 `MobileJoinResponse`。照合は `/join` と同じ関数を使い、`devices` に `kind='mobile'`、`platform='mobile'` で upsert
+    - `POST /m/pairings`（pc だけ）：201 `MobilePairingResponse`。`randomToken(16)` を返し、D1 にはハッシュだけ。同じ PC から 10 分に 5 枚を超えたら 429。ついでに 1 日より古い券の行を消す
+    - `POST /m/join`（トークン不要）：`MobileJoinRequest` → 201 `MobileJoinResponse`。`update mobile_pairings set used_at=? where code_hash=? and used_at is null and created_at > ?` の `meta.changes === 1` のときだけ、`devices` に `kind='mobile'`、`platform='mobile'` で insert（新しい ID、既存の行を上書きしない）。それ以外は 401。参加の秘密では参加できない
+    - `POST /join`（今の PC の参加）：`device.id` が `kind='mobile'` の行と同じなら 409（スマホの行を PC に付け替えさせない）
     - `PUT /m/feed`（pc だけ）：本文 `{ sealed: string }`、64 KiB を超えたら 413。`insert ... on conflict(device_id) do update`。`touchIfDue` も呼ぶ
     - `GET /m/inbox`（mobile だけ）：`MobileInboxResponse`。`devices` は `kind='pc' and revoked_at is null`、`feeds` は解除されていない PC の分だけ
   - 既存の口（`/changes`、`/rows`、`/files`、`/devices`、`/usage`）は `requireKind('pc')`
   - `GET /changes` の `peers` から `kind='mobile'` を外す
 
 - [ ] **Step 1: 落ちる試験を書く**（`test/harness.ts` の `startCloud` を使う）
-  - `スマホが参加トークンの秘密で参加でき、kind=mobile のトークンを受け取る`
-  - `違う秘密では 401`
+  - `PC が取った券でスマホが参加でき、kind=mobile のトークンを受け取る`
+  - `同じ券の 2 回目は 401`、`5 分を過ぎた券は 401`、`存在しない券は 401`
+  - `参加の秘密を /m/join に渡しても参加できない`
+  - `解除したスマホは、前に使った券でも、新しい券なしでも戻れない`（新しい券なら新しい行として参加できる）
+  - `スマホのトークンで POST /m/pairings は 403`、`同じ PC が 10 分に 6 枚目を取ると 429`
+  - `スマホの行の ID で POST /join すると 409`
   - `スマホのトークンで GET /changes、POST /changes、GET /rows、GET /files、GET /devices は 403`
   - `PC のトークンで GET /m/inbox は 403、スマホのトークンで PUT /m/feed は 403`
   - `PC が PUT /m/feed した行を、スマホの GET /m/inbox が返す。同じ PC の 2 回目は上書きで行は 1 つ`
@@ -172,7 +194,7 @@
   - `peers にスマホが出ない`
   - `compat.test.ts`：`版 6 の PC（x-hangar-compat: 6）の push と pull が通る`、`/health の compat が 7`
 - [ ] **Step 2: 落ちるのを見る** — `npx vitest run --project cloud mobile compat`
-- [ ] **Step 3: 実装する。** `kind` の列は既存の `addDeviceColumns` の仕組みで足す。`/m/join` の照合は `joinHandler` の中の照合部分を関数に切り出して共有する。
+- [ ] **Step 3: 実装する。** `kind` の列は既存の `addDeviceColumns` の仕組みで足す。トークンの発行とハッシュの保存は `joinHandler` の中の部分を関数に切り出して共有する（秘密の照合は共有しない）。
 - [ ] **Step 4: 通るのを見る**（`--project cloud` 全部）、`npm run typecheck`
 - [ ] **Step 5: コミット** — `feat(cloud): mobile join, scoped tokens and the inbox feed`
 
@@ -187,8 +209,10 @@
 **Interfaces:**
 - Consumes: Task 2 の `requireKind`、Task 1 の `MobileLaunchIn/Out/Status`、`LAUNCH_TTL_MS`
 - Produces:
-  - D1：`create table if not exists launch_requests (id text primary key, target_device text not null, from_device text not null, sealed text not null, status text not null, created_at integer not null, claimed_at integer, answered_at integer, sealed_answer text)` と `create index if not exists launch_requests_target on launch_requests(target_device, status, created_at)`
-  - `POST /m/launches`（mobile）：`MobileLaunchIn` → 201 `MobileLaunchStatus`。`insert or ignore`（同じ id の再送は既存の行の状態を返す）。宛先が `kind='pc'` で解除されていない PC でなければ 404。本文 16 KiB 上限。同じ要求のついでに `created_at < now - 7日` の行を消す
+  - D1：`create table if not exists launch_requests (id text primary key, target_device text not null, from_device text not null, sealed text not null, status text not null, created_at integer not null, claimed_at integer, answered_at integer, sealed_answer text)` と `create index if not exists launch_requests_target on launch_requests(target_device, status, created_at)`、`create index if not exists launch_requests_from on launch_requests(from_device, created_at)`
+  - 定数：`LAUNCH_RATE = { max: 10, windowMs: 10 * 60_000 }`
+  - `POST /m/launches`（mobile）：`MobileLaunchIn` → 201 `MobileLaunchStatus`。`insert or ignore`（同じ id の再送は既存の行の状態を返す）。宛先が `kind='pc'` で解除されていない PC でなければ 404。本文 16 KiB 上限。同じスマホの直近 10 分の依頼が 10 件に達していたら 429（`launch_requests_from` の索引で数える）。同じ要求のついでに `created_at < now - 7日` の行を消す
+  - `GET /m/launches/:id` と応答の読み取りは、依頼を出したスマホ（`from_device`）だけ。ほかは 404
   - `GET /m/launches/:id`（mobile）：`MobileLaunchStatus`。`pending` で TTL を過ぎていれば `expired` と返す（行も `expired` に書き換える）
   - `GET /changes`（pc）：応答に `launches: MobileLaunchOut[]` を足す。`target_device = 自分 and status = 'pending' and created_at > now - LAUNCH_TTL_MS`、索引で引く
   - `POST /m/launches/:id/claim`（pc）：`update ... set status='claimed', claimed_at=? where id=? and target_device=? and status='pending' and created_at > ?`。`meta.changes === 1` なら 200 `{ok:true}`、それ以外は 409
@@ -201,6 +225,8 @@
   - `TTL を過ぎた依頼は pull に出ず、claim は 409、スマホの GET は expired`（時刻は harness の時計か `Date` の差し替えで進める。harness に時計が無ければ、行の `created_at` を D1 で直接古くする）
   - `answer の後、スマホの GET が started と sealedAnswer を返す`
   - `解除された PC 宛ての依頼は 404`
+  - `同じスマホの 11 件目（10 分以内）は 429、同じ id の再送は数えない`
+  - `ほかのスマホの依頼の GET は 404`
   - `版 6 の PC の pull でも応答の形は壊れない`（`launches` は余分な欄として無視される）
 - [ ] **Step 2: 落ちるのを見る**
 - [ ] **Step 3: 実装する**
@@ -344,11 +370,11 @@
 - Consumes: `Tmux.capturePane`（`pane.ts` の `capture(name)`）
 - Produces:
   - v30：`create table run_remote_urls (session_id text primary key, url text not null, at integer not null)`（同期しない。会話ごとに最新の 1 つ）
-  - `extractRemoteUrl(screen: string): string | null` — 正規表現は Task 0 の実物の形に合わせる。既定は `https://claude\.ai/code/[A-Za-z0-9_\-/?=&.]+`
+  - `extractRemoteUrl(screen: string): string | null` — 正規表現は Task 0 の実物の形に合わせる。既定は `https://claude\.ai/code/[A-Za-z0-9_\-/?=&.]+`。取り出した後に `isRemoteControlUrl` を通らなければ null
   - `watchRemoteUrl(o: { capture: () => string; onFound: (url: string) => void; timers: Timers; everyMs?: number; forMs?: number }): () => void`（既定 2 秒ごと、60 秒まで）
   - 見つけたら `run_remote_urls` に書き、`MobileFeedPublisher.nudge()` を呼ぶ
 - [ ] **Step 1: 落ちる試験を書く**
-  - `extractRemoteUrl`：Task 0 で記録した画面の行（題などを作り物に置き換えたもの）から URL を取り出す／URL の無い画面は null／折り返しで途中の改行が入った URL は（実物で起きるなら）つなぐ
+  - `extractRemoteUrl`：Task 0 で記録した画面の行（題などを作り物に置き換えたもの）から URL を取り出す／URL の無い画面は null／`https://claude.ai.evil.example/code/x` のような偽の行は null／折り返しで途中の改行が入った URL は（実物で起きるなら）つなぐ
   - `watchRemoteUrl`：`3 回目の読みで見つかれば onFound が 1 回呼ばれ、以後は読まない`／`60 秒で諦める`／`stop を返す`
   - `feed.test.ts` に追記：`run_remote_urls にある会話は rcUrl が入る`
 - [ ] **Step 2〜4: 落ちる→実装→通る**
@@ -366,11 +392,12 @@ Task 0 で選ばれた案で作る。
 
 **Interfaces:**
 - Produces:
-  - `GET /api/sync/mobile-pairing` → `{ state: 'ready'; url: string; joinUrl: string } | { state: 'not-joined' } | { state: 'worker-too-old'; compat: number | null }`。`joinUrl = <url>/app/#join=<encodeJoinToken({url, secret})>`
+  - `CloudClient.createPairing?(): Promise<MobilePairingResponse>`（`POST /m/pairings`）
+  - `POST /api/sync/mobile-pairing` → `{ state: 'ready'; pairUrl: string; pairText: string; expiresAt: number } | { state: 'not-joined' } | { state: 'worker-too-old'; compat: number | null } | { state: 'rate-limited' }`。`pairText = encodePairing({ url, code, key: base64url(deriveMobileKeyBytes(joinSecret)) })`、`pairUrl = <url>/app/#pair=<pairText>`。押すたびに新しい券を取る（GET にしない）
   - `api.mobilePairing(): Promise<MobilePairingDto>`
 - [ ] **Step 1: 落ちる試験を書く**
-  - `sync.test.ts`：`参加していなければ not-joined`、`Worker の版が 6 なら worker-too-old`、`ready の joinUrl のフラグメントを decodeJoinToken すると cloud.json の url と秘密に戻る`
-  - `CloudMember.test.tsx`：`「スマホをつなぐ」を押すと QR（svg）と注意書きが出る`、`kind=mobile の行に「スマホ」の印が出て、解除のボタンがある`、`worker-too-old では QR を出さず、更新を促す文を出す`、`解除の確認に「参加の秘密を作り直さないと手元の暗号文は読める」旨の文がある`
+  - `sync.test.ts`：`参加していなければ not-joined`、`Worker の版が 6 なら worker-too-old`、`ready の pairText を decodePairing すると url と券と鍵が入り、参加の秘密の文字列はどこにも含まれない`、`鍵で封じたものを deriveMobileKey(joinSecret) で開ける`
+  - `CloudMember.test.tsx`：`「スマホをつなぐ」を押すと QR（svg）と残り時間（5 分）と「この QR を人に見せない」旨の注意書きが出る`、`5 分たつと QR を消して「もう一度つなぐ」を出す`、`kind=mobile の行に「スマホ」の印が出て、解除のボタンがある`、`worker-too-old では QR を出さず、更新を促す文を出す`、`スマホを外す確認に「外したスマホは戻れない。スマホからは選んだ権限モードで全部の PC に会話を起こせるので、なくしたらすぐ外す」旨の文がある`
   - `SettingsScreen.test.tsx`：`「会話を Claude アプリにつなぐ」の切り替えが PATCH { remoteControl } を送る`
 - [ ] **Step 2〜4: 落ちる→実装→通る**。文言は ja と en の両方に足す。
 - [ ] **Step 5: 画面を撮って自分で見る**（memory の reference-overlay-ui-check の手順。読むだけ、押さない）
@@ -388,22 +415,24 @@ Task 0 で選ばれた案で作る。
 **Interfaces:**
 - Consumes: Task 1 の型と暗号、Task 2 の `POST /m/join`・`GET /m/inbox`
 - Produces:
-  - `store.ts`：`type Pairing = { url: string; secret: string; token: string; deviceId: string }`、`loadPairing(): Pairing | null`、`savePairing(p: Pairing): void`、`clearPairing(): void`（`localStorage`、読み書きは try/catch）
-  - `api.ts`：`joinPhone(joinToken: string, name: string): Promise<Pairing>`、`fetchInbox(p: Pairing): Promise<MobileInboxResponse>`（401 は `UnpairedError`）
+  - `store.ts`：`type Pairing = { url: string; token: string; deviceId: string }`、`loadPairing(): Pairing | null`、`savePairing(p: Pairing): void`、`clearPairing(): void`（`localStorage`、読み書きは try/catch）。`loadKey(): Promise<CryptoKey | null>`、`saveKey(k: CryptoKey): Promise<void>`（IndexedDB に non-extractable の `CryptoKey` をそのまま入れる）
+  - `api.ts`：`joinPhone(pairText: string, name: string): Promise<{ pairing: Pairing; key: CryptoKey }>`（`decodePairing` → `importMobileKey(key, false)` → `POST /m/join`）、`fetchInbox(p: Pairing): Promise<MobileInboxResponse>`（401 は `UnpairedError`）
   - `inbox.ts`：`type InboxView = { waiting: Row[]; running: Row[]; returning: Row[]; doneToday: Row[]; devices: DeviceAlive[]; unreadable: string[] }`、`openInbox(res: MobileInboxResponse, key: CryptoKey, now: Date): Promise<InboxView>`
     - 復号できない PC の分は `unreadable` に PC 名を入れ、ほかは続ける
     - `now - lastSeenAt > PEER_STALE_MS` の PC の live は、状態を `unknown` にして running の末尾へ（waiting にも出さない）
     - 「今日」はスマホの日付。returns は `returnOn` が今日のもの、done は `doneAt` が今日のもの
     - 同じ sessionId が複数の PC から来たら、live を優先し、次に新しい時刻のもの
-  - 行を押すと `rcUrl ?? 'https://claude.ai/code'` を開く
+  - 行を押すと、`rcUrl` が `isRemoteControlUrl` を通ればそれを、通らなければ `https://claude.ai/code` を開く（PC から来た値も信じない）
   - 読み直し：開いたとき、`visibilitychange` で見えたとき、下に引いたとき、見えている間 30 秒ごと
-  - `#join=` 付きで開かれたら JoinScreen で端末名を入れて参加し、成功したらフラグメントを `history.replaceState` で消す
+  - `#pair=` 付きで開かれたら、まずフラグメントを `history.replaceState` で消して手元の変数に持ち、JoinScreen で端末名を入れて参加する
+  - すべての feed が開けないとき（秘密の作り直しの後）は「つなぎ直してください」と出す
 
 - [ ] **Step 1: 落ちる試験を書く**
   - `inbox.test.ts`：`waiting は statusAt の古い順（長く待っているものが上）`、`3 分見ていない PC の会話は unknown で running の末尾、waiting に出ない`、`開けない PC は unreadable に入り、ほかの PC の行は出る`、`今日戻るは returnOn が今日のものだけ`、`同じ会話が 2 つの PC から来たら live の方`
-  - `store.test.ts`：`localStorage が投げても loadPairing は null を返す`
-  - `JoinScreen.test.tsx`：`#join= のトークンで参加すると savePairing され、フラグメントが消える`、`トークンを貼る欄から参加できる`、`壊れたトークンは文で知らせる`
-  - `InboxScreen.test.tsx`：`見出しが「あなたの番 N」`、`待っている内容の 1 行と PC 名が出る`、`rcUrl の無い行は claude.ai/code へのリンク`、`401 なら参加の画面に戻る`
+  - `store.test.ts`：`localStorage が投げても loadPairing は null を返す`、`saveKey した鍵を loadKey で取り出して開封に使え、exportKey は失敗する`（jsdom に IndexedDB が無ければ `fake-indexeddb` を dev 依存に足す）
+  - `JoinScreen.test.tsx`：`#pair= で開くと参加の前にフラグメントが消える`、`参加すると savePairing と saveKey が呼ばれ、localStorage に鍵の文字列が残らない`、`つなぐ文字列を貼る欄から参加できる`、`使用済み・期限切れの券（401）は「QR を出し直してください」と出す`
+  - `InboxScreen.test.tsx`：`見出しが「あなたの番 N」`、`待っている内容の 1 行と PC 名が出る`、`rcUrl の無い行は claude.ai/code へのリンク`、`401 なら参加の画面に戻る`、`題・待っている内容・意図に <img src=x onerror=...> が入っていても img 要素は作られず文字として出る`、`rcUrl が javascript: や別のホストなら claude.ai/code へのリンクになる`、`全部の feed が開けなければ「つなぎ直してください」`
+  - `packages/mobile/src/noInnerHtml.test.ts`：`src/ の中に dangerouslySetInnerHTML と innerHTML の代入が無い`（ファイルを読んで grep する試験）
 - [ ] **Step 2〜4: 落ちる→実装→通る**。見た目は「画面のメモ」（Task 0）どおり。色の値は `packages/ui/src/styles/tokens.css` から写す。暗い配色の指定を書かない。
 - [ ] **Step 5: 端末幅（390×844）で撮って自分で見る**（`npm run dev -w @agent-hangar/mobile` と偽の inbox の応答。Playwright の route で `/m/inbox` を差し替える）
 - [ ] **Step 6: コミット** — `feat(mobile): PWA shell, pairing and the inbox`
@@ -437,13 +466,14 @@ Task 0 で選ばれた案で作る。
 
 **Files:**
 - Modify: `packages/cli/src/cloud.ts`（`writeWranglerConfig` に `assets: { directory: <mobile の dist> }`、`runSetupCloud` が配備の前に `npm run build -w @agent-hangar/mobile` を回す）, `packages/cloud/wrangler.jsonc`（開発用にも同じ `assets`）, `packages/mobile/package.json`（`build`）
+- Create: `packages/mobile/public/_headers`（`/app/*` に、決定の表「画面の守り」の CSP と `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`）
 - Test: `packages/cli/src/cloud.test.ts`（`writeWranglerConfig` の出力）
 
 **Interfaces:**
 - Produces：`writeWranglerConfig(home, { name, main, dbName, dbId, bucketName, assetsDir })` の `assetsDir`。配信は `/app/` 以下、API は `/m/`。Worker のコードは静的ファイルの経路を持たない（`assets` が先に当たる）
 - [ ] **Step 1: 落ちる試験を書く** — `書いた wrangler.jsonc の assets.directory が mobile の dist を指す`、`mobile の dist が無いときは build を回してから配備する`（コマンドの呼び出しを記録する偽物で）
 - [ ] **Step 2〜4: 落ちる→実装→通る**
-- [ ] **Step 5: 手元で `wrangler dev --config packages/cloud/wrangler.jsonc` を起こし、`/app/` が index.html を返し、`/app/manifest.webmanifest` の content-type が manifest であることを curl で確かめる**（ローカルだけ、クラウドに触らない）
+- [ ] **Step 5: 手元で `wrangler dev --config packages/cloud/wrangler.jsonc` を起こし、`/app/` が index.html を返し、`/app/manifest.webmanifest` の content-type が manifest であること、`/app/` の応答に CSP の見出しが付くことを curl で確かめる**（ローカルだけ、クラウドに触らない）。build 後の `dist/app/index.html` にインラインの `<script>` が無いこと（CSP で止まるため）も見る
 - [ ] **Step 6: コミット** — `feat(cloud): serve the mobile app from the Worker`
 
 ---
@@ -451,7 +481,7 @@ Task 0 で選ばれた案で作る。
 ### Task 13: 文書
 
 **Files:**
-- Modify: `docs/design.md`（「クラウド同期」に「スマホ」の節：表 2 つ、トークンの種類、暗号の鍵と AAD、依頼の握手、互換の版 7、書き込みと読み取りの見積もり）, `docs/cloud-sync.md`（割り切りに「スマホは参加の秘密を持つ」「スマホを外しても暗号文は読める、守るには秘密を作り直す」）, `README`（スマホの使い方の短い節。あれば）
+- Modify: `docs/design.md`（「クラウド同期」に「スマホ」の節：表 3 つ、トークンの種類、ペアリング券、暗号の鍵と AAD、依頼の握手、回数の制限、CSP、互換の版 7、書き込みと読み取りの見積もり）, `docs/cloud-sync.md`（割り切りに「スマホは参加の秘密を持たず、スマホ用の鍵と券で参加する」「スマホからは承諾なしで、選んだ権限モードの会話を全部の PC に起こせる。なくしたらすぐ外す」「Worker が配る画面の暗号は、Cloudflare のアカウントを取られて画面を差し替えられると守れない」「秘密を作り直すとスマホはつなぎ直し」）, `README`（スマホの使い方の短い節。あれば）
 
 - [ ] **Step 1: 見積もりを書く。** 書き込み：1 台 1 日、受信箱の素は変化のたび（実際には 1 日 1,000 行前後の見込み、15 秒の間隔での上限は 5,760 行）、依頼は 1 回につき 3 行。読み取り：受信箱 1 回で PC の数×2 行程度、30 秒ごとに 1 日開けっぱなしでも 3 万行。pull の依頼の引きは索引で、該当の行の数だけ。無料枠（書き込み 10 万行・読み取り 500 万行／日）との比を書く。実測は Task 14 で埋める欄を残す。
 - [ ] **Step 2: コミット** — `docs: mobile inbox and remote launch`
