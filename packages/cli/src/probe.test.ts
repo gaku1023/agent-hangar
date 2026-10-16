@@ -99,7 +99,7 @@ describe('probeAuthorized', () => {
 describe('serverDownMessage', () => {
   it('サーバが居ないときは hangar start を案内し、鍵は出さない', () => {
     const m = serverDownMessage(4177);
-    expect(m).toContain('サーバが起動していません');
+    expect(m).toContain('サーバーが起動していません');
     expect(m).toContain('hangar start');
     expect(m).toContain('4177');
     expect(m.split('\n')).toHaveLength(1);

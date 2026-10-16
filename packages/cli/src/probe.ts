@@ -86,7 +86,7 @@ export async function probeAuthorized(port: number, token: string, timeoutMs = 1
 
 /** サーバが居ないポートを指したときの案内。開く前にこれを出す。 */
 export function serverDownMessage(port: number): string {
-  return `ポート ${port} でサーバが起動していません。\`hangar start\` で起動してください。`;
+  return `ポート ${port} でサーバーが起動していません。\`hangar start\` で起動してください。`;
 }
 
 /**
@@ -131,5 +131,5 @@ export function startErrorMessage(e: unknown, port: number): string {
   if (code === 'EADDRNOTAVAIL') {
     return `ポート ${port} を開けません。127.0.0.1 が使える状態か確認してください。`;
   }
-  return `サーバを起動できませんでした: ${oneLineError(e)}`;
+  return `サーバーを起動できませんでした: ${oneLineError(e)}`;
 }

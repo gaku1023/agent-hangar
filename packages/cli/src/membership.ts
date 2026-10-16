@@ -209,8 +209,8 @@ export async function joinCommand(o: Out & { home: string; token: string; device
       const plan = joinPlan(o);
       if (o.json) log(JSON.stringify({ ok: true, plan }));
       else {
-        log(`宛先: ${plan.url}（ホスト ${plan.host}）`);
-        if (plan.current) log(`現在の宛先: ${plan.current.url}（${plan.change === 'same' ? '同じクラウド' : '別のクラウド、または参加トークンが違う'}）`);
+        log(`接続先: ${plan.url}（ホスト ${plan.host}）`);
+        if (plan.current) log(`現在の接続先: ${plan.current.url}（${plan.change === 'same' ? '同じクラウド' : '別のクラウド、または参加トークンが違う'}）`);
       }
       return 0;
     }
@@ -264,14 +264,14 @@ export async function leaveCommand(o: Out & { home: string; deviceId: string; re
       const read = readCloudConfig(o.home);
       if (read.config?.workerName) log('この PC はクラウドを作成した PC です。参加を解除すると、hangar cloud teardown でクラウドを削除できなくなります。クラウドごと削除する場合は、先に teardown を実行してください。');
       log(`この PC の同期の設定（${cloudConfigPath(o.home)}）を削除します${o.revoke ? '。クラウドの一覧でも、この PC を解除します' : ''}。`);
-      log('クラウドのトランスクリプト、ほかの PC の同期、この PC に受信済みのトランスクリプトは残ります。元に戻すには、参加トークンでもう一度参加します。');
+      log('クラウドのトランスクリプト、他の PC の同期、この PC に受信済みのトランスクリプトは残ります。元に戻すには、参加トークンでもう一度参加します。');
       if (!(await o.confirm('この PC の参加を解除しますか。', 'y'))) { log('参加を解除しませんでした'); return 1; }
     }
     const result = await leaveCloud(o);
     if (o.json) log(JSON.stringify({ ok: true, result }));
     else {
       log('この PC の参加を解除しました。hangar を再起動すると同期が停止します。');
-      if (result.revokeError) log(`クラウドでの解除に失敗しました（${result.revokeError}）。ほかの PC の設定のクラウド同期から、この PC を解除してください。`);
+      if (result.revokeError) log(`クラウドでの解除に失敗しました（${result.revokeError}）。他の PC の設定のクラウド同期から、この PC を解除してください。`);
     }
     return 0;
   } catch (e) {

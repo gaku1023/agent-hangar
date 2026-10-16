@@ -240,7 +240,8 @@ describe.skipIf(!host)('bundleServer', () => {
     // 2026-10-07 の試しでは約 240KB だった。サーバを抱えると 2MB を超える。
     // 辞書（shared の i18n）を丸ごと束ねるので、段 4 で画面の文が増えるにつれて太る（2026-10-10 に約 550KB）。サーバを抱えたかを見分けるには 768KB で足りる。
     // 0.4.0 で参加と PC の一覧、連携の見立ての CLI を足して約 790KB になったので、上限を 1MB にした（サーバを抱えた 2MB とは十分に離れている）。
-    expect(fs.statSync(path.join(out, 'cli.mjs')).size).toBeLessThan(1024 * 1024);
+    // 2026-10-17 に CLI と画面の語をそろえた（サーバーなど）ところ 1MB をわずかに超えたので、上限を 1.5MB にした（サーバーを抱えた 2MB とはまだ離れている）。
+    expect(fs.statSync(path.join(out, 'cli.mjs')).size).toBeLessThan(1.5 * 1024 * 1024);
   });
 
   it('cloud/ には Worker を 1 本に束ねた worker.mjs と束縛の定義 metadata.json だけを置き、源の写しを置かない', async () => {

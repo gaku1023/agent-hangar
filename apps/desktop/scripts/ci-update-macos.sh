@@ -120,7 +120,7 @@ got=""
 deadline=$((SECONDS + 300))
 while [ $SECONDS -lt $deadline ]; do
   got="$(health_version)"
-  if [ "$got" = "$version_a" ] && [ "$saw_a" = 0 ]; then saw_a=1; echo "版 A のサーバが応えた"; fi
+  if [ "$got" = "$version_a" ] && [ "$saw_a" = 0 ]; then saw_a=1; echo "版 A のサーバーが応えた"; fi
   [ "$got" = "$version_b" ] && break
   if [ -f "$log" ] && grep -Eq 'update: (check|download|install) failed' "$log"; then
     grep -E 'update: (check|download|install) failed' "$log" >&2
@@ -134,9 +134,9 @@ echo '--- desktop.log ---'
 echo '--- serve.log ---'
 cat "$out/serve.log"
 fail() { echo "$1" >&2; exit 1; }
-[ "$saw_a" = 1 ] || fail "版 A のサーバが応えなかった"
+[ "$saw_a" = 1 ] || fail "版 A のサーバーが応えなかった"
 [ "$got" = "$version_b" ] || fail "更新のあと $health が版 $version_b を名乗らなかった（最後の答え: ${got:-なし}）"
-echo "起き直した殻のサーバが版 $version_b を名乗った"
+echo "起き直した殻のサーバーが版 $version_b を名乗った"
 [ "$(plist_version "$app")" = "$version_b" ] || fail "入れ替えた .app の版が $(plist_version "$app")（期待は ${version_b}）"
 [ ! -e "$injected" ] || fail "版 A に差し込んだ台本が残っている（.app が入れ替わっていない）"
 for mark in "update: checked, found $version_b" "update: downloaded $version_b" "update: installed, restarting"; do

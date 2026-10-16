@@ -164,14 +164,14 @@ function planMcp(target: 'mcp-install' | 'mcp-uninstall', env: SetupEnv): SetupP
   const exists = fs.existsSync(env.claudeJson);
   const backup = exists ? path.join(env.home, 'backups', `claude.json-${BACKUP_STAMP}`) : null;
   if (target === 'mcp-uninstall') {
-    if (cur === undefined) return stop(target, 'noop', 'absent', 'user スコープに MCP サーバ hangar は登録されていません。');
+    if (cur === undefined) return stop(target, 'noop', 'absent', 'user スコープに MCP サーバー hangar は登録されていません。');
     return plan(target, { state: 'ready', reason: null, backup, secret: true, files: [{ path: env.claudeJson, op: 'remove', what: 'mcp.remove', where: 'json', lines: mcpLines(servers, 'hangar', cur, undefined), watch: mcpWatch(servers) }] });
   }
   // claude が入っていない PC に登録しても意味が無い（runMcpInstall と同じ確かめ）。
   if ((env.exec ?? execCli)('claude', ['--version']).notFound) return stop(target, 'blocked', 'no-claude', 'Claude Code が見つかりません。claude コマンドをインストールするか、PATH を通してから実行してください。');
   ensureHome(env.home);
   const want = mcpServer(env, readOrCreateToken(env.home));
-  if (cur !== undefined && JSON.stringify(cur) === JSON.stringify(want)) return stop(target, 'noop', 'already', 'user スコープに MCP サーバ hangar は登録済みです。');
+  if (cur !== undefined && JSON.stringify(cur) === JSON.stringify(want)) return stop(target, 'noop', 'already', 'user スコープに MCP サーバー hangar は登録済みです。');
   return plan(target, {
     state: 'ready', reason: null, backup, secret: true,
     files: [{ path: env.claudeJson, op: exists ? 'modify' : 'create', what: cur === undefined ? 'mcp.add' : 'mcp.replace', where: 'json', lines: mcpLines(servers, 'hangar', cur, want), watch: mcpWatch(servers) }],

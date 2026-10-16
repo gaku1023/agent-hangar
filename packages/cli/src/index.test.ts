@@ -98,7 +98,7 @@ describe('hangar setup', () => {
     const r = await runCli(['setup', '--skip-statusline', '--skip-shell']);
     expect(r.code).toBe(0);
     expect(r.out).toContain('データディレクトリ:');
-    expect(r.out).toContain('MCP サーバは hangar mcp install で登録できます。');
+    expect(r.out).toContain('MCP サーバーは hangar mcp install で登録できます。');
     const h = await runCli(['setup', '--help']);
     expect(h.out).toContain('--skip-statusline');
     expect(h.out).toContain('--skip-shell');
@@ -191,7 +191,7 @@ describe('hangar open', () => {
     const port = await deadPort();
     const r = await runCli(['open', '--port', String(port)]);
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain('サーバが起動していません');
+    expect(r.out).toContain('サーバーが起動していません');
     expect(r.out).toContain('hangar start');
     // 開かない。鍵も出さない。
     expect(await waitOpened(400)).toBe('');

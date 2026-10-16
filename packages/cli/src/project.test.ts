@@ -84,7 +84,7 @@ describe('hangar project candidates', () => {
   it('サーバが止まっていれば exit 2。人向けは案内を標準エラーへ、--json は標準出力に server_down', async () => {
     const o = outs();
     expect(await candidatesCommand(base(o, downFetch))).toBe(2);
-    expect(o.err).toEqual(['ポート 4177 でサーバが起動していません。`hangar start` で起動してください。']);
+    expect(o.err).toEqual(['ポート 4177 でサーバーが起動していません。`hangar start` で起動してください。']);
     expect(o.out).toEqual([]);
     const j = outs();
     expect(await candidatesCommand(base(j, downFetch, true))).toBe(2);
@@ -114,7 +114,7 @@ describe('hangar project add', () => {
     expect(o.out).toEqual([
       '登録します: /w/one（名前 one、未分類の会話 2 件が入ります）',
       '登録済み: /w/alpha（名前 alpha。アーカイブから戻します）',
-      '関連付けます: /w/far（ほかの PC のプロジェクト far-old、未分類の会話 1 件が入ります）',
+      '関連付けます: /w/far（他の PC のプロジェクト far-old、未分類の会話 1 件が入ります）',
       '--dry-run のため、何も書き込んでいません。',
     ]);
   });
@@ -126,7 +126,7 @@ describe('hangar project add', () => {
     expect(o.out).toEqual([
       '登録しました: /w/one（名前 one、未分類の会話 2 件が入りました）',
       '登録済み: /w/alpha（名前 alpha。アーカイブから戻しました）',
-      '関連付けました: /w/far（ほかの PC のプロジェクト far-old、未分類の会話 1 件が入りました）',
+      '関連付けました: /w/far（他の PC のプロジェクト far-old、未分類の会話 1 件が入りました）',
     ]);
   });
   it('入れ子とそのほかの失敗も全件出し、1 件でもあれば exit 1。入れ子はアプリで決めるよう案内する', async () => {
@@ -186,7 +186,7 @@ describe('hangar project remove', () => {
       `一覧から削除します: alpha（${alpha}）`,
       '会話 3 件が未分類に戻ります。',
       '会話は未分類に戻るだけです。トランスクリプトとディレクトリはそのまま残ります。',
-      '同期しているほかの PC の一覧からも削除されます。',
+      '同期している他の PC の一覧からも削除されます。',
       '--dry-run のため、何も書き込んでいません。',
     ]);
   });
@@ -229,7 +229,7 @@ describe('hangar workspace set / unset', () => {
       '新しいディレクトリの作成先: 未設定 → /w2',
       '保存すると、直下の次のディレクトリを自動で登録します（2 件）:',
       '  登録します: /w2/a（名前 a、未分類の会話 4 件が入ります）',
-      '  関連付けます: /w2/b（ほかの PC のプロジェクト b-old、未分類の会話 0 件が入ります）',
+      '  関連付けます: /w2/b（他の PC のプロジェクト b-old、未分類の会話 0 件が入ります）',
       '--dry-run のため、何も書き込んでいません。',
     ]);
   });

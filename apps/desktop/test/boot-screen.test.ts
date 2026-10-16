@@ -264,7 +264,7 @@ describe('起動の失敗の札', () => {
     await boot();
     await fail();
     expect($('fail-title').textContent).toBe('ポート 4177 を別のアプリが使用しています');
-    expect($('fail-what').textContent).toContain('hangar のサーバではない別のプロセス');
+    expect($('fail-what').textContent).toContain('hangar のサーバーではない別のプロセス');
     const steps = [...$('fail-steps').querySelectorAll('li')].map((li) => li.textContent);
     expect($('fail-steps').tagName).toBe('OL');
     expect(steps).toHaveLength(3);

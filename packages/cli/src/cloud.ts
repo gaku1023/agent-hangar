@@ -366,7 +366,7 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       r = await o.fetch(`${url}/join`, { method: 'POST', headers: { 'content-type': 'application/json', ...compatHeaders() }, body: JSON.stringify({ secret, device }), signal: ac.signal });
     } catch (e) {
       // 打ち切りも接続の失敗も、待たずにその場で断る。秘密は文面に載せない。
-      if (timedOut) throw new JoinError('timeout', `${url} が ${timeout} ミリ秒以内に応答しませんでした。宛先が正しいか、${url}/health が応答するかを確認してください`);
+      if (timedOut) throw new JoinError('timeout', `${url} が ${timeout} ミリ秒以内に応答しませんでした。接続先が正しいか、${url}/health が応答するかを確認してください`);
       throw new JoinError('network', `${url} に接続できませんでした（${reasonOf(e)}）`);
     } finally {
       clearTimeout(timer);
@@ -480,17 +480,17 @@ async function confirmRename(log: (l: string) => void, prev: CloudConfig, name: 
     log(`  現在のリソース: Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}（${prev.url}）`);
     log(`  これから作成するリソース: Worker ${name}、D1 ${name}、R2 ${name}-files`);
     log('');
-    log(`${name} で作成し直すと、cloud.json の宛先が新しい方へ移ります。`);
+    log(`${name} で作成し直すと、cloud.json の接続先が新しい方へ移ります。`);
     log(`teardown は cloud.json に書いてある名前しか見ないため、前のリソース（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この PC からは削除できなくなります。`);
     log('Cloudflare のダッシュボードで削除する必要があり、削除するまで無料枠を消費し続けます。');
     log(`先に削除する場合は、ここで中止して hangar cloud teardown を実行してください（現在の cloud.json は ${prev.workerName} を指しています）。`);
   } else {
     log('警告: この PC は他の PC が作成したクラウドに参加しています。');
     log('');
-    log(`  現在の宛先: ${prev.url}`);
+    log(`  現在の接続先: ${prev.url}`);
     log(`  これから作成するリソース: Worker ${name}、D1 ${name}、R2 ${name}-files`);
     log('');
-    log('自分の Worker を作成すると、cloud.json の宛先がそちらへ移り、現在のクラウドとの同期は停止します。');
+    log('自分の Worker を作成すると、cloud.json の接続先がそちらへ移り、現在のクラウドとの同期は停止します。');
     log('参加トークンは引き継ぐため、すでにダウンロードしたトランスクリプトはそのまま読み取れます。');
   }
   if (!(await confirm('本当に新しいリソースを作成して cloud.json を移しますか？', RENAME_WORD))) throw new Error('cloud.json の切り替えをキャンセルしました');
@@ -619,7 +619,7 @@ async function confirmAccountChange(log: (l: string) => void, prev: CloudConfig,
   log('');
   log(`警告: この PC は別のアカウント（${prev.accountId}）に Worker ${prev.workerName} を作成しています。`);
   log(`作成先のアカウント: ${accountLabel(next)}`);
-  log(`作成し直すと、cloud.json の宛先が新しいアカウントへ移ります。teardown は cloud.json に書いてあるアカウントしか見ないため、前のアカウントのリソース（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この PC からは削除できなくなります。`);
+  log(`作成し直すと、cloud.json の接続先が新しいアカウントへ移ります。teardown は cloud.json に書いてあるアカウントしか見ないため、前のアカウントのリソース（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この PC からは削除できなくなります。`);
   log('先に削除する場合は、ここで中止して hangar cloud teardown を実行してください。');
   if (!(await confirm('本当に別のアカウントに作成して cloud.json を移しますか？', RENAME_WORD))) throw new Error('別のアカウントへの切り替えをキャンセルしました');
 }
@@ -876,23 +876,23 @@ export type JoinCliOptions = {
  */
 function showDestination(log: (l: string) => void, url: string): void {
   log('');
-  log('参加しようとしている宛先:');
+  log('参加しようとしている接続先:');
   log('');
   log(`  ${url}`);
   log(`  ホスト: ${new URL(url).host}`);
   log('');
   log('参加トークンは、このクラウドの全セッションを読み書きできるシークレットです。');
-  log('自分が hangar setup cloud で作成した宛先か、上のホストを目視で確認してください。');
+  log('自分が hangar setup cloud で作成した接続先か、上のホストを目視で確認してください。');
   log('心当たりのないホストの場合、この PC の会話のトランスクリプトがそのホストへアップロードされます。');
 }
 
 /** 参加し直しの警告。参加用の秘密が変わると、前のクラウドの本文を復号できなくなる。 */
 function warnRejoin(log: (l: string) => void, oldUrl: string, newUrl: string, sameUrl: boolean): void {
   log('');
-  log(sameUrl ? '警告: 宛先は同じですが、参加トークンが違います（クラウドを作成した PC で再生成されています）。' : '警告: この PC はすでに別のクラウドに参加しています。');
+  log(sameUrl ? '警告: 接続先は同じですが、参加トークンが違います（クラウドを作成した PC で再生成されています）。' : '警告: この PC はすでに別のクラウドに参加しています。');
   log('');
-  log(`  現在の宛先: ${oldUrl}`);
-  log(`  新しい宛先: ${newUrl}`);
+  log(`  現在の接続先: ${oldUrl}`);
+  log(`  新しい接続先: ${newUrl}`);
   log('');
   log('参加トークンに含まれるシークレットは、トランスクリプトの暗号鍵の材料（deriveFileKey の入力）です。');
   log('現在の参加トークンで暗号化された R2 のファイルは、参加し直した後、この PC では復号できなくなります。');
@@ -915,7 +915,7 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
   const url = t.url.replace(/\/+$/, '');
   if (!o.force) {
     showDestination(log, url);
-    if (!(await confirm('この宛先に参加しますか？', 'y'))) throw new Error('参加をキャンセルしました');
+    if (!(await confirm('この接続先に参加しますか？', 'y'))) throw new Error('参加をキャンセルしました');
     const prev = read.config;
     // 宛先が同じでも、秘密が違えば既存の暗号化ファイルは読めなくなる。見るのは 2 つである。
     if (prev && (prev.url !== url || prev.joinSecret !== t.secret)) {
@@ -923,7 +923,7 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
       if (!(await confirm('本当に cloud.json を上書きしますか？', OVERWRITE_WORD))) throw new Error('参加をキャンセルしました');
     } else if (prev) {
       log('');
-      log('この PC はすでに同じ宛先に、同じ参加トークンで参加しています。参加し直すと、この PC 用のトークンが新しくなります。');
+      log('この PC はすでに同じ接続先に、同じ参加トークンで参加しています。参加し直すと、この PC 用のトークンが新しくなります。');
       if (!(await confirm('cloud.json を上書きしますか？', 'y'))) throw new Error('参加をキャンセルしました');
     }
   }
@@ -1026,9 +1026,9 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
       `同期: ${s.state}${s.error ? `（${s.error}）` : ''}${limited}、未送信 ${s.pending} 件、最終受信 ${relative(s.lastPullAt, t)}、最終送信 ${relative(s.lastPushAt, t)}、PC ${s.deviceCount} 台`,
     );
     // cloud.json はあるのに off なのは、サーバが cloud.json を書く前に起動していたときである（サーバは起動したときにだけ読む）。
-    if (s.state === 'off') lines.push('サーバはクラウド同期の設定を起動時にだけ読み取ります。アプリを終了して開き直すと同期が始まります（hangar start で起動している場合は、停止してから起動し直してください）。');
+    if (s.state === 'off') lines.push('サーバーはクラウド同期の設定を起動時にだけ読み取ります。アプリを終了して開き直すと同期が始まります（hangar start で起動している場合は、停止してから起動し直してください）。');
   } catch {
-    lines.push('同期: サーバは停止中（hangar start で起動すると同期が始まります）');
+    lines.push('同期: サーバーは停止中（hangar start で起動すると同期が始まります）');
   }
   return lines.join('\n');
 }

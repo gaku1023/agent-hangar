@@ -77,7 +77,7 @@ describe('失敗の種類', () => {
 describe('種類ごとの文', () => {
   it('サーバが起きない：Node の確認の命令を添え、置き場の名前を文に入れる', () => {
     const v = view('server-exited', { home: '~/h' });
-    expect(v.title).toBe('サーバを起動できませんでした');
+    expect(v.title).toBe('サーバーを起動できませんでした');
     expect(v.what).toContain('~/h');
     expect(v.command).toBe('node --version');
     expect(v.steps[0]).toContain('もう一度試す');
@@ -188,19 +188,19 @@ describe('種類ごとの文', () => {
       }
     }
     const ja = view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 16, ours: 14 } });
-    expect(ja.title).toBe('この Hangar は、ポート 4177 で動作中の hangar のサーバより古いバージョンです');
-    expect(ja.what).toBe('動作中のサーバはバージョン 16、この Hangar はバージョン 14 です。そのサーバは、この Hangar より新しいバージョンの hangar が起動したものです。そのサーバは自動では停止しません。');
-    expect(ja.steps).toEqual(['Hangar の新しいバージョンをインストールします', 'インストールせずに使う場合は、そのサーバを停止してから「もう一度試す」をクリックします']);
+    expect(ja.title).toBe('この Hangar は、ポート 4177 で動作中の hangar のサーバーより古いバージョンです');
+    expect(ja.what).toBe('動作中のサーバーはバージョン 16、この Hangar はバージョン 14 です。そのサーバーは、この Hangar より新しいバージョンの hangar が起動したものです。そのサーバーは自動では停止しません。');
+    expect(ja.steps).toEqual(['Hangar の新しいバージョンをインストールします', 'インストールせずに使う場合は、そのサーバーを停止してから「もう一度試す」をクリックします']);
     const en = view('compat-mismatch', { os: 'Windows 11', lang: 'en', params: { port: 4177, theirs: 16, ours: 14 } });
     expect(en.title).toBe('This Hangar is older than the hangar server running on 4177');
     expect(en.steps[0]).toBe('Install a newer version of Hangar');
-    expect(view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 14, ours: 16 } }).steps[1]).toBe('「もう一度試す」をクリックします。この Hangar が同梱のサーバを起動します');
+    expect(view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 14, ours: 16 } }).steps[1]).toBe('「もう一度試す」をクリックします。この Hangar が同梱のサーバーを起動します');
     expect(view('db-too-old', { os: 'Windows 11', lang: 'en', params: { found: 6, baseline: 10 } }).what).toContain('this Hangar can update version 10 or later');
   });
   it('macOS の札の文は、Hangar.app と呼ぶまま変えない', () => {
     const v = view('compat-mismatch', { params: { port: 4177, theirs: 16, ours: 14 } });
-    expect(v.title).toBe('この Hangar.app は、ポート 4177 で動作中の hangar のサーバより古いバージョンです');
-    expect(v.steps).toEqual(['Hangar.app を新しいバージョンに置き換えます', '置き換えずに使う場合は、そのサーバを停止してから「もう一度試す」をクリックします']);
+    expect(v.title).toBe('この Hangar.app は、ポート 4177 で動作中の hangar のサーバーより古いバージョンです');
+    expect(v.steps).toEqual(['Hangar.app を新しいバージョンに置き換えます', '置き換えずに使う場合は、そのサーバーを停止してから「もう一度試す」をクリックします']);
     expect(view('compat-mismatch', { lang: 'en', params: { port: 4177, theirs: 16, ours: 14 } }).steps[0]).toBe('Replace Hangar.app with a newer version');
     expect(view('db-too-old', { params: { found: 6, baseline: 10 } }).what).toContain('この Hangar.app が更新できるのはバージョン 10 以降です');
   });

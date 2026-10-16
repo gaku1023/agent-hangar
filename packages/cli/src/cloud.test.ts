@@ -734,7 +734,7 @@ describe('cloudStatus', () => {
         throw new TypeError('ECONNREFUSED');
       }) as typeof fetch,
     });
-    expect(down).toContain('サーバは停止中');
+    expect(down).toContain('サーバーは停止中');
   });
 
   it('本文をいつから上げるかを 1 行で見せる', async () => {

@@ -109,7 +109,7 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
   let plan: ApplyPlan;
   try {
     plan = planApply({ home });
-    if (o.order !== undefined && o.order !== plan.createdAt) throw new ApplyError('stale', '確認したあとに、適用の指示書が変わりました。何も書き込んでいません。適用する項目をもう一度確認してください。');
+    if (o.order !== undefined && o.order !== plan.createdAt) throw new ApplyError('stale', '確認したあとに、適用内容が変わりました。何も書き込んでいません。適用する項目をもう一度確認してください。');
   } catch (e) { return fail(o, e, log); }
   if (o.plan) {
     // 機械向けには、書く先ごとの差分と指紋も添える（殻の承諾の窓が「何をどこに」と「差分」に出す）。
@@ -128,7 +128,7 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
     }
     for (const l of formatPlan(plan)) log(l);
     if (!(await (o.ask ?? promptYesNo)('適用しますか？'))) {
-      log('適用しませんでした。指示書はそのまま残っています');
+      log('適用しませんでした。適用内容はそのまま残っています');
       return 1;
     }
   }

@@ -72,12 +72,12 @@ async function call<T>(o: ApiCommandOptions, method: 'GET' | 'POST' | 'PATCH', a
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
-    if (e instanceof Error && e.name === 'TimeoutError') throw new CommandError('timeout', `サーバが ${TIMEOUT_MS / 1000} 秒以内に応答しませんでした`);
+    if (e instanceof Error && e.name === 'TimeoutError') throw new CommandError('timeout', `サーバーが ${TIMEOUT_MS / 1000} 秒以内に応答しませんでした`);
     throw new CommandError('server_down', serverDownMessage(o.port));
   }
   let parsed: unknown = null;
   try { parsed = await r.json(); } catch { parsed = null; }
-  if (r.status === 401 || r.status === 403) throw new CommandError('unauthorized', 'トークンが一致しません。サーバと同じ HANGAR_HOME で実行しているか確認してください');
+  if (r.status === 401 || r.status === 403) throw new CommandError('unauthorized', 'トークンが一致しません。サーバーと同じ HANGAR_HOME で実行しているか確認してください');
   if (!r.ok) {
     const message = typeof (parsed as { error?: unknown } | null)?.error === 'string' ? (parsed as { error: string }).error : `HTTP ${r.status}`;
     if (r.status >= 400 && r.status < 500 && r.status !== 404) throw new CommandError('rejected', message);
@@ -188,7 +188,7 @@ export function outcomeLine(r: FolderRegisterOutcomeDto, dry: boolean): string {
   switch (r.status) {
     case 'added': return `${dry ? '登録します' : '登録しました'}: ${r.path}（名前 ${r.name}、${into(r.sessionCount)}）`;
     case 'already': return `登録済み: ${r.path}（名前 ${r.name}${r.restored ? `。アーカイブから${dry ? '戻します' : '戻しました'}` : ''}）`;
-    case 'linked': return `${dry ? '関連付けます' : '関連付けました'}: ${r.path}（ほかの PC のプロジェクト ${r.name}、${into(r.sessionCount)}）`;
+    case 'linked': return `${dry ? '関連付けます' : '関連付けました'}: ${r.path}（他の PC のプロジェクト ${r.name}、${into(r.sessionCount)}）`;
     case 'nested': return `登録できません: ${r.path}（プロジェクト ${r.enclosing?.name}（${r.enclosing?.path}）の中にあります。別のプロジェクトに分けるかは、アプリで決めてください）`;
     default: return `登録できません: ${r.path}（${r.error ?? '理由不明'}）`;
   }
@@ -211,7 +211,7 @@ export function projectAddCommand(o: ApiCommandOptions & { paths: string[]; dryR
     const body = o.dryRun ? { paths, dryRun: true } : { paths };
     const res = await call<FolderRegisterPreviewDto | FolderRegisterResultDto>(o, 'POST', '/api/workspace/register', body);
     const results = res.results;
-    if (!results) throw new CommandError('outdated', 'サーバが古いため、行ごとの結果を取得できません。アプリを更新してください');
+    if (!results) throw new CommandError('outdated', 'サーバーが古いため、行ごとの結果を取得できません。アプリを更新してください');
     const ok = !results.some(failed);
     if (o.json) log(JSON.stringify({ ok, dryRun: o.dryRun, results }));
     else {
@@ -262,7 +262,7 @@ export function projectRemoveCommand(o: ApiCommandOptions & { target: string; dr
     log(`${o.dryRun ? '一覧から削除します' : '一覧から削除しました'}: ${p.name}（${p.path ?? 'この PC にパスなし'}）`);
     log(o.dryRun ? `会話 ${sessionCount} 件が未分類に戻ります。` : `会話 ${sessionCount} 件を未分類に戻しました。`);
     log(REMOVE_KEEPS);
-    if (preview.syncing) log(o.dryRun ? '同期しているほかの PC の一覧からも削除されます。' : '同期しているほかの PC の一覧からも削除されます（次の同期で反映されます）。');
+    if (preview.syncing) log(o.dryRun ? '同期している他の PC の一覧からも削除されます。' : '同期している他の PC の一覧からも削除されます（次の同期で反映されます）。');
     if (o.dryRun) log(DRY_NOTE);
     return 0;
   });

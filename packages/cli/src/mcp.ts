@@ -52,7 +52,7 @@ export async function runMcpInstall(o: { home: string; port: number; claudeJson:
   } catch (e) {
     return { ok: false, message: `${o.claudeJson} の書き換えに失敗しました: ${e instanceof Error ? e.message : String(e)}` };
   }
-  const done = `user スコープに MCP サーバ hangar をポート ${o.port} で登録しました。`;
+  const done = `user スコープに MCP サーバー hangar をポート ${o.port} で登録しました。`;
   const tail = lines.length ? `\n${lines.join('\n')}` : '';
   const probed = await (o.probe ?? probeAuthorized)(o.port, token);
   // 書いたトークンで実際に通ったときだけ「確認できます」と言う。
@@ -70,12 +70,12 @@ export async function runMcpInstall(o: { home: string; port: number; claudeJson:
       message: [
         done,
         `ただし、書き込んだトークンでは、ポート ${o.port} の認証に失敗しました（${probed.status}）。`,
-        `書き込んだのは ${path.join(o.home, 'token')} のトークンです。ポート ${o.port} のサーバは別のデータディレクトリで実行中です。`,
-        `HANGAR_HOME がサーバと同じディレクトリを指しているか確認してから、もう一度 hangar mcp install を実行してください。`,
+        `書き込んだのは ${path.join(o.home, 'token')} のトークンです。ポート ${o.port} のサーバーは別のデータディレクトリで実行中です。`,
+        `HANGAR_HOME がサーバーと同じディレクトリを指しているか確認してから、もう一度 hangar mcp install を実行してください。`,
       ].join('\n') + tail,
     };
   }
-  return { ok: false, backup, wrote: true, message: `${done}\nただし、確認のリクエストに ${probed.status} が返りました。ポート ${o.port} で実行中のサーバが hangar か確認してください。${tail}` };
+  return { ok: false, backup, wrote: true, message: `${done}\nただし、確認のリクエストに ${probed.status} が返りました。ポート ${o.port} で実行中のサーバーが hangar か確認してください。${tail}` };
 }
 
 /**
@@ -86,9 +86,9 @@ export async function runMcpInstall(o: { home: string; port: number; claudeJson:
 export async function runMcpUninstall(o: { home: string; claudeJson: string; lockWaitMs?: number; check?: (cur: Record<string, unknown>) => void; now?: Date }): Promise<{ ok: boolean; message: string; backup?: string | null }> {
   try {
     const r = removeUserMcpServer(o.claudeJson, 'hangar', { backupDir: path.join(o.home, 'backups'), lockWaitMs: o.lockWaitMs, check: o.check, now: o.now });
-    if (!r.changed) return { ok: true, message: 'user スコープに MCP サーバ hangar は登録されていません。' };
+    if (!r.changed) return { ok: true, message: 'user スコープに MCP サーバー hangar は登録されていません。' };
     const tail = r.backup ? `\n変更前のバックアップ: ${r.backup}` : '';
-    return { ok: true, message: `user スコープの MCP サーバ hangar を削除しました。${tail}`, backup: r.backup };
+    return { ok: true, message: `user スコープの MCP サーバー hangar を削除しました。${tail}`, backup: r.backup };
   } catch (e) {
     return { ok: false, message: `${o.claudeJson} の書き換えに失敗しました: ${e instanceof Error ? e.message : String(e)}` };
   }
