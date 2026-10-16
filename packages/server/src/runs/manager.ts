@@ -42,7 +42,7 @@ import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal
 import { handoverFacts, projectDeviceCount, resumeTarget, type ResumeTarget } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
 
-/** 生きた run の heartbeat をこの間隔で更新する。 */
+/** 生きた run の heartbeat をこの間隔で更新する。手元だけの書き込みで、共有の changes には積まない（同期の版 6）。 */
 const HEARTBEAT_MS = 30_000;
 /**
  * stir（run の出入り、登録の変化、端末の中継の終わり）の後、終了の見張りを短い周期で回す長さ。
@@ -504,7 +504,7 @@ export class RunManager {
    */
   private assertResumable(s: SessionRow, stray: 'off' | 'check' | 'ignore' = 'off'): void {
     if (!this.hasBody(s.id)) throw new RunError(400, msg('run.resume.noTranscript'));
-    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
+    if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const strayError = (pid: number) => new RunError(409, msg('run.error.strayProcess', { pid }), { code: 'stray_process', pid });
     if (this.deps.isLive?.(s.provider_session_id)) {
       // 登録に載っていても、その pid が終わった扱いの run の claude なら、hangar の外ではなく見失った自分の claude である（issue #258 の場面そのもの）。
@@ -596,7 +596,7 @@ export class RunManager {
     if (resume) {
       const id = findSession(this.db, resume);
       if (!id) throw new RunError(404, msg('run.terminal.notInHangar'));
-      const alive = aliveRunForSession(this.db, id);
+      const alive = aliveRunForSession(this.db, id, this.deps.deviceId, this.now());
       if (alive) return { run: alive, sessionId: id, tabs: listTabs(this.db, alive.id), attached: true };
       // 以前の包み方や `claude --bg` で起こしたものはバックグラウンドで動いている。素の claude -r は写しを作るので、attach でつなぐ。
       const provider = (this.db.prepare('select provider_session_id from sessions where id = ?').get(id) as { provider_session_id: string }).provider_session_id;
@@ -651,7 +651,7 @@ export class RunManager {
       precheck: (id) => { const t = this.cwdFor(this.session(id)); this.precheck(t.path, { mayCreate: t.createsFolder }); },
       isBackground: (providerSessionId) => !!this.liveOf(providerSessionId)?.background,
       isLive: (providerSessionId) => !!this.deps.isLive?.(providerSessionId),
-      aliveRun: (id) => aliveRunForSession(this.db, id),
+      aliveRun: (id) => aliveRunForSession(this.db, id, this.deps.deviceId, this.now()),
       kill: (runId) => { this.kill(runId); },
       resume: (id, extra) => this.resume(id, extra),
       sleep: this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
@@ -676,7 +676,7 @@ export class RunManager {
    */
   attach(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
-    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
+    if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const l = this.liveOf(s.provider_session_id);
     if (!l?.background) throw new RunError(409, msg('run.attach.notBackground'));
     const command = [this.claudeBin(), 'attach', l.background.jobId];
@@ -696,7 +696,7 @@ export class RunManager {
    */
   async adopt(sessionId: string): Promise<LaunchResult> {
     const s = this.session(sessionId);
-    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
+    if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const l = this.liveOf(s.provider_session_id);
     if (!l) throw new RunError(409, msg('run.adopt.notRunning'));
     if (l.background) return this.attach(s.id);
@@ -787,11 +787,13 @@ export class RunManager {
       this.misses.delete(run.id);
       // 落としにいったのに残っているなら、落とせていない。後で自分で終わったときに parked と書かないよう、印を外す。
       this.parking.delete(run.id);
-      // heartbeat は同期で他の PC へ届けるための書き込みで、この PC の画面は読まない（他の PC の run のロックだけが読む）。
+      // heartbeat は手元だけの書き込みで、共有の changes に積まない（同期の版 6）。
+      // 他の PC はこの PC の生存を、Worker が見た最終接続（pull の応答の peers）で見るので、この列を読まない。
+      // 版 5 までは 30 秒ごとに共有の行を書き直し、端末が送る変更の 6 割を占めていた。
+      // updated_at も変えない。起動、生き返り、終了の共有の書き込みは、そのときの値を行ごと運ぶ。
       // 画面へは配らない。配ると、待機中も 30 秒ごとに run の数だけ画面が描き直される。
       if (now - run.heartbeatAt >= HEARTBEAT_MS) {
-        const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
-        upsertShared(this.db, 'runs', { ...row, heartbeat_at: now }, this.deviceId);
+        this.db.prepare('update runs set heartbeat_at = ? where id = ?').run(now, run.id);
       }
     }
     if (lost.length) this.interrupted(lost, 'mux', now);
@@ -835,7 +837,7 @@ export class RunManager {
       const name = row.tmux_name as string;
       if (seen.has(name)) continue;
       seen.add(name);
-      if (aliveRunForSession(this.db, row.session_id as string)) continue;
+      if (aliveRunForSession(this.db, row.session_id as string, this.deps.deviceId, this.now())) continue;
       upsertShared(this.db, 'runs', { ...row, ended_at: null, end_reason: null, heartbeat_at: now }, this.deviceId);
       if (forgetInterruption(this.db, row.id as string)) forgot = true;
       const run = getRun(this.db, row.id as string)!;

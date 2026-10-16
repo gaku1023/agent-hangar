@@ -9,8 +9,9 @@ import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { setSessionName } from '../sessions/notes.ts';
+import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
-import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions, setParkingSwitch } from './queries.ts';
+import { displayName, getProject, getSession, listDevices, listProjects, listSessions, setParkingSwitch } from './queries.ts';
 
 let dir: string;
 let db: Db;
@@ -288,27 +289,33 @@ describe('ロックと remoteOnly と端末一覧', () => {
     upsertShared(d2, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/w/a', home_device: 'dev-b' }, 'dev-b');
     return d2;
   };
-  const addRun = (d2: Db, o: { id: string; device: string; heartbeat: number; ended?: number | null }) =>
-    upsertShared(d2, 'runs', { id: o.id, session_id: 's1', device_id: o.device, kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: NOW - 60_000, ended_at: o.ended ?? null, end_reason: o.ended ? 'exited' : null, heartbeat_at: o.heartbeat }, o.device);
+  const addRun = (d2: Db, o: { id: string; device: string; heartbeat: number; ended?: number | null; startedAt?: number }) =>
+    upsertShared(d2, 'runs', { id: o.id, session_id: 's1', device_id: o.device, kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.startedAt ?? NOW - 60_000, ended_at: o.ended ?? null, end_reason: o.ended ? 'exited' : null, heartbeat_at: o.heartbeat }, o.device);
   const one = (d2: Db) => listSessions(d2, [], { deviceId: 'dev-a', now: () => NOW })[0]!;
 
-  it('他端末の生きた run をロックとして出し、自端末と終わった run は出さない', () => {
+  /** dev-b を、Worker が ageMs 前に見た PC として覚える（pull の応答の peers）。 */
+  const seen = (d2: Db, peers: { id: string; age: number | null }[]) =>
+    recordPeers(d2, { selfDeviceId: 'dev-a', peers: peers.map((p) => ({ id: p.id, lastSeenAt: p.age === null ? null : 9_000_000 - p.age })), workerNow: 9_000_000, localNow: NOW });
+
+  it('他端末の生きた run をロックとして出し、自端末と終わった run は出さない。heartbeatAt はその PC の最終接続', () => {
     const d2 = setup();
+    seen(d2, [{ id: 'dev-b', age: 30_000 }]);
     expect(one(d2).lock).toBeNull();
     addRun(d2, { id: 'r-old', device: 'dev-b', heartbeat: NOW - 300_000, ended: NOW - 200_000 });
     expect(one(d2).lock).toBeNull();
     addRun(d2, { id: 'r-self', device: 'dev-a', heartbeat: NOW });
     expect(one(d2).lock).toBeNull();
-    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW - 30_000 });
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1 });
     expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false });
     expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.lock!.runId).toBe('r-b');
   });
 
-  it('同じ端末に生きた run が複数あれば heartbeat が最新の 1 件を採る', () => {
+  it('同じ端末に生きた run が複数あれば、後から起きた 1 件を採る', () => {
     const d2 = setup();
-    addRun(d2, { id: 'r-b1', device: 'dev-b', heartbeat: NOW - 90_000 });
-    addRun(d2, { id: 'r-b2', device: 'dev-b', heartbeat: NOW - 10_000 });
-    expect(one(d2).lock).toMatchObject({ runId: 'r-b2', heartbeatAt: NOW - 10_000 });
+    seen(d2, [{ id: 'dev-b', age: 0 }]);
+    addRun(d2, { id: 'r-b2', device: 'dev-b', heartbeat: 1, startedAt: NOW - 10_000 });
+    addRun(d2, { id: 'r-b1', device: 'dev-b', heartbeat: 1, startedAt: NOW - 90_000 });
+    expect(one(d2).lock).toMatchObject({ runId: 'r-b2' });
   });
 
   it('論理削除した run はロックにしない', () => {
@@ -325,14 +332,24 @@ describe('ロックと remoteOnly と端末一覧', () => {
     expect(one(d2).lock).toMatchObject({ deviceId: 'dev-c', deviceName: 'dev-c' });
   });
 
-  it('heartbeat が 2 分より古ければ stale', () => {
+  it('その PC の年齢が PEER_STALE_MS を超えたら stale。ちょうどはまだ stale ではない', () => {
     const d2 = setup();
-    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW - LOCK_STALE_MS - 1 });
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW });
+    seen(d2, [{ id: 'dev-b', age: PEER_STALE_MS + 1 }]);
+    expect(one(d2).lock).toMatchObject({ stale: true, heartbeatAt: NOW - PEER_STALE_MS - 1 });
+    seen(d2, [{ id: 'dev-b', age: PEER_STALE_MS }]);
+    expect(one(d2).lock).toMatchObject({ stale: false });
+  });
+
+  it('run の heartbeat が新しくても、peers を受け取っていない、peers に居ない、Worker がまだ見ていない PC は stale', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW });
+    // 受け取っていない。最終接続は分からないので、run の行の時刻を見せる。
+    expect(one(d2).lock).toMatchObject({ stale: true, heartbeatAt: NOW });
+    seen(d2, [{ id: 'dev-a', age: 0 }]);
     expect(one(d2).lock).toMatchObject({ stale: true });
-    // ちょうど 2 分はまだ stale ではない。
-    const d3 = setup();
-    addRun(d3, { id: 'r-b', device: 'dev-b', heartbeat: NOW - LOCK_STALE_MS });
-    expect(one(d3).lock).toMatchObject({ stale: false });
+    seen(d2, [{ id: 'dev-b', age: null }]);
+    expect(one(d2).lock).toMatchObject({ stale: true });
   });
 
   it('deviceId を渡さなければロックを計算しない', () => {

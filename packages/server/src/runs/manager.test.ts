@@ -33,6 +33,7 @@ import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 import { interruptedGroup } from './interrupted.ts';
 import { expectMode } from '../../test/platform.ts';
 import { ensureScratchProject } from '../projects/scratch.ts';
+import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
 
 let db: Db;
 let home: string;
@@ -582,6 +583,23 @@ describe('RunManager の終了の見張りの周期（tmux 不要）', () => {
     expect(rm.getRun('r1')?.heartbeatAt).toBe(1_031_000);
     expect(updated).toEqual([]);
   });
+
+  it('heartbeat の書き直しは手元だけで、共有の changes に積まない（同期の版 6）', () => {
+    let t = 1_000_000;
+    aliveRun('r1', t);
+    const { panes } = countingPanes(() => ['hangar-r1']);
+    const rm = make({ panes, now: () => t });
+    // 起動の行は送り終えたことにする。
+    db.prepare('update changes set pushed_at = 1').run();
+    db.prepare('update runs set updated_at = 7 where id = ?').run('r1');
+    const updatedAt = 7;
+    t += 31_000;
+    rm.tick();
+    expect(rm.getRun('r1')?.heartbeatAt).toBe(1_031_000);
+    expect(db.prepare('select count(*) c from changes where pushed_at is null').get()).toEqual({ c: 0 });
+    // 行の updated_at も変えない。同期の後勝ちの比べに、手元だけの書き込みを混ぜない。
+    expect((db.prepare('select updated_at u from runs where id = ?').get('r1') as { u: number }).u).toBe(updatedAt);
+  });
 });
 
 describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
@@ -1005,6 +1023,19 @@ function fakeProcs(live: LiveSession[], o: { startTime?: string | null; terminat
 }
 
 describe('attach と引き取りの入力検査（tmux 不要）', () => {
+  it('他の PC の run は、その PC が古ければ実行中として断らない（peers の年齢、同期の版 6）', () => {
+    const t = 50_000_000;
+    const rm = make({ tmux: null, live: () => [], now: () => t });
+    const id = seedOldSession();
+    upsertShared(db, 'runs', { id: 'rb', session_id: id, device_id: 'pc-b', kind: 'start', tmux_name: 'hangar-rb', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: t }, 'pc-b');
+    // peers をまだ受け取っていない。run の行の heartbeat が新しくても、古いとみなす。
+    expect(() => rm.attach(id)).toThrow('このセッションはバックグラウンドセッションとして実行されていません');
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'pc-b', lastSeenAt: 1_000 }], workerNow: 1_000, localNow: t });
+    expect(() => rm.attach(id)).toThrow('このセッションは実行中です');
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'pc-b', lastSeenAt: 1_000 }], workerNow: 1_000 + PEER_STALE_MS + 1, localNow: t });
+    expect(() => rm.attach(id)).toThrow('このセッションはバックグラウンドセッションとして実行されていません');
+  });
+
   it('attach は無いセッションに 404、バックグラウンドでないものと実行中に 409', () => {
     const live: LiveSession[] = [];
     const rm = make({ tmux: null, live: () => live });

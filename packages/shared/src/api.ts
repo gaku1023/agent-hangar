@@ -451,7 +451,11 @@ export type SummarizerId = 'lmstudio' | 'claude-headless';
 export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summary: Omit<SessionSummaryDto, 'updatedAt'> } | { ok: false; tried: { id: SummarizerId; message: string }[] };
 
 /** ここから下はクラウド同期（フェーズ 4）の DTO である。 */
-/** 他端末がそのセッションを実行中であることの印。stale は heartbeat が途切れていることを示す。 */
+/**
+ * 他端末がそのセッションを実行中であることの印。
+ * stale は、その PC を Worker が 3 分より前から見ていないこと（または一度も見ていないこと）を示す。
+ * heartbeatAt は、同期の版 6 からその PC の最終接続（この PC の時計）で、知らなければ run の行の heartbeat_at である。名前は版 5 までのまま。
+ */
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 /**

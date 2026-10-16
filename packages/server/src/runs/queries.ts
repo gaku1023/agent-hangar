@@ -1,5 +1,6 @@
 import type { EndReason, RunDto, RunKind, TabDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { peerStale, readPeers, type PeerBook } from '../sync/peers.ts';
 
 export type RunRow = { id: string; session_id: string; device_id: string; kind: RunKind; tmux_name: string; pid: number | null; launch_params: string; started_at: number; ended_at: number | null; end_reason: EndReason | null; heartbeat_at: number };
 type TabRow = { id: string; run_id: string; tmux_name: string; title: string | null; created_at: number; closed_at: number | null };
@@ -31,9 +32,21 @@ export function listAliveRuns(db: Db, deviceId: string): RunDto[] {
   return (db.prepare(`${RUN_SELECT} and ended_at is null and device_id = ? order by started_at`).all(deviceId) as RunRow[]).map(toRunDto);
 }
 
-export function aliveRunForSession(db: Db, sessionId: string): RunDto | null {
-  const r = db.prepare(`${RUN_SELECT} and ended_at is null and session_id = ? order by started_at desc limit 1`).get(sessionId) as RunRow | undefined;
-  return r ? toRunDto(r) : null;
+/**
+ * そのセッションをふさいでいる生きた run（起動の新しい方）。無ければ null。
+ * 自分の PC（selfDeviceId）の run は、いつもふさいでいるとみなす。
+ * 他の PC の run は、その PC が古い（pull の応答の peers で、年齢が PEER_STALE_MS を超えた、居ない、まだ受け取っていない）ならふさいでいるとみなさない（同期の版 6）。
+ * 画面のロックの stale（db/queries.ts の lockMap）と同じ判定なので、「応答がありません」と出ている run は、再開もフォークも止めない。
+ */
+export function aliveRunForSession(db: Db, sessionId: string, selfDeviceId: string, now: number = Date.now()): RunDto | null {
+  const rows = db.prepare(`${RUN_SELECT} and ended_at is null and session_id = ? order by started_at desc, id desc`).all(sessionId) as RunRow[];
+  let peers: PeerBook | null | undefined;
+  for (const r of rows) {
+    if (r.device_id === selfDeviceId) return toRunDto(r);
+    if (peers === undefined) peers = readPeers(db);
+    if (!peerStale(peers, r.device_id, now)) return toRunDto(r);
+  }
+  return null;
 }
 
 /** その端末のそのセッションの run のうち、最も新しく起きたもの（終わったものも含める）。 */

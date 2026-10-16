@@ -115,7 +115,7 @@ export function bootHttp(p: {
     trustWorkspace: runs.trustWorkspace,
     promote: (o) => promoteSession({
       db, deviceId: device.id, home: home.home, workspaceRoot: settings.current.workspaceRoot,
-      runAlive: (id) => sessionRunsAnywhere({ db, live: () => delivery.registry.current() }, id),
+      runAlive: (id) => sessionRunsAnywhere({ db, deviceId: device.id, live: () => delivery.registry.current() }, id),
     }, o),
     sync: {
       status: () => sync.engine.status(),

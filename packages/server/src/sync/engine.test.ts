@@ -10,6 +10,7 @@ import { FakeTimers } from '../../test/fake-timers.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { CloudError, LimitError, MIN_WORKER_COMPAT } from './client.ts';
 import { limitedMessage, limitedWhilePausedMessage, SyncEngine } from './engine.ts';
+import { peerSeenAt, readPeers } from './peers.ts';
 
 let db: Db;
 let cloud: FakeCloudClient;
@@ -344,58 +345,22 @@ describe('SyncEngine の pull', () => {
     a.stop(); b.stop();
   });
 
-  it('圧縮で消えた区間を指したら、全件の写しから作り直す', async () => {
+  it('古い since でも断られず、手元に無い行だけが差分で降りる（Worker は変更ログを持たない）', async () => {
     const a = make();
     await a.start();
     project('p1');
     await a.pushNow();
     const b = makeB();
     await b.start();
-    expect(b.state.getNumber('lastSeq', -1)).toBe(1);
-
     project('p2'); await a.pushNow();
-    project('p3'); await a.pushNow();
-    // b がまだ読んでいない区間を Worker が圧縮で削った。
-    cloud.compact(3);
-
-    const applied: string[] = [];
-    const toasts: string[] = [];
-    b.on({ applied: (c) => applied.push(c.rowId), toast: (_l, m) => toasts.push(m) });
-    await b.pullNow();
-
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]).toContain('再同期');
-    expect(applied).toEqual(['p2', 'p3']);
-    expect((dbB.prepare('select id from projects order by id').all() as { id: string }[]).map((r) => r.id)).toEqual(['p1', 'p2', 'p3']);
-    expect(b.state.get('snapshotDone')).toBe('1');
-    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
-    expect(cloudB.calls.filter((c) => c.method === 'snapshot')).toHaveLength(2);
-    expect(b.status()).toMatchObject({ state: 'idle', error: null });
-    a.stop(); b.stop();
-  });
-
-  it('410 の後の写しは最後のページまで読み切ってから差分に戻る', async () => {
-    const a = make();
-    await a.start();
-    project('p1');
+    await realDelay(2);
+    upsertShared(db, 'projects', { ...(db.prepare('select * from projects where id = ?').get('p1') as Record<string, unknown>), name: 'p1-2' }, 'a');
     await a.pushNow();
-    // Worker の 1 ページの大きさを小さくして、写しが複数ページに割れる状況を作る。
-    const paged = cloud.asDevice('b');
-    const origSnap = paged.snapshot.bind(paged);
-    let pageLimit = 500;
-    paged.snapshot = (after) => origSnap(after, pageLimit);
-    const b = makeB({ client: paged });
-    await b.start();
-
-    for (const id of ['p2', 'p3', 'p4', 'p5']) { project(id); await a.pushNow(); }
-    cloud.compact(5);
-    pageLimit = 2;
+    const applied: string[] = [];
+    b.on({ applied: (c) => applied.push(c.rowId) });
     await b.pullNow();
-
-    // 途中のページで止めて since だけ進めると、ここで p3 以降を永久に取りこぼす。
-    expect(paged.calls.filter((c) => c.method === 'snapshot')).toHaveLength(1 + 3);
-    expect((dbB.prepare('select id from projects order by id').all() as { id: string }[]).map((r) => r.id)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5']);
-    expect(b.state.getNumber('lastSeq', -1)).toBe(5);
+    expect(applied).toEqual(['p2', 'p1']);
+    expect(cloudB.calls.filter((c) => c.method === 'snapshot')).toHaveLength(1);
     expect(b.status()).toMatchObject({ state: 'idle', error: null });
     a.stop(); b.stop();
   });
@@ -526,6 +491,74 @@ describe('SyncEngine の pull', () => {
     await b.pullNow();
     expect(b.status()).toMatchObject({ state: 'idle', error: null });
     b.stop();
+  });
+});
+
+describe('他の PC の生存（同期の版 6）', () => {
+  it('pull の応答の peers を、この PC の時計に置き直して覚える', async () => {
+    let w = 9_000_000;
+    cloud = new FakeCloudClient({ deviceId: 'a', now: () => w });
+    await cloud.asDevice('b').health();
+    w += 50_000;
+    const e = make();
+    await e.start();
+    const book = readPeers(db);
+    expect(peerSeenAt(book, 'b')).toBe(timers.now - 50_000);
+    expect(peerSeenAt(book, 'a')).toBe(timers.now);
+    e.stop();
+  });
+
+  it('一時停止中も 1 分に 1 回だけ Worker に生存を知らせる。行は当てず、区切りも送信も進めない', async () => {
+    let w = 9_000_000;
+    cloud = new FakeCloudClient({ deviceId: 'a', now: () => w });
+    const e = make();
+    await e.start();
+    e.setPaused(true);
+    const lastSeq = e.state.get('lastSeq');
+    const lastPullAt = e.state.get('lastPullAt');
+    project('p1');
+    await cloud.asDevice('b').pushChanges([{ tableName: 'projects', rowId: 'pb', op: 'upsert', payload: { id: 'pb', name: 'pb', status: 'active', is_scratch: 0 }, updatedAt: 1 }]);
+    const pings = () => cloud.calls.filter((c) => c.method === 'pullChanges' && c.args[0] === Number.MAX_SAFE_INTEGER && c.args[1] === 1).length;
+    const pulls = () => cloud.calls.filter((c) => c.method === 'pullChanges').length;
+    const before = pulls();
+    for (let i = 0; i < 4; i++) { w += 30_000; await timers.advance(30_000); await e.idle(); }
+    // 30 秒ごとの見回りのうち、1 分たった回だけ知らせる。
+    expect(pings()).toBe(2);
+    expect(pulls() - before).toBe(2);
+    expect(cloud.calls.filter((c) => c.method === 'pushChanges')).toHaveLength(0);
+    expect(unpushed()).toBe(1);
+    expect(db.prepare("select count(*) c from projects where id = 'pb'").get()).toEqual({ c: 0 });
+    expect(e.state.get('lastSeq')).toBe(lastSeq);
+    expect(e.state.get('lastPullAt')).toBe(lastPullAt);
+    // 知らせの応答の peers は覚える。
+    expect(peerSeenAt(readPeers(db), 'b')).not.toBeNull();
+    expect(e.status()).toMatchObject({ state: 'paused', error: null });
+    e.stop();
+  });
+
+  it('版で止まっているあいだは、一時停止中の生存の知らせも送らない', async () => {
+    const e = make();
+    await e.start();
+    e.setPaused(true);
+    cloud.minDeviceCompat = COMPAT_VERSION + 1;
+    await e.syncNow({ evenIfPaused: true });
+    expect(e.compatBlocked()).toBe(true);
+    const n = cloud.calls.length;
+    await timers.advance(180_000);
+    await e.idle();
+    expect(cloud.calls.length).toBe(n);
+    e.stop();
+  });
+
+  it('一時停止中の知らせで版が合わないと分かったら、止まる', async () => {
+    const e = make();
+    await e.start();
+    e.setPaused(true);
+    cloud.workerCompat = 5;
+    await timers.advance(60_000);
+    await e.idle();
+    expect(e.compatBlocked()).toBe(true);
+    e.stop();
   });
 });
 
@@ -733,8 +766,8 @@ describe('互換の版', () => {
     e.stop();
   });
 
-  it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 2 で断り、Worker を上げるよう error に出す', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(2);
+  it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 6 で断り、Worker を上げるよう error に出す', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(6);
     cloud.workerCompat = 0;
     const e = make();
     await e.start();

@@ -23,7 +23,8 @@ describe('loadCloudDevices', () => {
   });
 
   it('Worker が名乗った版が足りなければ、問い合わせずに outdated を返す', async () => {
-    const cloud = new FakeCloudClient({ deviceId: 'a' });
+    // 製品の下限（MIN_WORKER_COMPAT、版 6）は一覧の関所（版 5）より高いので、実物ではこの Worker を先に断る。ここでは関所だけを試す。
+    const cloud = new FakeCloudClient({ deviceId: 'a', minWorkerCompat: 1 });
     cloud.workerCompat = DEVICE_ADMIN_MIN_WORKER_COMPAT - 1;
     await cloud.health();
     const before = cloud.calls.length;
