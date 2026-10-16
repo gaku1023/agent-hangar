@@ -22,7 +22,7 @@ describe('runSetup', () => {
     expect(text).toContain('tmux: /opt/homebrew/bin/tmux');
     expect(text).toContain('claude: 見つかりません');
     expect(r.statusline).toEqual({ command: null, scriptPath: null, installed: false });
-    expect(text).toContain('statusline: スクリプトが見つかりません');
+    expect(text).toContain('ステータスライン: スクリプトが見つかりません');
     fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true });
   });
 });
@@ -34,7 +34,7 @@ describe('runSetup の作成場所', () => {
     const r = runSetup({ home, claudeDir: path.join(home, 'claude-empty'), which: () => null });
     expect(r.workspaceRoot).toBe('');
     expect(r.workspaceExists).toBe(false);
-    expect(formatSetupReport(r)).toContain('新しいフォルダの作成場所: 未設定（任意。hangar setup --workspace <dir> で決められます）');
+    expect(formatSetupReport(r)).toContain('新しいディレクトリの作成先: 未設定（任意。hangar setup --workspace <dir> で設定できます）');
     fs.rmSync(home, { recursive: true, force: true });
   });
 });
@@ -57,9 +57,9 @@ describe('runSetup（Windows）', () => {
     expect(read).toEqual(['C:\\tools\\psmux.exe']);
     expect(r.tools[0]).toEqual({ name: 'tmux', found: true, path: 'C:\\tools\\psmux.exe', outdated: { version: '3.3.8', min: '3.4.0' } });
     const text = formatSetupReport(r);
-    expect(text).toContain('注意: psmux 3.3.8 は古い版です');
-    expect(text).toContain('実行中のセッションは止まります');
-    expect(text).toContain('外の PowerShell');
+    expect(text).toContain('注意: psmux 3.3.8 は古いバージョンです');
+    expect(text).toContain('実行中のセッションは停止します');
+    expect(text).toContain('外部の PowerShell');
     expect(text).toContain('Get-Process psmux -ErrorAction SilentlyContinue | Stop-Process -Force; winget upgrade marlocarlo.psmux; tmux -V');
     fs.rmSync(home, { recursive: true, force: true });
   });

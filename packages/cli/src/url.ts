@@ -29,8 +29,8 @@ export function openedMessage(port: number): string {
  */
 export function openFailedMessage(port: number): string {
   return [
-    `ブラウザを開けませんでした。${bareUrl(port)} を手で開いてください。`,
-    '鍵が要るときは hangar url で、鍵付きの URL を出せます。その URL には鍵が入っているので、人に見せないでください。',
+    `ブラウザを開けませんでした。${bareUrl(port)} を手動で開いてください。`,
+    'トークンが必要なときは、hangar url でトークン付きの URL を表示できます。その URL にはトークンが含まれているため、他の人に見せないでください。',
   ].join('\n');
 }
 

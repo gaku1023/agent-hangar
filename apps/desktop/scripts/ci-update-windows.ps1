@@ -163,7 +163,7 @@ try {
       if ($h -and $h.version -eq $versionA -and -not $sawA) {
         $sawA = $true
         $serverA = (Get-NetTCPConnection -LocalPort 4177 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
-        "版 A のサーバが応えた（pid ${serverA}）"
+        "版 A のサーバーが応えた（pid ${serverA}）"
       }
       if ($h -and $h.version -eq $versionB) { break }
       if ((Test-Path $desktopLog) -and (Get-Content $desktopLog -Raw) -match 'update: (check|download|install) failed[^\r\n]*') { throw "殻の更新が失敗した: $($Matches[0])" }
@@ -175,9 +175,9 @@ try {
   if (Test-Path $desktopLog) { Get-Content $desktopLog -Tail 60 }
   '--- serve.log ---'
   Get-Content $serveLog
-  if (-not $sawA) { throw '版 A のサーバが応えなかった' }
+  if (-not $sawA) { throw '版 A のサーバーが応えなかった' }
   if (-not ($h -and $h.version -eq $versionB)) { throw "更新のあと $health が版 $versionB を名乗らなかった（最後の答え: $($h | ConvertTo-Json -Compress)）" }
-  "起き直した殻のサーバが版 $versionB を名乗った"
+  "起き直した殻のサーバーが版 $versionB を名乗った"
 
   # インストーラは、殻の updater が passive（/P）、更新（/UPDATE）、入れ終えたら起こし直す（/R と /ARGS）で起こしたもの。
   if (-not $installerLine) { throw '更新のインストーラが動いているところを見られなかった' }
@@ -191,8 +191,8 @@ try {
     if (-not $log.Contains($mark)) { throw "desktop.log に「${mark}」が無い" }
   }
   $handOver = $log.IndexOf('update: handing over to the installer')
-  if ($log.IndexOf('server stopped', $handOver) -lt 0) { throw 'インストーラへ渡すときに、殻がサーバを止めていない（desktop.log に server stopped が無い）' }
-  if ($serverA -and (Get-Process -Id $serverA -ErrorAction SilentlyContinue)) { throw "版 A のサーバ（pid ${serverA}）が残っている" }
+  if ($log.IndexOf('server stopped', $handOver) -lt 0) { throw 'インストーラへ渡すときに、殻がサーバーを止めていない（desktop.log に server stopped が無い）' }
+  if ($serverA -and (Get-Process -Id $serverA -ErrorAction SilentlyContinue)) { throw "版 A のサーバー（pid ${serverA}）が残っている" }
   # 入れるときのフック（NSIS_HOOK_PREINSTALL）は、殻が抜けてから同梱サーバの置き場を空にした。差し込んだ台本は版 B に無い。
   if (Test-Path $injected) { throw '版 A に差し込んだ台本が残っている（入れるときのフックが置き場を空にしていない）' }
   $display = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Hangar' -ErrorAction SilentlyContinue).DisplayVersion

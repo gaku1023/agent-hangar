@@ -51,24 +51,24 @@ impl Msg {
     fn ja(&self) -> String {
         match self {
             Msg::Unresponsive { secs, log } => {
-                format!("サーバが {secs} 秒応答しません。{log} を確認してください。")
+                format!("サーバーが {secs} 秒応答しません。{log} を確認してください。")
             }
             Msg::NoAnswerWithin { secs, log } => {
-                format!("サーバが {secs} 秒以内に応答しませんでした。{log} を確認してください。")
+                format!("サーバーが {secs} 秒以内に応答しませんでした。{log} を確認してください。")
             }
             Msg::TokenUnreadable { file, log } => {
-                format!("認証トークンを読み取れません: {file}\nサーバが認証トークンを作成できたか、{log} を確認してください。")
+                format!("認証トークンを読み取れません: {file}\nサーバーが認証トークンを作成できたか、{log} を確認してください。")
             }
-            Msg::NoWindow => "ウィンドウが見つからないため、サーバの画面に移動できません。".to_string(),
+            Msg::NoWindow => "ウィンドウが見つからないため、サーバーの画面に移動できません。".to_string(),
             Msg::BadUrl { err } => format!("URL を生成できません: {err}"),
             Msg::CannotNavigate { port, err } => {
-                format!("サーバの画面（ポート {port}）に移動できません: {err}")
+                format!("サーバーの画面（ポート {port}）に移動できません: {err}")
             }
             Msg::NoResourceDir { err } => format!("リソースのディレクトリを取得できません: {err}"),
-            Msg::NoBundledServer { dir } => format!("同梱のサーバが見つかりません: {dir}"),
+            Msg::NoBundledServer { dir } => format!("同梱のサーバーが見つかりません: {dir}"),
             Msg::ServerDirDevOnly => concat!(
                 "HANGAR_SERVER_DIR は開発時だけ有効です。\n",
-                "配布版はアプリに同梱したサーバだけを使います。"
+                "配布版はアプリに同梱したサーバーだけを使います。"
             )
             .to_string(),
             Msg::Translocated => concat!(
@@ -78,7 +78,7 @@ impl Msg {
                 "xattr -rd com.apple.quarantine /path/to/Hangar.app"
             )
             .to_string(),
-            Msg::CannotSpawn { err } => format!("サーバを起動できません: {err}"),
+            Msg::CannotSpawn { err } => format!("サーバーを起動できません: {err}"),
             Msg::ManifestUnreadable { file, err } => format!("{file} を読み取れません: {err}"),
             Msg::ManifestBroken { file, err } => format!("{file} が壊れています: {err}"),
         }

@@ -48,7 +48,7 @@ export type ConfigRestoreOpts = Common & {
 };
 
 const KIND_LABEL: Record<ConfigItemKind, string> = {
-  'claude-md': 'CLAUDE.md', settings: 'settings.json の鍵', keybindings: 'keybindings.json', skills: 'スキル', commands: 'コマンド', agents: 'エージェント', memory: 'メモリ',
+  'claude-md': 'CLAUDE.md', settings: 'settings.json のキー', keybindings: 'keybindings.json', skills: 'スキル', commands: 'コマンド', agents: 'エージェント', memory: 'メモリ',
 };
 const MARK_LABEL: Record<ConfigExecMark, string> = { hooks: 'フック', shell: 'シェルのコマンド実行', script: 'スクリプト' };
 const MAX_LISTED = 40;
@@ -68,22 +68,22 @@ function counts(p: ApplyPlan): string {
   if (c.create) parts.push(`新規 ${c.create} 件`);
   if (c.overwrite) parts.push(`上書き ${c.overwrite} 件`);
   if (c.delete) parts.push(`削除 ${c.delete} 件`);
-  if (c.conflictRemote) parts.push(`競合で相手を採る ${c.conflictRemote} 件`);
-  if (c.conflictMine) parts.push(`競合で手元を残す ${c.conflictMine} 件`);
+  if (c.conflictRemote) parts.push(`競合で他の PC の内容を採用 ${c.conflictRemote} 件`);
+  if (c.conflictMine) parts.push(`競合でこの PC の内容を残す ${c.conflictMine} 件`);
   return parts.join('、');
 }
 
 const opWord = (i: ApplyPlanItem): string => {
-  if (i.act === 'keep') return '手元を残す';
+  if (i.act === 'keep') return 'この PC の内容を残す';
   if (i.act === 'remove') return '削除';
   return i.op === 'create' ? '新規' : '上書き';
 };
 
 /** 端末に出す見立て。殻の確認と同じ項目を、件数、種類、実行されるものの順に並べる。 */
 export function formatPlan(p: ApplyPlan): string[] {
-  const lines = ['他の PC から届いた設定を、このあと設定の入れ物（~/.claude）に書きます。', `  ${counts(p)}`];
+  const lines = ['他の PC から届いた設定を ~/.claude に書き込みます。', `  ${counts(p)}`];
   lines.push(`  種類: ${Object.entries(p.byKind).map(([k, n]) => `${KIND_LABEL[k as ConfigItemKind]} ${n}`).join('、')}`);
-  if (p.instructions > 0) lines.push(`Claude が読んで実行する指示（スキル、コマンド、エージェント）を ${p.instructions} 件書きます。`);
+  if (p.instructions > 0) lines.push(`Claude が読んで実行する指示（スキル、コマンド、エージェント）を ${p.instructions} 件書き込みます。`);
   if (p.exec.length > 0) {
     lines.push('実行される内容を含む項目:');
     for (const i of p.exec) lines.push(`  ${i.label}（${i.marks.map((m) => MARK_LABEL[m]).join('、')}）`);
@@ -91,7 +91,7 @@ export function formatPlan(p: ApplyPlan): string[] {
   lines.push('項目:');
   for (const i of p.items.slice(0, MAX_LISTED)) lines.push(`  ${opWord(i)}  ${i.label}`);
   if (p.items.length > MAX_LISTED) lines.push(`  ほか ${p.items.length - MAX_LISTED} 件`);
-  lines.push('書く前に、元の中身を控えの世代に取ります。hangar config restore で戻せます。');
+  lines.push('書き込む前に、現在の内容をバックアップの世代に保存します。hangar config restore で元に戻せます。');
   return lines;
 }
 
@@ -109,7 +109,7 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
   let plan: ApplyPlan;
   try {
     plan = planApply({ home });
-    if (o.order !== undefined && o.order !== plan.createdAt) throw new ApplyError('stale', '確認したあとに、適用の指示書が選び直されました。何も書いていません。もう一度、適用する項目を確かめてください。');
+    if (o.order !== undefined && o.order !== plan.createdAt) throw new ApplyError('stale', '確認したあとに、適用内容が変わりました。何も書き込んでいません。適用する項目をもう一度確認してください。');
   } catch (e) { return fail(o, e, log); }
   if (o.plan) {
     // 機械向けには、書く先ごとの差分と指紋も添える（殻の承諾の窓が「何をどこに」と「差分」に出す）。
@@ -123,12 +123,12 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
   if (!o.yes) {
     const interactive = o.interactive ?? !!process.stdin.isTTY;
     if (o.json || !interactive) {
-      log(o.json ? JSON.stringify({ ok: false, code: 'confirm-required', message: '確認を取れないので、何も書いていません。--yes を付けてください' }) : '標準入力が対話ではないので確認を取れません。端末から実行するか、--yes を付けてください');
+      log(o.json ? JSON.stringify({ ok: false, code: 'confirm-required', message: '確認できないため、何も書き込んでいません。--yes を指定してください' }) : '標準入力が対話型ではないため、確認できません。ターミナルから実行するか、--yes を指定してください');
       return 1;
     }
     for (const l of formatPlan(plan)) log(l);
-    if (!(await (o.ask ?? promptYesNo)('書きますか？'))) {
-      log('適用しませんでした。指示書はそのまま残しています');
+    if (!(await (o.ask ?? promptYesNo)('適用しますか？'))) {
+      log('適用しませんでした。適用内容はそのまま残っています');
       return 1;
     }
   }
@@ -138,8 +138,8 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
     const r = runApply({ home, claudeDir: claudeDirOf(o, home), db, now: o.now, expect: o.expect });
     if (o.json) log(JSON.stringify({ ok: true, result: r }));
     else {
-      log(`適用しました（書き込み ${r.written} 件、削除 ${r.removed} 件、手元を残す ${r.keptMine} 件）`);
-      if (r.generation) log(`控えの世代: ${r.generation}。戻すには hangar config restore ${r.generation}`);
+      log(`適用しました（書き込み ${r.written} 件、削除 ${r.removed} 件、この PC の内容を残す ${r.keptMine} 件）`);
+      if (r.generation) log(`バックアップの世代: ${r.generation}。元に戻すには hangar config restore ${r.generation} を実行してください`);
     }
     return 0;
   } catch (e) {
@@ -160,11 +160,11 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
   if (!o.name) {
     const gens = listBackups(home);
     if (o.json) log(JSON.stringify({ ok: true, generations: gens }));
-    else if (gens.length === 0) log('控えの世代はありません。');
+    else if (gens.length === 0) log('バックアップの世代はありません。');
     else {
-      log('控えの世代（新しい順）:');
+      log('バックアップの世代（新しい順）:');
       for (const g of gens) log(`  ${g.name}  ${g.files} ファイル  ${atLabel(g.at)}`);
-      log('戻すには hangar config restore <世代>');
+      log('元に戻すには hangar config restore <世代> を実行してください');
     }
     return 0;
   }
@@ -173,25 +173,25 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
   try { plan = planRestore({ home, claudeDir, name: o.name }); } catch (e) { return fail(o, e, log); }
   const listPlan = (): void => {
     if (plan.restore.length > 0) { log('書き戻すファイル:'); for (const f of plan.restore.slice(0, MAX_LISTED)) log(`  ${f}`); }
-    if (plan.remove.length > 0) { log('その時点で無かったので消すファイル:'); for (const f of plan.remove.slice(0, MAX_LISTED)) log(`  ${f}`); }
+    if (plan.remove.length > 0) { log('その時点で無かったため削除するファイル:'); for (const f of plan.remove.slice(0, MAX_LISTED)) log(`  ${f}`); }
   };
   if (o.plan) {
     if (o.json) {
       let files: ReturnType<typeof planRestoreFiles>;
       try { files = planRestoreFiles({ home, claudeDir, name: o.name }); } catch (e) { return fail(o, e, log); }
       log(JSON.stringify({ ok: true, plan: { ...plan, files: files.files, fingerprint: files.fingerprint } }));
-    } else { log(`世代 ${plan.name} の時点へ戻すと、次のようになります。`); listPlan(); }
+    } else { log(`世代 ${plan.name} の時点に戻すと、次のようになります。`); listPlan(); }
     return 0;
   }
   if (!o.yes) {
     const interactive = o.interactive ?? !!process.stdin.isTTY;
     if (o.json || !interactive) {
-      log(o.json ? JSON.stringify({ ok: false, code: 'confirm-required', message: '確認を取れないので、何も戻していません。--yes を付けてください' }) : '標準入力が対話ではないので確認を取れません。端末から実行するか、--yes を付けてください');
+      log(o.json ? JSON.stringify({ ok: false, code: 'confirm-required', message: '確認できないため、何も戻していません。--yes を指定してください' }) : '標準入力が対話型ではないため、確認できません。ターミナルから実行するか、--yes を指定してください');
       return 1;
     }
-    log(`世代 ${plan.name} の時点へ戻します。`);
+    log(`世代 ${plan.name} の時点に戻します。`);
     listPlan();
-    log('その世代のあとで手元で変えた内容も、世代の時点へ戻ります。戻す前の状態は新しい世代に控えます。');
+    log('その世代のあとにこの PC で変更した内容も、世代の時点に戻ります。戻す前の状態は、新しい世代としてバックアップに保存します。');
     if (!(await (o.ask ?? promptYesNo)('戻しますか？'))) {
       log('戻しませんでした');
       return 1;
@@ -204,8 +204,8 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
     const r = runRestore({ home, claudeDir, name: o.name, db: db ?? undefined, now: o.now, expect: o.expect });
     if (o.json) log(JSON.stringify({ ok: true, result: r }));
     else {
-      log(`戻しました（書き戻し ${r.restored.length} 件、消去 ${r.removed.length} 件）`);
-      log(`戻す前の状態は世代 ${r.safety} に控えました。取り消すには hangar config restore ${r.safety}`);
+      log(`戻しました（書き戻し ${r.restored.length} 件、削除 ${r.removed.length} 件）`);
+      log(`戻す前の状態は世代 ${r.safety} にバックアップしました。取り消すには hangar config restore ${r.safety} を実行してください`);
     }
     return 0;
   } catch (e) {

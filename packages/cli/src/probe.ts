@@ -86,7 +86,7 @@ export async function probeAuthorized(port: number, token: string, timeoutMs = 1
 
 /** サーバが居ないポートを指したときの案内。開く前にこれを出す。 */
 export function serverDownMessage(port: number): string {
-  return `ポート ${port} でサーバが動いていません。\`hangar start\` で起動してください。`;
+  return `ポート ${port} でサーバーが起動していません。\`hangar start\` で起動してください。`;
 }
 
 /**
@@ -95,7 +95,7 @@ export function serverDownMessage(port: number): string {
  */
 export function oneLineError(e: unknown): string {
   const raw = e instanceof Error ? e.message : String(e);
-  return (raw.split('\n')[0] ?? '').trim() || '原因の分からない失敗です';
+  return (raw.split('\n')[0] ?? '').trim() || '原因不明のエラーです';
 }
 
 /**
@@ -112,7 +112,7 @@ export class DetailedError extends Error {
 
 /** 最上位で端末に出す文。DetailedError は全文を、それ以外は 1 行を出す。 */
 export function cliErrorText(e: unknown): string {
-  if (e instanceof DetailedError) return e.message.trimEnd() || '原因の分からない失敗です';
+  if (e instanceof DetailedError) return e.message.trimEnd() || '原因不明のエラーです';
   return oneLineError(e);
 }
 
@@ -123,13 +123,13 @@ export function cliErrorText(e: unknown): string {
 export function startErrorMessage(e: unknown, port: number): string {
   const code = (e as NodeJS.ErrnoException | null)?.code;
   if (code === 'EADDRINUSE') {
-    return `ポート ${port} は既に使われています。別の hangar が動いていないか確かめてください（\`--port\` で別の番号も指定できます）。`;
+    return `ポート ${port} はすでに使われています。別の hangar が起動していないか確認してください（\`--port\` で別の番号も指定できます）。`;
   }
   if (code === 'EACCES') {
     return `ポート ${port} を開く権限がありません。\`--port\` で 1024 以上の番号を指定してください。`;
   }
   if (code === 'EADDRNOTAVAIL') {
-    return `ポート ${port} を開けません。127.0.0.1 が使える状態か確かめてください。`;
+    return `ポート ${port} を開けません。127.0.0.1 が使える状態か確認してください。`;
   }
-  return `サーバを起動できませんでした: ${oneLineError(e)}`;
+  return `サーバーを起動できませんでした: ${oneLineError(e)}`;
 }

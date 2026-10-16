@@ -89,19 +89,19 @@ export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir
 }
 
 export function formatSetupReport(r: SetupReport): string {
-  const lines = [`データディレクトリ: ${r.home}`, `端末 ID: ${r.deviceId}`];
+  const lines = [`データディレクトリ: ${r.home}`, `PC の ID: ${r.deviceId}`];
   for (const t of r.tools) {
     lines.push(`${t.name}: ${t.found ? t.path : '見つかりません'}`);
     if (t.outdated) {
-      lines.push(`  注意: psmux ${t.outdated.version} は古い版です。${t.outdated.min} 未満では、端末をホイールで上へスクロールできません。`);
-      lines.push('  hangar のセッションを全部閉じてから（実行中のセッションは止まります）、外の PowerShell で次を打ってください:');
+      lines.push(`  注意: psmux ${t.outdated.version} は古いバージョンです。${t.outdated.min} 未満では、ターミナルをホイールで上へスクロールできません。`);
+      lines.push('  hangar のセッションをすべて閉じてから（実行中のセッションは停止します）、外部の PowerShell で次を実行してください:');
       lines.push(`  ${PSMUX_UPGRADE_COMMAND}`);
     }
   }
   // 作成場所は任意（2026-10-13）。空なら決めていないと言い、プロジェクトはアプリのホームで選べることを添える。
-  if (r.workspaceRoot === '') lines.push('新しいフォルダの作成場所: 未設定（任意。hangar setup --workspace <dir> で決められます）');
-  else lines.push(`新しいフォルダの作成場所: ${r.workspaceRoot}${r.workspaceExists ? '' : '（存在しません。hangar setup --workspace <dir> で変えられます）'}`);
-  lines.push(r.statusline.installed ? 'statusline: 追記済み' : r.statusline.scriptPath ? 'statusline: 未追記（hangar statusline install で追記できます）' : 'statusline: スクリプトが見つかりません');
-  lines.push(r.workspaceRoot === '' ? 'プロジェクトは、アプリのホームで、Claude Code と会話したフォルダから選べます。' : 'プロジェクトの自動登録は hangar start の起動時に行います。');
+  if (r.workspaceRoot === '') lines.push('新しいディレクトリの作成先: 未設定（任意。hangar setup --workspace <dir> で設定できます）');
+  else lines.push(`新しいディレクトリの作成先: ${r.workspaceRoot}${r.workspaceExists ? '' : '（見つかりません。hangar setup --workspace <dir> で変更できます）'}`);
+  lines.push(r.statusline.installed ? 'ステータスライン: 追記済み' : r.statusline.scriptPath ? 'ステータスライン: 未追記（hangar statusline install で追記できます）' : 'ステータスライン: スクリプトが見つかりません');
+  lines.push(r.workspaceRoot === '' ? 'プロジェクトは、アプリのホームで、Claude Code と会話したディレクトリから選択できます。' : 'プロジェクトの自動登録は hangar start の起動時に行います。');
   return lines.join('\n');
 }

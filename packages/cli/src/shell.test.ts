@@ -44,7 +44,7 @@ posixDescribe('hangar shell install', () => {
     expect(body).toContain("__agent_hangar_url='http://127.0.0.1:4177'");
     expect(body).toContain(`__agent_hangar_token_file='${path.join(home, 'token')}'`);
     expect(body).toContain(`__agent_hangar_tmux='${ok}'`);
-    expect(logs.some((l) => l.startsWith('控え: '))).toBe(true);
+    expect(logs.some((l) => l.startsWith('バックアップ: '))).toBe(true);
     // 二度目は聞かずに済ませる。
     const again = await runShellInstall({ ...base(), tmuxPath: ok, ask: async () => { throw new Error('聞かない'); } });
     expect(again.installed).toBe(true);
@@ -66,10 +66,10 @@ posixDescribe('hangar shell install', () => {
 // zsh の包み。Windows の包みは次の区切りで作る。
 posixDescribe('hangar shell uninstall と status', () => {
   it('足した行だけを外し、状態を 1 行で出す', async () => {
-    expect(shellStatusLine({ zshrc, tmuxPath: ok })).toMatch(/まだです/);
+    expect(shellStatusLine({ zshrc, tmuxPath: ok })).toMatch(/未インストール/);
     expect(shellStatusLine({ zshrc, tmuxPath: off })).toMatch(/使えません/);
     await runShellInstall({ ...base(), tmuxPath: ok, yes: true });
-    expect(shellStatusLine({ zshrc, tmuxPath: ok })).toMatch(/入っています/);
+    expect(shellStatusLine({ zshrc, tmuxPath: ok })).toMatch(/インストール済み/);
     expect(runShellUninstall({ zshrc, log: () => {} }).removed).toBe(true);
     expect(fs.readFileSync(zshrc, 'utf8')).toBe('export A=1\n');
     expect(runShellUninstall({ zshrc, log: () => {} }).removed).toBe(false);
