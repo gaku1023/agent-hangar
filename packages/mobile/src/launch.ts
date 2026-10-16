@@ -77,8 +77,9 @@ export async function requestLaunch(
  * 依頼の行き着いた先。
  * - unreadable：PC の答えが無いか、開けないか、Worker の状態と食い違う。始まったかどうかをスマホは言えない。
  * - unpaired：このスマホの接続が外された（401）。
+ * - unanswered：PC は受け取った（claimed を見た）が、諦めるまでに答えが届かなかった。会話が始まっているかもしれない。
  */
-export type LaunchStage = 'waiting' | 'started' | 'failed' | 'expired' | 'unreadable' | 'unpaired';
+export type LaunchStage = 'waiting' | 'started' | 'failed' | 'expired' | 'unreadable' | 'unpaired' | 'unanswered';
 
 /** 既定の読み直しの間隔と、諦めるまでの長さ（LAUNCH_TTL_MS の 75 秒に少し足す）。 */
 export const LAUNCH_POLL_MS = 3_000;
@@ -91,7 +92,7 @@ export const LAUNCH_GIVE_UP_MS = 80_000;
  * - started は ok:true の答えを開けたときだけ。ok:false の答えなら failed として答えを渡す。
  * - failed は ok:false の答えを添える。ok:true の答えは食い違いなので unreadable。
  * - 答えが無い、開けないときは、started でも failed でも unreadable。
- * - Worker が expired と言うか、giveUpMs を過ぎたら expired。
+ * - Worker が expired と言うか、giveUpMs を過ぎたら expired。ただし claimed を一度でも見た後に giveUpMs を過ぎたら unanswered（PC は受け取っている）。
  * - 通信の失敗は待ち続ける。依頼が見つからない（404）ときは failed（答えなし）、接続が外された（401）ときは unpaired。
  */
 export function waitLaunch(
@@ -103,6 +104,7 @@ export function waitLaunch(
   const every = o.everyMs ?? LAUNCH_POLL_MS;
   const giveUp = o.giveUpMs ?? LAUNCH_GIVE_UP_MS;
   let done = false;
+  let claimed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const finish = (s: LaunchStage, a?: MobileLaunchAnswer): void => {
     if (done) return;
@@ -139,6 +141,7 @@ export function waitLaunch(
         finish('expired');
         return;
       }
+      if (st.status === 'claimed') claimed = true;
     } catch (e) {
       if (e instanceof LaunchError && e.reason === 'unpaired') {
         finish('unpaired');
@@ -151,7 +154,7 @@ export function waitLaunch(
     }
     if (!done) timer = setTimeout(() => void tick(), every);
   };
-  const limit = setTimeout(() => finish('expired'), giveUp);
+  const limit = setTimeout(() => finish(claimed ? 'unanswered' : 'expired'), giveUp);
   o.onStage('waiting');
   timer = setTimeout(() => void tick(), every);
   return () => {

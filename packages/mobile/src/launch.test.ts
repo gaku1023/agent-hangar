@@ -181,6 +181,17 @@ describe('waitLaunch', () => {
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
+  it('claimed を見た後に時間切れになったら unanswered（受け取ったが答えが届いていない）', async () => {
+    vi.useFakeTimers();
+    const replies = [await status('l-5', 'pending'), await status('l-5', 'claimed')];
+    fetchMock.mockImplementation(async () => replies.shift() ?? (await status('l-5', 'claimed')));
+    const onStage = vi.fn();
+    waitLaunch(pairing, key, 'l-5', { onStage });
+    await vi.advanceTimersByTimeAsync(80_000);
+    expect(onStage).toHaveBeenLastCalledWith('unanswered');
+    expect(onStage).not.toHaveBeenCalledWith('expired');
+  });
+
   it('Worker が expired と言ったら expired', async () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async () => status('l-4', 'expired'));

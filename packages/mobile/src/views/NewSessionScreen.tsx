@@ -39,6 +39,7 @@ type Stage =
   | { kind: 'waiting' }
   | { kind: 'started' }
   | { kind: 'unreadable' }
+  | { kind: 'unanswered' }
   | { kind: 'failed'; message: string; detail?: string; reconnect?: boolean };
 
 type Props = {
@@ -54,6 +55,8 @@ type Props = {
   leaving?: boolean;
   /** 依頼の状態を読む間隔。試験で縮める。 */
   everyMs?: number;
+  /** 依頼の答えを待つのをやめるまでの長さ。試験で縮める。 */
+  giveUpMs?: number;
 };
 
 function answerMessage(pc: string, a: MobileLaunchAnswer | undefined): Stage {
@@ -91,7 +94,7 @@ function requestMessage(pc: string, e: unknown): Stage {
   }
 }
 
-export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired, leaving, everyMs }: Props): ReactNode {
+export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired, leaving, everyMs, giveUpMs }: Props): ReactNode {
   const alive = useMemo(() => new Set(view.devices.filter((d) => d.alive).map((d) => d.id)), [view]);
   const choices = useMemo(() => launchChoices(view.feeds, alive), [view, alive]);
   const names = useMemo(() => {
@@ -135,7 +138,8 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
 
   const tooLong = prompt.length > PROMPT_MAX;
   const left = PROMPT_MAX - prompt.length;
-  const locked = stage.kind === 'sending' || stage.kind === 'waiting' || stage.kind === 'started' || stage.kind === 'unreadable';
+  // 始まったかもしれない段（started、unreadable、unanswered）では送り直させない。新しい id で二つ目の会話が起きうる。
+  const locked = stage.kind === 'sending' || stage.kind === 'waiting' || stage.kind === 'started' || stage.kind === 'unreadable' || stage.kind === 'unanswered';
   const ready = !!sel && (sel.scratch || !!project) && !!pc && !!account && prompt.trim().length > 0 && !tooLong;
   const nothing = choices.scratchDeviceIds.length === 0;
 
@@ -171,11 +175,13 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
     if (!mounted.current) return;
     stop.current = waitLaunch(pairing, cryptoKey, id, {
       everyMs,
+      giveUpMs,
       onStage: (s: LaunchStage, a?: MobileLaunchAnswer) => {
         if (!mounted.current) return;
         if (s === 'waiting') setStage({ kind: 'waiting' });
         else if (s === 'started') setStage({ kind: 'started' });
         else if (s === 'unreadable') setStage({ kind: 'unreadable' });
+        else if (s === 'unanswered') setStage({ kind: 'unanswered' });
         else if (s === 'unpaired') {
           clearPairing();
           onUnpaired();
@@ -308,6 +314,16 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
             <div className="ns-done">
               <p className="ns-stage bad" role="alert">
                 {`${sentTo} からの返事を読めませんでした。会話が始まっているかもしれません。受信箱で確かめてください。`}
+              </p>
+              <button type="button" className="ns-start" onClick={() => onClose(true)}>
+                受信箱へ ›
+              </button>
+            </div>
+          )}
+          {stage.kind === 'unanswered' && (
+            <div className="ns-done">
+              <p className="ns-stage bad" role="alert">
+                {`${sentTo} は受け取りましたが、結果がまだ届いていません。受信箱で確かめてから送り直してください。`}
               </p>
               <button type="button" className="ns-start" onClick={() => onClose(true)}>
                 受信箱へ ›

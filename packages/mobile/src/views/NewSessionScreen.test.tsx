@@ -286,6 +286,34 @@ describe('NewSessionScreen', () => {
     expect(onClose).toHaveBeenCalledWith(true);
   });
 
+  it('PC が受け取った後に答えが届かないまま時間切れなら「受け取りましたが、結果がまだ届いていません」と出し、もう一度を出さない', async () => {
+    serve([{ status: 'pending' }, { status: 'claimed' }]);
+    const onClose = vi.fn();
+    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} everyMs={10} giveUpMs={200} />);
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(await screen.findByText('Mac は受け取りましたが、結果がまだ届いていません。受信箱で確かめてから送り直してください。')).toBeInTheDocument();
+    expect(screen.queryByText(/受け取りませんでした/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'もう一度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mac で始める' })).not.toBeInTheDocument();
+    expect(sent).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /受信箱へ/ }));
+    expect(onClose).toHaveBeenCalledWith(true);
+  });
+
+  it('PC が受け取らないまま時間切れなら「受け取りませんでした」と出す', async () => {
+    serve([{ status: 'pending' }]);
+    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} giveUpMs={200} />);
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(await screen.findByText(/Mac が受け取りませんでした/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'もう一度' })).toBeInTheDocument();
+  });
+
   it('待っている間に 401 なら接続し直しの画面へ', async () => {
     fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
       if (init?.method === 'POST') {
