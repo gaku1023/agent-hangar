@@ -1,6 +1,7 @@
 import { type Context, Hono } from 'hono';
-import { LAUNCH_TTL_MS, type MobileInboxResponse, type MobileJoinRequest, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse } from '@agent-hangar/shared';
+import { LAUNCH_TTL_MS, MOBILE_ASK_MAX_BYTES, type MobileAskIn, type MobileInboxResponse, type MobileJoinRequest, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse } from '@agent-hangar/shared';
 import { authMiddleware, requireKind } from './auth.ts';
+import { BELL_DEVICE_HEADER, BELL_NAME } from './bellWire.ts';
 import type { Env, Vars } from './env.ts';
 import { isSafeName, issueDeviceToken } from './join.ts';
 import { seenOf, touchIfDue } from './seen.ts';
@@ -17,6 +18,8 @@ import { randomToken, sha256Hex } from './util.ts';
  *
  * 表は `rows` に足さず、専用の表（mobile_feeds、mobile_pairings、launch_requests）に置く。
  * 版 6 の PC は知らない表を pull せず、push も断られないので、同期から締め出されない。
+ *
+ * 呼び鈴（互換の版 8）は bell.ts の Durable Object にある。PC は `GET /m/bell` で WebSocket をつなぎ、スマホは `POST /m/ask` で問い合わせ、起動の依頼は宛先の PC を鳴らす。
  *
  * 経路を足すときは、参加の口のほかは必ず authMiddleware と requireKind を付ける。
  */
@@ -270,6 +273,13 @@ mobileApp.post('/launches', authMiddleware(), requireKind('mobile'), async (c) =
     .bind(body.id, body.targetDevice, device.id, body.sealed, now, device.id, now - LAUNCH_RATE.windowMs, LAUNCH_RATE.max)
     .run();
   if (Number(ins.meta?.changes ?? 0) === 1) {
+    // 宛先の PC を鳴らす。応答は待たず、失敗しても依頼は成功として返す（PC は 30 秒の pull で拾う）。
+    const rang = ringBell(c.env, body.targetDevice);
+    try {
+      c.executionCtx.waitUntil(rang);
+    } catch {
+      // 実行の文脈が無い（Worker の外で app を叩いた）。鳴らすのは捨ててよい。
+    }
     const res: MobileLaunchStatus = { id: body.id, status: 'pending', sealedAnswer: null };
     return c.json(res, 201);
   }
@@ -334,4 +344,53 @@ mobileApp.post('/launches/:id/answer', authMiddleware(), requireKind('pc'), asyn
     .run();
   if (Number(r.meta?.changes ?? 0) === 1) return c.json({ ok: true });
   return c.json({ error: 'conflict' }, 409);
+});
+
+/** 呼び鈴の実体。束縛が無い（rc.1 の設定のまま再配備していない）Worker では null。 */
+function bellOf(env: Env): DurableObjectStub | null {
+  const ns = env.BELL;
+  return ns ? ns.get(ns.idFromName(BELL_NAME)) : null;
+}
+
+/** 宛先の PC を鳴らす。束縛が無いときと失敗したときは何もしない。 */
+async function ringBell(env: Env, target: string): Promise<void> {
+  try {
+    const bell = bellOf(env);
+    if (!bell) return;
+    const r = await bell.fetch('https://bell/ring', { method: 'POST', headers: { [BELL_DEVICE_HEADER]: target } });
+    await r.body?.cancel();
+  } catch (e) {
+    console.error('bell ring failed', e instanceof Error ? e.name : typeof e);
+  }
+}
+
+/**
+ * PC が呼び鈴につなぐ（互換の版 8）。
+ * 認証と種類の検査（PC だけ）をここで済ませ、端末の ID を見出しに載せて Durable Object へ渡す。
+ * スマホのトークン（403）と解除した PC（401）は Durable Object まで届かない。
+ * 呼び鈴の束縛が無い Worker では 503 で、PC は張らずに 30 秒の pull で動く。
+ */
+mobileApp.get('/bell', authMiddleware(), requireKind('pc'), async (c) => {
+  if (c.req.header('upgrade')?.toLowerCase() !== 'websocket') return c.json({ error: 'websocket required' }, 426);
+  const bell = bellOf(c.env);
+  if (!bell) return c.json({ error: 'bell unavailable' }, 503);
+  return bell.fetch('https://bell/connect', { headers: { upgrade: 'websocket', [BELL_DEVICE_HEADER]: c.get('device').id } });
+});
+
+/**
+ * スマホが宛先の PC に問い合わせる（互換の版 8）。
+ * 本文は `{ id, targetDevice, sealed }` で、sealed はスマホの鍵で封をしてあり、Worker も Durable Object も読まない。D1 にも書かない。
+ * 本文が 4 KiB を超えたら 413、宛先が解除されていない PC でなければ 404 で断る。
+ * Durable Object が宛先の WebSocket に渡し、答え（`{ sealed }`）か、503 pc-offline、504 pc-timeout、429 をそのまま返す。
+ */
+mobileApp.post('/ask', authMiddleware(), requireKind('mobile'), async (c) => {
+  const read = await readLimitedJson(c, MOBILE_ASK_MAX_BYTES);
+  if (read.tooLarge) return c.json({ error: 'payload too large', limit: MOBILE_ASK_MAX_BYTES }, 413);
+  if (!isLaunchBody(read.value)) return c.json({ error: 'invalid body' }, 400);
+  const body: MobileAskIn = { id: read.value.id, targetDevice: read.value.targetDevice, sealed: read.value.sealed };
+  const target = await c.env.DB.prepare("select id from devices where id = ? and kind = 'pc' and revoked_at is null").bind(body.targetDevice).first();
+  if (!target) return c.json({ error: 'not found' }, 404);
+  const bell = bellOf(c.env);
+  if (!bell) return c.json({ error: 'pc-offline' }, 503);
+  return bell.fetch('https://bell/ask', { method: 'POST', headers: { 'content-type': 'application/json', [BELL_DEVICE_HEADER]: c.get('device').id }, body: JSON.stringify(body) });
 });
