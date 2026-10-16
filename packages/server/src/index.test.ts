@@ -24,7 +24,7 @@ describe('パッケージの入口', () => {
     }
   });
   it('暗号の対も出している', () => {
-    for (const name of ['CloudError', 'goneFloor', 'CHUNK_SIZE', 'encryptStream', 'encryptBuffer', 'decryptBuffer', 'sha256Hex', 'DEFAULT_TIMEOUT_MS', 'DEFAULT_TRANSFER_TIMEOUT_MS'] as const) {
+    for (const name of ['CloudError', 'CHUNK_SIZE', 'encryptStream', 'encryptBuffer', 'decryptBuffer', 'sha256Hex', 'DEFAULT_TIMEOUT_MS', 'DEFAULT_TRANSFER_TIMEOUT_MS'] as const) {
       expect(api[name], name).toBeDefined();
     }
   });

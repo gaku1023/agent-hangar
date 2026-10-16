@@ -37,7 +37,8 @@ beforeEach(async () => {
   myClaude = path.join(tmp, 'my-claude');
   myHome = path.join(tmp, 'my-home');
   fs.mkdirSync(myClaude); fs.mkdirSync(myHome);
-  cloud = new FakeCloudClient({ deviceId: 'shared' });
+  // 製品の下限（MIN_WORKER_COMPAT、版 6）より古い Worker を真似るので、この PC が求める下限を下げておく。
+  cloud = new FakeCloudClient({ deviceId: 'shared', minWorkerCompat: 1 });
   // 束の行を知る Worker で、同期はもう Worker と話して版を知っている。
   cloud.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
   const talk = (c: FakeCloudClient): FakeCloudClient => { void c.health(); c.calls.length = 0; return c; };

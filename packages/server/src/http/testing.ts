@@ -200,7 +200,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     trash: new SessionTrash({
       db, deviceId: 'd', claudeDir, remoteRoot: path.join(ws, 'remote'),
       trash: async (p) => { const bin = path.join(ws, '.test-trash'); fs.mkdirSync(bin, { recursive: true }); fs.renameSync(p, path.join(bin, path.basename(p))); },
-      runsAnywhere: (id) => sessionRunsAnywhere({ db, live: () => [] }, id),
+      runsAnywhere: (id) => sessionRunsAnywhere({ db, deviceId: 'd', live: () => [] }, id),
       runsHere: () => false,
       log: () => {},
     }),

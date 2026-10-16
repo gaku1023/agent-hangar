@@ -7,6 +7,7 @@ import type { Db } from '../db/open.ts';
  * transcriptsFrom は本文をどこから上げるかの床である（sync/transcriptsFrom.ts）。
  * orphans は、親の行がまだ届かず当てられなかった行の持ち越しである（JSON の配列。sync/engine.ts）。
  * revokedLogged は、この PC が解除されて止まったことをログに残した印である（戻った旨を 1 度だけ残すため。止める印ではない。sync/engine.ts）。
+ * peers は、pull の応答で受け取った他の PC の最終接続である（JSON。sync/peers.ts が読み書きする）。
  */
 export type SyncStateKey =
   | 'lastSeq'
@@ -20,6 +21,7 @@ export type SyncStateKey =
   | 'limitedUntil'
   | 'orphans'
   | 'revokedLogged'
+  | 'peers'
   | `skipped:${string}`;
 
 /**

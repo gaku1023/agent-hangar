@@ -26,13 +26,16 @@ type StoredFile = { entry: FileEntry; body: Buffer };
 
 /** 端末をまたいで共有する中身。asDevice で作った別端末のクライアントも同じものを指す。 */
 export type FakeCloudStore = {
+  /**
+   * 採った push の行を届いた順に積んだ控え。試験が「何を送ったか」を見るためだけのもので、pull は読まない。
+   * 実物の Worker は変更ログを持たない（同期の版 6）。
+   */
   changes: ChangeOut[];
+  /** 鍵（表:行 ID）ごとの今の 1 行。実物の rows と同じく、書き換えると末尾の連番を受け取る。pull はここから引く。 */
   rows: Map<string, ChangeOut>;
   files: Map<string, StoredFile>;
   seq: number;
   fileSeq: number;
-  /** 圧縮で削り終えた連番。since がこれより小さい pull には 410 を返す。 */
-  changesFloor: number;
   offline: boolean;
   unauthorized: boolean;
   /** Worker の互換の版。0 にすると、版の見出しを返さない古い Worker（版番号を入れる前に配備したもの）の真似になる。 */
@@ -68,7 +71,13 @@ export const MAX_BODY_BYTES = 100 * 1024 * 1024;
  * 実物の Worker が端末に求める互換の版の下限（packages/cloud/src/compat.ts の写し）。
  * ずれていないことは fake-cloud.test.ts の「端末に求める下限は実物の Worker の写し」が原本を読んで縛る。
  */
-export const MIN_DEVICE_COMPAT = 4;
+export const MIN_DEVICE_COMPAT = 6;
+
+/**
+ * 実物の Worker が最終確認（devices.last_seen_at）を書き直す間隔（packages/cloud/src/seen.ts の写し）。
+ * ずれていないことは fake-cloud.test.ts の「上限は実物の Worker と同じ数である」が原本を読んで縛る。
+ */
+export const TOUCH_EVERY_MS = 60_000;
 
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
@@ -101,7 +110,7 @@ const clampLimit = (v: number): number => Math.min(Math.max(Number(v) || PULL_LI
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
 /**
- * Worker と同じ規則（入力の検査、LWW、自端末の除外、鍵の権限、seq、圧縮の floor）をメモリ上で再現する偽物。
+ * Worker と同じ規則（入力の検査、LWW、自端末の除外、鍵の権限、rows の連番、生存の知らせ）をメモリ上で再現する偽物。
  * asDevice で同じストアを別端末として使えるので、2 端末の同期をそのまま書ける。
  * 本物の fetch は一切呼ばない。
  */
@@ -122,7 +131,6 @@ export class FakeCloudClient implements CloudClient {
       files: new Map(),
       seq: 0,
       fileSeq: 0,
-      changesFloor: 0,
       offline: false,
       unauthorized: false,
       workerCompat: COMPAT_VERSION,
@@ -151,20 +159,13 @@ export class FakeCloudClient implements CloudClient {
   get changes(): ChangeOut[] { return this.store.changes; }
   get rows(): Map<string, ChangeOut> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
-  get changesFloor(): number { return this.store.changesFloor; }
-
-  /** 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。 */
-  asDevice(deviceId: string): FakeCloudClient {
-    return new FakeCloudClient({ deviceId, store: this.store });
-  }
 
   /**
-   * Worker の圧縮を真似る。floor までの changes を消し、floor を残す。
-   * これ以降、since が floor より小さい pull は 410 と { error: 'gone', floor } になる。
+   * 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。
+   * Worker に求める下限（minWorkerCompat）は、作った元のクライアントのものを引き継ぐ。
    */
-  compact(floor: number): void {
-    this.store.changesFloor = Math.max(this.store.changesFloor, floor);
-    this.store.changes = this.store.changes.filter((c) => c.seq > this.store.changesFloor);
+  asDevice(deviceId: string): FakeCloudClient {
+    return new FakeCloudClient({ deviceId, store: this.store, minWorkerCompat: this.minWorkerCompat });
   }
 
   /** Worker が最後に名乗った版。話すまでは null（HttpCloudClient と同じ）。 */
@@ -189,7 +190,9 @@ export class FakeCloudClient implements CloudClient {
     const row = this.store.devices.get(this.deviceId) ?? { id: this.deviceId, name: this.deviceId, platform: 'darwin', joinedAt: now, lastSeenAt: null, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null };
     // 解除した PC の端末トークンは、Worker が 401 の revoked で断る。
     if (row.revokedAt !== null) throw new RevokedError();
-    this.store.devices.set(this.deviceId, { ...row, lastSeenAt: now });
+    // 最終確認は、前回から TOUCH_EVERY_MS たったときだけ書く（実物の touchIfDue）。
+    const due = row.lastSeenAt === null || now - row.lastSeenAt >= TOUCH_EVERY_MS;
+    this.store.devices.set(this.deviceId, due ? { ...row, lastSeenAt: now } : row);
   }
 
   /** 端末を解除した状態にする（ほかの PC から解除された筋）。 */
@@ -264,17 +267,29 @@ export class FakeCloudClient implements CloudClient {
     return { seq: this.store.seq, accepted, skipped };
   }
 
+  /**
+   * 実物の GET /changes と同じく、rows から自端末以外の行を連番の順に引く。
+   * 変更ログを持たないので、どれだけ古い since でも断らない。
+   * 最後まで返せたときの nextSeq は表の末尾の連番（max(seq)）で、since をそのまま返さない。
+   * 解除していない PC の最終確認（peers）と、Worker の時刻（now）を添える。
+   */
   async pullChanges(since: number, limit: number): Promise<PullChangesResponse> {
     this.guard('pullChanges', since, limit);
-    if (since < this.store.changesFloor) throw new CloudError(410, JSON.stringify({ error: 'gone', floor: this.store.changesFloor }));
     const n = clampLimit(limit);
-    const all = this.store.changes.filter((c) => c.seq > since && c.deviceId !== this.deviceId);
+    const rows = [...this.store.rows.values()];
+    const all = rows.filter((c) => c.seq > since && c.deviceId !== this.deviceId).sort((x, y) => x.seq - y.seq);
     const page = all.slice(0, n);
     const more = all.length > n;
+    const peers = [...this.store.devices.values()]
+      .filter((d) => d.revokedAt === null)
+      .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
+      .map((d) => ({ id: d.id, lastSeenAt: d.lastSeenAt }));
     return {
       changes: page.map((c) => structuredClone(c)),
-      nextSeq: more ? page[page.length - 1]!.seq : Math.max(this.store.seq, since),
+      nextSeq: more ? page[page.length - 1]!.seq : rows.reduce((m, c) => Math.max(m, c.seq), 0),
       more,
+      peers,
+      now: this.store.now(),
     };
   }
 

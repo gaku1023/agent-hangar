@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { COMPAT_VERSION, MAX_PUSH_BATCH } from '@agent-hangar/shared';
-import { CloudError, CompatError, goneFloor } from '../src/sync/client.ts';
-import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT } from './fake-cloud.ts';
+import { CloudError, CompatError } from '../src/sync/client.ts';
+import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT, TOUCH_EVERY_MS } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
 /** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
@@ -16,11 +16,11 @@ const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 
  * 偽物は実物を写したものなので、実物だけが変わったら落ちて写し直しを促す。
  * `packages/server` は `packages/cloud` に依存しないので、import ではなく原本の文字列から読む。
  */
-function workerConstant(file: 'changes.ts' | 'files.ts' | 'compat.ts', name: string): number {
+function workerConstant(file: 'changes.ts' | 'files.ts' | 'compat.ts' | 'seen.ts', name: string): number {
   const src = fs.readFileSync(new URL(`../../cloud/src/${file}`, import.meta.url), 'utf8');
-  const m = new RegExp(`export const ${name} = ([0-9*\\s]+);`).exec(src);
+  const m = new RegExp(`export const ${name} = ([0-9_*\\s]+);`).exec(src);
   if (!m) throw new Error(`${name} を packages/cloud/src/${file} から読めない`);
-  return m[1]!.split('*').reduce((a, b) => a * Number(b.trim()), 1);
+  return m[1]!.split('*').reduce((a, b) => a * Number(b.trim().replace(/_/g, '')), 1);
 }
 
 describe('FakeCloudClient', () => {
@@ -33,7 +33,8 @@ describe('FakeCloudClient', () => {
     const pa = await a.pullChanges(0, 500);
     expect(pa.changes.map((c) => [c.seq, c.deviceId])).toEqual([[2, 'b']]);
     expect(pa.nextSeq).toBe(2);
-    expect((await b.pullChanges(0, 500)).changes.map((c) => c.seq)).toEqual([1]);
+    // 鍵ごとに今の 1 行だけを持つ（Worker の rows、同期の版 6）。p1 はもう b の行なので、b には降りない。
+    expect((await b.pullChanges(0, 500)).changes.map((c) => c.seq)).toEqual([]);
     expect((await a.snapshot(null, 500)).changes.map((c) => c.rowId)).toEqual(['p1']);
   });
 
@@ -69,20 +70,38 @@ describe('FakeCloudClient', () => {
     expect(s2.nextAfter).toBe(null);
   });
 
-  it('圧縮した区間を読み逃した端末には 410 と floor を返す', async () => {
+  it('変更ログを持たず、どれだけ古い since でも断らない。書き換えた行は末尾の連番で 1 度だけ降りる', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
     await a.pushChanges([ch('p1', 1)]);
     await a.pushChanges([ch('p2', 1)]);
+    await a.pushChanges([ch('p1', 2)]);
     const b = a.asDevice('b');
-    a.compact(1);
-    expect(a.changes.map((c) => c.seq)).toEqual([2]);
-    const e = await b.pullChanges(0, 500).catch((x: unknown) => x);
-    expect(e).toMatchObject({ status: 410 });
-    expect(goneFloor(e)).toBe(1);
-    // floor に追いついている端末はそのまま読める。
-    expect((await b.pullChanges(1, 500)).changes.map((c) => c.seq)).toEqual([2]);
-    // 全件の取り直しは 410 にならない。
-    expect((await b.snapshot(null, 500)).changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    const p = await b.pullChanges(0, 500);
+    expect(p.changes.map((c) => [c.rowId, c.seq])).toEqual([['p2', 2], ['p1', 3]]);
+    expect(p).toMatchObject({ nextSeq: 3, more: false });
+    // 自端末の行しかなくても、nextSeq は表の末尾まで進む。
+    expect(await a.pullChanges(0, 500)).toMatchObject({ changes: [], nextSeq: 3, more: false });
+    // since が末尾より先でも断らない（生存の知らせだけを取りに来る要求）。
+    expect(await b.pullChanges(Number.MAX_SAFE_INTEGER, 1)).toMatchObject({ changes: [], nextSeq: 3, more: false });
+  });
+
+  it('pull の応答に、解除していない PC の最終確認（peers）と Worker の時刻（now）を添える。最終確認は 1 分おきにしか書かない', async () => {
+    let t = 1_000_000;
+    const a = new FakeCloudClient({ deviceId: 'a', now: () => t });
+    const b = a.asDevice('b');
+    const c = a.asDevice('c');
+    await b.health();
+    await c.health();
+    a.revoke('c');
+    t += 10_000;
+    expect(await a.pullChanges(0, 500)).toMatchObject({ now: t, peers: [{ id: 'a', lastSeenAt: t }, { id: 'b', lastSeenAt: 1_000_000 }] });
+    // 1 分たつまでは書き直さない（Worker の touchIfDue）。
+    t += 30_000;
+    await b.health();
+    expect((await a.pullChanges(0, 500)).peers).toEqual([{ id: 'a', lastSeenAt: 1_010_000 }, { id: 'b', lastSeenAt: 1_000_000 }]);
+    t += TOUCH_EVERY_MS;
+    await b.health();
+    expect((await a.pullChanges(0, 500)).peers).toEqual([{ id: 'a', lastSeenAt: t }, { id: 'b', lastSeenAt: t }]);
   });
 
   it('ファイルは本体を集めて持ち、権限を検査する', async () => {
@@ -358,6 +377,7 @@ describe('FakeCloudClient', () => {
     expect(MAX_ROW_BYTES).toBe(workerConstant('changes.ts', 'MAX_ROW_BYTES'));
     expect(MAX_ROW_ID_CHARS).toBe(workerConstant('changes.ts', 'MAX_ROW_ID_CHARS'));
     expect(MAX_BODY_BYTES).toBe(workerConstant('files.ts', 'MAX_BODY_BYTES'));
+    expect(TOUCH_EVERY_MS).toBe(workerConstant('seen.ts', 'TOUCH_EVERY_MS'));
   });
 });
 
@@ -404,12 +424,12 @@ describe('互換の版', () => {
     expect(a.changes).toHaveLength(0);
   });
 
-  it('既定の下限は 2 で、版の見出しを返さない古い Worker（版 0）と版 1 の Worker は Worker を上げるよう断る', async () => {
+  it('既定の下限は 6 で、版の見出しを返さない古い Worker（版 0）から変更ログを持つ版 5 までの Worker は Worker を上げるよう断る', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
-    expect(a.minWorkerCompat).toBe(2);
-    for (const old of [0, 1]) {
+    expect(a.minWorkerCompat).toBe(6);
+    for (const old of [0, 1, 5]) {
       a.workerCompat = old;
-      await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: old, need: 2 });
+      await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: old, need: 6 });
     }
     expect(a.changes).toHaveLength(0);
   });

@@ -5,6 +5,7 @@ import { upsertShared } from '../db/shared.ts';
 import { Publisher } from '../events/publisher.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { runAnnouncer, sessionRunsAnywhere } from './announce.ts';
+import { recordPeers } from '../sync/peers.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 
@@ -77,16 +78,23 @@ describe('セッションがいま動いているか', () => {
 
   it('hangar の run が生きていれば動いている', () => {
     upsertShared(db, 'runs', { id: 'r1', session_id: s1, device_id: 'd', kind: 'start', tmux_name: 't', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
-    expect(sessionRunsAnywhere({ db, live: () => [] }, s1)).toBe(true);
+    expect(sessionRunsAnywhere({ db, deviceId: 'd', live: () => [] }, s1)).toBe(true);
+  });
+
+  it('他の PC の run は、その PC が古ければ動いていると見なさない', () => {
+    upsertShared(db, 'runs', { id: 'r1', session_id: s1, device_id: 'other', kind: 'start', tmux_name: 't', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'other');
+    expect(sessionRunsAnywhere({ db, deviceId: 'd', live: () => [], now: () => 10_000 }, s1)).toBe(false);
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'other', lastSeenAt: 500 }], workerNow: 1_000, localNow: 10_000 });
+    expect(sessionRunsAnywhere({ db, deviceId: 'd', live: () => [], now: () => 10_000 }, s1)).toBe(true);
   });
 
   it('hangar の外で動いている Claude も動いていると見なす', () => {
-    expect(sessionRunsAnywhere({ db, live: () => [] }, s1)).toBe(false);
-    expect(sessionRunsAnywhere({ db, live: () => [{ sessionId: UUID }] }, s1)).toBe(true);
-    expect(sessionRunsAnywhere({ db, live: () => [{ sessionId: 'other' }] }, s1)).toBe(false);
+    expect(sessionRunsAnywhere({ db, deviceId: 'd', live: () => [] }, s1)).toBe(false);
+    expect(sessionRunsAnywhere({ db, deviceId: 'd', live: () => [{ sessionId: UUID }] }, s1)).toBe(true);
+    expect(sessionRunsAnywhere({ db, deviceId: 'd', live: () => [{ sessionId: 'other' }] }, s1)).toBe(false);
   });
 
   it('行の無いセッションは動いていない', () => {
-    expect(sessionRunsAnywhere({ db, live: () => [{ sessionId: UUID }] }, 'nope')).toBe(false);
+    expect(sessionRunsAnywhere({ db, deviceId: 'd', live: () => [{ sessionId: UUID }] }, 'nope')).toBe(false);
   });
 });

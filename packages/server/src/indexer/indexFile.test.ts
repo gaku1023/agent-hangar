@@ -9,6 +9,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION, markTruncatedForReindex } from './indexFile.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { localDay } from '../usage/aggregate.ts';
+import { getSession, listSessions } from '../db/queries.ts';
 import { setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 
@@ -275,6 +276,60 @@ describe('indexFile', () => {
     const r2 = indexFile(db, alphaMain(), { deviceId: DEV });
     expect(r2.artifactIds).toHaveLength(1);
     expect(count('select count(*) c from artifact_versions')).toBe(1);
+  });
+});
+
+describe('last_activity_at の共有の間引き（同期の版 6）', () => {
+  const T0 = Date.parse('2026-09-01T10:04:00.000Z');
+  const at = (ms: number) => new Date(T0 + ms).toISOString();
+  const say = (uuid: string, ms: number) => ({ type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'text', text: '続けます' }], usage: { input_tokens: 0, output_tokens: 1 } }, uuid, timestamp: at(ms), cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+  const turnEnd = (uuid: string, ms: number) => ({ type: 'system', subtype: 'turn_duration', durationMs: 1000, messageCount: 2, uuid, isSidechain: false, isMeta: false, timestamp: at(ms), cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+  const shared = (id: string) => (db.prepare('select last_activity_at a from sessions where id = ?').get(id) as { a: number }).a;
+  const unsent = () => count("select count(*) c from changes where table_name = 'sessions' and pushed_at is null");
+  const settle = () => { db.prepare('update changes set pushed_at = 1').run(); };
+
+  it('ほかの事実が変わらず、進みが 5 分未満なら共有の行を書かない。画面の時刻は手元の統計で進む', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(shared(sessionId)).toBe(T0);
+    settle();
+    appendJson(alphaMain().path, say('x1', 2 * 60_000));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(shared(sessionId)).toBe(T0);
+    expect(unsent()).toBe(0);
+    expect(getSession(db, [], sessionId)!.lastActivityAt).toBe(T0 + 2 * 60_000);
+    // 前に共有した値から 5 分進んだら書く。
+    appendJson(alphaMain().path, say('x2', 5 * 60_000));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(shared(sessionId)).toBe(T0 + 5 * 60_000);
+    expect(unsent()).toBe(1);
+  });
+
+  it('ターンの終わり（turn_duration）では、5 分未満でも書く', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    settle();
+    appendJson(alphaMain().path, say('y1', 60_000), turnEnd('y2', 61_000));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(shared(sessionId)).toBe(T0 + 61_000);
+    expect(unsent()).toBe(1);
+  });
+
+  it('ほかの事実が変わったら、5 分未満でも書く', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    settle();
+    appendJson(alphaMain().path, { type: 'custom-title', customTitle: 'new-title', sessionId: SESSION_ALPHA }, say('z1', 60_000));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(db.prepare('select custom_title t, last_activity_at a from sessions where id = ?').get(sessionId)).toEqual({ t: 'new-title', a: T0 + 60_000 });
+    expect(unsent()).toBe(1);
+  });
+
+  it('一覧の並びも手元の統計の時刻で決める', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    upsertShared(db, 'sessions', { id: 'other', provider: 'claude-code', provider_session_id: 'u-other', cwd: '/w', home_device: DEV, last_activity_at: T0 + 60_000 }, DEV);
+    expect(listSessions(db, []).map((x) => x.id).slice(0, 2)).toEqual(['other', sessionId]);
+    appendJson(alphaMain().path, say('w1', 2 * 60_000));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(shared(sessionId)).toBe(T0);
+    expect(listSessions(db, []).map((x) => x.id).slice(0, 2)).toEqual([sessionId, 'other']);
   });
 });
 

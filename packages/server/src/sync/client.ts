@@ -52,8 +52,10 @@ const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : 
  * そのため、古い Worker のための分岐（/usage の 404 を「トークンなし」に読み替える）は持たない。
  * Worker の API を古い Worker と話せない形で変えたら、その版に上げる。上げる前に Worker を配備し直す。
  * 段 2 の PR 11 で 2 に上げた。版 1 の Worker は共有の表の一覧に session_notes を持たず、その行を含む push を丸ごと断る。
+ * 同期の版 6 で 6 に上げた（Worker の MIN_DEVICE_COMPAT と同時に上げる例外、docs/design.md「互換の版番号」）。
+ * 版 5 までの Worker は pull の応答に peers と now を添えず、他の PC の生存を読めない。変更ログの 410 の取り直しも、この下限で要らなくなった。
  */
-export const MIN_WORKER_COMPAT = 2;
+export const MIN_WORKER_COMPAT = 6;
 
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';
@@ -114,22 +116,6 @@ export class LimitError extends CloudError {
   constructor(readonly limit: CloudLimitKind, status: number) {
     super(status, LIMIT_LABEL[limit]);
     this.name = 'LimitError';
-  }
-}
-
-/**
- * `GET /changes?since=` が圧縮で消えた区間を指したときの floor を読む。
- * Worker は 410 と `{ error: 'gone', floor }` を返す。
- * それ以外なら null なので、呼び手は全件の再同期に切り替えるかどうかをこれで決める。
- * floor は 0 でありうるので、受け手は `if (floor !== null)` で見ること。
- */
-export function goneFloor(e: unknown): number | null {
-  if (!(e instanceof CloudError) || e.status !== 410) return null;
-  try {
-    const v = JSON.parse(e.message) as { error?: unknown; floor?: unknown };
-    return v && v.error === 'gone' && typeof v.floor === 'number' && Number.isFinite(v.floor) ? v.floor : null;
-  } catch {
-    return null;
   }
 }
 

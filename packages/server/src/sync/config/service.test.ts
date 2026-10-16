@@ -74,7 +74,9 @@ beforeEach(() => {
   clock = NOW;
   vi.setSystemTime(clock);
   pcs = [];
-  shared = new FakeCloudClient({ deviceId: 'shared', now: () => clock });
+  // 束の行を知らない古い Worker（版 2）の試験のために、この PC が Worker に求める下限を下げておく。
+  // 製品の下限（MIN_WORKER_COMPAT、版 6）は束の行の関所（CONFIG_BUNDLE_MIN_WORKER_COMPAT、版 3）より高いので、実物ではその Worker を先に断る。ここでは関所だけを試す。
+  shared = new FakeCloudClient({ deviceId: 'shared', now: () => clock, minWorkerCompat: 1 });
   // 束の行を知る Worker。古い Worker の試験だけが、これを下げる。
   shared.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
 });

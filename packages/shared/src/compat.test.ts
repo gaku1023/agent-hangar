@@ -3,13 +3,13 @@ import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
-  it('版は整数で（いまは 5。Worker が PC の一覧と解除の口を持つ版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
-    expect(COMPAT_VERSION).toBe(5);
+  it('版は整数で（いまは 6。変更ログをやめ、生存を Worker の観測で見る版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
+    expect(COMPAT_VERSION).toBe(6);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(DEVICE_ADMIN_MIN_WORKER_COMPAT);
     expect(Number.isSafeInteger(COMPAT_VERSION)).toBe(true);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
-    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '5' });
+    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '6' });
   });
 
   it('パッケージの入口から取れる', () => {

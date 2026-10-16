@@ -31,8 +31,8 @@ afterEach(async () => {
 });
 
 describe('互換の版（本番の下限）', () => {
-  it('本番の下限は 4 である（段 4 の PR 18 で上げた。設定の同期の旧実装を持たない最初の版）', () => {
-    expect(MIN_DEVICE_COMPAT).toBe(4);
+  it('本番の下限は 6 である（同期の版 6 で上げた。変更ログをやめ、生存を Worker の観測で見る最初の版）', () => {
+    expect(MIN_DEVICE_COMPAT).toBe(6);
     // この版の端末は通す。下限を、束ねて配る端末の版より先へ上げない。
     expect(MIN_DEVICE_COMPAT).toBeLessThanOrEqual(COMPAT_VERSION);
   });
@@ -58,7 +58,15 @@ describe('互換の版（本番の下限）', () => {
     expect((await c.RAW.fetch('https://x/changes?since=0', { headers: v3 })).status).toBe(426);
   });
 
-  it('版 4 を名乗る端末は通し、session_notes の行を受け取って返す', async () => {
+  it('版 5（生存を heartbeat の行で見る端末）は、参加も含めて 426 で断る', async () => {
+    // 版 5 の端末は他の PC の生存を runs.heartbeat_at で見る。版 6 の端末は heartbeat を共有の行に書かないので、混ざると 2 分で「応答がありません」になり、二重に起動しうる。
+    const c = await boot();
+    const v5 = { [COMPAT_HEADER]: '5' };
+    expect((await c.RAW.fetch('https://x/join', joinInit(v5))).status).toBe(426);
+    expect((await c.RAW.fetch('https://x/changes?since=0', { headers: v5 })).status).toBe(426);
+  });
+
+  it('いまの版を名乗る端末は通し、session_notes の行を受け取って返す', async () => {
     const c = await boot();
     const { deviceToken } = (await (await c.SELF.fetch('https://x/join', joinInit())).json()) as { deviceToken: string };
     const auth = { authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' };

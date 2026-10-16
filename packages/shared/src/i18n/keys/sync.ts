@@ -19,7 +19,6 @@ export const syncKeys = {
   'sync.limit.requests': [],
   'sync.limit.stopped': ['time'],
   'sync.limit.stoppedPaused': [],
-  'sync.resync.rebuilt': [],
   'sync.oversize.row': ['table', 'id', 'size', 'limit'],
   'sync.crypto.badMagic': [],
   'sync.crypto.dataAfterFinal': [],

@@ -10,7 +10,7 @@ import { openDb } from '../db/open.ts';
 import { errorText, MessageError } from '../i18n/message.ts';
 import { CloudError, CompatError, LimitError } from './client.ts';
 import { decryptStream, deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
-import { limitedMessage, limitedWhilePausedMessage, resyncedMessage } from './engine.ts';
+import { limitedMessage, limitedWhilePausedMessage } from './engine.ts';
 import { RemotePuller, remoteTranscriptPath } from './puller.ts';
 import { SyncStateStore } from './state.ts';
 
@@ -63,11 +63,6 @@ describe('同期の知らせの文', () => {
   it('一時停止のまま頼んだ 1 巡が上限で断られた知らせは、時刻も自動の再開も言わない', () => {
     expect(limitedWhilePausedMessage()).toBe('Cloudflare の無料枠の上限に達したため、同期できませんでした。同期は一時停止のままです');
     expect(limitedWhilePausedMessage('en')).toBe('Could not sync because the Cloudflare free tier limit was reached. Sync is still paused');
-  });
-
-  it('変更ログが古くなって作り直した知らせ', () => {
-    expect(resyncedMessage()).toBe('クラウドの変更ログが古くなっていたため、全体を再同期しました');
-    expect(resyncedMessage('en')).toBe("The cloud's change log had expired, so sync was redone from the beginning");
   });
 });
 
