@@ -63,8 +63,13 @@ export type SyncParts = {
   publishConfigSync(): void;
   /** 参加トークン。全セッションの読み書き権を持つ。作るのはここだけで、ログにも例外にも出さない。 */
   joinToken(): string | null;
-  /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。 */
+  /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
+  /**
+   * cloudDevices が一覧を読むたびに呼ぶ受け手を足す。設定の画面の読み込み（QR を出している間の 3 秒ごとを含む）と、受信箱の書き手の見回り（boot/mobile.ts）の両方で届く。
+   * 受信箱の書き手は、これでスマホがつながっているかを知る。
+   */
+  onCloudDevices(cb: (d: CloudDevicesDto) => void): () => void;
   /**
    * 他の PC から、索引の選び方に関わるものが届いたときの受け手を足す。
    * sessions の行を当てたときと、本文の写しを置いたときに呼ぶ。索引が全件走査を 1 回予約する（boot/indexing.ts）。
@@ -157,6 +162,7 @@ export function bootSync(
   const statesListeners = new Set<() => void>();
   const statesApplied = (): void => { for (const cb of statesListeners) cb(); };
   const takeoverListeners = new Set<() => void>();
+  const cloudDeviceListeners = new Set<(d: CloudDevicesDto) => void>();
   const takeoversApplied = (): void => { for (const cb of takeoverListeners) cb(); };
   const pruneBackups = backupPruner(home.home);
   const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
@@ -388,7 +394,14 @@ export function bootSync(
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
     joinToken: () => (core.cloud ? encodeJoinToken({ url: core.cloud.url, secret: core.cloud.joinSecret }) : null),
-    cloudDevices: () => loadCloudDevices({ client: core.client, deviceId, creator: core.cloud?.workerName != null, language: home.language }),
+    cloudDevices: async () => {
+      const d = await loadCloudDevices({ client: core.client, deviceId, creator: core.cloud?.workerName != null, language: home.language });
+      for (const cb of [...cloudDeviceListeners]) {
+        try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
+      }
+      return d;
+    },
+    onCloudDevices: (cb) => { cloudDeviceListeners.add(cb); return () => { cloudDeviceListeners.delete(cb); }; },
     start() {
       startCore(core);
       retention.start();

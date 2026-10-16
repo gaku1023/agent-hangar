@@ -135,6 +135,17 @@ describe('同期の組み立て', () => {
     expect(b.sync.cloudUsage.current()).toBeNull();
   });
 
+  it('cloudDevices が読んだ一覧は onCloudDevices の受け手に届き、外した受け手には届かない', async () => {
+    const b = boot();
+    const got: string[] = [];
+    const off = b.sync.onCloudDevices((d) => { got.push(d.state); });
+    expect((await b.sync.cloudDevices()).state).toBe('off');
+    expect(got).toEqual(['off']);
+    off();
+    await b.sync.cloudDevices();
+    expect(got).toEqual(['off']);
+  });
+
   it('cloud.json があれば部品が組み上がり、繋がらなくても起動は終わる', () => {
     // ここで見たいのは、cloud.json から client と鍵と上げ下ろしの部品が組み上がり、
     // 状態が off ではなくなり、参加トークンが作れることである。

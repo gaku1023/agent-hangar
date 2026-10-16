@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, MOBILE_MIN_WORKER_COMPAT, open, type MobileFeed } from '@agent-hangar/shared';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_SAFETY_MS, MobileFeedPublisher, mobileKeyFor } from './publisher.ts';
+import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_REFRESH_MS, FEED_SAFETY_MS, MobileFeedPublisher, mobileKeyFor } from './publisher.ts';
 
 const SECRET = 'join-secret-for-tests-0123456789abcdef';
 
@@ -28,6 +28,7 @@ function setup(o: { canWrite?: () => boolean } = {}) {
     joinSecret: SECRET,
     deviceId: 'pc-a',
     timers,
+    now: () => timers.now,
     canWrite: o.canWrite ?? (() => true),
     onError: (e) => errors.push(e),
   });
@@ -79,6 +80,25 @@ describe('MobileFeedPublisher', () => {
     expect(await pub.flushNow()).toBe('unchanged');
     expect(writes()).toBe(1);
     setFeed(feedOf('会話 2'));
+    expect(await pub.flushNow()).toBe('written');
+    expect(writes()).toBe(2);
+  });
+
+  it('forget の後は、中身が同じでも書き直す（新しくつながったスマホに素を置く）', async () => {
+    const { pub, writes } = setup();
+    expect(await pub.flushNow()).toBe('written');
+    pub.forget();
+    expect(await pub.flushNow()).toBe('written');
+    expect(writes()).toBe(2);
+  });
+
+  it('中身が同じでも、前に書いてから 1 日たったら書き直す（スマホは 7 日より古い素を隠す）', async () => {
+    const { timers, pub, writes } = setup();
+    expect(FEED_REFRESH_MS).toBe(24 * 60 * 60_000);
+    expect(await pub.flushNow()).toBe('written');
+    timers.now += FEED_REFRESH_MS - 1;
+    expect(await pub.flushNow()).toBe('unchanged');
+    timers.now += 1;
     expect(await pub.flushNow()).toBe('written');
     expect(writes()).toBe(2);
   });

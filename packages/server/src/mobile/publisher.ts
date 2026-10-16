@@ -9,6 +9,11 @@ export const FEED_DEBOUNCE_MS = 2_000;
 export const FEED_MIN_GAP_MS = 15_000;
 /** きっかけを取りこぼしても書き直す、安全網の間隔。 */
 export const FEED_SAFETY_MS = 60_000;
+/**
+ * 中身が同じでも書き直す間隔。スマホは更新が 7 日より古い素を、去った PC のものとして隠す（packages/mobile の inbox.ts）。
+ * 動きの無い PC でも消えないよう、1 日に 1 回は置き直す（PC 1 台につき 1 日 1 行）。
+ */
+export const FEED_REFRESH_MS = 24 * 60 * 60_000;
 
 export type FeedWriteResult = 'written' | 'unchanged' | 'skipped';
 
@@ -21,6 +26,8 @@ export type MobileFeedPublisherDeps = {
   timers: Timers;
   /** 書いてよいか（boot/sync.ts の canCarryMobile）。偽のあいだは何も書かず、中身も覚えない。 */
   canWrite: () => boolean;
+  /** 今の時刻。既定は Date.now。 */
+  now?: () => number;
   /** 書き込みの失敗の受け手。既定はログに 1 行。 */
   onError?: (e: unknown) => void;
 };
@@ -50,7 +57,7 @@ const defaultOnError = (e: unknown): void => {
 /**
  * 受信箱の素を封じて Worker に置く（PUT /m/feed）。
  *
- * 書くのは、中身（暗号化の前の JSON）のハッシュが前に書いたものと違うときだけである。
+ * 書くのは、中身（暗号化の前の JSON）のハッシュが前に書いたものと違うときと、前に書いてから FEED_REFRESH_MS たったときだけである。
  * 封じは IV が毎回乱数なので、封じた文字列のハッシュでは比べられない。
  * nudge は、変化を FEED_DEBOUNCE_MS 待ってまとめ、前の書き込みから FEED_MIN_GAP_MS あくまで次を書かない。
  * 間の中に来た変化は、間が明けたところで 1 回にまとめて書く。
@@ -65,6 +72,7 @@ export class MobileFeedPublisher {
   private waiting = false;
   private stopped = false;
   private lastHash: string | null = null;
+  private lastWrittenAt = 0;
   private chain: Promise<unknown> = Promise.resolve();
   private readonly onError: (e: unknown) => void;
 
@@ -79,6 +87,11 @@ export class MobileFeedPublisher {
     if (this.debounce) return;
     this.debounce = this.deps.timers.setTimeout(() => { this.debounce = null; this.fire(); }, FEED_DEBOUNCE_MS);
     this.debounce.unref?.();
+  }
+
+  /** 前に書いた中身を忘れる。次の書き込みは、中身が同じでも書く（新しくつながったスマホに今の素を置く）。 */
+  forget(): void {
+    this.lastHash = null;
   }
 
   /** 安全網を始め、起動の 1 回を予約する。 */
@@ -134,13 +147,15 @@ export class MobileFeedPublisher {
     // 48 KiB を超えたら、done、returns、projects の順に古いものから落とす（shared の fitFeed）。
     const feed = fitFeed(this.deps.build());
     const hash = createHash('sha256').update(JSON.stringify(feed)).digest('hex');
-    if (hash === this.lastHash) return 'unchanged';
+    const now = (this.deps.now ?? Date.now)();
+    if (hash === this.lastHash && now - this.lastWrittenAt < FEED_REFRESH_MS) return 'unchanged';
     const sealed = await seal(await mobileKeyFor(this.deps.joinSecret), aadFeed(this.deps.deviceId), feed);
     if (this.stopped) return 'skipped';
     // 通っても倒れても、Worker に要求を 1 本出したら間を空ける。
     this.startGap();
     await put(sealed);
     this.lastHash = hash;
+    this.lastWrittenAt = now;
     return 'written';
   }
 }
