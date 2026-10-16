@@ -25,7 +25,7 @@ export const shortcutsJa: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.shortcutsOpen': 'キーボードショートカット',
   'shortcuts.key.overlayClose': '開いているものを閉じる（無い場合は入力欄のフォーカスを解除）',
   'shortcuts.key.tabSelect': 'タブを選択（{keys} でも）',
-  'shortcuts.key.tabClose': 'フォーカスのある枠のシェルタブを閉じる',
+  'shortcuts.key.tabClose': 'フォーカスのあるペインのシェルタブを閉じる',
   'shortcuts.key.splitToggle': 'タブを横に並べる',
   'shortcuts.key.transcriptToggle': '右パネルの開閉',
   'shortcuts.key.sessionCopyAddress': 'セッションの宛先をコピー',

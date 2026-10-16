@@ -346,7 +346,7 @@ describe('MCP tools', () => {
     expect(() => call('set_turn_intent', { text: 'あ'.repeat(201) }, { sessionId: alphaId })).toThrow(ToolError);
     expect(call('set_turn_intent', { text: 'あ'.repeat(200) }, { sessionId: alphaId })).toMatchObject({ ok: true });
   });
-  it('set_turn_intent はセッション別 URL のほかのセッションを指せない', () => {
+  it('set_turn_intent はセッション別 URL の他のセッションを指せない', () => {
     expect(() => call('set_turn_intent', { session_id: 'other', text: 'x' }, { sessionId: alphaId })).toThrow(ToolError);
   });
   it('同じミリ秒に 2 回書いても両方残り、後の方が最新になる', async () => {
@@ -395,7 +395,7 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect(call('get_transcript', {}, scoped()).session_id).toBe(alphaId);
   });
 
-  it('セッションを取るほかの道具は、別のセッションを断る', () => {
+  it('セッションを取る他の道具は、別のセッションを断る', () => {
     for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript')) {
       expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
     }
@@ -411,10 +411,10 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
   it('update_project はノートを書かない（append_memo はやめた）。渡されたら、やめたことと書く場所を notice で返し、エラーにはしない', () => {
     const r = call('update_project', { project_id: 'p1', append_memo: '書かない' });
     expect(r).not.toHaveProperty('memo');
-    expect(r.notice).toBe('プロジェクトのノートは廃止したので、append_memo は書きませんでした。残したいことは、CLAUDE.md などの指示ファイルに書いてください。');
+    expect(r.notice).toBe('プロジェクトのノートは廃止したため、append_memo は保存しませんでした。記録したい内容は、CLAUDE.md などの指示ファイルに書いてください。');
     expect(db.prepare('select markdown from project_memos where project_id = ?').get('p1')).toBeUndefined();
     expect(fs.existsSync(path.join(home, 'projects', 'p1', 'memo.md'))).toBe(false);
-    // ほかの項目は、いっしょに渡されても今までどおり書く。
+    // 他の項目は、いっしょに渡されても今までどおり書く。
     const r2 = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
     expect((r2.project as { status: string }).status).toBe('paused');
     expect(r2.notice).toEqual(expect.any(String));
@@ -528,7 +528,7 @@ describe('propose_session_status', () => {
     expect(call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', confirmed: true }, scoped()).outcome).toBe('set');
   });
   it('日付と時刻を渡すと、時刻と、オフセット付きの時点が返る', () => {
-    const r = call('propose_session_status', { status: 'paused', note: 'timer の初回を見る', return_on: '2026-10-01', return_time: '13:30', confirmed: true }, scoped());
+    const r = call('propose_session_status', { status: 'paused', note: 'timer の初回を表示', return_on: '2026-10-01', return_time: '13:30', confirmed: true }, scoped());
     expect(r.outcome).toBe('set');
     const state = r.state as { returnOn: string; returnTime: string; returnAt: string };
     expect(state).toMatchObject({ status: 'paused', returnOn: '2026-10-01', returnTime: '13:30' });

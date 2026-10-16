@@ -196,9 +196,9 @@ const WAIT = {
     loading: '読み込み中',
     welcome: 'ようこそ',
     slow: (s) => `（${s} 秒）`,
-    starting: 'サーバを起動中',
-    indexing: (done, total) => `セッションを索引中 ${done} / ${total} 件`,
-    rebuilding: (done, total) => `索引を作り直し中 ${done} / ${total} 件`,
+    starting: 'サーバーを起動中',
+    indexing: (done, total) => `インデックスを作成中 ${done} / ${total} 件`,
+    rebuilding: (done, total) => `インデックスを再構築中 ${done} / ${total} 件`,
     checking: 'セッションを確認中',
   },
   en: {

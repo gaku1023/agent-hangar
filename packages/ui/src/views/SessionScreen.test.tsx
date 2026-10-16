@@ -57,7 +57,7 @@ describe('引き継がれた側の 1 行', () => {
   });
 });
 /** 「…」のメニューを開いて、その中の項目を返す。 */
-const menu = () => { fireEvent.click(screen.getByRole('button', { name: 'ほかの操作' })); return within(screen.getByRole('menu', { name: 'ほかの操作' })); };
+const menu = () => { fireEvent.click(screen.getByRole('button', { name: '他の操作' })); return within(screen.getByRole('menu', { name: '他の操作' })); };
 const menuOf = (name: string) => { fireEvent.click(screen.getByRole('button', { name })); return within(screen.getByRole('menu', { name })); };
 const tocCols = (c: HTMLElement) => (c.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns;
 
@@ -122,7 +122,7 @@ describe('SessionScreen（終わった画面）', () => {
     // 開くと、今までのツールの行（失敗の札は赤）が出る。
     fireEvent.click(screen.getByTitle('/a'));
     expect(edit.querySelector('.tool .badge')).toHaveAttribute('data-k', 'fail');
-    fireEvent.click(screen.getByText('サブエージェント abc を見る'));
+    fireEvent.click(screen.getByText('サブエージェント abc を表示'));
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
   it('見つからないとき', () => {
@@ -147,7 +147,7 @@ describe('見出しの段（A1、C1）', () => {
     // 1 文は省略記号で切れることがあるので、全文を title に持たせる。
     expect(hero.querySelector('.session-oneliner')).toHaveAttribute('title', 'ONE');
     const buttons = within(hero as HTMLElement).getAllByRole('button');
-    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['再開', 'ほかの操作', '詳細']);
+    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['再開', '他の操作', '詳細']);
     expect(buttons[0]).toHaveClass('btn-primary');
     expect(screen.getAllByText('ONE')).toHaveLength(1);
   });
@@ -218,7 +218,7 @@ describe('見出しの段（A1、C1）', () => {
   it('クイックセッションの昇格はメニューに置く', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SS {...base} fromScratch canPromote /></ActionRoot>);
-    fireEvent.click(menu().getByRole('menuitem', { name: /プロジェクトに昇格/ }));
+    fireEvent.click(menu().getByRole('menuitem', { name: /プロジェクトにする/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.promote.open', id: 's1' });
   });
 });
@@ -696,7 +696,7 @@ describe('SessionScreen のアイコン', () => {
   it('操作は文字の名前を保ったままアイコンを持つ', () => {
     withHost(<SS {...running} />);
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
-    expect(iconOf(screen.getByRole('button', { name: 'ほかの操作' }))).toBe('more');
+    expect(iconOf(screen.getByRole('button', { name: '他の操作' }))).toBe('more');
     expect(iconOf(screen.getByRole('button', { name: '詳細' }))).toBe('info');
     const m = menu();
     expect(iconOf(m.getByRole('menuitem', { name: /ターミナルで開く/ }))).toBe('openTerminal');
@@ -722,7 +722,7 @@ describe('SessionScreen のアイコン', () => {
     const tool = screen.getByTitle('/a').closest('.tool-group')!;
     expect(tool.querySelector('.chev svg')?.getAttribute('data-icon')).toBe('chevron');
     expect(tool.querySelector('.tg-badge')?.textContent).toBe('Edit');
-    expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を見る' }))).toBe('subagent');
+    expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を表示' }))).toBe('subagent');
   });
 });
 
@@ -968,7 +968,7 @@ describe('SessionScreen の読む面の印', () => {
 });
 
 describe('SessionScreen（本文が消えた会話）', () => {
-  const gone = { note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
+  const gone = { note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。表示できるのは要約のみです。', canExtend: true, extendTo: 365 };
   const props = { ...base, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, turnRows: [], canResume: false, canFork: false, gone, lead: leadOf({ hasTranscript: false }, { gone: true }) };
   it('注記と要約のみの印を出し、延ばす手を添え、本文の欄と目次は出さない', () => {
     const onAction = vi.fn();
@@ -976,7 +976,7 @@ describe('SessionScreen（本文が消えた会話）', () => {
     expect(screen.getByText('要約のみ')).toBeInTheDocument();
     expect(screen.getByRole('note')).toHaveTextContent(gone.note);
     expect(screen.getByText('BODY')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '保持期間を延ばす…' }));
+    fireEvent.click(screen.getByRole('button', { name: '保持期間を延長…' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'session' });
     expect(container.querySelector('.tr-sheet')).toBeNull();
     expect(container.querySelector('.toc-pane')).toBeNull();
@@ -989,7 +989,7 @@ describe('SessionScreen（本文が消えた会話）', () => {
   it('延ばせないときは手を出さず、要約も無ければそう言う', () => {
     const lead = leadOf({ summary: null, hasTranscript: false }, { gone: true });
     render(<ActionRoot onAction={() => {}}><SS {...props} lead={lead} oneLiner={null} gone={{ ...gone, canExtend: false }} /></ActionRoot>);
-    expect(screen.queryByRole('button', { name: '保持期間を延ばす…' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '保持期間を延長…' })).toBeNull();
     expect(screen.getByText('要約はありません')).toBeInTheDocument();
   });
 });
@@ -1055,7 +1055,7 @@ describe('見出しの状態の札（4A）', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} statusPick={active} /></ActionRoot>);
     const hero = container.querySelector('.session-hero') as HTMLElement;
     const buttons = within(hero).getAllByRole('button');
-    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([LABEL, '再開', 'ほかの操作', '詳細']);
+    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([LABEL, '再開', '他の操作', '詳細']);
     expect(buttons[0]).toHaveClass('status-pill');
     expect(buttons[0]).toHaveAttribute('data-status', 'active');
     fireEvent.click(buttons[0]!);

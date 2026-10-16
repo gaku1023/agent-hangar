@@ -273,14 +273,14 @@ describe('runSetupCloud', () => {
         log: (l) => lines.push(l),
         confirm: async (question, word) => { asked.push({ question, word }); return false; },
       }),
-    ).rejects.toThrow(/取りやめ/);
+    ).rejects.toThrow(/キャンセル/);
     expect(asked).toHaveLength(1);
     expect(asked[0]!.word).toBe(RENAME_WORD);
     // 置き去りになる資源を名指しで見せる。teardown は cloud.json しか見ないので、届かなくなる。
     const out = lines.join('\n');
     expect(out).toContain('hangar-dev');
     expect(out).toContain('hangar-dev-files');
-    expect(out).toContain('片付けられなくなります');
+    expect(out).toContain('削除できなくなります');
     // 断ったら資源にも cloud.json にも触らない。
     expect(w.calls).toHaveLength(0);
     expect(fs.readFileSync(path.join(home, 'cloud.json'), 'utf8')).toBe(before);
@@ -296,7 +296,7 @@ describe('runSetupCloud', () => {
     const lines: string[] = [];
     await expect(
       runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch().fetch, sleep: async () => {}, cloudDir, log: (l) => lines.push(l), confirm: async () => false }),
-    ).rejects.toThrow(/取りやめ/);
+    ).rejects.toThrow(/キャンセル/);
     expect(lines.join('\n')).toContain('https://other.example.workers.dev');
     expect(w.calls).toHaveLength(0);
   });
@@ -321,7 +321,7 @@ describe('runSetupCloud', () => {
         log: (l) => lines.push(l),
         confirm: async (question, word) => { asked.push({ question, word }); return false; },
       }),
-    ).rejects.toThrow(/取りやめ/);
+    ).rejects.toThrow(/キャンセル/);
     expect(asked).toHaveLength(1);
     expect(asked[0]!.word).toBe(ROTATE_WORD);
     // 何が起きるかを先に伝える。
@@ -397,7 +397,7 @@ describe('joinWorker', () => {
   it('参加のときの 403 は待たずに断る', async () => {
     const f = (async () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })) as typeof fetch;
     const slept: number[] = [];
-    await expect(joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); } })).rejects.toThrow(/秘密/);
+    await expect(joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); } })).rejects.toThrow(/参加トークンが違います/);
     expect(slept).toHaveLength(0);
   });
 
@@ -496,7 +496,7 @@ describe('DB の控えが取れないとき', () => {
     // 元の文に、次にすることの 1 文が続く。
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('マイグレーションを適用せずに停止しました');
-    expect((err as Error).message).toContain('Cloudflare にはまだ何も作っていません。直してから hangar setup cloud をもう一度実行してください。');
+    expect((err as Error).message).toContain('Cloudflare にはまだ何も作成していません。修正してから hangar setup cloud をもう一度実行してください。');
     expect((err as Error).message).not.toContain('\n');
     expect(w.calls).toEqual([]);
     expect(w.interactiveCalls).toEqual([]);
@@ -513,7 +513,7 @@ describe('DB の控えが取れないとき', () => {
     const err = await withPendingMigration(() => runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, force: true, log: () => {} }).then(() => null, (e: unknown) => e));
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('マイグレーションを適用せずに停止しました');
-    expect((err as Error).message).toContain('参加の要求はまだ出していません。直してから hangar join をもう一度実行してください。');
+    expect((err as Error).message).toContain('参加のリクエストはまだ送信していません。修正してから hangar join をもう一度実行してください。');
     expect((err as Error).message).not.toContain('\n');
     expect(urls).toEqual([]);
     expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
@@ -587,7 +587,7 @@ describe('runJoin', () => {
     const c = fakeConfirm([false]);
     await expect(
       runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: () => {} }),
-    ).rejects.toThrow(/取りやめ/);
+    ).rejects.toThrow(/キャンセル/);
     expect(called).toBe(0);
     expect(loadCloudConfig(home)).toBeNull();
   });
@@ -598,7 +598,7 @@ describe('runJoin', () => {
     const slept: number[] = [];
     await expect(
       runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'x' }), device, fetch: f, sleep: async (ms) => { slept.push(ms); }, confirm: async () => true, log: () => {} }),
-    ).rejects.toThrow('参加用の秘密が違います');
+    ).rejects.toThrow('参加トークンが違います');
     // 貼り間違えたトークンで 30 秒待たせない。
     expect(slept).toHaveLength(0);
     expect(loadCloudConfig(home)).toBeNull();
@@ -614,7 +614,7 @@ describe('runJoin', () => {
     const lines: string[] = [];
     await expect(
       runJoin({ home, token: encodeJoinToken({ url: 'https://new.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) }),
-    ).rejects.toThrow(/取りやめ/);
+    ).rejects.toThrow(/キャンセル/);
     expect(c.asked).toHaveLength(2);
     expect(c.asked[1]!.word).toBe(OVERWRITE_WORD);
     const out = lines.join('\n');
@@ -634,7 +634,7 @@ describe('runJoin', () => {
     const lines: string[] = [];
     await runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'new-secret' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) });
     expect(c.asked.map((a) => a.word)).toEqual(['y', OVERWRITE_WORD]);
-    expect(lines.join('\n')).toContain('参加用の秘密が違います');
+    expect(lines.join('\n')).toContain('参加トークンが違います');
     expect(loadCloudConfig(home)!.joinSecret).toBe('new-secret');
   });
 
@@ -713,7 +713,7 @@ describe('cloudStatus', () => {
     expect(out).toContain('Worker: https://h（ok, 0.4.0）');
     expect(out).toContain('同期: idle');
     expect(out).toContain('未送信 2 件');
-    expect(out).toContain('端末 2 台');
+    expect(out).toContain('PC 2 台');
     expect(out).toContain('1 分前');
     // アカウント ID は画面に出さない。どこにあるかだけ伝える。
     expect(out).not.toContain('a'.repeat(32));
@@ -725,7 +725,7 @@ describe('cloudStatus', () => {
       if (u === 'https://h/health') return new Response(JSON.stringify({ ok: true, version: '0.4.0' }), { status: 200 });
       return new Response(JSON.stringify({ state: 'paused', pending: 0, lastPullAt: 1000, lastPushAt: 1000, deviceCount: 2, url: 'https://h', error: null, limitedUntil: Date.UTC(2026, 9, 9) }), { status: 200 });
     }) as typeof fetch;
-    expect(await cloudStatus({ home, fetch: limited, now: () => 61_000 })).toContain('無料枠の上限で 2026-10-09T00:00:00.000Z まで止めています');
+    expect(await cloudStatus({ home, fetch: limited, now: () => 61_000 })).toContain('無料枠の上限に達したため 2026-10-09T00:00:00.000Z まで停止しています');
 
     const down = await cloudStatus({
       home,
@@ -734,7 +734,7 @@ describe('cloudStatus', () => {
         throw new TypeError('ECONNREFUSED');
       }) as typeof fetch,
     });
-    expect(down).toContain('サーバは停止中');
+    expect(down).toContain('サーバーは停止中');
   });
 
   it('本文をいつから上げるかを 1 行で見せる', async () => {
@@ -745,11 +745,11 @@ describe('cloudStatus', () => {
     // 床があるときは、その時刻より後に動いた本文だけを上げると伝える。
     stampTranscriptsFrom(home, Date.parse('2026-09-19T12:00:00.000Z'));
     const out = await cloudStatus({ home, fetch: dead });
-    expect(out).toContain('本文: 2026-09-19T12:00:00.000Z 以降に動いた分を上げます');
+    expect(out).toContain('トランスクリプト: 2026-09-19T12:00:00.000Z 以降に更新された分をアップロードします');
 
     // backfill で床を落とした後は、全部上げると伝える。
     backfillTranscripts(home);
-    expect(await cloudStatus({ home, fetch: dead })).toContain('本文: 手元の本文を全部上げます');
+    expect(await cloudStatus({ home, fetch: dead })).toContain('トランスクリプト: この PC のトランスクリプトをすべてアップロードします');
   });
 
   it('壊れている cloud.json を「未設定」と言わない', async () => {
@@ -860,8 +860,8 @@ describe('runTeardown', () => {
     expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
     expect(fs.existsSync(cfg)).toBe(false);
     const out = lines.join('\n');
-    expect(out).toContain('1 件を手元へ降ろしました');
-    expect(out).toContain('他の端末の cloud.json は手で消してください');
+    expect(out).toContain('1 件をこの PC にダウンロードしました');
+    expect(out).toContain('他の PC の cloud.json は手動で削除してください');
   });
 
   it('確認に失敗したら何もしない', async () => {
@@ -886,7 +886,7 @@ describe('runTeardown', () => {
     const c = fakeConfirm([true, true]);
     await expect(
       runTeardown({ home, deviceId: 'dev-a', wrangler: w.runner('a'.repeat(32), cloudDir), fetch: cf.fetch, confirm: c.fn, log: () => {} }),
-    ).rejects.toThrow(/降ろせ/);
+    ).rejects.toThrow(/ダウンロードでき/);
     expect(c.asked).toEqual([]);
     expect(w.calls).toEqual([]);
     expect(loadCloudConfig(home)).not.toBeNull();
@@ -904,7 +904,7 @@ describe('runTeardown', () => {
     const c = fakeConfirm([true, true]);
     await expect(
       runTeardown({ home, deviceId: 'dev-a', wrangler: w.runner('a'.repeat(32), cloudDir), fetch: cf.fetch, confirm: c.fn, log: () => {} }),
-    ).rejects.toThrow(/降ろせ/);
+    ).rejects.toThrow(/ダウンロードでき/);
     expect(fs.existsSync(path.join(home, 'remote', 'dev-b', 'projects', '-w-p', 'u-planted.jsonl'))).toBe(false);
     expect(c.asked).toEqual([]);
     expect(w.calls).toEqual([]);
@@ -977,7 +977,7 @@ describe('runTeardown', () => {
     expect(loadCloudConfig(home)).toEqual(before);
     expect(fs.existsSync(path.join(home, 'cloud', 'wrangler.jsonc'))).toBe(true);
     const out = lines.join('\n');
-    expect(out).toContain('消えたもの');
+    expect(out).toContain('削除したもの');
     expect(out).toContain(`R2 bucket ${before.bucketName}`);
     expect(out).toContain(`D1 ${before.dbName}`);
     expect(out).toContain('残ったもの');
@@ -1001,7 +1001,7 @@ describe('runTeardown', () => {
     saveCloudConfig(home, conf({ deviceToken: 'dt' }));
     await expect(
       runTeardown({ home, fetch: (async () => new Response('{}')) as typeof fetch, confirm: async () => true, log: () => {} }),
-    ).rejects.toThrow('setup cloud を実行した端末');
+    ).rejects.toThrow('setup cloud を実行した PC');
   });
 
   it('cloud.json が壊れていたら、未設定とみなさずに止める', async () => {
@@ -1216,7 +1216,7 @@ describe('Worker のソースの置き場', () => {
     expect(cliErrorText(new DetailedError(msg))).toBe(msg);
     expect(msg).not.toContain(gone);
     expect(msg).not.toContain('src/index.ts');
-    expect(msg).toContain('クラウドを作るには、このリポジトリを clone した場所で実行します');
+    expect(msg).toContain('クラウドを作成するには、このリポジトリを clone したディレクトリで実行します');
     expect(msg).toContain('git clone');
     expect(msg).toContain('git checkout v0.6.1');
     expect(msg).toContain('npm ci');
@@ -1253,7 +1253,7 @@ describe('cloudBackfill', () => {
     const { home } = dirs();
     saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
     const out = cloudBackfill({ home });
-    expect(out).toContain('参加より前の本文');
+    expect(out).toContain('参加より前のトランスクリプト');
     // 床は 0（床なし）になっている。もう一度落としても 0 のままである。
     expect(backfillTranscripts(home)).toEqual({ from: 0 });
   });
@@ -1319,7 +1319,7 @@ describe('installUsageToken', () => {
       { data: { viewer: { accounts: [{ d1AnalyticsAdaptiveGroups: null }] } }, errors: [{ message: 'not authorized' }] },
       { data: { viewer: { accounts: [] } }, errors: null },
     ]) {
-      await expect(installUsageToken({ home, token: 'tok-secret', fetch: cfFetch({ gqlBody }).f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('権限が足りません: Account Analytics: Read を付けてください');
+      await expect(installUsageToken({ home, token: 'tok-secret', fetch: cfFetch({ gqlBody }).f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('権限が足りません: Account Analytics: Read を追加してください');
     }
     expect(w.calls).toHaveLength(0);
   });
@@ -1354,8 +1354,8 @@ describe('installUsageToken', () => {
   });
   it('setup の続きで入れるのに失敗しても、setup は落とさず、入れ直し方を言う', async () => {
     const lines: string[] = [];
-    await expect(offerUsageToken(async () => { throw new Error('権限が足りません: Billing: Read を付けてください'); }, (l) => lines.push(l))).resolves.toBeUndefined();
-    expect(lines).toEqual(['権限が足りません: Billing: Read を付けてください', 'あとから、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud --usage-token を実行すると入れ直せます']);
+    await expect(offerUsageToken(async () => { throw new Error('権限が足りません: Billing: Read を追加してください'); }, (l) => lines.push(l))).resolves.toBeUndefined();
+    expect(lines).toEqual(['権限が足りません: Billing: Read を追加してください', 'あとから、リポジトリを clone して npm install したディレクトリで npm run hangar -- setup cloud --usage-token を実行すると追加し直せます']);
   });
   it('setup の続きで入れられたら、何も足さない', async () => {
     const lines: string[] = [];
@@ -1370,7 +1370,7 @@ describe('installUsageToken', () => {
     // ダッシュボードのどこで作るか、どう渡すかを日本語で述べる。op read は使っている人向けの例として添えるだけ。
     expect(help).toContain('Create Token');
     expect(help).toContain('npm run hangar -- setup cloud --usage-token');
-    expect(help).toContain('clone した場所');
+    expect(help).toContain('clone したディレクトリ');
     expect(help).toMatch(/1Password を使っている(人|方)/);
     expect(help.indexOf('op read')).toBeGreaterThan(help.indexOf('--usage-token'));
   });
@@ -1442,7 +1442,7 @@ describe('互換の版', () => {
       (x: unknown) => x as Error,
     );
     expect(e.message).toContain('この PC の hangar が古い');
-    expect(e.message).toContain('それより新しい版');
+    expect(e.message).toContain('それより新しいバージョン');
     expect(slept).toHaveLength(0);
   }, 2000);
 
@@ -1453,11 +1453,11 @@ describe('互換の版', () => {
       if (String(input) === 'https://h/health') return new Response(JSON.stringify(body), { status: 200 });
       throw new TypeError('ECONNREFUSED');
     }) as typeof fetch;
-    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.5.0', compat: COMPAT_VERSION }) })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker ${COMPAT_VERSION}`);
+    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.5.0', compat: COMPAT_VERSION }) })).toContain(`互換バージョン: この PC ${COMPAT_VERSION}、Worker ${COMPAT_VERSION}`);
     // 版を返さないのは、版番号を入れる前の古い Worker である。
-    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.4.0' }) })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker 0`);
+    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.4.0' }) })).toContain(`互換バージョン: この PC ${COMPAT_VERSION}、Worker 0`);
     const dead = (async () => { throw new TypeError('ECONNREFUSED'); }) as typeof fetch;
-    expect(await cloudStatus({ home, fetch: dead })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker 不明`);
+    expect(await cloudStatus({ home, fetch: dead })).toContain(`互換バージョン: この PC ${COMPAT_VERSION}、Worker 不明`);
   });
 });
 
@@ -1562,7 +1562,7 @@ describe('runSetupCloud のアカウントの選び方', () => {
   it('一覧で選ばなければ、何も作らずに止める', async () => {
     const { home, cloudDir } = dirs();
     const w = full(() => ok(TWO));
-    await expect(run(home, cloudDir, w, { interactive: true, chooseAccount: async () => null })).rejects.toThrow(/取りやめ/);
+    await expect(run(home, cloudDir, w, { interactive: true, chooseAccount: async () => null })).rejects.toThrow(/キャンセル/);
     expect(made(w)).toEqual([]);
   });
 
@@ -1604,9 +1604,9 @@ describe('runSetupCloud のアカウントの選び方', () => {
     const w = full(() => ok(TWO));
     const asked: string[] = [];
     const lines: string[] = [];
-    await expect(run(home, cloudDir, w, { accountId: ACCOUNT, confirm: async (_q, word) => { asked.push(word); return false; } }, lines)).rejects.toThrow(/取りやめ/);
+    await expect(run(home, cloudDir, w, { accountId: ACCOUNT, confirm: async (_q, word) => { asked.push(word); return false; } }, lines)).rejects.toThrow(/キャンセル/);
     expect(asked).toEqual([RENAME_WORD]);
-    expect(lines.join('\n')).toContain('片付けられなくなります');
+    expect(lines.join('\n')).toContain('削除できなくなります');
     expect(made(w)).toEqual([]);
   });
 
@@ -1685,7 +1685,7 @@ describe('runSetupCloud の wrangler の失敗', () => {
     expect(e.message).toContain('R2');
     expect(e.message).toContain('[code: 10042]');
     expect(e.message).toMatch(/支払い方法/);
-    expect(e.message).toContain('何も作っていません');
+    expect(e.message).toContain('何も作成していません');
     expect(e.message).toMatch(/もう一度/);
     expect(e.message).not.toContain(ACCOUNT);
     const cmds = w.calls.map((c) => c.args.slice(0, 2).join(' '));

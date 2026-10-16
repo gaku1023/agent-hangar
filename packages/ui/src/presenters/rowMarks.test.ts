@@ -22,7 +22,7 @@ describe('statusMark（状態の札の説明と自動の印）', () => {
     expect(statusMark(ja, st({ status: 'done', setBy: 'conversation' }), turns(5), null).title).toBe('完了したもの · 会話で承認');
   });
   it('自動で付いた Done（set_by が import）は印を立て、理由を言う', () => {
-    expect(statusMark(ja, st({ setBy: 'import' }), turns(2), null)).toEqual({ title: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）', auto: true });
+    expect(statusMark(ja, st({ setBy: 'import' }), turns(2), null)).toEqual({ title: 'hangar が自動で Done にしました（3 ターン以下で終了した会話）', auto: true });
     expect(statusMark(ja, st({ setBy: 'import' }), turns(9), sum('abandoned'))).toEqual({ title: 'hangar が自動で Done にしました（要約が「完了」か「中止」）', auto: true });
     expect(statusMark(ja, st({ setBy: 'import', note: '直して main に入れた' }), turns(9), sum('done'))).toEqual({ title: 'Claude の Done の提案を、7 日経過したため自動で確定しました', auto: true });
     // 理由の分からないもの（導入時の一括 Done など）は、自動で付いたことだけを言う。
@@ -41,7 +41,7 @@ describe('statusMark（状態の札の説明と自動の印）', () => {
   it('一覧の行は、札の説明と自動の印を持つ', () => {
     const base = { id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: null, name: 'n', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats: turns(1), fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: st({ setBy: 'import' }), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null } as SessionDto;
     const row = presentSessionRow(base, initialStore(), 10);
-    expect(row).toMatchObject({ state: 'done', setBy: 'import', autoDone: true, statusTitle: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）' });
+    expect(row).toMatchObject({ state: 'done', setBy: 'import', autoDone: true, statusTitle: 'hangar が自動で Done にしました（3 ターン以下で終了した会話）' });
     expect(presentSessionRow({ ...base, state: null }, initialStore(), 10)).toMatchObject({ autoDone: false, statusTitle: '進行中のもの' });
   });
 });

@@ -35,7 +35,7 @@ describe('欄の下の検証（設定の B1）', () => {
   });
   // 殻は Node-API が要る版以上で、アーキが同じ Node だけを使う。合わない Node は、版が古いのか、アーキが違うのかを分けて言う。
   it('Node の設定が使えないときは、フルパスでない、Node でない、版が古い、アーキが違う、を分けて言う', () => {
-    expect(toolLine(ja, 'node', { path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false })).toMatchObject({ ok: false, text: 'node は絶対パスではありません', fix: '同梱のサーバに対応するバージョンとアーキテクチャの Node を、node の実行ファイルの絶対パスで入力してください' });
+    expect(toolLine(ja, 'node', { path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false })).toMatchObject({ ok: false, text: 'node は絶対パスではありません', fix: '同梱のサーバーに対応するバージョンとアーキテクチャの Node を、node の実行ファイルの絶対パスで入力してください' });
     expect(toolLine(ja, 'node', { path: '/x/node', ok: false, problem: 'notNode', version: null, auto: false })).toMatchObject({ ok: false, text: '/x/node は Node として応答しません' });
     const need = { napi: 10, min: '22.14', arch: 'arm64' };
     const old = { path: '/x/node', ok: false, problem: 'wrongNode' as const, version: 'v20.18.0', auto: false, found: { version: '20.18.0', napi: 9, arch: 'arm64' }, need };
@@ -129,7 +129,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
       ['tmux', '/opt/homebrew/bin/tmux（3.4）', { kind: 'check', tone: 'ok', label: '準備完了' }],
       ['claude', '/Users/me/.local/bin/claude（2.3.1）', { kind: 'check', tone: 'ok', label: '準備完了' }],
       ['git', '/usr/bin/git（2.51.0）', { kind: 'check', tone: 'ok', label: '準備完了' }],
-      ['Claude Code との互換性', '2.1.300（確認済みのバージョンは 2.1.292）', { kind: 'check', tone: 'info', label: '未確認のバージョン' }],
+      ['Claude Code との互換性', '2.1.300（検証済みのバージョンは 2.1.292）', { kind: 'check', tone: 'info', label: '未確認のバージョン' }],
     ]);
     expect(b.group.countText).toBe('準備完了 4 / 7');
   });
@@ -200,7 +200,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     const row = presentReadiness(broken, ja)!.group.rows.find((r) => r.key === 'ready:claude')!;
     expect(row.actions[0]).toMatchObject({ label: '設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'claude' } } });
   });
-  it('compat と git の無い古いサーバの答えでは、その行を出さずに 5 つで数える', () => {
+  it('compat と git の無い古いサーバーの答えでは、その行を出さずに 5 つで数える', () => {
     const { compat: _drop, ...older } = READY;
     const b = presentReadiness({ ...older, tools: { ...READY.tools, git: undefined } } as ReadinessDto, ja)!;
     expect(b.group.countText).toBe('準備完了 2 / 5');
@@ -317,7 +317,7 @@ describe('始める前の確認の通知の行（9c）', () => {
     expect(presentReadiness(READY, ja)!.group.rows.some((r) => r.key === 'ready:notify')).toBe(false);
   });
   // 通知の行だけは、答える（許可するか要らないを押す）まで確認の群を残す（2026-10-13 の決定）。
-  it('ほかの行が全部済んでも、通知の行が残っている間は確認の群を出す', () => {
+  it('他の行が全部済んでも、通知の行が残っている間は確認の群を出す', () => {
     const b = presentReadiness(ALL_OK, ja, 'darwin', 'idle', setup(true))!;
     expect(b).not.toBeNull();
     expect(b.group.rows.map((r) => r.key)).toEqual(['ready:notify']);
@@ -360,7 +360,7 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
     expect(e.actions[0]).toMatchObject({ label: '設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'editor' } } });
     const custom = presentReadiness({ ...READY, editor: { id: 'custom', name: null, state: 'none', path: 'subl' } }, ja)!.group.rows.find((r) => r.key === 'ready:editor')!;
     expect(custom.text).toBe('エディタのコマンド subl が見つかりません');
-    // アプリだけでも開けるので、済んだものに数える。
+    // アプリのみでも開けるので、済んだものに数える。
     const app = presentReadiness({ ...READY, editor: { id: 'zed', name: 'Zed', state: 'app', path: '/Applications/Zed.app' } }, ja)!;
     expect(app.group.fold!.rows.find((r) => r.key === 'ready:editor')!.text).toBe('Zed（/Applications/Zed.app、アプリのみ）');
   });
@@ -411,7 +411,7 @@ describe('始める前の確認の「プロジェクト」の行', () => {
   });
   it('1 件以上なら済みに数え、畳んだ行に件数を出す。作成場所は問わない', () => {
     const ok: ReadinessDto = { ...READY, workspace: { path: '', exists: false, projectCount: 0 }, projects: { resolved: 3, candidates: 0 } };
-    // 任意の行だけが残るので、帯は出さない。済んだ行を見るため、tmux が無いときで見る。
+    // 任意の行だけが残るので、帯は出さない。済んだ行を表示ため、tmux が無いときで見る。
     expect(presentReadiness(ok, ja)).toBeNull();
     const b = presentReadiness({ ...ok, tools: noTmux.tools }, ja)!;
     expect(b.group.rows.map((r) => r.key)).toEqual(['ready:tmux', 'ready:mcp', 'ready:statusline']);
@@ -424,11 +424,11 @@ describe('始める前の確認の「プロジェクト」の行', () => {
   it('作成場所にプロジェクトがある今の利用者は、帯を出さない', () => {
     expect(presentReadiness({ ...ALL_OK, projects: { resolved: 12, candidates: 0 } }, ja)).toBeNull();
   });
-  it('サーバの数より、画面が持っているプロジェクトの数を優先する（登録した直後に行を消す）', () => {
+  it('サーバーの数より、画面が持っているプロジェクトの数を優先する（登録した直後に行を消す）', () => {
     const r = day1(4);
     expect(liveReadiness(r, [{ isScratch: false, resolved: true }])!.projects).toEqual({ resolved: 1, candidates: 4 });
     expect(liveReadiness(r, [{ isScratch: true, resolved: true }, { isScratch: false, resolved: false }])!.projects).toEqual({ resolved: 0, candidates: 4 });
-    // 古いサーバの答え（projects が無い）は、そのまま返す。
+    // 古いサーバーの答え（projects が無い）は、そのまま返す。
     expect(liveReadiness(READY, [{ isScratch: false, resolved: true }])).toBe(READY);
   });
 });

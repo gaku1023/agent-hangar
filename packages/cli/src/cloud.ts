@@ -66,16 +66,16 @@ export class WranglerStepError extends DetailedError {
  */
 export function wranglerHint(text: string): string | null {
   if (/\[code: 10042\]/.test(text)) {
-    return '案内: このアカウントでは R2 がまだ有効になっていません。Cloudflare のダッシュボードの R2 の画面で有効にしてから（支払い方法の登録が要ります）、hangar setup cloud をもう一度実行してください。作成済みの D1 はそのまま使います。';
+    return '案内: このアカウントでは R2 がまだ有効になっていません。Cloudflare のダッシュボードの R2 の画面で有効にしてから（支払い方法の登録が必要です）、hangar setup cloud をもう一度実行してください。作成済みの D1 はそのまま使います。';
   }
   if (/register a workers\.dev subdomain/i.test(text)) {
-    return '案内: このアカウントには workers.dev のサブドメインがまだありません。ダッシュボードの Workers & Pages でサブドメインを決めてから（Worker の URL に出るので、メールアドレスや本名とつながらない名前にしてください）、hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。';
+    return '案内: このアカウントには workers.dev のサブドメインがまだありません。ダッシュボードの Workers & Pages でサブドメインを設定してから（Worker の URL に表示されるため、メールアドレスや本名と結び付かない名前にしてください）、hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。';
   }
   return null;
 }
 
 /** setup の初めの R2 の確認で 10042 が返ったときの案内。まだ何も作っていないので、wranglerHint の文とは別にする。 */
-const R2_OFF_HINT = '案内: このアカウントでは R2 がまだ有効になっていません。Cloudflare のダッシュボードの R2 の画面で有効にしてください（有効にするには支払い方法の登録が要ります）。Cloudflare にはまだ何も作っていません。有効にしてから hangar setup cloud をもう一度実行してください。';
+const R2_OFF_HINT = '案内: このアカウントでは R2 がまだ有効になっていません。Cloudflare のダッシュボードの R2 の画面で有効にしてください（有効にするには支払い方法の登録が必要です）。Cloudflare にはまだ何も作成していません。有効にしてから hangar setup cloud をもう一度実行してください。';
 
 /** wrangler の失敗を、見出しと整えた出力と案内の複数行にする。 */
 function wranglerFailure(what: string, r: ExecResult, hint?: string): WranglerStepError {
@@ -84,7 +84,7 @@ function wranglerFailure(what: string, r: ExecResult, hint?: string): WranglerSt
   const lines = [`${what}に失敗しました（wrangler の出力）:`];
   if (reason.length > 0) for (const l of reason) lines.push(`  ${l}`);
   else lines.push(`  （出力がありません。終了コード ${r.code}）`);
-  lines.push(hint ?? wranglerHint(raw) ?? '直してから hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。');
+  lines.push(hint ?? wranglerHint(raw) ?? '修正してから hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。');
   return new WranglerStepError(lines.join('\n'));
 }
 
@@ -148,7 +148,7 @@ export function readAppVersion(dir: string = path.dirname(fileURLToPath(import.m
  */
 export function cloudDirMissingMessage(version: string | null): string {
   const lines = [
-    'クラウドを作るには、このリポジトリを clone した場所で実行します（アプリに入っている hangar には Worker のソースが入っていません）。',
+    'クラウドを作成するには、このリポジトリを clone したディレクトリで実行します（アプリに同梱の hangar には Worker のソースが含まれていません）。',
     '手順:',
     '  git clone https://github.com/gaku1023/agent-hangar.git',
     '  cd agent-hangar',
@@ -171,12 +171,12 @@ export function cloudDirMissingMessage(version: string | null): string {
 export function requireCloudDir(o: { dir?: string; version?: string | null } = {}): string {
   const explicit = o.dir === undefined && !!process.env.HANGAR_CLOUD_DIR;
   const dir = o.dir ?? defaultCloudDir();
-  const where = explicit ? 'HANGAR_CLOUD_DIR' : 'この CLI の置き場からの相対';
+  const where = explicit ? 'HANGAR_CLOUD_DIR で指定したパス' : 'この CLI のパスからの相対パス';
   for (const rel of [['src', 'index.ts'], ['wrangler.jsonc'], ['package.json']]) {
     if (!fs.existsSync(path.join(dir, ...rel))) {
       // 利用者が HANGAR_CLOUD_DIR で指した場所なら、そのパスを見せて直させる。そうでなければ clone の手順を案内する。
       if (!explicit) throw new DetailedError(cloudDirMissingMessage(o.version === undefined ? readAppVersion() : o.version));
-      throw new Error(`Worker のソース（${rel.join('/')}）が ${dir} にありません（${where}で決めました）。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行するか、HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+      throw new Error(`Worker のソース（${rel.join('/')}）が ${dir} にありません（${where}）。クラウド同期の設定と削除は、リポジトリを clone して npm install したディレクトリから実行するか、HANGAR_CLOUD_DIR に packages/cloud のパスを指定してください`);
     }
   }
   let name: string | undefined;
@@ -186,13 +186,13 @@ export function requireCloudDir(o: { dir?: string; version?: string | null } = {
     name = undefined;
   }
   if (name !== '@agent-hangar/cloud') {
-    throw new Error(`${dir} は packages/cloud ではありません（${where}で決めました。package.json の name は ${name ?? '読めません'}）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+    throw new Error(`${dir} は packages/cloud ではありません（${where}。package.json の name は ${name ?? '読み取れません'}）。HANGAR_CLOUD_DIR に packages/cloud のパスを指定してください`);
   }
   for (const [specifier, dep] of CLOUD_DEPS) {
     try {
       createRequire(path.join(dir, 'package.json')).resolve(specifier);
     } catch {
-      throw new Error(`${dep} が ${dir} から見つかりません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
+      throw new Error(`${dep} が ${dir} から見つかりません。クラウド同期の設定と削除は、リポジトリを clone して npm install したディレクトリから実行してください`);
     }
   }
   return dir;
@@ -212,7 +212,7 @@ export function wranglerConfigPath(home: string): string {
  * 「まだ参加していない」と混ぜない。混ぜて参加し直すと別の参加用の秘密が入り、R2 の既存の暗号化ファイルを誰も復号できなくなる。
  */
 export function brokenConfigMessage(home: string): string {
-  return `${cloudConfigPath(home)} を読めません（壊れているか、権限の事故です）。参加し直すと別の参加用の秘密が入り、R2 にある既存の暗号化ファイルを復号できなくなります。ファイルを直すか控えから戻してから、もう一度実行してください。`;
+  return `${cloudConfigPath(home)} を読み取れません（壊れているか、権限の問題です）。参加し直すと別の参加トークンが設定され、R2 にある既存の暗号化ファイルを復号できなくなります。ファイルを修正するかバックアップから戻してから、もう一度実行してください。`;
 }
 
 export const sha256Hex = (s: string): string => createHash('sha256').update(s).digest('hex');
@@ -268,7 +268,7 @@ export function askLine(prompt: string): Promise<string> {
 
 /** 合言葉をそのまま打ってもらう確認。打たれなければ（EOF も）断った扱いにする。 */
 export async function promptWord(question: string, word: string): Promise<boolean> {
-  return (await askLine(`${question}\n続けるなら ${word} と入力してください: `)).trim() === word;
+  return (await askLine(`${question}\n続けるには ${word} と入力してください: `)).trim() === word;
 }
 
 /** 標準入力から一度に受け取る上限。参加トークンは 200 字ほどなので、これを超える入力は貼り間違いである。 */
@@ -366,8 +366,8 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       r = await o.fetch(`${url}/join`, { method: 'POST', headers: { 'content-type': 'application/json', ...compatHeaders() }, body: JSON.stringify({ secret, device }), signal: ac.signal });
     } catch (e) {
       // 打ち切りも接続の失敗も、待たずにその場で断る。秘密は文面に載せない。
-      if (timedOut) throw new JoinError('timeout', `${url} が ${timeout} ミリ秒のあいだ応答しませんでした。宛先が正しいか、${url}/health が返るかを確かめてください`);
-      throw new JoinError('network', `${url} に繋がりませんでした（${reasonOf(e)}）`);
+      if (timedOut) throw new JoinError('timeout', `${url} が ${timeout} ミリ秒以内に応答しませんでした。接続先が正しいか、${url}/health が応答するかを確認してください`);
+      throw new JoinError('network', `${url} に接続できませんでした（${reasonOf(e)}）`);
     } finally {
       clearTimeout(timer);
     }
@@ -386,8 +386,8 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       ]);
       clearTimeout(bodyTimer);
       const need = readCompatRefusal(body);
-      const want = need === null ? 'それより新しい版' : `${need} 以上`;
-      throw new JoinError('compat', `この PC の hangar が古いので、Worker が参加を断りました（この PC の互換の版は ${COMPAT_VERSION}、Worker が求めるのは ${want}）。hangar を新しい版に入れ替えてから、もう一度実行してください`);
+      const want = need === null ? 'それより新しいバージョン' : `${need} 以上`;
+      throw new JoinError('compat', `この PC の hangar が古いため、クラウドに参加できません（この PC の互換バージョンは ${COMPAT_VERSION}、Worker が必要とするのは ${want}）。hangar を新しいバージョンに更新してから、もう一度実行してください`);
     }
     const waitable = r.status === 503 || (r.status === 403 && o.retryForbidden === true);
     if (waitable && i < retries) {
@@ -396,7 +396,7 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       continue;
     }
     // 応答の本文は出さない。秘密が混じる経路を作らない。
-    if (r.status === 403) throw new JoinError('forbidden', '参加用の秘密が違います。参加トークンを確かめてください');
+    if (r.status === 403) throw new JoinError('forbidden', '参加トークンが違います。正しい参加トークンか確認してください');
     throw new JoinError('failed', `参加に失敗しました（HTTP ${r.status}）`);
   }
 }
@@ -425,9 +425,9 @@ export function writeWranglerConfig(home: string, o: { name: string; main: strin
     vars: {},
   };
   const head = [
-    '// hangar setup cloud が生成した。手で書き換えても次の実行で上書きされる。',
-    '// アカウント ID は環境変数で渡すので、ここには書かない。',
-    '// JOIN_SECRET_HASH は wrangler secret で入れるので、ここには書かない。',
+    '// hangar setup cloud が生成したファイル。手動で書き換えても次の実行で上書きされる。',
+    '// アカウント ID は環境変数で渡すため、ここには書かない。',
+    '// JOIN_SECRET_HASH は wrangler secret で設定するため、ここには書かない。',
     '',
   ].join('\n');
   fs.writeFileSync(file, head + JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
@@ -448,7 +448,7 @@ export async function buildMobileApp(mobileDir: string, o: { exec?: Exec; resolv
   const r = await (o.exec ?? defaultExec)(process.execPath, [vite, 'build'], { cwd: mobileDir, env: process.env });
   if (r.code !== 0) {
     const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-12).join('\n');
-    throw new DetailedError(`スマホの画面の build に失敗しました（vite build、終了コード ${r.code}）。\n${tail}`);
+    throw new DetailedError(`スマホの画面のビルドに失敗しました（vite build、終了コード ${r.code}）。\n${tail}`);
   }
 }
 
@@ -463,12 +463,12 @@ function resolveViteBin(mobileDir: string): string {
 /** --rotate-secret の警告と確認。作り直すと R2 の既存の暗号化ファイルを誰も復号できなくなる。 */
 async function confirmRotate(log: (l: string) => void, confirm: ConfirmWord): Promise<void> {
   log('');
-  log('警告: 参加用の秘密を作り直そうとしています。');
-  log('この秘密は本文の暗号鍵の材料（deriveFileKey の入力）です。');
-  log('作り直すと、R2 にある既存の暗号化ファイルを、この端末を含めどの端末からも復号できなくなります。');
-  log('先に R2 のバケットを空にするか、必要な本文を手元へ降ろしてから実行してください。');
-  log('参加済みの他の端末も、作り直した後は新しい参加トークンで hangar join をやり直す必要があります。');
-  if (!(await confirm('本当に参加用の秘密を作り直しますか。', ROTATE_WORD))) throw new Error('参加用の秘密の作り直しを取りやめました');
+  log('警告: 参加トークンを再生成しようとしています。');
+  log('参加トークンに含まれるシークレットは、トランスクリプトの暗号鍵の材料（deriveFileKey の入力）です。');
+  log('再生成すると、R2 にある既存の暗号化ファイルを、この PC を含めどの PC からも復号できなくなります。');
+  log('先に R2 のバケットを空にするか、必要なトランスクリプトをこの PC にダウンロードしてから実行してください。');
+  log('参加済みの他の PC も、再生成した後は新しい参加トークンで hangar join をやり直す必要があります。');
+  if (!(await confirm('本当に参加トークンを再生成しますか？', ROTATE_WORD))) throw new Error('参加トークンの再生成をキャンセルしました');
 }
 
 /**
@@ -479,25 +479,25 @@ async function confirmRotate(log: (l: string) => void, confirm: ConfirmWord): Pr
 async function confirmRename(log: (l: string) => void, prev: CloudConfig, name: string, confirm: ConfirmWord): Promise<void> {
   log('');
   if (prev.workerName) {
-    log(`警告: この端末は既に Worker ${prev.workerName} を作っています。`);
+    log(`警告: この PC はすでに Worker ${prev.workerName} を作成しています。`);
     log('');
-    log(`  いまの資源: Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}（${prev.url}）`);
-    log(`  これから作る資源: Worker ${name}、D1 ${name}、R2 ${name}-files`);
+    log(`  現在のリソース: Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}（${prev.url}）`);
+    log(`  これから作成するリソース: Worker ${name}、D1 ${name}、R2 ${name}-files`);
     log('');
-    log(`${name} で作り直すと、cloud.json の宛先が新しい方へ移ります。`);
-    log(`teardown は cloud.json に書いてある名前しか見ないので、前の資源（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この端末からは片付けられなくなります。`);
-    log('Cloudflare のダッシュボードで消すことになり、消すまで無料枠を食い続けます。');
-    log(`先に片付けるなら、ここで中止して hangar cloud teardown を実行してください（いまの cloud.json は ${prev.workerName} を指しています）。`);
+    log(`${name} で作成し直すと、cloud.json の接続先が新しい方へ移ります。`);
+    log(`teardown は cloud.json に書いてある名前しか見ないため、前のリソース（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この PC からは削除できなくなります。`);
+    log('Cloudflare のダッシュボードで削除する必要があり、削除するまで無料枠を消費し続けます。');
+    log(`先に削除する場合は、ここで中止して hangar cloud teardown を実行してください（現在の cloud.json は ${prev.workerName} を指しています）。`);
   } else {
-    log('警告: この端末は他の端末が作ったクラウドに参加しています。');
+    log('警告: この PC は他の PC が作成したクラウドに参加しています。');
     log('');
-    log(`  いまの宛先: ${prev.url}`);
-    log(`  これから作る資源: Worker ${name}、D1 ${name}、R2 ${name}-files`);
+    log(`  現在の接続先: ${prev.url}`);
+    log(`  これから作成するリソース: Worker ${name}、D1 ${name}、R2 ${name}-files`);
     log('');
-    log('自分の Worker を作ると、cloud.json の宛先がそちらへ移り、いまのクラウドとの同期は止まります。');
-    log('参加用の秘密は引き継ぐので、既に降ろした本文はそのまま読めます。');
+    log('自分の Worker を作成すると、cloud.json の接続先がそちらへ移り、現在のクラウドとの同期は停止します。');
+    log('参加トークンは引き継ぐため、すでにダウンロードしたトランスクリプトはそのまま読み取れます。');
   }
-  if (!(await confirm('本当に新しい資源を作って cloud.json を移しますか。', RENAME_WORD))) throw new Error('cloud.json の乗り換えを取りやめました');
+  if (!(await confirm('本当に新しいリソースを作成して cloud.json を移しますか？', RENAME_WORD))) throw new Error('cloud.json の切り替えをキャンセルしました');
 }
 
 /** 参加トークンの渡し方の案内。標準出力に出す以上、残るものは残ると伝える。 */
@@ -507,11 +507,11 @@ function printJoinToken(log: (l: string) => void, joinToken: string): void {
   log('');
   log(joinToken);
   log('');
-  log('渡し方: 1Password の共有 vault に新しい項目を作ってこの文字列を保存し、2 台目でそれを読んで hangar join <トークン> に渡してください。');
-  log('貼るときに折り返しが入っても読めます。空白と改行は取り除いてから解釈します。');
-  log('このトークンは参加用の秘密を含みます。標準出力に出した以上、端末のスクロールバックとシェルの記録（履歴やログ）にも残ります。');
-  log('1Password に保存したら、スクロールバックを流すか、この端末の窓を閉じてください。');
-  log('渡す相手は自分のもう 1 台だけです。他人と共有しないでください。');
+  log('渡し方: 1Password の共有 vault に新しい項目を作成してこの文字列を保存し、2 台目の PC でそれを読み取って hangar join <トークン> に渡してください。');
+  log('貼り付けるときに折り返しが入っても読み取れます。空白と改行は取り除いてから解釈します。');
+  log('このトークンには参加用のシークレットが含まれます。標準出力に出力したため、ターミナルのスクロールバックとシェルの記録（履歴やログ）にも残ります。');
+  log('1Password に保存したら、スクロールバックを消去するか、このターミナルのウィンドウを閉じてください。');
+  log('渡す先は自分のもう 1 台の PC だけです。他の人と共有しないでください。');
   log('');
   log('hangar を再起動すると同期が始まります。');
 }
@@ -527,7 +527,7 @@ function openFloorFirst(home: string, nothingMade: string, retry: string): Retur
   } catch (e) {
     const base = (e instanceof Error ? e.message : String(e)).trimEnd();
     const head = /[。.]$/.test(base) ? base : `${base}。`;
-    throw new Error(`${head}${nothingMade}。直してから ${retry} をもう一度実行してください。`, { cause: e });
+    throw new Error(`${head}${nothingMade}。修正してから ${retry} をもう一度実行してください。`, { cause: e });
   }
 }
 
@@ -547,7 +547,7 @@ async function readAccounts(wr: WranglerRunner): Promise<WhoamiResult> {
 const accountLabel = (a: CfAccount): string => `${a.name || '（名前なし）'}（${a.id}）`;
 
 /** 他人も入るアカウントを選ぶと何が起きるか。一覧を見せるときに添える。 */
-const SHARED_ACCOUNT_NOTE = '他の人も入っているアカウントに作ると、その人たちにも同期のメタデータ（平文）が読めます。自分だけが使うアカウントを選んでください。';
+const SHARED_ACCOUNT_NOTE = '他の人も参加しているアカウントに作成すると、その人たちも同期のメタデータ（平文）を読み取れます。自分だけが使うアカウントを選択してください。';
 
 /**
  * 端末で、番号を打ってアカウントを選ばせる。
@@ -555,7 +555,7 @@ const SHARED_ACCOUNT_NOTE = '他の人も入っているアカウントに作る
  */
 export async function chooseAccountByNumber(accounts: CfAccount[], ask: (question: string) => Promise<string>, log: (l: string) => void): Promise<CfAccount | null> {
   log('');
-  log('このログインでは Cloudflare のアカウントが複数あります。同期の資源（Worker、D1、R2）を作るアカウントを選んでください。');
+  log('このログインでは Cloudflare のアカウントが複数あります。同期のリソース（Worker、D1、R2）を作成するアカウントを選択してください。');
   log(SHARED_ACCOUNT_NOTE);
   log('');
   accounts.forEach((a, i) => log(`  ${i + 1}. ${accountLabel(a)}`));
@@ -590,8 +590,8 @@ async function pickAccount(o: {
     const { id, from } = o.requested;
     const hit = isAccountId(id) ? o.accounts.find((a) => a.id === id.toLowerCase()) : undefined;
     if (hit) return hit;
-    const why = isAccountId(id) ? `${from} のアカウント（${id}）は、いまのログインで使えるアカウントにありません。` : `${from} の値（${id}）はアカウント ID の形（32 桁の 16 進）ではありません。`;
-    throw new DetailedError([why, 'いまのログインで使えるアカウント:', ...list, `${from} を直してから、もう一度実行してください。Cloudflare にはまだ何も作っていません。`].join('\n'));
+    const why = isAccountId(id) ? `${from} のアカウント（${id}）は、現在のログインで使えるアカウントにありません。` : `${from} の値（${id}）はアカウント ID の形式（32 桁の 16 進）ではありません。`;
+    throw new DetailedError([why, '現在のログインで使えるアカウント:', ...list, `${from} を修正してから、もう一度実行してください。Cloudflare にはまだ何も作成していません。`].join('\n'));
   }
   const prev = o.prevId ? o.accounts.find((a) => a.id === o.prevId!.toLowerCase()) : undefined;
   if (prev) {
@@ -602,16 +602,16 @@ async function pickAccount(o: {
   if (!o.interactive) {
     throw new DetailedError(
       [
-        `このログインでは Cloudflare のアカウントが ${o.accounts.length} 個あり、標準入力が端末ではないので、どれに作るかを選べません。`,
+        `このログインでは Cloudflare のアカウントが ${o.accounts.length} 個あり、標準入力がターミナルではないため、作成先を選択できません。`,
         ...list,
-        '--account-id <ID> か環境変数 CLOUDFLARE_ACCOUNT_ID で作る先を指定して、もう一度実行してください。',
+        '--account-id <ID> か環境変数 CLOUDFLARE_ACCOUNT_ID で作成先を指定して、もう一度実行してください。',
         SHARED_ACCOUNT_NOTE,
-        'Cloudflare にはまだ何も作っていません。',
+        'Cloudflare にはまだ何も作成していません。',
       ].join('\n'),
     );
   }
   const chosen = await o.choose(o.accounts);
-  if (!chosen) throw new Error('アカウントの選択を取りやめました。Cloudflare にはまだ何も作っていません');
+  if (!chosen) throw new Error('アカウントの選択をキャンセルしました。Cloudflare にはまだ何も作成していません');
   return chosen;
 }
 
@@ -621,11 +621,11 @@ async function pickAccount(o: {
  */
 async function confirmAccountChange(log: (l: string) => void, prev: CloudConfig, next: CfAccount, confirm: ConfirmWord): Promise<void> {
   log('');
-  log(`警告: この端末は別のアカウント（${prev.accountId}）に Worker ${prev.workerName} を作っています。`);
-  log(`これから作るアカウント: ${accountLabel(next)}`);
-  log(`作り直すと、cloud.json の宛先が新しいアカウントへ移ります。teardown は cloud.json に書いてあるアカウントしか見ないので、前のアカウントの資源（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この端末からは片付けられなくなります。`);
-  log('先に片付けるなら、ここで中止して hangar cloud teardown を実行してください。');
-  if (!(await confirm('本当に別のアカウントに作って cloud.json を移しますか。', RENAME_WORD))) throw new Error('別のアカウントへの乗り換えを取りやめました');
+  log(`警告: この PC は別のアカウント（${prev.accountId}）に Worker ${prev.workerName} を作成しています。`);
+  log(`作成先のアカウント: ${accountLabel(next)}`);
+  log(`作成し直すと、cloud.json の接続先が新しいアカウントへ移ります。teardown は cloud.json に書いてあるアカウントしか見ないため、前のアカウントのリソース（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この PC からは削除できなくなります。`);
+  log('先に削除する場合は、ここで中止して hangar cloud teardown を実行してください。');
+  if (!(await confirm('本当に別のアカウントに作成して cloud.json を移しますか？', RENAME_WORD))) throw new Error('別のアカウントへの切り替えをキャンセルしました');
 }
 
 /**
@@ -651,27 +651,27 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   // 資源を 1 つも作る前に、何が届かなくなるかを見せて確認する。
   if (prev && prev.workerName !== name) await confirmRename(log, prev, name, o.confirm ?? promptWord);
   if (o.rotateSecret && prev) await confirmRotate(log, o.confirm ?? promptWord);
-  if (o.rotateSecret && !prev) log('まだ参加用の秘密がないので、作り直しではなく新しく作ります。');
+  if (o.rotateSecret && !prev) log('まだ参加トークンが無いため、再生成ではなく新しく作成します。');
   const secret = prev && !o.rotateSecret ? prev.joinSecret : randomBytes(32).toString('base64url');
 
   // スマホの画面を建てる。配備は Worker と一緒にこの dist を上げるので、資源を作る前に済ませる。
   // 源が無い（clone していない）か、建てても index.html が出なければ、Cloudflare にはまだ何も作らずに止まる。
   const mobileDir = mobileDirOf(cloudDir);
   if (!fs.existsSync(path.join(mobileDir, 'package.json'))) {
-    throw new DetailedError(`スマホの画面の源（packages/mobile）が ${mobileDir} にありません。クラウド同期の設定は、リポジトリを clone して npm install した場所から実行してください。Cloudflare にはまだ何も作っていません`);
+    throw new DetailedError(`スマホの画面のソース（packages/mobile）が ${mobileDir} にありません。クラウド同期の設定は、リポジトリを clone して npm install したディレクトリから実行してください。Cloudflare にはまだ何も作成していません`);
   }
-  log('スマホの画面を build します');
+  log('スマホの画面をビルドします');
   await (o.buildMobile ?? ((d) => buildMobileApp(d)))(mobileDir);
   const assetsDir = path.join(mobileDir, 'dist');
   if (!fs.existsSync(path.join(assetsDir, 'app', 'index.html'))) {
-    throw new DetailedError(`スマホの画面を build しましたが ${path.join(assetsDir, 'app', 'index.html')} がありません。空の画面を配備しないよう、ここで止めます。Cloudflare にはまだ何も作っていません`);
+    throw new DetailedError(`スマホの画面をビルドしましたが ${path.join(assetsDir, 'app', 'index.html')} がありません。空の画面をデプロイしないよう、ここで停止します。Cloudflare にはまだ何も作成していません`);
   }
 
   // DB を先に開く。
   // マイグレーションの前の控え（db/backup.ts）が取れなければ、ここで投げて止まる。
   // Cloudflare にはまだ何も作っていないので、直してからもう一度実行すればよい。
   // 後ろで開くと、Worker を配備して参加し cloud.json を書いた後で止まり、参加トークンも出ない。
-  const floor = openFloorFirst(o.home, 'Cloudflare にはまだ何も作っていません', 'hangar setup cloud');
+  const floor = openFloorFirst(o.home, 'Cloudflare にはまだ何も作成していません', 'hangar setup cloud');
   try {
     // 1. アカウント
     // 一覧の 1 つ目で決めない。アカウントが複数ある人の作り先が並び順で決まり、他人も入るアカウントに作ってしまう。
@@ -681,9 +681,9 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
       const code = await wr.runInteractive(['login']);
       if (code !== 0) throw new Error('wrangler login に失敗しました');
       who = await readAccounts(wr);
-      if (!who.loggedIn) throw new Error('アカウントを読めませんでした。wrangler whoami の出力を確かめてください');
+      if (!who.loggedIn) throw new Error('アカウントを読み取れませんでした。wrangler whoami の出力を確認してください');
     }
-    if (who.accounts.length === 0) throw new Error('このログインで使える Cloudflare のアカウントがありません。wrangler whoami の出力を確かめてください。Cloudflare にはまだ何も作っていません');
+    if (who.accounts.length === 0) throw new Error('このログインで使える Cloudflare のアカウントがありません。wrangler whoami の出力を確認してください。Cloudflare にはまだ何も作成していません');
     const envAccount = (o.env ?? process.env).CLOUDFLARE_ACCOUNT_ID?.trim();
     const requested = o.accountId !== undefined ? { id: o.accountId.trim(), from: '--account-id' } : envAccount ? { id: envAccount, from: 'CLOUDFLARE_ACCOUNT_ID' } : null;
     const interactive = o.interactive ?? process.stdin.isTTY === true;
@@ -697,7 +697,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
     });
     if (prev?.workerName && prev.accountId && prev.accountId.toLowerCase() !== account.id) await confirmAccountChange(log, prev, account, o.confirm ?? promptWord);
     const accountId = account.id;
-    log(`作る先の Cloudflare アカウント: ${accountLabel(account)}`);
+    log(`作成先の Cloudflare アカウント: ${accountLabel(account)}`);
     wr = wr.withAccount(accountId);
 
     // 2. R2 の確認と、D1 と R2
@@ -711,13 +711,13 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
       const created = await wr.run(['d1', 'create', dbName]);
       dbId = parseDatabaseId(created.stdout + created.stderr);
       if (created.code !== 0 || !dbId) throw wranglerFailure('D1 の作成', created);
-      log(`D1 ${dbName} を作りました`);
+      log(`D1 ${dbName} を作成しました`);
     } else {
-      log(`D1 ${dbName} は既にあります`);
+      log(`D1 ${dbName} はすでにあります`);
     }
     const bucket = await wr.run(['r2', 'bucket', 'create', bucketName]);
     if (bucket.code !== 0 && !/already exists/i.test(bucket.stderr + bucket.stdout)) throw wranglerFailure('R2 の作成', bucket);
-    log(bucket.code === 0 ? `R2 ${bucketName} を作りました` : `R2 ${bucketName} は既にあります`);
+    log(bucket.code === 0 ? `R2 ${bucketName} を作成しました` : `R2 ${bucketName} はすでにあります`);
 
     // 3. 設定と 4. デプロイ
     const cfg = writeWranglerConfig(o.home, { name, main: path.join(cloudDir, 'src', 'index.ts'), dbName, dbId, bucketName, assetsDir });
@@ -733,7 +733,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
     // 6. health と 7. 参加
     log('Worker の反映を待っています（最大 2 分）');
     if (!(await waitForHealth(url, { fetch: fetchFn, sleep }))) {
-      throw new Error(`${url}/health が 2 分以内に通りませんでした。しばらく待ってから hangar setup cloud をもう一度実行してください`);
+      throw new Error(`${url}/health から 2 分以内に正常な応答がありませんでした。しばらく待ってから hangar setup cloud をもう一度実行してください`);
     }
     const joined = await joinWorker(url, secret, o.device, { fetch: fetchFn, sleep, retryForbidden: true, log });
 
@@ -749,7 +749,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
     if (process.stdin.isTTY && !o.skipUsageToken) {
       log('');
       for (const l of USAGE_TOKEN_HELP) log(l);
-      if ((await askLine('使用量のトークンをいま入れますか（後からでも可） [y/N]: ')).trim().toLowerCase() === 'y') {
+      if ((await askLine('使用量のトークンを追加しますか（後からでも追加できます） [y/N]: ')).trim().toLowerCase() === 'y') {
         await offerUsageToken(async () => installUsageToken({ home: o.home, token: await readUsageToken(), fetch: fetchFn, wrangler: wr, log, cloudDir }), log);
       }
     }
@@ -770,18 +770,18 @@ export async function offerUsageToken(install: () => Promise<void>, log: (l: str
     await install();
   } catch (e) {
     log(e instanceof Error ? e.message : String(e));
-    log('あとから、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud --usage-token を実行すると入れ直せます');
+    log('あとから、リポジトリを clone して npm install したディレクトリで npm run hangar -- setup cloud --usage-token を実行すると追加し直せます');
   }
 }
 
 /** 作るトークンの案内。setup の問いと --usage-token の前に出す。 */
 export const USAGE_TOKEN_HELP = [
-  '使用量と費用を設定画面に出すには、読み取り専用の API トークンを Worker に入れます（無くても同期は動きます）。',
-  '作り方:',
+  '使用量と料金を設定画面に表示するには、読み取り専用の API トークンを Worker に追加します（無くても同期は動作します）。',
+  '作成方法:',
   '  1. Cloudflare のダッシュボードを開き、Manage account → Account API tokens → Create Token → Start from scratch と進みます。',
-  '  2. 権限を二つ足します。Account Analytics: Read と Billing: Read です（範囲は Entire Account）。',
-  '  3. 作ったトークンは、その画面でしか読めません。コピーしてから、リポジトリを clone した場所で npm run hangar -- setup cloud --usage-token を打ち、聞かれたら貼り付けます（画面には出ません）。',
-  '  1Password を使っている人は、op read "op://…" | npm run hangar -- setup cloud --usage-token と打つと、貼り付けずに流し込めます。',
+  '  2. 権限を 2 つ追加します。Account Analytics: Read と Billing: Read です（範囲は Entire Account）。',
+  '  3. 作成したトークンは、その画面でしか表示されません。コピーしてから、リポジトリを clone したディレクトリで npm run hangar -- setup cloud --usage-token を実行し、求められたら貼り付けます（画面には表示されません）。',
+  '  1Password を使っている人は、op read "op://…" | npm run hangar -- setup cloud --usage-token を実行すると、貼り付けずに渡せます。',
 ];
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
@@ -823,14 +823,14 @@ export async function installUsageToken(o: { home: string; token: string; fetch?
   const read = readCloudConfig(o.home);
   if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
   const conf = read.config;
-  if (!conf || !conf.accountId || !conf.workerName) throw new Error('トークンは、hangar setup cloud を実行した PC で入れてください（この PC は参加しただけなので、Worker の設定を持っていません）');
+  if (!conf || !conf.accountId || !conf.workerName) throw new Error('トークンは、hangar setup cloud を実行した PC で追加してください（この PC は参加しただけのため、Worker の設定を持っていません）');
   const accountId = conf.accountId;
   const headers = { authorization: `Bearer ${token}` };
   const status = async (p: string, init: RequestInit = {}): Promise<number> => {
     try { return (await fetchFn(`${CF_API}${p}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> | undefined) } })).status; } catch { return 0; }
   };
-  if ((await status(`/accounts/${accountId}/tokens/verify`)) !== 200) throw new Error('トークンが有効ではありません。値と、アカウントのトークンであることを確かめてください');
-  if ((await status(`/accounts/${accountId}/subscriptions`)) !== 200) throw new Error('権限が足りません: Billing: Read を付けてください');
+  if ((await status(`/accounts/${accountId}/tokens/verify`)) !== 200) throw new Error('トークンが有効ではありません。値と、アカウントのトークンであることを確認してください');
+  if ((await status(`/accounts/${accountId}/subscriptions`)) !== 200) throw new Error('権限が足りません: Billing: Read を追加してください');
   // GraphQL は権限の誤りを 200 と errors で返すことが多いので、Worker が引くのと同じ表を実際に引いて中身まで見る。
   const analyticsOk = async (): Promise<boolean> => {
     const day = new Date().toISOString().slice(0, 10);
@@ -843,7 +843,7 @@ export async function installUsageToken(o: { home: string; token: string; fetch?
       return Array.isArray(body.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups);
     } catch { return false; }
   };
-  if (!(await analyticsOk())) throw new Error('権限が足りません: Account Analytics: Read を付けてください');
+  if (!(await analyticsOk())) throw new Error('権限が足りません: Account Analytics: Read を追加してください');
   // wrangler を渡されたとき（試験と setup の続き）は、Worker の元の場所を探さない。
   const wr = (o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? requireCloudDir(), accountId: null, log })).withAccount(accountId);
   const cfg = wranglerConfigPath(o.home);
@@ -852,8 +852,8 @@ export async function installUsageToken(o: { home: string; token: string; fetch?
     const put = await wr.run(['secret', 'put', name, '--config', cfg], value + '\n');
     if (put.code !== 0) throw new Error(`secret の登録に失敗しました（${name}）: ${cleanWranglerError(put.stderr || put.stdout).join(' ')}`);
   }
-  log('使用量のトークンを Worker に入れました。数分のうちに、どの PC の設定画面にも使用量と費用が出ます。');
-  log('外すときは: npx wrangler secret delete USAGE_API_TOKEN --config ' + cfg);
+  log('使用量のトークンを Worker に追加しました。数分以内に、どの PC の設定画面にも使用量と料金が表示されます。');
+  log('削除するには: npx wrangler secret delete USAGE_API_TOKEN --config ' + cfg);
 }
 
 // ---- hangar join ----
@@ -880,28 +880,28 @@ export type JoinCliOptions = {
  */
 function showDestination(log: (l: string) => void, url: string): void {
   log('');
-  log('参加しようとしている宛先:');
+  log('参加しようとしている接続先:');
   log('');
   log(`  ${url}`);
   log(`  ホスト: ${new URL(url).host}`);
   log('');
-  log('参加トークンは、このクラウドの全セッションを読み書きできる秘密です。');
-  log('自分が hangar setup cloud で作った宛先か、上のホストを目で確かめてください。');
-  log('心当たりのないホストなら、この端末の会話の本文が相手のサーバへ上がります。');
+  log('参加トークンは、このクラウドの全セッションを読み書きできるシークレットです。');
+  log('自分が hangar setup cloud で作成した接続先か、上のホストを目視で確認してください。');
+  log('心当たりのないホストの場合、この PC の会話のトランスクリプトがそのホストへアップロードされます。');
 }
 
 /** 参加し直しの警告。参加用の秘密が変わると、前のクラウドの本文を復号できなくなる。 */
 function warnRejoin(log: (l: string) => void, oldUrl: string, newUrl: string, sameUrl: boolean): void {
   log('');
-  log(sameUrl ? '警告: 宛先は同じですが、参加用の秘密が違います（相手側で作り直されています）。' : '警告: この端末は既に別のクラウドに参加しています。');
+  log(sameUrl ? '警告: 接続先は同じですが、参加トークンが違います（クラウドを作成した PC で再生成されています）。' : '警告: この PC はすでに別のクラウドに参加しています。');
   log('');
-  log(`  いまの宛先: ${oldUrl}`);
-  log(`  新しい宛先: ${newUrl}`);
+  log(`  現在の接続先: ${oldUrl}`);
+  log(`  新しい接続先: ${newUrl}`);
   log('');
-  log('参加用の秘密は本文の暗号鍵の材料（deriveFileKey の入力）です。');
-  log('いまの秘密で暗号化された R2 のファイルは、参加し直した後、この端末では復号できなくなります。');
-  log('元に戻すには、いま使っている参加トークンでもう一度 hangar join を実行することになります（1Password に残っていますか）。');
-  log('~/.agent-hangar/remote に降ろし済みの本文は、そのまま手元に残ります。');
+  log('参加トークンに含まれるシークレットは、トランスクリプトの暗号鍵の材料（deriveFileKey の入力）です。');
+  log('現在の参加トークンで暗号化された R2 のファイルは、参加し直した後、この PC では復号できなくなります。');
+  log('元に戻すには、現在の参加トークンでもう一度 hangar join を実行します（1Password に残っているか確認してください）。');
+  log('~/.agent-hangar/remote にダウンロード済みのトランスクリプトは、そのままこの PC に残ります。');
 }
 
 /**
@@ -919,22 +919,22 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
   const url = t.url.replace(/\/+$/, '');
   if (!o.force) {
     showDestination(log, url);
-    if (!(await confirm('この宛先に参加しますか。', 'y'))) throw new Error('参加を取りやめました');
+    if (!(await confirm('この接続先に参加しますか？', 'y'))) throw new Error('参加をキャンセルしました');
     const prev = read.config;
     // 宛先が同じでも、秘密が違えば既存の暗号化ファイルは読めなくなる。見るのは 2 つである。
     if (prev && (prev.url !== url || prev.joinSecret !== t.secret)) {
       warnRejoin(log, prev.url, url, prev.url === url);
-      if (!(await confirm('本当に cloud.json を上書きしますか。', OVERWRITE_WORD))) throw new Error('参加を取りやめました');
+      if (!(await confirm('本当に cloud.json を上書きしますか？', OVERWRITE_WORD))) throw new Error('参加をキャンセルしました');
     } else if (prev) {
       log('');
-      log('この端末は既に同じ宛先に、同じ参加用の秘密で参加しています。参加し直すと端末トークンが新しくなります。');
-      if (!(await confirm('cloud.json を上書きしますか。', 'y'))) throw new Error('参加を取りやめました');
+      log('この PC はすでに同じ接続先に、同じ参加トークンで参加しています。参加し直すと、この PC 用のトークンが新しくなります。');
+      if (!(await confirm('cloud.json を上書きしますか？', 'y'))) throw new Error('参加をキャンセルしました');
     }
   }
 
   // DB を先に開く（setup cloud と同じ理由である）。
   // 控えが取れなければ、参加の要求を出す前に止まる。
-  const floor = openFloorFirst(o.home, '参加の要求はまだ出していません', 'hangar join');
+  const floor = openFloorFirst(o.home, '参加のリクエストはまだ送信していません', 'hangar join');
   try {
     // retryForbidden は渡さない。貼り間違えたトークンで 30 秒待たせない。
     const joined = await joinWorker(url, t.secret, o.device, { fetch: o.fetch ?? realFetch, sleep: o.sleep ?? realSleep, log });
@@ -954,7 +954,7 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
     floor.stamp(conf.joinedAt);
     log('');
     log(`参加しました: ${url}`);
-    log('hangar を再起動すると同期が始まり、他の端末の本文が ~/.agent-hangar/remote に降りてきます。');
+    log('hangar を再起動すると同期が始まり、他の PC のトランスクリプトが ~/.agent-hangar/remote にダウンロードされます。');
     return conf;
   } finally {
     floor.close();
@@ -965,7 +965,7 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
 
 /** 経過を人の読む形にする。now を注入できるようにして、テストが時計に依らないようにする。 */
 const relative = (ms: number | null, now: number): string => {
-  if (ms === null) return 'まだ';
+  if (ms === null) return 'なし';
   const s = Math.max(0, Math.round((now - ms) / 1000));
   return s < 60 ? `${s} 秒前` : s < 3600 ? `${Math.round(s / 60)} 分前` : `${Math.round(s / 3600)} 時間前`;
 };
@@ -986,8 +986,8 @@ export type CloudStatusOptions = {
  * 0 は床なしなので、全部上げると素直に言う（hangar cloud backfill の後がこれである）。
  */
 function transcriptFloorLine(from: number): string {
-  if (from <= 0) return '本文: 手元の本文を全部上げます';
-  return `本文: ${new Date(from).toISOString()} 以降に動いた分を上げます（それより前の分は hangar cloud backfill で上げ直せます）`;
+  if (from <= 0) return 'トランスクリプト: この PC のトランスクリプトをすべてアップロードします';
+  return `トランスクリプト: ${new Date(from).toISOString()} 以降に更新された分をアップロードします（それより前の分は hangar cloud backfill でアップロードし直せます）`;
 }
 
 /**
@@ -1000,7 +1000,7 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
   const now = o.now ?? Date.now;
   const read = readCloudConfig(o.home);
   if (read.state === 'absent') return 'クラウド同期: 未設定（hangar setup cloud か hangar join を実行してください）';
-  if (read.state === 'broken' || !read.config) return `クラウド同期: 設定を読めません\n${brokenConfigMessage(o.home)}`;
+  if (read.state === 'broken' || !read.config) return `クラウド同期: 設定を読み取れません\n${brokenConfigMessage(o.home)}`;
   const c = read.config;
 
   const lines: string[] = [];
@@ -1015,24 +1015,24 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
   } catch (e) {
     lines.push(`Worker: ${c.url}（接続できません: ${e instanceof Error ? e.message : String(e)}）`);
   }
-  lines.push(`互換の版: この PC ${COMPAT_VERSION}、Worker ${workerCompat ?? '不明'}`);
-  lines.push(c.workerName ? `役割: setup を実行した端末（Worker ${c.workerName}）` : '役割: 参加した端末（teardown はできません）');
+  lines.push(`互換バージョン: この PC ${COMPAT_VERSION}、Worker ${workerCompat ?? '不明'}`);
+  lines.push(c.workerName ? `役割: setup を実行した PC（Worker ${c.workerName}）` : '役割: 参加した PC（teardown はできません）');
   lines.push(transcriptFloorLine(readTranscriptsFrom(o.home)));
-  lines.push(`アカウント ID と参加用の秘密は ${cloudConfigPath(o.home)} にあります（画面に出すと漏れるので表示しません）。`);
+  lines.push(`アカウント ID と参加トークンは ${cloudConfigPath(o.home)} にあります（漏えいを防ぐため表示しません）。`);
   try {
     const token = fs.readFileSync(path.join(o.home, 'token'), 'utf8').trim();
     const r = await fetchFn(`http://127.0.0.1:${o.port ?? 4177}/api/sync/status`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const s = (await r.json()) as SyncStatusDto;
     const t = now();
-    const limited = typeof s.limitedUntil === 'number' ? `、無料枠の上限で ${new Date(s.limitedUntil).toISOString()} まで止めています` : '';
+    const limited = typeof s.limitedUntil === 'number' ? `、無料枠の上限に達したため ${new Date(s.limitedUntil).toISOString()} まで停止しています` : '';
     lines.push(
-      `同期: ${s.state}${s.error ? `（${s.error}）` : ''}${limited}、未送信 ${s.pending} 件、最終 pull ${relative(s.lastPullAt, t)}、最終 push ${relative(s.lastPushAt, t)}、端末 ${s.deviceCount} 台`,
+      `同期: ${s.state}${s.error ? `（${s.error}）` : ''}${limited}、未送信 ${s.pending} 件、最終受信 ${relative(s.lastPullAt, t)}、最終送信 ${relative(s.lastPushAt, t)}、PC ${s.deviceCount} 台`,
     );
     // cloud.json はあるのに off なのは、サーバが cloud.json を書く前に起動していたときである（サーバは起動したときにだけ読む）。
-    if (s.state === 'off') lines.push('サーバはクラウド同期の設定を起動したときにだけ読みます。アプリを終了して開き直すと同期が始まります（hangar start で動かしているなら、止めて起動し直してください）。');
+    if (s.state === 'off') lines.push('サーバーはクラウド同期の設定を起動時にだけ読み取ります。アプリを終了して開き直すと同期が始まります（hangar start で起動している場合は、停止してから起動し直してください）。');
   } catch {
-    lines.push('同期: サーバは停止中（hangar start で起動すると同期が始まります）');
+    lines.push('同期: サーバーは停止中（hangar start で起動すると同期が始まります）');
   }
   return lines.join('\n');
 }
@@ -1050,11 +1050,11 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
 export function cloudBackfill(o: { home: string }): string {
   const read = readCloudConfig(o.home);
   if (read.state === 'absent') return 'クラウド同期: 未設定（hangar setup cloud か hangar join を実行してください）';
-  if (read.state === 'broken' || !read.config) return `クラウド同期: 設定を読めません\n${brokenConfigMessage(o.home)}`;
+  if (read.state === 'broken' || !read.config) return `クラウド同期: 設定を読み取れません\n${brokenConfigMessage(o.home)}`;
   const { from } = backfillTranscripts(o.home);
-  const lines = ['参加より前の本文も上げ直します。次の走査から、手元の転記を全部クラウドへ送ります。'];
-  if (from > 0) lines.push(`これまでは ${new Date(from).toISOString()} より後に動いた本文だけを上げていました。`);
-  lines.push('転送量は無料枠から引かれます。件数と大きさは hangar cloud status の「未送信」で確かめてください。');
+  const lines = ['参加より前のトランスクリプトもアップロードし直します。次の走査から、この PC のトランスクリプトをすべてクラウドへ送信します。'];
+  if (from > 0) lines.push(`これまでは ${new Date(from).toISOString()} より後に更新されたトランスクリプトだけをアップロードしていました。`);
+  lines.push('転送量は無料枠から差し引かれます。件数と大きさは hangar cloud status の「未送信」で確認してください。');
   return lines.join('\n');
 }
 
@@ -1086,12 +1086,12 @@ export function cleanWranglerError(text: string, maxLines = MAX_REASON_LINES): s
   const lines = text
     // eslint-disable-next-line no-control-regex -- 端末の色指定を落とす
     .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
-    .replace(/\b[0-9a-f]{32,}\b/gi, '<伏せた>')
+    .replace(/\b[0-9a-f]{32,}\b/gi, '<マスク済み>')
     .split('\n')
     .map((l) => l.trimEnd())
     .filter((l) => l.trim() !== '');
   if (lines.length <= maxLines) return lines;
-  return [...lines.slice(0, maxLines), `（残り ${lines.length - maxLines} 行は省きました）`];
+  return [...lines.slice(0, maxLines), `（残り ${lines.length - maxLines} 行は省略しました）`];
 }
 
 export type RescueResult = { downloaded: number; already: number; failed: { key: string; message: string }[] };
@@ -1105,8 +1105,8 @@ export type RescueResult = { downloaded: number; already: number; failed: { key:
  */
 export function rescueTargetPath(home: string, e: FileEntry): string {
   if (e.kind === 'config') {
-    if (!isSafeKeyId(e.deviceId)) throw new Error(`端末 ID が不正です: ${e.deviceId}`);
-    if (!isSafeRelPath(e.path) || e.key !== configKey(e.deviceId, e.path)) throw new Error(`設定ファイルの鍵と相対パスが食い違っています: ${e.key}`);
+    if (!isSafeKeyId(e.deviceId)) throw new Error(`PC の ID が不正です: ${e.deviceId}`);
+    if (!isSafeRelPath(e.path) || e.key !== configKey(e.deviceId, e.path)) throw new Error(`設定ファイルのキーと相対パスが食い違っています: ${e.key}`);
     // 端末ごとに分ける。分けないと、2 台の同じ名前の設定（CLAUDE.md など）が同じ場所へ降りて、
     // 中身が違えば後から降ろした方が前の方を消してしまう。R2 の鍵も端末ごとに分かれている。
     return path.join(remoteRoot(home), e.deviceId, CONFIG_DIR, ...e.path.split('/'));
@@ -1114,7 +1114,7 @@ export function rescueTargetPath(home: string, e: FileEntry): string {
   const parts = path.posix.normalize(e.path).split('/');
   const suffix = parts.slice(2).join('/');
   if (parts[0] !== 'projects' || parts.length < 3 || suffix === '' || e.key !== `transcripts/${e.deviceId}/${suffix}.gz`) {
-    throw new Error(`本文の鍵と相対パスが食い違っています: ${e.key}`);
+    throw new Error(`トランスクリプトのキーと相対パスが食い違っています: ${e.key}`);
   }
   return remoteTranscriptPath(home, e.deviceId, e.path);
 }
@@ -1129,7 +1129,7 @@ export async function listAllFiles(client: Pick<CloudClient, 'listFiles'>): Prom
     if (!r.more || r.nextSeq <= since) return out;
     since = r.nextSeq;
   }
-  throw new Error('R2 の一覧が終わりません。もう一度実行してください');
+  throw new Error('R2 の一覧の取得が終わりません。もう一度実行してください');
 }
 
 /** 1 件を降ろす。復号して gzip を解き、指紋が合ったものだけを本物の名前にする。 */
@@ -1137,7 +1137,7 @@ async function downloadOne(client: Pick<CloudClient, 'getFile'>, e: FileEntry, t
   // 決定 5 のとおり、本文は必ず暗号化して置く。puller と同じ判定にする。
   // 申告を鵜呑みにして平文の道を開けておくと、参加用の秘密を持たない Worker の側から
   // ~/.agent-hangar/remote に中身を仕込める（sha256 は索引も本体も相手が握るので守りにならない）。
-  if (!e.encrypted) throw new Error(`本文が暗号化されていません: ${e.key}`);
+  if (!e.encrypted) throw new Error(`ファイルが暗号化されていません: ${e.key}`);
   fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
   const tmp = `${target}.part`;
   try {
@@ -1147,7 +1147,7 @@ async function downloadOne(client: Pick<CloudClient, 'getFile'>, e: FileEntry, t
     // pipeline でつなぐ。裸の pipe だと復号の error が未処理になってプロセスごと落ちる。
     await pipeline(body, decryptStream(key), createGunzip(), sink());
     const sha = await sha256Stream(fs.createReadStream(tmp));
-    if (sha !== e.sha256) throw new Error(`本文の SHA-256 が一致しません: ${e.key}`);
+    if (sha !== e.sha256) throw new Error(`ファイルの SHA-256 が一致しません: ${e.key}`);
     fs.renameSync(tmp, target);
     fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
   } catch (err) {
@@ -1187,7 +1187,7 @@ export async function rescueRemoteBodies(o: {
         continue;
       }
       await downloadOne(o.client, e, target, key);
-      log(`降ろしました: ${e.key}`);
+      log(`ダウンロードしました: ${e.key}`);
       r.downloaded++;
     } catch (err) {
       r.failed.push({ key: e.key, message: err instanceof Error ? err.message : String(err) });
@@ -1223,11 +1223,11 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const c = read.config;
   if (!c) throw new Error('クラウド同期は未設定です');
   if (!c.workerName || !c.dbName || !c.bucketName) {
-    throw new Error('teardown は setup cloud を実行した端末でだけ使えます。参加した端末では cloud.json を消すだけにしてください');
+    throw new Error('teardown は setup cloud を実行した PC でだけ使えます。参加した PC では cloud.json を削除するだけにしてください');
   }
 
-  log(`Worker ${c.workerName}、D1 ${c.dbName}、R2 ${c.bucketName} を消します。取り消せません。`);
-  log('同期したメタデータと、R2 にある本文の写しはすべて失われます。');
+  log(`Worker ${c.workerName}、D1 ${c.dbName}、R2 ${c.bucketName} を削除します。元に戻せません。`);
+  log('同期したメタデータと、R2 にあるトランスクリプトのコピーはすべて失われます。');
 
   // 消す前に、R2 にしか無い本文を手元へ降ろす。
   const client = new HttpCloudClient({ url: c.url, token: c.deviceToken, fetch: o.fetch ?? realFetch });
@@ -1235,22 +1235,22 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   try {
     entries = await listAllFiles(client);
   } catch (e) {
-    throw new Error(`R2 にある本文の一覧を読めませんでした（${e instanceof Error ? e.message : String(e)}）。何が消えるか分からないまま消せないので、やめました`);
+    throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
   }
-  log(`R2 には本文が ${entries.length} 件あります。手元に写しの無いものを先に降ろします。`);
+  log(`R2 にはトランスクリプトが ${entries.length} 件あります。この PC にコピーが無いものを先にダウンロードします。`);
   const rescued = await rescueRemoteBodies({ home: o.home, entries, joinSecret: c.joinSecret, client, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
-  log(`${rescued.downloaded} 件を手元へ降ろしました（${rescued.already} 件は既に手元にあります）。`);
+  log(`${rescued.downloaded} 件をこの PC にダウンロードしました（${rescued.already} 件はすでにこの PC にあります）。`);
   if (rescued.failed.length > 0) {
-    log('降ろせなかった本文:');
+    log('ダウンロードできなかったトランスクリプト:');
     for (const f of rescued.failed) log(`  ${f.key}: ${f.message}`);
-    throw new Error(`${rescued.failed.length} 件を降ろせませんでした。消すと元に戻せないので、やめました。しばらく待ってからもう一度実行してください`);
+    throw new Error(`${rescued.failed.length} 件をダウンロードできませんでした。削除すると元に戻せないため、中止しました。しばらく待ってからもう一度実行してください`);
   }
 
   if ((await confirm(`続けるには Worker の名前を入力してください（${c.workerName}）。`, c.workerName)) !== true) {
     log('中止しました');
     return false;
   }
-  if ((await confirm('本当に消すなら delete と入力してください。', 'delete')) !== true) {
+  if ((await confirm('削除するには delete と入力してください。', 'delete')) !== true) {
     log('中止しました');
     return false;
   }
@@ -1284,7 +1284,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const stopHere = (): false => {
     log('');
     if (deleted.length > 0) {
-      log('消えたもの:');
+      log('削除したもの:');
       for (const d of deleted) log(`  ${d}`);
     }
     log('残ったもの:');
@@ -1293,9 +1293,9 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
       for (const l of f.reason) log(`    ${l}`);
     }
     log('');
-    log(`${cloudConfigPath(o.home)} は消していません。Worker の名前とアカウントと参加用の秘密がここにしか無いからです。`);
-    log('直してから hangar cloud teardown をもう一度実行すれば、残った分だけ続きから消せます。');
-    log('R2 のバケットが「空でない」で消せないときは、索引に無いオブジェクトが残っています。ダッシュボードでバケットを空にしてから実行してください。');
+    log(`${cloudConfigPath(o.home)} は削除していません。Worker の名前、アカウント、参加トークンはここにしか無いためです。`);
+    log('修正してから hangar cloud teardown をもう一度実行すると、残った分だけを続きから削除できます。');
+    log('R2 のバケットが「空でない」ために削除できない場合は、インデックスに無いオブジェクトが残っています。ダッシュボードでバケットを空にしてから実行してください。');
     return false;
   };
 
@@ -1313,7 +1313,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
 
   fs.rmSync(cloudConfigPath(o.home), { force: true });
   fs.rmSync(cfg, { force: true });
-  log('cloud.json を消しました。他の端末の cloud.json は手で消してください。');
-  log(`手元へ降ろした本文は ${remoteRoot(o.home)} に残っています。`);
+  log('cloud.json を削除しました。他の PC の cloud.json は手動で削除してください。');
+  log(`この PC にダウンロードしたトランスクリプトは ${remoteRoot(o.home)} に残っています。`);
   return true;
 }

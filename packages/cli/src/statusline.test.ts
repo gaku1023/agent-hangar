@@ -57,7 +57,7 @@ describe('runStatuslineInstall', () => {
     });
     expect(r.installed).toBe(true);
     const r2 = await runStatuslineInstall({ claudeDir: a.dir, port: 4177, yes: true, home: hangarHome(), log: () => {} });
-    expect(r2).toEqual({ installed: true, message: '既に追記されています' });
+    expect(r2).toEqual({ installed: true, message: 'すでに追記されています' });
     fs.rmSync(a.home, { recursive: true, force: true });
   });
 

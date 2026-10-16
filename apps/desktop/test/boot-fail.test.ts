@@ -77,7 +77,7 @@ describe('失敗の種類', () => {
 describe('種類ごとの文', () => {
   it('サーバが起きない：Node の確認の命令を添え、置き場の名前を文に入れる', () => {
     const v = view('server-exited', { home: '~/h' });
-    expect(v.title).toBe('サーバを起動できませんでした');
+    expect(v.title).toBe('サーバーを起動できませんでした');
     expect(v.what).toContain('~/h');
     expect(v.command).toBe('node --version');
     expect(v.steps[0]).toContain('もう一度試す');
@@ -86,15 +86,15 @@ describe('種類ごとの文', () => {
   it('サーバが起きない：確かめる Node は、要る版以上', () => {
     expect(m.DEFAULT_NODE_MIN).toBe('22.14');
     expect(m.DEFAULT_NODE_API).toBe(10);
-    expect(view('server-exited').steps).toContain('Node 22.14 以上が入っているか確認します');
+    expect(view('server-exited').steps).toContain('Node 22.14 以上がインストールされているか確認します');
     expect(view('server-exited', { lang: 'en' }).steps).toContain('Check that Node 22.14 or later is installed');
     // 殻が要る版を渡せば、それを書く。
-    expect(view('server-exited', { params: { min: '24.1' } }).steps).toContain('Node 24.1 以上が入っているか確認します');
+    expect(view('server-exited', { params: { min: '24.1' } }).steps).toContain('Node 24.1 以上がインストールされているか確認します');
   });
   it('ポートが使われている：ポートを文と命令に入れ、動いているプロセスを止めないと言う', () => {
     const v = view('port-in-use', { params: { port: 4390 } });
     expect(v.title).toContain('4390');
-    expect(v.what).toContain('止めません');
+    expect(v.what).toContain('自動では停止しません');
     expect(v.command).toBe('lsof -nP -iTCP:4390 -sTCP:LISTEN');
   });
   it('ポートが渡されなければ 4177 と読む', () => {
@@ -103,18 +103,18 @@ describe('種類ごとの文', () => {
   it('互換の別のサーバが古いとき：その版と自分の版を言い、そのサーバを止めてから試す', () => {
     const v = view('compat-mismatch', { params: { port: 4177, theirs: 14, ours: 16 } });
     expect(v.title).toContain('4177');
-    expect(v.title).toContain('より古い版');
-    expect(v.what).toContain('版 14');
-    expect(v.what).toContain('版 16');
-    expect(v.what).toContain('止めません');
-    expect(v.steps[0]).toContain('止め');
+    expect(v.title).toContain('より古いバージョン');
+    expect(v.what).toContain('バージョン 14');
+    expect(v.what).toContain('バージョン 16');
+    expect(v.what).toContain('自動では停止しません');
+    expect(v.steps[0]).toContain('停止');
     expect(v.command).toBe('lsof -nP -iTCP:4177 -sTCP:LISTEN');
   });
   it('互換の別のサーバが新しいとき：Hangar.app の入れ替えか、そのサーバを止める', () => {
     const v = view('compat-mismatch', { params: { port: 4177, theirs: 16, ours: 14 } });
-    expect(v.title).toContain('Hangar.app が');
-    expect(v.steps[0]).toContain('入れ替え');
-    expect(v.steps[1]).toContain('止め');
+    expect(v.title).toContain('この Hangar.app は');
+    expect(v.steps[0]).toContain('置き換え');
+    expect(v.steps[1]).toContain('停止');
   });
   it('互換の別のサーバは英語でも、古い側と新しい側を言い分ける', () => {
     // theirs が小さければ動いているサーバが古く、大きければこの Hangar.app が古い。
@@ -128,8 +128,8 @@ describe('種類ごとの文', () => {
   it('DB が古い：ファイルと版を文に入れ、退避の命令を版つきの別の名前で出す', () => {
     const v = view('db-too-old', { params: { file: '~/.agent-hangar/hangar.db', found: 6, baseline: 10 } });
     expect(v.what).toContain('~/.agent-hangar/hangar.db');
-    expect(v.what).toContain('版 6');
-    expect(v.what).toContain('版 10');
+    expect(v.what).toContain('バージョン 6');
+    expect(v.what).toContain('バージョン 10');
     expect(v.command).toBe('mv ~/.agent-hangar/hangar.db ~/.agent-hangar/hangar-v6.db');
   });
   it('DB が古いとき、空白を含むパスは引用し、~ は引用の外に出す', () => {
@@ -188,21 +188,21 @@ describe('種類ごとの文', () => {
       }
     }
     const ja = view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 16, ours: 14 } });
-    expect(ja.title).toBe('この Hangar が、4177 で動いている hangar のサーバより古い版です');
-    expect(ja.what).toBe('動いているサーバは版 16、この Hangar は版 14 です。そのサーバは、この Hangar より新しい hangar が起こしたものです。hangar はそのサーバを止めません。');
-    expect(ja.steps).toEqual(['Hangar の新しい版をインストールします', 'インストールせずに使うときは、そのサーバを止めてから「もう一度試す」を押します']);
+    expect(ja.title).toBe('この Hangar は、ポート 4177 で動作中の hangar のサーバーより古いバージョンです');
+    expect(ja.what).toBe('動作中のサーバーはバージョン 16、この Hangar はバージョン 14 です。そのサーバーは、この Hangar より新しいバージョンの hangar が起動したものです。そのサーバーは自動では停止しません。');
+    expect(ja.steps).toEqual(['Hangar の新しいバージョンをインストールします', 'インストールせずに使う場合は、そのサーバーを停止してから「もう一度試す」をクリックします']);
     const en = view('compat-mismatch', { os: 'Windows 11', lang: 'en', params: { port: 4177, theirs: 16, ours: 14 } });
     expect(en.title).toBe('This Hangar is older than the hangar server running on 4177');
     expect(en.steps[0]).toBe('Install a newer version of Hangar');
-    expect(view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 14, ours: 16 } }).steps[1]).toBe('「もう一度試す」を押します。この Hangar が同梱のサーバを起こします');
+    expect(view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 14, ours: 16 } }).steps[1]).toBe('「もう一度試す」をクリックします。この Hangar が同梱のサーバーを起動します');
     expect(view('db-too-old', { os: 'Windows 11', lang: 'en', params: { found: 6, baseline: 10 } }).what).toContain('this Hangar can update version 10 or later');
   });
   it('macOS の札の文は、Hangar.app と呼ぶまま変えない', () => {
     const v = view('compat-mismatch', { params: { port: 4177, theirs: 16, ours: 14 } });
-    expect(v.title).toBe('この Hangar.app が、4177 で動いている hangar のサーバより古い版です');
-    expect(v.steps).toEqual(['Hangar.app を新しい版に入れ替えます', '入れ替えずに使うときは、そのサーバを止めてから「もう一度試す」を押します']);
+    expect(v.title).toBe('この Hangar.app は、ポート 4177 で動作中の hangar のサーバーより古いバージョンです');
+    expect(v.steps).toEqual(['Hangar.app を新しいバージョンに置き換えます', '置き換えずに使う場合は、そのサーバーを停止してから「もう一度試す」をクリックします']);
     expect(view('compat-mismatch', { lang: 'en', params: { port: 4177, theirs: 16, ours: 14 } }).steps[0]).toBe('Replace Hangar.app with a newer version');
-    expect(view('db-too-old', { params: { found: 6, baseline: 10 } }).what).toContain('この Hangar.app が更新できるのは版 10 以降です');
+    expect(view('db-too-old', { params: { found: 6, baseline: 10 } }).what).toContain('この Hangar.app が更新できるのはバージョン 10 以降です');
   });
   it('Windows の命令には、POSIX の命令（mv、ls、lsof）を出さない', () => {
     const p = { port: 4177, theirs: 1, ours: 2, found: 3, baseline: 10 };
@@ -220,9 +220,9 @@ describe('種類ごとの文', () => {
 describe('Node の札', () => {
   const need = { min: '22.14', napi: 10, arch: 'arm64' };
   const node = (kind: string, params: Record<string, string | number> = {}, extra: Partial<Info> = {}) =>
-    view(kind, { params: { ...need, ...params }, detail: 'Node 22.14 以上（arm64）が見つかりません。\n調べた場所:', ...extra });
+    view(kind, { params: { ...need, ...params }, detail: 'Node 22.14 以上（arm64）が見つかりません。\n確認したパス:', ...extra });
   const win = { os: 'Windows 11 24H2 (build 26100)', sep: '\\', home: '~\\.agent-hangar' };
-  const reason = 'Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node.js 22.14 以上が要ります。';
+  const reason = 'Hangar のデータベースとターミナルのネイティブモジュールは Node-API 10 を使うため、Node.js 22.14 以上が必要です。';
 
   describe('見つからない', () => {
     it('見出しは「見つかりません」で、理由を 1 文で言い、macOS では brew で Node と tmux を入れるコマンドを出す', () => {
@@ -232,18 +232,18 @@ describe('Node の札', () => {
       expect(v.lead).toBe('ターミナルで次を実行してください：');
       expect(v.command).toBe('brew install node tmux');
       expect(v.steps).toEqual([]);
-      expect(v.labels.tryAgain).toBe('入れたのでもう一度試す');
-      expect(v.labels.detailsToggle).toBe('詳細（調べた場所、別の入れ方）');
+      expect(v.labels.tryAgain).toBe('インストール後にもう一度試す');
+      expect(v.labels.detailsToggle).toBe('詳細（確認したパス、別のインストール方法）');
       expect(v.collapsed).toBe(true);
-      expect(v.detail).toContain('調べた場所');
-      expect(v.pick).toEqual({ label: 'node を選ぶ…', primary: false });
+      expect(v.detail).toContain('確認したパス');
+      expect(v.pick).toEqual({ label: 'node を選択…', primary: false });
     });
     it('Windows では PowerShell で winget の LTS を入れるコマンドを出し、選ぶ釦は node.exe と言う', () => {
       const v = node('node-missing', {}, win);
       expect(v.lead).toBe('PowerShell で次を実行してください：');
       expect(v.command).toBe('winget install -e --id OpenJS.NodeJS.LTS');
       expect(v.title).toBe('Node.js が見つかりません');
-      expect(v.pick).toEqual({ label: 'node.exe を選ぶ…', primary: false });
+      expect(v.pick).toEqual({ label: 'node.exe を選択…', primary: false });
     });
     it('macOS と Windows のほか（Linux）では nvm で LTS を入れるコマンドを出す', () => {
       expect(node('node-missing', {}, { os: 'Ubuntu 24.04 LTS' }).command).toBe('nvm install --lts');
@@ -253,29 +253,29 @@ describe('Node の札', () => {
   describe('版が古い', () => {
     it('見つかった版と、要る版以上が要ることを見出しで言い、今の Node を置き換えずに入れられると言う', () => {
       const v = node('node-version-mismatch', { found: '20.18.0' });
-      expect(v.title).toBe('Node.js 20.18.0 は見つかりましたが、Hangar は Node.js 22.14 以上が要ります');
-      expect(v.what).toBe('Hangar のデータベースと端末の部品が Node-API 10 を使うためです。今の Node.js は置き換えずに、別の場所に入れられます。');
+      expect(v.title).toBe('Node.js 20.18.0 を検出しましたが、Hangar には Node.js 22.14 以上が必要です');
+      expect(v.what).toBe('Hangar のデータベースとターミナルのネイティブモジュールが Node-API 10 を使うためです。現在の Node.js を置き換えずに、別のディレクトリにインストールできます。');
       expect(v.collapsed).toBe(true);
     });
     it('macOS では、既定の node を置き換えない node@22 を brew で入れるコマンドを出す', () => {
       const v = node('node-version-mismatch', { found: '20.18.0' });
-      expect(v.lead).toBe('今の Node.js を置き換えずに入れるには、ターミナルで次を実行してください：');
+      expect(v.lead).toBe('現在の Node.js を置き換えずにインストールするには、ターミナルで次を実行してください：');
       expect(v.command).toBe('brew install node@22');
       expect(v.steps).toEqual([]);
-      expect(v.labels.tryAgain).toBe('入れたのでもう一度試す');
-      expect(v.pick).toEqual({ label: 'node を選ぶ…', primary: false });
+      expect(v.labels.tryAgain).toBe('インストール後にもう一度試す');
+      expect(v.pick).toEqual({ label: 'node を選択…', primary: false });
     });
     // winget の Node は C:\Program Files\nodejs に入り、今ある Node を置き換える。公式の zip を別のフォルダに展開して選ぶ道を先に出す。
     it('Windows では、winget を出さず、公式の zip を別のフォルダに展開して node.exe を選ぶ手順を出し、選ぶ釦を主にする', () => {
       const v = node('node-version-mismatch', { found: '20.18.0', arch: 'x64' }, win);
-      expect(v.lead).toBe('今の Node.js を置き換えずに入れるには：');
+      expect(v.lead).toBe('現在の Node.js を置き換えずにインストールするには：');
       expect(v.command).toBeNull();
       expect(v.steps).toEqual([
         'nodejs.org から Node.js 22 の Windows 用 zip（x64）を取得します',
-        '今の Node.js とは別のフォルダ（例 %LOCALAPPDATA%\\Programs\\node22）に展開します',
-        '「node.exe を選ぶ…」を押して、展開したフォルダの node.exe を選びます',
+        '現在の Node.js とは別のディレクトリ（例 %LOCALAPPDATA%\\Programs\\node22）に展開します',
+        '「node.exe を選択…」をクリックして、展開したディレクトリの node.exe を選択します',
       ]);
-      expect(v.pick).toEqual({ label: 'node.exe を選ぶ…', primary: true });
+      expect(v.pick).toEqual({ label: 'node.exe を選択…', primary: true });
       expect(v.labels.tryAgain).toBe('もう一度試す');
       expect([v.title, v.what, v.lead, ...v.steps].join('\n')).not.toContain('winget');
     });
@@ -287,19 +287,19 @@ describe('Node の札', () => {
   describe('アーキテクチャが違う', () => {
     it('見つかった作りと、要る作りを見出しで言う', () => {
       const v = node('node-arch-mismatch', { found: '22.14.0', foundArch: 'x64' });
-      expect(v.title).toBe('x64 用の Node.js は見つかりましたが、Hangar は arm64 用が要ります');
-      expect(v.what).toBe('この Mac で Hangar を動かすには、arm64 用の Node.js 22.14 以上が要ります。今の Node.js は置き換えずに、別の場所に入れられます。');
+      expect(v.title).toBe('x64 用の Node.js を検出しましたが、Hangar には arm64 用が必要です');
+      expect(v.what).toBe('この Mac で Hangar を実行するには、arm64 用の Node.js 22.14 以上が必要です。現在の Node.js を置き換えずに、別のディレクトリにインストールできます。');
       expect(v.command).toBe('brew install node@22');
       const w = node('node-arch-mismatch', { found: '22.14.0', foundArch: 'ia32', arch: 'x64' }, win);
-      expect(w.what).toBe('この PC で Hangar を動かすには、x64 用の Node.js 22.14 以上が要ります。今の Node.js は置き換えずに、別の場所に入れられます。');
+      expect(w.what).toBe('この PC で Hangar を実行するには、x64 用の Node.js 22.14 以上が必要です。現在の Node.js を置き換えずに、別のディレクトリにインストールできます。');
       expect(w.steps[0]).toBe('nodejs.org から Node.js 22 の Windows 用 zip（x64）を取得します');
-      expect(w.pick).toEqual({ label: 'node.exe を選ぶ…', primary: true });
+      expect(w.pick).toEqual({ label: 'node.exe を選択…', primary: true });
     });
   });
 
   it('版は殻が渡したものを使い、渡されなければ規則の既定（22.14、Node-API 10）と読む', () => {
     const v = node('node-missing', { min: '24.1', napi: 11 });
-    expect(v.what).toBe('Hangar のデータベースと端末の部品は Node-API 11 を使うため、Node.js 24.1 以上が要ります。');
+    expect(v.what).toBe('Hangar のデータベースとターミナルのネイティブモジュールは Node-API 11 を使うため、Node.js 24.1 以上が必要です。');
     expect(node('node-version-mismatch', { min: '24.1', found: '22.14.0' }).command).toBe('brew install node@24');
     expect(view('node-missing').what).toBe(reason);
   });
@@ -350,16 +350,16 @@ describe('Node の札', () => {
     }
   });
   it('全文のコピーは、ほかの種類と同じく版と OS、種類、詳細の順', () => {
-    expect(node('node-missing').copyText).toBe('Hangar 0.1.0 · macOS 15.1\nnode-missing\n\nNode 22.14 以上（arm64）が見つかりません。\n調べた場所:');
+    expect(node('node-missing').copyText).toBe('Hangar 0.1.0 · macOS 15.1\nnode-missing\n\nNode 22.14 以上（arm64）が見つかりません。\n確認したパス:');
     expect(node('node-version-mismatch', { found: '20.18.0' }).copyText.split('\n')[1]).toBe('node-version-mismatch');
   });
 
   // 「node を選ぶ…」で選んだ Node が合わなかったとき、札に添える文（殻の pick_node の答えから作る）。
   describe('選んだ Node が合わないときの文', () => {
     it('Node として答えない、版が古い、アーキテクチャが違う、保存できない、を分けて言う', () => {
-      expect(m.pickText('ja', { result: 'notNode', path: '/x/node' })).toBe('/x/node は Node.js として答えませんでした。node の実行ファイルを選んでください。');
-      expect(m.pickText('ja', { result: 'version', path: '/x/node', found: '20.18.0', min: '22.14' })).toBe('選んだ Node.js は 20.18.0 です。Node.js 22.14 以上を選んでください。');
-      expect(m.pickText('ja', { result: 'arch', path: '/x/node', foundArch: 'x64', arch: 'arm64' })).toBe('選んだ Node.js は x64 用です。arm64 用を選んでください。');
+      expect(m.pickText('ja', { result: 'notNode', path: '/x/node' })).toBe('/x/node は Node.js として応答しませんでした。node の実行ファイルを選択してください。');
+      expect(m.pickText('ja', { result: 'version', path: '/x/node', found: '20.18.0', min: '22.14' })).toBe('選択した Node.js は 20.18.0 です。Node.js 22.14 以上を選択してください。');
+      expect(m.pickText('ja', { result: 'arch', path: '/x/node', foundArch: 'x64', arch: 'arm64' })).toBe('選択した Node.js は x64 用です。arm64 用を選択してください。');
       expect(m.pickText('ja', { result: 'saveFailed', error: 'permission denied' })).toBe('設定に保存できませんでした（permission denied）。');
       expect(m.pickText('en', { result: 'notNode', path: '/x/node' })).toBe('/x/node did not answer as Node.js. Choose the node executable.');
       expect(m.pickText('en', { result: 'version', found: '20.18.0', min: '22.14' })).toBe('The Node.js you chose is 20.18.0. Choose Node.js 22.14 or later.');
@@ -370,7 +370,7 @@ describe('Node の札', () => {
       expect(m.pickText('ja', { result: 'cancel' })).toBeNull();
       expect(m.pickText('ja', { result: 'ok', path: '/x/node' })).toBeNull();
       expect(m.pickText('ja', null)).toBeNull();
-      expect(m.pickText('ja', { result: 'weird' })).toBe('選んだ Node.js を確かめられませんでした。');
+      expect(m.pickText('ja', { result: 'weird' })).toBe('選択した Node.js を確認できませんでした。');
       expect(m.pickText('en', { result: 'weird' })).toBe("Couldn't check the Node.js you chose.");
     });
   });
@@ -380,12 +380,12 @@ describe('パスの区切り', () => {
   // Windows では置き場が ~\.agent-hangar で届く。記録の場所が `\.agent-hangar/desktop.log` のように区切りを混ぜて出ていた。
   const win = { os: 'Windows 11', home: '~\\.agent-hangar', sep: '\\' };
   it('記録の場所は、殻が渡した区切りで置き場とつなぐ', () => {
-    expect(view('other', win).labels.logAt).toBe('記録はこの PC の ~\\.agent-hangar\\desktop.log にあります');
+    expect(view('other', win).labels.logAt).toBe('ログはこの PC の ~\\.agent-hangar\\desktop.log にあります');
     expect(view('other', { ...win, lang: 'en' }).labels.logAt).toBe('The log is at ~\\.agent-hangar\\desktop.log on this computer');
   });
   it('区切りが渡されなければ / でつなぐ（macOS と、前の版の殻）', () => {
-    expect(view('other').labels.logAt).toBe('記録はこの PC の ~/.agent-hangar/desktop.log にあります');
-    expect(view('other', { sep: 'x' }).labels.logAt).toBe('記録はこの PC の ~/.agent-hangar/desktop.log にあります');
+    expect(view('other').labels.logAt).toBe('ログはこの PC の ~/.agent-hangar/desktop.log にあります');
+    expect(view('other', { sep: 'x' }).labels.logAt).toBe('ログはこの PC の ~/.agent-hangar/desktop.log にあります');
   });
   it('DB のファイルと控えの置き場の既定も、同じ区切りでつなぐ', () => {
     const old = view('db-too-old', { ...win, params: { found: 6, baseline: 10 } });

@@ -42,7 +42,7 @@ describe('presentGitChip', () => {
     // 終わった行には添えない。
     expect(presentGitChip(ja, g, 's3', sessions)?.shared).toBeNull();
   });
-  it('ほかの PC は本文の gitBranch、git でないものと未取得は出さない、消えた worktree は削除済み', () => {
+  it('他の PC は本文の gitBranch、git でないものと未取得は出さない、消えた worktree は削除済み', () => {
     expect(presentGitChip(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'feature-x', worktree: null } } }), 's1', {})).toMatchObject({ kind: 'remote', name: 'feature-x', value: '他の PC', dirty: false });
     expect(presentGitChip(ja, git({ sessions: { s1: { state: 'nogit', root: null, branch: null, worktree: null } } }), 's1', {})).toBeNull();
     expect(presentGitChip(ja, git(), 'nope', {})).toBeNull();
@@ -71,7 +71,7 @@ describe('gitDetailRows', () => {
     ]);
     expect(rows[2]!.link).toEqual({ label: '一覧', send: { type: 'diff.open', sessionId: 's1' } });
   });
-  it('git でない、ほかの PC、時間切れ、消えた worktree', () => {
+  it('git でない、他の PC、時間切れ、消えた worktree', () => {
     expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'nogit', root: null, branch: null, worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['git リポジトリではありません']);
     expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'x', worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['x', '他の PC で実行中のため、この PC では取得しません']);
     expect(gitDetailRows(ja, git({ trees: { '/w/alpha': tree({ slow: true, dirty: null }) } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['fix-login', 'git が 3 秒以内に応答しませんでした']);
@@ -95,17 +95,17 @@ describe('presentGitFiles', () => {
     const v = presentGitFiles(ja, changes());
     expect(v.state).toBe('ok');
     expect(v.files.map((f) => [f.rel, f.mark, f.statusLabel, f.counts])).toEqual([['src/a.ts', 'M', '変更', '+20 −2'], ['src/n.ts', 'A', '追加（未追跡）', '+34 −0'], ['src/c.css', '✓', 'コミット済み', 'コミット済み']]);
-    expect(v.othersLabel).toBe('ほかに作業ツリーで変わったファイル 1 件');
+    expect(v.othersLabel).toBe('ほかに作業ツリーで変更されたファイル 1 件');
     expect(v.others.map((f) => f.counts)).toEqual(['バイナリ']);
     expect(v.uncommitted).toBe(2);
   });
-  it('取得中、git でない、ほかの PC、時間切れの注記', () => {
+  it('取得中、git でない、他の PC、時間切れの注記', () => {
     expect(presentGitFiles(ja, undefined).state).toBe('loading');
     expect(presentGitFiles(ja, changes({ state: 'nogit', root: null, tree: null, others: [] })).note).toBe('Bash などのコマンドで変更したファイルは、この一覧に表示されません。');
     expect(presentGitFiles(ja, changes({ state: 'remote', others: [] })).note).toBe('他の PC で実行中です。この PC の作業ツリーは読み取りません。');
     expect(presentGitFiles(ja, changes({ state: 'slow', others: [] })).note).toBe('git が 3 秒以内に応答しませんでした。');
     expect(presentGitFiles(ja, changes({ state: 'unsafe', root: null, tree: null, others: [] })).note).toBe('ディレクトリの所有者が異なるため、git で読み取れません。このセッションの編集だけを表示します。');
-    expect(presentGitFiles(ja, changes({ othersCapped: true })).othersLabel).toBe('ほかに作業ツリーで変わったファイル 1 件以上');
+    expect(presentGitFiles(ja, changes({ othersCapped: true })).othersLabel).toBe('ほかに作業ツリーで変更されたファイル 1 件以上');
   });
 });
 
@@ -116,7 +116,7 @@ describe('presentDiffBody', () => {
     expect(b.line).toBe(2);
   });
   it('コミット済み、バイナリ、取得中、編集', () => {
-    expect(presentDiffBody(ja, { source: 'git', file: changes().files[2]!, diff: undefined, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'このファイルへの変更はコミット済みです。作業ツリーとの差はありません。' });
+    expect(presentDiffBody(ja, { source: 'git', file: changes().files[2]!, diff: undefined, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'このファイルへの変更はコミット済みです。作業ツリーとの差分はありません。' });
     expect(presentDiffBody(ja, { source: 'git', file: changes().files[0]!, diff: { file: '/w/alpha/src/a.ts', rel: 'src/a.ts', status: 'M', text: '', truncated: false, binary: true }, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'バイナリファイルのため、差分を表示しません。' });
     expect(presentDiffBody(ja, { source: 'git', file: changes().files[0]!, diff: undefined, edits: undefined, cwd: '/w' }).kind).toBe('loading');
     const edits: SessionEditsDto = { file: '/w/alpha/src/a.ts', truncated: false, edits: [

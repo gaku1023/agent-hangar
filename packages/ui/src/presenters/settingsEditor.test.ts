@@ -29,7 +29,7 @@ describe('設定のエディタの欄（試作の 1-1 の A）', () => {
       ['custom', '任意のコマンド', '{ }', null, false],
     ]);
     expect(e.choices[0]).toMatchObject({ path: '/usr/local/bin/code', version: '1.105.1', badge: { text: '検出済み', tone: 'ok' } });
-    expect(e.choices[3]).toMatchObject({ path: '/Applications/Zed.app', badge: { text: 'アプリだけ', tone: 'warn' } });
+    expect(e.choices[3]).toMatchObject({ path: '/Applications/Zed.app', badge: { text: 'アプリのみ', tone: 'warn' } });
     expect(e.choices[2]).toMatchObject({ path: null, badge: { text: '未検出', tone: 'mute' } });
     expect(e.loading).toBe(false);
   });

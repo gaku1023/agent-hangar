@@ -16,7 +16,7 @@ hops=0
 while [ -L "$self" ]; do
   hops=$((hops + 1))
   if [ "$hops" -gt 40 ]; then
-    echo "$0 の symlink が輪になっています。リンクを張り直してください。" >&2
+    echo "$0 のシンボリックリンクが循環しています。リンクを作成し直してください。" >&2
     exit 1
   fi
   target="$(readlink "$self")"
@@ -28,7 +28,7 @@ done
 here="$(cd "$(dirname "$self")" && pwd)"
 dist="$(cd "$here/.." && pwd)"
 if [ ! -f "$dist/manifest.json" ]; then
-  echo "$dist/manifest.json がありません。アプリの中身が壊れています。agent-hangar を入れ直してください。" >&2
+  echo "$dist/manifest.json がありません。アプリのファイルが壊れています。agent-hangar を再インストールしてください。" >&2
   exit 1
 fi
 want_api="$(sed -n 's/.*"nodeApi": *\([0-9][0-9]*\).*/\1/p' "$dist/manifest.json")"
@@ -39,7 +39,7 @@ lts="${want_min%%.*}"
 # 読めないまま先へ進むと、空の版と突き合わせて全部の候補を外し、
 # 「Node  が見つかりません」という意味を成さない案内で終わる。
 if [ -z "$want_api" ] || [ -z "$want_min" ] || [ -z "$want_arch" ]; then
-  echo "$dist/manifest.json から Node の版とアーキテクチャを読めません。アプリの中身が壊れています。agent-hangar を入れ直してください。" >&2
+  echo "$dist/manifest.json から Node のバージョンとアーキテクチャを読み取れません。アプリのファイルが壊れています。agent-hangar を再インストールしてください。" >&2
   exit 1
 fi
 home="${HANGAR_HOME:-$HOME/.agent-hangar}"
@@ -114,7 +114,7 @@ $n
     continue
   fi
   if [ ! -x "$n" ]; then
-    tried="${tried}  ${n}: 起動できません（実行権を確かめてください）
+    tried="${tried}  ${n}: 起動できません（実行権限を確認してください）
 "
     continue
   fi
@@ -136,12 +136,12 @@ $n
   a_api="${a_rest#* }"
   # 上限は付けない。Node-API が要る版以上で、アーキが同じなら採る。両方が合わなければ版を言う（node.rs の fit と同じ順）。
   if [ "$a_api" -lt "$want_api" ]; then
-    tried="${tried}  ${n}: ${a_ver} ${a_arch}（Node-API ${a_api}。Node ${want_min} 以上が要ります）
+    tried="${tried}  ${n}: ${a_ver} ${a_arch}（Node-API ${a_api}。Node ${want_min} 以上が必要です）
 "
     continue
   fi
   if [ "$a_arch" != "$want_arch" ]; then
-    tried="${tried}  ${n}: ${a_ver} ${a_arch}（${want_arch} 用が要ります）
+    tried="${tried}  ${n}: ${a_ver} ${a_arch}（${want_arch} 用が必要です）
 "
     continue
   fi
@@ -158,10 +158,10 @@ CANDIDATES
 # 版もアーキも消えた不正な UTF-8 を出す。
 {
   echo "Node ${want_min} 以上（${want_arch}）が見つかりません。"
-  echo "Hangar のデータベースと端末の部品は Node-API ${want_api} を使うため、Node ${want_min} 以上が要ります。"
-  echo "今の Node を置き換えずに入れるなら、brew install node@${lts}（既定の node を置き換えません）か nvm install ${lts} で入れれば見つかります（fnm、Volta、mise、asdf、nodenv で入れた版も探します）。"
-  echo "ほかの場所に入れたなら、環境変数 HANGAR_NODE か ${home}/settings.json の nodePath で場所を指定してください。"
-  echo "調べた場所:"
+  echo "Hangar のデータベースとターミナルのネイティブモジュールは Node-API ${want_api} を使うため、Node ${want_min} 以上が必要です。"
+  echo "現在の Node を置き換えずにインストールするには、brew install node@${lts}（デフォルトの node を置き換えません）または nvm install ${lts} を実行してください。次回の実行時に検出します（fnm、Volta、mise、asdf、nodenv でインストールしたバージョンも検索します）。"
+  echo "別のディレクトリにインストールした場合は、環境変数 HANGAR_NODE か ${home}/settings.json の nodePath でパスを指定してください。"
+  echo "確認したパス:"
   printf '%s' "$tried"
 } >&2
 exit 1

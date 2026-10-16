@@ -32,7 +32,7 @@ pub fn link_command_on(windows: bool, url: &str) -> (&'static str, Vec<OsString>
 
 /// リンクを開く。断った URL と、開けなかったときは理由を返す。
 pub fn open_link(url: &str) -> Result<(), String> {
-    let url = openable(url).ok_or_else(|| "http と https のほかのリンクは開きません".to_owned())?;
+    let url = openable(url).ok_or_else(|| "http と https 以外のリンクは開けません".to_owned())?;
     let (program, args) = link_command_on(cfg!(windows), &url);
     let status = std::process::Command::new(program)
         .args(&args)

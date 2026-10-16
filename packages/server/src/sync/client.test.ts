@@ -62,7 +62,7 @@ function headersOf(c: Call): Record<string, string> {
   return h;
 }
 
-/** Bearer の中身は真偽だけを見る。こちらも失敗時に値が出ない。 */
+/** Bearer の中身は真偽だけを表示。こちらも失敗時に値が出ない。 */
 function bearerIs(c: Call, token: string): boolean {
   return ((c.init.headers as Record<string, string> | undefined) ?? {}).authorization === `Bearer ${token}`;
 }
@@ -256,7 +256,7 @@ describe('HttpCloudClient', () => {
   });
 
   it('無事に終わった要求は見張りのタイマーを残さない', async () => {
-    // 5 分のタイマーが残ると vitest が終われない。終わった要求の分だけ増えていないことを見る。
+    // 5 分のタイマーが残ると vitest が終われない。終わった要求の分だけ増えていないことを表示。
     const timers = () => process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
     const before = timers();
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch: fakeFetch(() => json({ ok: true, version: '1' })).fetch });
@@ -460,7 +460,7 @@ describe('互換の版', () => {
     expect((e as Error).message).toContain('この PC の hangar');
     expect((e as Error).message).toContain('2 以上');
     // 利用者が選んだ言い回し：クラウドが拒否したことと、更新してほしいことを言う。
-    expect((e as Error).message).toContain('クラウドが同期を拒否しました');
+    expect((e as Error).message).toContain('クラウドと同期できません');
     expect((e as Error).message).toContain('この PC の hangar を更新してください');
   });
 
@@ -603,7 +603,7 @@ describe('PC の一覧と解除', () => {
     await expect(limited.createPairing()).rejects.toMatchObject({ status: 429 });
   });
 
-  it('claimLaunch は POST /m/launches/:id/claim を送り、200 は true、409 は false、ほかの失敗は投げる', async () => {
+  it('claimLaunch は POST /m/launches/:id/claim を送り、200 は true、409 は false、他の失敗は投げる', async () => {
     const f = fakeFetch(() => json({ ok: true }));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
     expect(await c.claimLaunch('l 1/x')).toBe(true);
@@ -661,7 +661,7 @@ describe('PC の一覧と解除', () => {
     expect(f.calls).toHaveLength(0);
   });
 
-  it('401 の { error: revoked } は RevokedError にする。ほかの 401 は今までどおりの CloudError', async () => {
+  it('401 の { error: revoked } は RevokedError にする。他の 401 は今までどおりの CloudError', async () => {
     const revoked = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'revoked' }, 401)).fetch });
     const e = await revoked.pullChanges(0, 10).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(RevokedError);

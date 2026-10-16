@@ -42,20 +42,20 @@ pub struct Words {
 // CI の rustfmt は日本語の幅を手元と違って数えるので、文の表は整形を止めて書いたままにする。
 #[rustfmt::skip]
 const JA: Words = Words {
-    unreadable: "設定の同期の命令の返事を読めませんでした。~/.agent-hangar/desktop.log か、端末で hangar config apply を確かめてください。",
-    applied: "適用しました（書き込み {written} 件、削除 {removed} 件、手元を残す {kept} 件）。",
-    applied_generation: "控えの世代 {g} から戻せます。",
-    restored: "戻しました（書き戻し {restored} 件、消去 {removed} 件）。",
-    restored_safety: "戻す前の状態を世代 {g} に控えました。",
-    cannot_start: "設定の同期の命令を起こせません: {e}",
-    cannot_read: "設定の同期の命令の結果を読めません: {e}",
-    too_long: "設定の同期の命令が {s} 秒以内に終わりませんでした。",
+    unreadable: "設定の同期のコマンドの応答を読み取れませんでした。~/.agent-hangar/desktop.log を確認するか、ターミナルで hangar config apply を実行して確認してください。",
+    applied: "適用しました（書き込み {written} 件、削除 {removed} 件、この PC の内容を保持 {kept} 件）。",
+    applied_generation: "バックアップの世代 {g} から復元できます。",
+    restored: "復元しました（書き戻し {restored} 件、削除 {removed} 件）。",
+    restored_safety: "復元前の状態を世代 {g} としてバックアップしました。",
+    cannot_start: "設定の同期のコマンドを起動できません: {e}",
+    cannot_read: "設定の同期のコマンドの結果を読み取れません: {e}",
+    too_long: "設定の同期のコマンドが {s} 秒以内に終了しませんでした。",
     apply_flow_title: "設定の適用",
-    restore_flow_title: "設定を世代へ戻す",
-    busy: "設定の確認がすでに出ています。",
+    restore_flow_title: "設定の復元",
+    busy: "設定の確認がすでに表示されています。",
     bad_generation: "世代の名前が正しくありません。",
-    apply_stopped: "設定の適用の処理が止まりました。",
-    restore_stopped: "設定を戻す処理が止まりました。",
+    apply_stopped: "設定の適用の処理が停止しました。",
+    restore_stopped: "設定の復元の処理が停止しました。",
 };
 
 #[rustfmt::skip]
@@ -363,7 +363,7 @@ mod tests {
         let ok = ok.unwrap();
         assert_eq!((ok.created_at, ok.counts.create), (42, 1));
         let failed: Result<ApplyPlan, Failure> = parse_reply(
-            "{\"ok\":false,\"code\":\"no-order\",\"message\":\"適用の指示書がありません\"}\n",
+            "{\"ok\":false,\"code\":\"no-order\",\"message\":\"適用内容がありません\"}\n",
             "plan",
             "ja",
         );
@@ -371,7 +371,7 @@ mod tests {
             failed.unwrap_err(),
             Failure {
                 code: "no-order".to_string(),
-                message: "適用の指示書がありません".to_string()
+                message: "適用内容がありません".to_string()
             }
         );
         for bad in [
@@ -605,7 +605,7 @@ mod tests {
                 "ja",
             )
             .unwrap_err();
-            assert!(err.contains("以内に終わりませんでした"));
+            assert!(err.contains("以内に終了しませんでした"));
         }
 
         #[test]
@@ -634,7 +634,7 @@ mod tests {
                 "ja",
             )
             .unwrap_err();
-            assert!(err.contains("起こせません"));
+            assert!(err.contains("起動できません"));
         }
     }
 }

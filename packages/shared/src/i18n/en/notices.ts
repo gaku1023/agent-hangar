@@ -2,9 +2,9 @@ import type { noticesKeys } from '../keys/notices.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const noticesEn: AreaDictionary<typeof noticesKeys> = {
-  'notices.bell.label': 'Attention',
-  'notices.bell.labelUnread': 'Attention, {n} unread',
-  'notices.list.title': 'Attention',
+  'notices.bell.label': 'Notifications',
+  'notices.bell.labelUnread': 'Notifications, {n} unread',
+  'notices.list.title': 'Notifications',
   'notices.list.lead': 'Things not shown anywhere else on screen',
   'notices.list.markAllRead': 'Mark all as read',
   'notices.row.unread': 'Unread',

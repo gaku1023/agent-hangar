@@ -81,15 +81,15 @@ describe('待っている間の文', () => {
     at(m.CYCLE_MS - 100);
     expect($('detail').textContent).toBe('');
     at(m.CYCLE_MS + 100);
-    expect($('detail').textContent).toBe('セッションを索引中 412 / 987 件');
+    expect($('detail').textContent).toBe('インデックスを作成中 412 / 987 件');
     win.__hangarBootProgress!({ phase: 'indexing', done: 600, total: 987 });
     at(m.CYCLE_MS + 200);
-    expect($('detail').textContent).toBe('セッションを索引中 600 / 987 件');
+    expect($('detail').textContent).toBe('インデックスを作成中 600 / 987 件');
   });
   it('進み具合が届く前は、サーバの起動を待っていると出す', async () => {
     await boot();
     at(m.CYCLE_MS + 100);
-    expect($('detail').textContent).toBe('サーバを起動中');
+    expect($('detail').textContent).toBe('サーバーを起動中');
   });
   it('失敗の文が出たら、何をしているかの文を消し、殻の文を上書きしない', async () => {
     await boot();
@@ -263,8 +263,8 @@ describe('起動の失敗の札', () => {
   it('札は、見出し、何が起きたか、番号つきの次にすること、命令、詳細、版と OS を並べる', async () => {
     await boot();
     await fail();
-    expect($('fail-title').textContent).toBe('ポート 4177 を別のアプリが使っています');
-    expect($('fail-what').textContent).toContain('hangar のサーバではありません');
+    expect($('fail-title').textContent).toBe('ポート 4177 を別のアプリが使用しています');
+    expect($('fail-what').textContent).toContain('hangar のサーバーではない別のプロセス');
     const steps = [...$('fail-steps').querySelectorAll('li')].map((li) => li.textContent);
     expect($('fail-steps').tagName).toBe('OL');
     expect(steps).toHaveLength(3);
@@ -361,14 +361,14 @@ describe('起動の失敗の札', () => {
   // どの Node の札にも「node を選ぶ…」を置き、選んだ Node を殻が確かめて nodePath に書く（lib.rs の pick_node）。
   describe('Node の札', () => {
     const params = { min: '22.14', napi: 10, arch: 'arm64' };
-    const nodeFail = (extra: Record<string, unknown> = {}) => fail({ kind: 'node-missing', params, detail: 'Node 22.14 以上（arm64）が見つかりません。\n調べた場所:\n  /opt/homebrew/bin/node: ありません', ...extra });
+    const nodeFail = (extra: Record<string, unknown> = {}) => fail({ kind: 'node-missing', params, detail: 'Node 22.14 以上（arm64）が見つかりません。\n確認したパス:\n  /opt/homebrew/bin/node: ありません', ...extra });
     const winOld = { kind: 'node-version-mismatch', params: { ...params, arch: 'x64', found: '20.18.0' }, os: 'Windows 11 24H2 (build 26100)', sep: '\\', home: '~\\.agent-hangar' };
     it('見出し、本文、前置きの文、入れるコマンドを出し、次にすることの列は出さない', async () => {
       await boot();
       await nodeFail();
       expect(document.body.dataset.fail).toBe('node-missing');
       expect($('fail-title').textContent).toBe('Node.js が見つかりません');
-      expect($('fail-what').textContent).toBe('Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node.js 22.14 以上が要ります。');
+      expect($('fail-what').textContent).toBe('Hangar のデータベースとターミナルのネイティブモジュールは Node-API 10 を使うため、Node.js 22.14 以上が必要です。');
       expect($('fail-lead').hidden).toBe(false);
       expect($('fail-lead').textContent).toBe('ターミナルで次を実行してください：');
       expect($('fail-next').hidden).toBe(true);
@@ -379,11 +379,11 @@ describe('起動の失敗の札', () => {
     it('主の釦は「入れたのでもう一度試す」で、コマンドのすぐ下に置き、その隣に「node を選ぶ…」を置く。焦点は主の釦', async () => {
       await boot();
       await nodeFail();
-      expect($('boot-retry').textContent).toBe('入れたのでもう一度試す');
+      expect($('boot-retry').textContent).toBe('インストール後にもう一度試す');
       expect($('boot-retry').parentElement).toBe($('fail-primary'));
       expect($('fail-primary').hidden).toBe(false);
       expect($('boot-pick-node').hidden).toBe(false);
-      expect($('boot-pick-node').textContent).toBe('node を選ぶ…');
+      expect($('boot-pick-node').textContent).toBe('node を選択…');
       expect([...$('fail-primary').children].map((e) => e.id)).toEqual(['boot-retry', 'boot-pick-node']);
       expect($('boot-retry').classList.contains('btn-primary')).toBe(true);
       expect($('boot-pick-node').classList.contains('btn-primary')).toBe(false);
@@ -394,14 +394,14 @@ describe('起動の失敗の札', () => {
       await nodeFail();
       const toggle = $('fail-detail-toggle');
       expect(toggle.hidden).toBe(false);
-      expect(toggle.textContent).toBe('詳細（調べた場所、別の入れ方）');
+      expect(toggle.textContent).toBe('詳細（確認したパス、別のインストール方法）');
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect($('fail-detail-box').hidden).toBe(true);
       expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'boot-pick-node', 'fail-detail-toggle', 'boot-update', 'boot-log']);
       click('fail-detail-toggle');
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
       expect($('fail-detail-box').hidden).toBe(false);
-      expect($('fail-detail').textContent).toContain('調べた場所');
+      expect($('fail-detail').textContent).toContain('確認したパス');
       expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'boot-pick-node', 'fail-detail-toggle', 'fail-detail', 'fail-copy-all', 'boot-update', 'boot-log']);
       click('fail-detail-toggle');
       expect($('fail-detail-box').hidden).toBe(true);
@@ -421,8 +421,8 @@ describe('起動の失敗の札', () => {
       await boot();
       await fail(winOld);
       expect(document.body.dataset.fail).toBe('node-version-mismatch');
-      expect($('fail-title').textContent).toBe('Node.js 20.18.0 は見つかりましたが、Hangar は Node.js 22.14 以上が要ります');
-      expect($('fail-lead').textContent).toBe('今の Node.js を置き換えずに入れるには：');
+      expect($('fail-title').textContent).toBe('Node.js 20.18.0 を検出しましたが、Hangar には Node.js 22.14 以上が必要です');
+      expect($('fail-lead').textContent).toBe('現在の Node.js を置き換えずにインストールするには：');
       expect($('fail-next').hidden).toBe(true);
       expect($('fail-steps').hidden).toBe(false);
       expect([...$('fail-steps').children].map((li) => li.textContent)).toHaveLength(3);
@@ -469,7 +469,7 @@ describe('起動の失敗の札', () => {
       click('boot-pick-node');
       await flush();
       expect($('fail-pick-note').hidden).toBe(false);
-      expect($('fail-pick-note').textContent).toBe('選んだ Node.js は 20.18.0 です。Node.js 22.14 以上を選んでください。');
+      expect($('fail-pick-note').textContent).toBe('選択した Node.js は 20.18.0 です。Node.js 22.14 以上を選択してください。');
       expect(($('boot-pick-node') as HTMLButtonElement).disabled).toBe(false);
       expect(invoke.mock.calls.map((c) => c[0])).not.toContain('retry_boot');
       answer = { result: 'cancel' };
@@ -566,7 +566,7 @@ describe('殻が先に知らせた分を引き取る', () => {
     await flush();
     clock = T0 + m.CYCLE_MS + 100;
     vi.advanceTimersByTime(100);
-    expect($('detail').textContent).toBe('セッションを索引中 412 / 987 件');
+    expect($('detail').textContent).toBe('インデックスを作成中 412 / 987 件');
   });
   it('先に打たれていた読み込みが終わった合図を引き取り、合図を描く', async () => {
     answer({ failure: null, progress: null, finishing: true });

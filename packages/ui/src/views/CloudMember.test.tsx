@@ -42,7 +42,7 @@ describe('参加の段', () => {
     const onAction = vi.fn();
     render(ui(<CloudJoinSteps m={props({ join: { kind: 'confirm', plan } })} onClose={() => {}} />, onAction));
     expect(screen.getByText('h.example')).toBeInTheDocument();
-    const go = screen.getByRole('button', { name: 'この宛先に参加' });
+    const go = screen.getByRole('button', { name: 'この接続先に参加' });
     expect(go).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: /hangar setup cloud で自分が作成したクラウドです/ }));
     fireEvent.click(go);
@@ -80,8 +80,8 @@ describe('参加の段', () => {
 
 describe('PC の表', () => {
   it('列に参加日と最終同期、名前の下に最後の IP と場所を出し、場所が推定である旨を添える', () => {
-    render(ui(<CloudPcTable m={props()} heading="参加している端末" />));
-    const table = screen.getByRole('table', { name: '参加している端末' });
+    render(ui(<CloudPcTable m={props()} heading="参加している PC" />));
+    const table = screen.getByRole('table', { name: '参加している PC' });
     expect(within(table).getByText('Chiba, Chiba, JP')).toBeInTheDocument();
     expect(within(table).getByText('192.0.2.10')).toBeInTheDocument();
     expect(within(table).getByText('Windows')).toBeInTheDocument();
@@ -91,24 +91,24 @@ describe('PC の表', () => {
   it('IPv6 の長い IP でも場所を先に置き、切られるのは IP だけで、IP の全文は title で読める', () => {
     const ip = '2001:db8:1234:5678:9abc:def0:1234:5678';
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32', lastIp: ip, lastCity: 'Urayasu', lastRegion: 'Chiba', lastCountry: 'JP' })], creator: false, message: null };
-    render(ui(<CloudPcTable m={props({ devices })} heading="参加している端末" />));
-    const table = screen.getByRole('table', { name: '参加している端末' });
+    render(ui(<CloudPcTable m={props({ devices })} heading="参加している PC" />));
+    const table = screen.getByRole('table', { name: '参加している PC' });
     const place = within(table).getByText('Urayasu, Chiba, JP');
     const addr = within(table).getByText(ip);
     expect(place.compareDocumentPosition(addr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(addr).toHaveClass('cm-ip');
     expect(place).toHaveClass('cm-place');
-    expect(addr.getAttribute('title')).toBe(`最後の IP：${ip}`);
+    expect(addr.getAttribute('title')).toBe(`最終 IP：${ip}`);
     // IP だけのときも同じ欄に出し、title に全文を入れる。
     cleanup();
     const only = { state: 'ok' as const, devices: [dev('studio', { self: true, lastIp: '198.51.100.7' })], creator: false, message: null };
-    render(ui(<CloudPcTable m={props({ devices: only })} heading="参加している端末" />));
-    expect(screen.getByText('198.51.100.7').getAttribute('title')).toBe('最後の IP：198.51.100.7');
+    render(ui(<CloudPcTable m={props({ devices: only })} heading="参加している PC" />));
+    expect(screen.getByText('198.51.100.7').getAttribute('title')).toBe('最終 IP：198.51.100.7');
   });
 
-  it('ほかの PC にだけ「解除…」を置き、確認は行の下に開いて、秘密の説明は折りたたむ', () => {
+  it('他の PC にだけ「解除…」を置き、確認は行の下に開いて、秘密の説明は折りたたむ', () => {
     const onAction = vi.fn();
-    render(ui(<CloudPcTable m={props()} heading="参加している端末" />, onAction));
+    render(ui(<CloudPcTable m={props()} heading="参加している PC" />, onAction));
     expect(screen.queryByRole('button', { name: 'studio を同期から解除' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'desk を同期から解除' }));
     expect(screen.getByText('desk を同期から解除しますか')).toBeInTheDocument();
@@ -119,34 +119,34 @@ describe('PC の表', () => {
 
   it('解除した PC は「解除した PC」へ移る', () => {
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('old', { revokedAt: Date.parse('2026-10-10T03:00:00Z') })], creator: false, message: null };
-    render(ui(<CloudPcTable m={props({ devices })} heading="参加している端末" />));
+    render(ui(<CloudPcTable m={props({ devices })} heading="参加している PC" />));
     const removed = screen.getByRole('table', { name: '解除した PC' });
     expect(within(removed).getByText('old')).toBeInTheDocument();
     expect(within(removed).getByText('10-10 に解除')).toBeInTheDocument();
   });
 
   it('ブラウザでは解除のボタンを出さず、コマンドを案内する', () => {
-    render(ui(<CloudPcTable m={props({}, { desktop: false })} heading="参加している端末" />));
+    render(ui(<CloudPcTable m={props({}, { desktop: false })} heading="参加している PC" />));
     expect(screen.queryByRole('button', { name: /を同期から解除/ })).toBeNull();
     expect(screen.getByText('hangar cloud revoke <ID>')).toBeInTheDocument();
   });
 
   it('Worker が古いときは、同期の表の一覧に戻し、解除を出さずに理由を添える', () => {
     const m = props({ devices: { state: 'outdated', devices: [], creator: false, message: 'Worker が古いので使えません' } }, { devices: [{ id: 'studio', name: 'studio', platform: 'darwin', lastSeenAt: NOW, self: true, shell: null }, { id: 'desk', name: 'desk', platform: 'win32', lastSeenAt: NOW, self: false, shell: null }] });
-    render(ui(<CloudPcTable m={m} heading="参加している端末" />));
+    render(ui(<CloudPcTable m={m} heading="参加している PC" />));
     expect(screen.queryByRole('button', { name: /を同期から解除/ })).toBeNull();
     expect(screen.getByText('Worker が古いので使えません')).toBeInTheDocument();
   });
 });
 
 describe('この PC の参加を解除', () => {
-  it('節の末尾の帯から確認を開き、削除するもの・残るもの・戻すときを並べる。クラウドでの解除は既定でオン', () => {
+  it('節の末尾の帯から確認を開き、削除するもの・削除しないもの・元に戻すにはを並べる。クラウドでの解除は既定でオン', () => {
     const onAction = vi.fn();
     render(ui(<CloudLeaveBand m={props()} />, onAction));
     fireEvent.click(screen.getByRole('button', { name: '参加を解除…' }));
     expect(screen.getByText('削除するもの')).toBeInTheDocument();
-    expect(screen.getByText('残るもの')).toBeInTheDocument();
-    expect(screen.getByText('戻すとき')).toBeInTheDocument();
+    expect(screen.getByText('削除しないもの')).toBeInTheDocument();
+    expect(screen.getByText('元に戻すには')).toBeInTheDocument();
     const also = screen.getByRole('checkbox', { name: /クラウドでもこの PC を解除する/ }) as HTMLInputElement;
     expect(also.checked).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '参加を解除' }));
@@ -192,7 +192,7 @@ describe('スマホの接続（試作 A1）', () => {
   const PAIR = 'eyJwYWlyIjoidGVzdCJ9';
   const ready = { kind: 'ready' as const, pairUrl: `https://h.example/app/#pair=${PAIR}`, pairText: PAIR, expiresAt: NOW + 300_000, known: [] };
   const iphone = dev('p1', { name: 'iPhone', platform: 'mobile', kind: 'mobile', joinedAt: NOW, lastSeenAt: NOW });
-  const both = (m: CloudMemberProps) => <><CloudPcTable m={m} heading="参加している端末" /><CloudPhones m={m} /></>;
+  const both = (m: CloudMemberProps) => <><CloudPcTable m={m} heading="参加している PC" /><CloudPhones m={m} /></>;
   afterEach(() => { vi.useRealTimers(); });
 
   it('「スマホを接続」を押すと QR を頼み、QR（svg）と残り時間（5 分）と「この QR を人に見せない」旨の注意書きが出る', () => {
@@ -237,7 +237,7 @@ describe('スマホの接続（試作 A1）', () => {
 
   it('QR を出している間に cloud-devices に新しい kind=mobile の行が現れたら「〈名前〉が接続しました」を出し、表に行が増える', () => {
     const { rerender } = render(ui(both(props({ phone: ready }))));
-    const table = screen.getByRole('table', { name: '参加している端末' });
+    const table = screen.getByRole('table', { name: '参加している PC' });
     expect(within(table).getAllByRole('row')).toHaveLength(3);
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32' }), iphone], creator: false, message: null };
     rerender(ui(both(props({ devices, phone: { kind: 'paired', id: 'p1', name: 'iPhone' } }))));
@@ -263,7 +263,7 @@ describe('スマホの接続（試作 A1）', () => {
     const onAction = vi.fn();
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), iphone], creator: false, message: null };
     render(ui(both(props({ devices })), onAction));
-    const table = screen.getByRole('table', { name: '参加している端末' });
+    const table = screen.getByRole('table', { name: '参加している PC' });
     const row = within(table).getByText('iPhone').closest('[role="row"]') as HTMLElement;
     expect(within(row).getByText('スマホ')).toHaveClass('cm-chip');
     fireEvent.click(within(row).getByRole('button', { name: 'iPhone を解除' }));
@@ -326,7 +326,7 @@ describe('スマホの接続の動き', () => {
   const on = (el: Element | null) => animations.filter((a) => a.el === el);
   const done = async () => { await act(async () => { finish.forEach((f) => f()); await Promise.resolve(); }); };
   const ready = { kind: 'ready' as const, pairUrl: 'https://h.example/app/#pair=X', pairText: 'X', expiresAt: Date.now() + 300_000, known: [] };
-  const both = (m: CloudMemberProps) => ui(<><CloudPcTable m={m} heading="参加している端末" /><CloudPhones m={m} /></>);
+  const both = (m: CloudMemberProps) => ui(<><CloudPcTable m={m} heading="参加している PC" /><CloudPhones m={m} /></>);
 
   it('はじめから QR を出している描画では動かさない', () => {
     render(both(props({ phone: ready })));
@@ -405,11 +405,11 @@ describe('設定のクラウド同期の節', () => {
   it('同期していれば、PC の表と、節の末尾の「この PC の参加を解除」を出す', () => {
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk')], creator: false, message: null };
     render(ui(<SettingsScreen {...page({ desktop: true, sync: SYNC, cloudMember: { ...initialCloudMember(), devices } })} />));
-    expect(screen.getByRole('table', { name: '参加している端末' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: '参加している PC' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'この PC の参加を解除' })).toBeInTheDocument();
     // 表の下に「スマホ」の小見出しと「スマホを接続」（試作 A1）。
     expect(screen.getByRole('region', { name: 'スマホ' })).toBeInTheDocument();
-    const table = screen.getByRole('table', { name: '参加している端末' });
+    const table = screen.getByRole('table', { name: '参加している PC' });
     const pairBtn = screen.getByRole('button', { name: 'スマホを接続' });
     expect(table.compareDocumentPosition(pairBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

@@ -25,7 +25,7 @@ describe('冒頭の 1 枚の 1 行目', () => {
     const c = present();
     expect(c.status).toMatchObject({ value: 'done', label: 'Done', title: '完了したもの', auto: false });
     // 自動で付いた Done は印を立て、理由をツールチップにする（2026-10-13 の決定、4a）。
-    expect(present({ session: session({ state: state({ setBy: 'import' }), stats: { ...session().stats, turns: 2 } }) }).status).toMatchObject({ value: 'done', auto: true, title: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）' });
+    expect(present({ session: session({ state: state({ setBy: 'import' }), stats: { ...session().stats, turns: 2 } }) }).status).toMatchObject({ value: 'done', auto: true, title: 'hangar が自動で Done にしました（3 ターン以下で終了した会話）' });
     // 設定した日は端末の時刻で月と日にする。
     expect(c.status.since).toBe(`${new Date(Date.UTC(2026, 9, 6, 3, 0)).getMonth() + 1}/${new Date(Date.UTC(2026, 9, 6, 3, 0)).getDate()} に設定`);
     expect(c.ended).toBe('終了 3 日前');
@@ -108,7 +108,7 @@ describe('冒頭の 1 枚の要約', () => {
 });
 
 describe('冒頭の 1 枚の札（変更したファイル、アーティファクト、PR、ノート）', () => {
-  it('変更したファイルは、サーバの一覧を並びとし、読み込んだ窓にある分だけ足した行と消した行を付ける', () => {
+  it('変更したファイルは、サーバーの一覧を並びとし、読み込んだ窓にある分だけ足した行と消した行を付ける', () => {
     const c = present({
       files: [{ path: '/w/web-shop/src/a.ts', edits: 2, agentId: null }, { path: '/w/web-shop/src/b.ts', edits: 1, agentId: 'abc' }, { path: '/w/web-shop/c.md', edits: 1, agentId: null }],
       windowFiles: [win('/w/web-shop/src/a.ts', { added: 52, removed: 18 }), win('/w/web-shop/c.md', { added: 3, removed: 0, created: true })],
@@ -121,7 +121,7 @@ describe('冒頭の 1 枚の札（変更したファイル、アーティファ�
     ]);
     // 数の分からない行は、編集の回数で添える。窓にある分だけの数であることも言う。
     expect(c.rows[1]!.edits).toBe('1 回');
-    expect(c.note).toBe('追加した行と削除した行は、読み込んだ分だけ表示しています');
+    expect(c.note).toBe('追加した行と削除した行は、読み込んだ範囲のみ表示しています');
     expect(c.rows[0]!.openLabel).toBe('/w/web-shop/src/a.ts を VS Code で開く');
   });
   it('Windows のパスでも、作業ディレクトリからの相対の場所と名前に分ける', () => {
@@ -135,7 +135,7 @@ describe('冒頭の 1 枚の札（変更したファイル、アーティファ�
     const c = present({ files: [{ path: '/w/web-shop/a.ts', edits: 1, agentId: null }], windowFiles: [win('/w/web-shop/a.ts')] }).files;
     expect(c.note).toBeNull();
   });
-  it('サーバの一覧が届く前は、窓から数えた分だけを出し、件数は統計の数を使う', () => {
+  it('サーバーの一覧が届く前は、窓から数えた分だけを出し、件数は統計の数を使う', () => {
     const c = present({ files: null, windowFiles: [win('/w/web-shop/a.ts'), win('/w/web-shop/b.ts')] }).files;
     expect(c.rows.map((r) => r.base)).toEqual(['a.ts', 'b.ts']);
     expect(c.count).toBe(5);

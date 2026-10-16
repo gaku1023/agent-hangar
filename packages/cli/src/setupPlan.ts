@@ -158,20 +158,20 @@ function readServers(env: SetupEnv): { ok: true; servers: Record<string, unknown
 
 function planMcp(target: 'mcp-install' | 'mcp-uninstall', env: SetupEnv): SetupPlan {
   const read = readServers(env);
-  if (!read.ok) return stop(target, 'blocked', 'broken-json', `${env.claudeJson} が JSON として読めないので、書き換えません。`);
+  if (!read.ok) return stop(target, 'blocked', 'broken-json', `${env.claudeJson} が JSON として読み取れないため、変更しません。`);
   const servers = read.servers;
   const cur = servers && Object.hasOwn(servers, 'hangar') ? servers.hangar : undefined;
   const exists = fs.existsSync(env.claudeJson);
   const backup = exists ? path.join(env.home, 'backups', `claude.json-${BACKUP_STAMP}`) : null;
   if (target === 'mcp-uninstall') {
-    if (cur === undefined) return stop(target, 'noop', 'absent', 'user スコープに MCP サーバ hangar は登録されていません。');
+    if (cur === undefined) return stop(target, 'noop', 'absent', 'user スコープに MCP サーバー hangar は登録されていません。');
     return plan(target, { state: 'ready', reason: null, backup, secret: true, files: [{ path: env.claudeJson, op: 'remove', what: 'mcp.remove', where: 'json', lines: mcpLines(servers, 'hangar', cur, undefined), watch: mcpWatch(servers) }] });
   }
   // claude が入っていない PC に登録しても意味が無い（runMcpInstall と同じ確かめ）。
   if ((env.exec ?? execCli)('claude', ['--version']).notFound) return stop(target, 'blocked', 'no-claude', 'Claude Code が見つかりません。claude コマンドをインストールするか、PATH を通してから実行してください。');
   ensureHome(env.home);
   const want = mcpServer(env, readOrCreateToken(env.home));
-  if (cur !== undefined && JSON.stringify(cur) === JSON.stringify(want)) return stop(target, 'noop', 'already', 'user スコープに MCP サーバ hangar は登録済みです。');
+  if (cur !== undefined && JSON.stringify(cur) === JSON.stringify(want)) return stop(target, 'noop', 'already', 'user スコープに MCP サーバー hangar は登録済みです。');
   return plan(target, {
     state: 'ready', reason: null, backup, secret: true,
     files: [{ path: env.claudeJson, op: exists ? 'modify' : 'create', what: cur === undefined ? 'mcp.add' : 'mcp.replace', where: 'json', lines: mcpLines(servers, 'hangar', cur, want), watch: mcpWatch(servers) }],
@@ -182,13 +182,13 @@ function planMcp(target: 'mcp-install' | 'mcp-uninstall', env: SetupEnv): SetupP
 
 function shellBlock(env: SetupEnv): { code: string; message: string } | null {
   if (!shellWrapOsSupported(env.platform)) return { code: 'windows', message: 'Windows ではシェル連携を使えません。claude は Hangar から起動してください。' };
-  if (!/(^|\/)zsh$/.test(env.loginShell)) return { code: 'not-zsh', message: `ログインシェルが zsh ではありません（${env.loginShell || '不明'}）。いまは zsh だけに対応しています。` };
-  if (!shellWrapSupported(env.tmuxPath, env.platform)) return { code: 'no-tmux', message: 'この PC では tmux が見つかりません。包み方は hangar の tmux の中で claude を起こすので、tmux が要ります。' };
+  if (!/(^|\/)zsh$/.test(env.loginShell)) return { code: 'not-zsh', message: `ログインシェルが zsh ではありません（${env.loginShell || '不明'}）。現在は zsh だけに対応しています。` };
+  if (!shellWrapSupported(env.tmuxPath, env.platform)) return { code: 'no-tmux', message: 'この PC では tmux が見つかりません。シェル連携は hangar の tmux の中で claude を起動するため、tmux が必要です。' };
   return null;
 }
 
 /** UTF-8 でないファイルを断る理由。承諾の窓は開かず、画面は鍵（not-utf8）から文を引く。 */
-const NOT_UTF8 = (file: string) => `${file} が UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。`;
+const NOT_UTF8 = (file: string) => `${file} が UTF-8 で保存されていない（UTF-16 など）ため、変更しません。UTF-8 で保存し直すか、手動で追記してください。`;
 
 function planShell(target: 'shell-install' | 'shell-uninstall', env: SetupEnv): SetupPlan {
   const read = readUtf8Text(env.zshrc);
@@ -198,13 +198,13 @@ function planShell(target: 'shell-install' | 'shell-uninstall', env: SetupEnv): 
   const backupOf = () => (cur === null ? null : `${env.zshrc}.bak-${BACKUP_STAMP}`);
   if (target === 'shell-uninstall') {
     const next = planShellUnhook(cur);
-    if (next === null || cur === null) return stop(target, 'noop', 'absent', 'シェル連携は入っていません。');
+    if (next === null || cur === null) return stop(target, 'noop', 'absent', 'シェル連携はインストールされていません。');
     return plan(target, { state: 'ready', reason: null, backup: backupOf(), files: [{ path: env.zshrc, op: 'remove', what: 'shell.remove', where: 'tail', lines: textDiff(cur, next), watch: sha(cur) }] });
   }
   const block = shellBlock(env);
   if (block) return stop(target, 'blocked', block.code, block.message);
   const next = planShellHook(cur, shellHookLine(env.home, env.homeDir));
-  if (next === null) return stop(target, 'noop', 'already', 'シェル連携は入っています。');
+  if (next === null) return stop(target, 'noop', 'already', 'シェル連携はインストール済みです。');
   const replacing = (cur ?? '').split('\n').some((l) => l.includes(SHELL_MARKER));
   return plan(target, {
     state: 'ready', reason: null, backup: backupOf(),
@@ -218,10 +218,10 @@ function planShell(target: 'shell-install' | 'shell-uninstall', env: SetupEnv): 
 // ---- ステータスライン ----
 
 const STATUSLINE_REASON: Record<string, string> = {
-  'no-script': 'ステータスラインのスクリプトが見つかりません。Claude Code で /statusline を実行してスクリプトを作ってから、もう一度試してください。',
-  unreadable: 'スクリプトの hangar の行の範囲を読み取れません（手で書き換えられています）。何も変えません。手で入れ替えてください。',
-  'ps-param': 'スクリプトが param の塊で始まるので、先頭に自動では入れられません。param の後ろに手で入れてください。',
-  'ps-input': 'スクリプトが $input か [Console]::OpenStandardInput() で標準入力を読むので、自動では入れられません。[Console]::In.ReadToEnd() で読む形にしてから、もう一度試してください。',
+  'no-script': 'ステータスラインのスクリプトが見つかりません。Claude Code で /statusline を実行してスクリプトを作成してから、もう一度試してください。',
+  unreadable: 'スクリプトの hangar の行の範囲を読み取れません（手動で書き換えられています）。何も変更しません。手動で置き換えてください。',
+  'ps-param': 'スクリプトが param ブロックで始まるため、先頭に自動で追記できません。param の後ろに手動で追記してください。',
+  'ps-input': 'スクリプトが $input または [Console]::OpenStandardInput() で標準入力を読み取るため、自動で追記できません。[Console]::In.ReadToEnd() で読み取る形式に変更してから、もう一度試してください。',
 };
 
 function planStatusline(target: 'statusline-install' | 'statusline-uninstall', env: SetupEnv): SetupPlan {
@@ -230,18 +230,18 @@ function planStatusline(target: 'statusline-install' | 'statusline-uninstall', e
   if (script && read !== null && 'problem' in read) return stop(target, 'blocked', 'not-utf8', NOT_UTF8(script));
   const src = read !== null && 'text' in read ? read.text : null;
   if (!script || src === null) {
-    if (target === 'statusline-uninstall') return stop(target, 'noop', 'absent', 'ステータスラインに hangar の行は入っていません。');
+    if (target === 'statusline-uninstall') return stop(target, 'noop', 'absent', 'ステータスラインに hangar の行はありません。');
     return stop(target, 'blocked', 'no-script', STATUSLINE_REASON['no-script']!);
   }
   const backup = `${script}.bak-${BACKUP_STAMP}`;
   if (target === 'statusline-uninstall') {
     const r = planStatuslineRemoval(src);
-    if (r.kind !== 'remove') return r.kind === 'absent' ? stop(target, 'noop', 'absent', 'ステータスラインに hangar の行は入っていません。') : stop(target, 'blocked', 'unreadable', STATUSLINE_REASON.unreadable!);
+    if (r.kind !== 'remove') return r.kind === 'absent' ? stop(target, 'noop', 'absent', 'ステータスラインに hangar の行はありません。') : stop(target, 'blocked', 'unreadable', STATUSLINE_REASON.unreadable!);
     const n = textDiff(src, r.next).filter((l) => l.k === 'del').length;
     return plan(target, { state: 'ready', reason: null, backup, files: [{ path: script, op: 'remove', what: 'statusline.remove', n, where: 'head', lines: textDiff(src, r.next), watch: sha(src) }] });
   }
   const r = planStatuslineSnippet(src, script, env.port);
-  if (r.kind === 'same') return stop(target, 'noop', 'already', 'ステータスラインには hangar の行が入っています。');
+  if (r.kind === 'same') return stop(target, 'noop', 'already', 'ステータスラインには hangar の行が追記済みです。');
   if (r.kind !== 'add' && r.kind !== 'replace') return stop(target, 'blocked', r.kind, STATUSLINE_REASON[r.kind]!);
   const n = statuslineSnippetFor(script, env.port).split('\n').length - 1;
   return plan(target, {
@@ -271,7 +271,7 @@ export function planSetup(target: SetupTarget, env: SetupEnv): SetupPlan {
 /** 書き込みの結果。changed は実際に書いたか、backups は取ったバックアップ、note は端末向けの添え書き（日本語）。 */
 export type SetupWriteReply = { ok: true; result: { changed: boolean; backups: string[]; note: string | null } } | { ok: false; code: string; message: string };
 
-const CHANGED = '見せた後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。';
+const CHANGED = '表示した後に、書き込み先のファイルが変わりました。何も書き込んでいません。書き込む内容をもう一度確認してください。';
 
 class Changed extends Error {}
 
@@ -333,12 +333,12 @@ export async function runSetupWrite(target: SetupTarget, env: SetupEnv, expect: 
   }
 }
 
-const OP_WORD: Record<PlanFile['op'], string> = { create: '新規', modify: '変更', remove: '削除', own: 'hangar の置き場' };
+const OP_WORD: Record<PlanFile['op'], string> = { create: '新規', modify: '変更', remove: '削除', own: 'hangar の保存先' };
 
 /** 端末に出す見立て。ファイルごとに、操作、パス、+/- の差分を並べる。伏せた値は •••• にする。 */
 export function formatSetupPlan(p: SetupPlan): string[] {
   if (p.state !== 'ready') return [p.reason?.message ?? ''];
-  const out: string[] = ['次のとおり書き換えます（--dry-run なので、まだ何も書いていません）。'];
+  const out: string[] = ['次のとおり変更します（--dry-run のため、まだ何も書き込んでいません）。'];
   for (const f of p.files) {
     out.push('', `[${OP_WORD[f.op]}] ${f.path}`);
     for (const l of f.lines) {
@@ -346,7 +346,7 @@ export function formatSetupPlan(p: SetupPlan): string[] {
       out.push(l.k === 'gap' ? `  …（ほか ${l.t} 行）` : `${l.k === 'add' ? '+' : l.k === 'del' ? '-' : ' '} ${t}`);
     }
   }
-  if (p.backup) out.push('', `書く前に、バックアップを取ります: ${p.backup}（${BACKUP_STAMP} は書いた日時）`);
+  if (p.backup) out.push('', `書き込む前に、バックアップを作成します: ${p.backup}（${BACKUP_STAMP} は書き込んだ日時）`);
   return out;
 }
 
@@ -378,7 +378,7 @@ export async function runSetupCommand(target: SetupTarget, env: SetupEnv, f: Set
     return 0;
   }
   if (f.json && !f.yes) {
-    log(JSON.stringify({ ok: false, code: 'confirm-required', message: '確認を取れないので、何も書いていません。--yes を付けてください' }));
+    log(JSON.stringify({ ok: false, code: 'confirm-required', message: '確認できないため、何も書き込んでいません。--yes を指定してください' }));
     return 1;
   }
   if (!f.yes) {
@@ -386,11 +386,11 @@ export async function runSetupCommand(target: SetupTarget, env: SetupEnv, f: Set
     for (const l of formatSetupPlan(p)) log(l);
     if (p.state !== 'ready') return p.state === 'noop' ? 0 : 1;
     if (!(io.interactive ?? !!process.stdin.isTTY)) {
-      log('標準入力が対話ではないので確認を取れません。端末から実行するか、--yes を付けてください');
+      log('標準入力が対話型ではないため、確認できません。ターミナルから実行するか、--yes を指定してください');
       return 1;
     }
-    if (!(await (io.ask ?? (async () => false))('書きますか？'))) {
-      log('書きませんでした');
+    if (!(await (io.ask ?? (async () => false))('書き込みますか？'))) {
+      log('書き込みませんでした');
       return 1;
     }
   }
@@ -398,7 +398,7 @@ export async function runSetupCommand(target: SetupTarget, env: SetupEnv, f: Set
   if (f.json) log(JSON.stringify(r));
   else if (!r.ok) log(r.message);
   else {
-    log(r.result.changed ? '書きました。' : (r.result.note ?? '変えませんでした。'));
+    log(r.result.changed ? '書き込みました。' : (r.result.note ?? '変更しませんでした。'));
     for (const b of r.result.backups) log(`バックアップ: ${b}`);
     if (r.result.note && r.result.changed) log(r.result.note);
   }

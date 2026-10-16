@@ -37,7 +37,7 @@ export const commonJa: AreaDictionary<typeof commonKeys> = {
   'common.index.rebuilding': 'インデックスを再構築中 {done} / {total} 件',
   'common.index.indexing': 'インデックスを作成中 {done} / {total} 件',
   'common.aside.word': 'バックグラウンドで作業中',
-  'common.aside.free': 'メイン会話は入力を受け付けている',
+  'common.aside.free': 'メイン会話は入力可能',
   'common.aside.agents': 'バックグラウンドでサブエージェント {n} 件',
   'common.aside.shell': 'バックグラウンドでシェルを実行中',
   'common.label.noName': '（名前なし）',

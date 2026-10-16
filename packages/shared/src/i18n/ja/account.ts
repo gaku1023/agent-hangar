@@ -57,7 +57,7 @@ export const accountJa: AreaDictionary<typeof accountKeys> = {
   'account.add.separate.managed': '組織から配布される設定',
   'account.add.separate.cache': 'キャッシュと常駐プロセスの状態',
   'account.add.conflictNote': '設定ディレクトリに同じ名前の実ファイルがあるときは、変更せずに通知します。',
-  'account.add.conflicts': '{dir} には {names} が実ファイルとしてあります。上書きせずに残します。共有するときは、中身を確認してから削除してください。',
+  'account.add.conflicts': '{dir} には {names} が実ファイルとしてあります。上書きしません。共有するときは、中身を確認してから削除してください。',
   'account.add.exists': 'この設定ディレクトリはすでにあります。足りないリンクだけを追加します。',
   'account.add.registered': 'この設定ディレクトリは「{name}」で登録済みです。',
   'account.add.footnote': '次にブラウザが開きます。追加するアカウントで承認してください。',

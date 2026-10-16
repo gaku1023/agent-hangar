@@ -45,7 +45,7 @@ describe('準備の確かめ', () => {
   it('もう一度確かめると取り直す', () => {
     expect(run([action({ type: 'readiness.check' })]).effects).toEqual([{ kind: 'api.readiness' }]);
   });
-  it('設定の画面に入ると、ほかの値と一緒に準備の確かめも取る', () => {
+  it('設定の画面に入ると、他の値と一緒に準備の確かめも取る', () => {
     const { effects } = run([runtime({ type: 'ws.open' }), runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
     expect(effects).toContainEqual({ kind: 'api.loadSettingsExtras' });
   });
@@ -83,7 +83,7 @@ describe('宛先のコピー', () => {
     const st = initialStore();
     st.sessions = { s1: { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: 'N', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null } };
     const r = transition(initialState(), st, action({ type: 'session.copyId', id: 's1' }));
-    expect(r.effects).toEqual([{ kind: 'clipboard.copy', text: 'u1', done: 'セッション ID をコピーしました。claude -r に渡すと再開できます' }]);
+    expect(r.effects).toEqual([{ kind: 'clipboard.copy', text: 'u1', done: 'セッション ID をコピーしました。claude -r に指定すると再開できます' }]);
     expect(transition(initialState(), st, action({ type: 'session.copyId', id: 'ghost' })).effects).toEqual([]);
   });
 });
