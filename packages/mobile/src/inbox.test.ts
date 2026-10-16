@@ -1,6 +1,6 @@
 import { PEER_STALE_MS } from '@agent-hangar/shared';
 import { describe, expect, it } from 'vitest';
-import { openInbox } from './inbox.ts';
+import { FEED_HIDE_AFTER_MS, openInbox } from './inbox.ts';
 import { feedOf, inboxOf, liveItem, makeKey, MIN, NOW } from './test/fixtures.ts';
 
 const now = new Date(NOW);
@@ -76,6 +76,27 @@ describe('openInbox', () => {
     expect(v.waiting).toEqual([]);
     expect(v.running.map((r) => r.status)).toEqual(['unknown']);
     expect(v.devices[0]!.alive).toBe(false);
+  });
+
+  it('更新が 7 日より古い feed（解除せずに去った PC）は出さない。ちょうど 7 日はまだ出す', async () => {
+    const key = await makeKey();
+    const res = await inboxOf(
+      key,
+      [
+        feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting' })] }),
+        feedOf('pc-2', 'Mac 2', { live: [liveItem({ sessionId: 's-2', status: 'waiting' })] }),
+        feedOf('pc-3', 'Mac 3', { live: [liveItem({ sessionId: 's-3', status: 'waiting' })] }),
+      ],
+      { updatedAt: { 'pc-1': NOW - FEED_HIDE_AFTER_MS - 1, 'pc-2': NOW - FEED_HIDE_AFTER_MS }, otherKeyFor: ['pc-1'], lastSeen: { 'pc-1': NOW - FEED_HIDE_AFTER_MS - 1 } },
+    );
+    const v = await openInbox(res, key, now);
+    expect(FEED_HIDE_AFTER_MS).toBe(7 * 24 * 60 * 60_000);
+    expect(v.feeds.map((f) => f.deviceId)).toEqual(['pc-2', 'pc-3']);
+    expect([...v.waiting, ...v.running].map((r) => r.sessionId).sort()).toEqual(['s-2', 's-3']);
+    // 開けない封じでも、古ければ「開けない」とは言わない。
+    expect(v.unreadable).toEqual([]);
+    // 7 日より前に最後に見た PC は、生存の行にも出さない（「不明」のまま残さない）。
+    expect(v.devices.map((d) => d.id)).toEqual(['pc-2', 'pc-3']);
   });
 
   it('開けない PC は unreadable に入り、ほかの PC の行は出る', async () => {

@@ -41,14 +41,14 @@ export function feedOf(deviceId: string, deviceName: string, parts: Partial<Mobi
 export async function inboxOf(
   key: CryptoKey,
   feeds: MobileFeed[],
-  opts: { now?: number; lastSeen?: Record<string, number | null>; otherKeyFor?: string[] } = {},
+  opts: { now?: number; lastSeen?: Record<string, number | null>; otherKeyFor?: string[]; updatedAt?: Record<string, number> } = {},
 ): Promise<MobileInboxResponse> {
   const now = opts.now ?? NOW;
   const other = await makeKey();
   const sealed = await Promise.all(
     feeds.map(async (f) => ({
       deviceId: f.deviceId,
-      updatedAt: now - MIN,
+      updatedAt: opts.updatedAt?.[f.deviceId] ?? now - MIN,
       sealed: await seal(opts.otherKeyFor?.includes(f.deviceId) ? other : key, aadFeed(f.deviceId), f),
     })),
   );

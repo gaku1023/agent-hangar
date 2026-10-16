@@ -42,6 +42,13 @@ export type InboxView = {
   skewMs: number;
 };
 
+/**
+ * 更新がこれより古い feed は出さない。解除せずに去った PC の素を、「不明」のまま出し続けないためである。
+ * 動いている PC は、中身が変わらなくても 1 日に 1 回は書き直す（packages/server の mobile/publisher.ts の FEED_REFRESH_MS）。
+ * 同じ長さより前に最後に見た PC は、生存の行にも出さない。
+ */
+export const FEED_HIDE_AFTER_MS = 7 * 24 * 60 * 60_000;
+
 const COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 const arr = <T>(v: T[] | undefined | null): T[] => (Array.isArray(v) ? v : []);
@@ -61,6 +68,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * /m/inbox の応答を開いて、画面の節に分ける。
  *
+ * - 更新が FEED_HIDE_AFTER_MS より古い feed は開かずに捨てる（unreadable にも入れない）。最後に見たのがそれより前の PC は devices に入れない。
  * - 開けない PC の分は unreadable に PC 名を入れ、ほかの PC は続ける。
  * - Worker が最後に見てから PEER_STALE_MS を過ぎた PC の live は、状態を unknown にして running の末尾へ置く（waiting に出さない）。
  *   見ていない時間は Worker の時刻（res.now）で測る。lastSeenAt も Worker の時刻なので、スマホの時計のずれに左右されない。
@@ -70,10 +78,12 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  */
 export async function openInbox(res: MobileInboxResponse, key: CryptoKey, now: Date): Promise<InboxView> {
   const workerNow = num(res.now) ?? now.getTime();
-  const devices: DeviceAlive[] = arr(res.devices).map((d) => {
-    const lastSeenAt = num(d.lastSeenAt);
-    return { id: d.id, name: d.name, lastSeenAt, alive: lastSeenAt !== null && workerNow - lastSeenAt <= PEER_STALE_MS };
-  });
+  const devices: DeviceAlive[] = arr(res.devices)
+    .map((d) => {
+      const lastSeenAt = num(d.lastSeenAt);
+      return { id: d.id, name: d.name, lastSeenAt, alive: lastSeenAt !== null && workerNow - lastSeenAt <= PEER_STALE_MS };
+    })
+    .filter((d) => d.lastSeenAt === null || workerNow - d.lastSeenAt <= FEED_HIDE_AFTER_MS);
   const byId = new Map(devices.map((d) => [d.id, d]));
   const today = localDay(now);
 
@@ -86,6 +96,8 @@ export async function openInbox(res: MobileInboxResponse, key: CryptoKey, now: D
   };
 
   for (const f of arr(res.feeds)) {
+    const updatedAt = num(f.updatedAt);
+    if (updatedAt !== null && workerNow - updatedAt > FEED_HIDE_AFTER_MS) continue;
     const device = byId.get(f.deviceId);
     let feed: MobileFeed;
     try {
