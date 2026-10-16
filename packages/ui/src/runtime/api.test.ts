@@ -119,6 +119,24 @@ describe('フェーズ 4 の同期の経路', () => {
     expect(JSON.parse(String(calls[1]!.body))).toEqual({ paused: true });
     expect(JSON.parse(String(calls[2]!.body))).toEqual({ overwrite: false });
   });
+  it('引き継ぎの 4 つの経路とメソッドと本文が合っている', async () => {
+    const dto = { sessionId: 's1', deviceName: 'pc-b', stage: 'asking', startedAt: 1, deadline: 2 };
+    const h = harness(200, dto);
+    await expect(h.api.takeoverStart('s1', true)).resolves.toEqual(dto);
+    await expect(h.api.takeoverExtend('s1')).resolves.toEqual(dto);
+    const gone = harness(204);
+    await expect(gone.api.takeoverCancel('s1')).resolves.toBeUndefined();
+    expect(h.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sessions/s1/takeover', 'POST /api/sessions/s1/takeover/extend']);
+    expect(JSON.parse(String(h.calls[0]!.body))).toEqual({ force: true });
+    expect(gone.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['DELETE /api/sessions/s1/takeover']);
+  });
+  it('生きたロックでの再開の 409（code: locked）は、ApiConflictError ではなく文つきの Error になる', async () => {
+    const locked = harness(409, { error: 'pc-b で実行中です', code: 'locked' });
+    const e = await locked.api.resumeHere('s1', false).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Error);
+    expect(e).not.toBeInstanceOf(ApiConflictError);
+    expect((e as Error).message).toBe('pc-b で実行中です');
+  });
   it('同期の状態と端末の一覧は bootstrap と websocket で届くので、取りに行く口を持たない', () => {
     expectTypeOf<ApiClient>().not.toHaveProperty('syncStatus');
     expectTypeOf<ApiClient>().not.toHaveProperty('devices');

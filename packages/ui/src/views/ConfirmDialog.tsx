@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { UiAction } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfirmRequest } from '../mediator/types.ts';
 import type { ConfirmDeleteSessionProps, ConfirmProjectProps } from '../presenters/confirm.ts';
-import type { ResumeHereCard, ResumeHereProps } from '../presenters/resumeHere.ts';
+import type { ResumeHereCard, ResumeHereProps, TakeoverProps } from '../presenters/resumeHere.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -22,13 +22,14 @@ const BACKUP_DIR = '~/.agent-hangar/backups/transcripts/';
  * どうするかを決めるのは利用者なので、View は起きることを並べるだけで判断をしない。
  * 開いた時点のフォーカスは、殻がやめる側に置く。Enter の押し違いで押し切らせないためである。
  */
-export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null; accountName?: string | null; resumeHere?: ResumeHereProps | null; deleteSession?: ConfirmDeleteSessionProps | null }) {
+export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null; accountName?: string | null; resumeHere?: ResumeHereProps | null; takeover?: TakeoverProps | null; deleteSession?: ConfirmDeleteSessionProps | null }) {
   const emit = useEmit();
   const t = useT();
   const c = props.confirm;
   const close = () => emit({ type: 'overlay.close' });
   const cancel = <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>;
   if (c.kind === 'resumeHere') return props.resumeHere ? <ResumeHereConfirm p={props.resumeHere} cancel={cancel} close={close} /> : null;
+  if (c.kind === 'takeover') return props.takeover ? <TakeoverProgress p={props.takeover} /> : null;
   if (c.kind === 'unlinkProject') {
     const name = props.project?.name ?? c.projectId;
     const sessions = props.project?.sessions ?? 0;
@@ -198,6 +199,64 @@ function Card(props: { card: ResumeHereCard; here: boolean }) {
       {c.note && <div className="rh-card-note">{c.note}</div>}
       {c.at && <div className="rh-card-at">{c.at}</div>}
     </div>
+  );
+}
+
+/**
+ * 停止を頼んだあとの 1 枚（試作の B1 と C2）。確認の 1 枚がそのまま進み具合に変わる。
+ * progress は 4 つの段と 90 秒の目安の細い線を出し、ボタンは「取り消す」だけにする。経過秒と線は 1 秒ごとに描き直す。
+ * timeout は返事がない警告で、「取り消す」「もう少し待つ」「このまま引き継ぐ」を選ばせる。
+ * Esc と外側のクリックと × は、閉じずに取り下げを送る。overlay.close で閉じるとサーバに待ちが残る。
+ */
+function TakeoverProgress(props: { p: TakeoverProps }) {
+  const emit = useEmit();
+  const t = useT();
+  const p = props.p;
+  const timed = p.kind === 'progress' && p.deadline > p.startedAt;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!timed) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timed]);
+  const cancel = () => emit({ type: 'session.takeover.cancel', id: p.sessionId });
+  const seconds = Math.max(0, Math.floor((now - p.startedAt) / 1000));
+  const ratio = timed ? Math.min(1, Math.max(0, (now - p.startedAt) / (p.deadline - p.startedAt))) : 0;
+  const cancelButton = <button type="button" className="btn" onClick={cancel}>{t('confirm.takeover.cancel')}</button>;
+  return (
+    <Dialog
+      title={p.title}
+      icon={p.kind === 'timeout' ? 'warning' : 'resumeHere'}
+      onClose={cancel}
+      className="rh-dialog"
+      footer={p.kind === 'timeout'
+        ? <>{cancelButton}<span className="spacer" /><button type="button" className="btn" onClick={() => emit({ type: 'session.takeover.extend', id: p.sessionId })}>{t('confirm.takeover.wait')}</button><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.takeover.start', id: p.sessionId, force: true })}>{t('confirm.takeover.forceAction')}</button></>
+        : <><span className="spacer" />{cancelButton}</>}
+    >
+      {p.lead && <div className="muted">{p.lead}</div>}
+      {p.steps.length > 0 && (
+        <ol className="rh-steps">
+          {p.steps.map((s, i) => (
+            <li key={i} data-state={s.state}>
+              <span className="rh-mark" aria-hidden="true">{s.state === 'done' ? <Icon name="check" /> : i + 1}</span>
+              <span>{s.label}</span>
+              {timed && i === 1 && s.state === 'active' && <small>{t('confirm.takeover.elapsed', { seconds })}</small>}
+            </li>
+          ))}
+        </ol>
+      )}
+      {p.kind === 'progress' && (
+        <div className="rh-meter" role="progressbar" aria-label={p.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio * 100)}><i style={{ width: `${ratio * 100}%` }} /></div>
+      )}
+      {p.hint && <div className="faint">{p.hint}</div>}
+      {p.band && (
+        <div className="rh-band" role="note" aria-label={p.band.strong}>
+          <Icon name="warning" />
+          <div><b>{p.band.strong}</b><span>{p.band.text}</span></div>
+        </div>
+      )}
+    </Dialog>
   );
 }
 

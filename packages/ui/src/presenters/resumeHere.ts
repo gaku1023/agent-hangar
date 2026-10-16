@@ -1,4 +1,4 @@
-import { osName, type ResumeHerePlanDto, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { osName, type ResumeHerePlanDto, type SessionDto, type TakeoverDto, type Translate } from '@agent-hangar/shared';
 import { homePath } from '../lib/paths.ts';
 import type { Store } from '../store/store.ts';
 import { absoluteTime, relativeTime } from './format.ts';
@@ -51,6 +51,49 @@ export type ResumeHereProps = {
   replace: string | null; overwrite: boolean;
   mode: ResumeHereMode; takeover: { strong: string; text: string } | null;
 };
+
+/** 待っている間の 1 段。done は済み、active は進行中、todo はこれから。 */
+export type TakeoverStep = { label: string; state: 'done' | 'active' | 'todo' };
+/**
+ * 停止を頼んだあとの 1 枚（試作の B1 と C2）。
+ * progress は 4 つの段と、90 秒の目安の細い線と、注記を出す。timeout は返事がない警告の 1 枚で、段は無い。
+ * 経過秒と線は startedAt と deadline から View が 1 秒ごとに描き直す（Mediator は時計を持たない）。
+ */
+export type TakeoverProps = {
+  sessionId: string; kind: 'progress' | 'timeout';
+  title: string; lead: string | null;
+  steps: TakeoverStep[];
+  startedAt: number; deadline: number;
+  hint: string | null; band: { strong: string; text: string } | null;
+};
+
+/**
+ * 頼みを送った 1 枚を組む。dto が null（頼みの応答待ち）は asking と同じに見せる。
+ * 相手の名前は dto、無ければ確認に出していたロックの持ち主、それも無ければ前の PC の名前を使う。
+ */
+export function presentTakeover(t: Translate, plan: ResumeHerePlanDto, dto: TakeoverDto | null): TakeoverProps {
+  const device = dto?.deviceName ?? plan.lock?.deviceName ?? plan.from.deviceName ?? t('confirm.resumeHere.unknownDevice');
+  // 応答待ちの間は時刻が無い。0 と 0 を返し、View は線も経過秒も出さない。
+  const startedAt = dto?.startedAt ?? 0;
+  const deadline = dto?.deadline ?? 0;
+  if (dto?.stage === 'timeout') {
+    return {
+      sessionId: plan.sessionId, kind: 'timeout',
+      title: t('confirm.takeover.timeoutTitle', { device }), lead: t('confirm.takeover.timeoutLead', { device }),
+      steps: [], startedAt, deadline, hint: null,
+      band: { strong: t('confirm.takeover.timeoutStrong'), text: t('confirm.takeover.timeoutText', { device }) },
+    };
+  }
+  // いま進んでいる段の番号。asking と応答待ちは 0、ready は最後の 3。
+  const active = dto === null ? 0 : ({ asking: 0, waiting: 1, receiving: 2, ready: 3, cancelled: 0, timeout: 0 } as const)[dto.stage];
+  const labels = [t('confirm.takeover.stepAsked'), t('confirm.takeover.stepWaiting', { device }), t('confirm.takeover.stepReceive'), t('confirm.takeover.stepResume')];
+  return {
+    sessionId: plan.sessionId, kind: 'progress',
+    title: t('confirm.takeover.progressTitle', { device }), lead: null,
+    steps: labels.map((label, i) => ({ label, state: i < active ? 'done' : i === active ? 'active' : 'todo' })),
+    startedAt, deadline, hint: t('confirm.takeover.hint', { device }), band: null,
+  };
+}
 
 /**
  * サーバの ResumeHerePlanDto を、確認の 1 枚にする。

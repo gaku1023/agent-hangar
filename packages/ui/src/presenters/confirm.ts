@@ -2,7 +2,7 @@ import type { ConfirmRequest, State } from '../mediator/types.ts';
 import { accountList, type Store } from '../store/store.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
-import { presentResumeHere, type ResumeHereProps } from './resumeHere.ts';
+import { presentResumeHere, presentTakeover, type ResumeHereProps, type TakeoverProps } from './resumeHere.ts';
 
 /** 一覧から削除するプロジェクトの名前と、未分類に戻るセッションの数。 */
 export type ConfirmProjectProps = { name: string; sessions: number };
@@ -12,7 +12,7 @@ export type ConfirmProjectProps = { name: string; sessions: number };
  */
 /** 消すセッションの名前と、下の 1 行に出す所属とターンの数（試作の 3A）。 */
 export type ConfirmDeleteSessionProps = { name: string; project: string; turns: number };
-export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectProps | null; accountName: string | null; resumeHere?: ResumeHereProps | null; deleteSession?: ConfirmDeleteSessionProps | null };
+export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectProps | null; accountName: string | null; resumeHere?: ResumeHereProps | null; takeover?: TakeoverProps | null; deleteSession?: ConfirmDeleteSessionProps | null };
 
 /**
  * 確認のダイアログ。
@@ -25,6 +25,7 @@ export function presentConfirm(state: State, store: Store, now: number): Confirm
   const confirm = state.overlay.confirm;
   // この PC で再開の確認は、サーバの返したもの（前の PC とこの PC）を画面の言語で組む。この PC のパスはホームを ~ に縮める。
   if (confirm.kind === 'resumeHere') return { confirm, project: null, accountName: null, resumeHere: presentResumeHere(translatorOf(store), confirm.plan, store.home, now) };
+  if (confirm.kind === 'takeover') return { confirm, project: null, accountName: null, takeover: presentTakeover(translatorOf(store), confirm.plan, confirm.takeover) };
   if (confirm.kind === 'switchAccount' || confirm.kind === 'removeAccount') {
     return { confirm, project: null, accountName: accountList(store).find((a) => a.id === confirm.accountId)?.name ?? null };
   }

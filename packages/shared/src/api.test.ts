@@ -75,7 +75,9 @@ describe('フェーズ 4 の DTO', () => {
 
 describe('引き継ぎ（この PC で再開が相手を止める流れ）', () => {
   it('旧い実装の UiAction は無く、段の変化は takeover.update で届く', () => {
-    expectTypeOf<Extract<UiAction, { type: 'session.takeover' | 'session.takeover.cancel' }>>().toBeNever();
+    expectTypeOf<Extract<UiAction, { type: 'session.takeover' }>>().toBeNever();
+    // 待ちの取り消しと延長は UiAction として持つ（mediator が api.takeoverCancel と api.takeoverExtend にする）。
+    expectTypeOf<Extract<UiAction, { type: 'session.takeover.cancel' | 'session.takeover.extend' }>>().toEqualTypeOf<{ type: 'session.takeover.extend'; id: string } | { type: 'session.takeover.cancel'; id: string }>();
     const ev: ServerEvent = { type: 'takeover.update', takeover: { sessionId: 's1', deviceName: 'pc-b', stage: 'waiting', startedAt: 1, deadline: 1 + TAKEOVER_TIMEOUT_MS } };
     expect(ev.type).toBe('takeover.update');
     expect(TAKEOVER_TIMEOUT_MS).toBe(90_000);

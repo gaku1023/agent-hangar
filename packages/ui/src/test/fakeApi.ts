@@ -7,7 +7,7 @@ type Extras = Pick<
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
-  | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'joinToken' | 'cloudDevices'
+  | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinToken' | 'cloudDevices'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
@@ -108,6 +108,9 @@ export function fakeApiExtras(): Extras {
     syncFocus: vi.fn(async () => {}),
     resumeHere: vi.fn(async () => unused()),
     resumeHerePlan: vi.fn(async () => unused()),
+    takeoverStart: vi.fn(async () => unused()),
+    takeoverExtend: vi.fn(async () => unused()),
+    takeoverCancel: vi.fn(async () => {}),
     // 参加トークンは押したときだけ取りに行く値なので、既定は未発行の null にする。
     joinToken: vi.fn(async () => ({ token: null })),
     cloudDevices: vi.fn(async () => ({ state: 'off' as const, devices: [], creator: false, message: null })),

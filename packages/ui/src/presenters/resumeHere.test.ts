@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { translator, type ProjectDto, type ResumeHerePlanDto, type SessionDto, type SessionLockDto } from '@agent-hangar/shared';
+import { TAKEOVER_TIMEOUT_MS, translator, type ProjectDto, type ResumeHerePlanDto, type SessionDto, type SessionLockDto, type TakeoverDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentSessionRow } from './row.ts';
 import { presentSession, sessionActions } from './session.ts';
-import { presentResumeHere, resumeHereOf } from './resumeHere.ts';
+import { presentResumeHere, presentTakeover, resumeHereOf } from './resumeHere.ts';
 
 const NOW = new Date(2026, 9, 13, 12, 0).getTime();
 const ja = translator('ja');
@@ -171,5 +171,54 @@ describe('ほかの PC で動いている会話を引き継ぐ確認（presentRe
     const p = presentResumeHere(ja, plan({ stale: true, heartbeatAt: NOW - 5 * 60_000 }), null, NOW);
     expect(p).toMatchObject({ mode: 'stale', title: 'pc-b が応答していません。この PC で引き継ぎますか', action: 'このまま引き継ぐ', takeover: null });
     expect(p.from.at).toBe('最後の応答：5 分前');
+  });
+});
+
+describe('引き継ぎの待ちと返事がないとき（presentTakeover）', () => {
+  const plan: ResumeHerePlanDto = {
+    sessionId: 's1',
+    from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: NOW - 3_600_000 },
+    to: { deviceName: 'pc-a', platform: 'darwin', path: '/Users/me/src/notes-app' },
+    replace: null,
+    lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: NOW - 10_000 },
+  };
+  const dto: TakeoverDto = { sessionId: 's1', deviceName: 'pc-b', stage: 'asking', startedAt: 1_000, deadline: 1_000 + TAKEOVER_TIMEOUT_MS };
+  const states = (p: ReturnType<typeof presentTakeover>) => p.steps.map((s) => s.state);
+  it('waiting は 1 段目が済み、2 段目が進行中で、題と注記を出す', () => {
+    const p = presentTakeover(ja, plan, { ...dto, stage: 'waiting' });
+    expect(p.kind).toBe('progress');
+    expect(p.title).toBe('pc-b から引き継いでいます');
+    expect(p.steps.map((s) => s.label)).toEqual(['停止を依頼しました', 'pc-b が停止するのを待っています', '最後のトランスクリプトを受け取る', 'この PC で再開する']);
+    expect(states(p)).toEqual(['done', 'active', 'todo', 'todo']);
+    expect(p.hint).toBe('pc-b の Hangar がクラウドを見に来るまで、最大 30 秒ほどかかります。');
+    expect(p).toMatchObject({ sessionId: 's1', startedAt: 1_000, deadline: 1_000 + TAKEOVER_TIMEOUT_MS, band: null });
+  });
+  it('asking と、応答待ち（null）は 1 段目が進行中', () => {
+    expect(states(presentTakeover(ja, plan, { ...dto, stage: 'asking' }))).toEqual(['active', 'todo', 'todo', 'todo']);
+    const waitingReply = presentTakeover(ja, plan, null);
+    expect(states(waitingReply)).toEqual(['active', 'todo', 'todo', 'todo']);
+    // 名前はロックの持ち主から読む。
+    expect(waitingReply.title).toBe('pc-b から引き継いでいます');
+  });
+  it('receiving は 3 段目、ready は 4 段目が進行中', () => {
+    expect(states(presentTakeover(ja, plan, { ...dto, stage: 'receiving' }))).toEqual(['done', 'done', 'active', 'todo']);
+    expect(states(presentTakeover(ja, plan, { ...dto, stage: 'ready' }))).toEqual(['done', 'done', 'done', 'active']);
+  });
+  it('timeout は警告の 1 枚にする', () => {
+    const p = presentTakeover(ja, plan, { ...dto, stage: 'timeout' });
+    expect(p).toMatchObject({
+      kind: 'timeout',
+      title: 'pc-b から返事がありません',
+      lead: 'pc-b の Hangar が閉じているか、ネットワークに接続されていない可能性があります。',
+      band: { strong: 'このまま引き継ぐと、会話が分かれることがあります', text: 'pc-b の claude はまだ実行中の可能性があります。そちらで続きが書かれると、その分はこの PC の会話に入りません。claude は、次に pc-b で Hangar が起動したときに停止します。' },
+      hint: null,
+    });
+    expect(p.steps).toEqual([]);
+  });
+  it('英語でも組める', () => {
+    const p = presentTakeover(translator('en'), plan, { ...dto, stage: 'waiting' });
+    expect(p.title).toMatch(/pc-b/);
+    expect(p.steps).toHaveLength(4);
+    expect(presentTakeover(translator('en'), plan, { ...dto, stage: 'timeout' }).band?.strong).toBeTruthy();
   });
 });

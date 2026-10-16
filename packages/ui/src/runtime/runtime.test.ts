@@ -1445,6 +1445,46 @@ describe('同期とこの PC で再開', () => {
     expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's1', localSize: 10, remoteSize: 99 } });
     expect(rt.getState().toasts).toEqual([]);
   });
+  it('引き継ぎ：頼みの応答と websocket の知らせが同じ道で届き、ready で今の再開に入る。取り消しは取り下げを送る', async () => {
+    const plan = { sessionId: 's1', from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null, lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: 1 } };
+    const dto = { sessionId: 's1', deviceName: 'pc-b', stage: 'asking' as const, startedAt: 1_000, deadline: 91_000 };
+    const { rt, api } = harness({ resumeHerePlan: vi.fn(async () => plan), takeoverStart: vi.fn(async () => dto), takeoverExtend: vi.fn(async () => ({ ...dto, stage: 'waiting' as const })), takeoverCancel: vi.fn(async () => {}) });
+    rt.start();
+    rt.emit({ type: 'session.resumeHere.open', id: 's1' });
+    await flush();
+    rt.emit({ type: 'session.takeover.start', id: 's1', force: false });
+    await flush();
+    expect(api.takeoverStart).toHaveBeenCalledWith('s1', false);
+    expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'takeover', sessionId: 's1', plan, takeover: dto } });
+    rt.emit({ type: 'session.takeover.extend', id: 's1' });
+    await flush();
+    expect(api.takeoverExtend).toHaveBeenCalledWith('s1');
+    rt.dispatch({ kind: 'server', event: { type: 'takeover.update', takeover: { ...dto, stage: 'ready' } } });
+    await flush();
+    expect(api.resumeHere).toHaveBeenCalledWith('s1', false);
+    expect(api.takeoverCancel).not.toHaveBeenCalled();
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    // 取り消す。
+    rt.emit({ type: 'session.resumeHere.open', id: 's1' });
+    await flush();
+    rt.emit({ type: 'session.takeover.start', id: 's1', force: false });
+    await flush();
+    rt.emit({ type: 'session.takeover.cancel', id: 's1' });
+    await flush();
+    expect(api.takeoverCancel).toHaveBeenCalledWith('s1');
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+  });
+  it('引き継ぎ：頼みが通らなければ、待たせずに 1 枚を閉じて理由をトーストで知らせる', async () => {
+    const plan = { sessionId: 's1', from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null, lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: 1 } };
+    const { rt } = harness({ resumeHerePlan: vi.fn(async () => plan), takeoverStart: vi.fn(async () => { throw new Error('500 /api/sessions/s1/takeover'); }) });
+    rt.start();
+    rt.emit({ type: 'session.resumeHere.open', id: 's1' });
+    await flush();
+    rt.emit({ type: 'session.takeover.start', id: 's1', force: false });
+    await flush();
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(rt.getState().toasts).toHaveLength(1);
+  });
   it('この PC で再開を押すと、確認に出すものを取りに行って確認の 1 枚を出す。取れなければトースト', async () => {
     const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null };
     const { rt, api } = harness({ resumeHerePlan: vi.fn(async () => plan) });

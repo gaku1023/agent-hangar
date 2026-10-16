@@ -802,6 +802,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 取れなければトーストにする。送信中にはしていないので、解くものは無い。
         deps.api.resumeHerePlan(e.sessionId).then((plan) => dispatch({ kind: 'runtime', event: { type: 'resumeHere.plan', plan } })).catch(fail);
         return;
+      // 引き継ぎ。応答の段は、サーバが websocket で配る takeover.update と同じ道（server の入力）で流す。どちらが先に着いても mediator は同じに読む。
+      case 'api.takeoverStart':
+        deps.api.takeoverStart(e.sessionId, e.force).then((dto) => dispatch({ kind: 'server', event: { type: 'takeover.update', takeover: dto } })).catch((err: unknown) => {
+          // 頼みが通らなかったら、待たせずに 1 枚を閉じ、理由をトーストで知らせる（取り下げの知らせと同じ形で閉じる）。
+          const now = Date.now();
+          dispatch({ kind: 'server', event: { type: 'takeover.update', takeover: { sessionId: e.sessionId, deviceName: '', stage: 'cancelled', startedAt: now, deadline: now } } });
+          fail(err);
+        });
+        return;
+      case 'api.takeoverExtend':
+        deps.api.takeoverExtend(e.sessionId).then((dto) => dispatch({ kind: 'server', event: { type: 'takeover.update', takeover: dto } })).catch(fail);
+        return;
+      case 'api.takeoverCancel': deps.api.takeoverCancel(e.sessionId).catch(fail); return;
       case 'api.configSyncLoad': loadConfigDetail(e.parts); return;
       case 'api.configSyncApply': applyConfigSync(e.entries); return;
       case 'api.configSyncRestore': {

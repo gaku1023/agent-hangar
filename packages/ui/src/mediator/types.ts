@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
@@ -151,6 +151,11 @@ export type Effect =
   | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.resumeHerePlan'; sessionId: string }
+  // ほかの PC で動く会話の引き継ぎ。start は停止の頼み（force は応答のない相手を頼まずに引き継ぐ）、extend は打ち切りの延長、cancel は取り下げ。
+  // 応答の TakeoverDto は Runtime が takeover.update のサーバの知らせと同じ道で流すので、段の変化は mediator に 1 本の入力で届く。
+  | { kind: 'api.takeoverStart'; sessionId: string; force: boolean }
+  | { kind: 'api.takeoverExtend'; sessionId: string }
+  | { kind: 'api.takeoverCancel'; sessionId: string }
   | { kind: 'api.joinToken' }
   // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
   | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
@@ -173,6 +178,8 @@ export type FocusTarget = 'newSessionName' | 'terminal' | 'palette' | 'promoteNa
 export type ConfirmRequest =
   // ほかの PC で進めた会話をこの PC で再開する前の確認（前の PC とこの PC、同期されないもの）。毎回出す。
   | { kind: 'resumeHere'; sessionId: string; plan: ResumeHerePlanDto }
+  // 同じ 1 枚が、停止を頼んでから引き継ぐ進み具合に変わる。takeover は最新の段で、頼みの応答が届くまでは null（asking と同じに見せる）。
+  | { kind: 'takeover'; sessionId: string; plan: ResumeHerePlanDto; takeover: TakeoverDto | null }
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
   // hangar では終わった扱いの run の claude（pid）が動き続けているときの再開（issue #258）。queued はまとめて再開の 1 本で、選んだら順番待ちに入れ直す。

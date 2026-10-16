@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { translator, type ResumeHerePlanDto } from '@agent-hangar/shared';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TAKEOVER_TIMEOUT_MS, translator, type ResumeHerePlanDto, type TakeoverDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
-import { presentResumeHere } from '../presenters/resumeHere.ts';
+import { presentResumeHere, presentTakeover } from '../presenters/resumeHere.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 
 const NOW = new Date(2026, 9, 16, 12, 0).getTime();
@@ -46,5 +46,67 @@ describe('ほかの PC で動いている会話を引き継ぐ確認', () => {
     const onAction = mount(plan(null));
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+  });
+});
+
+describe('引き継ぎの待ちと返事がないとき', () => {
+  const START = 1_700_000_000_000;
+  const p = plan({ deviceName: 'pc-b', stale: false, working: false, heartbeatAt: START });
+  const dto = (stage: TakeoverDto['stage']): TakeoverDto => ({ sessionId: 's1', deviceName: 'pc-b', stage, startedAt: START, deadline: START + TAKEOVER_TIMEOUT_MS });
+  const mountTakeover = (stage: TakeoverDto['stage'] | null) => {
+    const onAction = vi.fn();
+    const d = stage === null ? null : dto(stage);
+    render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'takeover', sessionId: 's1', plan: p, takeover: d }} takeover={presentTakeover(translator('ja'), p, d)} /></ActionRoot>);
+    return onAction;
+  };
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('待っている間は 4 つの段と、経過秒、細い線、取り消すだけのボタンを出す', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(START + 12_000);
+    const onAction = mountTakeover('waiting');
+    expect(screen.getByRole('dialog', { name: 'pc-b から引き継いでいます' })).toBeInTheDocument();
+    const items = screen.getAllByRole('listitem');
+    expect(items.map((li) => li.getAttribute('data-state'))).toEqual(['done', 'active', 'todo', 'todo']);
+    expect(items[1]).toHaveTextContent('pc-b が停止するのを待っています');
+    expect(items[1]).toHaveTextContent('12 秒');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', String(Math.round((12_000 / TAKEOVER_TIMEOUT_MS) * 100)));
+    expect(screen.getByText('pc-b の Hangar がクラウドを見に来るまで、最大 30 秒ほどかかります。')).toBeInTheDocument();
+    expect(screen.getAllByRole('button').filter((b) => b.textContent === '取り消す')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'もう少し待つ' })).toBeNull();
+    // 1 秒ごとに描き直す。
+    act(() => { vi.advanceTimersByTime(3_000); });
+    expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('15 秒');
+    fireEvent.click(screen.getByRole('button', { name: '取り消す' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.takeover.cancel', id: 's1' });
+  });
+  it('頼む前の応答待ち（null）も、1 段目が進行中の同じ 1 枚', () => {
+    mountTakeover(null);
+    expect(screen.getAllByRole('listitem').map((li) => li.getAttribute('data-state'))).toEqual(['active', 'todo', 'todo', 'todo']);
+  });
+  it('待っている間の Esc と外側のクリックは、閉じずに取り下げを送る', () => {
+    const onAction = mountTakeover('waiting');
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.takeover.cancel', id: 's1' });
+    expect(onAction).not.toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('返事がない 1 枚は 3 つのボタンを出し、それぞれの UiAction を送る', () => {
+    const onAction = mountTakeover('timeout');
+    expect(screen.getByRole('dialog', { name: 'pc-b から返事がありません' })).toBeInTheDocument();
+    expect(screen.getByRole('note', { name: 'このまま引き継ぐと、会話が分かれることがあります' })).toHaveTextContent('次に pc-b で Hangar が起動したときに停止します。');
+    expect(screen.queryByRole('listitem')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '取り消す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'もう少し待つ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'このまま引き継ぐ' }));
+    expect(onAction.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'session.takeover.cancel', id: 's1' },
+      { type: 'session.takeover.extend', id: 's1' },
+      { type: 'session.takeover.start', id: 's1', force: true },
+    ]);
+  });
+  it('返事がない 1 枚の Esc も取り下げを送る', () => {
+    const onAction = mountTakeover('timeout');
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.takeover.cancel', id: 's1' });
   });
 });
