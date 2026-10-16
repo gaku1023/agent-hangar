@@ -480,6 +480,36 @@ describe('MobileLaunchInbox の画像', () => {
     expect(fs.readdirSync(dropsDir)).toEqual([]);
   });
 
+  it('起こすのに失敗した後の始末で例外が出ても、置いた画像は消す（7 日残さない）', async () => {
+    // 失敗の理由を読むところで投げる Error。decide の外まで例外が抜ける出口になる。
+    const { inbox, post, putImage, answerOf, dropsDir, start } = setup({
+      start: () => { const e = new Error('x'); Object.defineProperty(e, 'message', { get() { throw new Error('unreadable'); } }); throw e; },
+    });
+    const l = await post('l1', payload({ images: [ref(0, 1)] }));
+    await putImage('l1', 0, IMG(1));
+    await inbox.receive(l);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'launch-failed' });
+    expect(fs.readdirSync(dropsDir)).toEqual([]);
+  });
+
+  it('封じた画像が 1 枚の上限に封の 28 バイトを足した大きさを超えるなら、開かずに images-missing', async () => {
+    const { cloud, start, inbox, post, answerOf } = setup();
+    const l = await post('l1', payload({ images: [ref(0, MOBILE_IMAGE_MAX_BYTES)] }));
+    cloud.putBlob('l1', 0, new Uint8Array(MOBILE_IMAGE_MAX_BYTES + 29));
+    await inbox.receive(l);
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'images-missing' });
+  });
+
+  it('封じた画像がちょうど上限（封の 28 バイトを足した大きさ）なら通る', async () => {
+    const { start, inbox, post, putImage } = setup();
+    const l = await post('l1', payload({ images: [ref(0, MOBILE_IMAGE_MAX_BYTES)] }));
+    await putImage('l1', 0, new Uint8Array(MOBILE_IMAGE_MAX_BYTES));
+    await inbox.receive(l);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
   it('起こした会話の題は、パスを足す前の指示から付ける', async () => {
     const { inbox, post, putImage, answerOf } = setup();
     const l = await post('l1', payload({ prompt: '画像を見て直して', images: [ref(0, 1)] }));

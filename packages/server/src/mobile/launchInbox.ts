@@ -60,6 +60,9 @@ export type MobileLaunchInboxDeps = {
 
 const PERMISSION_MODES: ReadonlySet<string> = new Set(PERMISSION_MODE_VALUES);
 
+/** 封（IV 12 バイトと認証タグ 16 バイト）の分。Worker の置ける大きさ（packages/cloud の SEAL_OVERHEAD_BYTES）と同じ。 */
+const SEAL_OVERHEAD_BYTES = 28;
+
 const IMAGE_EXT: Readonly<Record<MobileImageRef['mime'], string>> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
 /** 画像の控えの並びが正しいか。枚数は 1 依頼の上限まで、番号は 0 から上限の手前で重ならず、mime は許しの内、大きさは 1 枚の上限まで。 */
@@ -229,32 +232,34 @@ export class MobileLaunchInbox {
     if (!p.scratch && (p.projectId === null || !this.deps.hasProjectHere(p.projectId))) return fail('project-missing');
     if (!this.deps.hasAccount(p.accountId)) return fail('account-missing');
     // 画像は、起こすと決まってから取る（プロジェクトの無い依頼で本体を運ばない）。1 枚でも欠ければ起こさない。
+    // 置いた画像は、起こせたときだけ残す。それ以外の出口（欠け、起動の失敗、途中の例外）では、finally で必ず消す。
     const saved: string[] = [];
-    let prompt = p.prompt;
-    if (p.images?.length) {
-      const got = await this.fetchImages(key, l.id, p.images, saved);
-      if (!got) {
-        this.discard(saved);
-        return fail('images-missing');
+    let started = false;
+    try {
+      let prompt = p.prompt;
+      if (p.images?.length) {
+        if (!(await this.fetchImages(key, l.id, p.images, saved))) return fail('images-missing');
+        prompt = appendPaths(p.prompt, saved);
       }
-      prompt = appendPaths(p.prompt, saved);
+      let r: LaunchResult;
+      try {
+        r = this.deps.start(paramsOf(p, prompt));
+      } catch (e) {
+        // 理由の文は封じてスマホにだけ渡す。
+        return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);
+      }
+      started = true;
+      // 起こした後は、題が読めなくても started と答える（会話は動いている）。
+      let title: string;
+      try {
+        title = this.titleOf(r.sessionId, p.prompt);
+      } catch {
+        title = firstLine(p.prompt);
+      }
+      return { ok: true, sessionId: r.sessionId, title };
+    } finally {
+      if (!started) this.discard(saved);
     }
-    let r: LaunchResult;
-    try {
-      r = this.deps.start(paramsOf(p, prompt));
-    } catch (e) {
-      this.discard(saved);
-      // 理由の文は封じてスマホにだけ渡す。
-      return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);
-    }
-    // 起こした後は、題が読めなくても started と答える（会話は動いている）。
-    let title: string;
-    try {
-      title = this.titleOf(r.sessionId, p.prompt);
-    } catch {
-      title = firstLine(p.prompt);
-    }
-    return { ok: true, sessionId: r.sessionId, title };
   }
 
   /**
@@ -268,6 +273,8 @@ export class MobileLaunchInbox {
       pruneDrops(this.deps.dropsDir, this.deps.now());
       for (const r of refs) {
         const sealed = await get(launchId, r.n);
+        // 封の大きさは、開く前に確かめる（上限に封の分を足した大きさまで）。
+        if (sealed.byteLength > MOBILE_IMAGE_MAX_BYTES + SEAL_OVERHEAD_BYTES) return false;
         const bytes = await openBytes(key, aadImage(launchId, r.n), sealed);
         if (bytes.byteLength > MOBILE_IMAGE_MAX_BYTES) return false;
         saved.push(saveDrop(this.deps.dropsDir, `phone-${r.n + 1}.${IMAGE_EXT[r.mime]}`, bytes, this.deps.now()).path);
