@@ -89,7 +89,7 @@ describe('待っている間の文', () => {
   it('進み具合が届く前は、サーバの起動を待っていると出す', async () => {
     await boot();
     at(m.CYCLE_MS + 100);
-    expect($('detail').textContent).toBe('サーバを起動中');
+    expect($('detail').textContent).toBe('サーバーを起動中');
   });
   it('失敗の文が出たら、何をしているかの文を消し、殻の文を上書きしない', async () => {
     await boot();

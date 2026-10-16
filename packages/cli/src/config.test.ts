@@ -52,7 +52,7 @@ afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 describe('hangar config apply', () => {
   it('指示書が無ければ、案内を出して失敗で終わる（JSON のときは理由の符号つき）', async () => {
     expect(await runConfigApply({ ...opts(), yes: true })).toBe(1);
-    expect(text()).toContain('適用の指示書がありません');
+    expect(text()).toContain('適用内容がありません');
     out = [];
     expect(await runConfigApply({ ...opts(), plan: true, json: true })).toBe(1);
     expect(JSON.parse(out.join(''))).toMatchObject({ ok: false, code: 'no-order' });
