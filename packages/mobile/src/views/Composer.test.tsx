@@ -24,7 +24,7 @@ function noAttachments(over: Partial<Attachments> = {}): Attachments {
   return { items: [], add: vi.fn(async () => undefined), remove: vi.fn(), retry: vi.fn(), notice: null, busy: false, failed: false, ready: [], ...over };
 }
 
-type Opts = { pc?: string | null; projectId?: string | null; accountId?: string | null; asker?: Partial<Asker>; attachments?: Attachments; initial?: string };
+type Opts = { pc?: string | null; projectId?: string | null; accountId?: string | null; asker?: Partial<Asker>; attachments?: Attachments; initial?: string; canAsk?: boolean; canAttach?: boolean };
 
 function setup(o: Opts = {}) {
   const asker: Asker = {
@@ -50,6 +50,8 @@ function setup(o: Opts = {}) {
           accountId={o.accountId === undefined ? 'acc-1' : o.accountId}
           accountName="アカウント 1"
           attachments={attachments}
+          canAsk={o.canAsk}
+          canAttach={o.canAttach}
         />
       </>
     );
@@ -82,6 +84,12 @@ describe('findTrigger と insertAt', () => {
 });
 
 describe('Composer の道具の列', () => {
+  it('画像を受け取れない PC（canAttach が false）では「＋」を出さない', () => {
+    setup({ canAttach: false });
+    expect(screen.queryByRole('button', { name: '画像を添付' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'スキルとコマンド' })).toBeInTheDocument();
+  });
+
   it('「＋」「/」「@」が並ぶ', () => {
     setup();
     expect(screen.getByRole('button', { name: '画像を添付' })).toHaveTextContent('＋');
@@ -210,11 +218,37 @@ describe('Composer の @ の候補', () => {
     await waitFor(() => expect(within(sheet()!).getByText('PC が応答しません')).toBeInTheDocument());
   });
 
-  it('呼び鈴の口が無いときは「この PC は候補の取得に対応していません」', async () => {
+  it('呼び鈴の口が無いときは「この PC は候補を返せません」と更新を促し、再試行を出さない', async () => {
     const { type } = setup({ asker: { commands: vi.fn(async () => Promise.reject(new AskError('unsupported', 404))) } });
     type('/');
-    await waitFor(() => expect(within(sheet()!).getByText('この PC は候補の取得に対応していません')).toBeInTheDocument());
+    await waitFor(() => expect(within(sheet()!).getByText('この PC は候補を返せません')).toBeInTheDocument());
     expect(within(sheet()!).getByText(/hangar を更新してください/)).toBeInTheDocument();
+    expect(within(sheet()!).queryByRole('button', { name: 'もう一度' })).not.toBeInTheDocument();
+  });
+
+  it('候補を返せない PC（canAsk が false）では、問い合わせずに「この PC は候補を返せません」', async () => {
+    const { asker, type } = setup({ canAsk: false });
+    type('/');
+    await waitFor(() => expect(within(sheet()!).getByText('この PC は候補を返せません')).toBeInTheDocument());
+    expect(within(sheet()!).getByText(/hangar を更新してください/)).toBeInTheDocument();
+    type('@');
+    await waitFor(() => expect(within(sheet()!).getByText('この PC は候補を返せません')).toBeInTheDocument());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(asker.commands).not.toHaveBeenCalled();
+    expect(asker.files).not.toHaveBeenCalled();
+  });
+
+  it('@ の後ろは 200 字で切って問い合わせる', async () => {
+    const { asker, type } = setup();
+    type(`@${'a'.repeat(250)}`);
+    await waitFor(() => expect(asker.files).toHaveBeenCalledWith('pc-1', 'p-a', 'a'.repeat(200)));
+  });
+
+  it('問い合わせが長すぎる（too-large）ときは再試行を出さない', async () => {
+    const { type } = setup({ asker: { files: vi.fn(async () => Promise.reject(new AskError('too-large', 413))) } });
+    type('@x');
+    await waitFor(() => expect(within(sheet()!).getByText(/手で入力しても/)).toBeInTheDocument());
+    expect(within(sheet()!).queryByRole('button', { name: 'もう一度' })).not.toBeInTheDocument();
   });
 
   it('クイックセッション（プロジェクトなし）では問い合わせない', async () => {

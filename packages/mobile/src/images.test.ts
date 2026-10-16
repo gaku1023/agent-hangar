@@ -1,4 +1,4 @@
-import { aadImage, COMPAT_HEADER, MOBILE_IMAGE_MAX_BYTES, openBytes } from '@agent-hangar/shared';
+import { aadImage, COMPAT_HEADER, MOBILE_BELL_MIN_WORKER_COMPAT, MOBILE_IMAGE_MAX_BYTES, openBytes } from '@agent-hangar/shared';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fitSize, ImageError, imageFailureText, IMAGE_LONG_EDGE, IMAGE_QUALITY, putImage, rejectImage, useAttachments, type PutImage, type Shrink } from './images.ts';
@@ -76,8 +76,13 @@ class FakeXhr {
     this.aborted = true;
     this.onabort?.();
   }
-  respond(status: number, body: unknown = {}): void {
+  compat: string | null = null;
+  getResponseHeader(k: string): string | null {
+    return k.toLowerCase() === COMPAT_HEADER ? this.compat : null;
+  }
+  respond(status: number, body: unknown = {}, compat: number | null = null): void {
     this.status = status;
+    this.compat = compat === null ? null : String(compat);
     this.responseText = JSON.stringify(body);
     this.onload?.();
   }
@@ -110,10 +115,10 @@ describe('putImage', () => {
   });
 
   it('断りの理由を分ける', async () => {
-    const reasonOf = async (status: number, body: unknown): Promise<string> => {
+    const reasonOf = async (status: number, body: unknown, compat: number | null = null): Promise<string> => {
       const p = putImage(pairing, key, 'L-1', 0, new Uint8Array([1]), { xhr });
       await waitFor(() => expect(FakeXhr.last?.body).toBeTruthy());
-      FakeXhr.last!.respond(status, body);
+      FakeXhr.last!.respond(status, body, compat);
       try {
         await p;
         return 'ok';
@@ -129,6 +134,10 @@ describe('putImage', () => {
     expect(await reasonOf(429, { error: 'rate limited' })).toBe('rate-limited');
     expect(await reasonOf(401, {})).toBe('unpaired');
     expect(await reasonOf(400, { error: 'invalid key' })).toBe('server');
+    // 画像の口の無い古い Worker（rc.1 も JSON の 404 を返す）は、版の見出しで見分ける。
+    expect(await reasonOf(404, { error: 'not found' }, MOBILE_BELL_MIN_WORKER_COMPAT - 1)).toBe('unsupported');
+    expect(await reasonOf(201, { ok: true }, MOBILE_BELL_MIN_WORKER_COMPAT - 1)).toBe('unsupported');
+    expect(await reasonOf(201, { ok: true }, MOBILE_BELL_MIN_WORKER_COMPAT)).toBe('ok');
   });
 
   it('通信が切れたら network、外したら aborted', async () => {

@@ -52,7 +52,10 @@ function errorView(reason: AskFailure, pcName: string, what: string): SuggestVie
     case 'pc-timeout':
       return { kind: 'error', title: 'PC が応答しません', text: `${pcName} がスリープしているか、hangar が停止しているか、hangar が古いかもしれません。${manual}`, retry: true };
     case 'unsupported':
-      return { kind: 'error', title: 'この PC は候補の取得に対応していません', text: `hangar を更新してください。${manual}`, retry: false };
+      return { kind: 'error', title: 'この PC は候補を返せません', text: `hangar を更新してください。${manual}`, retry: false };
+    case 'too-large':
+      // 同じ問い合わせは何度送っても通らない。
+      return { kind: 'error', title: '候補を取得できませんでした', text: manual, retry: false };
     case 'unreadable':
       return { kind: 'error', title: `${pcName} の応答を読み取れませんでした`, text: manual, retry: true };
     case 'rate-limited':
@@ -86,7 +89,14 @@ type Props = {
   accountId: string | null;
   accountName: string | null;
   attachments: Attachments;
+  /** 選んだ PC が `/` と `@` の問い合わせに答えられるか。false なら問い合わせずに、hangar の更新を促す。 */
+  canAsk?: boolean;
+  /** 選んだ PC と Worker が画像を受け取れるか。false なら「＋」を出さない。 */
+  canAttach?: boolean;
 };
+
+/** `@` の後ろを問い合わせに載せる長さの上限。長い q で問い合わせの本文の上限（4 KiB）を超えないため。 */
+export const FILE_QUERY_MAX = 200;
 
 type Result = { key: string; ok: true; list: CommandHit[] | FileHit[] } | { key: string; ok: false; reason: AskFailure };
 
@@ -94,7 +104,7 @@ type Result = { key: string; ok: true; list: CommandHit[] | FileHit[] } | { key:
  * 初期プロンプトの欄。欄の上に添付した画像、下に道具の列（「＋」「/」「@」）。
  * `/` と `@` の候補は、キーボードの上のシート（SuggestSheet）に出す。
  */
-export function Composer({ id, value, onChange, asker, pc, pcName, projectId, projectName, accountId, accountName, attachments: att }: Props): ReactNode {
+export function Composer({ id, value, onChange, asker, pc, pcName, projectId, projectName, accountId, accountName, attachments: att, canAsk = true, canAttach = true }: Props): ReactNode {
   const ta = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(value.length);
@@ -142,14 +152,15 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
   }, [open ? trigKey : null]);
 
   const where = `${pc ?? ''}\n${projectId ?? ''}`;
-  const want = !open || !trig || !pc ? null : trig.kind === '/' ? (accountId ? `/\n${where}\n${accountId}\n${retryNo}` : null) : projectId ? `@\n${where}\n${trig.q}\n${retryNo}` : null;
+  const fileQ = trig ? [...trig.q].slice(0, FILE_QUERY_MAX).join('') : '';
+  const want = !open || !trig || !pc || !canAsk ? null : trig.kind === '/' ? (accountId ? `/\n${where}\n${accountId}\n${retryNo}` : null) : projectId ? `@\n${where}\n${fileQ}\n${retryNo}` : null;
 
   useEffect(() => {
     if (!want || !trig || !pc) return;
     let stale = false;
     const key = want;
     const kind = trig.kind;
-    const q = trig.q;
+    const q = fileQ;
     const go = (): void => {
       const p: Promise<CommandHit[] | FileHit[]> = kind === '/' ? asker.commands(pc, projectId, accountId ?? '') : asker.files(pc, projectId ?? '', q);
       p.then(
@@ -186,6 +197,7 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
     if (trig.kind === '/') {
       head = pc ? `${pcName} · ${accountName ?? accountId ?? ''} のスキル` : 'スキルとコマンド';
       if (!pc) view = { kind: 'need', title: '先に PC を選んでください', text: '候補は、選んだ PC とアカウントから取得します。' };
+      else if (!canAsk) view = errorView('unsupported', pcName, 'スキルやコマンド');
       else if (!accountId) view = { kind: 'need', title: '先にアカウントを選んでください', text: '候補は、選んだ PC とアカウントから取得します。' };
       else if (res && res.key === want) view = res.ok ? { kind: 'commands', q: trig.q, list: res.list as CommandHit[] } : errorView(res.reason, pcName, 'スキルやコマンド');
       else view = loading;
@@ -193,6 +205,7 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
       head = pc && projectId ? `${projectName ?? projectId} のファイル · ${pcName}` : 'ファイル';
       if (!projectId) view = { kind: 'need', title: 'プロジェクトを選ぶと、ファイルが表示されます', text: 'クイックセッションでは、パスを手で入力してください。' };
       else if (!pc) view = { kind: 'need', title: '先に PC を選んでください', text: '候補は、選んだ PC から取得します。' };
+      else if (!canAsk) view = errorView('unsupported', pcName, 'パス');
       else if (res && res.key === want) view = res.ok ? { kind: 'files', q: trig.q, list: res.list as FileHit[] } : errorView(res.reason, pcName, 'パス');
       else {
         // 次の答えを待つ間は、前の答えのうち今の q に合うものを残す（打つたびに骨組みへ戻さない）。
@@ -266,9 +279,11 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
         />
         {n > 0 && <p className="cm-anote">{`${n}/4 枚 · 1 枚 5 MB まで`}</p>}
         <div className="cm-tools">
-          <button type="button" className="cm-tl plus" aria-label="画像を添付" onClick={() => setAttachOpen(true)}>
-            ＋
-          </button>
+          {canAttach && (
+            <button type="button" className="cm-tl plus" aria-label="画像を添付" onClick={() => setAttachOpen(true)}>
+              ＋
+            </button>
+          )}
           <button type="button" className="cm-tl key" aria-label="スキルとコマンド" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => startTrigger('/')}>
             /
           </button>
@@ -279,7 +294,7 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
       </div>
       {focused && <div className="cm-spacer" aria-hidden="true" />}
       <SuggestSheet open={open} head={head} view={view} onPick={pick} onRetry={() => setRetryNo((x) => x + 1)} onDismiss={() => setDismissed(trigKey)} />
-      <AttachSheet open={attachOpen} onClose={() => setAttachOpen(false)} onFiles={(files) => void att.add(files)} />
+      <AttachSheet open={attachOpen && canAttach} onClose={() => setAttachOpen(false)} onFiles={(files) => void att.add(files)} />
     </>
   );
 }

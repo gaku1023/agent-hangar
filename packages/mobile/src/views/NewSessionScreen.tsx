@@ -1,6 +1,7 @@
 import { EFFORT_VALUES, MODEL_CHOICES, PERMISSION_MODE_VALUES } from '@agent-hangar/shared/src/launchChoices.ts';
 import { MOBILE_PROMPT_MAX, type MobileAccount } from '@agent-hangar/shared/src/mobile.ts';
 import { useId, useMemo, useState, type ReactNode } from 'react';
+import { workerTooOld } from '../api.ts';
 import { createAsker, type Asker } from '../ask.ts';
 import { useAttachments, type PutImage, type Shrink } from '../images.ts';
 import type { InboxView } from '../inbox.ts';
@@ -96,19 +97,28 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
   const account = acctPicked && accounts.some((a) => a.id === acctPicked) ? acctPicked : accounts.length === 1 ? accounts[0]!.id : null;
   const accountOf = account ? (accounts.find((a) => a.id === account) ?? null) : null;
   const pcName = pc ? (names.get(pc) ?? pc) : '';
+  // 選んだ PC ができること。caps の無い素は rc.1 の PC で、依頼の画像と effort を黙って捨て、候補も返せない。
+  // PC を選ぶまでは分からないので、出しておく。
+  const caps = pc ? (view.feeds.find((f) => f.deviceId === pc)?.caps ?? null) : null;
+  const workerOld = workerTooOld(view.workerCompat ?? null);
+  const canAsk = !workerOld && (!pc || !!caps?.asks);
+  const canImages = !workerOld && (!pc || !!caps?.images);
+  const canEffort = !pc || !!caps?.effort;
+  const effortSent = canEffort ? effort : '';
 
   const tooLong = prompt.length > PROMPT_MAX;
   const left = PROMPT_MAX - prompt.length;
   const hasText = prompt.trim().length > 0 || att.ready.length > 0;
-  const ready = !!sel && (sel.scratch || !!project) && !!pc && !!account && hasText && !att.busy && !att.failed && !tooLong && !submitted;
+  const imagesBlocked = !canImages && att.items.length > 0;
+  const ready = !!sel && (sel.scratch || !!project) && !!pc && !!account && hasText && !att.busy && !att.failed && !imagesBlocked && !tooLong && !submitted;
   const nothing = choices.scratchDeviceIds.length === 0;
 
   const advShown = usePresence(adv ? ADV_ON : NO_ITEMS, (k) => k);
-  const noteShown = usePresence(effort === 'xhigh' || effort === 'max' ? NOTE_ON : NO_ITEMS, (k) => k);
+  const noteShown = usePresence(effortSent === 'xhigh' || effortSent === 'max' ? NOTE_ON : NO_ITEMS, (k) => k);
   const summary = [
     permissionMode ? `権限 ${PERMISSION_NAMES[permissionMode as keyof typeof PERMISSION_NAMES] ?? permissionMode}` : '',
     model ? `モデル ${model}` : '',
-    effort ? `effort ${effort}` : '',
+    effortSent ? `effort ${effortSent}` : '',
   ].filter(Boolean);
 
   const start = (): void => {
@@ -128,7 +138,7 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
         accountId: account,
         permissionMode,
         model,
-        ...(effort ? { effort } : {}),
+        ...(effortSent ? { effort: effortSent } : {}),
         prompt,
         ...(images.length > 0 ? { images: images.map((i) => ({ n: i.n, mime: i.mime, bytes: i.data.length })) } : {}),
       },
@@ -144,11 +154,13 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
       ? 'PC を選んでください'
       : !account
         ? 'アカウントを選んでください'
-        : att.failed
-          ? '送信できなかった画像があります'
-          : att.busy
-            ? '画像の送信中…'
-            : `${pcName} で始める`;
+        : imagesBlocked
+          ? 'この PC では画像を添付できません'
+          : att.failed
+            ? '送信できなかった画像があります'
+            : att.busy
+              ? '画像の送信中…'
+              : `${pcName} で始める`;
 
   return (
     <div className={`ns ${leaving ? 'leaving' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} inert={leaving}>
@@ -214,6 +226,8 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
                 accountId={account}
                 accountName={accountOf ? accountOf.name || accountOf.id : null}
                 attachments={att}
+                canAsk={canAsk}
+                canAttach={canImages}
               />
               {tooLong ? (
                 <p className="ns-limit over m-fade" role="status">
@@ -248,11 +262,13 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
                           <Choice key={m} small value={m} checked={model === m} onPick={() => setModel(m)} title={m || DEFAULT_LABEL} />
                         ))}
                       </Group>
-                      <Group label="effort" grid>
-                        {EFFORT_VALUES.map((v) => (
-                          <Choice key={v} small value={v} checked={effort === v} onPick={() => setEffort(v)} title={v || DEFAULT_LABEL} />
-                        ))}
-                      </Group>
+                      {canEffort && (
+                        <Group label="effort" grid>
+                          {EFFORT_VALUES.map((v) => (
+                            <Choice key={v} small value={v} checked={effort === v} onPick={() => setEffort(v)} title={v || DEFAULT_LABEL} />
+                          ))}
+                        </Group>
+                      )}
                       {noteShown.map((n) => (
                         <div key={n.key} className={`fold ${phaseClass(n.phase)}`} aria-hidden={n.phase === 'leave' ? true : undefined}>
                           <div className="fold-in">

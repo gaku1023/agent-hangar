@@ -1,15 +1,15 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
 import type { MobileAsk, MobileReply } from '@agent-hangar/shared/src/mobile.ts';
 import { aadAsk, aadReply, MobilePairingError, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
-import { mobileHeaders, originOf } from './api.ts';
+import { mobileHeaders, originOf, workerCompatOf, workerTooOld } from './api.ts';
 import type { Pairing } from './store.ts';
 
 /**
  * 問い合わせが答えを返さなかった理由。
  * - pc-offline：宛先の PC が呼び鈴につないでいない（503）。眠っている PC、止まった hangar、呼び鈴を知らない古い hangar もここに入る。
  * - pc-timeout：PC が 5 秒のうちに答えなかった（504）。
- * - unsupported：口の無い古い Worker（JSON でない 404）。
- * - not-found：宛先の PC が無いか、解除された（JSON の 404）。
+ * - unsupported：口の無い古い Worker（応答の版の見出しが MOBILE_BELL_MIN_WORKER_COMPAT 未満）。
+ * - not-found：宛先の PC が無いか、解除された（404）。
  * - unreadable：答えを開けないか、形が違う。
  * - project-missing、account-missing、bad-request：PC が断った（封の中の答え）。
  */
@@ -106,18 +106,14 @@ function readReply(v: unknown): AskReply | { error: AskFailure } | null {
   return null;
 }
 
-async function failureOf(res: Response): Promise<AskError> {
+function failureOf(res: Response): AskError {
   const s = res.status;
   if (s === 401) return new AskError('unpaired', s);
+  if (s === 404) return new AskError('not-found', s);
   if (s === 503) return new AskError('pc-offline', s);
   if (s === 504) return new AskError('pc-timeout', s);
   if (s === 429) return new AskError('rate-limited', s);
   if (s === 413) return new AskError('too-large', s);
-  if (s === 404) {
-    // 口のある Worker は JSON で断る。JSON でない 404 は、/m/ask を知らない古い Worker である。
-    const body = await res.json().catch(() => null);
-    return new AskError(body && typeof body === 'object' && 'error' in body ? 'not-found' : 'unsupported', s);
-  }
   return new AskError('server', s);
 }
 
@@ -147,7 +143,9 @@ export async function askPc(p: Pairing, key: CryptoKey, targetDevice: string, bo
   } catch {
     throw new AskError('network');
   }
-  if (!res.ok) throw await failureOf(res);
+  // /m/ask を知らない古い Worker（rc.1 も JSON の 404 を返す）は、応答の版の見出しで見分ける。
+  if (workerTooOld(workerCompatOf(res))) throw new AskError('unsupported', res.status);
+  if (!res.ok) throw failureOf(res);
   let out: unknown;
   try {
     out = await res.json();

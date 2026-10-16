@@ -1,8 +1,9 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
 import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, MOBILE_IMAGES_PER_PHONE, type MobileImageRef } from '@agent-hangar/shared/src/mobile.ts';
+import { COMPAT_HEADER, parseCompat } from '@agent-hangar/shared/src/compat.ts';
 import { aadImage, MobilePairingError, sealBytes } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { mobileHeaders, originOf } from './api.ts';
+import { mobileHeaders, originOf, workerTooOld } from './api.ts';
 import type { Pairing } from './store.ts';
 
 /** 縮めた後の長い辺。 */
@@ -34,7 +35,7 @@ export function rejectImage(o: { count: number; name?: string; bytes?: number })
   return null;
 }
 
-export type ImageFailure = 'too-large' | 'too-many' | 'rate-limited' | 'unpaired' | 'network' | 'server' | 'aborted';
+export type ImageFailure = 'too-large' | 'too-many' | 'rate-limited' | 'unpaired' | 'unsupported' | 'network' | 'server' | 'aborted';
 
 export class ImageError extends Error {
   constructor(
@@ -67,6 +68,8 @@ function imageCause(reason: ImageFailure): string {
       return '送信の上限です。少し待ってください。';
     case 'unpaired':
       return 'このスマホの接続は解除されています。';
+    case 'unsupported':
+      return 'クラウドが画像の添付に対応していません。PC の hangar を更新して、クラウドを更新してください。';
     case 'network':
       return '通信を確認してください。';
     default:
@@ -108,6 +111,12 @@ export const putImage: PutImage = async (p, key, launchId, n, data, o = {}) => {
     };
     x.onload = () => {
       const s = x.status;
+      // 画像の口を知らない古い Worker（rc.1 も JSON の 404 を返す）は、応答の版の見出しで見分ける。
+      const compat = x.getResponseHeader(COMPAT_HEADER);
+      if (workerTooOld(compat === null ? null : parseCompat(compat))) {
+        reject(new ImageError('unsupported', s));
+        return;
+      }
       if (s >= 200 && s < 300) {
         o.onProgress?.(100);
         resolve();

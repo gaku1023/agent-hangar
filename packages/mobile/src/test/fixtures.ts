@@ -28,6 +28,7 @@ export function feedOf(deviceId: string, deviceName: string, parts: Partial<Mobi
     v: 1,
     deviceId,
     deviceName,
+    caps: { asks: true, images: true, effort: true },
     accounts: [{ id: 'acc-1', name: 'アカウント 1', color: '#4a63e8', fiveHour: 32, sevenDay: 10 }],
     projects: [{ id: 'p-a', name: 'project-a', lastUsedAt: NOW - 60 * MIN }],
     live: [],

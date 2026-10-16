@@ -1,5 +1,5 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
-import { compatHeaders } from '@agent-hangar/shared/src/compat.ts';
+import { COMPAT_HEADER, compatHeaders, MOBILE_BELL_MIN_WORKER_COMPAT, parseCompat } from '@agent-hangar/shared/src/compat.ts';
 import type { MobileInboxResponse, MobileJoinResponse, MobileLaunchIn, MobileLaunchStatus } from '@agent-hangar/shared/src/mobile.ts';
 import { decodePairing, importMobileKey, MobilePairingError, type PairingBlob } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { loadKey, saveKey, type Pairing } from './store.ts';
@@ -134,12 +134,31 @@ async function postJoin(origin: string, code: string, name: string, key: CryptoK
   return { pairing: { url: origin, token: body.token, deviceId: body.deviceId }, key };
 }
 
+/**
+ * 応答の見出しから読む Worker の版。見出しが無ければ null（Worker の応答ならどれも版を載せるので、手前の層が返した応答である）。
+ */
+export function workerCompatOf(res: { headers: { get: (k: string) => string | null } } | null): number | null {
+  const v = res?.headers.get(COMPAT_HEADER) ?? null;
+  return v === null ? null : parseCompat(v);
+}
+
+/**
+ * Worker が呼び鈴（問い合わせ）と画像の口を持たない古い版か。
+ * rc.1 の Worker も知らない口に JSON の 404 を返すので、本文でなく版の見出しで見分ける。版が分からなければ古いとはみなさない。
+ */
+export function workerTooOld(compat: number | null): boolean {
+  return compat !== null && compat < MOBILE_BELL_MIN_WORKER_COMPAT;
+}
+
 /** スマホ用の口に送る見出し。どの /m/ の要求にも互換の版を付ける（無いと Worker は 426 で断る）。 */
 export function mobileHeaders(p: Pairing): Record<string, string> {
   return { ...compatHeaders(), authorization: `Bearer ${p.token}` };
 }
 
-export async function fetchInbox(p: Pairing): Promise<MobileInboxResponse> {
+/** 受信箱の応答に、応答の見出しから読んだ Worker の版を添えたもの。 */
+export type InboxFetched = MobileInboxResponse & { workerCompat: number | null };
+
+export async function fetchInbox(p: Pairing): Promise<InboxFetched> {
   let res: Response;
   try {
     res = await fetch(`${originOf(p.url)}/m/inbox`, { headers: mobileHeaders(p), cache: 'no-store' });
@@ -150,7 +169,7 @@ export async function fetchInbox(p: Pairing): Promise<MobileInboxResponse> {
   if (res.status === 401) throw new UnpairedError();
   if (!res.ok) throw new InboxError(res.status);
   try {
-    return (await res.json()) as MobileInboxResponse;
+    return { ...((await res.json()) as MobileInboxResponse), workerCompat: workerCompatOf(res) };
   } catch {
     throw new InboxError(res.status);
   }

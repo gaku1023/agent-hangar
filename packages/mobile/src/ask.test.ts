@@ -1,4 +1,4 @@
-import { aadAsk, aadReply, COMPAT_HEADER, open, seal, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
+import { aadAsk, aadReply, COMPAT_HEADER, MOBILE_BELL_MIN_WORKER_COMPAT, open, seal, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { askPc, AskError, ASK_DEBOUNCE_MS, createAsker, debounce, FILES_CACHE_MS, MOBILE_ASK_COMMANDS_MAX, MOBILE_ASK_FILES_MAX, type AskFailure } from './ask.ts';
 import { makeKey } from './test/fixtures.ts';
@@ -23,11 +23,15 @@ afterEach(() => {
 });
 
 /** POST /m/ask を受け、中身を開いて reply を封じて返す。reply が関数なら、開いた問い合わせから答えを作る。 */
-function serve(reply: MobileReply | ((a: MobileAsk) => MobileReply) | { http: number; body: unknown; text?: boolean }): void {
+function serve(reply: MobileReply | ((a: MobileAsk) => MobileReply) | { http: number; body: unknown; text?: boolean; compat?: number }): void {
   fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
     const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
     asks.push({ url, init, body });
-    if ('http' in reply) return reply.text ? new Response(String(reply.body), { status: reply.http }) : json(reply.body, reply.http);
+    if ('http' in reply) {
+      const res = reply.text ? new Response(String(reply.body), { status: reply.http }) : json(reply.body, reply.http);
+      if (reply.compat !== undefined) res.headers.set(COMPAT_HEADER, String(reply.compat));
+      return res;
+    }
     const a = await open<MobileAsk>(key, aadAsk(body.id, body.targetDevice), body.sealed);
     const r = typeof reply === 'function' ? reply(a) : reply;
     return json({ sealed: await seal(key, aadReply(body.id), r) });
@@ -85,12 +89,20 @@ describe('askPc', () => {
     expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'commands', projectId: 'p-a', accountId: 'x' }))).toBe('account-missing');
   });
 
-  it('Worker の断りを分ける（宛先なしの 404 と、口の無い古い Worker の 404 も分ける）', async () => {
+  it('Worker の版が呼び鈴の版に届かなければ unsupported（rc.1 の Worker も JSON の 404 を返すので、本文でなく版の見出しで見分ける）', async () => {
+    const q = () => askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
+    serve({ http: 404, body: { error: 'not found' }, compat: MOBILE_BELL_MIN_WORKER_COMPAT - 1 });
+    expect(await failureOf(q())).toBe('unsupported');
+    serve({ http: 200, body: { ok: true }, compat: MOBILE_BELL_MIN_WORKER_COMPAT - 1 });
+    expect(await failureOf(q())).toBe('unsupported');
+    serve({ http: 404, body: { error: 'not found' }, compat: MOBILE_BELL_MIN_WORKER_COMPAT });
+    expect(await failureOf(q())).toBe('not-found');
+  });
+
+  it('Worker の断りを分ける', async () => {
     const q = () => askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
     serve({ http: 404, body: { error: 'not found' } });
     expect(await failureOf(q())).toBe('not-found');
-    serve({ http: 404, body: '404 Not Found', text: true });
-    expect(await failureOf(q())).toBe('unsupported');
     serve({ http: 429, body: { error: 'too many asks' } });
     expect(await failureOf(q())).toBe('rate-limited');
     serve({ http: 401, body: { error: 'unauthorized' } });

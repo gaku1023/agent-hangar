@@ -1,7 +1,8 @@
-import { EFFORT_VALUES, PERMISSION_MODE_VALUES, type MobileFeed } from '@agent-hangar/shared';
+import { EFFORT_VALUES, MOBILE_BELL_MIN_WORKER_COMPAT, PERMISSION_MODE_VALUES, type MobileFeed } from '@agent-hangar/shared';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Asker } from '../ask.ts';
 import type { PutImage, Shrink } from '../images.ts';
 import { openInbox, type InboxView } from '../inbox.ts';
 import type { LaunchSpec } from '../launchRun.ts';
@@ -42,10 +43,10 @@ const twoPcs = (): MobileFeed[] => [
   }),
 ];
 
-async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof inboxOf>[2], deps?: { putImage?: PutImage; shrink?: Shrink }) {
+async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof inboxOf>[2], deps?: { putImage?: PutImage; shrink?: Shrink; asker?: Asker }, over: Partial<InboxView> = {}) {
   const onLaunch = vi.fn<(s: LaunchSpec) => void>();
   const onClose = vi.fn();
-  const view = await viewOf(feeds, opts);
+  const view = { ...(await viewOf(feeds, opts)), ...over };
   render(<NewSessionScreen view={view} pairing={pairing} cryptoKey={key} deps={deps} onLaunch={onLaunch} onClose={onClose} />);
   return { onLaunch, onClose };
 }
@@ -327,5 +328,76 @@ describe('NewSessionScreen の画像', () => {
     await act(async () => puts[0]!.resolve());
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     expect(specOf(onLaunch).payload.prompt).toBe('');
+  });
+});
+
+describe('NewSessionScreen と古い PC、古い Worker', () => {
+  const asker = (): Asker => ({ commands: vi.fn(async () => []), files: vi.fn(async () => []) });
+
+  beforeEach(() => {
+    vi.stubGlobal('URL', Object.assign(Object.create(URL), { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('caps の無い（rc.1 の）PC を選ぶと「＋」と effort の欄を出さず、依頼に effort を入れない', async () => {
+    const { onLaunch } = await setup([feedOf('pc-1', 'Mac', { caps: undefined })]);
+    fireEvent.click(advanced());
+    // PC を選ぶ前は、どちらも出る。
+    expect(screen.getByRole('button', { name: '画像を添付' })).toBeInTheDocument();
+    pick('effort', 'high');
+    // PC は 1 台なので、プロジェクトを選ぶと決まる。
+    pick('プロジェクト', /project-a/);
+    expect(screen.queryByRole('radiogroup', { name: 'effort' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '画像を添付' })).not.toBeInTheDocument();
+    expect(advanced()).not.toHaveTextContent('effort');
+    fireEvent.change(prompt(), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(specOf(onLaunch).payload).not.toHaveProperty('effort');
+  });
+
+  it('caps の無い PC では、/ と @ を問い合わせずに「この PC は候補を返せません」', async () => {
+    const a = asker();
+    await setup([feedOf('pc-1', 'Mac', { caps: undefined })], undefined, { asker: a });
+    pick('プロジェクト', /project-a/);
+    act(() => prompt().focus());
+    fireEvent.change(prompt(), { target: { value: '/', selectionStart: 1, selectionEnd: 1 } });
+    await waitFor(() => expect(screen.getByText('この PC は候補を返せません')).toBeInTheDocument());
+    expect(a.commands).not.toHaveBeenCalled();
+  });
+
+  it('画像を付けた後に caps の無い PC を選ぶと始められない', async () => {
+    const puts: (() => void)[] = [];
+    const putImage: PutImage = () => new Promise<void>((resolve) => puts.push(resolve));
+    const shrink: Shrink = async (f) => ({ data: new Uint8Array(await f.arrayBuffer()), mime: 'image/jpeg' });
+    const feeds = twoPcs();
+    feeds[1] = { ...feeds[1]!, caps: undefined };
+    await setup(feeds, undefined, { putImage, shrink });
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.click(screen.getByRole('button', { name: '画像を添付' }));
+    const dlg = await screen.findByRole('dialog', { name: '画像を添付' });
+    fireEvent.change(within(dlg).getByLabelText(/写真ライブラリ/), { target: { files: [new File([new Uint8Array(7)], 'a.jpg', { type: 'image/jpeg' })] } });
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await act(async () => puts[0]!());
+    pick('PC', /Mini/);
+    pick('アカウント', /アカウント 2/);
+    expect(screen.getByRole('button', { name: 'この PC では画像を添付できません' })).toBeDisabled();
+  });
+
+  it('Worker が呼び鈴の版に届かなければ「＋」を出さず、/ は問い合わせずに「この PC は候補を返せません」', async () => {
+    const a = asker();
+    await setup(twoPcs(), undefined, { asker: a }, { workerCompat: MOBILE_BELL_MIN_WORKER_COMPAT - 1 });
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    expect(screen.queryByRole('button', { name: '画像を添付' })).not.toBeInTheDocument();
+    act(() => prompt().focus());
+    fireEvent.change(prompt(), { target: { value: '/', selectionStart: 1, selectionEnd: 1 } });
+    await waitFor(() => expect(screen.getByText('この PC は候補を返せません')).toBeInTheDocument());
+    expect(a.commands).not.toHaveBeenCalled();
+    // effort は PC が効かせるので、Worker が古くても出す。
+    fireEvent.click(advanced());
+    expect(group('effort')).toBeInTheDocument();
   });
 });
