@@ -1,6 +1,5 @@
-import type { PromptCommandDto, PromptCommandSource, Translate } from '@agent-hangar/shared';
+import { appendPaths, type PromptCommandDto, type PromptCommandSource, type Translate } from '@agent-hangar/shared';
 import { baseName, splitLast } from '../../lib/paths.ts';
-import { quotePath } from '../../runtime/fileDrop.ts';
 
 /** 候補を出すきっかけ。start は、きっかけの記号（/ か @）の位置。 */
 export type Trigger = { kind: '/' | '@'; query: string; start: number };
@@ -72,10 +71,8 @@ export type Attachment = { path: string; name: string; size: number | null };
  * 置き場の名前は空白を含まないが、フォルダを落としたときは元のパスがそのまま来るので、端末へのドロップと同じ規則で囲む。
  */
 export function composePrompt(body: string, attachments: Attachment[]): string {
-  const text = body.trim();
-  if (!attachments.length) return text;
-  const paths = attachments.map((a) => quotePath(a.path)).join('\n');
-  return text ? `${text}\n\n${paths}` : paths;
+  // 並べ方は shared の appendPaths（スマホから起動を受けるサーバも同じ形で足す）。
+  return appendPaths(body, attachments.map((a) => a.path));
 }
 
 // 置き場は HANGAR_HOME の下の drops だが、UI は HANGAR_HOME を知らない。

@@ -163,13 +163,13 @@ describe('互換の版（下限を上げた Worker）', () => {
   });
 });
 
-describe('互換の版 7（スマホの口を足した版）', () => {
-  it('/health の compat が 7', async () => {
+describe('互換の版 8（スマホの口と呼び鈴を足した版）', () => {
+  it('/health の compat は COMPAT_VERSION（版 8 以上）', async () => {
     const c = await boot();
     const h = await c.RAW.fetch('https://x/health');
     expect(h.status).toBe(200);
-    expect(await h.json()).toMatchObject({ compat: 7 });
-    expect(h.headers.get(COMPAT_HEADER)).toBe('7');
+    expect(await h.json()).toMatchObject({ compat: COMPAT_VERSION });
+    expect(h.headers.get(COMPAT_HEADER)).toBe(String(COMPAT_VERSION));
   });
 
   it('版 6 の PC（x-hangar-compat: 6）の参加と push と pull が通る', async () => {

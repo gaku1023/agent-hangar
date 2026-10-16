@@ -22,9 +22,15 @@ describe('_headers', () => {
   const file = path.resolve(import.meta.dirname, '../_headers');
   const b = blocks(fs.readFileSync(file, 'utf8'));
 
-  it('/app/ の入口にも /app/* と同じ見出しを付ける（* が入口に当たらない場合に備える）', () => {
-    expect(b.get('/app/*')).toBeDefined();
-    expect(b.get('/app/')).toEqual(b.get('/app/*'));
-    expect(b.get('/app/')!.some((l) => l.startsWith('Content-Security-Policy:'))).toBe(true);
+  it('/app/* だけに明示する（/app/ の段を足すと重なって見出しが二重に付く）', () => {
+    expect(b.get('/app/')).toBeUndefined();
+    const rules = b.get('/app/*')!;
+    expect(rules.some((l) => l.startsWith('Content-Security-Policy:'))).toBe(true);
+    expect(rules.filter((l) => l.startsWith('Content-Security-Policy:'))).toHaveLength(1);
+  });
+
+  it('img-src は self、data:、blob:（写真のサムネイルを blob: で出す）', () => {
+    const csp = b.get('/app/*')!.find((l) => l.startsWith('Content-Security-Policy:'))!;
+    expect(csp).toMatch(/img-src 'self' data: blob:;/);
   });
 });

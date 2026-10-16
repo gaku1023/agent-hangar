@@ -1478,6 +1478,27 @@ describe('setup cloud の書く wrangler の設定', () => {
     expect(cfg.d1_databases.map((d) => d.binding)).toEqual(bindingNames(meta, 'd1'));
     expect(cfg.r2_buckets.map((b) => b.binding)).toEqual(bindingNames(meta, 'r2_bucket'));
   });
+
+  it('呼び鈴（Durable Object）の束縛と migrations を書き、同梱の定義と同じである（既存の束縛は変えない）', () => {
+    const { home } = dirs();
+    const file = writeWranglerConfig(home, { name: 'hangar', main: '/x/src/index.ts', dbName: 'hangar', dbId: DB_ID, bucketName: 'hangar-files', assetsDir: '/x/mobile/dist' });
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')) as {
+      d1_databases: unknown[];
+      r2_buckets: unknown[];
+      assets: unknown;
+      durable_objects: { bindings: { name: string; class_name: string }[] };
+      migrations: { tag: string; new_sqlite_classes: string[] }[];
+    };
+    expect(cfg.durable_objects).toEqual({ bindings: [{ name: 'BELL', class_name: 'HangarBell' }] });
+    expect(cfg.migrations).toEqual([{ tag: 'bell-v1', new_sqlite_classes: ['HangarBell'] }]);
+    const meta = workerMetadata(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cloud'));
+    expect(cfg.durable_objects.bindings.map((b) => b.name)).toEqual(bindingNames(meta, 'durable_object_namespace'));
+    expect(cfg.durable_objects.bindings).toEqual(meta.bindings.filter((b) => b.type === 'durable_object_namespace').map((b) => ({ name: b.name, class_name: (b as { class_name: string }).class_name })));
+    expect(cfg.migrations).toEqual(meta.migrations);
+    expect(cfg.d1_databases).toEqual([{ binding: 'DB', database_name: 'hangar', database_id: DB_ID }]);
+    expect(cfg.r2_buckets).toEqual([{ binding: 'BUCKET', bucket_name: 'hangar-files' }]);
+    expect(cfg.assets).toEqual({ directory: '/x/mobile/dist' });
+  });
 });
 
 describe('runSetupCloud のアカウントの選び方', () => {

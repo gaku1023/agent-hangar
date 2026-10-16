@@ -3,6 +3,7 @@ import {
   COMPAT_VERSION,
   LAUNCH_TTL_MS,
   MAX_PUSH_BATCH,
+  MOBILE_BELL_MIN_WORKER_COMPAT,
   MOBILE_MIN_WORKER_COMPAT,
   PULL_LIMIT,
   SHARED_TABLES,
@@ -58,6 +59,8 @@ export type FakeCloudStore = {
   mobileFeeds: Map<string, { sealed: string; updatedAt: number }>;
   /** スマホからの起動の依頼（POST /m/launches）。実物の launch_requests の表に当たる。 */
   launches: Map<string, FakeLaunch>;
+  /** スマホが置いた画像（封じたまま）。鍵は `<依頼>/<番号>`。実物の R2 の mobile/<スマホ>/<依頼>/<番号> に当たる。 */
+  mobileBlobs: Map<string, Uint8Array>;
   now: () => number;
 };
 
@@ -158,6 +161,7 @@ export class FakeCloudClient implements CloudClient {
       devices: new Map(),
       mobileFeeds: new Map(),
       launches: new Map(),
+      mobileBlobs: new Map(),
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -182,6 +186,7 @@ export class FakeCloudClient implements CloudClient {
   get files(): Map<string, StoredFile> { return this.store.files; }
   get mobileFeeds(): Map<string, { sealed: string; updatedAt: number }> { return this.store.mobileFeeds; }
   get launches(): Map<string, FakeLaunch> { return this.store.launches; }
+  get mobileBlobs(): Map<string, Uint8Array> { return this.store.mobileBlobs; }
 
   /**
    * 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。
@@ -361,6 +366,8 @@ export class FakeCloudClient implements CloudClient {
     if (!l || l.targetDevice !== this.deviceId || l.status !== 'claimed') throw new CloudError(409, errorBody('conflict'));
     l.status = ok ? 'started' : 'failed';
     l.sealedAnswer = sealedAnswer;
+    // 実物は答えが通ったら、その依頼の画像を消す。
+    for (const k of [...this.store.mobileBlobs.keys()]) if (k.startsWith(`${id}/`)) this.store.mobileBlobs.delete(k);
   }
 
   async snapshot(after: string | null, limit: number): Promise<SnapshotResponse> {
@@ -485,6 +492,31 @@ export class FakeCloudClient implements CloudClient {
     if (ENC.encode(JSON.stringify({ sealed })).byteLength > MAX_FEED_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
     if (sealed.length === 0) throw new CloudError(400, errorBody('invalid body'));
     this.store.mobileFeeds.set(this.deviceId, { sealed, updatedAt: this.store.now() });
+  }
+
+  /** DELETE /m/feed。自分の受信箱の素の行を消す。行が無くても成功する。版 8 より前の Worker は 404 で断る。 */
+  async deleteMobileFeed(): Promise<void> {
+    this.guard('deleteMobileFeed');
+    if (this.store.workerCompat < MOBILE_BELL_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+    this.store.mobileFeeds.delete(this.deviceId);
+  }
+
+  /** スマホの PUT /m/blobs の真似（試験が画像を置くための口で、CloudClient には無い）。 */
+  putBlob(launchId: string, n: number, bytes: Uint8Array): void {
+    this.store.mobileBlobs.set(`${launchId}/${n}`, bytes);
+  }
+
+  /**
+   * GET /m/blobs/<依頼>/<番号>。自分宛てで claimed の依頼の画像だけを返す。それ以外と、無いものは 404。
+   * 版 8 より前の Worker は 404 で断る。
+   */
+  async getMobileBlob(launchId: string, n: number): Promise<Uint8Array> {
+    this.guard('getMobileBlob', launchId, n);
+    if (this.store.workerCompat < MOBILE_BELL_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+    const l = this.store.launches.get(launchId);
+    const b = this.store.mobileBlobs.get(`${launchId}/${n}`);
+    if (!l || l.targetDevice !== this.deviceId || l.status !== 'claimed' || !b) throw new CloudError(404, errorBody('not found'));
+    return b.slice();
   }
 
   /** GET /usage の応答。試験が差し替える。既定はトークンの無い Worker と同じ。 */

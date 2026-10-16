@@ -153,27 +153,35 @@ export function rankFiles(files: string[], query: string, limit: number): string
   return scored.sort((a, b) => a.r - b.r || a.f.length - b.f.length || a.f.localeCompare(b.f)).slice(0, limit).map((x) => x.f);
 }
 
+/** 作業中（変えた、新しい）のファイルを、今あるものだけ変更時刻の新しい順に。消えたものや、一覧の後で消えたものは stat が落ちるので飛ばす。 */
+async function gitChangedByTime(root: string): Promise<string[]> {
+  const changed = [...new Set(splitNul(await fileSearchDeps.git(root, ['ls-files', '-z', '-m', '-o', '--exclude-standard'])))].slice(0, MAX_CHANGED);
+  const withTime: { f: string; t: number }[] = [];
+  for (const f of changed) {
+    try { const s = fs.statSync(path.join(root, f)); if (s.isFile()) withTime.push({ f, t: s.mtimeMs }); } catch { /* 飛ばす */ }
+  }
+  return withTime.sort((a, b) => b.t - a.t).map((x) => x.f);
+}
+
+/** 最近のコミットに入ったファイル（新しいコミットから）。コミットがまだ無いだけ（128）なら空。 */
+async function gitCommitted(root: string): Promise<string[]> {
+  try {
+    // --relative：根がリポジトリの下のフォルダでも、その中だけを根からの相対パスで返す。
+    return splitNul(await fileSearchDeps.git(root, ['log', '-n', String(RECENT_COMMITS), '--name-only', '--relative', '--pretty=format:', '-z']));
+  } catch (e) {
+    if (!isNotGit(e)) throw e;
+    return [];
+  }
+}
+
 /** git のフォルダの最近：作業中（変えた、新しい）を新しい順に、続けて最近のコミットに入ったものを。全件の stat はしない。 */
 async function gitRecents(root: string, n: number): Promise<string[]> {
   if (gitRecentlyFailed(root)) return [];
   const out: string[] = [];
   const seen = new Set<string>();
   try {
-    const changed = [...new Set(splitNul(await fileSearchDeps.git(root, ['ls-files', '-z', '-m', '-o', '--exclude-standard'])))].slice(0, MAX_CHANGED);
-    const withTime: { f: string; t: number }[] = [];
-    for (const f of changed) {
-      // 消えたものや、一覧の後で消えたものは stat が落ちるので飛ばす。
-      try { const s = fs.statSync(path.join(root, f)); if (s.isFile()) withTime.push({ f, t: s.mtimeMs }); } catch { /* 飛ばす */ }
-    }
-    for (const x of withTime.sort((a, b) => b.t - a.t)) { out.push(x.f); seen.add(x.f); }
-    let log = '';
-    try {
-      // --relative：根がリポジトリの下のフォルダでも、その中だけを根からの相対パスで返す。
-      log = await fileSearchDeps.git(root, ['log', '-n', String(RECENT_COMMITS), '--name-only', '--relative', '--pretty=format:', '-z']);
-    } catch (e) {
-      if (!isNotGit(e)) throw e; // コミットがまだ無いだけ（128）なら、作業中のものだけを返す
-    }
-    for (const f of splitNul(log)) {
+    for (const f of await gitChangedByTime(root)) { out.push(f); seen.add(f); }
+    for (const f of await gitCommitted(root)) {
       if (out.length >= n) break;
       if (seen.has(f) || !isFileNow(root, f)) continue;
       seen.add(f);
@@ -184,6 +192,57 @@ async function gitRecents(root: string, n: number): Promise<string[]> {
     return [];
   }
   return out.slice(0, n);
+}
+
+/**
+ * スマホの `@` の問いが空のときの候補（mobile/asks.ts）。プロジェクトの根からの相対パスに、git の変更ありの印を添える。
+ * git のフォルダは、変更ありを変更時刻の新しい順に先に、続けて最近のコミットに入ったものを変更時刻の新しい順に返す。
+ * 全件の stat はしない（最近のコミットに入ったものだけを見る）。
+ * git でないフォルダは、歩いた結果を変更時刻だけで並べ、変更ありの印は付けない。
+ */
+export async function listRecentFiles(root: string, n: number): Promise<{ path: string; changed: boolean }[]> {
+  const entry = await entryFor(root);
+  if (!entry.isGit) return walkRecents(root, entry.files, n).map((f) => ({ path: f, changed: false }));
+  if (gitRecentlyFailed(root)) return [];
+  try {
+    const changed = (await gitChangedByTime(root)).slice(0, n);
+    const seen = new Set(changed);
+    const rest: { f: string; t: number }[] = [];
+    for (const f of await gitCommitted(root)) {
+      if (rest.length >= MAX_CHANGED || changed.length + rest.length >= n + MAX_CHANGED) break;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      try { const s = fs.statSync(path.join(root, f)); if (s.isFile()) rest.push({ f, t: s.mtimeMs }); } catch { /* 消えたもの */ }
+    }
+    rest.sort((a, b) => b.t - a.t);
+    return [...changed.map((f) => ({ path: f, changed: true })), ...rest.map((x) => ({ path: x.f, changed: false }))].slice(0, n);
+  } catch {
+    noteGitFailure(root);
+    return [];
+  }
+}
+
+/** 根ごとの、作業中のファイルの組。打つたびに git を呼ばないために CACHE_MS だけ覚える。 */
+const changedCache = new Map<string, { at: number; files: Set<string> }>();
+
+/**
+ * git の作業中（変えた、新しい）のファイルの組（スマホの `@` の問いがあるときの印に使う）。
+ * git でないフォルダや、git が転んだときは空の組を返す。投げない。
+ */
+export async function changedFiles(root: string): Promise<Set<string>> {
+  const hit = changedCache.get(root);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.files;
+  const entry = await entryFor(root);
+  let files = new Set<string>();
+  if (entry.isGit && !gitRecentlyFailed(root)) {
+    try {
+      files = new Set(splitNul(await fileSearchDeps.git(root, ['ls-files', '-z', '-m', '-o', '--exclude-standard'])).slice(0, MAX_CHANGED));
+    } catch {
+      noteGitFailure(root);
+    }
+  }
+  remember(changedCache, root, { at: Date.now(), files }, MAX_ROOTS);
+  return files;
 }
 
 /** git でないフォルダの最近：歩いた結果（上限つき）を stat して新しい順に。 */

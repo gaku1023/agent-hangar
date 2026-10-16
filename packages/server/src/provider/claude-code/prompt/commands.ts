@@ -19,7 +19,9 @@ const BUILTIN = [
   { name: 'schedule', description: 'prompt.builtin.schedule', argumentHint: null },
 ] as const satisfies readonly { name: string; description: MessageKey; argumentHint: MessageKey | '[low|medium|high]' | null }[];
 
-type Found = Omit<PromptCommandDto, 'uses'>;
+/** 候補の種類。スマホの `/` の候補（mobile/asks.ts）がスキルとコマンドを分けて見せるのに使う。組み込みは command。 */
+export type PromptCommandKind = 'skill' | 'command';
+type Found = Omit<PromptCommandDto, 'uses'> & { kind: PromptCommandKind };
 
 const readText = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
 const readJson = (file: string): unknown => { const t = readText(file); if (t === null) return null; try { return JSON.parse(t); } catch { return null; } };
@@ -34,7 +36,8 @@ function fromDoc(file: string, fallbackName: string, source: PromptCommandSource
   const fm = parseFrontmatter(text);
   if (fm['user-invocable'] === 'false') return null;
   const base = nameFromFile ? fallbackName : fm.name || fallbackName;
-  return { name: prefix + base, description: (fm.description ?? '').split('\n')[0]!.trim(), argumentHint: fm['argument-hint'] || null, source };
+  // スキルは名前をファイルの中から取り、コマンドはファイルの名前から取る。
+  return { name: prefix + base, description: (fm.description ?? '').split('\n')[0]!.trim(), argumentHint: fm['argument-hint'] || null, source, kind: nameFromFile ? 'command' : 'skill' };
 }
 
 function skillsIn(dir: string, source: PromptCommandSource, prefix = ''): Found[] {
@@ -82,6 +85,11 @@ function pluginRoots(claudeDir: string): { plugin: string; root: string }[] {
  * 同じ名前は、プロジェクト、自分の、プラグイン、組み込みの順で先のものを残す。
  */
 export function listPromptCommands(o: { claudeDir: string; projectPath: string | null; language?: Language }): PromptCommandDto[] {
+  return listPromptCommandsWithKind(o).map(({ kind: _kind, ...c }) => c);
+}
+
+/** listPromptCommands と同じ候補に、スキルかコマンドかの印（kind）を添えたもの。スマホの `/` の候補が使う。 */
+export function listPromptCommandsWithKind(o: { claudeDir: string; projectPath: string | null; language?: Language }): (PromptCommandDto & { kind: PromptCommandKind })[] {
   const tr = translator(o.language ?? DEFAULT_LANGUAGE);
   const hint = (h: (typeof BUILTIN)[number]['argumentHint']) => (h === null || h === '[low|medium|high]' ? h : tr(h));
   const found: Found[] = [];
@@ -93,10 +101,10 @@ export function listPromptCommands(o: { claudeDir: string; projectPath: string |
   for (const { plugin, root } of pluginRoots(o.claudeDir)) {
     found.push(...skillsIn(path.join(root, 'skills'), 'plugin', `${plugin}:`), ...commandsIn(path.join(root, 'commands'), 'plugin', `${plugin}:`));
   }
-  found.push(...BUILTIN.map((b) => ({ name: b.name, description: tr(b.description), argumentHint: hint(b.argumentHint), source: 'builtin' as const })));
+  found.push(...BUILTIN.map((b) => ({ name: b.name, description: tr(b.description), argumentHint: hint(b.argumentHint), source: 'builtin' as const, kind: 'command' as const })));
   const uses = firstPromptUses(path.join(o.claudeDir, 'history.jsonl'));
   const seen = new Set<string>();
-  const out: PromptCommandDto[] = [];
+  const out: (PromptCommandDto & { kind: PromptCommandKind })[] = [];
   for (const c of found) {
     if (seen.has(c.name)) continue;
     seen.add(c.name);

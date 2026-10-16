@@ -23,7 +23,20 @@ export type DeviceRow = {
  * Worker の束縛である。`JOIN_SECRET_HASH`、`USAGE_API_TOKEN`、`CF_ACCOUNT_ID` は wrangler の secret で入れる。
  * USAGE_API_TOKEN は読み取り専用（Billing Read、Account Analytics Read）の API トークンで、無ければ /usage は configured: false を返す。
  */
-export type Env = { DB: D1Database; BUCKET: R2Bucket; JOIN_SECRET_HASH?: string; USAGE_API_TOKEN?: string; CF_ACCOUNT_ID?: string };
+export type Env = {
+  DB: D1Database;
+  BUCKET: R2Bucket;
+  /**
+   * 呼び鈴（bell.ts の HangarBell）。
+   * rc.1 の設定のまま再配備していない Worker には無いので、省ける形にする。無ければ鳴らさず、問い合わせは 503 で返す。
+   */
+  BELL?: DurableObjectNamespace;
+  JOIN_SECRET_HASH?: string;
+  USAGE_API_TOKEN?: string;
+  CF_ACCOUNT_ID?: string;
+  /** 呼び鈴の答えの待ちを短くする。試験のためだけのもので、実物の配備では置かない（bell.ts の askTimeoutMs）。 */
+  BELL_ASK_TIMEOUT_MS?: string;
+};
 
 /** 認証を通した後の文脈である。`c.get('device')` で取る。 */
 export type Vars = { device: DeviceRow };

@@ -82,7 +82,8 @@ export async function requestLaunch(
 export type LaunchStage = 'waiting' | 'started' | 'failed' | 'expired' | 'unreadable' | 'unpaired' | 'unanswered';
 
 /** 既定の読み直しの間隔と、諦めるまでの長さ（LAUNCH_TTL_MS の 75 秒に少し足す）。 */
-export const LAUNCH_POLL_MS = 3_000;
+/** 呼び鈴で数秒のうちに答えが来るので 2 秒ごとに読む。 */
+export const LAUNCH_POLL_MS = 2_000;
 export const LAUNCH_GIVE_UP_MS = 80_000;
 
 /**
@@ -92,6 +93,7 @@ export const LAUNCH_GIVE_UP_MS = 80_000;
  * - started は ok:true の答えを開けたときだけ。ok:false の答えなら failed として答えを渡す。
  * - failed は ok:false の答えを添える。ok:true の答えは食い違いなので unreadable。
  * - 答えが無い、開けないときは、started でも failed でも unreadable。
+ * - PC が受け取った（claimed を最初に見た）ときに onClaimed を 1 度呼ぶ。
  * - Worker が expired と言うか、giveUpMs を過ぎたら expired。ただし claimed を一度でも見た後に giveUpMs を過ぎたら unanswered（PC は受け取っている）。
  * - 通信の失敗は待ち続ける。依頼が見つからない（404）ときは failed（答えなし）、接続が外された（401）ときは unpaired。
  */
@@ -99,7 +101,7 @@ export function waitLaunch(
   p: Pairing,
   key: CryptoKey,
   id: string,
-  o: { everyMs?: number; giveUpMs?: number; onStage: (s: LaunchStage, a?: MobileLaunchAnswer) => void },
+  o: { everyMs?: number; giveUpMs?: number; onStage: (s: LaunchStage, a?: MobileLaunchAnswer) => void; onClaimed?: () => void },
 ): () => void {
   const every = o.everyMs ?? LAUNCH_POLL_MS;
   const giveUp = o.giveUpMs ?? LAUNCH_GIVE_UP_MS;
@@ -141,7 +143,10 @@ export function waitLaunch(
         finish('expired');
         return;
       }
-      if (st.status === 'claimed') claimed = true;
+      if (st.status === 'claimed' && !claimed) {
+        claimed = true;
+        o.onClaimed?.();
+      }
     } catch (e) {
       if (e instanceof LaunchError && e.reason === 'unpaired') {
         finish('unpaired');

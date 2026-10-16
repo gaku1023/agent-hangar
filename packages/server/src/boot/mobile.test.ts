@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { aadAnswer, aadFeed, aadLaunch, open, seal, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
+import fs from 'node:fs';
+import type { IncomingHttpHeaders } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
+import { aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
 import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
@@ -7,7 +13,7 @@ import { openDb } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { noteIntent } from '../live/intents.ts';
 import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_SAFETY_MS, mobileKeyFor } from '../mobile/publisher.ts';
-import type { CloudClient } from '../sync/client.ts';
+import type { BellTarget, CloudClient } from '../sync/client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { ANSWER_RESEND_TICK_MS, bootMobile, PHONE_RECHECK_MS } from './mobile.ts';
@@ -17,6 +23,7 @@ const SECRET = 'join-secret-for-tests-0123456789abcdef';
 /** 同期の engine の真似。購読（on）だけを持ち、試験が launches を流す。 */
 class FakeEngine {
   readonly listeners = new Set<SyncListener>();
+  readonly pullNow = vi.fn(async () => ({ applied: 0 }));
   on(l: SyncListener): () => void { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
   emitLaunches(l: MobileLaunchOut[]): void { for (const x of [...this.listeners]) x.launches?.(l); }
 }
@@ -29,6 +36,9 @@ const devicesDto = (devices: CloudDevicesDto['devices'], state: CloudDevicesDto[
 const withPhone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc'), device('phone-1', 'mobile')]);
 /** PC だけの一覧。 */
 const noPhone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc'), device('pc-b', 'pc')]);
+
+const homeDirs: string[] = [];
+afterEach(() => { for (const d of homeDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
 function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () => never; devices?: CloudDevicesDto } = {}) {
   const db = openDb(':memory:');
@@ -64,8 +74,10 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
     cloudDevices,
     onCloudDevices: (cb: (d: CloudDevicesDto) => void) => { deviceListeners.add(cb); return () => { deviceListeners.delete(cb); }; },
   };
+  const homeDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-boot-mobile-')), 'home');
+  homeDirs.push(path.dirname(homeDir));
   const mobile = bootMobile({
-    home: { db, device: { id: 'pc-a', name: 'PC A' } },
+    home: { db, device: { id: 'pc-a', name: 'PC A' }, home: homeDir },
     delivery: { registry },
     runs: { runs: { start, on }, accounts },
     sync,
@@ -73,7 +85,7 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
     now: () => timers.now,
   });
   return {
-    db, timers, client, mobile, registryListeners, accounts, broadcasts, start, runListeners,
+    db, timers, client, mobile, homeDir, registryListeners, accounts, broadcasts, start, runListeners,
     engine: () => engine,
     setEngine: (e: FakeEngine) => { engine = e; },
     setLink: (l: typeof link) => { link = l; },
@@ -246,6 +258,109 @@ describe('bootMobile', () => {
       s.mobile.stop();
     });
 
+    const deletes = (s: ReturnType<typeof setup>, c: { calls: { method: string }[] } = s.client): number => c.calls.filter((x) => x.method === 'deleteMobileFeed').length;
+
+    it('最後のスマホを外したら、見回りの読み直しで知り、受信箱の素を Worker から 1 回だけ消す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(true);
+      s.setDevices(devicesDto([device('pc-a', 'pc'), device('phone-1', 'mobile', 5)]));
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await settle(() => deletes(s) === 1);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(false);
+      // 以後は消す要求も書き込みも出さない（読み直しが何度来ても）。
+      s.accounts.broadcast({} as AccountsDto);
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await quiet();
+      expect(deletes(s)).toBe(1);
+      expect(writes(s)).toBe(1);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(false);
+      s.mobile.stop();
+    });
+
+    it('消した後にスマホがまたつながったら、素を置き直す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      s.uiLoads(noPhone());
+      await settle(() => deletes(s) === 1);
+      s.uiLoads(withPhone());
+      await s.timers.advance(FEED_MIN_GAP_MS + FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 2);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(true);
+      s.mobile.stop();
+    });
+
+    it('スマホが一度も無かった PC は、消す要求を出さない', async () => {
+      const s = setup({ devices: noPhone() });
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await quiet();
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await quiet();
+      expect(s.cloudDevices).toHaveBeenCalled();
+      expect(deletes(s)).toBe(0);
+      s.mobile.stop();
+    });
+
+    it('消すのに失敗したら、次の読み直しでやり直す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      s.setDevices(noPhone());
+      s.client.offline = true;
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await settle(() => deletes(s) === 1);
+      s.client.offline = false;
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await settle(() => deletes(s) === 2);
+      expect(s.client.mobileFeeds.has('pc-a')).toBe(false);
+      await s.timers.advance(PHONE_RECHECK_MS);
+      await quiet();
+      expect(deletes(s)).toBe(2);
+      s.mobile.stop();
+    });
+
+    it('つなぎ先（cloud.json）が変わったら、スマホが有るという覚えを捨てて、5 分を待たずに読み直す', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      expect(s.cloudDevices).toHaveBeenCalledTimes(1);
+      const next = s.client.asDevice('pc-a');
+      await next.health();
+      // 新しいつなぎ先にはスマホが居ない。
+      s.setDevices(noPhone());
+      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      await s.timers.advance(FEED_SAFETY_MS);
+      await settle(() => s.cloudDevices.mock.calls.length === 2);
+      // 新しいつなぎ先には書かず、前のつなぎ先に居たスマホのための消す要求も出さない。
+      s.accounts.broadcast({} as AccountsDto);
+      await s.timers.advance(FEED_MIN_GAP_MS + FEED_DEBOUNCE_MS);
+      await quiet();
+      expect(next.calls.filter((c) => c.method === 'putMobileFeed')).toHaveLength(0);
+      expect(deletes(s, next)).toBe(0);
+      s.mobile.stop();
+    });
+
+    it('つなぎ先が変わった後、新しい先にスマホが居れば新しい先へ書く', async () => {
+      const s = setup();
+      s.mobile.start();
+      await s.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => writes(s) === 1);
+      const next = s.client.asDevice('pc-a');
+      await next.health();
+      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      await s.timers.advance(FEED_SAFETY_MS + FEED_DEBOUNCE_MS);
+      await settle(() => next.calls.some((c) => c.method === 'putMobileFeed'));
+      s.mobile.stop();
+    });
+
     it('止めたら一覧の購読を外す', () => {
       const s = setup();
       s.mobile.start();
@@ -287,6 +402,19 @@ describe('bootMobile', () => {
       expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', prompt: '会話 1 を始める' });
       expect(await answerOf(s, 'l1')).toMatchObject({ ok: true, sessionId: 's-new' });
       expect(nudge).toHaveBeenCalled();
+      s.mobile.stop();
+    });
+
+    it('effort と画像つきの依頼を、hangar の home の drops に画像を置き、effort とパスつきの指示で起こす', async () => {
+      const s = setup();
+      placeProject(s.db);
+      s.mobile.start();
+      const key = await mobileKeyFor(SECRET);
+      s.client.putBlob('l1', 0, await sealBytes(key, aadImage('l1', 0), new Uint8Array([7, 7, 7])));
+      await deliver(s, 'l1', { effort: 'high', images: [{ n: 0, mime: 'image/png', bytes: 3 }] });
+      await settle(() => s.client.launches.get('l1')!.status === 'started');
+      const [f] = fs.readdirSync(path.join(s.homeDir, 'drops'));
+      expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', effort: 'high', prompt: `会話 1 を始める\n\n${quotePath(path.join(s.homeDir, 'drops', f!))}` });
       s.mobile.stop();
     });
 
@@ -345,6 +473,111 @@ describe('bootMobile', () => {
       await settle(() => s.client.launches.get('l1')!.status === 'started');
       s.mobile.stop();
       expect(s.engine().listeners.size).toBe(0);
+    });
+  });
+
+  describe('呼び鈴', () => {
+    /** Worker の /m/bell の真似。受けた見出しとつながりを覚える。 */
+    async function fakeBellWorker() {
+      const attempts: IncomingHttpHeaders[] = [];
+      const conns: WsSocket[] = [];
+      const received: string[] = [];
+      const wss = new WebSocketServer({ port: 0, host: '127.0.0.1', verifyClient: (info, cb) => { attempts.push(info.req.headers); cb(true); } });
+      wss.on('connection', (ws) => { conns.push(ws); ws.on('message', (d) => { received.push(d.toString()); }); });
+      await new Promise<void>((r) => wss.once('listening', () => r()));
+      const url = `ws://127.0.0.1:${(wss.address() as AddressInfo).port}/m/bell`;
+      return { url, attempts, received, open: () => conns.filter((c) => c.readyState === c.OPEN), close: () => new Promise<void>((r) => { for (const c of conns) c.terminate(); wss.close(() => r()); }) };
+    }
+    const quiet = () => new Promise((r) => setTimeout(r, 40));
+
+    async function bellSetup(o: { workerCompat?: number; devices?: CloudDevicesDto } = {}) {
+      const w = await fakeBellWorker();
+      const s = setup(o.devices ? { devices: o.devices } : {});
+      s.client.workerCompat = o.workerCompat ?? COMPAT_VERSION;
+      // Worker と 1 度話して版を覚える（本物は pull の応答で覚える）。
+      await s.client.health();
+      const bellTarget = vi.fn((): BellTarget => ({ url: w.url, headers: { authorization: 'Bearer pc-token', [COMPAT_HEADER]: String(COMPAT_VERSION) } }));
+      (s.client as CloudClient).bellTarget = bellTarget;
+      return { ...s, w, bellTarget };
+    }
+    const cleanups: (() => Promise<void> | void)[] = [];
+    afterEach(async () => { for (const c of cleanups.splice(0)) await c(); });
+
+    it('Worker の版が 8 以上でスマホが 1 台以上あれば、Bearer と互換の版でつなぐ。鳴ったら今の engine の pullNow を呼ぶ', async () => {
+      const s = await bellSetup();
+      cleanups.push(() => s.mobile.stop(), () => s.w.close());
+      s.mobile.start();
+      await settle(() => s.w.open().length === 1);
+      expect(s.w.attempts[0]!.authorization).toBe('Bearer pc-token');
+      expect(s.w.attempts[0]![COMPAT_HEADER]).toBe(String(COMPAT_VERSION));
+      s.w.open()[0]!.send(JSON.stringify({ t: 'launch' }));
+      await settle(() => s.engine().pullNow.mock.calls.length === 1);
+    });
+
+    it(`Worker の版が ${MOBILE_BELL_MIN_WORKER_COMPAT} 未満ならつながない`, async () => {
+      const s = await bellSetup({ workerCompat: MOBILE_BELL_MIN_WORKER_COMPAT - 1 });
+      cleanups.push(() => s.mobile.stop(), () => s.w.close());
+      s.mobile.start();
+      await quiet();
+      await s.timers.advance(FEED_SAFETY_MS);
+      await quiet();
+      expect(s.w.attempts).toHaveLength(0);
+    });
+
+    it('スマホが 1 台も無ければつながず、現れたらつなぎ、外したら閉じる', async () => {
+      const s = await bellSetup({ devices: noPhone() });
+      cleanups.push(() => s.mobile.stop(), () => s.w.close());
+      s.mobile.start();
+      await quiet();
+      expect(s.w.attempts).toHaveLength(0);
+      s.uiLoads(withPhone());
+      await settle(() => s.w.open().length === 1);
+      s.uiLoads(devicesDto([device('pc-a', 'pc'), device('phone-1', 'mobile', 5)]));
+      await settle(() => s.w.open().length === 0);
+    });
+
+    it('問い合わせに、この PC のプロジェクトの根で答え、封じた答えを返す', async () => {
+      const s = await bellSetup();
+      cleanups.push(() => s.mobile.stop(), () => s.w.close());
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-bell-'));
+      fs.writeFileSync(path.join(root, 'one.ts'), 'x');
+      upsertShared(s.db, 'projects', { id: 'project-a', name: 'project-a', status: 'active', is_scratch: 0 }, 'pc-a');
+      upsertShared(s.db, 'project_roots', { id: 'r-a', project_id: 'project-a', device_id: 'pc-a', path: root, resolved: 1 }, 'pc-a');
+      s.mobile.start();
+      await settle(() => s.w.open().length === 1);
+      const key = await mobileKeyFor(SECRET);
+      const ws = s.w.open()[0]!;
+      ws.send(JSON.stringify({ t: 'ask', id: 'q1', sealed: await seal(key, aadAsk('q1', 'pc-a'), { v: 1, kind: 'files', projectId: 'project-a', q: '' } satisfies MobileAsk) }));
+      ws.send(JSON.stringify({ t: 'ask', id: 'q2', sealed: await seal(key, aadAsk('q2', 'pc-a'), { v: 1, kind: 'files', projectId: 'project-none', q: '' } satisfies MobileAsk) }));
+      ws.send(JSON.stringify({ t: 'ask', id: 'q3', sealed: await seal(key, aadAsk('q3', 'pc-a'), { v: 1, kind: 'commands', projectId: null, accountId: 'nobody' } satisfies MobileAsk) }));
+      await settle(() => s.w.received.filter((x) => x.startsWith('{')).length === 3);
+      const replies = new Map(s.w.received.filter((x) => x.startsWith('{')).map((x) => JSON.parse(x) as { t: string; id: string; sealed: string }).map((m) => [m.id, m]));
+      expect(await open(key, aadReply('q1'), replies.get('q1')!.sealed)).toEqual({ files: [{ path: 'one.ts', changed: false }] });
+      expect(await open(key, aadReply('q2'), replies.get('q2')!.sealed)).toEqual({ error: 'project-missing' });
+      expect(await open(key, aadReply('q3'), replies.get('q3')!.sealed)).toEqual({ error: 'account-missing' });
+    });
+
+    it('リンクが変わったら古いのを閉じて組み直し、同期を外したら閉じる。stop でも閉じる', async () => {
+      const s = await bellSetup();
+      const w2 = await fakeBellWorker();
+      cleanups.push(() => s.mobile.stop(), () => s.w.close(), () => w2.close());
+      s.mobile.start();
+      await settle(() => s.w.open().length === 1);
+      const next = s.client.asDevice('pc-a');
+      await next.health();
+      (next as CloudClient).bellTarget = () => ({ url: w2.url, headers: { authorization: 'Bearer next-token' } });
+      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      await s.timers.advance(FEED_SAFETY_MS);
+      await settle(() => s.w.open().length === 0 && w2.open().length === 1);
+      expect(w2.attempts[0]!.authorization).toBe('Bearer next-token');
+      s.setLink(null);
+      await s.timers.advance(FEED_SAFETY_MS);
+      await settle(() => w2.open().length === 0);
+      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      await s.timers.advance(FEED_SAFETY_MS);
+      await settle(() => w2.open().length === 1);
+      s.mobile.stop();
+      await settle(() => w2.open().length === 0);
     });
   });
 });

@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { LAUNCH_TTL_MS, MOBILE_FEED_MAX_BYTES, MOBILE_TEXT_MAX, PEER_STALE_MS, clampText, fitFeed, type MobileFeed } from './mobile.ts';
+import {
+  LAUNCH_TTL_MS,
+  MOBILE_ASK_MAX_BYTES,
+  MOBILE_ASK_TIMEOUT_MS,
+  MOBILE_FEED_MAX_BYTES,
+  MOBILE_IMAGES_PER_LAUNCH,
+  MOBILE_IMAGES_PER_PHONE,
+  MOBILE_IMAGE_MAX_BYTES,
+  MOBILE_REPLY_MAX_BYTES,
+  MOBILE_TEXT_MAX,
+  PEER_STALE_MS,
+  clampText,
+  fitFeed,
+  type MobileAsk,
+  type MobileAskIn,
+  type MobileAskOut,
+  type MobileCaps,
+  type MobileFeed,
+  type MobileLaunchAnswer,
+  type MobileLaunchPayload,
+  type MobileReply,
+} from './mobile.ts';
 import { COMPAT_VERSION, MOBILE_MIN_WORKER_COMPAT } from './compat.ts';
 import { aadFeed, deriveMobileKey, seal } from './mobileCrypto.ts';
 
@@ -15,8 +36,34 @@ describe('定数', () => {
     expect(MOBILE_FEED_MAX_BYTES).toBe(48 * 1024);
     expect(LAUNCH_TTL_MS).toBe(75_000);
     expect(PEER_STALE_MS).toBe(180_000);
-    expect(COMPAT_VERSION).toBe(7);
+    expect(COMPAT_VERSION).toBe(8);
     expect(MOBILE_MIN_WORKER_COMPAT).toBe(7);
+  });
+
+  it('rc.2 の上限（画像、問い合わせ）', () => {
+    expect(MOBILE_IMAGE_MAX_BYTES).toBe(5 * 1024 * 1024);
+    expect(MOBILE_IMAGES_PER_LAUNCH).toBe(4);
+    expect(MOBILE_IMAGES_PER_PHONE).toBe(40);
+    expect(MOBILE_ASK_MAX_BYTES).toBe(4 * 1024);
+    expect(MOBILE_REPLY_MAX_BYTES).toBe(64 * 1024);
+    expect(MOBILE_ASK_TIMEOUT_MS).toBe(5_000);
+  });
+});
+
+describe('rc.2 の型', () => {
+  it('起動の依頼は effort と images を持てて、答えは images-missing を返せる', () => {
+    const p: MobileLaunchPayload = { v: 1, createdAt: 1, projectId: null, scratch: true, accountId: 'a', permissionMode: '', model: '', prompt: 'x', effort: 'high', images: [{ n: 0, mime: 'image/jpeg', bytes: 10 }] };
+    const a: MobileLaunchAnswer = { ok: false, reason: 'images-missing' };
+    expect(p.images?.[0]?.mime).toBe('image/jpeg');
+    expect(a.ok).toBe(false);
+  });
+
+  it('問い合わせと答えの型', () => {
+    const asks: MobileAsk[] = [{ v: 1, kind: 'files', projectId: 'p', q: '' }, { v: 1, kind: 'commands', projectId: null, accountId: 'a' }];
+    const replies: MobileReply[] = [{ files: [{ path: 'a.ts', changed: true }] }, { commands: [{ name: 'x', description: '', kind: 'skill' }] }, { error: 'bad-request' }];
+    const inn: MobileAskIn = { id: 'i', targetDevice: 'd', sealed: 's' };
+    const out: MobileAskOut = { sealed: 's' };
+    expect([asks.length, replies.length, inn.id, out.sealed]).toEqual([2, 3, 'i', 's']);
   });
 });
 
@@ -54,6 +101,13 @@ describe('fitFeed', () => {
   it('上限以内ならそのまま返す', () => {
     const f = feed({ done: done(3) });
     expect(fitFeed(f)).toEqual(f);
+  });
+
+  it('削っても、PC のできること（caps）を落とさない', () => {
+    const caps: MobileCaps = { asks: true, images: true, effort: true };
+    const out = fitFeed(feed({ caps, done: done(200) }));
+    expect(out.done.length).toBeLessThan(200);
+    expect(out.caps).toEqual(caps);
   });
 
   it('48 KiB を超えると done を古いものから落とす', () => {

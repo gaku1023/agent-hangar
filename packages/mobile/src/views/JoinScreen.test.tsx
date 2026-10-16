@@ -1,4 +1,4 @@
-import { aadFeed, open, seal } from '@agent-hangar/shared';
+import { COMPAT_VERSION, aadFeed, open, seal } from '@agent-hangar/shared';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App.tsx';
@@ -42,7 +42,7 @@ describe('JoinScreen', () => {
     render(<App pairText={got} />);
     expect(await screen.findByText('このスマホを hangar に接続する')).toBeInTheDocument();
     expect(screen.getByText('hangar.example.workers.dev')).toBeInTheDocument();
-    expect(screen.getByText(/QR を出した PC：Mac/)).toBeInTheDocument();
+    expect(screen.getByText(/QR を表示した PC：Mac/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -58,7 +58,7 @@ describe('JoinScreen', () => {
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/join`);
     expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe('7');
+    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe(String(COMPAT_VERSION));
     const body = JSON.parse(init.body as string);
     expect(body.code).toBe('code-1');
     expect(body.device.name).toBe('スマホ 1');
@@ -75,33 +75,33 @@ describe('JoinScreen', () => {
     expect(onEnter).toHaveBeenCalledWith({ url: WORKER, token: 'tok-9', deviceId: 'phone-9' }, expect.anything());
   });
 
-  it('つなぐ文字列を貼る欄から参加できる', async () => {
+  it('接続コードを貼り付ける欄から参加できる', async () => {
     const { text } = makePairText({ pcName: 'Mac 2' });
     render(<JoinScreen pairText={null} onEnter={vi.fn()} />);
     expect(screen.getByText('このスマホはまだ接続していません')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText(/接続の文字列/), { target: { value: `  ${WORKER}/app/#pair=${text}\n` } });
-    fireEvent.click(screen.getByRole('button', { name: '文字列を読む' }));
-    expect(await screen.findByText(/QR を出した PC：Mac 2/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/接続コード/), { target: { value: `  ${WORKER}/app/#pair=${text}\n` } });
+    fireEvent.click(screen.getByRole('button', { name: 'コードを読み取る' }));
+    expect(await screen.findByText(/QR を表示した PC：Mac 2/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '接続する' }));
     expect(await screen.findByText('接続しました')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('読めない文字列は理由を出して留まる', async () => {
+  it('読み取れない接続コードは理由を出して留まる', async () => {
     render(<JoinScreen pairText={null} onEnter={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText(/接続の文字列/), { target: { value: 'hello' } });
-    fireEvent.click(screen.getByRole('button', { name: '文字列を読む' }));
-    expect(await screen.findByText(/接続の文字列が読めません/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/接続コード/), { target: { value: 'hello' } });
+    fireEvent.click(screen.getByRole('button', { name: 'コードを読み取る' }));
+    expect(await screen.findByText(/接続コードを読み取れません/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('使用済み・期限切れの券（401）は「QR を出し直してください」と出す', async () => {
+  it('使用済み・期限切れの券（401）は「QR を表示し直してください」と表示する', async () => {
     fetchMock.mockImplementation(async () => json({ error: 'used' }, 401));
     const { text } = makePairText();
     render(<JoinScreen pairText={text} onEnter={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '接続する' }));
     expect(await screen.findByText('この QR は使えません')).toBeInTheDocument();
-    expect(screen.getByText(/QR を出し直してください/)).toBeInTheDocument();
+    expect(screen.getByText(/QR を表示し直してください/)).toBeInTheDocument();
     expect(store.savePairing).not.toHaveBeenCalled();
   });
 
@@ -122,12 +122,12 @@ describe('JoinScreen', () => {
     expect(vi.mocked(store.saveKey).mock.invocationCallOrder[0]!).toBeLessThan(fetchMock.mock.invocationCallOrder[0]!);
   });
 
-  it('鍵を置けなければ券を使わず、理由を出す', async () => {
+  it('キーを保存できなければ券を使わず、理由を出す', async () => {
     vi.mocked(store.saveKey).mockRejectedValueOnce(new Error('quota'));
     const { text } = makePairText();
     render(<JoinScreen pairText={text} onEnter={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '接続する' }));
-    expect(await screen.findByText(/鍵を置けませんでした/)).toBeInTheDocument();
+    expect(await screen.findByText(/キーを保存できませんでした/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(store.savePairing).not.toHaveBeenCalled();
   });
@@ -165,7 +165,7 @@ describe('JoinScreen', () => {
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'カメラで QR を読む' }));
       });
-      expect(await screen.findByText(/QR を出した PC：Mac 3/, undefined, { timeout: 3000 })).toBeInTheDocument();
+      expect(await screen.findByText(/QR を表示した PC：Mac 3/, undefined, { timeout: 3000 })).toBeInTheDocument();
       expect(jsQRMock.mock.calls.length).toBeGreaterThanOrEqual(2);
       await waitFor(() => expect(stop).toHaveBeenCalled());
       expect(fetchMock).not.toHaveBeenCalled();

@@ -48,6 +48,11 @@ function src(db: Db, o: Partial<FeedSources> = {}): FeedSources {
 }
 
 describe('buildMobileFeed', () => {
+  it('この PC のできること（問い合わせ、画像、effort）を caps に全部 true で載せる', () => {
+    const db = seed();
+    expect(buildMobileFeed(src(db)).caps).toEqual({ asks: true, images: true, effort: true });
+  });
+
   it('入力待ちの run は waiting に問いの文が入り、300 字で切られる', () => {
     const db = seed();
     session(db, 's1', { name: '会話 1' });
