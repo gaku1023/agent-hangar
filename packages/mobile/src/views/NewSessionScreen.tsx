@@ -1,11 +1,15 @@
 import { EFFORT_VALUES, MODEL_CHOICES, PERMISSION_MODE_VALUES } from '@agent-hangar/shared/src/launchChoices.ts';
 import { MOBILE_PROMPT_MAX, type MobileAccount } from '@agent-hangar/shared/src/mobile.ts';
 import { useId, useMemo, useState, type ReactNode } from 'react';
+import { createAsker, type Asker } from '../ask.ts';
+import { useAttachments, type PutImage, type Shrink } from '../images.ts';
 import type { InboxView } from '../inbox.ts';
 import { launchChoices } from '../launch.ts';
 import type { LaunchSpec } from '../launchRun.ts';
 import { phaseClass, usePresence } from '../presence.ts';
+import type { Pairing } from '../store.ts';
 import { Choice } from './Choice.tsx';
+import { Composer } from './Composer.tsx';
 import { Fold } from './Fold.tsx';
 import { ProjectPicker, type Sel } from './ProjectPicker.tsx';
 
@@ -42,6 +46,11 @@ const safeColor = (c: string): string | null => (COLOR.test(c) ? c : null);
 type Props = {
   /** 受信箱で読んだもの。PC ごとのプロジェクトとアカウント、生きている PC をここから読む。 */
   view: InboxView;
+  /** 候補の問い合わせと画像の置き場に使う。 */
+  pairing: Pairing;
+  cryptoKey: CryptoKey;
+  /** 試験で差し替える口。 */
+  deps?: { asker?: Asker; putImage?: PutImage; shrink?: Shrink };
   /** 「始める」。画面を閉じて、起動のシートに進みを見せるのは呼び手。 */
   onLaunch: (spec: LaunchSpec) => void;
   /** 閉じる。 */
@@ -51,7 +60,7 @@ type Props = {
 };
 
 /** 新しい会話の画面（B1 プロジェクト、C3 詳しい設定）。 */
-export function NewSessionScreen({ view, onLaunch, onClose, leaving }: Props): ReactNode {
+export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onClose, leaving }: Props): ReactNode {
   const alive = useMemo(() => new Set(view.devices.filter((d) => d.alive).map((d) => d.id)), [view]);
   const choices = useMemo(() => launchChoices(view.feeds, alive), [view, alive]);
   const names = useMemo(() => {
@@ -70,6 +79,11 @@ export function NewSessionScreen({ view, onLaunch, onClose, leaving }: Props): R
   const [adv, setAdv] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  // 依頼の ID は画面を開いたときに振る。画像はこの ID の下に置き、依頼もこの ID で出す。
+  const [launchId] = useState(() => globalThis.crypto.randomUUID());
+  // 候補の答えは画面の間だけ覚える（画面は開くたびに作り直す）。
+  const [asker] = useState(() => deps?.asker ?? createAsker(pairing, cryptoKey));
+  const att = useAttachments({ pairing, key: cryptoKey, launchId, put: deps?.putImage, shrink: deps?.shrink });
   const promptId = useId();
   const advId = useId();
   const titleId = useId();
@@ -85,7 +99,8 @@ export function NewSessionScreen({ view, onLaunch, onClose, leaving }: Props): R
 
   const tooLong = prompt.length > PROMPT_MAX;
   const left = PROMPT_MAX - prompt.length;
-  const ready = !!sel && (sel.scratch || !!project) && !!pc && !!account && prompt.trim().length > 0 && !tooLong && !submitted;
+  const hasText = prompt.trim().length > 0 || att.ready.length > 0;
+  const ready = !!sel && (sel.scratch || !!project) && !!pc && !!account && hasText && !att.busy && !att.failed && !tooLong && !submitted;
   const nothing = choices.scratchDeviceIds.length === 0;
 
   const advShown = usePresence(adv ? ADV_ON : NO_ITEMS, (k) => k);
@@ -99,6 +114,7 @@ export function NewSessionScreen({ view, onLaunch, onClose, leaving }: Props): R
   const start = (): void => {
     if (!ready || !sel || !pc || !account) return;
     setSubmitted(true);
+    const images = att.ready;
     onLaunch({
       targetDevice: pc,
       pcName,
@@ -106,12 +122,33 @@ export function NewSessionScreen({ view, onLaunch, onClose, leaving }: Props): R
       accountId: account,
       accountName: accountOf ? accountOf.name || accountOf.id : null,
       accountColor: accountOf ? safeColor(accountOf.color) : null,
-      payload: { projectId: sel.scratch ? null : sel.id, scratch: sel.scratch, accountId: account, permissionMode, model, ...(effort ? { effort } : {}), prompt },
+      payload: {
+        projectId: sel.scratch ? null : sel.id,
+        scratch: sel.scratch,
+        accountId: account,
+        permissionMode,
+        model,
+        ...(effort ? { effort } : {}),
+        prompt,
+        ...(images.length > 0 ? { images: images.map((i) => ({ n: i.n, mime: i.mime, bytes: i.data.length })) } : {}),
+      },
       skewMs: view.skewMs,
+      id: launchId,
+      ...(images.length > 0 ? { images } : {}),
     });
   };
 
-  const label = !sel ? 'プロジェクトを選んでください' : !pc ? 'PC を選んでください' : !account ? 'アカウントを選んでください' : `${pcName} で始める`;
+  const label = !sel
+    ? 'プロジェクトを選んでください'
+    : !pc
+      ? 'PC を選んでください'
+      : !account
+        ? 'アカウントを選んでください'
+        : att.failed
+          ? '送信できなかった画像があります'
+          : att.busy
+            ? '送信中の画像を待っています'
+            : `${pcName} で始める`;
 
   return (
     <div className={`ns ${leaving ? 'leaving' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} inert={leaving}>
@@ -165,7 +202,19 @@ export function NewSessionScreen({ view, onLaunch, onClose, leaving }: Props): R
               <label className="ns-h" htmlFor={promptId}>
                 初期プロンプト
               </label>
-              <textarea id={promptId} className="input ns-prompt" rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+              <Composer
+                id={promptId}
+                value={prompt}
+                onChange={setPrompt}
+                asker={asker}
+                pc={pc}
+                pcName={pcName}
+                projectId={sel && !sel.scratch ? sel.id : null}
+                projectName={project ? project.name || project.id : null}
+                accountId={account}
+                accountName={accountOf ? accountOf.name || accountOf.id : null}
+                attachments={att}
+              />
               {tooLong ? (
                 <p className="ns-limit over m-fade" role="status">
                   初期プロンプトは {PROMPT_MAX.toLocaleString('en-US')} 字までです（{(-left).toLocaleString('en-US')} 字多い）

@@ -130,7 +130,9 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs }: AppProps): Reac
       <div className="under" inert={(!!sheet && !sheet.leaving) || !!launch?.open}>
         <InboxScreen pairing={screen.pairing} cryptoKey={screen.key} onUnpaired={onUnpaired} onNewSession={onNewSession} onView={setInboxView} refresh={refresh} />
       </div>
-      {sheet && <NewSessionScreen key={sheet.n} view={sheet.view} leaving={sheet.leaving} onClose={onCloseSheet} onLaunch={onLaunch} />}
+      {sheet && (
+        <NewSessionScreen key={sheet.n} view={sheet.view} pairing={screen.pairing} cryptoKey={screen.key} leaving={sheet.leaving} onClose={onCloseSheet} onLaunch={onLaunch} />
+      )}
       {launch && (
         <LaunchSheet
           spec={launch.spec}

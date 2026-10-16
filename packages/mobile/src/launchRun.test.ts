@@ -1,5 +1,6 @@
 import { aadAnswer, aadLaunch, open, seal, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ImageError, type PutImage } from './images.ts';
 import { startLaunch, type LaunchSpec, type RunState } from './launchRun.ts';
 import { makeKey } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
@@ -196,5 +197,102 @@ describe('startLaunch', () => {
     const n = states.length;
     await new Promise((res) => setTimeout(res, 200));
     expect(states).toHaveLength(n);
+  });
+});
+
+describe('startLaunch の画像', () => {
+  const image = (n: number) => ({ n, mime: 'image/jpeg' as const, data: new Uint8Array([n, 1, 2]) });
+  const withImages = (): LaunchSpec =>
+    spec({
+      id: 'L-pre',
+      images: [image(0), image(2)],
+      payload: {
+        projectId: 'p-a',
+        scratch: false,
+        accountId: 'acc-1',
+        permissionMode: '',
+        model: '',
+        prompt: 'a',
+        images: [
+          { n: 0, mime: 'image/jpeg', bytes: 3 },
+          { n: 2, mime: 'image/jpeg', bytes: 3 },
+        ],
+      },
+    });
+
+  function runWith(s: LaunchSpec, put: PutImage) {
+    const states: RunState[] = [];
+    const r = startLaunch(pairing, key, s, { everyMs: 10, putImage: put, onState: (st) => states.push(st) });
+    return { r, states, last: (): RunState => states[states.length - 1]! };
+  }
+
+  it('先に振った id で依頼を出し、欄で置いた画像は置き直さない', async () => {
+    serve([{ status: 'started', answer: { ok: true, sessionId: 's-1', title: 't' } }]);
+    const put = vi.fn<PutImage>(async () => undefined);
+    const { last } = runWith(withImages(), put);
+    await vi.waitFor(() => expect(last()).toMatchObject({ kind: 'started' }));
+    expect(sent[0]!.id).toBe('L-pre');
+    expect(put).not.toHaveBeenCalled();
+    const payload = await open<MobileLaunchPayload>(key, aadLaunch('L-pre', 'pc-1'), sent[0]!.sealed);
+    expect(payload.images).toEqual([
+      { n: 0, mime: 'image/jpeg', bytes: 3 },
+      { n: 2, mime: 'image/jpeg', bytes: 3 },
+    ]);
+  });
+
+  it('images-missing の後の送り直しは、新しい id で画像を全部置き直してから依頼を出す', async () => {
+    serve([{ status: 'failed', answer: { ok: false, reason: 'images-missing' } }]);
+    const order: string[] = [];
+    const put = vi.fn<PutImage>(async (_p, _k, id, n) => {
+      order.push(`put:${id}:${n}`);
+    });
+    const inner = fetchMock.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') order.push(`post:${(JSON.parse(init.body as string) as { id: string }).id}`);
+      return inner(url, init);
+    });
+    const { r, last } = runWith(withImages(), put);
+    await vi.waitFor(() => expect(last()).toMatchObject({ kind: 'failed', at: 'pc' }));
+    expect(put).not.toHaveBeenCalled();
+    r.retry();
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    const id2 = sent[1]!.id;
+    expect(id2).not.toBe('L-pre');
+    expect(order).toEqual(['post:L-pre', `put:${id2}:0`, `put:${id2}:2`, `post:${id2}`]);
+    expect(Array.from(put.mock.calls[0]![4])).toEqual([0, 1, 2]);
+  });
+
+  it('画像を置けなければ送信の段の失敗にし、retry で同じ id に置き直す', async () => {
+    serve([{ status: 'started', answer: { ok: true, sessionId: 's-1', title: 't' } }]);
+    let fail = true;
+    const put = vi.fn<PutImage>(async () => {
+      if (fail) throw new ImageError('network');
+    });
+    const s = withImages();
+    s.id = undefined;
+    const { r, last } = runWith(s, put);
+    await vi.waitFor(() => expect(last()).toMatchObject({ kind: 'failed', at: 'send' }));
+    expect((last() as { message: string }).message).toMatch(/画像を送信できませんでした/);
+    expect(sent).toHaveLength(0);
+    const firstId = put.mock.calls[0]![2];
+    fail = false;
+    r.retry();
+    await vi.waitFor(() => expect(last()).toMatchObject({ kind: 'started' }));
+    expect(sent[0]!.id).toBe(firstId);
+    expect(put.mock.calls.slice(1).map((c) => [c[2], c[3]])).toEqual([
+      [firstId, 0],
+      [firstId, 2],
+    ]);
+  });
+
+  it('画像を置くときの 401 は unpaired', async () => {
+    serve([{ status: 'pending' }]);
+    const put = vi.fn<PutImage>(async () => {
+      throw new ImageError('unpaired', 401);
+    });
+    const s = withImages();
+    s.id = undefined;
+    const { last } = runWith(s, put);
+    await vi.waitFor(() => expect(last()).toEqual({ kind: 'unpaired' }));
   });
 });

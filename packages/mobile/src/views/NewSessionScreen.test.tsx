@@ -1,13 +1,16 @@
 import { EFFORT_VALUES, PERMISSION_MODE_VALUES, type MobileFeed } from '@agent-hangar/shared';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PutImage, Shrink } from '../images.ts';
 import { openInbox, type InboxView } from '../inbox.ts';
 import type { LaunchSpec } from '../launchRun.ts';
 import { feedOf, inboxOf, liveItem, makeKey, MIN } from '../test/fixtures.ts';
+import { WORKER } from '../test/pairText.ts';
 import { NewSessionScreen } from './NewSessionScreen.tsx';
 
 let key: CryptoKey;
+const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
 
 beforeEach(async () => {
   key = await makeKey();
@@ -39,11 +42,11 @@ const twoPcs = (): MobileFeed[] => [
   }),
 ];
 
-async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof inboxOf>[2]) {
+async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof inboxOf>[2], deps?: { putImage?: PutImage; shrink?: Shrink }) {
   const onLaunch = vi.fn<(s: LaunchSpec) => void>();
   const onClose = vi.fn();
   const view = await viewOf(feeds, opts);
-  render(<NewSessionScreen view={view} onLaunch={onLaunch} onClose={onClose} />);
+  render(<NewSessionScreen view={view} pairing={pairing} cryptoKey={key} deps={deps} onLaunch={onLaunch} onClose={onClose} />);
   return { onLaunch, onClose };
 }
 
@@ -76,6 +79,7 @@ describe('NewSessionScreen', () => {
       accountColor: '#c77a1a',
       payload: { projectId: 'p-a', scratch: false, accountId: 'acc-3', permissionMode: 'plan', model: 'opus', prompt: 'テストを足して' },
       skewMs: expect.any(Number),
+      id: expect.any(String),
     });
     // 押したあとは、もう一度押せない。
     expect(screen.getByRole('button', { name: 'Mini で始める' })).toBeDisabled();
@@ -236,7 +240,7 @@ describe('NewSessionScreen', () => {
       const view = await viewOf(twoPcs());
       render(
         <StrictMode>
-          <NewSessionScreen view={view} onLaunch={vi.fn()} onClose={vi.fn()} />
+          <NewSessionScreen view={view} pairing={pairing} cryptoKey={key} onLaunch={vi.fn()} onClose={vi.fn()} />
         </StrictMode>,
       );
       pick('プロジェクト', /project-a/);
@@ -262,5 +266,66 @@ describe('NewSessionScreen', () => {
     await setup([feedOf('pc-1', 'Mac')], { lastSeen: { 'pc-1': Date.now() - 10 * MIN } });
     expect(screen.getByRole('status')).toHaveTextContent('新しい会話を受けられる PC がありません');
     expect(screen.queryByRole('radiogroup', { name: 'プロジェクト' })).not.toBeInTheDocument();
+  });
+});
+
+describe('NewSessionScreen の画像', () => {
+  type Put = { launchId: string; n: number; resolve: () => void; reject: (e: unknown) => void };
+  let puts: Put[];
+  const putImage: PutImage = (_p, _k, launchId, n) => new Promise<void>((resolve, reject) => puts.push({ launchId, n, resolve, reject }));
+  const shrink: Shrink = async (f) => ({ data: new Uint8Array(await f.arrayBuffer()), mime: 'image/jpeg' });
+
+  beforeEach(() => {
+    puts = [];
+    vi.stubGlobal('URL', Object.assign(Object.create(URL), { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function attach(name: string): Promise<void> {
+    fireEvent.click(screen.getByRole('button', { name: '画像を添付' }));
+    const dlg = await screen.findByRole('dialog', { name: '画像を添付' });
+    fireEvent.change(within(dlg).getByLabelText(/写真ライブラリ/), { target: { files: [new File([new Uint8Array(7)], name, { type: 'image/jpeg' })] } });
+  }
+
+  it('画像は先に振った依頼の ID の下に置き、置き終えるまで始められない。依頼に画像の控えと中身を渡す', async () => {
+    const { onLaunch } = await setup(twoPcs(), undefined, { putImage, shrink });
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(prompt(), { target: { value: 'この画面を直して' } });
+    await attach('a.jpg');
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(screen.getByRole('button', { name: '送信中の画像を待っています' })).toBeDisabled();
+    await act(async () => puts[0]!.resolve());
+    const start = screen.getByRole('button', { name: 'Mac で始める' });
+    expect(start).toBeEnabled();
+    fireEvent.click(start);
+    const s = specOf(onLaunch);
+    expect(s.id).toBe(puts[0]!.launchId);
+    expect(s.payload.images).toEqual([{ n: 0, mime: 'image/jpeg', bytes: 7 }]);
+    expect(s.images?.map((i) => [i.n, i.mime, i.data.length])).toEqual([[0, 'image/jpeg', 7]]);
+  });
+
+  it('送れなかった画像があれば始められない', async () => {
+    await setup(twoPcs(), undefined, { putImage, shrink });
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(prompt(), { target: { value: 'x' } });
+    await attach('a.jpg');
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await act(async () => puts[0]!.reject(new Error('x')));
+    expect(screen.getByRole('button', { name: '送信できなかった画像があります' })).toBeDisabled();
+  });
+
+  it('画像だけでも始められる（初期プロンプトが空でも）', async () => {
+    const { onLaunch } = await setup(twoPcs(), undefined, { putImage, shrink });
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    await attach('a.jpg');
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await act(async () => puts[0]!.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(specOf(onLaunch).payload.prompt).toBe('');
   });
 });

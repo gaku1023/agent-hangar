@@ -308,3 +308,85 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .ns-start.sm { height: 44px; font-size: 14px; }
 a.ns-start { display: flex; align-items: center; justify-content: center; }
 .ls-err { display: flex; flex-direction: column; gap: 8px; }
+
+/* 初期プロンプトの欄（composer-proto の / 案 1、@ 案 1、画像 案 2）。欄の上に添付、下に道具の列。 */
+.vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; opacity: 0; }
+.cm-box { position: relative; background: var(--surface); border-radius: 16px; box-shadow: var(--surface-shadow), inset 0 0 0 1px var(--card-line); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.cm-box.on { box-shadow: var(--surface-shadow), inset 0 0 0 2px var(--accent); }
+.cm-row .fold-pad { padding-bottom: 0; }
+.cm-ta { display: block; width: 100%; min-height: calc(5 * 22px + 16px); border: 0; outline: 0; background: none; resize: none; padding: 12px 14px 4px; font-size: 16px; line-height: 22px; border-radius: 16px 16px 0 0; color: var(--ink); }
+.cm-ta::placeholder { color: #9a9bb0; }
+.cm-anote { margin: 0; padding: 0 14px 8px; font-size: 11.5px; color: var(--ink-3); }
+.cm-tools { display: flex; align-items: center; gap: 6px; margin: 0 2px 2px; padding: 6px 6px 6px; border-top: 1px solid var(--line); }
+.cm-spacer { height: min(232px, 45dvh); }
+.cm-tl { display: inline-flex; align-items: center; justify-content: center; height: 36px; min-width: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: var(--surface-2); color: var(--ink-2); font-size: 13px; font-weight: 600; cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.cm-tl:active { transform: scale(0.95); background: var(--accent-soft); }
+.cm-tl.key { font: 700 16px var(--font-mono); color: var(--accent); }
+.cm-tl.plus { font-size: 20px; color: var(--accent); background: var(--accent-soft); }
+.ns-form:disabled .cm-tl { opacity: 0.6; cursor: default; }
+
+/* 添付した画像。膨らんで現れ、縮んで消える。送信中は進みの棒、失敗は赤い覆いでタップして送り直す。 */
+@keyframes m-th-in { from { opacity: 0; transform: scale(0.85); } }
+@keyframes m-th-out { to { opacity: 0; transform: scale(0.85); } }
+.cm-thumbs { list-style: none; display: flex; gap: 10px; margin: 0; padding: 12px 14px 4px; overflow-x: auto; scrollbar-width: none; }
+.cm-thumbs::-webkit-scrollbar { display: none; }
+.cm-th { position: relative; flex: none; width: 76px; height: 76px; border-radius: 14px; overflow: hidden; background: var(--surface-2); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.12); }
+.cm-th.m-fade, .cm-th.m-grow { animation: m-th-in var(--dur) var(--ease-out); }
+.cm-th.m-collapse { animation: m-th-out calc(var(--dur-exit) + var(--dur-fast)) var(--ease-in) forwards; pointer-events: none; }
+.cm-th img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: filter var(--dur-fast) var(--ease-out); }
+.cm-th.up img { filter: saturate(0.5) brightness(1.1); }
+.cm-sz { position: absolute; left: 4px; bottom: 4px; font-size: 10px; font-weight: 700; color: #fff; background: rgba(28, 27, 46, 0.55); border-radius: 6px; padding: 0 5px; }
+.cm-ov { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; background: rgba(28, 27, 46, 0.38); animation: m-fade var(--dur-fast) var(--ease-out); }
+.cm-pb { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255, 255, 255, 0.55); }
+.cm-pb i { display: block; height: 100%; background: var(--accent); transition: width 160ms linear; }
+.cm-retry { border: 0; padding: 0; margin: 0; width: 100%; height: 100%; align-content: center; line-height: 1.3; background: rgba(179, 38, 30, 0.72); cursor: pointer; }
+.cm-retry b { display: block; font-size: 18px; }
+.cm-ok { position: absolute; right: 4px; bottom: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--idle); color: #fff; font-size: 10px; display: grid; place-items: center; animation: m-th-in var(--dur) var(--ease-out); }
+.cm-x { position: absolute; right: 3px; top: 3px; width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0; background: rgba(28, 27, 46, 0.7); color: #fff; font-size: 13px; line-height: 1; display: grid; place-items: center; cursor: pointer; z-index: 1; }
+.cm-x::before { content: ''; position: absolute; inset: -8px; }
+.cm-astrip { margin: 8px 14px 4px; }
+
+/* 候補のシート（キーボードのすぐ上）。下から上がって出て、閉じると下がって消える。 */
+.cm-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; max-width: 560px; margin: 0 auto; max-height: min(232px, 45dvh); display: flex; flex-direction: column; background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 30px rgba(30, 40, 90, 0.18); animation: m-bsheet-in var(--dur) var(--ease-out); transition: bottom var(--dur) var(--ease-out); }
+.cm-sheet.leaving { animation: m-bsheet-out calc(var(--dur-exit) + var(--dur-fast)) var(--ease-in) forwards; pointer-events: none; }
+.cm-chd { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px 8px; font-size: 12px; font-weight: 700; color: var(--ink-2); border-bottom: 1px solid var(--line); }
+.cm-chd > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-cx { flex: none; margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: 50%; padding: 0; background: var(--surface-2); color: var(--ink-3); font-size: 13px; cursor: pointer; }
+.cm-cbody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 0 calc(6px + env(safe-area-inset-bottom)); }
+.cm-cg { position: sticky; top: 0; z-index: 1; padding: 8px 14px 2px; background: var(--surface); font-size: 11px; font-weight: 700; color: var(--ink-3); }
+.cm-crow, .cm-frow { display: flex; width: 100%; min-height: 46px; border: 0; background: none; text-align: left; cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out); }
+.cm-crow:active, .cm-frow:active { background: var(--accent-soft); }
+.cm-crow { flex-direction: column; align-items: flex-start; justify-content: center; padding: 8px 14px; }
+.cm-crow b { font: 700 13.5px var(--font-mono); color: var(--ink); }
+.cm-crow > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.cm-crow mark, .cm-frow mark { background: none; color: var(--accent); font-weight: 800; }
+.cm-frow { align-items: center; gap: 10px; padding: 7px 14px; }
+.cm-fic { flex: none; width: 26px; height: 26px; border-radius: 8px; background: var(--surface-2); display: grid; place-items: center; font-size: 12px; color: var(--ink-3); }
+.cm-fnm { flex: 1; min-width: 0; }
+.cm-fnm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 13px var(--font-mono); color: var(--ink); }
+.cm-fnm span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--font-mono); color: var(--ink-3); }
+.cm-md { flex: none; font: 700 10px var(--font-mono); color: var(--busy); background: var(--st-paused-soft); border-radius: 5px; padding: 0 4px; }
+.cm-foot { margin: 0; padding: 8px 14px 2px; font-size: 11.5px; color: var(--ink-3); }
+.cm-empty { padding: 14px; font-size: 13px; line-height: 1.6; color: var(--ink-2); animation: m-fade var(--dur) var(--ease-out); }
+.cm-empty b { color: var(--ink); }
+.cm-wait { display: flex; align-items: center; gap: 10px; padding: 14px 14px 6px; font-size: 13px; font-weight: 700; }
+.cm-wait small { display: block; font-size: 11.5px; font-weight: 500; color: var(--ink-3); }
+.cm-spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid var(--line-strong); border-top-color: var(--accent); animation: m-spin var(--spin-period) linear infinite; }
+@keyframes m-pulse { 50% { opacity: 0.45; } }
+.cm-sk { display: flex; flex-direction: column; gap: 10px; padding: 8px 14px 12px; }
+.cm-sk i { display: block; height: 14px; border-radius: 7px; background: var(--surface-2); animation: m-pulse 1.4s ease-in-out infinite; }
+.cm-sk i:nth-child(2) { width: 72%; }
+.cm-sk i:nth-child(3) { width: 56%; }
+.cm-err { margin: 12px 14px 6px; animation: m-fade var(--dur) var(--ease-out); }
+.cm-err b { display: block; margin-bottom: 2px; }
+.cm-err-row { display: flex; gap: 8px; margin-top: 10px; }
+.cm-btn { flex: 1; min-height: 40px; border: 0; border-radius: 12px; background: var(--surface); color: var(--accent); font-size: 14px; font-weight: 700; box-shadow: inset 0 0 0 1px var(--card-line); cursor: pointer; }
+
+/* 「＋」のシート。写真ライブラリとカメラ。 */
+.cm-attach { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.cm-arow { position: relative; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 12px 14px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--card-line); font-size: 15px; font-weight: 600; cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.cm-arow:active { transform: scale(0.99); background: var(--accent-soft); }
+.cm-arow:focus-within { box-shadow: inset 0 0 0 2px var(--accent); }
+.cm-arow i { flex: none; width: 32px; height: 32px; border-radius: 10px; background: var(--accent-soft); display: grid; place-items: center; font-style: normal; font-size: 16px; }
+.cm-arow small { margin-left: auto; font-size: 11.5px; font-weight: 500; color: var(--ink-3); }
+.cm-attach .cm-anote { padding: 2px 4px 0; }

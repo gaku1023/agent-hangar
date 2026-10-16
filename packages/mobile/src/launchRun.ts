@@ -1,5 +1,6 @@
 import type { MobileLaunchAnswer, MobileLaunchPayload } from '@agent-hangar/shared/src/mobile.ts';
 import { LaunchError } from './api.ts';
+import { imageFailureText, ImageError, putImage as defaultPutImage, type LaunchImage, type PutImage } from './images.ts';
 import { requestLaunch, waitLaunch, type LaunchStage } from './launch.ts';
 import type { Pairing } from './store.ts';
 
@@ -13,9 +14,14 @@ export type LaunchSpec = {
   accountName: string | null;
   /** #rgb〜#rrggbbaa の形だけ。 */
   accountColor: string | null;
+  /** 封じて送る中身。画像があれば images に控え（番号、種類、大きさ）を入れる。 */
   payload: Omit<MobileLaunchPayload, 'v' | 'createdAt'>;
   /** 受信箱の InboxView.skewMs。 */
   skewMs: number;
+  /** 先に振った依頼の ID。欄で画像をこの ID の下に置いてあるとき、最初の送信はこの ID で出す。 */
+  id?: string;
+  /** 付けた画像の中身。依頼の ID が変わる送り直しでは、依頼の前にこれを新しい ID の下へ置き直す。 */
+  images?: LaunchImage[];
 };
 
 /**
@@ -64,6 +70,11 @@ function answerFailure(pc: string, a: MobileLaunchAnswer | undefined): Failed {
   }
 }
 
+/** 画像を置けなかった。 */
+function imageFailure(e: unknown): Failed {
+  return { kind: 'failed', at: 'send', message: imageFailureText(e, '画像を送信できませんでした', 'もう一度送信してください。') };
+}
+
 function requestFailure(pc: string, e: unknown): Failed {
   const reason = e instanceof LaunchError ? e.reason : 'server';
   const status = e instanceof LaunchError ? e.status : null;
@@ -88,17 +99,23 @@ function requestFailure(pc: string, e: unknown): Failed {
  * 依頼を送り、答えが決まるまで読む。画面を閉じても続く（呼び手が cancel するまで）。
  * 届いたか分からないまま失敗したときの retry は、同じ id で送る（Worker と PC に二度起こさせない）。
  * id が重なった（409）ときと、Worker が受けた後の失敗は、次を新しい id にする。
+ * 画像は、送る id の下に置けていなければ、依頼の前に全部置く。
+ * PC が答えると Worker はその依頼の画像を消すので、新しい id での送り直しでは置き直しになる。
  */
 export function startLaunch(
   pairing: Pairing,
   key: CryptoKey,
   spec: LaunchSpec,
-  o: { onState: (s: RunState) => void; everyMs?: number; giveUpMs?: number },
+  o: { onState: (s: RunState) => void; everyMs?: number; giveUpMs?: number; putImage?: PutImage },
 ): LaunchRun {
   let cancelled = false;
   let stopWait: (() => void) | null = null;
   let current: RunState = { kind: 'sending' };
-  let unsentId: string | null = null;
+  let unsentId: string | null = spec.id ?? null;
+  /** 画像を置き終えた依頼の id。 */
+  let placed: string | null = spec.id ?? null;
+  const images = spec.images ?? [];
+  const put = o.putImage ?? defaultPutImage;
   const emit = (s: RunState): void => {
     if (cancelled) return;
     current = s;
@@ -109,6 +126,21 @@ export function startLaunch(
     const fresh = unsentId ?? globalThis.crypto.randomUUID();
     unsentId = fresh;
     emit({ kind: 'sending' });
+    if (images.length > 0 && placed !== fresh) {
+      try {
+        for (const im of images) await put(pairing, key, fresh, im.n, im.data);
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof ImageError && e.reason === 'unpaired') {
+          emit({ kind: 'unpaired' });
+          return;
+        }
+        emit(imageFailure(e));
+        return;
+      }
+      placed = fresh;
+      if (cancelled) return;
+    }
     let id: string;
     try {
       id = await requestLaunch(pairing, key, { id: fresh, targetDevice: spec.targetDevice, skewMs: spec.skewMs, payload: spec.payload });
