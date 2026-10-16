@@ -20,8 +20,7 @@ import { SessionRows } from './SessionRows.tsx';
 
 afterEach(cleanup);
 
-const RUNNING = '実行中のセッションは削除できません。先に停止してください';
-const menuOf = (id: string, over: Partial<SessionMenuProps> = {}): SessionMenuProps => ({ id, name: `n${id}`, status: null, resumeHere: null, stop: null, moveBlocked: null, deleteBlocked: null, ...over });
+const menuOf = (id: string, over: Partial<SessionMenuProps> = {}): SessionMenuProps => ({ id, name: `n${id}`, status: null, resumeHere: null, stop: null, moveBlocked: null, ...over });
 const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, cost: '', runId: null, transcript: 'present', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, menu: menuOf(id), ...over });
 const mountRows = (rows: SessionRowProps[]) => {
   const onAction = vi.fn<(i: UiAction) => void>();
@@ -65,16 +64,12 @@ describe('一覧の行のメニュー（SessionRows）', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '削除…' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.delete.open', id: 'b' });
   });
-  it('実行中の行は停止を危険色で出し、削除は理由を添えて押せない', () => {
-    const onAction = mountRows([row('a', { live: 'busy', runId: 'r1', menu: menuOf('a', { stop: { runId: 'r1', working: true, aside: false, shellTabs: 0 }, deleteBlocked: RUNNING }) })]);
+  it('実行中の行は停止を危険色で出し、削除は出さない', () => {
+    const onAction = mountRows([row('a', { live: 'busy', runId: 'r1', menu: menuOf('a', { stop: { runId: 'r1', working: true, aside: false, shellTabs: 0 } }) })]);
     fireEvent.contextMenu(rowOf('na'));
     const stop = screen.getByRole('menuitem', { name: /^停止/ });
     expect(stop).toHaveAttribute('data-danger', 'true');
-    const del = screen.getByRole('menuitem', { name: /^削除…/ });
-    expect(del).toHaveAttribute('aria-disabled', 'true');
-    expect(del).toHaveTextContent(RUNNING);
-    fireEvent.click(del);
-    expect(onAction).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menuitem', { name: /^削除…/ })).toBeNull();
     fireEvent.click(stop);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, aside: false, shellTabs: 0 });
   });
