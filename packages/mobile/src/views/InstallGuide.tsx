@@ -25,12 +25,12 @@ export function InstallGuide({ expiresAt, onContinue }: Props): ReactNode {
           hangar
         </div>
         <h1 className="p-h">先にホーム画面に追加して、そこから開いてください</h1>
-        <p className="p-t">いま Safari で接続しても、ホーム画面のアプリには引き継がれません（保存場所が別です）。</p>
+        <p className="p-t">Safari で接続しても、ホーム画面のアプリには引き継がれません（保存先が別です）。</p>
         <ol className="steps3">
           <li>
             <i aria-hidden="true">1</i>
             <div>
-              <b>共有ボタンを押す</b>
+              <b>共有ボタンをタップ</b>
               <span>画面下の □↑ をタップ</span>
             </div>
           </li>
@@ -38,7 +38,7 @@ export function InstallGuide({ expiresAt, onContinue }: Props): ReactNode {
             <i aria-hidden="true">2</i>
             <div>
               <b>「ホーム画面に追加」を選ぶ</b>
-              <span>一覧を下へ動かすと出ます</span>
+              <span>一覧を下へスクロールすると表示されます</span>
             </div>
           </li>
           <li>
@@ -55,7 +55,7 @@ export function InstallGuide({ expiresAt, onContinue }: Props): ReactNode {
               QR はあと <b className="cd">{remaining(left)}</b> 有効です。ホーム画面に追加しても、そのまま使えます。
             </p>
           ) : (
-            <p className="strip warn">QR の期限が切れました。ホーム画面のアプリを開いたら、PC で QR を出し直してください。</p>
+            <p className="strip warn">QR の期限が切れました。ホーム画面のアプリを開いたら、PC で QR を表示し直してください。</p>
           ))}
         <div className="p-spacer" />
         <button type="button" className="lnk" onClick={onContinue}>

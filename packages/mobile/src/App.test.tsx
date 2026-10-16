@@ -89,7 +89,7 @@ describe('App', () => {
     await openNew();
     fillAndStart();
     // フォームは閉じ、受信箱の上にシートが出る。
-    const dlg = await screen.findByRole('dialog', { name: /会話を開始しています/ });
+    const dlg = await screen.findByRole('dialog', { name: /会話を開始中…/ });
     expect(screen.queryByRole('radiogroup', { name: 'プロジェクト' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: /入力待ち/ })).toBeInTheDocument();
     await waitFor(() => expect(launches).toHaveLength(1));
@@ -108,14 +108,14 @@ describe('App', () => {
     expect(within(dlg).getByRole('region', { name: '開始した会話' })).toHaveTextContent('導入を直す');
     const link = await within(dlg).findByRole('link', { name: 'アカウント 1のアカウントで開く ›' });
     expect(link).toHaveAttribute('href', 'https://claude.ai/code/session_new');
-    expect(within(dlg).getByText('いまやっていること：README を読んでいます')).toBeInTheDocument();
+    expect(within(dlg).getByText('意図：README を読んでいます')).toBeInTheDocument();
   });
 
   it('シートを閉じても依頼は続き、始まったら受信箱の行に出る', async () => {
     render(<App pairText={null} launchEveryMs={20} />);
     await openNew();
     fillAndStart();
-    await screen.findByRole('dialog', { name: /会話を開始しています/ });
+    await screen.findByRole('dialog', { name: /会話を開始中…/ });
     await waitFor(() => expect(launches).toHaveLength(1));
     fireEvent.click(screen.getByRole('button', { name: '受信箱へ' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -134,7 +134,7 @@ describe('App', () => {
     render(<App pairText={null} launchEveryMs={20} />);
     await openNew();
     fillAndStart();
-    await screen.findByRole('dialog', { name: /会話を開始しています/ });
+    await screen.findByRole('dialog', { name: /会話を開始中…/ });
     status = 'failed';
     answer = { ok: false, reason: 'project-missing' };
     expect(await screen.findByText(/その PC にプロジェクトのディレクトリがありません/)).toBeInTheDocument();

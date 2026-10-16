@@ -137,7 +137,7 @@ describe('NewSessionScreen', () => {
     expect(pcs[0]).toHaveTextContent('実行中 1');
     expect(pcs[1]).toHaveTextContent('空き');
     pick('PC', /Mac/);
-    expect(within(group('アカウント')).getByRole('radio', { name: /アカウント 1/ })).toHaveTextContent('5時間 32%');
+    expect(within(group('アカウント')).getByRole('radio', { name: /アカウント 1/ })).toHaveTextContent('5 時間 32%');
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     expect(specOf(onLaunch)).toMatchObject({ projectName: null, targetDevice: 'pc-1' });
@@ -296,7 +296,7 @@ describe('NewSessionScreen の画像', () => {
     fireEvent.change(prompt(), { target: { value: 'この画面を直して' } });
     await attach('a.jpg');
     await waitFor(() => expect(puts).toHaveLength(1));
-    expect(screen.getByRole('button', { name: '送信中の画像を待っています' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '画像の送信中…' })).toBeDisabled();
     await act(async () => puts[0]!.resolve());
     const start = screen.getByRole('button', { name: 'Mac で始める' });
     expect(start).toBeEnabled();

@@ -26,7 +26,7 @@ describe('JoinScreen のホーム画面のアプリ', () => {
     await waitFor(() => expect(scanQr).toHaveBeenCalledTimes(1));
     expect(container.querySelector('video')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'カメラで QR を読む' })).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/接続の文字列/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/接続コード/)).toBeInTheDocument();
   });
 
   it('読めた文字列で接続の確認に進む', async () => {
@@ -34,7 +34,7 @@ describe('JoinScreen のホーム画面のアプリ', () => {
     const { text } = makePairText({ pcName: 'Mac 7' });
     scanQr.mockResolvedValueOnce(text);
     render(<JoinScreen pairText={null} onEnter={vi.fn()} />);
-    expect(await screen.findByText(/QR を出した PC：Mac 7/)).toBeInTheDocument();
+    expect(await screen.findByText(/QR を表示した PC：Mac 7/)).toBeInTheDocument();
   });
 
   it('カメラが使えないときは理由を出し、貼る欄と読み直しのボタンが残る', async () => {
@@ -42,7 +42,7 @@ describe('JoinScreen のホーム画面のアプリ', () => {
     scanQr.mockRejectedValueOnce(new Error('denied'));
     render(<JoinScreen pairText={null} onEnter={vi.fn()} />);
     expect(await screen.findByText(/カメラを使えませんでした/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/接続の文字列/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/接続コード/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'カメラで QR を読む' })).toBeInTheDocument();
   });
 

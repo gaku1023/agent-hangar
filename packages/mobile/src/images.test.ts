@@ -31,9 +31,9 @@ describe('fitSize', () => {
 describe('rejectImage', () => {
   it('5 枚目と、縮めた後で 5 MB を超えるものを断る（試作の文言）', () => {
     expect(rejectImage({ count: 3 })).toBeNull();
-    expect(rejectImage({ count: 4 })).toBe('4 枚までです。1 枚外してから追加してください。');
+    expect(rejectImage({ count: 4 })).toBe('4 枚までです。1 枚削除してから追加してください。');
     expect(rejectImage({ count: 0, name: 'IMG_1.jpg', bytes: MOBILE_IMAGE_MAX_BYTES })).toBeNull();
-    expect(rejectImage({ count: 0, name: 'IMG_1.jpg', bytes: Math.round(8.5 * 1024 * 1024) })).toBe('IMG_1.jpg は 5 MB を超えているため添付できません（8.5 MB）');
+    expect(rejectImage({ count: 0, name: 'IMG_1.jpg', bytes: Math.round(8.5 * 1024 * 1024) })).toBe('IMG_1.jpg は添付できません。1 枚 5 MB までです（8.5 MB）');
   });
 });
 
@@ -41,7 +41,7 @@ describe('imageFailureText', () => {
   it('分からない失敗は番号を句点の前に、理由のある失敗は理由の文を続ける', () => {
     expect(imageFailureText(new ImageError('server', 500), '画像を送信できませんでした', 'もう一度送信してください。')).toBe('画像を送信できませんでした（500）。もう一度送信してください。');
     expect(imageFailureText(new ImageError('network'), '画像を送信できませんでした', 'もう一度送信してください。')).toBe('画像を送信できませんでした。通信を確認してください。もう一度送信してください。');
-    expect(imageFailureText(new ImageError('too-many', 429), 'x', '')).toBe('x。クラウドに置いたままの画像が上限の 40 枚に達しています。PC が受信すると消えます。');
+    expect(imageFailureText(new ImageError('too-many', 429), 'x', '')).toBe('x。クラウドに保存している画像が上限の 40 枚に達しています。PC が受信すると消えます。');
   });
 });
 
@@ -206,10 +206,10 @@ describe('useAttachments', () => {
     const big = file('big.jpg', MOBILE_IMAGE_MAX_BYTES + 1);
     await act(() => result.current.add([big]));
     expect(result.current.items).toHaveLength(0);
-    expect(result.current.notice).toMatch(/big\.jpg は 5 MB を超えているため添付できません/);
+    expect(result.current.notice).toMatch(/big\.jpg は添付できません。1 枚 5 MB までです/);
     await act(() => result.current.add([file('1'), file('2'), file('3'), file('4'), file('5')]));
     expect(result.current.items).toHaveLength(4);
-    expect(result.current.notice).toBe('4 枚までです。1 枚外してから追加してください。');
+    expect(result.current.notice).toBe('4 枚までです。1 枚削除してから追加してください。');
   });
 
   it('失敗したものは送り直せ、×で外すと送るのをやめてサムネイルを放す。外した番号は次に使う', async () => {

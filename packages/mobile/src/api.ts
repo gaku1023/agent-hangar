@@ -7,7 +7,7 @@ import { loadKey, saveKey, type Pairing } from './store.ts';
 /** トークンが外された、または知らないトークン（401）。参加の画面に戻る。 */
 export class UnpairedError extends Error {
   constructor() {
-    super('このスマホの接続は外されています');
+    super('このスマホの接続は解除されています');
     this.name = 'UnpairedError';
   }
 }
@@ -28,7 +28,7 @@ export class JoinError extends Error {
 /** 受信箱を読めなかった（401 以外）。 */
 export class InboxError extends Error {
   constructor(readonly status: number | null) {
-    super(status === null ? '受信箱に届きませんでした' : `受信箱を読めませんでした（${status}）`);
+    super(status === null ? '受信箱に接続できませんでした' : `受信箱を読めませんでした（${status}）`);
     this.name = 'InboxError';
   }
 }

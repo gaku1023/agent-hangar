@@ -112,7 +112,7 @@ function Commands({ q, list, onPick }: { q: string; list: CommandHit[]; onPick: 
 
 function Files({ q, list, onPick }: { q: string; list: FileHit[]; onPick: (t: string) => void }): ReactNode {
   if (list.length === 0) {
-    return <div className="cm-empty">{q ? `「${q}」に合うファイルはありません。` : '最近変更したファイルはありません。名前を入力すると探せます。'}</div>;
+    return <div className="cm-empty">{q ? `「${q}」に合うファイルはありません。` : '最近変更したファイルはありません。名前を入力すると検索できます。'}</div>;
   }
   return (
     <>
@@ -136,7 +136,7 @@ function Files({ q, list, onPick }: { q: string; list: FileHit[]; onPick: (t: st
           </button>
         );
       })}
-      {!q && <p className="cm-foot">ほかのファイルは、続けて名前を入力すると探せます。</p>}
+      {!q && <p className="cm-foot">他のファイルは、続けて名前を入力すると検索できます。</p>}
     </>
   );
 }

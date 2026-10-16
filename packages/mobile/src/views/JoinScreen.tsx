@@ -11,7 +11,7 @@ type Step =
   | { kind: 'joined'; pairing: Pairing; key: CryptoKey }
   | { kind: 'ticket' };
 
-const BAD_TEXT = '接続の文字列が読めません。PC の QR の下の「文字列をコピー」で写し直してください。';
+const BAD_TEXT = '接続コードを読み取れません。PC の QR の下の「コードをコピー」でコピーし直してください。';
 
 /** スマホの名前の既定。PC の一覧に出るので、機種の種類だけにする。 */
 export function guessDeviceName(ua: string = navigator.userAgent): string {
@@ -31,18 +31,18 @@ function initialStep(pairText: string | null): Step {
 }
 
 const joinMessage = (e: unknown): string => {
-  if (!(e instanceof JoinError)) return `接続できませんでした（${e instanceof Error ? e.message : '不明'}）。もう一度押してください。`;
+  if (!(e instanceof JoinError)) return `接続できませんでした（${e instanceof Error ? e.message : '不明'}）。もう一度タップしてください。`;
   switch (e.reason) {
     case 'storage':
-      return 'このブラウザに鍵を置けませんでした。プライベートブラウズを切ってから、もう一度押してください（この QR はまだ使えます）。';
+      return 'このブラウザにキーを保存できませんでした。プライベートブラウズを切ってから、もう一度タップしてください（この QR はまだ使えます）。';
     case 'too-many-phones':
-      return 'スマホは 10 台まで接続できます。PC の設定 › クラウド で使っていないスマホを外してから、QR を出し直してください。';
+      return 'スマホは 10 台まで接続できます。PC の設定 › クラウド で使っていないスマホを解除してから、QR を表示し直してください。';
     case 'upgrade':
       return 'このアプリが古くなっています。いったん閉じて、開き直してください。';
     case 'network':
-      return '接続先に届きませんでした。通信を確かめて、もう一度押してください。';
+      return '接続先と通信できませんでした。通信を確認して、もう一度タップしてください。';
     default:
-      return `接続できませんでした（${e.status ?? '不明'}）。少し待ってから、もう一度押してください。`;
+      return `接続できませんでした（${e.status ?? '不明'}）。少し待ってから、もう一度タップしてください。`;
   }
 };
 
@@ -82,7 +82,7 @@ export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
           <>
             <Logo />
             <h1 className="p-h">この QR は使えません</h1>
-            <p className="strip danger m-fade">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド で、QR を出し直してください。</p>
+            <p className="strip danger m-fade">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド で、QR を表示し直してください。</p>
             <ReadControls onText={onText} />
           </>
         )}
@@ -93,12 +93,12 @@ export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
               <>
                 <span className="ctx home">ホーム画面アプリ</span>
                 <h1 className="p-h">PC の QR を読み取ります</h1>
-                <p className="p-t">PC の画面の QR を枠に合わせてください。QR は PC で出してから 5 分有効です。</p>
+                <p className="p-t">PC の画面の QR を枠に合わせてください。QR は PC で表示してから 5 分有効です。</p>
               </>
             ) : (
               <>
                 <h1 className="p-h">このスマホはまだ接続していません</h1>
-                <p className="p-t">ホーム画面から開くと、Safari で接続した情報が引き継がれないことがあります。PC で新しい QR を出して、このアプリのまま読み込んでください。</p>
+                <p className="p-t">ホーム画面から開くと、Safari で接続した情報が引き継がれないことがあります。PC で新しい QR を表示して、このアプリのまま読み込んでください。</p>
               </>
             )}
             {step.note && <p className="strip danger m-fade">{step.note}</p>}
@@ -132,7 +132,7 @@ function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: Pairi
     if (busy) return;
     const n = name.trim();
     if (!n) {
-      setError('スマホの名前を入れてください。');
+      setError('スマホの名前を入力してください。');
       return;
     }
     setBusy(true);
@@ -159,11 +159,11 @@ function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: Pairi
         <div className="dest-l">接続先</div>
         <div className="dest-h">{host}</div>
         <p className="p-mini dest-from">
-          QR を出した PC：{blob.pcName || '不明'} · 残り {remaining(blob.expiresAt - now)}
+          QR を表示した PC：{blob.pcName || '不明'} · 残り {remaining(blob.expiresAt - now)}
         </p>
       </div>
       <label className="field">
-        このスマホの名前（PC の一覧に出ます）
+        このスマホの名前（PC の一覧に表示されます）
         <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} autoComplete="off" />
       </label>
       {error && (
@@ -172,9 +172,9 @@ function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: Pairi
         </p>
       )}
       <div className="p-spacer" />
-      <p className="p-mini">接続すると、全部の PC の会話の一覧が見え、PC を選んで会話を始められます。スマホをなくしたら PC の設定から外してください。</p>
+      <p className="p-mini">接続すると、すべての PC の会話の一覧を確認でき、PC を選んで会話を開始できます。スマホをなくしたら、PC の設定で接続を解除してください。</p>
       <button type="submit" className="p-btn" disabled={busy}>
-        {busy ? '接続しています…' : '接続する'}
+        {busy ? '接続中…' : '接続する'}
       </button>
     </form>
   );
@@ -195,7 +195,7 @@ function Joined({ onLater }: { onLater: () => void }): ReactNode {
       <div className="card">
         <ol className="steps">
           {android ? (
-            <li>右上の ⋮ を押す</li>
+            <li>右上の ⋮ をタップ</li>
           ) : (
             <li>
               下の
@@ -203,7 +203,7 @@ function Joined({ onLater }: { onLater: () => void }): ReactNode {
                 <path d="M12 3v12M7 8l5-5 5 5" />
                 <rect x="5" y="11" width="14" height="10" rx="2" />
               </svg>
-              共有を押す
+              共有をタップ
             </li>
           )}
           <li>「ホーム画面に追加」を選ぶ</li>
@@ -218,7 +218,7 @@ function Joined({ onLater }: { onLater: () => void }): ReactNode {
   );
 }
 
-/** ④ の読み取り。アプリの中のカメラで QR を読むか、接続の文字列を貼る。 */
+/** ④ の読み取り。アプリの中のカメラで QR を読むか、接続コードを貼り付ける。 */
 function ReadControls({ onText, autoScan = false }: { onText: (text: string) => string | null; autoScan?: boolean }): ReactNode {
   const [scanning, setScanning] = useState(autoScan);
   const [note, setNote] = useState<string | null>(null);
@@ -247,7 +247,7 @@ function ReadControls({ onText, autoScan = false }: { onText: (text: string) => 
       (e: unknown) => {
         if (ctl.signal.aborted || (e instanceof DOMException && e.name === 'AbortError')) return;
         setScanning(false);
-        setNote('カメラを使えませんでした。設定でこのサイトにカメラを許すか、下の「接続の文字列を貼る」を使ってください。');
+        setNote('カメラを使えませんでした。設定でこのサイトにカメラを許可するか、下の「接続コードを貼り付け」を使ってください。');
       },
     );
     return () => ctl.abort();
@@ -264,7 +264,7 @@ function ReadControls({ onText, autoScan = false }: { onText: (text: string) => 
         <div className="scan m-fade">
           <video ref={video} className="scan-video" playsInline muted />
           <button type="button" className="p-btn sec" onClick={() => setScanning(false)}>
-            やめる
+            キャンセル
           </button>
         </div>
       ) : (
@@ -285,11 +285,11 @@ function ReadControls({ onText, autoScan = false }: { onText: (text: string) => 
         </p>
       )}
       <details className="p-more">
-        <summary>読めないとき：接続の文字列を貼る</summary>
+        <summary>読み取れないとき：接続コードを貼り付け</summary>
         <form className="paste" onSubmit={submitPaste}>
-          <textarea className="input paste-text" aria-label="接続の文字列" placeholder="PC の QR の下にある「文字列をコピー」で写したもの" value={pasted} onChange={(e) => setPasted(e.target.value)} />
+          <textarea className="input paste-text" aria-label="接続コード" placeholder="PC の QR の下の「コードをコピー」でコピーしたもの" value={pasted} onChange={(e) => setPasted(e.target.value)} />
           <button type="submit" className="p-btn sec" disabled={!pasted.trim()}>
-            文字列を読む
+            コードを読み取る
           </button>
         </form>
       </details>

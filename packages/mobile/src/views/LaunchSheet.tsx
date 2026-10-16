@@ -55,7 +55,7 @@ function titleOf(s: RunState): string {
   switch (s.kind) {
     case 'sending':
     case 'waiting':
-      return '会話を開始しています';
+      return '会話を開始中…';
     case 'started':
       return '会話が始まりました';
     case 'failed':
@@ -127,7 +127,7 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
           {state.kind === 'sending' && <p className="ls-cap m-fade">送信中…</p>}
           {state.kind === 'waiting' && (
             <p className="ls-cap m-fade" key={state.claimed ? 'claimed' : 'waiting'}>
-              {state.claimed ? `${spec.pcName} が受信しました。開始を待っています…` : `${spec.pcName} の受信を待っています（最大 30 秒ほど）`}
+              {state.claimed ? `${spec.pcName} で受信しました。開始を確認中…` : `${spec.pcName} での受信を確認中…（最大 30 秒ほど）`}
             </p>
           )}
         </div>
@@ -147,7 +147,7 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
               </div>
               {row?.intent?.trim() && (
                 <Reveal>
-                  <p className="intent">いまやっていること：{row.intent.trim()}</p>
+                  <p className="intent">意図：{row.intent.trim()}</p>
                 </Reveal>
               )}
               {url ? (
@@ -156,7 +156,7 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
                 </a>
               ) : (
                 <button type="button" className="ns-start sm" disabled>
-                  {gaveUp ? 'URL をまだ受信していません' : 'URL を待機中…'}
+                  {gaveUp ? 'URL をまだ受信していません' : 'URL を受信中…'}
                 </button>
               )}
             </section>
@@ -171,7 +171,7 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
                   ? state.message
                   : state.kind === 'unreadable'
                     ? `${spec.pcName} の応答を読み取れませんでした。会話が始まっているかもしれません。受信箱で確認してください。`
-                    : `${spec.pcName} は依頼を受信しましたが、結果をまだ受信していません。受信箱で確認してから送り直してください。`}
+                    : `${spec.pcName} で受信しましたが、結果をまだ受信していません。受信箱で確認してから送り直してください。`}
               </p>
               {state.kind === 'failed' && state.detail && <p className="ns-detail">{state.detail}</p>}
               <div className="ns-actions">

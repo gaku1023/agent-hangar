@@ -188,10 +188,10 @@ describe('Composer の @ の候補', () => {
     await waitFor(() => expect(within(sheet()!).getByText('PC が応答しません')).toBeInTheDocument());
   });
 
-  it('呼び鈴の口が無いときは「この PC は候補を返せません」', async () => {
+  it('呼び鈴の口が無いときは「この PC は候補の取得に対応していません」', async () => {
     const { type } = setup({ asker: { commands: vi.fn(async () => Promise.reject(new AskError('unsupported', 404))) } });
     type('/');
-    await waitFor(() => expect(within(sheet()!).getByText('この PC は候補を返せません')).toBeInTheDocument());
+    await waitFor(() => expect(within(sheet()!).getByText('この PC は候補の取得に対応していません')).toBeInTheDocument());
     expect(within(sheet()!).getByText(/hangar を更新してください/)).toBeInTheDocument();
   });
 
@@ -218,7 +218,7 @@ describe('Composer の画像', () => {
     expect(thumbs.querySelector('img')).toHaveAttribute('src', 'blob:x/1');
     fireEvent.click(within(thumbs).getByRole('button', { name: 'b.jpg をもう一度送信' }));
     expect(attachments.retry).toHaveBeenCalledWith(2);
-    fireEvent.click(within(thumbs).getByRole('button', { name: 'c.jpg を外す' }));
+    fireEvent.click(within(thumbs).getByRole('button', { name: 'c.jpg を削除' }));
     expect(attachments.remove).toHaveBeenCalledWith(3);
     expect(screen.getByText(/画像をタップすると、もう一度送信します/)).toBeInTheDocument();
     expect(screen.getByText('3/4 枚 · 1 枚 5 MB まで')).toBeInTheDocument();

@@ -66,7 +66,7 @@ describe('ProjectPicker（B1）', () => {
     fireEvent.change(box, { target: { value: 'PROJECT-' } });
     const results = within(screen.getByRole('radiogroup', { name: '検索結果' }));
     expect(results.getAllByRole('radio')).toHaveLength(5);
-    expect(screen.getByText('ほか 3 件（「すべて」で見る）')).toBeInTheDocument();
+    expect(screen.getByText('他 3 件（「すべて」で見る）')).toBeInTheDocument();
     fireEvent.change(box, { target: { value: 'project-2' } });
     const one = within(screen.getByRole('radiogroup', { name: '検索結果' })).getAllByRole('radio');
     expect(one).toHaveLength(1);

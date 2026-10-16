@@ -208,7 +208,7 @@ describe('スマホの接続（試作 A1）', () => {
     expect(qr.tagName.toLowerCase()).toBe('svg');
     expect(qr.querySelector('path')?.getAttribute('d')).toMatch(/^M\d+ \d+h1v1h-1z/);
     expect(screen.getByText('残り 5:00')).toBeInTheDocument();
-    expect(screen.getByText(/この QR と「文字列をコピー」でコピーした文字列は同じ中身です。どちらも人に見せたり、写真やメッセージで送ったりしないでください/)).toBeInTheDocument();
+    expect(screen.getByText(/この QR と「コードをコピー」でコピーしたコードは同じ内容です。どちらも人に見せたり、写真やメッセージで送ったりしないでください/)).toBeInTheDocument();
     expect(screen.getByText('スマホのカメラで QR を読む')).toBeInTheDocument();
     // QR を出している間は見出しのボタンを隠す（閉じるか期限が切れたら戻る）。
     expect(screen.queryByRole('button', { name: 'スマホを接続' })).toBeNull();
@@ -225,7 +225,7 @@ describe('スマホの接続（試作 A1）', () => {
     act(() => { vi.advanceTimersByTime(180_000); });
     expect(document.querySelector('.cm-qr')).toHaveAttribute('data-dead', 'true');
     expect(screen.getByText('この QR は期限切れです')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '文字列をコピー' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'コードをコピー' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '新しい QR を出す' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.pair' });
     // Runtime が expired にした後も同じ姿で、QR の中身を持たない。
@@ -247,12 +247,12 @@ describe('スマホの接続（試作 A1）', () => {
     expect(screen.getByRole('status')).toHaveTextContent('iPhone が接続しました。上の一覧に並んでいます。');
   });
 
-  it('「文字列をコピー」で pairText をクリップボードへ写し、「閉じる」で QR を閉じる', () => {
+  it('「コードをコピー」で pairText をクリップボードへ写し、「閉じる」で QR を閉じる', () => {
     vi.useFakeTimers({ now: NOW });
     const onAction = vi.fn();
     render(ui(both(props({ phone: ready })), onAction));
-    const copy = screen.getByRole('button', { name: '文字列をコピー' });
-    expect(copy).toHaveTextContent('文字列をコピー');
+    const copy = screen.getByRole('button', { name: 'コードをコピー' });
+    expect(copy).toHaveTextContent('コードをコピー');
     fireEvent.click(copy);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'clipboard.copy', text: PAIR });
     fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
@@ -283,7 +283,7 @@ describe('スマホの接続（試作 A1）', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.close' });
   });
 
-  it('QR に収まらない長さでも倒れず、文字列のコピーへ案内する', () => {
+  it('QR に収まらない長さでも倒れず、コードのコピーへ案内する', () => {
     render(ui(<QrCode text={'x'.repeat(4000)} size={172} label="QR" fallback="QR に収まりませんでした" />));
     expect(screen.queryByRole('img', { name: 'QR' })).toBeNull();
     expect(screen.getByRole('note')).toHaveTextContent('QR に収まりませんでした');

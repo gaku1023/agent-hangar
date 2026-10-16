@@ -115,7 +115,7 @@ function ProjectRow({ p, pcs, isOn, onPick }: RowsProps & { p: LaunchProject }):
 /** 検索の結果。行は伸びて入り、畳んで出る。 */
 function Results({ shown, more, empty, pcs, isOn, onPick }: RowsProps & { shown: LaunchProject[]; more: number; empty: boolean }): ReactNode {
   const list = usePresence(shown, (p) => p.id);
-  const note = more > 0 ? `ほか ${more} 件（「すべて」で見る）` : empty ? '見つかりません' : null;
+  const note = more > 0 ? `他 ${more} 件（「すべて」で見る）` : empty ? '見つかりません' : null;
   if (shown.length === 0 && !note && list.length === 0) return null;
   return (
     <div role="radiogroup" aria-label="検索結果" className="pp-results">

@@ -52,7 +52,7 @@ function errorView(reason: AskFailure, pcName: string, what: string): SuggestVie
     case 'pc-timeout':
       return { kind: 'error', title: 'PC が応答しません', text: `${pcName} がスリープしているか、hangar が停止しているか、hangar が古いかもしれません。${manual}`, retry: true };
     case 'unsupported':
-      return { kind: 'error', title: 'この PC は候補を返せません', text: `hangar を更新してください。${manual}`, retry: false };
+      return { kind: 'error', title: 'この PC は候補の取得に対応していません', text: `hangar を更新してください。${manual}`, retry: false };
     case 'unreadable':
       return { kind: 'error', title: `${pcName} の応答を読み取れませんでした`, text: manual, retry: true };
     case 'rate-limited':
@@ -252,7 +252,7 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
           className="cm-ta"
           rows={5}
           value={value}
-          placeholder="例：README の導入の節を直して（/ でスキル、@ でファイル）"
+          placeholder="例：README の導入の節を修正して（/ でスキル、@ でファイル）"
           onChange={(e) => {
             onChange(e.target.value);
             readCaret(e.target);
@@ -321,7 +321,7 @@ function Thumb({ a, phase, leaving, att }: { a: Attachment; phase: string; leavi
           <b>!</b>再送
         </button>
       )}
-      <button type="button" className="cm-x" aria-label={`${a.name} を外す`} onClick={() => att.remove(a.id)}>
+      <button type="button" className="cm-x" aria-label={`${a.name} を削除`} onClick={() => att.remove(a.id)}>
         ✕
       </button>
     </li>

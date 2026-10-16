@@ -147,7 +147,7 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
         : att.failed
           ? '送信できなかった画像があります'
           : att.busy
-            ? '送信中の画像を待っています'
+            ? '画像の送信中…'
             : `${pcName} で始める`;
 
   return (
@@ -192,7 +192,7 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
                     onPick={() => setAcctPicked(a.id)}
                     title={a.name || a.id}
                     dot={safeColor(a.color)}
-                    sub={typeof a.fiveHour === 'number' ? `5時間 ${Math.round(a.fiveHour)}%` : undefined}
+                    sub={typeof a.fiveHour === 'number' ? `5 時間 ${Math.round(a.fiveHour)}%` : undefined}
                   />
                 )}
               />

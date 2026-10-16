@@ -29,8 +29,8 @@ const mb = (bytes: number): string => (Math.round((bytes / 1024 / 1024) * 10) / 
 
 /** 断る理由の文。count は今ある枚数、bytes は縮めた後の大きさ。断らないなら null。 */
 export function rejectImage(o: { count: number; name?: string; bytes?: number }): string | null {
-  if (o.count >= MOBILE_IMAGES_PER_LAUNCH) return `${MOBILE_IMAGES_PER_LAUNCH} 枚までです。1 枚外してから追加してください。`;
-  if (o.bytes !== undefined && o.bytes > MOBILE_IMAGE_MAX_BYTES) return `${o.name ?? '画像'} は 5 MB を超えているため添付できません（${mb(o.bytes)} MB）`;
+  if (o.count >= MOBILE_IMAGES_PER_LAUNCH) return `${MOBILE_IMAGES_PER_LAUNCH} 枚までです。1 枚削除してから追加してください。`;
+  if (o.bytes !== undefined && o.bytes > MOBILE_IMAGE_MAX_BYTES) return `${o.name ?? '画像'} は添付できません。1 枚 5 MB までです（${mb(o.bytes)} MB）`;
   return null;
 }
 
@@ -41,7 +41,7 @@ export class ImageError extends Error {
     readonly reason: ImageFailure,
     readonly status: number | null = null,
   ) {
-    super(`画像を置けませんでした（${reason}）`);
+    super(`画像を送信できませんでした（${reason}）`);
     this.name = 'ImageError';
   }
 }
@@ -60,7 +60,7 @@ export function imageFailureText(e: unknown, lead: string, tail: string): string
 function imageCause(reason: ImageFailure): string {
   switch (reason) {
     case 'too-many':
-      return `クラウドに置いたままの画像が上限の ${MOBILE_IMAGES_PER_PHONE} 枚に達しています。PC が受信すると消えます。`;
+      return `クラウドに保存している画像が上限の ${MOBILE_IMAGES_PER_PHONE} 枚に達しています。PC が受信すると消えます。`;
     case 'too-large':
       return '画像が大きすぎます。';
     case 'rate-limited':

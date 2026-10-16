@@ -116,7 +116,7 @@ describe('startLaunch', () => {
     expect((last() as { message: string }).message).toMatch(/10 分に 10 件まで/);
   });
 
-  it('PC が受け取らないまま時間切れなら「受け取りませんでした」、受け取った後なら「結果がまだ届いていません」', async () => {
+  it('PC が受け取らないまま時間切れなら「応答がありません」、受け取った後なら「結果をまだ受信していません」', async () => {
     serve([{ status: 'pending' }]);
     const a = run(spec(), { giveUpMs: 150 });
     await vi.waitFor(() => expect(a.last().kind).toBe('failed'));
