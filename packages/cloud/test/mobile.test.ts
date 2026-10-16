@@ -3,7 +3,7 @@ import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, readCloudLimit, seal, 
 import { MAX_ACTIVE_PHONES, MAX_FEED_BODY_BYTES, PAIRING_RATE, PAIRING_TTL_MS } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
 const SECRET = 'join-secret-mobile';
 
@@ -13,11 +13,8 @@ const send = (path: string, init: RequestInit = {}) => cloud.SELF.fetch(`https:/
 const auth = (token: string, extra: Record<string, string> = {}) => ({ authorization: `Bearer ${token}`, ...extra });
 const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-const joinPc = async (id: string): Promise<string> => {
-  const r = await send('/join', json({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }));
-  expect(r.status).toBe(201);
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/** PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。 */
+const joinPc = (id: string): Promise<string> => addPcDevice(cloud.env, id);
 
 const takePairing = (token: string) => send('/m/pairings', { method: 'POST', headers: auth(token) });
 

@@ -4,6 +4,7 @@ import { Miniflare } from 'miniflare';
 import { COMPAT_HEADER, compatHeaders } from '@agent-hangar/shared';
 import { bindingNames, bundleWorker, workerBuildOptions, workerMetadata } from '../scripts/build-worker.ts';
 import type { Env } from '../src/env.ts';
+import { sha256Hex } from '../src/util.ts';
 
 /**
  * Worker をローカルの workerd（miniflare）で起こす道具である。
@@ -103,4 +104,16 @@ export async function startCloud(options: { BOOTSTRAP_TOKEN_HASH?: string; bindi
     mf,
     dispose: () => mf.dispose(),
   };
+}
+
+/**
+ * 参加の口を通さずに、PC の行を D1 へ直に置き、その端末トークンを返す。
+ * PC の参加は参加コードと承認の往復（join.test.ts）なので、ほかの口の試験はこの近道で PC を用意する。
+ */
+export async function addPcDevice(env: Env, id: string, o: { joinedAt?: number; expiresAt?: number | null } = {}): Promise<string> {
+  const token = `token-${id}-0123456789abcdef`;
+  await env.DB.prepare("insert into devices (id, kind, token_hash, joined_at, expires_at) values (?, 'pc', ?, ?, ?)")
+    .bind(id, await sha256Hex(token), o.joinedAt ?? Date.now(), o.expiresAt ?? null)
+    .run();
+  return token;
 }

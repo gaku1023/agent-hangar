@@ -52,8 +52,18 @@ describe('認証', () => {
     expect([...bodies][0]).not.toContain(token);
   });
 
+  it('期限（expires_at）を過ぎたトークンは 401 で expired を返す', async () => {
+    const token = await addPc('pc-a');
+    await cloud.env.DB.prepare('update devices set expires_at = ? where id = ?').bind(Date.now() - 1, 'pc-a').run();
+    const r = await changes(token);
+    expect(r.status).toBe(401);
+    expect(await r.json()).toEqual({ error: 'expired' });
+    await cloud.env.DB.prepare('update devices set expires_at = ? where id = ?').bind(Date.now() + 60_000, 'pc-a').run();
+    expect((await cloud.SELF.fetch('https://x/devices', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
+  });
+
   it('認証の要る道はすべて middleware の下にある', async () => {
-    for (const path of ['/changes', '/changes/x', '/rows', '/files', '/files/x', '/devices', '/devices/x/revoke']) {
+    for (const path of ['/changes', '/changes/x', '/rows', '/files', '/files/x', '/devices', '/devices/x/revoke', '/join-codes', '/join-codes/mine', '/join-codes/x/approve']) {
       expect((await cloud.SELF.fetch(`https://x${path}`)).status).toBe(401);
     }
   });

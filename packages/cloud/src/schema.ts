@@ -26,7 +26,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // 名簿は 1 行だけで、version を条件にして書き換える。
   'create table if not exists roster (id integer primary key check (id = 1), version integer not null, updated_at integer not null, sealed blob not null)',
   // 参加コード。D1 にはコードのハッシュだけを置き、参加リクエスト（request）は封じたまま置く。
-  "create table if not exists join_codes (code_hash text primary key, created_by text not null, created_at integer not null, expires_at integer not null, used_at integer, status text not null default 'open', request blob, request_at integer)",
+  // device_id はリクエストを置いた新しい PC の ID で、問い合わせと承認をこの ID に結び付ける。
+  "create table if not exists join_codes (code_hash text primary key, created_by text not null, created_at integer not null, expires_at integer not null, used_at integer, status text not null default 'open', device_id text, request blob, request_at integer)",
   'create index if not exists join_codes_by on join_codes(created_by, created_at)',
   // スマホ向けの表。epoch はスマホ用の鍵の世代である。
   'create table if not exists mobile_feeds (device_id text primary key, sealed text not null, updated_at integer not null, epoch integer not null default 1)',

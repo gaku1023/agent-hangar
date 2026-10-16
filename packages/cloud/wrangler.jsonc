@@ -2,7 +2,7 @@
   // ローカル開発とテスト専用の設定である。
   // 実物のデプロイでは hangar setup cloud が ~/.agent-hangar/cloud/wrangler.jsonc に別の設定を書く。
   // 実物のアカウント ID とデータベース ID と Worker の URL をここに書かない。
-  // JOIN_SECRET_HASH は wrangler secret で入れるので、このファイルには書かない。
+  // BOOTSTRAP_TOKEN_HASH は wrangler secret で入れるので、このファイルには書かない。
   "name": "hangar-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",

@@ -2,9 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CloudDeviceOut, CloudDevicesResponse } from '@agent-hangar/shared';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
-
-const SECRET = 'join-secret-1';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
 let cloud: CloudHarness;
 
@@ -18,11 +16,11 @@ const send = (path: string, init: RequestInit & { origin?: Origin } = {}) => {
   return cloud.SELF.fetch(`https://x${path}`, { ...rest, headers, ...(origin?.cf ? { cf: origin.cf } : {}) } as RequestInit);
 };
 
-const join = async (id: string, name = id, platform = 'darwin', origin?: Origin): Promise<string> => {
-  const r = await send('/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: SECRET, device: { id, name, platform } }), origin });
-  expect(r.status).toBe(201);
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/**
+ * PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。
+ * 名前と OS は devices に置かなくなったので、その引数は読まない。devices の試験を作り直すまで呼び方だけ残す。
+ */
+const join = async (id: string, _name = id, _platform = 'darwin', _origin?: Origin): Promise<string> => addPcDevice(cloud.env, id);
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 

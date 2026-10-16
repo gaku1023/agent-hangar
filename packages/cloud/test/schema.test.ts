@@ -37,7 +37,7 @@ describe('schema（版 9）', () => {
     expect(await columns(cloud.env.DB, 'files')).toEqual(['seq', 'key', 'kind', 'device_id', 'size', 'stored_size', 'uploaded_at', 'epoch', 'sealed_meta']);
     for (const t of ['keyboxes', 'phone_keyboxes']) expect(await columns(cloud.env.DB, t)).toEqual(['epoch', 'recipient', 'created_at', 'sealed']);
     expect(await columns(cloud.env.DB, 'roster')).toEqual(['id', 'version', 'updated_at', 'sealed']);
-    expect(await columns(cloud.env.DB, 'join_codes')).toEqual(['code_hash', 'created_by', 'created_at', 'expires_at', 'used_at', 'status', 'request', 'request_at']);
+    expect(await columns(cloud.env.DB, 'join_codes')).toEqual(['code_hash', 'created_by', 'created_at', 'expires_at', 'used_at', 'status', 'device_id', 'request', 'request_at']);
     const indexes = (await cloud.env.DB.prepare("select name from sqlite_master where type = 'index'").all<{ name: string }>()).results.map((r) => r.name);
     expect(indexes).toContain('join_codes_by');
     expect(SCHEMA_STATEMENTS.every((s) => !s.includes('\n'))).toBe(true);

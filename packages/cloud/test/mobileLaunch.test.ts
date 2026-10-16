@@ -3,7 +3,7 @@ import { aadLaunch, COMPAT_HEADER, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_PROMPT
 import { LAUNCH_KEEP_MS, LAUNCH_RATE, MAX_ANSWER_BODY_BYTES, MAX_LAUNCH_BODY_BYTES } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
 const SECRET = 'join-secret-launch';
 
@@ -14,11 +14,8 @@ const auth = (token: string, extra: Record<string, string> = {}) => ({ authoriza
 const post = (token: string, path: string, body?: unknown, extra: Record<string, string> = {}) =>
   send(path, { method: 'POST', headers: auth(token, { 'content-type': 'application/json', ...extra }), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-const joinPc = async (id: string): Promise<string> => {
-  const r = await send('/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }) });
-  expect(r.status).toBe(201);
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/** PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。 */
+const joinPc = (id: string): Promise<string> => addPcDevice(cloud.env, id);
 
 const joinPhone = async (pcToken: string, name = 'iPhone'): Promise<MobileJoinResponse> => {
   const p = await post(pcToken, '/m/pairings');

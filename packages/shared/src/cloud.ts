@@ -57,6 +57,48 @@ export type JoinResponse = { deviceToken: string; deviceId: string };
 export type JoinToken = { url: string; secret: string };
 
 /**
+ * 最初の PC の端末トークンを登録する（`POST /bootstrap`、互換の版 9）。
+ * setup が Worker の secret `BOOTSTRAP_TOKEN_HASH` に `SHA-256(token)` を入れ、同じハッシュは 1 回だけ通る。
+ * 応答は 201 `{ deviceId }`。
+ */
+export type BootstrapRequest = { deviceId: string; token: string };
+
+/** 参加コードの期限（5 分）。判定は Worker の時計で行う。 */
+export const JOIN_CODE_TTL_MS = 5 * 60_000;
+/** 参加コードの発行は 1 台の PC につき 10 分に 5 回まで。 */
+export const JOIN_CODE_RATE = { max: 5, windowMs: 10 * 60_000 } as const;
+/** 一致しないコードへの参加リクエストは、Worker 全体で 10 分に 30 回まで。超えたら 429。 */
+export const JOIN_GUESS_LIMIT = { max: 30, windowMs: 10 * 60_000 } as const;
+
+/**
+ * 参加コードの発行（`POST /join-codes`、発行する PC の端末トークンが要る）。
+ * 送るのは正規化したコードの SHA-256（hex）だけで、平文は送らない。
+ * 本文の `expiresAt` は省けて、Worker は読まない。期限は Worker の時計で決め、201 の応答の `expiresAt` で返す。
+ */
+export type JoinCodeCreate = { codeHash: string; expiresAt: number };
+
+/** 接続先の確認（`GET /join/hello`、認証なし）。`pcCount` は解除されていない PC の数。 */
+export type JoinCodeHello = { hostLabel: string; pcCount: number };
+
+/**
+ * 新しい PC の参加リクエスト（`POST /join/requests`、認証なし）。`sealed` は参加コードで封じた中身（base64url）。
+ * 開いていて期限内で、まだリクエストの無いコードにだけ置け、202 を返す。ほかは区別せずに 404。
+ */
+export type JoinRequestIn = { codeHash: string; deviceId: string; sealed: string };
+
+/** 発行した PC が見る、自分のいちばん新しいコード（`GET /join-codes/mine`）。無ければ 404。 */
+export type JoinCodeMine = { codeHash: string; status: 'open' | 'requested' | 'approved' | 'rejected' | 'expired'; sealed: string | null; deviceId: string | null };
+
+/** 承認（`POST /join-codes/:hash/approve`、発行した PC だけ）の本文。トークンは発行した PC に渡さない。 */
+export type JoinApproveIn = { deviceId: string };
+
+/**
+ * 新しい PC の問い合わせ（`GET /join/status?code=<hash>&device=<id>`、認証なし）。
+ * `deviceToken` は承認の後の最初の問い合わせにだけ載る。
+ */
+export type JoinStatusOut = { status: 'waiting' | 'approved' | 'rejected' | 'expired'; deviceToken?: string };
+
+/**
  * Worker の `GET /devices` が返す PC の 1 行（互換の版 5 から）。
  * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した PC である。
  * 最後に同期した IP と場所は、Worker が同期の要求を受けたときの CF-Connecting-IP と request.cf の city、region、country をそのまま写したもので、PC ごとに最後の 1 件だけを持つ。
