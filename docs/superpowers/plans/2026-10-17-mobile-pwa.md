@@ -92,10 +92,10 @@
 **Files:**
 - Create: `/private/tmp/.../scratchpad/mobile-settings-proto.html`（リポジトリに入れない）
 
-- [ ] **Step 1: `/rc` の URL の形を実物で確かめる。** 専用の tmux（`tmux -S <scratchpad>/rc.sock`、`kill-server` は呼ばない）で `claude --remote-control "rc-probe"` を起こし、20 秒後に `capture-pane -p` を読んで、URL の行の形を記録する。終わったら `/exit` で抜け、ソケットの tmux を `kill-session` で閉じる。API キーで認証したときの振る舞い（警告で続くか、落ちるか）も、手元にその構成があれば見る。無ければ「未確認」として Task 7 の門を保守的に（付けない側に）倒す。
-- [ ] **Step 2: Design キャンバスの 2 枚を読む**（DesignSync か Artifact の read）。配置、文言、色を Task 10・11 の実装者に渡すメモにまとめ、この計画の末尾「画面のメモ」に追記する。
-- [ ] **Step 3: 試作を作る。** 1 枚の HTML に次を案ごとに並べる。(a) PC の設定のクラウドの節に「スマホをつなぐ」（ボタン→QR と注意書き→つないだスマホが PC の一覧に「スマホ」の印で並ぶ）を 2〜3 案、(b) 設定の「会話を Claude アプリにつなぐ」の置き場所（一般の節／起動時に効く設定の並び）2 案、(c) スマホの参加の画面（QR から開いた直後の「この端末を参加させる」と、つなぐ文字列を貼る欄）2 案。QR には 5 分の残り時間と「人に見せない」旨を出す。
-- [ ] **Step 4: 利用者に AskUserQuestion で 1 問ずつ選んでもらう。** 選ばれた案を「画面のメモ」に追記する。選ばれるまで Task 9・10 の画面に入らない（Task 1〜8 は並行して進めてよい）。
+- [x] **Step 1: `/rc` の URL の形を実物で確かめる。** 専用の tmux（`tmux -S <scratchpad>/rc.sock`、`kill-server` は呼ばない）で `claude --remote-control "rc-probe"` を起こし、20 秒後に `capture-pane -p` を読んで、URL の行の形を記録する。終わったら `/exit` で抜け、ソケットの tmux を `kill-session` で閉じる。API キーで認証したときの振る舞い（警告で続くか、落ちるか）も、手元にその構成があれば見る。無ければ「未確認」として Task 7 の門を保守的に（付けない側に）倒す。
+- [x] **Step 2: Design キャンバスの 2 枚を読む**（DesignSync か Artifact の read）。配置、文言、色を Task 10・11 の実装者に渡すメモにまとめ、この計画の末尾「画面のメモ」に追記する。
+- [x] **Step 3: 試作を作る。** 1 枚の HTML に次を案ごとに並べる。(a) PC の設定のクラウドの節に「スマホをつなぐ」（ボタン→QR と注意書き→つないだスマホが PC の一覧に「スマホ」の印で並ぶ）を 2〜3 案、(b) 設定の「会話を Claude アプリにつなぐ」の置き場所（一般の節／起動時に効く設定の並び）2 案、(c) スマホの参加の画面（QR から開いた直後の「この端末を参加させる」と、つなぐ文字列を貼る欄）2 案。QR には 5 分の残り時間と「人に見せない」旨を出す。
+- [x] **Step 4: 利用者に AskUserQuestion で 1 問ずつ選んでもらう。** 選ばれた案を「画面のメモ」に追記する。選ばれるまで Task 9・10 の画面に入らない（Task 1〜8 は並行して進めてよい）。
 
 ---
 
@@ -118,7 +118,7 @@
     - `type MobileAccount = { id: string; name: string; color: string; fiveHour: number | null; sevenDay: number | null }`
     - `type MobileProject = { id: string; name: string; lastUsedAt: number | null }`
     - `type MobileFeed = { v: 1; deviceId: string; deviceName: string; accounts: MobileAccount[]; projects: MobileProject[]; live: MobileLiveItem[]; returns: MobileReturnItem[]; done: MobileDoneItem[] }`
-    - `type MobileLaunchPayload = { v: 1; createdAt: number; projectId: string; accountId: string; permissionMode: string; model: string; prompt: string }`
+    - `type MobileLaunchPayload = { v: 1; createdAt: number; projectId: string | null; scratch: boolean; accountId: string; permissionMode: string; model: string; prompt: string }`（`scratch: true` のとき `projectId` は null。「すぐ始める」）
     - `type MobileLaunchAnswer = { ok: true; sessionId: string; title: string } | { ok: false; reason: 'project-missing' | 'account-missing' | 'bad-payload' | 'expired' | 'launch-failed'; detail?: string }`
     - Worker の口の型：`MobilePairingResponse = { code: string; expiresAt: number }`、`MobileJoinRequest = { code: string; device: { id: string; name: string } }`、`MobileJoinResponse = { token: string; deviceId: string }`、`MobileInboxResponse = { now: number; devices: { id: string; name: string; platform: string; lastSeenAt: number | null }[]; feeds: { deviceId: string; updatedAt: number; sealed: string }[] }`、`MobileLaunchIn = { id: string; targetDevice: string; sealed: string }`、`MobileLaunchOut = { id: string; createdAt: number; sealed: string }`、`MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null }`
     - `clampText(s: string | null | undefined, max = MOBILE_TEXT_MAX): string | null`
@@ -315,7 +315,7 @@
   - `SyncListener.launches?(l: MobileLaunchOut[]): void`（engine が pull ごとに、`launches` が空でなければ呼ぶ）
   - `CloudClient.claimLaunch?(id: string): Promise<boolean>`（409 は false）、`CloudClient.answerLaunch?(id: string, ok: boolean, sealedAnswer: string): Promise<void>`
   - `class MobileLaunchInbox { constructor(deps: { db: Db; client: CloudClient; joinSecret: string; deviceId: string; start: (p: LaunchParams) => LaunchResult; hasProjectHere: (projectId: string) => boolean; hasAccount: (id: string) => boolean; now: () => number }); receive(l: MobileLaunchOut[]): Promise<void> }`
-  - 1 件の扱いの順：手元の `mobile_launches` にあれば何もしない → `claimLaunch` が false なら何もしない → 開封（失敗は `bad-payload`）→ `createdAt` が `now - LAUNCH_TTL_MS - 5分` より古ければ `expired` → プロジェクト・アカウントの確かめ → `start({ projectId, account, permissionMode, model, prompt })` → `mobile_launches` に記録 → `answerLaunch`。応答の前に記録する（応答が失敗しても二度起こさない）
+  - 1 件の扱いの順：手元の `mobile_launches` にあれば何もしない → `claimLaunch` が false なら何もしない → 開封（失敗は `bad-payload`）→ `createdAt` が `now - LAUNCH_TTL_MS - 5分` より古ければ `expired` → プロジェクト・アカウントの確かめ（`scratch` ならプロジェクトは見ない）→ `start({ projectId, scratch, account, permissionMode, model, prompt })` → `mobile_launches` に記録 → `answerLaunch`。応答の前に記録する（応答が失敗しても二度起こさない）
   - `receive` は直列化する（`TakeoverResponder.scan` と同じ鎖の作り）
 
 - [ ] **Step 1: 落ちる試験を書く**
@@ -370,7 +370,7 @@
 - Consumes: `Tmux.capturePane`（`pane.ts` の `capture(name)`）
 - Produces:
   - v30：`create table run_remote_urls (session_id text primary key, url text not null, at integer not null)`（同期しない。会話ごとに最新の 1 つ）
-  - `extractRemoteUrl(screen: string): string | null` — 正規表現は Task 0 の実物の形に合わせる。既定は `https://claude\.ai/code/[A-Za-z0-9_\-/?=&.]+`。取り出した後に `isRemoteControlUrl` を通らなければ null
+  - `extractRemoteUrl(screen: string): string | null` — 正規表現は `https://claude\.ai/code/session_[A-Za-z0-9]+`（Task 0 の実物。画面は `capture-pane -J` で折り返しをつないで読む。`pane.ts` の `capture` が `-J` を付けていなければ、付けた読み方を足す）。取り出した後に `isRemoteControlUrl` を通らなければ null
   - `watchRemoteUrl(o: { capture: () => string; onFound: (url: string) => void; timers: Timers; everyMs?: number; forMs?: number }): () => void`（既定 2 秒ごと、60 秒まで）
   - 見つけたら `run_remote_urls` に書き、`MobileFeedPublisher.nudge()` を呼ぶ
 - [ ] **Step 1: 落ちる試験を書く**
@@ -512,4 +512,30 @@ Task 0 で選ばれた案で作る。
 - `PairingBlob` に `pcName: string` と `expiresAt: number` を足す（Task 1、Task 9）。秘密ではない。
 - ④のアプリ内の QR 読み取り（Task 10）：`getUserMedia` と `jsqr@1.4.0`。iOS の Safari には `BarcodeDetector` が無い。CSP に `media-src 'self' blob:` を足す。
 
-（Task 0 の Step 2：Design キャンバスの受信箱と新しい会話の 2 枚の要点を、ここに追記する）
+### `/rc` の実物（Task 0 の Step 1、2026-10-17、claude 2.1.301）
+
+- `claude --remote-control <名前>` で起こすと、起動直後の見出しの 4 行目に `/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_<英数字 24 字前後>` が出る。見出しの 3 行目の末尾には `· /rc` または `· /rc active`。URL の正規表現は `https://claude\.ai/code/session_[A-Za-z0-9]+`。画面の幅で折り返すので、読むときは `capture-pane -J`（折り返しをつなぐ）で読む。
+- 既定のアカウント（`CLAUDE_CONFIG_DIR` なし、Max）と 2 つ目のアカウント（`CLAUDE_CONFIG_DIR=~/.claude-univ`、Enterprise）の両方でつながった。Enterprise の組織の設定で切られている場合は未確認。
+- API キーで認証した claude は、`--remote-control` を黙って無視して普通に起動した（`/rc` の表示が出ないだけで、失敗しない）。Task 7 の門は「付けても害は無いが、URL は出ない」ことを踏まえ、そのまま保守的に残す。
+- 注意：`CLAUDE_CONFIG_DIR=~/.claude` と既定の場所を明示すると、未ログイン扱いになる（キーチェーンの引き方が変わる）。既定のアカウントには `CLAUDE_CONFIG_DIR` を付けない今の作りを崩さないこと。
+- 下調べで、手元の `~/.claude-univ/.claude.json` に偽の API キーの承認が 1 件入ったので外した（`customApiKeyResponses.approved` を空に戻した）。
+
+### Design キャンバスの 2 枚（Task 0 の Step 2）
+
+両方とも 390×844。地は `#eef1f7`、字は `#1c1b2e`、札は白・角 16px・線 `#e2e4ee`。本文は 14px、PC の hangar と同じ色の値。
+
+**受信箱（Main）**
+- 頭：大きな見出し「あなたの番 N」（26px・太字）と右に日付（12px・`#5f5e78`）。その下の 1 行に PC ごとの生存「● Mac 1 分前」（緑の丸 `#3a8f5c`。3 分を過ぎた PC は灰色の丸と「不明」）。
+- あなたの番の札：上の段にアカウントの色の丸・プロジェクト名（太字）・「· 会話の題」・右寄せで待った時間（`#a2452f`、等幅、例「7時間4分」）。中の段に待っている内容（16px・太字）。下の段に補い（13px・`#5f5e78`）＝ PC 名と、許可待ちならツールの種類。
+  - 試作にある「行の中の選択肢で答える」「これまでの流れを見る」は作らない（設計の変更で `/rc` に任せた）。札全体を押すと `/rc` の URL（無ければ claude.ai/code）を開く。札の右下に「Claude アプリで開く ›」。
+  - 試作の「片付け」の札（まとめて Done）は作らない（スマホからの状態の変更は目標外）。
+- 小見出し（12px・`#6e6d88`・字間 0.04em）で区切った細い行（白・角 12px・高さ 44px 前後）：「動いている」（橙の丸 `#c77a1a`、意図の 1 行、右に「PC · 40 分」）、「今日戻る」（設計にあり試作に無い。しおりの色 `#8a5a0b` の丸、題、右に戻る時刻）、「今日終わった」（緑の丸 `#2b7048`、要約の 1 行、右に終わった時刻）。
+- 下に固定の白い帯と黒（`#1c1b2e`）の大きなボタン「＋ 新しい会話」（高さ 48px・角 14px）。
+- 何も無いとき（試作の「さばき終わった受信箱」の 1 枚）は、あなたの番の場所に「待っている会話はありません」。
+
+**新しい会話（NewSession）**
+- 頭：左に「閉じる」、中央に「新しい会話」。
+- 札のボタンの組（高さ 44px・角 12px・選ばれたら線 `#4a63e8` 1.5px と地 `#eef2ff` と太字）を縦に：プロジェクト（色の丸つき）／PC（副題「動いている 1」「空いている」、3 分見ていない PC は出さない）／アカウント（その PC のもの、副題「5時間 32%」）。設計にあり試作に無い「権限モード」「モデル」も同じ札の組で足す（既定は「既定」）。
+- 試作のプロジェクトの並びには「すぐ始める（フォルダなし）」がある。これは入れる：依頼の `projectId` を null、`scratch: true` にする（Task 1 の型と Task 6 の受け取りに反映）。
+- 最初の指示の欄（4 行、15px）。試作の下の小さな札（「TODO の先頭をやって」など）は作らない。
+- 下の白い帯に青の大きなボタン「〈PC〉で始める」（高さ 50px）。押した後は同じ場所に「〈PC〉が受け取るのを待っています（最大 30 秒ほど）」→「〈PC〉で始めた。受信箱の『動いている』に出る」と「受信箱へ ›」。時間切れ・失敗は理由の文。
