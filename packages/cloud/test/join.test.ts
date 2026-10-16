@@ -177,6 +177,47 @@ describe('参加コード', () => {
     expect((await status(hash, 'pc-b')).deviceToken).toBeTruthy();
   });
 
+  it('承認の後、その端末 ID が既に devices にあれば、トークンを渡さずに rejected で終わる', async () => {
+    const { hash } = await newCode(pcA);
+    await request(hash, 'pc-b');
+    expect((await approve(pcA, hash, 'pc-b')).status).toBe(200);
+    // リクエストの後に、同じ ID の端末が別の道で入った。
+    const existing = await addPcDevice(cloud.env, 'pc-b');
+    expect(await status(hash, 'pc-b')).toEqual({ status: 'rejected' });
+    expect(await status(hash, 'pc-b')).toEqual({ status: 'rejected' });
+    const r = await row(hash);
+    expect(r?.status).toBe('rejected');
+    expect(r?.used_at).toBeNull();
+    // 前からある端末のトークンはそのまま使える。
+    expect(await canAuth(existing)).toBe(true);
+    const dev = await cloud.env.DB.prepare('select token_hash from devices where id = ?').bind('pc-b').first<{ token_hash: string }>();
+    expect(dev?.token_hash).toBe(await sha256Hex(existing));
+  });
+
+  it('認証のない口は、長さを名乗らない本文でも上限を超えたら 413', async () => {
+    const { hash } = await newCode(pcA);
+    const big = JSON.stringify({ codeHash: hash, deviceId: 'pc-b', sealed: 'A'.repeat(20_000) });
+    const chunked = (text: string): RequestInit =>
+      ({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: new ReadableStream({
+          start(ctl) {
+            const b = new TextEncoder().encode(text);
+            for (let i = 0; i < b.length; i += 1024) ctl.enqueue(b.slice(i, i + 1024));
+            ctl.close();
+          },
+        }),
+        duplex: 'half',
+      }) as RequestInit;
+    const r1 = await send('/join/requests', chunked(big));
+    expect(r1.status).toBe(413);
+    expect((await send('/join/requests', { method: 'POST', headers: { 'content-type': 'application/json' }, body: big })).status).toBe(413);
+    expect((await send('/bootstrap', chunked(JSON.stringify({ deviceId: 'pc-z', token: 'A'.repeat(20_000) })))).status).toBe(413);
+    // 上限の内なら、長さを名乗らない本文でも通る。
+    expect((await send('/join/requests', chunked(JSON.stringify({ codeHash: hash, deviceId: 'pc-b', sealed: 'c2VhbGVk' })))).status).toBe(202);
+  });
+
   it('拒否で rejected になり、request が null になる', async () => {
     const { hash } = await newCode(pcA);
     await request(hash, 'pc-b');

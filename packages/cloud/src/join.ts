@@ -56,7 +56,7 @@ export async function issueDeviceToken(): Promise<{ token: string; tokenHash: st
 const JOIN_CODE_KEEP_MS = 86_400_000;
 /** 封じた参加リクエストの文字数の上限。中身は公開鍵と名前と OS なので、これで十分に余る。 */
 const MAX_SEALED_REQUEST_CHARS = 8192;
-/** 認証のない参加リクエストの本文の上限（バイト）。読む前に申告の長さで断る。 */
+/** 認証のない口（参加リクエストと bootstrap）の本文の上限（バイト）。申告の長さで先に断り、読みながらも数える。 */
 const MAX_REQUEST_BODY_BYTES = 16_384;
 const MIN_TOKEN_CHARS = 16;
 const MAX_TOKEN_CHARS = 512;
@@ -95,6 +95,42 @@ const readJson = async (c: Ctx): Promise<Record<string, unknown> | null> => {
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 };
 
+/**
+ * 認証のない口の本文を、上限まで読んで JSON として解く。
+ * 申告の長さ（content-length）で先に断り、申告が無い本文（chunked）は読みながらバイトを数え、上限を超えた時点で読むのをやめる。
+ * JSON でないか、オブジェクトでなければ value を null にする。
+ */
+async function readCappedJson(c: Ctx, max: number): Promise<{ tooLarge: true } | { tooLarge: false; value: Record<string, unknown> | null }> {
+  if (Number(c.req.header('content-length') ?? 0) > max) return { tooLarge: true };
+  const stream = c.req.raw.body;
+  if (!stream) return { tooLarge: false, value: null };
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return { tooLarge: true };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const ch of chunks) {
+    bytes.set(ch, at);
+    at += ch.byteLength;
+  }
+  try {
+    const v = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return { tooLarge: false, value: typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null };
+  } catch {
+    return { tooLarge: false, value: null };
+  }
+}
+
 /** 期限を過ぎた開いたコードを expired にし、封じたリクエストを消す。主キーで 1 行だけを見る。 */
 const expireCode = (db: D1Database, codeHash: string, now: number) =>
   db.prepare("update join_codes set status = 'expired', request = null where code_hash = ? and status in ('open', 'requested') and expires_at <= ?").bind(codeHash, now);
@@ -108,7 +144,9 @@ const expireCode = (db: D1Database, codeHash: string, now: number) =>
  * `hangar recover` は secret を別のハッシュに入れ替えて、もう 1 度ここを通る。
  */
 export async function bootstrapHandler(c: Ctx) {
-  const body = (await readJson(c)) as Partial<BootstrapRequest> | null;
+  const read = await readCappedJson(c, MAX_REQUEST_BODY_BYTES);
+  if (read.tooLarge) return c.json({ error: 'payload too large' }, 413);
+  const body = read.value as Partial<BootstrapRequest> | null;
   if (!body || !isDeviceId(body.deviceId) || typeof body.token !== 'string' || body.token.length < MIN_TOKEN_CHARS || body.token.length > MAX_TOKEN_CHARS) {
     return c.json({ error: 'invalid body' }, 400);
   }
@@ -151,8 +189,9 @@ joinApp.get('/hello', async (c) => {
  * 形の違う本文は D1 に触らずに 400 で返し、窓に数えない。
  */
 joinApp.post('/requests', async (c) => {
-  if (Number(c.req.header('content-length') ?? 0) > MAX_REQUEST_BODY_BYTES) return c.json({ error: 'payload too large' }, 413);
-  const body = (await readJson(c)) as Partial<JoinRequestIn> | null;
+  const read = await readCappedJson(c, MAX_REQUEST_BODY_BYTES);
+  if (read.tooLarge) return c.json({ error: 'payload too large' }, 413);
+  const body = read.value as Partial<JoinRequestIn> | null;
   if (
     !body ||
     !isHash(body.codeHash) ||
@@ -206,16 +245,26 @@ joinApp.get('/status', async (c) => {
   if (now >= r.expires_at + JOIN_CODE_TTL_MS) return out({ status: 'expired' });
   const { token, tokenHash } = await issueDeviceToken();
   // 入れるのと渡したことを残すのを 1 つの batch にし、同時の問い合わせでもトークンは 1 つしか生まれない。
-  const [ins] = await db.batch([
+  // used_at は、この問い合わせのトークンで行が入ったときだけ書く。
+  // 同じ ID の端末が既にあって入れられなかったときは、待たせ続けずに rejected で閉じる。前からある端末の行には触らない。
+  const [ins, , closed] = await db.batch([
     db
       .prepare(
         "insert into devices (id, kind, token_hash, joined_at, last_seen_at) select ?, 'pc', ?, ?, ? where exists (select 1 from join_codes where code_hash = ? and device_id = ? and status = 'approved' and used_at is null) on conflict do nothing",
       )
       .bind(deviceId, tokenHash, now, now, codeHash, deviceId),
-    db.prepare("update join_codes set used_at = ? where code_hash = ? and device_id = ? and status = 'approved' and used_at is null").bind(now, codeHash, deviceId),
+    db
+      .prepare("update join_codes set used_at = ? where code_hash = ? and device_id = ? and status = 'approved' and used_at is null and exists (select 1 from devices where id = ? and token_hash = ?)")
+      .bind(now, codeHash, deviceId, deviceId, tokenHash),
+    db
+      .prepare(
+        "update join_codes set status = 'rejected' where code_hash = ? and device_id = ? and status = 'approved' and used_at is null and not exists (select 1 from devices where id = ? and token_hash = ?)",
+      )
+      .bind(codeHash, deviceId, deviceId, tokenHash),
   ]);
-  if (Number(ins?.meta?.changes ?? 0) !== 1) return out({ status: 'approved' });
-  return out({ status: 'approved', deviceToken: token });
+  if (Number(ins?.meta?.changes ?? 0) === 1) return out({ status: 'approved', deviceToken: token });
+  if (Number(closed?.meta?.changes ?? 0) === 1) return out({ status: 'rejected' });
+  return out({ status: 'approved' });
 });
 
 /** 発行した PC が使う口（`/join-codes/*`）。PC の端末トークンが要る（app.ts で付ける）。 */
