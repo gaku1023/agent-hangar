@@ -15,7 +15,7 @@ type KeysKey = { [K in MessageKey]: [MessageParamName<K>] extends ['keys'] ? K :
 export type KeyId =
   | 'palette.open' | 'app.reload' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'overlay.close'
-  | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'session.copyAddress' | 'tab.move' | 'turn.move'
+  | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'session.copyAddress' | 'session.copyId' | 'tab.move' | 'turn.move'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.state'
   | 'todo.move' | 'todo.toggle' | 'todo.edit' | 'todo.remove' | 'todo.reorder' | 'todo.reject' | 'todo.add' | 'todo.undo';
@@ -29,6 +29,10 @@ export type KeyGroup = 'global' | 'session' | 'list' | 'todo';
  */
 export type KeyChord = {
   key: string; mod?: boolean; ctrlAlt?: boolean; shift?: boolean;
+  /**
+   * mod に ⌥ を重ねる（⌘⌥C）。macOS の ⌥ は文字を変える（⌥C は ç）ので、この打鍵だけは文字でなく物理キー（code）で当てる。
+   */
+  alt?: boolean;
   /** その OS でだけ受ける。mac は macOS だけ、other は Windows と Linux だけ。書かなければどちらでも受ける。 */
   os?: 'mac' | 'other';
   /** macOS の外で、ターミナルにフォーカスがあっても受ける（Ctrl+Shift の層とは別の打鍵、Ctrl+Alt+N）。 */
@@ -74,7 +78,9 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'transcript.toggle', group: 'session', keys: '⌘J', terminal: '⌃⇧J', labelKey: 'shortcuts.key.transcriptToggle', chords: [{ key: 'j', mod: true, shift: false }] },
   // セッションの宛先（別の Claude に渡す 1 行）をコピーする。macOS の ⌘⇧C は、xterm も Claude Code も使っていない。
   // ほかの OS の Ctrl+Shift+C はターミナルのコピーなので取らず、Ctrl+Alt+C にする（ターミナルの外だけで受ける）。
-  { id: 'session.copyAddress', group: 'session', keys: '⌘⇧C', keysOther: '⌃⌥C', labelKey: 'shortcuts.key.sessionCopyAddress', chords: [{ key: 'c', mod: true, shift: true, os: 'mac' }, { key: 'c', ctrlAlt: true, os: 'other' }] },
+  { id: 'session.copyAddress', group: 'session', keys: '⌘⇧C', keysOther: '⌃⌥C', labelKey: 'shortcuts.key.sessionCopyAddress', chords: [{ key: 'c', mod: true, shift: true, os: 'mac' }, { key: 'c', ctrlAlt: true, shift: false, os: 'other' }] },
+  // claude -r に渡す Claude Code のセッション ID だけをコピーする。宛先の打鍵に ⌥（ほかの OS は ⇧）を足した形にする。
+  { id: 'session.copyId', group: 'session', keys: '⌘⌥C', keysOther: '⌃⌥⇧C', labelKey: 'shortcuts.key.sessionCopyId', chords: [{ key: 'c', mod: true, alt: true, os: 'mac' }, { key: 'c', ctrlAlt: true, shift: true, os: 'other' }] },
   // 終わったセッションのトランスクリプトが出ているときだけ受ける。ターミナルが出ているときは奪わない（Root.tsx）。
   { id: 'transcript.find', group: 'session', keys: '⌘F', labelKey: 'shortcuts.key.transcriptFind', chords: [{ key: 'f', mod: true, shift: false }] },
   { id: 'tab.move', group: 'session', keys: '← / →', labelKey: 'shortcuts.key.tabMove', chords: [] },
@@ -126,6 +132,7 @@ function shiftLayer(e: KeyEventLike): KeyId | null {
 }
 
 function hits(c: KeyChord, e: KeyEventLike): boolean {
+  if (c.alt) return e.code === `Key${c.key.toUpperCase()}` && (!!e.metaKey || !!e.ctrlKey) && !!e.altKey && (c.shift === undefined || c.shift === !!e.shiftKey);
   if (c.key.toLowerCase() !== e.key.toLowerCase()) return false;
   if (c.shift !== undefined && c.shift !== !!e.shiftKey) return false;
   // ⌃⌥ の組み合わせは、素のブラウザが ⌘1–⌘9 を渡さないときの逃げ道なので、この 1 通りだけを認める。

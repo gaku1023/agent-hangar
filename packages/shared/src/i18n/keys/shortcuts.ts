@@ -28,6 +28,7 @@ export const shortcutsKeys = {
   'shortcuts.key.splitToggle': [],
   'shortcuts.key.transcriptToggle': [],
   'shortcuts.key.sessionCopyAddress': [],
+  'shortcuts.key.sessionCopyId': [],
   'shortcuts.key.transcriptFind': [],
   'shortcuts.key.tabMove': [],
   'shortcuts.key.turnMove': [],

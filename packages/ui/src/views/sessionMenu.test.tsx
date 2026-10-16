@@ -35,7 +35,7 @@ describe('一覧の行のメニュー（SessionRows）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'na のメニュー' }));
     const menu = screen.getByRole('menu', { name: 'na のメニュー' });
     expect(within(menu).getAllByRole('menuitemradio').map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true', 'false']);
-    expect([...menu.children].map((el) => (el.getAttribute('role') === 'separator' ? '|' : el.textContent))).toEqual(['Activeu', 'Pausedp', 'Doned', 'Archiveda', '|', 'プロジェクトを変更…m', '|', '削除…']);
+    expect([...menu.children].map((el) => (el.getAttribute('role') === 'separator' ? '|' : el.textContent))).toEqual(['Activeu', 'Pausedp', 'Doned', 'Archiveda', '|', 'プロジェクトを変更…m', 'セッション ID をコピー', '|', '削除…']);
   });
   it('行を右クリックすると、押した点に同じメニューを出し、ブラウザのメニューは出さない。選ぶと送って閉じ、フォーカスを行へ戻す', () => {
     const onAction = mountRows([row('a'), row('b')]);

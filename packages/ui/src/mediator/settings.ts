@@ -50,6 +50,11 @@ export function settingsStep(state: State, store: Store, input: Input): Step | n
       const text = sessionAddressLine(store, i.id);
       return { state, effects: text === null ? [] : [{ kind: 'clipboard.copy', text, done: translatorOf(store)('session.address.copied') }] };
     }
+    case 'session.copyId': {
+      // claude -r に渡せる Claude Code のセッション ID。hangar の ID（宛先の 1 行の session_id）ではない。
+      const s = store.sessions[i.id];
+      return { state, effects: s ? [{ kind: 'clipboard.copy', text: s.providerSessionId, done: translatorOf(store)('session.id.copied') }] : [] };
+    }
     default: return null;
   }
 }

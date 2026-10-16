@@ -20,13 +20,13 @@ describe('セッションのメニューの中身（presentSessionMenu）', () =
     const s = session({ state: { status: 'done', setBy: 'user', setAt: NOW, note: null, returnOn: null, candidate: null } as SessionDto['state'] });
     const m = presentSessionMenu(storeWith(s), s, ja);
     expect(m).toMatchObject({ id: 's1', name: 'ログイン画面の直し', status: 'done', stop: null, moveBlocked: null, resumeHere: null });
-    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'delete']);
+    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'copyId', 'delete']);
   });
   it('hangar で動いている会話は停止を押せ、削除は出さない（止めると出る）', () => {
     const s = session({ live: 'busy' });
     const m = presentSessionMenu(storeWith(s, { runs: { r1: run() }, tabs: { t2: shellTab('t2') } }), s, ja);
     expect(m.stop).toEqual({ runId: 'r1', working: true, aside: false, shellTabs: 1 });
-    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'stop']);
+    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'copyId', 'stop']);
     expect(entry(m, 'stop')).toMatchObject({ label: '停止', danger: true, disabled: null, send: { type: 'session.kill', runId: 'r1', working: true, aside: false, shellTabs: 1 } });
   });
   it('外部ターミナルで動いている会話は、停止を外部ターミナルの理由で押せず、削除は出さない', () => {
@@ -40,6 +40,7 @@ describe('セッションのメニューの中身（presentSessionMenu）', () =
     const s = session({ hasTranscript: false });
     const m = presentSessionMenu(storeWith(s), s, ja);
     expect(entry(m, 'move').disabled).toBeNull();
+    expect(entry(m, 'copyId')).toMatchObject({ label: 'セッション ID をコピー', disabled: null, send: { type: 'session.copyId', id: m.id } });
     expect(entry(m, 'delete').disabled).toBeNull();
   });
   it('ほかに移せるプロジェクトが無ければ、プロジェクトを変更を理由を添えて押せない', () => {
@@ -102,7 +103,7 @@ describe('セッションのメニューの項目（sessionMenuEntries）', () =
     expect(del).toMatchObject({ separatorBefore: true, disabled: null, send: { type: 'session.delete.open', id: 's1' } });
   });
   it('英語の画面では英語の短い語にする', () => {
-    expect(sessionMenuEntries(en, base({ stop: 'external' })).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Change project…', 'Stop']);
-    expect(sessionMenuEntries(en, base()).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Change project…', 'Delete…']);
+    expect(sessionMenuEntries(en, base({ stop: 'external' })).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Change project…', 'Copy session ID', 'Stop']);
+    expect(sessionMenuEntries(en, base()).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Change project…', 'Copy session ID', 'Delete…']);
   });
 });

@@ -676,7 +676,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
     const a = presentSession(initialState(), store, NOW, 's1').actions;
     expect(a.primary).toMatchObject({ id: 'openEditor', label: 'VS Code で開く', disabled: null });
-    expect(ids(a)).toEqual(['openTerminal', 'fork', 'regenerate', 'copyAddress', 'stop']);
+    expect(ids(a)).toEqual(['openTerminal', 'fork', 'regenerate', 'copyAddress', 'copyId', 'stop']);
     expect(a.menu.find((m) => m.id === 'fork')!.disabled).toBe('実行中は使えません。停止すると使えます');
     expect(a.menu.at(-1)).toMatchObject({ id: 'stop', label: '停止', danger: true, disabled: null });
   });
@@ -685,7 +685,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     store.sessions.s2 = { ...store.sessions.s2!, live: null };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     expect(a.primary).toMatchObject({ id: 'resume', label: '再開', disabled: null });
-    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'copyAddress']);
+    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
     expect(a.menu[0]).toMatchObject({ disabled: null, note: 'この会話から分岐した新しいセッション' });
     // 本文が無ければ、再開もフォークも理由を添えて押せない。
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
@@ -701,7 +701,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     // 生きているロックは横取りさせない（Ruling 14）。
     // 主の操作は出すが、理由を添えて押せなくする。
     expect(a.primary).toMatchObject({ id: 'resumeHere', label: 'この PC で再開', disabled: 'MacBook-Air で実行中です。停止するか応答が無くなると選択できます' });
-    expect(ids(a)).toEqual(['resume', 'fork', 'openEditor', 'regenerate', 'copyAddress']);
+    expect(ids(a)).toEqual(['resume', 'fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
     expect(a.menu[0]!.disabled).toBe('MacBook-Air で実行中です');
     expect(a.menu[1]!.disabled).toBe('MacBook-Air で実行中です');
     store.sessions.s2 = { ...store.sessions.s2!, lock: { ...lock, stale: true } };
@@ -719,13 +719,13 @@ describe('presentSession（見出しの操作、A1）', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canFork: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
     const a = sessionActions(facts, ja);
     expect(a.primary.id).toBe('openEditor');
-    expect(ids(a)).toEqual(['attach', 'fork', 'regenerate', 'copyAddress']);
+    expect(ids(a)).toEqual(['attach', 'fork', 'regenerate', 'copyAddress', 'copyId']);
     expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja))[0]).toBe('adopt');
   });
   it('昇格はメニューに入れ、要約の作成中と失敗は作り直すに 1 行添え、本文が消えた会話では作り直しを出さない', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
     const a = sessionActions(facts, ja);
-    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote', 'copyAddress']);
+    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
     expect(a.menu[2]!.note).toBe('作成中…');
     // スクラッチで始めたセッションの再開は、作業ディレクトリがスクラッチのままであることを添える。
     expect(a.primary.note).toBe('再開しても作業ディレクトリはクイックセッションの保存先のままです');
@@ -741,7 +741,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     store.settings = fullSettings({ summaryEngine: 'off' });
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
-    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toEqual(['openTerminal', 'fork', 'copyAddress', 'stop']);
+    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toEqual(['openTerminal', 'fork', 'copyAddress', 'copyId', 'stop']);
     store.settings = fullSettings({ summaryEngine: 'claude' });
     expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toContain('regenerate');
   });
