@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { deriveEpochKeys, randomEpochKey } from '@agent-hangar/shared';
 import { describe, expect, it } from 'vitest';
-import { CHUNK_SIZE, decryptBuffer, decryptStream, deriveFileKey, encryptBuffer, encryptStream, sha256Hex, sha256Stream } from './crypto.ts';
+import { CHUNK_SIZE, decryptBuffer, decryptStream, deriveFileKey, encryptBuffer, encryptStream, fileKeyFrom, sha256Hex, sha256Stream } from './crypto.ts';
 
 const key = deriveFileKey('join-secret');
 const collect = async (s: NodeJS.ReadableStream): Promise<Buffer> => { const out: Buffer[] = []; for await (const c of s) out.push(c as Buffer); return Buffer.concat(out); };
@@ -80,5 +81,28 @@ describe('壊れた長さの申告', () => {
     // 上限ちょうどは長さの検査を通り、本体が足りないので切り詰めとして落ちる。
     await expect(decryptBuffer(key, frame(CHUNK_SIZE + 64))).rejects.toThrow(/切り詰め|truncated/);
     await expect(decryptBuffer(key, frame(CHUNK_SIZE + 65))).rejects.toThrow(/上限|too large/);
+  });
+});
+
+describe('fileKeyFrom', () => {
+  it('世代鍵から導いた fileBytes で encryptBuffer した本文が、decryptBuffer で戻る', async () => {
+    const epochKey = randomEpochKey();
+    const { fileBytes } = await deriveEpochKeys(1, epochKey);
+    const k = fileKeyFrom(fileBytes);
+    expect(Buffer.isBuffer(k)).toBe(true);
+    expect(k.length).toBe(32);
+    const src = randomBytes(CHUNK_SIZE + 99);
+    const dec = await decryptBuffer(k, await encryptBuffer(k, src));
+    expect(dec.equals(src)).toBe(true);
+    // 別の世代鍵で導いた鍵では開けない。
+    const other = fileKeyFrom((await deriveEpochKeys(1, randomEpochKey())).fileBytes);
+    await expect(decryptBuffer(other, await encryptBuffer(k, src))).rejects.toThrow();
+  });
+  it('32 バイト以外は断り、元の配列とメモリを共有しない', () => {
+    expect(() => fileKeyFrom(new Uint8Array(31))).toThrow();
+    const bytes = new Uint8Array(32).fill(7);
+    const k = fileKeyFrom(bytes);
+    bytes.fill(0);
+    expect(k[0]).toBe(7);
   });
 });
