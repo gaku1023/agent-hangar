@@ -12,7 +12,7 @@ import { IndexerService } from '../indexer/service.ts';
 import { BACKUP_GENERATIONS, MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS } from '../sync/pruneBackups.ts';
 import { memoLossHandlers, toastVia } from '../sync/notices.ts';
 import { SyncStateStore } from '../sync/state.ts';
-import { answerAll, fakeWorker, fileSink, recorder, refuse, type Answer, type Seen } from '../../test/fake-worker.ts';
+import { answerAll, fakeWorker, fileSink, recorder, refuse, tokenWorker, type Answer, type Seen } from '../../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { bootHome, type HomeParts } from './home.ts';
 import { bootSync, UPLOAD_SWEEP_MS, type SyncParts } from './sync.ts';
@@ -836,4 +836,112 @@ describe('cloud.json が後から現れる', () => {
       await rec.close();
     }
   });
+});
+
+describe('参加し直して端末トークンが入れ替わったとき', () => {
+  /** setup cloud をやり直すと、同じ端末 ID のまま、cloud.json の端末トークンだけが新しくなる。 */
+  const joinWith = (url: string, deviceToken: string, joinedAt = 1): void => saveCloudConfig(home, { url, joinSecret: 'test-secret', deviceToken, workerName: 'hangar', accountId: null, dbName: null, bucketName: null, joinedAt });
+  let w: Awaited<ReturnType<typeof tokenWorker>> | null = null;
+  afterEach(async () => {
+    for (const b of booted.splice(0)) await b.close();
+    await w?.close();
+    w = null;
+  });
+
+  it('断られた要求は cloud.json を読み直して新しいトークンで試し直し、メタデータ、本文、使用量がそれに乗る', async () => {
+    w = await tokenWorker('token-1');
+    joinWith(w.url, 'token-1', 0);
+    seedTranscriptFloor(0);
+    await indexFixture();
+    // サーバは古いトークンで組み上がっている。そのあとで setup cloud をやり直した。
+    const b = boot();
+    w.setToken('token-2');
+    joinWith(w.url, 'token-2', 0);
+    b.sync.start();
+    const wk = w;
+    await until(() => (b.status().lastPullAt !== null && wk.seen.some((r) => r.method === 'PUT' && r.status < 300) ? true : null));
+    await b.sync.cloudUsage.refresh();
+    const st = b.status();
+    expect(st.error).toBeNull();
+    expect(st.state).not.toBe('error');
+    const okWith = (pred: (r: (typeof wk.seen)[number]) => boolean): boolean => wk.seen.some((r) => pred(r) && r.status < 300 && r.bearer === 'token-2');
+    expect(okWith((r) => r.method === 'POST' && r.path === '/changes')).toBe(true);
+    expect(okWith((r) => r.method === 'GET' && r.path === '/changes')).toBe(true);
+    expect(okWith((r) => r.method === 'PUT' && r.path.startsWith('/files/'))).toBe(true);
+    expect(okWith((r) => r.path === '/usage')).toBe(true);
+    // 本文の上げ手は断られたことを知らないので、諦めた本文が残らない。
+    expect(st.skipped).toEqual([]);
+  }, 20000);
+
+  it('cloud.json が変わっていなければ今までどおりの失敗にし、書き換わった後の今すぐ同期で戻る', async () => {
+    w = await tokenWorker('token-1');
+    joinWith(w.url, 'token-1');
+    const wk = w;
+    const b = boot({ start: true });
+    await until(() => (b.status().lastPullAt !== null ? true : null));
+    // Worker の token_hash だけが先に入れ替わった。cloud.json はまだ古い。
+    wk.setToken('token-2');
+    const mark = wk.seen.length;
+    const broken = await b.pressSyncNow();
+    expect(broken.state).toBe('error');
+    expect(broken.revoked).toBe(false);
+    // 同じトークンで試し直し続けない。断られた要求は、どれも 1 回きりである。
+    const refused = wk.seen.slice(mark).filter((r) => r.status === 401);
+    expect(refused.length).toBeGreaterThan(0);
+    expect(refused.every((r) => r.bearer === 'token-1')).toBe(true);
+    await until(() => (b.status().oncePass ? null : true));
+    joinWith(wk.url, 'token-2');
+    const after = wk.seen.length;
+    const fixed = await b.pressSyncNow();
+    expect(fixed.error).toBeNull();
+    expect(fixed.state).not.toBe('error');
+    expect(wk.seen.slice(after).some((r) => r.path === '/changes' && r.status < 300 && r.bearer === 'token-2')).toBe(true);
+    // 以後はずっと新しいトークンで話す。古いトークンで読み直しを繰り返さない。
+    const later = wk.seen.length;
+    await b.pressSyncNow();
+    expect(wk.seen.slice(later).every((r) => r.bearer === 'token-2' || r.path === '/health')).toBe(true);
+  }, 20000);
+
+  it('参加用の秘密か宛先が変わっていたら、トークンだけを差し替えず、今までどおりの失敗にする', async () => {
+    w = await tokenWorker('token-1');
+    joinWith(w.url, 'token-1');
+    const wk = w;
+    const b = boot({ start: true });
+    await until(() => (b.status().lastPullAt !== null ? true : null));
+    wk.setToken('token-2');
+    // 秘密が変わると本文の鍵も変わる。古い鍵のまま新しいトークンで上げると、ほかの PC が読めない本文を置く。
+    saveCloudConfig(home, { url: wk.url, joinSecret: 'other-secret', deviceToken: 'token-2', workerName: 'hangar', accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const mark = wk.seen.length;
+    const st = await b.pressSyncNow();
+    expect(st.state).toBe('error');
+    expect(wk.seen.slice(mark).some((r) => r.bearer === 'token-2')).toBe(false);
+  }, 20000);
+});
+
+describe('版が分かる前の最初の書き込み', () => {
+  let w: Awaited<ReturnType<typeof fakeWorker>> | null = null;
+  afterEach(async () => {
+    for (const b of booted.splice(0)) await b.close();
+    await w?.close();
+    w = null;
+  });
+
+  it('Worker の版が下限に届かなければ、行も本文も 1 つも書かずに止め、Worker を上げるよう出す', async () => {
+    // 版 5 の Worker は、版を見出しで名乗るが、この PC の下限（6）に届かない。
+    w = await fakeWorker(answerAll('5'));
+    joinTo(w.url, 0);
+    seedTranscriptFloor(0);
+    // 送る行（セッション）と、上げる本文を先に用意する。
+    await indexFixture();
+    const b = boot({ start: true });
+    const st = await until(() => { const v = b.status(); return v.state === 'error' ? v : null; });
+    expect(st.error).toContain('Worker');
+    // 1 巡も回して、上げ手と設定の同期の道も通す。
+    await b.pressSyncNow();
+    await until(() => (b.status().oncePass ? null : true));
+    await new Promise((r) => setTimeout(r, 300));
+    const wk = w;
+    expect(wk.seen.some((r) => r.path === '/health')).toBe(true);
+    expect(wk.seen.filter((r) => (r.method === 'POST' && r.path === '/changes') || (r.method === 'PUT' && r.path.startsWith('/files/')))).toEqual([]);
+  }, 20000);
 });

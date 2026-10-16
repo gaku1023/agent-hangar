@@ -230,11 +230,25 @@ export type HttpCloudClientOptions = {
   maxBodyBytes?: number;
   /** この PC が Worker に求める互換の版の下限。既定は MIN_WORKER_COMPAT。試験が上げるために使う。 */
   minWorkerCompat?: number;
+  /**
+   * 解除ではない 401（`{ error: 'unauthorized' }`）を受けたときに、宛先と端末トークンを読み直す口。
+   * 返した組が今のものと違えば、それに差し替えて同じ要求を 1 度だけ試し直す。
+   * 同じなら、または null を返すか投げれば、試し直さずに今までどおりの CloudError にする。
+   * 参加し直す（hangar setup cloud をやり直す、hangar join し直す）と、Worker は同じ端末 ID の token_hash を入れ替え、新しいトークンは cloud.json にだけ書かれる。
+   * 動いているサーバがそれを拾う道がこれである（boot/sync.ts）。
+   */
+  reloadCredentials?: () => { url: string; token: string } | null;
+  /**
+   * 書き込み（push と putFile）の前に、Worker の版をまだ知らないか下限に届いていなければ、GET /health で確かめる。
+   * 版は応答の見出しで初めて分かるので、確かめずに書くと、古い Worker が行や本文を受け取ってから CompatError になる。
+   * 既定は切。同期を組む所（boot/sync.ts）が入れる。
+   */
+  checkWorkerBeforeWrite?: boolean;
 };
 
 /** fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。 */
 export class HttpCloudClient implements CloudClient {
-  private readonly base: string;
+  private base!: string;
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs: number;
   private readonly transferTimeoutMs: number;
@@ -246,18 +260,67 @@ export class HttpCloudClient implements CloudClient {
    * 端末トークンは閉じ込めて持つ。
    * 文字列の項目にすると console.log(client) や JSON.stringify(client) で読めてしまう。
    */
-  private readonly authorization: () => string;
+  private authorization!: () => string;
+  /** 今の宛先とトークンと同じ組か。トークンはここでも閉じ込めたまま比べる。 */
+  private holds!: (url: string, token: string) => boolean;
+  private readonly reloadCredentials: (() => { url: string; token: string } | null) | null;
+  private readonly checkWorkerBeforeWrite: boolean;
+  /** 宛先とトークンを差し替えた回数。同時に断られた要求のうち、差し替えの前に出たものを、読み直さずに試し直すために見る。 */
+  private credentialGen = 0;
+  /** 走っている版の確かめ。同時の書き込みは 1 回を分け合う。 */
+  private workerCheck: Promise<void> | null = null;
 
   constructor(o: HttpCloudClientOptions) {
-    this.base = o.url.replace(/\/+$/, '');
     this.fetchFn = o.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
     this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.transferTimeoutMs = o.transferTimeoutMs ?? DEFAULT_TRANSFER_TIMEOUT_MS;
     this.spoolDir = o.spoolDir ?? os.tmpdir();
     this.maxBodyBytes = o.maxBodyBytes ?? MAX_PUT_BODY_BYTES;
     this.minWorkerCompat = o.minWorkerCompat ?? MIN_WORKER_COMPAT;
-    const token = o.token;
+    this.reloadCredentials = o.reloadCredentials ?? null;
+    this.checkWorkerBeforeWrite = o.checkWorkerBeforeWrite === true;
+    this.setCredentials(o.url, o.token);
+  }
+
+  private setCredentials(url: string, token: string): void {
+    const base = url.replace(/\/+$/, '');
+    this.base = base;
     this.authorization = () => `Bearer ${token}`;
+    this.holds = (u, t) => u.replace(/\/+$/, '') === base && t === token;
+    this.credentialGen++;
+  }
+
+  /**
+   * 解除ではない 401 を受けたときに、宛先とトークンを読み直す。
+   * 今と違う組が得られたら差し替えて真を返す。読み直しの口が投げても、同期は今までどおりの失敗で続ける。
+   * 要求を出した後で、同時に断られた別の要求が先に差し替えていたら、読み直さずに真を返す（sentGen は出したときの credentialGen）。
+   */
+  private renewCredentials(sentGen: number): boolean {
+    if (sentGen !== this.credentialGen) return true;
+    if (!this.reloadCredentials) return false;
+    let next: { url: string; token: string } | null;
+    try {
+      next = this.reloadCredentials();
+    } catch {
+      return false;
+    }
+    if (!next || this.holds(next.url, next.token)) return false;
+    this.setCredentials(next.url, next.token);
+    return true;
+  }
+
+  /**
+   * 書き込みの前の関所（checkWorkerBeforeWrite）。
+   * Worker の版を知っていて下限に届いていれば何もしない。
+   * 知らないか届いていなければ GET /health を 1 回打つ。/health は D1 を読まず、版の見出しを返す（packages/cloud/src/app.ts）。
+   * 届かなければ send が CompatError('worker') を投げるので、書き込みは出ない。
+   * 確かめが他の理由で転んだときも書き込みを出さない。書き込みも同じ理由で転ぶので、要求を 2 倍にしない。
+   */
+  private async ensureWorkerCompat(): Promise<void> {
+    if (!this.checkWorkerBeforeWrite) return;
+    if (this.seenWorkerCompat !== null && this.seenWorkerCompat >= this.minWorkerCompat) return;
+    this.workerCheck ??= this.json<unknown>('/health').then(() => undefined).finally(() => { this.workerCheck = null; });
+    await this.workerCheck;
   }
 
   /**
@@ -274,8 +337,13 @@ export class HttpCloudClient implements CloudClient {
    * 行は未送信のまま残り、Worker を上げた後の送り直しは LWW で同じ結果になる。
    * 上限の失敗（共有の readCloudLimit）は、版の検査より先に見る。
    * 端が返す 1027 の頁は版の見出しを持たないので、版の検査に回すと「Worker が古い」と取り違える。本文は 200 字に切る前に全部で読む。
+   *
+   * 解除ではない 401 は、宛先とトークンを読み直し（reloadCredentials）、変わっていれば 1 度だけ試し直す。
+   * 本文を流れで送る要求は試し直しで送り直せるよう、init を作る関数で渡す。
    */
-  private async send(path: string, init: RequestInit & { duplex?: 'half' }, ms: number): Promise<{ res: Response; d: Deadline }> {
+  private async send(path: string, initOrMake: RequestInit | (() => RequestInit), ms: number, retried = false): Promise<{ res: Response; d: Deadline }> {
+    const init: RequestInit & { duplex?: 'half' } = typeof initOrMake === 'function' ? initOrMake() : initOrMake;
+    const sentGen = this.credentialGen;
     const d = new Deadline(ms);
     let res: Response;
     try {
@@ -308,6 +376,10 @@ export class HttpCloudClient implements CloudClient {
         d.clear();
         throw new RevokedError();
       }
+      if (res.status === 401 && !retried && this.renewCredentials(sentGen)) {
+        d.clear();
+        return this.send(path, initOrMake, ms, true);
+      }
     }
     const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
     // 版は 2xx の応答でだけ覚える。Cloudflare の端の応答は Worker の版を語らない。
@@ -325,7 +397,7 @@ export class HttpCloudClient implements CloudClient {
   }
 
   /** 応答の本体を JSON として読む。読み取りの失敗も CloudError(0) に揃える。 */
-  private async json<T>(path: string, init: RequestInit = {}, ms = this.timeoutMs): Promise<T> {
+  private async json<T>(path: string, init: RequestInit | (() => RequestInit) = {}, ms = this.timeoutMs): Promise<T> {
     const { res, d } = await this.send(path, init, ms);
     try {
       return (await d.race(res.json())) as T;
@@ -343,7 +415,10 @@ export class HttpCloudClient implements CloudClient {
 
   lastWorkerCompat(): number | null { return this.seenWorkerCompat; }
   health() { return this.json<{ ok: boolean; version: string }>('/health'); }
-  pushChanges(changes: ChangeIn[]) { return this.json<PushChangesResponse>('/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) }); }
+  async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {
+    await this.ensureWorkerCompat();
+    return this.json<PushChangesResponse>('/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) });
+  }
   pullChanges(since: number, limit: number) { return this.json<PullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
   snapshot(after: string | null, limit: number) { return this.json<SnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
   listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
@@ -397,11 +472,14 @@ export class HttpCloudClient implements CloudClient {
         d.clear();
       }
       headers['content-length'] = String(length);
+      // 書き出しを終えてから確かめる。確かめで止まっても、一時ファイルは下の finally で消える。
+      await this.ensureWorkerCompat();
       // undici は content-length があればストリームの本文でもその長さで送る（chunked にしない）。
       // duplex: 'half' はストリームを body にするときに要る。
+      // 本文の流れは 1 度しか読めないので、試し直し（解除ではない 401 のあと）のたびに一時ファイルから開き直す。
       const v = await this.json<{ seq: number }>(
         `/files/${encodeFileKeyPath(meta.key)}`,
-        { method: 'PUT', headers, body: Readable.toWeb(fs.createReadStream(file)) as unknown as BodyInit, duplex: 'half' } as RequestInit,
+        () => ({ method: 'PUT', headers, body: Readable.toWeb(fs.createReadStream(file)) as unknown as BodyInit, duplex: 'half' } as RequestInit),
         this.transferTimeoutMs,
       );
       return { seq: v.seq };

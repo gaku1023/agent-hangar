@@ -123,7 +123,8 @@ type Core = {
  * cloud.json に依る部品は Core にまとめてあり、返す SyncParts はその時点の Core を引く。
  * 起動のときに cloud.json が無かった端末では、置き場を見張り、設定が現れたら起動と同じ組み立てで Core を組み直して始める。
  * 見張るのは「無い（または壊れている）状態から現れる」ときだけである。
- * 動いている同期の cloud.json の書き換え（別のクラウドへの付け替え、削除）は拾わず、今までどおり開き直しで効く。
+ * 参加し直して端末トークンだけが変わったときは、見張らずに、Worker に 401 の unauthorized で断られた時点で cloud.json を読み直して差し替える（下の reloadCredentials）。
+ * 動いている同期の cloud.json のそれ以外の書き換え（別のクラウドへの付け替え、秘密の作り直し、削除）は拾わず、今までどおり開き直しで効く。
  */
 export function bootSync(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
@@ -167,7 +168,30 @@ export function bootSync(
      * 本文と設定の出し入れはどれもここを見るので、その 1 巡だけ通る。
      */
     const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: once.pass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null, revoked: engine.revoked() });
-    const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
+    // 参加し直すと（hangar setup cloud をやり直す、hangar join し直す）、Worker は同じ端末 ID の token_hash を入れ替え、新しいトークンは cloud.json にだけ書かれる。
+    // 古いトークンの要求は 401 の unauthorized で断られるので、そのときに cloud.json を読み直し、トークンだけが変わっていれば client が差し替えて試し直す。
+    // 部品（エンジン、本文の上げ手と降ろし手、使用量、設定の同期、PC の一覧）はみな同じ client を持つので、差し替えは全部に一度に効く。
+    // 宛先か参加用の秘密が変わっていたら差し替えない。宛先は区切り（lastSeq）と状態の表示に、秘密は本文の鍵に結び付いているので、組み直しの要る変化であり、今までどおり開き直しで効かせる。
+    // 書き込みの前には Worker の版を確かめる（checkWorkerBeforeWrite）。版の下限に届かない Worker に、未送信の行や本文を書き込まない。
+    let warnedReload = false;
+    // 組み上がった Core。読み直しは通信の応答を受けてから呼ばれるので、そのときには入っている。
+    let built: Core | null = null;
+    const reloadCredentials = (): { url: string; token: string } | null => {
+      if (!built) return null;
+      const now = built.cloud;
+      const r = readCloudConfig(home.home);
+      if (!now || r.state !== 'ok' || !r.config) return null;
+      const next = r.config;
+      if (next.deviceToken === now.deviceToken) return null;
+      if (next.url !== now.url || next.joinSecret !== now.joinSecret) {
+        if (!warnedReload) console.error('[sync] cloud.json の宛先か参加用の秘密が変わっています。hangar を開き直すと新しい設定で同期します');
+        warnedReload = true;
+        return null;
+      }
+      built.cloud = next;
+      return { url: next.url, token: next.deviceToken };
+    };
+    const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, reloadCredentials, checkWorkerBeforeWrite: true }) : null;
     const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
     const engine = new SyncEngine({
       db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
@@ -212,7 +236,9 @@ export function bootSync(
     engine.on({ applied: (c) => { if (c.tableName === 'takeovers' || c.tableName === 'takeover_answers') takeoversApplied(); } });
     // ほかの PC のスクラッチのプロジェクトや場所の行が届いたら、次の起動を待たずに 1 つにまとめ直す（projects/scratch.ts）。
     engine.on({ applied: followRemoteScratch(db, deviceId, home.home, { onError: (e) => console.error('[sync] 届いたクイックセッションの行をまとめ直せませんでした', e instanceof Error ? e.message : e) }) });
-    return { cloud, client, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
+    const c: Core = { cloud, client, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
+    built = c;
+    return c;
   };
 
   let core = assemble(cloudRead.config);

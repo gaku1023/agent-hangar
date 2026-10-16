@@ -601,3 +601,136 @@ describe('PC の一覧と解除', () => {
     expect(e2).not.toBeInstanceOf(RevokedError);
   });
 });
+
+describe('端末トークンの読み直し', () => {
+  const pathOf = (c: Call): string => new URL(c.url).pathname;
+  /** 決まったトークンだけを通す Worker の真似。違えば実物の認証と同じ 401 の unauthorized を返す。 */
+  const acceptOnly = (token: string, ok: () => Response = () => json({ changes: [], nextSeq: 0, more: false })) => fakeFetch((c) => (bearerIs(c, token) ? ok() : json({ error: 'unauthorized' }, 401)));
+
+  it('401 の unauthorized を受けたら読み直し、トークンが変わっていれば 1 度だけ試し直して、以後もそのトークンで話す', async () => {
+    const f = acceptOnly('new');
+    let reads = 0;
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, reloadCredentials: () => { reads++; return { url: 'https://w.example', token: 'new' }; } });
+    await expect(c.pullChanges(0, 10)).resolves.toMatchObject({ nextSeq: 0 });
+    expect(f.calls.map((x) => bearerIs(x, 'new'))).toEqual([false, true]);
+    await c.pullChanges(0, 10);
+    expect(f.calls).toHaveLength(3);
+    expect(bearerIs(f.calls[2]!, 'new')).toBe(true);
+    expect(reads).toBe(1);
+  });
+
+  it('読み直しても同じトークンなら、試し直さずに今までどおりの CloudError にする', async () => {
+    const f = acceptOnly('new');
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, reloadCredentials: () => ({ url: 'https://w.example', token: 'old' }) });
+    const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).not.toBeInstanceOf(RevokedError);
+    expect((e as CloudError).status).toBe(401);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it('読み直しが無い、null を返す、投げるときも、今までどおりの CloudError にする', async () => {
+    for (const reloadCredentials of [undefined, () => null, () => { throw new Error('boom'); }]) {
+      const f = acceptOnly('new');
+      const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, ...(reloadCredentials ? { reloadCredentials } : {}) });
+      await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CloudError', status: 401 });
+      expect(f.calls).toHaveLength(1);
+    }
+  });
+
+  it('試し直しも断られたら、そこで止める（読み直しのたびに違うトークンが出ても繰り返さない）', async () => {
+    const f = acceptOnly('never');
+    let n = 0;
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, reloadCredentials: () => ({ url: 'https://w.example', token: `t${++n}` }) });
+    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ status: 401 });
+    expect(f.calls).toHaveLength(2);
+  });
+
+  it('同時に断られた要求は、先に差し替えた組で試し直す（後から読み直して同じ組だと見ても、失敗にしない）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let waiting = 0;
+    const f = fakeFetch(async (c) => {
+      if (bearerIs(c, 'new')) return json({ changes: [], nextSeq: 0, more: false });
+      // 2 つとも古いトークンで出てから、そろって断る。
+      if (++waiting === 2) release();
+      await gate;
+      return json({ error: 'unauthorized' }, 401);
+    });
+    let reads = 0;
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, reloadCredentials: () => { reads++; return { url: 'https://w.example', token: 'new' }; } });
+    await expect(Promise.all([c.pullChanges(0, 10), c.listFiles(0, 10)])).resolves.toHaveLength(2);
+    expect(f.calls.filter((x) => bearerIs(x, 'new'))).toHaveLength(2);
+    expect(reads).toBe(1);
+  });
+
+  it('解除（revoked）は読み直さない', async () => {
+    const f = fakeFetch(() => json({ error: 'revoked' }, 401));
+    let reads = 0;
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, reloadCredentials: () => { reads++; return { url: 'https://w.example', token: 'new' }; } });
+    await expect(c.pullChanges(0, 10)).rejects.toBeInstanceOf(RevokedError);
+    expect(reads).toBe(0);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it('putFile の試し直しは本文を最初から送り直す', async () => {
+    const bodies: string[] = [];
+    const f = fakeFetch(async (c) => {
+      bodies.push(await new Response(c.init.body as BodyInit).text());
+      return bearerIs(c, 'new') ? json({ seq: 9 }, 201) : json({ error: 'unauthorized' }, 401);
+    });
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, reloadCredentials: () => ({ url: 'https://w.example', token: 'new' }) });
+    const r = await c.putFile({ key: 'transcripts/d/a.jsonl', path: 'a.jsonl', kind: 'transcript', sha256: 'x'.repeat(64), size: 5, mtime: 1, encrypted: true }, Readable.from([Buffer.from('hello')]));
+    expect(r).toEqual({ seq: 9 });
+    expect(bodies).toEqual(['hello', 'hello']);
+    expect(pathOf(f.calls[1]!)).toBe('/files/transcripts/d/a.jsonl');
+  });
+});
+
+describe('書き込みの前の版の確かめ', () => {
+  const pathOf = (c: Call): string => `${c.init.method ?? 'GET'} ${new URL(c.url).pathname}`;
+  const worker = (compat: number) => fakeFetch((c) => {
+    const p = new URL(c.url).pathname;
+    const h = { [COMPAT_HEADER]: String(compat), 'content-type': 'application/json' };
+    if (p === '/health') return new Response(JSON.stringify({ ok: true, version: 'x', compat }), { status: 200, headers: h });
+    if (p === '/changes' && c.init.method === 'POST') return new Response(JSON.stringify({ seq: 1, accepted: 1, skipped: 0 }), { status: 200, headers: h });
+    if (p.startsWith('/files/')) return new Response(JSON.stringify({ seq: 2 }), { status: 201, headers: h });
+    return new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: h });
+  }, { stamp: false });
+  const meta = { key: 'transcripts/d/a.jsonl', path: 'a.jsonl', kind: 'transcript' as const, sha256: 'x'.repeat(64), size: 1, mtime: 1, encrypted: true };
+
+  it('版を知る前の push と putFile は、先に GET /health で版を確かめ、下限に届かなければ書かずに CompatError にする', async () => {
+    const f = worker(5);
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch: f.fetch, checkWorkerBeforeWrite: true });
+    await expect(c.pushChanges([])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 5, need: MIN_WORKER_COMPAT });
+    await expect(c.putFile(meta, Readable.from([Buffer.from('a')]))).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker' });
+    expect(f.calls.map(pathOf)).toEqual(['GET /health', 'GET /health']);
+  });
+
+  it('届いていれば書く。版を知った後は確かめ直さず、同時の書き込みは 1 回の確かめを分け合う', async () => {
+    const f = worker(COMPAT_VERSION);
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch: f.fetch, checkWorkerBeforeWrite: true });
+    await Promise.all([c.pushChanges([]), c.putFile(meta, Readable.from([Buffer.from('a')]))]);
+    await c.pushChanges([]);
+    const seen = f.calls.map(pathOf);
+    expect(seen.filter((p) => p === 'GET /health')).toHaveLength(1);
+    expect(seen[0]).toBe('GET /health');
+    expect(seen.filter((p) => p === 'POST /changes')).toHaveLength(2);
+    expect(seen.filter((p) => p === 'PUT /files/transcripts/d/a.jsonl')).toHaveLength(1);
+  });
+
+  it('pull で版を知っていれば確かめない。読むだけの要求は確かめない', async () => {
+    const f = worker(COMPAT_VERSION);
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch: f.fetch, checkWorkerBeforeWrite: true });
+    await c.pullChanges(0, 10);
+    await c.pushChanges([]);
+    expect(f.calls.map(pathOf)).toEqual(['GET /changes', 'POST /changes']);
+  });
+
+  it('既定では確かめない', async () => {
+    const f = worker(COMPAT_VERSION);
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch: f.fetch });
+    await c.pushChanges([]);
+    expect(f.calls.map(pathOf)).toEqual(['POST /changes']);
+  });
+});
