@@ -51,6 +51,8 @@ export const updateEn: AreaDictionary<typeof updateKeys> = {
   'update.notes.title': 'Release notes',
   'update.notes.inUse': 'In use',
   'update.notes.next': 'New version',
+  'update.notes.collapseAll': 'Collapse all',
+  'update.notes.expandAll': 'Expand all',
   'update.whatsNew.head': 'Updated',
   'update.whatsNew.title': 'Hangar is now {version}',
   'update.whatsNew.includes': 'Also covers {versions}',
