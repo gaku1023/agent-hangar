@@ -377,12 +377,12 @@ pub struct Words {
 #[rustfmt::skip]
 const JA: Words = Words {
     window_title: "書き込みの確認",
-    cancelled: "書きませんでした。",
+    cancelled: "書き込みませんでした。",
     written: "書き込みました。",
-    busy: "書き込みの確認がすでに出ています。",
-    stopped: "書き込みの処理が止まりました。",
-    cannot_open: "書き込みの確認の窓を開けませんでした。",
-    unreadable: "書く中身を読めなかったので、書きませんでした。",
+    busy: "書き込みの確認がすでに表示されています。",
+    stopped: "書き込みの処理が停止しました。",
+    cannot_open: "書き込みの確認のウィンドウを開けませんでした。",
+    unreadable: "書き込む内容を読み取れなかったため、書き込みませんでした。",
 };
 
 #[rustfmt::skip]

@@ -832,8 +832,8 @@ fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: Insta
         lts: manifest.lts_major(),
         settings: hangar_home.join("settings.json").display().to_string(),
         pick: match (en, hint) {
-            (false, InstallHint::Winget) => "「node.exe を選ぶ…」",
-            (false, _) => "「node を選ぶ…」",
+            (false, InstallHint::Winget) => "「node.exe を選択…」",
+            (false, _) => "「node を選択…」",
             (true, InstallHint::Winget) => "\"Choose node.exe…\"",
             (true, _) => "\"Choose node…\"",
         },
@@ -856,7 +856,7 @@ fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: Insta
     lines.push(if en {
         "Places checked:".to_string()
     } else {
-        "調べた場所:".to_string()
+        "確認したパス:".to_string()
     });
     for t in tried {
         let what = if en {
@@ -874,8 +874,8 @@ fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: Insta
 fn headline_ja(found: &Found, w: &Words) -> String {
     match found {
         Found::Missing => format!("Node {} 以上（{}）が見つかりません。", w.min, w.arch),
-        Found::Version(p) => format!("Node {} は見つかりましたが、Hangar は Node {} 以上（{}）が要ります。", p.version, w.min, w.arch),
-        Found::Arch(p) => format!("{} 用の Node {} は見つかりましたが、Hangar は {} 用の Node {} 以上が要ります。", p.arch, p.version, w.arch, w.min),
+        Found::Version(p) => format!("Node {} を検出しましたが、Hangar には Node {} 以上（{}）が必要です。", p.version, w.min, w.arch),
+        Found::Arch(p) => format!("{} 用の Node {} を検出しましたが、Hangar には {} 用の Node {} 以上が必要です。", p.arch, p.version, w.arch, w.min),
     }
 }
 
@@ -890,7 +890,7 @@ fn headline_en(found: &Found, w: &Words) -> String {
 
 #[rustfmt::skip]
 fn why_ja(w: &Words) -> String {
-    format!("Hangar のデータベースと端末の部品は Node-API {} を使うため、Node {} 以上が要ります。", w.napi, w.min)
+    format!("Hangar のデータベースとターミナルのネイティブモジュールは Node-API {} を使うため、Node {} 以上が必要です。", w.napi, w.min)
 }
 
 #[rustfmt::skip]
@@ -901,26 +901,26 @@ fn why_en(w: &Words) -> String {
 /// 入れ方と指し方の行。古い Node があるとき（has_node）は、今の Node を置き換えない入れ方を先に置く。
 #[rustfmt::skip]
 fn ways_ja(hint: InstallHint, has_node: bool, w: &Words) -> Vec<String> {
-    let nvm_windows = format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。", w.lts);
-    let elsewhere = format!("ほかの場所に入れたなら、{}で選ぶか、{} の nodePath で場所を指定してください。", w.pick, w.settings);
+    let nvm_windows = format!("nvm-windows を使う場合は、nvm install {} でインストールしたバージョンも検出します（fnm、Volta、scoop でインストールしたバージョンと、PATH にあるバージョンも検索します）。", w.lts);
+    let elsewhere = format!("別のディレクトリにインストールした場合は、{}で選択するか、{} の nodePath でパスを指定してください。", w.pick, w.settings);
     let mut v = match (hint, has_node) {
         (InstallHint::Homebrew, false) => vec![
-            "brew install node で入れれば、次に開いたときに見つけます（nvm、fnm、Volta、mise、asdf、nodenv で入れた版も探します）。".to_string(),
+            "brew install node でインストールすると、次回の起動時に検出します（nvm、fnm、Volta、mise、asdf、nodenv でインストールしたバージョンも検索します）。".to_string(),
         ],
         (InstallHint::Homebrew, true) => vec![
-            format!("今の Node を置き換えずに入れるなら、brew install node@{0}（既定の node を置き換えません）か nvm install {0} で入れれば、次に開いたときに見つけます（fnm、Volta、mise、asdf、nodenv で入れた版も探します）。", w.lts),
+            format!("現在の Node を置き換えずにインストールするには、brew install node@{0}（デフォルトの node を置き換えません）または nvm install {0} を実行してください。次回の起動時に検出します（fnm、Volta、mise、asdf、nodenv でインストールしたバージョンも検索します）。", w.lts),
         ],
         (InstallHint::Winget, false) => vec![
-            format!("PowerShell で {WINGET_LTS} を実行して入れれば、次に開いたときに見つけます。"),
+            format!("PowerShell で {WINGET_LTS} を実行してインストールすると、次回の起動時に検出します。"),
             nvm_windows,
         ],
         (InstallHint::Winget, true) => vec![
-            format!("今の Node を置き換えずに入れるなら、nodejs.org から Node {0} の Windows 用 zip（{1}）を取得して、別のフォルダ（例 %LOCALAPPDATA%\\Programs\\node{0}）に展開し、その node.exe を指定してください。", w.lts, w.arch),
+            format!("現在の Node を置き換えずにインストールするには、nodejs.org から Node {0} の Windows 用 zip（{1}）を取得して別のディレクトリ（例 %LOCALAPPDATA%\\Programs\\node{0}）に展開し、その node.exe を指定してください。", w.lts, w.arch),
             nvm_windows,
-            format!("PowerShell で {WINGET_LTS} を実行しても入れられますが、公式のインストーラで入れた今の Node は置き換わります。"),
+            format!("PowerShell で {WINGET_LTS} を実行してもインストールできますが、公式のインストーラでインストールした現在の Node は置き換わります。"),
         ],
-        (InstallHint::Nvm, false) => vec!["nvm install --lts を実行すれば、次に開いたときに見つけます。".to_string()],
-        (InstallHint::Nvm, true) => vec![format!("今の Node を置き換えずに入れるなら、nvm install {} を実行すれば、次に開いたときに見つけます。", w.lts)],
+        (InstallHint::Nvm, false) => vec!["nvm install --lts を実行すると、次回の起動時に検出します。".to_string()],
+        (InstallHint::Nvm, true) => vec![format!("現在の Node を置き換えずにインストールするには、nvm install {} を実行してください。次回の起動時に検出します。", w.lts)],
     };
     v.push(elsewhere);
     v
@@ -957,14 +957,14 @@ fn ways_en(hint: InstallHint, has_node: bool, w: &Words) -> Vec<String> {
 fn outcome_ja(o: &ProbeOutcome, m: &Manifest) -> String {
     match o {
         ProbeOutcome::Ok(p) => match fit(p, m) {
-            Fit::Version => format!("v{} {}（Node-API {}。Node {} 以上が要ります）", p.version, p.arch, p.napi, m.node_min),
-            Fit::Arch => format!("v{} {}（{} 用が要ります）", p.version, p.arch, m.arch),
+            Fit::Version => format!("v{} {}（Node-API {}。Node {} 以上が必要です）", p.version, p.arch, p.napi, m.node_min),
+            Fit::Arch => format!("v{} {}（{} 用が必要です）", p.version, p.arch, m.arch),
             Fit::Ok => format!("v{} {}", p.version, p.arch),
         },
         ProbeOutcome::Missing => "ありません".to_string(),
-        ProbeOutcome::NotExecutable => "起動できません（実行権を確かめてください）".to_string(),
+        ProbeOutcome::NotExecutable => "起動できません（実行権限を確認してください）".to_string(),
         ProbeOutcome::Failed => "Node ではありません（別の実行ファイルのようです）".to_string(),
-        ProbeOutcome::TimedOut => format!("{} 秒のあいだ応答しません（打ち切りました）", PROBE_TIMEOUT.as_secs()),
+        ProbeOutcome::TimedOut => format!("{} 秒以内に応答しませんでした（タイムアウト）", PROBE_TIMEOUT.as_secs()),
     }
 }
 
@@ -1657,7 +1657,7 @@ mod tests {
     /// 理由の 1 文（利用者が決めた文言）。
     #[rustfmt::skip]
     const WHY_JA: &str =
-        "Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node 22.14 以上が要ります。";
+        "Hangar のデータベースとターミナルのネイティブモジュールは Node-API 10 を使うため、Node 22.14 以上が必要です。";
     #[rustfmt::skip]
     const WHY_EN: &str =
         "Hangar's database and terminal parts use Node-API 10, so Node 22.14 or later is needed.";
@@ -1671,7 +1671,7 @@ mod tests {
         // Node が見つかっているので、見つからないとは言わない。要る版を持つ別のアーキの Node を先に言う。
         assert!(
             text.starts_with(
-                "arm64 用の Node 24.21.0 は見つかりましたが、Hangar は x64 用の Node 22.14 以上が要ります。"
+                "arm64 用の Node 24.21.0 を検出しましたが、Hangar には x64 用の Node 22.14 以上が必要です。"
             ),
             "{text}"
         );
@@ -1683,17 +1683,17 @@ mod tests {
         assert!(!text.contains("~/.agent-hangar"), "{text}");
         // 「無し」の理由が読み分けられる。
         assert!(
-            text.contains("/a/node: v20.18.0 x64（Node-API 9。Node 22.14 以上が要ります）"),
+            text.contains("/a/node: v20.18.0 x64（Node-API 9。Node 22.14 以上が必要です）"),
             "{text}"
         );
         assert!(
-            text.contains("/f/node: v24.21.0 arm64（x64 用が要ります）"),
+            text.contains("/f/node: v24.21.0 arm64（x64 用が必要です）"),
             "{text}"
         );
         assert!(text.contains("/b/node: ありません"), "{text}");
         assert!(text.contains("/c/node: 起動できません"), "{text}");
         assert!(text.contains("/d/node: Node ではありません"), "{text}");
-        assert!(text.contains("/e/node: 5 秒のあいだ応答しません"), "{text}");
+        assert!(text.contains("/e/node: 5 秒以内に応答しませんでした"), "{text}");
     }
 
     // 英語の設定では、見つからない理由も調べた場所も英語で出す（Windows の実機で、ここだけ日本語のまま出ていた）。
@@ -1742,7 +1742,7 @@ mod tests {
             "{ja}"
         );
         assert!(ja.contains(WHY_JA), "{ja}");
-        assert!(ja.contains("brew install node で入れれば"), "{ja}");
+        assert!(ja.contains("brew install node でインストールすると"), "{ja}");
         let win = describe_error_for(&err, home, "ja", InstallHint::Winget);
         assert!(win.contains(WINGET_LTS), "{win}");
         assert!(win.contains("nvm-windows"), "{win}");
@@ -1772,8 +1772,8 @@ mod tests {
         assert!(lines[2].contains("置き換えません"), "{ja}");
         assert!(lines[2].contains("nvm install 22"), "{ja}");
         assert!(lines[3].contains(&settings), "{ja}");
-        assert!(lines[3].contains("「node を選ぶ…」"), "{ja}");
-        assert_eq!(lines[4], "調べた場所:", "{ja}");
+        assert!(lines[3].contains("「node を選択…」"), "{ja}");
+        assert_eq!(lines[4], "確認したパス:", "{ja}");
         assert!(!ja.contains("brew link"), "{ja}");
         let en = describe_error_for(&err, home, "en", InstallHint::Homebrew);
         assert!(en.contains("brew install node@22"), "{en}");
@@ -1802,9 +1802,9 @@ mod tests {
         assert!(lines[4].contains(WINGET_LTS), "{ja}");
         assert!(lines[4].contains("置き換わります"), "{ja}");
         assert!(lines[5].contains(&settings), "{ja}");
-        assert!(lines[5].contains("「node.exe を選ぶ…」"), "{ja}");
+        assert!(lines[5].contains("「node.exe を選択…」"), "{ja}");
         assert!(!ja.contains("brew"), "{ja}");
-        assert_eq!(lines[6], "調べた場所:", "{ja}");
+        assert_eq!(lines[6], "確認したパス:", "{ja}");
         let en = describe_error_for(&err, home, "en", InstallHint::Winget);
         let en_lines: Vec<&str> = en.lines().collect();
         assert!(en_lines[2].contains("zip"), "{en}");

@@ -69,7 +69,7 @@ pub fn open_command_on(windows: bool, file: &Path) -> (&'static str, Vec<OsStrin
 /// ログを開く。用意してから `open` を走らせ、終わりの状態で成否を返す。
 pub fn open_log(hangar_home: &Path) -> Result<(), String> {
     let file = log_path(hangar_home);
-    ensure_log(&file).map_err(|e| format!("ログを用意できません: {e}"))?;
+    ensure_log(&file).map_err(|e| format!("ログを作成できません: {e}"))?;
     let (program, args) = open_command(&file);
     let status = std::process::Command::new(program)
         .args(&args)
