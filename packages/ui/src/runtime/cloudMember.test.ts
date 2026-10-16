@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CloudDevicesDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
 import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
-import { CLOUD_RESTART_MS, createCloudMemberRunner } from './cloudMember.ts';
+import { CLOUD_RESTART_MS, createCloudMemberRunner, PAIR_POLL_MS } from './cloudMember.ts';
+
+/** 券の有効期間（Worker の 5 分）。試験では expiresAt を NOW からこれだけ先に置く。 */
+const PAIR_TTL_SHOWN_MS = 300_000;
 
 const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' as const };
 const devices: CloudDevicesDto = { state: 'ok', devices: [], creator: false, message: null };
@@ -19,9 +22,123 @@ function rig(bridge: Partial<CloudBridge> | null = {}) {
     leave: async () => ({ ok: true, value: { revoked: true, revokeError: null, creator: false } }),
     ...bridge,
   };
-  const r = createCloudMemberRunner({ bridge: full, load, restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  const r = createCloudMemberRunner({ bridge: full, load, pair: async () => ({ state: 'not-joined' }), now: () => 0, restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
   return { r, get: () => s, timers, restart, load };
 }
+
+const NOW = 1_700_000_000_000;
+const phone = (id: string, over: Partial<CloudDevicesDto['devices'][number]> = {}) => ({ id, name: id, platform: 'mobile', joinedAt: NOW, lastSeenAt: NOW, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, kind: 'mobile' as const, self: false, ...over });
+const pc = { ...phone('studio'), platform: 'darwin', kind: 'pc' as const, self: true };
+const ready: MobilePairingDto = { state: 'ready', pairUrl: 'https://w.example/app/#pair=PAIRTEXT', pairText: 'PAIRTEXT', expiresAt: NOW + PAIR_TTL_SHOWN_MS };
+
+/** スマホの接続の段の試験台。時計は now で進め、予約は timers に積む（走らせるのは試験が選ぶ）。 */
+function phoneRig(o: { pair?: () => Promise<MobilePairingDto>; lists?: CloudDevicesDto[] } = {}) {
+  let s: CloudMemberState = { ...initialCloudMember(), devices: { state: 'ok', devices: [pc], creator: false, message: null } };
+  let now = NOW;
+  const timers: { fn: () => void; ms: number }[] = [];
+  const lists = [...(o.lists ?? [])];
+  const load = vi.fn(async () => lists.shift() ?? s.devices!);
+  const pair = vi.fn(o.pair ?? (async () => ready));
+  const r = createCloudMemberRunner({ bridge: null, load, pair, now: () => now, restart: () => {}, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  /** いちばん古い、ms の長さの予約を 1 つ走らせる。 */
+  const fire = async (ms: number) => {
+    const i = timers.findIndex((t) => t.ms === ms);
+    if (i < 0) throw new Error(`no timer of ${ms}ms`);
+    const [t] = timers.splice(i, 1);
+    t!.fn();
+    await flush();
+  };
+  return { r, get: () => s, timers, load, pair, fire, tick: (ms: number) => { now += ms; } };
+}
+
+describe('スマホの接続の QR', () => {
+  it('QR を出すと券を取り、ready の間は 3 秒ごとに端末の一覧を再読み込みする', async () => {
+    const x = phoneRig();
+    x.r.run({ op: 'pair' });
+    expect(x.get().phone).toEqual({ kind: 'loading' });
+    await flush();
+    expect(x.get().phone).toMatchObject({ kind: 'ready', pairText: 'PAIRTEXT', expiresAt: NOW + PAIR_TTL_SHOWN_MS });
+    expect(x.timers.map((t) => t.ms).sort()).toEqual([PAIR_POLL_MS, PAIR_TTL_SHOWN_MS].sort());
+    await x.fire(PAIR_POLL_MS);
+    await x.fire(PAIR_POLL_MS);
+    expect(x.load).toHaveBeenCalledTimes(2);
+    expect(x.timers.filter((t) => t.ms === PAIR_POLL_MS)).toHaveLength(1);
+  });
+
+  it('QR を出している間に kind=mobile の新しい行が現れたら paired にし、再読み込みを止める。前からあったスマホは数えない', async () => {
+    const old = phone('old-phone');
+    const base: CloudDevicesDto = { state: 'ok', devices: [pc, old], creator: false, message: null };
+    const x = phoneRig({ lists: [base, base, { ...base, devices: [pc, old, phone('p1', { name: 'iPhone' })] }] });
+    x.r.run({ op: 'load' });
+    await flush();
+    x.r.run({ op: 'pair' });
+    await flush();
+    await x.fire(PAIR_POLL_MS);
+    expect(x.get().phone.kind).toBe('ready');
+    await x.fire(PAIR_POLL_MS);
+    expect(x.get().phone).toEqual({ kind: 'paired', id: 'p1', name: 'iPhone' });
+    expect(x.get().devices?.devices.map((d) => d.id)).toEqual(['studio', 'old-phone', 'p1']);
+    // paired になったら、残っていた予約が走っても読み直さない。
+    const before = x.load.mock.calls.length;
+    while (x.timers.some((t) => t.ms === PAIR_POLL_MS)) await x.fire(PAIR_POLL_MS);
+    expect(x.load).toHaveBeenCalledTimes(before);
+  });
+
+  it('QR を閉じたら 3 秒ごとの読み直しが止まり、QR の中身も状態から消える', async () => {
+    const x = phoneRig();
+    x.r.run({ op: 'pair' });
+    await flush();
+    x.r.run({ op: 'pairClose' });
+    expect(x.get().phone).toEqual({ kind: 'idle' });
+    expect(JSON.stringify(x.get())).not.toContain('PAIRTEXT');
+    await x.fire(PAIR_POLL_MS);
+    expect(x.load).not.toHaveBeenCalled();
+    expect(x.timers.some((t) => t.ms === PAIR_POLL_MS)).toBe(false);
+  });
+
+  it('5 分たったら expired にして QR の中身を捨て、読み直しも止める', async () => {
+    const x = phoneRig();
+    x.r.run({ op: 'pair' });
+    await flush();
+    x.tick(PAIR_TTL_SHOWN_MS);
+    await x.fire(PAIR_TTL_SHOWN_MS);
+    expect(x.get().phone).toEqual({ kind: 'expired' });
+    expect(JSON.stringify(x.get())).not.toContain('PAIRTEXT');
+    await x.fire(PAIR_POLL_MS);
+    expect(x.load).not.toHaveBeenCalled();
+  });
+
+  it('新しい QR を出すと、前の QR の予約は効かなくなる', async () => {
+    let n = 0;
+    const x = phoneRig({ pair: async () => ({ ...ready, pairText: `T${++n}`, expiresAt: NOW + PAIR_TTL_SHOWN_MS }) });
+    x.r.run({ op: 'pair' });
+    await flush();
+    x.r.run({ op: 'pair' });
+    await flush();
+    expect(x.get().phone).toMatchObject({ kind: 'ready', pairText: 'T2' });
+    // 前の QR の期限の予約が走っても、新しい QR は残る。
+    await x.fire(PAIR_TTL_SHOWN_MS);
+    expect(x.get().phone).toMatchObject({ kind: 'ready', pairText: 'T2' });
+  });
+
+  it('Worker が古い、券の取りすぎ、参加していない、失敗は、それぞれの段にして読み直さない', async () => {
+    for (const [answer, stage] of [
+      [{ state: 'worker-too-old', compat: 6 }, { kind: 'old', compat: 6 }],
+      [{ state: 'rate-limited' }, { kind: 'limited' }],
+      [{ state: 'not-joined' }, { kind: 'notJoined' }],
+    ] as const) {
+      const x = phoneRig({ pair: async () => answer as MobilePairingDto });
+      x.r.run({ op: 'pair' });
+      await flush();
+      expect(x.get().phone).toEqual(stage);
+      expect(x.timers).toEqual([]);
+    }
+    const y = phoneRig({ pair: async () => { throw new Error('接続できません'); } });
+    y.r.run({ op: 'pair' });
+    await flush();
+    expect(y.get().phone).toEqual({ kind: 'failed', message: '接続できません' });
+  });
+});
 
 const flush = () => new Promise((res) => setTimeout(res, 0));
 

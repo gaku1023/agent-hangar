@@ -171,6 +171,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.inject.always': 'Always',
   'settings.integrations.inject.askStatus.desc': 'Asks "What should happen to this session?" only when everything requested is done or you say you are finished. When off, status suggestions and automatic Done still continue.',
   'settings.integrations.inject.liveHints.desc': 'The intent on the Now card in the right panel, and short descriptions for Bash and Agent. When off, the start of your request is shown instead.',
+  'settings.integrations.inject.remoteControl.desc': 'Lets you open and continue conversations started from hangar in the Claude app on your phone or at claude.ai/code. Works only for accounts signed in with claude.ai; accounts that use an API key start without it.',
   'settings.integrations.inject.full': 'Show the full instructions',
   'settings.integrations.inject.part.body': 'Basics (always)',
   'settings.integrations.inject.part.on': '{name} (on)',

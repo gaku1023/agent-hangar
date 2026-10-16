@@ -170,6 +170,7 @@ export const settingsKeys = {
   'settings.integrations.inject.always': [],
   'settings.integrations.inject.askStatus.desc': [],
   'settings.integrations.inject.liveHints.desc': [],
+  'settings.integrations.inject.remoteControl.desc': [],
   'settings.integrations.inject.full': [],
   'settings.integrations.inject.part.body': [],
   'settings.integrations.inject.part.on': ['name'],

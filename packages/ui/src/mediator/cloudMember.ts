@@ -17,6 +17,8 @@ export function cloudMemberStep(state: State, input: Input): Step | null {
           : a.type === 'cloud.revoke.dismiss' ? { op: 'revokeDismiss' }
             : a.type === 'cloud.leave' ? { op: 'leave', revoke: a.revoke }
               : a.type === 'cloud.leave.dismiss' ? { op: 'leaveDismiss' }
-                : null;
+                : a.type === 'cloud.phone.pair' ? { op: 'pair' }
+                  : a.type === 'cloud.phone.close' ? { op: 'pairClose' }
+                    : null;
   return command ? { state, effects: [{ kind: 'cloudMember', command }] } : null;
 }

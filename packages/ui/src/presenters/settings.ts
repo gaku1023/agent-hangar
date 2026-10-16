@@ -110,7 +110,7 @@ export type RetentionSettingsProps = { days: number; options: { value: string; l
  * 連携の「hangar が起動する Claude Code に足すもの」（試作 1 節の推す案 B）。
  * 2 つのスイッチ（askStatusAtEnd、liveHints）と既定のモデル（null は Claude Code の既定）と、足す指示の全文。
  */
-export type InjectionSettingsProps = { askStatusAtEnd: boolean; liveHints: boolean; defaultModel: string | null; full: InjectionPart[] };
+export type InjectionSettingsProps = { askStatusAtEnd: boolean; liveHints: boolean; /** 会話を Claude アプリに接続する（--remote-control）。この項目を知らない古いサーバは返さないので入りとして読む。 */ remoteControl: boolean; defaultModel: string | null; full: InjectionPart[] };
 
 /** アカウントに付けられる 5 色（#rrggbb）。サーバは何色でも受けるが、画面からはここから選ぶ。 */
 export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f'];
@@ -399,7 +399,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
     terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'),
     summaryEngine, summaryClaudeModel: s?.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, summaryApiKeySet: s?.summaryApiKeySet === true,
-    injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false }) },
+    injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, remoteControl: s?.remoteControl !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false }) },
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? false, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },

@@ -12,6 +12,7 @@ import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
+import type { CloudClient } from '../sync/client.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import type { TakeoverService } from '../sync/takeover.ts';
@@ -152,6 +153,11 @@ export type AppDeps = {
    * 解除と参加と参加の解除は、殻の命令と CLI だけが行い、HTTP の経路は持たない。
    */
   cloudDevices: () => Promise<CloudDevicesDto>;
+  /**
+   * スマホを接続する QR を作るための、今の client と参加の秘密と Worker の URL（boot/sync.ts の mobileLink）。同期を設定していなければ null。
+   * 秘密は QR に入れるスマホ用の暗号鍵を導くのにだけ使い、応答にもログにも出さない。渡さなければ null として読む（試験の世界）。
+   */
+  mobileLink?: () => { client: CloudClient; joinSecret: string; url: string } | null;
   /**
    * 外のターミナルで起動した claude を hangar で開けるようにする包み方の、この PC の状態。
    * 読むだけで、~/.zshrc を書き換える経路は持たない。書き換えるのは hangar shell install（CLI）だけである。

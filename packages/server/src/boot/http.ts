@@ -138,6 +138,7 @@ export function bootHttp(p: {
     joinToken: sync.joinToken,
     devices: () => listDevices(db, device.id),
     cloudDevices: sync.cloudDevices,
+    mobileLink: sync.mobileLink,
     shellHook: runs.shellHook,
     retention: sync.retention,
     readiness: runs.readiness,

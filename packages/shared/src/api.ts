@@ -515,6 +515,17 @@ export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
  */
 export type CloudDeviceDto = CloudDeviceOut & { self: boolean };
 export type CloudDevicesDto = { state: 'ok' | 'off' | 'outdated' | 'unreachable' | 'revoked'; devices: CloudDeviceDto[]; creator: boolean; message: string | null };
+/**
+ * スマホを接続する QR（POST /api/sync/mobile-pairing）。押すたびに Worker から新しい券を取る。
+ * ready の pairText は PairingBlob（スマホ用の暗号鍵を含む）を base64url にしたもので、pairUrl は `<Worker の URL>/app/#pair=<pairText>`。
+ * どちらも QR と「文字列をコピー」にだけ使い、ログや PC が開く URL に載せない。参加の秘密そのものは含まない。
+ * not-joined は同期に参加していない、worker-too-old は Worker の版が足りない（compat は名乗った版、分からなければ null）、rate-limited は券の取りすぎ（10 分に 5 枚）。
+ */
+export type MobilePairingDto =
+  | { state: 'ready'; pairUrl: string; pairText: string; expiresAt: number }
+  | { state: 'not-joined' }
+  | { state: 'worker-too-old'; compat: number | null }
+  | { state: 'rate-limited' };
 /** shell はその端末の包み方（hangar shell install）の状態。まだ知らせてこない古い版の端末は null になる。 */
 export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean; shell: ShellHookStateDto | null };
 export type ShellHookStateDto = 'on' | 'off' | 'unsupported';

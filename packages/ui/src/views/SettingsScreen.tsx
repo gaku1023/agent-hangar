@@ -21,7 +21,7 @@ import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
-import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudRevokedBand } from './CloudMember.tsx';
+import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
@@ -436,7 +436,8 @@ export function SettingsScreen(props: SettingsProps) {
             </div>
             {props.cloud.joinToken !== null && <JoinToken token={props.cloud.joinToken} expiresAt={props.cloud.joinTokenExpiresAt} />}
             {/* PC の表（0.4.0）。Worker の一覧から、参加日、最終同期、最後の IP と場所、解除を出す。 */}
-            {member ? <CloudPcTable m={member} heading={t('settings.cloud.computers')} /> : (
+            {/* 表の下に「スマホ」の小見出しと「スマホを接続」（試作 A1）。解除されている間は出さない。 */}
+            {member ? <><CloudPcTable m={member} heading={t('settings.cloud.computers')} />{!member.revoked && <CloudPhones m={member} />}</> : (
               <>
                 <h4 className="sub-h">{t('settings.cloud.computers')}<span className="n">{props.cloud.devices.length}</span></h4>
                 <div className="list flat">

@@ -1,4 +1,4 @@
-import type { CloudDeviceOut, CloudDevicesDto } from '@agent-hangar/shared';
+import type { CloudDeviceOut, CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
 
 /**
  * クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除の状態（0.4.0）。
@@ -29,18 +29,51 @@ export type RevokeStage = { id: string; kind: 'busy' } | { id: string; kind: 'fa
 /** この PC の参加の解除。left は済んで再起動を待っている（クラウドで解除できなかった理由つき）。 */
 export type LeaveStage = { kind: 'idle' } | { kind: 'busy' } | { kind: 'left'; revokeError: string | null } | { kind: 'failed'; failure: CloudFailure };
 
+/**
+ * スマホを接続する QR の段。loading は券を取っている、ready は QR を出している（known は出した時点で参加していたスマホの ID。一覧がまだ無ければ null で、最初に届いた一覧を基準にする）、
+ * expired は 5 分を過ぎた、paired は QR を出している間に新しいスマホが参加した、old は Worker の版が足りない、limited は券の取りすぎ、notJoined は同期に参加していない、failed はそれ以外の失敗。
+ * QR の中身（pairUrl と pairText、スマホ用の暗号鍵を含む）を持つのは ready の間だけで、閉じる、期限が切れる、参加する、のどれでも捨てる。
+ */
+export type PhoneStage =
+  | { kind: 'idle' } | { kind: 'loading' }
+  | { kind: 'ready'; pairUrl: string; pairText: string; expiresAt: number; known: string[] | null }
+  | { kind: 'expired' } | { kind: 'paired'; id: string; name: string }
+  | { kind: 'old'; compat: number | null } | { kind: 'limited' } | { kind: 'notJoined' } | { kind: 'failed'; message: string };
+
 /** devices は Worker の PC の一覧（GET /api/sync/cloud-devices）で、設定に入ったときに取る。未取得は null。 */
-export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; revoke: RevokeStage | null; leave: LeaveStage };
+export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage };
 
 export type CloudMemberEvent =
   | { type: 'devices.loaded'; devices: CloudDevicesDto }
   | { type: 'join.checking' } | { type: 'join.planned'; plan: JoinPlanView } | { type: 'join.joining' } | { type: 'join.joined'; host: string }
   | { type: 'join.failed'; failure: CloudFailure } | { type: 'join.reset' }
   | { type: 'revoke.start'; id: string } | { type: 'revoke.done'; device: CloudDeviceOut } | { type: 'revoke.failed'; id: string; failure: CloudFailure } | { type: 'revoke.reset' }
-  | { type: 'leave.start' } | { type: 'leave.done'; revokeError: string | null } | { type: 'leave.failed'; failure: CloudFailure } | { type: 'leave.reset' };
+  | { type: 'leave.start' } | { type: 'leave.done'; revokeError: string | null } | { type: 'leave.failed'; failure: CloudFailure } | { type: 'leave.reset' }
+  | { type: 'phone.loading' } | { type: 'phone.loaded'; pairing: MobilePairingDto } | { type: 'phone.failed'; message: string } | { type: 'phone.expired' } | { type: 'phone.reset' };
 
 export function initialCloudMember(): CloudMemberState {
-  return { devices: null, join: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' } };
+  return { devices: null, join: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' } };
+}
+
+/** 一覧のうち、解除していないスマホ。版 6 までの Worker は kind を返さないので、無ければ PC として読む。 */
+const activePhones = (devices: CloudDevicesDto): CloudDeviceOut[] => (devices.state === 'ok' ? devices.devices.filter((d) => d.kind === 'mobile' && d.revokedAt === null) : []);
+
+function phoneOf(pairing: MobilePairingDto, devices: CloudDevicesDto | null): PhoneStage {
+  switch (pairing.state) {
+    case 'ready': return { kind: 'ready', pairUrl: pairing.pairUrl, pairText: pairing.pairText, expiresAt: pairing.expiresAt, known: devices?.state === 'ok' ? activePhones(devices).map((d) => d.id) : null };
+    case 'worker-too-old': return { kind: 'old', compat: pairing.compat };
+    case 'rate-limited': return { kind: 'limited' };
+    case 'not-joined': return { kind: 'notJoined' };
+  }
+}
+
+/** QR を出している間に届いた一覧で、新しく参加したスマホを探す。基準がまだ無ければ、この一覧を基準にする。 */
+function watchPhones(p: PhoneStage, devices: CloudDevicesDto): PhoneStage {
+  if (p.kind !== 'ready' || devices.state !== 'ok') return p;
+  const phones = activePhones(devices);
+  if (p.known === null) return { ...p, known: phones.map((d) => d.id) };
+  const fresh = phones.find((d) => !p.known!.includes(d.id));
+  return fresh ? { kind: 'paired', id: fresh.id, name: fresh.name } : p;
 }
 
 /** いまの段が持つ宛先。宛先を確かめる前と、済んだ後は null。 */
@@ -50,7 +83,7 @@ export function joinPlanOf(j: JoinStage): JoinPlanView | null {
 
 export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): CloudMemberState {
   switch (e.type) {
-    case 'devices.loaded': return { ...s, devices: e.devices };
+    case 'devices.loaded': return { ...s, devices: e.devices, phone: watchPhones(s.phone, e.devices) };
     case 'join.checking': return { ...s, join: { kind: 'checking' } };
     case 'join.planned': return { ...s, join: { kind: 'confirm', plan: e.plan } };
     case 'join.joining': {
@@ -72,5 +105,10 @@ export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): Clo
     case 'leave.done': return { ...s, leave: { kind: 'left', revokeError: e.revokeError } };
     case 'leave.failed': return { ...s, leave: { kind: 'failed', failure: e.failure } };
     case 'leave.reset': return { ...s, leave: { kind: 'idle' } };
+    case 'phone.loading': return { ...s, phone: { kind: 'loading' } };
+    case 'phone.loaded': return { ...s, phone: phoneOf(e.pairing, s.devices) };
+    case 'phone.failed': return { ...s, phone: { kind: 'failed', message: e.message } };
+    case 'phone.expired': return s.phone.kind === 'ready' ? { ...s, phone: { kind: 'expired' } } : s;
+    case 'phone.reset': return { ...s, phone: { kind: 'idle' } };
   }
 }

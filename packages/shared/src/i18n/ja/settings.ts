@@ -171,6 +171,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.inject.always': '常に',
   'settings.integrations.inject.askStatus.desc': '依頼がすべて完了したときと、セッションの終了を伝えたときだけ、「このセッションをどうしますか」と確認します。オフでも、ステータスの提案と自動の Done は続きます。',
   'settings.integrations.inject.liveHints.desc': '右パネルの上部に表示する意図と、Bash と Agent の短い説明。オフの場合は依頼の冒頭を表示します。',
+  'settings.integrations.inject.remoteControl.desc': 'hangar から起動した会話を、スマホの Claude アプリや claude.ai/code から開いて続けられるようにします。claude.ai でログインしたアカウントだけで有効です。API キーのアカウントでは付けずに起動します。',
   'settings.integrations.inject.full': '追加する指示の全文を表示',
   'settings.integrations.inject.part.body': '基本（常に）',
   'settings.integrations.inject.part.on': '{name}（オン）',

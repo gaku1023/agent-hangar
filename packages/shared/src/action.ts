@@ -167,6 +167,12 @@ export type UiAction =
   | { type: 'cloud.join.plan'; token: string } | { type: 'cloud.join.go'; overwrite: boolean } | { type: 'cloud.join.cancel' }
   | { type: 'cloud.device.revoke'; id: string } | { type: 'cloud.revoke.dismiss' }
   | { type: 'cloud.leave'; revoke: boolean } | { type: 'cloud.leave.dismiss' }
+  /**
+   * スマホを接続する QR（設定のクラウド同期の節の「スマホ」）。phone.pair は新しい券を取って QR を出す（期限切れの後の「新しい QR を出す」も同じ）。
+   * QR を出している間だけ、端末の一覧を 3 秒ごとに再読み込みして、スマホが参加したのを知らせる。phone.close は QR を閉じて再読み込みも止める。
+   * QR の中身はブラウザでも作れる（サーバの経路だけを使う）。
+   */
+  | { type: 'cloud.phone.pair' } | { type: 'cloud.phone.close' }
   // 設定の同期。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }

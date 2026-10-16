@@ -26,6 +26,7 @@ import {
   type CloudUsageBody,
   type FileMetaIn,
   type ListFilesResponse,
+  type MobilePairingResponse,
   type PullChangesResponse,
   type PushChangesResponse,
   type SnapshotResponse,
@@ -219,6 +220,11 @@ export interface CloudClient {
    * 呼ぶのは MobileFeedPublisher で、Worker の版が MOBILE_MIN_WORKER_COMPAT に届いてからにする。偽物は実装しなくてよい。
    */
   putMobileFeed?(sealed: string): Promise<void>;
+  /**
+   * スマホを接続する使い捨ての券を取る（POST /m/pairings、互換の版 7 の Worker から）。5 分で失効し、1 回で使い切る。
+   * 1 台の PC から 10 分に 5 枚までで、超えると Worker は 429 を返す（CloudError(429) で投げる）。偽物は実装しなくてよい。
+   */
+  createPairing?(): Promise<MobilePairingResponse>;
 }
 
 export type HttpCloudClientOptions = {
@@ -441,6 +447,10 @@ export class HttpCloudClient implements CloudClient {
   async putMobileFeed(sealed: string): Promise<void> {
     await this.ensureWorkerCompat();
     await this.json<{ ok: boolean }>('/m/feed', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sealed }) });
+  }
+
+  createPairing(): Promise<MobilePairingResponse> {
+    return this.json<MobilePairingResponse>('/m/pairings', { method: 'POST' });
   }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {

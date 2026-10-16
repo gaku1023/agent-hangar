@@ -593,6 +593,16 @@ describe('PC の一覧と解除', () => {
     expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
   });
 
+  it('createPairing は POST /m/pairings を送り、券と期限を返す。429 は CloudError(429) で投げる', async () => {
+    const f = fakeFetch(() => json({ code: 'c0de', expiresAt: 5 }, 201));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.createPairing()).toEqual({ code: 'c0de', expiresAt: 5 });
+    expect(f.calls[0]!.url).toBe('https://w.example/m/pairings');
+    expect(f.calls[0]!.init.method).toBe('POST');
+    const limited = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'rate limited' }, 429)).fetch });
+    await expect(limited.createPairing()).rejects.toMatchObject({ status: 429 });
+  });
+
   it('形の違う ID は送る前に断る', async () => {
     const f = fakeFetch(() => json({}));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });

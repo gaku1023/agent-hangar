@@ -15,7 +15,7 @@ function setup(o: { link?: boolean } = {}) {
   const db = openDb(':memory:');
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now });
-  let link: { client: CloudClient; joinSecret: string } | null = o.link === false ? null : { client, joinSecret: SECRET };
+  let link: { client: CloudClient; joinSecret: string; url: string } | null = o.link === false ? null : { client, joinSecret: SECRET, url: 'https://w.example' };
   const registryListeners = new Set<(l: LiveSessionDto[]) => void>();
   const registry = {
     current: (): LiveSessionDto[] => [],
@@ -82,14 +82,14 @@ describe('bootMobile', () => {
     const { timers, client, mobile, setLink } = setup({ link: false });
     mobile.start();
     expect(mobile.publisher()).toBeNull();
-    setLink({ client, joinSecret: SECRET });
+    setLink({ client, joinSecret: SECRET, url: 'https://w.example' });
     await timers.advance(FEED_SAFETY_MS);
     expect(mobile.publisher()).not.toBeNull();
     await timers.advance(FEED_DEBOUNCE_MS);
     await settle(() => client.mobileFeeds.size === 1);
     // client が変わったら（cloud.json を拾い直した）書き手を組み直す。
     const before = mobile.publisher();
-    setLink({ client: client.asDevice('pc-a'), joinSecret: SECRET });
+    setLink({ client: client.asDevice('pc-a'), joinSecret: SECRET, url: 'https://w.example' });
     noteIntent('s1');
     expect(mobile.publisher()).not.toBe(before);
     mobile.stop();

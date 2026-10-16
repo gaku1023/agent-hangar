@@ -1,11 +1,12 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fakeMotionTokens } from '../test/motion.ts';
 import type { CloudDeviceDto, SyncStatusBody, UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentCloudMember, type CloudMemberProps } from '../presenters/cloudMember.ts';
 import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
 import { initialStore, type Store } from '../store/store.ts';
-import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudRevokedBand } from './CloudMember.tsx';
+import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentSettings } from '../presenters/settings.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
@@ -186,6 +187,173 @@ describe('この PC が解除されたとき', () => {
   });
 });
 
+describe('スマホの接続（試作 A1）', () => {
+  const PAIR = 'eyJwYWlyIjoidGVzdCJ9';
+  const ready = { kind: 'ready' as const, pairUrl: `https://h.example/app/#pair=${PAIR}`, pairText: PAIR, expiresAt: NOW + 300_000, known: [] };
+  const iphone = dev('p1', { name: 'iPhone', platform: 'mobile', kind: 'mobile', joinedAt: NOW, lastSeenAt: NOW });
+  const both = (m: CloudMemberProps) => <><CloudPcTable m={m} heading="PC" /><CloudPhones m={m} /></>;
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('「スマホを接続」を押すと QR を頼み、QR（svg）と残り時間（5 分）と「この QR を人に見せない」旨の注意書きが出る', () => {
+    vi.useFakeTimers({ now: NOW });
+    const onAction = vi.fn();
+    const { rerender } = render(ui(both(props()), onAction));
+    expect(screen.getByText(/スマホで受信箱を見て/)).toBeInTheDocument();
+    expect(screen.getByText('会話を Claude アプリに接続する設定は「連携」にあります。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'スマホを接続' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.pair' });
+    rerender(ui(both(props({ phone: ready })), onAction));
+    const qr = screen.getByRole('img', { name: 'スマホを接続する QR' });
+    expect(qr.tagName.toLowerCase()).toBe('svg');
+    expect(qr.querySelector('path')?.getAttribute('d')).toMatch(/^M\d+ \d+h1v1h-1z/);
+    expect(screen.getByText('残り 5:00')).toBeInTheDocument();
+    expect(screen.getByText(/この QR を人に見せたり、写真で送ったりしないでください/)).toBeInTheDocument();
+    expect(screen.getByText('スマホのカメラで QR を読む')).toBeInTheDocument();
+    // QR を出している間は見出しのボタンを隠す（閉じるか期限が切れたら戻る）。
+    expect(screen.queryByRole('button', { name: 'スマホを接続' })).toBeNull();
+    // QR の中身はリンクにも title にも出さない（QR とコピーのボタンだけ）。
+    expect(document.body.innerHTML).not.toContain(PAIR);
+  });
+
+  it('5 分たつと QR を薄くして「新しい QR を出す」を出し、押すと新しい QR を頼む', () => {
+    vi.useFakeTimers({ now: NOW });
+    const onAction = vi.fn();
+    render(ui(both(props({ phone: ready })), onAction));
+    act(() => { vi.advanceTimersByTime(120_000); });
+    expect(screen.getByText('残り 3:00')).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(180_000); });
+    expect(document.querySelector('.cm-qr')).toHaveAttribute('data-dead', 'true');
+    expect(screen.getByText('この QR は期限切れです')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '文字列をコピー' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '新しい QR を出す' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.pair' });
+    // Runtime が expired にした後も同じ姿で、QR の中身を持たない。
+    cleanup();
+    render(ui(both(props({ phone: { kind: 'expired' } })), onAction));
+    expect(document.querySelector('.cm-qr')).toHaveAttribute('data-dead', 'true');
+    expect(screen.getByRole('button', { name: '新しい QR を出す' })).toBeInTheDocument();
+  });
+
+  it('QR を出している間に cloud-devices に新しい kind=mobile の行が現れたら「〈名前〉が接続しました」を出し、表に行が増える', () => {
+    const { rerender } = render(ui(both(props({ phone: ready }))));
+    const table = screen.getByRole('table', { name: 'PC' });
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32' }), iphone], creator: false, message: null };
+    rerender(ui(both(props({ devices, phone: { kind: 'paired', id: 'p1', name: 'iPhone' } }))));
+    expect(within(table).getAllByRole('row')).toHaveLength(4);
+    expect(screen.getAllByText('iPhone が接続しました').length).toBeGreaterThan(0);
+    expect(screen.getByText('この QR はもう使えません')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('iPhone が接続しました。上の一覧に並んでいます。');
+  });
+
+  it('「文字列をコピー」で pairText をクリップボードへ写し、「閉じる」で QR を閉じる', () => {
+    vi.useFakeTimers({ now: NOW });
+    const onAction = vi.fn();
+    render(ui(both(props({ phone: ready })), onAction));
+    const copy = screen.getByRole('button', { name: '文字列をコピー' });
+    expect(copy).toHaveTextContent('文字列をコピー');
+    fireEvent.click(copy);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'clipboard.copy', text: PAIR });
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.close' });
+  });
+
+  it('kind=mobile の行に「スマホ」の印が出て、解除のボタンがある。確認に、解除したスマホは戻れない旨と、なくしたらすぐ解除する旨がある', () => {
+    const onAction = vi.fn();
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), iphone], creator: false, message: null };
+    render(ui(both(props({ devices })), onAction));
+    const table = screen.getByRole('table', { name: 'PC' });
+    const row = within(table).getByText('iPhone').closest('[role="row"]') as HTMLElement;
+    expect(within(row).getByText('スマホ')).toHaveClass('cm-chip');
+    fireEvent.click(within(row).getByRole('button', { name: 'iPhone を解除' }));
+    expect(screen.getByText('iPhone を解除しますか')).toBeInTheDocument();
+    expect(screen.getByText(/解除したスマホは受信箱を読めず.*新しい QR を読む必要があります/)).toBeInTheDocument();
+    expect(screen.getByText(/選んだ権限モードで全部の PC に会話を起動できます。なくしたときはすぐに解除してください/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '解除' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.device.revoke', id: 'p1' });
+  });
+
+  it('worker-too-old では QR を出さず、更新を促す文を出す。券の取りすぎと失敗も理由を出す', () => {
+    const { rerender } = render(ui(both(props({ phone: { kind: 'old', compat: 6 } }))));
+    expect(screen.queryByRole('img', { name: 'スマホを接続する QR' })).toBeNull();
+    expect(screen.getByText(/Worker は古いバージョンです（互換の版 6）/)).toBeInTheDocument();
+    expect(screen.getByText(/hangar setup cloud/)).toBeInTheDocument();
+    rerender(ui(both(props({ phone: { kind: 'limited' } }))));
+    expect(screen.getByRole('alert')).toHaveTextContent('10 分ほど待ってから');
+    rerender(ui(both(props({ phone: { kind: 'failed', message: '接続できません' } }))));
+    expect(screen.getByRole('alert')).toHaveTextContent('QR を作成できませんでした。接続できません');
+  });
+});
+
+describe('スマホの接続の動き', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[] }[] = [];
+  let finish: (() => void)[] = [];
+  const motion = (dur: string) => {
+    restore?.();
+    restore = fakeMotionTokens({ '--dur-fast': dur === '0ms' ? '0ms' : '200ms', '--dur': dur, '--dur-exit': dur === '0ms' ? '0ms' : '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+  };
+  beforeEach(() => {
+    motion('420ms');
+    animations = []; finish = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+      animations.push({ el: this, frames });
+      return { finished: new Promise<void>((r) => finish.push(r)), cancel: vi.fn() };
+    };
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+  });
+  const on = (el: Element | null) => animations.filter((a) => a.el === el);
+  const done = async () => { await act(async () => { finish.forEach((f) => f()); await Promise.resolve(); }); };
+  const ready = { kind: 'ready' as const, pairUrl: 'https://h.example/app/#pair=X', pairText: 'X', expiresAt: Date.now() + 300_000, known: [] };
+  const both = (m: CloudMemberProps) => ui(<><CloudPcTable m={m} heading="PC" /><CloudPhones m={m} /></>);
+
+  it('はじめから QR を出している描画では動かさない', () => {
+    render(both(props({ phone: ready })));
+    expect(animations).toHaveLength(0);
+  });
+
+  it('QR の段は growIn で伸びて開き、閉じると collapseOut で畳んでから外す', async () => {
+    const { rerender, container } = render(both(props()));
+    rerender(both(props({ phone: ready })));
+    const panel = container.querySelector('.cm-pair')!;
+    expect(on(panel)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    rerender(both(props()));
+    expect(container.querySelector('.cm-pair')).toBe(panel);
+    expect(on(panel).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+    await done();
+    expect(container.querySelector('.cm-pair')).toBeNull();
+  });
+
+  it('期限切れと接続の知らせは fadeIn で現れ、新しいスマホの行は growIn で表に入る', () => {
+    const { rerender, container } = render(both(props({ phone: ready })));
+    rerender(both(props({ phone: { kind: 'expired' } })));
+    const over = container.querySelector('.cm-qr-over')!;
+    expect(on(over)[0]!.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    rerender(both(props({ phone: ready })));
+    animations = [];
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('p1', { name: 'iPhone', platform: 'mobile', kind: 'mobile' })], creator: false, message: null };
+    rerender(both(props({ devices, phone: { kind: 'paired', id: 'p1', name: 'iPhone' } })));
+    expect(on(container.querySelector('.cm-qr-over'))[0]!.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    const row = screen.getByText('iPhone', { selector: '.cm-name span' }).closest('[role="rowgroup"]');
+    expect(on(row)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+  });
+
+  it('動きを減らす設定（長さ 0）では、動かさずにすぐ切り替える', () => {
+    motion('0ms');
+    const { rerender, container } = render(both(props()));
+    rerender(both(props({ phone: ready })));
+    rerender(both(props({ phone: { kind: 'expired' } })));
+    rerender(both(props()));
+    expect(container.querySelector('.cm-pair')).toBeNull();
+    expect(animations).toHaveLength(0);
+  });
+});
+
 describe('設定のクラウド同期の節', () => {
   const SETTINGS = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
   const page = (over: Partial<Store>) => presentSettings({ ...initialState(), screen: { name: 'settings', at: 'cloud' } }, { ...initialStore(), settings: SETTINGS, device: { id: 'studio', name: 'studio' }, ...over }, NOW, 'darwin');
@@ -208,6 +376,11 @@ describe('設定のクラウド同期の節', () => {
     render(ui(<SettingsScreen {...page({ desktop: true, sync: SYNC, cloudMember: { ...initialCloudMember(), devices } })} />));
     expect(screen.getByRole('table', { name: 'PC' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'この PC の参加を解除' })).toBeInTheDocument();
+    // 表の下に「スマホ」の小見出しと「スマホを接続」（試作 A1）。
+    expect(screen.getByRole('region', { name: 'スマホ' })).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'PC' });
+    const pairBtn = screen.getByRole('button', { name: 'スマホを接続' });
+    expect(table.compareDocumentPosition(pairBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('この PC が解除されていれば、節の先頭に帯を出し、参加の解除の帯は出さない', () => {
