@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CloudDevicesResponse, MobileInboxResponse, MobileJoinResponse, MobilePairingResponse, PullChangesResponse } from '@agent-hangar/shared';
-import { PAIRING_RATE, PAIRING_TTL_MS } from '../src/mobile.ts';
+import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, readCloudLimit, seal, type CloudDevicesResponse, type MobileInboxResponse, type MobileJoinResponse, type MobilePairingResponse, type PullChangesResponse } from '@agent-hangar/shared';
+import { MAX_ACTIVE_PHONES, MAX_FEED_BODY_BYTES, PAIRING_RATE, PAIRING_TTL_MS } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -150,11 +150,53 @@ describe('スマホの参加（POST /m/pairings と POST /m/join）', () => {
     const pc = await joinPc('pc-a');
     const other = await joinPc('pc-b');
     for (let i = 0; i < PAIRING_RATE.max; i++) expect((await takePairing(pc)).status).toBe(201);
-    expect((await takePairing(pc)).status).toBe(429);
+    const limited = await takePairing(pc);
+    expect(limited.status).toBe(429);
+    const text = await limited.text();
+    expect(JSON.parse(text)).toEqual({ error: 'rate limited' });
+    // PC の読み手（readCloudLimit）が D1 の 1 日の上限と読み違えない。
+    expect(readCloudLimit(429, text)).toBeNull();
     expect((await takePairing(other)).status).toBe(201);
     // 窓を過ぎれば、また取れる。
     await cloud.env.DB.prepare('update mobile_pairings set created_at = created_at - ? where created_by = ?').bind(PAIRING_RATE.windowMs, 'pc-a').run();
     expect((await takePairing(pc)).status).toBe(201);
+  });
+
+  it('解除されていないスマホが 10 台あると 409 で断り、券は使わずに残す', async () => {
+    expect(MAX_ACTIVE_PHONES).toBe(10);
+    const pc = await joinPc('pc-a');
+    const tokens: MobileJoinResponse[] = [];
+    for (let i = 0; i < MAX_ACTIVE_PHONES; i++) {
+      // 券は 10 分に 5 枚までなので、取った券の時刻を戻して窓を空ける。
+      await cloud.env.DB.prepare('update mobile_pairings set created_at = created_at - ?').bind(PAIRING_RATE.windowMs).run();
+      tokens.push(await joinPhone(pc, `phone ${i}`));
+    }
+    await cloud.env.DB.prepare('update mobile_pairings set created_at = created_at - ?').bind(PAIRING_RATE.windowMs).run();
+    const code = await pairCode(pc);
+    const r = await phoneJoin(code, 'phone 11');
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ error: 'too-many-phones' });
+    expect((await cloud.env.DB.prepare("select count(*) n from devices where kind = 'mobile'").first<{ n: number }>())?.n).toBe(MAX_ACTIVE_PHONES);
+    // 券は使われていない。1 台外せば、同じ券で参加できる。
+    expect((await cloud.env.DB.prepare('select used_at from mobile_pairings where code_hash = ?').bind(await sha256Hex(code)).first<{ used_at: number | null }>())?.used_at).toBeNull();
+    expect((await revoke(pc, tokens[0]!.deviceId)).status).toBe(200);
+    expect((await phoneJoin(code, 'phone 11')).status).toBe(201);
+  });
+
+  it('上限に達していても、無い券は 401（券の照合が先）', async () => {
+    const pc = await joinPc('pc-a');
+    await cloud.env.DB.prepare(
+      "insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, kind) with recursive n(i) as (select 1 union all select i + 1 from n where i < 10) select 'm' || i, 'm' || i, 'mobile', 'h' || i, 1, 1, 0, null, 'mobile' from n",
+    ).run();
+    expect((await phoneJoin('A'.repeat(22))).status).toBe(401);
+    expect((await phoneJoin(await pairCode(pc))).status).toBe(409);
+  });
+
+  it('古い券を消す文のために mobile_pairings(created_at) の索引がある', async () => {
+    const idx = await cloud.env.DB.prepare("select name from sqlite_master where type = 'index' and tbl_name = 'mobile_pairings'").all<{ name: string }>();
+    expect(idx.results.map((x) => x.name)).toContain('mobile_pairings_at');
+    const plan = await cloud.env.DB.prepare('explain query plan delete from mobile_pairings where created_at < ?').bind(1).all<{ detail: string }>();
+    expect(plan.results.map((x) => x.detail).join(' ')).toContain('mobile_pairings_at');
   });
 
   it('券を取るついでに、1 日より古い券の行を消す', async () => {
@@ -235,9 +277,18 @@ describe('受信箱（PUT /m/feed と GET /m/inbox）', () => {
     expect(body.devices).toEqual([{ id: 'pc-a', name: 'pc-a', platform: 'darwin', lastSeenAt: expect.any(Number) }]);
   });
 
-  it('PUT /m/feed は 64 KiB を超えたら 413、形の違う本文は 400', async () => {
+  it('PUT /m/feed は 96 KiB を超えたら 413、上限いっぱい（48 KiB）の素を封をした本文は通る、形の違う本文は 400', async () => {
+    expect(MAX_FEED_BODY_BYTES).toBe(96 * 1024);
     const pc = await joinPc('pc-a');
-    expect((await putFeed(pc, 'x'.repeat(64 * 1024))).status).toBe(413);
+    // 暗号化の前で MOBILE_FEED_MAX_BYTES ちょうどの素を、PC と同じ seal で封をする。
+    const key = await deriveMobileKey('join-secret-feed');
+    const plain = 'x'.repeat(MOBILE_FEED_MAX_BYTES - 2);
+    expect(new TextEncoder().encode(JSON.stringify(plain)).byteLength).toBe(MOBILE_FEED_MAX_BYTES);
+    const sealed = await seal(key, aadFeed('pc-a'), plain);
+    expect(JSON.stringify({ sealed }).length).toBeGreaterThan(64 * 1024);
+    expect((await putFeed(pc, sealed)).status).toBe(200);
+    expect((await putFeed(pc, 'x'.repeat(96 * 1024))).status).toBe(413);
+    expect((await putFeed(pc, 'x'.repeat(96 * 1024 - 20))).status).toBe(200);
     expect((await send('/m/feed', { method: 'PUT', headers: auth(pc, { 'content-type': 'application/json' }), body: JSON.stringify({ sealed: 1 }) })).status).toBe(400);
     expect((await send('/m/feed', { method: 'PUT', headers: auth(pc, { 'content-type': 'application/json' }), body: JSON.stringify({ sealed: '' }) })).status).toBe(400);
     expect((await send('/m/feed', { method: 'PUT', headers: auth(pc, { 'content-type': 'application/json' }), body: 'not json' })).status).toBe(400);
@@ -262,6 +313,15 @@ describe('受信箱（PUT /m/feed と GET /m/inbox）', () => {
     const body = (await (await inbox(phone.token)).json()) as MobileInboxResponse;
     expect(body.feeds.map((f) => f.deviceId)).toEqual(['pc-a']);
     expect(body.devices.map((d) => d.id)).toEqual(['pc-a']);
+  });
+
+  it('GET /m/inbox はスマホの最終確認を書く（間引きつき）', async () => {
+    const pc = await joinPc('pc-a');
+    const phone = await joinPhone(pc);
+    await cloud.env.DB.prepare('update devices set last_seen_at = 1 where id = ?').bind(phone.deviceId).run();
+    expect((await inbox(phone.token)).status).toBe(200);
+    const row = await cloud.env.DB.prepare('select last_seen_at from devices where id = ?').bind(phone.deviceId).first<{ last_seen_at: number }>();
+    expect(row!.last_seen_at).toBeGreaterThan(1);
   });
 
   it('解除したスマホは 401', async () => {
