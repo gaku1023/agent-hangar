@@ -8,9 +8,9 @@ import { presentResumeHere, presentTakeover, resumeHereOf } from './resumeHere.t
 
 const NOW = new Date(2026, 9, 13, 12, 0).getTime();
 const ja = translator('ja');
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'notes', cwd: 'D:\\src\\notes-app', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: true, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...over });
+const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'notes', cwd: 'D:\\src\\notes-app', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: true, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...over });
 const project = (over: Partial<ProjectDto> = {}): ProjectDto => ({ id: 'p1', name: 'notes-app', status: 'active', isScratch: false, path: '/Users/me/src/notes-app', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: null, ...over });
-const lock = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'win', deviceName: 'work-pc', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
+const lock = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'win', deviceName: 'work-pc', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, liveStatus: null, ...over });
 const storeWith = (s: SessionDto, p: ProjectDto | null = project()): Store => ({ ...initialStore(), sessions: { [s.id]: s }, projects: p ? { [p.id]: p } : {} } as Store);
 const NO_ROOT = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
 
@@ -93,7 +93,7 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
     sessionId: 's1',
     from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() },
     to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' },
-    replace: null,
+    lock: null, replace: null,
   };
   it('前の PC とこの PC を 2 枚のカードにし、最後に使った日時と同期されないものを添える', () => {
     expect(presentResumeHere(ja, plan, '/Users/me', NOW)).toEqual({
@@ -119,7 +119,7 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
     expect(presentResumeHere(translator('en'), { ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } }, '/Users/me', NOW).replace).toMatch(/backup/);
   });
   it('分からない名前と OS は言い換え、この PC で場所が決まらなければ押せなくして理由を言う', () => {
-    const p = presentResumeHere(ja, { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: 'linux', path: null }, replace: null }, null, NOW);
+    const p = presentResumeHere(ja, { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: 'linux', path: null }, replace: null, lock: null }, null, NOW);
     expect(p.lead).toBe('この会話は 他の PC で進めたものです。');
     expect(p.from).toMatchObject({ name: '他の PC', os: null, at: '最終使用日時：不明' });
     expect(p.to).toMatchObject({ name: 'この PC', os: 'Linux', path: null });
@@ -152,10 +152,6 @@ describe('ほかの PC で動いている会話を引き継ぐ確認（presentRe
   });
   it('ロックが無ければ今のまま（mode: resume、赤みの帯なし）', () => {
     expect(presentResumeHere(ja, plan(null), null, NOW)).toMatchObject({ mode: 'resume', title: '他の PC で進めた会話を、この PC で再開しますか', action: 'この PC で再開', takeover: null });
-    // 古いサーバは lock を送らない。
-    const old = plan(null);
-    delete old.lock;
-    expect(presentResumeHere(ja, old, null, NOW).mode).toBe('resume');
   });
   it('アイドルの相手には実行中の帯と「停止して引き継ぐ」', () => {
     const p = presentResumeHere(ja, plan({ stale: false, working: false }), null, NOW);

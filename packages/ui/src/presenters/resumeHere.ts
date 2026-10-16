@@ -101,8 +101,7 @@ export function presentTakeover(t: Translate, plan: ResumeHerePlanDto, dto: Take
  * 日時は一覧の行の絶対時刻と同じ形（YYYY-MM-DD HH:MM）で出す。
  */
 export function presentResumeHere(t: Translate, plan: ResumeHerePlanDto, home: string | null, now: number): ResumeHereProps {
-  // 古いサーバは lock を送らない。無いものとして読む。
-  const lock = plan.lock ?? null;
+  const lock = plan.lock;
   const mode: ResumeHereMode = lock === null ? 'resume' : lock.stale ? 'stale' : 'takeover';
   const prev = plan.from.deviceName ?? t('confirm.resumeHere.unknownDevice');
   const device = lock?.deviceName ?? prev;

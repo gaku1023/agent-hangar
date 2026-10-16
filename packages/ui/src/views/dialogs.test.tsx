@@ -32,7 +32,7 @@ describe('ConfirmDialog', () => {
 });
 
 describe('この PC で再開の確認', () => {
-  const plan: ResumeHerePlanDto = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' }, replace: null };
+  const plan: ResumeHerePlanDto = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' }, lock: null, replace: null };
   const mountIt = (p = plan, onAction = vi.fn()) => {
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'resumeHere', sessionId: 's1', plan: p }} resumeHere={presentResumeHere(translator('ja'), p, '/Users/me', Date.now())} /></ActionRoot>);
     return onAction;

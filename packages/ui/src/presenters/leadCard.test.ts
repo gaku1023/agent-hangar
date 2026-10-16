@@ -13,7 +13,7 @@ const state = (p: Partial<SessionStateDto> = {}): SessionStateDto => ({ status: 
 const session = (p: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, 
   hasTranscript: true, live: null, summary: summary(), stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...p,
+  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...p,
 });
 const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: true });
 const win = (path: string, p: Partial<ChangedFileProps> = {}): ChangedFileProps => ({ path, dir: '', base: path.split('/').pop()!, added: 1, removed: 0, created: false, ...p });
@@ -160,7 +160,7 @@ describe('冒頭の 1 枚の札（変更したファイル、アーティファ�
 });
 
 describe('見出しの名前の横の札（ロックと、トランスクリプトの在りか）', () => {
-  const lock = (stale: boolean) => ({ deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 5 * 60_000, stale });
+  const lock = (stale: boolean) => ({ deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 5 * 60_000, stale, liveStatus: null });
   it('他の PC で実行中なら「<PC 名> で実行中」。最終確認は title で読める', () => {
     expect(presentSessionBadges(session({ lock: lock(false) }), NOW, ja)).toEqual([{ kind: 'lock', label: 'office-pc で実行中', title: '最終確認 5 分前' }]);
   });

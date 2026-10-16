@@ -21,7 +21,7 @@ const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, 
   hasTranscript: true, live: null, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null },
   summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...over,
+  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...over,
 });
 const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolean; summaryError?: string | null; gone?: boolean } = {}) =>
   presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
@@ -278,7 +278,7 @@ describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
     expect(within(dialog).getByRole('button', { name: /コピー/ })).toBeInTheDocument();
   });
   it('バッジの文は presenter が組む（ロックの札と見出しの札の種類）', () => {
-    const badges = presentSessionBadges(dto({ lock: { deviceId: 'd', deviceName: 'mini', runId: 'r', heartbeatAt: NOW - 60_000, stale: false } }), NOW, ja);
+    const badges = presentSessionBadges(dto({ lock: { deviceId: 'd', deviceName: 'mini', runId: 'r', heartbeatAt: NOW - 60_000, stale: false, liveStatus: null } }), NOW, ja);
     render(<ActionRoot onAction={() => {}}><SS {...base} badges={badges} /></ActionRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
   });

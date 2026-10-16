@@ -96,10 +96,10 @@ export type SessionDto = { id: string; provider: 'claude-code'; providerSessionI
    */
   newerElsewhere: boolean;
   /**
-   * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持つ（古いサーバは送らない）。
+   * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
    * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
    */
-  takenOver?: { deviceName: string; at: number } | null };
+  takenOver: { deviceName: string; at: number } | null };
 /**
  * 中断の原因。
  * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。
@@ -458,8 +458,8 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 /** ここから下はクラウド同期（フェーズ 4）の DTO である。 */
 /** 他端末がそのセッションを実行中であることの印。stale は heartbeat が途切れていることを示す。 */
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean;
-  /** 持ち主が heartbeat に載せる run の状態。古いサーバは送らない。null は不明。 */
-  liveStatus?: LiveStatus | null };
+  /** 持ち主が heartbeat に載せる run の状態。null は不明（載せない古い PC の run も null）。 */
+  liveStatus: LiveStatus | null };
 /**
  * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ流れ（server/src/sync/takeover.ts）。
  * asking は頼みを書いて送っている間、waiting は相手の応答を待っている間、receiving は相手が止まったあと本文が降りきるのを待っている間である。
@@ -623,9 +623,9 @@ export type ResumeHerePlanDto = {
   replace: ResumeHereReplaceDto | null;
   /**
    * ほかの PC の run が生きているとき（応答が途絶えたものを含む）。確認の 1 枚が、停止して引き継ぐか、応答のない相手を引き継ぐかを決める。
-   * working は相手が作業中（liveStatus が busy）であること。古いサーバは送らない。
+   * working は相手が作業中（liveStatus が busy）であること。生きた run が無ければ null。
    */
-  lock?: { deviceName: string; stale: boolean; working: boolean; heartbeatAt: number } | null;
+  lock: { deviceName: string; stale: boolean; working: boolean; heartbeatAt: number } | null;
 };
 /**
  * 「この PC で再開」で、手元のトランスクリプトを置き換えること（A → B → A と戻ったとき）。
