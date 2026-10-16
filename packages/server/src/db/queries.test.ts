@@ -10,7 +10,7 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
-import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions, setParkingSwitch } from './queries.ts';
+import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions, sessionLock, setParkingSwitch } from './queries.ts';
 
 let dir: string;
 let db: Db;
@@ -300,7 +300,7 @@ describe('ロックと remoteOnly と端末一覧', () => {
     addRun(d2, { id: 'r-self', device: 'dev-a', heartbeat: NOW });
     expect(one(d2).lock).toBeNull();
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW - 30_000 });
-    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false });
+    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false, liveStatus: null });
     expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.lock!.runId).toBe('r-b');
   });
 
@@ -333,6 +333,28 @@ describe('ロックと remoteOnly と端末一覧', () => {
     const d3 = setup();
     addRun(d3, { id: 'r-b', device: 'dev-b', heartbeat: NOW - LOCK_STALE_MS });
     expect(one(d3).lock).toMatchObject({ stale: false });
+  });
+
+  it('sessionLock はほかの PC の生きた run を返し、live_status を liveStatus に写す', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r1', device: 'dev-b', heartbeat: NOW - 10_000 });
+    d2.prepare("update runs set live_status = 'busy' where id = 'r1'").run();
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toMatchObject({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', stale: false, liveStatus: 'busy' });
+    // 一覧のロックと同じ値になる。
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual(one(d2).lock);
+    // 知らない値は null に倒す。
+    d2.prepare("update runs set live_status = 'weird' where id = 'r1'").run();
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)!.liveStatus).toBeNull();
+  });
+
+  it('sessionLock は heartbeat が LOCK_STALE_MS より古ければ stale、自分の run や終わった run、別の会話なら null', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r1', device: 'dev-b', heartbeat: NOW - LOCK_STALE_MS - 1 });
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toMatchObject({ stale: true });
+    expect(sessionLock(d2, 'dev-b', 's1', NOW)).toBeNull();
+    expect(sessionLock(d2, 'dev-a', 's2', NOW)).toBeNull();
+    d2.prepare("update runs set ended_at = ?, end_reason = 'exited' where id = 'r1'").run(NOW);
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toBeNull();
   });
 
   it('deviceId を渡さなければロックを計算しない', () => {

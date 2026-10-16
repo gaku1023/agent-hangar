@@ -152,7 +152,24 @@ export const LOCK_STALE_MS = 120_000;
 
 export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
 
-type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number };
+type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: string | null };
+
+const LOCK_SELECT = `
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status
+    from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
+    where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
+
+/** 行をロックにする。lockMap と sessionLock が同じ読み方をする。 */
+function toLock(r: LockRow, now: number): SessionLockDto {
+  return {
+    deviceId: r.device_id,
+    deviceName: r.device_name ?? r.device_id,
+    runId: r.run_id,
+    heartbeatAt: r.heartbeat_at,
+    stale: now - r.heartbeat_at > LOCK_STALE_MS,
+    liveStatus: r.live_status === 'busy' || r.live_status === 'idle' || r.live_status === 'waiting' ? r.live_status : null,
+  };
+}
 
 /**
  * 他端末で生きている run を、セッションごとに 1 つ拾う。
@@ -162,22 +179,16 @@ type LockRow = { session_id: string; run_id: string; device_id: string; device_n
 function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<string, SessionLockDto> {
   const out = new Map<string, SessionLockDto>();
   if (!selfDeviceId) return out;
-  const rows = db.prepare(`
-    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at
-    from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
-    where r.ended_at is null and r.deleted_at is null and r.device_id <> ?
-    order by r.heartbeat_at`).all(selfDeviceId) as LockRow[];
+  const rows = db.prepare(`${LOCK_SELECT} order by r.heartbeat_at`).all(selfDeviceId) as LockRow[];
   // heartbeat の昇順なので、同じセッションでは後から来た新しい行が残る。
-  for (const r of rows) {
-    out.set(r.session_id, {
-      deviceId: r.device_id,
-      deviceName: r.device_name ?? r.device_id,
-      runId: r.run_id,
-      heartbeatAt: r.heartbeat_at,
-      stale: now - r.heartbeat_at > LOCK_STALE_MS,
-    });
-  }
+  for (const r of rows) out.set(r.session_id, toLock(r, now));
   return out;
+}
+
+/** 1 つのセッションのロック。lockMap と同じ規則（ほかの PC の生きた run のうち heartbeat が最新の 1 件）。無ければ null。 */
+export function sessionLock(db: Db, selfDeviceId: string, sessionId: string, now: number): SessionLockDto | null {
+  const r = db.prepare(`${LOCK_SELECT} and r.session_id = ? order by r.heartbeat_at desc limit 1`).get(selfDeviceId, sessionId) as LockRow | undefined;
+  return r ? toLock(r, now) : null;
 }
 
 /**

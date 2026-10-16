@@ -168,7 +168,7 @@ export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string; merge?: boolean } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
 /** parked は、区切り（Done・Archived。0.5.0 までは Paused も）を付けたセッションが休みになったので hangar が止めたもの。 */
-export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
+export type EndReason = 'exited' | 'killed' | 'lost' | 'parked' | 'taken_over';
 /** 「ターミナルで開く」で使う外部ターミナル。macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル（terminal.ts）。 */
 export type TerminalApp = 'terminal' | 'iterm' | 'windowsTerminal' | 'windowsDefault';
 /** 1 回の起動または再開。tmux 上の寿命と一致する。 */
@@ -452,7 +452,9 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 
 /** ここから下はクラウド同期（フェーズ 4）の DTO である。 */
 /** 他端末がそのセッションを実行中であることの印。stale は heartbeat が途切れていることを示す。 */
-export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
+export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean;
+  /** 持ち主が heartbeat に載せる run の状態。古いサーバは送らない。null は不明。 */
+  liveStatus?: LiveStatus | null };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 /**
  * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻である。

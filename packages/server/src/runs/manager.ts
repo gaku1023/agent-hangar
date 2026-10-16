@@ -791,7 +791,9 @@ export class RunManager {
       // 画面へは配らない。配ると、待機中も 30 秒ごとに run の数だけ画面が描き直される。
       if (now - run.heartbeatAt >= HEARTBEAT_MS) {
         const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
-        upsertShared(this.db, 'runs', { ...row, heartbeat_at: now }, this.deviceId);
+        // 最後に見た状態も載せる。ほかの PC が「作業中」かどうかを見せるためで、状態が変わるたびには書かない（書き込みを増やさない）。
+        const last = this.db.prepare('select status from run_last_live where run_id = ?').get(run.id) as { status: string } | undefined;
+        upsertShared(this.db, 'runs', { ...row, heartbeat_at: now, live_status: last?.status ?? null }, this.deviceId);
       }
     }
     if (lost.length) this.interrupted(lost, 'mux', now);
@@ -817,6 +819,7 @@ export class RunManager {
    * 一覧にある tmux 名のうち、生きた run もシェルタブも持たないものについて、閉じた run を同じ run として開き直す。
    * 選ぶのは、この端末の run で、同じ tmux 名、exited か lost で閉じ、そのセッションに生きた run が他に無い、最も新しい行である。
    * killed と parked は hangar が止めにいったものなので、画面が残っていても生き返らせない。
+   * ほかの PC から止めてほしいと頼まれた run（取り下げられていない takeovers の宛先）と、ほかの PC が後から始めた会話の古い run も生き返らせない。引き継がれた会話を手元で動かし直すと、二つの PC で同じ会話が動くためである。
    * 閉じたときに MCP の設定と秘密は消している。秘密は作り直せないので、生き返った claude からは hangar の MCP を使えない（受け入れる）。
    * 画面には起動と同じ知らせ（runStarted）を出し、ターミナルと入力欄を戻す。
    */
@@ -827,6 +830,8 @@ export class RunManager {
     const rows = this.db.prepare(`select r.* from runs r join sessions s on s.id = r.session_id and s.deleted_at is null
       where r.deleted_at is null and r.device_id = ? and r.ended_at is not null and r.end_reason in ('exited', 'lost')
         and r.tmux_name in (${candidates.map(() => '?').join(',')})
+        and not exists (select 1 from takeovers t where t.run_id = r.id and t.cancelled_at is null and t.deleted_at is null)
+        and not exists (select 1 from runs o where o.session_id = r.session_id and o.device_id <> r.device_id and o.deleted_at is null and o.started_at > r.started_at)
       order by r.started_at desc`).all(this.deviceId, ...candidates) as Record<string, unknown>[];
     const seen = new Set<string>();
     const out: RunDto[] = [];
@@ -933,15 +938,15 @@ export class RunManager {
     }
   }
 
-  /** run を止める。タブも閉じ、killed で終わらせる。 */
-  kill(runId: string): RunDto {
+  /** run を止める。タブも閉じ、killed で終わらせる。ほかの PC に引き継ぐために止めたときは taken_over で終わらせる。 */
+  kill(runId: string, reason: 'killed' | 'taken_over' = 'killed'): RunDto {
     const run = getRun(this.db, runId);
     if (!run) throw new RunError(404, msg('run.error.notFound'));
     if (run.endedAt !== null) throw new RunError(409, msg('run.error.alreadyEnded'));
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
     this.stopBackground(run.sessionId);
     this.deps.panes?.close(run.tmuxName);
-    return this.end(runId, 'killed') ?? run;
+    return this.end(runId, reason) ?? run;
   }
 
   /**
