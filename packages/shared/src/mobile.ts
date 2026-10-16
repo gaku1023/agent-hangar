@@ -46,11 +46,20 @@ export type MobileDoneItem = { sessionId: string; projectName: string; title: st
 export type MobileAccount = { id: string; name: string; color: string; fiveHour: number | null; sevenDay: number | null };
 export type MobileProject = { id: string; name: string; lastUsedAt: number | null };
 
+/**
+ * PC の hangar ができること（rc.2 で足した）。
+ * asks は `/` と `@` の問い合わせに答えること、images は起動の依頼の画像を受け取ること、effort は依頼の effort を効かせること。
+ * rc.1 の PC は caps を載せず、依頼の images と effort を黙って捨てるので、スマホは caps の無い PC にそれらを出さない。
+ */
+export type MobileCaps = { asks: boolean; images: boolean; effort: boolean };
+
 /** 1 台の PC が Worker に預ける受信箱の素。暗号化して置くので、Worker は中身を読めない。 */
 export type MobileFeed = {
   v: 1;
   deviceId: string;
   deviceName: string;
+  /** この PC ができること。無ければ rc.1 の PC。 */
+  caps?: MobileCaps;
   accounts: MobileAccount[];
   projects: MobileProject[];
   live: MobileLiveItem[];

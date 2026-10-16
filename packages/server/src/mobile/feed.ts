@@ -1,4 +1,4 @@
-import { addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileWaiting, type UsageDto } from '@agent-hangar/shared';
+import { addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileWaiting, type UsageDto } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import { accountOfSession, displayName } from '../db/queries.ts';
 import type { Db } from '../db/open.ts';
@@ -119,6 +119,9 @@ export const LAST_USED_SQL = `select s.project_id id, max(r.started_at) at
  * 引くのは索引のある列だけで、events のような大きい表は読まない。本文は、許可でない待ちの会話の末尾の数件だけを読む（answered）。
  * session_states には status の索引が無いが、行は状態を付けた会話だけで小さい。
  */
+/** この版の hangar ができること。スマホは、これの無い（rc.1 の）PC に画像、effort、候補を出さない。 */
+export const FEED_CAPS: MobileCaps = { asks: true, images: true, effort: true };
+
 export function buildMobileFeed(src: FeedSources): MobileFeed {
   const { db, deviceId, now } = src;
   const accountOf = (sessionId: string): string => accountOfSession(db, sessionId, deviceId) ?? PRIMARY_ACCOUNT_ID;
@@ -194,5 +197,5 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
     return { id: a.id, name: a.name, color: a.color, fiveHour: u?.fiveHour?.usedPercent ?? null, sevenDay: u?.sevenDay?.usedPercent ?? null };
   });
 
-  return { v: 1, deviceId, deviceName: src.deviceName, accounts, projects, live: liveItems, returns, done };
+  return { v: 1, deviceId, deviceName: src.deviceName, caps: FEED_CAPS, accounts, projects, live: liveItems, returns, done };
 }

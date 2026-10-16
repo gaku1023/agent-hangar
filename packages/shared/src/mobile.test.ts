@@ -15,6 +15,7 @@ import {
   type MobileAsk,
   type MobileAskIn,
   type MobileAskOut,
+  type MobileCaps,
   type MobileFeed,
   type MobileLaunchAnswer,
   type MobileLaunchPayload,
@@ -100,6 +101,13 @@ describe('fitFeed', () => {
   it('上限以内ならそのまま返す', () => {
     const f = feed({ done: done(3) });
     expect(fitFeed(f)).toEqual(f);
+  });
+
+  it('削っても、PC のできること（caps）を落とさない', () => {
+    const caps: MobileCaps = { asks: true, images: true, effort: true };
+    const out = fitFeed(feed({ caps, done: done(200) }));
+    expect(out.done.length).toBeLessThan(200);
+    expect(out.caps).toEqual(caps);
   });
 
   it('48 KiB を超えると done を古いものから落とす', () => {
