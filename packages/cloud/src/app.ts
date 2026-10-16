@@ -7,6 +7,7 @@ import { devicesApp } from './devices.ts';
 import type { AppType, Env, Vars } from './env.ts';
 import { filesApp } from './files.ts';
 import { bootstrapHandler, joinApp, joinCodesApp } from './join.ts';
+import { keysApp } from './keys.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
 import { mobileApp } from './mobile.ts';
 import { ensureSchema } from './schema.ts';
@@ -36,7 +37,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
@@ -49,6 +50,8 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.route('/join-codes', joinCodesApp);
   app.route('/join', joinApp);
   app.post('/bootstrap', bootstrapHandler);
+  // 封じた名簿と keybox（互換の版 9）。PC の端末トークンが要る。
+  app.route('/', keysApp);
   // スマホの参加と受信箱。認証と種類の検査は経路ごとに mobile.ts の中で付ける（参加の口だけはトークンなし）。
   app.route('/m', mobileApp);
 

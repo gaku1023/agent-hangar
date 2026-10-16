@@ -99,6 +99,47 @@ export type JoinApproveIn = { deviceId: string };
 export type JoinStatusOut = { status: 'waiting' | 'approved' | 'rejected' | 'expired'; deviceToken?: string };
 
 /**
+ * 封じた名簿（`GET /roster`、PC の端末トークンが要る、互換の版 9）。
+ * 名簿がまだ無ければ 404。`sealed` は `/roster` の鍵で封じた文書（base64url）で、Worker は開けない。
+ */
+export type RosterOut = { version: number; sealed: string };
+
+/**
+ * 名簿の書き換え（`PUT /roster`）。`ifVersion` は手元で読んだ版で、最初は 0。
+ * 版が合えば 200 の `RosterPutOut`（1 進んだ版）、合わなければ 409 の `RosterPutOut`（今の版）。
+ * 通った書き換えは、同じ要求の中で `rows` の印の行（`ROSTER_MARKER_K`）の連番を進める。`epoch` はその行に載せる今の世代である。
+ */
+export type RosterPut = { ifVersion: number; epoch: number; sealed: string };
+export type RosterPutOut = { version: number };
+
+/**
+ * 名簿か keybox が変わったことを pull で伝える印の行の鍵（`rows.k`）。
+ * ふつうの行の `k` は HMAC の base64url なので、`~` で始まる値とは重ならない。
+ */
+export const ROSTER_MARKER_K = '~roster';
+
+/** リカバリーキー宛ての keybox の受け手。 */
+export const RECOVERY_RECIPIENT = 'recovery';
+/** `PUT /keyboxes` の 1 回の件数の上限。 */
+export const MAX_KEYBOXES_PER_PUT = 20;
+
+/**
+ * 自分宛ての keybox（`GET /keyboxes?recipient=<id>`）。世代の順に並ぶ。
+ * `recipient` を省けば自分宛てで、ほかの PC 宛ては 403。
+ * `recovery` 宛ては、`POST /bootstrap` で入った端末が名簿か keybox を書くまでの間だけ読める（`hangar recover` の道）。
+ */
+export type KeyboxOut = { epoch: number; sealed: string };
+export type KeyboxesOut = { boxes: KeyboxOut[] };
+
+/**
+ * keybox を置く（`PUT /keyboxes`）。受け手は解除されていない PC の ID か `recovery` で、世代と受け手の組で上書きする。
+ * 通った書き換えは、名簿と同じく印の行の連番を進める。応答は 200 の `KeyboxesPutOut`。
+ */
+export type KeyboxIn = { epoch: number; recipient: string; sealed: string };
+export type KeyboxesPut = { boxes: KeyboxIn[] };
+export type KeyboxesPutOut = { written: number };
+
+/**
  * Worker の `GET /devices` が返す PC の 1 行（互換の版 5 から）。
  * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した PC である。
  * 最後に同期した IP と場所は、Worker が同期の要求を受けたときの CF-Connecting-IP と request.cf の city、region、country をそのまま写したもので、PC ごとに最後の 1 件だけを持つ。

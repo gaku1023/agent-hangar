@@ -22,6 +22,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'create index if not exists files_kind on files(kind, seq)',
   // 世代鍵を受け手ごとに封じた箱。受け手は PC の ID か recovery で、スマホの分は phone_keyboxes に分ける。
   'create table if not exists keyboxes (epoch integer not null, recipient text not null, created_at integer not null, sealed blob not null, primary key (epoch, recipient))',
+  // 受け手ごとに引く索引（keys.ts の GET /keyboxes）。主キーは世代が先なので、これが無いと表を全部読む。
+  'create index if not exists keyboxes_recipient on keyboxes(recipient, epoch)',
   'create table if not exists phone_keyboxes (epoch integer not null, recipient text not null, created_at integer not null, sealed blob not null, primary key (epoch, recipient))',
   // 名簿は 1 行だけで、version を条件にして書き換える。
   'create table if not exists roster (id integer primary key check (id = 1), version integer not null, updated_at integer not null, sealed blob not null)',
