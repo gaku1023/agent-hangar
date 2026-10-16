@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { MOBILE_TEXT_MAX, PRIMARY_ACCOUNT_ID, type LiveSessionDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { IndexerService } from '../indexer/service.ts';
 import { addIntent } from '../live/intents.ts';
 import { buildMobileFeed, LAST_USED_SQL, type FeedSources } from './feed.ts';
 import { saveRemoteUrl } from './remoteUrl.ts';
@@ -130,6 +134,54 @@ describe('buildMobileFeed', () => {
     run(db, 'run1', 's1');
     const feed = buildMobileFeed(src(db, { live: [liveOf('s1', { status: 'waiting', waitingFor: 'question', permission: { tool: 'Bash', input: 'npm test', description: null } })] }));
     expect(feed.live[0]!.waiting).toEqual({ kind: 'question', text: '' });
+  });
+
+  describe('許可でない待ち（waitingFor が other）で、最後の呼び出しにもう答えが出ているか（presenters/live.ts の staleWait）', () => {
+    const UUID = 'bbbbbbbb-0000-4000-8000-0000000000f1';
+    const T = (s: number) => new Date(NOW - 60_000 + s * 1000).toISOString();
+    const base = (s: number) => ({ uuid: `x${s}`, timestamp: T(s), cwd: '/w/project-a', sessionId: UUID });
+    const ask = (s: number) => ({ type: 'assistant', message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: { questions: [{ question: 'どちらにしますか', header: 'h', options: [], multiSelect: false }] } }] }, ...base(s) });
+    const answer = (s: number) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_q', content: 'A' }] }, ...base(s) });
+    const prompt = (s: number) => ({ type: 'user', message: { role: 'user', content: '指示' }, ...base(s) });
+    const dirs: string[] = [];
+    afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
+
+    /** 本文を索引に入れ、run を置き、hook が遅れて届いたつもりで問いを残す。 */
+    async function seedTranscript(rows: unknown[]): Promise<{ db: Db; sid: string }> {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-feed-'));
+      dirs.push(dir);
+      const file = path.join(dir, 'projects', '-w-project-a', `${UUID}.jsonl`);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const db = seed();
+      await new IndexerService({ db, deviceId: ME, claudeDir: dir, isRunning: () => false }).fullScan();
+      const sid = (db.prepare('select id from sessions where provider_session_id = ?').get(UUID) as { id: string }).id;
+      run(db, 'run1', sid);
+      db.prepare("insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?, 'AskUserQuestion', '', 'toolu_q', 'どちらにしますか', ?) on conflict(session_id) do update set question = excluded.question").run(sid, NOW);
+      return { db, sid };
+    }
+    const waitOther = (db: Db) => buildMobileFeed(src(db, { live: [{ ...liveOf('x'), sessionId: UUID, status: 'waiting', waitingFor: 'other' }] })).live[0]!.waiting;
+
+    it('答えの出た問いは出さない', async () => {
+      const { db } = await seedTranscript([prompt(0), ask(1), answer(2)]);
+      expect(waitOther(db)).toEqual({ kind: 'other', text: '' });
+    });
+
+    it('答えの出ていない問いは出す', async () => {
+      const { db } = await seedTranscript([prompt(0), ask(1)]);
+      expect(waitOther(db)).toEqual({ kind: 'question', text: 'どちらにしますか' });
+    });
+  });
+
+  it('同じ会話を再開したら、前の run で拾った URL は出さない', () => {
+    const db = seed();
+    session(db, 's1');
+    run(db, 'run-a', 's1', { startedAt: NOW - 3 * HOUR, endedAt: NOW - 2 * HOUR });
+    saveRemoteUrl(db, 's1', 'https://claude.ai/code/session_01Prev', NOW - 3 * HOUR + 4000);
+    run(db, 'run-b', 's1', { startedAt: NOW - HOUR });
+    expect(buildMobileFeed(src(db, { live: [liveOf('s1')] })).live[0]!.rcUrl).toBeNull();
+    saveRemoteUrl(db, 's1', 'https://claude.ai/code/session_02Now', NOW - HOUR + 4000);
+    expect(buildMobileFeed(src(db, { live: [liveOf('s1')] })).live[0]!.rcUrl).toBe('https://claude.ai/code/session_02Now');
   });
 
   it('run_remote_urls にある会話は rcUrl が入る（今の run の起動より後に拾ったものだけ、claude.ai のものだけ）', () => {

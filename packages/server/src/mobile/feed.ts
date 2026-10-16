@@ -3,6 +3,7 @@ import type { Account } from '../config/accounts.ts';
 import { accountOfSession, displayName } from '../db/queries.ts';
 import type { Db } from '../db/open.ts';
 import { latestIntent } from '../live/intents.ts';
+import { readEvents } from '../transcript/read.ts';
 
 /** Done を受信箱に残す長さ。「今日」の絞り込みはスマホが自分の日付でするので、PC は少し広めに入れる。 */
 export const DONE_WINDOW_MS = 36 * 3_600_000;
@@ -59,11 +60,13 @@ function dateIn(now: number, tz: string | undefined): string {
  * 許可の待ちでは、前の AskUserQuestion の問いが残っていても許可の中身を出す。
  * 問いの待ちでは、AskUserQuestion でない許可の中身を問いとして出さない。
  * Claude Code の版によっては AskUserQuestion の待ちに permission を書くので、許可の中身が AskUserQuestion なら問いとして扱う。
+ * 許可でない待ち（other）で、最後の呼び出しにもう答えが出ていれば、その問いは済んだものなので出さない（staleWait）。
  */
 function waitingOf(db: Db, sessionId: string, live: LiveSessionDto): MobileWaiting | null {
   if (live.status !== 'waiting') return null;
-  const act = db.prepare('select tool, question from session_activity where session_id = ?').get(sessionId) as { tool: string; question: string | null } | undefined;
-  const question = act?.tool === 'AskUserQuestion' && act.question ? act.question : null;
+  const act = db.prepare('select tool, tool_id, question from session_activity where session_id = ?').get(sessionId) as { tool: string; tool_id: string; question: string | null } | undefined;
+  const asked = act?.tool === 'AskUserQuestion' && act.question ? act.question : null;
+  const question = asked !== null && live.waitingFor === 'other' && answered(db, sessionId, act!.tool_id) ? null : asked;
   const p = live.permission;
   const asking = live.waitingFor === 'question' || p?.tool === 'AskUserQuestion';
   if (asking) return { kind: 'question', text: clampText(question) ?? '' };
@@ -73,6 +76,21 @@ function waitingOf(db: Db, sessionId: string, live: LiveSessionDto): MobileWaiti
   }
   if (question) return { kind: 'question', text: clampText(question) ?? '' };
   return { kind: live.waitingFor ?? 'other', text: '' };
+}
+
+/** 答えを探す主線の末尾の長さ。問いを待つ間は後ろに出来事が続かないので、答えがあればこの中にある。 */
+const ANSWER_TAIL = 40;
+
+/**
+ * 呼び出し toolId に答え（tool_result）が出ているか。画面の札（presenters/live.ts の staleWait）が本文の出来事で見るのと同じものを、主線の末尾だけ読んで見る。
+ * 読むのは索引で位置を引いた末尾の数件で、許可でない待ちの会話のときだけである。本文が無い、読めないときは、答えは無いものとする。
+ */
+function answered(db: Db, sessionId: string, toolId: string): boolean {
+  try {
+    return readEvents(db, sessionId, { latest: true, limit: ANSWER_TAIL }).events.some((e) => e.kind === 'tool_result' && e.toolId === toolId);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -98,7 +116,7 @@ export const LAST_USED_SQL = `select s.project_id id, max(r.started_at) at
 
 /**
  * 受信箱の素を、手元の DB と実行中の状態から組む。純粋な関数で、同じ入力からは同じ JSON になる。
- * 引くのは索引のある列だけで、events のような大きい表は読まない。
+ * 引くのは索引のある列だけで、events のような大きい表は読まない。本文は、許可でない待ちの会話の末尾の数件だけを読む（answered）。
  * session_states には status の索引が無いが、行は状態を付けた会話だけで小さい。
  */
 export function buildMobileFeed(src: FeedSources): MobileFeed {

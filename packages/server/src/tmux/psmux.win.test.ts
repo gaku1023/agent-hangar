@@ -107,13 +107,13 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     panes.close('hangar-pane');
   }, 40_000);
 
-  // Remote Control の URL は端末の幅で折り返す。-J を解しても解さなくても、PaneOps の joinWrapped と extractRemoteUrl で 1 つの URL に戻る。
-  it('幅で折り返した URL を、joinWrapped で読んで取り出せる', async () => {
+  // Remote Control の URL は端末の幅で折り返す。-J を解しても解さなくても、PaneOps の captureUnwrapped と extractRemoteUrl で 1 つの URL に戻る。
+  it('幅で折り返した URL を、captureUnwrapped で読んで取り出せる', async () => {
     const url = 'https://claude.ai/code/session_01AbCdEfGhIjKlMnOpQrStUv';
     made.push('hangar-wrap');
     tmux.newSession({ name: 'hangar-wrap', cwd, command: ['cmd.exe', '/k', `echo ${url}`], width: 40, height: 20 });
     const panes = psmuxPaneOps(tmux);
-    await waitFor(() => extractRemoteUrl(panes.capture('hangar-wrap', { joinWrapped: true })) === url, 10_000);
+    await waitFor(() => { const s = panes.captureUnwrapped!('hangar-wrap'); return extractRemoteUrl(s.text, s.width) === url; }, 10_000);
   }, 20_000);
 
   it('無い作業フォルダは、作る前に断る', () => {

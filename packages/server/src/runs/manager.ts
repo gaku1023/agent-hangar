@@ -433,7 +433,7 @@ export class RunManager {
   private watchRemoteUrl(runId: string, sessionId: string, tmuxName: string, panes: PaneOps): void {
     const timers = this.deps.timers ?? { setInterval, clearInterval };
     const stop = watchRemoteUrl({
-      capture: () => panes.capture(tmuxName, { joinWrapped: true }),
+      capture: () => panes.captureUnwrapped?.(tmuxName) ?? { text: panes.capture(tmuxName), width: null },
       onFound: (url) => {
         this.remoteWatches.delete(runId);
         try {

@@ -24,11 +24,13 @@ export interface PaneOps {
    * 空の一覧（1 つも無い）と null（分からない）は別である。
    */
   list(): string[] | null;
+  /** 画面にいま見えている文字。色や属性は落とす。 */
+  capture(name: string): string;
   /**
-   * 画面にいま見えている文字。色や属性は落とす。
-   * joinWrapped は、端末の幅で折り返した行をつないで読む。裏がつなげないときは折り返したまま返すので、呼び手もつなぐ用意をする。
+   * 端末の幅で折り返した行をつないだ画面。裏がつなげないときは折り返したままの画面と、その幅（width）を返す。つないだときの width は null。
+   * Remote Control の URL を拾うのに使う（mobile/remoteUrl.ts）。持たない裏（試験の偽物など）は capture で代える。
    */
-  capture(name: string, o?: { joinWrapped?: boolean }): string;
+  captureUnwrapped?(name: string): { text: string; width: number | null };
   /** 文字をそのまま打ち込む。キーの名前としては読ませない。 */
   sendText(name: string, text: string): void;
   /** 名前の付いたキーを 1 つ送る。 */
@@ -59,7 +61,8 @@ function muxPaneOps(mux: MuxServers): Omit<PaneOps, 'prepareForOutsideTerminals'
     // psmux の kill-server は別の名前空間のセッションまで落とすので、どちらの裏でもここでは使わない。
     close: (name) => at(name).killSession(name),
     list: () => mux.list(),
-    capture: (name, o) => at(name).capturePane(name, o),
+    capture: (name) => at(name).capturePane(name),
+    captureUnwrapped: (name) => at(name).captureUnwrapped(name),
     // -l を付けて 1 文字として送る。{ や q をキー名として読ませない。
     sendText: (name, text) => at(name).sendKeys(name, '-l', text),
     sendKey: (name, key) => at(name).sendKeys(name, MUX_KEYS[key]),

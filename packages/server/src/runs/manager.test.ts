@@ -2871,7 +2871,8 @@ describe('Remote Control の URL を画面から拾う（tmux 不要）', () => 
     const reads: { name: string; joinWrapped: boolean }[] = [];
     const panes: PaneOps = {
       open: () => {}, close: () => {}, list: () => [], sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {},
-      capture: (name, o) => { reads.push({ name, joinWrapped: o?.joinWrapped === true }); return reads.length >= showAt ? SCREEN : ''; },
+      capture: () => { throw new Error('captureUnwrapped で読む'); },
+      captureUnwrapped: (name) => { reads.push({ name, joinWrapped: true }); return { text: reads.length >= showAt ? SCREEN : '', width: null }; },
     };
     return { panes, reads };
   };

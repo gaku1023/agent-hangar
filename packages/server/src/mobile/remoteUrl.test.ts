@@ -50,23 +50,37 @@ describe('extractRemoteUrl', () => {
     expect(extractRemoteUrl(`${HEADER.join('\n')}\n           /remote-control is active · Continue here, on your phone, or at ${b}`)).toBe(b);
   });
 
-  it('折り返しで途中に改行の入った URL を（-J の無い psmux の画面でも）つないで読む', () => {
+  it('折り返しで途中に改行の入った URL を、端末の幅を渡したときにつないで読む（-J の無い psmux の画面）', () => {
     // URL は行の 75 字目から始まる。幅 80 は https の途中、100 は session の途中、106 は session_ の直後、64 は id の途中で切れる。
     // 幅 30 と 20 では URL が 3 行以上にまたがり、真ん中の行は URL の頭を持たない。
     for (const width of [20, 30, 64, 80, 100, 106]) {
       const screen = wrap(screenOf(width), width);
       expect(screen.split('\n').length).toBeGreaterThan(HEADER.length);
-      expect([width, extractRemoteUrl(screen)]).toEqual([width, URL_A]);
+      expect([width, extractRemoteUrl(screen, width)]).toEqual([width, URL_A]);
+      // 幅を渡さなければ（-J でつないだ画面のつもり）つながず、切れた URL は採らない。
+      expect([width, extractRemoteUrl(screen)]).not.toEqual([width, URL_A]);
     }
   });
 
-  it('URL の中で切れていない改行はつながない（行が幅いっぱいでない、続きの行が字下げや罫線で始まる）', () => {
-    const short = `  or at ${URL_A}\nTip: run /help\n${'─'.repeat(120)}`;
-    expect(extractRemoteUrl(short)).toBe(URL_A);
-    // 幅いっぱいの行の末尾が URL でも、続きの行が字下げで始まるなら続きではない。
+  it('幅いっぱいの行が完全な URL で終わり、次の行が `Tip: …` なら、つながない', () => {
     const full = `${'x'.repeat(10)} ${URL_A}`;
-    expect(extractRemoteUrl(`${full}\n  Tip: run /help\n${'y'.repeat(full.length)}`)).toBe(URL_A);
-    expect(extractRemoteUrl(`${full}\n───────\n${'y'.repeat(full.length)}`)).toBe(URL_A);
+    expect(extractRemoteUrl(`${full}\nTip: run /help\n${'─'.repeat(full.length)}`, full.length)).toBe(URL_A);
+    expect(extractRemoteUrl(`${full}\n  Tip: run /help`, full.length)).toBe(URL_A);
+    expect(extractRemoteUrl(`${full}\n───────`, full.length)).toBe(URL_A);
+    // 幅に届かない行は、続きが英数字だけでもつながない。
+    expect(extractRemoteUrl(`  or at ${URL_A}\nTip\n${'─'.repeat(120)}`, 120)).toBe(URL_A);
+  });
+
+  it('-J でつないだ見出しの行は端末より長いが、幅を渡さないのでその後ろの行を飲み込まない', () => {
+    // 幅 80 の端末。つないだ URL の行（130 字）がいちばん長く、次の行は英数字で始まる。
+    const screen = [...HEADER.slice(0, 4), 'Tip: run /help', '─'.repeat(80)].join('\n');
+    expect(extractRemoteUrl(screen)).toBe(URL_A);
+  });
+
+  it('`/remote-control is active` の行の URL を、ほかの行の URL より先に採る', () => {
+    const other = 'https://claude.ai/code/session_09OtherLinkInTheChat';
+    expect(extractRemoteUrl([...HEADER, `⏺ 前の会話で見た ${other}`, '❯ '].join('\n'))).toBe(URL_A);
+    expect(extractRemoteUrl(`⏺ 前の会話で見た ${other}\n❯ `)).toBe(other);
   });
 });
 
@@ -80,7 +94,7 @@ describe('watchRemoteUrl', () => {
     const timers = new FakeTimers();
     let reads = 0;
     const found: string[] = [];
-    watchRemoteUrl({ capture: () => (++reads >= 3 ? HEADER.join('\n') : ' ▐▛███▜▌   Claude Code'), onFound: (u) => found.push(u), timers });
+    watchRemoteUrl({ capture: () => ({ text: ++reads >= 3 ? HEADER.join('\n') : ' ▐▛███▜▌   Claude Code', width: null }), onFound: (u) => found.push(u), timers });
     await timers.advance(4_000);
     expect([reads, found]).toEqual([2, []]);
     await timers.advance(2_000);
@@ -94,7 +108,7 @@ describe('watchRemoteUrl', () => {
     const timers = new FakeTimers();
     let reads = 0;
     const found: string[] = [];
-    watchRemoteUrl({ capture: () => { reads++; return ''; }, onFound: (u) => found.push(u), timers });
+    watchRemoteUrl({ capture: () => { reads++; return { text: '', width: null }; }, onFound: (u) => found.push(u), timers });
     await timers.advance(120_000);
     expect(reads).toBe(30);
     expect(found).toEqual([]);
@@ -105,7 +119,15 @@ describe('watchRemoteUrl', () => {
     const timers = new FakeTimers();
     let reads = 0;
     const found: string[] = [];
-    watchRemoteUrl({ capture: () => { if (++reads === 1) throw new Error('no pane'); return HEADER.join('\n'); }, onFound: (u) => found.push(u), timers, everyMs: 1_000, forMs: 5_000 });
+    watchRemoteUrl({ capture: () => { if (++reads === 1) throw new Error('no pane'); return { text: HEADER.join('\n'), width: null }; }, onFound: (u) => found.push(u), timers, everyMs: 1_000, forMs: 5_000 });
+    await timers.advance(2_000);
+    expect(found).toEqual([URL_A]);
+  });
+
+  it('折り返したままの画面は、その幅でつないで読む', async () => {
+    const timers = new FakeTimers();
+    const found: string[] = [];
+    watchRemoteUrl({ capture: () => ({ text: wrap(screenOf(64), 64), width: 64 }), onFound: (u) => found.push(u), timers });
     await timers.advance(2_000);
     expect(found).toEqual([URL_A]);
   });
@@ -113,7 +135,7 @@ describe('watchRemoteUrl', () => {
   it('stop を返し、止めた後は読まない', async () => {
     const timers = new FakeTimers();
     let reads = 0;
-    const stop = watchRemoteUrl({ capture: () => { reads++; return ''; }, onFound: () => {}, timers });
+    const stop = watchRemoteUrl({ capture: () => { reads++; return { text: '', width: null }; }, onFound: () => {}, timers });
     await timers.advance(2_000);
     stop();
     stop();
