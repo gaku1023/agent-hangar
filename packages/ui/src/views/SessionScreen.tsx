@@ -29,7 +29,7 @@ import { useNarrow } from './useNarrow.ts';
 
 const ACTION_ICON: Record<SessionActionId, IconName> = {
   openEditor: 'openEditor', resume: 'resume', resumeHere: 'resumeHere', fork: 'fork', openTerminal: 'openTerminal',
-  attach: 'shell', adopt: 'resumeHere', regenerate: 'rebuild', promote: 'promote', copyAddress: 'copy', stop: 'stop',
+  attach: 'shell', adopt: 'resumeHere', regenerate: 'rebuild', promote: 'promote', copyAddress: 'copy', copyId: 'copy', stop: 'stop',
 };
 
 /**
@@ -109,6 +109,7 @@ export function SessionScreen(props: SessionProps) {
       case 'regenerate': emit({ type: 'summary.regenerate', sessionId: id }); return;
       case 'promote': emit({ type: 'session.promote.open', id }); return;
       case 'copyAddress': emit({ type: 'session.copyAddress', id }); return;
+      case 'copyId': emit({ type: 'session.copyId', id }); return;
       // 停止は取り消せない。
       // 作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。
       case 'stop': if (run) emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', aside: props.aside, shellTabs: props.tabs.filter((t) => t.kind === 'shell').length }); return;

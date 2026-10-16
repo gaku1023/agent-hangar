@@ -31,9 +31,10 @@ export function runAnnouncer(o: { db: Db; hub: { broadcast(ev: NoticeEvent): voi
 /**
  * そのセッションがいま動いているか。
  * hangar の run だけでなく、hangar の外で動いている Claude も「実行中」と見なす。
+ * 他の PC の run は、その PC が古ければ数えない（aliveRunForSession、同期の版 6）。
  */
-export function sessionRunsAnywhere(o: { db: Db; live: () => readonly { sessionId: string }[] }, sessionId: string): boolean {
-  if (aliveRunForSession(o.db, sessionId) !== null) return true;
+export function sessionRunsAnywhere(o: { db: Db; deviceId: string; live: () => readonly { sessionId: string }[]; now?: () => number }, sessionId: string): boolean {
+  if (aliveRunForSession(o.db, sessionId, o.deviceId, o.now?.() ?? Date.now()) !== null) return true;
   const s = o.db.prepare('select provider_session_id p from sessions where id = ?').get(sessionId) as { p: string } | undefined;
   return !!s && o.live().some((l) => l.sessionId === s.p);
 }

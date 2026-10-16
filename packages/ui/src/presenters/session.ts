@@ -110,7 +110,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
 /** セッション画面の git。 */
 export type SessionGitView = { chip: GitChipProps | null; files: GitFilesView };
 
-export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'copyAddress' | 'stop';
+export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'copyAddress' | 'copyId' | 'stop';
 /**
  * 操作の 1 つ。
  * disabled は押せない理由（押せるなら null）、note は下に添える 1 行。
@@ -268,13 +268,15 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
   const editor = openEditor(editorLabel);
   // 別の Claude に渡す宛先の 1 行。動いていても終わっていても写せる（終わったら session_id だけ）。
   const copyAddress: SessionAction = { id: 'copyAddress', label: t('session.action.copyAddress'), disabled: null, note: null };
+  // claude -r に渡す Claude Code のセッション ID（providerSessionId）だけ。宛先の 1 行の session_id は hangar の ID で、claude -r では開けない。
+  const copyId: SessionAction = { id: 'copyId', label: t('session.action.copyId'), disabled: null, note: null };
   if (running) {
     const alive = f.run?.alive === true;
     const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: t('session.action.attach'), disabled: null, note: t('session.action.attachNote') }]
       : f.outsideOpen === 'adopt' ? [{ id: 'adopt', label: t('session.action.adopt'), disabled: null, note: t('session.action.adoptNote') }] : [];
     return { primary: editor, menu: [
       ...(alive ? [{ id: 'openTerminal', label: t('session.action.openTerminal'), disabled: null, note: t('session.action.openTerminalNote') } satisfies SessionAction] : []),
-      ...outside, fork, ...regenerate, ...promote, copyAddress,
+      ...outside, fork, ...regenerate, ...promote, copyAddress, copyId,
       ...(alive ? [{ id: 'stop', label: t('session.action.stop'), disabled: null, note: null, danger: true } satisfies SessionAction] : []),
     ] };
   }
@@ -283,9 +285,9 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
     // ほかの PC で実行中でも押せる。押すと、停止して引き継ぐ確認の 1 枚が出る。
     const blocked = f.noRoot?.reason ?? null;
     const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: blocked, note: null };
-    return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote, copyAddress] };
+    return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote, copyAddress, copyId] };
   }
-  return { primary: resume, menu: [fork, editor, ...regenerate, ...promote, copyAddress] };
+  return { primary: resume, menu: [fork, editor, ...regenerate, ...promote, copyAddress, copyId] };
 }
 
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);

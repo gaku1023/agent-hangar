@@ -44,7 +44,17 @@ type Acc = {
   lastTypedPromptTs?: number;
   userTurns: number; input: number; output: number;
   daily: Map<string, { input: number; output: number }>;
+  /** ターンの終わりの印（system の turn_duration）か、入力待ちの問いが新しく出たか。last_activity_at の共有の間引きを外す合図である。 */
+  turnEnded?: boolean;
 };
+
+/**
+ * 共有の sessions.last_activity_at を書き直すまでの最小の進み（同期の版 6）。
+ * 実行中のセッションは本文が伸びるたびに進むので、毎回書くと端末が送る変更の 3 割ほどを占めていた。
+ * ほかの事実が変わったときとターンの終わりには、5 分未満でも書く。
+ * この PC の画面の時刻と並びは、手元の統計（session_stats.last_ts）で進む（db/queries.ts の SESSION_SELECT）。
+ */
+export const ACTIVITY_SHARE_MS = 5 * 60_000;
 
 type SessionRow = { id: string; deleted_at: number | null };
 
@@ -218,7 +228,12 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       // 受け口が投げても、見張りのせいで索引の取引を巻き戻さない。
       try { watch?.(p.rec); } catch { /* 見張りは振る舞いを変えない */ }
       const events = normalizeRecord(p.rec, seq, file.agentId);
-      if (mainLocal) activity = foldActivity(activity, events);
+      if (mainLocal) {
+        const was = activity;
+        activity = foldActivity(activity, events);
+        if (activity?.question && activity.question !== was?.question) acc.turnEnded = true;
+      }
+      if (events.some((e) => e.kind === 'system' && e.subtype === 'turn_duration')) acc.turnEnded = true;
       if (mainLocal) limit = foldLimit(limit, p.rec, events);
       for (const ev of events) {
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
@@ -323,10 +338,25 @@ function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, 
   const pin = pinnedProjectOf(db, sessionId);
   if (pin !== null) next.project_id = pin;
   delete next.updated_at; delete next.origin_device;
-  if (JSON.stringify(next) !== JSON.stringify(Object.fromEntries(Object.entries(cur).filter(([k]) => k !== 'updated_at' && k !== 'origin_device')))) {
+  const base = Object.fromEntries(Object.entries(cur).filter(([k]) => k !== 'updated_at' && k !== 'origin_device'));
+  if (JSON.stringify(next) !== JSON.stringify(base) && !onlyActivityCreeps(base, next, acc, reset)) {
     upsertShared(db, 'sessions', next, deviceId);
   }
   writeSessionStats(db, sessionId, acc, reset);
+}
+
+/**
+ * 変わったのが last_activity_at の小さな進み（ACTIVITY_SHARE_MS 未満）だけか。そうなら共有の行を書かない。
+ * 比べる相手は手元の sessions の値で、それは最後に共有した値である（間引いた進みは手元にも書かない）。
+ * ターンの終わりと、作り直し（reset）では間引かない。
+ */
+function onlyActivityCreeps(base: Record<string, unknown>, next: Record<string, unknown>, acc: Acc, reset: boolean): boolean {
+  if (reset || acc.turnEnded) return false;
+  const prev = base.last_activity_at;
+  const now = next.last_activity_at;
+  if (typeof prev !== 'number' || typeof now !== 'number') return false;
+  if (now - prev >= ACTIVITY_SHARE_MS) return false;
+  return JSON.stringify({ ...next, last_activity_at: prev }) === JSON.stringify(base);
 }
 
 /** 索引から導いた統計。session_stats は端末ローカルの表なので、他端末の写しから書いてよい。 */

@@ -29,6 +29,7 @@ export const shortcutsJa: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.splitToggle': 'タブを横に並べる',
   'shortcuts.key.transcriptToggle': '右パネルの開閉',
   'shortcuts.key.sessionCopyAddress': 'セッションの宛先をコピー',
+  'shortcuts.key.sessionCopyId': 'セッション ID をコピー',
   'shortcuts.key.transcriptFind': 'トランスクリプト内を検索',
   'shortcuts.key.tabMove': 'タブバーで隣のタブへ移動（Enter で選択）',
   'shortcuts.key.turnMove': 'ターンの目次で下へ / 上へ（Enter で開く）',

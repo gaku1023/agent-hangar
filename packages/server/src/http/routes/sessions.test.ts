@@ -7,6 +7,7 @@ import { softDeleteShared, upsertShared } from '../../db/shared.ts';
 import { TOOL_NAMES } from '../../mcp/tools.ts';
 import { issueMcpSecret } from '../../runs/secrets.ts';
 import { proposeSessionState, setSessionState } from '../../sessions/states.ts';
+import { recordPeers } from '../../sync/peers.ts';
 import { SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from '../app.ts';
 import { H, run, testDeps, testResult, TOKEN, type TestWorld } from '../testing.ts';
@@ -272,6 +273,8 @@ describe('同期の経路', () => {
       id: 'remote-run', session_id: id, device_id: 'mini', kind: 'start', tmux_name: 'hangar-remote',
       pid: null, launch_params: '{}', started_at: Date.now(), ended_at: null, end_reason: null, heartbeat_at: Date.now(), deleted_at: null,
     }, 'mini');
+    // その PC を Worker がいま見たと、pull の応答の peers で受け取った（同期の版 6）。
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'mini', lastSeenAt: 1_000 }], workerNow: 1_000, localNow: Date.now() });
     const lock = { deviceId: 'mini', deviceName: 'mini', runId: 'remote-run', stale: false };
     expect((await json(await get('/api/sessions'))).body.find((s: { id: string }) => s.id === id).lock).toMatchObject(lock);
     expect((await json(await get(`/api/sessions/${id}`))).body.lock).toMatchObject(lock);
@@ -491,6 +494,7 @@ describe('セッションの削除', () => {
     const id = alphaId();
     const main = mainOf(id);
     upsertShared(db, 'runs', { id: 'r-live', session_id: id, device_id: 'other', kind: 'resume', tmux_name: 'x', launch_params: '{}', started_at: 1, heartbeat_at: 1 }, 'd');
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'other', lastSeenAt: 1_000 }], workerNow: 1_000, localNow: Date.now() });
     const r = await del(`/api/sessions/${id}`);
     expect(r.status).toBe(409);
     expect(await err(r)).toBe('実行中のセッションは削除できません。先に停止してください');

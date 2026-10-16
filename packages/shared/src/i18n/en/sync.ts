@@ -22,7 +22,6 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.limit.requests': 'Reached the Cloudflare free tier limit (Workers requests per day)',
   'sync.limit.stopped': 'The Cloudflare free tier limit was reached, so sync is paused until {time}. It resumes automatically after the limit resets',
   'sync.limit.stoppedPaused': 'Could not sync because the Cloudflare free tier limit was reached. Sync is still paused',
-  'sync.resync.rebuilt': "The cloud's change log had expired, so sync was redone from the beginning",
   'sync.oversize.row': 'One row of {table} ({id}) is too large to sync ({size} KiB, limit {limit} KiB). It stays on this computer but will not reach other computers',
   'sync.crypto.badMagic': 'Not an encrypted file (unrecognized format)',
   'sync.crypto.dataAfterFinal': 'There is data after the final chunk',

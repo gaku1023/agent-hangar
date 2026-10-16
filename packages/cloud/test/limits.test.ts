@@ -127,7 +127,7 @@ describe('Worker の応答（経路の中の失敗）', () => {
   const headers = { [COMPAT_HEADER]: String(COMPAT_VERSION), authorization: 'Bearer token-a', 'content-type': 'application/json' };
 
   it('POST /changes の中の batch が上限の失敗を投げても 429 で返す', async () => {
-    const env = envFailingOn((sql) => sql.includes('insert into changes'));
+    const env = envFailingOn((sql) => sql.includes('insert into rows'));
     const body = JSON.stringify({ changes: [{ tableName: 'projects', rowId: 'p1', op: 'upsert', payload: { id: 'p1' }, updatedAt: 1 }] });
     const r = await createApp({ minDeviceCompat: 0 }).request('/changes', { method: 'POST', headers, body }, env);
     await expectLimitResponse(r);

@@ -36,7 +36,7 @@ export function bootTrash(
   const trash = new SessionTrash({
     db, deviceId, claudeDir, remoteRoot: remoteRoot(home.home),
     trash: (p) => moveToTrash(p),
-    runsAnywhere: (id) => sessionRunsAnywhere({ db, live }, id),
+    runsAnywhere: (id) => sessionRunsAnywhere({ db, deviceId, live }, id),
     runsHere: (id) => {
       if (runHere.get(id, deviceId)) return true;
       const s = providerOf.get(id) as { p: string } | undefined;

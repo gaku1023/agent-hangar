@@ -1,11 +1,12 @@
-import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type Language, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type Language, type ChangeOut, type PullChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, render } from '../i18n/message.ts';
 import { noteApplied } from '../db/notify.ts';
 import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
-import { CloudError, CompatError, goneFloor, LimitError, RevokedError, type CloudClient } from './client.ts';
+import { CloudError, CompatError, LimitError, RevokedError, type CloudClient } from './client.ts';
+import { recordPeers } from './peers.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -60,6 +61,12 @@ const PUSH_DEBOUNCE_MS = 1_000;
 const PUSH_MIN_GAP_MS = 10_000;
 const PULL_INTERVAL_MS = 30_000;
 /**
+ * 一時停止中に Worker へ生存だけを知らせる間隔（同期の版 6）。
+ * 他の PC はこの PC の生存を、Worker が見た最終接続で見る（PEER_STALE_MS は 3 分）。
+ * 一時停止で何も話さなくなると、この PC の run が他の PC から「応答がありません」に見え、二重に起動されうる。
+ */
+const ALIVE_PING_MS = 60_000;
+/**
  * UTC の 0 時からこの間に上限で断られたら、その日の枠はもう戻っているとみなして短く退く。
  * Cloudflare の巻き戻しの遅れ、端末の時計のずれ、0 時の直前に出した要求が 0 時をまたいで断られた場合に、24 時間退かないためである。
  */
@@ -95,11 +102,6 @@ export const MAX_CARRIED_ROWS = 5_000;
  */
 export const ORPHAN_KEEP_DAYS = 30;
 
-/** クラウドの変更ログが圧縮で消えた区間を指していたので、写しから同期を作り直したときの知らせ。 */
-export function resyncedMessage(language: Language = DEFAULT_LANGUAGE): string {
-  return render(language, msg('sync.resync.rebuilt'));
-}
-
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
 
 type ChangeRow = { seq: number; table_name: SharedTable; row_id: string; op: ChangeOp; payload: string; updated_at: number; device_id: string };
@@ -111,7 +113,7 @@ type OversizeRow = { tableName: string; rowId: string; bytes: number; limit: num
 /**
  * 413 の本文から、Worker が名指しした「大きすぎる行」を読む。
  * 本文は `{ error, limit, count, row: { tableName, rowId, bytes } }` で、200 字に収まるよう 1 件だけが載る。
- * 413 でないもの、読めないもの、名前の無いものはすべて null である（goneFloor と同じ作りである）。
+ * 413 でないもの、読めないもの、名前の無いものはすべて null である。
  */
 function oversizeRow(e: unknown): OversizeRow | null {
   if (!(e instanceof CloudError) || e.status !== 413) return null;
@@ -395,11 +397,45 @@ export class SyncEngine {
     this.pushTimer = this.pullTimer = null;
   }
 
-  /** 定期実行。push してから pull する。 */
+  /** 定期実行。push してから pull する。一時停止中は、1 分に 1 回だけ生存を知らせる。 */
   protected async tick(): Promise<void> {
-    if (this.paused) return;
+    if (this.paused) { await this.pingAlive(); return; }
     await this.pushNow();
     await this.pullNow();
+  }
+
+  /** 一時停止中に最後に生存を知らせた時刻（この PC の時計）。立て直したら 0 から。 */
+  private lastPingAt = 0;
+
+  /**
+   * 一時停止中に、Worker へ生存だけを知らせる（同期の版 6）。
+   * 専用の口は持たず、読む行の少ない pull（since を末尾より先、limit 1）で済ませる。Worker は pull で最終確認を書く。
+   * 応答の行は当てず、区切り（lastSeq）も最後の pull の時刻も進めない。応答の peers だけを覚える。
+   * 版で止まっているとき、解除されたとき、上限で退いているときは送らない。どれも送っても断られる。
+   * 失敗は状態の error に出さない（一時停止中は利用者に見せる送受信をしていない）。版が合わないこと、解除されたことだけは拾って止める。
+   */
+  private async pingAlive(): Promise<void> {
+    const client = this.deps.client;
+    if (!client || this.compatBlock !== null || this.revokedBlock || this.limitedUntil() !== null) return;
+    const now = this.now();
+    if (now - this.lastPingAt < ALIVE_PING_MS) return;
+    this.lastPingAt = now;
+    try {
+      const page = await client.pullChanges(Number.MAX_SAFE_INTEGER, 1);
+      this.notePeers(page);
+    } catch (e) {
+      if (e instanceof CompatError || e instanceof RevokedError) { this.noteCompat(e); this.emitStatus(); }
+    }
+  }
+
+  /** pull の応答の peers を覚える（sync/peers.ts）。形の違う応答は黙って捨てる。 */
+  private notePeers(page: { peers?: unknown; now?: unknown }): void {
+    if (!Array.isArray(page.peers) || typeof page.now !== 'number' || !Number.isFinite(page.now)) return;
+    try {
+      recordPeers(this.deps.db, { selfDeviceId: this.deps.deviceId, peers: page.peers as PullChangesResponse['peers'], workerNow: page.now, localNow: this.now() });
+    } catch (e) {
+      console.error('[sync] 他の PC の生存を覚えられませんでした', e instanceof Error ? e.message : e);
+    }
   }
 
   /** ローカルの書き込みの 1 秒後に push する。連続する書き込みは 1 回にまとめる。 */
@@ -723,6 +759,7 @@ export class SyncEngine {
     for (;;) {
       const at = since;
       const page = await client.pullChanges(at, PULL_LIMIT);
+      this.notePeers(page);
       count.applied += this.applyPage(page.changes, true);
       since = page.nextSeq;
       // 持ち越しを先に覚えてから、区切りを進める。逆だと、その間に落ちたときに持ち越した行を失う。
@@ -735,23 +772,12 @@ export class SyncEngine {
 
   /**
    * 1 回の pull。
-   * GET /changes が 410 と { error: 'gone', floor } を返したら、圧縮でその区間が消えている。
-   * 差分では追いつけないので、lastSeq と snapshotDone を捨てて写しから作り直す。
-   * これが無いと、しばらく繋がらなかった端末が消えた区間の変更を永久に取りこぼす。
+   * Worker は変更ログを持たない（同期の版 6）ので、どれだけ古い since でも断られない。版 5 までの 410 の取り直しは無くした。
    */
   protected async doPull(client: CloudClient): Promise<{ applied: number }> {
     const count = { applied: 0 };
     try {
-      try {
-        await this.pullPass(client, count);
-      } catch (e) {
-        if (goneFloor(e) === null) throw e;
-        this.state.set('lastSeq', null);
-        this.state.set('snapshotDone', null);
-        this.emit('toast', 'info', resyncedMessage(this.language()));
-        // 作り直しは写しから始まるので、ここで二度目の 410 は出ない（出たら普通の失敗として扱う）。
-        await this.pullPass(client, count);
-      }
+      await this.pullPass(client, count);
       this.state.set('lastPullAt', this.now());
       this.clearPullError();
       this.noteBack();

@@ -5,26 +5,13 @@ import {
   SHARED_TABLES,
   type ChangeIn,
   type ChangeOut,
+  type CloudPeer,
   type PullChangesResponse,
   type PushChangesResponse,
   type SnapshotResponse,
 } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
-import { seenOf, touchDevice } from './seen.ts';
-
-/** 前回の圧縮からこれだけ連番が進んだら、次の push の後で圧縮を試す。 */
-export const COMPACT_EVERY = 200;
-/** 受信からこれだけ経った変更だけを消す。 */
-export const COMPACT_AGE_MS = 14 * 86_400_000;
-/** これだけの間に来た端末を「生きている」とみなし、その全員が読み終えた分までしか消さない。 */
-export const DEVICE_ACTIVE_MS = 30 * 86_400_000;
-
-/** 圧縮で消し終えた連番の上端。`GET /changes?since=` がこれより古ければ、その端末は取りこぼしている。 */
-export const META_CHANGES_FLOOR = 'changes_floor';
-/** 最後に圧縮を試したときの最大連番。起動条件をここからの差で測る。 */
-export const META_LAST_COMPACT_SEQ = 'last_compact_seq';
-/** これまでに振った連番の高水位。圧縮で行が消えても、連番をここより戻さない。 */
-export const META_SEQ_HIGH = 'seq_high';
+import { seenOf, touchIfDue } from './seen.ts';
 
 /**
  * 1 行の payload（直列化した後のバイト数）の上限である。
@@ -87,99 +74,44 @@ const toOut = (r: ChangeRow): ChangeOut => ({
 });
 
 /**
- * サーバの連番の高水位である。
+ * 表の連番の高水位である。
  *
- * `max(seq) from changes` だけで測ってはいけない。
- * 圧縮が末尾まで消した後に 0 へ戻り、pull の `nextSeq` と snapshot の `seq` が巻き戻る。
- * 受け取った端末は `lastSeq` を下げ、取り込み済みの変更をもう一度読むか、
- * `GET /rows` から 0 を受けて取り直しの輪から出られなくなる。
- *
- * 行が消えるのは `compact()` のときだけで、そこで必ず高水位を `meta` に刻む。
- * だから残っている最大の連番と `meta` の高水位の大きい方を採れば、どちらの側が欠けても後戻りしない。
+ * rows の連番は autoincrement で、行を書き換えるときは消してから入れ直すので、最大の連番の行は消えずに残る（消すのは同じ batch で、より大きい連番で入れ直す直前だけである）。
+ * だから `max(seq)` は後戻りしない。主キーの最大なので、読むのは 1 行である。
  */
-const maxSeq = async (db: D1Database): Promise<number> =>
-  (await db
-    .prepare('select max((select ifnull(max(seq), 0) from changes), ifnull((select cast(value as integer) from meta where key = ?), 0)) s')
-    .bind(META_SEQ_HIGH)
-    .first<{ s: number }>())!.s;
+const maxSeqStmt = (db: D1Database): D1PreparedStatement => db.prepare('select ifnull(max(seq), 0) s from rows');
 
 const clampLimit = (v: string | undefined): number => Math.min(Math.max(Number(v ?? PULL_LIMIT) || PULL_LIMIT, 1), PULL_LIMIT);
 
-async function readMetaInt(db: D1Database, key: string): Promise<number> {
-  const r = await db.prepare('select value from meta where key = ?').bind(key).first<{ value: string }>();
-  const n = r ? Number(r.value) : 0;
-  return Number.isFinite(n) ? n : 0;
-}
-
-const putMetaInt = (db: D1Database, key: string, value: number): D1PreparedStatement =>
-  db.prepare('insert into meta (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').bind(key, String(value));
-
-/** 後戻りだけはさせない。floor が下がると、取りこぼしている端末を通してしまう。 */
-const raiseMetaInt = (db: D1Database, key: string, value: number): D1PreparedStatement =>
-  db
-    .prepare('insert into meta (key, value) values (?, ?) on conflict(key) do update set value = max(cast(meta.value as integer), cast(excluded.value as integer))')
-    .bind(key, String(value));
+const firstNum = (r: D1Result<{ s: number }> | undefined): number => Number(r?.results?.[0]?.s ?? 0);
 
 /**
- * 受信から 14 日を過ぎ、30 日以内に接続した全端末が読み終えた連番までの changes を消す。
- * rows は残すので、落ちた区間は `GET /rows` から取り直せる。
+ * 行を書く 2 文である（同期の版 6）。
  *
- * 消した区間の上端を `meta.changes_floor` に書く。
- * これが無いと、離れていた端末が「その後の分だけ」を受け取って、間の変更を黙って永久に落とす。
- * 上端は「実際に消した最大の連番」である。消したものはすべてこれ以下なので、
- * `since >= floor` の端末が落とした変更は 1 件も無い。
+ * 1 文目は、届いた版より古い行だけを消す。2 文目は、鍵が空いていれば入れる。
+ * 古い行を消したときだけ鍵が空くので、入るのは届いた版の方が新しいか、まだ行が無いときに限られる。
+ * 同着（`updated_at` が等しい）は消さないので書き換えない。端末の取り込みの `prev >= updatedAt` も先に着いた方を残すので、その決着とそろえてある。
  *
- * `last_compact_seq` は、消せなかったときも書く。
- * 書かないと、条件を満たさない間ずっと push のたびに端末の走査が走る。
+ * 書き換えた行は、表の末尾の新しい連番で入り直す。連番は SQLite が書き込みのロックの中で振るので、commit の順と連番の順がそろい、
+ * `GET /changes?since=` で頁を送っている途中に書き換えられた行も、後ろの頁で必ず降りてくる。JS で連番を計算しない。
+ * 2 文目が実際に入れたかどうか（`meta.changes`）で、採った数を数える。
+ *
+ * 2 文目の `where not exists` は連番の欠番を防ぐためにある。
+ * `on conflict do nothing` だけだと、入れなかった行にも SQLite が連番を 1 つ使い、捨てた行の数だけ連番が飛ぶ（miniflare で確かめた）。
+ * `on conflict` は守りとして残す。
  */
-async function compact(db: D1Database, now: number, seq: number): Promise<void> {
-  const active = await db
-    // 解除した PC はもう読みに来ないので、圧縮の足を引っ張らせない。
-    .prepare('select min(last_pulled_seq) m from devices where last_seen_at is not null and last_seen_at > ? and revoked_at is null')
-    .bind(now - DEVICE_ACTIVE_MS)
-    .first<{ m: number | null }>();
-  const upto = active?.m ?? 0;
-  const cutoff = now - COMPACT_AGE_MS;
-  // 行を消す前に高水位を刻む。ここが `changes` の行を消す唯一の場所なので、ここで刻めば連番は後戻りしない。
-  const stmts: D1PreparedStatement[] = [putMetaInt(db, META_LAST_COMPACT_SEQ, seq), raiseMetaInt(db, META_SEQ_HIGH, seq)];
-  if (upto > 0) {
-    const doomed = await db
-      .prepare('select ifnull(max(seq), 0) f from changes where seq <= ? and received_at < ?')
-      .bind(upto, cutoff)
-      .first<{ f: number }>();
-    const floor = doomed?.f ?? 0;
-    if (floor > 0) {
-      stmts.push(db.prepare('delete from changes where seq <= ? and received_at < ?').bind(upto, cutoff));
-      stmts.push(raiseMetaInt(db, META_CHANGES_FLOOR, floor));
-    }
-  }
-  await db.batch(stmts);
-}
-
-/**
- * 鏡（`rows`）の 1 行を書く文である。
- *
- * `where excluded.updated_at > rows.updated_at` が要である。
- * いまの値を読むのは `batch` の外なので、同じ行への push が 2 本重なると両方が `accepted` になる。
- * 守りが無いと、後に流れた方が無条件で鏡を上書きし、古い方が残りうる。
- * `changes` には両方が載るので追いかけている端末は困らないが、`GET /rows` で取り直した端末は古い値をつかむ。
- *
- * 同着（`updated_at` が等しい）は書き換えない。
- * 本体の `prev >= updatedAt` は先に着いた方を残すので、その決着と揃えてある。
- *
- * テストが文の順序を入れ替えて確かめられるように輸出している。
- * 本番の文をそのまま使わせるためで、テストの中に SQL を写すと、実装を変えたときに追従しない。
- */
-export const mirrorUpsert = (db: D1Database, k: string, c: ChangeIn, deviceId: string, payload: string): D1PreparedStatement =>
+const writeRow = (db: D1Database, k: string, c: ChangeIn, deviceId: string, payload: string): [D1PreparedStatement, D1PreparedStatement] => [
+  db.prepare('delete from rows where k = ? and updated_at < ?').bind(k, c.updatedAt),
   db
     .prepare(
-      'insert into rows (k, table_name, row_id, op, payload, updated_at, device_id) values (?, ?, ?, ?, ?, ?, ?) on conflict(k) do update set op = excluded.op, payload = excluded.payload, updated_at = excluded.updated_at, device_id = excluded.device_id where excluded.updated_at > rows.updated_at',
+      'insert into rows (k, table_name, row_id, op, payload, updated_at, device_id) select ?, ?, ?, ?, ?, ?, ? where not exists (select 1 from rows where k = ?) on conflict(k) do nothing',
     )
-    .bind(k, c.tableName, c.rowId, c.op, payload, c.updatedAt, deviceId);
+    .bind(k, c.tableName, c.rowId, c.op, payload, c.updatedAt, deviceId, k),
+];
 
 export const changesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-/** 端末から届いた変更を受ける。行ごとに `updated_at` の新しい方を採り、採った分だけ連番を振る。 */
+/** 端末から届いた変更を受ける。行ごとに `updated_at` の新しい方を採り、採った行には表の末尾の連番が付く。 */
 changesApp.post('/', async (c) => {
   const body = (await c.req.json().catch(() => null)) as { changes?: unknown } | null;
   if (!body || !Array.isArray(body.changes) || body.changes.length > MAX_PUSH_BATCH || !body.changes.every(isChange)) return c.json({ error: 'invalid body' }, 400);
@@ -219,75 +151,73 @@ changesApp.post('/', async (c) => {
       if (item.row.updatedAt > cur.row.updatedAt) latest.set(k, item);
     }
   }
-  const keys = [...latest.keys()];
-  const current = new Map<string, number>();
-  if (keys.length) {
-    const rows = await db
-      .prepare(`select k, updated_at from rows where k in (${keys.map(() => '?').join(',')})`)
-      .bind(...keys)
-      .all<{ k: string; updated_at: number }>();
-    for (const r of rows.results) current.set(r.k, r.updated_at);
-  }
   const stmts: D1PreparedStatement[] = [];
-  let accepted = 0;
+  // 行ごとの insert の位置。meta.changes を読んで採った数を数える。
+  const inserts: number[] = [];
   for (const [k, { row, payload }] of latest) {
-    const prev = current.get(k);
-    if (prev !== undefined && prev >= row.updatedAt) {
-      skipped++;
-      continue;
-    }
-    accepted++;
-    stmts.push(
-      db
-        .prepare('insert into changes (table_name, row_id, op, payload, updated_at, device_id, received_at) values (?, ?, ?, ?, ?, ?, ?)')
-        .bind(row.tableName, row.rowId, row.op, payload, row.updatedAt, device.id, now),
-    );
-    stmts.push(mirrorUpsert(db, k, row, device.id, payload));
+    const [del, ins] = writeRow(db, k, row, device.id, payload);
+    stmts.push(del);
+    inserts.push(stmts.push(ins) - 1);
   }
-  stmts.push(touchDevice(db, device.id, now, seenOf(c)));
-  await db.batch(stmts);
-  const seq = await maxSeq(db);
-  // 連番は 1 回の push で最大 40 飛ぶ。倍数に当たるかで測ると圧縮がほとんど走らないので、前回からの差で測る。
-  if (accepted > 0 && seq - (await readMetaInt(db, META_LAST_COMPACT_SEQ)) >= COMPACT_EVERY) await compact(db, now, seq);
-  const res: PushChangesResponse = { seq, accepted, skipped };
+  const touch = touchIfDue(db, device, now, seenOf(c));
+  if (touch) stmts.push(touch);
+  // 高水位は同じ batch（1 つの取引）の中で読む。別の要求に割り込まれた値を返さない。
+  const maxAt = stmts.push(maxSeqStmt(db)) - 1;
+  const results = await db.batch(stmts);
+  const accepted = inserts.filter((i) => Number(results[i]?.meta?.changes ?? 0) > 0).length;
+  skipped += latest.size - accepted;
+  const res: PushChangesResponse = { seq: firstNum(results[maxAt] as D1Result<{ s: number }> | undefined), accepted, skipped };
   return c.json(res);
 });
 
-/** 自端末以外の変更を連番の昇順で返す。圧縮で消えた区間を指されたら 410 で知らせる。 */
+type PeerRow = { id: string; last_seen_at: number | null };
+
+/**
+ * 自端末以外の行を連番の昇順で返す。
+ * 解除していない PC の最終確認（peers）と、Worker の時刻（now）を添える。端末は「now − lastSeenAt」を PC の年齢として、他の PC の生存を見る。
+ * 変更ログを持たないので、どれだけ古い since でも断らない（版 5 までの 410 は無くなった）。
+ */
 changesApp.get('/', async (c) => {
   const device = c.get('device');
   const db = c.env.DB;
   const since = Math.max(Number(c.req.query('since') ?? 0) || 0, 0);
   const limit = clampLimit(c.req.query('limit'));
-  const floor = await readMetaInt(db, META_CHANGES_FLOOR);
-  // 読み位置は進めない。進めると、この端末が落とした区間が二度と分からなくなる。
-  if (since < floor) return c.json({ error: 'gone', floor }, 410);
-  const rows = await db.prepare('select * from changes where seq > ? and device_id != ? order by seq limit ?').bind(since, device.id, limit + 1).all<ChangeRow>();
-  const more = rows.results.length > limit;
-  const page = rows.results.slice(0, limit);
-  // 最後まで返せたときは表全体の末尾まで進める。自端末の変更で止まったままにしないためである。
-  // 末尾は高水位そのものにする。`since` との大きい方を採ると、端末が送ってきた値が
-  // そのまま `last_pulled_seq` に入り、圧縮がまだ誰も読んでいない変更まで消しにいく。
-  const nextSeq = more ? page[page.length - 1]!.seq : await maxSeq(db);
   const now = Date.now();
-  await touchDevice(db, device.id, now, seenOf(c), nextSeq).run();
-  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more };
+  const touch = touchIfDue(db, device, now, seenOf(c));
+  // 頁と高水位と生存を 1 つの batch（1 つの取引）で読む。
+  // 別々に読むと、間に入った push の行を高水位だけが越えて、この端末がその行を読み飛ばす。
+  const stmts: D1PreparedStatement[] = [
+    ...(touch ? [touch] : []),
+    db.prepare('select seq, table_name, row_id, op, payload, updated_at, device_id from rows where seq > ? and device_id != ? order by seq limit ?').bind(since, device.id, limit + 1),
+    maxSeqStmt(db),
+    db.prepare('select id, last_seen_at from devices where revoked_at is null order by id'),
+  ];
+  const results = await db.batch(stmts);
+  const off = touch ? 1 : 0;
+  const rows = ((results[off]?.results ?? []) as ChangeRow[]);
+  const more = rows.length > limit;
+  const page = rows.slice(0, limit);
+  // 最後まで返せたときは表全体の末尾まで進める。自端末の行で止まったままにしないためである。
+  const nextSeq = more ? page[page.length - 1]!.seq : firstNum(results[off + 1] as D1Result<{ s: number }> | undefined);
+  const peers: CloudPeer[] = ((results[off + 2]?.results ?? []) as PeerRow[]).map((p) => ({ id: p.id, lastSeenAt: p.last_seen_at ?? null }));
+  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now };
   return c.json(res);
 });
 
 export const rowsApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-/** rows の写しを k 順に返す。新しい端末の初回 pull と、410 を受けた端末の取り直しが使う。自端末の行も含める。 */
+/** rows の写しを k 順に返す。新しい端末の初回の取り込みが使う。自端末の行も含める。 */
 rowsApp.get('/', async (c) => {
   const db = c.env.DB;
   const after = c.req.query('after') ?? '';
   const limit = clampLimit(c.req.query('limit'));
-  const rows = await db
-    .prepare('select 0 seq, table_name, row_id, op, payload, updated_at, device_id, k from rows where k > ? order by k limit ?')
-    .bind(after, limit + 1)
-    .all<ChangeRow & { k: string }>();
-  const more = rows.results.length > limit;
-  const page = rows.results.slice(0, limit);
-  const res: SnapshotResponse = { changes: page.map(toOut), nextAfter: more ? page[page.length - 1]!.k : null, seq: await maxSeq(db) };
+  const results = await db.batch([
+    db.prepare('select 0 seq, table_name, row_id, op, payload, updated_at, device_id, k from rows where k > ? order by k limit ?').bind(after, limit + 1),
+    maxSeqStmt(db),
+  ]);
+  const rows = (results[0]?.results ?? []) as (ChangeRow & { k: string })[];
+  const more = rows.length > limit;
+  const page = rows.slice(0, limit);
+  const res: SnapshotResponse = { changes: page.map(toOut), nextAfter: more ? page[page.length - 1]!.k : null, seq: firstNum(results[1] as D1Result<{ s: number }> | undefined) };
   return c.json(res);
 });

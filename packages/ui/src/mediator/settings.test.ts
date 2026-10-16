@@ -79,4 +79,11 @@ describe('宛先のコピー', () => {
     // 知らないセッションでは何もしない。
     expect(transition(initialState(), st, action({ type: 'session.copyAddress', id: 'ghost' })).effects).toEqual([]);
   });
+  it('session.copyId は claude -r に渡せる Claude Code のセッション ID だけを写す（hangar の ID ではない）', () => {
+    const st = initialStore();
+    st.sessions = { s1: { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: 'N', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false } };
+    const r = transition(initialState(), st, action({ type: 'session.copyId', id: 's1' }));
+    expect(r.effects).toEqual([{ kind: 'clipboard.copy', text: 'u1', done: 'セッション ID をコピーしました。claude -r に渡すと再開できます' }]);
+    expect(transition(initialState(), st, action({ type: 'session.copyId', id: 'ghost' })).effects).toEqual([]);
+  });
 });

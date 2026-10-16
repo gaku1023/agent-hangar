@@ -48,7 +48,7 @@ describe('SessionRows', () => {
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({
   id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high',
   when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null,
-  menu: { id, name: '名前 ' + id, status: over.state ?? null, resumeHere: null, stop: null, moveBlocked: null, deleteBlocked: null }, ...over,
+  menu: { id, name: '名前 ' + id, status: over.state ?? null, resumeHere: null, stop: null, moveBlocked: null }, ...over,
 });
 
 describe('SessionRows のフェーズ 3', () => {
@@ -367,7 +367,7 @@ describe('SessionRows の本文の期限', () => {
 
 /** 状態の試験の行。Task 13 の提案の試験も使う。 */
 const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null,
-  menu: { id, name: '名前 ' + id, status: over.state ?? null, resumeHere: over.resumeHere ?? null, stop: null, moveBlocked: null, deleteBlocked: null }, ...over });
+  menu: { id, name: '名前 ' + id, status: over.state ?? null, resumeHere: over.resumeHere ?? null, stop: null, moveBlocked: null }, ...over });
 const radios = () => screen.getAllByRole('menuitemradio').map((i) => i.querySelector('.menu-item-text > span')?.textContent);
 const mount = (rows: SessionRowProps[], onAction = vi.fn()) => {
   render(<ActionRoot onAction={onAction}><SessionRows rows={rows} height={400} variant="project" /></ActionRoot>);
@@ -454,7 +454,7 @@ describe('セッションの状態の札と「⋯」', () => {
     fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
     expect(radios()).toEqual(['Active', 'Paused', 'Done', 'Archived']);
     expect(screen.getAllByRole('menuitemradio').map((i) => i.querySelector('kbd')?.textContent)).toEqual(['u', 'p', 'd', 'a']);
-    expect(labels()).toEqual(['プロジェクトを変更…', '削除…']);
+    expect(labels()).toEqual(['プロジェクトを変更…', 'セッション ID をコピー', '削除…']);
     fireEvent.click(screen.getAllByRole('menuitemradio')[2]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
     expect(opened(onAction)).toEqual([]);
@@ -466,7 +466,7 @@ describe('セッションの状態の札と「⋯」', () => {
     cleanup();
     const onAction = mount([sr('a', { resumeHere: { disabled: null } }), sr('b', { resumeHere: { disabled: 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。' } })]);
     fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
-    expect(labels()).toEqual(['この PC で再開', 'プロジェクトを変更…', '削除…']);
+    expect(labels()).toEqual(['この PC で再開', 'プロジェクトを変更…', 'セッション ID をコピー', '削除…']);
     fireEvent.click(screen.getAllByRole('menuitem')[0]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 'a' });
     expect(opened(onAction)).toEqual([]);

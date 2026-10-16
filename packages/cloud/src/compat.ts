@@ -9,10 +9,13 @@ import type { Env, Vars } from './env.ts';
  * 版 2 の端末と混ざると名前とメモが消えるので、版 1 の端末は 426 で断る。
  * 段 4 の PR 18 で 4 に上げた。版 3 の端末は旧実装の設定の同期を積んでいて、旧実装が R2 に置いた項目ごとの設定（config/<端末>/<相対パス>）を置き直し続ける。
  * 同じ版の Worker は、それらを消す掃除（cleanup.ts の cleanupLegacyConfig。関門は開けた）を走らせるので、旧実装を持たない版 4 の端末だけを通す。
+ * 同期の版 6（2026-10-16）で 6 に上げた。版 5 の端末は他の PC の生存を runs.heartbeat_at で見るが、版 6 の端末は heartbeat を共有の行に書かない。
+ * 混ざると版 5 の端末から見て 2 分で「応答がありません」になり、二重に起動しうるので、版 5 の端末は 426 で断る。
+ * この版だけは、端末の MIN_WORKER_COMPAT も同時に 6 へ上げ、一斉に切り替える例外である。
  * 上げるのは、同期に参加しているすべての端末が、その版を名乗る版に上がってからである（docs/design.md「互換の版番号」）。
  * packages/server/test/fake-cloud.test.ts がこの行を文字列で読んで、偽物の写しと突き合わせる。
  */
-export const MIN_DEVICE_COMPAT = 4;
+export const MIN_DEVICE_COMPAT = 6;
 
 /**
  * 互換の版の関所。どの経路よりも先に通す。

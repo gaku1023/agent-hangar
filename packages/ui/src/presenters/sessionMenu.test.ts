@@ -19,29 +19,28 @@ describe('セッションのメニューの中身（presentSessionMenu）', () =
   it('終わった会話は、状態の 4 つ、プロジェクトを変更、削除を並べ、停止は出さない', () => {
     const s = session({ state: { status: 'done', setBy: 'user', setAt: NOW, note: null, returnOn: null, candidate: null } as SessionDto['state'] });
     const m = presentSessionMenu(storeWith(s), s, ja);
-    expect(m).toMatchObject({ id: 's1', name: 'ログイン画面の直し', status: 'done', stop: null, deleteBlocked: null, moveBlocked: null, resumeHere: null });
-    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'delete']);
+    expect(m).toMatchObject({ id: 's1', name: 'ログイン画面の直し', status: 'done', stop: null, moveBlocked: null, resumeHere: null });
+    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'copyId', 'delete']);
   });
-  it('hangar で動いている会話は停止を押せ、削除は理由を添えて押せない', () => {
+  it('hangar で動いている会話は停止を押せ、削除は出さない（止めると出る）', () => {
     const s = session({ live: 'busy' });
     const m = presentSessionMenu(storeWith(s, { runs: { r1: run() }, tabs: { t2: shellTab('t2') } }), s, ja);
     expect(m.stop).toEqual({ runId: 'r1', working: true, aside: false, shellTabs: 1 });
-    expect(m.deleteBlocked).toBe('実行中のセッションは削除できません。先に停止してください');
-    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'stop', 'delete']);
+    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'move', 'copyId', 'stop']);
     expect(entry(m, 'stop')).toMatchObject({ label: '停止', danger: true, disabled: null, send: { type: 'session.kill', runId: 'r1', working: true, aside: false, shellTabs: 1 } });
-    expect(entry(m, 'delete')).toMatchObject({ label: '削除…', danger: true, disabled: '実行中のセッションは削除できません。先に停止してください' });
   });
-  it('外部ターミナルで動いている会話は、停止を外部ターミナルの理由で押せず、削除も押せない', () => {
+  it('外部ターミナルで動いている会話は、停止を外部ターミナルの理由で押せず、削除は出さない', () => {
     const s = session({ live: 'idle' });
     const m = presentSessionMenu(storeWith(s), s, ja);
     expect(m.stop).toBe('external');
     expect(entry(m, 'stop')).toMatchObject({ disabled: '外部ターミナルで実行中', danger: true, send: null });
-    expect(entry(m, 'delete').disabled).toBe('実行中のセッションは削除できません。先に停止してください');
+    expect(keys(m)).not.toContain('delete');
   });
   it('本文の消えた会話も、移動と削除は押せる（消すのは hangar の行と印だけになる）', () => {
     const s = session({ hasTranscript: false });
     const m = presentSessionMenu(storeWith(s), s, ja);
     expect(entry(m, 'move').disabled).toBeNull();
+    expect(entry(m, 'copyId')).toMatchObject({ label: 'セッション ID をコピー', disabled: null, send: { type: 'session.copyId', id: m.id } });
     expect(entry(m, 'delete').disabled).toBeNull();
   });
   it('ほかに移せるプロジェクトが無ければ、プロジェクトを変更を理由を添えて押せない', () => {
@@ -69,7 +68,7 @@ describe('移せる先（moveTargetIds）', () => {
 });
 
 describe('セッションのメニューの項目（sessionMenuEntries）', () => {
-  const base = (over: Partial<SessionMenuProps> = {}): SessionMenuProps => ({ id: 's1', name: 'n', status: null, resumeHere: null, stop: null, moveBlocked: null, deleteBlocked: null, ...over });
+  const base = (over: Partial<SessionMenuProps> = {}): SessionMenuProps => ({ id: 's1', name: 'n', status: null, resumeHere: null, stop: null, moveBlocked: null, ...over });
   it('状態の 4 つは、いまの状態に ✓ を付け、色の点と打鍵の印 u・p・d・a を持つ', () => {
     for (const status of [null, 'paused', 'done', 'archived'] as const) {
       const states = sessionMenuEntries(ja, base({ status })).slice(0, 4);
@@ -90,13 +89,12 @@ describe('セッションのメニューの項目（sessionMenuEntries）', () =
     expect(sessionMenuEntries(ja, base({ status: 'archived' })).find((x) => x.key === 'archived')!.send).toBeNull();
     expect(sessionMenuEntries(ja, base({ status: null })).find((x) => x.key === 'active')!.send).toBeNull();
   });
-  it('プロジェクトを変更（m）の前と、停止と削除の前に区切りを置く。危険色は停止と削除だけ', () => {
-    const e = sessionMenuEntries(ja, base({ stop: { runId: 'r1', working: false, aside: false, shellTabs: 0 }, deleteBlocked: 'x' }));
+  it('プロジェクトを変更（m）の前と、停止の前に区切りを置く。動いている間は削除を出さず、危険色は停止だけ', () => {
+    const e = sessionMenuEntries(ja, base({ stop: { runId: 'r1', working: false, aside: false, shellTabs: 0 } }));
     const move = e.find((x) => x.key === 'move')!;
     expect(move).toMatchObject({ label: 'プロジェクトを変更…', kbd: 'm', separatorBefore: true, send: { type: 'session.move.open', id: 's1' } });
     expect(e.find((x) => x.key === 'stop')!.separatorBefore).toBe(true);
-    expect(e.find((x) => x.key === 'delete')!.separatorBefore).toBeFalsy();
-    expect(e.filter((x) => x.danger).map((x) => x.key)).toEqual(['stop', 'delete']);
+    expect(e.filter((x) => x.danger).map((x) => x.key)).toEqual(['stop']);
     // 停止の補足の 1 行は出さない。
     expect(e.find((x) => x.key === 'stop')!.note).toBeUndefined();
   });
@@ -105,7 +103,7 @@ describe('セッションのメニューの項目（sessionMenuEntries）', () =
     expect(del).toMatchObject({ separatorBefore: true, disabled: null, send: { type: 'session.delete.open', id: 's1' } });
   });
   it('英語の画面では英語の短い語にする', () => {
-    const e = sessionMenuEntries(en, base({ stop: 'external', deleteBlocked: en('session.delete.running') }));
-    expect(e.map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Change project…', 'Stop', 'Delete…']);
+    expect(sessionMenuEntries(en, base({ stop: 'external' })).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Change project…', 'Copy session ID', 'Stop']);
+    expect(sessionMenuEntries(en, base()).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Change project…', 'Copy session ID', 'Delete…']);
   });
 });

@@ -5,6 +5,7 @@ import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { sameFolderPairs } from '../projects/registry.ts';
 import { scratchPlacesOf } from '../projects/scratch.ts';
 import { toStateDto } from '../sessions/states.ts';
+import { peerSeenAt, peerStale, readPeers, type PeerBook } from '../sync/peers.ts';
 import type { Db } from './open.ts';
 
 /** sessions に要約と統計と本文の有無を左結合した 1 行。 */
@@ -20,6 +21,8 @@ type SessionRow = {
   custom_title: string | null;
   started_at: number | null;
   last_activity_at: number | null;
+  /** 画面に出す最後の動き。共有の last_activity_at と、手元の統計の last_ts（間引かない値）の新しい方。 */
+  activity_at: number | null;
   // session_notes の左結合。hangar で付けた名前と、メモ。行が無ければどちらも null。
   sn_name: string | null;
   has_transcript: number;
@@ -81,6 +84,7 @@ type SessionRow = {
 
 const SESSION_SELECT = `
 select s.*, exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null) has_transcript,
+  case when st.last_ts is not null and (s.last_activity_at is null or st.last_ts > s.last_activity_at) then st.last_ts else s.last_activity_at end activity_at,
   exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) has_local,
   (select max(t.mtime) from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) local_mtime,
   p.is_scratch project_is_scratch,
@@ -147,9 +151,6 @@ export function contextPercent(used: number | null, size: number | null): number
   return Math.round((used / size) * 1000) / 10;
 }
 
-/** 他端末の run が生きているとみなす heartbeat の猶予。これを過ぎたロックは stale として見せる。 */
-export const LOCK_STALE_MS = 120_000;
-
 export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
 
 type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: string | null };
@@ -160,13 +161,13 @@ const LOCK_SELECT = `
     where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
 
 /** 行をロックにする。lockMap と sessionLock が同じ読み方をする。 */
-function toLock(r: LockRow, now: number): SessionLockDto {
+function toLock(r: LockRow, peers: PeerBook | null, now: number): SessionLockDto {
   return {
     deviceId: r.device_id,
     deviceName: r.device_name ?? r.device_id,
     runId: r.run_id,
-    heartbeatAt: r.heartbeat_at,
-    stale: now - r.heartbeat_at > LOCK_STALE_MS,
+    heartbeatAt: peerSeenAt(peers, r.device_id) ?? r.heartbeat_at,
+    stale: peerStale(peers, r.device_id, now),
     liveStatus: r.live_status === 'busy' || r.live_status === 'idle' || r.live_status === 'waiting' ? r.live_status : null,
   };
 }
@@ -174,21 +175,25 @@ function toLock(r: LockRow, now: number): SessionLockDto {
 /**
  * 他端末で生きている run を、セッションごとに 1 つ拾う。
  * 自端末の run は「実行中」として live に出るので、ロックには含めない。
- * heartbeat が古い run もロックのままにして、stale を立てて「応答がありません」と見せる。
+ * 生死は、その run の PC を Worker が最後に見た時刻で決める（pull の応答の peers、sync/peers.ts、同期の版 6）。
+ * 年齢が PEER_STALE_MS を超えた PC、peers に居ない PC、まだ peers を受け取っていないときは、ロックのまま stale を立てて「応答がありません」と見せる。
+ * heartbeatAt はその PC の最終接続（この PC の時計）で、知らなければ run の行の heartbeat_at（起動か生き返った時刻）を見せる。
  */
 function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<string, SessionLockDto> {
   const out = new Map<string, SessionLockDto>();
   if (!selfDeviceId) return out;
-  const rows = db.prepare(`${LOCK_SELECT} order by r.heartbeat_at`).all(selfDeviceId) as LockRow[];
-  // heartbeat の昇順なので、同じセッションでは後から来た新しい行が残る。
-  for (const r of rows) out.set(r.session_id, toLock(r, now));
+  const rows = db.prepare(`${LOCK_SELECT} order by r.started_at, r.id`).all(selfDeviceId) as LockRow[];
+  if (rows.length === 0) return out;
+  const peers = readPeers(db);
+  // 起動の昇順なので、同じセッションでは後から起きた行が残る。
+  for (const r of rows) out.set(r.session_id, toLock(r, peers, now));
   return out;
 }
 
-/** 1 つのセッションのロック。lockMap と同じ規則（ほかの PC の生きた run のうち heartbeat が最新の 1 件）。無ければ null。 */
+/** 1 つのセッションのロック。lockMap と同じ規則（ほかの PC の生きた run のうち最後に起きた 1 件）。無ければ null。 */
 export function sessionLock(db: Db, selfDeviceId: string, sessionId: string, now: number): SessionLockDto | null {
-  const r = db.prepare(`${LOCK_SELECT} and r.session_id = ? order by r.heartbeat_at desc limit 1`).get(selfDeviceId, sessionId) as LockRow | undefined;
-  return r ? toLock(r, now) : null;
+  const r = db.prepare(`${LOCK_SELECT} and r.session_id = ? order by r.started_at desc, r.id desc limit 1`).get(selfDeviceId, sessionId) as LockRow | undefined;
+  return r ? toLock(r, readPeers(db), now) : null;
 }
 
 /**
@@ -315,7 +320,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     firstPrompt: r.first_prompt,
     aiTitle: r.ai_title,
     startedAt: r.started_at,
-    lastActivityAt: r.last_activity_at,
+    lastActivityAt: r.activity_at,
     hasTranscript: r.has_transcript === 1,
     live: live?.status ?? null,
     liveAside: live?.aside ?? null,
@@ -376,7 +381,9 @@ const parkingOn = (db: Db): boolean => parkingSwitches.get(db)?.() ?? true;
 
 /**
  * セッション一覧。
- * last_activity_at の降順で、null は末尾に置く。
+ * 最後の動き（activity_at）の降順で、null は末尾に置く。
+ * 最後の動きは、共有の last_activity_at と手元の統計（session_stats.last_ts）の新しい方である。
+ * 共有の値は 5 分未満の進みを間引く（indexer/indexFile.ts の ACTIVITY_SHARE_MS）ので、この PC の本文がある会話は統計の方が新しい。
  */
 export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryOptions = {}): SessionDto[] {
   const where: string[] = [];
@@ -390,7 +397,7 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
     where.push(`s.id in (${opts.ids.map(() => '?').join(',')})`);
     args.push(...opts.ids);
   }
-  const sql = `${SESSION_SELECT}${where.length ? ' and ' + where.join(' and ') : ''} order by s.last_activity_at desc nulls last, s.started_at desc nulls last, s.id`;
+  const sql = `${SESSION_SELECT}${where.length ? ' and ' + where.join(' and ') : ''} order by activity_at desc nulls last, s.started_at desc nulls last, s.id`;
   const rows = db.prepare(sql).all(...args) as SessionRow[];
   const lm = liveMapOf(live);
   const now = opts.now ? opts.now() : Date.now();

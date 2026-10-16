@@ -236,6 +236,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
         // セッション画面の宛先の 1 行をコピーする。ダイアログやパレットの裏では写さない。
         case 'session.copyAddress': if (sessionId && overlayKind === 'none') { take(); rt.emit({ type: 'session.copyAddress', id: sessionId }); } return;
+        case 'session.copyId': if (sessionId && overlayKind === 'none') { take(); rt.emit({ type: 'session.copyId', id: sessionId }); } return;
         // 本文の中の検索。本文が出ているときだけ受け、ターミナルが出ているときはターミナルとブラウザに渡す。
         case 'transcript.find': if (transcriptShown && sessionId && overlayKind === 'none') { take(); finds.open(sessionId); } return;
         // 端末が画面にあるときだけ受ける。セッション画面でも、終わったセッションの本文だけなら端末は無い。

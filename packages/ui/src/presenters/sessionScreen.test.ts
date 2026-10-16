@@ -239,6 +239,7 @@ describe('宛先のコピー（別の Claude に渡す 1 行）', () => {
   it('「…」のメニューに「宛先をコピー」を、動いていても終わっていても置く', () => {
     for (const st of [liveStore('a'), store()]) {
       expect(present(st).actions.menu.find((a) => a.id === 'copyAddress')).toMatchObject({ label: '宛先をコピー', disabled: null });
+      expect(present(st).actions.menu.find((a) => a.id === 'copyId')).toMatchObject({ label: 'セッション ID をコピー', disabled: null });
     }
   });
 });
