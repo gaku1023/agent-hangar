@@ -271,7 +271,7 @@ describe.skipIf(!host)('bundleServer', () => {
     expect(r.code).toBe(1);
     // 存在しない .app の中のパスは見せず、clone してからの手順を全文で案内する。
     expect(r.stderr).not.toContain('src/index.ts');
-    expect(r.stderr).toContain('クラウドを作るには、このリポジトリを clone した場所で実行します');
+    expect(r.stderr).toContain('クラウドを作成するには、このリポジトリを clone したディレクトリで実行します');
     expect(r.stderr).toContain('git checkout v');
     expect(r.stderr).toContain('npm run hangar -- setup cloud');
     // 資源を作りに行っていない。参加の記録も書かない。
