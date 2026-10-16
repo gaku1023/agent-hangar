@@ -34,7 +34,7 @@ import { interruptedGroup, noteLastLive } from './interrupted.ts';
 import { cancelAsk, writeAsk } from '../sync/takeoverRows.ts';
 import { expectMode } from '../../test/platform.ts';
 import { ensureScratchProject } from '../projects/scratch.ts';
-import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
+import { PEER_STALE_MS, PEERS_FRESH_MS, recordPeers } from '../sync/peers.ts';
 
 let db: Db;
 let home: string;
@@ -1043,12 +1043,18 @@ describe('attach と引き取りの入力検査（tmux 不要）', () => {
     const rm = make({ tmux: null, live: () => [], now: () => t });
     const id = seedOldSession();
     upsertShared(db, 'runs', { id: 'rb', session_id: id, device_id: 'pc-b', kind: 'start', tmux_name: 'hangar-rb', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: t }, 'pc-b');
-    // peers をまだ受け取っていない。run の行の heartbeat が新しくても、古いとみなす。
+    // peers をまだ受け取っていない。その PC の生死は分からないので、実行中として断る。
+    expect(() => rm.attach(id)).toThrow('このセッションは実行中です');
+    // 受け取ったばかりの peers に居なければ古い。
+    recordPeers(db, { selfDeviceId: 'd', peers: [], workerNow: 1_000, localNow: t });
     expect(() => rm.attach(id)).toThrow('このセッションはバックグラウンドセッションとして実行されていません');
     recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'pc-b', lastSeenAt: 1_000 }], workerNow: 1_000, localNow: t });
     expect(() => rm.attach(id)).toThrow('このセッションは実行中です');
     recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'pc-b', lastSeenAt: 1_000 }], workerNow: 1_000 + PEER_STALE_MS + 1, localNow: t });
     expect(() => rm.attach(id)).toThrow('このセッションはバックグラウンドセッションとして実行されていません');
+    // 覚えが PEERS_FRESH_MS より古ければ、年齢が超えていても分からないので実行中として断る。
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'pc-b', lastSeenAt: 1_000 }], workerNow: 1_000 + PEER_STALE_MS + 1, localNow: t - PEERS_FRESH_MS - 1 });
+    expect(() => rm.attach(id)).toThrow('このセッションは実行中です');
   });
 
   it('attach は無いセッションに 404、バックグラウンドでないものと実行中に 409', () => {

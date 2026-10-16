@@ -240,8 +240,12 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
     upsertShared(db, 'runs', { id: 'run-live', session_id: id, device_id: 'win', kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: hb }, 'win');
     recordPeers(db, { selfDeviceId: 'me', peers: [{ id: 'win', lastSeenAt: hb }], workerNow: now, localNow: now });
     expect(resumeHerePlan(db, 'me', id, { now })?.lock).toEqual({ deviceName: 'work-pc', stale: false, heartbeatAt: hb });
-    // 応答が途絶えた相手は stale。
-    expect(resumeHerePlan(db, 'me', id, { now: hb + 200_000 })?.lock).toMatchObject({ stale: true });
+    const later = hb + 200_000;
+    // この PC の覚えが古いままなら、相手の生死は分からないので stale にしない。
+    expect(resumeHerePlan(db, 'me', id, { now: later })?.lock).toMatchObject({ stale: false });
+    // 受け取り直した覚えで応答が途絶えていれば stale。
+    recordPeers(db, { selfDeviceId: 'me', peers: [{ id: 'win', lastSeenAt: hb }], workerNow: later, localNow: later });
+    expect(resumeHerePlan(db, 'me', id, { now: later })?.lock).toMatchObject({ stale: true });
   });
   it('ロックが無ければ lock は null', () => {
     const id = session({ cwd: 'D:\\src\\notes-app' });
