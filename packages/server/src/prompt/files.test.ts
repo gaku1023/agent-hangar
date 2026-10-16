@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fileSearchDeps, listProjectFiles, MAX_WALK_DIRS, rankFiles } from './files.ts';
+import { changedFiles, fileSearchDeps, listProjectFiles, listRecentFiles, MAX_WALK_DIRS, rankFiles } from './files.ts';
 
 let root: string;
 const write = (rel: string, text = 'x') => { const f = path.join(root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
@@ -141,5 +141,46 @@ describe('listProjectFiles', () => {
     const read = vi.spyOn(fs, 'readdirSync');
     expect(await listProjectFiles(root, 'x', 50)).toEqual([]);
     expect(read.mock.calls.length).toBeLessThanOrEqual(MAX_WALK_DIRS);
+  });
+});
+
+describe('listRecentFiles（スマホの `@` の問いが空のとき）', () => {
+  const at = (rel: string, ago: number) => { const t = Date.now() / 1000 - ago; fs.utimesSync(path.join(root, rel), t, t); };
+  it('git のフォルダでは、変更ありを変更時刻の新しい順に先に、続けて変更の無いものを変更時刻の新しい順に返す', async () => {
+    write('a.ts'); write('b.ts'); write('c.ts');
+    git('init', '-q'); git('add', 'a.ts', 'b.ts', 'c.ts'); git('commit', '-q', '-m', 'one');
+    write('b.ts', 'changed'); write('new.ts');
+    at('a.ts', 10); at('c.ts', 400); at('b.ts', 300); at('new.ts', 200);
+    expect(await listRecentFiles(root, 30)).toEqual([
+      { path: 'new.ts', changed: true },
+      { path: 'b.ts', changed: true },
+      { path: 'a.ts', changed: false },
+      { path: 'c.ts', changed: false },
+    ]);
+  });
+  it('git でないフォルダは変更時刻だけで並べ、変更ありの印は付けない', async () => {
+    write('old.ts'); write('fresh.ts');
+    at('old.ts', 300); at('fresh.ts', 100);
+    expect(await listRecentFiles(root, 30)).toEqual([{ path: 'fresh.ts', changed: false }, { path: 'old.ts', changed: false }]);
+  });
+  it('件数の上限で切る', async () => {
+    for (let i = 0; i < 40; i++) write(`f${i}.ts`);
+    expect(await listRecentFiles(root, 30)).toHaveLength(30);
+  });
+  it('無いフォルダは空を返す', async () => {
+    expect(await listRecentFiles(path.join(root, 'none'), 30)).toEqual([]);
+  });
+});
+
+describe('changedFiles', () => {
+  it('git のフォルダでは、変えたものと、無視していない新しいものを返す', async () => {
+    write('a.ts'); write('b.ts'); write('.gitignore', 'out.js\n');
+    git('init', '-q'); git('add', 'a.ts', 'b.ts', '.gitignore'); git('commit', '-q', '-m', 'one');
+    write('a.ts', 'changed'); write('new.ts'); write('out.js');
+    expect([...await changedFiles(root)].sort()).toEqual(['a.ts', 'new.ts']);
+  });
+  it('git でないフォルダは空を返す', async () => {
+    write('a.ts');
+    expect([...await changedFiles(root)]).toEqual([]);
   });
 });

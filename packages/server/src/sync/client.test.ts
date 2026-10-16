@@ -778,3 +778,22 @@ describe('書き込みの前の版の確かめ', () => {
     expect(f.calls.map(pathOf)).toEqual(['POST /changes']);
   });
 });
+
+describe('HttpCloudClient.bellTarget（呼び鈴のつなぎ先）', () => {
+  it('https は wss、http は ws にして /m/bell を足し、Bearer と互換の版の見出しを付ける', () => {
+    const { fetch } = fakeFetch(() => json({ ok: true }));
+    const a = new HttpCloudClient({ url: 'https://h.example.workers.dev/', token: 'tok', fetch }).bellTarget();
+    expect(a.url).toBe('wss://h.example.workers.dev/m/bell');
+    expect(a.headers.authorization).toBe('Bearer tok');
+    expect(a.headers[COMPAT_HEADER]).toBe(String(COMPAT_VERSION));
+    expect(new HttpCloudClient({ url: 'http://127.0.0.1:8787', token: 'tok', fetch }).bellTarget().url).toBe('ws://127.0.0.1:8787/m/bell');
+  });
+
+  it('トークンを読み直して差し替えたら、つなぎ先の見出しも新しいトークンになる', async () => {
+    const { fetch } = fakeFetch((c) => (((c.init.headers as Record<string, string>).authorization === 'Bearer new') ? json({ changes: [], nextSeq: 0, more: false }) : json({ error: 'unauthorized' }, 401)));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch, reloadCredentials: () => ({ url: 'https://w2.example', token: 'new' }) });
+    expect(c.bellTarget().headers.authorization).toBe('Bearer old');
+    await c.pullChanges(0, 10);
+    expect(c.bellTarget()).toMatchObject({ url: 'wss://w2.example/m/bell', headers: { authorization: 'Bearer new' } });
+  });
+});

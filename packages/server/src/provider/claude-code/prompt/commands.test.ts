@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { listPromptCommands } from './commands.ts';
+import { listPromptCommands, listPromptCommandsWithKind } from './commands.ts';
 
 let claudeDir: string;
 let project: string;
@@ -73,5 +73,17 @@ describe('listPromptCommands', () => {
     write(path.join(claudeDir, 'plugins', 'installed_plugins.json'), '{こわれた');
     write(path.join(claudeDir, 'settings.json'), '{こわれた');
     expect(names()).toContain('user:goal');
+  });
+});
+
+describe('listPromptCommandsWithKind', () => {
+  it('スキルは skill、コマンドと組み込みは command の印を付け、ほかは listPromptCommands と同じ', () => {
+    skill(claudeDir, 'goal', 'name: goal\ndescription: 長く走る');
+    write(path.join(claudeDir, 'commands', 'toggle.md'), '---\ndescription: 切り替える\n---\n');
+    const list = listPromptCommandsWithKind({ claudeDir, projectPath: null });
+    expect(list.find((c) => c.name === 'goal')?.kind).toBe('skill');
+    expect(list.find((c) => c.name === 'toggle')?.kind).toBe('command');
+    expect(list.find((c) => c.name === 'init')?.kind).toBe('command');
+    expect(list.map(({ kind: _k, ...rest }) => rest)).toEqual(listPromptCommands({ claudeDir, projectPath: null }));
   });
 });

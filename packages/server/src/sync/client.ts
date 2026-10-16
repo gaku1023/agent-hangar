@@ -232,7 +232,16 @@ export interface CloudClient {
   claimLaunch?(id: string): Promise<boolean>;
   /** 受け取った依頼の結果を返す（POST /m/launches/:id/answer）。sealedAnswer はスマホ用の鍵で封じた MobileLaunchAnswer。409 も投げる。 */
   answerLaunch?(id: string, ok: boolean, sealedAnswer: string): Promise<void>;
+  /**
+   * 呼び鈴（GET /m/bell の WebSocket、互換の版 8 の Worker から）のつなぎ先と見出し。
+   * 見出しには端末トークンの Bearer と互換の版が入るので、ログに出さない。トークンを読み直して差し替えたら、新しいものを返す。
+   * 呼ぶのは mobile/bell.ts で、Worker の版が MOBILE_BELL_MIN_WORKER_COMPAT に届いてからにする。偽物は実装しなくてよい。
+   */
+  bellTarget?(): BellTarget;
 }
+
+/** 呼び鈴の WebSocket のつなぎ先。url は wss（手元の Worker では ws）で、headers は Bearer と互換の版。 */
+export type BellTarget = { url: string; headers: Record<string, string> };
 
 export type HttpCloudClientOptions = {
   url: string;
@@ -432,6 +441,10 @@ export class HttpCloudClient implements CloudClient {
   }
 
   lastWorkerCompat(): number | null { return this.seenWorkerCompat; }
+  bellTarget(): BellTarget {
+    // https を wss に、http（手元の Worker）を ws にする。版と authorization は send と同じ見出しで送る。
+    return { url: `${this.base.replace(/^http/i, 'ws')}/m/bell`, headers: { ...compatHeaders(), authorization: this.authorization() } };
+  }
   health() { return this.json<{ ok: boolean; version: string }>('/health'); }
   async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {
     await this.ensureWorkerCompat();

@@ -1,14 +1,17 @@
-import type { AccountsDto, CloudDevicesDto, MobileLaunchOut } from '@agent-hangar/shared';
+import type WebSocket from 'ws';
+import { MOBILE_BELL_MIN_WORKER_COMPAT, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { onIntent } from '../live/intents.ts';
+import { answerAsk } from '../mobile/asks.ts';
+import { MobileBell } from '../mobile/bell.ts';
 import { buildMobileFeed } from '../mobile/feed.ts';
 import { MobileLaunchInbox } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
 import type { RegistryWatcher } from '../provider/claude-code/registry.ts';
 import type { RunManager } from '../runs/manager.ts';
-import type { CloudClient } from '../sync/client.ts';
+import type { BellTarget, CloudClient } from '../sync/client.ts';
 import type { SyncEngine, Timers } from '../sync/engine.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
 import type { SyncParts } from './sync.ts';
@@ -62,24 +65,34 @@ type Link = { client: CloudClient; joinSecret: string };
  * 依頼を扱うのも canCarryMobile が真のときだけで、版 6 の Worker には claim を送らない。
  * 起こせたら書き手を nudge し、スマホの受信箱に新しい会話を早く出す。
  * 答えを送れなかった依頼は、ANSWER_RESEND_TICK_MS ごとの見回りで送り直す。
+ *
+ * Worker の呼び鈴（mobile/bell.ts）も、書き手と受け手の隣に組み、リンクが変わるたびに組み直す。
+ * 張るのは、canCarryMobile が真で、Worker の名乗る版が MOBILE_BELL_MIN_WORKER_COMPAT に届き、外していないスマホが 1 台以上あるときだけである。
+ * 鳴ったら（`{t:'launch'}`）今の engine の pullNow で依頼を受け取る。問い合わせ（`{t:'ask'}`）には mobile/asks.ts が答える。
+ * 張るかどうかは、きっかけ、見回り、スマホの有無が分かったときに読み直す。
+ * 呼び鈴が張れなくても、依頼は今までどおり 30 秒の pull で届く。
  */
 export function bootMobile(p: {
   home: { db: Db; device: { id: string; name: string } };
   delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'> };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
-  sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on'> };
+  sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'> };
   timers?: Timers;
   now?: () => number;
+  /** 呼び鈴の WebSocket を作る口。既定は ws。 */
+  bellConnect?: (t: BellTarget) => WebSocket;
 }): MobileParts {
   const { db } = p.home;
   const deviceId = p.home.device.id;
   const timers: Timers = p.timers ?? { setTimeout, clearTimeout, setInterval, clearInterval };
   const accounts = p.runs.accounts;
-  let cur: { pub: MobileFeedPublisher; inbox: MobileLaunchInbox; link: Link } | null = null;
+  let cur: { pub: MobileFeedPublisher; inbox: MobileLaunchInbox; bell: MobileBell; link: Link } | null = null;
   /** 今購読している engine と、その解除。 */
   let sub: { engine: Pick<SyncEngine, 'on'>; off: () => void } | null = null;
   const placeHere = db.prepare('select 1 from project_roots r join projects p on p.id = r.project_id where r.project_id = ? and r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 0');
+  /** 問い合わせの答えに使う、この PC のプロジェクトの根。起動の依頼（placeHere）と同じ行だけを見る。 */
+  const rootHere = db.prepare('select r.path as path from project_roots r join projects p on p.id = r.project_id where r.project_id = ? and r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 0');
   let started = false;
   let stopped = false;
   const offs: (() => void)[] = [];
@@ -114,6 +127,7 @@ export function bootMobile(p: {
     const link = p.sync.mobileLink();
     if (cur && link && cur.link.client === link.client && cur.link.joinSecret === link.joinSecret) return cur.pub;
     cur?.pub.stop();
+    cur?.bell.stop();
     cur = null;
     if (!link) return null;
     const pub = new MobileFeedPublisher({ build, client: link.client, joinSecret: link.joinSecret, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile() });
@@ -129,12 +143,37 @@ export function bootMobile(p: {
       canProcess: () => p.sync.canCarryMobile(),
       now: Date.now,
     });
-    cur = { pub, inbox, link };
+    const client = link.client;
+    const bell = new MobileBell({
+      target: () => {
+        if (!started || stopped || phones !== true || !p.sync.canCarryMobile()) return null;
+        if ((client.lastWorkerCompat?.() ?? 0) < MOBILE_BELL_MIN_WORKER_COMPAT) return null;
+        return client.bellTarget?.() ?? null;
+      },
+      onLaunch: () => {
+        // 今の engine の pull で依頼を受け取る。走っている pull があれば、それを分け合う。
+        void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
+      },
+      onAsk: (id, sealed) => answerAsk({
+        joinSecret: link.joinSecret,
+        deviceId,
+        projectPath: (projectId) => (rootHere.get(projectId, deviceId) as { path: string } | undefined)?.path ?? null,
+        accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
+      }, id, sealed),
+      timers,
+      ...(p.bellConnect ? { connect: p.bellConnect } : {}),
+    });
+    cur = { pub, inbox, bell, link };
     pub.start();
     return pub;
   };
+  /** 呼び鈴を張るかどうかを読み直す。投げない。 */
+  const ringCheck = (): void => {
+    try { cur?.bell.check(); } catch (e) { console.error('[mobile] could not check the bell', e instanceof Error ? e.constructor.name : typeof e); }
+  };
   const kick = (): void => {
     try { ensure()?.nudge(); } catch (e) { console.error('[mobile] could not schedule the mobile feed', e instanceof Error ? e.constructor.name : typeof e); }
+    ringCheck();
     checkPhones();
   };
   /**
@@ -149,7 +188,8 @@ export function bootMobile(p: {
     const next = d.state === 'ok' ? d.devices.some((x) => x.kind === 'mobile' && x.revokedAt === null) : d.state === 'outdated' ? false : null;
     const appeared = next === true && phones !== true;
     phones = next;
-    if (!appeared) return;
+    // スマホが居なくなったら呼び鈴を閉じ、現れたら張る。
+    if (!appeared) { ringCheck(); return; }
     cur?.pub.forget();
     kick();
   }
@@ -201,6 +241,8 @@ export function bootMobile(p: {
       // 起動のときに同期が無かった端末で、cloud.json が後から現れたのを拾う見回り。書き手が居れば何もしない。
       sweep = timers.setInterval(() => {
         try { ensure(); } catch (e) { console.error('[mobile] could not set up the mobile feed', e instanceof Error ? e.constructor.name : typeof e); }
+        // Worker の版は pull の応答で後から分かるので、見回りでも呼び鈴を読み直す。
+        ringCheck();
         checkPhones();
       }, FEED_SAFETY_MS);
       sweep.unref?.();
@@ -211,6 +253,7 @@ export function bootMobile(p: {
       resend.unref?.();
       // 起動の途中で投げると、サーバの起動そのものが倒れる。kick と同じく拾ってログに残し、見回りで組み直す。
       try { ensure(); } catch (e) { console.error('[mobile] could not set up the mobile feed', e instanceof Error ? e.constructor.name : typeof e); }
+      ringCheck();
       checkPhones();
     },
     stop() {
@@ -222,6 +265,7 @@ export function bootMobile(p: {
       sub?.off();
       sub = null;
       cur?.pub.stop();
+      cur?.bell.stop();
       cur = null;
     },
   };
