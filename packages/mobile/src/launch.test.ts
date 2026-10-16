@@ -1,4 +1,4 @@
-import { aadAnswer, aadLaunch, open, seal, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
+import { COMPAT_VERSION, aadAnswer, aadLaunch, open, seal, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LaunchError } from './api.ts';
 import { launchChoices, requestLaunch, waitLaunch } from './launch.ts';
@@ -81,7 +81,7 @@ describe('requestLaunch', () => {
     expect(init.method).toBe('POST');
     const headers = init.headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer tok-1');
-    expect(headers['x-hangar-compat']).toBe('7');
+    expect(headers['x-hangar-compat']).toBe(String(COMPAT_VERSION));
     const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
     expect(body.id).toBe(id);
     expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -150,7 +150,7 @@ describe('waitLaunch', () => {
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('started', answer));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/launches/l-1`);
-    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe('7');
+    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe(String(COMPAT_VERSION));
     const calls = fetchMock.mock.calls.length;
     await vi.advanceTimersByTimeAsync(30_000);
     expect(fetchMock.mock.calls.length).toBe(calls);

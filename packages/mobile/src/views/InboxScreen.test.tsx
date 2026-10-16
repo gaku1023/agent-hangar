@@ -1,4 +1,4 @@
-import type { MobileFeed, MobileInboxResponse } from '@agent-hangar/shared';
+import { COMPAT_VERSION, type MobileFeed, type MobileInboxResponse } from '@agent-hangar/shared';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -56,7 +56,7 @@ describe('InboxScreen', () => {
     expect(url).toBe(`${WORKER}/m/inbox`);
     const headers = init.headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer tok-1');
-    expect(headers['x-hangar-compat']).toBe('7');
+    expect(headers['x-hangar-compat']).toBe(String(COMPAT_VERSION));
   });
 
   it('待っている内容の 1 行と PC 名が出る', async () => {

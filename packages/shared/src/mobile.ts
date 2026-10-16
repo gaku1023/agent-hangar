@@ -12,6 +12,18 @@ export const MOBILE_FEED_MAX_BYTES = 48 * 1024;
 export const LAUNCH_TTL_MS = 75_000;
 /** Worker が最後に見てからこの時間を過ぎた PC は「不明」。 */
 export const PEER_STALE_MS = 180_000;
+/** 画像 1 枚の上限（縮めた後のバイト数）。封の分（28 バイト）は Worker が足して受ける。 */
+export const MOBILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** 1 件の起動の依頼に付けられる画像の枚数。 */
+export const MOBILE_IMAGES_PER_LAUNCH = 4;
+/** 1 台のスマホが R2 に置いたままにできる画像の枚数。 */
+export const MOBILE_IMAGES_PER_PHONE = 40;
+/** 呼び鈴の問い合わせ（封をした本文）の上限。 */
+export const MOBILE_ASK_MAX_BYTES = 4 * 1024;
+/** 呼び鈴の答え（封をした本文）の上限。 */
+export const MOBILE_REPLY_MAX_BYTES = 64 * 1024;
+/** 問い合わせを PC に渡してから答えを待つ時間。超えたら Worker が 504 を返す。 */
+export const MOBILE_ASK_TIMEOUT_MS = 5_000;
 
 export type MobileWaiting = { kind: WaitKind; text: string };
 
@@ -46,6 +58,9 @@ export type MobileFeed = {
   done: MobileDoneItem[];
 };
 
+/** 起動の依頼に付ける画像 1 枚の控え。本体は R2 に封をして置き、番号（0 から 3）で引く。 */
+export type MobileImageRef = { n: number; mime: 'image/jpeg' | 'image/png' | 'image/webp'; bytes: number };
+
 /** スマホから PC への起動の依頼（暗号化して運ぶ）。scratch が true のとき projectId は null（「すぐ始める」）。 */
 export type MobileLaunchPayload = {
   v: 1;
@@ -56,11 +71,26 @@ export type MobileLaunchPayload = {
   permissionMode: string;
   model: string;
   prompt: string;
+  /** EFFORT_VALUES のどれか。無ければ既定。 */
+  effort?: string;
+  /** 付けた画像。依頼は画像を全部置いてから出す。 */
+  images?: MobileImageRef[];
 };
 
 export type MobileLaunchAnswer =
   | { ok: true; sessionId: string; title: string }
-  | { ok: false; reason: 'project-missing' | 'account-missing' | 'bad-payload' | 'expired' | 'launch-failed'; detail?: string };
+  | { ok: false; reason: 'project-missing' | 'account-missing' | 'bad-payload' | 'expired' | 'launch-failed' | 'images-missing'; detail?: string };
+
+/** スマホから PC への問い合わせ（封の中身。AAD は aadAsk）。`@` のファイルと `/` の候補。 */
+export type MobileAsk =
+  | { v: 1; kind: 'files'; projectId: string; q: string }
+  | { v: 1; kind: 'commands'; projectId: string | null; accountId: string };
+
+/** PC の答え（封の中身。AAD は aadReply）。 */
+export type MobileReply =
+  | { files: { path: string; changed: boolean }[] }
+  | { commands: { name: string; description: string; kind: 'skill' | 'command' }[] }
+  | { error: 'project-missing' | 'account-missing' | 'bad-request' };
 
 /** Worker の口の型。 */
 export type MobilePairingResponse = { code: string; expiresAt: number };
@@ -72,6 +102,9 @@ export type MobileInboxResponse = {
   feeds: { deviceId: string; updatedAt: number; sealed: string }[];
 };
 export type MobileLaunchIn = { id: string; targetDevice: string; sealed: string };
+/** POST /m/ask の本文と答え。sealed は封をした文字列で、Worker と Durable Object は読まない。 */
+export type MobileAskIn = { id: string; targetDevice: string; sealed: string };
+export type MobileAskOut = { sealed: string };
 export type MobileLaunchOut = { id: string; createdAt: number; sealed: string };
 export type MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null };
 

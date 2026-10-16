@@ -1,4 +1,4 @@
-import { aadFeed, open, seal } from '@agent-hangar/shared';
+import { COMPAT_VERSION, aadFeed, open, seal } from '@agent-hangar/shared';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App.tsx';
@@ -58,7 +58,7 @@ describe('JoinScreen', () => {
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/join`);
     expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe('7');
+    expect((init.headers as Record<string, string>)['x-hangar-compat']).toBe(String(COMPAT_VERSION));
     const body = JSON.parse(init.body as string);
     expect(body.code).toBe('code-1');
     expect(body.device.name).toBe('スマホ 1');

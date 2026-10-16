@@ -70,6 +70,9 @@ export async function deriveMobileKey(joinSecret: string): Promise<CryptoKey> {
 export const aadFeed = (deviceId: string): string => `feed:${deviceId}`;
 export const aadLaunch = (id: string, targetDevice: string): string => `launch:${id}:${targetDevice}`;
 export const aadAnswer = (id: string): string => `answer:${id}`;
+export const aadAsk = (id: string, targetDevice: string): string => `ask:${id}:${targetDevice}`;
+export const aadReply = (id: string): string => `reply:${id}`;
+export const aadImage = (launchId: string, n: number): string => `image:${launchId}:${n}`;
 
 /** 値を JSON にして AES-256-GCM で封じる。戻りは base64url(iv(12) || 暗号文 || タグ)。IV は毎回乱数。 */
 export async function seal(key: CryptoKey, aad: string, value: unknown): Promise<string> {
@@ -79,6 +82,27 @@ export async function seal(key: CryptoKey, aad: string, value: unknown): Promise
   out.set(iv, 0);
   out.set(body, IV_LEN);
   return toBase64Url(out);
+}
+
+/** バイト列を AES-256-GCM で封じる（画像用）。戻りは iv(12) || 暗号文 || タグ。鍵と IV は seal と同じ。 */
+export async function sealBytes(key: CryptoKey, aad: string, bytes: Uint8Array): Promise<Uint8Array> {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_LEN));
+  const body = new Uint8Array(await globalThis.crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(aad) }, key, bytes as BufferSource));
+  const out = new Uint8Array(IV_LEN + body.length);
+  out.set(iv, 0);
+  out.set(body, IV_LEN);
+  return out;
+}
+
+/** sealBytes で封じたものを開く。鍵、AAD、中身のどれが違っても MobileOpenError を投げる。 */
+export async function openBytes(key: CryptoKey, aad: string, sealed: Uint8Array): Promise<Uint8Array> {
+  if (sealed.length < IV_LEN + TAG_LEN) throw new MobileOpenError();
+  try {
+    const plain = await globalThis.crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.subarray(0, IV_LEN) as BufferSource, additionalData: enc.encode(aad) }, key, sealed.subarray(IV_LEN) as BufferSource);
+    return new Uint8Array(plain);
+  } catch {
+    throw new MobileOpenError();
+  }
 }
 
 /** 封じた文字列を開く。鍵、AAD、中身のどれが違っても MobileOpenError を投げる。 */
