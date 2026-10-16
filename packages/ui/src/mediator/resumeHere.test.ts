@@ -15,7 +15,7 @@ const plan: ResumeHerePlanDto = {
   from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: 1 },
   to: { deviceName: 'pc-a', platform: 'darwin', path: '/Users/me/src/notes-app' },
   replace: null,
-  lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: 1 },
+  lock: { deviceName: 'pc-b', stale: false, heartbeatAt: 1 },
 };
 const dto: TakeoverDto = { sessionId: 's1', deviceName: 'pc-b', stage: 'waiting', startedAt: 1_000, deadline: 1_000 + TAKEOVER_TIMEOUT_MS };
 const withResumeHereConfirm: State = { ...initialState(), overlay: { kind: 'confirm', confirm: { kind: 'resumeHere', sessionId: 's1', plan } } };

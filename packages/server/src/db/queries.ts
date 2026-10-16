@@ -153,10 +153,10 @@ export function contextPercent(used: number | null, size: number | null): number
 
 export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
 
-type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: string | null };
+type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number };
 
 const LOCK_SELECT = `
-    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at
     from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
     where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
 
@@ -168,7 +168,6 @@ function toLock(r: LockRow, peers: PeerBook | null, now: number): SessionLockDto
     runId: r.run_id,
     heartbeatAt: peerSeenAt(peers, r.device_id) ?? r.heartbeat_at,
     stale: peerStale(peers, r.device_id, now),
-    liveStatus: r.live_status === 'busy' || r.live_status === 'idle' || r.live_status === 'waiting' ? r.live_status : null,
   };
 }
 

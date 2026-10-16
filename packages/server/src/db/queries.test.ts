@@ -306,7 +306,7 @@ describe('ロックと remoteOnly と端末一覧', () => {
     addRun(d2, { id: 'r-self', device: 'dev-a', heartbeat: NOW });
     expect(one(d2).lock).toBeNull();
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1 });
-    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false, liveStatus: null });
+    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false });
     expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.lock!.runId).toBe('r-b');
   });
 
@@ -352,17 +352,12 @@ describe('ロックと remoteOnly と端末一覧', () => {
     expect(one(d2).lock).toMatchObject({ stale: true });
   });
 
-  it('sessionLock はほかの PC の生きた run を返し、live_status を liveStatus に写す', () => {
+  it('sessionLock はほかの PC の生きた run を返し、一覧のロックと同じ値になる', () => {
     const d2 = setup();
     seen(d2, [{ id: 'dev-b', age: 10_000 }]);
     addRun(d2, { id: 'r1', device: 'dev-b', heartbeat: NOW - 10_000 });
-    d2.prepare("update runs set live_status = 'busy' where id = 'r1'").run();
-    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toMatchObject({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', stale: false, liveStatus: 'busy' });
-    // 一覧のロックと同じ値になる。
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 10_000, stale: false });
     expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual(one(d2).lock);
-    // 知らない値は null に倒す。
-    d2.prepare("update runs set live_status = 'weird' where id = 'r1'").run();
-    expect(sessionLock(d2, 'dev-a', 's1', NOW)!.liveStatus).toBeNull();
   });
 
   it('sessionLock はその PC を Worker が PEER_STALE_MS より前から見ていなければ stale、自分の run や終わった run、別の会話なら null', () => {

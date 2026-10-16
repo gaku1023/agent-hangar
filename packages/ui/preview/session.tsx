@@ -206,8 +206,8 @@ export function SessionCases() {
       <section style={box}>
         <h2 style={h2}>見出しの名前の横の札</h2>
         <div id="badges" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <SessionBadges badges={lockedSession({ lock: { deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 5 * 60_000, stale: false, liveStatus: null } })} />
-          <SessionBadges badges={lockedSession({ lock: { deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 3_600_000, stale: true, liveStatus: null } })} />
+          <SessionBadges badges={lockedSession({ lock: { deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 5 * 60_000, stale: false } })} />
+          <SessionBadges badges={lockedSession({ lock: { deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 3_600_000, stale: true } })} />
           <SessionBadges badges={lockedSession({ remoteOnly: true })} />
         </div>
       </section>

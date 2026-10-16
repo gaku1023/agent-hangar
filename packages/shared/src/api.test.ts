@@ -54,7 +54,7 @@ describe('フェーズ 3 の DTO', () => {
 
 describe('フェーズ 4 の DTO', () => {
   it('ロック、同期の状態、端末が組み立てられる', () => {
-    const lock: SessionLockDto = { deviceId: 'd2', deviceName: 'mini', runId: 'r1', heartbeatAt: 1, stale: false, liveStatus: null };
+    const lock: SessionLockDto = { deviceId: 'd2', deviceName: 'mini', runId: 'r1', heartbeatAt: 1, stale: false };
     const status: SyncStatusDto = { state: 'idle', url: 'https://x.workers.dev', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false };
     const device: DeviceDto = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null };
     expect(lock.stale).toBe(false);

@@ -233,17 +233,15 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
       lock: null,
     });
   });
-  it('ほかの PC の生きたロックを lock に載せ、busy なら working', () => {
+  it('ほかの PC の生きたロックを lock に載せる', () => {
     const id = session({ cwd: 'D:\\src\\notes-app' });
     const now = 1_000_000;
     const hb = now - 10_000;
-    upsertShared(db, 'runs', { id: 'run-live', session_id: id, device_id: 'win', kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: hb, live_status: 'busy' }, 'win');
+    upsertShared(db, 'runs', { id: 'run-live', session_id: id, device_id: 'win', kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: hb }, 'win');
     recordPeers(db, { selfDeviceId: 'me', peers: [{ id: 'win', lastSeenAt: hb }], workerNow: now, localNow: now });
-    expect(resumeHerePlan(db, 'me', id, { now })?.lock).toEqual({ deviceName: 'work-pc', stale: false, working: true, heartbeatAt: hb });
-    // 応答が途絶えた相手は stale で、working は live_status の読みのまま。
+    expect(resumeHerePlan(db, 'me', id, { now })?.lock).toEqual({ deviceName: 'work-pc', stale: false, heartbeatAt: hb });
+    // 応答が途絶えた相手は stale。
     expect(resumeHerePlan(db, 'me', id, { now: hb + 200_000 })?.lock).toMatchObject({ stale: true });
-    db.prepare("update runs set live_status = 'idle' where id = 'run-live'").run();
-    expect(resumeHerePlan(db, 'me', id, { now })?.lock?.working).toBe(false);
   });
   it('ロックが無ければ lock は null', () => {
     const id = session({ cwd: 'D:\\src\\notes-app' });

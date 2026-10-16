@@ -280,7 +280,7 @@ describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
     expect(within(dialog).getByRole('button', { name: /コピー/ })).toBeInTheDocument();
   });
   it('バッジの文は presenter が組む（ロックの札と見出しの札の種類）', () => {
-    const badges = presentSessionBadges(dto({ lock: { deviceId: 'd', deviceName: 'mini', runId: 'r', heartbeatAt: NOW - 60_000, stale: false, liveStatus: null } }), NOW, ja);
+    const badges = presentSessionBadges(dto({ lock: { deviceId: 'd', deviceName: 'mini', runId: 'r', heartbeatAt: NOW - 60_000, stale: false } }), NOW, ja);
     render(<ActionRoot onAction={() => {}}><SS {...base} badges={badges} /></ActionRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
   });

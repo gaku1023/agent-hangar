@@ -10,7 +10,7 @@ const NOW = new Date(2026, 9, 13, 12, 0).getTime();
 const ja = translator('ja');
 const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'notes', cwd: 'D:\\src\\notes-app', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: true, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...over });
 const project = (over: Partial<ProjectDto> = {}): ProjectDto => ({ id: 'p1', name: 'notes-app', status: 'active', isScratch: false, path: '/Users/me/src/notes-app', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: null, ...over });
-const lock = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'win', deviceName: 'work-pc', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, liveStatus: null, ...over });
+const lock = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'win', deviceName: 'work-pc', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 const storeWith = (s: SessionDto, p: ProjectDto | null = project()): Store => ({ ...initialStore(), sessions: { [s.id]: s }, projects: p ? { [p.id]: p } : {} } as Store);
 const NO_ROOT = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
 
@@ -148,20 +148,22 @@ describe('ほかの PC で動いている会話を引き継ぐ確認（presentRe
     from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: NOW - 3_600_000 },
     to: { deviceName: 'pc-a', platform: 'darwin', path: '/Users/me/src/notes-app' },
     replace: null,
-    lock: lockOver === null ? null : { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: NOW - 10_000, ...lockOver },
+    lock: lockOver === null ? null : { deviceName: 'pc-b', stale: false, heartbeatAt: NOW - 10_000, ...lockOver },
   });
   it('ロックが無ければ今のまま（mode: resume、赤みの帯なし）', () => {
     expect(presentResumeHere(ja, plan(null), null, NOW)).toMatchObject({ mode: 'resume', title: '他の PC で進めた会話を、この PC で再開しますか', action: 'この PC で再開', takeover: null });
   });
-  it('アイドルの相手には実行中の帯と「停止して引き継ぐ」', () => {
-    const p = presentResumeHere(ja, plan({ stale: false, working: false }), null, NOW);
+  it('生きた相手には実行中の帯 1 本と「停止して引き継ぐ」（作業中かどうかは共有しないので出し分けない）', () => {
+    const p = presentResumeHere(ja, plan({ stale: false }), null, NOW);
     expect(p).toMatchObject({ mode: 'takeover', title: 'ほかの PC で実行中の会話を、この PC で引き継ぎますか', action: '停止して引き継ぐ' });
-    expect(p.takeover).toEqual({ strong: 'pc-b で実行中です', text: '引き継ぐと、pc-b の claude を停止してから、この PC で再開します。' });
+    expect(p.takeover).toEqual({ strong: 'pc-b で実行中です', text: '停止すると、作業中のターンは途中で切れます。そのあと、この PC で再開します。' });
     // カードと黄の帯は今のまま。
     expect(p.band.strong).toBe('プロジェクトのファイル、未コミットの変更、開発環境（ツール、環境変数、シークレット）は同期されません。');
   });
-  it('作業中の相手には作業中の帯', () => {
-    expect(presentResumeHere(ja, plan({ stale: false, working: true }), null, NOW).takeover).toEqual({ strong: 'pc-b で作業中です', text: '停止するとそのターンは途中で切れます。そのあと、この PC で再開します。' });
+  it('英語の帯は take over と言わない', () => {
+    const p = presentResumeHere(translator('en'), plan({ stale: false }), null, NOW);
+    expect(p.takeover).toEqual({ strong: 'Running on pc-b', text: 'Stopping cuts any turn in progress short. Then the conversation resumes on this computer.' });
+    expect(`${p.takeover!.strong} ${p.takeover!.text}`).not.toMatch(/take over/i);
   });
   it('stale の相手は題を替え、前の PC のカードに最後の応答を出す', () => {
     const p = presentResumeHere(ja, plan({ stale: true, heartbeatAt: NOW - 5 * 60_000 }), null, NOW);
@@ -176,7 +178,7 @@ describe('引き継ぎの待ちと返事がないとき（presentTakeover）', (
     from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: NOW - 3_600_000 },
     to: { deviceName: 'pc-a', platform: 'darwin', path: '/Users/me/src/notes-app' },
     replace: null,
-    lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: NOW - 10_000 },
+    lock: { deviceName: 'pc-b', stale: false, heartbeatAt: NOW - 10_000 },
   };
   const dto: TakeoverDto = { sessionId: 's1', deviceName: 'pc-b', stage: 'asking', startedAt: 1_000, deadline: 1_000 + TAKEOVER_TIMEOUT_MS };
   const states = (p: ReturnType<typeof presentTakeover>) => p.steps.map((s) => s.state);

@@ -160,7 +160,7 @@ describe('冒頭の 1 枚の札（変更したファイル、アーティファ�
 });
 
 describe('見出しの名前の横の札（ロックと、トランスクリプトの在りか）', () => {
-  const lock = (stale: boolean) => ({ deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 5 * 60_000, stale, liveStatus: null });
+  const lock = (stale: boolean) => ({ deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 5 * 60_000, stale });
   it('他の PC で実行中なら「<PC 名> で実行中」。最終確認は title で読める', () => {
     expect(presentSessionBadges(session({ lock: lock(false) }), NOW, ja)).toEqual([{ kind: 'lock', label: 'office-pc で実行中', title: '最終確認 5 分前' }]);
   });

@@ -106,8 +106,7 @@ export function presentResumeHere(t: Translate, plan: ResumeHerePlanDto, home: s
   const prev = plan.from.deviceName ?? t('confirm.resumeHere.unknownDevice');
   const device = lock?.deviceName ?? prev;
   const takeover = mode !== 'takeover' || lock === null ? null
-    : lock.working ? { strong: t('confirm.takeover.workingStrong', { device }), text: t('confirm.takeover.workingText') }
-    : { strong: t('confirm.takeover.runningStrong', { device }), text: t('confirm.takeover.runningText', { device }) };
+    : { strong: t('confirm.takeover.runningStrong', { device }), text: t('confirm.takeover.stopText') };
   const at = mode === 'stale' && lock !== null ? t('confirm.takeover.lastSeen', { when: relativeTime(t, lock.heartbeatAt, now) }) : t('confirm.resumeHere.lastAt', { at: absoluteTime(t, plan.from.lastAt) });
   return {
     sessionId: plan.sessionId,

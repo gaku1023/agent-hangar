@@ -461,9 +461,7 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
  * stale は、その PC を Worker が 3 分より前から見ていないこと（または一度も見ていないこと）を示す。
  * heartbeatAt は、同期の版 6 からその PC の最終接続（この PC の時計）で、知らなければ run の行の heartbeat_at である。名前は版 5 までのまま。
  */
-export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean;
-  /** 持ち主が heartbeat に載せる run の状態。null は不明（載せない古い PC の run も null）。 */
-  liveStatus: LiveStatus | null };
+export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 /**
  * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ流れ（server/src/sync/takeover.ts）。
  * asking は頼みを書いて送っている間、waiting は相手の応答を待っている間、receiving は相手が止まったあと本文が降りきるのを待っている間である。
@@ -627,9 +625,9 @@ export type ResumeHerePlanDto = {
   replace: ResumeHereReplaceDto | null;
   /**
    * ほかの PC の run が生きているとき（応答が途絶えたものを含む）。確認の 1 枚が、停止して引き継ぐか、応答のない相手を引き継ぐかを決める。
-   * working は相手が作業中（liveStatus が busy）であること。生きた run が無ければ null。
+   * 相手が作業中かどうかは共有しないので載せない。生きた run が無ければ null。
    */
-  lock: { deviceName: string; stale: boolean; working: boolean; heartbeatAt: number } | null;
+  lock: { deviceName: string; stale: boolean; heartbeatAt: number } | null;
 };
 /**
  * 「この PC で再開」で、手元のトランスクリプトを置き換えること（A → B → A と戻ったとき）。

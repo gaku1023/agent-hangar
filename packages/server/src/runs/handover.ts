@@ -314,9 +314,9 @@ export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, 
 
 /**
  * ほかの PC の生きたロック（応答が途絶えたものを含む）を、確認の 1 枚に出す形にする。無ければ null。
- * working は相手の run が作業中（liveStatus が busy）のとき。入力待ちとアイドルと不明は「実行中」と読む。
+ * 相手の run が作業中かどうかは共有の行に載らないので、生きていれば「実行中」とだけ読む。
  */
 function takeoverLock(db: Db, selfDeviceId: string, sessionId: string, now: number): ResumeHerePlanDto['lock'] {
   const l = sessionLock(db, selfDeviceId, sessionId, now);
-  return l ? { deviceName: l.deviceName, stale: l.stale, working: l.liveStatus === 'busy', heartbeatAt: l.heartbeatAt } : null;
+  return l ? { deviceName: l.deviceName, stale: l.stale, heartbeatAt: l.heartbeatAt } : null;
 }

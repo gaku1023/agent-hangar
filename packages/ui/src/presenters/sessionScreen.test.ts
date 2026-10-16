@@ -101,7 +101,7 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
 
   describe('見出しの名前の横の札', () => {
     it('他の PC で実行中なら札を出す。無ければ空', () => {
-      const lock = { deviceId: 'd2', deviceName: 'MacBook', runId: 'r9', heartbeatAt: NOW - 30_000, stale: false, liveStatus: null };
+      const lock = { deviceId: 'd2', deviceName: 'MacBook', runId: 'r9', heartbeatAt: NOW - 30_000, stale: false };
       expect(present(store(session({ lock }))).badges).toMatchObject([{ kind: 'lock', label: 'MacBook で実行中' }]);
       expect(present(store()).badges).toEqual([]);
     });

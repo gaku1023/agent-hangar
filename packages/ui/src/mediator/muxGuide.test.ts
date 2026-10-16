@@ -122,7 +122,7 @@ describe('引き継ぎ（session.takeover.start）も止める', () => {
     from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: 1 },
     to: { deviceName: 'pc-a', platform: 'darwin', path: '/Users/me/src/notes-app' },
     replace: null,
-    lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: 1 },
+    lock: { deviceName: 'pc-b', stale: false, heartbeatAt: 1 },
   };
   const confirm = { kind: 'confirm' as const, confirm: { kind: 'resumeHere' as const, sessionId: 's1', plan } };
   const confirming: State = { ...initialState(), overlay: confirm };

@@ -507,14 +507,13 @@ alter table session_states add column restored_at integer;
 `;
 
 /**
- * 版 28。ほかの PC で動いている会話を止めて引き継ぐための共有表を 2 つと、runs.live_status を足す（2026-10-16）。
+ * 版 28。ほかの PC で動いている会話を止めて引き継ぐための共有表を 2 つ足す（2026-10-16）。
  * - takeovers は、引き継ぐ側が書く「止めて」の頼みである。mode が ask なら相手の返事を待ち、force なら待たずに引き継ぐ印である。
  * - takeover_answers は、頼まれた側が書く応答である。止めたか（stopped）、すでに動いていなかったか（not_running）と、最後に上げた本文の sha256 と大きさを載せる。
- * - runs.live_status は、持ち主が書く run の状態（作業中、入力待ち、アイドル）の写しである。
  * 同期する表には check を付けない。後の版が値を足しても、古い PC の適用が落ちないようにするためである。
  * 外部キーも付けない。頼みは相手の行より先に届きうる一時の行だからである。
- * クラウド（Worker）のマイグレーションは要らない（行は JSON の payload のまま運ぶ）が、表を知る版が要るので互換の版を 6 に上げた。
- * 古い PC は知らない列（live_status）を適用で捨てる（sync/apply.ts の tableColumns）。
+ * クラウド（Worker）のマイグレーションは要らない（行は JSON の payload のまま運ぶ）。表を知る版は、同期の版 6 に含めた（互換の版 6）。
+ * run の状態（作業中、入力待ち、アイドル）は共有の行に載せない。同期の版 6 で heartbeat を共有しなくなり、載せる機会が無いためである。
  */
 const V28_TAKEOVER_SQL = `
 create table takeovers (
@@ -529,7 +528,6 @@ create table takeover_answers (
   transcript_sha256 text, transcript_size integer,
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
-alter table runs add column live_status text;
 `;
 
 /**

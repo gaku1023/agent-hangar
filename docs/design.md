@@ -647,7 +647,6 @@ create table runs (
   launch_params text not null,                    -- JSON
   started_at integer not null, ended_at integer, end_reason text,   -- 'exited' | 'killed' | 'lost' | 'parked' | 'taken_over'
   heartbeat_at integer not null,
-  live_status text,                               -- 持ち主が heartbeat に載せる最後の状態（'busy' | 'idle' | 'waiting'）。版 28
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 
@@ -6373,8 +6372,9 @@ UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき
 
 - **A1：確認の 1 枚。**
   ロックがあるときの「この PC で再開」の確認は、ロックの状態で変わる（`ResumeHerePlanDto.lock`、`presentResumeHere`）。
-  生きていれば、題は「ほかの PC で実行中の会話を、この PC で引き継ぎますか」、ボタンは「停止して引き継ぐ」で、赤みの帯に「<端末名> で実行中です」と「引き継ぐと、<端末名> の claude を停止してから、この PC で再開します。」を出す。
-  相手が作業中（`liveStatus` が `busy`）なら、「<端末名> で作業中です」と「停止するとそのターンは途中で切れます。そのあと、この PC で再開します。」にする。
+  生きていれば、題は「ほかの PC で実行中の会話を、この PC で引き継ぎますか」、ボタンは「停止して引き継ぐ」で、赤みの帯に「<端末名> で実行中です」と「停止すると、作業中のターンは途中で切れます。そのあと、この PC で再開します。」を出す。
+  帯は 1 本だけで、相手が作業中か入力待ちかアイドルかで出し分けない。
+  同期の版 6 で heartbeat を共有しなくなり、相手の run の状態を運ぶ行が無いためである（はじめは `runs.live_status` で作業中の帯を分けたが、版 6 に合わせて外した）。
   `stale` なら、題は「<端末名> が応答していません。この PC で引き継ぎますか」、前の PC の行に「最後の応答：<相対時刻>」、ボタンは「このまま引き継ぐ」で、頼まずに `force` で送る。
   ロックが無ければ今までどおりの確認である。
 - **B1：進み具合。**

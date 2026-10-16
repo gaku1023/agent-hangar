@@ -16,10 +16,10 @@ describe('openDb', () => {
       expect(names, t).toContain(t);
     }
   });
-  it('引き継ぎの表と runs.live_status がある（版 28）', () => {
+  it('引き継ぎの表がある（版 28）。runs に live_status は足さない', () => {
     const db = openDb(':memory:');
     const cols = (t: string) => (db.prepare(`select name from pragma_table_info('${t}')`).all() as { name: string }[]).map((r) => r.name);
-    expect(cols('runs')).toContain('live_status');
+    expect(cols('runs')).not.toContain('live_status');
     expect(cols('takeovers')).toEqual(expect.arrayContaining(['id', 'session_id', 'run_id', 'target_device', 'from_device', 'requested_at', 'mode', 'cancelled_at', 'updated_at', 'deleted_at', 'origin_device']));
     expect(cols('takeover_answers')).toEqual(expect.arrayContaining(['ask_id', 'run_id', 'result', 'answered_at', 'transcript_sha256', 'transcript_size', 'updated_at', 'deleted_at', 'origin_device']));
   });

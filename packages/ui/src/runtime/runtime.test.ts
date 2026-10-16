@@ -1446,7 +1446,7 @@ describe('同期とこの PC で再開', () => {
     expect(rt.getState().toasts).toEqual([]);
   });
   it('引き継ぎ：頼みの応答と websocket の知らせが同じ道で届き、ready で今の再開に入る。取り消しは取り下げを送る', async () => {
-    const plan = { sessionId: 's1', from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null, lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: 1 } };
+    const plan = { sessionId: 's1', from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null, lock: { deviceName: 'pc-b', stale: false, heartbeatAt: 1 } };
     const dto = { sessionId: 's1', deviceName: 'pc-b', stage: 'asking' as const, startedAt: 1_000, deadline: 91_000 };
     const { rt, api } = harness({ resumeHerePlan: vi.fn(async () => plan), takeoverStart: vi.fn(async () => dto), takeoverExtend: vi.fn(async () => ({ ...dto, stage: 'waiting' as const })), takeoverCancel: vi.fn(async () => {}) });
     rt.start();
@@ -1475,7 +1475,7 @@ describe('同期とこの PC で再開', () => {
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
   });
   it('引き継ぎ：頼みが通らなければ、待たせずに 1 枚を閉じて理由をトーストで知らせる', async () => {
-    const plan = { sessionId: 's1', from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null, lock: { deviceName: 'pc-b', stale: false, working: false, heartbeatAt: 1 } };
+    const plan = { sessionId: 's1', from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null, lock: { deviceName: 'pc-b', stale: false, heartbeatAt: 1 } };
     const { rt } = harness({ resumeHerePlan: vi.fn(async () => plan), takeoverStart: vi.fn(async () => { throw new Error('500 /api/sessions/s1/takeover'); }) });
     rt.start();
     rt.emit({ type: 'session.resumeHere.open', id: 's1' });
