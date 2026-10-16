@@ -163,7 +163,7 @@ describe('互換の版（下限を上げた Worker）', () => {
   });
 });
 
-describe('互換の版 7（スマホの口を足した版）', () => {
+describe('互換の版 8（スマホの口と呼び鈴を足した版）', () => {
   it('/health の compat は COMPAT_VERSION（版 8 以上）', async () => {
     const c = await boot();
     const h = await c.RAW.fetch('https://x/health');

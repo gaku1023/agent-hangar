@@ -148,13 +148,23 @@ export class HangarBell extends DurableObject<Env> {
 
   /** PC が切れた。その WebSocket に渡して答えを待っている問い合わせは、待たずに 503 で返す。 */
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    for (const [id, p] of this.pending) {
-      if (p.ws === ws) this.settle(id, json({ error: 'pc-offline' }, 503));
-    }
+    this.release(ws);
     try {
       ws.close(code, reason);
     } catch {
       // 既に閉じている。
+    }
+  }
+
+  /** PC の WebSocket が壊れた。閉じたときと同じく、待っている問い合わせを 503 で返す（5 秒の待ちを抱えない）。 */
+  override async webSocketError(ws: WebSocket): Promise<void> {
+    this.release(ws);
+  }
+
+  /** その WebSocket に渡して答えを待っている問い合わせを、待たずに 503 で返す。 */
+  private release(ws: WebSocket): void {
+    for (const [id, p] of this.pending) {
+      if (p.ws === ws) this.settle(id, json({ error: 'pc-offline' }, 503));
     }
   }
 }
