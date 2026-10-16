@@ -171,7 +171,6 @@ export const sessionKeys = {
   'session.action.openTerminalNote': [],
   'session.action.stop': [],
   'session.action.resumeHere': [],
-  'session.action.resumeHereBlocked': ['device'],
   'session.action.resumeHereNoRoot': [],
   'session.action.setLocation': [],
   'session.action.otherComputer': [],

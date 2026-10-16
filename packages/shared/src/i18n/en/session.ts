@@ -172,7 +172,6 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.action.openTerminalNote': 'Connect to the same session from an external terminal',
   'session.action.stop': 'Stop',
   'session.action.resumeHere': 'Resume on this computer',
-  'session.action.resumeHereBlocked': 'Running on {device}. Available once it stops or stops responding',
   'session.action.resumeHereNoRoot': 'This computer has no folder for this project. Set its location first.',
   'session.action.setLocation': 'Set location',
   'session.action.otherComputer': 'Another computer',

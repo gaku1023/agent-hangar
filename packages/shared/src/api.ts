@@ -616,6 +616,11 @@ export type ResumeHerePlanDto = {
   to: { deviceName: string | null; platform: string | null; path: string | null; createsFolder?: boolean };
   /** この PC のトランスクリプトをほかの PC の写しで置き換えるとき（ResumeHereReplaceDto）。手元に無いか、手元の方が大きいか同じなら null。 */
   replace: ResumeHereReplaceDto | null;
+  /**
+   * ほかの PC の run が生きているとき（応答が途絶えたものを含む）。確認の 1 枚が、停止して引き継ぐか、応答のない相手を引き継ぐかを決める。
+   * working は相手が作業中（liveStatus が busy）であること。古いサーバは送らない。
+   */
+  lock?: { deviceName: string; stale: boolean; working: boolean; heartbeatAt: number } | null;
 };
 /**
  * 「この PC で再開」で、手元のトランスクリプトを置き換えること（A → B → A と戻ったとき）。

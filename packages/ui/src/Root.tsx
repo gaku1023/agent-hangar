@@ -453,7 +453,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'projectCandidates' && <ProjectCandidatesDialog {...presentProjectCandidates(state, store, now)!} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
-      {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}
+      {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store, now)!} />}
       {pause && <PauseDialog key={`${pause.sessionId}:${pause.from}`} {...pause} />}
       {moveSession && <MoveSessionDialog key={moveSession.sessionId} {...moveSession} />}
       {configDialog && <ConfigSyncDialog {...configDialog} />}

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { UiAction } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfirmRequest } from '../mediator/types.ts';
 import type { ConfirmDeleteSessionProps, ConfirmProjectProps } from '../presenters/confirm.ts';
@@ -209,13 +210,17 @@ function Card(props: { card: ResumeHereCard; here: boolean }) {
 function ResumeHereConfirm(props: { p: ResumeHereProps; cancel: ReactNode; close: () => void }) {
   const emit = useEmit();
   const p = props.p;
+  // 相手が生きていれば停止を頼む（takeover）、応答がなければ頼まずに引き継ぐ（stale、force）。相手がいなければ今までの再開。
+  const accept: UiAction = p.mode === 'resume'
+    ? { type: 'session.resumeHere', id: p.sessionId, ...(p.overwrite ? { overwrite: true } : {}) }
+    : { type: 'session.takeover.start', id: p.sessionId, force: p.mode === 'stale' };
   return (
     <Dialog
       title={p.title}
       icon="warning"
       onClose={props.close}
       className="rh-dialog"
-      footer={<>{props.cancel}<span className="spacer" /><button type="button" className="btn btn-primary" aria-disabled={p.blocked ? 'true' : undefined} title={p.blocked ?? undefined} onClick={() => { if (!p.blocked) emit({ type: 'session.resumeHere', id: p.sessionId, ...(p.overwrite ? { overwrite: true } : {}) }); }}><Icon name="resumeHere" />{p.action}</button></>}
+      footer={<>{props.cancel}<span className="spacer" /><button type="button" className="btn btn-primary" aria-disabled={p.blocked ? 'true' : undefined} title={p.blocked ?? undefined} onClick={() => { if (!p.blocked) emit(accept); }}><Icon name="resumeHere" />{p.action}</button></>}
     >
       <div className="muted">{p.lead}</div>
       <div className="rh-cards">
@@ -223,6 +228,12 @@ function ResumeHereConfirm(props: { p: ResumeHereProps; cancel: ReactNode; close
         <span className="rh-arrow" aria-hidden="true">→</span>
         <Card card={p.to} here />
       </div>
+      {p.takeover && (
+        <div className="rh-band rh-takeover" role="note" aria-label={p.takeover.strong}>
+          <Icon name="warning" />
+          <div><b>{p.takeover.strong}</b><span>{p.takeover.text}</span></div>
+        </div>
+      )}
       <div className="rh-band" role="note">
         <Icon name="warning" />
         <div><b>{p.band.strong}</b><span>{p.band.text}</span></div>

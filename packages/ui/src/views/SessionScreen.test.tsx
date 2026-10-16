@@ -715,12 +715,12 @@ describe('SessionScreen のアイコン', () => {
 });
 
 describe('フェーズ 4 のセッション画面', () => {
-  it('他の PC で実行中なら、この PC で再開を主にして理由を添えて止め、再開とフォークもメニューで止める', () => {
+  it('他の PC で実行中なら、この PC で再開を主にして押せるまま、再開とフォークはメニューで止める', () => {
     const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
     render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} canFork={false} lock={lock} badges={[{ kind: 'lock', label: 'mini で実行中', title: '最終確認 1 分前' }]} /></ActionRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAccessibleDescription('mini で実行中です。停止するか応答が無くなると選択できます');
+    // 生きたロックでも「この PC で再開」は押せる（確認の 1 枚で停止して引き継ぐ）。
+    expect(screen.getByRole('button', { name: 'この PC で再開' })).not.toHaveAttribute('aria-disabled', 'true');
     const m = menu();
     expect(m.getByRole('menuitem', { name: /再開/ })).toHaveAttribute('aria-disabled', 'true');
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
@@ -1006,9 +1006,10 @@ describe('SessionScreen（英語）', () => {
     noJapanese();
   });
   it('押せない再開の理由と、本文が消えた会話の注記が英語で出る', () => {
-    const blocked = enProps({ canResume: false, canFork: false, remoteOnly: true, hasTranscript: false });
+    const reason = en('session.action.resumeHereNoRoot');
+    const blocked = enProps({ canResume: false, canFork: false, remoteOnly: true, canResumeHere: true, hasTranscript: false, noRoot: { reason, projectId: 'p1' } });
     const { unmount } = render(<ActionRoot onAction={() => {}}><LanguageRoot language="en"><SessionScreen {...blocked} /></LanguageRoot></ActionRoot>);
-    expect(screen.getAllByText('Running on Another computer. Available once it stops or stops responding').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
     unmount();
     const gone = { note: en('session.gone.note', { period: '30 days' }), canExtend: true, extendTo: 365 };
     render(<ActionRoot onAction={() => {}}><LanguageRoot language="en"><SessionScreen {...enProps({ gone, hasTranscript: false, items: [] })} /></LanguageRoot></ActionRoot>);

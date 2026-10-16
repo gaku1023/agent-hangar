@@ -55,6 +55,8 @@
 .rh-band > svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
 .rh-band b { display: block; color: var(--st-paused); }
 .rh-band span { color: var(--ink-2); }
+.rh-takeover { color: var(--error); background: color-mix(in srgb, var(--error) 8%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 22%, transparent); }
+.rh-takeover b { color: var(--error); }
 .rh-blocked { font-size: var(--fs-sm); color: var(--ink-2); }
 .rh-dialog .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 @media (max-width: 560px) {

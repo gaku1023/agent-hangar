@@ -27,7 +27,7 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
 
   // 「この PC で再開」の確認に出すもの。前の PC と最後に使った日時、この PC と読み替えた作業ディレクトリ、手元のトランスクリプトを置き換えるかを返す（runs/handover.ts）。
   api.get('/sessions/:id/resume-here', (c) => {
-    const plan = resumeHerePlan(deps.db, deps.deviceId, c.req.param('id'), { replace: deps.resumeHereReplace });
+    const plan = resumeHerePlan(deps.db, deps.deviceId, c.req.param('id'), { replace: deps.resumeHereReplace, now: Date.now() });
     return plan ? c.json(plan) : c.json({ error: tr('session.error.notFound') }, 404);
   });
 

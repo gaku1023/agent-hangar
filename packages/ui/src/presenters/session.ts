@@ -278,7 +278,8 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
   }
   if (f.lock || f.remoteOnly || f.newerElsewhere) {
     // 押せても、この PC にプロジェクトのフォルダが無ければ閉じる（理由は見出しの下にも出す、resumeHere.ts）。
-    const blocked = f.canResumeHere ? f.noRoot?.reason ?? null : t('session.action.resumeHereBlocked', { device: dev ?? t('session.action.otherComputer') });
+    // ほかの PC で実行中でも押せる。押すと、停止して引き継ぐ確認の 1 枚が出る。
+    const blocked = f.noRoot?.reason ?? null;
     const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: blocked, note: null };
     return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote, copyAddress] };
   }
@@ -603,7 +604,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     canResume: s.hasTranscript && idle && s.lock === null && !s.remoteOnly, canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
     // Ruling 14。heartbeat が途絶えたロック（stale）は行き止まりにせず、「この PC で再開」だけを開ける。
     // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
-    lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly || s.newerElsewhere === true : s.lock.stale, newerElsewhere: s.newerElsewhere === true,
+    lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock !== null || s.remoteOnly || s.newerElsewhere === true, newerElsewhere: s.newerElsewhere === true,
     // この PC にプロジェクトのフォルダが無いほかの PC の会話。「この PC で再開」を閉じ、見出しの下に理由と場所の指定を出す（1a）。
     noRoot: resumeHereOf(store, s, t)?.noRoot ?? null,
     // hangar の run が無いまま外で動いているとき、本文しか見せられない。hangar の端末で開く手を出す（store の outsideOpenOf）。

@@ -257,7 +257,7 @@ describe('削除の確認（3A）', () => {
   const mountDelete = () => {
     const onAction = vi.fn<(i: UiAction) => void>();
     const state: State = { ...initialState(), overlay: { kind: 'confirm', confirm: { kind: 'deleteSession', sessionId: 's1' } } };
-    render(<ActionRoot onAction={onAction}><ConfirmDialog {...presentConfirm(state, store())!} /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><ConfirmDialog {...presentConfirm(state, store(), Date.now())!} /></ActionRoot>);
     return onAction;
   };
   it('見出し、所属とターンの 1 行、本文を出し、初めのフォーカスはキャンセル', () => {
@@ -278,7 +278,7 @@ describe('削除の確認（3A）', () => {
   });
   it('英語の画面では英語の文にする', () => {
     const state: State = { ...initialState(), overlay: { kind: 'confirm', confirm: { kind: 'deleteSession', sessionId: 's1' } } };
-    const p = presentConfirm(state, { ...store(), settings: { language: 'en' } } as unknown as Store);
+    const p = presentConfirm(state, { ...store(), settings: { language: 'en' } } as unknown as Store, Date.now());
     expect(p?.deleteSession).toEqual({ name: 'ログイン画面の直し', project: 'app', turns: 12 });
     expect(translator('en')('confirm.deleteSession.facts', { project: 'app', n: 12 })).toBe('app · 12 turns');
   });

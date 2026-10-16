@@ -20,11 +20,11 @@ export type ConfirmProps = { confirm: ConfirmRequest; project: ConfirmProjectPro
  * 件数は store に届いているセッションで数える。
  * アカウントの確認には、指す id の名前を添える。
  */
-export function presentConfirm(state: State, store: Store): ConfirmProps | null {
+export function presentConfirm(state: State, store: Store, now: number): ConfirmProps | null {
   if (state.overlay.kind !== 'confirm') return null;
   const confirm = state.overlay.confirm;
   // この PC で再開の確認は、サーバの返したもの（前の PC とこの PC）を画面の言語で組む。この PC のパスはホームを ~ に縮める。
-  if (confirm.kind === 'resumeHere') return { confirm, project: null, accountName: null, resumeHere: presentResumeHere(translatorOf(store), confirm.plan, store.home) };
+  if (confirm.kind === 'resumeHere') return { confirm, project: null, accountName: null, resumeHere: presentResumeHere(translatorOf(store), confirm.plan, store.home, now) };
   if (confirm.kind === 'switchAccount' || confirm.kind === 'removeAccount') {
     return { confirm, project: null, accountName: accountList(store).find((a) => a.id === confirm.accountId)?.name ?? null };
   }

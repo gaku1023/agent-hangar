@@ -172,7 +172,6 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.action.openTerminalNote': '外部ターミナルで同じセッションに接続する',
   'session.action.stop': '停止',
   'session.action.resumeHere': 'この PC で再開',
-  'session.action.resumeHereBlocked': '{device} で実行中です。停止するか応答が無くなると選択できます',
   'session.action.resumeHereNoRoot': 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。',
   'session.action.setLocation': 'パスを指定',
   'session.action.otherComputer': '他の PC',

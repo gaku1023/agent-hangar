@@ -229,7 +229,24 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
       from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: 99 },
       to: { deviceName: 'this-mac', platform: 'darwin', path: here, createsFolder: false },
       replace: null,
+      lock: null,
     });
+  });
+  it('ほかの PC の生きたロックを lock に載せ、busy なら working', () => {
+    const id = session({ cwd: 'D:\\src\\notes-app' });
+    const now = 1_000_000;
+    const hb = now - 10_000;
+    upsertShared(db, 'runs', { id: 'run-live', session_id: id, device_id: 'win', kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: hb, live_status: 'busy' }, 'win');
+    expect(resumeHerePlan(db, 'me', id, { now })?.lock).toEqual({ deviceName: 'work-pc', stale: false, working: true, heartbeatAt: hb });
+    // 応答が途絶えた相手は stale で、working は live_status の読みのまま。
+    expect(resumeHerePlan(db, 'me', id, { now: hb + 200_000 })?.lock).toMatchObject({ stale: true });
+    db.prepare("update runs set live_status = 'idle' where id = 'run-live'").run();
+    expect(resumeHerePlan(db, 'me', id, { now })?.lock?.working).toBe(false);
+  });
+  it('ロックが無ければ lock は null', () => {
+    const id = session({ cwd: 'D:\\src\\notes-app' });
+    run(id, 'win', 3);
+    expect(resumeHerePlan(db, 'me', id, { now: 1_000_000 })?.lock).toBeNull();
   });
   it('手元のトランスクリプトを置き換えるときは、その種類と大きさを添える', () => {
     const id = session({ cwd: 'D:\\src\\notes-app', lastAt: 99 });

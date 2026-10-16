@@ -141,6 +141,8 @@ export type UiAction =
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   // 「この PC で再開」を押した。確認に出すもの（前の PC とこの PC）を取りに行き、確認の 1 枚を出す。承諾で session.resumeHere を送る。
   | { type: 'session.resumeHere.open'; id: SessionId }
+  // ほかの PC で動いている会話を、相手に停止を頼んでから引き継ぐ。force は応答のない相手を頼まずに引き継ぐとき。
+  | { type: 'session.takeover.start'; id: SessionId; force: boolean }
   /**
    * 中断の群（ホームの帯の「前回実行中」）。resume は渡したセッションを順番待ちに足し、同時に 2 本まで再開する（画面は移さない）。
    * cancel は順番待ちのものだけを外す（再開しかけたものは止めない）。dismiss は「再開しない」（dismissed が偽なら元に戻す）。
