@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardPhase, initialUpdate, reduceUpdate, type UpdateEvent, type UpdateState } from './update.ts';
+import { cardPhase, initialUpdate, reduceUpdate, whatsNew, type UpdateEvent, type UpdateState } from './update.ts';
 
 /** 殻が updater を持ち、いまの版が 1.4.2 の状態から始める。 */
 const ready = (over: Partial<UpdateState> = {}): UpdateState => ({ ...reduceUpdate(initialUpdate(), { type: 'supported', current: '1.4.2' }), ...over });
@@ -139,5 +139,43 @@ describe('更新の状態の移り変わり', () => {
   it('殻が updater を持たないときは、札を出さない', () => {
     const s = run(initialUpdate(), { type: 'check.start', manual: true }, { type: 'check.done', version: '1.5.0', at: 1 });
     expect(cardPhase(s)).toBeNull();
+  });
+});
+
+describe('リリースノート', () => {
+  const note = (version: string) => ({ version, body: `- ${version}`, before: null, points: [version] });
+  const bundled = [note('1.5.0'), note('1.4.2'), note('1.4.1'), note('1.4.0')];
+  const withNotes = (over: Partial<UpdateState> = {}) => run(ready(over), { type: 'notes.bundled', notes: bundled });
+
+  it('確認の答えにノートがあれば、見つけた版のノートとして持つ。新しい版が無ければ捨てる', () => {
+    const s = run(ready(), { type: 'check.start', manual: false }, { type: 'check.done', version: '1.5.0', notes: '## 直したこと', at: 1 });
+    expect(s.foundNotes).toEqual({ version: '1.5.0', text: '## 直したこと' });
+    expect(run(s, { type: 'check.start', manual: false }, { type: 'check.done', version: null, notes: null, at: 2 }).foundNotes).toBeNull();
+  });
+
+  it('同じ版の答えにノートが無ければ（取得の途中で殻が版だけを答えた）、前のノートを残す', () => {
+    const s = run(ready(), { type: 'check.done', version: '1.5.0', notes: 'a', at: 1 }, { type: 'check.done', version: '1.5.0', notes: null, at: 2 });
+    expect(s.foundNotes).toEqual({ version: '1.5.0', text: 'a' });
+  });
+
+  it('前に見た版を戻し、見た版より新しく、いまの版までのノートを更新後の知らせにする', () => {
+    const s = run(withNotes(), { type: 'restore', dismissed: null, notify: true, seenNotes: '1.4.0' });
+    expect(whatsNew(s).map((n) => n.version)).toEqual(['1.4.2', '1.4.1']);
+  });
+
+  it('前に見た版が無ければ、いまの版のノートだけを知らせる。いまの版を見たら知らせない', () => {
+    expect(whatsNew(withNotes()).map((n) => n.version)).toEqual(['1.4.2']);
+    expect(whatsNew(withNotes({ seenNotes: '1.4.2' }))).toEqual([]);
+  });
+
+  it('殻の版がまだ分からないうちは知らせない', () => {
+    expect(whatsNew(run(initialUpdate(), { type: 'notes.bundled', notes: bundled }))).toEqual([]);
+  });
+
+  it('知らせを閉じると、いまの版を見たことにし、開く版を覚える', () => {
+    const s = run(withNotes({ seenNotes: '1.4.0' }), { type: 'notes.seen', open: ['1.4.2', '1.4.1'] });
+    expect(s.seenNotes).toBe('1.4.2');
+    expect(s.notesOpen).toEqual(['1.4.2', '1.4.1']);
+    expect(whatsNew(s)).toEqual([]);
   });
 });

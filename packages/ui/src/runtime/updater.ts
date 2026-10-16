@@ -1,3 +1,4 @@
+import type { ReleaseNote } from '../lib/releaseNotes.ts';
 import { reduceUpdate, updateBusy, type UpdateEvent, type UpdateState } from '../store/update.ts';
 import { UpdateFailure, type UpdateBridge } from './desktop.ts';
 
@@ -9,15 +10,20 @@ export const UPDATE_PROGRESS_POLL_MS = 500;
 export const UPDATE_DISMISSED_KEY = 'update.dismissed';
 /** 新しい版を知らせるか（設定のスイッチ）を残す localStorage の鍵。無ければ知らせる。 */
 export const UPDATE_NOTIFY_KEY = 'update.notify';
+/** 更新後の知らせ（リリースノート）を閉じた版を残す localStorage の鍵。端末ごとで、同期しない。 */
+export const UPDATE_SEEN_NOTES_KEY = 'update.seenNotes';
 
 /** 画面からの操作。Mediator が update の効果にして渡す（mediator/update.ts）。 */
-export type UpdateCommand = { op: 'check' } | { op: 'download' } | { op: 'install' } | { op: 'dismiss' } | { op: 'notify'; on: boolean };
+export type UpdateCommand = { op: 'check' } | { op: 'download' } | { op: 'install' } | { op: 'dismiss' } | { op: 'notify'; on: boolean }
+  | { op: 'notesSeen'; open: string[] };
 
 export type UpdateRunnerDeps = {
   bridge: UpdateBridge;
   storage: { get(key: string): unknown; set(key: string, value: unknown): void };
   setTimeout: (fn: () => void, ms: number) => unknown;
   now: () => number;
+  /** アプリに同梱したリリースノート（lib/releaseNotesBundle.ts）。 */
+  bundled: ReleaseNote[];
   /** いまの更新の状態（Store の update）を読む口と、置く口。 */
   get(): UpdateState;
   set(next: UpdateState): void;
@@ -39,7 +45,7 @@ export function createUpdateRunner(d: UpdateRunnerDeps) {
     if (!s.supported || s.phase.kind === 'checking' || updateBusy(s.phase)) return;
     apply({ type: 'check.start', manual });
     d.bridge.check().then(
-      (r) => apply({ type: 'check.done', version: r.version, at: d.now() }),
+      (r) => apply({ type: 'check.done', version: r.version, notes: r.notes, at: d.now() }),
       (e: unknown) => apply({ type: 'check.failed', reason: reasonOf(e) }),
     );
   }
@@ -88,7 +94,8 @@ export function createUpdateRunner(d: UpdateRunnerDeps) {
 
   return {
     start(): void {
-      apply({ type: 'restore', dismissed: d.storage.get(UPDATE_DISMISSED_KEY), notify: d.storage.get(UPDATE_NOTIFY_KEY) });
+      apply({ type: 'restore', dismissed: d.storage.get(UPDATE_DISMISSED_KEY), notify: d.storage.get(UPDATE_NOTIFY_KEY), seenNotes: d.storage.get(UPDATE_SEEN_NOTES_KEY) });
+      apply({ type: 'notes.bundled', notes: d.bundled });
       d.bridge.status().then((r) => {
         apply({ type: 'supported', current: r.current });
         if (d.get().notify) check(false);
@@ -102,6 +109,12 @@ export function createUpdateRunner(d: UpdateRunnerDeps) {
         case 'download': download(); return;
         case 'install': install(); return;
         case 'dismiss': { const before = d.get(); apply({ type: 'dismiss' }); saveDismissed(before); return; }
+        case 'notesSeen': {
+          apply({ type: 'notes.seen', open: c.open });
+          const seen = d.get().seenNotes;
+          if (seen !== null) d.storage.set(UPDATE_SEEN_NOTES_KEY, seen);
+          return;
+        }
         case 'notify': {
           apply({ type: 'notify', on: c.on });
           d.storage.set(UPDATE_NOTIFY_KEY, c.on);

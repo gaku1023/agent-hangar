@@ -208,6 +208,8 @@ export type UiAction =
   // dismiss は右下の札を閉じ、その版の札を 2 度出さない。notify は新しい版を知らせるか（切ると自動の確認もしない）。
   | { type: 'update.check' } | { type: 'update.download' } | { type: 'update.install' } | { type: 'update.dismiss' }
   | { type: 'update.notify'; on: boolean }
+  /** 更新後の札（リリースノート）を閉じる。notesRead は閉じて設定の「更新」の節へ移り、札で見せた版を開いておく。 */
+  | { type: 'update.notesClose' } | { type: 'update.notesRead' }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   // ベルの一覧の行を既読にする。keys は行の鍵（種類、対象、事実の版）で、「すべて既読にする」はいまある鍵を全部送る。

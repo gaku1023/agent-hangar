@@ -26,6 +26,7 @@ import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
 import { createHashLocation } from './runtime/hashLocation.ts';
 import { createRuntime } from './runtime/runtime.ts';
+import { RELEASE_NOTES } from './lib/releaseNotesBundle.ts';
 import { createSafeStorage } from './runtime/safeStorage.ts';
 import { createDesktopBridge } from './runtime/desktop.ts';
 import { FONT_SIZE_KEY, createTerminalHost } from './runtime/terminals.ts';
@@ -119,6 +120,7 @@ const runtime = createRuntime({
   notifier: pickNotifier(window as unknown as Partial<DesktopEnv> & BrowserEnv),
   // デスクトップの殻の中なら、ログを開くと再起動を殻に頼める。ブラウザでは null になる。
   desktop: createDesktopBridge(window),
+  releaseNotes: RELEASE_NOTES,
 });
 runtime.start();
 createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);

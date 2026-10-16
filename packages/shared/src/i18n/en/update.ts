@@ -46,4 +46,13 @@ export const updateEn: AreaDictionary<typeof updateKeys> = {
   'update.settings.notifyOn': 'Hangar tells you when a new version is out. It installs only when you click.',
   'update.settings.notifyOff': 'Off. You can still check manually.',
   'update.settings.unsupported': 'Updates are checked in the desktop app.',
+  'update.card.readNotes': 'Read notes',
+  'update.notes.before': 'Before you update',
+  'update.notes.title': 'Release notes',
+  'update.notes.inUse': 'In use',
+  'update.notes.next': 'New version',
+  'update.whatsNew.head': 'Updated',
+  'update.whatsNew.title': 'Hangar is now {version}',
+  'update.whatsNew.includes': 'Also covers {versions}',
+  'update.whatsNew.readAll': 'Read all',
 };

@@ -46,4 +46,13 @@ export const updateJa: AreaDictionary<typeof updateKeys> = {
   'update.settings.notifyOn': '新しいバージョンが出たら通知します。自動ではインストールしません。',
   'update.settings.notifyOff': '無効です。手動での確認だけ使えます。',
   'update.settings.unsupported': '更新の確認はデスクトップアプリで行います。',
+  'update.card.readNotes': 'ノートを読む',
+  'update.notes.before': '更新の前に',
+  'update.notes.title': 'リリースノート',
+  'update.notes.inUse': '使用中',
+  'update.notes.next': '新しい版',
+  'update.whatsNew.head': '更新しました',
+  'update.whatsNew.title': 'Hangar {version} になりました',
+  'update.whatsNew.includes': '{versions} の分も含みます',
+  'update.whatsNew.readAll': 'すべて読む',
 };

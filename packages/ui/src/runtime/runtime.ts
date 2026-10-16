@@ -28,6 +28,7 @@ import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import { createGitWatch } from './gitWatch.ts';
 import type { Notifier } from './notifier.ts';
 import { createUpdateRunner } from './updater.ts';
+import type { ReleaseNote } from '../lib/releaseNotes.ts';
 import { createCloudMemberRunner } from './cloudMember.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -67,6 +68,8 @@ export type RuntimeDeps = {
    * 画面はこの有無で、「ログを開く」「再起動」を出すか、ログの場所のコピーと文の案内に落とすかを決める。
    */
   desktop?: DesktopBridge | null;
+  /** アプリに同梱したリリースノート（lib/releaseNotesBundle.ts）。設定の履歴と更新後の知らせに使う。無ければ出さない。 */
+  releaseNotes?: ReleaseNote[];
   /** 窓が前にあるか。git の表示の周期が見る。無ければ document.visibilityState を読む。テストが差し替える口である。 */
   visible?: () => boolean;
   /** クリップボードに書く。無ければ navigator.clipboard を使う。テストが差し替える口である。 */
@@ -221,7 +224,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     set: (c) => { if (c !== store.cloudMember) setStore({ ...store, cloudMember: c }); },
   });
   const updater = deps.desktop ? createUpdateRunner({
-    bridge: deps.desktop.update, storage: deps.storage, setTimeout: deps.setTimeout, now: () => clock(),
+    bridge: deps.desktop.update, storage: deps.storage, setTimeout: deps.setTimeout, now: () => clock(), bundled: deps.releaseNotes ?? [],
     get: () => store.update, set: (u) => { if (u !== store.update) setStore({ ...store, update: u }); },
   }) : null;
   let unsubNotify: (() => void) | null = null;

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { RunDto, SettingsDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
 import { initialUpdate, type UpdatePhase, type UpdateState } from '../store/update.ts';
-import { presentUpdateCard, presentUpdateSection } from './update.ts';
+import { parseNote } from '../lib/releaseNotes.ts';
+import { presentUpdateCard, presentUpdateSection, presentWhatsNew } from './update.ts';
 
 const NOW = new Date(2026, 9, 10, 9, 12).getTime();
 const MIN = 60_000;
@@ -124,5 +125,57 @@ describe('presentUpdateSection：設定の「更新」の節', () => {
     const p = presentUpdateSection(storeOf(initialUpdate()), NOW);
     expect(p.supported).toBe(false);
     expect(p.unsupported).toBe('更新の確認はデスクトップアプリで行います。');
+  });
+});
+
+describe('リリースノート', () => {
+  const NOTE_150 = '## 更新の前に\n\nすべての PC を 1.5.0 に上げてください。\n\n## 足したこと\n\n### 一つ目\n\n### 二つ目\n\n### 三つ目\n\n### 四つ目\n';
+  const bundled = [
+    parseNote('1.4.2', '# Hangar 1.4.2\n\n## 直したこと\n\n- 直した。\n'),
+    parseNote('1.4.1', '# Hangar 1.4.1\n\n## 上げる前に\n\nWorker を入れ替えてください。\n\n## 足したこと\n\n- 足した。\n'),
+    parseNote('1.4.0', '# Hangar 1.4.0\n\n## 足したこと\n\n- 古い。\n'),
+  ];
+  const withNotes = (phase: UpdatePhase, over: Partial<UpdateState> = {}) => up(phase, { notes: bundled, seenNotes: '1.4.2', ...over });
+
+  it('新しい版の札に、目録のノートの注意と要点を 3 つまで載せ、ノートを読むで設定の更新の節へ移す', () => {
+    const c = presentUpdateCard(storeOf(withNotes({ kind: 'available', version: '1.5.0' }, { foundNotes: { version: '1.5.0', text: NOTE_150 } })))!;
+    expect(c.before).toBe('すべての PC を 1.5.0 に上げてください。');
+    expect(c.points).toEqual(['一つ目', '二つ目', '三つ目']);
+    expect(c.actions[0]).toEqual({ label: 'ノートを読む', action: { type: 'nav.go', to: { name: 'settings', at: 'update' } }, primary: false, link: true });
+  });
+
+  it('目録にノートが無ければ、注意も要点もノートを読むも出さない', () => {
+    const c = presentUpdateCard(storeOf(withNotes({ kind: 'available', version: '1.5.0' })))!;
+    expect(c).toMatchObject({ before: null, points: [] });
+    expect(c.actions.map((a) => a.label)).toEqual(['ダウンロードしてインストール', 'あとで']);
+  });
+
+  it('更新したあとは、見た版より新しい版の要点と注意を 1 枚にまとめる', () => {
+    const c = presentWhatsNew(storeOf(withNotes({ kind: 'latest' }, { seenNotes: '1.4.0' })))!;
+    expect(c).toMatchObject({ head: '更新しました', title: 'Hangar 1.4.2 になりました', before: 'Worker を入れ替えてください。', points: ['直した。', '足した。'], sub: '1.4.1 の分も含みます' });
+    expect(c.actions).toEqual([
+      { label: '閉じる', action: { type: 'update.notesClose' }, primary: false },
+      { label: 'すべて読む', action: { type: 'update.notesRead' }, primary: true },
+    ]);
+  });
+
+  it('いまの版を見ていれば、更新後の札は出さない', () => {
+    expect(presentWhatsNew(storeOf(withNotes({ kind: 'latest' })))).toBeNull();
+  });
+
+  it('設定の節に、見つけた版といまの版までのノートを新しい順に並べ、見つけた版といまの版を開いておく', () => {
+    const p = presentUpdateSection(storeOf(withNotes({ kind: 'available', version: '1.5.0' }, { foundNotes: { version: '1.5.0', text: NOTE_150 } })), NOW);
+    expect(p.notes.map((n) => [n.version, n.tag, n.open, n.hasBefore])).toEqual([
+      ['1.5.0', '新しい版', true, true],
+      ['1.4.2', '使用中', true, false],
+      ['1.4.1', null, false, true],
+      ['1.4.0', null, false, false],
+    ]);
+    expect(p.notes[1]!.body).toBe('## 直したこと\n\n- 直した。');
+  });
+
+  it('更新後の札で読みに来たら、その札で見せた版を開いておく', () => {
+    const p = presentUpdateSection(storeOf(withNotes({ kind: 'latest' }, { notesOpen: ['1.4.2', '1.4.1'] })), NOW);
+    expect(p.notes.filter((n) => n.open).map((n) => n.version)).toEqual(['1.4.2', '1.4.1']);
   });
 });

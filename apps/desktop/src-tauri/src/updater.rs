@@ -190,9 +190,12 @@ pub struct Status {
 }
 
 /// `update_check` の答え。新しい版が無ければ version は None。
+/// notes は目録（latest.json）の notes で、正式な版ならリリースノートの md が入る。頁が新しい版の札と設定の「更新」の節に出す。
+/// 試しの版の空の notes と、取得の途中で途中の版だけを答えるときは None にする。
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Found {
     pub version: Option<String>,
+    pub notes: Option<String>,
 }
 
 /// 命令の失敗。kind は頁が文を選ぶための 4 つの分類（network、signature、permission、other）、detail はログ向けの英語の 1 行である。
@@ -405,10 +408,11 @@ mod tests {
         );
         let f = Found {
             version: Some("1.5.0".into()),
+            notes: Some("## 直したこと".into()),
         };
         assert_eq!(
             serde_json::to_value(&f).unwrap(),
-            serde_json::json!({ "version": "1.5.0" })
+            serde_json::json!({ "version": "1.5.0", "notes": "## 直したこと" })
         );
         assert_eq!(
             serde_json::to_value(Failure::other("x")).unwrap(),

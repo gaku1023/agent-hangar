@@ -347,14 +347,16 @@ jobs:
           merge-multiple: true
       # 目録の形と platform の決め方は apps/desktop/scripts/updater-manifest.ts（試験は apps/desktop/test/updater-manifest.test.ts）。
       # 目録は更新物の後に添える。先に添えると、更新物がまだ無い版をアプリが知ってしまう。
+      # 正式な版は、目録の notes に Release の本文と同じ md を入れる（アプリが新しい版の札に要点と「更新の前に」を出す）。試しの版は空のまま。
       - name: 目録を作り、更新物と署名と目録を下書きの Release に添える
         if: env.HAS_UPDATER_KEY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: ${{ needs.plan.outputs.release-notes }}
         run: |
           set -euo pipefail
           ls -la updater
-          node --experimental-strip-types --no-warnings apps/desktop/scripts/updater-manifest.ts updater "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/latest.json"
+          node --experimental-strip-types --no-warnings apps/desktop/scripts/updater-manifest.ts updater "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" ${RELEASE_NOTES:+"$RELEASE_NOTES"} > "$RUNNER_TEMP/latest.json"
           cat "$RUNNER_TEMP/latest.json"
           gh release upload "$GITHUB_REF_NAME" updater/* --clobber --repo "$GITHUB_REPOSITORY"
           gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/latest.json" --clobber --repo "$GITHUB_REPOSITORY"

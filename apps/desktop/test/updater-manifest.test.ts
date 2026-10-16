@@ -60,5 +60,15 @@ describe('updater の目録', () => {
     const m = JSON.parse(out);
     expect(m.version).toBe('1.5.0');
     expect(m.platforms['darwin-aarch64'].signature).toBe('SIG-MAC');
+    expect(m.notes).toBe('');
+  });
+
+  it('リリースノートのファイルを渡せば、その中身を notes に入れる（アプリが更新の札と設定に出す）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'updater-'));
+    fs.writeFileSync(path.join(dir, 'Hangar-v1.5.0-macos-arm64.app.tar.gz.sig'), 'SIG-MAC');
+    const notes = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'notes-')), '1.5.0.md');
+    fs.writeFileSync(notes, '# Hangar 1.5.0\n\n## 直したこと\n\n- 直した。\n');
+    const out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', path.join(app, 'scripts/updater-manifest.ts'), dir, 'v1.5.0', 'owner/repo', notes], { encoding: 'utf8' });
+    expect(JSON.parse(out).notes).toBe('# Hangar 1.5.0\n\n## 直したこと\n\n- 直した。\n');
   });
 });

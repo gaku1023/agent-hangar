@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ReleaseNote } from '../lib/releaseNotes.ts';
 import { initialUpdate, type UpdateState } from '../store/update.ts';
 import type { UpdateBridge } from './desktop.ts';
 import { UpdateFailure } from './desktop.ts';
-import { createUpdateRunner, UPDATE_CHECK_INTERVAL_MS, UPDATE_DISMISSED_KEY, UPDATE_NOTIFY_KEY, UPDATE_PROGRESS_POLL_MS } from './updater.ts';
+import { createUpdateRunner, UPDATE_CHECK_INTERVAL_MS, UPDATE_DISMISSED_KEY, UPDATE_NOTIFY_KEY, UPDATE_PROGRESS_POLL_MS, UPDATE_SEEN_NOTES_KEY } from './updater.ts';
 
 /** 予約を手で進める時計。 */
 function clock() {
@@ -26,13 +27,13 @@ function clock() {
 }
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
-function setup(opts: { stored?: Record<string, unknown>; bridge?: Partial<UpdateBridge> } = {}) {
+function setup(opts: { stored?: Record<string, unknown>; bridge?: Partial<UpdateBridge>; bundled?: ReleaseNote[] } = {}) {
   const c = clock();
   const saved: Record<string, unknown> = { ...opts.stored };
   let state: UpdateState = initialUpdate();
   const bridge: UpdateBridge = {
     status: vi.fn(async () => ({ current: '1.4.2', done: 0, total: null })),
-    check: vi.fn(async () => ({ version: '1.5.0' })),
+    check: vi.fn(async () => ({ version: '1.5.0', notes: null })),
     download: vi.fn(async () => {}),
     install: vi.fn(async () => {}),
     ...opts.bridge,
@@ -40,7 +41,7 @@ function setup(opts: { stored?: Record<string, unknown>; bridge?: Partial<Update
   const runner = createUpdateRunner({
     bridge,
     storage: { get: (k) => saved[k], set: (k, v) => { saved[k] = v; } },
-    setTimeout: c.setTimeout, now: c.now,
+    setTimeout: c.setTimeout, now: c.now, bundled: opts.bundled ?? [],
     get: () => state, set: (s) => { state = s; },
   });
   return { c, saved, bridge, runner, state: () => state };
@@ -149,7 +150,7 @@ describe('取得とインストール', () => {
   });
 
   it('見つけた版が無いときに取得を押しても、殻を呼ばない', async () => {
-    const s = setup({ bridge: { check: vi.fn(async () => ({ version: null })) } });
+    const s = setup({ bridge: { check: vi.fn(async () => ({ version: null, notes: null })) } });
     s.runner.start();
     await flush();
     s.runner.run({ op: 'download' });
@@ -197,5 +198,30 @@ describe('閉じた版と知らせのスイッチ', () => {
     expect(s.state().manual).toBe(false);
     s.runner.run({ op: 'notify', on: false });
     expect(s.saved[UPDATE_NOTIFY_KEY]).toBe(false);
+  });
+});
+
+describe('リリースノート', () => {
+  const note = (version: string) => ({ version, body: '', before: null, points: [] });
+
+  it('起動したら同梱のノートを置き、見つけた版のノートを目録から受け取る', async () => {
+    const s = setup({ bridge: { check: vi.fn(async () => ({ version: '1.5.0', notes: '## 足したこと' })) }, bundled: [note('1.4.2')] });
+    s.runner.start();
+    await flush();
+    expect(s.state().notes.map((n) => n.version)).toEqual(['1.4.2']);
+    expect(s.state().foundNotes).toEqual({ version: '1.5.0', text: '## 足したこと' });
+  });
+
+  it('更新後の知らせを閉じた版を覚え、開き直しても読み戻す', async () => {
+    const s = setup({ bundled: [note('1.4.2')] });
+    s.runner.start();
+    await flush();
+    s.runner.run({ op: 'notesSeen', open: ['1.4.2'] });
+    expect(s.saved[UPDATE_SEEN_NOTES_KEY]).toBe('1.4.2');
+    expect(s.state().notesOpen).toEqual(['1.4.2']);
+    const again = setup({ stored: s.saved, bundled: [note('1.4.2')] });
+    again.runner.start();
+    await flush();
+    expect(again.state().seenNotes).toBe('1.4.2');
   });
 });

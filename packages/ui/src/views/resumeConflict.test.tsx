@@ -102,7 +102,7 @@ describe('トーストの元に戻す', () => {
   it('押すとその操作を出してトーストを閉じる', () => {
     const onAction = vi.fn<(i: UiAction) => void>();
     const undo: UiAction = { type: 'interrupted.dismiss', runIds: ['ra'], dismissed: false };
-    render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><ToastStack toasts={[{ id: '1', level: 'info', message: '「n-a」は再開しません', action: { label: '元に戻す', send: undo } }]} waiting={[]} more={0} blocked={false} arrived={null} update={null} /></ActionRoot></LanguageRoot>);
+    render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><ToastStack toasts={[{ id: '1', level: 'info', message: '「n-a」は再開しません', action: { label: '元に戻す', send: undo } }]} waiting={[]} more={0} blocked={false} arrived={null} update={null} whatsNew={null} /></ActionRoot></LanguageRoot>);
     fireEvent.click(screen.getByRole('button', { name: '元に戻す' }));
     expect(onAction).toHaveBeenCalledWith(undo);
     expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });

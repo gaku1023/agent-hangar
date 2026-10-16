@@ -1,22 +1,42 @@
 import type { Translate, UiAction } from '@agent-hangar/shared';
 import { runningSessionIds, type Store } from '../store/store.ts';
-import { cardPhase, phaseVersion, updateBusy, type UpdateFailReason, type UpdatePhase, type UpdateState } from '../store/update.ts';
+import { cardPhase, phaseVersion, updateBusy, whatsNew, type UpdateFailReason, type UpdatePhase, type UpdateState } from '../store/update.ts';
+import { compareVersions, parseNote, type ReleaseNote } from '../lib/releaseNotes.ts';
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 
-/** 札と節の操作 1 つ。primary は主の操作（青いボタン）。 */
-export type UpdateAct = { label: string; action: UiAction; primary: boolean };
+/** 札と節の操作 1 つ。primary は主の操作（青いボタン）、link は枠の無い文字だけのボタン（ノートを読む）。 */
+export type UpdateAct = { label: string; action: UiAction; primary: boolean; link?: true };
+
+/** 札に載せる要点の数。残りは設定の節で読む。 */
+const CARD_POINTS = 3;
 /** 取得の進み。大きさが分からないとき percent は null で、label は「ダウンロードしています…」になる。 */
 export type UpdateProgress = { percent: number | null; label: string };
 
 /**
  * 右下の更新の札（試作の A2）。新しい版が出たこと、取得の進み、再起動の確認、失敗までを、同じ札の中で済ませる。
  * tone は見出しの色で、info は青、ok は緑、err は赤である。
+ * 新しい版の札には、目録のノートから注意（before、「更新の前に」の節）と要点（points）を載せる（試作の C1）。ノートが無ければ null と空である。
  */
 export type UpdateCardProps = {
   kind: 'available' | 'downloading' | 'installing' | 'ready' | 'failed'; tone: 'info' | 'ok' | 'err';
   head: string; title: string; detail: string | null; progress: UpdateProgress | null; actions: UpdateAct[];
+  beforeLabel: string; before: string | null; points: string[];
 };
+
+/**
+ * 更新したあと、初めて開いたときに一度だけ出す札（試作の B1）。
+ * 版を飛ばして上げたなら、間の版の要点と注意もまとめ、sub でその版を言う。閉じるか読みに行けば、次の版までは出さない。
+ */
+export type WhatsNewCardProps = {
+  head: string; title: string; beforeLabel: string; before: string | null; points: string[]; sub: string | null; actions: UpdateAct[];
+};
+
+/**
+ * 設定の「更新」の節に並べる、版ごとのノート（試作の A1）。新しい順で、見つけた版（まだ入れていない版）が先頭に来る。
+ * tag は版の札（新しい版、使用中）、hasBefore は「更新の前に」の節があるか、open ははじめから開いておくかである。
+ */
+export type UpdateNoteRow = { version: string; tag: string | null; hasBefore: boolean; open: boolean; body: string };
 
 /**
  * 設定の「更新」の節。
@@ -29,12 +49,19 @@ export type UpdateSectionProps = {
   version: { title: string; sub: string; checkLabel: string; checkDisabled: boolean };
   pending: { title: string; detail: string | null; progress: UpdateProgress | null; actions: UpdateAct[] } | null;
   notify: { on: boolean; desc: string };
+  notesTitle: string; beforeLabel: string; notes: UpdateNoteRow[];
   tocState: string;
 };
 
 const DOWNLOAD: UiAction = { type: 'update.download' };
 const INSTALL: UiAction = { type: 'update.install' };
 const DISMISS: UiAction = { type: 'update.dismiss' };
+const READ_NOTES: UiAction = { type: 'nav.go', to: { name: 'settings', at: 'update' } };
+
+/** 見つけた版のノート。目録にノートが無いか、版が食い違えば null。 */
+function foundNote(u: UpdateState, version: string): ReleaseNote | null {
+  return u.foundNotes && u.foundNotes.version === version ? parseNote(version, u.foundNotes.text) : null;
+}
 
 const reasonText = (t: Translate, r: UpdateFailReason): string => t(`update.reason.${r}`);
 
@@ -70,17 +97,60 @@ export function presentUpdateCard(store: Store): UpdateCardProps | null {
   const t = translatorOf(store);
   const text = pendingText(t, store, u, p);
   if (!text) return null;
+  const none = { beforeLabel: t('update.notes.before'), before: null, points: [] };
   switch (p.kind) {
-    case 'available':
-      return { kind: 'available', tone: 'info', head: t('update.card.headAvailable'), ...text, actions: [{ label: t('update.card.download'), action: DOWNLOAD, primary: true }, { label: t('update.card.later'), action: DISMISS, primary: false }] };
-    case 'downloading': return { kind: 'downloading', tone: 'info', head: t('update.card.headDownloading'), ...text, actions: [] };
-    case 'installing': return { kind: 'installing', tone: 'info', head: t('update.card.headInstalling'), ...text, actions: [] };
+    case 'available': {
+      const note = foundNote(u, p.version);
+      const acts: UpdateAct[] = [{ label: t('update.card.download'), action: DOWNLOAD, primary: true }, { label: t('update.card.later'), action: DISMISS, primary: false }];
+      return {
+        kind: 'available', tone: 'info', head: t('update.card.headAvailable'), ...text,
+        ...none, before: note?.before ?? null, points: note?.points.slice(0, CARD_POINTS) ?? [],
+        actions: note ? [{ label: t('update.card.readNotes'), action: READ_NOTES, primary: false, link: true }, ...acts] : acts,
+      };
+    }
+    case 'downloading': return { kind: 'downloading', tone: 'info', head: t('update.card.headDownloading'), ...text, ...none, actions: [] };
+    case 'installing': return { kind: 'installing', tone: 'info', head: t('update.card.headInstalling'), ...text, ...none, actions: [] };
     case 'ready':
-      return { kind: 'ready', tone: 'ok', head: t('update.card.headReady'), ...text, actions: [{ label: t('update.card.restart'), action: INSTALL, primary: true }, { label: t('update.card.later'), action: DISMISS, primary: false }] };
+      return { kind: 'ready', tone: 'ok', head: t('update.card.headReady'), ...text, ...none, actions: [{ label: t('update.card.restart'), action: INSTALL, primary: true }, { label: t('update.card.later'), action: DISMISS, primary: false }] };
     case 'failed':
-      return { kind: 'failed', tone: 'err', head: t('update.card.headFailed'), ...text, actions: [{ label: t('update.card.retry'), action: DOWNLOAD, primary: true }, { label: t('common.button.close'), action: DISMISS, primary: false }] };
+      return { kind: 'failed', tone: 'err', head: t('update.card.headFailed'), ...text, ...none, actions: [{ label: t('update.card.retry'), action: DOWNLOAD, primary: true }, { label: t('common.button.close'), action: DISMISS, primary: false }] };
     default: return null;
   }
+}
+
+/** 更新したあとの札。知らせるノートが無ければ null。 */
+export function presentWhatsNew(store: Store): WhatsNewCardProps | null {
+  const notes = whatsNew(store.update);
+  const latest = notes[0];
+  if (!latest) return null;
+  const t = translatorOf(store);
+  const older = notes.slice(1).map((n) => n.version);
+  return {
+    head: t('update.whatsNew.head'), title: t('update.whatsNew.title', { version: latest.version }),
+    beforeLabel: t('update.notes.before'), before: notes.find((n) => n.before !== null)?.before ?? null,
+    points: notes.flatMap((n) => n.points).slice(0, CARD_POINTS),
+    sub: older.length > 0 ? t('update.whatsNew.includes', { versions: older.join('、') }) : null,
+    actions: [
+      { label: t('common.button.close'), action: { type: 'update.notesClose' }, primary: false },
+      { label: t('update.whatsNew.readAll'), action: { type: 'update.notesRead' }, primary: true },
+    ],
+  };
+}
+
+/**
+ * 節に並べるノート。見つけた版（目録にノートがあるとき）を先頭に、同梱のノートのうちいまの版までを新しい順に置く。
+ * はじめから開くのは、見つけた版と、更新後の札で見せた版（無ければいまの版）である。
+ */
+function noteRows(t: Translate, u: UpdateState): UpdateNoteRow[] {
+  const v = phaseVersion(u.phase);
+  const found = v !== null && (u.current === null || compareVersions(v, u.current) > 0) ? foundNote(u, v) : null;
+  const open = new Set(u.notesOpen.length > 0 ? u.notesOpen : u.current !== null ? [u.current] : []);
+  const rows: UpdateNoteRow[] = found ? [{ version: found.version, tag: t('update.notes.next'), hasBefore: found.before !== null, open: true, body: found.body }] : [];
+  for (const n of u.notes) {
+    if (u.current !== null && compareVersions(n.version, u.current) > 0) continue;
+    rows.push({ version: n.version, tag: n.version === u.current ? t('update.notes.inUse') : null, hasBefore: n.before !== null, open: open.has(n.version), body: n.body });
+  }
+  return rows;
 }
 
 /** 節の見出しの札。段階の札を先に、何も起きていなければ知らせのオフ、確認中、最新の順に見る。 */
@@ -119,6 +189,7 @@ export function presentUpdateSection(store: Store, now: number): UpdateSectionPr
     version: { title: versionTitle, sub, checkLabel: checking ? t('update.settings.checking') : t('update.settings.check'), checkDisabled: checking || updateBusy(p) },
     pending: text ? { ...text, actions: acts } : null,
     notify: { on: u.notify, desc: u.notify ? t('update.settings.notifyOn') : t('update.settings.notifyOff') },
+    notesTitle: t('update.notes.title'), beforeLabel: t('update.notes.before'), notes: noteRows(t, u),
     tocState: badge?.text ?? versionTitle,
   };
 }

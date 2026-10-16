@@ -32,6 +32,7 @@ const updateProps = (over: Partial<SettingsProps['update']> = {}): SettingsProps
   supported: true, unsupported: '更新の確認はデスクトップアプリで行います。', badge: { text: '最新', tone: 'ok' },
   version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false },
   pending: null, notify: { on: true, desc: '新しいバージョンが出たら通知します。自動ではインストールしません。' }, tocState: '最新',
+  notesTitle: 'リリースノート', beforeLabel: '更新の前に', notes: [],
   ...over,
 });
 
@@ -1324,5 +1325,22 @@ describe('更新の節', () => {
     mountAt(at('update', { update: updateProps({ supported: false }) }));
     expect(screen.getByText('更新の確認はデスクトップアプリで行います。')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '更新を確認' })).toBeNull();
+  });
+  it('リリースノートを版ごとの行に並べ、開いた版だけ本文を出し、押すと開き閉じする', () => {
+    mountAt(at('update', { update: updateProps({ notes: [
+      { version: '1.4.2', tag: '使用中', hasBefore: false, open: true, body: '## 直したこと\n\n- 直した。' },
+      { version: '1.4.1', tag: null, hasBefore: true, open: false, body: '- 足した。' },
+    ] }) }));
+    expect(screen.getByRole('heading', { name: 'リリースノート' })).toBeInTheDocument();
+    const older = screen.getByRole('button', { name: /1\.4\.1/ });
+    expect(older).toHaveAttribute('aria-expanded', 'false');
+    expect(within(older).getByText('更新の前に')).toBeInTheDocument();
+    expect(screen.getByText('直した。')).toBeInTheDocument();
+    expect(screen.queryByText('足した。')).toBeNull();
+    fireEvent.click(older);
+    expect(older).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('足した。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /1\.4\.2/ }));
+    expect(screen.queryByText('直した。')).toBeNull();
   });
 });

@@ -6,6 +6,8 @@
  * 右下の札（presenters/update.ts）と設定の「更新」の節が、同じ状態から描く。
  */
 
+import { notesBetween, type ReleaseNote } from '../lib/releaseNotes.ts';
+
 /** 失敗の理由。殻が updater の誤りを 4 つに分けて返す（src-tauri/src/updater.rs の failure_kind）。 */
 export type UpdateFailReason = 'network' | 'signature' | 'permission' | 'other';
 export const UPDATE_FAIL_REASONS: readonly UpdateFailReason[] = ['network', 'signature', 'permission', 'other'];
@@ -28,17 +30,22 @@ export type UpdatePhase =
  * checkedAt は最後に確認が済んだ時刻、manual は最後の確認が手動（設定の「更新を確認」）だったか。
  * notify は新しい版を知らせるか（設定のスイッチ）。切ると自動の確認もしない。手動の確認は常に使える。
  * dismissed は札を閉じた版。同じ版の札は 2 度出さない。端末ごとに localStorage に残す。
+ * notes はアプリに同梱したリリースノート（新しい順）、foundNotes は見つけた版のノートで、殻が目録（latest.json の notes）から渡す。
+ * seenNotes は更新後の知らせを閉じた版（端末ごとに localStorage に残す）、notesOpen は設定の履歴で開いておく版（閉じたときに見せていた版）である。
  */
 export type UpdateState = {
   supported: boolean; current: string | null; phase: UpdatePhase; checkedAt: number | null; manual: boolean;
   notify: boolean; dismissed: string | null;
+  notes: ReleaseNote[]; foundNotes: { version: string; text: string } | null; seenNotes: string | null; notesOpen: string[];
 };
 
 export type UpdateEvent =
   | { type: 'supported'; current: string }
-  | { type: 'restore'; dismissed: unknown; notify: unknown }
+  | { type: 'restore'; dismissed: unknown; notify: unknown; seenNotes?: unknown }
+  | { type: 'notes.bundled'; notes: ReleaseNote[] }
+  | { type: 'notes.seen'; open: string[] }
   | { type: 'check.start'; manual: boolean }
-  | { type: 'check.done'; version: string | null; at: number }
+  | { type: 'check.done'; version: string | null; notes?: string | null; at: number }
   | { type: 'check.failed'; reason: UpdateFailReason }
   | { type: 'download.start' }
   | { type: 'download.progress'; done: number; total: number | null }
@@ -50,7 +57,7 @@ export type UpdateEvent =
   | { type: 'notify'; on: boolean };
 
 export function initialUpdate(): UpdateState {
-  return { supported: false, current: null, phase: { kind: 'unknown' }, checkedAt: null, manual: false, notify: true, dismissed: null };
+  return { supported: false, current: null, phase: { kind: 'unknown' }, checkedAt: null, manual: false, notify: true, dismissed: null, notes: [], foundNotes: null, seenNotes: null, notesOpen: [] };
 }
 
 /** その段階が指す版。版の無い段階では null。 */
@@ -72,12 +79,22 @@ export function reduceUpdate(s: UpdateState, e: UpdateEvent): UpdateState {
   switch (e.type) {
     case 'supported': return { ...s, supported: true, current: e.current };
     case 'restore':
-      return { ...s, dismissed: typeof e.dismissed === 'string' ? e.dismissed : null, notify: typeof e.notify === 'boolean' ? e.notify : true };
+      return {
+        ...s, dismissed: typeof e.dismissed === 'string' ? e.dismissed : null, notify: typeof e.notify === 'boolean' ? e.notify : true,
+        seenNotes: typeof e.seenNotes === 'string' ? e.seenNotes : null,
+      };
+    case 'notes.bundled': return { ...s, notes: e.notes };
+    case 'notes.seen': return s.current === null ? s : { ...s, seenNotes: s.current, notesOpen: e.open };
     case 'check.start':
       if (updateBusy(p)) return s;
       return { ...s, phase: { kind: 'checking' }, manual: e.manual };
-    case 'check.done':
-      return { ...s, phase: e.version === null ? { kind: 'latest' } : { kind: 'available', version: e.version }, checkedAt: e.at };
+    case 'check.done': {
+      // 取得の途中に確かめると、殻は途中の版だけを答えてノートを持たない。同じ版なら前のノートを残す。
+      const foundNotes = e.version === null ? null
+        : typeof e.notes === 'string' && e.notes.trim() !== '' ? { version: e.version, text: e.notes }
+          : s.foundNotes?.version === e.version ? s.foundNotes : null;
+      return { ...s, phase: e.version === null ? { kind: 'latest' } : { kind: 'available', version: e.version }, checkedAt: e.at, foundNotes };
+    }
     case 'check.failed':
       return { ...s, phase: { kind: 'failed', step: 'check', version: null, reason: e.reason } };
     case 'download.start': {
@@ -119,4 +136,14 @@ export function cardPhase(s: UpdateState): UpdatePhase | null {
   if (version === null || version === s.dismissed) return null;
   if (p.kind === 'available') return s.notify || s.manual ? p : null;
   return p;
+}
+
+/**
+ * 更新したあとに知らせるノート（新しい順）。知らせないときは空。
+ * 前に知らせを閉じた版より新しく、いまの版までの同梱のノートである。版を飛ばして上げたなら、間の版の分も含む。
+ * 前に閉じた版が無ければ（この仕組みが入って初めて開いた）、いまの版の分だけにする。
+ */
+export function whatsNew(s: UpdateState): ReleaseNote[] {
+  if (s.current === null || s.seenNotes === s.current) return [];
+  return notesBetween(s.notes, s.seenNotes, s.current);
 }
