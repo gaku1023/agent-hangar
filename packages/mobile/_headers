@@ -1,0 +1,6 @@
+# wrangler の assets が読む。build の後に vite.config.ts が dist/_headers へ写す。
+# 画面は同じオリジンの /m/ だけに話す。外のスクリプトも外への通信も許さない（会話から来た文は攻撃者が操れる）。
+/app/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

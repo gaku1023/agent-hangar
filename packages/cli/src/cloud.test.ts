@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
 import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
 import { cliErrorText, DetailedError } from './probe.ts';
-import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
+import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, buildMobileApp, runJoin, runSetupCloud as runSetupCloudReal, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
 import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
@@ -39,8 +39,15 @@ function dirs(): { home: string; cloudDir: string } {
   const cloudDir = path.join(root, 'cloud');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(cloudDir, { recursive: true });
+  // cloudDir の隣に mobile のパッケージがある形（リポジトリの packages/ と同じ並び）。dist/app は建てた後の姿。
+  fs.mkdirSync(path.join(root, 'mobile', 'dist', 'app'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'mobile', 'package.json'), '{"name":"@agent-hangar/mobile"}');
+  fs.writeFileSync(path.join(root, 'mobile', 'dist', 'app', 'index.html'), '<!doctype html>');
   return { home, cloudDir };
 }
+
+/** 本物の vite を走らせない。呼ばれたことだけを覚える建て役を既定にして runSetupCloud を呼ぶ。 */
+const runSetupCloud: typeof runSetupCloudReal = (o) => runSetupCloudReal({ buildMobile: async () => {}, ...o });
 
 type Script = Record<string, (args: string[], input?: string) => ExecResult>;
 
@@ -1458,7 +1465,7 @@ describe('setup cloud の書く wrangler の設定', () => {
   it('互換の日付と旗、D1 と R2 の束縛の名前が、同梱する束縛の定義（packages/cloud/wrangler.jsonc から作る）とそろっている', () => {
     // 片方だけ変えると、wrangler で上げた Worker と、段 5 で同梱の定義から上げる Worker が食い違う。
     const { home } = dirs();
-    const file = writeWranglerConfig(home, { name: 'hangar', main: '/x/src/index.ts', dbName: 'hangar', dbId: DB_ID, bucketName: 'hangar-files' });
+    const file = writeWranglerConfig(home, { name: 'hangar', main: '/x/src/index.ts', dbName: 'hangar', dbId: DB_ID, bucketName: 'hangar-files', assetsDir: '/x/mobile/dist' });
     const cfg = JSON.parse(fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')) as {
       compatibility_date: string;
       compatibility_flags: string[];
@@ -1717,5 +1724,87 @@ describe('cloudStatus の同期が off のとき', () => {
       }) as typeof fetch;
     expect(await cloudStatus({ home, fetch: f('off') })).toContain('アプリを終了して開き直すと同期が始まります');
     expect(await cloudStatus({ home, fetch: f('idle') })).not.toContain('開き直すと');
+  });
+});
+
+describe('スマホの画面の配信（wrangler の assets と、配備の前の build）', () => {
+  const readCfg = (home: string): { assets?: { directory?: string; run_worker_first?: unknown; not_found_handling?: unknown } } =>
+    JSON.parse(fs.readFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), 'utf8').replace(/^\s*\/\/.*$/gm, ''));
+
+  it('書いた wrangler.jsonc の assets.directory が mobile の dist を指す（Worker より先に静的ファイルを当てるので run_worker_first は置かない）', () => {
+    const { home } = dirs();
+    const dist = path.resolve(os.tmpdir(), 'x', 'mobile', 'dist');
+    writeWranglerConfig(home, { name: 'hangar', main: '/x/src/index.ts', dbName: 'hangar', dbId: DB_ID, bucketName: 'hangar-files', assetsDir: dist });
+    expect(readCfg(home).assets).toEqual({ directory: dist });
+  });
+
+  it('配備の前に mobile を build し、dist を assets に渡して deploy する（dist が無くても build が作る）', async () => {
+    const { home, cloudDir } = dirs();
+    const mobileDir = path.join(cloudDir, '..', 'mobile');
+    fs.rmSync(path.join(mobileDir, 'dist'), { recursive: true });
+    const events: string[] = [];
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => {
+        events.push('deploy');
+        return ok('https://hangar.example.workers.dev');
+      },
+      'secret put JOIN_SECRET_HASH': () => ok(),
+    });
+    await runSetupCloudReal({
+      home,
+      device,
+      wrangler: w.runner(null, cloudDir),
+      fetch: fakeFetch(0).fetch,
+      sleep: async () => {},
+      cloudDir,
+      log: () => {},
+      skipUsageToken: true,
+      buildMobile: async (dir) => {
+        events.push(`build ${path.basename(dir)}`);
+        fs.mkdirSync(path.join(dir, 'dist', 'app'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'dist', 'app', 'index.html'), '<!doctype html>');
+      },
+    });
+    expect(events).toEqual(['build mobile', 'deploy']);
+    expect(readCfg(home).assets?.directory).toBe(path.resolve(mobileDir, 'dist'));
+  });
+
+  it('build が済んでも dist/app/index.html が無ければ、資源を作る前に止まる（空の assets を配備しない）', async () => {
+    const { home, cloudDir } = dirs();
+    fs.rmSync(path.join(cloudDir, '..', 'mobile', 'dist'), { recursive: true });
+    const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
+    await expect(
+      runSetupCloudReal({ home, device, wrangler: w.runner(null, cloudDir), cloudDir, log: () => {}, buildMobile: async () => {} }),
+    ).rejects.toThrow(/index\.html/);
+    expect(w.calls.some((c) => c.args[0] === 'deploy' || c.args[0] === 'd1')).toBe(false);
+  });
+
+  it('mobile の源が cloud の隣に無ければ、clone を案内して止まる', async () => {
+    const { home, cloudDir } = dirs();
+    fs.rmSync(path.join(cloudDir, '..', 'mobile'), { recursive: true });
+    const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
+    await expect(runSetupCloudReal({ home, device, wrangler: w.runner(null, cloudDir), cloudDir, log: () => {} })).rejects.toThrow(/mobile/);
+    expect(w.calls).toEqual([]);
+  });
+
+  it('buildMobileApp は node で vite の build を mobile の中で走らせる（シェルを通さない。Windows でも同じ）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mobile-'));
+    temps.push(root);
+    const vite = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
+    const calls: { cmd: string; args: string[]; cwd: string }[] = [];
+    await buildMobileApp(root, {
+      resolveVite: () => vite,
+      exec: async (cmd, args, o) => {
+        calls.push({ cmd, args, cwd: o.cwd });
+        return ok();
+      },
+    });
+    expect(calls).toEqual([{ cmd: process.execPath, args: [vite, 'build'], cwd: root }]);
+    await expect(
+      buildMobileApp(root, { resolveVite: () => 'vite.js', exec: async () => ({ code: 1, stdout: '', stderr: 'boom' }) }),
+    ).rejects.toThrow(/boom/);
   });
 });
