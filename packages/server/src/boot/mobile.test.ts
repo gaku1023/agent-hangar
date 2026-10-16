@@ -10,7 +10,7 @@ import { FEED_DEBOUNCE_MS, FEED_SAFETY_MS, mobileKeyFor } from '../mobile/publis
 import type { CloudClient } from '../sync/client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { bootMobile } from './mobile.ts';
+import { ANSWER_RESEND_TICK_MS, bootMobile } from './mobile.ts';
 
 const SECRET = 'join-secret-for-tests-0123456789abcdef';
 
@@ -188,6 +188,23 @@ describe('bootMobile', () => {
       expect(s.client.calls.filter((c) => c.method === 'claimLaunch')).toHaveLength(0);
       expect(s.client.launches.get('l1')!.status).toBe('pending');
       s.mobile.stop();
+    });
+
+    it('答えを送れなかった依頼は、送り直しの見回り（ANSWER_RESEND_TICK_MS）で控えた答えを送り直す', async () => {
+      const s = setup();
+      placeProject(s.db);
+      s.mobile.start();
+      const answer = vi.spyOn(s.client, 'answerLaunch').mockRejectedValueOnce(new Error('offline'));
+      await deliver(s, 'l1');
+      await settle(() => answer.mock.calls.length === 1);
+      await new Promise((r) => { setTimeout(r, 10); });
+      expect(s.client.launches.get('l1')!.status).toBe('claimed');
+      await s.timers.advance(ANSWER_RESEND_TICK_MS);
+      await settle(() => s.client.launches.get('l1')!.status === 'started');
+      expect(s.start).toHaveBeenCalledTimes(1);
+      expect(await answerOf(s, 'l1')).toMatchObject({ ok: true, sessionId: 's-new' });
+      s.mobile.stop();
+      expect(s.timers.pendingCount()).toBe(0);
     });
 
     it('engine が組み直されたら新しい engine を購読し直し、止めたら購読を外す', async () => {

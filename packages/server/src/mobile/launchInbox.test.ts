@@ -4,7 +4,7 @@ import { openDb } from '../db/open.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import type { CloudClient } from '../sync/client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { MobileLaunchInbox } from './launchInbox.ts';
+import { ANSWER_RESEND_WINDOW_MS, MobileLaunchInbox } from './launchInbox.ts';
 import { mobileKeyFor } from './publisher.ts';
 
 const SECRET = 'join-secret-for-tests-0123456789abcdef';
@@ -40,10 +40,10 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult } = {}) {
 }
 
 describe('MobileLaunchInbox', () => {
-  it('mobile_launches の表がある（版 29）', () => {
+  it('mobile_launches の表がある（版 29、答えの控えは版 31）', () => {
     const db = openDb(':memory:');
     const cols = (db.prepare("select name from pragma_table_info('mobile_launches')").all() as { name: string }[]).map((r) => r.name);
-    expect(cols).toEqual(['id', 'handled_at', 'result']);
+    expect(cols).toEqual(['id', 'handled_at', 'result', 'sealed_answer', 'ok', 'answered']);
   });
 
   it('正しい依頼で start が 1 回呼ばれ、答えに sessionId が入る', async () => {
@@ -163,6 +163,73 @@ describe('MobileLaunchInbox', () => {
     await inbox.receive(l);
     expect(start).toHaveBeenCalledTimes(1);
     expect(answer).toHaveBeenCalledTimes(1);
+  });
+
+  it('答えを送れなかったら、封じた答えを控え、resendAnswers で同じ封のまま送り直す', async () => {
+    const { cloud, start, inbox, post, answerOf, db } = setup();
+    const answer = vi.spyOn(cloud, 'answerLaunch').mockRejectedValueOnce(new Error('offline'));
+    await inbox.receive(await post('l1', payload()));
+    const row = () => db.prepare('select sealed_answer, ok, answered from mobile_launches where id = ?').get('l1') as { sealed_answer: string | null; ok: number; answered: number };
+    expect(row()).toMatchObject({ ok: 1, answered: 0 });
+    const sealed = row().sealed_answer;
+    expect(sealed).toBeTruthy();
+    expect(cloud.launches.get('l1')!.status).toBe('claimed');
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(2);
+    expect(answer.mock.calls[1]).toEqual(['l1', true, sealed]);
+    expect(cloud.launches.get('l1')!.status).toBe('started');
+    expect(await answerOf('l1')).toMatchObject({ ok: true, sessionId: 's-new' });
+    expect(row().answered).toBe(1);
+    // 届いた答えはもう送らない。会話も二度起こさない。
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('届いた答えは answered にし、送り直さない', async () => {
+    const { cloud, inbox, post, db } = setup();
+    await inbox.receive(await post('l1', payload()));
+    expect((db.prepare('select answered from mobile_launches where id = ?').get('l1') as { answered: number }).answered).toBe(1);
+    const answer = vi.spyOn(cloud, 'answerLaunch');
+    await inbox.resendAnswers();
+    expect(answer).not.toHaveBeenCalled();
+  });
+
+  it('送り直しが 409（もう答えた、時間切れ）なら answered にして、それ以上送らない', async () => {
+    const { cloud, inbox, post, db } = setup();
+    const answer = vi.spyOn(cloud, 'answerLaunch').mockRejectedValueOnce(new Error('offline'));
+    await inbox.receive(await post('l1', payload()));
+    // Worker ではもう claimed でない（ほかの経路で答えが届いた）。
+    cloud.launches.get('l1')!.status = 'started';
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(2);
+    expect((db.prepare('select answered from mobile_launches where id = ?').get('l1') as { answered: number }).answered).toBe(1);
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(2);
+  });
+
+  it('送り直しが通信で倒れたら、次の回にもう一度送る。扱ってから 10 分を過ぎたら送らない', async () => {
+    const { cloud, inbox, post, setNow } = setup();
+    const answer = vi.spyOn(cloud, 'answerLaunch').mockRejectedValueOnce(new Error('offline')).mockRejectedValueOnce(new Error('offline'));
+    await inbox.receive(await post('l1', payload()));
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(2);
+    setNow(T0 + ANSWER_RESEND_WINDOW_MS + 1);
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(2);
+    expect(ANSWER_RESEND_WINDOW_MS).toBe(10 * 60_000);
+  });
+
+  it('扱ってよくないあいだは答えを送り直さない', async () => {
+    const { cloud, inbox, post, setCanProcess } = setup();
+    const answer = vi.spyOn(cloud, 'answerLaunch').mockRejectedValueOnce(new Error('offline'));
+    await inbox.receive(await post('l1', payload()));
+    setCanProcess(false);
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(1);
+    setCanProcess(true);
+    await inbox.resendAnswers();
+    expect(answer).toHaveBeenCalledTimes(2);
   });
 
   it('claim が通信で失敗した依頼は記録せず、次の receive でもう一度試す', async () => {

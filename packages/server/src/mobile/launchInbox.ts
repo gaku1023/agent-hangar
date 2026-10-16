@@ -17,11 +17,14 @@ import {
 import type { Db } from '../db/open.ts';
 import { displayName } from '../db/queries.ts';
 import type { LaunchResult } from '../runs/manager.ts';
-import type { CloudClient } from '../sync/client.ts';
+import { CloudError, type CloudClient } from '../sync/client.ts';
 import { mobileKeyFor } from './publisher.ts';
 
 /** スマホと PC の時計のずれを見込んで、TTL に足す余裕。Worker は TTL を過ぎた依頼を claim させないので、これは時計の狂った依頼への備えである。 */
 export const LAUNCH_CLOCK_SLACK_MS = 5 * 60_000;
+
+/** 答えを送れなかった依頼を送り直す長さ（扱った時刻から）。スマホは 80 秒で待つのをやめるが、受信箱の確かめのために少し長く送る。 */
+export const ANSWER_RESEND_WINDOW_MS = 10 * 60_000;
 
 type FailReason = Extract<MobileLaunchAnswer, { ok: false }>['reason'];
 
@@ -83,9 +86,11 @@ const kindOf = (e: unknown): string => {
  *
  * 1 件の扱いの順は、手元の記録（mobile_launches）にあれば何もしない、Worker で claim できなければ何もしない、
  * 開封する（開けなければ bad-payload）、時間切れを見る（expired）、プロジェクトとアカウントを確かめる、起こす、記録する、答える、である。
- * 記録は答えより先に書く。答えを送れなくても、同じ依頼を二度起こさない（スマホは時間切れと言う）。
+ * 記録は答えより先に書く。答えを送れなくても、同じ依頼を二度起こさない。
+ * 記録には封じた答えも控える。送れなかった答えは resendAnswers が、扱ってから ANSWER_RESEND_WINDOW_MS のあいだ同じ封のまま送り直す。
+ * Worker が受け取るか、409（もう答えた、ほかの PC 宛て、無い ID）を返したら answered にして、それ以上送らない。
  * claim が通信で倒れたときは記録しないので、次の pull でもう一度試す（Worker で受け取れていれば 409 で止まる）。
- * receive は 1 本ずつ順に走らせる。並行に 2 回呼んでも、同じ依頼を 2 度扱わない。
+ * receive と resendAnswers は 1 本ずつ順に走らせる。並行に 2 回呼んでも、同じ依頼を 2 度扱わない。
  */
 export class MobileLaunchInbox {
   private tail: Promise<unknown> = Promise.resolve();
@@ -93,9 +98,40 @@ export class MobileLaunchInbox {
   constructor(private readonly deps: MobileLaunchInboxDeps) {}
 
   receive(l: MobileLaunchOut[]): Promise<void> {
-    const p = this.tail.then(() => this.receiveOnce(l));
+    return this.queue(() => this.receiveOnce(l));
+  }
+
+  /** 答えを送れなかった依頼に、控えた答えを送り直す。扱ってよくないあいだは何もしない。投げない。 */
+  resendAnswers(): Promise<void> {
+    return this.queue(() => this.resendOnce());
+  }
+
+  private queue(fn: () => Promise<void>): Promise<void> {
+    const p = this.tail.then(fn);
     this.tail = p.catch(() => undefined);
     return p;
+  }
+
+  private async resendOnce(): Promise<void> {
+    const { client, db, now } = this.deps;
+    if (!this.deps.canProcess() || !client.answerLaunch) return;
+    const rows = db
+      .prepare('select id, ok, sealed_answer from mobile_launches where answered = 0 and sealed_answer is not null and handled_at >= ? order by handled_at')
+      .all(now() - ANSWER_RESEND_WINDOW_MS) as { id: string; ok: number; sealed_answer: string }[];
+    for (const r of rows) await this.sendAnswer(r.id, r.ok === 1, r.sealed_answer);
+  }
+
+  /** 答えを 1 回送る。届いたか、409 でもう受け取れないなら answered にする。ほかの失敗は次の回に送り直す。 */
+  private async sendAnswer(id: string, ok: boolean, sealed: string): Promise<void> {
+    try {
+      await this.deps.client.answerLaunch!(id, ok, sealed);
+    } catch (e) {
+      if (!(e instanceof CloudError && e.status === 409)) {
+        console.error('[mobile] could not send the launch answer; will resend', kindOf(e));
+        return;
+      }
+    }
+    this.deps.db.prepare('update mobile_launches set answered = 1 where id = ?').run(id);
   }
 
   private async receiveOnce(list: MobileLaunchOut[]): Promise<void> {
@@ -127,12 +163,12 @@ export class MobileLaunchInbox {
     const key = await mobileKeyFor(this.deps.joinSecret);
     // 確かめの途中で思わぬ失敗をしても、受け取った依頼は答えずに残さない（claim はもう通らない）。
     const answer = await this.decide(key, l).catch((): MobileLaunchAnswer => ({ ok: false, reason: 'launch-failed' }));
-    this.deps.db.prepare('insert or ignore into mobile_launches (id, handled_at, result) values (?, ?, ?)').run(l.id, now(), answer.ok ? 'started' : answer.reason);
-    try {
-      await client.answerLaunch(l.id, answer.ok, await seal(key, aadAnswer(l.id), answer));
-    } catch (e) {
-      console.error('[mobile] could not send the launch answer', kindOf(e));
-    }
+    // 封じられなくても記録は残す（同じ依頼を二度起こさない）。封の無い行は送り直さない。
+    const sealed = await seal(key, aadAnswer(l.id), answer).catch(() => null);
+    this.deps.db
+      .prepare('insert or ignore into mobile_launches (id, handled_at, result, sealed_answer, ok, answered) values (?, ?, ?, ?, ?, 0)')
+      .run(l.id, now(), answer.ok ? 'started' : answer.reason, sealed, answer.ok ? 1 : 0);
+    if (sealed !== null) await this.sendAnswer(l.id, answer.ok, sealed);
   }
 
   private async decide(key: CryptoKey, l: MobileLaunchOut): Promise<MobileLaunchAnswer> {

@@ -20,6 +20,12 @@ import type { SyncParts } from './sync.ts';
  */
 export const FEED_TABLES: ReadonlySet<string> = new Set(['sessions', 'session_states', 'session_summaries', 'runs', 'project_roots', 'projects', 'session_notes']);
 
+/**
+ * 答えを送れなかった起動の依頼を送り直す見回りの間隔（mobile/launchInbox.ts の resendAnswers）。
+ * スマホは 80 秒で待つのをやめるので、pull の 30 秒より短くする。見るのは手元の表だけで、送るものが無ければ Worker に要求を出さない。
+ */
+export const ANSWER_RESEND_TICK_MS = 10_000;
+
 export type MobileParts = {
   /** 今の受信箱の素の書き手。同期を設定していない、または止めた後は null。 */
   publisher(): MobileFeedPublisher | null;
@@ -45,6 +51,7 @@ type Link = { client: CloudClient; joinSecret: string };
  * engine は cloud.json を拾い直すと別のものになるので、見回りときっかけのたびに今の engine を購読し直す。
  * 依頼を扱うのも canCarryMobile が真のときだけで、版 6 の Worker には claim を送らない。
  * 起こせたら書き手を nudge し、スマホの受信箱に新しい会話を早く出す。
+ * 答えを送れなかった依頼は、ANSWER_RESEND_TICK_MS ごとの見回りで送り直す。
  */
 export function bootMobile(p: {
   home: { db: Db; device: { id: string; name: string } };
@@ -66,6 +73,7 @@ export function bootMobile(p: {
   let stopped = false;
   const offs: (() => void)[] = [];
   let sweep: ReturnType<typeof setInterval> | null = null;
+  let resend: ReturnType<typeof setInterval> | null = null;
 
   const build = () => buildMobileFeed({
     db, deviceId, deviceName: p.home.device.name,
@@ -142,6 +150,11 @@ export function bootMobile(p: {
       // 起動のときに同期が無かった端末で、cloud.json が後から現れたのを拾う見回り。書き手が居れば何もしない。
       sweep = timers.setInterval(() => { try { ensure(); } catch (e) { console.error('[mobile] could not set up the mobile feed', e instanceof Error ? e.constructor.name : typeof e); } }, FEED_SAFETY_MS);
       sweep.unref?.();
+      resend = timers.setInterval(() => {
+        if (!cur || !p.sync.canCarryMobile()) return;
+        void cur.inbox.resendAnswers().catch((e: unknown) => console.error('[mobile] could not resend the launch answers', e instanceof Error ? e.constructor.name : typeof e));
+      }, ANSWER_RESEND_TICK_MS);
+      resend.unref?.();
       // 起動の途中で投げると、サーバの起動そのものが倒れる。kick と同じく拾ってログに残し、見回りで組み直す。
       try { ensure(); } catch (e) { console.error('[mobile] could not set up the mobile feed', e instanceof Error ? e.constructor.name : typeof e); }
     },
@@ -149,7 +162,8 @@ export function bootMobile(p: {
       stopped = true;
       for (const off of offs.splice(0)) off();
       if (sweep) timers.clearInterval(sweep);
-      sweep = null;
+      if (resend) timers.clearInterval(resend);
+      sweep = resend = null;
       sub?.off();
       sub = null;
       cur?.pub.stop();
