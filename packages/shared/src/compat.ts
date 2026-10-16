@@ -26,6 +26,9 @@
  * pull の応答に、解除していない PC の最終確認（peers）と Worker の時刻（now）を添え、端末は他の PC の生存をこれで見る。
  * 端末は runs.heartbeat_at を共有の行に書かなくなる。版 5 の端末は heartbeat で生存を見るので、混ざると 2 分で「応答がありません」になり、二重に起動しうる。
  * そこでこの版だけは、MIN_DEVICE_COMPAT と MIN_WORKER_COMPAT を同時に 6 へ上げ、一斉に切り替える（docs/design.md「互換の版番号」）。
+ * 同じ版 6（0.7.1 で一緒に出す）で、Worker は引き継ぎの頼みと応答の行（共有表 takeovers と takeover_answers）も受け取る。
+ * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ操作になるための表である。
+ * 版 5 までの Worker は、この 2 表の行を含む push を 400 で丸ごと断るが、両方の下限が 6 なので、版 6 の端末がそうした Worker と話すことはない。
  *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
@@ -46,6 +49,14 @@ export const DEVICE_ADMIN_MIN_WORKER_COMPAT = 5;
  * 端末に求める下限（MIN_DEVICE_COMPAT）と MIN_WORKER_COMPAT は、これでは上げない。上げると配備前の Worker を使う端末が全部止まる。
  */
 export const CONFIG_BUNDLE_MIN_WORKER_COMPAT = 3;
+
+/**
+ * 引き継ぎの頼みと応答の行（共有表 takeovers と takeover_answers）を受け取れる Worker の版。
+ * 版 5 までの Worker は、この 2 表の行を含む push を 400 で丸ごと断るので、他の表の同期まで止まる。
+ * 端末は、Worker が名乗る版がこの値に届くまで、この 2 表の行を書かない（CONFIG_BUNDLE_MIN_WORKER_COMPAT と同じ扱い）。
+ * 版 6 で MIN_WORKER_COMPAT も 6 に上げたので、話せる Worker ではいつも届いている。それでも、確かめる口と定数は残す。
+ */
+export const TAKEOVER_MIN_WORKER_COMPAT = 6;
 
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';

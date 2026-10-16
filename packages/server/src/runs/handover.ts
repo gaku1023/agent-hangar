@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ResumeHerePlanDto, ResumeHereReplaceDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { sessionLock } from '../db/queries.ts';
 import { readGitHint } from '../git/hint.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { scratchPlacesOf } from '../projects/scratch.ts';
@@ -296,7 +297,7 @@ export function projectDeviceCount(db: Db, projectId: string): number {
  * 「この PC で再開」の確認に出すもの（ResumeHerePlanDto）。無いセッションは null。
  * replace は、手元のトランスクリプトをほかの PC の写しで置き換えるかを答える（sync/copy.ts の compareForResume）。渡さなければ null。
  */
-export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, o: { replace?: (sessionId: string) => ResumeHereReplaceDto | null } = {}): ResumeHerePlanDto | null {
+export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, o: { replace?: (sessionId: string) => ResumeHereReplaceDto | null; now?: number } = {}): ResumeHerePlanDto | null {
   const s = db.prepare('select cwd, project_id, last_activity_at, home_device from sessions where id = ? and deleted_at is null').get(sessionId) as { cwd: string; project_id: string | null; last_activity_at: number | null; home_device: string } | undefined;
   if (!s) return null;
   const prev = deviceOfSession(db, sessionId);
@@ -307,5 +308,15 @@ export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, 
     from: { deviceName: prev?.name ?? null, platform: prev?.platform ?? null, path: prevPathOf(db, sessionId, prev, s), lastAt: s.last_activity_at },
     to: { deviceName: self.name, platform: self.platform, path: target?.path ?? null, createsFolder: target?.createsFolder ?? false },
     replace: o.replace?.(sessionId) ?? null,
+    lock: takeoverLock(db, selfDeviceId, sessionId, o.now ?? Date.now()),
   };
+}
+
+/**
+ * ほかの PC の生きたロック（応答が途絶えたものを含む）を、確認の 1 枚に出す形にする。無ければ null。
+ * 相手の run が作業中かどうかは共有の行に載らないので、生きていれば「実行中」とだけ読む。
+ */
+function takeoverLock(db: Db, selfDeviceId: string, sessionId: string, now: number): ResumeHerePlanDto['lock'] {
+  const l = sessionLock(db, selfDeviceId, sessionId, now);
+  return l ? { deviceName: l.deviceName, stale: l.stale, heartbeatAt: l.heartbeatAt } : null;
 }

@@ -55,7 +55,25 @@
 .rh-band > svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
 .rh-band b { display: block; color: var(--st-paused); }
 .rh-band span { color: var(--ink-2); }
+.rh-takeover { color: var(--error); background: color-mix(in srgb, var(--error) 8%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 22%, transparent); }
+.rh-takeover b { color: var(--error); }
 .rh-blocked { font-size: var(--fs-sm); color: var(--ink-2); }
+/* 停止を頼んだあとの 1 枚（試作の B1）。4 つの段、90 秒の目安の細い線、注記。 */
+.rh-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.rh-steps li { display: flex; gap: calc(var(--u) * 2.5); align-items: center; font-size: var(--fs-sm); color: var(--ink-3); }
+.rh-steps li > small { margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.rh-steps li[data-state='done'] { color: var(--ink); }
+.rh-steps li[data-state='active'] { color: var(--ink); font-weight: 600; }
+.rh-mark { position: relative; flex: none; display: grid; place-items: center; box-sizing: border-box; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.rh-mark > svg { width: 12px; height: 12px; }
+.rh-steps li[data-state='done'] .rh-mark { background: var(--st-done); color: #fff; box-shadow: none; }
+.rh-steps li[data-state='active'] .rh-mark { box-shadow: inset 0 0 0 2px var(--accent-soft); }
+/* 進行中の段は、輪の一部を回して待っていることを見せる。 */
+.rh-steps li[data-state='active'] .rh-mark::after { content: ''; position: absolute; inset: 0; box-sizing: border-box; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: rh-spin calc(var(--dur-flash) / 2) linear infinite; }
+@keyframes rh-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rh-steps li[data-state='active'] .rh-mark::after { animation: none; border-color: var(--accent); } }
+.rh-meter { position: relative; height: 4px; border-radius: var(--r-pill); background: var(--line-strong); overflow: hidden; }
+.rh-meter > i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur) linear; }
 .rh-dialog .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 @media (max-width: 560px) {
   .rh-cards { grid-template-columns: minmax(0, 1fr); }

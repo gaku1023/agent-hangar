@@ -10,6 +10,7 @@ import type { StartOptions } from './boot/options.ts';
 import { bootRuns } from './boot/runs.ts';
 import { bootSummary } from './boot/summary.ts';
 import { bootSync } from './boot/sync.ts';
+import { bootTakeover } from './boot/takeover.ts';
 
 export { CLOSE_DEADLINE_MS, STOP_WATCHDOG_MS } from './boot/budget.ts';
 export { VERSION, type StartOptions } from './boot/options.ts';
@@ -100,7 +101,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const runs = bootRuns(home, delivery, listening, { serverDir, launcher: opts.launcher });
   const summary = bootSummary(home, delivery, runs, sync);
   const trash = bootTrash(home, delivery, sync, indexing);
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, opts, serverDir });
+  const takeover = bootTakeover({ home, runs, sync, delivery });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.registry.start();
@@ -112,6 +114,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   home.life.started = true;
   runs.startPresence();
   sync.start();
+  // 引き継ぎの頼みを受ける。同期が始まってから回す。起きていなかった間に届いた頼みと、tmux に残った奪われた claude も、ここで止める。
+  takeover.start();
   // 削除の印の処理（sessions/trash.ts）。索引と紐づけが済んでから回す。起きていなかった間に届いた印も、ここで処理する。
   trash.start();
 
@@ -131,6 +135,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       summary.stopAutoDone();
       runs.stopPresence();
       sync.stopTimers();
+      takeover.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。
       await trash.stop();
       await sync.drain(left);

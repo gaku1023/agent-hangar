@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { recordPeers } from '../sync/peers.ts';
 import { deviceOfSession, handoverFacts, projectDeviceCount, resumeCwd, resumeHerePlan, resumeTarget, scratchFolderName } from './handover.ts';
 
 let db: Db;
@@ -229,7 +230,23 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
       from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: 99 },
       to: { deviceName: 'this-mac', platform: 'darwin', path: here, createsFolder: false },
       replace: null,
+      lock: null,
     });
+  });
+  it('ほかの PC の生きたロックを lock に載せる', () => {
+    const id = session({ cwd: 'D:\\src\\notes-app' });
+    const now = 1_000_000;
+    const hb = now - 10_000;
+    upsertShared(db, 'runs', { id: 'run-live', session_id: id, device_id: 'win', kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: hb }, 'win');
+    recordPeers(db, { selfDeviceId: 'me', peers: [{ id: 'win', lastSeenAt: hb }], workerNow: now, localNow: now });
+    expect(resumeHerePlan(db, 'me', id, { now })?.lock).toEqual({ deviceName: 'work-pc', stale: false, heartbeatAt: hb });
+    // 応答が途絶えた相手は stale。
+    expect(resumeHerePlan(db, 'me', id, { now: hb + 200_000 })?.lock).toMatchObject({ stale: true });
+  });
+  it('ロックが無ければ lock は null', () => {
+    const id = session({ cwd: 'D:\\src\\notes-app' });
+    run(id, 'win', 3);
+    expect(resumeHerePlan(db, 'me', id, { now: 1_000_000 })?.lock).toBeNull();
   });
   it('手元のトランスクリプトを置き換えるときは、その種類と大きさを添える', () => {
     const id = session({ cwd: 'D:\\src\\notes-app', lastAt: 99 });

@@ -5,7 +5,7 @@ import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { sameFolderPairs } from '../projects/registry.ts';
 import { scratchPlacesOf } from '../projects/scratch.ts';
 import { toStateDto } from '../sessions/states.ts';
-import { peerSeenAt, peerStale, readPeers } from '../sync/peers.ts';
+import { peerSeenAt, peerStale, readPeers, type PeerBook } from '../sync/peers.ts';
 import type { Db } from './open.ts';
 
 /** sessions に要約と統計と本文の有無を左結合した 1 行。 */
@@ -155,6 +155,22 @@ export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId
 
 type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number };
 
+const LOCK_SELECT = `
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at
+    from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
+    where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
+
+/** 行をロックにする。lockMap と sessionLock が同じ読み方をする。 */
+function toLock(r: LockRow, peers: PeerBook | null, now: number): SessionLockDto {
+  return {
+    deviceId: r.device_id,
+    deviceName: r.device_name ?? r.device_id,
+    runId: r.run_id,
+    heartbeatAt: peerSeenAt(peers, r.device_id) ?? r.heartbeat_at,
+    stale: peerStale(peers, r.device_id, now),
+  };
+}
+
 /**
  * 他端末で生きている run を、セッションごとに 1 つ拾う。
  * 自端末の run は「実行中」として live に出るので、ロックには含めない。
@@ -165,24 +181,18 @@ type LockRow = { session_id: string; run_id: string; device_id: string; device_n
 function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<string, SessionLockDto> {
   const out = new Map<string, SessionLockDto>();
   if (!selfDeviceId) return out;
-  const rows = db.prepare(`
-    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at
-    from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
-    where r.ended_at is null and r.deleted_at is null and r.device_id <> ?
-    order by r.started_at, r.id`).all(selfDeviceId) as LockRow[];
+  const rows = db.prepare(`${LOCK_SELECT} order by r.started_at, r.id`).all(selfDeviceId) as LockRow[];
   if (rows.length === 0) return out;
   const peers = readPeers(db);
   // 起動の昇順なので、同じセッションでは後から起きた行が残る。
-  for (const r of rows) {
-    out.set(r.session_id, {
-      deviceId: r.device_id,
-      deviceName: r.device_name ?? r.device_id,
-      runId: r.run_id,
-      heartbeatAt: peerSeenAt(peers, r.device_id) ?? r.heartbeat_at,
-      stale: peerStale(peers, r.device_id, now),
-    });
-  }
+  for (const r of rows) out.set(r.session_id, toLock(r, peers, now));
   return out;
+}
+
+/** 1 つのセッションのロック。lockMap と同じ規則（ほかの PC の生きた run のうち最後に起きた 1 件）。無ければ null。 */
+export function sessionLock(db: Db, selfDeviceId: string, sessionId: string, now: number): SessionLockDto | null {
+  const r = db.prepare(`${LOCK_SELECT} and r.session_id = ? order by r.started_at desc, r.id desc limit 1`).get(selfDeviceId, sessionId) as LockRow | undefined;
+  return r ? toLock(r, readPeers(db), now) : null;
 }
 
 /**
@@ -203,6 +213,34 @@ function newerElsewhereSet(db: Db, selfDeviceId: string | undefined): Set<string
         > (select max(t.size) from transcript_files t where t.session_id = l.session_id and t.agent_id is null and t.device_id is null)`)
     .all(selfDeviceId, selfDeviceId) as { session_id: string }[];
   return new Set(rows.map((r) => r.session_id));
+}
+
+/**
+ * ほかの PC に引き継がれた、この PC の会話（SessionDto.takenOver）。
+ * この PC の最後の run（started_at の降順、同じなら id の降順）が taken_over で終わっているものだけ。この PC で後から run を起こせば、最後の run が替わって消える。
+ * PC の名前は、その run を指す takeovers の from_device、無ければその後に始まったほかの PC の run の PC。devices に行が無ければ ID をそのまま使う。どちらの手がかりも無ければ載せない。
+ * PC を渡さなければ空にする。一覧の 1 回の問い合わせで引く（会話ごとには引かない）。
+ */
+function takenOverMap(db: Db, selfDeviceId: string | undefined): Map<string, { deviceName: string; at: number }> {
+  const out = new Map<string, { deviceName: string; at: number }>();
+  if (!selfDeviceId) return out;
+  const rows = db.prepare(`
+    select x.session_id, x.at, x.dev, d.name
+    from (
+      select l.session_id, ifnull(l.ended_at, l.started_at) at,
+        coalesce(
+          (select t.from_device from takeovers t where t.run_id = l.id and t.deleted_at is null order by t.requested_at desc limit 1),
+          (select r2.device_id from runs r2 where r2.session_id = l.session_id and r2.deleted_at is null and r2.device_id <> ? and r2.started_at > l.started_at order by r2.started_at, r2.id limit 1)
+        ) dev
+      from (
+        select r.*, row_number() over (partition by r.session_id order by r.started_at desc, r.id desc) n
+        from runs r where r.deleted_at is null and r.device_id = ?
+      ) l
+      where l.n = 1 and l.end_reason = 'taken_over'
+    ) x left join devices d on d.id = x.dev and d.deleted_at is null
+    where x.dev is not null`).all(selfDeviceId, selfDeviceId) as { session_id: string; at: number; dev: string; name: string | null }[];
+  for (const r of rows) out.set(r.session_id, { deviceName: r.name ?? r.dev, at: r.at });
+  return out;
 }
 
 /**
@@ -235,7 +273,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>): SessionDto {
+function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -315,6 +353,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     overlap: live ? overlapOf(r.overlap_payload) : null,
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),
+    takenOver: taken.get(r.id) ?? null,
   };
 }
 
@@ -365,14 +404,15 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const runStarts = aliveRunStarts(db, opts.deviceId);
   const parking = parkingOn(db);
   const newer = newerElsewhereSet(db, opts.deviceId);
-  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking, newer));
+  const taken = takenOverMap(db, opts.deviceId);
+  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking, newer, taken));
 }
 
 export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
   if (!r) return null;
   const now = opts.now ? opts.now() : Date.now();
-  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId));
+  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId));
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */

@@ -21,7 +21,19 @@ export class PtyRelay {
   private wss = new WebSocketServer({ noServer: true });
   /** 接続と、その接続が抱えている tmux attach の pty。close で確実に回収するために紐づけて持つ。 */
   private clients = new Map<WebSocket, PtyProcess>();
+  /** 接続ごとの tmux 名。note が宛先の画面に attach している接続を引くために持つ。 */
+  private names = new Map<WebSocket, string>();
   constructor(private readonly deps: Deps) {}
+
+  /**
+   * その tmux 名に attach している接続へ、端末に 1 行を差し込む。
+   * claude を止める前に理由を残すために使う。attach している接続が無ければ何も起きない。
+   */
+  note(tmuxName: string, text: string): void {
+    for (const [ws, name] of this.names) {
+      if (name === tmuxName && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'data', d: '\r\n' + text + '\r\n' }));
+    }
+  }
 
   /** Settings で tmuxPath が変わったときに差し替える。既に attach している接続はそのまま残る。 */
   setTmux(tmux: Tmux | MuxServers | null): void {
@@ -68,6 +80,7 @@ export class PtyRelay {
       return;
     }
     this.clients.set(ws, p);
+    this.names.set(ws, tmuxName);
     p.onData((d) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'data', d })); });
     p.onExit(() => {
       if (ws.readyState === ws.OPEN) ws.close(1000, 'exited');
@@ -80,7 +93,7 @@ export class PtyRelay {
       else if (m.t === 'data' && typeof m.d === 'string') p.write(m.d);
     });
     // 殺すのは attach しているクライアントだけで、tmux セッションはそのまま残す。
-    ws.on('close', () => { this.clients.delete(ws); killQuietly(p); });
+    ws.on('close', () => { this.clients.delete(ws); this.names.delete(ws); killQuietly(p); });
   }
 
   clientCount(): number { return this.clients.size; }
@@ -93,6 +106,7 @@ export class PtyRelay {
   close(): void {
     const entries = [...this.clients];
     this.clients.clear();
+    this.names.clear();
     this.wss.close();
     if (entries.length === 0) return;
     let pending = entries.length;

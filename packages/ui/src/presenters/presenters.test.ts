@@ -25,7 +25,7 @@ const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -75,26 +75,26 @@ describe('format', () => {
 describe('presentConfirm', () => {
   it('一覧から削除する確認には、プロジェクトの名前と未分類に戻るセッションの数を添える', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'alpha' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 }, accountName: null });
+    expect(presentConfirm(state, storeWith(), NOW)).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 }, accountName: null });
   });
   it('プロジェクトが store から消えていれば id を名前にし、数は 0 にする', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'gone' } } };
-    expect(presentConfirm(state, storeWith())?.project).toEqual({ name: 'gone', sessions: 0 });
+    expect(presentConfirm(state, storeWith(), NOW)?.project).toEqual({ name: 'gone', sessions: 0 });
   });
   it('ほかの確認には何も添えず、確認が出ていなければ null', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'adoptSession' as const, sessionId: 's1' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null, accountName: null });
-    expect(presentConfirm(initialState(), storeWith())).toBeNull();
+    expect(presentConfirm(state, storeWith(), NOW)).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null, accountName: null });
+    expect(presentConfirm(initialState(), storeWith(), NOW)).toBeNull();
   });
   it('切り替えと削除の確認には、指すアカウントの名前を添える。一覧に無ければ null', () => {
     const store: Store = { ...storeWith(), accounts: accountsFixture };
     const confirming = (confirm: State['overlay'] extends infer O ? (O extends { kind: 'confirm'; confirm: infer C } ? C : never) : never): State => ({ ...initialState(), overlay: { kind: 'confirm', confirm } });
     const sw = confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true });
-    expect(presentConfirm(sw, store)).toEqual({ confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true }, project: null, accountName: '大学' });
-    expect(presentConfirm(confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'primary', working: false }), store)?.accountName).toBe('会社');
-    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'a1' }), store)).toEqual({ confirm: { kind: 'removeAccount', accountId: 'a1' }, project: null, accountName: '大学' });
-    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'gone' }), store)?.accountName).toBeNull();
-    expect(presentConfirm(sw, storeWith())?.accountName).toBeNull();
+    expect(presentConfirm(sw, store, NOW)).toEqual({ confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'primary', working: false }), store, NOW)?.accountName).toBe('会社');
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'a1' }), store, NOW)).toEqual({ confirm: { kind: 'removeAccount', accountId: 'a1' }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'gone' }), store, NOW)?.accountName).toBeNull();
+    expect(presentConfirm(sw, storeWith(), NOW)?.accountName).toBeNull();
   });
 });
 
@@ -698,9 +698,8 @@ describe('presentSession（見出しの操作、A1）', () => {
     const lock = { deviceId: 'd2', deviceName: 'MacBook-Air', runId: 'r9', heartbeatAt: NOW - 20_000, stale: false };
     store.sessions.s2 = { ...store.sessions.s2!, live: null, lock, remoteOnly: true };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
-    // 生きているロックは横取りさせない（Ruling 14）。
-    // 主の操作は出すが、理由を添えて押せなくする。
-    expect(a.primary).toMatchObject({ id: 'resumeHere', label: 'この PC で再開', disabled: 'MacBook-Air で実行中です。停止するか応答が無くなると選択できます' });
+    // 生きているロックでも「この PC で再開」は押せる。押すと、停止して引き継ぐ確認の 1 枚が出る。
+    expect(a.primary).toMatchObject({ id: 'resumeHere', label: 'この PC で再開', disabled: null });
     expect(ids(a)).toEqual(['resume', 'fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
     expect(a.menu[0]!.disabled).toBe('MacBook-Air で実行中です');
     expect(a.menu[1]!.disabled).toBe('MacBook-Air で実行中です');
@@ -1596,7 +1595,7 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.remoteOnly).toBe(true);
     expect(p.canResume).toBe(false);
     expect(p.canFork).toBe(false);
-    expect(p.canResumeHere).toBe(false);
+    expect(p.canResumeHere).toBe(true);
   });
   it('heartbeat が途絶えたロックは応答がありませんと見せ、この PC で再開だけを開ける（Ruling 14）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ heartbeatAt: NOW - 600_000, stale: true }) }) } };
@@ -1611,11 +1610,11 @@ describe('セッションのロック（フェーズ 4）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true, transcriptMtime: null }) } };
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canFork: false, canResumeHere: true });
   });
-  it('生きているロックでは、写しの有無にかかわらずこの PC で再開を閉じる', () => {
+  it('生きているロックでも、写しの有無にかかわらずこの PC で再開を開ける（停止して引き継ぐ）', () => {
     const local: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }) }) } };
-    expect(presentSession(initialState(), local, NOW, 's1').canResumeHere).toBe(false);
+    expect(presentSession(initialState(), local, NOW, 's1').canResumeHere).toBe(true);
     const remote: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }), remoteOnly: true, transcriptMtime: null }) } };
-    expect(presentSession(initialState(), remote, NOW, 's1').canResumeHere).toBe(false);
+    expect(presentSession(initialState(), remote, NOW, 's1').canResumeHere).toBe(true);
   });
   it('写しだけで誰も動かしていなければ、この PC で再開ができる', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: null, remoteOnly: true, transcriptMtime: null }) } };

@@ -1,6 +1,6 @@
 import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -174,6 +174,10 @@ export type ApiClient = {
   resumeHere(sessionId: string, overwrite: boolean): Promise<LaunchResultDto>;
   /** 「この PC で再開」の確認に出すもの。 */
   resumeHerePlan(sessionId: string): Promise<ResumeHerePlanDto>;
+  /** ほかの PC で動く会話の引き継ぎ。start は停止を頼む（force は応答のない相手を頼まずに引き継ぐ）、extend は打ち切りを延ばす、cancel は取り下げる。応答の段は takeover.update と同じ形。 */
+  takeoverStart(sessionId: string, force: boolean): Promise<TakeoverDto>;
+  takeoverExtend(sessionId: string): Promise<TakeoverDto>;
+  takeoverCancel(sessionId: string): Promise<void>;
   /** 全セッションの読み書き権を持つ秘密なので、押したときだけ取りに行く。 */
   joinToken(): Promise<{ token: string | null }>;
   /** Worker の PC の一覧（参加日、解除日、最後に同期した IP と場所）。解除と参加の口は HTTP に無い（殻の命令だけ）。 */
@@ -324,6 +328,9 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     syncFocus: () => post('/api/sync/focus'),
     resumeHere: (sessionId, overwrite) => post(`/api/sessions/${sessionId}/resume-here`, { overwrite }),
     resumeHerePlan: (sessionId) => call(`/api/sessions/${sessionId}/resume-here`),
+    takeoverStart: (sessionId, force) => post(`/api/sessions/${sessionId}/takeover`, { force }),
+    takeoverExtend: (sessionId) => post(`/api/sessions/${sessionId}/takeover/extend`),
+    takeoverCancel: (sessionId) => call(`/api/sessions/${sessionId}/takeover`, { method: 'DELETE' }),
     joinToken: () => call('/api/sync/joinToken'),
     cloudDevices: () => call('/api/sync/cloud-devices'),
     configSyncState: () => call('/api/config-sync'),

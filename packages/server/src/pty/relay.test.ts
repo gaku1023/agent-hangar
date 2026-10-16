@@ -114,6 +114,23 @@ describe('PtyRelay（偽の spawn）', () => {
     await waitFor(() => f.procs[0]!.killed, 3000);
     stalled.destroy();
   });
+  it('note はその tmux 名に attach している接続にだけ 1 行を送る', async () => {
+    const f = fakeSpawn();
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: (t) => (t === 't1' ? 'hangar-a' : 'hangar-b'), spawn: f.spawn });
+    await listen(relay);
+    const one = await connect('tab=t1');
+    const two = await connect('tab=t2');
+    await waitFor(() => relay.clientCount() === 2);
+    relay.note('hangar-a', '[hangar] x');
+    await waitFor(() => one.msgs.length === 1);
+    expect(one.msgs).toContainEqual({ t: 'data', d: '\r\n[hangar] x\r\n' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(two.msgs).not.toContainEqual({ t: 'data', d: '\r\n[hangar] x\r\n' });
+    // 誰も attach していない名前には何も起きない。
+    expect(() => relay.note('hangar-none', 'x')).not.toThrow();
+    one.ws.close(); two.ws.close();
+  });
   it('attach の前に、tmux に OSC 52 を外へ通させる', async () => {
     const f = fakeSpawn();
     relay.close(); await new Promise<void>((r) => server.close(() => r()));

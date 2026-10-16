@@ -143,7 +143,7 @@ describe('ホームの帯の行のメニュー（BandRowView）', () => {
 });
 
 const NOW = new Date(2026, 9, 16, 12, 0).getTime();
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'ログイン画面の直し', cwd: '/Users/me/src/app', firstPrompt: null, aiTitle: null, startedAt: NOW, lastActivityAt: NOW, hasTranscript: true, live: null, summary: null, stats: { turns: 12, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...over });
+const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'ログイン画面の直し', cwd: '/Users/me/src/app', firstPrompt: null, aiTitle: null, startedAt: NOW, lastActivityAt: NOW, hasTranscript: true, live: null, summary: null, stats: { turns: 12, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...over });
 const project = (id: string, name: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name, status: 'active', isScratch: false, path: `/Users/me/src/${name}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: null, ...over });
 const store = (): Store => ({
   ...initialStore(), home: '/Users/me', sessions: { s1: session() },
@@ -252,7 +252,7 @@ describe('削除の確認（3A）', () => {
   const mountDelete = () => {
     const onAction = vi.fn<(i: UiAction) => void>();
     const state: State = { ...initialState(), overlay: { kind: 'confirm', confirm: { kind: 'deleteSession', sessionId: 's1' } } };
-    render(<ActionRoot onAction={onAction}><ConfirmDialog {...presentConfirm(state, store())!} /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><ConfirmDialog {...presentConfirm(state, store(), Date.now())!} /></ActionRoot>);
     return onAction;
   };
   it('見出し、所属とターンの 1 行、本文を出し、初めのフォーカスはキャンセル', () => {
@@ -273,7 +273,7 @@ describe('削除の確認（3A）', () => {
   });
   it('英語の画面では英語の文にする', () => {
     const state: State = { ...initialState(), overlay: { kind: 'confirm', confirm: { kind: 'deleteSession', sessionId: 's1' } } };
-    const p = presentConfirm(state, { ...store(), settings: { language: 'en' } } as unknown as Store);
+    const p = presentConfirm(state, { ...store(), settings: { language: 'en' } } as unknown as Store, Date.now());
     expect(p?.deleteSession).toEqual({ name: 'ログイン画面の直し', project: 'app', turns: 12 });
     expect(translator('en')('confirm.deleteSession.facts', { project: 'app', n: 12 })).toBe('app · 12 turns');
   });

@@ -21,7 +21,7 @@ const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, 
   hasTranscript: true, live: null, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null },
   summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...over,
+  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...over,
 });
 const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolean; summaryError?: string | null; gone?: boolean } = {}) =>
   presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
@@ -46,6 +46,16 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
  * 画面の試験でも同じ関数で作り、事実と操作が食い違わないようにする。
  */
 const SS = (props: SessionProps) => <SessionScreen {...props} actions={sessionActions(props, ja)} />;
+
+describe('引き継がれた側の 1 行', () => {
+  it('takenOver の 1 行を見出しの下に出し、無ければ出さない', () => {
+    const { container, rerender } = render(<ActionRoot onAction={() => {}}><SS {...base} takenOver="pc-a に引き継がれました（2026-10-16 10:00）。現在は pc-a で実行中です。" /></ActionRoot>);
+    expect(screen.getByText(/に引き継がれました/)).toBeTruthy();
+    expect(container.querySelector('.page-head .session-reason')).not.toBeNull();
+    rerender(<ActionRoot onAction={() => {}}><SS {...base} takenOver={null} /></ActionRoot>);
+    expect(screen.queryByText(/に引き継がれました/)).toBeNull();
+  });
+});
 /** 「…」のメニューを開いて、その中の項目を返す。 */
 const menu = () => { fireEvent.click(screen.getByRole('button', { name: 'ほかの操作' })); return within(screen.getByRole('menu', { name: 'ほかの操作' })); };
 const menuOf = (name: string) => { fireEvent.click(screen.getByRole('button', { name })); return within(screen.getByRole('menu', { name })); };
@@ -717,12 +727,12 @@ describe('SessionScreen のアイコン', () => {
 });
 
 describe('フェーズ 4 のセッション画面', () => {
-  it('他の PC で実行中なら、この PC で再開を主にして理由を添えて止め、再開とフォークもメニューで止める', () => {
+  it('他の PC で実行中なら、この PC で再開を主にして押せるまま、再開とフォークはメニューで止める', () => {
     const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
     render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} canFork={false} lock={lock} badges={[{ kind: 'lock', label: 'mini で実行中', title: '最終確認 1 分前' }]} /></ActionRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAccessibleDescription('mini で実行中です。停止するか応答が無くなると選択できます');
+    // 生きたロックでも「この PC で再開」は押せる（確認の 1 枚で停止して引き継ぐ）。
+    expect(screen.getByRole('button', { name: 'この PC で再開' })).not.toHaveAttribute('aria-disabled', 'true');
     const m = menu();
     expect(m.getByRole('menuitem', { name: /再開/ })).toHaveAttribute('aria-disabled', 'true');
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
@@ -1008,9 +1018,10 @@ describe('SessionScreen（英語）', () => {
     noJapanese();
   });
   it('押せない再開の理由と、本文が消えた会話の注記が英語で出る', () => {
-    const blocked = enProps({ canResume: false, canFork: false, remoteOnly: true, hasTranscript: false });
+    const reason = en('session.action.resumeHereNoRoot');
+    const blocked = enProps({ canResume: false, canFork: false, remoteOnly: true, canResumeHere: true, hasTranscript: false, noRoot: { reason, projectId: 'p1' } });
     const { unmount } = render(<ActionRoot onAction={() => {}}><LanguageRoot language="en"><SessionScreen {...blocked} /></LanguageRoot></ActionRoot>);
-    expect(screen.getAllByText('Running on Another computer. Available once it stops or stops responding').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
     unmount();
     const gone = { note: en('session.gone.note', { period: '30 days' }), canExtend: true, extendTo: 365 };
     render(<ActionRoot onAction={() => {}}><LanguageRoot language="en"><SessionScreen {...enProps({ gone, hasTranscript: false, items: [] })} /></LanguageRoot></ActionRoot>);

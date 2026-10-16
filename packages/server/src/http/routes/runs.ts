@@ -1,6 +1,8 @@
 import type { Hono } from 'hono';
-import { MAX_JUMP_HEADS, PROMPT_HEAD_LEN as HEAD_LEN, type LaunchParams } from '@agent-hangar/shared';
+import { MAX_JUMP_HEADS, PROMPT_HEAD_LEN as HEAD_LEN, type LaunchParams, type TakeoverLockedDto } from '@agent-hangar/shared';
+import { sessionLock } from '../../db/queries.ts';
 import { RunError } from '../../runs/manager.ts';
+import { resumeHereAllowed } from '../../sync/takeover.ts';
 import type { JumpFrom } from '../../provider/claude-code/screen/promptJump.ts';
 import { decodeTerminalRequest } from '../../runs/terminal.ts';
 import { interruptedGroup, setInterruptedDismissed } from '../../runs/interrupted.ts';
@@ -10,7 +12,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { beforeLaunchOf, BODY_LIMITS, externalOf, readJson, runResult, runResultAsync, sessionOf, tooLargeResult } from './common.ts';
 
 /** run の経路が使う依存。 */
-export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'resumeHereReplace' | 'external' | 'token' | 'db' | 'deviceId' | 'live' | 'hub'> & LanguageDeps;
+export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'resumeHereReplace' | 'external' | 'token' | 'db' | 'deviceId' | 'live' | 'hub' | 'takeover'> & LanguageDeps;
 
 /**
  * run の経路。
@@ -25,7 +27,7 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
 
   // 「この PC で再開」の確認に出すもの。前の PC と最後に使った日時、この PC と読み替えた作業ディレクトリ、手元のトランスクリプトを置き換えるかを返す（runs/handover.ts）。
   api.get('/sessions/:id/resume-here', (c) => {
-    const plan = resumeHerePlan(deps.db, deps.deviceId, c.req.param('id'), { replace: deps.resumeHereReplace });
+    const plan = resumeHerePlan(deps.db, deps.deviceId, c.req.param('id'), { replace: deps.resumeHereReplace, now: Date.now() });
     return plan ? c.json(plan) : c.json({ error: tr('session.error.notFound') }, 404);
   });
 
@@ -34,13 +36,54 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const body = (b.value ?? {}) as { overwrite?: unknown };
+    const id = c.req.param('id');
+    // 生きたロックのある会話は、頼まずには引き継げない（sync/takeover.ts）。頼みを運べないまま force で進めた分は、行が無いのでメモリの印で通す。
+    const gate = resumeHereAllowed(deps.db, deps.deviceId, id, Date.now());
+    if (!gate.ok) {
+      const lock = sessionLock(deps.db, deps.deviceId, id, Date.now());
+      if (!lock || !deps.takeover.forcedWithoutRow(id, lock.runId)) {
+        const locked: TakeoverLockedDto = { error: tr('sync.takeover.locked', { device: gate.deviceName }), code: 'locked' };
+        return c.json(locked, 409);
+      }
+    }
     try {
-      const r = deps.resumeHere(c.req.param('id'), body.overwrite === true);
+      const r = deps.resumeHere(id, body.overwrite === true);
       return 'error' in r ? c.json(r, 409) : c.json(r);
     } catch (e) {
       if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
       throw e;
     }
+  });
+
+  // 引き継ぎ。ほかの PC で動く会話を止めてもらい、最後の本文が降りるのを待つ。段の変化は takeover.update で配る。
+  const hasSession = (id: string): boolean => deps.db.prepare('select 1 from sessions where id = ?').get(id) !== undefined;
+  api.post('/sessions/:id/takeover', async (c) => {
+    const id = c.req.param('id');
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const force = ((b.value ?? {}) as { force?: unknown }).force;
+    if (force !== undefined && typeof force !== 'boolean') return c.json({ error: tr('http.request.badShape') }, 400);
+    if (!hasSession(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    // 頼むと相手の claude は停止する。この PC で起こせない（tmux や psmux、claude が無い）なら、頼む前に起動と同じ理由で断る。
+    try {
+      deps.runs.assertCanStart();
+    } catch (e) {
+      if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
+      throw e;
+    }
+    return c.json(deps.takeover.start(id, { force: force === true }));
+  });
+  api.get('/sessions/:id/takeover', (c) => {
+    const t = deps.takeover.get(c.req.param('id'));
+    return t ? c.json(t) : c.json({ error: tr('session.error.notFound') }, 404);
+  });
+  api.post('/sessions/:id/takeover/extend', (c) => {
+    const t = deps.takeover.extend(c.req.param('id'));
+    return t ? c.json(t) : c.json({ error: tr('session.error.notFound') }, 404);
+  });
+  api.delete('/sessions/:id/takeover', (c) => {
+    deps.takeover.cancel(c.req.param('id'));
+    return c.body(null, 204);
   });
 
   // 中断の群の「再開しない」（dismissed が真）と、その取り消し（偽）。新しい群を返し、画面へも配る。

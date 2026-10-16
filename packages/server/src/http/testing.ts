@@ -25,6 +25,7 @@ import { PromoteError } from '../projects/promote.ts';
 import { RunError } from '../runs/manager.ts';
 import { sessionRunsAnywhere } from '../runs/announce.ts';
 import { SessionTrash } from '../sessions/trash.ts';
+import { TakeoverService } from '../sync/takeover.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import type { AccountsDeps } from './accounts.ts';
@@ -77,6 +78,7 @@ export function fakeRuns(): RunsApi {
     }),
     jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この Claude はもう終了しています'); return { found: true as const }; }),
     leaveTranscript: vi.fn(async () => ({ left: true })),
+    assertCanStart: vi.fn(() => {}),
     startFromTerminal: vi.fn((req: { cwd: string; args: string[] }) => { if (req.args.includes('--session-id')) throw new RunError(400, '--session-id を付けた起動は hangar では開けません'); return { ...launched, attached: false }; }),
   };
 }
@@ -138,6 +140,9 @@ export type TestWorld = {
   /** 偽物の口が呼ばれた順（sync.calls と同じ配列）。 */
   calls: string[];
   sync: SyncFakeState;
+  /** 頼む側の流れの本物。同期の口（送る、取りに行く）は何もしない偽物で、頼みを運べるかだけ canCarry で切り替える。 */
+  takeover: TakeoverService;
+  canCarry: { value: boolean };
   runs: RunsApi;
   external: ExternalApi;
   /** 既定の要約の偽物。overrides で summary を差し替えたときは使われない。 */
@@ -183,6 +188,11 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     runs: { switchAccount: vi.fn() } as unknown as AccountsDeps['runs'],
     broadcast: (a) => events.push({ type: 'accounts.update', accounts: a }),
   };
+  const canCarry = { value: true };
+  const takeover = new TakeoverService({
+    db, deviceId: 'd', canCarry: () => canCarry.value, pushNow: async () => {}, pull: async () => {},
+    broadcast: (dto) => publisher.broadcast({ type: 'takeover.update', takeover: dto }),
+  });
   const syncApi: SyncApi = {
     status: () => syncStatus,
     syncNow: async () => { sync.calls.push('syncNow'); },
@@ -213,6 +223,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     syncSkipped: () => sync.skipped,
     syncSweep: () => sync.sweepPending,
     syncOncePass: () => sync.oncePass,
+    takeover,
     resumeHere: (id: string, overwrite: boolean) => { sync.calls.push(`resumeHere:${id}:${overwrite}`); return sync.resumeHereResult; },
     configBundle: null,
     joinToken: () => 'tok-abc' as string | null,
@@ -230,7 +241,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   };
 
   return {
-    deps, db, ws, claudeDir, events, calls: sync.calls, sync, runs, external, summary, usage, memos, alphaProjectId,
-    dispose: () => { publisher.stop(); db.close(); fs.rmSync(claudeDir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); },
+    deps, db, ws, claudeDir, events, calls: sync.calls, sync, takeover, canCarry, runs, external, summary, usage, memos, alphaProjectId,
+    dispose: () => { takeover.stop(); publisher.stop(); db.close(); fs.rmSync(claudeDir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); },
   };
 }

@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
+import { TAKEOVER_TIMEOUT_MS } from './index.ts';
 import type { ArtifactDto, BootstrapDto, DeviceDto, UiAction, LaunchResultDto, MemoDto, PromoteResultDto, RunDto, ServerEvent, SessionDto, SessionLockDto, SettingsDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, SyncStatusDto, TabDto, TodoDto, UsageDto } from './index.ts';
 
 describe('フェーズ 2 の DTO', () => {
@@ -37,7 +38,7 @@ describe('フェーズ 3 の DTO', () => {
   });
   it('SettingsDto、SessionDto、BootstrapDto に新しい項目がある', () => {
     const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
-    const ses: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
+    const ses: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null };
     const b: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: s, projects: [], sessions: [ses], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
     expect(b.summaryPending).toEqual([]);
     const r: PromoteResultDto = { project: { id: 'p', name: 'n', status: 'active', isScratch: false, path: '/w/n', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }, session: ses, moved: true, reason: null };
@@ -72,10 +73,14 @@ describe('フェーズ 4 の DTO', () => {
   });
 });
 
-describe('引き継ぎを消した後', () => {
-  it('引き継ぎの UiAction と ServerEvent は無い', () => {
-    expectTypeOf<Extract<UiAction, { type: 'session.takeover' | 'session.takeover.cancel' }>>().toBeNever();
-    expectTypeOf<Extract<ServerEvent, { type: 'takeover.update' }>>().toBeNever();
+describe('引き継ぎ（この PC で再開が相手を止める流れ）', () => {
+  it('旧い実装の UiAction は無く、段の変化は takeover.update で届く', () => {
+    expectTypeOf<Extract<UiAction, { type: 'session.takeover' }>>().toBeNever();
+    // 待ちの取り消しと延長は UiAction として持つ（mediator が api.takeoverCancel と api.takeoverExtend にする）。
+    expectTypeOf<Extract<UiAction, { type: 'session.takeover.cancel' | 'session.takeover.extend' }>>().toEqualTypeOf<{ type: 'session.takeover.extend'; id: string } | { type: 'session.takeover.cancel'; id: string }>();
+    const ev: ServerEvent = { type: 'takeover.update', takeover: { sessionId: 's1', deviceName: 'pc-b', stage: 'waiting', startedAt: 1, deadline: 1 + TAKEOVER_TIMEOUT_MS } };
+    expect(ev.type).toBe('takeover.update');
+    expect(TAKEOVER_TIMEOUT_MS).toBe(90_000);
   });
 });
 

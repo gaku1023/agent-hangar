@@ -5,6 +5,9 @@ import type { Db } from '../../db/open.ts';
 import { RunError } from '../../runs/manager.ts';
 import { SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { EditorMissingError } from '../../external/open.ts';
+import { upsertShared } from '../../db/shared.ts';
+import { recordPeers } from '../../sync/peers.ts';
+import { writeAnswer, writeAsk } from '../../sync/takeoverRows.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi } from '../app.ts';
 import { H, launched, run, testDeps, type TestWorld } from '../testing.ts';
 
@@ -196,6 +199,95 @@ describe('同期の経路', () => {
     expect(r.status).toBe(409);
     expect(r.body).toEqual({ error: 'local_smaller', localSize: 10, remoteSize: 99 });
     expect(calls).toEqual([`resumeHere:${id}:false`, `resumeHere:${id}:false`]);
+  });
+
+  /** ほかの PC（dev-b）で、いま動いている run を足す。seenAt は、Worker が dev-b を最後に見た時刻（pull の応答の peers）。 */
+  const remoteRun = (sessionId: string, o: { id?: string; seenAt?: number } = {}): string => {
+    const id = o.id ?? 'r-remote';
+    const seenAt = o.seenAt ?? Date.now();
+    upsertShared(db, 'devices', { id: 'dev-b', name: 'pc-b', platform: 'darwin', last_seen_at: Date.now() }, 'dev-b');
+    upsertShared(db, 'runs', { id, session_id: sessionId, device_id: 'dev-b', kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: Date.now() - 60_000, ended_at: null, end_reason: null, heartbeat_at: seenAt }, 'dev-b');
+    recordPeers(db, { selfDeviceId: 'self', peers: [{ id: 'dev-b', lastSeenAt: seenAt }], workerNow: Date.now(), localNow: Date.now() });
+    return id;
+  };
+  const sid = async (): Promise<string> => (await json(await get('/api/sessions'))).body[0].id;
+
+  it('POST /sessions/:id/resume-here は生きたロックのとき 409 と code: locked で断り、再開を呼ばない', async () => {
+    const id = await sid();
+    remoteRun(id);
+    const r = await json(await post(`/api/sessions/${id}/resume-here`));
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'pc-b で実行中です。先に停止して引き継いでください。', code: 'locked' });
+    expect(calls.filter((c) => c.startsWith('resumeHere'))).toEqual([]);
+  });
+
+  it('生きたロックでも、stale か、force の頼みか、応答のある頼みなら再開を通す', async () => {
+    const id = await sid();
+    remoteRun(id, { seenAt: Date.now() - 10 * 60_000 });
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(200);
+    remoteRun(id);
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(409);
+    const a = writeAsk(db, 'd', { sessionId: id, runId: 'r-remote', targetDevice: 'dev-b', mode: 'ask', now: Date.now() });
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(409);
+    writeAnswer(db, 'dev-b', { askId: a.id, runId: 'r-remote', result: 'stopped', answeredAt: Date.now(), transcriptSha256: null, transcriptSize: null });
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(200);
+  });
+
+  it('頼みを運べないまま force で進めた会話は、行が無くても再開を通す', async () => {
+    const id = await sid();
+    remoteRun(id);
+    t.canCarry.value = false;
+    expect((await json(await post(`/api/sessions/${id}/takeover`, { force: true }))).body.stage).toBe('ready');
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(200);
+  });
+
+  it('頼みを運べないとき、応答の無い ask が前からあっても force の後は再開を通す', async () => {
+    const id = await sid();
+    remoteRun(id);
+    writeAsk(db, 'd', { sessionId: id, runId: 'r-remote', targetDevice: 'dev-b', mode: 'ask', now: Date.now() });
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(409);
+    t.canCarry.value = false;
+    expect((await json(await post(`/api/sessions/${id}/takeover`, { force: true }))).body.stage).toBe('ready');
+    expect((await post(`/api/sessions/${id}/resume-here`)).status).toBe(200);
+  });
+
+  it('POST /sessions/:id/takeover は TakeoverDto を返し、GET で同じものが読め、extend で待ち直し、DELETE で 404 に戻る', async () => {
+    const id = await sid();
+    remoteRun(id);
+    const started = await json(await post(`/api/sessions/${id}/takeover`, {}));
+    expect(started.status).toBe(200);
+    expect(started.body).toMatchObject({ sessionId: id, deviceName: 'pc-b', stage: 'asking' });
+    expect(t.events).toContainEqual({ type: 'takeover.update', takeover: expect.objectContaining({ sessionId: id, stage: 'asking' }) });
+    const got = await json(await get(`/api/sessions/${id}/takeover`));
+    expect(got.status).toBe(200);
+    expect(got.body).toMatchObject({ sessionId: id, stage: expect.stringMatching(/asking|waiting/) });
+    const ext = await json(await post(`/api/sessions/${id}/takeover/extend`));
+    expect(ext.status).toBe(200);
+    expect(ext.body.deadline).toBeGreaterThanOrEqual(started.body.deadline);
+    const del = await app.request(`/api/sessions/${id}/takeover`, { method: 'DELETE', headers: H });
+    expect(del.status).toBe(204);
+    expect((await get(`/api/sessions/${id}/takeover`)).status).toBe(404);
+    expect((await post(`/api/sessions/${id}/takeover/extend`)).status).toBe(404);
+  });
+
+  it('この PC で起動できない（tmux や psmux が無い）ときは、頼みを出さずに起動と同じ理由で断る', async () => {
+    // 頼みを出すと相手の claude は止まるのに、この PC で再開できない。だから頼む前に断る。
+    const id = await sid();
+    remoteRun(id);
+    vi.mocked(runs.assertCanStart).mockImplementation(() => { throw new RunError(400, 'tmux のパスが設定されていません'); });
+    const r = await json(await post(`/api/sessions/${id}/takeover`, {}));
+    expect(r).toEqual({ status: 400, body: { error: 'tmux のパスが設定されていません' } });
+    expect((await get(`/api/sessions/${id}/takeover`)).status).toBe(404);
+    expect(t.events).not.toContainEqual(expect.objectContaining({ type: 'takeover.update' }));
+  });
+
+  it('takeover は force を真偽で受け、無い会話は 404、本文の形が違えば 400', async () => {
+    const id = await sid();
+    remoteRun(id);
+    expect((await json(await post(`/api/sessions/${id}/takeover`, { force: true }))).body.stage).toBe('ready');
+    expect((await post('/api/sessions/nope/takeover', {})).status).toBe(404);
+    expect((await get('/api/sessions/nope/takeover')).status).toBe(404);
+    expect((await post(`/api/sessions/${id}/takeover`, { force: 'yes' })).status).toBe(400);
   });
 
   it('この PC で再開の確認に出すもの（前の PC とこの PC、読み替えた作業ディレクトリ）を返し、無い会話は 404', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { LaunchParams, ReadinessDto } from '@agent-hangar/shared';
+import type { LaunchParams, ReadinessDto, ResumeHerePlanDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
 import { initialState, transition, type State } from './transition.ts';
 import type { Input } from './types.ts';
@@ -112,5 +112,36 @@ describe('hangar に移動と接続も止める', () => {
   });
   it('見つかっていれば、adopt はいつもどおり確認を出す', () => {
     expect(transition(initialState(), storeWith(READY), action({ type: 'session.adopt', id: 's1' })).state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } });
+  });
+});
+
+// 引き継ぎは、ほかの PC の claude を停止してからこの PC で再開する。無いまま進むと、相手を止めたあとで再開に失敗する。
+describe('引き継ぎ（session.takeover.start）も止める', () => {
+  const plan: ResumeHerePlanDto = {
+    sessionId: 's1',
+    from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: 1 },
+    to: { deviceName: 'pc-a', platform: 'darwin', path: '/Users/me/src/notes-app' },
+    replace: null,
+    lock: { deviceName: 'pc-b', stale: false, heartbeatAt: 1 },
+  };
+  const confirm = { kind: 'confirm' as const, confirm: { kind: 'resumeHere' as const, sessionId: 's1', plan } };
+  const confirming: State = { ...initialState(), overlay: confirm };
+  it('確認の承諾を止めて案内を出し、頼みは送らない', () => {
+    const g = transition(confirming, storeWith(MISSING), action({ type: 'session.takeover.start', id: 's1', force: false }));
+    expect(g.state.overlay).toEqual({ kind: 'muxGuide', pending: { type: 'session.takeover.start', id: 's1', force: false }, back: confirm });
+    expect(g.effects).toEqual([]);
+  });
+  it('案内を閉じると確認の 1 枚へ戻る', () => {
+    const g = transition(confirming, storeWith(MISSING), action({ type: 'session.takeover.start', id: 's1', force: false })).state;
+    expect(transition(g, storeWith(MISSING), action({ type: 'overlay.close' })).state.overlay).toEqual(confirm);
+  });
+  it('見つかったあとの「開始」で確認の 1 枚へ戻してから頼みを送り、1 枚が進み具合に変わる', () => {
+    const g = transition(confirming, storeWith(MISSING), action({ type: 'session.takeover.start', id: 's1', force: true })).state;
+    const r = transition(g, storeWith(READY), action({ type: 'mux.guide.proceed' }));
+    expect(r.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'takeover', sessionId: 's1', plan, takeover: null } });
+    expect(r.effects).toEqual([{ kind: 'api.takeoverStart', sessionId: 's1', force: true }]);
+  });
+  it('見つかっていれば止めずに頼みを送る', () => {
+    expect(transition(confirming, storeWith(READY), action({ type: 'session.takeover.start', id: 's1', force: false })).effects).toEqual([{ kind: 'api.takeoverStart', sessionId: 's1', force: false }]);
   });
 });

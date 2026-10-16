@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COMPAT_VERSION, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { COMPAT_VERSION, TAKEOVER_MIN_WORKER_COMPAT, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { saveCloudConfig } from '../config/cloud.ts';
 import { dbPath } from '../config/paths.ts';
 import { openDb } from '../db/open.ts';
@@ -519,6 +519,50 @@ describe('互換の版', () => {
     expect(st.state).not.toBe('error');
     expect(wk.seen.length).toBeGreaterThan(0);
     for (const r of wk.seen) expect(r.compat, `${r.method} ${r.path}`).toBe(String(COMPAT_VERSION));
+  });
+
+  it('canCarryTakeover は Worker の版が TAKEOVER_MIN_WORKER_COMPAT に届くまで偽', async () => {
+    // 版 5 の Worker は、引き継ぎの 2 表の行を含む push を丸ごと断る。名乗る版が届くまで行を書かない。
+    // 引き継ぎの 2 表は同期の版 6 に含めたので、版 5 の Worker とはそもそも同期しない（MIN_WORKER_COMPAT も 6）。
+    await worker(answerAll(String(TAKEOVER_MIN_WORKER_COMPAT - 1)));
+    const old = boot({ start: true });
+    expect(old.sync.canCarryTakeover()).toBe(false);
+    await until(() => (old.status().state === 'error' ? true : null));
+    expect(old.sync.canCarryTakeover()).toBe(false);
+    await old.close();
+    await w?.close();
+    await worker(answerAll(String(TAKEOVER_MIN_WORKER_COMPAT)));
+    const fresh = boot({ start: true });
+    // まだ Worker と話していないあいだも偽（版が分からない）。
+    expect(fresh.sync.canCarryTakeover()).toBe(false);
+    // 最後に pull した時刻は DB に残っているので、版を見たかどうかで待つ。
+    await until(() => (fresh.sync.canCarryTakeover() ? true : null));
+    // 一時停止にすると、版が足りていても運ばない。
+    fresh.sync.engine.setPaused(true);
+    expect(fresh.sync.canCarryTakeover()).toBe(false);
+    fresh.sync.engine.setPaused(false);
+    expect(fresh.sync.canCarryTakeover()).toBe(true);
+  });
+
+  it('pullForTakeover は行の pull と本文の写しの pull を 1 回ずつ回し、同期していなければ何もしない', async () => {
+    const wk = await worker(answerAll(String(COMPAT_VERSION)));
+    const b = boot({ start: true });
+    await until(() => (b.status().lastPullAt !== null ? true : null));
+    const count = (path: string): number => wk.seen.filter((r) => r.method === 'GET' && r.path.split('?')[0] === path).length;
+    const rows = count('/changes');
+    const files = count('/files');
+    await b.sync.pullForTakeover();
+    expect(count('/changes')).toBe(rows + 1);
+    // 行の pull が合図で降ろしを積むので、その後ろに並ぶ分と合わせて 1 回以上。
+    expect(count('/files')).toBeGreaterThanOrEqual(files + 1);
+    // cloud.json の無い端末では、呼んでも落ちない。
+    // Windows は開いたままの DB を消せないので、先に閉じる。
+    await b.close();
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.mkdirSync(home, { recursive: true });
+    const off = boot();
+    await expect(off.sync.pullForTakeover()).resolves.toBeUndefined();
+    expect(off.sync.canCarryTakeover()).toBe(false);
   });
 
   it('Worker が版の見出しを返さなければ（版 0）、同期を止めて Worker を上げるよう出す', async () => {

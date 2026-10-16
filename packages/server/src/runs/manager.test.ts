@@ -30,7 +30,8 @@ import { RunAccounts } from './accounts.ts';
 import { RUN_STIR_MS, RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
-import { interruptedGroup } from './interrupted.ts';
+import { interruptedGroup, noteLastLive } from './interrupted.ts';
+import { cancelAsk, writeAsk } from '../sync/takeoverRows.ts';
 import { expectMode } from '../../test/platform.ts';
 import { ensureScratchProject } from '../projects/scratch.ts';
 import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
@@ -86,6 +87,20 @@ const launchedArgs = async (runId: string) => {
   await waitFor(() => fs.existsSync(fake.argsFile) && readArgs(fake.argsFile).at(-1) === runId);
   return readArgs(fake.argsFile);
 };
+
+describe('RunManager.assertCanStart（起こす前の確かめだけ）', () => {
+  // 引き継ぎは相手の claude を停止してから再開するので、頼む前にこの PC で起こせるかだけを確かめる。
+  it('tmux の口が無い、指したものが無い、claude が無いときは起動と同じ理由で断る', () => {
+    expect(() => make({ tmux: null }).assertCanStart()).toThrow(expect.objectContaining({ status: 400, message: 'tmux が見つかりません。設定の「tmux のパス」にパスを入力してください' }));
+    const gone = path.join(home, 'gone-tmux');
+    expect(() => make({ tmux: new Tmux({ tmuxPath: gone }), muxPath: () => gone }).assertCanStart()).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => make({ tmux: null, panes: {} as never, claudeBin: null }).assertCanStart()).toThrow(expect.objectContaining({ status: 400 }));
+  });
+  it('起こせるなら何もしない（run も会話も作らない）', () => {
+    expect(() => make({ tmux: null, panes: {} as never }).assertCanStart()).not.toThrow();
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+  });
+});
 
 describe('RunManager.start の入力検査（tmux 不要）', () => {
   it('projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
@@ -2508,6 +2523,42 @@ describe('一覧から一瞬抜けた run（tmux 不要、issue #258）', () => 
     rm.tick();
     expect(started).toEqual([]);
     for (const id of ['r1', 'r2', 'r3', 'r5']) expect(rm.getRun(id)!.endedAt).not.toBeNull();
+  });
+
+  it('kill に taken_over を渡すと、その理由で終わる。渡さなければ killed', () => {
+    const a = seed({ id: '1' });
+    const b = seed({ id: '2' });
+    const f = listedPanes([a.tmuxName, b.tmuxName]);
+    const rm = make({ panes: f.panes });
+    expect(rm.kill(a.runId, 'taken_over').endReason).toBe('taken_over');
+    expect(rm.kill(b.runId).endReason).toBe('killed');
+  });
+
+  it('頼みの宛先になった run は、tmux 名が戻ってきても生き返らせない。取り下げた頼みなら生き返らせる', () => {
+    const a = seed({ id: '1', endReason: 'exited' });
+    const b = seed({ id: '2', endReason: 'exited' });
+    writeAsk(db, 'pc-b', { sessionId: a.sessionId, runId: a.runId, targetDevice: 'd', mode: 'ask', now: 10 });
+    const cancelled = writeAsk(db, 'pc-b', { sessionId: b.sessionId, runId: b.runId, targetDevice: 'd', mode: 'ask', now: 10 });
+    cancelAsk(db, 'pc-b', cancelled.id, 20);
+    // 見回りが空振りしないよう、別の生きた run を 1 つ置く。
+    const live = seed({ id: '9' });
+    const rm = make({ panes: listedPanes([a.tmuxName, b.tmuxName, live.tmuxName]).panes });
+    expect(rm.tick().ended).toEqual([]);
+    expect(rm.getRun(a.runId)!.endedAt).not.toBeNull();
+    expect(rm.getRun(b.runId)!.endedAt).toBeNull();
+  });
+
+  it('ほかの PC がその会話の run を後から始めていれば、手元の古い run を生き返らせない', () => {
+    const a = seed({ id: '1', endReason: 'exited', startedAt: 5 });
+    const b = seed({ id: '2', endReason: 'exited', startedAt: 5 });
+    // a の会話は、別の PC で後から始まって終わった run がある（生きた run があれば元から生き返らせない）。b の会話は、別の PC の run のほうが古い。
+    upsertShared(db, 'runs', { id: 'rx-a', session_id: a.sessionId, device_id: 'other', kind: 'resume', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 100, ended_at: 150, end_reason: 'exited', heartbeat_at: 150 }, 'other');
+    upsertShared(db, 'runs', { id: 'rx-b', session_id: b.sessionId, device_id: 'other', kind: 'resume', tmux_name: 'hangar-y', pid: null, launch_params: '{}', started_at: 1, ended_at: 2, end_reason: 'exited', heartbeat_at: 2 }, 'other');
+    const live = seed({ id: '9' });
+    const rm = make({ panes: listedPanes([a.tmuxName, b.tmuxName, live.tmuxName]).panes });
+    rm.tick();
+    expect(rm.getRun(a.runId)!.endedAt).not.toBeNull();
+    expect(rm.getRun(b.runId)!.endedAt).toBeNull();
   });
 
   it('起動の見回りでも、一覧にある tmux 名の閉じた run を生き返らせる', () => {

@@ -11,7 +11,7 @@ import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from
 import { setSessionName } from '../sessions/notes.ts';
 import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
-import { displayName, getProject, getSession, listDevices, listProjects, listSessions, setParkingSwitch } from './queries.ts';
+import { displayName, getProject, getSession, listDevices, listProjects, listSessions, sessionLock, setParkingSwitch } from './queries.ts';
 
 let dir: string;
 let db: Db;
@@ -352,6 +352,25 @@ describe('ロックと remoteOnly と端末一覧', () => {
     expect(one(d2).lock).toMatchObject({ stale: true });
   });
 
+  it('sessionLock はほかの PC の生きた run を返し、一覧のロックと同じ値になる', () => {
+    const d2 = setup();
+    seen(d2, [{ id: 'dev-b', age: 10_000 }]);
+    addRun(d2, { id: 'r1', device: 'dev-b', heartbeat: NOW - 10_000 });
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 10_000, stale: false });
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual(one(d2).lock);
+  });
+
+  it('sessionLock はその PC を Worker が PEER_STALE_MS より前から見ていなければ stale、自分の run や終わった run、別の会話なら null', () => {
+    const d2 = setup();
+    seen(d2, [{ id: 'dev-b', age: PEER_STALE_MS + 1 }]);
+    addRun(d2, { id: 'r1', device: 'dev-b', heartbeat: NOW });
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toMatchObject({ stale: true });
+    expect(sessionLock(d2, 'dev-b', 's1', NOW)).toBeNull();
+    expect(sessionLock(d2, 'dev-a', 's2', NOW)).toBeNull();
+    d2.prepare("update runs set ended_at = ?, end_reason = 'exited' where id = 'r1'").run(NOW);
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toBeNull();
+  });
+
   it('deviceId を渡さなければロックを計算しない', () => {
     const d2 = setup();
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW });
@@ -600,5 +619,54 @@ describe('中断（interrupted）と同じファイルの編集（overlap）', (
     db.prepare('insert into session_overlaps (session_id, payload, updated_at) values (?, ?, 1)').run(alphaId(), JSON.stringify(overlap));
     expect(getSession(db, live, alphaId())!.overlap).toEqual(overlap);
     expect(getSession(db, [], alphaId())!.overlap).toBeNull();
+  });
+});
+
+describe('takenOver（ほかの PC に引き継がれたこの PC の会話）', () => {
+  const setup = (): Db => {
+    const d2 = openDb(':memory:');
+    upsertShared(d2, 'devices', { id: 'pc-a', name: 'pc-a', platform: 'darwin', last_seen_at: 1 }, 'pc-a');
+    upsertShared(d2, 'devices', { id: 'pc-b', name: 'pc-b', platform: 'darwin', last_seen_at: 1 }, 'pc-b');
+    upsertShared(d2, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/w/a', home_device: 'pc-b' }, 'pc-b');
+    return d2;
+  };
+  const addRun = (d2: Db, o: { id: string; device: string; startedAt: number; endedAt?: number | null; reason?: string | null }) =>
+    upsertShared(d2, 'runs', { id: o.id, session_id: 's1', device_id: o.device, kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.startedAt, ended_at: o.endedAt ?? null, end_reason: o.reason ?? null, heartbeat_at: o.startedAt }, o.device);
+  const ask = (d2: Db, o: { runId: string; from: string; target: string }) =>
+    upsertShared(d2, 'takeovers', { id: `t-${o.runId}`, session_id: 's1', run_id: o.runId, target_device: o.target, from_device: o.from, requested_at: 4000, mode: 'ask', cancelled_at: null }, o.from);
+  const taken = (d2: Db) => getSession(d2, [], 's1', { deviceId: 'pc-b' })?.takenOver;
+
+  it('この PC の最後の run が taken_over なら、頼んだ PC の名前と止めた時刻を載せる', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r1', device: 'pc-b', startedAt: 1000, endedAt: 5000, reason: 'taken_over' });
+    ask(d2, { runId: 'r1', from: 'pc-a', target: 'pc-b' });
+    expect(taken(d2)).toEqual({ deviceName: 'pc-a', at: 5000 });
+    expect(listSessions(d2, [], { deviceId: 'pc-b' })[0]?.takenOver).toEqual({ deviceName: 'pc-a', at: 5000 });
+  });
+  it('引き継ぎの行が無いときは、その後に始まったほかの PC の run の PC の名前を使う', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r1', device: 'pc-b', startedAt: 1000, endedAt: 5000, reason: 'taken_over' });
+    addRun(d2, { id: 'r2', device: 'pc-a', startedAt: 6000 });
+    expect(taken(d2)).toEqual({ deviceName: 'pc-a', at: 5000 });
+  });
+  it('devices に行が無ければ ID をそのまま名前にし、手がかりが何も無ければ null', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r1', device: 'pc-b', startedAt: 1000, endedAt: 5000, reason: 'taken_over' });
+    ask(d2, { runId: 'r1', from: 'pc-gone', target: 'pc-b' });
+    expect(taken(d2)).toEqual({ deviceName: 'pc-gone', at: 5000 });
+    const d3 = setup();
+    addRun(d3, { id: 'r1', device: 'pc-b', startedAt: 1000, endedAt: 5000, reason: 'taken_over' });
+    expect(taken(d3)).toBeNull();
+  });
+  it('この PC で後から run を起こしたら null。ほかの理由で終わった run も、PC を渡さないときも null', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r1', device: 'pc-b', startedAt: 1000, endedAt: 5000, reason: 'taken_over' });
+    ask(d2, { runId: 'r1', from: 'pc-a', target: 'pc-b' });
+    expect(getSession(d2, [], 's1')?.takenOver).toBeNull();
+    addRun(d2, { id: 'r2', device: 'pc-b', startedAt: 7000 });
+    expect(taken(d2)).toBeNull();
+    const d3 = setup();
+    addRun(d3, { id: 'r1', device: 'pc-b', startedAt: 1000, endedAt: 5000, reason: 'exited' });
+    expect(taken(d3)).toBeNull();
   });
 });

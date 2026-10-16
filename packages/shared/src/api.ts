@@ -94,7 +94,12 @@ export type SessionDto = { id: string; provider: 'claude-code'; providerSessionI
    * 最後の run がほかの PC のもので、手元に降ろしたその写しが手元のトランスクリプトより大きいときだけ真。
    * 真のとき、画面は手元にトランスクリプトがあっても「この PC で再開」を主にする。
    */
-  newerElsewhere: boolean };
+  newerElsewhere: boolean;
+  /**
+   * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
+   * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
+   */
+  takenOver: { deviceName: string; at: number } | null };
 /**
  * 中断の原因。
  * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。
@@ -168,7 +173,7 @@ export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string; merge?: boolean } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
 /** parked は、区切り（Done・Archived。0.5.0 までは Paused も）を付けたセッションが休みになったので hangar が止めたもの。 */
-export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
+export type EndReason = 'exited' | 'killed' | 'lost' | 'parked' | 'taken_over';
 /** 「ターミナルで開く」で使う外部ターミナル。macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル（terminal.ts）。 */
 export type TerminalApp = 'terminal' | 'iterm' | 'windowsTerminal' | 'windowsDefault';
 /** 1 回の起動または再開。tmux 上の寿命と一致する。 */
@@ -457,6 +462,17 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
  * heartbeatAt は、同期の版 6 からその PC の最終接続（この PC の時計）で、知らなければ run の行の heartbeat_at である。名前は版 5 までのまま。
  */
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
+/**
+ * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ流れ（server/src/sync/takeover.ts）。
+ * asking は頼みを書いて送っている間、waiting は相手の応答を待っている間、receiving は相手が止まったあと本文が降りきるのを待っている間である。
+ * ready は引き継げる、timeout は打ち切り（TAKEOVER_TIMEOUT_MS）または頼みを運べない、cancelled は取り下げである。
+ */
+export type TakeoverStage = 'asking' | 'waiting' | 'receiving' | 'ready' | 'timeout' | 'cancelled';
+export type TakeoverDto = { sessionId: string; deviceName: string; stage: TakeoverStage; startedAt: number; deadline: number };
+/** 相手の応答を待つ長さ。「もう少し待つ」はその時点から同じ長さを足す。 */
+export const TAKEOVER_TIMEOUT_MS = 90_000;
+/** 生きたロックのある会話を、頼まずに「この PC で再開」しようとして断られたときの本文（409）。 */
+export type TakeoverLockedDto = { error: string; code: 'locked' };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 /**
  * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻である。
@@ -607,6 +623,11 @@ export type ResumeHerePlanDto = {
   to: { deviceName: string | null; platform: string | null; path: string | null; createsFolder?: boolean };
   /** この PC のトランスクリプトをほかの PC の写しで置き換えるとき（ResumeHereReplaceDto）。手元に無いか、手元の方が大きいか同じなら null。 */
   replace: ResumeHereReplaceDto | null;
+  /**
+   * ほかの PC の run が生きているとき（応答が途絶えたものを含む）。確認の 1 枚が、停止して引き継ぐか、応答のない相手を引き継ぐかを決める。
+   * 相手が作業中かどうかは共有しないので載せない。生きた run が無ければ null。
+   */
+  lock: { deviceName: string; stale: boolean; heartbeatAt: number } | null;
 };
 /**
  * 「この PC で再開」で、手元のトランスクリプトを置き換えること（A → B → A と戻ったとき）。
