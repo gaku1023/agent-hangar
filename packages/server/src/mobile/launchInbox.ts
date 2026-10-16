@@ -4,6 +4,8 @@ import {
   clampText,
   isModelName,
   LAUNCH_TTL_MS,
+  MOBILE_LAUNCH_ID_MAX,
+  MOBILE_PROMPT_MAX,
   open,
   PERMISSION_MODE_VALUES,
   seal,
@@ -34,6 +36,8 @@ export type MobileLaunchInboxDeps = {
   hasProjectHere: (projectId: string) => boolean;
   /** この PC に登録したアカウントか。 */
   hasAccount: (id: string) => boolean;
+  /** いま依頼を扱ってよいか（boot/sync.ts の canCarryMobile）。偽なら claim せずに残す（Worker の行は pending のまま）。 */
+  canProcess: () => boolean;
   now: () => number;
 };
 
@@ -46,12 +50,12 @@ function isPayload(v: unknown): v is MobileLaunchPayload {
     !!o && typeof o === 'object' &&
     o.v === 1 &&
     typeof o.createdAt === 'number' && Number.isFinite(o.createdAt) &&
-    (o.projectId === null || typeof o.projectId === 'string') &&
+    (o.projectId === null || (typeof o.projectId === 'string' && o.projectId.length <= MOBILE_LAUNCH_ID_MAX)) &&
     typeof o.scratch === 'boolean' &&
-    typeof o.accountId === 'string' &&
+    typeof o.accountId === 'string' && o.accountId.length <= MOBILE_LAUNCH_ID_MAX &&
     typeof o.permissionMode === 'string' && PERMISSION_MODES.has(o.permissionMode) &&
     typeof o.model === 'string' && (o.model === '' || isModelName(o.model)) &&
-    typeof o.prompt === 'string'
+    typeof o.prompt === 'string' && o.prompt.length <= MOBILE_PROMPT_MAX
   );
 }
 
@@ -64,6 +68,9 @@ function paramsOf(p: MobileLaunchPayload): LaunchParams {
   if (p.prompt) params.prompt = p.prompt;
   return params;
 }
+
+/** 最初の指示の、空でない最初の行の先頭 40 字（表示名の決め方と同じ長さ）。 */
+const firstLine = (prompt: string): string => [...(prompt.split(/\r?\n/).find((x) => x.trim()) ?? '').trim()].slice(0, 40).join('');
 
 /** ログに出すのは種類だけにする。依頼の中身や秘密を含む文をそのまま出さない。 */
 const kindOf = (e: unknown): string => {
@@ -111,6 +118,8 @@ export class MobileLaunchInbox {
   private async handle(l: MobileLaunchOut): Promise<void> {
     const { client, deviceId, now } = this.deps;
     if (this.handled(l.id)) return;
+    // 受け取ってから止められた（一時停止、版 6 の Worker など）ときは、claim せずに残す。
+    if (!this.deps.canProcess()) return;
     const claim = client.claimLaunch?.bind(client);
     if (!claim || !client.answerLaunch) return;
     if (!(await claim(l.id))) return;
@@ -146,7 +155,14 @@ export class MobileLaunchInbox {
       // 理由の文は封じてスマホにだけ渡す。
       return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);
     }
-    return { ok: true, sessionId: r.sessionId, title: this.titleOf(r.sessionId, p.prompt) };
+    // 起こした後は、題が読めなくても started と答える（会話は動いている）。
+    let title: string;
+    try {
+      title = this.titleOf(r.sessionId, p.prompt);
+    } catch {
+      title = firstLine(p.prompt);
+    }
+    return { ok: true, sessionId: r.sessionId, title };
   }
 
   /** 起こした会話の表示名。行がまだ無ければ、最初の指示の先頭 40 字（表示名の決め方と同じ）。 */
@@ -154,6 +170,6 @@ export class MobileLaunchInbox {
     const s = this.deps.db
       .prepare('select s.custom_title, n.name, s.ai_title, s.first_prompt from sessions s left join session_notes n on n.session_id = s.id and n.deleted_at is null where s.id = ?')
       .get(sessionId) as { custom_title: string | null; name: string | null; ai_title: string | null; first_prompt: string | null } | undefined;
-    return (s ? displayName(s, undefined) : null) ?? displayName({ custom_title: null, name: null, ai_title: null, first_prompt: prompt || null }, undefined) ?? '';
+    return (s ? displayName(s, undefined) : null) ?? firstLine(prompt);
   }
 }

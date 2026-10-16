@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { aadAnswer, aadLaunch, deriveMobileKey, LAUNCH_TTL_MS, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
+import { aadAnswer, aadLaunch, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import type { CloudClient } from '../sync/client.ts';
@@ -20,12 +20,13 @@ const result = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sessi
 function setup(o: { start?: (p: LaunchParams) => LaunchResult } = {}) {
   const db = openDb(':memory:');
   let now = T0;
+  let canProcess = true;
   const cloud = new FakeCloudClient({ deviceId: 'pc-a', now: () => now });
   const start = vi.fn(o.start ?? (() => result('s-new')));
   const hasProjectHere = vi.fn((id: string) => id === 'project-a');
   const inbox = new MobileLaunchInbox({
     db, client: cloud, joinSecret: SECRET, deviceId: 'pc-a', start, hasProjectHere,
-    hasAccount: (id) => id === 'primary', now: () => now,
+    hasAccount: (id) => id === 'primary', canProcess: () => canProcess, now: () => now,
   });
   /** スマホの依頼を置き、pull で届く形（launches）を返す。 */
   const post = async (id: string, p: unknown, o2: { secret?: string; aadTarget?: string; target?: string } = {}) => {
@@ -35,7 +36,7 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult } = {}) {
   };
   const answerOf = async (id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKeyFor(SECRET), aadAnswer(id), cloud.launches.get(id)!.sealedAnswer!);
   const recorded = (id: string) => db.prepare('select id, handled_at, result from mobile_launches where id = ?').get(id) as { id: string; handled_at: number; result: string } | undefined;
-  return { db, cloud, start, hasProjectHere, inbox, post, answerOf, recorded, setNow: (t: number) => { now = t; } };
+  return { db, cloud, start, hasProjectHere, inbox, post, answerOf, recorded, setNow: (t: number) => { now = t; }, setCanProcess: (v: boolean) => { canProcess = v; } };
 }
 
 describe('MobileLaunchInbox', () => {
@@ -190,9 +191,56 @@ describe('MobileLaunchInbox', () => {
     const l = await post('l1', payload());
     const answerLaunch = vi.fn();
     const bare = { answerLaunch } as unknown as CloudClient;
-    const inbox = new MobileLaunchInbox({ db: openDb(':memory:'), client: bare, joinSecret: SECRET, deviceId: 'pc-a', start, hasProjectHere: () => true, hasAccount: () => true, now: () => T0 });
+    const inbox = new MobileLaunchInbox({ db: openDb(':memory:'), client: bare, joinSecret: SECRET, deviceId: 'pc-a', start, hasProjectHere: () => true, hasAccount: () => true, canProcess: () => true, now: () => T0 });
     await inbox.receive(l);
     expect(start).not.toHaveBeenCalled();
     expect(answerLaunch).not.toHaveBeenCalled();
+  });
+
+  it('長すぎる最初の指示と ID は bad-payload', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', payload({ prompt: 'a'.repeat(MOBILE_PROMPT_MAX + 1) })));
+    await inbox.receive(await post('l2', payload({ projectId: 'p'.repeat(MOBILE_LAUNCH_ID_MAX + 1) })));
+    await inbox.receive(await post('l3', payload({ accountId: 'a'.repeat(MOBILE_LAUNCH_ID_MAX + 1) })));
+    expect(start).not.toHaveBeenCalled();
+    for (const id of ['l1', 'l2', 'l3']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+    // 上限ちょうどは通る。
+    await inbox.receive(await post('l4', payload({ prompt: 'a'.repeat(MOBILE_PROMPT_MAX) })));
+    expect((await answerOf('l4')).ok).toBe(true);
+  });
+
+  it('起こした後に題を読めなくても started と答え、題は最初の指示の最初の行にする', async () => {
+    const { db, cloud, inbox, post, answerOf, recorded } = setup();
+    const l = await post('l1', payload({ prompt: '\n会話 1 の指示\n続きの行' }));
+    const prepare = db.prepare.bind(db);
+    vi.spyOn(db, 'prepare').mockImplementation(((sql: string) => {
+      if (sql.includes('from sessions s left join session_notes')) throw new Error('database is locked');
+      return prepare(sql);
+    }) as typeof db.prepare);
+    await inbox.receive(l);
+    expect(await answerOf('l1')).toEqual({ ok: true, sessionId: 's-new', title: '会話 1 の指示' });
+    expect(cloud.launches.get('l1')!.status).toBe('started');
+    expect(recorded('l1')?.result).toBe('started');
+  });
+
+  it('扱ってよくないあいだは claim せずに残し、扱えるようになったら起こす', async () => {
+    const { cloud, start, inbox, post, recorded, setCanProcess } = setup();
+    const l = await post('l1', payload());
+    setCanProcess(false);
+    await inbox.receive(l);
+    expect(cloud.calls.filter((c) => c.method === 'claimLaunch')).toHaveLength(0);
+    expect(cloud.launches.get('l1')!.status).toBe('pending');
+    expect(recorded('l1')).toBeUndefined();
+    setCanProcess(true);
+    await inbox.receive(l);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('scratch なら projectId が入っていても見ずに、クイックセッションで起こす', async () => {
+    const { start, hasProjectHere, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', payload({ scratch: true, projectId: 'project-b' })));
+    expect(hasProjectHere).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledWith({ scratch: true, account: 'primary', permissionMode: 'acceptEdits', model: 'sonnet', prompt: 'TODO の先頭をやって' });
+    expect((await answerOf('l1')).ok).toBe(true);
   });
 });

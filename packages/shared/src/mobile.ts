@@ -2,6 +2,10 @@ import type { LiveStatus, WaitKind } from './api.ts';
 
 /** 文は 300 字で切る（待っている内容、意図、要約の 1 行）。 */
 export const MOBILE_TEXT_MAX = 300;
+/** 起動の依頼の最初の指示の上限（字数）。スマホの入力欄と PC の受け取りが同じ値を使う。 */
+export const MOBILE_PROMPT_MAX = 8_000;
+/** 起動の依頼に入る ID（プロジェクト、アカウント）の上限（字数）。 */
+export const MOBILE_LAUNCH_ID_MAX = 128;
 /** 受信箱の素（暗号化の前の JSON）の上限。超えたら done、returns、projects の順に古いものから落とす。 */
 export const MOBILE_FEED_MAX_BYTES = 48 * 1024;
 /** 起動の依頼の有効期間。Worker はこれを過ぎた依頼を claim させない。PC の pull は 30 秒ごとなので 2 周分の余裕を見る。 */

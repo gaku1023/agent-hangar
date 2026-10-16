@@ -101,6 +101,7 @@ export function bootMobile(p: {
       },
       hasProjectHere: (projectId) => !!placeHere.get(projectId, deviceId),
       hasAccount: (id) => accounts.store.list().some((a) => a.id === id),
+      canProcess: () => p.sync.canCarryMobile(),
       now: Date.now,
     });
     cur = { pub, inbox, link };
