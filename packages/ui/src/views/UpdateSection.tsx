@@ -55,6 +55,7 @@ export function UpdateSection(props: { update: UpdateSectionProps }) {
 /**
  * 版ごとのノートの行（試作の A1）。押すと本文を開き閉じする。はじめに開くのは presenter が決めた版である。
  * 見出しの右端の文字のボタン（試作の D1）は、開いている版が 1 つでもあれば「すべて閉じる」、全部畳んでいれば「すべて開く」になる。
+ * 開いている版の行は、本文をスクロールしているあいだ一覧の上に貼り付く（試作の V1）。どの版を読んでいるかが分かり、押せばそのまま閉じられる。
  * 開き閉じは画面の中だけの状態で、覚えない。
  */
 function NoteList(props: { title: string; notes: UpdateNoteRow[]; beforeLabel: string }) {
@@ -78,14 +79,39 @@ function NoteList(props: { title: string; notes: UpdateNoteRow[]; beforeLabel: s
             <button type="button" className="note-head" aria-expanded={isOpen} onClick={() => toggle(n.version)}>
               <span className="note-ver">{n.version}</span>
               {n.tag !== null && <span className="badge" data-tone="ok">{n.tag}</span>}
-              {n.hasBefore && <span className="badge" data-tone="warn">{props.beforeLabel}</span>}
+              {n.before !== null && <span className="badge" data-tone="warn">{props.beforeLabel}</span>}
+              {n.count !== null && <span className="note-count">{n.count}</span>}
               <Icon name="chevron" />
             </button>
-            {isOpen && <div className="note-body"><Markdown text={n.body} /></div>}
+            {isOpen && <NoteBody note={n} beforeLabel={props.beforeLabel} />}
           </div>
         );
       })}
     </div>
     </>
+  );
+}
+
+/**
+ * 開いた版の中身（試作の L1）。「更新の前に」の注意と要点の箇条だけを出し、本文は「全文を読む」で出す。
+ * 要点を拾えない版（前書きだけなど）は、はじめから本文を出す。
+ */
+function NoteBody(props: { note: UpdateNoteRow; beforeLabel: string }) {
+  const t = useT();
+  const n = props.note;
+  const [full, setFull] = useState(n.points.length === 0);
+  return (
+    <div className="note-body">
+      {!full && (
+        <>
+          {n.before !== null && <div className="note-before"><strong>{props.beforeLabel}</strong>{n.before}</div>}
+          <ul className="note-points">{n.points.map((p) => <li key={p}>{p}</li>)}</ul>
+        </>
+      )}
+      {full && <Markdown text={n.body} />}
+      {n.points.length > 0 && (
+        <button type="button" className="btn-link note-full" onClick={() => setFull(!full)}>{full ? t('update.notes.pointsOnly') : t('update.notes.readFull')}</button>
+      )}
+    </div>
   );
 }

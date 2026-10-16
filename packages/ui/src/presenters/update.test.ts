@@ -165,13 +165,15 @@ describe('リリースノート', () => {
 
   it('設定の節に、見つけた版といまの版までのノートを新しい順に並べ、見つけた版といまの版を開いておく', () => {
     const p = presentUpdateSection(storeOf(withNotes({ kind: 'available', version: '1.5.0' }, { foundNotes: { version: '1.5.0', text: NOTE_150 } })), NOW);
-    expect(p.notes.map((n) => [n.version, n.tag, n.open, n.hasBefore])).toEqual([
+    expect(p.notes.map((n) => [n.version, n.tag, n.open, n.before !== null])).toEqual([
       ['1.5.0', '新しい版', true, true],
       ['1.4.2', '使用中', true, false],
       ['1.4.1', null, false, true],
       ['1.4.0', null, false, false],
     ]);
     expect(p.notes[1]!.body).toBe('## 直したこと\n\n- 直した。');
+    expect(p.notes[1]).toMatchObject({ points: ['直した。'], count: '1 件' });
+    expect(p.notes[2]).toMatchObject({ before: 'Worker を入れ替えてください。', points: ['足した。'] });
   });
 
   it('更新後の札で読みに来たら、その札で見せた版を開いておく', () => {

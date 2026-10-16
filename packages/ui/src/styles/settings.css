@@ -287,6 +287,14 @@
 .note-ver { font-weight: 700; font-variant-numeric: tabular-nums; }
 .note-head > .icon { width: 12px; height: 12px; margin-left: auto; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-out); }
 .note-row[data-open] .note-head > .icon { transform: rotate(90deg); }
+/* 開いている版の行は、本文を読み進めるあいだ一覧の上に貼り付ける（試作の V1）。下の本文が透けないよう、面の色を敷く。 */
+.note-row[data-open] .note-head { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: 0 1px 0 var(--line); }
+.note-count { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.note-before { margin: calc(var(--u) * 1) 0 calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--st-paused-soft); color: color-mix(in srgb, var(--st-paused) 70%, var(--ink)); line-height: 1.5; }
+.note-before > strong { margin-right: calc(var(--u) * 2); color: var(--st-paused); }
+.note-points { margin: calc(var(--u) * 1) 0 0; padding-left: 18px; }
+.note-points > li + li { margin-top: 2px; }
+.btn-link.note-full { margin-top: calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; }
 .note-body { padding: 0 0 calc(var(--u) * 3); font-size: var(--fs-sm); line-height: 1.6; }
 .note-body .md h2 { font-size: var(--fs); }
 .note-body .md h3 { font-size: var(--fs-sm); }

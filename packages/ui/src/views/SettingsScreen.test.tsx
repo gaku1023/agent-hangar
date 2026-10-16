@@ -1328,8 +1328,8 @@ describe('更新の節', () => {
   });
   it('リリースノートを版ごとの行に並べ、開いた版だけ本文を出し、押すと開き閉じする', () => {
     mountAt(at('update', { update: updateProps({ notes: [
-      { version: '1.4.2', tag: '使用中', hasBefore: false, open: true, body: '## 直したこと\n\n- 直した。' },
-      { version: '1.4.1', tag: null, hasBefore: true, open: false, body: '- 足した。' },
+      { version: '1.4.2', tag: '使用中', before: null, points: ['直した。'], count: '1 件', open: true, body: '## 直したこと\n\n- 直した。' },
+      { version: '1.4.1', tag: null, before: 'Worker を入れ替えてください。', points: ['足した。'], count: '1 件', open: false, body: '- 足した。' },
     ] }) }));
     expect(screen.getByRole('heading', { name: 'リリースノート' })).toBeInTheDocument();
     const older = screen.getByRole('button', { name: /1\.4\.1/ });
@@ -1345,8 +1345,8 @@ describe('更新の節', () => {
   });
   it('開いている版があれば「すべて閉じる」で全部畳み、全部畳んでいれば「すべて開く」で全部開く', () => {
     mountAt(at('update', { update: updateProps({ notes: [
-      { version: '1.4.2', tag: '使用中', hasBefore: false, open: true, body: '- 直した。' },
-      { version: '1.4.1', tag: null, hasBefore: false, open: false, body: '- 足した。' },
+      { version: '1.4.2', tag: '使用中', before: null, points: ['直した。'], count: '1 件', open: true, body: '- 直した。' },
+      { version: '1.4.1', tag: null, before: null, points: ['足した。'], count: '1 件', open: false, body: '- 足した。' },
     ] }) }));
     fireEvent.click(screen.getByRole('button', { name: 'すべて閉じる' }));
     expect(screen.queryByText('直した。')).toBeNull();
@@ -1355,5 +1355,25 @@ describe('更新の節', () => {
     expect(screen.getByText('直した。')).toBeInTheDocument();
     expect(screen.getByText('足した。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'すべて閉じる' })).toBeInTheDocument();
+  });
+  it('開いた版は注意と要点だけを出し、「全文を読む」で本文を、「要点だけにする」で要点に戻す。行には要点の数を出す', () => {
+    mountAt(at('update', { update: updateProps({ notes: [
+      { version: '1.4.1', tag: null, before: 'Worker を入れ替えてください。', points: ['足した。', '直した。'], count: '2 件', open: true, body: '## 足したこと\n\n- 足した。本文の続き。' },
+    ] }) }));
+    expect(within(screen.getByRole('button', { name: /1\.4\.1/ })).getByText('2 件')).toBeInTheDocument();
+    expect(screen.getByText('Worker を入れ替えてください。')).toBeInTheDocument();
+    expect(screen.getByText('直した。')).toBeInTheDocument();
+    expect(screen.queryByText('足した。本文の続き。')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '全文を読む' }));
+    expect(screen.getByText('足した。本文の続き。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '要点だけにする' }));
+    expect(screen.queryByText('足した。本文の続き。')).toBeNull();
+  });
+  it('要点を拾えない版は、はじめから本文を出す', () => {
+    mountAt(at('update', { update: updateProps({ notes: [
+      { version: '1.4.0', tag: null, before: null, points: [], count: null, open: true, body: '前書きだけの版。' },
+    ] }) }));
+    expect(screen.getByText('前書きだけの版。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '全文を読む' })).toBeNull();
   });
 });

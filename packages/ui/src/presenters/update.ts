@@ -34,9 +34,10 @@ export type WhatsNewCardProps = {
 
 /**
  * 設定の「更新」の節に並べる、版ごとのノート（試作の A1）。新しい順で、見つけた版（まだ入れていない版）が先頭に来る。
- * tag は版の札（新しい版、使用中）、hasBefore は「更新の前に」の節があるか、open ははじめから開いておくかである。
+ * tag は版の札（新しい版、使用中）、open ははじめから開いておくかである。
+ * 開いた版は注意（before、「更新の前に」の節）と要点（points）だけを出し、本文（body）は「全文を読む」で出す（2026-10-17、試作の L1）。count は行に添える要点の数で、要点が無ければ null。
  */
-export type UpdateNoteRow = { version: string; tag: string | null; hasBefore: boolean; open: boolean; body: string };
+export type UpdateNoteRow = { version: string; tag: string | null; before: string | null; points: string[]; count: string | null; open: boolean; body: string };
 
 /**
  * 設定の「更新」の節。
@@ -145,10 +146,13 @@ function noteRows(t: Translate, u: UpdateState): UpdateNoteRow[] {
   const v = phaseVersion(u.phase);
   const found = v !== null && (u.current === null || compareVersions(v, u.current) > 0) ? foundNote(u, v) : null;
   const open = new Set(u.notesOpen.length > 0 ? u.notesOpen : u.current !== null ? [u.current] : []);
-  const rows: UpdateNoteRow[] = found ? [{ version: found.version, tag: t('update.notes.next'), hasBefore: found.before !== null, open: true, body: found.body }] : [];
+  const row = (n: ReleaseNote, tag: string | null, isOpen: boolean): UpdateNoteRow => ({
+    version: n.version, tag, before: n.before, points: n.points, count: n.points.length > 0 ? t('update.notes.count', { n: n.points.length }) : null, open: isOpen, body: n.body,
+  });
+  const rows: UpdateNoteRow[] = found ? [row(found, t('update.notes.next'), true)] : [];
   for (const n of u.notes) {
     if (u.current !== null && compareVersions(n.version, u.current) > 0) continue;
-    rows.push({ version: n.version, tag: n.version === u.current ? t('update.notes.inUse') : null, hasBefore: n.before !== null, open: open.has(n.version), body: n.body });
+    rows.push(row(n, n.version === u.current ? t('update.notes.inUse') : null, open.has(n.version)));
   }
   return rows;
 }
