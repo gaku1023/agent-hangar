@@ -4,7 +4,7 @@
 
 **Goal:** 全 PC・全アカウントの会話の受信箱と、PC を選んで新しい会話を始める画面の 2 枚だけを持つ PWA を Worker から配り、hangar が起こす会話を `/rc` につなぐ。
 
-**Architecture:** 状態は既存の `rows`（同期の表）に載せず、Worker の D1 に専用の表を 2 つ足す。各 PC は「受信箱の素」を 1 行（PC ごと）にまとめ、丸ごと暗号化して `mobile_feeds` に書く。スマホは PC の数だけ行を読んで手元で復号・合成する。起動の依頼は `launch_requests` に暗号化して置き、宛先の PC が pull の応答に相乗りで受け取り、取り合いの印（claim）を付けてから起動する。
+**Architecture:** 状態は既存の `rows`（同期の表）に載せず、Worker の D1 に専用の表を 3 つ足す（`mobile_feeds`、`launch_requests`、`mobile_pairings`）。各 PC は「受信箱の素」を 1 行（PC ごと）にまとめ、丸ごと暗号化して `mobile_feeds` に書く。スマホは PC の数だけ行を読んで手元で復号・合成する。起動の依頼は `launch_requests` に暗号化して置き、宛先の PC が pull の応答に相乗りで受け取り、取り合いの印（claim）を付けてから起動する。
 
 **Tech Stack:** Hono（Worker）、D1、miniflare（試験）、Web Crypto（HKDF＋AES-256-GCM、PC とブラウザで同じ実装）、better-sqlite3、React 19＋Vite 8（スマホの画面、新しい workspace `packages/mobile`）、vitest 5。
 
@@ -16,7 +16,7 @@
 
 | 項目 | 決定 | 理由 |
 |---|---|---|
-| 共有の表 | `rows` と `SHARED_TABLES` には足さない。D1 に専用の表 `mobile_feeds`、`launch_requests` を作る | `rows` に足すと古い Worker が push 全体を 400 で断り、古い PC は知らない表を pull する。専用の表なら古い PC は何も見ない |
+| 共有の表 | `rows` と `SHARED_TABLES` には足さない。D1 に専用の表 `mobile_feeds`、`launch_requests`、`mobile_pairings` を作る | `rows` に足すと古い Worker が push 全体を 400 で断り、古い PC は知らない表を pull する。専用の表なら古い PC は何も見ない |
 | 互換の版 | Worker の `COMPAT_VERSION` を 7 に上げ、`MIN_DEVICE_COMPAT` は 6 のまま。PC 側は `MOBILE_MIN_WORKER_COMPAT = 7` に届くまで書かない | 古い PC を締め出さない |
 | 一覧の口 | `GET /m/inbox` は `mobile_feeds`（PC の数の行）と `devices` だけを読む | 1 回の読み取りは PC の数×2 行程度。全走査をしない |
 | 書き込みの間引き | 受信箱の素の JSON のハッシュが変わったときだけ書く。変化の後 2 秒待ってまとめ、同じ PC からの書き込みは最短 15 秒あける | 見積もりは Task 13 で docs に書く（1 台 1 日 1,000 行前後、上限でも 5,760 行） |
@@ -25,17 +25,17 @@
 | 起動の依頼の偽造 | 依頼の中身は暗号化されており、PC は復号できたものだけを起こす | スマホの Worker 用トークンだけ漏れても起動はできない |
 | スマホに渡すもの | 参加の秘密は渡さない。渡すのはスマホ用の鍵（`HKDF(joinSecret, info="hangar-mobile-v1")` の 32 バイト）と、使い捨てのペアリング券だけ（利用者の決定、2026-10-17） | スマホや QR が漏れても PC として参加できず、R2 の本文も読めない。外せば締め出せる |
 | ペアリング券 | PC が `POST /m/pairings` で取る。128 bit の乱数、D1 にはハッシュだけ、5 分で失効、1 回で使い切り | QR の写真や履歴が残っても 5 分で無効 |
-| ペアリングの QR | 中身は `<workerUrl>/app/#pair=<base64url(JSON {url, code, key})>`。フラグメントはサーバへ送られず、読んだらすぐ `history.replaceState` で消す | |
+| ペアリングの QR | 中身は `<workerUrl>/app/#pair=<base64url(JSON {url, code, key, pcName, expiresAt})>`（`PairingBlob`）。フラグメントはサーバへ送られず、読んだらすぐ `history.replaceState` で消す | |
 | スマホのトークン | `devices` に `kind`（`pc`/`mobile`）を足す。スマホのトークンは `/m/` のスマホ用の口だけ通し、PC の口は 403。有効期限なし（外すのは PC の一覧から）。解除したスマホは、券なしでは参加し直せない | 設計書の「受信箱と起動の依頼だけ」 |
 | スマホの保存 | 鍵は IndexedDB に取り出せない（non-extractable）`CryptoKey` として、Worker 用トークンは `localStorage` に置く。無いときは「つなぐ文字列を貼る」欄を出す（QR と同じ中身） | 画面に XSS があっても鍵の値は持ち出せない。iOS のホーム画面のアプリは Safari と保存場所が分かれることがある（実物で確かめる） |
 | 秘密の作り直し | 参加の秘密を作り直すとスマホ用の鍵も変わる。スマホは開けない受信箱を「つなぎ直してください」と出す | |
-| 画面の守り | `_headers` で `Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'`。外部のスクリプトを読まない。`dangerouslySetInnerHTML` を使わない。`rcUrl` は `https://claude.ai/` で始まるものだけを通す（PC で拾うときとスマホで開くときの両方） | 会話から来た文は攻撃者が操れる（プロンプトインジェクション） |
+| 画面の守り | `_headers` で `Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'`。外部のスクリプトを読まない。`dangerouslySetInnerHTML` を使わない。`rcUrl` は `https://claude.ai/` で始まるものだけを通す（PC で拾うときとスマホで開くときの両方） | 会話から来た文は攻撃者が操れる（プロンプトインジェクション） |
 | 回数の制限 | 起動の依頼は 1 台のスマホから 10 分に 10 件まで（超えたら 429）。ペアリング券は 1 台の PC から 10 分に 5 枚まで | 盗まれたトークンで D1 の無料枠を食い潰されない |
 | PC 側の上限 | 設けない（利用者の決定、2026-10-17）。スマホで選んだ権限モードのまま起こす | |
 | 依頼の時間切れ | `LAUNCH_TTL_MS = 75_000`。Worker はこれを過ぎた依頼を claim させない。スマホは 3 秒ごとに状態を見て、80 秒で時間切れと言う | PC の pull は 30 秒ごと。2 周分の余裕。スマホが諦めた後に起動されない |
 | 依頼の受け取り | Worker は `GET /changes` の応答に、その PC 宛ての未処理の依頼を `launches` として載せる（索引で引く） | 要求を増やさない |
-| `/rc` の URL | 起動から 60 秒、2 秒ごとに tmux の画面を読み、`https://claude.ai/code/` で始まる URL を拾って手元の表に残す。拾えなければ claude.ai/code を開く | 公式の取得手段が無い。形は Task 0 で実物から確かめる |
-| `/rc` が使えない構成 | アカウントの認証が claude.ai のログインでないとき、または `ANTHROPIC_BASE_URL` が設定されているときは `--remote-control` を付けない | 起動そのものを失敗させない |
+| `/rc` の URL | 起動から 60 秒、2 秒ごとに tmux の画面を `-J` で読み、`https://claude.ai/code/session_…` を拾って手元の表に残す。拾えなければ claude.ai/code を開く | 公式の取得手段が無い。形は Task 0 で実物から確かめた（「画面のメモ」） |
+| `/rc` が使えない構成 | アカウントの認証が claude.ai のログインでないとき、または `ANTHROPIC_BASE_URL`・`ANTHROPIC_API_KEY` が設定されているときは `--remote-control` を付けない | 実物では API キーのとき黙って無視されて起動は通ったが、保守的に付けない |
 | スマホの画面 | 新しい workspace `packages/mobile`（React＋Vite）。`packages/ui` の部品は使わず、色の値だけ写す | PC の UI は大きく、スマホの 2 枚には重い |
 | 配信 | Worker の静的ファイル（wrangler の `assets`）で `/app/` に置く。API は `/m/` | 同じオリジンなので CORS が要らない |
 | 自動の読み直し | 画面が見えている間だけ 30 秒ごと。前面に戻ったとき、下に引いたときにも読む | 1 日中開きっぱなしでも 2,880 回×数行 |
@@ -72,7 +72,7 @@
 | `packages/shared/src/mobileCrypto.ts`（新） | Web Crypto の鍵導出と封／開封。PC とスマホの共通 |
 | `packages/shared/src/launchChoices.ts`（新） | 権限モードとモデルの選択肢（`packages/ui` の `PERMISSION_MODES` をここへ移す） |
 | `packages/shared/src/compat.ts` | `COMPAT_VERSION = 7`、`MOBILE_MIN_WORKER_COMPAT = 7` |
-| `packages/cloud/src/schema.ts` | `mobile_feeds`、`launch_requests`、`devices.kind` |
+| `packages/cloud/src/schema.ts` | `mobile_feeds`、`launch_requests`、`mobile_pairings`、`devices.kind` |
 | `packages/cloud/src/mobile.ts`（新） | `/m/` の口（参加、受信箱、受信箱の素の書き込み、依頼、claim、応答） |
 | `packages/cloud/src/auth.ts` | `requireKind` |
 | `packages/cloud/src/changes.ts` | pull の応答に `launches`、peers から `mobile` を外す |
@@ -387,17 +387,17 @@
 Task 0 で選ばれた案で作る。
 
 **Files:**
-- Modify: `packages/server/src/http/routes/sync.ts`（`GET /api/sync/mobile-pairing`）, `packages/ui/src/runtime/api.ts`, `packages/ui/src/views/CloudMember.tsx`（スマホの印、つなぐ節）, `packages/ui/src/presenters/cloudMember.ts`, `packages/ui/src/presenters/settings.ts`, 選ばれた置き場所（`SettingsScreen.tsx` か `InjectionSettings.tsx`）, `packages/shared/src/i18n/{keys,ja,en}/settings.ts`, `packages/ui/src/styles/cloudMember.css`, `packages/ui/package.json`（`qrcode-generator@1.4.4`）
+- Modify: `packages/server/src/http/routes/sync.ts`（`POST /api/sync/mobile-pairing`）, `packages/server/src/sync/client.ts`（`createPairing?`）, `packages/ui/src/runtime/api.ts`, `packages/ui/src/views/CloudMember.tsx`（A1：スマホの印、スマホの小見出しと QR の段）, `packages/ui/src/presenters/cloudMember.ts`, `packages/ui/src/presenters/settings.ts`, B1 の置き場所（一般の節の、起動に効く設定の並び。`InjectionSettings.tsx` の `askStatusAtEnd`・`liveHints` と同じ並び）, `packages/shared/src/i18n/{keys,ja,en}/settings.ts`, `packages/ui/src/styles/cloudMember.css`, `packages/ui/package.json`（`qrcode-generator@1.4.4`）
 - Test: `packages/server/src/http/routes/sync.test.ts`, `packages/ui/src/views/CloudMember.test.tsx`, `packages/ui/src/views/SettingsScreen.test.tsx`
 
 **Interfaces:**
 - Produces:
   - `CloudClient.createPairing?(): Promise<MobilePairingResponse>`（`POST /m/pairings`）
-  - `POST /api/sync/mobile-pairing` → `{ state: 'ready'; pairUrl: string; pairText: string; expiresAt: number } | { state: 'not-joined' } | { state: 'worker-too-old'; compat: number | null } | { state: 'rate-limited' }`。`pairText = encodePairing({ url, code, key: base64url(deriveMobileKeyBytes(joinSecret)) })`、`pairUrl = <url>/app/#pair=<pairText>`。押すたびに新しい券を取る（GET にしない）
+  - `POST /api/sync/mobile-pairing` → `{ state: 'ready'; pairUrl: string; pairText: string; expiresAt: number } | { state: 'not-joined' } | { state: 'worker-too-old'; compat: number | null } | { state: 'rate-limited' }`。`pairText = encodePairing({ url, code, key: base64url(deriveMobileKeyBytes(joinSecret)), pcName: この PC の名前, expiresAt })`、`pairUrl = <url>/app/#pair=<pairText>`。押すたびに新しい券を取る（GET にしない）
   - `api.mobilePairing(): Promise<MobilePairingDto>`
 - [ ] **Step 1: 落ちる試験を書く**
   - `sync.test.ts`：`参加していなければ not-joined`、`Worker の版が 6 なら worker-too-old`、`ready の pairText を decodePairing すると url と券と鍵が入り、参加の秘密の文字列はどこにも含まれない`、`鍵で封じたものを deriveMobileKey(joinSecret) で開ける`
-  - `CloudMember.test.tsx`：`「スマホをつなぐ」を押すと QR（svg）と残り時間（5 分）と「この QR を人に見せない」旨の注意書きが出る`、`5 分たつと QR を消して「もう一度つなぐ」を出す`、`kind=mobile の行に「スマホ」の印が出て、解除のボタンがある`、`worker-too-old では QR を出さず、更新を促す文を出す`、`スマホを外す確認に「外したスマホは戻れない。スマホからは選んだ権限モードで全部の PC に会話を起こせるので、なくしたらすぐ外す」旨の文がある`
+  - `CloudMember.test.tsx`：`「スマホをつなぐ」を押すと QR（svg）と残り時間（5 分）と「この QR を人に見せない」旨の注意書きが出る`、`5 分たつと QR を薄くして「新しい QR を出す」を出す`、`QR を出している間に cloud-devices に新しい kind=mobile の行が現れたら「〈名前〉がつながりました」を出し、表に行が増える`、`「文字列をコピー」で pairText がクリップボードに入る`、`QR を閉じたら 3 秒ごとの読み直しが止まる`、`kind=mobile の行に「スマホ」の印が出て、解除のボタンがある`、`worker-too-old では QR を出さず、更新を促す文を出す`、`スマホを外す確認に「外したスマホは戻れない。スマホからは選んだ権限モードで全部の PC に会話を起こせるので、なくしたらすぐ外す」旨の文がある`
   - `SettingsScreen.test.tsx`：`「会話を Claude アプリにつなぐ」の切り替えが PATCH { remoteControl } を送る`
 - [ ] **Step 2〜4: 落ちる→実装→通る**。文言は ja と en の両方に足す。
 - [ ] **Step 5: 画面を撮って自分で見る**（memory の reference-overlay-ui-check の手順。読むだけ、押さない）
@@ -450,12 +450,12 @@ Task 0 で選ばれた案で作る。
 **Interfaces:**
 - Consumes: Task 3 の `POST /m/launches`・`GET /m/launches/:id`、Task 10 の `InboxView` と `openInbox` が読んだ feed、Task 1 の `PERMISSION_MODE_VALUES`・`MODEL_CHOICES`・`aadLaunch`・`aadAnswer`
 - Produces:
-  - `launchChoices(feeds: MobileFeed[], alive: Set<string>): { projects: (MobileProject & { deviceIds: string[] })[]; accountsOf: (deviceId: string) => MobileAccount[] }` — プロジェクトは全 PC の和（同じ id は `lastUsedAt` の新しい方）、最近使った順。PC は場所を持ち生きているものだけ
+  - `launchChoices(feeds: MobileFeed[], alive: Set<string>): { projects: (MobileProject & { deviceIds: string[] })[]; scratchDeviceIds: string[]; accountsOf: (deviceId: string) => MobileAccount[] }` — プロジェクトは全 PC の和（同じ id は `lastUsedAt` の新しい方）、最近使った順。PC は場所を持ち生きているものだけ。「すぐ始める（フォルダなし）」はプロジェクトの並びの先頭に置き、生きている PC ならどれでも選べる（`scratchDeviceIds`）
   - `requestLaunch(p: Pairing, key: CryptoKey, o: { targetDevice: string; payload: Omit<MobileLaunchPayload, 'v' | 'createdAt'> }): Promise<string>`（id は `crypto.randomUUID()`）
   - `waitLaunch(p: Pairing, key: CryptoKey, id: string, o: { everyMs?: number; giveUpMs?: number; onStage: (s: 'waiting' | 'started' | 'failed' | 'expired', a?: MobileLaunchAnswer) => void }): () => void`（既定 3 秒ごと、80 秒で expired）
   - 画面の流れ：「〈PC〉で始める」→「〈PC〉が受け取るのを待っています（最大 30 秒ほど）」→「始まりました」→ 受信箱へ戻る。時間切れ・失敗は理由を文で出す
 - [ ] **Step 1: 落ちる試験を書く**
-  - `launch.test.ts`：`場所の無い PC と 3 分見ていない PC は選べない`、`アカウントは選んだ PC のものだけ`、`requestLaunch の sealed は aadLaunch(id, targetDevice) で開け、createdAt が入る`、`waitLaunch は started で止まり答えを渡す`、`80 秒で expired`
+  - `launch.test.ts`：`場所の無い PC と 3 分見ていない PC は選べない`、`すぐ始めるは生きている PC ならどれでも選べ、依頼は projectId null・scratch true`、`アカウントは選んだ PC のものだけ`、`requestLaunch の sealed は aadLaunch(id, targetDevice) で開け、createdAt が入る`、`waitLaunch は started で止まり答えを渡す`、`80 秒で expired`
   - `NewSessionScreen.test.tsx`：`4 つを選んで始めると「受け取るのを待っています」→「始まりました」`、`最初の指示が空なら始められない`、`project-missing の答えは「その PC にプロジェクトの場所がありません」と出る`、`権限モードの選択肢が PC のダイアログと同じ 7 つ`
 - [ ] **Step 2〜4: 落ちる→実装→通る**
 - [ ] **Step 5: 端末幅で撮って自分で見る**
@@ -495,7 +495,7 @@ Task 0 で選ばれた案で作る。
 - [ ] **Step 2:** build 3 本（`npm run build`、`npm run bundle-server -w apps/desktop`、Homebrew の cargo を先頭にした tauri build）
 - [ ] **Step 3:** PR、CI 3 ジョブ緑でマージ、/Applications の入れ替え（空の環境から起動）
 - [ ] **Step 4: 実物のクラウド（利用者に聞いてから）。** Worker の配備（`hangar setup cloud` の再配備。D1 の書き込みは配備で数十行）。見積もりを添えて聞く。
-- [ ] **Step 5: 実物で確かめる（利用者と）。** 設計書の「実物で確かめること」4 つ：`/rc` の URL をスマホで押して Claude アプリで開くか／2 つ目のアカウントでも `--remote-control` でつながるか／iPhone の「ホーム画面に追加」の見え方と、参加が持ち越されるか（持ち越されなければ貼る欄で参加できるか）／入れた翌日の D1 の書き込みと読み取りの実測（`GET /usage` か設定の使用量の画面）を docs の見積もりの欄に書く。
+- [ ] **Step 5: 実物で確かめる（利用者と）。** 設計書の「実物で確かめること」の残り 3 つ（2 つ目のアカウントは Task 0 で確かめ済み）：`/rc` の URL をスマホで押して Claude アプリで開くか／iPhone の「ホーム画面に追加」の見え方と、参加が持ち越されるか（持ち越されなければ貼る欄で参加できるか）／入れた翌日の D1 の書き込みと読み取りの実測（`GET /usage` か設定の使用量の画面）を docs の見積もりの欄に書く。
 
 ---
 
