@@ -1,5 +1,5 @@
 import { aadAnswer, aadLaunch, open, PERMISSION_MODE_VALUES, seal, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openInbox, type InboxView } from '../inbox.ts';
@@ -219,5 +219,124 @@ describe('NewSessionScreen', () => {
     render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
     expect(onClose).toHaveBeenCalledWith(false);
+  });
+
+  it('届いたか分からない失敗の後の「もう一度」は同じ id で送り、中身を変えたら新しい id', async () => {
+    let failPosts = 2;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
+        sent.push(body);
+        if (failPosts > 0) {
+          failPosts--;
+          throw new TypeError('Failed to fetch');
+        }
+        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
+      }
+      return json({ id: url.split('/').pop(), status: 'pending', sealedAnswer: null });
+    });
+    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    const box = screen.getByRole('textbox', { name: '最初の指示' });
+    fireEvent.change(box, { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(await screen.findByText(/通信を確かめて/)).toBeInTheDocument();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.id).toBe(sent[0]!.id);
+
+    // 同じ中身で送り直す：同じ id（前のが置けていれば Worker は行を増やさない）。
+    failPosts = 2;
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    await waitFor(() => expect(sent).toHaveLength(4));
+    expect(await screen.findByText(/通信を確かめて/)).toBeInTheDocument();
+    expect(sent.map((b) => b.id)).toEqual([sent[0]!.id, sent[0]!.id, sent[0]!.id, sent[0]!.id]);
+
+    // 中身を変えたら別の依頼：新しい id。
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度' }));
+    fireEvent.change(box, { target: { value: 'b' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(await screen.findByText(/受け取るのを待っています/)).toBeInTheDocument();
+    expect(sent).toHaveLength(5);
+    expect(sent[4]!.id).not.toBe(sent[0]!.id);
+    const payload = await open<MobileLaunchPayload>(key, aadLaunch(sent[4]!.id, 'pc-1'), sent[4]!.sealed);
+    expect(payload.prompt).toBe('b');
+  });
+
+  it('始まったと言えない答え（開けない）は「返事を読めませんでした」と出し、接続し直しを勧めない', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
+        sent.push(body);
+        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
+      }
+      return json({ id: url.split('/').pop(), status: 'started', sealedAnswer: 'not-a-sealed-value' });
+    });
+    const onClose = vi.fn();
+    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} everyMs={10} />);
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(await screen.findByText(/返事を読めませんでした/)).toBeInTheDocument();
+    expect(screen.queryByText(/始まりました/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '接続し直す' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /受信箱へ/ }));
+    expect(onClose).toHaveBeenCalledWith(true);
+  });
+
+  it('待っている間に 401 なら接続し直しの画面へ', async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body as string) as { id: string };
+        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
+      }
+      return json({ error: 'unauthorized' }, 401);
+    });
+    const onUnpaired = vi.fn();
+    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={onUnpaired} everyMs={10} />);
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    await waitFor(() => expect(onUnpaired).toHaveBeenCalledTimes(1));
+  });
+
+  it('送っている間も始めるボタンは同じ要素のまま（フォーカスを落とさない）', async () => {
+    let release: (() => void) | null = null;
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body as string) as { id: string };
+        await new Promise<void>((r) => (release = r));
+        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
+      }
+      return json({ status: 'pending', sealedAnswer: null });
+    });
+    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={vi.fn()} onUnpaired={vi.fn()} everyMs={10} />);
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
+    const btn = screen.getByRole('button', { name: 'Mac で始める' });
+    btn.focus();
+    fireEvent.click(btn);
+    const sending = await screen.findByRole('button', { name: '送っています…' });
+    expect(sending).toBe(btn);
+    await waitFor(() => expect(release).not.toBeNull());
+    release!();
+    expect(await screen.findByText(/受け取るのを待っています/)).toBeInTheDocument();
+  });
+
+  it('待っている間に閉じても、受信箱を読み直す', async () => {
+    serve([{ status: 'pending' }]);
+    const onClose = vi.fn();
+    render(<NewSessionScreen pairing={pairing} cryptoKey={key} view={await viewOf(twoPcs())} onClose={onClose} onUnpaired={vi.fn()} everyMs={10} />);
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(screen.getByRole('textbox', { name: '最初の指示' }), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    await screen.findByText(/受け取るのを待っています/);
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(onClose).toHaveBeenCalledWith(true);
   });
 });

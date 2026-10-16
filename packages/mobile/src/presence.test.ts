@@ -42,6 +42,30 @@ describe('usePresence', () => {
     expect(phases(result.current)).toEqual(['a:initial', 'c:initial']);
   });
 
+  it('畳んでいる間に新しい空の配列を渡され続けても、描き直しが止まる', () => {
+    const root = document.documentElement.style;
+    root.setProperty('--dur-exit', '250ms');
+    root.setProperty('--dur-fast', '200ms');
+    try {
+      const a = { id: 'a' };
+      let renders = 0;
+      const { rerender, result } = renderHook(
+        ({ on }) => {
+          renders++;
+          return usePresence(on ? [a] : [], keyOf);
+        },
+        { initialProps: { on: true } },
+      );
+      renders = 0;
+      rerender({ on: false });
+      expect(renders).toBeLessThan(5);
+      expect(phases(result.current)).toEqual(['a:leave']);
+    } finally {
+      root.removeProperty('--dur-exit');
+      root.removeProperty('--dur-fast');
+    }
+  });
+
   it('段階ごとの動きの名前', () => {
     expect(['initial', 'enter', 'stay', 'leave'].map((p) => phaseClass(p as never))).toEqual(['m-fade', 'm-grow', '', 'm-collapse']);
   });
@@ -49,34 +73,6 @@ describe('usePresence', () => {
 
 describe('styles.css の動き', () => {
   const css = fs.readFileSync(path.join(import.meta.dirname, 'styles.css'), 'utf8');
-  it('呼ぶたびに新しい配列でも、中身が同じなら描き直しが止まる', () => {
-    const a = { id: 'a' };
-    let renders = 0;
-    renderHook(() => {
-      renders++;
-      return usePresence([a], keyOf);
-    });
-    expect(renders).toBeLessThan(5);
-  });
-
-  it('畳んでいる間に新しい空の配列を渡され続けても、描き直しが止まる', () => {
-    document.documentElement.style.setProperty('--dur-exit', '250ms');
-    document.documentElement.style.setProperty('--dur-fast', '200ms');
-    const a = { id: 'a' };
-    let renders = 0;
-    const { rerender, result } = renderHook(
-      ({ on }) => {
-        renders++;
-        return usePresence(on ? [a] : [], keyOf);
-      },
-      { initialProps: { on: true } },
-    );
-    renders = 0;
-    rerender({ on: false });
-    expect(renders).toBeLessThan(5);
-    expect(phases(result.current)).toEqual(['a:leave']);
-  });
-
   it('出入りの形を持ち、動きを減らす設定では長さを 0 にする', () => {
     for (const k of ['m-fade', 'm-grow', 'm-collapse']) expect(css).toMatch(new RegExp(`@keyframes ${k}\\b`));
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*:root \{ --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms;/);

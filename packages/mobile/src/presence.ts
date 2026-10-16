@@ -58,7 +58,8 @@ export function usePresence<T>(items: readonly T[], keyOf: (t: T) => string): Pr
     setList((prev) => {
       const same = prev.length === items.length && prev.every((p, i) => p.phase !== 'leave' && p.item === items[i]);
       if (same) return prev;
-      // 呼び手が描くたびに新しい配列を渡しても、中身が変わらなければ前の並びのまま返す（返さないと描き直しが止まらない）。
+      // 揃え直しても key、段階、item が前と同じなら前の並びのまま返す（畳んでいる行があると same が成り立たず、返さないと描き直しが止まらない）。
+      // item を同じものと見るのは参照が同じときだけである。描くたびに item のオブジェクトを作り直す呼び手は、ここでは守れないので、呼び手が useMemo などで並びを保つこと。
       const next = merge(prev, items, keyOf, keep);
       const unchanged = next.length === prev.length && next.every((n, i) => n.key === prev[i]!.key && n.phase === prev[i]!.phase && n.item === prev[i]!.item);
       return unchanged ? prev : next;

@@ -38,6 +38,7 @@ type Stage =
   | { kind: 'sending' }
   | { kind: 'waiting' }
   | { kind: 'started' }
+  | { kind: 'unreadable' }
   | { kind: 'failed'; message: string; detail?: string; reconnect?: boolean };
 
 type Props = {
@@ -45,8 +46,8 @@ type Props = {
   cryptoKey: CryptoKey;
   /** 受信箱で読んだもの。PC ごとのプロジェクトとアカウント、生きている PC をここから読む。 */
   view: InboxView;
-  /** 閉じる。started は会話が始まったか（受信箱を読み直す）。 */
-  onClose: (started: boolean) => void;
+  /** 閉じる。refresh は Worker が依頼を受けたか（受信箱を読み直す）。 */
+  onClose: (refresh: boolean) => void;
   /** 接続が外された（401）か、接続し直すと決めた。 */
   onUnpaired: () => void;
   /** 閉じる動きの間。押せないようにして、下がって消える。 */
@@ -109,6 +110,10 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
   const [stage, setStage] = useState<Stage>({ kind: 'idle' });
   const [sentTo, setSentTo] = useState('');
   const stop = useRef<(() => void) | null>(null);
+  // 届いたか分からないまま失敗した依頼。同じ中身で送り直すときは同じ id を使い、Worker と PC に二度起こさせない。
+  const unsent = useRef<{ sig: string; id: string } | null>(null);
+  // Worker が依頼を受けた（閉じたら受信箱を読み直す）。
+  const accepted = useRef(false);
   const mounted = useRef(true);
   const promptId = useId();
 
@@ -130,7 +135,7 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
 
   const tooLong = prompt.length > PROMPT_MAX;
   const left = PROMPT_MAX - prompt.length;
-  const locked = stage.kind === 'sending' || stage.kind === 'waiting' || stage.kind === 'started';
+  const locked = stage.kind === 'sending' || stage.kind === 'waiting' || stage.kind === 'started' || stage.kind === 'unreadable';
   const ready = !!sel && (sel.scratch || !!project) && !!pc && !!account && prompt.trim().length > 0 && !tooLong;
   const nothing = choices.scratchDeviceIds.length === 0;
 
@@ -138,16 +143,19 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
     if (!ready || locked || !sel || !pc || !account) return;
     const target = pc;
     const name = pcName;
+    const payload = { projectId: sel.scratch ? null : sel.id, scratch: sel.scratch, accountId: account, permissionMode, model, prompt };
+    const sig = JSON.stringify([target, payload]);
+    const reuse = unsent.current?.sig === sig ? unsent.current.id : null;
+    const fresh = reuse ?? globalThis.crypto.randomUUID();
+    unsent.current = { sig, id: fresh };
     setSentTo(name);
     setStage({ kind: 'sending' });
     let id: string;
     try {
-      id = await requestLaunch(pairing, cryptoKey, {
-        targetDevice: target,
-        skewMs: view.skewMs,
-        payload: { projectId: sel.scratch ? null : sel.id, scratch: sel.scratch, accountId: account, permissionMode, model, prompt },
-      });
+      id = await requestLaunch(pairing, cryptoKey, { id: fresh, targetDevice: target, skewMs: view.skewMs, payload });
     } catch (e) {
+      // id が重なった（409）ときだけ次は新しい id にする。ほかは届いていたかもしれないので、同じ中身なら同じ id で送り直す。
+      if (e instanceof LaunchError && e.reason === 'conflict') unsent.current = null;
       if (!mounted.current) return;
       if (e instanceof LaunchError && e.reason === 'unpaired') {
         clearPairing();
@@ -157,6 +165,9 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
       setStage(requestMessage(name, e));
       return;
     }
+    // Worker が受けた。この先の「もう一度」は新しい依頼にする。
+    unsent.current = null;
+    accepted.current = true;
     if (!mounted.current) return;
     stop.current = waitLaunch(pairing, cryptoKey, id, {
       everyMs,
@@ -164,6 +175,11 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
         if (!mounted.current) return;
         if (s === 'waiting') setStage({ kind: 'waiting' });
         else if (s === 'started') setStage({ kind: 'started' });
+        else if (s === 'unreadable') setStage({ kind: 'unreadable' });
+        else if (s === 'unpaired') {
+          clearPairing();
+          onUnpaired();
+        }
         else if (s === 'expired') setStage({ kind: 'failed', message: `${name} が受け取りませんでした。${name} で hangar が動いているか確かめて、もう一度送ってください。` });
         else setStage(answerMessage(name, a));
       },
@@ -178,7 +194,7 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
   return (
     <div className={`ns ${leaving ? 'leaving' : ''}`} role="dialog" aria-modal="true" aria-labelledby={`${promptId}-title`} inert={leaving}>
       <header className="ns-head">
-        <button type="button" className="ns-close" onClick={() => onClose(stage.kind === 'started')}>
+        <button type="button" className="ns-close" onClick={() => onClose(accepted.current)}>
           閉じる
         </button>
         <h1 className="ns-title" id={`${promptId}-title`}>
@@ -264,7 +280,8 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
       </div>
 
       <div className="ns-bar">
-        <div className="ns-bar-in m-fade" key={stage.kind} aria-live="polite">
+        {/* 段が変わるときだけ薄れから現す。始めると送っているの間は同じ要素のまま（押したボタンのフォーカスを落とさない）。 */}
+        <div className="ns-bar-in m-fade" key={stage.kind === 'idle' || stage.kind === 'sending' ? 'form' : stage.kind} aria-live="polite">
           {(stage.kind === 'idle' || stage.kind === 'sending') && (
             <button type="button" className="ns-start" disabled={!ready || stage.kind === 'sending'} onClick={() => void send()}>
               {stage.kind === 'sending' ? '送っています…' : pc ? `${pcName} で始める` : '始める'}
@@ -281,6 +298,16 @@ export function NewSessionScreen({ pairing, cryptoKey, view, onClose, onUnpaired
               <p className="ns-stage ok">
                 <span className="dot done" aria-hidden="true" />
                 {`${sentTo} で始まりました。受信箱の「動いている」に出ます。`}
+              </p>
+              <button type="button" className="ns-start" onClick={() => onClose(true)}>
+                受信箱へ ›
+              </button>
+            </div>
+          )}
+          {stage.kind === 'unreadable' && (
+            <div className="ns-done">
+              <p className="ns-stage bad" role="alert">
+                {`${sentTo} からの返事を読めませんでした。会話が始まっているかもしれません。受信箱で確かめてください。`}
               </p>
               <button type="button" className="ns-start" onClick={() => onClose(true)}>
                 受信箱へ ›

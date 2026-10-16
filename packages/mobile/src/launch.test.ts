@@ -111,6 +111,24 @@ describe('requestLaunch', () => {
     const ids = fetchMock.mock.calls.map((c) => (JSON.parse((c[1] as RequestInit).body as string) as { id: string }).id);
     expect(ids).toEqual([id, id]);
   });
+  it('skewMs の分だけ createdAt がずれる（Worker の時刻に寄せる）', async () => {
+    fetchMock.mockResolvedValue(json({ id: 'x', status: 'pending', sealedAnswer: null }, 201));
+    const before = Date.now();
+    const id = await requestLaunch(pairing, key, { targetDevice: 'pc-1', skewMs: 90 * MIN, payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as { sealed: string };
+    const payload = await open<MobileLaunchPayload>(key, aadLaunch(id, 'pc-1'), body.sealed);
+    expect(payload.createdAt).toBeGreaterThanOrEqual(before + 90 * MIN);
+    expect(payload.createdAt).toBeLessThanOrEqual(Date.now() + 90 * MIN);
+  });
+
+  it('id を渡すとその id で送る（送り直しで Worker が行を増やさない）', async () => {
+    fetchMock.mockResolvedValue(json({ id: 'l-keep', status: 'pending', sealedAnswer: null }, 201));
+    const id = await requestLaunch(pairing, key, { id: 'l-keep', targetDevice: 'pc-1', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
+    expect(id).toBe('l-keep');
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as { id: string; sealed: string };
+    expect(body.id).toBe('l-keep');
+    await expect(open(key, aadLaunch('l-keep', 'pc-1'), body.sealed)).resolves.toMatchObject({ prompt: 'a' });
+  });
 });
 
 describe('waitLaunch', () => {
@@ -195,5 +213,67 @@ describe('waitLaunch', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(3000);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('started', answer));
+  });
+
+  it('started でも答えが無いか開けなければ unreadable（始まったとは言わない）', async () => {
+    vi.useFakeTimers();
+    const other = await makeKey();
+    const bad = json({ id: 'l-7', status: 'started', sealedAnswer: await seal(other, aadAnswer('l-7'), { ok: true, sessionId: 's', title: 't' }) });
+    fetchMock.mockImplementation(async () => bad.clone());
+    const onStage = vi.fn();
+    waitLaunch(pairing, key, 'l-7', { onStage });
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('unreadable'));
+    expect(onStage).not.toHaveBeenCalledWith('started', expect.anything());
+
+    const none = json({ id: 'l-8', status: 'started', sealedAnswer: null });
+    fetchMock.mockImplementation(async () => none.clone());
+    const onStage2 = vi.fn();
+    waitLaunch(pairing, key, 'l-8', { onStage: onStage2 });
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(onStage2).toHaveBeenLastCalledWith('unreadable'));
+  });
+
+  it('failed で答えが開けなければ unreadable', async () => {
+    vi.useFakeTimers();
+    const reply = json({ id: 'l-9', status: 'failed', sealedAnswer: 'not-a-sealed-value' });
+    fetchMock.mockImplementation(async () => reply.clone());
+    const onStage = vi.fn();
+    waitLaunch(pairing, key, 'l-9', { onStage });
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('unreadable'));
+  });
+
+  it('started と答えの食い違い：ok:false なら failed、failed に ok:true なら unreadable', async () => {
+    vi.useFakeTimers();
+    const no: MobileLaunchAnswer = { ok: false, reason: 'account-missing' };
+    const r1 = await status('l-10', 'started', no);
+    fetchMock.mockImplementation(async () => r1.clone());
+    const onStage = vi.fn();
+    waitLaunch(pairing, key, 'l-10', { onStage });
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('failed', no));
+
+    const r2 = await status('l-11', 'failed', { ok: true, sessionId: 's', title: 't' });
+    fetchMock.mockImplementation(async () => r2.clone());
+    const onStage2 = vi.fn();
+    waitLaunch(pairing, key, 'l-11', { onStage: onStage2 });
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(onStage2).toHaveBeenLastCalledWith('unreadable'));
+  });
+
+  it('401 は unpaired、404 は failed', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async () => json({ error: 'unauthorized' }, 401));
+    const onStage = vi.fn();
+    waitLaunch(pairing, key, 'l-12', { onStage });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(onStage).toHaveBeenLastCalledWith('unpaired');
+
+    fetchMock.mockImplementation(async () => json({ error: 'not found' }, 404));
+    const onStage2 = vi.fn();
+    waitLaunch(pairing, key, 'l-13', { onStage: onStage2 });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(onStage2).toHaveBeenLastCalledWith('failed');
   });
 });

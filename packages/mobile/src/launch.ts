@@ -51,13 +51,16 @@ export function launchChoices(feeds: MobileFeed[], alive: Set<string>): LaunchCh
  * 中身は aadLaunch(id, targetDevice) で封じるので、Worker が宛先を付け替えても PC は開けない。
  * createdAt は Worker の時刻に寄せる（skewMs、受信箱の InboxView.skewMs）。PC はこれで古すぎる依頼を断る。
  * 通信が切れたら同じ id で 1 度だけ送り直す（Worker は同じ id の再送で行を増やさない）。
+ * id を渡すと、その id で送る。届いたか分からないまま失敗した依頼を、同じ中身で送り直すときに使う。
+ * 前の依頼が Worker に置けていれば、Worker は行を増やさず前の行の状態を返し、PC も同じ id を二度起こさない。
+ * 封は毎回作り直すので、前の依頼が置けていなかったときは新しい createdAt で置かれる。
  */
 export async function requestLaunch(
   p: Pairing,
   key: CryptoKey,
-  o: { targetDevice: string; payload: Omit<MobileLaunchPayload, 'v' | 'createdAt'>; skewMs?: number },
+  o: { targetDevice: string; payload: Omit<MobileLaunchPayload, 'v' | 'createdAt'>; skewMs?: number; id?: string },
 ): Promise<string> {
-  const id = globalThis.crypto.randomUUID();
+  const id = o.id ?? globalThis.crypto.randomUUID();
   const payload: MobileLaunchPayload = { v: 1, createdAt: Date.now() + (o.skewMs ?? 0), ...o.payload };
   const sealed = await seal(key, aadLaunch(id, o.targetDevice), payload);
   const body = { id, targetDevice: o.targetDevice, sealed };
@@ -70,7 +73,12 @@ export async function requestLaunch(
   return id;
 }
 
-export type LaunchStage = 'waiting' | 'started' | 'failed' | 'expired';
+/**
+ * 依頼の行き着いた先。
+ * - unreadable：PC の答えが無いか、開けないか、Worker の状態と食い違う。始まったかどうかをスマホは言えない。
+ * - unpaired：このスマホの接続が外された（401）。
+ */
+export type LaunchStage = 'waiting' | 'started' | 'failed' | 'expired' | 'unreadable' | 'unpaired';
 
 /** 既定の読み直しの間隔と、諦めるまでの長さ（LAUNCH_TTL_MS の 75 秒に少し足す）。 */
 export const LAUNCH_POLL_MS = 3_000;
@@ -79,9 +87,12 @@ export const LAUNCH_GIVE_UP_MS = 80_000;
 /**
  * 依頼の状態を everyMs ごとに読み、決まるまで待つ。戻り値で待つのをやめる。
  * - 始めは waiting。pending と claimed の間は waiting のまま。
- * - started と failed は答え（sealedAnswer を aadAnswer(id) で開いたもの）を添える。開けなければ答えなしで渡す。
+ * - 答えは sealedAnswer を aadAnswer(id) で開いたもの。
+ * - started は ok:true の答えを開けたときだけ。ok:false の答えなら failed として答えを渡す。
+ * - failed は ok:false の答えを添える。ok:true の答えは食い違いなので unreadable。
+ * - 答えが無い、開けないときは、started でも failed でも unreadable。
  * - Worker が expired と言うか、giveUpMs を過ぎたら expired。
- * - 通信の失敗は待ち続ける。依頼が見つからない（404）、または接続が外された（401）ときは failed。
+ * - 通信の失敗は待ち続ける。依頼が見つからない（404）ときは failed（答えなし）、接続が外された（401）ときは unpaired。
  */
 export function waitLaunch(
   p: Pairing,
@@ -118,7 +129,10 @@ export function waitLaunch(
       if (done) return;
       if (st.status === 'started' || st.status === 'failed') {
         const a = await answerOf(st.sealedAnswer);
-        finish(st.status, a);
+        if (!a) finish('unreadable');
+        else if (!a.ok) finish('failed', a);
+        else if (st.status === 'started') finish('started', a);
+        else finish('unreadable');
         return;
       }
       if (st.status === 'expired') {
@@ -126,7 +140,11 @@ export function waitLaunch(
         return;
       }
     } catch (e) {
-      if (e instanceof LaunchError && (e.reason === 'not-found' || e.reason === 'unpaired')) {
+      if (e instanceof LaunchError && e.reason === 'unpaired') {
+        finish('unpaired');
+        return;
+      }
+      if (e instanceof LaunchError && e.reason === 'not-found') {
         finish('failed');
         return;
       }
