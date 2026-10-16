@@ -23,4 +23,6 @@ export type LaunchInput = {
   permissionMode?: string;
   worktree?: string;
   addDirs?: string[];
+  /** Remote Control の名前。文字列なら `--remote-control <名前>` を足す。null と未指定は足さない（remoteControl.ts の門を通ったときだけ渡す）。 */
+  remoteControl?: string | null;
 };

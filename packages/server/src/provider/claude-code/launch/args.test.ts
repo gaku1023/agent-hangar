@@ -37,4 +37,24 @@ describe('buildClaudeArgs', () => {
     expect(buildClaudeArgs({ ...base, mode: { kind: 'resume', sessionUuid: 'u1' } }).slice(2)).toEqual(['-r', 'u1', '--append-system-prompt', 'SYS']);
     expect(buildClaudeArgs({ ...base, mode: { kind: 'fork', sessionUuid: 'u1', newSessionUuid: 'u2' } }).slice(2)).toEqual(['-r', 'u1', '--fork-session', '--session-id', 'u2', '--append-system-prompt', 'SYS']);
   });
+
+  it('remoteControl が文字列なら --remote-control と名前が続く（名前は別の要素で、プロンプトは末尾のまま）', () => {
+    const a = buildClaudeArgs({ ...base, mode: { kind: 'start', sessionUuid: 'u1' }, remoteControl: '会話 1', prompt: 'やって' });
+    const i = a.indexOf('--remote-control');
+    expect(i).toBeGreaterThan(-1);
+    expect(a[i + 1]).toBe('会話 1');
+    expect(a.at(-1)).toBe('やって');
+  });
+
+  it('remoteControl が null か未指定なら付かない', () => {
+    expect(buildClaudeArgs({ ...base, mode: { kind: 'start', sessionUuid: 'u1' }, remoteControl: null })).not.toContain('--remote-control');
+    expect(buildClaudeArgs({ ...base, mode: { kind: 'start', sessionUuid: 'u1' } })).not.toContain('--remote-control');
+  });
+
+  it('再開とフォークでも付く', () => {
+    for (const mode of [{ kind: 'resume', sessionUuid: 'u1' }, { kind: 'fork', sessionUuid: 'u1', newSessionUuid: 'u2' }] as const) {
+      const a = buildClaudeArgs({ ...base, mode, remoteControl: 'project-a' });
+      expect(a[a.indexOf('--remote-control') + 1]).toBe('project-a');
+    }
+  });
 });

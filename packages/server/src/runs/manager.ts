@@ -5,13 +5,14 @@ import { newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { setSessionName } from '../sessions/notes.ts';
+import { sessionTitleOf, setSessionName } from '../sessions/notes.ts';
 import { pinnedProjectOf } from '../sessions/move.ts';
 import { setSessionPlacement } from '../sessions/states.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { DEFAULT_INJECTION_PARTS, renderInjection, type InjectionParts } from '../launch/injection.ts';
+import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
 import { writeHookSettings } from '../provider/claude-code/launch/hookSettings.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
@@ -97,9 +98,12 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
+/** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
+type RemoteControlAsk = { account: Account | null; env?: Record<string, string>; userArgs?: string[] };
+
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
 
 function isDirectory(p: string): boolean {
@@ -323,7 +327,24 @@ export class RunManager {
     return dirs;
   }
 
-  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams, handoverFrom?: string): Omit<LaunchInput, 'mode'> {
+  /**
+   * claude に足す `--remote-control` の名前。足さないときは null。
+   * 足してよいかは、起こすアカウントと、そのアカウントの置き場を足した後の環境で決める（deps.remoteControl）。
+   * 利用者がターミナルで自分の引数に付けているとき（--remote-control、--rc）と、対話でない起動（-p、--print）では足さない。
+   */
+  private remoteControlFor(rc: RemoteControlAsk | undefined, o: { projectId: string | null; name?: string; prompt?: string; handoverFrom?: string }): string | null {
+    if (!rc || !this.deps.remoteControl) return null;
+    if (rc.userArgs?.some((a) => a === '--remote-control' || a.startsWith('--remote-control=') || a === '--rc' || a.startsWith('--rc=') || a === '-p' || a === '--print')) return null;
+    // launch() と同じ決め方で、利用者が自分で付けた置き場（rc.env）があればそれを優先する。未登録の置き場は認証を知れないので足さない。
+    const own = rc.env?.CLAUDE_CONFIG_DIR;
+    const account = own ? this.accounts.byDir(own) : rc.account;
+    if (own && !account) return null;
+    const env = { ...this.accounts.envFor(own ? null : account), ...rc.env };
+    if (!this.deps.remoteControl({ account, env })) return null;
+    return remoteControlName({ name: o.name ?? (o.handoverFrom ? sessionTitleOf(this.db, o.handoverFrom) ?? undefined : undefined), prompt: o.prompt, projectName: o.projectId ? this.project(o.projectId).name : null });
+  }
+
+  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams, handoverFrom?: string, rc?: RemoteControlAsk): Omit<LaunchInput, 'mode'> {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     // claude に渡すのは本体のトークンではなく、この run 専用の秘密である。
     // 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
@@ -340,6 +361,7 @@ export class RunManager {
       permissionMode: s(params.permissionMode),
       worktree: s(params.worktree),
       addDirs: this.addDirs(params),
+      remoteControl: this.remoteControlFor(rc, { projectId, name: s(params.name), prompt: s(params.prompt), handoverFrom }),
     };
   }
 
@@ -464,7 +486,7 @@ export class RunManager {
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, started_at: now, last_activity_at: now }, this.deps.deviceId);
     // 起動のときに付けた名前は session_notes に書く。付けなければ行を作らない。
     setSessionName(this.db, this.deps.deviceId, sessionId, params.name?.trim() || null);
-    const base = this.baseInput(sessionId, p.id, cwd, params);
+    const base = this.baseInput(sessionId, p.id, cwd, params, undefined, { account });
     // 添付つきの初期プロンプトは、置き場（hangar の home の drops）の中のファイルを指す。
     // 置き場は作業ディレクトリの外なので、足さないと claude が読む前に許可を尋ねて止まる。
     // 足すのは claude に渡す引数だけで、run に残す起動の指定（params）は変えない。画面が覚える addDirs に混ざらないためである。
@@ -584,7 +606,7 @@ export class RunManager {
     const job = this.procs().listJobs(bin)?.find((j) => j.sessionId === s.provider_session_id) ?? null;
     if (job) return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder });
     // claude -r <uuid> は、cwd が前と違っても、どのプロジェクトの置き場にある本文でも見つけて、その本文に書き足す（Claude Code 2.1 で確かめた）。
-    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, cwd, {}, s.id), { providerSessionId: s.provider_session_id }, false);
+    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, cwd, {}, s.id, { account, env: extra.env, userArgs: extra.args }), { providerSessionId: s.provider_session_id }, false);
     return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder });
   }
 
@@ -622,7 +644,7 @@ export class RunManager {
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const input: LaunchInput = { ...this.baseInput(sessionId, projectId, req.cwd, {}), mode: { kind: 'start', sessionUuid } };
+    const input: LaunchInput = { ...this.baseInput(sessionId, projectId, req.cwd, {}, undefined, { account, env, userArgs: rest }), mode: { kind: 'start', sessionUuid } };
     const command = [...claudeCodeProvider.launchCommand(this.claudeBin(), input), ...rest];
     return { ...this.launch({ sessionId, cwd: req.cwd, kind: 'start', command, params: { projectId: projectId ?? undefined }, env, account }), attached: false };
   }
@@ -647,7 +669,7 @@ export class RunManager {
     // 利用者が移した会話なら、新しい会話にも移した印を写す（sessions/move.ts）。写さないと、索引の自動の振り分けが cwd から元のプロジェクトへ戻す。
     const pin = pinnedProjectOf(this.db, s.id);
     if (pin !== null) setSessionPlacement(this.db, this.deps.deviceId, newSessionId, pin);
-    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, cwd, {}, s.id), { providerSessionId: s.provider_session_id }, true, newUuid);
+    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, { account }), { providerSessionId: s.provider_session_id }, true, newUuid);
     return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account });
   }
 

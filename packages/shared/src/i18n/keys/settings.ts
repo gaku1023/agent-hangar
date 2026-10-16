@@ -281,6 +281,7 @@ export const settingsKeys = {
   'settings.label.autoDone': [],
   'settings.label.autoDoneIdleDays': [],
   'settings.label.autoPark': [],
+  'settings.label.remoteControl': [],
   'settings.editor.title': [],
   'settings.editor.desc': [],
   'settings.editor.found': [],

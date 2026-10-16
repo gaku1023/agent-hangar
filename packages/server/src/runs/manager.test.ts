@@ -767,6 +767,25 @@ describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
     expect(sys2).not.toContain('set_turn_intent');
     off.kill(r2.run.id);
   });
+  it('Remote Control は、門を通ったときだけ --remote-control を足し、名前は指示の先頭になる（Windows でも同じ argv の別の要素）', async () => {
+    const asked: { account: string | null; env: Record<string, string | undefined> }[] = [];
+    const on = make({ remoteControl: ({ account, env }) => { asked.push({ account: account?.id ?? null, env }); return true; } });
+    const r1 = on.start({ projectId: 'p1', prompt: '最初の指示 -x $(touch /tmp/never)' });
+    const a1 = await launchedArgs(r1.run.id);
+    expect(a1[a1.indexOf('--remote-control') + 1]).toBe('最初の指示 -x $(touch /tmp/never)');
+    // 初期プロンプトは末尾のままで、名前に飲まれない。
+    expect(a1.at(-2)).toBe('最初の指示 -x $(touch /tmp/never)');
+    expect(asked).toEqual([{ account: null, env: {} }]);
+    on.kill(r1.run.id);
+    const off = make({ remoteControl: () => false });
+    const r2 = off.start({ projectId: 'p1' });
+    expect(await launchedArgs(r2.run.id)).not.toContain('--remote-control');
+    off.kill(r2.run.id);
+    const none = make();
+    const r3 = none.start({ projectId: 'p1' });
+    expect(await launchedArgs(r3.run.id)).not.toContain('--remote-control');
+    none.kill(r3.run.id);
+  });
   it('openTab は連番の tmux セッションを作り、closeTab は閉じ、番号は再利用しない', async () => {
     const rm = make();
     const tabs: TabDto[] = [];

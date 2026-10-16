@@ -81,7 +81,7 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp, 'darwin');
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, defaultModel: null, nodePath: null, language: 'ja' });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, language: 'ja' });
   });
   it('0.4.0 までの codePath は、VS Code とその場所のエディタに読み替え、古い鍵は持たない', () => {
     ensureHome(tmp);
@@ -158,6 +158,15 @@ describe('paths', () => {
     expect(loadSettings(tmp)).toMatchObject({ summaryEngine: 'off', lmStudioUrl: 'http://127.0.0.1:5555', lmStudioModel: 'gemma', summaryFallback: true });
     saveSettings(tmp, { ...loadSettings(tmp), summaryEngine: 'openai', summaryClaudeModel: 'sonnet', summaryApiKey: 'sk-local', defaultModel: 'opus' });
     expect(loadSettings(tmp)).toMatchObject({ summaryEngine: 'openai', summaryClaudeModel: 'sonnet', summaryApiKey: 'sk-local', defaultModel: 'opus' });
+  });
+  it('古い settings.json に remoteControl が無ければ true で、保存した false を読め、真偽値でない値は true に寄せる', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp).remoteControl).toBe(true);
+    saveSettings(tmp, { ...loadSettings(tmp), remoteControl: false });
+    expect(loadSettings(tmp).remoteControl).toBe(false);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', remoteControl: 'no' }));
+    expect(loadSettings(tmp).remoteControl).toBe(true);
   });
   it('手で書き換えた要約エンジンとモデルの値は、既定に寄せる', () => {
     ensureHome(tmp);

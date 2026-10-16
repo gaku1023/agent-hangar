@@ -282,6 +282,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.autoDone': '停止したセッションを自動で Done にする',
   'settings.label.autoDoneIdleDays': '長期間アクティビティの無いセッションも Done にする',
   'settings.label.autoPark': 'Done と Archived にしたセッションを停止する',
+  'settings.label.remoteControl': '会話を Claude アプリに接続する',
   'settings.editor.title': 'エディタ',
   'settings.editor.desc': '「<名前> で開く」と、変更したファイルを該当の行から開くときに使うアプリです。対応しているエディタと、この PC での検出状況を表示します。',
   'settings.editor.found': '検出済み',

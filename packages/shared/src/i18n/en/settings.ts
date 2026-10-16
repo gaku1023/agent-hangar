@@ -282,6 +282,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.autoDone': 'Mark stopped conversations as Done',
   'settings.label.autoDoneIdleDays': 'Also mark long-idle conversations as Done',
   'settings.label.autoPark': 'Stop conversations marked Done or Archived',
+  'settings.label.remoteControl': 'Connect conversations to the Claude app',
   'settings.editor.title': 'Editor',
   'settings.editor.desc': 'The app used by "Open in <name>" and when opening a changed file at a line. Supported editors are listed, each marked with whether it was found on this computer.',
   'settings.editor.found': 'Found',
