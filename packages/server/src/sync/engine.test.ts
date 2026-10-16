@@ -394,7 +394,7 @@ describe('SyncEngine の pull', () => {
     a.stop(); b.stop();
   });
 
-  it('メモが他端末の新しい版で上書きされるとき、手元の本文を呼び手へ渡す', async () => {
+  it('メモが他端末の新しいバージョンで上書きされるとき、手元の本文を呼び手へ渡す', async () => {
     const conflicts: { projectId: string; markdown: string; deviceName: string }[] = [];
     const a = make();
     await a.start();
@@ -949,7 +949,7 @@ describe('この PC の解除', () => {
       await first.idle();
       first.stop();
       expect(lines()).toHaveLength(1);
-      // 参加し直すと、殻は Hangar を再起動する。新しいエンジンが最初に通った同期で、戻った旨を残す。
+      // 再参加すると、殻は Hangar を再起動する。新しいエンジンが最初に通った同期で、戻った旨を残す。
       cloud.unrevoke(ID);
       const second = make({ deviceId: ID });
       await second.start();
@@ -1012,8 +1012,8 @@ describe('上限で退く', () => {
   };
 
   it('知らせの文は、戻る時刻を渡した時間帯の時刻で書く', () => {
-    expect(limitedMessage(Date.UTC(2026, 9, 9), 'Asia/Tokyo')).toBe('Cloudflare の無料枠の上限に達したため、9:00 まで同期を停止します。枠がリセットされると自動で再開します');
-    expect(limitedMessage(Date.UTC(2026, 9, 9), 'UTC')).toBe('Cloudflare の無料枠の上限に達したため、0:00 まで同期を停止します。枠がリセットされると自動で再開します');
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'Asia/Tokyo')).toBe('Cloudflare の無料枠の上限に達したため、9:00 まで同期を停止します。無料枠がリセットされると自動で再開します');
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'UTC')).toBe('Cloudflare の無料枠の上限に達したため、0:00 まで同期を停止します。無料枠がリセットされると自動で再開します');
   });
 
   it('上限の失敗を受けたら、次の UTC の 0 時まで外へ出ず、戻る時刻を見せ、1 度だけ知らせる', async () => {

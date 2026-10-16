@@ -68,7 +68,7 @@ describe('起動と接続', () => {
   });
   it('つなぎ直したときだけ、追いついたと知らせる', () => {
     const back = run([runtime({ type: 'ws.close', at: T0 }), runtime({ type: 'ws.open' })]);
-    expect(back.effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 2000 }, { kind: 'api.bootstrap' }, { kind: 'toast', level: 'info', message: '最新の状態に追いつきました' }]);
+    expect(back.effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 2000 }, { kind: 'api.bootstrap' }, { kind: 'toast', level: 'info', message: '最新の状態に更新しました' }]);
     // 最初の接続は「追いついた」ではないので黙る。
     expect(run([runtime({ type: 'ws.open' })]).effects).toEqual([{ kind: 'api.bootstrap' }]);
   });
@@ -127,18 +127,18 @@ describe('ナビゲーション', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'home', q: '動画' } }), action({ type: 'search.filter', patch: { live: 'waiting' } })]);
     expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting', hideArchived: true, limit: 50 } });
   });
-  // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
+  // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバーに問い合わせる。
   it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]);
     expect(a.effects).toEqual([]);
     const b = run([action({ type: 'search.filter', patch: { file: 'a.md' } })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
-    // ほかの画面から戻ってきたときも、同じ絞り込みで問い合わせ直す。
+    // 他の画面から戻ってきたときも、同じ絞り込みで問い合わせ直す。
     const c = run([runtime({ type: 'hash.changed', route: { name: 'projects' } }), runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state);
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
     // ファイルを外せば手元の一覧に戻るので、問い合わせない。
     expect(run([action({ type: 'search.filter', patch: { file: undefined } })], b.state).effects).toEqual([]);
-    // ほかの絞り込みだけなら、これまでどおり手元で絞る。
+    // 他の絞り込みだけなら、これまでどおり手元で絞る。
     expect(run([action({ type: 'search.filter', patch: { projectId: 'p1' } })], a.state).effects).toEqual([]);
   });
 });
@@ -911,7 +911,7 @@ describe('会話したフォルダの候補（初日のプロジェクト）', (
     const promote = run([action({ type: 'session.promote.open', id: 's1' })]).state;
     expect(run([action({ type: 'project.candidates.open' })], promote).state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
   });
-  // まとめて登録（0.6.1）。「フォルダの中から」で開く入口と、親フォルダの直下の読み込み、ほかの PC のプロジェクトに結び付けた件数。
+  // まとめて登録（0.6.1）。「フォルダの中から」で開く入口と、親フォルダの直下の読み込み、他の PC のプロジェクトに結び付けた件数。
   it('「フォルダの中から」で開ける。新しいプロジェクトのダイアログのリンクからは、そのダイアログと入れ替える', () => {
     expect(run([action({ type: 'project.candidates.open', source: 'folder' })]).state.overlay).toEqual({ kind: 'projectCandidates', source: 'folder', submitting: false, error: null });
     const np = run([action({ type: 'project.new.open' })]).state;
@@ -927,7 +927,7 @@ describe('会話したフォルダの候補（初日のプロジェクト）', (
     expect(run([action({ type: 'project.folders.load', parent: '~/src' })], open).effects).toEqual([{ kind: 'api.workspaceChildren', parent: '~/src' }]);
     expect(run([action({ type: 'project.folders.load', parent: '~/src' })]).effects).toEqual([]);
   });
-  it('ほかの PC のプロジェクトに結び付けたものがあれば、その件数も知らせる', () => {
+  it('他の PC のプロジェクトに結び付けたものがあれば、その件数も知らせる', () => {
     const open = run([action({ type: 'project.candidates.open', source: 'folder' }), action({ type: 'project.candidates.submit', items: [{ path: '/a', linkTo: 'p1' }], workspaceRoot: null })]).state;
     const done = run([runtime({ type: 'project.candidates.done', registered: 3, linked: 1, failed: [] })], open);
     expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 3 件登録しました（うち 1 件は、他の PC のプロジェクトに関連付けました）' }, { kind: 'api.readiness' }]);
@@ -979,7 +979,7 @@ describe('昇格', () => {
     const a = run([runtime({ type: 'promote.done', projectId: 'p9', moved: true, reason: null })], base);
     expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     expect(a.state.promote).toEqual({ kind: 'idle' });
-    expect(a.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトに昇格しました' }]);
+    expect(a.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトにしました' }]);
     const b = run([runtime({ type: 'promote.failed', message: '同じ名前があります' })], base);
     expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     expect(b.state.promote).toEqual({ kind: 'idle' });
@@ -1313,7 +1313,7 @@ describe('プロジェクトを一覧から削除する確認', () => {
   });
 });
 
-// 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所だった（サーバの 409）。まとめた後の姿を見せて確かめる。
+// 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所だった（サーバーの 409）。まとめた後の姿を見せて確かめる。
 describe('同じフォルダのプロジェクトをまとめる確認', () => {
   const conflict: ProjectSameFolderDto = {
     error: 'このフォルダは、プロジェクト shop の場所として登録済みです', code: 'project_same_folder',
@@ -1334,7 +1334,7 @@ describe('同じフォルダのプロジェクトをまとめる確認', () => {
   it('まとめ終えたとき、まとめた方の画面を開いていれば、残した方の画面へ移る', () => {
     const onFrom = { ...initialState(), screen: { name: 'project' as const, id: 'p-win' } };
     expect(run([runtime({ type: 'project.merged', fromId: 'p-win', intoId: 'p-mac' })], onFrom).effects).toEqual([{ kind: 'navigate', route: { name: 'project', id: 'p-mac' } }]);
-    // ほかの画面では動かさない。
+    // 他の画面では動かさない。
     const onHome = { ...initialState(), screen: { name: 'home' as const } };
     expect(run([runtime({ type: 'project.merged', fromId: 'p-win', intoId: 'p-mac' })], onHome).effects).toEqual([]);
   });
@@ -1551,7 +1551,7 @@ describe('ダイアログを開いている間の画面の移動', () => {
   });
   // ダイアログの中の操作が意図して移すものは止めない。
   it('ダイアログの中から意図して移る経路は動く', () => {
-    // 保持期間の「ほかの期間…」は設定へ移る。
+    // 保持期間の「他の期間…」は設定へ移る。
     const retention = run([action({ type: 'retention.settings' })], holding[4]![1]);
     expect(retention.state.overlay).toEqual({ kind: 'none' });
     expect(retention.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
@@ -1715,7 +1715,7 @@ describe('保持期間', () => {
     const failed = run([runtime({ type: 'retention.failed', message: 'x' })], writing).state;
     expect(run([action({ type: 'overlay.close' })], failed).state.overlay).toEqual({ kind: 'none' });
   });
-  it('失敗したら送信中を解いてトーストを出す。「ほかの期間…」は設定画面へ移る', () => {
+  it('失敗したら送信中を解いてトーストを出す。「他の期間…」は設定画面へ移る', () => {
     const open = run([action({ type: 'retention.edit', days: 365, from: 'banner' })]).state;
     const f = run([action({ type: 'retention.write' }), runtime({ type: 'retention.failed', message: 'x' })], open);
     expect(f.state.overlay).toMatchObject({ writing: false });
@@ -1880,7 +1880,7 @@ describe('アカウント', () => {
     expect(r.effects).toEqual([{ kind: 'api.accounts.add', name: '大学', dir: '~/.claude-univ' }]);
     expect(r.state.accountAdd).toEqual({ kind: 'submitting' });
     expect(run([action({ type: 'account.add', name: '大学', dir: '~/x' })], r.state).effects).toEqual([]);
-    // 場所が空なら、サーバが名前から決める。
+    // 場所が空なら、サーバーが名前から決める。
     expect(effectsOf({ type: 'account.add', name: '大学', dir: '' }, opened)).toEqual([{ kind: 'api.accounts.add', name: '大学', dir: null }]);
     const blank = run([action({ type: 'account.add', name: '   ', dir: '' })], opened);
     expect(blank.effects).toEqual([]);
@@ -1970,7 +1970,7 @@ describe('他の PC から届いたプロジェクトの知らせ（2.11.5）', 
     expect(a.state.arrivedProjects).toEqual([]);
     expect(a.effects).toEqual([]);
   });
-  it('「プロジェクトで見る」で札を下げ、プロジェクトの画面へ移る', () => {
+  it('「プロジェクトで表示」で札を下げ、プロジェクトの画面へ移る', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'projects.arrived', ids: ['p1'] })]);
     const b = run([action({ type: 'projects.arrived.view' })], a.state);
     expect(b.state.arrivedProjects).toEqual([]);

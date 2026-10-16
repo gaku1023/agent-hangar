@@ -16,7 +16,7 @@ import { SyncStateStore } from './state.ts';
 
 /**
  * 同期の利用者に見える文が、辞書の鍵と引数を持つこと。
- * 日本語の文は今までと同じで（既存の試験が見る）、ここでは英語でも出ることと、鍵が失われないことを見る。
+ * 日本語の文は今までと同じで（既存の試験が見る）、ここでは英語でも出ることと、鍵が失われないことを表示。
  */
 
 describe('クラウドの失敗の文', () => {
@@ -56,7 +56,7 @@ describe('クラウドの失敗の文', () => {
 describe('同期の知らせの文', () => {
   it('上限で止めた知らせは、戻る時刻をその言語の書き方で言う', () => {
     const noon = Date.UTC(2026, 9, 9, 15);
-    expect(limitedMessage(noon, 'UTC')).toBe('Cloudflare の無料枠の上限に達したため、15:00 まで同期を停止します。枠がリセットされると自動で再開します');
+    expect(limitedMessage(noon, 'UTC')).toBe('Cloudflare の無料枠の上限に達したため、15:00 まで同期を停止します。無料枠がリセットされると自動で再開します');
     expect(limitedMessage(noon, 'UTC', 'en')).toBe('The Cloudflare free tier limit was reached, so sync is paused until 3:00 PM. It resumes automatically after the limit resets');
   });
 
@@ -83,7 +83,7 @@ describe('復号の失敗の文', () => {
 
     const whole = await encryptBuffer(deriveFileKey('s'), Buffer.from('hello'));
     const cut = await decrypt(whole.subarray(0, whole.length - 5));
-    expect(errorText('ja', cut)).toBe('暗号化ファイルが途中で切れています（truncated）');
+    expect(errorText('ja', cut)).toBe('暗号化ファイルが不完全です（truncated）');
     expect(errorText('en', cut)).toBe('The encrypted file is truncated');
 
     const extra = await decrypt(Buffer.concat([whole, Buffer.alloc(40, 7)]));

@@ -90,7 +90,7 @@ __agent_hangar_launch() {
   out=$(print -rn -- "{\\"cwd\\":\\"$cwd\\",\\"args\\":\\"$args\\",\\"env\\":\\"$env\\"}" | command curl -sS --fail-with-body --max-time 10 -H "Authorization: Bearer $tok" -H 'content-type: application/json' --data-binary @- "$__agent_hangar_url/api/runs/terminal" 2>/dev/null)
   if (( $? )); then
     why=\${\${out#*\\"error\\":\\"}%%\\"*}
-    [[ -n $out && $why != $out ]] && print -r -- "hangar では開けないので、素の claude で起動します（$why）" >&2
+    [[ -n $out && $why != $out ]] && print -r -- "hangar では開けないため、通常の claude を起動します（$why）" >&2
     return 1
   fi
   name=\${\${out#*\\"tmuxName\\":\\"}%%\\"*}

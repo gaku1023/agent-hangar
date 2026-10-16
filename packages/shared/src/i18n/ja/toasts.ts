@@ -5,7 +5,7 @@ export const toastsJa: AreaDictionary<typeof toastsKeys> = {
   'toasts.more.view': 'ほか {n} 件をホームで見る',
   'toasts.waiting.label': '{name} が入力待ちです',
   'toasts.waiting.labelQuestion': '{name} が入力待ちです：{question}',
-  'toasts.blocked.title': 'ダイアログを閉じてから開いてください',
+  'toasts.blocked.title': 'ダイアログを閉じてから操作してください',
   'toasts.waiting.head': '入力待ち',
   'toasts.info.head': 'お知らせ',
   'toasts.error.head': 'エラー',

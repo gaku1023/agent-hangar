@@ -47,7 +47,7 @@ describe('GitFileList', () => {
     fireEvent.click(screen.getByRole('button', { name: 'b.ts の差分を表示' }));
     expect(onPick).toHaveBeenCalledWith('/w/b.ts');
     expect(screen.queryByText('x.json')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'ほかに作業ツリーで変わったファイル 1 件' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ほかに作業ツリーで変更されたファイル 1 件' }));
     expect(screen.getByText('x.json')).toBeInTheDocument();
     expect(screen.getByText(/このセッションの変更とは限りません/)).toBeInTheDocument();
   });
@@ -80,7 +80,7 @@ describe('DiffDialog', () => {
   });
   it('git でなければ切り替えを出さず、このセッションの編集だけと言う', () => {
     mount(<DiffDialog {...props({ canGit: false, source: 'session', body: { kind: 'note', text: 'このファイルへの編集はトランスクリプトにありません。', line: 1 } })} />);
-    expect(screen.queryByRole('radio', { name: '作業ツリーとの差（git）' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: '作業ツリーとの差分（git）' })).toBeNull();
     expect(screen.getByText('git の作業ツリーの外のため、このセッションの編集だけを表示します。')).toBeInTheDocument();
   });
 });

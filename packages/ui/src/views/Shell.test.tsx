@@ -5,7 +5,7 @@ import { syncFixture } from '../test/syncProps.ts';
 import { Shell } from './Shell.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '注意' }, account: null, newSession: {} };
+const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -141,7 +141,7 @@ describe('Shell', () => {
     const el = screen.getByRole('status', { name: '接続の状態' });
     expect(el).toHaveAttribute('data-hard', 'true');
     const banner = within(el);
-    expect(banner.getByText('サーバに接続できません')).toBeInTheDocument();
+    expect(banner.getByText('サーバーに接続できません')).toBeInTheDocument();
     expect(banner.getByText('アプリを再起動してください')).toBeInTheDocument();
     expect(banner.queryByRole('button', { name: '今すぐ再接続' })).toBeNull();
     fireEvent.click(banner.getByRole('button', { name: 'ログを開く' }));
@@ -162,14 +162,14 @@ describe('Shell', () => {
   it('ヘッダーに注意を置く。未読の数を札に出し、押すと一覧が開いて、行の操作を送れる', () => {
     const onAction = vi.fn();
     const row = { key: 'retention|30|soon', kind: 'retention' as const, tone: 'warn' as const, icon: 'retention' as const, kindLabel: '保持期間', title: 'セッションのトランスクリプト 2 件が、まもなく削除されます', detail: 'Claude Code は 30 日でトランスクリプトを削除します', when: null, unread: true, action: { label: '保持期間を延長…', send: { type: 'nav.go' as const, to: { name: 'settings' as const } } } };
-    const notices = { rows: [row], unread: 1, keys: [row.key], label: '注意、未読 1 件' };
+    const notices = { rows: [row], unread: 1, keys: [row.key], label: '通知、未読 1 件' };
     render(<ActionRoot onAction={onAction}><Shell {...props} notices={notices} overlays={null}><div /></Shell></ActionRoot>);
-    const bell = screen.getByRole('button', { name: '注意、未読 1 件' });
+    const bell = screen.getByRole('button', { name: '通知、未読 1 件' });
     expect(within(bell).getByText('1')).toBeInTheDocument();
     // 保持期間の帯はヘッダーの下に出ない。
     expect(screen.queryByRole('status', { name: '会話の保持期間' })).toBeNull();
     fireEvent.click(bell);
-    const list = within(screen.getByRole('dialog', { name: '注意' }));
+    const list = within(screen.getByRole('dialog', { name: '通知' }));
     expect(list.getByText('セッションのトランスクリプト 2 件が、まもなく削除されます')).toBeInTheDocument();
     fireEvent.click(list.getByRole('button', { name: '保持期間を延長…' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'notices.read', keys: [row.key] });
@@ -178,7 +178,7 @@ describe('Shell', () => {
   // 中身が無いときは、注意そのものを描かない（2026-10-13 の決定、9a）。
   it('注意は、中身が無ければ描かない', () => {
     render(<ActionRoot onAction={() => {}}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);
-    expect(screen.queryByRole('button', { name: '注意' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '通知' })).toBeNull();
     expect(document.querySelector('.header-bell')).toBeNull();
   });
   it('つながっている間は帯を出さない', () => {
@@ -218,13 +218,13 @@ describe('Shell', () => {
     rerender(<ActionRoot onAction={() => {}}><Shell {...props} sync={syncFixture({ state: 'paused', label: '1 回だけ同期中…', reason: 'user', once: true })} overlays={null}><div /></Shell></ActionRoot>);
     expect(container.querySelector('.sync')).toHaveAttribute('data-once');
   });
-  // 無料枠で止まったときは、手で止めたのと見分けがつくよう点と文を赤にする（CSS が data-reason を見る）。
+  // 無料枠で止まったときは、手で止めたのと見分けがつくよう点と文を赤にする（CSS が data-reason を表示）。
   it('無料枠で止まったときは点に data-reason を付け、文を警告の色にする', () => {
-    const base = syncFixture({ state: 'paused', label: '無料枠で停止 · 9:00 にリセット', reason: 'quota' });
+    const base = syncFixture({ state: 'paused', label: '無料枠の上限で停止 · 9:00 にリセット', reason: 'quota' });
     const { container, rerender } = render(<ActionRoot onAction={() => {}}><Shell {...props} sync={base} overlays={null}><div /></Shell></ActionRoot>);
     expect(container.querySelector('.sync')?.getAttribute('data-reason')).toBe('quota');
     expect(container.querySelector('.sync-label')).toHaveClass('sync-error');
-    expect(screen.getByText('無料枠で停止 · 9:00 にリセット')).toBeInTheDocument();
+    expect(screen.getByText('無料枠の上限で停止 · 9:00 にリセット')).toBeInTheDocument();
     rerender(<ActionRoot onAction={() => {}}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></ActionRoot>);
     expect(container.querySelector('.sync')?.hasAttribute('data-reason')).toBe(false);
   });

@@ -7,7 +7,7 @@ import { NoticeList } from './NoticeList.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
 const row = (over: Partial<NoticeRow> = {}): NoticeRow => ({
-  key: 'sync|error|503', kind: 'sync', tone: 'err', icon: 'sync', kindLabel: '同期', title: '同期エラー', detail: 'サーバが 503 を返しました', when: null, unread: true,
+  key: 'sync|error|503', kind: 'sync', tone: 'err', icon: 'sync', kindLabel: '同期', title: '同期エラー', detail: 'サーバーが 503 を返しました', when: null, unread: true,
   action: { label: '同期の設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } }, ...over,
 });
 const rows: NoticeRow[] = [
@@ -15,9 +15,9 @@ const rows: NoticeRow[] = [
   row(),
   row({ key: 'compat|2.4.2|1 change', kind: 'compat', tone: 'warn', icon: 'link', kindLabel: '互換性', title: '変更点あり', detail: 'Claude Code 2.4.2：変更点 1 件', when: '12 分前', unread: false, action: { label: '詳細を開く', send: { type: 'nav.go', to: { name: 'settings' } } } }),
 ];
-const props = (over: Partial<NoticesProps> = {}): NoticesProps => ({ rows, unread: 2, keys: rows.map((r) => r.key), label: '注意、未読 2 件', ...over });
+const props = (over: Partial<NoticesProps> = {}): NoticesProps => ({ rows, unread: 2, keys: rows.map((r) => r.key), label: '通知、未読 2 件', ...over });
 const mount = (p: NoticesProps = props(), onAction = vi.fn()) => {
-  render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><Bell {...p} /><button type="button">ほかのボタン</button></ActionRoot></LanguageRoot>);
+  render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><Bell {...p} /><button type="button">他のボタン</button></ActionRoot></LanguageRoot>);
   return { onAction, bell: screen.getByRole('button', { name: p.label }) };
 };
 
@@ -33,15 +33,15 @@ describe('Bell：ヘッダーの注意', () => {
     expect(bell.querySelector('.icon')).toHaveAttribute('data-icon', 'warning');
   });
   it('未読が 0 なら数の札を出さない', () => {
-    const { bell } = mount(props({ unread: 0, label: '注意' }));
+    const { bell } = mount(props({ unread: 0, label: '通知' }));
     expect(bell.querySelector('.bell-n')).toBeNull();
   });
   it('押すと知らせの一覧が開き、焦点が一覧へ入る。閉じている間は一覧を描かない', () => {
     const { bell } = mount();
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(bell);
-    const dialog = screen.getByRole('dialog', { name: '注意' });
-    expect(dialog.querySelector('.pop-h')).toHaveTextContent('画面のほかの箇所に表示されていない項目');
+    const dialog = screen.getByRole('dialog', { name: '通知' });
+    expect(dialog.querySelector('.pop-h')).toHaveTextContent('画面の他の箇所に表示されていない項目');
     expect(bell).toHaveAttribute('aria-expanded', 'true');
     expect(dialog).toHaveFocus();
     expect(within(dialog).getAllByRole('listitem')).toHaveLength(3);
@@ -65,7 +65,7 @@ describe('Bell：ヘッダーの注意', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'notices.read', keys: ['config|unsent|2', 'sync|error|503', 'compat|2.4.2|1 change'] });
   });
   it('未読が無ければ「すべて既読にする」は押せない', () => {
-    const { bell } = mount(props({ unread: 0, label: '注意', rows: rows.map((r) => ({ ...r, unread: false })) }));
+    const { bell } = mount(props({ unread: 0, label: '通知', rows: rows.map((r) => ({ ...r, unread: false })) }));
     fireEvent.click(bell);
     expect(screen.getByRole('button', { name: 'すべて既読にする' })).toBeDisabled();
   });
@@ -86,14 +86,14 @@ describe('Bell：ヘッダーの注意', () => {
     expect(onAction.mock.calls.map((c) => c[0])).toEqual([{ type: 'nav.go', to: { name: 'settings' } }]);
   });
   it('中身が 1 件も無いときは、注意そのものを描かない', () => {
-    const { container } = render(<LanguageRoot language="ja"><ActionRoot onAction={vi.fn()}><Bell {...props({ rows: [], keys: [], unread: 0, label: '注意' })} /></ActionRoot></LanguageRoot>);
+    const { container } = render(<LanguageRoot language="ja"><ActionRoot onAction={vi.fn()}><Bell {...props({ rows: [], keys: [], unread: 0, label: '通知' })} /></ActionRoot></LanguageRoot>);
     expect(container.querySelector('.bell')).toBeNull();
-    expect(screen.queryByRole('button', { name: '注意' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '通知' })).toBeNull();
   });
   it('English では見出しとボタンを英語で出す', () => {
-    render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}><Bell {...props({ label: 'Attention, 2 unread' })} /></ActionRoot></LanguageRoot>);
-    fireEvent.click(screen.getByRole('button', { name: 'Attention, 2 unread' }));
-    expect(screen.getByRole('dialog', { name: 'Attention' })).toBeInTheDocument();
+    render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}><Bell {...props({ label: 'Notifications, 2 unread' })} /></ActionRoot></LanguageRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications, 2 unread' }));
+    expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Mark all as read' })).toBeInTheDocument();
   });
 });

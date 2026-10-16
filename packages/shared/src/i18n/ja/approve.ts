@@ -52,7 +52,7 @@ export const approveJa: AreaDictionary<typeof approveKeys> = {
   'approve.after.statuslineInstall': '次に Claude Code を起動すると、使用率がヘッダーに表示されます。',
   'approve.after.statuslineUninstall': 'ヘッダーの使用率のゲージは更新されなくなります。',
   'approve.after.apply': '実行中のセッションには、次回の読み込みから反映されます。',
-  'approve.after.restore': '復元前の内容も、新しい世代としてバックアップに残します。',
+  'approve.after.restore': '復元前の内容も、新しい世代としてバックアップに保存します。',
   'approve.note.secret': 'マスクした値は hangar の API トークンです（この PC でのみ使います）。',
   'approve.note.check': '書き込む直前に、表示後にファイルが変更されていないかを確認します。変更されていた場合は書き込みません。',
   'approve.note.instructions': 'Claude が読み込んで実行する指示（スキル、コマンド、エージェント）を {n} 件書き込みます。',

@@ -18,7 +18,7 @@ function mount(p: ToastsProps, language: 'ja' | 'en' = 'ja') {
   return { onAction };
 }
 
-describe('presentToasts のほかの PC から届いたプロジェクト（2.11.5）', () => {
+describe('presentToasts の他の PC から届いたプロジェクト（2.11.5）', () => {
   it('覚えてある id のうち、いまも届いたままのものを数えて 1 枚にする', () => {
     const state = { ...initialState(), arrivedProjects: ['a', 'b', 'c'] };
     expect(presentToasts(state, storeOf([arrived('a'), arrived('b'), arrived('c')]), 0).arrived).toEqual({ count: 3 });
@@ -32,18 +32,18 @@ describe('presentToasts のほかの PC から届いたプロジェクト（2.11
   });
 });
 
-describe('ほかの PC から届いたプロジェクトの札', () => {
-  it('件数の入った 1 文と、「プロジェクトで見る」「あとで決める」の 2 つのボタンを出す', () => {
+describe('他の PC から届いたプロジェクトの札', () => {
+  it('件数の入った 1 文と、「プロジェクトで表示」「あとで決める」の 2 つのボタンを出す', () => {
     mount(props({ arrived: { count: 3 } }));
     const card = screen.getByRole('status');
-    expect(card).toHaveTextContent('他の PC のプロジェクト 3 件が届きました。この PC にはディレクトリがありません');
-    expect(screen.getByRole('button', { name: 'プロジェクトで見る' })).toBeInTheDocument();
+    expect(card).toHaveTextContent('他の PC からプロジェクト 3 件を受信しました。この PC にはディレクトリがありません');
+    expect(screen.getByRole('button', { name: 'プロジェクトで表示' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'あとで決める' })).toBeInTheDocument();
   });
 
-  it('「プロジェクトで見る」と「あとで決める」は、それぞれの UiAction を発行する', () => {
+  it('「プロジェクトで表示」と「あとで決める」は、それぞれの UiAction を発行する', () => {
     const { onAction } = mount(props({ arrived: { count: 3 } }));
-    fireEvent.click(screen.getByRole('button', { name: 'プロジェクトで見る' }));
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクトで表示' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'projects.arrived.view' });
     fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'projects.arrived.dismiss' });
@@ -57,9 +57,9 @@ describe('ほかの PC から届いたプロジェクトの札', () => {
     vi.useRealTimers();
   });
 
-  it('ダイアログが開いている間は「プロジェクトで見る」を押せない。「あとで決める」は押せる', () => {
+  it('ダイアログが開いている間は「プロジェクトで表示」を押せない。「あとで決める」は押せる', () => {
     const { onAction } = mount(props({ arrived: { count: 1 }, blocked: true }));
-    expect(screen.getByRole('button', { name: 'プロジェクトで見る' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'プロジェクトで表示' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'projects.arrived.dismiss' });
   });

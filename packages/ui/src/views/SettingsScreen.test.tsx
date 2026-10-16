@@ -31,7 +31,7 @@ const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): Setti
 const updateProps = (over: Partial<SettingsProps['update']> = {}): SettingsProps['update'] => ({
   supported: true, unsupported: '更新の確認はデスクトップアプリで行います。', badge: { text: '最新', tone: 'ok' },
   version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false },
-  pending: null, notify: { on: true, desc: '新しいバージョンが出たら通知します。自動ではインストールしません。' }, tocState: '最新',
+  pending: null, notify: { on: true, desc: '新しいバージョンが公開されたら通知します。自動ではインストールしません。' }, tocState: '最新',
   notesTitle: 'リリースノート', beforeLabel: '更新の前に', notes: [],
   ...over,
 });
@@ -129,7 +129,7 @@ describe('設定の目次（S1）', () => {
     expect(toc().getByRole('button', { name: /^一般/ })).not.toHaveAttribute('aria-current');
     expect(screen.getByRole('group', { name: /^ツール/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /^ツール/ })).toBeInTheDocument();
-    // ほかの節の中身は描かない。
+    // 他の節の中身は描かない。
     expect(screen.queryByRole('switch', { name: '通知を有効にする' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'MCP サーバー' })).toBeNull();
     expect(screen.queryByLabelText('LM Studio の URL')).toBeNull();
@@ -222,7 +222,7 @@ describe('設定の一般', () => {
     render(ui(at('general', { self: { autoDone: true, autoDoneIdleDays: 7, autoPark: false } }), onAction));
     const card = screen.getByRole('heading', { level: 3, name: 'hangar の自動処理' }).closest('section')!;
     expect([...card.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['停止したセッションを自動で Done にする', '長期間アクティビティの無いセッションも Done にする', 'Done と Archived にしたセッションを停止する']);
-    expect(within(card).getByText('停止して 1 分たったセッションのうち、3 ターン以下のものと、要約が「完了」か「中止」のものを、自動で Done にします。一覧では ✦ のマークで見分けられます。再開して発言すると解除されます。')).toBeInTheDocument();
+    expect(within(card).getByText('停止して 1 分経過したセッションのうち、3 ターン以下のものと、要約が「完了」か「中止」のものを、自動で Done にします。一覧では ✦ のマークで見分けられます。再開して発言すると解除されます。')).toBeInTheDocument();
     expect(within(card).getByText('Done か Archived にしてアイドルになった Claude Code を、10 秒後に停止します。Paused は停止しません。停止したセッションは「再開」で続けられます。')).toBeInTheDocument();
     const done = screen.getByRole('switch', { name: '停止したセッションを自動で Done にする' });
     const park = screen.getByRole('switch', { name: 'Done と Archived にしたセッションを停止する' });
@@ -239,7 +239,7 @@ describe('設定の一般', () => {
     const group = screen.getByRole('radiogroup', { name: '長期間アクティビティの無いセッションも Done にする' });
     expect(within(group).getAllByRole('radio').map((e) => e.textContent)).toEqual(['3 日', '7 日', '14 日', '30 日', 'しない']);
     expect(within(group).getByRole('radio', { name: '7 日' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText('停止してから選んだ日数のあいだ、アクティビティの無いセッションを Done にします。ターン数や要約は関係しません。')).toBeInTheDocument();
+    expect(screen.getByText('停止してから選択した日数のあいだ、アクティビティの無いセッションを Done にします。ターン数や要約は関係しません。')).toBeInTheDocument();
     fireEvent.click(within(group).getByRole('radio', { name: '14 日' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoDoneIdleDays: 14 } });
     fireEvent.click(within(group).getByRole('radio', { name: 'しない' }));
@@ -420,8 +420,8 @@ describe('設定のクラウド同期', () => {
   });
   it('上限で退いている間は、状態の札を止まった色で言い、今すぐ同期だけを出す', () => {
     const onAction = vi.fn();
-    render(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: false, limited: true, stateLabel: '無料枠で停止 · 9:00 にリセット', badge: { text: '無料枠で停止', tone: 'stop' } }) }), onAction));
-    expect(screen.getByText('状態 無料枠で停止 · 9:00 にリセット')).toBeInTheDocument();
+    render(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: false, limited: true, stateLabel: '無料枠の上限で停止 · 9:00 にリセット', badge: { text: '無料枠の上限で停止', tone: 'stop' } }) }), onAction));
+    expect(screen.getByText('状態 無料枠の上限で停止 · 9:00 にリセット')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ }).querySelector('.badge')).toHaveAttribute('data-tone', 'stop');
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'sync.now' });
@@ -576,7 +576,7 @@ describe('設定の連携', () => {
     it('状態と設定のコマンドを出す', () => {
       render(ui(at('integrations')));
       // スクリプトはあるが hangar の数行が無い、と言う。「設定されていません」だけだと、ステータスライン自体が無いと読める（0.4.0-rc.1 の Windows の実機）。
-      expect(screen.getByText('ステータスラインのスクリプトはありますが、hangar へ値を渡す数行がまだ追加されていません。')).toBeTruthy();
+      expect(screen.getByText('ステータスラインのスクリプトはありますが、hangar に値を送る数行がまだ追加されていません。')).toBeTruthy();
       expect(screen.queryByText('まだ設定されていません')).toBeNull();
       expect(screen.getByText('hangar statusline install')).toBeTruthy();
       expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
@@ -586,13 +586,13 @@ describe('設定の連携', () => {
       expect(screen.getAllByText(/ブラウザで開いた画面からは変更できません/).length).toBeGreaterThan(0);
     });
     it('案内にポートの指定を添える', () => {
-      // 4177 以外で動いているサーバに、4177 宛てのスニペットを追記させない。
+      // 4177 以外で動いているサーバーに、4177 宛てのスニペットを追記させない。
       render(ui(at('integrations')));
-      expect(screen.getByText('サーバが 4177 以外のポートで実行中の場合は、--port <番号> を付けてください。')).toBeTruthy();
+      expect(screen.getByText('サーバーが 4177 以外のポートで実行中の場合は、--port <番号> を付けてください。')).toBeTruthy();
     });
     it('設定済みならそう出す', () => {
       render(ui(at('integrations', { statusline: { command: 'bash x', scriptPath: '/h/x', installed: true } })));
-      expect(screen.getByText('設定済みです')).toBeTruthy();
+      expect(screen.getByText('設定済みです', { selector: '.muted' })).toBeTruthy();
     });
     it('設定が無いときは案内を出す', () => {
       render(ui(at('integrations', { statusline: { command: null, scriptPath: null, installed: false } })));
@@ -687,7 +687,7 @@ describe('設定の連携', () => {
     it('準備の確かめが届く前は、本文の下に「確かめています」と出し、札は出さない', () => {
       render(ui(at('integrations', { compat: null })));
       expect(within(section()).getByText('確認中…')).toBeInTheDocument();
-      expect(section()).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態のファイル、ステータスライン、~/.claude の内容、CLI の出力、画面出力を読み取ります。未知の形式を検出すると、ここに表示します。');
+      expect(section()).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態ファイル、ステータスライン、~/.claude の内容、CLI の出力、画面出力を読み取ります。未知の形式を検出すると、ここに表示します。');
     });
     it('問題なしは緑の札で、手元の版と確かめた版を出す', () => {
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
@@ -759,7 +759,7 @@ describe('設定の連携の末尾の「Claude Code に環境を見てもらう�
     expect(within(card()).getByRole('button', { name: 'コピーしました' })).toBeInTheDocument();
   });
 
-  it('「手引きの中身を見る」は写した md をエディタで開く', () => {
+  it('「手引きの中身を表示」は写した md をエディタで開く', () => {
     const onAction = vi.fn();
     render(ui(at('integrations', { setupGuide: guide }), onAction));
     fireEvent.click(within(card()).getByRole('button', { name: 'セットアップのすゝめを表示' }));
@@ -778,7 +778,7 @@ describe('設定の連携の「足すもの」（1e）', () => {
     const box = screen.getByRole('region', { name: 'hangar が起動する Claude Code に追加する設定' });
     expect(within(box).getByText('hangar から起動・再開した Claude Code にだけ追加します。ターミナルから直接 Claude Code を起動した場合は追加しません。')).toBeInTheDocument();
     const items = within(box).getAllByRole('listitem');
-    expect(items.map((li) => li.querySelector('.add-t')?.textContent)).toEqual(['MCP の設定', '入力待ちと許可を受け取る hook', 'システムプロンプトの追記']);
+    expect(items.map((li) => li.querySelector('.add-t')?.textContent)).toEqual(['MCP の設定', '入力待ちと許可の確認を通知する hook', 'システムプロンプトの追記']);
     expect(within(items[0]!).getByText('常に')).toBeInTheDocument();
     expect(within(items[1]!).getByText('常に')).toBeInTheDocument();
     expect(within(items[2]!).queryByText('常に')).toBeNull();
@@ -852,7 +852,7 @@ describe('設定の要約エンジンの選択（2a）', () => {
     expect(radios[0]).toHaveAttribute('aria-checked', 'true');
     // 大事な違い（使用枠を使う、宛先へ送る）は、選ぶ前に各行の説明で読める。
     expect(radios[1]).toHaveTextContent('Claude の使用量を消費します。');
-    expect(radios[2]).toHaveTextContent('トランスクリプトをこの宛先へ送ります。');
+    expect(radios[2]).toHaveTextContent('トランスクリプトをこの接続先へ送信します。');
     fireEvent.click(radios[1]!);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryEngine: 'claude' } });
   });
@@ -881,7 +881,7 @@ describe('設定の要約エンジンの選択（2a）', () => {
     expect(openai).toHaveTextContent('接続済み');
     const key = screen.getByLabelText('API キー（任意）') as HTMLInputElement;
     expect(key.type).toBe('password');
-    expect(key.placeholder).toBe('必要なサーバのみ');
+    expect(key.placeholder).toBe('必要なサーバーのみ');
     fireEvent.change(key, { target: { value: ' sk-local ' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 20, summaryApiKey: 'sk-local' }, field: 'summarizer' });
@@ -914,7 +914,7 @@ describe('設定の要約エンジン', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryHourlyCap: 5 }, field: 'summarizer' });
   });
-  it('2 欄も、サーバが整えた後の値で見比べる', () => {
+  it('2 欄も、サーバーが整えた後の値で見比べる', () => {
     // サーバは URL の前後の空白と末尾の / を落とし、モデル名も trim する。
     // 整える前の値で見比べると、落とされた結果が元と同じでも props が動かず、
     // 欄には整える前の文字列が残り、ボタンは押せたままになる（実測で何度でも押せた）。
@@ -926,7 +926,7 @@ describe('設定の要約エンジン', () => {
       fireEvent.change(url, { target: { value: same } });
       expect(save).toBeDisabled();
     }
-    // 本物の変更は今までどおり送れる。送る値はサーバが保存する形にそろえる。
+    // 本物の変更は今までどおり送れる。送る値はサーバーが保存する形にそろえる。
     fireEvent.change(url, { target: { value: '  http://127.0.0.1:2345/  ' } });
     expect(save).toBeEnabled();
     fireEvent.click(save);
@@ -961,7 +961,7 @@ describe('設定の要約エンジン', () => {
     const sw = screen.getByRole('switch', { name: '外部の要約エンジンを許可' });
     // 見える文も読み上げと同じにし、何が起きるかを淡い 1 行で添える。
     expect(sw.closest('.set-row')).toHaveTextContent(/^外部の要約エンジンを許可/);
-    expect(screen.getByText('127.0.0.1 と localhost 以外の宛先へトランスクリプトを送信できるようにします。')).toBeInTheDocument();
+    expect(screen.getByText('127.0.0.1 と localhost 以外の接続先へトランスクリプトを送信できるようにします。')).toBeInTheDocument();
     fireEvent.click(sw);
     // まだ保存しない。スイッチもオフのまま。
     expect(onAction).not.toHaveBeenCalled();
@@ -1199,7 +1199,7 @@ describe('設定のツール', () => {
     fireEvent.click(screen.getByRole('button', { name: 'brew install tmux をコピー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'brew install tmux' });
   });
-  it('サーバが正規化した値に入力欄が追従する', () => {
+  it('サーバーが正規化した値に入力欄が追従する', () => {
     const { rerender } = render(ui(at('tools', { tmuxPath: 'tmux', claudePath: null, nodePath: '' })));
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('tmux');
     rerender(ui(at('tools', { workspaceRoot: '/w2', claudePath: '/Users/x/.local/bin/claude', nodePath: '/opt/homebrew/bin/node' })));

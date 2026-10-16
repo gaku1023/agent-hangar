@@ -17,7 +17,7 @@ export const retentionDialogJa: AreaDictionary<typeof retentionDialogKeys> = {
   'retentionDialog.info.otherPcs': '他の PC',
   'retentionDialog.info.otherPcsNote': '設定の同期で、次の適用時に反映されます',
   'retentionDialog.info.deleted': '削除済みのトランスクリプト',
-  'retentionDialog.info.deletedNote': '復元できません。今後のトランスクリプトは残ります',
+  'retentionDialog.info.deletedNote': '復元できません。今後のトランスクリプトは保持されます',
   'retentionDialog.footer.other': '他の期間…',
   'retentionDialog.footer.write': '書き込み',
   'retentionDialog.bar.now': '現在 {size}',

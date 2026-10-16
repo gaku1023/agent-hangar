@@ -45,7 +45,7 @@ describe('presentHomeScreen の止まっている理由', () => {
     expect(attention.rows[1]!.ask).toEqual({ tool: 'Bash', input: 'npm test' });
     expect(attention.rows[0]!.trail[0]!.text).toBe('リセットから 5 分');
     expect(running.rows.map((r) => r.key)).toEqual(['run:l1']);
-    expect(running.rows[0]!.text).toBe('使用制限（5 時間）· 09:50 にリセット · 自動で続きます');
+    expect(running.rows[0]!.text).toBe('使用制限（5 時間）· 09:50 にリセット · 自動で再開します');
     expect(running.rows[0]!.trail).toEqual([{ text: 'あと 50 分', tone: 'limit' }]);
   });
 });
@@ -208,7 +208,7 @@ describe('presentHomeScreen の場所の不明なプロジェクト（2.11.5）'
     expect(p.idle).toBe(true);
   });
 
-  it('ほかの 3 つの群がどれも 0 件でも、場所の消えたものがあれば静かな日ではない。薄い 3 つの錠剤は出さず、その群だけを置く', () => {
+  it('他の 3 つの群がどれも 0 件でも、場所の消えたものがあれば静かな日ではない。薄い 3 つの錠剤は出さず、その群だけを置く', () => {
     const p = presentHomeScreen(initialState(), withProjects(storeOf([]), [missing('lost')]), NOW);
     expect(p.idle).toBe(false);
     expect(p.band.groups.map((g) => g.id)).toEqual(['unresolved']);
