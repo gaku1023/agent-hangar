@@ -286,7 +286,7 @@ export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto;
  * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
  * workspace は設定の作成場所（任意。空は決めていない）で、projectCount はその直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
- * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。join は参加のコマンドで、トークンの所は `<token>` と書く。
+ * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。join は参加のコマンドで、接続先の所は `<URL>` と書く（参加コードは実行した後に入力する）。
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {

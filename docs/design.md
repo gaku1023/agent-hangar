@@ -4659,7 +4659,9 @@ OS の通知を押したときは、殻が頁の `window.__hangarOpenJoin()` を
 ブラウザで開いているときは、2 つのボタンは、押すとターミナルで打つコマンドを出すだけで、参加はアプリから行わない。
 クラウドの用意はどちらでもアプリから行わない。
 参加（`hangar cloud join <URL>`）は同梱の hangar でもできるので、他のコマンドと同じ hangar の呼び方（準備の確かめの `commands.join`）で出す。
-ただし `commands.join`（`config/readiness.ts`）は、まだ旧い `hangar join <token>` を返しており、直す必要がある（旧い `hangar join` は廃止の案内を出して終わる）。
+`commands.join`（`config/readiness.ts`）は、その呼び方の後ろに `cloud join <URL>` を付けた形を返す。
+参加コードはコマンドを実行した後に端末で入力するので、コマンドには載せない。
+旧い `hangar join` は廃止の案内を出して終わるだけなので、案内に使わない。
 クラウドの用意は wrangler で Worker を上げるので、入れた版の hangar では止まる（`requireCloudDir`）。だから `npm run hangar -- setup cloud` と出し、「リポジトリを clone して npm install した場所で」と添える。
 Worker の入れ替えを促す文（`sync.compat.worker`、`configSyncUi.worker.body`）も、同じ呼び方と添え書きにそろえる。
 月の予算の行は置かない（Cloudflare の月の予算で止める仕組みは段 5 で作る）。

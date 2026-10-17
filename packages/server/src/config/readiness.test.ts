@@ -240,7 +240,7 @@ describe('createReadiness', () => {
     expect(r.workspace).toEqual({ path: ws, exists: true, projectCount: 1 });
     expect(r.mcp).toEqual({ registered: true, file: claudeJson });
     expect(r.statusline).toEqual({ command: script, scriptPath: script, installed: true });
-    expect(r.commands).toEqual({ mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' });
+    expect(r.commands).toEqual({ mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar cloud join <URL>' });
   });
   // psmux 3.4.0 未満はホイールが ↑ に化ける（issue #245）。動かせるので ok のまま、古いことだけを添える。
   describe('psmux の版', () => {
@@ -270,7 +270,7 @@ describe('createReadiness', () => {
       mcp: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' mcp install",
       statusline: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' statusline install",
       shell,
-      join: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' join <token>",
+      join: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' cloud join <URL>",
     });
   });
   // 殻は manifest.json と同じメジャー版とアーキの Node だけを使う。設定の画面も同じ条件で見て、使われない Node に ✓ を付けない。
