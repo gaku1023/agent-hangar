@@ -1429,7 +1429,7 @@ async fn approve_answer(
     approve_view_of(&app)
 }
 
-/// クラウド同期の CLI を走らせる。参加トークンは `input` で標準入力へ渡し、引数には載せない（cloudmember.rs）。
+/// クラウド同期の CLI を走らせる。参加コードは `input` で標準入力へ渡し、引数には載せない（cloudmember.rs）。
 /// 返すのは CLI の最後の 1 行の JSON（`{ ok, ... }`）か、走らせられなかったときの `{ ok: false, code }` である。
 fn run_cloud_cli(app: &AppHandle, args: &[&str], input: Option<&str>) -> serde_json::Value {
     let (node, dir, home) = match config_runtime(app) {
@@ -1441,7 +1441,7 @@ fn run_cloud_cli(app: &AppHandle, args: &[&str], input: Option<&str>) -> serde_j
         Ok(out) => cloudmember::parse_reply(&out),
         Err(f) => f,
     };
-    // 残すのは命令と結果の符号だけで、参加トークンも宛先も残さない。
+    // 残すのは命令と結果の符号だけで、参加コードも宛先も残さない。
     let code = reply.get("code").and_then(|c| c.as_str()).unwrap_or("ok");
     log(&format!(
         "cloud: {} {}",
@@ -1451,30 +1451,55 @@ fn run_cloud_cli(app: &AppHandle, args: &[&str], input: Option<&str>) -> serde_j
     reply
 }
 
-/// 参加の見立て。宛先の URL とホストと、いまの参加との違いを返す。設定のクラウド同期の「次へ」が呼ぶ。
+/// 参加の接続先の確認。origin の形にそろえた URL とホストと、参加済みの PC の台数と、いまの参加を返す。
+/// 新しい PC の参加の「次へ」が呼ぶ。
 #[tauri::command]
-async fn cloud_join_plan(app: AppHandle, token: String) -> serde_json::Value {
-    if !cloudmember::valid_token(&token) {
-        return cloudmember::failure("invalid-token", "");
+async fn cloud_join_check(app: AppHandle, url: String) -> serde_json::Value {
+    if !cloudmember::valid_join_url(&url) {
+        return cloudmember::failure("invalid-url", "");
     }
     tauri::async_runtime::spawn_blocking(move || {
-        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::plan_args(), Some(&token)))
+        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::join_check_args(&url), None))
     })
     .await
     .unwrap_or_else(|_| cloudmember::failure("failed", ""))
 }
 
-/// 参加する。宛先の確認と、別のクラウドへの上書きの承諾（overwrite）は、頁の段で済ませてある。
-/// 参加したあとは、サーバを立て直すまで同期が始まらないので、頁が再起動を頼む。
+/// 参加のリクエストを置き、確認コードと期限の目安を返す。参加コードは CLI の標準入力へ渡す。
+/// 別のクラウドへの上書きの承諾（overwrite）は、頁の段で済ませてある。省けば偽で、参加済みなら CLI が overwrite-required で断る。
 #[tauri::command]
-async fn cloud_join(app: AppHandle, token: String, overwrite: bool) -> serde_json::Value {
-    if !cloudmember::valid_token(&token) {
-        return cloudmember::failure("invalid-token", "");
+async fn cloud_join_request(
+    app: AppHandle,
+    url: String,
+    code: String,
+    overwrite: Option<bool>,
+) -> serde_json::Value {
+    if !cloudmember::valid_join_url(&url) {
+        return cloudmember::failure("invalid-url", "");
     }
+    if !cloudmember::valid_join_code(&code) {
+        return cloudmember::failure("invalid-code", "");
+    }
+    let overwrite = overwrite.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         cloudmember::guarded(|| {
-            run_cloud_cli(&app, &cloudmember::join_args(overwrite), Some(&token))
+            run_cloud_cli(
+                &app,
+                &cloudmember::join_request_args(&url, overwrite),
+                Some(&code),
+            )
         })
+    })
+    .await
+    .unwrap_or_else(|_| cloudmember::failure("failed", ""))
+}
+
+/// 承認されたかを 1 回だけ問い合わせる。承認なら CLI が cloud.json を書き終えてから approved を返す。
+/// 問い合わせの間隔は頁が決める。参加したあとは、サーバを立て直すまで同期が始まらないので、頁が再起動を頼む。
+#[tauri::command]
+async fn cloud_join_poll(app: AppHandle) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || {
+        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::join_poll_args(), None))
     })
     .await
     .unwrap_or_else(|_| cloudmember::failure("failed", ""))
@@ -1949,7 +1974,8 @@ fn open_waiting(app: &AppHandle, session_id: &str) {
         ui.ready && ui.loaded
     };
     if !loaded {
-        apply_hash(app, format!("#/session/{session_id}"));
+        // 参加リクエストの知らせ（notify::JOIN_SESSION）は、セッションではなく設定のクラウド同期の節を貯める。
+        apply_hash(app, notify::open_hash(session_id));
         return;
     }
     if let Some(w) = app.get_webview_window("main") {
@@ -2160,8 +2186,9 @@ pub fn run() {
             setup_integration,
             approve_view,
             approve_answer,
-            cloud_join_plan,
-            cloud_join,
+            cloud_join_check,
+            cloud_join_request,
+            cloud_join_poll,
             cloud_revoke,
             cloud_leave,
             update_status,

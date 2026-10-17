@@ -135,7 +135,7 @@ export function bootHttp(p: {
     resumeHereReplace: (sessionId) => compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
     get configBundle() { return sync.configBundle; },
-    joinToken: sync.joinToken,
+    joinApprover: sync.joinApprover,
     devices: () => listDevices(db, device.id),
     cloudDevices: sync.cloudDevices,
     mobileLink: sync.mobileLink,

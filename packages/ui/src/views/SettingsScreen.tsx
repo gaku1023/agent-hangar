@@ -4,7 +4,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, tokensLabel } from '../presenters/format.ts';
 import { clientPlatform, muxInstallCommand, notifyBlockedKey, type VerifyLine } from '../presenters/readiness.ts';
-import { JOIN_TOKEN_TTL_MS, type IntegrationCard, type SettingsProps } from '../presenters/settings.ts';
+import type { IntegrationCard, SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MuxSection } from './MuxSection.tsx';
 import { EditorSettings } from './EditorSettings.tsx';
@@ -21,7 +21,7 @@ import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
-import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
+import { CloudAddButton, CloudAddPc, CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
@@ -29,7 +29,6 @@ import { SetupGuideCard } from './SetupGuideCard.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
-import { useNow } from './primitives/useNow.ts';
 
 /** 「✓ 保存しました」を出しておく長さ（設定の C1）。 */
 export const SAVED_TICK_MS = 2000;
@@ -167,26 +166,6 @@ function IntegrationWrite(props: { card: IntegrationCard; desktop: boolean; extr
         <div className="cp-more-body"><CommandLine command={card.command} />{props.extra}</div>
       </details>
     </>
-  );
-}
-
-/** 参加トークン（設定の E2）。トークンとコピー、減る棒と「あと N 秒で消えます」。 */
-function JoinToken(props: { token: string; expiresAt: number | null }) {
-  const t = useT();
-  const now = useNow(1000);
-  const leftMs = props.expiresAt === null ? JOIN_TOKEN_TTL_MS : Math.max(0, props.expiresAt - now);
-  const left = Math.ceil(leftMs / 1000);
-  return (
-    <div className="tok">
-      <div className="tok-line">
-        <span className="tok-val mono">{props.token}</span>
-        <CopyButton text={props.token} name={t('settings.cloud.token.name')} label={t('settings.cloud.token.copy')} />
-      </div>
-      <div className="tbar" data-low={left <= 10 ? 'true' : undefined} role="progressbar" aria-label={t('settings.cloud.token.bar')} aria-valuemin={0} aria-valuemax={JOIN_TOKEN_TTL_MS / 1000} aria-valuenow={left}>
-        <i style={{ width: `${(leftMs / JOIN_TOKEN_TTL_MS) * 100}%` }} />
-      </div>
-      <small>{t('settings.cloud.token.note', { n: left })}</small>
-    </div>
   );
 }
 
@@ -379,7 +358,7 @@ export function SettingsScreen(props: SettingsProps) {
         {cloudOff && (
           <>
             <p className="muted-p">{t('settings.cloud.off.lead')}</p>
-            {/* 殻の中では、参加トークンで参加を節の中の段で行う（0.4.0）。クラウドの用意はターミナルのまま。 */}
+            {/* 殻の中では、参加コードでの参加を節の中の段で行う（試作 B2）。クラウドの用意はターミナルのまま。 */}
             {member?.desktop ? (
               <>
                 <div className="btns">
@@ -430,11 +409,10 @@ export function SettingsScreen(props: SettingsProps) {
                   一時停止中に版で止まっている間も出さない。再開しても、互換の版が合うまで同期できないからである。
                   更新するのがこの PC かクラウドの Worker かは、error の文（CompatError の message）がそのまま言う。 */}
               {!props.cloud.limited && !(props.cloud.paused && props.cloud.state === 'error') && <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? t('settings.cloud.resume') : t('settings.cloud.pause')}</button>}
-              {/* 参加トークンは全セッションの読み書き権を持つ秘密なので、押すまで取りに行かない。 */}
-              {/* 出したあとはランタイムが 120 秒で store から消すので、props が null に戻ればこのボタンの姿に戻る。 */}
-              {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>{t('settings.cloud.showToken')}</button>}
+              {/* 「PC を追加」（試作 A1）。押すと参加コードを発行し、下に欄を開く。解除されている間は出さない。 */}
+              {member && !member.revoked && <CloudAddButton m={member} />}
             </div>
-            {props.cloud.joinToken !== null && <JoinToken token={props.cloud.joinToken} expiresAt={props.cloud.joinTokenExpiresAt} />}
+            {member && !member.revoked && <CloudAddPc m={member} />}
             {/* PC の表（0.4.0）。Worker の一覧から、参加日、最終同期、最後の IP と場所、解除を出す。 */}
             {/* 表の下に「スマホ」の小見出しと「スマホを接続」（試作 A1）。解除されている間は出さない。 */}
             {member ? <><CloudPcTable m={member} heading={t('settings.cloud.computers')} />{!member.revoked && <CloudPhones m={member} />}</> : (

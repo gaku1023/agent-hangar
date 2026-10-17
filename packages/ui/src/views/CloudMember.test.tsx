@@ -4,9 +4,10 @@ import { fakeMotionTokens } from '../test/motion.ts';
 import type { CloudDeviceDto, SyncStatusBody, UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentCloudMember, type CloudMemberProps } from '../presenters/cloudMember.ts';
+import { presentToasts } from '../presenters/toasts.ts';
 import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
 import { initialStore, type Store } from '../store/store.ts';
-import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
+import { CloudAddButton, CloudAddPc, CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
 import { QrCode } from './primitives/QrCode.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentSettings } from '../presenters/settings.ts';
@@ -15,7 +16,7 @@ import { SettingsScreen } from './SettingsScreen.tsx';
 const NOW = Date.parse('2026-10-12T03:00:00Z');
 const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
 const dev = (id: string, over: Partial<CloudDeviceDto> = {}): CloudDeviceDto => ({ id, name: id, platform: 'darwin', joinedAt: NOW - 20 * 86_400_000, lastSeenAt: NOW - 60_000, revokedAt: null, expiresAt: null, kind: 'pc', self: false, ...over });
-const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' as const };
+const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
 
 function props(member: Partial<CloudMemberState> = {}, over: Partial<Store> = {}): CloudMemberProps {
   const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32' })], creator: false, message: null };
@@ -24,57 +25,142 @@ function props(member: Partial<CloudMemberState> = {}, over: Partial<Store> = {}
 
 const ui = (node: React.ReactNode, onAction: (a: UiAction) => void = () => {}) => <ActionRoot onAction={onAction}>{node}</ActionRoot>;
 
-describe('参加の段', () => {
-  it('貼った参加トークンを「次へ」で渡し、欄を空にする。欄は password で、空なら押せない', () => {
+describe('参加コードで参加（試作 B2）', () => {
+  it('接続先の URL を入力して「次へ」で接続先を確認する。空なら押せない', () => {
     const onAction = vi.fn();
     render(ui(<CloudJoinSteps m={props()} onClose={() => {}} />, onAction));
-    const field = screen.getByLabelText(/参加トークン/) as HTMLInputElement;
-    expect(field.type).toBe('password');
+    const field = screen.getByLabelText('接続先の URL') as HTMLInputElement;
     const next = screen.getByRole('button', { name: '次へ' });
     expect(next).toBeDisabled();
-    fireEvent.change(field, { target: { value: '  tok  ' } });
+    fireEvent.change(field, { target: { value: ' https://h.example ' } });
     fireEvent.click(next);
-    expect(onAction).toHaveBeenCalledWith({ type: 'cloud.join.plan', token: 'tok' });
-    expect(field.value).toBe('');
+    expect(onAction).toHaveBeenCalledWith({ type: 'cloud.join.check', url: 'https://h.example' });
   });
 
-  it('宛先の確認はホストを大きく出し、チェックを入れるまで参加できない', () => {
-    const onAction = vi.fn();
-    render(ui(<CloudJoinSteps m={props({ join: { kind: 'confirm', plan } })} onClose={() => {}} />, onAction));
-    expect(screen.getByText('h.example')).toBeInTheDocument();
-    const go = screen.getByRole('button', { name: 'この接続先に参加' });
-    expect(go).toBeDisabled();
-    fireEvent.click(screen.getByRole('checkbox', { name: /hangar setup cloud で自分が作成したクラウドです/ }));
-    fireEvent.click(go);
-    expect(onAction).toHaveBeenCalledWith({ type: 'cloud.join.go', overwrite: false });
+  it('URL を入れて「次へ」でホスト名と参加済みの PC の台数が出る（PC の名前は出ない）。参加コードの欄が開く', () => {
+    const { container } = render(ui(<CloudJoinSteps m={props({ join: { kind: 'code', check } })} onClose={() => {}} />));
+    const join = container.querySelector('.cm-join')!;
+    expect(within(join as HTMLElement).getByText('h.example')).toBeInTheDocument();
+    expect(join).toHaveTextContent('参加済みの PC：2 台');
+    expect(join).not.toHaveTextContent('studio');
+    expect(join).not.toHaveTextContent('desk');
+    expect(screen.getByLabelText('参加コード')).toBeInTheDocument();
   });
 
-  it('別のクラウドに参加済みなら、赤い警告と「上書きして参加」にする', () => {
+  it('形の違うコードはその場で「参加コードの形が違います」と出し、送らない。正しいコードは半角にそろえて送る', () => {
     const onAction = vi.fn();
-    const other = { ...plan, url: 'https://n.example', host: 'n.example', current: { url: 'https://o.example' }, change: 'other-cloud' as const };
-    render(ui(<CloudJoinSteps m={props({ join: { kind: 'confirm', plan: other } })} onClose={() => {}} />, onAction));
+    render(ui(<CloudJoinSteps m={props({ join: { kind: 'code', check } })} onClose={() => {}} />, onAction));
+    const field = screen.getByLabelText('参加コード');
+    fireEvent.change(field, { target: { value: 'K7QM-2XF0' } });
+    fireEvent.click(screen.getByRole('button', { name: '参加をリクエスト' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('参加コードの形が違います');
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'cloud.join.request' }));
+    fireEvent.change(field, { target: { value: 'ｋ７ｑｍ－２ｘｆｄ' } });
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '参加をリクエスト' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.join.request', code: 'K7QM2XFD' });
+  });
+
+  it('別のクラウドに参加済みなら、赤い警告と「上書きして参加をリクエスト」にする', () => {
+    render(ui(<CloudJoinSteps m={props({ join: { kind: 'code', check: { ...check, current: { url: 'https://o.example' } } } })} onClose={() => {}} />));
     expect(screen.getByText('この PC はすでに別のクラウドに参加しています。')).toBeInTheDocument();
     expect(screen.getByText('https://o.example')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: '上書きして参加' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'cloud.join.go', overwrite: true });
+    expect(screen.getByRole('button', { name: '上書きして参加をリクエスト' })).toBeInTheDocument();
   });
 
-  it('失敗は理由と、何も書いていないことを出す。秘密が違うときは貼り直し、繋がらないときはもう一度試す', () => {
+  it('待ちの文は「参加コードを発行した PC で承認してください。」で、確認コードが出る', () => {
+    render(ui(<CloudJoinSteps m={props({ join: { kind: 'waiting', check, sas: '123456', expiresAt: NOW + 262_000 } })} onClose={() => {}} />));
+    expect(screen.getByText('承認を待っています')).toBeInTheDocument();
+    expect(screen.getByText('参加コードを発行した PC で承認してください。')).toBeInTheDocument();
+    expect(screen.getByText('123 456')).toBeInTheDocument();
+  });
+
+  it('期限切れ、拒否、応答なし（5 分）でそれぞれの文と次の手順を出し、参加コードを入力し直せる', () => {
     const onAction = vi.fn();
-    const { rerender } = render(ui(<CloudJoinSteps m={props({ join: { kind: 'failed', plan, failure: { code: 'forbidden', message: '' } } })} onClose={() => {}} />, onAction));
-    expect(screen.getByRole('alert')).toHaveTextContent('この参加トークンは使えません');
-    expect(screen.getByText('この PC の設定は変更していません。')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '貼り付け直す' }));
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.join.cancel' });
-    rerender(ui(<CloudJoinSteps m={props({ join: { kind: 'failed', plan, failure: { code: 'network', message: '' } } })} onClose={() => {}} />, onAction));
-    fireEvent.click(screen.getByRole('button', { name: 'もう一度試す' }));
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.join.go', overwrite: false });
+    const failed = (reason: 'expired' | 'rejected' | 'no-answer') => ui(<CloudJoinSteps m={props({ join: { kind: 'failed', reason, message: '', check } })} onClose={() => {}} />, onAction);
+    const { rerender } = render(failed('expired'));
+    expect(screen.getByRole('alert')).toHaveTextContent('参加コードの有効期限が切れました');
+    expect(screen.getByRole('alert')).toHaveTextContent('新しい参加コード');
+    rerender(failed('rejected'));
+    expect(screen.getByRole('alert')).toHaveTextContent('参加リクエストが拒否されました');
+    expect(screen.getByRole('alert')).toHaveTextContent('この PC には何も送信されていません');
+    rerender(failed('no-answer'));
+    expect(screen.getByRole('alert')).toHaveTextContent('応答がありませんでした');
+    expect(screen.getByRole('alert')).toHaveTextContent('スリープ中');
+    expect(screen.getByRole('alert')).toHaveTextContent('新しい参加コード');
+    fireEvent.click(screen.getByRole('button', { name: '参加コードを入力し直す' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.join.reenter' });
   });
 
-  it('参加が済んだら、再起動して同期を始める旨を出す', () => {
-    render(ui(<CloudJoinSteps m={props({ join: { kind: 'joined', host: 'h.example' } })} onClose={() => {}} />));
+  it('承認されたら、再起動して同期を開始する旨を出す', () => {
+    render(ui(<CloudJoinSteps m={props({ join: { kind: 'done', host: 'h.example' } })} onClose={() => {}} />));
     expect(screen.getByRole('status')).toHaveTextContent('h.example に参加しました');
+  });
+});
+
+describe('PC を追加（試作 A1）', () => {
+  const open = { kind: 'open' as const, code: 'K7QM-2XFD', expiresAt: NOW + 300_000 };
+  const requested = { kind: 'requested' as const, code: 'K7QM-2XFD', expiresAt: NOW + 262_000, request: { name: 'pc-b', os: 'win32', sas: '418207' } };
+  /** 設定の節と同じく、ボタンの段と欄を並べる。 */
+  const AddPc = (p: { m: CloudMemberProps }) => <><div className="btns"><CloudAddButton m={p.m} /></div><CloudAddPc m={p.m} /></>;
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('「PC を追加」で参加コードと URL が欄の中に出る', () => {
+    vi.useFakeTimers({ now: NOW });
+    const onAction = vi.fn();
+    const { rerender } = render(ui(<AddPc m={props()} />, onAction));
+    fireEvent.click(screen.getByRole('button', { name: 'PC を追加' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.open' });
+    rerender(ui(<AddPc m={props({ add: open })} />, onAction));
+    const panel = screen.getByRole('region', { name: 'PC を追加' });
+    expect(within(panel).getByText('K7QM-2XFD')).toBeInTheDocument();
+    expect(within(panel).getByText('https://h.example')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: '参加コードをコピー' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: '接続先の URL をコピー' })).toBeInTheDocument();
+    expect(panel).toHaveTextContent('あと 5:00 で有効期限が切れます');
+    expect(panel).toHaveTextContent('新しい PC からの参加リクエストを待っています');
+    fireEvent.click(within(panel).getByRole('button', { name: 'キャンセル' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.close' });
+  });
+
+  it('リクエストを受信すると、同じ欄が承認の欄（名前、OS、確認コード、承認、拒否）に切り替わる', () => {
+    const onAction = vi.fn();
+    const { rerender } = render(ui(<AddPc m={props({ add: open })} />, onAction));
+    const panel = screen.getByRole('region', { name: 'PC を追加' });
+    rerender(ui(<AddPc m={props({ add: requested })} />, onAction));
+    expect(screen.getByRole('region', { name: 'PC を追加' })).toBe(panel);
+    expect(panel).toHaveTextContent('pc-b から参加リクエストを受信しました');
+    expect(panel).toHaveTextContent('Windows');
+    expect(panel).toHaveTextContent('418 207');
+    expect(panel).toHaveTextContent('新しい PC に表示されている確認コードと同じなら承認してください');
+    fireEvent.click(within(panel).getByRole('button', { name: '承認' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.approve' });
+    fireEvent.click(within(panel).getByRole('button', { name: '拒否' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.reject' });
+  });
+
+  it('期限切れと失敗は欄の中に理由を出し、参加コードを再発行できる', () => {
+    const onAction = vi.fn();
+    const { rerender } = render(ui(<AddPc m={props({ add: { kind: 'expired' } })} />, onAction));
+    expect(screen.getByRole('alert')).toHaveTextContent('参加コードの有効期限が切れました');
+    fireEvent.click(screen.getByRole('button', { name: '参加コードを再発行' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.open' });
+    rerender(ui(<AddPc m={props({ add: { kind: 'failed', message: '承認できませんでした（x）。新しい参加コードを発行して、もう一度試してください' } })} />, onAction));
+    expect(screen.getByRole('alert')).toHaveTextContent('新しい参加コードを発行して');
+  });
+
+  it('承認で欄が閉じ、完了の帯を出す', () => {
+    const { rerender } = render(ui(<AddPc m={props({ add: requested })} />));
+    rerender(ui(<AddPc m={props({ add: { kind: 'done', name: 'pc-b' } })} />));
+    expect(screen.queryByRole('region', { name: 'PC を追加' })).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('pc-b が参加しました');
+  });
+
+  it('参加リクエストの通知の中身は、確認コードを区切って出す（右下の通知）', () => {
+    const p = presentToasts(initialState(), { ...initialStore(), cloudMember: { ...initialCloudMember(), add: requested } }, NOW);
+    expect(p.join).toEqual({ name: 'pc-b', os: 'Windows', sas: '418 207' });
+    const onSettings = presentToasts({ ...initialState(), screen: { name: 'settings', at: 'cloud' } }, { ...initialStore(), cloudMember: { ...initialCloudMember(), add: requested } }, NOW);
+    expect(onSettings.join).toBeNull();
   });
 });
 
@@ -365,21 +451,105 @@ describe('スマホの接続の動き', () => {
   });
 });
 
+describe('参加の動き（A1、B2）', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[] }[] = [];
+  let finish: (() => void)[] = [];
+  beforeEach(() => {
+    restore = fakeMotionTokens({ '--dur-fast': '200ms', '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+    animations = []; finish = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+      animations.push({ el: this, frames });
+      return { finished: new Promise<void>((r) => finish.push(r)), cancel: vi.fn() };
+    };
+    // jsdom は高さを測らないので、中身の文字数を高さとみなす（中身を入れ替えると高さが変わる）。
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return (this.textContent ?? '').length; } });
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+    delete (HTMLElement.prototype as unknown as { offsetHeight?: unknown }).offsetHeight;
+  });
+  const on = (el: Element | null) => animations.filter((a) => a.el === el);
+  const done = async () => { await act(async () => { finish.forEach((f) => f()); await Promise.resolve(); }); };
+  const open = { kind: 'open' as const, code: 'K7QM-2XFD', expiresAt: Date.now() + 300_000 };
+  const requested = { kind: 'requested' as const, code: 'K7QM-2XFD', expiresAt: Date.now() + 262_000, request: { name: 'pc-b', os: 'win32', sas: '418207' } };
+  const page = (m: CloudMemberProps) => ui(<><CloudAddPc m={m} /><CloudPcTable m={m} heading="参加している PC" /></>);
+
+  it('A1：欄の開きは growIn、承認の欄への切り替えは resizeFrom＋fadeIn、承認で閉じるのは collapseOut。新しい PC の行は growIn で入る', async () => {
+    const { rerender, container } = render(page(props()));
+    expect(animations).toHaveLength(0);
+    rerender(page(props({ add: open })));
+    const panel = container.querySelector('.cm-add')!;
+    expect(on(panel)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    animations = [];
+    rerender(page(props({ add: requested })));
+    expect(container.querySelector('.cm-add')).toBe(panel);
+    expect(on(panel)[0]!.frames).toEqual([{ height: expect.stringMatching(/px$/) }, { height: expect.stringMatching(/px$/) }]);
+    expect(on(container.querySelector('.cm-add-body'))[0]!.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    animations = [];
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32' }), dev('pc-b', { platform: 'win32' })], creator: false, message: null };
+    rerender(page(props({ devices, add: { kind: 'done', name: 'pc-b' } })));
+    expect(on(panel).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+    const row = screen.getByText('pc-b', { selector: '.cm-name span' }).closest('[role="rowgroup"]');
+    expect(on(row)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    await done();
+    expect(container.querySelector('.cm-add')).toBeNull();
+  });
+
+  it('PC の表は、Worker の一覧に新しく現れた ID の行だけを growIn で入れる（同期の表の一覧から替わったときと、前からある行は動かさない）', () => {
+    // 同期の表の一覧には studio しか無く、Worker の一覧で desk が加わる。desk は新しく参加した PC ではないので動かさない。
+    const shared = [{ id: 'studio', name: 'studio', platform: 'darwin', lastSeenAt: NOW, self: true, shell: null }];
+    const table = (m: CloudMemberProps) => ui(<CloudPcTable m={m} heading="参加している PC" />);
+    const { rerender } = render(table(props({ devices: null }, { devices: shared })));
+    rerender(table(props({}, { devices: shared })));
+    expect(screen.getByText('desk', { selector: '.cm-name span' })).toBeInTheDocument();
+    expect(animations).toHaveLength(0);
+    const three = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32' }), dev('pc-b', { platform: 'win32' })], creator: false, message: null };
+    rerender(table(props({ devices: three }, { devices: shared })));
+    const rowOf = (name: string) => screen.getByText(name, { selector: '.cm-name span' }).closest('[role="rowgroup"]');
+    expect(on(rowOf('pc-b'))).toHaveLength(1);
+    expect(on(rowOf('desk'))).toHaveLength(0);
+    expect(on(rowOf('studio'))).toHaveLength(0);
+  });
+
+  it('B2：参加コードの欄は growIn で開き、承認待ちへの切り替えは resizeFrom', () => {
+    const { rerender, container } = render(ui(<CloudJoinSteps m={props()} onClose={() => {}} />));
+    rerender(ui(<CloudJoinSteps m={props({ join: { kind: 'code', check } })} onClose={() => {}} />));
+    expect(on(container.querySelector('.cm-join-code'))[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    const box = container.querySelector('.cm-join')!;
+    animations = [];
+    rerender(ui(<CloudJoinSteps m={props({ join: { kind: 'waiting', check, sas: '123456', expiresAt: Date.now() + 262_000 } })} onClose={() => {}} />));
+    expect(container.querySelector('.cm-join')).toBe(box);
+    expect(on(box)[0]!.frames).toEqual([{ height: expect.stringMatching(/px$/) }, { height: expect.stringMatching(/px$/) }]);
+  });
+});
+
 describe('設定のクラウド同期の節', () => {
   const SETTINGS = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
   const page = (over: Partial<Store>) => presentSettings({ ...initialState(), screen: { name: 'settings', at: 'cloud' } }, { ...initialStore(), settings: SETTINGS, device: { id: 'studio', name: 'studio' }, ...over }, NOW, 'darwin');
 
-  it('殻の中で同期していなければ、参加トークンで参加の段を節の中で開く', () => {
+  it('殻の中で同期していなければ、参加コードで参加の段を節の中で開く', () => {
     render(ui(<SettingsScreen {...page({ desktop: true, sync: { ...SYNC, state: 'off', url: null } })} />));
-    fireEvent.click(screen.getByRole('button', { name: '参加トークンで参加' }));
-    expect(screen.getByLabelText(/参加トークン/)).toHaveAttribute('type', 'password');
+    fireEvent.click(screen.getByRole('button', { name: '参加コードで参加' }));
+    expect(screen.getByLabelText('接続先の URL')).toBeInTheDocument();
   });
 
-  it('ブラウザで同期していなければ、今までどおりコマンドを案内する', () => {
+  it('ブラウザで同期していなければ、コマンドを案内する', () => {
     render(ui(<SettingsScreen {...page({ desktop: false, sync: { ...SYNC, state: 'off', url: null } })} />));
-    fireEvent.click(screen.getByRole('button', { name: '参加トークンで参加' }));
-    expect(screen.queryByLabelText(/参加トークン/)).toBeNull();
-    expect(screen.getByText('hangar join <token>')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '参加コードで参加' }));
+    expect(screen.queryByLabelText('接続先の URL')).toBeNull();
+    expect(screen.getByText('hangar cloud join <URL>')).toBeInTheDocument();
+  });
+
+  it('同期していれば、今すぐ同期の段に「PC を追加」を置き、参加トークンの表示は出さない', () => {
+    const onAction = vi.fn();
+    render(ui(<SettingsScreen {...page({ desktop: true, sync: SYNC })} />, onAction));
+    expect(screen.queryByRole('button', { name: '参加トークンを表示' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'PC を追加' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.open' });
   });
 
   it('同期していれば、PC の表と、節の末尾の「この PC の参加を解除」を出す', () => {

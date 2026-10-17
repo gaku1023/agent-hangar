@@ -226,7 +226,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     takeover,
     resumeHere: (id: string, overwrite: boolean) => { sync.calls.push(`resumeHere:${id}:${overwrite}`); return sync.resumeHereResult; },
     configBundle: null,
-    joinToken: () => 'tok-abc' as string | null,
+    joinApprover: () => null,
     devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }],
     cloudDevices: async () => ({ state: 'off' as const, devices: [], creator: false, message: null }),
     shellHook: () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' }),

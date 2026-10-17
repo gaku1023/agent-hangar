@@ -189,7 +189,8 @@ joinApp.get('/hello', async (c) => {
 
 /**
  * 参加リクエストを置く。
- * 開いていて、期限内で、まだリクエストの無いコードにだけ書き、既にある端末の ID は断る。
+ * 開いていて、期限内で、まだリクエストの無いコードにだけ書き、解除されていない端末と同じ ID は断る。
+ * 解除済みの端末と同じ ID は通す（解除した PC が同じ ID のまま再参加する。承認が要るのは変わらない）。
  * 期限切れ、使用済み、無いコードは区別せずに 404 で、この 404 を Worker 全体の窓で数える（総当たりへの守り）。
  * 窓が上限に達している間は、正しいコードでも 429 で断る（妨害には使えるが、10 分で戻る）。
  * 形の違う本文は D1 に触らずに 400 で返し、窓に数えない。
@@ -212,7 +213,7 @@ joinApp.post('/requests', async (c) => {
   if (windowFull(guess?.value, now, JOIN_GUESS_LIMIT)) return c.json({ error: 'rate limited' }, 429);
   const res = await db
     .prepare(
-      "update join_codes set status = 'requested', device_id = ?, request = ?, request_at = ? where code_hash = ? and status = 'open' and expires_at > ? and request is null and not exists (select 1 from devices where id = ?)",
+      "update join_codes set status = 'requested', device_id = ?, request = ?, request_at = ? where code_hash = ? and status = 'open' and expires_at > ? and request is null and not exists (select 1 from devices where id = ? and revoked_at is null)",
     )
     .bind(body.deviceId, sealedToBlob(body.sealed), now, body.codeHash, now, body.deviceId)
     .run();
@@ -249,11 +250,12 @@ joinApp.get('/status', async (c) => {
   const { token, tokenHash } = await issueDeviceToken();
   // 入れるのと渡したことを残すのを 1 つの batch にし、同時の問い合わせでもトークンは 1 つしか生まれない。
   // used_at は、この問い合わせのトークンで行が入ったときだけ書く。
-  // 同じ ID の端末が既にあって入れられなかったときは、待たせ続けずに rejected で閉じる。前からある端末の行には触らない。
+  // 同じ ID の解除済みの行は、同じ文の中で新しいトークンの行に置き換える（解除した PC の再参加）。
+  // 同じ ID の解除されていない端末があって入れられなかったときは、待たせ続けずに rejected で閉じる。その端末の行には触らない。
   const [ins, , closed] = await db.batch([
     db
       .prepare(
-        "insert into devices (id, kind, token_hash, joined_at, last_seen_at) select ?, 'pc', ?, ?, ? where exists (select 1 from join_codes where code_hash = ? and device_id = ? and status = 'approved' and used_at is null) on conflict do nothing",
+        "insert into devices (id, kind, token_hash, joined_at, last_seen_at) select ?, 'pc', ?, ?, ? where exists (select 1 from join_codes where code_hash = ? and device_id = ? and status = 'approved' and used_at is null) on conflict(id) do update set kind = 'pc', token_hash = excluded.token_hash, joined_at = excluded.joined_at, last_seen_at = excluded.last_seen_at, last_pulled_seq = 0, revoked_at = null, expires_at = null where devices.revoked_at is not null",
       )
       .bind(deviceId, tokenHash, now, now, codeHash, deviceId),
     db

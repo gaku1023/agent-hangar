@@ -3,25 +3,47 @@ import type { CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
 import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
 import { PAIR_TTL_MS as PAIR_TTL_SHOWN_MS } from '../presenters/cloudMember.ts';
-import { CLOUD_RESTART_MS, createCloudMemberRunner, PAIR_POLL_MS } from './cloudMember.ts';
+import { CLOUD_RESTART_MS, createCloudMemberRunner, JOIN_POLL_MS, PAIR_POLL_MS, type JoinCodesApi } from './cloudMember.ts';
 
-const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' as const };
+const check = { url: 'https://h.example', host: 'h.example', pcCount: 1, current: null };
 const devices: CloudDevicesDto = { state: 'ok', devices: [], creator: false, message: null };
 
-function rig(bridge: Partial<CloudBridge> | null = {}) {
+/** 発行した PC の口（サーバーの /api/sync/join-codes）の偽物。既定は何も発行していない状態を返す。 */
+function fakeJoinCodes(over: Partial<JoinCodesApi> = {}): JoinCodesApi {
+  return {
+    current: vi.fn(async () => ({ kind: 'idle' as const })),
+    issue: vi.fn(async () => ({ kind: 'open' as const, code: 'K7QM-2XFD', expiresAt: 300_000 })),
+    approve: vi.fn(async () => ({ kind: 'done' as const, name: 'pc-b' })),
+    reject: vi.fn(async () => ({ kind: 'idle' as const })),
+    close: vi.fn(async () => ({ kind: 'idle' as const })),
+    ...over,
+  };
+}
+
+function rig(bridge: Partial<CloudBridge> | null = {}, o: { joinCodes?: JoinCodesApi; now?: () => number; load?: () => Promise<CloudDevicesDto> } = {}) {
   let s: CloudMemberState = initialCloudMember();
   const timers: { fn: () => void; ms: number }[] = [];
   const restart = vi.fn();
-  const load = vi.fn(async () => devices);
+  const load = vi.fn(o.load ?? (async () => devices));
   const full: CloudBridge | null = bridge === null ? null : {
-    joinPlan: async () => ({ ok: true, value: plan }),
-    join: async () => ({ ok: true, value: { url: plan.url, host: plan.host } }),
+    joinCheck: async () => ({ ok: true, value: check }),
+    joinRequest: async () => ({ ok: true, value: { sas: '123456', expiresAt: 300_000 } }),
+    joinPoll: async () => ({ ok: true, value: { status: 'waiting' as const } }),
     revoke: async (id) => ({ ok: true, value: { id, kind: 'pc' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }),
     leave: async () => ({ ok: true, value: { revoked: true, revokeError: null, creator: false } }),
     ...bridge,
   };
-  const r = createCloudMemberRunner({ bridge: full, load, pair: async () => ({ state: 'not-joined' }), now: () => 0, restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
-  return { r, get: () => s, timers, restart, load };
+  const joinCodes = o.joinCodes ?? fakeJoinCodes();
+  const r = createCloudMemberRunner({ bridge: full, load, pair: async () => ({ state: 'not-joined' }), joinCodes, now: o.now ?? (() => 0), restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  /** いちばん古い、ms の長さの予約を 1 つ走らせる。 */
+  const fire = async (ms: number) => {
+    const i = timers.findIndex((t) => t.ms === ms);
+    if (i < 0) throw new Error(`no timer of ${ms}ms`);
+    const [t] = timers.splice(i, 1);
+    t!.fn();
+    await flush();
+  };
+  return { r, get: () => s, set: (n: CloudMemberState) => { s = n; }, timers, restart, load, joinCodes, fire };
 }
 
 const NOW = 1_700_000_000_000;
@@ -37,7 +59,7 @@ function phoneRig(o: { pair?: () => Promise<MobilePairingDto>; lists?: CloudDevi
   const lists = [...(o.lists ?? [])];
   const load = vi.fn(async () => lists.shift() ?? s.devices!);
   const pair = vi.fn(o.pair ?? (async () => ready));
-  const r = createCloudMemberRunner({ bridge: null, load, pair, now: () => now, restart: () => {}, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  const r = createCloudMemberRunner({ bridge: null, load, pair, joinCodes: fakeJoinCodes(), now: () => now, restart: () => {}, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
   /** いちばん古い、ms の長さの予約を 1 つ走らせる。 */
   const fire = async (ms: number) => {
     const i = timers.findIndex((t) => t.ms === ms);
@@ -153,75 +175,181 @@ describe('スマホの接続の QR', () => {
 const flush = () => new Promise((res) => setTimeout(res, 0));
 
 describe('createCloudMemberRunner', () => {
-  it('貼った参加トークンで宛先を確かめ、確認の後に同じトークンで参加し、参加したら再起動を頼む', async () => {
-    const joinPlan = vi.fn(async () => ({ ok: true as const, value: plan }));
-    const join = vi.fn(async () => ({ ok: true as const, value: { url: plan.url, host: plan.host } }));
-    const x = rig({ joinPlan, join });
-    x.r.run({ op: 'plan', token: '  tok  ' });
-    expect(x.get().join).toEqual({ kind: 'checking' });
+  it('接続先を確認し、参加コードを半角にそろえて送り、2 秒ごとの問い合わせで承認を待ち、承認されたら再起動を頼む', async () => {
+    const joinCheck = vi.fn(async () => ({ ok: true as const, value: check }));
+    const joinRequest = vi.fn(async () => ({ ok: true as const, value: { sas: '123456', expiresAt: 300_000 } }));
+    const polls: ('waiting' | 'approved')[] = ['waiting', 'approved'];
+    const joinPoll = vi.fn(async () => ({ ok: true as const, value: { status: polls.shift()! } }));
+    const x = rig({ joinCheck, joinRequest, joinPoll });
+    x.r.run({ op: 'check', url: '  https://h.example  ' });
+    expect(x.get().join).toEqual({ kind: 'checking', url: 'https://h.example' });
     await flush();
-    expect(x.get().join).toEqual({ kind: 'confirm', plan });
-    x.r.run({ op: 'join', overwrite: false });
+    expect(joinCheck).toHaveBeenCalledWith('https://h.example');
+    expect(x.get().join).toEqual({ kind: 'code', check });
+    x.r.run({ op: 'request', code: 'ｋ７ｑｍ－２ｘｆｄ' });
+    expect(x.get().join).toEqual({ kind: 'requesting', check });
     await flush();
-    expect(join).toHaveBeenCalledWith('tok', false);
-    expect(joinPlan).toHaveBeenCalledWith('tok');
-    expect(x.get().join).toEqual({ kind: 'joined', host: 'h.example' });
+    expect(joinRequest).toHaveBeenCalledWith('https://h.example', 'K7QM2XFD', false);
+    expect(x.get().join).toEqual({ kind: 'waiting', check, sas: '123456', expiresAt: 300_000 });
+    await x.fire(JOIN_POLL_MS);
+    expect(x.get().join.kind).toBe('waiting');
+    await x.fire(JOIN_POLL_MS);
+    expect(joinPoll).toHaveBeenCalledTimes(2);
+    expect(x.get().join).toEqual({ kind: 'done', host: 'h.example' });
     expect(x.timers.map((t) => t.ms)).toEqual([CLOUD_RESTART_MS]);
     x.timers[0]!.fn();
     expect(x.restart).toHaveBeenCalledTimes(1);
   });
 
-  it('参加トークンは状態に残さない', async () => {
-    const x = rig();
-    x.r.run({ op: 'plan', token: 'SECRET-TOKEN' });
+  it('形の違う参加コードは殻に渡さず、参加コードの段のまま bad-code にする', async () => {
+    const joinRequest = vi.fn(async () => ({ ok: true as const, value: { sas: '123456', expiresAt: 1 } }));
+    const x = rig({ joinRequest });
+    x.r.run({ op: 'check', url: 'https://h.example' });
     await flush();
-    x.r.run({ op: 'join', overwrite: false });
+    x.r.run({ op: 'request', code: 'K7QM-2XF0' });
     await flush();
-    expect(JSON.stringify(x.get())).not.toContain('SECRET-TOKEN');
+    expect(joinRequest).not.toHaveBeenCalled();
+    expect(x.get().join).toEqual({ kind: 'failed', reason: 'bad-code', message: '', check });
   });
 
-  it('段を閉じたら持っていたトークンを捨て、その後の参加は何もしない', async () => {
-    const join = vi.fn(async () => ({ ok: true as const, value: { url: plan.url, host: plan.host } }));
-    const x = rig({ join });
-    x.r.run({ op: 'plan', token: 'tok' });
+  it('https で始まらない URL は殻に渡さず、URL の段に理由を出す', async () => {
+    const joinCheck = vi.fn(async () => ({ ok: true as const, value: check }));
+    const x = rig({ joinCheck });
+    x.r.run({ op: 'check', url: 'h.example' });
+    await flush();
+    expect(joinCheck).not.toHaveBeenCalled();
+    expect(x.get().join).toEqual({ kind: 'url', failure: { code: 'invalid-url', message: '' } });
+  });
+
+  it('参加済みのクラウドがあれば、上書きで参加をリクエストする', async () => {
+    const joinRequest = vi.fn(async () => ({ ok: true as const, value: { sas: '123456', expiresAt: 300_000 } }));
+    const x = rig({ joinCheck: async () => ({ ok: true, value: { ...check, current: { url: 'https://o.example' } } }), joinRequest });
+    x.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    x.r.run({ op: 'request', code: 'K7QM-2XFD' });
+    await flush();
+    expect(joinRequest).toHaveBeenCalledWith('https://h.example', 'K7QM2XFD', true);
+  });
+
+  it('殻が busy のときは待ち続け、拒否と期限切れでは問い合わせを停止する', async () => {
+    const answers = [{ ok: false as const, failure: { code: 'busy', message: '' } }, { ok: true as const, value: { status: 'rejected' as const } }];
+    const x = rig({ joinPoll: async () => answers.shift()! });
+    x.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    x.r.run({ op: 'request', code: 'K7QM2XFD' });
+    await flush();
+    await x.fire(JOIN_POLL_MS);
+    expect(x.get().join.kind).toBe('waiting');
+    await x.fire(JOIN_POLL_MS);
+    expect(x.get().join).toEqual({ kind: 'failed', reason: 'rejected', message: '', check });
+    expect(x.timers).toEqual([]);
+    const y = rig({ joinPoll: async () => ({ ok: true, value: { status: 'expired' } }) });
+    y.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    y.r.run({ op: 'request', code: 'K7QM2XFD' });
+    await flush();
+    await y.fire(JOIN_POLL_MS);
+    expect(y.get().join).toEqual({ kind: 'failed', reason: 'no-answer', message: '', check });
+  });
+
+  it('5 分たっても承認されなければ「応答なし」で終わる（固まらない）', async () => {
+    let now = 0;
+    const x = rig({}, { now: () => now });
+    x.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    x.r.run({ op: 'request', code: 'K7QM2XFD' });
+    await flush();
+    now = 299_000;
+    await x.fire(JOIN_POLL_MS);
+    expect(x.get().join.kind).toBe('waiting');
+    now = 300_000;
+    await x.fire(JOIN_POLL_MS);
+    expect(x.get().join).toEqual({ kind: 'failed', reason: 'no-answer', message: '', check });
+    expect(x.timers).toEqual([]);
+  });
+
+  it('期限切れか使用済みの参加コードは expired、通信の失敗は network にする', async () => {
+    const x = rig({ joinRequest: async () => ({ ok: false, failure: { code: 'code-not-found', message: '' } }) });
+    x.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    x.r.run({ op: 'request', code: 'K7QM2XFD' });
+    await flush();
+    expect(x.get().join).toMatchObject({ kind: 'failed', reason: 'expired' });
+    const y = rig({ joinRequest: async () => ({ ok: false, failure: { code: 'timeout', message: '' } }) });
+    y.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    y.r.run({ op: 'request', code: 'K7QM2XFD' });
+    await flush();
+    expect(y.get().join).toMatchObject({ kind: 'failed', reason: 'network' });
+  });
+
+  it('待っている間に段を閉じたら、問い合わせの予約は何もしない', async () => {
+    const joinPoll = vi.fn(async () => ({ ok: true as const, value: { status: 'waiting' as const } }));
+    const x = rig({ joinPoll });
+    x.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    x.r.run({ op: 'request', code: 'K7QM2XFD' });
     await flush();
     x.r.run({ op: 'joinCancel' });
-    expect(x.get().join).toEqual({ kind: 'idle' });
-    x.r.run({ op: 'join', overwrite: false });
-    await flush();
-    expect(join).not.toHaveBeenCalled();
+    expect(x.get().join).toEqual({ kind: 'url', failure: null });
+    await x.fire(JOIN_POLL_MS);
+    expect(joinPoll).not.toHaveBeenCalled();
   });
 
-  it('参加に失敗したら宛先を残して理由を出し、繋がらないときはもう一度試せる', async () => {
-    const join = vi.fn(async () => ({ ok: false as const, failure: { code: 'network', message: 'm' } }));
-    const x = rig({ join });
-    x.r.run({ op: 'plan', token: 'tok' });
-    await flush();
-    x.r.run({ op: 'join', overwrite: false });
-    await flush();
-    expect(x.get().join).toEqual({ kind: 'failed', plan, failure: { code: 'network', message: 'm' } });
-    x.r.run({ op: 'join', overwrite: false });
-    await flush();
-    expect(join).toHaveBeenCalledTimes(2);
-    expect(x.restart).not.toHaveBeenCalled();
-  });
-
-  it('秘密が違うときと読めないときは、トークンを捨てる（貼り直してもらう）', async () => {
-    const join = vi.fn(async () => ({ ok: false as const, failure: { code: 'forbidden', message: '' } }));
-    const x = rig({ join });
-    x.r.run({ op: 'plan', token: 'tok' });
-    await flush();
-    x.r.run({ op: 'join', overwrite: false });
-    await flush();
-    x.r.run({ op: 'join', overwrite: false });
-    await flush();
-    expect(join).toHaveBeenCalledTimes(1);
-  });
-
-  it('空の貼り付けは何もしない', () => {
+  it('参加コードは状態に保存しない', async () => {
     const x = rig();
-    x.r.run({ op: 'plan', token: '   ' });
-    expect(x.get().join).toEqual({ kind: 'idle' });
+    x.r.run({ op: 'check', url: 'https://h.example' });
+    await flush();
+    x.r.run({ op: 'request', code: 'K7QM-2XFD' });
+    await flush();
+    expect(JSON.stringify(x.get())).not.toMatch(/K7QM/);
+  });
+
+  it('PC を追加：発行、承認、完了で一覧を取り直し、新しい PC が現れるまで 3 秒ごとに取り直す', async () => {
+    const lists: CloudDevicesDto[] = [devices, { ...devices, devices: [{ id: 'pc-b', name: 'pc-b', platform: 'win32', joinedAt: 1, lastSeenAt: 1, revokedAt: null, expiresAt: null, kind: 'pc', self: false }] }];
+    const x = rig({}, { load: async () => lists.shift() ?? devices });
+    x.r.run({ op: 'addOpen' });
+    expect(x.get().add).toEqual({ kind: 'issuing' });
+    await flush();
+    expect(x.joinCodes.issue).toHaveBeenCalledTimes(1);
+    expect(x.get().add).toEqual({ kind: 'open', code: 'K7QM-2XFD', expiresAt: 300_000 });
+    // リクエストを受信する前の承認は何もしない。
+    x.r.run({ op: 'addApprove' });
+    expect(x.joinCodes.approve).not.toHaveBeenCalled();
+    x.set({ ...x.get(), add: { kind: 'requested', code: 'K7QM-2XFD', expiresAt: 300_000, request: { name: 'pc-b', os: 'win32', sas: '123456' } } });
+    x.r.run({ op: 'addApprove' });
+    expect(x.get().add).toEqual({ kind: 'approving' });
+    await flush();
+    expect(x.get().add).toEqual({ kind: 'done', name: 'pc-b' });
+    expect(x.load).toHaveBeenCalledTimes(1);
+    await x.fire(PAIR_POLL_MS);
+    expect(x.load).toHaveBeenCalledTimes(2);
+    expect(x.get().devices!.devices.map((d) => d.id)).toEqual(['pc-b']);
+    expect(x.timers).toEqual([]);
+  });
+
+  it('PC を追加：発行の失敗はその理由で failed にし、拒否は名前つきの rejected にする。閉じるとコードを閉じる', async () => {
+    const joinCodes = fakeJoinCodes({ issue: vi.fn(async () => { throw new Error('参加コードの発行が多すぎます'); }) });
+    const x = rig({}, { joinCodes });
+    x.r.run({ op: 'addOpen' });
+    await flush();
+    expect(x.get().add).toEqual({ kind: 'failed', message: '参加コードの発行が多すぎます' });
+    x.set({ ...x.get(), add: { kind: 'requested', code: 'K7QM-2XFD', expiresAt: 1, request: { name: 'pc-b', os: 'win32', sas: '123456' } } });
+    x.r.run({ op: 'addReject' });
+    await flush();
+    expect(joinCodes.reject).toHaveBeenCalledTimes(1);
+    expect(x.get().add).toEqual({ kind: 'rejected', name: 'pc-b' });
+    x.r.run({ op: 'addClose' });
+    expect(x.get().add).toEqual({ kind: 'idle' });
+    expect(joinCodes.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('一覧を取るときに、発行した参加コードの状態も取る', async () => {
+    const joinCodes = fakeJoinCodes({ current: vi.fn(async () => ({ kind: 'open' as const, code: 'K7QM-2XFD', expiresAt: 5 })) });
+    const x = rig(null, { joinCodes });
+    x.r.run({ op: 'load' });
+    await flush();
+    expect(x.get().add).toEqual({ kind: 'open', code: 'K7QM-2XFD', expiresAt: 5 });
   });
 
   it('ほかの PC を解除したら、一覧を取り直す。失敗は理由を持つ', async () => {
@@ -256,7 +384,7 @@ describe('createCloudMemberRunner', () => {
     x.r.run({ op: 'load' });
     await flush();
     expect(x.get().devices).toEqual(devices);
-    x.r.run({ op: 'plan', token: 'tok' });
-    expect(x.get().join).toEqual({ kind: 'idle' });
+    x.r.run({ op: 'check', url: 'https://h.example' });
+    expect(x.get().join).toEqual({ kind: 'url', failure: null });
   });
 });

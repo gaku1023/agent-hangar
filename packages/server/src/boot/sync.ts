@@ -14,6 +14,7 @@ import { memoLossHandlers, type Toast } from '../sync/notices.ts';
 import { createOncePass } from '../sync/oncePass.ts';
 import { backupPruner } from '../sync/pruneBackups.ts';
 import { RemotePuller } from '../sync/puller.ts';
+import { JoinApprover, joinNotifier } from '../sync/joinApprover.ts';
 import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
@@ -67,10 +68,10 @@ export type SyncParts = {
   /** 設定の同期の入り切りを、設定の表示に載せ直し、入った直後に 1 回回す。 */
   publishConfigSync(): void;
   /**
-   * 参加トークン。版 2 の cloud.json は参加用の秘密を持たないので、いつも null を返す。
-   * PC の参加は参加コードへ移る（Task 13 から 16）。そこでこの口ごと消す。
+   * 参加コードを発行した PC の承認（sync/joinApprover.ts）。同期を設定していない端末では null。
+   * cloud.json が現れて部品を組み直すと、新しいものに替わる（前のものは止める）。
    */
-  joinToken(): string | null;
+  joinApprover(): JoinApprover | null;
   /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
   /**
@@ -156,6 +157,8 @@ type Core = {
   client: SealedCloudClient | null;
   /** 封じた名簿と keybox の読み書き。PC の一覧の名前と OS もここから読む。 */
   roster: RosterStore | null;
+  /** 参加コードの発行と承認。同期を設定していなければ null。 */
+  joinApprover: JoinApprover | null;
   engine: SyncEngine;
   cloudUsage: CloudUsagePoller;
   uploader: TranscriptUploader | null;
@@ -184,7 +187,7 @@ type Core = {
  */
 export function bootSync(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
-  delivery: Pick<DeliveryParts, 'hub'> & Partial<Pick<DeliveryParts, 'publisher'>> & { toast: Toast },
+  delivery: Pick<DeliveryParts, 'hub'> & Partial<Pick<DeliveryParts, 'publisher' | 'osNotices'>> & { toast: Toast },
   o: { memoPath: (projectId: string) => string; cloudWatch?: CloudWatchOptions },
 ): SyncParts {
   const { db, claudeDir, settings } = home;
@@ -326,7 +329,11 @@ export function bootSync(
           }
         }
       : null;
-    const c: Core = { cloud, client, roster, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
+    // 参加コードの発行と承認。状態は設定の画面へ、新しいリクエストは右下の通知と OS の通知へ渡す。
+    const joinApprover = wire && roster && keyring
+      ? new JoinApprover({ wire, roster, keyring, language: home.language, ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
+      : null;
+    const c: Core = { cloud, client, roster, joinApprover, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
     built = c;
     return c;
   };
@@ -380,6 +387,7 @@ export function bootSync(
     }
   };
   const stopCoreTimers = (c: Core): void => {
+    c.joinApprover?.stop();
     if (c.bundleTimer) clearInterval(c.bundleTimer);
     c.cloudUsage.stop();
     if (c.uploadTimer) clearInterval(c.uploadTimer);
@@ -475,7 +483,7 @@ export function bootSync(
     refetchSession: (uuid) => {
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
-    joinToken: () => null,
+    joinApprover: () => core.joinApprover,
     cloudDevices: async () => {
       const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
       for (const cb of [...cloudDeviceListeners]) {

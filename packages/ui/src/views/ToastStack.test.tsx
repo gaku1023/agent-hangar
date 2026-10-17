@@ -8,7 +8,7 @@ import type { UpdateCardProps } from '../presenters/update.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, reason: null, ask: null, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, join: null, ...over });
 function mount(p: ToastsProps) {
   const onAction = vi.fn();
   const r = render(<ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot>);
@@ -97,6 +97,23 @@ describe('入力待ちのカード', () => {
   it('押せる間は、乗せたときの説明を付けない', () => {
     mount(props({ waiting: [card('s1')] }));
     expect(screen.getByRole('button', { name: '名前 s1 が入力待ちです：問い s1' })).not.toHaveAttribute('title');
+  });
+});
+
+describe('参加リクエストの通知（試作 C1）', () => {
+  it('右下の通知に名前、OS、確認コードと「確認して承認」があり、押すと設定のクラウド同期（A1）に移る', () => {
+    const { onAction } = mount(props({ join: { name: 'pc-b', os: 'Windows', sas: '418 207' } }));
+    const c = screen.getByRole('status', { name: '参加リクエスト' });
+    expect(c).toHaveTextContent('pc-b から参加リクエストを受信しました');
+    expect(c).toHaveTextContent('Windows');
+    expect(c).toHaveTextContent('418 207');
+    expect(c).toHaveTextContent('新しい PC の確認コードと一致すれば承認してください');
+    fireEvent.click(within(c).getByRole('button', { name: '確認して承認' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } });
+  });
+  it('確認や入力のあるダイアログが開いている間は、画面を移せないので押せない', () => {
+    mount(props({ join: { name: 'pc-b', os: 'Windows', sas: '418 207' }, blocked: true }));
+    expect(screen.getByRole('button', { name: '確認して承認' })).toBeDisabled();
   });
 });
 

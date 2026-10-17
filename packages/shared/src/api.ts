@@ -60,7 +60,27 @@ export type SessionLimitDto = { kind: LimitKind; resetsAt: number; auto: boolean
  * kind は通知の枠で、waiting は入力待ち（許可待ちとリセット済みも含む）、limit は使用制限（アカウントごとに 1 通）である。
  * sessionId は押したときに開くセッション（hangar の id）。bare は、問いの文がまだ無い入力待ちで、殻が問いの文を少し待つ印である。
  */
-export type OsNoticeKind = 'waiting' | 'limit';
+/**
+ * join は参加リクエストの受信で、sessionId はいつも JOIN_NOTICE_ID である（押すと設定のクラウド同期を開く）。
+ */
+export type OsNoticeKind = 'waiting' | 'limit' | 'join';
+/** 参加リクエストの OS の通知が sessionId に載せる値。セッションの ID（UUID）とは重ならない。 */
+export const JOIN_NOTICE_ID = 'join-request';
+/** 参加リクエストの中身のうち、発行した PC の画面に出すもの。sas は区切りの無い 6 桁である。 */
+export type JoinRequestView = { name: string; os: string; sas: string };
+/**
+ * 参加コードを発行した PC の承認の状態（GET /api/sync/join-codes/current）。
+ * code は表示の形（`XXXX-XXXX`）で、平文はこの PC のメモリにしか無い。
+ * 承認の後は done、拒否と取り消しの後は idle に戻る。
+ */
+export type JoinApproverState =
+  | { kind: 'idle' }
+  | { kind: 'open'; code: string; expiresAt: number }
+  | { kind: 'requested'; code: string; expiresAt: number; request: JoinRequestView }
+  | { kind: 'approving' }
+  | { kind: 'done'; name: string }
+  | { kind: 'expired' }
+  | { kind: 'failed'; message: string };
 export type OsNoticeDto = { seq: number; kind: OsNoticeKind; sessionId: string; title: string; body: string; bare: boolean };
 /** boot はサーバの起動ごとに変わる値。殻はこれが変わったら、seq を今の値に合わせ直し、前の分は出さない。 */
 export type OsNoticeFeedDto = { boot: string; seq: number; items: OsNoticeDto[] };

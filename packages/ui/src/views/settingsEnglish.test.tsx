@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { translator, type AccountDto, type CompatDto, type CompatSummaryDto, type SettingsDto } from '@agent-hangar/shared';
+import { translator, type AccountDto, type CompatDto, type CompatSummaryDto, type SettingsDto, type SyncStatusBody } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentAccounts } from '../presenters/accounts.ts';
+import { presentCloudMember } from '../presenters/cloudMember.ts';
+import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
+import { CloudAddButton, CloudAddPc, CloudJoinSteps } from './CloudMember.tsx';
+import { ToastStack } from './ToastStack.tsx';
 import { presentCloudUsage } from '../presenters/cloudUsage.ts';
 import { presentCompat } from '../presenters/compat.ts';
 import { ACCOUNT_COLORS } from '../presenters/settings.ts';
@@ -132,6 +136,36 @@ describe('設定（英語）', () => {
     expect(within(sec).getByText('This month')).toBeInTheDocument();
     expect(within(sec).getByText('0.17 / 10 GB-months')).toBeInTheDocument();
     expect(within(sec).getByText('Cloudflare figures · 2 min ago')).toBeInTheDocument();
+    noJapanese();
+  });
+
+  it('参加コード：PC を追加（A1）、新しい PC（B2）、参加リクエストの通知（C1）', () => {
+    const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
+    const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
+    const member = (over: Partial<CloudMemberState>) => presentCloudMember({ ...english, sync: SYNC, desktop: true, cloudMember: { ...initialCloudMember(), ...over } }, NOW);
+    const requested = { kind: 'requested' as const, code: 'K7QM-2XFD', expiresAt: NOW + 262_000, request: { name: 'pc-b', os: 'win32', sas: '418207' } };
+    const { unmount } = inEnglish(<><CloudAddButton m={member({ add: requested })} /><CloudAddPc m={member({ add: requested })} /></>);
+    expect(screen.getByRole('button', { name: 'Add a computer' })).toBeInTheDocument();
+    expect(screen.getByText('Received a join request from pc-b')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    noJapanese();
+    unmount();
+    const steps = (j: CloudMemberState['join']) => inEnglish(<CloudJoinSteps m={member({ join: j })} onClose={() => {}} />);
+    let r = steps({ kind: 'code', check });
+    expect(screen.getByText('Connected. Computers already joined: 2')).toBeInTheDocument();
+    noJapanese();
+    r.unmount();
+    r = steps({ kind: 'waiting', check, sas: '123456', expiresAt: NOW + 262_000 });
+    expect(screen.getByText('Approve on the computer that issued the join code.')).toBeInTheDocument();
+    noJapanese();
+    r.unmount();
+    for (const reason of ['expired', 'rejected', 'no-answer', 'bad-code', 'network', 'compat', 'rate-limited', 'pending', 'other'] as const) {
+      r = steps({ kind: 'failed', reason, message: 'x', check });
+      noJapanese();
+      r.unmount();
+    }
+    inEnglish(<ToastStack toasts={[]} waiting={[]} more={0} blocked={false} arrived={null} update={null} whatsNew={null} join={{ name: 'pc-b', os: 'Windows', sas: '418 207' }} />);
+    expect(screen.getByRole('button', { name: 'Review and approve' })).toBeInTheDocument();
     noJapanese();
   });
 });

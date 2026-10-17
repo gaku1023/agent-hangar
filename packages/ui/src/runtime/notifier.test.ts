@@ -95,6 +95,16 @@ describe('デスクトップの通知', () => {
     off();
     expect(e.__hangarOpenWaiting).toBeUndefined();
   });
+  it('参加リクエストの通知を押したときは、殻が引数なしで __hangarOpenJoin を呼ぶ', () => {
+    const { e } = env();
+    const n = createDesktopNotifier(e);
+    const cb = vi.fn();
+    const off = n.onOpenJoin!(cb);
+    e.__hangarOpenJoin?.();
+    expect(cb).toHaveBeenCalledTimes(1);
+    off();
+    expect(e.__hangarOpenJoin).toBeUndefined();
+  });
   it('窓が前にあるかは頁では決めず、殻に任せる（頁の見え方は WebView が最小化や背面で絞られると当てにならない）', () => {
     // 殻の notify_waiting が、窓の実物の様子（見えている、最小化していない、フォーカスがある）を見て、前にあれば出さない。
     expect(createDesktopNotifier(env({ document: doc(true, true) }).e).background()).toBe(true);

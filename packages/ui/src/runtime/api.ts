@@ -1,4 +1,4 @@
-import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairingDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
@@ -178,8 +178,15 @@ export type ApiClient = {
   takeoverStart(sessionId: string, force: boolean): Promise<TakeoverDto>;
   takeoverExtend(sessionId: string): Promise<TakeoverDto>;
   takeoverCancel(sessionId: string): Promise<void>;
-  /** 全セッションの読み書き権を持つ秘密なので、押したときだけ取りに行く。 */
-  joinToken(): Promise<{ token: string | null }>;
+  /**
+   * 参加済みの PC で「PC を追加」（/api/sync/join-codes）。どれも承認の状態（JoinApproverState）を返す。
+   * 参加コードの平文を返すのはこの PC の画面のためだけで、同期を設定していなければ 404 で断られる。
+   */
+  joinCodeCurrent(): Promise<JoinApproverState>;
+  joinCodeIssue(): Promise<JoinApproverState>;
+  joinCodeApprove(): Promise<JoinApproverState>;
+  joinCodeReject(): Promise<JoinApproverState>;
+  joinCodeClose(): Promise<JoinApproverState>;
   /** Worker の PC の一覧（参加日、解除日、最後に同期した IP と場所）。解除と参加の口は HTTP に無い（殻の命令だけ）。 */
   cloudDevices(): Promise<CloudDevicesDto>;
   /** スマホを接続する QR。押すたびに新しい券を取る。中身にスマホ用の暗号鍵が入るので、QR と「文字列をコピー」にだけ使う。 */
@@ -333,7 +340,11 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     takeoverStart: (sessionId, force) => post(`/api/sessions/${sessionId}/takeover`, { force }),
     takeoverExtend: (sessionId) => post(`/api/sessions/${sessionId}/takeover/extend`),
     takeoverCancel: (sessionId) => call(`/api/sessions/${sessionId}/takeover`, { method: 'DELETE' }),
-    joinToken: () => call('/api/sync/joinToken'),
+    joinCodeCurrent: () => call('/api/sync/join-codes/current'),
+    joinCodeIssue: () => post('/api/sync/join-codes'),
+    joinCodeApprove: () => post('/api/sync/join-codes/current/approve'),
+    joinCodeReject: () => post('/api/sync/join-codes/current/reject'),
+    joinCodeClose: () => call('/api/sync/join-codes/current', { method: 'DELETE' }),
     cloudDevices: () => call('/api/sync/cloud-devices'),
     mobilePairing: () => post('/api/sync/mobile-pairing'),
     configSyncState: () => call('/api/config-sync'),

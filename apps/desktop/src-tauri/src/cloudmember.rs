@@ -1,10 +1,11 @@
-//! クラウド同期への参加と、PC の解除と、この PC の参加の解除の、殻の側（0.4.0）。
+//! クラウド同期への参加と、PC の解除と、この PC の参加の解除の、殻の側。
 //!
-//! 参加トークンはこのクラウドの全セッションを読み書きできる秘密なので、サーバの HTTP API には載せない（D9）。
-//! 画面（127.0.0.1:4177 の頁）は殻の命令に渡し、殻は同梱の CLI（hangar join、hangar cloud revoke、hangar cloud leave）を
-//! `--json` で走らせて、最後の 1 行の JSON をそのまま頁へ返す。
-//! 参加トークンは CLI の引数に載せず、標準入力で渡す（引数は ps から読める）。
-//! 宛先の確認と、別のクラウドへの上書きの承諾は、頁の段（参加トークンを貼る、宛先を確認、参加）で済ませてある。
+//! 新しい PC の参加は参加コードで行う（E2E の作り直し）。
+//! 画面（127.0.0.1:4177 の頁）は殻の命令に渡し、殻は同梱の CLI（hangar cloud join-check、join-request、join-poll、
+//! hangar cloud revoke、hangar cloud leave）を `--json` で走らせて、最後の 1 行の JSON をそのまま頁へ返す。
+//! 参加コードは CLI の引数に載せず、標準入力で渡す（引数は ps から読める）。ログにも失敗の文にも載せない。
+//! 1 回の命令は Worker への短い問い合わせで済ませる。承認を待つ間の問い合わせ（join-poll）の間隔は頁が決める。
+//! 宛先の確認と、別のクラウドへの上書きの承諾は、頁の段で済ませてある。
 //! ここには、頁から来た値の形の検査と、CLI の呼び出しと、返事の読み取りだけがある。
 
 use serde_json::{json, Value};
@@ -14,11 +15,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-/// CLI が返事を返すまで待つ長さ。参加は Worker への 1 往復（反映待ちの試し直しは 403 では行わない）で、解除も 1 往復である。
+/// CLI が返事を返すまで待つ長さ。参加の命令はどれも Worker への数回の問い合わせ（1 回 30 秒まで）で、解除は 1 往復である。
 pub const CLI_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// 参加トークンの長さの上限。共有の `MAX_JOIN_TOKEN_CHARS`（packages/shared/src/cloud.ts）と同じ値である。
-pub const MAX_TOKEN_CHARS: usize = 2048;
+/// 接続先の URL の長さの上限。
+pub const MAX_JOIN_URL_CHARS: usize = 512;
+
+/// 参加コードの長さの上限。区切りや空白を混ぜて貼られても通る長さにしてある。
+pub const MAX_JOIN_CODE_CHARS: usize = 36;
 
 /// 走っている間は印を立て、重ねて走らせない。
 static BUSY: AtomicBool = AtomicBool::new(false);
@@ -28,18 +32,24 @@ pub fn failure(code: &str, message: &str) -> Value {
     json!({ "ok": false, "code": code, "message": message })
 }
 
-/// 参加の見立ての引数。参加トークンは受け取らない（標準入力で渡す）。
-pub fn plan_args() -> Vec<&'static str> {
-    vec!["join", "--plan", "--json"]
+/// 接続先の確認の引数。URL は秘密ではないので引数に載せる。
+pub fn join_check_args(url: &str) -> Vec<&str> {
+    vec!["cloud", "join-check", url, "--json"]
 }
 
-/// 参加の引数。参加トークンは受け取らない（標準入力で渡す）。
-pub fn join_args(overwrite: bool) -> Vec<&'static str> {
-    let mut a = vec!["join", "--yes", "--json"];
+/// 参加のリクエストの引数。参加コードは受け取らない（標準入力で渡す）。
+/// overwrite が真なら、別のクラウドへの参加（cloud.json の上書き）を CLI に許す。
+pub fn join_request_args(url: &str, overwrite: bool) -> Vec<&str> {
+    let mut a = vec!["cloud", "join-request", url, "--json"];
     if overwrite {
         a.push("--overwrite");
     }
     a
+}
+
+/// 承認の問い合わせの引数。CLI は Worker に 1 回だけ問い合わせて返る。
+pub fn join_poll_args() -> Vec<&'static str> {
+    vec!["cloud", "join-poll", "--json"]
 }
 
 /// この PC の参加の解除の引数。revoke が偽なら、クラウドの一覧ではこの PC を解除しない。
@@ -51,15 +61,24 @@ pub fn leave_args(revoke: bool) -> Vec<&'static str> {
     a
 }
 
-/// 参加トークンの形。base64url の字（と、貼るときに混じる空白）だけで、長さに上限を置く。
-/// 中身の検査（宛先の形）は CLI が行う。ここでは、引数や制御文字を CLI へ流し込ませないことだけを見る。
-pub fn valid_token(token: &str) -> bool {
-    let t = token.trim();
-    !t.is_empty()
-        && token.len() <= MAX_TOKEN_CHARS
-        && token.chars().all(|c| {
-            c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=' || c.is_ascii_whitespace()
-        })
+/// 接続先の URL の形。`https://` で始まり、ホストがあり、空白と制御文字を含まず、512 字まで。
+/// 中身の検査（origin の形にそろえる、Worker が応えるか）は CLI が行う。ここでは、引数や制御文字を CLI へ流し込ませないことだけを見る。
+pub fn valid_join_url(url: &str) -> bool {
+    url.len() <= MAX_JOIN_URL_CHARS
+        && url.len() > "https://".len()
+        && url.starts_with("https://")
+        && url.chars().all(|c| c.is_ascii_graphic())
+}
+
+/// 参加コードの形。ASCII の英数字と `-` と空白（貼るときに混じる）だけで、36 字まで。
+/// 全角の字は受けない。頁は送る前に共有の `normalizeJoinCode`（packages/shared/src/e2e/joinCode.ts）で半角にそろえる。
+/// 字の並びの検査（8 字、使える字）は CLI が行い、形が違えば Worker に送らずに `invalid-code` を返す。
+pub fn valid_join_code(code: &str) -> bool {
+    !code.trim().is_empty()
+        && code.len() <= MAX_JOIN_CODE_CHARS
+        && code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == ' ')
 }
 
 /// 端末 ID の形。共有の `isSafeKeyId`（packages/shared/src/cloud.ts）と同じ物差しで、英数字で始まり、英数字と `.` `_` `-` が 64 字まで。
@@ -148,13 +167,104 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_join_token_is_never_an_argument() {
-        assert_eq!(plan_args(), vec!["join", "--plan", "--json"]);
-        assert_eq!(join_args(false), vec!["join", "--yes", "--json"]);
+    fn the_join_commands_build_their_arguments() {
         assert_eq!(
-            join_args(true),
-            vec!["join", "--yes", "--json", "--overwrite"]
+            join_check_args("https://h.workers.dev"),
+            vec!["cloud", "join-check", "https://h.workers.dev", "--json"]
         );
+        assert_eq!(
+            join_request_args("https://h.workers.dev", false),
+            vec!["cloud", "join-request", "https://h.workers.dev", "--json"]
+        );
+        assert_eq!(
+            join_request_args("https://h.workers.dev", true),
+            vec![
+                "cloud",
+                "join-request",
+                "https://h.workers.dev",
+                "--json",
+                "--overwrite"
+            ]
+        );
+        assert_eq!(join_poll_args(), vec!["cloud", "join-poll", "--json"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_join_code_goes_to_stdin_and_never_to_the_arguments() {
+        let code = "k7qm-2xfd";
+        let args = join_request_args("https://h.workers.dev", true);
+        assert!(args.iter().all(|a| !a.contains(code)));
+        // 偽の CLI は、引数の全部と標準入力の 1 行を返す。コードは標準入力の側にだけ現れる。
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c")
+            .arg("read t; printf '{\"ok\":true,\"argv\":\"%s\",\"stdin\":\"%s\"}\\n' \"$*\" \"$t\"")
+            .arg("cli")
+            .args(&args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let reply = parse_reply(&run_with_input(cmd, Some(code), Duration::from_secs(10)).unwrap());
+        assert_eq!(reply["stdin"], code);
+        assert!(!reply["argv"].as_str().unwrap().contains(code));
+        assert!(reply["argv"].as_str().unwrap().contains("join-request"));
+    }
+
+    #[test]
+    fn the_join_url_shape_is_checked() {
+        for ok in [
+            "https://h.workers.dev",
+            "https://hangar-x.example.workers.dev/",
+            "https://h.example:8443/path",
+        ] {
+            assert!(valid_join_url(ok), "{ok}");
+        }
+        let long = format!("https://{}", "a".repeat(MAX_JOIN_URL_CHARS));
+        for ng in [
+            "",
+            "https://",
+            "http://h.workers.dev",
+            "HTTPS://h.workers.dev",
+            "h.workers.dev",
+            "--overwrite",
+            "https://h.workers.dev --overwrite",
+            "https://h.workers.dev\n--overwrite",
+            "https://h\u{0}.dev",
+            long.as_str(),
+        ] {
+            assert!(!valid_join_url(ng), "{ng}");
+        }
+        assert!(valid_join_url(&format!(
+            "https://{}",
+            "a".repeat(MAX_JOIN_URL_CHARS - 8)
+        )));
+    }
+
+    #[test]
+    fn the_join_code_shape_is_checked() {
+        for ok in [
+            "k7qm-2xfd",
+            "K7QM-2XFD",
+            "K7QM2XFD",
+            " k7qm 2xfd ",
+            "k7qm - 2xfd",
+        ] {
+            assert!(valid_join_code(ok), "{ok}");
+        }
+        let long = "a".repeat(MAX_JOIN_CODE_CHARS + 1);
+        for ng in [
+            "",
+            "   ",
+            "k7qm_2xfd",
+            "k7qm\n2xfd",
+            "k7qm\t2xfd",
+            "k7qm;rm",
+            "k7qm\u{0}2xfd",
+            "Ｋ７ＱＭ－２ＸＦＤ",
+            long.as_str(),
+        ] {
+            assert!(!valid_join_code(ng), "{ng:?}");
+        }
+        assert!(valid_join_code(&"a".repeat(MAX_JOIN_CODE_CHARS)));
     }
 
     #[test]
@@ -164,17 +274,6 @@ mod tests {
             leave_args(false),
             vec!["cloud", "leave", "--yes", "--json", "--keep-device"]
         );
-    }
-
-    #[test]
-    fn the_token_shape_is_checked() {
-        assert!(valid_token("eyJ1cmwiOiJodHRwczovL2gifQ"));
-        assert!(valid_token("eyJ1cm\n wiOiJo"));
-        assert!(!valid_token(""));
-        assert!(!valid_token("   "));
-        assert!(!valid_token("--overwrite;rm"));
-        assert!(!valid_token("a\u{0}b"));
-        assert!(!valid_token(&"a".repeat(MAX_TOKEN_CHARS + 1)));
     }
 
     #[test]

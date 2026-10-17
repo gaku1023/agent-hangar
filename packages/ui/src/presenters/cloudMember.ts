@@ -1,5 +1,5 @@
 import type { CloudDeviceDto, Translate } from '@agent-hangar/shared';
-import type { CloudFailure, JoinStage, PhoneStage } from '../store/cloudMember.ts';
+import { joinCheckOf, type AddPcStage, type CloudFailure, type JoinFailReason, type JoinStage, type PhoneStage } from '../store/cloudMember.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -41,16 +41,38 @@ function presentPhone(p: PhoneStage): CloudPhoneProps {
  */
 export type CloudPcsProps = { state: 'ok' | 'fallback' | 'loading'; rows: CloudPcRow[]; removed: CloudPcRow[]; note: string | null };
 
-/** 失敗の見出しと本文。again は、もう一度同じトークンで試すか（retry）、貼り直してもらうか（repaste）。 */
-export type CloudFailureText = { title: string; body: string; again: 'retry' | 'repaste' };
-
+/**
+ * 参加の段（新しい PC の側、試作 B2）。
+ * urlError は接続先の URL の段の理由、host と pcCount は接続先の確認の結果（参加済みの PC の名前は承認の前に復号できないので出さない）。
+ * rejoin は別のクラウドに参加済みのときの警告、sas は区切りつきの確認コード（123 456）、failure は終わった理由の見出しと本文。
+ * reenter は失敗の後に参加コードを入力し直せるか（接続先の確認の結果を持っているか）。
+ */
 export type CloudJoinProps = {
   kind: JoinStage['kind'];
-  host: string | null;
+  urlError: string | null;
   url: string | null;
-  /** 別のクラウドか秘密の違う参加し直しの警告。無ければ null。 */
-  rejoin: { title: string; current: string; next: string } | null;
-  failure: CloudFailureText | null;
+  host: string | null;
+  pcCount: number | null;
+  rejoin: { current: string; next: string } | null;
+  sas: string | null;
+  expiresAt: number | null;
+  failure: { reason: JoinFailReason; title: string; body: string } | null;
+  reenter: boolean;
+};
+
+/**
+ * 「PC を追加」の段（参加済みの PC の側、試作 A1）。url は接続先の URL（この PC の同期の設定のもの）。
+ * code は発行した参加コード（この PC の画面にだけ出す）、request は受信した参加リクエスト（OS は表示名、sas は区切りつき）。
+ * message は失敗の文、name は完了と拒否の相手の名前。
+ */
+export type CloudAddProps = {
+  kind: AddPcStage['kind'];
+  url: string | null;
+  code: string | null;
+  expiresAt: number | null;
+  request: { name: string; os: string; sas: string } | null;
+  message: string | null;
+  name: string | null;
 };
 
 export type CloudMemberProps = {
@@ -62,7 +84,9 @@ export type CloudMemberProps = {
   creator: boolean;
   pcs: CloudPcsProps;
   join: CloudJoinProps;
-  /** ほかの PC の解除の段。message は失敗の文。 */
+  /** 「PC を追加」の段。 */
+  add: CloudAddProps;
+  /** 他の PC の解除の段。message は失敗の文。 */
   revoke: { id: string; kind: 'busy' | 'failed' | 'done'; name: string; message: string | null } | null;
   leave: { kind: 'idle' | 'busy' | 'left' | 'failed'; revokeError: string | null; message: string | null };
   /** ブラウザで案内するコマンド。hangar の呼び方は、準備の確かめの参加のコマンドからそろえる。 */
@@ -90,36 +114,77 @@ export function failureMessage(t: Translate, f: CloudFailure): string {
   }
 }
 
-/** 参加の段の失敗の見出しと本文。 */
-function joinFailure(t: Translate, f: CloudFailure, host: string | null): CloudFailureText {
+/** 確認コードの表示の形（123 456）。 */
+export const sasText = (sas: string): string => (sas.length === 6 ? `${sas.slice(0, 3)} ${sas.slice(3)}` : sas);
+
+/** OS の表示名。サーバーと Worker は process.platform の値で持つ。 */
+export const osLabel = (platform: string): string => OS[platform] ?? platform;
+
+/** 接続先の確認の失敗を、URL の欄の下の 1 文にする。 */
+function urlError(t: Translate, f: CloudFailure): string {
   switch (f.code) {
-    case 'invalid-token': return { title: t('cloudMember.fail.invalidToken.title'), body: t('cloudMember.fail.invalidToken.body'), again: 'repaste' };
-    case 'forbidden': return { title: t('cloudMember.fail.forbidden.title'), body: t('cloudMember.fail.forbidden.body'), again: 'repaste' };
-    case 'network': case 'timeout': return { title: t('cloudMember.fail.network.title'), body: t('cloudMember.fail.network.body', { host: host ?? '' }), again: 'retry' };
-    case 'compat': return { title: t('cloudMember.fail.compat.title'), body: t('cloudMember.fail.compat.body'), again: 'retry' };
-    case 'broken-config': return { title: t('cloudMember.fail.brokenConfig.title'), body: t('cloudMember.fail.brokenConfig.body'), again: 'repaste' };
-    default: return { title: t('cloudMember.fail.other.title'), body: failureMessage(t, f), again: 'retry' };
+    case 'invalid-url': return t('cloudMember.join.badUrl');
+    case 'outdated': return t('cloudMember.join.outdated');
+    case 'compat': return t('cloudMember.fail.compat.body');
+    case 'broken-config': return t('cloudMember.fail.brokenConfig.body');
+    default: return failureMessage(t, f);
+  }
+}
+
+/** 参加が終わった理由の見出しと本文。本文は次の手順まで言う。 */
+function joinFailure(t: Translate, reason: JoinFailReason, message: string, host: string | null): { reason: JoinFailReason; title: string; body: string } {
+  switch (reason) {
+    case 'expired': return { reason, title: t('cloudMember.fail.expired.title'), body: t('cloudMember.fail.expired.body') };
+    case 'rejected': return { reason, title: t('cloudMember.fail.rejected.title'), body: t('cloudMember.fail.rejected.body') };
+    case 'no-answer': return { reason, title: t('cloudMember.fail.noAnswer.title'), body: t('cloudMember.fail.noAnswer.body') };
+    case 'bad-code': return { reason, title: t('cloudMember.fail.badCode.title'), body: t('cloudMember.fail.badCode.body') };
+    case 'rate-limited': return { reason, title: t('cloudMember.fail.rateLimited.title'), body: t('cloudMember.fail.rateLimited.body') };
+    case 'pending': return { reason, title: t('cloudMember.fail.pending.title'), body: t('cloudMember.fail.pending.body') };
+    case 'network': return { reason, title: t('cloudMember.fail.network.title'), body: t('cloudMember.fail.network.body', { host: host ?? '' }) };
+    case 'compat': return { reason, title: t('cloudMember.fail.compat.title'), body: t('cloudMember.fail.compat.body') };
+    case 'other': return { reason, title: t('cloudMember.fail.other.title'), body: message || t('cloudMember.fail.timeout') };
   }
 }
 
 function presentJoin(t: Translate, j: JoinStage): CloudJoinProps {
-  const plan = j.kind === 'confirm' || j.kind === 'joining' || j.kind === 'failed' ? j.plan : null;
-  const rejoin = plan && plan.current && (plan.change === 'other-cloud' || plan.change === 'new-secret')
-    ? { title: t(plan.change === 'other-cloud' ? 'cloudMember.rejoin.otherCloud' : 'cloudMember.rejoin.newSecret'), current: plan.current.url, next: plan.url }
-    : null;
+  const check = joinCheckOf(j);
   return {
     kind: j.kind,
-    host: j.kind === 'joined' ? j.host : plan?.host ?? null,
-    url: plan?.url ?? null,
-    rejoin,
-    failure: j.kind === 'failed' ? joinFailure(t, j.failure, plan?.host ?? null) : null,
+    urlError: j.kind === 'url' && j.failure ? urlError(t, j.failure) : null,
+    url: check?.url ?? (j.kind === 'checking' ? j.url : null),
+    host: j.kind === 'done' ? j.host : check?.host ?? null,
+    pcCount: check?.pcCount ?? null,
+    rejoin: check?.current && check.current.url !== check.url ? { current: check.current.url, next: check.url } : null,
+    sas: j.kind === 'waiting' ? sasText(j.sas) : null,
+    expiresAt: j.kind === 'waiting' ? j.expiresAt : null,
+    failure: j.kind === 'failed' ? joinFailure(t, j.reason, j.message, check?.host ?? null) : null,
+    reenter: j.kind === 'failed' && check !== null && j.reason !== 'pending',
+  };
+}
+
+function presentAdd(store: Store): CloudAddProps {
+  const a = store.cloudMember.add;
+  return {
+    kind: a.kind,
+    url: store.sync?.url ?? null,
+    code: a.kind === 'open' || a.kind === 'requested' ? a.code : null,
+    expiresAt: a.kind === 'open' || a.kind === 'requested' ? a.expiresAt : null,
+    request: a.kind === 'requested' ? { name: a.request.name, os: osLabel(a.request.os), sas: sasText(a.request.sas) } : null,
+    message: a.kind === 'failed' ? a.message : null,
+    name: a.kind === 'done' || a.kind === 'rejected' ? a.name : null,
   };
 }
 
 /** hangar の呼び方（同梱の hangar の絶対パスなど）。準備の確かめの参加のコマンドの頭を使う。 */
 function hangarBase(store: Store): string {
   const join = store.readiness?.commands.join ?? 'hangar join <token>';
-  return / join <token>$/.test(join) ? join.replace(/ join <token>$/, '') : 'hangar';
+  const tail = / (?:cloud join <URL>|join <token>)$/;
+  return tail.test(join) ? join.replace(tail, '') : 'hangar';
+}
+
+/** ブラウザで案内する参加のコマンド（参加コードは実行した後に入力する）。 */
+export function cloudJoinCommand(store: Store): string {
+  return `${hangarBase(store)} cloud join <URL>`;
 }
 
 export function presentCloudMember(store: Store, now: number = Date.now()): CloudMemberProps {
@@ -156,6 +221,7 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
     creator: cloud?.creator === true,
     pcs,
     join: presentJoin(t, m.join),
+    add: presentAdd(store),
     revoke,
     leave: { kind: lv.kind, revokeError: lv.kind === 'left' ? lv.revokeError : null, message: lv.kind === 'failed' ? failureMessage(t, lv.failure) : null },
     commands: { leave: `${base} cloud leave`, revoke: `${base} cloud revoke <ID>`, devices: `${base} cloud devices` },

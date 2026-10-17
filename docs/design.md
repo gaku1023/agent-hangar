@@ -4606,7 +4606,7 @@ MCP サーバー、ステータスライン、シェル連携の見出しの右�
 契約だけでは、CLI の 4 つの出力、statusline の自動で直す単位、レジストリの項目ごとに、止めるものが 1 つに決まらないからである。
 判定はホームの帯の始める前の確認の互換の行と同じもの（`compatState` と `presentCompat`）を使う。
 準備の確かめが届く前と、`compat` の無い古いサーバの答えでは、節の本文の下に「確かめています」と出す。
-クラウド同期の節は 1 頁に、上から、状態（見出しの右の札と、状態、最終受信、未送信の変更、未送信のトランスクリプト）、操作（今すぐ同期、同期を一時停止、参加トークンを表示）、PC の一覧、Claude Code の設定の同期（常設の行。中身はダイアログで見せる。「設定の同期の作り直し」の節の「画面（PR 17）」）、Cloudflare の使用量と料金、この PC の参加を解除を置く。
+クラウド同期の節は 1 頁に、上から、状態（見出しの右の札と、状態、最終受信、未送信の変更、未送信のトランスクリプト）、操作（今すぐ同期、同期を一時停止、PC を追加）、PC の一覧、Claude Code の設定の同期（常設の行。中身はダイアログで見せる。「設定の同期の作り直し」の節の「画面（PR 17）」）、Cloudflare の使用量と料金、この PC の参加を解除を置く。
 PC の一覧は表で、列は名前、OS（macOS、Windows）、参加日、最終同期である（試作の PC の一覧の A）。
 互換の版 9 で IP と所在地をやめ、名前と OS は封じた名簿から出す。
 名簿に無い端末は、今は ID で出す（PC の一覧の画面 E2 で作り直す）。
@@ -4618,18 +4618,29 @@ IPv6 の IP は長く、IP を先に置いた 1 行では、窓を広げても I
 解除した PC は表から抜けて、下の「解除した PC」に解除日つきで並ぶ。
 ブラウザでは「解除…」を出さず、`hangar cloud revoke <ID>` を案内する。
 Worker の一覧が取れないとき（Worker が版 5 より古い、繋がらない、まだ届かない）は、同期の表（共有テーブルの devices）の一覧に戻し、解除を出さずに理由を添える。
-この PC がほかの PC から解除されているときは、節の先頭に赤い帯（「この PC は同期から解除されました。」）を出し、「参加トークンで参加し直す」と「この PC の同期の設定を削除」を置く。
+この PC がほかの PC から解除されているときは、節の先頭に赤い帯（「この PC は同期から解除されました。」）を出し、「参加コードで再参加」と「この PC の同期の設定を削除」を置く。
+「PC を追加」（試作 cloud-e2e の A1）は操作の段に置き、押すと参加コードを発行して、段の下に欄を `growIn` で開く。
+欄は、接続先の URL（コピー）、参加コード（`XXXX-XXXX` を大きな等幅で、コピー）、残り時間の棒（5 分）と、参加リクエストを待つ 1 行と「キャンセル」（コードを Worker で閉じる）を出す。
+参加リクエストを受信すると（`join.update` の `requested`）、同じ欄の中身が承認の欄（「〈名前〉から参加リクエストを受信しました」、OS、確認コード 6 桁、「承認」「拒否」）に替わり、高さを `resizeFrom`、中身を `fadeIn` で動かす。
+承認が完了すると欄を `collapseOut` で閉じて「〈名前〉が参加しました」の帯を出し、新しい PC が Worker の一覧に現れるまで 3 秒ごとに 5 回まで一覧を取り直す。新しい行は表に `growIn` で入る。
+期限切れと失敗は欄の中に理由と「参加コードを再発行」を、拒否は「何も送信していません」を出す。承認の通信が途中で失敗したリクエストはやり直せないので、失敗の文は新しい参加コードの発行を案内する。
+設定を開いていないときに参加リクエストを受信すると、右下に通知（試作 C1）を出す。名前、OS、確認コードと「確認して承認」を持ち、押すと設定のクラウド同期（`#/settings?at=cloud`）へ移る。承認と拒否は A1 の欄で行い、通知は状態が `requested` でなくなると消える。設定のクラウド同期を開いている間は出さない。
+OS の通知を押したときは、殻が頁の `window.__hangarOpenJoin()` を呼び、頁は設定のクラウド同期へ移って承認の状態を取り直す（受け口は `runtime/notifier.ts` の `onOpenJoin`）。
+参加コードの平文は、発行した PC の画面にだけ出す。`join.update` と `GET /api/sync/join-codes/current` は、この PC のトークンと localhost か `tauri://localhost` の Origin を持つ相手（`ws/hub.ts`、`auth/request.ts`）にだけ渡る。
 「この PC の参加を解除」は節の末尾に、ほかの PC の解除から離した帯で置く（試作の A）。
 「参加を解除…」を押すと、削除するもの（cloud.json と、選べばクラウドの一覧のこの PC）、残るもの（クラウドのトランスクリプト、ほかの PC の同期、受信済みのトランスクリプト）、戻すとき（参加トークンでもう一度参加）を並べ、「クラウドでもこの PC を解除する」のチェック（既定でオン）を置く。
 この PC がクラウドを作った PC なら、先に、参加を解除すると `hangar cloud teardown` で片付けられなくなる旨を出す。
 済んだら 1.5 秒後にアプリを再起動する。
 クラウドで解除できなかったときは、理由とほかの PC から解除する道を読めるよう、自動では再起動せず「再起動して同期を停止」を押してもらう。
 ブラウザではボタンを出さず、`hangar cloud leave` を案内する。
-同期していない人には、1 文の説明と 2 つのボタン（参加トークンで参加、クラウドを用意して始める）と、押せないスイッチの 1 行（Claude Code の設定の同期）だけを出す。
-殻の中では、「参加トークンで参加」を押すと節の中に参加の段が開く（0.4.0。仕組みは「クラウド同期」の「PC の一覧と解除」の節）。
-段は、参加トークンを貼る、宛先を確認、参加の順に上から開く（試作 settings-040-proto の参加の A）。
-参加トークンは password の欄で受け、「次へ」で殻へ渡したら欄を空にする。
-WebView2（Windows）が password の欄に足す「表示」の目のボタンは、CSS（`::-ms-reveal`）で出さない。
+同期していない人には、1 文の説明と 2 つのボタン（参加コードで参加、クラウドを用意して始める）と、押せないスイッチの 1 行（Claude Code の設定の同期）だけを出す。
+殻の中では、「参加コードで参加」を押すと節の中に参加の段が開く（試作 cloud-e2e の B2）。ブラウザでは `hangar cloud join <URL>` を案内する。
+段は、接続先の URL と「次へ」で殻の `cloud_join_check` を呼び、ホスト名と参加済みの PC の台数を出して、参加コードの欄を `growIn` で開く。参加済みの PC の名前は封じた名簿にあり、承認の前は復号できないので出さない。
+参加コードは共有の `normalizeJoinCode` で半角の 8 字にそろえ、形が違えばその場で「参加コードの形が違います」と出して、殻にも Worker にも送らない。
+「参加をリクエスト」で殻の `cloud_join_request` を呼び（別のクラウドに参加済みなら赤い警告と上書き）、承認待ちの段へ `resizeFrom` で移る。待ちの文は「参加コードを発行した PC で承認してください。」で、確認コード 6 桁と残り時間を出す。
+承認待ちの間は 2 秒ごとに `cloud_join_poll` を 1 本ずつ呼ぶ。殻の `busy` と一時的な接続の失敗は待ち続け、承認で完了の段を出して 1.5 秒後に再起動する。
+拒否、期限切れか使用済みのコード（`code-not-found`）、5 分たっても承認されない（Worker の `expired` と、手元の期限の後の最後の問い合わせ）は、それぞれの文と次の手順（新しい参加コードを発行してもらう）を出し、「参加コードを入力し直す」で参加コードの段へ戻る。
+参加コードは画面の欄と Runtime から殻へ渡すだけで、Store には置かない。
 宛先の確認は、ホストを大きく、URL を小さく出し、CLI と同じ注意の文を添えて、「自分が hangar setup cloud で作ったクラウドです」のチェックを入れるまで「この宛先に参加」を押せなくする（CLI の y と同じ重さ）。
 別のクラウドに参加済みか、同じ宛先で参加用の秘密が違うときは、いまの宛先と新しい宛先を並べた赤い警告を出し、ボタンを「上書きして参加」にする（CLI の overwrite と同じ段）。
 失敗は理由と「この PC の設定には何も書いていません」を出し、秘密が違うか読めないときは「貼り直す」、繋がらないときは「もう一度試す」にする。
@@ -4646,7 +4657,7 @@ Claude Code の設定の同期は、常設の行で、スイッチと、届い�
 参加トークンは押したときだけ出し、コピーのボタン、減っていく細い棒、「あと N 秒で消えます」を添え、120 秒で自動的に消して表示のボタンに戻る。
 同期の状態の語（同期済み、送信中、受信中、同期を一時停止中、無料枠で停止 · 9:00 にリセット、同期エラー、同期オフ）はヘッダーの同期の一行と同じ表（`presenters/syncLabel.ts`）から引き、索引の進み（索引を準備中、索引 10 / 200 件、索引の作り直し 10 / 200 件）もヘッダーと同じ関数で作る。
 何度も失敗して 30 分おきの再試行に回したトランスクリプトは「送信に失敗したトランスクリプト」と呼ぶ（用語集のとおり）。まだ送っていないものは「未送信のトランスクリプト」、最後に受け取った時刻は「最終受信」と言う。
-操作ボタン（今すぐ同期、同期を一時停止、参加トークンを表示）の下に「使用量と費用」の段を置く（試作は `docs/superpowers/specs/2026-10-02-cloud-usage/usage-merged.html`、仕組みは「クラウド同期」の「使用量と費用」の節）。
+操作ボタン（今すぐ同期、同期を一時停止、PC を追加）の下に「使用量と費用」の段を置く（試作は `docs/superpowers/specs/2026-10-02-cloud-usage/usage-merged.html`、仕組みは「クラウド同期」の「使用量と費用」の節）。
 上に札を 3 枚並べる。「今月の請求」は `$0.00` と「9/30 分まで」、「D1 の書き込み（今日）」は割合と行数、「プラン」は「Workers 無料」と「R2 従量」である。
 その下に棒の一覧を置く。
 今日の枠（D1 の書き込み、Workers の要求）、区切り、今月の枠（R2 の各項目）の順で並べる。
@@ -5491,10 +5502,30 @@ HTTP と要約の側は、同期の部品を起動のときに掴まず、呼ぶ
 アカウント ID はこのファイルにもコードにも書かず、wrangler を呼ぶたびに環境変数で渡す。
 デプロイ直後の数秒は `workers.dev` の反映待ちで `error code: 1042` が返るので、setup は `/health` が通るまで最大 2 分試してから先へ進む。
 wrangler はプロジェクトのローカル依存として同梱する。
-setup の最後に **参加トークン** を表示する。
-参加トークンは Worker の URL と参加用の秘密を `{url, secret}` の JSON にして base64url で包んだ文字列で、他の PC では `hangar join` でこれを渡す。
-Worker は参加の要求を受けて端末ごとの端末トークン（32 バイトの乱数）を発行し、以後の要求はその端末トークンで認証する。
-端末トークンは、D1 にはハッシュだけを置く。
+Worker は端末ごとの端末トークン（32 バイトの乱数）で要求を認証し、D1 には端末トークンのハッシュだけを置く。
+
+**setup と参加の CLI（互換の版 9）。**
+`hangar setup cloud` は、デプロイの前に最初の端末トークンを作り、その SHA-256 を `wrangler secret put BOOTSTRAP_TOKEN_HASH` の標準入力で渡す。
+`/health` が通ったら、この PC の鍵ペアを作り、`POST /bootstrap` にこの PC の ID（`home.device.id`）と最初の端末トークンを送って登録する（反映待ちの 401 と 503 は 5 秒おきに 6 回まで待つ）。
+登録できたら、端末トークンを失わないよう、名簿を置く前に `cloud.json`（版 2、0600）を書く。世代 1 の世代鍵もここで作る。
+続けてリカバリーキーの鍵ペアを作り、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
+最後にリカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する。保存したかを末尾 4 文字で確かめる手順は、後の段で必須にする。
+同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、名簿と keybox とリカバリーキーをここで作る。
+古い形式（版 1）の `cloud.json` があれば上書きせず、先に `hangar cloud teardown`（参加しただけの PC では `cloud.json` の削除）を案内して止まる。
+
+新しい PC の参加は、殻（と端末）から CLI を短く呼ぶ 3 つのコマンドで進める。どれも `--json` で最後の 1 行に結果を出し、失敗は `{ ok: false, code, message }` である。
+
+| CLI | 返す JSON |
+| --- | --- |
+| `hangar cloud join-check <url> --json` | `{ ok, check: { url, host, pcCount, current } }`。`current` は今参加しているクラウドの `{ url }` か null |
+| `hangar cloud join-request <url> --json [--overwrite]`（参加コードは標準入力） | `{ ok, request: { sas, expiresAt } }`。`sas` は確認コードの 6 桁 |
+| `hangar cloud join-poll --json` | `{ ok, poll: { status } }`。`status` は `waiting`、`approved`、`rejected`、`expired`、`none` |
+
+`join-request` は参加コードを手元で正規化し、形が違えば Worker に送らずに `invalid-code` で止まる。
+鍵ペアを作って、送る前に下書き `~/.agent-hangar/cloud-pending.json`（0600。参加コードの平文は置かない）に書き、公開鍵と名前と OS を参加コードで封じて `POST /join/requests` に置く。
+`join-poll` は `GET /join/status` を 1 回だけ問い合わせる。承認されたら端末トークンを先に下書きに書き、自分宛ての keybox を開いて世代鍵を読み、名簿の版とスマホ用の鍵を写して `cloud.json`（版 2）を書き、下書きを消す。keybox がまだ無ければ、端末トークンを下書きに持ったまま `waiting` を返し、次の問い合わせで続ける。
+`hangar cloud join <url>` は同じ手順を端末で対話して進める（2 秒ごとに問い合わせる）。
+旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
 
 **互換の版 9 の Worker（E2E の作り直し）。**
 Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` を無くした。
@@ -5502,7 +5533,23 @@ Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` �
 使ったハッシュは `meta.bootstrap_used` に残し、同じハッシュは 2 度通さない。
 `hangar recover` は secret を別のハッシュに入れ替えて、もう 1 度ここを通る。
 2 台目からは、参加済みの PC が発行した参加コード（5 分、1 回限り）に新しい PC がリクエストを置き、発行した PC が承認する（下の「Worker の表」）。
-PC の側（setup、参加の画面と CLI）は、この節の上の段落の形のまま残っており、版 9 の形への作り直しは後の段で入る。
+CLI の setup と参加は上の「setup と参加の CLI」の形になった。殻の命令は下の表、参加の画面は「設定」の節のクラウド同期の段落にある。
+
+**発行した PC の承認（`sync/joinApprover.ts`）。**
+参加コードの発行と承認は、動いているサーバの `JoinApprover` が行う（CLI だけで PC を追加する口は作らない）。
+参加コードの平文はこの中のメモリにだけ置き、Worker には SHA-256 だけを送る。
+コードが生きている間だけ、3 秒ごとに `GET /join-codes/mine` を問い合わせ、期限を過ぎたら Worker に問い合わせずに `expired` にして止める。
+リクエストを見たら参加コードで開き、確認コードを導いて `requested` にし、そのリクエストにつき 1 回だけ、右下の通知（`ServerEvent` の `join.request`）と OS の通知（`OsNoticeDto` の種類 `join`、殻の `notify::Kind::Join`）を出す。
+状態が変わるたびに `join.update` を配る。
+承認は、名簿に新しい PC を足す（`RosterStore.update`）、世代 1 から n までの一覧を新しい PC の公開鍵に封じた keybox を置く（`PUT /keyboxes`）、`POST /join-codes/:hash/approve` の順に行う。
+Worker は、承認の前の新しい PC（devices にまだ無い）を keybox の受け手として通す。通すのは、書き手が発行したコードにリクエストを置いた PC で、リクエストが期限内か、承認の後で端末トークンをまだ渡していない間だけである。
+アプリが落ちて `JoinApprover` が作り直されると、平文が消えて承認できなくなり、新しい PC は期限（5 分）で `expired` を受け取る。
+口は `POST /api/sync/join-codes`（発行）、`GET /api/sync/join-codes/current`（状態）、`POST /api/sync/join-codes/current/approve`、`/reject`、`DELETE /api/sync/join-codes/current`（取り消し。生きているコードは拒否で閉じる）で、どれも `JoinApproverState` を返し、`no-store` を付ける。
+参加トークンの口（`/api/sync/joinToken`）は消した。
+
+解除した PC は、同じ端末 ID のまま参加コードで再参加できる（承認は要る）。
+`POST /join/requests` は解除済みの同じ ID を通し、解除されていない同じ ID だけを断る。
+承認の後の最初の `GET /join/status` が、解除済みの行を新しい端末トークンの行に 1 つの文で置き換える（`revoked_at` を空にし、`joined_at` を今にする）。
 
 参加し直すと（`hangar setup cloud` のやり直しと、`hangar join` のし直し）、Worker は同じ端末 ID の行の `token_hash` を新しい端末トークンのものに入れ替え、古い端末トークンは 401 の `{ error: 'unauthorized' }` で断られる（解除の `revoked` とは別の本文である）。
 新しい端末トークンは `cloud.json` にだけ書かれ、CLI は動いているサーバへ知らせない。
@@ -6345,7 +6392,7 @@ hangar でない相手（状態コードが 200 で、`ok` が真で `version` �
 どちらも端末トークンが要り、参加している PC ならどれからでも呼べる（自分自身も解除できる）。
 `authMiddleware` は、トークンの合った行に `revoked_at` があれば 401 と `{ error: 'revoked' }` を返す。
 トークンが合わない相手には今までどおり一律の `unauthorized` を返すので、理由はトークンの持ち主にだけ伝わる。
-互換の版 9 には参加し直しの口（`POST /join`）が無く、解除した PC は参加コードで新しい PC として入り直す。
+互換の版 9 には参加し直しの口（`POST /join`）が無く、解除した PC は参加コードで再参加する。端末 ID は同じままで、承認の後に解除済みの行が新しい端末トークンの行に置き換わる（「互換の版 9 の Worker」の段）。
 解除した PC は、pull の応答の `peers` に載せない。
 
 **IP と所在地は保存しない。**
@@ -6377,22 +6424,28 @@ Worker が名乗った版が 5 に届かないか、経路が 404 なら `outdat
 `creator` は cloud.json に Worker の名前があるか（この PC がクラウドを作った PC か）である。
 
 **参加と解除の通り道（D9）。**
-参加トークンはこのクラウドの全セッションを読み書きできる秘密なので、サーバの HTTP API に載せない。
+参加コードは、承認されればこのクラウドに PC を足せる値なので、サーバの HTTP API に載せない。
 画面は殻の命令（`apps/desktop/src-tauri/src/cloudmember.rs`、権限は `capabilities/remote-cloud.json`）に渡し、殻は同梱の CLI を `--json` で走らせて、最後の 1 行の JSON を返す。
-参加トークンは CLI の引数に載せず、標準入力で渡す。
-殻は頁から来た値の形（参加トークンは base64url の字だけで 2048 字まで、端末 ID は `isSafeKeyId` と同じ形）を確かめ、命令を重ねて走らせない。
+参加コードは CLI の引数に載せず、標準入力で渡す。殻のログにも失敗の文にも載せない（ログに残すのは命令の頭の 2 語と結果の符号だけ）。
+殻は頁から来た値の形を確かめ、命令を重ねて走らせない（走っている間の呼び出しは `busy` で返る）。
+接続先の URL は `https://` で始まり、空白と制御文字を含まず 512 字まで。
+参加コードは ASCII の英数字と `-` と空白だけで 36 字まで。全角で貼られたコードは、画面が送る前に共有の `normalizeJoinCode` で半角にそろえる。字の並びの検査は CLI が行う。
+端末 ID は `isSafeKeyId` と同じ形。
 宛先の確認と上書きの承諾は画面の段で済ませるので、殻はネイティブの確認を出さない。
-命令は 4 つで、CLI の呼び方は次のとおりである。
+参加の 3 つの命令は、どれも Worker への短い問い合わせで返る。承認を待つ間に `cloud_join_poll` を呼ぶ間隔は画面が決める。
+命令は 5 つで、CLI の呼び方は次のとおりである。
 
 | 殻の命令 | CLI | 返す JSON |
 | --- | --- | --- |
-| `cloud_join_plan(token)` | `hangar join --plan --json`（参加トークンは標準入力） | `{ ok, plan: { url, host, current, change } }`。`change` は `new`、`same`、`other-cloud`、`new-secret` |
-| `cloud_join(token, overwrite)` | `hangar join --yes --json [--overwrite]`（参加トークンは標準入力） | `{ ok, result: { url, host } }` |
+| `cloud_join_check(url)` | `hangar cloud join-check <url> --json` | `{ ok, check: { url, host, pcCount, current } }` |
+| `cloud_join_request(url, code, overwrite?)` | `hangar cloud join-request <url> --json [--overwrite]`（参加コードは標準入力） | `{ ok, request: { sas, expiresAt } }` |
+| `cloud_join_poll()` | `hangar cloud join-poll --json` | `{ ok, poll: { status } }` |
 | `cloud_revoke(id)` | `hangar cloud revoke <id> --yes --json` | `{ ok, result: <PC の行> }` |
 | `cloud_leave(revoke)` | `hangar cloud leave --yes --json [--keep-device]` | `{ ok, result: { revoked, revokeError, creator } }` |
 
 失敗は `{ ok: false, code, message }` で、画面は `code` で言い方を選ぶ（CLI の文は日本語なので、`message` は理由の添え書きにだけ使う）。
-`hangar join --yes` は、別のクラウドか秘密の違う参加し直しを `--overwrite` が無ければ `overwrite-required` で断る。同じ宛先と同じ秘密での参加し直し（解除された PC が戻るとき）は通す。
+殻が自分で返す符号は、形の違う値の `invalid-url`、`invalid-code`、`invalid-id`、重ねた呼び出しの `busy`、CLI を起こせない `cannot-start`、締め切りの `timeout`、読めない返事の `unreadable` である。
+`overwrite` は省けば偽で、参加済み（版 2 か版 1 の cloud.json がある）なら CLI が `overwrite-required` で断る。
 `hangar cloud revoke` は自分自身を `self` で断り、`hangar cloud leave` へ案内する（cloud.json を残したまま自分の鍵だけを無効にすると、同期が止まったままになる）。
 `hangar cloud leave` は、選べば先にクラウドでもこの PC を解除し、繋がらなくても cloud.json を消して、解除できなかった理由を返す。壊れた cloud.json は消さない。
 消すのは cloud.json だけで、`~/.agent-hangar/remote` の受信済みのトランスクリプトと、クラウドを作った PC の `~/.agent-hangar/cloud/wrangler.jsonc` は残す。

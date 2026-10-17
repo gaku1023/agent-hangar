@@ -88,6 +88,11 @@ export type Notifier = {
    * 返り値で購読を外す。
    */
   onOpen(cb: (sessionId: string) => void): () => void;
+  /**
+   * 参加リクエストの通知が押されたときの受け口（デスクトップの殻だけ）。殻は頁の window.__hangarOpenJoin を引数なしで呼ぶ。
+   * 受け口が無ければ、殻は #/settings?at=cloud へ移る。
+   */
+  onOpenJoin?(cb: () => void): () => void;
 };
 
 type Doc = { visibilityState: string; hasFocus(): boolean };
@@ -104,6 +109,7 @@ const inBackground = (d: Doc): boolean => d.visibilityState !== 'visible' || !d.
 export type DesktopEnv = {
   __TAURI_INTERNALS__: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
   __hangarOpenWaiting?: (sessionId: string) => void;
+  __hangarOpenJoin?: () => void;
   document: Doc;
 };
 
@@ -138,6 +144,10 @@ export function createDesktopNotifier(env: DesktopEnv): Notifier {
     onOpen: (cb) => {
       env.__hangarOpenWaiting = cb;
       return () => { delete env.__hangarOpenWaiting; };
+    },
+    onOpenJoin: (cb) => {
+      env.__hangarOpenJoin = cb;
+      return () => { delete env.__hangarOpenJoin; };
     },
   };
 }

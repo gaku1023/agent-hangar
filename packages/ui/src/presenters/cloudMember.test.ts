@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { CloudDeviceDto, SyncStatusBody } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
-import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
-import { presentCloudMember } from './cloudMember.ts';
+import { initialCloudMember, type CloudMemberState, type JoinFailReason } from '../store/cloudMember.ts';
+import { cloudJoinCommand, presentCloudMember } from './cloudMember.ts';
 
 const NOW = Date.parse('2026-10-12T03:00:00Z');
 const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
@@ -44,26 +44,30 @@ describe('presentCloudMember', () => {
     expect(p.thisPcName).toBe('studio');
   });
 
-  it('参加の段の失敗は、符号ごとの見出しと本文と、もう一度試すか貼り直すかを出す', () => {
-    const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' as const };
-    const fail = (code: string) => presentCloudMember(store({ cloudMember: member({ join: { kind: 'failed', plan, failure: { code, message: 'x' } } }) }), NOW).join.failure!;
-    expect(fail('forbidden')).toMatchObject({ title: 'この参加トークンは使えません', again: 'repaste' });
-    expect(fail('invalid-token')).toMatchObject({ title: '参加トークンを読み取れません', again: 'repaste' });
-    expect(fail('network')).toMatchObject({ title: '接続先が応答しません', again: 'retry' });
-    expect(fail('network').body).toContain('h.example');
-    expect(fail('compat').again).toBe('retry');
-    expect(fail('something-else')).toMatchObject({ title: '参加できませんでした', again: 'retry' });
-    expect(fail('something-else').body).toContain('x');
+  it('参加が終わった理由ごとに見出しと本文を出し、承認済みの未完了のほかは参加コードを入力し直せる', () => {
+    const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
+    const join = (reason: JoinFailReason) => presentCloudMember(store({ cloudMember: member({ join: { kind: 'failed', reason, message: 'x', check } }) }), NOW).join;
+    expect(join('network').failure).toMatchObject({ title: '接続先が応答しません' });
+    expect(join('network').failure!.body).toContain('h.example');
+    expect(join('other').failure).toMatchObject({ title: '参加できませんでした', body: 'x' });
+    expect(join('expired').reenter).toBe(true);
+    expect(join('pending').reenter).toBe(false);
   });
 
-  it('別のクラウドへの参加し直しと、同じ宛先で秘密が違うときは、上書きの警告を出す', () => {
-    const plan = { url: 'https://n.example', host: 'n.example', current: { url: 'https://o.example' }, change: 'other-cloud' as const };
-    const p = presentCloudMember(store({ cloudMember: member({ join: { kind: 'confirm', plan } }) }), NOW);
-    expect(p.join).toMatchObject({ kind: 'confirm', host: 'n.example', url: 'https://n.example', rejoin: { title: 'この PC はすでに別のクラウドに参加しています。', current: 'https://o.example', next: 'https://n.example' } });
-    const same = presentCloudMember(store({ cloudMember: member({ join: { kind: 'confirm', plan: { ...plan, change: 'same' } } }) }), NOW);
+  it('接続先の確認の失敗は URL の欄の下の文にし、確認コードは 3 桁ずつ区切る', () => {
+    const p = (j: CloudMemberState['join']) => presentCloudMember(store({ cloudMember: member({ join: j }) }), NOW).join;
+    expect(p({ kind: 'url', failure: { code: 'invalid-url', message: '' } }).urlError).toBe('接続先の URL は https:// で始まる形で入力してください。');
+    expect(p({ kind: 'url', failure: { code: 'outdated', message: '' } }).urlError).toContain('Worker');
+    const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
+    expect(p({ kind: 'waiting', check, sas: '012345', expiresAt: 1 }).sas).toBe('012 345');
+  });
+
+  it('別のクラウドに参加済みのときだけ、上書きの警告を出す', () => {
+    const check = { url: 'https://n.example', host: 'n.example', pcCount: 1, current: { url: 'https://o.example' } };
+    const p = presentCloudMember(store({ cloudMember: member({ join: { kind: 'code', check } }) }), NOW);
+    expect(p.join).toMatchObject({ kind: 'code', host: 'n.example', url: 'https://n.example', pcCount: 1, rejoin: { current: 'https://o.example', next: 'https://n.example' } });
+    const same = presentCloudMember(store({ cloudMember: member({ join: { kind: 'code', check: { ...check, current: { url: 'https://n.example' } } } }) }), NOW);
     expect(same.join.rejoin).toBeNull();
-    const secret = presentCloudMember(store({ cloudMember: member({ join: { kind: 'confirm', plan: { ...plan, change: 'new-secret' } } }) }), NOW);
-    expect(secret.join.rejoin!.title).toContain('参加トークン');
   });
 
   it('殻の中か、クラウドを作った PC か、ターミナルのコマンドを渡す', () => {
@@ -71,5 +75,6 @@ describe('presentCloudMember', () => {
     expect(p.desktop).toBe(true);
     expect(p.creator).toBe(true);
     expect(p.commands).toEqual({ leave: 'hangar cloud leave', revoke: 'hangar cloud revoke <ID>', devices: 'hangar cloud devices' });
+    expect(cloudJoinCommand(store({}))).toBe('hangar cloud join <URL>');
   });
 });

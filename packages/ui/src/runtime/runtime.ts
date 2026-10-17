@@ -13,14 +13,12 @@ import { readWaitingNotified, WAITING_NOTIFIED_KEY } from '../mediator/live.ts';
 import { noQuestionText } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 import { setupNotice } from '../presenters/setup.ts';
-// 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
-import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
-import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
+import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
 import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
@@ -219,6 +217,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     bridge: deps.desktop?.cloud ?? null,
     load: () => deps.api.cloudDevices(),
     pair: () => deps.api.mobilePairing(),
+    joinCodes: { current: () => deps.api.joinCodeCurrent(), issue: () => deps.api.joinCodeIssue(), approve: () => deps.api.joinCodeApprove(), reject: () => deps.api.joinCodeReject(), close: () => deps.api.joinCodeClose() },
     now: () => clock(),
     restart: () => { void deps.desktop?.restart().catch(fail); },
     setTimeout: deps.setTimeout,
@@ -230,6 +229,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     get: () => store.update, set: (u) => { if (u !== store.update) setStore({ ...store, update: u }); },
   }) : null;
   let unsubNotify: (() => void) | null = null;
+  let unsubJoin: (() => void) | null = null;
   let ws: WsClient | null = null;
   let searchSeq = 0;
   let readinessSeq = 0;
@@ -557,7 +557,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const write = deps.clipboard ?? ((text: string) => navigator.clipboard.writeText(text));
         // 写せたら状態に返し、ボタンはそれを見てから「コピーしました」を出す。
         // 書けない（クリップボードの権限が無いなど）ときは知らせるだけで、中身はトーストに出さない。
-        // 参加トークンのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
+        // 参加コードのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
         Promise.resolve().then(() => write(e.text)).then(
           () => { dispatch({ kind: 'runtime', event: { type: 'clipboard.copied', text: e.text } }); if (e.done !== undefined) toast(e.done); },
           () => toast(tr()('runtime.copy.failed', { keys: keyLabel('⌘C') })),
@@ -846,13 +846,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .catch((err: unknown) => dispatch({ kind: 'runtime', event: err instanceof RetentionConflictApiError ? { type: 'retention.conflict', days: e.days } : { type: 'retention.failed', message: errMsg(err) } }));
         return;
       }
-      case 'api.joinToken':
-        deps.api.joinToken().then((r) => {
-          setStore(applyJoinToken(store, r.token, r.token === null ? null : (deps.now ?? Date.now)() + JOIN_TOKEN_TTL_MS));
-          // 秘密をストアに残し続けない。同じトークンがまだ出ているときだけ消す。
-          if (r.token !== null) deps.setTimeout(() => { if (store.joinToken === r.token) setStore(applyJoinToken(store, null)); }, JOIN_TOKEN_TTL_MS);
-        }).catch(fail);
-        return;
       case 'api.accounts.switchSession': deps.api.switchAccount(e.sessionId, e.accountId).then(launched).catch(launchFailed); return;
       case 'api.accounts.add':
         // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
@@ -1048,6 +1041,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。
         // 窓を前に出すのは notifier の役目である。
         unsubNotify = notifier.onOpen((id) => dispatch({ kind: 'action', action: { type: 'session.open', id, focus: 'terminal' } }));
+        // 参加リクエストの通知を押したら、設定のクラウド同期を開き、承認の欄の今の状態を取り直す（殻の window.__hangarOpenJoin）。
+        unsubJoin = notifier.onOpenJoin?.(() => {
+          dispatch({ kind: 'action', action: { type: 'nav.go', to: { name: 'settings', at: 'cloud' } } });
+          cloudMember.run({ op: 'load' });
+        }) ?? null;
       }
       // 更新の確認（起動したときに 1 度、その後は数時間おき）。殻が updater を持たなければ何もしない。
       updater?.start();
@@ -1072,6 +1070,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); }) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },
+    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
   };
 }

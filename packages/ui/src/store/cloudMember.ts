@@ -1,27 +1,43 @@
-import type { CloudDeviceDto, CloudDevicesDto, DeviceOut, MobilePairingDto } from '@agent-hangar/shared';
+import type { CloudDeviceDto, CloudDevicesDto, DeviceOut, JoinApproverState, MobilePairingDto } from '@agent-hangar/shared';
 
 /**
- * クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除の状態（0.4.0）。
+ * クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除の状態。
  * 参加と解除は殻の命令（CLI）が行い、結果は Runtime しか知らない事実なので、Store が持つ（store/update.ts と同じ作り）。
  * Runtime が殻を呼び（runtime/cloudMember.ts）、結果をこの reduceCloudMember に通して Store に置く。
- * 参加トークンはここに置かない。Runtime の中にだけ持ち、参加が済むか段を閉じたら捨てる。
+ * 新しい PC が入力した参加コードはここに置かない。Runtime が殻へ渡すだけである。
+ * 発行した PC の参加コードは、サーバーの承認の状態（JoinApproverState）の写しとして add に置く。この PC の画面にだけ出すものである。
  */
 
-/** 参加の見立て（hangar join --plan --json の plan）。参加用の秘密は含まない。 */
-export type JoinPlanView = { url: string; host: string; current: { url: string } | null; change: 'new' | 'same' | 'other-cloud' | 'new-secret' };
+/** 接続先の確認の答え（hangar cloud join-check）。url は origin の形にそろえたもの、current は今参加しているクラウドか null。 */
+export type JoinCheckView = { url: string; host: string; pcCount: number; current: { url: string } | null };
 
 /** 殻か CLI が返した失敗。code で画面の言い方を選び、message は CLI か OS の文をそのまま持つ。 */
 export type CloudFailure = { code: string; message: string };
 
 /**
- * 参加の段。idle は段を開いていない（貼る欄は画面だけが持つ）、checking は宛先を確かめている、confirm は宛先の確認を待っている、
- * joining は参加している、joined は参加が済んで再起動を待っている、failed は失敗した（宛先を確かめた後なら plan を持つ）。
+ * 参加が終わった理由。expired は参加コードの期限切れか使用済み、rejected は発行した PC が拒否した、no-answer は 5 分たっても承認されなかった、
+ * bad-code は参加コードの形が違う、network は接続先に接続できない、compat はこの PC の hangar が古い、rate-limited はリクエストが多すぎる、
+ * pending は承認済みの前回の参加が完了していない、other はそれ以外（message に CLI の文）。
+ */
+export type JoinFailReason = 'expired' | 'rejected' | 'no-answer' | 'bad-code' | 'network' | 'compat' | 'rate-limited' | 'pending' | 'other';
+
+/**
+ * 参加の段（新しい PC の側、試作 B2）。url は接続先の URL の入力（確認に失敗したら failure を持つ）、checking は接続先を確認している、
+ * code は参加コードの入力、requesting は参加リクエストを送っている、waiting は承認を待っている（sas は区切りの無い 6 桁の確認コード）、
+ * done は承認されて再起動を待っている、failed は終わった理由を持つ（参加コードを入力し直すために check を保持する）。
  */
 export type JoinStage =
-  | { kind: 'idle' } | { kind: 'checking' }
-  | { kind: 'confirm'; plan: JoinPlanView } | { kind: 'joining'; plan: JoinPlanView }
-  | { kind: 'joined'; host: string }
-  | { kind: 'failed'; plan: JoinPlanView | null; failure: CloudFailure };
+  | { kind: 'url'; failure: CloudFailure | null } | { kind: 'checking'; url: string }
+  | { kind: 'code'; check: JoinCheckView } | { kind: 'requesting'; check: JoinCheckView }
+  | { kind: 'waiting'; check: JoinCheckView; sas: string; expiresAt: number }
+  | { kind: 'done'; host: string }
+  | { kind: 'failed'; reason: JoinFailReason; message: string; check: JoinCheckView | null };
+
+/**
+ * 「PC を追加」の段（参加済みの PC の側、試作 A1）。サーバーの承認の状態の写しに、画面だけの 2 つを加える。
+ * issuing は参加コードの発行を頼んでいる、rejected は拒否した後の知らせ（サーバーは idle に戻るが、閉じるまで拒否した旨を保持する）。
+ */
+export type AddPcStage = JoinApproverState | { kind: 'issuing' } | { kind: 'rejected'; name: string };
 
 /** ほかの PC の解除。1 度に 1 台だけを扱う。done は済んだ印で、次の操作か閉じるまで残す。 */
 export type RevokeStage = { id: string; kind: 'busy' } | { id: string; kind: 'failed'; failure: CloudFailure } | { id: string; kind: 'done'; name: string };
@@ -41,18 +57,20 @@ export type PhoneStage =
   | { kind: 'old'; compat: number | null } | { kind: 'limited' } | { kind: 'notJoined' } | { kind: 'failed'; message: string };
 
 /** devices は Worker の PC の一覧（GET /api/sync/cloud-devices）で、設定に入ったときに取る。未取得は null。 */
-export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage };
+export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; add: AddPcStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage };
 
 export type CloudMemberEvent =
   | { type: 'devices.loaded'; devices: CloudDevicesDto }
-  | { type: 'join.checking' } | { type: 'join.planned'; plan: JoinPlanView } | { type: 'join.joining' } | { type: 'join.joined'; host: string }
-  | { type: 'join.failed'; failure: CloudFailure } | { type: 'join.reset' }
+  | { type: 'join.checking'; url: string } | { type: 'join.checked'; check: JoinCheckView } | { type: 'join.checkFailed'; failure: CloudFailure }
+  | { type: 'join.requesting' } | { type: 'join.waiting'; sas: string; expiresAt: number } | { type: 'join.done' }
+  | { type: 'join.failed'; reason: JoinFailReason; message: string } | { type: 'join.reenter' } | { type: 'join.reset' }
+  | { type: 'add.issuing' } | { type: 'add.state'; state: JoinApproverState } | { type: 'add.rejected'; name: string } | { type: 'add.reset' }
   | { type: 'revoke.start'; id: string } | { type: 'revoke.done'; device: DeviceOut } | { type: 'revoke.failed'; id: string; failure: CloudFailure } | { type: 'revoke.reset' }
   | { type: 'leave.start' } | { type: 'leave.done'; revokeError: string | null } | { type: 'leave.failed'; failure: CloudFailure } | { type: 'leave.reset' }
   | { type: 'phone.loading' } | { type: 'phone.loaded'; pairing: MobilePairingDto } | { type: 'phone.failed'; message: string } | { type: 'phone.expired' } | { type: 'phone.reset' };
 
 export function initialCloudMember(): CloudMemberState {
-  return { devices: null, join: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' } };
+  return { devices: null, join: { kind: 'url', failure: null }, add: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' } };
 }
 
 /** 一覧のうち、解除していないスマホ。版 6 までの Worker は kind を返さないので、無ければ PC として読む。 */
@@ -77,23 +95,48 @@ function watchPhones(p: PhoneStage, devices: CloudDevicesDto): PhoneStage {
   return fresh ? { kind: 'paired', id: fresh.id, name: fresh.name ?? fresh.id } : p;
 }
 
-/** いまの段が持つ宛先。宛先を確かめる前と、済んだ後は null。 */
-export function joinPlanOf(j: JoinStage): JoinPlanView | null {
-  return j.kind === 'confirm' || j.kind === 'joining' ? j.plan : j.kind === 'failed' ? j.plan : null;
+/** 今の段が持つ接続先の確認の結果。確認する前と、完了した後は null。 */
+export function joinCheckOf(j: JoinStage): JoinCheckView | null {
+  return j.kind === 'code' || j.kind === 'requesting' || j.kind === 'waiting' || j.kind === 'failed' ? j.check : null;
+}
+
+/** サーバーの承認の状態を写す。拒否の後と発行を頼んでいる間に受信した idle は、画面の知らせを優先して保持する。 */
+function addOf(s: AddPcStage, next: JoinApproverState): AddPcStage {
+  if (next.kind === 'idle' && (s.kind === 'rejected' || s.kind === 'issuing')) return s;
+  return next;
 }
 
 export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): CloudMemberState {
   switch (e.type) {
     case 'devices.loaded': return { ...s, devices: e.devices, phone: watchPhones(s.phone, e.devices) };
-    case 'join.checking': return { ...s, join: { kind: 'checking' } };
-    case 'join.planned': return { ...s, join: { kind: 'confirm', plan: e.plan } };
-    case 'join.joining': {
-      const plan = joinPlanOf(s.join);
-      return plan ? { ...s, join: { kind: 'joining', plan } } : s;
+    case 'join.checking': return { ...s, join: { kind: 'checking', url: e.url } };
+    case 'join.checked': return { ...s, join: { kind: 'code', check: e.check } };
+    case 'join.checkFailed': return { ...s, join: { kind: 'url', failure: e.failure } };
+    case 'join.requesting': {
+      const check = joinCheckOf(s.join);
+      return check ? { ...s, join: { kind: 'requesting', check } } : s;
     }
-    case 'join.joined': return { ...s, join: { kind: 'joined', host: e.host } };
-    case 'join.failed': return { ...s, join: { kind: 'failed', plan: joinPlanOf(s.join), failure: e.failure } };
-    case 'join.reset': return { ...s, join: { kind: 'idle' } };
+    case 'join.waiting': {
+      const check = joinCheckOf(s.join);
+      return check ? { ...s, join: { kind: 'waiting', check, sas: e.sas, expiresAt: e.expiresAt } } : s;
+    }
+    case 'join.done': {
+      const check = joinCheckOf(s.join);
+      return { ...s, join: { kind: 'done', host: check?.host ?? '' } };
+    }
+    case 'join.failed': return { ...s, join: { kind: 'failed', reason: e.reason, message: e.message, check: joinCheckOf(s.join) } };
+    case 'join.reenter': {
+      const check = joinCheckOf(s.join);
+      return { ...s, join: check ? { kind: 'code', check } : { kind: 'url', failure: null } };
+    }
+    case 'join.reset': return { ...s, join: { kind: 'url', failure: null } };
+    case 'add.issuing': return { ...s, add: { kind: 'issuing' } };
+    case 'add.state': {
+      const add = addOf(s.add, e.state);
+      return add === s.add ? s : { ...s, add };
+    }
+    case 'add.rejected': return { ...s, add: { kind: 'rejected', name: e.name } };
+    case 'add.reset': return { ...s, add: { kind: 'idle' } };
     case 'revoke.start': return { ...s, revoke: { id: e.id, kind: 'busy' } };
     case 'revoke.done': {
       // 取り直しを待たずに、その PC を「解除した PC」へ移す。名前は名簿から読んだ一覧の行のものを使う（Worker の行は名前を持たない）。

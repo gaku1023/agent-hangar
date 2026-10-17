@@ -17,15 +17,43 @@
 /* 節の先頭の帯（この PC が解除された）の下に、状態の行が詰まらないようにする。 */
 .cm-strip + .stat { margin-top: calc(var(--u) * 3); }
 
-/* 参加トークンを貼る欄と、宛先の確認。 */
+/* 参加コードで参加（試作 B2）。接続先の URL の欄、接続先の確認、参加コードの欄。 */
+.cm-join { margin-top: calc(var(--u) * 3); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.cm-join-title { margin: 0; font-size: var(--fs); color: var(--ink); }
+.cm-join-lead { margin: var(--u) 0 0; font-size: var(--fs-sm); line-height: 1.55; }
 .cm-field { display: flex; flex-direction: column; gap: var(--u); margin-top: calc(var(--u) * 3); font-size: var(--fs-sm); color: var(--ink-2); }
 .cm-field .input { width: 100%; max-width: 520px; font-family: var(--font-mono); color: var(--ink); }
-.cm-read { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 3); font-size: var(--fs-sm); color: var(--ink-3); }
-.cm-dest { margin-top: calc(var(--u) * 2.5); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
-.cm-dest-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
-.cm-dest-host { margin-top: var(--u); font: 700 18px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
-.cm-dest-url { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; }
-.cm-dest-note { margin: calc(var(--u) * 2) 0 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); }
+.cm-field .input:disabled { color: var(--ink-2); background: var(--surface-2); }
+.cm-field .cm-code-input { max-width: 220px; font-size: 18px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.cm-field .cm-code-input::placeholder { font-weight: 400; letter-spacing: 0.08em; }
+.cm-error { margin-top: var(--u); font-size: var(--fs-sm); color: var(--error); }
+.cm-join .btns { margin-top: calc(var(--u) * 3); }
+.cm-dest { margin-top: calc(var(--u) * 3); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--fs-sm); }
+.cm-dest-host { font: 700 16px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+/* 承認待ち。確認コードを大きく、真ん中に置く。 */
+.cm-waiting { padding: calc(var(--u) * 3) var(--u) calc(var(--u) * 1); text-align: center; font-size: var(--fs-sm); color: var(--ink-2); }
+.cm-waiting-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+.cm-waiting p { max-width: 440px; margin: calc(var(--u) * 2) auto 0; line-height: 1.55; }
+.cm-waiting .cm-sas { justify-content: center; max-width: 520px; margin: calc(var(--u) * 2.5) auto 0; }
+.cm-waiting .btns { justify-content: center; }
+/* 確認コードの箱（A1、B2）。 */
+.cm-sas { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); color: color-mix(in srgb, var(--accent) 70%, var(--ink)); }
+/* 説明の文が折り返すとき、最後の数文字だけが次の行に来ないよう、空白と句読点の位置で折り、行の長さをそろえる。 */
+.cm-sas-note { word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; }
+.cm-sas-code { font: 700 22px var(--font-mono); letter-spacing: 0.12em; color: var(--ink); white-space: nowrap; }
+/* 「PC を追加」の欄（試作 A1）。ボタンの段の下に開く。 */
+.cm-add { margin-top: calc(var(--u) * 3); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+.cm-add-body > .cm-strip:first-child { margin-top: 0; }
+.cm-add-body > .cm-wait:first-child { margin-top: 0; }
+.cm-add-lead { margin-bottom: calc(var(--u) * 2.5); font-size: var(--fs-sm); color: var(--ink-2); }
+.cm-add-grid { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 2.5); margin-bottom: calc(var(--u) * 3); }
+.cm-add-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.cm-add-url { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink); }
+.cm-add .cm-add-code { font-size: 22px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink); -webkit-user-select: all; user-select: all; }
+.cm-add small { display: block; margin-top: var(--u); font-size: var(--fs-xs); }
+.cm-add .btns { margin-top: calc(var(--u) * 2); }
+.cm-req { margin-top: calc(var(--u) * 3); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--accent); font-size: var(--fs-sm); }
+.cm-req-title { color: var(--ink); }
 .cm-check { display: flex; align-items: flex-start; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2.5); font-size: var(--fs-sm); color: var(--ink); cursor: pointer; }
 .cm-check input { flex: none; margin: 2px 0 0; accent-color: var(--accent); }
 .cm-urls { display: grid; grid-template-columns: max-content 1fr; gap: 2px calc(var(--u) * 2.5); margin: var(--u) 0; font-size: var(--fs-xs); }

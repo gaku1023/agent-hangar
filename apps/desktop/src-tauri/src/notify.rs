@@ -17,6 +17,13 @@ pub mod hold;
 const WAITING_PREFIX: &str = "hangar-waiting:";
 const RETURN_PREFIX: &str = "hangar-return:";
 const LIMIT_PREFIX: &str = "hangar-limit:";
+const JOIN_PREFIX: &str = "hangar-join:";
+/// 参加リクエストの知らせがセッションの id の代わりに載せる値（サーバの `JOIN_NOTICE_ID`）。
+/// セッションの id（UUID）とは重ならない。
+/// 押されたら、セッションではなく設定のクラウド同期を開く（`open_js`）。
+pub const JOIN_SESSION: &str = "join-request";
+/// 参加リクエストの知らせを押したときに移る頁の場所（設定のクラウド同期の節。shared の route.ts の `settings` と `at=cloud`）。
+const JOIN_HASH: &str = "#/settings?at=cloud";
 /// 題と本文の長さの上限（文字数）。
 /// 通知は 2 行ほどしか見せないので、長い問いは切る。
 const TITLE_MAX: usize = 120;
@@ -30,11 +37,14 @@ const ID_MAX: usize = 64;
 /// 使用制限はアカウントごとに 1 通で、先に止まったセッションの id を枠の名前にする（押すとそのセッションを開く）。
 /// 種類ごとに通知の枠（macOS の識別子、Windows のタグと組）を分ける。
 /// 同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである。
+/// 参加リクエストの知らせ（Join）は、参加コードを発行した PC に、別の PC から参加リクエストを受信したことを知らせる。
+/// id はいつも `JOIN_SESSION` で、押すと設定を開く。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Waiting,
     Return,
     Limit,
+    Join,
 }
 
 impl Kind {
@@ -45,6 +55,7 @@ impl Kind {
             None | Some("waiting") => Ok(Kind::Waiting),
             Some("return") => Ok(Kind::Return),
             Some("limit") => Ok(Kind::Limit),
+            Some("join") => Ok(Kind::Join),
             Some(_) => Err("invalid notification kind".to_string()),
         }
     }
@@ -54,8 +65,11 @@ impl Kind {
             Kind::Waiting => WAITING_PREFIX,
             Kind::Return => RETURN_PREFIX,
             Kind::Limit => LIMIT_PREFIX,
+            Kind::Join => JOIN_PREFIX,
         }
     }
+
+    const ALL: [Kind; 4] = [Kind::Waiting, Kind::Return, Kind::Limit, Kind::Join];
 }
 
 /// 確かめ終えた通知の中身。
@@ -100,17 +114,15 @@ impl Keep {
         self
     }
 
-    fn set(&self, kind: Kind) -> &HashSet<String> {
-        match kind {
-            Kind::Waiting => &self.waiting,
-            Kind::Return => &self.returning,
-            Kind::Limit => &self.limited,
-        }
-    }
-
     /// その種類の、そのセッションの知らせを残すか。
+    /// 参加リクエストの知らせは頁の一覧に載らないので、いつも残す（利用者が通知センターから消す）。
     pub fn holds(&self, kind: Kind, session_id: &str) -> bool {
-        self.set(kind).contains(session_id)
+        match kind {
+            Kind::Waiting => self.waiting.contains(session_id),
+            Kind::Return => self.returning.contains(session_id),
+            Kind::Limit => self.limited.contains(session_id),
+            Kind::Join => true,
+        }
     }
 
     /// 出したばかりの知らせを、次の一覧が届くまで残すものに足す。
@@ -119,6 +131,7 @@ impl Keep {
             Kind::Waiting => &mut self.waiting,
             Kind::Return => &mut self.returning,
             Kind::Limit => &mut self.limited,
+            Kind::Join => return,
         };
         set.insert(session_id.to_string());
     }
@@ -250,14 +263,12 @@ pub fn identifier(kind: Kind, session_id: &str) -> String {
 /// 通知の識別子から、種類とセッションの id を読み戻す。
 /// hangar の通知でなければ `None`。
 pub fn parse_identifier(identifier: &str) -> Option<(Kind, &str)> {
-    [Kind::Waiting, Kind::Return, Kind::Limit]
-        .into_iter()
-        .find_map(|kind| {
-            identifier
-                .strip_prefix(kind.prefix())
-                .filter(|id| valid_id(id))
-                .map(|id| (kind, id))
-        })
+    Kind::ALL.into_iter().find_map(|kind| {
+        identifier
+            .strip_prefix(kind.prefix())
+            .filter(|id| valid_id(id))
+            .map(|id| (kind, id))
+    })
 }
 
 /// 押された通知の識別子から、セッションの id を読み戻す。
@@ -270,13 +281,31 @@ pub fn session_of(identifier: &str) -> Option<&str> {
 /// 押された通知のセッションを頁で開く JavaScript。
 /// 頁が受け口を持っていれば、それでセッションを開いてターミナルにフォーカスする。
 /// 受け口が無ければ（読み込みの途中など）、ハッシュでそのセッションへ移るだけにする。
+/// 参加リクエストの知らせ（`JOIN_SESSION`）は、頁の `__hangarOpenJoin` で設定のクラウド同期を開き、受け口が無ければ `open_hash` の場所へ移る。
 pub fn open_js(session_id: &str) -> String {
+    if session_id == JOIN_SESSION {
+        let lit = serde_json::to_string(JOIN_HASH).unwrap_or_else(|_| "\"\"".to_string());
+        return format!(
+            "(function(){{if(window.__hangarOpenJoin){{window.__hangarOpenJoin();}}\
+             else{{location.hash={lit};}}}})();"
+        );
+    }
     let lit = serde_json::to_string(session_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
         "(function(){{var id={lit};\
          if(window.__hangarOpenWaiting){{window.__hangarOpenWaiting(id);}}\
          else{{location.hash=\"#/session/\"+id;}}}})();"
     )
+}
+
+/// 頁がまだ出来上がっていないときに、押された通知の行き先として貯めるハッシュ。
+/// セッションの知らせはそのセッション、参加リクエストの知らせは設定のクラウド同期の節である。
+pub fn open_hash(session_id: &str) -> String {
+    if session_id == JOIN_SESSION {
+        JOIN_HASH.to_string()
+    } else {
+        format!("#/session/{session_id}")
+    }
 }
 
 /// 通知の許可の状態（UNAuthorizationStatus の値）を、頁に返す名前にする。
@@ -310,6 +339,7 @@ mod toast {
     const WAITING_GROUP: &str = "hangar-waiting";
     const RETURN_GROUP: &str = "hangar-return";
     const LIMIT_GROUP: &str = "hangar-limit";
+    const JOIN_GROUP: &str = "hangar-join";
     /// アプリが閉じている間に押されたトーストを受け取る COM の口の CLSID。
     /// 値は一度だけ作って固定した。
     /// 変えると、前の版が出したトーストを押しても、この版へ届かなくなる。
@@ -378,13 +408,12 @@ mod toast {
             Kind::Waiting => WAITING_GROUP,
             Kind::Return => RETURN_GROUP,
             Kind::Limit => LIMIT_GROUP,
+            Kind::Join => JOIN_GROUP,
         }
     }
 
     fn kind_of_group(group: &str) -> Option<Kind> {
-        [Kind::Waiting, Kind::Return, Kind::Limit]
-            .into_iter()
-            .find(|k| toast_group(*k) == group)
+        Kind::ALL.into_iter().find(|k| toast_group(*k) == group)
     }
 
     /// 通知センターの履歴（タグと組の対）から、外すトーストを選ぶ。
@@ -1496,6 +1525,45 @@ mod tests {
         assert_eq!(session_of("hangar-limit:s1"), Some("s1"));
         assert_eq!(toast_group(Kind::Limit), "hangar-limit");
         assert_ne!(toast_group(Kind::Limit), toast_group(Kind::Waiting));
+    }
+
+    /// 参加リクエストの知らせは、セッションの知らせとは別の枠に入り、押すと設定を開く。
+    #[test]
+    fn a_join_notice_has_its_own_slot_and_opens_the_settings() {
+        assert_eq!(Kind::parse(Some("join")), Ok(Kind::Join));
+        assert_eq!(
+            identifier(Kind::Join, JOIN_SESSION),
+            "hangar-join:join-request"
+        );
+        assert_eq!(
+            parse_identifier("hangar-join:join-request"),
+            Some((Kind::Join, "join-request"))
+        );
+        assert_eq!(session_of("hangar-join:join-request"), Some(JOIN_SESSION));
+        assert_eq!(toast_group(Kind::Join), "hangar-join");
+        assert_ne!(toast_group(Kind::Join), toast_group(Kind::Waiting));
+        let js = open_js(JOIN_SESSION);
+        assert!(js.contains("__hangarOpenJoin"));
+        assert!(js.contains("\"#/settings?at=cloud\""));
+        assert!(!js.contains("#/session/"));
+        // 頁が出来上がる前に押されたら、設定のクラウド同期の節を貯める。
+        assert_eq!(open_hash(JOIN_SESSION), "#/settings?at=cloud");
+        assert_eq!(open_hash("s1"), "#/session/s1");
+        // セッションの知らせは今までどおりセッションを開く。
+        assert!(open_js("s1").contains("__hangarOpenWaiting"));
+    }
+
+    /// 参加リクエストの知らせは、頁の顔ぶれの一覧に載らないので、一覧で外さない。
+    #[test]
+    fn the_keep_list_always_holds_join_notices() {
+        let keep = Keep::new(&[], &[]);
+        assert!(keep.holds(Kind::Join, JOIN_SESSION));
+        assert!(stale_identifiers(&ids(&["hangar-join:join-request"]), &keep).is_empty());
+        assert!(stale_toasts(
+            &[(toast_tag(JOIN_SESSION), toast_group(Kind::Join).to_string())],
+            &keep
+        )
+        .is_empty());
     }
 
     fn ids(v: &[&str]) -> Vec<String> {
