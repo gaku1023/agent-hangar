@@ -106,10 +106,6 @@ export const BLOB_DELETE_GRACE_MS = 3_600_000;
  */
 export const TRASH_KEEP_MS = 30 * 86_400_000;
 
-export type JoinRequest = { secret: string; device: { id: string; name: string; platform: string } };
-export type JoinResponse = { deviceToken: string; deviceId: string };
-export type JoinToken = { url: string; secret: string };
-
 /**
  * 最初の PC の端末トークンを登録する（`POST /bootstrap`、互換の版 9）。
  * setup が Worker の secret `BOOTSTRAP_TOKEN_HASH` に `SHA-256(token)` を入れ、同じハッシュは 1 回だけ通る。
@@ -217,24 +213,15 @@ export const MAX_PUSH_BATCH = 40;
 /** GET /changes、GET /rows、GET /files が 1 回に返す上限。 */
 export const PULL_LIMIT = 500;
 
-/** 参加トークンの文字数の上限。実物は 200 字ほどなので、これを超える入力は貼り間違いか攻撃である。 */
-export const MAX_JOIN_TOKEN_CHARS = 2048;
-/** 参加トークンの中の URL の文字数の上限。 */
+/** 参加の接続先の URL の文字数の上限。 */
 export const MAX_JOIN_URL_CHARS = 512;
 /** R2 の鍵に入れる ID（端末 ID、セッション ID、サブエージェント ID）の文字数の上限。 */
 export const MAX_ID_CHARS = 64;
 /** config の相対パスの文字数の上限。 */
 export const MAX_REL_PATH_CHARS = 512;
 
-const toB64Url = (s: string): string => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const fromB64Url = (s: string): string => {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4);
-  const bin = atob(b64);
-  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
-};
-
 /**
- * 参加トークンの宛先として許す URL か。
+ * 参加の接続先として許す URL か（hangar cloud join と参加の段に利用者が入れる URL）。
  *
  * 許すのは素の origin の `https:` だけである。
  * 例外として、開発と `packages/cloud` のテストで `wrangler dev` を指すために
@@ -255,27 +242,6 @@ export function isAllowedJoinUrl(url: string): boolean {
   if (u.protocol !== 'http:') return false;
   const host = u.hostname.replace(/^\[|\]$/g, '');
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
-}
-
-/** 参加トークン。Worker の URL と参加用の秘密を JSON にして base64url で包む。 */
-export function encodeJoinToken(t: JoinToken): string {
-  return toB64Url(JSON.stringify({ url: t.url, secret: t.secret }));
-}
-
-/**
- * 参加トークンを解く。利用者が手で貼る入口なので、ここで宛先まで検査する。
- * 例外の文言は固定の 3 種類だけにして、入力も秘密も断片すら載せない。
- */
-export function decodeJoinToken(s: string): JoinToken {
-  if (s.length > MAX_JOIN_TOKEN_CHARS) throw new Error('参加トークンが長すぎます'); // 長さは空白を取り除く前に見る。
-  // 1Password やメールを経由すると途中に折り返しが入る。空白は base64url の文字ではないので、取り除いてから読む。
-  const t = s.replace(/\s+/g, '');
-  let v: unknown;
-  try { v = JSON.parse(fromB64Url(t)); } catch { throw new Error('参加トークンを読めません'); }
-  const o = v as Partial<JoinToken> | null;
-  if (!o || typeof o.url !== 'string' || !o.url || typeof o.secret !== 'string' || !o.secret) throw new Error('参加トークンの形式が違います');
-  if (!isAllowedJoinUrl(o.url)) throw new Error('参加トークンの宛先が不正です');
-  return { url: o.url, secret: o.secret };
 }
 
 /** R2 の鍵に入れてよい ID か。スラッシュ、`..`、制御文字、空を通さない。 */

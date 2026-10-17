@@ -236,8 +236,8 @@ function presentAdd(store: Store): CloudAddProps {
 
 /** hangar の呼び方（同梱の hangar の絶対パスなど）。準備の確かめの参加のコマンドの頭を使う。 */
 function hangarBase(store: Store): string {
-  const join = store.readiness?.commands.join ?? 'hangar join <token>';
-  const tail = / (?:cloud join <URL>|join <token>)$/;
+  const join = store.readiness?.commands.join ?? 'hangar cloud join <URL>';
+  const tail = / cloud join <URL>$/;
   return tail.test(join) ? join.replace(tail, '') : 'hangar';
 }
 

@@ -166,6 +166,14 @@ describe('SyncEngine の push', () => {
     project('p1'); project('p2'); project('p3');
     expect(unpushed()).toBe(3);
     expect(e.status()).toMatchObject({ state: 'off', pending: 0, url: null });
+    expect(e.status()).not.toHaveProperty('legacyConfig');
+    e.stop();
+  });
+
+  it('古い形の cloud.json で止まっているときは、off に作り直しの印を添える', async () => {
+    const e = make({ client: null, url: null, legacyConfig: true });
+    await e.start();
+    expect(e.status()).toMatchObject({ state: 'off', pending: 0, legacyConfig: true });
     e.stop();
   });
 

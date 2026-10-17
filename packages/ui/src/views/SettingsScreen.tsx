@@ -21,7 +21,7 @@ import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
-import { CloudAddButton, CloudAddPc, CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
+import { CloudAddButton, CloudAddPc, CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand, Strip } from './CloudMember.tsx';
 import { CloudRecoveryButton, CloudRecoveryKey } from './CloudRecoveryKey.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
@@ -358,7 +358,20 @@ export function SettingsScreen(props: SettingsProps) {
         <p className="muted-p cloud-beta-lead">{t('settings.cloud.betaLead')}</p>
         {cloudOff && (
           <>
-            <p className="muted-p">{t('settings.cloud.off.lead')}</p>
+            {/* 古い形式の cloud.json で同期を止めている PC（0.9.0）。「この PC だけで使用しています」は事実と違うので、代わりに再構築を案内する。
+                参加コードでの参加は再構築の手順の中で使うので、下のボタンはそのまま出す。 */}
+            {props.cloud.legacy ? (
+              <>
+                <Strip tone="warn" role="alert">
+                  <p><b>{t('settings.cloud.legacy.title')}</b></p>
+                  <p>{t('settings.cloud.legacy.body')}</p>
+                  <p>{t('settings.cloud.legacy.steps')}</p>
+                  <p><a href={props.cloud.legacy.docUrl} target="_blank" rel="noreferrer"><Icon name="externalLink" />{t('settings.cloud.legacy.doc')}</a></p>
+                </Strip>
+                <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.legacy.status')}</div>
+                <CommandLine command={props.cloud.legacy.statusCommand} />
+              </>
+            ) : <p className="muted-p">{t('settings.cloud.off.lead')}</p>}
             {/* 殻の中では、参加コードでの参加を節の中の段で行う（試作 B2）。クラウドの用意はターミナルのまま。 */}
             {member?.desktop ? (
               <>
