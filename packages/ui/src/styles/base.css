@@ -395,6 +395,9 @@ a:hover { text-decoration: underline; }
 .notice[data-kind='join'] { --k: var(--accent); cursor: default; }
 /* スマホの解除の「元に戻す」（試作 E2）。info と同じ青で、本文の下に「元に戻す」を置く。 */
 .notice[data-kind='phone-undo'] { --k: var(--accent); cursor: default; }
+/* スマホから起動した会話の通知（試作 F1）。通常は info と同じ青で、Bypass permissions は赤にして「停止」を置く。 */
+.notice[data-kind='phone-launch'] { --k: var(--accent); cursor: default; }
+.notice[data-kind='phone-launch'][data-tone='err'] { --k: var(--error); }
 .notice-sas { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5) calc(var(--u) * 3); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); line-height: 1.45; color: color-mix(in srgb, var(--accent) 70%, var(--ink)); }
 .notice-sas > b { font-size: 20px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink); white-space: nowrap; }
 /* リリースノートの注意（「更新の前に」の節）。ほかの PC や Worker とそろえる話なので、Paused と同じ黄の地で目立たせ、3 行まで見せる。 */

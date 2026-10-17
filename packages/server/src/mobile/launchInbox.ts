@@ -57,7 +57,15 @@ export type MobileLaunchInboxDeps = {
   /** いま依頼を扱ってよいか（boot/sync.ts の canCarryMobile）。偽なら claim せずに残す（Worker の行は pending のまま）。 */
   canProcess: () => boolean;
   now: () => number;
+  /** 依頼で会話を起こせたときの受け手（右下の通知、試作 F1）。記録の後、答えの前に 1 回だけ呼ぶ。投げても答えは送る。 */
+  onStarted?: (e: PhoneLaunchStarted) => void;
 };
+
+/**
+ * 依頼で起こした会話。from は依頼を置いたスマホの ID（Worker の launches の from、返さない Worker では null）。
+ * permissionMode は依頼の権限モード（空は既定）、title は答えに入れた会話の名前。
+ */
+export type PhoneLaunchStarted = { sessionId: string; from: string | null; projectId: string | null; scratch: boolean; permissionMode: string; title: string };
 
 const PERMISSION_MODES: ReadonlySet<string> = new Set(PERMISSION_MODE_VALUES);
 
@@ -125,6 +133,7 @@ const kindOf = (e: unknown): string => {
  * 1 件の扱いの順は、手元の記録（mobile_launches）にあれば何もしない、依頼の世代（epoch）のスマホ用の鍵が無ければ何もしない、Worker で claim できなければ何もしない、
  * 開封する（開けなければ bad-payload）、時間切れを見る（expired）、プロジェクトとアカウントを確かめる、画像を取って drops に置く（欠ければ images-missing）、起こす、記録する、答える、である。
  * 記録は答えより先に書く。答えを送れなくても、同じ依頼を二度起こさない。
+ * 起こせた依頼は、記録に会話の ID と権限モードも控え（一覧のラベル「スマホから」）、onStarted で右下の通知に知らせる（試作 F1）。
  * 記録には封じた答えも控える。送れなかった答えは resendAnswers が、扱ってから ANSWER_RESEND_WINDOW_MS のあいだ同じ封のまま送り直す。
  * Worker が受け取るか、409（もう答えた、ほかの PC 宛て、無い ID）を返したら answered にして、それ以上送らない。
  * claim が通信で倒れたときは記録しないので、次の pull でもう一度試す（Worker で受け取れていれば 409 で止まる）。
@@ -191,11 +200,16 @@ export class MobileLaunchInbox {
     }
   }
 
-  /** 手元の記録のうち、残す長さを過ぎたものを消す。失敗しても受け取りは続ける。 */
+  /**
+   * 手元の記録のうち、残す長さを過ぎたものを消す。失敗しても受け取りは続ける。
+   * 起こした会話の行は、その会話が一覧にある間は残す（ラベル「スマホから」の元なので）。会話を消したら、次の掃除で消える。
+   */
   private pruneRecords(): void {
     if (this.keyless.size > 500) this.keyless.clear();
     try {
-      this.deps.db.prepare('delete from mobile_launches where handled_at < ?').run(this.deps.now() - MOBILE_LAUNCH_KEEP_MS);
+      this.deps.db
+        .prepare('delete from mobile_launches where handled_at < ? and (session_id is null or not exists (select 1 from sessions s where s.id = mobile_launches.session_id and s.deleted_at is null))')
+        .run(this.deps.now() - MOBILE_LAUNCH_KEEP_MS);
     } catch (e) {
       console.error('[mobile] could not prune old launch records', kindOf(e));
     }
@@ -223,16 +237,27 @@ export class MobileLaunchInbox {
     // 受け取った後は、どの結果でも記録して答える。
     const key = phoneKey.key;
     // 確かめの途中で思わぬ失敗をしても、受け取った依頼は答えずに残さない（claim はもう通らない）。
-    const answer = await this.decide(key, l).catch((): MobileLaunchAnswer => ({ ok: false, reason: 'launch-failed' }));
+    const opened: { p: MobileLaunchPayload | null } = { p: null };
+    const answer = await this.decide(key, l, opened).catch((): MobileLaunchAnswer => ({ ok: false, reason: 'launch-failed' }));
     // 封じられなくても記録は残す（同じ依頼を二度起こさない）。封の無い行は送り直さない。
     const sealed = await seal(key, aadAnswer(l.id), answer).catch(() => null);
+    // 起こした会話と権限モードも控える（一覧のラベル「スマホから」、試作 F1）。起こせなかった依頼はどちらも null。
+    const started = answer.ok && opened.p ? { ...answer, p: opened.p } : null;
     this.deps.db
-      .prepare('insert or ignore into mobile_launches (id, handled_at, result, sealed_answer, ok, answered) values (?, ?, ?, ?, ?, 0)')
-      .run(l.id, now(), answer.ok ? 'started' : answer.reason, sealed, answer.ok ? 1 : 0);
+      .prepare('insert or ignore into mobile_launches (id, handled_at, result, sealed_answer, ok, answered, session_id, permission_mode) values (?, ?, ?, ?, ?, 0, ?, ?)')
+      .run(l.id, now(), answer.ok ? 'started' : answer.reason, sealed, answer.ok ? 1 : 0, started?.sessionId ?? null, started?.p.permissionMode ?? null);
+    if (started) {
+      try {
+        this.deps.onStarted?.({ sessionId: started.sessionId, from: l.from ?? null, projectId: started.p.scratch ? null : started.p.projectId, scratch: started.p.scratch, permissionMode: started.p.permissionMode, title: started.title });
+      } catch (e) {
+        console.error('[mobile] could not announce the started session', kindOf(e));
+      }
+    }
     if (sealed !== null) await this.sendAnswer(l.id, answer.ok, sealed);
   }
 
-  private async decide(key: CryptoKey, l: MobileLaunchOut): Promise<MobileLaunchAnswer> {
+  /** 依頼を確かめて起こす。開けた中身は opened に置く（起こした後の記録と知らせに使う）。 */
+  private async decide(key: CryptoKey, l: MobileLaunchOut, opened: { p: MobileLaunchPayload | null }): Promise<MobileLaunchAnswer> {
     const fail = (reason: FailReason, detail?: string): MobileLaunchAnswer => (detail ? { ok: false, reason, detail } : { ok: false, reason });
     let p: unknown;
     try {
@@ -242,6 +267,7 @@ export class MobileLaunchInbox {
       return fail('bad-payload');
     }
     if (!isPayload(p)) return fail('bad-payload');
+    opened.p = p;
     if (p.createdAt < this.deps.now() - LAUNCH_TTL_MS - LAUNCH_CLOCK_SLACK_MS) return fail('expired');
     if (!p.scratch && (p.projectId === null || !this.deps.hasProjectHere(p.projectId))) return fail('project-missing');
     if (!this.deps.hasAccount(p.accountId)) return fail('account-missing');

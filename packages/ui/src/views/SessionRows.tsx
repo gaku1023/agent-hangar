@@ -335,7 +335,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />
       {statusColumn && status(r)}
       <span className="row-main">
-        <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>
+        <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{r.phone && <span className="row-phone" data-bypass={r.phone.bypass ? 'true' : undefined} title={r.phone.title}>{r.phone.label}</span>}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>
         {sub(r)}
       </span>
       {side(r)}
@@ -346,7 +346,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   return (
     <div className="rows-host" id={props.id} data-testid="session-rows" data-status-col={String(statusColumn)} ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown} onFocus={onHostFocus} onBlur={onHostBlur}>
       <VirtualList items={items} rowHeight={(it) => (it.kind === 'head' ? SECTION_HEAD_H : SESSION_ROW_H)} height={props.height} keyOf={(it) => (it.kind === 'head' ? `head:${it.id}` : it.row.id)}
-        scope={props.scope} render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
+        scope={props.scope} grows={(it) => it.kind === 'row' && !!it.row.phone} render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
       {ctx && ctxMenu && <SessionMenuPop key={ctx.id} menu={ctxMenu} at={ctx.at} onClose={ctxClosed} />}
     </div>
   );

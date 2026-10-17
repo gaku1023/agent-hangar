@@ -2,7 +2,8 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { addDays, localDate, translator } from '@agent-hangar/shared';
 import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
-import { initialState } from '../mediator/transition.ts';
+import { initialState, transition } from '../mediator/transition.ts';
+import type { PhoneLaunchDto, ServerEvent } from '@agent-hangar/shared';
 import { accountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
@@ -12,7 +13,7 @@ import { presentHome, presentHomeScreen } from './home.ts';
 import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
-import { buildItems, presentSession, sessionActions, summarizerLabel, type SessionProps } from './session.ts';
+import { buildItems, presentSession, presentSessionBadges, sessionActions, summarizerLabel, type SessionProps } from './session.ts';
 import { presentSessionList } from './sessions.ts';
 import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
@@ -25,7 +26,7 @@ const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -1855,8 +1856,9 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と参加リクエストの通知とスマホの「元に戻す」以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'join', 'more', 'phoneUndo', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'join', 'more', 'phoneLaunches', 'phoneUndo', 'toasts', 'update', 'waiting', 'whatsNew']);
     expect(p.phoneUndo).toBeNull();
+    expect(p.phoneLaunches).toEqual([]);
     // 殻が updater を持たなければ、更新の札も更新後の札も出さない。
     expect(p.update).toBeNull();
     expect(p.whatsNew).toBeNull();
@@ -1968,5 +1970,62 @@ describe('戻る日と提案の札の文言', () => {
   it('提案の札は「Done にする？」か「Paused · 日？」', () => {
     expect(candidateLabel(ja, { status: 'done', returnOn: null })).toBe('Done にする？');
     expect(candidateLabel(ja, { status: 'paused', returnOn: '2026-10-05' })).toBe('Paused · 10/5（月）？');
+  });
+});
+
+describe('スマホから起動したセッション（試作 F1）', () => {
+  const launch = (over: Partial<PhoneLaunchDto> = {}): PhoneLaunchDto => ({ sessionId: 's1', phone: 'iPhone', projectId: 'alpha', scratch: false, permissionMode: 'auto', title: '最初の指示', at: NOW, ...over });
+  const phoneStore = (over: Partial<SessionDto> = {}): Store => {
+    const s = storeWith();
+    s.sessions = { ...s.sessions, s1: session('s1', { live: 'busy', fromPhone: { bypass: false }, ...over }) };
+    s.runs = { r1: runDto('r1', 's1') };
+    return s;
+  };
+  const step = (state: State, store: Store, event: ServerEvent) => transition(state, store, { kind: 'server', event });
+
+  it('右下に「〈スマホの名前〉から起動：〈プロジェクト〉（〈権限モード〉）」と会話の名前を出す', () => {
+    const store = phoneStore();
+    const state = step(initialState(), store, { type: 'phone.launch', launch: launch() }).state;
+    expect(presentToasts(state, store, NOW).phoneLaunches).toEqual([{ sessionId: 's1', title: 'iPhone から起動：alpha（Auto）', name: 'name-s1', bypass: false, stop: { runId: 'r1', working: true, aside: false, shellTabs: 0 } }]);
+  });
+
+  it('Bypass permissions は bypass が真。名前の分からないスマホは「スマホ」、クイックセッションはその名前、既定の権限モードは「デフォルト」', () => {
+    const store = phoneStore();
+    const state = step(initialState(), store, { type: 'phone.launch', launch: launch({ phone: null, sessionId: 's9', projectId: null, scratch: true, permissionMode: '' }) }).state;
+    const bypass = step(state, store, { type: 'phone.launch', launch: launch({ permissionMode: 'bypassPermissions' }) }).state;
+    const cards = presentToasts(bypass, store, NOW).phoneLaunches!;
+    expect(cards.map((c) => [c.sessionId, c.title, c.bypass])).toEqual([['s9', 'スマホから起動：クイックセッション（デフォルト）', false], ['s1', 'iPhone から起動：alpha（Bypass permissions）', true]]);
+    // 会話がまだ一覧に無いあいだは、依頼の題を名前にし、停止は出さない。
+    expect(cards[0]).toMatchObject({ name: '最初の指示', stop: null });
+  });
+
+  it('同じ会話の通知は 1 枚にまとめ、開く、停止、閉じるで下げる。開くはその会話を開き、停止は停止の流れ（確認つき）に渡す', () => {
+    const store = phoneStore();
+    let state = step(initialState(), store, { type: 'phone.launch', launch: launch() }).state;
+    state = step(state, store, { type: 'phone.launch', launch: launch() }).state;
+    expect(state.phoneLaunches).toHaveLength(1);
+    const opened = transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.open', sessionId: 's1' } });
+    expect(opened.state.phoneLaunches).toEqual([]);
+    expect(opened.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    const stopped = transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.stop', sessionId: 's1', stop: { runId: 'r1', working: true, aside: false, shellTabs: 0 } } });
+    expect(stopped.state.phoneLaunches).toEqual([]);
+    expect(stopped.state.overlay).toMatchObject({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1' } });
+    expect(transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.dismiss', sessionId: 's1' } }).state.phoneLaunches).toEqual([]);
+  });
+
+  it('その会話の画面を開いている間は、通知を出さない', () => {
+    const store = phoneStore();
+    const state = { ...step(initialState(), store, { type: 'phone.launch', launch: launch() }).state, screen: { name: 'session' as const, id: 's1' } };
+    expect(presentToasts(state, store, NOW).phoneLaunches).toEqual([]);
+  });
+
+  it('一覧の行と見出しの札に、ラベル「スマホから」を付け、Bypass permissions は「スマホから · Bypass permissions」', () => {
+    const plain = phoneStore();
+    const bypass = phoneStore({ fromPhone: { bypass: true } });
+    expect(presentSessionRow(plain.sessions.s1!, plain, NOW).phone).toEqual({ label: 'スマホから', title: 'スマホから起動したセッション', bypass: false });
+    expect(presentSessionRow(bypass.sessions.s1!, bypass, NOW).phone).toEqual({ label: 'スマホから · Bypass permissions', title: 'スマホから起動したセッション', bypass: true });
+    expect(presentSessionRow(storeWith().sessions.s2!, storeWith(), NOW).phone).toBeUndefined();
+    expect(presentSessionBadges(bypass.sessions.s1!, NOW, ja)).toEqual([{ kind: 'phoneBypass', label: 'スマホから · Bypass permissions', title: 'スマホから起動したセッション' }]);
+    expect(presentSessionBadges(plain.sessions.s1!, NOW, ja)).toEqual([{ kind: 'phone', label: 'スマホから', title: 'スマホから起動したセッション' }]);
   });
 });

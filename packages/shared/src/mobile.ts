@@ -147,7 +147,12 @@ export type MobileLaunchIn = { id: string; targetDevice: string; sealed: string;
  */
 export type MobileAskIn = { id: string; targetDevice: string; sealed: string; epoch: number };
 export type MobileAskOut = { sealed: string };
-export type MobileLaunchOut = { id: string; createdAt: number; sealed: string; epoch: number };
+/**
+ * PC の pull に添える起動の依頼（`GET /changes` の launches）。
+ * from は依頼を置いたスマホの ID で、Worker が端末トークンで知るもの（スマホが名乗るものではない）。
+ * PC はこれで名簿のスマホの名前を引き、右下の通知「〈スマホの名前〉から起動」に使う（試作 F1）。from を返さない Worker もあるので省ける。
+ */
+export type MobileLaunchOut = { id: string; createdAt: number; sealed: string; epoch: number; from?: string };
 /** 依頼の状態。答え（`sealedAnswer`）は依頼と同じ世代（`epoch`）で封じる。 */
 export type MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null; epoch: number };
 

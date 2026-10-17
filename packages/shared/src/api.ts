@@ -124,7 +124,18 @@ export type SessionDto = { id: string; provider: 'claude-code'; providerSessionI
    * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
    * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
    */
-  takenOver: { deviceName: string; at: number } | null };
+  takenOver: { deviceName: string; at: number } | null;
+  /**
+   * この PC がスマホの依頼で起こした会話（試作 F1）。bypass は Bypass permissions で起こしたこと。PC で起こした会話は null。
+   * 印は起こした PC の手元の表（mobile_launches）にだけあり、共有の sessions には載せないので、他の PC では null である。
+   */
+  fromPhone: { bypass: boolean } | null };
+/**
+ * スマホからの依頼でこの PC が会話を起こした知らせ（ServerEvent の phone.launch、右下の通知、試作 F1）。
+ * phone は名簿のスマホの名前で、分からなければ null。projectId は依頼のプロジェクトで、すぐ始める（scratch）では null。
+ * permissionMode は依頼の権限モード（空は既定）、title は起こしたときの会話の名前、at はこの PC の時計で起こした時刻。
+ */
+export type PhoneLaunchDto = { sessionId: string; phone: string | null; projectId: string | null; scratch: boolean; permissionMode: string; title: string; at: number };
 /**
  * 中断の原因。
  * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。

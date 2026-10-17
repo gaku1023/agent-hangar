@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut } from '@agent-hangar/shared';
+import { aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
 import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
@@ -81,16 +81,17 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
   };
   const homeDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-boot-mobile-')), 'home');
   homeDirs.push(path.dirname(homeDir));
+  const events: ServerEvent[] = [];
   const mobile = bootMobile({
     home: { db, device: { id: 'pc-a', name: 'PC A' }, home: homeDir },
-    delivery: { registry },
+    delivery: { registry, hub: { broadcast: (ev: ServerEvent) => { events.push(ev); } } },
     runs: { runs: { start, on }, accounts },
     sync,
     timers,
     now: () => timers.now,
   });
   return {
-    db, timers, client, mobile, homeDir, registryListeners, accounts, broadcasts, start, runListeners,
+    db, timers, client, mobile, homeDir, registryListeners, accounts, broadcasts, start, runListeners, events,
     engine: () => engine,
     setEngine: (e: FakeEngine) => { engine = e; },
     setLink: (l: typeof link) => { link = l; },
@@ -387,8 +388,8 @@ describe('bootMobile', () => {
   describe('起動の依頼', () => {
     const sealedLaunch = async (id: string, over: Record<string, unknown> = {}): Promise<string> =>
       seal(await mobileKey(), aadLaunch(id, 'pc-a'), { v: 1, createdAt: Date.now(), projectId: 'project-a', scratch: false, accountId: 'primary', permissionMode: '', model: '', prompt: '会話 1 を始める', ...over });
-    const deliver = async (s: ReturnType<typeof setup>, id: string, over: Record<string, unknown> = {}): Promise<void> => {
-      s.client.asDevice('phone').postLaunch({ id, targetDevice: 'pc-a', sealed: await sealedLaunch(id, over), epoch: 1 });
+    const deliver = async (s: ReturnType<typeof setup>, id: string, over: Record<string, unknown> = {}, from = 'phone'): Promise<void> => {
+      s.client.asDevice(from).postLaunch({ id, targetDevice: 'pc-a', sealed: await sealedLaunch(id, over), epoch: 1 });
       s.engine().emitLaunches((await s.client.pullChanges(0, 10)).launches ?? []);
     };
     const answerOf = async (s: ReturnType<typeof setup>, id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKey(), aadAnswer(id), s.client.launches.get(id)!.sealedAnswer!);
@@ -407,6 +408,20 @@ describe('bootMobile', () => {
       expect(s.start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', prompt: '会話 1 を始める' });
       expect(await answerOf(s, 'l1')).toMatchObject({ ok: true, sessionId: 's-new' });
       expect(nudge).toHaveBeenCalled();
+      s.mobile.stop();
+    });
+
+    it('起こしたら画面に phone.launch を配る。スマホの名前は一覧（名簿）のスマホの名前で、知らないスマホは null', async () => {
+      const s = setup({ devices: devicesDto([device('pc-a', 'pc'), { ...device('phone-1', 'mobile'), name: 'iPhone' }]) });
+      placeProject(s.db);
+      s.mobile.start();
+      await s.cloudDevices();
+      await deliver(s, 'l1', { permissionMode: 'bypassPermissions' }, 'phone-1');
+      await settle(() => s.events.some((e) => e.type === 'phone.launch'));
+      expect(s.events.filter((e) => e.type === 'phone.launch')).toEqual([{ type: 'phone.launch', launch: { sessionId: 's-new', phone: 'iPhone', projectId: 'project-a', scratch: false, permissionMode: 'bypassPermissions', title: '会話 1 を始める', at: expect.any(Number) } }]);
+      await deliver(s, 'l2', {}, 'phone-9');
+      await settle(() => s.events.filter((e) => e.type === 'phone.launch').length === 2);
+      expect(s.events.filter((e) => e.type === 'phone.launch').at(-1)).toMatchObject({ launch: { phone: null, permissionMode: '' } });
       s.mobile.stop();
     });
 

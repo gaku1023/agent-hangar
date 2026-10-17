@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
-import type { JoinCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { JoinCardProps, PhoneLaunchCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateAct, UpdateCardProps, WhatsNewCardProps } from '../presenters/update.ts';
 import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -27,14 +27,17 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
-const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind);
+const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind);
+
+/** スマホから起動した会話の通常の通知が出ている時間（Bypass permissions の通知は時間では消さない）。読む文が info より長いので、その 2 倍にする。 */
+export const PHONE_LAUNCH_TOAST_MS = INFO_TOAST_MS * 2;
 const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${c.card.sessionId}`);
 
 /**
  * 画面右下に積む知らせ。
- * 上から error と info のトースト、更新の札、更新したあとの札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 上から error と info のトースト、更新の札、更新したあとの札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、スマホから起動した会話の通知、並べきれない入力待ちの数、入力待ちのカードの順に積む。
  * トーストは操作の結果だけである。戻る時刻の札はホームの帯に、通知の誘いは始める前の確認に、保持期間と互換の知らせはヘッダーの注意にある。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
@@ -52,6 +55,7 @@ export function ToastStack(props: ToastsProps) {
     ...(props.arrived ? [{ kind: 'arrived' as const, count: props.arrived.count }] : []),
     ...(props.join ? [{ kind: 'join' as const, card: props.join }] : []),
     ...(props.phoneUndo ? [{ kind: 'phoneUndo' as const, name: props.phoneUndo.name }] : []),
+    ...(props.phoneLaunches ?? []).map((card) => ({ kind: 'phoneLaunch' as const, card })),
   ];
   const waits: WaitingItem[] = [
     ...(props.more > 0 ? [{ kind: 'more' as const, n: props.more }] : []),
@@ -68,6 +72,7 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'whatsNew') return <WhatsNewCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'join') return <JoinCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
         if (item.kind === 'phoneUndo') return <PhoneUndoCard key={key} name={item.name} motion={m} />;
+        if (item.kind === 'phoneLaunch') return <PhoneLaunchCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
       })}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
@@ -185,6 +190,35 @@ function PhoneUndoCard(props: { name: string; motion: CardMotion }) {
         <div className="notice-sub">{t('cloudMember.phone.undoBody', { name: props.name })}</div>
         <div className="notice-acts">
           <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.phone.undo' })}>{t('cloudMember.phone.undo')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * スマホから起動した会話の通知（試作 F1）。見出し「スマホから起動」、題「〈スマホの名前〉から起動：〈プロジェクト〉（〈権限モード〉）」、その下に会話の名前、「開く」。
+ * Bypass permissions で起こしたものは赤い通知（data-tone="err"、role="alert"）にし、注意の文と「停止」を置く。時間では消さない。
+ * 通常の通知は PHONE_LAUNCH_TOAST_MS で消える（乗せている間は止める）。
+ * 確認や入力のあるダイアログが開いている間（blocked）は、画面を移せず停止の確認も出せないので押せない。
+ */
+function PhoneLaunchCard(props: { card: PhoneLaunchCardProps; blocked: boolean; motion: CardMotion }) {
+  const emit = useEmit();
+  const t = useT();
+  const c = props.card;
+  const pause = useAutoDismiss(c.bypass ? null : PHONE_LAUNCH_TOAST_MS, () => emit({ type: 'phoneLaunch.dismiss', sessionId: c.sessionId }));
+  const head = t(c.bypass ? 'phoneLaunch.notice.headBypass' : 'phoneLaunch.notice.head');
+  const blockedTitle = props.blocked ? t('toasts.blocked.title') : undefined;
+  return (
+    <div className="toast notice" data-kind="phone-launch" data-tone={c.bypass ? 'err' : undefined} role={c.bypass ? 'alert' : 'status'} aria-label={head} {...motionAttrs(props.motion)} {...pause}>
+      <div className="notice-head">{c.bypass ? <Icon name="alert" /> : <span className="notice-dot" aria-hidden="true" />}<span className="notice-label">{head}</span></div>
+      <div className="notice-body">
+        <div className="notice-title">{c.title}</div>
+        <div className="notice-sub">{c.name}</div>
+        {c.bypass && <div className="notice-message">{t('phoneLaunch.notice.bypassNote')}</div>}
+        <div className="notice-acts">
+          {c.bypass && c.stop && <button type="button" className="btn btn-sm btn-danger" disabled={props.blocked} title={blockedTitle} onClick={() => emit({ type: 'phoneLaunch.stop', sessionId: c.sessionId, stop: c.stop! })}>{t('phoneLaunch.button.stop')}</button>}
+          <button type="button" className={c.bypass ? 'btn btn-sm btn-primary' : 'btn btn-sm'} disabled={props.blocked} title={blockedTitle} onClick={() => emit({ type: 'phoneLaunch.open', sessionId: c.sessionId })}>{t('phoneLaunch.button.open')}</button>
         </div>
       </div>
     </div>

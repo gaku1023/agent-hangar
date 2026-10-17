@@ -127,6 +127,9 @@
 .session-badges { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
 .session-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--st-active); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-active) 40%, transparent); }
 .session-badge[data-kind='stale'] { color: var(--st-paused); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 45%, transparent); }
+/* スマホから起動した会話のラベル（試作 F1）。一覧の行の .row-phone と同じ色で、Bypass permissions は赤い枠。 */
+.session-badge[data-kind='phone'] { color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+.session-badge[data-kind='phoneBypass'] { color: var(--error); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 55%, transparent); background: color-mix(in srgb, var(--error) 6%, transparent); }
 .session-badge[data-kind='remote'] { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
 /* ---- 目次だけの右パネル（240px）。畳む動きは、外の枠（overflow: hidden の列）が受け持つので、幅は固定にする。 ---- */

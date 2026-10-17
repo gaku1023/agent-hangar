@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { MOBILE_BELL_MIN_WORKER_COMPAT, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut } from '@agent-hangar/shared';
+import { MOBILE_BELL_MIN_WORKER_COMPAT, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
@@ -8,7 +8,7 @@ import { onIntent } from '../live/intents.ts';
 import { answerAsk } from '../mobile/asks.ts';
 import { MobileBell } from '../mobile/bell.ts';
 import { buildMobileFeed } from '../mobile/feed.ts';
-import { MobileLaunchInbox } from '../mobile/launchInbox.ts';
+import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
 import type { RegistryWatcher } from '../provider/claude-code/registry.ts';
 import type { RunManager } from '../runs/manager.ts';
@@ -70,6 +70,7 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
  * 依頼を扱うのも canCarryMobile が真のときだけで、版 6 の Worker には claim を送らない。
  * 依頼の effort と画像（drops に置いてパスを指示の末尾に足す）も受け取る。画像の置き場は hangar の home の下の drops である。
  * 起こせたら書き手を nudge し、スマホの受信箱に新しい会話を早く出す。
+ * 画面には phone.launch を配り、右下に「〈スマホの名前〉から起動」の通知を出させる（試作 F1）。スマホの名前は読めた一覧（名簿）から引く。
  * 答えを送れなかった依頼は、ANSWER_RESEND_TICK_MS ごとの見回りで送り直す。
  *
  * Worker の呼び鈴（mobile/bell.ts）も、書き手と受け手の隣に組み、リンクが変わるたびに組み直す。
@@ -81,7 +82,8 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
 export function bootMobile(p: {
   /** home は hangar の home（置き場 drops の親）。 */
   home: { db: Db; device: { id: string; name: string }; home: string };
-  delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'> };
+  /** hub は画面への配り口。スマホから起こした会話の右下の通知（phone.launch、試作 F1）を配る。無ければ配らない。 */
+  delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
   sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'> };
@@ -112,6 +114,8 @@ export function bootMobile(p: {
   /** 外していないスマホが居るのを見たあとで、受信箱の素をまだ Worker から消していないか。真のあいだは、スマホが居なくなったと分かるたびに消しに行く。 */
   let hadPhones = false;
   let checking = false;
+  /** 読めた一覧（名簿）のスマホの名前。ID から引く。右下の通知「〈スマホの名前〉から起動」に使う（試作 F1）。 */
+  let phoneNames = new Map<string, string>();
 
   const build = () => buildMobileFeed({
     db, deviceId, deviceName: p.home.device.name,
@@ -154,6 +158,7 @@ export function bootMobile(p: {
       hasAccount: (id) => accounts.store.list().some((a) => a.id === id),
       canProcess: () => p.sync.canCarryMobile(),
       now: Date.now,
+      onStarted: (e) => { void announceLaunch(e).catch((err: unknown) => console.error('[mobile] could not announce the started session', err instanceof Error ? err.constructor.name : typeof err)); },
     });
     const client = link.client;
     const bell = new MobileBell({
@@ -197,6 +202,7 @@ export function bootMobile(p: {
     if (stopped) return;
     if (d.state === 'unreachable') return;
     phonesAt = now();
+    if (d.state === 'ok') phoneNames = new Map(d.devices.flatMap((x) => (x.kind === 'mobile' && x.name ? [[x.id, x.name] as const] : [])));
     const next = d.state === 'ok' ? d.devices.some((x) => x.kind === 'mobile' && x.revokedAt === null) : d.state === 'outdated' ? false : null;
     const appeared = next === true && phones !== true;
     phones = next;
@@ -234,6 +240,20 @@ export function bootMobile(p: {
       checking = false;
       console.error('[mobile] could not read the device list', e instanceof Error ? e.constructor.name : typeof e);
     }
+  }
+  /**
+   * スマホの依頼で起こした会話を、画面の右下の通知に配る（phone.launch、試作 F1）。
+   * スマホの名前は読めた一覧（名簿）から引く。知らない ID なら一覧を 1 回だけ読み直し、それでも無ければ null（画面は「スマホから起動」と出す）。
+   */
+  async function announceLaunch(e: PhoneLaunchStarted): Promise<void> {
+    const hub = p.delivery.hub;
+    if (!hub) return;
+    let phone = e.from ? phoneNames.get(e.from) ?? null : null;
+    if (e.from && phone === null && p.sync.canCarryMobile()) {
+      await p.sync.cloudDevices().catch(() => undefined);
+      phone = phoneNames.get(e.from) ?? null;
+    }
+    hub.broadcast({ type: 'phone.launch', launch: { sessionId: e.sessionId, phone, projectId: e.projectId, scratch: e.scratch, permissionMode: e.permissionMode, title: e.title, at: now() } });
   }
   /** pull で届いた依頼を受け手へ渡す。投げない（engine の pull へ失敗を返さない）。 */
   function onLaunches(l: MobileLaunchOut[]): void {

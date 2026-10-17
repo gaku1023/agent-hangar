@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { markHit, risenKeys } from './motionKit.ts';
+import { growIn, markHit, risenKeys } from './motionKit.ts';
 
 /** 高密度の一覧。jsdom では要素の高さが 0 なので、テスト時は全件を素直に描く。
  * 行の高さは定数か、項目ごとに決める関数で渡す。
@@ -8,8 +8,9 @@ import { markHit, risenKeys } from './motionKit.ts';
  * 項目の鍵（keyOf）を仮想リストにも渡す。@tanstack/virtual は件数と鍵が変わらなければ、estimateSize が変わっても高さを測り直さない。
  * 節の見出しを挟んだ一覧で、件数が同じまま並びが変わると、古い高さのまま行と見出しが重なるからである。
  * scope を渡すと、並びの替わりを知らせる（⑤ の c）。並びはいきなり替え、上がった行と新しい鍵の行の中身にだけ markHit（淡い黄の薄れ）を付ける。
- * scope は一覧の切替の範囲（タブ、条件、ページ）で、替わった描画は知らせない。最初の描画、空から埋まった描画、鍵が全部替わった描画も知らせない。 */
-export function VirtualList<T>(props: { items: T[]; rowHeight: number | ((item: T, index: number) => number); height?: number | string; render: (item: T, index: number) => ReactNode; keyOf: (item: T) => string; head?: ReactNode; foot?: ReactNode; scope?: string }) {
+ * scope は一覧の切替の範囲（タブ、条件、ページ）で、替わった描画は知らせない。最初の描画、空から埋まった描画、鍵が全部替わった描画も知らせない。
+ * grows が真を返す新しい鍵の行は、markHit の代わりに growIn で伸びて入る（スマホから起動した会話の行、試作 F1）。上がっただけの行は markHit のまま。 */
+export function VirtualList<T>(props: { items: T[]; rowHeight: number | ((item: T, index: number) => number); height?: number | string; render: (item: T, index: number) => ReactNode; keyOf: (item: T) => string; head?: ReactNode; foot?: ReactNode; scope?: string; grows?: (item: T) => boolean }) {
   const { items, rowHeight, keyOf } = props;
   const parentRef = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: props.items.length, getScrollElement: () => parentRef.current, estimateSize: (i) => typeof rowHeight === 'function' ? rowHeight(items[i]!, i) : rowHeight, getItemKey: (i) => keyOf(items[i]!), overscan: 12 });
@@ -29,11 +30,13 @@ export function VirtualList<T>(props: { items: T[]; rowHeight: number | ((item: 
     const had = new Set(before);
     if (!keys.some((k) => had.has(k))) return;
     const risen = risenKeys(before, keys);
-    for (const k of keys) {
-      if (had.has(k) && !risen.has(k)) continue;
+    keys.forEach((k, i) => {
+      if (had.has(k) && !risen.has(k)) return;
       const inner = boxes.current.get(k)?.firstElementChild;
-      if (inner instanceof HTMLElement) markHit(inner);
-    }
+      if (!(inner instanceof HTMLElement)) return;
+      if (!had.has(k) && props.grows?.(items[i]!)) growIn(inner);
+      else markHit(inner);
+    });
   });
   return (
     <div className="list">

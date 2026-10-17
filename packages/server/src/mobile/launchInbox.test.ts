@@ -4,13 +4,14 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aadAnswer, aadImage, aadLaunch, appendPaths, quotePath, EFFORT_VALUES, LAUNCH_TTL_MS, MOBILE_IMAGE_MAX_BYTES, sealBytes, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import type { CloudClient } from '../sync/client.ts';
 import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 import { testKey } from '../../test/cloudConfig.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
-import { ANSWER_RESEND_WINDOW_MS, MOBILE_LAUNCH_KEEP_MS, MobileLaunchInbox } from './launchInbox.ts';
+import { ANSWER_RESEND_WINDOW_MS, MOBILE_LAUNCH_KEEP_MS, MobileLaunchInbox, type MobileLaunchInboxDeps } from './launchInbox.ts';
 
 /** PC の知らないスマホ用の鍵（別のクラウドの M）。 */
 const OTHER_KEY = testKey(11);
@@ -25,7 +26,7 @@ const result = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sessi
 const tmpDirs: string[] = [];
 afterEach(() => { for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-function setup(o: { start?: (p: LaunchParams) => LaunchResult; phoneKeys?: Pick<PhoneKeySource, 'at'> } = {}) {
+function setup(o: { start?: (p: LaunchParams) => LaunchResult; phoneKeys?: Pick<PhoneKeySource, 'at'>; onStarted?: MobileLaunchInboxDeps['onStarted'] } = {}) {
   const db = openDb(':memory:');
   const dropsDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-inbox-')), 'drops');
   tmpDirs.push(path.dirname(dropsDir));
@@ -37,11 +38,12 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult; phoneKeys?: Pick<
   const inbox = new MobileLaunchInbox({
     db, client: cloud, phoneKeys: o.phoneKeys ?? fixedPhoneKeys(), deviceId: 'pc-a', dropsDir, start, hasProjectHere,
     hasAccount: (id) => id === 'primary', canProcess: () => canProcess, now: () => now,
+    ...(o.onStarted ? { onStarted: o.onStarted } : {}),
   });
-  /** スマホの依頼を置き、pull で届く形（launches）を返す。key は封じる M（省けば M[1]）、epoch は依頼が名乗る世代（省けば 1）。 */
+  /** スマホの依頼を置き、pull で届く形（launches）を返す。key は封じる M（省けば M[1]）、epoch は依頼が名乗る世代（省けば 1）。置くのはスマホ phone-1 である。 */
   const post = async (id: string, p: unknown, o2: { key?: string; epoch?: number; aadTarget?: string; target?: string } = {}) => {
     const key = await phoneCryptoKey(o2.key ?? PHONE_KEY_1);
-    cloud.postLaunch({ id, targetDevice: o2.target ?? 'pc-a', sealed: await seal(key, aadLaunch(id, o2.aadTarget ?? 'pc-a'), p), epoch: o2.epoch ?? 1 });
+    cloud.asDevice('phone-1').postLaunch({ id, targetDevice: o2.target ?? 'pc-a', sealed: await seal(key, aadLaunch(id, o2.aadTarget ?? 'pc-a'), p), epoch: o2.epoch ?? 1 });
     return (await cloud.pullChanges(0, 100)).launches ?? [];
   };
   const answerOf = async (id: string, raw = PHONE_KEY_1): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await phoneCryptoKey(raw), aadAnswer(id), cloud.launches.get(id)!.sealedAnswer!);
@@ -55,10 +57,40 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult; phoneKeys?: Pick<
 }
 
 describe('MobileLaunchInbox', () => {
-  it('mobile_launches の表がある（版 29、答えの控えは版 31）', () => {
+  it('mobile_launches の表がある（版 29、答えの控えは版 31、起こした会話と権限モードは版 33）', () => {
     const db = openDb(':memory:');
     const cols = (db.prepare("select name from pragma_table_info('mobile_launches')").all() as { name: string }[]).map((r) => r.name);
-    expect(cols).toEqual(['id', 'handled_at', 'result', 'sealed_answer', 'ok', 'answered']);
+    expect(cols).toEqual(['id', 'handled_at', 'result', 'sealed_answer', 'ok', 'answered', 'session_id', 'permission_mode']);
+  });
+
+  it('スマホから起こすと、手元の記録に会話の ID と権限モードを控え、受け手に送り手のスマホと会話とプロジェクトと権限モードを渡す', async () => {
+    const onStarted = vi.fn();
+    const { db, inbox, post } = setup({ onStarted });
+    await inbox.receive(await post('l1', payload({ permissionMode: 'auto' })));
+    expect(db.prepare('select session_id, permission_mode from mobile_launches where id = ?').get('l1')).toEqual({ session_id: 's-new', permission_mode: 'auto' });
+    expect(onStarted).toHaveBeenCalledTimes(1);
+    expect(onStarted).toHaveBeenCalledWith({ sessionId: 's-new', from: 'phone-1', projectId: 'project-a', scratch: false, permissionMode: 'auto', title: 'TODO の先頭をやって' });
+  });
+
+  it('Bypass permissions の依頼も権限モードを控える。既定の権限モードは空で控える。起こせなかった依頼は会話を控えず、受け手も呼ばない', async () => {
+    const onStarted = vi.fn();
+    const { db, inbox, post } = setup({ onStarted });
+    await inbox.receive(await post('l1', payload({ permissionMode: 'bypassPermissions' })));
+    await inbox.receive(await post('l2', payload({ permissionMode: '' })));
+    await inbox.receive(await post('l3', payload({ projectId: 'project-b' })));
+    const row = (id: string) => db.prepare('select session_id, permission_mode from mobile_launches where id = ?').get(id);
+    expect(row('l1')).toEqual({ session_id: 's-new', permission_mode: 'bypassPermissions' });
+    expect(row('l2')).toEqual({ session_id: 's-new', permission_mode: '' });
+    expect(row('l3')).toEqual({ session_id: null, permission_mode: null });
+    expect(onStarted.mock.calls.map((c) => (c[0] as { permissionMode: string }).permissionMode)).toEqual(['bypassPermissions', '']);
+  });
+
+  it('受け手が投げても、起こした依頼の答えは started のまま送る', async () => {
+    const { cloud, inbox, post } = setup({ onStarted: () => { throw new Error('boom'); } });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await inbox.receive(await post('l1', payload()));
+    expect(cloud.launches.get('l1')!.status).toBe('started');
+    err.mockRestore();
   });
 
   it('正しい依頼で start が 1 回呼ばれ、答えに sessionId が入る', async () => {
@@ -563,5 +595,21 @@ describe('MobileLaunchInbox の記録の掃除', () => {
     expect(recorded('edge')).toBeDefined();
     expect(recorded('new')).toBeDefined();
     expect(recorded('l1')).toBeDefined();
+  });
+
+  it('起こした会話の行は、7 日を過ぎても会話が残っている間は消さない（ラベル「スマホから」を保つ）。会話を消したら消す', async () => {
+    const { db, inbox, post, recorded, setNow } = setup();
+    upsertShared(db, 'sessions', { id: 's-kept', provider: 'claude-code', provider_session_id: 'u-kept', cwd: '/w/a', home_device: 'pc-a' }, 'pc-a');
+    upsertShared(db, 'sessions', { id: 's-gone', provider: 'claude-code', provider_session_id: 'u-gone', cwd: '/w/a', home_device: 'pc-a' }, 'pc-a');
+    softDeleteShared(db, 'sessions', 's-gone', 'pc-a');
+    const ins = db.prepare('insert into mobile_launches (id, handled_at, result, answered, session_id, permission_mode) values (?, ?, ?, 1, ?, ?)');
+    ins.run('kept', T0 - MOBILE_LAUNCH_KEEP_MS - 1, 'started', 's-kept', 'auto');
+    ins.run('gone', T0 - MOBILE_LAUNCH_KEEP_MS - 1, 'started', 's-gone', 'auto');
+    ins.run('missing', T0 - MOBILE_LAUNCH_KEEP_MS - 1, 'started', 's-missing', 'auto');
+    setNow(T0);
+    await inbox.receive(await post('l1', payload()));
+    expect(recorded('kept')).toBeDefined();
+    expect(recorded('gone')).toBeUndefined();
+    expect(recorded('missing')).toBeUndefined();
   });
 });

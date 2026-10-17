@@ -55,7 +55,8 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     expect(r.status).toBe(201);
     expect(await r.json()).toEqual({ id: 'l-1', status: 'pending', sealedAnswer: null, epoch: 1 } satisfies MobileLaunchStatus);
     const a = await pull(pcA);
-    expect(a.launches).toEqual([{ id: 'l-1', createdAt: expect.any(Number), sealed: 'sealed-req', epoch: 1 }]);
+    // from は送り手のスマホの ID（Worker が端末トークンで知るもの）。PC はこれで名簿のスマホの名前を引く。
+    expect(a.launches).toEqual([{ id: 'l-1', createdAt: expect.any(Number), sealed: 'sealed-req', epoch: 1, from: phone.deviceId }]);
     expect(a.launches![0]!.createdAt).toBeGreaterThanOrEqual(before);
     expect((await pull(pcB)).launches).toEqual([]);
     // 平文で置くのは宛先と送り手と時刻と状態だけ。中身は封をしたまま。
@@ -69,7 +70,7 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     const r = await launch(phone.token, { id: 'l-3', targetDevice: 'pc-a', sealed: 'sealed-req', epoch: 3 });
     expect(r.status).toBe(201);
     expect(await r.json()).toEqual({ id: 'l-3', status: 'pending', sealedAnswer: null, epoch: 3 });
-    expect((await pull(pc)).launches).toEqual([{ id: 'l-3', createdAt: expect.any(Number), sealed: 'sealed-req', epoch: 3 }]);
+    expect((await pull(pc)).launches).toEqual([{ id: 'l-3', createdAt: expect.any(Number), sealed: 'sealed-req', epoch: 3, from: phone.deviceId }]);
     expect((await cloud.env.DB.prepare('select epoch from launch_requests where id = ?').bind('l-3').first<{ epoch: number }>())?.epoch).toBe(3);
     // 答えは依頼と同じ世代で封じる（Worker は答えの世代を別に持たない）。
     expect((await claim(pc, 'l-3')).status).toBe(200);

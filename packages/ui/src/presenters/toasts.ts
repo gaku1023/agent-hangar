@@ -1,6 +1,9 @@
 import { overlayReplaceable } from '../mediator/overlay.ts';
 import type { State, Toast } from '../mediator/types.ts';
-import { settingsSectionOf, stopReasonOf } from '@agent-hangar/shared';
+import { settingsSectionOf, stopReasonOf, type Translate } from '@agent-hangar/shared';
+import { PERMISSION_BYPASS, permissionLabel } from '../views/primitives/permissionModel.ts';
+import { projectDisplayName } from './projectName.ts';
+import { presentSessionMenu, type SessionMenuStop } from './sessionMenu.ts';
 import { osLabel, sasText } from './cloudMember.ts';
 import type { Store } from '../store/store.ts';
 import { durationLabel } from './format.ts';
@@ -29,8 +32,30 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * update は、アプリの更新の札（presenters/update.ts）。どの画面でも出す（画面を移さないので、ダイアログが開いていても押せる）。
  * join は、発行した参加コードへの参加リクエストの通知（試作 C1）。承認か拒否か期限切れで消える。設定のクラウド同期を開いている間は、そこの欄が同じことを言うので出さない。
  * phoneUndo は、スマホの解除の「元に戻す」（試作 E2）。Runtime が 5 秒を数え、解除を送るか元に戻すと消える。どの画面でも出す。
+ * phoneLaunches は、スマホからの依頼でこの PC が起こした会話の通知（試作 F1）。受信した順で、その会話の画面を開いている間は出さない。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[] };
+
+/**
+ * スマホから起動した会話の通知の中身（試作 F1）。
+ * title は「〈スマホの名前〉から起動：〈プロジェクト〉（〈権限モード〉）」、name は会話の名前（まだ一覧に無ければ依頼の題）。
+ * bypass は Bypass permissions で起こしたことで、赤い通知にして「停止」を置く。stop は止める run（セッションのメニューの停止と同じ中身）で、動いていなければ null。
+ */
+export type PhoneLaunchCardProps = { sessionId: string; title: string; name: string; bypass: boolean; stop: SessionMenuStop | null };
+
+function presentPhoneLaunches(state: State, store: Store, t: Translate): PhoneLaunchCardProps[] {
+  return state.phoneLaunches.flatMap((l): PhoneLaunchCardProps[] => {
+    if (state.screen.name === 'session' && state.screen.id === l.sessionId) return [];
+    const s = store.sessions[l.sessionId];
+    const projectId = s?.projectId ?? l.projectId;
+    const p = projectId ? store.projects[projectId] : undefined;
+    const project = p ? projectDisplayName(p, t) : l.scratch ? t('project.name.quick') : t('common.label.uncategorized');
+    const mode = permissionLabel(l.permissionMode, t);
+    const title = l.phone ? t('phoneLaunch.notice.title', { phone: l.phone, project, mode }) : t('phoneLaunch.notice.titleUnknown', { project, mode });
+    const menu = s ? presentSessionMenu(store, s, t).stop : null;
+    return [{ sessionId: l.sessionId, title, name: s?.name ?? l.title, bypass: l.permissionMode === PERMISSION_BYPASS, stop: menu && menu !== 'external' ? menu : null }];
+  });
+}
 
 /** 参加リクエストの通知の中身。os は表示名、sas は区切りつきの確認コード（123 456）。 */
 export type JoinCardProps = { name: string; os: string; sas: string };
@@ -70,5 +95,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   });
   const waiting = cards.slice(-SHOWN);
   const arrived = arrivedCount(store, state.arrivedProjects);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches: presentPhoneLaunches(state, store, t) };
 }

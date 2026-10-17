@@ -127,7 +127,8 @@ export type FakeCloudStore = {
 };
 
 /** 偽物の Worker が持つ起動の依頼の 1 行。状態の進み方は実物（packages/cloud/src/mobile.ts）と同じ。 */
-export type FakeLaunch = { id: string; targetDevice: string; createdAt: number; sealed: string; status: 'pending' | 'claimed' | 'started' | 'failed'; sealedAnswer: string | null; epoch: number };
+/** fromDevice は依頼を置いた端末（postLaunch を呼んだクライアントの ID）。pull の launches の from に返す。 */
+export type FakeLaunch = { id: string; targetDevice: string; fromDevice: string; createdAt: number; sealed: string; status: 'pending' | 'claimed' | 'started' | 'failed'; sealedAnswer: string | null; epoch: number };
 /** 偽物の Worker が持つ受信箱の素の 1 行（実物の mobile_feeds）。 */
 export type FakeFeed = { sealed: string; updatedAt: number; epoch: number };
 /**
@@ -513,7 +514,7 @@ export class FakeWireClient implements WireCloudClient {
       .filter((l) => l.targetDevice === this.deviceId && l.status === 'pending' && l.createdAt > now - LAUNCH_TTL_MS)
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, PULL_LAUNCH_LIMIT)
-      .map((l) => ({ id: l.id, createdAt: l.createdAt, sealed: l.sealed, epoch: l.epoch }));
+      .map((l) => ({ id: l.id, createdAt: l.createdAt, sealed: l.sealed, epoch: l.epoch, from: l.fromDevice }));
   }
 
   /**
@@ -525,7 +526,7 @@ export class FakeWireClient implements WireCloudClient {
     if (ENC.encode(JSON.stringify(l)).byteLength > MAX_LAUNCH_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
     if (!isEpoch(l.epoch)) throw new CloudError(400, errorBody('invalid body'));
     if (this.store.launches.has(l.id)) return;
-    this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null, epoch: l.epoch });
+    this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, fromDevice: this.deviceId, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null, epoch: l.epoch });
   }
 
   /**

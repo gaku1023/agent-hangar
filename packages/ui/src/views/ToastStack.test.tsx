@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { fakeMotionTokens } from '../test/motion.ts';
 import type { Toast } from '../mediator/types.ts';
-import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { PhoneLaunchCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateCardProps } from '../presenters/update.ts';
-import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
+import { INFO_TOAST_MS, PHONE_LAUNCH_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, reason: null, ask: null, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, join: null, phoneUndo: null, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, join: null, phoneUndo: null, phoneLaunches: [], ...over });
 function mount(p: ToastsProps) {
   const onAction = vi.fn();
   const r = render(<ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot>);
@@ -135,6 +135,52 @@ describe('スマホの解除の「元に戻す」（試作 E2）', () => {
   it('確認や入力のあるダイアログが開いていても押せる（画面を移さない）', () => {
     mount(props({ phoneUndo: { name: 'iPhone' }, blocked: true }));
     expect(screen.getByRole('button', { name: '元に戻す' })).toBeEnabled();
+  });
+});
+
+describe('スマホから起動したセッションの通知（試作 F1）', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  const stop = { runId: 'r1', working: true, aside: false, shellTabs: 0 };
+  const launch = (over: Partial<PhoneLaunchCardProps> = {}): PhoneLaunchCardProps => ({ sessionId: 's1', title: 'iPhone から起動：project-a（Auto）', name: 'ログの出力を減らす', bypass: false, stop, ...over });
+
+  it('右下に「〈スマホの名前〉から起動：〈プロジェクト〉（〈権限モード〉）」と会話の名前と「開く」を出し、押すとその会話を開く', () => {
+    const { onAction } = mount(props({ phoneLaunches: [launch()] }));
+    const c = screen.getByRole('status', { name: 'スマホから起動' });
+    expect(c).toHaveAttribute('data-kind', 'phone-launch');
+    expect(c).not.toHaveAttribute('data-tone');
+    expect(within(c.querySelector<HTMLElement>('.notice-head')!).getByText('スマホから起動')).toBeInTheDocument();
+    expect(c.querySelector('.notice-title')).toHaveTextContent('iPhone から起動：project-a（Auto）');
+    expect(c.querySelector('.notice-sub')).toHaveTextContent('ログの出力を減らす');
+    expect(within(c).queryByRole('button', { name: '停止' })).toBeNull();
+    fireEvent.click(within(c).getByRole('button', { name: '開く' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'phoneLaunch.open', sessionId: 's1' });
+  });
+
+  it('通常の通知は時間で消え（乗せている間は止める）、Bypass permissions の通知は時間では消さない', () => {
+    const { onAction } = mount(props({ phoneLaunches: [launch(), launch({ sessionId: 's2', bypass: true })] }));
+    act(() => { vi.advanceTimersByTime(PHONE_LAUNCH_TOAST_MS); });
+    expect(onAction.mock.calls).toEqual([[{ type: 'phoneLaunch.dismiss', sessionId: 's1' }]]);
+    act(() => { vi.advanceTimersByTime(PHONE_LAUNCH_TOAST_MS * 5); });
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('Bypass permissions は赤い通知（data-tone="err"）で、見出しに Bypass permissions、注意の文、「停止」と「開く」を置く。「停止」は停止の流れに渡す', () => {
+    const { onAction } = mount(props({ phoneLaunches: [launch({ title: 'iPhone から起動：project-b（Bypass permissions）', bypass: true })] }));
+    const c = screen.getByRole('alert', { name: 'スマホから起動 · Bypass permissions' });
+    expect(c).toHaveAttribute('data-kind', 'phone-launch');
+    expect(c).toHaveAttribute('data-tone', 'err');
+    expect(c.querySelector('.notice-title')).toHaveTextContent('iPhone から起動：project-b（Bypass permissions）');
+    expect(c).toHaveTextContent('Claude はツールを使用する前に確認しません。心当たりがない場合は停止してください。');
+    expect(within(c).getAllByRole('button').map((b) => b.textContent)).toEqual(['停止', '開く']);
+    fireEvent.click(within(c).getByRole('button', { name: '停止' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'phoneLaunch.stop', sessionId: 's1', stop });
+  });
+
+  it('止める run が無ければ「停止」を出さない。確認や入力のあるダイアログが開いている間は押せない', () => {
+    mount(props({ phoneLaunches: [launch({ bypass: true, stop: null })], blocked: true }));
+    expect(screen.queryByRole('button', { name: '停止' })).toBeNull();
+    expect(screen.getByRole('button', { name: '開く' })).toBeDisabled();
   });
 });
 
