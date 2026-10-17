@@ -30,6 +30,16 @@ describe('名簿の封', () => {
     await expect(openRoster(key, 5, sealed)).rejects.toBeInstanceOf(E2eOpenError);
   });
 
+  it('世代の番号の確保（epochClaim）も封じて戻る。無い名簿は無いまま開け、形の違う確保は開けない', async () => {
+    const key = (await deriveEpochKeys(1, randomEpochKey())).roster;
+    const claimed: Roster = { ...(await sample()), epochClaim: { epoch: 3, by: 'pc-a' } };
+    expect(await openRoster(key, 2, await sealRoster(key, 2, claimed))).toEqual(claimed);
+    const plain = await openRoster(key, 3, await sealRoster(key, 3, await sample()));
+    expect('epochClaim' in plain).toBe(false);
+    const bad = { ...(await sample()), epochClaim: { epoch: '3', by: 'pc-a' } } as unknown as Roster;
+    await expect(openRoster(key, 4, await sealRoster(key, 4, bad))).rejects.toBeInstanceOf(E2eOpenError);
+  });
+
   it('行の鍵では開けない（用途の鍵が別）', async () => {
     const ek = await deriveEpochKeys(1, randomEpochKey());
     const sealed = await sealRoster(ek.roster, 1, await sample());

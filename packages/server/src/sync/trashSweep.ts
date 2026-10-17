@@ -24,9 +24,9 @@ import type { RowKeyring } from './sealedClient.ts';
 /** 掃除の間隔。同期の巡回のついでに 6 時間に 1 回走らせる（boot/sync.ts）。 */
 export const TRASH_SWEEP_EVERY_MS = 6 * 3_600_000;
 
-/** この PC が上げた本文の世代を控える。uploader が PUT の成功の後に呼ぶ。 */
-export function noteBlobUpload(db: Db, ledgerKey: string, epoch: number): void {
-  db.prepare('insert or ignore into blob_uploads (ledger_key, epoch) values (?, ?)').run(ledgerKey, epoch);
+/** この PC が上げた本文の世代を控える。uploader が PUT の成功の後に呼ぶ。その本文をその世代で上げたのが初めてなら true。 */
+export function noteBlobUpload(db: Db, ledgerKey: string, epoch: number): boolean {
+  return db.prepare('insert or ignore into blob_uploads (ledger_key, epoch) values (?, ?)').run(ledgerKey, epoch).changes > 0;
 }
 
 /** LIKE の型の中で、文字どおりに読ませたい文字を逃がす。 */

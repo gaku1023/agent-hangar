@@ -510,10 +510,11 @@ export class TranscriptUploader {
       on conflict(key) do update set path = excluded.path, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
       .run(key, 'transcript', rel, this.deps.deviceId, sha, size, meta.mtime, seq, this.now());
     // 上げた世代を控える。ゴミ箱の掃除が、世代ごとに残る鍵名を求め直して消す（sync/trashSweep.ts）。
-    noteBlobUpload(this.deps.db, key, cur.epoch);
-    // 世代を回した後に上げ直したなら、古い世代の鍵名の本文を消す。新しい鍵名で上げた後なので本文は失われない。
-    // 消せなくても上げたことは変わらないので投げない（断られた分は 6 時間ごとの掃除が拾う）。
-    try {
+    const firstInEpoch = noteBlobUpload(this.deps.db, key, cur.epoch);
+    // 世代を回した後に初めて上げ直したなら、古い世代の鍵名の本文を消す。新しい鍵名で上げた後なので本文は失われない。
+    // 消せなくても上げたことは変わらないので投げない。
+    // 断られた分（置いてから 1 時間たっていない）は 6 時間ごとの掃除に任せ、同じ世代で上げるたびには打ち直さない。
+    if (firstInEpoch) try {
       await sweepSupersededBlobs({ db: this.deps.db, client: this.deps.client, keyring: this.deps.keyring, deviceId: this.deps.deviceId, ledgerKey: key });
     } catch (e) {
       console.warn('[upload] could not delete the copy under the previous epoch', e instanceof Error ? e.constructor.name : typeof e);

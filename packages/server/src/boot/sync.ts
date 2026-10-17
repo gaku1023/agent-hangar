@@ -19,7 +19,7 @@ import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
-import { resumeRotation, revokeMember, type RotateDeps } from '../sync/rotate.ts';
+import { readRotation, resumeRotation, revokeMember, rotationRetrier, type RotateDeps } from '../sync/rotate.ts';
 import { sweepSupersededBlobs, sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
 import { TranscriptUploader } from '../sync/uploader.ts';
 import { CloudUsagePoller } from '../sync/usage.ts';
@@ -40,8 +40,6 @@ export const UPLOAD_SWEEP_MS = 60_000;
 export const CONFIG_BUNDLE_TICK_MS = 60_000;
 /** 起動から最初のゴミ箱の掃除までの間。最初の同期と取り残しの走査を先に通す。 */
 const TRASH_SWEEP_FIRST_MS = 5 * 60_000;
-/** 世代の回しの続き（sync/rotate.ts の resumeRotation）が失敗したときに、もう一度試すまでの間。 */
-const ROTATION_RETRY_MS = 5 * 60_000;
 /** fs.watch が使えないときだけ、cloud.json が現れたかを読み直す間隔。 */
 export const CLOUD_JSON_POLL_MS = 30_000;
 /** cloud.json の変化を拾ってから読むまでの間。書き込みの連続を 1 回にまとめる。 */
@@ -181,9 +179,11 @@ type Core = {
   trashTimers: { first: ReturnType<typeof setTimeout>; every: ReturnType<typeof setInterval> } | null;
   /** 他の端末の解除。同期を設定していなければ null。 */
   revoke: ((id: string) => Promise<DeviceOut>) | null;
-  /** 回しの途中の記録があれば続きから終わらせる（起動のとき）。同期を設定していなければ null。 */
-  resumeRotation: (() => Promise<boolean>) | null;
-  rotationRetry: ReturnType<typeof setTimeout> | null;
+  /**
+   * 回しの途中の記録の続きと、その試し直し（sync/rotate.ts の rotationRetrier）。同期を設定していなければ null。
+   * 起動のときと、動いている間の解除が失敗して記録が残ったときに、5 分おきに試し直す。
+   */
+  rotationRetry: ReturnType<typeof rotationRetrier> | null;
 };
 
 /**
@@ -348,7 +348,7 @@ export function bootSync(
       : null;
     // 参加コードの発行と承認。状態は設定の画面へ、新しいリクエストは右下の通知と OS の通知へ渡す。
     const joinApprover = wire && roster && keyring
-      ? new JoinApprover({ wire, roster, keyring, language: home.language, ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
+      ? new JoinApprover({ wire, roster, keyring, language: home.language, onGained: () => onKeysGained(), ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
       : null;
     // 他の端末の解除と世代の回し。一時停止の間も行う（利用者が頼んだ操作である）。
     // 解除と回しの続きは 1 本の鎖に並べ、2 つの回しを重ねない。
@@ -361,9 +361,22 @@ export function bootSync(
       rotating = next.catch(() => {});
       return next;
     };
-    const revoke = rotateDeps ? (id: string): Promise<DeviceOut> => serial(() => revokeMember({ ...rotateDeps, id })) : null;
-    const resume = rotateDeps ? (): Promise<boolean> => serial(() => resumeRotation(rotateDeps)) : null;
-    const c: Core = { cloud, client, roster, joinApprover, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, resumeRotation: resume, rotationRetry: null };
+    const retry = rotateDeps
+      ? rotationRetrier({
+          resume: () => serial(() => resumeRotation(rotateDeps)),
+          pending: () => readRotation(rotateDeps.state, rotateDeps.cfg.read().cloudId) !== null,
+          timers: { set: (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return t; }, clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+        })
+      : null;
+    // 動いている間の解除が途中で失敗して記録が残ったら、起動のときと同じく 5 分おきに続きを試す（画面は「自動で再試行します」と出す）。
+    const revoke = rotateDeps && retry
+      ? (id: string): Promise<DeviceOut> =>
+          serial(() => revokeMember({ ...rotateDeps, id })).catch((e: unknown) => {
+            retry.failed(e);
+            throw e;
+          })
+      : null;
+    const c: Core = { cloud, client, roster, joinApprover, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
     built = c;
     return c;
   };
@@ -416,19 +429,8 @@ export function bootSync(
       c.trashTimers.every.unref();
     }
     // 前の起動で世代の回しが途中で止まっていれば、続きから終わらせる（sync/rotate.ts）。
-    // 届かなければ、間を置いて試し直す。記録が無ければ Worker には何も送らない。
-    const resume = c.resumeRotation;
-    if (resume) {
-      const attempt = (): void => {
-        c.rotationRetry = null;
-        resume().catch((e: unknown) => {
-          console.error('[rotate] could not finish rotating the epoch key; trying again later', e instanceof Error ? e.message : e);
-          c.rotationRetry = setTimeout(attempt, ROTATION_RETRY_MS);
-          c.rotationRetry.unref();
-        });
-      };
-      attempt();
-    }
+    // 届かなければ、間を置いて試し直す（解除済みの自分では試し直さない）。記録が無ければ Worker には何も送らない。
+    c.rotationRetry?.start();
   };
   const stopCoreTimers = (c: Core): void => {
     c.joinApprover?.stop();
@@ -436,7 +438,7 @@ export function bootSync(
     c.cloudUsage.stop();
     if (c.uploadTimer) clearInterval(c.uploadTimer);
     if (c.trashTimers) { clearTimeout(c.trashTimers.first); clearInterval(c.trashTimers.every); }
-    if (c.rotationRetry) { clearTimeout(c.rotationRetry); c.rotationRetry = null; }
+    c.rotationRetry?.stop();
     c.once.stopTicker();
   };
 

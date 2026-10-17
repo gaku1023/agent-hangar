@@ -101,6 +101,11 @@ export type FakeCloudStore = {
   beforeRosterPut: (() => Promise<void>) | null;
   /** この回数だけ、次からの PUT /roster を版の食い違い（409）で断る。 */
   rejectRosterPuts: number;
+  /**
+   * 参加リクエストを置いた、まだ端末トークンを受け取っていない PC。受け手の ID から、参加コードを発行した PC の ID へ。
+   * 実物と同じく、その PC 宛ての keybox は発行した PC だけが置ける（offerJoin と redeemJoin）。
+   */
+  joinOffers: Map<string, string>;
   /** PC ごとの受信箱の素（PUT /m/feed）。実物の mobile_feeds の表に当たる。 */
   mobileFeeds: Map<string, { sealed: string; updatedAt: number }>;
   /** スマホからの起動の依頼（POST /m/launches）。実物の launch_requests の表に当たる。 */
@@ -237,6 +242,7 @@ export class FakeWireClient implements WireCloudClient {
       keyboxes: new Map(),
       beforeRosterPut: null,
       rejectRosterPuts: 0,
+      joinOffers: new Map(),
       mobileFeeds: new Map(),
       launches: new Map(),
       mobileBlobs: new Map(),
@@ -387,7 +393,7 @@ export class FakeWireClient implements WireCloudClient {
   /**
    * PUT /keyboxes。実物（packages/cloud/src/keys.ts）と同じく、1 回に MAX_KEYBOXES_PER_PUT 件まで。
    * 受け手は解除されていない PC か `recovery` で、ほかが 1 つでも混ざれば何も書かずに 400 で断る。
-   * 偽物は参加リクエストを置いた PC（承認の前の受け手）を持たないので、その道は addDevice で先に端末を置いて真似る。
+   * 参加リクエストを置いた PC（承認の前の受け手）は、offerJoin でその PC を置いた発行した PC だけが受け手にできる。
    * 書いたら印の行を、本文のいちばん新しい世代で進める。
    */
   async putKeyboxes(boxes: KeyboxIn[]): Promise<KeyboxesPutOut> {
@@ -397,6 +403,7 @@ export class FakeWireClient implements WireCloudClient {
     for (const b of boxes) {
       if (b.recipient === RECOVERY_RECIPIENT) continue;
       const d = this.store.devices.get(b.recipient);
+      if (this.store.joinOffers.get(b.recipient) === this.deviceId && !d) continue;
       if (!d || d.kind !== 'pc' || d.revokedAt !== null) throw new CloudError(400, errorBody('unknown recipient'));
     }
     for (const b of boxes) {
@@ -657,6 +664,17 @@ export class FakeWireClient implements WireCloudClient {
   /** 参加を承認した PC の行を置く（参加の口の真似。試験の口で、WireCloudClient には無い）。 */
   addDevice(id: string): void {
     if (!this.store.devices.has(id)) this.store.devices.set(id, newDevice(id, this.store.now()));
+  }
+
+  /** この PC が発行した参加コードに、id の PC がリクエストを置いた（承認の前。試験の口で、WireCloudClient には無い）。 */
+  offerJoin(id: string): void {
+    this.store.joinOffers.set(id, this.deviceId);
+  }
+
+  /** 承認された PC が端末トークンを受け取った（試験の口）。以後はふつうの PC として受け手になれる。 */
+  redeemJoin(id: string): void {
+    this.store.joinOffers.delete(id);
+    this.addDevice(id);
   }
 
   /** 偽の Worker が保存した値の全部（D1 の表と R2 に当たるもの）。平文が残っていないかを走査する試験が読む。 */
