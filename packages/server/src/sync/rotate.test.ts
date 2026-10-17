@@ -488,9 +488,15 @@ describe('2 台が同時に別の PC を解除する', () => {
     const gated = (pc: Pc): RosterStore =>
       new RosterStore(before(pc.wire, 'putRoster', async () => { if (++arrived === 2) release(); await gate; }), pc.keyring, pc.cfg, pc.id);
     const conflicts = (): number => [...a.wire.calls, ...b.wire.calls].filter((c) => c.method === 'putRoster').length - (wire.roster!.version - 1);
+    // 番号を付け替えた側は、越えた世代の鍵を待つ。その間は、もう片方の回しが終わるのを待つ（実時間に依らない）。
+    // 先に番号を取った側は待たないので、互いに待ち合うことはない。
+    let doneA!: () => void;
+    let doneB!: () => void;
+    const aDone = new Promise<void>((r) => { doneA = r; });
+    const bDone = new Promise<void>((r) => { doneB = r; });
     await Promise.all([
-      revokePc({ id: 'pc-c', ...opts(a, a.wire, { roster: gated(a) }) }),
-      revokePc({ id: 'pc-d', ...opts(b, b.wire, { roster: gated(b) }) }),
+      revokePc({ id: 'pc-c', ...opts(a, a.wire, { roster: gated(a), sleep: () => bDone }) }).finally(doneA),
+      revokePc({ id: 'pc-d', ...opts(b, b.wire, { roster: gated(b), sleep: () => aDone }) }).finally(doneB),
     ]);
     expect(conflicts()).toBeGreaterThanOrEqual(2);
 
@@ -518,6 +524,73 @@ describe('2 台が同時に別の PC を解除する', () => {
     const roster = (await e.roster.read()).roster;
     expect(roster.entries.map((x) => x.id)).toEqual(['pc-a', 'pc-b', 'pc-e']);
     expect(roster.epochClaim?.epoch).toBe(4);
+  });
+});
+
+describe('回しかけの記録が、世代を確保した PC の鍵を待って止まっている', () => {
+  /** pc-b が pc-d を解除して世代 3 を確保し、配る前に落ちたまま戻らない。pc-a の pc-c の解除は、世代 4 に付け替えて世代 3 を待ち、止まる。 */
+  async function stuck(ids: string[]) {
+    const s = await setup(ids);
+    const b = await s.pcOf('pc-b', s.seeded.configs['pc-b']!);
+    await expect(revokePc({ id: 'pc-d', ...opts(b, crashingAt(b.wire, 'putKeyboxes')) })).rejects.toThrow('crashed');
+    await expect(revokePc({ id: 'pc-c', ...opts(s.a) })).rejects.toThrow(/has not arrived/);
+    expect(rotation(s.a)).toMatchObject({ id: 'pc-c', newEpoch: 4, step: 'boxes', after: { epoch: 3, by: 'pc-b' } });
+    return s;
+  }
+
+  /** 残りの PC が、keybox を読み直して各世代の行を開けるか。 */
+  async function remainingOpens(s: Awaited<ReturnType<typeof setup>>, id: string, epochs: number[]) {
+    const pc = await s.pcOf(id, s.seeded.configs[id]!);
+    await pc.roster.refreshKeyboxes();
+    for (const n of epochs) expect(await opens(s.a.cfg.current.epochs[String(n)]!, pc.cfg.current.epochs[String(n)], n)).toBe(true);
+    expect(pc.keyring.current().epoch).toBe(Math.max(...epochs));
+    return pc;
+  }
+
+  it('その確保した PC を解除すると、先に端末トークンを無効にして待ちを抜け、両方の回しを終える。残りの PC はどちらの世代の行も開ける', async () => {
+    const s = await stuck(['pc-a', 'pc-b', 'pc-c', 'pc-d', 'pc-e']);
+    const row = await revokePc({ id: 'pc-b', ...opts(s.a) });
+    expect(row?.id).toBe('pc-b');
+    expect(row?.revokedAt).not.toBeNull();
+    expect(rotation(s.a)).toBeNull();
+    expect(s.a.keyring.current().epoch).toBe(5);
+    const e = await remainingOpens(s, 'pc-e', [4, 5]);
+    for (const id of ['pc-b', 'pc-c', 'pc-d']) {
+      const got = s.wire.storeForScan().keyboxes.get(id);
+      expect(Boolean(got?.has(4) || got?.has(5))).toBe(false);
+    }
+    expect((await e.roster.read()).roster.entries.map((x) => x.id)).toEqual(['pc-a', 'pc-e']);
+  });
+
+  it('別の PC を解除したときは、端末トークンを無効にして記録に積み、待ちは投げる。確保した PC を解除すれば、積んだ分まで回し終える', async () => {
+    const s = await stuck(['pc-a', 'pc-b', 'pc-c', 'pc-d', 'pc-e', 'pc-f']);
+    await expect(revokePc({ id: 'pc-f', ...opts(s.a) })).rejects.toThrow(/has not arrived/);
+    expect(s.wire.storeForScan().devices.get('pc-f')?.revokedAt).not.toBeNull();
+    expect(rotation(s.a)).toMatchObject({ id: 'pc-c', step: 'boxes', next: ['pc-f'] });
+    // 積んだ PC をもう一度解除しても、二重には積まない。
+    await expect(revokePc({ id: 'pc-f', ...opts(s.a) })).rejects.toThrow(/has not arrived/);
+    expect(rotation(s.a)).toMatchObject({ next: ['pc-f'] });
+
+    expect((await revokePc({ id: 'pc-b', ...opts(s.a) }))?.id).toBe('pc-b');
+    expect(rotation(s.a)).toBeNull();
+    expect(s.a.keyring.current().epoch).toBe(6);
+    await remainingOpens(s, 'pc-e', [4, 5, 6]);
+    for (const id of ['pc-b', 'pc-f']) expect(s.wire.storeForScan().keyboxes.get(id)?.has(6)).toBe(false);
+    // 積んだ PC の解除を後で呼んでも、もう回さない。
+    expect((await revokePc({ id: 'pc-f', ...opts(s.a) }))?.revokedAt).not.toBeNull();
+    expect(s.a.keyring.current().epoch).toBe(6);
+  });
+
+  it('記録に積んだ解除は、落ちた後の起動の続きでも行う', async () => {
+    const s = await stuck(['pc-a', 'pc-b', 'pc-c', 'pc-d', 'pc-e', 'pc-f']);
+    await expect(revokePc({ id: 'pc-f', ...opts(s.a) })).rejects.toThrow(/has not arrived/);
+    // 確保した PC が戻らないまま、別の道（他の PC の画面など）で解除された。
+    s.wire.revoke('pc-b');
+    const again = await s.restart(s.a);
+    expect(await resumeRotation(opts(again))).toBe(true);
+    expect(rotation(again)).toBeNull();
+    expect(again.keyring.current().epoch).toBe(5);
+    expect(s.wire.storeForScan().keyboxes.get('pc-f')?.has(5)).toBe(false);
   });
 });
 

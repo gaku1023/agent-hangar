@@ -33,7 +33,7 @@ import type { SyncStateStore } from './state.ts';
  * (5) 残りの PC とリカバリーキーに、世代 1 から n＋1 の全部を封じた keybox を置く。
  * (6) 以後の書き込みを新しい世代にし、名簿を新しい世代で封じ直す。
  *     (5) の後で名簿に足された PC（参加の承認と重なった）がいれば、その PC にも keybox を置く。
- * (7) rotation を消す。
+ * (7) rotation を消す。記録の next に積んだ PC があれば、消さずにその PC の記録に書き換えて (2) から続ける。
  *
  * 各段の終わりに rotation の step を次の段へ進める。
  * アプリが途中で落ちたら、次の起動の resumeRotation が記録の段から続ける。
@@ -66,6 +66,12 @@ export type Rotation = {
   after?: EpochClaim;
   /** (5) で keybox を置いた PC。(6) の後に名簿と見比べ、増えた PC にも置く。 */
   sent?: string[];
+  /**
+   * この回しを終えた後に、続けて解除して回す PC（積んだ順）。
+   * この回しが越えた世代の鍵を待って止まっている間に、利用者が別の PC を解除したときに積む（revokeKnown）。
+   * 端末トークンは積んだときに無効にしてあるが、続きは (2) からやり直す（やり直しても同じ結果になる）。
+   */
+  next?: string[];
 };
 
 const STEPS: readonly RotationStep[] = ['revoke', 'key', 'roster', 'boxes', 'switch'];
@@ -172,6 +178,7 @@ export function readRotation(state: SyncStateStore, cloudId: string): Rotation |
       cloudId,
       ...(a && Number.isSafeInteger(a.epoch) && typeof a.by === 'string' ? { after: { epoch: a.epoch as number, by: a.by } } : {}),
       ...(Array.isArray(v.sent) && v.sent.every((s) => typeof s === 'string') ? { sent: [...v.sent] } : {}),
+      ...(Array.isArray(v.next) && v.next.length > 0 && v.next.every((s) => typeof s === 'string' && s !== '') ? { next: [...v.next] } : {}),
     };
   }
   console.error('[rotate] the rotation record in sync_state could not be read');
@@ -199,8 +206,16 @@ async function revokeKnown(o: RevokePcOptions, known: DeviceOut | undefined): Pr
   if (o.id === o.deviceId) throw new RevokeSelfError();
   const pending = readRotation(o.state, o.cfg.read().cloudId);
   if (pending) {
-    const device = await run(o, pending);
-    if (pending.id === o.id) return device ?? (await deviceRow(o, o.id));
+    let device: DeviceOut | null;
+    let queued = pending.id === o.id || (pending.next?.includes(o.id) ?? false);
+    try {
+      device = await run(o, pending);
+    } catch (e) {
+      if (pending.id === o.id || !(e instanceof ClaimNotArrivedError)) throw e;
+      device = await revokeWhileWaiting(o, pending);
+      queued = true;
+    }
+    if (queued) return device?.id === o.id ? device : await deviceRow(o, o.id);
   }
   const target = known && !pending ? known : await deviceRow(o, o.id);
   if (target && target.revokedAt !== null) return target;
@@ -209,7 +224,29 @@ async function revokeKnown(o: RevokePcOptions, known: DeviceOut | undefined): Pr
   if (await o.roster.refreshKeyboxes()) o.onGained?.();
   const newEpoch = Math.max(...ring.epochs()) + 1;
   const device = await run(o, save(o.state, { id: o.id, newEpoch, step: 'revoke', cloudId: o.cfg.read().cloudId }));
-  return device ?? (await deviceRow(o, o.id));
+  return device?.id === o.id ? device : await deviceRow(o, o.id);
+}
+
+/**
+ * 途中の回しが、越えた世代の鍵を待って止まっているときの解除。
+ * 待っている相手（世代を確保した PC）を利用者が解除しようとしているなら、記録の (5) の前で止まったままでは解除に着けない。
+ * そこで、その PC を記録の next に積み、(2) の端末トークンの無効化だけを先に行ってから、途中の回しを試し直す。
+ * 確保した PC が解除済みになれば、待ちは配りに進む。続けて、積んだ PC の回しを行う。
+ * 別の PC の解除でも同じ順で行う。待ちがまだ解けなければ投げるが、積んだ解除は記録の続きで行う。
+ */
+async function revokeWhileWaiting(o: RevokePcOptions, pending: Rotation): Promise<DeviceOut | null> {
+  const cloudId = o.cfg.read().cloudId;
+  const cur = readRotation(o.state, cloudId) ?? pending;
+  const next = cur.next ?? [];
+  // 端末トークンより先に記録へ積む。無効にした後で落ちても、回しを忘れない。
+  save(o.state, { ...cur, next: next.includes(o.id) ? next : [...next, o.id] });
+  try {
+    await o.client.revokeDevice(o.id);
+  } catch (e) {
+    if (!(e instanceof CloudError && e.status === 404)) throw e;
+  }
+  console.warn('[rotate] revoked a computer while waiting for an epoch key; retrying the rotation in progress');
+  return run(o, readRotation(o.state, cloudId) ?? cur);
 }
 
 /** 起動のときに、途中の記録があれば続きから終わらせる。終わらせたら true、記録が無ければ false。 */
@@ -296,7 +333,7 @@ async function run(o: RotateDeps, start: Rotation): Promise<DeviceOut | null> {
         o.cfg.write(ring.toConfigPatch());
         o.onGained?.();
         console.warn(`[rotate] another computer already rotated to epoch ${rec.newEpoch}; rotating again`);
-        rec = save(o.state, { id: rec.id, newEpoch: Math.max(...ring.epochs()) + 1, step: 'key', cloudId: rec.cloudId });
+        rec = save(o.state, { id: rec.id, newEpoch: Math.max(...ring.epochs()) + 1, step: 'key', cloudId: rec.cloudId, ...(rec.next ? { next: rec.next } : {}) });
         continue;
       }
       await awaitClaimed(o, ring, rec);
@@ -324,8 +361,16 @@ async function run(o: RotateDeps, start: Rotation): Promise<DeviceOut | null> {
           await deliver(o, ring, rec, latest.roster, new Set(added));
         }
       }
-      o.state.set('rotation', null);
-      return device;
+      const [nextId, ...rest] = rec.next ?? [];
+      if (nextId === undefined) {
+        o.state.set('rotation', null);
+        return device;
+      }
+      // 積んだ PC の回しを、続けて (2) から行う。番号はこの回しの次にする（他の PC が先に回していれば、その次）。
+      if (await o.roster.refreshKeyboxes()) o.onGained?.();
+      rec = save(o.state, { id: nextId, newEpoch: Math.max(...ring.epochs()) + 1, step: 'revoke', cloudId: rec.cloudId, ...(rest.length > 0 ? { next: rest } : {}) });
+      device = null;
+      restarts = 0;
     }
   }
 }
@@ -369,30 +414,43 @@ async function claimAndRemove(o: RotateDeps, ring: Keyring, rec: Rotation): Prom
   return { ...rec, newEpoch: n, ...(after ? { after } : {}) };
 }
 
+/** (4) で越えた世代の鍵が、待っても来ない（確保した PC がまだ配っていない）。記録は (5) の前に残る。 */
+export class ClaimNotArrivedError extends Error {
+  constructor(epoch: number) {
+    super(`epoch ${epoch} that another computer is rotating to has not arrived yet`);
+    this.name = 'ClaimNotArrivedError';
+  }
+}
+
 /**
  * (4) で越えた世代の鍵を、keybox で受け取るまで待つ。
  * その世代を確保した PC は、その世代の箱をこの PC にも置く。
  * 置かれる前に自分の箱を配ると、受け手のいちばん新しい箱に越えた世代の鍵が入らない。
- * 待っても来なければ、確保した PC が解除されているか Worker にいないときだけ待つのをやめ、ほかは投げる（記録は残す）。
+ * 確保した PC が解除されているか Worker にいなければ、待つのをやめる（もう箱を置けないので）。
+ * 解除を見た後にもう一度 keybox を読み直すので、解除の前に置かれた箱は取りこぼさない。
+ * 待っても来なければ ClaimNotArrivedError を投げる（記録は残す）。
  */
 async function awaitClaimed(o: RotateDeps, ring: Keyring, rec: Rotation): Promise<void> {
   const after = rec.after;
   if (!after || ring.at(after.epoch)) return;
   const sleep = o.sleep ?? realSleep;
+  const gone = async (): Promise<boolean> => {
+    if (after.by === '') return false;
+    const by = await deviceRow(o, after.by);
+    return !by || by.revokedAt !== null;
+  };
   for (let i = 0; ; i++) {
+    const left = await gone();
     if (await o.roster.refreshKeyboxes()) o.onGained?.();
     if (ring.at(after.epoch)) return;
-    if (i >= DELIVER_RETRIES) break;
-    await sleep(DELIVER_RETRY_MS);
-  }
-  if (after.by !== '') {
-    const by = await deviceRow(o, after.by);
-    if (!by || by.revokedAt !== null) {
+    if (left) {
       console.warn(`[rotate] epoch ${after.epoch} never arrived from a computer that has left; delivering without it`);
       return;
     }
+    if (i >= DELIVER_RETRIES) break;
+    await sleep(DELIVER_RETRY_MS);
   }
-  throw new Error(`epoch ${after.epoch} that another computer is rotating to has not arrived yet`);
+  throw new ClaimNotArrivedError(after.epoch);
 }
 
 /**
