@@ -57,6 +57,14 @@ describe('schema（版 9）', () => {
     expect(await columns(cloud.env.DB, 'mobile_pairings')).toContain('request');
   });
 
+  it('スマホのプッシュ通知の購読の表（0.9.1）は、版 9 の D1 にも足すだけで作られる', async () => {
+    // 0.9.0 の Worker が作った D1 には push_subscriptions が無い。create table if not exists なので、版 9 の D1 にそのまま足せる。
+    await cloud.env.DB.exec(SCHEMA_STATEMENTS.filter((s) => !s.includes('push_subscriptions')).join('\n'));
+    expect(await tables(cloud.env.DB)).not.toContain('push_subscriptions');
+    await ensureSchema(cloud.env);
+    expect(await columns(cloud.env.DB, 'push_subscriptions')).toEqual(['device_id', 'endpoint', 'p256dh', 'auth', 'quiet_start', 'quiet_end', 'tz_offset', 'created_at']);
+  });
+
   it('roster は 1 行だけを持つ', async () => {
     await ensureSchema(cloud.env);
     const db = cloud.env.DB;

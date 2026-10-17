@@ -8,6 +8,7 @@
  */
 
 import { fromBase64Url, toBase64Url } from './e2e/bytes.ts';
+import { PHONE_NOTICE_ID_MAX, PHONE_NOTICE_TEXT_MAX, type PhoneNotice } from './mobile.ts';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder('utf-8', { fatal: true });
@@ -85,6 +86,67 @@ export async function open<T>(key: CryptoKey, aad: string, sealed: string): Prom
   } catch {
     throw new MobileOpenError();
   }
+}
+
+/** スマホの通知の AAD。世代を入れるので、封じた文字列の頭の世代を書き換えると開けない。 */
+export const aadPhoneNotice = (epoch: number): string => JSON.stringify(['phone-notice', epoch]);
+
+const NOTICE_RE = /^([1-9][0-9]{0,8})\.([A-Za-z0-9_-]+)$/;
+
+const isNoticeEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
+const isNoticeCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
+
+/** M を AES-GCM の鍵にする。CryptoKey はそのまま、生の 32 バイトは取り出せない鍵にして使う。 */
+async function noticeKey(key: CryptoKey | Uint8Array): Promise<CryptoKey> {
+  if (!(key instanceof Uint8Array)) return key;
+  if (key.length !== 32) throw new TypeError('スマホ用の鍵の形が違います（32 バイト）');
+  return importMobileKey(key);
+}
+
+const clip = (s: string): string => [...s].slice(0, PHONE_NOTICE_TEXT_MAX).join('');
+
+/**
+ * 封じた通知の頭の世代を読む（service worker が、どの世代の M で開くかを決めるのに使う）。形が違えば null。
+ * 開けるかどうかは見ない。
+ */
+export function phoneNoticeEpoch(sealed: string): number | null {
+  if (typeof sealed !== 'string') return null;
+  const m = NOTICE_RE.exec(sealed);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * スマホの通知の中身をスマホ用の鍵 M[epoch] で封じる（PC が呼ぶ）。
+ * 戻りは `<世代>.<base64url(iv(12) || 暗号文 || タグ)>` で、封じ方は受信箱の素（seal）と同じ AES-256-GCM、AAD は aadPhoneNotice(世代) である。
+ * Worker はこの文字列を `POST /notices` で受け、そのまま Web Push の本文にする。
+ * 題と PC の名前は PHONE_NOTICE_TEXT_MAX 字で切る。key は取り出せない CryptoKey でも、生の 32 バイトでもよい。
+ */
+export async function sealPhoneNotice(key: CryptoKey | Uint8Array, epoch: number, notice: PhoneNotice): Promise<string> {
+  if (!isNoticeEpoch(epoch)) throw new TypeError('世代の形が違います');
+  const n = notice as Partial<PhoneNotice> | null;
+  if (!n || typeof n.title !== 'string' || typeof n.pcName !== 'string' || typeof n.sessionId !== 'string' || n.sessionId.length > PHONE_NOTICE_ID_MAX || !isNoticeCount(n.count)) {
+    throw new TypeError('通知の形が違います');
+  }
+  const body: PhoneNotice = { title: clip(n.title), pcName: clip(n.pcName), sessionId: n.sessionId, count: n.count };
+  return `${epoch}.${await seal(await noticeKey(key), aadPhoneNotice(epoch), body)}`;
+}
+
+/**
+ * sealPhoneNotice で封じた通知を開く（service worker が呼ぶ）。
+ * 鍵、世代、中身のどれが違っても MobileOpenError を投げる。key は取り出せない CryptoKey でも、生の 32 バイトでもよい。
+ */
+export async function openPhoneNotice(key: CryptoKey | Uint8Array, sealed: string): Promise<PhoneNotice> {
+  const m = typeof sealed === 'string' ? NOTICE_RE.exec(sealed) : null;
+  if (!m) throw new MobileOpenError();
+  let k: CryptoKey;
+  try {
+    k = await noticeKey(key);
+  } catch {
+    throw new MobileOpenError();
+  }
+  const v = await open<Partial<PhoneNotice> | null>(k, aadPhoneNotice(Number(m[1])), m[2]!);
+  if (!v || typeof v !== 'object' || typeof v.title !== 'string' || typeof v.pcName !== 'string' || typeof v.sessionId !== 'string' || !isNoticeCount(v.count)) throw new MobileOpenError();
+  return { title: v.title, pcName: v.pcName, sessionId: v.sessionId, count: v.count };
 }
 
 /**

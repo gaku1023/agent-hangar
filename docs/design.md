@@ -5693,9 +5693,9 @@ Worker が平文で持つのは、鍵、連番、時刻、端末の ID、鍵の�
 | `keyboxes` | 世代鍵を受け手ごとに封じた箱 | `epoch`、`recipient`（PC の ID か `recovery`）、`created_at` | `sealed` |
 | `phone_keyboxes` | スマホ用の鍵を受け手ごとに封じた箱 | `epoch`、`recipient`（スマホの ID）、`created_at` | `sealed` |
 | `join_codes` | 参加コード | `code_hash`、`created_by`、`created_at`、`expires_at`、`used_at`、`status`、`device_id` | `request`（新しい PC の公開鍵、名前、OS） |
-| `meta` | 表を作ったときの印（`cloud_id`）、回数の窓、bootstrap の印 | `key`、`value` | 無し |
+| `meta` | 表を作ったときの印（`cloud_id`）、回数の窓、bootstrap の印、VAPID の鍵ペア（`vapid`、0.9.1） | `key`、`value` | 無し |
 
-スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）は「スマホ（試験的）」の節にある。
+スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）と、プッシュ通知の購読の表（`push_subscriptions`、0.9.1）は「スマホ（試験的）」の節にある。
 `devices` は IP と所在地を持たない。
 名前と OS は名簿に置く。
 
@@ -6905,6 +6905,7 @@ PC 側で権限モードやモデルや effort に上限は設けず、スマホ
 | `launch_requests` | スマホから PC への起動の依頼 | `id`、`target_device`、`from_device`、`sealed`、`status`（`pending`、`claimed`、`started`、`failed`、`expired`）、`created_at`、`claimed_at`、`answered_at`、`sealed_answer` | `launch_requests_target`（宛先、状態、時刻。pull の引き）、`launch_requests_from`（出したスマホ、時刻。回数の数え）、`launch_requests_at`（時刻。古い行の掃除） |
 | `mobile_pairings` | ペアリング券 | `code_hash`（主キー）、`created_by`、`created_at`、`used_at`、`device_id`（接続したスマホの ID）、`request`（封じた参加リクエスト。keybox を置いたら null） | `mobile_pairings_by`（取った PC、時刻。回数の数え）、`mobile_pairings_at`（時刻。古い行の掃除）、`mobile_pairings_pending`（`request` のある行だけの部分索引。PC の問い合わせ） |
 | `phone_keyboxes` | スマホ宛てのスマホ用の鍵の keybox（互換の版 9） | `epoch`、`recipient`（スマホの ID）、`created_at`、`sealed`（主キーは `epoch` と `recipient`） | `phone_keyboxes_recipient`（受け手、世代） |
+| `push_subscriptions` | スマホ 1 台のプッシュ通知の購読（0.9.1） | `device_id`（主キー）、`endpoint`、`p256dh`、`auth`、`quiet_start`、`quiet_end`（鳴らさない時間帯。端末の時刻の 0 時からの分）、`tz_offset`（端末の `getTimezoneOffset()`）、`created_at` | 主キーのみ |
 
 `mobile_feeds` と `launch_requests` には、封じたスマホ用の鍵の世代 `epoch` の列がある（互換の版 9）。
 Worker が平文で持つのは、PC の ID と更新時刻、依頼の ID と宛先と送り手と状態と時刻、スマホの ID と最終確認と期限、鍵の世代の番号だけである。
@@ -6929,6 +6930,32 @@ Worker が平文で持つのは、PC の ID と更新時刻、依頼の ID と�
 | `PUT /m/blobs/<依頼の ID>/<番号>` | スマホ | 封をした画像を R2 に置く |
 | `GET /m/blobs/<依頼の ID>/<番号>` | PC | 自分宛ての依頼の画像を読む |
 | `DELETE /m/feed` | PC | 自分の受信箱の素の行を消す |
+| `GET /m/push/key` | スマホ | Worker の VAPID の公開鍵（P-256 の非圧縮点 65 バイトの base64url）を返す。無ければ作って `meta` に置く（0.9.1） |
+| `PUT /m/push/subscription`、`DELETE /m/push/subscription` | スマホ | プッシュ通知の購読を置く（スマホ 1 台に 1 つを上書き）、消す（0.9.1） |
+| `POST /notices` | PC | スマホ用の鍵で封じた通知を、使えるスマホの購読の全部へ Web Push で送る（0.9.1） |
+
+`push_subscriptions` と 3 つの口は 0.9.1 で足した。
+互換の版は 9 のままで、表は `create table if not exists` で版 9 の D1 にも足す。
+古い PC は `POST /notices` を呼ばず、通知を送らないだけである。
+
+**プッシュ通知の送り方（0.9.1）。**
+通知の中身（会話の題、PC の名前、会話の ID、件数）は、PC がスマホ用の鍵 `M[m]` で封じる（shared の `sealPhoneNotice`）。
+形は `<世代>.<base64url(iv || AES-256-GCM)>` で、AAD は `["phone-notice", 世代]` である。
+Worker はこの文字列をそのまま Web Push の本文にし、購読の鍵（`p256dh`、`auth`）で RFC 8291（`aes128gcm`）の暗号にかけて push サービスへ送る。
+外側の暗号は push サービスに中身を見せないためのもので、Worker は内側を開けない。
+送り手の名乗りは RFC 8292（VAPID）で、ES256 の JWT の `aud` は endpoint の origin、`exp` は 12 時間後、`sub` は Worker の https の URL である。
+持ち主のメールアドレスを push サービスに渡さないので、`mailto:` は使わない。
+`TTL` は 1 時間、`Urgency` は `normal` で、暗号と署名は WebCrypto だけで書く（`packages/cloud/src/webpush.ts`）。
+VAPID の鍵ペアは、最初に要るときに Worker が作って `meta` の `vapid` に置き、isolate ごとに 1 度読んだら覚える。
+setup をやり直さなくても通知を使えるようにするためである。
+
+送り先は、解除されておらず期限の切れていないスマホ（`LIVE_PHONE_SQL`）の購読の全部である。
+スマホの `tz_offset` で見た端末の時刻が `quiet_start` から `quiet_end` の間なら送らない（既定は 23:00 から 7:00）。
+push サービスが 404 か 410 を返した購読は消し、それ以外の失敗は数えるだけで送り直さない。
+スマホを解除する（`POST /devices/:id/revoke`）と、そのスマホの購読も消す。
+endpoint は既知の push サービス（`web.push.apple.com`、`fcm.googleapis.com`、`updates.push.services.mozilla.com`、`*.push.apple.com`、`*.notify.windows.com`）の https だけを受ける。
+Worker がこの URL へ要求を出すので、任意の宛先を叩く踏み台にさせないためである。
+D1 に書くのは購読が変わるときだけで、1 回の送信で読むのは購読の表とスマホの行（スマホの数×2 行程度）である。
 
 依頼を PC へ届けるために、専用の口は足さない。
 `GET /changes` の応答に `launches`（その PC 宛ての未処理の依頼、最大 50 件）を載せる。
@@ -7173,6 +7200,7 @@ PC が一時停止しているときと、Worker の版が 7 に届かないと�
 | 画像を残す期間 | PC が答えを返したら消す。残りは 24 時間で消す（孤児の掃除と、スマホが置くときと依頼を出すときの掃除） |
 | 手元の `mobile_launches` を残す期間 | 7 日（依頼を受け取るついでに消す）。起こした会話の行は、その会話が一覧にある間は残す（ラベル「スマホから」の元） |
 | ペアリング券の行を残す期間 | 24 時間（券を取るついでに消す） |
+| 通知（`POST /notices`） | 1 台の PC から 1 分に 10 回まで（超えたら 429。D1 に書かず isolate の記憶で数える緩い上限）、本文 8 KiB まで、封じた通知は 3,000 字まで（`PHONE_NOTICE_SEALED_MAX`）、題と PC の名前は 120 字で切る |
 
 日本語の 8,000 字は UTF-8 で約 24 KB、封じて base64url にすると約 33 KB になる。
 そのため、依頼の本文の上限を 48 KiB にした。

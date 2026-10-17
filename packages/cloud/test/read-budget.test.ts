@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   COMPAT_HEADER,
   COMPAT_VERSION,
@@ -8,15 +8,19 @@ import {
   type KeyboxesOut,
   type KeyboxOut,
   type MobilePairingsMine,
+  type NoticeOut,
   type RosterOut,
+  sealPhoneNotice,
   type SealedChangeIn,
   type SealedPullChangesResponse,
 } from '@agent-hangar/shared';
 import { createApp } from '../src/app.ts';
 import type { Env } from '../src/env.ts';
+import { resetVapidCache } from '../src/push.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { addPcDevice, joinPhoneDevice, startCloud, type CloudHarness } from './harness.ts';
+import { newPeer } from './pushPeer.ts';
 
 /**
  * D1 の読み取りの予算（同期の版 6 から、互換の版 9 の封じた行まで）。
@@ -119,6 +123,8 @@ const send = async (tok: string, path: string, init: RequestInit = {}): Promise<
 
 beforeEach(async () => {
   resetSchemaCache();
+  // 試験ごとに D1 が替わるので、前の D1 から読んだ VAPID の鍵を捨てる。
+  resetVapidCache();
   cloud = await startCloud();
   resetSchemaCache();
   await ensureSchema(cloud.env);
@@ -239,6 +245,55 @@ describe('スマホ用の鍵の口', () => {
     expect(body.pairings.map((p) => p.deviceId)).toEqual([pending.deviceId]);
     expect(read).toBeGreaterThanOrEqual(1);
     expect(read).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('スマホのプッシュ通知の口（0.9.1）', () => {
+  /** スマホを 3 台つなぎ、どれも購読を置いた状態にする。 */
+  const seed = async () => {
+    const phones = [];
+    for (let i = 0; i < 3; i++) {
+      const p = await joinPhoneDevice(cloud, tokA);
+      const peer = await newPeer();
+      // 夜の時間帯は無し（null）にして、いつ試験を走らせても送る。
+      await send(p.token, '/m/push/subscription', jsonInit('PUT', { endpoint: `https://fcm.googleapis.com/fcm/send/budget-${i}`, keys: { p256dh: peer.p256dh, auth: peer.authText }, quiet: null, tzOffset: 0 }));
+      phones.push(p);
+    }
+    return phones;
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('POST /notices はスマホの数×2＋定数の行以内（VAPID の鍵は isolate が覚えている）', async () => {
+    const phones = await seed();
+    // push サービスへの送信は偽の fetch で受ける（試験は外へ出ない）。
+    const pushed: string[] = [];
+    vi.stubGlobal('fetch', async (req: Request) => {
+      pushed.push(req.url);
+      return new Response(null, { status: 201 });
+    });
+    const body = { sealed: await sealPhoneNotice(new Uint8Array(32).fill(1), 1, { title: 't', pcName: 'pc-a', sessionId: 's', count: 1 }), epoch: 1 };
+    // 1 回目は VAPID の鍵を meta に作る。2 回目からは覚えた鍵を使い、購読の表とスマホの行だけを読む。
+    expect((await measure(tokA, '/notices', jsonInit('POST', body))).res.status).toBe(200);
+    const { read, res } = await measure(tokA, '/notices', jsonInit('POST', body));
+    expect((await res.json()) as NoticeOut).toEqual({ sent: phones.length, quiet: 0, removed: 0, failed: 0 });
+    expect(pushed).toHaveLength(phones.length * 2);
+    expect(read).toBeGreaterThanOrEqual(phones.length);
+    expect(read).toBeLessThanOrEqual(phones.length * 2 + CONST);
+  });
+
+  it('GET /m/push/key と PUT /m/push/subscription は定数の行以内', async () => {
+    const phones = await seed();
+    expect((await measure(phones[0]!.token, '/m/push/key')).res.status).toBe(200);
+    const key = await measure(phones[0]!.token, '/m/push/key');
+    expect(key.res.status).toBe(200);
+    expect(key.read).toBeLessThanOrEqual(CONST);
+    const peer = await newPeer();
+    const put = await measure(phones[1]!.token, '/m/push/subscription', jsonInit('PUT', { endpoint: 'https://web.push.apple.com/budget', keys: { p256dh: peer.p256dh, auth: peer.authText }, tzOffset: -540 }));
+    expect(put.res.status).toBe(200);
+    expect(put.read).toBeLessThanOrEqual(CONST);
   });
 });
 

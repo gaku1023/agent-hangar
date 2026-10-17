@@ -7,7 +7,7 @@ import type { Env, Vars } from './env.ts';
  * どちらも PC の端末トークンが要り、参加している PC ならどれからでも呼べる。
  * 一覧が返すのは ID、種類、参加日、最後に同期した時刻、解除日、トークンの期限だけである。
  * 名前と OS は封じた名簿（keys.ts の `/roster`）にあり、IP と所在地は保存しない。
- * 解除は devices の行を消さずに revoked_at を付ける。いつどの端末を解除したかが一覧に残り、その端末トークンは auth.ts が 401 の revoked で断る。
+ * 解除は devices の行を消さずに revoked_at を付ける。スマホなら、プッシュ通知の購読（push_subscriptions）の行は消す。いつどの端末を解除したかが一覧に残り、その端末トークンは auth.ts が 401 の revoked で断る。
  * 解除した PC の本文（R2 の `b/<端末 ID>/`）と、その PC が書いた行（rows）は消さない。
  * 他の PC から読み続けられるようにし、取り返しの付かない削除を解除に混ぜないためである（docs/design.md「PC の一覧と解除」）。
  */
@@ -42,7 +42,9 @@ devicesApp.post('/:id/revoke', async (c) => {
   const id = c.req.param('id');
   if (!isSafeKeyId(id)) return c.json({ error: 'invalid id' }, 400);
   const now = Date.now();
-  await c.env.DB.prepare('update devices set revoked_at = ? where id = ? and revoked_at is null').bind(now, id).run();
+  const db = c.env.DB;
+  // スマホのプッシュ通知の購読（0.9.1）も消す。解除したスマホには送らないが、endpoint を残す理由も無い。PC の ID なら行が無く、何も消えない。
+  await db.batch([db.prepare('update devices set revoked_at = ? where id = ? and revoked_at is null').bind(now, id), db.prepare('delete from push_subscriptions where device_id = ?').bind(id)]);
   const row = await c.env.DB.prepare(`select ${DEVICE_COLS} from devices where id = ?`).bind(id).first<DeviceListRow>();
   if (!row) return c.json({ error: 'not found' }, 404);
   const res: DeviceRevokeOut = { device: toOut(row) };

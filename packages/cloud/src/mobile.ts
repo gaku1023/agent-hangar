@@ -93,7 +93,7 @@ type Ctx = Context<{ Bindings: Env; Variables: Vars }>;
  * 上限を超えたら `tooLarge`、JSON でなければ value を null にする。
  * 申告の長さ（content-length）で先に断り、申告が無いか偽りのときは読んだ後のバイト数で断る。
  */
-async function readLimitedJson(c: Ctx, max: number): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
+export async function readLimitedJson(c: Ctx, max: number): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
   const declared = Number(c.req.header('content-length') ?? 0);
   if (declared > max) return { tooLarge: true };
   const text = await c.req.text();
