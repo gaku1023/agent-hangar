@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   decodeEpochList,
   encodeEpochList,
@@ -38,7 +39,8 @@ import type { SyncStateStore } from './state.ts';
  * (6) 以後の書き込みを新しい世代にし、名簿を新しい世代で封じ直す。
  *     同じ書き換えで、名簿のスマホ用の鍵 M を次の世代にする。解除した PC は、手元の M で受信箱と起動のリクエストを開けるからである。
  *     新しい M は新しい世代で封じた名簿にだけ入れるので、解除した PC は D1 の写しからも読めない。
- *     M は (5) で名簿を読んだときの世代より先へ 1 度だけ進める（記録の phoneFrom。落ちた後の続きで 2 度回さない）。
+ *     M は、名簿の M がそのとき何の世代でも必ず 1 度回す（(5) と (6) の間に他の PC がスマホの解除で M を進めていても飛ばさない）。
+ *     回し終えた印は記録の phoneRotated に残し、落ちた後の続きで 2 度回さない（switchRoster）。
  *     (5) の後で名簿に足された PC（参加の承認と重なった）がいれば、その PC にも keybox を置く。
  *     (5) の後でリカバリーキーが再発行されていれば（名簿の recoveryPub が (5) で封じた公開鍵と違えば）、新しい公開鍵宛てに全世代の recovery の箱を置き直す。
  *     最後に、名簿に残るスマホに今の M の keybox を置く（スマホの解除と同じ処理）。
@@ -76,8 +78,10 @@ export type Rotation = {
   after?: EpochClaim;
   /** (5) で keybox を置いた PC。(6) の後に名簿と見比べ、増えた PC にも置く。 */
   sent?: string[];
-  /** (5) で読んだ名簿のスマホ用の鍵 M の世代（M が無ければ 0）。(6) で、名簿の M がこの世代以下のときだけ次の世代にする。 */
-  phoneFrom?: number;
+  /** (6) で書こうとした M の候補の指紋。書き換えの後に落ちたとき、続きで M を 2 度回さないために使う。 */
+  phoneNext?: string;
+  /** (6) で PC の解除の分の M を回し終えた印。続きでは名簿の封じ直しだけを行う。 */
+  phoneRotated?: true;
   /** (5) で recovery の箱を封じた公開鍵。(6) の名簿の recoveryPub と違えば、全世代の recovery の箱を置き直す。 */
   recoveryPub?: string;
   /**
@@ -314,7 +318,8 @@ export function readRotation(state: SyncStateStore, cloudId: string): Rotation |
       cloudId,
       ...(a && Number.isSafeInteger(a.epoch) && typeof a.by === 'string' ? { after: { epoch: a.epoch as number, by: a.by } } : {}),
       ...(Array.isArray(v.sent) && v.sent.every((s) => typeof s === 'string') ? { sent: [...v.sent] } : {}),
-      ...(Number.isSafeInteger(v.phoneFrom) ? { phoneFrom: v.phoneFrom as number } : {}),
+      ...(typeof v.phoneNext === 'string' ? { phoneNext: v.phoneNext } : {}),
+      ...(v.phoneRotated === true ? { phoneRotated: true as const } : {}),
       ...(typeof v.recoveryPub === 'string' ? { recoveryPub: v.recoveryPub } : {}),
       ...(Array.isArray(v.next) && v.next.length > 0 && v.next.every((s) => typeof s === 'string' && s !== '') ? { next: [...v.next] } : {}),
     };
@@ -486,7 +491,7 @@ async function run(o: RotateDeps, start: Rotation): Promise<DeviceOut | null> {
       o.roster.invalidate();
       const { roster } = await o.roster.read();
       const sent = await deliver(o, ring, rec, roster, null);
-      rec = save(o.state, { ...rec, step: 'switch', sent, phoneFrom: roster.phoneKey?.epoch ?? 0, recoveryPub: roster.recoveryPub });
+      rec = save(o.state, { ...rec, step: 'switch', sent, recoveryPub: roster.recoveryPub });
     }
     if (rec.step === 'switch') {
       // 他の PC のより新しい世代を受け取っていれば、そちらで書き続ける（その箱には、この世代の鍵も入っている）。
@@ -494,11 +499,8 @@ async function run(o: RotateDeps, start: Rotation): Promise<DeviceOut | null> {
       o.cfg.write(ring.toConfigPatch());
       // 名簿を新しい世代で封じ直し、同じ書き換えで M を次の世代にする。(4) の名簿は前の世代で封じてあり、解除した PC の手元の鍵で開ける。
       // 版の条件付き更新なので、返る名簿はこの時点の最新である。
-      // M は (5) で読んだ世代より先へ 1 度だけ進める。記録に phoneFrom が無ければ（この版より前の記録）、ここで回す。
-      // fn は当て直しのたびに呼ばれるので、M の候補は外で 1 回だけ作る。
-      const phoneFrom = rec.phoneFrom ?? Number.MAX_SAFE_INTEGER;
-      const freshM = toBase64Url(o.newPhoneKey?.() ?? globalThis.crypto.getRandomValues(new Uint8Array(PHONE_KEY_LEN)));
-      const latest = await o.roster.update((r) => (r.phoneKey && r.phoneKey.epoch <= phoneFrom ? { ...r, phoneKey: { epoch: r.phoneKey.epoch + 1, key: freshM } } : r));
+      const latest = await switchRoster(o, rec);
+      rec = latest.rec;
       // (5) で読んだ後に名簿に足された PC（参加の承認と重なった）にも置く。承認した PC が新しい世代を知らずに箱を置いたことがあるため。
       if (rec.sent === undefined) {
         await deliver(o, ring, rec, latest.roster, null);
@@ -533,6 +535,29 @@ async function run(o: RotateDeps, start: Rotation): Promise<DeviceOut | null> {
       restarts = 0;
     }
   }
+}
+
+/** M の候補の指紋。sync_state に M そのものを残さないために使う。 */
+const phoneKeyMark = (key: string): string => createHash('sha256').update(key).digest('base64url');
+
+/**
+ * (6) 名簿を新しい世代で封じ直し、同じ書き換えで M を次の世代にする。返る名簿と、印を足した記録を返す。
+ * M は、名簿の M がそのとき何の世代でも、PC の解除の分として必ず 1 つ回す。
+ * (5) と (6) の間に他の PC がスマホを解除して M を進めていても、その M は前の世代で封じた名簿に入りうる。解除した PC が読めるので、回すのを飛ばさない。
+ * 回し終えたら記録に phoneRotated を書き、続きでは名簿の封じ直しだけを行う。
+ * 書き換えの前に、候補の指紋を記録の phoneNext に書く。
+ * 書き換えが通った後、記録を進める前に落ちたら、続きは名簿の M が前の候補だと見て、もう 1 度は回さない。
+ * fn は当て直しのたびに呼ばれるので、M の候補は外で 1 回だけ作る。
+ */
+async function switchRoster(o: RotateDeps, start: Rotation): Promise<{ roster: Roster; rec: Rotation }> {
+  if (start.phoneRotated) return { roster: (await o.roster.update((r) => r)).roster, rec: start };
+  const freshM = toBase64Url(o.newPhoneKey?.() ?? globalThis.crypto.getRandomValues(new Uint8Array(PHONE_KEY_LEN)));
+  const prev = start.phoneNext;
+  const mine = (key: string): boolean => key === freshM || (prev !== undefined && phoneKeyMark(key) === prev);
+  save(o.state, { ...start, phoneNext: phoneKeyMark(freshM) });
+  const { roster } = await o.roster.update((r) => (r.phoneKey && !mine(r.phoneKey.key) ? { ...r, phoneKey: { epoch: r.phoneKey.epoch + 1, key: freshM } } : r));
+  const { phoneNext: _drop, ...rest } = start;
+  return { roster, rec: save(o.state, { ...rest, phoneRotated: true }) };
 }
 
 const remainingPcs = (roster: Roster, revoked: string): RosterEntry[] => roster.entries.filter((e) => e.kind === 'pc' && e.id !== revoked);

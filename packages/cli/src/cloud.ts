@@ -901,7 +901,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
       if (prev.url !== url || prev.accountId !== accountId || prev.dbName !== dbName || prev.bucketName !== bucketName) saveCloudConfig(o.home, conf);
     } else if (resume) {
       if (health.cloudId !== resume.cloudId) {
-        throw new DetailedError(`${url} のクラウドの ID が、途中で止まった前回の setup のものと違います（D1 を作り直した可能性があります）。前回の端末トークンは使えないため、${setupPendingPath(o.home)} を削除してから、hangar setup cloud をもう一度実行してください`);
+        throw new DetailedError(`${url} のクラウドの ID が、途中で止まった前回の setup のものと違います（D1 を作り直した可能性があります）。前回の setup で登録したこの PC 用のトークンは使えないため、${setupPendingPath(o.home)} を削除してから、hangar setup cloud をもう一度実行してください`);
       }
       log('途中で止まった前回の setup の続きから再開します。');
       conf = { ...resume, url, accountId, dbName, bucketName };
@@ -1424,6 +1424,7 @@ export type TeardownOptions = {
  * 消す前に、R2 にしか無い本文を手元へ降ろす。1 件でも降ろせなければ、何も消さずに止める。
  * Cloudflare 側が全部消えたときだけ、手元の cloud.json と wrangler.jsonc を消す。
  * 1 つでも残ったら手元の設定を残して false を返す。もう一度実行すれば続きから消せる。
+ * cloud.json が無く setup の下書き（cloud-setup-pending.json）だけがあれば、下書きの Worker、D1、R2 を同じ順で消し、最後に下書きを消す。
  */
 export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const log = o.log ?? ((l: string) => console.log(l));
@@ -1431,18 +1432,32 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   // 版 2（今の形）と版 1（参加用の秘密を持つ旧い形）の cloud.json の両方を片付けられる。
   // 版 1 の道は、0.9.0 に上げた後でも旧い Worker を片付けるためにある（作り直しの手順の 2）。
   // どちらも、消す前に R2 にしか無い本文を手元へ降ろし、1 件でも降ろせなければ何も消さずに止める。
+  // cloud.json が無く、setup の下書きだけがあるとき（確認の段で止めて放置した）は、下書きの Worker、D1、R2 を片付ける。
+  // 下書きは版 2 の設定と同じ形で、端末トークンも暗号鍵も入っている。片付け終えたら下書きも消す。
   const now = readCloudConfig(o.home);
   if (now.state === 'broken') throw new Error(brokenConfigMessage(o.home));
   let c: { url: string; workerName: string | null; accountId: string | null; dbName: string | null; bucketName: string | null };
   let legacy: ReturnType<typeof readLegacyCloudConfig>['config'] = null;
+  let v2: CloudConfig | null = null;
+  let fromDraft = false;
   if (now.state === 'ok' && now.config) {
-    c = now.config;
+    c = v2 = now.config;
   } else {
     const read = readLegacyCloudConfig(o.home);
     if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
-    if (!read.config) throw new Error('クラウド同期は未設定です');
-    c = legacy = read.config;
+    const draft = read.config ? null : readSetupPending(o.home);
+    if (read.config) {
+      c = legacy = read.config;
+    } else if (draft) {
+      c = v2 = draft.conf;
+      fromDraft = true;
+      log(`完了していない setup の下書き（${setupPendingPath(o.home)}）にある Worker を削除します。`);
+    } else {
+      throw new Error('クラウド同期は未設定です');
+    }
   }
+  /** 片付けで読んだ設定のファイル。途中で止めるときは残し、全部消せたら消す。 */
+  const configFile = fromDraft ? setupPendingPath(o.home) : cloudConfigPath(o.home);
   if (!c.workerName || !c.dbName || !c.bucketName) {
     throw new Error('teardown は setup cloud を実行した PC でだけ使えます。参加した PC では cloud.json を削除するだけにしてください');
   }
@@ -1454,7 +1469,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   let keys: string[];
   let rescued: RescueResult;
   if (legacy === null) {
-    const cloud = now.config!;
+    const cloud = v2!;
     // 版 2 の Worker とだけ話す（版 9 に届かない Worker なら HttpCloudClient が断る）。
     const wire = o.wire ?? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, fetch: o.fetch ?? realFetch });
     let r: { keys: string[]; rescued: RescueResult };
@@ -1534,7 +1549,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
       for (const l of f.reason) log(`    ${l}`);
     }
     log('');
-    log(`${cloudConfigPath(o.home)} は削除していません。Worker の名前、アカウント、暗号鍵はここにしか無いためです。`);
+    log(`${configFile} は削除していません。Worker の名前、アカウント、暗号鍵はここにしか無いためです。`);
     log('修正してから hangar cloud teardown をもう一度実行すると、残った分だけを続きから削除できます。');
     log('R2 のバケットが「空でない」ために削除できない場合は、インデックスに無いオブジェクトが残っています。ダッシュボードでバケットを空にしてから実行してください。');
     return false;
@@ -1552,9 +1567,15 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   await step(`D1 ${c.dbName}`, ['d1', 'delete', c.dbName, '-y', ...withCfg]);
   if (failures.length > 0) return stopHere();
 
-  fs.rmSync(cloudConfigPath(o.home), { force: true });
+  fs.rmSync(configFile, { force: true });
   fs.rmSync(cfg, { force: true });
-  log('cloud.json を削除しました。他の PC の cloud.json は手動で削除してください。');
+  if (fromDraft) {
+    log('setup の下書きを削除しました。');
+  } else {
+    // 同じ Worker の下書きが残っていれば、もう続けられないので一緒に消す。
+    if (readSetupPending(o.home)?.conf.workerName === c.workerName) fs.rmSync(setupPendingPath(o.home), { force: true });
+    log('cloud.json を削除しました。他の PC の cloud.json は手動で削除してください。');
+  }
   log(`この PC にダウンロードしたトランスクリプトは ${remoteRoot(o.home)} に残っています。`);
   return true;
 }

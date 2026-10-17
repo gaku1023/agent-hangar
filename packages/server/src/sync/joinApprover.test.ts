@@ -429,7 +429,7 @@ describe('JoinApprover（発行した PC の承認）', () => {
     await w.timers.fire(w.approver);
     expect(w.approver.state().kind).toBe('requested');
     await w.approver.approve();
-    expect(w.approver.state()).toEqual({ kind: 'failed', message: 'クラウドの setup が終わっていません（リカバリーキーの確認が済んでいません）。Worker を作った PC で hangar setup cloud を最後まで実行してから、新しい参加コードを発行してください' });
+    expect(w.approver.state()).toEqual({ kind: 'failed', message: 'クラウドの setup が終わっていません（リカバリーキーの確認が完了していません）。Worker を作った PC で hangar setup cloud を最後まで実行してから、新しい参加コードを発行してください' });
     expect(w.timers.pending()).toBe(0);
     // 名簿も keybox も書かず、Worker では拒否として閉じる（新しい PC は待ち続けない）。
     expect(w.worker.calls.filter((c) => c.startsWith('PUT'))).toEqual([]);

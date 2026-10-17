@@ -302,6 +302,26 @@ describe('runSetupCloud', () => {
     expect(fs.existsSync(setupPendingPath(home))).toBe(false);
   });
 
+  it('下書きのクラウドの ID が今の Worker と違えば、下書きを消すよう案内して止める（画面の語に「端末」を使わない）', async () => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const base = { home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} };
+    await expect(runSetupCloud({ ...base, recoveryAsk: async () => { throw new Error('interrupted'); } })).rejects.toThrow('interrupted');
+    const draft = JSON.parse(fs.readFileSync(setupPendingPath(home), 'utf8')) as { conf: CloudConfig };
+    fs.writeFileSync(setupPendingPath(home), JSON.stringify({ ...draft, conf: { ...draft.conf, cloudId: 'cloud-other' } }), { mode: 0o600 });
+    const err = await runSetupCloud(base).then(() => null, (e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toContain('この PC 用のトークン');
+    expect(err!.message).not.toContain('端末');
+  });
+
   it('名簿を置いた後、cloud.json を書く前に止まっていたら、再実行で名簿の版を写して cloud.json を書く', async () => {
     const { home, cloudDir } = dirs();
     const ff = fakeFetch(0);
@@ -1100,6 +1120,37 @@ describe('runTeardown', () => {
     ]);
     expect(c.asked.map((a) => a.word)).toEqual(['hangar', 'delete']);
     expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+  });
+
+  it('setup を確認の段で止めて cloud.json が無く下書きだけがあるときも、下書きの Worker、D1、R2 を消し、下書きも消す', async () => {
+    const { home, cloudDir } = dirs();
+    const conf = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });
+    fs.writeFileSync(setupPendingPath(home), JSON.stringify({ v: 1, deviceId: 'dev-a', conf, createdAt: 1 }), { mode: 0o600 });
+    const cloudA = new FakeCloudClient({ deviceId: 'dev-a', keyring: Keyring.fromConfig(conf) });
+    const w = fakeWrangler({ 'r2 bucket delete': () => ok(), 'delete --name': () => ok(), 'd1 delete': () => ok() });
+    const c = fakeConfirm([true, true]);
+    const lines: string[] = [];
+
+    const done = await runTeardown({ home, deviceId: 'dev-a', wire: cloudA.wire, wrangler: w.runner('a'.repeat(32), cloudDir), confirm: c.fn, log: (l) => lines.push(l) });
+    expect(done).toBe(true);
+    expect(c.asked.map((a) => a.word)).toEqual(['hangar', 'delete']);
+    expect(w.calls.map((x) => x.args.join(' '))).toEqual(['r2 bucket delete hangar-files', 'delete --name hangar', 'd1 delete hangar -y']);
+    expect(fs.existsSync(setupPendingPath(home))).toBe(false);
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+    expect(lines.join('\n')).toContain('完了していない setup');
+  });
+
+  it('下書きの片付けで残ったものがあれば、下書きを残して止める', async () => {
+    const { home, cloudDir } = dirs();
+    const conf = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });
+    fs.writeFileSync(setupPendingPath(home), JSON.stringify({ v: 1, deviceId: 'dev-a', conf, createdAt: 1 }), { mode: 0o600 });
+    const cloudA = new FakeCloudClient({ deviceId: 'dev-a', keyring: Keyring.fromConfig(conf) });
+    const w = fakeWrangler({ 'r2 bucket delete': () => ok(), 'delete --name': () => ok() });
+    const lines: string[] = [];
+    const done = await runTeardown({ home, deviceId: 'dev-a', wire: cloudA.wire, wrangler: w.runner('a'.repeat(32), cloudDir), confirm: fakeConfirm([true, true]).fn, log: (l) => lines.push(l) });
+    expect(done).toBe(false);
+    expect(fs.existsSync(setupPendingPath(home))).toBe(true);
+    expect(lines.join('\n')).toContain(`${setupPendingPath(home)} は削除していません`);
   });
 
   it('版 2 で開けない本文（手元に鍵の無い世代）があれば、確認も聞かずに消すのをやめる', async () => {

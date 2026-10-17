@@ -25,7 +25,7 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.join.rateLimited': '参加コードの発行が多すぎます。10 分ほど待ってから、もう一度発行してください',
   'sync.join.noRequest': '承認できる参加リクエストがありません',
   'sync.join.noCode': '発行中の参加コードがありません',
-  'sync.join.notSetUp': 'クラウドの setup が終わっていません（リカバリーキーの確認が済んでいません）。Worker を作った PC で hangar setup cloud を最後まで実行してから、新しい参加コードを発行してください',
+  'sync.join.notSetUp': 'クラウドの setup が終わっていません（リカバリーキーの確認が完了していません）。Worker を作った PC で hangar setup cloud を最後まで実行してから、新しい参加コードを発行してください',
   'sync.revoke.self': 'この PC 自身はここでは解除できません。「この PC の参加を解除」を使ってください',
   'sync.revoke.notFound': '解除しようとした PC かスマホは、このクラウドに参加していません',
   'sync.recovery.noDraft': '確認できる新しいリカバリーキーがありません。もう一度再発行してください',

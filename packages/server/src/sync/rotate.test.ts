@@ -978,6 +978,60 @@ describe('PC の解除とスマホ用の鍵 M', () => {
     expect((await phonesIn(again)).phoneKey?.epoch).toBe(2);
   });
 
+  it('(5) と (6) の間に他の PC がスマホを解除して M を進めても、PC の解除で M をさらに回し、解除した PC は最後の M を読めない', async () => {
+    const { wire, a, pcOf, seeded, restart } = await setup();
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    const c = await pcOf('pc-c', seeded.configs['pc-c']!);
+    await c.roster.read();
+    // (6) の名簿の封じ直しで落ち、記録は switch の段に残る。
+    const { wire: recA, puts } = recordingRoster(crashingAt(a.wire, 'putRoster', 2));
+    await expect(revokePc({ id: 'pc-c', ...opts(a, a.wire, { roster: new RosterStore(recA, a.keyring, a.cfg, 'pc-a') }) })).rejects.toThrow('crashed');
+    expect(rotation(a)).toMatchObject({ step: 'switch' });
+
+    // その間に pc-b が phone-a を解除して M を世代 2 にした。
+    const b = await pcOf('pc-b', seeded.configs['pc-b']!);
+    const { wire: recB, puts: putsB } = recordingRoster(b.wire);
+    await revokePhone({ id: 'phone-a', ...opts(b, b.wire, { roster: new RosterStore(recB, b.keyring, b.cfg, 'pc-b') }) });
+    expect((await phonesIn(b)).phoneKey?.epoch).toBe(2);
+
+    // 再開した pc-a は、PC の解除の分として M をさらに 1 つ回す。
+    const again = await restart(a);
+    const { wire: recAgain, puts: putsAgain } = recordingRoster(again.wire);
+    expect(await resumeRotation(opts(again, again.wire, { roster: new RosterStore(recAgain, again.keyring, again.cfg, 'pc-a') }))).toBe(true);
+    expect(rotation(again)).toBeNull();
+    expect(await phonesIn(again)).toMatchObject({ ids: ['phone-b'], phoneKey: { epoch: 3 } });
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(3);
+
+    // 解除した PC の手元の鍵で開ける名簿には、最後の M（世代 3）は入っていない。
+    const openable = await phoneEpochsOpenableBy(c.keyring, [...puts, ...putsB, ...putsAgain]);
+    expect(openable.every((n) => n < 3)).toBe(true);
+    // もう一度起動しても M は回さない。
+    expect(await resumeRotation(opts(await restart(again)))).toBe(false);
+    expect((await phonesIn(again)).phoneKey?.epoch).toBe(3);
+  });
+
+  it('(6) の名簿を書いた直後、記録を進める前に落ちても、再開で M を 2 度は回さない', async () => {
+    const { a, restart } = await setup();
+    await pairPhones(a, ['phone-a']);
+    // (6) の名簿の書き換えは通るが、その応答を受け取る前に落ちた真似。
+    let n = 0;
+    const orig = a.wire.putRoster.bind(a.wire);
+    const lost = Object.assign(Object.create(a.wire) as FakeWireClient, {
+      putRoster: async (body: Parameters<FakeWireClient['putRoster']>[0]) => {
+        const r = await orig(body);
+        if (++n === 2) throw new Error('crashed');
+        return r;
+      },
+    });
+    await expect(revokePc({ id: 'pc-c', ...opts(a, a.wire, { roster: new RosterStore(lost, a.keyring, a.cfg, 'pc-a') }) })).rejects.toThrow('crashed');
+    expect(rotation(a)).toMatchObject({ step: 'switch' });
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(2);
+
+    const again = await restart(a);
+    expect(await resumeRotation(opts(again))).toBe(true);
+    expect((await phonesIn(again)).phoneKey?.epoch).toBe(2);
+  });
+
   it('スマホの解除の記録が残ったまま PC を解除しても、その記録は消さず、続きで両方が終わる', async () => {
     const { wire, a } = await setup();
     const phones = await pairPhones(a, ['phone-a', 'phone-b']);
