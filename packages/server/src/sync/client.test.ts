@@ -620,6 +620,17 @@ describe('PC の一覧と解除', () => {
     expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
   });
 
+  it('postNotice は POST /notices に { sealed, epoch } を JSON で送り、送った数を返す', async () => {
+    const out = { sent: 1, quiet: 0, removed: 0, failed: 0 };
+    const f = fakeFetch((x) => (x.url.endsWith('/health') ? json({ ok: true, version: 'x' }) : json(out)));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.postNotice('2.c2VhbGVk', 2)).toEqual(out);
+    const post = f.calls.find((x) => x.url === 'https://w.example/notices')!;
+    expect(post.init.method).toBe('POST');
+    expect(JSON.parse(String(post.init.body))).toEqual({ sealed: '2.c2VhbGVk', epoch: 2 });
+    expect(headersOf(post)['content-type']).toBe('application/json');
+  });
+
   it('getPairingsMine は GET /m/pairings/mine、putPhoneKeyboxes は PUT /phone-keyboxes に { boxes } を送る', async () => {
     const mine = { pairings: [{ codeHash: 'a'.repeat(64), deviceId: 'phone-1', sealed: 'c2VhbGVk', joinedAt: 5 }] };
     const f = fakeFetch((x) => (x.url.endsWith('/m/pairings/mine') ? json(mine) : json({ written: 1 })));

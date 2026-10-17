@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { aadFeed, fitFeed, seal, type MobileFeed } from '@agent-hangar/shared';
+import { aadFeed, fitFeed, seal, sealPhoneNotice, type MobileFeed } from '@agent-hangar/shared';
 import { CloudError, type CloudClient } from '../sync/client.ts';
 import type { Timers } from '../sync/engine.ts';
+import type { PhoneKey } from '../sync/keyring.ts';
 import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 
 /** 変化のあと、まとめて書くまでの待ち。 */
@@ -28,6 +29,11 @@ export type MobileFeedPublisherDeps = {
   timers: Timers;
   /** 書いてよいか（boot/sync.ts の canCarryMobile）。偽のあいだは何も書かず、中身も覚えない。 */
   canWrite: () => boolean;
+  /**
+   * 外していないスマホが 1 台以上あるか（boot/mobile.ts が Worker の一覧で知ったもの）。
+   * 偽のあいだは、要対応に新しく入った会話があってもスマホへの通知（POST /notices）を送らない。
+   */
+  hasPhones: () => boolean;
   /** 今の時刻。既定は Date.now。 */
   now?: () => number;
   /** 書き込みの失敗の受け手。既定はログに 1 行。 */
@@ -41,6 +47,20 @@ const defaultOnError = (e: unknown): void => {
 };
 
 /**
+ * スマホへの通知の失敗を記録する。送り直さない（受信箱の素は別に届く）。
+ * 口を知らない古い Worker の 404 と、上限の 429 は、起きて当然のものなので記録しない。
+ * ほかの失敗も種類と状態の番号だけを出し、題や PC の名前を含みうる文は出さない。
+ */
+const noteNoticeError = (e: unknown): void => {
+  if (e instanceof CloudError && (e.status === 404 || e.status === 429)) return;
+  const status = (e as { status?: unknown } | null)?.status;
+  console.error('[mobile] could not send the phone notice', e instanceof Error ? e.constructor.name : typeof e, typeof status === 'number' ? status : '');
+};
+
+/** 要対応（スマホの受信箱の「要対応」）に出ている会話。受信箱と同じく、live の status が waiting のものである。 */
+const waitingOf = (feed: MobileFeed) => feed.live.filter((l) => l.status === 'waiting');
+
+/**
  * 受信箱の素を封じて Worker に置く（PUT /m/feed）。
  *
  * 封じる鍵はスマホ用の鍵 M の今の世代で、その世代（epoch）を素に添える。スマホは素の世代で M を選んで開く。
@@ -52,6 +72,14 @@ const defaultOnError = (e: unknown): void => {
  * 間の中に来た変化は、間が明けたところで 1 回にまとめて書く。
  * 失敗したときはハッシュを覚えないので、次のきっかけで同じ中身でも書き直す。
  * nudge と、タイマーから走る書き込みは投げない。失敗は onError に渡す。
+ *
+ * 素を書けたら、前に書けた素の要対応の会話と比べ、新しく入った会話があればスマホへ通知を 1 回送る（POST /notices）。
+ * 複数なら 1 回にまとめて件数を入れ、題と会話の ID は先に待ち始めた会話のものにする。
+ * 通知の中身はスマホ用の鍵 M の今の世代で封じる（shared の sealPhoneNotice）。PC の名前は素の deviceName である。
+ * 起動の後で最初に書けた素では送らない（前から要対応だった会話を鳴らさない）。前の集合はメモリにだけ持つ。
+ * 同じ会話が要対応を出て、また入れば、もう 1 回送る。スマホが無い（hasPhones が偽）あいだは送らないが、集合は覚え直す。
+ * 素の書き込みに失敗したら集合を覚えないので、その回の会話は次に書けたときに知らせる。
+ * 通知の失敗は捨てる（noteNoticeError）。素の書き込みの結果は変えない。
  */
 export class MobileFeedPublisher {
   private debounce: ReturnType<typeof setTimeout> | null = null;
@@ -66,6 +94,8 @@ export class MobileFeedPublisher {
   private dropped = false;
   /** 消す要求が済んだか（通った、または口を知らない Worker）。済んだら、forget まで 2 回目を送らない。 */
   private deleted = false;
+  /** 前に書けた素で要対応だった会話の ID。起動の後でまだ 1 回も書けていなければ null。 */
+  private lastWaiting: Set<string> | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private readonly onError: (e: unknown) => void;
 
@@ -181,6 +211,27 @@ export class MobileFeedPublisher {
     await put(sealed, key.epoch);
     this.lastHash = hash;
     this.lastWrittenAt = now;
+    await this.noticeNew(feed, key);
     return 'written';
+  }
+
+  /** 書けた素の要対応の会話を覚え直し、新しく入った会話があればスマホへ通知を 1 回送る。投げない。 */
+  private async noticeNew(feed: MobileFeed, key: PhoneKey): Promise<void> {
+    const waiting = waitingOf(feed);
+    const prev = this.lastWaiting;
+    this.lastWaiting = new Set(waiting.map((l) => l.sessionId));
+    if (prev === null) return;
+    const fresh = waiting.filter((l) => !prev.has(l.sessionId)).sort((a, b) => a.statusAt - b.statusAt || a.sessionId.localeCompare(b.sessionId));
+    const first = fresh[0];
+    if (!first || this.stopped) return;
+    try {
+      const post = this.deps.client.postNotice?.bind(this.deps.client);
+      if (!post || !this.deps.hasPhones()) return;
+      const sealed = await sealPhoneNotice(key.key, key.epoch, { title: first.title || first.projectName, pcName: feed.deviceName, sessionId: first.sessionId, count: fresh.length });
+      if (this.stopped) return;
+      await post(sealed, key.epoch);
+    } catch (e) {
+      noteNoticeError(e);
+    }
   }
 }

@@ -11,6 +11,9 @@ import {
   MAX_SEALED_META_CHARS,
   MOBILE_BELL_MIN_WORKER_COMPAT,
   MOBILE_MIN_WORKER_COMPAT,
+  NOTICE_RATE,
+  PHONE_NOTICE_SEALED_MAX,
+  phoneNoticeEpoch,
   PULL_LIMIT,
   ROSTER_MARKER_K,
   SEALED_ROW_K_RE,
@@ -45,6 +48,7 @@ import {
   type MobileLaunchOut,
   type MobilePairingResponse,
   type MobilePairingsMine,
+  type NoticeOut,
   type PushChangesResponse,
   type Roster,
   type SealedChangeIn,
@@ -123,8 +127,18 @@ export type FakeCloudStore = {
   mobileBlobs: Map<string, Uint8Array>;
   /** DELETE /blobs の 1 日の数え。端末の ID から、UTC の日付とその日に消した数へ（実物の meta の blob_delete:<端末> に当たる）。 */
   blobDeletes: Map<string, { day: string; n: number }>;
+  /**
+   * 受けた通知（POST /notices）を受けた順に積んだもの。実物は表に置かずに Web Push で送るだけなので、試験が「何を送らせたか」を見るための控えである。
+   * 1 分 10 回の上限（実物の isolate の記憶での数え）も、ここから PC ごとに数える。
+   */
+  notices: FakeNotice[];
+  /** 偽にすると、POST /notices を知らない Worker（0.9.1 より前。互換の版は同じ 9）の真似になり、404 で断る。 */
+  noticeRoute: boolean;
   now: () => number;
 };
+
+/** 偽物の Worker が受けた通知の 1 件。sealed は PC がスマホ用の鍵で封じたままで、偽物は開けない。 */
+export type FakeNotice = { deviceId: string; sealed: string; epoch: number; at: number };
 
 /** 偽物の Worker が持つ起動の依頼の 1 行。状態の進み方は実物（packages/cloud/src/mobile.ts）と同じ。 */
 /** fromDevice は依頼を置いた端末（postLaunch を呼んだクライアントの ID）。pull の launches の from に返す。 */
@@ -162,6 +176,8 @@ export const MAX_FEED_BODY_BYTES = 96 * 1024;
 export const MAX_LAUNCH_BODY_BYTES = 48 * 1024;
 /** 応答の本文の上限（packages/cloud/src/mobile.ts の MAX_ANSWER_BODY_BYTES の写し）。 */
 export const MAX_ANSWER_BODY_BYTES = 16 * 1024;
+/** POST /notices の本文の上限（packages/cloud/src/push.ts の MAX_NOTICE_BODY_BYTES の写し）。 */
+export const MAX_NOTICE_BODY_BYTES = 8 * 1024;
 /** 1 回の pull に載せる起動の依頼の数（packages/cloud/src/changes.ts の PULL_LAUNCH_LIMIT の写し）。 */
 export const PULL_LAUNCH_LIMIT = 50;
 
@@ -271,6 +287,8 @@ export class FakeWireClient implements WireCloudClient {
       launches: new Map(),
       mobileBlobs: new Map(),
       blobDeletes: new Map(),
+      notices: [],
+      noticeRoute: true,
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -298,6 +316,10 @@ export class FakeWireClient implements WireCloudClient {
   get phoneKeyboxes(): Map<string, Map<number, string>> { return this.store.phoneKeyboxes; }
   get launches(): Map<string, FakeLaunch> { return this.store.launches; }
   get mobileBlobs(): Map<string, Uint8Array> { return this.store.mobileBlobs; }
+  get notices(): FakeNotice[] { return this.store.notices; }
+  /** 偽にすると、POST /notices を知らない Worker の真似になる。 */
+  get noticeRoute(): boolean { return this.store.noticeRoute; }
+  set noticeRoute(v: boolean) { this.store.noticeRoute = v; }
 
   /**
    * 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。
@@ -706,7 +728,7 @@ export class FakeWireClient implements WireCloudClient {
   }
 
   /** 偽の Worker が保存した値の全部（D1 の表と R2 に当たるもの）。平文が残っていないかを走査する試験が読む。 */
-  storeForScan(): Readonly<Pick<FakeCloudStore, 'changes' | 'rows' | 'files' | 'devices' | 'roster' | 'keyboxes' | 'mobileFeeds' | 'mobilePairings' | 'phoneKeyboxes' | 'launches' | 'mobileBlobs' | 'blobDeletes'>> {
+  storeForScan(): Readonly<Pick<FakeCloudStore, 'changes' | 'rows' | 'files' | 'devices' | 'roster' | 'keyboxes' | 'mobileFeeds' | 'mobilePairings' | 'phoneKeyboxes' | 'launches' | 'mobileBlobs' | 'blobDeletes' | 'notices'>> {
     return this.store;
   }
 
@@ -814,6 +836,24 @@ export class FakeWireClient implements WireCloudClient {
     this.store.mobileFeeds.delete(this.deviceId);
   }
 
+  /**
+   * POST /notices。実物（packages/cloud/src/push.ts の noticesApp）と同じ順で断る。
+   * 本文が 8 KiB を超えれば 413、sealed が文字列でないか PHONE_NOTICE_SEALED_MAX 字を超えるか、頭の世代が epoch と違えば 400、
+   * 同じ PC から NOTICE_RATE.windowMs の間に NOTICE_RATE.max 回を超えれば 429 である。
+   * 通れば notices に積む。偽物には購読が無いので、送った数は 0 で返す。noticeRoute が偽なら、口を知らない Worker として 404 で断る。
+   */
+  async postNotice(sealed: string, epoch: number): Promise<NoticeOut> {
+    this.guard('postNotice', sealed, epoch);
+    if (!this.store.noticeRoute) throw new CloudError(404, errorBody('not found'));
+    if (ENC.encode(JSON.stringify({ sealed, epoch })).byteLength > MAX_NOTICE_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
+    if (typeof sealed !== 'string' || sealed.length > PHONE_NOTICE_SEALED_MAX || !isEpoch(epoch) || phoneNoticeEpoch(sealed) !== epoch) throw new CloudError(400, errorBody('invalid body'));
+    const now = this.store.now();
+    const recent = this.store.notices.filter((n) => n.deviceId === this.deviceId && now - n.at < NOTICE_RATE.windowMs).length;
+    if (recent >= NOTICE_RATE.max) throw new CloudError(429, errorBody('rate limited'));
+    this.store.notices.push({ deviceId: this.deviceId, sealed, epoch, at: now });
+    return { sent: 0, quiet: 0, removed: 0, failed: 0 };
+  }
+
   /** スマホの PUT /m/blobs の真似（試験が画像を置くための口で、WireCloudClient には無い）。 */
   putBlob(launchId: string, n: number, bytes: Uint8Array): void {
     this.store.mobileBlobs.set(`${launchId}/${n}`, bytes);
@@ -897,6 +937,7 @@ export class FakeCloudClient implements CloudClient {
   get mobileFeeds(): Map<string, FakeFeed> { return this.wire.mobileFeeds; }
   get launches(): Map<string, FakeLaunch> { return this.wire.launches; }
   get mobileBlobs(): Map<string, Uint8Array> { return this.wire.mobileBlobs; }
+  get notices(): FakeNotice[] { return this.wire.notices; }
   get usageBody(): CloudUsageBody { return this.wire.usageBody; }
   set usageBody(v: CloudUsageBody) { this.wire.usageBody = v; }
 
@@ -979,6 +1020,7 @@ export class FakeCloudClient implements CloudClient {
   putMobileFeed(sealed: string, epoch: number): Promise<void> { return this.wire.putMobileFeed(sealed, epoch); }
   createPairing(): Promise<MobilePairingResponse> { return this.wire.createPairing(); }
   deleteMobileFeed(): Promise<void> { return this.wire.deleteMobileFeed(); }
+  postNotice(sealed: string, epoch: number): Promise<NoticeOut> { return this.wire.postNotice(sealed, epoch); }
   claimLaunch(id: string): Promise<boolean> { return this.wire.claimLaunch(id); }
   answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> { return this.wire.answerLaunch(id, ok, sealedAnswer); }
   getMobileBlob(launchId: string, n: number): Promise<Uint8Array> { return this.wire.getMobileBlob(launchId, n); }

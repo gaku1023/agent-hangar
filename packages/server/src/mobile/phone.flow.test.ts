@@ -53,7 +53,7 @@ describe('PC とスマホの通し', () => {
     const phoneKeys = phoneKeysOf(keyring, roster);
     const client = new FakeCloudClient({ wire, keyring });
     const timers = new FakeTimers();
-    const pub = new MobileFeedPublisher({ build: () => feed, client, phoneKeys, deviceId: 'pc-a', timers, canWrite: () => true });
+    const pub = new MobileFeedPublisher({ build: () => feed, client, phoneKeys, deviceId: 'pc-a', timers, canWrite: () => true, hasPhones: () => true });
 
     // スマホを接続する前は、受信箱の素を書かない（M が無い）。
     expect(await pub.flushNow()).toBe('skipped');

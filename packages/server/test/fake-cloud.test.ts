@@ -2,9 +2,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { COMPAT_VERSION, MAX_PUSH_BATCH, MAX_SEALED_META_CHARS, ROSTER_MARKER_K, toBase64Url, type SealedChangeIn, type SealedFileIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION, MAX_PUSH_BATCH, MAX_SEALED_META_CHARS, NOTICE_RATE, PHONE_NOTICE_SEALED_MAX, ROSTER_MARKER_K, toBase64Url, type SealedChangeIn, type SealedFileIn } from '@agent-hangar/shared';
 import { CloudError, CompatError } from '../src/sync/client.ts';
-import { FakeCloudClient, FakeWireClient, MAX_BODY_BYTES, MAX_ANSWER_BODY_BYTES, MAX_FEED_BODY_BYTES, MAX_LAUNCH_BODY_BYTES, MAX_PAGE_SEALED_CHARS, MAX_ROW_BYTES, MIN_DEVICE_COMPAT, PULL_LAUNCH_LIMIT, TOUCH_EVERY_MS } from './fake-cloud.ts';
+import { FakeCloudClient, FakeWireClient, MAX_BODY_BYTES, MAX_ANSWER_BODY_BYTES, MAX_FEED_BODY_BYTES, MAX_LAUNCH_BODY_BYTES, MAX_NOTICE_BODY_BYTES, MAX_PAGE_SEALED_CHARS, MAX_ROW_BYTES, MIN_DEVICE_COMPAT, PULL_LAUNCH_LIMIT, TOUCH_EVERY_MS } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
 /** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
@@ -464,6 +464,27 @@ describe('FakeCloudClient', () => {
     expect(MAX_ANSWER_BODY_BYTES).toBe(workerConstant('mobile.ts', 'MAX_ANSWER_BODY_BYTES'));
     // PULL_LAUNCH_LIMIT は export されていないので、宣言の形で読む。
     expect(PULL_LAUNCH_LIMIT).toBe(Number(/const PULL_LAUNCH_LIMIT = ([0-9_]+);/.exec(fs.readFileSync(new URL('../../cloud/src/changes.ts', import.meta.url), 'utf8'))![1]!.replace(/_/g, '')));
+    // MAX_NOTICE_BODY_BYTES も export されていないので、宣言の形で読む。
+    const notice = /const MAX_NOTICE_BODY_BYTES = ([0-9_*\s]+);/.exec(fs.readFileSync(new URL('../../cloud/src/push.ts', import.meta.url), 'utf8'))![1]!;
+    expect(MAX_NOTICE_BODY_BYTES).toBe(notice.split('*').reduce((a, b) => a * Number(b.trim().replace(/_/g, '')), 1));
+  });
+
+  it('POST /notices は受けた封じた通知を覚える。世代の食い違いは 400、1 分 10 回を超えると 429、口を知らない Worker は 404', async () => {
+    let now = 1_000;
+    const c = new FakeCloudClient({ deviceId: 'pc-a', now: () => now });
+    expect(await c.postNotice('3.c2VhbGVk', 3)).toEqual({ sent: 0, quiet: 0, removed: 0, failed: 0 });
+    expect(c.notices).toEqual([{ deviceId: 'pc-a', sealed: '3.c2VhbGVk', epoch: 3, at: 1_000 }]);
+    await expect(c.postNotice('2.c2VhbGVk', 3)).rejects.toMatchObject({ status: 400 });
+    await expect(c.postNotice('x'.repeat(PHONE_NOTICE_SEALED_MAX + 1), 3)).rejects.toMatchObject({ status: 400 });
+    for (let i = 1; i < NOTICE_RATE.max; i++) await c.postNotice('3.c2VhbGVk', 3);
+    await expect(c.postNotice('3.c2VhbGVk', 3)).rejects.toMatchObject({ status: 429 });
+    // 別の PC の数えは別である。
+    expect((await c.asDevice('pc-b').postNotice('3.c2VhbGVk', 3)).failed).toBe(0);
+    now += NOTICE_RATE.windowMs;
+    await c.postNotice('3.c2VhbGVk', 3);
+    c.wire.noticeRoute = false;
+    await expect(c.postNotice('3.c2VhbGVk', 3)).rejects.toMatchObject({ status: 404 });
+    expect(c.notices).toHaveLength(NOTICE_RATE.max + 2);
   });
 });
 
