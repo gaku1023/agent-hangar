@@ -7,12 +7,15 @@ import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
-import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken } from '@agent-hangar/shared';
+import { COMPAT_HEADER, COMPAT_VERSION, decodeEpochList, deriveEpochKeys, fromBase64Url, generateKeyPair, importPrivate, openKeybox, openRoster, parseRecoveryKey, RECOVERY_RECIPIENT } from '@agent-hangar/shared';
 import { cliErrorText, DetailedError } from './probe.ts';
-import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, legacyFileKey, type LegacyFileEntry, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, buildMobileApp, runJoin, runSetupCloud as runSetupCloudReal, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
+import { bootstrapDevice, chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, legacyFileKey, type LegacyFileEntry, offerUsageToken, promptWord, rescueTargetPath, RENAME_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, buildMobileApp, runSetupCloud as runSetupCloudReal, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
+import { joinRequest } from './membership.ts';
 import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
+import { FakeWorker } from '../test/fakeWorker.ts';
+import { loadLegacyCloudConfig, saveLegacyCloudConfig, type LegacyCloudConfig } from '../../server/src/config/cloud.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../../server/test/oldDb.ts';
 import { expectMode } from '../../server/test/platform.ts';
 
@@ -73,25 +76,32 @@ function fakeWrangler(script: Script) {
   };
 }
 
-function fakeFetch(healthFails = 2): { fetch: typeof fetch; urls: string[] } {
+/**
+ * 偽の Worker と、それを叩く fetch。
+ * 最後に作った偽の Worker を lastWorker に置き、wrangler の secret put（putBootstrap）がそこへハッシュを入れる。
+ */
+let lastWorker: FakeWorker | null = null;
+function fakeFetch(healthFails = 2): { fetch: typeof fetch; urls: string[]; worker: FakeWorker } {
+  const worker = new FakeWorker();
+  worker.healthFails = healthFails;
+  lastWorker = worker;
   const urls: string[] = [];
-  let fails = healthFails;
   const f = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    urls.push(url);
-    if (url.endsWith('/health')) {
-      if (fails-- > 0) return new Response('error code: 1042', { status: 530 });
-      return new Response(JSON.stringify({ ok: true, version: '0.4.0' }), { status: 200 });
-    }
-    if (url.endsWith('/join')) {
-      const body = JSON.parse(init!.body as string) as { secret: string; device: typeof device };
-      expect(body.device).toEqual(device);
-      return new Response(JSON.stringify({ deviceToken: 'tok-' + body.secret.slice(0, 4), deviceId: body.device.id }), { status: 201 });
-    }
-    return new Response('nope', { status: 404 });
+    urls.push(String(input));
+    return worker.fetch(input, init);
   }) as typeof fetch;
-  return { fetch: f, urls };
+  return { fetch: f, urls, worker };
 }
+
+/** wrangler secret put BOOTSTRAP_TOKEN_HASH の代わり。標準入力のハッシュを最後に作った偽の Worker に入れる。 */
+const putBootstrap = (_a: string[], input?: string): ExecResult => {
+  expect(input).toMatch(/^[0-9a-f]{64}\n$/);
+  lastWorker!.bootstrapHash = input!.trim();
+  return ok('Success');
+};
+
+const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
+const K = (n: number): string => Buffer.alloc(32, n).toString('base64url');
 
 /** 繋がりはするが何も返さない宛先。締め切りで中断されたときだけ落ちる。 */
 function blackHole(): typeof fetch {
@@ -105,20 +115,17 @@ function blackHole(): typeof fetch {
 }
 
 describe('runSetupCloud', () => {
-  it('資源を作り、設定を書き、デプロイし、health を待ち、参加して cloud.json とトークンを出す', async () => {
+  it('資源を作り、設定を書き、デプロイし、health を待ち、最初の端末トークンで登録して cloud.json 版 2 を書く', async () => {
     const { home, cloudDir } = dirs();
+    const ff = fakeFetch();
     const w = fakeWrangler({
       whoami: () => ok(WHOAMI),
       'd1 info hangar --json': () => ({ code: 1, stdout: '', stderr: 'not found' }),
       'd1 create hangar': () => ok(`database_id = "${DB_ID}"`),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': (_a, input) => {
-        expect(input).toMatch(/^[0-9a-f]{64}\n$/);
-        return ok('Success');
-      },
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
-    const ff = fakeFetch();
     const slept: number[] = [];
     const lines: string[] = [];
     const r = await runSetupCloud({
@@ -132,9 +139,7 @@ describe('runSetupCloud', () => {
     });
 
     expect(r.url).toBe('https://hangar.example.workers.dev');
-    const tok = decodeJoinToken(r.joinToken);
-    expect(tok.url).toBe(r.url);
-    expect(tok.secret).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+    expect(r.recoveryKey).not.toBeNull();
 
     const cfg = JSON.parse(fs.readFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), 'utf8').replace(/^\s*\/\/.*$/gm, '')) as Record<string, unknown>;
     expect(cfg.name).toBe('hangar');
@@ -147,54 +152,127 @@ describe('runSetupCloud', () => {
 
     const saved = loadCloudConfig(home)!;
     expect(saved).toMatchObject({
+      v: 2,
       url: r.url,
-      joinSecret: tok.secret,
-      deviceToken: 'tok-' + tok.secret.slice(0, 4),
+      cloudId: ff.worker.cloudId,
+      currentEpoch: 1,
+      phoneKey: null,
+      rosterVersion: 1,
       workerName: 'hangar',
       accountId: ACCOUNT,
       dbName: 'hangar',
       bucketName: 'hangar-files',
     });
+    expect(Object.keys(saved.epochs)).toEqual(['1']);
     expectMode(path.join(home, 'cloud.json'), 0o600);
+    // 登録した端末の ID はこの PC の ID で、端末トークンは BOOTSTRAP_TOKEN_HASH に入れたハッシュのものである。
+    expect(ff.worker.devices.get(device.id)!.tokenHash).toBe(sha(saved.deviceToken));
+    expect(ff.worker.bootstrapHash).toBe(sha(saved.deviceToken));
 
     const cmds = w.calls.map((c) => c.args.slice(0, 3).join(' '));
-    expect(cmds).toEqual(['whoami --json', 'r2 bucket list', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put JOIN_SECRET_HASH']);
+    expect(cmds).toEqual(['whoami --json', 'r2 bucket list', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put BOOTSTRAP_TOKEN_HASH']);
     expect(w.calls.slice(1).every((c) => c.env.CLOUDFLARE_ACCOUNT_ID === ACCOUNT)).toBe(true);
     expect(ff.urls.filter((u) => u.endsWith('/health'))).toHaveLength(3);
     expect(slept.filter((ms) => ms === 5000).length).toBeGreaterThanOrEqual(2);
+    // 端末トークンそのものは argv にも設定ファイルにも出さない。
+    expect(w.calls.some((c) => c.args.join(' ').includes(saved.deviceToken))).toBe(false);
+    expect(fs.readFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), 'utf8')).not.toContain(saved.deviceToken);
 
-    const hash = createHash('sha256').update(tok.secret).digest('hex');
-    expect(w.calls.at(-1)!.input).toBe(hash + '\n');
-    // 秘密そのものは argv にも設定ファイルにも出さない。
-    expect(w.calls.some((c) => c.args.join(' ').includes(tok.secret))).toBe(false);
-
-    // 参加トークンの渡し方を案内し、標準出力に残ることも伝える。
+    // リカバリーキーを表示し、パスワードマネージャーへの保存と、スクロールバックのことを伝える。
     const out = lines.join('\n');
-    expect(out).toContain(r.joinToken);
-    expect(out).toContain('1Password');
-    expect(out).toContain('hangar join');
+    expect(out).toContain(r.recoveryKey!);
+    expect(out).toContain('パスワードマネージャー');
     expect(out).toContain('スクロールバック');
+    expect(out).toContain(`hangar cloud join ${r.url}`);
+    // リカバリーキーの暗号鍵は cloud.json に置かない。
+    const recovery = parseRecoveryKey(r.recoveryKey!);
+    expect(recovery.url).toBe(r.url);
+    expect(fs.readFileSync(path.join(home, 'cloud.json'), 'utf8')).not.toContain(recovery.priv);
   });
 
-  it('既存の資源と秘密を再利用し、--name で名前を変える', async () => {
+  it('setup の後、名簿に自分とリカバリーの公開鍵、keybox が 2 つ', async () => {
     const { home, cloudDir } = dirs();
-    const keep = 'keep-this-secret-value-000000000000000000';
-    fs.writeFileSync(
-      path.join(home, 'cloud.json'),
-      JSON.stringify({ url: 'https://old.workers.dev', joinSecret: keep, deviceToken: 'old', workerName: 'hangar-dev', accountId: null, dbName: null, bucketName: null, joinedAt: 1 }),
-    );
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const r = await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} });
+    const saved = loadCloudConfig(home)!;
+    const keys = await deriveEpochKeys(1, saved.epochs['1']!);
+
+    // 名簿は世代 1 の /roster の鍵で、版 1 として封じてある。
+    const roster = await openRoster(keys.roster, ff.worker.roster!.version, fromBase64Url(ff.worker.roster!.sealed)!);
+    expect(ff.worker.roster!.version).toBe(1);
+    expect(roster.entries).toEqual([{ id: device.id, kind: 'pc', name: device.name, os: device.platform, pub: saved.keyPair.pub, joinedAt: saved.joinedAt }]);
+    expect(roster.phoneKey).toBeNull();
+
+    // keybox は この PC 宛てと recovery 宛ての 2 つで、どちらも世代の一覧（世代 1）を開ける。
+    expect([...ff.worker.keyboxes.keys()].sort()).toEqual([`${device.id}:1`, `${RECOVERY_RECIPIENT}:1`].sort());
+    const mine = await openKeybox(await importPrivate(saved.keyPair.priv), saved.keyPair.pub, { epoch: 1, recipient: device.id }, fromBase64Url(ff.worker.keyboxes.get(`${device.id}:1`)!.sealed)!);
+    expect(decodeEpochList(mine).epochs).toEqual(saved.epochs);
+    // リカバリーキーの秘密鍵で recovery 宛ての keybox が開け、名簿の recoveryPub はその公開鍵である。
+    const recovery = parseRecoveryKey(r.recoveryKey!);
+    const other = await generateKeyPair();
+    await expect(openKeybox(await importPrivate(other.priv), roster.recoveryPub, { epoch: 1, recipient: RECOVERY_RECIPIENT }, fromBase64Url(ff.worker.keyboxes.get(`${RECOVERY_RECIPIENT}:1`)!.sealed)!)).rejects.toThrow();
+    const box = await openKeybox(await importPrivate(recovery.priv), roster.recoveryPub, { epoch: 1, recipient: RECOVERY_RECIPIENT }, fromBase64Url(ff.worker.keyboxes.get(`${RECOVERY_RECIPIENT}:1`)!.sealed)!);
+    expect(decodeEpochList(box).epochs).toEqual(saved.epochs);
+  });
+
+  it('同じ名前でもう一度実行すると、Worker だけを入れ替え、暗号鍵と端末トークンとリカバリーキーは変えない', async () => {
+    const { home, cloudDir } = dirs();
+    const prev = v2conf({ url: 'https://hangar-dev.example.workers.dev', deviceToken: 'tok-prev', workerName: 'hangar-dev', accountId: ACCOUNT, dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
+    saveCloudConfig(home, prev);
+    const ff = fakeFetch();
+    ff.worker.devices.set(device.id, { tokenHash: sha('tok-prev'), revoked: false });
+    ff.worker.roster = { version: 3, sealed: 'x' };
     const w = fakeWrangler({
       whoami: () => ok(WHOAMI),
       'd1 info hangar-dev --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-dev-files': () => ({ code: 1, stdout: '', stderr: 'A bucket with this name already exists' }),
       deploy: () => ok('https://hangar-dev.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok(),
     });
-    const ff = fakeFetch();
     const r = await runSetupCloud({ home, name: 'hangar-dev', device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} });
-    expect(decodeJoinToken(r.joinToken).secret).toBe(keep);
-    expect(w.calls.map((c) => c.args[0])).toEqual(['whoami', 'r2', 'd1', 'r2', 'deploy', 'secret']);
-    expect(loadCloudConfig(home)).toMatchObject({ workerName: 'hangar-dev', dbName: 'hangar-dev', bucketName: 'hangar-dev-files', url: 'https://hangar-dev.example.workers.dev' });
+    expect(r.recoveryKey).toBeNull();
+    // secret put も bootstrap もしない。
+    expect(w.calls.map((c) => c.args[0])).toEqual(['whoami', 'r2', 'd1', 'r2', 'deploy']);
+    expect(ff.worker.calls).not.toContain('POST /bootstrap');
+    expect(ff.worker.calls).not.toContain('PUT /roster');
+    expect(loadCloudConfig(home)).toEqual(prev);
+  });
+
+  it('名簿を置く前に止まった setup は、もう一度実行すると名簿と keybox から続ける', async () => {
+    const { home, cloudDir } = dirs();
+    const pair = await generateKeyPair();
+    const prev = v2conf({ url: 'https://hangar.example.workers.dev', deviceToken: 'tok-prev', keyPair: pair, rosterVersion: 0, workerName: 'hangar', accountId: ACCOUNT, dbName: 'hangar', bucketName: 'hangar-files' });
+    saveCloudConfig(home, prev);
+    const ff = fakeFetch(0);
+    ff.worker.devices.set(device.id, { tokenHash: sha('tok-prev'), revoked: false });
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+    });
+    const r = await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} });
+    expect(r.recoveryKey).not.toBeNull();
+    expect(ff.worker.roster!.version).toBe(1);
+    expect(loadCloudConfig(home)).toEqual({ ...prev, rosterVersion: 1 });
+  });
+
+  it('古い形式（参加トークンの版 1）の cloud.json は上書きせず、teardown を案内して止める', async () => {
+    const { home, cloudDir } = dirs();
+    const before = JSON.stringify({ url: 'https://old.workers.dev', joinSecret: 'keep', deviceToken: 'old', workerName: 'hangar', accountId: ACCOUNT, dbName: 'hangar', bucketName: 'hangar-files', joinedAt: 1 });
+    fs.writeFileSync(path.join(home, 'cloud.json'), before);
+    const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
+    const ff = fakeFetch(0);
+    await expect(runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} })).rejects.toThrow(/hangar cloud teardown/);
+    expect(w.calls).toHaveLength(0);
+    expect(ff.urls).toEqual([]);
+    expect(fs.readFileSync(path.join(home, 'cloud.json'), 'utf8')).toBe(before);
   });
 
   it('ログインしていなければ login を対話で実行してからもう一度読む', async () => {
@@ -206,7 +284,7 @@ describe('runSetupCloud', () => {
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok(),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
     const ff = fakeFetch(0);
     await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} });
@@ -235,7 +313,7 @@ describe('runSetupCloud', () => {
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok('Success'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
     await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch().fetch, sleep: async () => {}, cloudDir, log: () => {} });
 
@@ -247,17 +325,8 @@ describe('runSetupCloud', () => {
 
   it('別の名前で作り直すときは、前の資源が置き去りになることを見せて確認する', async () => {
     const { home, cloudDir } = dirs();
-    const before = JSON.stringify({
-      url: 'https://hangar-dev.example.workers.dev',
-      joinSecret: 'keep-this-secret-value-000000000000000000',
-      deviceToken: 'old',
-      workerName: 'hangar-dev',
-      accountId: ACCOUNT,
-      dbName: 'hangar-dev',
-      bucketName: 'hangar-dev-files',
-      joinedAt: 1,
-    });
-    fs.writeFileSync(path.join(home, 'cloud.json'), before);
+    saveCloudConfig(home, v2conf({ url: 'https://hangar-dev.example.workers.dev', deviceToken: 'old', workerName: 'hangar-dev', accountId: ACCOUNT, dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    const before = fs.readFileSync(path.join(home, 'cloud.json'), 'utf8');
     const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
     const asked: { question: string; word: string }[] = [];
     const lines: string[] = [];
@@ -288,10 +357,7 @@ describe('runSetupCloud', () => {
 
   it('参加だけの端末で setup cloud を走らせるときも確認する', async () => {
     const { home, cloudDir } = dirs();
-    fs.writeFileSync(
-      path.join(home, 'cloud.json'),
-      JSON.stringify({ url: 'https://other.example.workers.dev', joinSecret: 'k', deviceToken: 'old', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 }),
-    );
+    saveCloudConfig(home, v2conf({ url: 'https://other.example.workers.dev', deviceToken: 'old' }));
     const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
     const lines: string[] = [];
     await expect(
@@ -299,68 +365,6 @@ describe('runSetupCloud', () => {
     ).rejects.toThrow(/キャンセル/);
     expect(lines.join('\n')).toContain('https://other.example.workers.dev');
     expect(w.calls).toHaveLength(0);
-  });
-
-  it('--rotate-secret は確認を必須にし、断られたら何もしない', async () => {
-    const { home, cloudDir } = dirs();
-    const keep = 'keep-this-secret-value-000000000000000000';
-    const before = JSON.stringify({ url: 'https://old.workers.dev', joinSecret: keep, deviceToken: 'old', workerName: 'hangar', accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    fs.writeFileSync(path.join(home, 'cloud.json'), before);
-    const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
-    const asked: { question: string; word: string }[] = [];
-    const lines: string[] = [];
-    await expect(
-      runSetupCloud({
-        home,
-        device,
-        rotateSecret: true,
-        wrangler: w.runner(null, cloudDir),
-        fetch: fakeFetch().fetch,
-        sleep: async () => {},
-        cloudDir,
-        log: (l) => lines.push(l),
-        confirm: async (question, word) => { asked.push({ question, word }); return false; },
-      }),
-    ).rejects.toThrow(/キャンセル/);
-    expect(asked).toHaveLength(1);
-    expect(asked[0]!.word).toBe(ROTATE_WORD);
-    // 何が起きるかを先に伝える。
-    const out = lines.join('\n');
-    expect(out).toContain('復号できなくなります');
-    expect(out).toContain('R2');
-    expect(w.calls).toHaveLength(0);
-    expect(fs.readFileSync(path.join(home, 'cloud.json'), 'utf8')).toBe(before);
-  });
-
-  it('--rotate-secret を承諾すると新しい秘密になる', async () => {
-    const { home, cloudDir } = dirs();
-    const keep = 'keep-this-secret-value-000000000000000000';
-    fs.writeFileSync(
-      path.join(home, 'cloud.json'),
-      JSON.stringify({ url: 'https://old.workers.dev', joinSecret: keep, deviceToken: 'old', workerName: 'hangar', accountId: null, dbName: null, bucketName: null, joinedAt: 1 }),
-    );
-    const w = fakeWrangler({
-      whoami: () => ok(WHOAMI),
-      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
-      'r2 bucket create hangar-files': () => ok('Created bucket'),
-      deploy: () => ok('https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok(),
-    });
-    const r = await runSetupCloud({
-      home,
-      device,
-      rotateSecret: true,
-      wrangler: w.runner(null, cloudDir),
-      fetch: fakeFetch(0).fetch,
-      sleep: async () => {},
-      cloudDir,
-      log: () => {},
-      confirm: async () => true,
-    });
-    const secret = decodeJoinToken(r.joinToken).secret;
-    expect(secret).not.toBe(keep);
-    expect(loadCloudConfig(home)!.joinSecret).toBe(secret);
-    expect(w.calls.at(-1)!.input).toBe(createHash('sha256').update(secret).digest('hex') + '\n');
   });
 
   it('応答を返さない宛先でも health の待ちは終わる', async () => {
@@ -380,77 +384,93 @@ describe('runSetupCloud', () => {
   });
 });
 
-describe('joinWorker', () => {
-  it('秘密の反映待ちの 503 と 403 は待って試し直す', async () => {
-    const codes = [503, 403, 201];
+describe('bootstrapDevice（最初の端末トークンで登録する）', () => {
+  const created = (): Response => new Response(JSON.stringify({ deviceId: device.id }), { status: 201 });
+
+  it('secret の反映待ちの 503 と 401 は待って再試行し、この PC の ID とトークンを本文で送る', async () => {
+    const codes = [503, 401, 201];
+    const bodies: unknown[] = [];
     let i = 0;
-    const f = (async () => {
+    const f = (async (_u: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(init!.body as string));
       const code = codes[i++]!;
-      return code === 201 ? new Response(JSON.stringify({ deviceToken: 't', deviceId: device.id }), { status: 201 }) : new Response(JSON.stringify({ error: 'x' }), { status: code });
+      return code === 201 ? created() : new Response(JSON.stringify({ error: 'x' }), { status: code });
     }) as typeof fetch;
     const slept: number[] = [];
-    const r = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retryForbidden: true });
-    expect(r.deviceToken).toBe('t');
+    await bootstrapDevice('https://h', 'tok-0123456789abcdef', device.id, { fetch: f, sleep: async (ms) => { slept.push(ms); } });
     expect(slept).toHaveLength(2);
+    expect(bodies[0]).toEqual({ deviceId: device.id, token: 'tok-0123456789abcdef' });
   });
 
-  it('参加のときの 403 は待たずに断る', async () => {
-    const f = (async () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })) as typeof fetch;
+  it('待っても 401 のままなら、すでに登録済みの可能性を伝えて止める', async () => {
+    const f = (async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })) as typeof fetch;
     const slept: number[] = [];
-    await expect(joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); } })).rejects.toThrow(/参加トークンが違います/);
-    expect(slept).toHaveLength(0);
+    await expect(bootstrapDevice('https://h', 't', device.id, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retries: 2 })).rejects.toThrow(/登録できませんでした（HTTP 401）/);
+    expect(slept).toHaveLength(2);
   });
 
   it('待っても 503 のままなら諦める', async () => {
     const f = (async () => new Response(JSON.stringify({ error: 'not initialized' }), { status: 503 })) as typeof fetch;
     const slept: number[] = [];
-    await expect(joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retries: 2 })).rejects.toThrow(/503/);
+    await expect(bootstrapDevice('https://h', 't', device.id, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retries: 2 })).rejects.toThrow(/503/);
     expect(slept).toHaveLength(2);
   });
 
-  it('応答を返さない宛先は締め切りで打ち切る', async () => {
+  it('応答を返さない宛先は締め切りで打ち切り、文面は宛先と次に確認する先を示す（トークンは載せない）', async () => {
     const slept: number[] = [];
-    await expect(
-      joinWorker('https://black-hole.invalid', 's', device, { fetch: blackHole(), sleep: async (ms) => { slept.push(ms); }, timeoutMs: 20 }),
-    ).rejects.toThrow(/応答しませんでした/);
-    // 黙って止まらない。待ちもしない。
-    expect(slept).toHaveLength(0);
-  });
-
-  it('打ち切りの文面は宛先と次に見る先を示す', async () => {
-    const e: Error = await joinWorker('https://black-hole.invalid', 'SECRET-abcdef', device, { fetch: blackHole(), sleep: async () => {}, timeoutMs: 20 }).then(() => { throw new Error('打ち切られるはずが通った'); }, (x: unknown) => x as Error);
+    const e: Error = await bootstrapDevice('https://black-hole.invalid', 'SECRET-abcdef', device.id, { fetch: blackHole(), sleep: async (ms) => { slept.push(ms); }, timeoutMs: 20 }).then(() => { throw new Error('打ち切られるはずが通った'); }, (x: unknown) => x as Error);
+    expect(e.message).toContain('応答しませんでした');
     expect(e.message).toContain('https://black-hole.invalid');
     expect(e.message).toContain('20 ミリ秒');
     expect(e.message).toContain('/health');
-    // 秘密は載せない。
     expect(e.message).not.toContain('SECRET-abcdef');
+    expect(slept).toHaveLength(0);
   });
 
-  it('宛先に繋がらないときも 1 行で断る', async () => {
+  it('宛先に接続できないときも 1 行で止める', async () => {
     const f = (async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }); }) as typeof fetch;
-    await expect(joinWorker('https://nope.invalid', 's', device, { fetch: f, sleep: async () => {} })).rejects.toThrow(/ENOTFOUND/);
+    await expect(bootstrapDevice('https://nope.invalid', 't', device.id, { fetch: f, sleep: async () => {} })).rejects.toThrow(/ENOTFOUND/);
   });
 
-  it('締め切りは 1 回ごとで、反映待ちの試し直しを削らない', async () => {
-    // 締め切りを 20 ミリ秒まで詰めても、応答が返る限り 503 と 403 の試し直しは 6 回ぶん残る。
-    const codes = [503, 503, 403, 403, 503, 403, 201];
+  it('締め切りは 1 回ごとで、反映待ちの再試行を削らない', async () => {
+    const codes = [503, 503, 401, 401, 503, 401, 201];
     let i = 0;
     const f = (async (_u: unknown, init?: RequestInit) => {
       expect(init!.signal).toBeInstanceOf(AbortSignal);
       const code = codes[i++]!;
-      return code === 201 ? new Response(JSON.stringify({ deviceToken: 't', deviceId: device.id }), { status: 201 }) : new Response(JSON.stringify({ error: 'x' }), { status: code });
+      return code === 201 ? created() : new Response(JSON.stringify({ error: 'x' }), { status: code });
     }) as unknown as typeof fetch;
     const slept: number[] = [];
-    const r = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retryForbidden: true, timeoutMs: 20 });
-    expect(r.deviceToken).toBe('t');
-    // setup の反映待ちは 5 秒おきに 6 回のままである。
+    await bootstrapDevice('https://h', 't', device.id, { fetch: f, sleep: async (ms) => { slept.push(ms); }, timeoutMs: 20 });
     expect(slept).toEqual([5000, 5000, 5000, 5000, 5000, 5000]);
   });
 });
 
-// ---- Task 12: hangar join、hangar cloud status、hangar cloud teardown ----
+/** 版 2 の cloud.json。鍵は形だけ合わせた作り物である。 */
+function v2conf(over: Partial<CloudConfig> = {}): CloudConfig {
+  return {
+    v: 2,
+    url: 'https://h',
+    cloudId: 'cloud-1',
+    deviceToken: 'dt',
+    keyPair: { pub: K(1), priv: K(2) },
+    epochs: { '1': K(3) },
+    currentEpoch: 1,
+    phoneKey: null,
+    rosterVersion: 1,
+    workerName: null,
+    accountId: null,
+    dbName: null,
+    bucketName: null,
+    joinedAt: 1,
+    ...over,
+  };
+}
 
-const conf = (over: Partial<CloudConfig> = {}): CloudConfig => ({
+const conf = v2conf;
+
+/** 古い形式（版 1）の cloud.json。teardown だけが読む。 */
+const legacyConf = (over: Partial<LegacyCloudConfig> = {}): LegacyCloudConfig => ({
   url: 'https://h',
   joinSecret: 'join-secret-0000',
   deviceToken: 'dt',
@@ -505,18 +525,19 @@ describe('DB の控えが取れないとき', () => {
     expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
   });
 
-  it('join は参加の要求を出さず、cloud.json も書かずに止まる', async () => {
+  it('参加リクエストは送らず、下書きも cloud.json も書かずに止まる', async () => {
     const { home } = dirs();
     const file = blockBackup(home);
     const urls: string[] = [];
     const f = (async (input: string | URL | Request) => { urls.push(String(input)); return new Response('{}', { status: 500 }); }) as typeof fetch;
-    const err = await withPendingMigration(() => runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, force: true, log: () => {} }).then(() => null, (e: unknown) => e));
+    const err = await withPendingMigration(() => joinRequest({ home, url: 'https://h.workers.dev', code: 'K7QM-2XFD', device, fetch: f }).then(() => null, (e: unknown) => e));
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('マイグレーションを適用せずに停止しました');
-    expect((err as Error).message).toContain('参加のリクエストはまだ送信していません。修正してから hangar join をもう一度実行してください。');
+    expect((err as Error).message).toContain('参加リクエストはまだ送信していません。修正してから hangar cloud join をもう一度実行してください。');
     expect((err as Error).message).not.toContain('\n');
     expect(urls).toEqual([]);
     expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+    expect(fs.existsSync(path.join(home, 'cloud-pending.json'))).toBe(false);
     expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
   });
 
@@ -537,7 +558,7 @@ describe('DB の控えが取れないとき', () => {
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok('Success'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
     // 当てるものがあるように、仮の次の版（いまの版の 1 つ先）を足して走らせる。
     await withPendingMigration(() => runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: () => {} }));
@@ -546,144 +567,6 @@ describe('DB の控えが取れないとき', () => {
     expect(fs.readdirSync(path.join(home, 'backups', 'db'))).toHaveLength(1);
     expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION + 1);
     expect(readTranscriptsFrom(home)).toBe(loadCloudConfig(home)!.joinedAt);
-  });
-});
-
-describe('runJoin', () => {
-  it('宛先を見せて確認してから参加し、cloud.json を書く', async () => {
-    const { home } = dirs();
-    const token = encodeJoinToken({ url: 'https://h.workers.dev/', secret: 'sec' });
-    let bodySeen: unknown = null;
-    let authSeen: string | null = 'なし';
-    const f = (async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe('https://h.workers.dev/join');
-      bodySeen = JSON.parse(init!.body as string);
-      authSeen = (init!.headers as Record<string, string>).authorization ?? null;
-      return new Response(JSON.stringify({ deviceToken: 'dt', deviceId: device.id }), { status: 201 });
-    }) as typeof fetch;
-    const c = fakeConfirm([true]);
-    const lines: string[] = [];
-    const got = await runJoin({ home, token, device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) });
-
-    expect(bodySeen).toEqual({ secret: 'sec', device });
-    // 参加の前は端末トークンをまだ持っていない。Authorization は付けない。
-    expect(authSeen).toBeNull();
-    expect(got).toMatchObject({ url: 'https://h.workers.dev', joinSecret: 'sec', deviceToken: 'dt', workerName: null, accountId: null, dbName: null, bucketName: null });
-    expect(loadCloudConfig(home)).toEqual(got);
-    expectMode(path.join(home, 'cloud.json'), 0o600);
-
-    // 「どこに繋ごうとしているか」を人に見せてから聞く。
-    const out = lines.join('\n');
-    expect(out).toContain('h.workers.dev');
-    expect(out).toContain('全セッション');
-    expect(c.asked).toHaveLength(1);
-    expect(c.asked[0]!.question).toContain('参加');
-  });
-
-  it('宛先の確認を断れば、参加もせず cloud.json も書かない', async () => {
-    const { home } = dirs();
-    let called = 0;
-    const f = (async () => { called++; return new Response('', { status: 201 }); }) as typeof fetch;
-    const c = fakeConfirm([false]);
-    await expect(
-      runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: () => {} }),
-    ).rejects.toThrow(/キャンセル/);
-    expect(called).toBe(0);
-    expect(loadCloudConfig(home)).toBeNull();
-  });
-
-  it('秘密が違えば、待たずにわかる文言で失敗する', async () => {
-    const { home } = dirs();
-    const f = (async () => new Response('forbidden', { status: 403 })) as typeof fetch;
-    const slept: number[] = [];
-    await expect(
-      runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'x' }), device, fetch: f, sleep: async (ms) => { slept.push(ms); }, confirm: async () => true, log: () => {} }),
-    ).rejects.toThrow('参加トークンが違います');
-    // 貼り間違えたトークンで 30 秒待たせない。
-    expect(slept).toHaveLength(0);
-    expect(loadCloudConfig(home)).toBeNull();
-  });
-
-  it('別のクラウドへの参加し直しは、復号できなくなることを伝えて合言葉で確認する', async () => {
-    const { home } = dirs();
-    const before = conf({ url: 'https://old.workers.dev', joinSecret: 'old-secret' });
-    saveCloudConfig(home, before);
-    let called = 0;
-    const f = (async () => { called++; return new Response('', { status: 201 }); }) as typeof fetch;
-    const c = fakeConfirm([true, false]);
-    const lines: string[] = [];
-    await expect(
-      runJoin({ home, token: encodeJoinToken({ url: 'https://new.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) }),
-    ).rejects.toThrow(/キャンセル/);
-    expect(c.asked).toHaveLength(2);
-    expect(c.asked[1]!.word).toBe(OVERWRITE_WORD);
-    const out = lines.join('\n');
-    expect(out).toContain('復号できなくなります');
-    expect(out).toContain('https://old.workers.dev');
-    expect(out).toContain('https://new.workers.dev');
-    // 断った後は 1 バイトも変えない。
-    expect(called).toBe(0);
-    expect(loadCloudConfig(home)).toEqual(before);
-  });
-
-  it('宛先が同じでも参加用の秘密が違えば、合言葉で確認する', async () => {
-    const { home } = dirs();
-    saveCloudConfig(home, conf({ url: 'https://h.workers.dev', joinSecret: 'old-secret' }));
-    const f = (async () => new Response(JSON.stringify({ deviceToken: 'dt2', deviceId: device.id }), { status: 201 })) as typeof fetch;
-    const c = fakeConfirm([true, true]);
-    const lines: string[] = [];
-    await runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'new-secret' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) });
-    expect(c.asked.map((a) => a.word)).toEqual(['y', OVERWRITE_WORD]);
-    expect(lines.join('\n')).toContain('参加トークンが違います');
-    expect(loadCloudConfig(home)!.joinSecret).toBe('new-secret');
-  });
-
-  it('cloud.json が壊れていたら、参加し直さずに止める', async () => {
-    const { home } = dirs();
-    const file = path.join(home, 'cloud.json');
-    fs.writeFileSync(file, '{ こわれている');
-    let called = 0;
-    const f = (async () => { called++; return new Response('', { status: 201 }); }) as typeof fetch;
-    await expect(
-      runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: async () => true, log: () => {} }),
-    ).rejects.toThrow(/cloud\.json/);
-    expect(called).toBe(0);
-    expect(fs.readFileSync(file, 'utf8')).toBe('{ こわれている');
-  });
-
-  it('参加した時点で、本文を上げ始める床を刻む', async () => {
-    const { home } = dirs();
-    const f = (async () => new Response(JSON.stringify({ deviceToken: 'dt', deviceId: device.id }), { status: 201 })) as typeof fetch;
-    const got = await runJoin({
-      home,
-      token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }),
-      device,
-      fetch: f,
-      sleep: async () => {},
-      force: true,
-      confirm: async () => true,
-      log: () => {},
-    });
-    expect(got.joinedAt).toBeGreaterThan(0);
-    expect(readTranscriptsFrom(home)).toBe(got.joinedAt);
-  });
-
-  it('--force は確認を省く', async () => {
-    const { home } = dirs();
-    saveCloudConfig(home, conf({ url: 'https://old.workers.dev' }));
-    const f = (async () => new Response(JSON.stringify({ deviceToken: 'dt2', deviceId: device.id }), { status: 201 })) as typeof fetch;
-    const got = await runJoin({
-      home,
-      token: encodeJoinToken({ url: 'https://new.workers.dev', secret: 'sec' }),
-      device,
-      fetch: f,
-      sleep: async () => {},
-      force: true,
-      confirm: async () => { throw new Error('確認を聞いてはいけない'); },
-      log: () => {},
-    });
-    expect(got.url).toBe('https://new.workers.dev');
-    expect(loadCloudConfig(home)!.deviceToken).toBe('dt2');
   });
 });
 
@@ -815,7 +698,7 @@ describe('runTeardown', () => {
     const claudeDir = path.join(home, 'claude');
     fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
     fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
-    saveCloudConfig(home, conf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    saveLegacyCloudConfig(home, legacyConf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
     // 自分が上げた本文は、原本が手元にある。降ろし直さない。
     const mine = await fileFixture({ secret, deviceId: 'dev-a', uuid: 'u-mine', text: '{"mine":1}\n', seq: 1 });
     fs.mkdirSync(path.join(claudeDir, 'projects', '-w-p'), { recursive: true });
@@ -866,20 +749,20 @@ describe('runTeardown', () => {
 
   it('確認に失敗したら何もしない', async () => {
     const { home, cloudDir } = dirs();
-    const before = conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
-    saveCloudConfig(home, before);
+    const before = legacyConf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
+    saveLegacyCloudConfig(home, before);
     const w = fakeWrangler({});
     const c = fakeConfirm([false]);
     const done = await runTeardown({ home, deviceId: 'dev-a', wrangler: w.runner('a'.repeat(32), cloudDir), fetch: cloudFetch([], { token: 'dt' }).fetch, confirm: c.fn, log: () => {} });
     expect(done).toBe(false);
     expect(w.calls).toEqual([]);
-    expect(loadCloudConfig(home)).toEqual(before);
+    expect(loadLegacyCloudConfig(home)).toEqual(before);
   });
 
   it('降ろせない本文があれば、確認も聞かずに消すのをやめる', async () => {
     const { home, cloudDir } = dirs();
     const secret = 'join-secret-0000';
-    saveCloudConfig(home, conf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    saveLegacyCloudConfig(home, legacyConf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
     const theirs = await fileFixture({ secret, deviceId: 'dev-b', uuid: 'u-theirs', text: '{"theirs":1}\n', seq: 1 });
     const cf = cloudFetch([theirs], { token: 'dt', missing: [theirs.entry.key] });
     const w = fakeWrangler({});
@@ -889,13 +772,13 @@ describe('runTeardown', () => {
     ).rejects.toThrow(/ダウンロードでき/);
     expect(c.asked).toEqual([]);
     expect(w.calls).toEqual([]);
-    expect(loadCloudConfig(home)).not.toBeNull();
+    expect(loadLegacyCloudConfig(home)).not.toBeNull();
   });
 
   it('暗号化されていない本文は受け取らず、消すのもやめる', async () => {
     const { home, cloudDir } = dirs();
     const secret = 'join-secret-0000';
-    saveCloudConfig(home, conf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    saveLegacyCloudConfig(home, legacyConf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
     // Worker が握っているのは秘密の SHA-256 だけなので、正しく暗号化した本文は作れない。
     // 平文を通す道が残っていると、Worker の側から remote の下に中身を仕込める。
     const planted = await fileFixture({ secret, deviceId: 'dev-b', uuid: 'u-planted', text: '{"planted":"by the worker"}\n', seq: 1, encrypted: false });
@@ -914,8 +797,8 @@ describe('runTeardown', () => {
     const { home, cloudDir } = dirs();
     fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
     fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
-    const before = conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
-    saveCloudConfig(home, before);
+    const before = legacyConf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
+    saveLegacyCloudConfig(home, before);
     // 索引に無い孤児が 1 つでもあれば、バケットは「空でない」で消せない（Task 5 の申し送り）。
     const w = fakeWrangler({ 'r2 bucket delete': () => ({ code: 1, stdout: '', stderr: 'The bucket you tried to delete is not empty' }) });
     const c = fakeConfirm([true, true]);
@@ -932,7 +815,7 @@ describe('runTeardown', () => {
     // Worker は R2 の中身へ手が届く唯一の入口である。オブジェクトが残っているうちは消さない。
     expect(w.calls.map((x) => x.args[0])).toEqual(['r2']);
     // 在り処（Worker 名、アカウント、参加用の秘密）を消さない。消すとやり直せなくなる。
-    expect(loadCloudConfig(home)).toEqual(before);
+    expect(loadLegacyCloudConfig(home)).toEqual(before);
     expect(fs.existsSync(path.join(home, 'cloud', 'wrangler.jsonc'))).toBe(true);
     const out = lines.join('\n');
     expect(out).toContain('残ったもの');
@@ -957,8 +840,8 @@ describe('runTeardown', () => {
     const { home, cloudDir } = dirs();
     fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
     fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
-    const before = conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
-    saveCloudConfig(home, before);
+    const before = legacyConf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
+    saveLegacyCloudConfig(home, before);
     const w = fakeWrangler({
       'r2 bucket delete': () => ok(),
       'delete --name': () => ({ code: 1, stdout: '', stderr: 'Authentication error [code: 10000]' }),
@@ -974,7 +857,7 @@ describe('runTeardown', () => {
       log: (l) => lines.push(l),
     });
     expect(done).toBe(false);
-    expect(loadCloudConfig(home)).toEqual(before);
+    expect(loadLegacyCloudConfig(home)).toEqual(before);
     expect(fs.existsSync(path.join(home, 'cloud', 'wrangler.jsonc'))).toBe(true);
     const out = lines.join('\n');
     expect(out).toContain('削除したもの');
@@ -998,10 +881,23 @@ describe('runTeardown', () => {
 
   it('参加だけの端末では実行できない', async () => {
     const { home } = dirs();
-    saveCloudConfig(home, conf({ deviceToken: 'dt' }));
+    saveLegacyCloudConfig(home, legacyConf({ deviceToken: 'dt' }));
     await expect(
       runTeardown({ home, fetch: (async () => new Response('{}')) as typeof fetch, confirm: async () => true, log: () => {} }),
     ).rejects.toThrow('setup cloud を実行した PC');
+  });
+
+  it('新しい形式（版 2）のクラウドは、トランスクリプトをダウンロードできないので何も削除せずに止める', async () => {
+    const { home, cloudDir } = dirs();
+    saveCloudConfig(home, v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' }));
+    const w = fakeWrangler({});
+    let called = 0;
+    await expect(
+      runTeardown({ home, wrangler: w.runner('a'.repeat(32), cloudDir), fetch: (async () => { called++; return new Response('{}'); }) as typeof fetch, confirm: async () => true, log: () => {} }),
+    ).rejects.toThrow(/新しい形式/);
+    expect(called).toBe(0);
+    expect(w.calls).toEqual([]);
+    expect(loadCloudConfig(home)).not.toBeNull();
   });
 
   it('cloud.json が壊れていたら、未設定とみなさずに止める', async () => {
@@ -1075,7 +971,7 @@ describe('失敗の理由の見せ方', () => {
     fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
     fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
     const account = 'a'.repeat(32);
-    saveCloudConfig(home, conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: account, dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    saveLegacyCloudConfig(home, legacyConf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: account, dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
     // 実物の wrangler は、見出しの行の 2 行あとに本当の理由を出す。
     const stderr = [
       `\u001b[31m✘ [ERROR]\u001b[0m A request to the Cloudflare API (/accounts/${account}/r2/buckets/hangar-dev-files) failed.`,
@@ -1385,7 +1281,7 @@ describe('runSetupCloud の使用量のトークンの問い', () => {
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok(),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
     const lines: string[] = [];
     await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: (l) => lines.push(l), ...extra });
@@ -1404,28 +1300,28 @@ describe('runSetupCloud の使用量のトークンの問い', () => {
 });
 
 describe('互換の版', () => {
-  it('Worker へ出す要求（health の待ち、参加、status）に、この PC の版を載せる', async () => {
+  it('Worker へ出す要求（health の待ち、登録、status）に、この PC の版を載せる', async () => {
     const sent: { url: string; compat: string | undefined }[] = [];
     const f = (async (input: string | URL | Request, init?: RequestInit) => {
       sent.push({ url: String(input), compat: (init?.headers as Record<string, string> | undefined)?.[COMPAT_HEADER] });
-      if (String(input).endsWith('/join')) return new Response(JSON.stringify({ deviceToken: 't', deviceId: device.id }), { status: 201 });
+      if (String(input).endsWith('/bootstrap')) return new Response(JSON.stringify({ deviceId: device.id }), { status: 201 });
       return new Response(JSON.stringify({ ok: true, version: '0.4.0', compat: COMPAT_VERSION }), { status: 200 });
     }) as typeof fetch;
     expect(await waitForHealth('https://h', { fetch: f, sleep: async () => {} })).toBe(true);
-    await joinWorker('https://h', 's', device, { fetch: f, sleep: async () => {} });
+    await bootstrapDevice('https://h', 'tok-0123456789abcdef', device.id, { fetch: f, sleep: async () => {} });
     const { home } = dirs();
     saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
     await cloudStatus({ home, fetch: f });
     const toWorker = sent.filter((s) => s.url.startsWith('https://h/'));
-    expect(toWorker.map((s) => s.url)).toEqual(['https://h/health', 'https://h/join', 'https://h/health']);
+    expect(toWorker.map((s) => s.url)).toEqual(['https://h/health', 'https://h/bootstrap', 'https://h/health']);
     for (const s of toWorker) expect(s.compat, s.url).toBe(String(COMPAT_VERSION));
   });
 
-  it('参加を版が古いと断られたら、待たずに hangar を上げるよう伝える', async () => {
+  it('登録を版が古いと断られたら、待たずに hangar を上げるよう伝える', async () => {
     const need = COMPAT_VERSION + 1;
     const f = (async () => new Response(JSON.stringify({ error: 'upgrade required', minCompat: need, compat: need }), { status: 426 })) as typeof fetch;
     const slept: number[] = [];
-    const e: Error = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retryForbidden: true }).then(
+    const e: Error = await bootstrapDevice('https://h', 't', device.id, { fetch: f, sleep: async (ms) => { slept.push(ms); } }).then(
       () => { throw new Error('断られるはずが通った'); },
       (x: unknown) => x as Error,
     );
@@ -1437,7 +1333,7 @@ describe('互換の版', () => {
   it('426 の見出しだけ返して本文が閉じない相手でも、締め切りで打ち切って止まる', async () => {
     const f = (async () => new Response(new ReadableStream({ start() {} }), { status: 426 })) as typeof fetch;
     const slept: number[] = [];
-    const e: Error = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, timeoutMs: 50, retryForbidden: true }).then(
+    const e: Error = await bootstrapDevice('https://h', 't', device.id, { fetch: f, sleep: async (ms) => { slept.push(ms); }, timeoutMs: 50 }).then(
       () => { throw new Error('断られるはずが通った'); },
       (x: unknown) => x as Error,
     );
@@ -1510,7 +1406,7 @@ describe('runSetupCloud のアカウントの選び方', () => {
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok(),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
   const run = (home: string, cloudDir: string, w: ReturnType<typeof fakeWrangler>, extra: Partial<Parameters<typeof runSetupCloud>[0]> = {}, lines: string[] = []) =>
     runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: (l) => lines.push(l), env: {}, interactive: false, ...extra });
@@ -1594,7 +1490,11 @@ describe('runSetupCloud のアカウントの選び方', () => {
     const { home, cloudDir } = dirs();
     saveCloudConfig(home, conf({ url: 'https://hangar.example.workers.dev', deviceToken: 't', workerName: 'hangar', accountId: ACCOUNT_B, dbName: 'hangar', bucketName: 'hangar-files' }));
     const w = full(() => ok(TWO));
-    await run(home, cloudDir, w);
+    // Worker の入れ替えなので、登録済みのこの PC の端末トークンで名簿があることを確かめるだけである。
+    const ff = fakeFetch(0);
+    ff.worker.devices.set(device.id, { tokenHash: sha('t'), revoked: false });
+    ff.worker.roster = { version: 1, sealed: 'x' };
+    await run(home, cloudDir, w, { fetch: ff.fetch });
     expect(loadCloudConfig(home)!.accountId).toBe(ACCOUNT_B);
   });
 
@@ -1648,7 +1548,7 @@ describe('runSetupCloud の wrangler の失敗', () => {
       'd1 create hangar': () => ok(`database_id = "${DB_ID}"`),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('https://hangar.example.workers.dev'),
-      'secret put JOIN_SECRET_HASH': () => ok(),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
       ...over,
     });
   const fail = async (w: ReturnType<typeof fakeWrangler>): Promise<Error> => {
@@ -1728,7 +1628,7 @@ describe('runSetupCloud の wrangler の失敗', () => {
   });
 
   it('secret put の失敗も同じ形で出す', async () => {
-    const e = await fail(base({ 'secret put JOIN_SECRET_HASH': () => ({ code: 1, stdout: '', stderr: '✘ [ERROR] first\n\n  real reason [code: 10000]' }) }));
+    const e = await fail(base({ 'secret put BOOTSTRAP_TOKEN_HASH': () => ({ code: 1, stdout: '', stderr: '✘ [ERROR] first\n\n  real reason [code: 10000]' }) }));
     expect(e.message).toContain('real reason');
   });
 });
@@ -1772,7 +1672,7 @@ describe('スマホの画面の配信（wrangler の assets と、配備の前�
         events.push('deploy');
         return ok('https://hangar.example.workers.dev');
       },
-      'secret put JOIN_SECRET_HASH': () => ok(),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
     await runSetupCloudReal({
       home,

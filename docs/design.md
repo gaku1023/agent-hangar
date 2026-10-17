@@ -5491,10 +5491,30 @@ HTTP と要約の側は、同期の部品を起動のときに掴まず、呼ぶ
 アカウント ID はこのファイルにもコードにも書かず、wrangler を呼ぶたびに環境変数で渡す。
 デプロイ直後の数秒は `workers.dev` の反映待ちで `error code: 1042` が返るので、setup は `/health` が通るまで最大 2 分試してから先へ進む。
 wrangler はプロジェクトのローカル依存として同梱する。
-setup の最後に **参加トークン** を表示する。
-参加トークンは Worker の URL と参加用の秘密を `{url, secret}` の JSON にして base64url で包んだ文字列で、他の PC では `hangar join` でこれを渡す。
-Worker は参加の要求を受けて端末ごとの端末トークン（32 バイトの乱数）を発行し、以後の要求はその端末トークンで認証する。
-端末トークンは、D1 にはハッシュだけを置く。
+Worker は端末ごとの端末トークン（32 バイトの乱数）で要求を認証し、D1 には端末トークンのハッシュだけを置く。
+
+**setup と参加の CLI（互換の版 9）。**
+`hangar setup cloud` は、デプロイの前に最初の端末トークンを作り、その SHA-256 を `wrangler secret put BOOTSTRAP_TOKEN_HASH` の標準入力で渡す。
+`/health` が通ったら、この PC の鍵ペアを作り、`POST /bootstrap` にこの PC の ID（`home.device.id`）と最初の端末トークンを送って登録する（反映待ちの 401 と 503 は 5 秒おきに 6 回まで待つ）。
+登録できたら、端末トークンを失わないよう、名簿を置く前に `cloud.json`（版 2、0600）を書く。世代 1 の世代鍵もここで作る。
+続けてリカバリーキーの鍵ペアを作り、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
+最後にリカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する。保存したかを末尾 4 文字で確かめる手順は、後の段で必須にする。
+同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、名簿と keybox とリカバリーキーをここで作る。
+古い形式（版 1）の `cloud.json` があれば上書きせず、先に `hangar cloud teardown`（参加しただけの PC では `cloud.json` の削除）を案内して止まる。
+
+新しい PC の参加は、殻（と端末）から CLI を短く呼ぶ 3 つのコマンドで進める。どれも `--json` で最後の 1 行に結果を出し、失敗は `{ ok: false, code, message }` である。
+
+| CLI | 返す JSON |
+| --- | --- |
+| `hangar cloud join-check <url> --json` | `{ ok, check: { url, host, pcCount, current } }`。`current` は今参加しているクラウドの `{ url }` か null |
+| `hangar cloud join-request <url> --json [--overwrite]`（参加コードは標準入力） | `{ ok, request: { sas, expiresAt } }`。`sas` は確認コードの 6 桁 |
+| `hangar cloud join-poll --json` | `{ ok, poll: { status } }`。`status` は `waiting`、`approved`、`rejected`、`expired`、`none` |
+
+`join-request` は参加コードを手元で正規化し、形が違えば Worker に送らずに `invalid-code` で止まる。
+鍵ペアを作って、送る前に下書き `~/.agent-hangar/cloud-pending.json`（0600。参加コードの平文は置かない）に書き、公開鍵と名前と OS を参加コードで封じて `POST /join/requests` に置く。
+`join-poll` は `GET /join/status` を 1 回だけ問い合わせる。承認されたら端末トークンを先に下書きに書き、自分宛ての keybox を開いて世代鍵を読み、名簿の版とスマホ用の鍵を写して `cloud.json`（版 2）を書き、下書きを消す。keybox がまだ無ければ、端末トークンを下書きに持ったまま `waiting` を返し、次の問い合わせで続ける。
+`hangar cloud join <url>` は同じ手順を端末で対話して進める（2 秒ごとに問い合わせる）。
+旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
 
 **互換の版 9 の Worker（E2E の作り直し）。**
 Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` を無くした。
@@ -5502,7 +5522,7 @@ Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` �
 使ったハッシュは `meta.bootstrap_used` に残し、同じハッシュは 2 度通さない。
 `hangar recover` は secret を別のハッシュに入れ替えて、もう 1 度ここを通る。
 2 台目からは、参加済みの PC が発行した参加コード（5 分、1 回限り）に新しい PC がリクエストを置き、発行した PC が承認する（下の「Worker の表」）。
-PC の側（setup、参加の画面と CLI）は、この節の上の段落の形のまま残っており、版 9 の形への作り直しは後の段で入る。
+CLI の setup と参加は上の「setup と参加の CLI」の形になった。参加の画面と殻の命令（下の表）の作り直しは後の段で入る。
 
 参加し直すと（`hangar setup cloud` のやり直しと、`hangar join` のし直し）、Worker は同じ端末 ID の行の `token_hash` を新しい端末トークンのものに入れ替え、古い端末トークンは 401 の `{ error: 'unauthorized' }` で断られる（解除の `revoked` とは別の本文である）。
 新しい端末トークンは `cloud.json` にだけ書かれ、CLI は動いているサーバへ知らせない。
