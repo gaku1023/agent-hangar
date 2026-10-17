@@ -119,7 +119,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.syncing': '同期中…',
   'settings.cloud.pause': '同期を一時停止',
   'settings.cloud.resume': '同期を再開',
-  'settings.cloud.computers': '参加している PC',
+  'settings.cloud.computers': 'PC',
   'settings.cloud.thisPc': 'この PC',
   'settings.cloud.config.title': 'Claude Code の設定を同期',
   'settings.cloud.config.enable': 'この PC で有効にする',

@@ -21,6 +21,23 @@ describe('presentCloudMember', () => {
     expect(p.pcs.removed.map((r) => [r.id, r.removedOn])).toEqual([['c', '10-10 に解除']]);
   });
 
+  it('スマホは PC の一覧に入れず phones に分ける。解除したスマホはどちらにも出さない。残りの日数はまだ無い（PR 7 で埋める）', () => {
+    const devices = [
+      dev('a', { self: true }),
+      dev('p1', { name: 'iPhone', platform: null, kind: 'mobile' }),
+      dev('p2', { name: 'old-phone', platform: null, kind: 'mobile', revokedAt: NOW - 1000 }),
+    ];
+    const p = presentCloudMember(store({ cloudMember: member({ devices: { state: 'ok', devices, creator: false, message: null } }) }), NOW);
+    expect(p.pcs.rows.map((r) => r.id)).toEqual(['a']);
+    expect(p.pcs.removed).toEqual([]);
+    expect(p.phones).toEqual([{ id: 'p1', name: 'iPhone', joined: '2026-09-21', lastSeen: '12 分前', left: null }]);
+  });
+
+  it('Worker の一覧が無いときは、スマホの行を出さない', () => {
+    const p = presentCloudMember(store({ cloudMember: member({ devices: { state: 'unreachable', devices: [], creator: false, message: 'x' } }) }), NOW);
+    expect(p.phones).toEqual([]);
+  });
+
   it('名簿に無い端末（名前と OS が null）は ID で出し、OS の列は空ける', () => {
     const devices = [dev('a'), dev('b', { name: null, platform: null })];
     const p = presentCloudMember(store({ cloudMember: member({ devices: { state: 'ok', devices, creator: false, message: null } }) }), NOW);

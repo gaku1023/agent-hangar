@@ -11,10 +11,17 @@ import { translatorOf } from './i18n.ts';
  */
 
 /**
- * PC の 1 行。joined と ip と place は Worker の一覧があるときだけで、同期の表に戻したときは null。
- * ip（最後の IP）と place（場所）を分けて持つ。IPv6 の IP は長く、1 本の文字列にすると後ろの場所が切られて見えなくなるからである。
+ * PC の 1 行（試作 cloud-e2e の E2）。joined は Worker の一覧があるときだけで、同期の表に戻したときは null。
+ * IP と所在地は持たない（互換の版 9 で Worker が保存をやめた）。
  */
-export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; removedOn: string | null; /** スマホ（Worker の kind が mobile）。名前に「スマホ」の札を付け、解除の確認の文を替える。 */ phone: boolean };
+export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; removedOn: string | null };
+
+/**
+ * スマホの 1 行（試作 cloud-e2e の E2）。PC の表とは別に、「スマホ」の小見出しの下に並べる。
+ * left は、使わずに切れるまでの残りの日数と、再接続が必要になる日付。
+ * Worker がまだ期限（30 日と 90 日）を持たないので今は null で、PR 7 で埋める。
+ */
+export type CloudPhoneRow = { id: string; name: string; joined: string; lastSeen: string; left: { days: number; reconnectOn: string } | null };
 
 /**
  * スマホを接続する QR の段（store/cloudMember.ts の PhoneStage から基準の ID の控えを除いたもの）。
@@ -93,6 +100,8 @@ export type CloudMemberProps = {
   commands: { leave: string; revoke: string; devices: string };
   /** スマホを接続する QR の段。 */
   phone: CloudPhoneProps;
+  /** 接続しているスマホ（解除していないもの）。Worker の一覧が無いときは空。 */
+  phones: CloudPhoneRow[];
 };
 
 const OS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' };
@@ -192,19 +201,23 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
   const m = store.cloudMember;
   const cloud = m.devices;
   const row = (d: CloudDeviceDto): CloudPcRow => ({
-    // スマホは名前の横の札で見分けるので、OS の列は空ける。名簿に無い端末（名前と OS が null）は ID で出す（PC の一覧の画面 E2 で作り直す）。
-    id: d.id, name: d.name ?? d.id, self: d.self, os: d.kind === 'mobile' || d.platform === null ? '—' : OS[d.platform] ?? d.platform,
+    // 名簿に無い端末（名前と OS が null）は ID で出し、OS の列は空ける。
+    id: d.id, name: d.name ?? d.id, self: d.self, os: d.platform === null ? '—' : OS[d.platform] ?? d.platform,
     joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now),
     removedOn: d.revokedAt === null ? null : t('cloudMember.pcs.removedOn', { date: md(d.revokedAt) }),
-    phone: d.kind === 'mobile',
   });
-  // Worker の一覧が無いときは、同期の表の一覧を出しておく（参加日と場所は無い）。
-  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), removedOn: null, phone: false }));
+  const phoneRow = (d: CloudDeviceDto): CloudPhoneRow => ({ id: d.id, name: d.name ?? d.id, joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now), left: null });
+  // Worker の一覧が無いときは、同期の表の一覧を出しておく（参加日は無い）。
+  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), removedOn: null }));
+  const listed = cloud?.state === 'ok' ? cloud.devices : [];
+  const pcList = listed.filter((d) => d.kind !== 'mobile');
   const pcs: CloudPcsProps = cloud?.state === 'ok'
-    ? { state: 'ok', rows: cloud.devices.filter((d) => d.revokedAt === null).map(row), removed: cloud.devices.filter((d) => d.revokedAt !== null).map(row), note: null }
+    ? { state: 'ok', rows: pcList.filter((d) => d.revokedAt === null).map(row), removed: pcList.filter((d) => d.revokedAt !== null).map(row), note: null }
     : cloud && cloud.state !== 'off'
       ? { state: 'fallback', rows: shared(), removed: [], note: cloud.message }
       : { state: 'loading', rows: shared(), removed: [], note: null };
+  // 解除したスマホは出さない。再接続は新しい QR で別の行になるので、解除した PC のように並べておく意味が無い。
+  const phones = listed.filter((d) => d.kind === 'mobile' && d.revokedAt === null).map(phoneRow);
   const names = new Map((cloud?.devices ?? []).map((d) => [d.id, d.name]));
   const rv = m.revoke;
   const revoke = rv === null ? null : {
@@ -226,5 +239,6 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
     leave: { kind: lv.kind, revokeError: lv.kind === 'left' ? lv.revokeError : null, message: lv.kind === 'failed' ? failureMessage(t, lv.failure) : null },
     commands: { leave: `${base} cloud leave`, revoke: `${base} cloud revoke <ID>`, devices: `${base} cloud devices` },
     phone: presentPhone(m.phone),
+    phones,
   };
 }
