@@ -3,6 +3,7 @@ import { aadFeed, decodePairing, deriveMobileKey, importMobileKey, open, seal, t
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CloudError, RevokedError } from '../../sync/client.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
+import { RecoveryDraftError } from '../../sync/recoveryReissue.ts';
 import { RevokeNotFoundError, RevokeSelfError } from '../../sync/rotate.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
@@ -199,6 +200,71 @@ describe('参加コードの発行と承認（/api/sync/join-codes）', () => {
     expect(await json(await send('POST', '/api/sync/join-codes/current/reject'))).toEqual({ status: 409, body: { error: '発行中の参加コードがありません' } });
     a.rejectError = new CloudError(500, 'x');
     expect((await send('POST', '/api/sync/join-codes/current/reject')).status).toBe(502);
+  });
+});
+
+describe('リカバリーキーの再発行（/api/sync/recovery-key）', () => {
+  const send = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+
+  function fakeReissuer() {
+    const a = {
+      log: [] as string[],
+      confirmError: null as unknown,
+      reissue: async () => {
+        a.log.push('reissue');
+        return { text: 'hangar リカバリーキー\n作成日: 2026-10-17\nURL: https://h\n暗号鍵: AAAA', draftId: 'd1' };
+      },
+      confirm: async (draftId: string, tail: string) => {
+        a.log.push(`confirm ${draftId} ${tail}`);
+        if (a.confirmError) throw a.confirmError;
+      },
+    };
+    return a;
+  }
+
+  it('どれも認証の下にある', async () => {
+    for (const p of ['/api/sync/recovery-key/reissue', '/api/sync/recovery-key/confirm']) {
+      expect((await app.request(p, { method: 'POST' })).status).toBe(401);
+    }
+  });
+
+  it('同期を設定していなければ 404', async () => {
+    app = createApp({ ...deps, recoveryKey: () => null });
+    for (const p of ['/api/sync/recovery-key/reissue', '/api/sync/recovery-key/confirm']) {
+      const r = await send(p, { draftId: 'd1', tail: 'AAAA' });
+      expect(r.status).toBe(404);
+      expect((await r.json()).error).toBe('クラウド同期が設定されていません');
+    }
+  });
+
+  it('再発行は 4 行の文と下書きの ID を返し、キャッシュさせない', async () => {
+    const a = fakeReissuer();
+    app = createApp({ ...deps, recoveryKey: () => a });
+    const r = await send('/api/sync/recovery-key/reissue');
+    expect(r.status).toBe(200);
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(await r.json()).toEqual({ text: 'hangar リカバリーキー\n作成日: 2026-10-17\nURL: https://h\n暗号鍵: AAAA', draftId: 'd1' });
+  });
+
+  it('確認は下書きの ID と末尾 4 文字を渡す。形の違う本文は 400', async () => {
+    const a = fakeReissuer();
+    app = createApp({ ...deps, recoveryKey: () => a });
+    expect(await json(await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'aaaa' }))).toEqual({ status: 200, body: { ok: true } });
+    expect(a.log).toEqual(['confirm d1 aaaa']);
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 'd1' })).status).toBe(400);
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 1, tail: 'aaaa' })).status).toBe(400);
+    expect(a.log).toHaveLength(1);
+  });
+
+  it('末尾 4 文字が違えば 400、下書きが無ければ 409、Worker の失敗は 502', async () => {
+    const a = fakeReissuer();
+    app = createApp({ ...deps, recoveryKey: () => a });
+    a.confirmError = new RecoveryDraftError('tail-mismatch');
+    expect(await json(await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'ZZZZ' }))).toEqual({ status: 400, body: { error: '暗号鍵の末尾 4 文字が一致しません' } });
+    a.confirmError = new RecoveryDraftError('no-draft');
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'ZZZZ' })).status).toBe(409);
+    a.confirmError = new CloudError(500, 'x');
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'ZZZZ' })).status).toBe(502);
   });
 });
 

@@ -81,6 +81,12 @@ export type JoinApproverState =
   | { kind: 'done'; name: string }
   | { kind: 'expired' }
   | { kind: 'failed'; message: string };
+/**
+ * 設定の「リカバリーキーを再発行」（POST /api/sync/recovery-key/reissue）の答え。
+ * text は 4 行のリカバリーキーで、draftId を末尾 4 文字と一緒に /confirm へ送ると差し替わる。
+ * 新しい鍵ペアはサーバーのメモリにだけあり、確認するまで名簿も keybox も変えない。
+ */
+export type RecoveryKeyDraftDto = { text: string; draftId: string };
 export type OsNoticeDto = { seq: number; kind: OsNoticeKind; sessionId: string; title: string; body: string; bare: boolean };
 /** boot はサーバの起動ごとに変わる値。殻はこれが変わったら、seq を今の値に合わせ直し、前の分は出さない。 */
 export type OsNoticeFeedDto = { boot: string; seq: number; items: OsNoticeDto[] };

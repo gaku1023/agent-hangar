@@ -5,12 +5,13 @@ import { deriveMobileKeyBytes, encodePairing, MOBILE_MIN_WORKER_COMPAT, type Mob
 import { CloudError, CompatError, LimitError, RevokedError } from '../../sync/client.ts';
 import { ConfigSyncError } from '../../sync/config/service.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
+import { RecoveryDraftError } from '../../sync/recoveryReissue.ts';
 import { RevokeNotFoundError, RevokeSelfError } from '../../sync/rotate.ts';
-import type { AppDeps, JoinApproverApi, LanguageDeps } from '../deps.ts';
+import type { AppDeps, JoinApproverApi, LanguageDeps, RecoveryKeyApi } from '../deps.ts';
 import { BODY_LIMITS, readJson, syncStatusOf, tooLargeResult } from './common.ts';
 
 /** 同期の経路が使う依存。 */
-export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'cloudRevoke' | 'mobileLink' | 'deviceName' | 'joinApprover' | 'configBundle'> & LanguageDeps;
+export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'cloudRevoke' | 'mobileLink' | 'deviceName' | 'joinApprover' | 'recoveryKey' | 'configBundle'> & LanguageDeps;
 
 /**
  * 端末の解除の失敗を、符号と HTTP の状態にする。CLI の hangar cloud revoke はこの符号を読む。
@@ -109,6 +110,33 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
   api.post('/sync/join-codes/current/approve', (c) => join(c, (a) => a.approve()));
   api.post('/sync/join-codes/current/reject', (c) => join(c, (a) => a.reject()));
   api.delete('/sync/join-codes/current', (c) => join(c, (a) => a.cancel()));
+  // リカバリーキーの再発行（設定のクラウド同期の「リカバリーキーを再発行」）。
+  // 再発行の応答にはリカバリーキーの秘密鍵が載るので no-store を付け、ログにも出さない。
+  // 確認の末尾 4 文字が違えば 400、下書きが無いか名簿がまだ無ければ 409、Worker の失敗は 502 にする。
+  const recovery = async (c: Context, fn: (r: RecoveryKeyApi) => Promise<unknown>) => {
+    c.header('cache-control', 'no-store');
+    const r = deps.recoveryKey();
+    if (!r) return c.json({ error: tr('sync.error.notConfigured') }, 404);
+    try {
+      return c.json(await fn(r) as object);
+    } catch (e) {
+      if (e instanceof RecoveryDraftError) return c.json({ error: errorText(deps.language(), e) }, e.reason === 'tail-mismatch' ? 400 : 409);
+      return c.json({ error: errorText(deps.language(), e) }, 502);
+    }
+  };
+  api.post('/sync/recovery-key/reissue', (c) => recovery(c, (r) => r.reissue()));
+  api.post('/sync/recovery-key/confirm', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const body = (b.value ?? {}) as { draftId?: unknown; tail?: unknown };
+    for (const field of ['draftId', 'tail'] as const) {
+      if (typeof body[field] !== 'string') return c.json({ error: tr('common.field.mustBeString', { field }) }, 400);
+    }
+    return recovery(c, async (r) => {
+      await r.confirm(body.draftId as string, body.tail as string);
+      return { ok: true };
+    });
+  });
   // スマホを接続する QR。中身にスマホ用の暗号鍵が入るので、残さないよう no-store を付ける。失敗の理由は文にして返し、中身はログに出さない。
   api.post('/sync/mobile-pairing', async (c) => {
     c.header('cache-control', 'no-store');

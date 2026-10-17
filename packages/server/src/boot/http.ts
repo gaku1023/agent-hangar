@@ -136,6 +136,7 @@ export function bootHttp(p: {
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
     get configBundle() { return sync.configBundle; },
     joinApprover: sync.joinApprover,
+    recoveryKey: sync.recoveryKey,
     devices: () => listDevices(db, device.id),
     cloudDevices: sync.cloudDevices,
     cloudRevoke: sync.cloudRevoke,

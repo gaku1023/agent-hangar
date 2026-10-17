@@ -29,6 +29,13 @@ function commandOf(a: Extract<Input, { kind: 'action' }>['action']): CloudMember
     case 'cloud.leave.dismiss': return { op: 'leaveDismiss' };
     case 'cloud.phone.pair': return { op: 'pair' };
     case 'cloud.phone.close': return { op: 'pairClose' };
+    case 'cloud.recovery.ask': return { op: 'recoveryAsk' };
+    case 'cloud.recovery.reissue': return { op: 'recoveryReissue' };
+    case 'cloud.recovery.saved': return { op: 'recoverySaved' };
+    case 'cloud.recovery.reveal': return { op: 'recoveryReveal' };
+    case 'cloud.recovery.confirm': return { op: 'recoveryConfirm', tail: a.tail };
+    case 'cloud.recovery.retry': return { op: 'recoveryRetry' };
+    case 'cloud.recovery.close': return { op: 'recoveryClose' };
     default: return null;
   }
 }

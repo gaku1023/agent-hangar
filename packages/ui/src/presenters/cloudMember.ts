@@ -1,5 +1,5 @@
-import type { CloudDeviceDto, Translate } from '@agent-hangar/shared';
-import { joinCheckOf, type AddPcStage, type CloudFailure, type JoinFailReason, type JoinStage, type PhoneStage } from '../store/cloudMember.ts';
+import { recoverySecretTail, type CloudDeviceDto, type Translate } from '@agent-hangar/shared';
+import { joinCheckOf, type AddPcStage, type CloudFailure, type JoinFailReason, type JoinStage, type PhoneStage, type RecoveryError, type RecoveryStage } from '../store/cloudMember.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -82,6 +82,54 @@ export type CloudAddProps = {
   name: string | null;
 };
 
+/**
+ * 「リカバリーキーを再発行」の段（試作 D2）。text は保存とコピーに使う 4 行の文字列、heading と fields と secret はその見せ方（見出し、作成日と URL、暗号鍵）。
+ * tail は暗号鍵の末尾 4 文字（入力と比べる）、hideAt は暗号鍵を伏せる時刻、entering は末尾 4 文字の入力の段。
+ * error は確認の失敗（retry なら同じ下書きで送り直せる）、message は作成の失敗か下書きが無い旨。
+ */
+export type CloudRecoveryProps = {
+  kind: RecoveryStage['kind'];
+  text: string | null;
+  heading: string | null;
+  fields: { label: string; value: string }[];
+  secretLabel: string | null;
+  secret: string | null;
+  tail: string | null;
+  hideAt: number | null;
+  entering: boolean;
+  busy: boolean;
+  error: RecoveryError | null;
+  message: string | null;
+};
+
+/**
+ * 末尾 4 文字の入力をそろえる（サーバーの照合と同じ）。全角を半角に（NFKC）、空白とハイフンを捨て、大文字にする。
+ * 小文字、全角、区切りの混じった入力も、同じ 4 文字として比べる。
+ */
+export const normalizeRecoveryTail = (s: string): string => s.normalize('NFKC').replace(/[\s\-‐-―−]/g, '').toUpperCase();
+
+/**
+ * 4 行の文字列を、見出し、項目、暗号鍵に分ける。形は shared の formatRecoveryKey で、見出しの後に作成日、URL、暗号鍵の順に「名前: 値」が並ぶ。
+ * 最後の項目を暗号鍵として扱う（伏せる対象）。
+ */
+function presentRecovery(r: RecoveryStage): CloudRecoveryProps {
+  const none = { text: null, heading: null, fields: [], secretLabel: null, secret: null, tail: null, hideAt: null, entering: false, busy: false, error: null };
+  if (r.kind === 'failed') return { kind: r.kind, ...none, message: r.message };
+  if (r.kind !== 'shown') return { kind: r.kind, ...none, message: null };
+  const [heading = '', ...rest] = r.text.split(/\r?\n/);
+  const all = rest.flatMap((line) => {
+    const m = /^(.+?)\s*[:：]\s*(.*)$/.exec(line);
+    return m ? [{ label: m[1]!, value: m[2] ?? '' }] : [];
+  });
+  const last = all.at(-1) ?? null;
+  const fields = all.slice(0, -1);
+  const secretLabel = last?.label ?? null;
+  const secret = last?.value ?? null;
+  let tail: string | null;
+  try { tail = recoverySecretTail(r.text); } catch { tail = secret ? normalizeRecoveryTail(secret).slice(-4) : null; }
+  return { kind: r.kind, text: r.text, heading, fields, secretLabel, secret, tail, hideAt: r.hideAt, entering: r.entering, busy: r.busy, error: r.error, message: null };
+}
+
 export type CloudMemberProps = {
   desktop: boolean;
   /** この PC が同期から解除されている。 */
@@ -102,6 +150,8 @@ export type CloudMemberProps = {
   phone: CloudPhoneProps;
   /** 接続しているスマホ（解除していないもの）。Worker の一覧が無いときは空。 */
   phones: CloudPhoneRow[];
+  /** 「リカバリーキーを再発行」の段。 */
+  recovery: CloudRecoveryProps;
 };
 
 const OS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' };
@@ -240,5 +290,6 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
     commands: { leave: `${base} cloud leave`, revoke: `${base} cloud revoke <ID>`, devices: `${base} cloud devices` },
     phone: presentPhone(m.phone),
     phones,
+    recovery: presentRecovery(m.recovery),
   };
 }

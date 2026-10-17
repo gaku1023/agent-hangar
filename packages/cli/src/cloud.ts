@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, openTranscriptsFloor, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
+import { backfillTranscripts, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import {
@@ -31,6 +31,7 @@ import {
   type SyncStatusDto,
 } from '@agent-hangar/shared';
 import { DetailedError } from './probe.ts';
+import { showAndConfirmRecoveryKey } from './recovery.ts';
 import { type CfAccount, defaultExec, type Exec, type ExecResult, isAccountId, parseDatabaseId, parseWhoamiJson, parseWhoamiTable, parseWorkerUrl, type WhoamiResult, WranglerRunner } from './wrangler.ts';
 
 export type DeviceLike = { id: string; name: string; platform: string };
@@ -61,6 +62,12 @@ export type SetupCloudOptions = {
   chooseAccount?: ChooseAccount;
   /** スマホの画面（packages/mobile）を建てる。引数は mobile の置き場。既定は buildMobileApp。試験で差し替える。 */
   buildMobile?: (mobileDir: string) => Promise<void>;
+  /** --save。リカバリーキーを 0600 で書くファイル。 */
+  saveRecoveryTo?: string;
+  /** リカバリーキーの末尾 4 文字を尋ねる。既定は標準入力の askLine。 */
+  recoveryAsk?: (question: string) => Promise<string>;
+  /** リカバリーキーの表示の書き先。既定は標準出力。 */
+  recoveryWrite?: (s: string) => void;
 };
 
 /** 複数のアカウントから 1 つを選ばせる。null は選ばなかった。 */
@@ -534,23 +541,6 @@ async function confirmRename(log: (l: string) => void, prev: CloudConfig, name: 
   if (!(await confirm('本当に新しいリソースを作成して cloud.json を移しますか？', RENAME_WORD))) throw new Error('cloud.json の切り替えをキャンセルしました');
 }
 
-/**
- * リカバリーキーの表示と、保存の案内。標準出力に出す以上、スクロールバックに表示されたままになると伝える。
- * PC はリカバリーキーの秘密鍵を保存しないので、表示はこの 1 回だけである。
- */
-function printRecoveryKey(log: (l: string) => void, recoveryKey: string): void {
-  log('');
-  log('リカバリーキー（表示はこの 1 回だけです）:');
-  log('');
-  for (const l of recoveryKey.split('\n')) log(l);
-  log('');
-  log('4 行すべてをパスワードマネージャーに保存してください。すべての PC を失ったときに、このキーでクラウドのデータを復元します。');
-  log('この PC はリカバリーキーの暗号鍵を保存しないため、後から表示できません。');
-  log('標準出力に出力したため、ターミナルのスクロールバックにも表示されたままになります。保存したら、スクロールバックを消去するか、このターミナルのウィンドウを閉じてください。');
-  // Task 17: ここで保存した暗号鍵の末尾 4 文字を入力してもらい（recoverySecretTail で照合する）、合うまで setup を終えない。
-  // この Task では表示するだけで、確認はまだ求めない。
-}
-
 /** 他の PC を追加する手順の案内。 */
 function printNextSteps(log: (l: string) => void, url: string): void {
   log('');
@@ -563,9 +553,11 @@ function printNextSteps(log: (l: string) => void, url: string): void {
  * 名簿と keybox が無ければ作る（setup の最初の 1 回と、途中で止まった setup のやり直し）。
  * 名簿にはこの PC とリカバリーキーの公開鍵を入れ、keybox はこの PC と recovery に、世代鍵の一覧をそれぞれ封じて置く。
  * keybox を先に置き、名簿を後に置く。名簿が置けた時点で作成は完了で、次の setup は何もしない。
+ * リカバリーキーは、どちらを置くよりも先に表示し、保存を確かめる（confirm）。
+ * 確かめられなければ confirm が投げ、名簿も keybox も置かずに止まる。次の setup は新しいリカバリーキーから続ける。
  * 作ったときはリカバリーキーの 4 行の文字列を返し、名簿がすでにあれば null を返す。
  */
-async function ensureRoster(o: { home: string; conf: CloudConfig; device: DeviceLike; fetch: typeof fetch; now: number }): Promise<string | null> {
+async function ensureRoster(o: { home: string; conf: CloudConfig; device: DeviceLike; fetch: typeof fetch; now: number; confirm: (text: string) => Promise<void> }): Promise<string | null> {
   const { conf } = o;
   const client = new HttpCloudClient({ url: conf.url, token: conf.deviceToken, fetch: o.fetch });
   if (await client.getRoster()) return null;
@@ -573,25 +565,37 @@ async function ensureRoster(o: { home: string; conf: CloudConfig; device: Device
   const epochKey = conf.epochs[String(epoch)];
   if (!epochKey) throw new Error('cloud.json に現在の世代の暗号鍵がありません');
   const recovery = await generateKeyPair();
-  const list = encodeEpochList({ epochs: conf.epochs });
-  const boxes: KeyboxIn[] = [
-    { epoch, recipient: o.device.id, sealed: toBase64Url(await sealKeybox(conf.keyPair.pub, { epoch, recipient: o.device.id }, list)) },
-    { epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(recovery.pub, { epoch, recipient: RECOVERY_RECIPIENT }, list)) },
-  ];
-  const put = await workerFetch(conf.url, '/keyboxes', { fetch: o.fetch, method: 'PUT', body: { boxes }, token: conf.deviceToken });
-  if (!put.ok) throw new Error(`暗号鍵を Worker に保存できませんでした（HTTP ${put.status}）。hangar setup cloud をもう一度実行してください`);
-  const roster: Roster = {
-    v: 1,
-    entries: [{ id: o.device.id, kind: 'pc', name: o.device.name, os: o.device.platform, pub: conf.keyPair.pub, joinedAt: conf.joinedAt }],
-    recoveryPub: recovery.pub,
-    phoneKey: conf.phoneKey,
-  };
-  const keys = await deriveEpochKeys(epoch, epochKey);
-  const r = await client.putRoster({ ifVersion: 0, epoch, sealed: toBase64Url(await sealRoster(keys.roster, 1, roster)) });
-  if (!r.ok) throw new Error('PC の一覧を作成できませんでした（Worker にすでに一覧があります）。Cloudflare にある古いリソースを削除してから、hangar setup cloud をもう一度実行してください');
+  const text = formatRecoveryKey({ priv: recovery.priv, url: conf.url, createdAt: o.now });
+  await o.confirm(text);
+  // ここから先で止まると、いま保存してもらったリカバリーキーはクラウドに登録されない。次の setup は新しいキーを作る。
+  let r: { ok: boolean; version: number };
+  try {
+    const list = encodeEpochList({ epochs: conf.epochs });
+    const boxes: KeyboxIn[] = [
+      { epoch, recipient: o.device.id, sealed: toBase64Url(await sealKeybox(conf.keyPair.pub, { epoch, recipient: o.device.id }, list)) },
+      { epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(recovery.pub, { epoch, recipient: RECOVERY_RECIPIENT }, list)) },
+    ];
+    const put = await workerFetch(conf.url, '/keyboxes', { fetch: o.fetch, method: 'PUT', body: { boxes }, token: conf.deviceToken });
+    if (!put.ok) throw new Error(`暗号鍵を Worker に保存できませんでした（HTTP ${put.status}）。hangar setup cloud をもう一度実行してください`);
+    const roster: Roster = {
+      v: 1,
+      entries: [{ id: o.device.id, kind: 'pc', name: o.device.name, os: o.device.platform, pub: conf.keyPair.pub, joinedAt: conf.joinedAt }],
+      recoveryPub: recovery.pub,
+      phoneKey: conf.phoneKey,
+    };
+    const keys = await deriveEpochKeys(epoch, epochKey);
+    r = await client.putRoster({ ifVersion: 0, epoch, sealed: toBase64Url(await sealRoster(keys.roster, 1, roster)) });
+    if (!r.ok) throw new Error('PC の一覧を作成できませんでした（Worker にすでに一覧があります）。Cloudflare にある古いリソースを削除してから、hangar setup cloud をもう一度実行してください');
+  } catch (e) {
+    const base = (e instanceof Error ? e.message : String(e)).trimEnd();
+    throw new Error(`${/[。.]$/.test(base) ? base : `${base}。`}${UNREGISTERED_RECOVERY_KEY}`, { cause: e });
+  }
   saveCloudConfig(o.home, { ...conf, rosterVersion: r.version });
-  return formatRecoveryKey({ priv: recovery.priv, url: conf.url, createdAt: o.now });
+  return text;
 }
+
+/** 確認の後で名簿か keybox を置けずに止まったときに足す文。 */
+const UNREGISTERED_RECOVERY_KEY = '先に保存したキーは使えません。もう一度実行して、新しいキーを保存してください';
 
 /**
  * 床を刻むための DB を先に開く。
@@ -614,7 +618,7 @@ export function openFloorFirst(home: string, nothingMade: string, retry: string)
  * `wrangler whoami --json` を先に使い、JSON が返らなければ（--json を知らない版）表を読む。
  * whoami は CLOUDFLARE_ACCOUNT_ID が立っていても全アカウントを並べる。
  */
-async function readAccounts(wr: WranglerRunner): Promise<WhoamiResult> {
+export async function readAccounts(wr: WranglerRunner): Promise<WhoamiResult> {
   const j = await wr.run(['whoami', '--json']);
   const fromJson = parseWhoamiJson(j.stdout);
   if (fromJson) return fromJson;
@@ -860,10 +864,18 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
       floor.stamp(conf.joinedAt);
     }
 
-    // 8. 名簿と keybox、リカバリーキーの表示
-    const recoveryKey = await ensureRoster({ home: o.home, conf, device: o.device, fetch: fetchFn, now: Date.now() });
-    if (recoveryKey) printRecoveryKey(log, recoveryKey);
-    else log('Worker を入れ替えました。この PC の暗号鍵とリカバリーキーは変わりません。');
+    // 8. リカバリーキーの表示と保存の確認、名簿と keybox
+    // 保存を確かめる前に名簿を置くと、確かめられずに止まった setup のやり直しで名簿があるため、リカバリーキーを 2 度と表示できない。
+    const confirm = (text: string): Promise<void> =>
+      showAndConfirmRecoveryKey({
+        text,
+        ask: o.recoveryAsk ?? askLine,
+        write: o.recoveryWrite ?? ((s) => { process.stdout.write(s); }),
+        ...(o.saveRecoveryTo ? { saveTo: o.saveRecoveryTo } : {}),
+        askSavePath: o.recoveryAsk === undefined && process.stdin.isTTY === true,
+      });
+    const recoveryKey = await ensureRoster({ home: o.home, conf, device: o.device, fetch: fetchFn, now: Date.now(), confirm });
+    if (!recoveryKey) log('Worker を入れ替えました。この PC の暗号鍵とリカバリーキーは変わりません。');
     printNextSteps(log, url);
     // 使用量のトークンは任意。端末から打たれたときだけ尋ね、飛ばしても setup はここで終わる。
     if (process.stdin.isTTY && !o.skipUsageToken) {
@@ -1121,14 +1133,16 @@ export type RescueResult = { downloaded: number; already: number; failed: { key:
 
 /**
  * 版 8 までの Worker の索引の 1 行（平文のメタと平文の鍵名）。
- * teardown が、作り直しの前の Worker から本文を降ろすのに使う。
- * shared とサーバからは封じた形（互換の版 9）に置き換えて消したので、Task 26 で teardown を作り直すまで、この形はここにだけ持つ。
+ * teardown が、作り直しの前の Worker から本文を降ろすのに使う（版 1 の cloud.json の道）。
+ * shared とサーバからは封じた形（互換の版 9）に置き換えて消したので、この形はここにだけ持つ。
  */
 export type LegacyFileEntry = { key: string; path: string; kind: 'transcript' | 'config'; sha256: string; size: number; mtime: number; encrypted: boolean; seq: number; deviceId: string; uploadedAt: number; storedSize: number };
 
 /**
  * 版 8 までの本文の鍵。参加用の秘密から HKDF（SHA-256）で導く。
  * サーバからは消した（版 9 の本文は世代鍵から導く）ので、teardown のためにここにだけ写しを持つ。
+ * 版 1 の cloud.json の teardown（旧い Worker の片付け）のほかに使わない。
+ * teardown の版 1 の道でだけ使う（export は cloud.test.ts が古い本文を封じるためだけにある）。
  */
 export function legacyFileKey(joinSecret: string): Buffer {
   return Buffer.from(hkdfSync('sha256', Buffer.from(joinSecret, 'utf8'), 'hangar-salt-v1', 'hangar-file-v1', 32));
@@ -1239,10 +1253,84 @@ export async function rescueRemoteBodies(o: {
   return r;
 }
 
+/**
+ * 版 2 のクラウドの R2 の本文を手元へ降ろす。
+ * 索引は封じたメタなので、cloud.json の世代鍵で開く（同期と同じ openSealedFile と SealedCloudClient を使う）。
+ * 置き場は元の PC の ID の下（remote/<origin>/）で、作り直しで上げ直した写しも元の PC の下に戻る。
+ * 開けない行（手元に鍵の無い世代、付け替えられたメタ）は降ろせないものに数える。消すと失われるからである。
+ * 戻り値の keys は、索引にある全部の R2 の鍵名で、開けたかどうかに依らない（消すのに使う）。
+ */
+export async function rescueSealedBodies(o: {
+  home: string;
+  cloud: CloudConfig;
+  wire: WireCloudClient;
+  deviceId?: string;
+  claudeDir?: string;
+  log?: (line: string) => void;
+}): Promise<{ keys: string[]; rescued: RescueResult }> {
+  const log = o.log ?? ((l: string) => console.log(l));
+  const ring = await Keyring.fromConfig(o.cloud);
+  const sealed = new SealedCloudClient(o.wire, ring, o.deviceId ?? '');
+  const raw: Awaited<ReturnType<WireCloudClient['listFiles']>>['files'] = [];
+  let since = 0;
+  for (let page = 0; ; page++) {
+    if (page >= MAX_FILE_PAGES) throw new Error('R2 の一覧の取得が終わりません。もう一度実行してください');
+    const r = await o.wire.listFiles(since, PULL_LIMIT);
+    raw.push(...r.files);
+    if (!r.more || r.nextSeq <= since) break;
+    since = r.nextSeq;
+  }
+  const r: RescueResult = { downloaded: 0, already: 0, failed: [] };
+  for (const f of raw) {
+    try {
+      const e = await openSealedFile(ring, f);
+      if (!e) throw new Error(ring.at(f.epoch) ? 'インデックスの行を復号できません' : `世代 ${f.epoch} の暗号鍵がこの PC にありません`);
+      const origin = e.origin || e.deviceId;
+      // 自分の本文で、原本が手元にあるものは降ろし直さない。
+      if (e.kind === 'transcript' && o.deviceId && origin === o.deviceId && o.claudeDir && fs.existsSync(path.join(o.claudeDir, e.path))) {
+        r.already++;
+        continue;
+      }
+      let target: string;
+      if (e.kind === 'config') {
+        if (!isSafeKeyId(origin)) throw new Error(`PC の ID が不正です: ${origin}`);
+        if (!isSafeRelPath(e.path)) throw new Error(`設定ファイルの相対パスが不正です: ${e.key}`);
+        target = path.join(remoteRoot(o.home), origin, CONFIG_DIR, ...e.path.split('/'));
+      } else {
+        target = remoteTranscriptPath(o.home, origin, e.path);
+      }
+      if (fs.existsSync(target) && (await sha256Stream(fs.createReadStream(target))) === e.sha256) {
+        r.already++;
+        continue;
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
+      const tmp = `${target}.part`;
+      try {
+        fs.rmSync(tmp, { force: true });
+        // 復号と gzip の展開は SealedCloudClient が行う。
+        await pipeline(await sealed.getFile(e.key, e.epoch), fs.createWriteStream(tmp, { mode: FILE_MODE }));
+        if ((await sha256Stream(fs.createReadStream(tmp))) !== e.sha256) throw new Error(`ファイルの SHA-256 が一致しません: ${e.key}`);
+        fs.renameSync(tmp, target);
+        fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
+      } catch (err) {
+        fs.rmSync(tmp, { force: true });
+        throw err;
+      }
+      log(`ダウンロードしました: ${e.key}`);
+      r.downloaded++;
+    } catch (err) {
+      r.failed.push({ key: f.key, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return { keys: raw.map((f) => f.key), rescued: r };
+}
+
 export type TeardownOptions = {
   home: string;
   wrangler?: WranglerRunner;
   fetch?: typeof fetch;
+  /** 版 2 のクラウドの Worker の口。省くと cloud.json の接続先へ fetch で話す。試験が偽の Worker を渡す。 */
+  wire?: WireCloudClient;
   confirm?: ConfirmWord;
   log?: (line: string) => void;
   cloudDir?: string;
@@ -1261,15 +1349,21 @@ export type TeardownOptions = {
 export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const log = o.log ?? ((l: string) => console.log(l));
   const confirm = o.confirm ?? promptWord;
-  // teardown が片付けられるのは、今は古い形式（版 1）の cloud.json のクラウドだけである。
-  // 新しい形式のクラウドは、トランスクリプトを封じたメタで持つので、ダウンロードの道が違う（Task 26 が足す）。
-  // ダウンロードできないまま削除すると、他の PC にしか無いトランスクリプトを失うので、新しい形式では何もせずに止める。
+  // 版 2（今の形）と版 1（参加用の秘密を持つ旧い形）の cloud.json の両方を片付けられる。
+  // 版 1 の道は、0.9.0 に上げた後でも旧い Worker を片付けるためにある（作り直しの手順の 2）。
+  // どちらも、消す前に R2 にしか無い本文を手元へ降ろし、1 件でも降ろせなければ何も消さずに止める。
   const now = readCloudConfig(o.home);
-  if (now.state === 'ok') throw new Error('新しい形式のクラウドは、このバージョンの hangar cloud teardown では削除できません。hangar を更新してから実行してください');
-  const read = readLegacyCloudConfig(o.home);
-  if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
-  const c = read.config;
-  if (!c) throw new Error('クラウド同期は未設定です');
+  if (now.state === 'broken') throw new Error(brokenConfigMessage(o.home));
+  let c: { url: string; workerName: string | null; accountId: string | null; dbName: string | null; bucketName: string | null };
+  let legacy: ReturnType<typeof readLegacyCloudConfig>['config'] = null;
+  if (now.state === 'ok' && now.config) {
+    c = now.config;
+  } else {
+    const read = readLegacyCloudConfig(o.home);
+    if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
+    if (!read.config) throw new Error('クラウド同期は未設定です');
+    c = legacy = read.config;
+  }
   if (!c.workerName || !c.dbName || !c.bucketName) {
     throw new Error('teardown は setup cloud を実行した PC でだけ使えます。参加した PC では cloud.json を削除するだけにしてください');
   }
@@ -1278,15 +1372,35 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   log('同期したメタデータと、R2 にあるトランスクリプトのコピーはすべて失われます。');
 
   // 消す前に、R2 にしか無い本文を手元へ降ろす。
-  const client = new HttpCloudClient({ url: c.url, token: c.deviceToken, fetch: o.fetch ?? realFetch });
-  let entries: LegacyFileEntry[];
-  try {
-    entries = await listAllFiles(client);
-  } catch (e) {
-    throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
+  let keys: string[];
+  let rescued: RescueResult;
+  if (legacy === null) {
+    const cloud = now.config!;
+    // 版 2 の Worker とだけ話す（版 9 に届かない Worker なら HttpCloudClient が断る）。
+    const wire = o.wire ?? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, fetch: o.fetch ?? realFetch });
+    let r: { keys: string[]; rescued: RescueResult };
+    try {
+      log('R2 にあるトランスクリプトのうち、この PC にコピーが無いものを先にダウンロードします。');
+      r = await rescueSealedBodies({ home: o.home, cloud, wire, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
+    } catch (e) {
+      throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
+    }
+    keys = r.keys;
+    rescued = r.rescued;
+    log(`R2 にはトランスクリプトが ${keys.length} 件あります。`);
+  } else {
+    // 旧い Worker は互換の版が 9 に届かないので、版の下限を外して読む。読むだけで、何も書かない。
+    const client = new HttpCloudClient({ url: legacy.url, token: legacy.deviceToken, fetch: o.fetch ?? realFetch, minWorkerCompat: 0 });
+    let entries: LegacyFileEntry[];
+    try {
+      entries = await listAllFiles(client);
+    } catch (e) {
+      throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
+    }
+    log(`R2 にはトランスクリプトが ${entries.length} 件あります。この PC にコピーが無いものを先にダウンロードします。`);
+    rescued = await rescueRemoteBodies({ home: o.home, entries, joinSecret: legacy.joinSecret, client, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
+    keys = entries.map((e) => e.key);
   }
-  log(`R2 にはトランスクリプトが ${entries.length} 件あります。この PC にコピーが無いものを先にダウンロードします。`);
-  const rescued = await rescueRemoteBodies({ home: o.home, entries, joinSecret: c.joinSecret, client, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
   log(`${rescued.downloaded} 件をこの PC にダウンロードしました（${rescued.already} 件はすでにこの PC にあります）。`);
   if (rescued.failed.length > 0) {
     log('ダウンロードできなかったトランスクリプト:');
@@ -1326,7 +1440,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
 
   /**
    * 途中で止めるときの報告。
-   * 手元の cloud.json は残す。Worker の名前もアカウントも参加用の秘密もここにしか無いので、
+   * 手元の cloud.json は残す。Worker の名前もアカウントも暗号鍵（版 1 では参加用の秘密）もここにしか無いので、
    * 消すと、残った資源を片付ける道も R2 の本文を復号する道も同時に失う。
    */
   const stopHere = (): false => {
@@ -1341,7 +1455,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
       for (const l of f.reason) log(`    ${l}`);
     }
     log('');
-    log(`${cloudConfigPath(o.home)} は削除していません。Worker の名前、アカウント、参加トークンはここにしか無いためです。`);
+    log(`${cloudConfigPath(o.home)} は削除していません。Worker の名前、アカウント、暗号鍵はここにしか無いためです。`);
     log('修正してから hangar cloud teardown をもう一度実行すると、残った分だけを続きから削除できます。');
     log('R2 のバケットが「空でない」ために削除できない場合は、インデックスに無いオブジェクトが残っています。ダッシュボードでバケットを空にしてから実行してください。');
     return false;
@@ -1349,7 +1463,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
 
   // R2 を先に空にする。
   // --remote を付ける。付けないと wrangler は手元の miniflare の入れ物を消して、R2 には何もしない。
-  for (const e of entries) await step(`R2 object ${e.key}`, ['r2', 'object', 'delete', `${c.bucketName}/${e.key}`, '--remote', ...withCfg]);
+  for (const key of keys) await step(`R2 object ${key}`, ['r2', 'object', 'delete', `${c.bucketName}/${key}`, '--remote', ...withCfg]);
   await step(`R2 bucket ${c.bucketName}`, ['r2', 'bucket', 'delete', c.bucketName, ...withCfg]);
   // Worker は R2 の中身へ手が届く唯一の入口である（GET /files と GET /files/<key>）。
   // オブジェクトが残っているうちに消すと、次の teardown は一覧すら読めず、本文も降ろせなくなる。

@@ -15,6 +15,7 @@ import { createOncePass } from '../sync/oncePass.ts';
 import { backupPruner } from '../sync/pruneBackups.ts';
 import { RemotePuller } from '../sync/puller.ts';
 import { JoinApprover, joinNotifier } from '../sync/joinApprover.ts';
+import { RecoveryKeyReissuer } from '../sync/recoveryReissue.ts';
 import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
@@ -78,6 +79,11 @@ export type SyncParts = {
    * 解除と、起動のときの回しの続きは 1 本ずつ順に走らせる（2 つの回しを重ねない）。
    */
   cloudRevoke(): ((id: string) => Promise<DeviceOut>) | null;
+  /**
+   * リカバリーキーの再発行（sync/recoveryReissue.ts）。同期を設定していない端末では null。
+   * cloud.json が現れて部品を組み直すと、新しいものに替わり、前の下書きは使えなくなる。
+   */
+  recoveryKey(): RecoveryKeyReissuer | null;
   /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
   /**
@@ -165,6 +171,8 @@ type Core = {
   roster: RosterStore | null;
   /** 参加コードの発行と承認。同期を設定していなければ null。 */
   joinApprover: JoinApprover | null;
+  /** リカバリーキーの再発行。同期を設定していなければ null。 */
+  recoveryKey: RecoveryKeyReissuer | null;
   engine: SyncEngine;
   cloudUsage: CloudUsagePoller;
   uploader: TranscriptUploader | null;
@@ -245,7 +253,7 @@ export function bootSync(
      * 互換の版が合わずに止まっているときも止まっていると答える（1 巡の最中でも）。
      * 本文と設定の出し入れはどれもここを見るので、その 1 巡だけ通る。
      */
-    const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: once.pass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null, revoked: engine.revoked() });
+    const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: once.pass.active(), compatBlocked: engine.compatBlocked() || engine.rebuildBlocked(), limited: engine.limitedUntil() !== null, revoked: engine.revoked() });
     // 参加し直すと（hangar setup cloud をやり直す、hangar join し直す）、Worker は同じ端末 ID の token_hash を入れ替え、新しいトークンは cloud.json にだけ書かれる。
     // 古いトークンの要求は 401 の unauthorized で断られるので、そのときに cloud.json を読み直し、トークンだけが変わっていれば client が差し替えて試し直す。
     // 部品（エンジン、本文の上げ手と降ろし手、使用量、設定の同期、PC の一覧）はみな同じ client を持つので、差し替えは全部に一度に効く。
@@ -283,14 +291,14 @@ export function bootSync(
     const roster = keyring && wire && writer ? new RosterStore(wire, keyring, writer, deviceId) : null;
     const client = keyring && wire ? new SealedCloudClient(wire, keyring, deviceId, roster ? { onRoster: rosterRefresh(roster, () => onKeysGained()) } : {}) : null;
     const engine = new SyncEngine({
-      db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
+      db, deviceId, client, url: cloud?.url ?? null, home: home.home, cloudId: cloud?.cloudId ?? null, language: home.language,
       ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
     });
     // 設定の「使用量と費用」。
     const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
     const uploader = client && keyring
       ? new TranscriptUploader({
-          db, deviceId, claudeDir, client, keyring, state: syncState,
+          db, deviceId, claudeDir, home: home.home, client, keyring, state: syncState, roster: roster ?? undefined,
           isPaused,
           onError: (p, m) => console.error('[upload]', p, m),
         })
@@ -376,7 +384,11 @@ export function bootSync(
             throw e;
           })
       : null;
-    const c: Core = { cloud, client, roster, joinApprover, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
+    // リカバリーキーの再発行。新しい鍵ペアは確認までこの中のメモリにだけ置く。
+    const recoveryKey = wire && roster && keyring && cloud ? new RecoveryKeyReissuer({ roster, keyring, wire, url: () => cloud.url, state: syncState }) : null;
+    // 名簿を書いた後に recovery 宛ての keybox を置けなかった印があれば、pull の度に置き直す（印が無ければ何も送らない）。
+    if (recoveryKey) engine.on({ pulled: () => { void recoveryKey.resumePending(); } });
+    const c: Core = { cloud, client, roster, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
     built = c;
     return c;
   };
@@ -430,6 +442,9 @@ export function bootSync(
     }
     // 前の起動で世代の回しが途中で止まっていれば、続きから終わらせる（sync/rotate.ts）。
     // 届かなければ、間を置いて試し直す（解除済みの自分では試し直さない）。記録が無ければ Worker には何も送らない。
+    // 接続先の作り直しに失敗して同期が止まっていても（engine の rebuildBlock）、ここは止めない。
+    // 記録は書いたときの cloudId を持ち、cloud.json の cloudId と違えば読むときに捨てる（readRotation）ので、前のクラウドへ回しを続けることは無い。
+    // 回しが読むのは名簿と keybox と cloud.json の世代鍵で、作り直しが戻す同期の記録（区切りや台帳）には頼らない。
     c.rotationRetry?.start();
   };
   const stopCoreTimers = (c: Core): void => {
@@ -499,7 +514,7 @@ export function bootSync(
   const canCarry = (min: number): boolean => {
     const { client, engine } = core;
     if (!client) return false;
-    if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
+    if (engine.status().paused || engine.compatBlocked() || engine.rebuildBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
     return (client.lastWorkerCompat?.() ?? 0) >= min;
   };
 
@@ -532,6 +547,7 @@ export function bootSync(
     },
     joinApprover: () => core.joinApprover,
     cloudRevoke: () => core.revoke,
+    recoveryKey: () => core.recoveryKey,
     cloudDevices: async () => {
       const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
       for (const cb of [...cloudDeviceListeners]) {

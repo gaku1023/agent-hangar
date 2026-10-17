@@ -7,7 +7,8 @@ import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
-import { COMPAT_HEADER, COMPAT_VERSION, decodeEpochList, deriveEpochKeys, fromBase64Url, generateKeyPair, importPrivate, openKeybox, openRoster, parseRecoveryKey, RECOVERY_RECIPIENT } from '@agent-hangar/shared';
+import { COMPAT_HEADER, COMPAT_VERSION, decodeEpochList, deriveEpochKeys, fromBase64Url, generateKeyPair, importPrivate, openKeybox, openRoster, parseRecoveryKey, RECOVERY_RECIPIENT, recoverySecretTail } from '@agent-hangar/shared';
+import { RecoveryKeyNotConfirmedError } from './recovery.ts';
 import { cliErrorText, DetailedError } from './probe.ts';
 import { bootstrapDevice, chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, legacyFileKey, type LegacyFileEntry, offerUsageToken, promptWord, rescueTargetPath, RENAME_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, buildMobileApp, runSetupCloud as runSetupCloudReal, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
 import { joinRequest } from './membership.ts';
@@ -18,6 +19,8 @@ import { FakeWorker } from '../test/fakeWorker.ts';
 import { loadLegacyCloudConfig, saveLegacyCloudConfig, type LegacyCloudConfig } from '../../server/src/config/cloud.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../../server/test/oldDb.ts';
 import { expectMode } from '../../server/test/platform.ts';
+import { FakeCloudClient } from '../../server/test/fake-cloud.ts';
+import { Keyring } from '../../server/src/sync/keyring.ts';
 
 const ok = (stdout = ''): ExecResult => ({ code: 0, stdout, stderr: '' });
 const device = { id: 'dev-a', name: 'mac', platform: 'darwin' };
@@ -49,8 +52,22 @@ function dirs(): { home: string; cloudDir: string } {
   return { home, cloudDir };
 }
 
-/** 本物の vite を走らせない。呼ばれたことだけを覚える建て役を既定にして runSetupCloud を呼ぶ。 */
-const runSetupCloud: typeof runSetupCloudReal = (o) => runSetupCloudReal({ buildMobile: async () => {}, ...o });
+/**
+ * 本物の vite を走らせない。呼ばれたことだけを覚える建て役を既定にして runSetupCloud を呼ぶ。
+ * リカバリーキーの確認は、表示された暗号鍵の末尾 4 文字を答える（標準入力を読まない）。
+ */
+const runSetupCloud: typeof runSetupCloudReal = (o) => {
+  let shown = '';
+  return runSetupCloudReal({
+    buildMobile: async () => {},
+    recoveryAsk: async () => recoverySecretTail(shown),
+    ...o,
+    recoveryWrite: (s) => {
+      shown += s;
+      o.recoveryWrite?.(s);
+    },
+  });
+};
 
 type Script = Record<string, (args: string[], input?: string) => ExecResult>;
 
@@ -136,6 +153,7 @@ describe('runSetupCloud', () => {
       sleep: async (ms) => { slept.push(ms); },
       cloudDir,
       log: (l) => lines.push(l),
+      recoveryWrite: (s) => lines.push(s),
     });
 
     expect(r.url).toBe('https://hangar.example.workers.dev');
@@ -220,6 +238,86 @@ describe('runSetupCloud', () => {
     await expect(openKeybox(await importPrivate(other.priv), roster.recoveryPub, { epoch: 1, recipient: RECOVERY_RECIPIENT }, fromBase64Url(ff.worker.keyboxes.get(`${RECOVERY_RECIPIENT}:1`)!.sealed)!)).rejects.toThrow();
     const box = await openKeybox(await importPrivate(recovery.priv), roster.recoveryPub, { epoch: 1, recipient: RECOVERY_RECIPIENT }, fromBase64Url(ff.worker.keyboxes.get(`${RECOVERY_RECIPIENT}:1`)!.sealed)!);
     expect(decodeEpochList(box).epochs).toEqual(saved.epochs);
+  });
+
+  it('末尾 4 文字を入れないと setup が終わらず、名簿もリカバリーの keybox も置かない。もう一度実行すれば新しいリカバリーキーで続ける', async () => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const base = { home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} };
+    let asked = 0;
+    const first: string[] = [];
+    await expect(runSetupCloud({ ...base, recoveryAsk: async () => { asked++; return ''; }, recoveryWrite: (s) => first.push(s) })).rejects.toBeInstanceOf(RecoveryKeyNotConfirmedError);
+    expect(asked).toBeGreaterThan(0);
+    expect(ff.worker.roster).toBeNull();
+    expect([...ff.worker.keyboxes.keys()].some((k) => k.startsWith(`${RECOVERY_RECIPIENT}:`))).toBe(false);
+    // 端末トークンは失わない（cloud.json は登録の直後に書いてある）。
+    const saved = loadCloudConfig(home)!;
+    expect(ff.worker.devices.get(device.id)?.tokenHash).toBe(sha(saved.deviceToken));
+
+    const r = await runSetupCloud(base);
+    expect(r.recoveryKey).not.toBeNull();
+    // 確認できなかった 1 回目のキーとは別のキーである。
+    expect(first.join('')).not.toContain(r.recoveryKey!.split('\n')[3]);
+    const roster = await openRoster((await deriveEpochKeys(1, saved.epochs['1']!)).roster, 1, fromBase64Url(ff.worker.roster!.sealed)!);
+    expect(roster.recoveryPub).toBeTruthy();
+    expect(ff.worker.keyboxes.has(`${RECOVERY_RECIPIENT}:1`)).toBe(true);
+  });
+
+  it('--save を渡すと、リカバリーキーを 0600 のファイルにも書く', async () => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const file = path.join(home, 'saved', 'recovery.txt');
+    fs.mkdirSync(path.dirname(file));
+    const r = await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {}, saveRecoveryTo: file });
+    expect(fs.readFileSync(file, 'utf8')).toBe(`${r.recoveryKey!}\n`);
+    expectMode(file, 0o600);
+  });
+
+  it('確認に失敗して止まったら、--save で書いたファイルを消す', async () => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const file = path.join(home, 'saved', 'recovery.txt');
+    fs.mkdirSync(path.dirname(file));
+    await expect(runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {}, saveRecoveryTo: file, recoveryAsk: async () => '' })).rejects.toBeInstanceOf(RecoveryKeyNotConfirmedError);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it.each([['PUT /keyboxes'], ['PUT /roster']])('確認の後に %s が失敗して止まったら、保存したキーは使えないと伝える', async (failing) => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input)).pathname}` === failing) return new Response('{"error":"boom"}', { status: 500 });
+      return ff.fetch(input, init);
+    }) as typeof fetch;
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    await expect(runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: f, sleep: async () => {}, cloudDir, log: () => {} })).rejects.toThrow(/先に保存したキーは使えません。もう一度実行して、新しいキーを保存してください/);
   });
 
   it('同じ名前でもう一度実行すると、Worker だけを入れ替え、暗号鍵と端末トークンとリカバリーキーは変えない', async () => {
@@ -672,8 +770,9 @@ async function fileFixture(o: { secret: string; deviceId: string; uuid: string; 
 }
 
 /** Worker の代わり。端末トークンが合っているときだけ答える。 */
-function cloudFetch(files: { entry: LegacyFileEntry; body: Buffer }[], o: { token: string; missing?: string[] }) {
+function cloudFetch(files: { entry: LegacyFileEntry; body: Buffer }[], o: { token: string; missing?: string[]; compat?: number }) {
   const paths: string[] = [];
+  const compat = String(o.compat ?? COMPAT_VERSION);
   const f = (async (input: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(input));
     const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
@@ -681,12 +780,12 @@ function cloudFetch(files: { entry: LegacyFileEntry; body: Buffer }[], o: { toke
     paths.push(u.pathname);
     if (u.pathname === '/files') {
       const last = files.length ? files[files.length - 1]!.entry.seq : 0;
-      return new Response(JSON.stringify({ files: files.map((x) => x.entry), nextSeq: last, more: false }), { status: 200, headers: { [COMPAT_HEADER]: String(COMPAT_VERSION) } });
+      return new Response(JSON.stringify({ files: files.map((x) => x.entry), nextSeq: last, more: false }), { status: 200, headers: { [COMPAT_HEADER]: compat } });
     }
     const key = u.pathname.replace(/^\/files\//, '');
     const hit = files.find((x) => x.entry.key === key);
     if (!hit || o.missing?.includes(key)) return new Response('not found', { status: 404 });
-    return new Response(new Uint8Array(hit.body), { status: 200, headers: { [COMPAT_HEADER]: String(COMPAT_VERSION) } });
+    return new Response(new Uint8Array(hit.body), { status: 200, headers: { [COMPAT_HEADER]: compat } });
   }) as typeof fetch;
   return { fetch: f, paths };
 }
@@ -745,6 +844,25 @@ describe('runTeardown', () => {
     const out = lines.join('\n');
     expect(out).toContain('1 件をこの PC にダウンロードしました');
     expect(out).toContain('他の PC の cloud.json は手動で削除してください');
+  });
+
+  it('teardown は版 1 の cloud.json でも R2 の本文を remote/ に降ろしてから消す（旧い Worker の互換の版のままでも）', async () => {
+    const { home, cloudDir } = dirs();
+    const secret = 'join-secret-0000';
+    saveLegacyCloudConfig(home, legacyConf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    const theirs = await fileFixture({ secret, deviceId: 'dev-b', uuid: 'u-theirs', text: '{"theirs":1}\n', seq: 1 });
+    // 0.8.x の Worker は互換の版 7 を返す。0.9.0 の PC はふだん断るが、片付けでは読むだけなので断らない。
+    const cf = cloudFetch([theirs], { token: 'dt', compat: 7 });
+    const saved = path.join(home, 'remote', 'dev-b', 'projects', '-w-p', 'u-theirs.jsonl');
+    // 降ろし終えてから消し始める。
+    const savedWhenDeleting: boolean[] = [];
+    const w = fakeWrangler({ 'r2 object delete': () => { savedWhenDeleting.push(fs.existsSync(saved)); return ok(); }, 'r2 bucket delete': () => ok(), 'delete --name': () => ok(), 'd1 delete': () => ok() });
+    const done = await runTeardown({ home, deviceId: 'dev-a', wrangler: w.runner('a'.repeat(32), cloudDir), fetch: cf.fetch, confirm: fakeConfirm([true, true]).fn, log: () => {} });
+    expect(done).toBe(true);
+    expect(fs.readFileSync(saved, 'utf8')).toBe('{"theirs":1}\n');
+    expect(savedWhenDeleting).toEqual([true]);
+    expect(w.calls.map((x) => x.args.slice(0, 3).join(' '))).toEqual(['r2 object delete', 'r2 bucket delete', 'delete --name hangar-dev', 'd1 delete hangar-dev']);
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
   });
 
   it('確認に失敗したら何もしない', async () => {
@@ -887,15 +1005,60 @@ describe('runTeardown', () => {
     ).rejects.toThrow('setup cloud を実行した PC');
   });
 
-  it('新しい形式（版 2）のクラウドは、トランスクリプトをダウンロードできないので何も削除せずに止める', async () => {
+  it('版 2 の cloud.json では、封じた索引を開いて本文を元の PC の下へ降ろしてから消す', async () => {
     const { home, cloudDir } = dirs();
-    saveCloudConfig(home, v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' }));
+    const claudeDir = path.join(home, 'claude');
+    fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
+    const cfg = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });
+    saveCloudConfig(home, cfg);
+    const keyring = Keyring.fromConfig(cfg);
+    const cloudB = new FakeCloudClient({ deviceId: 'dev-b', keyring });
+    await cloudB.putText({ path: 'projects/-w-p/u-theirs.jsonl' }, '{"theirs":1}\n');
+    // 作り直しで dev-b が上げ直した dev-c の写し。元の PC の下へ戻す。
+    await cloudB.putText({ path: 'projects/-w-p/u-c.jsonl', origin: 'dev-c' }, '{"c":1}\n');
+    await cloudB.putText({ path: 'CLAUDE.md', kind: 'config' }, '# b\n');
+    const cloudA = cloudB.asDevice('dev-a', { keyring });
+    // 自分の本文は原本が手元にあるので降ろさない。
+    await cloudA.putText({ path: 'projects/-w-p/u-mine.jsonl' }, '{"mine":1}\n');
+    fs.mkdirSync(path.join(claudeDir, 'projects', '-w-p'), { recursive: true });
+    fs.writeFileSync(path.join(claudeDir, 'projects', '-w-p', 'u-mine.jsonl'), '{"mine":1}\n');
+    const keys = [...cloudA.files.keys()];
+    const w = fakeWrangler({ 'r2 object delete': () => ok(), 'r2 bucket delete': () => ok(), 'delete --name': () => ok(), 'd1 delete': () => ok() });
+    const c = fakeConfirm([true, true]);
+
+    const done = await runTeardown({ home, deviceId: 'dev-a', claudeDir, wire: cloudA.wire, wrangler: w.runner('a'.repeat(32), cloudDir), confirm: c.fn, log: () => {} });
+    expect(done).toBe(true);
+    expect(fs.readFileSync(path.join(home, 'remote', 'dev-b', 'projects', '-w-p', 'u-theirs.jsonl'), 'utf8')).toBe('{"theirs":1}\n');
+    expect(fs.readFileSync(path.join(home, 'remote', 'dev-c', 'projects', '-w-p', 'u-c.jsonl'), 'utf8')).toBe('{"c":1}\n');
+    expect(fs.readFileSync(path.join(home, 'remote', 'dev-b', '_config', 'CLAUDE.md'), 'utf8')).toBe('# b\n');
+    expect(fs.existsSync(path.join(home, 'remote', 'dev-a'))).toBe(false);
+    // 鍵名は HMAC なので、索引にある鍵名をそのまま消す。
+    const wcfg = path.join(home, 'cloud', 'wrangler.jsonc');
+    expect(w.calls.map((x) => x.args.join(' '))).toEqual([
+      ...keys.map((k) => `r2 object delete hangar-files/${k} --remote --config ${wcfg}`),
+      `r2 bucket delete hangar-files --config ${wcfg}`,
+      `delete --name hangar --config ${wcfg}`,
+      `d1 delete hangar -y --config ${wcfg}`,
+    ]);
+    expect(c.asked.map((a) => a.word)).toEqual(['hangar', 'delete']);
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+  });
+
+  it('版 2 で開けない本文（手元に鍵の無い世代）があれば、確認も聞かずに消すのをやめる', async () => {
+    const { home, cloudDir } = dirs();
+    const cfg = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });
+    saveCloudConfig(home, cfg);
+    // 世代 2 の鍵を持つ PC が上げた本文。この PC の cloud.json には世代 1 しか無い。
+    const newer = Keyring.fromConfig(v2conf({ epochs: { '1': K(3), '2': K(9) }, currentEpoch: 2 }));
+    const cloudB = new FakeCloudClient({ deviceId: 'dev-b', keyring: newer });
+    await cloudB.putText({ path: 'projects/-w-p/u-theirs.jsonl' }, '{"theirs":1}\n');
     const w = fakeWrangler({});
-    let called = 0;
+    const c = fakeConfirm([true, true]);
     await expect(
-      runTeardown({ home, wrangler: w.runner('a'.repeat(32), cloudDir), fetch: (async () => { called++; return new Response('{}'); }) as typeof fetch, confirm: async () => true, log: () => {} }),
-    ).rejects.toThrow(/新しい形式/);
-    expect(called).toBe(0);
+      runTeardown({ home, deviceId: 'dev-a', wire: cloudB.wire.asDevice('dev-a'), wrangler: w.runner('a'.repeat(32), cloudDir), confirm: c.fn, log: () => {} }),
+    ).rejects.toThrow(/ダウンロードでき/);
+    expect(c.asked).toEqual([]);
     expect(w.calls).toEqual([]);
     expect(loadCloudConfig(home)).not.toBeNull();
   });
@@ -1674,7 +1837,7 @@ describe('スマホの画面の配信（wrangler の assets と、配備の前�
       },
       'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
-    await runSetupCloudReal({
+    await runSetupCloud({
       home,
       device,
       wrangler: w.runner(null, cloudDir),
