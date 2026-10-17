@@ -33,8 +33,9 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * join は、発行した参加コードへの参加リクエストの通知（試作 C1）。承認か拒否か期限切れで消える。設定のクラウド同期を開いている間は、そこの欄が同じことを言うので出さない。
  * phoneUndo は、スマホの解除の「元に戻す」（試作 E2）。Runtime が 5 秒を数え、解除を送るか元に戻すと消える。どの画面でも出す。
  * phoneLaunches は、スマホからの依頼でこの PC が起こした会話の通知（試作 F1）。受信した順で、その会話の画面を開いている間は出さない。
+ * 入力待ちと同じく新しい SHOWN 枚までを並べ、並べきれない数を phoneLaunchMore に置く。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[] };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number };
 
 /**
  * スマホから起動した会話の通知の中身（試作 F1）。
@@ -69,7 +70,8 @@ function presentJoinCard(state: State, store: Store): JoinCardProps | null {
 
 /**
  * 並べるカードの上限。
- * 4 件目からは数だけにして、ホームの要対応へ案内する。
+ * 入力待ちは 4 件目からは数だけにして、ホームの要対応へ案内する。
+ * スマホから起動した会話の通知も 4 件目からは数だけにする（前の通知を下げると、隠れていた古いものが順に出る）。
  */
 const SHOWN = 3;
 
@@ -95,5 +97,7 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   });
   const waiting = cards.slice(-SHOWN);
   const arrived = arrivedCount(store, state.arrivedProjects);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches: presentPhoneLaunches(state, store, t) };
+  const launches = presentPhoneLaunches(state, store, t);
+  const phoneLaunches = launches.slice(-SHOWN);
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length };
 }

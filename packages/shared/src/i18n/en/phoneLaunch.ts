@@ -10,6 +10,7 @@ export const phoneLaunchEn: AreaDictionary<typeof phoneLaunchKeys> = {
   'phoneLaunch.notice.title': 'Started from {phone}: {project} ({mode})',
   'phoneLaunch.notice.titleUnknown': 'Started from a phone: {project} ({mode})',
   'phoneLaunch.notice.bypassNote': 'Claude will use tools without asking first. If you did not expect this, stop the session.',
+  'phoneLaunch.notice.more': '{n} more started from phone',
   'phoneLaunch.button.open': 'Open',
   'phoneLaunch.button.stop': 'Stop',
 };

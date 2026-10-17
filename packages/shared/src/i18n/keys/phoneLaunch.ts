@@ -10,6 +10,7 @@ export const phoneLaunchKeys = {
   'phoneLaunch.notice.title': ['phone', 'project', 'mode'],
   'phoneLaunch.notice.titleUnknown': ['project', 'mode'],
   'phoneLaunch.notice.bypassNote': [],
+  'phoneLaunch.notice.more': ['n'],
   'phoneLaunch.button.open': [],
   'phoneLaunch.button.stop': [],
 } as const satisfies MessageSpec;

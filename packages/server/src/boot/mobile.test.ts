@@ -425,6 +425,34 @@ describe('bootMobile', () => {
       s.mobile.stop();
     });
 
+    it('知らないスマホの ID で一覧を読み直すのは、同じ ID では最後の読み直しから 10 秒に 1 回まで', async () => {
+      const s = setup({ devices: devicesDto([device('pc-a', 'pc')]) });
+      placeProject(s.db);
+      s.mobile.start();
+      await s.cloudDevices();
+      const launched = () => s.events.filter((e) => e.type === 'phone.launch').length;
+      const reads = () => s.cloudDevices.mock.calls.length;
+      const base = reads();
+      await deliver(s, 'l1', {}, 'phone-9');
+      await settle(() => launched() === 1);
+      expect(reads()).toBe(base + 1);
+      // 10 秒の内の同じ ID は読み直さない。違う ID は読み直す。
+      await deliver(s, 'l2', {}, 'phone-9');
+      await settle(() => launched() === 2);
+      expect(reads()).toBe(base + 1);
+      await deliver(s, 'l3', {}, 'phone-8');
+      await settle(() => launched() === 3);
+      expect(reads()).toBe(base + 2);
+      // 10 秒たてば、同じ ID でも読み直し、名簿に入っていれば名前を出す。
+      s.setDevices(devicesDto([device('pc-a', 'pc'), { ...device('phone-9', 'mobile'), name: 'iPhone' }]));
+      await s.timers.advance(10_000);
+      await deliver(s, 'l4', {}, 'phone-9');
+      await settle(() => launched() === 4);
+      expect(reads()).toBe(base + 3);
+      expect(s.events.filter((e) => e.type === 'phone.launch').at(-1)).toMatchObject({ launch: { phone: 'iPhone' } });
+      s.mobile.stop();
+    });
+
     it('effort と画像つきの依頼を、hangar の home の drops に画像を置き、effort とパスつきの指示で起こす', async () => {
       const s = setup();
       placeProject(s.db);

@@ -172,7 +172,7 @@ describe('スマホから起動したセッションの通知（試作 F1）', (
     expect(c).toHaveAttribute('data-tone', 'err');
     expect(c.querySelector('.notice-title')).toHaveTextContent('iPhone から起動：project-b（Bypass permissions）');
     expect(c).toHaveTextContent('Claude はツールを使用する前に確認しません。心当たりがない場合は停止してください。');
-    expect(within(c).getAllByRole('button').map((b) => b.textContent)).toEqual(['停止', '開く']);
+    expect(within(c.querySelector<HTMLElement>('.notice-acts')!).getAllByRole('button').map((b) => b.textContent)).toEqual(['停止', '開く']);
     fireEvent.click(within(c).getByRole('button', { name: '停止' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'phoneLaunch.stop', sessionId: 's1', stop });
   });
@@ -181,6 +181,28 @@ describe('スマホから起動したセッションの通知（試作 F1）', (
     mount(props({ phoneLaunches: [launch({ bypass: true, stop: null })], blocked: true }));
     expect(screen.queryByRole('button', { name: '停止' })).toBeNull();
     expect(screen.getByRole('button', { name: '開く' })).toBeDisabled();
+  });
+
+  it('Bypass permissions の通知は見出しの「閉じる」で下げられる（run が終わって「停止」が消えても）。画面を移さないのでダイアログの間も押せる', () => {
+    const { onAction } = mount(props({ phoneLaunches: [launch({ bypass: true, stop: null })], blocked: true }));
+    const c = screen.getByRole('alert', { name: 'スマホから起動 · Bypass permissions' });
+    const close = within(c.querySelector<HTMLElement>('.notice-head')!).getByRole('button', { name: '閉じる' });
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
+    expect(onAction).toHaveBeenCalledWith({ type: 'phoneLaunch.dismiss', sessionId: 's1' });
+    // 通常の通知は時間で消えるので「閉じる」を持たない。
+    mount(props({ phoneLaunches: [launch({ sessionId: 's2' })] }));
+    expect(within(screen.getByRole('status', { name: 'スマホから起動' })).queryByRole('button', { name: '閉じる' })).toBeNull();
+  });
+
+  it('並べきれない通知は、通知の上に「スマホから起動した他 n 件」の 1 行で数だけを出す', () => {
+    const { rerender } = mount(props({ phoneLaunches: [launch()], phoneLaunchMore: 2 }));
+    const more = screen.getByText('スマホから起動した他 2 件');
+    expect(more).toHaveClass('toast-pill');
+    const cards = [...document.querySelectorAll('.toast')];
+    expect(cards.indexOf(more)).toBeLessThan(cards.findIndex((el) => el.getAttribute('data-kind') === 'phone-launch'));
+    rerender(props({ phoneLaunches: [launch()], phoneLaunchMore: 0 }));
+    expect(screen.queryByText(/スマホから起動した他/)).toBeNull();
   });
 });
 

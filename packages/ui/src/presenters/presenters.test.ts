@@ -1867,9 +1867,10 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と参加リクエストの通知とスマホの「元に戻す」以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'join', 'more', 'phoneLaunches', 'phoneUndo', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'join', 'more', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'toasts', 'update', 'waiting', 'whatsNew']);
     expect(p.phoneUndo).toBeNull();
     expect(p.phoneLaunches).toEqual([]);
+    expect(p.phoneLaunchMore).toBe(0);
     // 殻が updater を持たなければ、更新の札も更新後の札も出さない。
     expect(p.update).toBeNull();
     expect(p.whatsNew).toBeNull();
@@ -2018,9 +2019,22 @@ describe('スマホから起動したセッション（試作 F1）', () => {
     const opened = transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.open', sessionId: 's1' } });
     expect(opened.state.phoneLaunches).toEqual([]);
     expect(opened.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    // 作業中なら確認を出す。確認の間は通知を残す（キャンセルしたら、また止められるように）。
     const stopped = transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.stop', sessionId: 's1', stop: { runId: 'r1', working: true, aside: false, shellTabs: 0 } } });
-    expect(stopped.state.phoneLaunches).toEqual([]);
     expect(stopped.state.overlay).toMatchObject({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1' } });
+    expect(stopped.state.phoneLaunches.map((l) => l.sessionId)).toEqual(['s1']);
+    expect(stopped.effects).not.toContainEqual({ kind: 'api.killRun', runId: 'r1' });
+    const cancelled = transition(stopped.state, store, { kind: 'action', action: { type: 'overlay.close' } });
+    expect(cancelled.state.overlay).toEqual({ kind: 'none' });
+    expect(cancelled.state.phoneLaunches.map((l) => l.sessionId)).toEqual(['s1']);
+    // 確認して停止を送ったら下げる。
+    const confirmed = transition(stopped.state, store, { kind: 'action', action: { type: 'session.kill', runId: 'r1', working: true, aside: false, shellTabs: 0, confirmed: true } });
+    expect(confirmed.effects).toContainEqual({ kind: 'api.killRun', runId: 'r1' });
+    expect(confirmed.state.phoneLaunches).toEqual([]);
+    // 休んでいて巻き込むものが無ければ、確認なしで停止を送り、すぐ下げる。
+    const idle = transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.stop', sessionId: 's1', stop: { runId: 'r1', working: false, aside: false, shellTabs: 0 } } });
+    expect(idle.effects).toContainEqual({ kind: 'api.killRun', runId: 'r1' });
+    expect(idle.state.phoneLaunches).toEqual([]);
     expect(transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.dismiss', sessionId: 's1' } }).state.phoneLaunches).toEqual([]);
   });
 
@@ -2028,6 +2042,32 @@ describe('スマホから起動したセッション（試作 F1）', () => {
     const store = phoneStore();
     const state = { ...step(initialState(), store, { type: 'phone.launch', launch: launch() }).state, screen: { name: 'session' as const, id: 's1' } };
     expect(presentToasts(state, store, NOW).phoneLaunches).toEqual([]);
+  });
+
+  it('その会話の画面を開いたら（一覧、サイドバー、戻る・進むのどれでも）通知を下げ、離れても再び出さない', () => {
+    const store = phoneStore();
+    let state = step(initialState(), store, { type: 'phone.launch', launch: launch() }).state;
+    state = step(state, store, { type: 'phone.launch', launch: launch({ sessionId: 's9' }) }).state;
+    state = transition(state, store, { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'session', id: 's1' } } }).state;
+    expect(state.phoneLaunches.map((l) => l.sessionId)).toEqual(['s9']);
+    state = transition(state, store, { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'home' } } }).state;
+    expect(presentToasts(state, store, NOW).phoneLaunches!.map((c) => c.sessionId)).toEqual(['s9']);
+    // 開いている間に受信した通知も、開いているので下げる。
+    state = transition(state, store, { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'session', id: 's1' } } }).state;
+    state = step(state, store, { type: 'phone.launch', launch: launch() }).state;
+    expect(state.phoneLaunches.map((l) => l.sessionId)).toEqual(['s9']);
+  });
+
+  it('通知は新しい 3 枚までを並べ、残りは数（phoneLaunchMore）にする', () => {
+    const store = phoneStore();
+    let state = initialState();
+    for (const id of ['a1', 'a2', 'a3', 'a4', 'a5']) state = step(state, store, { type: 'phone.launch', launch: launch({ sessionId: id }) }).state;
+    const p = presentToasts(state, store, NOW);
+    expect(p.phoneLaunches!.map((c) => c.sessionId)).toEqual(['a3', 'a4', 'a5']);
+    expect(p.phoneLaunchMore).toBe(2);
+    state = transition(state, store, { kind: 'action', action: { type: 'phoneLaunch.dismiss', sessionId: 'a5' } }).state;
+    expect(presentToasts(state, store, NOW)).toMatchObject({ phoneLaunchMore: 1 });
+    expect(presentToasts(state, store, NOW).phoneLaunches!.map((c) => c.sessionId)).toEqual(['a2', 'a3', 'a4']);
   });
 
   it('一覧の行と見出しの札に、ラベル「スマホから」を付け、Bypass permissions は「スマホから · Bypass permissions」', () => {

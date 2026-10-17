@@ -1,6 +1,6 @@
 import { accountsStep } from './accounts.ts';
 import { arrivedStep } from './arrived.ts';
-import { phoneLaunchStep } from './phoneLaunch.ts';
+import { phoneLaunchStep, settlePhoneLaunches } from './phoneLaunch.ts';
 import { configSyncStep } from './configSync.ts';
 import { connectionStep } from './connection.ts';
 import { interruptedStep } from './interrupted.ts';
@@ -73,7 +73,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
   for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, projectRailStep, returnStep, arrived, phoneLaunch, noticesStep, notifyStep, update, cloudMemberStep, todos, workbench]) {
     const r = step(state, input);
-    if (r) return settled(state, r);
+    if (r) return settled(state, r, store);
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message, input.event.holdMs), effects: [] };
@@ -104,15 +104,16 @@ function storeChanged(state: State, store: Store): Step {
   // どちらも動かなかったら、整え（settled）を通さずそのまま返す。
   // ストアは本文が伸びるたびに変わるので、そのたびに札を触ると、無関係な更新で札が動いてしまう。
   if (live.state === state && waiting.effects.length === 0 && live.effects.length === 0) return { state, effects: [] };
-  return settled(state, { state: live.state, effects: [...waiting.effects, ...live.effects] });
+  return settled(state, { state: live.state, effects: [...waiting.effects, ...live.effects] }, store);
 }
 
 /**
  * 領域が応答した後の整え。
  * 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。
+ * スマホから起動した会話の通知も、その画面を開いたか、その run へ停止を送ったら下げる（phoneLaunch.ts の settlePhoneLaunches）。
  */
-function settled(prev: State, r: Step): Step {
-  const state = settleWaiting(r.state);
+function settled(prev: State, r: Step, store: Store): Step {
+  const state = settlePhoneLaunches(settleWaiting(r.state), store, r.effects);
   return fetchDirsOnOpen(prev, state === r.state ? r : { ...r, state });
 }
 

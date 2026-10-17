@@ -27,7 +27,7 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
 const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind);
 
@@ -37,7 +37,7 @@ const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${
 
 /**
  * 画面右下に積む知らせ。
- * 上から error と info のトースト、更新の札、更新したあとの札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、スマホから起動した会話の通知、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 上から error と info のトースト、更新の札、更新したあとの札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、並べきれないスマホからの通知の数、スマホから起動した会話の通知、並べきれない入力待ちの数、入力待ちのカードの順に積む。
  * トーストは操作の結果だけである。戻る時刻の札はホームの帯に、通知の誘いは始める前の確認に、保持期間と互換の知らせはヘッダーの注意にある。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
@@ -55,6 +55,7 @@ export function ToastStack(props: ToastsProps) {
     ...(props.arrived ? [{ kind: 'arrived' as const, count: props.arrived.count }] : []),
     ...(props.join ? [{ kind: 'join' as const, card: props.join }] : []),
     ...(props.phoneUndo ? [{ kind: 'phoneUndo' as const, name: props.phoneUndo.name }] : []),
+    ...((props.phoneLaunchMore ?? 0) > 0 ? [{ kind: 'phoneLaunchMore' as const, n: props.phoneLaunchMore! }] : []),
     ...(props.phoneLaunches ?? []).map((card) => ({ kind: 'phoneLaunch' as const, card })),
   ];
   const waits: WaitingItem[] = [
@@ -73,6 +74,8 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'join') return <JoinCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
         if (item.kind === 'phoneUndo') return <PhoneUndoCard key={key} name={item.name} motion={m} />;
         if (item.kind === 'phoneLaunch') return <PhoneLaunchCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
+        // 並べきれないスマホからの通知の数。押す先は無いので、ボタンにせず文だけの 1 行にする。
+        if (item.kind === 'phoneLaunchMore') return <div key={key} className="toast toast-pill" data-kind="phone-launch-more" {...motionAttrs(m)}>{t('phoneLaunch.notice.more', { n: item.n })}</div>;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
       })}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
@@ -198,7 +201,8 @@ function PhoneUndoCard(props: { name: string; motion: CardMotion }) {
 
 /**
  * スマホから起動した会話の通知（試作 F1）。見出し「スマホから起動」、題「〈スマホの名前〉から起動：〈プロジェクト〉（〈権限モード〉）」、その下に会話の名前、「開く」。
- * Bypass permissions で起こしたものは赤い通知（data-tone="err"、role="alert"）にし、注意の文と「停止」を置く。時間では消さない。
+ * Bypass permissions で起こしたものは赤い通知（data-tone="err"、role="alert"）にし、注意の文と「停止」を置く。
+ * 時間では消さず、見出しの閉じるボタンで下げる（run が終わって「停止」が消えた後も閉じられるように）。閉じるは画面を移さないので、ダイアログの間も押せる。
  * 通常の通知は PHONE_LAUNCH_TOAST_MS で消える（乗せている間は止める）。
  * 確認や入力のあるダイアログが開いている間（blocked）は、画面を移せず停止の確認も出せないので押せない。
  */
@@ -211,7 +215,11 @@ function PhoneLaunchCard(props: { card: PhoneLaunchCardProps; blocked: boolean; 
   const blockedTitle = props.blocked ? t('toasts.blocked.title') : undefined;
   return (
     <div className="toast notice" data-kind="phone-launch" data-tone={c.bypass ? 'err' : undefined} role={c.bypass ? 'alert' : 'status'} aria-label={head} {...motionAttrs(props.motion)} {...pause}>
-      <div className="notice-head">{c.bypass ? <Icon name="alert" /> : <span className="notice-dot" aria-hidden="true" />}<span className="notice-label">{head}</span></div>
+      <div className="notice-head">
+        {c.bypass ? <Icon name="alert" /> : <span className="notice-dot" aria-hidden="true" />}
+        <span className="notice-label">{head}</span>
+        {c.bypass && <button type="button" className="notice-close" aria-label={t('common.button.close')} onClick={() => emit({ type: 'phoneLaunch.dismiss', sessionId: c.sessionId })}><Icon name="close" /></button>}
+      </div>
       <div className="notice-body">
         <div className="notice-title">{c.title}</div>
         <div className="notice-sub">{c.name}</div>

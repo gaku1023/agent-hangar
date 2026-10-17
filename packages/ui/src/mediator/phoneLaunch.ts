@@ -1,14 +1,15 @@
 import type { Store } from '../store/store.ts';
 import { launchStep } from './launch.ts';
 import { screenStep } from './screen.ts';
-import type { Input, State, Step } from './types.ts';
+import type { Effect, Input, State, Step } from './types.ts';
 
 /**
  * phoneLaunch 領域：スマホからの依頼でこの PC が会話を起こした右下の通知（試作 F1）。
  * サーバーの phone.launch を受信順に覚え、同じ会話は 1 枚にまとめる（後から受信したもので置き換える）。
- * 「開く」はその会話を開き、「停止」はその run を止める流れ（session.kill、作業中なら確認を出す）に渡す。どちらも通知を下げる。
- * 「閉じる」は通常の通知の時間切れで、通知だけを下げる。Bypass permissions の通知は画面が時間では閉じない。
- * 開けなかった（入力のあるダイアログが開いていて画面を移せない）ときは、通知を残す。
+ * 「開く」はその会話を開いて通知を下げる。開けなかった（入力のあるダイアログが開いていて画面を移せない）ときは、通知を残す。
+ * 「停止」はその run を止める流れ（session.kill、作業中なら確認を出す）に渡す。
+ * 通知を下げるのは停止を実際に送ったときで、確認をキャンセルしたら通知は残る（settlePhoneLaunches）。
+ * 「閉じる」は通知だけを下げる。通常の通知は時間切れで、Bypass permissions の通知は見出しの閉じるボタンで送る。
  */
 export function phoneLaunchStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'server' && input.event.type === 'phone.launch') {
@@ -26,10 +27,28 @@ export function phoneLaunchStep(state: State, store: Store, input: Input): Step 
       return { state: { ...moved.state, phoneLaunches: without(i.sessionId).phoneLaunches }, effects: moved.effects };
     }
     case 'phoneLaunch.stop': {
-      const next = without(i.sessionId);
-      const r = launchStep(next, store, { kind: 'action', action: { type: 'session.kill', ...i.stop } });
-      return r ?? { state: next, effects: [] };
+      const r = launchStep(state, store, { kind: 'action', action: { type: 'session.kill', ...i.stop } }) ?? { state, effects: [] };
+      const sent = r.effects.some((e) => e.kind === 'api.killRun');
+      return sent ? { ...r, state: { ...r.state, phoneLaunches: r.state.phoneLaunches.filter((x) => x.sessionId !== i.sessionId) } } : r;
     }
     default: return null;
   }
+}
+
+/**
+ * どの入力の後にも合わせる、スマホから起動した会話の通知の整え。
+ * その会話の画面を開いた（開き方を問わない）ら、見えているので下げ、離れた後も再び出さない。
+ * その会話の run へ停止を送った（通知の「停止」の確認を経たものも、セッションのメニューからのものも）ら下げる。
+ */
+export function settlePhoneLaunches(state: State, store: Store, effects: readonly Effect[]): State {
+  if (state.phoneLaunches.length === 0) return state;
+  const drop = new Set<string>();
+  if (state.screen.name === 'session') drop.add(state.screen.id);
+  for (const e of effects) {
+    if (e.kind !== 'api.killRun') continue;
+    const sid = store.runs[e.runId]?.sessionId;
+    if (sid) drop.add(sid);
+  }
+  if (!state.phoneLaunches.some((l) => drop.has(l.sessionId))) return state;
+  return { ...state, phoneLaunches: state.phoneLaunches.filter((l) => !drop.has(l.sessionId)) };
 }

@@ -37,6 +37,8 @@ export const ANSWER_RESEND_TICK_MS = 10_000;
  * この PC の設定の画面で QR を出している間は、画面が 3 秒ごとに読むので、つながったことはすぐ届く。
  */
 export const PHONE_RECHECK_MS = 5 * 60_000;
+/** 起動の依頼の送り手が名簿に無いとき、同じ ID で一覧を読み直す最小の間隔。 */
+export const PHONE_NAME_REREAD_MS = 10_000;
 
 export type MobileParts = {
   /** 今の受信箱の素の書き手。同期を設定していない、または止めた後は null。 */
@@ -116,6 +118,8 @@ export function bootMobile(p: {
   let checking = false;
   /** 読めた一覧（名簿）のスマホの名前。ID から引く。右下の通知「〈スマホの名前〉から起動」に使う（試作 F1）。 */
   let phoneNames = new Map<string, string>();
+  /** 知らないスマホの ID で一覧を最後に読み直した時刻。ID ごとに読み直しを間引く。 */
+  const phoneRereadAt = new Map<string, number>();
 
   const build = () => buildMobileFeed({
     db, deviceId, deviceName: p.home.device.name,
@@ -244,12 +248,15 @@ export function bootMobile(p: {
   /**
    * スマホの依頼で起こした会話を、画面の右下の通知に配る（phone.launch、試作 F1）。
    * スマホの名前は読めた一覧（名簿）から引く。知らない ID なら一覧を 1 回だけ読み直し、それでも無ければ null（画面は「スマホから起動」と出す）。
+   * 同じ ID の読み直しは、最後の読み直しから PHONE_NAME_REREAD_MS の間はしない（外したスマホの残りの依頼が続けて来ても一覧を読み続けない）。
    */
   async function announceLaunch(e: PhoneLaunchStarted): Promise<void> {
     const hub = p.delivery.hub;
     if (!hub) return;
     let phone = e.from ? phoneNames.get(e.from) ?? null : null;
-    if (e.from && phone === null && p.sync.canCarryMobile()) {
+    const lastReread = e.from ? phoneRereadAt.get(e.from) : undefined;
+    if (e.from && phone === null && p.sync.canCarryMobile() && (lastReread === undefined || now() - lastReread >= PHONE_NAME_REREAD_MS)) {
+      phoneRereadAt.set(e.from, now());
       await p.sync.cloudDevices().catch(() => undefined);
       phone = phoneNames.get(e.from) ?? null;
     }
