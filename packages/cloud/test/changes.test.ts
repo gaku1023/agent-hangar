@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROSTER_MARKER_K, type SealedChangeIn, type SealedChangeOut, type SealedPullChangesResponse, type SealedSnapshotResponse } from '@agent-hangar/shared';
-import { MAX_ROW_BYTES } from '../src/changes.ts';
+import { MAX_PAGE_SEALED_CHARS, MAX_ROW_BYTES } from '../src/changes.ts';
 import { TOUCH_EVERY_MS } from '../src/seen.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
@@ -240,6 +240,64 @@ describe('1 行の大きさ', () => {
     expect(await bodyOf(r1)).toMatchObject({ count: 2, row: { k: K('p2') } });
     expect(await seqs()).toEqual([]);
     expect(await pushed(tokA, [batch[0]!, batch[2]!])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
+  });
+});
+
+describe('1 頁の大きさ', () => {
+  /** 上限いっぱいの行を 50 行置く。合わせて約 9 MiB で、1 頁の上限（8 MiB）を超える。 */
+  const fill = async (): Promise<string[]> => {
+    const names = Array.from({ length: 50 }, (_, i) => `big${String(i).padStart(2, '0')}`);
+    for (let i = 0; i < names.length; i += 25) expect((await push(tokA, names.slice(i, i + 25).map((n) => sized(n, MAX_ROW_BYTES)))).status).toBe(200);
+    return names;
+  };
+  const charsOf = (cs: { sealed: string }[]): number => cs.reduce((a, c) => a + c.sealed.length, 0);
+
+  it('pull の頁は sealed の合計が上限を超えたところで切り、続きは nextSeq から読める', async () => {
+    const names = await fill();
+    const p1 = await pull(tokB, 0);
+    expect(p1.more).toBe(true);
+    expect(p1.changes.length).toBeGreaterThanOrEqual(1);
+    expect(p1.changes.length).toBeLessThan(names.length);
+    // 上限を超えた行を入れたところで止めるので、はみ出すのは最後の 1 行の分までである。
+    expect(charsOf(p1.changes.slice(0, -1))).toBeLessThanOrEqual(MAX_PAGE_SEALED_CHARS);
+    expect(charsOf(p1.changes)).toBeGreaterThan(MAX_PAGE_SEALED_CHARS);
+    expect(charsOf(p1.changes)).toBeLessThanOrEqual(MAX_PAGE_SEALED_CHARS + MAX_ROW_BYTES);
+    expect(p1.nextSeq).toBe(p1.changes.at(-1)!.seq);
+    expect(p1.changes.every((c) => c.sealed === 'A'.repeat(MAX_ROW_BYTES))).toBe(true);
+    const p2 = await pull(tokB, p1.nextSeq);
+    expect(p2.more).toBe(false);
+    expect([...p1.changes, ...p2.changes].map((c) => c.k)).toEqual(names.map(K));
+    expect(p2.nextSeq).toBe(names.length);
+  });
+
+  it('GET /rows の頁も同じ上限で切り、続きは nextAfter から読める', async () => {
+    const names = await fill();
+    const r1 = await rows(tokB);
+    expect(r1.nextAfter).toBe(r1.changes.at(-1)!.k);
+    expect(r1.changes.length).toBeLessThan(names.length);
+    expect(charsOf(r1.changes.slice(0, -1))).toBeLessThanOrEqual(MAX_PAGE_SEALED_CHARS);
+    const r2 = await rows(tokB, r1.nextAfter!);
+    expect(r2.nextAfter).toBeNull();
+    expect([...r1.changes, ...r2.changes].map((c) => c.k)).toEqual(names.map(K));
+  });
+
+  it('小さい行と大きい行が混ざっても、中身はそのまま往復する（大きい行が 100 を超えても）', async () => {
+    // 16 KiB を超える行は、頁に入ると決まってから主キーで読み直す。1 つの文に並べる数を超える数を置く。
+    const big = Array.from({ length: 110 }, (_, i) => ({ ...ch(`m${String(i).padStart(3, '0')}`, 1), sealed: Buffer.alloc(17 * 1024, i).toString('base64url') }));
+    const small = Array.from({ length: 30 }, (_, i) => ch(`s${String(i).padStart(3, '0')}`, 1));
+    const all = [...big, ...small];
+    for (let i = 0; i < all.length; i += 40) expect((await push(tokA, all.slice(i, i + 40))).status).toBe(200);
+    const p = await pull(tokB, 0);
+    expect(p.more).toBe(false);
+    expect(p.changes.map((c) => [c.k, c.sealed])).toEqual(all.map((c) => [c.k, c.sealed]));
+    const r = await rows(tokB);
+    expect(r.nextAfter).toBeNull();
+    expect(new Map(r.changes.map((c) => [c.k, c.sealed]))).toEqual(new Map(all.map((c) => [c.k, c.sealed])));
+  });
+
+  it('頁の上限は 8 MiB で、1 行の上限より大きい（頁には必ず 1 行以上が載る）', () => {
+    expect(MAX_ROW_BYTES).toBeLessThan(MAX_PAGE_SEALED_CHARS);
+    expect(MAX_PAGE_SEALED_CHARS).toBe(8 * 1024 * 1024);
   });
 });
 

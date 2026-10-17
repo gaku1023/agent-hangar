@@ -51,6 +51,8 @@ describe('名簿（GET と PUT /roster）', () => {
     const g1 = await getRoster(tokB);
     expect(g1.status).toBe(200);
     expect((await g1.json()) as RosterOut).toEqual({ version: 1, sealed: SEALED });
+    // 封じた中身は base64url の文字ではなく、バイト列の BLOB で持つ。
+    expect(await cloud.env.DB.prepare('select typeof(sealed) t, hex(sealed) h from roster').first()).toEqual({ t: 'blob', h: Buffer.from(SEALED, 'base64url').toString('hex').toUpperCase() });
 
     const r2 = await putRoster(tokB, 1, SEALED_2);
     expect(r2.status).toBe(200);
@@ -124,7 +126,7 @@ describe('名簿（GET と PUT /roster）', () => {
 describe('keybox（GET と PUT /keyboxes）', () => {
   beforeEach(async () => start());
 
-  const box = (recipient: string, epoch = 1, sealed = `Ym94LWZvci0${recipient.replace(/[^A-Za-z0-9]/g, '')}`) => ({ epoch, recipient, sealed });
+  const box = (recipient: string, epoch = 1, sealed = Buffer.from(`box-for-${recipient}`).toString('base64url')) => ({ epoch, recipient, sealed });
 
   it('自分宛ての keybox を読める（recipient を省くと自分宛て）', async () => {
     const w = await putBoxes(tokA, [box('pc-a'), box('pc-b'), box(RECOVERY_RECIPIENT)]);
@@ -141,17 +143,21 @@ describe('keybox（GET と PUT /keyboxes）', () => {
     expect((await getBoxes(tokA, 'pc-b')).status).toBe(403);
   });
 
-  it('世代と受け手の組で上書きし、世代の順に返す', async () => {
+  it('世代と受け手の組で上書きし、いちばん新しい世代の 1 つだけを返す', async () => {
     expect((await putBoxes(tokA, [box('pc-b', 2, 'c2Vjb25k'), box('pc-b', 1, 'Zmlyc3Q')])).status).toBe(200);
     expect((await putBoxes(tokB, [box('pc-b', 1, 'Zmlyc3QtYWdhaW4')])).status).toBe(200);
-    expect((await (await getBoxes(tokB)).json()) as KeyboxesOut).toEqual({
-      boxes: [
-        { epoch: 1, sealed: 'Zmlyc3QtYWdhaW4' },
-        { epoch: 2, sealed: 'c2Vjb25k' },
-      ],
-    });
-    const n = await cloud.env.DB.prepare('select count(*) n from keyboxes').first<{ n: number }>();
-    expect(n?.n).toBe(2);
+    // 中身は世代 1 から n までの鍵の一覧なので、古い世代の箱は返さない。
+    expect((await (await getBoxes(tokB)).json()) as KeyboxesOut).toEqual({ boxes: [{ epoch: 2, sealed: 'c2Vjb25k' }] });
+    const stored = await cloud.env.DB.prepare('select epoch, typeof(sealed) t, hex(sealed) h from keyboxes order by epoch').all<{ epoch: number; t: string; h: string }>();
+    // 封じた中身はバイト列の BLOB で持ち、世代 1 は後の書き込みで上書きされている。
+    expect(stored.results).toEqual([
+      { epoch: 1, t: 'blob', h: Buffer.from('Zmlyc3QtYWdhaW4', 'base64url').toString('hex').toUpperCase() },
+      { epoch: 2, t: 'blob', h: Buffer.from('c2Vjb25k', 'base64url').toString('hex').toUpperCase() },
+    ]);
+  });
+
+  it('自分宛ての keybox が無ければ空の配列', async () => {
+    expect((await (await getBoxes(tokB)).json()) as KeyboxesOut).toEqual({ boxes: [] });
   });
 
   it('受け手は解除されていない PC か recovery だけで、上限は 20 件', async () => {

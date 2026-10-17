@@ -142,8 +142,13 @@ describe('参加コード', () => {
     const sealed = await sealJoinRequest(code, hash, { pub: PUB, name: 'pc-b', os: 'darwin' });
     expect((await request(hash, 'pc-b', sealed)).status).toBe(202);
     expect(await status(hash, 'pc-b')).toEqual({ status: 'waiting' });
+    // 封じたリクエストは base64url の文字ではなく、バイト列の BLOB で持つ。
+    expect(await cloud.env.DB.prepare('select typeof(request) t, hex(request) h from join_codes where code_hash = ?').bind(hash).first()).toEqual({
+      t: 'blob',
+      h: Buffer.from(sealed, 'base64url').toString('hex').toUpperCase(),
+    });
 
-    const m1 = (await (await mine(pcA)).json()) as JoinCodeMine;
+    const m1 =(await (await mine(pcA)).json()) as JoinCodeMine;
     expect(m1.status).toBe('requested');
     expect(m1.deviceId).toBe('pc-b');
     expect(await openJoinRequest(code, hash, m1.sealed!)).toEqual({ pub: PUB, name: 'pc-b', os: 'darwin' });

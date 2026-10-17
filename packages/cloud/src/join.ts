@@ -15,7 +15,7 @@ import {
 import { timingSafeEqualHex } from './auth.ts';
 import type { Env, Vars } from './env.ts';
 import { countInWindow, windowFull } from './limits.ts';
-import { randomToken, sha256Hex } from './util.ts';
+import { blobToSealed, isSealedText, randomToken, sealedToBlob, sha256Hex } from './util.ts';
 
 const MAX_NAME_CHARS = 128;
 
@@ -66,7 +66,6 @@ const MAX_TOKEN_CHARS = 512;
 const HASH_RE = /^[0-9a-f]{64}$/;
 /** 端末の ID。shared の e2e/names.ts と同じ形である。 */
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-const B64URL_RE = /^[A-Za-z0-9_-]+$/;
 
 /** 使った最初の端末トークンのハッシュを置く meta の鍵。同じハッシュは 2 度通さない。 */
 const META_BOOTSTRAP_USED = 'bootstrap_used';
@@ -85,7 +84,8 @@ type CodeRow = {
   used_at: number | null;
   status: JoinCodeMine['status'];
   device_id: string | null;
-  request: string | null;
+  /** 封じた参加リクエスト。D1 にはバイト列の BLOB で置く。 */
+  request: unknown;
 };
 
 /**
@@ -202,10 +202,7 @@ joinApp.post('/requests', async (c) => {
     !body ||
     !isHash(body.codeHash) ||
     !isDeviceId(body.deviceId) ||
-    typeof body.sealed !== 'string' ||
-    body.sealed.length === 0 ||
-    body.sealed.length > MAX_SEALED_REQUEST_CHARS ||
-    !B64URL_RE.test(body.sealed)
+    !isSealedText(body.sealed, MAX_SEALED_REQUEST_CHARS)
   ) {
     return c.json({ error: 'invalid body' }, 400);
   }
@@ -217,7 +214,7 @@ joinApp.post('/requests', async (c) => {
     .prepare(
       "update join_codes set status = 'requested', device_id = ?, request = ?, request_at = ? where code_hash = ? and status = 'open' and expires_at > ? and request is null and not exists (select 1 from devices where id = ?)",
     )
-    .bind(body.deviceId, body.sealed, now, body.codeHash, now, body.deviceId)
+    .bind(body.deviceId, sealedToBlob(body.sealed), now, body.codeHash, now, body.deviceId)
     .run();
   if (Number(res.meta?.changes ?? 0) === 1) return c.json({ ok: true }, 202);
   await countInWindow(db, META_JOIN_GUESS, now, JOIN_GUESS_LIMIT).run();
@@ -330,7 +327,7 @@ joinCodesApp.get('/mine', async (c) => {
     await expireCode(db, r.code_hash, now).run();
     status = 'expired';
   }
-  const res: JoinCodeMine = { codeHash: r.code_hash, status, sealed: status === 'requested' ? r.request : null, deviceId: r.device_id };
+  const res: JoinCodeMine = { codeHash: r.code_hash, status, sealed: status === 'requested' && r.request !== null ? blobToSealed(r.request) : null, deviceId: r.device_id };
   return c.json(res);
 });
 

@@ -35,6 +35,8 @@ export function sealedToBlob(s: string): Uint8Array {
  * D1 から読んだ BLOB を base64url（詰め物なし）に戻す。
  * D1 は BLOB を数の配列で返し、ArrayBuffer で返す土台もある。
  * 文字のまま置かれた値（試験が直に入れた行など）は、そのまま返す。
+ * それ以外の型（null など）は投げる。
+ * 空の文字を返すと、壊れた行が名簿の印の行（`sealed` が空）と見分けられなくなるためである。
  */
 export function blobToSealed(v: unknown): string {
   if (typeof v === 'string') return v;
@@ -42,7 +44,7 @@ export function blobToSealed(v: unknown): string {
   if (v instanceof Uint8Array) bytes = v;
   else if (v instanceof ArrayBuffer) bytes = new Uint8Array(v);
   else if (Array.isArray(v)) bytes = Uint8Array.from(v as number[]);
-  else return '';
+  else throw new TypeError(`unexpected sealed value: ${v === null ? 'null' : typeof v}`);
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

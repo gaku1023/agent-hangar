@@ -74,7 +74,10 @@ const TABLES = new Set<string>(SHARED_TABLES);
  * 数が実物とずれていないことは `fake-cloud.test.ts` の「上限は実物の Worker と同じ数である」が
  * 原本を読んで縛る。偽物が実物より甘いと、本番でだけ 413 で断られる行と本文ができる。
  */
+// 偽物を封じた形（互換の版 9）に写し直すのは Task 9 である。
+// それまでは平文の payload を測るので、上限は平文の 128 KiB のままにする（版 9 の Worker の 180 KiB は、これを封じた sealed の字数である）。
 export const MAX_ROW_BYTES = 128 * 1024;
+/** 版 9 の Worker には無い（413 は k で名指しする）。平文の形の偽物が rowId を切り詰めるためだけに残す。 */
 export const MAX_ROW_ID_CHARS = 64;
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
 /** PUT /m/feed の本文の上限（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES の写し）。 */

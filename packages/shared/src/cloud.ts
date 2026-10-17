@@ -175,7 +175,8 @@ export const RECOVERY_RECIPIENT = 'recovery';
 export const MAX_KEYBOXES_PER_PUT = 20;
 
 /**
- * 自分宛ての keybox（`GET /keyboxes?recipient=<id>`）。世代の順に並ぶ。
+ * 自分宛ての keybox（`GET /keyboxes?recipient=<id>`）。いちばん新しい世代の 1 つだけで、無ければ空の配列である。
+ * keybox の中身は世代 1 から n までの鍵の一覧なので、古い世代の箱は返さない（読み取りの行を世代の数に比例させない）。
  * `recipient` を省けば自分宛てで、ほかの PC 宛ては 403。
  * `recovery` 宛ては、`POST /bootstrap` で入った端末が名簿か keybox を書くまでの間だけ読める（`hangar recover` の道）。
  */

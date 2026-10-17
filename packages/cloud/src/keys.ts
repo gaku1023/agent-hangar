@@ -12,6 +12,7 @@ import {
   type RosterPutOut,
 } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
+import { blobToSealed, isSealedText, sealedToBlob } from './util.ts';
 
 /**
  * 封じた名簿と keybox の口（互換の版 9）。どれも PC の端末トークンが要る（app.ts で付ける）。
@@ -36,7 +37,6 @@ const MAX_KEYBOX_CHARS = 16_384;
 /** 本文の上限（バイト）。申告の長さで先に断る。 */
 const MAX_BODY_BYTES = 512_000;
 
-const B64URL_RE = /^[A-Za-z0-9_-]+$/;
 /** 端末の ID。join.ts と同じ形である。 */
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -46,7 +46,8 @@ const META_BOOTSTRAP_USED = 'bootstrap_used';
 const META_RECOVERY_DONE = 'recovery_done';
 
 const isEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
-const isSealed = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max && B64URL_RE.test(v);
+/** 封じた値は base64url で受け、D1 にはバイト列の BLOB で置く（changes.ts の行と同じ）。 */
+const isSealed = isSealedText;
 
 const readJson = async (c: Ctx): Promise<Record<string, unknown> | null> => {
   const v = (await c.req.json().catch(() => null)) as unknown;
@@ -81,9 +82,9 @@ function closeRecovery(db: D1Database, tokenHash: string, cond?: { sql: string; 
 
 /** 名簿を返す。主キーで 1 行だけを読む。 */
 keysApp.get('/roster', async (c) => {
-  const r = await c.env.DB.prepare('select version, sealed from roster where id = 1').first<{ version: number; sealed: string }>();
+  const r = await c.env.DB.prepare('select version, sealed from roster where id = 1').first<{ version: number; sealed: unknown }>();
   if (!r) return c.json({ error: 'not found' }, 404);
-  const res: RosterOut = { version: Number(r.version), sealed: String(r.sealed) };
+  const res: RosterOut = { version: Number(r.version), sealed: blobToSealed(r.sealed) };
   return c.json(res);
 });
 
@@ -100,7 +101,8 @@ keysApp.put('/roster', async (c) => {
   if (!body || typeof body.ifVersion !== 'number' || !Number.isSafeInteger(body.ifVersion) || body.ifVersion < 0 || !isEpoch(body.epoch) || !isSealed(body.sealed, MAX_ROSTER_CHARS)) {
     return c.json({ error: 'invalid body' }, 400);
   }
-  const { ifVersion, epoch, sealed } = body;
+  const { ifVersion, epoch } = body;
+  const sealed = sealedToBlob(body.sealed);
   const device = c.get('device');
   const db = c.env.DB;
   const now = Date.now();
@@ -122,7 +124,9 @@ keysApp.put('/roster', async (c) => {
 });
 
 /**
- * keybox を読む。受け手の索引（keyboxes_recipient）で、その受け手の分だけを世代の順に読む。
+ * keybox を読む。受け手の索引（keyboxes_recipient）で、その受け手のいちばん新しい世代の 1 つだけを読む。
+ * keybox の中身は世代 1 から n までの鍵の一覧なので、古い世代の箱は要らない。
+ * 全部を返すと、世代を回すたびに 1 回の読み取りの行が 1 つずつ増える。
  * `recipient` を省けば自分宛てで、ほかの PC 宛ては 403。
  *
  * `recovery` 宛ては `hangar recover` の道のためにある。
@@ -137,19 +141,19 @@ keysApp.get('/keyboxes', async (c) => {
   const device = c.get('device');
   const recipient = c.req.query('recipient') ?? device.id;
   const db = c.env.DB;
-  const boxes = (rows: unknown[]): KeyboxesOut => ({ boxes: (rows as { epoch: number; sealed: string }[]).map((r) => ({ epoch: Number(r.epoch), sealed: String(r.sealed) })) });
+  const boxes = (rows: unknown[]): KeyboxesOut => ({ boxes: (rows as { epoch: number; sealed: unknown }[]).map((r) => ({ epoch: Number(r.epoch), sealed: blobToSealed(r.sealed) })) });
   if (recipient === RECOVERY_RECIPIENT) {
     const allowed = 'exists (select 1 from meta where key = ? and value = ?) and not exists (select 1 from meta where key = ? and value = ?)';
     const binds = [META_BOOTSTRAP_USED, device.token_hash, META_RECOVERY_DONE, device.token_hash];
     const [ok, list] = await db.batch([
       db.prepare(`select ${allowed} ok`).bind(...binds),
-      db.prepare(`select epoch, sealed from keyboxes where recipient = ? and ${allowed} order by epoch`).bind(RECOVERY_RECIPIENT, ...binds),
+      db.prepare(`select epoch, sealed from keyboxes where recipient = ? and ${allowed} order by epoch desc limit 1`).bind(RECOVERY_RECIPIENT, ...binds),
     ]);
     if (!Number((ok?.results?.[0] as { ok?: number } | undefined)?.ok ?? 0)) return c.json({ error: 'forbidden' }, 403);
     return c.json(boxes(list?.results ?? []));
   }
   if (recipient !== device.id) return c.json({ error: 'forbidden' }, 403);
-  const list = await db.prepare('select epoch, sealed from keyboxes where recipient = ? order by epoch').bind(recipient).all();
+  const list = await db.prepare('select epoch, sealed from keyboxes where recipient = ? order by epoch desc limit 1').bind(recipient).all();
   return c.json(boxes(list.results));
 });
 
@@ -184,7 +188,7 @@ keysApp.put('/keyboxes', async (c) => {
     ...list.map((b) =>
       db
         .prepare('insert into keyboxes (epoch, recipient, created_at, sealed) values (?, ?, ?, ?) on conflict(epoch, recipient) do update set created_at = excluded.created_at, sealed = excluded.sealed')
-        .bind(b.epoch, b.recipient, now, b.sealed),
+        .bind(b.epoch, b.recipient, now, sealedToBlob(b.sealed)),
     ),
     ...bumpMarker(db, device.id, epoch, now),
     closeRecovery(db, device.token_hash),

@@ -53,9 +53,70 @@ function isChange(v: unknown): v is SealedChangeIn {
   );
 }
 
-type ChangeRow = { seq: number; k: string; op: 'upsert' | 'delete'; updated_at: number; device_id: string; epoch: number; sealed: unknown };
+/**
+ * 1 頁（pull と GET /rows）に載せる `sealed` の合計の上限（base64url の字数）である。
+ *
+ * 1 頁は 500 行までで、1 行は 180 KiB までなので、上限が無いと 1 頁が 90 MiB になりうる。
+ * それだけの値を D1 から受け取ると、Worker の記憶（128 MB）を使い切って要求ごと落ち、端末は同じ頁を読み直し続ける。
+ * 合計がこの値を超えた行を入れたところで頁を切り、続きは今までどおり nextSeq（GET /rows は nextAfter）から読ませる。
+ * 先頭の 1 行は必ず載せるので、1 行の上限より小さくしてはいけない。
+ */
+export const MAX_PAGE_SEALED_CHARS = 8 * 1024 * 1024;
 
-const ROW_COLS = 'seq, k, op, updated_at, device_id, epoch, sealed';
+/**
+ * 頁の問い合わせでそのまま受け取る `sealed` の大きさ（BLOB のバイト数）の上限である。
+ * これより大きい行は、頁に入ると決まってから主キーで読み直す。
+ * 頁の問い合わせが D1 から受け取る量は、500 行でも 8 MiB ほどに収まる。
+ */
+const INLINE_SEALED_BYTES = 16 * 1024;
+/** 大きい行を主キーで読み直すときの、1 つの文に並べる連番の数。D1 の 1 文の引数は 100 個までである。 */
+const REFETCH_CHUNK = 90;
+
+type ChangeRow = { seq: number; k: string; op: 'upsert' | 'delete'; updated_at: number; device_id: string; epoch: number; sealed: unknown };
+/** 頁の問い合わせの行。`n` は `sealed` のバイト数で、大きい行は `sealed` を null で受け取る。 */
+type PagedRow = ChangeRow & { n: number };
+
+const META_COLS = 'seq, k, op, updated_at, device_id, epoch';
+
+/**
+ * 頁を読む文である。`where` と `order` に合う行を `limit + 1` 行まで読む。
+ * どの行も `sealed` のバイト数（`n`）を添え、`INLINE_SEALED_BYTES` を超える行の `sealed` は返さない（null にする）。
+ * 窓関数で合計を数える形は、D1 の数える読み取りの行が返した行の約 3 倍になったので採らない。
+ */
+const pageStmt = (db: D1Database, where: string, order: string, binds: unknown[], limit: number): D1PreparedStatement =>
+  db
+    .prepare(`select ${META_COLS}, length(sealed) n, case when length(sealed) <= ? then sealed end sealed from rows where ${where} order by ${order} limit ?`)
+    .bind(INLINE_SEALED_BYTES, ...binds, limit + 1);
+
+/**
+ * 読んだ行から頁を切り出す。
+ * 行の数の上限に達するか、`sealed` の合計（base64url の字数）が上限を超えた行を入れたところで止める。先頭の 1 行は必ず入れる。
+ * `last` は頁が受け持った最後の行で、続きの読み位置（nextSeq と nextAfter）はこの行で決める。
+ *
+ * 頁に入った大きい行は、主キーで `sealed` を読み直す。
+ * 頁の問い合わせとの間に書き換えられた行は、消えて表の末尾の連番で入り直しているので、ここでは見つからない。
+ * その行は頁から外す。入り直した行は、頁の問い合わせと同じ batch で読んだ高水位より後ろの連番なので、続きの pull で降りる。
+ */
+async function cutPage(db: D1Database, rows: PagedRow[], limit: number): Promise<{ page: ChangeRow[]; more: boolean; last: ChangeRow | undefined }> {
+  const taken: PagedRow[] = [];
+  let chars = 0;
+  for (const r of rows) {
+    if (taken.length >= limit || (taken.length > 0 && chars > MAX_PAGE_SEALED_CHARS)) break;
+    taken.push(r);
+    chars += Math.ceil((Number(r.n) * 4) / 3);
+  }
+  const more = rows.length > taken.length;
+  const last = taken.at(-1);
+  const big = taken.filter((r) => r.sealed === null).map((r) => r.seq);
+  if (big.length === 0) return { page: taken, more, last };
+  const chunks: number[][] = [];
+  for (let i = 0; i < big.length; i += REFETCH_CHUNK) chunks.push(big.slice(i, i + REFETCH_CHUNK));
+  const results = await db.batch(chunks.map((c) => db.prepare(`select seq, sealed from rows where seq in (${c.map(() => '?').join(', ')})`).bind(...c)));
+  const found = new Map<number, unknown>();
+  for (const res of results) for (const g of (res.results ?? []) as { seq: number; sealed: unknown }[]) found.set(Number(g.seq), g.sealed);
+  const page = taken.flatMap((r) => (r.sealed !== null ? [r] : found.has(r.seq) ? [{ ...r, sealed: found.get(r.seq) }] : []));
+  return { page, more, last };
+}
 
 const toOut = (r: ChangeRow): SealedChangeOut => ({
   seq: r.seq,
@@ -173,6 +234,7 @@ const PULL_LAUNCH_LIMIT = 50;
 
 /**
  * 自端末以外の行を連番の昇順で返す。
+ * 頁は `limit` 行か、`sealed` の合計が `MAX_PAGE_SEALED_CHARS` を超えたところで切り、続きがあれば `more` を立てる。
  * 名簿の印の行（`~roster`）もほかの行と同じく返す。見た PC だけが名簿と keybox を読み直す。
  * 解除していない PC の最終確認（peers）と、Worker の時刻（now）を添える。端末は「now − lastSeenAt」を PC の年齢として、他の PC の生存を見る。
  * この PC 宛ての起動の依頼（launches）も添える。要求を増やさずに、PC の 30 秒ごとの pull で依頼を受け取るためである。
@@ -189,7 +251,7 @@ changesApp.get('/', async (c) => {
   // 別々に読むと、間に入った push の行を高水位だけが越えて、この端末がその行を読み飛ばす。
   const stmts: D1PreparedStatement[] = [
     ...(touch ? [touch] : []),
-    db.prepare(`select ${ROW_COLS} from rows where seq > ? and device_id != ? order by seq limit ?`).bind(since, device.id, limit + 1),
+    pageStmt(db, 'seq > ? and device_id != ?', 'seq', [since, device.id], limit),
     maxSeqStmt(db),
     // スマホ（kind = 'mobile'）は会話を動かさないので、PC の生存に混ぜない。
     db.prepare("select id, last_seen_at from devices where revoked_at is null and kind = 'pc' order by id"),
@@ -201,11 +263,9 @@ changesApp.get('/', async (c) => {
   ];
   const results = await db.batch(stmts);
   const off = touch ? 1 : 0;
-  const rows = (results[off]?.results ?? []) as ChangeRow[];
-  const more = rows.length > limit;
-  const page = rows.slice(0, limit);
+  const { page, more, last } = await cutPage(db, (results[off]?.results ?? []) as PagedRow[], limit);
   // 最後まで返せたときは表全体の末尾まで進める。自端末の行で止まったままにしないためである。
-  const nextSeq = more ? page[page.length - 1]!.seq : firstNum(results[off + 1] as D1Result<{ s: number }> | undefined);
+  const nextSeq = more ? last!.seq : firstNum(results[off + 1] as D1Result<{ s: number }> | undefined);
   const peers: CloudPeer[] = ((results[off + 2]?.results ?? []) as PeerRow[]).map((p) => ({ id: p.id, lastSeenAt: p.last_seen_at ?? null }));
   const launches: MobileLaunchOut[] = ((results[off + 3]?.results ?? []) as LaunchRow[]).map((l) => ({ id: l.id, createdAt: l.created_at, sealed: l.sealed }));
   const res: SealedPullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now, launches };
@@ -219,10 +279,8 @@ rowsApp.get('/', async (c) => {
   const db = c.env.DB;
   const after = c.req.query('after') ?? '';
   const limit = clampLimit(c.req.query('limit'));
-  const results = await db.batch([db.prepare(`select ${ROW_COLS} from rows where k > ? order by k limit ?`).bind(after, limit + 1), maxSeqStmt(db)]);
-  const rows = (results[0]?.results ?? []) as ChangeRow[];
-  const more = rows.length > limit;
-  const page = rows.slice(0, limit);
-  const res: SealedSnapshotResponse = { changes: page.map(toOut), nextAfter: more ? page[page.length - 1]!.k : null, seq: firstNum(results[1] as D1Result<{ s: number }> | undefined) };
+  const results = await db.batch([pageStmt(db, 'k > ?', 'k', [after], limit), maxSeqStmt(db)]);
+  const { page, more, last } = await cutPage(db, (results[0]?.results ?? []) as PagedRow[], limit);
+  const res: SealedSnapshotResponse = { changes: page.map(toOut), nextAfter: more ? last!.k : null, seq: firstNum(results[1] as D1Result<{ s: number }> | undefined) };
   return c.json(res);
 });
