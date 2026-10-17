@@ -224,8 +224,8 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
     d.bridge.revoke(id).then((r) => {
       if (!r.ok) apply({ type: 'revoke.failed', id, failure: r.failure });
       else { apply({ type: 'revoke.done', device: r.value }); load(); }
-      const next = queued.shift();
-      if (next !== undefined) revoke(next);
+      const next = d.get().phoneQueued[0];
+      if (next !== undefined) { apply({ type: 'phoneQueue.shift' }); revoke(next); }
     });
   }
 
@@ -245,16 +245,17 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
    * 時間がたつと解除を送る（revoke と同じ道）。「元に戻す」なら予約を無効にして行を戻す。
    * 待っている間に別のスマホを解除したら、前のスマホの解除をすぐ送り、新しいスマホで数え直す。
    * 予約は世代で見分け、無効にした予約が走っても何もしない。
+   * 別の解除を送っている間に 5 秒が過ぎたスマホは、状態の phoneQueued に積み、送り終えたら順に送る（殻の解除は 1 度に 1 台）。
+   * 5 秒の間に頁を閉じるか再読み込みしたら（pagehide、beforeunload）、flushPending で待っている解除をすぐ送る。
+   * 「元に戻す」を押さずに閉じたなら、解除の意思とみなす。
    */
   let undoGen = 0;
-  // 別の解除を送っている間に 5 秒が過ぎたスマホ。送り終えたら順に送る（解除は 1 度に 1 台）。
-  const queued: string[] = [];
   function commitUndo(): void {
     const u = d.get().phoneUndo;
     if (!u) return;
     undoGen++;
     apply({ type: 'phoneUndo.clear' });
-    if (d.get().revoke?.kind === 'busy') queued.push(u.id);
+    if (d.get().revoke?.kind === 'busy') apply({ type: 'phoneQueue.push', id: u.id });
     else revoke(u.id);
   }
   function phoneRevoke(id: string): void {
@@ -374,5 +375,14 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
     }
   }
 
-  return { run };
+  /**
+   * 頁を閉じる間際（pagehide、beforeunload）に呼ぶ。「元に戻す」を待っている解除があれば、5 秒を待たずにすぐ送る。
+   * 送るのは殻の命令（cloud_revoke）で、殻が CLI を起こしてサーバーに頼むので、頁が消えても殻の側で続く。
+   * 別の解除を送っている間は殻が重ねて走らせないので、列に積むだけになる（その分は頁が消えると送られない）。
+   */
+  function flushPending(): void {
+    commitUndo();
+  }
+
+  return { run, flushPending };
 }

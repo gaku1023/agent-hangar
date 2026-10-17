@@ -122,8 +122,10 @@ describe('スマホの解除の「元に戻す」（試作 E2）', () => {
     vi.useFakeTimers();
     const { onAction } = mount(props({ phoneUndo: { name: 'iPhone' } }));
     const c = screen.getByRole('status', { name: 'スマホ' });
-    expect(c).toHaveTextContent('iPhone を解除しました');
-    expect(c).toHaveTextContent('iPhone からセッションを起動できなくなりました。');
+    // 5 秒の間はまだ送っていないので、もうすぐ起きることの形で書く。秒数は PHONE_UNDO_MS と二重に持たないので入れない。
+    expect(c).toHaveTextContent('iPhone を解除します');
+    expect(c).toHaveTextContent('このあと iPhone からセッションを起動できなくなります。');
+    expect(c).not.toHaveTextContent('解除しました');
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS * 3); });
     expect(onAction).not.toHaveBeenCalled();
     fireEvent.click(within(c).getByRole('button', { name: '元に戻す' }));

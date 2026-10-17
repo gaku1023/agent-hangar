@@ -316,6 +316,8 @@ describe('スマホの接続（試作 A1）', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(both(props()), onAction));
     expect(screen.getByText(/スマホで受信箱を見て/)).toBeInTheDocument();
+    // 解除の確認を無くしたので、なくしたときの注意は表の下の説明に置く。
+    expect(screen.getByText(/スマホで受信箱を見て/)).toHaveTextContent('スマホをなくしたときは、すぐに「解除」してください。');
     expect(screen.getByText('「Remote Control を付けて起動する」の設定は「連携」にあります。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'スマホを接続' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.pair' });
@@ -395,6 +397,8 @@ describe('スマホの接続（試作 A1）', () => {
     expect(props({ devices }).phones.map((p) => p.id)).toEqual(['p1', 'p2']);
     expect(props({ devices, phoneUndo: { id: 'p1', name: 'iPhone' } }).phones.map((p) => p.id)).toEqual(['p2']);
     expect(props({ devices, revoke: { id: 'p1', kind: 'busy' } }).phones.map((p) => p.id)).toEqual(['p2']);
+    // 別の解除を送っている間に 5 秒が過ぎ、列で待っているスマホも出さない。
+    expect(props({ devices, revoke: { id: 'studio', kind: 'busy' }, phoneQueued: ['p2'] }).phones.map((p) => p.id)).toEqual(['p1']);
     // 解除に失敗したら行を戻し、行の下に理由を出す。
     expect(props({ devices, revoke: { id: 'p1', kind: 'failed', failure: { code: 'failed', message: 'x' } } }).phones.map((p) => p.id)).toEqual(['p1', 'p2']);
   });
@@ -559,8 +563,8 @@ describe('スマホの接続の動き', () => {
     expect(screen.queryByRole('button', { name: '元に戻す' })).toBeNull();
     rerender(screenOf(store({ id: 'p1', name: 'iPhone' })));
     expect(on(row).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
-    expect(screen.getByText('iPhone を解除しました')).toBeInTheDocument();
-    expect(screen.getByText('iPhone からセッションを起動できなくなりました。')).toBeInTheDocument();
+    expect(screen.getByText('iPhone を解除します')).toBeInTheDocument();
+    expect(screen.getByText('このあと iPhone からセッションを起動できなくなります。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '元に戻す' })).toBeInTheDocument();
     await done();
     expect(screen.queryByRole('table', { name: 'スマホ' })).toBeNull();

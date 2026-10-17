@@ -46,6 +46,11 @@ export type RuntimeDeps = {
   /** 窓が前面に来たことを知らせる。返り値で購読を外す。 */
   onWindowFocus?: (cb: () => void) => () => void;
   /**
+   * 頁を閉じる間際（pagehide と beforeunload。再読み込みも含む）を知らせる。返り値で購読を外す。
+   * スマホの解除の「元に戻す」を待っている間に閉じたら、その解除をすぐ送る（runtime/cloudMember.ts の flushPending）。
+   */
+  onPageHide?: (cb: () => void) => () => void;
+  /**
    * 頁が見える状態に戻ったこと（document の visibilitychange で visible）を知らせる。返り値で購読を外す。
    * 隠れていた窓を前に出しただけでは focus が来ないことがあるので、通知の許可の読み直しはこちらでも行う。
    */
@@ -242,6 +247,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let lastDepth = 0;
   let unsubFocus: (() => void) | null = null;
   let unsubVisible: (() => void) | null = null;
+  let unsubHide: (() => void) | null = null;
   /** 通知の許可を最後に読み直した時刻。 */
   let notifyCheckedAt = -Infinity;
 
@@ -1070,8 +1076,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
       unsubFocus = deps.onWindowFocus?.(() => { releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
       unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); }) ?? null;
+      unsubHide = deps.onPageHide?.(() => cloudMember.flushPending()) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
+    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
   };
 }

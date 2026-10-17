@@ -239,6 +239,43 @@ describe('スマホの解除と「元に戻す」', () => {
     expect(revoke.mock.calls).toEqual([['p1'], ['p2']]);
   });
 
+  it('5 秒の間に頁を閉じる（pagehide、beforeunload）と、待っている解除をすぐ送り、5 秒の予約は何もしない', async () => {
+    const revoke = vi.fn(async (id: string) => ({ ok: true as const, value: { id, kind: 'mobile' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }));
+    const x = rig({ revoke });
+    withPhones(x);
+    // 待っている解除が無ければ何も送らない。
+    x.r.flushPending();
+    expect(revoke).not.toHaveBeenCalled();
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    x.r.flushPending();
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    expect(x.get().phoneUndo).toBeNull();
+    // beforeunload と pagehide の両方が来ても 2 度は送らない。
+    x.r.flushPending();
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke.mock.calls).toEqual([['p1']]);
+  });
+
+  it('解除を送っている間に別のスマホの 5 秒が過ぎたら、その ID を状態の列に積み（行は隠したまま）、送り終えてから送る', async () => {
+    let release: (() => void) | null = null;
+    const revoke = vi.fn((id: string) => new Promise<{ ok: true; value: { id: string; kind: 'mobile'; joinedAt: number; lastSeenAt: number; revokedAt: number; expiresAt: null } }>((res) => {
+      release = () => res({ ok: true, value: { id, kind: 'mobile', joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } });
+    }));
+    const x = rig({ revoke });
+    withPhones(x);
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    await x.fire(PHONE_UNDO_MS);
+    expect(x.get().revoke).toMatchObject({ id: 'p1', kind: 'busy' });
+    x.r.run({ op: 'phoneRevoke', id: 'p2' });
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    expect(x.get().phoneQueued).toEqual(['p2']);
+    release!();
+    await flush();
+    expect(revoke.mock.calls).toEqual([['p1'], ['p2']]);
+    expect(x.get().phoneQueued).toEqual([]);
+  });
+
   it('ブラウザ（殻が無い）では何もしない', () => {
     const x = rig(null);
     withPhones(x);

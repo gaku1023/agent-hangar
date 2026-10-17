@@ -158,7 +158,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.recovery.again': 'もう一度再発行',
   'cloudMember.phone.heading': 'スマホ',
   'cloudMember.phone.pair': 'スマホを接続',
-  'cloudMember.phone.lead': 'スマホで受信箱を見て、PC を選んで会話を始められます。会話の中は Claude アプリで開きます。',
+  'cloudMember.phone.lead': 'スマホで受信箱を見て、PC を選んで会話を始められます。会話の中は Claude アプリで開きます。スマホをなくしたときは、すぐに「解除」してください。',
   'cloudMember.phone.rcPointer': '「Remote Control を付けて起動する」の設定は「連携」にあります。',
   'cloudMember.phone.loading': 'QR を作成しています…',
   'cloudMember.phone.title': 'スマホで読み込んでください',
@@ -188,7 +188,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.phone.remove': '解除',
   'cloudMember.phone.daysBar': '接続の残りの日数',
   'cloudMember.phone.undoHead': 'スマホ',
-  'cloudMember.phone.undoTitle': '{name} を解除しました',
-  'cloudMember.phone.undoBody': '{name} からセッションを起動できなくなりました。',
+  'cloudMember.phone.undoTitle': '{name} を解除します',
+  'cloudMember.phone.undoBody': 'このあと {name} からセッションを起動できなくなります。',
   'cloudMember.phone.undo': '元に戻す',
 };

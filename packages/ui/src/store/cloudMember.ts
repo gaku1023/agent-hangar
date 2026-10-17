@@ -83,8 +83,9 @@ export type PhoneUndo = { id: string; name: string };
 /**
  * devices は Worker の PC の一覧（GET /api/sync/cloud-devices）で、設定に入ったときに取る。未取得は null。
  * phoneUndo は「元に戻す」を待っているスマホで、無ければ null。
+ * phoneQueued は、別の解除を送っている間に 5 秒が過ぎ、送る順を待っているスマホの ID（解除は 1 度に 1 台）。その行も一覧に出さない。
  */
-export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; add: AddPcStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage; recovery: RecoveryStage; phoneUndo: PhoneUndo | null };
+export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; add: AddPcStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage; recovery: RecoveryStage; phoneUndo: PhoneUndo | null; phoneQueued: string[] };
 
 export type CloudMemberEvent =
   | { type: 'devices.loaded'; devices: CloudDevicesDto }
@@ -97,13 +98,14 @@ export type CloudMemberEvent =
   | { type: 'phone.loading' } | { type: 'phone.loaded'; pairing: MobilePairingDto } | { type: 'phone.failed'; message: string } | { type: 'phone.expired' } | { type: 'phone.reset' }
   | { type: 'phone.paired'; id: string; name: string }
   | { type: 'phoneUndo.start'; undo: PhoneUndo } | { type: 'phoneUndo.clear' }
+  | { type: 'phoneQueue.push'; id: string } | { type: 'phoneQueue.shift' }
   | { type: 'recovery.ask' } | { type: 'recovery.issuing' } | { type: 'recovery.shown'; text: string; draftId: string; hideAt: number }
   | { type: 'recovery.saved' } | { type: 'recovery.reveal'; hideAt: number }
   | { type: 'recovery.confirming'; tail: string } | { type: 'recovery.confirmFailed'; error: RecoveryError }
   | { type: 'recovery.done' } | { type: 'recovery.failed'; message: string } | { type: 'recovery.reset' };
 
 export function initialCloudMember(): CloudMemberState {
-  return { devices: null, join: { kind: 'url', failure: null }, add: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' }, recovery: { kind: 'idle' }, phoneUndo: null };
+  return { devices: null, join: { kind: 'url', failure: null }, add: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' }, recovery: { kind: 'idle' }, phoneUndo: null, phoneQueued: [] };
 }
 
 /** 表示中の段だけを書き換える。表示中でなければそのまま返す。 */
@@ -181,6 +183,8 @@ export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): Clo
     case 'phone.paired': return s.phone.kind === 'ready' ? { ...s, phone: { kind: 'paired', id: e.id, name: e.name } } : s;
     case 'phoneUndo.start': return { ...s, phoneUndo: e.undo };
     case 'phoneUndo.clear': return s.phoneUndo === null ? s : { ...s, phoneUndo: null };
+    case 'phoneQueue.push': return s.phoneQueued.includes(e.id) ? s : { ...s, phoneQueued: [...s.phoneQueued, e.id] };
+    case 'phoneQueue.shift': return s.phoneQueued.length === 0 ? s : { ...s, phoneQueued: s.phoneQueued.slice(1) };
     case 'phone.failed': return { ...s, phone: { kind: 'failed', message: e.message } };
     case 'phone.expired': return s.phone.kind === 'ready' ? { ...s, phone: { kind: 'expired' } } : s;
     case 'phone.reset': return { ...s, phone: { kind: 'idle' } };

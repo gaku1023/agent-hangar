@@ -281,8 +281,8 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
       ? { state: 'fallback', rows: shared(), removed: [], note: cloud.message }
       : { state: 'loading', rows: shared(), removed: [], note: null };
   // 解除したスマホは出さない。再接続は新しい QR で別の行になるので、解除した PC のように並べておく意味が無い。
-  // 「元に戻す」を待っているスマホと、解除を送っているスマホも出さない（1 クリックで行を畳む。試作 E2）。失敗したら行を戻す。
-  const hidden = new Set([m.phoneUndo?.id, m.revoke?.kind === 'busy' ? m.revoke.id : undefined].filter((x): x is string => x !== undefined));
+  // 「元に戻す」を待っているスマホと、解除を送っているスマホと、送る順を待っているスマホも出さない（1 クリックで行を畳む。試作 E2）。失敗したら行を戻す。
+  const hidden = new Set([m.phoneUndo?.id, m.revoke?.kind === 'busy' ? m.revoke.id : undefined, ...m.phoneQueued].filter((x): x is string => x !== undefined));
   const phones = listed.filter((d) => d.kind === 'mobile' && d.revokedAt === null && !hidden.has(d.id)).map(phoneRow);
   const names = new Map((cloud?.devices ?? []).map((d) => [d.id, d.name]));
   const rv = m.revoke;

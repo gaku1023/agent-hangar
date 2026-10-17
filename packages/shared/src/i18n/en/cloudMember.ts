@@ -158,7 +158,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.recovery.again': 'Reissue again',
   'cloudMember.phone.heading': 'Phones',
   'cloudMember.phone.pair': 'Connect a phone',
-  'cloudMember.phone.lead': 'See your inbox on your phone and start a conversation on any of your PCs. Conversations open in the Claude app.',
+  'cloudMember.phone.lead': 'See your inbox on your phone and start a conversation on any of your PCs. Conversations open in the Claude app. If you lose your phone, remove it right away.',
   'cloudMember.phone.rcPointer': 'The “Start with Remote Control” setting is in Integrations.',
   'cloudMember.phone.loading': 'Creating a QR code…',
   'cloudMember.phone.title': 'Scan with your phone',
@@ -188,7 +188,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.phone.remove': 'Remove',
   'cloudMember.phone.daysBar': 'Days left on this connection',
   'cloudMember.phone.undoHead': 'Phone',
-  'cloudMember.phone.undoTitle': 'Removed {name}',
-  'cloudMember.phone.undoBody': '{name} can no longer start sessions.',
+  'cloudMember.phone.undoTitle': 'Removing {name}',
+  'cloudMember.phone.undoBody': 'After this, {name} can no longer start sessions.',
   'cloudMember.phone.undo': 'Undo',
 };

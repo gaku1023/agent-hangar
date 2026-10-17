@@ -3023,3 +3023,24 @@ describe('git の表示（ランタイム）', () => {
     expect(rt.getStore().git.sessions.s1).toEqual({ state: 'nogit', root: null, branch: null, worktree: null });
   });
 });
+
+describe('スマホの解除の「元に戻す」の間に頁を閉じる', () => {
+  it('pagehide か beforeunload が来たら、待っている解除を殻へすぐ送り、止めたら聞かない', async () => {
+    const hide = new Set<() => void>();
+    const revoke = vi.fn(async (id: string) => ({ ok: true as const, value: { id, kind: 'mobile' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }));
+    const cloud = { joinCheck: vi.fn(), joinRequest: vi.fn(), joinPoll: vi.fn(), revoke, leave: vi.fn() };
+    const desktop = { openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update: noUpdate(), cloud };
+    const phoneRow = { id: 'p1', name: 'iPhone', platform: null, joinedAt: 1, lastSeenAt: 1, revokedAt: null, expiresAt: null, kind: 'mobile' as const, self: false };
+    const { rt } = harness({ cloudDevices: vi.fn(async () => ({ state: 'ok' as const, devices: [phoneRow], creator: false, message: null })) }, { desktop: desktop as never, onPageHide: (cb) => { hide.add(cb); return () => hide.delete(cb); } });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } });
+    await flush();
+    rt.emit({ type: 'cloud.phone.revoke', id: 'p1' });
+    expect(revoke).not.toHaveBeenCalled();
+    for (const cb of hide) cb();
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    rt.stop();
+    expect(hide.size).toBe(0);
+  });
+});
