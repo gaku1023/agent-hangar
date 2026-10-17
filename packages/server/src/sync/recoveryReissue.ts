@@ -20,6 +20,23 @@ const RECOVERY_BOX_RETRY_MS = 1_000;
 /** resumePending が箱を置きに行く最短の間隔。pull のたびに PUT を打ち続けないため。 */
 export const RECOVERY_RESUME_MIN_INTERVAL_MS = 60_000;
 
+/**
+ * 公開鍵 pub 宛ての recovery の箱を、世代 1 から今の世代まで 1 つずつ封じる。世代 k の箱の中身は、世代 1 から k までの世代鍵である。
+ * 今の世代より先の世代（回しの途中で、まだ配り終えていない世代）は入れない（sync/joinApprover.ts の placeBox と同じ）。
+ * 再発行（RecoveryKeyReissuer）と、世代の回しが再発行と重なったときの置き直し（sync/rotate.ts）が使う。
+ */
+export async function sealRecoveryBoxes(pub: string, ring: Keyring): Promise<KeyboxIn[]> {
+  const top = ring.current().epoch;
+  const { epochs } = ring.toConfigPatch();
+  const numbers = Object.keys(epochs).map(Number).filter((n) => n <= top).sort((a, b) => a - b);
+  const boxes: KeyboxIn[] = [];
+  for (const epoch of numbers) {
+    const upTo = Object.fromEntries(numbers.filter((n) => n <= epoch).map((n) => [String(n), epochs[String(n)]!]));
+    boxes.push({ epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(pub, { epoch, recipient: RECOVERY_RECIPIENT }, encodeEpochList({ epochs: upTo }))) });
+  }
+  return boxes;
+}
+
 /** 4xx は要求そのものが断られたので、すぐに試し直しても通らない。 */
 const isPermanent = (e: unknown): boolean => e instanceof CloudError && e.status >= 400 && e.status < 500;
 
@@ -201,13 +218,7 @@ export class RecoveryKeyReissuer {
     for (let round = 1; ; round++) {
       const pub = cur.roster.recoveryPub;
       if (cur.version === 0 || !pub) break;
-      const { epochs } = ring.toConfigPatch();
-      const numbers = Object.keys(epochs).map(Number).sort((a, b) => a - b);
-      const boxes: KeyboxIn[] = [];
-      for (const epoch of numbers) {
-        const upTo = Object.fromEntries(numbers.filter((n) => n <= epoch).map((n) => [String(n), epochs[String(n)]!]));
-        boxes.push({ epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(pub, { epoch, recipient: RECOVERY_RECIPIENT }, encodeEpochList({ epochs: upTo }))) });
-      }
+      const boxes = await sealRecoveryBoxes(pub, ring);
       for (let i = 0; i < boxes.length; i += MAX_KEYBOXES_PER_PUT) await this.putWithRetry(boxes.slice(i, i + MAX_KEYBOXES_PER_PUT));
       const gained = await roster.refreshKeyboxes();
       roster.invalidate();

@@ -855,4 +855,189 @@ describe('revokePhone（スマホの解除）', () => {
     expect((await phonesIn(a)).phoneKey?.epoch).toBe(1);
     expect(wire.phoneKeybox('phone-b')?.epoch).toBe(1);
   });
+
+  it('他の PC が世代を回した直後でも、keybox を読み直してから名簿を読み、スマホを解除できる', async () => {
+    const { wire, a, pcOf, seeded } = await setup();
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    const b = await pcOf('pc-b', seeded.configs['pc-b']!);
+    // pc-b が pc-c を解除して世代 3 に回し、名簿を世代 3 で封じ直した。pc-a はまだ世代 3 の鍵を持たない。
+    await revokePc({ id: 'pc-c', ...opts(b) });
+    expect(a.keyring.at(3)).toBeNull();
+    const row = await revokeMember({ id: 'phone-a', ...opts(a) });
+    expect(row.revokedAt).not.toBeNull();
+    expect(a.keyring.at(3)).not.toBeNull();
+    const after = await phonesIn(a);
+    expect(after.ids).toEqual(['phone-b']);
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(after.phoneKey?.epoch);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+  });
 });
+
+/** putRoster に渡った封じた名簿を、順に控える線。 */
+function recordingRoster<W extends FakeWireClient>(w: W): { wire: W; puts: { version: number; sealed: string }[] } {
+  const puts: { version: number; sealed: string }[] = [];
+  const orig = w.putRoster.bind(w);
+  const wire = Object.assign(Object.create(w) as W, {
+    putRoster: async (body: Parameters<W['putRoster']>[0]) => {
+      const r = await orig(body);
+      if (r.ok) puts.push({ version: body.ifVersion + 1, sealed: body.sealed });
+      return r;
+    },
+  });
+  return { wire, puts };
+}
+
+/** 解除した PC の手元の世代鍵で開ける名簿のうち、スマホ用の鍵 M の世代の一覧。 */
+async function phoneEpochsOpenableBy(old: Keyring, puts: { version: number; sealed: string }[]): Promise<number[]> {
+  const out: number[] = [];
+  for (const p of puts) {
+    for (const n of old.epochs()) {
+      try {
+        const r = await openRoster(old.at(n)!.roster, p.version, fromBase64Url(p.sealed)!);
+        out.push(r.phoneKey?.epoch ?? 0);
+        break;
+      } catch (e) {
+        if (!(e instanceof E2eOpenError)) throw e;
+      }
+    }
+  }
+  return out;
+}
+
+describe('PC の解除とスマホ用の鍵 M', () => {
+  it('PC を解除すると M も次の世代になり、残りのスマホに置く。解除した PC は新しい M を持たず、新しい M の入った名簿を開けない', async () => {
+    const { wire, a, pcOf, seeded } = await setup();
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    // 解除する PC も、解除の前に名簿を読んで M[1] を持っている。
+    const c = await pcOf('pc-c', seeded.configs['pc-c']!);
+    await c.roster.read();
+    expect(c.keyring.phoneKey()?.epoch).toBe(1);
+    const m1 = (await phoneM(wire, 'phone-a', phones['phone-a']!))!;
+
+    const { wire: rec, puts } = recordingRoster(a.wire);
+    const roster = new RosterStore(rec, a.keyring, a.cfg, 'pc-a');
+    await revokePc({ id: 'pc-c', ...opts(a, a.wire, { roster }) });
+    expect(rotation(a)).toBeNull();
+
+    // 名簿の M は次の世代になり、この PC の手元にも写り、残りのスマホに置いてある。
+    expect(await phonesIn(a)).toMatchObject({ ids: ['phone-a', 'phone-b'], phoneKey: { epoch: 2 } });
+    expect(a.keyring.phoneKey()?.epoch).toBe(2);
+    expect(a.cfg.current.phoneKey?.epoch).toBe(2);
+    const m2a = (await phoneM(wire, 'phone-a', phones['phone-a']!))!;
+    const m2b = (await phoneM(wire, 'phone-b', phones['phone-b']!))!;
+    expect([m2a.epoch, m2b.epoch]).toEqual([2, 2]);
+
+    // 受信箱は新しい M で書き直り、スマホは開けて、解除の前の M では開けない。
+    const pub = publisherOf(a);
+    expect(await pub.flushNow()).toBe('written');
+    const feedRow = wire.inboxFeeds().find((f) => f.deviceId === 'pc-a')!;
+    expect(feedRow.epoch).toBe(2);
+    expect(await opensFeed(m2b.key, feedRow.sealed)).toBe(true);
+    expect(await opensFeed(m1.key, feedRow.sealed)).toBe(false);
+
+    // 解除した PC は新しい M を持たない。手元の世代鍵で開ける名簿（D1 の写しを含む）に、新しい M は入っていない。
+    expect(c.keyring.phoneKey()?.epoch).toBe(1);
+    expect(puts.length).toBeGreaterThan(0);
+    const openable = await phoneEpochsOpenableBy(c.keyring, puts);
+    expect(openable.every((n) => n <= 1)).toBe(true);
+  });
+
+  it('M を回した名簿を書いた後、スマホに置く前に落ちても、再開で M を 1 度だけ回して置き終える', async () => {
+    const { wire, a, restart } = await setup();
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    await expect(revokePc({ id: 'pc-c', ...opts(a, crashingAt(a.wire, 'putPhoneKeyboxes')) })).rejects.toThrow('crashed');
+    expect(rotation(a)).toMatchObject({ id: 'pc-c', step: 'switch' });
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(2);
+    expect(wire.phoneKeybox('phone-b')?.epoch).toBe(1);
+    // PC の回しは、スマホの解除の記録を書かない。
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+
+    const again = await restart(a);
+    expect(await resumeRotation(opts(again))).toBe(true);
+    expect(rotation(again)).toBeNull();
+    expect((await phonesIn(again)).phoneKey?.epoch).toBe(2);
+    expect((await phoneM(wire, 'phone-a', phones['phone-a']!))?.epoch).toBe(2);
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(2);
+  });
+
+  it('(6) の名簿の封じ直しで落ちても、再開で M を 1 度だけ回す', async () => {
+    const { wire, a, restart } = await setup();
+    const phones = await pairPhones(a, ['phone-a']);
+    const roster = new RosterStore(crashingAt(a.wire, 'putRoster', 2), a.keyring, a.cfg, 'pc-a');
+    await expect(revokePc({ id: 'pc-c', ...opts(a, a.wire, { roster }) })).rejects.toThrow('crashed');
+    expect(rotation(a)).toMatchObject({ step: 'switch' });
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(1);
+
+    const again = await restart(a);
+    expect(await resumeRotation(opts(again))).toBe(true);
+    expect((await phonesIn(again)).phoneKey?.epoch).toBe(2);
+    expect((await phoneM(wire, 'phone-a', phones['phone-a']!))?.epoch).toBe(2);
+    // もう一度起動しても M は回さない。
+    expect(await resumeRotation(opts(await restart(again)))).toBe(false);
+    expect((await phonesIn(again)).phoneKey?.epoch).toBe(2);
+  });
+
+  it('スマホの解除の記録が残ったまま PC を解除しても、その記録は消さず、続きで両方が終わる', async () => {
+    const { wire, a } = await setup();
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    await expect(revokePhone({ id: 'phone-a', ...opts(a, crashingAt(a.wire, 'putPhoneKeyboxes')) })).rejects.toThrow('crashed');
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toEqual({ id: 'phone-a' });
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(2);
+
+    await revokePc({ id: 'pc-c', ...opts(a) });
+    expect(rotation(a)).toBeNull();
+    // PC の回しは M を次の世代にし、残りのスマホに置く。解除したスマホには置かない。
+    expect(await phonesIn(a)).toMatchObject({ ids: ['phone-b'], phoneKey: { epoch: 3 } });
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(3);
+    expect(wire.phoneKeybox('phone-a')?.epoch).toBe(1);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toEqual({ id: 'phone-a' });
+
+    expect(await resumeRotation(opts(a))).toBe(true);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(3);
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(3);
+  });
+});
+
+describe('世代の回しとリカバリーキーの再発行が重なる', () => {
+  it('(5) で名簿を読んだ後に他の PC が再発行したら、(6) で新しい公開鍵宛てに全世代の recovery の箱を置き直す', async () => {
+    const { wire, a, pcOf, seeded, recovery } = await setup();
+    const fresh = await generateKeyPair();
+    const b = await pcOf('pc-b', seeded.configs['pc-b']!);
+    // (5) の箱を置く直前に、pc-b が名簿の recoveryPub を新しい公開鍵にし、世代 1 と 2 の箱を新しい公開鍵宛てに置いた。
+    const hooked = before(a.wire, 'putKeyboxes', async () => {
+      await b.roster.update((r) => ({ ...r, recoveryPub: fresh.pub }));
+      const list = { ...EPOCHS };
+      await b.wire.putKeyboxes(await Promise.all([1, 2].map(async (epoch) => ({ epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(fresh.pub, { epoch, recipient: RECOVERY_RECIPIENT }, encodeEpochList({ epochs: Object.fromEntries(Object.entries(list).filter(([n]) => Number(n) <= epoch)) }))) }))));
+    });
+    await revokePc({ id: 'pc-c', ...opts(a, hooked) });
+    const k3 = a.cfg.current.epochs['3']!;
+    // いちばん新しい recovery の箱は新しい公開鍵宛てで、世代 1〜3 の全部が入っている。
+    expect(await newestBox(wire, RECOVERY_RECIPIENT, fresh)).toEqual({ epoch: 3, epochs: { ...EPOCHS, '3': k3 } });
+    expect(await boxFor(wire, RECOVERY_RECIPIENT, 1, fresh)).toEqual({ '1': EPOCHS['1'] });
+    expect(await boxFor(wire, RECOVERY_RECIPIENT, 2, fresh)).toEqual(EPOCHS);
+    await expect(boxFor(wire, RECOVERY_RECIPIENT, 3, recovery)).rejects.toThrow();
+    expect(rotation(a)).toBeNull();
+  });
+
+  it('再発行と重ならなければ、recovery の箱を置き直さない', async () => {
+    const { a } = await setup();
+    const spy = recordingKeyboxes(a.wire);
+    await revokePc({ id: 'pc-c', ...opts(a, spy.wire) });
+    expect(spy.recovery).toEqual([3]);
+  });
+});
+
+/** putKeyboxes に渡った recovery 宛ての箱の世代を、順に控える線。 */
+function recordingKeyboxes<W extends FakeWireClient>(w: W): { wire: W; recovery: number[] } {
+  const recovery: number[] = [];
+  const orig = w.putKeyboxes.bind(w);
+  const wire = Object.assign(Object.create(w) as W, {
+    putKeyboxes: async (boxes: Parameters<W['putKeyboxes']>[0]) => {
+      const r = await orig(boxes);
+      recovery.push(...boxes.filter((x) => x.recipient === RECOVERY_RECIPIENT).map((x) => x.epoch));
+      return r;
+    },
+  });
+  return { wire, recovery };
+}
