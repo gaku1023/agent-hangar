@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
+import { MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
 import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
@@ -19,7 +19,8 @@ import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
-import { sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
+import { resumeRotation, revokeMember, type RotateDeps } from '../sync/rotate.ts';
+import { sweepSupersededBlobs, sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
 import { TranscriptUploader } from '../sync/uploader.ts';
 import { CloudUsagePoller } from '../sync/usage.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -39,6 +40,8 @@ export const UPLOAD_SWEEP_MS = 60_000;
 export const CONFIG_BUNDLE_TICK_MS = 60_000;
 /** 起動から最初のゴミ箱の掃除までの間。最初の同期と取り残しの走査を先に通す。 */
 const TRASH_SWEEP_FIRST_MS = 5 * 60_000;
+/** 世代の回しの続き（sync/rotate.ts の resumeRotation）が失敗したときに、もう一度試すまでの間。 */
+const ROTATION_RETRY_MS = 5 * 60_000;
 /** fs.watch が使えないときだけ、cloud.json が現れたかを読み直す間隔。 */
 export const CLOUD_JSON_POLL_MS = 30_000;
 /** cloud.json の変化を拾ってから読むまでの間。書き込みの連続を 1 回にまとめる。 */
@@ -72,6 +75,11 @@ export type SyncParts = {
    * cloud.json が現れて部品を組み直すと、新しいものに替わる（前のものは止める）。
    */
   joinApprover(): JoinApprover | null;
+  /**
+   * 他の端末の解除（sync/rotate.ts の revokeMember）。PC なら世代を回す。同期を設定していない端末では null。
+   * 解除と、起動のときの回しの続きは 1 本ずつ順に走らせる（2 つの回しを重ねない）。
+   */
+  cloudRevoke(): ((id: string) => Promise<DeviceOut>) | null;
   /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
   /**
@@ -171,6 +179,11 @@ type Core = {
   /** ゴミ箱の掃除の 1 回（sync/trashSweep.ts）。同期を設定していなければ null。 */
   sweepTrash: (() => Promise<void>) | null;
   trashTimers: { first: ReturnType<typeof setTimeout>; every: ReturnType<typeof setInterval> } | null;
+  /** 他の端末の解除。同期を設定していなければ null。 */
+  revoke: ((id: string) => Promise<DeviceOut>) | null;
+  /** 回しの途中の記録があれば続きから終わらせる（起動のとき）。同期を設定していなければ null。 */
+  resumeRotation: (() => Promise<boolean>) | null;
+  rotationRetry: ReturnType<typeof setTimeout> | null;
 };
 
 /**
@@ -265,7 +278,9 @@ export function bootSync(
     // 名簿の印の行と知らない世代の行を受けたら、keybox と名簿を読み直す（sync/roster.ts）。
     // 新しい世代の鍵が届いたら、飛ばした行と本文の区切りを巻き戻す（どちらも走っている pull の終わりを待つので、ここでは待たない）。
     let onKeysGained = (): void => {};
-    const roster = keyring && wire && cloud ? new RosterStore(wire, keyring, cloudWriter(home.home, cloud, () => built), deviceId) : null;
+    // 名簿と世代の回しは、同じ cloud.json の口で世代鍵と名簿の版を書く。
+    const writer = cloud ? cloudWriter(home.home, cloud, () => built) : null;
+    const roster = keyring && wire && writer ? new RosterStore(wire, keyring, writer, deviceId) : null;
     const client = keyring && wire ? new SealedCloudClient(wire, keyring, deviceId, roster ? { onRoster: rosterRefresh(roster, () => onKeysGained()) } : {}) : null;
     const engine = new SyncEngine({
       db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
@@ -322,6 +337,8 @@ export function bootSync(
           trashRunning = true;
           try {
             await sweepTrashBlobs({ db, client, keyring, deviceId, now: Date.now() });
+            // 世代を回した後に上げ直した本文の、古い世代の鍵名。上げた直後に断られた（置いてから 1 時間たっていない）ものをここで拾う。
+            await sweepSupersededBlobs({ db, client, keyring, deviceId });
           } catch (e) {
             console.error('[trash-sweep] could not delete old trashed transcripts from the cloud', e instanceof Error ? e.message : e);
           } finally {
@@ -333,7 +350,20 @@ export function bootSync(
     const joinApprover = wire && roster && keyring
       ? new JoinApprover({ wire, roster, keyring, language: home.language, ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
       : null;
-    const c: Core = { cloud, client, roster, joinApprover, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
+    // 他の端末の解除と世代の回し。一時停止の間も行う（利用者が頼んだ操作である）。
+    // 解除と回しの続きは 1 本の鎖に並べ、2 つの回しを重ねない。
+    const rotateDeps: RotateDeps | null = wire && roster && keyring && writer
+      ? { client: wire, roster, keyring, state: syncState, cfg: writer, deviceId, onGained: () => onKeysGained() }
+      : null;
+    let rotating: Promise<unknown> = Promise.resolve();
+    const serial = <T>(fn: () => Promise<T>): Promise<T> => {
+      const next = rotating.then(fn, fn);
+      rotating = next.catch(() => {});
+      return next;
+    };
+    const revoke = rotateDeps ? (id: string): Promise<DeviceOut> => serial(() => revokeMember({ ...rotateDeps, id })) : null;
+    const resume = rotateDeps ? (): Promise<boolean> => serial(() => resumeRotation(rotateDeps)) : null;
+    const c: Core = { cloud, client, roster, joinApprover, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, resumeRotation: resume, rotationRetry: null };
     built = c;
     return c;
   };
@@ -385,6 +415,20 @@ export function bootSync(
       c.trashTimers.first.unref();
       c.trashTimers.every.unref();
     }
+    // 前の起動で世代の回しが途中で止まっていれば、続きから終わらせる（sync/rotate.ts）。
+    // 届かなければ、間を置いて試し直す。記録が無ければ Worker には何も送らない。
+    const resume = c.resumeRotation;
+    if (resume) {
+      const attempt = (): void => {
+        c.rotationRetry = null;
+        resume().catch((e: unknown) => {
+          console.error('[rotate] could not finish rotating the epoch key; trying again later', e instanceof Error ? e.message : e);
+          c.rotationRetry = setTimeout(attempt, ROTATION_RETRY_MS);
+          c.rotationRetry.unref();
+        });
+      };
+      attempt();
+    }
   };
   const stopCoreTimers = (c: Core): void => {
     c.joinApprover?.stop();
@@ -392,6 +436,7 @@ export function bootSync(
     c.cloudUsage.stop();
     if (c.uploadTimer) clearInterval(c.uploadTimer);
     if (c.trashTimers) { clearTimeout(c.trashTimers.first); clearInterval(c.trashTimers.every); }
+    if (c.rotationRetry) { clearTimeout(c.rotationRetry); c.rotationRetry = null; }
     c.once.stopTicker();
   };
 
@@ -484,6 +529,7 @@ export function bootSync(
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
     joinApprover: () => core.joinApprover,
+    cloudRevoke: () => core.revoke,
     cloudDevices: async () => {
       const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
       for (const cb of [...cloudDeviceListeners]) {

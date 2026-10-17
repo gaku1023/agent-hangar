@@ -24,6 +24,8 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.join.rateLimited': 'Too many join codes were issued. Wait about 10 minutes, then issue one again',
   'sync.join.noRequest': 'There is no join request to approve',
   'sync.join.noCode': 'No join code is active',
+  'sync.revoke.self': 'This computer cannot be removed here. Use "Leave sync on this computer" instead',
+  'sync.revoke.notFound': 'The computer or phone you tried to remove has not joined this cloud',
   'sync.limit.d1Read':'Reached the Cloudflare free tier limit (D1 reads per day)',
   'sync.limit.d1Write': 'Reached the Cloudflare free tier limit (D1 writes per day)',
   'sync.limit.requests': 'Reached the Cloudflare free tier limit (Workers requests per day)',

@@ -9,6 +9,9 @@ import type { Db } from '../db/open.ts';
  * orphans は、親の行がまだ届かず当てられなかった行の持ち越しである（JSON の配列。sync/engine.ts）。
  * revokedLogged は、この PC が解除されて止まったことをログに残した印である（戻った旨を 1 度だけ残すため。止める印ではない。sync/engine.ts）。
  * peers は、pull の応答で受け取った他の PC の最終接続である（JSON。sync/peers.ts が読み書きする）。
+ * rotation は、PC の解除と世代の回しの途中の記録である（JSON の `{ id, newEpoch, step }`。sync/rotate.ts）。
+ * 残っていれば、起動のときに記録の段から続ける。
+ * cloudId は、この PC が同期しているクラウドの ID である（Worker の `GET /health` が返す `meta.cloud_id`）。
  */
 export type SyncStateKey =
   | 'lastSeq'
@@ -25,6 +28,8 @@ export type SyncStateKey =
   | 'orphans'
   | 'revokedLogged'
   | 'peers'
+  | 'rotation'
+  | 'cloudId'
   | `skipped:${string}`;
 
 /**

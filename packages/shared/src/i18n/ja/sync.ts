@@ -24,6 +24,8 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.join.rateLimited': '参加コードの発行が多すぎます。10 分ほど待ってから、もう一度発行してください',
   'sync.join.noRequest': '承認できる参加リクエストがありません',
   'sync.join.noCode': '発行中の参加コードがありません',
+  'sync.revoke.self': 'この PC 自身はここでは解除できません。「この PC の参加を解除」を使ってください',
+  'sync.revoke.notFound': '解除しようとした PC かスマホは、このクラウドに参加していません',
   'sync.limit.d1Read':'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に達しました',
   'sync.limit.d1Write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に達しました',
   'sync.limit.requests': 'Cloudflare の無料枠の上限（Workers の 1 日のリクエスト）に達しました',

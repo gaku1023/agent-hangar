@@ -64,6 +64,37 @@ export class Keyring {
     }
   }
 
+  /**
+   * 世代を回す途中で作った世代鍵を足す（sync/rotate.ts）。今の世代は進めない。
+   * 残りの PC に keybox を配り終えるまで、その世代で書くと他の PC が開けない行が残るからである。
+   * 同じ世代に同じ値なら何もせず、別の値では差し替えずに投げる。
+   */
+  async addPending(epoch: number, key: string): Promise<void> {
+    const have = this.raw.get(epoch);
+    if (have !== undefined) {
+      if (have !== key) throw new Error(`epoch ${epoch} already has a different key`);
+      return;
+    }
+    this.keys.set(epoch, await deriveEpochKeys(epoch, key));
+    this.raw.set(epoch, key);
+  }
+
+  /** 書くときの世代を切り替える。手元に鍵の無い世代には切り替えない。 */
+  useEpoch(epoch: number): void {
+    if (!this.keys.has(epoch)) throw new Error(`no key for epoch ${epoch}`);
+    this.cur = epoch;
+  }
+
+  /**
+   * 世代鍵を手放す。世代を回す途中で、同じ番号の世代を他の PC が先に配っていたときに、まだ配っていない自分の鍵を捨てるのに使う。
+   * 今の世代は手放さない（それで封じた行とファイルがあるため）。
+   */
+  dropEpoch(epoch: number): void {
+    if (epoch === this.cur) throw new Error('the current epoch key cannot be dropped');
+    this.keys.delete(epoch);
+    this.raw.delete(epoch);
+  }
+
   /** スマホ用の鍵。スマホをまだ接続していなければ null。 */
   phoneKey(): PhoneKey | null {
     return this.phone ? { epoch: this.phone.epoch, key: this.phone.key } : null;

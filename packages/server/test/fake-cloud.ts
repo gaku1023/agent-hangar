@@ -27,6 +27,10 @@ import {
   type CloudUsageBody,
   type DeviceOut,
   type KeyboxesOut,
+  type KeyboxesPutOut,
+  type KeyboxIn,
+  MAX_KEYBOXES_PER_PUT,
+  RECOVERY_RECIPIENT,
   type RosterOut,
   type RosterPut,
   type FileEntry,
@@ -378,6 +382,30 @@ export class FakeWireClient implements WireCloudClient {
     mine.set(epoch, sealed);
     this.store.keyboxes.set(recipient, mine);
     this.touchRoster(epoch);
+  }
+
+  /**
+   * PUT /keyboxes。実物（packages/cloud/src/keys.ts）と同じく、1 回に MAX_KEYBOXES_PER_PUT 件まで。
+   * 受け手は解除されていない PC か `recovery` で、ほかが 1 つでも混ざれば何も書かずに 400 で断る。
+   * 偽物は参加リクエストを置いた PC（承認の前の受け手）を持たないので、その道は addDevice で先に端末を置いて真似る。
+   * 書いたら印の行を、本文のいちばん新しい世代で進める。
+   */
+  async putKeyboxes(boxes: KeyboxIn[]): Promise<KeyboxesPutOut> {
+    this.guard('putKeyboxes', boxes);
+    const valid = (b: KeyboxIn): boolean => isEpoch(b?.epoch) && typeof b.recipient === 'string' && b.recipient.length > 0 && typeof b.sealed === 'string' && fromBase64Url(b.sealed) !== null;
+    if (!Array.isArray(boxes) || boxes.length === 0 || boxes.length > MAX_KEYBOXES_PER_PUT || !boxes.every(valid)) throw new CloudError(400, errorBody('invalid body'));
+    for (const b of boxes) {
+      if (b.recipient === RECOVERY_RECIPIENT) continue;
+      const d = this.store.devices.get(b.recipient);
+      if (!d || d.kind !== 'pc' || d.revokedAt !== null) throw new CloudError(400, errorBody('unknown recipient'));
+    }
+    for (const b of boxes) {
+      const mine = this.store.keyboxes.get(b.recipient) ?? new Map<number, string>();
+      mine.set(b.epoch, b.sealed);
+      this.store.keyboxes.set(b.recipient, mine);
+    }
+    this.touchRoster(Math.max(...boxes.map((b) => b.epoch)));
+    return { written: boxes.length };
   }
 
   async health(): Promise<{ ok: boolean; version: string }> {

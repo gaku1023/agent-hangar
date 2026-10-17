@@ -9,7 +9,7 @@ import { CloudError, LimitError, type CloudClient } from './client.ts';
 import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
-import { noteBlobUpload } from './trashSweep.ts';
+import { noteBlobUpload, sweepSupersededBlobs } from './trashSweep.ts';
 import type { RowKeyring } from './sealedClient.ts';
 import type { SyncStateStore } from './state.ts';
 import { transcriptsFrom } from './transcriptsFrom.ts';
@@ -511,6 +511,13 @@ export class TranscriptUploader {
       .run(key, 'transcript', rel, this.deps.deviceId, sha, size, meta.mtime, seq, this.now());
     // 上げた世代を控える。ゴミ箱の掃除が、世代ごとに残る鍵名を求め直して消す（sync/trashSweep.ts）。
     noteBlobUpload(this.deps.db, key, cur.epoch);
+    // 世代を回した後に上げ直したなら、古い世代の鍵名の本文を消す。新しい鍵名で上げた後なので本文は失われない。
+    // 消せなくても上げたことは変わらないので投げない（断られた分は 6 時間ごとの掃除が拾う）。
+    try {
+      await sweepSupersededBlobs({ db: this.deps.db, client: this.deps.client, keyring: this.deps.keyring, deviceId: this.deps.deviceId, ledgerKey: key });
+    } catch (e) {
+      console.warn('[upload] could not delete the copy under the previous epoch', e instanceof Error ? e.constructor.name : typeof e);
+    }
     return 'uploaded';
   }
 

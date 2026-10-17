@@ -59,4 +59,23 @@ describe('Keyring', () => {
   it('今の世代の鍵が無い設定からは作らない', async () => {
     await expect(Keyring.fromConfig(testCloudConfig({ currentEpoch: 2 }))).rejects.toThrow();
   });
+
+  it('addPending は今の世代を進めず、useEpoch で切り替え、dropEpoch は今の世代を落とさない', async () => {
+    const k = await Keyring.fromConfig(testCloudConfig());
+    await k.addPending(2, testKey(9));
+    expect(k.at(2)?.epoch).toBe(2);
+    expect(k.current().epoch).toBe(1);
+    expect(k.toConfigPatch()).toMatchObject({ epochs: { '1': testKey(3), '2': testKey(9) }, currentEpoch: 1 });
+    // 同じ値なら何もせず、別の値では差し替えない。
+    await k.addPending(2, testKey(9));
+    await expect(k.addPending(2, testKey(10))).rejects.toThrow();
+    k.useEpoch(2);
+    expect(k.current().epoch).toBe(2);
+    expect(() => k.useEpoch(5)).toThrow();
+    expect(() => k.dropEpoch(2)).toThrow();
+    k.useEpoch(1);
+    k.dropEpoch(2);
+    expect(k.at(2)).toBeNull();
+    expect(k.toConfigPatch().epochs).toEqual({ '1': testKey(3) });
+  });
 });
