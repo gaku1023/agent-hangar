@@ -349,14 +349,46 @@ describe('PC の一覧と解除', () => {
     expect(lines[1]).toContain('2026-10-12 に解除');
   });
 
-  it('他の PC を解除する。自分自身は leave へ案内して断る', async () => {
+  it('他の PC の解除は、動いているサーバーの経路に頼む（世代を回すため）。自分自身は leave へ案内して断る', async () => {
+    const h = home();
+    saveCloudConfig(h, conf());
+    fs.writeFileSync(path.join(h, 'token'), 'server-token');
+    const seen: { url: string; method: string; auth: string | null }[] = [];
+    const f = (async (u: string | URL | Request, init?: RequestInit) => {
+      seen.push({ url: String(u), method: init?.method ?? 'GET', auth: new Headers(init?.headers).get('authorization') });
+      return new Response(JSON.stringify({ device: row('dev-b', { revokedAt: 5 }) }), { status: 200 });
+    }) as typeof fetch;
+    expect((await revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-b', port: 4999, fetch: f })).revokedAt).toBe(5);
+    expect(seen).toEqual([{ url: 'http://127.0.0.1:4999/api/sync/cloud-devices/dev-b/revoke', method: 'POST', auth: 'Bearer server-token' }]);
+    expect(await codeOf(revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-a', fetch: f }))).toBe('self');
+  });
+
+  it('サーバーの断りの符号をそのまま返す', async () => {
+    const h = home();
+    saveCloudConfig(h, conf());
+    for (const [status, code] of [[409, 'self'], [409, 'revoked'], [404, 'not-found'], [502, 'unreachable']] as const) {
+      const f = (async () => new Response(JSON.stringify({ error: 'm', code }), { status })) as typeof fetch;
+      expect(await codeOf(revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-b', fetch: f }))).toBe(code);
+    }
+  });
+
+  it('サーバーが止まっていれば、スマホは Worker で直に解除し、PC は起動を求めて断る', async () => {
     const h = home();
     saveCloudConfig(h, conf());
     const urls: string[] = [];
-    const f = (async (u: string | URL | Request) => { urls.push(String(u)); return new Response(JSON.stringify({ device: row('dev-b', { revokedAt: 5 }) }), { status: 200, headers: { 'x-hangar-compat': '9' } }); }) as typeof fetch;
-    expect((await revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-b', fetch: f })).revokedAt).toBe(5);
-    expect(urls).toEqual(['https://h.workers.dev/devices/dev-b/revoke']);
-    expect(await codeOf(revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-a', fetch: f }))).toBe('self');
+    const f = (async (u: string | URL | Request) => {
+      const url = String(u);
+      urls.push(url);
+      if (url.startsWith('http://127.0.0.1')) throw new TypeError('fetch failed');
+      if (url.endsWith('/devices')) return new Response(JSON.stringify({ devices: [row('dev-a'), row('dev-b'), row('phone-1', { kind: 'mobile' })] }), { status: 200, headers: { 'x-hangar-compat': '9' } });
+      return new Response(JSON.stringify({ device: row('phone-1', { kind: 'mobile', revokedAt: 7 }) }), { status: 200, headers: { 'x-hangar-compat': '9' } });
+    }) as typeof fetch;
+    expect((await revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'phone-1', fetch: f })).revokedAt).toBe(7);
+    expect(urls.filter((u) => u.startsWith('https://'))).toEqual(['https://h.workers.dev/devices', 'https://h.workers.dev/devices/phone-1/revoke']);
+    urls.length = 0;
+    expect(await codeOf(revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-b', fetch: f }))).toBe('server-down');
+    expect(urls.some((u) => u.endsWith('/revoke') && u.startsWith('https://'))).toBe(false);
+    expect(await codeOf(revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-z', fetch: f }))).toBe('not-found');
   });
 
   it('同期していなければ not-joined、古い形式の cloud.json は legacy-config', async () => {

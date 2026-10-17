@@ -139,6 +139,7 @@ export function bootHttp(p: {
     recoveryKey: sync.recoveryKey,
     devices: () => listDevices(db, device.id),
     cloudDevices: sync.cloudDevices,
+    cloudRevoke: sync.cloudRevoke,
     mobileLink: sync.mobileLink,
     shellHook: runs.shellHook,
     retention: sync.retention,

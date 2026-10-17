@@ -24,9 +24,9 @@ import type { RowKeyring } from './sealedClient.ts';
 /** 掃除の間隔。同期の巡回のついでに 6 時間に 1 回走らせる（boot/sync.ts）。 */
 export const TRASH_SWEEP_EVERY_MS = 6 * 3_600_000;
 
-/** この PC が上げた本文の世代を控える。uploader が PUT の成功の後に呼ぶ。 */
-export function noteBlobUpload(db: Db, ledgerKey: string, epoch: number): void {
-  db.prepare('insert or ignore into blob_uploads (ledger_key, epoch) values (?, ?)').run(ledgerKey, epoch);
+/** この PC が上げた本文の世代を控える。uploader が PUT の成功の後に呼ぶ。その本文をその世代で上げたのが初めてなら true。 */
+export function noteBlobUpload(db: Db, ledgerKey: string, epoch: number): boolean {
+  return db.prepare('insert or ignore into blob_uploads (ledger_key, epoch) values (?, ?)').run(ledgerKey, epoch).changes > 0;
 }
 
 /** LIKE の型の中で、文字どおりに読ませたい文字を逃がす。 */
@@ -71,9 +71,66 @@ export async function sweepTrashBlobs(o: {
   deviceId: string;
   now: number;
 }): Promise<TrashSweepResult> {
+  if (!o.client.deleteBlobs) return { deleted: 0, refused: 0 };
+  return deleteTargets(o, await targets(o.db, await o.keyring, o.deviceId, o.now));
+}
+
+/** 台帳の鍵から、本文の鍵名を求めるのに要るセッションの UUID とサブエージェントの ID を取り出す。この PC のものでなければ null。 */
+function idsOfLedgerKey(deviceId: string, ledgerKey: string): { uuid: string; agentId: string | null } | null {
+  const head = `transcripts/${deviceId}/`;
+  if (!ledgerKey.startsWith(head)) return null;
+  const rest = ledgerKey.slice(head.length);
+  const agent = /^([^/]+)\/subagents\/agent-([^/]+)\.jsonl\.gz$/.exec(rest);
+  if (agent) return { uuid: agent[1]!, agentId: agent[2]! };
+  const main = /^([^/]+)\.jsonl\.gz$/.exec(rest);
+  return main ? { uuid: main[1]!, agentId: null } : null;
+}
+
+/**
+ * 世代を回した後に上げ直した本文の、古い世代の鍵名を消す（sync/rotate.ts の回しの後始末）。
+ *
+ * 鍵名は世代の `/index` の鍵の HMAC なので、新しい世代で上げ直すと別の鍵名になり、古い本文が R2 に残る。
+ * blob_uploads に同じ本文のより新しい世代があるものだけを消す（新しい世代で PUT できた後なので、本文は失われない）。
+ * 書き直していない本文は、古い世代の鍵名のまま残す（R2 の既存のファイルは上げ直さない）。
+ *
+ * ledgerKey を渡せば、その本文だけを見る（uploader が PUT の直後に呼ぶ）。渡さなければ全部を見る（6 時間ごとの掃除）。
+ * 置いてから 1 時間たっていないものは Worker に断られるので、控えに残して次の回に回す。
+ */
+export async function sweepSupersededBlobs(o: {
+  db: Db;
+  client: Pick<CloudClient, 'deleteBlobs'>;
+  keyring: RowKeyring | Promise<RowKeyring>;
+  deviceId: string;
+  ledgerKey?: string;
+}): Promise<TrashSweepResult> {
+  if (!o.client.deleteBlobs) return { deleted: 0, refused: 0 };
+  const only = o.ledgerKey === undefined ? '' : ' and b.ledger_key = @key';
+  const rows = o.db
+    .prepare(`select b.ledger_key ledgerKey, b.epoch from blob_uploads b where b.epoch < (select max(m.epoch) from blob_uploads m where m.ledger_key = b.ledger_key)${only} order by b.ledger_key, b.epoch`)
+    .all(o.ledgerKey === undefined ? {} : { key: o.ledgerKey }) as { ledgerKey: string; epoch: number }[];
+  if (rows.length === 0) return { deleted: 0, refused: 0 };
+  const ring = await o.keyring;
+  const all: Target[] = [];
+  for (const r of rows) {
+    const keys = ring.at(r.epoch);
+    const ids = idsOfLedgerKey(o.deviceId, r.ledgerKey);
+    if (!keys || !ids) continue;
+    try {
+      all.push({ blobKey: await transcriptBlobKey(keys.index, o.deviceId, o.deviceId, ids.uuid, ids.agentId), ledgerKey: r.ledgerKey, epoch: r.epoch });
+    } catch {
+      // 形の違う ID は鍵名にならない。上げる側も同じ検査で断るので、控えにも無いはずである。
+    }
+  }
+  return deleteTargets(o, all);
+}
+
+/**
+ * 鍵名を MAX_BLOB_DELETE_KEYS 件ずつ `DELETE /blobs` に渡し、消えたものを控えから外す。
+ * 1 日の上限を使い切った 429 は、黙ってその回を終える。ほかの失敗は投げる（それまでに消せた分の控えは外してある）。
+ */
+async function deleteTargets(o: { db: Db; client: Pick<CloudClient, 'deleteBlobs'> }, all: Target[]): Promise<TrashSweepResult> {
   const result: TrashSweepResult = { deleted: 0, refused: 0 };
   if (!o.client.deleteBlobs) return result;
-  const all = await targets(o.db, await o.keyring, o.deviceId, o.now);
   const forget = o.db.prepare('delete from blob_uploads where ledger_key = ? and epoch = ?');
   for (let i = 0; i < all.length; i += MAX_BLOB_DELETE_KEYS) {
     const chunk = all.slice(i, i + MAX_BLOB_DELETE_KEYS);

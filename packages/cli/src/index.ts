@@ -150,12 +150,13 @@ cloud
 
 cloud
   .command('revoke <id>')
-  .description('他の PC を同期から解除する（その PC の端末トークンを無効にする。ID は hangar cloud devices で確認する）')
+  .description('他の PC を同期から解除する（端末トークンを無効にし、暗号鍵を再生成して残りの PC に配布する。hangar の起動中に行う。ID は hangar cloud devices で確認する）')
   .option('--yes', '確認せずに解除する')
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
-  .action(async (id: string, o: { yes?: boolean; json?: boolean }) => {
+  .option('--port <n>', '動いている hangar のポート', '4177')
+  .action(async (id: string, o: { yes?: boolean; json?: boolean; port: string }) => {
     const home = hangarHome();
-    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, confirm: promptWord });
+    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, port: Number(o.port), confirm: promptWord });
   });
 
 cloud

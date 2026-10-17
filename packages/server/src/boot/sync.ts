@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
+import { MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
 import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
@@ -20,7 +20,8 @@ import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
-import { sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
+import { readRotation, resumeRotation, revokeMember, rotationRetrier, type RotateDeps } from '../sync/rotate.ts';
+import { sweepSupersededBlobs, sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
 import { TranscriptUploader } from '../sync/uploader.ts';
 import { CloudUsagePoller } from '../sync/usage.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -73,6 +74,11 @@ export type SyncParts = {
    * cloud.json が現れて部品を組み直すと、新しいものに替わる（前のものは止める）。
    */
   joinApprover(): JoinApprover | null;
+  /**
+   * 他の端末の解除（sync/rotate.ts の revokeMember）。PC なら世代を回す。同期を設定していない端末では null。
+   * 解除と、起動のときの回しの続きは 1 本ずつ順に走らせる（2 つの回しを重ねない）。
+   */
+  cloudRevoke(): ((id: string) => Promise<DeviceOut>) | null;
   /**
    * リカバリーキーの再発行（sync/recoveryReissue.ts）。同期を設定していない端末では null。
    * cloud.json が現れて部品を組み直すと、新しいものに替わり、前の下書きは使えなくなる。
@@ -179,6 +185,13 @@ type Core = {
   /** ゴミ箱の掃除の 1 回（sync/trashSweep.ts）。同期を設定していなければ null。 */
   sweepTrash: (() => Promise<void>) | null;
   trashTimers: { first: ReturnType<typeof setTimeout>; every: ReturnType<typeof setInterval> } | null;
+  /** 他の端末の解除。同期を設定していなければ null。 */
+  revoke: ((id: string) => Promise<DeviceOut>) | null;
+  /**
+   * 回しの途中の記録の続きと、その試し直し（sync/rotate.ts の rotationRetrier）。同期を設定していなければ null。
+   * 起動のときと、動いている間の解除が失敗して記録が残ったときに、5 分おきに試し直す。
+   */
+  rotationRetry: ReturnType<typeof rotationRetrier> | null;
 };
 
 /**
@@ -273,7 +286,9 @@ export function bootSync(
     // 名簿の印の行と知らない世代の行を受けたら、keybox と名簿を読み直す（sync/roster.ts）。
     // 新しい世代の鍵が届いたら、飛ばした行と本文の区切りを巻き戻す（どちらも走っている pull の終わりを待つので、ここでは待たない）。
     let onKeysGained = (): void => {};
-    const roster = keyring && wire && cloud ? new RosterStore(wire, keyring, cloudWriter(home.home, cloud, () => built), deviceId) : null;
+    // 名簿と世代の回しは、同じ cloud.json の口で世代鍵と名簿の版を書く。
+    const writer = cloud ? cloudWriter(home.home, cloud, () => built) : null;
+    const roster = keyring && wire && writer ? new RosterStore(wire, keyring, writer, deviceId) : null;
     const client = keyring && wire ? new SealedCloudClient(wire, keyring, deviceId, roster ? { onRoster: rosterRefresh(roster, () => onKeysGained()) } : {}) : null;
     const engine = new SyncEngine({
       db, deviceId, client, url: cloud?.url ?? null, home: home.home, cloudId: cloud?.cloudId ?? null, language: home.language,
@@ -330,6 +345,8 @@ export function bootSync(
           trashRunning = true;
           try {
             await sweepTrashBlobs({ db, client, keyring, deviceId, now: Date.now() });
+            // 世代を回した後に上げ直した本文の、古い世代の鍵名。上げた直後に断られた（置いてから 1 時間たっていない）ものをここで拾う。
+            await sweepSupersededBlobs({ db, client, keyring, deviceId });
           } catch (e) {
             console.error('[trash-sweep] could not delete old trashed transcripts from the cloud', e instanceof Error ? e.message : e);
           } finally {
@@ -339,13 +356,39 @@ export function bootSync(
       : null;
     // 参加コードの発行と承認。状態は設定の画面へ、新しいリクエストは右下の通知と OS の通知へ渡す。
     const joinApprover = wire && roster && keyring
-      ? new JoinApprover({ wire, roster, keyring, language: home.language, ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
+      ? new JoinApprover({ wire, roster, keyring, language: home.language, onGained: () => onKeysGained(), ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
+      : null;
+    // 他の端末の解除と世代の回し。一時停止の間も行う（利用者が頼んだ操作である）。
+    // 解除と回しの続きは 1 本の鎖に並べ、2 つの回しを重ねない。
+    const rotateDeps: RotateDeps | null = wire && roster && keyring && writer
+      ? { client: wire, roster, keyring, state: syncState, cfg: writer, deviceId, onGained: () => onKeysGained() }
+      : null;
+    let rotating: Promise<unknown> = Promise.resolve();
+    const serial = <T>(fn: () => Promise<T>): Promise<T> => {
+      const next = rotating.then(fn, fn);
+      rotating = next.catch(() => {});
+      return next;
+    };
+    const retry = rotateDeps
+      ? rotationRetrier({
+          resume: () => serial(() => resumeRotation(rotateDeps)),
+          pending: () => readRotation(rotateDeps.state, rotateDeps.cfg.read().cloudId) !== null,
+          timers: { set: (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return t; }, clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+        })
+      : null;
+    // 動いている間の解除が途中で失敗して記録が残ったら、起動のときと同じく 5 分おきに続きを試す（画面は「自動で再試行します」と出す）。
+    const revoke = rotateDeps && retry
+      ? (id: string): Promise<DeviceOut> =>
+          serial(() => revokeMember({ ...rotateDeps, id })).catch((e: unknown) => {
+            retry.failed(e);
+            throw e;
+          })
       : null;
     // リカバリーキーの再発行。新しい鍵ペアは確認までこの中のメモリにだけ置く。
     const recoveryKey = wire && roster && keyring && cloud ? new RecoveryKeyReissuer({ roster, keyring, wire, url: () => cloud.url, state: syncState }) : null;
     // 名簿を書いた後に recovery 宛ての keybox を置けなかった印があれば、pull の度に置き直す（印が無ければ何も送らない）。
     if (recoveryKey) engine.on({ pulled: () => { void recoveryKey.resumePending(); } });
-    const c: Core = { cloud, client, roster, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
+    const c: Core = { cloud, client, roster, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
     built = c;
     return c;
   };
@@ -397,6 +440,12 @@ export function bootSync(
       c.trashTimers.first.unref();
       c.trashTimers.every.unref();
     }
+    // 前の起動で世代の回しが途中で止まっていれば、続きから終わらせる（sync/rotate.ts）。
+    // 届かなければ、間を置いて試し直す（解除済みの自分では試し直さない）。記録が無ければ Worker には何も送らない。
+    // 接続先の作り直しに失敗して同期が止まっていても（engine の rebuildBlock）、ここは止めない。
+    // 記録は書いたときの cloudId を持ち、cloud.json の cloudId と違えば読むときに捨てる（readRotation）ので、前のクラウドへ回しを続けることは無い。
+    // 回しが読むのは名簿と keybox と cloud.json の世代鍵で、作り直しが戻す同期の記録（区切りや台帳）には頼らない。
+    c.rotationRetry?.start();
   };
   const stopCoreTimers = (c: Core): void => {
     c.joinApprover?.stop();
@@ -404,6 +453,7 @@ export function bootSync(
     c.cloudUsage.stop();
     if (c.uploadTimer) clearInterval(c.uploadTimer);
     if (c.trashTimers) { clearTimeout(c.trashTimers.first); clearInterval(c.trashTimers.every); }
+    c.rotationRetry?.stop();
     c.once.stopTicker();
   };
 
@@ -496,6 +546,7 @@ export function bootSync(
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
     joinApprover: () => core.joinApprover,
+    cloudRevoke: () => core.revoke,
     recoveryKey: () => core.recoveryKey,
     cloudDevices: async () => {
       const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });

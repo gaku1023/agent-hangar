@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CloudError, cloudConfigPath, type CloudConfig, HttpCloudClient, MIN_WORKER_COMPAT, readCloudConfig, readLegacyCloudConfig, RevokedError, saveCloudConfig } from '@agent-hangar/server/src/cliEntry.ts';
+import { CloudError, cloudConfigPath, type CloudConfig, HttpCloudClient, MIN_WORKER_COMPAT, readCloudConfig, readLegacyCloudConfig, readOrCreateToken, RevokedError, saveCloudConfig } from '@agent-hangar/server/src/cliEntry.ts';
 import {
   decodeEpochList,
   deriveEpochKeys,
@@ -40,7 +40,8 @@ import { brokenConfigMessage, JoinError, legacyConfigMessage, openFloorFirst, wo
  * join-pending は承認済みで端末トークンを受信した下書きがあり、join-poll で完了するまで新しい参加リクエストを送れない、
  * broken-config は cloud.json が壊れている、legacy-config は cloud.json が古い形式、overwrite-required は別のクラウドに参加済みで上書きの承認が無い、
  * not-joined は同期していない、outdated は Worker が古い、self は自分を revoke で解除しようとした、
- * revoked はこの PC が解除されている、unreachable は Worker に接続できない、ほかに Worker との話の失敗（JoinError の符号）を使う。
+ * revoked はこの PC が解除されている、unreachable は Worker に接続できない、
+ * not-found は解除しようとした端末がクラウドに参加していない、server-down は PC の解除に要るサーバーが動いていない、ほかに Worker との話の失敗（JoinError の符号）を使う。
  */
 export type MembershipErrorCode =
   | 'invalid-url'
@@ -58,6 +59,8 @@ export type MembershipErrorCode =
   | 'self'
   | 'revoked'
   | 'unreachable'
+  | 'not-found'
+  | 'server-down'
   | JoinError['code'];
 
 export class MembershipError extends Error {
@@ -416,16 +419,54 @@ export async function cloudDevicesText(o: { home: string; deviceId: string; fetc
   }).join('\n');
 }
 
+/** 動いているサーバーの既定のポート。 */
+export const DEFAULT_SERVER_PORT = 4177;
 /**
- * 他の PC を同期から解除する。その PC の端末トークンは使えなくなり、次に同期したときに「解除されました」と表示される。
- * 自分自身は断り、hangar cloud leave へ案内する（cloud.json が残ったまま自分の端末トークンだけを無効にすると、同期が止まったままになる）。
+ * 解除をサーバーに頼んだときに待つ上限。世代の回しは Worker へ 8 回ほど要求するので、ほかの口より長くとる。
+ * 殻の締め切り（apps/desktop の CLI_TIMEOUT、90 秒）より短くする。
  */
-export async function revokeCloudDevice(o: { home: string; deviceId: string; id: string; fetch?: typeof fetch }): Promise<DeviceOut> {
+const REVOKE_TIMEOUT_MS = 80_000;
+const SERVER_CODES = new Set<MembershipErrorCode>(['self', 'revoked', 'not-found', 'not-joined']);
+
+/**
+ * 他の端末を同期から解除する。その端末の端末トークンは使えなくなり、次に同期したときに「解除されました」と表示される。
+ * 自分自身は断り、hangar cloud leave へ案内する（cloud.json が残ったまま自分の端末トークンだけを無効にすると、同期が止まったままになる）。
+ *
+ * 動いているサーバーの経路（POST /api/sync/cloud-devices/:id/revoke）に頼む。
+ * PC の解除は世代鍵を作り直して残りの PC に配る（sync/rotate.ts）。世代鍵と回しの途中の記録は動いているサーバーの手元にあり、CLI が別に回すと食い違うからである。
+ * サーバーが止まっていれば、スマホだけは Worker で直に解除し、PC は起動を求めて断る（server-down）。
+ */
+export async function revokeCloudDevice(o: { home: string; deviceId: string; id: string; port?: number; fetch?: typeof fetch }): Promise<DeviceOut> {
   const { client } = clientOf(o.home, o.fetch);
   if (o.id === o.deviceId) throw new MembershipError('self', 'この PC の参加を解除するには hangar cloud leave を使ってください');
+  const f = o.fetch ?? realFetch;
+  let res: Response;
+  try {
+    res = await f(`http://127.0.0.1:${o.port ?? DEFAULT_SERVER_PORT}/api/sync/cloud-devices/${encodeURIComponent(o.id)}/revoke`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${readOrCreateToken(o.home)}` },
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === 'TimeoutError') throw new MembershipError('unreachable', `サーバーが ${REVOKE_TIMEOUT_MS / 1000} 秒以内に応答しませんでした。設定のクラウド同期の PC の一覧で、解除できたかを確かめてください`);
+    return revokeWithoutServer(client, o.id);
+  }
+  const body = (await res.json().catch(() => null)) as { device?: DeviceOut; error?: unknown; code?: unknown } | null;
+  if (res.ok && body?.device) return body.device;
+  if (res.status === 401 || res.status === 403) throw new MembershipError('unreachable', 'サーバーの鍵が一致しません。サーバーと同じ HANGAR_HOME で実行しているか確認してください');
+  const message = typeof body?.error === 'string' ? body.error : `HTTP ${res.status}`;
+  const code = typeof body?.code === 'string' && SERVER_CODES.has(body.code as MembershipErrorCode) ? (body.code as MembershipErrorCode) : 'unreachable';
+  throw new MembershipError(code, message);
+}
+
+/** サーバーが止まっているときの解除。スマホだけを Worker で直に解除する。 */
+async function revokeWithoutServer(client: HttpCloudClient, id: string): Promise<DeviceOut> {
   try {
     requireAdmin(client);
-    return await client.revokeDevice(o.id);
+    const target = (await client.listDevices()).find((d) => d.id === id);
+    if (!target) throw new MembershipError('not-found', `${id} はこのクラウドに参加していません`);
+    if (target.kind !== 'mobile') throw new MembershipError('server-down', 'PC の解除では暗号鍵を再生成するため、hangar の起動中に行います。hangar start で起動してから、もう一度実行してください');
+    return await client.revokeDevice(id);
   } catch (e) {
     throw membershipErrorOf(e);
   }
@@ -636,14 +677,15 @@ export async function devicesCommand(o: Out & { home: string; deviceId: string; 
 }
 
 /** hangar cloud revoke <id>。端末では、解除する PC の ID を見せて y で確認する。 */
-export async function revokeCommand(o: Out & { home: string; deviceId: string; id: string; yes: boolean; confirm?: (question: string, word: string) => Promise<boolean>; fetch?: typeof fetch }): Promise<number> {
+export async function revokeCommand(o: Out & { home: string; deviceId: string; id: string; yes: boolean; port?: number; confirm?: (question: string, word: string) => Promise<boolean>; fetch?: typeof fetch }): Promise<number> {
   const log = logOf(o);
   try {
     if (!o.yes) {
       if (o.json || !o.confirm) return confirmRequired(o, '解除していません');
       const target = (await listCloudDevices(o)).find((d) => d.id === o.id);
-      if (!target) throw new MembershipError('unreachable', `PC ${o.id} はこのクラウドに参加していません`);
-      log(`${target.kind === 'mobile' ? 'スマホ' : 'PC'} ${o.id} を同期から解除します。その PC はこのクラウドと送受信できなくなります。クラウドにあるその PC のトランスクリプトは削除されません。`);
+      if (!target) throw new MembershipError('not-found', `${o.id} はこのクラウドに参加していません`);
+      if (target.kind === 'mobile') log(`スマホ ${o.id} を同期から解除します。そのスマホはこのクラウドと送受信できなくなります。`);
+      else log(`PC ${o.id} を同期から解除します。解除すると、暗号鍵を再生成して残りの PC に配布します。解除した PC は、これ以降の同期データを復号できなくなります。クラウドにあるその PC のトランスクリプトは削除されません。`);
       if (!(await o.confirm('解除しますか。', 'y'))) { log('解除しませんでした'); return 1; }
     }
     const result = await revokeCloudDevice(o);

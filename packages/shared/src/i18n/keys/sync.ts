@@ -23,6 +23,8 @@ export const syncKeys = {
   'sync.join.rateLimited': [],
   'sync.join.noRequest': [],
   'sync.join.noCode': [],
+  'sync.revoke.self': [],
+  'sync.revoke.notFound': [],
   'sync.recovery.noDraft': [],
   'sync.recovery.tailMismatch': [],
   'sync.recovery.tooManyTries': [],

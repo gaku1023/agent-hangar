@@ -24,6 +24,8 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.join.rateLimited': '参加コードの発行が多すぎます。10 分ほど待ってから、もう一度発行してください',
   'sync.join.noRequest': '承認できる参加リクエストがありません',
   'sync.join.noCode': '発行中の参加コードがありません',
+  'sync.revoke.self': 'この PC 自身はここでは解除できません。「この PC の参加を解除」を使ってください',
+  'sync.revoke.notFound': '解除しようとした PC かスマホは、このクラウドに参加していません',
   'sync.recovery.noDraft': '確認できる新しいリカバリーキーがありません。もう一度再発行してください',
   'sync.recovery.tailMismatch': '暗号鍵の末尾 4 文字が一致しません',
   'sync.recovery.tooManyTries': '末尾 4 文字が 5 回一致しなかったため、この新しいリカバリーキーは使えなくなりました。もう一度再発行してください',

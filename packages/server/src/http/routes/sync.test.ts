@@ -1,9 +1,10 @@
 import path from 'node:path';
 import { aadFeed, decodePairing, deriveMobileKey, importMobileKey, open, seal, type JoinApproverState } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CloudError } from '../../sync/client.ts';
+import { CloudError, RevokedError } from '../../sync/client.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
 import { RecoveryDraftError } from '../../sync/recoveryReissue.ts';
+import { RevokeNotFoundError, RevokeSelfError } from '../../sync/rotate.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 
@@ -350,5 +351,37 @@ describe('スマホの接続の QR（POST /api/sync/mobile-pairing）', () => {
     const phoneKey = await importMobileKey(new Uint8Array(Buffer.from(blob.key, 'base64url')));
     const sealed = await seal(phoneKey, aadFeed('d'), { hello: 'phone' });
     expect(await open(await deriveMobileKey(SECRET), aadFeed('d'), sealed)).toEqual({ hello: 'phone' });
+  });
+});
+
+describe('端末の解除（POST /api/sync/cloud-devices/:id/revoke）', () => {
+  const revoke = (id: string, headers: Record<string, string> = H) => app.request(`/api/sync/cloud-devices/${id}/revoke`, { method: 'POST', headers });
+  const row = { id: 'pc-b', kind: 'pc' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null };
+
+  it('認証の下にあり、同期を設定していなければ 404', async () => {
+    expect((await revoke('pc-b', {})).status).toBe(401);
+    app = createApp({ ...deps, cloudRevoke: () => null });
+    expect((await revoke('pc-b')).status).toBe(404);
+  });
+
+  it('解除の道（revokeMember）へ渡し、解除した端末の行を返す', async () => {
+    const seen: string[] = [];
+    app = createApp({ ...deps, cloudRevoke: () => async (id) => { seen.push(id); return row; } });
+    const r = await revoke('pc-b');
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(await json(r)).toEqual({ status: 200, body: { device: row } });
+    expect(seen).toEqual(['pc-b']);
+  });
+
+  it('自分自身は 409 の self、一覧に無い端末は 404 の not-found、この PC が解除されていれば 409 の revoked、ほかは 502 で返す', async () => {
+    let err: unknown = new RevokeSelfError();
+    app = createApp({ ...deps, cloudRevoke: () => async () => { throw err; } });
+    expect(await json(await revoke('pc-a'))).toEqual({ status: 409, body: { error: 'この PC 自身はここでは解除できません。「この PC の参加を解除」を使ってください', code: 'self' } });
+    err = new RevokeNotFoundError();
+    expect(await json(await revoke('pc-z'))).toMatchObject({ status: 404, body: { code: 'not-found' } });
+    err = new RevokedError();
+    expect(await json(await revoke('pc-b'))).toMatchObject({ status: 409, body: { code: 'revoked' } });
+    err = new CloudError(500, '{"error":"boom"}');
+    expect(await json(await revoke('pc-b'))).toMatchObject({ status: 502, body: { code: 'unreachable' } });
   });
 });

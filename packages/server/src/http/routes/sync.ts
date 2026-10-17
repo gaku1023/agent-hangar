@@ -2,15 +2,27 @@ import type { Context } from 'hono';
 import type { Hono } from 'hono';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import { deriveMobileKeyBytes, encodePairing, MOBILE_MIN_WORKER_COMPAT, type MobilePairingDto } from '@agent-hangar/shared';
-import { CloudError, CompatError, LimitError } from '../../sync/client.ts';
+import { CloudError, CompatError, LimitError, RevokedError } from '../../sync/client.ts';
 import { ConfigSyncError } from '../../sync/config/service.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
 import { RecoveryDraftError } from '../../sync/recoveryReissue.ts';
+import { RevokeNotFoundError, RevokeSelfError } from '../../sync/rotate.ts';
 import type { AppDeps, JoinApproverApi, LanguageDeps, RecoveryKeyApi } from '../deps.ts';
 import { BODY_LIMITS, readJson, syncStatusOf, tooLargeResult } from './common.ts';
 
 /** 同期の経路が使う依存。 */
-export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'mobileLink' | 'deviceName' | 'joinApprover' | 'recoveryKey' | 'configBundle'> & LanguageDeps;
+export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'cloudRevoke' | 'mobileLink' | 'deviceName' | 'joinApprover' | 'recoveryKey' | 'configBundle'> & LanguageDeps;
+
+/**
+ * 端末の解除の失敗を、符号と HTTP の状態にする。CLI の hangar cloud revoke はこの符号を読む。
+ * self は自分自身、not-found は Worker の一覧に無い端末、revoked はこの PC が解除されている、unreachable はそのほか（Worker に届かないなど）。
+ */
+function revokeFailure(e: unknown): { code: 'self' | 'not-found' | 'revoked' | 'unreachable'; status: 409 | 404 | 502 } {
+  if (e instanceof RevokeSelfError) return { code: 'self', status: 409 };
+  if (e instanceof RevokeNotFoundError) return { code: 'not-found', status: 404 };
+  if (e instanceof RevokedError) return { code: 'revoked', status: 409 };
+  return { code: 'unreachable', status: 502 };
+}
 
 /**
  * スマホを接続する QR を作る。押すたびに Worker から新しい券を取る（GET にしない）。
@@ -63,8 +75,21 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
   // 設定を開いたときは refresh=1 で取り直す。一時停止の間は取りに行かず、最後の値を返す（CloudUsagePoller が守る）。
   api.get('/sync/usage', async (c) => c.json(c.req.query('refresh') === '1' ? await deps.cloudUsage.refresh() : deps.cloudUsage.current()));
   api.get('/devices', (c) => c.json(deps.devices()));
-  // Worker の devices（参加日、解除日、最後に同期した IP と場所）。読むだけで、解除の口は HTTP に載せない。
+  // Worker の devices（参加日、最終接続、解除日）と、名簿の名前と OS。
   api.get('/sync/cloud-devices', async (c) => c.json(await deps.cloudDevices()));
+  // 他の端末の解除。PC なら世代を回す（sync/rotate.ts）。回しの途中の記録と世代鍵は動いているサーバーにあるので、CLI もここを呼ぶ。
+  api.post('/sync/cloud-devices/:id/revoke', async (c) => {
+    c.header('cache-control', 'no-store');
+    const revoke = deps.cloudRevoke?.() ?? null;
+    if (!revoke) return c.json({ error: tr('sync.error.notConfigured'), code: 'not-joined' }, 404);
+    try {
+      return c.json({ device: await revoke(c.req.param('id')) });
+    } catch (e) {
+      const f = revokeFailure(e);
+      if (f.code === 'unreachable') console.error('[rotate] could not remove the device', e instanceof Error ? e.constructor.name : typeof e);
+      return c.json({ error: errorText(deps.language(), e), code: f.code }, f.status);
+    }
+  });
   // 参加コードの発行と承認（設定のクラウド同期の「PC を追加」）。
   // 応答は JoinApproverState で、参加コードの平文が載るので no-store を付ける。
   const join = async (c: Context, fn: (a: JoinApproverApi) => unknown | Promise<unknown>, status: 200 | 201 = 200) => {

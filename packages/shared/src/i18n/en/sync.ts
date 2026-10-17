@@ -24,6 +24,8 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.join.rateLimited': 'Too many join codes were issued. Wait about 10 minutes, then issue one again',
   'sync.join.noRequest': 'There is no join request to approve',
   'sync.join.noCode': 'No join code is active',
+  'sync.revoke.self': 'This computer cannot be removed here. Use "Leave sync on this computer" instead',
+  'sync.revoke.notFound': 'The computer or phone you tried to remove has not joined this cloud',
   'sync.recovery.noDraft': 'There is no new recovery key to confirm. Reissue it again',
   'sync.recovery.tailMismatch': 'The last 4 characters of the secret key do not match',
   'sync.recovery.tooManyTries': 'The last 4 characters did not match 5 times, so this new recovery key can no longer be used. Reissue it again',

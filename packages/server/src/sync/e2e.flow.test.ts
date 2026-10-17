@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decodeEpochList, fromBase64Url, generateKeyPair, importPrivate, openKeybox, SHARED_TABLES, toBase64Url } from '@agent-hangar/shared';
+import { BLOB_DELETE_GRACE_MS, decodeEpochList, encodeEpochList, fromBase64Url, generateKeyPair, importPrivate, openKeybox, rowK, sealKeybox, SHARED_TABLES, toBase64Url } from '@agent-hangar/shared';
+import { testCloudConfig } from '../../test/cloudConfig.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { seedCloud, type FakeWireClient } from '../../test/fake-cloud.ts';
+import { FakeWireClient, seedCloud } from '../../test/fake-cloud.ts';
 import type { CloudConfig } from '../config/cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -13,7 +14,8 @@ import { SyncEngine } from './engine.ts';
 import { Keyring } from './keyring.ts';
 import { RemotePuller, remoteTranscriptPath } from './puller.ts';
 import { RosterStore, rosterRefresh, type ConfigWriter } from './roster.ts';
-import { SealedCloudClient } from './sealedClient.ts';
+import { revokePc } from './rotate.ts';
+import { openSealedRow, SealedCloudClient } from './sealedClient.ts';
 import { SyncStateStore } from './state.ts';
 import { TranscriptUploader } from './uploader.ts';
 
@@ -39,6 +41,9 @@ type Pc = {
   id: string;
   db: Db;
   cfg: ConfigWriter & { current: CloudConfig };
+  wire: FakeWireClient;
+  keyring: Keyring;
+  state: SyncStateStore;
   client: SealedCloudClient;
   roster: RosterStore;
   engine: SyncEngine;
@@ -72,7 +77,7 @@ async function pcOn(wire: FakeWireClient, id: string, cloud: CloudConfig): Promi
   const engine = new SyncEngine({ db, deviceId: id, client, url: cloud.url, home, timers, now: () => timers.now });
   const uploader = new TranscriptUploader({ db, deviceId: id, claudeDir, client, keyring, state, timers, isPaused: () => false, onError: (p, m) => { throw new Error(`${p}: ${m}`); } });
   const puller = new RemotePuller({ db, deviceId: id, home, client, state, onError: (k, m) => { throw new Error(`${k}: ${m}`); } });
-  pc = { id, db, cfg, client, roster, engine, uploader, puller, home, claudeDir };
+  pc = { id, db, cfg, wire: w, keyring, state, client, roster, engine, uploader, puller, home, claudeDir };
   return pc;
 }
 
@@ -239,5 +244,100 @@ describe('2 台の通し（偽のクラウド）', () => {
     }
     // 端末の ID は Worker が平文で持つ（認証と鍵名の頭）ので見つかる。
     expect(scanStore(s, ['dev-a', 'dev-b']).found).toEqual(['dev-a', 'dev-b']);
+  });
+});
+
+describe('PC の解除と世代の回し（偽のクラウドで 2 台から 3 台）', () => {
+  it('参加 → 同期 → 解除と世代の回し → 解除した PC は新しい行を開けない → 新しい PC の参加 → 過去の世代の行とファイルを開ける', async () => {
+    let clock = 1_000 * BLOB_DELETE_GRACE_MS;
+    const recovery = await generateKeyPair();
+    const seeded = await seedCloud(
+      [
+        { id: 'dev-a', name: NAME_A, os: 'darwin', keyPair: await generateKeyPair() },
+        { id: 'dev-b', name: NAME_B, os: 'win32', keyPair: await generateKeyPair() },
+      ],
+      { wire: new FakeWireClient({ deviceId: 'dev-a', now: () => clock }), recoveryPub: recovery.pub },
+    );
+    const wire = seeded.wire;
+    const a = await pcOn(wire, 'dev-a', seeded.configs['dev-a']!);
+    const b = await pcOn(wire, 'dev-b', seeded.configs['dev-b']!);
+    pcs = [a, b];
+    await a.engine.start();
+    await b.engine.start();
+
+    // 参加 → 同期。世代 1 で、pc-a の行と本文、pc-b の本文が往復する。
+    upsertShared(a.db, 'projects', { id: PROJECT_ID, name: SECRET_PROJECT, status: 'active', is_scratch: 0 }, 'dev-a');
+    addSession(a, UUID_A);
+    await a.engine.pushNow();
+    const relA = await writeAndUpload(a, UUID_A, '{"v":1}\n');
+    const relB = await writeAndUpload(b, UUID_B, '{"from":"b"}\n');
+    await b.engine.pullNow();
+    await b.puller.pullNow();
+    expect(fs.readFileSync(remoteTranscriptPath(b.home, 'dev-a', relA), 'utf8')).toBe('{"v":1}\n');
+    const oldBlob = [...wire.files.keys()].find((k) => k.startsWith('b/dev-a/'))!;
+
+    // 解除と世代の回し。pc-a が pc-b を解除する。
+    clock += 2 * BLOB_DELETE_GRACE_MS;
+    let gained = 0;
+    await revokePc({ id: 'dev-b', client: a.wire, roster: a.roster, keyring: a.keyring, state: a.state, cfg: a.cfg, deviceId: 'dev-a', onGained: () => { gained++; } });
+    expect(a.keyring.current().epoch).toBe(2);
+    expect(a.cfg.current.currentEpoch).toBe(2);
+
+    // 以後の書き込みは新しい世代で封じる。
+    upsertShared(a.db, 'todos', { id: TODO_ID, project_id: PROJECT_ID, text: SECRET_TODO, done: 0, position: 1 }, 'dev-a');
+    await a.engine.pushNow();
+    const todoRow = wire.rows.get(await rowK(a.keyring.current().index, 'todos', TODO_ID))!;
+    expect(todoRow.epoch).toBe(2);
+
+    // 解除した PC は、手元に新しい世代の鍵が無いので新しい行を開けず、Worker からは 401 で断られる。
+    expect(b.keyring.at(2)).toBeNull();
+    expect(await openSealedRow(b.keyring, { ...todoRow, sealed: toBase64Url(todoRow.sealed) })).toBeNull();
+    await b.engine.pullNow();
+    expect(b.engine.revoked()).toBe(true);
+    expect(b.engine.status()).toMatchObject({ state: 'error', revoked: true });
+
+    // R2 の既存のファイルに PUT し直さない（書き直していない本文は、古い世代の鍵名のまま残る）。
+    const puts = (): number => wire.calls.filter((c) => c.method === 'putFile').length;
+    const before = puts();
+    a.uploader.noteChanged({ path: path.join(a.claudeDir, relA), sessionId: UUID_A, agentId: null });
+    await a.uploader.flushSession(UUID_A);
+    a.uploader.sweep();
+    await a.uploader.flushSession(UUID_A);
+    expect(puts()).toBe(before);
+    expect(wire.files.has(oldBlob)).toBe(true);
+
+    // 新しい PC の参加（参加コードの承認と同じく、pc-a が名簿に足し、世代 1〜2 の keybox を置く）。
+    const cPair = await generateKeyPair();
+    wire.addDevice('dev-c');
+    await a.roster.update((r) => ({ ...r, entries: [...r.entries, { id: 'dev-c', kind: 'pc', name: 'pc-c-unique-name', os: 'linux', pub: cPair.pub, joinedAt: clock }] }));
+    const list = encodeEpochList({ epochs: a.keyring.toConfigPatch().epochs });
+    await a.wire.putKeyboxes([{ epoch: 2, recipient: 'dev-c', sealed: toBase64Url(await sealKeybox(cPair.pub, { epoch: 2, recipient: 'dev-c' }, list)) }]);
+    const box = (await wire.asDevice('dev-c').getKeyboxes()).boxes[0]!;
+    const epochs = decodeEpochList(await openKeybox(await importPrivate(cPair.priv), cPair.pub, { epoch: 2, recipient: 'dev-c' }, fromBase64Url(box.sealed)!)).epochs;
+    expect(Object.keys(epochs).sort()).toEqual(['1', '2']);
+    const c = await pcOn(wire, 'dev-c', testCloudConfig({ keyPair: cPair, epochs, currentEpoch: 2, rosterVersion: 0 }));
+    pcs.push(c);
+    await c.engine.start();
+    await c.engine.pullNow();
+    await c.puller.pullNow();
+
+    // 過去の世代（1）の行と、新しい世代（2）の行を開ける。
+    expect((c.db.prepare('select name from projects where id = ?').get(PROJECT_ID) as { name: string }).name).toBe(SECRET_PROJECT);
+    expect((c.db.prepare('select text from todos where id = ?').get(TODO_ID) as { text: string }).text).toBe(SECRET_TODO);
+    // 過去の世代のファイルも開ける。解除した PC が上げた写しも残っていて読める。
+    expect(fs.readFileSync(remoteTranscriptPath(c.home, 'dev-a', relA), 'utf8')).toBe('{"v":1}\n');
+    expect(fs.readFileSync(remoteTranscriptPath(c.home, 'dev-b', relB), 'utf8')).toBe('{"from":"b"}\n');
+    // 名簿は新しい世代で封じ直してあり、新しい PC が開ける。解除した PC は外れている。
+    expect((await c.roster.read()).roster.entries.map((e) => e.id)).toEqual(['dev-a', 'dev-c']);
+
+    // 世代を回した後に書き直した本文は新しい鍵名で上がり、古い世代の鍵名の本文は消える。
+    await writeAndUpload(a, UUID_A, '{"v":1}\n{"v":2}\n');
+    expect(wire.files.has(oldBlob)).toBe(false);
+    const fresh = [...wire.files.entries()].filter(([k]) => k.startsWith('b/dev-a/'));
+    expect(fresh.map(([, f]) => f.entry.epoch)).toEqual([2]);
+    await c.puller.pullNow();
+    expect(fs.readFileSync(remoteTranscriptPath(c.home, 'dev-a', relA), 'utf8')).toBe('{"v":1}\n{"v":2}\n');
+    // 自分で作った世代では、飛ばした行の取り直しを呼ばない。
+    expect(gained).toBe(0);
   });
 });

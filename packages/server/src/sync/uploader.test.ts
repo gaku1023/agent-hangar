@@ -152,6 +152,24 @@ describe('TranscriptUploader', () => {
     up.stop();
   });
 
+  it('世代を回した後の最初の PUT で古い世代の鍵名を消し、断られたら上げるたびには打ち直さない（6 時間ごとの掃除に任せる）', async () => {
+    const ring = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 1 }));
+    cloud = new FakeCloudClient({ deviceId: 'dev-a', keyring: ring });
+    const up = new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: ring, state, now: () => timers.now, timers, isPaused: () => paused, onError: (p, m) => errors.push({ path: p, message: m }) });
+    const deletes = () => cloud.calls.filter((c) => c.method === 'deleteBlobs').length;
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    ring.useEpoch(2);
+    write(mainFile(), '{"a":1}\n{"a":2}\n');
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    // 置いてから 1 時間たっていないので断られる。
+    expect(deletes()).toBe(1);
+    expect(cloud.files.size).toBe(2);
+    write(mainFile(), '{"a":1}\n{"a":2}\n{"a":3}\n');
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    expect(deletes()).toBe(1);
+    up.stop();
+  });
+
   it('内容が同じなら上げ直さず、増えたら上げ直す', async () => {
     const up = make();
     const f = { path: mainFile(), sessionId: UUID, agentId: null };

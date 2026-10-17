@@ -75,8 +75,8 @@ type World = {
   clock: { now: number };
   epochKey: string;
   keyring: Keyring;
-  /** このパスを含む要求に、Worker の代わりにこの状態で応える（null なら通す）。 */
-  fail: { path: string | null; status: number };
+  /** このパスを含む要求に、Worker の代わりにこの状態で応える（null なら通す）。method を書けば、その方法の要求だけ。 */
+  fail: { path: string | null; status: number; method?: string };
   newApprover(): JoinApprover;
 };
 
@@ -91,7 +91,7 @@ async function world(): Promise<World> {
   const writer: ConfigWriter = { read: () => cfg, write: (p) => { cfg = { ...cfg, ...p }; } };
   const fail: World['fail'] = { path: null, status: 500 };
   const fetchA = (async (input: string | URL | Request, init?: RequestInit) =>
-    fail.path !== null && new URL(String(input)).pathname.startsWith(fail.path)
+    fail.path !== null && new URL(String(input)).pathname.startsWith(fail.path) && (fail.method === undefined || (init?.method ?? 'GET') === fail.method)
       ? new Response('{"error":"refused"}', { status: fail.status, headers: { 'x-hangar-compat': '9' } })
       : worker.fetch(input, init)) as typeof fetch;
   const wire = new HttpCloudClient({ url: URL_, token: TOKEN_A, fetch: fetchA });
@@ -340,7 +340,7 @@ describe('JoinApprover（発行した PC の承認）', () => {
     await joinRequest({ home: homeB, url: URL_, code, device: pcB, fetch: w.worker.fetch, now: () => w.clock.now });
     await w.timers.fire(w.approver);
     // keybox を置く要求を Worker が断った。
-    w.fail = Object.assign(w.fail, { path: '/keyboxes', status: 500 });
+    w.fail = Object.assign(w.fail, { path: '/keyboxes', status: 500, method: 'PUT' });
     await w.approver.approve();
     const st = w.approver.state();
     expect(st.kind).toBe('failed');

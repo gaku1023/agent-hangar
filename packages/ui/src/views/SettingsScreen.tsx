@@ -417,8 +417,8 @@ export function SettingsScreen(props: SettingsProps) {
             </div>
             {member && !member.revoked && <CloudAddPc m={member} />}
             {member && !member.revoked && <CloudRecoveryKey m={member} />}
-            {/* PC の表（0.4.0）。Worker の一覧から、参加日、最終同期、最後の IP と場所、解除を出す。 */}
-            {/* 表の下に「スマホ」の小見出しと「スマホを接続」（試作 A1）。解除されている間は出さない。 */}
+            {/* 小見出し「PC」の表（試作 cloud-e2e の E2）。Worker の一覧から、参加日、最終同期、解除を出す。IP と所在地は出さない。 */}
+            {/* 表の下に小見出し「スマホ」とスマホの表、「スマホを接続」（試作 A1、E2）。解除されている間は出さない。 */}
             {member ? <><CloudPcTable m={member} heading={t('settings.cloud.computers')} />{!member.revoked && <CloudPhones m={member} />}</> : (
               <>
                 <h4 className="sub-h">{t('settings.cloud.computers')}<span className="n">{props.cloud.devices.length}</span></h4>
