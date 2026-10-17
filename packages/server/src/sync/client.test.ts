@@ -609,14 +609,27 @@ describe('PC の一覧と解除', () => {
     expect(f.calls[0]!.init.method).toBe('POST');
   });
 
-  it('putMobileFeed は PUT /m/feed に { sealed } を JSON で送る', async () => {
+  it('putMobileFeed は PUT /m/feed に { sealed, epoch } を JSON で送る', async () => {
     const f = fakeFetch(() => json({ ok: true, updatedAt: 1 }));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
-    await c.putMobileFeed('sealed-text');
+    await c.putMobileFeed('sealed-text', 2);
     expect(f.calls[0]!.url).toBe('https://w.example/m/feed');
     expect(f.calls[0]!.init.method).toBe('PUT');
-    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ sealed: 'sealed-text' });
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ sealed: 'sealed-text', epoch: 2 });
     expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
+  });
+
+  it('getPairingsMine は GET /m/pairings/mine、putPhoneKeyboxes は PUT /phone-keyboxes に { boxes } を送る', async () => {
+    const mine = { pairings: [{ codeHash: 'a'.repeat(64), deviceId: 'phone-1', sealed: 'c2VhbGVk', joinedAt: 5 }] };
+    const f = fakeFetch((x) => (x.url.endsWith('/m/pairings/mine') ? json(mine) : json({ written: 1 })));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.getPairingsMine()).toEqual(mine);
+    expect(f.calls[0]!.url).toBe('https://w.example/m/pairings/mine');
+    const boxes = [{ epoch: 1, recipient: 'phone-1', sealed: 'Ym94' }];
+    expect(await c.putPhoneKeyboxes(boxes)).toEqual({ written: 1 });
+    const put = f.calls.find((x) => x.url === 'https://w.example/phone-keyboxes')!;
+    expect(put.init.method).toBe('PUT');
+    expect(JSON.parse(String(put.init.body))).toEqual({ boxes });
   });
 
   it('createPairing は POST /m/pairings を送り、券と期限を返す。429 は CloudError(429) で投げる', async () => {

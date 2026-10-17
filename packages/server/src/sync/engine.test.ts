@@ -9,7 +9,7 @@ import { getSessionNote, setSessionName } from '../sessions/notes.ts';
 import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { COMPAT_VERSION, encodeEpochList, generateKeyPair, sealKeybox, toBase64Url } from '@agent-hangar/shared';
+import { COMPAT_VERSION, encodeEpochList, generateKeyPair, sealKeybox, toBase64Url, type MobileLaunchOut } from '@agent-hangar/shared';
 import type { CloudConfig } from '../config/cloud.ts';
 import { CloudError, LimitError, MIN_WORKER_COMPAT } from './client.ts';
 import { limitedMessage, limitedWhilePausedMessage, SyncEngine } from './engine.ts';
@@ -719,8 +719,8 @@ describe('他の PC の生存（同期の版 6）', () => {
     e.on({ launches: (l) => got.push(l.map((x) => x.id)) });
     await e.start();
     expect(got).toEqual([]);
-    cloud.asDevice('phone').postLaunch({ id: 'l1', targetDevice: 'a', sealed: 'x' });
-    cloud.asDevice('phone').postLaunch({ id: 'l2', targetDevice: 'b', sealed: 'y' });
+    cloud.asDevice('phone').postLaunch({ id: 'l1', targetDevice: 'a', sealed: 'x', epoch: 1 });
+    cloud.asDevice('phone').postLaunch({ id: 'l2', targetDevice: 'b', sealed: 'y', epoch: 1 });
     // 2 頁にまたがる pull（どの頁にも同じ依頼が載る）。
     const b = cloud.asDevice('b');
     const bdb = openDb(':memory:');
@@ -732,6 +732,25 @@ describe('他の PC の生存（同期の版 6）', () => {
     await e.pullNow();
     expect(got).toEqual([['l1']]);
     e.stop(); eb.stop();
+  });
+
+  it('launches の from（依頼を置いたスマホの ID）を listener まで渡す。文字列でない from は落とす', async () => {
+    const e = make();
+    const got: MobileLaunchOut[][] = [];
+    e.on({ launches: (l) => got.push(l) });
+    await e.start();
+    cloud.asDevice('phone-1').postLaunch({ id: 'l1', targetDevice: 'a', sealed: 'x', epoch: 1 });
+    await e.pullNow();
+    expect(got.at(-1)).toEqual([{ id: 'l1', createdAt: expect.any(Number), sealed: 'x', epoch: 1, from: 'phone-1' }]);
+    // from を返さない Worker、または形の崩れた from では、from を載せない。
+    const pull = cloud.pullChanges.bind(cloud);
+    cloud.pullChanges = async (since, limit) => {
+      const r = await pull(since, limit);
+      return { ...r, launches: (r.launches ?? []).map((l) => ({ ...l, from: 7 as unknown as string })) };
+    };
+    await e.pullNow();
+    expect(got.at(-1)).toEqual([{ id: 'l1', createdAt: expect.any(Number), sealed: 'x', epoch: 1 }]);
+    e.stop();
   });
 
   it('一時停止中も 1 分に 1 回だけ Worker に生存を知らせる。行は当てず、区切りも送信も進めない', async () => {

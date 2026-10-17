@@ -39,6 +39,9 @@
 .row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
 .row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
+/* スマホから起動した会話のラベル（試作 F1）。名前の後ろの小さな文字の枠で、Bypass permissions は赤い枠にする。 */
+.row-phone { display: inline-flex; align-items: center; height: 18px; margin-left: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; vertical-align: 1px; color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+.row-phone[data-bypass='true'] { color: var(--error); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 55%, transparent); background: color-mix(in srgb, var(--error) 6%, transparent); }
 .row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; height: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
 .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* 2 段目の頭の要約の見立て（試作 home-lists の B1）。ふだんは注記の色の語だけにし、

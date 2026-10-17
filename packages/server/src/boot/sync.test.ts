@@ -593,7 +593,7 @@ describe('互換の版', () => {
     expect(fresh.sync.canCarryTakeover()).toBe(true);
   });
 
-  it('canCarryMobile は Worker の版が MOBILE_MIN_WORKER_COMPAT に届くまで偽で、mobileLink は版 2 の間は null', async () => {
+  it('canCarryMobile は Worker の版が MOBILE_MIN_WORKER_COMPAT に届くまで偽で、mobileLink は版 2 の cloud.json でも返る', async () => {
     // 版 6 の Worker はスマホ向けの口（/m/）を知らない。
     // 今はこの PC の下限（MIN_WORKER_COMPAT、9）の方が高いので、下限に届かない Worker とはそもそも同期せず、受信箱の素も書かない。
     expect(MOBILE_MIN_WORKER_COMPAT).toBeLessThanOrEqual(MIN_WORKER_COMPAT);
@@ -601,8 +601,8 @@ describe('互換の版', () => {
     const old = boot({ start: true });
     await until(() => (old.status().state === 'error' ? true : null));
     expect(old.sync.canCarryMobile()).toBe(false);
-    // スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、スマホの機能は止めておく。
-    expect(old.sync.mobileLink()).toBeNull();
+    // スマホ用の鍵は名簿の phoneKey から引く（版 2 の cloud.json は参加の秘密を持たない）。書いてよいかは canCarryMobile が決める。
+    expect(old.sync.mobileLink()).not.toBeNull();
     await old.close();
     await w?.close();
     await worker(answerAll(String(MIN_WORKER_COMPAT)));
@@ -612,7 +612,11 @@ describe('互換の版', () => {
     expect(fresh.sync.canCarryMobile()).toBe(false);
     fresh.sync.engine.setPaused(false);
     expect(fresh.sync.canCarryMobile()).toBe(true);
-    expect(fresh.sync.mobileLink()).toBeNull();
+    const link = fresh.sync.mobileLink();
+    expect(link).toMatchObject({ client: expect.anything(), phoneKeys: expect.anything(), pairer: expect.anything() });
+    expect(link!.url).toMatch(/^http/);
+    // スマホをまだ接続していない（cloud.json と名簿に phoneKey が無い）ので、スマホ用の鍵は無い。
+    expect(await link!.phoneKeys.current()).toBeNull();
   });
 
   it('pullForTakeover は行の pull と本文の写しの pull を 1 回ずつ回し、同期していなければ何もしない', async () => {

@@ -6,8 +6,9 @@ import type { Asker } from '../ask.ts';
 import type { PutImage, Shrink } from '../images.ts';
 import { openInbox, type InboxView } from '../inbox.ts';
 import type { LaunchSpec } from '../launchRun.ts';
-import { feedOf, inboxOf, liveItem, makeKey, MIN } from '../test/fixtures.ts';
+import { at1, feedOf, inboxOf, liveItem, makeKey, MIN, ring } from '../test/fixtures.ts';
 import { WORKER } from '../test/pairText.ts';
+import type { PhoneKey } from '../store.ts';
 import { NewSessionScreen } from './NewSessionScreen.tsx';
 
 let key: CryptoKey;
@@ -22,7 +23,7 @@ afterEach(() => {
 });
 
 async function viewOf(feeds: MobileFeed[], opts?: Parameters<typeof inboxOf>[2]): Promise<InboxView> {
-  return openInbox(await inboxOf(key, feeds, { now: Date.now(), ...opts }), key, new Date());
+  return openInbox(await inboxOf(key, feeds, { now: Date.now(), ...opts }), ring(key), new Date());
 }
 
 const twoPcs = (): MobileFeed[] => [
@@ -47,7 +48,7 @@ async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof in
   const onLaunch = vi.fn<(s: LaunchSpec) => void>();
   const onClose = vi.fn();
   const view = { ...(await viewOf(feeds, opts)), ...over };
-  render(<NewSessionScreen view={view} pairing={pairing} cryptoKey={key} deps={deps} onLaunch={onLaunch} onClose={onClose} />);
+  render(<NewSessionScreen view={view} pairing={pairing} phoneKey={at1(key)} deps={deps} onLaunch={onLaunch} onClose={onClose} />);
   return { onLaunch, onClose };
 }
 
@@ -241,7 +242,7 @@ describe('NewSessionScreen', () => {
       const view = await viewOf(twoPcs());
       render(
         <StrictMode>
-          <NewSessionScreen view={view} pairing={pairing} cryptoKey={key} onLaunch={vi.fn()} onClose={vi.fn()} />
+          <NewSessionScreen view={view} pairing={pairing} phoneKey={at1(key)} onLaunch={vi.fn()} onClose={vi.fn()} />
         </StrictMode>,
       );
       pick('プロジェクト', /project-a/);
@@ -289,6 +290,28 @@ describe('NewSessionScreen の画像', () => {
     const dlg = await screen.findByRole('dialog', { name: '画像を添付' });
     fireEvent.change(within(dlg).getByLabelText(/写真ライブラリ/), { target: { files: [new File([new Uint8Array(7)], name, { type: 'image/jpeg' })] } });
   }
+
+  it('開いた後に世代が上がっても、画像と依頼は開いたときの鍵で封じる', async () => {
+    const epochs: number[] = [];
+    const put: PutImage = async (_p, k) => {
+      epochs.push(k.epoch);
+    };
+    const onLaunch = vi.fn<(s: LaunchSpec, k: PhoneKey) => void>();
+    const view = await viewOf(twoPcs());
+    const key2 = await makeKey();
+    const el = (k: PhoneKey) => <NewSessionScreen view={view} pairing={pairing} phoneKey={k} deps={{ putImage: put, shrink }} onLaunch={onLaunch} onClose={vi.fn()} />;
+    const { rerender } = render(el(at1(key)));
+    rerender(el(at1(key2, 2)));
+    pick('プロジェクト', /project-a/);
+    pick('PC', /Mac/);
+    fireEvent.change(prompt(), { target: { value: 'この画面を直して' } });
+    await attach('a.jpg');
+    await waitFor(() => expect(epochs).toEqual([1]));
+    const start = screen.getByRole('button', { name: 'Mac で始める' });
+    await waitFor(() => expect(start).toBeEnabled());
+    fireEvent.click(start);
+    expect(onLaunch.mock.calls[0]![1]).toEqual(at1(key));
+  });
 
   it('画像は先に振った依頼の ID の下に置き、置き終えるまで始められない。依頼に画像の控えと中身を渡す', async () => {
     const { onLaunch } = await setup(twoPcs(), undefined, { putImage, shrink });

@@ -402,7 +402,8 @@ describe('参加コード', () => {
 
   it('スマホのトークンと、トークンなしでは発行も承認もできない', async () => {
     const phone = 'phone-token-0123456789abcdef';
-    await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('m1', 'mobile', ?, 1)").bind(await sha256Hex(phone)).run();
+    // 接続した時刻は今にする。古い時刻だと、30 日使わなかったスマホとして 401 expired になる（互換の版 9）。
+    await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('m1', 'mobile', ?, ?)").bind(await sha256Hex(phone), Date.now()).run();
     const hash = await joinCodeHash(generateJoinCode());
     expect((await issue(phone, hash)).status).toBe(403);
     expect((await send('/join-codes', json({ codeHash: hash }))).status).toBe(401);

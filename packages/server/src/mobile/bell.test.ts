@@ -46,7 +46,7 @@ async function setup(o: { reject?: number | false; pong?: boolean; target?: Bell
   const timers = new FakeTimers();
   let target: BellTarget | null = o.target === undefined ? { url: w.url, headers: { authorization: 'Bearer pc-token', [COMPAT_HEADER]: String(COMPAT_VERSION) } } : o.target;
   const onLaunch = vi.fn();
-  const onAsk = vi.fn(async (id: string, sealed: string): Promise<string | null> => (sealed === 'unopenable' ? null : `reply-for-${id}`));
+  const onAsk = vi.fn(async (id: string, sealed: string, _epoch: number): Promise<string | null> => (sealed === 'unopenable' ? null : `reply-for-${id}`));
   const bell = new MobileBell({ target: () => target, onLaunch, onAsk, timers });
   cleanups.push(() => bell.stop(), () => w.close());
   return { w, timers, bell, onLaunch, onAsk, setTarget: (t: BellTarget | null) => { target = t; } };
@@ -84,10 +84,11 @@ describe('MobileBell', () => {
     s.bell.check();
     await settle(() => s.w.open().length === 1);
     const ws = s.w.open()[0]!;
-    ws.send(JSON.stringify({ t: 'ask', id: 'q0', sealed: 'unopenable' }));
-    ws.send(JSON.stringify({ t: 'ask', id: 'q1', sealed: 'sealed-body' }));
+    ws.send(JSON.stringify({ t: 'ask', id: 'q0', sealed: 'unopenable', epoch: 1 }));
+    ws.send(JSON.stringify({ t: 'ask', id: 'q1', sealed: 'sealed-body', epoch: 2 }));
     await settle(() => s.w.received.some((x) => x.includes('q1')));
-    expect(s.onAsk).toHaveBeenCalledWith('q1', 'sealed-body');
+    // 世代（epoch）はスマホ用の鍵の世代で、そのまま onAsk に渡す。
+    expect(s.onAsk).toHaveBeenCalledWith('q1', 'sealed-body', 2);
     expect(s.w.received.map((x) => JSON.parse(x) as unknown)).toEqual([{ t: 'reply', id: 'q1', sealed: 'reply-for-q1' }]);
   });
 
@@ -96,7 +97,8 @@ describe('MobileBell', () => {
     s.bell.check();
     await settle(() => s.w.open().length === 1);
     const ws = s.w.open()[0]!;
-    for (const bad of ['not json', '{"t":"ask"}', '{"t":"ask","id":1,"sealed":"x"}', '{"t":"other"}', 'null']) ws.send(bad);
+    // 世代の無い問い合わせ（版 8 までの形）と、世代の形が違うものも無視する。
+    for (const bad of ['not json', '{"t":"ask"}', '{"t":"ask","id":1,"sealed":"x","epoch":1}', '{"t":"ask","id":"q","sealed":"x"}', '{"t":"ask","id":"q","sealed":"x","epoch":0}', '{"t":"ask","id":"q","sealed":"x","epoch":"1"}', '{"t":"other"}', 'null']) ws.send(bad);
     ws.send(JSON.stringify({ t: 'launch' }));
     await settle(() => s.onLaunch.mock.calls.length === 1);
     expect(s.onAsk).not.toHaveBeenCalled();

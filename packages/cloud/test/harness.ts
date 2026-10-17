@@ -122,3 +122,24 @@ export async function addPcDevice(env: Env, id: string, o: { joinedAt?: number; 
     .run();
   return token;
 }
+
+/** スマホの参加リクエストの作り物。本物はペアリングの券から導いた鍵で `{ pub, name }` を封じた base64url である。 */
+export const PHONE_REQUEST_SEALED = 'c2VhbGVkLXBob25lLXJlcXVlc3Q';
+
+let phoneSeq = 0;
+
+/**
+ * スマホを参加させる（互換の版 9）。PC の端末トークンで券を取り、スマホとして `POST /m/join` を通す。
+ * スマホの ID は渡さなければ試験ごとに重ならない作り物を振る。
+ * 201 でなければ投げる。
+ */
+export async function joinPhoneDevice(h: CloudHarness, pcToken: string, o: { deviceId?: string; sealed?: string } = {}): Promise<{ token: string; deviceId: string; code: string }> {
+  const p = await h.SELF.fetch('https://x/m/pairings', { method: 'POST', headers: { authorization: `Bearer ${pcToken}` } });
+  if (p.status !== 201) throw new Error(`POST /m/pairings: ${p.status}`);
+  const { code } = (await p.json()) as { code: string };
+  const deviceId = o.deviceId ?? `phone-${++phoneSeq}`;
+  const r = await h.SELF.fetch('https://x/m/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, deviceId, sealed: o.sealed ?? PHONE_REQUEST_SEALED }) });
+  if (r.status !== 201) throw new Error(`POST /m/join: ${r.status}`);
+  const body = (await r.json()) as { token: string; deviceId: string };
+  return { ...body, code };
+}

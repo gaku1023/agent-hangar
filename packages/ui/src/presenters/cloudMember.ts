@@ -1,4 +1,4 @@
-import { recoverySecretTail, type CloudDeviceDto, type Translate } from '@agent-hangar/shared';
+import { PHONE_IDLE_MS, recoverySecretTail, type CloudDeviceDto, type Translate } from '@agent-hangar/shared';
 import { joinCheckOf, type AddPcStage, type CloudFailure, type JoinFailReason, type JoinStage, type PhoneStage, type RecoveryError, type RecoveryStage } from '../store/cloudMember.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
@@ -18,13 +18,27 @@ export type CloudPcRow = { id: string; name: string; self: boolean; os: string; 
 
 /**
  * スマホの 1 行（試作 cloud-e2e の E2）。PC の表とは別に、「スマホ」の小見出しの下に並べる。
- * left は、使わずに切れるまでの残りの日数と、再接続が必要になる日付。
- * Worker がまだ期限（30 日と 90 日）を持たないので今は null で、PR 7 で埋める。
+ * left は、切れるまでの残りの日数と、再接続が必要になる日付（phoneLeft）。期限を返さない行は null。
  */
 export type CloudPhoneRow = { id: string; name: string; joined: string; lastSeen: string; left: { days: number; reconnectOn: string } | null };
 
+/** スマホの残りの日数の棒の満たん（使わずに切れるまでの 30 日）。 */
+export const PHONE_LEFT_FULL_DAYS = PHONE_IDLE_MS / 86_400_000;
+
 /**
- * スマホを接続する QR の段（store/cloudMember.ts の PhoneStage から基準の ID の控えを除いたもの）。
+ * スマホの残りの日数と再接続の日付。どちらも Worker の値（GET /devices）から求める。
+ * 残りの日数は min(expiresAt, lastSeenAt + PHONE_IDLE_MS) − now を日に切り上げたもの（0 より小さくしない）。
+ * 使うと 30 日延びるが、接続から 90 日の期限（expiresAt）は越えない。再接続の日付は expiresAt である。
+ * expiresAt が無い（期限を持たない Worker）行は null。lastSeenAt が無ければ参加日から数える。
+ */
+function phoneLeft(d: CloudDeviceDto, now: number): CloudPhoneRow['left'] {
+  if (d.expiresAt === null) return null;
+  const end = Math.min(d.expiresAt, (d.lastSeenAt ?? d.joinedAt) + PHONE_IDLE_MS);
+  return { days: Math.max(0, Math.ceil((end - now) / 86_400_000)), reconnectOn: ymd(d.expiresAt) };
+}
+
+/**
+ * スマホを接続する QR の段（store/cloudMember.ts の PhoneStage から券の印を除いたもの）。
  * QR の中身（pairUrl、pairText）は ready の間だけ持つ。期限切れと参加の後は、薄くした QR を中身の無い図で描く。
  */
 export type CloudPhoneProps =
@@ -256,7 +270,7 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
     joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now),
     removedOn: d.revokedAt === null ? null : t('cloudMember.pcs.removedOn', { date: md(d.revokedAt) }),
   });
-  const phoneRow = (d: CloudDeviceDto): CloudPhoneRow => ({ id: d.id, name: d.name ?? d.id, joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now), left: null });
+  const phoneRow = (d: CloudDeviceDto): CloudPhoneRow => ({ id: d.id, name: d.name ?? d.id, joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now), left: phoneLeft(d, now) });
   // Worker の一覧が無いときは、同期の表の一覧を出しておく（参加日は無い）。
   const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), removedOn: null }));
   const listed = cloud?.state === 'ok' ? cloud.devices : [];
@@ -267,7 +281,9 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
       ? { state: 'fallback', rows: shared(), removed: [], note: cloud.message }
       : { state: 'loading', rows: shared(), removed: [], note: null };
   // 解除したスマホは出さない。再接続は新しい QR で別の行になるので、解除した PC のように並べておく意味が無い。
-  const phones = listed.filter((d) => d.kind === 'mobile' && d.revokedAt === null).map(phoneRow);
+  // 「元に戻す」を待っているスマホと、解除を送っているスマホと、送る順を待っているスマホも出さない（1 クリックで行を畳む。試作 E2）。失敗したら行を戻す。
+  const hidden = new Set([m.phoneUndo?.id, m.revoke?.kind === 'busy' ? m.revoke.id : undefined, ...m.phoneQueued].filter((x): x is string => x !== undefined));
+  const phones = listed.filter((d) => d.kind === 'mobile' && d.revokedAt === null && !hidden.has(d.id)).map(phoneRow);
   const names = new Map((cloud?.devices ?? []).map((d) => [d.id, d.name]));
   const rv = m.revoke;
   const revoke = rv === null ? null : {

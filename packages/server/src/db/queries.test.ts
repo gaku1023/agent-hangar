@@ -637,6 +637,22 @@ describe('中断（interrupted）と同じファイルの編集（overlap）', (
   });
 });
 
+describe('fromPhone（この PC がスマホの依頼で起こした会話）', () => {
+  it('手元の mobile_launches に会話があれば fromPhone を載せ、Bypass permissions なら bypass が真。無ければ null', () => {
+    const d2 = openDb(':memory:');
+    for (const id of ['s-auto', 's-bypass', 's-pc']) upsertShared(d2, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w/a', home_device: 'pc-a' }, 'pc-a');
+    const ins = d2.prepare('insert into mobile_launches (id, handled_at, result, answered, session_id, permission_mode) values (?, 1, ?, 1, ?, ?)');
+    ins.run('l1', 'started', 's-auto', '');
+    ins.run('l2', 'started', 's-bypass', 'bypassPermissions');
+    ins.run('l3', 'project-missing', null, null);
+    const of = (id: string) => getSession(d2, [], id)?.fromPhone;
+    expect(of('s-auto')).toEqual({ bypass: false });
+    expect(of('s-bypass')).toEqual({ bypass: true });
+    expect(of('s-pc')).toBeNull();
+    expect(Object.fromEntries(listSessions(d2, []).map((s) => [s.id, s.fromPhone]))).toEqual({ 's-auto': { bypass: false }, 's-bypass': { bypass: true }, 's-pc': null });
+  });
+});
+
 describe('takenOver（ほかの PC に引き継がれたこの PC の会話）', () => {
   const setup = (): Db => {
     const d2 = openDb(':memory:');

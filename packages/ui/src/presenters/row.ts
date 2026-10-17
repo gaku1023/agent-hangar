@@ -5,6 +5,7 @@ import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../s
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { interruptMark } from './interrupted.ts';
+import { phoneLabelOf } from './phoneLabel.ts';
 import { projectDisplayName } from './projectName.ts';
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
@@ -48,6 +49,8 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   resumeHere?: { disabled: string | null };
   /** 中断の印（右端の「中断」）。ステータスの無いセッションで、最後の run が中断で終わり、いま終わっているものだけが持つ。title は原因と時刻。 */
   interrupted?: { label: string; title: string };
+  /** スマホから起動した会話のラベル（試作 F1、名前の後ろ）。bypass は Bypass permissions で、赤い枠にする。PC で起こした会話は持たない。 */
+  phone?: { label: string; title: string; bypass: boolean };
 
   /** git の札（2 段目の右端、試作の 2-1 の A）。まだ届いていないものと git でないものは null。 */
   git?: GitChipProps | null;
@@ -137,6 +140,8 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   if (here) row.resumeHere = { disabled: here.disabled };
   row.menu = presentSessionMenu(store, s, t);
   if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
+  const phone = phoneLabelOf(s, t);
+  if (phone) row.phone = phone;
   return row;
 }
 

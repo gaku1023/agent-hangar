@@ -34,7 +34,9 @@ import {
   type KeyboxesPutOut,
   type KeyboxIn,
   type ListFilesResponse,
+  type MobileFeedPut,
   type MobilePairingResponse,
+  type MobilePairingsMine,
   type PushChangesResponse,
   type RosterOut,
   type RosterPut,
@@ -250,9 +252,10 @@ export interface CloudClientBase {
   lastWorkerCompat?(): number | null;
   /**
    * この PC の受信箱の素（封じたもの）を置く（PUT /m/feed、互換の版 7 の Worker から）。
+   * epoch は素を封じたスマホ用の鍵の世代で、版 9 の Worker は無いと 400 で断る。
    * 呼ぶのは MobileFeedPublisher で、Worker の版が MOBILE_MIN_WORKER_COMPAT に届いてからにする。偽物は実装しなくてよい。
    */
-  putMobileFeed?(sealed: string): Promise<void>;
+  putMobileFeed?(sealed: string, epoch: number): Promise<void>;
   /**
    * スマホを接続する使い捨ての券を取る（POST /m/pairings、互換の版 7 の Worker から）。5 分で失効し、1 回で使い切る。
    * 1 台の PC から 10 分に 5 枚までで、超えると Worker は 429 を返す（CloudError(429) で投げる）。偽物は実装しなくてよい。
@@ -631,9 +634,21 @@ export class HttpCloudClient implements WireCloudClient {
     await this.json<{ ok: boolean }>(`/join-codes/${codeHash}/reject`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   }
 
-  async putMobileFeed(sealed: string): Promise<void> {
+  async putMobileFeed(sealed: string, epoch: number): Promise<void> {
     await this.ensureWorkerCompat();
-    await this.json<{ ok: boolean }>('/m/feed', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sealed }) });
+    const body: MobileFeedPut = { sealed, epoch };
+    await this.json<{ ok: boolean }>('/m/feed', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  }
+
+  /** この PC が発行した券に接続したスマホの、まだ keybox を置いていない参加リクエスト（GET /m/pairings/mine、互換の版 9）。 */
+  getPairingsMine(): Promise<MobilePairingsMine> {
+    return this.json<MobilePairingsMine>('/m/pairings/mine');
+  }
+
+  /** スマホ用の鍵の keybox を置く（PUT /phone-keyboxes、互換の版 9）。受け手に解除されたスマホか知らない ID が混ざれば CloudError(400) の unknown recipient。 */
+  async putPhoneKeyboxes(boxes: KeyboxIn[]): Promise<KeyboxesPutOut> {
+    await this.ensureWorkerCompat();
+    return this.json<KeyboxesPutOut>('/phone-keyboxes', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ boxes }) });
   }
 
   async deleteMobileFeed(): Promise<void> {

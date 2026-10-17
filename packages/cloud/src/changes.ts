@@ -223,7 +223,8 @@ changesApp.post('/', async (c) => {
 });
 
 type PeerRow = { id: string; last_seen_at: number | null };
-type LaunchRow = { id: string; created_at: number; sealed: string };
+/** epoch は依頼を封じたスマホ用の鍵の世代（互換の版 9）。 */
+type LaunchRow = { id: string; created_at: number; sealed: string; epoch: number; from_device: string };
 
 /**
  * 1 回の pull に載せる起動の依頼の上限。
@@ -238,6 +239,7 @@ const PULL_LAUNCH_LIMIT = 50;
  * 名簿の印の行（`~roster`）もほかの行と同じく返す。見た PC だけが名簿と keybox を読み直す。
  * 解除していない PC の最終確認（peers）と、Worker の時刻（now）を添える。端末は「now − lastSeenAt」を PC の年齢として、他の PC の生存を見る。
  * この PC 宛ての起動の依頼（launches）も添える。要求を増やさずに、PC の 30 秒ごとの pull で依頼を受け取るためである。
+ * 依頼には送り手のスマホの ID（from）を添える。PC は名簿でスマホの名前を引き、右下の通知に出す（試作 F1）。ID は devices の行と同じで、名前は名簿の中にしか無い。
  * 変更ログを持たないので、どれだけ古い since でも断らない（版 5 までの 410 は無くなった）。
  */
 changesApp.get('/', async (c) => {
@@ -258,7 +260,7 @@ changesApp.get('/', async (c) => {
     // この PC 宛ての、まだ受け取っていない依頼（互換の版 7）。索引 launch_requests_target で引き、表を走査しない。
     // 時間切れの行は書き換えずに外すだけである（expired に書き換えるのはスマホの GET だけ）。
     db
-      .prepare("select id, created_at, sealed from launch_requests where target_device = ? and status = 'pending' and created_at > ? order by created_at limit ?")
+      .prepare("select id, created_at, sealed, epoch, from_device from launch_requests where target_device = ? and status = 'pending' and created_at > ? order by created_at limit ?")
       .bind(device.id, now - LAUNCH_TTL_MS, PULL_LAUNCH_LIMIT),
   ];
   const results = await db.batch(stmts);
@@ -267,7 +269,7 @@ changesApp.get('/', async (c) => {
   // 最後まで返せたときは表全体の末尾まで進める。自端末の行で止まったままにしないためである。
   const nextSeq = more ? last!.seq : firstNum(results[off + 1] as D1Result<{ s: number }> | undefined);
   const peers: CloudPeer[] = ((results[off + 2]?.results ?? []) as PeerRow[]).map((p) => ({ id: p.id, lastSeenAt: p.last_seen_at ?? null }));
-  const launches: MobileLaunchOut[] = ((results[off + 3]?.results ?? []) as LaunchRow[]).map((l) => ({ id: l.id, createdAt: l.created_at, sealed: l.sealed }));
+  const launches: MobileLaunchOut[] = ((results[off + 3]?.results ?? []) as LaunchRow[]).map((l) => ({ id: l.id, createdAt: l.created_at, sealed: l.sealed, epoch: Number(l.epoch), from: l.from_device }));
   const res: SealedPullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now, launches };
   return c.json(res);
 });

@@ -22,6 +22,8 @@ describe('クラウド同期の参加と解除の操作', () => {
       [{ type: 'cloud.leave.dismiss' }, { op: 'leaveDismiss' }],
       [{ type: 'cloud.phone.pair' }, { op: 'pair' }],
       [{ type: 'cloud.phone.close' }, { op: 'pairClose' }],
+      [{ type: 'cloud.phone.revoke', id: 'p1' }, { op: 'phoneRevoke', id: 'p1' }],
+      [{ type: 'cloud.phone.undo' }, { op: 'phoneUndo' }],
       [{ type: 'cloud.recovery.ask' }, { op: 'recoveryAsk' }],
       [{ type: 'cloud.recovery.reissue' }, { op: 'recoveryReissue' }],
       [{ type: 'cloud.recovery.saved' }, { op: 'recoverySaved' }],

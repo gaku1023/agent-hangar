@@ -80,6 +80,8 @@ type SessionRow = {
   last_interrupt_cause: InterruptCause | null;
   // 同じファイルの編集の写し（session_overlaps の payload）。無ければ null。
   overlap_payload: string | null;
+  /** この PC がスマホの依頼で起こした会話なら、その依頼の権限モード（既定は空）。それ以外は null。 */
+  ml_mode: string | null;
 };
 
 const SESSION_SELECT = `
@@ -99,7 +101,8 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   (select r.end_reason from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_end_reason,
   (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
-  ov.payload overlap_payload
+  ov.payload overlap_payload,
+  (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode
 from sessions s
 left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
@@ -354,6 +357,8 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),
     takenOver: taken.get(r.id) ?? null,
+    // スマホの依頼で起こした会話（試作 F1）。印は起こした PC の手元の mobile_launches にだけある。
+    fromPhone: r.ml_mode === null ? null : { bypass: r.ml_mode === 'bypassPermissions' },
   };
 }
 

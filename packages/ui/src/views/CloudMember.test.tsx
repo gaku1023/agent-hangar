@@ -12,6 +12,7 @@ import { QrCode } from './primitives/QrCode.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentSettings } from '../presenters/settings.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
+import { ToastStack } from './ToastStack.tsx';
 
 const NOW = Date.parse('2026-10-12T03:00:00Z');
 const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
@@ -305,7 +306,7 @@ describe('この PC が解除されたとき', () => {
 
 describe('スマホの接続（試作 A1）', () => {
   const PAIR = 'eyJwYWlyIjoidGVzdCJ9';
-  const ready = { kind: 'ready' as const, pairUrl: `https://h.example/app/#pair=${PAIR}`, pairText: PAIR, expiresAt: NOW + 300_000, known: [] };
+  const ready = { kind: 'ready' as const, pairUrl: `https://h.example/app/#pair=${PAIR}`, pairText: PAIR, expiresAt: NOW + 300_000, pairId: 'pair-1' };
   const iphone = dev('p1', { name: 'iPhone', platform: 'mobile', kind: 'mobile', joinedAt: NOW, lastSeenAt: NOW });
   const both = (m: CloudMemberProps) => <><CloudPcTable m={m} heading="PC" /><CloudPhones m={m} /></>;
   afterEach(() => { vi.useRealTimers(); });
@@ -315,6 +316,8 @@ describe('スマホの接続（試作 A1）', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(both(props()), onAction));
     expect(screen.getByText(/スマホで受信箱を見て/)).toBeInTheDocument();
+    // 解除の確認を無くしたので、なくしたときの注意は表の下の説明に置く。
+    expect(screen.getByText(/スマホで受信箱を見て/)).toHaveTextContent('スマホをなくしたときは、すぐに「解除」してください。');
     expect(screen.getByText('「Remote Control を付けて起動する」の設定は「連携」にあります。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'スマホを接続' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.pair' });
@@ -375,19 +378,29 @@ describe('スマホの接続（試作 A1）', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.close' });
   });
 
-  it('kind=mobile の行はスマホの表に並び、解除のボタンがある。確認に、解除したスマホは戻れない旨と、なくしたらすぐ解除する旨がある', () => {
+  it('kind=mobile の行はスマホの表に並び、「解除」の 1 クリックで解除を頼む（確認を開かない）', () => {
     const onAction = vi.fn();
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), iphone], creator: false, message: null };
     render(ui(both(props({ devices })), onAction));
     const table = screen.getByRole('table', { name: 'スマホ' });
     const row = within(table).getByText('iPhone').closest('[role="row"]') as HTMLElement;
     expect(row.querySelector('.cm-chip')).toBeNull();
-    fireEvent.click(within(row).getByRole('button', { name: 'iPhone を解除' }));
-    expect(screen.getByText('iPhone を解除しますか')).toBeInTheDocument();
-    expect(screen.getByText(/解除したスマホは受信箱を読めず.*新しい QR を読む必要があります/)).toBeInTheDocument();
-    expect(screen.getByText(/選んだ権限モードで全部の PC に会話を起動できます。なくしたときはすぐに解除してください/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '解除' }));
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.device.revoke', id: 'p1' });
+    const button = within(row).getByRole('button', { name: 'iPhone を解除' });
+    expect(button).toHaveTextContent(/^解除$/);
+    fireEvent.click(button);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.revoke', id: 'p1' });
+    expect(screen.queryByText('iPhone を解除しますか')).toBeNull();
+  });
+
+  it('「元に戻す」を待っている間は、そのスマホの行を出さない。解除を送っている間も出さない', () => {
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), iphone, dev('p2', { name: 'iPad', platform: null, kind: 'mobile' })], creator: false, message: null };
+    expect(props({ devices }).phones.map((p) => p.id)).toEqual(['p1', 'p2']);
+    expect(props({ devices, phoneUndo: { id: 'p1', name: 'iPhone' } }).phones.map((p) => p.id)).toEqual(['p2']);
+    expect(props({ devices, revoke: { id: 'p1', kind: 'busy' } }).phones.map((p) => p.id)).toEqual(['p2']);
+    // 別の解除を送っている間に 5 秒が過ぎ、列で待っているスマホも出さない。
+    expect(props({ devices, revoke: { id: 'studio', kind: 'busy' }, phoneQueued: ['p2'] }).phones.map((p) => p.id)).toEqual(['p1']);
+    // 解除に失敗したら行を戻し、行の下に理由を出す。
+    expect(props({ devices, revoke: { id: 'p1', kind: 'failed', failure: { code: 'failed', message: 'x' } } }).phones.map((p) => p.id)).toEqual(['p1', 'p2']);
   });
 
   it('スマホが 0 台なら、表の代わりに「接続しているスマホはありません。」を出す', () => {
@@ -396,13 +409,25 @@ describe('スマホの接続（試作 A1）', () => {
     expect(screen.getByText('接続しているスマホはありません。')).toBeInTheDocument();
   });
 
-  it('スマホの行の名前の下に、残りの日数と再接続の日付を出す枠がある（日数のある行だけ）', () => {
-    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), iphone], creator: false, message: null };
-    const base = props({ devices });
-    const m = { ...base, phones: base.phones.map((p) => ({ ...p, left: { days: 28, reconnectOn: '2027-01-15' } })) };
-    const { rerender } = render(ui(both(m)));
-    expect(screen.getByText('残り 28 日（使用すると延長されます）。2027-01-15 に再接続が必要です。')).toBeInTheDocument();
-    rerender(ui(both(base)));
+  it('スマホの行の名前の下に、残りの日数と再接続の日付を出す。日数は使わずに切れるまでと期限の早いほう、日付は期限（Worker の値）', () => {
+    const DAY = 86_400_000;
+    // 2 日前に使い、接続から 50 日たったスマホ。使わずに切れるのは 28 日後、再接続は 40 日後。
+    const idle = dev('p1', { name: 'iPhone', platform: null, kind: 'mobile', joinedAt: NOW - 50 * DAY, lastSeenAt: NOW - 2 * DAY, expiresAt: NOW + 40 * DAY });
+    // 再接続の期限が先に来るスマホ（あと 5 日）。
+    const old = dev('p2', { name: 'iPad', platform: null, kind: 'mobile', joinedAt: NOW - 85 * DAY, lastSeenAt: NOW - 60_000, expiresAt: NOW + 5 * DAY });
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), idle, old], creator: false, message: null };
+    const m = props({ devices });
+    expect(m.phones.map((p) => p.left)).toEqual([{ days: 28, reconnectOn: '2026-11-21' }, { days: 5, reconnectOn: '2026-10-17' }]);
+    render(ui(both(m)));
+    expect(screen.getByText('残り 28 日（使用すると延長されます）。2026-11-21 に再接続が必要です。')).toBeInTheDocument();
+    expect(screen.getByText('残り 5 日（使用すると延長されます）。2026-10-17 に再接続が必要です。')).toBeInTheDocument();
+    // 残りの日数の細い棒（30 日を満たんとする）。
+    const bar = screen.getAllByRole('progressbar', { name: '接続の残りの日数' })[0]!;
+    expect(bar).toHaveAttribute('aria-valuenow', '28');
+    expect(bar).toHaveAttribute('aria-valuemax', '30');
+    cleanup();
+    // 期限を返さない行（Worker の presenter が null を返す枠）は出さない。
+    render(ui(both(props({ devices: { ...devices, devices: [dev('studio', { self: true }), iphone] } }))));
     expect(screen.queryByText(/再接続が必要です/)).toBeNull();
   });
 
@@ -457,7 +482,7 @@ describe('スマホの接続の動き', () => {
   });
   const on = (el: Element | null) => animations.filter((a) => a.el === el);
   const done = async () => { await act(async () => { finish.forEach((f) => f()); await Promise.resolve(); }); };
-  const ready = { kind: 'ready' as const, pairUrl: 'https://h.example/app/#pair=X', pairText: 'X', expiresAt: Date.now() + 300_000, known: [] };
+  const ready = { kind: 'ready' as const, pairUrl: 'https://h.example/app/#pair=X', pairText: 'X', expiresAt: Date.now() + 300_000, pairId: 'pair-1' };
   const both = (m: CloudMemberProps) => ui(<><CloudPcTable m={m} heading="PC" /><CloudPhones m={m} /></>);
 
   it('はじめから QR を出している描画では動かさない', () => {
@@ -527,6 +552,26 @@ describe('スマホの接続の動き', () => {
     expect(on(phoneRow).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
     await done();
     expect(screen.queryByText('iPhone')).toBeNull();
+  });
+
+  it('スマホの「解除」の 1 クリックで行が collapseOut で畳まれ、右下に「元に戻す」を出す。元に戻すと行は growIn で戻る', async () => {
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('p1', { name: 'iPhone', platform: null, kind: 'mobile' })], creator: false, message: null };
+    const store = (phoneUndo: { id: string; name: string } | null): Store => ({ ...initialStore(), sync: SYNC, desktop: true, device: { id: 'studio', name: 'studio' }, cloudMember: { ...initialCloudMember(), devices, phoneUndo } });
+    const screenOf = (s: Store) => ui(<><CloudPhones m={presentCloudMember(s, NOW)} /><ToastStack {...presentToasts(initialState(), s, NOW)} /></>);
+    const { rerender } = render(screenOf(store(null)));
+    const row = within(screen.getByRole('table', { name: 'スマホ' })).getByText('iPhone').closest('[role="rowgroup"]');
+    expect(screen.queryByRole('button', { name: '元に戻す' })).toBeNull();
+    rerender(screenOf(store({ id: 'p1', name: 'iPhone' })));
+    expect(on(row).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+    expect(screen.getByText('iPhone を解除します')).toBeInTheDocument();
+    expect(screen.getByText('このあと iPhone からセッションを起動できなくなります。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '元に戻す' })).toBeInTheDocument();
+    await done();
+    expect(screen.queryByRole('table', { name: 'スマホ' })).toBeNull();
+    animations = [];
+    rerender(screenOf(store(null)));
+    const back = within(screen.getByRole('table', { name: 'スマホ' })).getByText('iPhone').closest('[role="rowgroup"]');
+    expect(on(back)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
   });
 
   it('動きを減らす設定では、解除した行をすぐ外す', () => {

@@ -30,7 +30,10 @@ export async function generateKeyPair(): Promise<KeyPairRaw> {
   return { pub: await exportPub(pair.publicKey), priv: toBase64Url(pkcs8.subarray(PKCS8_X25519_PREFIX.length)) };
 }
 
-/** 秘密鍵を取り出せない鍵ペアを作る（スマホ用。IndexedDB に CryptoKey のまま置く）。 */
+/**
+ * 秘密鍵を取り出せない X25519 の鍵ペアを作る。
+ * スマホの鍵ペアには使わない（WebKit が X25519 の CryptoKey を IndexedDB から読み戻せないため、スマホは phone.ts の generatePhoneKeyPair で P-256 を使う）。
+ */
 export async function generateKeyPairNonExtractable(): Promise<{ pub: string; key: CryptoKey }> {
   const pair = (await subtle().generateKey(X25519, false, ['deriveBits'])) as CryptoKeyPair;
   return { pub: await exportPub(pair.publicKey), key: pair.privateKey };

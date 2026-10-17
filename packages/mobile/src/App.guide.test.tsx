@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
-import * as store from './store.ts';
-import { feedOf, inboxOf, makeKey } from './test/fixtures.ts';
-import { json, makePairText, WORKER } from './test/pairText.ts';
+import { connectPhone, feedOf, inboxOf, makeKey } from './test/fixtures.ts';
+import { json, makePairText } from './test/pairText.ts';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
@@ -82,8 +81,7 @@ describe('App の入口の案内（A1）', () => {
   it('接続済みなら出さずに受信箱を開く', async () => {
     as(IPHONE, { touch: 5 });
     const key = await makeKey();
-    store.savePairing({ url: WORKER, token: 'tok-1', deviceId: 'phone-1' });
-    await store.saveKey(key);
+    await connectPhone(key);
     const res = await inboxOf(key, [feedOf('pc-1', 'Mac')], { now: Date.now() });
     vi.stubGlobal('fetch', vi.fn(async () => json(res)));
     render(<App pairText={null} />);

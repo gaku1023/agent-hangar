@@ -37,7 +37,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
@@ -52,7 +52,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.route('/join-codes', joinCodesApp);
   app.route('/join', joinApp);
   app.post('/bootstrap', bootstrapHandler);
-  // 封じた名簿と keybox（互換の版 9）。PC の端末トークンが要る。
+  // 封じた名簿と keybox と、スマホ用の鍵の keybox（互換の版 9）。PC の端末トークンが要る。
   app.route('/', keysApp);
   // スマホの参加と受信箱。認証と種類の検査は経路ごとに mobile.ts の中で付ける（参加の口だけはトークンなし）。
   app.route('/m', mobileApp);

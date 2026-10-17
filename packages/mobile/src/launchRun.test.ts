@@ -2,7 +2,7 @@ import { aadAnswer, aadLaunch, open, seal, type MobileLaunchAnswer, type MobileL
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImageError, type PutImage } from './images.ts';
 import { startLaunch, type LaunchSpec, type RunState } from './launchRun.ts';
-import { makeKey } from './test/fixtures.ts';
+import { at1, makeKey } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
 const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
@@ -58,7 +58,7 @@ function serve(replies: Reply[], posts: Reply[] = []): void {
 
 function run(s: LaunchSpec = spec(), o: { everyMs?: number; giveUpMs?: number } = {}) {
   const states: RunState[] = [];
-  const r = startLaunch(pairing, key, s, { everyMs: 10, ...o, onState: (st) => states.push(st) });
+  const r = startLaunch(pairing, at1(key), s, { everyMs: 10, ...o, onState: (st) => states.push(st) });
   const last = (): RunState => states[states.length - 1]!;
   return { r, states, last };
 }
@@ -149,7 +149,7 @@ describe('startLaunch', () => {
       return json({ error: 'unauthorized' }, 401);
     });
     const { last } = run();
-    await vi.waitFor(() => expect(last().kind).toBe('unpaired'));
+    await vi.waitFor(() => expect(last()).toEqual({ kind: 'unpaired', reason: 'unknown' }));
   });
 
   it('届いたか分からない失敗の後の retry は同じ id で送り、受け取られた後の失敗の retry は新しい id', async () => {
@@ -222,7 +222,7 @@ describe('startLaunch の画像', () => {
 
   function runWith(s: LaunchSpec, put: PutImage) {
     const states: RunState[] = [];
-    const r = startLaunch(pairing, key, s, { everyMs: 10, putImage: put, onState: (st) => states.push(st) });
+    const r = startLaunch(pairing, at1(key), s, { everyMs: 10, putImage: put, onState: (st) => states.push(st) });
     return { r, states, last: (): RunState => states[states.length - 1]! };
   }
 
@@ -288,11 +288,11 @@ describe('startLaunch の画像', () => {
   it('画像を置くときの 401 は unpaired', async () => {
     serve([{ status: 'pending' }]);
     const put = vi.fn<PutImage>(async () => {
-      throw new ImageError('unpaired', 401);
+      throw new ImageError('unpaired', 401, 'expired');
     });
     const s = withImages();
     s.id = undefined;
     const { last } = runWith(s, put);
-    await vi.waitFor(() => expect(last()).toEqual({ kind: 'unpaired' }));
+    await vi.waitFor(() => expect(last()).toEqual({ kind: 'unpaired', reason: 'expired' }));
   });
 });

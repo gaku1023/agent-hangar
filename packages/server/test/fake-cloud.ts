@@ -38,8 +38,13 @@ import {
   type FileMetaIn,
   type KeyPairRaw,
   type ListFilesResponse,
+  type KeyboxOut,
+  type MobileJoinRequest,
+  type MobileJoinResponse,
   type MobileLaunchIn,
   type MobileLaunchOut,
+  type MobilePairingResponse,
+  type MobilePairingsMine,
   type PushChangesResponse,
   type Roster,
   type SealedChangeIn,
@@ -106,8 +111,12 @@ export type FakeCloudStore = {
    * 実物と同じく、その PC 宛ての keybox は発行した PC だけが置ける（offerJoin と redeemJoin）。
    */
   joinOffers: Map<string, string>;
-  /** PC ごとの受信箱の素（PUT /m/feed）。実物の mobile_feeds の表に当たる。 */
-  mobileFeeds: Map<string, { sealed: string; updatedAt: number }>;
+  /** PC ごとの受信箱の素（PUT /m/feed）。実物の mobile_feeds の表に当たる。epoch は素を封じたスマホ用の鍵の世代（互換の版 9）。 */
+  mobileFeeds: Map<string, FakeFeed>;
+  /** スマホを接続する券（POST /m/pairings）。券のハッシュから。実物の mobile_pairings の表に当たる。 */
+  mobilePairings: Map<string, FakePairing>;
+  /** スマホ用の鍵の keybox（PUT /phone-keyboxes）。スマホの ID から、世代の番号から封じた箱（base64url）へ。実物の phone_keyboxes に当たる。 */
+  phoneKeyboxes: Map<string, Map<number, string>>;
   /** スマホからの起動の依頼（POST /m/launches）。実物の launch_requests の表に当たる。 */
   launches: Map<string, FakeLaunch>;
   /** スマホが置いた画像（封じたまま）。鍵は `<依頼>/<番号>`。実物の R2 の mobile/<スマホ>/<依頼>/<番号> に当たる。 */
@@ -118,7 +127,20 @@ export type FakeCloudStore = {
 };
 
 /** 偽物の Worker が持つ起動の依頼の 1 行。状態の進み方は実物（packages/cloud/src/mobile.ts）と同じ。 */
-export type FakeLaunch = { id: string; targetDevice: string; createdAt: number; sealed: string; status: 'pending' | 'claimed' | 'started' | 'failed'; sealedAnswer: string | null };
+/** fromDevice は依頼を置いた端末（postLaunch を呼んだクライアントの ID）。pull の launches の from に返す。 */
+export type FakeLaunch = { id: string; targetDevice: string; fromDevice: string; createdAt: number; sealed: string; status: 'pending' | 'claimed' | 'started' | 'failed'; sealedAnswer: string | null; epoch: number };
+/** 偽物の Worker が持つ受信箱の素の 1 行（実物の mobile_feeds）。 */
+export type FakeFeed = { sealed: string; updatedAt: number; epoch: number };
+/**
+ * 偽物の Worker が持つ券の 1 行（実物の mobile_pairings）。
+ * deviceId と request は接続したスマホの ID と封じた参加リクエストで、keybox を置くと request を null にする。
+ */
+export type FakePairing = { codeHash: string; createdBy: string; createdAt: number; usedAt: number | null; deviceId: string | null; request: string | null };
+
+/** 券の有効期間（packages/cloud/src/mobile.ts の PAIRING_TTL_MS の写し）。 */
+export const PAIRING_TTL_MS = 5 * 60_000;
+/** 1 回の PUT /phone-keyboxes で置ける数（packages/cloud の MAX_KEYBOXES_PER_PUT と同じ）。 */
+const MAX_PHONE_KEYBOXES_PER_PUT = MAX_KEYBOXES_PER_PUT;
 
 const ENC = new TextEncoder();
 
@@ -244,6 +266,8 @@ export class FakeWireClient implements WireCloudClient {
       rejectRosterPuts: 0,
       joinOffers: new Map(),
       mobileFeeds: new Map(),
+      mobilePairings: new Map(),
+      phoneKeyboxes: new Map(),
       launches: new Map(),
       mobileBlobs: new Map(),
       blobDeletes: new Map(),
@@ -269,7 +293,9 @@ export class FakeWireClient implements WireCloudClient {
   get changes(): FakeRow[] { return this.store.changes; }
   get rows(): Map<string, FakeRow> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
-  get mobileFeeds(): Map<string, { sealed: string; updatedAt: number }> { return this.store.mobileFeeds; }
+  get mobileFeeds(): Map<string, FakeFeed> { return this.store.mobileFeeds; }
+  get mobilePairings(): Map<string, FakePairing> { return this.store.mobilePairings; }
+  get phoneKeyboxes(): Map<string, Map<number, string>> { return this.store.phoneKeyboxes; }
   get launches(): Map<string, FakeLaunch> { return this.store.launches; }
   get mobileBlobs(): Map<string, Uint8Array> { return this.store.mobileBlobs; }
 
@@ -488,17 +514,19 @@ export class FakeWireClient implements WireCloudClient {
       .filter((l) => l.targetDevice === this.deviceId && l.status === 'pending' && l.createdAt > now - LAUNCH_TTL_MS)
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, PULL_LAUNCH_LIMIT)
-      .map((l) => ({ id: l.id, createdAt: l.createdAt, sealed: l.sealed }));
+      .map((l) => ({ id: l.id, createdAt: l.createdAt, sealed: l.sealed, epoch: l.epoch, from: l.fromDevice }));
   }
 
   /**
    * スマホの POST /m/launches の真似（試験が依頼を置くための口で、WireCloudClient には無い）。
    * 置いた時刻は Worker の時計で、同じ ID の再送は行を増やさない。
+   * 実物どおり、epoch（封じたスマホ用の鍵の世代、互換の版 9）が正の整数でなければ 400 で断る。
    */
   postLaunch(l: MobileLaunchIn): void {
     if (ENC.encode(JSON.stringify(l)).byteLength > MAX_LAUNCH_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
+    if (!isEpoch(l.epoch)) throw new CloudError(400, errorBody('invalid body'));
     if (this.store.launches.has(l.id)) return;
-    this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null });
+    this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, fromDevice: this.deviceId, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null, epoch: l.epoch });
   }
 
   /**
@@ -678,20 +706,105 @@ export class FakeWireClient implements WireCloudClient {
   }
 
   /** 偽の Worker が保存した値の全部（D1 の表と R2 に当たるもの）。平文が残っていないかを走査する試験が読む。 */
-  storeForScan(): Readonly<Pick<FakeCloudStore, 'changes' | 'rows' | 'files' | 'devices' | 'roster' | 'keyboxes' | 'mobileFeeds' | 'launches' | 'mobileBlobs' | 'blobDeletes'>> {
+  storeForScan(): Readonly<Pick<FakeCloudStore, 'changes' | 'rows' | 'files' | 'devices' | 'roster' | 'keyboxes' | 'mobileFeeds' | 'mobilePairings' | 'phoneKeyboxes' | 'launches' | 'mobileBlobs' | 'blobDeletes'>> {
     return this.store;
   }
 
   /**
    * PUT /m/feed。版 7 より前の Worker はこの口を知らないので 404 で断る。
    * 本文の上限は実物（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES）と同じ 96 KiB。
+   * epoch（素を封じたスマホ用の鍵の世代）が無いか形が違えば、実物の版 9 と同じく 400 で断る。
    */
-  async putMobileFeed(sealed: string): Promise<void> {
-    this.guard('putMobileFeed', sealed);
+  async putMobileFeed(sealed: string, epoch: number): Promise<void> {
+    this.guard('putMobileFeed', sealed, epoch);
     if (this.store.workerCompat < MOBILE_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
-    if (ENC.encode(JSON.stringify({ sealed })).byteLength > MAX_FEED_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
-    if (sealed.length === 0) throw new CloudError(400, errorBody('invalid body'));
-    this.store.mobileFeeds.set(this.deviceId, { sealed, updatedAt: this.store.now() });
+    if (ENC.encode(JSON.stringify({ sealed, epoch })).byteLength > MAX_FEED_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
+    if (typeof sealed !== 'string' || sealed.length === 0 || !isEpoch(epoch)) throw new CloudError(400, errorBody('invalid body'));
+    this.store.mobileFeeds.set(this.deviceId, { sealed, updatedAt: this.store.now(), epoch });
+  }
+
+  /**
+   * スマホの GET /m/inbox の feeds の真似（試験の口で、WireCloudClient には無い）。
+   * 解除されていない PC の素だけを、端末の ID の順に返す。
+   */
+  inboxFeeds(): { deviceId: string; updatedAt: number; sealed: string; epoch: number }[] {
+    return [...this.store.mobileFeeds.entries()]
+      .filter(([id]) => { const d = this.store.devices.get(id); return !d || (d.kind === 'pc' && d.revokedAt === null); })
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([deviceId, f]) => ({ deviceId, updatedAt: f.updatedAt, sealed: f.sealed, epoch: f.epoch }));
+  }
+
+  /** POST /m/pairings。券（22 字の乱数）を発行し、偽物にはハッシュだけを置く。期限は PAIRING_TTL_MS。 */
+  async createPairing(): Promise<MobilePairingResponse> {
+    this.guard('createPairing');
+    if (this.store.workerCompat < MOBILE_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+    const code = toBase64Url(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+    const now = this.store.now();
+    const codeHash = sha256Hex(Buffer.from(code, 'utf8'));
+    this.store.mobilePairings.set(codeHash, { codeHash, createdBy: this.deviceId, createdAt: now, usedAt: null, deviceId: null, request: null });
+    return { code, expiresAt: now + PAIRING_TTL_MS };
+  }
+
+  /**
+   * スマホの POST /m/join の真似（試験の口で、WireCloudClient には無い）。トークンは要らない。
+   * 無い券、使った券、期限切れの券は 401、既にある ID は 409 `device-exists`（券は残る）。
+   * 通れば devices にスマホの行（kind 'mobile'）を足し、券にスマホの ID と封じた参加リクエストを置く。
+   */
+  joinPhone(body: MobileJoinRequest): MobileJoinResponse {
+    if (this.store.offline) throw new CloudError(0, 'offline');
+    const now = this.store.now();
+    const p = this.store.mobilePairings.get(sha256Hex(Buffer.from(body.code, 'utf8')));
+    if (!p || p.usedAt !== null || p.createdAt <= now - PAIRING_TTL_MS) throw new CloudError(401, errorBody('unauthorized'));
+    if (this.store.devices.has(body.deviceId)) throw new CloudError(409, errorBody('device-exists'));
+    p.usedAt = now;
+    p.deviceId = body.deviceId;
+    p.request = body.sealed;
+    this.store.devices.set(body.deviceId, { id: body.deviceId, kind: 'mobile', joinedAt: now, lastSeenAt: now, revokedAt: null, expiresAt: now + 90 * 86_400_000 });
+    return { token: `phone-token-${body.deviceId}`, deviceId: body.deviceId };
+  }
+
+  /**
+   * GET /m/pairings/mine。自分の券のうち、まだ keybox の置かれていない参加リクエストを、券の発行の古い順に返す。
+   * PC だけが呼べる（実物の requireKind('pc')）。
+   */
+  async getPairingsMine(): Promise<MobilePairingsMine> {
+    this.guard('getPairingsMine');
+    return {
+      pairings: [...this.store.mobilePairings.values()]
+        .filter((p) => p.createdBy === this.deviceId && p.request !== null && p.deviceId !== null)
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((p) => ({ codeHash: p.codeHash, deviceId: p.deviceId!, sealed: p.request!, joinedAt: p.usedAt! })),
+    };
+  }
+
+  /**
+   * PUT /phone-keyboxes。実物（packages/cloud/src/keys.ts）と同じく、受け手は解除されていないスマホだけで、
+   * ほかが 1 つでも混ざれば何も書かずに 400 `unknown recipient` で断る。
+   * 置いたスマホの参加リクエストを消す。名簿の印の行は進めない。
+   */
+  async putPhoneKeyboxes(boxes: KeyboxIn[]): Promise<KeyboxesPutOut> {
+    this.guard('putPhoneKeyboxes', boxes);
+    const valid = (b: KeyboxIn): boolean => isEpoch(b?.epoch) && typeof b.recipient === 'string' && b.recipient.length > 0 && typeof b.sealed === 'string' && fromBase64Url(b.sealed) !== null;
+    if (!Array.isArray(boxes) || boxes.length === 0 || boxes.length > MAX_PHONE_KEYBOXES_PER_PUT || !boxes.every(valid)) throw new CloudError(400, errorBody('invalid body'));
+    for (const b of boxes) {
+      const d = this.store.devices.get(b.recipient);
+      if (!d || d.kind !== 'mobile' || d.revokedAt !== null) throw new CloudError(400, errorBody('unknown recipient'));
+    }
+    for (const b of boxes) {
+      const mine = this.store.phoneKeyboxes.get(b.recipient) ?? new Map<number, string>();
+      mine.set(b.epoch, b.sealed);
+      this.store.phoneKeyboxes.set(b.recipient, mine);
+      for (const p of this.store.mobilePairings.values()) if (p.deviceId === b.recipient) p.request = null;
+    }
+    return { written: boxes.length };
+  }
+
+  /** スマホの GET /m/keybox の真似（試験の口で、WireCloudClient には無い）。自分宛てのいちばん新しい世代だけ。無ければ null（実物の 404）。 */
+  phoneKeybox(phoneId: string): KeyboxOut | null {
+    const mine = this.store.phoneKeyboxes.get(phoneId);
+    if (!mine || mine.size === 0) return null;
+    const epoch = Math.max(...mine.keys());
+    return { epoch, sealed: mine.get(epoch)! };
   }
 
   /** DELETE /m/feed。自分の受信箱の素の行を消す。行が無くても成功する。版 8 より前の Worker は 404 で断る。 */
@@ -781,7 +894,7 @@ export class FakeCloudClient implements CloudClient {
   /** Worker の rows（封じた形）。 */
   get rows(): Map<string, FakeRow> { return this.wire.rows; }
   get files(): Map<string, StoredFile> { return this.wire.files; }
-  get mobileFeeds(): Map<string, { sealed: string; updatedAt: number }> { return this.wire.mobileFeeds; }
+  get mobileFeeds(): Map<string, FakeFeed> { return this.wire.mobileFeeds; }
   get launches(): Map<string, FakeLaunch> { return this.wire.launches; }
   get mobileBlobs(): Map<string, Uint8Array> { return this.wire.mobileBlobs; }
   get usageBody(): CloudUsageBody { return this.wire.usageBody; }
@@ -863,7 +976,8 @@ export class FakeCloudClient implements CloudClient {
   listDevices(): Promise<DeviceOut[]> { return this.wire.listDevices(); }
   revokeDevice(id: string): Promise<DeviceOut> { return this.wire.revokeDevice(id); }
   lastWorkerCompat(): number | null { return this.wire.lastWorkerCompat(); }
-  putMobileFeed(sealed: string): Promise<void> { return this.wire.putMobileFeed(sealed); }
+  putMobileFeed(sealed: string, epoch: number): Promise<void> { return this.wire.putMobileFeed(sealed, epoch); }
+  createPairing(): Promise<MobilePairingResponse> { return this.wire.createPairing(); }
   deleteMobileFeed(): Promise<void> { return this.wire.deleteMobileFeed(); }
   claimLaunch(id: string): Promise<boolean> { return this.wire.claimLaunch(id); }
   answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> { return this.wire.answerLaunch(id, ok, sealedAnswer); }

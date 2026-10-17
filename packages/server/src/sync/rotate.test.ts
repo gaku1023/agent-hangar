@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  aadFeed,
+  generatePhoneKeyPair,
+  importMobileKey,
+  open,
+  openPhoneKeybox,
+  sealPhoneJoinRequest,
+  type MobileFeed,
+  type PhoneKeyPair,
   decodeEpochList,
   deriveEpochKeys,
   E2eOpenError,
@@ -20,16 +28,22 @@ import {
   type RowAad,
 } from '@agent-hangar/shared';
 import { testKey } from '../../test/cloudConfig.ts';
-import { seedCloud, type FakeWireClient } from '../../test/fake-cloud.ts';
+import { FakeCloudClient, seedCloud, type FakeWireClient } from '../../test/fake-cloud.ts';
+import { FakeTimers } from '../../test/fake-timers.ts';
 import type { CloudConfig } from '../config/cloud.ts';
 import { openDb } from '../db/open.ts';
+import { PhonePairer } from '../mobile/pairer.ts';
+import { MobileFeedPublisher } from '../mobile/publisher.ts';
 import { RevokedError } from './client.ts';
 import { JoinApprover, type JoinTimers, type JoinWire } from './joinApprover.ts';
 import { Keyring } from './keyring.ts';
+import { phoneKeysOf } from './phoneKeys.ts';
 import { RosterStore, type ConfigWriter } from './roster.ts';
 import {
   DELIVER_RETRIES,
+  readPhoneRevoke,
   readRotation,
+  revokePhone,
   RevokeNotFoundError,
   RevokeSelfError,
   resumeRotation,
@@ -691,5 +705,154 @@ describe('参加の承認と解除が重なる', () => {
     await approver.approve();
     expect(approver.state().kind).toBe('done');
     expect(await newestBox(wire, 'pc-n', n.pair)).toEqual({ epoch: 2, epochs: EPOCHS });
+  });
+});
+
+const FEED: MobileFeed = { v: 1, deviceId: 'pc-a', deviceName: 'pc-a', accounts: [], projects: [], live: [], returns: [], done: [] };
+
+/** PC が QR を出し、スマホを順に接続する（mobile/pairer.ts）。スマホの鍵ペアを返す。 */
+async function pairPhones(pc: Pc, ids: string[]): Promise<Record<string, PhoneKeyPair>> {
+  const pairer = new PhonePairer({ wire: pc.wire, roster: pc.roster, timers: { set: () => null, clear: () => {} } });
+  const out: Record<string, PhoneKeyPair> = {};
+  for (const id of ids) {
+    const t = await pc.wire.createPairing();
+    await pairer.watch(t);
+    const pair = await generatePhoneKeyPair();
+    pc.wire.joinPhone({ code: t.code, deviceId: id, sealed: await sealPhoneJoinRequest(t.code, id, { pub: pair.pub, name: id }) });
+    await pairer.pollOnce();
+    out[id] = pair;
+  }
+  pairer.stop();
+  return out;
+}
+
+/** スマホがいま GET /m/keybox で受け取る M の世代と鍵。無ければ null。 */
+async function phoneM(wire: FakeWireClient, id: string, pair: PhoneKeyPair): Promise<{ epoch: number; key: CryptoKey } | null> {
+  const box = wire.phoneKeybox(id);
+  return box ? { epoch: box.epoch, key: await importMobileKey(await openPhoneKeybox(pair.key, pair.pub, id, box)) } : null;
+}
+
+const publisherOf = (pc: Pc) => new MobileFeedPublisher({ build: () => FEED, client: new FakeCloudClient({ wire: pc.wire, keyring: pc.keyring }), phoneKeys: phoneKeysOf(pc.keyring, pc.roster), deviceId: pc.id, timers: new FakeTimers(), canWrite: () => true });
+
+async function opensFeed(m: CryptoKey, sealed: string): Promise<boolean> {
+  try {
+    await open<MobileFeed>(m, aadFeed('pc-a'), sealed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const phonesIn = async (pc: Pc) => {
+  pc.roster.invalidate();
+  const r = (await pc.roster.read()).roster;
+  return { ids: r.entries.filter((e) => e.kind === 'phone').map((e) => e.id).sort(), phoneKey: r.phoneKey };
+};
+
+describe('revokePhone（スマホの解除）', () => {
+  it('スマホ A を解除しても、スマホ B は keybox を読み直して受信箱を開ける。A は新しい世代の素を開けず、PC の世代鍵は回さない', async () => {
+    const { wire, a, pcOf, seeded } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    const pub = publisherOf(a);
+    expect(await pub.flushNow()).toBe('written');
+    const a1 = (await phoneM(wire, 'phone-a', phones['phone-a']!))!;
+    expect(a1.epoch).toBe(1);
+    const pcEpoch = a.keyring.current().epoch;
+
+    const row = await revokeMember({ id: 'phone-a', ...opts(a) });
+    expect(row.revokedAt).not.toBeNull();
+    // 名簿から A が抜け、M は次の世代になる。PC の世代鍵は回さない。
+    expect(await phonesIn(a)).toMatchObject({ ids: ['phone-b'], phoneKey: { epoch: 2 } });
+    expect(a.keyring.phoneKey()?.epoch).toBe(2);
+    expect(a.cfg.current.phoneKey?.epoch).toBe(2);
+    expect(a.keyring.current().epoch).toBe(pcEpoch);
+    expect(a.wire.calls.some((c) => c.method === 'putKeyboxes')).toBe(false);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+
+    // 受信箱の書き手は新しい世代で書き直す。
+    expect(await pub.flushNow()).toBe('written');
+    const feedRow = wire.inboxFeeds().find((f) => f.deviceId === 'pc-a')!;
+    expect(feedRow.epoch).toBe(2);
+    // B は keybox を読み直して新しい世代の M を得て、素を開ける。
+    const b2 = (await phoneM(wire, 'phone-b', phones['phone-b']!))!;
+    expect(b2.epoch).toBe(2);
+    expect(await opensFeed(b2.key, feedRow.sealed)).toBe(true);
+    // A の keybox は古い世代のままで、端末トークンも無効。手元の M では新しい世代の素を開けない。
+    expect(wire.phoneKeybox('phone-a')?.epoch).toBe(1);
+    expect(await opensFeed(a1.key, feedRow.sealed)).toBe(false);
+    await expect(wire.asDevice('phone-a').listDevices()).rejects.toBeInstanceOf(RevokedError);
+
+    // 他の PC も名簿を読めば新しい M を持つ。
+    const b = await pcOf('pc-b', seeded.configs['pc-b']!);
+    await b.roster.read();
+    expect(b.keyring.phoneKey()?.epoch).toBe(2);
+  });
+
+  it('M の keybox を置く前に落ちても、次の起動の続きで残りのスマホに新しい世代の M を置く（M は 2 度回さない）', async () => {
+    const { wire, a, restart } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    await expect(revokePhone({ id: 'phone-a', ...opts(a, crashingAt(a.wire, 'putPhoneKeyboxes')) })).rejects.toThrow('crashed');
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toEqual({ id: 'phone-a' });
+    expect(wire.phoneKeybox('phone-b')?.epoch).toBe(1);
+
+    const again = await restart(a);
+    expect(await resumeRotation(opts(again))).toBe(true);
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(2);
+    expect(await phonesIn(again)).toMatchObject({ ids: ['phone-b'], phoneKey: { epoch: 2 } });
+    expect(readPhoneRevoke(again.state, again.cfg.current.cloudId)).toBeNull();
+    expect(await resumeRotation(opts(again))).toBe(false);
+  });
+
+  it('解除の口に届かずに落ちても、次の起動で解除してから M を回す', async () => {
+    const { wire, a, restart } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    await expect(revokePhone({ id: 'phone-a', ...opts(a, crashingAt(a.wire, 'revokeDevice')) })).rejects.toThrow('crashed');
+    expect(wire.storeForScan().devices.get('phone-a')?.revokedAt).toBeNull();
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(1);
+
+    const again = await restart(a);
+    expect(await resumeRotation(opts(again))).toBe(true);
+    expect(wire.storeForScan().devices.get('phone-a')?.revokedAt).not.toBeNull();
+    expect(await phonesIn(again)).toMatchObject({ ids: ['phone-b'], phoneKey: { epoch: 2 } });
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(2);
+  });
+
+  it('配る直前に別のスマホも解除されていたら、Worker がいるとするスマホだけに置き直す', async () => {
+    const { wire, a } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b', 'phone-c']);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await revokePhone({ id: 'phone-a', ...opts(a, before(a.wire, 'putPhoneKeyboxes', async () => wire.revoke('phone-c'))) });
+    warn.mockRestore();
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(2);
+    expect(wire.phoneKeybox('phone-c')?.epoch).toBe(1);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+  });
+
+  it('前のスマホの解除が (2) の後で落ちて記録が残ったまま別のスマホを解除すると、先に前の解除を終え、両方が名簿から外れて M が回る', async () => {
+    const { wire, a } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b', 'phone-c']);
+    const crashing = new RosterStore(crashingAt(a.wire, 'putRoster'), a.keyring, a.cfg, 'pc-a');
+    await expect(revokePhone({ id: 'phone-a', ...opts(a, a.wire, { roster: crashing }) })).rejects.toThrow('crashed');
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toEqual({ id: 'phone-a' });
+    expect(wire.storeForScan().devices.get('phone-a')?.revokedAt).not.toBeNull();
+    expect((await phonesIn(a)).ids).toEqual(['phone-a', 'phone-b', 'phone-c']);
+
+    await revokePhone({ id: 'phone-b', ...opts(a) });
+    expect(await phonesIn(a)).toMatchObject({ ids: ['phone-c'], phoneKey: { epoch: 3 } });
+    expect(wire.storeForScan().devices.get('phone-b')?.revokedAt).not.toBeNull();
+    expect((await phoneM(wire, 'phone-c', phones['phone-c']!))?.epoch).toBe(3);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+  });
+
+  it('名簿にいないスマホ（接続の途中で解除された）なら、端末トークンだけを無効にし、M も名簿も書き換えない', async () => {
+    const { wire, a } = await setup(['pc-a', 'pc-b']);
+    await pairPhones(a, ['phone-b']);
+    wire.storeForScan().devices.set('phone-x', { id: 'phone-x', kind: 'mobile', joinedAt: 1, lastSeenAt: null, revokedAt: null, expiresAt: null });
+    const version = wire.roster!.version;
+    const row = await revokeMember({ id: 'phone-x', ...opts(a) });
+    expect(row.revokedAt).not.toBeNull();
+    expect(wire.roster!.version).toBe(version);
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(1);
+    expect(wire.phoneKeybox('phone-b')?.epoch).toBe(1);
   });
 });

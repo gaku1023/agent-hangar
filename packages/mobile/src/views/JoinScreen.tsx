@@ -2,16 +2,24 @@ import type { PairingBlob } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { remaining, useNow } from '../countdown.ts';
 import { isStandalone } from '../platform.ts';
-import { JoinError, joinPhone, readPairText } from '../api.ts';
-import { savePairing, type Pairing } from '../store.ts';
+import { JoinError, joinPhone, readPairText, UnpairedError, type UnpairedReason } from '../api.ts';
+import { waitPhoneKeys } from '../keyring.ts';
+import { clearPairing, savePairing, type Keyring, type Pairing, type PhonePair } from '../store.ts';
 
 type Step =
-  | { kind: 'start'; note: string | null }
+  | { kind: 'start'; note: string | null; expired: boolean }
   | { kind: 'confirm'; text: string; blob: PairingBlob }
-  | { kind: 'joined'; pairing: Pairing; key: CryptoKey }
+  | { kind: 'waiting'; pairing: Pairing; pair: PhonePair; pcName: string | null }
+  | { kind: 'joined'; pairing: Pairing; pair: PhonePair; keys: Keyring }
   | { kind: 'ticket' };
 
 const BAD_TEXT = '接続コードを読み取れません。PC の QR の下の「コードをコピー」でコピーし直してください。';
+/** 30 日使わなかったか、接続から 90 日たって、Worker がトークンを断った。 */
+export const EXPIRED_TEXT = '接続の期限が切れました。PC で QR を出して接続し直してください。';
+const UNPAIRED_TEXT = 'このスマホの接続は解除されています。PC で QR を表示して、接続し直してください。';
+
+/** 401 で参加の画面に戻ったときの文。 */
+const unpairedNote = (reason: UnpairedReason): string => (reason === 'expired' ? EXPIRED_TEXT : UNPAIRED_TEXT);
 
 /** スマホの名前の既定。PC の一覧に出るので、機種の種類だけにする。 */
 export function guessDeviceName(ua: string = navigator.userAgent): string {
@@ -21,12 +29,13 @@ export function guessDeviceName(ua: string = navigator.userAgent): string {
   return 'スマホ';
 }
 
-function initialStep(pairText: string | null): Step {
-  if (!pairText) return { kind: 'start', note: null };
+function initialStep(pairText: string | null, notice: 'expired' | null, resume: Resume | null): Step {
+  if (resume && !pairText) return { kind: 'waiting', pairing: resume.pairing, pair: resume.pair, pcName: null };
+  if (!pairText) return { kind: 'start', note: notice === 'expired' ? EXPIRED_TEXT : null, expired: notice === 'expired' };
   try {
     return { kind: 'confirm', text: pairText, blob: readPairText(pairText) };
   } catch {
-    return { kind: 'start', note: BAD_TEXT };
+    return { kind: 'start', note: BAD_TEXT, expired: false };
   }
 }
 
@@ -36,7 +45,7 @@ const joinMessage = (e: unknown): string => {
     case 'storage':
       return 'このブラウザにキーを保存できませんでした。プライベートブラウズを切ってから、もう一度タップしてください（この QR はまだ使えます）。';
     case 'too-many-phones':
-      return 'スマホは 10 台まで接続できます。PC の設定 › クラウド で使っていないスマホを解除してから、QR を表示し直してください。';
+      return 'スマホは 10 台まで接続できます。PC の設定 › クラウド同期 で使っていないスマホを解除してから、QR を表示し直してください。';
     case 'upgrade':
       return 'このアプリが古くなっています。いったん閉じて、開き直してください。';
     case 'network':
@@ -46,23 +55,36 @@ const joinMessage = (e: unknown): string => {
   }
 };
 
+/** 接続はできたが、スマホ用の鍵をまだ受け取っていない（keybox を待っている間にアプリを閉じた）。 */
+export type Resume = { pairing: Pairing; pair: PhonePair };
+
 type Props = {
   /** 開いた URL の #pair= の中身（main が URL から消して渡す）。無ければ null。 */
   pairText: string | null;
   /** 接続を終えて受信箱へ進む。 */
-  onEnter: (pairing: Pairing, key: CryptoKey) => void;
+  onEnter: (pairing: Pairing, pair: PhonePair, keys: Keyring) => void;
+  /** 受信箱が 401 expired で戻ってきた。期限切れの文を出す。 */
+  notice?: 'expired' | null;
+  /** keybox の待ちから続ける。 */
+  resume?: Resume | null;
+  /** keybox を読む間隔と、待つ長さ。試験で縮める。 */
+  wait?: { everyMs?: number; giveUpMs?: number };
 };
 
 /** 参加の画面（画面のメモの C1 の ①〜④）。段が替わるたびに薄れから現す。 */
-export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
-  const [step, setStep] = useState<Step>(() => initialStep(pairText));
+export function JoinScreen({ pairText, onEnter, notice = null, resume = null, wait }: Props): ReactNode {
+  const [step, setStep] = useState<Step>(() => initialStep(pairText, notice, resume));
   // ホーム画面のアプリでは、接続の画面を開いたらすぐカメラで QR を読む。
   const [home] = useState(isStandalone);
 
-  const onJoined = (pairing: Pairing, key: CryptoKey): void => {
+  const onJoined = (pairing: Pairing, pair: PhonePair, keys: Keyring): void => {
     // ホーム画面のアプリの中で接続したなら、ホーム画面に追加する案内は要らない。
-    if (isStandalone()) onEnter(pairing, key);
-    else setStep({ kind: 'joined', pairing, key });
+    if (isStandalone()) onEnter(pairing, pair, keys);
+    else setStep({ kind: 'joined', pairing, pair, keys });
+  };
+  const onUnpaired = (reason: UnpairedReason): void => {
+    void clearPairing();
+    setStep({ kind: 'start', note: unpairedNote(reason), expired: reason === 'expired' });
   };
   const onText = (text: string): string | null => {
     try {
@@ -76,13 +98,34 @@ export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
   return (
     <main className="join">
       <div className="step m-fade" key={step.kind}>
-        {step.kind === 'confirm' && <Confirm text={step.text} blob={step.blob} onJoined={onJoined} onTicket={() => setStep({ kind: 'ticket' })} />}
-        {step.kind === 'joined' && <Joined onLater={() => onEnter(step.pairing, step.key)} />}
+        {step.kind === 'confirm' && (
+          <Confirm
+            text={step.text}
+            blob={step.blob}
+            onWaiting={(pairing, pair) => setStep({ kind: 'waiting', pairing, pair, pcName: step.blob.pcName || null })}
+            onTicket={() => setStep({ kind: 'ticket' })}
+          />
+        )}
+        {step.kind === 'waiting' && (
+          <Waiting
+            pairing={step.pairing}
+            pair={step.pair}
+            pcName={step.pcName}
+            wait={wait}
+            onKeys={(keys) => onJoined(step.pairing, step.pair, keys)}
+            onUnpaired={onUnpaired}
+            onGiveUp={() => {
+              void clearPairing();
+              setStep({ kind: 'start', note: null, expired: false });
+            }}
+          />
+        )}
+        {step.kind === 'joined' && <Joined onLater={() => onEnter(step.pairing, step.pair, step.keys)} />}
         {step.kind === 'ticket' && (
           <>
             <Logo />
             <h1 className="p-h">この QR は使えません</h1>
-            <p className="strip danger m-fade">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド で、QR を表示し直してください。</p>
+            <p className="strip danger m-fade">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド同期 で、QR を表示し直してください。</p>
             <ReadControls onText={onText} />
           </>
         )}
@@ -95,6 +138,8 @@ export function JoinScreen({ pairText, onEnter }: Props): ReactNode {
                 <h1 className="p-h">PC の QR を読み取ります</h1>
                 <p className="p-t">PC の画面の QR を枠に合わせてください。QR は PC で表示してから 5 分有効です。</p>
               </>
+            ) : step.expired ? (
+              <h1 className="p-h">このスマホの接続が切れています</h1>
             ) : (
               <>
                 <h1 className="p-h">このスマホはまだ接続していません</h1>
@@ -120,7 +165,7 @@ function Logo(): ReactNode {
 }
 
 /** ① QR を読んだ直後の 1 枚。どこへ、どの PC の QR で、残り何分かを見てから押す。 */
-function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: PairingBlob; onJoined: (p: Pairing, k: CryptoKey) => void; onTicket: () => void }): ReactNode {
+function Confirm({ text, blob, onWaiting, onTicket }: { text: string; blob: PairingBlob; onWaiting: (p: Pairing, pair: PhonePair) => void; onTicket: () => void }): ReactNode {
   const [name, setName] = useState(() => guessDeviceName());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -138,9 +183,10 @@ function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: Pairi
     setBusy(true);
     setError(null);
     try {
-      const { pairing, key } = await joinPhone(text, n);
+      // 接続できたら、スマホ用の鍵を受け取る前に接続を置く（待っている間に閉じても、開き直して待ちから続けられる）。
+      const { pairing, pair } = await joinPhone(text, n);
       savePairing(pairing);
-      onJoined(pairing, key);
+      onWaiting(pairing, pair);
     } catch (err) {
       if (err instanceof JoinError && err.reason === 'ticket') {
         onTicket();
@@ -177,6 +223,83 @@ function Confirm({ text, blob, onJoined, onTicket }: { text: string; blob: Pairi
         {busy ? '接続中…' : '接続する'}
       </button>
     </form>
+  );
+}
+
+/**
+ * ①と②の間。接続はできたので、QR を表示した PC がこのスマホ用のキー（M）を keybox に置くのを待つ。
+ * 2 秒ごとに最大 60 秒。待ちきれなければ理由を出し、「もう一度待つ」で券を使わずに待ち直す。
+ */
+function Waiting({
+  pairing,
+  pair,
+  pcName,
+  wait,
+  onKeys,
+  onUnpaired,
+  onGiveUp,
+}: {
+  pairing: Pairing;
+  pair: PhonePair;
+  pcName: string | null;
+  wait?: { everyMs?: number; giveUpMs?: number };
+  onKeys: (keys: Keyring) => void;
+  onUnpaired: (reason: UnpairedReason) => void;
+  onGiveUp: () => void;
+}): ReactNode {
+  const [round, setRound] = useState(0);
+  const [failed, setFailed] = useState(false);
+  // 親が描き直すたびに待ちをやり直さないよう、受け手は ref で持つ。
+  const handlers = useRef({ onKeys, onUnpaired });
+  handlers.current = { onKeys, onUnpaired };
+  const waitRef = useRef(wait);
+  waitRef.current = wait;
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    setFailed(false);
+    waitPhoneKeys(pairing, pair, { ...waitRef.current, signal: ctl.signal }).then(
+      (keys) => {
+        if (!ctl.signal.aborted) handlers.current.onKeys(keys);
+      },
+      (e: unknown) => {
+        if (ctl.signal.aborted) return;
+        if (e instanceof UnpairedError) handlers.current.onUnpaired(e.reason);
+        else setFailed(true);
+      },
+    );
+    return () => ctl.abort();
+  }, [pairing, pair, round]);
+
+  const pc = pcName ? `QR を表示した PC（${pcName}）` : 'QR を表示した PC';
+  return (
+    <>
+      <Logo />
+      <h1 className="p-h">PC の応答を待っています</h1>
+      <p className="p-t">{pc}が、このスマホ用のキーを用意しています。PC の QR は表示したままにしてください。</p>
+      {failed ? (
+        <p className="strip danger m-fade" role="alert">
+          PC から応答がありません。PC で hangar が実行中で、QR を表示したままか確認して、「もう一度待つ」をタップしてください。
+        </p>
+      ) : (
+        <p className="p-mini m-fade" role="status">
+          受信中…（最大 1 分）
+        </p>
+      )}
+      <div className="p-spacer" />
+      {failed && (
+        <>
+          <button type="button" className="p-btn" onClick={() => setRound((n) => n + 1)}>
+            もう一度待つ
+          </button>
+          <button type="button" className="p-btn sec" onClick={onGiveUp}>
+            別の QR で接続する
+          </button>
+          {/* 接続はできているので、Worker のスマホの行は PC で解除するまで消えない（10 台の枠にも数える）。 */}
+          <p className="p-mini m-fade">別の QR で接続しても、今の接続は PC の設定 › クラウド同期 で解除するまで削除されません。</p>
+        </>
+      )}
+    </>
   );
 }
 

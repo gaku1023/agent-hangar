@@ -2,13 +2,16 @@ import {
   decodeEpochList,
   encodeEpochList,
   fromBase64Url,
+  fromBase64UrlLen,
   importPrivate,
   JOIN_CODE_TTL_MS,
   MAX_KEYBOXES_PER_PUT,
   openKeybox,
+  PHONE_KEY_LEN,
   randomEpochKey,
   RECOVERY_RECIPIENT,
   sealKeybox,
+  sealPhoneKeybox,
   toBase64Url,
   type DeviceOut,
   type EpochClaim,
@@ -92,8 +95,8 @@ export const JOIN_STALE_MS = 3 * JOIN_CODE_TTL_MS;
 /** 起動のときの続きや解除が失敗して、記録が残ったときに、もう一度試すまでの間。 */
 export const ROTATION_RETRY_MS = 5 * 60_000;
 
-/** 世代の回しが使う線の口。 */
-export type RotateWire = Pick<HttpCloudClient, 'revokeDevice' | 'listDevices' | 'putKeyboxes' | 'getKeyboxes'>;
+/** 世代の回しとスマホの解除が使う線の口。 */
+export type RotateWire = Pick<HttpCloudClient, 'revokeDevice' | 'listDevices' | 'putKeyboxes' | 'getKeyboxes' | 'putPhoneKeyboxes'>;
 
 export type RotateDeps = {
   client: RotateWire;
@@ -112,6 +115,8 @@ export type RotateDeps = {
   /** 試し直しの間を待つ。試験が差し替える。 */
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** スマホの解除で作る次の世代の M。既定は 32 バイトの乱数。試験が差し替える。 */
+  newPhoneKey?: () => Uint8Array;
 };
 
 export type RevokePcOptions = RotateDeps & { id: string };
@@ -136,8 +141,7 @@ const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r
 
 /**
  * 設定のクラウド同期の「解除」（`POST /api/sync/cloud-devices/:id/revoke`）。解除した端末の行を返す。
- * Worker の一覧で種類を見て、PC なら revokePc で世代を回し、スマホなら端末トークンだけを無効にする。
- * スマホ用の鍵の世代を回すのはスマホの解除（PR 7）で、ここでは扱わない。
+ * Worker の一覧で種類を見て、PC なら revokePc で世代を回し、スマホなら revokePhone でスマホ用の鍵 M だけを次の世代にする。
  * 一覧に無い端末は RevokeNotFoundError、自分自身は RevokeSelfError で断る。
  * すでに解除した端末には何もせず、今の行を返す。
  */
@@ -145,10 +149,129 @@ export async function revokeMember(o: RevokePcOptions): Promise<DeviceOut> {
   if (o.id === o.deviceId) throw new RevokeSelfError();
   const target = (await o.client.listDevices()).find((d) => d.id === o.id);
   if (!target) throw new RevokeNotFoundError();
-  if (target.kind === 'mobile') return target.revokedAt !== null ? target : o.client.revokeDevice(o.id);
+  if (target.kind === 'mobile') {
+    if (target.revokedAt !== null) return target;
+    return (await revokePhone(o)) ?? (await deviceRow(o, o.id)) ?? target;
+  }
   const done = await revokeKnown(o, target);
   if (!done) throw new RevokeNotFoundError();
   return done;
+}
+
+/**
+ * スマホの解除の途中の記録（sync_state の phoneRevoke）。解除するスマホの ID と、記録を書いたときのクラウドの ID。
+ * PC の回し（rotation）と違って段を持たない。どの段も、やり直しても同じ結果になるからである（runPhone の注）。
+ */
+type PhoneRevokeRecord = { id: string; cloudId: string };
+
+/**
+ * スマホの解除の途中の記録を読む。無いか読めなければ null。
+ * 記録の cloudId が今のクラウドと違えば（作り直した後）、記録を消して null を返す。
+ */
+export function readPhoneRevoke(state: SyncStateStore, cloudId: string): { id: string } | null {
+  const raw = state.get('phoneRevoke');
+  if (raw === null) return null;
+  let v: Partial<PhoneRevokeRecord> | null = null;
+  try {
+    v = JSON.parse(raw) as Partial<PhoneRevokeRecord> | null;
+  } catch {
+    // 下で知らせる。
+  }
+  if (!v || typeof v.id !== 'string' || v.id === '') {
+    console.error('[rotate] the phone removal record in sync_state could not be read');
+    return null;
+  }
+  if (v.cloudId !== cloudId) {
+    console.warn('[rotate] dropped a phone removal record left from another cloud');
+    state.set('phoneRevoke', null);
+    return null;
+  }
+  return { id: v.id };
+}
+
+/**
+ * スマホを解除する（設計書「スマホの解除」）。解除した端末の行を返す（Worker が知らない端末なら null）。
+ * (1) sync_state の phoneRevoke に記録を書き、(2) `POST /devices/:id/revoke` で端末トークンを無効にする。
+ * (3) 名簿からそのスマホを外し、同じ書き換えで名簿の phoneKey を M[m+1] に差し替える。他の PC は名簿を読んだときに写す（RosterStore.adoptPhoneKey）。
+ * (4) 名簿に残るスマホのうち Worker が解除していないものの公開鍵に M[m+1] を封じ、`PUT /phone-keyboxes` に置く。
+ * (5) 記録を消す。
+ * PC の世代鍵は回さない。解除したスマホは PC の行を読めないからである。
+ * 残りのスマホは受信箱の素の世代が手元より新しいと keybox を読み直すので、接続は切れない。
+ * 受信箱の書き手は、世代が進むと同じ中身でも書き直す（mobile/publisher.ts。次のきっかけか、60 秒の安全網で）。
+ * 失敗は投げ、記録は残す。次の起動の resumeRotation と、5 分おきの試し直しが続きを行う。
+ */
+export async function revokePhone(o: RevokePcOptions): Promise<DeviceOut | null> {
+  if (o.id === o.deviceId) throw new RevokeSelfError();
+  const cloudId = o.cfg.read().cloudId;
+  const left = readPhoneRevoke(o.state, cloudId);
+  // 記録は 1 件分しか持てない。別のスマホの記録が残っていれば、上書きする前にその解除を終わらせる。
+  if (left && left.id !== o.id) await runPhone(o, left.id, true);
+  // 同じスマホの記録が残っていれば、前の解除の続きである（画面の「もう一度試す」）。
+  const resumed = left?.id === o.id;
+  o.state.set('phoneRevoke', JSON.stringify({ id: o.id, cloudId } satisfies PhoneRevokeRecord));
+  return runPhone(o, o.id, resumed);
+}
+
+/**
+ * スマホの解除の (2) から (5)。
+ * どの段もやり直してよい。Worker は解除済みの端末をそのまま返す。
+ * 名簿にまだそのスマホがいれば、外すのと M を回すのを 1 回の書き換えで行うので、名簿にいないなら M はもう回してある
+ * （か、そのスマホは M を受け取る前に解除された。接続の直後に解除されたスマホは、pairer が名簿から外す）。
+ * keybox は名簿の今の M を置くので、置き直しても同じか、より新しい世代になる。
+ * 置くのは、ここで M を回したときと、記録の続き（resumed）のときだけである。
+ * 名簿にいないスマホの初めての解除では、M も keybox も前のままでよい。
+ */
+async function runPhone(o: RotateDeps, id: string, resumed: boolean): Promise<DeviceOut | null> {
+  let device: DeviceOut | null = null;
+  try {
+    device = await o.client.revokeDevice(id);
+  } catch (e) {
+    if (!(e instanceof CloudError && e.status === 404)) throw e;
+  }
+  o.roster.invalidate();
+  const listed = (r: Roster): boolean => r.entries.some((e) => e.id === id && e.kind === 'phone');
+  let { roster } = await o.roster.read();
+  const rotate = listed(roster);
+  if (rotate) {
+    // fn は当て直しのたびに呼ばれるので、M[m+1] の候補は外で 1 回だけ作る。
+    const fresh = toBase64Url(o.newPhoneKey?.() ?? globalThis.crypto.getRandomValues(new Uint8Array(PHONE_KEY_LEN)));
+    const done = await o.roster.update((r) => {
+      if (!listed(r)) return r;
+      return { ...r, entries: r.entries.filter((e) => !(e.id === id && e.kind === 'phone')), phoneKey: r.phoneKey ? { epoch: r.phoneKey.epoch + 1, key: fresh } : null };
+    });
+    roster = done.roster;
+  }
+  if (!rotate && !resumed) {
+    o.state.set('phoneRevoke', null);
+    return device;
+  }
+  await deliverPhoneKey(o, roster, id);
+  o.state.set('phoneRevoke', null);
+  return device;
+}
+
+/**
+ * (4) 名簿の今の M を、名簿に残るスマホ（解除した id を除く）のうち Worker が解除していないものに置く。
+ * PUT /phone-keyboxes は解除されたスマホが 1 つでも混ざると全部を断るので、400 なら一覧を読み直して 1 度だけ置き直す。
+ */
+async function deliverPhoneKey(o: RotateDeps, roster: Roster, revoked: string): Promise<void> {
+  const pk = roster.phoneKey;
+  const phones = roster.entries.filter((e) => e.kind === 'phone' && e.id !== revoked);
+  if (!pk || phones.length === 0) return;
+  const m = fromBase64UrlLen(pk.key, PHONE_KEY_LEN, 'phone key');
+  const put = async (): Promise<void> => {
+    const devices = await o.client.listDevices();
+    const live = phones.filter((e) => devices.some((d) => d.id === e.id && d.kind === 'mobile' && d.revokedAt === null));
+    const boxes: KeyboxIn[] = await Promise.all(live.map(async (e) => ({ epoch: pk.epoch, recipient: e.id, sealed: toBase64Url(await sealPhoneKeybox(e.pub, e.id, pk.epoch, m)) })));
+    for (let i = 0; i < boxes.length; i += MAX_KEYBOXES_PER_PUT) await o.client.putPhoneKeyboxes(boxes.slice(i, i + MAX_KEYBOXES_PER_PUT));
+  };
+  try {
+    await put();
+  } catch (e) {
+    if (!(e instanceof CloudError && e.status === 400)) throw e;
+    console.warn('[rotate] the Worker refused some phone keybox recipients; placing them again for the phones still connected');
+    await put();
+  }
 }
 
 /**
@@ -249,12 +372,19 @@ async function revokeWhileWaiting(o: RevokePcOptions, pending: Rotation): Promis
   return run(o, readRotation(o.state, cloudId) ?? cur);
 }
 
-/** 起動のときに、途中の記録があれば続きから終わらせる。終わらせたら true、記録が無ければ false。 */
+/** 起動のときに、途中の記録（PC の回しとスマホの解除）があれば続きから終わらせる。終わらせたら true、記録が無ければ false。 */
 export async function resumeRotation(o: RotateDeps): Promise<boolean> {
-  const pending = readRotation(o.state, o.cfg.read().cloudId);
-  if (!pending) return false;
-  await run(o, pending);
-  return true;
+  const cloudId = o.cfg.read().cloudId;
+  const pending = readRotation(o.state, cloudId);
+  if (pending) await run(o, pending);
+  const phone = readPhoneRevoke(o.state, cloudId);
+  if (phone) await runPhone(o, phone.id, true);
+  return pending !== null || phone !== null;
+}
+
+/** 途中の記録（PC の回しかスマホの解除）が残っているか。 */
+export function rotationPending(state: SyncStateStore, cloudId: string): boolean {
+  return readRotation(state, cloudId) !== null || readPhoneRevoke(state, cloudId) !== null;
 }
 
 /** 回しの続きを、間を置いて試し直してよい失敗か。解除済みの自分（RevokedError）では試し直さない。 */

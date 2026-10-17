@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, MobilePairedDto, MobilePairingDto } from '@agent-hangar/shared';
 import { initialCloudMember, RECOVERY_SHOW_MS, type CloudMemberState } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
 import { createApi } from './api.ts';
 import { PAIR_TTL_MS as PAIR_TTL_SHOWN_MS } from '../presenters/cloudMember.ts';
-import { CLOUD_RESTART_MS, createCloudMemberRunner, JOIN_POLL_MS, PAIR_POLL_MS, type JoinCodesApi, type RecoveryKeyApi } from './cloudMember.ts';
+import { CLOUD_RESTART_MS, createCloudMemberRunner, JOIN_POLL_MS, PAIR_POLL_MS, PHONE_UNDO_MS, type JoinCodesApi, type RecoveryKeyApi } from './cloudMember.ts';
 
 const check = { url: 'https://h.example', host: 'h.example', pcCount: 1, current: null };
 const devices: CloudDevicesDto = { state: 'ok', devices: [], creator: false, message: null };
@@ -48,7 +48,7 @@ function rig(bridge: Partial<CloudBridge> | null = {}, o: { joinCodes?: JoinCode
   };
   const joinCodes = o.joinCodes ?? fakeJoinCodes();
   const recovery = o.recovery ?? fakeRecovery();
-  const r = createCloudMemberRunner({ bridge: full, load, pair: async () => ({ state: 'not-joined' }), joinCodes, recovery, now: o.now ?? (() => 0), restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  const r = createCloudMemberRunner({ bridge: full, load, pair: async () => ({ state: 'not-joined' }), paired: async () => ({ paired: null }), joinCodes, recovery, now: o.now ?? (() => 0), restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
   /** いちばん古い、ms の長さの予約を 1 つ走らせる。 */
   const fire = async (ms: number) => {
     const i = timers.findIndex((t) => t.ms === ms);
@@ -63,17 +63,19 @@ function rig(bridge: Partial<CloudBridge> | null = {}, o: { joinCodes?: JoinCode
 const NOW = 1_700_000_000_000;
 const phone = (id: string, over: Partial<CloudDevicesDto['devices'][number]> = {}): CloudDevicesDto['devices'][number] => ({ id, name: id, platform: null, joinedAt: NOW, lastSeenAt: NOW, revokedAt: null, expiresAt: null, kind: 'mobile', self: false, ...over });
 const pc = { ...phone('studio'), platform: 'darwin', kind: 'pc' as const, self: true };
-const ready: MobilePairingDto = { state: 'ready', pairUrl: 'https://w.example/app/#pair=PAIRTEXT', pairText: 'PAIRTEXT', expiresAt: NOW + PAIR_TTL_SHOWN_MS };
+const ready: MobilePairingDto = { state: 'ready', pairUrl: 'https://w.example/app/#pair=PAIRTEXT', pairText: 'PAIRTEXT', expiresAt: NOW + PAIR_TTL_SHOWN_MS, pairId: 'pair-1' };
 
 /** スマホの接続の段の試験台。時計は now で進め、予約は timers に積む（走らせるのは試験が選ぶ）。 */
-function phoneRig(o: { pair?: () => Promise<MobilePairingDto>; lists?: CloudDevicesDto[] } = {}) {
+function phoneRig(o: { pair?: () => Promise<MobilePairingDto>; lists?: CloudDevicesDto[]; paired?: MobilePairedDto[] } = {}) {
   let s: CloudMemberState = { ...initialCloudMember(), devices: { state: 'ok', devices: [pc], creator: false, message: null } };
   let now = NOW;
   const timers: { fn: () => void; ms: number }[] = [];
   const lists = [...(o.lists ?? [])];
+  const answers = [...(o.paired ?? [])];
   const load = vi.fn(async () => lists.shift() ?? s.devices!);
   const pair = vi.fn(o.pair ?? (async () => ready));
-  const r = createCloudMemberRunner({ bridge: null, load, pair, joinCodes: fakeJoinCodes(), recovery: fakeRecovery(), now: () => now, restart: () => {}, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  const paired = vi.fn(async (_id: string): Promise<MobilePairedDto> => answers.shift() ?? { paired: null });
+  const r = createCloudMemberRunner({ bridge: null, load, pair, paired, joinCodes: fakeJoinCodes(), recovery: fakeRecovery(), now: () => now, restart: () => {}, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
   /** いちばん古い、ms の長さの予約を 1 つ走らせる。 */
   const fire = async (ms: number) => {
     const i = timers.findIndex((t) => t.ms === ms);
@@ -82,11 +84,11 @@ function phoneRig(o: { pair?: () => Promise<MobilePairingDto>; lists?: CloudDevi
     t!.fn();
     await flush();
   };
-  return { r, get: () => s, timers, load, pair, fire, tick: (ms: number) => { now += ms; } };
+  return { r, get: () => s, timers, load, pair, paired, fire, tick: (ms: number) => { now += ms; } };
 }
 
 describe('スマホの接続の QR', () => {
-  it('QR を出すと券を取り、ready の間は 3 秒ごとに端末の一覧を再読み込みする', async () => {
+  it('QR を出すと券を取り、ready の間は 3 秒ごとに券の印でサーバーの軽い口だけを読む（端末の一覧は読まない）', async () => {
     const x = phoneRig();
     x.r.run({ op: 'pair' });
     expect(x.get().phone).toEqual({ kind: 'loading' });
@@ -95,27 +97,28 @@ describe('スマホの接続の QR', () => {
     expect(x.timers.map((t) => t.ms).sort()).toEqual([PAIR_POLL_MS, PAIR_TTL_SHOWN_MS].sort());
     await x.fire(PAIR_POLL_MS);
     await x.fire(PAIR_POLL_MS);
-    expect(x.load).toHaveBeenCalledTimes(2);
+    expect(x.paired.mock.calls).toEqual([['pair-1'], ['pair-1']]);
+    expect(x.load).not.toHaveBeenCalled();
     expect(x.timers.filter((t) => t.ms === PAIR_POLL_MS)).toHaveLength(1);
   });
 
-  it('QR を出している間に kind=mobile の新しい行が現れたら paired にし、再読み込みを止める。前からあったスマホは数えない', async () => {
-    const old = phone('old-phone');
-    const base: CloudDevicesDto = { state: 'ok', devices: [pc, old], creator: false, message: null };
-    const x = phoneRig({ lists: [base, base, { ...base, devices: [pc, old, phone('p1', { name: 'iPhone' })] }] });
-    x.r.run({ op: 'load' });
-    await flush();
+  it('PC が keybox を置き終えたら paired にし、一覧を 1 回だけ読み直して、見回りを止める', async () => {
+    const base: CloudDevicesDto = { state: 'ok', devices: [pc], creator: false, message: null };
+    const x = phoneRig({ lists: [{ ...base, devices: [pc, phone('p1', { name: 'iPhone' })] }], paired: [{ paired: null }, { paired: { id: 'p1', name: 'iPhone' } }] });
     x.r.run({ op: 'pair' });
     await flush();
     await x.fire(PAIR_POLL_MS);
     expect(x.get().phone.kind).toBe('ready');
     await x.fire(PAIR_POLL_MS);
     expect(x.get().phone).toEqual({ kind: 'paired', id: 'p1', name: 'iPhone' });
-    expect(x.get().devices?.devices.map((d) => d.id)).toEqual(['studio', 'old-phone', 'p1']);
-    // paired になったら、残っていた予約が走っても読み直さない。
-    const before = x.load.mock.calls.length;
+    await flush();
+    expect(x.load).toHaveBeenCalledTimes(1);
+    expect(x.get().devices?.devices.map((d) => d.id)).toEqual(['studio', 'p1']);
+    // paired になったら、残っていた予約が走っても読まない。
+    const before = x.paired.mock.calls.length;
     while (x.timers.some((t) => t.ms === PAIR_POLL_MS)) await x.fire(PAIR_POLL_MS);
-    expect(x.load).toHaveBeenCalledTimes(before);
+    expect(x.paired).toHaveBeenCalledTimes(before);
+    expect(x.load).toHaveBeenCalledTimes(1);
   });
 
   it('QR を閉じたら 3 秒ごとの読み直しが止まり、QR の中身も状態から消える', async () => {
@@ -126,7 +129,7 @@ describe('スマホの接続の QR', () => {
     expect(x.get().phone).toEqual({ kind: 'idle' });
     expect(JSON.stringify(x.get())).not.toContain('PAIRTEXT');
     await x.fire(PAIR_POLL_MS);
-    expect(x.load).not.toHaveBeenCalled();
+    expect(x.paired).not.toHaveBeenCalled();
     expect(x.timers.some((t) => t.ms === PAIR_POLL_MS)).toBe(false);
   });
 
@@ -139,7 +142,7 @@ describe('スマホの接続の QR', () => {
     expect(x.get().phone).toEqual({ kind: 'expired' });
     expect(JSON.stringify(x.get())).not.toContain('PAIRTEXT');
     await x.fire(PAIR_POLL_MS);
-    expect(x.load).not.toHaveBeenCalled();
+    expect(x.paired).not.toHaveBeenCalled();
   });
 
   it('QR の段を開いたまま新しい QR を頼むと renew つきの loading にし（段を畳まない）、届いたら ready に戻る', async () => {
@@ -183,6 +186,102 @@ describe('スマホの接続の QR', () => {
     y.r.run({ op: 'pair' });
     await flush();
     expect(y.get().phone).toEqual({ kind: 'failed', message: '接続できません' });
+  });
+});
+
+describe('スマホの解除と「元に戻す」', () => {
+  const withPhones = (x: ReturnType<typeof rig>) => {
+    x.set({ ...x.get(), devices: { state: 'ok', devices: [pc, phone('p1', { name: 'iPhone' }), phone('p2', { name: 'iPad' })], creator: false, message: null } });
+  };
+
+  it('1 クリックで行を隠して「元に戻す」を出し、5 秒の間は何も送らず、5 秒たったら解除を送る', async () => {
+    const revoke = vi.fn(async (id: string) => ({ ok: true as const, value: { id, kind: 'mobile' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }));
+    const x = rig({ revoke });
+    withPhones(x);
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    expect(x.get().phoneUndo).toEqual({ id: 'p1', name: 'iPhone' });
+    expect(x.timers.map((t) => t.ms)).toEqual([PHONE_UNDO_MS]);
+    expect(PHONE_UNDO_MS).toBe(5000);
+    await flush();
+    expect(revoke).not.toHaveBeenCalled();
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    expect(x.get().phoneUndo).toBeNull();
+    expect(x.get().revoke).toMatchObject({ id: 'p1', kind: 'done' });
+  });
+
+  it('5 秒の間に「元に戻す」を押すと行が戻り、Worker に何も送らない', async () => {
+    const revoke = vi.fn(async (id: string) => ({ ok: true as const, value: { id, kind: 'mobile' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }));
+    const x = rig({ revoke });
+    withPhones(x);
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    x.r.run({ op: 'phoneUndo' });
+    expect(x.get().phoneUndo).toBeNull();
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(x.load).not.toHaveBeenCalled();
+    expect(x.get().revoke).toBeNull();
+  });
+
+  it('5 秒の間に別のスマホを解除すると、前のスマホの解除はすぐ送り、新しいスマホで 5 秒を数え直す', async () => {
+    const revoke = vi.fn(async (id: string) => ({ ok: true as const, value: { id, kind: 'mobile' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }));
+    const x = rig({ revoke });
+    withPhones(x);
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    x.r.run({ op: 'phoneRevoke', id: 'p2' });
+    await flush();
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    expect(x.get().phoneUndo).toEqual({ id: 'p2', name: 'iPad' });
+    // 前の予約は効かない。
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke.mock.calls).toEqual([['p1'], ['p2']]);
+  });
+
+  it('5 秒の間に頁を閉じる（pagehide、beforeunload）と、待っている解除をすぐ送り、5 秒の予約は何もしない', async () => {
+    const revoke = vi.fn(async (id: string) => ({ ok: true as const, value: { id, kind: 'mobile' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }));
+    const x = rig({ revoke });
+    withPhones(x);
+    // 待っている解除が無ければ何も送らない。
+    x.r.flushPending();
+    expect(revoke).not.toHaveBeenCalled();
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    x.r.flushPending();
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    expect(x.get().phoneUndo).toBeNull();
+    // beforeunload と pagehide の両方が来ても 2 度は送らない。
+    x.r.flushPending();
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke.mock.calls).toEqual([['p1']]);
+  });
+
+  it('解除を送っている間に別のスマホの 5 秒が過ぎたら、その ID を状態の列に積み（行は隠したまま）、送り終えてから送る', async () => {
+    let release: (() => void) | null = null;
+    const revoke = vi.fn((id: string) => new Promise<{ ok: true; value: { id: string; kind: 'mobile'; joinedAt: number; lastSeenAt: number; revokedAt: number; expiresAt: null } }>((res) => {
+      release = () => res({ ok: true, value: { id, kind: 'mobile', joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } });
+    }));
+    const x = rig({ revoke });
+    withPhones(x);
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    await x.fire(PHONE_UNDO_MS);
+    expect(x.get().revoke).toMatchObject({ id: 'p1', kind: 'busy' });
+    x.r.run({ op: 'phoneRevoke', id: 'p2' });
+    await x.fire(PHONE_UNDO_MS);
+    expect(revoke.mock.calls).toEqual([['p1']]);
+    expect(x.get().phoneQueued).toEqual(['p2']);
+    release!();
+    await flush();
+    expect(revoke.mock.calls).toEqual([['p1'], ['p2']]);
+    expect(x.get().phoneQueued).toEqual([]);
+  });
+
+  it('ブラウザ（殻が無い）では何もしない', () => {
+    const x = rig(null);
+    withPhones(x);
+    x.r.run({ op: 'phoneRevoke', id: 'p1' });
+    expect(x.get().phoneUndo).toBeNull();
+    expect(x.timers).toEqual([]);
   });
 });
 

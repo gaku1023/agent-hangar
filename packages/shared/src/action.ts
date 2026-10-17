@@ -173,10 +173,12 @@ export type UiAction =
   | { type: 'cloud.leave'; revoke: boolean } | { type: 'cloud.leave.dismiss' }
   /**
    * スマホを接続する QR（設定のクラウド同期の節の「スマホ」）。phone.pair は新しい券を取って QR を出す（期限切れの後の「新しい QR を出す」も同じ）。
-   * QR を出している間だけ、端末の一覧を 3 秒ごとに再読み込みして、スマホが参加したのを知らせる。phone.close は QR を閉じて再読み込みも止める。
+   * QR を出している間だけ、サーバーの軽い口を 3 秒ごとに読んで、PC が keybox を置き終えたのを知らせる。phone.close は QR を閉じて見回りも止める。
    * QR の中身はブラウザでも作れる（サーバの経路だけを使う）。
+   * phone.revoke はスマホの行の「解除」（1 クリック）で、行を隠して右下に「元に戻す」を 5 秒出し、その後に解除を送る。phone.undo はその 5 秒の間の「元に戻す」。
    */
   | { type: 'cloud.phone.pair' } | { type: 'cloud.phone.close' }
+  | { type: 'cloud.phone.revoke'; id: string } | { type: 'cloud.phone.undo' }
   /**
    * 「リカバリーキーを再発行」（試作 D2）。recovery.ask は確認を開き、recovery.reissue は新しいリカバリーキーを作って表示する（まだ何も差し替えない）。
    * recovery.saved は末尾 4 文字の入力の段へ進み、recovery.reveal は伏せた暗号鍵をもう一度 120 秒表示する。
@@ -222,6 +224,9 @@ export type UiAction =
   | { type: 'notify.set'; on: boolean }
   // 他の PC から届いたプロジェクトの札。見るはプロジェクトの画面へ移り、あとで決めるは札だけを下げる。どちらも札を下げる。
   | { type: 'projects.arrived.view' } | { type: 'projects.arrived.dismiss' }
+  // スマホから起動した会話の右下の通知（試作 F1）。どれも通知を下げる。open はその会話を開き、stop はその run を止める（確認の要否は session.kill と同じ）。
+  | { type: 'phoneLaunch.open'; sessionId: string } | { type: 'phoneLaunch.dismiss'; sessionId: string }
+  | { type: 'phoneLaunch.stop'; sessionId: string; stop: { runId: string; working: boolean; aside: boolean; shellTabs: number } }
   // アプリの自動更新（段 5-4）。check は手動の確認、download は取得してインストールの準備、install は再起動して入れる。
   // dismiss は右下の札を閉じ、その版の札を 2 度出さない。notify は新しい版を知らせるか（切ると自動の確認もしない）。
   | { type: 'update.check' } | { type: 'update.download' } | { type: 'update.install' } | { type: 'update.dismiss' }

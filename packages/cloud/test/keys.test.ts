@@ -200,7 +200,8 @@ describe('認証と種類', () => {
     expect((await send('/roster')).status).toBe(401);
     expect((await send('/keyboxes')).status).toBe(401);
     const phone = 'phone-token-0123456789abcdef';
-    await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('phone-1', 'mobile', ?, 1)").bind(await sha256Hex(phone)).run();
+    // 接続した時刻は今にする。古い時刻だと、30 日使わなかったスマホとして 401 expired になる（互換の版 9）。
+    await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('phone-1', 'mobile', ?, ?)").bind(await sha256Hex(phone), Date.now()).run();
     expect((await getRoster(phone)).status).toBe(403);
     expect((await getBoxes(phone)).status).toBe(403);
   });

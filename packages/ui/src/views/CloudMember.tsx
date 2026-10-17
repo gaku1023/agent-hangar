@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { normalizeJoinCode } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
-import { PAIR_TTL_MS, type CloudAddProps, type CloudJoinProps, type CloudMemberProps, type CloudPhoneProps } from '../presenters/cloudMember.ts';
+import { PAIR_TTL_MS, PHONE_LEFT_FULL_DAYS, type CloudAddProps, type CloudJoinProps, type CloudMemberProps, type CloudPhoneProps } from '../presenters/cloudMember.ts';
 import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -349,29 +349,19 @@ function AddCode(props: { a: CloudAddProps }) {
 }
 
 /**
- * 解除の確認。行のすぐ下に開く。
- * PC は、解除すると暗号鍵を再生成して残りの PC に配ること、解除した PC はこれ以降の同期データを復号できないことを言う（試作 cloud-e2e の E2）。
- * スマホは券なしでは戻れず、なくすと全部の PC に会話を起動される。PC と違う文で確かめる（試作 A1）。
+ * PC の解除の確認。行のすぐ下に開く。
+ * 解除すると暗号鍵を再生成して残りの PC に配ること、解除した PC はこれ以降の同期データを復号できないことを言う（試作 cloud-e2e の E2）。
+ * スマホは確認を開かず、1 クリックで解除し、右下に「元に戻す」を出す（PhoneTable）。
  */
-function RevokeConfirm(props: { id: string; name: string; phone: boolean; onCancel: () => void }) {
+function RevokeConfirm(props: { id: string; name: string; onCancel: () => void }) {
   const emit = useEmit();
   const t = useT();
   const name = props.name;
   return (
     <div className="cm-rowx">
       <Strip tone="danger">
-        {props.phone ? (
-          <>
-            <p><b>{t('cloudMember.phone.confirmTitle', { name })}</b></p>
-            <p>{t('cloudMember.phone.confirmBody')}</p>
-            <p>{t('cloudMember.phone.confirmRisk')}</p>
-          </>
-        ) : (
-          <>
-            <p><b>{t('cloudMember.pcs.confirmTitle', { name })}</b></p>
-            <p>{t('cloudMember.pcs.confirmBody')}</p>
-          </>
-        )}
+        <p><b>{t('cloudMember.pcs.confirmTitle', { name })}</b></p>
+        <p>{t('cloudMember.pcs.confirmBody')}</p>
         <div className="btns">
           <button type="button" className="btn btn-sm" onClick={props.onCancel}>{t('cloudMember.common.cancel')}</button>
           <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.id })}>{t('cloudMember.pcs.do')}</button>
@@ -434,8 +424,17 @@ function RowGroup(props: { enter: boolean; leave: boolean; onGone: () => void; c
   useLayoutEffect(() => { if (props.enter && ref.current) growIn(ref.current); }, []);
   const gone = useRef(props.onGone);
   gone.current = props.onGone;
+  const wasLeaving = useRef(props.leave);
   useLayoutEffect(() => {
     const el = ref.current;
+    const was = wasLeaving.current;
+    wasLeaving.current = props.leave;
+    // 畳む途中で戻った（スマホの「元に戻す」）。畳む動きを取り消して、伸ばして戻す。
+    if (!props.leave && was && el) {
+      el.getAnimations?.().forEach((a) => a.cancel());
+      growIn(el);
+      return;
+    }
     if (!props.leave || !el) return;
     if (!motionOn(el)) { gone.current(); return; }
     let alive = true;
@@ -537,7 +536,7 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
                   {canRevoke && !r.self && !leaving && <RevokeButton m={props.m} id={r.id} label={t('cloudMember.pcs.removeAria', { name: r.name })} asking={asking} setAsking={setAsking} />}
                 </span>
               </div>
-              {!leaving && asking === r.id && !busy && <RevokeConfirm id={r.id} name={r.name} phone={false} onCancel={() => setAsking(null)} />}
+              {!leaving && asking === r.id && !busy && <RevokeConfirm id={r.id} name={r.name} onCancel={() => setAsking(null)} />}
               {busy && <div className="cm-rowx"><div className="cm-wait" role="status">{t('cloudMember.pcs.rotating', { n: remaining })}</div></div>}
             </RowGroup>
           );
@@ -769,14 +768,15 @@ function PairPanel(props: { p: PanelStage }) {
 }
 
 /**
- * スマホの表（試作 cloud-e2e の E2）。名前と、その下に残りの日数と再接続の日付、参加日、最終同期、「解除…」を置く。
- * 残りの日数は Worker がまだ期限を持たないので、行に日数があるときだけ出す（PR 7 で埋める）。
- * 解除の確認と、解除したスマホの行が collapseOut で畳まれるのは PC の表と同じ。0 台なら、表の代わりに 1 行で言う。
+ * スマホの表（試作 cloud-e2e の E2）。名前と、その下に残りの日数の細い棒と、残りの日数と再接続の日付の 1 行、参加日、最終同期、「解除」を置く。
+ * 残りの日数と再接続の日付は、Worker が期限を返す行だけに出す。
+ * 「解除」は確認を開かない。1 クリックで行が collapseOut で畳まれ、右下に「元に戻す」が 5 秒出る（ToastStack）。
+ * その間は Worker に何も送らず、元に戻すと行は growIn で戻る。解除に失敗したら行が戻り、行の下に理由を出す。0 台なら、表の代わりに 1 行で言う。
  */
 function PhoneTable(props: { m: CloudMemberProps; heading: string }) {
+  const emit = useEmit();
   const t = useT();
   const { phones, revoke, desktop, pcs } = props.m;
-  const [asking, setAsking] = useAsking(revoke);
   const listed = pcs.state === 'ok';
   const motion = useRowMotion(phones, listed);
   if (!listed) return null;
@@ -784,23 +784,32 @@ function PhoneTable(props: { m: CloudMemberProps; heading: string }) {
   return (
     <div className="cm-table" role="table" aria-label={props.heading}>
       {motion.shown.map(({ row: r, leaving }) => {
-        const busy = !leaving && revoke?.id === r.id && revoke.kind === 'busy';
         const failed = !leaving && revoke?.id === r.id && revoke.kind === 'failed' ? revoke : null;
         return (
           <RowGroup key={r.id} enter={motion.isNew(r.id)} leave={leaving} onGone={() => motion.gone(r.id)}>
-            <div className="cm-row" role="row" data-focus={!leaving && (asking === r.id || failed) ? 'true' : undefined}>
+            <div className="cm-row" role="row" data-focus={failed ? 'true' : undefined}>
               <span className="cm-name" role="cell">
                 <span>{r.name}</span>
-                {r.left && <span className="cm-sub">{t('cloudMember.phone.daysLeft', { n: r.left.days, date: r.left.reconnectOn })}</span>}
+                {r.left && (
+                  <span className="cm-sub">
+                    <span className="cm-exp" role="progressbar" aria-label={t('cloudMember.phone.daysBar')} aria-valuemin={0} aria-valuemax={PHONE_LEFT_FULL_DAYS} aria-valuenow={r.left.days}>
+                      <i style={{ width: `${Math.min(1, r.left.days / PHONE_LEFT_FULL_DAYS) * 100}%` }} />
+                    </span>
+                    <span className="cm-sub-text">{t('cloudMember.phone.daysLeft', { n: r.left.days, date: r.left.reconnectOn })}</span>
+                  </span>
+                )}
               </span>
               <span role="cell" />
               <span className="cm-faint cm-col" role="cell">{r.joined}</span>
               <span className="cm-faint cm-col" role="cell">{r.lastSeen}</span>
               <span className="cm-act" role="cell">
-                {desktop && !leaving && <RevokeButton m={props.m} id={r.id} label={t('cloudMember.phone.removeAria', { name: r.name })} asking={asking} setAsking={setAsking} />}
+                {desktop && !leaving && (
+                  <button type="button" className="btn btn-ghost btn-sm" aria-label={t('cloudMember.phone.removeAria', { name: r.name })} onClick={() => emit({ type: 'cloud.phone.revoke', id: r.id })}>
+                    {t('cloudMember.phone.remove')}
+                  </button>
+                )}
               </span>
             </div>
-            {!leaving && asking === r.id && !busy && <RevokeConfirm id={r.id} name={r.name} phone onCancel={() => setAsking(null)} />}
             {failed && <div className="cm-rowx"><RevokeFailed id={r.id} name={failed.name} message={failed.message} rotate={false} /></div>}
           </RowGroup>
         );

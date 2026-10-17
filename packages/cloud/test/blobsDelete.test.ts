@@ -167,8 +167,9 @@ describe('DELETE /blobs', () => {
 
   it('スマホのトークンでは使えない（403）', async () => {
     const phone = 'token-phone-1-0123456789abcdef';
-    await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('phone-1', 'mobile', ?, 1)")
-      .bind(await sha256Hex(phone))
+    // 接続した時刻は今にする。古い時刻だと、30 日使わなかったスマホとして 401 expired になる（互換の版 9）。
+    await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('phone-1', 'mobile', ?, ?)")
+      .bind(await sha256Hex(phone), Date.now())
       .run();
     expect((await del(phone, { keys: [blobKey('phone-1', 'u1')] })).status).toBe(403);
   });

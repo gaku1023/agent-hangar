@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { aadFeed, deriveMobileKey, fitFeed, seal, type MobileFeed } from '@agent-hangar/shared';
+import { aadFeed, fitFeed, seal, type MobileFeed } from '@agent-hangar/shared';
 import { CloudError, type CloudClient } from '../sync/client.ts';
 import type { Timers } from '../sync/engine.ts';
+import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 
 /** 変化のあと、まとめて書くまでの待ち。 */
 export const FEED_DEBOUNCE_MS = 2_000;
@@ -21,7 +22,8 @@ export type MobileFeedPublisherDeps = {
   /** 受信箱の素を組む（mobile/feed.ts の buildMobileFeed を包んだもの）。 */
   build: () => MobileFeed;
   client: CloudClient;
-  joinSecret: string;
+  /** スマホ用の鍵 M（名簿の phoneKey）。素は今の世代で封じ、その世代を添えて置く。 */
+  phoneKeys: Pick<PhoneKeySource, 'current'>;
   deviceId: string;
   timers: Timers;
   /** 書いてよいか（boot/sync.ts の canCarryMobile）。偽のあいだは何も書かず、中身も覚えない。 */
@@ -32,22 +34,6 @@ export type MobileFeedPublisherDeps = {
   onError?: (e: unknown) => void;
 };
 
-let cachedKey: { secret: string; key: Promise<CryptoKey> } | null = null;
-
-/**
- * 参加の秘密からスマホ用の鍵を導く。同じ秘密なら前に導いた鍵を返す（HKDF を毎回回さない）。
- * 覚えるのは最後の 1 つだけである。秘密を作り直したときは開き直しで新しい秘密になる。
- */
-export function mobileKeyFor(joinSecret: string): Promise<CryptoKey> {
-  if (cachedKey?.secret === joinSecret) return cachedKey.key;
-  const key = deriveMobileKey(joinSecret);
-  const entry = { secret: joinSecret, key };
-  cachedKey = entry;
-  // 導けなかったときは覚えない。次の呼び出しで導き直す。
-  key.catch(() => { if (cachedKey === entry) cachedKey = null; });
-  return key;
-}
-
 /** ログに出すのは種類だけにする。本文や秘密を含む文をそのまま出さない。 */
 const defaultOnError = (e: unknown): void => {
   const status = (e as { status?: unknown } | null)?.status;
@@ -57,7 +43,10 @@ const defaultOnError = (e: unknown): void => {
 /**
  * 受信箱の素を封じて Worker に置く（PUT /m/feed）。
  *
- * 書くのは、中身（暗号化の前の JSON）のハッシュが前に書いたものと違うときと、前に書いてから FEED_REFRESH_MS たったときだけである。
+ * 封じる鍵はスマホ用の鍵 M の今の世代で、その世代（epoch）を素に添える。スマホは素の世代で M を選んで開く。
+ * M がまだ無い（スマホを接続していない）あいだは書かない（skipped）。
+ * 書くのは、中身（暗号化の前の JSON）と世代のハッシュが前に書いたものと違うときと、前に書いてから FEED_REFRESH_MS たったときだけである。
+ * M の世代が進んだら（スマホの解除）、中身が同じでも新しい世代で書き直す。
  * 封じは IV が毎回乱数なので、封じた文字列のハッシュでは比べられない。
  * nudge は、変化を FEED_DEBOUNCE_MS 待ってまとめ、前の書き込みから FEED_MIN_GAP_MS あくまで次を書かない。
  * 間の中に来た変化は、間が明けたところで 1 回にまとめて書く。
@@ -178,16 +167,18 @@ export class MobileFeedPublisher {
   private async writeOnce(): Promise<FeedWriteResult> {
     const put = this.deps.client.putMobileFeed?.bind(this.deps.client);
     if (this.stopped || this.dropped || !put || !this.deps.canWrite()) return 'skipped';
+    const key = await this.deps.phoneKeys.current();
+    if (!key || this.stopped) return 'skipped';
     // 48 KiB を超えたら、done、returns、projects、待っていない live の順に古いものから落とし、live の文を詰める（shared の fitFeed）。
     const feed = fitFeed(this.deps.build());
-    const hash = createHash('sha256').update(JSON.stringify(feed)).digest('hex');
+    const hash = createHash('sha256').update(JSON.stringify([key.epoch, feed])).digest('hex');
     const now = (this.deps.now ?? Date.now)();
     if (hash === this.lastHash && now - this.lastWrittenAt < FEED_REFRESH_MS) return 'unchanged';
-    const sealed = await seal(await mobileKeyFor(this.deps.joinSecret), aadFeed(this.deps.deviceId), feed);
+    const sealed = await seal(key.key, aadFeed(this.deps.deviceId), feed);
     if (this.stopped) return 'skipped';
     // 通っても倒れても、Worker に要求を 1 本出したら間を空ける。
     this.startGap();
-    await put(sealed);
+    await put(sealed, key.epoch);
     this.lastHash = hash;
     this.lastWrittenAt = now;
     return 'written';

@@ -2,15 +2,16 @@
  * スマホ版の封じ（受信箱の素、起動の依頼、その答えを Worker に預けるときの暗号）。
  *
  * PC とスマホの両方から読むので、`globalThis.crypto.subtle` だけを使い、`node:crypto` を import しない。
- * 鍵は参加の秘密から HKDF-SHA256 で導く 32 バイトで、R2 の本文の鍵（info は hangar-file-v1）とは別の用途の鍵である。
- * スマホには参加の秘密を渡さず、この 32 バイトだけを QR に入れて渡す。
+ * 鍵はスマホ用の鍵 `M[m]`（32 バイトの乱数）で、PC の世代鍵から導いた用途の鍵とは別物である。
+ * M は名簿の `phoneKey` に入れて PC どうしで持ち、スマホにはスマホの公開鍵に封じた keybox で渡す（e2e/phone.ts）。
+ * QR には鍵を入れない。
  */
+
+import { fromBase64Url, toBase64Url } from './e2e/bytes.ts';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder('utf-8', { fatal: true });
 
-const SALT = 'hangar-salt-v1';
-const INFO = 'hangar-mobile-v1';
 const IV_LEN = 12;
 const TAG_LEN = 16;
 
@@ -30,40 +31,9 @@ export class MobilePairingError extends Error {
   }
 }
 
-function toBase64Url(bytes: Uint8Array): string {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-/** base64url（末尾の = は有っても無くてもよい）を読む。形が違えば null を返す。 */
-function fromBase64Url(s: string): Uint8Array<ArrayBuffer> | null {
-  if (!/^[A-Za-z0-9_-]*$/.test(s) || s.length % 4 === 1) return null;
-  try {
-    const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-/** スマホ用の鍵の生の 32 バイト。PC だけが呼ぶ（QR に入れる）。 */
-export async function deriveMobileKeyBytes(joinSecret: string): Promise<Uint8Array> {
-  const base = await globalThis.crypto.subtle.importKey('raw', enc.encode(joinSecret), 'HKDF', false, ['deriveBits']);
-  const bits = await globalThis.crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: enc.encode(SALT), info: enc.encode(INFO) }, base, 256);
-  return new Uint8Array(bits);
-}
-
-/** 生の 32 バイトから AES-GCM の鍵にする。既定では取り出せない鍵にする（画面に XSS があっても値を持ち出せない）。 */
+/** スマホ用の鍵 M の生の 32 バイトから AES-GCM の鍵にする。既定では取り出せない鍵にする（画面に XSS があっても値を持ち出せない）。 */
 export async function importMobileKey(bytes: Uint8Array, extractable = false): Promise<CryptoKey> {
   return globalThis.crypto.subtle.importKey('raw', bytes as BufferSource, { name: 'AES-GCM' }, extractable, ['encrypt', 'decrypt']);
-}
-
-/** 参加の秘密からそのまま鍵にする（PC 用）。 */
-export async function deriveMobileKey(joinSecret: string): Promise<CryptoKey> {
-  return importMobileKey(await deriveMobileKeyBytes(joinSecret));
 }
 
 /** 用途と宛先を縛る追加認証データ。別の用途や別の宛先に差し替えた封じは開けない。 */
@@ -118,13 +88,15 @@ export async function open<T>(key: CryptoKey, aad: string, sealed: string): Prom
 }
 
 /**
- * ペアリングの QR の中身。秘密ではない url、code（使い捨ての券）、pcName、expiresAt に、スマホ用の鍵 key（base64url）が入る。
- * `<workerUrl>/app/#pair=<encodePairing(...)>` の形で渡し、フラグメントはサーバへ送られない。
+ * ペアリングの QR の中身。url、code（使い捨ての券）、pcName、expiresAt だけで、鍵は入れない（互換の版 9）。
+ * スマホは券から導いた鍵で自分の公開鍵を封じて接続し、QR を出した PC がスマホ用の鍵をその公開鍵に封じて置く。
+ * `<workerUrl>/app/#pair=<encodePairing(...)>` の形で渡し、フラグメントはサーバーへ送られない。
+ * 券は 5 分で失効する 1 回限りのもので、漏れても接続できるのはその 5 分の間に先に使った 1 台だけである。
  */
-export type PairingBlob = { url: string; code: string; key: string; pcName: string; expiresAt: number };
+export type PairingBlob = { url: string; code: string; pcName: string; expiresAt: number };
 
 export function encodePairing(b: PairingBlob): string {
-  return toBase64Url(enc.encode(JSON.stringify({ url: b.url, code: b.code, key: b.key, pcName: b.pcName, expiresAt: b.expiresAt })));
+  return toBase64Url(enc.encode(JSON.stringify({ url: b.url, code: b.code, pcName: b.pcName, expiresAt: b.expiresAt })));
 }
 
 export function decodePairing(s: string): PairingBlob {
@@ -138,10 +110,11 @@ export function decodePairing(s: string): PairingBlob {
   }
   const o = v as Partial<Record<keyof PairingBlob, unknown>> | null;
   if (!o || typeof o !== 'object') throw new MobilePairingError();
-  if (typeof o.url !== 'string' || typeof o.code !== 'string' || typeof o.key !== 'string' || typeof o.pcName !== 'string') throw new MobilePairingError();
+  if (typeof o.url !== 'string' || typeof o.code !== 'string' || typeof o.pcName !== 'string') throw new MobilePairingError();
   if (typeof o.expiresAt !== 'number' || !Number.isFinite(o.expiresAt)) throw new MobilePairingError();
-  if (!o.url || !o.code || !o.key) throw new MobilePairingError();
-  return { url: o.url, code: o.code, key: o.key, pcName: o.pcName, expiresAt: o.expiresAt };
+  if (!o.url || !o.code) throw new MobilePairingError();
+  // 0.8 の QR は鍵（key）も持っていたが、読まずに捨てる。
+  return { url: o.url, code: o.code, pcName: o.pcName, expiresAt: o.expiresAt };
 }
 
 /**

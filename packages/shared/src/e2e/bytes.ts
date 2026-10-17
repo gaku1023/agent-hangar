@@ -2,7 +2,7 @@
  * E2E の部品が使う、バイト列の小道具（base64url、base32、hex、UTF-8、連結）。
  *
  * PC とスマホの両方から読むので、`node:crypto` や Buffer を使わない。
- * mobileCrypto.ts にも base64url があるが、そちらは別のセッションが触っているので、まとめるのは後のタスクで行う。
+ * スマホ版の封じ（mobileCrypto.ts）の base64url もここのものを使う。
  */
 
 const encoder = new TextEncoder();

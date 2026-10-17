@@ -24,7 +24,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'create table if not exists keyboxes (epoch integer not null, recipient text not null, created_at integer not null, sealed blob not null, primary key (epoch, recipient))',
   // 受け手ごとに引く索引（keys.ts の GET /keyboxes）。主キーは世代が先なので、これが無いと表を全部読む。
   'create index if not exists keyboxes_recipient on keyboxes(recipient, epoch)',
+  // スマホ用の鍵を受け手（スマホの ID）ごとに封じた箱。epoch はスマホ用の鍵の世代で、PC の世代鍵の世代とは別に数える。
   'create table if not exists phone_keyboxes (epoch integer not null, recipient text not null, created_at integer not null, sealed blob not null, primary key (epoch, recipient))',
+  // 受け手ごとに引く索引（mobile.ts の GET /m/keybox）。主キーは世代が先なので、これが無いと表を全部読む。
+  'create index if not exists phone_keyboxes_recipient on phone_keyboxes(recipient, epoch)',
   // 名簿は 1 行だけで、version を条件にして書き換える。
   'create table if not exists roster (id integer primary key check (id = 1), version integer not null, updated_at integer not null, sealed blob not null)',
   // 参加コード。D1 にはコードのハッシュだけを置き、参加リクエスト（request）は封じたまま置く。
@@ -32,10 +35,15 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   "create table if not exists join_codes (code_hash text primary key, created_by text not null, created_at integer not null, expires_at integer not null, used_at integer, status text not null default 'open', device_id text, request blob, request_at integer)",
   'create index if not exists join_codes_by on join_codes(created_by, created_at)',
   // スマホ向けの表。epoch はスマホ用の鍵の世代である。
+  // 受信箱の素と起動の依頼の封じた値は、スマホの seal の形（base64url の文字）のまま text で置く。行の数が PC の数と 7 日の依頼の数に限られ、BLOB にしても大きさがほとんど変わらないためである。
   'create table if not exists mobile_feeds (device_id text primary key, sealed text not null, updated_at integer not null, epoch integer not null default 1)',
-  'create table if not exists mobile_pairings (code_hash text primary key, created_by text not null, created_at integer not null, used_at integer, epoch integer not null default 1, request blob)',
+  // ペアリングの券。device_id は接続してきたスマホが名乗った ID で、request はそのスマホの公開鍵と名前を券から導いた鍵で封じた BLOB である。
+  // request は券を発行した PC がスマホ用の鍵の keybox を置いたときに null にする。
+  'create table if not exists mobile_pairings (code_hash text primary key, created_by text not null, created_at integer not null, used_at integer, epoch integer not null default 1, device_id text, request blob)',
   'create index if not exists mobile_pairings_by on mobile_pairings(created_by, created_at)',
   'create index if not exists mobile_pairings_at on mobile_pairings(created_at)',
+  // keybox を待っている参加リクエストだけの索引（mobile.ts の GET /m/pairings/mine）。済んだ券の数に比例して読まない。
+  'create index if not exists mobile_pairings_pending on mobile_pairings(created_by, created_at) where request is not null',
   // スマホからの起動の依頼。中身（sealed、sealed_answer）は封をしたまま置き、Worker が平文で持つのは宛先と送り手と時刻と状態だけである。
   'create table if not exists launch_requests (id text primary key, target_device text not null, from_device text not null, sealed text not null, status text not null, created_at integer not null, claimed_at integer, answered_at integer, sealed_answer text, epoch integer not null default 1)',
   'create index if not exists launch_requests_target on launch_requests(target_device, status, created_at)',

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { SessionRows } from './SessionRows.tsx';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { existsSync, readFileSync } from 'node:fs';
 
 // dom の project では import.meta.url が file にならず、?raw も空文字になるので、cwd から辿って読む。
@@ -38,6 +39,21 @@ describe('SessionRows', () => {
   it('空なら案内を出す', () => {
     render(<ActionRoot onAction={() => {}}><SessionRows rows={[]} height={100} variant="project" /></ActionRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
+  });
+  it('スマホから起動した行は、名前の後ろにラベル「スマホから」。Bypass permissions は「スマホから · Bypass permissions」を赤い枠で出す', () => {
+    const phone = (bypass: boolean) => ({ label: bypass ? 'スマホから · Bypass permissions' : 'スマホから', title: 'スマホから起動したセッション', bypass });
+    render(<ActionRoot onAction={() => {}}><SessionRows rows={[{ ...row('a'), phone: phone(false) }, { ...row('b'), phone: phone(true) }, row('c')]} height={400} variant="recent" /></ActionRoot>);
+    const label = (id: string) => screen.getByText('n' + id).closest('[role="row"]')!.querySelector('.row-phone');
+    expect(label('a')).toHaveTextContent('スマホから');
+    expect(label('a')).toHaveAttribute('title', 'スマホから起動したセッション');
+    expect(label('a')).not.toHaveAttribute('data-bypass');
+    expect(label('b')).toHaveTextContent('スマホから · Bypass permissions');
+    expect(label('b')).toHaveAttribute('data-bypass', 'true');
+    expect(label('c')).toBeNull();
+    // 名前の後ろ（プロジェクトの前）に置く。
+    expect(label('a')!.parentElement).toBe(screen.getByText('na'));
+    expect(label('a')!.nextElementSibling).toHaveClass('row-proj');
+    expect(rowsCss).toMatch(/\.row-phone\[data-bypass='true'\]\s*\{[^}]*var\(--error\)/);
   });
   it('行はセッションの id を、広がる元の印に持つ', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><SessionRows rows={[row('a'), row('b')]} height={400} variant="recent" /></ActionRoot>);
@@ -579,5 +595,45 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
     // session.upsert で candidate が消え、札がアンマウントされる。
     rerender(ui([sr('a')]));
     expect(document.activeElement).toBe(screen.getByRole('row'));
+  });
+});
+
+describe('スマホから起動した新しい行の動き（試作 F1）', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[] }[] = [];
+  beforeEach(() => {
+    restore = fakeMotionTokens({ '--dur-fast': '200ms', '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+    animations = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+      animations.push({ el: this, frames });
+      return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
+    };
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+    cleanup();
+  });
+  const phone = { label: 'スマホから', title: 'スマホから起動したセッション', bypass: false };
+  const ui = (rows: SessionRowProps[]) => <ActionRoot onAction={() => {}}><SessionRows rows={rows} height={400} variant="recent" scope="home" /></ActionRoot>;
+  const rowOf = (id: string) => screen.getByText('n' + id).closest('[role="row"]');
+
+  it('一覧に新しく入ったスマホからの行は growIn で伸びて入る。PC で起こした新しい行は今までどおり淡い黄の印だけ', () => {
+    const { rerender } = render(ui([row('a'), row('b')]));
+    expect(animations).toHaveLength(0);
+    rerender(ui([{ ...row('p'), phone }, row('n'), row('a'), row('b')]));
+    const grown = animations.filter((x) => x.el === rowOf('p'));
+    expect(grown).toHaveLength(1);
+    expect(grown[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    expect(rowOf('p')).not.toHaveAttribute('data-hit');
+    expect(animations.filter((x) => x.el === rowOf('n'))).toHaveLength(0);
+    expect(rowOf('n')).toHaveAttribute('data-hit');
+  });
+
+  it('最初の描画と一覧の切替（scope）では、スマホからの行も動かさない', () => {
+    render(ui([{ ...row('p'), phone }, row('a')]));
+    expect(animations).toHaveLength(0);
   });
 });

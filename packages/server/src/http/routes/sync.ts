@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { Hono } from 'hono';
 import { errorText, translatorOf } from '../../i18n/message.ts';
-import { deriveMobileKeyBytes, encodePairing, MOBILE_MIN_WORKER_COMPAT, type MobilePairingDto } from '@agent-hangar/shared';
+import { encodePairing, MOBILE_MIN_WORKER_COMPAT, type MobilePairedDto, type MobilePairingDto } from '@agent-hangar/shared';
 import { CloudError, CompatError, LimitError, RevokedError } from '../../sync/client.ts';
 import { ConfigSyncError } from '../../sync/config/service.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
@@ -28,7 +28,9 @@ function revokeFailure(e: unknown): { code: 'self' | 'not-found' | 'revoked' | '
  * スマホを接続する QR を作る。押すたびに Worker から新しい券を取る（GET にしない）。
  * Worker の版がまだ分からなければ /health で確かめ、MOBILE_MIN_WORKER_COMPAT に届かなければ券を取りに行かない。
  * 版を知らない古い Worker の 404 も worker-too-old に読む。券の取りすぎの 429 は rate-limited（Cloudflare の上限の LimitError はそのまま投げる）。
- * pairText にはスマホ用の暗号鍵（参加の秘密から導いた 32 バイト）が入る。参加の秘密そのものは入れず、ログにも出さない。
+ * pairText に鍵は入れない（url、券、PC の名前、期限だけ）。
+ * 券は pairer に渡し、期限まで 3 秒ごとに接続してきたスマホを問い合わせて、スマホの公開鍵にスマホ用の鍵を封じて置く（mobile/pairer.ts）。
+ * 券の平文は応答とメモリにだけ置き、ログに出さない。
  */
 async function mobilePairing(deps: SyncRouteDeps): Promise<MobilePairingDto> {
   const link = deps.mobileLink?.() ?? null;
@@ -47,10 +49,10 @@ async function mobilePairing(deps: SyncRouteDeps): Promise<MobilePairingDto> {
     if (e instanceof CompatError && e.upgrade === 'worker') return { state: 'worker-too-old', compat: e.have };
     throw e;
   }
-  const key = Buffer.from(await deriveMobileKeyBytes(link.joinSecret)).toString('base64url');
+  const pairId = await link.pairer.watch(ticket);
   const url = link.url.replace(/\/+$/, '');
-  const pairText = encodePairing({ url, code: ticket.code, key, pcName: deps.deviceName, expiresAt: ticket.expiresAt });
-  return { state: 'ready', pairUrl: `${url}/app/#pair=${pairText}`, pairText, expiresAt: ticket.expiresAt };
+  const pairText = encodePairing({ url, code: ticket.code, pcName: deps.deviceName, expiresAt: ticket.expiresAt });
+  return { state: 'ready', pairUrl: `${url}/app/#pair=${pairText}`, pairText, expiresAt: ticket.expiresAt, pairId };
 }
 
 /** 同期の経路。状態、今すぐ同期、一時停止、前面化、使用量、端末の一覧、参加コードの発行と承認、設定の同期（/config-sync/*）を持つ。 */
@@ -137,7 +139,7 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
       return { ok: true };
     });
   });
-  // スマホを接続する QR。中身にスマホ用の暗号鍵が入るので、残さないよう no-store を付ける。失敗の理由は文にして返し、中身はログに出さない。
+  // スマホを接続する QR。中身に使い捨ての券が入るので、残さないよう no-store を付ける。失敗の理由は文にして返し、中身はログに出さない。
   api.post('/sync/mobile-pairing', async (c) => {
     c.header('cache-control', 'no-store');
     try {
@@ -145,6 +147,12 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
     } catch (e) {
       return c.json({ error: errorText(deps.language(), e) }, 502);
     }
+  });
+  // QR を出している間の見回り。keybox を置き終えたスマホを pairer の覚えから返すだけで、Worker には問い合わせない。
+  api.get('/sync/mobile-pairing/:pairId', (c) => {
+    c.header('cache-control', 'no-store');
+    const body: MobilePairedDto = { paired: deps.mobileLink?.()?.pairer.pairedFor(c.req.param('pairId')) ?? null };
+    return c.json(body);
   });
 
   // 設定の同期。~/.claude に書く操作は持たない。

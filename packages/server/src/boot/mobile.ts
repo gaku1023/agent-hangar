@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { MOBILE_BELL_MIN_WORKER_COMPAT, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut } from '@agent-hangar/shared';
+import { MOBILE_BELL_MIN_WORKER_COMPAT, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
@@ -8,12 +8,13 @@ import { onIntent } from '../live/intents.ts';
 import { answerAsk } from '../mobile/asks.ts';
 import { MobileBell } from '../mobile/bell.ts';
 import { buildMobileFeed } from '../mobile/feed.ts';
-import { MobileLaunchInbox } from '../mobile/launchInbox.ts';
+import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
 import type { RegistryWatcher } from '../provider/claude-code/registry.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { BellTarget, CloudClient } from '../sync/client.ts';
 import type { SyncEngine, Timers } from '../sync/engine.ts';
+import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
 import type { SyncParts } from './sync.ts';
 
@@ -36,6 +37,8 @@ export const ANSWER_RESEND_TICK_MS = 10_000;
  * この PC の設定の画面で QR を出している間は、画面が 3 秒ごとに読むので、つながったことはすぐ届く。
  */
 export const PHONE_RECHECK_MS = 5 * 60_000;
+/** 起動の依頼の送り手が名簿に無いとき、同じ ID で一覧を読み直す最小の間隔。 */
+export const PHONE_NAME_REREAD_MS = 10_000;
 
 export type MobileParts = {
   /** 今の受信箱の素の書き手。同期を設定していない、または止めた後は null。 */
@@ -46,7 +49,7 @@ export type MobileParts = {
   stop(): void;
 };
 
-type Link = { client: CloudClient; joinSecret: string };
+type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
 
 /**
  * スマホの受信箱に預ける素（mobile/feed.ts）を、封じて Worker に書く仕事を組む（mobile/publisher.ts）。
@@ -60,7 +63,8 @@ type Link = { client: CloudClient; joinSecret: string };
  * 最初のスマホが現れたら、前に書いた中身を忘れてすぐ書く（外していた間に同じ中身のままでも置き直す）。
  * 外していないスマホが居るのを見た後で、読めた一覧にそれが無くなったら、Worker の受信箱の素を消す（DELETE /m/feed、書き手の dropFeed）。
  * 消せなければ、次の読み直しでやり直す。つなぎ先（cloud.json）が替わったら、スマホの有無の覚えを捨て、5 分を待たずに読み直す。
- * client と参加の秘密は同期から引き、cloud.json を後から拾って組み直したときは書き手も組み直す。
+ * client とスマホ用の鍵の引き口（名簿の phoneKey）は同期から引き、cloud.json を後から拾って組み直したときは書き手も組み直す。
+ * スマホ用の鍵がまだ無い（スマホを接続していない）あいだ、書き手は何も書かない。
  * どのきっかけも投げない。購読の先（同期の輪、登録の読み直し、MCP の道具）へ失敗を返さない。
  *
  * スマホからの起動の依頼（mobile/launchInbox.ts）も、書き手の隣に組む。依頼は同期の engine の pull で届く（launches）。
@@ -68,6 +72,7 @@ type Link = { client: CloudClient; joinSecret: string };
  * 依頼を扱うのも canCarryMobile が真のときだけで、版 6 の Worker には claim を送らない。
  * 依頼の effort と画像（drops に置いてパスを指示の末尾に足す）も受け取る。画像の置き場は hangar の home の下の drops である。
  * 起こせたら書き手を nudge し、スマホの受信箱に新しい会話を早く出す。
+ * 画面には phone.launch を配り、右下に「〈スマホの名前〉から起動」の通知を出させる（試作 F1）。スマホの名前は読めた一覧（名簿）から引く。
  * 答えを送れなかった依頼は、ANSWER_RESEND_TICK_MS ごとの見回りで送り直す。
  *
  * Worker の呼び鈴（mobile/bell.ts）も、書き手と受け手の隣に組み、リンクが変わるたびに組み直す。
@@ -79,7 +84,8 @@ type Link = { client: CloudClient; joinSecret: string };
 export function bootMobile(p: {
   /** home は hangar の home（置き場 drops の親）。 */
   home: { db: Db; device: { id: string; name: string }; home: string };
-  delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'> };
+  /** hub は画面への配り口。スマホから起こした会話の右下の通知（phone.launch、試作 F1）を配る。無ければ配らない。 */
+  delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
   sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'> };
@@ -110,6 +116,10 @@ export function bootMobile(p: {
   /** 外していないスマホが居るのを見たあとで、受信箱の素をまだ Worker から消していないか。真のあいだは、スマホが居なくなったと分かるたびに消しに行く。 */
   let hadPhones = false;
   let checking = false;
+  /** 読めた一覧（名簿）のスマホの名前。ID から引く。右下の通知「〈スマホの名前〉から起動」に使う（試作 F1）。 */
+  let phoneNames = new Map<string, string>();
+  /** 知らないスマホの ID で一覧を最後に読み直した時刻。ID ごとに読み直しを間引く。 */
+  const phoneRereadAt = new Map<string, number>();
 
   const build = () => buildMobileFeed({
     db, deviceId, deviceName: p.home.device.name,
@@ -132,16 +142,16 @@ export function bootMobile(p: {
     if (!started || stopped) return null;
     follow();
     const link = p.sync.mobileLink();
-    if (cur && link && cur.link.client === link.client && cur.link.joinSecret === link.joinSecret) return cur.pub;
+    if (cur && link && cur.link.client === link.client && cur.link.phoneKeys === link.phoneKeys) return cur.pub;
     // つなぎ先が替わったら、前の先で読んだスマホの有無は当てにならない。覚えを捨て、次のきっかけで読み直す（5 分は待たない）。
     if (cur) { phones = null; phonesAt = null; hadPhones = false; }
     cur?.pub.stop();
     cur?.bell.stop();
     cur = null;
     if (!link) return null;
-    const pub = new MobileFeedPublisher({ build, client: link.client, joinSecret: link.joinSecret, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile() });
+    const pub = new MobileFeedPublisher({ build, client: link.client, phoneKeys: link.phoneKeys, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile() });
     const inbox = new MobileLaunchInbox({
-      db, client: link.client, joinSecret: link.joinSecret, deviceId,
+      db, client: link.client, phoneKeys: link.phoneKeys, deviceId,
       dropsDir: path.join(p.home.home, 'drops'),
       start: (params) => {
         const r = p.runs.runs.start(params);
@@ -152,6 +162,7 @@ export function bootMobile(p: {
       hasAccount: (id) => accounts.store.list().some((a) => a.id === id),
       canProcess: () => p.sync.canCarryMobile(),
       now: Date.now,
+      onStarted: (e) => { void announceLaunch(e).catch((err: unknown) => console.error('[mobile] could not announce the started session', err instanceof Error ? err.constructor.name : typeof err)); },
     });
     const client = link.client;
     const bell = new MobileBell({
@@ -164,12 +175,12 @@ export function bootMobile(p: {
         // 今の engine の pull で依頼を受け取る。走っている pull があれば、それを分け合う。
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
       },
-      onAsk: (id, sealed) => answerAsk({
-        joinSecret: link.joinSecret,
+      onAsk: (id, sealed, epoch) => answerAsk({
+        phoneKeys: link.phoneKeys,
         deviceId,
         projectPath: (projectId) => (rootHere.get(projectId, deviceId) as { path: string } | undefined)?.path ?? null,
         accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
-      }, id, sealed),
+      }, id, sealed, epoch),
       timers,
       ...(p.bellConnect ? { connect: p.bellConnect } : {}),
     });
@@ -195,6 +206,7 @@ export function bootMobile(p: {
     if (stopped) return;
     if (d.state === 'unreachable') return;
     phonesAt = now();
+    if (d.state === 'ok') phoneNames = new Map(d.devices.flatMap((x) => (x.kind === 'mobile' && x.name ? [[x.id, x.name] as const] : [])));
     const next = d.state === 'ok' ? d.devices.some((x) => x.kind === 'mobile' && x.revokedAt === null) : d.state === 'outdated' ? false : null;
     const appeared = next === true && phones !== true;
     phones = next;
@@ -232,6 +244,23 @@ export function bootMobile(p: {
       checking = false;
       console.error('[mobile] could not read the device list', e instanceof Error ? e.constructor.name : typeof e);
     }
+  }
+  /**
+   * スマホの依頼で起こした会話を、画面の右下の通知に配る（phone.launch、試作 F1）。
+   * スマホの名前は読めた一覧（名簿）から引く。知らない ID なら一覧を 1 回だけ読み直し、それでも無ければ null（画面は「スマホから起動」と出す）。
+   * 同じ ID の読み直しは、最後の読み直しから PHONE_NAME_REREAD_MS の間はしない（外したスマホの残りの依頼が続けて来ても一覧を読み続けない）。
+   */
+  async function announceLaunch(e: PhoneLaunchStarted): Promise<void> {
+    const hub = p.delivery.hub;
+    if (!hub) return;
+    let phone = e.from ? phoneNames.get(e.from) ?? null : null;
+    const lastReread = e.from ? phoneRereadAt.get(e.from) : undefined;
+    if (e.from && phone === null && p.sync.canCarryMobile() && (lastReread === undefined || now() - lastReread >= PHONE_NAME_REREAD_MS)) {
+      phoneRereadAt.set(e.from, now());
+      await p.sync.cloudDevices().catch(() => undefined);
+      phone = phoneNames.get(e.from) ?? null;
+    }
+    hub.broadcast({ type: 'phone.launch', launch: { sessionId: e.sessionId, phone, projectId: e.projectId, scratch: e.scratch, permissionMode: e.permissionMode, title: e.title, at: now() } });
   }
   /** pull で届いた依頼を受け手へ渡す。投げない（engine の pull へ失敗を返さない）。 */
   function onLaunches(l: MobileLaunchOut[]): void {

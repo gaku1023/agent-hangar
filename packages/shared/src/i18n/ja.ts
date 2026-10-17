@@ -65,6 +65,7 @@ import { compatJa } from './ja/compat.ts';
 import { dbJa } from './ja/db.ts';
 import { updateJa } from './ja/update.ts';
 import { stopJa } from './ja/stop.ts';
+import { phoneLaunchJa } from './ja/phoneLaunch.ts';
 
 /** 日本語の辞書。文は領域ごとのファイル（`ja/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const ja: Dictionary = {
@@ -134,4 +135,5 @@ export const ja: Dictionary = {
   ...dbJa,
   ...updateJa,
   ...stopJa,
+  ...phoneLaunchJa,
 };

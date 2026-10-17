@@ -29,6 +29,8 @@ function commandOf(a: Extract<Input, { kind: 'action' }>['action']): CloudMember
     case 'cloud.leave.dismiss': return { op: 'leaveDismiss' };
     case 'cloud.phone.pair': return { op: 'pair' };
     case 'cloud.phone.close': return { op: 'pairClose' };
+    case 'cloud.phone.revoke': return { op: 'phoneRevoke', id: a.id };
+    case 'cloud.phone.undo': return { op: 'phoneUndo' };
     case 'cloud.recovery.ask': return { op: 'recoveryAsk' };
     case 'cloud.recovery.reissue': return { op: 'recoveryReissue' };
     case 'cloud.recovery.saved': return { op: 'recoverySaved' };

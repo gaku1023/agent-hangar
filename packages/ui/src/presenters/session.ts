@@ -19,6 +19,7 @@ import { interruptMark } from './interrupted.ts';
 import { presentOverlap, type OverlapProps } from './overlap.ts';
 import { projectDisplayName } from './projectName.ts';
 import { statusMark } from './row.ts';
+import { phoneLabelOf } from './phoneLabel.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
 import { bandsOf, presentNowCard, resultsOf, type NowCardProps } from './live.ts';
 import { buildTurns } from './turns.ts';
@@ -436,15 +437,18 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
 export type StatusPick = { value: 'active' | 'paused' | 'done' | 'archived'; auto: boolean; title: string };
 
 /** 見出しの名前の横に出す札。ロックと、トランスクリプトが他の PC にあること。どちらも操作できない理由なので、ポップオーバーには隠さない。 */
-export type BadgeProps = { kind: 'lock' | 'stale' | 'remote'; label: string; title: string | null };
+export type BadgeProps = { kind: 'lock' | 'stale' | 'remote' | 'phone' | 'phoneBypass'; label: string; title: string | null };
 
 /**
  * 見出しの名前の横の札。
  * ロックは、他の PC が握っている間の「<PC 名> で実行中」と、応答が途絶えた「<PC 名> から応答がありません」（kind を stale にして色を替える）。
  * 「トランスクリプトは他の PC にあります」は再開とフォークを押せない理由なので、ロックと同じ扱いにする。
+ * スマホから起動した会話は、ラベル「スマホから」を先頭に置く（Bypass permissions は kind を phoneBypass にして赤い枠）。
  */
 export function presentSessionBadges(s: SessionDto, now: number, t: Translate): BadgeProps[] {
   const badges: BadgeProps[] = [];
+  const phone = phoneLabelOf(s, t);
+  if (phone) badges.push({ kind: phone.bypass ? 'phoneBypass' : 'phone', label: phone.label, title: phone.title });
   if (s.lock) {
     badges.push({ kind: s.lock.stale ? 'stale' : 'lock', label: t(s.lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: s.lock.deviceName }), title: t('session.lock.lastSeen', { when: relativeTime(t, s.lock.heartbeatAt, now) }) });
   }

@@ -1,5 +1,6 @@
 import { accountsStep } from './accounts.ts';
 import { arrivedStep } from './arrived.ts';
+import { phoneLaunchStep, settlePhoneLaunches } from './phoneLaunch.ts';
 import { configSyncStep } from './configSync.ts';
 import { connectionStep } from './connection.ts';
 import { interruptedStep } from './interrupted.ts';
@@ -34,7 +35,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], projectRailFolded: {}, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarOrder: [], projectRailFolded: {}, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -59,6 +60,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
   const todos = (s: State, i: Input) => todosStep(s, store, i);
   const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
+  const phoneLaunch = (s: State, i: Input) => phoneLaunchStep(s, store, i);
   const update = (s: State, i: Input) => updateStep(s, store, i);
   const configSync = (s: State, i: Input) => configSyncStep(s, store, i);
   const connection = (s: State, i: Input) => connectionStep(s, store, i);
@@ -69,9 +71,9 @@ export function transition(state: State, store: Store, input: Input): Step {
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
   const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, projectRailStep, returnStep, arrived, noticesStep, notifyStep, update, cloudMemberStep, todos, workbench]) {
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, projectRailStep, returnStep, arrived, phoneLaunch, noticesStep, notifyStep, update, cloudMemberStep, todos, workbench]) {
     const r = step(state, input);
-    if (r) return settled(state, r);
+    if (r) return settled(state, r, store);
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message, input.event.holdMs), effects: [] };
@@ -102,15 +104,16 @@ function storeChanged(state: State, store: Store): Step {
   // どちらも動かなかったら、整え（settled）を通さずそのまま返す。
   // ストアは本文が伸びるたびに変わるので、そのたびに札を触ると、無関係な更新で札が動いてしまう。
   if (live.state === state && waiting.effects.length === 0 && live.effects.length === 0) return { state, effects: [] };
-  return settled(state, { state: live.state, effects: [...waiting.effects, ...live.effects] });
+  return settled(state, { state: live.state, effects: [...waiting.effects, ...live.effects] }, store);
 }
 
 /**
  * 領域が応答した後の整え。
  * 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。
+ * スマホから起動した会話の通知も、その画面を開いたか、その run へ停止を送ったら下げる（phoneLaunch.ts の settlePhoneLaunches）。
  */
-function settled(prev: State, r: Step): Step {
-  const state = settleWaiting(r.state);
+function settled(prev: State, r: Step, store: Store): Step {
+  const state = settlePhoneLaunches(settleWaiting(r.state), store, r.effects);
   return fetchDirsOnOpen(prev, state === r.state ? r : { ...r, state });
 }
 

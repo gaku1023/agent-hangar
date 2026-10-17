@@ -45,7 +45,8 @@ const ROW_ON = ['row'];
 const NO_ROW: string[] = [];
 const mb = (bytes: number): string => (Math.round((bytes / 1024 / 1024) * 10) / 10).toFixed(1);
 
-function errorView(reason: AskFailure, pcName: string, what: string): SuggestView {
+/** 候補を出せないときの見出しと文。expired は接続の期限切れ（401 expired）。 */
+function errorView(reason: AskFailure, pcName: string, what: string, expired = false): SuggestView {
   const manual = `${what}を手で入力しても、そのまま送れます。`;
   switch (reason) {
     case 'pc-offline':
@@ -67,7 +68,7 @@ function errorView(reason: AskFailure, pcName: string, what: string): SuggestVie
     case 'not-found':
       return { kind: 'error', title: `${pcName} はクラウドに参加していません`, text: '別の PC を選んでください。', retry: false };
     case 'unpaired':
-      return { kind: 'error', title: 'このスマホの接続は解除されています', text: manual, retry: false };
+      return { kind: 'error', title: expired ? 'このスマホの接続は期限が切れています' : 'このスマホの接続は解除されています', text: manual, retry: false };
     case 'network':
       return { kind: 'error', title: '通信できませんでした', text: `通信を確認してください。${manual}`, retry: true };
     default:
@@ -98,7 +99,7 @@ type Props = {
 /** `@` の後ろを問い合わせに載せる長さの上限。長い q で問い合わせの本文の上限（4 KiB）を超えないため。 */
 export const FILE_QUERY_MAX = 200;
 
-type Result = { key: string; ok: true; list: CommandHit[] | FileHit[] } | { key: string; ok: false; reason: AskFailure };
+type Result = { key: string; ok: true; list: CommandHit[] | FileHit[] } | { key: string; ok: false; reason: AskFailure; expired: boolean };
 
 /**
  * 初期プロンプトの欄。欄の上に添付した画像、下に道具の列（「＋」「/」「@」）。
@@ -170,7 +171,7 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
           setRes({ key, ok: true, list });
         },
         (e: unknown) => {
-          if (!stale) setRes({ key, ok: false, reason: e instanceof AskError ? e.reason : 'server' });
+          if (!stale) setRes({ key, ok: false, reason: e instanceof AskError ? e.reason : 'server', expired: e instanceof AskError && e.unpairedReason === 'expired' });
         },
       );
     };
@@ -199,14 +200,14 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
       if (!pc) view = { kind: 'need', title: '先に PC を選んでください', text: '候補は、選んだ PC とアカウントから取得します。' };
       else if (!canAsk) view = errorView('unsupported', pcName, 'スキルやコマンド');
       else if (!accountId) view = { kind: 'need', title: '先にアカウントを選んでください', text: '候補は、選んだ PC とアカウントから取得します。' };
-      else if (res && res.key === want) view = res.ok ? { kind: 'commands', q: trig.q, list: res.list as CommandHit[] } : errorView(res.reason, pcName, 'スキルやコマンド');
+      else if (res && res.key === want) view = res.ok ? { kind: 'commands', q: trig.q, list: res.list as CommandHit[] } : errorView(res.reason, pcName, 'スキルやコマンド', res.expired);
       else view = loading;
     } else {
       head = pc && projectId ? `${projectName ?? projectId} のファイル · ${pcName}` : 'ファイル';
       if (!projectId) view = { kind: 'need', title: 'プロジェクトを選ぶと、ファイルが表示されます', text: 'クイックセッションでは、パスを手で入力してください。' };
       else if (!pc) view = { kind: 'need', title: '先に PC を選んでください', text: '候補は、選んだ PC から取得します。' };
       else if (!canAsk) view = errorView('unsupported', pcName, 'パス');
-      else if (res && res.key === want) view = res.ok ? { kind: 'files', q: trig.q, list: res.list as FileHit[] } : errorView(res.reason, pcName, 'パス');
+      else if (res && res.key === want) view = res.ok ? { kind: 'files', q: trig.q, list: res.list as FileHit[] } : errorView(res.reason, pcName, 'パス', res.expired);
       else {
         // 次の答えを待つ間は、前の答えのうち今の q に合うものを残す（打つたびに骨組みへ戻さない）。
         const prev = lastFiles.current && lastFiles.current.where === where ? lastFiles.current.list.filter((f) => f.path.toLowerCase().includes(trig.q.toLowerCase())) : [];
