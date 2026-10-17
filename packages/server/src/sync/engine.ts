@@ -318,7 +318,7 @@ export class SyncEngine {
    * 参加し直すと殻が Hangar を再起動するので、立て直した後の最初の同期でも、戻った旨を残せるようにするためである。
    */
   private noteRevoked(): void {
-    if (!this.revokedBlock) console.warn(`[sync] この PC（端末 ${this.shortDeviceId()}…）は、ほかの PC から同期を解除されました。同期を止めます。参加トークンで参加し直すまで送受信しません`);
+    if (!this.revokedBlock) console.warn(`[sync] この PC（端末 ${this.shortDeviceId()}…）は、他の PC から同期を解除されました。同期を止めます。他の PC で発行した参加コードで参加し直すまで送受信しません`);
     this.revokedBlock = true;
     this.state.set('revokedLogged', true);
   }

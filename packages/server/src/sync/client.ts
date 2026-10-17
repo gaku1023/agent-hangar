@@ -99,7 +99,7 @@ export class CompatError extends CloudError {
 
 /**
  * この PC が同期から解除されているときに投げる（Worker が端末トークンを 401 の `{ error: 'revoked' }` で断った）。
- * 受け手の SyncEngine は同期を止め、状態に revoked の印を立てる。直す道は参加トークンで参加し直すことだけである。
+ * 受け手の SyncEngine は同期を止め、状態に revoked の印を立てる。直す道は、他の PC で発行した参加コードで参加し直すことだけである。
  * message は応答の本文ではなく、利用者に見せる文である。
  */
 export class RevokedError extends CloudError {

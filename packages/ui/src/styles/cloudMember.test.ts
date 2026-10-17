@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// 設定のクラウド同期の、PC の表と参加トークンの欄の規則。
+// 設定のクラウド同期の、PC とスマホの表と伏せ字の欄の規則。
 // jsdom は配置を計算しないので、ここでは規則の形を押さえ、実際に収まるかは WebKit で撮って確かめる。
 const read = (name: string) => fs.readFileSync(new URL(`./${name}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const rulesOf = (css: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }));
@@ -29,7 +29,7 @@ describe('PC とスマホの表（試作 cloud-e2e の E2）', () => {
 });
 
 describe('伏せ字の欄', () => {
-  // WebView2（Windows）は password の欄に「表示」の目のボタンを足す。参加トークンを画面に出さないので、出さない。
+  // WebView2（Windows）は password の欄に「表示」の目のボタンを足す。API キーのような秘密を画面に出さないので、出さない。
   it('Edge の表示と消去のボタンを出さない', () => {
     const css = read('base.css');
     expect(decl(body(css, '.input::-ms-reveal'), 'display')).toBe('none');
