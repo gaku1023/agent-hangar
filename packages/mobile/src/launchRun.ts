@@ -2,7 +2,7 @@ import type { MobileLaunchAnswer, MobileLaunchPayload } from '@agent-hangar/shar
 import { LaunchError } from './api.ts';
 import { imageFailureText, ImageError, putImage as defaultPutImage, type LaunchImage, type PutImage } from './images.ts';
 import { requestLaunch, waitLaunch, type LaunchStage } from './launch.ts';
-import type { Pairing } from './store.ts';
+import type { Pairing, PhoneKey } from './store.ts';
 
 /** 新しい会話の依頼 1 件。画面（フォーム）が作り、起動のシートが進みを見せる。 */
 export type LaunchSpec = {
@@ -104,7 +104,7 @@ function requestFailure(pc: string, e: unknown): Failed {
  */
 export function startLaunch(
   pairing: Pairing,
-  key: CryptoKey,
+  key: PhoneKey,
   spec: LaunchSpec,
   o: { onState: (s: RunState) => void; everyMs?: number; giveUpMs?: number; putImage?: PutImage },
 ): LaunchRun {

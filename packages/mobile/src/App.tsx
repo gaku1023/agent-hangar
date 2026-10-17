@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { InboxView } from './inbox.ts';
 import { exitMs } from './presence.ts';
-import { readPairText } from './api.ts';
+import { readPairText, type UnpairedReason } from './api.ts';
+import { refreshPhoneKeys } from './keyring.ts';
 import { startLaunch, type LaunchRun, type LaunchSpec, type RunState } from './launchRun.ts';
-import { clearPairing, loadKey, loadPairing, type Pairing } from './store.ts';
+import { clearPairing, currentKey, loadPairing, loadPhoneKeys, loadPhonePair, type Keyring, type Pairing, type PhoneKey, type PhonePair } from './store.ts';
 import { isIosSafari, isStandalone } from './platform.ts';
 import { InstallGuide } from './views/InstallGuide.tsx';
 import { InboxScreen } from './views/InboxScreen.tsx';
 import { LaunchSheet } from './views/LaunchSheet.tsx';
 import { NewSessionScreen } from './views/NewSessionScreen.tsx';
-import { JoinScreen } from './views/JoinScreen.tsx';
+import { JoinScreen, type Resume } from './views/JoinScreen.tsx';
 
-type Screen = { kind: 'loading' } | { kind: 'join'; pairText: string | null; guide: boolean } | { kind: 'inbox'; pairing: Pairing; key: CryptoKey };
+type Screen =
+  | { kind: 'loading' }
+  | { kind: 'join'; pairText: string | null; guide: boolean; notice?: 'expired' | null; resume?: Resume | null }
+  | { kind: 'inbox'; pairing: Pairing; pair: PhonePair; keys: Keyring; current: PhoneKey };
 
 /** 入口の案内（A1）を先に出すか。iPhone と iPad の Safari で、ホーム画面のアプリでなく、未接続のとき。 */
 const needsGuide = (): boolean => isIosSafari() && !isStandalone() && !loadPairing();
@@ -29,7 +33,8 @@ function expiryOf(pairText: string | null): number | null {
 /**
  * 画面の切り替え。
  * #pair= 付きで開かれたら、手元の接続があっても参加の画面を先に出す（新しい QR で接続し直す）。
- * 接続と鍵の両方が手元にあれば受信箱、どちらかが無ければ参加の画面（④）。
+ * 接続と鍵ペアとスマホ用の鍵がそろっていれば受信箱。
+ * 接続と鍵ペアだけなら（keybox を待っている間に閉じた）、参加の画面の待ちから続ける。どれかが無ければ参加の画面（④）。
  */
 type Launch = { spec: LaunchSpec; state: RunState; open: boolean };
 
@@ -38,9 +43,16 @@ type AppProps = {
   /** 起動の依頼の状態を読む間隔と、諦めるまでの長さ。試験で縮める。 */
   launchEveryMs?: number;
   launchGiveUpMs?: number;
+  /** 接続の後に keybox を読む間隔と、待つ長さ。試験で縮める。 */
+  keyboxWait?: { everyMs?: number; giveUpMs?: number };
 };
 
-export function App({ pairText, launchEveryMs, launchGiveUpMs }: AppProps): ReactNode {
+const inboxOf = (pairing: Pairing, pair: PhonePair, keys: Keyring): Screen | null => {
+  const current = currentKey(keys);
+  return current ? { kind: 'inbox', pairing, pair, keys, current } : null;
+};
+
+export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait }: AppProps): ReactNode {
   const [screen, setScreen] = useState<Screen>(() => (pairText ? { kind: 'join', pairText, guide: needsGuide() } : { kind: 'loading' }));
 
   useEffect(() => {
@@ -48,16 +60,26 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs }: AppProps): Reac
     let off = false;
     void (async () => {
       const pairing = loadPairing();
-      const key = pairing ? await loadKey() : null;
+      const pair = pairing ? await loadPhonePair() : null;
+      const keys = pair ? await loadPhoneKeys() : new Map<number, CryptoKey>();
       if (off) return;
-      setScreen(pairing && key ? { kind: 'inbox', pairing, key } : { kind: 'join', pairText: null, guide: !pairing && needsGuide() });
+      const inbox = pairing && pair ? inboxOf(pairing, pair, keys) : null;
+      if (inbox) setScreen(inbox);
+      else if (pairing && pair) setScreen({ kind: 'join', pairText: null, guide: false, resume: { pairing, pair } });
+      else setScreen({ kind: 'join', pairText: null, guide: !pairing && needsGuide() });
     })();
     return () => {
       off = true;
     };
   }, [screen.kind]);
 
-  const onEnter = useCallback((pairing: Pairing, key: CryptoKey) => setScreen({ kind: 'inbox', pairing, key }), []);
+  const onEnter = useCallback((pairing: Pairing, pair: PhonePair, keys: Keyring) => {
+    setScreen(inboxOf(pairing, pair, keys) ?? { kind: 'join', pairText: null, guide: false, resume: { pairing, pair } });
+  }, []);
+  // 受信箱が keybox を読み直して手元の鍵が変わった。新しい依頼は新しい世代で封じる。
+  const onKeys = useCallback((keys: Keyring) => {
+    setScreen((s) => (s.kind === 'inbox' ? (inboxOf(s.pairing, s.pair, keys) ?? s) : s));
+  }, []);
   // 新しい会話の画面は受信箱の上に重ねる（受信箱は読んだものと位置を保ったまま裏に残る）。
   // 閉じるときは下がって消える動きの間だけ残す（動きを減らす設定ではすぐ外す）。
   // n は開くたびに増やす番号。畳んでいる間に開き直しても、前の画面の選択を持ち越さない（key に使う）。
@@ -71,12 +93,12 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs }: AppProps): Reac
   // 受信箱で最後に読めたもの。起動のシートが、始まった会話の URL をここから探す。
   const [inboxView, setInboxView] = useState<InboxView | null>(null);
   useEffect(() => () => run.current?.cancel(), []);
-  const onUnpaired = useCallback(() => {
+  const onUnpaired = useCallback((reason?: UnpairedReason) => {
     run.current?.cancel();
     run.current = null;
     setLaunch(null);
     setSheet(null);
-    setScreen({ kind: 'join', pairText: null, guide: false });
+    setScreen({ kind: 'join', pairText: null, guide: false, notice: reason === 'expired' ? 'expired' : null });
   }, []);
   const onNewSession = useCallback((view: InboxView) => {
     opened.current += 1;
@@ -100,13 +122,13 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs }: AppProps): Reac
     launchNo.current += 1;
     const no = launchNo.current;
     setLaunch({ spec, state: { kind: 'sending' }, open: true });
-    run.current = startLaunch(screen.pairing, screen.key, spec, {
+    run.current = startLaunch(screen.pairing, screen.current, spec, {
       everyMs: launchEveryMs,
       giveUpMs: launchGiveUpMs,
       onState: (state) => {
         if (launchNo.current !== no) return;
         if (state.kind === 'unpaired') {
-          clearPairing();
+          void clearPairing();
           onUnpaired();
           return;
         }
@@ -118,20 +140,33 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs }: AppProps): Reac
     onCloseSheet();
   };
   const reconnect = (): void => {
-    clearPairing();
+    void clearPairing();
     onUnpaired();
   };
+  const reloadKeys = useCallback(async (): Promise<Keyring> => {
+    if (screen.kind !== 'inbox') return new Map();
+    return refreshPhoneKeys(screen.pairing, screen.pair);
+  }, [screen]);
 
   if (screen.kind === 'loading') return <div className="boot" />;
   if (screen.kind === 'join' && screen.guide) return <InstallGuide expiresAt={expiryOf(screen.pairText)} onContinue={() => setScreen({ ...screen, guide: false })} />;
-  if (screen.kind === 'join') return <JoinScreen pairText={screen.pairText} onEnter={onEnter} />;
+  if (screen.kind === 'join') return <JoinScreen pairText={screen.pairText} onEnter={onEnter} notice={screen.notice ?? null} resume={screen.resume ?? null} wait={keyboxWait} />;
   return (
     <>
       <div className="under" inert={(!!sheet && !sheet.leaving) || !!launch?.open}>
-        <InboxScreen pairing={screen.pairing} cryptoKey={screen.key} onUnpaired={onUnpaired} onNewSession={onNewSession} onView={setInboxView} refresh={refresh} />
+        <InboxScreen
+          pairing={screen.pairing}
+          keys={screen.keys}
+          reloadKeys={reloadKeys}
+          onKeys={onKeys}
+          onUnpaired={onUnpaired}
+          onNewSession={onNewSession}
+          onView={setInboxView}
+          refresh={refresh}
+        />
       </div>
       {sheet && (
-        <NewSessionScreen key={sheet.n} view={sheet.view} pairing={screen.pairing} cryptoKey={screen.key} leaving={sheet.leaving} onClose={onCloseSheet} onLaunch={onLaunch} />
+        <NewSessionScreen key={sheet.n} view={sheet.view} pairing={screen.pairing} phoneKey={screen.current} leaving={sheet.leaving} onClose={onCloseSheet} onLaunch={onLaunch} />
       )}
       {launch && (
         <LaunchSheet

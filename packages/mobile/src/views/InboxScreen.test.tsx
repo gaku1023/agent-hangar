@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as store from '../store.ts';
-import { feedOf, inboxOf, liveItem, makeKey, MIN } from '../test/fixtures.ts';
+import { feedOf, inboxOf, liveItem, makeKey, MIN, ring } from '../test/fixtures.ts';
 import { json, WORKER } from '../test/pairText.ts';
 import { InboxScreen } from './InboxScreen.tsx';
 
@@ -50,7 +50,7 @@ describe('InboxScreen', () => {
         ],
       }),
     ]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect(await screen.findByRole('heading', { level: 1, name: /入力待ち\s*2/ })).toBeInTheDocument();
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/inbox`);
@@ -61,7 +61,7 @@ describe('InboxScreen', () => {
 
   it('待っている内容の 1 行と PC 名が出る', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting', waiting: { kind: 'permission', text: 'Bash: npm test' } })] })]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const card = (await screen.findByText('Bash: npm test')).closest('a')!;
     expect(within(card).getByText(/Mac/)).toBeInTheDocument();
     expect(within(card).getByText(/許可/)).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('InboxScreen', () => {
 
   it('何も待っていなければ「入力待ちの会話はありません」', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect(await screen.findByText('入力待ちの会話はありません')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: /入力待ち\s*0/ })).toBeInTheDocument();
   });
@@ -86,7 +86,7 @@ describe('InboxScreen', () => {
         ],
       }),
     ]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect((await screen.findByText('質問 1')).closest('a')).toHaveAttribute('href', 'https://claude.ai/code');
     expect(screen.getByText('質問 2').closest('a')).toHaveAttribute('href', 'https://claude.ai/code/session_abc123');
     expect(screen.getByText('試験を足す').closest('a')).toHaveAttribute('href', 'https://claude.ai/code');
@@ -102,7 +102,7 @@ describe('InboxScreen', () => {
         ],
       }),
     ]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     for (const t of ['質問 1', '質問 2', '質問 3']) expect((await screen.findByText(t)).closest('a')).toHaveAttribute('href', 'https://claude.ai/code');
   });
 
@@ -117,7 +117,7 @@ describe('InboxScreen', () => {
         done: [{ sessionId: 's-3', projectName: 'project-a', title: '会話 3', oneLiner: `要約${evil}`, doneAt: now() - MIN }],
       }),
     ]);
-    const { container } = render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect(await screen.findByText(`待ち${evil}`)).toBeInTheDocument();
     expect(screen.getByText(`意図${evil}`)).toBeInTheDocument();
     expect(screen.getByText(`· 題${evil}`)).toBeInTheDocument();
@@ -127,7 +127,7 @@ describe('InboxScreen', () => {
   it('401 なら参加の画面に戻る', async () => {
     serve(() => json({ error: 'revoked' }, 401));
     const onUnpaired = vi.fn();
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={onUnpaired} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={onUnpaired} />);
     await waitFor(() => expect(onUnpaired).toHaveBeenCalled());
     expect(store.clearPairing).toHaveBeenCalled();
   });
@@ -135,7 +135,7 @@ describe('InboxScreen', () => {
   it('全部の feed が開けなければ「接続し直してください」', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac'), feedOf('pc-2', 'Mac 2')], { otherKeyFor: ['pc-1', 'pc-2'] });
     const onUnpaired = vi.fn();
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={onUnpaired} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={onUnpaired} />);
     expect(await screen.findByText(/接続し直してください/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '接続し直す' }));
     expect(store.clearPairing).toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe('InboxScreen', () => {
 
   it('一部の PC だけ開けなければ、その PC 名を添えて残りを出す', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting', waiting: { kind: 'question', text: '質問 1' } })] }), feedOf('pc-2', 'Mac 2')], { otherKeyFor: ['pc-2'] });
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect(await screen.findByText('質問 1')).toBeInTheDocument();
     expect(screen.getByText(/Mac 2 の一覧を開けません/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '接続し直す' })).toBeNull();
@@ -152,7 +152,7 @@ describe('InboxScreen', () => {
 
   it('3 分見ていない PC は灰色の丸と「不明」', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'busy', intent: '作業 1' })] })], { lastSeen: { 'pc-1': now() - 10 * MIN } });
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const alive = (await screen.findByText(/^Mac$/, { selector: '.alive-name' })).closest('.alive')!;
     expect(alive).toHaveClass('stale');
     expect(within(alive as HTMLElement).getByText('不明')).toBeInTheDocument();
@@ -161,7 +161,7 @@ describe('InboxScreen', () => {
 
   it('見えたとき（visibilitychange）と下に引いたときに読み直す', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     await screen.findByText('入力待ちの会話はありません');
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -185,7 +185,7 @@ describe('InboxScreen', () => {
   it('見えている間は 30 秒ごとに読み直し、隠れている間は読まない', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     await serveFeeds([feedOf('pc-1', 'Mac')]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     await screen.findByText('入力待ちの会話はありません');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await act(async () => {
@@ -210,7 +210,7 @@ describe('InboxScreen', () => {
         ],
       }),
     ]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const a = (await screen.findByText('試験を足す')).closest('a')!;
     expect(a.querySelector('.thin-text')).toHaveTextContent('project-a · 試験を足す');
     expect(within(a).getByText('project-a')).toHaveClass('thin-proj');
@@ -232,7 +232,7 @@ describe('InboxScreen', () => {
         ],
       }),
     ]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect(await screen.findByText('今日のリマインダー')).toBeInTheDocument();
     const rows = [...document.querySelectorAll('.thin')].map((r) => `${r.querySelector('.thin-text')!.textContent}${r.querySelector('.thin-meta')!.textContent}`);
     expect(rows).toEqual([`会話 2${past.getMonth() + 1}月${past.getDate()}日`, '会話 118:00']);
@@ -241,7 +241,7 @@ describe('InboxScreen', () => {
   it('待った時間はスマホの時計でなく Worker の時刻に寄せて測る', async () => {
     const workerNow = now() + 60 * MIN;
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting', statusAt: workerNow - 10 * MIN, waiting: { kind: 'question', text: '質問 1' } })] })], { now: workerNow, lastSeen: { 'pc-1': workerNow - 2 * MIN } });
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const card = (await screen.findByText('質問 1')).closest('a')!;
     expect(within(card).getByText('10分')).toBeInTheDocument();
     expect(screen.getByText('2 分前')).toBeInTheDocument();
@@ -256,7 +256,7 @@ describe('InboxScreen', () => {
         done: [{ sessionId: 'd-1', projectName: 'project-a', title: '会話 2', oneLiner: '片付けた', doneAt: now() - MIN }],
       }),
     ]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect(await screen.findByText('今日のリマインダー')).toBeInTheDocument();
     expect(screen.getByText('18:00')).toBeInTheDocument();
     expect(screen.getByText('今日終わった')).toBeInTheDocument();
@@ -266,7 +266,7 @@ describe('InboxScreen', () => {
   it('「＋ 新しい会話」は読み込めてから押せて、読んだものを渡す', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
     const onNewSession = vi.fn();
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} onNewSession={onNewSession} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onNewSession={onNewSession} />);
     const btn = screen.getByRole('button', { name: '＋ 新しい会話' });
     expect(btn).toBeDisabled();
     await screen.findByText('入力待ちの会話はありません');
@@ -279,10 +279,10 @@ describe('InboxScreen', () => {
   it('refresh が変わると読み直す', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
     const onUnpaired = vi.fn();
-    const { rerender } = render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={onUnpaired} refresh={0} />);
+    const { rerender } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={onUnpaired} refresh={0} />);
     await screen.findByText('入力待ちの会話はありません');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    rerender(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={onUnpaired} refresh={1} />);
+    rerender(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={onUnpaired} refresh={1} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 
@@ -290,7 +290,7 @@ describe('InboxScreen', () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'busy' }), liveItem({ sessionId: 's-2', status: 'waiting' })] })]);
     render(
       <StrictMode>
-        <InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />
+        <InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />
       </StrictMode>,
     );
     expect(await screen.findByText('実行中')).toBeInTheDocument();
@@ -306,7 +306,7 @@ describe('InboxScreen', () => {
         live: [liveItem({ sessionId: 's-1', status: 'waiting', accountId: 'acc-2', waiting: { kind: 'question', text: '質問 1' } })],
       }),
     ]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const card = (await screen.findByText('質問 1')).closest('a')!;
     const tag = within(card).getByText('会社', { selector: '.acct-tag' });
     expect(tag.querySelector('i')!.getAttribute('style')).toContain('background-color: rgb(58, 143, 92)');
@@ -316,7 +316,7 @@ describe('InboxScreen', () => {
 
   it('実行中の行にもアカウントの札が付く', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'busy', intent: '試験を足す' })] })]);
-    render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const row = (await screen.findByText('試験を足す')).closest('a')!;
     expect(within(row).getByText('アカウント 1', { selector: '.acct-tag' })).toBeInTheDocument();
   });
@@ -330,7 +330,7 @@ describe('InboxScreen', () => {
         ],
       }),
     ]);
-    const { container } = render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} />);
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const card = (await screen.findByText('質問 1')).closest('a')!;
     expect(within(card).getByText('Claude アプリで開く ›')).toBeInTheDocument();
     expect(container.querySelector('.acct-tag')).toBeNull();
@@ -339,10 +339,10 @@ describe('InboxScreen', () => {
   it('読めた受信箱を onView で渡す（読み直すたびに）', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'busy' })] })]);
     const onView = vi.fn();
-    const { rerender } = render(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} onView={onView} refresh={0} />);
+    const { rerender } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onView={onView} refresh={0} />);
     await waitFor(() => expect(onView).toHaveBeenCalledTimes(1));
     expect(onView.mock.calls[0]![0].running.map((r: { sessionId: string }) => r.sessionId)).toEqual(['s-1']);
-    rerender(<InboxScreen pairing={pairing} cryptoKey={key} onUnpaired={vi.fn()} onView={onView} refresh={1} />);
+    rerender(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onView={onView} refresh={1} />);
     await waitFor(() => expect(onView).toHaveBeenCalledTimes(2));
   });
 });

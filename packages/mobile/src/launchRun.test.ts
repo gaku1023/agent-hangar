@@ -2,7 +2,7 @@ import { aadAnswer, aadLaunch, open, seal, type MobileLaunchAnswer, type MobileL
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImageError, type PutImage } from './images.ts';
 import { startLaunch, type LaunchSpec, type RunState } from './launchRun.ts';
-import { makeKey } from './test/fixtures.ts';
+import { at1, makeKey } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
 const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
@@ -58,7 +58,7 @@ function serve(replies: Reply[], posts: Reply[] = []): void {
 
 function run(s: LaunchSpec = spec(), o: { everyMs?: number; giveUpMs?: number } = {}) {
   const states: RunState[] = [];
-  const r = startLaunch(pairing, key, s, { everyMs: 10, ...o, onState: (st) => states.push(st) });
+  const r = startLaunch(pairing, at1(key), s, { everyMs: 10, ...o, onState: (st) => states.push(st) });
   const last = (): RunState => states[states.length - 1]!;
   return { r, states, last };
 }
@@ -222,7 +222,7 @@ describe('startLaunch の画像', () => {
 
   function runWith(s: LaunchSpec, put: PutImage) {
     const states: RunState[] = [];
-    const r = startLaunch(pairing, key, s, { everyMs: 10, putImage: put, onState: (st) => states.push(st) });
+    const r = startLaunch(pairing, at1(key), s, { everyMs: 10, putImage: put, onState: (st) => states.push(st) });
     return { r, states, last: (): RunState => states[states.length - 1]! };
   }
 

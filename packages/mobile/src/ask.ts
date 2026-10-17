@@ -1,8 +1,8 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
-import type { MobileAsk, MobileReply } from '@agent-hangar/shared/src/mobile.ts';
+import type { MobileAsk, MobileAskIn, MobileReply } from '@agent-hangar/shared/src/mobile.ts';
 import { aadAsk, aadReply, MobilePairingError, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { mobileHeaders, originOf, workerCompatOf, workerTooOld } from './api.ts';
-import type { Pairing } from './store.ts';
+import type { Pairing, PhoneKey } from './store.ts';
 
 /**
  * 問い合わせが答えを返さなかった理由。
@@ -121,7 +121,7 @@ function failureOf(res: Response): AskError {
  * 宛先の PC に問い合わせる（POST /m/ask）。
  * 中身は aadAsk(id, 宛先) で封じ、答えは aadReply(id) で開く。Worker も Durable Object も中身を読めない。
  */
-export async function askPc(p: Pairing, key: CryptoKey, targetDevice: string, body: AskBody): Promise<AskReply> {
+export async function askPc(p: Pairing, key: PhoneKey, targetDevice: string, body: AskBody): Promise<AskReply> {
   const id = globalThis.crypto.randomUUID();
   const ask = { v: 1, ...body } as MobileAsk;
   let origin: string;
@@ -131,13 +131,15 @@ export async function askPc(p: Pairing, key: CryptoKey, targetDevice: string, bo
     if (e instanceof MobilePairingError) throw new AskError('unpaired');
     throw e;
   }
-  const sealed = await seal(key, aadAsk(id, targetDevice), ask);
+  const sealed = await seal(key.key, aadAsk(id, targetDevice), ask);
+  // epoch は封じたスマホ用の鍵の世代。PC は同じ世代の鍵で開き、答えも同じ世代で封じる。
+  const req: MobileAskIn = { id, targetDevice, sealed, epoch: key.epoch };
   let res: Response;
   try {
     res = await fetch(`${origin}/m/ask`, {
       method: 'POST',
       headers: { ...mobileHeaders(p), 'content-type': 'application/json' },
-      body: JSON.stringify({ id, targetDevice, sealed }),
+      body: JSON.stringify(req),
       cache: 'no-store',
     });
   } catch {
@@ -156,7 +158,7 @@ export async function askPc(p: Pairing, key: CryptoKey, targetDevice: string, bo
   if (typeof s !== 'string') throw new AskError('unreadable', res.status);
   let reply: MobileReply;
   try {
-    reply = await open<MobileReply>(key, aadReply(id), s);
+    reply = await open<MobileReply>(key.key, aadReply(id), s);
   } catch {
     throw new AskError('unreadable', res.status);
   }
@@ -175,7 +177,7 @@ export type Asker = {
 };
 
 /** 問い合わせ口を作る。失敗した問い合わせは覚えない（次で問い合わせ直す）。 */
-export function createAsker(p: Pairing, key: CryptoKey, o: { now?: () => number; ask?: typeof askPc } = {}): Asker {
+export function createAsker(p: Pairing, key: PhoneKey, o:{ now?: () => number; ask?: typeof askPc } = {}): Asker {
   const now = o.now ?? Date.now;
   const ask = o.ask ?? askPc;
   const cmds = new Map<string, Promise<CommandHit[]>>();

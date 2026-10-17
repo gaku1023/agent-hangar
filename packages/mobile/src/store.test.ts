@@ -1,6 +1,6 @@
-import { aadFeed, open, seal } from '@agent-hangar/shared';
+import { aadFeed, generateKeyPairNonExtractable, open, seal } from '@agent-hangar/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clearPairing, loadKey, loadPairing, saveKey, savePairing } from './store.ts';
+import { clearPairing, currentKey, KEEP_EPOCHS, loadPairing, loadPhoneKeys, loadPhonePair, savePairing, savePhoneKey, savePhonePair } from './store.ts';
 import { makeKey } from './test/fixtures.ts';
 
 const pairing = { url: 'https://hangar.example.workers.dev', token: 'tok-1', deviceId: 'phone-1' };
@@ -44,25 +44,69 @@ describe('pairing (localStorage)', () => {
   });
 });
 
-describe('key (IndexedDB)', () => {
-  it('saveKey した鍵を loadKey で取り出して開封に使え、exportKey は失敗する', async () => {
-    const key = await makeKey();
-    const sealed = await seal(key, aadFeed('pc-1'), { hello: 'world' });
-    await saveKey(key);
-    const back = await loadKey();
+describe('鍵ペア（IndexedDB）', () => {
+  it('秘密鍵は取り出せない CryptoKey のまま置かれ、読み戻しても exportKey できない', async () => {
+    const pair = await generateKeyPairNonExtractable();
+    await savePhonePair(pair);
+    const back = await loadPhonePair();
     expect(back).not.toBeNull();
-    expect(back!.extractable).toBe(false);
-    expect(await open(back!, aadFeed('pc-1'), sealed)).toEqual({ hello: 'world' });
-    await expect(globalThis.crypto.subtle.exportKey('raw', back!)).rejects.toThrow();
+    expect(back!.pub).toBe(pair.pub);
+    expect(back!.key).toBeInstanceOf(CryptoKey);
+    expect(back!.key.extractable).toBe(false);
+    await expect(globalThis.crypto.subtle.exportKey('pkcs8', back!.key)).rejects.toThrow();
+    await expect(globalThis.crypto.subtle.exportKey('jwk', back!.key)).rejects.toThrow();
+    // localStorage には鍵の値も公開鍵も置かない。
+    for (let i = 0; i < localStorage.length; i++) expect(localStorage.getItem(localStorage.key(i)!)).not.toContain(pair.pub);
   });
 
-  it('IndexedDB が無いとき loadKey は null', async () => {
+  it('IndexedDB が無いとき loadPhonePair は null、loadPhoneKeys は空、savePhonePair は投げる', async () => {
     const idb = globalThis.indexedDB;
     Object.defineProperty(globalThis, 'indexedDB', { value: undefined, configurable: true });
     try {
-      expect(await loadKey()).toBeNull();
+      expect(await loadPhonePair()).toBeNull();
+      expect((await loadPhoneKeys()).size).toBe(0);
+      await expect(savePhonePair(await generateKeyPairNonExtractable())).rejects.toThrow();
     } finally {
       Object.defineProperty(globalThis, 'indexedDB', { value: idb, configurable: true });
     }
+  });
+
+  it('clearPairing は鍵ペアとスマホ用の鍵も消す', async () => {
+    savePairing(pairing);
+    await savePhonePair(await generateKeyPairNonExtractable());
+    await savePhoneKey(1, await makeKey());
+    await clearPairing();
+    expect(await loadPhonePair()).toBeNull();
+    expect((await loadPhoneKeys()).size).toBe(0);
+  });
+});
+
+describe('スマホ用の鍵 M（IndexedDB、世代つき）', () => {
+  it('世代ごとに置き、読み戻した鍵で開け、exportKey できない', async () => {
+    await clearPairing();
+    const k1 = await makeKey();
+    const k2 = await makeKey();
+    const sealed = await seal(k2, aadFeed('pc-1'), { hello: 'world' });
+    await savePhoneKey(1, k1);
+    const ring = await savePhoneKey(2, k2);
+    expect([...ring.keys()].sort()).toEqual([1, 2]);
+    const back = await loadPhoneKeys();
+    expect([...back.keys()].sort()).toEqual([1, 2]);
+    expect(back.get(2)!.extractable).toBe(false);
+    expect(await open(back.get(2)!, aadFeed('pc-1'), sealed)).toEqual({ hello: 'world' });
+    await expect(globalThis.crypto.subtle.exportKey('raw', back.get(2)!)).rejects.toThrow();
+    expect(currentKey(back)).toEqual({ epoch: 2, key: back.get(2) });
+  });
+
+  it(`新しいほうから ${KEEP_EPOCHS} 世代だけ残す`, async () => {
+    await clearPairing();
+    let ring = await loadPhoneKeys();
+    for (let e = 1; e <= KEEP_EPOCHS + 2; e++) ring = await savePhoneKey(e, await makeKey());
+    expect([...ring.keys()].sort((a, b) => a - b)).toEqual(Array.from({ length: KEEP_EPOCHS }, (_, i) => i + 3));
+    expect([...(await loadPhoneKeys()).keys()].sort((a, b) => a - b)).toEqual(Array.from({ length: KEEP_EPOCHS }, (_, i) => i + 3));
+  });
+
+  it('鍵が無ければ currentKey は null', () => {
+    expect(currentKey(new Map())).toBeNull();
   });
 });

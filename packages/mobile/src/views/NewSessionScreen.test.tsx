@@ -6,7 +6,7 @@ import type { Asker } from '../ask.ts';
 import type { PutImage, Shrink } from '../images.ts';
 import { openInbox, type InboxView } from '../inbox.ts';
 import type { LaunchSpec } from '../launchRun.ts';
-import { feedOf, inboxOf, liveItem, makeKey, MIN } from '../test/fixtures.ts';
+import { at1, feedOf, inboxOf, liveItem, makeKey, MIN, ring } from '../test/fixtures.ts';
 import { WORKER } from '../test/pairText.ts';
 import { NewSessionScreen } from './NewSessionScreen.tsx';
 
@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 async function viewOf(feeds: MobileFeed[], opts?: Parameters<typeof inboxOf>[2]): Promise<InboxView> {
-  return openInbox(await inboxOf(key, feeds, { now: Date.now(), ...opts }), key, new Date());
+  return openInbox(await inboxOf(key, feeds, { now: Date.now(), ...opts }), ring(key), new Date());
 }
 
 const twoPcs = (): MobileFeed[] => [
@@ -47,7 +47,7 @@ async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof in
   const onLaunch = vi.fn<(s: LaunchSpec) => void>();
   const onClose = vi.fn();
   const view = { ...(await viewOf(feeds, opts)), ...over };
-  render(<NewSessionScreen view={view} pairing={pairing} cryptoKey={key} deps={deps} onLaunch={onLaunch} onClose={onClose} />);
+  render(<NewSessionScreen view={view} pairing={pairing} phoneKey={at1(key)} deps={deps} onLaunch={onLaunch} onClose={onClose} />);
   return { onLaunch, onClose };
 }
 
@@ -241,7 +241,7 @@ describe('NewSessionScreen', () => {
       const view = await viewOf(twoPcs());
       render(
         <StrictMode>
-          <NewSessionScreen view={view} pairing={pairing} cryptoKey={key} onLaunch={vi.fn()} onClose={vi.fn()} />
+          <NewSessionScreen view={view} pairing={pairing} phoneKey={at1(key)} onLaunch={vi.fn()} onClose={vi.fn()} />
         </StrictMode>,
       );
       pick('プロジェクト', /project-a/);

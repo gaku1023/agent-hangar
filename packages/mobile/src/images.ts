@@ -4,7 +4,7 @@ import { COMPAT_HEADER, parseCompat } from '@agent-hangar/shared/src/compat.ts';
 import { aadImage, MobilePairingError, sealBytes } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { mobileHeaders, originOf, workerTooOld } from './api.ts';
-import type { Pairing } from './store.ts';
+import type { Pairing, PhoneKey } from './store.ts';
 
 /** 縮めた後の長い辺。 */
 export const IMAGE_LONG_EDGE = 2048;
@@ -79,7 +79,7 @@ function imageCause(reason: ImageFailure): string {
 
 export type PutImage = (
   p: Pairing,
-  key: CryptoKey,
+  key: PhoneKey,
   launchId: string,
   n: number,
   data: Uint8Array,
@@ -99,7 +99,8 @@ export const putImage: PutImage = async (p, key, launchId, n, data, o = {}) => {
     throw e;
   }
   if (o.signal?.aborted) throw new ImageError('aborted');
-  const sealed = await sealBytes(key, aadImage(launchId, n), data);
+  // 画像は依頼と同じ世代のスマホ用の鍵で封じる（Worker は画像の世代を持たず、PC は依頼の世代で開く）。
+  const sealed = await sealBytes(key.key, aadImage(launchId, n), data);
   if (o.signal?.aborted) throw new ImageError('aborted');
   await new Promise<void>((resolve, reject) => {
     const x = o.xhr ? o.xhr() : new XMLHttpRequest();
@@ -206,7 +207,7 @@ type Slot = { n: number; url: string; ac: AbortController | null };
  * 初期プロンプトの欄の画像。依頼の ID（launchId）を先に振り、選んだらすぐに置く。
  * 外したもの、画面を閉じたときは、送るのをやめてサムネイルを放す。置いたものは Worker が後で消す。
  */
-export function useAttachments(o: { pairing: Pairing; key: CryptoKey; launchId: string; put?: PutImage; shrink?: Shrink }): Attachments {
+export function useAttachments(o: { pairing: Pairing; key: PhoneKey; launchId: string; put?: PutImage; shrink?: Shrink }): Attachments {
   const [items, setItems] = useState<Attachment[]>([]);
   const [notice, setNotice] = useState<{ text: string; no: number } | null>(null);
   const deps = useRef(o);

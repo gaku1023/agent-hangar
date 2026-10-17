@@ -1,7 +1,7 @@
 import { aadAsk, aadReply, COMPAT_HEADER, MOBILE_BELL_MIN_WORKER_COMPAT, open, seal, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { askPc, AskError, ASK_DEBOUNCE_MS, createAsker, debounce, FILES_CACHE_MS, MOBILE_ASK_COMMANDS_MAX, MOBILE_ASK_FILES_MAX, type AskFailure } from './ask.ts';
-import { makeKey } from './test/fixtures.ts';
+import { at1, makeKey } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
 const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
@@ -51,7 +51,7 @@ async function failureOf(p: Promise<unknown>): Promise<AskFailure> {
 describe('askPc', () => {
   it('問い合わせを aadAsk(id, 宛先) で封じて POST /m/ask に送り、答えを aadReply(id) で開く', async () => {
     serve({ files: [{ path: 'src/a.ts', changed: true }] });
-    const r = await askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: 'a' });
+    const r = await askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: 'a' });
     expect(r).toEqual({ files: [{ path: 'src/a.ts', changed: true }] });
     expect(asks).toHaveLength(1);
     const { url, init, body } = asks[0]!;
@@ -68,29 +68,29 @@ describe('askPc', () => {
 
   it('503 は pc-offline、504 は pc-timeout', async () => {
     serve({ http: 503, body: { error: 'pc-offline' } });
-    expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' }))).toBe('pc-offline');
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' }))).toBe('pc-offline');
     serve({ http: 504, body: { error: 'pc-timeout' } });
-    expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' }))).toBe('pc-timeout');
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' }))).toBe('pc-timeout');
   });
 
   it('開けない答え、別の id の封、形の違う答えは unreadable', async () => {
     fetchMock.mockImplementation(async () => json({ sealed: await seal(key, aadReply('other'), { files: [] }) }));
-    expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('unreadable');
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('unreadable');
     serve({ nope: 1 } as unknown as MobileReply);
-    expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('unreadable');
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('unreadable');
     fetchMock.mockImplementation(async () => json({ nothing: true }));
-    expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('unreadable');
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('unreadable');
   });
 
   it('PC の断りは理由ごとに分ける', async () => {
     serve({ error: 'project-missing' });
-    expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('project-missing');
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: '' }))).toBe('project-missing');
     serve({ error: 'account-missing' });
-    expect(await failureOf(askPc(pairing, key, 'pc-1', { kind: 'commands', projectId: 'p-a', accountId: 'x' }))).toBe('account-missing');
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'commands', projectId: 'p-a', accountId: 'x' }))).toBe('account-missing');
   });
 
   it('Worker の版が呼び鈴の版に届かなければ unsupported（rc.1 の Worker も JSON の 404 を返すので、本文でなく版の見出しで見分ける）', async () => {
-    const q = () => askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
+    const q = () => askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
     serve({ http: 404, body: { error: 'not found' }, compat: MOBILE_BELL_MIN_WORKER_COMPAT - 1 });
     expect(await failureOf(q())).toBe('unsupported');
     serve({ http: 200, body: { ok: true }, compat: MOBILE_BELL_MIN_WORKER_COMPAT - 1 });
@@ -100,7 +100,7 @@ describe('askPc', () => {
   });
 
   it('Worker の断りを分ける', async () => {
-    const q = () => askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
+    const q = () => askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
     serve({ http: 404, body: { error: 'not found' } });
     expect(await failureOf(q())).toBe('not-found');
     serve({ http: 429, body: { error: 'too many asks' } });
@@ -125,7 +125,7 @@ describe('askPc', () => {
         ...many,
       ],
     });
-    const r = await askPc(pairing, key, 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
+    const r = await askPc(pairing, at1(key), 'pc-1', { kind: 'files', projectId: 'p-a', q: '' });
     if (!('files' in r)) throw new Error('files でない');
     expect(r.files).toHaveLength(MOBILE_ASK_FILES_MAX);
     expect(MOBILE_ASK_FILES_MAX).toBe(50);
@@ -148,7 +148,7 @@ describe('askPc', () => {
         ...many,
       ],
     });
-    const r = await askPc(pairing, key, 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' });
+    const r = await askPc(pairing, at1(key), 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' });
     if (!('commands' in r)) throw new Error('commands でない');
     expect(r.commands).toHaveLength(MOBILE_ASK_COMMANDS_MAX);
     expect(MOBILE_ASK_COMMANDS_MAX).toBe(200);
@@ -166,7 +166,7 @@ describe('askPc', () => {
         { name: 'bad', description: 'x', kind: 'other' },
       ],
     } as unknown as MobileReply);
-    const r = await askPc(pairing, key, 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' });
+    const r = await askPc(pairing, at1(key), 'pc-1', { kind: 'commands', projectId: null, accountId: 'acc-1' });
     expect(r).toEqual({
       commands: [
         { name: 'review', description: 'レビュー', kind: 'skill' },
@@ -181,7 +181,7 @@ describe('createAsker', () => {
 
   it('同じ PC、プロジェクト、アカウントの commands は 1 回だけ問い合わせる', async () => {
     serve(cmds);
-    const a = createAsker(pairing, key);
+    const a = createAsker(pairing, at1(key));
     expect(await a.commands('pc-1', 'p-a', 'acc-1')).toEqual([{ name: 'review', description: 'レビュー', kind: 'skill' }]);
     await a.commands('pc-1', 'p-a', 'acc-1');
     expect(asks).toHaveLength(1);
@@ -193,7 +193,7 @@ describe('createAsker', () => {
 
   it('失敗した commands は覚えず、次で問い合わせ直す', async () => {
     serve({ http: 503, body: { error: 'pc-offline' } });
-    const a = createAsker(pairing, key);
+    const a = createAsker(pairing, at1(key));
     await expect(a.commands('pc-1', 'p-a', 'acc-1')).rejects.toBeInstanceOf(AskError);
     serve(cmds);
     expect(await a.commands('pc-1', 'p-a', 'acc-1')).toHaveLength(1);
@@ -203,7 +203,7 @@ describe('createAsker', () => {
   it('files は同じ q を 30 秒覚える', async () => {
     let t = 1_000_000;
     serve((q) => ({ files: [{ path: `${q.kind === 'files' ? q.q : ''}.ts`, changed: false }] }));
-    const a = createAsker(pairing, key, { now: () => t });
+    const a = createAsker(pairing, at1(key), { now: () => t });
     expect(await a.files('pc-1', 'p-a', 'ap')).toEqual([{ path: 'ap.ts', changed: false }]);
     t += FILES_CACHE_MS - 1;
     await a.files('pc-1', 'p-a', 'ap');

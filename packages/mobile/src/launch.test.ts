@@ -2,7 +2,7 @@ import { COMPAT_VERSION, aadAnswer, aadLaunch, open, seal, type MobileLaunchAnsw
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LaunchError } from './api.ts';
 import { LAUNCH_POLL_MS, launchChoices, requestLaunch, waitLaunch } from './launch.ts';
-import { feedOf, makeKey, MIN, NOW } from './test/fixtures.ts';
+import { at1, feedOf, makeKey, MIN, NOW } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
 const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
@@ -54,7 +54,7 @@ describe('launchChoices', () => {
     expect(c.scratchDeviceIds).toEqual(['pc-1', 'pc-2']);
 
     fetchMock.mockResolvedValue(json({ id: 'x', status: 'pending', sealedAnswer: null }, 201));
-    await requestLaunch(pairing, key, { targetDevice: 'pc-1', payload: { projectId: null, scratch: true, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'はじめて' } });
+    await requestLaunch(pairing, at1(key), { targetDevice: 'pc-1', payload: { projectId: null, scratch: true, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'はじめて' } });
     const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
     const payload = await open<MobileLaunchPayload>(key, aadLaunch(body.id, 'pc-1'), body.sealed);
@@ -75,7 +75,7 @@ describe('requestLaunch', () => {
   it('requestLaunch の sealed は aadLaunch(id, targetDevice) で開け、createdAt が入る', async () => {
     fetchMock.mockResolvedValue(json({ id: 'x', status: 'pending', sealedAnswer: null }, 201));
     const before = Date.now();
-    const id = await requestLaunch(pairing, key, { targetDevice: 'pc-2', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: 'plan', model: 'opus', prompt: 'テストを足して' } });
+    const id = await requestLaunch(pairing, at1(key), { targetDevice: 'pc-2', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: 'plan', model: 'opus', prompt: 'テストを足して' } });
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe(`${WORKER}/m/launches`);
     expect(init.method).toBe('POST');
@@ -97,16 +97,16 @@ describe('requestLaunch', () => {
   it('429 は rate-limited、404 は not-found で断る', async () => {
     const p = { targetDevice: 'pc-1', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } };
     fetchMock.mockResolvedValueOnce(json({ error: 'rate limited' }, 429));
-    await expect(requestLaunch(pairing, key, p)).rejects.toMatchObject({ reason: 'rate-limited' });
+    await expect(requestLaunch(pairing, at1(key), p)).rejects.toMatchObject({ reason: 'rate-limited' });
     fetchMock.mockResolvedValueOnce(json({ error: 'not found' }, 404));
-    await expect(requestLaunch(pairing, key, p)).rejects.toBeInstanceOf(LaunchError);
+    await expect(requestLaunch(pairing, at1(key), p)).rejects.toBeInstanceOf(LaunchError);
     fetchMock.mockResolvedValueOnce(json({ error: 'not found' }, 404));
-    await expect(requestLaunch(pairing, key, p)).rejects.toMatchObject({ reason: 'not-found' });
+    await expect(requestLaunch(pairing, at1(key), p)).rejects.toMatchObject({ reason: 'not-found' });
   });
 
   it('通信が切れたら同じ id で 1 度だけ送り直す', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(json({ id: 'x', status: 'pending', sealedAnswer: null }, 201));
-    const id = await requestLaunch(pairing, key, { targetDevice: 'pc-1', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
+    const id = await requestLaunch(pairing, at1(key), { targetDevice: 'pc-1', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const ids = fetchMock.mock.calls.map((c) => (JSON.parse((c[1] as RequestInit).body as string) as { id: string }).id);
     expect(ids).toEqual([id, id]);
@@ -114,7 +114,7 @@ describe('requestLaunch', () => {
   it('skewMs の分だけ createdAt がずれる（Worker の時刻に寄せる）', async () => {
     fetchMock.mockResolvedValue(json({ id: 'x', status: 'pending', sealedAnswer: null }, 201));
     const before = Date.now();
-    const id = await requestLaunch(pairing, key, { targetDevice: 'pc-1', skewMs: 90 * MIN, payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
+    const id = await requestLaunch(pairing, at1(key), { targetDevice: 'pc-1', skewMs: 90 * MIN, payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
     const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as { sealed: string };
     const payload = await open<MobileLaunchPayload>(key, aadLaunch(id, 'pc-1'), body.sealed);
     expect(payload.createdAt).toBeGreaterThanOrEqual(before + 90 * MIN);
@@ -123,7 +123,7 @@ describe('requestLaunch', () => {
 
   it('id を渡すとその id で送る（送り直しで Worker が行を増やさない）', async () => {
     fetchMock.mockResolvedValue(json({ id: 'l-keep', status: 'pending', sealedAnswer: null }, 201));
-    const id = await requestLaunch(pairing, key, { id: 'l-keep', targetDevice: 'pc-1', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
+    const id = await requestLaunch(pairing, at1(key), { id: 'l-keep', targetDevice: 'pc-1', payload: { projectId: 'p-a', scratch: false, accountId: 'acc-1', permissionMode: '', model: '', prompt: 'a' } });
     expect(id).toBe('l-keep');
     const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as { id: string; sealed: string };
     expect(body.id).toBe('l-keep');
@@ -145,7 +145,7 @@ describe('waitLaunch', () => {
     const replies = [await status('l-1', 'pending'), await status('l-1', 'claimed'), await status('l-1', 'started', answer)];
     fetchMock.mockImplementation(async () => replies.shift() ?? (await status('l-1', 'started', answer)));
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-1', { onStage });
+    waitLaunch(pairing, at1(key), 'l-1', { onStage });
     expect(onStage).toHaveBeenLastCalledWith('waiting');
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
@@ -165,7 +165,7 @@ describe('waitLaunch', () => {
     const replies = [await status('l-c', 'pending'), await status('l-c', 'claimed'), await status('l-c', 'claimed')];
     fetchMock.mockImplementation(async () => replies.shift() ?? (await status('l-c', 'claimed')));
     const onClaimed = vi.fn();
-    waitLaunch(pairing, key, 'l-c', { onStage: vi.fn(), onClaimed });
+    waitLaunch(pairing, at1(key), 'l-c', { onStage: vi.fn(), onClaimed });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onClaimed).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
@@ -180,7 +180,7 @@ describe('waitLaunch', () => {
     const reply = await status('l-2', 'failed', answer);
     fetchMock.mockImplementation(async () => reply.clone());
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-2', { onStage });
+    waitLaunch(pairing, at1(key), 'l-2', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('failed', answer));
   });
@@ -189,7 +189,7 @@ describe('waitLaunch', () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async () => status('l-3', 'pending'));
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-3', { onStage });
+    waitLaunch(pairing, at1(key), 'l-3', { onStage });
     await vi.advanceTimersByTimeAsync(79_000);
     expect(onStage).not.toHaveBeenCalledWith('expired');
     await vi.advanceTimersByTimeAsync(1_000);
@@ -204,7 +204,7 @@ describe('waitLaunch', () => {
     const replies = [await status('l-5', 'pending'), await status('l-5', 'claimed')];
     fetchMock.mockImplementation(async () => replies.shift() ?? (await status('l-5', 'claimed')));
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-5', { onStage });
+    waitLaunch(pairing, at1(key), 'l-5', { onStage });
     await vi.advanceTimersByTimeAsync(80_000);
     expect(onStage).toHaveBeenLastCalledWith('unanswered');
     expect(onStage).not.toHaveBeenCalledWith('expired');
@@ -214,7 +214,7 @@ describe('waitLaunch', () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async () => status('l-4', 'expired'));
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-4', { onStage });
+    waitLaunch(pairing, at1(key), 'l-4', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage).toHaveBeenLastCalledWith('expired');
   });
@@ -223,7 +223,7 @@ describe('waitLaunch', () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async () => status('l-5', 'pending'));
     const onStage = vi.fn();
-    const stop = waitLaunch(pairing, key, 'l-5', { onStage });
+    const stop = waitLaunch(pairing, at1(key), 'l-5', { onStage });
     stop();
     await vi.advanceTimersByTimeAsync(90_000);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -236,7 +236,7 @@ describe('waitLaunch', () => {
     const reply = await status('l-6', 'started', answer);
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockImplementation(async () => reply.clone());
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-6', { onStage });
+    waitLaunch(pairing, at1(key), 'l-6', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage).toHaveBeenLastCalledWith('waiting');
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -250,7 +250,7 @@ describe('waitLaunch', () => {
     const bad = json({ id: 'l-7', status: 'started', sealedAnswer: await seal(other, aadAnswer('l-7'), { ok: true, sessionId: 's', title: 't' }) });
     fetchMock.mockImplementation(async () => bad.clone());
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-7', { onStage });
+    waitLaunch(pairing, at1(key), 'l-7', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('unreadable'));
     expect(onStage).not.toHaveBeenCalledWith('started', expect.anything());
@@ -258,7 +258,7 @@ describe('waitLaunch', () => {
     const none = json({ id: 'l-8', status: 'started', sealedAnswer: null });
     fetchMock.mockImplementation(async () => none.clone());
     const onStage2 = vi.fn();
-    waitLaunch(pairing, key, 'l-8', { onStage: onStage2 });
+    waitLaunch(pairing, at1(key), 'l-8', { onStage: onStage2 });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage2).toHaveBeenLastCalledWith('unreadable'));
   });
@@ -268,7 +268,7 @@ describe('waitLaunch', () => {
     const reply = json({ id: 'l-9', status: 'failed', sealedAnswer: 'not-a-sealed-value' });
     fetchMock.mockImplementation(async () => reply.clone());
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-9', { onStage });
+    waitLaunch(pairing, at1(key), 'l-9', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('unreadable'));
   });
@@ -279,14 +279,14 @@ describe('waitLaunch', () => {
     const r1 = await status('l-10', 'started', no);
     fetchMock.mockImplementation(async () => r1.clone());
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-10', { onStage });
+    waitLaunch(pairing, at1(key), 'l-10', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage).toHaveBeenLastCalledWith('failed', no));
 
     const r2 = await status('l-11', 'failed', { ok: true, sessionId: 's', title: 't' });
     fetchMock.mockImplementation(async () => r2.clone());
     const onStage2 = vi.fn();
-    waitLaunch(pairing, key, 'l-11', { onStage: onStage2 });
+    waitLaunch(pairing, at1(key), 'l-11', { onStage: onStage2 });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     await vi.waitFor(() => expect(onStage2).toHaveBeenLastCalledWith('unreadable'));
   });
@@ -295,13 +295,13 @@ describe('waitLaunch', () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async () => json({ error: 'unauthorized' }, 401));
     const onStage = vi.fn();
-    waitLaunch(pairing, key, 'l-12', { onStage });
+    waitLaunch(pairing, at1(key), 'l-12', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage).toHaveBeenLastCalledWith('unpaired');
 
     fetchMock.mockImplementation(async () => json({ error: 'not found' }, 404));
     const onStage2 = vi.fn();
-    waitLaunch(pairing, key, 'l-13', { onStage: onStage2 });
+    waitLaunch(pairing, at1(key), 'l-13', { onStage: onStage2 });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
     expect(onStage2).toHaveBeenLastCalledWith('failed');
   });

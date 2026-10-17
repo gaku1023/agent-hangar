@@ -1,10 +1,10 @@
 import { isRemoteControlUrl } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from 'react';
-import { fetchInbox, UnpairedError } from '../api.ts';
+import { UnpairedError, type UnpairedReason } from '../api.ts';
 import { ago, clock, dayLabel, elapsed, monthDay, waitedFor } from '../format.ts';
-import { localDay, openInbox, type InboxView, type Row } from '../inbox.ts';
+import { localDay, readInbox, type InboxView, type Row } from '../inbox.ts';
 import { usePresence } from '../presence.ts';
-import { clearPairing, type Pairing } from '../store.ts';
+import { clearPairing, type Keyring, type Pairing } from '../store.ts';
 import { AccountTag } from './AccountTag.tsx';
 import { Fold } from './Fold.tsx';
 
@@ -29,9 +29,14 @@ const waitingKind = (r: Row): string | null => (r.waiting?.kind === 'permission'
 
 type Props = {
   pairing: Pairing;
-  cryptoKey: CryptoKey;
-  /** 接続が外された（401）か、接続し直すと決めた。参加の画面に戻る。 */
-  onUnpaired: () => void;
+  /** 手元のスマホ用の鍵（世代つき）。 */
+  keys: Keyring;
+  /** 素の世代が手元より新しいときに keybox を読み直す。無ければ読み直さない。 */
+  reloadKeys?: () => Promise<Keyring>;
+  /** 読み直して手元の鍵が変わった。 */
+  onKeys?: (keys: Keyring) => void;
+  /** 接続が外された、期限が切れた（401）か、接続し直すと決めた。参加の画面に戻る。 */
+  onUnpaired: (reason?: UnpairedReason) => void;
   /** 「＋ 新しい会話」。読んだ受信箱を渡す（新しい会話の画面が PC ごとのプロジェクトとアカウントを読む）。無いとき、まだ読めていないときは押せない。 */
   onNewSession?: (view: InboxView) => void;
   /** 受信箱を読めるたびに、読んだものを渡す（起動のシートが、始まった会話の URL をここから探す）。 */
@@ -42,7 +47,7 @@ type Props = {
 
 type Pull = { phase: 'idle' } | { phase: 'pulling'; dist: number } | { phase: 'refreshing' };
 
-export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, onView, refresh }: Props): ReactNode {
+export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onNewSession, onView, refresh }: Props): ReactNode {
   const [view, setView] = useState<InboxView | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -53,13 +58,23 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, onVi
   const scroller = useRef<HTMLDivElement>(null);
   const viewHandler = useRef(onView);
   viewHandler.current = onView;
+  // 鍵は読み直しのたびに変わりうるので、読み込みの関数を作り直さないよう ref で持つ。
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+  const keyDeps = useRef({ reloadKeys, onKeys });
+  keyDeps.current = { reloadKeys, onKeys };
 
   const load = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
     const run = (async () => {
       try {
-        const res = await fetchInbox(pairing);
-        const v = await openInbox(res, cryptoKey, new Date());
+        const before = keysRef.current;
+        const reload = keyDeps.current.reloadKeys ?? (async () => before);
+        const { view: v, keys: after } = await readInbox(pairing, before, { reloadKeys: reload });
+        if (after !== before) {
+          keysRef.current = after;
+          keyDeps.current.onKeys?.(after);
+        }
         if (!alive.current) return;
         setView(v);
         viewHandler.current?.(v);
@@ -68,8 +83,8 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, onVi
       } catch (e) {
         if (!alive.current) return;
         if (e instanceof UnpairedError) {
-          clearPairing();
-          onUnpaired();
+          void clearPairing();
+          onUnpaired(e.reason);
           return;
         }
         setFailed(true);
@@ -79,7 +94,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, onVi
     });
     inFlight.current = run;
     return run;
-  }, [pairing, cryptoKey, onUnpaired]);
+  }, [pairing, onUnpaired]);
 
   // 開いたとき、見えたとき、見えている間 30 秒ごとに読み直す。
   useEffect(() => {
@@ -133,7 +148,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, onVi
   };
 
   const reconnect = (): void => {
-    clearPairing();
+    void clearPairing();
     onUnpaired();
   };
 

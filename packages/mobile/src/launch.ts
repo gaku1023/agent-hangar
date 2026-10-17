@@ -1,7 +1,7 @@
 import type { MobileAccount, MobileFeed, MobileLaunchAnswer, MobileLaunchPayload, MobileProject } from '@agent-hangar/shared/src/mobile.ts';
 import { aadAnswer, aadLaunch, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { getLaunch, LaunchError, postLaunch } from './api.ts';
-import type { Pairing } from './store.ts';
+import type { Pairing, PhoneKey } from './store.ts';
 
 export type LaunchProject = MobileProject & { deviceIds: string[] };
 
@@ -57,14 +57,14 @@ export function launchChoices(feeds: MobileFeed[], alive: Set<string>): LaunchCh
  */
 export async function requestLaunch(
   p: Pairing,
-  key: CryptoKey,
+  key: PhoneKey,
   o: { targetDevice: string; payload: Omit<MobileLaunchPayload, 'v' | 'createdAt'>; skewMs?: number; id?: string },
 ): Promise<string> {
   const id = o.id ?? globalThis.crypto.randomUUID();
   const payload: MobileLaunchPayload = { v: 1, createdAt: Date.now() + (o.skewMs ?? 0), ...o.payload };
-  const sealed = await seal(key, aadLaunch(id, o.targetDevice), payload);
-  // epoch は封じたスマホ用の鍵の世代（互換の版 9）。スマホの鍵ペアと keybox（Task 23）が入るまでは鍵が 1 つだけなので 1 である。
-  const body = { id, targetDevice: o.targetDevice, sealed, epoch: 1 };
+  const sealed = await seal(key.key, aadLaunch(id, o.targetDevice), payload);
+  // epoch は封じたスマホ用の鍵の世代（互換の版 9）。PC は同じ世代の鍵で開き、答えも同じ世代で封じる。
+  const body = { id, targetDevice: o.targetDevice, sealed, epoch: key.epoch };
   try {
     await postLaunch(p, body);
   } catch (e) {
@@ -100,7 +100,7 @@ export const LAUNCH_GIVE_UP_MS = 80_000;
  */
 export function waitLaunch(
   p: Pairing,
-  key: CryptoKey,
+  key: PhoneKey,
   id: string,
   o: { everyMs?: number; giveUpMs?: number; onStage: (s: LaunchStage, a?: MobileLaunchAnswer) => void; onClaimed?: () => void },
 ): () => void {
@@ -120,7 +120,7 @@ export function waitLaunch(
   const answerOf = async (sealed: string | null): Promise<MobileLaunchAnswer | undefined> => {
     if (!sealed) return undefined;
     try {
-      const a = await open<MobileLaunchAnswer>(key, aadAnswer(id), sealed);
+      const a = await open<MobileLaunchAnswer>(key.key, aadAnswer(id), sealed);
       return a && typeof a === 'object' && typeof a.ok === 'boolean' ? a : undefined;
     } catch {
       return undefined;

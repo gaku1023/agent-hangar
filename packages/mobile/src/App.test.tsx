@@ -1,16 +1,16 @@
-import { aadAnswer, aadLaunch, open, seal, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
+import { aadAnswer, aadLaunch, open, seal, sealPhoneKeybox, toBase64Url, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
 import * as store from './store.ts';
-import { feedOf, inboxOf, liveItem, makeKey } from './test/fixtures.ts';
+import { connectPhone, feedOf, inboxOf, liveItem, makeKey } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
 let key: CryptoKey;
 let fetchMock: ReturnType<typeof vi.fn>;
 /** 受信箱の feed。試験の途中で差し替える。 */
 let feeds: MobileFeed[];
-let launches: { id: string; targetDevice: string; sealed: string }[];
+let launches: { id: string; targetDevice: string; sealed: string; epoch: number }[];
 /** GET /m/launches/:id の答え。 */
 let status: 'pending' | 'claimed' | 'started' | 'failed';
 let answer: MobileLaunchAnswer | undefined;
@@ -18,8 +18,8 @@ let inboxReads: number;
 
 beforeEach(async () => {
   key = await makeKey();
-  store.savePairing({ url: WORKER, token: 'tok-1', deviceId: 'phone-1' });
-  await store.saveKey(key);
+  await store.clearPairing();
+  await connectPhone(key);
   feeds = [feedOf('pc-1', 'Mac')];
   launches = [];
   status = 'pending';
@@ -31,7 +31,7 @@ beforeEach(async () => {
       return json(await inboxOf(key, feeds, { now: Date.now() }));
     }
     if (init?.method === 'POST') {
-      const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string };
+      const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string; epoch: number };
       launches.push(body);
       return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
     }
@@ -95,6 +95,8 @@ describe('App', () => {
     await waitFor(() => expect(launches).toHaveLength(1));
     const payload = await open<MobileLaunchPayload>(key, aadLaunch(launches[0]!.id, 'pc-1'), launches[0]!.sealed);
     expect(payload).toMatchObject({ projectId: 'p-a', accountId: 'acc-1', prompt: 'テストを足して' });
+    // 封じたスマホ用の鍵の世代を添える。
+    expect(launches[0]!.epoch).toBe(1);
     await waitFor(() => expect(steps()).toEqual(['done', 'act', 'todo']));
 
     status = 'claimed';
@@ -158,5 +160,47 @@ describe('App', () => {
     fillAndStart();
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(await screen.findByRole('heading', { name: /接続/ })).toBeInTheDocument();
+  });
+
+  it('受信箱が 401 expired なら「接続の期限が切れました。PC で QR を出して接続し直してください。」', async () => {
+    fetchMock.mockImplementation(async () => json({ error: 'expired' }, 401));
+    render(<App pairText={null} />);
+    expect(await screen.findByText('接続の期限が切れました。PC で QR を出して接続し直してください。')).toBeInTheDocument();
+    expect(store.loadPairing()).toBeNull();
+  });
+
+  it('解除（401 revoked）では期限切れの文を出さない', async () => {
+    fetchMock.mockImplementation(async () => json({ error: 'revoked' }, 401));
+    render(<App pairText={null} />);
+    expect(await screen.findByRole('heading', { name: 'このスマホはまだ接続していません' })).toBeInTheDocument();
+    expect(screen.queryByText(/接続の期限が切れました/)).not.toBeInTheDocument();
+  });
+
+  it('受信箱の素の世代が手元より新しければ keybox を読み直し、その世代で起動の依頼を封じる', async () => {
+    const pair = (await store.loadPhonePair())!;
+    const m2 = globalThis.crypto.getRandomValues(new Uint8Array(32));
+    const key2 = await globalThis.crypto.subtle.importKey('raw', m2 as BufferSource, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    let keyboxReads = 0;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/m/inbox')) return json(await inboxOf(key2, feeds, { now: Date.now(), epoch: 2 }));
+      if (url.endsWith('/m/keybox')) {
+        keyboxReads++;
+        return json({ epoch: 2, sealed: toBase64Url(await sealPhoneKeybox(pair.pub, 'phone-1', 2, m2)) });
+      }
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string; epoch: number };
+        launches.push(body);
+        return json({ id: body.id, status: 'pending', sealedAnswer: null, epoch: body.epoch }, 201);
+      }
+      return json({ id: url.split('/').pop(), status: 'pending', sealedAnswer: null, epoch: 2 });
+    });
+    render(<App pairText={null} launchEveryMs={20} />);
+    await openNew();
+    expect(keyboxReads).toBe(1);
+    expect([...(await store.loadPhoneKeys()).keys()].sort()).toEqual([1, 2]);
+    fillAndStart();
+    await waitFor(() => expect(launches).toHaveLength(1));
+    expect(launches[0]!.epoch).toBe(2);
+    expect(await open<MobileLaunchPayload>(key2, aadLaunch(launches[0]!.id, 'pc-1'), launches[0]!.sealed)).toMatchObject({ prompt: 'テストを足して' });
   });
 });

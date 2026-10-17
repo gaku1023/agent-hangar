@@ -8,7 +8,7 @@ import type { InboxView } from '../inbox.ts';
 import { launchChoices } from '../launch.ts';
 import type { LaunchSpec } from '../launchRun.ts';
 import { phaseClass, usePresence } from '../presence.ts';
-import type { Pairing } from '../store.ts';
+import type { Pairing, PhoneKey } from '../store.ts';
 import { Choice } from './Choice.tsx';
 import { Composer } from './Composer.tsx';
 import { Fold } from './Fold.tsx';
@@ -49,7 +49,8 @@ type Props = {
   view: InboxView;
   /** 候補の問い合わせと画像の置き場に使う。 */
   pairing: Pairing;
-  cryptoKey: CryptoKey;
+  /** 問い合わせと画像を封じる、いちばん新しい世代のスマホ用の鍵。 */
+  phoneKey: PhoneKey;
   /** 試験で差し替える口。 */
   deps?: { asker?: Asker; putImage?: PutImage; shrink?: Shrink };
   /** 「始める」。画面を閉じて、起動のシートに進みを見せるのは呼び手。 */
@@ -61,7 +62,7 @@ type Props = {
 };
 
 /** 新しい会話の画面（B1 プロジェクト、C3 詳しい設定）。 */
-export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onClose, leaving }: Props): ReactNode {
+export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onClose, leaving }: Props): ReactNode {
   const alive = useMemo(() => new Set(view.devices.filter((d) => d.alive).map((d) => d.id)), [view]);
   const choices = useMemo(() => launchChoices(view.feeds, alive), [view, alive]);
   const names = useMemo(() => {
@@ -83,8 +84,8 @@ export function NewSessionScreen({ view, pairing, cryptoKey, deps, onLaunch, onC
   // 依頼の ID は画面を開いたときに振る。画像はこの ID の下に置き、依頼もこの ID で出す。
   const [launchId] = useState(() => globalThis.crypto.randomUUID());
   // 候補の答えは画面の間だけ覚える（画面は開くたびに作り直す）。
-  const [asker] = useState(() => deps?.asker ?? createAsker(pairing, cryptoKey));
-  const att = useAttachments({ pairing, key: cryptoKey, launchId, put: deps?.putImage, shrink: deps?.shrink });
+  const [asker] = useState(() => deps?.asker ?? createAsker(pairing, phoneKey));
+  const att = useAttachments({ pairing, key: phoneKey, launchId, put: deps?.putImage, shrink: deps?.shrink });
   const promptId = useId();
   const advId = useId();
   const titleId = useId();
