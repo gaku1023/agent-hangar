@@ -24,6 +24,7 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.join.rateLimited': 'Too many join codes were issued. Wait about 10 minutes, then issue one again',
   'sync.join.noRequest': 'There is no join request to approve',
   'sync.join.noCode': 'No join code is active',
+  'sync.join.notSetUp': 'Cloud setup is not finished (the recovery key has not been confirmed). On the computer that created the Worker, run hangar setup cloud to the end, then issue a new join code',
   'sync.revoke.self': 'This computer cannot be removed here. Use "Leave sync on this computer" instead',
   'sync.revoke.notFound': 'The computer or phone you tried to remove has not joined this cloud',
   'sync.recovery.noDraft': 'There is no new recovery key to confirm. Reissue it again',

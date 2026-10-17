@@ -5605,8 +5605,13 @@ Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` �
 使ったハッシュは `meta.bootstrap_used` に残し、同じハッシュは 2 度通さない。
 `hangar recover` は secret を別のハッシュに入れ替えて、もう 1 度ここを通る。
 2 台目からは、参加済みの PC が発行した参加コード（5 分、1 回限り）に新しい PC がリクエストを置き、発行した PC が承認する（下の「Worker の表」）。
-D1 には参加コードの SHA-256 だけを置く。
-参加リクエストは参加コードから導いた鍵で封じるが、約 39 bit のコードは D1 の写しから総当たりできるので、承認、拒否、期限切れのどれでも `request` を null にし、1 日を過ぎた行は次の発行のついでに消す。
+D1 には参加コードのハッシュだけを置く。
+ハッシュと参加リクエストの封の鍵と確認コードは、PC の側（発行する PC と新しい PC）で `PBKDF2-SHA256(正規化したコード, salt = "hangar-join-v1:" + cloud_id, 300 万回)` の出力から HKDF で導く（shared の `e2e/joinCode.ts`）。
+回数は Node で 1 回 0.3 秒前後になるように決めた。約 39 bit のコードを 1 回の SHA-256 にすると、D1 の写し（ハッシュと封じたリクエスト）から GPU で数十秒で総当たりできるためである。
+cloud_id は発行する PC は `cloud.json`、新しい PC は `GET /health` で知り、クラウドをまたいだ前計算を効かなくする。
+Worker は受け取ったハッシュを比べるだけで、コードからは何も計算しない。
+スマホの接続の券は 16 バイトの乱数なので、1 回の SHA-256 のままである。
+それでも、承認、拒否、期限切れのどれでも `request` を null にし、1 日を過ぎた行は次の発行のついでに消す。
 発行は 1 台の PC につき 10 分に 5 回までである。
 認証の無い参加の口（`POST /join/requests`）は、通らなかった要求を Worker 全体で 10 分に 30 回まで数え（shared の `JOIN_GUESS_LIMIT`、窓と回数は `meta`）、超えたら正しいコードでも 429 で断る。
 数えるのは知らないコードへの要求だけではない。期限切れや使用済みのコード、他の PC がリクエストを置き済みのコードへの再送も、同じ 404 で返して 1 回に数える。
@@ -5615,11 +5620,15 @@ CLI の setup と参加は上の「setup と参加の CLI」の形になった�
 
 **発行した PC の承認（`sync/joinApprover.ts`）。**
 参加コードの発行と承認は、動いているサーバの `JoinApprover` が行う（CLI だけで PC を追加する口は作らない）。
-参加コードの平文はこの中のメモリにだけ置き、Worker には SHA-256 だけを送る。
+参加コードの平文はこの中のメモリにだけ置き、Worker には重い KDF で導いたハッシュだけを送る。
+重い KDF は発行のときに 1 回だけ計算し、封の鍵と確認コードの種もメモリに持つ（`deps.cloudId` は `cloud.json` の `cloudId`）。
 コードが生きている間だけ、3 秒ごとに `GET /join-codes/mine` を問い合わせ、期限を過ぎたら Worker に問い合わせずに `expired` にして止める。
 リクエストを見たら参加コードで開き、確認コードを導いて `requested` にし、そのリクエストにつき 1 回だけ、右下の通知（`ServerEvent` の `join.request`）と OS の通知（`OsNoticeDto` の種類 `join`、殻の `notify::Kind::Join`）を出す。
 状態が変わるたびに `join.update` を配る。
 承認は、名簿に新しい PC を足す（`RosterStore.update`）、世代 1 から n までの一覧を新しい PC の公開鍵に封じた keybox を置く（`PUT /keyboxes`）、`POST /join-codes/:hash/approve` の順に行う。
+名簿がまだ無い（`GET /roster` が 404 で版 0）クラウドでは承認しない。
+setup がリカバリーキーの確認の前に止まったクラウドで、ここで書くと空の名簿から作ってしまい、承認した PC 自身が入らず `recoveryPub` も空のまま残るためである。
+名簿も keybox も書かずに Worker では拒否として閉じ、`failed`（`sync.join.notSetUp`、setup を最後まで実行するよう案内する）にする。
 Worker は、承認の前の新しい PC（devices にまだ無い）を keybox の受け手として通す。通すのは、書き手が発行したコードにリクエストを置いた PC で、リクエストが期限内か、承認の後で端末トークンをまだ渡していない間だけである。
 アプリが落ちて `JoinApprover` が作り直されると、平文が消えて承認できなくなり、新しい PC は期限（5 分）で `expired` を受け取る。
 口は `POST /api/sync/join-codes`（発行）、`GET /api/sync/join-codes/current`（状態）、`POST /api/sync/join-codes/current/approve`、`/reject`、`DELETE /api/sync/join-codes/current`（取り消し。生きているコードは拒否で閉じる）で、どれも `JoinApproverState` を返し、`no-store` を付ける。

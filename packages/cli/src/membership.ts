@@ -5,6 +5,7 @@ import { CloudError, cloudConfigPath, type CloudConfig, HttpCloudClient, MIN_WOR
 import {
   decodeEpochList,
   deriveEpochKeys,
+  deriveJoinSecrets,
   deriveSas,
   DEVICE_ADMIN_MIN_WORKER_COMPAT,
   E2eOpenError,
@@ -13,7 +14,6 @@ import {
   importPrivate,
   isAllowedJoinUrl,
   JOIN_CODE_TTL_MS,
-  joinCodeHash,
   normalizeJoinCode,
   openKeybox,
   openRoster,
@@ -206,7 +206,7 @@ export async function joinCheck(o: { home: string; url: string; fetch?: typeof f
  * 参加コードの形を手元で確かめてから、鍵ペアを作り、公開鍵と名前と OS を参加コードで封じて Worker に置く。
  * 形の違うコードは Worker に送らない（一致しないコードへのリクエストは Worker 全体の上限に数えられる）。
  * 鍵ペアは、送る前に下書き（0600）に書く。送った後に止まっても、秘密鍵を失わない。
- * 確認コードは、参加コードとこの PC の公開鍵から導く。発行した PC にも同じ確認コードが表示される。
+ * 確認コードは、参加コードとクラウドの ID から重い KDF で導いた種と、この PC の公開鍵から導く。発行した PC にも同じ確認コードが表示される。
  */
 export async function joinRequest(o: { home: string; url: string; code: string; device: DeviceLike; overwrite?: boolean; fetch?: typeof fetch; now?: () => number }): Promise<JoinRequestResult> {
   const code = normalizeJoinCode(String(o.code ?? ''));
@@ -224,17 +224,26 @@ export async function joinRequest(o: { home: string; url: string; code: string; 
   // DB を先に開く（控えが取れなければ、参加リクエストを送る前に止まる）。床を刻むのは承認の後（joinPoll）である。
   openFloorFirst(o.home, '参加リクエストはまだ送信していません', 'hangar cloud join').close();
 
+  // 参加コードのハッシュと封の鍵は、コードとクラウドの ID から重い KDF で導く（発行した PC は cloud.json の cloudId を使う）。
+  // 新しい PC はまだ cloud.json を持たないので、接続先の /health が名乗る ID を使う。別のクラウドを名乗れば、ハッシュが一致せず 404 になる。
+  const f = o.fetch ?? realFetch;
+  const h = await workerFetch(url, '/health', { fetch: f });
+  const health = h.ok ? await jsonOf<{ ok?: unknown; cloudId?: unknown }>(h) : null;
+  if (health?.ok !== true) throw new MembershipError('unreachable', `${url} からクラウドの応答がありません（HTTP ${h.status}）。接続先の URL を確認してください`);
+  if (typeof health.cloudId !== 'string' || health.cloudId === '') throw outdatedJoin();
+
   const now = (o.now ?? Date.now)();
   const keyPair = await generateKeyPair();
-  const codeHash = await joinCodeHash(code);
-  const sealed = await sealJoinRequest(code, codeHash, { pub: keyPair.pub, name: o.device.name, os: o.device.platform });
-  const sas = await deriveSas(code, keyPair.pub);
+  const secrets = await deriveJoinSecrets(code, health.cloudId);
+  const codeHash = secrets.codeHash;
+  const sealed = await sealJoinRequest(secrets, { pub: keyPair.pub, name: o.device.name, os: o.device.platform });
+  const sas = await deriveSas(secrets, keyPair.pub);
   const expiresAt = now + JOIN_CODE_TTL_MS;
   writePending(o.home, { v: 1, url, codeHash, deviceId: o.device.id, keyPair, expiresAt, createdAt: now, deviceToken: null });
 
   let r: Response;
   try {
-    r = await workerFetch(url, '/join/requests', { fetch: o.fetch ?? realFetch, method: 'POST', body: { codeHash, deviceId: o.device.id, sealed } });
+    r = await workerFetch(url, '/join/requests', { fetch: f, method: 'POST', body: { codeHash, deviceId: o.device.id, sealed } });
   } catch (e) {
     removePending(o.home);
     throw e;

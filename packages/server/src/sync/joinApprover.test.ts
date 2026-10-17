@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  deriveJoinSecrets,
   deriveSas,
   generateKeyPair,
   JOIN_CODE_TTL_MS,
@@ -11,6 +12,7 @@ import {
   joinCodeHash,
   randomEpochKey,
   sealJoinRequest,
+  setJoinKdfIterationsForTests,
   type JoinApproverState,
   type OsNoticeDto,
   type ServerEvent,
@@ -30,6 +32,12 @@ import { RosterStore, type ConfigWriter } from './roster.ts';
 const URL_ = 'https://h.workers.dev';
 const TOKEN_A = 'token-pc-a-0123456789abcdef';
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
+/** このクラウドの ID。偽の Worker の /health と、発行した PC の cloud.json（testCloudConfig）が同じ値を持つ。 */
+const CLOUD = 'cloud-test-1';
+
+// 参加コードの重い KDF（本番は 1 回 0.3 秒前後）は、試験では回数を減らす。
+beforeAll(() => setJoinKdfIterationsForTests(1000));
+afterAll(() => setJoinKdfIterationsForTests(null));
 
 const temps: string[] = [];
 afterEach(() => {
@@ -80,7 +88,7 @@ type World = {
   newApprover(): JoinApprover;
 };
 
-async function world(): Promise<World> {
+async function world(o: { noRoster?: boolean } = {}): Promise<World> {
   const clock = { now: 1_000_000 };
   const worker = new FakeWorker();
   worker.now = () => clock.now;
@@ -98,7 +106,8 @@ async function world(): Promise<World> {
   const keyring = await Keyring.fromConfig(cfg);
   const roster = new RosterStore(wire, keyring, writer, 'pc-a');
   const recovery = await generateKeyPair();
-  await roster.update(() => ({ v: 1, entries: [{ id: 'pc-a', kind: 'pc', name: 'pc-a', os: 'darwin', pub: keyPair.pub, joinedAt: 1 }], recoveryPub: recovery.pub, phoneKey: null }));
+  // noRoster は、setup がリカバリーキーの確認の前に止まり、名簿がまだ無いクラウドの真似である。
+  if (!o.noRoster) await roster.update(() => ({ v: 1, entries: [{ id: 'pc-a', kind: 'pc', name: 'pc-a', os: 'darwin', pub: keyPair.pub, joinedAt: 1 }], recoveryPub: recovery.pub, phoneKey: null }));
   const states: JoinApproverState[] = [];
   const events: ServerEvent[] = [];
   const notices: Omit<OsNoticeDto, 'seq'>[] = [];
@@ -109,6 +118,7 @@ async function world(): Promise<World> {
       wire,
       roster,
       keyring,
+      cloudId: cfg.cloudId,
       language: () => 'ja',
       now: () => clock.now,
       timers,
@@ -165,7 +175,7 @@ describe('JoinApprover（発行した PC の承認）', () => {
     expect(roster.entries.map((e) => [e.id, e.kind, e.name, e.os])).toEqual([['pc-a', 'pc', 'pc-a', 'darwin'], ['pc-b', 'pc', 'pc-b', 'linux']]);
     // Worker への書き込みは、名簿、keybox、承認の順。
     const writes = w.worker.calls.filter((c) => c.startsWith('PUT') || c.includes('/approve'));
-    expect(writes.slice(-3)).toEqual(['PUT /roster', 'PUT /keyboxes', `POST /join-codes/${await joinCodeHash(code)}/approve`]);
+    expect(writes.slice(-3)).toEqual(['PUT /roster', 'PUT /keyboxes', `POST /join-codes/${await joinCodeHash(code, CLOUD)}/approve`]);
 
     // 新しい PC は端末トークンと keybox を受け取り、世代鍵の全部を持つ cloud.json を書く。
     expect(await joinPoll({ home: homeB, fetch: w.worker.fetch })).toEqual({ status: 'approved' });
@@ -256,9 +266,9 @@ describe('JoinApprover（発行した PC の承認）', () => {
   it('別の公開鍵でリクエストを置き直されたら、確認コードが変わる', async () => {
     // 参加コードを盗み見た別の PC が、自分の公開鍵でリクエストを置いた。
     const { code } = await w.approver.issue();
-    const hash = await joinCodeHash(code);
+    const hash = await joinCodeHash(code, CLOUD);
     const other = await generateKeyPair();
-    const sealed = await sealJoinRequest(code, hash, { pub: other.pub, name: 'pc-b', os: 'linux' });
+    const sealed = await sealJoinRequest(await deriveJoinSecrets(code, CLOUD),{ pub: other.pub, name: 'pc-b', os: 'linux' });
     const r = await w.worker.fetch(`${URL_}/join/requests`, { method: 'POST', body: JSON.stringify({ codeHash: hash, deviceId: 'pc-x', sealed }) });
     expect(r.status).toBe(202);
     await w.timers.fire(w.approver);
@@ -268,21 +278,21 @@ describe('JoinApprover（発行した PC の承認）', () => {
     // 発行した PC に出る確認コードは、盗み見た PC の公開鍵から導いたもので、本物の新しい PC の画面の値とは一致しない。
     // 本物の新しい PC は同じコードには置けない（Worker は 1 つのコードに 1 つしか置かせない）ので、同じコードで導いた値と比べる。
     const genuine = await generateKeyPair();
-    expect(first.kind === 'requested' && first.request.sas).toBe(await deriveSas(code, other.pub));
-    expect(first.kind === 'requested' && first.request.sas).not.toBe(await deriveSas(code, genuine.pub));
+    expect(first.kind === 'requested' && first.request.sas).toBe(await deriveSas(await deriveJoinSecrets(code, CLOUD),other.pub));
+    expect(first.kind === 'requested' && first.request.sas).not.toBe(await deriveSas(await deriveJoinSecrets(code, CLOUD),genuine.pub));
     expect(w.notices).toHaveLength(1);
   });
 
   it('同じコードで封じた中身が置き換わったら、確認コードを計算し直して通知し直す', async () => {
     const { code } = await w.approver.issue();
-    const hash = await joinCodeHash(code);
+    const hash = await joinCodeHash(code, CLOUD);
     const one = await generateKeyPair();
-    await w.worker.fetch(`${URL_}/join/requests`, { method: 'POST', body: JSON.stringify({ codeHash: hash, deviceId: 'pc-b', sealed: await sealJoinRequest(code, hash, { pub: one.pub, name: 'pc-b', os: 'linux' }) }) });
+    await w.worker.fetch(`${URL_}/join/requests`, { method: 'POST', body: JSON.stringify({ codeHash: hash, deviceId: 'pc-b', sealed: await sealJoinRequest(await deriveJoinSecrets(code, CLOUD),{ pub: one.pub, name: 'pc-b', os: 'linux' }) }) });
     await w.timers.fire(w.approver);
     const a = w.approver.state();
     // Worker の行の中身が別の公開鍵のものに入れ替わった（Worker の写しを書き換えられた場合）。
     const two = await generateKeyPair();
-    w.worker.codes.get(hash)!.sealed = await sealJoinRequest(code, hash, { pub: two.pub, name: 'pc-b', os: 'linux' });
+    w.worker.codes.get(hash)!.sealed = await sealJoinRequest(await deriveJoinSecrets(code, CLOUD),{ pub: two.pub, name: 'pc-b', os: 'linux' });
     await w.timers.fire(w.approver);
     const b = w.approver.state();
     expect(a.kind === 'requested' && b.kind === 'requested').toBe(true);
@@ -293,8 +303,8 @@ describe('JoinApprover（発行した PC の承認）', () => {
 
   it('開けないリクエストは拒否で閉じ、failed にする', async () => {
     const { code } = await w.approver.issue();
-    const hash = await joinCodeHash(code);
-    const wrong = await sealJoinRequest('AAAA-AAAA', hash, { pub: (await generateKeyPair()).pub, name: 'x', os: 'linux' });
+    const hash = await joinCodeHash(code, CLOUD);
+    const wrong = await sealJoinRequest(await deriveJoinSecrets('AAAA-AAAA', CLOUD),{ pub: (await generateKeyPair()).pub, name: 'x', os: 'linux' });
     await w.worker.fetch(`${URL_}/join/requests`, { method: 'POST', body: JSON.stringify({ codeHash: hash, deviceId: 'pc-x', sealed: wrong }) });
     await w.timers.fire(w.approver);
     expect(w.approver.state()).toEqual({ kind: 'failed', message: '参加リクエストを復号できませんでした。新しい参加コードを発行してください' });
@@ -309,7 +319,7 @@ describe('JoinApprover（発行した PC の承認）', () => {
     expect(w.approver.state()).toEqual({ kind: 'idle' });
     expect(w.timers.pending()).toBe(0);
     await w.approver.settled();
-    expect(w.worker.codes.get(await joinCodeHash(code))!.status).toBe('rejected');
+    expect(w.worker.codes.get(await joinCodeHash(code, CLOUD))!.status).toBe('rejected');
   });
 
   it('発行し直すと前のコードは使えず、新しいコードの状態になる', async () => {
@@ -346,7 +356,7 @@ describe('JoinApprover（発行した PC の承認）', () => {
     expect(st.kind).toBe('failed');
     expect(st.kind === 'failed' && st.message).toMatch(/^承認できませんでした/);
     expect(w.timers.pending()).toBe(0);
-    expect(w.worker.codes.get(await joinCodeHash(code))!.status).toBe('requested');
+    expect(w.worker.codes.get(await joinCodeHash(code, CLOUD))!.status).toBe('requested');
     expect(await joinPoll({ home: homeB, fetch: w.worker.fetch })).toEqual({ status: 'waiting' });
     // 足した名簿の項目は外す（Worker の名簿を読み直しても入っていない）。
     expect((await w.roster.read()).roster.entries.map((e) => e.id)).toEqual(['pc-a']);
@@ -362,6 +372,7 @@ describe('JoinApprover（発行した PC の承認）', () => {
       wire: new HttpCloudClient({ url: URL_, token: TOKEN_A, fetch: w.worker.fetch }),
       roster: w.roster,
       keyring: w.keyring,
+      cloudId: CLOUD,
       language: () => 'ja',
       now: () => w.clock.now,
       timers: w.timers,
@@ -387,12 +398,45 @@ describe('JoinApprover（発行した PC の承認）', () => {
     const { code } = await w.approver.issue();
     await joinRequest({ home: homeB, url: URL_, code, device: pcB, fetch: w.worker.fetch, now: () => w.clock.now });
     await w.timers.fire(w.approver);
-    w.fail = Object.assign(w.fail, { path: `/join-codes/${await joinCodeHash(code)}/approve`, status: 409 });
+    w.fail = Object.assign(w.fail, { path: `/join-codes/${await joinCodeHash(code, CLOUD)}/approve`, status: 409 });
     await w.approver.approve();
     expect(w.approver.state()).toEqual({ kind: 'expired' });
     // 名簿と keybox は書いた後なので、足した項目を外す。
     w.roster.invalidate();
     expect((await w.roster.read()).roster.entries.map((e) => e.id)).toEqual(['pc-a']);
+  });
+
+  it('Worker に送るハッシュは重い KDF の値で、新しい PC が /health で知ったクラウドの ID と同じものから導く', async () => {
+    const { code } = await w.approver.issue();
+    const hash = await joinCodeHash(code, CLOUD);
+    expect(w.worker.codes.has(hash)).toBe(true);
+    // 素の SHA-256 は Worker に送らない。
+    expect(w.worker.codes.has(sha(code.replace('-', '')))).toBe(false);
+    await joinRequest({ home: homeB, url: URL_, code, device: pcB, fetch: w.worker.fetch, now: () => w.clock.now });
+    expect(w.worker.codes.get(hash)!.status).toBe('requested');
+  });
+
+  it('接続先が別のクラウドを名乗れば、同じコードでも新しい PC のハッシュが一致しない', async () => {
+    const { code } = await w.approver.issue();
+    w.worker.cloudId = 'cloud-test-2';
+    await expect(joinRequest({ home: homeB, url: URL_, code, device: pcB, fetch: w.worker.fetch, now: () => w.clock.now })).rejects.toMatchObject({ code: 'code-not-found' });
+  });
+
+  it('名簿がまだ無いクラウドでは、承認しても空の名簿を作らずに断り、新しい PC は参加しない', async () => {
+    w = await world({ noRoster: true });
+    const { code } = await w.approver.issue();
+    await joinRequest({ home: homeB, url: URL_, code, device: pcB, fetch: w.worker.fetch, now: () => w.clock.now });
+    await w.timers.fire(w.approver);
+    expect(w.approver.state().kind).toBe('requested');
+    await w.approver.approve();
+    expect(w.approver.state()).toEqual({ kind: 'failed', message: 'クラウドの setup が終わっていません（リカバリーキーの確認が済んでいません）。Worker を作った PC で hangar setup cloud を最後まで実行してから、新しい参加コードを発行してください' });
+    expect(w.timers.pending()).toBe(0);
+    // 名簿も keybox も書かず、Worker では拒否として閉じる（新しい PC は待ち続けない）。
+    expect(w.worker.calls.filter((c) => c.startsWith('PUT'))).toEqual([]);
+    w.roster.invalidate();
+    expect((await w.roster.read()).version).toBe(0);
+    expect(w.worker.codes.get(await joinCodeHash(code, CLOUD))!.status).toBe('rejected');
+    expect(await joinPoll({ home: homeB, fetch: w.worker.fetch })).toEqual({ status: 'rejected' });
   });
 
   it('リクエストが無いときの承認と拒否は投げる', async () => {

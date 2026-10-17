@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  deriveJoinSecrets,
   generateJoinCode,
   JOIN_CODE_RATE,
   JOIN_CODE_TTL_MS,
@@ -7,6 +8,7 @@ import {
   joinCodeHash,
   openJoinRequest,
   sealJoinRequest,
+  setJoinKdfIterationsForTests,
   type JoinCodeCreate,
   type JoinCodeHello,
   type JoinCodeMine,
@@ -19,6 +21,12 @@ import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 const BOOT = 'bootstrap-token-0123456789abcdef';
 const BOOT_B = 'bootstrap-token-bbbbbbbbbbbbbbbb';
 const PUB = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8';
+
+/** 形だけのハッシュを作るときのクラウドの ID。Worker はハッシュを比べるだけなので、どの値でもよい。 */
+const CLOUD = 'cloud-test-1';
+// 参加コードの重い KDF（本番は 1 回 0.3 秒前後）は PC の側の計算で、Worker の試験では回数を減らす。
+beforeAll(() => setJoinKdfIterationsForTests(1000));
+afterAll(() => setJoinKdfIterationsForTests(null));
 
 let cloud: CloudHarness;
 
@@ -44,7 +52,7 @@ const canAuth = async (token: string) => (await send('/devices', { headers: { au
 /** 新しいコードを発行し、平文とハッシュを返す。 */
 const newCode = async (token: string): Promise<{ code: string; hash: string }> => {
   const code = generateJoinCode();
-  const hash = await joinCodeHash(code);
+  const hash = await joinCodeHash(code, CLOUD);
   const r = await issue(token, hash);
   expect(r.status).toBe(201);
   return { code, hash };
@@ -127,7 +135,10 @@ describe('参加コード', () => {
 
   it('発行、リクエスト、承認のあと、新しい PC の問い合わせでトークンを 1 回だけ受け取る', async () => {
     const code = generateJoinCode();
-    const hash = await joinCodeHash(code);
+    // 発行した PC と新しい PC は、Worker の /health が名乗るクラウドの ID から同じ値を導く。Worker は受け取ったハッシュを比べるだけである。
+    const health = (await (await send('/health')).json()) as { cloudId: string };
+    const secrets = await deriveJoinSecrets(code, health.cloudId);
+    const hash = secrets.codeHash;
     const before = Date.now();
     const r = await issue(pcA, hash);
     expect(r.status).toBe(201);
@@ -139,7 +150,7 @@ describe('参加コード', () => {
     const m0 = (await (await mine(pcA)).json()) as JoinCodeMine;
     expect(m0).toEqual({ codeHash: hash, status: 'open', sealed: null, deviceId: null });
 
-    const sealed = await sealJoinRequest(code, hash, { pub: PUB, name: 'pc-b', os: 'darwin' });
+    const sealed = await sealJoinRequest(await deriveJoinSecrets(code, health.cloudId), { pub: PUB, name: 'pc-b', os: 'darwin' });
     expect((await request(hash, 'pc-b', sealed)).status).toBe(202);
     expect(await status(hash, 'pc-b')).toEqual({ status: 'waiting' });
     // 封じたリクエストは base64url の文字ではなく、バイト列の BLOB で持つ。
@@ -151,7 +162,7 @@ describe('参加コード', () => {
     const m1 =(await (await mine(pcA)).json()) as JoinCodeMine;
     expect(m1.status).toBe('requested');
     expect(m1.deviceId).toBe('pc-b');
-    expect(await openJoinRequest(code, hash, m1.sealed!)).toEqual({ pub: PUB, name: 'pc-b', os: 'darwin' });
+    expect(await openJoinRequest(secrets, m1.sealed!)).toEqual({ pub: PUB, name: 'pc-b', os: 'darwin' });
 
     const a = await approve(pcA, hash, 'pc-b');
     expect(a.status).toBe(200);
@@ -282,7 +293,7 @@ describe('参加コード', () => {
     const { hash: old } = await newCode(pcA);
     await cloud.env.DB.prepare('update join_codes set expires_at = ? where code_hash = ?').bind(Date.now() - 1, old).run();
     expect((await request(old, 'pc-c')).status).toBe(404);
-    const unknown = await joinCodeHash(generateJoinCode());
+    const unknown = await joinCodeHash(generateJoinCode(), CLOUD);
     const bodies = new Set<string>();
     for (const h of [hash, old, unknown]) bodies.add(await (await request(h, 'pc-c')).text());
     expect(bodies.size).toBe(1);
@@ -397,14 +408,14 @@ describe('参加コード', () => {
   it('リクエストの前に承認はできない', async () => {
     const { hash } = await newCode(pcA);
     expect((await approve(pcA, hash, 'pc-b')).status).toBe(409);
-    expect((await approve(pcA, await joinCodeHash(generateJoinCode()), 'pc-b')).status).toBe(404);
+    expect((await approve(pcA, await joinCodeHash(generateJoinCode(), CLOUD), 'pc-b')).status).toBe(404);
   });
 
   it('スマホのトークンと、トークンなしでは発行も承認もできない', async () => {
     const phone = 'phone-token-0123456789abcdef';
     // 接続した時刻は今にする。古い時刻だと、30 日使わなかったスマホとして 401 expired になる（互換の版 9）。
     await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('m1', 'mobile', ?, ?)").bind(await sha256Hex(phone), Date.now()).run();
-    const hash = await joinCodeHash(generateJoinCode());
+    const hash = await joinCodeHash(generateJoinCode(), CLOUD);
     expect((await issue(phone, hash)).status).toBe(403);
     expect((await send('/join-codes', json({ codeHash: hash }))).status).toBe(401);
     expect((await send('/join-codes/mine')).status).toBe(401);
@@ -412,12 +423,12 @@ describe('参加コード', () => {
 
   it('発行は 1 台の PC につき 10 分に 5 回まで（6 回目は 429）', async () => {
     for (let i = 0; i < JOIN_CODE_RATE.max; i++) await newCode(pcA);
-    expect((await issue(pcA, await joinCodeHash(generateJoinCode()))).status).toBe(429);
+    expect((await issue(pcA, await joinCodeHash(generateJoinCode(), CLOUD))).status).toBe(429);
     // ほかの PC は数えない。
     const pcB = await addPcDevice(cloud.env, 'pc-b');
-    expect((await issue(pcB, await joinCodeHash(generateJoinCode()))).status).toBe(201);
+    expect((await issue(pcB, await joinCodeHash(generateJoinCode(), CLOUD))).status).toBe(201);
     await cloud.env.DB.prepare('update join_codes set created_at = created_at - ?').bind(JOIN_CODE_RATE.windowMs).run();
-    expect((await issue(pcA, await joinCodeHash(generateJoinCode()))).status).toBe(201);
+    expect((await issue(pcA, await joinCodeHash(generateJoinCode(), CLOUD))).status).toBe(201);
   });
 
   it('発行し直すと、前の開いたコードは expired になり、mine は新しいコードを返す', async () => {
@@ -446,8 +457,8 @@ describe('参加コード', () => {
 
   it('知らないコードへのリクエストは Worker 全体で 10 分に 30 回までで、その後は正しいコードも 429', async () => {
     const { hash } = await newCode(pcA);
-    for (let i = 0; i < JOIN_GUESS_LIMIT.max; i++) expect((await request(await joinCodeHash(generateJoinCode()), `pc-${i}`)).status).toBe(404);
-    expect((await request(await joinCodeHash(generateJoinCode()), 'pc-x')).status).toBe(429);
+    for (let i = 0; i < JOIN_GUESS_LIMIT.max; i++) expect((await request(await joinCodeHash(generateJoinCode(), CLOUD), `pc-${i}`)).status).toBe(404);
+    expect((await request(await joinCodeHash(generateJoinCode(), CLOUD), 'pc-x')).status).toBe(429);
     expect((await request(hash, 'pc-b')).status).toBe(429);
     // 窓を過ぎれば戻る。
     await cloud.env.DB.prepare("update meta set value = json_set(value, '$.start', json_extract(value, '$.start') - ?) where key = 'join_guess'").bind(JOIN_GUESS_LIMIT.windowMs).run();

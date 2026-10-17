@@ -15,7 +15,7 @@ import {
   fromBase64Url,
   generateKeyPair,
   importPrivate,
-  joinCodeHash,
+  deriveJoinSecrets,
   openKeybox,
   openRoster,
   openRow,
@@ -24,6 +24,7 @@ import {
   sealKeybox,
   sealRow,
   toBase64Url,
+  type JoinSecrets,
   type KeyPairRaw,
   type RowAad,
 } from '@agent-hangar/shared';
@@ -610,20 +611,20 @@ describe('回しかけの記録が、世代を確保した PC の鍵を待って
 
 /** 参加の承認（pc-b）の真似。Worker の参加コードの口は手で返し、keybox は偽のクラウドに置く。 */
 async function approverOf(pc: Pc, wire: FakeWireClient, joiner: { id: string; pair: KeyPairRaw }) {
-  let code = '';
-  let hash = '';
+  const cloudId = 'cloud-test-1';
+  let secrets: JoinSecrets | null = null;
   let tick: (() => void) | null = null;
   const timers: JoinTimers = { set: (fn) => { tick = fn; return fn; }, clear: () => { tick = null; } };
   const join: JoinWire = {
     createJoinCode: async (h) => ({ codeHash: h, expiresAt: Date.now() + 300_000 }),
-    joinCodeMine: async () => ({ codeHash: hash, status: 'requested', deviceId: joiner.id, sealed: await sealJoinRequest(code, hash, { pub: joiner.pair.pub, name: `${joiner.id}-name`, os: 'darwin' }) }),
+    joinCodeMine: async () => ({ codeHash: secrets!.codeHash, status: 'requested', deviceId: joiner.id, sealed: await sealJoinRequest(secrets!, { pub: joiner.pair.pub, name: `${joiner.id}-name`, os: 'darwin' }) }),
     approveJoinCode: async () => {},
     rejectJoinCode: async () => {},
     putKeyboxes: (boxes) => pc.wire.putKeyboxes(boxes),
   };
-  const approver = new JoinApprover({ wire: join, roster: pc.roster, keyring: pc.keyring, language: () => 'ja', timers });
-  code = (await approver.issue()).code;
-  hash = await joinCodeHash(code);
+  const approver = new JoinApprover({ wire: join, roster: pc.roster, keyring: pc.keyring, cloudId, language: () => 'ja', timers });
+  // 新しい PC の側の導出。参加コードとクラウドの ID が同じなら、発行した PC と同じ値になる。
+  secrets = await deriveJoinSecrets((await approver.issue()).code, cloudId);
   wire.asDevice(pc.id).offerJoin(joiner.id);
   const t = tick as (() => void) | null;
   t?.();

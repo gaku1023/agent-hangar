@@ -122,7 +122,7 @@ export const JOIN_GUESS_LIMIT = { max: 30, windowMs: 10 * 60_000 } as const;
 
 /**
  * 参加コードの発行（`POST /join-codes`、発行する PC の端末トークンが要る）。
- * 送るのは正規化したコードの SHA-256（hex）だけで、平文は送らない。
+ * 送るのは、正規化したコードとクラウドの ID から重い KDF で導いたハッシュ（hex、e2e/joinCode.ts の joinCodeHash）だけで、平文は送らない。
  * 本文の `expiresAt` は省けて、Worker は読まない。期限は Worker の時計で決め、201 の応答の `expiresAt` で返す。
  */
 export type JoinCodeCreate = { codeHash: string; expiresAt: number };
