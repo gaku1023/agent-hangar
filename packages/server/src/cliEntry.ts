@@ -10,7 +10,11 @@ export { PS_STATUSLINE_MARKER, STATUSLINE_MARKER, appendStatuslineSnippet, hasSt
 export { claudeJsonPath, readUserMcpServers, removeUserMcpServer, upsertUserMcpServer } from './provider/claude-code/config/claudeJson.ts';
 export { readUtf8Text, utf8Problem } from './config/textEncoding.ts';
 export { SHELL_MARKER, ensureShellScript, installShellHook, planShellHook, planShellUnhook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, shellWrapOsSupported, shellWrapSupported, uninstallShellHook, zshrcPath, type ShellHookState, type ShellScriptOptions } from './config/shellHook.ts';
-export { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
+export { backupsRoot, checkCloudConfigPerms, cloudConfigPath, remoteRoot } from './config/cloud.ts';
+// CLI の setup と参加は、Task 13 で版 2 を書くようになるまで版 1 の cloud.json を読み書きする。
+// それまでは CLI が使う名前に版 1 の読み書きを当てておく（サーバ本体は版 1 を legacy と読み、同期を始めない）。
+// Task 13 でここを版 2 の readCloudConfig、saveCloudConfig、CloudConfig に戻す。
+export { loadLegacyCloudConfig as loadCloudConfig, readLegacyCloudConfig as readCloudConfig, saveLegacyCloudConfig as saveCloudConfig, type LegacyCloudConfig as CloudConfig, type LegacyCloudConfigRead as CloudConfigRead } from './config/cloud.ts';
 export { SyncStateStore, type SyncStateKey } from './sync/state.ts';
 // 本文をどこから上げるかの床。
 // 刻むのは CLI の hangar setup cloud と hangar join（cloud.json を書くのと同じ時点）である。

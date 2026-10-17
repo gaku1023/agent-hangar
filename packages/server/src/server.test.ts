@@ -20,6 +20,7 @@ import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPend
 import { CLOSE_DEADLINE_MS, installShutdown, startServer, STOP_WATCHDOG_MS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { expectMode, posixDescribe, posixIt } from '../test/platform.ts';
+import { testCloudConfig } from '../test/cloudConfig.ts';
 
 /**
  * サーバを丸ごと起こす端到端の試験。
@@ -60,7 +61,7 @@ function makeDirs(): Dirs {
 
 const tokenIn = (home: string): string => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 const start = (d: Dirs) => startServer({ port: 0, home: d.home, claudeDir: d.claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(d.home, 'no-dist') });
-const joinTo = (home: string, url: string): void => saveCloudConfig(home, { url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+const joinTo = (home: string, url: string): void => saveCloudConfig(home, testCloudConfig({ url }));
 
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
 function writeTranscript(claudeDir: string, cwd: string, sessionId: string, text: string): void {
@@ -509,11 +510,10 @@ describe('startServer', () => {
       }
     });
 
-    it('参加トークンを作れる', async () => {
-      // 参加トークンは中身を見ない。秘密が差分やログに出ないようにする。
+    it('版 2 の cloud.json では参加トークンを作らない', async () => {
+      // 版 2 は参加用の秘密を持たない。PC の参加は参加コードへ移る。
       const jt = await (await api('/api/sync/joinToken')).json() as { token: string | null };
-      expect(typeof jt.token).toBe('string');
-      expect((jt.token ?? '').length).toBeGreaterThan(0);
+      expect(jt.token).toBeNull();
     });
   });
 });

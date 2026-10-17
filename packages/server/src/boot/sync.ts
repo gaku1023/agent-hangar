@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { encodeJoinToken, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
+import { MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
 import { cloudConfigPath, readCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
-import { deriveFileKey } from '../sync/crypto.ts';
 import { loadCloudDevices } from '../sync/devices.ts';
+import { currentFileKeySync } from '../sync/keyring.ts';
 import { SyncEngine } from '../sync/engine.ts';
 import { syncHalted } from '../sync/halt.ts';
 import { memoLossHandlers, type Toast } from '../sync/notices.ts';
@@ -61,7 +61,10 @@ export type SyncParts = {
   configBundle: ConfigSyncService | null;
   /** 設定の同期の入り切りを、設定の表示に載せ直し、入った直後に 1 回回す。 */
   publishConfigSync(): void;
-  /** 参加トークン。全セッションの読み書き権を持つ。作るのはここだけで、ログにも例外にも出さない。 */
+  /**
+   * 参加トークン。版 2 の cloud.json は参加用の秘密を持たないので、いつも null を返す。
+   * PC の参加は参加コードへ移る（Task 13 から 16）。そこでこの口ごと消す。
+   */
   joinToken(): string | null;
   /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
@@ -105,6 +108,8 @@ export type SyncParts = {
    * スマホ向けの書き手が使う、今の client と参加の秘密。同期を設定していなければ null。
    * cloud.json が後から現れて組み直すと、別の client を返す。書き手は client が変わったら組み直す（boot/mobile.ts）。
    * 秘密はこの PC の中の部品にだけ渡し、ログにも画面にも出さない。
+   * 版 2 の cloud.json は参加の秘密を持たない。
+   * スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、いつも null を返し、スマホの機能は止めておく。
    */
   mobileLink(): { client: CloudClient; joinSecret: string; url: string } | null;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
@@ -140,7 +145,7 @@ type Core = {
  * 起動のときに cloud.json が無かった端末では、置き場を見張り、設定が現れたら起動と同じ組み立てで Core を組み直して始める。
  * 見張るのは「無い（または壊れている）状態から現れる」ときだけである。
  * 参加し直して端末トークンだけが変わったときは、見張らずに、Worker に 401 の unauthorized で断られた時点で cloud.json を読み直して差し替える（下の reloadCredentials）。
- * 動いている同期の cloud.json のそれ以外の書き換え（別のクラウドへの付け替え、秘密の作り直し、削除）は拾わず、今までどおり開き直しで効く。
+ * 動いている同期の cloud.json のそれ以外の書き換え（別のクラウドへの付け替え、鍵の作り直し、削除）は拾わず、今までどおり開き直しで効く。
  */
 export function bootSync(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
@@ -153,8 +158,13 @@ export function bootSync(
   const cloudRead = readCloudConfig(home.home);
   if (cloudRead.state === 'broken') {
     // 「壊れている」を「未参加」と同じに扱わない。
-    // 参加し直すと別の joinSecret が入り、R2 にある既存の暗号化ファイルを誰も復号できなくなる。
+    // 参加し直すと別の鍵ペアが入り、この PC 宛ての keybox を開けなくなる。
     console.error('[sync] ~/.agent-hangar/cloud.json を読めませんでした。同期は止めたままにします。hangar cloud status で確かめてください（参加し直すと既存の本文を復号できなくなります）');
+  }
+  if (cloudRead.state === 'legacy') {
+    // 版 1（参加用の秘密を持つ形）は、E2E の Worker とは話せない。
+    // 同期もスマホの機能も始めず、作り直しを待つ。版 2 の cloud.json が現れたら、下の見張りが拾って始める。
+    console.error('[sync] ~/.agent-hangar/cloud.json is in the old format (before end-to-end encryption). Sync stays off until the cloud is rebuilt.');
   }
   const syncState = new SyncStateStore(db);
   const remoteChangeListeners = new Set<() => void>();
@@ -188,7 +198,8 @@ export function bootSync(
     // 参加し直すと（hangar setup cloud をやり直す、hangar join し直す）、Worker は同じ端末 ID の token_hash を入れ替え、新しいトークンは cloud.json にだけ書かれる。
     // 古いトークンの要求は 401 の unauthorized で断られるので、そのときに cloud.json を読み直し、トークンだけが変わっていれば client が差し替えて試し直す。
     // 部品（エンジン、本文の上げ手と降ろし手、使用量、設定の同期、PC の一覧）はみな同じ client を持つので、差し替えは全部に一度に効く。
-    // 宛先か参加用の秘密が変わっていたら差し替えない。宛先は区切り（lastSeq）と状態の表示に、秘密は本文の鍵に結び付いているので、組み直しの要る変化であり、今までどおり開き直しで効かせる。
+    // 宛先かクラウドか鍵ペアが変わっていたら差し替えない。宛先は区切り（lastSeq）と状態の表示に、クラウドと鍵ペアは世代鍵と本文の鍵に結び付いているので、組み直しの要る変化であり、今までどおり開き直しで効かせる。
+    // 差し替えるのはトークンだけで、世代鍵の書き換え（keybox の読み直し）はこの道では拾わない。
     // 書き込みの前には Worker の版を確かめる（checkWorkerBeforeWrite）。版の下限に届かない Worker に、未送信の行や本文を書き込まない。
     let warnedReload = false;
     // 組み上がった Core。読み直しは通信の応答を受けてから呼ばれるので、そのときには入っている。
@@ -200,16 +211,17 @@ export function bootSync(
       if (!now || r.state !== 'ok' || !r.config) return null;
       const next = r.config;
       if (next.deviceToken === now.deviceToken) return null;
-      if (next.url !== now.url || next.joinSecret !== now.joinSecret) {
-        if (!warnedReload) console.error('[sync] cloud.json の宛先か参加用の秘密が変わっています。hangar を開き直すと新しい設定で同期します');
+      if (next.url !== now.url || next.cloudId !== now.cloudId || next.keyPair.pub !== now.keyPair.pub) {
+        if (!warnedReload) console.error('[sync] cloud.json の宛先かクラウドか鍵が変わっています。hangar を開き直すと新しい設定で同期します');
         warnedReload = true;
         return null;
       }
-      built.cloud = next;
+      built.cloud = { ...now, deviceToken: next.deviceToken };
       return { url: next.url, token: next.deviceToken };
     };
     const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, reloadCredentials, checkWorkerBeforeWrite: true }) : null;
-    const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
+    // 本文の鍵は今の世代の鍵から導く。Task 10 で本文の部品が Keyring から引くようになるまでの橋渡しである。
+    const fileKey = cloud ? currentFileKeySync(cloud) : Buffer.alloc(32);
     const engine = new SyncEngine({
       db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
       ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
@@ -389,11 +401,12 @@ export function bootSync(
     },
     canCarryTakeover: () => canCarry(TAKEOVER_MIN_WORKER_COMPAT),
     canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
-    mobileLink: () => (core.client && core.cloud ? { client: core.client, joinSecret: core.cloud.joinSecret, url: core.cloud.url } : null),
+    // スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、スマホの機能は止めておく。
+    mobileLink: () => null,
     refetchSession: (uuid) => {
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
-    joinToken: () => (core.cloud ? encodeJoinToken({ url: core.cloud.url, secret: core.cloud.joinSecret }) : null),
+    joinToken: () => null,
     cloudDevices: async () => {
       const d = await loadCloudDevices({ client: core.client, deviceId, creator: core.cloud?.workerName != null, language: home.language });
       for (const cb of [...cloudDeviceListeners]) {

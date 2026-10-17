@@ -14,6 +14,7 @@ import { memoLossHandlers, toastVia } from '../sync/notices.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { answerAll, fakeWorker, fileSink, recorder, refuse, tokenWorker, type Answer, type Seen } from '../../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
+import { testCloudConfig } from '../../test/cloudConfig.ts';
 import { bootHome, type HomeParts } from './home.ts';
 import { bootSync, UPLOAD_SWEEP_MS, type SyncParts } from './sync.ts';
 
@@ -34,7 +35,7 @@ afterEach(() => {
   fs.rmSync(claudeDir, { recursive: true, force: true });
 });
 
-const joinTo = (url: string, joinedAt = 1): void => saveCloudConfig(home, { url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt });
+const joinTo = (url: string, joinedAt = 1): void => saveCloudConfig(home, testCloudConfig({ url, joinedAt }));
 /** 誰も待ち受けていないループバック。 */
 const NOWHERE = 'http://127.0.0.1:9';
 
@@ -148,16 +149,14 @@ describe('同期の組み立て', () => {
 
   it('cloud.json があれば部品が組み上がり、繋がらなくても起動は終わる', () => {
     // ここで見たいのは、cloud.json から client と鍵と上げ下ろしの部品が組み上がり、
-    // 状態が off ではなくなり、参加トークンが作れることである。
+    // 状態が off ではなくなることである。
     joinTo(NOWHERE);
     const b = boot({ start: true });
     // 繋がらないので idle にはならないが、off でもない（off は「参加していない」の意味である）。
     expect(b.status().state).not.toBe('off');
     expect(b.status().url).toBe(NOWHERE);
-    // 参加トークンは中身を見ない。秘密が差分やログに出ないようにする。
-    const jt = b.sync.joinToken();
-    expect(typeof jt).toBe('string');
-    expect((jt ?? '').length).toBeGreaterThan(0);
+    // 版 2 の cloud.json は参加用の秘密を持たないので、参加トークンは作らない（PC の参加は参加コードへ移る）。
+    expect(b.sync.joinToken()).toBeNull();
     // 設定の同期の部品も組み上がっている（スイッチは既定で切）。
     expect(b.sync.configBundle).not.toBeNull();
     expect(b.status()).not.toHaveProperty('claudeConfig');
@@ -165,7 +164,7 @@ describe('同期の組み立て', () => {
   });
 
   it('cloud.json が壊れていれば、未参加と同じに扱わずに、止めたまま知らせる', () => {
-    // 参加し直すと別の joinSecret が入り、既存の暗号化ファイルを誰も復号できなくなる。
+    // 参加し直すと別の鍵ペアが入り、この PC 宛ての keybox を開けなくなる。
     fs.writeFileSync(path.join(home, 'cloud.json'), '{ not json');
     const logged: string[] = [];
     const real = console.error;
@@ -177,6 +176,25 @@ describe('同期の組み立て', () => {
       console.error = real;
     }
     expect(logged.some((l) => l.includes('cloud.json を読めませんでした'))).toBe(true);
+  });
+
+  it('joinSecret を持つ古い cloud.json では、同期もスマホの機能も始めず、作り直しを待つ', () => {
+    fs.writeFileSync(path.join(home, 'cloud.json'), JSON.stringify({ url: NOWHERE, joinSecret: 'test-secret', deviceToken: 'test-device-token', joinedAt: 1 }));
+    const logged: string[] = [];
+    const real = console.error;
+    console.error = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); };
+    try {
+      const b = boot({ start: true });
+      expect(b.status().state).toBe('off');
+      expect(b.sync.uploader).toBeNull();
+      expect(b.sync.mobileLink()).toBeNull();
+      expect(b.sync.joinToken()).toBeNull();
+      // 古い形の中身（秘密）はログに出さない。
+      expect(logged.some((l) => l.includes('old format'))).toBe(true);
+      expect(logged.join('\n')).not.toContain('test-secret');
+    } finally {
+      console.error = real;
+    }
   });
 
   it('床が無ければ参加した時刻を保険で刻み、古いサーバが先に走った跡では床を消さない', () => {
@@ -555,13 +573,14 @@ describe('互換の版', () => {
     expect(fresh.sync.canCarryTakeover()).toBe(true);
   });
 
-  it('canCarryMobile は Worker の版が MOBILE_MIN_WORKER_COMPAT に届くまで偽で、mobileLink は client と参加の秘密を渡す', async () => {
+  it('canCarryMobile は Worker の版が MOBILE_MIN_WORKER_COMPAT に届くまで偽で、mobileLink は版 2 の間は null', async () => {
     // 版 6 の Worker とは同期するが、スマホ向けの口（/m/）を知らないので受信箱の素を書かない。
     await worker(answerAll(String(MOBILE_MIN_WORKER_COMPAT - 1)));
     const old = boot({ start: true });
-    await until(() => (old.sync.mobileLink()?.client.lastWorkerCompat?.() != null ? true : null));
+    await until(() => (old.status().lastPullAt !== null ? true : null));
     expect(old.sync.canCarryMobile()).toBe(false);
-    expect(old.sync.mobileLink()?.joinSecret).toBeTruthy();
+    // スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、スマホの機能は止めておく。
+    expect(old.sync.mobileLink()).toBeNull();
     await old.close();
     await w?.close();
     await worker(answerAll(String(MOBILE_MIN_WORKER_COMPAT)));
@@ -571,10 +590,7 @@ describe('互換の版', () => {
     expect(fresh.sync.canCarryMobile()).toBe(false);
     fresh.sync.engine.setPaused(false);
     expect(fresh.sync.canCarryMobile()).toBe(true);
-    const link = fresh.sync.mobileLink();
-    expect(link?.client.putMobileFeed).toBeTypeOf('function');
-    // 同じ core のあいだは同じ client を返す（受信箱の書き手を組み直さない）。
-    expect(fresh.sync.mobileLink()?.client).toBe(link?.client);
+    expect(fresh.sync.mobileLink()).toBeNull();
   });
 
   it('pullForTakeover は行の pull と本文の写しの pull を 1 回ずつ回し、同期していなければ何もしない', async () => {
@@ -766,7 +782,8 @@ describe('cloud.json が後から現れる', () => {
       expect(b.status().url).toBe(rec.url);
       expect(b.sync.uploader).not.toBeNull();
       expect(b.sync.configBundle).not.toBeNull();
-      expect(typeof b.sync.joinToken()).toBe('string');
+      // 版 2 の cloud.json は参加用の秘密を持たないので、参加トークンは作らない。
+      expect(b.sync.joinToken()).toBeNull();
       // 画面へは、既存の配りで off でない状態が届く。
       expect(b.sent.some((e) => e.type === 'sync.status' && e.status.state !== 'off' && e.status.url === rec.url)).toBe(true);
       // 参加の瞬間に、本文の床も刻まれる。
@@ -875,7 +892,7 @@ describe('cloud.json が後から現れる', () => {
 
 describe('参加し直して端末トークンが入れ替わったとき', () => {
   /** setup cloud をやり直すと、同じ端末 ID のまま、cloud.json の端末トークンだけが新しくなる。 */
-  const joinWith = (url: string, deviceToken: string, joinedAt = 1): void => saveCloudConfig(home, { url, joinSecret: 'test-secret', deviceToken, workerName: 'hangar', accountId: null, dbName: null, bucketName: null, joinedAt });
+  const joinWith = (url: string, deviceToken: string, joinedAt = 1): void => saveCloudConfig(home, testCloudConfig({ url, deviceToken, workerName: 'hangar', joinedAt }));
   let w: Awaited<ReturnType<typeof tokenWorker>> | null = null;
   afterEach(async () => {
     for (const b of booted.splice(0)) await b.close();
@@ -937,15 +954,15 @@ describe('参加し直して端末トークンが入れ替わったとき', () =
     expect(wk.seen.slice(later).every((r) => r.bearer === 'token-2' || r.path === '/health')).toBe(true);
   }, 20000);
 
-  it('参加用の秘密か宛先が変わっていたら、トークンだけを差し替えず、今までどおりの失敗にする', async () => {
+  it('クラウドか宛先が変わっていたら、トークンだけを差し替えず、今までどおりの失敗にする', async () => {
     w = await tokenWorker('token-1');
     joinWith(w.url, 'token-1');
     const wk = w;
     const b = boot({ start: true });
     await until(() => (b.status().lastPullAt !== null ? true : null));
     wk.setToken('token-2');
-    // 秘密が変わると本文の鍵も変わる。古い鍵のまま新しいトークンで上げると、ほかの PC が読めない本文を置く。
-    saveCloudConfig(home, { url: wk.url, joinSecret: 'other-secret', deviceToken: 'token-2', workerName: 'hangar', accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    // 別のクラウドなら世代鍵も本文の鍵も変わる。古い鍵のまま新しいトークンで上げると、ほかの PC が読めない本文を置く。
+    saveCloudConfig(home, testCloudConfig({ url: wk.url, cloudId: 'cloud-other', deviceToken: 'token-2', workerName: 'hangar' }));
     const mark = wk.seen.length;
     const st = await b.pressSyncNow();
     expect(st.state).toBe('error');
