@@ -62,6 +62,17 @@ afterEach(async () => {
   await clearPhoneKeys();
 });
 
+describe('sw.js と store.ts の IndexedDB', () => {
+  it('DB の名前と版がそろっている（store.ts だけ版を上げると、sw.js が鍵を読めず題の無い汎用の通知になる）', () => {
+    const store = fs.readFileSync(path.resolve(import.meta.dirname, 'store.ts'), 'utf8');
+    const nameOf = (s: string) => /const DB_NAME = '([^']+)'/.exec(s)?.[1];
+    const versionOf = (s: string) => /\.open\(DB_NAME, (\d+)\)/.exec(s)?.[1];
+    expect(nameOf(code)).toBe(nameOf(store));
+    expect(versionOf(code)).toBeDefined();
+    expect(versionOf(code)).toBe(versionOf(store));
+  });
+});
+
 describe('sw.js の push', () => {
   it('shared の sealPhoneNotice で封じた通知を、手元の M[世代] で開いて出す', async () => {
     const key = await makeKey();

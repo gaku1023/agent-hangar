@@ -173,7 +173,8 @@ noticesApp.post('/', async (c) => {
   await Promise.all(
     targets.map(async (s) => {
       try {
-        const res = await fetch(await pushRequest(s, payload, keys, subject, now), { signal: AbortSignal.timeout(PUSH_TIMEOUT_MS) });
+        // リダイレクトは追わない。endpoint は許可したホストに限っているが、追うと VAPID の署名つきで許可の外へ送りうる。3xx は失敗に数える。
+        const res = await fetch(await pushRequest(s, payload, keys, subject, now), { signal: AbortSignal.timeout(PUSH_TIMEOUT_MS), redirect: 'manual' });
         await res.body?.cancel();
         if (res.status === 404 || res.status === 410) gone.push(s);
         else if (res.ok) out.sent++;

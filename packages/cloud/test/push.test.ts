@@ -55,7 +55,10 @@ beforeEach(async () => {
   cloud = await startCloud({
     outbound: async (req) => {
       sent.push({ url: req.url, headers: req.headers, body: new Uint8Array(await req.arrayBuffer()) });
-      return new Response(null, { status: statusFor.get(req.url) ?? 201 });
+      const status = statusFor.get(req.url) ?? 201;
+      // 3xx の試験では、許可の外のホストへ向けたリダイレクトを返す。
+      if (status >= 300 && status < 400) return new Response(null, { status, headers: { location: 'https://redirected.example.com/steal' } });
+      return new Response(null, { status });
     },
   });
   resetSchemaCache();
@@ -172,6 +175,16 @@ describe('POST /notices', () => {
     const r = await sendNotice();
     expect((await r.json()) as NoticeOut).toEqual({ sent: 0, quiet: 0, removed: 2, failed: 1 });
     expect((await subRows()).map((s) => s.device_id)).toEqual([phones[2]!.deviceId]);
+  });
+
+  it('push サービスのリダイレクトは追わず、失敗に数える（許可の外のホストへ VAPID の署名を渡さない）', async () => {
+    const phone = await joinPhoneDevice(cloud, pc);
+    await subscribe(phone.token, await newPeer(), { endpoint: endpointOf(0) });
+    statusFor.set(endpointOf(0), 302);
+    const r = await sendNotice();
+    expect((await r.json()) as NoticeOut).toEqual({ sent: 0, quiet: 0, removed: 0, failed: 1 });
+    expect(sent.map((s) => s.url)).toEqual([endpointOf(0)]);
+    expect((await subRows()).map((s) => s.device_id)).toEqual([phone.deviceId]);
   });
 
   it('解除したスマホと期限の切れたスマホには送らない。スマホの解除で購読も消える', async () => {
