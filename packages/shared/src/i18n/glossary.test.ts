@@ -54,7 +54,7 @@ const FORBIDDEN_JA: Array<{ pattern: RegExp; use: string }> = [
   { pattern: /場所|置き場/, use: 'ディレクトリ、パス、保存先、所在地' },
   { pattern: /フォルダ/, use: 'ディレクトリ' },
   { pattern: /(?<!暗号)鍵/, use: 'キー' },
-  { pattern: /秘密/, use: 'シークレット、参加トークン' },
+  { pattern: /秘密/, use: 'シークレット、暗号鍵' },
   { pattern: /道具/, use: 'ツール' },
   { pattern: /持ち主/, use: '所有者' },
   { pattern: /手元|相手/, use: 'この PC、他の PC' },
@@ -82,6 +82,9 @@ const FORBIDDEN_JA: Array<{ pattern: RegExp; use: string }> = [
   { pattern: /ほかの/, use: '他の' },
   { pattern: /昇格/, use: 'プロジェクトにする' },
   { pattern: /入力を受け付けている/, use: '入力可能' },
+  // E2E の作り直し（互換の版 9、用語集 19 章）。参加トークンと IP、所在地の表示をやめた。
+  { pattern: /参加トークン/, use: '参加コード' },
+  { pattern: /最後の IP|おおよその場所/, use: '（表示しない）' },
 ];
 
 /** 古い語に見えても、用語集が別の意味で認める場所。鍵ごとに理由を添えて、ここだけ外す。 */
@@ -121,6 +124,8 @@ describe('辞書は用語集の語に合っている', () => {
       { pattern: /\bdifferences?\b/i, use: 'change' },
       { pattern: /outside terminal/i, use: 'external terminal' },
       { pattern: /Under 1 min/, use: '<1 min' },
+      { pattern: /join token/i, use: 'join code' },
+      { pattern: /last IP|approximate location/i, use: '(not shown)' },
     ];
     const bad: string[] = [];
     for (const [key, text] of entries(en as Record<string, string>)) {
