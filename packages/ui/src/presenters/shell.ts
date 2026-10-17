@@ -31,7 +31,7 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiv
  */
 export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean } | null;
 /**
- * 同期の一行は状態を示すだけで、操作は持たない。今すぐ同期、一時停止、参加トークンは設定の同期の群にある。
+ * 同期の一行は状態を示すだけで、操作は持たない。今すぐ同期、一時停止、PC を追加は設定の同期の群にある。
  * label は状態の語、title は label と件数を並べた全文で、狭いヘッダーで畳んだ部品もここから読める。
  * pending、sweepPending、skipped は件数の文で、0 件のときは null にする（ヘッダーは 0 件を描かない約束で、「分からない」と「無い」を同じ扱いにしてよい）。
  * pending は未送信の変更、sweepPending はまだ上げていないトランスクリプト、skipped は送信に失敗したトランスクリプトである。

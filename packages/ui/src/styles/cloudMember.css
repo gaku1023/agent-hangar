@@ -34,10 +34,12 @@
 .cm-waiting { padding: calc(var(--u) * 3) var(--u) calc(var(--u) * 1); text-align: center; font-size: var(--fs-sm); color: var(--ink-2); }
 .cm-waiting-title { font-size: 16px; font-weight: 700; color: var(--ink); }
 .cm-waiting p { max-width: 440px; margin: calc(var(--u) * 2) auto 0; line-height: 1.55; }
-.cm-waiting .cm-sas { justify-content: center; max-width: 440px; margin: calc(var(--u) * 2.5) auto 0; }
+.cm-waiting .cm-sas { justify-content: center; max-width: 520px; margin: calc(var(--u) * 2.5) auto 0; }
 .cm-waiting .btns { justify-content: center; }
 /* 確認コードの箱（A1、B2）。 */
 .cm-sas { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); color: color-mix(in srgb, var(--accent) 70%, var(--ink)); }
+/* 説明の文が折り返すとき、最後の数文字だけが次の行に来ないよう、空白と句読点の位置で折り、行の長さをそろえる。 */
+.cm-sas-note { word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; }
 .cm-sas-code { font: 700 22px var(--font-mono); letter-spacing: 0.12em; color: var(--ink); white-space: nowrap; }
 /* 「PC を追加」の欄（試作 A1）。ボタンの段の下に開く。 */
 .cm-add { margin-top: calc(var(--u) * 3); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }

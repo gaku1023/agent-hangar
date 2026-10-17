@@ -13,7 +13,6 @@ import { readWaitingNotified, WAITING_NOTIFIED_KEY } from '../mediator/live.ts';
 import { noQuestionText } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 import { setupNotice } from '../presenters/setup.ts';
-// 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
@@ -558,7 +557,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const write = deps.clipboard ?? ((text: string) => navigator.clipboard.writeText(text));
         // 写せたら状態に返し、ボタンはそれを見てから「コピーしました」を出す。
         // 書けない（クリップボードの権限が無いなど）ときは知らせるだけで、中身はトーストに出さない。
-        // 参加トークンのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
+        // 参加コードのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
         Promise.resolve().then(() => write(e.text)).then(
           () => { dispatch({ kind: 'runtime', event: { type: 'clipboard.copied', text: e.text } }); if (e.done !== undefined) toast(e.done); },
           () => toast(tr()('runtime.copy.failed', { keys: keyLabel('⌘C') })),

@@ -499,6 +499,22 @@ describe('参加の動き（A1、B2）', () => {
     expect(container.querySelector('.cm-add')).toBeNull();
   });
 
+  it('PC の表は、Worker の一覧に新しく現れた ID の行だけを growIn で入れる（同期の表の一覧から替わったときと、前からある行は動かさない）', () => {
+    // 同期の表の一覧には studio しか無く、Worker の一覧で desk が加わる。desk は新しく参加した PC ではないので動かさない。
+    const shared = [{ id: 'studio', name: 'studio', platform: 'darwin', lastSeenAt: NOW, self: true, shell: null }];
+    const table = (m: CloudMemberProps) => ui(<CloudPcTable m={m} heading="参加している PC" />);
+    const { rerender } = render(table(props({ devices: null }, { devices: shared })));
+    rerender(table(props({}, { devices: shared })));
+    expect(screen.getByText('desk', { selector: '.cm-name span' })).toBeInTheDocument();
+    expect(animations).toHaveLength(0);
+    const three = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32' }), dev('pc-b', { platform: 'win32' })], creator: false, message: null };
+    rerender(table(props({ devices: three }, { devices: shared })));
+    const rowOf = (name: string) => screen.getByText(name, { selector: '.cm-name span' }).closest('[role="rowgroup"]');
+    expect(on(rowOf('pc-b'))).toHaveLength(1);
+    expect(on(rowOf('desk'))).toHaveLength(0);
+    expect(on(rowOf('studio'))).toHaveLength(0);
+  });
+
   it('B2：参加コードの欄は growIn で開き、承認待ちへの切り替えは resizeFrom', () => {
     const { rerender, container } = render(ui(<CloudJoinSteps m={props()} onClose={() => {}} />));
     rerender(ui(<CloudJoinSteps m={props({ join: { kind: 'code', check } })} onClose={() => {}} />));

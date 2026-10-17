@@ -406,9 +406,13 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
   // 解除が済むか失敗したら、開いていた確認を閉じる（失敗は行の下に理由を出す）。
   useEffect(() => { if (revoke && revoke.kind !== 'busy') setAsking(null); }, [revoke]);
   const canRevoke = desktop && pcs.state === 'ok';
-  // 表を描いた後に現れた行（QR で接続したスマホ、承認した新しい PC）は、表に伸びて入る（はじめの描画では動かさない）。
-  const live = useRef(false);
-  useEffect(() => { live.current = true; }, []);
+  // Worker の一覧に新しく現れた行（QR で接続したスマホ、承認した新しい PC）だけが、表に伸びて入る。
+  // 前の描画の Worker の一覧の ID を控え、そこに無かった ID だけを動かす。
+  // はじめの描画と、同期の表の一覧から Worker の一覧へ替わった描画では、どの行も動かさない。
+  const known = useRef<Set<string> | null>(null);
+  const before = known.current;
+  const isNew = (id: string) => pcs.state === 'ok' && before !== null && !before.has(id);
+  useEffect(() => { known.current = pcs.state === 'ok' ? new Set(pcs.rows.map((r) => r.id)) : null; });
   return (
     <>
       <h4 className="sub-h">{props.heading}<span className="n">{pcs.rows.length}</span></h4>
@@ -424,7 +428,7 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
           const busy = revoke?.id === r.id && revoke.kind === 'busy';
           const failed = revoke?.id === r.id && revoke.kind === 'failed' ? revoke : null;
           return (
-            <RowGroup key={r.id} enter={live.current}>
+            <RowGroup key={r.id} enter={isNew(r.id)}>
               <div className="cm-row" role="row" data-focus={asking === r.id || failed ? 'true' : undefined}>
                 <span className="cm-name" role="cell">
                   <span>{r.name}{r.self && <span className="cm-self">{t('settings.cloud.thisPc')}</span>}{r.phone && <span className="cm-chip">{t('cloudMember.phone.chip')}</span>}</span>
@@ -563,7 +567,7 @@ export function CloudLeaveBand(props: { m: CloudMemberProps }) {
 
 /**
  * この PC が同期から解除されたときの帯（節の先頭）。
- * 参加トークンで参加し直すか、この PC の同期の設定を削除するかを選ぶ。ブラウザではコマンドを出す。
+ * 参加コードで再参加するか、この PC の同期の設定を削除するかを選ぶ。ブラウザではコマンドを出す。
  */
 export function CloudRevokedBand(props: { m: CloudMemberProps; joinCommand: string }) {
   const t = useT();
