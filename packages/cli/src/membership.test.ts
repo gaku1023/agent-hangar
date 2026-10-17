@@ -36,6 +36,7 @@ import {
   pendingJoinPath,
   revokeCloudDevice,
   revokeCommand,
+  setLegacyProbeTimeoutForTests,
 } from './membership.ts';
 
 const device = { id: 'pc-b', name: 'pc-b', platform: 'darwin' };
@@ -239,29 +240,119 @@ describe('joinRequest（参加リクエストを置く）', () => {
     expect(c.w.calls).toEqual([]);
   });
 
-  it('古い形式で Worker を作成した PC（workerName あり）は、上書きの指定があっても legacy-config で断り、teardown を案内する', async () => {
+  it('古い形式で Worker を作成した PC（workerName あり）は、古いクラウドがまだ応答していれば、上書きの指定があっても legacy-config で断り、teardown を案内する', async () => {
+    const answers = [
+      async () => new Response(JSON.stringify({ ok: true, version: '0.8.3', compat: 8 }), { status: 200 }),
+      // 互換の版を名乗らない、さらに古い Worker も、まだ応答している古いクラウドである。
+      async () => new Response(JSON.stringify({ ok: true, version: '0.5.0' }), { status: 200 }),
+    ];
+    for (const health of answers) {
+      const c = await cloudWithIssuer();
+      const h = home();
+      const before = creatorLegacy();
+      fs.writeFileSync(path.join(h, 'cloud.json'), before);
+      c.w.issue(await joinCodeHash(CODE, CLOUD));
+      const f = withOldCloud(c.w, health);
+      for (const run of [() => joinCheck({ home: h, url: URL_, fetch: f }), () => joinRequest({ home: h, url: URL_, code: CODE, device, fetch: f, overwrite: true })]) {
+        const e = await run().then(() => null, (x: unknown) => x);
+        expect(e).toBeInstanceOf(MembershipError);
+        expect((e as MembershipError).code).toBe('legacy-config');
+        expect((e as MembershipError).message).toContain('npm run hangar -- cloud teardown');
+        expect((e as MembershipError).message).toContain('hangar-old');
+        expect((e as MembershipError).message).toContain('https://old.workers.dev');
+        // 参加する側に「新しいクラウドを作成して」とは言わない（新しいクラウドは他の PC が作成済みである）。
+        expect((e as MembershipError).message).not.toContain('setup cloud');
+      }
+      expect(c.w.calls).toEqual([]);
+      expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
+      expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
+    }
+  });
+
+  it('古い形式で Worker を作成した PC でも、古いクラウドがもう無ければ（404、接続できない、同じ URL に互換の版 9 以上の Worker）、上書きの指定で参加でき、cloud.json を backups/ に保存してから書き換える', async () => {
+    const cases: Array<{ name: string; oldUrl: string; health: OldHealth | null }> = [
+      { name: '404', oldUrl: 'https://old.workers.dev', health: async () => new Response('There is nothing here yet', { status: 404 }) },
+      { name: '接続できない', oldUrl: 'https://old.workers.dev', health: async () => { throw new TypeError('fetch failed'); } },
+      // 同じ Worker の名前で作り直すと、古い URL には新しい Worker が答える。
+      { name: '同じ URL に新しい Worker', oldUrl: URL_, health: null },
+    ];
+    for (const k of cases) {
+      const c = await cloudWithIssuer();
+      const h = home();
+      const before = creatorLegacy({ url: k.oldUrl });
+      fs.writeFileSync(path.join(h, 'cloud.json'), before, { mode: 0o600 });
+      const f = k.health ? withOldCloud(c.w, k.health) : c.w.fetch;
+      expect((await joinCheck({ home: h, url: URL_, fetch: f })).current, k.name).toEqual({ url: k.oldUrl, legacy: true });
+      c.w.issue(await joinCodeHash(CODE, CLOUD));
+      expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: f })), k.name).toBe('overwrite-required');
+      await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: f, overwrite: true });
+      expect(c.w.calls.at(-1), k.name).toBe('POST /join/requests');
+      await issuerApproves(c, CODE);
+      expect(await joinPoll({ home: h, fetch: f }), k.name).toEqual({ status: 'approved' });
+      expect(loadCloudConfig(h), k.name).toMatchObject({ v: 2, url: URL_, workerName: null });
+      const files = fs.readdirSync(path.join(h, 'backups')).filter((n) => n.startsWith('cloud.json.legacy-'));
+      expect(files, k.name).toHaveLength(1);
+      expect(fs.readFileSync(path.join(h, 'backups', files[0]!), 'utf8'), k.name).toBe(before);
+    }
+  });
+
+  it('古いクラウドの状態を一時の失敗（5xx、打ち切り）で確認できなければ、安全側に倒して legacy-unverified で断る', async () => {
+    setLegacyProbeTimeoutForTests(50);
+    try {
+      const answers: OldHealth[] = [
+        async () => new Response('error code: 1101', { status: 503 }),
+        (init) => new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+      ];
+      for (const health of answers) {
+        const c = await cloudWithIssuer();
+        const h = home();
+        const before = creatorLegacy();
+        fs.writeFileSync(path.join(h, 'cloud.json'), before);
+        c.w.issue(await joinCodeHash(CODE, CLOUD));
+        const f = withOldCloud(c.w, health);
+        for (const run of [() => joinCheck({ home: h, url: URL_, fetch: f }), () => joinRequest({ home: h, url: URL_, code: CODE, device, fetch: f, overwrite: true })]) {
+          const e = await run().then(() => null, (x: unknown) => x);
+          expect(e).toBeInstanceOf(MembershipError);
+          expect((e as MembershipError).code).toBe('legacy-unverified');
+          expect((e as MembershipError).message).toContain('古いクラウドの状態を確認できませんでした');
+          expect((e as MembershipError).message).toContain('しばらくしてから');
+        }
+        expect(c.w.calls).toEqual([]);
+        expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
+        expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
+      }
+    } finally {
+      setLegacyProbeTimeoutForTests(null);
+    }
+  });
+
+  it('参加を完了する前に古いクラウドの状態を確認できなければ、上書きせずに legacy-unverified で止まり、下書きを保つ', async () => {
     const c = await cloudWithIssuer();
     const h = home();
-    const before = JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files' }));
-    fs.writeFileSync(path.join(h, 'cloud.json'), before);
+    fs.writeFileSync(path.join(h, 'cloud.json'), creatorLegacy({ url: 'https://old.workers.dev' }));
+    let old: OldHealth = async () => new Response('', { status: 404 });
+    const f = withOldCloud(c.w, (init) => old(init));
     c.w.issue(await joinCodeHash(CODE, CLOUD));
-    for (const run of [() => joinCheck({ home: h, url: URL_, fetch: c.w.fetch }), () => joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true })]) {
-      const e = await run().then(() => null, (x: unknown) => x);
-      expect(e).toBeInstanceOf(MembershipError);
-      expect((e as MembershipError).code).toBe('legacy-config');
-      expect((e as MembershipError).message).toContain('npm run hangar -- cloud teardown');
-      expect((e as MembershipError).message).toContain('hangar-old');
-    }
-    expect(c.w.calls).toEqual([]);
-    expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
+    await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: f, overwrite: true });
+    await issuerApproves(c, CODE);
+    old = async () => new Response('', { status: 502 });
+    const before = fs.readFileSync(path.join(h, 'cloud.json'), 'utf8');
+    expect(await codeOf(joinPoll({ home: h, fetch: f }))).toBe('legacy-unverified');
     expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(h, 'backups'))).toBe(false);
+    expect(readPending(h).deviceToken).toEqual(expect.any(String));
+    // 次の問い合わせで古いクラウドが無いと分かれば、続きから完了する。
+    old = async () => new Response('', { status: 404 });
+    expect(await joinPoll({ home: h, fetch: f })).toEqual({ status: 'approved' });
   });
 
   it('古い形式で参加しただけの PC は、上書きの指定で参加でき、接続先の確認は今の接続先を添える', async () => {
     const c = await cloudWithIssuer();
     const h = home();
     fs.writeFileSync(path.join(h, 'cloud.json'), JSON.stringify(legacy()));
-    expect((await joinCheck({ home: h, url: URL_, fetch: c.w.fetch })).current).toEqual({ url: 'https://old.workers.dev' });
+    expect((await joinCheck({ home: h, url: URL_, fetch: c.w.fetch })).current).toEqual({ url: 'https://old.workers.dev', legacy: true });
+    // 参加しただけの PC では、古いクラウドに問い合わせない。
+    expect(c.w.calls).toEqual(['GET /health', 'GET /join/hello']);
     c.w.issue(await joinCodeHash(CODE, CLOUD));
     expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch }))).toBe('overwrite-required');
     await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true });
@@ -271,6 +362,18 @@ describe('joinRequest（参加リクエストを置く）', () => {
 
 /** 0.8.x までの古い形式（版 1）の cloud.json。 */
 const legacy = (over: Record<string, unknown> = {}): Record<string, unknown> => ({ url: 'https://old.workers.dev', joinSecret: 's', deviceToken: 'dt-old', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1, ...over });
+
+/** 古い形式で Worker を作成した PC の cloud.json（文字列）。 */
+const creatorLegacy = (over: Record<string, unknown> = {}): string => JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files', ...over }));
+
+type OldHealth = (init?: RequestInit) => Promise<Response>;
+
+/** 古いクラウド（old.workers.dev）への問い合わせだけを health で答え、他は新しいクラウドの偽物に回す。 */
+const withOldCloud = (w: FakeWorker, health: OldHealth): typeof fetch =>
+  (async (input: string | URL | Request, init?: RequestInit) => (new URL(String(input)).host === 'old.workers.dev' ? health(init) : w.fetch(input, init))) as typeof fetch;
+
+/** 0.8.x の古いクラウドが、まだ応答している。 */
+const OLD_ALIVE: OldHealth = async () => new Response(JSON.stringify({ ok: true, version: '0.8.3', compat: 8 }), { status: 200 });
 
 describe('joinPoll（1 回だけ問い合わせる）', () => {
   async function requested() {
@@ -346,9 +449,9 @@ describe('joinPoll（1 回だけ問い合わせる）', () => {
   it('参加を完了する前に cloud.json が Worker を作成した古い形式に変わっていたら、上書きせずに legacy-config で止まり、下書きを保つ', async () => {
     const { c, h } = await requested();
     await issuerApproves(c, CODE);
-    const before = JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files' }));
+    const before = creatorLegacy();
     fs.writeFileSync(path.join(h, 'cloud.json'), before);
-    expect(await codeOf(joinPoll({ home: h, fetch: c.w.fetch }))).toBe('legacy-config');
+    expect(await codeOf(joinPoll({ home: h, fetch: withOldCloud(c.w, OLD_ALIVE) }))).toBe('legacy-config');
     expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
     expect(readPending(h).deviceToken).toEqual(expect.any(String));
   });
@@ -531,6 +634,20 @@ describe('leaveCloud（この PC の参加を解除）', () => {
 describe('殻から呼ぶ形（--json の 1 行）', () => {
   const lines = (): { out: string[]; log: (l: string) => void } => { const out: string[] = []; return { out, log: (l) => out.push(l) }; };
   const last = (out: string[]) => JSON.parse(out.at(-1)!) as Record<string, unknown>;
+
+  it('古いクラウドの状態を確認できない join-check は、legacy-unverified の符号を 1 行の JSON で返し、古いクラウドが無ければ上書きとバックアップを表示する', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    fs.writeFileSync(path.join(h, 'cloud.json'), creatorLegacy());
+    const ng = lines();
+    expect(await joinCheckCommand({ home: h, url: URL_, json: true, log: ng.log, fetch: withOldCloud(c.w, async () => new Response('', { status: 500 })) })).toBe(1);
+    expect(last(ng.out)).toMatchObject({ ok: false, code: 'legacy-unverified' });
+    const ok = lines();
+    expect(await joinCheckCommand({ home: h, url: URL_, json: false, log: ok.log, fetch: withOldCloud(c.w, async () => new Response('', { status: 404 })) })).toBe(0);
+    const text = ok.out.join('\n');
+    expect(text).toContain('https://old.workers.dev');
+    expect(text).toContain(path.join(h, 'backups'));
+  });
 
   it('join-check、join-request、join-poll は結果を 1 行の JSON で返す', async () => {
     const c = await cloudWithIssuer();

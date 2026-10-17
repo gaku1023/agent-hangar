@@ -74,7 +74,8 @@ export type CloudJoinProps = {
   url: string | null;
   host: string | null;
   pcCount: number | null;
-  rejoin: { current: string; next: string } | null;
+  /** legacy は、今の設定が古い形式（版 1）で、上書きの前にバックアップすること。 */
+  rejoin: { current: string; next: string; legacy: boolean } | null;
   sas: string | null;
   expiresAt: number | null;
   failure: { reason: JoinFailReason; title: string; body: string } | null;
@@ -200,8 +201,11 @@ function urlError(t: Translate, f: CloudFailure): string {
     case 'outdated': return t('cloudMember.join.outdated');
     case 'compat': return t('cloudMember.fail.compat.body');
     case 'broken-config': return t('cloudMember.fail.brokenConfig.body');
-    // 参加の道で legacy-config になるのは、古い形式で Worker を作成した PC だけである（参加しただけの PC は上書きして参加できる）。
+    // 参加の道で legacy-config になるのは、古い形式で Worker を作成した PC で、古いクラウドがまだ稼働しているときだけである。
+    // 参加しただけの PC と、古いクラウドがもう無い PC は、上書きして参加できる。
     case 'legacy-config': return t('cloudMember.join.legacyCreator');
+    // 古いクラウドの状態を一時の失敗で確認できなかった。teardown ではなく、時間をおいてもう一度を案内する。
+    case 'legacy-unverified': return t('cloudMember.join.legacyUnverified');
     default: return failureMessage(t, f);
   }
 }
@@ -229,7 +233,8 @@ function presentJoin(t: Translate, j: JoinStage): CloudJoinProps {
     url: check?.url ?? (j.kind === 'checking' ? j.url : null),
     host: j.kind === 'done' ? j.host : check?.host ?? null,
     pcCount: check?.pcCount ?? null,
-    rejoin: check?.current && check.current.url !== check.url ? { current: check.current.url, next: check.url } : null,
+    // 古い形式の設定は、同じ接続先（同じ Worker の名前で作り直した）でも別のクラウドの設定なので、上書きの警告を出す。
+    rejoin: check?.current && (check.current.url !== check.url || check.current.legacy === true) ? { current: check.current.url, next: check.url, legacy: check.current.legacy === true } : null,
     sas: j.kind === 'waiting' ? sasText(j.sas) : null,
     expiresAt: j.kind === 'waiting' ? j.expiresAt : null,
     failure: j.kind === 'failed' ? joinFailure(t, j.reason, j.message, check?.host ?? null) : null,

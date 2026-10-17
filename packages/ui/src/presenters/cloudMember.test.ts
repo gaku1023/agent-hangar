@@ -79,6 +79,13 @@ describe('presentCloudMember', () => {
     const legacy = p({ kind: 'url', failure: { code: 'legacy-config', message: '/x/cloud.json は古い形式' } }).urlError!;
     expect(legacy).toContain('npm run hangar -- cloud teardown');
     expect(legacy).not.toContain('/x/cloud.json');
+    // 断るのは、古いクラウドがまだ稼働しているときだけである。
+    expect(legacy).toContain('まだ稼働');
+    // 古いクラウドの状態を確認できないときは、teardown ではなく、時間をおいてもう一度を案内する。
+    const unverified = p({ kind: 'url', failure: { code: 'legacy-unverified', message: '/x/cloud.json は古い形式' } }).urlError!;
+    expect(unverified).toContain('古いクラウドの状態を確認できませんでした');
+    expect(unverified).toContain('しばらくしてから');
+    expect(unverified).not.toContain('/x/cloud.json');
     const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
     expect(p({ kind: 'waiting', check, sas: '012345', expiresAt: 1 }).sas).toBe('012 345');
   });
@@ -89,6 +96,13 @@ describe('presentCloudMember', () => {
     expect(p.join).toMatchObject({ kind: 'code', host: 'n.example', url: 'https://n.example', pcCount: 1, rejoin: { current: 'https://o.example', next: 'https://n.example' } });
     const same = presentCloudMember(store({ cloudMember: member({ join: { kind: 'code', check: { ...check, current: { url: 'https://n.example' } } } }) }), NOW);
     expect(same.join.rejoin).toBeNull();
+    expect(p.join.rejoin?.legacy).toBe(false);
+  });
+
+  it('古い形式の設定を上書きするときは、同じ接続先でも上書きの警告を出し、バックアップの文を添える', () => {
+    const check = { url: 'https://n.example', host: 'n.example', pcCount: 1, current: { url: 'https://n.example', legacy: true as const } };
+    const p = presentCloudMember(store({ cloudMember: member({ join: { kind: 'code', check } }) }), NOW);
+    expect(p.join.rejoin).toEqual({ current: 'https://n.example', next: 'https://n.example', legacy: true });
   });
 
   it('殻の中か、クラウドを作った PC か、ターミナルのコマンドを渡す', () => {

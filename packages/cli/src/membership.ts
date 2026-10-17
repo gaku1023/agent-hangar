@@ -38,7 +38,8 @@ import { brokenConfigMessage, JoinError, legacyConfigMessage, openFloorFirst, wo
  * invalid-url は接続先の URL の形式が違う、invalid-code は参加コードの形式が違う、code-not-found は参加コードが期限切れか使用済みか無い、
  * rate-limited は参加リクエストが多すぎる、rejected は参加リクエストが拒否された、expired は承認されないまま期限が切れた、
  * join-pending は承認済みで端末トークンを受信した下書きがあり、join-poll で完了するまで新しい参加リクエストを送れない、
- * broken-config は cloud.json が壊れている、legacy-config は cloud.json が古い形式、overwrite-required は別のクラウドに参加済みで上書きの承認が無い、
+ * broken-config は cloud.json が壊れている、legacy-config は cloud.json が古い形式（参加の道では、古いクラウドがまだ稼働している Worker を作成した PC）、
+ * legacy-unverified は Worker を作成した古い形式で、古いクラウドの状態を一時の失敗で確認できない、overwrite-required は別のクラウドに参加済みで上書きの承認が無い、
  * not-joined は同期していない、outdated は Worker が古い、self は自分を revoke で解除しようとした、
  * revoked はこの PC が解除されている、unreachable は Worker に接続できない、
  * not-found は解除しようとした端末がクラウドに参加していない、server-down は PC の解除に要るサーバーが動いていない、ほかに Worker との話の失敗（JoinError の符号）を使う。
@@ -53,6 +54,7 @@ export type MembershipErrorCode =
   | 'join-pending'
   | 'broken-config'
   | 'legacy-config'
+  | 'legacy-unverified'
   | 'overwrite-required'
   | 'not-joined'
   | 'outdated'
@@ -74,8 +76,11 @@ const realFetch: typeof fetch = (...a) => fetch(...a);
 
 // ---- 参加コードでの参加（新しい PC の側） ----
 
-/** 参加の前の確認（hangar cloud join-check）の結果。current は今参加しているクラウド（別のクラウドへの上書きの警告に使う）。 */
-export type JoinCheck = { url: string; host: string; pcCount: number; current: { url: string } | null };
+/**
+ * 参加の前の確認（hangar cloud join-check）の結果。current は今参加しているクラウド（別のクラウドへの上書きの警告に使う）。
+ * current.legacy は、今の cloud.json が古い形式（版 1）で、上書きの前に backups/ に保存することを表す。
+ */
+export type JoinCheck = { url: string; host: string; pcCount: number; current: { url: string; legacy?: true } | null };
 
 /** 参加リクエスト（hangar cloud join-request）の結果。sas は確認コード（6 桁、区切りなし）、expiresAt は問い合わせを打ち切る目安の時刻。 */
 export type JoinRequestResult = { sas: string; expiresAt: number };
@@ -158,19 +163,62 @@ function normalizeUrl(input: string): string {
   return new URL(s).origin;
 }
 
+/** 古いクラウドの /health を待つ長さ。参加の確認は殻の締め切り（90 秒）の中で新しいクラウドにも 2 回問い合わせるので、短めにする。 */
+const LEGACY_PROBE_TIMEOUT_MS = 10_000;
+let legacyProbeTimeoutMs = LEGACY_PROBE_TIMEOUT_MS;
+
+/** 試験だけが、古いクラウドの /health を待つ長さを縮める。null でもとに戻す。 */
+export function setLegacyProbeTimeoutForTests(ms: number | null): void {
+  legacyProbeTimeoutMs = ms ?? LEGACY_PROBE_TIMEOUT_MS;
+}
+
+/**
+ * 古い形式の cloud.json の接続先に、古いクラウドがまだあるか。
+ * alive は 0.8.x までの Worker（互換の版が 9 未満か、版を名乗らない）が /health に応答している。
+ * gone は、もう無い（404 か、接続できない）か、同じ名前で作り直した新しい Worker（互換の版が 9 以上、または 426 で版を断る）が応答している。
+ * unknown は、一時の失敗（打ち切り、5xx、ほかの応答）で決められない。
+ */
+async function legacyCloudState(url: string, f: typeof fetch): Promise<'alive' | 'gone' | 'unknown'> {
+  let r: Response;
+  try {
+    r = await workerFetch(url, '/health', { fetch: f, timeoutMs: legacyProbeTimeoutMs });
+  } catch (e) {
+    if (e instanceof JoinError && (e.code === 'network' || e.code === 'compat')) return 'gone';
+    return 'unknown';
+  }
+  if (r.status === 404) return 'gone';
+  const health = r.ok ? await jsonOf<{ ok?: unknown; compat?: unknown }>(r) : null;
+  if (health?.ok !== true) return 'unknown';
+  return typeof health.compat === 'number' && health.compat >= MIN_WORKER_COMPAT ? 'gone' : 'alive';
+}
+
+/** 古いクラウドがまだ稼働している、Worker を作成した PC の参加を断る文。参加する側なので setup cloud は案内しない。 */
+function legacyCreatorJoinMessage(home: string, workerName: string, url: string): string {
+  return `${cloudConfigPath(home)} は 0.8.x までの古い形式の設定です。この PC は古いクラウド（Worker ${workerName}）を作成した PC で、古いクラウドは ${url} でまだ稼働しています。上書きして参加すると、古いクラウドを削除できなくなります。リポジトリを clone したディレクトリから npm run hangar -- cloud teardown を実行して古いクラウドを削除してから、もう一度参加してください。R2 にしか無いトランスクリプトは、削除の前にこの PC にダウンロードされます。`;
+}
+
 /**
  * 今参加しているクラウドの接続先。壊れた cloud.json は上書きさせないので broken-config で止める。
- * 古い形式で Worker を作成した PC（workerName がある）も legacy-config で止める。
+ * 古い形式で Worker を作成した PC（workerName がある）は、古いクラウドがまだ稼働していれば legacy-config で止める。
  * 上書きすると Worker の名前、アカウント、D1 と R2 の名前、R2 の本文の暗号鍵の材料（joinSecret）が消え、teardown も R2 の本文の復号もできなくなるからである。
- * 古い形式で参加しただけの PC は、上書きして参加してよい（上書きの前に backups/ に控える。backupLegacyConfig）。
+ * 古いクラウドがもう無ければ（別の PC の teardown で消えた、同じ名前で作り直した）、失うものは無いので、参加しただけの PC と同じく上書きして参加してよい。
+ * 昔その PC でも setup を実行していれば、本当に作成した PC でなくても workerName を持つので、名前の有無だけでは決めない。
+ * 古いクラウドの状態を一時の失敗で決められなければ、安全側に倒して legacy-unverified で止める。
+ * 古い形式で上書きするときは、上書きの前に backups/ に保存する（backupLegacyConfig）。
  */
-function currentCloud(home: string): { url: string } | null {
+async function currentCloud(home: string, f: typeof fetch): Promise<{ url: string; legacy?: true } | null> {
   const read = readCloudConfig(home);
   if (read.state === 'broken') throw new MembershipError('broken-config', brokenConfigMessage(home));
   if (read.state === 'legacy') {
     const legacy = readLegacyCloudConfig(home).config;
-    if (legacy?.workerName) throw new MembershipError('legacy-config', legacyConfigMessage(home));
-    return legacy ? { url: legacy.url } : { url: '' };
+    if (legacy?.workerName) {
+      const state = await legacyCloudState(legacy.url, f);
+      if (state === 'alive') throw new MembershipError('legacy-config', legacyCreatorJoinMessage(home, legacy.workerName, legacy.url));
+      if (state === 'unknown') {
+        throw new MembershipError('legacy-unverified', `${cloudConfigPath(home)} は 0.8.x までの古い形式の設定で、この PC は古いクラウド（Worker ${legacy.workerName}）を作成した PC です。古いクラウドの状態を確認できませんでした（${legacy.url}/health）。古いクラウドがまだ稼働していると、上書きして参加したあとは削除できなくなるため、参加していません。しばらくしてから、もう一度実行してください。`);
+      }
+    }
+    return { url: legacy?.url ?? '', legacy: true };
   }
   return read.config ? { url: read.config.url } : null;
 }
@@ -200,6 +248,9 @@ function backupLegacyConfig(home: string, now: number): void {
   }
 }
 
+/** 古い形式の設定を上書きするときの 1 行。 */
+const legacyBackupNote = (home: string): string => `現在の設定は 0.8.x までの古い形式です。上書きの前に ${backupsRoot(home)} にバックアップします。`;
+
 const outdatedJoin = (): MembershipError =>
   new MembershipError('outdated', 'クラウドの Worker が古いため、参加コードで参加できません。クラウドを作成した PC で hangar setup cloud をもう一度実行して、Worker を更新してください');
 
@@ -219,8 +270,8 @@ async function jsonOf<T>(r: Response): Promise<T | null> {
  */
 export async function joinCheck(o: { home: string; url: string; fetch?: typeof fetch }): Promise<JoinCheck> {
   const url = normalizeUrl(o.url);
-  const current = currentCloud(o.home);
   const f = o.fetch ?? realFetch;
+  const current = await currentCloud(o.home, f);
   const h = await workerFetch(url, '/health', { fetch: f });
   const health = h.ok ? await jsonOf<{ ok?: unknown; compat?: unknown }>(h) : null;
   if (health?.ok !== true) throw new MembershipError('unreachable', `${url} からクラウドの応答がありません（HTTP ${h.status}）。接続先の URL を確認してください`);
@@ -248,7 +299,8 @@ export async function joinRequest(o: { home: string; url: string; code: string; 
   if (readPending(o.home)?.deviceToken) {
     throw new MembershipError('join-pending', '承認済みの参加リクエストが完了していません。hangar cloud join-poll を実行して参加を完了してください');
   }
-  const current = currentCloud(o.home);
+  const f = o.fetch ?? realFetch;
+  const current = await currentCloud(o.home, f);
   if (current && !o.overwrite) {
     throw new MembershipError('overwrite-required', 'この PC はすでに別のクラウドに参加しています。上書きして参加するには --overwrite を指定してください');
   }
@@ -257,7 +309,6 @@ export async function joinRequest(o: { home: string; url: string; code: string; 
 
   // 参加コードのハッシュと封の鍵は、コードとクラウドの ID から重い KDF で導く（発行した PC は cloud.json の cloudId を使う）。
   // 新しい PC はまだ cloud.json を持たないので、接続先の /health が名乗る ID を使う。別のクラウドを名乗れば、ハッシュが一致せず 404 になる。
-  const f = o.fetch ?? realFetch;
   const h = await workerFetch(url, '/health', { fetch: f });
   const health = h.ok ? await jsonOf<{ ok?: unknown; cloudId?: unknown }>(h) : null;
   if (health?.ok !== true) throw new MembershipError('unreachable', `${url} からクラウドの応答がありません（HTTP ${h.status}）。接続先の URL を確認してください`);
@@ -308,7 +359,7 @@ export async function joinPoll(o: { home: string; fetch?: typeof fetch }): Promi
     if (s.status !== 'approved' || typeof s.deviceToken !== 'string') {
       // 承認済みなのに端末トークンが無いのは、端末トークンをすでに受け取った後である（この PC では使えない）。
       removePending(o.home);
-      throw new MembershipError('failed', '承認されましたが、この PC 用の端末トークンを受信できませんでした。参加済みの PC でこの PC を同期から解除してから、もう一度参加してください');
+      throw new MembershipError('failed', '承認されましたが、この PC 用のトークンを受信できませんでした。参加済みの PC でこの PC を同期から解除してから、もう一度参加してください');
     }
     d.deviceToken = s.deviceToken;
     // 端末トークンは 1 回しか受け取れない。cloud.json を書き終える前に止まっても失わないよう、先に下書きに書く。
@@ -370,13 +421,13 @@ async function finishJoin(home: string, d: PendingJoin, deviceToken: string, f: 
   }
 
   // 上書きの直前に、今の cloud.json を確かめ直す（参加リクエストを送った後に変わっているかもしれない）。
-  // 壊れているか、Worker を作成した古い形式なら書かずに止まる。端末トークンは下書きにあるので、直してから問い合わせ直せば続く。
-  // 参加しただけの古い形式は、backups/ に控えてから上書きする。
-  currentCloud(home);
-  if (readCloudConfig(home).state === 'legacy') backupLegacyConfig(home, Date.now());
+  // 壊れているか、古いクラウドがまだ稼働している（か、確認できない）Worker を作成した古い形式なら、書かずに止まる。
+  // 端末トークンは下書きにあるので、直してから問い合わせ直せば続く。
+  // 上書きしてよい古い形式は、backups/ に控えてから上書きする。
+  if ((await currentCloud(home, f))?.legacy) backupLegacyConfig(home, Date.now());
 
   // 床を刻むための DB を開く。開けなければ、端末トークンを下書きに持ったまま止まり、もう一度の問い合わせで続ける。
-  const floor = openFloorFirst(home, 'cloud.json はまだ書いていません（受信した端末トークンは下書きに保存しています）', 'hangar cloud join-poll');
+  const floor = openFloorFirst(home, 'cloud.json はまだ書いていません（受信したこの PC 用のトークンは下書きに保存しています）', 'hangar cloud join-poll');
   try {
     const conf: CloudConfig = {
       v: 2,
@@ -494,12 +545,12 @@ export async function revokeCloudDevice(o: { home: string; deviceId: string; id:
       signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
     });
   } catch (e) {
-    if (e instanceof Error && e.name === 'TimeoutError') throw new MembershipError('unreachable', `サーバーが ${REVOKE_TIMEOUT_MS / 1000} 秒以内に応答しませんでした。設定のクラウド同期の PC の一覧で、解除できたかを確かめてください`);
+    if (e instanceof Error && e.name === 'TimeoutError') throw new MembershipError('unreachable', `サーバーが ${REVOKE_TIMEOUT_MS / 1000} 秒以内に応答しませんでした。設定のクラウド同期の PC の一覧で、解除できたかを確認してください`);
     return revokeWithoutServer(client, o.id);
   }
   const body = (await res.json().catch(() => null)) as { device?: DeviceOut; error?: unknown; code?: unknown } | null;
   if (res.ok && body?.device) return body.device;
-  if (res.status === 401 || res.status === 403) throw new MembershipError('unreachable', 'サーバーの鍵が一致しません。サーバーと同じ HANGAR_HOME で実行しているか確認してください');
+  if (res.status === 401 || res.status === 403) throw new MembershipError('unreachable', 'サーバーのトークンが一致しません。サーバーと同じ HANGAR_HOME で実行しているか確認してください');
   const message = typeof body?.error === 'string' ? body.error : `HTTP ${res.status}`;
   const code = typeof body?.code === 'string' && SERVER_CODES.has(body.code as MembershipErrorCode) ? (body.code as MembershipErrorCode) : 'unreachable';
   throw new MembershipError(code, message);
@@ -592,6 +643,7 @@ export async function joinCheckCommand(o: Out & { home: string; url: string; fet
       log(`接続先: ${check.url}（ホスト ${check.host}）`);
       log(`参加済みの PC: ${check.pcCount} 台`);
       if (check.current) log(`現在の接続先: ${check.current.url}（参加すると cloud.json を上書きします）`);
+      if (check.current?.legacy) log(legacyBackupNote(o.home));
     }
     return 0;
   } catch (e) {
@@ -672,6 +724,7 @@ export async function joinInteractive(o: {
       log('警告: この PC はすでに別のクラウドに参加しています。');
       log(`  現在の接続先: ${check.current.url}`);
       log('参加すると cloud.json を上書きし、この PC の暗号鍵を新しく作成します。現在のクラウドのデータは、この PC から読み取れなくなります（すでにダウンロードしたトランスクリプトはそのまま読み取れます）。');
+      if (check.current.legacy) log(legacyBackupNote(o.home));
       if (!(await o.confirm('cloud.json を上書きして参加しますか？', o.overwriteWord))) {
         log('参加をキャンセルしました');
         return 1;

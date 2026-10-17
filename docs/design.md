@@ -5550,6 +5550,8 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（0.9.0 の前の版の setup が名簿を置く前に止まったもの）、リカバリーキーの表示と確認、名簿と keybox をここで行う。
 古い形式（版 1）の `cloud.json` があれば上書きせずに止まる（`legacyConfigMessage`）。
 Worker を作成した PC（`workerName` がある）には、`npm run hangar -- cloud teardown` で古いクラウドを削除してから `npm run hangar -- setup cloud` で作ることを、参加しただけの PC には、新しいクラウドに上書きして参加することを案内する。
+Worker を作成した PC にも、他の PC で古いクラウドを削除して新しいクラウドを作成済みなら、参加コードで上書きして参加できることを添える（参加の道は下の「古い形式（版 1）の `cloud.json` での参加」）。
+teardown の最後は、他の PC に、0.9.0 以降に更新してから新しいクラウドの参加コードで上書きして参加することと、古い設定は上書きの前に自動で `backups/` に保存されることを案内する（手で `cloud.json` を消させない）。
 サーバーは古い形式の `cloud.json` で同期を始めず、同期の状態（`SyncStatusDto`）の off に `legacyConfig: true` を添える。
 設定 › クラウド同期 は、これを未参加と見分け、「この PC だけで使用しています」の代わりに再構築が必要なことの帯と `docs/cloud-sync.md` の手順へのリンク、`hangar cloud status` のコマンドを出し、節の札と目次を「再構築が必要」（要修正の色）にする。
 参加コードでの参加は再構築の手順の中で使うので、ボタンはそのまま出す。
@@ -5568,13 +5570,17 @@ Worker を作成した PC（`workerName` がある）には、`npm run hangar --
 `hangar cloud join <url>` は同じ手順を端末で対話して進める（2 秒ごとに問い合わせる）。
 旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
 
-古い形式（版 1）の `cloud.json` での参加は、Worker を作成した PC かどうかで分ける（`membership.ts` の `currentCloud`）。
-Worker を作成した PC（`workerName` がある）は、`join-check` と `join-request` を `--overwrite` があっても `legacy-config` で断り、先に teardown するよう案内する。
-上書きすると Worker の名前、アカウント、D1 と R2 の名前、R2 の本文の暗号鍵の材料（`joinSecret`）が消え、teardown も R2 の本文の復号もできなくなるからである。
-殻は CLI の `code` をそのまま返し、画面は接続先の欄の下に `cloudMember.join.legacyCreator`（teardown の案内）を出す。
-参加しただけの PC（`workerName` が無い）は、別のクラウドに参加済みの PC と同じく上書きの確認で参加できる。
-`join-poll` は `cloud.json` を書く直前に今の `cloud.json` を確かめ直し、古い形式なら `~/.agent-hangar/backups/cloud.json.legacy-<日時>`（0600）に控えてから上書きする。
-その時点で Worker を作成した古い形式に変わっていれば、書かずに `legacy-config` で止まり、端末トークンは下書きに持ったままにする。
+古い形式（版 1）の `cloud.json` での参加は、Worker を作成した PC かどうかと、古いクラウドがまだあるかで分ける（`membership.ts` の `currentCloud` と `legacyCloudState`）。
+Worker を作成した PC（`workerName` がある）は、古い `cloud.json` の `url` の `/health` を 1 回だけ見る（締め切り 10 秒）。
+- 0.8.x までの Worker が答える（`ok: true` で、互換の版が 9 未満か、版を名乗らない）なら、古いクラウドはまだ稼働している。`join-check` と `join-request` を `--overwrite` があっても `legacy-config` で断り、先に teardown するよう案内する。上書きすると Worker の名前、アカウント、D1 と R2 の名前、R2 の本文の暗号鍵の材料（`joinSecret`）が消え、teardown も R2 の本文の復号もできなくなるからである。
+- 404 か接続できない、または互換の版が 9 以上の Worker（同じ名前で作り直した新しい Worker）が答える（426 で版を断るのも同じ）なら、古いクラウドはもう無い。失うものが無いので、参加しただけの PC と同じく上書きの確認で参加できる。
+  昔その PC でも setup を実行していると、本当に作成した PC でなくても `workerName` を持ち、本当に作成した PC の teardown で Worker が消えた後も残る。名前の有無だけで断ると、その PC は teardown もできずに参加できなくなる。
+- 打ち切り、5xx、ほかの応答で決められなければ、安全側に倒して `legacy-unverified` で断り、しばらくしてからもう一度を案内する。
+殻は CLI の `code` をそのまま返し、画面は接続先の欄の下に、`legacy-config` なら `cloudMember.join.legacyCreator`（teardown の案内）を、`legacy-unverified` なら `cloudMember.join.legacyUnverified` を出す。
+参加しただけの PC（`workerName` が無い）は、古いクラウドに問い合わせずに、別のクラウドに参加済みの PC と同じく上書きの確認で参加できる。
+上書きしてよい古い形式では、`join-check` の `current` に `legacy: true` を添える。画面は同じ接続先でも上書きの警告を出し、上書きの前にバックアップすることを添える（`cloudMember.rejoin.legacy`）。
+`join-poll` は `cloud.json` を書く直前に今の `cloud.json` を確かめ直し（古いクラウドの `/health` ももう一度見る）、上書きしてよい古い形式なら `~/.agent-hangar/backups/cloud.json.legacy-<日時>`（0600）に控えてから上書きする。
+その時点で断る形（`legacy-config` か `legacy-unverified`）になっていれば、書かずに止まり、端末トークンは下書きに持ったままにする。
 
 **リカバリーキーで戻る（`hangar recover`、`recovery.ts` の `runRecover`）。**
 すべての PC を失ったときに、新しい PC で実行する。リカバリーキーの 4 行は標準入力で受け取り、argv に載せない。

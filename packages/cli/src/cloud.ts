@@ -251,7 +251,7 @@ export function legacyConfigMessage(home: string): string {
   const creator = readLegacyCloudConfig(home).config?.workerName ?? null;
   const head = `${cloudConfigPath(home)} は 0.8.x までの古い形式の設定です。`;
   if (creator) {
-    return `${head}この PC は古いクラウド（Worker ${creator}）を作成した PC です。リポジトリを clone したディレクトリから npm run hangar -- cloud teardown を実行して古いクラウドを削除してから、npm run hangar -- setup cloud で新しいクラウドを作成してください。R2 にしか無いトランスクリプトは、削除の前にこの PC にダウンロードされます。`;
+    return `${head}この PC は古いクラウド（Worker ${creator}）を作成した PC です。リポジトリを clone したディレクトリから npm run hangar -- cloud teardown を実行して古いクラウドを削除してから、npm run hangar -- setup cloud で新しいクラウドを作成してください。R2 にしか無いトランスクリプトは、削除の前にこの PC にダウンロードされます。他の PC で古いクラウドを削除済みで、新しいクラウドも作成済みなら、この PC は参加コードで cloud.json を上書きして参加できます（古い設定は、上書きの前に ${backupsRoot(home)} に保存します）。`;
   }
   return `${head}この PC は古いクラウドに参加しただけです。新しいクラウドの参加済みの PC で「PC を追加」をクリックして参加コードを発行し、この PC の 設定 › クラウド同期 の「参加コードで参加」か hangar cloud join <URL> で、cloud.json を上書きして参加してください。古い設定は、上書きの前に ${backupsRoot(home)} に保存します。`;
 }
@@ -901,7 +901,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
       if (prev.url !== url || prev.accountId !== accountId || prev.dbName !== dbName || prev.bucketName !== bucketName) saveCloudConfig(o.home, conf);
     } else if (resume) {
       if (health.cloudId !== resume.cloudId) {
-        throw new DetailedError(`${url} のクラウドの ID が、途中で止まった前回の setup のものと違います（D1 を作り直した可能性があります）。前回の setup で登録したこの PC 用のトークンは使えないため、${setupPendingPath(o.home)} を削除してから、hangar setup cloud をもう一度実行してください`);
+        throw new DetailedError(`${url} のクラウドの ID が、途中で止まった前回の setup のものと違います（D1 を再作成した可能性があります）。前回の setup で登録したこの PC 用のトークンは使えないため、${setupPendingPath(o.home)} を削除してから、hangar setup cloud をもう一度実行してください`);
       }
       log('途中で止まった前回の setup の続きから再開します。');
       conf = { ...resume, url, accountId, dbName, bucketName };
@@ -1574,8 +1574,10 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   } else {
     // 同じ Worker の下書きが残っていれば、もう続けられないので一緒に消す。
     if (readSetupPending(o.home)?.conf.workerName === c.workerName) fs.rmSync(setupPendingPath(o.home), { force: true });
-    log('cloud.json を削除しました。他の PC の cloud.json は手動で削除してください。');
+    log('cloud.json を削除しました。');
+    log('他の PC は、hangar を 0.9.0 以降に更新してから、新しいクラウドの参加コードで「上書きして参加」してください。');
+    log('他の PC の古い設定は、上書きの前に自動でその PC の ~/.agent-hangar/backups/ にバックアップされます。');
   }
-  log(`この PC にダウンロードしたトランスクリプトは ${remoteRoot(o.home)} に残っています。`);
+  log(`この PC にダウンロードしたトランスクリプトは ${remoteRoot(o.home)} に保存されています。`);
   return true;
 }
