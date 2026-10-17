@@ -263,14 +263,12 @@ pub fn identifier(kind: Kind, session_id: &str) -> String {
 /// 通知の識別子から、種類とセッションの id を読み戻す。
 /// hangar の通知でなければ `None`。
 pub fn parse_identifier(identifier: &str) -> Option<(Kind, &str)> {
-    Kind::ALL
-        .into_iter()
-        .find_map(|kind| {
-            identifier
-                .strip_prefix(kind.prefix())
-                .filter(|id| valid_id(id))
-                .map(|id| (kind, id))
-        })
+    Kind::ALL.into_iter().find_map(|kind| {
+        identifier
+            .strip_prefix(kind.prefix())
+            .filter(|id| valid_id(id))
+            .map(|id| (kind, id))
+    })
 }
 
 /// 押された通知の識別子から、セッションの id を読み戻す。
@@ -415,9 +413,7 @@ mod toast {
     }
 
     fn kind_of_group(group: &str) -> Option<Kind> {
-        Kind::ALL
-            .into_iter()
-            .find(|k| toast_group(*k) == group)
+        Kind::ALL.into_iter().find(|k| toast_group(*k) == group)
     }
 
     /// 通知センターの履歴（タグと組の対）から、外すトーストを選ぶ。
@@ -1535,7 +1531,10 @@ mod tests {
     #[test]
     fn a_join_notice_has_its_own_slot_and_opens_the_settings() {
         assert_eq!(Kind::parse(Some("join")), Ok(Kind::Join));
-        assert_eq!(identifier(Kind::Join, JOIN_SESSION), "hangar-join:join-request");
+        assert_eq!(
+            identifier(Kind::Join, JOIN_SESSION),
+            "hangar-join:join-request"
+        );
         assert_eq!(
             parse_identifier("hangar-join:join-request"),
             Some((Kind::Join, "join-request"))
