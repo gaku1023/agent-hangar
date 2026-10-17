@@ -5508,9 +5508,13 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 `hangar setup cloud` は、デプロイの前に最初の端末トークンを作り、その SHA-256 を `wrangler secret put BOOTSTRAP_TOKEN_HASH` の標準入力で渡す。
 `/health` が通ったら、この PC の鍵ペアを作り、`POST /bootstrap` にこの PC の ID（`home.device.id`）と最初の端末トークンを送って登録する（反映待ちの 401 と 503 は 5 秒おきに 6 回まで待つ）。
 登録できたら、端末トークンを失わないよう、名簿を置く前に `cloud.json`（版 2、0600）を書く。世代 1 の世代鍵もここで作る。
-続けてリカバリーキーの鍵ペアを作り、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
-最後にリカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する。保存したかを末尾 4 文字で確かめる手順は、後の段で必須にする。
-同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、名簿と keybox とリカバリーキーをここで作る。
+続けてリカバリーキーの鍵ペアを作り、リカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する（`recovery.ts` の `showAndConfirmRecoveryKey`）。
+`--save <パス>` があれば同じ 4 行をそのファイルに 0600 で書き、端末で `--save` が無ければ保存先を尋ねる。
+保存した暗号鍵の末尾 4 文字を入力してもらい、外れたら聞き直し、3 回外れたら表示し直す。3 回表示しても合わなければ、名簿も keybox も置かずに止まる（setup は終わらない）。
+合ったら、端末なら画面とスクロールバックを消す。
+確かめた後で、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
+名簿を確認の後に置くのは、確かめられずに止まった setup をやり直したときに、名簿が無いことから新しいリカバリーキーを作り直せるようにするためである。
+同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、リカバリーキーの表示と確認、名簿と keybox をここで行う。
 古い形式（版 1）の `cloud.json` があれば上書きせず、先に `hangar cloud teardown`（参加しただけの PC では `cloud.json` の削除）を案内して止まる。
 
 新しい PC の参加は、殻（と端末）から CLI を短く呼ぶ 3 つのコマンドで進める。どれも `--json` で最後の 1 行に結果を出し、失敗は `{ ok: false, code, message }` である。
@@ -5526,6 +5530,24 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 `join-poll` は `GET /join/status` を 1 回だけ問い合わせる。承認されたら端末トークンを先に下書きに書き、自分宛ての keybox を開いて世代鍵を読み、名簿の版とスマホ用の鍵を写して `cloud.json`（版 2）を書き、下書きを消す。keybox がまだ無ければ、端末トークンを下書きに持ったまま `waiting` を返し、次の問い合わせで続ける。
 `hangar cloud join <url>` は同じ手順を端末で対話して進める（2 秒ごとに問い合わせる）。
 旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
+
+**リカバリーキーで戻る（`hangar recover`、`recovery.ts` の `runRecover`）。**
+すべての PC を失ったときに、新しい PC で実行する。リカバリーキーの 4 行は標準入力で受け取り、argv に載せない。
+どのクラウドにも参加していない PC でだけ動く（`cloud.json` が版 2、版 1、壊れているのどれでも止まる）。
+リカバリーキーを読めなければ、Worker にも wrangler にも触らずに止まる。
+端末トークンは Cloudflare アカウントの所有で取り直す。新しいトークンのハッシュを `wrangler secret put BOOTSTRAP_TOKEN_HASH --name <Worker の名前>` で入れ、`POST /bootstrap` にこの PC の ID（`home.device.id`）で登録する。
+Worker の名前は workers.dev の URL の先頭のラベルで、違えば `--name` で渡す。アカウントが複数あれば `--account-id` で選ぶ。
+登録の直後の端末だけが `GET /keyboxes?recipient=recovery` を読める。いちばん新しい箱をリカバリーキーの秘密鍵で開き、世代 1 から n までの鍵を得る。
+名簿を開き、`recoveryPub` がこのリカバリーキーの公開鍵であることを確かめる。開けないか違えば（再発行の後の古いリカバリーキーなど）、何も書かずに止まる。
+合えば、この PC の鍵ペアで自分宛ての keybox を置き、名簿に自分を足し（`RosterStore.update`）、`cloud.json`（版 2。Worker の名前とアカウント、D1 は同名、R2 は `<名前>-files`）を書いて床を刻む。
+登録で受け取った端末トークンは同じ端末 ID では 2 度と受け取れないので、`cloud.json` を書き終えるまで下書き `~/.agent-hangar/cloud-recover-pending.json`（0600）に置く。
+違うリカバリーキーで止まっても、正しいものでもう一度実行すれば、下書きのトークンから続ける。
+
+**リカバリーキーの再発行（`sync/recoveryReissue.ts`）。**
+PC はリカバリーキーの秘密鍵を持たないので、設定には「表示」ではなく「再発行」を置く（画面は D2）。
+`POST /api/sync/recovery-key/reissue` は新しい鍵ペアを作り、`{ text, draftId }` を返すだけで、名簿も keybox も変えない。鍵ペアはサーバのメモリにだけ置き、下書きは 1 つで 30 分まで使える。
+`POST /api/sync/recovery-key/confirm` に `{ draftId, tail }` を送り、末尾 4 文字が合えば（違えば 400、下書きが無ければ 409）、他の PC が回した世代を先に受け取り、名簿の `recoveryPub` を新しい公開鍵にし、世代 1 から n までの一覧を新しい公開鍵に封じた `recovery` 宛ての keybox を今の世代に置く。
+名簿を先に書くのは、間に世代を回した PC が、書き換えた後の名簿の公開鍵に封じるようにするためである。確認の前に保存し損ねても、古いリカバリーキーは使えるままである。
 
 **互換の版 9 の Worker（E2E の作り直し）。**
 Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` を無くした。

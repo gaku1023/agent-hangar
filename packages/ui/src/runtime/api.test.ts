@@ -339,3 +339,15 @@ describe('初期プロンプト欄の API', () => {
     expect(calls[0]!.url).toBe('/api/drops/existing');
   });
 });
+
+describe('リカバリーキーの再発行の経路', () => {
+  it('再発行は本文なしの POST で、確認は下書きの ID と末尾 4 文字を送る', async () => {
+    const draft = harness(200, { text: 'hangar リカバリーキー', draftId: 'd1' });
+    expect(await draft.api.recoveryKeyReissue()).toEqual({ text: 'hangar リカバリーキー', draftId: 'd1' });
+    expect(draft.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sync/recovery-key/reissue']);
+    const { api, calls } = harness();
+    await expect(api.recoveryKeyConfirm('d1', 'ABCD')).resolves.toBeUndefined();
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sync/recovery-key/confirm']);
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ draftId: 'd1', tail: 'ABCD' });
+  });
+});

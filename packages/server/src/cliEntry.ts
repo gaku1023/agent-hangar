@@ -26,6 +26,9 @@ export { onSharedWrite } from './db/shared.ts';
 export { CloudError, CompatError, DEFAULT_TIMEOUT_MS, DEFAULT_TRANSFER_TIMEOUT_MS, HttpCloudClient, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type HttpCloudClientOptions, type WireCloudClient } from './sync/client.ts';
 export { CHUNK_SIZE, decryptBuffer, decryptStream, encryptBuffer, encryptStream, sha256Hex, sha256Stream } from './sync/crypto.ts';
 export { remoteTranscriptPath } from './sync/puller.ts';
+// 鍵の束と名簿。CLI の hangar recover が、名簿を開いて自分を足す（条件付き更新の当て直しをサーバと同じ実装で行う）のに使う。
+export { Keyring } from './sync/keyring.ts';
+export { RosterStore, type ConfigWriter } from './sync/roster.ts';
 // 設定の同期の適用と世代へ戻す。CLI の hangar config apply と hangar config restore、および殻の命令が呼ぶ（サーバは `~/.claude` に書かない。全体計画の D9）。
 // 読むのは hangar の置き場の指示書と inbox、書くのは設定の入れ物と、基準の表（DB）だけで、サーバ本体は引かない。
 export { ApplyError, planApply, planApplyFiles, planRestore, planRestoreFiles, runApply, runRestore, type PlannedFile, type PlannedFiles, type ApplyErrorCode, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type RestorePlan, type RestoreResult } from './sync/config/apply.ts';

@@ -7,7 +7,8 @@ import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
-import { COMPAT_HEADER, COMPAT_VERSION, decodeEpochList, deriveEpochKeys, fromBase64Url, generateKeyPair, importPrivate, openKeybox, openRoster, parseRecoveryKey, RECOVERY_RECIPIENT } from '@agent-hangar/shared';
+import { COMPAT_HEADER, COMPAT_VERSION, decodeEpochList, deriveEpochKeys, fromBase64Url, generateKeyPair, importPrivate, openKeybox, openRoster, parseRecoveryKey, RECOVERY_RECIPIENT, recoverySecretTail } from '@agent-hangar/shared';
+import { RecoveryKeyNotConfirmedError } from './recovery.ts';
 import { cliErrorText, DetailedError } from './probe.ts';
 import { bootstrapDevice, chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, legacyFileKey, type LegacyFileEntry, offerUsageToken, promptWord, rescueTargetPath, RENAME_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, buildMobileApp, runSetupCloud as runSetupCloudReal, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
 import { joinRequest } from './membership.ts';
@@ -49,8 +50,22 @@ function dirs(): { home: string; cloudDir: string } {
   return { home, cloudDir };
 }
 
-/** 本物の vite を走らせない。呼ばれたことだけを覚える建て役を既定にして runSetupCloud を呼ぶ。 */
-const runSetupCloud: typeof runSetupCloudReal = (o) => runSetupCloudReal({ buildMobile: async () => {}, ...o });
+/**
+ * 本物の vite を走らせない。呼ばれたことだけを覚える建て役を既定にして runSetupCloud を呼ぶ。
+ * リカバリーキーの確認は、表示された暗号鍵の末尾 4 文字を答える（標準入力を読まない）。
+ */
+const runSetupCloud: typeof runSetupCloudReal = (o) => {
+  let shown = '';
+  return runSetupCloudReal({
+    buildMobile: async () => {},
+    recoveryAsk: async () => recoverySecretTail(shown),
+    ...o,
+    recoveryWrite: (s) => {
+      shown += s;
+      o.recoveryWrite?.(s);
+    },
+  });
+};
 
 type Script = Record<string, (args: string[], input?: string) => ExecResult>;
 
@@ -136,6 +151,7 @@ describe('runSetupCloud', () => {
       sleep: async (ms) => { slept.push(ms); },
       cloudDir,
       log: (l) => lines.push(l),
+      recoveryWrite: (s) => lines.push(s),
     });
 
     expect(r.url).toBe('https://hangar.example.workers.dev');
@@ -220,6 +236,53 @@ describe('runSetupCloud', () => {
     await expect(openKeybox(await importPrivate(other.priv), roster.recoveryPub, { epoch: 1, recipient: RECOVERY_RECIPIENT }, fromBase64Url(ff.worker.keyboxes.get(`${RECOVERY_RECIPIENT}:1`)!.sealed)!)).rejects.toThrow();
     const box = await openKeybox(await importPrivate(recovery.priv), roster.recoveryPub, { epoch: 1, recipient: RECOVERY_RECIPIENT }, fromBase64Url(ff.worker.keyboxes.get(`${RECOVERY_RECIPIENT}:1`)!.sealed)!);
     expect(decodeEpochList(box).epochs).toEqual(saved.epochs);
+  });
+
+  it('末尾 4 文字を入れないと setup が終わらず、名簿もリカバリーの keybox も置かない。もう一度実行すれば新しいリカバリーキーで続ける', async () => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const base = { home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} };
+    let asked = 0;
+    const first: string[] = [];
+    await expect(runSetupCloud({ ...base, recoveryAsk: async () => { asked++; return ''; }, recoveryWrite: (s) => first.push(s) })).rejects.toBeInstanceOf(RecoveryKeyNotConfirmedError);
+    expect(asked).toBeGreaterThan(0);
+    expect(ff.worker.roster).toBeNull();
+    expect([...ff.worker.keyboxes.keys()].some((k) => k.startsWith(`${RECOVERY_RECIPIENT}:`))).toBe(false);
+    // 端末トークンは失わない（cloud.json は登録の直後に書いてある）。
+    const saved = loadCloudConfig(home)!;
+    expect(ff.worker.devices.get(device.id)?.tokenHash).toBe(sha(saved.deviceToken));
+
+    const r = await runSetupCloud(base);
+    expect(r.recoveryKey).not.toBeNull();
+    // 確認できなかった 1 回目のキーとは別のキーである。
+    expect(first.join('')).not.toContain(r.recoveryKey!.split('\n')[3]);
+    const roster = await openRoster((await deriveEpochKeys(1, saved.epochs['1']!)).roster, 1, fromBase64Url(ff.worker.roster!.sealed)!);
+    expect(roster.recoveryPub).toBeTruthy();
+    expect(ff.worker.keyboxes.has(`${RECOVERY_RECIPIENT}:1`)).toBe(true);
+  });
+
+  it('--save を渡すと、リカバリーキーを 0600 のファイルにも書く', async () => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const file = path.join(home, 'saved', 'recovery.txt');
+    fs.mkdirSync(path.dirname(file));
+    const r = await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {}, saveRecoveryTo: file });
+    expect(fs.readFileSync(file, 'utf8')).toBe(`${r.recoveryKey!}\n`);
+    expectMode(file, 0o600);
   });
 
   it('同じ名前でもう一度実行すると、Worker だけを入れ替え、暗号鍵と端末トークンとリカバリーキーは変えない', async () => {
@@ -1674,7 +1737,7 @@ describe('スマホの画面の配信（wrangler の assets と、配備の前�
       },
       'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
     });
-    await runSetupCloudReal({
+    await runSetupCloud({
       home,
       device,
       wrangler: w.runner(null, cloudDir),
