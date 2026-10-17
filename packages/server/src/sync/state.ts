@@ -10,6 +10,7 @@ import type { Db } from '../db/open.ts';
  * revokedLogged は、この PC が解除されて止まったことをログに残した印である（戻った旨を 1 度だけ残すため。止める印ではない。sync/engine.ts）。
  * peers は、pull の応答で受け取った他の PC の最終接続である（JSON。sync/peers.ts が読み書きする）。
  * recoveryBoxPending は、リカバリーキーの再発行で名簿を書いた後、recovery 宛ての keybox を置き終えていない印である（sync/recoveryReissue.ts）。
+ * cloudId は最後に同期した接続先の印、rebuiltAt は作り直した時刻（ミリ秒）である（sync/rebuild.ts）。
  */
 export type SyncStateKey =
   | 'lastSeq'
@@ -27,6 +28,8 @@ export type SyncStateKey =
   | 'revokedLogged'
   | 'peers'
   | 'recoveryBoxPending'
+  | 'cloudId'
+  | 'rebuiltAt'
   | `skipped:${string}`;
 
 /**

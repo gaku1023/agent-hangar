@@ -32,6 +32,19 @@ const gets = (w: FakeWireClient) => w.calls.filter((c) => c.method === 'getRoste
 const puts = (w: FakeWireClient) => w.calls.filter((c) => c.method === 'putRoster').length;
 
 describe('RosterStore', () => {
+  it('cached は手元の写しだけを返し、Worker に読みに行かない（読む前は null）', async () => {
+    const wire = new FakeWireClient();
+    const a = await pc(wire, 'pc-a');
+    await a.store.update(() => seed);
+    const b = await pc(wire, 'pc-b');
+    expect(b.store.cached()).toBeNull();
+    await b.store.read();
+    const before = gets(b.wire);
+    b.store.invalidate();
+    expect(b.store.cached()).toEqual({ version: 1, roster: seed });
+    expect(gets(b.wire)).toBe(before);
+  });
+
   it('名簿がまだ無ければ（404）、投げずに版 0 の空の名簿を返す', async () => {
     const a = await pc(new FakeWireClient(), 'pc-a');
     expect(await a.store.read()).toEqual({ version: 0, roster: EMPTY_ROSTER });

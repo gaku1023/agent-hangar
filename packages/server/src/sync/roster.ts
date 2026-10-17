@@ -72,6 +72,15 @@ export class RosterStore {
   }
 
   /**
+   * 手元に持っている名簿の写しを返す。Worker には読みに行かない。
+   * まだ一度も読んでいなければ null を返す。invalidate された後も、読み直すまでは前の写しを返す。
+   * 何度も呼ぶ道（本文の走査）が、呼ぶたびに GET /roster を増やさないための口である。
+   */
+  cached(): RosterRead | null {
+    return this.cache ? copy(this.cache) : null;
+  }
+
+  /**
    * 名簿を読む。
    * 手元の写しがあり、invalidate されておらず、その版が cloud.json の rosterVersion と同じなら、Worker に読みに行かない。
    * 手元のどの世代の鍵でも開けなければ E2eOpenError を投げる。
