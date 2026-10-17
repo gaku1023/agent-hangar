@@ -493,6 +493,7 @@ function useRowMotion<T extends { id: string }>(rows: T[], live: boolean) {
  * スマホはこの表に入れず、下の「スマホ」の小見出しに並べる（CloudPhones）。
  * 解除の間は、行の下に暗号鍵を再生成して残りの PC に配っている旨を 1 行出す。
  * 解除の失敗の帯は表の下に出し、行が「解除した PC」へ移っても残す。
+ * 帯から試し直したときに行がもう表に無ければ、配布している旨の 1 行も表の下に出す。
  * 解除した PC の行は collapseOut で畳んでから表を抜け、下の「解除した PC」へ移る。
  * Worker の一覧が無いとき（Worker が古い、繋がらない、まだ届かない）は、同期の表の一覧を出し、解除は出さない。
  */
@@ -507,6 +508,8 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
   // 解除に失敗した PC。行が「解除した PC」へ移っていても、帯は表の下に残す。
   const isPc = (id: string) => pcs.rows.some((r) => r.id === id) || pcs.removed.some((r) => r.id === id);
   const failed = revoke?.kind === 'failed' && isPc(revoke.id) ? revoke : null;
+  // 失敗の帯から「もう一度試す」を押したとき、行がもう「解除した PC」へ移っていれば、配布している旨は帯と同じ表の下に出す。
+  const busyBelow = revoke?.kind === 'busy' && !pcs.rows.some((r) => r.id === revoke.id) && isPc(revoke.id);
   return (
     <>
       <h4 className="sub-h">{props.heading}<span className="n">{pcs.rows.length}</span></h4>
@@ -541,6 +544,7 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
         })}
       </div>
       {failed && <RevokeFailed id={failed.id} name={failed.name} message={failed.message} rotate />}
+      {busyBelow && <div className="cm-wait" role="status">{t('cloudMember.pcs.rotating', { n: remaining })}</div>}
       {revoke?.kind === 'done' && <Strip tone="ok" role="status"><p>{t('cloudMember.pcs.done', { name: revoke.name })}</p></Strip>}
       {pcs.note && <div className="cm-note">{pcs.note}</div>}
       {pcs.removed.length > 0 && (

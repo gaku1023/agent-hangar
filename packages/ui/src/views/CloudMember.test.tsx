@@ -210,6 +210,22 @@ describe('PC の表', () => {
     expect(screen.getByRole('status')).toHaveTextContent('暗号鍵を再生成し、残りの PC（2 台）に配布しています');
   });
 
+  it('もう一度試すときに行が「解除した PC」へ移っていたら、配布している旨は表の下に出す', () => {
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { revokedAt: NOW }), dev('pc-c')], creator: false, message: null };
+    render(ui(<CloudPcTable m={props({ devices, revoke: { id: 'desk', kind: 'busy' } })} heading="PC" />));
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('暗号鍵を再生成し、残りの PC（2 台）に配布しています');
+    // 行に結び付けない（どちらの表の中にも置かない）。
+    expect(within(screen.getByRole('table', { name: 'PC' })).queryByRole('status')).toBeNull();
+    expect(within(screen.getByRole('table', { name: '解除した PC' })).queryByRole('status')).toBeNull();
+  });
+
+  it('スマホの解除の間は、PC の表の下に配布している旨を出さない', () => {
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('pc-c'), dev('phone-a', { platform: null, kind: 'mobile', revokedAt: NOW })], creator: false, message: null };
+    render(ui(<CloudPcTable m={props({ devices, revoke: { id: 'phone-a', kind: 'busy' } })} heading="PC" />));
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('ブラウザの案内は、今の解除の道（暗号鍵の再生成）を言う', () => {
     render(ui(<CloudPcTable m={props({}, { desktop: false })} heading="PC" />));
     expect(screen.getByText(/暗号鍵を再生成/)).toBeInTheDocument();
