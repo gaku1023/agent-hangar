@@ -1,7 +1,8 @@
 import path from 'node:path';
-import { aadFeed, decodePairing, deriveMobileKey, importMobileKey, open, seal } from '@agent-hangar/shared';
+import { aadFeed, decodePairing, deriveMobileKey, importMobileKey, open, seal, type JoinApproverState } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CloudError } from '../../sync/client.ts';
+import { JoinStateError } from '../../sync/joinApprover.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 
@@ -26,8 +27,8 @@ describe('同期の経路', () => {
   const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
 
   it('同期の経路も認証の下にある', async () => {
-    // 参加トークンは全セッションの読み書き権を持つ。鍵の無い要求と別サイトからの要求は入口で断る。
-    for (const p of ['/api/sync/status', '/api/sync/joinToken', '/api/devices', '/api/sync/cloud-devices']) {
+    // 鍵の無い要求と別サイトからの要求は入口で断る。
+    for (const p of ['/api/sync/status', '/api/sync/join-codes/current', '/api/devices', '/api/sync/cloud-devices']) {
       expect((await get(p, {})).status).toBe(401);
       expect((await get(p, { ...H, origin: 'https://evil.example' })).status).toBe(403);
     }
@@ -80,8 +81,7 @@ describe('同期の経路', () => {
     expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
   });
 
-  it('参加トークンと端末一覧', async () => {
-    expect((await json(await get('/api/sync/joinToken'))).body).toEqual({ token: 'tok-abc' });
+  it('端末一覧', async () => {
     expect((await json(await get('/api/devices'))).body).toHaveLength(1);
   });
 
@@ -106,9 +106,98 @@ describe('同期の経路', () => {
     expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toBeNull();
   });
 
-  it('同期が未設定なら参加トークンは null', async () => {
-    app = createApp({ ...deps, joinToken: () => null });
-    expect((await json(await get('/api/sync/joinToken'))).body).toEqual({ token: null });
+  it('参加トークンの口（/api/sync/joinToken）は無い', async () => {
+    expect((await get('/api/sync/joinToken')).status).toBe(404);
+  });
+});
+
+describe('参加コードの発行と承認（/api/sync/join-codes）', () => {
+  const send = (method: string, p: string) => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' } });
+
+  /** JoinApprover の偽物。呼ばれた順を calls に積み、状態を手で動かす。 */
+  function fakeApprover() {
+    const log: string[] = [];
+    let st: JoinApproverState = { kind: 'idle' };
+    const a = {
+      log,
+      set: (s: JoinApproverState) => { st = s; },
+      issueError: null as unknown,
+      approveError: null as unknown,
+      rejectError: null as unknown,
+      state: () => st,
+      issue: async () => {
+        log.push('issue');
+        if (a.issueError) throw a.issueError;
+        st = { kind: 'open', code: 'K7QM-2XFD', expiresAt: 5 };
+        return { code: 'K7QM-2XFD', expiresAt: 5 };
+      },
+      approve: async () => {
+        log.push('approve');
+        if (a.approveError) throw a.approveError;
+        st = { kind: 'done', name: 'pc-b' };
+      },
+      reject: async () => {
+        log.push('reject');
+        if (a.rejectError) throw a.rejectError;
+        st = { kind: 'idle' };
+      },
+      cancel: () => { log.push('cancel'); st = { kind: 'idle' }; },
+    };
+    return a;
+  }
+
+  it('どれも認証の下にある', async () => {
+    for (const [m, p] of [['POST', '/api/sync/join-codes'], ['GET', '/api/sync/join-codes/current'], ['POST', '/api/sync/join-codes/current/approve'], ['POST', '/api/sync/join-codes/current/reject'], ['DELETE', '/api/sync/join-codes/current']] as const) {
+      expect((await app.request(p, { method: m })).status).toBe(401);
+    }
+  });
+
+  it('同期を設定していなければ 404', async () => {
+    app = createApp({ ...deps, joinApprover: () => null });
+    for (const [m, p] of [['POST', '/api/sync/join-codes'], ['GET', '/api/sync/join-codes/current'], ['POST', '/api/sync/join-codes/current/approve'], ['POST', '/api/sync/join-codes/current/reject'], ['DELETE', '/api/sync/join-codes/current']] as const) {
+      const r = await send(m, p);
+      expect(r.status).toBe(404);
+      expect((await r.json()).error).toBe('クラウド同期が設定されていません');
+    }
+  });
+
+  it('発行、状態、承認、拒否、取り消しを JoinApprover へ渡し、状態を返す（キャッシュさせない）', async () => {
+    const a = fakeApprover();
+    app = createApp({ ...deps, joinApprover: () => a });
+    const issued = await send('POST', '/api/sync/join-codes');
+    expect(issued.status).toBe(201);
+    expect(issued.headers.get('cache-control')).toBe('no-store');
+    expect(await issued.json()).toEqual({ kind: 'open', code: 'K7QM-2XFD', expiresAt: 5 });
+    const cur = await send('GET', '/api/sync/join-codes/current');
+    expect(cur.headers.get('cache-control')).toBe('no-store');
+    expect(await cur.json()).toEqual({ kind: 'open', code: 'K7QM-2XFD', expiresAt: 5 });
+    a.set({ kind: 'requested', code: 'K7QM-2XFD', expiresAt: 5, request: { name: 'pc-b', os: 'linux', sas: '123456' } });
+    expect((await json(await send('GET', '/api/sync/join-codes/current'))).body.request).toEqual({ name: 'pc-b', os: 'linux', sas: '123456' });
+    expect(await json(await send('POST', '/api/sync/join-codes/current/approve'))).toEqual({ status: 200, body: { kind: 'done', name: 'pc-b' } });
+    expect(await json(await send('POST', '/api/sync/join-codes/current/reject'))).toEqual({ status: 200, body: { kind: 'idle' } });
+    expect(await json(await send('DELETE', '/api/sync/join-codes/current'))).toEqual({ status: 200, body: { kind: 'idle' } });
+    expect(a.log).toEqual(['issue', 'approve', 'reject', 'cancel']);
+  });
+
+  it('発行の上限は 429、ほかの Worker の失敗は 502 で、文にして返す', async () => {
+    const a = fakeApprover();
+    app = createApp({ ...deps, joinApprover: () => a });
+    a.issueError = new CloudError(429, '{"error":"rate limited"}');
+    const r = await json(await send('POST', '/api/sync/join-codes'));
+    expect(r).toEqual({ status: 429, body: { error: '参加コードの発行が多すぎます。10 分ほど待ってから、もう一度発行してください' } });
+    a.issueError = new CloudError(500, '{"error":"boom"}');
+    expect((await send('POST', '/api/sync/join-codes')).status).toBe(502);
+  });
+
+  it('リクエストが無いときの承認と、コードが無いときの拒否は 409', async () => {
+    const a = fakeApprover();
+    app = createApp({ ...deps, joinApprover: () => a });
+    a.approveError = new JoinStateError('sync.join.noRequest');
+    a.rejectError = new JoinStateError('sync.join.noCode');
+    expect(await json(await send('POST', '/api/sync/join-codes/current/approve'))).toEqual({ status: 409, body: { error: '承認できる参加リクエストがありません' } });
+    expect(await json(await send('POST', '/api/sync/join-codes/current/reject'))).toEqual({ status: 409, body: { error: '発行中の参加コードがありません' } });
+    a.rejectError = new CloudError(500, 'x');
+    expect((await send('POST', '/api/sync/join-codes/current/reject')).status).toBe(502);
   });
 });
 

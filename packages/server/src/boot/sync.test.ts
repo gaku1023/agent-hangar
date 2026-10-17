@@ -129,8 +129,8 @@ describe('同期の組み立て', () => {
     // 実物のクラウドには一切触らない（cloud.json が無いので client は作られない）。
     const b = boot({ start: true });
     expect(b.status()).toMatchObject({ state: 'off', url: null, pending: expect.any(Number), skipped: [], sweepPending: null, oncePass: false });
-    // 参加していないので、参加トークンも設定の同期も無い。
-    expect(b.sync.joinToken()).toBeNull();
+    // 参加していないので、参加コードの承認も設定の同期も無い。
+    expect(b.sync.joinApprover()).toBeNull();
     expect(b.sync.configBundle).toBeNull();
     expect(b.sync.uploader).toBeNull();
     expect(() => b.sync.engine.onFocus()).not.toThrow();
@@ -157,8 +157,8 @@ describe('同期の組み立て', () => {
     // 繋がらないので idle にはならないが、off でもない（off は「参加していない」の意味である）。
     expect(b.status().state).not.toBe('off');
     expect(b.status().url).toBe(NOWHERE);
-    // 版 2 の cloud.json は参加用の秘密を持たないので、参加トークンは作らない（PC の参加は参加コードへ移る）。
-    expect(b.sync.joinToken()).toBeNull();
+    // 版 2 の cloud.json では、参加コードを発行して承認できる。
+    expect(b.sync.joinApprover()?.state()).toEqual({ kind: 'idle' });
     // 設定の同期の部品も組み上がっている（スイッチは既定で切）。
     expect(b.sync.configBundle).not.toBeNull();
     expect(b.status()).not.toHaveProperty('claudeConfig');
@@ -190,7 +190,7 @@ describe('同期の組み立て', () => {
       expect(b.status().state).toBe('off');
       expect(b.sync.uploader).toBeNull();
       expect(b.sync.mobileLink()).toBeNull();
-      expect(b.sync.joinToken()).toBeNull();
+      expect(b.sync.joinApprover()).toBeNull();
       // 古い形の中身（秘密）はログに出さない。
       expect(logged.some((l) => l.includes('old format'))).toBe(true);
       expect(logged.join('\n')).not.toContain('test-secret');
@@ -800,8 +800,8 @@ describe('cloud.json が後から現れる', () => {
       expect(b.status().url).toBe(rec.url);
       expect(b.sync.uploader).not.toBeNull();
       expect(b.sync.configBundle).not.toBeNull();
-      // 版 2 の cloud.json は参加用の秘密を持たないので、参加トークンは作らない。
-      expect(b.sync.joinToken()).toBeNull();
+      // 参加コードの発行と承認も、組み直した部品で使える。
+      expect(b.sync.joinApprover()).not.toBeNull();
       // 画面へは、既存の配りで off でない状態が届く。
       expect(b.sent.some((e) => e.type === 'sync.status' && e.status.state !== 'off' && e.status.url === rec.url)).toBe(true);
       // 参加の瞬間に、本文の床も刻まれる。

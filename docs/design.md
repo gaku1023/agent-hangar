@@ -5524,6 +5524,22 @@ Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` �
 2 台目からは、参加済みの PC が発行した参加コード（5 分、1 回限り）に新しい PC がリクエストを置き、発行した PC が承認する（下の「Worker の表」）。
 CLI の setup と参加は上の「setup と参加の CLI」の形になった。参加の画面と殻の命令（下の表）の作り直しは後の段で入る。
 
+**発行した PC の承認（`sync/joinApprover.ts`）。**
+参加コードの発行と承認は、動いているサーバの `JoinApprover` が行う（CLI だけで PC を追加する口は作らない）。
+参加コードの平文はこの中のメモリにだけ置き、Worker には SHA-256 だけを送る。
+コードが生きている間だけ、3 秒ごとに `GET /join-codes/mine` を問い合わせ、期限を過ぎたら Worker に問い合わせずに `expired` にして止める。
+リクエストを見たら参加コードで開き、確認コードを導いて `requested` にし、そのリクエストにつき 1 回だけ、右下の通知（`ServerEvent` の `join.request`）と OS の通知（`OsNoticeDto` の種類 `join`、殻の `notify::Kind::Join`）を出す。
+状態が変わるたびに `join.update` を配る。
+承認は、名簿に新しい PC を足す（`RosterStore.update`）、世代 1 から n までの一覧を新しい PC の公開鍵に封じた keybox を置く（`PUT /keyboxes`）、`POST /join-codes/:hash/approve` の順に行う。
+Worker は、承認の前の新しい PC（devices にまだ無い）を keybox の受け手として通す。通すのは、書き手が発行したコードにリクエストを置いた PC で、リクエストが期限内か、承認の後で端末トークンをまだ渡していない間だけである。
+アプリが落ちて `JoinApprover` が作り直されると、平文が消えて承認できなくなり、新しい PC は期限（5 分）で `expired` を受け取る。
+口は `POST /api/sync/join-codes`（発行）、`GET /api/sync/join-codes/current`（状態）、`POST /api/sync/join-codes/current/approve`、`/reject`、`DELETE /api/sync/join-codes/current`（取り消し。生きているコードは拒否で閉じる）で、どれも `JoinApproverState` を返し、`no-store` を付ける。
+参加トークンの口（`/api/sync/joinToken`）は消した。
+
+解除した PC は、同じ端末 ID のまま参加コードで再参加できる（承認は要る）。
+`POST /join/requests` は解除済みの同じ ID を通し、解除されていない同じ ID だけを断る。
+承認の後の最初の `GET /join/status` が、解除済みの行を新しい端末トークンの行に 1 つの文で置き換える（`revoked_at` を空にし、`joined_at` を今にする）。
+
 参加し直すと（`hangar setup cloud` のやり直しと、`hangar join` のし直し）、Worker は同じ端末 ID の行の `token_hash` を新しい端末トークンのものに入れ替え、古い端末トークンは 401 の `{ error: 'unauthorized' }` で断られる（解除の `revoked` とは別の本文である）。
 新しい端末トークンは `cloud.json` にだけ書かれ、CLI は動いているサーバへ知らせない。
 そこでサーバは、解除ではない 401 を受けたら `cloud.json` を読み直し、端末トークンだけが変わっていれば、それに差し替えて同じ要求を 1 度だけ試し直す（`HttpCloudClient` の `reloadCredentials`、組むのは `boot/sync.ts`）。
@@ -6365,7 +6381,7 @@ hangar でない相手（状態コードが 200 で、`ok` が真で `version` �
 どちらも端末トークンが要り、参加している PC ならどれからでも呼べる（自分自身も解除できる）。
 `authMiddleware` は、トークンの合った行に `revoked_at` があれば 401 と `{ error: 'revoked' }` を返す。
 トークンが合わない相手には今までどおり一律の `unauthorized` を返すので、理由はトークンの持ち主にだけ伝わる。
-互換の版 9 には参加し直しの口（`POST /join`）が無く、解除した PC は参加コードで新しい PC として入り直す。
+互換の版 9 には参加し直しの口（`POST /join`）が無く、解除した PC は参加コードで再参加する。端末 ID は同じままで、承認の後に解除済みの行が新しい端末トークンの行に置き換わる（「互換の版 9 の Worker」の段）。
 解除した PC は、pull の応答の `peers` に載せない。
 
 **IP と所在地は保存しない。**

@@ -28,7 +28,11 @@ import {
   type DeviceRevokeOut,
   type DevicesOut,
   type FileMetaIn,
+  type JoinCodeCreate,
+  type JoinCodeMine,
   type KeyboxesOut,
+  type KeyboxesPutOut,
+  type KeyboxIn,
   type ListFilesResponse,
   type MobilePairingResponse,
   type PushChangesResponse,
@@ -592,6 +596,40 @@ export class HttpCloudClient implements WireCloudClient {
   }
 
   getKeyboxes(): Promise<KeyboxesOut> { return this.json<KeyboxesOut>('/keyboxes'); }
+
+  /** keybox を置く（PUT /keyboxes）。参加の承認が、新しい PC 宛ての世代鍵の一覧を置くのに使う。 */
+  async putKeyboxes(boxes: KeyboxIn[]): Promise<KeyboxesPutOut> {
+    await this.ensureWorkerCompat();
+    return this.json<KeyboxesPutOut>('/keyboxes', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ boxes }) });
+  }
+
+  /** 参加コードを発行する（POST /join-codes）。Worker に送るのはハッシュだけである。発行の上限は CloudError(429) で投げる。 */
+  async createJoinCode(codeHash: string): Promise<JoinCodeCreate> {
+    await this.ensureWorkerCompat();
+    return this.json<JoinCodeCreate>('/join-codes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ codeHash }) });
+  }
+
+  /** この PC のいちばん新しい参加コードの状態（GET /join-codes/mine）。発行したことが無ければ（404）null。 */
+  async joinCodeMine(): Promise<JoinCodeMine | null> {
+    try {
+      return await this.json<JoinCodeMine>('/join-codes/mine');
+    } catch (e) {
+      if (e instanceof CloudError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  /** 参加リクエストを承認する（POST /join-codes/:hash/approve）。期限切れと、承認か拒否の済んだコードは CloudError(409)。 */
+  async approveJoinCode(codeHash: string, deviceId: string): Promise<void> {
+    if (!/^[0-9a-f]{64}$/.test(codeHash)) throw new CloudError(400, JSON.stringify({ error: 'invalid code' }));
+    await this.json<{ ok: boolean }>(`/join-codes/${codeHash}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deviceId }) });
+  }
+
+  /** 参加コードを拒否で閉じる（POST /join-codes/:hash/reject）。リクエストの前のコードも閉じられる。 */
+  async rejectJoinCode(codeHash: string): Promise<void> {
+    if (!/^[0-9a-f]{64}$/.test(codeHash)) throw new CloudError(400, JSON.stringify({ error: 'invalid code' }));
+    await this.json<{ ok: boolean }>(`/join-codes/${codeHash}/reject`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  }
 
   async putMobileFeed(sealed: string): Promise<void> {
     await this.ensureWorkerCompat();

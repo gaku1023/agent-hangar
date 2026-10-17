@@ -135,8 +135,8 @@ describe('startServer', () => {
       const status = await (await api('/api/sync/status')).json() as { state: string; url: string | null; pending: number; skipped: unknown[] };
       expect(status).toMatchObject({ state: 'off', url: null, pending: expect.any(Number) });
       expect(status.skipped).toEqual([]);
-      // 参加していないので、参加トークンも設定の同期も無い。
-      expect(await (await api('/api/sync/joinToken')).json()).toEqual({ token: null });
+      // 参加していないので、参加コードの発行も設定の同期も無い。
+      expect((await api('/api/sync/join-codes/current')).status).toBe(404);
       expect((await api('/api/sync/config/preview')).status).toBe(404);
       expect((await api('/api/sync/config/pull', { method: 'POST' })).status).toBe(404);
       expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
@@ -514,10 +514,10 @@ describe('startServer', () => {
       }
     });
 
-    it('版 2 の cloud.json では参加トークンを作らない', async () => {
-      // 版 2 は参加用の秘密を持たない。PC の参加は参加コードへ移る。
-      const jt = await (await api('/api/sync/joinToken')).json() as { token: string | null };
-      expect(jt.token).toBeNull();
+    it('版 2 の cloud.json では参加トークンの口が無く、参加コードの承認の状態を読める', async () => {
+      // 版 2 は参加用の秘密を持たない。PC の参加は参加コードで行う。
+      expect((await api('/api/sync/joinToken')).status).toBe(404);
+      expect(await (await api('/api/sync/join-codes/current')).json()).toEqual({ kind: 'idle' });
     });
   });
 });

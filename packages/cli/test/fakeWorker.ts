@@ -11,13 +11,26 @@ import {
 
 /**
  * CLI の試験に使う、メモリの上の偽の Worker（互換の版 9）。
- * setup と参加が叩く口だけを持つ（/health、/bootstrap、/roster、/keyboxes、/join/*）。
+ * setup と参加が叩く口だけを持つ（/health、/bootstrap、/roster、/keyboxes、/join/*、発行した PC の /join-codes/*）。
+ * サーバの試験（packages/server/src/sync/joinApprover.test.ts）も、発行した PC と新しい PC を通すのに使う。
  * 応答の形と状態の移り方は packages/cloud/src/join.ts と keys.ts に合わせる。
  */
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
-type Code = { status: 'open' | 'requested' | 'approved' | 'rejected' | 'expired'; deviceId: string | null; sealed: string | null; expiresAt: number; usedAt: number | null };
+type Code = {
+  status: 'open' | 'requested' | 'approved' | 'rejected' | 'expired';
+  deviceId: string | null;
+  sealed: string | null;
+  expiresAt: number;
+  usedAt: number | null;
+  /** 発行した PC（/join-codes で発行したときだけ）。issue で直に置いたコードは null。 */
+  createdBy?: string | null;
+  /** 発行の順。mine がいちばん新しいものを選ぶのに使う。 */
+  order?: number;
+};
+
+const TTL_MS = 5 * 60_000;
 
 export class FakeWorker {
   cloudId = 'cloud-test-1';
@@ -36,6 +49,7 @@ export class FakeWorker {
   calls: string[] = [];
   /** 時計。試験で進める。 */
   now = (): number => Date.now();
+  private issued = 0;
 
   readonly fetch: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(input));
@@ -101,7 +115,8 @@ export class FakeWorker {
     if (p === '/join/requests' && method === 'POST') {
       const c = this.codes.get(String(body?.codeHash));
       const deviceId = String(body?.deviceId);
-      if (!c || c.status !== 'open' || c.expiresAt <= this.now() || c.sealed !== null || this.devices.has(deviceId)) return this.json({ error: 'not found' }, 404);
+      // 解除済みの同じ ID は通す（再参加）。解除されていない同じ ID は断る。
+      if (!c || c.status !== 'open' || c.expiresAt <= this.now() || c.sealed !== null || this.devices.get(deviceId)?.revoked === false) return this.json({ error: 'not found' }, 404);
       c.status = 'requested';
       c.deviceId = deviceId;
       c.sealed = String(body?.sealed);
@@ -113,9 +128,19 @@ export class FakeWorker {
       const out = (s: JoinStatusOut): Response => this.json(s);
       if (!c || c.deviceId !== deviceId) return out({ status: 'expired' });
       if (c.status === 'rejected') return out({ status: 'rejected' });
-      if (c.status === 'requested') return c.expiresAt > this.now() ? out({ status: 'waiting' }) : out({ status: 'expired' });
+      if (c.status === 'requested') {
+        if (c.expiresAt > this.now()) return out({ status: 'waiting' });
+        c.status = 'expired';
+        c.sealed = null;
+        return out({ status: 'expired' });
+      }
       if (c.status !== 'approved') return out({ status: 'expired' });
       if (c.usedAt !== null) return out({ status: 'approved' });
+      if (this.now() >= c.expiresAt + TTL_MS) return out({ status: 'expired' });
+      if (this.devices.get(deviceId!)?.revoked === false) {
+        c.status = 'rejected';
+        return out({ status: 'rejected' });
+      }
       const token = randomBytes(32).toString('base64url');
       this.devices.set(deviceId!, { tokenHash: sha(token), revoked: false });
       c.usedAt = this.now();
@@ -139,8 +164,52 @@ export class FakeWorker {
     }
     if (p === '/keyboxes' && method === 'PUT') {
       const boxes = (body?.boxes ?? []) as KeyboxIn[];
+      // 受け手は解除されていない PC か recovery か、自分のコードにリクエストを置いた PC（packages/cloud/src/keys.ts と同じ）。
+      const now = this.now();
+      const pending = (id: string): boolean =>
+        [...this.codes.values()].some((c) => c.createdBy === me && c.deviceId === id && ((c.status === 'requested' && c.expiresAt > now) || (c.status === 'approved' && c.usedAt === null && c.expiresAt + TTL_MS > now)));
+      if (!boxes.every((b) => b.recipient === RECOVERY_RECIPIENT || this.devices.get(b.recipient)?.revoked === false || pending(b.recipient))) return this.json({ error: 'unknown recipient' }, 400);
       for (const b of boxes) this.putBox(b);
       return this.json({ written: boxes.length });
+    }
+    if (p === '/join-codes' && method === 'POST') {
+      const codeHash = String(body?.codeHash ?? '');
+      if (this.codes.has(codeHash)) return this.json({ error: 'conflict' }, 409);
+      for (const c of this.codes.values()) {
+        if (c.createdBy === me && (c.status === 'open' || c.status === 'requested')) {
+          c.status = 'expired';
+          c.sealed = null;
+        }
+      }
+      const expiresAt = this.now() + TTL_MS;
+      this.codes.set(codeHash, { status: 'open', deviceId: null, sealed: null, expiresAt, usedAt: null, createdBy: me, order: ++this.issued });
+      return this.json({ codeHash, expiresAt }, 201);
+    }
+    if (p === '/join-codes/mine' && method === 'GET') {
+      const mine = [...this.codes.entries()].filter(([, c]) => c.createdBy === me).sort((a, b) => (b[1].order ?? 0) - (a[1].order ?? 0))[0];
+      if (!mine) return this.json({ error: 'not found' }, 404);
+      const [codeHash, c] = mine;
+      if ((c.status === 'open' || c.status === 'requested') && c.expiresAt <= this.now()) {
+        c.status = 'expired';
+        c.sealed = null;
+      }
+      return this.json({ codeHash, status: c.status, sealed: c.status === 'requested' ? c.sealed : null, deviceId: c.deviceId });
+    }
+    const m = /^\/join-codes\/([0-9a-f]{64})\/(approve|reject)$/.exec(p);
+    if (m && method === 'POST') {
+      const c = this.codes.get(m[1]!);
+      if (!c) return this.json({ error: 'not found' }, 404);
+      if (c.createdBy !== me) return this.json({ error: 'forbidden' }, 403);
+      const live = c.expiresAt > this.now();
+      const ok = m[2] === 'approve' ? live && c.status === 'requested' && c.deviceId === body?.deviceId : live && (c.status === 'open' || c.status === 'requested');
+      if (!ok) {
+        if (!live && (c.status === 'open' || c.status === 'requested')) c.status = 'expired';
+        c.sealed = c.status === 'requested' ? c.sealed : null;
+        return this.json({ error: 'conflict' }, 409);
+      }
+      c.status = m[2] === 'approve' ? 'approved' : 'rejected';
+      c.sealed = null;
+      return this.json({ ok: true });
     }
     return this.json({ error: 'not found' }, 404);
   }

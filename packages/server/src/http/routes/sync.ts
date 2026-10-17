@@ -4,11 +4,12 @@ import { errorText, translatorOf } from '../../i18n/message.ts';
 import { deriveMobileKeyBytes, encodePairing, MOBILE_MIN_WORKER_COMPAT, type MobilePairingDto } from '@agent-hangar/shared';
 import { CloudError, CompatError, LimitError } from '../../sync/client.ts';
 import { ConfigSyncError } from '../../sync/config/service.ts';
-import type { AppDeps, LanguageDeps } from '../deps.ts';
+import { JoinStateError } from '../../sync/joinApprover.ts';
+import type { AppDeps, JoinApproverApi, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, syncStatusOf, tooLargeResult } from './common.ts';
 
 /** 同期の経路が使う依存。 */
-export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'mobileLink' | 'deviceName' | 'joinToken' | 'configBundle'> & LanguageDeps;
+export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'mobileLink' | 'deviceName' | 'joinApprover' | 'configBundle'> & LanguageDeps;
 
 /**
  * スマホを接続する QR を作る。押すたびに Worker から新しい券を取る（GET にしない）。
@@ -39,7 +40,7 @@ async function mobilePairing(deps: SyncRouteDeps): Promise<MobilePairingDto> {
   return { state: 'ready', pairUrl: `${url}/app/#pair=${pairText}`, pairText, expiresAt: ticket.expiresAt };
 }
 
-/** 同期の経路。状態、今すぐ同期、一時停止、前面化、使用量、端末の一覧、参加トークン、設定の同期（/config-sync/*）を持つ。 */
+/** 同期の経路。状態、今すぐ同期、一時停止、前面化、使用量、端末の一覧、参加コードの発行と承認、設定の同期（/config-sync/*）を持つ。 */
 export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
   const tr = translatorOf(deps.language);
   const syncStatus = syncStatusOf(deps);
@@ -63,8 +64,26 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
   api.get('/devices', (c) => c.json(deps.devices()));
   // Worker の devices（参加日、解除日、最後に同期した IP と場所）。読むだけで、解除の口は HTTP に載せない。
   api.get('/sync/cloud-devices', async (c) => c.json(await deps.cloudDevices()));
-  // 参加トークンは全セッションの読み書き権を持つ。ログには出さず、UI が押したときだけ取りに来る。
-  api.get('/sync/joinToken', (c) => c.json({ token: deps.joinToken() }));
+  // 参加コードの発行と承認（設定のクラウド同期の「PC を追加」）。
+  // 応答は JoinApproverState で、参加コードの平文が載るので no-store を付ける。
+  const join = async (c: Context, fn: (a: JoinApproverApi) => unknown | Promise<unknown>, status: 200 | 201 = 200) => {
+    c.header('cache-control', 'no-store');
+    const a = deps.joinApprover();
+    if (!a) return c.json({ error: tr('sync.error.notConfigured') }, 404);
+    try {
+      await fn(a);
+    } catch (e) {
+      if (e instanceof JoinStateError) return c.json({ error: errorText(deps.language(), e) }, 409);
+      if (e instanceof CloudError && !(e instanceof LimitError) && e.status === 429) return c.json({ error: tr('sync.join.rateLimited') }, 429);
+      return c.json({ error: errorText(deps.language(), e) }, 502);
+    }
+    return c.json(a.state(), status);
+  };
+  api.post('/sync/join-codes', (c) => join(c, (a) => a.issue(), 201));
+  api.get('/sync/join-codes/current', (c) => join(c, () => undefined));
+  api.post('/sync/join-codes/current/approve', (c) => join(c, (a) => a.approve()));
+  api.post('/sync/join-codes/current/reject', (c) => join(c, (a) => a.reject()));
+  api.delete('/sync/join-codes/current', (c) => join(c, (a) => a.cancel()));
   // スマホを接続する QR。中身にスマホ用の暗号鍵が入るので、残さないよう no-store を付ける。失敗の理由は文にして返し、中身はログに出さない。
   api.post('/sync/mobile-pairing', async (c) => {
     c.header('cache-control', 'no-store');

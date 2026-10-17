@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import {
+  JOIN_CODE_TTL_MS,
   MAX_KEYBOXES_PER_PUT,
   RECOVERY_RECIPIENT,
   ROSTER_MARKER_K,
@@ -160,6 +161,9 @@ keysApp.get('/keyboxes', async (c) => {
 /**
  * keybox を置く。1 回に 20 件まで。
  * 受け手は解除されていない PC の ID か `recovery` で、ほかが 1 つでも混ざれば何も書かずに 400 で断る。スマホの分は phone_keyboxes（Task 21）に置く。
+ * 書き手が発行した参加コードにリクエストを置いた PC の ID も受け手にできる（承認の前に keybox を置くため。devices に入るのは承認の後の最初の問い合わせである）。
+ * 通すのは、リクエストが期限内のときと、承認の後で端末トークンをまだ渡していないとき（期限からさらに 5 分）だけである。
+ * 解除した PC が同じ ID で再参加するときも、この道で通る。
  * 世代と受け手の組で上書きする。同じ batch で印の行を進め、`epoch` には本文のいちばん新しい世代を載せる。
  */
 keysApp.put('/keyboxes', async (c) => {
@@ -173,16 +177,20 @@ keysApp.put('/keyboxes', async (c) => {
   };
   if (!list.every(valid)) return c.json({ error: 'invalid body' }, 400);
   const db = c.env.DB;
+  const device = c.get('device');
+  const now = Date.now();
   const ids = [...new Set(list.map((b) => b.recipient).filter((r) => r !== RECOVERY_RECIPIENT))];
   if (ids.length > 0) {
+    const marks = ids.map(() => '?').join(', ');
+    // union で重なりを畳み、受け手ごとに 1 つと数える。参加コードは索引 join_codes_by（created_by）で引く。
     const found = await db
-      .prepare(`select count(*) n from devices where id in (${ids.map(() => '?').join(', ')}) and kind = 'pc' and revoked_at is null`)
-      .bind(...ids)
+      .prepare(
+        `select count(*) n from (select id from devices where id in (${marks}) and kind = 'pc' and revoked_at is null union select device_id from join_codes where created_by = ? and device_id in (${marks}) and ((status = 'requested' and expires_at > ?) or (status = 'approved' and used_at is null and expires_at > ?)))`,
+      )
+      .bind(...ids, device.id, ...ids, now, now - JOIN_CODE_TTL_MS)
       .first<{ n: number }>();
     if (Number(found?.n ?? 0) !== ids.length) return c.json({ error: 'unknown recipient' }, 400);
   }
-  const device = c.get('device');
-  const now = Date.now();
   const epoch = Math.max(...list.map((b) => b.epoch));
   await db.batch([
     ...list.map((b) =>

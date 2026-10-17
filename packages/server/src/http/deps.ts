@@ -15,6 +15,7 @@ import type { RunManager } from '../runs/manager.ts';
 import type { CloudClient } from '../sync/client.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
+import type { JoinApprover } from '../sync/joinApprover.ts';
 import type { TakeoverService } from '../sync/takeover.ts';
 import type { AccountsDeps } from './accounts.ts';
 import type { GitService } from '../git/service.ts';
@@ -54,6 +55,8 @@ export type ExternalApi = {
 export type SummaryEnqueueOpts = { force?: boolean; ignoreLive?: boolean };
 /** SummaryJob のうち HTTP から触る部分だけ。 */
 export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
+/** JoinApprover のうち HTTP から触る部分だけ。 */
+export type JoinApproverApi = Pick<JoinApprover, 'state' | 'issue' | 'approve' | 'reject' | 'cancel'>;
 /** SyncEngine のうち HTTP から触る部分だけ。 */
 export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onFocus' | 'pullBeforeLaunch'>;
 /**
@@ -146,10 +149,10 @@ export type AppDeps = {
   /** 設定の同期。同期を設定していない端末では null で、/config-sync/* は 404 を返す。既定は切。 */
   configBundle: ConfigBundleApi | null;
   /**
-   * 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。
-   * 版 2 の cloud.json は参加用の秘密を持たないので、boot/sync.ts はいつも null を渡す（参加コードへ移るまで）。
+   * 参加コードを発行した PC の承認（sync/joinApprover.ts）。同期を設定していない端末では null で、/sync/join-codes/* は 404 を返す。
+   * 参加コードの平文はこの中のメモリにだけあり、応答には載るが、ログには出さない。
    */
-  joinToken: () => string | null;
+  joinApprover: () => JoinApproverApi | null;
   devices: () => DeviceDto[];
   /**
    * 設定のクラウド同期の節の PC の一覧。Worker の devices を取りに行く（sync/devices.ts）。
