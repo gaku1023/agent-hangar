@@ -22,6 +22,8 @@ const JOIN_PREFIX: &str = "hangar-join:";
 /// セッションの id（UUID）とは重ならない。
 /// 押されたら、セッションではなく設定のクラウド同期を開く（`open_js`）。
 pub const JOIN_SESSION: &str = "join-request";
+/// 参加リクエストの知らせを押したときに移る頁の場所（設定のクラウド同期の節。shared の route.ts の `settings` と `at=cloud`）。
+const JOIN_HASH: &str = "#/settings?at=cloud";
 /// 題と本文の長さの上限（文字数）。
 /// 通知は 2 行ほどしか見せないので、長い問いは切る。
 const TITLE_MAX: usize = 120;
@@ -281,12 +283,14 @@ pub fn session_of(identifier: &str) -> Option<&str> {
 /// 押された通知のセッションを頁で開く JavaScript。
 /// 頁が受け口を持っていれば、それでセッションを開いてターミナルにフォーカスする。
 /// 受け口が無ければ（読み込みの途中など）、ハッシュでそのセッションへ移るだけにする。
-/// 参加リクエストの知らせ（`JOIN_SESSION`）は、頁の `__hangarOpenJoin` で設定のクラウド同期を開き、受け口が無ければ設定へ移る。
+/// 参加リクエストの知らせ（`JOIN_SESSION`）は、頁の `__hangarOpenJoin` で設定のクラウド同期を開き、受け口が無ければ `open_hash` の場所へ移る。
 pub fn open_js(session_id: &str) -> String {
     if session_id == JOIN_SESSION {
-        return "(function(){if(window.__hangarOpenJoin){window.__hangarOpenJoin();}\
-                else{location.hash=\"#/settings\";}})();"
-            .to_string();
+        let lit = serde_json::to_string(JOIN_HASH).unwrap_or_else(|_| "\"\"".to_string());
+        return format!(
+            "(function(){{if(window.__hangarOpenJoin){{window.__hangarOpenJoin();}}\
+             else{{location.hash={lit};}}}})();"
+        );
     }
     let lit = serde_json::to_string(session_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
@@ -294,6 +298,16 @@ pub fn open_js(session_id: &str) -> String {
          if(window.__hangarOpenWaiting){{window.__hangarOpenWaiting(id);}}\
          else{{location.hash=\"#/session/\"+id;}}}})();"
     )
+}
+
+/// 頁がまだ出来上がっていないときに、押された通知の行き先として貯めるハッシュ。
+/// セッションの知らせはそのセッション、参加リクエストの知らせは設定のクラウド同期の節である。
+pub fn open_hash(session_id: &str) -> String {
+    if session_id == JOIN_SESSION {
+        JOIN_HASH.to_string()
+    } else {
+        format!("#/session/{session_id}")
+    }
 }
 
 /// 通知の許可の状態（UNAuthorizationStatus の値）を、頁に返す名前にする。
@@ -1531,8 +1545,11 @@ mod tests {
         assert_ne!(toast_group(Kind::Join), toast_group(Kind::Waiting));
         let js = open_js(JOIN_SESSION);
         assert!(js.contains("__hangarOpenJoin"));
-        assert!(js.contains("#/settings"));
+        assert!(js.contains("\"#/settings?at=cloud\""));
         assert!(!js.contains("#/session/"));
+        // 頁が出来上がる前に押されたら、設定のクラウド同期の節を貯める。
+        assert_eq!(open_hash(JOIN_SESSION), "#/settings?at=cloud");
+        assert_eq!(open_hash("s1"), "#/session/s1");
         // セッションの知らせは今までどおりセッションを開く。
         assert!(open_js("s1").contains("__hangarOpenWaiting"));
     }

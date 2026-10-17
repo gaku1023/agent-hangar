@@ -146,8 +146,13 @@ export class JoinApprover {
     if (mine.status === 'requested' && mine.sealed && mine.deviceId) {
       const p = this.pending;
       if (!p || p.deviceId !== mine.deviceId || p.sealed !== mine.sealed) {
-        await this.received(cur, mine.deviceId, mine.sealed, gen);
-        if (gen !== this.gen) return;
+        try {
+          await this.received(cur, mine.deviceId, mine.sealed, gen);
+        } catch (e) {
+          // 開けないリクエスト（received が failed にする）のほかの失敗は、コードが生きている間は次の周期で問い合わせ直す。
+          console.error('[join] could not handle the join request', e instanceof Error ? e.constructor.name : typeof e);
+        }
+        if (gen !== this.gen || this.live !== cur) return;
       }
     }
     this.schedule();
@@ -188,6 +193,7 @@ export class JoinApprover {
     this.set({ kind: 'approving' });
     const gen = this.gen;
     const job = (async () => {
+      let added = false;
       try {
         const ring = await this.deps.keyring;
         // update は 409 のたびに当て直すので、同じ名簿には同じ結果を返すよう、時刻は先に決める。
@@ -196,6 +202,7 @@ export class JoinApprover {
           ...r,
           entries: [...r.entries.filter((e) => e.id !== p.deviceId), { id: p.deviceId, kind: 'pc', name: p.name, os: p.os, pub: p.pub, joinedAt }],
         }));
+        added = true;
         const epoch = ring.current().epoch;
         const content = encodeEpochList({ epochs: ring.toConfigPatch().epochs });
         const box = await sealKeybox(p.pub, { epoch, recipient: p.deviceId }, content);
@@ -203,6 +210,9 @@ export class JoinApprover {
         await this.deps.wire.approveJoinCode(cur.hash, p.deviceId);
         if (gen === this.gen) this.set({ kind: 'done', name: p.name });
       } catch (e) {
+        // 名簿に足した後で止まったら、足した項目を外す（新しい PC は端末トークンを受け取れず、参加しない）。
+        // 外すのは同じ ID と公開鍵の項目だけで、外せなくても承認の結果は変えない。
+        if (added) await this.undoEntry(p);
         if (gen !== this.gen) return;
         if (e instanceof CloudError && e.status === 409) {
           this.set({ kind: 'expired' });
@@ -214,6 +224,15 @@ export class JoinApprover {
     })();
     this.inflight = job;
     await job;
+  }
+
+  /** 承認の途中で足した名簿の項目を外す（できる範囲で）。失敗は英語のログだけにして投げない。 */
+  private async undoEntry(p: Pending): Promise<void> {
+    try {
+      await this.deps.roster.update((r) => ({ ...r, entries: r.entries.filter((e) => !(e.id === p.deviceId && e.pub === p.pub)) }));
+    } catch (e) {
+      console.error('[join] could not remove the roster entry of an approval that failed', e instanceof Error ? e.constructor.name : typeof e);
+    }
   }
 
   /**

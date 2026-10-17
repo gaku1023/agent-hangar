@@ -348,6 +348,39 @@ describe('JoinApprover（発行した PC の承認）', () => {
     expect(w.timers.pending()).toBe(0);
     expect(w.worker.codes.get(await joinCodeHash(code))!.status).toBe('requested');
     expect(await joinPoll({ home: homeB, fetch: w.worker.fetch })).toEqual({ status: 'waiting' });
+    // 足した名簿の項目は外す（Worker の名簿を読み直しても入っていない）。
+    expect((await w.roster.read()).roster.entries.map((e) => e.id)).toEqual(['pc-a']);
+    w.roster.invalidate();
+    const fresh = await w.roster.read();
+    expect(fresh.roster.entries.map((e) => e.id)).toEqual(['pc-a']);
+    expect(fresh.version).toBe(3);
+  });
+
+  it('リクエストの扱いの途中で思わぬ失敗があっても、コードが生きている間は問い合わせを続ける', async () => {
+    let calls = 0;
+    const ap = new JoinApprover({
+      wire: new HttpCloudClient({ url: URL_, token: TOKEN_A, fetch: w.worker.fetch }),
+      roster: w.roster,
+      keyring: w.keyring,
+      language: () => 'ja',
+      now: () => w.clock.now,
+      timers: w.timers,
+      onRequest: () => {
+        calls += 1;
+        throw new Error('the notice could not be shown');
+      },
+    });
+    const { code } = await ap.issue();
+    await joinRequest({ home: homeB, url: URL_, code, device: pcB, fetch: w.worker.fetch, now: () => w.clock.now });
+    await w.timers.fire(ap);
+    expect(ap.state().kind).toBe('requested');
+    expect(w.timers.pending()).toBe(1);
+    // 同じリクエストでは通知し直さない。
+    await w.timers.fire(ap);
+    expect(calls).toBe(1);
+    expect(w.timers.pending()).toBe(1);
+    await ap.approve();
+    expect(ap.state()).toEqual({ kind: 'done', name: 'pc-b' });
   });
 
   it('承認の前に期限が来ていたら（Worker の 409）expired になる', async () => {
@@ -357,6 +390,9 @@ describe('JoinApprover（発行した PC の承認）', () => {
     w.fail = Object.assign(w.fail, { path: `/join-codes/${await joinCodeHash(code)}/approve`, status: 409 });
     await w.approver.approve();
     expect(w.approver.state()).toEqual({ kind: 'expired' });
+    // 名簿と keybox は書いた後なので、足した項目を外す。
+    w.roster.invalidate();
+    expect((await w.roster.read()).roster.entries.map((e) => e.id)).toEqual(['pc-a']);
   });
 
   it('リクエストが無いときの承認と拒否は投げる', async () => {

@@ -1974,7 +1974,8 @@ fn open_waiting(app: &AppHandle, session_id: &str) {
         ui.ready && ui.loaded
     };
     if !loaded {
-        apply_hash(app, format!("#/session/{session_id}"));
+        // 参加リクエストの知らせ（notify::JOIN_SESSION）は、セッションではなく設定のクラウド同期の節を貯める。
+        apply_hash(app, notify::open_hash(session_id));
         return;
     }
     if let Some(w) = app.get_webview_window("main") {
