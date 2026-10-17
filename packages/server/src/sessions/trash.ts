@@ -132,7 +132,6 @@ export function alignSessionTrash(db: Db, sessionId: string, prevTrashedAt: numb
   if (p?.project_id) touchRow(db, 'projects', p.project_id);
 }
 
-/** 1 回の処理の結果。trashed はこの回に処理し終えたセッション、waiting はこの PC で動いているので待ったセッション。 */
 /**
  * 削除の印が before 以前で、その後に戻されていないセッション（ゴミ箱の掃除の対象。sync/trashSweep.ts）。
  * 印は同期で届くので、ほかの PC で消したセッションも入る。
@@ -149,6 +148,7 @@ export function trashedLongAgo(db: Db, before: number): { sessionId: string; uui
   return rows.filter((r) => SESSION_UUID.test(r.uuid));
 }
 
+/** 1 回の処理の結果。trashed はこの回に処理し終えたセッション、waiting はこの PC で動いているので待ったセッション。 */
 export type MarksResult = { trashed: string[]; waiting: string[] };
 
 /** 周期の処理の間隔。この PC で動いていて待ったセッションと、移せなかった本文を、この間隔でやり直す。 */

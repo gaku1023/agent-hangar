@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decodeEpochList, fromBase64Url, generateKeyPair, importPrivate, openKeybox, SHARED_TABLES } from '@agent-hangar/shared';
+import { decodeEpochList, fromBase64Url, generateKeyPair, importPrivate, openKeybox, SHARED_TABLES, toBase64Url } from '@agent-hangar/shared';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { seedCloud, type FakeWireClient } from '../../test/fake-cloud.ts';
 import type { CloudConfig } from '../config/cloud.ts';
@@ -26,8 +26,14 @@ import { TranscriptUploader } from './uploader.ts';
 const UUID_A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const UUID_B = 'bbbbbbbb-2222-4222-8222-222222222222';
 const PROJECT_DIR = '-Users-someone-workspace-secret-proj';
-const SECRET_TITLE = 'title-1';
-const SECRET_PROJECT = 'project-name-1';
+// 平文の走査で探す値。暗号文に偶然現れないよう、長く他と被らない綴りにする。
+const SECRET_TITLE = 'title-unique-1-e2e';
+const SECRET_PROJECT = 'project-unique-name-1-e2e';
+const SECRET_TODO = 'todo-unique-text-1-e2e';
+const NAME_A = 'pc-a-unique-name';
+const NAME_B = 'pc-b-unique-name';
+const PROJECT_ID = 'proj-unique-id-e2e-1';
+const TODO_ID = 'todo-unique-id-e2e-1';
 
 type Pc = {
   id: string;
@@ -84,20 +90,69 @@ async function writeAndUpload(pc: Pc, uuid: string, text: string): Promise<strin
 const addSession = (pc: Pc, uuid: string) =>
   upsertShared(pc.db, 'sessions', { id: `s-${uuid}`, provider: 'claude-code', provider_session_id: uuid, cwd: '/Users/someone/workspace/secret-proj', started_at: 1, last_activity_at: 1, home_device: pc.id, origin_device: pc.id }, pc.id);
 
-/** 文字列を、base64url として読めればその中身のバイト列も、読めなければそのまま、走査の対象に足す。 */
-function collect(out: Buffer[], v: unknown): void {
-  if (v === null || v === undefined) return;
-  if (v instanceof Uint8Array) { out.push(Buffer.from(v)); return; }
-  if (typeof v === 'string') {
-    out.push(Buffer.from(v, 'utf8'));
-    const bytes = fromBase64Url(v);
-    if (bytes && v.length >= 16) out.push(Buffer.from(bytes));
-    return;
+/** 走査する偽のクラウドの保存値。storeForScan の形のうち、PC どうしの同期が書くもの。 */
+type ScanInput = Pick<ReturnType<FakeWireClient['storeForScan']>, 'rows' | 'changes' | 'files' | 'roster' | 'keyboxes' | 'devices'>;
+/** 保存値の出どころ。どれも 1 つ以上走査したことを確かめる。 */
+type Source = 'rowKeys' | 'rowSealed' | 'changes' | 'fileKeys' | 'fileMetas' | 'fileBodies' | 'roster' | 'keyboxes' | 'devices';
+
+const text = (s: string): Buffer => Buffer.from(s, 'utf8');
+/** base64url の文字は、文字のままと、復号したバイト列の両方を走査する（平文を符号化しただけのものも見つけるため）。 */
+const sealedText = (s: string): Buffer[] => {
+  const bytes = fromBase64Url(s);
+  return bytes ? [text(s), Buffer.from(bytes)] : [text(s)];
+};
+
+/**
+ * 偽のクラウドの保存値を出どころごとに集め、needles の平文がどこかに含まれていれば返す。
+ * visits は出どころごとに走査した値の数で、空の出どころが無いことを試験が確かめる。
+ */
+function scanStore(s: ScanInput, needles: string[]): { found: string[]; visits: Record<Source, number> } {
+  const by: Record<Source, Buffer[]> = { rowKeys: [], rowSealed: [], changes: [], fileKeys: [], fileMetas: [], fileBodies: [], roster: [], keyboxes: [], devices: [] };
+  for (const r of s.rows.values()) {
+    by.rowKeys.push(text(r.k), text(r.deviceId));
+    if (r.sealed.length > 0) by.rowSealed.push(Buffer.from(r.sealed));
   }
-  if (typeof v === 'number' || typeof v === 'boolean') return;
-  if (v instanceof Map) { for (const [k, x] of v) { collect(out, k); collect(out, x); } return; }
-  if (Array.isArray(v)) { for (const x of v) collect(out, x); return; }
-  if (typeof v === 'object') for (const x of Object.values(v as Record<string, unknown>)) collect(out, x);
+  for (const c of s.changes) by.changes.push(text(c.k), Buffer.from(c.sealed));
+  for (const [key, f] of s.files) {
+    by.fileKeys.push(text(key), text(f.entry.key), text(f.entry.deviceId), text(f.entry.kind));
+    by.fileMetas.push(...sealedText(f.entry.sealedMeta));
+    by.fileBodies.push(Buffer.from(f.body));
+  }
+  if (s.roster) by.roster.push(...sealedText(s.roster.sealed));
+  for (const [recipient, boxes] of s.keyboxes) {
+    by.keyboxes.push(text(recipient));
+    for (const sealed of boxes.values()) by.keyboxes.push(...sealedText(sealed));
+  }
+  for (const d of s.devices.values()) by.devices.push(text(JSON.stringify(d)));
+  const all = Object.values(by).flat();
+  const found = needles.filter((n) => all.some((v) => v.includes(text(n))));
+  const visits = Object.fromEntries(Object.entries(by).map(([k, v]) => [k, v.length])) as Record<Source, number>;
+  return { found, visits };
+}
+
+/** 平文の目印を 1 つの出どころの値に混ぜた写しを作る（走査が平文を見つけられることの確かめ）。元の保存値は変えない。 */
+function withMarker(s: ScanInput, where: 'rowSealed' | 'fileBody' | 'fileMeta' | 'roster' | 'keybox', marker: string): ScanInput {
+  const m = text(marker);
+  const rows = new Map(s.rows);
+  const files = new Map(s.files);
+  let roster = s.roster;
+  const keyboxes = new Map(s.keyboxes);
+  if (where === 'rowSealed') {
+    const [k, r] = [...rows].find(([, x]) => x.sealed.length > 0)!;
+    rows.set(k, { ...r, sealed: new Uint8Array(Buffer.concat([Buffer.from(r.sealed), m])) });
+  } else if (where === 'fileBody' || where === 'fileMeta') {
+    const [k, f] = [...files][0]!;
+    files.set(k, where === 'fileBody'
+      ? { ...f, body: Buffer.concat([f.body, m]) }
+      : { ...f, entry: { ...f.entry, sealedMeta: toBase64Url(Buffer.concat([Buffer.from(fromBase64Url(f.entry.sealedMeta)!), m])) } });
+  } else if (where === 'roster') {
+    roster = { ...s.roster!, sealed: toBase64Url(Buffer.concat([Buffer.from(fromBase64Url(s.roster!.sealed)!), m])) };
+  } else {
+    const [recipient, boxes] = [...keyboxes][0]!;
+    const [epoch, sealed] = [...boxes][0]!;
+    keyboxes.set(recipient, new Map([[epoch, toBase64Url(Buffer.concat([Buffer.from(fromBase64Url(sealed)!), m]))]]));
+  }
+  return { ...s, rows, files, roster, keyboxes };
 }
 
 let pcs: Pc[] = [];
@@ -114,8 +169,8 @@ describe('2 台の通し（偽のクラウド）', () => {
 
   beforeEach(async () => {
     const seeded = await seedCloud([
-      { id: 'dev-a', name: 'pc-a', os: 'darwin', keyPair: await generateKeyPair() },
-      { id: 'dev-b', name: 'pc-b', os: 'win32', keyPair: await generateKeyPair() },
+      { id: 'dev-a', name: NAME_A, os: 'darwin', keyPair: await generateKeyPair() },
+      { id: 'dev-b', name: NAME_B, os: 'win32', keyPair: await generateKeyPair() },
     ]);
     wire = seeded.wire;
     a = await pcOn(wire, 'dev-a', seeded.configs['dev-a']!);
@@ -126,7 +181,7 @@ describe('2 台の通し（偽のクラウド）', () => {
   it('seedCloud は名簿と各 PC 宛ての keybox を置き、どちらの PC も開ける', async () => {
     for (const pc of [a, b]) {
       const { roster } = await pc.roster.read();
-      expect(roster.entries.map((e) => [e.id, e.name])).toEqual([['dev-a', 'pc-a'], ['dev-b', 'pc-b']]);
+      expect(roster.entries.map((e) => [e.id, e.name])).toEqual([['dev-a', NAME_A], ['dev-b', NAME_B]]);
       const box = (await wire.asDevice(pc.id).getKeyboxes()).boxes[0]!;
       const { keyPair, epochs } = pc.cfg.current;
       const list = decodeEpochList(await openKeybox(await importPrivate(keyPair.priv), keyPair.pub, { epoch: box.epoch, recipient: pc.id }, fromBase64Url(box.sealed)!));
@@ -140,47 +195,49 @@ describe('2 台の通し（偽のクラウド）', () => {
     await b.engine.start();
 
     // pc-a の行と本文が pc-b に届く。
-    upsertShared(a.db, 'projects', { id: 'proj-e2e-1', name: SECRET_PROJECT, status: 'active', is_scratch: 0 }, 'dev-a');
+    upsertShared(a.db, 'projects', { id: PROJECT_ID, name: SECRET_PROJECT, status: 'active', is_scratch: 0 }, 'dev-a');
     addSession(a, UUID_A);
     setSessionName(a.db, 'dev-a', `s-${UUID_A}`, SECRET_TITLE);
     await a.engine.pushNow();
     const relA = await writeAndUpload(a, UUID_A, `{"title":"${SECRET_TITLE}"}\n`);
     await b.engine.pullNow();
     await b.puller.pullNow();
-    expect((b.db.prepare('select name from projects where id = ?').get('proj-e2e-1') as { name: string }).name).toBe(SECRET_PROJECT);
+    expect((b.db.prepare('select name from projects where id = ?').get(PROJECT_ID) as { name: string }).name).toBe(SECRET_PROJECT);
     expect(getSessionNote(b.db, `s-${UUID_A}`)?.name).toBe(SECRET_TITLE);
     expect(fs.readFileSync(remoteTranscriptPath(b.home, 'dev-a', relA), 'utf8')).toBe(`{"title":"${SECRET_TITLE}"}\n`);
 
     // pc-b の行と本文が pc-a に届く。
-    upsertShared(b.db, 'todos', { id: 'todo-e2e-1', project_id: 'proj-e2e-1', text: 'secret-todo-text', done: 0, position: 1 }, 'dev-b');
+    upsertShared(b.db, 'todos', { id: TODO_ID, project_id: PROJECT_ID, text: SECRET_TODO, done: 0, position: 1 }, 'dev-b');
     addSession(b, UUID_B);
     await b.engine.pushNow();
-    const relB = await writeAndUpload(b, UUID_B, '{"from":"pc-b"}\n');
+    const relB = await writeAndUpload(b, UUID_B, `{"from":"${NAME_B}"}\n`);
     await a.engine.pullNow();
     await a.puller.pullNow();
-    expect((a.db.prepare('select text from todos where id = ?').get('todo-e2e-1') as { text: string }).text).toBe('secret-todo-text');
-    expect(fs.readFileSync(remoteTranscriptPath(a.home, 'dev-b', relB), 'utf8')).toBe('{"from":"pc-b"}\n');
+    expect((a.db.prepare('select text from todos where id = ?').get(TODO_ID) as { text: string }).text).toBe(SECRET_TODO);
+    expect(fs.readFileSync(remoteTranscriptPath(a.home, 'dev-b', relB), 'utf8')).toBe(`{"from":"${NAME_B}"}\n`);
 
     // 偽のクラウドの保存値を全部走査する（行、採った行の控え、索引、R2 の鍵名と本体、名簿、keybox、端末）。
     const s = wire.storeForScan();
-    const values: Buffer[] = [];
-    collect(values, s.rows);
-    collect(values, s.changes);
-    collect(values, [...s.files.values()].map((f) => [f.entry, f.body]));
-    collect(values, [...s.files.keys()]);
-    collect(values, s.roster);
-    collect(values, s.keyboxes);
-    collect(values, s.devices);
-    expect(values.length).toBeGreaterThan(10);
-    // 走査が値に届いている確かめ。端末の ID は Worker が平文で持つ（認証と鍵名の頭）。
-    expect(values.some((v) => v.includes(Buffer.from('dev-a', 'utf8')))).toBe(true);
     const needles = [
       ...SHARED_TABLES,
-      'proj-e2e-1', 'todo-e2e-1', `s-${UUID_A}`, `s-${UUID_B}`,
+      PROJECT_ID, TODO_ID, `s-${UUID_A}`, `s-${UUID_B}`,
       UUID_A, UUID_B, PROJECT_DIR, relA, relB, '.jsonl', 'projects/', a.claudeDir, b.claudeDir,
-      'pc-a', 'pc-b', SECRET_TITLE, SECRET_PROJECT, 'secret-todo-text',
+      NAME_A, NAME_B, SECRET_TITLE, SECRET_PROJECT, SECRET_TODO,
     ];
-    const found = needles.filter((n) => values.some((v) => v.includes(Buffer.from(n, 'utf8'))));
-    expect(found).toEqual([]);
+    const clean = scanStore(s, needles);
+    // どの出どころも走査している（封じた行のバイト列、本文、メタ、名簿、keybox を含む）。
+    expect(Object.entries(clean.visits).filter(([, n]) => n === 0).map(([k]) => k)).toEqual([]);
+    expect(clean.visits.rowSealed).toBeGreaterThanOrEqual(4);
+    expect(clean.visits.fileBodies).toBe(2);
+    expect(clean.found).toEqual([]);
+
+    // 走査が平文を見つけられることの確かめ。目印を 1 つの出どころに混ぜた写しでは、同じ走査が目印を見つける。
+    const marker = 'plaintext-marker-unique-e2e';
+    expect(scanStore(s, [marker]).found).toEqual([]);
+    for (const where of ['rowSealed', 'fileBody', 'fileMeta', 'roster', 'keybox'] as const) {
+      expect({ where, found: scanStore(withMarker(s, where, marker), [marker]).found }).toEqual({ where, found: [marker] });
+    }
+    // 端末の ID は Worker が平文で持つ（認証と鍵名の頭）ので見つかる。
+    expect(scanStore(s, ['dev-a', 'dev-b']).found).toEqual(['dev-a', 'dev-b']);
   });
 });
