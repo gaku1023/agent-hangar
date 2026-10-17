@@ -1573,6 +1573,17 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(p.devices).toEqual([]);
     // off が届いているだけの端末も「設定していない」と同じ扱いにする。
     expect(presentSettings(initialState(), { ...initialStore(), sync: syncStatus({ state: 'off', url: null }) }, NOW).cloud.configured).toBe(false);
+    expect(presentSettings(initialState(), { ...initialStore(), sync: syncStatus({ state: 'off', url: null }) }, NOW).cloud.legacy).toBeNull();
+  });
+  it('古い形式の cloud.json で止まっている PC のクラウドの節は、未参加と見分けて再構築を案内する', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), sync: syncStatus({ state: 'off', url: null, legacyConfig: true }) }, NOW);
+    expect(p.cloud.configured).toBe(false);
+    expect(p.cloud.legacy).toEqual({ statusCommand: 'hangar cloud status', docUrl: expect.stringMatching(/^https:\/\/github\.com\/gaku1023\/agent-hangar\/blob\/main\/docs\/cloud-sync\.md#/) });
+    // 節の名前は docs/cloud-sync.md の見出し（GitHub の見出しの印）と同じである。
+    expect(decodeURIComponent(p.cloud.legacy!.docUrl.split('#')[1]!)).toBe('090-への作り直し');
+    // 節の見出しの札と目次の行は、同じ短い語を要修正の色で出す。
+    expect(p.cloud.badge).toEqual({ text: '再構築が必要', tone: 'warn' });
+    expect(p.toc.find((r) => r.id === 'cloud')).toMatchObject({ state: '再構築が必要', tone: 'warn' });
   });
   it('フェーズ 3 までの Settings の項目は消えていない', () => {
     const p = presentSettings(initialState(), { ...initialStore(), settings: fullSettings({ tmuxPath: '/t' }) }, NOW);

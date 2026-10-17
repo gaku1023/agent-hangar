@@ -292,6 +292,9 @@ export function bootSync(
     const client = keyring && wire ? new SealedCloudClient(wire, keyring, deviceId, roster ? { onRoster: rosterRefresh(roster, () => onKeysGained()) } : {}) : null;
     const engine = new SyncEngine({
       db, deviceId, client, url: cloud?.url ?? null, home: home.home, cloudId: cloud?.cloudId ?? null, language: home.language,
+      // 起動のときの cloud.json が古い形式なら、同期の状態にその印を載せる（設定の画面が再構築を案内する）。
+      // 版 2 の cloud.json が現れて組み直した Core では cloud があるので立たない。
+      legacyConfig: cloud === null && cloudRead.state === 'legacy',
       ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
     });
     // 設定の「使用量と費用」。

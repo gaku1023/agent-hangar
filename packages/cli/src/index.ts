@@ -141,7 +141,7 @@ cloud
 
 cloud
   .command('devices')
-  .description('同期に参加している PC と、解除した PC を一覧表示する（参加日、最終同期の時刻、IP、おおよその所在地）')
+  .description('同期に参加している PC と、解除した PC を一覧表示する（参加日、最終同期の時刻）')
   .option('--json', '結果を JSON で 1 行出力する')
   .action(async (o: { json?: boolean }) => {
     const home = hangarHome();

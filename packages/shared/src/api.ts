@@ -509,7 +509,12 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * off のあいだの変更も changes に積んであり、同期を有効にした後に送る。
  */
 /** revoked は、この PC が同期から解除された（Worker が端末トークンを 401 の revoked で断った）印。そのあいだ state は error である。送らない古いサーバは偽とみなす。 */
-export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean };
+/**
+ * legacyConfig は、cloud.json が 0.8.x までの古い形式（参加用の秘密を持つ版 1）のため同期を始めていない印。
+ * そのあいだ state は off で、設定の画面は未参加と見分けてクラウドの再構築を案内する。
+ * 立っているときだけ true で載せ、それ以外は載せない（送らない古いサーバも偽とみなす）。
+ */
+export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean; legacyConfig?: boolean };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。

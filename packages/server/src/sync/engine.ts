@@ -47,6 +47,11 @@ export type SyncEngineDeps = {
    * 失敗の理由は出した時点の言語のままで、言語を変えても書き直さない（次の失敗で新しい言語になる）。
    */
   language?: GetLanguage;
+  /**
+   * cloud.json が古い形式（版 1）のため client を組まなかったか。
+   * 立っていて client が無いとき、status() は off に legacyConfig の印を添える（設定の画面が再構築を案内する）。
+   */
+  legacyConfig?: boolean;
 };
 
 export type SyncListener = {
@@ -372,6 +377,8 @@ export class SyncEngine {
       limitedUntil: shownLimit,
       // 解除されたことは error の文でも言うが、画面は節の先頭に専用の帯を出すので、印を別に載せる。
       revoked: this.revokedBlock,
+      // 古い形式の cloud.json で止まっているときだけ載せる。未参加の off と見分けるためである。
+      ...(state === 'off' && this.deps.legacyConfig === true ? { legacyConfig: true } : {}),
     };
   }
 
