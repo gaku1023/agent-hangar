@@ -18,6 +18,7 @@ import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
+import { sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
 import { TranscriptUploader } from '../sync/uploader.ts';
 import { CloudUsagePoller } from '../sync/usage.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -35,6 +36,8 @@ import { followRemoteScratch } from '../projects/scratch.ts';
 export const UPLOAD_SWEEP_MS = 60_000;
 /** 設定の同期の、送受信の間隔。スイッチが切のあいだは何もしない。 */
 export const CONFIG_BUNDLE_TICK_MS = 60_000;
+/** 起動から最初のゴミ箱の掃除までの間。最初の同期と取り残しの走査を先に通す。 */
+const TRASH_SWEEP_FIRST_MS = 5 * 60_000;
 /** fs.watch が使えないときだけ、cloud.json が現れたかを読み直す間隔。 */
 export const CLOUD_JSON_POLL_MS = 30_000;
 /** cloud.json の変化を拾ってから読むまでの間。書き込みの連続を 1 回にまとめる。 */
@@ -162,6 +165,9 @@ type Core = {
   once: ReturnType<typeof createOncePass>;
   bundleTimer: ReturnType<typeof setInterval> | null;
   uploadTimer: ReturnType<typeof setInterval> | null;
+  /** ゴミ箱の掃除の 1 回（sync/trashSweep.ts）。同期を設定していなければ null。 */
+  sweepTrash: (() => Promise<void>) | null;
+  trashTimers: { first: ReturnType<typeof setTimeout>; every: ReturnType<typeof setInterval> } | null;
 };
 
 /**
@@ -305,7 +311,22 @@ export function bootSync(
       void engine.rewindSkippedRows();
       void puller?.rewindSkipped().catch((e: unknown) => console.error('[pull] could not rewind skipped files', e instanceof Error ? e.message : e));
     };
-    const c: Core = { cloud, client, roster, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
+    // ゴミ箱の掃除。止まっている間（一時停止、版、解除、上限）は Worker に触らない。走っている回があれば重ねない。
+    let trashRunning = false;
+    const sweepTrash = client && keyring
+      ? async (): Promise<void> => {
+          if (trashRunning || isPaused()) return;
+          trashRunning = true;
+          try {
+            await sweepTrashBlobs({ db, client, keyring, deviceId, now: Date.now() });
+          } catch (e) {
+            console.error('[trash-sweep] could not delete old trashed transcripts from the cloud', e instanceof Error ? e.message : e);
+          } finally {
+            trashRunning = false;
+          }
+        }
+      : null;
+    const c: Core = { cloud, client, roster, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
     built = c;
     return c;
   };
@@ -350,11 +371,19 @@ export function bootSync(
     sweepUploads(c);
     c.uploadTimer = c.uploader ? setInterval(() => sweepUploads(c), UPLOAD_SWEEP_MS) : null;
     c.uploadTimer?.unref();
+    // ゴミ箱の掃除は、最初の同期が落ち着いた頃に 1 回、その後は 6 時間に 1 回。
+    const sweep = c.sweepTrash;
+    if (sweep) {
+      c.trashTimers = { first: setTimeout(() => { void sweep(); }, TRASH_SWEEP_FIRST_MS), every: setInterval(() => { void sweep(); }, TRASH_SWEEP_EVERY_MS) };
+      c.trashTimers.first.unref();
+      c.trashTimers.every.unref();
+    }
   };
   const stopCoreTimers = (c: Core): void => {
     if (c.bundleTimer) clearInterval(c.bundleTimer);
     c.cloudUsage.stop();
     if (c.uploadTimer) clearInterval(c.uploadTimer);
+    if (c.trashTimers) { clearTimeout(c.trashTimers.first); clearInterval(c.trashTimers.every); }
     c.once.stopTicker();
   };
 

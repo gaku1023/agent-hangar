@@ -13,11 +13,13 @@ import {
   isBlobKey,
   isSafeKeyId,
   isSafeRelPath,
+  MAX_BLOB_DELETE_KEYS,
   MOBILE_IMAGES_PER_LAUNCH,
   parseCompat,
   readCloudLimit,
   readCompatRefusal,
   REVOKED_ERROR,
+  type BlobsDeleteOut,
   type ChangeIn,
   type ChangeOut,
   type CloudLimitKind,
@@ -275,6 +277,12 @@ export interface CloudClientBase {
    * 最後のスマホを解除したあとに 1 回呼ぶ。偽物は実装しなくてよい。
    */
   deleteMobileFeed?(): Promise<void>;
+  /**
+   * 自分の端末 ID の下の本文を消す（DELETE /blobs、互換の版 9）。鍵は 1 回に MAX_BLOB_DELETE_KEYS 件まで。
+   * 置いてから 1 時間たっていないもの、ほかの端末の下のもの、1 日の上限からあふれたものは refused で返る。
+   * 1 日の上限を使い切っていれば CloudError(429) で投げる。呼ぶのはゴミ箱の掃除（sync/trashSweep.ts）。偽物は実装しなくてよい。
+   */
+  deleteBlobs?(keys: string[]): Promise<BlobsDeleteOut>;
 }
 
 /**
@@ -592,6 +600,13 @@ export class HttpCloudClient implements WireCloudClient {
 
   async deleteMobileFeed(): Promise<void> {
     await this.json<{ ok: boolean }>('/m/feed', { method: 'DELETE' });
+  }
+
+  async deleteBlobs(keys: string[]): Promise<BlobsDeleteOut> {
+    // Worker も入口で断るが、形の違う鍵と上限を超える数は外へ出さない。
+    if (keys.length === 0 || keys.length > MAX_BLOB_DELETE_KEYS || !keys.every(isBlobKey)) throw new CloudError(400, JSON.stringify({ error: 'invalid body' }));
+    await this.ensureWorkerCompat();
+    return this.json<BlobsDeleteOut>('/blobs', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ keys }) });
   }
 
   async getMobileBlob(launchId: string, n: number): Promise<Uint8Array> {

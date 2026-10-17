@@ -158,6 +158,7 @@ export class SealedCloudClient implements CloudClient {
   bellTarget?: CloudClient['bellTarget'];
   getMobileBlob?: CloudClient['getMobileBlob'];
   deleteMobileFeed?: CloudClient['deleteMobileFeed'];
+  deleteBlobs?: CloudClient['deleteBlobs'];
 
   constructor(
     readonly wire: WireCloudClient,
@@ -181,6 +182,7 @@ export class SealedCloudClient implements CloudClient {
     if (w.bellTarget) this.bellTarget = () => w.bellTarget!();
     if (w.getMobileBlob) this.getMobileBlob = (launchId, n) => w.getMobileBlob!(launchId, n);
     if (w.deleteMobileFeed) this.deleteMobileFeed = () => w.deleteMobileFeed!();
+    if (w.deleteBlobs) this.deleteBlobs = (keys) => w.deleteBlobs!(keys);
   }
 
   health(): Promise<{ ok: boolean; version: string }> { return this.wire.health(); }

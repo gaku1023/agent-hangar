@@ -1,8 +1,12 @@
 import { Readable } from 'node:stream';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import {
+  BLOB_DELETE_DAILY,
+  BLOB_DELETE_GRACE_MS,
   COMPAT_VERSION,
+  encodeEpochList,
   LAUNCH_TTL_MS,
+  MAX_BLOB_DELETE_KEYS,
   MAX_PUSH_BATCH,
   MAX_SEALED_META_CHARS,
   MOBILE_BELL_MIN_WORKER_COMPAT,
@@ -12,7 +16,10 @@ import {
   SEALED_ROW_K_RE,
   fromBase64Url,
   isBlobKey,
+  sealKeybox,
+  sealRoster,
   toBase64Url,
+  type BlobsDeleteOut,
   type ChangeIn,
   type ChangeOp,
   type ChangeOut,
@@ -25,10 +32,12 @@ import {
   type FileEntry,
   type FileKind,
   type FileMetaIn,
+  type KeyPairRaw,
   type ListFilesResponse,
   type MobileLaunchIn,
   type MobileLaunchOut,
   type PushChangesResponse,
+  type Roster,
   type SealedChangeIn,
   type SealedChangeOut,
   type SealedFileEntry,
@@ -41,7 +50,8 @@ import { CloudError, CompatError, LimitError, MIN_WORKER_COMPAT, RevokedError, t
 import { decryptBuffer, encryptBuffer, fileKeyFrom, sha256Hex } from '../src/sync/crypto.ts';
 import { Keyring } from '../src/sync/keyring.ts';
 import { blobKeyFor, openSealedFile, openSealedRow, SealedCloudClient } from '../src/sync/sealedClient.ts';
-import { testCloudConfig } from './cloudConfig.ts';
+import type { CloudConfig } from '../src/config/cloud.ts';
+import { testCloudConfig, testKey } from './cloudConfig.ts';
 
 /** Worker の files の 1 行と R2 の本体。entry は封じたメタのまま（互換の版 9）で、body は暗号化したまま。 */
 type StoredFile = { entry: SealedFileEntry; body: Buffer };
@@ -93,6 +103,8 @@ export type FakeCloudStore = {
   launches: Map<string, FakeLaunch>;
   /** スマホが置いた画像（封じたまま）。鍵は `<依頼>/<番号>`。実物の R2 の mobile/<スマホ>/<依頼>/<番号> に当たる。 */
   mobileBlobs: Map<string, Uint8Array>;
+  /** DELETE /blobs の 1 日の数え。端末の ID から、UTC の日付とその日に消した数へ（実物の meta の blob_delete:<端末> に当たる）。 */
+  blobDeletes: Map<string, { day: string; n: number }>;
   now: () => number;
 };
 
@@ -224,6 +236,7 @@ export class FakeWireClient implements WireCloudClient {
       mobileFeeds: new Map(),
       launches: new Map(),
       mobileBlobs: new Map(),
+      blobDeletes: new Map(),
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -571,6 +584,59 @@ export class FakeWireClient implements WireCloudClient {
   }
 
   /**
+   * DELETE /blobs。実物（packages/cloud/src/files.ts）と同じ規則で消す。
+   * 自分の端末 ID の下だけ、置いてから 1 時間たったものだけ、1 日（UTC）500 件まで。
+   * 残りが 0 なら 429、足りなければ残りの分だけ消してあふれた分を refused に入れる。索引に無い自分の鍵は消えたものとして deleted に入れる。
+   */
+  async deleteBlobs(keys: string[]): Promise<BlobsDeleteOut> {
+    this.guard('deleteBlobs', keys);
+    if (!Array.isArray(keys) || keys.length === 0 || keys.length > MAX_BLOB_DELETE_KEYS || !keys.every((k) => typeof k === 'string' && isBlobKey(k))) {
+      throw new CloudError(400, errorBody('invalid body'));
+    }
+    const now = this.store.now();
+    const cutoff = now - BLOB_DELETE_GRACE_MS;
+    const own = `b/${this.deviceId}/`;
+    const refused: string[] = [];
+    const eligible = [...new Set(keys)].filter((k) => {
+      const at = this.store.files.get(k)?.entry.uploadedAt;
+      const ok = k.startsWith(own) && !(at !== undefined && at >= cutoff);
+      if (!ok) refused.push(k);
+      return ok;
+    });
+    if (eligible.length === 0) return { deleted: [], refused };
+    const day = new Date(now).toISOString().slice(0, 10);
+    const cur = this.store.blobDeletes.get(this.deviceId);
+    const used = cur?.day === day ? cur.n : 0;
+    const granted = Math.max(0, Math.min(eligible.length, BLOB_DELETE_DAILY - used));
+    if (granted === 0) throw new CloudError(429, JSON.stringify({ error: 'too many deletes', limit: BLOB_DELETE_DAILY }));
+    this.store.blobDeletes.set(this.deviceId, { day, n: used + granted });
+    const taken = eligible.slice(0, granted);
+    refused.push(...eligible.slice(granted));
+    for (const k of taken) this.store.files.delete(k);
+    return { deleted: taken, refused };
+  }
+
+  /** この端末が今日（偽の Worker の時計の UTC）消した数。試験が 1 日の上限を使い切った状態を作るのに使う。 */
+  get blobDeletesToday(): number {
+    const day = new Date(this.store.now()).toISOString().slice(0, 10);
+    const cur = this.store.blobDeletes.get(this.deviceId);
+    return cur?.day === day ? cur.n : 0;
+  }
+  set blobDeletesToday(n: number) {
+    this.store.blobDeletes.set(this.deviceId, { day: new Date(this.store.now()).toISOString().slice(0, 10), n });
+  }
+
+  /** 参加を承認した PC の行を置く（参加の口の真似。試験の口で、WireCloudClient には無い）。 */
+  addDevice(id: string): void {
+    if (!this.store.devices.has(id)) this.store.devices.set(id, newDevice(id, this.store.now()));
+  }
+
+  /** 偽の Worker が保存した値の全部（D1 の表と R2 に当たるもの）。平文が残っていないかを走査する試験が読む。 */
+  storeForScan(): Readonly<Pick<FakeCloudStore, 'changes' | 'rows' | 'files' | 'devices' | 'roster' | 'keyboxes' | 'mobileFeeds' | 'launches' | 'mobileBlobs' | 'blobDeletes'>> {
+    return this.store;
+  }
+
+  /**
    * PUT /m/feed。版 7 より前の Worker はこの口を知らないので 404 で断る。
    * 本文の上限は実物（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES）と同じ 96 KiB。
    */
@@ -756,4 +822,43 @@ export class FakeCloudClient implements CloudClient {
   claimLaunch(id: string): Promise<boolean> { return this.wire.claimLaunch(id); }
   answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> { return this.wire.answerLaunch(id, ok, sealedAnswer); }
   getMobileBlob(launchId: string, n: number): Promise<Uint8Array> { return this.wire.getMobileBlob(launchId, n); }
+  deleteBlobs(keys: string[]): Promise<BlobsDeleteOut> { return this.wire.deleteBlobs(keys); }
+}
+
+/** seedCloud に渡す 1 台の PC。鍵ペアは本物の X25519（keybox を開くため）。 */
+export type SeedPc = { id: string; name: string; os?: string; keyPair: KeyPairRaw };
+/** seedCloud の結果。configs は各 PC の cloud.json（参加の後に書くはずのもの）。 */
+export type SeededCloud = { wire: FakeWireClient; roster: Roster; configs: Record<string, CloudConfig> };
+
+/**
+ * 参加を済ませた状態の偽のクラウドを作る（参加の口は Task 14 で入るので、それまでの試験の道具）。
+ * PC ごとに devices の行を置き、名簿（名前と OS と公開鍵）を今の世代の `/roster` の鍵で封じて置き、
+ * 各 PC 宛ての keybox（世代鍵の一覧）をその PC の公開鍵で封じて置く。
+ * 名簿と keybox は Worker の口（PUT /roster と keybox の置き場）を通すので、印の行も進む。
+ */
+export async function seedCloud(
+  pcs: SeedPc[],
+  o: { wire?: FakeWireClient; epochs?: Record<string, string>; currentEpoch?: number; recoveryPub?: string } = {},
+): Promise<SeededCloud> {
+  const epochs = o.epochs ?? { '1': testKey(3) };
+  const currentEpoch = o.currentEpoch ?? Math.max(...Object.keys(epochs).map(Number));
+  const wire = o.wire ?? new FakeWireClient({ deviceId: pcs[0]?.id ?? 'self' });
+  const ring = await Keyring.fromConfig(testCloudConfig({ epochs, currentEpoch }));
+  for (const pc of pcs) wire.addDevice(pc.id);
+  const roster: Roster = {
+    v: 1,
+    entries: pcs.map((pc) => ({ id: pc.id, kind: 'pc', name: pc.name, os: pc.os ?? 'darwin', pub: pc.keyPair.pub, joinedAt: 1 })),
+    recoveryPub: o.recoveryPub ?? testKey(8),
+    phoneKey: null,
+  };
+  const version = wire.roster?.version ?? 0;
+  const put = await wire.putRoster({ ifVersion: version, epoch: currentEpoch, sealed: toBase64Url(await sealRoster(ring.current().roster, version + 1, roster)) });
+  if (!put.ok) throw new Error('seedCloud: the roster changed while seeding');
+  const configs: Record<string, CloudConfig> = {};
+  for (const pc of pcs) {
+    const box = await sealKeybox(pc.keyPair.pub, { epoch: currentEpoch, recipient: pc.id }, encodeEpochList({ epochs }));
+    wire.putKeybox(pc.id, currentEpoch, toBase64Url(box));
+    configs[pc.id] = testCloudConfig({ keyPair: pc.keyPair, epochs: { ...epochs }, currentEpoch, rosterVersion: 0 });
+  }
+  return { wire, roster, configs };
 }

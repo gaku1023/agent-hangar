@@ -133,6 +133,22 @@ export function alignSessionTrash(db: Db, sessionId: string, prevTrashedAt: numb
 }
 
 /** 1 回の処理の結果。trashed はこの回に処理し終えたセッション、waiting はこの PC で動いているので待ったセッション。 */
+/**
+ * 削除の印が before 以前で、その後に戻されていないセッション（ゴミ箱の掃除の対象。sync/trashSweep.ts）。
+ * 印は同期で届くので、ほかの PC で消したセッションも入る。
+ * 同じ Claude Code のセッション ID を持つ生きたセッションの行があれば外す（本文の鍵名はその ID から求めるので、生きている方の本文まで消してしまう）。
+ * ID の形が違うものも外す。
+ */
+export function trashedLongAgo(db: Db, before: number): { sessionId: string; uuid: string }[] {
+  const rows = db.prepare(`select st.session_id sessionId, s.provider_session_id uuid from session_states st
+    join sessions s on s.id = st.session_id
+    where st.deleted_at is null and st.trashed_at is not null and st.trashed_at <= ?
+      and (st.restored_at is null or st.restored_at < st.trashed_at)
+      and not exists (select 1 from sessions o where o.provider_session_id = s.provider_session_id and o.deleted_at is null)
+    order by st.trashed_at, st.session_id`).all(before) as { sessionId: string; uuid: string }[];
+  return rows.filter((r) => SESSION_UUID.test(r.uuid));
+}
+
 export type MarksResult = { trashed: string[]; waiting: string[] };
 
 /** 周期の処理の間隔。この PC で動いていて待ったセッションと、移せなかった本文を、この間隔でやり直す。 */
@@ -394,7 +410,7 @@ export class SessionTrash {
 
   /**
    * この PC が上げた本文（主線とサブエージェント）の控え（file_sync の自端末の行）を忘れる。
-   * 印から 30 日たつと、Worker の掃除がクラウドの写しを消す（packages/cloud/src/sweep.ts の sweepTrash）。
+   * 印から 30 日（TRASH_KEEP_MS）たつと、各 PC のゴミ箱の掃除が自分の上げた写しを消す（sync/trashSweep.ts）。
    * 控えが残っていると、上げる側（sync/uploader.ts）は中身が同じなので上げ直さず、ほかの PC はその本文を降ろせない。
    * 忘れれば、取り残しの走査が次の巡で上げ直す。
    * 30 日より前に戻したときは、同じ鍵へ同じ中身を上書きするだけである（Worker の PUT は索引の行を置き直す）。

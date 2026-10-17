@@ -163,10 +163,21 @@ export class RosterStore {
     return gained;
   }
 
+  /**
+   * 読んだ名簿をメモリに持ち、版を cloud.json に書く。
+   * 書けなくても（手元のディスクの失敗）投げない。投げると onRoster から pull が倒れ、区切りが進まなくなる。
+   * 書けなかった版は、次の read で写しと食い違うので Worker から読み直す。
+   */
   private remember(r: RosterRead): RosterRead {
     this.cache = copy(r);
     this.stale = false;
-    if (this.cfg.read().rosterVersion !== r.version) this.cfg.write({ rosterVersion: r.version });
+    if (this.cfg.read().rosterVersion !== r.version) {
+      try {
+        this.cfg.write({ rosterVersion: r.version });
+      } catch (e) {
+        console.error('[roster] could not save the roster version to cloud.json', e instanceof Error ? e.constructor.name : typeof e);
+      }
+    }
     return copy(r);
   }
 }

@@ -150,4 +150,18 @@ describe('RosterStore', () => {
     warn.mockRestore();
     expect(b.cfg.writes).toBe(0);
   });
+
+  it('名簿の版を cloud.json に書けなくても、読んだ名簿を返して投げない（pull の区切りを止めない）', async () => {
+    const wire = new FakeWireClient();
+    const a = await pc(wire, 'pc-a');
+    await a.store.update(() => seed);
+    const b = await pc(wire, 'pc-b');
+    b.cfg.write = () => { throw new Error('EACCES: disk says no'); };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await b.store.read()).toEqual({ version: 1, roster: seed });
+    await expect(b.store.refresh()).resolves.toBe(false);
+    expect(err).toHaveBeenCalled();
+    expect(err.mock.calls.flat().join(' ')).toMatch(/cloud\.json/);
+    err.mockRestore();
+  });
 });

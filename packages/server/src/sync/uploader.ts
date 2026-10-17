@@ -9,6 +9,7 @@ import { CloudError, LimitError, type CloudClient } from './client.ts';
 import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
+import { noteBlobUpload } from './trashSweep.ts';
 import type { RowKeyring } from './sealedClient.ts';
 import type { SyncStateStore } from './state.ts';
 import { transcriptsFrom } from './transcriptsFrom.ts';
@@ -508,6 +509,8 @@ export class TranscriptUploader {
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
       .run(key, 'transcript', rel, this.deps.deviceId, sha, size, meta.mtime, seq, this.now());
+    // 上げた世代を控える。ゴミ箱の掃除が、世代ごとに残る鍵名を求め直して消す（sync/trashSweep.ts）。
+    noteBlobUpload(this.deps.db, key, cur.epoch);
     return 'uploaded';
   }
 

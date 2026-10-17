@@ -50,6 +50,14 @@ describe('loadCloudDevices', () => {
     expect(Object.keys(byId.get('pc-a')!)).not.toContain('lastIp');
   });
 
+  it('一覧を読むたびに名簿の写しを捨ててから読む（一時停止の間に変わった名前を古いまま出さない）', async () => {
+    const cloud = new FakeCloudClient({ deviceId: 'a' });
+    const order: string[] = [];
+    const r = { read: async () => { order.push('read'); return { version: 1, roster: { v: 1 as const, entries: [], recoveryPub: testKey(8), phoneKey: null } }; }, invalidate: () => { order.push('invalidate'); } };
+    await loadCloudDevices({ ...base, client: cloud, roster: r });
+    expect(order).toEqual(['invalidate', 'read']);
+  });
+
   it('名簿が読めなくても、一覧は名前なしで出す', async () => {
     const cloud = new FakeCloudClient({ deviceId: 'a' });
     const r = await loadCloudDevices({ ...base, client: cloud, roster: { read: async () => { throw new CloudError(0, 'offline'); } } });

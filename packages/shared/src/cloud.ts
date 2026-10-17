@@ -100,6 +100,11 @@ export const MAX_BLOB_DELETE_KEYS = 50;
 export const BLOB_DELETE_DAILY = 500;
 /** 置いてからこれだけたっていない本文は消さない。 */
 export const BLOB_DELETE_GRACE_MS = 3_600_000;
+/**
+ * ゴミ箱に入れたセッションのクラウドの写しを残す期間。
+ * 削除の印（session_states.trashed_at）からこれだけたったら、各 PC が自分の上げた本文を `DELETE /blobs` で消す。
+ */
+export const TRASH_KEEP_MS = 30 * 86_400_000;
 
 export type JoinRequest = { secret: string; device: { id: string; name: string; platform: string } };
 export type JoinResponse = { deviceToken: string; deviceId: string };

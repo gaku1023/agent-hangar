@@ -579,6 +579,20 @@ describe('PC の一覧と解除', () => {
     expect(f.calls[0]!.url).toBe('https://w.example/keyboxes');
   });
 
+  it('deleteBlobs は DELETE /blobs に鍵を送り、形の違う鍵と 50 件を超える数は送らない', async () => {
+    const key = `b/dev-a/${'A'.repeat(43)}`;
+    const f = fakeFetch(() => json({ deleted: [key], refused: [] }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.deleteBlobs([key])).toEqual({ deleted: [key], refused: [] });
+    expect(f.calls[0]!.url).toBe('https://w.example/blobs');
+    expect(f.calls[0]!.init.method).toBe('DELETE');
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ keys: [key] });
+    await expect(c.deleteBlobs(['transcripts/dev-a/x.jsonl.gz'])).rejects.toMatchObject({ status: 400 });
+    await expect(c.deleteBlobs(Array.from({ length: 51 }, () => key))).rejects.toMatchObject({ status: 400 });
+    await expect(c.deleteBlobs([])).rejects.toMatchObject({ status: 400 });
+    expect(f.calls).toHaveLength(1);
+  });
+
   it('listDevices は GET /devices を Bearer 付きで叩いて一覧を返す', async () => {
     const f = fakeFetch(() => json({ devices: [device] }));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });

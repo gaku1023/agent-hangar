@@ -5,8 +5,11 @@ import type { RosterStore } from './roster.ts';
 
 export type CloudDevicesDeps = {
   client: Pick<CloudClient, 'listDevices' | 'lastWorkerCompat'> | null;
-  /** 封じた名簿。名前と OS はここにしか無い。null なら名前なしで出す。 */
-  roster: Pick<RosterStore, 'read'> | null;
+  /**
+   * 封じた名簿。名前と OS はここにしか無い。null なら名前なしで出す。
+   * 一覧を読むたびに invalidate してから読む。一時停止の間は印の行を受けないので、写しが古いままになりうるからである。
+   */
+  roster: (Pick<RosterStore, 'read'> & Partial<Pick<RosterStore, 'invalidate'>>) | null;
   deviceId: string;
   /** この PC がクラウドを作った PC か（cloud.json に Worker の名前がある）。 */
   creator: boolean;
@@ -17,6 +20,7 @@ export type CloudDevicesDeps = {
 async function rosterEntries(roster: CloudDevicesDeps['roster']): Promise<Map<string, RosterEntry>> {
   if (!roster) return new Map();
   try {
+    roster.invalidate?.();
     return new Map((await roster.read()).roster.entries.map((e) => [e.id, e]));
   } catch {
     return new Map();

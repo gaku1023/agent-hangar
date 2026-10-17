@@ -601,7 +601,7 @@ describe('削除は印の処理の後ろで待たされない', () => {
 });
 
 describe('持ち主の PC で戻したら、本文を上げ直す', () => {
-  // 削除の印から 30 日たつと、Worker の掃除がクラウドの写しを消す（packages/cloud/src/sweep.ts の sweepTrash）。
+  // 削除の印から 30 日たつと、各 PC のゴミ箱の掃除がクラウドの写しを消す（sync/trashSweep.ts の sweepTrashBlobs）。
   // その後に戻しても、上げた控え（file_sync）が残っていると、中身が同じなので上げ直さず、ほかの PC が降ろせない。
   // 手元の台帳（file_sync）の鍵。R2 の鍵名（HMAC）とは別である。
   const MAIN_KEY = `transcripts/${DEV}/${UUID}.jsonl.gz`;
