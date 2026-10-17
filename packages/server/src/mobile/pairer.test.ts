@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fromBase64Url, generateKeyPair, generatePhoneKeyPair, openPhoneKeybox, sealPhoneJoinRequest, type KeyboxIn, type PhoneKeyPair } from '@agent-hangar/shared';
+import { fromBase64Url, generateKeyPair, generatePhoneKeyPair, openPhoneKeybox, sealPhoneJoinRequest, toBase64Url, type KeyboxIn, type PhoneKeyPair } from '@agent-hangar/shared';
 import type { CloudConfig } from '../config/cloud.ts';
 import { CloudError } from '../sync/client.ts';
 import { Keyring } from '../sync/keyring.ts';
@@ -169,6 +169,45 @@ describe('PhonePairer', () => {
     expect(calls(w.wire, 'putPhoneKeyboxes')).toBe(1);
     expect(w.wire.phoneKeybox('phone-1')).toBeNull();
     expect(w.paired).toEqual([]);
+    // 接続の直後に解除されたスマホの行は、名簿からも外す。
+    expect((await w.rosterNow()).roster.entries.some((e) => e.id === 'phone-1')).toBe(false);
+  });
+
+  it('名簿の写しを読み直してから扱う。他の PC がスマホを解除して M を回していれば、新しい世代の M を封じる', async () => {
+    let fail = true;
+    const w = await world({
+      wire: (wire) => ({
+        getPairingsMine: () => wire.getPairingsMine(),
+        putPhoneKeyboxes: async (boxes: KeyboxIn[]) => {
+          if (fail) { fail = false; throw new CloudError(0, 'offline'); }
+          return wire.putPhoneKeyboxes(boxes);
+        },
+      }),
+    });
+    const pair = await w.phoneJoins((await w.showQr()).code);
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await w.timers.fire(w.pairer);
+    quiet.mockRestore();
+    // pc-b が M を次の世代にする（スマホの解除）。pc-a の名簿の写しは古いまま。
+    const next = { epoch: 2, key: toBase64Url(new Uint8Array(32).fill(7)) };
+    await w.b.roster.update((r) => ({ ...r, phoneKey: next }));
+    await w.timers.fire(w.pairer);
+    const box = w.wire.phoneKeybox('phone-1');
+    expect(box?.epoch).toBe(2);
+    expect(Array.from(await openPhoneKeybox(pair.key, pair.pub, 'phone-1', box!))).toEqual(Array.from(new Uint8Array(32).fill(7)));
+  });
+
+  it('watch が返す券の印で、keybox を置き終えたスマホを引ける（置く前は null）', async () => {
+    const w = await world();
+    const t = await w.wire.createPairing();
+    const pairId = await w.pairer.watch({ code: t.code, expiresAt: w.clock.now + 5 * 60_000 });
+    expect(typeof pairId).toBe('string');
+    expect(w.pairer.pairedFor(pairId)).toBeNull();
+    await w.phoneJoins(t.code, 'phone-1', 'iPhone 1');
+    expect(w.pairer.pairedFor(pairId)).toBeNull();
+    await w.timers.fire(w.pairer);
+    expect(w.pairer.pairedFor(pairId)).toEqual({ id: 'phone-1', name: 'iPhone 1' });
+    expect(w.pairer.pairedFor('unknown')).toBeNull();
   });
 
   it('期限まで 3 秒ごとに問い合わせ、期限の後に 1 回だけ問い合わせて止まる。端末の一覧は読まない', async () => {

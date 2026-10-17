@@ -185,7 +185,10 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.phone.none': 'No phones are connected.',
   'cloudMember.phone.daysLeft': '{n} days left (extended when used). Reconnect by {date}.',
   'cloudMember.phone.removeAria': 'Remove {name}',
-  'cloudMember.phone.confirmTitle': 'Remove {name}?',
-  'cloudMember.phone.confirmBody': 'A removed phone can’t read the inbox or start conversations. To connect it again, it has to scan a new QR code.',
-  'cloudMember.phone.confirmRisk': 'This phone can start conversations on all your PCs with the permission mode chosen on it. If you lose it, remove it right away.',
+  'cloudMember.phone.remove': 'Remove',
+  'cloudMember.phone.daysBar': 'Days left on this connection',
+  'cloudMember.phone.undoHead': 'Phone',
+  'cloudMember.phone.undoTitle': 'Removed {name}',
+  'cloudMember.phone.undoBody': '{name} can no longer start sessions.',
+  'cloudMember.phone.undo': 'Undo',
 };

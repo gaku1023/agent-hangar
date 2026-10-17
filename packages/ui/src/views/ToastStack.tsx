@@ -27,14 +27,14 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
 const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind);
 const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${c.card.sessionId}`);
 
 /**
  * 画面右下に積む知らせ。
- * 上から error と info のトースト、更新の札、更新したあとの札、他の PC から届いたプロジェクトの札、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 上から error と info のトースト、更新の札、更新したあとの札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、並べきれない入力待ちの数、入力待ちのカードの順に積む。
  * トーストは操作の結果だけである。戻る時刻の札はホームの帯に、通知の誘いは始める前の確認に、保持期間と互換の知らせはヘッダーの注意にある。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
@@ -51,6 +51,7 @@ export function ToastStack(props: ToastsProps) {
     ...(props.whatsNew ? [{ kind: 'whatsNew' as const, card: props.whatsNew }] : []),
     ...(props.arrived ? [{ kind: 'arrived' as const, count: props.arrived.count }] : []),
     ...(props.join ? [{ kind: 'join' as const, card: props.join }] : []),
+    ...(props.phoneUndo ? [{ kind: 'phoneUndo' as const, name: props.phoneUndo.name }] : []),
   ];
   const waits: WaitingItem[] = [
     ...(props.more > 0 ? [{ kind: 'more' as const, n: props.more }] : []),
@@ -66,6 +67,7 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'update') return <UpdateCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'whatsNew') return <WhatsNewCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'join') return <JoinCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
+        if (item.kind === 'phoneUndo') return <PhoneUndoCard key={key} name={item.name} motion={m} />;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
       })}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
@@ -161,6 +163,28 @@ function JoinCard(props: { card: JoinCardProps; blocked: boolean; motion: CardMo
         <div className="notice-sas"><span>{t('cloudMember.toast.sasNote')}</span><b className="mono">{c.sas}</b></div>
         <div className="notice-acts">
           <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } })}>{t('cloudMember.toast.open')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * スマホの解除の「元に戻す」（試作 E2）。スマホの行の「解除」の 1 クリックで出す。
+ * 5 秒は Runtime が数え（この札は時間で消さない）、その間は Worker に何も送らない。5 秒たつと解除を送り、札は消える。
+ * 「元に戻す」で行が戻る。画面を移さないので、ダイアログが開いていても押せる。
+ */
+function PhoneUndoCard(props: { name: string; motion: CardMotion }) {
+  const emit = useEmit();
+  const t = useT();
+  return (
+    <div className="toast notice" data-kind="phone-undo" role="status" aria-label={t('cloudMember.phone.undoHead')} {...motionAttrs(props.motion)}>
+      <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('cloudMember.phone.undoHead')}</span></div>
+      <div className="notice-body">
+        <div className="notice-title">{t('cloudMember.phone.undoTitle', { name: props.name })}</div>
+        <div className="notice-sub">{t('cloudMember.phone.undoBody', { name: props.name })}</div>
+        <div className="notice-acts">
+          <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.phone.undo' })}>{t('cloudMember.phone.undo')}</button>
         </div>
       </div>
     </div>

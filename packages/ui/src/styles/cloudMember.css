@@ -88,8 +88,12 @@
 .cm-name { display: flex; flex-direction: column; min-width: 0; }
 .cm-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cm-self { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
-/* スマホの名前の下の 1 行（残りの日数と再接続の日付）。 */
-.cm-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+/* スマホの名前の下の 1 行（残りの日数の細い棒と、残りの日数と再接続の日付）。棒は 30 日を満たんとする。
+   再接続の日付を切らないよう、欄が狭ければ文を折り返す（棒は 1 行目の高さにそろえる）。 */
+.cm-sub { display: flex; align-items: flex-start; gap: calc(var(--u) * 1.5); min-width: 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-3); }
+.cm-sub-text { min-width: 0; overflow-wrap: anywhere; }
+.cm-exp { flex: none; width: 40px; height: 3px; margin-top: 0.65em; border-radius: 2px; background: var(--line); overflow: hidden; }
+.cm-exp > i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
 .cm-faint { color: var(--ink-3); }
 .cm-act { justify-self: end; }
 .cm-act .btn { color: var(--error); }

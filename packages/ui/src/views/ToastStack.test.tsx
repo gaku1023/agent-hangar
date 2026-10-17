@@ -8,7 +8,7 @@ import type { UpdateCardProps } from '../presenters/update.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, reason: null, ask: null, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, join: null, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, join: null, phoneUndo: null, ...over });
 function mount(p: ToastsProps) {
   const onAction = vi.fn();
   const r = render(<ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot>);
@@ -114,6 +114,25 @@ describe('参加リクエストの通知（試作 C1）', () => {
   it('確認や入力のあるダイアログが開いている間は、画面を移せないので押せない', () => {
     mount(props({ join: { name: 'pc-b', os: 'Windows', sas: '418 207' }, blocked: true }));
     expect(screen.getByRole('button', { name: '確認して承認' })).toBeDisabled();
+  });
+});
+
+describe('スマホの解除の「元に戻す」（試作 E2）', () => {
+  it('右下の通知に解除したスマホの名前と「元に戻す」があり、押すと元に戻す。時間では消さない（5 秒は Runtime が数える）', () => {
+    vi.useFakeTimers();
+    const { onAction } = mount(props({ phoneUndo: { name: 'iPhone' } }));
+    const c = screen.getByRole('status', { name: 'スマホ' });
+    expect(c).toHaveTextContent('iPhone を解除しました');
+    expect(c).toHaveTextContent('iPhone からセッションを起動できなくなりました。');
+    act(() => { vi.advanceTimersByTime(INFO_TOAST_MS * 3); });
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.click(within(c).getByRole('button', { name: '元に戻す' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'cloud.phone.undo' });
+    vi.useRealTimers();
+  });
+  it('確認や入力のあるダイアログが開いていても押せる（画面を移さない）', () => {
+    mount(props({ phoneUndo: { name: 'iPhone' }, blocked: true }));
+    expect(screen.getByRole('button', { name: '元に戻す' })).toBeEnabled();
   });
 });
 

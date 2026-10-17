@@ -20,11 +20,13 @@ describe('PC とスマホの表（試作 cloud-e2e の E2）', () => {
     for (const gone of ['.cm-where', '.cm-place', '.cm-ip', '.cm-sep']) expect(sels).not.toContain(gone);
   });
 
-  it('スマホの名前の下の 1 行（残りの日数と再接続の日付）は、欄より長ければ省略記号で切る', () => {
-    const b = body(css, '.cm-sub');
-    expect(decl(b, 'overflow')).toBe('hidden');
-    expect(decl(b, 'text-overflow')).toBe('ellipsis');
-    expect(decl(b, 'white-space')).toBe('nowrap');
+  it('スマホの名前の下の 1 行（残りの日数と再接続の日付）は、欄より長ければ折り返し、再接続の日付を切らない。細い棒は縮めない', () => {
+    const b = body(css, '.cm-sub-text');
+    expect(decl(b, 'text-overflow')).toBeUndefined();
+    expect(decl(b, 'white-space')).toBeUndefined();
+    expect(decl(b, 'overflow-wrap')).toBe('anywhere');
+    expect(decl(body(css, '.cm-sub'), 'min-width')).toBe('0');
+    expect(decl(body(css, '.cm-exp'), 'flex')).toBe('none');
   });
 });
 

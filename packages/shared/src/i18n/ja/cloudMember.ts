@@ -185,7 +185,10 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.phone.none': '接続しているスマホはありません。',
   'cloudMember.phone.daysLeft': '残り {n} 日（使用すると延長されます）。{date} に再接続が必要です。',
   'cloudMember.phone.removeAria': '{name} を解除',
-  'cloudMember.phone.confirmTitle': '{name} を解除しますか',
-  'cloudMember.phone.confirmBody': '解除したスマホは受信箱を読めず、会話も始められなくなります。もう一度接続するには、新しい QR を読む必要があります。',
-  'cloudMember.phone.confirmRisk': 'このスマホからは、選んだ権限モードで全部の PC に会話を起動できます。なくしたときはすぐに解除してください。',
+  'cloudMember.phone.remove': '解除',
+  'cloudMember.phone.daysBar': '接続の残りの日数',
+  'cloudMember.phone.undoHead': 'スマホ',
+  'cloudMember.phone.undoTitle': '{name} を解除しました',
+  'cloudMember.phone.undoBody': '{name} からセッションを起動できなくなりました。',
+  'cloudMember.phone.undo': '元に戻す',
 };

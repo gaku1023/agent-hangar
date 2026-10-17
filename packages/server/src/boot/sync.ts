@@ -22,7 +22,7 @@ import { PhonePairer, type MobileLink } from '../mobile/pairer.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
-import { readRotation, resumeRotation, revokeMember, rotationRetrier, type RotateDeps } from '../sync/rotate.ts';
+import { resumeRotation, revokeMember, rotationPending, rotationRetrier, type RotateDeps } from '../sync/rotate.ts';
 import { sweepSupersededBlobs, sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
 import { TranscriptUploader } from '../sync/uploader.ts';
 import { CloudUsagePoller } from '../sync/usage.ts';
@@ -386,7 +386,7 @@ export function bootSync(
     const retry = rotateDeps
       ? rotationRetrier({
           resume: () => serial(() => resumeRotation(rotateDeps)),
-          pending: () => readRotation(rotateDeps.state, rotateDeps.cfg.read().cloudId) !== null,
+          pending: () => rotationPending(rotateDeps.state, rotateDeps.cfg.read().cloudId),
           timers: { set: (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return t; }, clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
         })
       : null;

@@ -42,6 +42,7 @@ export function RecoveryPage() {
     bridge: null,
     load: async () => DEVICES,
     pair: async () => ({ state: 'not-joined' }),
+    paired: async () => ({ paired: null }),
     joinCodes: { current: async () => ({ kind: 'idle' }), issue: async () => ({ kind: 'idle' }), approve: async () => ({ kind: 'idle' }), reject: async () => ({ kind: 'idle' }), close: async () => ({ kind: 'idle' }) },
     recovery: {
       reissue: async () => { await wait(400); return { text: TEXT, draftId: 'draft-1' }; },

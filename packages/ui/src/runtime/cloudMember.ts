@@ -1,4 +1,4 @@
-import { normalizeJoinCode, type CloudDevicesDto, type JoinApproverState, type MobilePairingDto } from '@agent-hangar/shared';
+import { normalizeJoinCode, type CloudDevicesDto, type JoinApproverState, type MobilePairedDto, type MobilePairingDto } from '@agent-hangar/shared';
 import { RECOVERY_SHOW_MS, reduceCloudMember, type CloudMemberEvent, type CloudMemberState, type JoinFailReason } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
 
@@ -22,7 +22,7 @@ export type CloudMemberCommand =
   | { op: 'addOpen' } | { op: 'addApprove' } | { op: 'addReject' } | { op: 'addClose' }
   | { op: 'revoke'; id: string } | { op: 'revokeDismiss' }
   | { op: 'leave'; revoke: boolean } | { op: 'leaveDismiss' }
-  | { op: 'pair' } | { op: 'pairClose' }
+  | { op: 'pair' } | { op: 'pairClose' } | { op: 'phoneRevoke'; id: string } | { op: 'phoneUndo' }
   | { op: 'recoveryAsk' } | { op: 'recoveryReissue' } | { op: 'recoverySaved' } | { op: 'recoveryReveal' }
   | { op: 'recoveryConfirm'; tail: string } | { op: 'recoveryRetry' } | { op: 'recoveryClose' };
 
@@ -35,8 +35,11 @@ export type RecoveryKeyApi = {
   confirm(draftId: string, tail: string): Promise<void>;
 };
 
-/** QR を出している間、端末の一覧を再読み込みする間隔。スマホが参加したのを、この間隔で知る。承認の後に新しい PC を待つ間隔も同じ。 */
+/** QR を出している間、サーバーの軽い口（接続の済んだスマホ）を読む間隔。承認の後に新しい PC を待つ間隔も同じ。 */
 export const PAIR_POLL_MS = 3_000;
+
+/** スマホの解除の「元に戻す」を出しておく長さ（試作 E2）。この間は Worker に何も送らない。 */
+export const PHONE_UNDO_MS = 5_000;
 
 /** 発行した PC の口（サーバーの /api/sync/join-codes）。どれも承認の状態を返す。失敗はサーバーの文で投げる。 */
 export type JoinCodesApi = {
@@ -54,6 +57,8 @@ export type CloudMemberRunnerDeps = {
   load: () => Promise<CloudDevicesDto>;
   /** スマホを接続する QR の券を取る（POST /api/sync/mobile-pairing）。 */
   pair: () => Promise<MobilePairingDto>;
+  /** その券で接続し、PC が keybox を置き終えたスマホを見る（GET /api/sync/mobile-pairing/:pairId）。サーバーは Worker に問い合わせない。 */
+  paired: (pairId: string) => Promise<MobilePairedDto>;
   /** 「PC を追加」の参加コードの発行と承認。ブラウザでも使う（サーバーの経路だけを使う）。 */
   joinCodes: JoinCodesApi;
   /** 「リカバリーキーを再発行」。ブラウザでも使う（サーバーの経路だけを使う）。 */
@@ -217,9 +222,10 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
     if (!d.bridge || d.get().revoke?.kind === 'busy') return;
     apply({ type: 'revoke.start', id });
     d.bridge.revoke(id).then((r) => {
-      if (!r.ok) { apply({ type: 'revoke.failed', id, failure: r.failure }); return; }
-      apply({ type: 'revoke.done', device: r.value });
-      load();
+      if (!r.ok) apply({ type: 'revoke.failed', id, failure: r.failure });
+      else { apply({ type: 'revoke.done', device: r.value }); load(); }
+      const next = queued.shift();
+      if (next !== undefined) revoke(next);
     });
   }
 
@@ -235,15 +241,56 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
   }
 
   /**
-   * スマホを接続する QR。出すたびに世代を進め、前の QR の予約（再読み込みと期限）は世代が違えば何もしない。
-   * 再読み込みは QR を出している間（ready）だけ PAIR_POLL_MS ごとに 1 本ずつ走らせ、閉じる、期限が切れる、スマホが参加する、のどれかで停止する。
+   * スマホの解除（試作 E2）。1 クリックで行を隠して右下に「元に戻す」を出し、PHONE_UNDO_MS の間は Worker に何も送らない。
+   * 時間がたつと解除を送る（revoke と同じ道）。「元に戻す」なら予約を無効にして行を戻す。
+   * 待っている間に別のスマホを解除したら、前のスマホの解除をすぐ送り、新しいスマホで数え直す。
+   * 予約は世代で見分け、無効にした予約が走っても何もしない。
+   */
+  let undoGen = 0;
+  // 別の解除を送っている間に 5 秒が過ぎたスマホ。送り終えたら順に送る（解除は 1 度に 1 台）。
+  const queued: string[] = [];
+  function commitUndo(): void {
+    const u = d.get().phoneUndo;
+    if (!u) return;
+    undoGen++;
+    apply({ type: 'phoneUndo.clear' });
+    if (d.get().revoke?.kind === 'busy') queued.push(u.id);
+    else revoke(u.id);
+  }
+  function phoneRevoke(id: string): void {
+    if (!d.bridge || d.get().phoneUndo?.id === id) return;
+    const row = d.get().devices?.devices.find((x) => x.id === id && x.kind === 'mobile');
+    if (!row) return;
+    commitUndo();
+    const gen = ++undoGen;
+    apply({ type: 'phoneUndo.start', undo: { id, name: row.name ?? id } });
+    d.setTimeout(() => { if (gen === undoGen) commitUndo(); }, PHONE_UNDO_MS);
+  }
+  function phoneUndo(): void {
+    undoGen++;
+    apply({ type: 'phoneUndo.clear' });
+  }
+
+  /**
+   * スマホを接続する QR。出すたびに世代を進め、前の QR の予約（見回りと期限）は世代が違えば何もしない。
+   * 見回りは QR を出している間（ready）だけ PAIR_POLL_MS ごとに 1 本ずつ、サーバーの軽い口（券の印で接続の済んだスマホを見る）を読む。
+   * 端末の一覧（GET /devices と GET /roster が増える）は読まない。
+   * PC が keybox を置き終えたら「接続しました」にし、一覧を 1 回だけ読み直す。閉じる、期限が切れる、でも停止する。
    */
   let pairGen = 0;
   const pairLive = (gen: number) => gen === pairGen && d.get().phone.kind === 'ready';
-  function pollPhones(gen: number): void {
+  function pollPhones(gen: number, pairId: string): void {
     d.setTimeout(() => {
       if (!pairLive(gen)) return;
-      d.load().then((devices) => { if (gen === pairGen) apply({ type: 'devices.loaded', devices }); pollPhones(gen); }, () => pollPhones(gen));
+      d.paired(pairId).then((r) => {
+        if (!pairLive(gen)) return;
+        if (r.paired) {
+          apply({ type: 'phone.paired', id: r.paired.id, name: r.paired.name });
+          load();
+          return;
+        }
+        pollPhones(gen, pairId);
+      }, () => pollPhones(gen, pairId));
     }, PAIR_POLL_MS);
   }
   function pair(): void {
@@ -254,7 +301,7 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
       if (gen !== pairGen) return;
       apply({ type: 'phone.loaded', pairing });
       if (pairing.state !== 'ready') return;
-      pollPhones(gen);
+      pollPhones(gen, pairing.pairId);
       d.setTimeout(() => { if (pairLive(gen)) apply({ type: 'phone.expired' }); }, Math.max(0, pairing.expiresAt - d.now()));
     }, (e: unknown) => {
       if (gen === pairGen) apply({ type: 'phone.failed', message: errorText(e) });
@@ -315,6 +362,8 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
       case 'leaveDismiss': apply({ type: 'leave.reset' }); return;
       case 'pair': pair(); return;
       case 'pairClose': pairGen++; apply({ type: 'phone.reset' }); return;
+      case 'phoneRevoke': phoneRevoke(c.id); return;
+      case 'phoneUndo': phoneUndo(); return;
       case 'recoveryAsk': if (d.get().recovery.kind === 'idle' || d.get().recovery.kind === 'done' || d.get().recovery.kind === 'failed') apply({ type: 'recovery.ask' }); return;
       case 'recoveryReissue': recoveryReissue(); return;
       case 'recoverySaved': apply({ type: 'recovery.saved' }); return;

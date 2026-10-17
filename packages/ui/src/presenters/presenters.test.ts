@@ -1852,10 +1852,11 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
   });
   // 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札（PR 33）だけで、戻る時刻の札と通知の誘いはベルの一覧へ移った（PR 29）。
-  it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と参加リクエストの通知以外は渡さない（戻る時刻の札、通知の誘い）', () => {
+  it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と参加リクエストの通知とスマホの「元に戻す」以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'join', 'more', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'join', 'more', 'phoneUndo', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(p.phoneUndo).toBeNull();
     // 殻が updater を持たなければ、更新の札も更新後の札も出さない。
     expect(p.update).toBeNull();
     expect(p.whatsNew).toBeNull();

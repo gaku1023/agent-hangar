@@ -28,8 +28,9 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * arrived は、同期で他の PC から届いたプロジェクトの札（設計書 2.11.5）で、count は、いまも届いたままのものの数である。0 なら null で、札は出さない。
  * update は、アプリの更新の札（presenters/update.ts）。どの画面でも出す（画面を移さないので、ダイアログが開いていても押せる）。
  * join は、発行した参加コードへの参加リクエストの通知（試作 C1）。承認か拒否か期限切れで消える。設定のクラウド同期を開いている間は、そこの欄が同じことを言うので出さない。
+ * phoneUndo は、スマホの解除の「元に戻す」（試作 E2）。Runtime が 5 秒を数え、解除を送るか元に戻すと消える。どの画面でも出す。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; join: JoinCardProps | null };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null };
 
 /** 参加リクエストの通知の中身。os は表示名、sas は区切りつきの確認コード（123 456）。 */
 export type JoinCardProps = { name: string; os: string; sas: string };
@@ -69,5 +70,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   });
   const waiting = cards.slice(-SHOWN);
   const arrived = arrivedCount(store, state.arrivedProjects);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), join: presentJoinCard(state, store) };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null };
 }

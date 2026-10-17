@@ -21,7 +21,7 @@ import type { RosterStore } from '../sync/roster.ts';
  * client は今の同期の client、url は Worker の URL（QR に入れる）、phoneKeys はスマホ用の鍵 M の引き口、pairer はスマホの接続の PC 側である。
  * cloud.json を後から拾って組み直すと、別のものを返す。鍵そのものは含まず、ログにも画面にも出さない。
  */
-export type MobileLink = { client: CloudClient; url: string; phoneKeys: PhoneKeySource; pairer: Pick<PhonePairer, 'watch'> };
+export type MobileLink = { client: CloudClient; url: string; phoneKeys: PhoneKeySource; pairer: Pick<PhonePairer, 'watch' | 'pairedFor'> };
 
 /** QR を出している間に、接続してきたスマホの参加リクエストを問い合わせる間隔。券は 5 分なので 1 枚で最大 100 回。 */
 export const PAIR_POLL_MS = 3_000;
@@ -54,7 +54,7 @@ const realTimers: PairerTimers = {
 
 export type PhonePairerDeps = {
   wire: PairerWire;
-  roster: Pick<RosterStore, 'read' | 'update'>;
+  roster: Pick<RosterStore, 'read' | 'update' | 'invalidate'>;
   timers?: PairerTimers;
   now?: () => number;
   /** スマホを接続し終えた（名簿に足し、keybox を置いた）。投げても問い合わせは続ける。 */
@@ -86,8 +86,10 @@ const kindOf = (e: unknown): string => {
  *
  * 1 件の扱いの順は、参加リクエストを券で開く、名簿にスマホを足す（kind 'phone'）、
  * 名簿に phoneKey が無ければ M[1] を作って同じ書き換えで名簿に入れる、M をスマホの公開鍵に封じて `PUT /phone-keyboxes` に置く、である。
+ * 名簿は扱うたびに Worker から読み直す（手元の写しが古いと、他の PC が回す前の世代の M を新しいスマホに封じうる）。
  * keybox を置くと Worker は参加リクエストを消すので、名簿を先に書く（落ちても次の問い合わせでやり直せる）。
- * `PUT /phone-keyboxes` が 400 の unknown recipient（解除されたスマホ）なら、その券を捨てる。
+ * `PUT /phone-keyboxes` が 400 の unknown recipient（接続の直後に解除されたスマホ）なら、その券を捨て、名簿に足した行も外す。
+ * keybox を置き終えたスマホは、watch が返した券の印で pairedFor から引ける（設定の画面が QR を出している間に見る軽い口）。
  * 開けないリクエスト（券か ID が違う、壊れている）は、その組を覚えて二度と試さない。
  * どの失敗も投げない（ログは英語で種類だけ）。通信の失敗は次の問い合わせでやり直す。
  * 問い合わせは 1 本ずつ順に走らせる。
@@ -95,6 +97,8 @@ const kindOf = (e: unknown): string => {
 export class PhonePairer {
   private readonly tickets = new Map<string, Ticket>();
   private readonly broken = new Set<string>();
+  /** keybox を置き終えた券の印から、接続したスマホへ。PAIR_TICKETS_MAX 枚まで覚える。 */
+  private readonly done = new Map<string, { id: string; name: string }>();
   private readonly timers: PairerTimers;
   private readonly now: () => number;
   private pollUntil = 0;
@@ -107,10 +111,13 @@ export class PhonePairer {
     this.now = deps.now ?? Date.now;
   }
 
-  /** QR を出した。券を覚え、期限まで問い合わせる。券の平文はメモリにだけ置き、ログに出さない。 */
-  async watch(ticket: { code: string; expiresAt: number }): Promise<void> {
-    if (this.stopped) return;
+  /**
+   * QR を出した。券を覚え、期限まで問い合わせる。券の平文はメモリにだけ置き、ログに出さない。
+   * 返すのは券の印（券のハッシュ。Worker の D1 にもある値で、券の平文ではない）で、pairedFor に渡す。
+   */
+  async watch(ticket: { code: string; expiresAt: number }): Promise<string> {
     const hash = await phoneTicketHash(ticket.code);
+    if (this.stopped) return hash;
     const now = this.now();
     for (const [h, t] of this.tickets) if (t.keepUntil < now) this.tickets.delete(h);
     this.tickets.delete(hash);
@@ -118,6 +125,13 @@ export class PhonePairer {
     while (this.tickets.size > PAIR_TICKETS_MAX) this.tickets.delete(this.tickets.keys().next().value!);
     this.pollUntil = Math.max(this.pollUntil, ticket.expiresAt);
     this.schedule();
+    return hash;
+  }
+
+  /** その券で接続し、keybox を置き終えたスマホ。まだなら（知らない券も）null。Worker には問い合わせない。 */
+  pairedFor(pairId: string): { id: string; name: string } | null {
+    const p = this.done.get(pairId);
+    return p ? { ...p } : null;
   }
 
   /** 1 回だけ問い合わせて、届いた参加リクエストを扱う。走っている問い合わせの後に並ぶ。投げない。 */
@@ -181,6 +195,7 @@ export class PhonePairer {
     }
     const name = cleanName(body.name) ?? p.deviceId;
     const entry: RosterEntry = { id: p.deviceId, kind: 'phone', name, os: '', pub: body.pub, joinedAt: p.joinedAt };
+    this.deps.roster.invalidate();
     const base = await this.deps.roster.read();
     // 名簿の無いクラウド（setup の途中）では、リカバリーキーの公開鍵の無い名簿を作ってしまうので書かない。
     if (base.version === 0) {
@@ -207,11 +222,16 @@ export class PhonePairer {
       if (e instanceof CloudError && e.status === 400 && e.message.includes('unknown recipient')) {
         this.tickets.delete(t.hash);
         console.warn('[mobile] the phone was removed before its key could be placed; dropped the pairing');
+        // 名簿に足した行も外す。このスマホは M を受け取っていないので、M は回さない。
+        await this.deps.roster.update((r) => ({ ...r, entries: r.entries.filter((x) => !(x.id === entry.id && x.kind === 'phone')) }));
         return;
       }
       throw e;
     }
     this.tickets.delete(t.hash);
+    this.done.delete(t.hash);
+    this.done.set(t.hash, { id: p.deviceId, name });
+    while (this.done.size > PAIR_TICKETS_MAX) this.done.delete(this.done.keys().next().value!);
     try {
       this.deps.onPaired?.({ id: p.deviceId, name });
     } catch (e) {

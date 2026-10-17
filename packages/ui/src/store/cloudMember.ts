@@ -1,4 +1,4 @@
-import type { CloudDeviceDto, CloudDevicesDto, DeviceOut, JoinApproverState, MobilePairingDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, DeviceOut, JoinApproverState, MobilePairingDto } from '@agent-hangar/shared';
 
 /**
  * クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除の状態。
@@ -46,13 +46,13 @@ export type RevokeStage = { id: string; kind: 'busy' } | { id: string; kind: 'fa
 export type LeaveStage = { kind: 'idle' } | { kind: 'busy' } | { kind: 'left'; revokeError: string | null } | { kind: 'failed'; failure: CloudFailure };
 
 /**
- * スマホを接続する QR の段。loading は券を取っている、ready は QR を出している（known は出した時点で参加していたスマホの ID。一覧がまだ無ければ null で、最初に届いた一覧を基準にする）、
- * loading の renew は、QR の段を開いたまま新しい券を待っている（段を畳まない）。expired は 5 分を過ぎた、paired は QR を出している間に新しいスマホが参加した、old は Worker の版が足りない、limited は券の取りすぎ、notJoined は同期に参加していない、failed はそれ以外の失敗。
- * QR の中身（pairUrl と pairText、スマホ用の暗号鍵を含む）を持つのは ready の間だけで、閉じる、期限が切れる、参加する、のどれでも捨てる。
+ * スマホを接続する QR の段。loading は券を取っている、ready は QR を出している（pairId は券の印で、サーバーの軽い口に渡して接続の済んだスマホを見る）、
+ * loading の renew は、QR の段を開いたまま新しい券を待っている（段を畳まない）。expired は 5 分を過ぎた、paired は QR を出している間にスマホが接続し、PC が keybox を置き終えた、old は Worker の版が足りない、limited は券の取りすぎ、notJoined は同期に参加していない、failed はそれ以外の失敗。
+ * QR の中身（pairUrl と pairText、使い捨ての券を含む）を持つのは ready の間だけで、閉じる、期限が切れる、参加する、のどれでも捨てる。
  */
 export type PhoneStage =
   | { kind: 'idle' } | { kind: 'loading'; renew?: true }
-  | { kind: 'ready'; pairUrl: string; pairText: string; expiresAt: number; known: string[] | null }
+  | { kind: 'ready'; pairUrl: string; pairText: string; expiresAt: number; pairId: string }
   | { kind: 'expired' } | { kind: 'paired'; id: string; name: string }
   | { kind: 'old'; compat: number | null } | { kind: 'limited' } | { kind: 'notJoined' } | { kind: 'failed'; message: string };
 
@@ -74,8 +74,17 @@ export type RecoveryStage =
   | { kind: 'shown'; text: string; draftId: string; hideAt: number; entering: boolean; busy: boolean; sentTail: string | null; error: RecoveryError | null }
   | { kind: 'done' } | { kind: 'failed'; message: string };
 
-/** devices は Worker の PC の一覧（GET /api/sync/cloud-devices）で、設定に入ったときに取る。未取得は null。 */
-export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; add: AddPcStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage; recovery: RecoveryStage };
+/**
+ * スマホの解除の「元に戻す」を待っているスマホ（試作 E2）。この間は行を隠し、右下に「元に戻す」を出し、Worker には何も送らない。
+ * 1 度に 1 台だけを持つ。5 秒たつか、別のスマホを解除すると解除を送る（runtime/cloudMember.ts）。
+ */
+export type PhoneUndo = { id: string; name: string };
+
+/**
+ * devices は Worker の PC の一覧（GET /api/sync/cloud-devices）で、設定に入ったときに取る。未取得は null。
+ * phoneUndo は「元に戻す」を待っているスマホで、無ければ null。
+ */
+export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; add: AddPcStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage; recovery: RecoveryStage; phoneUndo: PhoneUndo | null };
 
 export type CloudMemberEvent =
   | { type: 'devices.loaded'; devices: CloudDevicesDto }
@@ -86,13 +95,15 @@ export type CloudMemberEvent =
   | { type: 'revoke.start'; id: string } | { type: 'revoke.done'; device: DeviceOut } | { type: 'revoke.failed'; id: string; failure: CloudFailure } | { type: 'revoke.reset' }
   | { type: 'leave.start' } | { type: 'leave.done'; revokeError: string | null } | { type: 'leave.failed'; failure: CloudFailure } | { type: 'leave.reset' }
   | { type: 'phone.loading' } | { type: 'phone.loaded'; pairing: MobilePairingDto } | { type: 'phone.failed'; message: string } | { type: 'phone.expired' } | { type: 'phone.reset' }
+  | { type: 'phone.paired'; id: string; name: string }
+  | { type: 'phoneUndo.start'; undo: PhoneUndo } | { type: 'phoneUndo.clear' }
   | { type: 'recovery.ask' } | { type: 'recovery.issuing' } | { type: 'recovery.shown'; text: string; draftId: string; hideAt: number }
   | { type: 'recovery.saved' } | { type: 'recovery.reveal'; hideAt: number }
   | { type: 'recovery.confirming'; tail: string } | { type: 'recovery.confirmFailed'; error: RecoveryError }
   | { type: 'recovery.done' } | { type: 'recovery.failed'; message: string } | { type: 'recovery.reset' };
 
 export function initialCloudMember(): CloudMemberState {
-  return { devices: null, join: { kind: 'url', failure: null }, add: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' }, recovery: { kind: 'idle' } };
+  return { devices: null, join: { kind: 'url', failure: null }, add: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' }, recovery: { kind: 'idle' }, phoneUndo: null };
 }
 
 /** 表示中の段だけを書き換える。表示中でなければそのまま返す。 */
@@ -100,26 +111,13 @@ function onShown(s: CloudMemberState, f: (r: Extract<RecoveryStage, { kind: 'sho
   return s.recovery.kind === 'shown' ? { ...s, recovery: f(s.recovery) } : s;
 }
 
-/** 一覧のうち、解除していないスマホ。版 6 までの Worker は kind を返さないので、無ければ PC として読む。 */
-const activePhones = (devices: CloudDevicesDto): CloudDeviceDto[] => (devices.state === 'ok' ? devices.devices.filter((d) => d.kind === 'mobile' && d.revokedAt === null) : []);
-
-function phoneOf(pairing: MobilePairingDto, devices: CloudDevicesDto | null): PhoneStage {
+function phoneOf(pairing: MobilePairingDto): PhoneStage {
   switch (pairing.state) {
-    case 'ready': return { kind: 'ready', pairUrl: pairing.pairUrl, pairText: pairing.pairText, expiresAt: pairing.expiresAt, known: devices?.state === 'ok' ? activePhones(devices).map((d) => d.id) : null };
+    case 'ready': return { kind: 'ready', pairUrl: pairing.pairUrl, pairText: pairing.pairText, expiresAt: pairing.expiresAt, pairId: pairing.pairId };
     case 'worker-too-old': return { kind: 'old', compat: pairing.compat };
     case 'rate-limited': return { kind: 'limited' };
     case 'not-joined': return { kind: 'notJoined' };
   }
-}
-
-/** QR を出している間に届いた一覧で、新しく参加したスマホを探す。基準がまだ無ければ、この一覧を基準にする。 */
-function watchPhones(p: PhoneStage, devices: CloudDevicesDto): PhoneStage {
-  if (p.kind !== 'ready' || devices.state !== 'ok') return p;
-  const phones = activePhones(devices);
-  if (p.known === null) return { ...p, known: phones.map((d) => d.id) };
-  const fresh = phones.find((d) => !p.known!.includes(d.id));
-  // 名簿に名前の無い端末（name が null）は ID で呼ぶ。名前のわからない端末の見せ方は PC の一覧の画面（E2）で決める。
-  return fresh ? { kind: 'paired', id: fresh.id, name: fresh.name ?? fresh.id } : p;
 }
 
 /** 今の段が持つ接続先の確認の結果。確認する前と、完了した後は null。 */
@@ -135,7 +133,7 @@ function addOf(s: AddPcStage, next: JoinApproverState): AddPcStage {
 
 export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): CloudMemberState {
   switch (e.type) {
-    case 'devices.loaded': return { ...s, devices: e.devices, phone: watchPhones(s.phone, e.devices) };
+    case 'devices.loaded': return { ...s, devices: e.devices };
     case 'join.checking': return { ...s, join: { kind: 'checking', url: e.url } };
     case 'join.checked': return { ...s, join: { kind: 'code', check: e.check } };
     case 'join.checkFailed': return { ...s, join: { kind: 'url', failure: e.failure } };
@@ -179,7 +177,10 @@ export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): Clo
     case 'leave.reset': return { ...s, leave: { kind: 'idle' } };
     // QR の段を開いたまま新しい QR を頼んだとき（期限切れの「新しい QR を出す」など）は renew を立て、段を畳まずに待つ。
     case 'phone.loading': return { ...s, phone: s.phone.kind === 'ready' || s.phone.kind === 'expired' || s.phone.kind === 'paired' ? { kind: 'loading', renew: true } : { kind: 'loading' } };
-    case 'phone.loaded': return { ...s, phone: phoneOf(e.pairing, s.devices) };
+    case 'phone.loaded': return { ...s, phone: phoneOf(e.pairing) };
+    case 'phone.paired': return s.phone.kind === 'ready' ? { ...s, phone: { kind: 'paired', id: e.id, name: e.name } } : s;
+    case 'phoneUndo.start': return { ...s, phoneUndo: e.undo };
+    case 'phoneUndo.clear': return s.phoneUndo === null ? s : { ...s, phoneUndo: null };
     case 'phone.failed': return { ...s, phone: { kind: 'failed', message: e.message } };
     case 'phone.expired': return s.phone.kind === 'ready' ? { ...s, phone: { kind: 'expired' } } : s;
     case 'phone.reset': return { ...s, phone: { kind: 'idle' } };

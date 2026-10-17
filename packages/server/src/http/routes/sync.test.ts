@@ -290,9 +290,24 @@ describe('スマホの接続の QR（POST /api/sync/mobile-pairing）', () => {
   let watched: { code: string; expiresAt: number }[] = [];
   const withLink = (client: FakeClient) => {
     watched = [];
-    return createApp({ ...deps, mobileLink: () => ({ client: client as never, url: URL_, phoneKeys: { current: async () => null, at: async () => null }, pairer: { watch: async (t) => { watched.push(t); } } }) });
+    return createApp({ ...deps, mobileLink: () => ({ client: client as never, url: URL_, phoneKeys: { current: async () => null, at: async () => null }, pairer: { watch: async (t) => { watched.push(t); return `pair-${watched.length}`; }, pairedFor: (id) => (id === 'pair-1' ? { id: 'phone-1', name: 'iPhone 1' } : null) } }) });
   };
   const ok = async () => ({ ok: true, version: 'x' });
+
+  it('ready は券の印（pairId）を返し、GET /api/sync/mobile-pairing/:pairId で keybox を置き終えたスマホを引ける（Worker には問い合わせない）', async () => {
+    const createPairing = vi.fn(async () => ({ code: 'c0de-ticket', expiresAt: 1_700_000_300_000 }));
+    const health = vi.fn(ok);
+    const a = withLink({ createPairing, lastWorkerCompat: () => 9, health });
+    const { body } = await json(await pair(a));
+    expect(body.pairId).toBe('pair-1');
+    const status = (p: string) => a.request(`/api/sync/mobile-pairing/${p}`, { headers: H });
+    const r = await status('pair-1');
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(await json(r)).toEqual({ status: 200, body: { paired: { id: 'phone-1', name: 'iPhone 1' } } });
+    expect((await json(await status('pair-2'))).body).toEqual({ paired: null });
+    expect(createPairing).toHaveBeenCalledTimes(1);
+    expect((await json(await app.request('/api/sync/mobile-pairing/pair-1', { headers: H }))).body).toEqual({ paired: null });
+  });
 
   it('認証の下にあり、GET では取れない', async () => {
     expect((await app.request('/api/sync/mobile-pairing', { method: 'POST' })).status).toBe(401);

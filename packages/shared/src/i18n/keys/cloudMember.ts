@@ -185,7 +185,10 @@ export const cloudMemberKeys = {
   'cloudMember.phone.none': [],
   'cloudMember.phone.daysLeft': ['date', 'n'],
   'cloudMember.phone.removeAria': ['name'],
-  'cloudMember.phone.confirmTitle': ['name'],
-  'cloudMember.phone.confirmBody': [],
-  'cloudMember.phone.confirmRisk': [],
+  'cloudMember.phone.remove': [],
+  'cloudMember.phone.daysBar': [],
+  'cloudMember.phone.undoHead': [],
+  'cloudMember.phone.undoTitle': ['name'],
+  'cloudMember.phone.undoBody': ['name'],
+  'cloudMember.phone.undo': [],
 } as const satisfies MessageSpec;

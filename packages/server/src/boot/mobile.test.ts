@@ -23,7 +23,7 @@ import { ANSWER_RESEND_TICK_MS, bootMobile, PHONE_RECHECK_MS } from './mobile.ts
 /** スマホ用の鍵 M[1]。どの試験でも同じ引き口を渡す（引き口が同じなら書き手を組み直さない）。 */
 const PHONE_KEYS = fixedPhoneKeys();
 const mobileKey = (): Promise<CryptoKey> => phoneCryptoKey(PHONE_KEY_1);
-const linkOf = (client: CloudClient, url = 'https://w.example'): MobileLink => ({ client, url, phoneKeys: PHONE_KEYS, pairer: { watch: async () => {} } });
+const linkOf = (client: CloudClient, url = 'https://w.example'): MobileLink => ({ client, url, phoneKeys: PHONE_KEYS, pairer: { watch: async () => 'pair-1', pairedFor: () => null } });
 
 /** 同期の engine の真似。購読（on）だけを持ち、試験が launches を流す。 */
 class FakeEngine {

@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { Hono } from 'hono';
 import { errorText, translatorOf } from '../../i18n/message.ts';
-import { encodePairing, MOBILE_MIN_WORKER_COMPAT, type MobilePairingDto } from '@agent-hangar/shared';
+import { encodePairing, MOBILE_MIN_WORKER_COMPAT, type MobilePairedDto, type MobilePairingDto } from '@agent-hangar/shared';
 import { CloudError, CompatError, LimitError, RevokedError } from '../../sync/client.ts';
 import { ConfigSyncError } from '../../sync/config/service.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
@@ -49,10 +49,10 @@ async function mobilePairing(deps: SyncRouteDeps): Promise<MobilePairingDto> {
     if (e instanceof CompatError && e.upgrade === 'worker') return { state: 'worker-too-old', compat: e.have };
     throw e;
   }
-  await link.pairer.watch(ticket);
+  const pairId = await link.pairer.watch(ticket);
   const url = link.url.replace(/\/+$/, '');
   const pairText = encodePairing({ url, code: ticket.code, pcName: deps.deviceName, expiresAt: ticket.expiresAt });
-  return { state: 'ready', pairUrl: `${url}/app/#pair=${pairText}`, pairText, expiresAt: ticket.expiresAt };
+  return { state: 'ready', pairUrl: `${url}/app/#pair=${pairText}`, pairText, expiresAt: ticket.expiresAt, pairId };
 }
 
 /** 同期の経路。状態、今すぐ同期、一時停止、前面化、使用量、端末の一覧、参加コードの発行と承認、設定の同期（/config-sync/*）を持つ。 */
@@ -147,6 +147,12 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
     } catch (e) {
       return c.json({ error: errorText(deps.language(), e) }, 502);
     }
+  });
+  // QR を出している間の見回り。keybox を置き終えたスマホを pairer の覚えから返すだけで、Worker には問い合わせない。
+  api.get('/sync/mobile-pairing/:pairId', (c) => {
+    c.header('cache-control', 'no-store');
+    const body: MobilePairedDto = { paired: deps.mobileLink?.()?.pairer.pairedFor(c.req.param('pairId')) ?? null };
+    return c.json(body);
   });
 
   // 設定の同期。~/.claude に書く操作は持たない。

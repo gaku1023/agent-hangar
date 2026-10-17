@@ -217,6 +217,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     bridge: deps.desktop?.cloud ?? null,
     load: () => deps.api.cloudDevices(),
     pair: () => deps.api.mobilePairing(),
+    paired: (pairId) => deps.api.mobilePaired(pairId),
     joinCodes: { current: () => deps.api.joinCodeCurrent(), issue: () => deps.api.joinCodeIssue(), approve: () => deps.api.joinCodeApprove(), reject: () => deps.api.joinCodeReject(), close: () => deps.api.joinCodeClose() },
     recovery: { reissue: () => deps.api.recoveryKeyReissue(), confirm: (draftId, tail) => deps.api.recoveryKeyConfirm(draftId, tail) },
     now: () => clock(),
