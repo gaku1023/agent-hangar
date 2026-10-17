@@ -69,8 +69,9 @@ async function cloud() {
     worker.putBox({ epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(recovery.pub, { epoch, recipient: RECOVERY_RECIPIENT }, encodeEpochList({ epochs: list }))) });
   }
   const state = memState();
-  const reissuer = new RecoveryKeyReissuer({ roster, keyring, wire, url: () => URL_, state, sleep: async () => {} });
-  return { worker, pairA, recovery, epochs, roster, keyring, wire, writer, state, reissuer, setHook: (h: Hook | null) => { hook = h; } };
+  const clock = { t: 1_000_000 };
+  const reissuer = new RecoveryKeyReissuer({ roster, keyring, wire, url: () => URL_, state, now: () => clock.t, sleep: async () => {} });
+  return { worker, pairA, recovery, epochs, roster, keyring, wire, writer, state, clock, reissuer, setHook: (h: Hook | null) => { hook = h; } };
 }
 
 /** recovery 宛ての世代 epoch の箱を、その秘密鍵で開く。開けなければ null。 */
@@ -187,6 +188,72 @@ describe('RecoveryKeyReissuer.confirm', () => {
     expect(await openRecoveryBox(c.worker, draftPair(d.text, pub), 1)).toEqual({ '1': c.epochs['1'] });
     expect(await openRecoveryBox(c.worker, draftPair(d.text, pub), 2)).toEqual(c.epochs);
     expect(c.state.get('recoveryBoxPending')).toBeNull();
+  });
+
+  it('4xx は試し直さず、続く間は巡の度に打たずに 60 秒に 1 回だけ置き直す', async () => {
+    const c = await cloud();
+    const d = await c.reissuer.reissue();
+    let puts = 0;
+    c.setHook(async (method, p) => (method === 'PUT' && p === '/keyboxes' ? (puts++, new Response('{"error":"bad request"}', { status: 400 })) : null));
+    await expect(c.reissuer.confirm(d.draftId, recoverySecretTail(d.text))).rejects.toThrow();
+    expect(puts).toBe(1);
+    expect(c.state.get('recoveryBoxPending')).toBe('1');
+    // pull は 10 秒ごとに来る。60 秒たつまでは打たない。
+    for (let i = 0; i < 5; i++) {
+      c.clock.t += 10_000;
+      await c.reissuer.resumePending();
+    }
+    expect(puts).toBe(1);
+    c.clock.t += 10_000;
+    await c.reissuer.resumePending();
+    expect(puts).toBe(2);
+    await c.reissuer.resumePending();
+    expect(puts).toBe(2);
+    expect(c.state.get('recoveryBoxPending')).toBe('1');
+    // 通るようになれば、次の 60 秒の後に置いて印を消す。
+    c.setHook(null);
+    c.clock.t += 60_000;
+    await c.reissuer.resumePending();
+    expect(await openRecoveryBox(c.worker, draftPair(d.text, (await c.roster.read()).roster.recoveryPub), 2)).toEqual(c.epochs);
+    expect(c.state.get('recoveryBoxPending')).toBeNull();
+  });
+
+  it('名簿の PUT が失敗したら印だけ残り、置き直しは名簿の今の公開鍵（古いキー）宛てになる', async () => {
+    const c = await cloud();
+    const d = await c.reissuer.reissue();
+    c.setHook(async (method, p) => (method === 'PUT' && p === '/roster' ? new Response('{"error":"boom"}', { status: 500 }) : null));
+    await expect(c.reissuer.confirm(d.draftId, recoverySecretTail(d.text))).rejects.toThrow();
+    expect(c.state.get('recoveryBoxPending')).toBe('1');
+    c.roster.invalidate();
+    expect((await c.roster.read()).roster.recoveryPub).toBe(c.recovery.pub);
+
+    c.setHook(null);
+    const before = c.worker.calls.filter((x) => x === 'PUT /keyboxes').length;
+    c.clock.t += 60_000;
+    await c.reissuer.resumePending();
+    expect(c.worker.calls.filter((x) => x === 'PUT /keyboxes').length - before).toBeGreaterThan(0);
+    expect(await openRecoveryBox(c.worker, c.recovery, 1)).toEqual({ '1': c.epochs['1'] });
+    expect(await openRecoveryBox(c.worker, c.recovery, 2)).toEqual(c.epochs);
+    expect(await openRecoveryBox(c.worker, draftPair(d.text, c.recovery.pub), 2)).toBeNull();
+    expect(c.state.get('recoveryBoxPending')).toBeNull();
+  });
+
+  it('進行中の確認に同じ下書きで来た 2 回目も末尾を照合し、外れは回数に数えない', async () => {
+    const c = await cloud();
+    const d = await c.reissuer.reissue();
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    c.setHook(async (method, p) => {
+      if (method === 'PUT' && p === '/roster') await gate;
+      return null;
+    });
+    const a = c.reissuer.confirm(d.draftId, recoverySecretTail(d.text));
+    for (let i = 0; i < RECOVERY_TAIL_MAX_MISSES; i++) {
+      await expect(c.reissuer.confirm(d.draftId, wrongTail(d.text))).rejects.toMatchObject({ reason: 'tail-mismatch' });
+    }
+    open();
+    await a;
+    expect((await c.roster.read()).roster.recoveryPub).not.toBe(c.recovery.pub);
   });
 
   it('印が無ければ、巡の度には Worker に何も送らない', async () => {

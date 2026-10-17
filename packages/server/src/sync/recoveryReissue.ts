@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { encodeEpochList, formatRecoveryKey, generateKeyPair, MAX_KEYBOXES_PER_PUT, RECOVERY_RECIPIENT, recoverySecretTail, sealKeybox, toBase64Url, type KeyboxIn, type MessageKey, type RecoveryKeyDraftDto } from '@agent-hangar/shared';
 import { MessageError, msg } from '../i18n/message.ts';
-import type { HttpCloudClient } from './client.ts';
+import { CloudError, type HttpCloudClient } from './client.ts';
 import type { Keyring } from './keyring.ts';
 import { normalizeRecoveryTail } from './recoveryTail.ts';
 import type { RosterStore } from './roster.ts';
@@ -17,6 +17,11 @@ export const RECOVERY_BOX_PUT_TRIES = 3;
 const RECOVERY_BOX_ROUNDS = 3;
 /** 試し直しの間の待ち（ミリ秒）。 */
 const RECOVERY_BOX_RETRY_MS = 1_000;
+/** resumePending が箱を置きに行く最短の間隔。pull のたびに PUT を打ち続けないため。 */
+export const RECOVERY_RESUME_MIN_INTERVAL_MS = 60_000;
+
+/** 4xx は要求そのものが断られたので、すぐに試し直しても通らない。 */
+const isPermanent = (e: unknown): boolean => e instanceof CloudError && e.status >= 400 && e.status < 500;
 
 /** recovery 宛ての箱を置き終えていない印（sync_state）。同期の巡で resumePending が置き直して消す。 */
 const PENDING_KEY = 'recoveryBoxPending';
@@ -72,16 +77,21 @@ type Draft = { id: string; pub: string; text: string; createdAt: number; misses:
  * 名簿を書いた後で箱を置けないと、古いキーは名簿の照合で断られ、新しいキーは箱を開けない。
  * その窓を閉じるため、名簿を書く前に sync_state に印を残し、箱を置き終えたら消す。
  * 箱の PUT はその場で RECOVERY_BOX_PUT_TRIES 回まで試し、それでも通らなければ印を残したまま投げる。
+ * 4xx は試し直しても通らないので、その場では試し直さない。
  * 印は同期の巡（resumePending）が見て、名簿の recoveryPub 宛てに置き直す。箱は公開鍵だけで封じるので、下書きが無くても置ける。
+ * 巡からの置き直しは、前に置きに行ってから RECOVERY_RESUME_MIN_INTERVAL_MS が過ぎるまで打たない。
  *
  * 下書きは 1 つだけで、新しく再発行すると前のものは使えなくなる。
  * 同じ下書きで RECOVERY_TAIL_MAX_MISSES 回外れたら下書きを無効にする。
- * 確認が途中で失敗したら、同じ下書きでもう一度確認できる。同時に 2 回呼ばれたら、進行中の確認を共有する。
+ * 確認が途中で失敗したら、同じ下書きでもう一度確認できる。
+ * 同時に 2 回呼ばれたら、2 回目も末尾 4 文字を照合してから進行中の確認を共有する（この外れは回数に数えない）。
  */
 export class RecoveryKeyReissuer {
   private draft: Draft | null = null;
-  private confirming: { draftId: string; promise: Promise<void> } | null = null;
+  private confirming: { draftId: string; text: string; promise: Promise<void> } | null = null;
   private placing: Promise<void> | null = null;
+  /** 最後に箱を置きに行った時刻。resumePending の間隔に使う。 */
+  private lastPlaceAt: number | null = null;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
 
@@ -105,7 +115,10 @@ export class RecoveryKeyReissuer {
    */
   confirm(draftId: string, tail: string): Promise<void> {
     const running = this.confirming;
-    if (running && running.draftId === draftId) return running.promise;
+    if (running && running.draftId === draftId) {
+      if (normalizeRecoveryTail(tail) !== recoverySecretTail(running.text)) return Promise.reject(new RecoveryDraftError('tail-mismatch'));
+      return running.promise;
+    }
     let d: Draft;
     try {
       d = this.check(draftId, tail);
@@ -115,18 +128,20 @@ export class RecoveryKeyReissuer {
     const promise = this.apply(d).finally(() => {
       if (this.confirming?.promise === promise) this.confirming = null;
     });
-    this.confirming = { draftId, promise };
+    this.confirming = { draftId, text: d.text, promise };
     return promise;
   }
 
   /**
    * 同期の巡から呼ぶ。置き終えていない印があれば、名簿の recoveryPub 宛てに箱を置き直して印を消す。
    * 印が無ければ Worker に何も送らない。確認か置き直しが走っていれば、重ねずに戻る。
-   * 失敗は投げない（次の巡でもう一度試す）。
+   * 前に置きに行ってから RECOVERY_RESUME_MIN_INTERVAL_MS が過ぎていなければ、何もしない。
+   * 失敗は投げない（間隔の後の巡でもう一度試す）。
    */
   async resumePending(): Promise<void> {
     if (this.deps.state?.get(PENDING_KEY) !== '1') return;
     if (this.confirming || this.placing) return;
+    if (this.lastPlaceAt !== null && this.now() - this.lastPlaceAt < RECOVERY_RESUME_MIN_INTERVAL_MS) return;
     try {
       await this.place();
     } catch (e) {
@@ -163,6 +178,7 @@ export class RecoveryKeyReissuer {
   }
 
   private place(): Promise<void> {
+    this.lastPlaceAt = this.now();
     const p = this.placeBoxes().finally(() => {
       if (this.placing === p) this.placing = null;
     });
@@ -174,7 +190,7 @@ export class RecoveryKeyReissuer {
    * 名簿の recoveryPub 宛てに、世代 1 から n の全部の recovery の箱を置く。
    * 置く直前に keybox と名簿を読み直し、いちばん新しい世代と公開鍵に置く。
    * 置いた後にもう一度読み、公開鍵か世代が変わっていれば（他の PC の再発行か世代の回し）置き直す。
-   * 置き終えたら印を消す。PUT が RECOVERY_BOX_PUT_TRIES 回とも通らなければ、印を残して投げる。
+   * 置き終えたら印を消す。PUT が RECOVERY_BOX_PUT_TRIES 回とも通らないか 4xx で断られたら、印を残して投げる。
    */
   private async placeBoxes(): Promise<void> {
     const { roster } = this.deps;
@@ -213,7 +229,7 @@ export class RecoveryKeyReissuer {
         await this.deps.wire.putKeyboxes(boxes);
         return;
       } catch (e) {
-        if (tries >= RECOVERY_BOX_PUT_TRIES) {
+        if (tries >= RECOVERY_BOX_PUT_TRIES || isPermanent(e)) {
           this.deps.state?.set(PENDING_KEY, '1');
           throw e;
         }
