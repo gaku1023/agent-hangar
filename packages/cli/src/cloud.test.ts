@@ -920,7 +920,12 @@ describe('runTeardown', () => {
     expect(fs.existsSync(cfg)).toBe(false);
     const out = lines.join('\n');
     expect(out).toContain('1 件をこの PC にダウンロードしました');
-    expect(out).toContain('他の PC の cloud.json は手動で削除してください');
+    // 他の PC は手で cloud.json を消さず、0.9.0 以降に更新してから参加コードで上書きして参加する（古い設定は自動でバックアップされる）。
+    expect(out).not.toContain('手動で削除');
+    expect(out).toContain('0.9.0 以降に更新');
+    expect(out).toContain('上書きして参加');
+    expect(out).toContain('~/.agent-hangar/backups/');
+    expect(out).not.toMatch(/残って/);
   });
 
   it('teardown は版 1 の cloud.json でも R2 の本文を remote/ に降ろしてから消す（旧い Worker の互換の版のままでも）', async () => {

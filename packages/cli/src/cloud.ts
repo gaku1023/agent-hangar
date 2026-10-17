@@ -251,7 +251,7 @@ export function legacyConfigMessage(home: string): string {
   const creator = readLegacyCloudConfig(home).config?.workerName ?? null;
   const head = `${cloudConfigPath(home)} は 0.8.x までの古い形式の設定です。`;
   if (creator) {
-    return `${head}この PC は古いクラウド（Worker ${creator}）を作成した PC です。リポジトリを clone したディレクトリから npm run hangar -- cloud teardown を実行して古いクラウドを削除してから、npm run hangar -- setup cloud で新しいクラウドを作成してください。R2 にしか無いトランスクリプトは、削除の前にこの PC にダウンロードされます。`;
+    return `${head}この PC は古いクラウド（Worker ${creator}）を作成した PC です。リポジトリを clone したディレクトリから npm run hangar -- cloud teardown を実行して古いクラウドを削除してから、npm run hangar -- setup cloud で新しいクラウドを作成してください。R2 にしか無いトランスクリプトは、削除の前にこの PC にダウンロードされます。他の PC で古いクラウドを削除済みで、新しいクラウドも作成済みなら、この PC は参加コードで cloud.json を上書きして参加できます（古い設定は、上書きの前に ${backupsRoot(home)} に保存します）。`;
   }
   return `${head}この PC は古いクラウドに参加しただけです。新しいクラウドの参加済みの PC で「PC を追加」をクリックして参加コードを発行し、この PC の 設定 › クラウド同期 の「参加コードで参加」か hangar cloud join <URL> で、cloud.json を上書きして参加してください。古い設定は、上書きの前に ${backupsRoot(home)} に保存します。`;
 }
@@ -368,19 +368,26 @@ export async function waitForHealth(url: string, o: { fetch: typeof fetch; sleep
  */
 export type JoinErrorCode = 'forbidden' | 'compat' | 'network' | 'timeout' | 'failed';
 
-/** Worker との話の失敗。message は CLI の文で、トークンも応答の本文も載せない。 */
+/**
+ * Worker との話の失敗。message は CLI の文で、トークンも応答の本文も載せない。
+ * causeCode は、network のときにシステムが返した符号（ENOTFOUND、ECONNRESET など）で、分からなければ null である。
+ */
 export class JoinError extends Error {
-  constructor(readonly code: JoinErrorCode, message: string) {
+  constructor(readonly code: JoinErrorCode, message: string, readonly causeCode: string | null = null) {
     super(message);
     this.name = 'JoinError';
   }
 }
 
+/** 接続の失敗の例外から、システムの符号（cause.code）を取り出す。 */
+function causeCodeOf(e: unknown): string | null {
+  const cause = (e as { cause?: { code?: unknown } } | null)?.cause;
+  return typeof cause?.code === 'string' ? cause.code : null;
+}
+
 /** 例外から、ユーザーに見せてよい短い手がかりだけを取り出す。本文も秘密も出さない。 */
 function reasonOf(e: unknown): string {
-  const cause = (e as { cause?: { code?: unknown } } | null)?.cause;
-  const code = typeof cause?.code === 'string' ? cause.code : undefined;
-  return code ?? (e instanceof Error ? e.name : 'unknown');
+  return causeCodeOf(e) ?? (e instanceof Error ? e.name : 'unknown');
 }
 
 /** 426 の本文から、Worker が求める版を読んで文にする。本文が流れてこない相手でも締め切りで打ち切る。 */
@@ -403,9 +410,10 @@ async function compatRefusal(r: Response, timeout: number): Promise<JoinError> {
  * Worker に 1 回だけ要求を出す。
  * 版の見出しを載せ、token があれば Bearer で送る。締め切りは 1 回ごとに掛ける。
  * 接続の失敗と打ち切りは JoinError（network、timeout）で、426 は JoinError（compat）で投げる。ほかの応答はそのまま返す。
+ * redirect を渡すと fetch にそのまま渡す（'manual' なら 3xx をそのまま返す）。省けば fetch の既定（追う）である。
  * トークンは文面に載せない。
  */
-export async function workerFetch(url: string, path: string, o: { fetch: typeof fetch; method?: string; body?: unknown; token?: string; timeoutMs?: number }): Promise<Response> {
+export async function workerFetch(url: string, path: string, o: { fetch: typeof fetch; method?: string; body?: unknown; token?: string; timeoutMs?: number; redirect?: RequestRedirect }): Promise<Response> {
   const timeout = o.timeoutMs ?? WORKER_TIMEOUT_MS;
   const ac = new AbortController();
   let timedOut = false;
@@ -416,10 +424,10 @@ export async function workerFetch(url: string, path: string, o: { fetch: typeof 
   if (o.token) headers.authorization = `Bearer ${o.token}`;
   let r: Response;
   try {
-    r = await o.fetch(`${url}${path}`, { method: o.method ?? 'GET', headers, ...(o.body !== undefined ? { body: JSON.stringify(o.body) } : {}), signal: ac.signal });
+    r = await o.fetch(`${url}${path}`, { method: o.method ?? 'GET', headers, ...(o.body !== undefined ? { body: JSON.stringify(o.body) } : {}), ...(o.redirect ? { redirect: o.redirect } : {}), signal: ac.signal });
   } catch (e) {
     if (timedOut) throw new JoinError('timeout', `${url} が ${timeout} ミリ秒以内に応答しませんでした。接続先が正しいか、${url}/health が応答するかを確認してください`);
-    throw new JoinError('network', `${url} に接続できませんでした（${reasonOf(e)}）`);
+    throw new JoinError('network', `${url} に接続できませんでした（${reasonOf(e)}）`, causeCodeOf(e));
   } finally {
     clearTimeout(timer);
   }
@@ -901,7 +909,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
       if (prev.url !== url || prev.accountId !== accountId || prev.dbName !== dbName || prev.bucketName !== bucketName) saveCloudConfig(o.home, conf);
     } else if (resume) {
       if (health.cloudId !== resume.cloudId) {
-        throw new DetailedError(`${url} のクラウドの ID が、途中で止まった前回の setup のものと違います（D1 を作り直した可能性があります）。前回の setup で登録したこの PC 用のトークンは使えないため、${setupPendingPath(o.home)} を削除してから、hangar setup cloud をもう一度実行してください`);
+        throw new DetailedError(`${url} のクラウドの ID が、途中で止まった前回の setup のものと違います（D1 を再作成した可能性があります）。前回の setup で登録したこの PC 用のトークンは使えないため、${setupPendingPath(o.home)} を削除してから、hangar setup cloud をもう一度実行してください`);
       }
       log('途中で止まった前回の setup の続きから再開します。');
       conf = { ...resume, url, accountId, dbName, bucketName };
@@ -1574,8 +1582,10 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   } else {
     // 同じ Worker の下書きが残っていれば、もう続けられないので一緒に消す。
     if (readSetupPending(o.home)?.conf.workerName === c.workerName) fs.rmSync(setupPendingPath(o.home), { force: true });
-    log('cloud.json を削除しました。他の PC の cloud.json は手動で削除してください。');
+    log('cloud.json を削除しました。');
+    log('他の PC は、hangar を 0.9.0 以降に更新してから、新しいクラウドの参加コードで「上書きして参加」してください。');
+    log('他の PC の古い設定は、上書きの前に自動でその PC の ~/.agent-hangar/backups/ にバックアップされます。');
   }
-  log(`この PC にダウンロードしたトランスクリプトは ${remoteRoot(o.home)} に残っています。`);
+  log(`この PC にダウンロードしたトランスクリプトは ${remoteRoot(o.home)} に保存されています。`);
   return true;
 }
