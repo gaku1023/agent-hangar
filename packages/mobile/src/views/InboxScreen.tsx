@@ -7,6 +7,7 @@ import { usePresence } from '../presence.ts';
 import { clearPairing, type Keyring, type Pairing } from '../store.ts';
 import { AccountTag } from './AccountTag.tsx';
 import { Fold } from './Fold.tsx';
+import { PushLine } from './PushLine.tsx';
 
 /** /rc の URL が拾えなかったとき、または PC から来た値が claude.ai でないときに開く先。 */
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
@@ -43,11 +44,19 @@ type Props = {
   onView?: (view: InboxView) => void;
   /** 変わったら読み直す（新しい会話を始めて戻ったときなど）。 */
   refresh?: number;
+  /**
+   * 通知から開いた会話。その行に印を付け、見える所まで送る。
+   * n は開くたびに変わる番号で、同じ会話の通知をもう一度押したときも送り直す。
+   */
+  openSession?: { id: string; n: number } | null;
 };
+
+/** 通知から開いた会話の行を探す受信箱の読み込みの回数（今の一覧と、読み直した一覧）。見つからなければ諦める。 */
+const OPEN_TRIES = 2;
 
 type Pull = { phase: 'idle' } | { phase: 'pulling'; dist: number } | { phase: 'refreshing' };
 
-export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onNewSession, onView, refresh }: Props): ReactNode {
+export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onNewSession, onView, refresh, openSession }: Props): ReactNode {
   const [view, setView] = useState<InboxView | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -122,6 +131,32 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
     void load();
   }, [refresh, load]);
 
+  // 通知から開いた会話の行に印を付け、見えていなければ見える所まで送る（動きは付けない）。
+  // 受信箱を読むたびに探し、見つかるか OPEN_TRIES 回読んでも無ければやめる。
+  const [target, setTarget] = useState<string | null>(null);
+  const pendingOpen = useRef<{ id: string; n: number; tries: number } | null>(null);
+  const lastOpen = useRef<number | null>(null);
+  if (openSession && openSession.n !== lastOpen.current) {
+    lastOpen.current = openSession.n;
+    pendingOpen.current = { ...openSession, tries: 0 };
+  }
+  useEffect(() => {
+    const want = pendingOpen.current;
+    const box = scroller.current;
+    if (!want || !view || !box) return;
+    want.tries += 1;
+    const el = [...box.querySelectorAll<HTMLElement>('[data-session-id]')].find((e) => e.dataset.sessionId === want.id);
+    if (!el) {
+      if (want.tries >= OPEN_TRIES) pendingOpen.current = null;
+      return;
+    }
+    pendingOpen.current = null;
+    setTarget(want.id);
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    if (r.top < b.top || r.bottom > b.bottom) box.scrollTop += r.top - b.top - 12;
+  }, [view, openSession]);
+
   // 下に引いて読み直す。いちばん上までスクロールしているときだけ引ける。
   const onTouchStart = (e: TouchEvent): void => {
     const top = scroller.current?.scrollTop ?? 0;
@@ -189,6 +224,7 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
               ))}
             </div>
           )}
+          <PushLine pairing={pairing} />
         </header>
 
         {failed && (
@@ -216,8 +252,8 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
                 {view.unreadable.join('、')} の一覧を開けません。その PC の hangar が古いか、キーが合っていません。
               </p>
             )}
-            <WaitingList rows={view.waiting} now={pcNow} />
-            <Sections view={view} now={pcNow} today={localDay(today)} />
+            <WaitingList rows={view.waiting} now={pcNow} target={target} />
+            <Sections view={view} now={pcNow} today={localDay(today)} target={target} />
           </>
         )}
       </div>
@@ -233,14 +269,17 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
 
 const rowKey = (r: Row): string => r.sessionId;
 
-function WaitingList({ rows, now }: { rows: Row[]; now: number }): ReactNode {
+/** 行の印（通知から開いた会話）の class。 */
+const targetCls = (row: Row, target: string | null): string => (target !== null && row.sessionId === target ? ' is-target' : '');
+
+function WaitingList({ rows, now, target }: { rows: Row[]; now: number; target: string | null }): ReactNode {
   const list = usePresence(rows, rowKey);
   return (
     <section className="waiting" aria-label="入力待ち">
       {rows.length === 0 && <p className="empty m-fade">入力待ちの会話はありません</p>}
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
-          <WaitingCard row={p.item} now={now} />
+          <WaitingCard row={p.item} now={now} target={target} />
         </Fold>
       ))}
     </section>
@@ -251,10 +290,10 @@ function AccountDot({ color }: { color: string | null }): ReactNode {
   return <span className="acct-dot" style={color ? { background: color } : undefined} aria-hidden="true" />;
 }
 
-function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
+function WaitingCard({ row, now, target }: { row: Row; now: number; target: string | null }): ReactNode {
   const kind = waitingKind(row);
   return (
-    <a className="card wait-card" href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
+    <a className={`card wait-card${targetCls(row, target)}`} data-session-id={row.sessionId} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
       <div className="wait-top">
         <AccountDot color={row.accountColor} />
         <span className="wait-proj">{row.projectName}</span>
@@ -273,7 +312,7 @@ function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
 
 type SectionDef = { key: 'running' | 'returning' | 'done'; label: string; rows: Row[] };
 
-function Sections({ view, now, today }: { view: InboxView; now: number; today: string }): ReactNode {
+function Sections({ view, now, today, target }: { view: InboxView; now: number; today: string; target: string | null }): ReactNode {
   // 読み直したときだけ作り直す（描くたびに新しい並びを渡すと usePresence が揃え直し続ける）。
   const defs = useMemo(
     (): SectionDef[] =>
@@ -291,7 +330,7 @@ function Sections({ view, now, today }: { view: InboxView; now: number; today: s
         <Fold key={p.key} phase={p.phase}>
           <section className="sec" aria-label={p.item.label}>
             <h2 className="sec-h">{p.item.label}</h2>
-            <SectionRows def={p.item} now={now} today={today} />
+            <SectionRows def={p.item} now={now} today={today} target={target} />
           </section>
         </Fold>
       ))}
@@ -299,24 +338,25 @@ function Sections({ view, now, today }: { view: InboxView; now: number; today: s
   );
 }
 
-function SectionRows({ def, now, today }: { def: SectionDef; now: number; today: string }): ReactNode {
+function SectionRows({ def, now, today, target }: { def: SectionDef; now: number; today: string; target: string | null }): ReactNode {
   const list = usePresence(def.rows, rowKey);
   return (
     <>
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
-          <ThinRow kind={def.key} row={p.item} now={now} today={today} />
+          <ThinRow kind={def.key} row={p.item} now={now} today={today} target={target} />
         </Fold>
       ))}
     </>
   );
 }
 
-function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row; now: number; today: string }): ReactNode {
+function ThinRow({ kind, row, now, today, target }: { kind: SectionDef['key']; row: Row; now: number; today: string; target: string | null }): ReactNode {
+  const mark = targetCls(row, target);
   if (kind === 'running') {
     const unknown = row.status === 'unknown';
     return (
-      <a className={`thin ${unknown ? 'unknown' : ''}`} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
+      <a className={`thin ${unknown ? 'unknown' : ''}${mark}`} data-session-id={row.sessionId} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
         <span className={`dot ${unknown ? 'unknown' : 'busy'}`} aria-hidden="true" />
         <span className="thin-text">
           <span className="thin-proj">{row.projectName}</span>
@@ -330,7 +370,7 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
   }
   if (kind === 'returning') {
     return (
-      <div className="thin">
+      <div className={`thin${mark}`} data-session-id={row.sessionId}>
         <span className="dot returning" aria-hidden="true" />
         <span className="thin-text">{row.title || row.projectName}</span>
         <AccountTag name={row.accountName} color={row.accountColor} />
@@ -339,7 +379,7 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
     );
   }
   return (
-    <div className="thin">
+    <div className={`thin${mark}`} data-session-id={row.sessionId}>
       <span className="dot done" aria-hidden="true" />
       <span className="thin-text">{row.oneLiner?.trim() || row.title}</span>
       <span className="thin-meta">{row.at !== null ? clock(row.at) : ''}</span>
