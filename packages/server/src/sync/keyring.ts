@@ -1,5 +1,4 @@
-import { hkdfSync } from 'node:crypto';
-import { deriveEpochKeys, fromBase64UrlLen, importMobileKey, PURPOSE_INFO, type EpochKeys, type EpochList } from '@agent-hangar/shared';
+import { deriveEpochKeys, fromBase64UrlLen, importMobileKey, type EpochKeys, type EpochList } from '@agent-hangar/shared';
 import type { CloudConfig } from '../config/cloud.ts';
 
 /** スマホ用の鍵。key は AES-256-GCM の取り出せない鍵である。 */
@@ -81,16 +80,4 @@ export class Keyring {
     for (const n of [...this.raw.keys()].sort((a, b) => a - b)) epochs[String(n)] = this.raw.get(n)!;
     return { epochs, currentEpoch: this.cur, phoneKey: this.phone ? { epoch: this.phone.epoch, key: this.phone.raw } : null };
   }
-}
-
-/**
- * 今の世代の本文の鍵（HKDF(K[n], info = hangar-e2e-v2/file)）を、待たずに導く。
- * boot/sync.ts の組み立ては同期で走るので、Keyring を待たずに本文の上げ下ろしの部品へ鍵を渡すために使う。
- * 値は Keyring の current().fileBytes と同じである（HKDF の salt が空なのも同じ）。
- * Task 10 で、本文の部品が Keyring から鍵を引くようになったら消す。
- */
-export function currentFileKeySync(c: CloudConfig): Buffer {
-  const key = c.epochs[String(c.currentEpoch)];
-  if (key === undefined) throw new Error('the current epoch key is missing from cloud.json');
-  return Buffer.from(hkdfSync('sha256', fromBase64UrlLen(key, 32, 'epoch key'), new Uint8Array(0), PURPOSE_INFO.file, 32));
 }

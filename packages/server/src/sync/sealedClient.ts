@@ -1,24 +1,34 @@
-import type { Readable } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createGunzip, createGzip } from 'node:zlib';
 import {
+  configBlobKey,
   fromBase64Url,
+  openFileMeta,
   openRow,
   ROSTER_MARKER_K,
   rowK,
+  sealFileMeta,
   sealRow,
   SHARED_TABLES,
   toBase64Url,
+  transcriptBlobKey,
   type ChangeIn,
   type ChangeOut,
   type CloudUsageBody,
   type EpochKeys,
+  type FileEntry,
+  type FileKind,
   type FileMetaIn,
   type ListFilesResponse,
   type PushChangesResponse,
   type SealedChangeIn,
   type SealedChangeOut,
+  type SealedFileEntry,
   type SharedTable,
 } from '@agent-hangar/shared';
 import { CloudError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type Unreadable, type WireCloudClient } from './client.ts';
+import { decryptStream, encryptStream, fileKeyFrom } from './crypto.ts';
 
 /**
  * 行を封じて開くのに使う鍵の束。この PC の Keyring（sync/keyring.ts）が満たす。
@@ -71,6 +81,46 @@ export async function openSealedRow(ring: RowKeyring, r: SealedChangeOut): Promi
   }
 }
 
+/** 本文の写しの相対パス。主線は `projects/<フォルダ>/<uuid>.jsonl`、サブエージェントはその下の `subagents/agent-<id>.jsonl` である。 */
+const TRANSCRIPT_MAIN_RE = /^projects\/[^/]+\/([^/]+)\.jsonl$/;
+const TRANSCRIPT_AGENT_RE = /^projects\/[^/]+\/([^/]+)\/subagents\/agent-([^/]+)\.jsonl$/;
+
+/**
+ * 中身（種類、元の PC、パス）から、そのファイルが置かれるはずの R2 の鍵名を求める。
+ * 本文はパスからセッションの UUID とサブエージェントの ID を取り出して transcriptBlobKey に、設定は相対パスのまま configBlobKey に渡す。
+ * 形の違うパスと、鍵名に使えない端末 ID は null。
+ */
+export async function blobKeyFor(index: CryptoKey, deviceId: string, kind: FileKind, origin: string, path: string): Promise<string | null> {
+  try {
+    if (kind === 'config') return await configBlobKey(index, deviceId, origin, path);
+    const sub = TRANSCRIPT_AGENT_RE.exec(path);
+    if (sub) return await transcriptBlobKey(index, deviceId, origin, sub[1]!, sub[2]!);
+    const main = TRANSCRIPT_MAIN_RE.exec(path);
+    return main ? await transcriptBlobKey(index, deviceId, origin, main[1]!, null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 封じた索引の 1 行を開く。開けなければ null を返す。
+ * 世代の鍵が手元に無い、AAD（鍵名、device_id、kind、epoch）が合わない、中身から求めた鍵名が名乗る鍵名と違う、のどれでも開けない。
+ * 鍵を持つ PC どうしでも、中身と違う鍵名に置いたファイルは信じない（行の k と同じ考え）。
+ */
+export async function openSealedFile(ring: RowKeyring, f: SealedFileEntry): Promise<FileEntry | null> {
+  const keys = ring.at(f.epoch);
+  if (!keys) return null;
+  const bytes = fromBase64Url(f.sealedMeta);
+  if (!bytes) return null;
+  try {
+    const meta = await openFileMeta(keys.row, { key: f.key, deviceId: f.deviceId, kind: f.kind, epoch: f.epoch }, bytes);
+    if ((await blobKeyFor(keys.index, f.deviceId, f.kind, meta.origin, meta.path)) !== f.key) return null;
+    return { key: f.key, epoch: f.epoch, kind: f.kind, path: meta.path, sha256: meta.sha256, size: f.size, mtime: meta.mtime, origin: meta.origin, seq: f.seq, deviceId: f.deviceId, uploadedAt: f.uploadedAt, storedSize: f.storedSize };
+  } catch {
+    return null;
+  }
+}
+
 export type SealedCloudClientOptions = {
   /**
    * 名簿か keybox が変わったときに呼ぶ（pull で名簿の印の行を見たとき、知らない世代の行を受けたとき）。
@@ -87,6 +137,8 @@ export type SealedCloudClientOptions = {
  * Worker は認証した端末の ID を device_id に書くので、deviceId はこの PC の端末トークンの ID と同じでなければならない。
  * pull と写しは、名簿の印の行（`~roster`）を開かずに onRoster に回し、ほかを行が名乗る世代の鍵で開く。
  * 開けなかった行は unreadable に入れる。印の行の epoch は後戻りしうるので、「名簿が変わったかもしれない」以上の意味に使わない。
+ * 本文は gzip してから世代の本文の鍵（`/file`）でストリーム暗号に通し、パス、平文の SHA-256、mtime、元の PC はメタとして `/row` の鍵で封じる。
+ * 索引は名乗る世代の鍵で開き、本文は索引の世代の鍵で復号する。
  *
  * Keyring は待たずに渡せる（boot/sync.ts の組み立ては同期で走る）。読めなければ、行の口はどれもその失敗で倒れる。
  */
@@ -132,10 +184,66 @@ export class SealedCloudClient implements CloudClient {
   }
 
   health(): Promise<{ ok: boolean; version: string }> { return this.wire.health(); }
-  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> { return this.wire.putFile(meta, body); }
-  getFile(key: string): Promise<Readable> { return this.wire.getFile(key); }
-  listFiles(since: number, limit: number): Promise<ListFilesResponse> { return this.wire.listFiles(since, limit); }
   usage(): Promise<CloudUsageBody> { return this.wire.usage(); }
+
+  async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
+    let ring: RowKeyring;
+    try {
+      ring = await this.ring;
+    } catch (e) {
+      body.destroy();
+      throw e;
+    }
+    const keys = ring.at(meta.epoch);
+    // 世代を回した後に古い世代の鍵で書くと、解除した PC が新しい本文を読める。今の世代でなければ上げない（呼び手は次の機会に鍵名から求め直す）。
+    if (!keys || meta.epoch !== ring.current().epoch) {
+      body.destroy();
+      throw new Error(`file epoch ${meta.epoch} is not the current epoch`);
+    }
+    // 中身と違う鍵名に置くと、ほかの PC は開かずに飛ばす。上げても届かないので、ここで断る。
+    if ((await blobKeyFor(keys.index, this.deviceId, meta.kind, meta.origin, meta.path)) !== meta.key) {
+      body.destroy();
+      throw new CloudError(400, errorBody('invalid key'));
+    }
+    const sealed = await sealFileMeta(keys.row, { key: meta.key, deviceId: this.deviceId, kind: meta.kind, epoch: meta.epoch }, { path: meta.path, sha256: meta.sha256, mtime: meta.mtime, origin: meta.origin });
+    // gzip してから暗号化する（逆の順では縮まない）。
+    // pipeline でつなぎ、途中の失敗は Worker へ流す側を壊して putFile まで届ける。
+    const enc = new PassThrough();
+    const pump = pipeline(body, createGzip(), encryptStream(fileKeyFrom(keys.fileBytes)), enc).catch((e: unknown) => { enc.destroy(e as Error); });
+    try {
+      return await this.wire.putFile({ key: meta.key, kind: meta.kind, size: meta.size, epoch: meta.epoch, sealedMeta: toBase64Url(sealed) }, enc);
+    } catch (e) {
+      enc.destroy();
+      body.destroy();
+      throw e;
+    } finally {
+      await pump;
+    }
+  }
+
+  async getFile(key: string, epoch: number): Promise<Readable> {
+    const ring = await this.ring;
+    const keys = ring.at(epoch);
+    if (!keys) throw new Error(`no file key for epoch ${epoch}`);
+    const raw = await this.wire.getFile(key);
+    const out = new PassThrough();
+    // 復号と展開の失敗は、受け取る側の流れを壊して届ける（呼び手の pipeline が倒れる）。
+    pipeline(raw, decryptStream(fileKeyFrom(keys.fileBytes)), createGunzip(), out).catch((e: unknown) => { out.destroy(e as Error); });
+    return out;
+  }
+
+  async listFiles(since: number, limit: number): Promise<ListFilesResponse> {
+    const ring = await this.ring;
+    const page = await this.wire.listFiles(since, limit);
+    // 知らない世代の行があれば、開く前に 1 度だけ名簿と keybox を読み直す。読み直しの失敗は一覧の失敗にする（区切りを進めない）。
+    const unknown = page.files.filter((f) => ring.at(f.epoch) === null).map((f) => f.epoch);
+    if (unknown.length > 0) await this.refreshKeys(unknown);
+    const opened = await Promise.all(page.files.map((f) => openSealedFile(ring, f)));
+    const files = opened.filter((f): f is FileEntry => f !== null);
+    const skipped = page.files.length - files.length;
+    if (skipped > 0) console.warn(`sync: skipped ${skipped} file entries that could not be opened`);
+    return { files, nextSeq: page.nextSeq, more: page.more };
+  }
 
   async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {
     if (!Array.isArray(changes) || !changes.every(isPlainChange)) throw new CloudError(400, errorBody('invalid body'));

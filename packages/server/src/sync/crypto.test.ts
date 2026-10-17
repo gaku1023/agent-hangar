@@ -3,18 +3,12 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { deriveEpochKeys, randomEpochKey } from '@agent-hangar/shared';
 import { describe, expect, it } from 'vitest';
-import { CHUNK_SIZE, decryptBuffer, decryptStream, deriveFileKey, encryptBuffer, encryptStream, fileKeyFrom, sha256Hex, sha256Stream } from './crypto.ts';
+import { CHUNK_SIZE, decryptBuffer, decryptStream, encryptBuffer, encryptStream, fileKeyFrom, sha256Hex, sha256Stream } from './crypto.ts';
 
-const key = deriveFileKey('join-secret');
+/** 試験の本文の鍵。本物は世代鍵から導く（fileKeyFrom）。 */
+const key = randomBytes(32);
+const otherKey = randomBytes(32);
 const collect = async (s: NodeJS.ReadableStream): Promise<Buffer> => { const out: Buffer[] = []; for await (const c of s) out.push(c as Buffer); return Buffer.concat(out); };
-
-describe('deriveFileKey', () => {
-  it('同じ秘密から同じ 32 バイト、違う秘密から違う鍵', () => {
-    expect(key.length).toBe(32); // 鍵そのものを期待値に置かない（失敗の差分に鍵が出ないため）
-    expect(deriveFileKey('join-secret').equals(key)).toBe(true);
-    expect(deriveFileKey('other').equals(key)).toBe(false);
-  });
-});
 
 describe('encrypt と decrypt', () => {
   it('空、1 バイト、ちょうど 1 チャンク、2 チャンク半を往復する', async () => {
@@ -48,7 +42,7 @@ describe('encrypt と decrypt', () => {
     const enc = await encryptBuffer(key, src);
     const flipped = Buffer.from(enc); flipped[20] = flipped[20]! ^ 1;
     await expect(decryptBuffer(key, flipped)).rejects.toThrow();
-    await expect(decryptBuffer(deriveFileKey('other'), enc)).rejects.toThrow();
+    await expect(decryptBuffer(otherKey, enc)).rejects.toThrow();
     await expect(decryptBuffer(key, enc.subarray(0, enc.length - 30))).rejects.toThrow(/切り詰め|truncated/);
     await expect(decryptBuffer(key, Buffer.concat([enc, Buffer.from([0])]))).rejects.toThrow();
     await expect(decryptBuffer(key, Buffer.from('nope'))).rejects.toThrow();

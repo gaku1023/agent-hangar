@@ -1,6 +1,7 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { COMPAT_HEADER, ROSTER_MARKER_K, type ChangeIn } from '@agent-hangar/shared';
+import { COMPAT_HEADER, configBlobKey, fromBase64Url, ROSTER_MARKER_K, sealFileMeta, toBase64Url, transcriptBlobKey, type ChangeIn } from '@agent-hangar/shared';
 import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import { FakeWireClient } from '../../test/fake-cloud.ts';
 import { CloudError, CompatError, HttpCloudClient, MIN_WORKER_COMPAT } from './client.ts';
@@ -193,6 +194,14 @@ describe('SealedCloudClient', () => {
     expect(sent).toEqual(['GET /health']);
   });
 
+  it('Keyring を待つ間に作れて、鍵が読めなければ push も pull も倒れる、本文の口も倒れる', async () => {
+    const wire = new FakeWireClient({ deviceId: 'pc-a' });
+    const broken = Promise.reject(new Error('the current epoch key is missing from cloud.json'));
+    const c = new SealedCloudClient(wire, broken, 'pc-a');
+    await expect(c.listFiles(0, 10)).rejects.toThrow(/epoch key/);
+    await expect(c.getFile('b/pc-a/x', 1)).rejects.toThrow(/epoch key/);
+  });
+
   it('Keyring を待つ間に作れて、鍵が読めなければ push も pull も倒れる', async () => {
     const wire = new FakeWireClient({ deviceId: 'pc-a' });
     const broken = Promise.reject(new Error('the current epoch key is missing from cloud.json'));
@@ -200,5 +209,134 @@ describe('SealedCloudClient', () => {
     await expect(c.pushChanges([session('s1', 1)])).rejects.toThrow(/epoch key/);
     await expect(c.pullChanges(0, 10)).rejects.toThrow(/epoch key/);
     expect(wire.calls.filter((x) => x.method === 'pushChanges')).toEqual([]);
+  });
+});
+
+describe('SealedCloudClient の本文', () => {
+  const UUID = '11111111-2222-4333-8444-555555555555';
+  const REL = `projects/-w-project-x/${UUID}.jsonl`;
+  const TEXT = '{"title":"title-1 secret talk"}\n';
+  const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
+  const collect = async (s: Readable): Promise<string> => { let out = ''; for await (const c of s) out += String(c); return out; };
+
+  /** pc が今の世代で、主線の本文を上げる。鍵名は呼び手が求める（uploader と同じ）。 */
+  async function put(c: SealedCloudClient, r: Keyring, deviceId: string, text = TEXT, o: { uuid?: string; rel?: string } = {}): Promise<string> {
+    const cur = r.current();
+    const key = await transcriptBlobKey(cur.index, deviceId, deviceId, o.uuid ?? UUID, null);
+    await c.putFile({ key, epoch: cur.epoch, kind: 'transcript', path: o.rel ?? REL, sha256: sha(text), size: Buffer.byteLength(text), mtime: 1_700_000_000_000, origin: deviceId }, Readable.from([Buffer.from(text)]));
+    return key;
+  }
+
+  it('上げた本文を別の PC が降ろせる', async () => {
+    const ringA = await ring();
+    const { a, b } = await twoPcs({ ringA });
+    const key = await put(a, ringA, 'pc-a');
+    const page = await b.listFiles(0, 500);
+    expect(page.files).toHaveLength(1);
+    expect(page.files[0]).toMatchObject({ key, epoch: 1, kind: 'transcript', path: REL, sha256: sha(TEXT), size: Buffer.byteLength(TEXT), mtime: 1_700_000_000_000, origin: 'pc-a', deviceId: 'pc-a', seq: 1 });
+    expect(await collect(await b.getFile(key, 1))).toBe(TEXT);
+  });
+
+  it('R2 の鍵名と files の行にパスとセッションの UUID が無い', async () => {
+    const ringA = await ring();
+    const { a, wireA } = await twoPcs({ ringA });
+    const key = await put(a, ringA, 'pc-a', TEXT.repeat(20));
+    expect(key).toMatch(/^b\/pc-a\/[A-Za-z0-9_-]{43}$/);
+    const stored = [...wireA.files.values()];
+    expect(stored).toHaveLength(1);
+    const dump = stored.map((f) => [JSON.stringify(f.entry), Buffer.from(fromBase64Url(f.entry.sealedMeta)!).toString('latin1'), f.body.toString('latin1')].join('|')).join('\n');
+    for (const plain of [UUID, UUID.slice(0, 8), 'project-x', 'projects', 'jsonl', 'title-1', 'secret', sha(TEXT.repeat(20))]) expect(dump).not.toContain(plain);
+  });
+
+  it('同じ本文の 2 回目の PUT は同じ鍵名に置き直す', async () => {
+    const ringA = await ring();
+    const { a, wireA } = await twoPcs({ ringA });
+    const k1 = await put(a, ringA, 'pc-a', 'one\n');
+    const k2 = await put(a, ringA, 'pc-a', 'one\ntwo\n');
+    expect(k2).toBe(k1);
+    expect([...wireA.files.keys()]).toEqual([k1]);
+    expect(wireA.files.get(k1)!.entry.seq).toBe(2);
+  });
+
+  it('過去の世代で封じた本文を新しい世代の PC が降ろせる', async () => {
+    const ringA = await ring({ epochs: { '1': testKey(3) }, currentEpoch: 1 });
+    const ringB = await ring({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 });
+    const { a, b } = await twoPcs({ ringA, ringB });
+    const key = await put(a, ringA, 'pc-a');
+    const [e] = (await b.listFiles(0, 500)).files;
+    expect(e).toMatchObject({ key, epoch: 1, path: REL });
+    expect(await collect(await b.getFile(e!.key, e!.epoch))).toBe(TEXT);
+  });
+
+  it('今の世代の本文の鍵で封じ、ほかの世代の鍵では開けない', async () => {
+    const ringA = await ring({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 });
+    const { a, b, wireA } = await twoPcs({ ringA, ringB: ringA });
+    const key = await put(a, ringA, 'pc-a');
+    expect(wireA.files.get(key)!.entry.epoch).toBe(2);
+    await expect(collect(await b.getFile(key, 1))).rejects.toThrow();
+    // 手元に無い世代を名乗る本文は降ろさない。
+    await expect(b.getFile(key, 7)).rejects.toThrow(/epoch 7/);
+  });
+
+  it('今の世代でない世代を名乗る本文は上げない', async () => {
+    const ringA = await ring({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 });
+    const { a, wireA } = await twoPcs({ ringA });
+    const old = ringA.at(1)!;
+    const key = await transcriptBlobKey(old.index, 'pc-a', 'pc-a', UUID, null);
+    await expect(a.putFile({ key, epoch: 1, kind: 'transcript', path: REL, sha256: sha(TEXT), size: 1, mtime: 1, origin: 'pc-a' }, Readable.from([Buffer.from(TEXT)]))).rejects.toThrow(/epoch/);
+    expect(wireA.calls.filter((c) => c.method === 'putFile')).toEqual([]);
+  });
+
+  it.each([
+    ['deviceId', (e: { deviceId: string }) => { e.deviceId = 'pc-c'; }],
+    ['kind', (e: { kind: string }) => { e.kind = 'config'; }],
+    ['epoch', (e: { epoch: number }) => { e.epoch = 2; }],
+  ] as const)('files の行の %s を書き換えると、その行は飛ばす', async (_col, tamper) => {
+    const ringA = await ring({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 1 });
+    const { a, b, wireA } = await twoPcs({ ringA, ringB: ringA });
+    const k1 = await put(a, ringA, 'pc-a', TEXT, { uuid: 'u-1', rel: 'projects/-w/u-1.jsonl' });
+    await put(a, ringA, 'pc-a', TEXT, { uuid: 'u-2', rel: 'projects/-w/u-2.jsonl' });
+    tamper(wireA.files.get(k1)!.entry as never);
+    expect((await b.listFiles(0, 500)).files.map((f) => f.path)).toEqual(['projects/-w/u-2.jsonl']);
+  });
+
+  it('中身のパスと違う鍵名に置いた本文は、上げる側で断り、降ろす側でも飛ばす', async () => {
+    const ringA = await ring();
+    const { a, b, wireA } = await twoPcs({ ringA });
+    // 鍵名は u-1 のもので、中身は u-2 のパスを名乗る。
+    await expect(put(a, ringA, 'pc-a', TEXT, { uuid: 'u-1', rel: 'projects/-w/u-2.jsonl' })).rejects.toMatchObject({ status: 400 });
+    expect(wireA.calls.filter((c) => c.method === 'putFile')).toEqual([]);
+    // 鍵を持つ PC が上げる側の検査を通さずに置いても、降ろす側は開かない。
+    const cur = ringA.current();
+    const key = await transcriptBlobKey(cur.index, 'pc-a', 'pc-a', 'u-1', null);
+    const meta = await sealFileMeta(cur.row, { key, deviceId: 'pc-a', kind: 'transcript', epoch: 1 }, { path: 'projects/-w/u-2.jsonl', sha256: sha(TEXT), mtime: 1, origin: 'pc-a' });
+    await wireA.putFile({ key, kind: 'transcript', size: 1, epoch: 1, sealedMeta: toBase64Url(meta) }, Readable.from([Buffer.from('x')]));
+    await put(a, ringA, 'pc-a', TEXT, { uuid: 'u-3', rel: 'projects/-w/u-3.jsonl' });
+    expect((await b.listFiles(0, 500)).files.map((f) => f.path)).toEqual(['projects/-w/u-3.jsonl']);
+  });
+
+  it('知らない世代の本文を受けたら 1 度だけ名簿を読み直し、鍵が届けば開く', async () => {
+    const ringA = await ring({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 });
+    const ringB = await ring();
+    const onRoster = vi.fn(async () => { await ringB.addEpochs({ epochs: { '2': testKey(4) } }); });
+    const { a, b } = await twoPcs({ ringA, ringB, onRosterB: onRoster });
+    await put(a, ringA, 'pc-a');
+    expect((await b.listFiles(0, 500)).files.map((f) => f.epoch)).toEqual([2]);
+    expect(onRoster).toHaveBeenCalledTimes(1);
+    await b.listFiles(0, 500);
+    expect(onRoster).toHaveBeenCalledTimes(1);
+  });
+
+  it('設定のファイルも鍵名に相対パスを残さず、別の PC が開ける', async () => {
+    const ringA = await ring();
+    const { a, b, wireA } = await twoPcs({ ringA });
+    const cur = ringA.current();
+    const rel = '.hangar/config-bundle.hgr';
+    const key = await configBlobKey(cur.index, 'pc-a', 'pc-a', rel);
+    await a.putFile({ key, epoch: 1, kind: 'config', path: rel, sha256: sha('tar'), size: 3, mtime: 1, origin: 'pc-a' }, Readable.from([Buffer.from('tar')]));
+    expect(key).not.toContain('hangar');
+    expect(JSON.stringify([...wireA.files.values()].map((f) => f.entry))).not.toContain('config-bundle');
+    expect((await b.listFiles(0, 500)).files[0]).toMatchObject({ key, kind: 'config', path: rel, origin: 'pc-a' });
+    expect(await collect(await b.getFile(key, 1))).toBe('tar');
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deriveEpochKeys } from '@agent-hangar/shared';
 import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
-import { currentFileKeySync, Keyring } from './keyring.ts';
+import { Keyring } from './keyring.ts';
 
 describe('Keyring', () => {
   it('今の世代の鍵を引け、知らない世代には null を返す', async () => {
@@ -58,11 +58,5 @@ describe('Keyring', () => {
 
   it('今の世代の鍵が無い設定からは作らない', async () => {
     await expect(Keyring.fromConfig(testCloudConfig({ currentEpoch: 2 }))).rejects.toThrow();
-  });
-
-  it('同期で導く本文の鍵は Keyring の fileBytes と同じ', async () => {
-    const c = testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 });
-    const k = await Keyring.fromConfig(c);
-    expect(new Uint8Array(currentFileKeySync(c))).toEqual(new Uint8Array(k.current().fileBytes));
   });
 });

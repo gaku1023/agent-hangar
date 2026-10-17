@@ -6,7 +6,7 @@ import { defaultManagedDir, RetentionService } from '../provider/claude-code/con
 import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
 import { loadCloudDevices } from '../sync/devices.ts';
-import { currentFileKeySync, Keyring } from '../sync/keyring.ts';
+import { Keyring } from '../sync/keyring.ts';
 import { SealedCloudClient } from '../sync/sealedClient.ts';
 import { SyncEngine } from '../sync/engine.ts';
 import { syncHalted } from '../sync/halt.ts';
@@ -225,26 +225,26 @@ export function bootSync(
     // 行は SealedCloudClient が今の世代の鍵で封じ、行が名乗る世代の鍵で開く。
     // 鍵の束は待たずに渡す（この組み立ては同期で走る）。cloud.json の鍵は readCloudConfig が形を確かめてある。
     // 名簿の印の行と知らない世代の行を受けたときの読み直しは、名簿の読み書き（Task 11）が入るまで何もしない。
-    const client = cloud && wire ? new SealedCloudClient(wire, Keyring.fromConfig(cloud), deviceId) : null;
-    // 本文の鍵は今の世代の鍵から導く。Task 10 で本文の部品が Keyring から引くようになるまでの橋渡しである。
-    const fileKey = cloud ? currentFileKeySync(cloud) : Buffer.alloc(32);
+    // 本文も同じ鍵の束を使う。uploader と設定の同期は今の世代の `/index` の鍵で R2 の鍵名を求め、client が同じ世代で封じる。
+    const keyring = cloud ? Keyring.fromConfig(cloud) : null;
+    const client = keyring && wire ? new SealedCloudClient(wire, keyring, deviceId) : null;
     const engine = new SyncEngine({
       db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
       ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
     });
     // 設定の「使用量と費用」。
     const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
-    const uploader = client
+    const uploader = client && keyring
       ? new TranscriptUploader({
-          db, deviceId, claudeDir, client, key: fileKey, state: syncState,
+          db, deviceId, claudeDir, client, keyring, state: syncState,
           isPaused,
           onError: (p, m) => console.error('[upload]', p, m),
         })
       : null;
     // 設定の同期。スイッチは settings.json の configBundleSync で、既定は切。
-    const configBundle = client
+    const configBundle = client && keyring
       ? new ConfigSyncService({
-          db, deviceId, deviceName: home.device.name, claudeDir, home: home.home, cloud: client, key: fileKey,
+          db, deviceId, deviceName: home.device.name, claudeDir, home: home.home, cloud: client, keyring,
           enabled: () => settings.current.configBundleSync === true && !isPaused(),
           switchedOn: () => settings.current.configBundleSync === true,
           approval: () => (settings.current.configApproval === 'auto' ? 'auto' : 'each'),
@@ -253,7 +253,7 @@ export function bootSync(
       : null;
     const puller = client
       ? new RemotePuller({
-          db, deviceId, home: home.home, client, key: fileKey, state: syncState, language: home.language,
+          db, deviceId, home: home.home, client, state: syncState, language: home.language,
           // 画面へは toast を流さない（トーストは操作の結果だけにした）。
           // 諦めた項目は同期の状態（skipped）に残り、画面のベルの一覧が事実からその行を組む。
           onError: (k, m) => { console.error('[pull]', k, m); },

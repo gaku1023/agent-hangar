@@ -1,33 +1,31 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COMPAT_VERSION, transcriptKey, type FileEntry, type FileMetaIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION, transcriptBlobKey } from '@agent-hangar/shared';
+import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import { CompatError, LimitError, type CloudClient } from './client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
-import { deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
+import { sha256Hex } from './crypto.ts';
+import { Keyring } from './keyring.ts';
 import { RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS } from './puller.ts';
 import { SyncStateStore } from './state.ts';
 import { expectMode } from '../../test/platform.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
-const key = deriveFileKey('join-secret');
 let db: Db;
 let cloud: FakeCloudClient;
 let home: string;
 let state: SyncStateStore;
 const errors: { key: string; message: string }[] = [];
 
-const putRemote = async (device: string, rel: string, text: string, k = `transcripts/${device}/${UUID}.jsonl.gz`, kind: 'transcript' | 'config' = 'transcript') => {
-  const enc = await encryptBuffer(key, gzipSync(Buffer.from(text)));
-  const meta: FileMetaIn = { key: k, path: rel, kind, sha256: sha256Hex(text), size: Buffer.byteLength(text), mtime: 1_700_000_000_000, encrypted: true };
-  await cloud.asDevice(device).putFile(meta, Readable.from([enc]));
-};
+/** device として平文の本文を上げる。R2 の鍵名は中身のパスから今の世代で求める（uploader と同じ）。 */
+const putRemote = async (device: string, rel: string, text: string, kind: 'transcript' | 'config' = 'transcript', o: { sha256?: string } = {}) =>
+  cloud.asDevice(device).putText({ path: rel, kind, sha256: o.sha256 }, text);
 const make = (over: Partial<ConstructorParameters<typeof RemotePuller>[0]> = {}) =>
-  new RemotePuller({ db, deviceId: 'dev-a', home, client: cloud, key, state, onError: (k, m) => errors.push({ key: k, message: m }), ...over });
+  new RemotePuller({ db, deviceId: 'dev-a', home, client: cloud, state, onError: (k, m) => errors.push({ key: k, message: m }), ...over });
 
 beforeEach(() => {
   db = openDb(':memory:');
@@ -79,7 +77,7 @@ describe('RemotePuller', () => {
   it('自端末の分は降ろさず、設定（kind が config）も降ろさずに先へ進む', async () => {
     // 束の本体は、設定の同期が束の行を見て自分で取りに行く。ここでは降ろさず、filesSeq は通り過ぎる。
     await putRemote('dev-a', `projects/-w-alpha/${UUID}.jsonl`, 'mine\n');
-    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/dev-b/CLAUDE.md', 'config');
+    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config');
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 0 });
     expect(fs.existsSync(path.join(home, 'remote'))).toBe(false);
@@ -89,8 +87,7 @@ describe('RemotePuller', () => {
   });
 
   it('SHA-256 が合わなければ捨てて、次の pull でやり直す', async () => {
-    const enc = await encryptBuffer(key, gzipSync(Buffer.from('body\n')));
-    await cloud.asDevice('dev-b').putFile({ key: `transcripts/dev-b/${UUID}.jsonl.gz`, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: 'f'.repeat(64), size: 5, mtime: 1, encrypted: true }, Readable.from([enc]));
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n', 'transcript', { sha256: 'f'.repeat(64) });
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 0 });
     expect(errors[0]!.message).toContain('SHA-256');
@@ -100,20 +97,44 @@ describe('RemotePuller', () => {
     expect(state.getNumber('filesSeq', -1)).toBe(0);
   });
 
-  it('鍵と相対パスが食い違う項目は受け取らない', async () => {
-    // 鍵は dev-b の UUID なのに、相対パスが別のセッションを指している。
+  it('鍵名と封じたメタが食い違う項目（Worker が付け替えた行）は開かずに飛ばし、先へ進む', async () => {
+    // 2 件のメタを入れ替える。どちらも封じた宛先（鍵名）と合わなくなる。
     const other = '22222222-2222-4222-8222-222222222222';
-    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'swapped\n');
+    const a = await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'one\n');
+    const b = await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'two\n');
+    const fa = cloud.files.get(a.key)!.entry;
+    const fb = cloud.files.get(b.key)!.entry;
+    [fa.sealedMeta, fb.sealedMeta] = [fb.sealedMeta, fa.sealedMeta];
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 0 });
-    expect(errors[0]!.message).toContain('キー');
-    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${other}.jsonl`))).toBe(false);
-    expect(state.getNumber('filesSeq', -1)).toBe(0);
+    expect(fs.existsSync(path.join(home, 'remote'))).toBe(false);
+    expect(state.getNumber('filesSeq', -1)).toBe(2);
+  });
+
+  it('過去の世代で封じた本文を、世代 1 と 2 を持つ PC が降ろせる', async () => {
+    const ring = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 }));
+    cloud = new FakeCloudClient({ deviceId: 'dev-a', keyring: ring });
+    // dev-b は世代 1 だけを持ったまま上げる。
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'old epoch\n');
+    expect([...cloud.files.values()].map((f) => f.entry.epoch)).toEqual([1]);
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('old epoch\n');
+  });
+
+  it('上げた本文を別の PC が降ろせる（uploader と同じ鍵名の求め方）', async () => {
+    const ring = await cloud.asDevice('dev-b').keyring;
+    const key = await transcriptBlobKey(ring.current().index, 'dev-b', 'dev-b', UUID, null);
+    await cloud.asDevice('dev-b').putText({ path: `projects/-w-alpha/${UUID}.jsonl`, key }, 'hello\n');
+    expect([...cloud.files.keys()]).toEqual([key]);
+    expect(await make().pullNow()).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('hello\n');
   });
 
   it('壊れた本文は書き掛けを残さず、次の pull でやり直す', async () => {
-    const enc = await encryptBuffer(key, gzipSync(Buffer.from('body\n')));
-    await cloud.asDevice('dev-b').putFile({ key: `transcripts/dev-b/${UUID}.jsonl.gz`, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: sha256Hex('body\n'), size: 5, mtime: 1, encrypted: true }, Readable.from([enc.subarray(0, enc.length - 8)]));
+    const { key: k } = await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    const f = cloud.files.get(k)!;
+    f.body = f.body.subarray(0, f.body.length - 8);
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 0 });
     expect(errors).toHaveLength(1);
@@ -124,7 +145,7 @@ describe('RemotePuller', () => {
   });
 
   it('サブエージェントの写しも降ろす', async () => {
-    await putRemote('dev-b', `projects/-w-alpha/${UUID}/subagents/agent-ab12.jsonl`, 'sub\n', `transcripts/dev-b/${UUID}/subagents/agent-ab12.jsonl.gz`);
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}/subagents/agent-ab12.jsonl`, 'sub\n');
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 1 });
     expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}/subagents/agent-ab12.jsonl`), 'utf8')).toBe('sub\n');
@@ -132,7 +153,7 @@ describe('RemotePuller', () => {
 
   it('latestRemoteMain は更新時刻が最新の写しを返す', async () => {
     await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'b-body\n');
-    await putRemote('dev-c', `projects/-w-alpha/${UUID}.jsonl`, 'c-body-longer\n', `transcripts/dev-c/${UUID}.jsonl.gz`);
+    await putRemote('dev-c', `projects/-w-alpha/${UUID}.jsonl`, 'c-body-longer\n');
     const p = make();
     await p.pullNow();
     db.prepare('update file_sync set mtime = 1000 where device_id = ?').run('dev-b');
@@ -148,8 +169,8 @@ describe('RemotePuller', () => {
   });
 
   it('上げる側の鍵の形と、降ろす側の鍵と相対パスの検査が一致する', async () => {
-    // uploader は path に path.relative(claudeDir, ファイル) を、key に shared の transcriptKey を使う。
-    // どちらか片方の形が変わったら、ここが落ちて気付けるようにしておく。
+    // uploader は path に path.relative(claudeDir, ファイル) を、key に shared の transcriptBlobKey（セッションの UUID とサブエージェントの ID）を使う。
+    // 降ろす側（SealedCloudClient）は中身のパスから鍵名を求め直して比べる。どちらか片方の形が変わったら、ここが落ちて気付けるようにしておく。
     const claudeDir = path.join(path.sep, 'c');
     const cases: { agentId: string | null; file: string }[] = [
       { agentId: null, file: path.join(claudeDir, 'projects', '-w-alpha', `${UUID}.jsonl`) },
@@ -157,7 +178,9 @@ describe('RemotePuller', () => {
     ];
     for (const c of cases) {
       const rel = path.relative(claudeDir, c.file).split(path.sep).join('/');
-      await putRemote('dev-b', rel, `body-${c.agentId}\n`, transcriptKey('dev-b', UUID, c.agentId));
+      const ring = await cloud.asDevice('dev-b').keyring;
+      const key = await transcriptBlobKey(ring.current().index, 'dev-b', 'dev-b', UUID, c.agentId);
+      await cloud.asDevice('dev-b').putText({ path: rel, key }, `body-${c.agentId}\n`);
     }
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 2 });
@@ -167,11 +190,9 @@ describe('RemotePuller', () => {
   });
 
   it('同じ項目で続けて失敗したら 3 回で諦めて先に進む', async () => {
-    const enc = await encryptBuffer(key, gzipSync(Buffer.from('body\n')));
-    const badKey = `transcripts/dev-b/${UUID}.jsonl.gz`;
-    await cloud.asDevice('dev-b').putFile({ key: badKey, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: 'f'.repeat(64), size: 5, mtime: 1, encrypted: true }, Readable.from([enc]));
+    const { key: badKey } = await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n', 'transcript', { sha256: 'f'.repeat(64) });
     const other = '33333333-3333-4333-8333-333333333333';
-    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'good\n', `transcripts/dev-b/${other}.jsonl.gz`);
+    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'good\n');
     const p = make();
     // 同じ回の後ろの項目は降ろす。止まるのは filesSeq を進めることだけである。
     expect(await p.pullNow()).toEqual({ downloaded: 1 });
@@ -194,18 +215,14 @@ describe('RemotePuller', () => {
   });
 
   it('上げ直された本文は諦めた後でももう一度試す', async () => {
-    const enc = await encryptBuffer(key, gzipSync(Buffer.from('body\n')));
-    const k = `transcripts/dev-b/${UUID}.jsonl.gz`;
     const rel = `projects/-w-alpha/${UUID}.jsonl`;
-    for (let i = 0; i < 3; i++) {
-      await cloud.asDevice('dev-b').putFile({ key: k, path: rel, kind: 'transcript', sha256: 'f'.repeat(64), size: 5, mtime: 1, encrypted: true }, Readable.from([enc]));
-    }
+    for (let i = 0; i < 3; i++) await putRemote('dev-b', rel, 'body\n', 'transcript', { sha256: 'f'.repeat(64) });
     const p = make();
     // 同じ指紋のまま置き直されても、数えるのは指紋ごとなので 3 回で諦める。
     for (let i = 0; i < 3; i++) await p.pullNow();
     expect(p.skippedEntries()).toHaveLength(1);
     // 中身が変わった（指紋が変わった）ら、数え直して取り直す。
-    await putRemote('dev-b', rel, 'fixed\n', k);
+    await putRemote('dev-b', rel, 'fixed\n');
     expect(await p.pullNow()).toEqual({ downloaded: 1 });
     expect(p.skippedEntries()).toEqual([]);
     expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', rel), 'utf8')).toBe('fixed\n');
@@ -242,7 +259,7 @@ describe('RemotePuller', () => {
   it('諦めた項目の取り直しが上限で断られたら、回数と理由を書き換えず、残りの取り直しも打ち切る', async () => {
     const other = '33333333-3333-4333-8333-333333333333';
     await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
-    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'body2\n', `transcripts/dev-b/${other}.jsonl.gz`);
+    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'body2\n');
     fs.writeFileSync(path.join(home, 'remote'), 'ふさぐ');
     const p = make();
     for (let i = 0; i < 3; i++) await p.pullNow();
@@ -272,7 +289,7 @@ describe('RemotePuller', () => {
 
   it('諦めた本文は、原因が直ってサーバを起こし直せば降りてくる', async () => {
     // レビューの scratchpad/giveup2.ts の筋。置き場を普通のファイルで塞いで一時的な事故を作る。
-    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    const { key } = await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
     fs.writeFileSync(path.join(home, 'remote'), 'ふさぐ');
     const p = make();
     for (let i = 0; i < 3; i++) await p.pullNow();
@@ -281,8 +298,8 @@ describe('RemotePuller', () => {
     // 事故を直して、サーバを起こし直す（新しい RemotePuller を作る）。
     fs.rmSync(path.join(home, 'remote'));
     const p2 = make();
-    // 諦めた記録は起こし直しても残っている。
-    expect(p2.skippedEntries()).toEqual([{ key: `transcripts/dev-b/${UUID}.jsonl.gz`, attempts: 3, message: expect.any(String) }]);
+    // 諦めた記録は起こし直しても残っている。控えの鍵は R2 の鍵名である。
+    expect(p2.skippedEntries()).toEqual([{ key, attempts: 3, message: expect.any(String) }]);
     // filesSeq は進んだままなので一覧には載らないが、諦めた記録から取り直す。
     expect(await p2.pullNow()).toEqual({ downloaded: 1 });
     expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('body\n');
@@ -332,15 +349,12 @@ describe('RemotePuller', () => {
     expect(p.skippedEntries()).toEqual([]);
   });
 
-  it('平文と申告された本文は受け取らない', async () => {
-    // 決定 5 は「本文は暗号化して R2 に置く」である。受け取る側でも申告を鵜呑みにしない。
+  it('暗号化されていない本文は受け取らない', async () => {
+    // 決定 5 は「本文は暗号化して R2 に置く」である。受け取る側は、本文が世代の鍵で開けることを確かめる。
     const body = '{"a":1}\n';
-    // 上げる側の検査を迂回して置く。
-    // 実物の Worker も平文の本文を断るが、この試験が見るのは受け取る側の守りである。
-    cloud.asDevice('dev-b').seedUnchecked(
-      { key: `transcripts/dev-b/${UUID}.jsonl.gz`, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: sha256Hex(body), size: Buffer.byteLength(body), mtime: 1, encrypted: false },
-      gzipSync(Buffer.from(body)),
-    );
+    const { key } = await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, body);
+    // Worker の側で、本体を gzip だけの平文に差し替える。
+    cloud.files.get(key)!.body = gzipSync(Buffer.from(body));
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 0 });
     expect(errors[0]!.message).toContain('暗号化');
@@ -369,7 +383,7 @@ describe('RemotePuller', () => {
       pullChanges: (s, l) => cloud.pullChanges(s, l),
       snapshot: (a, l) => cloud.snapshot(a, l),
       putFile: (m, b) => cloud.putFile(m, b),
-      getFile: (k) => cloud.getFile(k),
+      getFile: (k, e) => cloud.getFile(k, e),
       usage: () => cloud.usage(),
       listFiles: async (s, l) => ({ ...(await cloud.listFiles(s, l)), files: [], nextSeq: 0, more: false }),
     };
@@ -383,7 +397,7 @@ describe('RemotePuller', () => {
     // 後退を止める防具は「その回の since より下がらない」だけなので、この道は普通に進む。
     await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
     const other = '44444444-4444-4444-8444-444444444444';
-    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'body2\n', `transcripts/dev-b/${other}.jsonl.gz`);
+    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'body2\n');
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 2 });
     expect(state.getNumber('filesSeq', -1)).toBe(2);
@@ -509,7 +523,7 @@ describe('削除したセッションの写し', () => {
     expect(errors).toEqual([]);
   });
   it('ほかのセッションと自分の写しは降ろさない', async () => {
-    await putRemote('dev-b', `projects/-w-alpha/22222222-2222-4222-8222-222222222222.jsonl`, '{"x":1}\n', 'transcripts/dev-b/22222222-2222-4222-8222-222222222222.jsonl.gz');
+    await putRemote('dev-b', `projects/-w-alpha/22222222-2222-4222-8222-222222222222.jsonl`, '{"x":1}\n');
     expect(await make().refetchSession(UUID)).toEqual({ downloaded: 0 });
   });
 });

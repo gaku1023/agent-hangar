@@ -1,18 +1,17 @@
 import { Readable } from 'node:stream';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import {
   COMPAT_VERSION,
   LAUNCH_TTL_MS,
   MAX_PUSH_BATCH,
+  MAX_SEALED_META_CHARS,
   MOBILE_BELL_MIN_WORKER_COMPAT,
   MOBILE_MIN_WORKER_COMPAT,
   PULL_LIMIT,
   ROSTER_MARKER_K,
   SEALED_ROW_K_RE,
-  decodeHeaderText,
-  encodeHeaderText,
   fromBase64Url,
-  isHeaderSafe,
-  isSafeRelPath,
+  isBlobKey,
   toBase64Url,
   type ChangeIn,
   type ChangeOp,
@@ -21,6 +20,7 @@ import {
   type CloudLimitKind,
   type CloudUsageBody,
   type FileEntry,
+  type FileKind,
   type FileMetaIn,
   type ListFilesResponse,
   type MobileLaunchIn,
@@ -28,15 +28,20 @@ import {
   type PushChangesResponse,
   type SealedChangeIn,
   type SealedChangeOut,
+  type SealedFileEntry,
+  type SealedFileIn,
+  type SealedListFilesResponse,
   type SealedPullChangesResponse,
   type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
-import { CloudError, CompatError, isValidFileKey, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type WireCloudClient } from '../src/sync/client.ts';
+import { CloudError, CompatError, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type WireCloudClient } from '../src/sync/client.ts';
+import { decryptBuffer, encryptBuffer, fileKeyFrom, sha256Hex } from '../src/sync/crypto.ts';
 import { Keyring } from '../src/sync/keyring.ts';
-import { openSealedRow, SealedCloudClient } from '../src/sync/sealedClient.ts';
+import { blobKeyFor, openSealedFile, openSealedRow, SealedCloudClient } from '../src/sync/sealedClient.ts';
 import { testCloudConfig } from './cloudConfig.ts';
 
-type StoredFile = { entry: FileEntry; body: Buffer };
+/** Worker の files の 1 行と R2 の本体。entry は封じたメタのまま（互換の版 9）で、body は暗号化したまま。 */
+type StoredFile = { entry: SealedFileEntry; body: Buffer };
 
 /**
  * Worker の rows の 1 行。D1 の列と同じものを持つ（互換の版 9）。
@@ -418,49 +423,32 @@ export class FakeWireClient implements WireCloudClient {
     return { changes: page.map(toOut), nextAfter: more ? page[page.length - 1]!.k : null, seq: this.maxSeq() };
   }
 
-  /** 鍵の形と権限。transcripts も config も、書けるのは自端末の分だけ。GET は誰でも。 */
+  /**
+   * 鍵の形と権限（実物の validKey と同じ）。
+   * 鍵は `b/<端末 ID>/<HMAC>`（shared の isBlobKey）だけを受け、書けるのは自端末の下（`b/<自分>/`）だけ。GET は誰でも。
+   */
   private checkKey(key: string, write: boolean): void {
-    if (!isValidFileKey(key)) throw new CloudError(400, errorBody('invalid key'));
-    // 書けるのは自分の接頭辞の下だけ。config も transcripts と同じ守りである（実物の validKey と揃える）。
-    if (write && !key.startsWith(`transcripts/${this.deviceId}/`) && !key.startsWith(`config/${this.deviceId}/`)) throw new CloudError(403, errorBody('forbidden'));
+    if (!isBlobKey(key)) throw new CloudError(400, errorBody('invalid key'));
+    if (write && !key.startsWith(`b/${this.deviceId}/`)) throw new CloudError(403, errorBody('forbidden'));
   }
 
   /**
-   * ヘッダで届くメタデータの検査。版 8 までの Worker の PUT /files/<key> と同じところで同じ 400 を出す。
-   * path は他端末が本文を降ろすときの置き場所になるので、`..` と絶対パスを通すと下流が防具無しで通る。
-   * 本文の索引を封じた形に写し直すのは Task 10 で、それまでは平文のメタの形のまま持つ。
+   * 見出しで届くメタの検査。実物の PUT /files/:key（互換の版 9）と同じところで同じ 400 を出す。
+   * パス、平文の SHA-256、mtime は封じたメタの中にあり、Worker も偽物も開けない。
    */
-  private checkMeta(meta: FileMetaIn): void {
+  private checkMeta(meta: SealedFileIn): void {
     const bad = (): never => { throw new CloudError(400, errorBody('invalid headers')); };
-    if (typeof meta.path !== 'string' || !isSafeRelPath(meta.path)) bad();
     if (meta.kind !== 'transcript' && meta.kind !== 'config') bad();
-    if (!/^[0-9a-f]{64}$/.test(meta.sha256)) bad();
-    if (!isInt(meta.size) || !isInt(meta.mtime)) bad();
-    // 本文は端末で暗号化してから預ける約束である（決定 5）。
-    if (meta.kind === 'transcript' && meta.encrypted !== true) throw new CloudError(400, errorBody('unencrypted transcript'));
-  }
-
-  /**
-   * 見出しに載せて Worker が復号するまでを写す。
-   * 符号化できない値と ASCII にならない値は、実物と同じく送る前に落ちる。
-   * 往復して元に戻らない値をここで拾うので、符号化と復号が食い違ったまま緑にならない。
-   */
-  private overTheWire(path: string): string {
-    const wire = encodeHeaderText(path);
-    if (wire === null || !isHeaderSafe(wire)) {
-      throw new CloudError(0, `Cannot convert argument to a ByteString because the character at index 0 has a value greater than 255`);
-    }
-    const back = decodeHeaderText(wire);
-    if (back === null || back !== path) throw new CloudError(400, errorBody('invalid headers'));
-    return back;
+    if (!isInt(meta.size) || !Number.isSafeInteger(meta.size) || !isEpoch(meta.epoch)) bad();
+    if (typeof meta.sealedMeta !== 'string' || !isSealedText(meta.sealedMeta, MAX_SEALED_META_CHARS)) bad();
   }
 
   /**
    * 検査を通さずに置く。
-   * 上げる側の検査（平文の本文を断るなど）を迂回して、受け取る側の守りだけを試すための入口である。
+   * 上げる側の検査を迂回して、受け取る側の守りだけを試すための入口である。
    * 実物の Worker にこの口は無い。
    */
-  seedUnchecked(meta: FileMetaIn, body: Buffer): { seq: number } {
+  seedUnchecked(meta: SealedFileIn, body: Buffer): { seq: number } {
     const seq = ++this.store.fileSeq;
     this.store.files.set(meta.key, {
       entry: { ...meta, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: body.length },
@@ -469,13 +457,10 @@ export class FakeWireClient implements WireCloudClient {
     return { seq };
   }
 
-  async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
+  async putFile(meta: SealedFileIn, body: Readable): Promise<{ seq: number }> {
     this.guard('putFile', meta);
     this.checkKey(meta.key, true);
     this.checkMeta(meta);
-    // path は見出しで運ぶので、偽物も同じ符号化を通す。
-    // 通らない値は実物では undici が送る前に TypeError を投げる（CloudError(0) になる）。
-    const path = this.overTheWire(meta.path);
     let chunks: Buffer[] = [];
     let total = 0;
     for await (const c of body) {
@@ -492,7 +477,7 @@ export class FakeWireClient implements WireCloudClient {
     // 置き直すと新しい seq になる（Worker は古い索引を消して入れ直す）。
     const seq = ++this.store.fileSeq;
     this.store.files.set(meta.key, {
-      entry: { ...meta, path, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: buf.length },
+      entry: { key: meta.key, kind: meta.kind, size: meta.size, epoch: meta.epoch, sealedMeta: meta.sealedMeta, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: buf.length },
       body: buf,
     });
     return { seq };
@@ -506,7 +491,7 @@ export class FakeWireClient implements WireCloudClient {
     return Readable.from([Buffer.from(f.body)]);
   }
 
-  async listFiles(since: number, limit: number): Promise<ListFilesResponse> {
+  async listFiles(since: number, limit: number): Promise<SealedListFilesResponse> {
     this.guard('listFiles', since, limit);
     const n = clampLimit(limit);
     const entries = [...this.store.files.values()].map((f) => f.entry);
@@ -586,12 +571,13 @@ type FakeCloudOptions = FakeWireOptions & {
 export class FakeCloudClient implements CloudClient {
   readonly wire: FakeWireClient;
   private readonly sealed: SealedCloudClient;
-  private readonly ring: Promise<Keyring>;
+  /** この端末の鍵の束。本文の鍵名を求める部品（uploader、設定の同期）にも同じものを渡す。 */
+  readonly keyring: Promise<Keyring>;
 
   constructor(o: FakeCloudOptions = {}) {
     this.wire = o.wire ?? new FakeWireClient(o);
-    this.ring = Promise.resolve(o.keyring ?? defaultKeyring());
-    this.sealed = new SealedCloudClient(this.wire, this.ring, this.wire.deviceId, { onRoster: o.onRoster });
+    this.keyring = Promise.resolve(o.keyring ?? defaultKeyring());
+    this.sealed = new SealedCloudClient(this.wire, this.keyring, this.wire.deviceId, { onRoster: o.onRoster });
   }
 
   /** 同じストアを別の端末として使う。鍵の束と読み直しは、渡さなければ既定のもの。 */
@@ -625,9 +611,59 @@ export class FakeCloudClient implements CloudClient {
 
   /** 採った行の控えを、この端末の鍵で開いて届いた順に返す。開けない行は入れない。 */
   async opened(): Promise<ChangeOut[]> {
-    const ring = await this.ring;
+    const ring = await this.keyring;
     const out = await Promise.all(this.wire.changes.map((r) => openSealedRow(ring, toOut(r))));
     return out.filter((c): c is ChangeOut => c !== null);
+  }
+
+  /** この端末が今の世代で上げる本文の R2 の鍵名（uploader と同じ求め方）。 */
+  async transcriptKey(uuid: string, agentId: string | null = null, origin = this.deviceId): Promise<string> {
+    return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'transcript', origin, agentId === null ? `projects/-x/${uuid}.jsonl` : `projects/-x/${uuid}/subagents/agent-${agentId}.jsonl`))!;
+  }
+
+  /** この端末が今の世代で上げる設定のファイルの R2 の鍵名。 */
+  async configKey(rel: string, origin = this.deviceId): Promise<string> {
+    return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'config', origin, rel))!;
+  }
+
+  /**
+   * この端末として平文の本文を上げる（試験の下ごしらえ）。鍵名は中身のパスから今の世代で求め、key を渡せば差し替える。
+   * sha256 と size は、渡さなければ本文から求める。
+   */
+  async putText(meta: { path: string; kind?: FileKind; mtime?: number; origin?: string; sha256?: string; size?: number; key?: string }, body: string | Buffer): Promise<{ seq: number; key: string }> {
+    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    const kind = meta.kind ?? 'transcript';
+    const origin = meta.origin ?? this.deviceId;
+    const cur = (await this.keyring).current();
+    const key = meta.key ?? (await blobKeyFor(cur.index, this.deviceId, kind, origin, meta.path));
+    if (key === null) throw new Error(`no blob key for ${meta.path}`);
+    const full: FileMetaIn = { key, epoch: cur.epoch, kind, path: meta.path, sha256: meta.sha256 ?? sha256Hex(buf), size: meta.size ?? buf.length, mtime: meta.mtime ?? 1_700_000_000_000, origin };
+    const { seq } = await this.sealed.putFile(full, Readable.from([buf]));
+    return { seq, key };
+  }
+
+  /** 偽の Worker に置いた 1 件を、この端末の鍵で開いて返す。開けなければ null。body は復号して gzip を解いた平文。 */
+  async openedFile(key: string): Promise<{ entry: FileEntry; body: Buffer } | null> {
+    const f = this.wire.files.get(key);
+    if (!f) return null;
+    const ring = await this.keyring;
+    const entry = await openSealedFile(ring, f.entry);
+    if (!entry) return null;
+    return { entry, body: gunzipSync(await decryptBuffer(fileKeyFrom(ring.at(entry.epoch)!.fileBytes), f.body)) };
+  }
+
+  /** 偽の Worker に置いたものを全部開いて、seq の順に返す。開けないものは入れない。 */
+  async openedFiles(): Promise<FileEntry[]> {
+    const ring = await this.keyring;
+    const out = await Promise.all([...this.wire.files.values()].map((f) => openSealedFile(ring, f.entry)));
+    return out.filter((e): e is FileEntry => e !== null).sort((a, b) => a.seq - b.seq);
+  }
+
+  /** 平文を gzip して、その世代（省くと今の世代）の本文の鍵で暗号化したバイト列。置いた本体を差し替える試験に使う。 */
+  async sealBody(plain: string | Buffer, epoch?: number): Promise<Buffer> {
+    const ring = await this.keyring;
+    const keys = epoch === undefined ? ring.current() : ring.at(epoch)!;
+    return encryptBuffer(fileKeyFrom(keys.fileBytes), gzipSync(Buffer.isBuffer(plain) ? plain : Buffer.from(plain)));
   }
 
   revoke(deviceId: string): void { this.wire.revoke(deviceId); }
@@ -635,16 +671,16 @@ export class FakeCloudClient implements CloudClient {
   touchRoster(epoch: number): void { this.wire.touchRoster(epoch); }
   postLaunch(l: MobileLaunchIn): void { this.wire.postLaunch(l); }
   putBlob(launchId: string, n: number, bytes: Uint8Array): void { this.wire.putBlob(launchId, n, bytes); }
-  seedUnchecked(meta: FileMetaIn, body: Buffer): { seq: number } { return this.wire.seedUnchecked(meta, body); }
+  seedUnchecked(meta: SealedFileIn, body: Buffer): { seq: number } { return this.wire.seedUnchecked(meta, body); }
 
   health(): Promise<{ ok: boolean; version: string }> { return this.wire.health(); }
   pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> { return this.sealed.pushChanges(changes); }
   pullChanges(since: number, limit: number): Promise<OpenedPullResponse> { return this.sealed.pullChanges(since, limit); }
   snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse> { return this.sealed.snapshot(after, limit); }
   refreshKeys(epochs: number[]): Promise<KeyRefresh> { return this.sealed.refreshKeys(epochs); }
-  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> { return this.wire.putFile(meta, body); }
-  getFile(key: string): Promise<Readable> { return this.wire.getFile(key); }
-  listFiles(since: number, limit: number): Promise<ListFilesResponse> { return this.wire.listFiles(since, limit); }
+  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> { return this.sealed.putFile(meta, body); }
+  getFile(key: string, epoch: number): Promise<Readable> { return this.sealed.getFile(key, epoch); }
+  listFiles(since: number, limit: number): Promise<ListFilesResponse> { return this.sealed.listFiles(since, limit); }
   usage(): Promise<CloudUsageBody> { return this.wire.usage(); }
   listDevices(): Promise<CloudDeviceOut[]> { return this.wire.listDevices(); }
   revokeDevice(id: string): Promise<CloudDeviceOut> { return this.wire.revokeDevice(id); }

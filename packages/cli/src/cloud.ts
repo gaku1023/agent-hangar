@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, hkdfSync, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -6,10 +6,10 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, openTranscriptsFloor, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
+import { backfillTranscripts, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, openTranscriptsFloor, type WireCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
-import { COMPAT_VERSION, compatHeaders, configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, parseCompat, PULL_LIMIT, readCompatRefusal, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
+import { COMPAT_VERSION, compatHeaders, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, parseCompat, PULL_LIMIT, readCompatRefusal, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
 import { DetailedError } from './probe.ts';
 import { type CfAccount, defaultExec, type Exec, type ExecResult, isAccountId, parseDatabaseId, parseWhoamiJson, parseWhoamiTable, parseWorkerUrl, type WhoamiResult, WranglerRunner } from './wrangler.ts';
 
@@ -1097,16 +1097,31 @@ export function cleanWranglerError(text: string, maxLines = MAX_REASON_LINES): s
 export type RescueResult = { downloaded: number; already: number; failed: { key: string; message: string }[] };
 
 /**
+ * 版 8 までの Worker の索引の 1 行（平文のメタと平文の鍵名）。
+ * teardown が、作り直しの前の Worker から本文を降ろすのに使う。
+ * shared とサーバからは封じた形（互換の版 9）に置き換えて消したので、Task 26 で teardown を作り直すまで、この形はここにだけ持つ。
+ */
+export type LegacyFileEntry = { key: string; path: string; kind: 'transcript' | 'config'; sha256: string; size: number; mtime: number; encrypted: boolean; seq: number; deviceId: string; uploadedAt: number; storedSize: number };
+
+/**
+ * 版 8 までの本文の鍵。参加用の秘密から HKDF（SHA-256）で導く。
+ * サーバからは消した（版 9 の本文は世代鍵から導く）ので、teardown のためにここにだけ写しを持つ。
+ */
+export function legacyFileKey(joinSecret: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', Buffer.from(joinSecret, 'utf8'), 'hangar-salt-v1', 'hangar-file-v1', 32));
+}
+
+/**
  * R2 の 1 件を手元のどこへ置くか。
  * 鍵と相対パスが同じファイルを指していることも確かめる。
  * 復号と SHA-256 は「その申告どおりのもの」しか見ないので、
  * 正しく暗号化された別のファイルへ丸ごと差し替えられたときに気付けない。
- * 判定は puller の checkKeyMatchesPath と同じ物差しにしてある。
+ * 鍵名は版 8 までの形（`transcripts/<端末>/...`、`config/<端末>/<相対パス>`）である。
  */
-export function rescueTargetPath(home: string, e: FileEntry): string {
+export function rescueTargetPath(home: string, e: LegacyFileEntry): string {
   if (e.kind === 'config') {
     if (!isSafeKeyId(e.deviceId)) throw new Error(`PC の ID が不正です: ${e.deviceId}`);
-    if (!isSafeRelPath(e.path) || e.key !== configKey(e.deviceId, e.path)) throw new Error(`設定ファイルのキーと相対パスが食い違っています: ${e.key}`);
+    if (!isSafeRelPath(e.path) || e.key !== `config/${e.deviceId}/${e.path}`) throw new Error(`設定ファイルのキーと相対パスが食い違っています: ${e.key}`);
     // 端末ごとに分ける。分けないと、2 台の同じ名前の設定（CLAUDE.md など）が同じ場所へ降りて、
     // 中身が違えば後から降ろした方が前の方を消してしまう。R2 の鍵も端末ごとに分かれている。
     return path.join(remoteRoot(home), e.deviceId, CONFIG_DIR, ...e.path.split('/'));
@@ -1119,13 +1134,18 @@ export function rescueTargetPath(home: string, e: FileEntry): string {
   return remoteTranscriptPath(home, e.deviceId, e.path);
 }
 
+/** 版 8 までの Worker の索引を読む口（GET /files）。返る行は平文のメタの形である。 */
+type LegacyFileLister = { listFiles(since: number, limit: number): Promise<{ files: unknown[]; nextSeq: number; more: boolean }> };
+/** 本文を暗号化されたまま取る口（GET /files/:key）。 */
+type RawFileGetter = Pick<WireCloudClient, 'getFile'>;
+
 /** R2 にある本文の一覧を最後まで辿る。 */
-export async function listAllFiles(client: Pick<CloudClient, 'listFiles'>): Promise<FileEntry[]> {
-  const out: FileEntry[] = [];
+export async function listAllFiles(client: LegacyFileLister): Promise<LegacyFileEntry[]> {
+  const out: LegacyFileEntry[] = [];
   let since = 0;
   for (let page = 0; page < MAX_FILE_PAGES; page++) {
     const r = await client.listFiles(since, PULL_LIMIT);
-    out.push(...r.files);
+    out.push(...(r.files as LegacyFileEntry[]));
     if (!r.more || r.nextSeq <= since) return out;
     since = r.nextSeq;
   }
@@ -1133,7 +1153,7 @@ export async function listAllFiles(client: Pick<CloudClient, 'listFiles'>): Prom
 }
 
 /** 1 件を降ろす。復号して gzip を解き、指紋が合ったものだけを本物の名前にする。 */
-async function downloadOne(client: Pick<CloudClient, 'getFile'>, e: FileEntry, target: string, key: Buffer): Promise<void> {
+async function downloadOne(client: RawFileGetter, e: LegacyFileEntry, target: string, key: Buffer): Promise<void> {
   // 決定 5 のとおり、本文は必ず暗号化して置く。puller と同じ判定にする。
   // 申告を鵜呑みにして平文の道を開けておくと、参加用の秘密を持たない Worker の側から
   // ~/.agent-hangar/remote に中身を仕込める（sha256 は索引も本体も相手が握るので守りにならない）。
@@ -1164,15 +1184,15 @@ async function downloadOne(client: Pick<CloudClient, 'getFile'>, e: FileEntry, t
  */
 export async function rescueRemoteBodies(o: {
   home: string;
-  entries: FileEntry[];
+  entries: LegacyFileEntry[];
   joinSecret: string;
-  client: Pick<CloudClient, 'getFile'>;
+  client: RawFileGetter;
   deviceId?: string;
   claudeDir?: string;
   log?: (line: string) => void;
 }): Promise<RescueResult> {
   const log = o.log ?? ((l: string) => console.log(l));
-  const key = deriveFileKey(o.joinSecret);
+  const key = legacyFileKey(o.joinSecret);
   const r: RescueResult = { downloaded: 0, already: 0, failed: [] };
   for (const e of o.entries) {
     try {
@@ -1231,7 +1251,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
 
   // 消す前に、R2 にしか無い本文を手元へ降ろす。
   const client = new HttpCloudClient({ url: c.url, token: c.deviceToken, fetch: o.fetch ?? realFetch });
-  let entries: FileEntry[];
+  let entries: LegacyFileEntry[];
   try {
     entries = await listAllFiles(client);
   } catch (e) {

@@ -5572,6 +5572,21 @@ pull と写しは、印の行を開かずに名簿と keybox の読み直しへ�
 それでも開けない行は飛ばして区切りを進め、飛ばした数を `sync_state` の `lastError` に残す（次に何も飛ばさない 1 巡で消える）。
 Worker の 413 は封じた行を `k` で名指しするので、`SealedCloudClient` が送った塊から表名と行 ID に戻し、エンジンはその行だけを諦める。
 
+R2 の本文も `SealedCloudClient` が封じて開く。
+鍵名は呼び手（uploader と設定の同期）が今の世代の `/index` の鍵で求める。
+本文は `b/<自端末>/<HMAC("t:" 元の PC ":" セッションの UUID [":" サブエージェントの ID])>`、設定の束は `b/<自端末>/<HMAC("c:" 元の PC ":" 相対パス)>` で、パスとセッションの UUID は Worker に見えない。
+同じ世代のあいだは同じ鍵名なので、上げ直しは同じオブジェクトへの上書き（冪等な `PUT`）になる。
+本文は gzip してから、その世代の `/file` の鍵で今までのストリーム暗号（`sync/crypto.ts`）に通す。
+パス、平文の SHA-256、mtime、元の PC はメタとして `/row` の鍵で封じ、AAD に鍵名、PC の ID、`kind`、世代を入れて `x-hangar-meta` で送る。
+見出しに平文で載るのは `kind`、`size`、`epoch` だけである。
+今の世代でない世代を名乗る本文と、中身のパスから求め直した鍵名が名乗る鍵名と合わない本文は、上げずに断る。
+`GET /files` の行は名乗る世代の鍵で開き、手元に無い世代があれば 1 度だけ名簿と keybox を読み直す。
+開けない行（鍵が無い、付け替え、鍵名と中身の食い違い）は飛ばす。
+本文は行の世代の鍵で復号するので、世代 1 と 2 を持つ PC は世代 1 で封じた本文も降ろせる。
+設定の束は行に世代を持たないので、受け取る側は手元の世代を新しい順に鍵名を求めて試す。
+手元の台帳（`file_sync`）と諦めた控えは、R2 の鍵名ではなく版 8 までと同じ形の台帳の鍵（`sync/ledgerKey.ts`、`transcripts/<端末>/<uuid>.jsonl.gz`）で引く。
+R2 の鍵名は世代ごとに変わるが、台帳の鍵は変わらないからである。
+
 D1 の 1 日の上限（読んだ行、書いた行）に当たった失敗は、500 ではなく 429 で返す（`packages/cloud/src/limits.ts`）。
 見分けるのは D1 の文で、`free tier daily row read limit` か `free tier daily row write limit` を含むものである（大文字と小文字は問わず、原因の文も見る）。
 本文は共有の `CloudLimitBody`（`{ error: 'limit', limit, resetAt }`）で、`resetAt` は上限が戻る次の UTC の 0 時（epoch のミリ秒）である。
@@ -5597,7 +5612,7 @@ R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 75
 同期するものは三つである。
 
 - **hangar のメタデータ**：共有テーブルの全行。D1 に置く。
-- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip して R2 に置く。鍵は主線が `transcripts/<端末 ID>/<セッションの UUID>.jsonl.gz`、サブエージェントが `transcripts/<端末 ID>/<セッションの UUID>/subagents/agent-<hex>.jsonl.gz` で、端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。
+- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。
 - **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。R2 に置く。鍵は `config/<端末 ID>/<相対パス>` で、本文と同じく端末ごとに分ける。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
@@ -5618,10 +5633,9 @@ R2 は部分更新を持たないので、末尾だけを足す道が無いた�
 控えは 20 世代を残し、古いものから消す。
 
 R2 に置くファイルは端末間で暗号化する。
-鍵は参加用の秘密から `hkdfSync('sha256', joinSecret, 'hangar-salt-v1', 'hangar-file-v1', 32)` で導き、AES-256-GCM で暗号化してから上げる。
+鍵は世代鍵から `HKDF(K[n], info = "hangar-e2e-v2/file")` で導き（互換の版 9。版 8 までは参加用の秘密から導いた）、AES-256-GCM で暗号化してから上げる。
 Cloudflare 側は中身を読めない。
-Worker も、`kind` が `transcript` で暗号化の申告が `1` でない `PUT` を、R2 に触る前に 400 で断る。
-降ろす側だけが約束を守っていると、置く側は約束の外に出られる。
+受け取る側は、行の世代の鍵で開けない本文を受け取らない（暗号化していない本文は開けない）。
 形式は、先頭に `HGR1` の 4 バイトと 8 バイトの nonce 接頭辞を置き、その後ろに 1MB ごとのチャンクを並べる。
 チャンクは `flag`（1 バイト、最後のチャンクだけ 1）と `len`（4 バイト）と本体と 16 バイトの認証タグからなり、nonce は接頭辞にチャンク番号を継いで作る。
 AAD にチャンク番号と `flag` を入れるので、並べ替え、複製、欠落、途中での打ち切りは、どれも認証タグで落ちる。
@@ -5630,9 +5644,9 @@ AAD にチャンク番号と `flag` を入れるので、並べ替え、複製�
 フェーズ 0 の計測では暗号化 2,700MB/s、復号 600MB/s で、同期の律速は gzip とネットワークである。
 D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、将来 Worker 側の機能に使えるようにする。
 
-ファイルの一覧は D1 の `files` 表に持ち、パス、端末、SHA-256、サイズ、更新時刻、R2 の鍵を記録する。
+ファイルの一覧は D1 の `files` 表に持ち、端末、サイズ、R2 の鍵名、世代を平文で、パス、SHA-256、更新時刻、元の PC を封じたメタで記録する。
 降ろす側は、この指紋と実際に降りた中身の指紋を突き合わせる。
-暗号化そのものは「鍵の同じ別のファイルへの差し替え」を見抜けないので、鍵と指紋の突き合わせがその守りになる。
+暗号化そのものは「鍵の同じ別のファイルへの差し替え」を見抜けないので、封じたメタの AAD（鍵名）と、鍵名と中身のパスの突き合わせと、指紋の突き合わせがその守りになる。
 
 `PUT` は R2 を先に書き、索引を後に書く。
 途中で倒れれば、残るのは索引に無い R2 の本体だけである。
@@ -5702,7 +5716,7 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 落とした絶対パスの規則も同じ表に入り、同じ口で送れる。
 
 **束。**
-PC ごとに 1 つの tar（`manifest.json` と `blobs/<sha256>`。`sync/config/bundle.ts` の自前の ustar）を gzip し、参加用の秘密から導いた鍵で暗号化して、既存の `PUT /files`（`kind: 'config'`）で上げる。
+PC ごとに 1 つの tar（`manifest.json` と `blobs/<sha256>`。`sync/config/bundle.ts` の自前の ustar）を gzip し、今の世代の本文の鍵で暗号化して、既存の `PUT /files`（`kind: 'config'`、鍵名は相対パスの HMAC。「Worker の表」）で上げる。
 束を先に上げ、行（`config_snapshots`）を後に書くので、行が降りた先で束が見つからない並びにはならない。
 中身（項目の id と指紋の並び）が前回と同じなら上げない。
 何も運ぶものが無く、前に上げてもいない PC は、空の束を上げない。
@@ -5830,7 +5844,7 @@ PR 15 が、Worker の名乗る版（shared の `COMPAT_VERSION`）をこの値�
 
 **Worker の側（PR 15）。**
 Worker に足した経路も、D1 の表も、移行も無い。
-束の本体は既存の `PUT /files/config/<端末>/.hangar/config-bundle.hgr`（kind は `config`、自端末の鍵だけ書ける）と `GET /files/<鍵>` で運び、束の行は既存の `POST /changes` と `GET /changes`、`GET /rows` で運ぶ。
+束の本体は既存の `PUT /files/b/<端末>/<HMAC>`（kind は `config`、HMAC の入力は `c:<端末>:.hangar/config-bundle.hgr`、自端末の鍵だけ書ける）と `GET /files/<鍵>` で運び、束の行は既存の `POST /changes` と `GET /changes`、`GET /rows` で運ぶ。
 `changes` と `rows` は表名と行 ID と payload を文字列で預かるだけなので、`config_snapshots` の行のための D1 の表は要らない。
 Worker が表名を断るのは `packages/cloud/src/changes.ts` の `SHARED_TABLES`（shared の一覧）で、PR 14 がこの一覧に表を足したので、この版の Worker は行を受ける。
 Worker の変更は、名乗る版を 3 に上げることだけである（`COMPAT_VERSION` は殻の `health.rs` の写しと同じ定数なので、殻の写しも 3 に上げた）。

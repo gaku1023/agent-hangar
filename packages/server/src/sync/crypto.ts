@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import { msg, MessageError } from '../i18n/message.ts';
 
@@ -11,11 +11,6 @@ const FRAME_HEAD = 5; // flag(1) + len(4)
 // 他端末が書いた本文は外から来た入力である。長さの申告をそのまま信じて溜め込まない。
 const MAX_FRAME_LEN = CHUNK_SIZE + 64;
 
-/** 参加用の秘密から HKDF（SHA-256）でファイル鍵を導く。salt と info は全端末で同じ定数にする。 */
-export function deriveFileKey(joinSecret: string): Buffer {
-  return Buffer.from(hkdfSync('sha256', Buffer.from(joinSecret, 'utf8'), 'hangar-salt-v1', 'hangar-file-v1', 32));
-}
-
 /**
  * E2E の世代鍵から導いた file の用途の鍵（deriveEpochKeys の fileBytes）を、ストリーム暗号に渡す Buffer にする。
  * 32 バイト以外は断る。元の配列とはメモリを共有しない。
@@ -25,7 +20,8 @@ export function fileKeyFrom(bytes: Uint8Array): Buffer {
   return Buffer.from(bytes);
 }
 
-const nonceOf = (prefix: Buffer, idx: number): Buffer => { const n = Buffer.alloc(12); prefix.copy(n, 0); n.writeUInt32BE(idx, 8); return n; };
+// copy でなく set で写す。packages/cloud の試験が sealedClient.ts 越しにこのファイルを読み、そちらの型（workers-types）の Buffer には copy が無い。
+const nonceOf = (prefix: Buffer, idx: number): Buffer => { const n = Buffer.alloc(12); n.set(prefix, 0); n.writeUInt32BE(idx, 8); return n; };
 const aadOf = (idx: number, flag: number): Buffer => { const a = Buffer.alloc(5); a.writeUInt32BE(idx, 0); a[4] = flag; return a; };
 
 /** 平文を 1MB ごとに AES-256-GCM で包む Transform。最後のチャンクは flag = 1 で出す。 */
@@ -92,7 +88,7 @@ export function decryptStream(key: Buffer): Transform {
           if (buf.length < FRAME_HEAD + len + TAG_LEN) break;
           const body = buf.subarray(FRAME_HEAD, FRAME_HEAD + len);
           const tag = buf.subarray(FRAME_HEAD + len, FRAME_HEAD + len + TAG_LEN);
-          const d = createDecipheriv('aes-256-gcm', key, nonceOf(prefix, idx));
+          const d = createDecipheriv('aes-256-gcm', key, nonceOf(prefix!, idx));
           d.setAAD(aadOf(idx, flag));
           d.setAuthTag(tag);
           this.push(Buffer.concat([d.update(body), d.final()]));

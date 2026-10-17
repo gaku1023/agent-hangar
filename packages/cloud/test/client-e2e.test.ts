@@ -1,9 +1,10 @@
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, COMPAT_VERSION, deriveEpochKeys, toBase64Url, type ChangeIn } from '@agent-hangar/shared';
+import { COMPAT_HEADER, COMPAT_VERSION, deriveEpochKeys, toBase64Url, transcriptBlobKey, type ChangeIn } from '@agent-hangar/shared';
 import { CompatError, HttpCloudClient, RevokedError } from '../../server/src/sync/client.ts';
 import { SealedCloudClient, type RowKeyring } from '../../server/src/sync/sealedClient.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
@@ -61,26 +62,37 @@ describe('封じた行（SealedCloudClient と Worker）', () => {
   });
 });
 
-// 版 9 の Worker の PUT /files は封じたメタ（x-hangar-meta）を求める。本文の索引を封じた形にする Task 10 で戻す。
-describe.skip('HttpCloudClient と Worker', () => {
-  it('流れてくる本文も長さを決めて送り、Worker は分けずに 1 回の put で置く', async () => {
-    const n = 9 * 1024 * 1024 + 7; // Worker の PART_BYTES（8 MiB）を超える大きさ
-    const buf = Buffer.alloc(n);
-    for (let i = 0; i < n; i++) buf[i] = i % 251;
-    const key = 'transcripts/pc-a/big.jsonl.gz';
+describe('封じた本文（SealedCloudClient と Worker）', () => {
+  it('流れてくる本文も長さを決めて送り、Worker は分けずに 1 回の put で置き、別の PC が開ける。D1 と R2 にパスとセッションの UUID は残らない', async () => {
+    const keys = await deriveEpochKeys(1, toBase64Url(new Uint8Array(32).fill(3)));
+    const ring = (): RowKeyring => ({ current: () => keys, at: (n) => (n === 1 ? keys : null) });
+    const a = new SealedCloudClient(client, ring(), 'pc-a');
+    const b = new SealedCloudClient(new HttpCloudClient({ url: workerUrl, token: await addPcDevice(cloud.env, 'pc-b'), spoolDir }), ring(), 'pc-b');
+    // gzip で縮まない中身にして、暗号化した後も Worker の PART_BYTES（8 MiB）を超える大きさにする。
+    const n = 9 * 1024 * 1024 + 7;
+    const buf = randomBytes(n);
+    const uuid = 'session-uuid-big-1';
+    const rel = `projects/-w-project-x/${uuid}.jsonl`;
+    const sha256 = createHash('sha256').update(buf).digest('hex');
+    const key = await transcriptBlobKey(keys.index, 'pc-a', 'pc-a', uuid, null);
     // 端末の uploader と同じく、長さの分からない流れで渡す。
     const pieces = (async function* () { for (let at = 0; at < n; at += 64 * 1024) yield buf.subarray(at, at + 64 * 1024); })();
-    const { seq } = await client.putFile(
-      { key, path: 'projects/-x/big.jsonl', kind: 'transcript', sha256: 'a'.repeat(64), size: n, mtime: 1, encrypted: true },
-      Readable.from(pieces),
-    );
+    const { seq } = await a.putFile({ key, epoch: 1, kind: 'transcript', path: rel, sha256, size: n, mtime: 1, origin: 'pc-a' }, Readable.from(pieces));
     expect(seq).toBe(1);
     const head = await cloud.env.BUCKET.head(key);
-    expect(head!.size).toBe(n);
+    expect(head!.size).toBeGreaterThan(8 * 1024 * 1024);
     // multipart の etag は「-部分の数」で終わる。付いていなければ Worker は本文を JS で切り分けていない。
     expect(head!.etag).not.toContain('-');
-    const back = Buffer.from(await (await cloud.env.BUCKET.get(key))!.arrayBuffer());
-    expect(back.equals(buf)).toBe(true);
+    const [e] = (await b.listFiles(0, 100)).files;
+    expect(e).toMatchObject({ key, epoch: 1, kind: 'transcript', path: rel, sha256, size: n, origin: 'pc-a', deviceId: 'pc-a', storedSize: head!.size });
+    const back: Buffer[] = [];
+    for await (const c of await b.getFile(key, 1)) back.push(c as Buffer);
+    expect(Buffer.concat(back).equals(buf)).toBe(true);
+    const stored = (await cloud.env.DB.prepare('select key, kind, device_id, size, epoch, sealed_meta from files').all()).results as Record<string, unknown>[];
+    expect(stored).toHaveLength(1);
+    const dump = stored.map((r) => Object.values(r).map((v) => (v instanceof ArrayBuffer ? Buffer.from(v).toString('latin1') : Array.isArray(v) ? Buffer.from(v as number[]).toString('latin1') : String(v))).join('|')).join('\n');
+    for (const plain of [uuid, 'project-x', 'projects', 'jsonl', sha256]) expect(dump).not.toContain(plain);
+    expect((await cloud.env.BUCKET.list()).objects.map((o) => o.key)).toEqual([key]);
     expect(fs.readdirSync(spoolDir)).toEqual([]);
   });
 });

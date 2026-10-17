@@ -4,8 +4,12 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, COMPAT_VERSION, decodeHeaderText, isHeaderSafe } from '@agent-hangar/shared';
-import { CloudError, CompatError, HttpCloudClient, isValidFileKey, LimitError, MAX_PUT_BODY_BYTES, MIN_WORKER_COMPAT, RevokedError } from './client.ts';
+import { COMPAT_HEADER, COMPAT_VERSION, isBlobKey, type SealedFileIn } from '@agent-hangar/shared';
+import { CloudError, CompatError, HttpCloudClient, isFetchableKey, LimitError, MAX_PUT_BODY_BYTES, MIN_WORKER_COMPAT, RevokedError } from './client.ts';
+
+/** 線の上の R2 の鍵名（互換の版 9）と、封じたメタの形。中身は形の合う作り物である。 */
+const BK = `b/d/${'A'.repeat(43)}`;
+const wmeta = (over: Partial<SealedFileIn> = {}): SealedFileIn => ({ key: BK, kind: 'transcript', size: 3, epoch: 1, sealedMeta: 'c2VhbGVkLW1ldGE', ...over });
 
 type Call = { url: string; init: RequestInit };
 
@@ -126,23 +130,20 @@ describe('HttpCloudClient', () => {
       return new Response('payload', { status: 200 });
     });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    const r = await c.putFile(
-      { key: 'transcripts/d/u.jsonl.gz', path: 'projects/-x/u.jsonl', kind: 'transcript', sha256: 'a'.repeat(64), size: 3, mtime: 5, encrypted: true },
-      Readable.from([Buffer.from('ab'), Buffer.from('c')]),
-    );
+    const r = await c.putFile(wmeta(), Readable.from([Buffer.from('ab'), Buffer.from('c')]));
     expect(r).toEqual({ seq: 9 });
     expect(uploaded).toBe('abc');
     const h = headersOf(calls[0]!);
-    expect(calls[0]!.url).toBe('https://h/files/transcripts/d/u.jsonl.gz');
-    expect(h['x-hangar-path']).toBe('projects/-x/u.jsonl');
+    expect(calls[0]!.url).toBe(`https://h/files/${BK}`);
     expect(h['x-hangar-kind']).toBe('transcript');
-    expect(h['x-hangar-sha256']).toBe('a'.repeat(64));
     expect(h['x-hangar-size']).toBe('3');
-    expect(h['x-hangar-mtime']).toBe('5');
-    expect(h['x-hangar-encrypted']).toBe('1');
+    expect(h['x-hangar-epoch']).toBe('1');
+    expect(h['x-hangar-meta']).toBe('c2VhbGVkLW1ldGE');
+    // パス、平文の指紋、mtime は封じたメタの中にあり、見出しには載せない。
+    for (const name of ['x-hangar-path', 'x-hangar-sha256', 'x-hangar-mtime', 'x-hangar-encrypted']) expect(h[name], name).toBeUndefined();
     expect(h['content-type']).toBe('application/octet-stream');
     expect((calls[0]!.init as { duplex?: string }).duplex).toBe('half');
-    const body = await c.getFile('transcripts/d/u.jsonl.gz');
+    const body = await c.getFile(BK);
     let text = '';
     for await (const ch of body) text += ch;
     expect(text).toBe('payload');
@@ -185,7 +186,9 @@ describe('HttpCloudClient', () => {
     await expect(c.getFile('other/u1')).rejects.toMatchObject({ status: 400 });
     await expect(c.getFile('transcripts/d/../e/u1')).rejects.toMatchObject({ status: 400 });
     await expect(c.getFile('transcripts/d/u\u0000.gz')).rejects.toMatchObject({ status: 400 });
-    await expect(c.putFile({ key: 'config/../x', path: 'x', kind: 'config', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: false }, Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 400 });
+    // 書くのは R2 の鍵名（`b/<端末>/<HMAC>`）だけ。パスを平文で持つ版 8 までの鍵名には書かない。
+    await expect(c.putFile(wmeta({ key: 'config/../x' }), Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 400 });
+    await expect(c.putFile(wmeta({ key: 'transcripts/d/u.jsonl.gz' }), Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 400 });
     expect(calls).toHaveLength(0);
     // 空白と `?` は Worker が通すので、端末も通して URL の側で符号化する。
     await c.getFile('transcripts/d/u 1?x.gz');
@@ -238,7 +241,7 @@ describe('HttpCloudClient', () => {
 
   it('putFile と getFile は転送用の長い時間切れを使う', async () => {
     const hang = new HttpCloudClient({ url: 'https://h', token: 't', transferTimeoutMs: 20, fetch: fakeFetch(() => new Promise<Response>(() => {})).fetch });
-    const up = await hang.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'p/u.jsonl', kind: 'transcript', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')])).catch((x: unknown) => x);
+    const up = await hang.putFile(wmeta(), Readable.from([Buffer.from('x')])).catch((x: unknown) => x);
     expect(up).toMatchObject({ status: 0 });
     expect((up as CloudError).message).toContain('timeout');
     const c = new HttpCloudClient({ url: 'https://h', token: 't', transferTimeoutMs: 30, fetch: fakeFetch(() => new Response(dripStream(), { status: 200 })).fetch });
@@ -253,7 +256,7 @@ describe('HttpCloudClient', () => {
     // 小さい応答の時間切れを短くしても、転送はその値に引きずられない。
     const c = new HttpCloudClient({ url: 'https://h', token: 't', timeoutMs: 15, transferTimeoutMs: 2000, fetch: fakeFetch(async () => { await sleep(60); return json({ seq: 1 }, 201); }).fetch });
     await expect(c.health()).rejects.toMatchObject({ status: 0 });
-    expect(await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'p/u.jsonl', kind: 'transcript', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')]))).toEqual({ seq: 1 });
+    expect(await c.putFile(wmeta(), Readable.from([Buffer.from('x')]))).toEqual({ seq: 1 });
   });
 
   it('無事に終わった要求は見張りのタイマーを残さない', async () => {
@@ -269,61 +272,37 @@ describe('HttpCloudClient', () => {
     expect(timers()).toBe(before);
   });
 
-  it('日本語と空白を含む path を見出しに載せられる形で送る', async () => {
-    // 符号化しないと undici が送る前に TypeError を投げる。Worker では直せない。
-    const path = 'projects/-Users-me-作業/メモ 1.jsonl';
-    const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
-    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    expect(await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path, kind: 'transcript', sha256: 'a'.repeat(64), size: 3, mtime: 5, encrypted: true }, Readable.from([Buffer.from('abc')]))).toEqual({ seq: 1 });
-    const wire = headersOf(calls[0]!)['x-hangar-path']!;
-    expect(isHeaderSafe(wire)).toBe(true);
-    expect(wire).toBe('projects/-Users-me-%E4%BD%9C%E6%A5%AD/%E3%83%A1%E3%83%A2%201.jsonl');
-    // Worker は同じ物差しで復号する。
-    expect(decodeHeaderText(wire)).toBe(path);
-  });
-
-  it('日本語と空白を含む鍵を通し、URL では断片ごとに符号化する', async () => {
+  it('版 8 までの鍵名（日本語と空白を含む）も読むときは通し、URL では断片ごとに符号化する', async () => {
+    // hangar cloud teardown が、作り直しの前の Worker から本文を降ろすのに使う。
     const key = 'config/skills/日本語 メモ/SKILL.md';
-    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'PUT' ? json({ seq: 2 }, 201) : new Response('body', { status: 200 })));
+    const { fetch, calls } = fakeFetch(() => new Response('body', { status: 200 }));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    await c.putFile({ key, path: 'skills/日本語 メモ/SKILL.md', kind: 'config', sha256: 'b'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')]));
-    const expected = 'https://h/files/config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md';
-    expect(calls[0]!.url).toBe(expected);
     let text = '';
     for await (const ch of await c.getFile(key)) text += ch;
     expect(text).toBe('body');
-    expect(calls[1]!.url).toBe(expected);
+    expect(calls[0]!.url).toBe('https://h/files/config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md');
     // 断片ごとの復号で元の鍵に戻る（Worker の受け取りと同じ）。
     expect(new URL(calls[0]!.url).pathname.slice('/files/'.length).split('/').map(decodeURIComponent).join('/')).toBe(key);
   });
 
-  it('鍵の検査は Worker と同じ物差しにする', async () => {
+  it('鍵の検査は、書くときは R2 の鍵名だけ、読むときは版 8 までの鍵名も通す', async () => {
     const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    // 端末の側だけが厳しいと、Worker が受け取れる鍵を送る前に落とす。
-    for (const key of ['config/skills/日本語 メモ/SKILL.md', 'config/memory/🐕.md', 'transcripts/d/u 1.jsonl.gz']) {
-      expect(isValidFileKey(key), key).toBe(true);
+    for (const key of [BK, 'config/skills/日本語 メモ/SKILL.md', 'config/memory/🐕.md', 'transcripts/d/u 1.jsonl.gz']) {
+      expect(isFetchableKey(key), key).toBe(true);
       await expect(c.getFile(key)).resolves.toBeDefined();
     }
-    expect(calls).toHaveLength(3);
-    for (const key of ['other/u1', 'transcripts/d/../e/u1', 'transcripts//u1', 'config/', 'transcripts/d/u\u0000.gz']) {
+    expect(calls).toHaveLength(4);
+    for (const key of ['other/u1', 'transcripts/d/../e/u1', 'transcripts//u1', 'config/', 'transcripts/d/u\u0000.gz', `${BK}/x`]) {
+      expect(isFetchableKey(key), key).toBe(false);
       await expect(c.getFile(key), key).rejects.toMatchObject({ status: 400 });
     }
-    expect(calls).toHaveLength(3);
-  });
-
-  it('見出しに載せられない path は送る前に 400 で断る', async () => {
-    const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
-    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    const meta = (path: string) => ({ key: 'transcripts/d/u.jsonl.gz', path, kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: true });
-    for (const path of ['../../etc/passwd', '/etc/passwd', 'a/../b', '', 'a\u0000b', '\ud800']) {
-      await expect(c.putFile(meta(path), Readable.from([Buffer.from('x')])), path).rejects.toMatchObject({ status: 400 });
-    }
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(4);
+    expect(isBlobKey('transcripts/d/u.jsonl.gz')).toBe(false);
   });
 
   describe('putFile は長さを決めてから送る', () => {
-    const fileMeta = { key: 'transcripts/d/u.jsonl.gz', path: 'projects/-x/u.jsonl', kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 3, mtime: 5, encrypted: true };
+    const fileMeta = wmeta();
     let spoolDir = '';
     beforeEach(() => { spoolDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-client-test-')); });
     afterEach(() => { fs.rmSync(spoolDir, { recursive: true, force: true }); });
@@ -440,9 +419,9 @@ describe('互換の版', () => {
     await c.pullChanges(0, 10);
     await c.snapshot(null, 10);
     await c.listFiles(0, 10);
-    await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'projects/-x/u.jsonl', kind: 'transcript', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')]));
+    await c.putFile(wmeta(), Readable.from([Buffer.from('x')]));
     let got = 0;
-    for await (const chunk of await c.getFile('transcripts/d/u.jsonl.gz')) got += (chunk as Buffer).length;
+    for await (const chunk of await c.getFile(BK)) got += (chunk as Buffer).length;
     expect(got).toBe('payload'.length);
     await c.usage();
     expect(calls).toHaveLength(8);
@@ -752,10 +731,10 @@ describe('端末トークンの読み直し', () => {
       return bearerIs(c, 'new') ? json({ seq: 9 }, 201) : json({ error: 'unauthorized' }, 401);
     });
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch: f.fetch, reloadCredentials: () => ({ url: 'https://w.example', token: 'new' }) });
-    const r = await c.putFile({ key: 'transcripts/d/a.jsonl', path: 'a.jsonl', kind: 'transcript', sha256: 'x'.repeat(64), size: 5, mtime: 1, encrypted: true }, Readable.from([Buffer.from('hello')]));
+    const r = await c.putFile(wmeta({ size: 5 }), Readable.from([Buffer.from('hello')]));
     expect(r).toEqual({ seq: 9 });
     expect(bodies).toEqual(['hello', 'hello']);
-    expect(pathOf(f.calls[1]!)).toBe('/files/transcripts/d/a.jsonl');
+    expect(pathOf(f.calls[1]!)).toBe(`/files/${BK}`);
   });
 });
 
@@ -769,7 +748,7 @@ describe('書き込みの前の版の確かめ', () => {
     if (p.startsWith('/files/')) return new Response(JSON.stringify({ seq: 2 }), { status: 201, headers: h });
     return new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: h });
   }, { stamp: false });
-  const meta = { key: 'transcripts/d/a.jsonl', path: 'a.jsonl', kind: 'transcript' as const, sha256: 'x'.repeat(64), size: 1, mtime: 1, encrypted: true };
+  const meta = wmeta({ size: 1 });
 
   it('版を知る前の push と putFile は、先に GET /health で版を確かめ、下限に届かなければ書かずに CompatError にする', async () => {
     const f = worker(5);
@@ -788,7 +767,7 @@ describe('書き込みの前の版の確かめ', () => {
     expect(seen.filter((p) => p === 'GET /health')).toHaveLength(1);
     expect(seen[0]).toBe('GET /health');
     expect(seen.filter((p) => p === 'POST /changes')).toHaveLength(2);
-    expect(seen.filter((p) => p === 'PUT /files/transcripts/d/a.jsonl')).toHaveLength(1);
+    expect(seen.filter((p) => p === `PUT /files/${BK}`)).toHaveLength(1);
   });
 
   it('pull で版を知っていれば確かめない。読むだけの要求は確かめない', async () => {

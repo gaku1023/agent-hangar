@@ -5,8 +5,9 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { CompatDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
-import { COMPAT_VERSION } from '@agent-hangar/shared';
+import { COMPAT_VERSION, transcriptBlobKey } from '@agent-hangar/shared';
 import { saveCloudConfig } from './config/cloud.ts';
+import { Keyring } from './sync/keyring.ts';
 import { dbPath, ensureHome, readOrCreateDevice } from './config/paths.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
@@ -442,7 +443,10 @@ describe('startServer', () => {
         await until(async () => (sink.puts.length >= 1 ? sink.puts : null));
         // 参加より前で止まっている 2 件（alpha の本文と subagent）は上がらない。
         await new Promise((r) => setTimeout(r, 300));
-        expect(sink.puts.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort()).toEqual([`${SESSION_OTHER}.jsonl.gz`]);
+        // R2 の鍵名は HMAC なので、試験の cloud.json の世代 1 の鍵で、この PC の ID と other のセッションの UUID から求めて比べる。
+        const device = sink.puts[0]!.split('/')[1]!;
+        const index = (await Keyring.fromConfig(testCloudConfig())).current().index;
+        expect(sink.puts).toEqual([await transcriptBlobKey(index, device, device, SESSION_OTHER, null)]);
         // 画面に出す「未送信の本文」も、上がる予定の無い 2 件を数えない。
         const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${tokenIn(d.home)}` } })).json() as SyncStatusBody;
         expect(status.sweepPending).toBe(0);

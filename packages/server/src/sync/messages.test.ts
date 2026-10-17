@@ -1,18 +1,21 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
-import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COMPAT_VERSION, type FileMetaIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb } from '../db/open.ts';
 import { errorText, MessageError } from '../i18n/message.ts';
 import { CloudError, CompatError, LimitError } from './client.ts';
-import { decryptStream, deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
+import { decryptStream, encryptBuffer, sha256Hex } from './crypto.ts';
 import { limitedMessage, limitedWhilePausedMessage } from './engine.ts';
 import { RemotePuller, remoteTranscriptPath } from './puller.ts';
 import { SyncStateStore } from './state.ts';
+
+/** 復号の失敗の文を見るための作り物の本文の鍵。 */
+const TEST_KEY = randomBytes(32);
 
 /**
  * 同期の利用者に見える文が、辞書の鍵と引数を持つこと。
@@ -70,7 +73,7 @@ describe('復号の失敗の文', () => {
   const decrypt = async (bytes: Buffer): Promise<unknown> => {
     const out: Buffer[] = [];
     try {
-      for await (const c of Readable.from([bytes]).pipe(decryptStream(deriveFileKey('s')))) out.push(c as Buffer);
+      for await (const c of Readable.from([bytes]).pipe(decryptStream(TEST_KEY))) out.push(c as Buffer);
     } catch (e) { return e; }
     return null;
   };
@@ -81,7 +84,7 @@ describe('復号の失敗の文', () => {
     expect(errorText('ja', notEncrypted)).toBe('暗号化ファイルの形式が正しくありません');
     expect(errorText('en', notEncrypted)).toBe('Not an encrypted file (unrecognized format)');
 
-    const whole = await encryptBuffer(deriveFileKey('s'), Buffer.from('hello'));
+    const whole = await encryptBuffer(TEST_KEY, Buffer.from('hello'));
     const cut = await decrypt(whole.subarray(0, whole.length - 5));
     expect(errorText('ja', cut)).toBe('暗号化ファイルが不完全です（truncated）');
     expect(errorText('en', cut)).toBe('The encrypted file is truncated');
@@ -93,7 +96,6 @@ describe('復号の失敗の文', () => {
 
 describe('本文を降ろす失敗の文', () => {
   const UUID = '11111111-1111-4111-8111-111111111111';
-  const key = deriveFileKey('join-secret');
   let cloud: FakeCloudClient;
   let home: string;
   beforeEach(() => {
@@ -112,15 +114,11 @@ describe('本文を降ろす失敗の文', () => {
   });
 
   it('SHA-256 が合わない本文は、諦めた項目の理由に、いまの言語の文で残る', async () => {
-    const text = '{"a":1}\n';
-    const enc = await encryptBuffer(key, gzipSync(Buffer.from(text)));
-    const k = `transcripts/dev-b/${UUID}.jsonl.gz`;
-    const meta: FileMetaIn = { key: k, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: sha256Hex('different'), size: 8, mtime: 1_700_000_000_000, encrypted: true };
-    await cloud.asDevice('dev-b').putFile(meta, Readable.from([enc]));
+    const { key: k } = await cloud.asDevice('dev-b').putText({ path: `projects/-w-alpha/${UUID}.jsonl`, sha256: sha256Hex('different') }, '{"a":1}\n');
     for (const [language, expected] of [['ja', `トランスクリプトの SHA-256 が一致しません: ${k}`], ['en', `Transcript SHA-256 does not match: ${k}`]] as const) {
       // 言語ごとに新しい DB で試す。諦めた回数と理由は DB（sync_state）に残る。
       const fresh = openDb(':memory:');
-      const p = new RemotePuller({ db: fresh, deviceId: 'dev-a', home, client: cloud, key, state: new SyncStateStore(fresh), language: () => language });
+      const p = new RemotePuller({ db: fresh, deviceId: 'dev-a', home, client: cloud, state: new SyncStateStore(fresh), language: () => language });
       // 3 回続けて失敗した項目だけが、諦めた項目として利用者に見える。
       for (let i = 0; i < 3; i++) await p.pullNow();
       expect(p.skippedEntries().map((s) => s.message)).toEqual([expected]);

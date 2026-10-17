@@ -1,16 +1,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Readable } from 'node:stream';
-import { gunzipSync } from 'node:zlib';
-import { CONFIG_BUNDLE_MIN_WORKER_COMPAT, type ChangeOut } from '@agent-hangar/shared';
+import { CONFIG_BUNDLE_MIN_WORKER_COMPAT, fromBase64Url, type ChangeOut } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeCloudClient } from '../../../test/fake-cloud.ts';
 import { onRowChange } from '../../db/notify.ts';
 import { openDb, type Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { applyRemoteChange } from '../apply.ts';
-import { decryptBuffer, deriveFileKey, encryptBuffer, sha256Hex } from '../crypto.ts';
+import { testCloudConfig, testKey } from '../../../test/cloudConfig.ts';
+import { encryptBuffer, fileKeyFrom, sha256Hex } from '../crypto.ts';
+import { Keyring } from '../keyring.ts';
 import { unpackBundle } from './bundle.ts';
 import { slugOfPath } from './ids.ts';
 import { writeApplyOrder } from './applyOrder.ts';
@@ -18,7 +18,6 @@ import { applyOrderPath, BUNDLE_PATH, configBackupsDir } from './paths.ts';
 import { ConfigBase } from './base.ts';
 import { ConfigSyncError, ConfigSyncService } from './service.ts';
 
-const key = deriveFileKey('join-secret');
 const NOW = 1_700_000_000_000;
 const SECRET = 'key = sk-ant-api03-AbCdEfGhIjKlMnOpQrSt0123456789';
 
@@ -42,7 +41,7 @@ function pc(id: string, name: string): Pc {
   cloud.calls.length = 0;
   const on = { enabled: true, approval: 'each' as 'each' | 'auto' };
   const service = new ConfigSyncService({
-    db, deviceId: id, deviceName: name, claudeDir, home, cloud, key,
+    db, deviceId: id, deviceName: name, claudeDir, home, cloud, keyring: cloud.keyring,
     enabled: () => on.enabled, switchedOn: () => on.enabled, approval: () => on.approval, now: () => clock,
   });
   const p: Pc = {
@@ -64,6 +63,10 @@ function deliver(from: Pc, to: Pc): void {
 const addDevices = (): void => { for (const p of pcs) for (const q of pcs) upsertShared(p.db, 'devices', { id: q.id, name: q.name, platform: 'darwin' }, q.id); };
 const sync = async (from: Pc, to: Pc): Promise<void> => { await from.service.send(); deliver(from, to); await to.service.receive(); };
 const ids = (p: Pc) => p.service.inbox().items.map((i) => `${i.op}:${i.id}`);
+/** その PC の束の R2 の鍵名（今の世代）。 */
+const bundleKey = (p: Pc): Promise<string> => p.cloud.configKey(BUNDLE_PATH);
+/** 今の世代の本文の鍵で暗号化した、gzip でない中身（開けない束）。 */
+const garbageBody = async (): Promise<Buffer> => encryptBuffer(fileKeyFrom((await shared.keyring).current().fileBytes), Buffer.from('not a gzip'));
 
 /** 時計を進める。共有の表の updated_at は Date.now() で付くので、Date も合わせて進める（同じ時刻の行は、適用で飛ばされる）。 */
 const advance = (ms: number): void => { clock += ms; vi.setSystemTime(clock); };
@@ -116,6 +119,42 @@ describe('束を送る', () => {
     expect(a.db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 0 });
   });
 
+  it('設定のファイルの鍵名に相対パスが無い', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', '# rules');
+    await a.service.send();
+    const [key] = [...shared.files.keys()];
+    expect(key).toMatch(/^b\/dev-a\/[A-Za-z0-9_-]{43}$/);
+    const f = shared.files.get(key!)!;
+    const dump = [key, JSON.stringify(f.entry), Buffer.from(fromBase64Url(f.entry.sealedMeta)!).toString('latin1'), f.body.toString('latin1')].join('|');
+    for (const plain of ['.hangar', 'config-bundle', 'hgr', 'CLAUDE.md', '# rules']) expect(dump).not.toContain(plain);
+    // 別の PC は鍵名を同じく求めて取りに行ける。
+    const b = pc('dev-b', 'mini');
+    deliver(a, b);
+    expect(await b.service.receive()).toEqual({ fetched: 1, failed: 0 });
+  });
+
+  it('過去の世代で上げた束を、世代 1 と 2 を持つ PC が取れる', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'x');
+    await a.service.send();
+    const ring = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 }));
+    const db = openDb(':memory:');
+    const dir = path.join(tmp, 'dev-n');
+    fs.mkdirSync(path.join(dir, 'claude'), { recursive: true });
+    const cloud = shared.asDevice('dev-n', { keyring: ring });
+    void cloud.health();
+    const newer = new ConfigSyncService({ db, deviceId: 'dev-n', deviceName: 'new', claudeDir: path.join(dir, 'claude'), home: path.join(dir, 'home'), cloud, keyring: ring, enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => clock });
+    for (const row of a.db.prepare('select * from config_snapshots').all() as Record<string, unknown>[]) {
+      applyRemoteChange(db, { tableName: 'config_snapshots', rowId: String(row.device_id), op: 'upsert', payload: row, updatedAt: Number(row.updated_at), seq: 1, deviceId: 'dev-a' }, { ownDeviceId: 'dev-n', skipOwn: true });
+    }
+    expect(await newer.receive()).toEqual({ fetched: 1, failed: 0 });
+    expect(newer.inbox().items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
+    // 世代 2 の鍵名を先に試し、無ければ世代 1 の鍵名を試す。
+    expect(cloud.calls.filter((c) => c.method === 'getFile')).toHaveLength(2);
+    db.close();
+  });
+
   it('入ったら束を 1 つ上げ、PC ごとの 1 行を共有の表に書く。旧実装の鍵と台帳には触らない', async () => {
     const a = pc('dev-a', 'mac');
     a.write('CLAUDE.md', '# rules');
@@ -124,10 +163,10 @@ describe('束を送る', () => {
     a.write('commands/secret.md', SECRET);
     expect(await a.service.send()).toEqual({ sent: true, items: 3 });
     // クラウドには束の 1 オブジェクトだけがある。旧実装の config/<端末>/<相対パス> は作らない。
-    expect([...shared.files.keys()]).toEqual([`config/dev-a/${BUNDLE_PATH}`]);
-    const stored = shared.files.get(`config/dev-a/${BUNDLE_PATH}`)!;
-    expect(stored.entry).toMatchObject({ kind: 'config', path: BUNDLE_PATH, encrypted: true, deviceId: 'dev-a' });
-    const tar = gunzipSync(await decryptBuffer(key, stored.body));
+    expect([...shared.files.keys()]).toEqual([await bundleKey(a)]);
+    const stored = (await shared.openedFile(await bundleKey(a)))!;
+    expect(stored.entry).toMatchObject({ kind: 'config', path: BUNDLE_PATH, origin: 'dev-a', epoch: 1, deviceId: 'dev-a' });
+    const tar = stored.body;
     const opened = unpackBundle(tar);
     expect(opened.manifest.deviceId).toBe('dev-a');
     expect(opened.manifest.items.map((i) => i.id)).toEqual(['file:CLAUDE.md', 'file:skills/demo/SKILL.md', 'settings:model']);
@@ -221,9 +260,7 @@ describe('束を受け取る', () => {
     await sync(a, b);
     const before = ids(b);
     // 束を壊し、行の指紋も合わせて「新しい版」に見せる。
-    const garbage = await encryptBuffer(key, Buffer.from('not a gzip'));
-    const k = `config/dev-a/${BUNDLE_PATH}`;
-    shared.files.get(k)!.body = garbage;
+    shared.files.get(await bundleKey(a))!.body = await garbageBody();
     b.db.prepare("update config_snapshots set bundle_sha256 = 'f' || bundle_sha256, updated_at = updated_at + 1 where device_id = 'dev-a'").run();
     const r = await b.service.receive();
     expect(r).toEqual({ fetched: 0, failed: 1 });
@@ -235,9 +272,9 @@ describe('束を受け取る', () => {
     a.write('CLAUDE.md', 'x');
     await a.service.send();
     deliver(a, b);
-    const k = `config/dev-a/${BUNDLE_PATH}`;
+    const k = await bundleKey(a);
     const good = shared.files.get(k)!.body;
-    shared.files.get(k)!.body = await encryptBuffer(key, Buffer.from('not a gzip'));
+    shared.files.get(k)!.body = await garbageBody();
     const gets = (): number => b.cloud.calls.filter((c) => c.method === 'getFile').length;
     expect(await b.service.receive()).toEqual({ fetched: 0, failed: 1 });
     expect(await b.service.receive()).toEqual({ fetched: 0, failed: 0 });
@@ -256,7 +293,8 @@ describe('束を受け取る', () => {
     // dev-a の束を dev-c の行として見せる。
     const row = a.db.prepare('select * from config_snapshots').get() as Record<string, unknown>;
     applyRemoteChange(b.db, { tableName: 'config_snapshots', rowId: 'dev-c', op: 'upsert', payload: { ...row, device_id: 'dev-c' }, updatedAt: Number(row.updated_at), seq: 1, deviceId: 'dev-c' }, { ownDeviceId: 'dev-b', skipOwn: true });
-    await shared.asDevice('dev-c').putFile({ key: `config/dev-c/${BUNDLE_PATH}`, path: BUNDLE_PATH, kind: 'config', sha256: String(row.bundle_sha256), size: Number(row.bundle_size), mtime: 1, encrypted: true }, Readable.from([shared.files.get(`config/dev-a/${BUNDLE_PATH}`)!.body]));
+    const tarOfA = (await shared.openedFile(await bundleKey(a)))!.body;
+    await shared.asDevice('dev-c').putText({ path: BUNDLE_PATH, kind: 'config', sha256: String(row.bundle_sha256), mtime: 1 }, tarOfA);
     expect(await b.service.receive()).toEqual({ fetched: 0, failed: 1 });
     expect(b.service.inbox().items).toEqual([]);
   });
@@ -585,14 +623,11 @@ describe('旧実装の置き場が残っていても', () => {
   it('束の鍵だけを送り、旧実装が残した R2 のオブジェクトにも、台帳 file_sync にも触らない', async () => {
     // 旧実装（段 4 の PR 18 で消した）が上げた config/<端末>/<相対パス> は、Worker の掃除が消すまで R2 に残りうる。
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
-    await a.cloud.putFile(
-      { key: 'config/dev-a/CLAUDE.md', path: 'CLAUDE.md', kind: 'config', sha256: sha256Hex('old'), size: 3, mtime: 1, encrypted: true },
-      Readable.from([await encryptBuffer(key, Buffer.from('old'))]),
-    );
+    const { key: oldKey } = await a.cloud.putText({ path: 'CLAUDE.md', kind: 'config', mtime: 1 }, 'old');
     a.write('CLAUDE.md', 'new');
     await sync(a, b);
     expect(ids(b)).toEqual(['create:file:CLAUDE.md']);
-    expect([...shared.files.keys()].sort()).toEqual([`config/dev-a/${BUNDLE_PATH}`, 'config/dev-a/CLAUDE.md']);
+    expect([...shared.files.keys()].sort()).toEqual([await bundleKey(a), oldKey].sort());
     expect(a.db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 0 });
     expect(b.db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 0 });
   });
@@ -603,7 +638,7 @@ describe('定期の呼び出しと止め方', () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
     const errors: string[] = [];
     const flaky = new ConfigSyncService({
-      db: b.db, deviceId: 'dev-b', deviceName: 'mini', claudeDir: b.claudeDir, home: b.home, cloud: b.cloud, key,
+      db: b.db, deviceId: 'dev-b', deviceName: 'mini', claudeDir: b.claudeDir, home: b.home, cloud: b.cloud, keyring: b.cloud.keyring,
       enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => clock, onError: (m) => errors.push(m),
     });
     a.write('CLAUDE.md', 'x'); b.write('commands/c.md', 'y');
@@ -611,7 +646,7 @@ describe('定期の呼び出しと止め方', () => {
     deliver(a, b);
     await flaky.tick();
     expect(flaky.inbox().items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
-    expect(shared.files.has('config/dev-b/.hangar/config-bundle.hgr')).toBe(true);
+    expect(shared.files.has(await bundleKey(b))).toBe(true);
     // 繋がらなければ握る。
     b.cloud.offline = true;
     advance(1000);
@@ -681,8 +716,8 @@ describe('古い Worker のあいだは束の行を書かない', () => {
     const a = pc('dev-a', 'mac');
     a.write('CLAUDE.md', 'x');
     const blind = new ConfigSyncService({
-      db: a.db, deviceId: 'dev-a', deviceName: 'mac', claudeDir: a.claudeDir, home: a.home, key, now: () => clock,
-      cloud: { putFile: (...args) => a.cloud.putFile(...args), getFile: (k) => a.cloud.getFile(k), lastWorkerCompat: () => null },
+      db: a.db, deviceId: 'dev-a', deviceName: 'mac', claudeDir: a.claudeDir, home: a.home, keyring: a.cloud.keyring, now: () => clock,
+      cloud: { putFile: (...args) => a.cloud.putFile(...args), getFile: (k, e) => a.cloud.getFile(k, e), lastWorkerCompat: () => null },
       enabled: () => true, switchedOn: () => true, approval: () => 'each',
     });
     expect(await blind.send()).toEqual({ sent: false, items: 0 });

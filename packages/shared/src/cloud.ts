@@ -61,8 +61,13 @@ export type SealedSnapshotResponse = { changes: SealedChangeOut[]; nextAfter: st
 export const SEALED_ROW_K_RE = /^[A-Za-z0-9_-]{43}$/;
 
 export type FileKind = 'transcript' | 'config';
-/** 平文のメタを持つファイルの形。Task 9/10 で SealedFileIn に置き換わって消える。 */
-export type FileMetaIn = { key: string; path: string; kind: FileKind; sha256: string; size: number; mtime: number; encrypted: boolean };
+/**
+ * 開いたファイルのメタ。PC の中だけで使い、線の上には載せない（線の上は SealedFileIn と SealedFileEntry）。
+ * `key` は e2e/names.ts の transcriptBlobKey か configBlobKey で求めた R2 の鍵名で、`epoch` はメタと本文を封じた世代である。
+ * `origin` は本文を作った PC の ID で、`path` は元の PC の `~/.claude` からの相対パスである。
+ * 封じて送るのと、受けて開くのは、サーバの SealedCloudClient（packages/server/src/sync/sealedClient.ts）である。
+ */
+export type FileMetaIn = { key: string; epoch: number; kind: FileKind; path: string; sha256: string; size: number; mtime: number; origin: string };
 export type FileEntry = FileMetaIn & { seq: number; deviceId: string; uploadedAt: number; storedSize: number };
 export type ListFilesResponse = { files: FileEntry[]; nextSeq: number; more: boolean };
 
@@ -219,11 +224,10 @@ export type DeviceRevokeOut = { device: DeviceOut };
 export const REVOKED_ERROR = 'revoked';
 
 /**
- * `PUT /files/:key` の見出し。
- * 互換の版 9 の Worker が読むのは kind、size、epoch、meta（封じたメタの base64url）だけである。
- * path、sha256、mtime、encrypted は版 8 までの端末の写しで、Task 9/10 で消える。
+ * `PUT /files/:key` の見出し（互換の版 9）。
+ * kind、size、epoch と、meta（封じたメタの base64url）だけを運ぶ。パス、平文の SHA-256、mtime は meta の中にある。
  */
-export const CLOUD_HEADERS = { path: 'x-hangar-path', kind: 'x-hangar-kind', sha256: 'x-hangar-sha256', size: 'x-hangar-size', mtime: 'x-hangar-mtime', encrypted: 'x-hangar-encrypted', epoch: 'x-hangar-epoch', meta: 'x-hangar-meta' } as const;
+export const CLOUD_HEADERS = { kind: 'x-hangar-kind', size: 'x-hangar-size', epoch: 'x-hangar-epoch', meta: 'x-hangar-meta' } as const;
 
 /** 1 回の POST /changes に載せる上限。Worker は 1 行を 2 文で書くので 81 文以内に収まる。 */
 export const MAX_PUSH_BATCH = 40;
@@ -345,64 +349,12 @@ export function decodeHeaderText(s: string): string | null {
   }
 }
 
-/** R2 の鍵の長さの上限。超えると R2 が投げるので、その手前で 400 にして 500 を出さない。 */
-export const MAX_KEY_BYTES = 1024;
-
-/** 鍵の 1 段目に許す接頭辞。 */
-export type KeyPrefix = 'transcripts' | 'config';
-
 /**
- * R2 の鍵を接頭辞と、その先の相対パスに割る。形が違えば null。
- * Worker（`packages/cloud/src/files.ts`）と端末（`packages/server/src/sync/client.ts`）が
- * この 1 つの物差しを共有する。片方だけ厳しいと、端末で組み立てられる鍵が Worker で 400 になる。
+ * 鍵を URL のパスに載せる形。断片ごとに符号化するので、`/` は潰れない。
+ * R2 の鍵名の形は e2e/names.ts の isBlobKey が決める（`b/<端末 ID>/<HMAC>`）。
  */
-export function splitFileKey(key: string): { prefix: KeyPrefix; rel: string } | null {
-  const i = key.indexOf('/');
-  if (i < 0) return null;
-  const prefix = key.slice(0, i);
-  if (prefix !== 'transcripts' && prefix !== 'config') return null;
-  const rel = key.slice(i + 1);
-  if (!isSafeRelPath(rel)) return null;
-  if (new TextEncoder().encode(key).length > MAX_KEY_BYTES) return null;
-  return { prefix, rel };
-}
-
-/** 権限を抜きにした、鍵の形だけの検査。日本語と空白は通る（`~/.claude` の名前は選べない）。 */
-export function isValidFileKey(key: string): boolean {
-  return splitFileKey(key) !== null;
-}
-
-/** 鍵を URL のパスに載せる形。断片ごとに符号化するので、`/` は潰れない。 */
 export function encodeFileKeyPath(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/');
-}
-
-/**
- * R2 の鍵。端末ごとに分けるので、同じセッション ID の本文が端末間で上書きされない。
- * ID は他端末から届いた値が混ざる経路があるので、組み立ての側でも形を検査する。
- * 検査が無いと、スラッシュ入りのセッション ID がサブエージェントの鍵と衝突して上書きし合う。
- * 平文の鍵名なので、Task 9/10 で e2e/names.ts の transcriptBlobKey に置き換わって消える。
- */
-export function transcriptKey(deviceId: string, sessionUuid: string, agentId: string | null): string {
-  if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
-  if (!isSafeKeyId(sessionUuid)) throw new Error('セッション ID の形が不正です');
-  if (agentId !== null && !isSafeKeyId(agentId)) throw new Error('サブエージェント ID の形が不正です');
-  return agentId === null ? `transcripts/${deviceId}/${sessionUuid}.jsonl.gz` : `transcripts/${deviceId}/${sessionUuid}/subagents/agent-${agentId}.jsonl.gz`;
-}
-
-/**
- * 設定の R2 の鍵。本文と同じく端末ごとに分ける。
- *
- * 分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合う。
- * 負けた側の索引（`file_sync`）には自分が上げた指紋が残るのに中身は相手のものなので、
- * 取り込みは「SHA-256 が一致しません」で永久に止まる。
- * 端末ごとに分ければ、受け取る側が相対パスごとに新しい方を選べる。
- * 平文の鍵名なので、Task 9/10 で e2e/names.ts の configBlobKey に置き換わって消える。
- */
-export function configKey(deviceId: string, rel: string): string {
-  if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
-  if (!isSafeRelPath(rel)) throw new Error('設定ファイルのパスが不正です');
-  return `config/${deviceId}/${rel}`;
 }
 
 /**

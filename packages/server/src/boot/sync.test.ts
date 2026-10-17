@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COMPAT_VERSION, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { COMPAT_VERSION, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, transcriptBlobKey, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { saveCloudConfig } from '../config/cloud.ts';
 import { dbPath } from '../config/paths.ts';
 import { openDb } from '../db/open.ts';
@@ -12,6 +12,7 @@ import { IndexerService } from '../indexer/service.ts';
 import { BACKUP_GENERATIONS, MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS } from '../sync/pruneBackups.ts';
 import { memoLossHandlers, toastVia } from '../sync/notices.ts';
 import { MIN_WORKER_COMPAT } from '../sync/client.ts';
+import { Keyring } from '../sync/keyring.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { answerAll, fakeWorker, fileSink, recorder, refuse, tokenWorker, type Answer, type Seen } from '../../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
@@ -416,7 +417,20 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
     };
     walk(path.join(claudeDir, 'projects'));
   }
-  const suffixes = (keys: string[]): string[] => keys.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort();
+  /**
+   * R2 の鍵名（HMAC）を、どのセッションの本文かの名前に戻す。
+   * 鍵名は試験の cloud.json の世代 1 の鍵で、この PC の ID とセッションの UUID から求まる。
+   */
+  const suffixes = async (keys: string[]): Promise<string[]> => {
+    const index = (await Keyring.fromConfig(testCloudConfig())).current().index;
+    const names = new Map<string, string>();
+    for (const device of new Set(keys.map((k) => k.split('/')[1]!))) {
+      for (const [uuid, agent, name] of [[SESSION_ALPHA, null, `${SESSION_ALPHA}.jsonl.gz`], [SESSION_ALPHA, 'abc123', `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`], [SESSION_OTHER, null, `${SESSION_OTHER}.jsonl.gz`]] as const) {
+        names.set(await transcriptBlobKey(index, device, device, uuid, agent), name);
+      }
+    }
+    return keys.map((k) => names.get(k) ?? k).sort();
+  };
   const ALL = [`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort();
 
   it('参加より前に止まっていた本文は上げず、その後に動いた本文だけを上げる', async () => {
@@ -434,7 +448,7 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
       await until(() => (sink.puts.length >= 1 ? sink.puts : null));
       // 参加より前で止まっている 2 件（alpha の本文と subagent）は上がらない。
       await new Promise((r) => setTimeout(r, 300));
-      expect(suffixes(sink.puts)).toEqual([`${SESSION_OTHER}.jsonl.gz`]);
+      expect(await suffixes(sink.puts)).toEqual([`${SESSION_OTHER}.jsonl.gz`]);
       // 画面に出す「未送信の本文」も、上がる予定の無い 2 件を数えない。
       expect(b.status().sweepPending).toBe(0);
     } finally {
@@ -453,7 +467,7 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
       joinTo(sink.url);
       boot({ start: true });
       const keys = await until(() => (sink.puts.length >= 3 ? sink.puts : null));
-      expect(suffixes(keys)).toEqual(ALL);
+      expect(await suffixes(keys)).toEqual(ALL);
       // 上げ終わったものを上げ直さない。
       await new Promise((r) => setTimeout(r, 300));
       expect(sink.puts.length).toBe(3);
@@ -478,7 +492,7 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
       // 応答が返る時点では本文がまだ残っている。状態は paused のままなので、進んでいることは oncePass で伝える。
       expect(await b.pressSyncNow()).toMatchObject({ state: 'paused', oncePass: true });
       const keys = await until(() => (sink.puts.length >= 3 ? sink.puts : null));
-      expect(suffixes(keys)).toEqual(ALL);
+      expect(await suffixes(keys)).toEqual(ALL);
       // 上げきっても、同期は止めたままである。
       const status = await until(() => { const st = b.status(); return st.sweepPending === 0 && st.oncePass === false ? st : null; });
       expect(status.state).toBe('paused');

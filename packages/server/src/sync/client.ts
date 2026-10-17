@@ -10,10 +10,9 @@ import {
   COMPAT_VERSION,
   compatHeaders,
   encodeFileKeyPath,
-  encodeHeaderText,
+  isBlobKey,
   isSafeKeyId,
   isSafeRelPath,
-  isValidFileKey,
   MOBILE_IMAGES_PER_LAUNCH,
   parseCompat,
   readCloudLimit,
@@ -31,6 +30,8 @@ import {
   type MobilePairingResponse,
   type PushChangesResponse,
   type SealedChangeIn,
+  type SealedFileIn,
+  type SealedListFilesResponse,
   type SealedPullChangesResponse,
   type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
@@ -126,11 +127,15 @@ export class LimitError extends CloudError {
 }
 
 /**
- * R2 の鍵として Worker が受け取る形か。
- * 判定の本体は共有（`packages/shared/src/cloud.ts`）にあり、Worker の `validKey` と同じ物差しである。
- * ここで独自に字種を狭めると、日本語や空白を含む `~/.claude` のファイルが端末側だけで止まる。
+ * GET /files/:key に載せてよい鍵か。
+ * 書く鍵は R2 の鍵名（`b/<端末 ID>/<HMAC>`、shared の isBlobKey）だけである。
+ * 読む鍵は、それに加えて版 8 までの Worker の鍵名（`transcripts/...` と `config/...`）も通す。
+ * hangar cloud teardown が、作り直しの前の Worker から本文を降ろすのに使う（Task 26 で作り直す）。
+ * どちらも URL のパスを抜け出す断片（`..`、空の断片、制御文字）は通さない。
  */
-export { isValidFileKey } from '@agent-hangar/shared';
+export function isFetchableKey(key: string): boolean {
+  return isBlobKey(key) || (/^(transcripts|config)\//.test(key) && isSafeRelPath(key));
+}
 
 /** 小さい応答（changes、rows、files の一覧、health）の締め切り。 */
 export const DEFAULT_TIMEOUT_MS = 30_000;
@@ -216,12 +221,9 @@ export type OpenedSnapshotResponse = Omit<SealedSnapshotResponse, 'changes'> & {
  */
 export type KeyRefresh = 'not-needed' | 'gained' | 'missing';
 
-/** 行のほかの口。線の上（WireCloudClient）と開いた側（CloudClient）で同じ形である。 */
+/** 行と本文のほかの口。線の上（WireCloudClient）と開いた側（CloudClient）で同じ形である。 */
 export interface CloudClientBase {
   health(): Promise<{ ok: boolean; version: string }>;
-  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
-  getFile(key: string): Promise<Readable>;
-  listFiles(since: number, limit: number): Promise<ListFilesResponse>;
   /** 使用量と費用。 */
   usage(): Promise<CloudUsageBody>;
   /**
@@ -279,6 +281,12 @@ export interface WireCloudClient extends CloudClientBase {
   pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse>;
   pullChanges(since: number, limit: number): Promise<SealedPullChangesResponse>;
   snapshot(after: string | null, limit: number): Promise<SealedSnapshotResponse>;
+  /** 封じたメタと、暗号化済みの本文を置く（PUT /files/:key）。鍵名は自端末の下（`b/<自分>/`）だけ。 */
+  putFile(meta: SealedFileIn, body: Readable): Promise<{ seq: number }>;
+  /** 暗号化されたままの本文を取る。 */
+  getFile(key: string): Promise<Readable>;
+  /** 封じたメタのままの索引。 */
+  listFiles(since: number, limit: number): Promise<SealedListFilesResponse>;
 }
 
 /**
@@ -290,6 +298,16 @@ export interface CloudClient extends CloudClientBase {
   pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse>;
   pullChanges(since: number, limit: number): Promise<OpenedPullResponse>;
   snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse>;
+  /**
+   * 平文の本文を上げる。gzip してから meta.epoch の世代の本文の鍵で暗号化し、メタを封じて置く。
+   * 鍵名（meta.key）は呼び手が e2e/names.ts で同じ世代の `/index` の鍵から求める。
+   * meta.epoch が今の世代でなければ上げない（世代を回した後に、古い世代の鍵で書かない）。
+   */
+  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
+  /** 本文を取り、epoch の世代の鍵で復号して gzip を解いた平文の流れを返す。 */
+  getFile(key: string, epoch: number): Promise<Readable>;
+  /** 索引を開いて返す。開けない行（鍵が無い、宛先や鍵名が中身と合わない）は飛ばす。 */
+  listFiles(since: number, limit: number): Promise<ListFilesResponse>;
   /**
    * 開けなかった行の世代（unreadable の epoch）を渡し、手元に無い世代があれば名簿と keybox を読み直す。
    * 同期のエンジンは 1 巡に 1 度だけ呼び、gained なら同じ頁を読み直す。実装しない偽物は読み直さない。
@@ -496,8 +514,8 @@ export class HttpCloudClient implements WireCloudClient {
     }
   }
 
-  private requireValidKey(key: string): void {
-    if (!isValidFileKey(key)) throw new CloudError(400, JSON.stringify({ error: 'invalid key' }));
+  private requireKey(ok: boolean): void {
+    if (!ok) throw new CloudError(400, JSON.stringify({ error: 'invalid key' }));
   }
 
   lastWorkerCompat(): number | null { return this.seenWorkerCompat; }
@@ -512,7 +530,7 @@ export class HttpCloudClient implements WireCloudClient {
   }
   pullChanges(since: number, limit: number) { return this.json<SealedPullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
   snapshot(after: string | null, limit: number) { return this.json<SealedSnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
-  listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
+  listFiles(since: number, limit: number) { return this.json<SealedListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
 
   usage() { return this.json<CloudUsageBody>('/usage'); }
 
@@ -566,20 +584,14 @@ export class HttpCloudClient implements WireCloudClient {
     await this.json<{ ok: boolean }>(`/m/launches/${encodeURIComponent(id)}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ok, sealedAnswer }) });
   }
 
-  async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
-    this.requireValidKey(meta.key);
-    // 見出しの値は ByteString しか運べない。
-    // 符号化せずに日本語を渡すと undici が送る前に TypeError を投げるので、ここで符号化する。
-    // 復号は Worker が同じ共有の関数で行う。
-    const wirePath = isSafeRelPath(meta.path) ? encodeHeaderText(meta.path) : null;
-    if (wirePath === null) throw new CloudError(400, JSON.stringify({ error: 'invalid headers' }));
+  async putFile(meta: SealedFileIn, body: Readable): Promise<{ seq: number }> {
+    this.requireKey(isBlobKey(meta.key));
+    // パス、平文の SHA-256、mtime は封じたメタ（base64url）の中にあり、見出しに平文で載せない。
     const headers: Record<string, string> = {
-      [CLOUD_HEADERS.path]: wirePath,
       [CLOUD_HEADERS.kind]: meta.kind,
-      [CLOUD_HEADERS.sha256]: meta.sha256,
       [CLOUD_HEADERS.size]: String(meta.size),
-      [CLOUD_HEADERS.mtime]: String(meta.mtime),
-      [CLOUD_HEADERS.encrypted]: meta.encrypted ? '1' : '0',
+      [CLOUD_HEADERS.epoch]: String(meta.epoch),
+      [CLOUD_HEADERS.meta]: meta.sealedMeta,
       'content-type': 'application/octet-stream',
     };
     // 中身は暗号化済みなので、一時ファイルに置いても平文は残らない。通っても倒れても消す。
@@ -622,7 +634,7 @@ export class HttpCloudClient implements WireCloudClient {
   }
 
   async getFile(key: string): Promise<Readable> {
-    this.requireValidKey(key);
+    this.requireKey(isFetchableKey(key));
     const { res, d } = await this.send(`/files/${encodeFileKeyPath(key)}`, {}, this.transferTimeoutMs);
     if (!res.body) {
       d.clear();
