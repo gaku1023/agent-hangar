@@ -75,6 +75,10 @@ describe('presentCloudMember', () => {
     const p = (j: CloudMemberState['join']) => presentCloudMember(store({ cloudMember: member({ join: j }) }), NOW).join;
     expect(p({ kind: 'url', failure: { code: 'invalid-url', message: '' } }).urlError).toBe('接続先の URL は https:// で始まる形で入力してください。');
     expect(p({ kind: 'url', failure: { code: 'outdated', message: '' } }).urlError).toContain('Worker');
+    // 古い形式の Worker を作成した PC は、参加の前に teardown が要る（CLI の長い文ではなく、画面の文で言う）。
+    const legacy = p({ kind: 'url', failure: { code: 'legacy-config', message: '/x/cloud.json は古い形式' } }).urlError!;
+    expect(legacy).toContain('npm run hangar -- cloud teardown');
+    expect(legacy).not.toContain('/x/cloud.json');
     const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
     expect(p({ kind: 'waiting', check, sas: '012345', expiresAt: 1 }).sas).toBe('012 345');
   });

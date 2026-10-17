@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { type CloudConfig, loadCloudConfig, readTranscriptsFrom, saveCloudConfig } from '@agent-hangar/server';
 import {
   deriveEpochKeys,
+  deriveJoinSecrets,
   deriveSas,
   encodeEpochList,
   generateKeyPair,
@@ -14,6 +15,7 @@ import {
   randomEpochKey,
   sealKeybox,
   sealRoster,
+  setJoinKdfIterationsForTests,
   toBase64Url,
   type DeviceOut,
   type Roster,
@@ -39,6 +41,12 @@ import {
 const device = { id: 'pc-b', name: 'pc-b', platform: 'darwin' };
 const URL_ = 'https://h.workers.dev';
 const CODE = 'K7QM-2XFD';
+/** 偽の Worker が /health で名乗るクラウドの ID。新しい PC はこれを参加コードの重い KDF の salt に使う。 */
+const CLOUD = 'cloud-test-1';
+
+// 参加コードの重い KDF（本番は 1 回 0.3 秒前後）は、試験では回数を減らす。
+beforeAll(() => setJoinKdfIterationsForTests(1000));
+afterAll(() => setJoinKdfIterationsForTests(null));
 
 const temps: string[] = [];
 afterEach(() => {
@@ -99,9 +107,10 @@ async function cloudWithIssuer() {
  * keybox を置かない承認も作れる（承認と keybox の間に問い合わせが来た場面）。
  */
 async function issuerApproves(c: Awaited<ReturnType<typeof cloudWithIssuer>>, code: string, o: { keybox?: boolean } = {}) {
-  const hash = await joinCodeHash(code);
+  const secrets = await deriveJoinSecrets(code, CLOUD);
+  const hash = secrets.codeHash;
   const entry = c.w.codes.get(hash)!;
-  const req = await openJoinRequest(code, hash, entry.sealed!);
+  const req = await openJoinRequest(secrets, entry.sealed!);
   const keys = await deriveEpochKeys(1, c.epochKey);
   const roster: Roster = {
     v: 1,
@@ -168,22 +177,22 @@ describe('joinRequest（参加リクエストを置く）', () => {
   it('join-request は下書きを 0600 で書き、確認コードは deriveSas と同じ', async () => {
     const c = await cloudWithIssuer();
     const h = home();
-    c.w.issue(await joinCodeHash(CODE));
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
     // 小文字と空白と全角のハイフンでも、同じコードとして読む。
     const r = await joinRequest({ home: h, url: URL_, code: ' k7qm－2xfd\n', device, fetch: c.w.fetch, now: () => 1000 });
     const d = readPending(h);
     expectMode(pendingJoinPath(h), 0o600);
     const pub = (d.keyPair as { pub: string }).pub;
-    expect(r.sas).toBe(await deriveSas(CODE, pub));
+    expect(r.sas).toBe(await deriveSas(await deriveJoinSecrets(CODE, CLOUD),pub));
     expect(r.sas).toMatch(/^[0-9]{6}$/);
     expect(r.expiresAt).toBe(1000 + 5 * 60_000);
     // 下書きに参加コードの平文は置かない。
     expect(JSON.stringify(d)).not.toContain('K7QM');
-    expect(d).toMatchObject({ url: URL_, codeHash: await joinCodeHash(CODE), deviceId: 'pc-b', deviceToken: null });
+    expect(d).toMatchObject({ url: URL_, codeHash: await joinCodeHash(CODE, CLOUD), deviceId: 'pc-b', deviceToken: null });
     // Worker に置いたリクエストは、参加コードで開くと、この PC の公開鍵と名前と OS である。
-    const entry = c.w.codes.get(await joinCodeHash(CODE))!;
+    const entry = c.w.codes.get(await joinCodeHash(CODE, CLOUD))!;
     expect(entry.deviceId).toBe('pc-b');
-    expect(await openJoinRequest(CODE, await joinCodeHash(CODE), entry.sealed!)).toEqual({ pub, name: 'pc-b', os: 'darwin' });
+    expect(await openJoinRequest(await deriveJoinSecrets(CODE, CLOUD), entry.sealed!)).toEqual({ pub, name: 'pc-b', os: 'darwin' });
     expect(loadCloudConfig(h)).toBeNull();
   });
 
@@ -198,11 +207,28 @@ describe('joinRequest（参加リクエストを置く）', () => {
     const c = await cloudWithIssuer();
     const h = home();
     saveCloudConfig(h, conf({ url: 'https://old.workers.dev' }));
-    c.w.issue(await joinCodeHash(CODE));
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
     expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch }))).toBe('overwrite-required');
     expect(c.w.calls).toEqual([]);
     await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true });
-    expect(c.w.calls).toEqual(['POST /join/requests']);
+    expect(c.w.calls).toEqual(['GET /health', 'POST /join/requests']);
+  });
+
+  it('参加コードのハッシュと封は /health のクラウドの ID から導き、ID を返さない Worker には何も置かない', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
+    // 接続先が別のクラウドを名乗ると、同じコードでもハッシュが一致しない。
+    c.w.cloudId = 'cloud-test-2';
+    expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch }))).toBe('code-not-found');
+    expect(c.w.codes.get(await joinCodeHash(CODE, CLOUD))!.sealed).toBeFalsy();
+    // cloudId を返さない Worker（版 9 より前）には、参加リクエストを送らない。
+    c.w.calls.length = 0;
+    const old = (async (input: string | URL | Request, init?: RequestInit) =>
+      new URL(String(input)).pathname === '/health' ? new Response(JSON.stringify({ ok: true, version: 'x', compat: 9 }), { status: 200 }) : c.w.fetch(input, init)) as typeof fetch;
+    expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: old }))).toBe('outdated');
+    expect(c.w.calls).toEqual([]);
+    expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
   });
 
   it('壊れた cloud.json は上書きせずに broken-config', async () => {
@@ -212,13 +238,45 @@ describe('joinRequest（参加リクエストを置く）', () => {
     expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true }))).toBe('broken-config');
     expect(c.w.calls).toEqual([]);
   });
+
+  it('古い形式で Worker を作成した PC（workerName あり）は、上書きの指定があっても legacy-config で断り、teardown を案内する', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    const before = JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files' }));
+    fs.writeFileSync(path.join(h, 'cloud.json'), before);
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
+    for (const run of [() => joinCheck({ home: h, url: URL_, fetch: c.w.fetch }), () => joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true })]) {
+      const e = await run().then(() => null, (x: unknown) => x);
+      expect(e).toBeInstanceOf(MembershipError);
+      expect((e as MembershipError).code).toBe('legacy-config');
+      expect((e as MembershipError).message).toContain('npm run hangar -- cloud teardown');
+      expect((e as MembershipError).message).toContain('hangar-old');
+    }
+    expect(c.w.calls).toEqual([]);
+    expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
+    expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
+  });
+
+  it('古い形式で参加しただけの PC は、上書きの指定で参加でき、接続先の確認は今の接続先を添える', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    fs.writeFileSync(path.join(h, 'cloud.json'), JSON.stringify(legacy()));
+    expect((await joinCheck({ home: h, url: URL_, fetch: c.w.fetch })).current).toEqual({ url: 'https://old.workers.dev' });
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
+    expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch }))).toBe('overwrite-required');
+    await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true });
+    expect(c.w.calls.at(-1)).toBe('POST /join/requests');
+  });
 });
+
+/** 0.8.x までの古い形式（版 1）の cloud.json。 */
+const legacy = (over: Record<string, unknown> = {}): Record<string, unknown> => ({ url: 'https://old.workers.dev', joinSecret: 's', deviceToken: 'dt-old', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1, ...over });
 
 describe('joinPoll（1 回だけ問い合わせる）', () => {
   async function requested() {
     const c = await cloudWithIssuer();
     const h = home();
-    c.w.issue(await joinCodeHash(CODE));
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
     await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch });
     return { c, h };
   }
@@ -265,6 +323,36 @@ describe('joinPoll（1 回だけ問い合わせる）', () => {
     expect(readTranscriptsFrom(h)).toBe(saved.joinedAt);
   });
 
+  it('古い形式で参加しただけの cloud.json は、上書きの前に backups/ へ時刻つきの名前で控える', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    const before = JSON.stringify(legacy());
+    fs.writeFileSync(path.join(h, 'cloud.json'), before, { mode: 0o600 });
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
+    await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true });
+    // 承認の前は控えない（cloud.json はまだ書き換えない）。
+    expect(fs.existsSync(path.join(h, 'backups'))).toBe(false);
+    await issuerApproves(c, CODE);
+    expect(await joinPoll({ home: h, fetch: c.w.fetch })).toEqual({ status: 'approved' });
+    expect(loadCloudConfig(h)).toMatchObject({ v: 2, url: URL_ });
+    const files = fs.readdirSync(path.join(h, 'backups')).filter((f) => f.startsWith('cloud.json.'));
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^cloud\.json\.legacy-\d{8}-\d{6}(-\d+)?$/);
+    const copy = path.join(h, 'backups', files[0]!);
+    expect(fs.readFileSync(copy, 'utf8')).toBe(before);
+    expectMode(copy, 0o600);
+  });
+
+  it('参加を完了する前に cloud.json が Worker を作成した古い形式に変わっていたら、上書きせずに legacy-config で止まり、下書きを保つ', async () => {
+    const { c, h } = await requested();
+    await issuerApproves(c, CODE);
+    const before = JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files' }));
+    fs.writeFileSync(path.join(h, 'cloud.json'), before);
+    expect(await codeOf(joinPoll({ home: h, fetch: c.w.fetch }))).toBe('legacy-config');
+    expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
+    expect(readPending(h).deviceToken).toEqual(expect.any(String));
+  });
+
   it('承認の直後で keybox がまだ無ければ、受け取った端末トークンを下書きに持って waiting、次の問い合わせで完了する', async () => {
     const { c, h } = await requested();
     const req = await issuerApproves(c, CODE, { keybox: false });
@@ -285,7 +373,7 @@ describe('joinPoll（1 回だけ問い合わせる）', () => {
     expect(await joinPoll({ home: h, fetch: c.w.fetch })).toEqual({ status: 'waiting' });
     const before = fs.readFileSync(pendingJoinPath(h), 'utf8');
     const next = 'M8RN-3YGE';
-    c.w.issue(await joinCodeHash(next));
+    c.w.issue(await joinCodeHash(next, CLOUD));
     c.w.calls.length = 0;
     expect(await codeOf(joinRequest({ home: h, url: URL_, code: next, device, fetch: c.w.fetch }))).toBe('join-pending');
     // Worker に送らず、下書き（端末トークン）はそのまま。
@@ -301,10 +389,10 @@ describe('joinPoll（1 回だけ問い合わせる）', () => {
     const { c, h } = await requested();
     const first = readPending(h).codeHash;
     const next = 'M8RN-3YGE';
-    c.w.issue(await joinCodeHash(next));
+    c.w.issue(await joinCodeHash(next, CLOUD));
     await joinRequest({ home: h, url: URL_, code: next, device, fetch: c.w.fetch });
     expect(readPending(h).codeHash).not.toBe(first);
-    expect(readPending(h).codeHash).toBe(await joinCodeHash(next));
+    expect(readPending(h).codeHash).toBe(await joinCodeHash(next, CLOUD));
   });
 
   it('expired で下書きを消す', async () => {
@@ -317,7 +405,7 @@ describe('joinPoll（1 回だけ問い合わせる）', () => {
 
   it('rejected でも下書きを消し、cloud.json を書かない', async () => {
     const { c, h } = await requested();
-    c.w.reject(await joinCodeHash(CODE));
+    c.w.reject(await joinCodeHash(CODE, CLOUD));
     expect(await joinPoll({ home: h, fetch: c.w.fetch })).toEqual({ status: 'rejected' });
     expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
     expect(loadCloudConfig(h)).toBeNull();
@@ -447,7 +535,7 @@ describe('殻から呼ぶ形（--json の 1 行）', () => {
   it('join-check、join-request、join-poll は結果を 1 行の JSON で返す', async () => {
     const c = await cloudWithIssuer();
     const h = home();
-    c.w.issue(await joinCodeHash(CODE));
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
 
     const chk = lines();
     expect(await joinCheckCommand({ home: h, url: URL_, json: true, log: chk.log, fetch: c.w.fetch })).toBe(0);
@@ -470,7 +558,7 @@ describe('殻から呼ぶ形（--json の 1 行）', () => {
     const saved = loadCloudConfig(h)!;
     const all = [...chk.out, ...req.out, ...p1.out, ...p2.out].join('\n');
     for (const s of [saved.keyPair.priv, saved.epochs['1']!, saved.deviceToken, CODE, 'K7QM2XFD']) expect(all).not.toContain(s);
-    expect(request.sas).toBe(await deriveSas(CODE, saved.keyPair.pub));
+    expect(request.sas).toBe(await deriveSas(await deriveJoinSecrets(CODE, CLOUD),saved.keyPair.pub));
   });
 
   it('失敗は code と message の 1 行で返す', async () => {

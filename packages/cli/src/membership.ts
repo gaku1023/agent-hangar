@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CloudError, cloudConfigPath, type CloudConfig, HttpCloudClient, MIN_WORKER_COMPAT, readCloudConfig, readLegacyCloudConfig, readOrCreateToken, RevokedError, saveCloudConfig } from '@agent-hangar/server/src/cliEntry.ts';
+import { backupsRoot, CloudError, cloudConfigPath, type CloudConfig, HttpCloudClient, MIN_WORKER_COMPAT, readCloudConfig, readLegacyCloudConfig, readOrCreateToken, RevokedError, saveCloudConfig } from '@agent-hangar/server/src/cliEntry.ts';
 import {
   decodeEpochList,
   deriveEpochKeys,
+  deriveJoinSecrets,
   deriveSas,
   DEVICE_ADMIN_MIN_WORKER_COMPAT,
   E2eOpenError,
@@ -13,7 +14,6 @@ import {
   importPrivate,
   isAllowedJoinUrl,
   JOIN_CODE_TTL_MS,
-  joinCodeHash,
   normalizeJoinCode,
   openKeybox,
   openRoster,
@@ -158,15 +158,46 @@ function normalizeUrl(input: string): string {
   return new URL(s).origin;
 }
 
-/** 今参加しているクラウドの接続先。壊れた cloud.json は上書きさせないので broken-config で止める。 */
+/**
+ * 今参加しているクラウドの接続先。壊れた cloud.json は上書きさせないので broken-config で止める。
+ * 古い形式で Worker を作成した PC（workerName がある）も legacy-config で止める。
+ * 上書きすると Worker の名前、アカウント、D1 と R2 の名前、R2 の本文の暗号鍵の材料（joinSecret）が消え、teardown も R2 の本文の復号もできなくなるからである。
+ * 古い形式で参加しただけの PC は、上書きして参加してよい（上書きの前に backups/ に控える。backupLegacyConfig）。
+ */
 function currentCloud(home: string): { url: string } | null {
   const read = readCloudConfig(home);
   if (read.state === 'broken') throw new MembershipError('broken-config', brokenConfigMessage(home));
   if (read.state === 'legacy') {
     const legacy = readLegacyCloudConfig(home).config;
+    if (legacy?.workerName) throw new MembershipError('legacy-config', legacyConfigMessage(home));
     return legacy ? { url: legacy.url } : { url: '' };
   }
   return read.config ? { url: read.config.url } : null;
+}
+
+const pad2Time = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * 古い形式の cloud.json を、上書きの前に backups/ へ控える（名前は cloud.json.legacy-YYYYMMDD-HHMMSS）。
+ * 参加しただけの PC の古い設定は、もう使い道は無いが、何かあったときに元の接続先と端末トークンを確かめられるよう、黙って消さない。
+ * 中身に端末トークンと参加用のシークレットがあるので、0600 で書く。同じ名前があれば後ろに番号を足す。
+ */
+function backupLegacyConfig(home: string, now: number): void {
+  const dir = backupsRoot(home);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const d = new Date(now);
+  const stamp = `${d.getFullYear()}${pad2Time(d.getMonth() + 1)}${pad2Time(d.getDate())}-${pad2Time(d.getHours())}${pad2Time(d.getMinutes())}${pad2Time(d.getSeconds())}`;
+  const text = fs.readFileSync(cloudConfigPath(home));
+  for (let i = 0; ; i++) {
+    const file = path.join(dir, `cloud.json.legacy-${stamp}${i === 0 ? '' : `-${i}`}`);
+    try {
+      // wx は既にある名前では失敗する。前の控えを上書きしない。
+      fs.writeFileSync(file, text, { flag: 'wx', mode: 0o600 });
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    }
+  }
 }
 
 const outdatedJoin = (): MembershipError =>
@@ -206,7 +237,7 @@ export async function joinCheck(o: { home: string; url: string; fetch?: typeof f
  * 参加コードの形を手元で確かめてから、鍵ペアを作り、公開鍵と名前と OS を参加コードで封じて Worker に置く。
  * 形の違うコードは Worker に送らない（一致しないコードへのリクエストは Worker 全体の上限に数えられる）。
  * 鍵ペアは、送る前に下書き（0600）に書く。送った後に止まっても、秘密鍵を失わない。
- * 確認コードは、参加コードとこの PC の公開鍵から導く。発行した PC にも同じ確認コードが表示される。
+ * 確認コードは、参加コードとクラウドの ID から重い KDF で導いた種と、この PC の公開鍵から導く。発行した PC にも同じ確認コードが表示される。
  */
 export async function joinRequest(o: { home: string; url: string; code: string; device: DeviceLike; overwrite?: boolean; fetch?: typeof fetch; now?: () => number }): Promise<JoinRequestResult> {
   const code = normalizeJoinCode(String(o.code ?? ''));
@@ -224,17 +255,26 @@ export async function joinRequest(o: { home: string; url: string; code: string; 
   // DB を先に開く（控えが取れなければ、参加リクエストを送る前に止まる）。床を刻むのは承認の後（joinPoll）である。
   openFloorFirst(o.home, '参加リクエストはまだ送信していません', 'hangar cloud join').close();
 
+  // 参加コードのハッシュと封の鍵は、コードとクラウドの ID から重い KDF で導く（発行した PC は cloud.json の cloudId を使う）。
+  // 新しい PC はまだ cloud.json を持たないので、接続先の /health が名乗る ID を使う。別のクラウドを名乗れば、ハッシュが一致せず 404 になる。
+  const f = o.fetch ?? realFetch;
+  const h = await workerFetch(url, '/health', { fetch: f });
+  const health = h.ok ? await jsonOf<{ ok?: unknown; cloudId?: unknown }>(h) : null;
+  if (health?.ok !== true) throw new MembershipError('unreachable', `${url} からクラウドの応答がありません（HTTP ${h.status}）。接続先の URL を確認してください`);
+  if (typeof health.cloudId !== 'string' || health.cloudId === '') throw outdatedJoin();
+
   const now = (o.now ?? Date.now)();
   const keyPair = await generateKeyPair();
-  const codeHash = await joinCodeHash(code);
-  const sealed = await sealJoinRequest(code, codeHash, { pub: keyPair.pub, name: o.device.name, os: o.device.platform });
-  const sas = await deriveSas(code, keyPair.pub);
+  const secrets = await deriveJoinSecrets(code, health.cloudId);
+  const codeHash = secrets.codeHash;
+  const sealed = await sealJoinRequest(secrets, { pub: keyPair.pub, name: o.device.name, os: o.device.platform });
+  const sas = await deriveSas(secrets, keyPair.pub);
   const expiresAt = now + JOIN_CODE_TTL_MS;
   writePending(o.home, { v: 1, url, codeHash, deviceId: o.device.id, keyPair, expiresAt, createdAt: now, deviceToken: null });
 
   let r: Response;
   try {
-    r = await workerFetch(url, '/join/requests', { fetch: o.fetch ?? realFetch, method: 'POST', body: { codeHash, deviceId: o.device.id, sealed } });
+    r = await workerFetch(url, '/join/requests', { fetch: f, method: 'POST', body: { codeHash, deviceId: o.device.id, sealed } });
   } catch (e) {
     removePending(o.home);
     throw e;
@@ -328,6 +368,12 @@ async function finishJoin(home: string, d: PendingJoin, deviceToken: string, f: 
     if (e instanceof RevokedError) throw membershipErrorOf(e);
     // 名簿は後から読み直せるので、ここでは参加を止めない。
   }
+
+  // 上書きの直前に、今の cloud.json を確かめ直す（参加リクエストを送った後に変わっているかもしれない）。
+  // 壊れているか、Worker を作成した古い形式なら書かずに止まる。端末トークンは下書きにあるので、直してから問い合わせ直せば続く。
+  // 参加しただけの古い形式は、backups/ に控えてから上書きする。
+  currentCloud(home);
+  if (readCloudConfig(home).state === 'legacy') backupLegacyConfig(home, Date.now());
 
   // 床を刻むための DB を開く。開けなければ、端末トークンを下書きに持ったまま止まり、もう一度の問い合わせで続ける。
   const floor = openFloorFirst(home, 'cloud.json はまだ書いていません（受信した端末トークンは下書きに保存しています）', 'hangar cloud join-poll');

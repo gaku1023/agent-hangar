@@ -372,8 +372,8 @@ export function bootSync(
         }
       : null;
     // 参加コードの発行と承認。状態は設定の画面へ、新しいリクエストは右下の通知と OS の通知へ渡す。
-    const joinApprover = wire && roster && keyring
-      ? new JoinApprover({ wire, roster, keyring, language: home.language, onGained: () => onKeysGained(), ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
+    const joinApprover = cloud && wire && roster && keyring
+      ? new JoinApprover({ wire, roster, keyring, cloudId: cloud.cloudId, language: home.language, onGained: () => onKeysGained(), ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
       : null;
     // 他の端末の解除と世代の回し。一時停止の間も行う（利用者が頼んだ操作である）。
     // 解除と回しの続きは 1 本の鎖に並べ、2 つの回しを重ねない。

@@ -10,7 +10,7 @@ export { PS_STATUSLINE_MARKER, STATUSLINE_MARKER, appendStatuslineSnippet, hasSt
 export { claudeJsonPath, readUserMcpServers, removeUserMcpServer, upsertUserMcpServer } from './provider/claude-code/config/claudeJson.ts';
 export { readUtf8Text, utf8Problem } from './config/textEncoding.ts';
 export { SHELL_MARKER, ensureShellScript, installShellHook, planShellHook, planShellUnhook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, shellWrapOsSupported, shellWrapSupported, uninstallShellHook, zshrcPath, type ShellHookState, type ShellScriptOptions } from './config/shellHook.ts';
-export { backupsRoot, checkCloudConfigPerms, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
+export { backupsRoot, checkCloudConfigPerms, cloudConfigPath, loadCloudConfig, parseCloudConfigV2, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
 // 版 1 の cloud.json を読むのは、古いクラウドを片付ける hangar cloud teardown だけである（Task 26 が作り直す）。
 // CLI は版 1 を書かない。
 export { readLegacyCloudConfig, type LegacyCloudConfig } from './config/cloud.ts';

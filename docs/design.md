@@ -4666,6 +4666,7 @@ OS の通知を押したときは、殻が頁の `window.__hangarOpenJoin()` を
 旧い `hangar join` は廃止の案内を出して終わるだけなので、案内に使わない。
 クラウドの用意は wrangler で Worker を上げるので、入れた版の hangar では止まる（`requireCloudDir`）。だから `npm run hangar -- setup cloud` と出し、「リポジトリを clone して npm install した場所で」と添える。
 Worker の入れ替えを促す文（`sync.compat.worker`、`configSyncUi.worker.body`）も、同じ呼び方と添え書きにそろえる。
+ただし、Worker の互換の版が 8 以下（0.8.x までのクラウド）のときは入れ替えでは直らないので、`sync.compat.workerRebuild` で `docs/cloud-sync.md` の再構築の手順へ案内する（`sync/client.ts` の `compatMessage`）。
 月の予算の行は置かない（Cloudflare の月の予算で止める仕組みは段 5 で作る）。
 Claude Code の設定の同期は、常設の行で、スイッチと、届いている変更、競合、送らなかった項目、バックアップを出す。中身はダイアログで見せる（「設定の同期の作り直し」の節）。
 ヘッダーの同期の語を押すと、設定がこの節で開く（`#/settings?at=sync`。`sync` は `cloud` の別名）。
@@ -5531,7 +5532,14 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 **setup と参加の CLI（互換の版 9）。**
 `hangar setup cloud` は、デプロイの前に最初の端末トークンを作り、その SHA-256 を `wrangler secret put BOOTSTRAP_TOKEN_HASH` の標準入力で渡す。
 `/health` が通ったら、この PC の鍵ペアを作り、`POST /bootstrap` にこの PC の ID（`home.device.id`）と最初の端末トークンを送って登録する（反映待ちの 401 と 503 は 5 秒おきに 6 回まで待つ）。
-登録できたら、端末トークンを失わないよう、名簿を置く前に `cloud.json`（版 2、0600）を書く。世代 1 の世代鍵もここで作る。
+登録できたら、端末トークンを失わないよう、名簿を置く前に下書き `~/.agent-hangar/cloud-setup-pending.json`（0600）に書く。世代 1 の世代鍵もここで作る。
+下書きの中身は、版 2 の `cloud.json` と同じ設定と、この PC の端末 ID である（`recover` の下書きと同じく、一時ファイルからの rename で書く）。
+`cloud.json` の版 2 は、名簿と `recovery` 宛ての keybox を置けた後に初めて書き、同じ時点で本文の床を刻み、下書きを消す。
+`cloud.json` の版 2 が現れるとアプリが取り込んで同期を始める（`boot/sync.ts` の `watchForCloud`）ので、確認の段で止まったクラウド（名簿もリカバリーキーの keybox も無い）で同期を始めさせないためである。
+確認の段で止まった setup をもう一度実行すると、名前と端末 ID が同じ下書きから続ける。`secret put` も登録もせず、下書きの端末トークンと暗号鍵を使い、リカバリーキーは新しく作って表示からやり直す。
+名簿まで置けて `cloud.json` を書く前に止まっていたときは、名簿の版を写して `cloud.json` を書くだけで終わる（リカバリーキーは前回保存したもの）。
+下書きと別のアカウントを選んだとき、または接続先の `cloudId` が下書きと違うときは、下書きの端末トークンが使えないので、前者は最初から作り、後者は下書きを消すよう案内して止まる。
+サーバーの守りとして、名簿の無いクラウドでは参加の承認が空の名簿を作らず、`sync.join.notSetUp` で断る。
 続けてリカバリーキーの鍵ペアを作り、リカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する（`recovery.ts` の `showAndConfirmRecoveryKey`）。
 `--save <パス>` があれば同じ 4 行をそのファイルに 0600 で書き、端末で `--save` が無ければ保存先を尋ねる。
 保存した暗号鍵の末尾 4 文字を入力してもらい、外れたら聞き直し、3 回外れたら表示し直す。3 回表示しても合わなければ、名簿も keybox も置かずに止まる（setup は終わらない）。
@@ -5539,8 +5547,9 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 確かめた後で、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
 名簿を確認の後に置くのは、確かめられずに止まった setup をやり直したときに、名簿が無いことから新しいリカバリーキーを作り直せるようにするためである。
 確かめられずに止まったときは、`--save` で書いたファイルを消す。確かめた後に keybox か名簿を置けずに止まったときは、保存したキーは使えないので、もう一度実行して新しいキーを保存するよう伝える。
-同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、リカバリーキーの表示と確認、名簿と keybox をここで行う。
-古い形式（版 1）の `cloud.json` があれば上書きせず、先に `hangar cloud teardown`（参加しただけの PC では `cloud.json` の削除）を案内して止まる。
+同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（0.9.0 の前の版の setup が名簿を置く前に止まったもの）、リカバリーキーの表示と確認、名簿と keybox をここで行う。
+古い形式（版 1）の `cloud.json` があれば上書きせずに止まる（`legacyConfigMessage`）。
+Worker を作成した PC（`workerName` がある）には、`npm run hangar -- cloud teardown` で古いクラウドを削除してから `npm run hangar -- setup cloud` で作ることを、参加しただけの PC には、新しいクラウドに上書きして参加することを案内する。
 サーバーは古い形式の `cloud.json` で同期を始めず、同期の状態（`SyncStatusDto`）の off に `legacyConfig: true` を添える。
 設定 › クラウド同期 は、これを未参加と見分け、「この PC だけで使用しています」の代わりに再構築が必要なことの帯と `docs/cloud-sync.md` の手順へのリンク、`hangar cloud status` のコマンドを出し、節の札と目次を「再構築が必要」（要修正の色）にする。
 参加コードでの参加は再構築の手順の中で使うので、ボタンはそのまま出す。
@@ -5558,6 +5567,14 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 `join-poll` は `GET /join/status` を 1 回だけ問い合わせる。承認されたら端末トークンを先に下書きに書き、自分宛ての keybox を開いて世代鍵を読み、名簿の版とスマホ用の鍵を写して `cloud.json`（版 2）を書き、下書きを消す。keybox がまだ無ければ、端末トークンを下書きに持ったまま `waiting` を返し、次の問い合わせで続ける。
 `hangar cloud join <url>` は同じ手順を端末で対話して進める（2 秒ごとに問い合わせる）。
 旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
+
+古い形式（版 1）の `cloud.json` での参加は、Worker を作成した PC かどうかで分ける（`membership.ts` の `currentCloud`）。
+Worker を作成した PC（`workerName` がある）は、`join-check` と `join-request` を `--overwrite` があっても `legacy-config` で断り、先に teardown するよう案内する。
+上書きすると Worker の名前、アカウント、D1 と R2 の名前、R2 の本文の暗号鍵の材料（`joinSecret`）が消え、teardown も R2 の本文の復号もできなくなるからである。
+殻は CLI の `code` をそのまま返し、画面は接続先の欄の下に `cloudMember.join.legacyCreator`（teardown の案内）を出す。
+参加しただけの PC（`workerName` が無い）は、別のクラウドに参加済みの PC と同じく上書きの確認で参加できる。
+`join-poll` は `cloud.json` を書く直前に今の `cloud.json` を確かめ直し、古い形式なら `~/.agent-hangar/backups/cloud.json.legacy-<日時>`（0600）に控えてから上書きする。
+その時点で Worker を作成した古い形式に変わっていれば、書かずに `legacy-config` で止まり、端末トークンは下書きに持ったままにする。
 
 **リカバリーキーで戻る（`hangar recover`、`recovery.ts` の `runRecover`）。**
 すべての PC を失ったときに、新しい PC で実行する。リカバリーキーの 4 行は標準入力で受け取り、argv に載せない。
@@ -5587,6 +5604,7 @@ PC はリカバリーキーの秘密鍵を持たないので、設定には「�
 末尾 4 文字は CLI の setup と同じ `normalizeRecoveryTail`（NFKC、空白とハイフンを捨てる、大文字）で照合する。同じ下書きで 5 回外れたら下書きを無効にする（409）。
 同時に 2 回呼ばれたら、進行中の確認を共有する。
 置き直すのは世代 1 から n の全部の `recovery` 宛ての箱で、世代 k の箱の中身は世代 1 から k までの世代鍵である（setup と世代を回す PC が置く形）。`PUT /keyboxes` は世代と受け手の組で上書きするので、過去の世代の箱も新しい公開鍵宛てになる。
+n はこの PC の今の世代で、回しの途中でまだ配り終えていない世代は入れない（`sealRecoveryBoxes`。承認の `placeBox` と同じ）。
 箱を置く直前に keybox と名簿を読み直し、いちばん新しい世代と名簿の公開鍵に置く。置いた後にもう一度読み、公開鍵か世代が変わっていれば（他の PC の再発行か世代の回し）置き直す。
 名簿を先に書くのは、間に世代を回した PC が、書き換えた後の名簿の公開鍵に封じるようにするためである。確認の前に保存し損ねても、古いリカバリーキーは使えるままである。
 名簿を書いた後で箱を置けないと、古いキーは名簿の照合で断られ、新しいキーは箱を開けない。
@@ -5604,8 +5622,13 @@ Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` �
 使ったハッシュは `meta.bootstrap_used` に残し、同じハッシュは 2 度通さない。
 `hangar recover` は secret を別のハッシュに入れ替えて、もう 1 度ここを通る。
 2 台目からは、参加済みの PC が発行した参加コード（5 分、1 回限り）に新しい PC がリクエストを置き、発行した PC が承認する（下の「Worker の表」）。
-D1 には参加コードの SHA-256 だけを置く。
-参加リクエストは参加コードから導いた鍵で封じるが、約 39 bit のコードは D1 の写しから総当たりできるので、承認、拒否、期限切れのどれでも `request` を null にし、1 日を過ぎた行は次の発行のついでに消す。
+D1 には参加コードのハッシュだけを置く。
+ハッシュと参加リクエストの封の鍵と確認コードは、PC の側（発行する PC と新しい PC）で `PBKDF2-SHA256(正規化したコード, salt = "hangar-join-v1:" + cloud_id, 300 万回)` の出力から HKDF で導く（shared の `e2e/joinCode.ts`）。
+回数は Node で 1 回 0.3 秒前後になるように決めた。約 39 bit のコードを 1 回の SHA-256 にすると、D1 の写し（ハッシュと封じたリクエスト）から GPU で数十秒で総当たりできるためである。
+cloud_id は発行する PC は `cloud.json`、新しい PC は `GET /health` で知り、クラウドをまたいだ前計算を効かなくする。
+Worker は受け取ったハッシュを比べるだけで、コードからは何も計算しない。
+スマホの接続の券は 16 バイトの乱数なので、1 回の SHA-256 のままである。
+それでも、承認、拒否、期限切れのどれでも `request` を null にし、1 日を過ぎた行は次の発行のついでに消す。
 発行は 1 台の PC につき 10 分に 5 回までである。
 認証の無い参加の口（`POST /join/requests`）は、通らなかった要求を Worker 全体で 10 分に 30 回まで数え（shared の `JOIN_GUESS_LIMIT`、窓と回数は `meta`）、超えたら正しいコードでも 429 で断る。
 数えるのは知らないコードへの要求だけではない。期限切れや使用済みのコード、他の PC がリクエストを置き済みのコードへの再送も、同じ 404 で返して 1 回に数える。
@@ -5614,11 +5637,15 @@ CLI の setup と参加は上の「setup と参加の CLI」の形になった�
 
 **発行した PC の承認（`sync/joinApprover.ts`）。**
 参加コードの発行と承認は、動いているサーバの `JoinApprover` が行う（CLI だけで PC を追加する口は作らない）。
-参加コードの平文はこの中のメモリにだけ置き、Worker には SHA-256 だけを送る。
+参加コードの平文はこの中のメモリにだけ置き、Worker には重い KDF で導いたハッシュだけを送る。
+重い KDF は発行のときに 1 回だけ計算し、封の鍵と確認コードの種もメモリに持つ（`deps.cloudId` は `cloud.json` の `cloudId`）。
 コードが生きている間だけ、3 秒ごとに `GET /join-codes/mine` を問い合わせ、期限を過ぎたら Worker に問い合わせずに `expired` にして止める。
 リクエストを見たら参加コードで開き、確認コードを導いて `requested` にし、そのリクエストにつき 1 回だけ、右下の通知（`ServerEvent` の `join.request`）と OS の通知（`OsNoticeDto` の種類 `join`、殻の `notify::Kind::Join`）を出す。
 状態が変わるたびに `join.update` を配る。
 承認は、名簿に新しい PC を足す（`RosterStore.update`）、世代 1 から n までの一覧を新しい PC の公開鍵に封じた keybox を置く（`PUT /keyboxes`）、`POST /join-codes/:hash/approve` の順に行う。
+名簿がまだ無い（`GET /roster` が 404 で版 0）クラウドでは承認しない。
+setup がリカバリーキーの確認の前に止まったクラウドで、ここで書くと空の名簿から作ってしまい、承認した PC 自身が入らず `recoveryPub` も空のまま残るためである。
+名簿も keybox も書かずに Worker では拒否として閉じ、`failed`（`sync.join.notSetUp`、setup を最後まで実行するよう案内する）にする。
 Worker は、承認の前の新しい PC（devices にまだ無い）を keybox の受け手として通す。通すのは、書き手が発行したコードにリクエストを置いた PC で、リクエストが期限内か、承認の後で端末トークンをまだ渡していない間だけである。
 アプリが落ちて `JoinApprover` が作り直されると、平文が消えて承認できなくなり、新しい PC は期限（5 分）で `expired` を受け取る。
 口は `POST /api/sync/join-codes`（発行）、`GET /api/sync/join-codes/current`（状態）、`POST /api/sync/join-codes/current/approve`、`/reject`、`DELETE /api/sync/join-codes/current`（取り消し。生きているコードは拒否で閉じる）で、どれも `JoinApproverState` を返し、`no-store` を付ける。
@@ -6528,6 +6555,8 @@ PC の解除は、次の段で進む。
 4. 名簿からその PC を外し、同じ書き換えで新しい世代の番号を確保する（名簿の `epochClaim`）。
 5. 残りの PC とリカバリーキーに、世代 1 から n＋1 の全部を封じた keybox を置く（`PUT /keyboxes`）。
 6. 以後の書き込みを新しい世代にし、名簿を新しい世代で封じ直す。5 の段の後で名簿に足された PC がいれば、その PC にも keybox を置く。
+   同じ書き換えで名簿の `phoneKey` を `M[m+1]` にし、名簿に残るスマホに `PUT /phone-keyboxes` で置く（スマホの解除の 4 と同じ処理）。解除した PC は手元の `M` で受信箱と起動のリクエストを開けるからである。新しい `M` は新しい世代で封じた名簿にだけ入れるので、D1 の写しからも読めない。`M` は、名簿の `M` がそのとき何の世代でも必ず 1 度回す。5 と 6 の間に他の PC がスマホの解除で `M` を進めていても、その `M` は前の世代で封じた名簿に入りうるので、回すのを飛ばさない。回し終えた印を記録の `phoneRotated` に残し、書き換えの前に候補の指紋を `phoneNext` に書くので、この段で落ちて続きから行っても 2 度は回さない。スマホの解除の記録（`phoneRevoke`）には触らない。
+   5 の段の後でリカバリーキーが再発行されていれば（名簿の `recoveryPub` が 5 の段で封じた公開鍵、記録の `recoveryPub` と違えば）、新しい公開鍵宛てに全世代の recovery の箱を置き直す。再発行が先に終わると、いちばん新しい recovery の箱が古い公開鍵宛てのまま残るからである。
 7. `rotation` を消す。
 
 各段の終わりに `rotation` の段を進める。
@@ -6659,7 +6688,9 @@ URL の文字列だけでは、同じ名前で作り直した Worker を見分�
 2. 区切り（`lastSeq`、`filesSeq`、`snapshotDone`、飛ばした行の控え）を戻し、送っていない差分を捨てて、共有テーブルの全行を親の表から順に `changes` に積み直す。他の PC が書いた行も送る。
 3. `remote/` にある他の PC のトランスクリプトのコピーを、元の PC の ID を `origin` にして、自分の `device_id` の下に上げる対象（台帳の kind が `remote_copy`）に置く。上げるのは作り直しから 3 日（`RELAY_HOLD_MS`）が過ぎ、元の PC が新しいクラウドの名簿に居ないときだけである。元の PC が参加し直せば自分で上げるので、同じ本文が PC の台数の 2 乗の数だけ上がらないようにする。
 
+前のクラウドについての記録（設定の同期の束の指紋 `configBundleKey`、recovery の箱の印 `recoveryBoxPending`、上限で退く時刻 `limitedUntil`、他の PC の最終接続 `peers`）も消す。束の指紋が残ると設定の同期の束を新しいクラウドへ上げず、`limitedUntil` が残ると新しいクラウドでも戻る時刻まで止まるからである。
 最後に新しい `cloudId` と作り直した時刻（`rebuiltAt`）を書く。
+2 の積み直し（`requeueSharedRows`）は、起動のときに全部の共有テーブルの全行を 1 つの transaction で積むので、行が多い PC ではその間しばらく止まる（イベントループが塞がる）。
 他の PC から降ろしたコピーの台帳は残すので、同じ本文が新しいクラウドに上がっても降ろし直さない。
 transaction が転ぶと記録は前のまま残り、`cloudId` も書かないので、同期を止めて（`rebuildBlock`）状態を `error` にし、理由を `lastError` に残す。
 この止まりはアプリの再起動でしか外れない（起動のときの比べでだけ試し直す）。

@@ -48,7 +48,9 @@ export async function issueDeviceToken(): Promise<{ token: string; tokenHash: st
  * 最初の PC は setup が Worker の secret に入れたトークンで `POST /bootstrap` を 1 回だけ通る。
  * 2 台目からは、参加済みの PC が発行した参加コード（5 分、1 回限り）にリクエストを置き、発行した PC の承認を待つ。
  *
- * Worker が見るのはコードの SHA-256 だけで、平文のコードも、リクエストの中身（公開鍵、名前、OS）も持たない。
+ * Worker が見るのは PC が導いたコードのハッシュだけで、平文のコードも、リクエストの中身（公開鍵、名前、OS）も持たない。
+ * ハッシュは PC の側で、コードとこのクラウドの cloud_id から重い KDF（PBKDF2-SHA256）で導く（shared の e2e/joinCode.ts）。
+ * Worker は受け取ったハッシュを比べるだけで、コードから何も計算しない。
  * 新しい PC の端末トークンは、承認の時点では作らず、承認の後の最初の問い合わせで作って返す。
  * 発行した PC はトークンを一度も見ない。
  */
@@ -62,7 +64,7 @@ const MAX_REQUEST_BODY_BYTES = 16_384;
 const MIN_TOKEN_CHARS = 16;
 const MAX_TOKEN_CHARS = 512;
 
-/** 正規化したコードの SHA-256（hex）。 */
+/** PC が導いたコードのハッシュ（hex の 64 字）。 */
 const HASH_RE = /^[0-9a-f]{64}$/;
 /** 端末の ID。shared の e2e/names.ts と同じ形である。 */
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;

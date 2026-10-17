@@ -141,6 +141,17 @@ describe('RecoveryKeyReissuer.confirm', () => {
     expect(c.state.m.size).toBe(0);
   });
 
+  it('回しの途中の世代（まだ配り終えていない世代）は、再発行の箱に入れない', async () => {
+    const c = await cloud();
+    // この PC が世代 3 に回している途中で、世代 3 の鍵はまだ誰にも配っていない。
+    await c.keyring.addPending(3, Buffer.alloc(32, 3).toString('base64url'));
+    const d = await c.reissuer.reissue();
+    await c.reissuer.confirm(d.draftId, recoverySecretTail(d.text));
+    const fresh = draftPair(d.text, (await c.roster.read()).roster.recoveryPub);
+    expect(await openRecoveryBox(c.worker, fresh, 2)).toEqual(c.epochs);
+    expect(c.worker.keyboxes.has(`${RECOVERY_RECIPIENT}:3`)).toBe(false);
+  });
+
   it('名簿を書いた後に他の PC が世代を回しても、箱を置く直前に読み直して最新の世代まで置く', async () => {
     const c = await cloud();
     const d = await c.reissuer.reissue();

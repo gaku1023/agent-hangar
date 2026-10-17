@@ -57,6 +57,9 @@ README の「[クラウド同期](../README.md#クラウド同期上級者向け
    保存して暗号鍵の末尾 4 文字を入力するまで、setup は終わりません。
 5. 他の PC を、参加コードで参加させます（下の「PC を追加する」）。
    古い設定が残っている PC では「別のクラウドに参加しています」の警告が出るので、接続先が新しいクラウドであることを確認して「上書きして参加をリクエスト」をクリックします。
+   上書きの前に、古い設定を `~/.agent-hangar/backups/cloud.json.legacy-<日時>` に保存します。
+   古いクラウドの Worker を作成した PC は、古い設定のままでは参加できません（上書きすると古いクラウドを削除できなくなるためです）。
+   その PC では、先に手順 3 の teardown を済ませます。
 6. スマホは、PC で QR を表示して接続し直します。
 7. 各 PC が、すべてのデータを新しいクラウドにアップロードします。
    共有のデータは全部の行を、トランスクリプトはクラウドを使い始めた時刻より後のものを送り直します。
@@ -65,8 +68,21 @@ README の「[クラウド同期](../README.md#クラウド同期上級者向け
    適用の前に下見の一覧が出るので、上書きされる内容を確認してから適用します。
 
 作り直しの日は、全部の行とファイルの索引の書き込みが一度に出ます。
-D1 の 1 日の書き込みの無料枠を超えると、次の UTC の 0 時まで同期が止まり、日が変わると自動で再開します。
+そのため、D1 の 1 日の書き込みの無料枠（10 万行）に届くことがあります。
+超えると次の UTC の 0 時まで同期が止まりますが、日が変わると自動で再開し、データは失いません（送っていない分は各 PC の手元に保持したまま、再開した後に送ります）。
 共有のデータやトランスクリプトが多いときは、PC ごとに日を分けて参加させると、1 日の量を抑えられます。
+
+PC ごとの量は、手元の DB（`~/.agent-hangar/hangar.db`）の行を数えると見積もれます。
+1 行目が共有のデータの行の数（D1 に書く行の数のおよその量）、2 行目がこの PC の索引にあるトランスクリプトの数（アップロードするファイルの数の上限の目安）です。
+`sqlite3` は macOS には最初から入っています。
+
+```bash
+sqlite3 ~/.agent-hangar/hangar.db "select sum(n) from (select count(*) n from devices union all select count(*) from projects union all select count(*) from project_roots union all select count(*) from sessions union all select count(*) from runs union all select count(*) from run_tabs union all select count(*) from session_summaries union all select count(*) from session_states union all select count(*) from session_notes union all select count(*) from todos union all select count(*) from project_memos union all select count(*) from artifacts union all select count(*) from artifact_versions union all select count(*) from config_snapshots union all select count(*) from takeovers union all select count(*) from takeover_answers)"
+sqlite3 ~/.agent-hangar/hangar.db "select count(*) from transcript_files"
+```
+
+表の名前は、同期する表の一覧（`packages/shared/src/cloud.ts` の `SHARED_TABLES`）と同じです。
+全部の PC の 1 行目と 2 行目を足した数が 10 万に近いか超えるときは、PC ごとに日を分けます。
 
 ## PC を追加する（参加コード）
 
@@ -115,7 +131,8 @@ Cloudflare にも作者にも戻せないので、Cloudflare のダッシュボ�
 保存したら、暗号鍵の末尾 4 文字を入力します。
 合うまで setup は終わりません。
 3 回表示し直しても合わなければ、名簿と暗号鍵の箱を置かずに止まります。
-もう一度 `hangar setup cloud` を実行すると、新しいリカバリーキーを作り直して、表示からやり直します。
+合うまでは `~/.agent-hangar/cloud.json` を書かないので、途中で止めても、アプリはそのクラウドで同期を始めません（登録した端末トークンは `~/.agent-hangar/cloud-setup-pending.json` に保存しておきます）。
+もう一度 `hangar setup cloud` を実行すると、同じ Worker と端末トークンのまま、新しいリカバリーキーを作り直して、表示からやり直します。
 合ったら、ターミナルの画面とスクロールバックを消します。
 
 **再発行。**

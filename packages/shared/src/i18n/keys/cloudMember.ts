@@ -11,6 +11,7 @@ export const cloudMemberKeys = {
   'cloudMember.join.checking': [],
   'cloudMember.join.badUrl': [],
   'cloudMember.join.outdated': [],
+  'cloudMember.join.legacyCreator': [],
   'cloudMember.join.pcCount': ['n'],
   'cloudMember.join.codeLabel': [],
   'cloudMember.join.codePlaceholder': [],

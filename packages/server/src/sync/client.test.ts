@@ -453,12 +453,13 @@ describe('互換の版', () => {
   });
 
   it('Worker の版がこの PC の下限より古ければ、通った応答でも CompatError にして Worker を上げるよう伝える', async () => {
-    const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '1' } }), { stamp: false });
-    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 2 });
+    // 版 8 以下は再構築の案内になるので、入れ替えの文は版 9 以上の Worker で見る。
+    const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '9' } }), { stamp: false });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 10 });
     const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
-    expect(e).toMatchObject({ name: 'CompatError', status: 426, upgrade: 'worker', have: 1, need: 2 });
+    expect(e).toMatchObject({ name: 'CompatError', status: 426, upgrade: 'worker', have: 9, need: 10 });
     expect((e as Error).message).toContain('Worker');
-    expect((e as Error).message).toContain('2 以上');
+    expect((e as Error).message).toContain('10 以上');
     expect((e as Error).message).toContain('今すぐ同期');
   });
 

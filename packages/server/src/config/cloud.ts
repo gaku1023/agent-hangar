@@ -85,7 +85,14 @@ const isKey = (s: unknown): s is string => typeof s === 'string' && fromBase64Ur
 const isEpoch = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
 const strOrNull = (s: unknown): string | null => (typeof s === 'string' ? s : null);
 
-/** 版 2 の形を確かめて組み直す。形が違えば null。 */
+/**
+ * 版 2 の形を確かめて組み直す。形が違えば null。
+ * setup cloud の下書き（cloud-setup-pending.json）が持つ設定も、同じ形として読む。
+ */
+export function parseCloudConfigV2(v: Record<string, unknown>): CloudConfig | null {
+  return parseV2(v);
+}
+
 function parseV2(v: Record<string, unknown>): CloudConfig | null {
   if (v.v !== 2) return null;
   if (typeof v.url !== 'string' || typeof v.cloudId !== 'string' || typeof v.deviceToken !== 'string') return null;

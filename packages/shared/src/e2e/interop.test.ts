@@ -6,10 +6,11 @@
  * shared で node:crypto を import してよいのは、この種の試験ファイルだけである。
  */
 
-import { createCipheriv, createDecipheriv, createHmac, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { fromBase64UrlLen, toBase64Url, utf8 } from './bytes.ts';
+import { fromBase64Url, fromBase64UrlLen, toBase64Url, utf8 } from './bytes.ts';
+import { deriveJoinSecrets, deriveSas, openJoinRequest, sealJoinRequest } from './joinCode.ts';
 import { PURPOSE_INFO, deriveEpochKeys, deriveSubkeyBytes, ecdhBits, generateKeyPair, importPrivate, randomEpochKey, type Purpose } from './keys.ts';
 import { openKeybox, sealKeybox } from './keybox.ts';
 import { rowK } from './names.ts';
@@ -180,5 +181,43 @@ describe('interop: keybox', () => {
     const sealed = await sealKeybox(b.pub, aad, content);
     expect(() => refOpenKeybox(b.priv, b.pub, { epoch: 5, recipient: 'pc-b' }, sealed)).toThrow();
     expect(() => refOpenKeybox(b.priv, b.pub, { epoch: 4, recipient: 'pc-c' }, sealed)).toThrow();
+  });
+});
+
+describe('interop: 参加コード（本番の回数）', () => {
+  const code = 'K7QM-2XFD';
+  const cloudId = 'cloud-a-0123456789';
+  // 参照の実装。PBKDF2-SHA256 の 300 万回で 32 バイトの種を作り、用途ごとに HKDF で分ける。
+  const seed = pbkdf2Sync(Buffer.from('K7QM2XFD', 'utf8'), Buffer.from(`hangar-join-v1:${cloudId}`, 'utf8'), 3_000_000, 32, 'sha256');
+  const refSub = (salt: Buffer, info: string, len: number): Buffer => Buffer.from(hkdfSync('sha256', seed, salt, info, len));
+
+  it('本番の回数で導いた codeHash が node:crypto の参照の実装と一致する', async () => {
+    const s = await deriveJoinSecrets(code, cloudId);
+    expect(s.codeHash).toBe(refSub(Buffer.alloc(0), 'hangar-join-hash-v1', 32).toString('hex'));
+  });
+
+  it('確認コードが参照の実装と一致する', async () => {
+    const b = await generateKeyPair();
+    const n = refSub(raw32(b.pub), 'hangar-join-sas-v1', 4).readUInt32BE(0);
+    expect(await deriveSas(await deriveJoinSecrets(code, cloudId), b.pub)).toBe(String(n % 1_000_000).padStart(6, '0'));
+  });
+
+  it('参加リクエストを参照の実装で開け、参照の実装で封じたものを openJoinRequest で開ける', async () => {
+    const s = await deriveJoinSecrets(code, cloudId);
+    const key = refSub(Buffer.alloc(0), 'hangar-join-req-v1', 32);
+    const aad = Buffer.from(`join:${s.codeHash}`, 'utf8');
+    const body = { pub: (await generateKeyPair()).pub, name: 'pc-b', os: 'linux' };
+
+    const sealed = Buffer.from(fromBase64Url(await sealJoinRequest(s, body))!);
+    const d = createDecipheriv('aes-256-gcm', key, sealed.subarray(0, 12));
+    d.setAAD(aad);
+    d.setAuthTag(sealed.subarray(sealed.length - 16));
+    expect(JSON.parse(Buffer.concat([d.update(sealed.subarray(12, sealed.length - 16)), d.final()]).toString('utf8'))).toEqual(body);
+
+    const iv = randomBytes(12);
+    const c = createCipheriv('aes-256-gcm', key, iv);
+    c.setAAD(aad);
+    const ct = Buffer.concat([c.update(Buffer.from(JSON.stringify(body), 'utf8')), c.final(), c.getAuthTag()]);
+    expect(await openJoinRequest(s, toBase64Url(Buffer.concat([iv, ct])))).toEqual(body);
   });
 });

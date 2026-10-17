@@ -6,6 +6,7 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { ConfigSyncService } from './config/service.ts';
 import { sha256Hex } from './crypto.ts';
 import { SyncEngine } from './engine.ts';
 import { RemotePuller, remoteTranscriptPath } from './puller.ts';
@@ -201,6 +202,31 @@ describe('rebuildIfCloudChanged', () => {
       .run(`transcripts/dev-b/${UUID_R}.jsonl.gz`, 'transcript', `projects/${FOLDER}/${UUID_R}.jsonl`, 'dev-b', 'f'.repeat(64), 1, 1, 3, 1);
     rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' });
     expect(db.prepare("select key from file_sync where kind = 'transcript'").all()).toEqual([{ key: `transcripts/dev-b/${UUID_R}.jsonl.gz` }]);
+  });
+
+  it('作り直しの後の最初の send で、設定の同期の束が新しいクラウドへ上がる', async () => {
+    // 本物の同期は起動のときに Worker と話して版を知る。偽のクラウドにも 1 度話しかけたことにする。
+    void cloud.health();
+    fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), '# rules');
+    const service = new ConfigSyncService({
+      db, deviceId: 'dev-a', deviceName: 'pc-a', claudeDir, home, cloud, keyring: cloud.keyring,
+      enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => timers.now,
+    });
+    state.set('cloudId', 'cloud-old');
+    expect((await service.send()).sent).toBe(true);
+    expect((await service.send()).sent).toBe(false);
+
+    rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' });
+    expect((await service.send()).sent).toBe(true);
+  });
+
+  it('前のクラウドの recovery の箱の印、上限で退く時刻、他の PC の最終接続を消す', () => {
+    state.set('cloudId', 'cloud-old');
+    state.set('recoveryBoxPending', '1');
+    state.set('limitedUntil', 9_999_999_999_999);
+    state.set('peers', JSON.stringify({ 'dev-b': 1 }));
+    rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' });
+    expect([state.get('recoveryBoxPending'), state.get('limitedUntil'), state.get('peers')]).toEqual([null, null, null]);
   });
 });
 

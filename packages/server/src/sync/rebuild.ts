@@ -120,6 +120,8 @@ function queueRemoteCopies(db: Db, home: string, deviceId: string): number {
  *    上げるのは作り直しから RELAY_HOLD_MS が過ぎ、元の PC が新しいクラウドの名簿に居ないときだけである（sync/uploader.ts）。
  * 5. 新しい cloudId と、作り直した時刻（rebuiltAt、写しの保留の起点）を書く。
  *
+ * 前のクラウドについての記録（設定の同期の束の指紋 configBundleKey、recovery の箱の印、上限で退く時刻 limitedUntil、他の PC の最終接続 peers）も消す。
+ *
  * 他の PC から降ろした写しの台帳（file_sync の他の PC の行）は残す。新しいクラウドに同じ本文が上がっても、指紋が同じなので降ろし直さない。
  * 上げた世代の控え（blob_uploads）は前のクラウドの鍵名なので空にする。
  * 前に cloudId を書いていない（0.9.0 より前から同期していた PC と、初めて参加した PC）ときも、作り直しとみなす。
@@ -135,6 +137,10 @@ export function rebuildIfCloudChanged(o: { db: Db; state: SyncStateStore; health
     o.db.prepare("delete from sync_state where key like 'skipped:%'").run();
     o.db.prepare('delete from blob_uploads').run();
     for (const k of ['lastSeq', 'filesSeq', 'snapshotDone', 'rowsSkippedFrom', 'filesSkippedFrom'] as const) o.state.set(k, null);
+    // 前のクラウドについての記録も消す。
+    // 束の指紋が残ると、設定の同期の束を新しいクラウドへ上げない（sync/config/service.ts は前回と同じ中身なら上げない）。
+    // 上限で退く時刻が残ると、新しいクラウドでも戻る時刻まで止まる。
+    for (const k of ['configBundleKey', 'recoveryBoxPending', 'limitedUntil', 'peers'] as const) o.state.set(k, null);
     requeueSharedRows(o.db, o.deviceId);
     queueRemoteCopies(o.db, o.home, o.deviceId);
     o.state.set('rebuiltAt', o.now ?? Date.now());
