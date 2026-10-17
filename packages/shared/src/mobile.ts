@@ -101,21 +101,55 @@ export type MobileReply =
   | { commands: { name: string; description: string; kind: 'skill' | 'command' }[] }
   | { error: 'project-missing' | 'account-missing' | 'bad-request' };
 
-/** Worker の口の型。 */
+/**
+ * スマホのトークンは、この時間使わないと失効する（互換の版 9）。使うたびに延びる。
+ * 判定は Worker の時計と `devices.last_seen_at`（無ければ `joined_at`）で行う。`last_seen_at` は 1 分おきにしか書かないので、最大 1 分早く失効しうる。
+ */
+export const PHONE_IDLE_MS = 30 * 86_400_000;
+/** スマホのトークンは、接続からこの時間で失効し、接続し直しが要る（互換の版 9）。`devices.expires_at` に置く。 */
+export const PHONE_MAX_AGE_MS = 90 * 86_400_000;
+/** 期限を過ぎたトークン（スマホの 30 日と 90 日）に、Worker が 401 で返す本文の error。トークンが合ったときにだけ返す。 */
+export const EXPIRED_ERROR = 'expired';
+
+/**
+ * Worker の口の型。
+ * `epoch` はスマホ用の鍵 `M[m]` の世代である（互換の版 9）。PC の世代鍵の世代とは別の番号で、1 から数える。
+ * 封じた値（`sealed`、`sealedAnswer`）は Worker が読まない。
+ */
 export type MobilePairingResponse = { code: string; expiresAt: number };
-export type MobileJoinRequest = { code: string; device: { id: string; name: string } };
+/**
+ * スマホの接続（`POST /m/join`、トークンなし、互換の版 9）。
+ * `deviceId` はスマホが名乗る ID で、PC はこの ID 宛てにスマホ用の鍵の keybox を封じる。既にある ID（解除した行も）は 409 `device-exists`。
+ * `sealed` はペアリングの券から導いた鍵でスマホの `{ pub, name }` を封じたもの（base64url）で、発行した PC だけが開ける。
+ * 応答は 201 の `MobileJoinResponse`。トークンの期限は接続から PHONE_MAX_AGE_MS。
+ */
+export type MobileJoinRequest = { code: string; deviceId: string; sealed: string };
 export type MobileJoinResponse = { token: string; deviceId: string };
+/**
+ * 券を発行した PC が見る、接続してきたスマホの参加リクエスト（`GET /m/pairings/mine`）。
+ * 自分の券のうち、まだ keybox の置かれていないリクエストだけを、接続の古い順に返す。無ければ空の配列。
+ * `PUT /phone-keyboxes` でそのスマホ宛ての keybox を置くと、リクエストは D1 から消え、ここにも出なくなる。
+ */
+export type MobilePairingRequest = { codeHash: string; deviceId: string; sealed: string; joinedAt: number };
+export type MobilePairingsMine = { pairings: MobilePairingRequest[] };
+/** PC が受信箱の素を置く（`PUT /m/feed`）。`epoch` は素を封じたスマホ用の鍵の世代。 */
+export type MobileFeedPut = { sealed: string; epoch: number };
 export type MobileInboxResponse = {
   now: number;
   devices: { id: string; name: string; platform: string; lastSeenAt: number | null }[];
-  feeds: { deviceId: string; updatedAt: number; sealed: string }[];
+  feeds: { deviceId: string; updatedAt: number; sealed: string; epoch: number }[];
 };
-export type MobileLaunchIn = { id: string; targetDevice: string; sealed: string };
-/** POST /m/ask の本文と答え。sealed は封をした文字列で、Worker と Durable Object は読まない。 */
-export type MobileAskIn = { id: string; targetDevice: string; sealed: string };
+/** スマホの起動の依頼（`POST /m/launches`）。依頼の画像（`/m/blobs`）も同じ世代で封じる。 */
+export type MobileLaunchIn = { id: string; targetDevice: string; sealed: string; epoch: number };
+/**
+ * POST /m/ask の本文と答え。sealed は封をした文字列で、Worker と Durable Object は読まない。
+ * Durable Object は PC の WebSocket に `{ t: 'ask', id, sealed, epoch }` で渡し、PC は同じ世代で答えを封じる。
+ */
+export type MobileAskIn = { id: string; targetDevice: string; sealed: string; epoch: number };
 export type MobileAskOut = { sealed: string };
-export type MobileLaunchOut = { id: string; createdAt: number; sealed: string };
-export type MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null };
+export type MobileLaunchOut = { id: string; createdAt: number; sealed: string; epoch: number };
+/** 依頼の状態。答え（`sealedAnswer`）は依頼と同じ世代（`epoch`）で封じる。 */
+export type MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null; epoch: number };
 
 /**
  * 文を max 字で切り、切ったときは末尾に … を付ける。前後の空白は落とす。

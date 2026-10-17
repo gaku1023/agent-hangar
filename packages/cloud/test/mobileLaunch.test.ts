@@ -3,7 +3,7 @@ import { aadLaunch, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_PROMPT_MAX, seal, typ
 import { LAUNCH_KEEP_MS, LAUNCH_RATE, MAX_ANSWER_BODY_BYTES, MAX_LAUNCH_BODY_BYTES } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
-import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
+import { addPcDevice, joinPhoneDevice, startCloud, type CloudHarness } from './harness.ts';
 
 const SECRET = 'join-secret-launch';
 
@@ -17,16 +17,11 @@ const post = (token: string, path: string, body?: unknown, extra: Record<string,
 /** PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。 */
 const joinPc = (id: string): Promise<string> => addPcDevice(cloud.env, id);
 
-const joinPhone = async (pcToken: string, name = 'iPhone'): Promise<MobileJoinResponse> => {
-  const p = await post(pcToken, '/m/pairings');
-  expect(p.status).toBe(201);
-  const { code } = (await p.json()) as MobilePairingResponse;
-  const r = await send('/m/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, device: { id: 'phone', name } }) });
-  expect(r.status).toBe(201);
-  return (await r.json()) as MobileJoinResponse;
-};
+/** スマホを参加させる。名前は封じた参加リクエストの中にあり、ここでは区別に使わない。 */
+const joinPhone = (pcToken: string, _name = 'iPhone'): Promise<MobileJoinResponse> => joinPhoneDevice(cloud, pcToken);
 
-const launch = (phone: string, body: MobileLaunchIn) => post(phone, '/m/launches', body);
+/** 起動の依頼を出す。世代を省けば、スマホ用の鍵の世代 1 で封じた依頼として出す。 */
+const launch = (phone: string, body: Omit<MobileLaunchIn, 'epoch'> & { epoch?: number }) => post(phone, '/m/launches', { epoch: 1, ...body });
 const status = (phone: string, id: string) => send(`/m/launches/${encodeURIComponent(id)}`, { headers: auth(phone) });
 const claim = (pc: string, id: string) => post(pc, `/m/launches/${encodeURIComponent(id)}/claim`);
 const answer = (pc: string, id: string, body: unknown) => post(pc, `/m/launches/${encodeURIComponent(id)}/answer`, body);
@@ -57,14 +52,28 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     const before = Date.now();
     const r = await launch(phone.token, { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req' });
     expect(r.status).toBe(201);
-    expect(await r.json()).toEqual({ id: 'l-1', status: 'pending', sealedAnswer: null } satisfies MobileLaunchStatus);
+    expect(await r.json()).toEqual({ id: 'l-1', status: 'pending', sealedAnswer: null, epoch: 1 } satisfies MobileLaunchStatus);
     const a = await pull(pcA);
-    expect(a.launches).toEqual([{ id: 'l-1', createdAt: expect.any(Number), sealed: 'sealed-req' }]);
+    expect(a.launches).toEqual([{ id: 'l-1', createdAt: expect.any(Number), sealed: 'sealed-req', epoch: 1 }]);
     expect(a.launches![0]!.createdAt).toBeGreaterThanOrEqual(before);
     expect((await pull(pcB)).launches).toEqual([]);
     // 平文で置くのは宛先と送り手と時刻と状態だけ。中身は封をしたまま。
     const row = await cloud.env.DB.prepare('select target_device, from_device, sealed, status from launch_requests where id = ?').bind('l-1').first();
     expect(row).toEqual({ target_device: 'pc-a', from_device: phone.deviceId, sealed: 'sealed-req', status: 'pending' });
+  });
+
+  it('依頼を封じたスマホ用の鍵の世代（epoch）を置き、PC の pull とスマホの GET に返す', async () => {
+    const pc = await joinPc('pc-a');
+    const phone = await joinPhone(pc);
+    const r = await launch(phone.token, { id: 'l-3', targetDevice: 'pc-a', sealed: 'sealed-req', epoch: 3 });
+    expect(r.status).toBe(201);
+    expect(await r.json()).toEqual({ id: 'l-3', status: 'pending', sealedAnswer: null, epoch: 3 });
+    expect((await pull(pc)).launches).toEqual([{ id: 'l-3', createdAt: expect.any(Number), sealed: 'sealed-req', epoch: 3 }]);
+    expect((await cloud.env.DB.prepare('select epoch from launch_requests where id = ?').bind('l-3').first<{ epoch: number }>())?.epoch).toBe(3);
+    // 答えは依頼と同じ世代で封じる（Worker は答えの世代を別に持たない）。
+    expect((await claim(pc, 'l-3')).status).toBe(200);
+    expect((await answer(pc, 'l-3', { ok: true, sealedAnswer: 'ans-3' })).status).toBe(200);
+    expect(await (await status(phone.token, 'l-3')).json()).toEqual({ id: 'l-3', status: 'started', sealedAnswer: 'ans-3', epoch: 3 });
   });
 
   it('同じ id の依頼を 2 回出しても行は 1 つ', async () => {
@@ -75,7 +84,7 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     const again = await launch(phone.token, { id: 'l-1', targetDevice: 'pc-a', sealed: 's-2' });
     expect(again.status).toBe(201);
     // 再送は既存の行の状態を返し、中身を書き換えない。
-    expect(await again.json()).toEqual({ id: 'l-1', status: 'claimed', sealedAnswer: null });
+    expect(await again.json()).toEqual({ id: 'l-1', status: 'claimed', sealedAnswer: null, epoch: 1 });
     expect(await countRows()).toBe(1);
     expect((await cloud.env.DB.prepare('select sealed from launch_requests').first<{ sealed: string }>())?.sealed).toBe('s-1');
   });
@@ -108,7 +117,17 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
     expect(MAX_LAUNCH_BODY_BYTES).toBe(48 * 1024);
-    for (const bad of [{}, { id: '', targetDevice: 'pc-a', sealed: 's' }, { id: 'x', targetDevice: 'pc-a', sealed: '' }, { id: 'x', targetDevice: 1, sealed: 's' }, { id: 'x'.repeat(65), targetDevice: 'pc-a', sealed: 's' }]) {
+    for (const bad of [
+      {},
+      { id: '', targetDevice: 'pc-a', sealed: 's', epoch: 1 },
+      { id: 'x', targetDevice: 'pc-a', sealed: '', epoch: 1 },
+      { id: 'x', targetDevice: 1, sealed: 's', epoch: 1 },
+      { id: 'x'.repeat(65), targetDevice: 'pc-a', sealed: 's', epoch: 1 },
+      // 世代の無い依頼（0.8.0 の形）と、形の違う世代。
+      { id: 'x', targetDevice: 'pc-a', sealed: 's' },
+      { id: 'x', targetDevice: 'pc-a', sealed: 's', epoch: 0 },
+      { id: 'x', targetDevice: 'pc-a', sealed: 's', epoch: '1' },
+    ]) {
       expect((await post(phone.token, '/m/launches', bad)).status, JSON.stringify(bad).slice(0, 40)).toBe(400);
     }
     expect((await send('/m/launches', { method: 'POST', headers: auth(phone.token, { 'content-type': 'application/json' }), body: 'not json' })).status).toBe(400);
@@ -215,7 +234,7 @@ describe('受け取りと応答（claim と answer と GET /m/launches/:id）', 
     expect((await claim(pc, 'l-1')).status).toBe(409);
     // 受け取った依頼は pull に出ない。
     expect((await pull(pc)).launches).toEqual([]);
-    expect(await (await status(phone.token, 'l-1')).json()).toEqual({ id: 'l-1', status: 'claimed', sealedAnswer: null });
+    expect(await (await status(phone.token, 'l-1')).json()).toEqual({ id: 'l-1', status: 'claimed', sealedAnswer: null, epoch: 1 });
   });
 
   it('宛先でない PC の claim は 409', async () => {
@@ -239,7 +258,7 @@ describe('受け取りと応答（claim と answer と GET /m/launches/:id）', 
     expect((await cloud.env.DB.prepare('select status from launch_requests').first<{ status: string }>())?.status).toBe('pending');
     const r = await status(phone.token, 'l-1');
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ id: 'l-1', status: 'expired', sealedAnswer: null });
+    expect(await r.json()).toEqual({ id: 'l-1', status: 'expired', sealedAnswer: null, epoch: 1 });
     expect((await cloud.env.DB.prepare('select status from launch_requests').first<{ status: string }>())?.status).toBe('expired');
   });
 
@@ -256,8 +275,8 @@ describe('受け取りと応答（claim と answer と GET /m/launches/:id）', 
     expect(a.status).toBe(200);
     expect(await a.json()).toEqual({ ok: true });
     expect((await answer(pc, 'l-2', { ok: false, sealedAnswer: 'ans-2' })).status).toBe(200);
-    expect(await (await status(phone.token, 'l-1')).json()).toEqual({ id: 'l-1', status: 'started', sealedAnswer: 'ans-1' });
-    expect(await (await status(phone.token, 'l-2')).json()).toEqual({ id: 'l-2', status: 'failed', sealedAnswer: 'ans-2' });
+    expect(await (await status(phone.token, 'l-1')).json()).toEqual({ id: 'l-1', status: 'started', sealedAnswer: 'ans-1', epoch: 1 });
+    expect(await (await status(phone.token, 'l-2')).json()).toEqual({ id: 'l-2', status: 'failed', sealedAnswer: 'ans-2', epoch: 1 });
     // 答えた後の 2 回目は 409。
     expect((await answer(pc, 'l-1', { ok: false, sealedAnswer: 'x' })).status).toBe(409);
     // TTL を過ぎても、答えた依頼は expired にしない。

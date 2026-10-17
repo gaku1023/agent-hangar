@@ -66,8 +66,9 @@ function collectLaunches(into: Map<string, MobileLaunchOut>, raw: unknown): void
   if (!Array.isArray(raw)) return;
   for (const v of raw as unknown[]) {
     const l = v as Partial<MobileLaunchOut> | null;
-    if (!l || typeof l.id !== 'string' || !l.id || typeof l.sealed !== 'string' || typeof l.createdAt !== 'number') continue;
-    if (!into.has(l.id)) into.set(l.id, { id: l.id, createdAt: l.createdAt, sealed: l.sealed });
+    // epoch は依頼を封じたスマホ用の鍵の世代（互換の版 9）。版 9 の Worker は必ず載せる。
+    if (!l || typeof l.id !== 'string' || !l.id || typeof l.sealed !== 'string' || typeof l.createdAt !== 'number' || typeof l.epoch !== 'number' || !Number.isSafeInteger(l.epoch) || l.epoch < 1) continue;
+    if (!into.has(l.id)) into.set(l.id, { id: l.id, createdAt: l.createdAt, sealed: l.sealed, epoch: l.epoch });
   }
 }
 

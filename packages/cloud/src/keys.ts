@@ -13,7 +13,7 @@ import {
   type RosterPutOut,
 } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
-import { blobToSealed, isSealedText, sealedToBlob } from './util.ts';
+import { blobToSealed, isEpoch, isSealedText, sealedToBlob } from './util.ts';
 
 /**
  * 封じた名簿と keybox の口（互換の版 9）。どれも PC の端末トークンが要る（app.ts で付ける）。
@@ -46,7 +46,6 @@ const META_BOOTSTRAP_USED = 'bootstrap_used';
 /** recovery 宛ての keybox を読む道を閉じた端末トークンのハッシュを置く meta の鍵。 */
 const META_RECOVERY_DONE = 'recovery_done';
 
-const isEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
 /** 封じた値は base64url で受け、D1 にはバイト列の BLOB で置く（changes.ts の行と同じ）。 */
 const isSealed = isSealedText;
 
@@ -160,7 +159,7 @@ keysApp.get('/keyboxes', async (c) => {
 
 /**
  * keybox を置く。1 回に 20 件まで。
- * 受け手は解除されていない PC の ID か `recovery` で、ほかが 1 つでも混ざれば何も書かずに 400 で断る。スマホの分は phone_keyboxes（Task 21）に置く。
+ * 受け手は解除されていない PC の ID か `recovery` で、ほかが 1 つでも混ざれば何も書かずに 400 で断る。スマホの分は `PUT /phone-keyboxes` で phone_keyboxes に置く。
  * 書き手が発行した参加コードにリクエストを置いた PC の ID も受け手にできる（承認の前に keybox を置くため。devices に入るのは承認の後の最初の問い合わせである）。
  * 通すのは、リクエストが期限内のときと、承認の後で端末トークンをまだ渡していないとき（期限からさらに 5 分）だけである。
  * 解除した PC が同じ ID で再参加するときも、この道で通る。
@@ -168,14 +167,8 @@ keysApp.get('/keyboxes', async (c) => {
  */
 keysApp.put('/keyboxes', async (c) => {
   if (tooLarge(c)) return c.json({ error: 'payload too large' }, 413);
-  const body = (await readJson(c)) as Partial<KeyboxesPut> | null;
-  const list = body?.boxes;
-  if (!Array.isArray(list) || list.length === 0 || list.length > MAX_KEYBOXES_PER_PUT) return c.json({ error: 'invalid body' }, 400);
-  const valid = (b: unknown): b is KeyboxIn => {
-    const x = b as Partial<KeyboxIn> | null;
-    return typeof x === 'object' && x !== null && isEpoch(x.epoch) && typeof x.recipient === 'string' && DEVICE_ID_RE.test(x.recipient) && isSealed(x.sealed, MAX_KEYBOX_CHARS);
-  };
-  if (!list.every(valid)) return c.json({ error: 'invalid body' }, 400);
+  const list = readBoxes((await readJson(c)) as Partial<KeyboxesPut> | null);
+  if (!list) return c.json({ error: 'invalid body' }, 400);
   const db = c.env.DB;
   const device = c.get('device');
   const now = Date.now();
@@ -200,6 +193,49 @@ keysApp.put('/keyboxes', async (c) => {
     ),
     ...bumpMarker(db, device.id, epoch, now),
     closeRecovery(db, device.token_hash),
+  ]);
+  const res: KeyboxesPutOut = { written: list.length };
+  return c.json(res);
+});
+
+/** 本文の keybox の一覧を読み、形が違えば null を返す。`PUT /keyboxes` と `PUT /phone-keyboxes` が使う。 */
+const readBoxes = (body: Partial<KeyboxesPut> | null): KeyboxIn[] | null => {
+  const list = body?.boxes;
+  if (!Array.isArray(list) || list.length === 0 || list.length > MAX_KEYBOXES_PER_PUT) return null;
+  const valid = (b: unknown): b is KeyboxIn => {
+    const x = b as Partial<KeyboxIn> | null;
+    return typeof x === 'object' && x !== null && isEpoch(x.epoch) && typeof x.recipient === 'string' && DEVICE_ID_RE.test(x.recipient) && isSealed(x.sealed, MAX_KEYBOX_CHARS);
+  };
+  return list.every(valid) ? list : null;
+};
+
+/**
+ * スマホ用の鍵 `M[m]` の keybox を置く（互換の版 9）。1 回に 20 件まで。
+ * 受け手は解除されていないスマホの ID だけで、ほかが 1 つでも混ざれば何も書かずに 400 で断る。
+ * スマホは接続（`POST /m/join`）の時点で devices に入るので、承認の前の道は要らない。
+ * `epoch` はスマホ用の鍵の世代で、世代と受け手の組で上書きする。
+ *
+ * 名簿の印の行は進めない。PC はスマホ用の鍵を名簿の `phoneKey` から読み、スマホの keybox は読まないためである。
+ * 世代を回したことは、受信箱の素の `epoch` でスマホに伝わる。
+ * 同じ batch で、受け手のスマホの参加リクエスト（mobile_pairings.request）を消す。keybox を置き終えた券は、もう開く必要が無い。
+ */
+keysApp.put('/phone-keyboxes', async (c) => {
+  if (tooLarge(c)) return c.json({ error: 'payload too large' }, 413);
+  const list = readBoxes((await readJson(c)) as Partial<KeyboxesPut> | null);
+  if (!list) return c.json({ error: 'invalid body' }, 400);
+  const db = c.env.DB;
+  const now = Date.now();
+  const ids = [...new Set(list.map((b) => b.recipient))];
+  const marks = ids.map(() => '?').join(', ');
+  const found = await db.prepare(`select count(*) n from devices where id in (${marks}) and kind = 'mobile' and revoked_at is null`).bind(...ids).first<{ n: number }>();
+  if (Number(found?.n ?? 0) !== ids.length) return c.json({ error: 'unknown recipient' }, 400);
+  await db.batch([
+    ...list.map((b) =>
+      db
+        .prepare('insert into phone_keyboxes (epoch, recipient, created_at, sealed) values (?, ?, ?, ?) on conflict(epoch, recipient) do update set created_at = excluded.created_at, sealed = excluded.sealed')
+        .bind(b.epoch, b.recipient, now, sealedToBlob(b.sealed)),
+    ),
+    db.prepare(`update mobile_pairings set request = null where device_id in (${marks}) and request is not null`).bind(...ids),
   ]);
   const res: KeyboxesPutOut = { written: list.length };
   return c.json(res);

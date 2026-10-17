@@ -63,7 +63,8 @@ export async function requestLaunch(
   const id = o.id ?? globalThis.crypto.randomUUID();
   const payload: MobileLaunchPayload = { v: 1, createdAt: Date.now() + (o.skewMs ?? 0), ...o.payload };
   const sealed = await seal(key, aadLaunch(id, o.targetDevice), payload);
-  const body = { id, targetDevice: o.targetDevice, sealed };
+  // epoch は封じたスマホ用の鍵の世代（互換の版 9）。スマホの鍵ペアと keybox（Task 23）が入るまでは鍵が 1 つだけなので 1 である。
+  const body = { id, targetDevice: o.targetDevice, sealed, epoch: 1 };
   try {
     await postLaunch(p, body);
   } catch (e) {

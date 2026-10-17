@@ -61,7 +61,7 @@ describe('rc.2 の型', () => {
   it('問い合わせと答えの型', () => {
     const asks: MobileAsk[] = [{ v: 1, kind: 'files', projectId: 'p', q: '' }, { v: 1, kind: 'commands', projectId: null, accountId: 'a' }];
     const replies: MobileReply[] = [{ files: [{ path: 'a.ts', changed: true }] }, { commands: [{ name: 'x', description: '', kind: 'skill' }] }, { error: 'bad-request' }];
-    const inn: MobileAskIn = { id: 'i', targetDevice: 'd', sealed: 's' };
+    const inn: MobileAskIn = { id: 'i', targetDevice: 'd', sealed: 's', epoch: 1 };
     const out: MobileAskOut = { sealed: 's' };
     expect([asks.length, replies.length, inn.id, out.sealed]).toEqual([2, 3, 'i', 's']);
   });

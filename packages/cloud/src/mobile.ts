@@ -1,12 +1,26 @@
 import { type Context, Hono } from 'hono';
-import { LAUNCH_TTL_MS, MOBILE_ASK_MAX_BYTES, type MobileAskIn, type MobileInboxResponse, type MobileJoinRequest, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse } from '@agent-hangar/shared';
+import {
+  LAUNCH_TTL_MS,
+  MOBILE_ASK_MAX_BYTES,
+  PHONE_MAX_AGE_MS,
+  type KeyboxOut,
+  type MobileAskIn,
+  type MobileFeedPut,
+  type MobileInboxResponse,
+  type MobileJoinRequest,
+  type MobileJoinResponse,
+  type MobileLaunchIn,
+  type MobileLaunchStatus,
+  type MobilePairingResponse,
+  type MobilePairingsMine,
+} from '@agent-hangar/shared';
 import { authMiddleware, requireKind } from './auth.ts';
 import { BELL_DEVICE_HEADER, BELL_NAME } from './bellWire.ts';
 import type { Env, Vars } from './env.ts';
-import { isSafeName, issueDeviceToken } from './join.ts';
+import { isDeviceId, issueDeviceToken } from './join.ts';
 import { MAX_LAUNCH_ID_CHARS, blobsApp, deleteLaunchImages, sweepOldImages } from './mobileBlobs.ts';
 import { touchIfDue } from './seen.ts';
-import { randomToken, sha256Hex } from './util.ts';
+import { blobToSealed, isEpoch, isSealedText, randomToken, sealedToBlob, sha256Hex } from './util.ts';
 
 /**
  * スマホの口（互換の版 7）。app.ts が `/m` に載せる。
@@ -14,6 +28,12 @@ import { randomToken, sha256Hex } from './util.ts';
  * スマホは参加の秘密を持たない。
  * PC が `POST /m/pairings` で取った使い捨ての券（5 分で失効、1 回で使い切り）を QR で渡し、スマホは `POST /m/join` で券をスマホ用のトークンに替える。
  * スマホの行は devices に `kind = 'mobile'` で入り、そのトークンが通るのはこのファイルのスマホ用の口だけである（auth.ts の requireKind）。
+ *
+ * スマホ用の鍵（互換の版 9）。
+ * スマホは自分の鍵ペアを作り、公開鍵と名前を券から導いた鍵で封じて `POST /m/join` に添える。Worker はそれを券の行に置くだけで、開けない。
+ * 券を発行した PC は `GET /m/pairings/mine` でそれを読み、スマホ用の鍵 `M[m]` をスマホの公開鍵に封じて `PUT /phone-keyboxes`（keys.ts）で置く。
+ * スマホは `GET /m/keybox` で自分宛ての最新の世代を読む。受信箱の素と起動の依頼と問い合わせは `M[m]` で封じ、その世代を `epoch` で添える。
+ * スマホのトークンは接続から 90 日（expires_at）と、30 日使わないこと（auth.ts）で切れる。
  * 受信箱の素は PC が暗号化して置き、Worker は PC の ID と更新時刻のほかは読めない。
  * 起動の依頼もスマホが封をして置き、宛先の PC が pull（changes.ts の launches）で受け取って、claim と answer で状態を進める。
  *
@@ -106,18 +126,12 @@ mobileApp.post('/pairings', authMiddleware(), requireKind('pc'), async (c) => {
   return c.json(res, 201);
 });
 
+/** スマホの参加リクエスト（封じた `{ pub, name }`）の文字数の上限。実物は数百字なので、長いものは貼り間違いか攻撃である。 */
+const MAX_REQUEST_CHARS = 4096;
+
 const isJoinBody = (v: unknown): v is MobileJoinRequest => {
   const o = v as Partial<MobileJoinRequest> | null;
-  return (
-    !!o &&
-    typeof o.code === 'string' &&
-    o.code.length > 0 &&
-    o.code.length <= MAX_CODE_CHARS &&
-    !!o.device &&
-    typeof o.device === 'object' &&
-    typeof o.device.name === 'string' &&
-    isSafeName(o.device.name)
-  );
+  return !!o && typeof o.code === 'string' && o.code.length > 0 && o.code.length <= MAX_CODE_CHARS && isDeviceId(o.deviceId) && isSealedText(o.sealed, MAX_REQUEST_CHARS);
 };
 
 /**
@@ -132,9 +146,13 @@ const isJoinBody = (v: unknown): v is MobileJoinRequest => {
  * 使い切りにする文にも台数の条件を入れる（そこで落ちたときは 401 で、券は残る）。
  * ただし台数を数える文と行を足す文は分かれているので、同時に来た参加は上限を少し越えうる（緩い上限）。越える分は券の取りすぎの制限（1 台の PC から 10 分に 5 枚）で抑えられる。
  *
- * スマホの行の ID は Worker が新しく振る。
- * スマホが名乗る ID（`device.id`）は使わないので、既にある行（PC の行や、外したスマホの行）を指して上書きすることはできない。
- * 外したスマホの行は残り、新しい券で参加し直すと別の行になる。
+ * スマホの行の ID は、スマホが名乗った ID（互換の版 9）である。PC はこの ID 宛てにスマホ用の鍵の keybox を封じる。
+ * 既にある ID（PC の行も、外したスマホの行も）は 409 `device-exists` で断り、既にある行を上書きさせない。券は使わずに残す。
+ * 外したスマホの行は残り、参加し直すときは別の ID を名乗る。
+ *
+ * 券を使い切りにする文が、スマホの ID と封じた参加リクエストを券の行に置く。
+ * 同じ batch で、その書き換えが通ったときだけ devices に行を足す。トークンの期限（expires_at）は接続から PHONE_MAX_AGE_MS で、判定は Worker の時計で行う。
+ * 名前と公開鍵は封じたリクエストの中にあり、devices には置かない。
  */
 mobileApp.post('/join', async (c) => {
   const body = (await c.req.json().catch(() => null)) as unknown;
@@ -142,44 +160,81 @@ mobileApp.post('/join', async (c) => {
   const db = c.env.DB;
   const now = Date.now();
   const codeHash = await sha256Hex(body.code);
-  const [valid, phones] = await db.batch([
+  const [valid, phones, taken] = await db.batch([
     db.prepare('select 1 ok from mobile_pairings where code_hash = ? and used_at is null and created_at > ?').bind(codeHash, now - PAIRING_TTL_MS),
     db.prepare("select count(*) n from devices where kind = 'mobile' and revoked_at is null"),
+    db.prepare('select 1 ok from devices where id = ?').bind(body.deviceId),
   ]);
   if (!valid?.results?.length) return c.json({ error: deny }, 401);
+  if (taken?.results?.length) return c.json({ error: 'device-exists' }, 409);
   if (Number((phones?.results?.[0] as { n?: number } | undefined)?.n ?? 0) >= MAX_ACTIVE_PHONES) return c.json({ error: 'too-many-phones' }, 409);
-  const used = await db
-    .prepare("update mobile_pairings set used_at = ? where code_hash = ? and used_at is null and created_at > ? and (select count(*) from devices where kind = 'mobile' and revoked_at is null) < ?")
-    .bind(now, codeHash, now - PAIRING_TTL_MS, MAX_ACTIVE_PHONES)
-    .run();
-  if (Number(used.meta?.changes ?? 0) !== 1) return c.json({ error: deny }, 401);
-  const id = crypto.randomUUID();
   const { token, tokenHash } = await issueDeviceToken();
-  // 名前は devices に置かない（互換の版 9）。スマホの名前は封じた名簿へ移す。
-  await db
-    .prepare("insert into devices (id, kind, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at) values (?, 'mobile', ?, ?, ?, 0, null)")
-    .bind(id, tokenHash, now, now)
-    .run();
-  const res: MobileJoinResponse = { token, deviceId: id };
+  const [used, added] = await db.batch([
+    db
+      .prepare(
+        "update mobile_pairings set used_at = ?, device_id = ?, request = ? where code_hash = ? and used_at is null and created_at > ? and (select count(*) from devices where kind = 'mobile' and revoked_at is null) < ? and not exists (select 1 from devices where id = ?)",
+      )
+      .bind(now, body.deviceId, sealedToBlob(body.sealed), codeHash, now - PAIRING_TTL_MS, MAX_ACTIVE_PHONES, body.deviceId),
+    db
+      .prepare(
+        "insert into devices (id, kind, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, expires_at) select ?, 'mobile', ?, ?, ?, 0, null, ? where exists (select 1 from mobile_pairings where code_hash = ? and used_at = ? and device_id = ?) on conflict(id) do nothing",
+      )
+      .bind(body.deviceId, tokenHash, now, now, now + PHONE_MAX_AGE_MS, codeHash, now, body.deviceId),
+  ]);
+  if (Number(used?.meta?.changes ?? 0) !== 1) return c.json({ error: deny }, 401);
+  // 同じ ID を名乗る 2 台が同時に別の券で来て、片方が先に入った。券は使い切ったが、この ID では入れない。
+  if (Number(added?.meta?.changes ?? 0) !== 1) return c.json({ error: 'device-exists' }, 409);
+  const res: MobileJoinResponse = { token, deviceId: body.deviceId };
   return c.json(res, 201);
+});
+
+type PendingPairingRow = { code_hash: string; device_id: string; request: unknown; used_at: number };
+
+/** 1 回の `GET /m/pairings/mine` で返す参加リクエストの上限。券は 1 台の PC から 10 分に 5 枚までなので、ふつうは 1 つである。 */
+const MAX_PENDING_PAIRINGS = 20;
+
+/**
+ * 券を発行した PC が、接続してきたスマホの参加リクエストを読む（互換の版 9）。QR を出している間、3 秒ごとに呼ぶ。
+ * 返すのは自分の券のうち、まだ keybox の置かれていないもの（request が null でないもの）だけで、接続の古い順である。
+ * 部分索引 mobile_pairings_pending で引くので、済んだ券の数に比例して読まない。
+ */
+mobileApp.get('/pairings/mine', authMiddleware(), requireKind('pc'), async (c) => {
+  const rows = await c.env.DB.prepare('select code_hash, device_id, request, used_at from mobile_pairings where created_by = ? and request is not null order by created_at limit ?')
+    .bind(c.get('device').id, MAX_PENDING_PAIRINGS)
+    .all<PendingPairingRow>();
+  const res: MobilePairingsMine = { pairings: rows.results.map((r) => ({ codeHash: r.code_hash, deviceId: r.device_id, sealed: blobToSealed(r.request), joinedAt: Number(r.used_at) })) };
+  return c.json(res);
+});
+
+/**
+ * スマホが自分宛てのスマホ用の鍵の keybox を読む（互換の版 9）。いちばん新しい世代の 1 つだけを返し、無ければ 404。
+ * 接続の直後は、PC が keybox を置くまで 404 が続く。スマホは待って読み直す。
+ * 受け手の索引（phone_keyboxes_recipient）で 1 行だけを読む。
+ */
+mobileApp.get('/keybox', authMiddleware(), requireKind('mobile'), async (c) => {
+  const r = await c.env.DB.prepare('select epoch, sealed from phone_keyboxes where recipient = ? order by epoch desc limit 1').bind(c.get('device').id).first<{ epoch: number; sealed: unknown }>();
+  if (!r) return c.json({ error: 'not found' }, 404);
+  const res: KeyboxOut = { epoch: Number(r.epoch), sealed: blobToSealed(r.sealed) };
+  return c.json(res);
 });
 
 /**
  * PC が受信箱の素（暗号化した JSON）を置く。PC ごとに 1 行で、2 回目からは上書きする。
  * 中身は読まず、文字列であることと大きさだけを見る。
+ * `epoch` は素を封じたスマホ用の鍵の世代で、素と一緒に置き換える（互換の版 9）。無い本文は 400。
  */
 mobileApp.put('/feed', authMiddleware(), requireKind('pc'), async (c) => {
   const read = await readLimitedJson(c, MAX_FEED_BODY_BYTES);
   if (read.tooLarge) return c.json({ error: 'payload too large', limit: MAX_FEED_BODY_BYTES }, 413);
-  const body = read.value as { sealed?: unknown } | null;
-  if (!body || typeof body.sealed !== 'string' || body.sealed.length === 0) return c.json({ error: 'invalid body' }, 400);
+  const body = read.value as Partial<MobileFeedPut> | null;
+  if (!body || typeof body.sealed !== 'string' || body.sealed.length === 0 || !isEpoch(body.epoch)) return c.json({ error: 'invalid body' }, 400);
   const device = c.get('device');
   const db = c.env.DB;
   const now = Date.now();
   const stmts = [
     db
-      .prepare('insert into mobile_feeds (device_id, sealed, updated_at) values (?, ?, ?) on conflict(device_id) do update set sealed = excluded.sealed, updated_at = excluded.updated_at')
-      .bind(device.id, body.sealed, now),
+      .prepare('insert into mobile_feeds (device_id, sealed, updated_at, epoch) values (?, ?, ?, ?) on conflict(device_id) do update set sealed = excluded.sealed, updated_at = excluded.updated_at, epoch = excluded.epoch')
+      .bind(device.id, body.sealed, now, body.epoch),
   ];
   const touch = touchIfDue(db, device, now);
   if (touch) stmts.push(touch);
@@ -197,43 +252,39 @@ mobileApp.delete('/feed', authMiddleware(), requireKind('pc'), async (c) => {
 });
 
 type InboxDeviceRow = { id: string; last_seen_at: number | null };
-type InboxFeedRow = { device_id: string; updated_at: number; sealed: string };
+type InboxFeedRow = { device_id: string; updated_at: number; sealed: string; epoch: number };
 
 /**
  * スマホが受信箱を読む。
  * 読むのは devices と mobile_feeds だけで、どちらも PC の数の行である。rows は読まない。
  * 解除した PC と、スマホの行は出さない。解除した PC が前に置いた素も出さない。
- * スマホの最終確認も書く（間引きは PC と同じ touchIfDue）。PC の一覧でスマホを最後に見た時刻が動く。
+ * 素ごとに、封じたスマホ用の鍵の世代（epoch）を返す。手元より新しい世代を見たスマホは `GET /m/keybox` を読み直す。
+ * スマホの最終確認は、ほかのスマホの口と同じく auth.ts が書く。
  */
 mobileApp.get('/inbox', authMiddleware(), requireKind('mobile'), async (c) => {
   const db = c.env.DB;
-  const now = Date.now();
-  const touch = touchIfDue(db, c.get('device'), now);
-  const results = await db.batch([
-    ...(touch ? [touch] : []),
+  const [devices, feeds] = await db.batch([
     db.prepare("select id, last_seen_at from devices where kind = 'pc' and revoked_at is null order by joined_at, id"),
-    db.prepare("select f.device_id, f.updated_at, f.sealed from mobile_feeds f join devices d on d.id = f.device_id where d.kind = 'pc' and d.revoked_at is null order by f.device_id"),
+    db.prepare("select f.device_id, f.updated_at, f.sealed, f.epoch from mobile_feeds f join devices d on d.id = f.device_id where d.kind = 'pc' and d.revoked_at is null order by f.device_id"),
   ]);
-  const off = touch ? 1 : 0;
-  const devices = results[off];
-  const feeds = results[off + 1];
   const res: MobileInboxResponse = {
-    now,
+    now: Date.now(),
     devices: ((devices?.results ?? []) as InboxDeviceRow[]).map((d) => ({ id: d.id, name: d.id, platform: '', lastSeenAt: d.last_seen_at ?? null })),
-    feeds: ((feeds?.results ?? []) as InboxFeedRow[]).map((f) => ({ deviceId: f.device_id, updatedAt: f.updated_at, sealed: f.sealed })),
+    feeds: ((feeds?.results ?? []) as InboxFeedRow[]).map((f) => ({ deviceId: f.device_id, updatedAt: f.updated_at, sealed: f.sealed, epoch: Number(f.epoch) })),
   };
   return c.json(res);
 });
 
-type LaunchRow = { id: string; from_device: string; status: MobileLaunchStatus['status']; created_at: number; sealed_answer: string | null };
+type LaunchRow = { id: string; from_device: string; status: MobileLaunchStatus['status']; created_at: number; sealed_answer: string | null; epoch: number };
 
-const LAUNCH_SELECT = 'select id, from_device, status, created_at, sealed_answer from launch_requests where id = ?';
+const LAUNCH_SELECT = 'select id, from_device, status, created_at, sealed_answer, epoch from launch_requests where id = ?';
 
 /** 受け取られないまま TTL を過ぎた依頼。PC の claim の条件（created_at > now - TTL）のちょうど裏である。 */
 const isExpired = (r: LaunchRow, now: number): boolean => r.status === 'pending' && r.created_at <= now - LAUNCH_TTL_MS;
 
-const statusOf = (r: LaunchRow, now: number): MobileLaunchStatus => ({ id: r.id, status: isExpired(r, now) ? 'expired' : r.status, sealedAnswer: r.sealed_answer ?? null });
+const statusOf = (r: LaunchRow, now: number): MobileLaunchStatus => ({ id: r.id, status: isExpired(r, now) ? 'expired' : r.status, sealedAnswer: r.sealed_answer ?? null, epoch: Number(r.epoch) });
 
+/** 起動の依頼と問い合わせの本文の形。どちらも `epoch`（封じたスマホ用の鍵の世代）が要る（互換の版 9）。 */
 const isLaunchBody = (v: unknown): v is MobileLaunchIn => {
   const o = v as Partial<MobileLaunchIn> | null;
   return (
@@ -245,7 +296,8 @@ const isLaunchBody = (v: unknown): v is MobileLaunchIn => {
     o.targetDevice.length > 0 &&
     o.targetDevice.length <= MAX_TARGET_CHARS &&
     typeof o.sealed === 'string' &&
-    o.sealed.length > 0
+    o.sealed.length > 0 &&
+    isEpoch(o.epoch)
   );
 };
 
@@ -281,8 +333,8 @@ mobileApp.post('/launches', authMiddleware(), requireKind('mobile'), async (c) =
   if (prev) return answerExisting(prev);
   if (!target?.results?.length) return c.json({ error: 'not found' }, 404);
   const ins = await db
-    .prepare("insert or ignore into launch_requests (id, target_device, from_device, sealed, status, created_at, claimed_at, answered_at, sealed_answer) select ?, ?, ?, ?, 'pending', ?, null, null, null where (select count(*) from launch_requests where from_device = ? and created_at > ?) < ?")
-    .bind(body.id, body.targetDevice, device.id, body.sealed, now, device.id, now - LAUNCH_RATE.windowMs, LAUNCH_RATE.max)
+    .prepare("insert or ignore into launch_requests (id, target_device, from_device, sealed, status, created_at, claimed_at, answered_at, sealed_answer, epoch) select ?, ?, ?, ?, 'pending', ?, null, null, null, ? where (select count(*) from launch_requests where from_device = ? and created_at > ?) < ?")
+    .bind(body.id, body.targetDevice, device.id, body.sealed, now, body.epoch, device.id, now - LAUNCH_RATE.windowMs, LAUNCH_RATE.max)
     .run();
   if (Number(ins.meta?.changes ?? 0) === 1) {
     // 宛先の PC を鳴らす。応答は待たず、失敗しても依頼は成功として返す（PC は 30 秒の pull で拾う）。
@@ -292,7 +344,7 @@ mobileApp.post('/launches', authMiddleware(), requireKind('mobile'), async (c) =
     } catch {
       // 実行の文脈が無い（Worker の外で app を叩いた）。鳴らすのは捨ててよい。
     }
-    const res: MobileLaunchStatus = { id: body.id, status: 'pending', sealedAnswer: null };
+    const res: MobileLaunchStatus = { id: body.id, status: 'pending', sealedAnswer: null, epoch: body.epoch };
     return c.json(res, 201);
   }
   // 入らなかった。同時に来た同じ ID の再送か、回数の上限である。
@@ -343,6 +395,7 @@ const isAnswerBody = (v: unknown): v is { ok: boolean; sealedAnswer: string } =>
 
 /**
  * 受け取った PC が結果を返す。応答の中身（sealedAnswer）は封をしたまま置く。
+ * 答えは依頼と同じスマホ用の鍵の世代で封じる決まりなので、答えの世代は持たない（スマホは依頼の epoch で開く）。
  * 自分が受け取った（claimed の）自分宛ての行だけを started か failed にする。それ以外は 409 である。
  */
 mobileApp.post('/launches/:id/answer', authMiddleware(), requireKind('pc'), async (c) => {
@@ -403,7 +456,8 @@ mobileApp.get('/bell', authMiddleware(), requireKind('pc'), async (c) => {
 
 /**
  * スマホが宛先の PC に問い合わせる（互換の版 8）。
- * 本文は `{ id, targetDevice, sealed }` で、sealed はスマホの鍵で封をしてあり、Worker も Durable Object も読まない。D1 にも書かない。
+ * 本文は `{ id, targetDevice, sealed, epoch }` で、sealed はスマホ用の鍵で封をしてあり、Worker も Durable Object も読まない。D1 にも書かない。
+ * epoch（封じたスマホ用の鍵の世代、互換の版 9）は PC にそのまま渡し、PC は同じ世代で答えを封じる。
  * 本文が 4 KiB を超えたら 413、宛先が解除されていない PC でなければ 404 で断る。
  * Durable Object が宛先の WebSocket に渡し、答え（`{ sealed }`）か、503 pc-offline、504 pc-timeout、429 をそのまま返す。
  */
@@ -411,7 +465,7 @@ mobileApp.post('/ask', authMiddleware(), requireKind('mobile'), async (c) => {
   const read = await readLimitedJson(c, MOBILE_ASK_MAX_BYTES);
   if (read.tooLarge) return c.json({ error: 'payload too large', limit: MOBILE_ASK_MAX_BYTES }, 413);
   if (!isLaunchBody(read.value)) return c.json({ error: 'invalid body' }, 400);
-  const body: MobileAskIn = { id: read.value.id, targetDevice: read.value.targetDevice, sealed: read.value.sealed };
+  const body: MobileAskIn = { id: read.value.id, targetDevice: read.value.targetDevice, sealed: read.value.sealed, epoch: read.value.epoch };
   const target = await c.env.DB.prepare("select id from devices where id = ? and kind = 'pc' and revoked_at is null").bind(body.targetDevice).first();
   if (!target) return c.json({ error: 'not found' }, 404);
   const bell = bellOf(c.env);

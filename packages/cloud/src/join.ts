@@ -93,7 +93,7 @@ type CodeRow = {
  * `recovery` は keybox の受け手の予約の名前（keys.ts）なので、端末の ID には使わせない。
  * 使わせると、その名の PC が自分宛ての keybox を置けても、recovery の決まりで読めなくなる。
  */
-const isDeviceId = (v: unknown): v is string => typeof v === 'string' && DEVICE_ID_RE.test(v) && v !== RECOVERY_RECIPIENT;
+export const isDeviceId = (v: unknown): v is string => typeof v === 'string' && DEVICE_ID_RE.test(v) && v !== RECOVERY_RECIPIENT;
 const isHash = (v: unknown): v is string => typeof v === 'string' && HASH_RE.test(v);
 
 const readJson = async (c: Ctx): Promise<Record<string, unknown> | null> => {

@@ -11,6 +11,9 @@ export async function sha256Hex(s: string): Promise<string> {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** 鍵の世代の番号（1 から数える整数）か。PC の世代鍵にもスマホ用の鍵にも使う。 */
+export const isEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
+
 /** 詰め物の無い base64url の形。長さが 4 で割って 1 余るものは、どのバイト列にもならない。 */
 const B64URL_RE = /^[A-Za-z0-9_-]+$/;
 

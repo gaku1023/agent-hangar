@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MOBILE_ASK_MAX_BYTES, MOBILE_ASK_TIMEOUT_MS, MOBILE_REPLY_MAX_BYTES, type MobileAskIn, type MobileJoinResponse, type MobilePairingResponse } from '@agent-hangar/shared';
+import { MOBILE_ASK_MAX_BYTES, MOBILE_ASK_TIMEOUT_MS, MOBILE_REPLY_MAX_BYTES, type MobileAskIn, type MobileJoinResponse } from '@agent-hangar/shared';
 import { askTimeoutMs } from '../src/bellWire.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
-import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
+import { addPcDevice, joinPhoneDevice, startCloud, type CloudHarness } from './harness.ts';
 
 /** 試験では答えの待ちを短くする（実物は MOBILE_ASK_TIMEOUT_MS の 5 秒）。 */
 const ASK_TIMEOUT_MS = 400;
@@ -17,14 +17,7 @@ const post = (token: string, path: string, body?: unknown) =>
 /** PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。 */
 const joinPc = (id: string): Promise<string> => addPcDevice(cloud.env, id);
 
-const joinPhone = async (pcToken: string, id = 'phone'): Promise<MobileJoinResponse> => {
-  const p = await post(pcToken, '/m/pairings');
-  expect(p.status).toBe(201);
-  const { code } = (await p.json()) as MobilePairingResponse;
-  const r = await send('/m/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, device: { id, name: id } }) });
-  expect(r.status).toBe(201);
-  return (await r.json()) as MobileJoinResponse;
-};
+const joinPhone = (pcToken: string, id = 'phone'): Promise<MobileJoinResponse> => joinPhoneDevice(cloud, pcToken, { deviceId: id });
 
 const revoke = (token: string, id: string) => send(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST', headers: auth(token) });
 
@@ -81,7 +74,8 @@ const openBell = async (token: string): Promise<Bell> => {
   return { send: (m) => ws!.send(m), next, silent, closed, close: () => ws!.close(1000, 'bye') };
 };
 
-const ask = (phone: string, body: MobileAskIn | Record<string, unknown>) => post(phone, '/m/ask', body);
+/** 問い合わせを出す。世代を省けば、スマホ用の鍵の世代 1 で封じた問い合わせとして出す。 */
+const ask = (phone: string, body: Omit<MobileAskIn, 'epoch'> | Record<string, unknown>) => post(phone, '/m/ask', { epoch: 1, ...body });
 
 beforeEach(async () => {
   resetSchemaCache();
@@ -127,7 +121,7 @@ describe('呼び鈴につなぐ（GET /m/bell）', () => {
     const second = await openBell(pc);
     expect((await first.closed).code).toBe(4000);
     const pending = ask(phone.token, { id: 'q-1', targetDevice: 'pc-a', sealed: 'sealed-ask' });
-    expect(JSON.parse(await second.next())).toEqual({ t: 'ask', id: 'q-1', sealed: 'sealed-ask' });
+    expect(JSON.parse(await second.next())).toEqual({ t: 'ask', id: 'q-1', sealed: 'sealed-ask', epoch: 1 });
     second.send(JSON.stringify({ t: 'reply', id: 'q-1', sealed: 'sealed-reply' }));
     expect((await pending).status).toBe(200);
   });
@@ -138,8 +132,9 @@ describe('問い合わせ（POST /m/ask）', () => {
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
     const bell = await openBell(pc);
-    const pending = ask(phone.token, { id: 'q-1', targetDevice: 'pc-a', sealed: 'sealed-ask' });
-    expect(JSON.parse(await bell.next())).toEqual({ t: 'ask', id: 'q-1', sealed: 'sealed-ask' });
+    // 問い合わせを封じたスマホ用の鍵の世代も PC に渡す。PC は同じ世代で答えを封じる。
+    const pending = ask(phone.token, { id: 'q-1', targetDevice: 'pc-a', sealed: 'sealed-ask', epoch: 2 });
+    expect(JSON.parse(await bell.next())).toEqual({ t: 'ask', id: 'q-1', sealed: 'sealed-ask', epoch: 2 });
     bell.send(JSON.stringify({ t: 'reply', id: 'q-1', sealed: 'sealed-reply' }));
     const r = await pending;
     expect(r.status).toBe(200);
@@ -239,6 +234,8 @@ describe('問い合わせ（POST /m/ask）', () => {
     const phone = await joinPhone(pc);
     expect((await ask(phone.token, { id: 'q-1', targetDevice: 'pc-a' })).status).toBe(400);
     expect((await ask(phone.token, { id: '', targetDevice: 'pc-a', sealed: 's' })).status).toBe(400);
+    // 世代の無い問い合わせ（0.8.0 の形）と、形の違う世代。
+    for (const epoch of [undefined, 0, 2.5, '1']) expect((await post(phone.token, '/m/ask', { id: 'q-1', targetDevice: 'pc-a', sealed: 's', epoch })).status, String(epoch)).toBe(400);
   });
 
   it('宛先が無い、スマホ、解除した PC は 404', async () => {
@@ -278,7 +275,7 @@ describe('鳴らす（POST /m/launches）', () => {
     const phone = await joinPhone(pcA);
     const a = await openBell(pcA);
     const b = await openBell(pcB);
-    const r = await post(phone.token, '/m/launches', { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req' });
+    const r = await post(phone.token, '/m/launches', { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req', epoch: 1 });
     expect(r.status).toBe(201);
     expect(JSON.parse(await a.next())).toEqual({ t: 'launch' });
     await b.silent(50);
@@ -287,7 +284,7 @@ describe('鳴らす（POST /m/launches）', () => {
   it('宛先がつないでいなくても 201', async () => {
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
-    const r = await post(phone.token, '/m/launches', { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req' });
+    const r = await post(phone.token, '/m/launches', { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req', epoch: 1 });
     expect(r.status).toBe(201);
   });
 });
@@ -301,7 +298,7 @@ describe('呼び鈴の無い Worker', () => {
     await ensureSchema(cloud.env);
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
-    const r = await post(phone.token, '/m/launches', { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req' });
+    const r = await post(phone.token, '/m/launches', { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req', epoch: 1 });
     expect(r.status).toBe(201);
     const q = await ask(phone.token, { id: 'q-1', targetDevice: 'pc-a', sealed: 's' });
     expect(q.status).toBe(503);

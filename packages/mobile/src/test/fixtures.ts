@@ -51,6 +51,7 @@ export async function inboxOf(
       deviceId: f.deviceId,
       updatedAt: opts.updatedAt?.[f.deviceId] ?? now - MIN,
       sealed: await seal(opts.otherKeyFor?.includes(f.deviceId) ? other : key, aadFeed(f.deviceId), f),
+      epoch: 1,
     })),
   );
   return {

@@ -6,6 +6,8 @@ import {
   type JoinCodeMine,
   type JoinStatusOut,
   type KeyboxesOut,
+  type KeyboxOut,
+  type MobilePairingsMine,
   type RosterOut,
   type SealedChangeIn,
   type SealedPullChangesResponse,
@@ -14,7 +16,7 @@ import { createApp } from '../src/app.ts';
 import type { Env } from '../src/env.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
-import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
+import { addPcDevice, joinPhoneDevice, startCloud, type CloudHarness } from './harness.ts';
 
 /**
  * D1 の読み取りの予算（同期の版 6 から、互換の版 9 の封じた行まで）。
@@ -203,6 +205,40 @@ describe('名簿と keybox の口', () => {
     expect(body.boxes).toEqual([{ epoch: EPOCHS, sealed: Buffer.from(`box-pc-b-${EPOCHS}`).toString('base64url') }]);
     expect(read).toBeGreaterThanOrEqual(1);
     expect(read).toBeLessThanOrEqual(PCS + 1);
+  });
+});
+
+describe('スマホ用の鍵の口', () => {
+  /**
+   * pc-a がスマホを 3 台つなぎ、それぞれに EPOCHS 世代の keybox を置いた状態にする（keybox を置いた券はリクエストが消える）。
+   * もう 1 台は接続しただけで、券に参加リクエストが残っている。
+   */
+  const seed = async () => {
+    const phones = [];
+    for (let i = 0; i < 3; i++) {
+      const p = await joinPhoneDevice(cloud, tokA);
+      for (let epoch = 1; epoch <= EPOCHS; epoch++) await send(tokA, '/phone-keyboxes', jsonInit('PUT', { boxes: [{ epoch, recipient: p.deviceId, sealed: Buffer.from(`pbox-${i}-${epoch}`).toString('base64url') }] }));
+      phones.push(p);
+    }
+    const pending = await joinPhoneDevice(cloud, tokA);
+    return { phones, pending };
+  };
+
+  it('GET /m/keybox は 2 行以内（世代が増えても増えない）', async () => {
+    const { phones } = await seed();
+    const { read, res } = await measure(phones[1]!.token, '/m/keybox');
+    expect((await res.json()) as KeyboxOut).toEqual({ epoch: EPOCHS, sealed: Buffer.from(`pbox-1-${EPOCHS}`).toString('base64url') });
+    expect(read).toBeGreaterThanOrEqual(1);
+    expect(read).toBeLessThanOrEqual(2);
+  });
+
+  it('GET /m/pairings/mine は 2 行以内（処理の済んだ券が増えても増えない）', async () => {
+    const { pending } = await seed();
+    const { read, res } = await measure(tokA, '/m/pairings/mine');
+    const body = (await res.json()) as MobilePairingsMine;
+    expect(body.pairings.map((p) => p.deviceId)).toEqual([pending.deviceId]);
+    expect(read).toBeGreaterThanOrEqual(1);
+    expect(read).toBeLessThanOrEqual(2);
   });
 });
 
