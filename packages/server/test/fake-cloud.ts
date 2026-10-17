@@ -128,8 +128,6 @@ export type FakeCloudStore = {
 
 /** 偽物の Worker が持つ起動の依頼の 1 行。状態の進み方は実物（packages/cloud/src/mobile.ts）と同じ。 */
 export type FakeLaunch = { id: string; targetDevice: string; createdAt: number; sealed: string; status: 'pending' | 'claimed' | 'started' | 'failed'; sealedAnswer: string | null; epoch: number };
-/** 試験が置く依頼。epoch（封じたスマホ用の鍵の世代、互換の版 9）を省けば 1 として置く。 */
-export type FakeLaunchIn = Omit<MobileLaunchIn, 'epoch'> & { epoch?: number };
 /** 偽物の Worker が持つ受信箱の素の 1 行（実物の mobile_feeds）。 */
 export type FakeFeed = { sealed: string; updatedAt: number; epoch: number };
 /**
@@ -521,11 +519,13 @@ export class FakeWireClient implements WireCloudClient {
   /**
    * スマホの POST /m/launches の真似（試験が依頼を置くための口で、WireCloudClient には無い）。
    * 置いた時刻は Worker の時計で、同じ ID の再送は行を増やさない。
+   * 実物どおり、epoch（封じたスマホ用の鍵の世代、互換の版 9）が正の整数でなければ 400 で断る。
    */
-  postLaunch(l: FakeLaunchIn): void {
+  postLaunch(l: MobileLaunchIn): void {
     if (ENC.encode(JSON.stringify(l)).byteLength > MAX_LAUNCH_BODY_BYTES) throw new CloudError(413, errorBody('payload too large'));
+    if (!isEpoch(l.epoch)) throw new CloudError(400, errorBody('invalid body'));
     if (this.store.launches.has(l.id)) return;
-    this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null, epoch: l.epoch ?? 1 });
+    this.store.launches.set(l.id, { id: l.id, targetDevice: l.targetDevice, createdAt: this.store.now(), sealed: l.sealed, status: 'pending', sealedAnswer: null, epoch: l.epoch });
   }
 
   /**
@@ -959,7 +959,7 @@ export class FakeCloudClient implements CloudClient {
   revoke(deviceId: string): void { this.wire.revoke(deviceId); }
   unrevoke(deviceId: string): void { this.wire.unrevoke(deviceId); }
   touchRoster(epoch: number): void { this.wire.touchRoster(epoch); }
-  postLaunch(l: FakeLaunchIn): void { this.wire.postLaunch(l); }
+  postLaunch(l: MobileLaunchIn): void { this.wire.postLaunch(l); }
   putBlob(launchId: string, n: number, bytes: Uint8Array): void { this.wire.putBlob(launchId, n, bytes); }
   seedUnchecked(meta: SealedFileIn, body: Buffer): { seq: number } { return this.wire.seedUnchecked(meta, body); }
 

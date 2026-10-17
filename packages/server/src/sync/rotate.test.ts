@@ -828,6 +828,22 @@ describe('revokePhone（スマホの解除）', () => {
     expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
   });
 
+  it('前のスマホの解除が (2) の後で落ちて記録が残ったまま別のスマホを解除すると、先に前の解除を終え、両方が名簿から外れて M が回る', async () => {
+    const { wire, a } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b', 'phone-c']);
+    const crashing = new RosterStore(crashingAt(a.wire, 'putRoster'), a.keyring, a.cfg, 'pc-a');
+    await expect(revokePhone({ id: 'phone-a', ...opts(a, a.wire, { roster: crashing }) })).rejects.toThrow('crashed');
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toEqual({ id: 'phone-a' });
+    expect(wire.storeForScan().devices.get('phone-a')?.revokedAt).not.toBeNull();
+    expect((await phonesIn(a)).ids).toEqual(['phone-a', 'phone-b', 'phone-c']);
+
+    await revokePhone({ id: 'phone-b', ...opts(a) });
+    expect(await phonesIn(a)).toMatchObject({ ids: ['phone-c'], phoneKey: { epoch: 3 } });
+    expect(wire.storeForScan().devices.get('phone-b')?.revokedAt).not.toBeNull();
+    expect((await phoneM(wire, 'phone-c', phones['phone-c']!))?.epoch).toBe(3);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+  });
+
   it('名簿にいないスマホ（接続の途中で解除された）なら、端末トークンだけを無効にし、M も名簿も書き換えない', async () => {
     const { wire, a } = await setup(['pc-a', 'pc-b']);
     await pairPhones(a, ['phone-b']);

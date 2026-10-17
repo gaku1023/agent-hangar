@@ -203,8 +203,11 @@ export function readPhoneRevoke(state: SyncStateStore, cloudId: string): { id: s
 export async function revokePhone(o: RevokePcOptions): Promise<DeviceOut | null> {
   if (o.id === o.deviceId) throw new RevokeSelfError();
   const cloudId = o.cfg.read().cloudId;
+  const left = readPhoneRevoke(o.state, cloudId);
+  // 記録は 1 件分しか持てない。別のスマホの記録が残っていれば、上書きする前にその解除を終わらせる。
+  if (left && left.id !== o.id) await runPhone(o, left.id, true);
   // 同じスマホの記録が残っていれば、前の解除の続きである（画面の「もう一度試す」）。
-  const resumed = readPhoneRevoke(o.state, cloudId)?.id === o.id;
+  const resumed = left?.id === o.id;
   o.state.set('phoneRevoke', JSON.stringify({ id: o.id, cloudId } satisfies PhoneRevokeRecord));
   return runPhone(o, o.id, resumed);
 }

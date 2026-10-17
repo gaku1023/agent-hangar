@@ -32,6 +32,12 @@ export const PAIR_POLL_MS = 3_000;
 export const PAIR_TICKET_KEEP_MS = 60 * 60_000;
 /** 手元に覚える券の数の上限。券は 1 台の PC から 10 分に 5 枚までなので、ふつうは数枚である。 */
 export const PAIR_TICKETS_MAX = 20;
+/**
+ * 扱いが失敗した参加リクエストを、問い合わせごとに試し直す回数。
+ * これを超えたら PAIR_RETRY_MS おきにだけ試す（1 回の試しごとに GET /roster を読むので、失敗が続くと名簿の読みが 3 秒おきに増えるため）。
+ */
+export const PAIR_RETRIES_EACH_POLL = 3;
+export const PAIR_RETRY_MS = 30_000;
 /** 名簿に書くスマホの名前の字数の上限。 */
 export const PHONE_NAME_MAX = 64;
 
@@ -92,11 +98,14 @@ const kindOf = (e: unknown): string => {
  * keybox を置き終えたスマホは、watch が返した券の印で pairedFor から引ける（設定の画面が QR を出している間に見る軽い口）。
  * 開けないリクエスト（券か ID が違う、壊れている）は、その組を覚えて二度と試さない。
  * どの失敗も投げない（ログは英語で種類だけ）。通信の失敗は次の問い合わせでやり直す。
+ * 続けて PAIR_RETRIES_EACH_POLL 回失敗した参加リクエストは、PAIR_RETRY_MS おきにだけ試す。
  * 問い合わせは 1 本ずつ順に走らせる。
  */
 export class PhonePairer {
   private readonly tickets = new Map<string, Ticket>();
   private readonly broken = new Set<string>();
+  /** 扱いが失敗した参加リクエスト（券の印と ID の組）の、続けて失敗した回数と、次に試してよい時刻。 */
+  private readonly failing = new Map<string, { n: number; next: number }>();
   /** keybox を置き終えた券の印から、接続したスマホへ。PAIR_TICKETS_MAX 枚まで覚える。 */
   private readonly done = new Map<string, { id: string; name: string }>();
   private readonly timers: PairerTimers;
@@ -173,12 +182,20 @@ export class PhonePairer {
       console.error('[mobile] could not read the phone pairing requests', kindOf(e));
       return;
     }
+    const now = this.now();
+    for (const k of this.failing.keys()) if (!this.tickets.has(k.slice(0, k.indexOf(':')))) this.failing.delete(k);
     for (const p of mine.pairings) {
       const t = this.tickets.get(p.codeHash);
-      if (!t || this.broken.has(`${p.codeHash}:${p.deviceId}`) || this.stopped) continue;
+      const key = `${p.codeHash}:${p.deviceId}`;
+      if (!t || this.broken.has(key) || this.stopped) continue;
+      const f = this.failing.get(key);
+      if (f && now < f.next) continue;
       try {
         await this.pair(t, p);
+        this.failing.delete(key);
       } catch (e) {
+        const n = (f?.n ?? 0) + 1;
+        this.failing.set(key, { n, next: n >= PAIR_RETRIES_EACH_POLL ? now + PAIR_RETRY_MS : 0 });
         console.error('[mobile] could not finish connecting a phone; will retry', kindOf(e));
       }
     }
@@ -203,6 +220,9 @@ export class PhonePairer {
       return;
     }
     const same = base.roster.entries.some((e) => e.id === entry.id && e.kind === 'phone' && e.pub === entry.pub && e.name === entry.name && e.joinedAt === entry.joinedAt);
+    // same のときは名簿を書かずに、読み直した名簿の M を置く。
+    // 読んでから置くまでの間に他の PC が M を回すと、1 世代前の M を置きうる。
+    // それでも害は無い。回した PC は名簿にいるこのスマホにも新しい世代を置き、Worker は世代ごとに keybox を持ち、スマホはいちばん新しい世代を読むからである。
     let phoneKey = base.roster.phoneKey;
     if (!same || !phoneKey) {
       // fn は当て直しのたびに呼ばれるので、M[1] の候補は外で 1 回だけ作る。

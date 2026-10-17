@@ -66,6 +66,28 @@ describe('phoneKeysOf', () => {
     expect(getRosters(w.a.wire)).toBe(before + 2);
   });
 
+  it('名簿にも無い新しい世代を同じ世代で聞き直されても、最後の読み直しから 10 秒は名簿を読み直さない', async () => {
+    const w = await world();
+    await w.a.roster.update((r) => ({ ...r, phoneKey: { epoch: 1, key: PHONE_KEY_1 } }));
+    const clock = { now: 1_000_000 };
+    const keys = phoneKeysOf(w.a.keyring, w.a.roster, () => clock.now);
+    const before = getRosters(w.a.wire);
+    expect(await keys.at(3)).toBeNull();
+    expect(getRosters(w.a.wire)).toBe(before + 1);
+    clock.now += 9_999;
+    expect(await keys.at(3)).toBeNull();
+    expect(getRosters(w.a.wire)).toBe(before + 1);
+    // 別の世代なら読み直す。
+    expect(await keys.at(4)).toBeNull();
+    expect(getRosters(w.a.wire)).toBe(before + 2);
+    // 10 秒たてば、同じ世代でも読み直す。その間に他の PC が回していれば見つかる。
+    w.b.roster.invalidate();
+    await w.b.roster.update((r) => ({ ...r, phoneKey: { epoch: 3, key: PHONE_KEY_2 } }));
+    clock.now += 10_001;
+    expect((await keys.at(3))?.epoch).toBe(3);
+    expect(getRosters(w.a.wire)).toBe(before + 3);
+  });
+
   it('名簿の phoneKey より新しい世代を手元に持っていれば、古い世代に戻さない', async () => {
     const w = await world();
     await w.a.keyring.setPhoneKey({ epoch: 2, key: PHONE_KEY_2 });

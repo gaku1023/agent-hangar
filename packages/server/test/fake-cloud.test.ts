@@ -100,6 +100,22 @@ describe('FakeCloudClient', () => {
     expect((await a.opened()).map((c) => [c.tableName, c.rowId, c.payload.title])).toEqual([['sessions', 'session-id-1', 'title-1']]);
   });
 
+  it('起動の依頼は実物どおり、スマホ用の鍵の世代（正の整数）が無ければ 400 で断る', () => {
+    const phone = new FakeWireClient({ deviceId: 'a' }).asDevice('phone');
+    const bad = [{ id: 'l1', targetDevice: 'a', sealed: 'x' }, { id: 'l2', targetDevice: 'a', sealed: 'x', epoch: 0 }, { id: 'l3', targetDevice: 'a', sealed: 'x', epoch: 1.5 }];
+    for (const l of bad) {
+      let err: unknown = null;
+      try {
+        phone.postLaunch(l as never);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(CloudError);
+      expect((err as CloudError).status).toBe(400);
+    }
+    expect(() => phone.postLaunch({ id: 'l4', targetDevice: 'a', sealed: 'x', epoch: 2 })).not.toThrow();
+  });
+
   it('名簿の印の行は sealed が空で、書き換えるたびに末尾の連番で入り直し、ほかの PC にだけ降りる', async () => {
     const a = new FakeWireClient({ deviceId: 'a' });
     const b = a.asDevice('b');

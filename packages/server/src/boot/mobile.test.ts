@@ -388,7 +388,7 @@ describe('bootMobile', () => {
     const sealedLaunch = async (id: string, over: Record<string, unknown> = {}): Promise<string> =>
       seal(await mobileKey(), aadLaunch(id, 'pc-a'), { v: 1, createdAt: Date.now(), projectId: 'project-a', scratch: false, accountId: 'primary', permissionMode: '', model: '', prompt: '会話 1 を始める', ...over });
     const deliver = async (s: ReturnType<typeof setup>, id: string, over: Record<string, unknown> = {}): Promise<void> => {
-      s.client.asDevice('phone').postLaunch({ id, targetDevice: 'pc-a', sealed: await sealedLaunch(id, over) });
+      s.client.asDevice('phone').postLaunch({ id, targetDevice: 'pc-a', sealed: await sealedLaunch(id, over), epoch: 1 });
       s.engine().emitLaunches((await s.client.pullChanges(0, 10)).launches ?? []);
     };
     const answerOf = async (s: ReturnType<typeof setup>, id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKey(), aadAnswer(id), s.client.launches.get(id)!.sealedAnswer!);

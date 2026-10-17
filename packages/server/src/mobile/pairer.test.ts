@@ -158,6 +158,34 @@ describe('PhonePairer', () => {
     expect(Array.from(m)).toEqual(Array.from(fromBase64Url(r2.roster.phoneKey!.key)!));
   });
 
+  it('失敗が続く参加リクエストは、3 回までは問い合わせごとに、その後は 30 秒おきにだけ試し、名簿を読む回数を増やさない', async () => {
+    let fail = true;
+    let tries = 0;
+    const w = await world({
+      wire: (wire) => ({
+        getPairingsMine: () => wire.getPairingsMine(),
+        putPhoneKeyboxes: async (boxes: KeyboxIn[]) => {
+          tries++;
+          if (fail) throw new CloudError(0, 'offline');
+          return wire.putPhoneKeyboxes(boxes);
+        },
+      }),
+    });
+    await w.phoneJoins((await w.showQr()).code);
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const rosterReads = () => calls(w.wire, 'getRoster');
+    const before = rosterReads();
+    // 60 秒（問い合わせ 20 回）。3 秒おきの 3 回と、その 30 秒後の 1 回だけ試す。
+    for (let i = 0; i < 20; i++) await w.timers.fire(w.pairer);
+    quiet.mockRestore();
+    expect(tries).toBe(4);
+    expect(rosterReads() - before).toBeLessThanOrEqual(8);
+    // 失敗が止めば、次の試しの時刻に接続を終える。
+    fail = false;
+    for (let i = 0; i < 10 && w.wire.phoneKeybox('phone-1') === null; i++) await w.timers.fire(w.pairer);
+    expect(w.wire.phoneKeybox('phone-1')).not.toBeNull();
+  });
+
   it('PUT /phone-keyboxes が 400 の unknown recipient（解除されたスマホ）なら、その券を捨てる', async () => {
     const w = await world();
     await w.phoneJoins((await w.showQr()).code);

@@ -711,8 +711,8 @@ describe('他の PC の生存（同期の版 6）', () => {
     e.on({ launches: (l) => got.push(l.map((x) => x.id)) });
     await e.start();
     expect(got).toEqual([]);
-    cloud.asDevice('phone').postLaunch({ id: 'l1', targetDevice: 'a', sealed: 'x' });
-    cloud.asDevice('phone').postLaunch({ id: 'l2', targetDevice: 'b', sealed: 'y' });
+    cloud.asDevice('phone').postLaunch({ id: 'l1', targetDevice: 'a', sealed: 'x', epoch: 1 });
+    cloud.asDevice('phone').postLaunch({ id: 'l2', targetDevice: 'b', sealed: 'y', epoch: 1 });
     // 2 頁にまたがる pull（どの頁にも同じ依頼が載る）。
     const b = cloud.asDevice('b');
     const bdb = openDb(':memory:');

@@ -19,13 +19,21 @@ export type PhoneKeySource = {
 };
 
 /**
+ * 同じ未知の世代で名簿を読み直す間隔の下限。
+ * 名簿にも無い世代を名乗る依頼が続いても（pull のたびに同じ依頼を見る）、GET /roster を増やさないためである。
+ */
+export const PHONE_EPOCH_REREAD_MS = 10_000;
+
+/**
  * Keyring と名簿からスマホ用の鍵の引き口を作る。
  * roster が無い（名簿を読めない）ときは、手元の鍵だけを返す。
  * 名簿の読み直しは投げない（通信の失敗は null と同じに扱い、次の依頼でまた試す）。
+ * 同じ世代での読み直しは、最後の読み直しから PHONE_EPOCH_REREAD_MS の間はしない。
  */
-export function phoneKeysOf(keyring: Keyring | Promise<Keyring>, roster: Pick<RosterStore, 'invalidate' | 'read'> | null = null): PhoneKeySource {
+export function phoneKeysOf(keyring: Keyring | Promise<Keyring>, roster: Pick<RosterStore, 'invalidate' | 'read'> | null = null, clock: () => number = Date.now): PhoneKeySource {
   const ring = Promise.resolve(keyring);
   ring.catch(() => {});
+  let last: { epoch: number; at: number } | null = null;
   return {
     current: async () => (await ring).phoneKey(),
     async at(epoch) {
@@ -33,6 +41,9 @@ export function phoneKeysOf(keyring: Keyring | Promise<Keyring>, roster: Pick<Ro
       const have = r.phoneKey();
       if (have?.epoch === epoch) return have;
       if (!roster || (have && epoch < have.epoch)) return null;
+      const t = clock();
+      if (last && last.epoch === epoch && t - last.at < PHONE_EPOCH_REREAD_MS) return null;
+      last = { epoch, at: t };
       roster.invalidate();
       try {
         await roster.read();
