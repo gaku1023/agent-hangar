@@ -239,10 +239,19 @@ export class SealedCloudClient implements CloudClient {
     const unknown = page.files.filter((f) => ring.at(f.epoch) === null).map((f) => f.epoch);
     if (unknown.length > 0) await this.refreshKeys(unknown);
     const opened = await Promise.all(page.files.map((f) => openSealedFile(ring, f)));
-    const files = opened.filter((f): f is FileEntry => f !== null);
-    const skipped = page.files.length - files.length;
-    if (skipped > 0) console.warn(`sync: skipped ${skipped} file entries that could not be opened`);
-    return { files, nextSeq: page.nextSeq, more: page.more };
+    const files: FileEntry[] = [];
+    const unreadable: Unreadable[] = [];
+    let dropped = 0;
+    opened.forEach((e, i) => {
+      const f = page.files[i]!;
+      if (e) files.push(e);
+      // 鍵の無い世代の行は、鍵が届けば開けるので名指しで返す（呼び手が後で読み直す）。
+      else if (ring.at(f.epoch) === null) unreadable.push({ seq: f.seq, epoch: f.epoch });
+      // 鍵があっても開けない行（付け替え、鍵名と中身の食い違い）は、何度読んでも開けないので捨てる。
+      else dropped++;
+    });
+    if (dropped > 0) console.warn(`sync: dropped ${dropped} file entries that could not be opened`);
+    return { files, unreadable, nextSeq: page.nextSeq, more: page.more };
   }
 
   async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {

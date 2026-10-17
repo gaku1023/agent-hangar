@@ -306,7 +306,10 @@ export interface CloudClient extends CloudClientBase {
   putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
   /** 本文を取り、epoch の世代の鍵で復号して gzip を解いた平文の流れを返す。 */
   getFile(key: string, epoch: number): Promise<Readable>;
-  /** 索引を開いて返す。開けない行（鍵が無い、宛先や鍵名が中身と合わない）は飛ばす。 */
+  /**
+   * 索引を開いて返す。
+   * 世代の鍵が無い行は unreadable に入れ、宛先や鍵名が中身と合わない行は捨てる。
+   */
   listFiles(since: number, limit: number): Promise<ListFilesResponse>;
   /**
    * 開けなかった行の世代（unreadable の epoch）を渡し、手元に無い世代があれば名簿と keybox を読み直す。

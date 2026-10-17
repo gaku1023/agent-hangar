@@ -10,7 +10,7 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { sha256Hex } from './crypto.ts';
 import { Keyring } from './keyring.ts';
-import { RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS } from './puller.ts';
+import { RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS, rewindSkippedFiles } from './puller.ts';
 import { SyncStateStore } from './state.ts';
 import { expectMode } from '../../test/platform.ts';
 
@@ -109,6 +109,8 @@ describe('RemotePuller', () => {
     expect(await p.pullNow()).toEqual({ downloaded: 0 });
     expect(fs.existsSync(path.join(home, 'remote'))).toBe(false);
     expect(state.getNumber('filesSeq', -1)).toBe(2);
+    // 鍵があっても開けない行は、巻き戻しても開けないので控えない。
+    expect(state.get('filesSkippedFrom')).toBeNull();
   });
 
   it('過去の世代で封じた本文を、世代 1 と 2 を持つ PC が降ろせる', async () => {
@@ -120,6 +122,47 @@ describe('RemotePuller', () => {
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 1 });
     expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('old epoch\n');
+  });
+
+  it('鍵の届いていない世代の本文は控えて先へ進み、鍵が届いて巻き戻せば降ろす', async () => {
+    const ringB = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 }));
+    const devB2 = cloud.asDevice('dev-b', { keyring: ringB });
+    // 世代 2 の本文（dev-a はまだ鍵を持たない）と、その後ろに世代 1 の本文。
+    await devB2.putText({ path: `projects/-w-alpha/${UUID}.jsonl` }, 'new epoch\n');
+    const other = '55555555-5555-4555-8555-555555555555';
+    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'old epoch\n');
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    // 区切りは止めずに進め、控えた所を覚える。
+    expect(state.getNumber('filesSeq', -1)).toBe(2);
+    expect(state.getNumber('filesSkippedFrom', -1)).toBe(1);
+    // 後ろでまた控えても、小さい方を残す。
+    await devB2.putText({ path: `projects/-w-alpha/${other}/subagents/agent-x1.jsonl` }, 'sub\n');
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    expect(state.getNumber('filesSeq', -1)).toBe(3);
+    expect(state.getNumber('filesSkippedFrom', -1)).toBe(1);
+    expect(errors).toEqual([]);
+    // 名簿の読み直しで世代 2 の鍵が届いたら、巻き戻して読み直す。
+    await (await cloud.keyring).addEpochs({ epochs: { '2': testKey(4) } });
+    await p.rewindSkipped();
+    expect(state.getNumber('filesSeq', -1)).toBe(0);
+    expect(state.get('filesSkippedFrom')).toBeNull();
+    expect(await p.pullNow()).toEqual({ downloaded: 2 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('new epoch\n');
+    expect(state.get('filesSkippedFrom')).toBeNull();
+    // 控えが無ければ巻き戻さない。
+    await p.rewindSkipped();
+    expect(state.getNumber('filesSeq', -1)).toBe(3);
+  });
+
+  it('巻き戻しは関数だけでも呼べ、手前の区切りを先へ進めない', () => {
+    state.set('filesSeq', 2);
+    state.set('filesSkippedFrom', 7);
+    expect(rewindSkippedFiles(state)).toBe(true);
+    // 控えより手前にいるなら、その位置のまま（先へは進めない）。
+    expect(state.getNumber('filesSeq', -1)).toBe(2);
+    expect(state.get('filesSkippedFrom')).toBeNull();
+    expect(rewindSkippedFiles(state)).toBe(false);
   });
 
   it('上げた本文を別の PC が降ろせる（uploader と同じ鍵名の求め方）', async () => {

@@ -69,7 +69,12 @@ export type FileKind = 'transcript' | 'config';
  */
 export type FileMetaIn = { key: string; epoch: number; kind: FileKind; path: string; sha256: string; size: number; mtime: number; origin: string };
 export type FileEntry = FileMetaIn & { seq: number; deviceId: string; uploadedAt: number; storedSize: number };
-export type ListFilesResponse = { files: FileEntry[]; nextSeq: number; more: boolean };
+/**
+ * 開いた索引の頁。
+ * unreadable は、世代の鍵が手元に無くて開けなかった行（読み直しても届かなかったもの）の連番と世代である。
+ * 鍵があっても開けない行（付け替え、鍵名と中身の食い違い）は、鍵が届いても開けないので、どちらにも入れない。
+ */
+export type ListFilesResponse = { files: FileEntry[]; unreadable: { seq: number; epoch: number }[]; nextSeq: number; more: boolean };
 
 /**
  * 封じたメタを持つファイル（互換の版 9）。

@@ -30,8 +30,6 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.crypto.truncated': '暗号化ファイルが不完全です（truncated）',
   'sync.pull.badDevice': 'PC の ID が不正です: {id}',
   'sync.pull.badPath': 'トランスクリプトの相対パスが不正です: {path}',
-  'sync.pull.keyMismatch': 'トランスクリプトのキーと相対パスが一致しません',
-  'sync.pull.notEncrypted': 'トランスクリプトが暗号化されていません: {key}',
   'sync.pull.shaMismatch': 'トランスクリプトの SHA-256 が一致しません: {key}',
   'sync.copy.badRelPath': '相対パスの形式が不正です',
   'sync.copy.symlink': '{here} がシンボリックリンクのため、{label} の外を指しています',

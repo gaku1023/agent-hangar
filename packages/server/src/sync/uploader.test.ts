@@ -9,7 +9,9 @@ import { FakeCloudClient, MAX_BODY_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { CloudError, LimitError } from './client.ts';
+import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import { sha256Hex } from './crypto.ts';
+import { Keyring } from './keyring.ts';
 import { ledgerKeyOfPath } from './ledgerKey.ts';
 import { SyncStateStore } from './state.ts';
 import { TRANSCRIPTS_FROM } from './transcriptsFrom.ts';
@@ -125,6 +127,28 @@ describe('TranscriptUploader', () => {
     expect(first).toEqual([await blobOf(MAIN_KEY)]);
     expect(cloud.files.get(first[0]!)!.entry.seq).toBe(2);
     expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
+    up.stop();
+  });
+
+  it('鍵名を求めた世代が今の世代でなく client に断られたら、諦めずに待ち行列に残す', async () => {
+    // client は世代 2 に進んでいるのに、uploader の鍵の束はまだ世代 1 にいる（世代を回した直後の食い違い）。
+    const ring2 = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 }));
+    cloud = new FakeCloudClient({ deviceId: 'dev-a', keyring: ring2 });
+    const stale = await Keyring.fromConfig(testCloudConfig());
+    const up = new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: stale, state, now: () => timers.now, timers, isPaused: () => paused, onError: (p, m) => errors.push({ path: p, message: m }) });
+    up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.message).toMatch(/epoch/);
+    // 直りうる失敗なので、諦めの控えを残さず、次の機会にまた試す。
+    expect(skipRow()).toBeNull();
+    expect(up.skippedUploads()).toEqual([]);
+    await stale.addEpochs({ epochs: { '2': testKey(4) } });
+    await up.flushAll();
+    expect(puts()).toBe(1);
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n');
     up.stop();
   });
 

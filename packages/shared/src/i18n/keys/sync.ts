@@ -29,8 +29,6 @@ export const syncKeys = {
   'sync.crypto.truncated': [],
   'sync.pull.badDevice': ['id'],
   'sync.pull.badPath': ['path'],
-  'sync.pull.keyMismatch': [],
-  'sync.pull.notEncrypted': ['key'],
   'sync.pull.shaMismatch': ['key'],
   'sync.copy.badRelPath': [],
   'sync.copy.symlink': ['here', 'label'],

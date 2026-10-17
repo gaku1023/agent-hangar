@@ -327,6 +327,24 @@ describe('SealedCloudClient の本文', () => {
     expect(onRoster).toHaveBeenCalledTimes(1);
   });
 
+  it('読み直しても鍵の届かない世代の本文は unreadable で返し、付け替えた行は返さない', async () => {
+    const ringA = await ring({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 });
+    const ringOld = await ring({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 1 });
+    const onRoster = vi.fn(async () => {});
+    const { a, b, wireA } = await twoPcs({ ringA, onRosterB: onRoster });
+    // 世代 2 の本文（b は鍵を持たない）。
+    await put(a, ringA, 'pc-a', TEXT, { uuid: 'u-1', rel: 'projects/-w/u-1.jsonl' });
+    // 世代 1 の本文を 2 つ。片方は宛先を書き換える。
+    const a1 = new SealedCloudClient(wireA, ringOld, 'pc-a');
+    const k2 = await put(a1, ringOld, 'pc-a', TEXT, { uuid: 'u-2', rel: 'projects/-w/u-2.jsonl' });
+    await put(a1, ringOld, 'pc-a', TEXT, { uuid: 'u-3', rel: 'projects/-w/u-3.jsonl' });
+    wireA.files.get(k2)!.entry.deviceId = 'pc-c';
+    const page = await b.listFiles(0, 500);
+    expect(page.files.map((f) => f.path)).toEqual(['projects/-w/u-3.jsonl']);
+    expect(page.unreadable).toEqual([{ seq: 1, epoch: 2 }]);
+    expect(onRoster).toHaveBeenCalledTimes(1);
+  });
+
   it('設定のファイルも鍵名に相対パスを残さず、別の PC が開ける', async () => {
     const ringA = await ring();
     const { a, b, wireA } = await twoPcs({ ringA });

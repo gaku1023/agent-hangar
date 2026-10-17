@@ -104,6 +104,22 @@ export function remoteTranscriptPath(home: string, deviceId: string, rel: string
 }
 
 /**
+ * 世代の鍵が無くて越えた索引の行まで、本文の区切り（filesSeq）を巻き戻す。
+ * 名簿と keybox の読み直しで新しい世代の鍵が届いたときに呼ぶ（Task 11 の名簿の層がつなぐ）。
+ * 次の pull はその手前から一覧を読み直すので、越えた本文が降りてくる。降ろし済みの本文は指紋が同じなので降ろし直さない。
+ * 区切りが控えより手前にいれば、その位置のまま（先へは進めない）。
+ * 巻き戻したら true を返し、控えを消す。控えが無ければ何もせず false を返す。
+ * 降ろしている最中に呼ぶと、その回の終わりの書き込みに上書きされうるので、動いている RemotePuller があれば rewindSkipped を使う。
+ */
+export function rewindSkippedFiles(state: SyncStateStore): boolean {
+  const from = state.getNumber('filesSkippedFrom', 0);
+  if (from <= 0) return false;
+  state.set('filesSeq', Math.min(state.getNumber('filesSeq', 0), from - 1));
+  state.set('filesSkippedFrom', null);
+  return true;
+}
+
+/**
  * 他端末が上げた本文を降ろして手元に展開する。
  * 索引は client（SealedCloudClient）が開いて渡す。R2 の鍵名と中身のパスの対応は、client が開くときに確かめる（中身と違う鍵名の行は届かない）。
  * 手元の台帳（file_sync）は、R2 の鍵名ではなく、パスから求めた台帳の鍵（sync/ledgerKey.ts）で引く。
@@ -167,6 +183,14 @@ export class RemotePuller {
    */
   stop(): void {
     this.stopped = true;
+  }
+
+  /**
+   * 世代の鍵が無くて越えた行まで区切りを巻き戻す（rewindSkippedFiles）。
+   * 降ろしと同じ鎖に並べるので、走っている pull の終わりの書き込みと食い違わない。巻き戻したら true。
+   */
+  rewindSkipped(): Promise<boolean> {
+    return this.enqueue(async () => rewindSkippedFiles(this.deps.state));
   }
 
   private skipKey(key: string): `skipped:${string}` { return `${SKIP_PREFIX}${key}`; }
@@ -262,8 +286,12 @@ export class RemotePuller {
     let since = this.deps.state.getNumber('filesSeq', 0);
     let advanceTo = since;
     let minFailed: number | null = null;
+    let minUnreadable: number | null = null;
     for (;;) {
       const page = await this.deps.client.listFiles(since, PULL_LIMIT);
+      // 世代の鍵が無くて開けなかった行は、区切りを止めずに越え、いちばん小さい連番を控える。
+      // 止めると後ろの本文がすべて止まる。鍵が届いたら rewindSkippedFiles がここまで巻き戻す。
+      for (const u of page.unreadable) minUnreadable = minUnreadable === null ? u.seq : Math.min(minUnreadable, u.seq);
       for (const e of page.files) {
         if (e.deviceId === this.deps.deviceId) continue;
         // 設定（kind が config）は降ろさない。束の本体は設定の同期が、束の行を見て自分で取りに行く。
@@ -288,6 +316,10 @@ export class RemotePuller {
     }
     // 失敗した項目より手前で止めて、次の pull で取り直す。
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
+    if (minUnreadable !== null) {
+      const prev = this.deps.state.getNumber('filesSkippedFrom', Infinity);
+      this.deps.state.set('filesSkippedFrom', Math.min(prev, minUnreadable));
+    }
     if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
     return { downloaded };
   }

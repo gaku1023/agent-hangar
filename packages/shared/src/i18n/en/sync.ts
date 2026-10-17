@@ -30,8 +30,6 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.crypto.truncated': 'The encrypted file is truncated',
   'sync.pull.badDevice': 'Invalid computer ID: {id}',
   'sync.pull.badPath': 'Invalid transcript path: {path}',
-  'sync.pull.keyMismatch': 'The transcript key does not match its path',
-  'sync.pull.notEncrypted': 'Transcript is not encrypted: {key}',
   'sync.pull.shaMismatch': 'Transcript SHA-256 does not match: {key}',
   'sync.copy.badRelPath': 'Invalid relative path',
   'sync.copy.symlink': '{here} is a symbolic link, so it would leave {label}',
