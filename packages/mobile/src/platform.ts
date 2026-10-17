@@ -13,6 +13,13 @@ export function isStandalone(): boolean {
  * iPhone と iPad の別のブラウザ（Chrome、Firefox、Edge、Opera）は含めない。
  */
 export function isIosSafari(ua: string = navigator.userAgent, touchPoints: number = navigator.maxTouchPoints ?? 0): boolean {
-  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1);
-  return ios && /Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+  return isIos(ua, touchPoints) && /Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+}
+
+/**
+ * iPhone か iPad か（ブラウザを問わない）。
+ * iOS ではどのブラウザも WebKit で、Web Push はホーム画面に追加したアプリの中でだけ使える。
+ */
+export function isIos(ua: string = navigator.userAgent, touchPoints: number = navigator.maxTouchPoints ?? 0): boolean {
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1);
 }

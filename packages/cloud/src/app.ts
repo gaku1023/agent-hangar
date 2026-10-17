@@ -10,6 +10,7 @@ import { bootstrapHandler, joinApp, joinCodesApp } from './join.ts';
 import { keysApp } from './keys.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
 import { mobileApp } from './mobile.ts';
+import { noticesApp, pushApp } from './push.ts';
 import { ensureSchema } from './schema.ts';
 import { collectUsage } from './usage.ts';
 import { VERSION } from './util.ts';
@@ -37,7 +38,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes', '/notices']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
@@ -56,6 +57,9 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.route('/', keysApp);
   // スマホの参加と受信箱。認証と種類の検査は経路ごとに mobile.ts の中で付ける（参加の口だけはトークンなし）。
   app.route('/m', mobileApp);
+  // スマホのプッシュ通知（0.9.1）。購読の口（/m/push）はスマホのトークンを push.ts の中で求め、PC が送る口（/notices）は上の一覧で PC のトークンを求める。
+  app.route('/m/push', pushApp);
+  app.route('/notices', noticesApp);
 
   // 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。
   app.get('/usage', async (c) => {

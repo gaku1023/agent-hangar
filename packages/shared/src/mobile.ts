@@ -157,6 +157,44 @@ export type MobileLaunchOut = { id: string; createdAt: number; sealed: string; e
 export type MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | 'started' | 'failed' | 'expired'; sealedAnswer: string | null; epoch: number };
 
 /**
+ * スマホのプッシュ通知の中身（0.9.1）。
+ * PC がスマホ用の鍵 `M[m]` で封じ（mobileCrypto.ts の sealPhoneNotice）、Worker は封じたまま Web Push で送る。
+ * count は新しく要対応に入った会話の数で、2 以上なら「〈題〉ほか n 件」と出す。題と ID は先頭の 1 件のもの。
+ */
+export type PhoneNotice = { title: string; pcName: string; sessionId: string; count: number };
+/** 通知の題と PC の名前の字数の上限。封じる前に切る。 */
+export const PHONE_NOTICE_TEXT_MAX = 120;
+/** 通知の会話の ID の字数の上限。 */
+export const PHONE_NOTICE_ID_MAX = 128;
+/**
+ * 封じた通知（`<世代>.<base64url>`）の字数の上限。
+ * Web Push の本文は 4,096 バイトまでで、RFC 8291 の頭（86 バイト）と区切りとタグを引いた残りに収める。
+ */
+export const PHONE_NOTICE_SEALED_MAX = 3000;
+/** 夜の時間帯の既定（端末の時刻の 0 時からの分）。23:00 から 7:00 までは鳴らさない。 */
+export const PUSH_QUIET_DEFAULT = { start: 23 * 60, end: 7 * 60 } as const;
+/** PC が通知を送れる回数（`POST /notices`）。1 台の PC から 1 分に 10 回まで。 */
+export const NOTICE_RATE = { max: 10, windowMs: 60_000 } as const;
+
+/**
+ * `GET /m/push/key`（スマホ）の応答。
+ * publicKey は Worker の VAPID の公開鍵（ECDSA P-256 の raw の非圧縮点 65 バイト）の base64url で、`PushManager.subscribe` の applicationServerKey にそのまま渡せる。
+ */
+export type PushKeyOut = { publicKey: string };
+/**
+ * `PUT /m/push/subscription`（スマホ）の本文。スマホ 1 台に購読 1 つで、2 回目からは上書きする。
+ * endpoint、keys は `PushSubscription.toJSON()` の同じ名前の値である（p256dh は 65 バイト、auth は 16 バイトの base64url）。
+ * quiet は鳴らさない時間帯で、端末の時刻の 0 時からの分（0 から 1439）で持つ。start と end が同じなら時間帯なし。
+ * quiet を省くと既定（PUSH_QUIET_DEFAULT）、null なら夜も鳴らす。
+ * tzOffset は `new Date().getTimezoneOffset()` の値（分。日本なら -540）で、端末の時刻は UTC からこれを引いたものである。
+ */
+export type PushSubscriptionPut = { endpoint: string; keys: { p256dh: string; auth: string }; quiet?: { start: number; end: number } | null; tzOffset: number };
+/** `POST /notices`（PC）の本文。sealed は sealPhoneNotice の戻りで、epoch はその世代（sealed の頭の数と同じ）。 */
+export type NoticeIn = { sealed: string; epoch: number };
+/** `POST /notices` の応答。sent は push サービスが受けた数、quiet は夜の時間帯で送らなかった数、removed は 404 か 410 で消した購読の数。 */
+export type NoticeOut = { sent: number; quiet: number; removed: number; failed: number };
+
+/**
  * 文を max 字で切り、切ったときは末尾に … を付ける。前後の空白は落とす。
  * null、undefined、空（空白だけ）は null。サロゲートペアは割らない。
  */

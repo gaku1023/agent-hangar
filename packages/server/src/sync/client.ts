@@ -37,6 +37,8 @@ import {
   type MobileFeedPut,
   type MobilePairingResponse,
   type MobilePairingsMine,
+  type NoticeIn,
+  type NoticeOut,
   type PushChangesResponse,
   type RosterOut,
   type RosterPut,
@@ -292,6 +294,12 @@ export interface CloudClientBase {
    * 最後のスマホを解除したあとに 1 回呼ぶ。偽物は実装しなくてよい。
    */
   deleteMobileFeed?(): Promise<void>;
+  /**
+   * スマホ用の鍵で封じた通知（shared の sealPhoneNotice の戻り）を、スマホのプッシュ通知の購読へ送らせる（POST /notices、0.9.1 の Worker から）。
+   * epoch は sealed の頭の世代と同じでないと Worker が 400 で断る。1 台の PC から 1 分に 10 回を超えると 429 で断る。
+   * 0.9.1 より前の Worker は口を知らず 404 で断る（互換の版は 9 のまま）。呼ぶのは MobileFeedPublisher で、失敗は捨てる。偽物は実装しなくてよい。
+   */
+  postNotice?(sealed: string, epoch: number): Promise<NoticeOut>;
   /**
    * 自分の端末 ID の下の本文を消す（DELETE /blobs、互換の版 9）。鍵は 1 回に MAX_BLOB_DELETE_KEYS 件まで。
    * 置いてから 1 時間たっていないもの、ほかの端末の下のもの、1 日の上限からあふれたものは refused で返る。
@@ -661,6 +669,12 @@ export class HttpCloudClient implements WireCloudClient {
 
   async deleteMobileFeed(): Promise<void> {
     await this.json<{ ok: boolean }>('/m/feed', { method: 'DELETE' });
+  }
+
+  async postNotice(sealed: string, epoch: number): Promise<NoticeOut> {
+    await this.ensureWorkerCompat();
+    const body: NoticeIn = { sealed, epoch };
+    return this.json<NoticeOut>('/notices', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   }
 
   async deleteBlobs(keys: string[]): Promise<BlobsDeleteOut> {

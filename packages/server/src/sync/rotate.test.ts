@@ -733,7 +733,7 @@ async function phoneM(wire: FakeWireClient, id: string, pair: PhoneKeyPair): Pro
   return box ? { epoch: box.epoch, key: await importMobileKey(await openPhoneKeybox(pair.key, pair.pub, id, box)) } : null;
 }
 
-const publisherOf = (pc: Pc) => new MobileFeedPublisher({ build: () => FEED, client: new FakeCloudClient({ wire: pc.wire, keyring: pc.keyring }), phoneKeys: phoneKeysOf(pc.keyring, pc.roster), deviceId: pc.id, timers: new FakeTimers(), canWrite: () => true });
+const publisherOf = (pc: Pc) => new MobileFeedPublisher({ build: () => FEED, client: new FakeCloudClient({ wire: pc.wire, keyring: pc.keyring }), phoneKeys: phoneKeysOf(pc.keyring, pc.roster), deviceId: pc.id, timers: new FakeTimers(), canWrite: () => true, hasPhones: () => true });
 
 async function opensFeed(m: CryptoKey, sealed: string): Promise<boolean> {
   try {

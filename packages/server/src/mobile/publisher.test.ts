@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { aadFeed, importMobileKey, MOBILE_FEED_MAX_BYTES, MOBILE_MIN_WORKER_COMPAT, open, type MobileFeed } from '@agent-hangar/shared';
+import { aadFeed, importMobileKey, MOBILE_FEED_MAX_BYTES, MOBILE_MIN_WORKER_COMPAT, open, openPhoneNotice, type MobileFeed, type MobileLiveItem } from '@agent-hangar/shared';
+import { CloudError } from '../sync/client.ts';
 import { testCloudConfig } from '../../test/cloudConfig.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
@@ -21,7 +22,7 @@ const feedOf = (title: string): MobileFeed => ({
   done: [{ sessionId: 's1', projectName: 'project-a', title, oneLiner: null, doneAt: 1 }],
 });
 
-function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number; phoneKeys?: Pick<PhoneKeySource, 'current'> } = {}) {
+function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number; phoneKeys?: Pick<PhoneKeySource, 'current'>; hasPhones?: () => boolean } = {}) {
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now, ...(o.minWorkerCompat !== undefined ? { minWorkerCompat: o.minWorkerCompat } : {}) });
   let feed = feedOf('会話 1');
@@ -34,6 +35,7 @@ function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number; phoneKey
     timers,
     now: () => timers.now,
     canWrite: o.canWrite ?? (() => true),
+    hasPhones: o.hasPhones ?? (() => true),
     onError: (e) => errors.push(e),
   });
   const writes = (): number => client.calls.filter((c) => c.method === 'putMobileFeed').length;
@@ -180,7 +182,7 @@ describe('MobileFeedPublisher', () => {
     const timers = new FakeTimers();
     const client = new FakeCloudClient({ deviceId: 'pc-a' });
     const errors: unknown[] = [];
-    const pub = new MobileFeedPublisher({ build: () => { throw new Error('boom'); }, client, phoneKeys: fixedPhoneKeys(), deviceId: 'pc-a', timers, canWrite: () => { throw new Error('bad'); }, onError: (e) => errors.push(e) });
+    const pub = new MobileFeedPublisher({ build: () => { throw new Error('boom'); }, client, phoneKeys: fixedPhoneKeys(), deviceId: 'pc-a', timers, canWrite: () => { throw new Error('bad'); }, hasPhones: () => true, onError: (e) => errors.push(e) });
     expect(() => pub.nudge()).not.toThrow();
     await timers.advance(FEED_DEBOUNCE_MS);
     await settle(() => errors.length === 1);
@@ -274,5 +276,126 @@ describe('MobileFeedPublisher', () => {
     const { client, pub } = setup();
     (client as { deleteMobileFeed?: unknown }).deleteMobileFeed = undefined;
     expect(await pub.dropFeed()).toBe(false);
+  });
+});
+
+/** 実行中の会話の 1 行。status が waiting なら要対応（スマホの受信箱の「要対応」）。 */
+const liveOf = (sessionId: string, status: MobileLiveItem['status'], o: Partial<MobileLiveItem> = {}): MobileLiveItem => ({
+  sessionId, projectId: 'p1', projectName: 'project-a', title: `題 ${sessionId}`, accountId: 'primary', status, statusAt: 10, startedAt: 1,
+  waiting: status === 'waiting' ? { kind: 'permission', text: 'Bash: ls' } : null, intent: null, rcUrl: null, ...o,
+});
+const withLive = (live: MobileLiveItem[], n = 0): MobileFeed => ({ ...feedOf(`会話 ${n}`), live });
+
+describe('MobileFeedPublisher のスマホへの通知', () => {
+  const notices = (s: ReturnType<typeof setup>) => s.client.notices;
+
+  it('要対応に新しく入った会話があれば、素を書いたあとに通知を 1 回送る。中身はスマホ用の鍵で開ける', async () => {
+    const s = setup();
+    s.setFeed(withLive([liveOf('s1', 'busy')]));
+    expect(await s.pub.flushNow()).toBe('written');
+    s.setFeed(withLive([liveOf('s1', 'waiting')]));
+    expect(await s.pub.flushNow()).toBe('written');
+    expect(notices(s)).toHaveLength(1);
+    const n = notices(s)[0]!;
+    expect(n.epoch).toBe(1);
+    expect(await openPhoneNotice(await mKey(), n.sealed)).toEqual({ title: '題 s1', pcName: 'PC A', sessionId: 's1', count: 1 });
+  });
+
+  it('起動の直後の最初の書き込みでは、既に要対応だった会話を知らせない', async () => {
+    const s = setup();
+    s.setFeed(withLive([liveOf('s1', 'waiting')]));
+    expect(await s.pub.flushNow()).toBe('written');
+    expect(notices(s)).toHaveLength(0);
+  });
+
+  it('同じ会話が要対応のままなら送らない。要対応を出てまた入れば、もう 1 回送る', async () => {
+    const s = setup();
+    s.setFeed(withLive([]));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s1', 'waiting')], 1));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s1', 'waiting', { waiting: { kind: 'question', text: '次は?' } })], 2));
+    expect(await s.pub.flushNow()).toBe('written');
+    expect(notices(s)).toHaveLength(1);
+    s.setFeed(withLive([liveOf('s1', 'busy')], 3));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s1', 'waiting')], 4));
+    await s.pub.flushNow();
+    expect(notices(s)).toHaveLength(2);
+  });
+
+  it('新しく入った会話が複数なら、1 回の通知に件数を入れ、題は先に待ち始めた会話のもの', async () => {
+    const s = setup();
+    s.setFeed(withLive([liveOf('s0', 'waiting')]));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s0', 'waiting'), liveOf('s2', 'waiting', { statusAt: 30 }), liveOf('s3', 'waiting', { statusAt: 20 }), liveOf('s4', 'idle')], 1));
+    await s.pub.flushNow();
+    expect(notices(s)).toHaveLength(1);
+    expect(await openPhoneNotice(await mKey(), notices(s)[0]!.sealed)).toEqual({ title: '題 s3', pcName: 'PC A', sessionId: 's3', count: 2 });
+  });
+
+  it('スマホが 1 台も無いときは送らない。後からスマホが現れても、その前から待っていた会話は鳴らさない', async () => {
+    let phones = false;
+    const s = setup({ hasPhones: () => phones });
+    s.setFeed(withLive([]));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s1', 'waiting')], 1));
+    expect(await s.pub.flushNow()).toBe('written');
+    expect(notices(s)).toHaveLength(0);
+    phones = true;
+    s.setFeed(withLive([liveOf('s1', 'waiting')], 2));
+    await s.pub.flushNow();
+    expect(notices(s)).toHaveLength(0);
+  });
+
+  it('素の書き込みに失敗したら、その回の会話は次に書けたときに知らせる', async () => {
+    const s = setup();
+    s.setFeed(withLive([]));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s1', 'waiting')]));
+    s.client.offline = true;
+    await expect(s.pub.flushNow()).rejects.toBeInstanceOf(CloudError);
+    s.client.offline = false;
+    expect(await s.pub.flushNow()).toBe('written');
+    expect(notices(s)).toHaveLength(1);
+  });
+
+  it('通知の失敗（口を知らない Worker の 404、上限の 429、倒れた要求）は捨て、素の書き手は止まらない', async () => {
+    const s = setup();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      s.setFeed(withLive([]));
+      await s.pub.flushNow();
+      s.client.wire.noticeRoute = false;
+      s.setFeed(withLive([liveOf('s1', 'waiting')]));
+      expect(await s.pub.flushNow()).toBe('written');
+      s.client.wire.noticeRoute = true;
+      (s.client as { postNotice?: unknown }).postNotice = async () => { throw new CloudError(429, '{"error":"rate limited"}'); };
+      s.setFeed(withLive([liveOf('s2', 'waiting')]));
+      expect(await s.pub.flushNow()).toBe('written');
+      (s.client as { postNotice?: unknown }).postNotice = async () => { throw new Error('秘密の題'); };
+      s.setFeed(withLive([liveOf('s3', 'waiting')]));
+      expect(await s.pub.flushNow()).toBe('written');
+      expect(s.errors).toEqual([]);
+      // 404 と 429 は記録しない。ほかの失敗は種類だけを 1 行残し、中身は出さない。
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(logged.mock.calls)).not.toContain('秘密');
+      // 書き手はその後も書く。
+      s.setFeed(withLive([liveOf('s3', 'waiting')], 9));
+      expect(await s.pub.flushNow()).toBe('written');
+      expect(s.writes()).toBe(5);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('client が通知の口を持たなければ送らずに書く', async () => {
+    const s = setup();
+    (s.client as { postNotice?: unknown }).postNotice = undefined;
+    s.setFeed(withLive([]));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s1', 'waiting')]));
+    expect(await s.pub.flushNow()).toBe('written');
+    expect(notices(s)).toHaveLength(0);
   });
 });

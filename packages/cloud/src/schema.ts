@@ -50,6 +50,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'create index if not exists launch_requests_from on launch_requests(from_device, created_at)',
   // 7 日より古い行を消す文（mobile.ts の POST /m/launches）が表を走査しないための索引。
   'create index if not exists launch_requests_at on launch_requests(created_at)',
+  // スマホのプッシュ通知の購読（0.9.1）。スマホ 1 台に 1 行で、互換の版 9 の D1 にもこの文で足す（足すだけなので版は上げない）。
+  // endpoint と鍵（p256dh、auth）はブラウザの PushSubscription の値で、通知の中身ではない。夜の時間帯は端末の時刻の 0 時からの分、tz_offset は端末の getTimezoneOffset() である。
+  'create table if not exists push_subscriptions (device_id text primary key, endpoint text not null, p256dh text not null, auth text not null, quiet_start integer, quiet_end integer, tz_offset integer, created_at integer not null)',
 ];
 
 /** 表を作ったときに 1 度だけ置く、このクラウドの印（meta の鍵）。PC は /health でこれを読み、作り直しを見分ける。 */

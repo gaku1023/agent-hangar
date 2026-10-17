@@ -60,6 +60,7 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
  * 書いてよいのは、同期の canCarryMobile が真（Worker の版 7 から、止まっていないとき）で、外していないスマホが 1 台以上あるときだけである。
  * スマホの有無は同期の cloudDevices が読んだ一覧で知る（設定の画面の読み込みと、PHONE_RECHECK_MS ごとの見回り）。
  * 一覧が分からないあいだは書かない。スマホが 1 台も無い PC は、Worker に受信箱の素を 1 行も書かない。
+ * 要対応に新しく入った会話のスマホへの通知（POST /notices）も、書き手が素を書いたあとに送る。送るかどうかのスマホの有無も、同じ一覧で渡す。
  * 最初のスマホが現れたら、前に書いた中身を忘れてすぐ書く（外していた間に同じ中身のままでも置き直す）。
  * 外していないスマホが居るのを見た後で、読めた一覧にそれが無くなったら、Worker の受信箱の素を消す（DELETE /m/feed、書き手の dropFeed）。
  * 消せなければ、次の読み直しでやり直す。つなぎ先（cloud.json）が替わったら、スマホの有無の覚えを捨て、5 分を待たずに読み直す。
@@ -149,7 +150,7 @@ export function bootMobile(p: {
     cur?.bell.stop();
     cur = null;
     if (!link) return null;
-    const pub = new MobileFeedPublisher({ build, client: link.client, phoneKeys: link.phoneKeys, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile() });
+    const pub = new MobileFeedPublisher({ build, client: link.client, phoneKeys: link.phoneKeys, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile(), hasPhones: () => phones === true });
     const inbox = new MobileLaunchInbox({
       db, client: link.client, phoneKeys: link.phoneKeys, deviceId,
       dropsDir: path.join(p.home.home, 'drops'),

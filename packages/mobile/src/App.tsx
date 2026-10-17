@@ -3,6 +3,7 @@ import type { InboxView } from './inbox.ts';
 import { exitMs } from './presence.ts';
 import { readPairText, type UnpairedReason } from './api.ts';
 import { refreshPhoneKeys } from './keyring.ts';
+import { openMessageOf } from './push.ts';
 import { startLaunch, type LaunchRun, type LaunchSpec, type RunState } from './launchRun.ts';
 import { clearPairing, currentKey, loadPairing, loadPhoneKeys, loadPhonePair, type Keyring, type Pairing, type PhoneKey, type PhonePair } from './store.ts';
 import { isIosSafari, isStandalone } from './platform.ts';
@@ -45,6 +46,8 @@ type AppProps = {
   launchGiveUpMs?: number;
   /** 接続の後に keybox を読む間隔と、待つ長さ。試験で縮める。 */
   keyboxWait?: { everyMs?: number; giveUpMs?: number };
+  /** 通知を押して開いたときの会話の ID（URL の #open=、main.tsx が読む）。 */
+  openSession?: string | null;
 };
 
 const inboxOf = (pairing: Pairing, pair: PhonePair, keys: Keyring): Screen | null => {
@@ -52,8 +55,11 @@ const inboxOf = (pairing: Pairing, pair: PhonePair, keys: Keyring): Screen | nul
   return current ? { kind: 'inbox', pairing, pair, keys, current } : null;
 };
 
-export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait }: AppProps): ReactNode {
+export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openSession }: AppProps): ReactNode {
   const [screen, setScreen] = useState<Screen>(() => (pairText ? { kind: 'join', pairText, guide: needsGuide() } : { kind: 'loading' }));
+  // 通知から開いた会話。受信箱がその行に印を付ける。
+  // 開いている hangar で通知を押したときは、サービスワーカーが message で会話の ID を渡すので、受信箱を読み直してから探す。
+  const [openTarget, setOpenTarget] = useState<{ id: string; n: number } | null>(() => (openSession ? { id: openSession, n: 1 } : null));
 
   useEffect(() => {
     if (screen.kind !== 'loading') return;
@@ -86,6 +92,18 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait }: App
   const [sheet, setSheet] = useState<{ view: InboxView; leaving: boolean; n: number } | null>(null);
   const opened = useRef(0);
   const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined;
+    if (!sw) return;
+    const onMessage = (e: MessageEvent): void => {
+      const id = openMessageOf(e.data);
+      if (!id) return;
+      setOpenTarget((o) =>({ id, n: (o?.n ?? 0) + 1 }));
+      setRefresh((n) => n + 1);
+    };
+    sw.addEventListener('message', onMessage);
+    return () => sw.removeEventListener('message', onMessage);
+  }, []);
   // 「始める」のあとの依頼。フォームを閉じても続き、起動のシートが進みを見せる。
   const [launch, setLaunch] = useState<Launch | null>(null);
   const run = useRef<LaunchRun | null>(null);
@@ -164,6 +182,7 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait }: App
           onNewSession={onNewSession}
           onView={setInboxView}
           refresh={refresh}
+          openSession={openTarget}
         />
       </div>
       {sheet && (

@@ -345,4 +345,32 @@ describe('InboxScreen', () => {
     rerender(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onView={onView} refresh={1} />);
     await waitFor(() => expect(onView).toHaveBeenCalledTimes(2));
   });
+
+  it('見出しの下に通知の行がある（このブラウザでは使えない）', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac')]);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+    expect(await screen.findByText('このブラウザでは通知を使えません')).toBeInTheDocument();
+  });
+
+  it('通知から開いた会話の行に印を付けて、見える所まで送る', async () => {
+    await serveFeeds([
+      feedOf('pc-1', 'Mac', {
+        live: [
+          liveItem({ sessionId: 's-1', status: 'waiting', waiting: { kind: 'other', text: '待ち 1' } }),
+          liveItem({ sessionId: 's-2', status: 'waiting', waiting: { kind: 'other', text: '待ち 2' } }),
+        ],
+      }),
+    ]);
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} openSession={{ id: 's-2', n: 1 }} />);
+    const card = (await screen.findByText('待ち 2')).closest('a')!;
+    await waitFor(() => expect(card).toHaveClass('is-target'));
+    expect((await screen.findByText('待ち 1')).closest('a')).not.toHaveClass('is-target');
+  });
+
+  it('通知から開いた会話が受信箱に無ければ、印を付けない', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting', waiting: { kind: 'other', text: '待ち 1' } })] })]);
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} openSession={{ id: 's-9', n: 1 }} />);
+    await screen.findByText('待ち 1');
+    expect(container.querySelector('.is-target')).toBeNull();
+  });
 });
