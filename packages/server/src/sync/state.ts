@@ -25,6 +25,7 @@ export type SyncStateKey =
   | 'orphans'
   | 'revokedLogged'
   | 'peers'
+  | 'cloudId'
   | `skipped:${string}`;
 
 /**

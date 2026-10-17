@@ -11,6 +11,12 @@ import { sha256Stream } from './crypto.ts';
 import { ledgerKeyOfPath } from './ledgerKey.ts';
 import type { SyncStateStore } from './state.ts';
 
+/**
+ * 本文の元の PC。上げた PC（deviceId）と違うのは、作り直しで remote/ の写しを上げ直したときである（sync/rebuild.ts）。
+ * 写しは元の PC の ID の下（remote/<origin>/）に置き、台帳も元の PC の鍵で引く。上げた PC ごとに分けると、同じ本文が 2 か所に並ぶ。
+ */
+const originOf = (e: FileEntry): string => (typeof e.origin === 'string' && e.origin !== '' ? e.origin : e.deviceId);
+
 /** 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）から、セッションの ID を取り出す。取れなければ空。 */
 function uuidOfTranscript(rel: string): string {
   const parts = path.posix.normalize(rel).split('/');
@@ -293,7 +299,8 @@ export class RemotePuller {
       // 止めると後ろの本文がすべて止まる。鍵が届いたら rewindSkippedFiles がここまで巻き戻す。
       for (const u of page.unreadable) minUnreadable = minUnreadable === null ? u.seq : Math.min(minUnreadable, u.seq);
       for (const e of page.files) {
-        if (e.deviceId === this.deps.deviceId) continue;
+        // 自分が上げたものと、他の PC が上げ直した自分の本文の写しは降ろさない（原本が手元にある）。
+        if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId) continue;
         // 設定（kind が config）は降ろさない。束の本体は設定の同期が、束の行を見て自分で取りに行く。
         if (e.kind === 'config') continue;
         // 削除したセッション（sessions/trash.ts）の写しは降ろさない。印を受け取る前の持ち主が上げた分でも、置けば消し直すだけになる。
@@ -349,9 +356,9 @@ export class RemotePuller {
       for (;;) {
         const page = await this.deps.client.listFiles(since, PULL_LIMIT);
         for (const e of page.files) {
-          if (e.deviceId === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid) continue;
-          // 世代を回すと同じ写しが別の鍵名でもう 1 件並ぶので、端末とパスで 1 件にまとめる。
-          const id = `${e.deviceId}\0${e.path}`;
+          if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid) continue;
+          // 世代を回すと同じ写しが別の鍵名でもう 1 件並ぶので、元の PC とパスで 1 件にまとめる。
+          const id = `${originOf(e)}\0${e.path}`;
           const prev = latest.get(id);
           if (!prev || prev.seq < e.seq) latest.set(id, e);
         }
@@ -374,11 +381,14 @@ export class RemotePuller {
 
   /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */
   private async download(e: FileEntry): Promise<boolean> {
-    const ledger = ledgerKeyOfPath(e.deviceId, e.path);
+    const origin = originOf(e);
+    const ledger = ledgerKeyOfPath(origin, e.path);
     if (ledger === null) throw new MessageError(msg('sync.pull.badPath', { path: e.path }));
-    const target = remoteTranscriptPath(this.deps.home, e.deviceId, e.path);
-    const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(ledger) as { sha256: string } | undefined;
+    const target = remoteTranscriptPath(this.deps.home, origin, e.path);
+    const prev = this.deps.db.prepare('select sha256, mtime from file_sync where key = ?').get(ledger) as { sha256: string; mtime: number } | undefined;
     if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return false;
+    // 上げ直した写し（上げた PC と元の PC が違う）は、元の PC の上げた本文より古いことがある。手元の写しの方が新しければ残す。
+    if (origin !== e.deviceId && prev && prev.mtime > e.mtime && fs.existsSync(target)) return false;
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
     // 直接の宛先には書かない。
     // 切り詰められた入力では error が出る前に 1 チャンク分の平文が流れるので、
@@ -407,7 +417,7 @@ export class RemotePuller {
     fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, device_id = excluded.device_id, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
-      .run(ledger, 'transcript', e.path, e.deviceId, e.sha256, e.size, e.mtime, e.seq, this.now());
+      .run(ledger, 'transcript', e.path, origin, e.sha256, e.size, e.mtime, e.seq, this.now());
     return true;
   }
 

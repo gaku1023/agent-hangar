@@ -268,14 +268,14 @@ export function bootSync(
     const roster = keyring && wire && cloud ? new RosterStore(wire, keyring, cloudWriter(home.home, cloud, () => built), deviceId) : null;
     const client = keyring && wire ? new SealedCloudClient(wire, keyring, deviceId, roster ? { onRoster: rosterRefresh(roster, () => onKeysGained()) } : {}) : null;
     const engine = new SyncEngine({
-      db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
+      db, deviceId, client, url: cloud?.url ?? null, home: home.home, cloudId: cloud?.cloudId ?? null, language: home.language,
       ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
     });
     // 設定の「使用量と費用」。
     const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
     const uploader = client && keyring
       ? new TranscriptUploader({
-          db, deviceId, claudeDir, client, keyring, state: syncState,
+          db, deviceId, claudeDir, home: home.home, client, keyring, state: syncState,
           isPaused,
           onError: (p, m) => console.error('[upload]', p, m),
         })

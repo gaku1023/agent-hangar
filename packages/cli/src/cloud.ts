@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, openTranscriptsFloor, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
+import { backfillTranscripts, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import {
@@ -1121,14 +1121,15 @@ export type RescueResult = { downloaded: number; already: number; failed: { key:
 
 /**
  * 版 8 までの Worker の索引の 1 行（平文のメタと平文の鍵名）。
- * teardown が、作り直しの前の Worker から本文を降ろすのに使う。
- * shared とサーバからは封じた形（互換の版 9）に置き換えて消したので、Task 26 で teardown を作り直すまで、この形はここにだけ持つ。
+ * teardown が、作り直しの前の Worker から本文を降ろすのに使う（版 1 の cloud.json の道）。
+ * shared とサーバからは封じた形（互換の版 9）に置き換えて消したので、この形はここにだけ持つ。
  */
 export type LegacyFileEntry = { key: string; path: string; kind: 'transcript' | 'config'; sha256: string; size: number; mtime: number; encrypted: boolean; seq: number; deviceId: string; uploadedAt: number; storedSize: number };
 
 /**
  * 版 8 までの本文の鍵。参加用の秘密から HKDF（SHA-256）で導く。
  * サーバからは消した（版 9 の本文は世代鍵から導く）ので、teardown のためにここにだけ写しを持つ。
+ * 版 1 の cloud.json の teardown（旧い Worker の片付け）のほかに使わない。
  */
 export function legacyFileKey(joinSecret: string): Buffer {
   return Buffer.from(hkdfSync('sha256', Buffer.from(joinSecret, 'utf8'), 'hangar-salt-v1', 'hangar-file-v1', 32));
@@ -1239,10 +1240,84 @@ export async function rescueRemoteBodies(o: {
   return r;
 }
 
+/**
+ * 版 2 のクラウドの R2 の本文を手元へ降ろす。
+ * 索引は封じたメタなので、cloud.json の世代鍵で開く（同期と同じ openSealedFile と SealedCloudClient を使う）。
+ * 置き場は元の PC の ID の下（remote/<origin>/）で、作り直しで上げ直した写しも元の PC の下に戻る。
+ * 開けない行（手元に鍵の無い世代、付け替えられたメタ）は降ろせないものに数える。消すと失われるからである。
+ * 戻り値の keys は、索引にある全部の R2 の鍵名で、開けたかどうかに依らない（消すのに使う）。
+ */
+export async function rescueSealedBodies(o: {
+  home: string;
+  cloud: CloudConfig;
+  wire: WireCloudClient;
+  deviceId?: string;
+  claudeDir?: string;
+  log?: (line: string) => void;
+}): Promise<{ keys: string[]; rescued: RescueResult }> {
+  const log = o.log ?? ((l: string) => console.log(l));
+  const ring = await Keyring.fromConfig(o.cloud);
+  const sealed = new SealedCloudClient(o.wire, ring, o.deviceId ?? '');
+  const raw: Awaited<ReturnType<WireCloudClient['listFiles']>>['files'] = [];
+  let since = 0;
+  for (let page = 0; ; page++) {
+    if (page >= MAX_FILE_PAGES) throw new Error('R2 の一覧の取得が終わりません。もう一度実行してください');
+    const r = await o.wire.listFiles(since, PULL_LIMIT);
+    raw.push(...r.files);
+    if (!r.more || r.nextSeq <= since) break;
+    since = r.nextSeq;
+  }
+  const r: RescueResult = { downloaded: 0, already: 0, failed: [] };
+  for (const f of raw) {
+    try {
+      const e = await openSealedFile(ring, f);
+      if (!e) throw new Error(ring.at(f.epoch) ? 'インデックスの行を復号できません' : `世代 ${f.epoch} の暗号鍵がこの PC にありません`);
+      const origin = e.origin || e.deviceId;
+      // 自分の本文で、原本が手元にあるものは降ろし直さない。
+      if (e.kind === 'transcript' && o.deviceId && origin === o.deviceId && o.claudeDir && fs.existsSync(path.join(o.claudeDir, e.path))) {
+        r.already++;
+        continue;
+      }
+      let target: string;
+      if (e.kind === 'config') {
+        if (!isSafeKeyId(origin)) throw new Error(`PC の ID が不正です: ${origin}`);
+        if (!isSafeRelPath(e.path)) throw new Error(`設定ファイルの相対パスが不正です: ${e.key}`);
+        target = path.join(remoteRoot(o.home), origin, CONFIG_DIR, ...e.path.split('/'));
+      } else {
+        target = remoteTranscriptPath(o.home, origin, e.path);
+      }
+      if (fs.existsSync(target) && (await sha256Stream(fs.createReadStream(target))) === e.sha256) {
+        r.already++;
+        continue;
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
+      const tmp = `${target}.part`;
+      try {
+        fs.rmSync(tmp, { force: true });
+        // 復号と gzip の展開は SealedCloudClient が行う。
+        await pipeline(await sealed.getFile(e.key, e.epoch), fs.createWriteStream(tmp, { mode: FILE_MODE }));
+        if ((await sha256Stream(fs.createReadStream(tmp))) !== e.sha256) throw new Error(`ファイルの SHA-256 が一致しません: ${e.key}`);
+        fs.renameSync(tmp, target);
+        fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
+      } catch (err) {
+        fs.rmSync(tmp, { force: true });
+        throw err;
+      }
+      log(`ダウンロードしました: ${e.key}`);
+      r.downloaded++;
+    } catch (err) {
+      r.failed.push({ key: f.key, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return { keys: raw.map((f) => f.key), rescued: r };
+}
+
 export type TeardownOptions = {
   home: string;
   wrangler?: WranglerRunner;
   fetch?: typeof fetch;
+  /** 版 2 のクラウドの Worker の口。省くと cloud.json の接続先へ fetch で話す。試験が偽の Worker を渡す。 */
+  wire?: WireCloudClient;
   confirm?: ConfirmWord;
   log?: (line: string) => void;
   cloudDir?: string;
@@ -1261,15 +1336,21 @@ export type TeardownOptions = {
 export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const log = o.log ?? ((l: string) => console.log(l));
   const confirm = o.confirm ?? promptWord;
-  // teardown が片付けられるのは、今は古い形式（版 1）の cloud.json のクラウドだけである。
-  // 新しい形式のクラウドは、トランスクリプトを封じたメタで持つので、ダウンロードの道が違う（Task 26 が足す）。
-  // ダウンロードできないまま削除すると、他の PC にしか無いトランスクリプトを失うので、新しい形式では何もせずに止める。
+  // 版 2（今の形）と版 1（参加用の秘密を持つ旧い形）の cloud.json の両方を片付けられる。
+  // 版 1 の道は、0.9.0 に上げた後でも旧い Worker を片付けるためにある（作り直しの手順の 2）。
+  // どちらも、消す前に R2 にしか無い本文を手元へ降ろし、1 件でも降ろせなければ何も消さずに止める。
   const now = readCloudConfig(o.home);
-  if (now.state === 'ok') throw new Error('新しい形式のクラウドは、このバージョンの hangar cloud teardown では削除できません。hangar を更新してから実行してください');
-  const read = readLegacyCloudConfig(o.home);
-  if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
-  const c = read.config;
-  if (!c) throw new Error('クラウド同期は未設定です');
+  if (now.state === 'broken') throw new Error(brokenConfigMessage(o.home));
+  let c: { url: string; workerName: string | null; accountId: string | null; dbName: string | null; bucketName: string | null };
+  let legacy: ReturnType<typeof readLegacyCloudConfig>['config'] = null;
+  if (now.state === 'ok' && now.config) {
+    c = now.config;
+  } else {
+    const read = readLegacyCloudConfig(o.home);
+    if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
+    if (!read.config) throw new Error('クラウド同期は未設定です');
+    c = legacy = read.config;
+  }
   if (!c.workerName || !c.dbName || !c.bucketName) {
     throw new Error('teardown は setup cloud を実行した PC でだけ使えます。参加した PC では cloud.json を削除するだけにしてください');
   }
@@ -1278,15 +1359,35 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   log('同期したメタデータと、R2 にあるトランスクリプトのコピーはすべて失われます。');
 
   // 消す前に、R2 にしか無い本文を手元へ降ろす。
-  const client = new HttpCloudClient({ url: c.url, token: c.deviceToken, fetch: o.fetch ?? realFetch });
-  let entries: LegacyFileEntry[];
-  try {
-    entries = await listAllFiles(client);
-  } catch (e) {
-    throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
+  let keys: string[];
+  let rescued: RescueResult;
+  if (legacy === null) {
+    const cloud = now.config!;
+    // 版 2 の Worker とだけ話す（版 9 に届かない Worker なら HttpCloudClient が断る）。
+    const wire = o.wire ?? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, fetch: o.fetch ?? realFetch });
+    let r: { keys: string[]; rescued: RescueResult };
+    try {
+      log('R2 にあるトランスクリプトのうち、この PC にコピーが無いものを先にダウンロードします。');
+      r = await rescueSealedBodies({ home: o.home, cloud, wire, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
+    } catch (e) {
+      throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
+    }
+    keys = r.keys;
+    rescued = r.rescued;
+    log(`R2 にはトランスクリプトが ${keys.length} 件あります。`);
+  } else {
+    // 旧い Worker は互換の版が 9 に届かないので、版の下限を外して読む。読むだけで、何も書かない。
+    const client = new HttpCloudClient({ url: legacy.url, token: legacy.deviceToken, fetch: o.fetch ?? realFetch, minWorkerCompat: 0 });
+    let entries: LegacyFileEntry[];
+    try {
+      entries = await listAllFiles(client);
+    } catch (e) {
+      throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
+    }
+    log(`R2 にはトランスクリプトが ${entries.length} 件あります。この PC にコピーが無いものを先にダウンロードします。`);
+    rescued = await rescueRemoteBodies({ home: o.home, entries, joinSecret: legacy.joinSecret, client, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
+    keys = entries.map((e) => e.key);
   }
-  log(`R2 にはトランスクリプトが ${entries.length} 件あります。この PC にコピーが無いものを先にダウンロードします。`);
-  const rescued = await rescueRemoteBodies({ home: o.home, entries, joinSecret: c.joinSecret, client, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
   log(`${rescued.downloaded} 件をこの PC にダウンロードしました（${rescued.already} 件はすでにこの PC にあります）。`);
   if (rescued.failed.length > 0) {
     log('ダウンロードできなかったトランスクリプト:');
@@ -1326,7 +1427,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
 
   /**
    * 途中で止めるときの報告。
-   * 手元の cloud.json は残す。Worker の名前もアカウントも参加用の秘密もここにしか無いので、
+   * 手元の cloud.json は残す。Worker の名前もアカウントも暗号鍵（版 1 では参加用の秘密）もここにしか無いので、
    * 消すと、残った資源を片付ける道も R2 の本文を復号する道も同時に失う。
    */
   const stopHere = (): false => {
@@ -1341,7 +1442,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
       for (const l of f.reason) log(`    ${l}`);
     }
     log('');
-    log(`${cloudConfigPath(o.home)} は削除していません。Worker の名前、アカウント、参加トークンはここにしか無いためです。`);
+    log(`${cloudConfigPath(o.home)} は削除していません。Worker の名前、アカウント、暗号鍵はここにしか無いためです。`);
     log('修正してから hangar cloud teardown をもう一度実行すると、残った分だけを続きから削除できます。');
     log('R2 のバケットが「空でない」ために削除できない場合は、インデックスに無いオブジェクトが残っています。ダッシュボードでバケットを空にしてから実行してください。');
     return false;
@@ -1349,7 +1450,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
 
   // R2 を先に空にする。
   // --remote を付ける。付けないと wrangler は手元の miniflare の入れ物を消して、R2 には何もしない。
-  for (const e of entries) await step(`R2 object ${e.key}`, ['r2', 'object', 'delete', `${c.bucketName}/${e.key}`, '--remote', ...withCfg]);
+  for (const key of keys) await step(`R2 object ${key}`, ['r2', 'object', 'delete', `${c.bucketName}/${key}`, '--remote', ...withCfg]);
   await step(`R2 bucket ${c.bucketName}`, ['r2', 'bucket', 'delete', c.bucketName, ...withCfg]);
   // Worker は R2 の中身へ手が届く唯一の入口である（GET /files と GET /files/<key>）。
   // オブジェクトが残っているうちに消すと、次の teardown は一覧すら読めず、本文も降ろせなくなる。

@@ -7,6 +7,7 @@ import { noteApplied } from '../db/notify.ts';
 import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, CompatError, LimitError, RevokedError, type CloudClient, type OpenedSnapshotResponse, type Unreadable } from './client.ts';
 import { recordPeers } from './peers.ts';
+import { rebuildIfCloudChanged } from './rebuild.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -35,6 +36,12 @@ export type SyncEngineDeps = {
    * 一時ディレクトリで起こしたつもりが実物へ書く事故になる。結線側から必ず渡す。
    */
   home?: string;
+  /**
+   * いまの接続先の印（cloud.json の cloudId。参加と setup が Worker の GET /health から受け取った値）。
+   * 起動のとき、最後に同期した印（sync_state の cloudId）と比べ、違えば作り直しの道を走らせる（sync/rebuild.ts）。
+   * 省くか、home を省くと比べない。
+   */
+  cloudId?: string | null;
   /**
    * いまの言語。利用者に見せる文（知らせの札と、同期の状態の失敗の理由）をこの言語で出す。省くと日本語。
    * 失敗の理由は出した時点の言語のままで、言語を変えても書き直さない（次の失敗で新しい言語になる）。
@@ -400,11 +407,26 @@ export class SyncEngine {
     // 同期で降りた行（apply）は changes に積まれないので、拾っても送るものが無い。拾えば、降りるたびに空の push を予約してしまう。
     this.offWrite = onRowChange((c) => { if (c.db === this.deps.db && c.origin === 'write') this.noteLocalChange(); });
     if (!this.deps.client) { this.emitStatus(); return; }
+    // 接続先が変わっていれば、最初の push と pull の前に記録を戻す。
+    // 待たずに済む比べ（cloud.json の印）にしてあるので、同じ起動で走り出す本文の上げ下ろし（boot/sync.ts）より必ず先に済む。
+    this.rebuildIfNeeded();
     this.pullTimer = this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
     unref(this.pullTimer);
     // 起動は利用者の押下ではないので、上限で退いた印を外さない（syncNow は外す）。
     await this.pushNow();
     await this.pullNow();
+  }
+
+  /** 起動のときの cloudId の比べ。失敗しても同期は止めない（記録を戻せなかっただけで、前の記録のまま動く）。 */
+  private rebuildIfNeeded(): void {
+    const cloudId = this.deps.cloudId;
+    if (!cloudId || this.deps.home === undefined) return;
+    try {
+      const r = rebuildIfCloudChanged({ db: this.deps.db, state: this.state, health: { cloudId }, home: this.deps.home, deviceId: this.deps.deviceId });
+      if (r.rebuilt) console.log('[sync] the cloud changed; uploading all rows and transcripts again');
+    } catch (e) {
+      console.error('[sync] could not reset the sync records for the new cloud', e instanceof Error ? e.message : e);
+    }
   }
 
   /**

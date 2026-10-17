@@ -1,0 +1,222 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { FakeCloudClient } from '../../test/fake-cloud.ts';
+import { FakeTimers } from '../../test/fake-timers.ts';
+import { openDb, type Db } from '../db/open.ts';
+import { upsertShared } from '../db/shared.ts';
+import { sha256Hex } from './crypto.ts';
+import { SyncEngine } from './engine.ts';
+import { RemotePuller, remoteTranscriptPath } from './puller.ts';
+import { rebuildIfCloudChanged } from './rebuild.ts';
+import { SyncStateStore } from './state.ts';
+import { TranscriptUploader } from './uploader.ts';
+
+/**
+ * 作り直しの 3 つの道（設計書「作り直しの手順」）。
+ * 接続先（cloudId）が変わったら、台帳を捨てて本文を上げ直し、共有テーブルの全行を積み直し、remote/ の写しも上げる。
+ */
+
+const UUID_A = 'aaaaaaaa-1111-4111-8111-111111111111';
+const UUID_B = 'bbbbbbbb-2222-4222-8222-222222222222';
+const UUID_R = 'cccccccc-3333-4333-8333-333333333333';
+const FOLDER = '-w-proj';
+
+let db: Db;
+let state: SyncStateStore;
+let cloud: FakeCloudClient;
+let timers: FakeTimers;
+let home: string;
+let claudeDir: string;
+
+const write = (file: string, text: string): void => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+const mainFile = (uuid: string): string => path.join(claudeDir, 'projects', FOLDER, `${uuid}.jsonl`);
+
+const addIndexed = (uuid: string, text: string): void => {
+  const file = mainFile(uuid);
+  write(file, text);
+  db.prepare('insert or ignore into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
+    .run(`s-${uuid}`, 'claude-code', uuid, '/w/proj', 1, 1, 'dev-a', 'dev-a', 1);
+  const st = fs.statSync(file);
+  db.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)')
+    .run(file, `s-${uuid}`, null, null, st.size, Math.floor(st.mtimeMs), st.size, 2);
+};
+
+/** 前のクラウドへ上げ済みの印を台帳に残す（指紋も大きさも手元と同じ）。 */
+const markUploaded = (uuid: string, text: string): void => {
+  db.prepare('insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+    .run(`transcripts/dev-a/${uuid}.jsonl.gz`, 'transcript', `projects/${FOLDER}/${uuid}.jsonl`, 'dev-a', sha256Hex(Buffer.from(text)), Buffer.byteLength(text), 1, 7, 1);
+};
+
+const uploader = (): TranscriptUploader => new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, home, client: cloud, keyring: cloud.keyring, state, now: () => timers.now, timers, isPaused: () => false });
+
+beforeEach(() => {
+  db = openDb(':memory:');
+  state = new SyncStateStore(db);
+  cloud = new FakeCloudClient({ deviceId: 'dev-a' });
+  timers = new FakeTimers();
+  home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rebuild-home-'));
+  claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rebuild-claude-'));
+});
+
+afterEach(() => {
+  db.close();
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(claudeDir, { recursive: true, force: true });
+});
+
+describe('rebuildIfCloudChanged', () => {
+  it('接続先が変わると、全部のトランスクリプトが上がる（skip: の記録があっても）', async () => {
+    addIndexed(UUID_A, '{"a":1}\n');
+    addIndexed(UUID_B, '{"b":1}\n');
+    markUploaded(UUID_A, '{"a":1}\n');
+    markUploaded(UUID_B, '{"b":1}\n');
+    // 前のクラウドで諦めた控えと、上げた世代の控え。
+    state.set(`skipped:transcripts/dev-a/${UUID_B}.jsonl.gz`, JSON.stringify({ sha: 'x', size: 1, status: 413, message: 'too large', at: 1 }));
+    db.prepare('insert into blob_uploads (ledger_key, epoch) values (?, ?)').run(`transcripts/dev-a/${UUID_A}.jsonl.gz`, 4);
+    state.set('cloudId', 'cloud-old');
+
+    // 作り直しの前は、台帳が「上げ済み」と言うので何も上がらない。
+    const before = uploader();
+    expect(before.sweep()).toBe(0);
+    before.stop();
+
+    expect(rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' })).toEqual({ rebuilt: true });
+    expect(state.get('cloudId')).toBe('cloud-new');
+    expect(state.get(`skipped:transcripts/dev-a/${UUID_B}.jsonl.gz`)).toBeNull();
+    // 前のクラウドの世代の控えは捨てる（ゴミ箱の掃除が、もう無い鍵名を求めない）。
+    expect(db.prepare('select count(*) n from blob_uploads where epoch = 4').get()).toEqual({ n: 0 });
+
+    const up = uploader();
+    expect(up.sweep()).toBe(2);
+    await up.idle();
+    const stored = (await cloud.openedFiles()).map((e) => e.path).sort();
+    expect(stored).toEqual([`projects/${FOLDER}/${UUID_A}.jsonl`, `projects/${FOLDER}/${UUID_B}.jsonl`]);
+    up.stop();
+  });
+
+  it('共有テーブルの全行が送られる（backfill の床を 0 にするだけではない）', async () => {
+    upsertShared(db, 'projects', { id: 'proj-1', name: 'alpha', status: 'active' }, 'dev-a');
+    upsertShared(db, 'projects', { id: 'proj-2', name: 'beta', status: 'active' }, 'dev-b');
+    db.prepare('update projects set deleted_at = 5 where id = ?').run('proj-2');
+    // 前のクラウドへ送り済みの状態。
+    db.prepare('update changes set pushed_at = 1').run();
+    state.set('lastSeq', 500);
+    state.set('filesSeq', 300);
+    state.set('snapshotDone', true);
+    state.set('rowsSkippedFrom', 90);
+    state.set('filesSkippedFrom', 80);
+    state.set('cloudId', 'cloud-old');
+
+    expect(rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' }).rebuilt).toBe(true);
+    for (const k of ['lastSeq', 'filesSeq', 'snapshotDone', 'rowsSkippedFrom', 'filesSkippedFrom'] as const) expect(state.get(k)).toBeNull();
+    const unsent = db.prepare("select table_name t, row_id id, op from changes where pushed_at is null and table_name = 'projects' order by row_id").all();
+    // 他の PC が書いた行も、消した行も積み直す。消した行は delete で送る。
+    expect(unsent).toEqual([{ t: 'projects', id: 'proj-1', op: 'upsert' }, { t: 'projects', id: 'proj-2', op: 'delete' }]);
+
+    const engine = new SyncEngine({ db, deviceId: 'dev-a', client: cloud, timers, now: () => timers.now });
+    await engine.pushNow();
+    const sent = (await cloud.opened()).filter((c) => c.tableName === 'projects').map((c) => [c.rowId, c.op, c.payload.origin_device]);
+    expect(sent).toEqual([['proj-1', 'upsert', 'dev-a'], ['proj-2', 'delete', 'dev-b']]);
+    engine.stop();
+  });
+
+  it('remote/ の写しが自分の device_id の下に、origin つきで上がる', async () => {
+    const rel = `projects/${FOLDER}/${UUID_R}.jsonl`;
+    const sub = `projects/${FOLDER}/${UUID_R}/subagents/agent-a1b2.jsonl`;
+    write(remoteTranscriptPath(home, 'dev-b', rel), '{"from":"b"}\n');
+    write(remoteTranscriptPath(home, 'dev-b', sub), '{"sub":"b"}\n');
+    // 書きかけの一時ファイルと、自分の ID の下の写しは上げない。
+    write(`${remoteTranscriptPath(home, 'dev-b', rel)}.part`, 'half');
+    write(remoteTranscriptPath(home, 'dev-a', `projects/${FOLDER}/${UUID_A}.jsonl`), '{"mine":1}\n');
+
+    rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' });
+    const up = uploader();
+    expect(up.pendingSweep()).toBe(2);
+    expect(up.sweep()).toBe(2);
+    await up.idle();
+    const files = await cloud.openedFiles();
+    expect(files.map((e) => [e.deviceId, e.origin, e.path]).sort()).toEqual([['dev-a', 'dev-b', rel], ['dev-a', 'dev-b', sub]]);
+    expect(files.every((e) => e.key.startsWith('b/dev-a/'))).toBe(true);
+    // 上げ終えたら、次の走査では積まない。
+    expect(up.sweep()).toBe(0);
+    expect(up.pendingSweep()).toBe(0);
+    up.stop();
+
+    // 3 台目は元の PC の ID（origin）の下へ降ろす。
+    const dbC = openDb(':memory:');
+    const homeC = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rebuild-c-'));
+    try {
+      const pullC = new RemotePuller({ db: dbC, deviceId: 'dev-c', home: homeC, client: cloud.asDevice('dev-c'), state: new SyncStateStore(dbC) });
+      expect((await pullC.pullNow()).downloaded).toBe(2);
+      expect(fs.readFileSync(remoteTranscriptPath(homeC, 'dev-b', rel), 'utf8')).toBe('{"from":"b"}\n');
+      expect(fs.existsSync(path.join(homeC, 'remote', 'dev-a'))).toBe(false);
+    } finally {
+      dbC.close();
+      fs.rmSync(homeC, { recursive: true, force: true });
+    }
+
+    // 元の PC は、自分の本文の写しを降ろさない（原本が手元にある）。
+    const dbB = openDb(':memory:');
+    const homeB = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rebuild-b-'));
+    try {
+      const pullB = new RemotePuller({ db: dbB, deviceId: 'dev-b', home: homeB, client: cloud.asDevice('dev-b'), state: new SyncStateStore(dbB) });
+      expect((await pullB.pullNow()).downloaded).toBe(0);
+      expect(fs.existsSync(path.join(homeB, 'remote'))).toBe(false);
+    } finally {
+      dbB.close();
+      fs.rmSync(homeB, { recursive: true, force: true });
+    }
+  });
+
+  it('同じ cloudId なら何もしない', () => {
+    addIndexed(UUID_A, '{"a":1}\n');
+    markUploaded(UUID_A, '{"a":1}\n');
+    upsertShared(db, 'projects', { id: 'proj-1', name: 'alpha', status: 'active' }, 'dev-a');
+    db.prepare('update changes set pushed_at = 1').run();
+    state.set('lastSeq', 500);
+    state.set('cloudId', 'cloud-1');
+
+    expect(rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-1' }, home, deviceId: 'dev-a' })).toEqual({ rebuilt: false });
+    expect(state.get('lastSeq')).toBe('500');
+    expect(db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 1 });
+    expect(db.prepare('select count(*) n from changes where pushed_at is null').get()).toEqual({ n: 0 });
+    // cloudId が空（読めなかった）ときも、何もしない。
+    expect(rebuildIfCloudChanged({ db, state, health: { cloudId: '' }, home, deviceId: 'dev-a' }).rebuilt).toBe(false);
+  });
+
+  it('降ろした写しの台帳は残す（同じ本文を新しいクラウドから降ろし直さない）', () => {
+    db.prepare('insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`transcripts/dev-b/${UUID_R}.jsonl.gz`, 'transcript', `projects/${FOLDER}/${UUID_R}.jsonl`, 'dev-b', 'f'.repeat(64), 1, 1, 3, 1);
+    rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' });
+    expect(db.prepare("select key from file_sync where kind = 'transcript'").all()).toEqual([{ key: `transcripts/dev-b/${UUID_R}.jsonl.gz` }]);
+  });
+});
+
+describe('SyncEngine の起動', () => {
+  it('cloud.json の cloudId が前と違えば、作り直してから送る', async () => {
+    upsertShared(db, 'projects', { id: 'proj-1', name: 'alpha', status: 'active' }, 'dev-a');
+    db.prepare('update changes set pushed_at = 1').run();
+    state.set('lastSeq', 500);
+    state.set('snapshotDone', true);
+    state.set('cloudId', 'cloud-old');
+    const engine = new SyncEngine({ db, deviceId: 'dev-a', client: cloud, timers, now: () => timers.now, home, cloudId: 'cloud-new' });
+    await engine.start();
+    await engine.idle();
+    expect(state.get('cloudId')).toBe('cloud-new');
+    expect((await cloud.opened()).some((c) => c.tableName === 'projects' && c.rowId === 'proj-1')).toBe(true);
+    engine.stop();
+  });
+
+  it('cloudId が同じなら、送り済みの行を積み直さない', async () => {
+    upsertShared(db, 'projects', { id: 'proj-1', name: 'alpha', status: 'active' }, 'dev-a');
+    db.prepare('update changes set pushed_at = 1').run();
+    state.set('cloudId', 'cloud-1');
+    const engine = new SyncEngine({ db, deviceId: 'dev-a', client: cloud, timers, now: () => timers.now, home, cloudId: 'cloud-1' });
+    await engine.start();
+    await engine.idle();
+    expect((await cloud.opened()).some((c) => c.tableName === 'projects')).toBe(false);
+    engine.stop();
+  });
+});
