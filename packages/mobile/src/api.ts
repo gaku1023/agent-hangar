@@ -2,8 +2,7 @@
 import { COMPAT_HEADER, compatHeaders, MOBILE_BELL_MIN_WORKER_COMPAT, parseCompat } from '@agent-hangar/shared/src/compat.ts';
 import { EXPIRED_ERROR, type MobileInboxResponse, type MobileJoinRequest, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus } from '@agent-hangar/shared/src/mobile.ts';
 import { decodePairing, MobilePairingError, type PairingBlob } from '@agent-hangar/shared/src/mobileCrypto.ts';
-import { generateKeyPairNonExtractable } from '@agent-hangar/shared/src/e2e/keys.ts';
-import { sealPhoneJoinRequest } from '@agent-hangar/shared/src/e2e/phone.ts';
+import { generatePhoneKeyPair, sealPhoneJoinRequest } from '@agent-hangar/shared/src/e2e/phone.ts';
 import { REVOKED_ERROR } from '@agent-hangar/shared/src/cloud.ts';
 import { clearPhoneKeys, loadPhonePair, savePhonePair, type Pairing, type PhonePair } from './store.ts';
 
@@ -101,7 +100,7 @@ const JOIN_ID_TRIES = 3;
 /**
  * QR の中身で接続する（互換の版 9）。
  *
- * 取り出せない鍵ペア（X25519）を作り、公開鍵と名前を券から導いた鍵で封じて、券と自分で決めた ID と一緒に `POST /m/join` に送る。
+ * 取り出せない鍵ペア（ECDH P-256。理由は shared の e2e/phone.ts）を作り、公開鍵と名前を券から導いた鍵で封じて、券と自分で決めた ID と一緒に `POST /m/join` に送る。
  * 鍵ペアは券を使う前に IndexedDB に置く。置けない端末で券と台数の枠を無駄に使わないため。
  * 接続に失敗したら、前から置いてあった鍵ペアに戻す（前の接続の keybox を開けなくしない）。
  * 同じ ID が既にある（409 device-exists）ときは、券が残っているので別の ID で出し直す。
@@ -111,7 +110,7 @@ const JOIN_ID_TRIES = 3;
 export async function joinPhone(pairText: string, name: string): Promise<{ pairing: Pairing; pair: PhonePair }> {
   const blob = readPairText(pairText);
   const origin = originOf(blob.url);
-  const pair = await generateKeyPairNonExtractable();
+  const pair = await generatePhoneKeyPair();
   const before = await loadPhonePair();
   try {
     await savePhonePair(pair);

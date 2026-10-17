@@ -6,6 +6,7 @@
  */
 
 import { fromBase64Url } from './bytes.ts';
+import { isPhonePub } from './phone.ts';
 import { E2eOpenError, openJson, sealJson } from './seal.ts';
 
 export type RosterEntry = { id: string; kind: 'pc' | 'phone'; name: string; os: string; pub: string; joinedAt: number };
@@ -20,10 +21,12 @@ export async function sealRoster(key: CryptoKey, version: number, r: Roster): Pr
 
 const isKey32 = (s: unknown): s is string => typeof s === 'string' && fromBase64Url(s)?.length === 32;
 
+/** PC の公開鍵は X25519 の 32 バイト、スマホの公開鍵は P-256 の非圧縮点の 65 バイト（phone.ts）。 */
 function isEntry(e: unknown): e is RosterEntry {
   if (typeof e !== 'object' || e === null) return false;
   const o = e as Record<string, unknown>;
-  return typeof o.id === 'string' && (o.kind === 'pc' || o.kind === 'phone') && typeof o.name === 'string' && typeof o.os === 'string' && isKey32(o.pub) && typeof o.joinedAt === 'number';
+  const pubOk = o.kind === 'pc' ? isKey32(o.pub) : o.kind === 'phone' ? isPhonePub(o.pub) : false;
+  return typeof o.id === 'string' && pubOk && typeof o.name === 'string' && typeof o.os === 'string' && typeof o.joinedAt === 'number';
 }
 
 /** 封じた名簿を開く。鍵、版の番号、形のどれが違っても E2eOpenError を投げる。 */

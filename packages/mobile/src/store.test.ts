@@ -1,4 +1,4 @@
-import { aadFeed, generateKeyPairNonExtractable, open, seal } from '@agent-hangar/shared';
+import { aadFeed, generatePhoneKeyPair, open, seal } from '@agent-hangar/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearPairing, currentKey, KEEP_EPOCHS, loadPairing, loadPhoneKeys, loadPhonePair, savePairing, savePhoneKey, savePhonePair } from './store.ts';
 import { makeKey } from './test/fixtures.ts';
@@ -46,13 +46,15 @@ describe('pairing (localStorage)', () => {
 
 describe('鍵ペア（IndexedDB）', () => {
   it('秘密鍵は取り出せない CryptoKey のまま置かれ、読み戻しても exportKey できない', async () => {
-    const pair = await generateKeyPairNonExtractable();
+    const pair = await generatePhoneKeyPair();
     await savePhonePair(pair);
     const back = await loadPhonePair();
     expect(back).not.toBeNull();
     expect(back!.pub).toBe(pair.pub);
     expect(back!.key).toBeInstanceOf(CryptoKey);
     expect(back!.key.extractable).toBe(false);
+    // WebKit は X25519 の CryptoKey を IndexedDB から読み戻せない（bug 312279）ので、スマホの鍵ペアは P-256 にしてある。
+    expect(back!.key.algorithm).toMatchObject({ name: 'ECDH', namedCurve: 'P-256' });
     await expect(globalThis.crypto.subtle.exportKey('pkcs8', back!.key)).rejects.toThrow();
     await expect(globalThis.crypto.subtle.exportKey('jwk', back!.key)).rejects.toThrow();
     // localStorage には鍵の値も公開鍵も置かない。
@@ -65,7 +67,7 @@ describe('鍵ペア（IndexedDB）', () => {
     try {
       expect(await loadPhonePair()).toBeNull();
       expect((await loadPhoneKeys()).size).toBe(0);
-      await expect(savePhonePair(await generateKeyPairNonExtractable())).rejects.toThrow();
+      await expect(savePhonePair(await generatePhoneKeyPair())).rejects.toThrow();
     } finally {
       Object.defineProperty(globalThis, 'indexedDB', { value: idb, configurable: true });
     }
@@ -73,7 +75,7 @@ describe('鍵ペア（IndexedDB）', () => {
 
   it('clearPairing は鍵ペアとスマホ用の鍵も消す', async () => {
     savePairing(pairing);
-    await savePhonePair(await generateKeyPairNonExtractable());
+    await savePhonePair(await generatePhoneKeyPair());
     await savePhoneKey(1, await makeKey());
     await clearPairing();
     expect(await loadPhonePair()).toBeNull();

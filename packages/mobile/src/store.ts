@@ -2,14 +2,15 @@
  * スマホの手元の置き場。
  *
  * Worker 用のトークンと接続先は localStorage に置く。
- * スマホの鍵ペア（X25519）の秘密鍵と、スマホ用の鍵 M（世代つき）は、取り出せない（non-extractable）CryptoKey のまま IndexedDB に置く。
+ * スマホの鍵ペア（ECDH P-256）の秘密鍵と、スマホ用の鍵 M（世代つき）は、取り出せない（non-extractable）CryptoKey のまま IndexedDB に置く。
+ * 鍵ペアが X25519 でないのは、WebKit が X25519 の CryptoKey を IndexedDB から読み戻すと null にするためである（WebKit bug 312279）。
  * 画面に XSS があっても、鍵の値そのものは持ち出せない（使うことはできても、写して外へ送れない）。
  * どちらの置き場も、プライベートブラウズやサイトデータの消去で投げたり空になったりするので、読み書きは全部 try/catch で包む。
  */
 
 export type Pairing = { url: string; token: string; deviceId: string };
 
-/** スマホの鍵ペア。pub は raw 32 バイトの base64url、key は取り出せない秘密鍵。 */
+/** スマホの鍵ペア。pub は P-256 の raw の非圧縮点（65 バイト）の base64url、key は取り出せない秘密鍵。 */
 export type PhonePair = { pub: string; key: CryptoKey };
 
 /** 手元のスマホ用の鍵。世代の番号から AES-GCM の鍵を引く。 */

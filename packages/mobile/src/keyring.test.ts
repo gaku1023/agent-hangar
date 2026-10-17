@@ -1,4 +1,4 @@
-import { aadFeed, generateKeyPairNonExtractable, open, seal, sealPhoneKeybox, toBase64Url } from '@agent-hangar/shared';
+import { aadFeed, generatePhoneKeyPair, open, seal, sealPhoneKeybox, toBase64Url } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JoinError, UnpairedError } from './api.ts';
 import { KEYBOX_GIVE_UP_MS, KEYBOX_POLL_MS, refreshPhoneKeys, waitPhoneKeys } from './keyring.ts';
@@ -29,7 +29,7 @@ function clock(): { now: () => number; sleep: (ms: number) => Promise<void>; sle
 
 beforeEach(async () => {
   await clearPairing();
-  pair = await generateKeyPairNonExtractable();
+  pair = await generatePhoneKeyPair();
   fetchMock = vi.fn(async () => json({ error: 'not found' }, 404));
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -108,7 +108,7 @@ describe('refreshPhoneKeys（新しい世代の keybox を読み直す）', () =
   it('keybox が無い（404）、開けないときは手元の鍵のまま', async () => {
     await savePhoneKey(1, await makeKey());
     expect([...(await refreshPhoneKeys(pairing, pair)).keys()]).toEqual([1]);
-    const other = await generateKeyPairNonExtractable();
+    const other = await generatePhoneKeyPair();
     fetchMock.mockImplementation(async () => keyboxRes(2, mBytes(), other));
     expect([...(await refreshPhoneKeys(pairing, pair)).keys()]).toEqual([1]);
   });

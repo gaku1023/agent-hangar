@@ -1,4 +1,4 @@
-import { aadFeed, generateKeyPairNonExtractable, importMobileKey, seal, type MobileFeed, type MobileInboxResponse, type MobileLiveItem } from '@agent-hangar/shared';
+import { aadFeed, generatePhoneKeyPair, importMobileKey, seal, type MobileFeed, type MobileInboxResponse, type MobileLiveItem } from '@agent-hangar/shared';
 import { savePairing, savePhoneKey, savePhonePair, type Keyring, type Pairing, type PhoneKey, type PhonePair } from '../store.ts';
 
 /** 試験の「いま」。スマホの日付で 2026-10-17 の 15 時（手元の時間帯）。 */
@@ -14,7 +14,7 @@ export const at1 = (key: CryptoKey, epoch = 1): PhoneKey => ({ epoch, key });
 
 /** 接続済みのスマホにする（接続、鍵ペア、世代 1 の M）。 */
 export async function connectPhone(key: CryptoKey, pairing: Pairing = { url: 'https://hangar.example.workers.dev', token: 'tok-1', deviceId: 'phone-1' }): Promise<PhonePair> {
-  const pair = await generateKeyPairNonExtractable();
+  const pair = await generatePhoneKeyPair();
   savePairing(pairing);
   await savePhonePair(pair);
   await savePhoneKey(1, key);

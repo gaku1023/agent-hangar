@@ -1,4 +1,4 @@
-import { COMPAT_VERSION, generateKeyPairNonExtractable, openPhoneJoinRequest, sealPhoneKeybox, toBase64Url } from '@agent-hangar/shared';
+import { COMPAT_VERSION, generatePhoneKeyPair, isPhonePub, openPhoneJoinRequest, sealPhoneKeybox, toBase64Url } from '@agent-hangar/shared';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App.tsx';
@@ -103,6 +103,8 @@ describe('JoinScreen', () => {
     expect(init.body as string).not.toContain('スマホ 1');
 
     expect(pair!.key.extractable).toBe(false);
+    expect(pair!.key.algorithm).toMatchObject({ name: 'ECDH', namedCurve: 'P-256' });
+    expect(isPhonePub(pair!.pub)).toBe(true);
     await expect(globalThis.crypto.subtle.exportKey('pkcs8', pair!.key)).rejects.toThrow();
     const keys = await store.loadPhoneKeys();
     expect([...keys.keys()]).toEqual([1]);
@@ -211,7 +213,7 @@ describe('JoinScreen', () => {
   });
 
   it('参加に失敗したら、前から置いてあった鍵ペアに戻す', async () => {
-    const old = await generateKeyPairNonExtractable();
+    const old = await generatePhoneKeyPair();
     await store.savePhonePair(old);
     vi.mocked(store.savePhonePair).mockClear();
     fetchMock.mockImplementation(async () => json({ error: 'used' }, 401));
