@@ -3,16 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { aadAsk, aadReply, MOBILE_REPLY_MAX_BYTES, open, seal, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
-import { mobileKeyFor } from './publisher.ts';
+import { testKey } from '../../test/cloudConfig.ts';
+import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
 import { answerAsk, ASK_COMMANDS_MAX, ASK_DESCRIPTION_MAX, ASK_RECENT_FILES, ASK_SEARCH_FILES, replyTo, type AskDeps } from './asks.ts';
 
-const SECRET = 'join-secret-for-tests-0123456789abcdef';
-const OTHER = 'another-join-secret-0123456789abcdef';
+const mKey = (): Promise<CryptoKey> => phoneCryptoKey(PHONE_KEY_1);
 const ROOT = path.join(os.tmpdir(), 'hangar-asks-root');
 
 function deps(o: Partial<AskDeps> = {}): AskDeps {
   return {
-    joinSecret: SECRET,
+    phoneKeys: fixedPhoneKeys({ 1: PHONE_KEY_1, 2: PHONE_KEY_2 }),
     deviceId: 'pc-a',
     projectPath: (id) => (id === 'p1' ? ROOT : null),
     accountDir: (id) => (id === 'primary' ? '/claude-dir' : null),
@@ -119,27 +119,38 @@ describe('replyTo（形の検査）', () => {
 
 describe('answerAsk', () => {
   it('ask の封を自分宛ての AAD で開き、答えを reply の AAD で封じて返す', async () => {
-    const key = await mobileKeyFor(SECRET);
+    const key = await mKey();
     const sealed = await seal(key, aadAsk('q1', 'pc-a'), { v: 1, kind: 'files', projectId: 'p1', q: '' } satisfies MobileAsk);
-    const out = await answerAsk(deps(), 'q1', sealed);
+    const out = await answerAsk(deps(), 'q1', sealed, 1);
     expect(out).not.toBeNull();
     expect(await open(key, aadReply('q1'), out!)).toEqual({ files: [{ path: 'b.ts', changed: true }, { path: 'a.ts', changed: false }] });
   });
 
+  it('問い合わせの世代（呼び鈴の epoch）の M で開き、答えも同じ世代で封じる', async () => {
+    const key2 = await phoneCryptoKey(PHONE_KEY_2);
+    const sealed = await seal(key2, aadAsk('q1', 'pc-a'), { v: 1, kind: 'files', projectId: 'p1', q: '' } satisfies MobileAsk);
+    expect(await answerAsk(deps(), 'q1', sealed, 1)).toBeNull();
+    const out = await answerAsk(deps(), 'q1', sealed, 2);
+    expect(await open(key2, aadReply('q1'), out!)).toMatchObject({ files: expect.any(Array) });
+    await expect(open(await mKey(), aadReply('q1'), out!)).rejects.toThrow();
+    // 鍵の無い世代には答えない。
+    expect(await answerAsk(deps(), 'q1', sealed, 3)).toBeNull();
+  });
+
   it('開けないものには答えない（別の宛先、別の ID、別の鍵、壊れた封）', async () => {
-    const key = await mobileKeyFor(SECRET);
+    const key = await mKey();
     const body: MobileAsk = { v: 1, kind: 'files', projectId: 'p1', q: '' };
-    expect(await answerAsk(deps(), 'q1', await seal(key, aadAsk('q1', 'pc-b'), body))).toBeNull();
-    expect(await answerAsk(deps(), 'q2', await seal(key, aadAsk('q1', 'pc-a'), body))).toBeNull();
-    expect(await answerAsk(deps(), 'q1', await seal(await mobileKeyFor(OTHER), aadAsk('q1', 'pc-a'), body))).toBeNull();
-    expect(await answerAsk(deps(), 'q1', 'not-a-seal')).toBeNull();
+    expect(await answerAsk(deps(), 'q1', await seal(key, aadAsk('q1', 'pc-b'), body), 1)).toBeNull();
+    expect(await answerAsk(deps(), 'q2', await seal(key, aadAsk('q1', 'pc-a'), body), 1)).toBeNull();
+    expect(await answerAsk(deps(), 'q1', await seal(await phoneCryptoKey(testKey(11)), aadAsk('q1', 'pc-a'), body), 1)).toBeNull();
+    expect(await answerAsk(deps(), 'q1', 'not-a-seal', 1)).toBeNull();
   });
 
   it('答えは 64 KiB（呼び鈴の 1 通）に収まるまで後ろから落とす', async () => {
     const files = Array.from({ length: 50 }, (_, i) => ({ path: `${String(i).padStart(2, '0')}/${'あ'.repeat(480)}.ts`, changed: false }));
     const d = deps({ files: { recent: async () => files, search: async () => [], changed: async () => new Set() } });
-    const key = await mobileKeyFor(SECRET);
-    const out = await answerAsk(d, 'q1', await seal(key, aadAsk('q1', 'pc-a'), { v: 1, kind: 'files', projectId: 'p1', q: '' } satisfies MobileAsk));
+    const key = await mKey();
+    const out = await answerAsk(d, 'q1', await seal(key, aadAsk('q1', 'pc-a'), { v: 1, kind: 'files', projectId: 'p1', q: '' } satisfies MobileAsk), 1);
     const frame = JSON.stringify({ t: 'reply', id: 'q1', sealed: out });
     expect(Buffer.byteLength(frame)).toBeLessThanOrEqual(MOBILE_REPLY_MAX_BYTES);
     const r = await open<Extract<MobileReply, { files: unknown }>>(key, aadReply('q1'), out!);
@@ -153,7 +164,7 @@ describe('既定の読み取り（本物のフォルダ）', () => {
   it('files は実際のフォルダの相対パスを返す', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-asks-'));
     fs.writeFileSync(path.join(root, 'one.ts'), 'x');
-    const d: AskDeps = { joinSecret: SECRET, deviceId: 'pc-a', projectPath: () => root, accountDir: () => null };
+    const d: AskDeps = { phoneKeys: fixedPhoneKeys(), deviceId: 'pc-a', projectPath: () => root, accountDir: () => null };
     expect(await replyTo(d, { v: 1, kind: 'files', projectId: 'p1', q: '' })).toEqual({ files: [{ path: 'one.ts', changed: false }] });
     expect(await replyTo(d, { v: 1, kind: 'files', projectId: 'p1', q: 'one' })).toEqual({ files: [{ path: 'one.ts', changed: false }] });
   });

@@ -1,4 +1,3 @@
-import type { CloudDeviceOut } from './cloud.ts';
 import type { CompatSummaryDto } from './claudeCompat.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
@@ -61,7 +60,33 @@ export type SessionLimitDto = { kind: LimitKind; resetsAt: number; auto: boolean
  * kind は通知の枠で、waiting は入力待ち（許可待ちとリセット済みも含む）、limit は使用制限（アカウントごとに 1 通）である。
  * sessionId は押したときに開くセッション（hangar の id）。bare は、問いの文がまだ無い入力待ちで、殻が問いの文を少し待つ印である。
  */
-export type OsNoticeKind = 'waiting' | 'limit';
+/**
+ * join は参加リクエストの受信で、sessionId はいつも JOIN_NOTICE_ID である（押すと設定のクラウド同期を開く）。
+ */
+export type OsNoticeKind = 'waiting' | 'limit' | 'join';
+/** 参加リクエストの OS の通知が sessionId に載せる値。セッションの ID（UUID）とは重ならない。 */
+export const JOIN_NOTICE_ID = 'join-request';
+/** 参加リクエストの中身のうち、発行した PC の画面に出すもの。sas は区切りの無い 6 桁である。 */
+export type JoinRequestView = { name: string; os: string; sas: string };
+/**
+ * 参加コードを発行した PC の承認の状態（GET /api/sync/join-codes/current）。
+ * code は表示の形（`XXXX-XXXX`）で、平文はこの PC のメモリにしか無い。
+ * 承認の後は done、拒否と取り消しの後は idle に戻る。
+ */
+export type JoinApproverState =
+  | { kind: 'idle' }
+  | { kind: 'open'; code: string; expiresAt: number }
+  | { kind: 'requested'; code: string; expiresAt: number; request: JoinRequestView }
+  | { kind: 'approving' }
+  | { kind: 'done'; name: string }
+  | { kind: 'expired' }
+  | { kind: 'failed'; message: string };
+/**
+ * 設定の「リカバリーキーを再発行」（POST /api/sync/recovery-key/reissue）の答え。
+ * text は 4 行のリカバリーキーで、draftId を末尾 4 文字と一緒に /confirm へ送ると差し替わる。
+ * 新しい鍵ペアはサーバーのメモリにだけあり、確認するまで名簿も keybox も変えない。
+ */
+export type RecoveryKeyDraftDto = { text: string; draftId: string };
 export type OsNoticeDto = { seq: number; kind: OsNoticeKind; sessionId: string; title: string; body: string; bare: boolean };
 /** boot はサーバの起動ごとに変わる値。殻はこれが変わったら、seq を今の値に合わせ直し、前の分は出さない。 */
 export type OsNoticeFeedDto = { boot: string; seq: number; items: OsNoticeDto[] };
@@ -99,7 +124,18 @@ export type SessionDto = { id: string; provider: 'claude-code'; providerSessionI
    * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
    * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
    */
-  takenOver: { deviceName: string; at: number } | null };
+  takenOver: { deviceName: string; at: number } | null;
+  /**
+   * この PC がスマホの依頼で起こした会話（試作 F1）。bypass は Bypass permissions で起こしたこと。PC で起こした会話は null。
+   * 印は起こした PC の手元の表（mobile_launches）にだけあり、共有の sessions には載せないので、他の PC では null である。
+   */
+  fromPhone: { bypass: boolean } | null };
+/**
+ * スマホからの依頼でこの PC が会話を起こした知らせ（ServerEvent の phone.launch、右下の通知、試作 F1）。
+ * phone は名簿のスマホの名前で、分からなければ null。projectId は依頼のプロジェクトで、すぐ始める（scratch）では null。
+ * permissionMode は依頼の権限モード（空は既定）、title は起こしたときの会話の名前、at はこの PC の時計で起こした時刻。
+ */
+export type PhoneLaunchDto = { sessionId: string; phone: string | null; projectId: string | null; scratch: boolean; permissionMode: string; title: string; at: number };
 /**
  * 中断の原因。
  * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。
@@ -261,7 +297,7 @@ export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto;
  * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
  * workspace は設定の作成場所（任意。空は決めていない）で、projectCount はその直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
- * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。join は参加のコマンドで、トークンの所は `<token>` と書く。
+ * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。join は参加のコマンドで、接続先の所は `<URL>` と書く（参加コードは実行した後に入力する）。
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
@@ -484,7 +520,12 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * off のあいだの変更も changes に積んであり、同期を有効にした後に送る。
  */
 /** revoked は、この PC が同期から解除された（Worker が端末トークンを 401 の revoked で断った）印。そのあいだ state は error である。送らない古いサーバは偽とみなす。 */
-export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean };
+/**
+ * legacyConfig は、cloud.json が 0.8.x までの古い形式（参加用の秘密を持つ版 1）のため同期を始めていない印。
+ * そのあいだ state は off で、設定の画面は未参加と見分けてクラウドの再構築を案内する。
+ * 立っているときだけ true で載せ、それ以外は載せない（送らない古いサーバも偽とみなす）。
+ */
+export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean; legacyConfig?: boolean };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。
@@ -507,25 +548,45 @@ export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | 
 /** 同期の状態の応答。SyncStatusDto に付録を足したものである。 */
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 /**
- * 設定のクラウド同期の節の PC の一覧（GET /api/sync/cloud-devices）。Worker の devices をそのまま運び、この PC に self の印を付ける。
+ * 設定のクラウド同期の節の PC の一覧（GET /api/sync/cloud-devices）。この PC に self の印を付ける。
+ * 端末の並びと、参加日、最終接続、解除、トークンの期限は Worker の devices から取る。
+ * 名前と OS（platform）は封じた名簿から取り、名簿に無い端末は name と platform が null の「名前のわからない端末」である。
+ * IP と所在地は持たない。
  * state は、ok（一覧が取れた）、off（同期していない）、outdated（Worker が版 5 より古く、一覧と解除の口を持たない）、
  * unreachable（Worker に繋がらない、または一覧の問い合わせが失敗した）、revoked（この PC が解除されている）である。
  * creator は、この PC がクラウドを作った PC か（cloud.json に Worker の名前がある）。参加を解除すると teardown できなくなる旨を出すのに使う。
  * message は ok と off のほかで、画面に出す理由の文（サーバの言語）。
  */
-export type CloudDeviceDto = CloudDeviceOut & { self: boolean };
+export type CloudDeviceDto = {
+  id: string;
+  kind: 'pc' | 'mobile';
+  name: string | null;
+  platform: string | null;
+  joinedAt: number;
+  lastSeenAt: number | null;
+  revokedAt: number | null;
+  /** トークンの期限。null なら期限なし。 */
+  expiresAt: number | null;
+  self: boolean;
+};
 export type CloudDevicesDto = { state: 'ok' | 'off' | 'outdated' | 'unreachable' | 'revoked'; devices: CloudDeviceDto[]; creator: boolean; message: string | null };
 /**
  * スマホを接続する QR（POST /api/sync/mobile-pairing）。押すたびに Worker から新しい券を取る。
  * ready の pairText は PairingBlob（スマホ用の暗号鍵を含む）を base64url にしたもので、pairUrl は `<Worker の URL>/app/#pair=<pairText>`。
  * どちらも QR と「文字列をコピー」にだけ使い、ログや PC が開く URL に載せない。参加の秘密そのものは含まない。
  * not-joined は同期に参加していない、worker-too-old は Worker の版が足りない（compat は名乗った版、分からなければ null）、rate-limited は券の取りすぎ（10 分に 5 枚）。
+ * pairId は券の印（券のハッシュで、券の平文ではない）で、GET /api/sync/mobile-pairing/:pairId（MobilePairedDto）に渡す。
  */
 export type MobilePairingDto =
-  | { state: 'ready'; pairUrl: string; pairText: string; expiresAt: number }
+  | { state: 'ready'; pairUrl: string; pairText: string; expiresAt: number; pairId: string }
   | { state: 'not-joined' }
   | { state: 'worker-too-old'; compat: number | null }
   | { state: 'rate-limited' };
+/**
+ * QR を出している間に設定の画面が見る口（GET /api/sync/mobile-pairing/:pairId）。
+ * paired は、その券で接続し、PC が keybox を置き終えたスマホ。まだなら null。サーバーは手元の覚えだけを返し、Worker には問い合わせない。
+ */
+export type MobilePairedDto = { paired: { id: string; name: string } | null };
 /** shell はその端末の包み方（hangar shell install）の状態。まだ知らせてこない古い版の端末は null になる。 */
 export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean; shell: ShellHookStateDto | null };
 export type ShellHookStateDto = 'on' | 'off' | 'unsupported';

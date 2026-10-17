@@ -17,7 +17,7 @@ pub const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(WAI
 /// 読めなかったとき（サーバが起き直している、止まっている）に、次に読むまで待つ長さ。
 pub const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// サーバから届いた通知 1 件。kind は入力待ち（許可待ちとリセット済みも含む）か使用制限である。
+/// サーバから届いた通知 1 件。kind は入力待ち（許可待ちとリセット済みも含む）か使用制限か参加リクエストである。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub kind: Kind,
@@ -82,6 +82,7 @@ fn item_of(v: &serde_json::Value) -> Option<Item> {
     let kind = match v.get("kind")?.as_str()? {
         "waiting" => Kind::Waiting,
         "limit" => Kind::Limit,
+        "join" => Kind::Join,
         _ => return None,
     };
     Some(Item {
@@ -167,6 +168,24 @@ mod tests {
             ]
         );
         assert!(c.path().contains("after=3"));
+    }
+
+    #[test]
+    fn a_join_request_notice_is_read_as_the_join_kind() {
+        let mut c = Cursor::default();
+        c.take(&feed(BOOT, 0, "")).unwrap();
+        let item = r#"{"seq":1,"kind":"join","sessionId":"join-request","title":"参加リクエストを受信しました","body":"b","bare":false}"#;
+        let got = c.take(&feed(BOOT, 1, item)).unwrap();
+        assert_eq!(
+            got,
+            vec![Item {
+                kind: Kind::Join,
+                session_id: "join-request".into(),
+                title: "参加リクエストを受信しました".into(),
+                body: "b".into(),
+                bare: false
+            }]
+        );
     }
 
     #[test]

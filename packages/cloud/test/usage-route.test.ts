@@ -5,16 +5,17 @@ import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
 
 const fixture = (n: string) => fs.readFileSync(new URL(`./fixtures/${n}.json`, import.meta.url), 'utf8');
-const SECRET = 'join-secret-1';
 let cloud: CloudHarness;
 afterEach(async () => { await cloud.dispose(); });
 
 async function joined(o: Parameters<typeof startCloud>[0] = {}): Promise<string> {
   resetSchemaCache();
   cloud = await startCloud(o);
-  await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
-  const r = await cloud.SELF.fetch('https://x/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: SECRET, device: { id: 'dev-a', name: 'Mac', platform: 'darwin' } }) });
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
+  await ensureSchema(cloud.env);
+  // 参加の口を通さずに、PC の行を D1 へ直に置く。
+  const token = 'token-dev-a';
+  await cloud.env.DB.prepare("insert into devices (id, kind, token_hash, joined_at) values ('dev-a', 'pc', ?, 1)").bind(await sha256Hex(token)).run();
+  return token;
 }
 
 const outbound = (req: Request): Response => {

@@ -1,7 +1,7 @@
 import type { MobileAccount, MobileFeed, MobileLaunchAnswer, MobileLaunchPayload, MobileProject } from '@agent-hangar/shared/src/mobile.ts';
 import { aadAnswer, aadLaunch, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
-import { getLaunch, LaunchError, postLaunch } from './api.ts';
-import type { Pairing } from './store.ts';
+import { getLaunch, LaunchError, postLaunch, type UnpairedReason } from './api.ts';
+import type { Pairing, PhoneKey } from './store.ts';
 
 export type LaunchProject = MobileProject & { deviceIds: string[] };
 
@@ -57,13 +57,14 @@ export function launchChoices(feeds: MobileFeed[], alive: Set<string>): LaunchCh
  */
 export async function requestLaunch(
   p: Pairing,
-  key: CryptoKey,
+  key: PhoneKey,
   o: { targetDevice: string; payload: Omit<MobileLaunchPayload, 'v' | 'createdAt'>; skewMs?: number; id?: string },
 ): Promise<string> {
   const id = o.id ?? globalThis.crypto.randomUUID();
   const payload: MobileLaunchPayload = { v: 1, createdAt: Date.now() + (o.skewMs ?? 0), ...o.payload };
-  const sealed = await seal(key, aadLaunch(id, o.targetDevice), payload);
-  const body = { id, targetDevice: o.targetDevice, sealed };
+  const sealed = await seal(key.key, aadLaunch(id, o.targetDevice), payload);
+  // epoch は封じたスマホ用の鍵の世代（互換の版 9）。PC は同じ世代の鍵で開き、答えも同じ世代で封じる。
+  const body = { id, targetDevice: o.targetDevice, sealed, epoch: key.epoch };
   try {
     await postLaunch(p, body);
   } catch (e) {
@@ -76,7 +77,7 @@ export async function requestLaunch(
 /**
  * 依頼の行き着いた先。
  * - unreadable：PC の答えが無いか、開けないか、Worker の状態と食い違う。始まったかどうかをスマホは言えない。
- * - unpaired：このスマホの接続が外された（401）。
+ * - unpaired：このスマホの接続が外された（401）。onStage の 3 つ目に 401 の理由を添える。
  * - unanswered：PC は受け取った（claimed を見た）が、諦めるまでに答えが届かなかった。会話が始まっているかもしれない。
  */
 export type LaunchStage = 'waiting' | 'started' | 'failed' | 'expired' | 'unreadable' | 'unpaired' | 'unanswered';
@@ -99,27 +100,28 @@ export const LAUNCH_GIVE_UP_MS = 80_000;
  */
 export function waitLaunch(
   p: Pairing,
-  key: CryptoKey,
+  key: PhoneKey,
   id: string,
-  o: { everyMs?: number; giveUpMs?: number; onStage: (s: LaunchStage, a?: MobileLaunchAnswer) => void; onClaimed?: () => void },
+  o: { everyMs?: number; giveUpMs?: number; onStage: (s: LaunchStage, a?: MobileLaunchAnswer, why?: UnpairedReason) => void; onClaimed?: () => void },
 ): () => void {
   const every = o.everyMs ?? LAUNCH_POLL_MS;
   const giveUp = o.giveUpMs ?? LAUNCH_GIVE_UP_MS;
   let done = false;
   let claimed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const finish = (s: LaunchStage, a?: MobileLaunchAnswer): void => {
+  const finish = (s: LaunchStage, a?: MobileLaunchAnswer, why?: UnpairedReason): void => {
     if (done) return;
     done = true;
     if (timer) clearTimeout(timer);
     clearTimeout(limit);
-    if (a) o.onStage(s, a);
+    if (why) o.onStage(s, undefined, why);
+    else if (a) o.onStage(s, a);
     else o.onStage(s);
   };
   const answerOf = async (sealed: string | null): Promise<MobileLaunchAnswer | undefined> => {
     if (!sealed) return undefined;
     try {
-      const a = await open<MobileLaunchAnswer>(key, aadAnswer(id), sealed);
+      const a = await open<MobileLaunchAnswer>(key.key, aadAnswer(id), sealed);
       return a && typeof a === 'object' && typeof a.ok === 'boolean' ? a : undefined;
     } catch {
       return undefined;
@@ -149,7 +151,7 @@ export function waitLaunch(
       }
     } catch (e) {
       if (e instanceof LaunchError && e.reason === 'unpaired') {
-        finish('unpaired');
+        finish('unpaired', undefined, e.unpairedReason);
         return;
       }
       if (e instanceof LaunchError && e.reason === 'not-found') {

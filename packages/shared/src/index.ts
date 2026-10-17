@@ -27,5 +27,6 @@ export * from './device.ts';
 export * from './setupGuide.ts';
 export * from './mobile.ts';
 export * from './mobileCrypto.ts';
+export * from './e2e/index.ts';
 export * from './launchChoices.ts';
 export * from './promptPaths.ts';

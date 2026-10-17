@@ -8,15 +8,29 @@ const action = (a: Extract<Input, { kind: 'action' }>['action']): Input => ({ ki
 describe('クラウド同期の参加と解除の操作', () => {
   it('どれも State を変えず、cloudMember の効果にして Runtime へ渡す', () => {
     const cases: [Extract<Input, { kind: 'action' }>['action'], unknown][] = [
-      [{ type: 'cloud.join.plan', token: 't' }, { op: 'plan', token: 't' }],
-      [{ type: 'cloud.join.go', overwrite: true }, { op: 'join', overwrite: true }],
+      [{ type: 'cloud.join.check', url: 'https://h' }, { op: 'check', url: 'https://h' }],
+      [{ type: 'cloud.join.request', code: 'K7QM2XFD' }, { op: 'request', code: 'K7QM2XFD' }],
+      [{ type: 'cloud.join.reenter' }, { op: 'joinReenter' }],
       [{ type: 'cloud.join.cancel' }, { op: 'joinCancel' }],
+      [{ type: 'cloud.add.open' }, { op: 'addOpen' }],
+      [{ type: 'cloud.add.approve' }, { op: 'addApprove' }],
+      [{ type: 'cloud.add.reject' }, { op: 'addReject' }],
+      [{ type: 'cloud.add.close' }, { op: 'addClose' }],
       [{ type: 'cloud.device.revoke', id: 'b' }, { op: 'revoke', id: 'b' }],
       [{ type: 'cloud.revoke.dismiss' }, { op: 'revokeDismiss' }],
       [{ type: 'cloud.leave', revoke: false }, { op: 'leave', revoke: false }],
       [{ type: 'cloud.leave.dismiss' }, { op: 'leaveDismiss' }],
       [{ type: 'cloud.phone.pair' }, { op: 'pair' }],
       [{ type: 'cloud.phone.close' }, { op: 'pairClose' }],
+      [{ type: 'cloud.phone.revoke', id: 'p1' }, { op: 'phoneRevoke', id: 'p1' }],
+      [{ type: 'cloud.phone.undo' }, { op: 'phoneUndo' }],
+      [{ type: 'cloud.recovery.ask' }, { op: 'recoveryAsk' }],
+      [{ type: 'cloud.recovery.reissue' }, { op: 'recoveryReissue' }],
+      [{ type: 'cloud.recovery.saved' }, { op: 'recoverySaved' }],
+      [{ type: 'cloud.recovery.reveal' }, { op: 'recoveryReveal' }],
+      [{ type: 'cloud.recovery.confirm', tail: 'K2VB' }, { op: 'recoveryConfirm', tail: 'K2VB' }],
+      [{ type: 'cloud.recovery.retry' }, { op: 'recoveryRetry' }],
+      [{ type: 'cloud.recovery.close' }, { op: 'recoveryClose' }],
     ];
     const s = initialState();
     for (const [a, command] of cases) {

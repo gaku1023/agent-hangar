@@ -20,6 +20,7 @@ pub mod node;
 pub mod notify;
 pub mod paths;
 pub mod placement;
+pub mod recoveryfile;
 pub mod server;
 pub mod tempclean;
 pub mod updater;
@@ -913,7 +914,7 @@ fn spawn_boot(app: AppHandle) -> bool {
 
 // ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）と、連携の書き込み（setup_integration）と、承諾の窓の 2 つ（approve_view、approve_answer。承諾の窓の頁だけ）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
-// pick_folder、boot_probe、restore_config_sync、setup_integration、approve_answer のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+// pick_folder、boot_probe、restore_config_sync、setup_integration、approve_answer、save_recovery_key（本文だけ）のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 // pick_node（起動画面だけ）も引数を受け取らない。選ぶのは利用者で、確かめる条件と書く先は殻が決める。
 
 /// 起動画面が口を作り終えた時点で引き取る、起動の今の様子（`Ui::boot_state`）。
@@ -1042,6 +1043,40 @@ async fn pick_node(app: AppHandle) -> serde_json::Value {
         }
     }
     node::pick_answer(&path, &checked, &manifest)
+}
+
+/// リカバリーキーの「ファイルに保存」（設定のクラウド同期の節、試作 D2）。
+/// 保存のダイアログを既定の名前 `hangar-recovery-key.txt` で開き、利用者が選んだ場所にだけ本文を書く（`recoveryfile::write`、Unix で 0600）。
+/// 引数は本文だけで、パスは受け取らない。頁から書く先を決められないようにするためである。
+/// 書いたら true、取り消したら false を返す（取り消しは失敗にしない）。書けなければ理由の文で失敗にする。
+/// UI の出どころ（capabilities/remote-save-recovery-key.json）だけに与える。
+#[tauri::command]
+async fn save_recovery_key(app: AppHandle, text: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    if text.is_empty() || text.len() > recoveryfile::MAX_LEN {
+        return Err("recovery key text is out of range".into());
+    }
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_file_name(recoveryfile::FILE_NAME)
+        .add_filter("Text", &["txt"]);
+    if let Some(parent) = dialog_parent(cfg!(windows), app.get_webview_window("main")) {
+        builder = builder.set_parent(&parent);
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || builder.blocking_save_file())
+        .await
+        .ok()
+        .flatten();
+    let Some(picked) = picked else {
+        return Ok(false);
+    };
+    let path = picked.into_path().map_err(|e| e.to_string())?;
+    recoveryfile::write(&path, &text).map_err(|e| {
+        log(&format!("could not save the recovery key: {e}"));
+        e
+    })?;
+    Ok(true)
 }
 
 /// 設定の同期の確認と、その後の CLI の呼び出しに要るもの。
@@ -1429,7 +1464,7 @@ async fn approve_answer(
     approve_view_of(&app)
 }
 
-/// クラウド同期の CLI を走らせる。参加トークンは `input` で標準入力へ渡し、引数には載せない（cloudmember.rs）。
+/// クラウド同期の CLI を走らせる。参加コードは `input` で標準入力へ渡し、引数には載せない（cloudmember.rs）。
 /// 返すのは CLI の最後の 1 行の JSON（`{ ok, ... }`）か、走らせられなかったときの `{ ok: false, code }` である。
 fn run_cloud_cli(app: &AppHandle, args: &[&str], input: Option<&str>) -> serde_json::Value {
     let (node, dir, home) = match config_runtime(app) {
@@ -1441,7 +1476,7 @@ fn run_cloud_cli(app: &AppHandle, args: &[&str], input: Option<&str>) -> serde_j
         Ok(out) => cloudmember::parse_reply(&out),
         Err(f) => f,
     };
-    // 残すのは命令と結果の符号だけで、参加トークンも宛先も残さない。
+    // 残すのは命令と結果の符号だけで、参加コードも宛先も残さない。
     let code = reply.get("code").and_then(|c| c.as_str()).unwrap_or("ok");
     log(&format!(
         "cloud: {} {}",
@@ -1451,30 +1486,55 @@ fn run_cloud_cli(app: &AppHandle, args: &[&str], input: Option<&str>) -> serde_j
     reply
 }
 
-/// 参加の見立て。宛先の URL とホストと、いまの参加との違いを返す。設定のクラウド同期の「次へ」が呼ぶ。
+/// 参加の接続先の確認。origin の形にそろえた URL とホストと、参加済みの PC の台数と、いまの参加を返す。
+/// 新しい PC の参加の「次へ」が呼ぶ。
 #[tauri::command]
-async fn cloud_join_plan(app: AppHandle, token: String) -> serde_json::Value {
-    if !cloudmember::valid_token(&token) {
-        return cloudmember::failure("invalid-token", "");
+async fn cloud_join_check(app: AppHandle, url: String) -> serde_json::Value {
+    if !cloudmember::valid_join_url(&url) {
+        return cloudmember::failure("invalid-url", "");
     }
     tauri::async_runtime::spawn_blocking(move || {
-        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::plan_args(), Some(&token)))
+        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::join_check_args(&url), None))
     })
     .await
     .unwrap_or_else(|_| cloudmember::failure("failed", ""))
 }
 
-/// 参加する。宛先の確認と、別のクラウドへの上書きの承諾（overwrite）は、頁の段で済ませてある。
-/// 参加したあとは、サーバを立て直すまで同期が始まらないので、頁が再起動を頼む。
+/// 参加のリクエストを置き、確認コードと期限の目安を返す。参加コードは CLI の標準入力へ渡す。
+/// 別のクラウドへの上書きの承諾（overwrite）は、頁の段で済ませてある。省けば偽で、参加済みなら CLI が overwrite-required で断る。
 #[tauri::command]
-async fn cloud_join(app: AppHandle, token: String, overwrite: bool) -> serde_json::Value {
-    if !cloudmember::valid_token(&token) {
-        return cloudmember::failure("invalid-token", "");
+async fn cloud_join_request(
+    app: AppHandle,
+    url: String,
+    code: String,
+    overwrite: Option<bool>,
+) -> serde_json::Value {
+    if !cloudmember::valid_join_url(&url) {
+        return cloudmember::failure("invalid-url", "");
     }
+    if !cloudmember::valid_join_code(&code) {
+        return cloudmember::failure("invalid-code", "");
+    }
+    let overwrite = overwrite.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         cloudmember::guarded(|| {
-            run_cloud_cli(&app, &cloudmember::join_args(overwrite), Some(&token))
+            run_cloud_cli(
+                &app,
+                &cloudmember::join_request_args(&url, overwrite),
+                Some(&code),
+            )
         })
+    })
+    .await
+    .unwrap_or_else(|_| cloudmember::failure("failed", ""))
+}
+
+/// 承認されたかを 1 回だけ問い合わせる。承認なら CLI が cloud.json を書き終えてから approved を返す。
+/// 問い合わせの間隔は頁が決める。参加したあとは、サーバを立て直すまで同期が始まらないので、頁が再起動を頼む。
+#[tauri::command]
+async fn cloud_join_poll(app: AppHandle) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || {
+        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::join_poll_args(), None))
     })
     .await
     .unwrap_or_else(|_| cloudmember::failure("failed", ""))
@@ -1949,7 +2009,8 @@ fn open_waiting(app: &AppHandle, session_id: &str) {
         ui.ready && ui.loaded
     };
     if !loaded {
-        apply_hash(app, format!("#/session/{session_id}"));
+        // 参加リクエストの知らせ（notify::JOIN_SESSION）は、セッションではなく設定のクラウド同期の節を貯める。
+        apply_hash(app, notify::open_hash(session_id));
         return;
     }
     if let Some(w) = app.get_webview_window("main") {
@@ -2139,7 +2200,7 @@ pub fn run() {
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
-        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、remote-cloud.json、boot-screen.json で絞る。
+        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、remote-cloud.json、remote-save-recovery-key.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
             boot_state,
             boot_card_shown,
@@ -2160,10 +2221,12 @@ pub fn run() {
             setup_integration,
             approve_view,
             approve_answer,
-            cloud_join_plan,
-            cloud_join,
+            cloud_join_check,
+            cloud_join_request,
+            cloud_join_poll,
             cloud_revoke,
             cloud_leave,
+            save_recovery_key,
             update_status,
             update_check,
             update_download,

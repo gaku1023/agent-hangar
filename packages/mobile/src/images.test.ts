@@ -2,7 +2,7 @@ import { aadImage, COMPAT_HEADER, MOBILE_BELL_MIN_WORKER_COMPAT, MOBILE_IMAGE_MA
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fitSize, ImageError, imageFailureText, IMAGE_LONG_EDGE, IMAGE_QUALITY, putImage, rejectImage, useAttachments, type PutImage, type Shrink } from './images.ts';
-import { makeKey } from './test/fixtures.ts';
+import { at1, makeKey } from './test/fixtures.ts';
 import { WORKER } from './test/pairText.ts';
 
 const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
@@ -42,6 +42,8 @@ describe('imageFailureText', () => {
     expect(imageFailureText(new ImageError('server', 500), '画像を送信できませんでした', 'もう一度送信してください。')).toBe('画像を送信できませんでした（500）。もう一度送信してください。');
     expect(imageFailureText(new ImageError('network'), '画像を送信できませんでした', 'もう一度送信してください。')).toBe('画像を送信できませんでした。通信を確認してください。もう一度送信してください。');
     expect(imageFailureText(new ImageError('too-many', 429), 'x', '')).toBe('x。クラウドに保存している画像が上限の 40 枚に達しています。PC が受信すると消えます。');
+    expect(imageFailureText(new ImageError('unpaired', 401), 'x', '')).toBe('x。このスマホの接続は解除されています。');
+    expect(imageFailureText(new ImageError('unpaired', 401, 'expired'), 'x', '')).toBe('x。このスマホの接続は期限が切れています。');
   });
 });
 
@@ -107,7 +109,7 @@ describe('putImage', () => {
     const data = new Uint8Array([1, 2, 3, 4, 5]);
     const pct: number[] = [];
     const sent = FakeXhr.nextSend();
-    const p = putImage(pairing, key, 'L-1', 2, data, { xhr, onProgress: (n) => pct.push(n) });
+    const p = putImage(pairing, at1(key), 'L-1', 2, data, { xhr, onProgress: (n) => pct.push(n) });
     const x = await sent;
     expect(x.method).toBe('PUT');
     expect(x.url).toBe(`${WORKER}/m/blobs/L-1/2`);
@@ -124,7 +126,7 @@ describe('putImage', () => {
   it('断りの理由を分ける', async () => {
     const reasonOf = async (status: number, body: unknown, compat: number | null = null): Promise<string> => {
       const sent = FakeXhr.nextSend();
-      const p = putImage(pairing, key, 'L-1', 0, new Uint8Array([1]), { xhr });
+      const p = putImage(pairing, at1(key), 'L-1', 0, new Uint8Array([1]), { xhr });
       (await sent).respond(status, body, compat);
       try {
         await p;
@@ -138,6 +140,12 @@ describe('putImage', () => {
     expect(await reasonOf(429, { error: 'too many images' })).toBe('too-many');
     expect(await reasonOf(429, { error: 'rate limited' })).toBe('rate-limited');
     expect(await reasonOf(401, {})).toBe('unpaired');
+    {
+      const sent = FakeXhr.nextSend();
+      const p = putImage(pairing, at1(key), 'L-1', 0, new Uint8Array([1]), { xhr });
+      (await sent).respond(401, { error: 'expired' }, null);
+      await expect(p).rejects.toMatchObject({ reason: 'unpaired', unpairedReason: 'expired' });
+    }
     expect(await reasonOf(400, { error: 'invalid key' })).toBe('server');
     // 画像の口の無い古い Worker（rc.1 も JSON の 404 を返す）は、版の見出しで見分ける。
     expect(await reasonOf(404, { error: 'not found' }, MOBILE_BELL_MIN_WORKER_COMPAT - 1)).toBe('unsupported');
@@ -147,12 +155,12 @@ describe('putImage', () => {
 
   it('通信が切れたら network、外したら aborted', async () => {
     const sent = FakeXhr.nextSend();
-    const p = putImage(pairing, key, 'L-1', 0, new Uint8Array([1]), { xhr });
+    const p = putImage(pairing, at1(key), 'L-1', 0, new Uint8Array([1]), { xhr });
     (await sent).onerror?.();
     await expect(p).rejects.toMatchObject({ reason: 'network' });
     const ac = new AbortController();
     const sent2 = FakeXhr.nextSend();
-    const q = putImage(pairing, key, 'L-1', 0, new Uint8Array([1]), { xhr, signal: ac.signal });
+    const q = putImage(pairing, at1(key), 'L-1', 0, new Uint8Array([1]), { xhr, signal: ac.signal });
     const x2 = await sent2;
     ac.abort();
     await expect(q).rejects.toMatchObject({ reason: 'aborted' });
@@ -185,7 +193,7 @@ describe('useAttachments', () => {
   });
 
   const file = (name: string, size = 10): File => new File([new Uint8Array(size)], name, { type: 'image/jpeg' });
-  const hook = () => renderHook(() => useAttachments({ pairing, key, launchId: 'L-1', put, shrink }));
+  const hook = () => renderHook(() => useAttachments({ pairing, key: at1(key), launchId: 'L-1', put, shrink }));
 
   it('縮めてサムネイルを作り、依頼の ID と空いた番号で置く。進みと済みを持つ', async () => {
     const { result } = hook();

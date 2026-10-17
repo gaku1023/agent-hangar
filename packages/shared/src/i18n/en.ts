@@ -65,6 +65,7 @@ import { compatEn } from './en/compat.ts';
 import { dbEn } from './en/db.ts';
 import { updateEn } from './en/update.ts';
 import { stopEn } from './en/stop.ts';
+import { phoneLaunchEn } from './en/phoneLaunch.ts';
 
 /** 英語の辞書。文は領域ごとのファイル（`en/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const en: Dictionary = {
@@ -134,4 +135,5 @@ export const en: Dictionary = {
   ...dbEn,
   ...updateEn,
   ...stopEn,
+  ...phoneLaunchEn,
 };

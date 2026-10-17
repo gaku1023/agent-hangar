@@ -1,18 +1,21 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
-import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COMPAT_VERSION, type FileMetaIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb } from '../db/open.ts';
 import { errorText, MessageError } from '../i18n/message.ts';
 import { CloudError, CompatError, LimitError } from './client.ts';
-import { decryptStream, deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
+import { decryptStream, encryptBuffer, sha256Hex } from './crypto.ts';
 import { limitedMessage, limitedWhilePausedMessage } from './engine.ts';
 import { RemotePuller, remoteTranscriptPath } from './puller.ts';
 import { SyncStateStore } from './state.ts';
+
+/** 復号の失敗の文を見るための作り物の本文の鍵。 */
+const TEST_KEY = randomBytes(32);
 
 /**
  * 同期の利用者に見える文が、辞書の鍵と引数を持つこと。
@@ -26,12 +29,27 @@ describe('クラウドの失敗の文', () => {
     expect(errorText('en', device)).toBe(`This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is ${COMPAT_VERSION}; the cloud requires 3 or later). Update hangar on this computer`);
     // 版の下限が読めなかったとき
     expect(errorText('en', new CompatError('device', COMPAT_VERSION, null))).toContain('requires a newer version');
-    const worker = new CompatError('worker', 1, 2);
+    const worker = new CompatError('worker', 9, 10);
     expect(errorText('ja', worker)).toContain('「今すぐ同期」');
     expect(errorText('en', worker)).toContain('"Sync now"');
     // Worker の入れ替えは wrangler が要るので、clone した場所での呼び方と、どこで打つかを言う。
     expect(errorText('en', worker)).toContain('npm run hangar -- setup cloud again in the folder where you cloned the repository');
     expect(errorText('ja', worker)).toContain('リポジトリを clone して npm install したディレクトリから npm run hangar -- setup cloud');
+  });
+
+  it('版 8 以下の Worker（0.8.x までのクラウド）は入れ替えでは直らないので、再構築の手順へ案内する', () => {
+    for (const have of [0, 8]) {
+      const old = new CompatError('worker', have, 9);
+      const ja = errorText('ja', old);
+      expect(ja).toContain('再構築');
+      expect(ja).toContain('docs/cloud-sync.md');
+      expect(ja).not.toContain('setup cloud をもう一度実行');
+      expect(ja).not.toContain('作り直');
+      const en = errorText('en', old);
+      expect(en).toContain('rebuil');
+      expect(en).toContain('docs/cloud-sync.md');
+      expect(en).not.toContain('setup cloud again');
+    }
   });
 
   it('message は日本語のままで、言語を知らない呼び手とログは今までどおり読める', () => {
@@ -70,7 +88,7 @@ describe('復号の失敗の文', () => {
   const decrypt = async (bytes: Buffer): Promise<unknown> => {
     const out: Buffer[] = [];
     try {
-      for await (const c of Readable.from([bytes]).pipe(decryptStream(deriveFileKey('s')))) out.push(c as Buffer);
+      for await (const c of Readable.from([bytes]).pipe(decryptStream(TEST_KEY))) out.push(c as Buffer);
     } catch (e) { return e; }
     return null;
   };
@@ -81,7 +99,7 @@ describe('復号の失敗の文', () => {
     expect(errorText('ja', notEncrypted)).toBe('暗号化ファイルの形式が正しくありません');
     expect(errorText('en', notEncrypted)).toBe('Not an encrypted file (unrecognized format)');
 
-    const whole = await encryptBuffer(deriveFileKey('s'), Buffer.from('hello'));
+    const whole = await encryptBuffer(TEST_KEY, Buffer.from('hello'));
     const cut = await decrypt(whole.subarray(0, whole.length - 5));
     expect(errorText('ja', cut)).toBe('暗号化ファイルが不完全です（truncated）');
     expect(errorText('en', cut)).toBe('The encrypted file is truncated');
@@ -93,7 +111,6 @@ describe('復号の失敗の文', () => {
 
 describe('本文を降ろす失敗の文', () => {
   const UUID = '11111111-1111-4111-8111-111111111111';
-  const key = deriveFileKey('join-secret');
   let cloud: FakeCloudClient;
   let home: string;
   beforeEach(() => {
@@ -112,15 +129,11 @@ describe('本文を降ろす失敗の文', () => {
   });
 
   it('SHA-256 が合わない本文は、諦めた項目の理由に、いまの言語の文で残る', async () => {
-    const text = '{"a":1}\n';
-    const enc = await encryptBuffer(key, gzipSync(Buffer.from(text)));
-    const k = `transcripts/dev-b/${UUID}.jsonl.gz`;
-    const meta: FileMetaIn = { key: k, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: sha256Hex('different'), size: 8, mtime: 1_700_000_000_000, encrypted: true };
-    await cloud.asDevice('dev-b').putFile(meta, Readable.from([enc]));
+    const { key: k } = await cloud.asDevice('dev-b').putText({ path: `projects/-w-alpha/${UUID}.jsonl`, sha256: sha256Hex('different') }, '{"a":1}\n');
     for (const [language, expected] of [['ja', `トランスクリプトの SHA-256 が一致しません: ${k}`], ['en', `Transcript SHA-256 does not match: ${k}`]] as const) {
       // 言語ごとに新しい DB で試す。諦めた回数と理由は DB（sync_state）に残る。
       const fresh = openDb(':memory:');
-      const p = new RemotePuller({ db: fresh, deviceId: 'dev-a', home, client: cloud, key, state: new SyncStateStore(fresh), language: () => language });
+      const p = new RemotePuller({ db: fresh, deviceId: 'dev-a', home, client: cloud, state: new SyncStateStore(fresh), language: () => language });
       // 3 回続けて失敗した項目だけが、諦めた項目として利用者に見える。
       for (let i = 0; i < 3; i++) await p.pullNow();
       expect(p.skippedEntries().map((s) => s.message)).toEqual([expected]);

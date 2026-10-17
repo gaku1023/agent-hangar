@@ -1,6 +1,6 @@
-import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairingDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -38,6 +38,14 @@ export class RetentionConflictApiError extends Error {
  */
 export class ApiNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = 'ApiNotFoundError'; }
+}
+
+/**
+ * それ以外の失敗の答え。文はサーバの理由のままで、状態番号を status に持つ。
+ * リカバリーキーの確認は、400（末尾の違い）、409（下書きが無い）、502（Worker の失敗）で次の手順が違うので、番号で見分ける。
+ */
+export class ApiStatusError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
 }
 
 /**
@@ -178,12 +186,28 @@ export type ApiClient = {
   takeoverStart(sessionId: string, force: boolean): Promise<TakeoverDto>;
   takeoverExtend(sessionId: string): Promise<TakeoverDto>;
   takeoverCancel(sessionId: string): Promise<void>;
-  /** 全セッションの読み書き権を持つ秘密なので、押したときだけ取りに行く。 */
-  joinToken(): Promise<{ token: string | null }>;
+  /**
+   * 参加済みの PC で「PC を追加」（/api/sync/join-codes）。どれも承認の状態（JoinApproverState）を返す。
+   * 参加コードの平文を返すのはこの PC の画面のためだけで、同期を設定していなければ 404 で断られる。
+   */
+  joinCodeCurrent(): Promise<JoinApproverState>;
+  joinCodeIssue(): Promise<JoinApproverState>;
+  joinCodeApprove(): Promise<JoinApproverState>;
+  joinCodeReject(): Promise<JoinApproverState>;
+  joinCodeClose(): Promise<JoinApproverState>;
+  /**
+   * 設定の「リカバリーキーを再発行」（/api/sync/recovery-key）。
+   * reissue は新しいリカバリーキーの 4 行と下書きの ID を返し、まだ何も差し替えない。
+   * confirm に末尾 4 文字を渡し、合えば名簿と keybox を差し替える。違えば 400、下書きが無ければ 409 で、サーバーの文で投げる。
+   */
+  recoveryKeyReissue(): Promise<RecoveryKeyDraftDto>;
+  recoveryKeyConfirm(draftId: string, tail: string): Promise<void>;
   /** Worker の PC の一覧（参加日、解除日、最後に同期した IP と場所）。解除と参加の口は HTTP に無い（殻の命令だけ）。 */
   cloudDevices(): Promise<CloudDevicesDto>;
   /** スマホを接続する QR。押すたびに新しい券を取る。中身にスマホ用の暗号鍵が入るので、QR と「文字列をコピー」にだけ使う。 */
   mobilePairing(): Promise<MobilePairingDto>;
+  /** QR を出している間の見回り。その券で接続し、PC が keybox を置き終えたスマホ。サーバーは Worker に問い合わせない。 */
+  mobilePaired(pairId: string): Promise<MobilePairedDto>;
   // 設定の同期（作り直した実装）。同期を組んでいない端末のサーバは 404 を返す。読む経路はどれも ~/.claude に触れず、書くのは hangar の置き場の指示書だけである。
   configSyncState(): Promise<ConfigSyncDto>;
   configOutgoing(): Promise<ConfigOutgoingDto>;
@@ -236,7 +260,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_nested') throw new ProjectNestedApiError(body as unknown as ProjectNestedDto);
       const message = body?.error ?? `${r.status} ${path}`;
       if (r.status === 404) throw new ApiNotFoundError(message);
-      throw new Error(message);
+      throw new ApiStatusError(message, r.status);
     }
     if (r.status === 202 || r.status === 204) return undefined as T;
     return (await r.json()) as T;
@@ -333,9 +357,16 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     takeoverStart: (sessionId, force) => post(`/api/sessions/${sessionId}/takeover`, { force }),
     takeoverExtend: (sessionId) => post(`/api/sessions/${sessionId}/takeover/extend`),
     takeoverCancel: (sessionId) => call(`/api/sessions/${sessionId}/takeover`, { method: 'DELETE' }),
-    joinToken: () => call('/api/sync/joinToken'),
+    joinCodeCurrent: () => call('/api/sync/join-codes/current'),
+    joinCodeIssue: () => post('/api/sync/join-codes'),
+    joinCodeApprove: () => post('/api/sync/join-codes/current/approve'),
+    joinCodeReject: () => post('/api/sync/join-codes/current/reject'),
+    joinCodeClose: () => call('/api/sync/join-codes/current', { method: 'DELETE' }),
+    recoveryKeyReissue: () => post('/api/sync/recovery-key/reissue'),
+    recoveryKeyConfirm: async (draftId, tail) => { await post('/api/sync/recovery-key/confirm', { draftId, tail }); },
     cloudDevices: () => call('/api/sync/cloud-devices'),
     mobilePairing: () => post('/api/sync/mobile-pairing'),
+    mobilePaired: (pairId) => call(`/api/sync/mobile-pairing/${encodeURIComponent(pairId)}`),
     configSyncState: () => call('/api/config-sync'),
     configOutgoing: () => call('/api/config-sync/outgoing'),
     configInbox: () => call('/api/config-sync/inbox'),

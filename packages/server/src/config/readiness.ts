@@ -229,7 +229,7 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
       projects: { resolved, candidates: resolved === 0 ? o.candidateCount?.() ?? 0 : 0 },
       mcp: { registered: readMcpRegistration(o.claudeJson), file: o.claudeJson },
       statusline: statuslineStatus(o.claudeDir, homeDir),
-      commands: { mcp: `${prefix} mcp install`, statusline: `${prefix} statusline install`, shell, join: `${prefix} join <token>` },
+      commands: { mcp: `${prefix} mcp install`, statusline: `${prefix} statusline install`, shell, join: `${prefix} cloud join <URL>` },
       // 口が無ければ、上で読んだ claude の版と同じものを使う（同じ claude を 2 度起こさない）。
       // 件数は版を読んだ後に数える。版が変わったときは、読んだ時点で記録が空になっている。
       compat: { verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: compatLocal === undefined ? claude.version : compatLocal, driftCount: o.compatDriftCount?.() ?? 0 },

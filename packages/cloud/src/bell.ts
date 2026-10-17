@@ -86,7 +86,7 @@ export class HangarBell extends DurableObject<Env> {
 
   /** スマホの問い合わせを宛先の PC に渡し、答えを待つ。本文の形と宛先は Worker が確かめてある。 */
   private async ask(req: Request, phoneId: string): Promise<Response> {
-    const body = (await req.json()) as { id: string; targetDevice: string; sealed: string };
+    const body = (await req.json()) as { id: string; targetDevice: string; sealed: string; epoch: number };
     if (!this.countAsk(phoneId, Date.now())) return json({ error: 'rate limited' }, 429);
     const ws = this.socketOf(body.targetDevice);
     if (!ws) return json({ error: 'pc-offline' }, 503);
@@ -95,7 +95,8 @@ export class HangarBell extends DurableObject<Env> {
       const timer = setTimeout(() => this.settle(body.id, json({ error: 'pc-timeout' }, 504)), askTimeoutMs(this.env));
       this.pending.set(body.id, { target: body.targetDevice, ws, resolve, timer });
       try {
-        ws.send(JSON.stringify({ t: 'ask', id: body.id, sealed: body.sealed }));
+        // epoch は問い合わせを封じたスマホ用の鍵の世代（互換の版 9）。PC はこれで開き、同じ世代で答えを封じる。
+        ws.send(JSON.stringify({ t: 'ask', id: body.id, sealed: body.sealed, epoch: body.epoch }));
       } catch {
         this.settle(body.id, json({ error: 'pc-offline' }, 503));
       }

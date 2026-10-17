@@ -157,22 +157,36 @@ export type UiAction =
    * worktree は、そのセッションのプロジェクトで、worktree の札に名前を入れた新しいセッションのダイアログを開く。
    */
   | { type: 'overlap.dismiss'; sessionId: SessionId; with: SessionId; paths: string[] } | { type: 'overlap.worktree'; sessionId: SessionId }
-  | { type: 'sync.joinToken.show' }
   /**
-   * クラウド同期への参加と、PC の解除と、この PC の参加の解除（0.4.0）。殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
-   * join.plan は貼った参加トークンを殻へ渡して宛先を確かめる。トークンは Runtime だけが持ち、Store にも画面にも残さない。
-   * join.go は確かめた宛先に参加する（overwrite は別のクラウドへの上書きの承諾）。join.cancel は段を閉じてトークンを捨てる。
-   * device.revoke はほかの PC を解除する。leave はこの PC の参加を解除する（revoke はクラウドでもこの PC を解除するか）。
+   * 参加コードでの参加（新しい PC の側、試作 B2）と、PC の解除と、この PC の参加の解除。参加と解除は殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
+   * join.check は接続先の URL を殻へ渡してホストと参加済みの PC の台数を確認する。join.request は半角にそろえた参加コードで参加リクエストを送り、承認を待つ。
+   * 参加コードは Runtime から殻へ渡すだけで、Store にも画面にも保持しない。join.reenter は参加コードの段へ戻り、join.cancel は段を閉じる。
+   * device.revoke は他の PC を解除する。leave はこの PC の参加を解除する（revoke はクラウドでもこの PC を解除するか）。
    */
-  | { type: 'cloud.join.plan'; token: string } | { type: 'cloud.join.go'; overwrite: boolean } | { type: 'cloud.join.cancel' }
+  | { type: 'cloud.join.check'; url: string } | { type: 'cloud.join.request'; code: string } | { type: 'cloud.join.reenter' } | { type: 'cloud.join.cancel' }
+  /**
+   * 参加済みの PC で「PC を追加」（試作 A1）。add.open は参加コードを発行する（期限切れの後の再発行も同じ）。
+   * add.approve と add.reject は受信した参加リクエストを承認か拒否する。add.close は欄を閉じ、生きている参加コードも閉じる。
+   */
+  | { type: 'cloud.add.open' } | { type: 'cloud.add.approve' } | { type: 'cloud.add.reject' } | { type: 'cloud.add.close' }
   | { type: 'cloud.device.revoke'; id: string } | { type: 'cloud.revoke.dismiss' }
   | { type: 'cloud.leave'; revoke: boolean } | { type: 'cloud.leave.dismiss' }
   /**
    * スマホを接続する QR（設定のクラウド同期の節の「スマホ」）。phone.pair は新しい券を取って QR を出す（期限切れの後の「新しい QR を出す」も同じ）。
-   * QR を出している間だけ、端末の一覧を 3 秒ごとに再読み込みして、スマホが参加したのを知らせる。phone.close は QR を閉じて再読み込みも止める。
+   * QR を出している間だけ、サーバーの軽い口を 3 秒ごとに読んで、PC が keybox を置き終えたのを知らせる。phone.close は QR を閉じて見回りも止める。
    * QR の中身はブラウザでも作れる（サーバの経路だけを使う）。
+   * phone.revoke はスマホの行の「解除」（1 クリック）で、行を隠して右下に「元に戻す」を 5 秒出し、その後に解除を送る。phone.undo はその 5 秒の間の「元に戻す」。
    */
   | { type: 'cloud.phone.pair' } | { type: 'cloud.phone.close' }
+  | { type: 'cloud.phone.revoke'; id: string } | { type: 'cloud.phone.undo' }
+  /**
+   * 「リカバリーキーを再発行」（試作 D2）。recovery.ask は確認を開き、recovery.reissue は新しいリカバリーキーを作って表示する（まだ何も差し替えない）。
+   * recovery.saved は末尾 4 文字の入力の段へ進み、recovery.reveal は伏せた暗号鍵をもう一度 120 秒表示する。
+   * recovery.confirm は末尾 4 文字で確認して名簿と keybox を差し替え、recovery.retry は Worker の失敗の後に同じ下書きで送り直す。
+   * recovery.close は欄を閉じ、リカバリーキーの文字列を捨てる。
+   */
+  | { type: 'cloud.recovery.ask' } | { type: 'cloud.recovery.reissue' } | { type: 'cloud.recovery.saved' } | { type: 'cloud.recovery.reveal' }
+  | { type: 'cloud.recovery.confirm'; tail: string } | { type: 'cloud.recovery.retry' } | { type: 'cloud.recovery.close' }
   // 設定の同期。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }
@@ -210,6 +224,9 @@ export type UiAction =
   | { type: 'notify.set'; on: boolean }
   // 他の PC から届いたプロジェクトの札。見るはプロジェクトの画面へ移り、あとで決めるは札だけを下げる。どちらも札を下げる。
   | { type: 'projects.arrived.view' } | { type: 'projects.arrived.dismiss' }
+  // スマホから起動した会話の右下の通知（試作 F1）。どれも通知を下げる。open はその会話を開き、stop はその run を止める（確認の要否は session.kill と同じ）。
+  | { type: 'phoneLaunch.open'; sessionId: string } | { type: 'phoneLaunch.dismiss'; sessionId: string }
+  | { type: 'phoneLaunch.stop'; sessionId: string; stop: { runId: string; working: boolean; aside: boolean; shellTabs: number } }
   // アプリの自動更新（段 5-4）。check は手動の確認、download は取得してインストールの準備、install は再起動して入れる。
   // dismiss は右下の札を閉じ、その版の札を 2 度出さない。notify は新しい版を知らせるか（切ると自動の確認もしない）。
   | { type: 'update.check' } | { type: 'update.download' } | { type: 'update.install' } | { type: 'update.dismiss' }

@@ -7,7 +7,7 @@ type Extras = Pick<
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
-  | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinToken' | 'cloudDevices' | 'mobilePairing'
+  | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinCodeCurrent' | 'joinCodeIssue' | 'joinCodeApprove' | 'joinCodeReject' | 'joinCodeClose' | 'recoveryKeyReissue' | 'recoveryKeyConfirm' | 'cloudDevices' | 'mobilePairing' | 'mobilePaired'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
@@ -64,7 +64,7 @@ export function fakeApiExtras(): Extras {
     readiness: vi.fn(async () => ({
       tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
       workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
-      commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
+      commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar cloud join <URL>' },
       compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
     })),
     // 再確認は、使う試験が答えを上書きする。
@@ -111,11 +111,19 @@ export function fakeApiExtras(): Extras {
     takeoverStart: vi.fn(async () => unused()),
     takeoverExtend: vi.fn(async () => unused()),
     takeoverCancel: vi.fn(async () => {}),
-    // 参加トークンは押したときだけ取りに行く値なので、既定は未発行の null にする。
-    joinToken: vi.fn(async () => ({ token: null })),
+    // 「PC を追加」の参加コード。既定は何も発行していない状態にする。
+    joinCodeCurrent: vi.fn(async () => ({ kind: 'idle' as const })),
+    joinCodeIssue: vi.fn(async () => ({ kind: 'open' as const, code: 'K7QM-2XFD', expiresAt: 300_000 })),
+    joinCodeApprove: vi.fn(async () => ({ kind: 'idle' as const })),
+    joinCodeReject: vi.fn(async () => ({ kind: 'idle' as const })),
+    joinCodeClose: vi.fn(async () => ({ kind: 'idle' as const })),
+    // リカバリーキーの再発行。使う試験が自分で上書きする。
+    recoveryKeyReissue: vi.fn(async () => unused()),
+    recoveryKeyConfirm: vi.fn(async () => {}),
     cloudDevices: vi.fn(async () => ({ state: 'off' as const, devices: [], creator: false, message: null })),
     // スマホを接続する QR。既定は同期していない端末の答えにする。
     mobilePairing: vi.fn(async () => ({ state: 'not-joined' as const })),
+    mobilePaired: vi.fn(async () => ({ paired: null })),
     // 設定の同期（作り直した実装）。既定は何も無い状態で、使うテストが自分で上書きする。
     configSyncState: vi.fn(async () => ({ enabled: false, workerPending: false, approval: 'each' as const, incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null })),
     configOutgoing: vi.fn(async () => ({ enabled: false, items: [], droppedKeys: [], unsentCount: 0, lastSentAt: null })),

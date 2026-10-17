@@ -1,4 +1,3 @@
-import { isSafeKeyId } from '@agent-hangar/shared';
 import type { Env } from './env.ts';
 import { IMAGE_KEEP_MS } from './mobileBlobs.ts';
 
@@ -20,15 +19,15 @@ import { IMAGE_KEEP_MS } from './mobileBlobs.ts';
  * 索引の方は `delete` に猶予の条件を持たせて、消す文そのものが新しい行を外す形にした（窓は無い）。
  * R2 の方は条件付きの削除が無いので、消す直前に索引と `head` を取り直して窓を 1 往復ぶんまで縮めてある。
  *
- * 1 回の掃除が D1 に書くのは、当番の印と続きの控え 2 行の計 3 行に、消した索引の行を足したものである。
+ * 1 回の掃除が D1 に書くのは、当番の印と続きの控え 3 行の計 4 行に、消した索引の行を足したものである。
  * 消す索引の行は途中で倒れた分だけで、1 回に 50 行までである。
- * 1 日 4 回でも、ふつうは 12 行ほど、多くても 212 行である（無料枠は 1 日 10 万行）。
- * R2 の側は 1 回につき一覧が 1 回（class A）と存在の確認が 50 回（class B）までで、
- * 1 か月に直しても class A が 1 万分の 1 ほどにしかならない。
+ * 1 日 4 回でも、ふつうは 16 行ほど、多くても 216 行である（無料枠は 1 日 10 万行）。
+ * R2 の側は 1 回につき一覧が 2 回（class A）と存在の確認が 100 回（class B）までで、
+ * 1 か月に直しても class A が 4 千分の 1 ほどにしかならない。
  *
- * 同じ回で、利用者が削除したセッションのクラウドの写しも消す（`sweepTrash`）。
- * 削除の印（共有テーブル `session_states` の `trashed_at`）から 30 日たち、その後に復元されていないものが対象である。
- * 見積もりは `sweepTrash` の説明に書いた。
+ * 見るのは `b/` の下の鍵（互換の版 9 の鍵名、shared の e2e/names.ts）と、`mobile/` の下のスマホの画像だけである。
+ * 利用者が削除したセッションの写しは、Worker では消さない（行の中身を読めないため）。
+ * 30 日の判定は PC が手元で行い、`DELETE /blobs`（files.ts）で消す。
  */
 
 /** 最後に掃除を始めた時刻。これを条件付きで書き換えられた 1 本だけが掃除に進む。 */
@@ -47,25 +46,19 @@ export const SWEEP_LIST_LIMIT = 50;
 /** 1 回に確かめる索引の行数。 */
 export const SWEEP_INDEX_LIMIT = 50;
 
-/** 削除の印からこれだけたったセッションの写しを消す。ゴミ箱から戻す猶予である。 */
-export const TRASH_KEEP_MS = 30 * 86_400_000;
-/**
- * 1 回に読む `session_states` の行の数。
- * 対象の行は鍵を引く 1 文にそれぞれ 1 つ束縛するので、D1 の束縛の上限（1 文 100 個）から、ほかの束縛 2 つを引いた数に収める。
- */
-export const TRASH_SCAN_LIMIT = 90;
-/** 1 回に消す写しの鍵の数。 */
-export const TRASH_KEY_LIMIT = 50;
-/** 削除の印の読み位置（`rows.k`）。末尾まで読んだら空に戻す。 */
-export const META_TRASH_CURSOR = 'trash_cursor';
+/** スマホの画像の一覧の続き。`b/` の続きとは別に控える。 */
+export const META_SWEEP_IMAGE_CURSOR = 'sweep_image_cursor';
+
+/** 掃除が見る R2 の鍵の頭。これと IMAGE_PREFIX の外の鍵（版 8 までの鍵名など）には触らない。 */
+export const SWEEP_PREFIX = 'b/';
+/** スマホの画像の鍵の頭（mobileBlobs.ts）。 */
+export const IMAGE_PREFIX = 'mobile/';
 
 export type SweepResult = {
   /** 索引に無いので消した R2 の鍵。 */
   bodies: string[];
   /** 本体が無いので消した索引の鍵。 */
   entries: string[];
-  /** 削除の印から 30 日たったので消した写しの鍵（R2 と索引の両方から消した）。 */
-  trashed: string[];
 };
 
 const readMeta = async (db: D1Database, key: string): Promise<string | null> => {
@@ -115,50 +108,59 @@ export async function sweepIfDue(env: Env, now: number): Promise<SweepResult | n
 export async function sweepOnce(env: Env, now: number): Promise<SweepResult> {
   const db = env.DB;
   const bodies = await sweepBodies(env, now);
+  const images = await sweepPhoneImages(env, now);
   const entries = await sweepEntries(env, now);
-  const trashed = await sweepTrash(env, now);
-  await db.batch([
-    putMeta(db, META_SWEEP_CURSOR, bodies.cursor),
-    putMeta(db, META_SWEEP_SEQ, String(entries.seq)),
-    putMeta(db, META_TRASH_CURSOR, trashed.cursor),
-  ]);
-  return { bodies: bodies.deleted, entries: entries.deleted, trashed: trashed.deleted };
+  await db.batch([putMeta(db, META_SWEEP_CURSOR, bodies.cursor), putMeta(db, META_SWEEP_IMAGE_CURSOR, images.cursor), putMeta(db, META_SWEEP_SEQ, String(entries.seq))]);
+  return { bodies: [...bodies.deleted, ...images.deleted], entries: entries.deleted };
 }
 
-/** スマホの画像の鍵の頭。この下は `files` の索引に載らない（mobileBlobs.ts）。 */
-const IMAGE_PREFIX = 'mobile/';
-const isImage = (key: string): boolean => key.startsWith(IMAGE_PREFIX);
-
-/**
- * R2 を一覧し、索引に無い本体と、残す時間を過ぎたスマホの画像を消す。
- *
- * スマホの画像（`mobile/` の下）は索引に載らないので、索引では判定しない。
- * 置いてから IMAGE_KEEP_MS（24 時間）より古いものだけを消す。
- * ふだんは PC の答えと、スマホが置くときの掃除で消える。
- * 解除したスマホの画像は、その掃除が二度と走らないので、ここでしか消えない。
- */
+/** R2 の `b/` の下を一覧し、索引に無い本体を消す。 */
 async function sweepBodies(env: Env, now: number): Promise<{ deleted: string[]; cursor: string }> {
   const cutoff = now - SWEEP_GRACE_MS;
-  const imageCutoff = now - IMAGE_KEEP_MS;
   const cursor = (await readMeta(env.DB, META_SWEEP_CURSOR)) ?? '';
-  const listed = await env.BUCKET.list({ limit: SWEEP_LIST_LIMIT, cursor: cursor === '' ? undefined : cursor });
+  const listed = await env.BUCKET.list({ prefix: SWEEP_PREFIX, limit: SWEEP_LIST_LIMIT, cursor: cursor === '' ? undefined : cursor });
   // 続きは、まだ先があるときだけ控える。末尾まで来たら空に戻して次の回は先頭から読み直す。
   const next = listed.truncated ? listed.cursor : '';
-  const images = listed.objects.filter((o) => isImage(o.key) && o.uploaded.getTime() < imageCutoff).map((o) => o.key);
-  const old = listed.objects.filter((o) => !isImage(o.key) && o.uploaded.getTime() < cutoff).map((o) => o.key);
+  const old = listed.objects.filter((o) => o.uploaded.getTime() < cutoff).map((o) => o.key);
+  if (old.length === 0) return { deleted: [], cursor: next };
   const doomed = await unreferenced(env, old);
-  if (doomed.length === 0 && images.length === 0) return { deleted: [], cursor: next };
+  if (doomed.length === 0) return { deleted: [], cursor: next };
   // 消す直前にもう一度確かめる。
   // 一覧と索引の引き当てはどちらも読んだ時点の写しなので、その間に着地した `PUT` を見ていない。
   // R2 に条件付きの削除は無いので窓を 0 にはできないが、ここで取り直せば 1 往復ぶんまで縮む。
   // `PUT` は R2 を先に、索引を後に書くので、索引まで終わっていれば引き当てが拾い、
   // 索引の手前で止まっていれば `uploaded` の新しさが拾う。
-  // 画像は同じ鍵に置き直されたかを `uploaded` の新しさだけで見る。
-  const still = [...(await unreferenced(env, doomed)), ...images];
+  const still = await unreferenced(env, doomed);
   const heads = await Promise.all(still.map((k) => env.BUCKET.head(k)));
-  const safe = still.filter((k, i) => {
+  const safe = still.filter((_, i) => {
     const h = heads[i];
-    return !!h && h.uploaded.getTime() < (isImage(k) ? imageCutoff : cutoff);
+    return !!h && h.uploaded.getTime() < cutoff;
+  });
+  if (safe.length) await env.BUCKET.delete(safe);
+  return { deleted: safe, cursor: next };
+}
+
+/**
+ * R2 の `mobile/` の下を一覧し、残す時間を過ぎたスマホの画像を消す。
+ *
+ * スマホの画像は `files` の索引に載らないので、索引では判定しない（mobileBlobs.ts）。
+ * 置いてから IMAGE_KEEP_MS（24 時間）より古いものだけを消す。
+ * ふだんは PC の答えと、スマホが置くときの掃除で消える。
+ * 解除したスマホの画像は、その掃除が二度と走らないので、ここでしか消えない。
+ * 一覧の続きは `b/` とは別に控える。
+ */
+async function sweepPhoneImages(env: Env, now: number): Promise<{ deleted: string[]; cursor: string }> {
+  const cutoff = now - IMAGE_KEEP_MS;
+  const cursor = (await readMeta(env.DB, META_SWEEP_IMAGE_CURSOR)) ?? '';
+  const listed = await env.BUCKET.list({ prefix: IMAGE_PREFIX, limit: SWEEP_LIST_LIMIT, cursor: cursor === '' ? undefined : cursor });
+  const next = listed.truncated ? listed.cursor : '';
+  const old = listed.objects.filter((o) => o.uploaded.getTime() < cutoff).map((o) => o.key);
+  if (old.length === 0) return { deleted: [], cursor: next };
+  // 同じ鍵に置き直されたかを、消す直前の `uploaded` の新しさで見る。
+  const heads = await Promise.all(old.map((k) => env.BUCKET.head(k)));
+  const safe = old.filter((_, i) => {
+    const h = heads[i];
+    return !!h && h.uploaded.getTime() < cutoff;
   });
   if (safe.length) await env.BUCKET.delete(safe);
   return { deleted: safe, cursor: next };
@@ -199,96 +201,4 @@ async function sweepEntries(env: Env, now: number): Promise<{ deleted: string[];
   // 消した数だけを見て先頭から切り出すと、**数は合うのに鍵が合わない**（残ったのが先頭かもしれない）。
   // 残った鍵は次の回でまた見るので、ここで取りこぼす心配は無い。
   return { deleted: await unreferenced(env, doomed), seq: next };
-}
-
-/** `rows` の中で `session_states` の行が並ぶ範囲（`k` は `<表>:<行 ID>`）。`;` は `:` の次の文字である。 */
-const STATES_FROM = 'session_states:';
-const STATES_TO = 'session_states;';
-
-/** 削除の印を読む列。payload の JSON は D1 の側で引き、Worker では解かない。 */
-const MARK_COLS = "k, row_id, op, json_extract(payload, '$.trashed_at') t, json_extract(payload, '$.restored_at') r, json_extract(payload, '$.deleted_at') d";
-
-type MarkRow = { k: string; row_id: string; op: string; t: unknown; r: unknown; d: unknown };
-
-/**
- * 印から 30 日たち、その後に復元されていない行か。
- * 論理削除された行と、印の外れた行は対象にしない。
- * 復元は印を null にするが、印の時刻より新しい `restored_at` を持つ行が後勝ちで並ぶこともあるので、それも外す（端末の sync/apply.ts と同じ読み方）。
- */
-function isDue(m: MarkRow, now: number): boolean {
-  if (m.op !== 'upsert' || m.d !== null) return false;
-  if (typeof m.t !== 'number' || m.t > now - TRASH_KEEP_MS) return false;
-  return !(typeof m.r === 'number' && m.r > m.t);
-}
-
-/**
- * 削除の印から 30 日たったセッションのクラウドの写しを消す。
- *
- * 消すのは R2 の `transcripts/<端末>/<uuid>.jsonl.gz` と `transcripts/<端末>/<uuid>/subagents/...` の全端末分と、その索引（`files`）の行である。
- * 印は `session_states` の行、uuid は同じセッションの `sessions` の行（論理削除のまま payload に `provider_session_id` を持つ）から読む。
- * 鍵は端末ごとに `files.key` の範囲で引くので、索引の一意の索引をたどり、`files` を頭から読まない。
- * 端末の一覧は `devices` から取る。解除した端末も行は残るので、その端末が置いた写しも消える。
- *
- * 量は 2 つの上限で抑える。
- *
- * - 印の行は 1 回に `TRASH_SCAN_LIMIT` 行まで読み、続きは `meta.trash_cursor` に控える。印は消さないので、一度消し終えたセッションも巡るたびに読むが、鍵が 0 件なので書き込みは増えない。
- * - 消す鍵は 1 回に `TRASH_KEY_LIMIT` 個まで。入り切らなかったセッションは、次の回にそのセッションから読み直す。
- *
- * 置いてから `SWEEP_GRACE_MS` たっていない写しには触らない。復元のあと上げ直した 1 本を消さないためである。
- * 消す直前に印を読み直し、その間に復元が届いていたら消さない。
- * R2 に条件付きの削除は無いので、読み直しから消すまでの 1 往復の窓は残る（孤児の掃除と同じ）。
- * R2 を先に消し、索引を後に消す。間で倒れたら、本体の無い索引が残り、次の回に `sweepEntries` が拾う。
- *
- * 1 回の掃除で増える操作は次のとおりである。
- * D1 の読みは、印の行が 90 行まで、端末の数と写しの鍵の数のぶんの索引の行、印の読み直し、消えたかの引き直しで、多くても 300 行ほどである。
- * D1 への書き込みは、続きの控え 1 行と、消した索引の行（50 行まで）である。
- * 1 日 4 回でも、読みは 1,200 行ほど（無料枠は 1 日 500 万行）、書き込みは 4 行に消した分を足した 204 行まで（1 日 10 万行）である。
- * R2 は削除だけで、削除は class A にも class B にも数えられない（無料）。
- * 問い合わせの数は 1 回に 6 つで、要求ごとの上限（無料のプランで 50）に孤児の掃除と合わせても収まる。
- */
-async function sweepTrash(env: Env, now: number): Promise<{ deleted: string[]; cursor: string }> {
-  const db = env.DB;
-  const at = (await readMeta(db, META_TRASH_CURSOR)) ?? '';
-  const from = at > STATES_FROM && at < STATES_TO ? at : STATES_FROM;
-  const page = (
-    await db.prepare(`select ${MARK_COLS} from rows where k > ? and k < ? order by k limit ?`).bind(from, STATES_TO, TRASH_SCAN_LIMIT).all<MarkRow>()
-  ).results;
-  // 末尾まで読んだら先頭へ戻す。読み切っていなければ、次の回はこの続きから読む。
-  const next = page.length < TRASH_SCAN_LIMIT ? '' : page[page.length - 1]!.k;
-  const due = page.filter((m) => isDue(m, now));
-  if (due.length === 0) return { deleted: [], cursor: next };
-
-  const cutoff = now - SWEEP_GRACE_MS;
-  // 端末ごとに `transcripts/<端末>/<uuid>` を頭に作り、索引をその範囲で引く。
-  // `<頭>.` から `<頭>0` の手前までには、`<頭>.〜` と `<頭>/〜` だけが入る（`.` `/` `0` は文字の順で隣り合う）。
-  // その中から主線とサブエージェントの形だけを残すので、名前が同じ頭で始まるほかのセッションの鍵は入らない。
-  const found = (
-    await db
-      .prepare(
-        `select x.sid, x.uuid, f.key from (select s.row_id sid, json_extract(s.payload, '$.provider_session_id') uuid, 'transcripts/' || d.id || '/' || json_extract(s.payload, '$.provider_session_id') head from rows s join devices d where s.k in (${due.map(() => '?').join(',')})) x join files f on f.key > x.head || '.' and f.key < x.head || '0' where (f.key = x.head || '.jsonl.gz' or substr(f.key, 1, length(x.head) + 11) = x.head || '/subagents/') and f.uploaded_at < ? order by x.sid, f.key limit ?`,
-      )
-      .bind(...due.map((m) => `sessions:${m.row_id}`), cutoff, TRASH_KEY_LIMIT + 1)
-      .all<{ sid: string; uuid: unknown; key: string }>()
-  ).results.filter((r) => typeof r.uuid === 'string' && isSafeKeyId(r.uuid));
-  // 上限を超えたら、入り切らなかったセッションの手前までを済んだことにし、次の回はそのセッションから読み直す。
-  let cursor = next;
-  if (found.length > TRASH_KEY_LIMIT) {
-    const stop = `${STATES_FROM}${found[TRASH_KEY_LIMIT]!.sid}`;
-    const before = page.filter((m) => m.k < stop);
-    cursor = before.length ? before[before.length - 1]!.k : at;
-  }
-  const taken = found.slice(0, TRASH_KEY_LIMIT);
-  if (taken.length === 0) return { deleted: [], cursor };
-
-  // 消す直前に印を読み直す。読んでからここまでの間に復元が届いていたら、そのセッションは消さない。
-  const sids = [...new Set(taken.map((r) => r.sid))];
-  const again = (
-    await db.prepare(`select ${MARK_COLS} from rows where k in (${sids.map(() => '?').join(',')})`).bind(...sids.map((s) => `${STATES_FROM}${s}`)).all<MarkRow>()
-  ).results;
-  const still = new Set(again.filter((m) => isDue(m, now)).map((m) => m.row_id));
-  const keys = taken.filter((r) => still.has(r.sid)).map((r) => r.key);
-  if (keys.length === 0) return { deleted: [], cursor };
-  await env.BUCKET.delete(keys);
-  await db.batch([db.prepare(`delete from files where key in (${keys.map(() => '?').join(',')}) and uploaded_at < ?`).bind(...keys, cutoff)]);
-  return { deleted: await unreferenced(env, keys), cursor };
 }

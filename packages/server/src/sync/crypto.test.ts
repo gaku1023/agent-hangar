@@ -1,19 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { deriveEpochKeys, randomEpochKey } from '@agent-hangar/shared';
 import { describe, expect, it } from 'vitest';
-import { CHUNK_SIZE, decryptBuffer, decryptStream, deriveFileKey, encryptBuffer, encryptStream, sha256Hex, sha256Stream } from './crypto.ts';
+import { CHUNK_SIZE, decryptBuffer, decryptStream, encryptBuffer, encryptStream, fileKeyFrom, sha256Hex, sha256Stream } from './crypto.ts';
 
-const key = deriveFileKey('join-secret');
+/** 試験の本文の鍵。本物は世代鍵から導く（fileKeyFrom）。 */
+const key = randomBytes(32);
+const otherKey = randomBytes(32);
 const collect = async (s: NodeJS.ReadableStream): Promise<Buffer> => { const out: Buffer[] = []; for await (const c of s) out.push(c as Buffer); return Buffer.concat(out); };
-
-describe('deriveFileKey', () => {
-  it('同じ秘密から同じ 32 バイト、違う秘密から違う鍵', () => {
-    expect(key.length).toBe(32); // 鍵そのものを期待値に置かない（失敗の差分に鍵が出ないため）
-    expect(deriveFileKey('join-secret').equals(key)).toBe(true);
-    expect(deriveFileKey('other').equals(key)).toBe(false);
-  });
-});
 
 describe('encrypt と decrypt', () => {
   it('空、1 バイト、ちょうど 1 チャンク、2 チャンク半を往復する', async () => {
@@ -47,7 +42,7 @@ describe('encrypt と decrypt', () => {
     const enc = await encryptBuffer(key, src);
     const flipped = Buffer.from(enc); flipped[20] = flipped[20]! ^ 1;
     await expect(decryptBuffer(key, flipped)).rejects.toThrow();
-    await expect(decryptBuffer(deriveFileKey('other'), enc)).rejects.toThrow();
+    await expect(decryptBuffer(otherKey, enc)).rejects.toThrow();
     await expect(decryptBuffer(key, enc.subarray(0, enc.length - 30))).rejects.toThrow(/切り詰め|truncated/);
     await expect(decryptBuffer(key, Buffer.concat([enc, Buffer.from([0])]))).rejects.toThrow();
     await expect(decryptBuffer(key, Buffer.from('nope'))).rejects.toThrow();
@@ -80,5 +75,28 @@ describe('壊れた長さの申告', () => {
     // 上限ちょうどは長さの検査を通り、本体が足りないので切り詰めとして落ちる。
     await expect(decryptBuffer(key, frame(CHUNK_SIZE + 64))).rejects.toThrow(/切り詰め|truncated/);
     await expect(decryptBuffer(key, frame(CHUNK_SIZE + 65))).rejects.toThrow(/上限|too large/);
+  });
+});
+
+describe('fileKeyFrom', () => {
+  it('世代鍵から導いた fileBytes で encryptBuffer した本文が、decryptBuffer で戻る', async () => {
+    const epochKey = randomEpochKey();
+    const { fileBytes } = await deriveEpochKeys(1, epochKey);
+    const k = fileKeyFrom(fileBytes);
+    expect(Buffer.isBuffer(k)).toBe(true);
+    expect(k.length).toBe(32);
+    const src = randomBytes(CHUNK_SIZE + 99);
+    const dec = await decryptBuffer(k, await encryptBuffer(k, src));
+    expect(dec.equals(src)).toBe(true);
+    // 別の世代鍵で導いた鍵では開けない。
+    const other = fileKeyFrom((await deriveEpochKeys(1, randomEpochKey())).fileBytes);
+    await expect(decryptBuffer(other, await encryptBuffer(k, src))).rejects.toThrow();
+  });
+  it('32 バイト以外は断り、元の配列とメモリを共有しない', () => {
+    expect(() => fileKeyFrom(new Uint8Array(31))).toThrow();
+    const bytes = new Uint8Array(32).fill(7);
+    const k = fileKeyFrom(bytes);
+    bytes.fill(0);
+    expect(k[0]).toBe(7);
   });
 });

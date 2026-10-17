@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_PHONE, type MobileJoinResponse, type MobilePairingResponse } from '@agent-hangar/shared';
+import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_PHONE, type MobileJoinResponse } from '@agent-hangar/shared';
 import { IMAGE_KEEP_MS, MAX_BLOB_BYTES, sweepOldImages } from '../src/mobileBlobs.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
-import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
-
-const SECRET = 'join-secret-blobs';
+import { addPcDevice, joinPhoneDevice, startCloud, type CloudHarness } from './harness.ts';
 
 let cloud: CloudHarness;
 
@@ -14,26 +11,17 @@ const auth = (token: string, extra: Record<string, string> = {}) => ({ authoriza
 const post = (token: string, path: string, body?: unknown) =>
   send(path, { method: 'POST', headers: auth(token, { 'content-type': 'application/json' }), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-const joinPc = async (id: string): Promise<string> => {
-  const r = await send('/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }) });
-  expect(r.status).toBe(201);
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/** PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。 */
+const joinPc = (id: string): Promise<string> => addPcDevice(cloud.env, id);
 
-const joinPhone = async (pcToken: string): Promise<MobileJoinResponse> => {
-  const p = await post(pcToken, '/m/pairings');
-  const { code } = (await p.json()) as MobilePairingResponse;
-  const r = await send('/m/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, device: { id: 'phone', name: 'iPhone' } }) });
-  expect(r.status).toBe(201);
-  return (await r.json()) as MobileJoinResponse;
-};
+const joinPhone = (pcToken: string): Promise<MobileJoinResponse> => joinPhoneDevice(cloud, pcToken);
 
 const bytes = (n: number, fill = 7): Uint8Array<ArrayBuffer> => new Uint8Array(n).fill(fill);
 const putBlob = (token: string, id: string, n: number | string, body: Uint8Array<ArrayBuffer> | null = bytes(64)) =>
   // miniflare の dispatchFetch は本文の長さを付けずに流すので、実機と同じく明示する。
   send(`/m/blobs/${id}/${n}`, { method: 'PUT', headers: auth(token, { 'content-type': 'application/octet-stream', 'content-length': String(body?.byteLength ?? 0) }), ...(body ? { body } : {}) });
 const getBlob = (token: string, id: string, n: number | string) => send(`/m/blobs/${id}/${n}`, { headers: auth(token) });
-const launch = (phone: string, id: string, target: string) => post(phone, '/m/launches', { id, targetDevice: target, sealed: 'sealed-req' });
+const launch = (phone: string, id: string, target: string) => post(phone, '/m/launches', { id, targetDevice: target, sealed: 'sealed-req', epoch: 1 });
 const claim = (pc: string, id: string) => post(pc, `/m/launches/${id}/claim`);
 const answer = (pc: string, id: string, ok = true) => post(pc, `/m/launches/${id}/answer`, { ok, sealedAnswer: 'sealed-ans' });
 const keys = async (prefix: string) => (await cloud.env.BUCKET.list({ prefix })).objects.map((o) => o.key).sort();
@@ -42,7 +30,7 @@ beforeEach(async () => {
   resetSchemaCache();
   cloud = await startCloud();
   resetSchemaCache();
-  await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+  await ensureSchema(cloud.env);
 });
 
 afterEach(async () => {
@@ -249,7 +237,7 @@ describe('古い画像の掃除', () => {
 });
 
 describe('DELETE /m/feed（PC が自分の受信箱の素を消す）', () => {
-  const putFeed = (token: string, sealed = 'sealed-feed') => send('/m/feed', { method: 'PUT', headers: auth(token, { 'content-type': 'application/json' }), body: JSON.stringify({ sealed }) });
+  const putFeed = (token: string, sealed = 'sealed-feed') => send('/m/feed', { method: 'PUT', headers: auth(token, { 'content-type': 'application/json' }), body: JSON.stringify({ sealed, epoch: 1 }) });
   const feedRows = async () => (await cloud.env.DB.prepare('select device_id from mobile_feeds order by device_id').all<{ device_id: string }>()).results.map((r) => r.device_id);
 
   it('自分の行だけが消え、ほかの PC の行は残る', async () => {

@@ -5,8 +5,9 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { CompatDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
-import { COMPAT_VERSION } from '@agent-hangar/shared';
+import { COMPAT_VERSION, transcriptBlobKey } from '@agent-hangar/shared';
 import { saveCloudConfig } from './config/cloud.ts';
+import { Keyring } from './sync/keyring.ts';
 import { dbPath, ensureHome, readOrCreateDevice } from './config/paths.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
@@ -20,6 +21,7 @@ import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPend
 import { CLOSE_DEADLINE_MS, installShutdown, startServer, STOP_WATCHDOG_MS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { expectMode, posixDescribe, posixIt } from '../test/platform.ts';
+import { testCloudConfig } from '../test/cloudConfig.ts';
 
 /**
  * サーバを丸ごと起こす端到端の試験。
@@ -60,7 +62,7 @@ function makeDirs(): Dirs {
 
 const tokenIn = (home: string): string => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 const start = (d: Dirs) => startServer({ port: 0, home: d.home, claudeDir: d.claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(d.home, 'no-dist') });
-const joinTo = (home: string, url: string): void => saveCloudConfig(home, { url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+const joinTo = (home: string, url: string): void => saveCloudConfig(home, testCloudConfig({ url }));
 
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
 function writeTranscript(claudeDir: string, cwd: string, sessionId: string, text: string): void {
@@ -90,6 +92,28 @@ function collector(port: number, token: string) {
       });
     },
   };
+}
+
+/**
+ * 起動直後に本文を書き、索引が拾って配るまで、同じ本文を書き直す。
+ * macOS の fs.watch（FSEvents）は、見張りを付けた直後の変更を通知しないことがある。
+ * libuv は 1 つのプロセスの見張りを 1 本の FSEvents の流れにまとめ、見張りが増えるたびに流れを別のスレッドで作り直す。
+ * 作り直した流れは、動き出した後の変更しか通知しない。
+ * サーバーは起動の終わりに cloud.json の見張りを足すので、起動の直後に 1 度だけ書くと、混んだ機械ではその変更が流れの外に落ちる。
+ * 落ちた通知は、待ちを延ばしても戻らない（製品は 5 分ごとの全件走査で拾い直す）。
+ * そこで、書き直して新しい通知を起こす。前の書き込みが遅れて拾われても、貯めた配信から見つかるので取りこぼさない。
+ * 待ちの合計は、1 度だけ書いていた頃と同じ 8 秒である。
+ */
+async function writeUntilSeen<T extends ServerEvent>(c: ReturnType<typeof collector>, write: () => void, pred: (e: ServerEvent) => e is T): Promise<T> {
+  const attempts = 8;
+  for (let i = 1; ; i++) {
+    write();
+    try {
+      return await c.waitFor(pred, 1000);
+    } catch (e) {
+      if (i >= attempts) throw e;
+    }
+  }
 }
 
 /** 条件が満たされるまで一定間隔で試す。 */
@@ -133,8 +157,8 @@ describe('startServer', () => {
       const status = await (await api('/api/sync/status')).json() as { state: string; url: string | null; pending: number; skipped: unknown[] };
       expect(status).toMatchObject({ state: 'off', url: null, pending: expect.any(Number) });
       expect(status.skipped).toEqual([]);
-      // 参加していないので、参加トークンも設定の同期も無い。
-      expect(await (await api('/api/sync/joinToken')).json()).toEqual({ token: null });
+      // 参加していないので、参加コードの発行も設定の同期も無い。
+      expect((await api('/api/sync/join-codes/current')).status).toBe(404);
       expect((await api('/api/sync/config/preview')).status).toBe(404);
       expect((await api('/api/sync/config/pull', { method: 'POST' })).status).toBe(404);
       expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
@@ -378,8 +402,8 @@ describe('startServer', () => {
       const c = collector(s.port, tokenIn(d.home));
       try {
         await c.opened;
-        writeTranscript(d.claudeDir, dir, 'bbbbbbbb-0000-4000-8000-000000000002', 'second');
-        const ev = await c.waitFor((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.providerSessionId === 'bbbbbbbb-0000-4000-8000-000000000002');
+        const ev = await writeUntilSeen(c, () => writeTranscript(d.claudeDir, dir, 'bbbbbbbb-0000-4000-8000-000000000002', 'second'),
+          (e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.providerSessionId === 'bbbbbbbb-0000-4000-8000-000000000002');
         expect(ev.session.projectId).not.toBeNull();
         const proj = await c.waitFor((e): e is Extract<ServerEvent, { type: 'project.upsert' }> => e.type === 'project.upsert' && e.project.id === ev.session.projectId);
         expect(proj.project.name).toBe('alpha');
@@ -441,7 +465,10 @@ describe('startServer', () => {
         await until(async () => (sink.puts.length >= 1 ? sink.puts : null));
         // 参加より前で止まっている 2 件（alpha の本文と subagent）は上がらない。
         await new Promise((r) => setTimeout(r, 300));
-        expect(sink.puts.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort()).toEqual([`${SESSION_OTHER}.jsonl.gz`]);
+        // R2 の鍵名は HMAC なので、試験の cloud.json の世代 1 の鍵で、この PC の ID と other のセッションの UUID から求めて比べる。
+        const device = sink.puts[0]!.split('/')[1]!;
+        const index = (await Keyring.fromConfig(testCloudConfig())).current().index;
+        expect(sink.puts).toEqual([await transcriptBlobKey(index, device, device, SESSION_OTHER, null)]);
         // 画面に出す「未送信の本文」も、上がる予定の無い 2 件を数えない。
         const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${tokenIn(d.home)}` } })).json() as SyncStatusBody;
         expect(status.sweepPending).toBe(0);
@@ -509,11 +536,10 @@ describe('startServer', () => {
       }
     });
 
-    it('参加トークンを作れる', async () => {
-      // 参加トークンは中身を見ない。秘密が差分やログに出ないようにする。
-      const jt = await (await api('/api/sync/joinToken')).json() as { token: string | null };
-      expect(typeof jt.token).toBe('string');
-      expect((jt.token ?? '').length).toBeGreaterThan(0);
+    it('版 2 の cloud.json では参加トークンの口が無く、参加コードの承認の状態を読める', async () => {
+      // 版 2 は参加用の秘密を持たない。PC の参加は参加コードで行う。
+      expect((await api('/api/sync/joinToken')).status).toBe(404);
+      expect(await (await api('/api/sync/join-codes/current')).json()).toEqual({ kind: 'idle' });
     });
   });
 });
@@ -565,10 +591,10 @@ describe('起動と停止の手続きの配線', () => {
       await col.opened;
       const strayToasts = () => col.all().filter((e) => e.type === 'toast' && e.message.includes(outside)).length;
       // 済んだ後に現れた未分類も、知らせは流さない（toast は操作の結果だけ。一覧にそのまま出る）。
-      const before = col.all().filter((e) => e.type === 'transcript.appended').length;
-      writeTranscript(d.claudeDir, outside, 'cccccccc-0000-4000-8000-999999999999', 'late');
-      for (let i = 0; i < 100 && col.all().filter((e) => e.type === 'transcript.appended').length === before; i++) await new Promise((r) => setTimeout(r, 100));
-      expect(col.all().filter((e) => e.type === 'transcript.appended').length).toBeGreaterThan(before);
+      // 起動の直後に書くので、見張りが動き出す前の書き込みを書き直す（writeUntilSeen）。
+      const prior = new Set(col.all());
+      await writeUntilSeen(col, () => writeTranscript(d.claudeDir, outside, 'cccccccc-0000-4000-8000-999999999999', 'late'),
+        (e): e is Extract<ServerEvent, { type: 'transcript.appended' }> => e.type === 'transcript.appended' && !prior.has(e));
       await new Promise((r) => setTimeout(r, 300));
       expect(strayToasts()).toBe(0);
     } finally {

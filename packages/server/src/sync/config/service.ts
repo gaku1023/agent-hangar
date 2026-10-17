@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
-import { gunzipSync, gzipSync } from 'node:zlib';
 import {
-  CONFIG_BUNDLE_MIN_WORKER_COMPAT, configKey, isSafeKeyId,
+  CONFIG_BUNDLE_MIN_WORKER_COMPAT, configBlobKey, isSafeKeyId,
   type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto,
   type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type FileMetaIn,
 } from '@agent-hangar/shared';
@@ -12,8 +11,8 @@ import { touchRow } from '../../db/notify.ts';
 import type { Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { msg, MessageError, type Message } from '../../i18n/message.ts';
-import type { CloudClient } from '../client.ts';
-import { decryptBuffer, encryptBuffer } from '../crypto.ts';
+import { CloudError, type CloudClient } from '../client.ts';
+import type { RowKeyring } from '../sealedClient.ts';
 import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.ts';
 import { listBackups } from './backups.ts';
 import { ConfigBase } from './base.ts';
@@ -34,7 +33,7 @@ import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
  * このクラスは `~/.claude` に書かない（全体計画の D9）。読むのは collect.ts だけで、書くのは次の場所だけである。
  * - DB：config_snapshots（共有。PC ごとに 1 行）、config_base、config_unsent。
  * - hangar の置き場：inbox、適用の指示書（sync/config/paths.ts）。
- * - クラウド：`config/<端末>/.hangar/config-bundle.hgr` の 1 オブジェクト（旧実装の鍵とは別）。
+ * - クラウド：束の 1 オブジェクト。R2 の鍵名は `configBlobKey(/index, 端末, 端末, .hangar/config-bundle.hgr)` の HMAC で、相対パスは Worker に見えない。
  * 適用（~/.claude への書き込み、控え、基準の更新、競合の採り直し、世代へ戻す）は、指示書を読む殻の命令と hangar config apply の役目である。
  *
  * 既定は切である（settings.json の configBundleSync）。
@@ -45,7 +44,9 @@ export type ConfigCloud = Pick<CloudClient, 'putFile' | 'getFile' | 'lastWorkerC
 
 export type ConfigSyncDeps = {
   db: Db; deviceId: string; deviceName: string; claudeDir: string; home: string;
-  cloud: ConfigCloud; key: Buffer;
+  cloud: ConfigCloud;
+  /** R2 の鍵名を求める鍵の束。cloud（SealedCloudClient）と同じものを渡す。 */
+  keyring: RowKeyring | Promise<RowKeyring>;
   /** 送受信してよいか。スイッチが入っていて、同期が止まっていないこと。 */
   enabled: () => boolean;
   /** スイッチが入っているか（一時停止などは含まない）。状態の表示に使う。 */
@@ -221,10 +222,11 @@ export class ConfigSyncService {
     const manifest: BundleManifest = { version: 1, deviceId, createdAt: now, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: i.sha256, size: i.size, marks: i.marks })) };
     const tar = packBundle(manifest, new Map(items.map((i) => [i.sha256, i.content])));
     const bundleSha = sha256(tar);
-    const body = await encryptBuffer(this.deps.key, gzipSync(tar));
-    const meta: FileMetaIn = { key: configKey(deviceId, BUNDLE_PATH), path: BUNDLE_PATH, kind: 'config', sha256: bundleSha, size: tar.length, mtime: now, encrypted: true };
+    // 鍵名は今の世代の鍵で求め、同じ世代で封じる。gzip と暗号化は cloud（SealedCloudClient）が行う。
+    const cur = (await this.deps.keyring).current();
+    const meta: FileMetaIn = { key: await configBlobKey(cur.index, deviceId, deviceId, BUNDLE_PATH), epoch: cur.epoch, path: BUNDLE_PATH, kind: 'config', sha256: bundleSha, size: tar.length, mtime: now, origin: deviceId };
     // 束を先に上げ、行は後に書く。行が降りた先で束が見つからない、という並びを作らない。
-    await this.deps.cloud.putFile(meta, Readable.from([body]));
+    await this.deps.cloud.putFile(meta, Readable.from([tar]));
     const compact = JSON.stringify(items.map((i) => [i.id, i.sha256, i.size]));
     upsertShared(db, 'config_snapshots', {
       device_id: deviceId, bundle_sha256: bundleSha, bundle_size: tar.length, item_count: items.length,
@@ -254,7 +256,7 @@ export class ConfigSyncService {
       const before = this.failed.get(row.device_id);
       if (before && before.sha === row.bundle_sha256 && this.now() - before.at < RETRY_AFTER_FAILURE_MS) continue;
       try {
-        const bundle = await this.fetchBundle(row.device_id);
+        const bundle = await this.fetchBundle(row.device_id, row.bundle_sha256);
         if (bundle.manifest.deviceId !== row.device_id) throw new Error('束の中の端末 ID が行の端末と違います');
         writeInbox(home, row.device_id, bundle.opened, { bundleSha256: bundle.sha, forRowSha256: row.bundle_sha256, at: row.updated_at, itemCount: bundle.manifest.items.length, skipped: bundle.opened.skipped });
         this.failed.delete(row.device_id);
@@ -271,11 +273,33 @@ export class ConfigSyncService {
     return { fetched, failed };
   }
 
-  private async fetchBundle(fromDevice: string): Promise<{ opened: ReturnType<typeof unpackBundle>; manifest: BundleManifest; sha: string }> {
-    const stored = await this.collectStream(await this.deps.cloud.getFile(configKey(fromDevice, BUNDLE_PATH)));
-    const tar = gunzipSync(await decryptBuffer(this.deps.key, stored), { maxOutputLength: MAX_BUNDLE_BYTES });
-    const opened = unpackBundle(tar);
-    return { opened, manifest: opened.manifest, sha: sha256(tar) };
+  /**
+   * 相手の PC の束を取る。
+   * R2 の鍵名は世代ごとに違い、相手がどの世代で上げたかは行に無いので、手元にある世代を新しい順に鍵名を求めて試す。
+   * 行の指紋と合う束があればそれを、無ければ見つかった中で一番新しい世代の束を返す。どの世代にも無ければ 404 で投げる。
+   * 本文は世代の鍵で復号して gzip を解いた平文で届く（cloud が行う）。
+   */
+  private async fetchBundle(fromDevice: string, expectSha: string): Promise<{ opened: ReturnType<typeof unpackBundle>; manifest: BundleManifest; sha: string }> {
+    const ring = await this.deps.keyring;
+    let newest: { opened: ReturnType<typeof unpackBundle>; manifest: BundleManifest; sha: string } | null = null;
+    for (let n = ring.current().epoch; n >= 1; n--) {
+      const keys = ring.at(n);
+      if (!keys) continue;
+      let body: Readable;
+      try {
+        body = await this.deps.cloud.getFile(await configBlobKey(keys.index, fromDevice, fromDevice, BUNDLE_PATH), n);
+      } catch (e) {
+        if (e instanceof CloudError && e.status === 404) continue;
+        throw e;
+      }
+      const tar = await this.collectStream(body);
+      const opened = unpackBundle(tar);
+      const got = { opened, manifest: opened.manifest, sha: sha256(tar) };
+      if (got.sha === expectSha) return got;
+      newest ??= got;
+    }
+    if (newest) return newest;
+    throw new CloudError(404, JSON.stringify({ error: 'not found' }));
   }
 
   private async collectStream(s: Readable): Promise<Buffer> {

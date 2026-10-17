@@ -1,13 +1,13 @@
 import type { SetupTarget } from '@agent-hangar/shared';
-import type { CloudDeviceOut } from '@agent-hangar/shared';
-import type { CloudFailure, JoinPlanView } from '../store/cloudMember.ts';
+import type { DeviceOut } from '@agent-hangar/shared';
+import type { CloudFailure, JoinCheckView } from '../store/cloudMember.ts';
 import { UPDATE_FAIL_REASONS, type UpdateFailReason } from '../store/update.ts';
 
 /**
  * デスクトップの殻（Tauri）に頼む口。
  * 殻は頁の読み込みの前に `__TAURI_INTERNALS__` を差し込むので、有無は起動の時に決まる。
  * 頼めるのは、ログを開くこと、アプリの再起動、フォルダの選択、設定の同期の適用と世代へ戻すこと、アプリの更新（確認、進み、取得、インストール）、
- * クラウド同期への参加と PC の解除とこの PC の参加の解除（remote-cloud.json）だけである。
+ * クラウド同期への参加と PC の解除とこの PC の参加の解除（remote-cloud.json）、リカバリーキーのファイルへの保存（remote-save-recovery-key.json）だけである。
  * どれも殻の capability（apps/desktop/src-tauri/capabilities/remote-shell.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json）で、この頁の出どころにだけ許してある。
  * 設定の同期の 2 つと連携の書き込みは、殻が自分の承諾の窓（サーバを通らない頁）で書く中身を見せ、承諾されたときだけ CLI が書く。頁は結果を受け取るだけで、承諾を出すことはできない。
  */
@@ -25,31 +25,62 @@ export type DesktopBridge = {
   cloud?: CloudBridge;
   /** ターミナルに出たリンクを既定のブラウザで開く。殻が http と https だけを開く（src-tauri/src/links.rs）。殻は必ず持つ。試験の偽物は省ける。 */
   openLink?(url: string): Promise<void>;
+  /**
+   * リカバリーキーを殻の保存のダイアログで書く（src-tauri/src/recoveryfile.rs、capabilities/remote-save-recovery-key.json）。
+   * 渡すのは本文だけで、書く場所は利用者がダイアログで選ぶ。書いたら saved、取り消したら cancelled、書けなければ投げる。
+   * 殻は必ず持つ。試験の偽物は省ける。
+   */
+  saveRecoveryKey?(text: string): Promise<'saved' | 'cancelled'>;
 };
 
 /** 殻のクラウド同期の命令の答え。失敗は符号（CLI の code か、殻の cannot-start、timeout など）と文で返す。 */
 export type CloudReply<T> = { ok: true; value: T } | { ok: false; failure: CloudFailure };
 
+/** 接続先の確認の答え（hangar cloud join-check）。形は Store と同じものを使う（store/cloudMember.ts）。 */
+export type { JoinCheckView };
+
+/** 参加のリクエストの答え（hangar cloud join-request）。sas は区切りの無い 6 桁の確認コード、expiresAt は期限の目安（ms）。 */
+export type JoinRequestView = { sas: string; expiresAt: number };
+
+/** 承認の問い合わせの答え（hangar cloud join-poll）。approved は cloud.json を書き終えた後だけ、none は下書きが無い。 */
+export type JoinPollStatus = 'waiting' | 'approved' | 'rejected' | 'expired' | 'none';
+const JOIN_POLL_STATUSES: readonly string[] = ['waiting', 'approved', 'rejected', 'expired', 'none'] satisfies JoinPollStatus[];
+
 /**
  * 殻のクラウド同期の命令（src-tauri/src/cloudmember.rs）。殻は同梱の CLI を --json で走らせ、最後の 1 行の JSON を返す。
- * 参加トークンはサーバの HTTP API に載せず、ここから殻へ渡す（殻は CLI の標準入力へ渡す）。
+ * 参加コードはサーバの HTTP API に載せず、ここから殻へ渡す（殻は CLI の標準入力へ渡す）。
+ * 殻は参加コードを ASCII の英数字と `-` と空白だけで受ける。全角で貼られたコードは、送る前に共有の normalizeJoinCode で半角にそろえる。
+ * 殻は命令を重ねて走らせないので、走っている間の呼び出しは busy の失敗で返る。問い合わせの間隔は画面が決める。
  */
 export type CloudBridge = {
-  joinPlan(token: string): Promise<CloudReply<JoinPlanView>>;
-  join(token: string, overwrite: boolean): Promise<CloudReply<{ url: string; host: string }>>;
-  revoke(id: string): Promise<CloudReply<CloudDeviceOut>>;
+  joinCheck(url: string): Promise<CloudReply<JoinCheckView>>;
+  joinRequest(url: string, code: string, overwrite: boolean): Promise<CloudReply<JoinRequestView>>;
+  joinPoll(): Promise<CloudReply<{ status: JoinPollStatus }>>;
+  revoke(id: string): Promise<CloudReply<DeviceOut>>;
   leave(revoke: boolean): Promise<CloudReply<{ revoked: boolean; revokeError: string | null; creator: boolean }>>;
 };
 
 /** クラウド同期の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧と capabilities/remote-cloud.json にそろえる。 */
-export const CLOUD_COMMANDS = { joinPlan: 'cloud_join_plan', join: 'cloud_join', revoke: 'cloud_revoke', leave: 'cloud_leave' } as const;
+export const CLOUD_COMMANDS = { joinCheck: 'cloud_join_check', joinRequest: 'cloud_join_request', joinPoll: 'cloud_join_poll', revoke: 'cloud_revoke', leave: 'cloud_leave' } as const;
 
 /** 殻の答えを決まった形に直す。成功は key の中身が物であるときだけで、形が違えば unreadable の失敗にする。 */
-function cloudReplyOf<T>(r: unknown, key: 'plan' | 'result'): CloudReply<T> {
-  const o = r as { ok?: unknown; code?: unknown; message?: unknown; plan?: unknown; result?: unknown } | null;
+function cloudReplyOf<T>(r: unknown, key: 'check' | 'request' | 'poll' | 'result'): CloudReply<T> {
+  const o = r as { ok?: unknown; code?: unknown; message?: unknown } & Partial<Record<typeof key, unknown>> | null;
   if (o && o.ok === true && o[key] && typeof o[key] === 'object') return { ok: true, value: o[key] as T };
   if (o && o.ok === false && typeof o.code === 'string') return { ok: false, failure: { code: o.code, message: typeof o.message === 'string' ? o.message : '' } };
+  return unreadable();
+}
+
+function unreadable<T>(): CloudReply<T> {
   return { ok: false, failure: { code: 'unreadable', message: '' } };
+}
+
+/** 問い合わせの答えは、知っている status のときだけ成功にする。 */
+function pollReplyOf(r: unknown): CloudReply<{ status: JoinPollStatus }> {
+  const v = cloudReplyOf<{ status?: unknown }>(r, 'poll');
+  if (!v.ok) return v;
+  const s = v.value.status;
+  return typeof s === 'string' && JOIN_POLL_STATUSES.includes(s) ? { ok: true, value: { status: s as JoinPollStatus } } : unreadable();
 }
 
 /**
@@ -91,7 +122,7 @@ export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' 
 export type SetupShellOutcome = { status: 'written' | 'none' | 'cancelled' | 'failed' | 'busy'; message: string | null; code: string | null };
 
 /** 殻の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧にそろえる。 */
-export const DESKTOP_COMMANDS = { openLog: 'open_log', openLink: 'open_link', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration' } as const;
+export const DESKTOP_COMMANDS = { openLog: 'open_log', openLink: 'open_link', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration', saveRecoveryKey: 'save_recovery_key' } as const;
 
 const SETUP_STATUSES: ReadonlySet<string> = new Set(['written', 'none', 'cancelled', 'failed', 'busy']);
 
@@ -133,11 +164,15 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
     applyConfigSync: async () => outcomeOf(await invoke(DESKTOP_COMMANDS.applyConfigSync)),
     restoreConfigSync: async (name) => outcomeOf(await invoke(DESKTOP_COMMANDS.restoreConfigSync, { name })),
     setupIntegration: async (target) => setupOutcomeOf(await invoke(DESKTOP_COMMANDS.setupIntegration, { target })),
+    // 殻は書いたら true、取り消したら false を返す。true のときだけ書いたと言う。
+    saveRecoveryKey: async (text) => ((await invoke(DESKTOP_COMMANDS.saveRecoveryKey, { text })) === true ? 'saved' : 'cancelled'),
     cloud: {
       // 権限で断られたなど、殻が投げた失敗も、答えの形に直して返す（画面は段を閉じずに理由を出す）。
-      joinPlan: (token) => invoke(CLOUD_COMMANDS.joinPlan, { token }).then((r) => cloudReplyOf<JoinPlanView>(r, 'plan'), shellFailure),
-      join: (token, overwrite) => invoke(CLOUD_COMMANDS.join, { token, overwrite }).then((r) => cloudReplyOf<{ url: string; host: string }>(r, 'result'), shellFailure),
-      revoke: (id) => invoke(CLOUD_COMMANDS.revoke, { id }).then((r) => cloudReplyOf<CloudDeviceOut>(r, 'result'), shellFailure),
+      joinCheck: (url) => invoke(CLOUD_COMMANDS.joinCheck, { url }).then((r) => cloudReplyOf<JoinCheckView>(r, 'check'), shellFailure),
+      // 参加コードは命令の引数にだけ載せる。殻は CLI の標準入力へ渡す。
+      joinRequest: (url, code, overwrite) => invoke(CLOUD_COMMANDS.joinRequest, { url, code, overwrite }).then((r) => cloudReplyOf<JoinRequestView>(r, 'request'), shellFailure),
+      joinPoll: () => invoke(CLOUD_COMMANDS.joinPoll).then(pollReplyOf, shellFailure),
+      revoke: (id) => invoke(CLOUD_COMMANDS.revoke, { id }).then((r) => cloudReplyOf<DeviceOut>(r, 'result'), shellFailure),
       leave: (revoke) => invoke(CLOUD_COMMANDS.leave, { revoke }).then((r) => cloudReplyOf<{ revoked: boolean; revokeError: string | null; creator: boolean }>(r, 'result'), shellFailure),
     },
     update: {

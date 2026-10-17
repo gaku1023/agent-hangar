@@ -5,8 +5,9 @@ import { changesApp, rowsApp } from './changes.ts';
 import { compatMiddleware } from './compat.ts';
 import { devicesApp } from './devices.ts';
 import type { AppType, Env, Vars } from './env.ts';
-import { filesApp } from './files.ts';
-import { joinHandler } from './join.ts';
+import { blobsApp, filesApp } from './files.ts';
+import { bootstrapHandler, joinApp, joinCodesApp } from './join.ts';
+import { keysApp } from './keys.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
 import { mobileApp } from './mobile.ts';
 import { ensureSchema } from './schema.ts';
@@ -31,21 +32,28 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
     await ensureSchema(c.env);
     await next();
   });
-  app.get('/health', (c) => c.json({ ok: true, version: VERSION, compat: COMPAT_VERSION }));
-
-  // 参加だけは端末トークンを持たずに叩ける。中で参加用の秘密のハッシュを検査する。
-  app.post('/join', joinHandler);
+  // cloudId は表を作ったときに 1 度だけ置いた印で、PC はこれで作り直しを見分ける。isolate ごとに用意の結果を覚えているので、D1 を読み直さない。
+  app.get('/health', async (c) => c.json({ ok: true, version: VERSION, compat: COMPAT_VERSION, cloudId: await ensureSchema(c.env) }));
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/usage', '/devices', '/devices/*']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
   app.route('/changes', changesApp);
   app.route('/rows', rowsApp);
   app.route('/files', filesApp);
+  // PC が決めた本文の削除（互換の版 9）。ゴミ箱の 30 日の判定は PC が行う。
+  app.route('/blobs', blobsApp);
   app.route('/devices', devicesApp);
+  // PC の参加（互換の版 9）。発行と承認（/join-codes）は PC の端末トークンが要る。
+  // 新しい PC の口（/join）と、最初の PC の /bootstrap はトークンなしで、照合は join.ts の中で行う。
+  app.route('/join-codes', joinCodesApp);
+  app.route('/join', joinApp);
+  app.post('/bootstrap', bootstrapHandler);
+  // 封じた名簿と keybox と、スマホ用の鍵の keybox（互換の版 9）。PC の端末トークンが要る。
+  app.route('/', keysApp);
   // スマホの参加と受信箱。認証と種類の検査は経路ごとに mobile.ts の中で付ける（参加の口だけはトークンなし）。
   app.route('/m', mobileApp);
 
@@ -64,7 +72,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
    * 外へ返すのは一般化した 1 語だけにする。
    * D1 と R2 の文言には表と列と束縛の様子が出るので、そのまま返すと内側の作りを教えてしまう。
    * 詳しい内容は記録にだけ残す。記録に載るのは方式と経路と例外の名前と 1 行目で、
-   * 参加用の秘密も端末トークンも本文も問い合わせ文字列も載せない。
+   * 端末トークンも本文も問い合わせ文字列も載せない。
    * D1 の 1 日の上限に当たった失敗だけは、待てば通るので 429 で返す（limits.ts）。
    */
   app.onError((e, c) => {

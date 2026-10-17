@@ -1,15 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { createGunzip } from 'node:zlib';
 import { PULL_LIMIT, type FileEntry } from '@agent-hangar/shared';
 import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, MessageError } from '../i18n/message.ts';
 import { CompatError, LimitError, type CloudClient } from './client.ts';
-import { decryptStream, sha256Stream } from './crypto.ts';
+import { sha256Stream } from './crypto.ts';
+import { ledgerKeyOfPath } from './ledgerKey.ts';
 import type { SyncStateStore } from './state.ts';
+
+/**
+ * 本文の元の PC。上げた PC（deviceId）と違うのは、作り直しで remote/ の写しを上げ直したときである（sync/rebuild.ts）。
+ * 写しは元の PC の ID の下（remote/<origin>/）に置き、台帳も元の PC の鍵で引く。上げた PC ごとに分けると、同じ本文が 2 か所に並ぶ。
+ */
+const originOf = (e: FileEntry): string => (typeof e.origin === 'string' && e.origin !== '' ? e.origin : e.deviceId);
 
 /** 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）から、セッションの ID を取り出す。取れなければ空。 */
 function uuidOfTranscript(rel: string): string {
@@ -21,8 +27,8 @@ export type PullerDeps = {
   db: Db;
   deviceId: string;
   home: string;
+  /** 索引を開き、本文を復号して返す client（SealedCloudClient）。 */
   client: CloudClient;
-  key: Buffer;
   state: SyncStateStore;
   onError?: (key: string, message: string) => void;
   /** 写しを 1 つ以上置いた回の終わりに、置いた数を知らせる。索引が全件走査を予約する（boot/sync.ts）。 */
@@ -75,6 +81,9 @@ function parseSkip(raw: string): SkipRecord | null {
   try {
     const v = JSON.parse(raw) as Partial<SkipRecord>;
     if (!Array.isArray(v.entries) || v.entries.length === 0) return null;
+    // 封じたメタの前（世代を持たない）の控えは、降ろし直しようがないので捨てる。
+    const first = v.entries[0] as Partial<FileEntry> | null;
+    if (!first || typeof first.key !== 'string' || typeof first.epoch !== 'number' || typeof first.path !== 'string') return null;
     if (typeof v.fingerprint !== 'string' || typeof v.count !== 'number' || !Number.isFinite(v.count)) return null;
     return {
       entries: v.entries as FileEntry[],
@@ -101,19 +110,25 @@ export function remoteTranscriptPath(home: string, deviceId: string, rel: string
 }
 
 /**
- * R2 の鍵と相対パスが同じファイルを指していることを確かめる。
- * 形式の検査（復号と SHA-256）だけでは、正しく暗号化された別のファイルへ丸ごと差し替えられたときに気付けない。
- * 鍵は transcripts/<端末>/<projects の下の相対パス>.gz という形なので、この対応が崩れていれば受け取らない。
+ * 世代の鍵が無くて越えた索引の行まで、本文の区切り（filesSeq）を巻き戻す。
+ * 名簿と keybox の読み直しで新しい世代の鍵が届いたときに呼ぶ（Task 11 の名簿の層がつなぐ）。
+ * 次の pull はその手前から一覧を読み直すので、越えた本文が降りてくる。降ろし済みの本文は指紋が同じなので降ろし直さない。
+ * 区切りが控えより手前にいれば、その位置のまま（先へは進めない）。
+ * 巻き戻したら true を返し、控えを消す。控えが無ければ何もせず false を返す。
+ * 降ろしている最中に呼ぶと、その回の終わりの書き込みに上書きされうるので、動いている RemotePuller があれば rewindSkipped を使う。
  */
-function checkKeyMatchesPath(e: FileEntry): void {
-  const parts = path.posix.normalize(e.path).split('/');
-  const suffix = parts.slice(2).join('/');
-  if (parts[0] !== 'projects' || parts.length < 3 || suffix === '') throw new MessageError(msg('sync.pull.badPath', { path: e.path }));
-  if (e.key !== `transcripts/${e.deviceId}/${suffix}.gz`) throw new MessageError(msg('sync.pull.keyMismatch'));
+export function rewindSkippedFiles(state: SyncStateStore): boolean {
+  const from = state.getNumber('filesSkippedFrom', 0);
+  if (from <= 0) return false;
+  state.set('filesSeq', Math.min(state.getNumber('filesSeq', 0), from - 1));
+  state.set('filesSkippedFrom', null);
+  return true;
 }
 
 /**
  * 他端末が上げた本文を降ろして手元に展開する。
+ * 索引は client（SealedCloudClient）が開いて渡す。R2 の鍵名と中身のパスの対応は、client が開くときに確かめる（中身と違う鍵名の行は届かない）。
+ * 手元の台帳（file_sync）は、R2 の鍵名ではなく、パスから求めた台帳の鍵（sync/ledgerKey.ts）で引く。
  * 設定ファイル（kind が config）は降ろさない。設定の同期（sync/config/）が、束の行から自分で取りに行く。
  * 書き込む先は ~/.agent-hangar/remote の下だけで、~/.claude には一切触らない。
  */
@@ -174,6 +189,14 @@ export class RemotePuller {
    */
   stop(): void {
     this.stopped = true;
+  }
+
+  /**
+   * 世代の鍵が無くて越えた行まで区切りを巻き戻す（rewindSkippedFiles）。
+   * 降ろしと同じ鎖に並べるので、走っている pull の終わりの書き込みと食い違わない。巻き戻したら true。
+   */
+  rewindSkipped(): Promise<boolean> {
+    return this.enqueue(async () => rewindSkippedFiles(this.deps.state));
   }
 
   private skipKey(key: string): `skipped:${string}` { return `${SKIP_PREFIX}${key}`; }
@@ -269,10 +292,15 @@ export class RemotePuller {
     let since = this.deps.state.getNumber('filesSeq', 0);
     let advanceTo = since;
     let minFailed: number | null = null;
+    let minUnreadable: number | null = null;
     for (;;) {
       const page = await this.deps.client.listFiles(since, PULL_LIMIT);
+      // 世代の鍵が無くて開けなかった行は、区切りを止めずに越え、いちばん小さい連番を控える。
+      // 止めると後ろの本文がすべて止まる。鍵が届いたら rewindSkippedFiles がここまで巻き戻す。
+      for (const u of page.unreadable) minUnreadable = minUnreadable === null ? u.seq : Math.min(minUnreadable, u.seq);
       for (const e of page.files) {
-        if (e.deviceId === this.deps.deviceId) continue;
+        // 自分が上げたものと、他の PC が上げ直した自分の本文の写しは降ろさない（原本が手元にある）。
+        if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId) continue;
         // 設定（kind が config）は降ろさない。束の本体は設定の同期が、束の行を見て自分で取りに行く。
         if (e.kind === 'config') continue;
         // 削除したセッション（sessions/trash.ts）の写しは降ろさない。印を受け取る前の持ち主が上げた分でも、置けば消し直すだけになる。
@@ -295,6 +323,10 @@ export class RemotePuller {
     }
     // 失敗した項目より手前で止めて、次の pull で取り直す。
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
+    if (minUnreadable !== null) {
+      const prev = this.deps.state.getNumber('filesSkippedFrom', Infinity);
+      this.deps.state.set('filesSkippedFrom', Math.min(prev, minUnreadable));
+    }
     if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
     return { downloaded };
   }
@@ -324,9 +356,11 @@ export class RemotePuller {
       for (;;) {
         const page = await this.deps.client.listFiles(since, PULL_LIMIT);
         for (const e of page.files) {
-          if (e.deviceId === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid) continue;
-          const prev = latest.get(e.key);
-          if (!prev || prev.seq < e.seq) latest.set(e.key, e);
+          if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid) continue;
+          // 世代を回すと同じ写しが別の鍵名でもう 1 件並ぶので、元の PC とパスで 1 件にまとめる。
+          const id = `${originOf(e)}\0${e.path}`;
+          const prev = latest.get(id);
+          if (!prev || prev.seq < e.seq) latest.set(id, e);
         }
         if (!page.more || page.nextSeq <= since) break;
         since = page.nextSeq;
@@ -347,13 +381,14 @@ export class RemotePuller {
 
   /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */
   private async download(e: FileEntry): Promise<boolean> {
-    checkKeyMatchesPath(e);
-    // 決定 5 のとおり、本文は必ず暗号化して置く。
-    // 申告を鵜呑みにして平文の道を開けておくと、暗号化していない本文が降りてくる筋が残る。
-    if (!e.encrypted) throw new MessageError(msg('sync.pull.notEncrypted', { key: e.key }));
-    const target = remoteTranscriptPath(this.deps.home, e.deviceId, e.path);
-    const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(e.key) as { sha256: string } | undefined;
+    const origin = originOf(e);
+    const ledger = ledgerKeyOfPath(origin, e.path);
+    if (ledger === null) throw new MessageError(msg('sync.pull.badPath', { path: e.path }));
+    const target = remoteTranscriptPath(this.deps.home, origin, e.path);
+    const prev = this.deps.db.prepare('select sha256, mtime from file_sync where key = ?').get(ledger) as { sha256: string; mtime: number } | undefined;
     if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return false;
+    // 上げ直した写し（上げた PC と元の PC が違う）は、元の PC の上げた本文より古いことがある。手元の写しの方が新しければ残す。
+    if (origin !== e.deviceId && prev && prev.mtime > e.mtime && fs.existsSync(target)) return false;
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
     // 直接の宛先には書かない。
     // 切り詰められた入力では error が出る前に 1 チャンク分の平文が流れるので、
@@ -363,9 +398,10 @@ export class RemotePuller {
     try {
       // 前の回の残骸があると mode が引き継がれないので、必ず作り直す。
       fs.rmSync(tmp, { force: true });
-      const body = await this.deps.client.getFile(e.key);
+      // 本文は索引の世代の鍵で、client が復号して gzip を解いて渡す。
+      const body = await this.deps.client.getFile(e.key, e.epoch);
       // pipeline でつなぐ。裸の pipe だと復号の error が未処理になってプロセスごと落ちる。
-      await pipeline(body, decryptStream(this.deps.key), createGunzip(), fs.createWriteStream(tmp, { mode: FILE_MODE }));
+      await pipeline(body, fs.createWriteStream(tmp, { mode: FILE_MODE }));
       const sha = await sha256Stream(fs.createReadStream(tmp));
       if (sha !== e.sha256) throw new MessageError(msg('sync.pull.shaMismatch', { key: e.key }));
       // 本物の名前を付ける前に落とし切る。電源が落ちても、中身の無いファイルが本物として残らない。
@@ -381,7 +417,7 @@ export class RemotePuller {
     fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, device_id = excluded.device_id, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
-      .run(e.key, 'transcript', e.path, e.deviceId, e.sha256, e.size, e.mtime, e.seq, this.now());
+      .run(ledger, 'transcript', e.path, origin, e.sha256, e.size, e.mtime, e.seq, this.now());
     return true;
   }
 

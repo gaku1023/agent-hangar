@@ -18,6 +18,10 @@ export const TABLE_PK: Record<SharedTable, string> = {
 };
 
 export type ChangeOp = 'upsert' | 'delete';
+/**
+ * 開いた行の形。PC の中だけで使い、線の上には載せない（線の上は SealedChangeIn と SealedChangeOut）。
+ * 封じて送るのと、受けて開くのは、サーバの SealedCloudClient（packages/server/src/sync/sealedClient.ts）である。
+ */
 export type ChangeIn = { tableName: SharedTable; rowId: string; op: ChangeOp; payload: Record<string, unknown>; updatedAt: number };
 export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
 /** push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は新しくなかったので捨てた行の数である。 */
@@ -27,89 +31,197 @@ export type PushChangesResponse = { seq: number; accepted: number; skipped: numb
  * lastSeenAt は Worker の時計で、1 分おきにしか書かないので最大 1 分遅れる。参加の前の行など、まだ見ていなければ null である。
  */
 export type CloudPeer = { id: string; lastSeenAt: number | null };
+
 /**
- * pull の応答である。
+ * 封じた行（互換の版 9）。
+ * `k` は PC が表名と行 ID から求めた HMAC の base64url（43 字）で、Worker は表名も行 ID も知らない。
+ * `sealed` は `/row` の鍵で封じた中身（base64url）で、Worker は開けない。`epoch` は封じた鍵の世代である。
+ * 名簿の印の行（`ROSTER_MARKER_K`）だけは `sealed` が空で、Worker が書く。
+ */
+export type SealedChangeIn = { k: string; op: ChangeOp; updatedAt: number; epoch: number; sealed: string };
+export type SealedChangeOut = SealedChangeIn & { seq: number; deviceId: string };
+/**
+ * 封じた行の pull（`GET /changes`）。
  * changes は自端末以外の行を連番の昇順で、nextSeq は次に渡す since である。
  * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
  * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
  */
-export type PullChangesResponse = {
-  changes: ChangeOut[];
+export type SealedPullChangesResponse = {
+  changes: SealedChangeOut[];
   nextSeq: number;
   more: boolean;
   peers: CloudPeer[];
   now: number;
-  /**
-   * この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。
-   * 版 6 の Worker は載せないので省ける。版 6 の PC は知らない欄として読み飛ばす。
-   */
+  /** この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。 */
   launches?: MobileLaunchOut[];
 };
-export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
+/** 封じた行の取り直し（`GET /rows`）。`k` の順に並び、`nextAfter` は次に渡す `after` である。 */
+export type SealedSnapshotResponse = { changes: SealedChangeOut[]; nextAfter: string | null; seq: number };
+/** 封じた行の `k` の形（HMAC-SHA256 の base64url、詰め物なし）。 */
+export const SEALED_ROW_K_RE = /^[A-Za-z0-9_-]{43}$/;
 
 export type FileKind = 'transcript' | 'config';
-export type FileMetaIn = { key: string; path: string; kind: FileKind; sha256: string; size: number; mtime: number; encrypted: boolean };
+/**
+ * 開いたファイルのメタ。PC の中だけで使い、線の上には載せない（線の上は SealedFileIn と SealedFileEntry）。
+ * `key` は e2e/names.ts の transcriptBlobKey か configBlobKey で求めた R2 の鍵名で、`epoch` はメタと本文を封じた世代である。
+ * `origin` は本文を作った PC の ID で、`path` は元の PC の `~/.claude` からの相対パスである。
+ * 封じて送るのと、受けて開くのは、サーバの SealedCloudClient（packages/server/src/sync/sealedClient.ts）である。
+ */
+export type FileMetaIn = { key: string; epoch: number; kind: FileKind; path: string; sha256: string; size: number; mtime: number; origin: string };
 export type FileEntry = FileMetaIn & { seq: number; deviceId: string; uploadedAt: number; storedSize: number };
-export type ListFilesResponse = { files: FileEntry[]; nextSeq: number; more: boolean };
-
-export type JoinRequest = { secret: string; device: { id: string; name: string; platform: string } };
-export type JoinResponse = { deviceToken: string; deviceId: string };
-export type JoinToken = { url: string; secret: string };
+/**
+ * 開いた索引の頁。
+ * unreadable は、世代の鍵が手元に無くて開けなかった行（読み直しても届かなかったもの）の連番と世代である。
+ * 鍵があっても開けない行（付け替え、鍵名と中身の食い違い）は、鍵が届いても開けないので、どちらにも入れない。
+ */
+export type ListFilesResponse = { files: FileEntry[]; unreadable: { seq: number; epoch: number }[]; nextSeq: number; more: boolean };
 
 /**
- * Worker の `GET /devices` が返す PC の 1 行（互換の版 5 から）。
- * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した PC である。
- * 最後に同期した IP と場所は、Worker が同期の要求を受けたときの CF-Connecting-IP と request.cf の city、region、country をそのまま写したもので、PC ごとに最後の 1 件だけを持つ。
- * 場所は Cloudflare の推定で、英語の表記のままである。
+ * 封じたメタを持つファイル（互換の版 9）。
+ * `key` は `b/<端末 ID>/<HMAC の base64url>`（e2e/names.ts）で、パスは平文で残らない。
+ * `sealedMeta` はパス、平文の SHA-256、mtime、元の PC を封じたもの（base64url）である。
  */
-export type CloudDeviceOut = {
-  id: string;
-  name: string;
-  platform: string;
-  joinedAt: number;
-  lastSeenAt: number | null;
-  revokedAt: number | null;
-  lastIp: string | null;
-  lastCity: string | null;
-  lastRegion: string | null;
-  lastCountry: string | null;
-  /**
-   * PC かスマホか（互換の版 7）。
-   * スマホは `POST /m/join` で参加した行で、platform は `mobile` である。
-   * 版 6 までの Worker は返さないので、無ければ PC として読む。
-   */
-  kind?: 'pc' | 'mobile';
-};
-export type CloudDevicesResponse = { devices: CloudDeviceOut[] };
-export type CloudDeviceRevokeResponse = { device: CloudDeviceOut };
+export type SealedFileIn = { key: string; kind: FileKind; size: number; epoch: number; sealedMeta: string };
+export type SealedFileEntry = SealedFileIn & { seq: number; deviceId: string; uploadedAt: number; storedSize: number };
+export type SealedListFilesResponse = { files: SealedFileEntry[]; nextSeq: number; more: boolean };
+/** `x-hangar-meta` の見出しの長さの上限（字）。 */
+export const MAX_SEALED_META_CHARS = 8192;
+
+/**
+ * PC が決めた本文の削除（`DELETE /blobs`、互換の版 9）。
+ * 自分の端末 ID の下（`b/<自分>/`）の鍵だけを消せる。置いてから 1 時間たっていないものは消さない。
+ * 断ったものは `refused` に入れて返す。索引に無い鍵は消えたものとして `deleted` に入れる。
+ */
+export type BlobsDeleteIn = { keys: string[] };
+export type BlobsDeleteOut = { deleted: string[]; refused: string[] };
+/** 1 回の `DELETE /blobs` の鍵の数の上限。 */
+export const MAX_BLOB_DELETE_KEYS = 50;
+/** 1 台の端末が 1 日（UTC）に消せる本文の数。超えると 429。 */
+export const BLOB_DELETE_DAILY = 500;
+/** 置いてからこれだけたっていない本文は消さない。 */
+export const BLOB_DELETE_GRACE_MS = 3_600_000;
+/**
+ * ゴミ箱に入れたセッションのクラウドの写しを残す期間。
+ * 削除の印（session_states.trashed_at）からこれだけたったら、各 PC が自分の上げた本文を `DELETE /blobs` で消す。
+ */
+export const TRASH_KEEP_MS = 30 * 86_400_000;
+
+/**
+ * 最初の PC の端末トークンを登録する（`POST /bootstrap`、互換の版 9）。
+ * setup が Worker の secret `BOOTSTRAP_TOKEN_HASH` に `SHA-256(token)` を入れ、同じハッシュは 1 回だけ通る。
+ * 応答は 201 `{ deviceId }`。
+ */
+export type BootstrapRequest = { deviceId: string; token: string };
+
+/** 参加コードの期限（5 分）。判定は Worker の時計で行う。 */
+export const JOIN_CODE_TTL_MS = 5 * 60_000;
+/** 参加コードの発行は 1 台の PC につき 10 分に 5 回まで。 */
+export const JOIN_CODE_RATE = { max: 5, windowMs: 10 * 60_000 } as const;
+/** 一致しないコードへの参加リクエストは、Worker 全体で 10 分に 30 回まで。超えたら 429。 */
+export const JOIN_GUESS_LIMIT = { max: 30, windowMs: 10 * 60_000 } as const;
+
+/**
+ * 参加コードの発行（`POST /join-codes`、発行する PC の端末トークンが要る）。
+ * 送るのは、正規化したコードとクラウドの ID から重い KDF で導いたハッシュ（hex、e2e/joinCode.ts の joinCodeHash）だけで、平文は送らない。
+ * 本文の `expiresAt` は省けて、Worker は読まない。期限は Worker の時計で決め、201 の応答の `expiresAt` で返す。
+ */
+export type JoinCodeCreate = { codeHash: string; expiresAt: number };
+
+/** 接続先の確認（`GET /join/hello`、認証なし）。`pcCount` は解除されていない PC の数。 */
+export type JoinCodeHello = { hostLabel: string; pcCount: number };
+
+/**
+ * 新しい PC の参加リクエスト（`POST /join/requests`、認証なし）。`sealed` は参加コードで封じた中身（base64url）。
+ * 開いていて期限内で、まだリクエストの無いコードにだけ置け、202 を返す。ほかは区別せずに 404。
+ */
+export type JoinRequestIn = { codeHash: string; deviceId: string; sealed: string };
+
+/** 発行した PC が見る、自分のいちばん新しいコード（`GET /join-codes/mine`）。無ければ 404。 */
+export type JoinCodeMine = { codeHash: string; status: 'open' | 'requested' | 'approved' | 'rejected' | 'expired'; sealed: string | null; deviceId: string | null };
+
+/** 承認（`POST /join-codes/:hash/approve`、発行した PC だけ）の本文。トークンは発行した PC に渡さない。 */
+export type JoinApproveIn = { deviceId: string };
+
+/**
+ * 新しい PC の問い合わせ（`GET /join/status?code=<hash>&device=<id>`、認証なし）。
+ * `deviceToken` は承認の後の最初の問い合わせにだけ載る。
+ */
+export type JoinStatusOut = { status: 'waiting' | 'approved' | 'rejected' | 'expired'; deviceToken?: string };
+
+/**
+ * 封じた名簿（`GET /roster`、PC の端末トークンが要る、互換の版 9）。
+ * 名簿がまだ無ければ 404。`sealed` は `/roster` の鍵で封じた文書（base64url）で、Worker は開けない。
+ */
+export type RosterOut = { version: number; sealed: string };
+
+/**
+ * 名簿の書き換え（`PUT /roster`）。`ifVersion` は手元で読んだ版で、最初は 0。
+ * 版が合えば 200 の `RosterPutOut`（1 進んだ版）、合わなければ 409 の `RosterPutOut`（今の版）。
+ * 通った書き換えは、同じ要求の中で `rows` の印の行（`ROSTER_MARKER_K`）の連番を進める。`epoch` はその行に載せる今の世代である。
+ */
+export type RosterPut = { ifVersion: number; epoch: number; sealed: string };
+export type RosterPutOut = { version: number };
+
+/**
+ * 名簿か keybox が変わったことを pull で伝える印の行の鍵（`rows.k`）。
+ * ふつうの行の `k` は HMAC の base64url なので、`~` で始まる値とは重ならない。
+ */
+export const ROSTER_MARKER_K = '~roster';
+
+/** リカバリーキー宛ての keybox の受け手。 */
+export const RECOVERY_RECIPIENT = 'recovery';
+/** `PUT /keyboxes` の 1 回の件数の上限。 */
+export const MAX_KEYBOXES_PER_PUT = 20;
+
+/**
+ * 自分宛ての keybox（`GET /keyboxes?recipient=<id>`）。いちばん新しい世代の 1 つだけで、無ければ空の配列である。
+ * keybox の中身は世代 1 から n までの鍵の一覧なので、古い世代の箱は返さない（読み取りの行を世代の数に比例させない）。
+ * `recipient` を省けば自分宛てで、ほかの PC 宛ては 403。
+ * `recovery` 宛ては、`POST /bootstrap` で入った端末が名簿か keybox を書くまでの間だけ読める（`hangar recover` の道）。
+ */
+export type KeyboxOut = { epoch: number; sealed: string };
+export type KeyboxesOut = { boxes: KeyboxOut[] };
+
+/**
+ * keybox を置く（`PUT /keyboxes`）。受け手は解除されていない PC の ID か `recovery` で、世代と受け手の組で上書きする。
+ * 通った書き換えは、名簿と同じく印の行の連番を進める。応答は 200 の `KeyboxesPutOut`。
+ */
+export type KeyboxIn = { epoch: number; recipient: string; sealed: string };
+export type KeyboxesPut = { boxes: KeyboxIn[] };
+export type KeyboxesPutOut = { written: number };
+
+/**
+ * Worker の `GET /devices` が返す端末の 1 行（互換の版 9）。
+ * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した端末である。
+ * 名前と OS は封じた名簿にあり、IP と所在地は保存しないので、ここには無い。
+ * `expiresAt` はトークンの期限で、null なら期限なし。
+ */
+export type DeviceOut = { id: string; kind: 'pc' | 'mobile'; joinedAt: number; lastSeenAt: number | null; revokedAt: number | null; expiresAt: number | null };
+export type DevicesOut = { devices: DeviceOut[] };
+export type DeviceRevokeOut = { device: DeviceOut };
 /** 解除した PC の端末トークンで来た要求に、Worker が 401 で返す本文の error。トークンが合ったときにだけ返す（違うトークンには一律の unauthorized）。 */
 export const REVOKED_ERROR = 'revoked';
 
-export const CLOUD_HEADERS = { path: 'x-hangar-path', kind: 'x-hangar-kind', sha256: 'x-hangar-sha256', size: 'x-hangar-size', mtime: 'x-hangar-mtime', encrypted: 'x-hangar-encrypted' } as const;
+/**
+ * `PUT /files/:key` の見出し（互換の版 9）。
+ * kind、size、epoch と、meta（封じたメタの base64url）だけを運ぶ。パス、平文の SHA-256、mtime は meta の中にある。
+ */
+export const CLOUD_HEADERS = { kind: 'x-hangar-kind', size: 'x-hangar-size', epoch: 'x-hangar-epoch', meta: 'x-hangar-meta' } as const;
 
 /** 1 回の POST /changes に載せる上限。Worker は 1 行を 2 文で書くので 81 文以内に収まる。 */
 export const MAX_PUSH_BATCH = 40;
 /** GET /changes、GET /rows、GET /files が 1 回に返す上限。 */
 export const PULL_LIMIT = 500;
 
-/** 参加トークンの文字数の上限。実物は 200 字ほどなので、これを超える入力は貼り間違いか攻撃である。 */
-export const MAX_JOIN_TOKEN_CHARS = 2048;
-/** 参加トークンの中の URL の文字数の上限。 */
+/** 参加の接続先の URL の文字数の上限。 */
 export const MAX_JOIN_URL_CHARS = 512;
 /** R2 の鍵に入れる ID（端末 ID、セッション ID、サブエージェント ID）の文字数の上限。 */
 export const MAX_ID_CHARS = 64;
 /** config の相対パスの文字数の上限。 */
 export const MAX_REL_PATH_CHARS = 512;
 
-const toB64Url = (s: string): string => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const fromB64Url = (s: string): string => {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4);
-  const bin = atob(b64);
-  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
-};
-
 /**
- * 参加トークンの宛先として許す URL か。
+ * 参加の接続先として許す URL か（hangar cloud join と参加の段に利用者が入れる URL）。
  *
  * 許すのは素の origin の `https:` だけである。
  * 例外として、開発と `packages/cloud` のテストで `wrangler dev` を指すために
@@ -130,27 +242,6 @@ export function isAllowedJoinUrl(url: string): boolean {
   if (u.protocol !== 'http:') return false;
   const host = u.hostname.replace(/^\[|\]$/g, '');
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
-}
-
-/** 参加トークン。Worker の URL と参加用の秘密を JSON にして base64url で包む。 */
-export function encodeJoinToken(t: JoinToken): string {
-  return toB64Url(JSON.stringify({ url: t.url, secret: t.secret }));
-}
-
-/**
- * 参加トークンを解く。利用者が手で貼る入口なので、ここで宛先まで検査する。
- * 例外の文言は固定の 3 種類だけにして、入力も秘密も断片すら載せない。
- */
-export function decodeJoinToken(s: string): JoinToken {
-  if (s.length > MAX_JOIN_TOKEN_CHARS) throw new Error('参加トークンが長すぎます'); // 長さは空白を取り除く前に見る。
-  // 1Password やメールを経由すると途中に折り返しが入る。空白は base64url の文字ではないので、取り除いてから読む。
-  const t = s.replace(/\s+/g, '');
-  let v: unknown;
-  try { v = JSON.parse(fromB64Url(t)); } catch { throw new Error('参加トークンを読めません'); }
-  const o = v as Partial<JoinToken> | null;
-  if (!o || typeof o.url !== 'string' || !o.url || typeof o.secret !== 'string' || !o.secret) throw new Error('参加トークンの形式が違います');
-  if (!isAllowedJoinUrl(o.url)) throw new Error('参加トークンの宛先が不正です');
-  return { url: o.url, secret: o.secret };
 }
 
 /** R2 の鍵に入れてよい ID か。スラッシュ、`..`、制御文字、空を通さない。 */
@@ -207,62 +298,12 @@ export function decodeHeaderText(s: string): string | null {
   }
 }
 
-/** R2 の鍵の長さの上限。超えると R2 が投げるので、その手前で 400 にして 500 を出さない。 */
-export const MAX_KEY_BYTES = 1024;
-
-/** 鍵の 1 段目に許す接頭辞。 */
-export type KeyPrefix = 'transcripts' | 'config';
-
 /**
- * R2 の鍵を接頭辞と、その先の相対パスに割る。形が違えば null。
- * Worker（`packages/cloud/src/files.ts`）と端末（`packages/server/src/sync/client.ts`）が
- * この 1 つの物差しを共有する。片方だけ厳しいと、端末で組み立てられる鍵が Worker で 400 になる。
+ * 鍵を URL のパスに載せる形。断片ごとに符号化するので、`/` は潰れない。
+ * R2 の鍵名の形は e2e/names.ts の isBlobKey が決める（`b/<端末 ID>/<HMAC>`）。
  */
-export function splitFileKey(key: string): { prefix: KeyPrefix; rel: string } | null {
-  const i = key.indexOf('/');
-  if (i < 0) return null;
-  const prefix = key.slice(0, i);
-  if (prefix !== 'transcripts' && prefix !== 'config') return null;
-  const rel = key.slice(i + 1);
-  if (!isSafeRelPath(rel)) return null;
-  if (new TextEncoder().encode(key).length > MAX_KEY_BYTES) return null;
-  return { prefix, rel };
-}
-
-/** 権限を抜きにした、鍵の形だけの検査。日本語と空白は通る（`~/.claude` の名前は選べない）。 */
-export function isValidFileKey(key: string): boolean {
-  return splitFileKey(key) !== null;
-}
-
-/** 鍵を URL のパスに載せる形。断片ごとに符号化するので、`/` は潰れない。 */
 export function encodeFileKeyPath(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/');
-}
-
-/**
- * R2 の鍵。端末ごとに分けるので、同じセッション ID の本文が端末間で上書きされない。
- * ID は他端末から届いた値が混ざる経路があるので、組み立ての側でも形を検査する。
- * 検査が無いと、スラッシュ入りのセッション ID がサブエージェントの鍵と衝突して上書きし合う。
- */
-export function transcriptKey(deviceId: string, sessionUuid: string, agentId: string | null): string {
-  if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
-  if (!isSafeKeyId(sessionUuid)) throw new Error('セッション ID の形が不正です');
-  if (agentId !== null && !isSafeKeyId(agentId)) throw new Error('サブエージェント ID の形が不正です');
-  return agentId === null ? `transcripts/${deviceId}/${sessionUuid}.jsonl.gz` : `transcripts/${deviceId}/${sessionUuid}/subagents/agent-${agentId}.jsonl.gz`;
-}
-
-/**
- * 設定の R2 の鍵。本文と同じく端末ごとに分ける。
- *
- * 分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合う。
- * 負けた側の索引（`file_sync`）には自分が上げた指紋が残るのに中身は相手のものなので、
- * 取り込みは「SHA-256 が一致しません」で永久に止まる。
- * 端末ごとに分ければ、受け取る側が相対パスごとに新しい方を選べる。
- */
-export function configKey(deviceId: string, rel: string): string {
-  if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
-  if (!isSafeRelPath(rel)) throw new Error('設定ファイルのパスが不正です');
-  return `config/${deviceId}/${rel}`;
 }
 
 /**

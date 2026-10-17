@@ -7,7 +7,7 @@ import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, SETUP_CLOUD_COMMAND, type CloudUsageProps } from './cloudUsage.ts';
-import { presentCloudMember, type CloudMemberProps } from './cloudMember.ts';
+import { cloudJoinCommand, presentCloudMember, type CloudMemberProps } from './cloudMember.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
@@ -24,7 +24,12 @@ export type CloudDeviceProps = { id: string; name: string; platform: string; las
  * skipped は送れなかった本文で、件数だけでは直しようが無いので鍵と理由もそのまま渡す。
  * stateLabel はヘッダーと同じ表から引いた状態の語である。
  */
-export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; /** 節の見出しの右の札。目次の状態の語と同じもの。 */ badge: { text: string; tone: 'ok' | 'off' | 'warn' | 'stop' }; paused: boolean; /** Cloudflare の上限で退いているか。そのあいだは一時停止の切り替えを出さない（試作の Q4 の案 B）。 */ limited: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; joinTokenExpiresAt: number | null; usage: CloudUsageProps | null; /** 参加、PC の一覧と解除、この PC の参加の解除（presenters/cloudMember.ts）。試験の固定値は省ける（省くと今までの一覧とコマンドの案内を出す）。 */ member?: CloudMemberProps };
+export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; /** 節の見出しの右の札。目次の状態の語と同じもの。 */ badge: { text: string; tone: 'ok' | 'off' | 'warn' | 'stop' }; paused: boolean; /** Cloudflare の上限で退いているか。そのあいだは一時停止の切り替えを出さない（試作の Q4 の案 B）。 */ limited: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; usage: CloudUsageProps | null; /** 参加、PC の一覧と解除、この PC の参加の解除（presenters/cloudMember.ts）。試験の固定値は省ける（省くと今までの一覧とコマンドの案内を出す）。 */ member?: CloudMemberProps;
+  /** cloud.json が古い形式で同期を止めているときの案内（再構築の手順の行き先と、状態を確かめるコマンド）。それ以外は null。試験の固定値は省ける。 */
+  legacy?: { statusCommand: string; docUrl: string } | null };
+
+/** 0.9.0 への再構築の手順（docs/cloud-sync.md の節）。公開リポジトリの main を指す。節の名前の部分は、UI の直書きの見張りに掛からないよう % で包んで書く。 */
+export const CLOUD_REBUILD_DOC_URL = 'https://github.com/gaku1023/agent-hangar/blob/main/docs/cloud-sync.md#090-%E3%81%B8%E3%81%AE%E4%BD%9C%E3%82%8A%E7%9B%B4%E3%81%97';
 
 /**
  * 外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする包み方。
@@ -80,9 +85,6 @@ function presentEditor(t: Translate, store: Store): EditorSettingsProps {
   const r = store.editorTest;
   return { setting, name, choices, loading: list === null, test: { running: r === 'running', result: r && r !== 'running' ? editorTestResult(t, label, r) : null } };
 }
-
-/** 参加トークンを画面に置いておく長さ。全セッションの読み書き権を持つ秘密なので、写し終わる頃に消す。 */
-export const JOIN_TOKEN_TTL_MS = 120_000;
 
 /** PC ごとの状態の言い方。null は状態を知らせてこない古い版の hangar である。 */
 const shellLabel = (t: Translate, s: ShellHookStateDto | null): string => {
@@ -322,8 +324,10 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     : syncStateWord(t, sync?.state ?? 'off');
   const limited = sync?.state === 'paused' && sync.limitedUntil !== null;
   // 目次の行と節の見出しの札は、同じ短い語を使う（無料枠で停止は、戻る時刻を節の中に出す）。
-  const cloudWord = limited ? t('settings.toc.cloudLimited') : sync?.state === 'error' && sync.paused ? t('header.sync.pausedErrorShort') : syncStateWord(t, sync?.state ?? 'off');
-  const cloudTone: 'ok' | 'off' | 'warn' | 'stop' = limited ? 'stop' : sync?.state === 'error' ? 'warn' : sync === null || sync.state === 'off' ? 'off' : sync.state === 'paused' ? 'off' : 'ok';
+  // 古い形式の cloud.json で止まっている PC は、未参加と同じ「同期オフ」にせず、再構築が要ることを札と目次でも言う。
+  const legacy = sync?.state === 'off' && sync.legacyConfig === true;
+  const cloudWord = legacy ? t('settings.toc.cloudLegacy') : limited ? t('settings.toc.cloudLimited') : sync?.state === 'error' && sync.paused ? t('header.sync.pausedErrorShort') : syncStateWord(t, sync?.state ?? 'off');
+  const cloudTone: 'ok' | 'off' | 'warn' | 'stop' = legacy ? 'warn' : limited ? 'stop' : sync?.state === 'error' ? 'warn' : sync === null || sync.state === 'off' ? 'off' : sync.state === 'paused' ? 'off' : 'ok';
   const cloud: CloudSettingsProps = {
     configured: sync !== null && sync.state !== 'off',
     url: sync?.url ?? null,
@@ -341,10 +345,10 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     sweepPending: sync?.sweepPending ?? null,
     skipped: sync?.skipped ?? [],
     devices: store.devices.map((d) => ({ id: d.id, name: d.name, platform: d.platform, lastSeen: relativeTime(t, d.lastSeenAt, now), self: d.self })),
-    joinToken: store.joinToken,
-    joinTokenExpiresAt: store.joinTokenExpiresAt,
     usage: presentCloudUsage(t, store.cloudUsage, sync, now),
     member: presentCloudMember(store, now),
+    // 状態のコマンドは、参加のコマンドと同じ hangar の呼び方（同梱の hangar の絶対パスなど）を使う。
+    legacy: legacy ? { statusCommand: cloudJoinCommand(store).replace(/ cloud join <URL>$/, ' cloud status'), docUrl: CLOUD_REBUILD_DOC_URL } : null,
   };
   const at = state.screen.name === 'settings' ? state.screen.at : undefined;
   const h = store.shellHook;
@@ -388,7 +392,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。
-    commands: { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', join: r?.commands.join ?? 'hangar join <token>', setupCloud: SETUP_CLOUD_COMMAND },
+    commands: { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', join: cloudJoinCommand(store), setupCloud: SETUP_CLOUD_COMMAND },
     workspacePick: { desktop: store.desktop, picked: store.pickedFolder },
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。

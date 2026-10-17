@@ -1,6 +1,8 @@
 import type { LiveStatus } from '@agent-hangar/shared/src/api.ts';
 import { PEER_STALE_MS, type MobileFeed, type MobileInboxResponse, type MobileWaiting } from '@agent-hangar/shared/src/mobile.ts';
 import { aadFeed, open } from '@agent-hangar/shared/src/mobileCrypto.ts';
+import { fetchInbox, type InboxFetched } from './api.ts';
+import { newestEpoch, type Keyring, type Pairing } from './store.ts';
 
 /** 受信箱の 1 行。待っている会話、動いている会話、今日戻る会話、今日終わった会話の共通の形。 */
 export type Row = {
@@ -78,7 +80,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  * - skewMs に Worker とスマホの時計の差を持つ。PC の時刻（statusAt、startedAt）との差は、これで直したスマホの時刻で測る。
  * - 同じ sessionId が複数の PC から来たら、live を優先し、次に新しい時刻のもの（returns は時刻を持たないので最も古い扱い）。
  */
-export async function openInbox(res: MobileInboxResponse & { workerCompat?: number | null }, key: CryptoKey, now: Date): Promise<InboxView> {
+export async function openInbox(res: MobileInboxResponse & { workerCompat?: number | null }, keys: Keyring, now: Date): Promise<InboxView> {
   const workerNow = num(res.now) ?? now.getTime();
   const devices: DeviceAlive[] = arr(res.devices)
     .map((d) => {
@@ -103,6 +105,9 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
     const device = byId.get(f.deviceId);
     let feed: MobileFeed;
     try {
+      // 素は、封じたスマホ用の鍵の世代（epoch）の鍵で開く。手元に無い世代なら開けない PC に入れる。
+      const key = keys.get(Number(f.epoch));
+      if (!key) throw new Error('この世代の鍵がありません');
       feed = await open<MobileFeed>(key, aadFeed(f.deviceId), f.sealed);
       if (!feed || typeof feed !== 'object' || feed.v !== 1 || feed.deviceId !== f.deviceId) throw new Error('feed の形が違います');
     } catch {
@@ -174,4 +179,30 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
 
   const skewMs = num(res.now) !== null ? workerNow - now.getTime() : 0;
   return { waiting, running, returning, doneToday, devices, unreadable, feeds, skewMs, workerCompat: res.workerCompat ?? null };
+}
+
+/** 受信箱の素のうち、いちばん新しい世代。素が無ければ 0。 */
+function newestFeedEpoch(res: MobileInboxResponse): number {
+  let n = 0;
+  for (const f of arr(res.feeds)) {
+    const e = num(f?.epoch);
+    if (e !== null && e > n) n = e;
+  }
+  return n;
+}
+
+/**
+ * 受信箱を読んで開く。
+ * 素の世代が手元のいちばん新しい世代より新しければ（PC がスマホを解除して M を次の世代にした）、reloadKeys で keybox を読み直してから開く。
+ * 読み直しても無い世代の素は、開けない PC に入れて続ける。戻りの keys は開くのに使った手元の鍵。
+ */
+export async function readInbox(
+  p: Pairing,
+  keys: Keyring,
+  o: { reloadKeys: () => Promise<Keyring>; now?: Date; fetch?: (p: Pairing) => Promise<InboxFetched> },
+): Promise<{ view: InboxView; keys: Keyring }> {
+  const res = await (o.fetch ?? fetchInbox)(p);
+  let ring = keys;
+  if (newestFeedEpoch(res) > newestEpoch(ring)) ring = await o.reloadKeys();
+  return { view: await openInbox(res, ring, o.now ?? new Date()), keys: ring };
 }

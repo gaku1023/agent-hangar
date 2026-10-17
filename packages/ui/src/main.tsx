@@ -108,6 +108,12 @@ const runtime = createRuntime({
   focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
+  // 頁を閉じる間際（アプリを閉じる、再読み込み）。WebKit は beforeunload を出さないことがあるので pagehide も聞く。
+  onPageHide: (cb) => {
+    window.addEventListener('pagehide', cb);
+    window.addEventListener('beforeunload', cb);
+    return () => { window.removeEventListener('pagehide', cb); window.removeEventListener('beforeunload', cb); };
+  },
   // 頁が見える状態に戻ったら、通知の許可を読み直す（focus が来ない戻り方もある）。
   onWindowVisible: (cb) => {
     const h = () => { if (document.visibilityState === 'visible') cb(); };

@@ -58,14 +58,14 @@ const editorProps = (over: Partial<SettingsProps['editor']> = {}): SettingsProps
 
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' },
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' },
   summaryEngine: 'openai', summaryClaudeModel: 'haiku', summaryApiKeySet: false,
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   injection: { askStatusAtEnd: true, liveHints: true, remoteControl: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true }) },
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
-  cloud: { configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '同期オフ', tone: 'off' }, paused: false, limited: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, joinTokenExpiresAt: null, usage: null },
+  cloud: { configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '同期オフ', tone: 'off' }, paused: false, limited: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], usage: null },
   configSync: configSyncProps(),
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', available: true, devices: [] },
   nodePath: '',
@@ -95,7 +95,7 @@ const at = (section: SettingsSection, over: Partial<SettingsProps> = {}): Settin
 const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
   configured: true, url: 'https://h.workers.dev', state: 'idle', stateLabel: '同期済み', badge: { text: '同期済み', tone: 'ok' }, paused: false, limited: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
   devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
-  joinToken: null, joinTokenExpiresAt: null, usage: null,
+  usage: null,
   ...over,
 });
 
@@ -351,12 +351,32 @@ describe('設定のクラウド同期', () => {
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ })).toHaveTextContent('同期オフ');
     expect(screen.getByText(/この PC だけで使用しています/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'クラウドを作成して開始' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '参加トークンで参加' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '参加コードで参加' })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'この PC で有効にする' })).toBeDisabled();
     expect(screen.getByText('クラウド同期を開始すると使えます')).toBeInTheDocument();
     // 同期の操作と使用量は出さない。
-    for (const name of ['今すぐ同期', '同期を一時停止', '参加トークンを表示', '適用内容を確認']) expect(screen.queryByRole('button', { name })).toBeNull();
+    for (const name of ['今すぐ同期', '同期を一時停止', 'PC を追加', '適用内容を確認']) expect(screen.queryByRole('button', { name })).toBeNull();
     expect(screen.queryByRole('region', { name: 'クラウドの使用量と料金' })).toBeNull();
+  });
+  it('古い形式の cloud.json で止まっている PC には、未参加の説明の代わりに再構築が必要なことと手順の行き先を出す', () => {
+    const docUrl = 'https://example.test/docs/cloud-sync.md#rebuild';
+    render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '再構築が必要', tone: 'warn' }, devices: [], legacy: { statusCommand: 'hangar cloud status', docUrl } }) })));
+    expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ })).toHaveTextContent('再構築が必要');
+    const band = screen.getByRole('alert');
+    expect(within(band).getByText('クラウドの再構築が必要です')).toBeInTheDocument();
+    expect(within(band).getByText(/0\.8\.x までの古い形式/)).toBeInTheDocument();
+    const link = within(band).getByRole('link', { name: /再構築の手順を開く/ });
+    expect(link).toHaveAttribute('href', docUrl);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByText('hangar cloud status')).toBeInTheDocument();
+    // 「この PC だけで使用しています」は事実と違うので出さない。参加コードでの参加は、再構築の手順の 5 で使うので残す。
+    expect(screen.queryByText(/この PC だけで使用しています/)).toBeNull();
+    expect(screen.getByRole('button', { name: '参加コードで参加' })).toBeInTheDocument();
+  });
+  it('印の無い未参加の PC には、再構築の帯を出さない', () => {
+    render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [], legacy: null }) })));
+    expect(screen.queryByText('クラウドの再構築が必要です')).toBeNull();
+    expect(screen.getByText(/この PC だけで使用しています/)).toBeInTheDocument();
   });
   it('2 つのボタンは、押すとターミナルで打つコマンドを出す（クラウドの用意はアプリからはまだ行わない）', () => {
     render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [] }) })));
@@ -365,27 +385,22 @@ describe('設定のクラウド同期', () => {
     // クラウドの用意は wrangler が要るので、clone した場所で打つと添える。
     expect(screen.getByText('npm run hangar -- setup cloud')).toBeInTheDocument();
     expect(screen.getByText(/リポジトリをクローンして npm install したディレクトリで/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '参加トークンで参加' }));
-    // 参加は入れた版の CLI でできる。
-    expect(screen.getByText('/A/hangar join <token>')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '参加コードで参加' }));
+    // 参加は入れた版の CLI でできる（参加コードは実行した後に入力する）。
+    expect(screen.getByText('/A/hangar cloud join <URL>')).toBeInTheDocument();
     expect(screen.queryByText('npm run hangar -- setup cloud')).toBeNull();
     expect(screen.queryByText(/clone して npm install した場所で/)).toBeNull();
   });
-  it('クラウドの節: 参加トークンと、設定の同期のスイッチ（入れるときは送るものの一覧を開く）', () => {
+  it('クラウドの節: 参加トークンは出さず、設定の同期のスイッチ（入れるときは送るものの一覧を開く）', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(at('cloud', { cloud: cloudProps(), configSync: configSyncProps({ needsCloud: false }) }), onAction));
     expect(screen.getByText('https://h.workers.dev')).toBeInTheDocument();
     expect(screen.getByText('未送信の変更 2 件')).toBeInTheDocument();
     expect(screen.getByText('mini')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '参加トークンを表示' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'sync.joinToken.show' });
+    expect(screen.queryByRole('button', { name: '参加トークンを表示' })).toBeNull();
     fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
-    rerender(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc' }), configSync: configSyncProps({ needsCloud: false, enabled: true }) }), onAction));
-    expect(screen.getByText('tok-abc')).toBeInTheDocument();
-    expect(screen.getByText(/全セッションを読み書きできます/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '参加トークン をコピー' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
+    rerender(ui(at('cloud', { cloud: cloudProps(), configSync: configSyncProps({ needsCloud: false, enabled: true }) }), onAction));
     // 入っているスイッチを切るのは、その場で保存する。
     fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configBundleSync: false } });
@@ -445,35 +460,6 @@ describe('設定のクラウド同期', () => {
     expect(screen.getByText('状態 1 回だけ同期中…')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '今すぐ同期' })).toBeNull();
     expect(screen.getByRole('button', { name: '同期中…' })).toBeDisabled();
-  });
-  it('参加トークンは押すまで出さず、消えたら表示のボタンに戻る', () => {
-    // 全セッションの読み書き権を持つ秘密なので、画面に出したままにしない。
-    // ランタイムが 120 秒で store から消すので、props が null に戻ったらボタンの姿に戻る。
-    const { rerender } = render(ui(at('cloud', { cloud: cloudProps() })));
-    expect(screen.queryByText('tok-abc')).toBeNull();
-    rerender(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc' }) })));
-    expect(screen.getByText('tok-abc')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '参加トークンを表示' })).toBeNull();
-    expect(screen.getByText(/1Password などに保存してください/)).toBeInTheDocument();
-    rerender(ui(at('cloud', { cloud: cloudProps() })));
-    expect(screen.queryByText('tok-abc')).toBeNull();
-    expect(screen.getByRole('button', { name: '参加トークンを表示' })).toBeInTheDocument();
-  });
-  it('参加トークンの下に、減る棒と「あと N 秒で消えます」を出す（設定の E2）', () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(1_000_000);
-      render(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc', joinTokenExpiresAt: 1_000_000 + 30_000 }) })));
-      expect(screen.getByText(/^あと 30 秒で非表示になります/)).toBeInTheDocument();
-      const bar = screen.getByRole('progressbar', { name: '参加トークンの表示の残り時間' });
-      expect(bar).toHaveAttribute('aria-valuenow', '30');
-      expect(bar).not.toHaveAttribute('data-low');
-      act(() => { vi.advanceTimersByTime(21_000); });
-      expect(screen.getByText(/^あと 9 秒で非表示になります/)).toBeInTheDocument();
-      expect(bar).toHaveAttribute('data-low', 'true');
-    } finally {
-      vi.useRealTimers();
-    }
   });
   it('同期している PC の一覧で、自分の PC に印を付ける', () => {
     render(ui(at('cloud', { cloud: cloudProps() })));

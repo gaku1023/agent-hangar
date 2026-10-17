@@ -85,7 +85,7 @@ const backupsOf = (device: string): string[] => {
   const dir = path.join(homeOf(device), 'backups', 'memos');
   return fs.existsSync(dir) ? fs.readdirSync(dir).sort().map((f) => fs.readFileSync(path.join(dir, f), 'utf8')) : [];
 };
-const cloudNotes = () => cloud.changes.filter((c) => c.tableName === 'session_notes');
+const cloudNotes = async () => (await cloud.opened()).filter((c) => c.tableName === 'session_notes');
 const sync = async (...es: SyncEngine[]) => { for (const e of es) { await e.pushNow(); await e.pullNow(); } };
 
 describe('(a) 上げた直後の名前が、クラウドへ上がる', () => {
@@ -94,11 +94,11 @@ describe('(a) 上げた直後の名前が、クラウドへ上がる', () => {
     const file1 = seedV16('pc1', { name: '名前', memo: 'メモ', updatedAt: 1000 });
     const db1 = upgrade('pc1', file1);
     expect(noteOf(db1)).toEqual({ name: '名前' });
-    expect(cloudNotes()).toHaveLength(0);
+    expect(await cloudNotes()).toHaveLength(0);
     const pc1 = await boot('pc1', file1, db1);
     await pc1.engine.pushNow();
     // 版 17 が積んだ差分は、版 21 が列を落とす前に組んだ payload なので、メモを持ったまま上がる。受けた側は知らない列として捨てる。
-    expect(cloudNotes().map((c) => ({ rowId: c.rowId, updatedAt: c.updatedAt, payload: c.payload }))).toEqual([
+    expect((await cloudNotes()).map((c) => ({ rowId: c.rowId, updatedAt: c.updatedAt, payload: c.payload }))).toEqual([
       { rowId: 's1', updatedAt: MIGRATED_NOTE_AT, payload: { session_id: 's1', name: '名前', memo: 'メモ', updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'pc1' } },
     ]);
     expect((pc1.db.prepare("select count(*) c from changes where table_name = 'session_notes' and pushed_at is null").get() as { c: number }).c).toBe(0);
@@ -132,7 +132,7 @@ describe('(b) クラウドに残る古い形の sessions の行', () => {
     // 時刻は写しの定数、書き手は payload の書き手である。こちらからは上げ直さない。
     expect(pc3.prepare('select updated_at, origin_device from session_notes where session_id = ?').get('s1')).toEqual({ updated_at: MIGRATED_NOTE_AT, origin_device: 'old-pc1' });
     expect(pc3.prepare("select count(*) c from changes where table_name = 'session_notes'").get()).toEqual({ c: 0 });
-    expect(cloudNotes()).toHaveLength(0);
+    expect(await cloudNotes()).toHaveLength(0);
   });
 
   it('クラウドに本物の名前があれば、古い形の行の中身は拾わない。控えも作らない', async () => {
@@ -168,7 +168,7 @@ describe('(b) クラウドに残る古い形の sessions の行', () => {
     expect(noteOf(pc1.db)).toEqual({ name: '上げていなかった新しい名前' });
     expect(noteOf(pc3)).toEqual({ name: '上げていなかった新しい名前' });
     expect(backupsOf('pc1')).toEqual([]);
-    expect(cloudNotes().map((c) => c.payload.name)).toEqual(['上げていなかった新しい名前']);
+    expect((await cloudNotes()).map((c) => c.payload.name)).toEqual(['上げていなかった新しい名前']);
   });
 });
 
@@ -183,7 +183,7 @@ describe('(c) 2 台目が後から上がる', () => {
     expect(noteOf(pc1.db)).toEqual({ name: '名前' });
     expect(noteOf(pc2.db)).toEqual({ name: '名前' });
     // 2 台目の写しは同じ時刻（写しの定数）なので、クラウドは採らない。
-    expect(cloudNotes()).toHaveLength(1);
+    expect(await cloudNotes()).toHaveLength(1);
     for (const d of ['pc1', 'pc2']) expect(backupsOf(d), d).toEqual([]);
   });
 
@@ -246,7 +246,7 @@ describe('(c) 2 台目が後から上がる', () => {
     expect(noteOf(b.db)).toEqual({ name: winner.name });
     expect(backupsOf(second)).toEqual([`名前：${loser.name}\n`]);
     expect(backupsOf(first)).toEqual([]);
-    expect(cloudNotes()).toHaveLength(1);
+    expect(await cloudNotes()).toHaveLength(1);
   });
 
   it.each([
@@ -272,7 +272,7 @@ describe('(c) 2 台目が後から上がる', () => {
     for (const pc of booted) expect(noteOf(pc.db)).toEqual({ name: winner.name });
     expect(backupsOf(order[0]!)).toEqual([]);
     for (const d of order.slice(1)) expect(backupsOf(d), d).toEqual([`名前：${rows[d]!.name}\n`]);
-    expect(cloudNotes()).toHaveLength(1);
+    expect(await cloudNotes()).toHaveLength(1);
   });
 
   it('メモだけの写し（名前が空）が先に上がると、後から上がった PC の名前はそれに負け、控えに残る', async () => {

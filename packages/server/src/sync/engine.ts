@@ -1,12 +1,13 @@
-import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type Language, type ChangeOut, type MobileLaunchOut, type PullChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type CloudPeer, type Language, type ChangeOut, type MobileLaunchOut, type SharedTable, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, render } from '../i18n/message.ts';
 import { noteApplied } from '../db/notify.ts';
 import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
-import { CloudError, CompatError, LimitError, RevokedError, type CloudClient } from './client.ts';
+import { CloudError, CompatError, LimitError, RevokedError, type CloudClient, type OpenedSnapshotResponse, type Unreadable } from './client.ts';
 import { recordPeers } from './peers.ts';
+import { rebuildIfCloudChanged } from './rebuild.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -36,10 +37,21 @@ export type SyncEngineDeps = {
    */
   home?: string;
   /**
+   * いまの接続先の印（cloud.json の cloudId。参加と setup が Worker の GET /health から受け取った値）。
+   * 起動のとき、最後に同期した印（sync_state の cloudId）と比べ、違えば作り直しの道を走らせる（sync/rebuild.ts）。
+   * 省くか、home を省くと比べない。
+   */
+  cloudId?: string | null;
+  /**
    * いまの言語。利用者に見せる文（知らせの札と、同期の状態の失敗の理由）をこの言語で出す。省くと日本語。
    * 失敗の理由は出した時点の言語のままで、言語を変えても書き直さない（次の失敗で新しい言語になる）。
    */
   language?: GetLanguage;
+  /**
+   * cloud.json が古い形式（版 1）のため client を組まなかったか。
+   * 立っていて client が無いとき、status() は off に legacyConfig の印を添える（設定の画面が再構築を案内する）。
+   */
+  legacyConfig?: boolean;
 };
 
 export type SyncListener = {
@@ -59,8 +71,12 @@ function collectLaunches(into: Map<string, MobileLaunchOut>, raw: unknown): void
   if (!Array.isArray(raw)) return;
   for (const v of raw as unknown[]) {
     const l = v as Partial<MobileLaunchOut> | null;
-    if (!l || typeof l.id !== 'string' || !l.id || typeof l.sealed !== 'string' || typeof l.createdAt !== 'number') continue;
-    if (!into.has(l.id)) into.set(l.id, { id: l.id, createdAt: l.createdAt, sealed: l.sealed });
+    // epoch は依頼を封じたスマホ用の鍵の世代（互換の版 9）。版 9 の Worker は必ず載せる。
+    if (!l || typeof l.id !== 'string' || !l.id || typeof l.sealed !== 'string' || typeof l.createdAt !== 'number' || typeof l.epoch !== 'number' || !Number.isSafeInteger(l.epoch) || l.epoch < 1) continue;
+    if (into.has(l.id)) continue;
+    // from は依頼を置いたスマホの ID（通知の題にスマホの名前を出すため）。from を返さない Worker では省く。
+    const from = typeof l.from === 'string' && l.from ? { from: l.from } : {};
+    into.set(l.id, { id: l.id, createdAt: l.createdAt, sealed: l.sealed, epoch: l.epoch, ...from });
   }
 }
 
@@ -126,6 +142,12 @@ const unref = (h: NodeJS.Timeout): void => { (h as { unref?: () => void }).unref
 type OversizeRow = { tableName: string; rowId: string; bytes: number; limit: number };
 
 /**
+ * 1 巡の pull の数え。
+ * unreadable は開けずに飛ばした行の数、refreshed はこの 1 巡で鍵の読み直しをもう試したか（1 巡に 1 度だけ試す）。
+ */
+type PassCount = { applied: number; unreadable: number; refreshed: boolean };
+
+/**
  * 413 の本文から、Worker が名指しした「大きすぎる行」を読む。
  * 本文は `{ error, limit, count, row: { tableName, rowId, bytes } }` で、200 字に収まるよう 1 件だけが載る。
  * 413 でないもの、読めないもの、名前の無いものはすべて null である。
@@ -178,6 +200,13 @@ export class SyncEngine {
    * 立て直せば最初の要求でまた断られて立ち、参加し直した後なら立たない。利用者の「今すぐ同期」でも 1 度だけ試し直す。
    */
   private revokedBlock = false;
+  /**
+   * 接続先が変わったのに、記録を戻せなかった（sync/rebuild.ts が転んだ）。理由の文を持つ。
+   * 前のクラウドの区切りと台帳のまま新しいクラウドと話すと、送ったつもりの行と本文が新しいクラウドに届かない。
+   * そこで push と pull を止め、本文と設定の出し入れも止める（boot/sync.ts の isPaused）。
+   * sync_state には残さない。立て直せば、起動のときにまた作り直しを試す。
+   */
+  private rebuildBlock: string | null = null;
   private started = false;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
@@ -214,8 +243,11 @@ export class SyncEngine {
    * 立っている間だけ push と pull の入口が開く。定期実行と起動前の pull は `paused` を見るので、開かない。
    */
   private onePass = false;
-  /** push と pull の入口を閉じているか。版で止まっているとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
-  private get halted(): boolean { return this.compatBlock !== null || this.revokedBlock || this.limitedUntil() !== null || (this.paused && !this.onePass); }
+  /** push と pull の入口を閉じているか。版で止まっているとき、作り直しに失敗したとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
+  private get halted(): boolean { return this.compatBlock !== null || this.revokedBlock || this.rebuildBlock !== null || this.limitedUntil() !== null || (this.paused && !this.onePass); }
+
+  /** 接続先が変わったのに記録を戻せず止まっているか。本文と設定の出し入れと使用量も、これを見て止まる。 */
+  rebuildBlocked(): boolean { return this.rebuildBlock !== null; }
 
   /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（sync/halt.ts の syncHalted）。 */
   compatBlocked(): boolean { return this.compatBlock !== null; }
@@ -295,7 +327,7 @@ export class SyncEngine {
    * 参加し直すと殻が Hangar を再起動するので、立て直した後の最初の同期でも、戻った旨を残せるようにするためである。
    */
   private noteRevoked(): void {
-    if (!this.revokedBlock) console.warn(`[sync] この PC（端末 ${this.shortDeviceId()}…）は、ほかの PC から同期を解除されました。同期を止めます。参加トークンで参加し直すまで送受信しません`);
+    if (!this.revokedBlock) console.warn(`[sync] この PC（端末 ${this.shortDeviceId()}…）は、他の PC から同期を解除されました。同期を止めます。他の PC で発行した参加コードで再参加するまで送受信しません`);
     this.revokedBlock = true;
     this.state.set('revokedLogged', true);
   }
@@ -308,6 +340,8 @@ export class SyncEngine {
   }
   protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
   protected clearPullError(): void { if (this.pullError === null) return; this.pullError = null; this.persistError(); }
+  /** 開けずに飛ばした行の数を、pull の失敗の理由として残す（sync_state の lastError に出る）。 */
+  private notePullSkipped(n: number): void { this.pullError = render(this.language(), msg('sync.unreadable.rows', { count: n })); this.persistError(); }
   private persistError(): void { this.state.set('lastError', this.lastError); }
 
   pending(): number { return (this.deps.db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c; }
@@ -323,7 +357,7 @@ export class SyncEngine {
     const limitedUntil = this.deps.client && !this.paused ? this.limitedUntil() : null;
     const state: SyncStateKind = !this.deps.client ? 'off'
       // 版で止まっているときは、一時停止より先に見せる。直す道（どちらを上げるか）が error の文にしか無いからである。
-      : this.compatBlock !== null || this.revokedBlock ? 'error'
+      : this.compatBlock !== null || this.revokedBlock || this.rebuildBlock !== null ? 'error'
       : this.paused || limitedUntil !== null ? 'paused'
       : this.pushing ? 'pushing'
       : this.pulling ? 'pulling'
@@ -342,11 +376,13 @@ export class SyncEngine {
       // off のあいだは送り先が無いので数えない（入れたての端末が、同期していないのに「未送信の変更 3」と出していた）。
       // 行は changes に残り、同期を有効にした後の push で送る。
       pending: state === 'off' ? 0 : this.pending(),
-      error: state === 'error' ? (this.compatBlock ?? (this.revokedBlock ? this.errorText(new RevokedError()) : null) ?? this.lastError) : null,
+      error: state === 'error' ? (this.compatBlock ?? (this.revokedBlock ? this.errorText(new RevokedError()) : null) ?? this.rebuildBlock ?? this.lastError) : null,
       deviceCount: this.deviceCount(),
       limitedUntil: shownLimit,
       // 解除されたことは error の文でも言うが、画面は節の先頭に専用の帯を出すので、印を別に載せる。
       revoked: this.revokedBlock,
+      // 古い形式の cloud.json で止まっているときだけ載せる。未参加の off と見分けるためである。
+      ...(state === 'off' && this.deps.legacyConfig === true ? { legacyConfig: true } : {}),
     };
   }
 
@@ -392,11 +428,42 @@ export class SyncEngine {
     // 同期で降りた行（apply）は changes に積まれないので、拾っても送るものが無い。拾えば、降りるたびに空の push を予約してしまう。
     this.offWrite = onRowChange((c) => { if (c.db === this.deps.db && c.origin === 'write') this.noteLocalChange(); });
     if (!this.deps.client) { this.emitStatus(); return; }
-    this.pullTimer = this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
+    // 接続先が変わっていれば、最初の push と pull の前に記録を戻す。
+    // 待たずに済む比べ（cloud.json の印）にしてあるので、同じ起動で走り出す本文の上げ下ろし（boot/sync.ts）より必ず先に済む。
+    // 戻せなければ、前の記録のまま新しいクラウドと話さない。失敗として見せて、ここで止める。
+    if (!this.rebuildIfNeeded()) {
+      this.offWrite?.(); this.offWrite = null;
+      this.started = false;
+      this.emitStatus();
+      return;
+    }
+    this.pullTimer =this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
     unref(this.pullTimer);
     // 起動は利用者の押下ではないので、上限で退いた印を外さない（syncNow は外す）。
     await this.pushNow();
     await this.pullNow();
+  }
+
+  /**
+   * 起動のときの cloudId の比べ。戻せなかったら false を返す。
+   * 戻す仕事は 1 つの transaction なので、転べば記録は前のまま残り、cloudId も書かない。立て直せば、また試す。
+   * 失敗の理由は同期の失敗として残す（sync_state の lastError と、状態の error）。
+   */
+  private rebuildIfNeeded(): boolean {
+    const cloudId = this.deps.cloudId;
+    if (!cloudId || this.deps.home === undefined) return true;
+    try {
+      const r = rebuildIfCloudChanged({ db: this.deps.db, state: this.state, health: { cloudId }, home: this.deps.home, deviceId: this.deps.deviceId, now: this.now() });
+      if (r.rebuilt) console.log('[sync] the cloud changed; uploading all rows and transcripts again');
+      this.rebuildBlock = null;
+      return true;
+    } catch (e) {
+      console.error('[sync] could not reset the sync records for the new cloud; sync is stopped until hangar restarts', e instanceof Error ? e.message : e);
+      this.rebuildBlock = this.errorText(e);
+      this.pushError = this.rebuildBlock;
+      this.persistError();
+      return false;
+    }
   }
 
   /**
@@ -457,7 +524,7 @@ export class SyncEngine {
   private notePeers(page: { peers?: unknown; now?: unknown }): void {
     if (!Array.isArray(page.peers) || typeof page.now !== 'number' || !Number.isFinite(page.now)) return;
     try {
-      recordPeers(this.deps.db, { selfDeviceId: this.deps.deviceId, peers: page.peers as PullChangesResponse['peers'], workerNow: page.now, localNow: this.now() });
+      recordPeers(this.deps.db, { selfDeviceId: this.deps.deviceId, peers: page.peers as CloudPeer[], workerNow: page.now, localNow: this.now() });
     } catch (e) {
       console.error('[sync] 他の PC の生存を覚えられませんでした', e instanceof Error ? e.message : e);
     }
@@ -572,6 +639,25 @@ export class SyncEngine {
     this.pulling = this.doPull(this.deps.client).finally(() => { this.pulling = null; this.emitStatus(); });
     this.emitStatus();
     return this.pulling;
+  }
+
+  /**
+   * 世代の鍵が無くて飛ばした行まで、差分の区切り（lastSeq）を巻き戻す。
+   * 名簿の読み直しで新しい世代の鍵が届いたときに呼ぶ（sync/roster.ts の rosterRefresh）。
+   * 次の pull は控えた連番の手前から差分を読み直すので、飛ばした行が当たる。当て直しは updated_at の比較で冪等である。
+   * 区切りが控えより手前にいれば、その位置のまま（先へは進めない）。
+   * 走っている pull があれば、その終わりを待ってから巻き戻す（pull の終わりの書き込みに上書きされないため）。
+   * pull の中（onRoster）から呼ばれるので、呼び手はこれを待たないこと。
+   * 巻き戻したら true を返し、控えを消す。控えが無ければ何もせず false を返す。
+   */
+  rewindSkippedRows(): Promise<boolean> {
+    const running = this.pulling;
+    if (running) return running.then(() => this.rewindSkippedRows(), () => this.rewindSkippedRows());
+    const from = this.state.getNumber('rowsSkippedFrom', 0);
+    if (from <= 0) return Promise.resolve(false);
+    this.state.set('lastSeq', Math.min(this.state.getNumber('lastSeq', 0), from - 1));
+    this.state.set('rowsSkippedFrom', null);
+    return Promise.resolve(true);
   }
 
   /**
@@ -744,7 +830,7 @@ export class SyncEngine {
    * 途中のページで止めて lastSeq だけ進めると、読まなかった鍵は差分にも載らないので永久に欠ける。
    * Worker は端末がどこまで読んだかを覚えていないので、やり直せるのはこちら側だけである。
    */
-  private async pullPass(client: CloudClient, count: { applied: number }): Promise<void> {
+  private async pullPass(client: CloudClient, count: PassCount): Promise<void> {
     this.loadCarried();
     try {
       await this.readPass(client, count);
@@ -754,7 +840,32 @@ export class SyncEngine {
     }
   }
 
-  private async readPass(client: CloudClient, count: { applied: number }): Promise<void> {
+  /**
+   * 開けなかった行のある頁を、1 巡に 1 度だけ鍵を読み直してから読み直す。
+   * 知らない世代の行は、世代を回している途中に参加した PC や、keybox を読み損ねた PC に届く。
+   * 読み直しで鍵が届けば（gained）同じ頁をもう 1 度読み、届かなければ、その行は飛ばして数だけを数える。
+   * 手元にある世代の行が開けないのは、行が壊れているか書き換えられているからで、読み直しても開けない（not-needed）。
+   * 読み直しの失敗（通信の失敗）は、その pull の失敗にする。区切りは進めないので、次の pull で同じ頁をもう 1 度試す。
+   */
+  private async readable<P extends { unreadable: Unreadable[] }>(client: CloudClient, page: P, again: () => Promise<P>, count: PassCount): Promise<P> {
+    if ((page.unreadable?.length ?? 0) > 0 && !count.refreshed && client.refreshKeys) {
+      const r = await client.refreshKeys(page.unreadable.map((u) => u.epoch));
+      if (r !== 'not-needed') count.refreshed = true;
+      if (r === 'gained') page = await again();
+    }
+    const lost = page.unreadable ?? [];
+    if (lost.length > 0) {
+      count.unreadable += lost.length;
+      // 飛ばした行のいちばん小さい連番を控える（前の控えがあれば小さい方）。鍵が届いたら rewindSkippedRows がここまで巻き戻す。
+      const from = Math.min(...lost.map((u) => u.seq));
+      const before = this.state.getNumber('rowsSkippedFrom', 0);
+      if (before <= 0 || from < before) this.state.set('rowsSkippedFrom', from);
+      console.warn(`[sync] skipped ${lost.length} rows that could not be opened (epochs ${[...new Set(lost.map((u) => u.epoch))].sort((a, b) => a - b).join(', ')})`);
+    }
+    return page;
+  }
+
+  private async readPass(client: CloudClient, count: PassCount): Promise<void> {
     if (this.state.get('snapshotDone') !== '1') {
       let after: string | null = null;
       /**
@@ -766,10 +877,12 @@ export class SyncEngine {
       let seq: number | null = null;
       do {
         const cursor: string | null = after;
-        const page: SnapshotResponse = await client.snapshot(cursor, PULL_LIMIT);
+        const first = await client.snapshot(cursor, PULL_LIMIT);
+        // 高水位は読み直す前の最初の応答のものにする。読み直した応答の方が大きいことがある。
+        if (seq === null) seq = first.seq;
+        const page: OpenedSnapshotResponse = await this.readable(client, first, () => client.snapshot(cursor, PULL_LIMIT), count);
         count.applied += this.applyPage(page.changes, false);
         after = page.nextAfter;
-        if (seq === null) seq = page.seq;
       } while (after !== null);
       // 写しは鍵の辞書順なので、子の表が親の sessions より前の頁に来る。読み切ってから、落ちた行を当て直す。
       count.applied += this.settleCarried(false);
@@ -785,7 +898,7 @@ export class SyncEngine {
     try {
       for (;;) {
         const at = since;
-        const page = await client.pullChanges(at, PULL_LIMIT);
+        const page = await this.readable(client, await client.pullChanges(at, PULL_LIMIT), () => client.pullChanges(at, PULL_LIMIT), count);
         this.notePeers(page);
         collectLaunches(launches, page.launches);
         count.applied += this.applyPage(page.changes, true);
@@ -807,11 +920,13 @@ export class SyncEngine {
    * Worker は変更ログを持たない（同期の版 6）ので、どれだけ古い since でも断られない。版 5 までの 410 の取り直しは無くした。
    */
   protected async doPull(client: CloudClient): Promise<{ applied: number }> {
-    const count = { applied: 0 };
+    const count: PassCount = { applied: 0, unreadable: 0, refreshed: false };
     try {
       await this.pullPass(client, count);
       this.state.set('lastPullAt', this.now());
-      this.clearPullError();
+      // 開けなかった行は飛ばして先へ進む（同期は止めない）。飛ばした数だけを失敗の理由に残し、次の何も飛ばさない 1 巡で消える。
+      if (count.unreadable > 0) this.notePullSkipped(count.unreadable);
+      else this.clearPullError();
       this.noteBack();
       this.emit('pulled');
     } catch (e) {
@@ -853,7 +968,7 @@ export class SyncEngine {
 
   /** セッション起動の直前に呼ぶ。2 秒で諦めるが pull 自体は続く。 */
   async pullBeforeLaunch(timeoutMs = 2000): Promise<boolean> {
-    if (!this.deps.client || this.paused || this.compatBlock !== null || this.revokedBlock || this.limitedUntil() !== null) return false;
+    if (!this.deps.client || this.paused || this.compatBlock !== null || this.revokedBlock || this.rebuildBlock !== null || this.limitedUntil() !== null) return false;
     let timer: NodeJS.Timeout | null = null;
     const gaveUp = new Promise<boolean>((r) => { timer = this.timers.setTimeout(() => r(false), timeoutMs); });
     const done = this.pulling ?? this.pullNow();

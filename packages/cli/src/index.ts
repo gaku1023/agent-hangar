@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
 import { runConfigApply, runConfigRestore } from './config.ts';
-import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
-import { devicesCommand, joinCommand, leaveCommand, revokeCommand } from './membership.ts';
+import { askLine, cloudBackfill, cloudStatus, installUsageToken, OVERWRITE_WORD, promptWord, readJoinCodeInput, readUsageToken, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
+import { devicesCommand, JOIN_TOKEN_RETIRED, joinCheckCommand, joinInteractive, joinPollCommand, joinRequestCommand, leaveCommand, revokeCommand } from './membership.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
+import { readRecoveryKeyInput, runRecover } from './recovery.ts';
 import { cliErrorText, probeHealth, serverDownMessage } from './probe.ts';
 import { candidatesCommand, projectAddCommand, projectRemoveCommand, workspaceSetCommand, workspaceUnsetCommand } from './project.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
@@ -46,10 +48,10 @@ setup
   .command('cloud')
   .description('自分の Cloudflare アカウントに同期用の Worker、D1、R2 を作成してデプロイする（リポジトリを clone したディレクトリで実行する。アプリに同梱の hangar では作成できない）')
   .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
-  .option('--rotate-secret', '参加トークンを再生成する（既存の暗号化ファイルを復号できなくなる。確認を求める）')
   .option('--usage-token', '使用量と料金を表示するための読み取り専用のトークンを Worker に追加する（標準入力から受け取る）')
   .option('--account-id <id>', '作成先の Cloudflare のアカウント ID（アカウントが複数あるとき。CLOUDFLARE_ACCOUNT_ID でも指定できる）')
-  .action(async (o: { name: string; rotateSecret?: boolean; usageToken?: boolean; accountId?: string }) => {
+  .option('--save <path>', 'リカバリーキーをこのファイルにも保存する（0600）')
+  .action(async (o: { name: string; usageToken?: boolean; accountId?: string; save?: string }) => {
     const home = hangarHome();
     if (o.usageToken) {
       for (const l of USAGE_TOKEN_HELP) console.log(l);
@@ -57,38 +59,70 @@ setup
       return;
     }
     const device = readOrCreateDevice(home);
-    await runSetupCloud({ home, device, name: o.name, rotateSecret: o.rotateSecret, accountId: o.accountId });
+    await runSetupCloud({ home, device, name: o.name, accountId: o.accountId, ...(o.save ? { saveRecoveryTo: path.resolve(o.save) } : {}) });
   });
 
 program
-  .command('join [token]')
-  .description('参加トークンでクラウド同期に参加する（トークンは引数を省くと標準入力から受け取る）')
-  .option('--force', '確認を省いて参加する（既存の cloud.json も上書きする）')
-  .option('--plan', '参加せずに、接続先と現在の参加との違いだけを出力する（デスクトップアプリが読み取る）')
-  .option('--yes', '接続先の確認を省いて参加する（確認を画面で済ませたとき。デスクトップアプリが使う）。別のクラウドに参加済みのときは、--overwrite が無ければ上書きしない')
-  .option('--overwrite', '--yes と一緒に使い、別のクラウドに参加済みでも上書きして参加する')
-  .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
-  .action(async (token: string | undefined, o: { force?: boolean; plan?: boolean; yes?: boolean; overwrite?: boolean; json?: boolean }) => {
-    // 秘密は argv に載せない。引数で渡されたときは、残ることを伝える。
-    if (token !== undefined && !o.json) {
-      console.log('注意: 参加トークンを引数で渡しました。ps とシェルの履歴に残ります。次からは引数なしの hangar join を使ってください。');
-    }
+  .command('recover')
+  .description('すべての PC を失ったときに、リカバリーキーでこの PC をクラウド同期に戻す（リカバリーキーは標準入力から読み取る。Worker を作成した Cloudflare アカウントで wrangler を使うので、リポジトリを clone したディレクトリで実行する）')
+  .option('--name <name>', 'Worker の名前（デフォルトは workers.dev の URL の先頭のラベル）')
+  .option('--account-id <id>', 'Worker を作成した Cloudflare のアカウント ID（アカウントが複数あるとき。CLOUDFLARE_ACCOUNT_ID でも指定できる）')
+  .action(async (o: { name?: string; accountId?: string }) => {
     const home = hangarHome();
-    // 殻の命令は、参加トークンを標準入力で渡し、宛先の確認は画面で済ませてある。
-    if (o.plan || o.yes || o.json) {
-      const t = token ?? (await readJoinToken());
-      process.exitCode = await joinCommand({ home, token: t, device: readOrCreateDevice(home), plan: o.plan ?? false, yes: o.yes ?? false, overwrite: o.overwrite ?? false, json: o.json ?? false });
-      return;
-    }
-    // 確認は標準入力で取る。トークンを流し込んだ後の標準入力ではもう聞けないので、先に断る。
-    if (!process.stdin.isTTY && !o.force) {
-      throw new Error('標準入力が対話型ではないため、確認できません。ターミナルから実行するか、--force を指定してください');
-    }
-    const t = token ?? (await readJoinToken());
-    await runJoin({ home, token: t, device: readOrCreateDevice(home), force: o.force, confirm: promptWord });
+    // リカバリーキーは argv に載せない。標準入力から受け取る。
+    const text = await readRecoveryKeyInput();
+    await runRecover({ home, device: readOrCreateDevice(home), text, ...(o.name ? { name: o.name } : {}), ...(o.accountId !== undefined ? { accountId: o.accountId } : {}) });
+  });
+
+// 参加トークンは廃止した（参加コードと承認に置き換えた）。
+// 古い手順を覚えている人と古い殻のために、コマンドは残して案内だけを出す。引数も標準入力も読まない。
+program
+  .command('join [args...]')
+  .description('廃止しました。hangar cloud join <接続先の URL> を使ってください')
+  .allowUnknownOption()
+  .action(() => {
+    console.log(JOIN_TOKEN_RETIRED);
+    process.exitCode = 1;
   });
 
 const cloud = program.command('cloud').description('クラウド同期の管理');
+
+cloud
+  .command('join <url>')
+  .description('参加コードでクラウド同期に参加する（ターミナルで参加コードを入力し、確認コードを表示して、参加コードを発行した PC の承認を待つ）')
+  .action(async (url: string) => {
+    if (!process.stdin.isTTY) throw new Error('標準入力が対話型ではないため、参加コードを入力できません。ターミナルから実行してください');
+    const home = hangarHome();
+    process.exitCode = await joinInteractive({ home, url, device: readOrCreateDevice(home), ask: askLine, confirm: promptWord, overwriteWord: OVERWRITE_WORD });
+  });
+
+cloud
+  .command('join-check <url>')
+  .description('参加する前に接続先を確認する（Worker の互換バージョンと、参加済みの PC の数。デスクトップアプリが使う）')
+  .option('--json', '結果を JSON で 1 行出力する')
+  .action(async (url: string, o: { json?: boolean }) => {
+    process.exitCode = await joinCheckCommand({ home: hangarHome(), url, json: o.json ?? false });
+  });
+
+cloud
+  .command('join-request <url>')
+  .description('参加リクエストを送信して確認コードを出力する（参加コードは標準入力から読み取る。デスクトップアプリが使う）')
+  .option('--overwrite', '別のクラウドに参加済みでも、cloud.json を上書きして参加する')
+  .option('--json', '結果を JSON で 1 行出力する')
+  .action(async (url: string, o: { overwrite?: boolean; json?: boolean }) => {
+    const home = hangarHome();
+    // 参加コードは argv に載せない。標準入力から受け取る。
+    const code = await readJoinCodeInput();
+    process.exitCode = await joinRequestCommand({ home, url, code, device: readOrCreateDevice(home), overwrite: o.overwrite ?? false, json: o.json ?? false });
+  });
+
+cloud
+  .command('join-poll')
+  .description('参加リクエストの承認を 1 回だけ確認し、承認されていれば cloud.json を書く（デスクトップアプリが 2 秒ごとに使う）')
+  .option('--json', '結果を JSON で 1 行出力する')
+  .action(async (o: { json?: boolean }) => {
+    process.exitCode = await joinPollCommand({ home: hangarHome(), json: o.json ?? false });
+  });
 
 cloud
   .command('status')
@@ -107,7 +141,7 @@ cloud
 
 cloud
   .command('devices')
-  .description('同期に参加している PC と、解除した PC を一覧表示する（参加日、最終同期の時刻、IP、おおよその所在地）')
+  .description('同期に参加している PC と、解除した PC を一覧表示する（参加日、最終同期の時刻）')
   .option('--json', '結果を JSON で 1 行出力する')
   .action(async (o: { json?: boolean }) => {
     const home = hangarHome();
@@ -116,12 +150,13 @@ cloud
 
 cloud
   .command('revoke <id>')
-  .description('他の PC を同期から解除する（その PC の端末トークンを無効にする。ID は hangar cloud devices で確認する）')
+  .description('他の PC を同期から解除する（端末トークンを無効にし、暗号鍵を再生成して残りの PC に配布する。hangar の起動中に行う。ID は hangar cloud devices で確認する）')
   .option('--yes', '確認せずに解除する')
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
-  .action(async (id: string, o: { yes?: boolean; json?: boolean }) => {
+  .option('--port <n>', '動いている hangar のポート', '4177')
+  .action(async (id: string, o: { yes?: boolean; json?: boolean; port: string }) => {
     const home = hangarHome();
-    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, confirm: promptWord });
+    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, port: Number(o.port), confirm: promptWord });
   });
 
 cloud

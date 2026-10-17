@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
@@ -156,7 +156,6 @@ export type Effect =
   | { kind: 'api.takeoverStart'; sessionId: string; force: boolean }
   | { kind: 'api.takeoverExtend'; sessionId: string }
   | { kind: 'api.takeoverCancel'; sessionId: string }
-  | { kind: 'api.joinToken' }
   // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
   | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
   | { kind: 'api.configSyncApply'; entries: ConfigApplyOrderEntryIn[] | null }
@@ -328,6 +327,11 @@ export type State = {
    * 「プロジェクトで見る」か「あとで決める」で空にする。帯の件数には入らない。
    */
   arrivedProjects: string[];
+  /**
+   * スマホからの依頼でこの PC が起こした会話の右下の通知（試作 F1、サーバーの phone.launch）。受信した順で、同じ会話は 1 枚にまとめる。
+   * 「開く」「停止」と、通常の通知の時間切れで下げる。Bypass permissions の通知は時間では下げない。
+   */
+  phoneLaunches: PhoneLaunchDto[];
   /** 戻る時刻を過ぎたと OS の通知で知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
   returnSeen: string[];
   /**

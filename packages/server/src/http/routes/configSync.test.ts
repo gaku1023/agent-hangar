@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeCloudClient } from '../../../test/fake-cloud.ts';
 import { openDb, type Db } from '../../db/open.ts';
 import { applyRemoteChange } from '../../sync/apply.ts';
-import { deriveFileKey } from '../../sync/crypto.ts';
 import { ConfigSyncService } from '../../sync/config/service.ts';
 import { createApp } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
@@ -14,7 +13,6 @@ import { H, testDeps, type TestWorld } from '../testing.ts';
 // 設定の同期（作り直した実装）の経路の試験。経路は routes/sync.ts にある。
 // 相手の PC は、別の DB と別の ~/.claude を持つもう 1 つのサービスで作り、偽のクラウドで束を渡す。
 
-const key = deriveFileKey('join-secret');
 const SECRET = 'key = sk-ant-api03-AbCdEfGhIjKlMnOpQrSt0123456789';
 let t: TestWorld;
 let tmp: string;
@@ -42,14 +40,16 @@ beforeEach(async () => {
   // 束の行を知る Worker で、同期はもう Worker と話して版を知っている。
   cloud.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
   const talk = (c: FakeCloudClient): FakeCloudClient => { void c.health(); c.calls.length = 0; return c; };
-  service = new ConfigSyncService({ db: t.db, deviceId: 'd', deviceName: 'mac', claudeDir: myClaude, home: myHome, cloud: talk(cloud.asDevice('d')), key, enabled: () => true, switchedOn: () => true, approval: () => state.approval });
+  const mine = talk(cloud.asDevice('d'));
+  service = new ConfigSyncService({ db: t.db, deviceId: 'd', deviceName: 'mac', claudeDir: myClaude, home: myHome, cloud: mine, keyring: mine.keyring, enabled: () => true, switchedOn: () => true, approval: () => state.approval });
   state.approval = 'each';
   const peerDb = openDb(':memory:');
   const peerClaude = path.join(tmp, 'peer-claude');
   fs.mkdirSync(peerClaude);
+  const theirs = talk(cloud.asDevice('peer'));
   peer = {
     db: peerDb, claudeDir: peerClaude,
-    service: new ConfigSyncService({ db: peerDb, deviceId: 'peer', deviceName: 'mini', claudeDir: peerClaude, home: path.join(tmp, 'peer-home'), cloud: talk(cloud.asDevice('peer')), key, enabled: () => true, switchedOn: () => true, approval: () => 'each' }),
+    service: new ConfigSyncService({ db: peerDb, deviceId: 'peer', deviceName: 'mini', claudeDir: peerClaude, home: path.join(tmp, 'peer-home'), cloud: theirs, keyring: theirs.keyring, enabled: () => true, switchedOn: () => true, approval: () => 'each' }),
   };
   app = createApp({ ...t.deps, configBundle: service });
 });

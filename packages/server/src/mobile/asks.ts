@@ -1,7 +1,7 @@
 import { aadAsk, aadReply, isSafeRelPath, MOBILE_REPLY_MAX_BYTES, open, seal, type MobileReply } from '@agent-hangar/shared';
 import { changedFiles, listProjectFiles, listRecentFiles } from '../prompt/files.ts';
 import { listPromptCommandsWithKind, type PromptCommandKind } from '../provider/claude-code/prompt/commands.ts';
-import { mobileKeyFor } from './publisher.ts';
+import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 
 /** `@` の問いが空のときに返す件数。 */
 export const ASK_RECENT_FILES = 30;
@@ -15,8 +15,8 @@ export const ASK_DESCRIPTION_MAX = 120;
 type CommandRow = { name: string; description: string; kind: PromptCommandKind; uses: number };
 
 export type AskDeps = {
-  /** 参加の秘密。スマホの鍵（mobileKeyFor）を導く。 */
-  joinSecret: string;
+  /** スマホ用の鍵 M。問い合わせが名乗る世代（呼び鈴の epoch）の M で開き、答えも同じ世代で封じる。 */
+  phoneKeys: Pick<PhoneKeySource, 'at'>;
   /** この PC の端末 ID。問い合わせの封の AAD（aadAsk）の宛先と照らす。 */
   deviceId: string;
   /** この PC にあるプロジェクトの根。無ければ null。 */
@@ -129,16 +129,19 @@ function fitReply(reply: MobileReply, budget: number): MobileReply {
 }
 
 /**
- * 呼び鈴で届いた問い合わせ（`{t:'ask', id, sealed}`）に答える。
- * 封はスマホの鍵で、AAD は aadAsk(id, この PC)。開けなければ（別の宛先、別の ID、別の鍵、壊れた封）null を返し、答えない。
- * 答えは aadReply(id) で封じ、呼び鈴の 1 通が MOBILE_REPLY_MAX_BYTES に収まるまで一覧の後ろから落とす。
+ * 呼び鈴で届いた問い合わせ（`{t:'ask', id, sealed, epoch}`）に答える。
+ * 封はスマホ用の鍵 M の epoch の世代で、AAD は aadAsk(id, この PC)。
+ * その世代の鍵が無い（名簿を読み直しても見つからない）か、開けなければ（別の宛先、別の ID、別の鍵、壊れた封）null を返し、答えない。スマホは 5 秒で待つのをやめる。
+ * 答えは同じ世代の M と aadReply(id) で封じ、呼び鈴の 1 通が MOBILE_REPLY_MAX_BYTES に収まるまで一覧の後ろから落とす。
  * Worker と Durable Object は中身を読めない。投げない。
  */
-export async function answerAsk(d: AskDeps, id: string, sealed: string): Promise<string | null> {
+export async function answerAsk(d: AskDeps, id: string, sealed: string, epoch: number): Promise<string | null> {
   let key: CryptoKey;
   let ask: unknown;
   try {
-    key = await mobileKeyFor(d.joinSecret);
+    const phoneKey = await d.phoneKeys.at(epoch);
+    if (!phoneKey) return null;
+    key = phoneKey.key;
     ask = await open<unknown>(key, aadAsk(id, d.deviceId), sealed);
   } catch {
     return null;

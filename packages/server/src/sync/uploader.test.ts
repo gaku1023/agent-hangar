@@ -3,20 +3,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
-import { gunzipSync } from 'node:zlib';
-import { COMPAT_VERSION, type FileMetaIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION, fromBase64Url, type FileMetaIn } from '@agent-hangar/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { FakeCloudClient, MAX_BODY_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { CloudError, LimitError } from './client.ts';
-import { decryptBuffer, deriveFileKey, sha256Hex } from './crypto.ts';
+import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
+import { sha256Hex } from './crypto.ts';
+import { Keyring } from './keyring.ts';
+import { ledgerKeyOfPath } from './ledgerKey.ts';
 import { SyncStateStore } from './state.ts';
 import { TRANSCRIPTS_FROM } from './transcriptsFrom.ts';
 import { REUPLOAD_GAP_MS, TranscriptUploader } from './uploader.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
-const key = deriveFileKey('join-secret');
+/** 手元の台帳（file_sync）の鍵。R2 の鍵名は HMAC で、blobOf で求める。 */
 const MAIN_KEY = `transcripts/dev-a/${UUID}.jsonl.gz`;
 
 let db: Db;
@@ -30,8 +32,16 @@ const errors: { path: string; message: string }[] = [];
 const projDir = () => path.join(claudeDir, 'projects', '-Users-me-workspace-alpha');
 const mainFile = () => path.join(projDir(), `${UUID}.jsonl`);
 const write = (file: string, text: string) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
-const make = () => new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, key, state, now: () => timers.now, timers, isPaused: () => paused, onError: (p, m) => errors.push({ path: p, message: m }) });
-const plainBuf = async (k: string) => gunzipSync(await decryptBuffer(key, cloud.files.get(k)!.body));
+const make = () => new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: cloud.keyring, state, now: () => timers.now, timers, isPaused: () => paused, onError: (p, m) => errors.push({ path: p, message: m }) });
+/** 台帳の鍵から、偽の Worker に置かれる R2 の鍵名を求める。 */
+const blobOf = async (ledger: string): Promise<string> => {
+  const m = /^transcripts\/dev-a\/([^/]+?)(?:\/subagents\/agent-([^/]+))?\.jsonl\.gz$/.exec(ledger)!;
+  return cloud.transcriptKey(m[1]!, m[2] ?? null);
+};
+/** 偽の Worker に置かれたものを開き、台帳の鍵の形で並べる。 */
+const storedKeys = async (): Promise<string[]> => (await cloud.openedFiles()).map((e) => ledgerKeyOfPath(e.deviceId, e.path)!);
+const opened = async (k: string) => (await cloud.openedFile(await blobOf(k)))!;
+const plainBuf = async (k: string) => (await opened(k)).body;
 const plain = async (k: string) => (await plainBuf(k)).toString();
 const puts = () => cloud.calls.filter((c) => c.method === 'putFile').length;
 const skipRow = () => state.get(`skipped:${MAIN_KEY}`);
@@ -82,12 +92,81 @@ describe('TranscriptUploader', () => {
     expect(cloud.files.size).toBe(0);
     await timers.advance(1_000);
     await up.idle();
-    expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
+    expect((await storedKeys())).toEqual([MAIN_KEY]);
     expect(await plain(MAIN_KEY)).toBe('{"a":1}\n');
-    expect(cloud.files.get(MAIN_KEY)!.entry).toMatchObject({
-      path: `projects/-Users-me-workspace-alpha/${UUID}.jsonl`, kind: 'transcript', encrypted: true, size: 8, sha256: sha256Hex('{"a":1}\n'),
+    expect((await opened(MAIN_KEY)).entry).toMatchObject({
+      path: `projects/-Users-me-workspace-alpha/${UUID}.jsonl`, kind: 'transcript', epoch: 1, origin: 'dev-a', size: 8, sha256: sha256Hex('{"a":1}\n'),
     });
     expect(db.prepare('select * from file_sync where key = ?').get(MAIN_KEY)).toMatchObject({ kind: 'transcript', device_id: 'dev-a', sha256: sha256Hex('{"a":1}\n'), size: 8, remote_seq: 1 });
+    up.stop();
+  });
+
+  it('R2 の鍵名と files の行にパスとセッションの UUID が無い', async () => {
+    const sub = path.join(projDir(), UUID, 'subagents', 'agent-abc123.jsonl');
+    write(sub, '{"sub":1}\n');
+    const up = make();
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    expect(await up.uploadFile({ path: sub, sessionId: UUID, agentId: 'abc123' })).toBe('uploaded');
+    const stored = [...cloud.files.values()];
+    expect(stored).toHaveLength(2);
+    for (const f of stored) expect(f.entry.key).toMatch(/^b\/dev-a\/[A-Za-z0-9_-]{43}$/);
+    const dump = stored.map((f) => [JSON.stringify(f.entry), Buffer.from(fromBase64Url(f.entry.sealedMeta)!).toString('latin1'), f.body.toString('latin1')].join('|')).join('\n');
+    for (const plainText of [UUID, UUID.slice(0, 8), 'abc123', 'subagents', 'workspace-alpha', 'projects', 'jsonl', sha256Hex('{"a":1}\n')]) expect(dump).not.toContain(plainText);
+    // 開けば、パスと平文の指紋が戻る。
+    expect((await storedKeys()).sort()).toEqual([MAIN_KEY, `transcripts/dev-a/${UUID}/subagents/agent-abc123.jsonl.gz`].sort());
+    up.stop();
+  });
+
+  it('同じ本文の 2 回目の PUT は同じ鍵名に置き直す', async () => {
+    const up = make();
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    const first = [...cloud.files.keys()];
+    write(mainFile(), '{"a":1}\n{"a":2}\n');
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    expect([...cloud.files.keys()]).toEqual(first);
+    expect(first).toEqual([await blobOf(MAIN_KEY)]);
+    expect(cloud.files.get(first[0]!)!.entry.seq).toBe(2);
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
+    up.stop();
+  });
+
+  it('鍵名を求めた世代が今の世代でなく client に断られたら、諦めずに待ち行列に残す', async () => {
+    // client は世代 2 に進んでいるのに、uploader の鍵の束はまだ世代 1 にいる（世代を回した直後の食い違い）。
+    const ring2 = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 }));
+    cloud = new FakeCloudClient({ deviceId: 'dev-a', keyring: ring2 });
+    const stale = await Keyring.fromConfig(testCloudConfig());
+    const up = new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: stale, state, now: () => timers.now, timers, isPaused: () => paused, onError: (p, m) => errors.push({ path: p, message: m }) });
+    up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.message).toMatch(/epoch/);
+    // 直りうる失敗なので、諦めの控えを残さず、次の機会にまた試す。
+    expect(skipRow()).toBeNull();
+    expect(up.skippedUploads()).toEqual([]);
+    await stale.addEpochs({ epochs: { '2': testKey(4) } });
+    await up.flushAll();
+    expect(puts()).toBe(1);
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n');
+    up.stop();
+  });
+
+  it('世代を回した後の最初の PUT で古い世代の鍵名を消し、断られたら上げるたびには打ち直さない（6 時間ごとの掃除に任せる）', async () => {
+    const ring = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 1 }));
+    cloud = new FakeCloudClient({ deviceId: 'dev-a', keyring: ring });
+    const up = new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: ring, state, now: () => timers.now, timers, isPaused: () => paused, onError: (p, m) => errors.push({ path: p, message: m }) });
+    const deletes = () => cloud.calls.filter((c) => c.method === 'deleteBlobs').length;
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    ring.useEpoch(2);
+    write(mainFile(), '{"a":1}\n{"a":2}\n');
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    // 置いてから 1 時間たっていないので断られる。
+    expect(deletes()).toBe(1);
+    expect(cloud.files.size).toBe(2);
+    write(mainFile(), '{"a":1}\n{"a":2}\n{"a":3}\n');
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    expect(deletes()).toBe(1);
     up.stop();
   });
 
@@ -183,7 +262,7 @@ describe('TranscriptUploader', () => {
     up.noteChanged({ path: other, sessionId: otherUuid, agentId: null });
     await timers.advance(30_000);
     await up.idle();
-    expect([...cloud.files.keys()].sort()).toEqual([MAIN_KEY, `transcripts/dev-a/${otherUuid}.jsonl.gz`].sort());
+    expect((await storedKeys()).sort()).toEqual([MAIN_KEY, `transcripts/dev-a/${otherUuid}.jsonl.gz`].sort());
     expect(await plain(MAIN_KEY)).toBe('{"a":1}\n'); // 待っている方はまだ上げない。
     up.stop();
   });
@@ -225,7 +304,7 @@ describe('TranscriptUploader', () => {
     write(sub, '{"s":1}\n');
     const up = make();
     expect(await up.uploadFile({ path: sub, sessionId: UUID, agentId: 'abc123' })).toBe('uploaded');
-    expect([...cloud.files.keys()]).toEqual([`transcripts/dev-a/${UUID}/subagents/agent-abc123.jsonl.gz`]);
+    expect((await storedKeys())).toEqual([`transcripts/dev-a/${UUID}/subagents/agent-abc123.jsonl.gz`]);
     up.stop();
   });
 
@@ -278,7 +357,7 @@ describe('TranscriptUploader', () => {
     // 本文を流している最中に追記が入る状況を作る。実行中のセッションでは普通に起きる。
     cloud.putFile = (meta: FileMetaIn, body: Readable) => { fs.appendFileSync(mainFile(), line); return orig(meta, body); };
     expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
-    const entry = cloud.files.get(MAIN_KEY)!.entry;
+    const { entry } = await opened(MAIN_KEY);
     expect(entry.size).toBe(big.length);
     expect(entry.sha256).toBe(sha256Hex(big));
     expect(sha256Hex(await plainBuf(MAIN_KEY))).toBe(sha256Hex(big));
@@ -407,7 +486,7 @@ describe('TranscriptUploader', () => {
     const up = make();
     expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
     expect(await plain(MAIN_KEY)).toBe('');
-    expect(cloud.files.get(MAIN_KEY)!.entry).toMatchObject({ size: 0, sha256: sha256Hex('') });
+    expect((await opened(MAIN_KEY)).entry).toMatchObject({ size: 0, sha256: sha256Hex('') });
     up.stop();
   });
 });
@@ -427,7 +506,7 @@ describe('TranscriptUploader の取り残しの走査', () => {
     const up = make();
     expect(up.sweep()).toBe(2);
     await up.idle();
-    expect([...cloud.files.keys()].sort()).toEqual([SUB_KEY, MAIN_KEY].sort());
+    expect((await storedKeys()).sort()).toEqual([SUB_KEY, MAIN_KEY].sort());
     expect((db.prepare('select count(*) c from file_sync').get() as { c: number }).c).toBe(2);
     // 上がってしまえば、次の走査は何も積まない。
     expect(up.sweep()).toBe(0);
@@ -445,7 +524,7 @@ describe('TranscriptUploader の取り残しの走査', () => {
     expect(up.pendingSweep()).toBe(0);
     expect(up.sweep()).toBe(0);
     await up.idle();
-    expect([...cloud.files.keys()]).toEqual([]);
+    expect((await storedKeys())).toEqual([]);
     up.stop();
   });
 
@@ -633,7 +712,7 @@ describe('TranscriptUploader の走査は使い始めた時刻で区切る', () 
     const up = make();
     expect(up.sweep()).toBe(0);
     await up.idle();
-    expect([...cloud.files.keys()]).toEqual([]);
+    expect((await storedKeys())).toEqual([]);
     up.stop();
   });
 
@@ -644,7 +723,7 @@ describe('TranscriptUploader の走査は使い始めた時刻で区切る', () 
     const up = make();
     expect(up.sweep()).toBe(1);
     await up.idle();
-    expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
+    expect((await storedKeys())).toEqual([MAIN_KEY]);
     up.stop();
   });
 
@@ -672,7 +751,7 @@ describe('TranscriptUploader の走査は使い始めた時刻で区切る', () 
     expect(up.pendingSweep()).toBe(1);
     expect(up.sweep()).toBe(1);
     await up.idle();
-    expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
+    expect((await storedKeys())).toEqual([MAIN_KEY]);
     up.stop();
   });
 
@@ -703,7 +782,7 @@ describe('TranscriptUploader の走査は使い始めた時刻で区切る', () 
     expect(up.pendingSweep()).toBe(1);
     expect(up.sweep()).toBe(1);
     await up.idle();
-    expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
+    expect((await storedKeys())).toEqual([MAIN_KEY]);
     up.stop();
   });
 });

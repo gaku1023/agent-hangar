@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 /** hangar を 1 回走らせる。標準出力と標準エラーはまとめて見る。 */
-function runCli(args: string[], timeoutMs = 60_000, extraEnv: Record<string, string> = {}): Promise<{ code: number; out: string }> {
+function runCli(args: string[], timeoutMs = 60_000, extraEnv: Record<string, string> = {}, input?: string): Promise<{ code: number; out: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       env: {
@@ -54,6 +54,8 @@ function runCli(args: string[], timeoutMs = 60_000, extraEnv: Record<string, str
         ...extraEnv,
       },
     });
+    // 標準入力で渡すもの（参加コードなど）があれば書いて閉じる。
+    if (input !== undefined) child.stdin.end(input);
     let out = '';
     child.stdout.on('data', (b: Buffer) => { out += b.toString(); });
     child.stderr.on('data', (b: Buffer) => { out += b.toString(); });
@@ -120,11 +122,29 @@ describe('hangar cloud', () => {
     expect(t.out).toContain('クラウド同期は未設定です');
   });
 
-  it('join は標準入力が対話でなければ、トークンを読む前に断る', async () => {
-    // 子プロセスの標準入力はパイプなので、確認を取れない。秘密を受け取る前に止まる。
-    const r = await runCli(['join']);
-    expect(r.code).not.toBe(0);
-    expect(r.out).toContain('--force');
+  it('旧い hangar join は「参加トークンは廃止されました」と言って 1 で終わる', async () => {
+    for (const args of [['join'], ['join', 'eyJ1cmwiOiJodHRwczovL2gifQ', '--yes', '--json']]) {
+      const r = await runCli(args);
+      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.out).toContain('参加トークンは廃止されました');
+      expect(r.out).toContain('hangar cloud join');
+    }
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+  }, 20_000);
+
+  it('join-request は参加コードを標準入力から読み、形の違うコードを Worker に送らずに断る', async () => {
+    // 接続先は誰も待ち受けていないポートである。送れば unreachable などになり、invalid-code にはならない。
+    const port = await deadPort();
+    const r = await runCli(['cloud', 'join-request', `http://127.0.0.1:${port}`, '--json'], 60_000, {}, 'K7QM-2XF0\n');
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.out.trim().split('\n').at(-1)!)).toMatchObject({ ok: false, code: 'invalid-code' });
+    expect(fs.existsSync(path.join(home, 'cloud-pending.json'))).toBe(false);
+  });
+
+  it('join-poll は下書きが無ければ none を 1 行の JSON で返す', async () => {
+    const r = await runCli(['cloud', 'join-poll', '--json']);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out.trim().split('\n').at(-1)!)).toEqual({ ok: true, poll: { status: 'none' } });
   });
 });
 

@@ -1,4 +1,5 @@
-import { aadFeed, importMobileKey, seal, type MobileFeed, type MobileInboxResponse, type MobileLiveItem } from '@agent-hangar/shared';
+import { aadFeed, generatePhoneKeyPair, importMobileKey, seal, type MobileFeed, type MobileInboxResponse, type MobileLiveItem } from '@agent-hangar/shared';
+import { savePairing, savePhoneKey, savePhonePair, type Keyring, type Pairing, type PhoneKey, type PhonePair } from '../store.ts';
 
 /** 試験の「いま」。スマホの日付で 2026-10-17 の 15 時（手元の時間帯）。 */
 export const NOW = new Date(2026, 9, 17, 15, 0, 0).getTime();
@@ -6,6 +7,19 @@ export const MIN = 60_000;
 
 export const randomKeyBytes = (): Uint8Array => globalThis.crypto.getRandomValues(new Uint8Array(32));
 export const makeKey = (bytes: Uint8Array = randomKeyBytes()): Promise<CryptoKey> => importMobileKey(bytes, false);
+/** 世代 1 だけの手元の鍵。 */
+export const ring = (key: CryptoKey, epoch = 1): Keyring => new Map([[epoch, key]]);
+/** 世代つきのスマホ用の鍵（封じる側に渡す形）。 */
+export const at1 = (key: CryptoKey, epoch = 1): PhoneKey => ({ epoch, key });
+
+/** 接続済みのスマホにする（接続、鍵ペア、世代 1 の M）。 */
+export async function connectPhone(key: CryptoKey, pairing: Pairing = { url: 'https://hangar.example.workers.dev', token: 'tok-1', deviceId: 'phone-1' }): Promise<PhonePair> {
+  const pair = await generatePhoneKeyPair();
+  savePairing(pairing);
+  await savePhonePair(pair);
+  await savePhoneKey(1, key);
+  return pair;
+}
 
 export function liveItem(p: Partial<MobileLiveItem> & { sessionId: string }): MobileLiveItem {
   return {
@@ -42,7 +56,7 @@ export function feedOf(deviceId: string, deviceName: string, parts: Partial<Mobi
 export async function inboxOf(
   key: CryptoKey,
   feeds: MobileFeed[],
-  opts: { now?: number; lastSeen?: Record<string, number | null>; otherKeyFor?: string[]; updatedAt?: Record<string, number> } = {},
+  opts: { now?: number; lastSeen?: Record<string, number | null>; otherKeyFor?: string[]; updatedAt?: Record<string, number>; epoch?: number } = {},
 ): Promise<MobileInboxResponse> {
   const now = opts.now ?? NOW;
   const other = await makeKey();
@@ -51,6 +65,7 @@ export async function inboxOf(
       deviceId: f.deviceId,
       updatedAt: opts.updatedAt?.[f.deviceId] ?? now - MIN,
       sealed: await seal(opts.otherKeyFor?.includes(f.deviceId) ? other : key, aadFeed(f.deviceId), f),
+      epoch: opts.epoch ?? 1,
     })),
   );
   return {

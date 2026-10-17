@@ -1,4 +1,4 @@
-import type { TakeoverDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
+import type { TakeoverDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, MemoDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -47,5 +47,11 @@ export type ServerEvent =
    * API やほかの窓から直されても、開いている画面が準備の確かめ（道具のパスと作業フォルダ）を読み直せるようにする。
    */
   | { type: 'settings.changed'; settings: SettingsDto; keys: (keyof SettingsDto)[] }
+  /** 参加コードを発行した PC の承認の状態が変わった（設定のクラウド同期の節が切り替わる）。 */
+  | { type: 'join.update'; join: JoinApproverState }
+  /** 参加リクエストを受信した。1 つのリクエストにつき 1 回だけ配る（右下の通知）。 */
+  | { type: 'join.request'; request: JoinRequestView; expiresAt: number }
+  /** スマホからの依頼でこの PC が会話を起こした。1 つの依頼につき 1 回だけ配る（右下の通知、試作 F1）。 */
+  | { type: 'phone.launch'; launch: PhoneLaunchDto }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
   | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };

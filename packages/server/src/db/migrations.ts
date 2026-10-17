@@ -561,6 +561,29 @@ alter table mobile_launches add column answered integer not null default 0;
 `;
 
 /**
+ * この PC が上げた本文の世代の控え（版 32）。
+ * R2 の鍵名は世代の `/index` の鍵の HMAC なので、世代を回した後に上げ直した本文は、世代ごとに別の鍵名で残る。
+ * ゴミ箱の掃除（sync/trashSweep.ts）は、ここから上げた世代を引いて鍵名を求め直し、DELETE /blobs で消す。
+ * ledger_key は台帳（file_sync）と同じ形の鍵（sync/ledgerKey.ts）で、DB の外には出さない。
+ * 端末ローカルの表で、同期しない。
+ */
+const V32_BLOB_UPLOADS_SQL = `
+create table blob_uploads (ledger_key text not null, epoch integer not null, primary key (ledger_key, epoch));
+`;
+
+/**
+ * スマホの依頼で起こした会話の印（版 33、試作 F1）。
+ * session_id は起こした会話の ID、permission_mode は依頼の権限モード（空は既定）。起こせなかった依頼はどちらも null。
+ * 会話の一覧はこれを引いて SessionDto.fromPhone を載せる（ラベル「スマホから」）。
+ * 共有の sessions に列を足すと同期の形が変わるので、起こした PC の手元の表に置く。他の PC ではラベルが付かない。
+ */
+const V33_MOBILE_LAUNCH_SESSION_SQL = `
+alter table mobile_launches add column session_id text;
+alter table mobile_launches add column permission_mode text;
+create index mobile_launches_session on mobile_launches(session_id);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -582,4 +605,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 29, sql: V29_MOBILE_LAUNCHES_SQL },
   { version: 30, sql: V30_RUN_REMOTE_URLS_SQL },
   { version: 31, sql: V31_MOBILE_LAUNCH_ANSWERS_SQL },
+  { version: 32, sql: V32_BLOB_UPLOADS_SQL },
+  { version: 33, sql: V33_MOBILE_LAUNCH_SESSION_SQL },
 ];
