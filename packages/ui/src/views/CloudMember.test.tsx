@@ -294,7 +294,7 @@ describe('この PC の参加を解除', () => {
 describe('この PC が解除されたとき', () => {
   it('節の先頭に帯を出し、参加し直すか、同期の設定を削除するかを選べる', () => {
     const onAction = vi.fn();
-    render(ui(<CloudRevokedBand m={props({}, { sync: { ...SYNC, state: 'error', revoked: true, pending: 3 } })} joinCommand="hangar join <token>" />, onAction));
+    render(ui(<CloudRevokedBand m={props({}, { sync: { ...SYNC, state: 'error', revoked: true, pending: 3 } })} joinCommand="hangar cloud join <URL>" />, onAction));
     expect(screen.getByRole('alert')).toHaveTextContent('この PC は同期から解除されました');
     expect(screen.getByRole('alert')).toHaveTextContent('3 件');
     fireEvent.click(screen.getByRole('button', { name: 'この PC の同期の設定を削除' }));

@@ -15,7 +15,7 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.compat.deviceNeed': 'この PC の hangar が古いため、クラウドと同期できません（この PC の互換バージョンは {have}、必要なバージョンは {need} 以上）。この PC の hangar を更新してください',
   'sync.compat.deviceNewer': 'この PC の hangar が古いため、クラウドと同期できません（この PC の互換バージョンは {have}、必要なのはそれより新しいバージョン）。この PC の hangar を更新してください',
   'sync.compat.worker': 'クラウドの Worker が古いため、同期を停止しました（Worker の互換バージョンは {have}、この PC に必要なバージョンは {need} 以上）。setup した PC で、リポジトリを clone して npm install したディレクトリから npm run hangar -- setup cloud をもう一度実行し、Worker を更新してから「今すぐ同期」をクリックしてください',
-  'sync.revoked.thisPc': 'この PC は同期から解除されました。他の PC で、この PC の参加が解除されています。もう一度参加するには、参加トークンで参加してください',
+  'sync.revoked.thisPc': 'この PC は同期から解除されました。他の PC で、この PC の参加が解除されています。もう一度参加するには、参加コードで再参加してください',
   'sync.devices.workerOutdated': 'クラウドの Worker が古いため、PC の一覧と解除を使えません。setup した PC で、リポジトリを clone して npm install したディレクトリから npm run hangar -- setup cloud をもう一度実行し、Worker を更新してください',
   'sync.join.notifyTitle': '参加リクエストを受信しました',
   'sync.join.notifyBody': '{name}（{os}）からの参加リクエストです。確認コードは {sas} です',

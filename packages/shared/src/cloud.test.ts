@@ -1,19 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLOUD_FREE_LIMITS, r2Included, decodeHeaderText, decodeJoinToken, encodeFileKeyPath, encodeHeaderText, encodeJoinToken, isAllowedJoinUrl, isHeaderSafe, isSafeKeyId, isSafeRelPath, type JoinToken, MAX_ID_CHARS, MAX_JOIN_TOKEN_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK } from './cloud.ts';
-
-describe('参加トークン', () => {
-  it('URL と秘密を base64url の JSON で往復する', () => {
-    const t = { url: 'https://hangar.example.workers.dev', secret: 'abc+/=xyz' };
-    const s = encodeJoinToken(t);
-    expect(s).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(decodeJoinToken(s)).toEqual(t);
-  });
-  it('壊れた文字列と欠けた項目は Error', () => {
-    expect(() => decodeJoinToken('!!!')).toThrow();
-    expect(() => decodeJoinToken(encodeJoinToken({ url: 'x', secret: '' } as never))).toThrow('参加トークン');
-    expect(() => decodeJoinToken(btoa('{"url":1}'))).toThrow('参加トークン');
-  });
-});
+import { CLOUD_FREE_LIMITS, r2Included, decodeHeaderText, encodeFileKeyPath, encodeHeaderText, isAllowedJoinUrl, isHeaderSafe, isSafeKeyId, isSafeRelPath, MAX_ID_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK } from './cloud.ts';
 
 describe('鍵と表', () => {
   it('共有テーブルは 16 で、主キーは session_summaries と session_states と project_memos と config_snapshots だけが違う', () => {
@@ -44,51 +30,33 @@ describe('鍵と表', () => {
   });
 });
 
-describe('参加トークンの宛先の検査', () => {
-  const wrap = (url: string): string => encodeJoinToken({ url, secret: 'S3CRET-0123456789' } as JoinToken);
+describe('参加の接続先の検査', () => {
   it('https 以外のスキームを断る', () => {
     for (const u of ['javascript:alert(1)', 'file:///etc/passwd', 'http://evil.example.com', 'ftp://x.example.com', 'data:text/html,x']) {
-      expect(() => decodeJoinToken(wrap(u))).toThrow('参加トークン');
+      expect(isAllowedJoinUrl(u), u).toBe(false);
     }
   });
   it('URL として読めない文字列を断る', () => {
     for (const u of ['not a url at all', 'x', '//evil.example.com', 'https://']) {
-      expect(() => decodeJoinToken(wrap(u))).toThrow('参加トークン');
+      expect(isAllowedJoinUrl(u), u).toBe(false);
     }
   });
   it('開発とテスト用の loopback の http だけは通す', () => {
     for (const u of ['http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787']) {
-      expect(decodeJoinToken(wrap(u)).url).toBe(u);
+      expect(isAllowedJoinUrl(u), u).toBe(true);
     }
     expect(isAllowedJoinUrl('https://hangar.example.workers.dev')).toBe(true);
-    expect(isAllowedJoinUrl('http://127.0.0.1:8787')).toBe(true);
-    expect(isAllowedJoinUrl('http://evil.example.com')).toBe(false);
   });
   it('ユーザ情報とパスと問い合わせと素片のついた URL を断る', () => {
     for (const u of ['https://user:pass@x.workers.dev', 'https://user@x.workers.dev', 'https://x.workers.dev/join', 'https://x.workers.dev/?a=1', 'https://x.workers.dev/#f']) {
-      expect(() => decodeJoinToken(wrap(u))).toThrow('参加トークン');
+      expect(isAllowedJoinUrl(u), u).toBe(false);
     }
     // 素の origin は、末尾のスラッシュの有無にかかわらず通る。
-    expect(decodeJoinToken(wrap('https://x.workers.dev')).url).toBe('https://x.workers.dev');
-    expect(decodeJoinToken(wrap('https://x.workers.dev/')).url).toBe('https://x.workers.dev/');
+    expect(isAllowedJoinUrl('https://x.workers.dev')).toBe(true);
+    expect(isAllowedJoinUrl('https://x.workers.dev/')).toBe(true);
   });
-  it('長すぎるトークンと長すぎる URL を断る', () => {
-    expect(() => decodeJoinToken('a'.repeat(MAX_JOIN_TOKEN_CHARS + 1))).toThrow('参加トークン');
-    expect(() => decodeJoinToken(wrap('https://' + 'a'.repeat(MAX_JOIN_URL_CHARS) + '.workers.dev'))).toThrow('参加トークン');
-  });
-  it('断るときに秘密の断片を例外に載せない', () => {
-    const secret = 'S3CRET-do-not-leak-me-0123456789';
-    for (const u of ['javascript:alert(1)', 'https://user:pass@x.workers.dev', 'not a url']) {
-      let caught: unknown;
-      try { decodeJoinToken(encodeJoinToken({ url: u, secret } as JoinToken)); } catch (e) { caught = e; }
-      expect(caught).toBeInstanceOf(Error);
-      const err = caught as Error;
-      expect(err.message).not.toContain(secret);
-      expect(err.message).not.toContain('S3CRET');
-      expect(String(err.stack)).not.toContain('S3CRET');
-      // 入力そのものも載せない。
-      expect(err.message).not.toContain(u);
-    }
+  it('長すぎる URL を断る', () => {
+    expect(isAllowedJoinUrl('https://' + 'a'.repeat(MAX_JOIN_URL_CHARS) + '.workers.dev')).toBe(false);
   });
 });
 
@@ -106,28 +74,6 @@ describe('相対パスと ID の検査', () => {
   });
 });
 
-describe('折り返された参加トークン', () => {
-  const t: JoinToken = { url: 'https://hangar.example.workers.dev', secret: 'S3CRET-0123456789-abcdefghij' };
-  const token = encodeJoinToken(t);
-  it('途中に改行や空白が入っていても読める', () => {
-    // 1Password やメールに貼ると折り返しが入る。空白の個数で成否が変わってはいけない。
-    for (const n of [1, 2, 3, 4, 5]) {
-      const wrapped = token.slice(0, 20) + '\n'.repeat(n) + token.slice(20);
-      expect(decodeJoinToken(wrapped)).toEqual(t);
-      expect(decodeJoinToken(token.slice(0, 20) + ' '.repeat(n) + token.slice(20))).toEqual(t);
-    }
-    // 80 字ごとに折り返した形も読める。
-    expect(decodeJoinToken(token.replace(/(.{20})/g, '$1\r\n'))).toEqual(t);
-    expect(decodeJoinToken('  ' + token + '\n')).toEqual(t);
-  });
-  it('空白だけでは別のトークンにならない', () => {
-    expect(decodeJoinToken(token.replace(/(.{7})/g, '$1 \t\n'))).toEqual(decodeJoinToken(token));
-    expect(() => decodeJoinToken('   \n\t  ')).toThrow('参加トークン');
-  });
-  it('長さの上限は空白を取り除く前に見る', () => {
-    expect(() => decodeJoinToken(' '.repeat(MAX_JOIN_TOKEN_CHARS + 1))).toThrow('参加トークンが長すぎます');
-  });
-});
 
 describe('見出しに載せる文字列の符号化', () => {
   // HTTP の見出しの値は ByteString しか運べない。

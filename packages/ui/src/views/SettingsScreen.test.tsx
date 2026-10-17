@@ -358,6 +358,26 @@ describe('設定のクラウド同期', () => {
     for (const name of ['今すぐ同期', '同期を一時停止', 'PC を追加', '適用内容を確認']) expect(screen.queryByRole('button', { name })).toBeNull();
     expect(screen.queryByRole('region', { name: 'クラウドの使用量と料金' })).toBeNull();
   });
+  it('古い形式の cloud.json で止まっている PC には、未参加の説明の代わりに再構築が必要なことと手順の行き先を出す', () => {
+    const docUrl = 'https://example.test/docs/cloud-sync.md#rebuild';
+    render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '再構築が必要', tone: 'warn' }, devices: [], legacy: { statusCommand: 'hangar cloud status', docUrl } }) })));
+    expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ })).toHaveTextContent('再構築が必要');
+    const band = screen.getByRole('alert');
+    expect(within(band).getByText('クラウドの再構築が必要です')).toBeInTheDocument();
+    expect(within(band).getByText(/0\.8\.x までの古い形式/)).toBeInTheDocument();
+    const link = within(band).getByRole('link', { name: /再構築の手順を開く/ });
+    expect(link).toHaveAttribute('href', docUrl);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByText('hangar cloud status')).toBeInTheDocument();
+    // 「この PC だけで使用しています」は事実と違うので出さない。参加コードでの参加は、再構築の手順の 5 で使うので残す。
+    expect(screen.queryByText(/この PC だけで使用しています/)).toBeNull();
+    expect(screen.getByRole('button', { name: '参加コードで参加' })).toBeInTheDocument();
+  });
+  it('印の無い未参加の PC には、再構築の帯を出さない', () => {
+    render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [], legacy: null }) })));
+    expect(screen.queryByText('クラウドの再構築が必要です')).toBeNull();
+    expect(screen.getByText(/この PC だけで使用しています/)).toBeInTheDocument();
+  });
   it('2 つのボタンは、押すとターミナルで打つコマンドを出す（クラウドの用意はアプリからはまだ行わない）', () => {
     render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [] }) })));
     expect(screen.queryByText('npm run hangar -- setup cloud')).toBeNull();

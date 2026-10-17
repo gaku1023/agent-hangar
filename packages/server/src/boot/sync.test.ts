@@ -174,6 +174,8 @@ describe('同期の組み立て', () => {
     try {
       const b = boot();
       expect(b.status().state).toBe('off');
+      // 壊れているのは古い形ではないので、作り直しの印は立てない。
+      expect(b.status().legacyConfig).toBeUndefined();
     } finally {
       console.error = real;
     }
@@ -188,6 +190,8 @@ describe('同期の組み立て', () => {
     try {
       const b = boot({ start: true });
       expect(b.status().state).toBe('off');
+      // 設定の画面が「未参加」と見分けて作り直しを案内できるよう、印を載せる。
+      expect(b.status().legacyConfig).toBe(true);
       expect(b.sync.uploader).toBeNull();
       expect(b.sync.mobileLink()).toBeNull();
       expect(b.sync.joinApprover()).toBeNull();
@@ -845,11 +849,13 @@ describe('cloud.json が後から現れる', () => {
       const b = boot({ start: true });
       await new Promise((r) => setTimeout(r, 200));
       expect(b.status().state).toBe('off');
+      expect(b.status().legacyConfig).toBe(true);
       expect(rec.seen).toEqual([]);
       joinTo(rec.url);
       await until(() => (rec.seen.length > 0 ? true : null), 3000);
       expect(b.status().state).not.toBe('off');
       expect(b.status().url).toBe(rec.url);
+      expect(b.status().legacyConfig).toBeUndefined();
       expect(b.sync.uploader).not.toBeNull();
     } finally {
       console.error = real;

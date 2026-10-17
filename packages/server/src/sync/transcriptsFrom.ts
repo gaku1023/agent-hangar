@@ -63,7 +63,7 @@ export function stampTranscriptsFrom(home: string, now: number): number {
  *
  * setup cloud と join は、Worker の配備や参加の要求の後で床を刻む。
  * そこで初めて DB を開くと、マイグレーションの前の控え（db/backup.ts）が取れないときに、
- * Cloudflare に資源を作り、参加し、cloud.json を書いた後で止まり、参加トークンも出ない。
+ * Cloudflare に資源を作り、参加し、cloud.json を書いた後で止まってしまう。
  * 処理の先頭でこれを呼べば、控えとマイグレーションは外に何も作らないうちに済む（取れなければここで投げる）。
  * 刻むのは stamp（戻り値は刻んだ後の床）、閉じるのは close で、呼び手は finally で閉じる。
  */

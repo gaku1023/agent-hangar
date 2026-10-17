@@ -39,7 +39,7 @@ export const defaultInteractive: Interactive = (args, o) =>
  * wrangler 4.135 は am-i-vibing 0.5.0 の一覧で判定し（src/utils/detect-agent.ts）、見るのは環境変数だけである（祖先のプロセスは見ない）。
  * エージェントと判定すると、deploy は workers.dev のサブドメインが無いアカウントで、問わずに package.json の名前で登録しに行く
  * （runDeployCommandHandler の autoRegisterWorkersDevSubdomain）。
- * サブドメインは Worker の URL に出て、あとで変えると URL と参加トークンが変わるので、利用者が自分で決める。
+ * サブドメインは Worker の URL に出て、あとで変えると URL（参加の接続先）が変わるので、利用者が自分で決める。
  * hangar の中の claude から setup cloud を打つことがあるので、ここに挙げた印は wrangler に渡さない。
  * 一覧は、その道具だけが立てる変数に絞った。TERM_PROGRAM や PAGER のように他の用途のある変数との組み合わせで見るものは外さない。
  */
