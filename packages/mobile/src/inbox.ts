@@ -40,6 +40,8 @@ export type InboxView = {
   feeds: MobileFeed[];
   /** Worker の時刻からスマホの時刻を引いた差（ms）。待った時間や何分前は、スマホの時刻にこれを足して測る。 */
   skewMs: number;
+  /** 受信箱の応答の見出しから読んだ Worker の版。分からなければ null（古いとはみなさない）。 */
+  workerCompat?: number | null;
 };
 
 /**
@@ -76,7 +78,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  * - skewMs に Worker とスマホの時計の差を持つ。PC の時刻（statusAt、startedAt）との差は、これで直したスマホの時刻で測る。
  * - 同じ sessionId が複数の PC から来たら、live を優先し、次に新しい時刻のもの（returns は時刻を持たないので最も古い扱い）。
  */
-export async function openInbox(res: MobileInboxResponse, key: CryptoKey, now: Date): Promise<InboxView> {
+export async function openInbox(res: MobileInboxResponse & { workerCompat?: number | null }, key: CryptoKey, now: Date): Promise<InboxView> {
   const workerNow = num(res.now) ?? now.getTime();
   const devices: DeviceAlive[] = arr(res.devices)
     .map((d) => {
@@ -171,5 +173,5 @@ export async function openInbox(res: MobileInboxResponse, key: CryptoKey, now: D
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0) || a.sessionId.localeCompare(b.sessionId));
 
   const skewMs = num(res.now) !== null ? workerNow - now.getTime() : 0;
-  return { waiting, running, returning, doneToday, devices, unreadable, feeds, skewMs };
+  return { waiting, running, returning, doneToday, devices, unreadable, feeds, skewMs, workerCompat: res.workerCompat ?? null };
 }

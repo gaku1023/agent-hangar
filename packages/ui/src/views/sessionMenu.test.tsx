@@ -164,7 +164,7 @@ describe('移す先のダイアログ（2A）', () => {
   it('見出し、本文、検索の欄、最近とすべての区切り、注意書きを出す。しまったものは並べず、全 PC で 1 つのクイックセッションを並べる', () => {
     mountMove();
     const dialog = screen.getByRole('dialog', { name: 'プロジェクトの変更' });
-    expect(dialog).toHaveTextContent('「ログイン画面の直し」の移動先を選んでください。');
+    expect(dialog).toHaveTextContent('「ログイン画面の直し」の移動先を選択してください。');
     expect(screen.getByRole('combobox', { name: 'プロジェクトを検索' })).toHaveAttribute('placeholder', 'プロジェクトを検索');
     expect(screen.getByRole('group', { name: '最近' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'すべて' })).toBeInTheDocument();
@@ -259,7 +259,7 @@ describe('削除の確認（3A）', () => {
     mountDelete();
     const dialog = screen.getByRole('dialog', { name: '「ログイン画面の直し」を削除しますか？' });
     expect(dialog).toHaveTextContent('app・12 ターン');
-    expect(dialog).toHaveTextContent('トランスクリプトをゴミ箱へ移動し、hangar から削除します。同期しているほかの PC からも削除されます。ゴミ箱から戻すと、hangar にも戻ります。');
+    expect(dialog).toHaveTextContent('トランスクリプトをゴミ箱へ移動し、hangar から削除します。同期している他の PC からも削除されます。ゴミ箱から戻すと、hangar にも戻ります。');
     expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
     expect(screen.getByRole('button', { name: 'ゴミ箱へ移動' })).toHaveClass('btn-danger');
   });

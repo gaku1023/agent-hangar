@@ -68,7 +68,7 @@ describe('runMcpInstall', () => {
     expect(u.message).toContain(path.join(home, 'backups'));
     expect(JSON.parse(fs.readFileSync(claudeJson, 'utf8'))).toEqual({ userID: 'u1', mcpServers: { other: { type: 'stdio' } } });
     const again = await runMcpUninstall({ home, claudeJson });
-    expect(again).toEqual({ ok: true, message: 'user スコープに MCP サーバ hangar は登録されていません。' });
+    expect(again).toEqual({ ok: true, message: 'user スコープに MCP サーバー hangar は登録されていません。' });
   });
 
   it('解除で設定ファイルが壊れていれば、書かずに失敗として返す', async () => {

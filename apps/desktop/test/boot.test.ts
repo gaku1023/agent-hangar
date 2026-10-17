@@ -162,7 +162,7 @@ describe('待っている間の文', () => {
   });
   it('境目を過ぎたら、今している段と件数を出す', () => {
     const late = m.CYCLE_MS;
-    expect(m.detailText(null, late)).toBe('サーバを起動中');
+    expect(m.detailText(null, late)).toBe('サーバーを起動中');
     expect(m.detailText({ phase: 'scanning', done: 0, total: 0 }, late)).toBe('セッションを確認中');
     expect(m.detailText({ phase: 'idle', done: 0, total: 0 }, late)).toBe('セッションを確認中');
     expect(m.detailText({ phase: 'indexing', done: 412, total: 1201 }, late)).toBe('インデックスを作成中 412 / 1,201 件');

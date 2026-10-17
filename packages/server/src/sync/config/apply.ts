@@ -76,8 +76,8 @@ type Prepared = { item: ConfigApplyOrderItemDto; plan: ApplyPlanItem; ref: ItemR
 function loadOrder(home: string) {
   const order = readApplyOrder(home);
   if (order && order.items.length > 0) return order;
-  if (order || !fs.existsSync(applyOrderPath(home))) throw new ApplyError('no-order', '適用の指示書がありません。Hangar の設定で、適用する項目を選んでください。');
-  throw new ApplyError('broken-order', '適用の指示書が壊れているか、読めない形です。Hangar の設定で、適用する項目を選び直してください。');
+  if (order || !fs.existsSync(applyOrderPath(home))) throw new ApplyError('no-order', '適用内容がありません。Hangar の設定で、適用する項目を選んでください。');
+  throw new ApplyError('broken-order', '適用内容が壊れているか、読み取れない形式です。Hangar の設定で、適用する項目を選び直してください。');
 }
 
 /** 指示書の書き込み先が、id から決まる場所と同じか。違えば、指示書は信用しない。 */
@@ -102,17 +102,17 @@ function contentFits(key: string, v: unknown): boolean {
 function prepare(home: string): { createdAt: number; items: Prepared[] } {
   const order = loadOrder(home);
   const inbox = readInbox(home);
-  const stale = (id: string): ApplyError => new ApplyError('stale', `指示書の項目が、いまの受信の内容と合いません（${id}）。他の PC の設定が更新された可能性があります。Hangar の設定で、適用する項目を選び直してください。`);
+  const stale = (id: string): ApplyError => new ApplyError('stale', `適用内容の項目が、現在の受信内容と一致しません（${id}）。他の PC の設定が更新された可能性があります。Hangar の設定で、適用する項目を選び直してください。`);
   const seen = new Set<string>();
   const items: Prepared[] = [];
   for (const item of order.items) {
     const parsed = parseItemId(item.id);
-    if (!parsed || seen.has(item.id)) throw new ApplyError('broken-order', '適用の指示書が壊れています（項目が重なっています）。Hangar の設定で、適用する項目を選び直してください。');
+    if (!parsed || seen.has(item.id)) throw new ApplyError('broken-order', '適用内容が壊れています（項目が重なっています）。Hangar の設定で、適用する項目を選び直してください。');
     seen.add(item.id);
-    if (!targetMatches(parsed.ref, item.target)) throw new ApplyError('unsafe', `指示書の書き込み先が項目と合いません（${item.id}）。書きません。`);
+    if (!targetMatches(parsed.ref, item.target)) throw new ApplyError('unsafe', `適用内容の書き込み先が項目と一致しません（${item.id}）。書き込みません。`);
     const remoteGone = item.sha256 === '';
-    if (item.take === 'mine' && item.op !== 'conflict') throw new ApplyError('broken-order', '適用の指示書が壊れています（競合でない項目で手元を採る指定があります）。');
-    if (item.take === 'remote' && (item.op === 'delete') !== remoteGone && item.op !== 'conflict') throw new ApplyError('broken-order', '適用の指示書が壊れています（操作と指紋が合いません）。');
+    if (item.take === 'mine' && item.op !== 'conflict') throw new ApplyError('broken-order', '適用内容が壊れています（競合でない項目でこの PC の内容を採用する指定があります）。');
+    if (item.take === 'remote' && (item.op === 'delete') !== remoteGone && item.op !== 'conflict') throw new ApplyError('broken-order', '適用内容が壊れています（操作と指紋が合いません）。');
     const act: ApplyAct = item.take === 'mine' ? 'keep' : remoteGone ? 'remove' : 'write';
     let marks: ConfigExecMark[] = [];
     let content: Buffer | null = null;
@@ -469,7 +469,7 @@ export function runApply(o: ApplyOptions): ApplyResult {
   });
 
   if (ops.length === 0) {
-    try { updateBase(o.db, items, now); } catch (e) { throw new ApplyError('write-failed', `基準の更新に失敗しました（${errText(e)}）。指示書は残しています。`); }
+    try { updateBase(o.db, items, now); } catch (e) { throw new ApplyError('write-failed', `基準の更新に失敗しました（${errText(e)}）。適用内容は削除していません。`); }
     deleteApplyOrder(o.home);
     return done(null);
   }

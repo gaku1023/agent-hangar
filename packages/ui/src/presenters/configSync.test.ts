@@ -44,7 +44,7 @@ describe('送るものの一覧（a1）', () => {
       unsent: { items: [{ id: 'secret:file:skills/x/SKILL.md', kind: 'secret', itemId: 'file:skills/x/SKILL.md', label: 'skills/x/SKILL.md', reason: 'secret:ghp_', allowed: false }, { id: 'rule:allow:1', kind: 'permission-rule', itemId: 'settings:permissions.allow', label: 'Read(//v/**)', reason: 'absolute-path', allowed: false }] },
     }));
     if (p?.part !== 'send') throw new Error('part');
-    expect(p.dropped?.rows.map((r) => [r.label, r.side])).toEqual([['env', '実行される設定'], ['permissions.additionalDirectories', '絶対パス'], ['skills/x/SKILL.md', 'シークレットらしい文字列（ghp_ 形式）'], ['Read(//v/**)', '絶対パスのルール']]);
+    expect(p.dropped?.rows.map((r) => [r.label, r.side])).toEqual([['env', '実行される設定'], ['permissions.additionalDirectories', '絶対パス'], ['skills/x/SKILL.md', 'シークレットと思われる文字列（ghp_ 形式）'], ['Read(//v/**)', '絶対パスのルール']]);
   });
   it('読み込み前は loading で、すでに入っていれば alreadyOn', () => {
     const p = presentConfigDialog(open('send'), storeOf(dto()));
@@ -69,7 +69,7 @@ describe('適用内容の確認（b1）', () => {
     expect(r.groups.every((g) => g.note !== null)).toBe(true);
     expect(r.summary).toBe('競合 1、削除 1、上書き 2、新規 1');
   });
-  it('適用の指示書に入れるのは、競合でも保留でも承諾の要るものでもない項目だけ', () => {
+  it('適用内容に入れるのは、競合でも保留でも承諾の要るものでもない項目だけ', () => {
     const r = p();
     if (r?.part !== 'review') throw new Error('part');
     expect(r.entries).toEqual([{ id: 'file:skills/old/SKILL.md' }, { id: 'file:memory/m.md' }, { id: 'settings:model' }]);
@@ -83,7 +83,7 @@ describe('適用内容の確認（b1）', () => {
     const r = presentConfigDialog(open('review'), storeOf(dto(), { inbox: { items: [...items, inb('file:skills/c/SKILL.md', 'skills', 'skills/c/SKILL.md', 'conflict', { needsApproval: true })], approval: 'each' } }));
     if (r?.part !== 'review') throw new Error('part');
     const row = (id: string) => r.groups.flatMap((g) => g.rows).find((x) => x.id === id)!;
-    expect(row('file:skills/a/SKILL.md').tag).toEqual({ tone: 'warn', text: '承諾が必要' });
+    expect(row('file:skills/a/SKILL.md').tag).toEqual({ tone: 'warn', text: '承認が必要' });
     expect(row('file:skills/c/SKILL.md').tag).toBeNull();
     expect(row('memory:p9/memory/MEMORY.md')).toMatchObject({ dim: true, tag: { tone: 'off', text: 'この PC にそのプロジェクトがありません' } });
   });
@@ -157,7 +157,7 @@ describe('設定の節の常設の行', () => {
     expect(live.unsent.rows.map((r) => [r.label, r.sendId, r.dim])).toEqual([['x', 'u', true]]);
     expect(live.backups.rows[0]).toMatchObject({ name: '20261010-110000', files: '3 件', command: 'hangar config restore 20261010-110000' });
   });
-  it('「それでも送る」を押した項目は、送ると札で言い、もう押させない', () => {
+  it('「それでも送信」を押した項目は、送ると札で言い、もう押させない', () => {
     const p = presentConfigSection(storeOf(dto({ unsent: 1 }), { unsent: { items: [{ id: 'u', kind: 'secret', itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: true }] } }), NOW);
     expect(p.unsent.rows[0]).toMatchObject({ sendId: null, tag: { text: '送信します' } });
   });
@@ -166,7 +166,7 @@ describe('設定の節の常設の行', () => {
     const p = presentConfigSection(store, NOW);
     expect(p).toMatchObject({ workerPending: true, lastSent: '2 分前', order: { count: 5, when: '1 分前', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar config apply' } });
   });
-  it('承諾待ちは承諾の仕方が毎回のときだけ数え、届いている変更の送り主を並べる', () => {
+  it('承諾待ちは承諾の仕方が毎回のときだけ数え、受信した変更の送り主を並べる', () => {
     const inbox = { items: [inb('a', 'skills', 'skills/a/SKILL.md', 'create', { needsApproval: true }), inb('b', 'memory', 'memory/b.md', 'create', { fromDevice: 'Mini' })], approval: 'each' as const };
     const each = presentConfigSection(storeOf(dto({ incoming: 2 }), { inbox }), NOW);
     expect(each).toMatchObject({ awaiting: 1, incoming: { count: 2, from: 'Studio、Mini' } });

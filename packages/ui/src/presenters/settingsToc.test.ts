@@ -62,11 +62,11 @@ describe('設定の目次（S1）', () => {
     // 受信の時刻がまだ無ければ状態だけ。
     expect(row(present(store({ sync: { ...SYNC, lastPullAt: null } })).toc, 'cloud').state).toBe('同期済み');
   });
-  it('クラウド同期は、一時停止、エラー、無料枠で停止を、それぞれの語で言う', () => {
+  it('クラウド同期は、一時停止、エラー、無料枠の上限で停止を、それぞれの語で言う', () => {
     expect(row(present(store({ sync: { ...SYNC, state: 'paused', paused: true } })).toc, 'cloud').state).toBe('同期を一時停止中');
     expect(row(present(store({ sync: { ...SYNC, state: 'error', error: 'x' } })).toc, 'cloud')).toMatchObject({ state: '同期エラー', tone: 'warn' });
-    // 無料枠で停止は、目次の幅に入るよう戻る時刻を添えない（時刻は節の中に出る）。
-    expect(row(present(store({ sync: { ...SYNC, state: 'paused', limitedUntil: NOW + 3_600_000 } })).toc, 'cloud')).toMatchObject({ state: '無料枠で停止', tone: 'warn' });
+    // 無料枠の上限で停止は、目次の幅に入るよう戻る時刻を添えない（時刻は節の中に出る）。
+    expect(row(present(store({ sync: { ...SYNC, state: 'paused', limitedUntil: NOW + 3_600_000 } })).toc, 'cloud')).toMatchObject({ state: '無料枠の上限で停止', tone: 'warn' });
   });
   it('一般は、通知の状態を言う。言語の行がまだ出ない間は、言語を言わない', () => {
     expect(row(present(store({ notify: { available: true, on: true, blocked: false } })).toc, 'general').state).toBe('通知オン');
@@ -76,7 +76,7 @@ describe('設定の目次（S1）', () => {
   it('要約エンジンは、使わないなら淡く「オフ」と言い、LM Studio に繋がらない警告を出さない', () => {
     expect(row(present(store()).toc, 'summary')).toMatchObject({ state: 'オフ', tone: 'default', label: '要約エンジン、オフ' });
     expect(row(present(store({ summarizerModels: [] })).toc, 'summary')).toMatchObject({ state: 'オフ', tone: 'default' });
-    // 鍵を知らない古いサーバの設定も「使わない」として読む。
+    // 鍵を知らない古いサーバーの設定も「使わない」として読む。
     expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: undefined } })).toc, 'summary').state).toBe('オフ');
   });
   it('要約エンジンが Claude なら、使用枠を使うことを言う', () => {

@@ -21,11 +21,11 @@ describe('「<名前> で開く」（試作の 1-2 の A）', () => {
 
 describe('エディタが見つからないときの面（試作の 1-3 の B）', () => {
   const missing = { code: 'editor_missing' as const, error: 'Cursor が見つかりません', editor: 'cursor' as const, name: 'Cursor', lastPath: '/usr/local/bin/cursor', others: ['vscode' as const, 'zed' as const, 'idea' as const], n: 2 };
-  it('理由と、設定、今回だけほかのエディタ（2 つまで）、再確認を並べる', () => {
+  it('理由と、設定、今回だけ他のエディタ（2 つまで）、再確認を並べる', () => {
     const p = presentEditorMissing({ ...initialStore(), editorMissing: { ...missing, retry: { type: 'session.openFile', sessionId: 's1', path: '/w/a.ts', line: 3 } } }, ja)!;
     expect(p).toMatchObject({ n: 2, title: 'Cursor が見つかりません', lastPath: '/usr/local/bin/cursor' });
     expect(p.choices.map((c) => [c.label, c.send])).toEqual([
-      ['設定でエディタを選ぶ', { type: 'nav.go', to: { name: 'settings', at: 'editor' } }],
+      ['設定でエディタを選択', { type: 'nav.go', to: { name: 'settings', at: 'editor' } }],
       ['今回は VS Code で開く', { type: 'session.openFile', sessionId: 's1', path: '/w/a.ts', line: 3, once: 'vscode' }],
       ['今回は Zed で開く', { type: 'session.openFile', sessionId: 's1', path: '/w/a.ts', line: 3, once: 'zed' }],
       ['再確認', { type: 'session.openFile', sessionId: 's1', path: '/w/a.ts', line: 3 }],

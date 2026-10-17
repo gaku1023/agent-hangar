@@ -1,21 +1,30 @@
+import fs from 'node:fs';
 import {
   aadAnswer,
+  aadImage,
   aadLaunch,
+  appendPaths,
   clampText,
+  isEffort,
   isModelName,
   LAUNCH_TTL_MS,
+  MOBILE_IMAGE_MAX_BYTES,
+  MOBILE_IMAGES_PER_LAUNCH,
   MOBILE_LAUNCH_ID_MAX,
   MOBILE_PROMPT_MAX,
   open,
+  openBytes,
   PERMISSION_MODE_VALUES,
   seal,
   type LaunchParams,
+  type MobileImageRef,
   type MobileLaunchAnswer,
   type MobileLaunchOut,
   type MobileLaunchPayload,
 } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { displayName } from '../db/queries.ts';
+import { pruneDrops, saveDrop } from '../prompt/drops.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { CloudError, type CloudClient } from '../sync/client.ts';
 import { mobileKeyFor } from './publisher.ts';
@@ -26,6 +35,9 @@ export const LAUNCH_CLOCK_SLACK_MS = 5 * 60_000;
 /** 答えを送れなかった依頼を送り直す長さ（扱った時刻から）。スマホは 80 秒で待つのをやめるが、受信箱の確かめのために少し長く送る。 */
 export const ANSWER_RESEND_WINDOW_MS = 10 * 60_000;
 
+/** 手元の記録（mobile_launches）を残す長さ。同じ依頼の再送は Worker の TTL（数分）で止まるので、これは重複を防ぐ控えの掃除である。 */
+export const MOBILE_LAUNCH_KEEP_MS = 7 * 24 * 60 * 60_000;
+
 type FailReason = Extract<MobileLaunchAnswer, { ok: false }>['reason'];
 
 export type MobileLaunchInboxDeps = {
@@ -33,6 +45,8 @@ export type MobileLaunchInboxDeps = {
   client: CloudClient;
   joinSecret: string;
   deviceId: string;
+  /** 画像を置く場所（PC の指示欄の添付と同じ drops）。 */
+  dropsDir: string;
   /** 会話を起こす（RunManager.start）。tmux と psmux の違いは RunManager が持つ。 */
   start: (p: LaunchParams) => LaunchResult;
   /** この PC に場所のある（未解決でない）プロジェクトか。 */
@@ -46,6 +60,26 @@ export type MobileLaunchInboxDeps = {
 
 const PERMISSION_MODES: ReadonlySet<string> = new Set(PERMISSION_MODE_VALUES);
 
+/** 封（IV 12 バイトと認証タグ 16 バイト）の分。Worker の置ける大きさ（packages/cloud の SEAL_OVERHEAD_BYTES）と同じ。 */
+const SEAL_OVERHEAD_BYTES = 28;
+
+const IMAGE_EXT: Readonly<Record<MobileImageRef['mime'], string>> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+/** 画像の控えの並びが正しいか。枚数は 1 依頼の上限まで、番号は 0 から上限の手前で重ならず、mime は許しの内、大きさは 1 枚の上限まで。 */
+function isImageRefs(v: unknown): v is MobileImageRef[] {
+  if (!Array.isArray(v) || v.length > MOBILE_IMAGES_PER_LAUNCH) return false;
+  const seen = new Set<number>();
+  for (const r of v as unknown[]) {
+    const o = r as Partial<MobileImageRef> | null;
+    if (!o || typeof o !== 'object') return false;
+    if (typeof o.n !== 'number' || !Number.isInteger(o.n) || o.n < 0 || o.n >= MOBILE_IMAGES_PER_LAUNCH || seen.has(o.n)) return false;
+    seen.add(o.n);
+    if (typeof o.mime !== 'string' || !Object.hasOwn(IMAGE_EXT, o.mime)) return false;
+    if (typeof o.bytes !== 'number' || !Number.isInteger(o.bytes) || o.bytes < 1 || o.bytes > MOBILE_IMAGE_MAX_BYTES) return false;
+  }
+  return true;
+}
+
 /** 開けた中身が依頼の形か。権限モードとモデルは、PC の新規セッションのダイアログと同じ値だけを通す（--model へそのまま渡すので、引数に読まれる形を断る）。 */
 function isPayload(v: unknown): v is MobileLaunchPayload {
   const o = v as Partial<MobileLaunchPayload> | null;
@@ -58,17 +92,20 @@ function isPayload(v: unknown): v is MobileLaunchPayload {
     typeof o.accountId === 'string' && o.accountId.length <= MOBILE_LAUNCH_ID_MAX &&
     typeof o.permissionMode === 'string' && PERMISSION_MODES.has(o.permissionMode) &&
     typeof o.model === 'string' && (o.model === '' || isModelName(o.model)) &&
-    typeof o.prompt === 'string' && o.prompt.length <= MOBILE_PROMPT_MAX
+    typeof o.prompt === 'string' && o.prompt.length <= MOBILE_PROMPT_MAX &&
+    (o.effort === undefined || isEffort(o.effort)) &&
+    (o.images === undefined || isImageRefs(o.images))
   );
 }
 
-/** 依頼から起動の params を組む。scratch ならプロジェクトを渡さない。空（既定）の権限モードとモデルは含めない。 */
-function paramsOf(p: MobileLaunchPayload): LaunchParams {
+/** 依頼から起動の params を組む。scratch ならプロジェクトを渡さない。空（既定）の権限モードとモデルと effort は含めない。prompt は画像のパスを足したものを渡せる。 */
+function paramsOf(p: MobileLaunchPayload, prompt = p.prompt): LaunchParams {
   const params: LaunchParams = p.scratch ? { scratch: true } : { projectId: p.projectId! };
   params.account = p.accountId;
   if (p.permissionMode) params.permissionMode = p.permissionMode;
   if (p.model) params.model = p.model;
-  if (p.prompt) params.prompt = p.prompt;
+  if (p.effort) params.effort = p.effort;
+  if (prompt) params.prompt = prompt;
   return params;
 }
 
@@ -85,7 +122,7 @@ const kindOf = (e: unknown): string => {
  * スマホからの起動の依頼（pull の応答の launches）を受け取って、この PC で会話を起こす。
  *
  * 1 件の扱いの順は、手元の記録（mobile_launches）にあれば何もしない、Worker で claim できなければ何もしない、
- * 開封する（開けなければ bad-payload）、時間切れを見る（expired）、プロジェクトとアカウントを確かめる、起こす、記録する、答える、である。
+ * 開封する（開けなければ bad-payload）、時間切れを見る（expired）、プロジェクトとアカウントを確かめる、画像を取って drops に置く（欠ければ images-missing）、起こす、記録する、答える、である。
  * 記録は答えより先に書く。答えを送れなくても、同じ依頼を二度起こさない。
  * 記録には封じた答えも控える。送れなかった答えは resendAnswers が、扱ってから ANSWER_RESEND_WINDOW_MS のあいだ同じ封のまま送り直す。
  * Worker が受け取るか、409（もう答えた、ほかの PC 宛て、無い ID）を返したら answered にして、それ以上送らない。
@@ -135,6 +172,7 @@ export class MobileLaunchInbox {
   }
 
   private async receiveOnce(list: MobileLaunchOut[]): Promise<void> {
+    this.pruneRecords();
     const seen = new Set<string>();
     for (const l of list) {
       if (seen.has(l.id)) continue;
@@ -144,6 +182,15 @@ export class MobileLaunchInbox {
       } catch (e) {
         console.error('[mobile] could not handle a launch request; will retry on the next pull', kindOf(e));
       }
+    }
+  }
+
+  /** 手元の記録のうち、残す長さを過ぎたものを消す。失敗しても受け取りは続ける。 */
+  private pruneRecords(): void {
+    try {
+      this.deps.db.prepare('delete from mobile_launches where handled_at < ?').run(this.deps.now() - MOBILE_LAUNCH_KEEP_MS);
+    } catch (e) {
+      console.error('[mobile] could not prune old launch records', kindOf(e));
     }
   }
 
@@ -184,21 +231,66 @@ export class MobileLaunchInbox {
     if (p.createdAt < this.deps.now() - LAUNCH_TTL_MS - LAUNCH_CLOCK_SLACK_MS) return fail('expired');
     if (!p.scratch && (p.projectId === null || !this.deps.hasProjectHere(p.projectId))) return fail('project-missing');
     if (!this.deps.hasAccount(p.accountId)) return fail('account-missing');
-    let r: LaunchResult;
+    // 画像は、起こすと決まってから取る（プロジェクトの無い依頼で本体を運ばない）。1 枚でも欠ければ起こさない。
+    // 置いた画像は、起こせたときだけ残す。それ以外の出口（欠け、起動の失敗、途中の例外）では、finally で必ず消す。
+    const saved: string[] = [];
+    let started = false;
     try {
-      r = this.deps.start(paramsOf(p));
+      let prompt = p.prompt;
+      if (p.images?.length) {
+        if (!(await this.fetchImages(key, l.id, p.images, saved))) return fail('images-missing');
+        prompt = appendPaths(p.prompt, saved);
+      }
+      let r: LaunchResult;
+      try {
+        r = this.deps.start(paramsOf(p, prompt));
+      } catch (e) {
+        // 理由の文は封じてスマホにだけ渡す。
+        return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);
+      }
+      started = true;
+      // 起こした後は、題が読めなくても started と答える（会話は動いている）。
+      let title: string;
+      try {
+        title = this.titleOf(r.sessionId, p.prompt);
+      } catch {
+        title = firstLine(p.prompt);
+      }
+      return { ok: true, sessionId: r.sessionId, title };
+    } finally {
+      if (!started) this.discard(saved);
+    }
+  }
+
+  /**
+   * 画像を Worker から取り、スマホ用の鍵で開き、drops に置く。置いたパスを saved に積む（失敗の後で呼び手が消せるように）。
+   * 取れない、開けない、上限を超える、書けないものが 1 枚でもあれば false。
+   */
+  private async fetchImages(key: CryptoKey, launchId: string, refs: MobileImageRef[], saved: string[]): Promise<boolean> {
+    const get = this.deps.client.getMobileBlob?.bind(this.deps.client);
+    if (!get) return false;
+    try {
+      pruneDrops(this.deps.dropsDir, this.deps.now());
+      for (const r of refs) {
+        const sealed = await get(launchId, r.n);
+        // 封の大きさは、開く前に確かめる（上限に封の分を足した大きさまで）。
+        if (sealed.byteLength > MOBILE_IMAGE_MAX_BYTES + SEAL_OVERHEAD_BYTES) return false;
+        const bytes = await openBytes(key, aadImage(launchId, r.n), sealed);
+        if (bytes.byteLength > MOBILE_IMAGE_MAX_BYTES) return false;
+        saved.push(saveDrop(this.deps.dropsDir, `phone-${r.n + 1}.${IMAGE_EXT[r.mime]}`, bytes, this.deps.now()).path);
+      }
+      return true;
     } catch (e) {
-      // 理由の文は封じてスマホにだけ渡す。
-      return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);
+      console.error('[mobile] could not fetch the launch images', kindOf(e));
+      return false;
     }
-    // 起こした後は、題が読めなくても started と答える（会話は動いている）。
-    let title: string;
-    try {
-      title = this.titleOf(r.sessionId, p.prompt);
-    } catch {
-      title = firstLine(p.prompt);
+  }
+
+  /** 起こさなかった依頼の画像を drops から消す。消せなかったものは drops の掃除（7 日）に任せる。 */
+  private discard(paths: string[]): void {
+    for (const f of paths.splice(0)) {
+      try { fs.unlinkSync(f); } catch { /* 無ければよい */ }
     }
-    return { ok: true, sessionId: r.sessionId, title };
   }
 
   /** 起こした会話の表示名。行がまだ無ければ、最初の指示の先頭 40 字（表示名の決め方と同じ）。 */

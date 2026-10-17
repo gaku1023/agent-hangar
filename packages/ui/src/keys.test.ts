@@ -34,8 +34,8 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'N', metaKey: true, shiftKey: true })).toBe('session.newScratch');
   });
 
-  it('⌘W の説明は、閉じるのがフォーカスのある枠のシェルタブだけだと書く', () => {
-    expect(labelOf('tab.close')).toBe('フォーカスのある枠のシェルタブを閉じる');
+  it('⌘W の説明は、閉じるのがフォーカスのあるペインのシェルタブだけだと書く', () => {
+    expect(labelOf('tab.close')).toBe('フォーカスのあるペインのシェルタブを閉じる');
   });
 
   it('文字キーは大小を問わない', () => {
@@ -243,7 +243,7 @@ describe('macOS の外のターミナルの中（Ctrl+Shift）', () => {
     expect(matchKey(cs(')', 'Digit0'), WIN_TERM)).toBeNull();
     // 本文の検索は、ターミナルが出ているときは受けない。
     expect(matchKey(cs('F', 'KeyF'), WIN_TERM)).toBeNull();
-    // ほかの文字も渡す。
+    // 他の文字も渡す。
     expect(matchKey(cs('A', 'KeyA'), WIN_TERM)).toBeNull();
     // Ctrl だけ、Esc、Ctrl+Alt+数字はターミナルのもの。
     expect(matchKey({ key: 'k', code: 'KeyK', ctrlKey: true }, WIN_TERM)).toBeNull();

@@ -59,7 +59,7 @@ describe('presentCloudMember', () => {
     const fail = (code: string) => presentCloudMember(store({ cloudMember: member({ join: { kind: 'failed', plan, failure: { code, message: 'x' } } }) }), NOW).join.failure!;
     expect(fail('forbidden')).toMatchObject({ title: 'この参加トークンは使えません', again: 'repaste' });
     expect(fail('invalid-token')).toMatchObject({ title: '参加トークンを読み取れません', again: 'repaste' });
-    expect(fail('network')).toMatchObject({ title: '宛先に接続できません', again: 'retry' });
+    expect(fail('network')).toMatchObject({ title: '接続先が応答しません', again: 'retry' });
     expect(fail('network').body).toContain('h.example');
     expect(fail('compat').again).toBe('retry');
     expect(fail('something-else')).toMatchObject({ title: '参加できませんでした', again: 'retry' });

@@ -1,7 +1,9 @@
-import { PEER_STALE_MS } from '@agent-hangar/shared';
-import { describe, expect, it } from 'vitest';
+import { COMPAT_HEADER, PEER_STALE_MS } from '@agent-hangar/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fetchInbox } from './api.ts';
 import { FEED_HIDE_AFTER_MS, openInbox } from './inbox.ts';
 import { feedOf, inboxOf, liveItem, makeKey, MIN, NOW } from './test/fixtures.ts';
+import { json, WORKER } from './test/pairText.ts';
 
 const now = new Date(NOW);
 
@@ -184,4 +186,25 @@ describe('openInbox', () => {
     const v = await openInbox(await inboxOf(key, [feedOf('pc-1', 'Mac')]), key, now);
     expect(v.feeds.map((f) => f.deviceId)).toEqual(['pc-1']);
   });
+
+  it('受信箱の応答の見出しから Worker の版を読み、workerCompat に持つ（見出しが無ければ null）', async () => {
+    const key = await makeKey();
+    const res = await inboxOf(key, [feedOf('pc-1', 'Mac')]);
+    const fetchMock = vi.fn(async () => {
+      const r = json(res);
+      r.headers.set(COMPAT_HEADER, '7');
+      return r;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const got = await fetchInbox({ url: WORKER, token: 't', deviceId: 'phone-1' });
+    expect(got.workerCompat).toBe(7);
+    expect((await openInbox(got, key, now)).workerCompat).toBe(7);
+    fetchMock.mockImplementation(async () => json(res));
+    expect((await fetchInbox({ url: WORKER, token: 't', deviceId: 'phone-1' })).workerCompat).toBeNull();
+    expect((await openInbox(res, key, now)).workerCompat).toBeNull();
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });

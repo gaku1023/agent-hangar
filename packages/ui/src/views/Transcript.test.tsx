@@ -176,7 +176,7 @@ describe('Transcript の仮想スクロール', () => {
     const tail: TranscriptItem[] = [...many(4999), toolItem(4999, 'Agent', { description: 'x' }, null, { subagent: { agentId: 'abc', label: 'Agent x' } })];
     const t = draw({ items: tail, follow: true });
     t.scrollTo(999_000);
-    fireEvent.click(t.getByText('サブエージェント abc を見る'));
+    fireEvent.click(t.getByText('サブエージェント abc を表示'));
     expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
   it('古い行を読み込むボタンと新着の知らせは仮想化の外に残る', () => {

@@ -89,7 +89,7 @@ describe('待っている間の文', () => {
   it('進み具合が届く前は、サーバの起動を待っていると出す', async () => {
     await boot();
     at(m.CYCLE_MS + 100);
-    expect($('detail').textContent).toBe('サーバを起動中');
+    expect($('detail').textContent).toBe('サーバーを起動中');
   });
   it('失敗の文が出たら、何をしているかの文を消し、殻の文を上書きしない', async () => {
     await boot();
@@ -264,7 +264,7 @@ describe('起動の失敗の札', () => {
     await boot();
     await fail();
     expect($('fail-title').textContent).toBe('ポート 4177 を別のアプリが使用しています');
-    expect($('fail-what').textContent).toContain('hangar のサーバではない別のプロセス');
+    expect($('fail-what').textContent).toContain('hangar のサーバーではない別のプロセス');
     const steps = [...$('fail-steps').querySelectorAll('li')].map((li) => li.textContent);
     expect($('fail-steps').tagName).toBe('OL');
     expect(steps).toHaveLength(3);

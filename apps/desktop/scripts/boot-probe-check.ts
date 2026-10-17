@@ -27,7 +27,7 @@ export function judge(raw: string | null, want: Want): Verdict {
   } catch {
     return wait('書き出しを読めない');
   }
-  if (d.level === 'ready') return fail('頁は読み込みが終わった合図を描いた。殻が Node を見つけて、サーバが起きている');
+  if (d.level === 'ready') return fail('頁は読み込みが終わった合図を描いた。殻が Node を見つけて、サーバーが起きている');
   if (d.level !== 'error') return wait('頁は待っている間の画面のまま');
   const wrong: string[] = [];
   if (d.card !== true) wrong.push('札が見えていない');

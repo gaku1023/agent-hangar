@@ -26,9 +26,12 @@ export type ProbeResult = Probed | 'missing' | 'failed' | 'timeout';
 /** 調べた候補とその答え。 */
 export type Tried = { node: string; result: ProbeResult };
 
+/** 候補の応答を待つ時間。殻（node.rs の PROBE_TIMEOUT）と同じ 5 秒である。 */
+const PROBE_TIMEOUT_MS = 5000;
+
 /** 候補を 1 つ起動して版、Node-API の版、アーキテクチャを訊く。 */
 export function probeNode(node: string): ProbeResult {
-  const r = spawnSync(node, ['-p', NODE_PROBE_EXPR], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+  const r = spawnSync(node, ['-p', NODE_PROBE_EXPR], { encoding: 'utf8', timeout: PROBE_TIMEOUT_MS, windowsHide: true });
   if (r.error) {
     const code = (r.error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return 'missing';
@@ -79,23 +82,23 @@ export const WINGET_NODE_LTS = 'winget install -e --id OpenJS.NodeJS.LTS';
 const TEXT = {
   ja: {
     notFound: (w: Want) => `Node ${w.min} 以上（${w.arch}）が見つかりません。`,
-    why: (w: Want) => `Hangar のデータベースと端末の部品は Node-API ${w.napi} を使うため、Node ${w.min} 以上が要ります。`,
-    running: (what: string, at: string) => `いま動いている Node：${what}、${at}`,
+    why: (w: Want) => `Hangar のデータベースとターミナルのネイティブモジュールは Node-API ${w.napi} を使うため、Node ${w.min} 以上が必要です。`,
+    running: (what: string, at: string) => `実行中の Node：${what}、${at}`,
     runningOf: (p: Probed) => `${p.version}（${p.arch}）`,
-    unknownVersion: '版は不明',
-    noPlaces: '調べた場所はありません。',
-    places: '調べた場所（この順に探し、Node-API とアーキテクチャが合う最初の 1 つを使います）：',
+    unknownVersion: 'バージョン不明',
+    noPlaces: '確認したパスはありません。',
+    places: '確認したパス（この順に検索し、Node-API とアーキテクチャが合う最初の 1 つを使います）：',
     place: (i: number, node: string, what: string) => `  ${i}. ${node}：${what}`,
-    missing: 'ファイルが無い',
-    failed: '起動できないか、Node として答えない',
-    timeout: '時間内に答えない',
+    missing: 'ありません',
+    failed: '起動できないか、Node として応答しません',
+    timeout: `${PROBE_TIMEOUT_MS / 1000} 秒以内に応答しませんでした（タイムアウト）`,
     probed: (p: Probed) => `Node ${p.version}（${p.arch}）`,
-    tooOld: (what: string) => `${what}。版が古い`,
-    wrongArch: (what: string) => `${what}。アーキテクチャが違う`,
-    zip: (w: Want) => `今の Node を置き換えずに入れるなら、nodejs.org から Node ${nodeLtsMajor(w.min)} の Windows 用 zip（${w.arch}）を取得して、別のフォルダ（例 %LOCALAPPDATA%\\Programs\\node${nodeLtsMajor(w.min)}）に展開してください。`,
-    nvm: (w: Want) => `nvm-windows を使うなら、nvm install ${nodeLtsMajor(w.min)} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。`,
-    elsewhere: (settings: string) => `ほかの場所に入れたなら、環境変数 HANGAR_NODE か ${settings} の nodePath で、その node.exe を指定してください。`,
-    winget: () => `PowerShell で ${WINGET_NODE_LTS} を実行しても入れられます（公式のインストーラで入れた今の Node は置き換わります）。`,
+    tooOld: (what: string, w: Want) => `${what}。Node ${w.min} 以上が必要です`,
+    wrongArch: (what: string, w: Want) => `${what}。${w.arch} 用が必要です`,
+    zip: (w: Want) => `現在の Node を置き換えずにインストールするには、nodejs.org から Node ${nodeLtsMajor(w.min)} の Windows 用 zip（${w.arch}）を取得して別のディレクトリ（例 %LOCALAPPDATA%\\Programs\\node${nodeLtsMajor(w.min)}）に展開し、その node.exe を指定してください。`,
+    nvm: (w: Want) => `nvm-windows を使う場合は、nvm install ${nodeLtsMajor(w.min)} でインストールしたバージョンも検出します（fnm、Volta、scoop でインストールしたバージョンと、PATH にあるバージョンも検索します）。`,
+    elsewhere: (settings: string) => `別のディレクトリにインストールした場合は、環境変数 HANGAR_NODE か ${settings} の nodePath で、その node.exe のパスを指定してください。`,
+    winget: () => `PowerShell で ${WINGET_NODE_LTS} を実行してもインストールできますが、公式のインストーラでインストールした現在の Node は置き換わります。`,
   },
   en: {
     notFound: (w: Want) => `Node ${w.min} or later (${w.arch}) was not found.`,
@@ -110,8 +113,8 @@ const TEXT = {
     failed: 'cannot start it, or it does not answer as Node',
     timeout: 'no answer in time',
     probed: (p: Probed) => `Node ${p.version} (${p.arch})`,
-    tooOld: (what: string) => `${what}, too old`,
-    wrongArch: (what: string) => `${what}, wrong architecture`,
+    tooOld: (what: string, _w: Want) => `${what}, too old`,
+    wrongArch: (what: string, _w: Want) => `${what}, wrong architecture`,
     zip: (w: Want) => `To keep your current Node, get the Windows zip of Node ${nodeLtsMajor(w.min)} (${w.arch}) from nodejs.org and extract it to a separate folder (for example %LOCALAPPDATA%\\Programs\\node${nodeLtsMajor(w.min)}).`,
     nvm: (w: Want) => `With nvm-windows, a version installed with nvm install ${nodeLtsMajor(w.min)} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).`,
     elsewhere: (settings: string) => `If it is installed somewhere else, set the HANGAR_NODE environment variable or nodePath in ${settings} to that node.exe.`,
@@ -126,8 +129,8 @@ const describeResult = (want: Want, r: ProbeResult, lang: Lang): string => {
   if (r === 'timeout') return t.timeout;
   const what = t.probed(r);
   const fit = nodeFit(r, want);
-  if (fit === 'version') return t.tooOld(what);
-  if (fit === 'arch') return t.wrongArch(what);
+  if (fit === 'version') return t.tooOld(what, want);
+  if (fit === 'arch') return t.wrongArch(what, want);
   return what;
 };
 
@@ -268,7 +271,7 @@ function readWant(dist: string): Want | string {
   try {
     text = fs.readFileSync(file, 'utf8');
   } catch {
-    return `${file} がありません。アプリの中身が壊れています。agent-hangar を入れ直してください。`;
+    return `${file} がありません。アプリのファイルが壊れています。agent-hangar を再インストールしてください。`;
   }
   try {
     const m = JSON.parse(text) as { nodeApi?: unknown; nodeMin?: unknown; arch?: unknown };
@@ -276,7 +279,7 @@ function readWant(dist: string): Want | string {
   } catch {
     // 下の案内へ進む。
   }
-  return `${file} から Node の版とアーキテクチャを読めません。アプリの中身が壊れています。agent-hangar を入れ直してください。`;
+  return `${file} から Node のバージョンとアーキテクチャを読み取れません。アプリのファイルが壊れています。agent-hangar を再インストールしてください。`;
 }
 
 /**

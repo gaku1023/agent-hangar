@@ -4,8 +4,11 @@ import {
   MobileOpenError,
   MobilePairingError,
   aadAnswer,
+  aadAsk,
   aadFeed,
+  aadImage,
   aadLaunch,
+  aadReply,
   decodePairing,
   deriveMobileKey,
   deriveMobileKeyBytes,
@@ -13,7 +16,9 @@ import {
   importMobileKey,
   isRemoteControlUrl,
   open,
+  openBytes,
   seal,
+  sealBytes,
   type PairingBlob,
 } from './mobileCrypto.ts';
 import * as shared from './index.ts';
@@ -95,6 +100,51 @@ describe('スマホ用の鍵と封じ（seal / open）', () => {
     expect(aadFeed('pc-1')).toBe('feed:pc-1');
     expect(aadLaunch('req-1', 'pc-2')).toBe('launch:req-1:pc-2');
     expect(aadAnswer('req-1')).toBe('answer:req-1');
+    expect(aadAsk('q-1', 'pc-2')).toBe('ask:q-1:pc-2');
+    expect(aadReply('q-1')).toBe('reply:q-1');
+    expect(aadImage('req-1', 2)).toBe('image:req-1:2');
+  });
+});
+
+describe('バイト列の封じ（sealBytes / openBytes）', () => {
+  it('往復で元に戻り、形は IV 12 バイトと暗号文とタグ 16 バイト', async () => {
+    const key = await deriveMobileKey(SECRET);
+    const plain = Uint8Array.from({ length: 1000 }, (_, i) => i % 251);
+    const sealed = await sealBytes(key, aadImage('r1', 0), plain);
+    expect(sealed).toBeInstanceOf(Uint8Array);
+    expect(sealed.length).toBe(12 + plain.length + 16);
+    expect(Array.from(await openBytes(key, aadImage('r1', 0), sealed))).toEqual(Array.from(plain));
+  });
+
+  it('空のバイト列も往復でき、IV は毎回変わる', async () => {
+    const key = await deriveMobileKey(SECRET);
+    const a = await sealBytes(key, aadImage('r1', 0), new Uint8Array());
+    const b = await sealBytes(key, aadImage('r1', 0), new Uint8Array());
+    expect(a.length).toBe(28);
+    expect(Buffer.from(a).equals(Buffer.from(b))).toBe(false);
+    expect((await openBytes(key, aadImage('r1', 0), a)).length).toBe(0);
+  });
+
+  it('AAD が違うもの（別の依頼、別の番号、別の用途）と、別の鍵と、壊れたものは MobileOpenError', async () => {
+    const key = await deriveMobileKey(SECRET);
+    const other = await deriveMobileKey(SECRET + 'x');
+    const sealed = await sealBytes(key, aadImage('r1', 0), new Uint8Array([1, 2, 3]));
+    await expect(openBytes(key, aadImage('r2', 0), sealed)).rejects.toBeInstanceOf(MobileOpenError);
+    await expect(openBytes(key, aadImage('r1', 1), sealed)).rejects.toBeInstanceOf(MobileOpenError);
+    await expect(openBytes(key, aadReply('r1'), sealed)).rejects.toBeInstanceOf(MobileOpenError);
+    await expect(openBytes(other, aadImage('r1', 0), sealed)).rejects.toBeInstanceOf(MobileOpenError);
+    await expect(openBytes(key, aadImage('r1', 0), new Uint8Array(5))).rejects.toBeInstanceOf(MobileOpenError);
+    const tampered = sealed.slice();
+    tampered[tampered.length - 1] = (tampered[tampered.length - 1] ?? 0) ^ 1;
+    await expect(openBytes(key, aadImage('r1', 0), tampered)).rejects.toBeInstanceOf(MobileOpenError);
+  });
+
+  it('問い合わせの AAD は宛先と ID で縛る（seal / open でも同じ）', async () => {
+    const key = await deriveMobileKey(SECRET);
+    const sealed = await seal(key, aadAsk('q1', 'pc-1'), { kind: 'files' });
+    expect(await open(key, aadAsk('q1', 'pc-1'), sealed)).toEqual({ kind: 'files' });
+    await expect(open(key, aadAsk('q1', 'pc-2'), sealed)).rejects.toBeInstanceOf(MobileOpenError);
+    await expect(open(key, aadReply('q1'), sealed)).rejects.toBeInstanceOf(MobileOpenError);
   });
 });
 

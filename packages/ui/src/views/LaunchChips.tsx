@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { EFFORT_VALUES } from '@agent-hangar/shared';
 import { isComposing } from './ime.ts';
 import { SettingChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -16,7 +17,6 @@ export type LaunchChipValues = { model: string; effort: string; permissionMode: 
 export type LaunchAccountOption = { value: string; label: string; color?: string; disabled?: boolean; tag?: string };
 
 const MODELS = ['', 'fable', 'opus', 'sonnet', 'haiku'];
-const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 /** 「＋」から足せる札。並びはここの順で、足した順ではない。 */
 const EXTRAS = ['name', 'addDirs'] as const;
 type Extra = (typeof EXTRAS)[number];
@@ -126,7 +126,7 @@ export function LaunchChips(props: {
       <ChipPopover name={t('launch.chip.effort')} value={values.effort || def} tone={values.effort ? 'default' : 'muted'}>
         {(close) => (
           <PickList label={t('launch.chip.effort')} value={values.effort}
-            items={EFFORTS.map((e, i) => ({ value: e, label: e || def, lead: e ? <EffortBars level={i} /> : undefined }))}
+            items={EFFORT_VALUES.map((e, i) => ({ value: e, label: e || def, lead: e ? <EffortBars level={i} /> : undefined }))}
             onPick={(v) => { onChange({ effort: v }); close(); }} />
         )}
       </ChipPopover>

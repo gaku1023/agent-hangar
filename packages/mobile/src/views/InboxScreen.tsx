@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { fetchInbox, UnpairedError } from '../api.ts';
 import { ago, clock, dayLabel, elapsed, monthDay, waitedFor } from '../format.ts';
 import { localDay, openInbox, type InboxView, type Row } from '../inbox.ts';
-import { phaseClass, usePresence, type Present } from '../presence.ts';
+import { usePresence } from '../presence.ts';
 import { clearPairing, type Pairing } from '../store.ts';
+import { AccountTag } from './AccountTag.tsx';
+import { Fold } from './Fold.tsx';
 
 /** /rc の URL が拾えなかったとき、または PC から来た値が claude.ai でないときに開く先。 */
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
@@ -20,7 +22,7 @@ export const openUrlOf = (rcUrl: string | null): string => (rcUrl && isRemoteCon
 const waitingText = (r: Row): string => {
   const t = r.waiting?.text.trim();
   if (t) return t;
-  return r.waiting?.kind === 'permission' ? '許可を求めています' : r.waiting?.kind === 'question' ? '質問があります' : '入力を待っています';
+  return r.waiting?.kind === 'permission' ? '許可が必要です' : r.waiting?.kind === 'question' ? '質問があります' : '入力待ちです';
 };
 
 const waitingKind = (r: Row): string | null => (r.waiting?.kind === 'permission' ? '許可待ち' : r.waiting?.kind === 'question' ? '質問' : null);
@@ -32,13 +34,15 @@ type Props = {
   onUnpaired: () => void;
   /** 「＋ 新しい会話」。読んだ受信箱を渡す（新しい会話の画面が PC ごとのプロジェクトとアカウントを読む）。無いとき、まだ読めていないときは押せない。 */
   onNewSession?: (view: InboxView) => void;
+  /** 受信箱を読めるたびに、読んだものを渡す（起動のシートが、始まった会話の URL をここから探す）。 */
+  onView?: (view: InboxView) => void;
   /** 変わったら読み直す（新しい会話を始めて戻ったときなど）。 */
   refresh?: number;
 };
 
 type Pull = { phase: 'idle' } | { phase: 'pulling'; dist: number } | { phase: 'refreshing' };
 
-export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refresh }: Props): ReactNode {
+export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, onView, refresh }: Props): ReactNode {
   const [view, setView] = useState<InboxView | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -47,6 +51,8 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
   const alive = useRef(true);
   const start = useRef<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const viewHandler = useRef(onView);
+  viewHandler.current = onView;
 
   const load = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
@@ -56,6 +62,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
         const v = await openInbox(res, cryptoKey, new Date());
         if (!alive.current) return;
         setView(v);
+        viewHandler.current?.(v);
         setFailed(false);
         setNow(Date.now());
       } catch (e) {
@@ -132,7 +139,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
 
   const allUnreadable = !!view && view.unreadable.length > 0 && view.feeds.length === 0;
   const pullHeight = pull.phase === 'pulling' ? pull.dist : pull.phase === 'refreshing' ? 44 : 0;
-  const pullLabel = pull.phase === 'refreshing' ? '読み直しています…' : pull.phase === 'pulling' && pull.dist >= PULL_TRIGGER * 0.9 ? '離すと読み直します' : '引くと読み直します';
+  const pullLabel = pull.phase === 'refreshing' ? '再読み込み中…' : pull.phase === 'pulling' && pull.dist >= PULL_TRIGGER * 0.9 ? '離すと再読み込み' : '引いて再読み込み';
   const today = new Date(now);
   // PC と Worker の時刻（statusAt、startedAt、lastSeenAt）との差は、Worker の時刻に寄せたスマホの時刻で測る（スマホの時計のずれを消す）。
   const pcNow = now + (view?.skewMs ?? 0);
@@ -152,7 +159,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
         <header className="inbox-head">
           <div className="inbox-title-row">
             <h1 className="inbox-title">
-              あなたの番{view && !allUnreadable ? <span className="inbox-count"> {view.waiting.length}</span> : null}
+              入力待ち{view && !allUnreadable ? <span className="inbox-count"> {view.waiting.length}</span> : null}
             </h1>
             <span className="inbox-date">{dayLabel(today)}</span>
           </div>
@@ -171,16 +178,16 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
 
         {failed && (
           <p className="strip warn m-fade" role="status">
-            読み込めませんでした。通信を確かめて、下に引いて読み直してください。
+            読み込めませんでした。通信を確認して、下に引いて再読み込みしてください。
           </p>
         )}
 
-        {!view && !failed && <p className="inbox-loading m-fade">読み込んでいます…</p>}
+        {!view && !failed && <p className="inbox-loading m-fade">読み込み中…</p>}
 
         {allUnreadable && (
           <section className="card reconnect m-fade">
             <p className="reconnect-h">受信箱を開けません</p>
-            <p className="reconnect-t">PC で参加の秘密を作り直すと、このスマホの鍵では開けなくなります。PC の設定 › クラウド で新しい QR を出し、接続し直してください。</p>
+            <p className="reconnect-t">PC で参加トークンを再生成すると、このスマホのキーでは開けなくなります。PC の設定 › クラウド で新しい QR を表示し、接続し直してください。</p>
             <button type="button" className="btn-primary" onClick={reconnect}>
               接続し直す
             </button>
@@ -191,7 +198,7 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
           <>
             {view.unreadable.length > 0 && (
               <p className="strip warn m-fade" role="status">
-                {view.unreadable.join('、')} の一覧を開けません。その PC の hangar が古いか、鍵が合っていません。
+                {view.unreadable.join('、')} の一覧を開けません。その PC の hangar が古いか、キーが合っていません。
               </p>
             )}
             <WaitingList rows={view.waiting} now={pcNow} />
@@ -211,22 +218,11 @@ export function InboxScreen({ pairing, cryptoKey, onUnpaired, onNewSession, refr
 
 const rowKey = (r: Row): string => r.sessionId;
 
-/** 出入りの段階の箱。中の .fold-in が高さの補間の間だけはみ出しを隠す（styles.css）。 */
-function Fold({ phase, children, className = '' }: { phase: Present<unknown>['phase']; children: ReactNode; className?: string }): ReactNode {
-  return (
-    <div className={`fold ${phaseClass(phase)} ${className}`} aria-hidden={phase === 'leave' ? true : undefined}>
-      <div className="fold-in">
-        <div className="fold-pad">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 function WaitingList({ rows, now }: { rows: Row[]; now: number }): ReactNode {
   const list = usePresence(rows, rowKey);
   return (
-    <section className="waiting" aria-label="あなたの番">
-      {rows.length === 0 && <p className="empty m-fade">待っている会話はありません</p>}
+    <section className="waiting" aria-label="入力待ち">
+      {rows.length === 0 && <p className="empty m-fade">入力待ちの会話はありません</p>}
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
           <WaitingCard row={p.item} now={now} />
@@ -248,12 +244,13 @@ function WaitingCard({ row, now }: { row: Row; now: number }): ReactNode {
         <AccountDot color={row.accountColor} />
         <span className="wait-proj">{row.projectName}</span>
         <span className="wait-title">· {row.title}</span>
+        <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="wait-for">{row.at !== null ? waitedFor(now - row.at) : ''}</span>
       </div>
       <div className="wait-text">{waitingText(row)}</div>
       <div className="wait-foot">
         <span className="wait-meta">{kind ? `${row.deviceName} · ${kind}` : row.deviceName}</span>
-        <span className="wait-open">Claude アプリで開く ›</span>
+        <span className="wait-open">{row.accountName ? `${row.accountName}のアカウントで開く ›` : 'Claude アプリで開く ›'}</span>
       </div>
     </a>
   );
@@ -266,8 +263,8 @@ function Sections({ view, now, today }: { view: InboxView; now: number; today: s
   const defs = useMemo(
     (): SectionDef[] =>
       [
-        { key: 'running' as const, label: '動いている', rows: view.running },
-        { key: 'returning' as const, label: '今日戻る', rows: view.returning },
+        { key: 'running' as const, label: '実行中', rows: view.running },
+        { key: 'returning' as const, label: '今日のリマインダー', rows: view.returning },
         { key: 'done' as const, label: '今日終わった', rows: view.doneToday },
       ].filter((d) => d.rows.length > 0),
     [view],
@@ -311,7 +308,8 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
           <span className="thin-sep"> · </span>
           <span className="thin-intent">{row.intent?.trim() || row.title}</span>
         </span>
-        <span className="thin-meta">{unknown ? `${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`}</span>
+        <AccountTag name={row.accountName} color={row.accountColor} />
+        <span className="thin-meta">{unknown ?`${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`}</span>
       </a>
     );
   }
@@ -320,6 +318,7 @@ function ThinRow({ kind, row, now, today }: { kind: SectionDef['key']; row: Row;
       <div className="thin">
         <span className="dot returning" aria-hidden="true" />
         <span className="thin-text">{row.title || row.projectName}</span>
+        <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="thin-meta">{row.returnOn && row.returnOn < today ? monthDay(row.returnOn) : (row.returnTime ?? '今日')}</span>
       </div>
     );

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Miniflare } from 'miniflare';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bindingNames, bundleWorker, WORKER_METADATA, WORKER_MODULE, workerMetadata } from '../scripts/build-worker.ts';
+import { bindingNames, bundleWorker, durableObjectsOf, WORKER_METADATA, WORKER_MODULE, workerMetadata } from '../scripts/build-worker.ts';
 
 const cloudDir = fileURLToPath(new URL('..', import.meta.url));
 const temps: string[] = [];
@@ -25,7 +25,9 @@ describe('同梱する Worker の束と束縛の定義', () => {
       bindings: [
         { type: 'd1', name: 'DB' },
         { type: 'r2_bucket', name: 'BUCKET' },
+        { type: 'durable_object_namespace', name: 'BELL', class_name: 'HangarBell' },
       ],
+      migrations: [{ tag: 'bell-v1', new_sqlite_classes: ['HangarBell'] }],
     });
     // 手元の開発用の名前（hangar-local）と、ゼロの database_id は運ばない。
     expect(JSON.stringify(workerMetadata(cloudDir))).not.toContain('hangar-local');
@@ -33,21 +35,23 @@ describe('同梱する Worker の束と束縛の定義', () => {
   });
 
   // 入口の名前付きの輸出を Workers がどう扱うかは、クラス（Durable Object と WorkerEntrypoint）以外について文書に書かれていない。
-  // 入口は既定の輸出だけにして、配備で確かめなければならない問いそのものを無くす。組み立ては src/app.ts にある。
-  it('入口の束は既定の輸出だけを持つ', async () => {
+  // 入口は既定の輸出と Durable Object のクラスだけにして、配備で確かめなければならない問いそのものを無くす。組み立ては src/app.ts にある。
+  it('入口の束は既定の輸出と Durable Object のクラス（HangarBell）だけを持つ', async () => {
     const script = await bundleWorker(cloudDir);
     const exported = [...script.matchAll(/^export\s*\{([^}]*)\}/gm)]
       .flatMap((m) => m[1]!.split(','))
       .map((s) => s.trim())
       .filter((s) => s !== '')
       .map((s) => s.split(/\s+as\s+/).pop()!);
-    expect(exported).toEqual(['default']);
+    expect(exported.sort()).toEqual(['HangarBell', 'default']);
     expect(script).not.toMatch(/^export\s+(const|let|var|function|async function|class)\s/m);
   });
 
-  it('束は外への import を持たない 1 本の ESM で、定義の束縛で起こすと /health が通る', async () => {
+  it('束は workerd の組み込み（cloudflare:）のほかに外への import を持たない 1 本の ESM で、定義の束縛で起こすと /health が通る', async () => {
     const script = await bundleWorker(cloudDir);
-    expect(script).not.toMatch(/^import\s/m);
+    const imports = [...script.matchAll(/^import\s[^;]*?from\s*["']([^"']+)["']/gm)].map((m) => m[1]);
+    expect(imports.every((m) => m!.startsWith('cloudflare:'))).toBe(true);
+    expect(script.match(/^import\s/gm)?.length ?? 0).toBe(imports.length);
     expect(script).toMatch(/as default/);
     const meta = workerMetadata(cloudDir);
     const mf = new Miniflare({
@@ -59,6 +63,7 @@ describe('同梱する Worker の束と束縛の定義', () => {
       compatibilityFlags: meta.compatibility_flags,
       d1Databases: bindingNames(meta, 'd1'),
       r2Buckets: bindingNames(meta, 'r2_bucket'),
+      durableObjects: durableObjectsOf(meta),
       bindings: { JOIN_SECRET_HASH: '' },
       outboundService: () => new Response('outbound fetch is not allowed in tests', { status: 599 }),
     });
@@ -95,6 +100,14 @@ describe('同梱する Worker の束と束縛の定義', () => {
     expect(() => workerMetadata(dir)).toThrow(/kv_namespaces/);
     fs.writeFileSync(file, JSON.stringify({ ...base, vars: { MODE: 'x' } }));
     expect(() => workerMetadata(dir)).toThrow(/vars/);
+    // Durable Object の束縛と migrations は写す。写し方を決めていない欄があれば止める。
+    const bell = { durable_objects: { bindings: [{ name: 'BELL', class_name: 'HangarBell' }] }, migrations: [{ tag: 'bell-v1', new_sqlite_classes: ['HangarBell'] }] };
+    fs.writeFileSync(file, JSON.stringify({ ...base, ...bell }));
+    expect(durableObjectsOf(workerMetadata(dir))).toEqual({ BELL: { className: 'HangarBell', useSQLite: true } });
+    fs.writeFileSync(file, JSON.stringify({ ...base, ...bell, durable_objects: { bindings: [{ name: 'BELL', class_name: 'HangarBell', script_name: 'other' }] } }));
+    expect(() => workerMetadata(dir)).toThrow(/script_name/);
+    fs.writeFileSync(file, JSON.stringify({ ...base, ...bell, migrations: [{ tag: 'bell-v1', new_classes: ['HangarBell'] }] }));
+    expect(() => workerMetadata(dir)).toThrow(/new_classes/);
     fs.writeFileSync(file, '{ "name": "x", // 行の途中の注釈\n "compatibility_date": "2026-08-01" }\n');
     expect(() => workerMetadata(dir)).toThrow(/wrangler\.jsonc を読めません/);
   });

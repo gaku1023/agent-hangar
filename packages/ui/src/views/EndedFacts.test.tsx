@@ -47,7 +47,7 @@ describe('見出しの下の 1 行（H1）', () => {
     const tag = facts().querySelector('.lead-status')!;
     expect(tag).toHaveAttribute('data-auto', 'true');
     expect(tag.querySelector('.icon')).toHaveAttribute('data-icon', 'autoMark');
-    expect(tag).toHaveAttribute('title', 'hangar が自動で Done にしました（3 ターン以下で止まった会話）');
+    expect(tag).toHaveAttribute('title', 'hangar が自動で Done にしました（3 ターン以下で終了した会話）');
   });
   it('ステータスの札、設定した日、終了、ターンとトークンとコストを 1 行に並べる。要約の本文はここに無い', () => {
     mount();
@@ -109,7 +109,7 @@ describe('見出しの下の 1 行の札', () => {
     expect(second).toHaveTextContent('サブエージェント abc');
     expect(second).toHaveTextContent('1 回');
     expect(within(panel).getByRole('button', { name: '/w/web-shop/NOTES.md を VS Code で開く' })).toHaveTextContent('新規');
-    expect(within(panel).getByText('追加した行と削除した行は、読み込んだ分だけ表示しています')).toBeInTheDocument();
+    expect(within(panel).getByText('追加した行と削除した行は、読み込んだ範囲のみ表示しています')).toBeInTheDocument();
     fireEvent.click(first);
     expect(m.onAction).toHaveBeenCalledWith({ type: 'session.openFile', sessionId: 's1', path: '/w/web-shop/src/ProductImage.tsx' });
   });

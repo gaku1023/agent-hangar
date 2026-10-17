@@ -363,7 +363,7 @@ mod tests {
         let ok = ok.unwrap();
         assert_eq!((ok.created_at, ok.counts.create), (42, 1));
         let failed: Result<ApplyPlan, Failure> = parse_reply(
-            "{\"ok\":false,\"code\":\"no-order\",\"message\":\"適用の指示書がありません\"}\n",
+            "{\"ok\":false,\"code\":\"no-order\",\"message\":\"適用内容がありません\"}\n",
             "plan",
             "ja",
         );
@@ -371,7 +371,7 @@ mod tests {
             failed.unwrap_err(),
             Failure {
                 code: "no-order".to_string(),
-                message: "適用の指示書がありません".to_string()
+                message: "適用内容がありません".to_string()
             }
         );
         for bad in [

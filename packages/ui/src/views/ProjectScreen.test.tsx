@@ -138,7 +138,7 @@ describe('ProjectScreen の見出し', () => {
   it('同じフォルダを場所にしている別のプロジェクトがあれば押せる札を出し、同じパスで再指定を送る（まとめる確認へ進む）', () => {
     const onAction = vi.fn();
     mount(props({ path: '/w/alpha', sameFolder: { name: 'alpha' } }), onAction);
-    fireEvent.click(screen.getByRole('button', { name: 'alpha と同じディレクトリです。1 つにまとめる' }));
+    fireEvent.click(screen.getByRole('button', { name: 'alpha と同じディレクトリです。統合' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'repoint', path: '/w/alpha' } });
   });
   it('クイックセッションの置き場は、状態と外で開く操作を出さず、始める操作を出す', () => {
@@ -329,7 +329,7 @@ describe('ProjectScreen の指示とメモリ', () => {
 
   it('ファイルが無ければ説明だけを出す。読み込む前は何も言わない。フォルダが無ければそう言う', () => {
     const { unmount } = mount(props({ instructions: { state: 'ready', rows: [], legacyNote: null } }));
-    expect(section()).toHaveTextContent('指示のファイルはありません。CLAUDE.md を置くと、起動のたびに読み込まれます。');
+    expect(section()).toHaveTextContent('指示ファイルはありません。CLAUDE.md を作成すると、起動のたびに読み込まれます。');
     unmount();
     const r = mount(props({ instructions: { state: 'loading', rows: [], legacyNote: null } }));
     expect(section()).not.toHaveTextContent('指示のファイルはありません');

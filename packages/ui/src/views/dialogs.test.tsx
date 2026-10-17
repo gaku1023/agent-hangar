@@ -59,7 +59,7 @@ describe('この PC で再開の確認', () => {
   });
   it('手元のトランスクリプトを置き換えるときは、同じ 1 枚に 1 行で言い、承諾は上書きつきで送る（A → B → A）', () => {
     const onAction = mountIt({ ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } });
-    expect(screen.getByRole('dialog')).toHaveTextContent('この PC で進めた続きはバックアップに残し、他の PC の続きから再開します。');
+    expect(screen.getByRole('dialog')).toHaveTextContent('この PC で進めた続きはバックアップに保存し、他の PC の続きから再開します。');
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1', overwrite: true });
   });
@@ -111,7 +111,7 @@ describe('ConfirmDialog（終わった扱いの claude が動き続けている�
     const dialog = screen.getByRole('dialog', { name: 'この会話の Claude はまだ終了していません' });
     expect(dialog).toHaveTextContent('hangar では終了と表示していますが、Claude のプロセス（PID 4242）は実行中です。');
     expect(dialog).toHaveTextContent('このまま再開すると、2 つの Claude のプロセスが同じ会話を同時に実行し、トランスクリプトが混ざるおそれがあります。');
-    expect(dialog).toHaveTextContent('停止すると、進行中の作業は中断されます。トランスクリプトは残ります。');
+    expect(dialog).toHaveTextContent('停止すると、進行中の作業は中断されます。トランスクリプトは削除されません。');
     // 押し違いで押し切らないよう、はじめのフォーカスはキャンセルに置く。並びは、止めずに再開、キャンセル、止めて再開の順。
     expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
     const foot = [...dialog.querySelectorAll('.dialog-foot button')].map((b) => b.textContent);
@@ -256,7 +256,7 @@ describe('ConfirmDialog（登録を解除する）', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={rm} accountName="大学" /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: '大学 の登録を解除しますか？' });
-    expect(dialog).toHaveTextContent('登録を解除するだけで、設定ディレクトリ（ログインと設定のリンク）は残ります。');
+    expect(dialog).toHaveTextContent('登録だけを解除します。設定ディレクトリ（ログインと設定のリンク）は削除しません。');
     expect(dialog).toHaveTextContent('このアカウントで実行したセッションは、次回からメインアカウントで再開します。');
     // 同じ種類の「一覧から削除」と同じく、赤い丸と赤く塗った承諾のボタンで、並びも「やめる」が承諾の左に寄る。
     expect(dialog.classList.contains('dialog-danger')).toBe(true);
@@ -298,7 +298,7 @@ describe('RetentionDialog', () => {
     expect(screen.getByText('1 年後に約 18 GB')).toBeInTheDocument();
     expect(screen.getByText('/Users/me/.agent-hangar/backups/claude-config/')).toBeInTheDocument();
     expect(screen.getByText('設定の同期で、次の適用時に反映されます')).toBeInTheDocument();
-    expect(screen.getByText('復元できません。今後のトランスクリプトは残ります')).toBeInTheDocument();
+    expect(screen.getByText('復元できません。今後のトランスクリプトは保持されます')).toBeInTheDocument();
   });
   it('見出しが器の名前で、既定のフォーカスはキャンセル側に置く', () => {
     render(<ActionRoot onAction={() => {}}><RetentionDialog {...base} /></ActionRoot>);
@@ -311,7 +311,7 @@ describe('RetentionDialog', () => {
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(onAction).not.toHaveBeenCalledWith({ type: 'overlay.close' });
   });
-  it('書き込み、ほかの期間、キャンセルがそれぞれの UiAction を出す', () => {
+  it('書き込み、他の期間、キャンセルがそれぞれの UiAction を出す', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><RetentionDialog {...base} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '書き込み' }));
@@ -428,7 +428,7 @@ describe('NewProjectDialog', () => {
     fireEvent.keyDown(search, { key: 'ArrowUp' });
     expect(revealWithin).toHaveBeenLastCalledWith(rows, screen.getByRole('option', { name: 'design-notes' }));
   });
-  it('既存のフォルダを登録：名前を空にしたら名前を送らず、サーバに basename を使わせる', () => {
+  it('既存のフォルダを登録：名前を空にしたら名前を送らず、サーバーに basename を使わせる', () => {
     const { out } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のディレクトリを登録' }));
     fireEvent.click(screen.getByRole('option', { name: 'design-notes' }));
@@ -445,7 +445,7 @@ describe('NewProjectDialog', () => {
     fireEvent.keyDown(field, { key: 'Enter' });
     expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'newDir', name: 'price-watcher', gitInit: true }, startSession: true });
   });
-  it('「ほかの場所を選択…」は殻の中だけ。選ばれたパスをパスの欄に入れる。開いた時点の結果は使わない', () => {
+  it('「他の場所を選択…」は殻の中だけ。選ばれたパスをパスの欄に入れる。開いた時点の結果は使わない', () => {
     const { out, view } = collect({ picked: { path: '/old', n: 2 } });
     fireEvent.click(screen.getByRole('radio', { name: '既存のディレクトリを登録' }));
     expect(screen.getByLabelText('ディレクトリのパス')).toHaveValue('');
@@ -488,7 +488,7 @@ describe('NewProjectDialog', () => {
     expect(screen.getByLabelText('ディレクトリのパス')).toHaveValue('C:\\Users\\me\\論文\\');
     expect(screen.getByLabelText('プロジェクト名')).toHaveValue('論文');
   });
-  // 0.6.1：既存のフォルダの登録で、登録済みのプロジェクトの下（入れ子）と、ほかの PC から届いた同じプロジェクト（結び付け）。
+  // 0.6.1：既存のフォルダの登録で、登録済みのプロジェクトの下（入れ子）と、他の PC から届いた同じプロジェクト（結び付け）。
   describe('既存のフォルダの入れ子と結び付け', () => {
     const ui = '/w/alpha/packages/ui';
     type Inspect = NonNullable<NewProjectProps['inspect']>;
@@ -548,7 +548,7 @@ describe('NewProjectDialog', () => {
       expect(note()).toHaveTextContent('alpha 内のディレクトリです。');
       expect(screen.getByRole('button', { name: '別のプロジェクトにする' })).toBeInTheDocument();
     });
-    it('ほかの PC から届いた同じプロジェクトがあれば、理由と行き先を 1 行で言い、既定で結び付ける。「新しく作る」に切り替えられる', () => {
+    it('他の PC から届いた同じプロジェクトがあれば、理由と行き先を 1 行で言い、既定で結び付ける。「新しく作る」に切り替えられる', () => {
       const { out } = typed('/w/notes-app', link);
       expect(note()).toHaveTextContent('work-pc の notes-app と同じリポジトリです。この PC のパスとして関連付けます。');
       expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
@@ -566,7 +566,7 @@ describe('NewProjectDialog', () => {
       fireEvent.click(screen.getByRole('button', { name: 'notes-app に関連付ける' }));
       expect(screen.getByRole('button', { name: '関連付ける' })).toBeInTheDocument();
     });
-    it('問い合わせの答えを待つ間は送れない。ほかのパスの答えは使わない', () => {
+    it('問い合わせの答えを待つ間は送れない。他のパスの答えは使わない', () => {
       const { again } = typed(ui, { path: ui, name: null, status: 'loading' });
       expect(screen.getByRole('button', { name: '作成' })).toBeDisabled();
       again({ inspect: ready('/w/other', { enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'x' } }) });
