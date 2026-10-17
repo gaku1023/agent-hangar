@@ -12,7 +12,7 @@ import { trashedLongAgo } from '../sessions/trash.ts';
 import { Keyring } from './keyring.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
 import { SyncStateStore } from './state.ts';
-import { noteBlobUpload, sweepTrashBlobs } from './trashSweep.ts';
+import { noteBlobUpload, sweepSupersededBlobs, sweepTrashBlobs } from './trashSweep.ts';
 import { TranscriptUploader } from './uploader.ts';
 
 const DAY = 86_400_000;
@@ -160,5 +160,42 @@ describe('sweepTrashBlobs', () => {
       expect(await sweep()).toEqual({ deleted: 2, refused: 0 });
       expect(cloud.files.size).toBe(0);
     });
+  });
+});
+
+describe('sweepSupersededBlobs（世代を回した後に上げ直した本文の、古い世代の鍵名）', () => {
+  const superseded = (ledgerKey?: string) => sweepSupersededBlobs({ db, client: cloud, keyring: ring, deviceId: 'dev-a', ...(ledgerKey ? { ledgerKey } : {}) });
+
+  it('新しい世代で上げ直した本文の、古い世代の鍵名だけを消す。1 つの世代にしか無い本文は消さない', async () => {
+    const old1 = await uploaded(LIVE, null, 1);
+    const only = await uploaded(YOUNG, null, 1);
+    clock += 2 * BLOB_DELETE_GRACE_MS;
+    const new2 = await uploaded(LIVE, null, 2);
+    expect(await superseded()).toEqual({ deleted: 1, refused: 0 });
+    expect(cloud.files.has(old1)).toBe(false);
+    expect(cloud.files.has(new2)).toBe(true);
+    expect(cloud.files.has(only)).toBe(true);
+    expect(db.prepare('select ledger_key k, epoch from blob_uploads order by k, epoch').all()).toEqual([
+      { k: transcriptLedgerKey('dev-a', YOUNG, null), epoch: 1 },
+      { k: transcriptLedgerKey('dev-a', LIVE, null), epoch: 2 },
+    ]);
+    // 消すものが無ければ Worker に何も送らない。
+    const before = deletes().length;
+    expect(await superseded()).toEqual({ deleted: 0, refused: 0 });
+    expect(deletes().length).toBe(before);
+  });
+
+  it('置いてから 1 時間たっていない古い鍵名は断られ、控えに残して次の回に消す。ledgerKey でその本文だけに絞れる', async () => {
+    const old1 = await uploaded(LIVE, 'abc', 1);
+    await uploaded(OLD, null, 1);
+    await uploaded(LIVE, 'abc', 2);
+    await uploaded(OLD, null, 2);
+    expect(await superseded(transcriptLedgerKey('dev-a', LIVE, 'abc'))).toEqual({ deleted: 0, refused: 1 });
+    clock += 2 * BLOB_DELETE_GRACE_MS;
+    expect(await superseded(transcriptLedgerKey('dev-a', LIVE, 'abc'))).toEqual({ deleted: 1, refused: 0 });
+    expect(cloud.files.has(old1)).toBe(false);
+    expect(remembered()).toBe(3);
+    expect(await superseded()).toEqual({ deleted: 1, refused: 0 });
+    expect(remembered()).toBe(2);
   });
 });

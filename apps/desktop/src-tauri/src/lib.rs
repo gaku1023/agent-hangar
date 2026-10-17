@@ -20,6 +20,7 @@ pub mod node;
 pub mod notify;
 pub mod paths;
 pub mod placement;
+pub mod recoveryfile;
 pub mod server;
 pub mod tempclean;
 pub mod updater;
@@ -913,7 +914,7 @@ fn spawn_boot(app: AppHandle) -> bool {
 
 // ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）と、連携の書き込み（setup_integration）と、承諾の窓の 2 つ（approve_view、approve_answer。承諾の窓の頁だけ）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
-// pick_folder、boot_probe、restore_config_sync、setup_integration、approve_answer のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+// pick_folder、boot_probe、restore_config_sync、setup_integration、approve_answer、save_recovery_key（本文だけ）のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 // pick_node（起動画面だけ）も引数を受け取らない。選ぶのは利用者で、確かめる条件と書く先は殻が決める。
 
 /// 起動画面が口を作り終えた時点で引き取る、起動の今の様子（`Ui::boot_state`）。
@@ -1042,6 +1043,40 @@ async fn pick_node(app: AppHandle) -> serde_json::Value {
         }
     }
     node::pick_answer(&path, &checked, &manifest)
+}
+
+/// リカバリーキーの「ファイルに保存」（設定のクラウド同期の節、試作 D2）。
+/// 保存のダイアログを既定の名前 `hangar-recovery-key.txt` で開き、利用者が選んだ場所にだけ本文を書く（`recoveryfile::write`、Unix で 0600）。
+/// 引数は本文だけで、パスは受け取らない。頁から書く先を決められないようにするためである。
+/// 書いたら true、取り消したら false を返す（取り消しは失敗にしない）。書けなければ理由の文で失敗にする。
+/// UI の出どころ（capabilities/remote-save-recovery-key.json）だけに与える。
+#[tauri::command]
+async fn save_recovery_key(app: AppHandle, text: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    if text.is_empty() || text.len() > recoveryfile::MAX_LEN {
+        return Err("recovery key text is out of range".into());
+    }
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_file_name(recoveryfile::FILE_NAME)
+        .add_filter("Text", &["txt"]);
+    if let Some(parent) = dialog_parent(cfg!(windows), app.get_webview_window("main")) {
+        builder = builder.set_parent(&parent);
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || builder.blocking_save_file())
+        .await
+        .ok()
+        .flatten();
+    let Some(picked) = picked else {
+        return Ok(false);
+    };
+    let path = picked.into_path().map_err(|e| e.to_string())?;
+    recoveryfile::write(&path, &text).map_err(|e| {
+        log(&format!("could not save the recovery key: {e}"));
+        e
+    })?;
+    Ok(true)
 }
 
 /// 設定の同期の確認と、その後の CLI の呼び出しに要るもの。
@@ -2165,7 +2200,7 @@ pub fn run() {
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
-        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、remote-cloud.json、boot-screen.json で絞る。
+        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、remote-cloud.json、remote-save-recovery-key.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
             boot_state,
             boot_card_shown,
@@ -2191,6 +2226,7 @@ pub fn run() {
             cloud_join_poll,
             cloud_revoke,
             cloud_leave,
+            save_recovery_key,
             update_status,
             update_check,
             update_download,

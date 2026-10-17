@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { aadFeed, decodePairing, deriveMobileKey, importMobileKey, open, seal, type JoinApproverState } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CloudError } from '../../sync/client.ts';
+import { CloudError, RevokedError } from '../../sync/client.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
+import { RecoveryDraftError } from '../../sync/recoveryReissue.ts';
+import { RevokeNotFoundError, RevokeSelfError } from '../../sync/rotate.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 
@@ -201,6 +203,71 @@ describe('参加コードの発行と承認（/api/sync/join-codes）', () => {
   });
 });
 
+describe('リカバリーキーの再発行（/api/sync/recovery-key）', () => {
+  const send = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+
+  function fakeReissuer() {
+    const a = {
+      log: [] as string[],
+      confirmError: null as unknown,
+      reissue: async () => {
+        a.log.push('reissue');
+        return { text: 'hangar リカバリーキー\n作成日: 2026-10-17\nURL: https://h\n暗号鍵: AAAA', draftId: 'd1' };
+      },
+      confirm: async (draftId: string, tail: string) => {
+        a.log.push(`confirm ${draftId} ${tail}`);
+        if (a.confirmError) throw a.confirmError;
+      },
+    };
+    return a;
+  }
+
+  it('どれも認証の下にある', async () => {
+    for (const p of ['/api/sync/recovery-key/reissue', '/api/sync/recovery-key/confirm']) {
+      expect((await app.request(p, { method: 'POST' })).status).toBe(401);
+    }
+  });
+
+  it('同期を設定していなければ 404', async () => {
+    app = createApp({ ...deps, recoveryKey: () => null });
+    for (const p of ['/api/sync/recovery-key/reissue', '/api/sync/recovery-key/confirm']) {
+      const r = await send(p, { draftId: 'd1', tail: 'AAAA' });
+      expect(r.status).toBe(404);
+      expect((await r.json()).error).toBe('クラウド同期が設定されていません');
+    }
+  });
+
+  it('再発行は 4 行の文と下書きの ID を返し、キャッシュさせない', async () => {
+    const a = fakeReissuer();
+    app = createApp({ ...deps, recoveryKey: () => a });
+    const r = await send('/api/sync/recovery-key/reissue');
+    expect(r.status).toBe(200);
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(await r.json()).toEqual({ text: 'hangar リカバリーキー\n作成日: 2026-10-17\nURL: https://h\n暗号鍵: AAAA', draftId: 'd1' });
+  });
+
+  it('確認は下書きの ID と末尾 4 文字を渡す。形の違う本文は 400', async () => {
+    const a = fakeReissuer();
+    app = createApp({ ...deps, recoveryKey: () => a });
+    expect(await json(await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'aaaa' }))).toEqual({ status: 200, body: { ok: true } });
+    expect(a.log).toEqual(['confirm d1 aaaa']);
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 'd1' })).status).toBe(400);
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 1, tail: 'aaaa' })).status).toBe(400);
+    expect(a.log).toHaveLength(1);
+  });
+
+  it('末尾 4 文字が違えば 400、下書きが無ければ 409、Worker の失敗は 502', async () => {
+    const a = fakeReissuer();
+    app = createApp({ ...deps, recoveryKey: () => a });
+    a.confirmError = new RecoveryDraftError('tail-mismatch');
+    expect(await json(await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'ZZZZ' }))).toEqual({ status: 400, body: { error: '暗号鍵の末尾 4 文字が一致しません' } });
+    a.confirmError = new RecoveryDraftError('no-draft');
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'ZZZZ' })).status).toBe(409);
+    a.confirmError = new CloudError(500, 'x');
+    expect((await send('/api/sync/recovery-key/confirm', { draftId: 'd1', tail: 'ZZZZ' })).status).toBe(502);
+  });
+});
+
 describe('PC の一覧（Worker の devices）', () => {
   it('GET /api/sync/cloud-devices は依存の答えをそのまま返す', async () => {
     const dto = { state: 'ok' as const, devices: [{ id: 'd', kind: 'pc' as const, name: 'mac', platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, expiresAt: null, self: true }], creator: true, message: null };
@@ -284,5 +351,37 @@ describe('スマホの接続の QR（POST /api/sync/mobile-pairing）', () => {
     const phoneKey = await importMobileKey(new Uint8Array(Buffer.from(blob.key, 'base64url')));
     const sealed = await seal(phoneKey, aadFeed('d'), { hello: 'phone' });
     expect(await open(await deriveMobileKey(SECRET), aadFeed('d'), sealed)).toEqual({ hello: 'phone' });
+  });
+});
+
+describe('端末の解除（POST /api/sync/cloud-devices/:id/revoke）', () => {
+  const revoke = (id: string, headers: Record<string, string> = H) => app.request(`/api/sync/cloud-devices/${id}/revoke`, { method: 'POST', headers });
+  const row = { id: 'pc-b', kind: 'pc' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null };
+
+  it('認証の下にあり、同期を設定していなければ 404', async () => {
+    expect((await revoke('pc-b', {})).status).toBe(401);
+    app = createApp({ ...deps, cloudRevoke: () => null });
+    expect((await revoke('pc-b')).status).toBe(404);
+  });
+
+  it('解除の道（revokeMember）へ渡し、解除した端末の行を返す', async () => {
+    const seen: string[] = [];
+    app = createApp({ ...deps, cloudRevoke: () => async (id) => { seen.push(id); return row; } });
+    const r = await revoke('pc-b');
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(await json(r)).toEqual({ status: 200, body: { device: row } });
+    expect(seen).toEqual(['pc-b']);
+  });
+
+  it('自分自身は 409 の self、一覧に無い端末は 404 の not-found、この PC が解除されていれば 409 の revoked、ほかは 502 で返す', async () => {
+    let err: unknown = new RevokeSelfError();
+    app = createApp({ ...deps, cloudRevoke: () => async () => { throw err; } });
+    expect(await json(await revoke('pc-a'))).toEqual({ status: 409, body: { error: 'この PC 自身はここでは解除できません。「この PC の参加を解除」を使ってください', code: 'self' } });
+    err = new RevokeNotFoundError();
+    expect(await json(await revoke('pc-z'))).toMatchObject({ status: 404, body: { code: 'not-found' } });
+    err = new RevokedError();
+    expect(await json(await revoke('pc-b'))).toMatchObject({ status: 409, body: { code: 'revoked' } });
+    err = new CloudError(500, '{"error":"boom"}');
+    expect(await json(await revoke('pc-b'))).toMatchObject({ status: 502, body: { code: 'unreachable' } });
   });
 });

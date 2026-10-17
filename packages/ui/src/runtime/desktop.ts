@@ -7,7 +7,7 @@ import { UPDATE_FAIL_REASONS, type UpdateFailReason } from '../store/update.ts';
  * デスクトップの殻（Tauri）に頼む口。
  * 殻は頁の読み込みの前に `__TAURI_INTERNALS__` を差し込むので、有無は起動の時に決まる。
  * 頼めるのは、ログを開くこと、アプリの再起動、フォルダの選択、設定の同期の適用と世代へ戻すこと、アプリの更新（確認、進み、取得、インストール）、
- * クラウド同期への参加と PC の解除とこの PC の参加の解除（remote-cloud.json）だけである。
+ * クラウド同期への参加と PC の解除とこの PC の参加の解除（remote-cloud.json）、リカバリーキーのファイルへの保存（remote-save-recovery-key.json）だけである。
  * どれも殻の capability（apps/desktop/src-tauri/capabilities/remote-shell.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json）で、この頁の出どころにだけ許してある。
  * 設定の同期の 2 つと連携の書き込みは、殻が自分の承諾の窓（サーバを通らない頁）で書く中身を見せ、承諾されたときだけ CLI が書く。頁は結果を受け取るだけで、承諾を出すことはできない。
  */
@@ -25,6 +25,12 @@ export type DesktopBridge = {
   cloud?: CloudBridge;
   /** ターミナルに出たリンクを既定のブラウザで開く。殻が http と https だけを開く（src-tauri/src/links.rs）。殻は必ず持つ。試験の偽物は省ける。 */
   openLink?(url: string): Promise<void>;
+  /**
+   * リカバリーキーを殻の保存のダイアログで書く（src-tauri/src/recoveryfile.rs、capabilities/remote-save-recovery-key.json）。
+   * 渡すのは本文だけで、書く場所は利用者がダイアログで選ぶ。書いたら saved、取り消したら cancelled、書けなければ投げる。
+   * 殻は必ず持つ。試験の偽物は省ける。
+   */
+  saveRecoveryKey?(text: string): Promise<'saved' | 'cancelled'>;
 };
 
 /** 殻のクラウド同期の命令の答え。失敗は符号（CLI の code か、殻の cannot-start、timeout など）と文で返す。 */
@@ -116,7 +122,7 @@ export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' 
 export type SetupShellOutcome = { status: 'written' | 'none' | 'cancelled' | 'failed' | 'busy'; message: string | null; code: string | null };
 
 /** 殻の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧にそろえる。 */
-export const DESKTOP_COMMANDS = { openLog: 'open_log', openLink: 'open_link', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration' } as const;
+export const DESKTOP_COMMANDS = { openLog: 'open_log', openLink: 'open_link', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration', saveRecoveryKey: 'save_recovery_key' } as const;
 
 const SETUP_STATUSES: ReadonlySet<string> = new Set(['written', 'none', 'cancelled', 'failed', 'busy']);
 
@@ -158,6 +164,8 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
     applyConfigSync: async () => outcomeOf(await invoke(DESKTOP_COMMANDS.applyConfigSync)),
     restoreConfigSync: async (name) => outcomeOf(await invoke(DESKTOP_COMMANDS.restoreConfigSync, { name })),
     setupIntegration: async (target) => setupOutcomeOf(await invoke(DESKTOP_COMMANDS.setupIntegration, { target })),
+    // 殻は書いたら true、取り消したら false を返す。true のときだけ書いたと言う。
+    saveRecoveryKey: async (text) => ((await invoke(DESKTOP_COMMANDS.saveRecoveryKey, { text })) === true ? 'saved' : 'cancelled'),
     cloud: {
       // 権限で断られたなど、殻が投げた失敗も、答えの形に直して返す（画面は段を閉じずに理由を出す）。
       joinCheck: (url) => invoke(CLOUD_COMMANDS.joinCheck, { url }).then((r) => cloudReplyOf<JoinCheckView>(r, 'check'), shellFailure),

@@ -42,12 +42,13 @@ export function useCopy(text: string): { copied: boolean; press: () => void } {
  * 押すとクリップボードへ写すボタン（状態は useCopy）。
  * label が無ければアイコンだけにし、読み上げの名前は「〜をコピー」にする。
  * ariaLabel は読み上げの名前をそのまま決める。見えている文がコピーの語でないとき（報告用に写す）に使う。
+ * onPress は写すのを頼んだ後に呼ぶ（リカバリーキーは、しばらくしてクリップボードを空にする）。
  */
-export function CopyButton(props: { text: string; name?: string; label?: string; ariaLabel?: string }) {
+export function CopyButton(props: { text: string; name?: string; label?: string; ariaLabel?: string; onPress?: () => void }) {
   const t = useT();
   const { copied, press } = useCopy(props.text);
   return (
-    <button type="button" className="copy-btn" data-copied={copied ? 'true' : undefined} aria-label={props.ariaLabel ?? t('primitives.commandLine.copyLabel', { name: props.name ?? props.text })} onClick={press}>
+    <button type="button" className="copy-btn" data-copied={copied ? 'true' : undefined} aria-label={props.ariaLabel ?? t('primitives.commandLine.copyLabel', { name: props.name ?? props.text })} onClick={() => { press(); props.onPress?.(); }}>
       <Icon name={copied ? 'check' : 'copy'} />
       {props.label !== undefined && <span>{copied ? t('common.button.copied') : props.label}</span>}
     </button>

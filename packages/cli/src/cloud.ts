@@ -31,6 +31,7 @@ import {
   type SyncStatusDto,
 } from '@agent-hangar/shared';
 import { DetailedError } from './probe.ts';
+import { showAndConfirmRecoveryKey } from './recovery.ts';
 import { type CfAccount, defaultExec, type Exec, type ExecResult, isAccountId, parseDatabaseId, parseWhoamiJson, parseWhoamiTable, parseWorkerUrl, type WhoamiResult, WranglerRunner } from './wrangler.ts';
 
 export type DeviceLike = { id: string; name: string; platform: string };
@@ -61,6 +62,12 @@ export type SetupCloudOptions = {
   chooseAccount?: ChooseAccount;
   /** スマホの画面（packages/mobile）を建てる。引数は mobile の置き場。既定は buildMobileApp。試験で差し替える。 */
   buildMobile?: (mobileDir: string) => Promise<void>;
+  /** --save。リカバリーキーを 0600 で書くファイル。 */
+  saveRecoveryTo?: string;
+  /** リカバリーキーの末尾 4 文字を尋ねる。既定は標準入力の askLine。 */
+  recoveryAsk?: (question: string) => Promise<string>;
+  /** リカバリーキーの表示の書き先。既定は標準出力。 */
+  recoveryWrite?: (s: string) => void;
 };
 
 /** 複数のアカウントから 1 つを選ばせる。null は選ばなかった。 */
@@ -534,23 +541,6 @@ async function confirmRename(log: (l: string) => void, prev: CloudConfig, name: 
   if (!(await confirm('本当に新しいリソースを作成して cloud.json を移しますか？', RENAME_WORD))) throw new Error('cloud.json の切り替えをキャンセルしました');
 }
 
-/**
- * リカバリーキーの表示と、保存の案内。標準出力に出す以上、スクロールバックに表示されたままになると伝える。
- * PC はリカバリーキーの秘密鍵を保存しないので、表示はこの 1 回だけである。
- */
-function printRecoveryKey(log: (l: string) => void, recoveryKey: string): void {
-  log('');
-  log('リカバリーキー（表示はこの 1 回だけです）:');
-  log('');
-  for (const l of recoveryKey.split('\n')) log(l);
-  log('');
-  log('4 行すべてをパスワードマネージャーに保存してください。すべての PC を失ったときに、このキーでクラウドのデータを復元します。');
-  log('この PC はリカバリーキーの暗号鍵を保存しないため、後から表示できません。');
-  log('標準出力に出力したため、ターミナルのスクロールバックにも表示されたままになります。保存したら、スクロールバックを消去するか、このターミナルのウィンドウを閉じてください。');
-  // Task 17: ここで保存した暗号鍵の末尾 4 文字を入力してもらい（recoverySecretTail で照合する）、合うまで setup を終えない。
-  // この Task では表示するだけで、確認はまだ求めない。
-}
-
 /** 他の PC を追加する手順の案内。 */
 function printNextSteps(log: (l: string) => void, url: string): void {
   log('');
@@ -563,9 +553,11 @@ function printNextSteps(log: (l: string) => void, url: string): void {
  * 名簿と keybox が無ければ作る（setup の最初の 1 回と、途中で止まった setup のやり直し）。
  * 名簿にはこの PC とリカバリーキーの公開鍵を入れ、keybox はこの PC と recovery に、世代鍵の一覧をそれぞれ封じて置く。
  * keybox を先に置き、名簿を後に置く。名簿が置けた時点で作成は完了で、次の setup は何もしない。
+ * リカバリーキーは、どちらを置くよりも先に表示し、保存を確かめる（confirm）。
+ * 確かめられなければ confirm が投げ、名簿も keybox も置かずに止まる。次の setup は新しいリカバリーキーから続ける。
  * 作ったときはリカバリーキーの 4 行の文字列を返し、名簿がすでにあれば null を返す。
  */
-async function ensureRoster(o: { home: string; conf: CloudConfig; device: DeviceLike; fetch: typeof fetch; now: number }): Promise<string | null> {
+async function ensureRoster(o: { home: string; conf: CloudConfig; device: DeviceLike; fetch: typeof fetch; now: number; confirm: (text: string) => Promise<void> }): Promise<string | null> {
   const { conf } = o;
   const client = new HttpCloudClient({ url: conf.url, token: conf.deviceToken, fetch: o.fetch });
   if (await client.getRoster()) return null;
@@ -573,25 +565,37 @@ async function ensureRoster(o: { home: string; conf: CloudConfig; device: Device
   const epochKey = conf.epochs[String(epoch)];
   if (!epochKey) throw new Error('cloud.json に現在の世代の暗号鍵がありません');
   const recovery = await generateKeyPair();
-  const list = encodeEpochList({ epochs: conf.epochs });
-  const boxes: KeyboxIn[] = [
-    { epoch, recipient: o.device.id, sealed: toBase64Url(await sealKeybox(conf.keyPair.pub, { epoch, recipient: o.device.id }, list)) },
-    { epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(recovery.pub, { epoch, recipient: RECOVERY_RECIPIENT }, list)) },
-  ];
-  const put = await workerFetch(conf.url, '/keyboxes', { fetch: o.fetch, method: 'PUT', body: { boxes }, token: conf.deviceToken });
-  if (!put.ok) throw new Error(`暗号鍵を Worker に保存できませんでした（HTTP ${put.status}）。hangar setup cloud をもう一度実行してください`);
-  const roster: Roster = {
-    v: 1,
-    entries: [{ id: o.device.id, kind: 'pc', name: o.device.name, os: o.device.platform, pub: conf.keyPair.pub, joinedAt: conf.joinedAt }],
-    recoveryPub: recovery.pub,
-    phoneKey: conf.phoneKey,
-  };
-  const keys = await deriveEpochKeys(epoch, epochKey);
-  const r = await client.putRoster({ ifVersion: 0, epoch, sealed: toBase64Url(await sealRoster(keys.roster, 1, roster)) });
-  if (!r.ok) throw new Error('PC の一覧を作成できませんでした（Worker にすでに一覧があります）。Cloudflare にある古いリソースを削除してから、hangar setup cloud をもう一度実行してください');
+  const text = formatRecoveryKey({ priv: recovery.priv, url: conf.url, createdAt: o.now });
+  await o.confirm(text);
+  // ここから先で止まると、いま保存してもらったリカバリーキーはクラウドに登録されない。次の setup は新しいキーを作る。
+  let r: { ok: boolean; version: number };
+  try {
+    const list = encodeEpochList({ epochs: conf.epochs });
+    const boxes: KeyboxIn[] = [
+      { epoch, recipient: o.device.id, sealed: toBase64Url(await sealKeybox(conf.keyPair.pub, { epoch, recipient: o.device.id }, list)) },
+      { epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(recovery.pub, { epoch, recipient: RECOVERY_RECIPIENT }, list)) },
+    ];
+    const put = await workerFetch(conf.url, '/keyboxes', { fetch: o.fetch, method: 'PUT', body: { boxes }, token: conf.deviceToken });
+    if (!put.ok) throw new Error(`暗号鍵を Worker に保存できませんでした（HTTP ${put.status}）。hangar setup cloud をもう一度実行してください`);
+    const roster: Roster = {
+      v: 1,
+      entries: [{ id: o.device.id, kind: 'pc', name: o.device.name, os: o.device.platform, pub: conf.keyPair.pub, joinedAt: conf.joinedAt }],
+      recoveryPub: recovery.pub,
+      phoneKey: conf.phoneKey,
+    };
+    const keys = await deriveEpochKeys(epoch, epochKey);
+    r = await client.putRoster({ ifVersion: 0, epoch, sealed: toBase64Url(await sealRoster(keys.roster, 1, roster)) });
+    if (!r.ok) throw new Error('PC の一覧を作成できませんでした（Worker にすでに一覧があります）。Cloudflare にある古いリソースを削除してから、hangar setup cloud をもう一度実行してください');
+  } catch (e) {
+    const base = (e instanceof Error ? e.message : String(e)).trimEnd();
+    throw new Error(`${/[。.]$/.test(base) ? base : `${base}。`}${UNREGISTERED_RECOVERY_KEY}`, { cause: e });
+  }
   saveCloudConfig(o.home, { ...conf, rosterVersion: r.version });
-  return formatRecoveryKey({ priv: recovery.priv, url: conf.url, createdAt: o.now });
+  return text;
 }
+
+/** 確認の後で名簿か keybox を置けずに止まったときに足す文。 */
+const UNREGISTERED_RECOVERY_KEY = '先に保存したキーは使えません。もう一度実行して、新しいキーを保存してください';
 
 /**
  * 床を刻むための DB を先に開く。
@@ -614,7 +618,7 @@ export function openFloorFirst(home: string, nothingMade: string, retry: string)
  * `wrangler whoami --json` を先に使い、JSON が返らなければ（--json を知らない版）表を読む。
  * whoami は CLOUDFLARE_ACCOUNT_ID が立っていても全アカウントを並べる。
  */
-async function readAccounts(wr: WranglerRunner): Promise<WhoamiResult> {
+export async function readAccounts(wr: WranglerRunner): Promise<WhoamiResult> {
   const j = await wr.run(['whoami', '--json']);
   const fromJson = parseWhoamiJson(j.stdout);
   if (fromJson) return fromJson;
@@ -860,10 +864,18 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
       floor.stamp(conf.joinedAt);
     }
 
-    // 8. 名簿と keybox、リカバリーキーの表示
-    const recoveryKey = await ensureRoster({ home: o.home, conf, device: o.device, fetch: fetchFn, now: Date.now() });
-    if (recoveryKey) printRecoveryKey(log, recoveryKey);
-    else log('Worker を入れ替えました。この PC の暗号鍵とリカバリーキーは変わりません。');
+    // 8. リカバリーキーの表示と保存の確認、名簿と keybox
+    // 保存を確かめる前に名簿を置くと、確かめられずに止まった setup のやり直しで名簿があるため、リカバリーキーを 2 度と表示できない。
+    const confirm = (text: string): Promise<void> =>
+      showAndConfirmRecoveryKey({
+        text,
+        ask: o.recoveryAsk ?? askLine,
+        write: o.recoveryWrite ?? ((s) => { process.stdout.write(s); }),
+        ...(o.saveRecoveryTo ? { saveTo: o.saveRecoveryTo } : {}),
+        askSavePath: o.recoveryAsk === undefined && process.stdin.isTTY === true,
+      });
+    const recoveryKey = await ensureRoster({ home: o.home, conf, device: o.device, fetch: fetchFn, now: Date.now(), confirm });
+    if (!recoveryKey) log('Worker を入れ替えました。この PC の暗号鍵とリカバリーキーは変わりません。');
     printNextSteps(log, url);
     // 使用量のトークンは任意。端末から打たれたときだけ尋ね、飛ばしても setup はここで終わる。
     if (process.stdin.isTTY && !o.skipUsageToken) {

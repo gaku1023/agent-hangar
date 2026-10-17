@@ -13,7 +13,7 @@ import type { RosterStore } from './roster.ts';
 import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
-import { noteBlobUpload } from './trashSweep.ts';
+import { noteBlobUpload, sweepSupersededBlobs } from './trashSweep.ts';
 import type { RowKeyring } from './sealedClient.ts';
 import type { SyncStateStore } from './state.ts';
 import { transcriptsFrom } from './transcriptsFrom.ts';
@@ -633,7 +633,19 @@ export class TranscriptUploader {
       .run(key, relay ? RELAY_KIND : 'transcript', rel, origin, sha, size, meta.mtime, seq, this.now());
     // 上げた世代を控える。ゴミ箱の掃除が、世代ごとに残る鍵名を求め直して消す（sync/trashSweep.ts）。
     // remote/ の写しは掃除が名指ししない（掃除はこの PC の本文の鍵名だけを求める）ので控えない。
-    if (!relay) noteBlobUpload(this.deps.db, key, cur.epoch);
+    // 写しの鍵名も世代で変わるが、写しを上げるのは元の PC が名簿に居ないときだけで、本文はもう伸びない。
+    // 世代を回した後に上げ直すことはまず無いので、古い世代の鍵名の写しは消さずに残す。
+    if (!relay) {
+      const firstInEpoch = noteBlobUpload(this.deps.db, key, cur.epoch);
+      // 世代を回した後に初めて上げ直したなら、古い世代の鍵名の本文を消す。新しい鍵名で上げた後なので本文は失われない。
+      // 消せなくても上げたことは変わらないので投げない。
+      // 断られた分（置いてから 1 時間たっていない）は 6 時間ごとの掃除に任せ、同じ世代で上げるたびには打ち直さない。
+      if (firstInEpoch) try {
+        await sweepSupersededBlobs({ db: this.deps.db, client: this.deps.client, keyring: this.deps.keyring, deviceId: this.deps.deviceId, ledgerKey: key });
+      } catch (e) {
+        console.warn('[upload] could not delete the copy under the previous epoch', e instanceof Error ? e.constructor.name : typeof e);
+      }
+    }
     return 'uploaded';
   }
 

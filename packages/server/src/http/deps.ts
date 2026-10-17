@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -16,6 +16,7 @@ import type { CloudClient } from '../sync/client.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import type { JoinApprover } from '../sync/joinApprover.ts';
+import type { RecoveryKeyReissuer } from '../sync/recoveryReissue.ts';
 import type { TakeoverService } from '../sync/takeover.ts';
 import type { AccountsDeps } from './accounts.ts';
 import type { GitService } from '../git/service.ts';
@@ -57,6 +58,8 @@ export type SummaryEnqueueOpts = { force?: boolean; ignoreLive?: boolean };
 export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
 /** JoinApprover のうち HTTP から触る部分だけ。 */
 export type JoinApproverApi = Pick<JoinApprover, 'state' | 'issue' | 'approve' | 'reject' | 'cancel'>;
+/** リカバリーキーの再発行のうち HTTP から触る部分だけ。 */
+export type RecoveryKeyApi = Pick<RecoveryKeyReissuer, 'reissue' | 'confirm'>;
 /** SyncEngine のうち HTTP から触る部分だけ。 */
 export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onFocus' | 'pullBeforeLaunch'>;
 /**
@@ -153,12 +156,23 @@ export type AppDeps = {
    * 参加コードの平文はこの中のメモリにだけあり、応答には載るが、ログには出さない。
    */
   joinApprover: () => JoinApproverApi | null;
+  /**
+   * リカバリーキーの再発行（sync/recoveryReissue.ts）。同期を設定していない端末では null で、/sync/recovery-key/* は 404 を返す。
+   * 新しい鍵ペアはこの中のメモリにだけあり、再発行の応答には載るが、ログには出さない。
+   */
+  recoveryKey: () => RecoveryKeyApi | null;
   devices: () => DeviceDto[];
   /**
    * 設定のクラウド同期の節の PC の一覧。Worker の devices を取りに行く（sync/devices.ts）。
-   * 解除と参加と参加の解除は、殻の命令と CLI だけが行い、HTTP の経路は持たない。
+   * 参加と参加の解除は、殻の命令と CLI だけが行い、HTTP の経路は持たない。
    */
   cloudDevices: () => Promise<CloudDevicesDto>;
+  /**
+   * 他の端末の解除（sync/rotate.ts の revokeMember）。PC なら世代を回す。同期を設定していない端末では null で、経路は 404 を返す。
+   * 世代鍵と回しの途中の記録は動いているサーバーにあるので、殻の命令（CLI の hangar cloud revoke）もこの経路を呼ぶ。
+   * 渡さなければ null として読む（試験の世界）。
+   */
+  cloudRevoke?: () => ((id: string) => Promise<DeviceOut>) | null;
   /**
    * スマホを接続する QR を作るための、今の client と参加の秘密と Worker の URL（boot/sync.ts の mobileLink）。同期を設定していなければ null。
    * 秘密は QR に入れるスマホ用の暗号鍵を導くのにだけ使い、応答にもログにも出さない。渡さなければ null として読む（試験の世界）。

@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
 import { runConfigApply, runConfigRestore } from './config.ts';
 import { askLine, cloudBackfill, cloudStatus, installUsageToken, OVERWRITE_WORD, promptWord, readJoinCodeInput, readUsageToken, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { devicesCommand, JOIN_TOKEN_RETIRED, joinCheckCommand, joinInteractive, joinPollCommand, joinRequestCommand, leaveCommand, revokeCommand } from './membership.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
+import { readRecoveryKeyInput, runRecover } from './recovery.ts';
 import { cliErrorText, probeHealth, serverDownMessage } from './probe.ts';
 import { candidatesCommand, projectAddCommand, projectRemoveCommand, workspaceSetCommand, workspaceUnsetCommand } from './project.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
@@ -48,7 +50,8 @@ setup
   .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
   .option('--usage-token', '使用量と料金を表示するための読み取り専用のトークンを Worker に追加する（標準入力から受け取る）')
   .option('--account-id <id>', '作成先の Cloudflare のアカウント ID（アカウントが複数あるとき。CLOUDFLARE_ACCOUNT_ID でも指定できる）')
-  .action(async (o: { name: string; usageToken?: boolean; accountId?: string }) => {
+  .option('--save <path>', 'リカバリーキーをこのファイルにも保存する（0600）')
+  .action(async (o: { name: string; usageToken?: boolean; accountId?: string; save?: string }) => {
     const home = hangarHome();
     if (o.usageToken) {
       for (const l of USAGE_TOKEN_HELP) console.log(l);
@@ -56,7 +59,19 @@ setup
       return;
     }
     const device = readOrCreateDevice(home);
-    await runSetupCloud({ home, device, name: o.name, accountId: o.accountId });
+    await runSetupCloud({ home, device, name: o.name, accountId: o.accountId, ...(o.save ? { saveRecoveryTo: path.resolve(o.save) } : {}) });
+  });
+
+program
+  .command('recover')
+  .description('すべての PC を失ったときに、リカバリーキーでこの PC をクラウド同期に戻す（リカバリーキーは標準入力から読み取る。Worker を作成した Cloudflare アカウントで wrangler を使うので、リポジトリを clone したディレクトリで実行する）')
+  .option('--name <name>', 'Worker の名前（デフォルトは workers.dev の URL の先頭のラベル）')
+  .option('--account-id <id>', 'Worker を作成した Cloudflare のアカウント ID（アカウントが複数あるとき。CLOUDFLARE_ACCOUNT_ID でも指定できる）')
+  .action(async (o: { name?: string; accountId?: string }) => {
+    const home = hangarHome();
+    // リカバリーキーは argv に載せない。標準入力から受け取る。
+    const text = await readRecoveryKeyInput();
+    await runRecover({ home, device: readOrCreateDevice(home), text, ...(o.name ? { name: o.name } : {}), ...(o.accountId !== undefined ? { accountId: o.accountId } : {}) });
   });
 
 // 参加トークンは廃止した（参加コードと承認に置き換えた）。
@@ -135,12 +150,13 @@ cloud
 
 cloud
   .command('revoke <id>')
-  .description('他の PC を同期から解除する（その PC の端末トークンを無効にする。ID は hangar cloud devices で確認する）')
+  .description('他の PC を同期から解除する（端末トークンを無効にし、暗号鍵を再生成して残りの PC に配布する。hangar の起動中に行う。ID は hangar cloud devices で確認する）')
   .option('--yes', '確認せずに解除する')
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
-  .action(async (id: string, o: { yes?: boolean; json?: boolean }) => {
+  .option('--port <n>', '動いている hangar のポート', '4177')
+  .action(async (id: string, o: { yes?: boolean; json?: boolean; port: string }) => {
     const home = hangarHome();
-    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, confirm: promptWord });
+    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, port: Number(o.port), confirm: promptWord });
   });
 
 cloud

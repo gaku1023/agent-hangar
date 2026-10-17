@@ -218,6 +218,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     load: () => deps.api.cloudDevices(),
     pair: () => deps.api.mobilePairing(),
     joinCodes: { current: () => deps.api.joinCodeCurrent(), issue: () => deps.api.joinCodeIssue(), approve: () => deps.api.joinCodeApprove(), reject: () => deps.api.joinCodeReject(), close: () => deps.api.joinCodeClose() },
+    recovery: { reissue: () => deps.api.recoveryKeyReissue(), confirm: (draftId, tail) => deps.api.recoveryKeyConfirm(draftId, tail) },
     now: () => clock(),
     restart: () => { void deps.desktop?.restart().catch(fail); },
     setTimeout: deps.setTimeout,

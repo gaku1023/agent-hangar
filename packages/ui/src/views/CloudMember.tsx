@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { normalizeJoinCode } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
-import { PAIR_TTL_MS, type CloudAddProps, type CloudJoinProps, type CloudMemberProps, type CloudPcRow, type CloudPhoneProps } from '../presenters/cloudMember.ts';
+import { PAIR_TTL_MS, type CloudAddProps, type CloudJoinProps, type CloudMemberProps, type CloudPhoneProps } from '../presenters/cloudMember.ts';
 import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -13,11 +13,11 @@ import { usePresence } from './primitives/usePresence.ts';
 /**
  * 設定のクラウド同期の節の、参加と「PC を追加」、PC の一覧と解除、この PC の参加の解除。
  * 参加は試作 cloud-e2e の B2（接続先の確認から参加コード）、「PC を追加」は A1（節の中に開く欄）、参加リクエストの通知は C1（ToastStack）である。
- * PC の一覧は表と行の中の確認、この PC の参加の解除は節の末尾の帯（0.4.0）のままである。
+ * PC の一覧は小見出し「PC」と「スマホ」の 2 つの表と行の中の確認（E2）、この PC の参加の解除は節の末尾の帯（0.4.0）のままである。
  * 参加と解除は殻の命令が行う。ブラウザで開いているときは、ボタンの代わりにターミナルのコマンドを出す。
  */
 
-function Strip(props: { tone?: 'ok' | 'danger' | 'warn'; icon?: IconName; children: ReactNode; role?: 'alert' | 'status' }) {
+export function Strip(props: { tone?: 'ok' | 'danger' | 'warn'; icon?: IconName; children: ReactNode; role?: 'alert' | 'status' }) {
   const icon = props.icon ?? (props.tone === 'ok' ? 'check' : props.tone === 'danger' || props.tone === 'warn' ? 'alert' : 'info');
   return (
     <div className="cm-strip" data-tone={props.tone} role={props.role}>
@@ -27,7 +27,7 @@ function Strip(props: { tone?: 'ok' | 'danger' | 'warn'; icon?: IconName; childr
   );
 }
 
-const clock = (ms: number): string => {
+export const clock = (ms: number): string => {
   const s = Math.ceil(Math.max(0, ms) / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
@@ -49,7 +49,7 @@ function SasBox(props: { note: string; sas: string; label: string }) {
  * 中身を入れ替えたら、前の高さから今の高さへ resizeFrom で動かし、中身を fadeIn で現す。
  * group が同じ間（同じ段の中の入力など）は動かさない。前の高さは描くたびに控えておく。
  */
-function useSwap<E extends HTMLElement>(group: string) {
+export function useSwap<E extends HTMLElement>(group: string) {
   const box = useRef<E>(null);
   const body = useRef<HTMLDivElement>(null);
   const last = useRef<{ group: string; height: number } | null>(null);
@@ -348,71 +348,168 @@ function AddCode(props: { a: CloudAddProps }) {
   );
 }
 
-/** 解除の確認。行のすぐ下に開く。秘密の説明は「手放した PC、なくした PC のとき」に折りたたむ。 */
-function RevokeConfirm(props: { row: CloudPcRow; onCancel: () => void }) {
+/**
+ * 解除の確認。行のすぐ下に開く。
+ * PC は、解除すると暗号鍵を再生成して残りの PC に配ること、解除した PC はこれ以降の同期データを復号できないことを言う（試作 cloud-e2e の E2）。
+ * スマホは券なしでは戻れず、なくすと全部の PC に会話を起動される。PC と違う文で確かめる（試作 A1）。
+ */
+function RevokeConfirm(props: { id: string; name: string; phone: boolean; onCancel: () => void }) {
   const emit = useEmit();
   const t = useT();
-  const name = props.row.name;
-  // スマホは券なしでは戻れず、なくすと全部の PC に会話を起動される。PC と違う文で確かめる（試作 A1）。
-  if (props.row.phone) {
-    return (
-      <div className="cm-rowx">
-        <Strip tone="danger">
-          <p><b>{t('cloudMember.phone.confirmTitle', { name })}</b></p>
-          <p>{t('cloudMember.phone.confirmBody')}</p>
-          <p>{t('cloudMember.phone.confirmRisk')}</p>
-          <div className="btns">
-            <button type="button" className="btn btn-sm" onClick={props.onCancel}>{t('cloudMember.common.cancel')}</button>
-            <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.row.id })}>{t('cloudMember.pcs.do')}</button>
-          </div>
-        </Strip>
-      </div>
-    );
-  }
+  const name = props.name;
   return (
     <div className="cm-rowx">
       <Strip tone="danger">
-        <p><b>{t('cloudMember.pcs.confirmTitle', { name })}</b></p>
-        <p>{t('cloudMember.pcs.confirmBody', { name })}</p>
-        <details className="cm-help"><summary>{t('cloudMember.pcs.helpSummary')}</summary><p>{t('cloudMember.pcs.helpBody', { name })}</p></details>
+        {props.phone ? (
+          <>
+            <p><b>{t('cloudMember.phone.confirmTitle', { name })}</b></p>
+            <p>{t('cloudMember.phone.confirmBody')}</p>
+            <p>{t('cloudMember.phone.confirmRisk')}</p>
+          </>
+        ) : (
+          <>
+            <p><b>{t('cloudMember.pcs.confirmTitle', { name })}</b></p>
+            <p>{t('cloudMember.pcs.confirmBody')}</p>
+          </>
+        )}
         <div className="btns">
           <button type="button" className="btn btn-sm" onClick={props.onCancel}>{t('cloudMember.common.cancel')}</button>
-          <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.row.id })}>{t('cloudMember.pcs.do')}</button>
+          <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.id })}>{t('cloudMember.pcs.do')}</button>
         </div>
       </Strip>
     </div>
   );
 }
 
-/** 表の 1 台分（行と、その下に開く確認）。enter なら、現れたときに growIn で伸びて入る。 */
-function RowGroup(props: { enter: boolean; children: ReactNode }) {
+/**
+ * 解除に失敗した理由と、閉じる、もう一度試す。
+ * スマホは行のすぐ下に出す。
+ * PC は表の下に出し（rotate）、暗号鍵の配布が終わっていないことと、この PC が自動で再試行することを添える。
+ * PC はサーバーが端末トークンを無効にした後で失敗することがあり、一覧を取り直すと行は「解除した PC」へ移るので、行に結び付けない。
+ */
+function RevokeFailed(props: { id: string; name: string; message: string | null; rotate: boolean }) {
+  const emit = useEmit();
+  const t = useT();
+  return (
+    <Strip tone="danger" role="alert">
+      <p>{t('cloudMember.pcs.failed', { name: props.name, message: props.message ?? '' })}</p>
+      {props.rotate && <p>{t('cloudMember.pcs.failedRotate')}</p>}
+      <div className="btns">
+        <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.revoke.dismiss' })}>{t('cloudMember.common.close')}</button>
+        <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.id })}>{t('cloudMember.join.retry')}</button>
+      </div>
+    </Strip>
+  );
+}
+
+/** 解除の確認を開いている行の ID。解除が済むか失敗したら閉じる（失敗は行の下に理由を出す）。 */
+function useAsking(revoke: CloudMemberProps['revoke']) {
+  const [asking, setAsking] = useState<string | null>(null);
+  useEffect(() => { if (revoke && revoke.kind !== 'busy') setAsking(null); }, [revoke]);
+  return [asking, setAsking] as const;
+}
+
+/** 行の右端の「解除…」。押すと確認を開き（開いていれば閉じ）、前の失敗の帯を片付ける。 */
+function RevokeButton(props: { m: CloudMemberProps; id: string; label: string; asking: string | null; setAsking: (id: string | null) => void }) {
+  const emit = useEmit();
+  const t = useT();
+  const { revoke } = props.m;
+  const busy = revoke?.id === props.id && revoke.kind === 'busy';
+  const open = props.asking === props.id;
+  return (
+    <button type="button" className="btn btn-ghost btn-sm" aria-label={props.label} aria-expanded={open} disabled={revoke?.kind === 'busy'} onClick={() => { emit({ type: 'cloud.revoke.dismiss' }); props.setAsking(open ? null : props.id); }}>
+      {busy ? t('cloudMember.pcs.busy') : t('cloudMember.pcs.remove')}
+    </button>
+  );
+}
+
+/**
+ * 表の 1 台分（行と、その下に開く確認）。enter なら、現れたときに growIn で伸びて入る。
+ * leave になったら collapseOut で畳み、畳み終えたら onGone を呼ぶ（動かない設定では、すぐ呼ぶ）。
+ */
+function RowGroup(props: { enter: boolean; leave: boolean; onGone: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   // 現れた描画でだけ動かす。後から enter が替わっても動かし直さない。
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => { if (props.enter && ref.current) growIn(ref.current); }, []);
-  return <div ref={ref} role="rowgroup">{props.children}</div>;
+  const gone = useRef(props.onGone);
+  gone.current = props.onGone;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!props.leave || !el) return;
+    if (!motionOn(el)) { gone.current(); return; }
+    let alive = true;
+    void collapseOut(el).then(() => { if (alive) gone.current(); });
+    return () => { alive = false; };
+  }, [props.leave]);
+  return <div ref={ref} role="rowgroup" aria-hidden={props.leave ? 'true' : undefined}>{props.children}</div>;
 }
 
 /**
- * PC の表（試作の A）。名前（下に最後の IP と場所）、OS、参加日、最終同期と、ほかの PC には「解除…」を置く。
- * 解除した PC は表から抜けて、下の「解除した PC」へ移る。
+ * 表の行の出入り。Worker の一覧に新しく現れた行（承認した新しい PC、QR で接続したスマホ）は growIn で入り、
+ * 一覧から抜けた行（解除した PC とスマホ）は、前の位置のまま collapseOut で畳んでから外す。
+ * live（Worker の一覧を出している）でない描画と、同期の表の一覧から Worker の一覧へ替わった描画では、どちらも動かさない。
+ */
+function useRowMotion<T extends { id: string }>(rows: T[], live: boolean) {
+  const prev = useRef<{ live: boolean; rows: T[]; shown: T[] } | null>(null);
+  const leaving = useRef(new Map<string, T>());
+  // 畳み終えた ID。同じ描画の中で控えより先に畳み終える（動かない設定）ことがあるので、別に持つ。
+  const finished = useRef(new Set<string>());
+  const [, setTick] = useState(0);
+  const p = prev.current;
+  const ids = new Set(rows.map((r) => r.id));
+  const out = new Map<string, T>();
+  if (live && p?.live) {
+    for (const [id, r] of leaving.current) if (!ids.has(id) && !finished.current.has(id)) out.set(id, r);
+    for (const r of p.rows) if (!ids.has(r.id) && !finished.current.has(r.id)) out.set(r.id, r);
+  }
+  const shown: { row: T; leaving: boolean }[] = rows.map((row) => ({ row, leaving: false }));
+  if (p && out.size > 0) {
+    // 抜ける行は、前の描画で直前にあった行の後ろに挟む。
+    p.shown.forEach((r, i) => {
+      const row = out.get(r.id);
+      if (!row) return;
+      let at = 0;
+      for (let j = i - 1; j >= 0; j--) {
+        const k = shown.findIndex((s) => s.row.id === p.shown[j]!.id);
+        if (k >= 0) { at = k + 1; break; }
+      }
+      shown.splice(at, 0, { row, leaving: true });
+    });
+  }
+  useLayoutEffect(() => {
+    prev.current = { live, rows, shown: shown.map((s) => s.row) };
+    leaving.current = out;
+    // 参加し直して戻った ID は、次に解除したときにまた畳めるよう控えから外す。
+    for (const id of finished.current) if (ids.has(id)) finished.current.delete(id);
+  });
+  const isNew = (id: string) => live && p !== null && p.live && !p.rows.some((r) => r.id === id) && !out.has(id);
+  const gone = (id: string) => { finished.current.add(id); setTick((n) => n + 1); };
+  return { shown, isNew, gone };
+}
+
+/**
+ * PC の表（試作 cloud-e2e の E2）。名前、OS、参加日、最終同期と、他の PC には「解除…」を置く。IP と所在地は出さない。
+ * スマホはこの表に入れず、下の「スマホ」の小見出しに並べる（CloudPhones）。
+ * 解除の間は、行の下に暗号鍵を再生成して残りの PC に配っている旨を 1 行出す。
+ * 解除の失敗の帯は表の下に出し、行が「解除した PC」へ移っても残す。
+ * 帯から試し直したときに行がもう表に無ければ、配布している旨の 1 行も表の下に出す。
+ * 解除した PC の行は collapseOut で畳んでから表を抜け、下の「解除した PC」へ移る。
  * Worker の一覧が無いとき（Worker が古い、繋がらない、まだ届かない）は、同期の表の一覧を出し、解除は出さない。
  */
 export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
-  const emit = useEmit();
   const t = useT();
   const { pcs, revoke, desktop } = props.m;
-  const [asking, setAsking] = useState<string | null>(null);
-  // 解除が済むか失敗したら、開いていた確認を閉じる（失敗は行の下に理由を出す）。
-  useEffect(() => { if (revoke && revoke.kind !== 'busy') setAsking(null); }, [revoke]);
+  const [asking, setAsking] = useAsking(revoke);
   const canRevoke = desktop && pcs.state === 'ok';
-  // Worker の一覧に新しく現れた行（QR で接続したスマホ、承認した新しい PC）だけが、表に伸びて入る。
-  // 前の描画の Worker の一覧の ID を控え、そこに無かった ID だけを動かす。
-  // はじめの描画と、同期の表の一覧から Worker の一覧へ替わった描画では、どの行も動かさない。
-  const known = useRef<Set<string> | null>(null);
-  const before = known.current;
-  const isNew = (id: string) => pcs.state === 'ok' && before !== null && !before.has(id);
-  useEffect(() => { known.current = pcs.state === 'ok' ? new Set(pcs.rows.map((r) => r.id)) : null; });
+  const motion = useRowMotion(pcs.rows, pcs.state === 'ok');
+  // 解除の後に暗号鍵を受け取る PC（この PC と、解除するもの以外の PC）。
+  const remaining = pcs.rows.filter((r) => r.id !== revoke?.id).length;
+  // 解除に失敗した PC。行が「解除した PC」へ移っていても、帯は表の下に残す。
+  const isPc = (id: string) => pcs.rows.some((r) => r.id === id) || pcs.removed.some((r) => r.id === id);
+  const failed = revoke?.kind === 'failed' && isPc(revoke.id) ? revoke : null;
+  // 失敗の帯から「もう一度試す」を押したとき、行がもう「解除した PC」へ移っていれば、配布している旨は帯と同じ表の下に出す。
+  const busyBelow = revoke?.kind === 'busy' && !pcs.rows.some((r) => r.id === revoke.id) && isPc(revoke.id);
   return (
     <>
       <h4 className="sub-h">{props.heading}<span className="n">{pcs.rows.length}</span></h4>
@@ -424,42 +521,30 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
           <span className="cm-col" role="columnheader">{t('cloudMember.col.lastSeen')}</span>
           <span />
         </div>
-        {pcs.rows.map((r) => {
-          const busy = revoke?.id === r.id && revoke.kind === 'busy';
-          const failed = revoke?.id === r.id && revoke.kind === 'failed' ? revoke : null;
+        {motion.shown.map(({ row: r, leaving }) => {
+          const busy = !leaving && revoke?.id === r.id && revoke.kind === 'busy';
+          const failedHere = !leaving && failed?.id === r.id;
           return (
-            <RowGroup key={r.id} enter={isNew(r.id)}>
-              <div className="cm-row" role="row" data-focus={asking === r.id || failed ? 'true' : undefined}>
+            <RowGroup key={r.id} enter={motion.isNew(r.id)} leave={leaving} onGone={() => motion.gone(r.id)}>
+              <div className="cm-row" role="row" data-focus={!leaving && (asking === r.id || busy || failedHere) ? 'true' : undefined}>
                 <span className="cm-name" role="cell">
-                  <span>{r.name}{r.self && <span className="cm-self">{t('settings.cloud.thisPc')}</span>}{r.phone && <span className="cm-chip">{t('cloudMember.phone.chip')}</span>}</span>
+                  <span>{r.name}{r.self && <span className="cm-self">{t('settings.cloud.thisPc')}</span>}</span>
                 </span>
                 <span className="cm-faint" role="cell">{r.os}</span>
                 <span className="cm-faint cm-col" role="cell">{r.joined ?? '—'}</span>
                 <span className="cm-faint cm-col" role="cell">{r.lastSeen}</span>
                 <span className="cm-act" role="cell">
-                  {canRevoke && !r.self && (
-                    <button type="button" className="btn btn-ghost btn-sm" aria-label={t(r.phone ? 'cloudMember.phone.removeAria' : 'cloudMember.pcs.removeAria', { name: r.name })} aria-expanded={asking === r.id} disabled={busy || revoke?.kind === 'busy'} onClick={() => { emit({ type: 'cloud.revoke.dismiss' }); setAsking(asking === r.id ? null : r.id); }}>
-                      {busy ? t('cloudMember.pcs.busy') : t('cloudMember.pcs.remove')}
-                    </button>
-                  )}
+                  {canRevoke && !r.self && !leaving && <RevokeButton m={props.m} id={r.id} label={t('cloudMember.pcs.removeAria', { name: r.name })} asking={asking} setAsking={setAsking} />}
                 </span>
               </div>
-              {asking === r.id && !busy && <RevokeConfirm row={r} onCancel={() => setAsking(null)} />}
-              {failed && (
-                <div className="cm-rowx">
-                  <Strip tone="danger" role="alert">
-                    <p>{t('cloudMember.pcs.failed', { name: failed.name, message: failed.message ?? '' })}</p>
-                    <div className="btns">
-                      <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.revoke.dismiss' })}>{t('cloudMember.common.close')}</button>
-                      <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: r.id })}>{t('cloudMember.join.retry')}</button>
-                    </div>
-                  </Strip>
-                </div>
-              )}
+              {!leaving && asking === r.id && !busy && <RevokeConfirm id={r.id} name={r.name} phone={false} onCancel={() => setAsking(null)} />}
+              {busy && <div className="cm-rowx"><div className="cm-wait" role="status">{t('cloudMember.pcs.rotating', { n: remaining })}</div></div>}
             </RowGroup>
           );
         })}
       </div>
+      {failed && <RevokeFailed id={failed.id} name={failed.name} message={failed.message} rotate />}
+      {busyBelow && <div className="cm-wait" role="status">{t('cloudMember.pcs.rotating', { n: remaining })}</div>}
       {revoke?.kind === 'done' && <Strip tone="ok" role="status"><p>{t('cloudMember.pcs.done', { name: revoke.name })}</p></Strip>}
       {pcs.note && <div className="cm-note">{pcs.note}</div>}
       {pcs.removed.length > 0 && (
@@ -684,8 +769,49 @@ function PairPanel(props: { p: PanelStage }) {
 }
 
 /**
+ * スマホの表（試作 cloud-e2e の E2）。名前と、その下に残りの日数と再接続の日付、参加日、最終同期、「解除…」を置く。
+ * 残りの日数は Worker がまだ期限を持たないので、行に日数があるときだけ出す（PR 7 で埋める）。
+ * 解除の確認と、解除したスマホの行が collapseOut で畳まれるのは PC の表と同じ。0 台なら、表の代わりに 1 行で言う。
+ */
+function PhoneTable(props: { m: CloudMemberProps; heading: string }) {
+  const t = useT();
+  const { phones, revoke, desktop, pcs } = props.m;
+  const [asking, setAsking] = useAsking(revoke);
+  const listed = pcs.state === 'ok';
+  const motion = useRowMotion(phones, listed);
+  if (!listed) return null;
+  if (motion.shown.length === 0) return <div className="cm-note">{t('cloudMember.phone.none')}</div>;
+  return (
+    <div className="cm-table" role="table" aria-label={props.heading}>
+      {motion.shown.map(({ row: r, leaving }) => {
+        const busy = !leaving && revoke?.id === r.id && revoke.kind === 'busy';
+        const failed = !leaving && revoke?.id === r.id && revoke.kind === 'failed' ? revoke : null;
+        return (
+          <RowGroup key={r.id} enter={motion.isNew(r.id)} leave={leaving} onGone={() => motion.gone(r.id)}>
+            <div className="cm-row" role="row" data-focus={!leaving && (asking === r.id || failed) ? 'true' : undefined}>
+              <span className="cm-name" role="cell">
+                <span>{r.name}</span>
+                {r.left && <span className="cm-sub">{t('cloudMember.phone.daysLeft', { n: r.left.days, date: r.left.reconnectOn })}</span>}
+              </span>
+              <span role="cell" />
+              <span className="cm-faint cm-col" role="cell">{r.joined}</span>
+              <span className="cm-faint cm-col" role="cell">{r.lastSeen}</span>
+              <span className="cm-act" role="cell">
+                {desktop && !leaving && <RevokeButton m={props.m} id={r.id} label={t('cloudMember.phone.removeAria', { name: r.name })} asking={asking} setAsking={setAsking} />}
+              </span>
+            </div>
+            {!leaving && asking === r.id && !busy && <RevokeConfirm id={r.id} name={r.name} phone onCancel={() => setAsking(null)} />}
+            {failed && <div className="cm-rowx"><RevokeFailed id={r.id} name={failed.name} message={failed.message} rotate={false} /></div>}
+          </RowGroup>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * 「スマホ」の小見出しと「スマホを接続」（試作 A1）。PC の表の下に置き、押すと節の中に QR の段が開く（growIn、閉じると collapseOut）。
- * QR の中身は Runtime が取り、ready の間だけ持つ。参加したスマホは PC と同じ表に「スマホ」の札つきで並ぶ。
+ * QR の中身は Runtime が取り、ready の間だけ持つ。接続したスマホは小見出しの下のスマホの表に並ぶ（試作 cloud-e2e の E2）。
  * 「Remote Control を付けて起動する」の設定は「連携」にあるので、その旨を 1 行で案内する（試作 B1）。
  */
 export function CloudPhones(props: { m: CloudMemberProps }) {
@@ -709,13 +835,16 @@ export function CloudPhones(props: { m: CloudMemberProps }) {
     wasOpen.current = open;
   }, [open, panel.ref]);
   const heading = t('cloudMember.phone.heading');
+  const listed = props.m.pcs.state === 'ok';
   return (
     <section className="cm-phones" aria-label={heading}>
       <h4 className="sub-h">
         {heading}
+        {listed && <span className="n">{props.m.phones.length}</span>}
         <span className="cm-sp" />
         {!open && <button type="button" className="btn btn-sm" disabled={p.kind === 'loading'} onClick={() => emit({ type: 'cloud.phone.pair' })}>{t('cloudMember.phone.pair')}</button>}
       </h4>
+      <PhoneTable m={props.m} heading={heading} />
       {!open && (
         <>
           <div className="cm-note">{t('cloudMember.phone.lead')}</div>

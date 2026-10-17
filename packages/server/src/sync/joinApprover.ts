@@ -30,6 +30,7 @@ import type { RosterStore } from './roster.ts';
  * コードが生きている間だけ、JOIN_POLL_MS ごとに `GET /join-codes/mine` を問い合わせる。
  * リクエストを見たら参加コードで開き、確認コードを導き、そのリクエストにつき 1 回だけ onRequest を呼ぶ（右下の通知と OS の通知）。
  * 承認は、名簿に新しい PC を足し、世代鍵の全部の一覧を新しい PC の公開鍵に封じた keybox を置き、Worker に承認を伝える、の順に行う。
+ * 箱を置く前と後に自分宛ての keybox を読み直し、解除で回った世代と重なっても新しい PC が新しい世代の鍵を受け取れるようにする。
  */
 
 /** 発行した PC の問い合わせの間隔。コードの 5 分の間に最大 100 回である。 */
@@ -52,9 +53,11 @@ const realTimers: JoinTimers = {
 
 export type JoinApproverDeps = {
   wire: JoinWire;
-  roster: Pick<RosterStore, 'update'>;
+  roster: Pick<RosterStore, 'update' | 'refreshKeyboxes'>;
   keyring: Keyring | Promise<Keyring>;
   language: GetLanguage;
+  /** 承認の途中で keybox を読み直し、他の PC が配った世代鍵が増えたときに呼ぶ（飛ばした行と本文の取り直し）。 */
+  onGained?: () => void;
   now?: () => number;
   timers?: JoinTimers;
   /** 状態が変わるたびに呼ぶ。 */
@@ -198,15 +201,20 @@ export class JoinApprover {
         const ring = await this.deps.keyring;
         // update は 409 のたびに当て直すので、同じ名簿には同じ結果を返すよう、時刻は先に決める。
         const joinedAt = this.now();
+        // 名簿が新しい世代で封じ直してあれば、その鍵が無いと開けない。
+        await this.refreshKeys();
         await this.deps.roster.update((r) => ({
           ...r,
           entries: [...r.entries.filter((e) => e.id !== p.deviceId), { id: p.deviceId, kind: 'pc', name: p.name, os: p.os, pub: p.pub, joinedAt }],
         }));
         added = true;
-        const epoch = ring.current().epoch;
-        const content = encodeEpochList({ epochs: ring.toConfigPatch().epochs });
-        const box = await sealKeybox(p.pub, { epoch, recipient: p.deviceId }, content);
-        await this.deps.wire.putKeyboxes([{ epoch, recipient: p.deviceId, sealed: toBase64Url(box) }]);
+        // 他の PC が解除で世代を回していれば、その世代の鍵を先に受け取る（sync/rotate.ts）。
+        // 回した PC が名簿を読んだのが足す前なら、その PC はこの新しい PC に箱を置かないからである。
+        await this.refreshKeys();
+        const placed = await this.placeBox(ring, p);
+        // 置いている間に世代が回ったら、その世代の箱を置き直す。
+        await this.refreshKeys();
+        if (ring.current().epoch > placed) await this.placeBox(ring, p);
         await this.deps.wire.approveJoinCode(cur.hash, p.deviceId);
         if (gen === this.gen) this.set({ kind: 'done', name: p.name });
       } catch (e) {
@@ -224,6 +232,23 @@ export class JoinApprover {
     })();
     this.inflight = job;
     await job;
+  }
+
+  /** 自分宛ての keybox を読み直す。新しい世代の鍵が増えたら onGained を呼ぶ。 */
+  private async refreshKeys(): Promise<void> {
+    if (await this.deps.roster.refreshKeyboxes()) this.deps.onGained?.();
+  }
+
+  /**
+   * 新しい PC 宛ての keybox を、今の世代で置く。置いた世代を返す。
+   * 中身は今の世代までの世代鍵の一覧で、回しの途中でまだ配り終えていない世代（今の世代より先）の鍵は入れない。
+   */
+  private async placeBox(ring: Keyring, p: Pending): Promise<number> {
+    const epoch = ring.current().epoch;
+    const epochs = Object.fromEntries(Object.entries(ring.toConfigPatch().epochs).filter(([n]) => Number(n) <= epoch));
+    const box = await sealKeybox(p.pub, { epoch, recipient: p.deviceId }, encodeEpochList({ epochs }));
+    await this.deps.wire.putKeyboxes([{ epoch, recipient: p.deviceId, sealed: toBase64Url(box) }]);
+    return epoch;
   }
 
   /** 承認の途中で足した名簿の項目を外す（できる範囲で）。失敗は英語のログだけにして投げない。 */
