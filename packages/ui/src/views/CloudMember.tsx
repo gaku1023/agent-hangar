@@ -381,20 +381,24 @@ function RevokeConfirm(props: { id: string; name: string; phone: boolean; onCanc
   );
 }
 
-/** 解除に失敗した理由と、閉じる、もう一度試す。行のすぐ下に出す。 */
-function RevokeFailed(props: { id: string; name: string; message: string | null }) {
+/**
+ * 解除に失敗した理由と、閉じる、もう一度試す。
+ * スマホは行のすぐ下に出す。
+ * PC は表の下に出し（rotate）、暗号鍵の配布が終わっていないことと、この PC が自動で再試行することを添える。
+ * PC はサーバーが端末トークンを無効にした後で失敗することがあり、一覧を取り直すと行は「解除した PC」へ移るので、行に結び付けない。
+ */
+function RevokeFailed(props: { id: string; name: string; message: string | null; rotate: boolean }) {
   const emit = useEmit();
   const t = useT();
   return (
-    <div className="cm-rowx">
-      <Strip tone="danger" role="alert">
-        <p>{t('cloudMember.pcs.failed', { name: props.name, message: props.message ?? '' })}</p>
-        <div className="btns">
-          <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.revoke.dismiss' })}>{t('cloudMember.common.close')}</button>
-          <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.id })}>{t('cloudMember.join.retry')}</button>
-        </div>
-      </Strip>
-    </div>
+    <Strip tone="danger" role="alert">
+      <p>{t('cloudMember.pcs.failed', { name: props.name, message: props.message ?? '' })}</p>
+      {props.rotate && <p>{t('cloudMember.pcs.failedRotate')}</p>}
+      <div className="btns">
+        <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.revoke.dismiss' })}>{t('cloudMember.common.close')}</button>
+        <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.id })}>{t('cloudMember.join.retry')}</button>
+      </div>
+    </Strip>
   );
 }
 
@@ -488,6 +492,7 @@ function useRowMotion<T extends { id: string }>(rows: T[], live: boolean) {
  * PC の表（試作 cloud-e2e の E2）。名前、OS、参加日、最終同期と、他の PC には「解除…」を置く。IP と所在地は出さない。
  * スマホはこの表に入れず、下の「スマホ」の小見出しに並べる（CloudPhones）。
  * 解除の間は、行の下に暗号鍵を再生成して残りの PC に配っている旨を 1 行出す。
+ * 解除の失敗の帯は表の下に出し、行が「解除した PC」へ移っても残す。
  * 解除した PC の行は collapseOut で畳んでから表を抜け、下の「解除した PC」へ移る。
  * Worker の一覧が無いとき（Worker が古い、繋がらない、まだ届かない）は、同期の表の一覧を出し、解除は出さない。
  */
@@ -499,6 +504,9 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
   const motion = useRowMotion(pcs.rows, pcs.state === 'ok');
   // 解除の後に暗号鍵を受け取る PC（この PC と、解除するもの以外の PC）。
   const remaining = pcs.rows.filter((r) => r.id !== revoke?.id).length;
+  // 解除に失敗した PC。行が「解除した PC」へ移っていても、帯は表の下に残す。
+  const isPc = (id: string) => pcs.rows.some((r) => r.id === id) || pcs.removed.some((r) => r.id === id);
+  const failed = revoke?.kind === 'failed' && isPc(revoke.id) ? revoke : null;
   return (
     <>
       <h4 className="sub-h">{props.heading}<span className="n">{pcs.rows.length}</span></h4>
@@ -512,10 +520,10 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
         </div>
         {motion.shown.map(({ row: r, leaving }) => {
           const busy = !leaving && revoke?.id === r.id && revoke.kind === 'busy';
-          const failed = !leaving && revoke?.id === r.id && revoke.kind === 'failed' ? revoke : null;
+          const failedHere = !leaving && failed?.id === r.id;
           return (
             <RowGroup key={r.id} enter={motion.isNew(r.id)} leave={leaving} onGone={() => motion.gone(r.id)}>
-              <div className="cm-row" role="row" data-focus={!leaving && (asking === r.id || busy || failed) ? 'true' : undefined}>
+              <div className="cm-row" role="row" data-focus={!leaving && (asking === r.id || busy || failedHere) ? 'true' : undefined}>
                 <span className="cm-name" role="cell">
                   <span>{r.name}{r.self && <span className="cm-self">{t('settings.cloud.thisPc')}</span>}</span>
                 </span>
@@ -528,11 +536,11 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
               </div>
               {!leaving && asking === r.id && !busy && <RevokeConfirm id={r.id} name={r.name} phone={false} onCancel={() => setAsking(null)} />}
               {busy && <div className="cm-rowx"><div className="cm-wait" role="status">{t('cloudMember.pcs.rotating', { n: remaining })}</div></div>}
-              {failed && <RevokeFailed id={r.id} name={failed.name} message={failed.message} />}
             </RowGroup>
           );
         })}
       </div>
+      {failed && <RevokeFailed id={failed.id} name={failed.name} message={failed.message} rotate />}
       {revoke?.kind === 'done' && <Strip tone="ok" role="status"><p>{t('cloudMember.pcs.done', { name: revoke.name })}</p></Strip>}
       {pcs.note && <div className="cm-note">{pcs.note}</div>}
       {pcs.removed.length > 0 && (
@@ -789,7 +797,7 @@ function PhoneTable(props: { m: CloudMemberProps; heading: string }) {
               </span>
             </div>
             {!leaving && asking === r.id && !busy && <RevokeConfirm id={r.id} name={r.name} phone onCancel={() => setAsking(null)} />}
-            {failed && <RevokeFailed id={r.id} name={failed.name} message={failed.message} />}
+            {failed && <div className="cm-rowx"><RevokeFailed id={r.id} name={failed.name} message={failed.message} rotate={false} /></div>}
           </RowGroup>
         );
       })}

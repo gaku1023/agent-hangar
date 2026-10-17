@@ -100,6 +100,7 @@ export const cloudMemberKeys = {
   'cloudMember.pcs.busy': [],
   'cloudMember.pcs.rotating': ['n'],
   'cloudMember.pcs.failed': ['message', 'name'],
+  'cloudMember.pcs.failedRotate': [],
   'cloudMember.pcs.done': ['name'],
   'cloudMember.pcs.removedHeading': [],
   'cloudMember.pcs.removedOn': ['date'],

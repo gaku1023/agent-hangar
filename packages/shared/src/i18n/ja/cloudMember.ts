@@ -100,6 +100,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.pcs.busy': '解除中…',
   'cloudMember.pcs.rotating': '暗号鍵を再生成し、残りの PC（{n} 台）に配布しています',
   'cloudMember.pcs.failed': '{name} を解除できませんでした。{message}',
+  'cloudMember.pcs.failedRotate': '暗号鍵の配布が終わっていません。この PC が自動で再試行します。',
   'cloudMember.pcs.done': '{name} を同期から解除しました。',
   'cloudMember.pcs.removedHeading': '解除した PC',
   'cloudMember.pcs.removedOn': '{date} に解除',

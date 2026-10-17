@@ -522,6 +522,29 @@ describe('スマホの接続の動き', () => {
     expect(animations).toHaveLength(0);
   });
 
+  it('解除の失敗の帯は PC の表の下に出し、行が「解除した PC」へ移っても残す', () => {
+    motion('0ms');
+    const onAction = vi.fn();
+    const devices = (revokedAt: number | null) => ({ state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { revokedAt }), dev('pc-c')], creator: false, message: null });
+    const revoke = { id: 'desk', kind: 'failed' as const, failure: { code: 'keybox', message: '接続できません' } };
+    const view = (m: CloudMemberProps) => ui(<><CloudPcTable m={m} heading="PC" /><CloudPhones m={m} /></>, onAction);
+    const { rerender } = render(view(props({ devices: devices(null), revoke })));
+    const band = () => screen.getByRole('alert');
+    expect(band()).toHaveTextContent('desk を解除できませんでした。接続できません');
+    expect(band()).toHaveTextContent('暗号鍵の配布が終わっていません。この PC が自動で再試行します。');
+    // 行に結び付けない（表の中に置かない）。
+    expect(within(screen.getByRole('table', { name: 'PC' })).queryByRole('alert')).toBeNull();
+    // サーバーが端末トークンを無効にした後で一覧を取り直すと、行は「解除した PC」へ移るが、帯は残る。
+    rerender(view(props({ devices: devices(NOW), revoke })));
+    expect(within(screen.getByRole('table', { name: 'PC' })).queryByText('desk')).toBeNull();
+    expect(within(screen.getByRole('table', { name: '解除した PC' })).getByText('desk')).toBeInTheDocument();
+    expect(band()).toHaveTextContent('desk を解除できませんでした。接続できません');
+    fireEvent.click(within(band()).getByRole('button', { name: 'もう一度試す' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.device.revoke', id: 'desk' });
+    fireEvent.click(within(band()).getByRole('button', { name: '閉じる' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.revoke.dismiss' });
+  });
+
   it('動きを減らす設定（長さ 0）では、動かさずにすぐ切り替える', () => {
     motion('0ms');
     const { rerender, container } = render(both(props()));
