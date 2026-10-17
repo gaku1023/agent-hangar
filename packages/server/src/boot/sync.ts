@@ -342,7 +342,9 @@ export function bootSync(
       ? new JoinApprover({ wire, roster, keyring, language: home.language, ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
       : null;
     // リカバリーキーの再発行。新しい鍵ペアは確認までこの中のメモリにだけ置く。
-    const recoveryKey = wire && roster && keyring && cloud ? new RecoveryKeyReissuer({ roster, keyring, wire, url: () => cloud.url }) : null;
+    const recoveryKey = wire && roster && keyring && cloud ? new RecoveryKeyReissuer({ roster, keyring, wire, url: () => cloud.url, state: syncState }) : null;
+    // 名簿を書いた後に recovery 宛ての keybox を置けなかった印があれば、pull の度に置き直す（印が無ければ何も送らない）。
+    if (recoveryKey) engine.on({ pulled: () => { void recoveryKey.resumePending(); } });
     const c: Core = { cloud, client, roster, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
     built = c;
     return c;

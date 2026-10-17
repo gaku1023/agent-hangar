@@ -26,6 +26,7 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.join.noCode': '発行中の参加コードがありません',
   'sync.recovery.noDraft': '確認できる新しいリカバリーキーがありません。もう一度再発行してください',
   'sync.recovery.tailMismatch': '暗号鍵の末尾 4 文字が一致しません',
+  'sync.recovery.tooManyTries': '末尾 4 文字が 5 回一致しなかったため、この新しいリカバリーキーは使えなくなりました。もう一度再発行してください',
   'sync.recovery.noRoster': 'PC の一覧がまだクラウドにありません。hangar setup cloud を最後まで実行してから再発行してください',
   'sync.limit.d1Read':'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に達しました',
   'sync.limit.d1Write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に達しました',

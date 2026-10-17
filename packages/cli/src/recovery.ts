@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { type CloudConfig, type ConfigWriter, HttpCloudClient, Keyring, readCloudConfig, RosterStore, saveCloudConfig } from '@agent-hangar/server/src/cliEntry.ts';
+import { type CloudConfig, type ConfigWriter, HttpCloudClient, Keyring, normalizeRecoveryTail, readCloudConfig, RosterStore, saveCloudConfig } from '@agent-hangar/server/src/cliEntry.ts';
 import {
   decodeEpochList,
   E2eOpenError,
@@ -19,9 +19,9 @@ import {
   type KeyboxesOut,
   type KeyPairRaw,
 } from '@agent-hangar/shared';
-import { bootstrapDevice, brokenConfigMessage, type DeviceLike, legacyConfigMessage, openFloorFirst, readAccounts, requireCloudDir, sha256Hex, workerFetch } from './cloud.ts';
+import { bootstrapDevice, brokenConfigMessage, type DeviceLike, JoinError, legacyConfigMessage, mobileDirOf, openFloorFirst, readAccounts, requireCloudDir, sha256Hex, workerFetch, writeWranglerConfig } from './cloud.ts';
 import { DetailedError } from './probe.ts';
-import { type CfAccount, isAccountId, WranglerRunner } from './wrangler.ts';
+import { type CfAccount, isAccountId, parseDatabaseId, WranglerRunner } from './wrangler.ts';
 
 // ---- 表示と確認 ----
 
@@ -40,8 +40,6 @@ export class RecoveryKeyNotConfirmedError extends Error {
 
 /** 端末の画面とスクロールバックを消し、カーソルを左上に戻す。 */
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
-
-const normalizeTail = (s: string): string => String(s).normalize('NFKC').replace(/[\s\-]/g, '').toUpperCase();
 
 /** 秘密を含むファイルを 0600 で書く。既にあるファイルも 0600 に直してから書く。 */
 function writeSecretFile(file: string, text: string): void {
@@ -79,6 +77,7 @@ function showText(text: string, saved: string | null): string {
  * saveTo があれば、表示の前にそのファイルへ 0600 で書く。askSavePath が真で saveTo が無ければ、保存先を先に尋ねる。
  * 外れたら聞き直し、RECOVERY_TAIL_TRIES 回外れたら表示し直す。RECOVERY_SHOW_ROUNDS 回表示しても合わなければ RecoveryKeyNotConfirmedError を投げる。
  * 合ったら、端末なら画面とスクロールバックを消す。
+ * 確認できずに止まるときは、書いたファイルを消す（クラウドに登録しないキーを残さない）。
  */
 export async function showAndConfirmRecoveryKey(o: { text: string; ask: (q: string) => Promise<string>; write: (s: string) => void; saveTo?: string; askSavePath?: boolean; isTTY?: boolean }): Promise<void> {
   const tail = recoverySecretTail(o.text);
@@ -88,17 +87,28 @@ export async function showAndConfirmRecoveryKey(o: { text: string; ask: (q: stri
     if (a) saveTo = path.resolve(a);
   }
   if (saveTo) writeSecretFile(saveTo, `${o.text}\n`);
-  for (let round = 0; round < RECOVERY_SHOW_ROUNDS; round++) {
-    o.write(showText(o.text, saveTo ?? null));
-    for (let i = 0; i < RECOVERY_TAIL_TRIES; i++) {
-      if (normalizeTail(await o.ask('保存した暗号鍵の末尾 4 文字を入力してください: ')) === tail) {
-        o.write(`${(o.isTTY ?? process.stdout.isTTY === true) ? CLEAR_SCREEN : ''}リカバリーキーの保存を確認しました。\n`);
-        return;
+  try {
+    for (let round = 0; round < RECOVERY_SHOW_ROUNDS; round++) {
+      o.write(showText(o.text, saveTo ?? null));
+      for (let i = 0; i < RECOVERY_TAIL_TRIES; i++) {
+        if (normalizeRecoveryTail(await o.ask('保存した暗号鍵の末尾 4 文字を入力してください: ')) === tail) {
+          o.write(`${(o.isTTY ?? process.stdout.isTTY === true) ? CLEAR_SCREEN : ''}リカバリーキーの保存を確認しました。\n`);
+          return;
+        }
+        o.write('末尾 4 文字が一致しません。保存した暗号鍵の最後の 4 文字を入力してください。\n');
       }
-      o.write('末尾 4 文字が一致しません。保存した暗号鍵の最後の 4 文字を入力してください。\n');
     }
+    throw new RecoveryKeyNotConfirmedError();
+  } catch (e) {
+    if (saveTo) {
+      try {
+        fs.rmSync(saveTo, { force: true });
+      } catch {
+        // 消せなくても、止まった理由のほうを伝える。
+      }
+    }
+    throw e;
   }
-  throw new RecoveryKeyNotConfirmedError();
 }
 
 // ---- hangar recover ----
@@ -150,6 +160,9 @@ export async function readRecoveryKeyInput(): Promise<string> {
  * recover の下書き（~/.agent-hangar/cloud-recover-pending.json、0600）。
  * bootstrap で受け取った端末トークンは、同じ端末 ID では 2 度と受け取れない。
  * cloud.json を書き終える前に止まっても（違うリカバリーキーを入れた、通信が切れた）、もう一度の recover で同じトークンから続けるために置く。
+ * トークンと鍵ペアは wrangler secret put の前に bootstrapped: false で書き、bootstrap が通ってから true にする。
+ * secret put と bootstrap の間で止まっても、トークンを失わない。
+ * false の下書きは bootstrap からやり直す（同じトークンで。bootstrap が実は通っていれば、トークンが通ることを確かめて先へ進む）。
  * epochs は recovery 宛ての keybox を開けた後に入る。開けた後は、名簿か keybox を書いた時点で recovery の道が閉じるので、ここから続ける。
  */
 type PendingRecover = {
@@ -161,6 +174,7 @@ type PendingRecover = {
   keyPair: KeyPairRaw;
   workerName: string;
   accountId: string;
+  bootstrapped: boolean;
   epochs: Record<string, string> | null;
   createdAt: number;
 };
@@ -189,7 +203,8 @@ function readRecoverPending(home: string): PendingRecover | null {
     const str = (x: unknown): x is string => typeof x === 'string' && x !== '';
     if (v.v !== 1 || !str(v.url) || !str(v.cloudId) || !str(v.deviceId) || !str(v.deviceToken) || !str(kp?.pub) || !str(kp?.priv) || !str(v.workerName) || !str(v.accountId)) return null;
     const epochs = v.epochs && typeof v.epochs === 'object' && !Array.isArray(v.epochs) ? (v.epochs as Record<string, string>) : null;
-    return { v: 1, url: v.url, cloudId: v.cloudId, deviceId: v.deviceId, deviceToken: v.deviceToken, keyPair: { pub: kp!.pub!, priv: kp!.priv! }, workerName: v.workerName, accountId: v.accountId, epochs, createdAt: typeof v.createdAt === 'number' ? v.createdAt : 0 };
+    // bootstrapped が無い下書きは、bootstrap が通ったかわからないものとして読む（トークンが通るかを確かめてから進む）。
+    return { v: 1, url: v.url, cloudId: v.cloudId, deviceId: v.deviceId, deviceToken: v.deviceToken, keyPair: { pub: kp!.pub!, priv: kp!.priv! }, workerName: v.workerName, accountId: v.accountId, bootstrapped: v.bootstrapped === true, epochs, createdAt: typeof v.createdAt === 'number' ? v.createdAt : 0 };
   } catch {
     return null;
   }
@@ -244,7 +259,47 @@ export type RecoverOptions = {
 
 export type RecoverResult = { url: string; epochs: number[] };
 
-const LOST_KEY = 'このリカバリーキーではクラウドの暗号鍵を復号できません。再発行して古くなったリカバリーキーか、別のクラウドのリカバリーキーです。最後に保存したリカバリーキーで、もう一度実行してください';
+/**
+ * 端末トークンが Worker に登録済みか（bootstrap が通っていたか）を確かめる。
+ * 名簿を読む口は端末トークンが要り、読むだけで recovery の道を閉じない。
+ * 200 と 404（名簿がまだ無い）は登録済み、401 と 403 は未登録と読む。ほかは投げる（決めつけて bootstrap をやり直さない）。
+ */
+async function tokenAccepted(url: string, token: string, fetchFn: typeof fetch): Promise<boolean> {
+  const r = await workerFetch(url, '/roster', { fetch: fetchFn, token });
+  if (r.status === 200 || r.status === 404) return true;
+  if (r.status === 401 || r.status === 403) return false;
+  throw new Error(`${url} が正常に応答しません（HTTP ${r.status}）。しばらく待ってから、もう一度 hangar recover を実行してください`);
+}
+
+/**
+ * setup cloud と同じ形の wrangler の設定を ~/.agent-hangar/cloud/wrangler.jsonc に書き、そのパスを返す。
+ * secret put は setup と同じく --config で渡す。D1 は Worker と同じ名前、R2 は <名前>-files である（setup cloud の決まり）。
+ */
+async function recoverWranglerConfig(home: string, wr: WranglerRunner, workerName: string, cloudDir: string): Promise<string> {
+  const info = await wr.run(['d1', 'info', workerName, '--json']);
+  const dbId = info.code === 0 ? parseDatabaseId(info.stdout) : null;
+  if (!dbId) throw new Error(`D1 ${workerName} が見つかりません（wrangler d1 info の終了コード ${info.code}）。--name と --account-id が Worker を作成したときと同じかを確認してください`);
+  return writeWranglerConfig(home, {
+    name: workerName,
+    main: path.join(cloudDir, 'src', 'index.ts'),
+    dbName: workerName,
+    dbId,
+    bucketName: `${workerName}-files`,
+    assetsDir: path.join(mobileDirOf(cloudDir), 'dist'),
+  });
+}
+
+/** 端末 ID がすでに Worker にあるときの文。setup の「古いリソースを削除して」は出さない（recover ではリソースを残したまま戻りたい）。 */
+function registeredDeviceMessage(home: string, deviceId: string): string {
+  const file = path.join(home, 'device.json');
+  return [
+    `この PC の端末 ID は登録済みです（${deviceId}）。前の hangar recover の途中で下書きを削除したか、この PC が以前このクラウドに参加していたため、同じ端末 ID では登録し直せません。`,
+    `hangar を終了し、${file} を削除してから、もう一度 hangar recover を実行してください。次の実行で新しい端末 ID を作成して登録します。`,
+    'この PC で前の端末 ID のまま作ったセッションとプロジェクトの場所は、別の PC のものとして扱われます。',
+  ].join('\n');
+}
+
+const LOST_KEY ='このリカバリーキーではクラウドの暗号鍵を復号できません。再発行して古くなったリカバリーキーか、別のクラウドのリカバリーキーです。最後に保存したリカバリーキーで、もう一度実行してください';
 const MISMATCH_KEY = 'このリカバリーキーは、クラウドに登録されているリカバリーキーと一致しません。再発行して古くなったリカバリーキーの可能性があります。最後に保存したリカバリーキーで、もう一度実行してください';
 
 /**
@@ -277,7 +332,12 @@ export async function runRecover(o: RecoverOptions): Promise<RecoverResult> {
     // 2. 端末トークン。下書きに同じクラウドの分があれば、それで続ける（同じ端末 ID は 2 度 bootstrap できない）。
     let pending = readRecoverPending(o.home);
     if (pending && (pending.url !== url || pending.deviceId !== o.device.id)) pending = null;
-    if (!pending) {
+    // bootstrapped: false の下書きは、bootstrap が通った後、書き換える前に止まったのかもしれない。トークンが通るなら先へ進む。
+    if (pending && !pending.bootstrapped && (await tokenAccepted(url, pending.deviceToken, fetchFn))) {
+      pending = { ...pending, bootstrapped: true };
+      writeRecoverPending(o.home, pending);
+    }
+    if (!pending || !pending.bootstrapped) {
       const workerName = o.name?.trim() || workerNameOf(url);
       if (!workerName) throw new Error(`${url} から Worker の名前を読み取れません。--name <Worker の名前> を指定して、もう一度実行してください`);
       const h = await workerFetch(url, '/health', { fetch: fetchFn });
@@ -285,7 +345,8 @@ export async function runRecover(o: RecoverOptions): Promise<RecoverResult> {
       const cloudId = typeof health?.cloudId === 'string' ? health.cloudId : '';
       if (cloudId === '') throw new Error(`${url}/health が正常に応答しません（HTTP ${h.status}）。リカバリーキーの URL と Worker の状態を確認してください`);
 
-      let wr = o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? requireCloudDir(), accountId: null, log });
+      const cloudDir = o.cloudDir ?? requireCloudDir();
+      let wr = o.wrangler ?? new WranglerRunner({ cloudDir, accountId: null, log });
       let who = await readAccounts(wr);
       if (!who.loggedIn) {
         log('Cloudflare にログインします。ブラウザが開きます。');
@@ -298,12 +359,21 @@ export async function runRecover(o: RecoverOptions): Promise<RecoverResult> {
       const account = chooseRecoverAccount(who.accounts, requested);
       wr = wr.withAccount(account.id);
 
-      const token = randomBytes(32).toString('base64url');
-      const put = await wr.run(['secret', 'put', 'BOOTSTRAP_TOKEN_HASH', '--name', workerName], sha256Hex(token) + '\n');
+      // トークンと鍵ペアは、secret put の前に下書きへ書く。false の下書きからやり直すときは同じものを使う。
+      const token = pending?.deviceToken ?? randomBytes(32).toString('base64url');
+      const keyPair = pending?.keyPair ?? (await generateKeyPair());
+      pending = { v: 1, url, cloudId, deviceId: o.device.id, deviceToken: token, keyPair, workerName, accountId: account.id, bootstrapped: false, epochs: null, createdAt: now() };
+      writeRecoverPending(o.home, pending);
+      const cfg = await recoverWranglerConfig(o.home, wr, workerName, cloudDir);
+      const put = await wr.run(['secret', 'put', 'BOOTSTRAP_TOKEN_HASH', '--config', cfg], sha256Hex(token) + '\n');
       if (put.code !== 0) throw new Error(`Worker ${workerName} に最初の端末トークンを登録できませんでした（wrangler secret put の終了コード ${put.code}）。--name と --account-id が Worker を作成したときと同じかを確認してください`);
-      const keyPair = await generateKeyPair();
-      await bootstrapDevice(url, token, o.device.id, { fetch: fetchFn, sleep, log });
-      pending = { v: 1, url, cloudId, deviceId: o.device.id, deviceToken: token, keyPair, workerName, accountId: account.id, epochs: null, createdAt: now() };
+      try {
+        await bootstrapDevice(url, token, o.device.id, { fetch: fetchFn, sleep, log });
+      } catch (e) {
+        if (e instanceof JoinError && e.code === 'forbidden') throw new DetailedError(registeredDeviceMessage(o.home, o.device.id));
+        throw e;
+      }
+      pending = { ...pending, bootstrapped: true };
       writeRecoverPending(o.home, pending);
     }
     const client = new HttpCloudClient({ url, token: pending.deviceToken, fetch: fetchFn });

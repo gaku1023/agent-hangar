@@ -25,6 +25,7 @@ export const syncKeys = {
   'sync.join.noCode': [],
   'sync.recovery.noDraft': [],
   'sync.recovery.tailMismatch': [],
+  'sync.recovery.tooManyTries': [],
   'sync.recovery.noRoster': [],
   'sync.limit.d1Read': [],
   'sync.limit.d1Write': [],

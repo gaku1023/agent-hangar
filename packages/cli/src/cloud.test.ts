@@ -285,6 +285,39 @@ describe('runSetupCloud', () => {
     expectMode(file, 0o600);
   });
 
+  it('確認に失敗して止まったら、--save で書いたファイルを消す', async () => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    const file = path.join(home, 'saved', 'recovery.txt');
+    fs.mkdirSync(path.dirname(file));
+    await expect(runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {}, saveRecoveryTo: file, recoveryAsk: async () => '' })).rejects.toBeInstanceOf(RecoveryKeyNotConfirmedError);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it.each([['PUT /keyboxes'], ['PUT /roster']])('確認の後に %s が失敗して止まったら、保存したキーは使えないと伝える', async (failing) => {
+    const { home, cloudDir } = dirs();
+    const ff = fakeFetch(0);
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input)).pathname}` === failing) return new Response('{"error":"boom"}', { status: 500 });
+      return ff.fetch(input, init);
+    }) as typeof fetch;
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
+      'secret put BOOTSTRAP_TOKEN_HASH': putBootstrap,
+    });
+    await expect(runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: f, sleep: async () => {}, cloudDir, log: () => {} })).rejects.toThrow(/先に保存したキーは使えません。もう一度実行して、新しいキーを保存してください/);
+  });
+
   it('同じ名前でもう一度実行すると、Worker だけを入れ替え、暗号鍵と端末トークンとリカバリーキーは変えない', async () => {
     const { home, cloudDir } = dirs();
     const prev = v2conf({ url: 'https://hangar-dev.example.workers.dev', deviceToken: 'tok-prev', workerName: 'hangar-dev', accountId: ACCOUNT, dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });

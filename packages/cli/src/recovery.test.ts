@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type CloudConfig, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
+import { type CloudConfig, loadCloudConfig, readOrCreateDevice, saveCloudConfig } from '@agent-hangar/server/src/cliEntry.ts';
 import {
   decodeEpochList,
   deriveEpochKeys,
@@ -28,6 +28,7 @@ import { RecoveryKeyReissuer, RecoveryDraftError } from '../../server/src/sync/r
 import { RosterStore, type ConfigWriter } from '../../server/src/sync/roster.ts';
 import { expectMode } from '../../server/test/platform.ts';
 import { FakeWorker } from '../test/fakeWorker.ts';
+import { wranglerConfigPath } from './cloud.ts';
 import { recoverPendingPath, RecoveryKeyNotConfirmedError, runRecover, showAndConfirmRecoveryKey } from './recovery.ts';
 import type { Exec, ExecResult } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
@@ -139,24 +140,34 @@ async function cloud(o: { rosterRecoveryPub?: string } = {}): Promise<Cloud> {
   return { worker, recovery, text, epochs, confA: () => cfg, roster, keyring, wire };
 }
 
-/** wrangler の偽物。secret put は標準入力のハッシュを偽の Worker に入れる。 */
-function wrangler(worker: FakeWorker, cloudDir: string) {
+const DB_ID = '11111111-2222-3333-4444-555555555555';
+
+/**
+ * wrangler の偽物。secret put は標準入力のハッシュを偽の Worker に入れる。
+ * onSecret は secret put の直前に呼ぶ（そのときの下書きを確かめる）。secretFails が真なら secret put を失敗させる。
+ */
+function wrangler(worker: FakeWorker, cloudDir: string, o: { onSecret?: (hash: string) => void; secretFails?: boolean } = {}) {
   const calls: string[][] = [];
-  const exec: Exec = async (_cmd, args, o) => {
+  const exec: Exec = async (_cmd, args, x) => {
     const w = args.findIndex((a) => a.endsWith('wrangler.js'));
     const rest = w >= 0 ? args.slice(w + 1) : args;
     calls.push(rest);
     const line = rest.join(' ');
     if (line.startsWith('whoami')) return ok(WHOAMI);
+    if (line === 'd1 info hangar --json') return ok(JSON.stringify({ uuid: DB_ID }));
     if (line.startsWith('secret put BOOTSTRAP_TOKEN_HASH')) {
-      expect(o.input).toMatch(/^[0-9a-f]{64}\n$/);
-      worker.bootstrapHash = o.input!.trim();
+      expect(x.input).toMatch(/^[0-9a-f]{64}\n$/);
+      o.onSecret?.(x.input!.trim());
+      if (o.secretFails) return { code: 1, stdout: '', stderr: 'boom' };
+      worker.bootstrapHash = x.input!.trim();
       return ok('Success');
     }
     return { code: 1, stdout: '', stderr: `unexpected: ${line}` };
   };
   return { calls, runner: new WranglerRunner({ cloudDir, accountId: null, exec, interactive: async () => 0 }) };
 }
+
+const readPending = (home: string): { deviceToken: string; bootstrapped: boolean } => JSON.parse(fs.readFileSync(recoverPendingPath(home), 'utf8')) as { deviceToken: string; bootstrapped: boolean };
 
 function newPc(id: string) {
   const root = tmp('hangar-recover-');
@@ -167,8 +178,8 @@ function newPc(id: string) {
   return { home, cloudDir, device: { id, name: id, platform: 'linux' } };
 }
 
-async function recover(c: Cloud, pc: ReturnType<typeof newPc>, text: string) {
-  const w = wrangler(c.worker, pc.cloudDir);
+async function recover(c: Cloud, pc: ReturnType<typeof newPc>, text: string, o: Parameters<typeof wrangler>[2] = {}) {
+  const w = wrangler(c.worker, pc.cloudDir, o);
   const r = await runRecover({ home: pc.home, device: pc.device, text, wrangler: w.runner, cloudDir: pc.cloudDir, fetch: c.worker.fetch, sleep: async () => {}, log: () => {}, env: {} });
   return { r, calls: w.calls };
 }
@@ -182,9 +193,19 @@ describe('hangar recover', () => {
     const row = await sealRow(k1.row, aad, { tableName: 'sessions', rowId: 's1', payload: { title: 't' } });
 
     const pc = newPc('pc-b');
-    const { r, calls } = await recover(c, pc, c.text);
+    // secret put の前に、トークンと鍵ペアを bootstrapped: false で下書きに書いてある。
+    let atSecret: { deviceToken: string; bootstrapped: boolean } | null = null;
+    const { r, calls } = await recover(c, pc, c.text, { onSecret: (hash) => { atSecret = readPending(pc.home); expect(sha(atSecret.deviceToken)).toBe(hash); } });
+    expect(atSecret).toMatchObject({ bootstrapped: false });
     expect(r.url).toBe(URL_);
-    expect(calls).toContainEqual(['secret', 'put', 'BOOTSTRAP_TOKEN_HASH', '--name', 'hangar']);
+    // secret put は setup と同じく、生成した設定を --config で渡す。
+    const cfg = wranglerConfigPath(pc.home);
+    expect(calls).toContainEqual(['secret', 'put', 'BOOTSTRAP_TOKEN_HASH', '--config', cfg]);
+    expect(calls.some((a) => a.includes('--name'))).toBe(false);
+    const generated = fs.readFileSync(cfg, 'utf8');
+    expect(generated).toContain('"name": "hangar"');
+    expect(generated).toContain(DB_ID);
+    expect(generated).toContain('"bucket_name": "hangar-files"');
 
     const conf = loadCloudConfig(pc.home)!;
     expect(conf.url).toBe(URL_);
@@ -240,6 +261,62 @@ describe('hangar recover', () => {
     expect(loadCloudConfig(pc.home)!.epochs).toEqual(c.epochs);
   });
 
+  it('secret put で止まった下書き（bootstrapped: false）は、同じトークンで bootstrap からやり直す', async () => {
+    const c = await cloud();
+    const pc = newPc('pc-b');
+    await expect(recover(c, pc, c.text, { secretFails: true })).rejects.toThrow(/最初の端末トークンを登録できませんでした/);
+    const first = readPending(pc.home);
+    expect(first.bootstrapped).toBe(false);
+    expect(c.worker.devices.has('pc-b')).toBe(false);
+
+    const { calls } = await recover(c, pc, c.text);
+    expect(calls.some((a) => a[0] === 'secret')).toBe(true);
+    expect(loadCloudConfig(pc.home)!.deviceToken).toBe(first.deviceToken);
+    expect(c.worker.devices.get('pc-b')?.tokenHash).toBe(sha(first.deviceToken));
+  });
+
+  it('bootstrap は通ったが下書きが false のまま止まったときは、トークンが通ることを確かめて先へ進む', async () => {
+    const c = await cloud();
+    const wrong = formatRecoveryKey({ priv: (await generateKeyPair()).priv, url: URL_, createdAt: 1 });
+    const pc = newPc('pc-b');
+    await expect(recover(c, pc, wrong)).rejects.toThrow(/リカバリーキー/);
+    // 書き換える前に落ちた形にする。
+    const p = JSON.parse(fs.readFileSync(recoverPendingPath(pc.home), 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(recoverPendingPath(pc.home), JSON.stringify({ ...p, bootstrapped: false }), { mode: 0o600 });
+    const bootstraps = c.worker.calls.filter((x) => x === 'POST /bootstrap').length;
+
+    const { calls } = await recover(c, pc, c.text);
+    expect(calls.some((a) => a[0] === 'secret')).toBe(false);
+    expect(c.worker.calls.filter((x) => x === 'POST /bootstrap').length).toBe(bootstraps);
+    expect(loadCloudConfig(pc.home)!.deviceToken).toBe(p.deviceToken);
+  });
+
+  it('端末 ID が登録済みなら recover の文で止まり、device.json を消して作り直せば新しい端末 ID で戻れる', async () => {
+    const c = await cloud();
+    const pc = newPc('unused');
+    const wrong = formatRecoveryKey({ priv: (await generateKeyPair()).priv, url: URL_, createdAt: 1 });
+    const device = readOrCreateDevice(pc.home);
+    const run = (text: string, d: typeof device) => runRecover({ home: pc.home, device: d, text, wrangler: wrangler(c.worker, pc.cloudDir).runner, cloudDir: pc.cloudDir, fetch: c.worker.fetch, sleep: async () => {}, log: () => {}, env: {} });
+    // 1 回目は bootstrap まで進み、違うキーで止まる。その後に下書きを消してしまった。
+    await expect(run(wrong, device)).rejects.toThrow(/リカバリーキー/);
+    fs.rmSync(recoverPendingPath(pc.home));
+
+    const err = await run(c.text, device).then(() => null, (e: unknown) => e as Error);
+    expect(err?.message).toContain('この PC の端末 ID は登録済みです');
+    expect(err?.message).toContain(path.join(pc.home, 'device.json'));
+    expect(err?.message).not.toMatch(/古いリソース/);
+    expect(loadCloudConfig(pc.home)).toBeNull();
+
+    // 文のとおりに device.json を消すと、次の実行で新しい端末 ID を作り、その ID で戻れる。
+    fs.rmSync(path.join(pc.home, 'device.json'));
+    const fresh = readOrCreateDevice(pc.home);
+    expect(fresh.id).not.toBe(device.id);
+    await run(c.text, fresh);
+    const conf = loadCloudConfig(pc.home)!;
+    expect(conf.epochs).toEqual(c.epochs);
+    expect(c.worker.devices.get(fresh.id)?.tokenHash).toBe(sha(conf.deviceToken));
+  });
+
   it('参加済みの PC では実行しない', async () => {
     const c = await cloud();
     const pc = newPc('pc-b');
@@ -290,6 +367,34 @@ describe('リカバリーキーの再発行（サーバーの RecoveryKeyReissue
 
     // 確認の済んだ下書きは 2 度使えない。
     await expect(reissuer.confirm(draft.draftId, recoverySecretTail(draft.text))).rejects.toBeInstanceOf(RecoveryDraftError);
+  });
+
+  it('箱の PUT が失敗すると印が残り、次の巡で置き直した後は新しいキーで recover できる', async () => {
+    const c = await cloud();
+    const m = new Map<string, string>();
+    const state = { get: (k: string) => m.get(k) ?? null, set: (k: string, v: string | number | boolean | null) => { if (v === null) m.delete(k); else m.set(k, String(v)); } };
+    let failing = true;
+    const ff = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (failing && (init?.method ?? 'GET').toUpperCase() === 'PUT' && new URL(String(input)).pathname === '/keyboxes') return new Response('{"error":"boom"}', { status: 500 });
+      return c.worker.fetch(input, init);
+    }) as typeof fetch;
+    const wire = new HttpCloudClient({ url: URL_, token: TOKEN_A, fetch: ff });
+    const roster = new RosterStore(wire, c.keyring, { read: () => c.confA(), write: () => {} }, 'pc-a');
+    const reissuer = new RecoveryKeyReissuer({ roster, keyring: c.keyring, wire, url: () => URL_, state, sleep: async () => {} });
+    const draft = await reissuer.reissue();
+    await expect(reissuer.confirm(draft.draftId, recoverySecretTail(draft.text))).rejects.toThrow();
+    expect(m.get('recoveryBoxPending')).toBe('1');
+    // 名簿は新しい公開鍵なので古いキーは断られ、箱はまだ古い公開鍵宛てなので新しいキーも開けない。
+    await expect(recover(c, newPc('pc-b'), c.text)).rejects.toThrow(/リカバリーキー/);
+    await expect(recover(c, newPc('pc-c'), draft.text)).rejects.toThrow(/リカバリーキー/);
+
+    // 次の巡（pull の後の resumePending）で置き直す。
+    failing = false;
+    await reissuer.resumePending();
+    expect(m.has('recoveryBoxPending')).toBe(false);
+    const pd = newPc('pc-d');
+    await recover(c, pd, draft.text);
+    expect(loadCloudConfig(pd.home)!.epochs).toEqual(c.epochs);
   });
 
   it('新しく再発行すると前の下書きは使えない', async () => {

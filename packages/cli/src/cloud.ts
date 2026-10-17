@@ -567,25 +567,35 @@ async function ensureRoster(o: { home: string; conf: CloudConfig; device: Device
   const recovery = await generateKeyPair();
   const text = formatRecoveryKey({ priv: recovery.priv, url: conf.url, createdAt: o.now });
   await o.confirm(text);
-  const list = encodeEpochList({ epochs: conf.epochs });
-  const boxes: KeyboxIn[] = [
-    { epoch, recipient: o.device.id, sealed: toBase64Url(await sealKeybox(conf.keyPair.pub, { epoch, recipient: o.device.id }, list)) },
-    { epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(recovery.pub, { epoch, recipient: RECOVERY_RECIPIENT }, list)) },
-  ];
-  const put = await workerFetch(conf.url, '/keyboxes', { fetch: o.fetch, method: 'PUT', body: { boxes }, token: conf.deviceToken });
-  if (!put.ok) throw new Error(`暗号鍵を Worker に保存できませんでした（HTTP ${put.status}）。hangar setup cloud をもう一度実行してください`);
-  const roster: Roster = {
-    v: 1,
-    entries: [{ id: o.device.id, kind: 'pc', name: o.device.name, os: o.device.platform, pub: conf.keyPair.pub, joinedAt: conf.joinedAt }],
-    recoveryPub: recovery.pub,
-    phoneKey: conf.phoneKey,
-  };
-  const keys = await deriveEpochKeys(epoch, epochKey);
-  const r = await client.putRoster({ ifVersion: 0, epoch, sealed: toBase64Url(await sealRoster(keys.roster, 1, roster)) });
-  if (!r.ok) throw new Error('PC の一覧を作成できませんでした（Worker にすでに一覧があります）。Cloudflare にある古いリソースを削除してから、hangar setup cloud をもう一度実行してください');
+  // ここから先で止まると、いま保存してもらったリカバリーキーはクラウドに登録されない。次の setup は新しいキーを作る。
+  let r: { ok: boolean; version: number };
+  try {
+    const list = encodeEpochList({ epochs: conf.epochs });
+    const boxes: KeyboxIn[] = [
+      { epoch, recipient: o.device.id, sealed: toBase64Url(await sealKeybox(conf.keyPair.pub, { epoch, recipient: o.device.id }, list)) },
+      { epoch, recipient: RECOVERY_RECIPIENT, sealed: toBase64Url(await sealKeybox(recovery.pub, { epoch, recipient: RECOVERY_RECIPIENT }, list)) },
+    ];
+    const put = await workerFetch(conf.url, '/keyboxes', { fetch: o.fetch, method: 'PUT', body: { boxes }, token: conf.deviceToken });
+    if (!put.ok) throw new Error(`暗号鍵を Worker に保存できませんでした（HTTP ${put.status}）。hangar setup cloud をもう一度実行してください`);
+    const roster: Roster = {
+      v: 1,
+      entries: [{ id: o.device.id, kind: 'pc', name: o.device.name, os: o.device.platform, pub: conf.keyPair.pub, joinedAt: conf.joinedAt }],
+      recoveryPub: recovery.pub,
+      phoneKey: conf.phoneKey,
+    };
+    const keys = await deriveEpochKeys(epoch, epochKey);
+    r = await client.putRoster({ ifVersion: 0, epoch, sealed: toBase64Url(await sealRoster(keys.roster, 1, roster)) });
+    if (!r.ok) throw new Error('PC の一覧を作成できませんでした（Worker にすでに一覧があります）。Cloudflare にある古いリソースを削除してから、hangar setup cloud をもう一度実行してください');
+  } catch (e) {
+    const base = (e instanceof Error ? e.message : String(e)).trimEnd();
+    throw new Error(`${/[。.]$/.test(base) ? base : `${base}。`}${UNREGISTERED_RECOVERY_KEY}`, { cause: e });
+  }
   saveCloudConfig(o.home, { ...conf, rosterVersion: r.version });
   return text;
 }
+
+/** 確認の後で名簿か keybox を置けずに止まったときに足す文。 */
+const UNREGISTERED_RECOVERY_KEY = '先に保存したキーは使えません。もう一度実行して、新しいキーを保存してください';
 
 /**
  * 床を刻むための DB を先に開く。
