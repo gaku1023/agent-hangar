@@ -50,7 +50,7 @@ describe('リカバリーキーの再発行（試作 D2）', () => {
     expect(within(panel).getByText(SECRET)).toBeInTheDocument();
     expect(SECRET).toMatch(/^([A-Z2-7]{4}-){12}[A-Z2-7]{4}$/);
     expect(within(panel).getByRole('button', { name: 'リカバリーキーをコピー' })).toBeInTheDocument();
-    // ファイルに保存は、4 行の文字列をそのままダウンロードさせる。
+    // 殻の外（ブラウザ）では、ファイルに保存は 4 行の文字列をそのままダウンロードさせる。
     let blob: Blob | null = null;
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn((b: Blob) => { blob = b; return 'blob:x'; }) });
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
@@ -96,6 +96,88 @@ describe('リカバリーキーの再発行（試作 D2）', () => {
     expect(within(panel).getByLabelText('暗号鍵（非表示）')).toHaveTextContent(/^[●-]+$/);
     expect(within(panel).getByLabelText('保存した暗号鍵の末尾 4 文字')).toBeInTheDocument();
     expect(within(panel).queryByRole('button', { name: '保存しました' })).toBeNull();
+  });
+
+  // 保存先を開いて読み返させるため、入力の段ではコピーで末尾を確かめられないようにする。
+  it('入力の段では、進捗バー、コピー、ファイルに保存、残り時間の文を出さず、小さな「もう一度表示」だけを残す', () => {
+    vi.useFakeTimers({ now: NOW });
+    const onAction = vi.fn();
+    render(ui(<Page m={props(shown({ entering: true }))} />, onAction));
+    const panel = screen.getByRole('region', { name: 'リカバリーキー' });
+    expect(within(panel).queryByRole('progressbar')).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'リカバリーキーをコピー' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'ファイルに保存' })).toBeNull();
+    expect(panel).not.toHaveTextContent('で暗号鍵を非表示にします');
+    expect(within(panel).getByLabelText('暗号鍵（非表示）')).toHaveTextContent(/^[●-]+$/);
+    const again = within(panel).getByRole('button', { name: 'もう一度表示' });
+    expect(again).toHaveClass('linkish');
+    fireEvent.click(again);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.recovery.reveal' });
+  });
+
+  it('入力の段で時間が尽きても、時間切れの帯を出さず、入力の欄だけを残す', () => {
+    vi.useFakeTimers({ now: NOW });
+    render(ui(<Page m={props(shown({ entering: true, hideAt: NOW + 1000 }))} />));
+    const panel = screen.getByRole('region', { name: 'リカバリーキー' });
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(panel).not.toHaveTextContent('時間が経過したため暗号鍵を非表示にしました');
+    expect(within(panel).getAllByRole('button', { name: 'もう一度表示' })).toHaveLength(1);
+    expect(within(panel).getByLabelText('保存した暗号鍵の末尾 4 文字')).toBeInTheDocument();
+  });
+
+  it('殻の中では、ファイルに保存を殻の保存のダイアログに頼み、ブラウザのダウンロードを使わない', async () => {
+    vi.useFakeTimers({ now: NOW });
+    const invoke = vi.fn(async () => true);
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = { invoke };
+    try {
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      render(ui(<Page m={props(shown())} />));
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'ファイルに保存' })); await Promise.resolve(); });
+      expect(invoke).toHaveBeenCalledWith('save_recovery_key', { text: TEXT });
+      expect(click).not.toHaveBeenCalled();
+      expect(screen.queryByRole('alert')).toBeNull();
+      // 取り消し（false）は失敗にしない。
+      invoke.mockResolvedValueOnce(false);
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'ファイルに保存' })); await Promise.resolve(); });
+      expect(screen.queryByRole('alert')).toBeNull();
+      // 書けなかったときは、欄の中に理由を出す。
+      invoke.mockRejectedValueOnce('denied');
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'ファイルに保存' })); await Promise.resolve(); await Promise.resolve(); });
+      expect(screen.getByRole('alert')).toHaveTextContent('ファイルに保存できませんでした');
+    } finally {
+      delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    }
+  });
+
+  it('コピーの 60 秒後、クリップボードが写した値のままなら空にする。変わっていたら、読めなければ触らない', async () => {
+    vi.useFakeTimers({ now: NOW });
+    const writeText = vi.fn(async () => {});
+    const readText = vi.fn(async () => TEXT);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText, writeText } });
+    try {
+      const onAction = vi.fn();
+      // 3 回の 60 秒の間、暗号鍵を出したままにする。
+      render(ui(<Page m={props(shown({ hideAt: NOW + 10 * 60_000 }))} />, onAction));
+      fireEvent.click(screen.getByRole('button', { name: 'リカバリーキーをコピー' }));
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'clipboard.copy', text: TEXT });
+      await act(async () => { vi.advanceTimersByTime(59_000); await Promise.resolve(); });
+      expect(readText).not.toHaveBeenCalled();
+      await act(async () => { vi.advanceTimersByTime(1_000); await Promise.resolve(); await Promise.resolve(); });
+      expect(writeText).toHaveBeenCalledWith('');
+      // 利用者が別のものを写していたら、空にしない。
+      writeText.mockClear();
+      readText.mockResolvedValueOnce('something else');
+      fireEvent.click(screen.getByRole('button', { name: 'リカバリーキーをコピー' }));
+      await act(async () => { vi.advanceTimersByTime(60_000); await Promise.resolve(); await Promise.resolve(); });
+      expect(writeText).not.toHaveBeenCalled();
+      // 読めなければ何もしない。
+      readText.mockRejectedValueOnce(new Error('NotAllowedError'));
+      fireEvent.click(screen.getByRole('button', { name: 'リカバリーキーをコピー' }));
+      await act(async () => { vi.advanceTimersByTime(60_000); await Promise.resolve(); await Promise.resolve(); });
+      expect(writeText).not.toHaveBeenCalled();
+    } finally {
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
   });
 
   it('末尾 4 文字が合うまで「完了」が押せない。小文字、全角、区切りの混じった入力も通す', () => {

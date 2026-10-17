@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
 import { initialCloudMember, RECOVERY_SHOW_MS, type CloudMemberState } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
+import { createApi } from './api.ts';
 import { PAIR_TTL_MS as PAIR_TTL_SHOWN_MS } from '../presenters/cloudMember.ts';
 import { CLOUD_RESTART_MS, createCloudMemberRunner, JOIN_POLL_MS, PAIR_POLL_MS, type JoinCodesApi, type RecoveryKeyApi } from './cloudMember.ts';
 
@@ -449,6 +450,23 @@ describe('createCloudMemberRunner', () => {
     y.r.run({ op: 'recoveryConfirm', tail: 'K2VB' });
     await flush();
     expect(y.get().recovery).toMatchObject({ kind: 'shown', entering: true, busy: false, error: { message: '暗号鍵の末尾 4 文字が一致しません', retry: false } });
+  });
+
+  // サーバーは 5 回外れた下書きを無効にし、409 で { error } を返す（routes/sync.ts）。画面は下書きを捨て、サーバーの文のまま「もう一度再発行」に戻す。
+  it('リカバリーキーの再発行：5 回外れた（409 の too-many-tries）は、本物の API の口を通ってもサーバーの文のまま failed にする', async () => {
+    const MESSAGE = '末尾 4 文字が 5 回一致しなかったため、この新しいリカバリーキーは使えなくなりました。もう一度再発行してください';
+    const fetchFn = vi.fn(async (path: string) => path.endsWith('/confirm')
+      ? new Response(JSON.stringify({ error: MESSAGE }), { status: 409, headers: { 'content-type': 'application/json' } })
+      : new Response(JSON.stringify({ text: RECOVERY_TEXT, draftId: 'd1' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const api = createApi(fetchFn as unknown as typeof fetch);
+    const x = rig(null, { now: () => NOW, recovery: { reissue: () => api.recoveryKeyReissue(), confirm: (id, tail) => api.recoveryKeyConfirm(id, tail) } });
+    x.r.run({ op: 'recoveryReissue' });
+    await flush();
+    x.r.run({ op: 'recoverySaved' });
+    x.r.run({ op: 'recoveryConfirm', tail: 'K2VB' });
+    await flush();
+    expect(fetchFn).toHaveBeenLastCalledWith('/api/sync/recovery-key/confirm', expect.objectContaining({ method: 'POST' }));
+    expect(x.get().recovery).toEqual({ kind: 'failed', message: MESSAGE });
   });
 
   it('リカバリーキーの再発行：作成の失敗は failed。閉じたら暗号鍵を捨て、閉じた後に届いた答えは何もしない', async () => {

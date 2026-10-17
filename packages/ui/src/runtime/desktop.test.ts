@@ -20,6 +20,16 @@ describe('createDesktopBridge', () => {
     await b.openLink!('https://example.com/');
     expect(invoke.mock.calls).toEqual([['open_link', { url: 'https://example.com/' }]]);
   });
+  it('リカバリーキーの保存は本文だけを save_recovery_key に渡し、書いたか取り消したかを返す。パスは渡さない', async () => {
+    const invoke = vi.fn(async (): Promise<unknown> => true);
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.saveRecoveryKey!('hangar リカバリーキー\n暗号鍵: AAAA')).toBe('saved');
+    expect(invoke.mock.calls).toEqual([['save_recovery_key', { text: 'hangar リカバリーキー\n暗号鍵: AAAA' }]]);
+    invoke.mockResolvedValueOnce(false);
+    expect(await b.saveRecoveryKey!('x')).toBe('cancelled');
+    invoke.mockRejectedValueOnce('denied');
+    await expect(b.saveRecoveryKey!('x')).rejects.toBe('denied');
+  });
   it('フォルダの選択は既定の場所を渡し、選んだパスか、取り消しなら null を返す', async () => {
     const invoke = vi.fn(async (): Promise<string | null> => '/Users/me/thesis');
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;

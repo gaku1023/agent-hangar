@@ -143,6 +143,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.recovery.copy': 'コピー',
   'cloudMember.recovery.copyAria': 'リカバリーキーをコピー',
   'cloudMember.recovery.save': 'ファイルに保存',
+  'cloudMember.recovery.saveFailed': 'ファイルに保存できませんでした。別の保存先を選ぶか、コピーしてパスワードマネージャーに保存してください。',
   'cloudMember.recovery.bar': '暗号鍵を表示する残り時間',
   'cloudMember.recovery.left': 'あと {time} で暗号鍵を非表示にします。',
   'cloudMember.recovery.masked': '暗号鍵（非表示）',

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import { normalizeRecoveryTail, type CloudMemberProps, type CloudRecoveryProps } from '../presenters/cloudMember.ts';
+import { clearClipboardLater, saveRecoveryKeyFile } from '../runtime/recoveryKeyOut.ts';
 import { RECOVERY_SHOW_MS } from '../store/cloudMember.ts';
 import { clock, Strip, useSwap } from './CloudMember.tsx';
 import { CopyButton } from './primitives/CommandLine.tsx';
@@ -15,29 +16,11 @@ import { usePresence } from './primitives/usePresence.ts';
  * 試作の「リカバリーキーを表示」は「リカバリーキーを再発行」にした（設計書「試作との差」）。PC はリカバリーキーの秘密鍵を持たないためである。
  * 押すと節の中に欄が開き（growIn）、再発行の確認、作成、表示、末尾 4 文字の入力の段を、同じ欄の中で切り替える（resizeFrom と fadeIn）。
  * 暗号鍵は 120 秒たつと伏せる。「保存しました」で入力の欄が伸びて開き（growIn）、暗号鍵を伏せ字にする。
+ * 入力の段では、コピー、ファイルに保存、残り時間を出さない。保存先を開いて読み返させるためで、コピーで末尾を確かめられないようにする。
+ * ファイルに保存は、殻の中なら殻の保存のダイアログ、ブラウザならダウンロード（runtime/recoveryKeyOut.ts）。
+ * コピーは、60 秒たってクリップボードが写した値のままなら空にする。
  * 末尾 4 文字が合うまで「完了」は押せない。確認が済むまで、サーバーは名簿も keybox も差し替えない。
  */
-
-/** ファイルに保存するときの名前。 */
-const FILE_NAME = 'hangar-recovery-key.txt';
-
-/**
- * 4 行の文字列をファイルとして保存させる（ブラウザのダウンロード）。
- * 殻にはファイルの保存のダイアログが無いので、殻の中でもブラウザと同じ道を使う。
- */
-function saveTextFile(name: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text.endsWith('\n') ? text : `${text}\n`], { type: 'text/plain;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.rel = 'noopener';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // ダウンロードが URL を読み終える間を置いてから捨てる。
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 /** 伏せ字。区切りの位置はそのままに、文字だけを●にする。 */
 const maskOf = (secret: string): string => secret.replace(/[^-]/g, '●');
@@ -134,7 +117,9 @@ function RecoveryPanel(props: { r: CloudRecoveryProps; panelRef: RefObject<HTMLE
 /**
  * 表示と入力の段（試作 D2 の「リカバリーキーを表示」と「末尾を入力」）。
  * 見出し、作成日、URL、暗号鍵（区切りつきの base32）を並べ、コピーとファイルへの保存、120 秒の残り時間の棒を出す。
- * 入力の段では暗号鍵を伏せ字にし、末尾 4 文字が合うまで「完了」を押せない。入力はサーバーの照合と同じくそろえて比べる。
+ * 入力の段では暗号鍵を伏せ字にし、コピー、保存、残り時間を出さず、戻る口として小さな「もう一度表示」だけを残す。
+ * 時間切れの帯は入力の段では出さない（入力の段から時間が尽きても、帯と入力の欄を同時に出さない）。
+ * 末尾 4 文字が合うまで「完了」を押せない。入力はサーバーの照合と同じくそろえて比べる。
  */
 function RecoveryShown(props: { r: CloudRecoveryProps; closing: boolean }) {
   const emit = useEmit();
@@ -143,8 +128,13 @@ function RecoveryShown(props: { r: CloudRecoveryProps; closing: boolean }) {
   const hideAt = r.hideAt ?? 0;
   const now = useNow(1000, { sync: hideAt });
   const leftMs = Math.max(0, hideAt - now);
-  const hidden = leftMs <= 0 || props.closing;
-  const masked = r.entering || hidden;
+  const hidden = !r.entering && (leftMs <= 0 || props.closing);
+  const masked = r.entering || hidden || props.closing;
+  const [saveFailed, setSaveFailed] = useState(false);
+  const save = () => {
+    setSaveFailed(false);
+    saveRecoveryKeyFile(r.text ?? '').catch(() => setSaveFailed(true));
+  };
   const [tail, setTail] = useState('');
   const typed = normalizeRecoveryTail(tail);
   const match = r.tail !== null && typed === r.tail;
@@ -179,7 +169,11 @@ function RecoveryShown(props: { r: CloudRecoveryProps; closing: boolean }) {
               : <b className="cm-rk-key">{secret}</b>}
           </div>
         </div>
-        {hidden ? (
+        {r.entering ? (
+          <div className="cm-rk-acts">
+            <button type="button" className="linkish" onClick={() => emit({ type: 'cloud.recovery.reveal' })}>{t('cloudMember.recovery.reveal')}</button>
+          </div>
+        ) : hidden ? (
           <Strip tone="warn">
             <p>{t('cloudMember.recovery.hidden')}</p>
             <div className="btns"><button type="button" className="btn btn-sm btn-primary" onClick={() => emit({ type: 'cloud.recovery.reveal' })}>{t('cloudMember.recovery.reveal')}</button></div>
@@ -187,12 +181,13 @@ function RecoveryShown(props: { r: CloudRecoveryProps; closing: boolean }) {
         ) : (
           <>
             <div className="btns cm-rk-acts">
-              <CopyButton text={r.text ?? ''} label={t('cloudMember.recovery.copy')} ariaLabel={t('cloudMember.recovery.copyAria')} />
-              <button type="button" className="copy-btn" onClick={() => saveTextFile(FILE_NAME, r.text ?? '')}>
+              <CopyButton text={r.text ?? ''} label={t('cloudMember.recovery.copy')} ariaLabel={t('cloudMember.recovery.copyAria')} onPress={() => clearClipboardLater(r.text ?? '')} />
+              <button type="button" className="copy-btn" onClick={save}>
                 <Icon name="download" />
                 <span>{t('cloudMember.recovery.save')}</span>
               </button>
             </div>
+            {saveFailed && <div className="cm-rk-miss cm-rk-save-failed" role="alert">{t('cloudMember.recovery.saveFailed')}</div>}
             <div className="tbar" data-low={leftMs <= 10_000 ? 'true' : undefined} role="progressbar" aria-label={t('cloudMember.recovery.bar')} aria-valuemin={0} aria-valuemax={RECOVERY_SHOW_MS / 1000} aria-valuenow={Math.ceil(leftMs / 1000)}>
               <i style={{ width: `${Math.min(1, leftMs / RECOVERY_SHOW_MS) * 100}%` }} />
             </div>

@@ -143,6 +143,7 @@ export const cloudMemberKeys = {
   'cloudMember.recovery.copy': [],
   'cloudMember.recovery.copyAria': [],
   'cloudMember.recovery.save': [],
+  'cloudMember.recovery.saveFailed': [],
   'cloudMember.recovery.bar': [],
   'cloudMember.recovery.left': ['time'],
   'cloudMember.recovery.masked': [],

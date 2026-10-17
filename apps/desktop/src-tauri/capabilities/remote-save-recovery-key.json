@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-save-recovery-key",
+  "description": "サーバーの UI（127.0.0.1:4177）から、設定のクラウド同期の節の「ファイルに保存」でリカバリーキーを保存のダイアログで書くためだけの権限。頁から渡すのは本文だけで、書く場所は利用者がダイアログで選ぶ。他の殻の機能は与えない。",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:4177/*"] },
+  "permissions": ["allow-save-recovery-key"]
+}

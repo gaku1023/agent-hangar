@@ -143,6 +143,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.recovery.copy': 'Copy',
   'cloudMember.recovery.copyAria': 'Copy the recovery key',
   'cloudMember.recovery.save': 'Save to file',
+  'cloudMember.recovery.saveFailed': 'Couldn’t save the file. Choose another location, or copy it into your password manager.',
   'cloudMember.recovery.bar': 'Time left before the encryption key is hidden',
   'cloudMember.recovery.left': 'The encryption key will be hidden in {time}.',
   'cloudMember.recovery.masked': 'Encryption key (hidden)',
