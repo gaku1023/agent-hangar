@@ -6,38 +6,54 @@ import {
   MOBILE_BELL_MIN_WORKER_COMPAT,
   MOBILE_MIN_WORKER_COMPAT,
   PULL_LIMIT,
-  SHARED_TABLES,
+  ROSTER_MARKER_K,
+  SEALED_ROW_K_RE,
   decodeHeaderText,
   encodeHeaderText,
+  fromBase64Url,
   isHeaderSafe,
   isSafeRelPath,
+  toBase64Url,
   type ChangeIn,
+  type ChangeOp,
+  type ChangeOut,
   type CloudDeviceOut,
   type CloudLimitKind,
   type CloudUsageBody,
-  type ChangeOut,
   type FileEntry,
   type FileMetaIn,
   type ListFilesResponse,
   type MobileLaunchIn,
   type MobileLaunchOut,
-  type PullChangesResponse,
   type PushChangesResponse,
-  type SnapshotResponse,
+  type SealedChangeIn,
+  type SealedChangeOut,
+  type SealedPullChangesResponse,
+  type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
-import { CloudError, CompatError, isValidFileKey, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient } from '../src/sync/client.ts';
+import { CloudError, CompatError, isValidFileKey, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type WireCloudClient } from '../src/sync/client.ts';
+import { Keyring } from '../src/sync/keyring.ts';
+import { openSealedRow, SealedCloudClient } from '../src/sync/sealedClient.ts';
+import { testCloudConfig } from './cloudConfig.ts';
 
 type StoredFile = { entry: FileEntry; body: Buffer };
+
+/**
+ * Worker の rows の 1 行。D1 の列と同じものを持つ（互換の版 9）。
+ * sealed は封じたバイト列（D1 の BLOB）で、偽物は開けない。名簿の印の行（`~roster`）だけは空である。
+ * 試験は値を書き換えて、行の付け替えを真似てよい。
+ */
+export type FakeRow = { seq: number; k: string; op: ChangeOp; updatedAt: number; deviceId: string; epoch: number; sealed: Uint8Array };
 
 /** 端末をまたいで共有する中身。asDevice で作った別端末のクライアントも同じものを指す。 */
 export type FakeCloudStore = {
   /**
    * 採った push の行を届いた順に積んだ控え。試験が「何を送ったか」を見るためだけのもので、pull は読まない。
-   * 実物の Worker は変更ログを持たない（同期の版 6）。
+   * 実物の Worker は変更ログを持たない（同期の版 6）。行は rows と同じものを指す。
    */
-  changes: ChangeOut[];
-  /** 鍵（表:行 ID）ごとの今の 1 行。実物の rows と同じく、書き換えると末尾の連番を受け取る。pull はここから引く。 */
-  rows: Map<string, ChangeOut>;
+  changes: FakeRow[];
+  /** k ごとの今の 1 行。実物の rows と同じく、書き換えると末尾の連番を受け取る。pull はここから引く。 */
+  rows: Map<string, FakeRow>;
   files: Map<string, StoredFile>;
   seq: number;
   fileSeq: number;
@@ -53,7 +69,7 @@ export type FakeCloudStore = {
    * 実物の D1 の上限は 429 で返る。偽物も同じ形で断る。
    */
   limited: CloudLimitKind | null;
-  /** 参加している PC の行。要求を受けた端末を、初めて見たときに足す（実物は /join で足す）。 */
+  /** 参加している PC の行。要求を受けた端末を、初めて見たときに足す（実物は参加の承認で足す）。 */
   devices: Map<string, CloudDeviceOut>;
   /** PC ごとの受信箱の素（PUT /m/feed）。実物の mobile_feeds の表に当たる。 */
   mobileFeeds: Map<string, { sealed: string; updatedAt: number }>;
@@ -68,7 +84,6 @@ export type FakeCloudStore = {
 export type FakeLaunch = { id: string; targetDevice: string; createdAt: number; sealed: string; status: 'pending' | 'claimed' | 'started' | 'failed'; sealedAnswer: string | null };
 
 const ENC = new TextEncoder();
-const TABLES = new Set<string>(SHARED_TABLES);
 
 /**
  * 実物の Worker が持つ大きさの上限である。
@@ -76,12 +91,11 @@ const TABLES = new Set<string>(SHARED_TABLES);
  * `packages/server` はそのパッケージに依存しないので、ここに写しを置く。
  * 数が実物とずれていないことは `fake-cloud.test.ts` の「上限は実物の Worker と同じ数である」が
  * 原本を読んで縛る。偽物が実物より甘いと、本番でだけ 413 で断られる行と本文ができる。
+ * MAX_ROW_BYTES は封じた sealed（base64url）の字数で測る。
  */
-// 偽物を封じた形（互換の版 9）に写し直すのは Task 9 である。
-// それまでは平文の payload を測るので、上限は平文の 128 KiB のままにする（版 9 の Worker の 180 KiB は、これを封じた sealed の字数である）。
-export const MAX_ROW_BYTES = 128 * 1024;
-/** 版 9 の Worker には無い（413 は k で名指しする）。平文の形の偽物が rowId を切り詰めるためだけに残す。 */
-export const MAX_ROW_ID_CHARS = 64;
+export const MAX_ROW_BYTES = 180 * 1024;
+/** 1 頁（pull と写し）に載せる sealed の合計の字数の上限。超えた行を入れたところで頁を切る。 */
+export const MAX_PAGE_SEALED_CHARS = 8 * 1024 * 1024;
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
 /** PUT /m/feed の本文の上限（packages/cloud/src/mobile.ts の MAX_FEED_BODY_BYTES の写し）。 */
 export const MAX_FEED_BODY_BYTES = 96 * 1024;
@@ -107,39 +121,61 @@ export const TOUCH_EVERY_MS = 60_000;
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
 
+const isEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+
 /**
  * Worker の isChange（packages/cloud/src/changes.ts）と同じ検査。
  * ここを甘くすると、実物なら 400 で塊ごと断られる行を偽物が受け取ってしまう。
  * push は失敗しても行を残して再送するので、甘い偽物は本番で「同じ 40 行を永久に送り続ける」を作る。
  */
-function isChange(v: unknown): v is ChangeIn {
-  const c = v as Partial<ChangeIn> | null;
+function isChange(v: unknown): v is SealedChangeIn {
+  const c = v as Partial<SealedChangeIn> | null;
   return (
     !!c &&
-    typeof c.tableName === 'string' &&
-    TABLES.has(c.tableName) &&
-    typeof c.rowId === 'string' &&
-    c.rowId.length > 0 &&
+    typeof c.k === 'string' &&
+    SEALED_ROW_K_RE.test(c.k) &&
     (c.op === 'upsert' || c.op === 'delete') &&
-    typeof c.payload === 'object' &&
-    c.payload !== null &&
-    !Array.isArray(c.payload) &&
     typeof c.updatedAt === 'number' &&
-    Number.isFinite(c.updatedAt)
+    Number.isSafeInteger(c.updatedAt) &&
+    c.updatedAt >= 0 &&
+    isEpoch(c.epoch) &&
+    typeof c.sealed === 'string' &&
+    c.sealed.length > 0
   );
 }
+
+/** Worker の isSealedText と同じ字の形（詰め物の無い base64url）。 */
+const isSealedText = (v: string, max: number): boolean => v.length > 0 && v.length <= max && v.length % 4 !== 1 && /^[A-Za-z0-9_-]+$/.test(v);
 
 /** Worker の clampLimit と同じ丸め。0 と NaN は既定、負の数は 1、上限は PULL_LIMIT。 */
 const clampLimit = (v: number): number => Math.min(Math.max(Number(v) || PULL_LIMIT, 1), PULL_LIMIT);
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
+const toOut = (r: FakeRow): SealedChangeOut => ({ seq: r.seq, k: r.k, op: r.op, updatedAt: r.updatedAt, epoch: r.epoch, sealed: toBase64Url(r.sealed), deviceId: r.deviceId });
+
+/**
+ * Worker の cutPage と同じ頁の切り方。limit 行に達するか、sealed の合計の字数が上限を超えた行を入れたところで止める。先頭の 1 行は必ず入れる。
+ */
+function cutPage(rows: FakeRow[], limit: number): { page: FakeRow[]; more: boolean } {
+  const page: FakeRow[] = [];
+  let chars = 0;
+  for (const r of rows) {
+    if (page.length >= limit || (page.length > 0 && chars > MAX_PAGE_SEALED_CHARS)) break;
+    page.push(r);
+    chars += Math.ceil((r.sealed.length * 4) / 3);
+  }
+  return { page, more: rows.length > page.length };
+}
+
+type FakeWireOptions = { deviceId?: string; store?: FakeCloudStore; now?: () => number; minWorkerCompat?: number };
+
 /**
  * Worker と同じ規則（入力の検査、LWW、自端末の除外、鍵の権限、rows の連番、生存の知らせ）をメモリ上で再現する偽物。
- * asDevice で同じストアを別端末として使えるので、2 端末の同期をそのまま書ける。
- * 本物の fetch は一切呼ばない。
+ * 行は封じた形（互換の版 9）のまま持ち、開けない。asDevice で同じストアを別端末として使えるので、2 端末の同期をそのまま書ける。
+ * 本物の fetch は一切呼ばない。開いた形で話す試験は、これを SealedCloudClient で包んだ FakeCloudClient を使う。
  */
-export class FakeCloudClient implements CloudClient {
+export class FakeWireClient implements WireCloudClient {
   readonly calls: { method: string; args: unknown[] }[] = [];
   private readonly store: FakeCloudStore;
   readonly deviceId: string;
@@ -147,7 +183,7 @@ export class FakeCloudClient implements CloudClient {
   readonly minWorkerCompat: number;
   private seenWorkerCompat: number | null = null;
 
-  constructor(o: { deviceId?: string; store?: FakeCloudStore; now?: () => number; minWorkerCompat?: number } = {}) {
+  constructor(o: FakeWireOptions = {}) {
     this.deviceId = o.deviceId ?? 'self';
     this.minWorkerCompat = o.minWorkerCompat ?? MIN_WORKER_COMPAT;
     this.store = o.store ?? {
@@ -172,7 +208,7 @@ export class FakeCloudClient implements CloudClient {
 
   get offline(): boolean { return this.store.offline; }
   set offline(v: boolean) { this.store.offline = v; }
-  /** true の間、全メソッドが 401 を投げる。参加用の秘密を回した後と端末の行を消した後の筋を書くために使う。 */
+  /** true の間、全メソッドが 401 を投げる。端末トークンを入れ替えた後と端末の行を消した後の筋を書くために使う。 */
   get unauthorized(): boolean { return this.store.unauthorized; }
   set unauthorized(v: boolean) { this.store.unauthorized = v; }
   /** Worker の互換の版。下げると、この端末の下限より古い Worker の真似になる。 */
@@ -184,8 +220,8 @@ export class FakeCloudClient implements CloudClient {
   /** 当たっている Cloudflare の上限。立てると、その上限で断る真似になる。 */
   get limited(): CloudLimitKind | null { return this.store.limited; }
   set limited(v: CloudLimitKind | null) { this.store.limited = v; }
-  get changes(): ChangeOut[] { return this.store.changes; }
-  get rows(): Map<string, ChangeOut> { return this.store.rows; }
+  get changes(): FakeRow[] { return this.store.changes; }
+  get rows(): Map<string, FakeRow> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
   get mobileFeeds(): Map<string, { sealed: string; updatedAt: number }> { return this.store.mobileFeeds; }
   get launches(): Map<string, FakeLaunch> { return this.store.launches; }
@@ -195,8 +231,8 @@ export class FakeCloudClient implements CloudClient {
    * 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。
    * Worker に求める下限（minWorkerCompat）は、作った元のクライアントのものを引き継ぐ。
    */
-  asDevice(deviceId: string): FakeCloudClient {
-    return new FakeCloudClient({ deviceId, store: this.store, minWorkerCompat: this.minWorkerCompat });
+  asDevice(deviceId: string): FakeWireClient {
+    return new FakeWireClient({ deviceId, store: this.store, minWorkerCompat: this.minWorkerCompat });
   }
 
   /** Worker が最後に名乗った版。話すまでは null（HttpCloudClient と同じ）。 */
@@ -239,6 +275,15 @@ export class FakeCloudClient implements CloudClient {
     if (row) this.store.devices.set(deviceId, { ...row, revokedAt: null, joinedAt: this.store.now() });
   }
 
+  /**
+   * 名簿か keybox の書き換え（PUT /roster、PUT /keyboxes）が、同じ要求の中で印の行を進める真似（試験の口で、WireCloudClient には無い）。
+   * 印の行は sealed が空で、epoch は書いた PC の今の世代である。書き換えるたびに末尾の連番で入り直す。
+   */
+  touchRoster(epoch: number): void {
+    this.store.rows.delete(ROSTER_MARKER_K);
+    this.store.rows.set(ROSTER_MARKER_K, { seq: ++this.store.seq, k: ROSTER_MARKER_K, op: 'upsert', updatedAt: this.store.now(), deviceId: this.deviceId, epoch, sealed: new Uint8Array(0) });
+  }
+
   async listDevices(): Promise<CloudDeviceOut[]> {
     this.guard('listDevices');
     return [...this.store.devices.values()].map((d) => ({ ...d }));
@@ -256,73 +301,64 @@ export class FakeCloudClient implements CloudClient {
     return { ok: true, version: 'fake' };
   }
 
-  async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {
+  async pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse> {
     this.guard('pushChanges', changes);
     // 1 行でも形が違えば塊ごと断る。ストアには何も入れない。
     if (!Array.isArray(changes) || changes.length > MAX_PUSH_BATCH || !changes.every(isChange)) throw new CloudError(400, errorBody('invalid body'));
-    // 大きすぎる行は名指しで 413 に落とす（Worker と同じく、重複を畳む前に見る）。
+    // 大きすぎる行は k で名指しして 413 に落とす（Worker と同じく、重複を畳む前に見る）。
     // 名指しは先頭の 1 件だけにする。全部並べると本文が 200 字を超え、CloudError が持てなくなる。
-    const oversize = changes
-      .map((row) => ({ row, bytes: ENC.encode(JSON.stringify(row.payload)).byteLength }))
-      .filter((x) => x.bytes > MAX_ROW_BYTES);
+    const oversize = changes.filter((x) => x.sealed.length > MAX_ROW_BYTES);
     if (oversize.length) {
       const first = oversize[0]!;
-      throw new CloudError(
-        413,
-        JSON.stringify({
-          error: 'payload too large',
-          limit: MAX_ROW_BYTES,
-          count: oversize.length,
-          row: { tableName: first.row.tableName, rowId: first.row.rowId.slice(0, MAX_ROW_ID_CHARS), bytes: first.bytes },
-        }),
-      );
+      throw new CloudError(413, JSON.stringify({ error: 'payload too large', limit: MAX_ROW_BYTES, count: oversize.length, row: { k: first.k, bytes: first.sealed.length } }));
     }
+    if (!changes.every((x) => isSealedText(x.sealed, MAX_ROW_BYTES))) throw new CloudError(400, errorBody('invalid body'));
     let accepted = 0;
     let skipped = 0;
     // 同じ鍵の重複は updatedAt の大きい方だけを見る（Worker と同じ数え方）。
-    const latest = new Map<string, ChangeIn>();
+    const latest = new Map<string, SealedChangeIn>();
     for (const ch of changes) {
-      const k = `${ch.tableName}:${ch.rowId}`;
-      const cur = latest.get(k);
-      if (!cur) latest.set(k, ch);
-      else { skipped++; if (ch.updatedAt > cur.updatedAt) latest.set(k, ch); }
+      const cur = latest.get(ch.k);
+      if (!cur) latest.set(ch.k, ch);
+      else { skipped++; if (ch.updatedAt > cur.updatedAt) latest.set(ch.k, ch); }
     }
     for (const [k, ch] of latest) {
       const prev = this.store.rows.get(k);
       if (prev && prev.updatedAt >= ch.updatedAt) { skipped++; continue; }
-      const out: ChangeOut = { ...ch, payload: structuredClone(ch.payload), seq: ++this.store.seq, deviceId: this.deviceId };
-      this.store.changes.push(out);
-      this.store.rows.set(k, out);
+      const row: FakeRow = { seq: ++this.store.seq, k, op: ch.op, updatedAt: ch.updatedAt, deviceId: this.deviceId, epoch: ch.epoch, sealed: fromBase64Url(ch.sealed)! };
+      // 書き換えた行は末尾の連番で入り直す（Map の並びも末尾へ移す）。
+      this.store.rows.delete(k);
+      this.store.rows.set(k, row);
+      this.store.changes.push(row);
       accepted++;
     }
-    return { seq: this.store.seq, accepted, skipped };
+    return { seq: this.maxSeq(), accepted, skipped };
+  }
+
+  /** 表の連番の高水位（Worker の max(seq)）。 */
+  private maxSeq(): number {
+    let m = 0;
+    for (const r of this.store.rows.values()) m = Math.max(m, r.seq);
+    return m;
   }
 
   /**
-   * 実物の GET /changes と同じく、rows から自端末以外の行を連番の順に引く。
+   * 実物の GET /changes と同じく、rows から自端末以外の行を連番の順に引く。名簿の印の行もほかの行と同じく返す。
    * 変更ログを持たないので、どれだけ古い since でも断らない。
    * 最後まで返せたときの nextSeq は表の末尾の連番（max(seq)）で、since をそのまま返さない。
    * 解除していない PC の最終確認（peers）と、Worker の時刻（now）を添える。
    */
-  async pullChanges(since: number, limit: number): Promise<PullChangesResponse> {
+  async pullChanges(since: number, limit: number): Promise<SealedPullChangesResponse> {
     this.guard('pullChanges', since, limit);
     const n = clampLimit(limit);
-    const rows = [...this.store.rows.values()];
-    const all = rows.filter((c) => c.seq > since && c.deviceId !== this.deviceId).sort((x, y) => x.seq - y.seq);
-    const page = all.slice(0, n);
-    const more = all.length > n;
+    const all = [...this.store.rows.values()].filter((c) => c.seq > since && c.deviceId !== this.deviceId).sort((x, y) => x.seq - y.seq);
+    const { page, more } = cutPage(all, n);
     const peers = [...this.store.devices.values()]
       .filter((d) => d.revokedAt === null)
       .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
       .map((d) => ({ id: d.id, lastSeenAt: d.lastSeenAt }));
     const now = this.store.now();
-    const res: PullChangesResponse = {
-      changes: page.map((c) => structuredClone(c)),
-      nextSeq: more ? page[page.length - 1]!.seq : rows.reduce((m, c) => Math.max(m, c.seq), 0),
-      more,
-      peers,
-      now,
-    };
+    const res: SealedPullChangesResponse = { changes: page.map(toOut), nextSeq: more ? page[page.length - 1]!.seq : this.maxSeq(), more, peers, now };
     // 版 7 の Worker は、この PC 宛ての、まだ受け取られていない TTL の内の依頼を、どの頁にも添える。版 6 は載せない。
     if (this.store.workerCompat >= MOBILE_MIN_WORKER_COMPAT) res.launches = this.pendingLaunches(now);
     return res;
@@ -337,7 +373,7 @@ export class FakeCloudClient implements CloudClient {
   }
 
   /**
-   * スマホの POST /m/launches の真似（試験が依頼を置くための口で、CloudClient には無い）。
+   * スマホの POST /m/launches の真似（試験が依頼を置くための口で、WireCloudClient には無い）。
    * 置いた時刻は Worker の時計で、同じ ID の再送は行を増やさない。
    */
   postLaunch(l: MobileLaunchIn): void {
@@ -373,16 +409,13 @@ export class FakeCloudClient implements CloudClient {
     for (const k of [...this.store.mobileBlobs.keys()]) if (k.startsWith(`${id}/`)) this.store.mobileBlobs.delete(k);
   }
 
-  async snapshot(after: string | null, limit: number): Promise<SnapshotResponse> {
+  /** 実物の GET /rows と同じく、rows の写しを k の順に返す。自端末の行も、名簿の印の行も含める。 */
+  async snapshot(after: string | null, limit: number): Promise<SealedSnapshotResponse> {
     this.guard('snapshot', after, limit);
     const n = clampLimit(limit);
-    const keys = [...this.store.rows.keys()].sort().filter((k) => k > (after ?? ''));
-    const page = keys.slice(0, n);
-    return {
-      changes: page.map((k) => ({ ...structuredClone(this.store.rows.get(k)!), seq: 0 })),
-      nextAfter: keys.length > n ? page[page.length - 1]! : null,
-      seq: this.store.seq,
-    };
+    const all = [...this.store.rows.values()].filter((r) => r.k > (after ?? '')).sort((x, y) => (x.k < y.k ? -1 : x.k > y.k ? 1 : 0));
+    const { page, more } = cutPage(all, n);
+    return { changes: page.map(toOut), nextAfter: more ? page[page.length - 1]!.k : null, seq: this.maxSeq() };
   }
 
   /** 鍵の形と権限。transcripts も config も、書けるのは自端末の分だけ。GET は誰でも。 */
@@ -393,8 +426,9 @@ export class FakeCloudClient implements CloudClient {
   }
 
   /**
-   * ヘッダで届くメタデータの検査。Worker の PUT /files/<key> と同じところで同じ 400 を出す。
+   * ヘッダで届くメタデータの検査。版 8 までの Worker の PUT /files/<key> と同じところで同じ 400 を出す。
    * path は他端末が本文を降ろすときの置き場所になるので、`..` と絶対パスを通すと下流が防具無しで通る。
+   * 本文の索引を封じた形に写し直すのは Task 10 で、それまでは平文のメタの形のまま持つ。
    */
   private checkMeta(meta: FileMetaIn): void {
     const bad = (): never => { throw new CloudError(400, errorBody('invalid headers')); };
@@ -402,7 +436,7 @@ export class FakeCloudClient implements CloudClient {
     if (meta.kind !== 'transcript' && meta.kind !== 'config') bad();
     if (!/^[0-9a-f]{64}$/.test(meta.sha256)) bad();
     if (!isInt(meta.size) || !isInt(meta.mtime)) bad();
-    // 本文は端末で暗号化してから預ける約束である（決定 5）。実物の Worker も同じところで同じ 400 を出す。
+    // 本文は端末で暗号化してから預ける約束である（決定 5）。
     if (meta.kind === 'transcript' && meta.encrypted !== true) throw new CloudError(400, errorBody('unencrypted transcript'));
   }
 
@@ -504,7 +538,7 @@ export class FakeCloudClient implements CloudClient {
     this.store.mobileFeeds.delete(this.deviceId);
   }
 
-  /** スマホの PUT /m/blobs の真似（試験が画像を置くための口で、CloudClient には無い）。 */
+  /** スマホの PUT /m/blobs の真似（試験が画像を置くための口で、WireCloudClient には無い）。 */
   putBlob(launchId: string, n: number, bytes: Uint8Array): void {
     this.store.mobileBlobs.set(`${launchId}/${n}`, bytes);
   }
@@ -529,4 +563,95 @@ export class FakeCloudClient implements CloudClient {
     this.guard('usage');
     return structuredClone(this.usageBody);
   }
+}
+
+/** 試験の既定の鍵の束。どの端末も同じ作り物の世代鍵（testCloudConfig の世代 1）を持つ。 */
+const defaultKeyring = (): Promise<Keyring> => Keyring.fromConfig(testCloudConfig());
+
+type FakeCloudOptions = FakeWireOptions & {
+  /** 包む偽の Worker。省くと新しいストアで作る。 */
+  wire?: FakeWireClient;
+  /** この端末の鍵の束。省くと既定の世代 1 だけを持つ。 */
+  keyring?: Keyring | Promise<Keyring>;
+  /** 名簿の印の行と、知らない世代の行を受けたときの読み直し（SealedCloudClient の onRoster）。 */
+  onRoster?: () => Promise<void>;
+};
+
+/**
+ * 開いた形で話す偽物。偽の Worker（FakeWireClient）を本物と同じ SealedCloudClient で包む。
+ * 行は封じてから偽の Worker に届くので、ストアには封じた形だけが残る。
+ * 偽の Worker の取っ手（offline、workerCompat、calls など）はそのまま見せる。
+ * 何を送ったかを開いた形で見るときは opened() を使う。
+ */
+export class FakeCloudClient implements CloudClient {
+  readonly wire: FakeWireClient;
+  private readonly sealed: SealedCloudClient;
+  private readonly ring: Promise<Keyring>;
+
+  constructor(o: FakeCloudOptions = {}) {
+    this.wire = o.wire ?? new FakeWireClient(o);
+    this.ring = Promise.resolve(o.keyring ?? defaultKeyring());
+    this.sealed = new SealedCloudClient(this.wire, this.ring, this.wire.deviceId, { onRoster: o.onRoster });
+  }
+
+  /** 同じストアを別の端末として使う。鍵の束と読み直しは、渡さなければ既定のもの。 */
+  asDevice(deviceId: string, o: { keyring?: Keyring | Promise<Keyring>; onRoster?: () => Promise<void> } = {}): FakeCloudClient {
+    return new FakeCloudClient({ wire: this.wire.asDevice(deviceId), ...o });
+  }
+
+  get deviceId(): string { return this.wire.deviceId; }
+  get minWorkerCompat(): number { return this.wire.minWorkerCompat; }
+  get calls(): { method: string; args: unknown[] }[] { return this.wire.calls; }
+  get offline(): boolean { return this.wire.offline; }
+  set offline(v: boolean) { this.wire.offline = v; }
+  get unauthorized(): boolean { return this.wire.unauthorized; }
+  set unauthorized(v: boolean) { this.wire.unauthorized = v; }
+  get workerCompat(): number { return this.wire.workerCompat; }
+  set workerCompat(v: number) { this.wire.workerCompat = v; }
+  get minDeviceCompat(): number { return this.wire.minDeviceCompat; }
+  set minDeviceCompat(v: number) { this.wire.minDeviceCompat = v; }
+  get limited(): CloudLimitKind | null { return this.wire.limited; }
+  set limited(v: CloudLimitKind | null) { this.wire.limited = v; }
+  /** 採った行の控え（封じた形）。 */
+  get changes(): FakeRow[] { return this.wire.changes; }
+  /** Worker の rows（封じた形）。 */
+  get rows(): Map<string, FakeRow> { return this.wire.rows; }
+  get files(): Map<string, StoredFile> { return this.wire.files; }
+  get mobileFeeds(): Map<string, { sealed: string; updatedAt: number }> { return this.wire.mobileFeeds; }
+  get launches(): Map<string, FakeLaunch> { return this.wire.launches; }
+  get mobileBlobs(): Map<string, Uint8Array> { return this.wire.mobileBlobs; }
+  get usageBody(): CloudUsageBody { return this.wire.usageBody; }
+  set usageBody(v: CloudUsageBody) { this.wire.usageBody = v; }
+
+  /** 採った行の控えを、この端末の鍵で開いて届いた順に返す。開けない行は入れない。 */
+  async opened(): Promise<ChangeOut[]> {
+    const ring = await this.ring;
+    const out = await Promise.all(this.wire.changes.map((r) => openSealedRow(ring, toOut(r))));
+    return out.filter((c): c is ChangeOut => c !== null);
+  }
+
+  revoke(deviceId: string): void { this.wire.revoke(deviceId); }
+  unrevoke(deviceId: string): void { this.wire.unrevoke(deviceId); }
+  touchRoster(epoch: number): void { this.wire.touchRoster(epoch); }
+  postLaunch(l: MobileLaunchIn): void { this.wire.postLaunch(l); }
+  putBlob(launchId: string, n: number, bytes: Uint8Array): void { this.wire.putBlob(launchId, n, bytes); }
+  seedUnchecked(meta: FileMetaIn, body: Buffer): { seq: number } { return this.wire.seedUnchecked(meta, body); }
+
+  health(): Promise<{ ok: boolean; version: string }> { return this.wire.health(); }
+  pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> { return this.sealed.pushChanges(changes); }
+  pullChanges(since: number, limit: number): Promise<OpenedPullResponse> { return this.sealed.pullChanges(since, limit); }
+  snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse> { return this.sealed.snapshot(after, limit); }
+  refreshKeys(epochs: number[]): Promise<KeyRefresh> { return this.sealed.refreshKeys(epochs); }
+  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> { return this.wire.putFile(meta, body); }
+  getFile(key: string): Promise<Readable> { return this.wire.getFile(key); }
+  listFiles(since: number, limit: number): Promise<ListFilesResponse> { return this.wire.listFiles(since, limit); }
+  usage(): Promise<CloudUsageBody> { return this.wire.usage(); }
+  listDevices(): Promise<CloudDeviceOut[]> { return this.wire.listDevices(); }
+  revokeDevice(id: string): Promise<CloudDeviceOut> { return this.wire.revokeDevice(id); }
+  lastWorkerCompat(): number | null { return this.wire.lastWorkerCompat(); }
+  putMobileFeed(sealed: string): Promise<void> { return this.wire.putMobileFeed(sealed); }
+  deleteMobileFeed(): Promise<void> { return this.wire.deleteMobileFeed(); }
+  claimLaunch(id: string): Promise<boolean> { return this.wire.claimLaunch(id); }
+  answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> { return this.wire.answerLaunch(id, ok, sealedAnswer); }
+  getMobileBlob(launchId: string, n: number): Promise<Uint8Array> { return this.wire.getMobileBlob(launchId, n); }
 }

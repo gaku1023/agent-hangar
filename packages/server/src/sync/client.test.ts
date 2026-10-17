@@ -88,7 +88,8 @@ describe('HttpCloudClient', () => {
           : json({ changes: [], nextSeq: 3, more: false }),
     );
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    const ch = { tableName: 'projects' as const, rowId: 'p1', op: 'upsert' as const, payload: { id: 'p1' }, updatedAt: 1 };
+    // 線の client は封じた行をそのまま運ぶ。封じて開くのは SealedCloudClient（sealedClient.test.ts）。
+    const ch = { k: 'k'.repeat(43), op: 'upsert' as const, updatedAt: 1, epoch: 1, sealed: 'AgAB' };
     expect(await c.pushChanges([ch])).toEqual({ seq: 3, accepted: 1, skipped: 0 });
     expect(calls[0]!.url).toBe('https://h/changes');
     expect(calls[0]!.init.method).toBe('POST');
@@ -96,8 +97,8 @@ describe('HttpCloudClient', () => {
     expect(JSON.parse(calls[0]!.init.body as string)).toEqual({ changes: [ch] });
     await c.pullChanges(5, 100);
     expect(calls[1]!.url).toBe('https://h/changes?since=5&limit=100');
-    await c.snapshot('projects:p1', 50);
-    expect(calls[2]!.url).toBe('https://h/rows?after=projects%3Ap1&limit=50');
+    await c.snapshot('a-b_c', 50);
+    expect(calls[2]!.url).toBe('https://h/rows?after=a-b_c&limit=50');
     await c.snapshot(null, 50);
     expect(calls[3]!.url).toBe('https://h/rows?after=&limit=50');
   });
@@ -484,28 +485,28 @@ describe('互換の版', () => {
 
   it('Worker が最後に名乗った版を覚える。まだ話していなければ null で、Cloudflare の端の応答（版の見出し無し）では上書きしない', async () => {
     let status = 200;
-    const { fetch } = fakeFetch(() => (status === 200 ? new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '7' } }) : new Response('edge', { status })), { stamp: false });
+    const { fetch } = fakeFetch(() => (status === 200 ? new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '10' } }) : new Response('edge', { status })), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     expect(c.lastWorkerCompat()).toBeNull();
     await c.pullChanges(0, 10);
-    expect(c.lastWorkerCompat()).toBe(7);
+    expect(c.lastWorkerCompat()).toBe(10);
     status = 403;
     await c.pullChanges(0, 10).catch(() => {});
-    expect(c.lastWorkerCompat()).toBe(7);
+    expect(c.lastWorkerCompat()).toBe(10);
   });
 
-  it('この PC が Worker に求める下限は 6 で、版の見出しを返さない Worker（版 0）の 2xx は Worker を上げるよう断る', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(6);
+  it('この PC が Worker に求める下限は 9 で、版の見出しを返さない Worker（版 0）の 2xx は Worker を上げるよう断る', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(9);
     const { fetch } = fakeFetch(() => json({ changes: [], nextSeq: 4, more: false }), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 6 });
+    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 9 });
     await expect(c.usage()).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker' });
   });
 
-  it.each([1, 5])('版 %i の Worker（版 1 は session_notes を知らない、版 5 は peers を返さず変更ログを持つ）も、Worker を上げるよう断る', async (old) => {
+  it.each([1, 5, 8])('版 %i の Worker（版 1 は session_notes を知らない、版 5 は変更ログを持つ、版 8 は行を平文で持つ）も、Worker を上げるよう断る', async (old) => {
     const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 4, more: false }), { status: 200, headers: { [COMPAT_HEADER]: String(old) } }), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: old, need: 6 });
+    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: old, need: 9 });
   });
 
   // Cloudflare の端は、Worker を通さずに 4xx と 5xx を返すことがある（WAF の 403、本文が大きすぎるときの 413、CPU の超過、日の上限など）。

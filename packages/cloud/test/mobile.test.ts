@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, readCloudLimit, seal, type DevicesOut, type MobileInboxResponse, type MobileJoinResponse, type MobilePairingResponse, type PullChangesResponse } from '@agent-hangar/shared';
+import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, readCloudLimit, seal, type DevicesOut, type MobileInboxResponse, type MobileJoinResponse, type MobilePairingResponse, type SealedPullChangesResponse } from '@agent-hangar/shared';
 import { MAX_ACTIVE_PHONES, MAX_FEED_BODY_BYTES, PAIRING_RATE, PAIRING_TTL_MS } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
@@ -342,7 +342,7 @@ describe('PC の一覧と生存', () => {
     const phone = await joinPhone(pcA);
     const r = await send('/changes?since=0', { headers: auth(pcA) });
     expect(r.status).toBe(200);
-    const peers = ((await r.json()) as PullChangesResponse).peers.map((p) => p.id);
+    const peers = ((await r.json()) as SealedPullChangesResponse).peers.map((p) => p.id);
     expect(peers).toEqual(['pc-a', 'pc-b']);
     expect(peers).not.toContain(phone.deviceId);
   });

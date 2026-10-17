@@ -1,13 +1,24 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { COMPAT_VERSION, MAX_PUSH_BATCH } from '@agent-hangar/shared';
+import { COMPAT_VERSION, MAX_PUSH_BATCH, ROSTER_MARKER_K, toBase64Url, type SealedChangeIn } from '@agent-hangar/shared';
 import { CloudError, CompatError } from '../src/sync/client.ts';
-import { FakeCloudClient, MAX_BODY_BYTES, MAX_ANSWER_BODY_BYTES, MAX_FEED_BODY_BYTES, MAX_LAUNCH_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT, PULL_LAUNCH_LIMIT, TOUCH_EVERY_MS } from './fake-cloud.ts';
+import { FakeCloudClient, FakeWireClient, MAX_BODY_BYTES, MAX_ANSWER_BODY_BYTES, MAX_FEED_BODY_BYTES, MAX_LAUNCH_BODY_BYTES, MAX_PAGE_SEALED_CHARS, MAX_ROW_BYTES, MIN_DEVICE_COMPAT, PULL_LAUNCH_LIMIT, TOUCH_EVERY_MS } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
 /** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
 const pushResult = (o: { seq: number; accepted: number; skipped: number }) => o;
+
+/** 線の上の封じた行。偽の Worker は開けないので、中身は形の合う乱数でよい。k は 43 字の base64url。 */
+const sealedRow = (n: number, o: Partial<SealedChangeIn> & { bytes?: number } = {}): SealedChangeIn => ({
+  k: toBase64Url(new Uint8Array(32).fill(n)),
+  op: 'upsert',
+  updatedAt: 1,
+  epoch: 1,
+  sealed: toBase64Url(randomBytes(o.bytes ?? 64)),
+  ...o,
+});
 
 const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 'projects/-x/u.jsonl', kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 3, mtime: 1, encrypted: true, ...over });
 
@@ -61,13 +72,58 @@ describe('FakeCloudClient', () => {
     const p2 = await b.pullChanges(p1.nextSeq, 2);
     expect(p2.changes.map((c) => c.seq)).toEqual([3]);
     expect(p2).toMatchObject({ nextSeq: 3, more: false });
+    // 写しは k（HMAC）の順なので、行 ID の順とは限らない。nextAfter は頁の最後の行の k である。
     const s1 = await b.snapshot(null, 2);
-    expect(s1.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
-    expect(s1).toMatchObject({ nextAfter: 'projects:p2', seq: 3 });
-    expect(s1.changes.every((c) => c.seq === 0)).toBe(true);
+    expect(s1.changes).toHaveLength(2);
+    const ks = [...a.rows.keys()].sort();
+    expect(s1).toMatchObject({ nextAfter: ks[1], seq: 3 });
+    // 写しの行も実物と同じく自分の連番を持つ。
+    expect(s1.changes.map((c) => c.seq).sort()).toEqual(ks.slice(0, 2).map((k) => a.rows.get(k)!.seq).sort());
     const s2 = await b.snapshot(s1.nextAfter, 2);
-    expect(s2.changes.map((c) => c.rowId)).toEqual(['p3']);
+    expect(s2.changes).toHaveLength(1);
     expect(s2.nextAfter).toBe(null);
+    expect([...s1.changes, ...s2.changes].map((c) => c.rowId).sort()).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  it('ストアには封じた形だけが残り、表名、行 ID、payload は平文で無い', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    await a.pushChanges([{ tableName: 'sessions', rowId: 'session-id-1', op: 'upsert', payload: { id: 'session-id-1', title: 'title-1' }, updatedAt: 1 }]);
+    const [row] = [...a.rows.values()];
+    expect(row).toMatchObject({ seq: 1, op: 'upsert', updatedAt: 1, deviceId: 'a', epoch: 1 });
+    expect(row!.k).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const text = JSON.stringify({ k: row!.k, sealed: Buffer.from(row!.sealed).toString('latin1') });
+    for (const plain of ['sessions', 'session-id-1', 'title-1']) expect(text).not.toContain(plain);
+    // 鍵を持つ端末は開ける。
+    expect((await a.opened()).map((c) => [c.tableName, c.rowId, c.payload.title])).toEqual([['sessions', 'session-id-1', 'title-1']]);
+  });
+
+  it('名簿の印の行は sealed が空で、書き換えるたびに末尾の連番で入り直し、ほかの PC にだけ降りる', async () => {
+    const a = new FakeWireClient({ deviceId: 'a' });
+    const b = a.asDevice('b');
+    await a.pushChanges([sealedRow(1)]);
+    a.touchRoster(3);
+    a.touchRoster(2);
+    const marker = a.rows.get(ROSTER_MARKER_K)!;
+    expect(marker).toMatchObject({ seq: 3, k: ROSTER_MARKER_K, deviceId: 'a', epoch: 2 });
+    expect(marker.sealed).toHaveLength(0);
+    expect((await b.pullChanges(0, 500)).changes.map((c) => [c.k, c.seq, c.sealed])).toEqual([[sealedRow(1).k, 1, expect.any(String)], [ROSTER_MARKER_K, 3, '']]);
+    expect((await a.pullChanges(0, 500)).changes).toEqual([]);
+    // 写しでは `~` が base64url のどの字よりも後ろに並ぶ。
+    expect((await b.snapshot(null, 500)).changes.map((c) => c.k).at(-1)).toBe(ROSTER_MARKER_K);
+  });
+
+  it('1 頁の sealed の合計が上限を超えた行を入れたところで頁を切る', async () => {
+    const a = new FakeWireClient({ deviceId: 'a' });
+    const bytes = (MAX_ROW_BYTES * 3) / 4;
+    for (let i = 0; i < 50; i += 25) await a.pushChanges(Array.from({ length: 25 }, (_, j) => sealedRow(i + j + 1, { bytes })));
+    const per = Math.ceil((bytes * 4) / 3);
+    const fits = Math.floor(MAX_PAGE_SEALED_CHARS / per) + 1;
+    const p = await a.asDevice('b').pullChanges(0, 500);
+    expect(p.changes).toHaveLength(fits);
+    expect(p).toMatchObject({ more: true, nextSeq: fits });
+    const s = await a.asDevice('b').snapshot(null, 500);
+    expect(s.changes).toHaveLength(fits);
+    expect(s.nextAfter).toBe(s.changes.at(-1)!.k);
   });
 
   it('変更ログを持たず、どれだけ古い since でも断らない。書き換えた行は末尾の連番で 1 度だけ降りる', async () => {
@@ -198,6 +254,27 @@ describe('FakeCloudClient', () => {
     expect(await a.pushChanges([ch('p1', 1), { ...ch('p2', 2), op: 'delete' as const }])).toEqual(pushResult({ seq: 2, accepted: 2, skipped: 0 }));
   });
 
+  it('線の上では Worker の isChange と同じ厳しさで封じた行の形を断る', async () => {
+    const a = new FakeWireClient({ deviceId: 'a' });
+    const bad = (over: Record<string, unknown>) => [{ ...sealedRow(1), ...over }] as never;
+    for (const over of [
+      { k: 'short' },
+      { k: ROSTER_MARKER_K },
+      { op: 'drop' },
+      { updatedAt: -1 },
+      { updatedAt: 1.5 },
+      { updatedAt: '1' },
+      { epoch: 0 },
+      { epoch: 1.5 },
+      { sealed: '' },
+      { sealed: 1 },
+      { sealed: 'abc=' },
+      { sealed: 'abcde' },
+    ]) await expect(a.pushChanges(bad(over)), JSON.stringify(over)).rejects.toMatchObject({ status: 400, message: JSON.stringify({ error: 'invalid body' }) });
+    expect(a.rows.size).toBe(0);
+    expect(await a.pushChanges([sealedRow(1), sealedRow(2, { op: 'delete' })])).toEqual(pushResult({ seq: 2, accepted: 2, skipped: 0 }));
+  });
+
   it('path の .. と絶対パスと制御文字を断る', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
     const body = () => Readable.from([Buffer.from('x')]);
@@ -252,8 +329,8 @@ describe('FakeCloudClient', () => {
     expect(neg).toMatchObject({ nextSeq: 1, more: true });
     expect((await b.pullChanges(0, 10_000)).changes).toHaveLength(2);
     const s = await b.snapshot(null, -5);
-    expect(s.changes.map((c) => c.rowId)).toEqual(['p1']);
-    expect(s.nextAfter).toBe('projects:p1');
+    expect(s.changes).toHaveLength(1);
+    expect(s.nextAfter).toBe([...a.rows.keys()].sort()[0]);
     expect((await b.snapshot(null, 0)).nextAfter).toBe(null);
     expect((await b.listFiles(0, 0))).toMatchObject({ nextSeq: 0, more: false });
   });
@@ -294,42 +371,35 @@ describe('FakeCloudClient', () => {
     expect(a.files.size).toBe(0);
   });
 
-  it('128 KiB を超える payload の行は 413 で名指しして断る', async () => {
-    const a = new FakeCloudClient({ deviceId: 'a' });
-    // UI は 1 MiB までのメモを保存できるので、この大きさの行は実際に積まれる。
-    const huge = { tableName: 'project_memos' as const, rowId: 'p1', op: 'upsert' as const, payload: { project_id: 'p1', markdown: 'あ'.repeat(70_000) }, updatedAt: 1 };
-    expect(new TextEncoder().encode(JSON.stringify(huge.payload)).byteLength).toBeGreaterThan(MAX_ROW_BYTES);
-    const e = await a.pushChanges([ch('p0', 1), huge]).catch((x: unknown) => x);
+  it('sealed が 180 KiB を超える行は、線の上では k で名指しして 413 で断る', async () => {
+    const a = new FakeWireClient({ deviceId: 'a' });
+    // base64url で 4/3 倍になるので、3/4 倍のバイト数がちょうど上限の字数になる。
+    const edge = sealedRow(2, { bytes: (MAX_ROW_BYTES * 3) / 4 });
+    expect(edge.sealed.length).toBe(MAX_ROW_BYTES);
+    const huge = sealedRow(3, { bytes: (MAX_ROW_BYTES * 3) / 4 + 3 });
+    const e = await a.pushChanges([sealedRow(1), huge]).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(CloudError);
     expect(e).toMatchObject({ status: 413 });
-    expect(JSON.parse((e as CloudError).message)).toEqual({
-      error: 'payload too large',
-      limit: MAX_ROW_BYTES,
-      count: 1,
-      row: { tableName: 'project_memos', rowId: 'p1', bytes: new TextEncoder().encode(JSON.stringify(huge.payload)).byteLength },
-    });
+    expect(JSON.parse((e as CloudError).message)).toEqual({ error: 'payload too large', limit: MAX_ROW_BYTES, count: 1, row: { k: huge.k, bytes: huge.sealed.length } });
+    // 本文は 200 字に収まる（CloudError が持てるのは先頭 200 字だけである）。k は 43 字に決まっている。
+    expect((e as CloudError).message.length).toBeLessThanOrEqual(200);
     // 塊ごと断るので、同じ要求に乗っていた小さい行も入らない。
     expect(a.changes).toHaveLength(0);
     expect(a.rows.size).toBe(0);
-    // 本文は 200 字に収まる（CloudError が持てるのは先頭 200 字だけである）。
-    expect((e as CloudError).message.length).toBeLessThanOrEqual(200);
     // ちょうど上限の行は通る。
-    // {"m":"..."} の囲みが 8 バイトあるので、その分を引くとちょうど上限になる。
-    const edge = { ...huge, payload: { m: 'a'.repeat(MAX_ROW_BYTES - 8) } };
-    expect(new TextEncoder().encode(JSON.stringify(edge.payload)).byteLength).toBe(MAX_ROW_BYTES);
     expect(await a.pushChanges([edge])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
   });
 
-  it('413 の本文は rowId が長くても 200 字に収まる', async () => {
+  it('開いた形の client は、413 の名指しを表名と行 ID に戻す', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
-    const e = await a
-      .pushChanges([{ tableName: 'todos' as const, rowId: 'x'.repeat(500), op: 'upsert' as const, payload: { m: 'a'.repeat(MAX_ROW_BYTES) }, updatedAt: 1 }])
-      .catch((x: unknown) => x);
+    // UI は 1 MiB までのメモを保存できるので、この大きさの行は実際に積まれる。gzip で縮まない中身にする。
+    const huge = { tableName: 'project_memos' as const, rowId: 'p1', op: 'upsert' as const, payload: { project_id: 'p1', markdown: randomBytes(150_000).toString('base64') }, updatedAt: 1 };
+    const e = await a.pushChanges([ch('p0', 1), huge]).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(CloudError);
-    const err = e as CloudError;
-    expect(err.status).toBe(413);
-    expect(err.message.length).toBeLessThanOrEqual(200);
-    expect((JSON.parse(err.message) as { row: { rowId: string } }).row.rowId).toBe('x'.repeat(MAX_ROW_ID_CHARS));
+    const body = JSON.parse((e as CloudError).message) as { error: string; limit: number; count: number; row: { tableName: string; rowId: string; bytes: number } };
+    expect(body).toMatchObject({ error: 'payload too large', limit: MAX_ROW_BYTES, count: 1, row: { tableName: 'project_memos', rowId: 'p1' } });
+    expect(body.row.bytes).toBeGreaterThan(MAX_ROW_BYTES);
+    expect(a.rows.size).toBe(0);
   });
 
   it('100 MiB を超える本文は 413 で断り、何も残さない', async () => {
@@ -358,7 +428,7 @@ describe('FakeCloudClient', () => {
   });
 
   it('その検査は版 9 の Worker には無い（平文のメタを受けないため）', () => {
-    // 偽物を封じた形に写し直すのは Task 9 で、それまでは偽物にだけこの検査が残る。
+    // 行は封じた形に写し直した（Task 9）。本文の索引を封じた形（sealed_meta）に写し直すのは Task 10 で、それまでは偽物にだけこの検査が残る。
     const src = fs.readFileSync(new URL('../../cloud/src/files.ts', import.meta.url), 'utf8');
     expect(src).not.toContain("'unencrypted transcript'");
   });
@@ -373,10 +443,9 @@ describe('FakeCloudClient', () => {
 
   it('上限は実物の Worker と同じ数である', () => {
     // 偽物は実物を写したものである。実物だけが変わったら、ここで落ちて写し直しを促す。
-    // 版 9 の Worker は封じた sealed の字数で測る。偽物の平文の上限を封じて base64url にした最大（1 + 12 + 1 + 16 バイトを足して 4/3 倍）が収まること。
-    expect(Math.ceil(((MAX_ROW_BYTES + 30) * 4) / 3)).toBeLessThanOrEqual(workerConstant('changes.ts', 'MAX_ROW_BYTES'));
-    // MAX_ROW_ID_CHARS は版 9 の Worker から消えた。偽物の写し直し（Task 9）で偽物からも消す。
-    expect(() => workerConstant('changes.ts', 'MAX_ROW_ID_CHARS')).toThrow();
+    // 行の上限は、偽物も実物も封じた sealed（base64url）の字数で測る。
+    expect(MAX_ROW_BYTES).toBe(workerConstant('changes.ts', 'MAX_ROW_BYTES'));
+    expect(MAX_PAGE_SEALED_CHARS).toBe(workerConstant('changes.ts', 'MAX_PAGE_SEALED_CHARS'));
     expect(MAX_BODY_BYTES).toBe(workerConstant('files.ts', 'MAX_BODY_BYTES'));
     expect(TOUCH_EVERY_MS).toBe(workerConstant('seen.ts', 'TOUCH_EVERY_MS'));
     expect(MAX_FEED_BODY_BYTES).toBe(workerConstant('mobile.ts', 'MAX_FEED_BODY_BYTES'));
@@ -430,12 +499,12 @@ describe('互換の版', () => {
     expect(a.changes).toHaveLength(0);
   });
 
-  it('既定の下限は 6 で、版の見出しを返さない古い Worker（版 0）から変更ログを持つ版 5 までの Worker は Worker を上げるよう断る', async () => {
+  it('既定の下限は 9 で、版の見出しを返さない古い Worker（版 0）から行を平文で持つ版 8 までの Worker は Worker を上げるよう断る', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
-    expect(a.minWorkerCompat).toBe(6);
-    for (const old of [0, 1, 5]) {
+    expect(a.minWorkerCompat).toBe(9);
+    for (const old of [0, 1, 5, 8]) {
       a.workerCompat = old;
-      await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: old, need: 6 });
+      await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: old, need: 9 });
     }
     expect(a.changes).toHaveLength(0);
   });

@@ -23,6 +23,7 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.limit.stopped': 'The Cloudflare free tier limit was reached, so sync is paused until {time}. It resumes automatically after the limit resets',
   'sync.limit.stoppedPaused': 'Could not sync because the Cloudflare free tier limit was reached. Sync is still paused',
   'sync.oversize.row': 'One row of {table} ({id}) is too large to sync ({size} KiB, limit {limit} KiB). It stays on this computer but will not reach other computers',
+  'sync.unreadable.rows': 'Skipped {count} rows that could not be decrypted. They were encrypted with a key this computer does not have yet, or they were altered in the cloud',
   'sync.crypto.badMagic': 'Not an encrypted file (unrecognized format)',
   'sync.crypto.dataAfterFinal': 'There is data after the final chunk',
   'sync.crypto.frameTooLong': 'The declared chunk length exceeds the limit',

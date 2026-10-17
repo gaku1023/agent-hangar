@@ -6,7 +6,8 @@ import { defaultManagedDir, RetentionService } from '../provider/claude-code/con
 import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
 import { loadCloudDevices } from '../sync/devices.ts';
-import { currentFileKeySync } from '../sync/keyring.ts';
+import { currentFileKeySync, Keyring } from '../sync/keyring.ts';
+import { SealedCloudClient } from '../sync/sealedClient.ts';
 import { SyncEngine } from '../sync/engine.ts';
 import { syncHalted } from '../sync/halt.ts';
 import { memoLossHandlers, type Toast } from '../sync/notices.ts';
@@ -123,7 +124,8 @@ export type SyncParts = {
 /** クラウドの設定に依る部品の束。cloud.json が無ければ client は null で、各部品は「off」の形になる。 */
 type Core = {
   cloud: CloudConfig | null;
-  client: HttpCloudClient | null;
+  /** 行を封じて開く client（線の HttpCloudClient を包んだもの）。部品はみなこれを持つ。 */
+  client: SealedCloudClient | null;
   engine: SyncEngine;
   cloudUsage: CloudUsagePoller;
   uploader: TranscriptUploader | null;
@@ -212,14 +214,18 @@ export function bootSync(
       const next = r.config;
       if (next.deviceToken === now.deviceToken) return null;
       if (next.url !== now.url || next.cloudId !== now.cloudId || next.keyPair.pub !== now.keyPair.pub) {
-        if (!warnedReload) console.error('[sync] cloud.json の宛先かクラウドか鍵が変わっています。hangar を開き直すと新しい設定で同期します');
+        if (!warnedReload) console.error('[sync] cloud.json now points to a different Worker, cloud or key pair. Restart hangar to sync with the new settings.');
         warnedReload = true;
         return null;
       }
       built.cloud = { ...now, deviceToken: next.deviceToken };
       return { url: next.url, token: next.deviceToken };
     };
-    const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, reloadCredentials, checkWorkerBeforeWrite: true }) : null;
+    const wire = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, reloadCredentials, checkWorkerBeforeWrite: true }) : null;
+    // 行は SealedCloudClient が今の世代の鍵で封じ、行が名乗る世代の鍵で開く。
+    // 鍵の束は待たずに渡す（この組み立ては同期で走る）。cloud.json の鍵は readCloudConfig が形を確かめてある。
+    // 名簿の印の行と知らない世代の行を受けたときの読み直しは、名簿の読み書き（Task 11）が入るまで何もしない。
+    const client = cloud && wire ? new SealedCloudClient(wire, Keyring.fromConfig(cloud), deviceId) : null;
     // 本文の鍵は今の世代の鍵から導く。Task 10 で本文の部品が Keyring から引くようになるまでの橋渡しである。
     const fileKey = cloud ? currentFileKeySync(cloud) : Buffer.alloc(32);
     const engine = new SyncEngine({
@@ -376,7 +382,7 @@ export function bootSync(
     const { client, engine } = core;
     if (!client) return false;
     if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
-    return (client.lastWorkerCompat() ?? 0) >= min;
+    return (client.lastWorkerCompat?.() ?? 0) >= min;
   };
 
   return {

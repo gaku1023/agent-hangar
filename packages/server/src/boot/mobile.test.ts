@@ -495,7 +495,8 @@ describe('bootMobile', () => {
       const s = setup(o.devices ? { devices: o.devices } : {});
       s.client.workerCompat = o.workerCompat ?? COMPAT_VERSION;
       // Worker と 1 度話して版を覚える（本物は pull の応答で覚える）。
-      await s.client.health();
+      // この PC の下限（MIN_WORKER_COMPAT）より古い Worker は断られるが、名乗った版は覚える。
+      await s.client.health().catch(() => {});
       const bellTarget = vi.fn((): BellTarget => ({ url: w.url, headers: { authorization: 'Bearer pc-token', [COMPAT_HEADER]: String(COMPAT_VERSION) } }));
       (s.client as CloudClient).bellTarget = bellTarget;
       return { ...s, w, bellTarget };

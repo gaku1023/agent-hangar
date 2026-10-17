@@ -20,6 +20,7 @@ import {
   readCompatRefusal,
   REVOKED_ERROR,
   type ChangeIn,
+  type ChangeOut,
   type CloudDeviceOut,
   type CloudDeviceRevokeResponse,
   type CloudDevicesResponse,
@@ -28,9 +29,10 @@ import {
   type FileMetaIn,
   type ListFilesResponse,
   type MobilePairingResponse,
-  type PullChangesResponse,
   type PushChangesResponse,
-  type SnapshotResponse,
+  type SealedChangeIn,
+  type SealedPullChangesResponse,
+  type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
 import { msg, MessageError, type Message } from '../i18n/message.ts';
 
@@ -56,8 +58,10 @@ const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : 
  * 段 2 の PR 11 で 2 に上げた。版 1 の Worker は共有の表の一覧に session_notes を持たず、その行を含む push を丸ごと断る。
  * 同期の版 6 で 6 に上げた（Worker の MIN_DEVICE_COMPAT と同時に上げる例外、docs/design.md「互換の版番号」）。
  * 版 5 までの Worker は pull の応答に peers と now を添えず、他の PC の生存を読めない。変更ログの 410 の取り直しも、この下限で要らなくなった。
+ * E2E の作り直しで 9 に上げた（Worker の MIN_DEVICE_COMPAT と同時）。
+ * 版 8 までの Worker は封じた行（k と sealed）を知らず、行の中身を平文で持つ形なので、この PC は何も書かない。
  */
-export const MIN_WORKER_COMPAT = 6;
+export const MIN_WORKER_COMPAT = 9;
 
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';
@@ -193,12 +197,28 @@ class Deadline {
   clear(): void { clearTimeout(this.timer); }
 }
 
-/** 端末から見た Worker。HttpCloudClient が本物、FakeCloudClient（test/fake-cloud.ts）がメモリ上の偽物。 */
-export interface CloudClient {
+/** 開けなかった行。中身は分からないので、連番と封じた世代だけを持つ。 */
+export type Unreadable = { seq: number; epoch: number };
+
+/**
+ * 開いた pull の応答。行のほかは線の上の形（SealedPullChangesResponse）と同じである。
+ * 開けなかった行は changes に入れず unreadable に入れる。名簿の印の行はどちらにも入れない。
+ */
+export type OpenedPullResponse = Omit<SealedPullChangesResponse, 'changes'> & { changes: ChangeOut[]; unreadable: Unreadable[] };
+/** 開いた写しの頁。nextAfter は線の上の k のままで、次の頁にそのまま渡す。 */
+export type OpenedSnapshotResponse = Omit<SealedSnapshotResponse, 'changes'> & { changes: ChangeOut[]; unreadable: Unreadable[] };
+
+/**
+ * 世代鍵の読み直しの結果。
+ * not-needed は、どの世代の鍵も手元にあって読み直さなかった（行が壊れているか書き換えられている）。
+ * gained は、読み直して欠けていた世代の鍵が 1 つ以上届いた（頁を読み直せば開ける）。
+ * missing は、読み直しても届かなかった。
+ */
+export type KeyRefresh = 'not-needed' | 'gained' | 'missing';
+
+/** 行のほかの口。線の上（WireCloudClient）と開いた側（CloudClient）で同じ形である。 */
+export interface CloudClientBase {
   health(): Promise<{ ok: boolean; version: string }>;
-  pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse>;
-  pullChanges(since: number, limit: number): Promise<PullChangesResponse>;
-  snapshot(after: string | null, limit: number): Promise<SnapshotResponse>;
   putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
   getFile(key: string): Promise<Readable>;
   listFiles(since: number, limit: number): Promise<ListFilesResponse>;
@@ -251,6 +271,32 @@ export interface CloudClient {
   deleteMobileFeed?(): Promise<void>;
 }
 
+/**
+ * 線の上の Worker（互換の版 9）。行は封じたまま（SealedChangeIn と SealedChangeOut）で運び、開けない。
+ * HttpCloudClient が本物、FakeWireClient（test/fake-cloud.ts）がメモリ上の偽物。
+ */
+export interface WireCloudClient extends CloudClientBase {
+  pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse>;
+  pullChanges(since: number, limit: number): Promise<SealedPullChangesResponse>;
+  snapshot(after: string | null, limit: number): Promise<SealedSnapshotResponse>;
+}
+
+/**
+ * 端末から見た Worker。行は開いた形（ChangeIn と ChangeOut）で話す。
+ * 本物は線の client を包む SealedCloudClient（sync/sealedClient.ts）で、行を封じて送り、受けた行を開く。
+ * FakeCloudClient（test/fake-cloud.ts）は偽の Worker を同じ SealedCloudClient で包んだもの。
+ */
+export interface CloudClient extends CloudClientBase {
+  pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse>;
+  pullChanges(since: number, limit: number): Promise<OpenedPullResponse>;
+  snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse>;
+  /**
+   * 開けなかった行の世代（unreadable の epoch）を渡し、手元に無い世代があれば名簿と keybox を読み直す。
+   * 同期のエンジンは 1 巡に 1 度だけ呼び、gained なら同じ頁を読み直す。実装しない偽物は読み直さない。
+   */
+  refreshKeys?(epochs: number[]): Promise<KeyRefresh>;
+}
+
 /** 呼び鈴の WebSocket のつなぎ先。url は wss（手元の Worker では ws）で、headers は Bearer と互換の版。 */
 export type BellTarget = { url: string; headers: Record<string, string> };
 
@@ -284,8 +330,11 @@ export type HttpCloudClientOptions = {
   checkWorkerBeforeWrite?: boolean;
 };
 
-/** fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。 */
-export class HttpCloudClient implements CloudClient {
+/**
+ * fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。
+ * 行は封じた形のまま運ぶ（WireCloudClient）。封じて開くのは包む側の SealedCloudClient である。
+ */
+export class HttpCloudClient implements WireCloudClient {
   private base!: string;
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs: number;
@@ -457,12 +506,12 @@ export class HttpCloudClient implements CloudClient {
     return { url: `${this.base.replace(/^http/i, 'ws')}/m/bell`, headers: { ...compatHeaders(), authorization: this.authorization() } };
   }
   health() { return this.json<{ ok: boolean; version: string }>('/health'); }
-  async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {
+  async pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse> {
     await this.ensureWorkerCompat();
     return this.json<PushChangesResponse>('/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) });
   }
-  pullChanges(since: number, limit: number) { return this.json<PullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
-  snapshot(after: string | null, limit: number) { return this.json<SnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
+  pullChanges(since: number, limit: number) { return this.json<SealedPullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
+  snapshot(after: string | null, limit: number) { return this.json<SealedSnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
   listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
 
   usage() { return this.json<CloudUsageBody>('/usage'); }

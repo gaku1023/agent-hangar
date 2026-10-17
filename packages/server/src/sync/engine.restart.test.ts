@@ -15,8 +15,12 @@ let db: Db;
 let cloud: FakeCloudClient;
 let timers: FakeTimers;
 
-const make = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) =>
-  new SyncEngine({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', ...over });
+/** 偽のクラウドは行を本物の WebCrypto で封じるので、時計を進めるたびにエンジンの仕事の終わりを待つ。 */
+const make = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) => {
+  const e = new SyncEngine({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', ...over });
+  timers.settleWith(() => e.idle());
+  return e;
+};
 
 const project = (id: string) => upsertShared(db, 'projects', { id, name: id, status: 'active', is_scratch: 0 }, 'a');
 

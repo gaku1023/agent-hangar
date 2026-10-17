@@ -1,11 +1,11 @@
-import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type Language, type ChangeOut, type MobileLaunchOut, type PullChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type CloudPeer, type Language, type ChangeOut, type MobileLaunchOut, type SharedTable, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, render } from '../i18n/message.ts';
 import { noteApplied } from '../db/notify.ts';
 import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
-import { CloudError, CompatError, LimitError, RevokedError, type CloudClient } from './client.ts';
+import { CloudError, CompatError, LimitError, RevokedError, type CloudClient, type OpenedSnapshotResponse, type Unreadable } from './client.ts';
 import { recordPeers } from './peers.ts';
 import { SyncStateStore } from './state.ts';
 
@@ -130,6 +130,12 @@ type OversizeRow = { tableName: string; rowId: string; bytes: number; limit: num
  * 本文は `{ error, limit, count, row: { tableName, rowId, bytes } }` で、200 字に収まるよう 1 件だけが載る。
  * 413 でないもの、読めないもの、名前の無いものはすべて null である。
  */
+/**
+ * 1 巡の pull の数え。
+ * unreadable は開けずに飛ばした行の数、refreshed はこの 1 巡で鍵の読み直しをもう試したか（1 巡に 1 度だけ試す）。
+ */
+type PassCount = { applied: number; unreadable: number; refreshed: boolean };
+
 function oversizeRow(e: unknown): OversizeRow | null {
   if (!(e instanceof CloudError) || e.status !== 413) return null;
   try {
@@ -308,6 +314,8 @@ export class SyncEngine {
   }
   protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
   protected clearPullError(): void { if (this.pullError === null) return; this.pullError = null; this.persistError(); }
+  /** 開けずに飛ばした行の数を、pull の失敗の理由として残す（sync_state の lastError に出る）。 */
+  private notePullSkipped(n: number): void { this.pullError = render(this.language(), msg('sync.unreadable.rows', { count: n })); this.persistError(); }
   private persistError(): void { this.state.set('lastError', this.lastError); }
 
   pending(): number { return (this.deps.db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c; }
@@ -457,7 +465,7 @@ export class SyncEngine {
   private notePeers(page: { peers?: unknown; now?: unknown }): void {
     if (!Array.isArray(page.peers) || typeof page.now !== 'number' || !Number.isFinite(page.now)) return;
     try {
-      recordPeers(this.deps.db, { selfDeviceId: this.deps.deviceId, peers: page.peers as PullChangesResponse['peers'], workerNow: page.now, localNow: this.now() });
+      recordPeers(this.deps.db, { selfDeviceId: this.deps.deviceId, peers: page.peers as CloudPeer[], workerNow: page.now, localNow: this.now() });
     } catch (e) {
       console.error('[sync] 他の PC の生存を覚えられませんでした', e instanceof Error ? e.message : e);
     }
@@ -744,7 +752,7 @@ export class SyncEngine {
    * 途中のページで止めて lastSeq だけ進めると、読まなかった鍵は差分にも載らないので永久に欠ける。
    * Worker は端末がどこまで読んだかを覚えていないので、やり直せるのはこちら側だけである。
    */
-  private async pullPass(client: CloudClient, count: { applied: number }): Promise<void> {
+  private async pullPass(client: CloudClient, count: PassCount): Promise<void> {
     this.loadCarried();
     try {
       await this.readPass(client, count);
@@ -754,7 +762,28 @@ export class SyncEngine {
     }
   }
 
-  private async readPass(client: CloudClient, count: { applied: number }): Promise<void> {
+  /**
+   * 開けなかった行のある頁を、1 巡に 1 度だけ鍵を読み直してから読み直す。
+   * 知らない世代の行は、世代を回している途中に参加した PC や、keybox を読み損ねた PC に届く。
+   * 読み直しで鍵が届けば（gained）同じ頁をもう 1 度読み、届かなければ、その行は飛ばして数だけを数える。
+   * 手元にある世代の行が開けないのは、行が壊れているか書き換えられているからで、読み直しても開けない（not-needed）。
+   * 読み直しの失敗（通信の失敗）は、その pull の失敗にする。区切りは進めないので、次の pull で同じ頁をもう 1 度試す。
+   */
+  private async readable<P extends { unreadable: Unreadable[] }>(client: CloudClient, page: P, again: () => Promise<P>, count: PassCount): Promise<P> {
+    if ((page.unreadable?.length ?? 0) > 0 && !count.refreshed && client.refreshKeys) {
+      const r = await client.refreshKeys(page.unreadable.map((u) => u.epoch));
+      if (r !== 'not-needed') count.refreshed = true;
+      if (r === 'gained') page = await again();
+    }
+    const lost = page.unreadable ?? [];
+    if (lost.length > 0) {
+      count.unreadable += lost.length;
+      console.warn(`[sync] skipped ${lost.length} rows that could not be opened (epochs ${[...new Set(lost.map((u) => u.epoch))].sort((a, b) => a - b).join(', ')})`);
+    }
+    return page;
+  }
+
+  private async readPass(client: CloudClient, count: PassCount): Promise<void> {
     if (this.state.get('snapshotDone') !== '1') {
       let after: string | null = null;
       /**
@@ -766,10 +795,12 @@ export class SyncEngine {
       let seq: number | null = null;
       do {
         const cursor: string | null = after;
-        const page: SnapshotResponse = await client.snapshot(cursor, PULL_LIMIT);
+        const first = await client.snapshot(cursor, PULL_LIMIT);
+        // 高水位は読み直す前の最初の応答のものにする。読み直した応答の方が大きいことがある。
+        if (seq === null) seq = first.seq;
+        const page: OpenedSnapshotResponse = await this.readable(client, first, () => client.snapshot(cursor, PULL_LIMIT), count);
         count.applied += this.applyPage(page.changes, false);
         after = page.nextAfter;
-        if (seq === null) seq = page.seq;
       } while (after !== null);
       // 写しは鍵の辞書順なので、子の表が親の sessions より前の頁に来る。読み切ってから、落ちた行を当て直す。
       count.applied += this.settleCarried(false);
@@ -785,7 +816,7 @@ export class SyncEngine {
     try {
       for (;;) {
         const at = since;
-        const page = await client.pullChanges(at, PULL_LIMIT);
+        const page = await this.readable(client, await client.pullChanges(at, PULL_LIMIT), () => client.pullChanges(at, PULL_LIMIT), count);
         this.notePeers(page);
         collectLaunches(launches, page.launches);
         count.applied += this.applyPage(page.changes, true);
@@ -807,11 +838,13 @@ export class SyncEngine {
    * Worker は変更ログを持たない（同期の版 6）ので、どれだけ古い since でも断られない。版 5 までの 410 の取り直しは無くした。
    */
   protected async doPull(client: CloudClient): Promise<{ applied: number }> {
-    const count = { applied: 0 };
+    const count: PassCount = { applied: 0, unreadable: 0, refreshed: false };
     try {
       await this.pullPass(client, count);
       this.state.set('lastPullAt', this.now());
-      this.clearPullError();
+      // 開けなかった行は飛ばして先へ進む（同期は止めない）。飛ばした数だけを失敗の理由に残し、次の何も飛ばさない 1 巡で消える。
+      if (count.unreadable > 0) this.notePullSkipped(count.unreadable);
+      else this.clearPullError();
       this.noteBack();
       this.emit('pulled');
     } catch (e) {

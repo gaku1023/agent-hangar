@@ -44,6 +44,28 @@ export class FakeTimers {
   /** まだ発火していないタイマーの数。stop の後始末を確かめるのに使う。 */
   pendingCount(): number { return this.entries.length; }
 
+  private readonly settlers = new Set<() => Promise<unknown>>();
+
+  /**
+   * advance が、タイマーを発火するたびに待ち合わせる相手を足す（同期のエンジンの idle など）。外す関数を返す。
+   * 偽のクラウドは行を本物の WebCrypto で封じる。暗号の仕事は libuv のスレッドで走るので、マイクロタスクを流すだけでは終わりを待てない。
+   * わざと決着しない要求を抱える試験で止まらないよう、1 回の待ちは SETTLE_CAP_MS で打ち切る。
+   */
+  settleWith(fn: () => Promise<unknown>): () => void {
+    this.settlers.add(fn);
+    return () => { this.settlers.delete(fn); };
+  }
+
+  private async settle(): Promise<void> {
+    if (this.settlers.size === 0) return;
+    for (const fn of [...this.settlers]) {
+      let cap: NodeJS.Timeout | undefined;
+      await Promise.race([fn().catch(() => {}), new Promise<void>((r) => { cap = setTimeout(r, SETTLE_CAP_MS); })]);
+      clearTimeout(cap);
+    }
+    await flush();
+  }
+
   /**
    * ms だけ時計を進める。
    * 期限の来たタイマーを早い順に発火し、発火ごとにマイクロタスクを流すので、
@@ -59,11 +81,16 @@ export class FakeTimers {
       else due.at += Math.max(1, due.interval);
       due.fn();
       await flush();
+      await this.settle();
     }
     this.now = end;
     await flush();
+    await this.settle();
   }
 }
+
+/** settleWith で足した相手を、1 回の発火あたり待つ長さの上限（実時間）。 */
+const SETTLE_CAP_MS = 250;
 
 /** 非同期の連鎖を流し切る。setImmediate を数回回す。 */
 export async function flush(rounds = 6): Promise<void> {

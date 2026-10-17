@@ -5561,6 +5561,17 @@ Worker が平文で持つのは、鍵、連番、時刻、端末の ID、鍵の�
 pull と `GET /rows` の 1 頁は、500 行か、`sealed` の合計が 8 MiB を超えたところで切り、続きは `nextSeq` と `nextAfter` から読ませる。
 16 KiB を超える行の `sealed` は、頁に入ると決まってから主キーで読み直す（頁の問い合わせが受け取る量を抑えるため）。
 
+PC の側で行を封じて開くのは `SealedCloudClient`（`packages/server/src/sync/sealedClient.ts`）である。
+線の上の client（`HttpCloudClient`）を包み、同期のエンジンには開いた行（`ChangeIn` と `ChangeOut`）だけを見せる。
+push は各行を今の世代の鍵で封じ、`k` は `/index` の鍵で表名と行 ID から求める。
+AAD には `k`、PC の ID、`updated_at`、`op`、世代を入れるので、Worker で行を付け替えると開けなくなる。
+pull と写しは、印の行を開かずに名簿と keybox の読み直しへ回し、ほかの行を行が名乗る世代の鍵で開く。
+印の行の `epoch` は古い世代の PC が書けば後戻りするので、「名簿が変わったかもしれない」以上の意味には使わない。
+開けなかった行（知らない世代、付け替え）は当てずに `unreadable` として返す。
+エンジンは、知らない世代があれば 1 巡に 1 度だけ鍵を読み直し、届けば同じ頁を読み直す。
+それでも開けない行は飛ばして区切りを進め、飛ばした数を `sync_state` の `lastError` に残す（次に何も飛ばさない 1 巡で消える）。
+Worker の 413 は封じた行を `k` で名指しするので、`SealedCloudClient` が送った塊から表名と行 ID に戻し、エンジンはその行だけを諦める。
+
 D1 の 1 日の上限（読んだ行、書いた行）に当たった失敗は、500 ではなく 429 で返す（`packages/cloud/src/limits.ts`）。
 見分けるのは D1 の文で、`free tier daily row read limit` か `free tier daily row write limit` を含むものである（大文字と小文字は問わず、原因の文も見る）。
 本文は共有の `CloudLimitBody`（`{ error: 'limit', limit, resetAt }`）で、`resetAt` は上限が戻る次の UTC の 0 時（epoch のミリ秒）である。
@@ -6144,7 +6155,7 @@ Worker は、端末に求める下限 `MIN_DEVICE_COMPAT`（`packages/cloud/src/
 
 **端末の下限。**
 サーバは、Worker に求める下限 `MIN_WORKER_COMPAT`（`packages/server/src/sync/client.ts`）を持つ。
-いまの下限は 6 で、見出しを返さない Worker（版 0）も、変更ログを持つ版 5 までの Worker も断る。
+いまの下限は 9 で、見出しを返さない Worker（版 0）も、行を平文で持つ版 8 までの Worker も断る。
 そのため、`/usage` の無い古い Worker の 404 を「トークンなし」に読み替える分岐は持たない。
 Worker から 426 が返るか、応答の見出しの版が下限より古ければ、`HttpCloudClient` は `CompatError` を投げる。
 応答の見出しで Worker の版を比べるのは、2xx の応答だけである。
@@ -6202,10 +6213,10 @@ Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端�
 | 6 | Worker の変更ログ（`changes`）と圧縮と `410` をやめ、`rows` の連番で差分を引く。pull の応答に `peers` と `now` を添え、端末は他の PC の生存をそれで見て、`runs.heartbeat_at` を共有の行に書かない。Worker は引き継ぎの頼みと応答の行（共有表 `takeovers` と `takeover_answers`）も受け取る | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 6 に（例外） |
 | 7 | Worker がスマホ向けの口（`/m/`）と専用の 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）を持ち、`devices` に列 `kind` を足す。`GET /changes` に `launches` を添える。共有表（`rows`）には何も足さない。PC は Worker の版が 7（`MOBILE_MIN_WORKER_COMPAT`）に届くまでスマホ向けの書き込みも依頼の処理もしない（「スマホ（試験的）」） | 上げない |
 | 8 | Worker が呼び鈴（Durable Object `HangarBell`。`GET /m/bell`、`POST /m/ask`）、画像の口（`PUT` と `GET /m/blobs`）、`DELETE /m/feed` を持つ。PC は Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）以上になるまで呼び鈴を張らない（「スマホ（試験的）」） | 上げない |
-| 9 | E2E の作り直し。Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密と `POST /join` をやめ、`POST /bootstrap` と参加コードで参加する。名簿と keybox の口、`DELETE /blobs` を足し、`sweepTrash` と `devices` の IP と所在地を無くした（「Worker の表」）。版 8 の呼び鈴と画像の口はそのまま持つ | `MIN_DEVICE_COMPAT` を 9 に |
+| 9 | E2E の作り直し。Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密と `POST /join` をやめ、`POST /bootstrap` と参加コードで参加する。名簿と keybox の口、`DELETE /blobs` を足し、`sweepTrash` と `devices` の IP と所在地を無くした（「Worker の表」）。版 8 の呼び鈴と画像の口はそのまま持つ | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 9 に（作り直しなので混在させない） |
 
 引き継ぎの 2 表は、同期の版 6 と一緒に 0.7.1 で出すので、別の版を立てずに版 6 に含めた。
-端末は Worker の版が `TAKEOVER_MIN_WORKER_COMPAT`（6）に届くまでこの 2 表の行を書かないが、`MIN_WORKER_COMPAT` も 6 なので、話せる Worker ではいつも届いている。
+端末は Worker の版が `TAKEOVER_MIN_WORKER_COMPAT`（6）に届くまでこの 2 表の行を書かないが、`MIN_WORKER_COMPAT` は 9 なので、話せる Worker ではいつも届いている。
 古い PC には頼みが届かず、頼んだ側は 90 秒の打ち切りの経路に落ちる（「他端末セッションのロックと『この PC で再開』」）。
 版 5 までの Worker は、2 表の行を含む push を 400 で丸ごと断るので、端末は Worker の版が 6 に届くまで行を書かない。
 版 2 で下限を両方とも上げたのは、版 1 と版 2 が混ざると名前とメモが消えるからである。

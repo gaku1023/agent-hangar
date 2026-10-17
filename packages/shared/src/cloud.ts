@@ -18,7 +18,10 @@ export const TABLE_PK: Record<SharedTable, string> = {
 };
 
 export type ChangeOp = 'upsert' | 'delete';
-/** 平文の行の形。Task 9/10 で封じた行（SealedChangeIn）に置き換わって消える。 */
+/**
+ * 開いた行の形。PC の中だけで使い、線の上には載せない（線の上は SealedChangeIn と SealedChangeOut）。
+ * 封じて送るのと、受けて開くのは、サーバの SealedCloudClient（packages/server/src/sync/sealedClient.ts）である。
+ */
 export type ChangeIn = { tableName: SharedTable; rowId: string; op: ChangeOp; payload: Record<string, unknown>; updatedAt: number };
 export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
 /** push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は新しくなかったので捨てた行の数である。 */
@@ -28,27 +31,6 @@ export type PushChangesResponse = { seq: number; accepted: number; skipped: numb
  * lastSeenAt は Worker の時計で、1 分おきにしか書かないので最大 1 分遅れる。参加の前の行など、まだ見ていなければ null である。
  */
 export type CloudPeer = { id: string; lastSeenAt: number | null };
-/**
- * pull の応答である。
- * changes は自端末以外の行を連番の昇順で、nextSeq は次に渡す since である。
- * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
- * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
- * 平文の行の形なので、Task 9/10 で SealedPullChangesResponse に置き換わって消える。
- */
-export type PullChangesResponse = {
-  changes: ChangeOut[];
-  nextSeq: number;
-  more: boolean;
-  peers: CloudPeer[];
-  now: number;
-  /**
-   * この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。
-   * 版 6 の Worker は載せないので省ける。版 6 の PC は知らない欄として読み飛ばす。
-   */
-  launches?: MobileLaunchOut[];
-};
-/** 平文の行の取り直し。Task 9/10 で SealedSnapshotResponse に置き換わって消える。 */
-export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
 /**
  * 封じた行（互換の版 9）。
@@ -58,13 +40,19 @@ export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null;
  */
 export type SealedChangeIn = { k: string; op: ChangeOp; updatedAt: number; epoch: number; sealed: string };
 export type SealedChangeOut = SealedChangeIn & { seq: number; deviceId: string };
-/** 封じた行の pull（`GET /changes`）。形は行のほかは PullChangesResponse と同じである。 */
+/**
+ * 封じた行の pull（`GET /changes`）。
+ * changes は自端末以外の行を連番の昇順で、nextSeq は次に渡す since である。
+ * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
+ * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
+ */
 export type SealedPullChangesResponse = {
   changes: SealedChangeOut[];
   nextSeq: number;
   more: boolean;
   peers: CloudPeer[];
   now: number;
+  /** この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。 */
   launches?: MobileLaunchOut[];
 };
 /** 封じた行の取り直し（`GET /rows`）。`k` の順に並び、`nextAfter` は次に渡す `after` である。 */
