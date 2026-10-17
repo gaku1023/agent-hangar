@@ -12,7 +12,7 @@ import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
-import type { CloudClient } from '../sync/client.ts';
+import type { MobileLink } from '../mobile/pairer.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import type { JoinApprover } from '../sync/joinApprover.ts';
@@ -174,11 +174,10 @@ export type AppDeps = {
    */
   cloudRevoke?: () => ((id: string) => Promise<DeviceOut>) | null;
   /**
-   * スマホを接続する QR を作るための、今の client と参加の秘密と Worker の URL（boot/sync.ts の mobileLink）。同期を設定していなければ null。
-   * 秘密は QR に入れるスマホ用の暗号鍵を導くのにだけ使い、応答にもログにも出さない。渡さなければ null として読む（試験の世界）。
-   * 版 2 の cloud.json の間は、スマホ用の鍵を名簿の phoneKey から引くようになるまで（Task 22）、boot/sync.ts はいつも null を返す。
+   * スマホを接続する QR を作るための、今の client と Worker の URL とスマホの接続の PC 側（boot/sync.ts の mobileLink）。同期を設定していなければ null。
+   * QR に鍵は入れない。券を pairer に渡し、接続してきたスマホの公開鍵にスマホ用の鍵を封じて置く。渡さなければ null として読む（試験の世界）。
    */
-  mobileLink?: () => { client: CloudClient; joinSecret: string; url: string } | null;
+  mobileLink?: () => MobileLink | null;
   /**
    * 外のターミナルで起動した claude を hangar で開けるようにする包み方の、この PC の状態。
    * 読むだけで、~/.zshrc を書き換える経路は持たない。書き換えるのは hangar shell install（CLI）だけである。

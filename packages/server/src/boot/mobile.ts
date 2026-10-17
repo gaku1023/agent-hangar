@@ -14,6 +14,7 @@ import type { RegistryWatcher } from '../provider/claude-code/registry.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { BellTarget, CloudClient } from '../sync/client.ts';
 import type { SyncEngine, Timers } from '../sync/engine.ts';
+import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
 import type { SyncParts } from './sync.ts';
 
@@ -46,7 +47,7 @@ export type MobileParts = {
   stop(): void;
 };
 
-type Link = { client: CloudClient; joinSecret: string };
+type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
 
 /**
  * スマホの受信箱に預ける素（mobile/feed.ts）を、封じて Worker に書く仕事を組む（mobile/publisher.ts）。
@@ -60,7 +61,8 @@ type Link = { client: CloudClient; joinSecret: string };
  * 最初のスマホが現れたら、前に書いた中身を忘れてすぐ書く（外していた間に同じ中身のままでも置き直す）。
  * 外していないスマホが居るのを見た後で、読めた一覧にそれが無くなったら、Worker の受信箱の素を消す（DELETE /m/feed、書き手の dropFeed）。
  * 消せなければ、次の読み直しでやり直す。つなぎ先（cloud.json）が替わったら、スマホの有無の覚えを捨て、5 分を待たずに読み直す。
- * client と参加の秘密は同期から引き、cloud.json を後から拾って組み直したときは書き手も組み直す。
+ * client とスマホ用の鍵の引き口（名簿の phoneKey）は同期から引き、cloud.json を後から拾って組み直したときは書き手も組み直す。
+ * スマホ用の鍵がまだ無い（スマホを接続していない）あいだ、書き手は何も書かない。
  * どのきっかけも投げない。購読の先（同期の輪、登録の読み直し、MCP の道具）へ失敗を返さない。
  *
  * スマホからの起動の依頼（mobile/launchInbox.ts）も、書き手の隣に組む。依頼は同期の engine の pull で届く（launches）。
@@ -132,16 +134,16 @@ export function bootMobile(p: {
     if (!started || stopped) return null;
     follow();
     const link = p.sync.mobileLink();
-    if (cur && link && cur.link.client === link.client && cur.link.joinSecret === link.joinSecret) return cur.pub;
+    if (cur && link && cur.link.client === link.client && cur.link.phoneKeys === link.phoneKeys) return cur.pub;
     // つなぎ先が替わったら、前の先で読んだスマホの有無は当てにならない。覚えを捨て、次のきっかけで読み直す（5 分は待たない）。
     if (cur) { phones = null; phonesAt = null; hadPhones = false; }
     cur?.pub.stop();
     cur?.bell.stop();
     cur = null;
     if (!link) return null;
-    const pub = new MobileFeedPublisher({ build, client: link.client, joinSecret: link.joinSecret, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile() });
+    const pub = new MobileFeedPublisher({ build, client: link.client, phoneKeys: link.phoneKeys, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile() });
     const inbox = new MobileLaunchInbox({
-      db, client: link.client, joinSecret: link.joinSecret, deviceId,
+      db, client: link.client, phoneKeys: link.phoneKeys, deviceId,
       dropsDir: path.join(p.home.home, 'drops'),
       start: (params) => {
         const r = p.runs.runs.start(params);
@@ -164,12 +166,12 @@ export function bootMobile(p: {
         // 今の engine の pull で依頼を受け取る。走っている pull があれば、それを分け合う。
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
       },
-      onAsk: (id, sealed) => answerAsk({
-        joinSecret: link.joinSecret,
+      onAsk: (id, sealed, epoch) => answerAsk({
+        phoneKeys: link.phoneKeys,
         deviceId,
         projectPath: (projectId) => (rootHere.get(projectId, deviceId) as { path: string } | undefined)?.path ?? null,
         accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
-      }, id, sealed),
+      }, id, sealed, epoch),
       timers,
       ...(p.bellConnect ? { connect: p.bellConnect } : {}),
     });

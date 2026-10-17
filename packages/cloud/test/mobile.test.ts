@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   aadFeed,
-  deriveMobileKey,
+  importMobileKey,
   MOBILE_FEED_MAX_BYTES,
   PHONE_IDLE_MS,
   PHONE_MAX_AGE_MS,
@@ -381,7 +381,7 @@ describe('受信箱（PUT /m/feed と GET /m/inbox）', () => {
     expect(MAX_FEED_BODY_BYTES).toBe(96 * 1024);
     const pc = await joinPc('pc-a');
     // 暗号化の前で MOBILE_FEED_MAX_BYTES ちょうどの素を、PC と同じ seal で封をする。
-    const key = await deriveMobileKey('join-secret-feed');
+    const key = await importMobileKey(new Uint8Array(32).fill(6));
     const plain = 'x'.repeat(MOBILE_FEED_MAX_BYTES - 2);
     expect(new TextEncoder().encode(JSON.stringify(plain)).byteLength).toBe(MOBILE_FEED_MAX_BYTES);
     const sealed = await seal(key, aadFeed('pc-a'), plain);

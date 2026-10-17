@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { aadFeed, decodePairing, deriveMobileKey, importMobileKey, open, seal, type JoinApproverState } from '@agent-hangar/shared';
+import { decodePairing, type JoinApproverState } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CloudError, RevokedError } from '../../sync/client.ts';
 import { JoinStateError } from '../../sync/joinApprover.ts';
@@ -284,11 +284,14 @@ describe('PC の一覧（Worker の devices）', () => {
 });
 
 describe('スマホの接続の QR（POST /api/sync/mobile-pairing）', () => {
-  const SECRET = 'join-secret-for-test-0123456789';
   const URL_ = 'https://w.example';
   const pair = (a: ReturnType<typeof createApp>) => a.request('/api/sync/mobile-pairing', { method: 'POST', headers: { ...H, 'content-type': 'application/json' } });
   type FakeClient = { createPairing?: () => Promise<{ code: string; expiresAt: number }>; lastWorkerCompat: () => number | null; health: () => Promise<{ ok: boolean; version: string }> };
-  const withLink = (client: FakeClient) => createApp({ ...deps, mobileLink: () => ({ client: client as never, joinSecret: SECRET, url: URL_ }) });
+  let watched: { code: string; expiresAt: number }[] = [];
+  const withLink = (client: FakeClient) => {
+    watched = [];
+    return createApp({ ...deps, mobileLink: () => ({ client: client as never, url: URL_, phoneKeys: { current: async () => null, at: async () => null }, pairer: { watch: async (t) => { watched.push(t); } } }) });
+  };
   const ok = async () => ({ ok: true, version: 'x' });
 
   it('認証の下にあり、GET では取れない', async () => {
@@ -325,7 +328,7 @@ describe('スマホの接続の QR（POST /api/sync/mobile-pairing）', () => {
     expect((await json(await pair(a))).body).toEqual({ state: 'rate-limited' });
   });
 
-  it('ready の pairText を decodePairing すると url と券と鍵が入り、参加の秘密の文字列はどこにも含まれない', async () => {
+  it('ready の pairText を decodePairing すると url と券と PC の名前と期限だけが入り、鍵は入らない。券は pairer に渡す', async () => {
     const createPairing = vi.fn(async () => ({ code: 'c0de-ticket', expiresAt: 1_700_000_300_000 }));
     const a = withLink({ createPairing, lastWorkerCompat: () => 7, health: ok });
     const r = await pair(a);
@@ -336,21 +339,14 @@ describe('スマホの接続の QR（POST /api/sync/mobile-pairing）', () => {
     expect(body.expiresAt).toBe(1_700_000_300_000);
     expect(body.pairUrl).toBe(`${URL_}/app/#pair=${body.pairText}`);
     const blob = decodePairing(body.pairText);
-    expect(blob).toMatchObject({ url: URL_, code: 'c0de-ticket', pcName: 'mac', expiresAt: 1_700_000_300_000 });
-    expect(Buffer.from(blob.key, 'base64url')).toHaveLength(32);
-    expect(JSON.stringify(body)).not.toContain(SECRET);
-    expect(JSON.stringify(blob)).not.toContain(SECRET);
+    expect(blob).toEqual({ url: URL_, code: 'c0de-ticket', pcName: 'mac', expiresAt: 1_700_000_300_000 });
+    const inner = JSON.parse(Buffer.from(body.pairText, 'base64url').toString('utf8')) as Record<string, unknown>;
+    expect(Object.keys(inner).sort()).toEqual(['code', 'expiresAt', 'pcName', 'url']);
+    expect(watched).toEqual([{ code: 'c0de-ticket', expiresAt: 1_700_000_300_000 }]);
     // 押すたびに新しい券を取る。
     await pair(a);
     expect(createPairing).toHaveBeenCalledTimes(2);
-  });
-
-  it('鍵で封じたものを deriveMobileKey(joinSecret) で開ける', async () => {
-    const a = withLink({ createPairing: async () => ({ code: 'c', expiresAt: 1 }), lastWorkerCompat: () => 7, health: ok });
-    const blob = decodePairing((await json(await pair(a))).body.pairText);
-    const phoneKey = await importMobileKey(new Uint8Array(Buffer.from(blob.key, 'base64url')));
-    const sealed = await seal(phoneKey, aadFeed('d'), { hello: 'phone' });
-    expect(await open(await deriveMobileKey(SECRET), aadFeed('d'), sealed)).toEqual({ hello: 'phone' });
+    expect(watched).toHaveLength(2);
   });
 });
 

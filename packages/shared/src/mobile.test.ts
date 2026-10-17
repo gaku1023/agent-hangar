@@ -22,7 +22,7 @@ import {
   type MobileReply,
 } from './mobile.ts';
 import { COMPAT_VERSION, MOBILE_MIN_WORKER_COMPAT } from './compat.ts';
-import { aadFeed, deriveMobileKey, seal } from './mobileCrypto.ts';
+import { aadFeed, importMobileKey, seal } from './mobileCrypto.ts';
 
 const bytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;
 
@@ -166,7 +166,7 @@ describe('fitFeed', () => {
     intent: maxText('い'), rcUrl: `https://claude.ai/code/session_${'a'.repeat(24)}`,
   }));
   const sealedBodyBytes = async (f: MobileFeed): Promise<number> => {
-    const key = await deriveMobileKey('join-secret-for-tests-0123456789abcdef');
+    const key = await importMobileKey(new Uint8Array(32).fill(7));
     return bytes({ sealed: await seal(key, aadFeed(f.deviceId), f) });
   };
 

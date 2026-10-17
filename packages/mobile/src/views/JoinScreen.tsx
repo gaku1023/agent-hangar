@@ -45,7 +45,7 @@ const joinMessage = (e: unknown): string => {
     case 'storage':
       return 'このブラウザにキーを保存できませんでした。プライベートブラウズを切ってから、もう一度タップしてください（この QR はまだ使えます）。';
     case 'too-many-phones':
-      return 'スマホは 10 台まで接続できます。PC の設定 › クラウド で使っていないスマホを解除してから、QR を表示し直してください。';
+      return 'スマホは 10 台まで接続できます。PC の設定 › クラウド同期 で使っていないスマホを解除してから、QR を表示し直してください。';
     case 'upgrade':
       return 'このアプリが古くなっています。いったん閉じて、開き直してください。';
     case 'network':
@@ -125,7 +125,7 @@ export function JoinScreen({ pairText, onEnter, notice = null, resume = null, wa
           <>
             <Logo />
             <h1 className="p-h">この QR は使えません</h1>
-            <p className="strip danger m-fade">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド で、QR を表示し直してください。</p>
+            <p className="strip danger m-fade">5 分を過ぎたか、すでに使われた QR です。PC の設定 › クラウド同期 で、QR を表示し直してください。</p>
             <ReadControls onText={onText} />
           </>
         )}
@@ -296,7 +296,7 @@ function Waiting({
             別の QR で接続する
           </button>
           {/* 接続はできているので、Worker のスマホの行は PC で解除するまで消えない（10 台の枠にも数える）。 */}
-          <p className="p-mini m-fade">別の QR で接続しても、今の接続は PC の設定 › クラウド で解除するまで削除されません。</p>
+          <p className="p-mini m-fade">別の QR で接続しても、今の接続は PC の設定 › クラウド同期 で解除するまで削除されません。</p>
         </>
       )}
     </>

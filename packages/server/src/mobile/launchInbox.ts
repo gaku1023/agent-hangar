@@ -27,7 +27,7 @@ import { displayName } from '../db/queries.ts';
 import { pruneDrops, saveDrop } from '../prompt/drops.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { CloudError, type CloudClient } from '../sync/client.ts';
-import { mobileKeyFor } from './publisher.ts';
+import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 
 /** スマホと PC の時計のずれを見込んで、TTL に足す余裕。Worker は TTL を過ぎた依頼を claim させないので、これは時計の狂った依頼への備えである。 */
 export const LAUNCH_CLOCK_SLACK_MS = 5 * 60_000;
@@ -43,7 +43,8 @@ type FailReason = Extract<MobileLaunchAnswer, { ok: false }>['reason'];
 export type MobileLaunchInboxDeps = {
   db: Db;
   client: CloudClient;
-  joinSecret: string;
+  /** スマホ用の鍵 M。依頼は、依頼が名乗る世代（epoch）の M で開き、答えと画像も同じ世代で封じて開く。 */
+  phoneKeys: Pick<PhoneKeySource, 'at'>;
   deviceId: string;
   /** 画像を置く場所（PC の指示欄の添付と同じ drops）。 */
   dropsDir: string;
@@ -121,16 +122,21 @@ const kindOf = (e: unknown): string => {
 /**
  * スマホからの起動の依頼（pull の応答の launches）を受け取って、この PC で会話を起こす。
  *
- * 1 件の扱いの順は、手元の記録（mobile_launches）にあれば何もしない、Worker で claim できなければ何もしない、
+ * 1 件の扱いの順は、手元の記録（mobile_launches）にあれば何もしない、依頼の世代（epoch）のスマホ用の鍵が無ければ何もしない、Worker で claim できなければ何もしない、
  * 開封する（開けなければ bad-payload）、時間切れを見る（expired）、プロジェクトとアカウントを確かめる、画像を取って drops に置く（欠ければ images-missing）、起こす、記録する、答える、である。
  * 記録は答えより先に書く。答えを送れなくても、同じ依頼を二度起こさない。
  * 記録には封じた答えも控える。送れなかった答えは resendAnswers が、扱ってから ANSWER_RESEND_WINDOW_MS のあいだ同じ封のまま送り直す。
  * Worker が受け取るか、409（もう答えた、ほかの PC 宛て、無い ID）を返したら answered にして、それ以上送らない。
  * claim が通信で倒れたときは記録しないので、次の pull でもう一度試す（Worker で受け取れていれば 409 で止まる）。
+ * 手元より新しい世代の依頼は、名簿を読み直してから鍵を探す（PhoneKeySource.at）。
+ * 読み直しても鍵が無い世代（手元より古い世代を含む）は、claim せずに残す。答えを封じる鍵が無いので受け取らず、Worker の TTL でスマホに時間切れが出る。
+ * 次の pull でもう一度試すので、鍵が後から届けば（名簿の読み直しで）扱える。
  * receive と resendAnswers は 1 本ずつ順に走らせる。並行に 2 回呼んでも、同じ依頼を 2 度扱わない。
  */
 export class MobileLaunchInbox {
   private tail: Promise<unknown> = Promise.resolve();
+  /** 鍵の無い世代で残した依頼の ID。ログを 1 件につき 1 回にする。 */
+  private readonly keyless = new Set<string>();
 
   constructor(private readonly deps: MobileLaunchInboxDeps) {}
 
@@ -187,6 +193,7 @@ export class MobileLaunchInbox {
 
   /** 手元の記録のうち、残す長さを過ぎたものを消す。失敗しても受け取りは続ける。 */
   private pruneRecords(): void {
+    if (this.keyless.size > 500) this.keyless.clear();
     try {
       this.deps.db.prepare('delete from mobile_launches where handled_at < ?').run(this.deps.now() - MOBILE_LAUNCH_KEEP_MS);
     } catch (e) {
@@ -205,9 +212,16 @@ export class MobileLaunchInbox {
     if (!this.deps.canProcess()) return;
     const claim = client.claimLaunch?.bind(client);
     if (!claim || !client.answerLaunch) return;
+    // 答えも画像も依頼と同じ世代の鍵で封じて開く。鍵の無い世代は受け取らない。
+    const phoneKey = await this.deps.phoneKeys.at(l.epoch);
+    if (!phoneKey) {
+      if (!this.keyless.has(l.id)) console.warn(`[mobile] no phone key for epoch ${l.epoch}; left the launch request unclaimed`);
+      this.keyless.add(l.id);
+      return;
+    }
     if (!(await claim(l.id))) return;
     // 受け取った後は、どの結果でも記録して答える。
-    const key = await mobileKeyFor(this.deps.joinSecret);
+    const key = phoneKey.key;
     // 確かめの途中で思わぬ失敗をしても、受け取った依頼は答えずに残さない（claim はもう通らない）。
     const answer = await this.decide(key, l).catch((): MobileLaunchAnswer => ({ ok: false, reason: 'launch-failed' }));
     // 封じられなくても記録は残す（同じ依頼を二度起こさない）。封の無い行は送り直さない。

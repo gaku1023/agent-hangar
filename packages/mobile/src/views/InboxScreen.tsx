@@ -202,7 +202,7 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
         {allUnreadable && (
           <section className="card reconnect m-fade">
             <p className="reconnect-h">受信箱を開けません</p>
-            <p className="reconnect-t">PC で参加トークンを再生成すると、このスマホのキーでは開けなくなります。PC の設定 › クラウド で新しい QR を表示し、接続し直してください。</p>
+            <p className="reconnect-t">このスマホのキーが PC と合っていません。PC の設定 › クラウド同期 で QR を表示し、このスマホを接続し直してください。</p>
             <button type="button" className="btn-primary" onClick={reconnect}>
               接続し直す
             </button>

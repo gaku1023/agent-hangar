@@ -175,7 +175,7 @@ export class SealedCloudClient implements CloudClient {
     if (w.listDevices) this.listDevices = () => w.listDevices!();
     if (w.revokeDevice) this.revokeDevice = (id) => w.revokeDevice!(id);
     if (w.lastWorkerCompat) this.lastWorkerCompat = () => w.lastWorkerCompat!();
-    if (w.putMobileFeed) this.putMobileFeed = (sealed) => w.putMobileFeed!(sealed);
+    if (w.putMobileFeed) this.putMobileFeed = (sealed, epoch) => w.putMobileFeed!(sealed, epoch);
     if (w.createPairing) this.createPairing = () => w.createPairing!();
     if (w.claimLaunch) this.claimLaunch = (id) => w.claimLaunch!(id);
     if (w.answerLaunch) this.answerLaunch = (id, ok, sealedAnswer) => w.answerLaunch!(id, ok, sealedAnswer);

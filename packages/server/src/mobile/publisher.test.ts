@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { aadFeed, deriveMobileKey, MOBILE_FEED_MAX_BYTES, MOBILE_MIN_WORKER_COMPAT, open, type MobileFeed } from '@agent-hangar/shared';
+import { aadFeed, importMobileKey, MOBILE_FEED_MAX_BYTES, MOBILE_MIN_WORKER_COMPAT, open, type MobileFeed } from '@agent-hangar/shared';
+import { testCloudConfig } from '../../test/cloudConfig.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_REFRESH_MS, FEED_SAFETY_MS, MobileFeedPublisher, mobileKeyFor } from './publisher.ts';
+import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
+import { Keyring } from '../sync/keyring.ts';
+import type { PhoneKeySource } from '../sync/phoneKeys.ts';
+import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_REFRESH_MS, FEED_SAFETY_MS, MobileFeedPublisher } from './publisher.ts';
 
-const SECRET = 'join-secret-for-tests-0123456789abcdef';
+const mKey = (): Promise<CryptoKey> => phoneCryptoKey(PHONE_KEY_1);
 
 const feedOf = (title: string): MobileFeed => ({
   v: 1,
@@ -17,7 +21,7 @@ const feedOf = (title: string): MobileFeed => ({
   done: [{ sessionId: 's1', projectName: 'project-a', title, oneLiner: null, doneAt: 1 }],
 });
 
-function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number } = {}) {
+function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number; phoneKeys?: Pick<PhoneKeySource, 'current'> } = {}) {
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now, ...(o.minWorkerCompat !== undefined ? { minWorkerCompat: o.minWorkerCompat } : {}) });
   let feed = feedOf('会話 1');
@@ -25,7 +29,7 @@ function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number } = {}) {
   const pub = new MobileFeedPublisher({
     build: () => feed,
     client,
-    joinSecret: SECRET,
+    phoneKeys: o.phoneKeys ?? fixedPhoneKeys(),
     deviceId: 'pc-a',
     timers,
     now: () => timers.now,
@@ -119,17 +123,42 @@ describe('MobileFeedPublisher', () => {
     // 今の PC の下限（MIN_WORKER_COMPAT）は 9 なので、版 6 の Worker とはそもそも話さない。口の分岐だけを見るため、下限を下げる。
     const { client } = setup({ minWorkerCompat: 0 });
     client.workerCompat = MOBILE_MIN_WORKER_COMPAT - 1;
-    await expect(client.putMobileFeed('x')).rejects.toMatchObject({ status: 404 });
+    await expect(client.putMobileFeed('x', 1)).rejects.toMatchObject({ status: 404 });
   });
 
-  it('書いた sealed は deriveMobileKey(joinSecret) と aadFeed(deviceId) で開ける', async () => {
+  it('受信箱の素はスマホ用の鍵で開け、PC の世代鍵の用途の鍵では開けない。世代を添えて置く', async () => {
     const { client, pub } = setup();
     expect(await pub.flushNow()).toBe('written');
     const stored = client.mobileFeeds.get('pc-a');
     expect(stored).toBeDefined();
-    const opened = await open<MobileFeed>(await deriveMobileKey(SECRET), aadFeed('pc-a'), stored!.sealed);
+    expect(stored!.epoch).toBe(1);
+    const opened = await open<MobileFeed>(await mKey(), aadFeed('pc-a'), stored!.sealed);
     expect(opened).toEqual(feedOf('会話 1'));
-    await expect(open(await deriveMobileKey(SECRET), aadFeed('pc-b'), stored!.sealed)).rejects.toThrow();
+    await expect(open(await mKey(), aadFeed('pc-b'), stored!.sealed)).rejects.toThrow();
+    // PC の世代鍵から導いた用途の鍵（行、名簿、本文）では開けない。
+    const epochKeys = (await Keyring.fromConfig(testCloudConfig())).current();
+    for (const k of [epochKeys.row, epochKeys.roster, await importMobileKey(epochKeys.fileBytes)]) {
+      await expect(open(k, aadFeed('pc-a'), stored!.sealed)).rejects.toThrow();
+    }
+  });
+
+  it('スマホ用の鍵がまだ無い（スマホを接続していない）あいだは書かない', async () => {
+    const { pub, writes } = setup({ phoneKeys: fixedPhoneKeys({}) });
+    expect(await pub.flushNow()).toBe('skipped');
+    expect(writes()).toBe(0);
+  });
+
+  it('スマホ用の鍵の世代が進んだら、中身が同じでも新しい世代で書き直す', async () => {
+    const keys: Record<number, string> = { 1: PHONE_KEY_1 };
+    const { client, pub } = setup({ phoneKeys: { current: () => fixedPhoneKeys(keys).current() } });
+    expect(await pub.flushNow()).toBe('written');
+    expect(await pub.flushNow()).toBe('unchanged');
+    keys[2] = PHONE_KEY_2;
+    expect(await pub.flushNow()).toBe('written');
+    const stored = client.mobileFeeds.get('pc-a')!;
+    expect(stored.epoch).toBe(2);
+    expect(await open<MobileFeed>(await phoneCryptoKey(PHONE_KEY_2), aadFeed('pc-a'), stored.sealed)).toEqual(feedOf('会話 1'));
+    await expect(open(await mKey(), aadFeed('pc-a'), stored.sealed)).rejects.toThrow();
   });
 
   it('書き込みが失敗したら、次のきっかけでもう一度書く', async () => {
@@ -151,7 +180,7 @@ describe('MobileFeedPublisher', () => {
     const timers = new FakeTimers();
     const client = new FakeCloudClient({ deviceId: 'pc-a' });
     const errors: unknown[] = [];
-    const pub = new MobileFeedPublisher({ build: () => { throw new Error('boom'); }, client, joinSecret: SECRET, deviceId: 'pc-a', timers, canWrite: () => { throw new Error('bad'); }, onError: (e) => errors.push(e) });
+    const pub = new MobileFeedPublisher({ build: () => { throw new Error('boom'); }, client, phoneKeys: fixedPhoneKeys(), deviceId: 'pc-a', timers, canWrite: () => { throw new Error('bad'); }, onError: (e) => errors.push(e) });
     expect(() => pub.nudge()).not.toThrow();
     await timers.advance(FEED_DEBOUNCE_MS);
     await settle(() => errors.length === 1);
@@ -163,7 +192,7 @@ describe('MobileFeedPublisher', () => {
     big.done = Array.from({ length: 400 }, (_, i) => ({ sessionId: `s${i}`, projectName: 'project-a', title: '会話'.repeat(60), oneLiner: null, doneAt: i }));
     setFeed(big);
     expect(await pub.flushNow()).toBe('written');
-    const opened = await open<MobileFeed>(await deriveMobileKey(SECRET), aadFeed('pc-a'), client.mobileFeeds.get('pc-a')!.sealed);
+    const opened = await open<MobileFeed>(await mKey(), aadFeed('pc-a'), client.mobileFeeds.get('pc-a')!.sealed);
     expect(new TextEncoder().encode(JSON.stringify(opened)).length).toBeLessThanOrEqual(MOBILE_FEED_MAX_BYTES);
     expect(opened.done.length).toBeLessThan(400);
   });
@@ -245,10 +274,5 @@ describe('MobileFeedPublisher', () => {
     const { client, pub } = setup();
     (client as { deleteMobileFeed?: unknown }).deleteMobileFeed = undefined;
     expect(await pub.dropFeed()).toBe(false);
-  });
-
-  it('鍵は参加の秘密ごとに 1 回だけ導く', () => {
-    expect(mobileKeyFor(SECRET)).toBe(mobileKeyFor(SECRET));
-    expect(mobileKeyFor(SECRET + 'x')).not.toBe(mobileKeyFor(SECRET));
   });
 });

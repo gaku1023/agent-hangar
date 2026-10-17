@@ -12,13 +12,18 @@ import type { SyncListener } from '../sync/engine.ts';
 import { openDb } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { noteIntent } from '../live/intents.ts';
-import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_SAFETY_MS, mobileKeyFor } from '../mobile/publisher.ts';
+import type { MobileLink } from '../mobile/pairer.ts';
+import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_SAFETY_MS } from '../mobile/publisher.ts';
 import type { BellTarget, CloudClient } from '../sync/client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
+import { fixedPhoneKeys, PHONE_KEY_1, phoneCryptoKey } from '../../test/phoneKeys.ts';
 import { ANSWER_RESEND_TICK_MS, bootMobile, PHONE_RECHECK_MS } from './mobile.ts';
 
-const SECRET = 'join-secret-for-tests-0123456789abcdef';
+/** スマホ用の鍵 M[1]。どの試験でも同じ引き口を渡す（引き口が同じなら書き手を組み直さない）。 */
+const PHONE_KEYS = fixedPhoneKeys();
+const mobileKey = (): Promise<CryptoKey> => phoneCryptoKey(PHONE_KEY_1);
+const linkOf = (client: CloudClient, url = 'https://w.example'): MobileLink => ({ client, url, phoneKeys: PHONE_KEYS, pairer: { watch: async () => {} } });
 
 /** 同期の engine の真似。購読（on）だけを持ち、試験が launches を流す。 */
 class FakeEngine {
@@ -44,7 +49,7 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
   const db = openDb(':memory:');
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now });
-  let link: { client: CloudClient; joinSecret: string; url: string } | null = o.link === false ? null : { client, joinSecret: SECRET, url: 'https://w.example' };
+  let link: MobileLink | null = o.link === false ? null : linkOf(client);
   const registryListeners = new Set<(l: LiveSessionDto[]) => void>();
   const registry = {
     current: (): LiveSessionDto[] => [],
@@ -101,12 +106,12 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
 const settle = (cond: () => boolean): Promise<void> => vi.waitFor(() => { if (!cond()) throw new Error('not yet'); }, { timeout: 2000, interval: 5 });
 
 describe('bootMobile', () => {
-  it('start で受信箱の素を 1 回書く。中身はこの PC の素で、参加の秘密の鍵で開ける', async () => {
+  it('start で受信箱の素を 1 回書く。中身はこの PC の素で、スマホ用の鍵で開ける', async () => {
     const { timers, client, mobile } = setup();
     mobile.start();
     await timers.advance(FEED_DEBOUNCE_MS);
     await settle(() => client.mobileFeeds.size === 1);
-    const feed = await open<MobileFeed>(await mobileKeyFor(SECRET), aadFeed('pc-a'), client.mobileFeeds.get('pc-a')!.sealed);
+    const feed = await open<MobileFeed>(await mobileKey(), aadFeed('pc-a'), client.mobileFeeds.get('pc-a')!.sealed);
     expect(feed).toMatchObject({ v: 1, deviceId: 'pc-a', deviceName: 'PC A', accounts: [{ id: 'primary', name: 'メイン' }] });
     mobile.stop();
   });
@@ -153,14 +158,14 @@ describe('bootMobile', () => {
     const { timers, client, mobile, setLink } = setup({ link: false });
     mobile.start();
     expect(mobile.publisher()).toBeNull();
-    setLink({ client, joinSecret: SECRET, url: 'https://w.example' });
+    setLink(linkOf(client));
     await timers.advance(FEED_SAFETY_MS);
     expect(mobile.publisher()).not.toBeNull();
     await timers.advance(FEED_DEBOUNCE_MS);
     await settle(() => client.mobileFeeds.size === 1);
     // client が変わったら（cloud.json を拾い直した）書き手を組み直す。
     const before = mobile.publisher();
-    setLink({ client: client.asDevice('pc-a'), joinSecret: SECRET, url: 'https://w.example' });
+    setLink(linkOf(client.asDevice('pc-a')));
     noteIntent('s1');
     expect(mobile.publisher()).not.toBe(before);
     mobile.stop();
@@ -336,7 +341,7 @@ describe('bootMobile', () => {
       await next.health();
       // 新しいつなぎ先にはスマホが居ない。
       s.setDevices(noPhone());
-      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      s.setLink(linkOf(next, 'https://w2.example'));
       await s.timers.advance(FEED_SAFETY_MS);
       await settle(() => s.cloudDevices.mock.calls.length === 2);
       // 新しいつなぎ先には書かず、前のつなぎ先に居たスマホのための消す要求も出さない。
@@ -355,7 +360,7 @@ describe('bootMobile', () => {
       await settle(() => writes(s) === 1);
       const next = s.client.asDevice('pc-a');
       await next.health();
-      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      s.setLink(linkOf(next, 'https://w2.example'));
       await s.timers.advance(FEED_SAFETY_MS + FEED_DEBOUNCE_MS);
       await settle(() => next.calls.some((c) => c.method === 'putMobileFeed'));
       s.mobile.stop();
@@ -381,12 +386,12 @@ describe('bootMobile', () => {
 
   describe('起動の依頼', () => {
     const sealedLaunch = async (id: string, over: Record<string, unknown> = {}): Promise<string> =>
-      seal(await mobileKeyFor(SECRET), aadLaunch(id, 'pc-a'), { v: 1, createdAt: Date.now(), projectId: 'project-a', scratch: false, accountId: 'primary', permissionMode: '', model: '', prompt: '会話 1 を始める', ...over });
+      seal(await mobileKey(), aadLaunch(id, 'pc-a'), { v: 1, createdAt: Date.now(), projectId: 'project-a', scratch: false, accountId: 'primary', permissionMode: '', model: '', prompt: '会話 1 を始める', ...over });
     const deliver = async (s: ReturnType<typeof setup>, id: string, over: Record<string, unknown> = {}): Promise<void> => {
       s.client.asDevice('phone').postLaunch({ id, targetDevice: 'pc-a', sealed: await sealedLaunch(id, over) });
       s.engine().emitLaunches((await s.client.pullChanges(0, 10)).launches ?? []);
     };
-    const answerOf = async (s: ReturnType<typeof setup>, id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKeyFor(SECRET), aadAnswer(id), s.client.launches.get(id)!.sealedAnswer!);
+    const answerOf = async (s: ReturnType<typeof setup>, id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKey(), aadAnswer(id), s.client.launches.get(id)!.sealedAnswer!);
     const placeProject = (db: ReturnType<typeof setup>['db'], deviceId = 'pc-a') => {
       upsertShared(db, 'projects', { id: 'project-a', name: 'project-a', status: 'active', is_scratch: 0 }, 'pc-a');
       upsertShared(db, 'project_roots', { id: `r-${deviceId}`, project_id: 'project-a', device_id: deviceId, path: '/w/project-a', resolved: 1 }, 'pc-a');
@@ -409,7 +414,7 @@ describe('bootMobile', () => {
       const s = setup();
       placeProject(s.db);
       s.mobile.start();
-      const key = await mobileKeyFor(SECRET);
+      const key = await mobileKey();
       s.client.putBlob('l1', 0, await sealBytes(key, aadImage('l1', 0), new Uint8Array([7, 7, 7])));
       await deliver(s, 'l1', { effort: 'high', images: [{ n: 0, mime: 'image/png', bytes: 3 }] });
       await settle(() => s.client.launches.get('l1')!.status === 'started');
@@ -546,11 +551,11 @@ describe('bootMobile', () => {
       upsertShared(s.db, 'project_roots', { id: 'r-a', project_id: 'project-a', device_id: 'pc-a', path: root, resolved: 1 }, 'pc-a');
       s.mobile.start();
       await settle(() => s.w.open().length === 1);
-      const key = await mobileKeyFor(SECRET);
+      const key = await mobileKey();
       const ws = s.w.open()[0]!;
-      ws.send(JSON.stringify({ t: 'ask', id: 'q1', sealed: await seal(key, aadAsk('q1', 'pc-a'), { v: 1, kind: 'files', projectId: 'project-a', q: '' } satisfies MobileAsk) }));
-      ws.send(JSON.stringify({ t: 'ask', id: 'q2', sealed: await seal(key, aadAsk('q2', 'pc-a'), { v: 1, kind: 'files', projectId: 'project-none', q: '' } satisfies MobileAsk) }));
-      ws.send(JSON.stringify({ t: 'ask', id: 'q3', sealed: await seal(key, aadAsk('q3', 'pc-a'), { v: 1, kind: 'commands', projectId: null, accountId: 'nobody' } satisfies MobileAsk) }));
+      ws.send(JSON.stringify({ t: 'ask', id: 'q1', sealed: await seal(key, aadAsk('q1', 'pc-a'), { v: 1, kind: 'files', projectId: 'project-a', q: '' } satisfies MobileAsk), epoch: 1 }));
+      ws.send(JSON.stringify({ t: 'ask', id: 'q2', sealed: await seal(key, aadAsk('q2', 'pc-a'), { v: 1, kind: 'files', projectId: 'project-none', q: '' } satisfies MobileAsk), epoch: 1 }));
+      ws.send(JSON.stringify({ t: 'ask', id: 'q3', sealed: await seal(key, aadAsk('q3', 'pc-a'), { v: 1, kind: 'commands', projectId: null, accountId: 'nobody' } satisfies MobileAsk), epoch: 1 }));
       await settle(() => s.w.received.filter((x) => x.startsWith('{')).length === 3);
       const replies = new Map(s.w.received.filter((x) => x.startsWith('{')).map((x) => JSON.parse(x) as { t: string; id: string; sealed: string }).map((m) => [m.id, m]));
       expect(await open(key, aadReply('q1'), replies.get('q1')!.sealed)).toEqual({ files: [{ path: 'one.ts', changed: false }] });
@@ -567,14 +572,14 @@ describe('bootMobile', () => {
       const next = s.client.asDevice('pc-a');
       await next.health();
       (next as CloudClient).bellTarget = () => ({ url: w2.url, headers: { authorization: 'Bearer next-token' } });
-      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      s.setLink(linkOf(next, 'https://w2.example'));
       await s.timers.advance(FEED_SAFETY_MS);
       await settle(() => s.w.open().length === 0 && w2.open().length === 1);
       expect(w2.attempts[0]!.authorization).toBe('Bearer next-token');
       s.setLink(null);
       await s.timers.advance(FEED_SAFETY_MS);
       await settle(() => w2.open().length === 0);
-      s.setLink({ client: next, joinSecret: SECRET, url: 'https://w2.example' });
+      s.setLink(linkOf(next, 'https://w2.example'));
       await s.timers.advance(FEED_SAFETY_MS);
       await settle(() => w2.open().length === 1);
       s.mobile.stop();

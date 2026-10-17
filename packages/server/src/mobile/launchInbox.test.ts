@@ -2,16 +2,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { aadAnswer, aadImage, aadLaunch, appendPaths, quotePath, deriveMobileKey, EFFORT_VALUES, LAUNCH_TTL_MS, MOBILE_IMAGE_MAX_BYTES, sealBytes, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
+import { aadAnswer, aadImage, aadLaunch, appendPaths, quotePath, EFFORT_VALUES, LAUNCH_TTL_MS, MOBILE_IMAGE_MAX_BYTES, sealBytes, MOBILE_LAUNCH_ID_MAX, MOBILE_PROMPT_MAX, open, seal, type LaunchParams, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import type { CloudClient } from '../sync/client.ts';
+import type { PhoneKeySource } from '../sync/phoneKeys.ts';
+import { testKey } from '../../test/cloudConfig.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
+import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
 import { ANSWER_RESEND_WINDOW_MS, MOBILE_LAUNCH_KEEP_MS, MobileLaunchInbox } from './launchInbox.ts';
-import { mobileKeyFor } from './publisher.ts';
 
-const SECRET = 'join-secret-for-tests-0123456789abcdef';
-const OTHER_SECRET = 'another-join-secret-0123456789abcdef';
+/** PC の知らないスマホ用の鍵（別のクラウドの M）。 */
+const OTHER_KEY = testKey(11);
 const T0 = 1_800_000_000_000;
 
 const payload = (over: Partial<MobileLaunchPayload> = {}): MobileLaunchPayload => ({
@@ -23,7 +25,7 @@ const result = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sessi
 const tmpDirs: string[] = [];
 afterEach(() => { for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-function setup(o: { start?: (p: LaunchParams) => LaunchResult } = {}) {
+function setup(o: { start?: (p: LaunchParams) => LaunchResult; phoneKeys?: Pick<PhoneKeySource, 'at'> } = {}) {
   const db = openDb(':memory:');
   const dropsDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-inbox-')), 'drops');
   tmpDirs.push(path.dirname(dropsDir));
@@ -33,20 +35,20 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult } = {}) {
   const start = vi.fn(o.start ?? (() => result('s-new')));
   const hasProjectHere = vi.fn((id: string) => id === 'project-a');
   const inbox = new MobileLaunchInbox({
-    db, client: cloud, joinSecret: SECRET, deviceId: 'pc-a', dropsDir, start, hasProjectHere,
+    db, client: cloud, phoneKeys: o.phoneKeys ?? fixedPhoneKeys(), deviceId: 'pc-a', dropsDir, start, hasProjectHere,
     hasAccount: (id) => id === 'primary', canProcess: () => canProcess, now: () => now,
   });
-  /** スマホの依頼を置き、pull で届く形（launches）を返す。 */
-  const post = async (id: string, p: unknown, o2: { secret?: string; aadTarget?: string; target?: string } = {}) => {
-    const key = o2.secret ? await deriveMobileKey(o2.secret) : await mobileKeyFor(SECRET);
-    cloud.postLaunch({ id, targetDevice: o2.target ?? 'pc-a', sealed: await seal(key, aadLaunch(id, o2.aadTarget ?? 'pc-a'), p) });
+  /** スマホの依頼を置き、pull で届く形（launches）を返す。key は封じる M（省けば M[1]）、epoch は依頼が名乗る世代（省けば 1）。 */
+  const post = async (id: string, p: unknown, o2: { key?: string; epoch?: number; aadTarget?: string; target?: string } = {}) => {
+    const key = await phoneCryptoKey(o2.key ?? PHONE_KEY_1);
+    cloud.postLaunch({ id, targetDevice: o2.target ?? 'pc-a', sealed: await seal(key, aadLaunch(id, o2.aadTarget ?? 'pc-a'), p), epoch: o2.epoch ?? 1 });
     return (await cloud.pullChanges(0, 100)).launches ?? [];
   };
-  const answerOf = async (id: string): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await mobileKeyFor(SECRET), aadAnswer(id), cloud.launches.get(id)!.sealedAnswer!);
+  const answerOf = async (id: string, raw = PHONE_KEY_1): Promise<MobileLaunchAnswer> => open<MobileLaunchAnswer>(await phoneCryptoKey(raw), aadAnswer(id), cloud.launches.get(id)!.sealedAnswer!);
   const recorded = (id: string) => db.prepare('select id, handled_at, result from mobile_launches where id = ?').get(id) as { id: string; handled_at: number; result: string } | undefined;
   /** スマホが画像を置く真似。aadN で封の番号を取り違えた画像も置ける。 */
-  const putImage = async (id: string, n: number, bytes: Uint8Array, o2: { secret?: string; aadN?: number } = {}) => {
-    const key = o2.secret ? await deriveMobileKey(o2.secret) : await mobileKeyFor(SECRET);
+  const putImage = async (id: string, n: number, bytes: Uint8Array, o2: { key?: string; aadN?: number } = {}) => {
+    const key = await phoneCryptoKey(o2.key ?? PHONE_KEY_1);
     cloud.putBlob(id, n, await sealBytes(key, aadImage(id, o2.aadN ?? n), bytes));
   };
   return { db, cloud, dropsDir, putImage, start, hasProjectHere, inbox, post, answerOf, recorded, setNow: (t: number) => { now = t; }, setCanProcess: (v: boolean) => { canProcess = v; } };
@@ -111,13 +113,41 @@ describe('MobileLaunchInbox', () => {
     expect(recorded('l1')).toBeUndefined();
   });
 
-  it('別の秘密で封じた依頼は bad-payload と答え、start を呼ばない', async () => {
+  it('同じ世代を名乗る別の鍵で封じた依頼は bad-payload と答え、start を呼ばない', async () => {
     const { cloud, start, inbox, post, answerOf, recorded } = setup();
-    await inbox.receive(await post('l1', payload(), { secret: OTHER_SECRET }));
+    await inbox.receive(await post('l1', payload(), { key: OTHER_KEY }));
     expect(start).not.toHaveBeenCalled();
     expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'bad-payload' });
     expect(cloud.launches.get('l1')!.status).toBe('failed');
     expect(recorded('l1')?.result).toBe('bad-payload');
+  });
+
+  it('依頼は依頼が名乗る世代の M で開き、答えも同じ世代で封じる', async () => {
+    const keys = fixedPhoneKeys({ 1: PHONE_KEY_1, 2: PHONE_KEY_2 });
+    const { start, inbox, post, answerOf } = setup({ phoneKeys: keys });
+    await inbox.receive(await post('l1', payload(), { key: PHONE_KEY_1, epoch: 1 }));
+    await inbox.receive(await post('l2', payload(), { key: PHONE_KEY_2, epoch: 2 }));
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(keys.asked).toEqual([1, 2]);
+    expect(await answerOf('l1', PHONE_KEY_1)).toMatchObject({ ok: true });
+    expect(await answerOf('l2', PHONE_KEY_2)).toMatchObject({ ok: true });
+    await expect(answerOf('l2', PHONE_KEY_1)).rejects.toThrow();
+  });
+
+  it('鍵の無い世代の依頼は claim せずに残し（答えない、記録しない）、鍵が届いた後の pull で扱う', async () => {
+    const have: Record<number, string> = { 1: PHONE_KEY_1 };
+    const { cloud, start, inbox, post, recorded } = setup({ phoneKeys: { at: (e) => fixedPhoneKeys(have).at(e) } });
+    const l = await post('l1', payload(), { key: PHONE_KEY_2, epoch: 2 });
+    await inbox.receive(l);
+    expect(start).not.toHaveBeenCalled();
+    expect(cloud.calls.filter((c) => c.method === 'claimLaunch')).toHaveLength(0);
+    expect(cloud.launches.get('l1')!.status).toBe('pending');
+    expect(recorded('l1')).toBeUndefined();
+    // 名簿の読み直しで M[2] が届いた。
+    have[2] = PHONE_KEY_2;
+    await inbox.receive(l);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(cloud.launches.get('l1')!.status).toBe('started');
   });
 
   it('AAD の宛先が自分でない依頼は bad-payload（ほかの PC 宛てを付け替えたもの）', async () => {
@@ -271,7 +301,7 @@ describe('MobileLaunchInbox', () => {
     const l = await post('l1', payload());
     const answerLaunch = vi.fn();
     const bare = { answerLaunch } as unknown as CloudClient;
-    const inbox = new MobileLaunchInbox({ db: openDb(':memory:'), client: bare, joinSecret: SECRET, deviceId: 'pc-a', dropsDir: os.tmpdir(), start, hasProjectHere: () => true, hasAccount: () => true, canProcess: () => true, now: () => T0 });
+    const inbox = new MobileLaunchInbox({ db: openDb(':memory:'), client: bare, phoneKeys: fixedPhoneKeys(), deviceId: 'pc-a', dropsDir: os.tmpdir(), start, hasProjectHere: () => true, hasAccount: () => true, canProcess: () => true, now: () => T0 });
     await inbox.receive(l);
     expect(start).not.toHaveBeenCalled();
     expect(answerLaunch).not.toHaveBeenCalled();
@@ -393,11 +423,11 @@ describe('MobileLaunchInbox の画像', () => {
     expect(fs.existsSync(dropsDir) ? fs.readdirSync(dropsDir) : []).toEqual([]);
   });
 
-  it('別の秘密、番号を取り違えた封、壊れた封の画像は開けず images-missing', async () => {
-    for (const bad of ['secret', 'aad', 'junk'] as const) {
+  it('別の鍵、番号を取り違えた封、壊れた封の画像は開けず images-missing', async () => {
+    for (const bad of ['key', 'aad', 'junk'] as const) {
       const { cloud, start, inbox, post, putImage, answerOf } = setup();
       const l = await post('l1', payload({ images: [ref(0, 3)] }));
-      if (bad === 'secret') await putImage('l1', 0, IMG(1, 2, 3), { secret: OTHER_SECRET });
+      if (bad === 'key') await putImage('l1', 0, IMG(1, 2, 3), { key: OTHER_KEY });
       else if (bad === 'aad') await putImage('l1', 0, IMG(1, 2, 3), { aadN: 1 });
       else cloud.putBlob('l1', 0, IMG(1, 2, 3, 4, 5));
       await inbox.receive(l);

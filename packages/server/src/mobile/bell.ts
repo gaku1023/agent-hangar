@@ -39,8 +39,8 @@ export type MobileBellDeps = {
   target: () => BellTarget | null;
   /** `{t:'launch'}` を受けた。起動の依頼が置かれたので、今の pull の道で受け取る（engine.pullNow）。 */
   onLaunch: () => void;
-  /** `{t:'ask', id, sealed}` を受けた。封じた答えを返す。開けないものは null で、答えない。 */
-  onAsk: (id: string, sealed: string) => Promise<string | null>;
+  /** `{t:'ask', id, sealed, epoch}` を受けた。epoch は封じたスマホ用の鍵の世代。封じた答えを返す。開けないものは null で、答えない。 */
+  onAsk: (id: string, sealed: string, epoch: number) => Promise<string | null>;
   timers?: Timers;
   /** WebSocket を作る口。既定は ws。 */
   connect?: (t: BellTarget) => WebSocket;
@@ -188,15 +188,16 @@ export class MobileBell {
       return;
     }
     if (typeof m !== 'object' || m === null) return;
-    const msg = m as { t?: unknown; id?: unknown; sealed?: unknown };
+    const msg = m as { t?: unknown; id?: unknown; sealed?: unknown; epoch?: unknown };
     if (msg.t === 'launch') {
       try { this.deps.onLaunch(); } catch (e) { console.error('[mobile] could not take the launch bell', describe(e)); }
       return;
     }
-    if (msg.t === 'ask' && typeof msg.id === 'string' && msg.id.length > 0 && msg.id.length <= MAX_ASK_ID && typeof msg.sealed === 'string') {
+    // 世代（epoch）の無い問い合わせは版 8 までの形で、どの M で開くか分からないので答えない。
+    if (msg.t === 'ask' && typeof msg.id === 'string' && msg.id.length > 0 && msg.id.length <= MAX_ASK_ID && typeof msg.sealed === 'string' && typeof msg.epoch === 'number' && Number.isSafeInteger(msg.epoch) && msg.epoch > 0) {
       const id = msg.id;
       let answer: Promise<string | null>;
-      try { answer = this.deps.onAsk(id, msg.sealed); } catch (e) { answer = Promise.reject(e); }
+      try { answer = this.deps.onAsk(id, msg.sealed, msg.epoch); } catch (e) { answer = Promise.reject(e); }
       void answer.then((sealed) => {
         // 答えを作る間に切れた、または張り直したなら送らない。Worker は 5 秒で待つのをやめる。
         if (sealed === null || this.sock !== s || s.readyState !== WebSocket.OPEN) return;

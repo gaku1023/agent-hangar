@@ -62,7 +62,7 @@ function answerFailure(pc: string, a: MobileLaunchAnswer | undefined): Failed {
     case 'images-missing':
       return pcFail(`画像を ${pc} に渡せませんでした。もう一度送信してください。`);
     case 'bad-payload':
-      return pcFail(`${pc} で依頼を開けませんでした。キーが合っていません。PC の設定 › クラウド で新しい QR を表示し、このスマホを接続し直してください。`, { reconnect: true });
+      return pcFail(`${pc} で依頼を開けませんでした。キーが合っていません。PC の設定 › クラウド同期 で新しい QR を表示し、このスマホを接続し直してください。`, { reconnect: true });
     case 'expired':
       return pcFail(`${pc} の受信が遅れ、時間切れになりました。もう一度送信してください。`);
     default:

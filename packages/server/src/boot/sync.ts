@@ -17,6 +17,8 @@ import { RemotePuller } from '../sync/puller.ts';
 import { JoinApprover, joinNotifier } from '../sync/joinApprover.ts';
 import { RecoveryKeyReissuer } from '../sync/recoveryReissue.ts';
 import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts';
+import { phoneKeysOf, type PhoneKeySource } from '../sync/phoneKeys.ts';
+import { PhonePairer, type MobileLink } from '../mobile/pairer.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
@@ -123,13 +125,11 @@ export type SyncParts = {
    */
   canCarryMobile(): boolean;
   /**
-   * スマホ向けの書き手が使う、今の client と参加の秘密。同期を設定していなければ null。
-   * cloud.json が後から現れて組み直すと、別の client を返す。書き手は client が変わったら組み直す（boot/mobile.ts）。
-   * 秘密はこの PC の中の部品にだけ渡し、ログにも画面にも出さない。
-   * 版 2 の cloud.json は参加の秘密を持たない。
-   * スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、いつも null を返し、スマホの機能は止めておく。
+   * スマホ向けの部品が使う、今の client、Worker の URL、スマホ用の鍵の引き口、スマホの接続の PC 側。同期を設定していなければ null。
+   * cloud.json が後から現れて組み直すと、別のものを返す。書き手は client か鍵の引き口が変わったら組み直す（boot/mobile.ts）。
+   * スマホ用の鍵 M は名簿の phoneKey にあり、名簿を読むたびに Keyring と cloud.json へ写る（sync/roster.ts）。
    */
-  mobileLink(): { client: CloudClient; joinSecret: string; url: string } | null;
+  mobileLink(): MobileLink | null;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -169,6 +169,8 @@ type Core = {
   client: SealedCloudClient | null;
   /** 封じた名簿と keybox の読み書き。PC の一覧の名前と OS もここから読む。 */
   roster: RosterStore | null;
+  /** スマホ用の鍵の引き口と、スマホの接続の PC 側。同期を設定していなければ null。 */
+  phone: { keys: PhoneKeySource; pairer: PhonePairer } | null;
   /** 参加コードの発行と承認。同期を設定していなければ null。 */
   joinApprover: JoinApprover | null;
   /** リカバリーキーの再発行。同期を設定していなければ null。 */
@@ -233,6 +235,18 @@ export function bootSync(
   const takeoverListeners = new Set<() => void>();
   const cloudDeviceListeners = new Set<(d: CloudDevicesDto) => void>();
   const takeoversApplied = (): void => { for (const cb of takeoverListeners) cb(); };
+  /** 端末の一覧を読み、受け手（onCloudDevices）に配る。読むのは呼んだときの core である。 */
+  const readCloudDevices = async (): Promise<CloudDevicesDto> => {
+    const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
+    for (const cb of [...cloudDeviceListeners]) {
+      try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
+    }
+    return d;
+  };
+  /** スマホを接続し終えた。受信箱の書き手がスマホの有無を見直すよう、一覧を 1 回だけ読む（QR の 3 秒ごとの問い合わせでは読まない）。 */
+  const onPhonePaired = (): void => {
+    void readCloudDevices().catch((e: unknown) => console.error('[sync] could not read the device list after connecting a phone', e instanceof Error ? e.constructor.name : typeof e));
+  };
   const pruneBackups = backupPruner(home.home);
   const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
 
@@ -384,11 +398,16 @@ export function bootSync(
             throw e;
           })
       : null;
+    // スマホの接続（QR を出している間の GET /m/pairings/mine）と、スマホ用の鍵の引き口。
+    // 接続し終えたら、受信箱の書き手（boot/mobile.ts）がスマホの有無を知るよう、端末の一覧を 1 回だけ読み直す。
+    const phone = wire && roster && keyring
+      ? { keys: phoneKeysOf(keyring, roster), pairer: new PhonePairer({ wire, roster, onPaired: () => onPhonePaired() }) }
+      : null;
     // リカバリーキーの再発行。新しい鍵ペアは確認までこの中のメモリにだけ置く。
     const recoveryKey = wire && roster && keyring && cloud ? new RecoveryKeyReissuer({ roster, keyring, wire, url: () => cloud.url, state: syncState }) : null;
     // 名簿を書いた後に recovery 宛ての keybox を置けなかった印があれば、pull の度に置き直す（印が無ければ何も送らない）。
     if (recoveryKey) engine.on({ pulled: () => { void recoveryKey.resumePending(); } });
-    const c: Core = { cloud, client, roster, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
+    const c: Core = { cloud, client, roster, phone, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
     built = c;
     return c;
   };
@@ -449,6 +468,7 @@ export function bootSync(
   };
   const stopCoreTimers = (c: Core): void => {
     c.joinApprover?.stop();
+    c.phone?.pairer.stop();
     if (c.bundleTimer) clearInterval(c.bundleTimer);
     c.cloudUsage.stop();
     if (c.uploadTimer) clearInterval(c.uploadTimer);
@@ -540,21 +560,17 @@ export function bootSync(
     },
     canCarryTakeover: () => canCarry(TAKEOVER_MIN_WORKER_COMPAT),
     canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
-    // スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、スマホの機能は止めておく。
-    mobileLink: () => null,
+    mobileLink: () => {
+      const { cloud, client, phone } = core;
+      return cloud && client && phone ? { client, url: cloud.url, phoneKeys: phone.keys, pairer: phone.pairer } : null;
+    },
     refetchSession: (uuid) => {
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
     joinApprover: () => core.joinApprover,
     cloudRevoke: () => core.revoke,
     recoveryKey: () => core.recoveryKey,
-    cloudDevices: async () => {
-      const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
-      for (const cb of [...cloudDeviceListeners]) {
-        try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
-      }
-      return d;
-    },
+    cloudDevices: readCloudDevices,
     onCloudDevices: (cb) => { cloudDeviceListeners.add(cb); return () => { cloudDeviceListeners.delete(cb); }; },
     start() {
       startCore(core);

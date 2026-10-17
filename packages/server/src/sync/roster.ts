@@ -45,6 +45,9 @@ const copy = (r: RosterRead): RosterRead => ({ version: r.version, roster: struc
  * 書き換え（update）は版の番号つきの条件付き更新で、409 なら読み直して fn を当て直す。
  * 2 台が同時に書き換えても、後から書く方が先の変更の上に当て直すので、どちらの変更も残る。
  *
+ * 読んだ名簿と書いた名簿のスマホ用の鍵（phoneKey）は、Keyring と cloud.json に写す（adoptPhoneKey）。
+ * スマホ用の鍵の keybox は名簿の印の行を進めないので、PC は名簿からだけ M を知る。
+ *
  * 名簿がまだ無い（404）ことと、自分宛ての keybox がまだ無いことは、ふつうの状態で投げない。
  * 開けない名簿と keybox も、refresh では投げずに飛ばす（console.warn は英語で、中身を出さない）。
  * SealedCloudClient の onRoster が投げると pull が区切りを進めないので、投げてよいのは通信と Worker の失敗だけである。
@@ -94,11 +97,15 @@ export class RosterStore {
     const sealed = fromBase64Url(got.sealed);
     if (!sealed) throw new E2eOpenError();
     for (const epoch of ring.epochs()) {
+      let roster: Roster;
       try {
-        return this.remember({ version: got.version, roster: await openRoster(ring.at(epoch)!.roster, got.version, sealed) });
+        roster = await openRoster(ring.at(epoch)!.roster, got.version, sealed);
       } catch (e) {
         if (!(e instanceof E2eOpenError)) throw e;
+        continue;
       }
+      await this.adoptPhoneKey(roster);
+      return this.remember({ version: got.version, roster });
     }
     throw new E2eOpenError();
   }
@@ -118,7 +125,10 @@ export class RosterStore {
       const version = base.version + 1;
       const sealed = toBase64Url(await sealRoster(cur.roster, version, next));
       const r = await this.wire.putRoster({ ifVersion: base.version, epoch: cur.epoch, sealed });
-      if (r.ok) return this.remember({ version, roster: next });
+      if (r.ok) {
+        await this.adoptPhoneKey(next);
+        return this.remember({ version, roster: next });
+      }
       if (tries >= ROSTER_MAX_TRIES) throw new RosterConflictError();
       this.stale = true;
       base = await this.read();
@@ -170,6 +180,31 @@ export class RosterStore {
       console.warn('[roster] the roster could not be opened with the epoch keys this PC holds');
     }
     return gained;
+  }
+
+  /**
+   * 名簿のスマホ用の鍵（phoneKey）を Keyring と cloud.json に写す。
+   * 他の PC が最初のスマホを接続して M[1] を作ったときと、スマホを解除して次の世代にしたときに、この PC も同じ鍵で封じて開けるようにする。
+   * 手元より古い世代には戻さない。名簿に phoneKey が無いときは手元のままにする。
+   * 鍵の形が違う、cloud.json に書けないときも投げない（読んだ名簿は使えるので、pull を倒さない）。
+   */
+  private async adoptPhoneKey(r: Roster): Promise<void> {
+    const pk = r.phoneKey;
+    if (!pk) return;
+    const ring = await this.ring;
+    const have = ring.toConfigPatch().phoneKey;
+    if (have && (have.epoch > pk.epoch || (have.epoch === pk.epoch && have.key === pk.key))) return;
+    try {
+      await ring.setPhoneKey(pk);
+    } catch (e) {
+      console.warn('[roster] the phone key in the roster could not be read', e instanceof Error ? e.constructor.name : typeof e);
+      return;
+    }
+    try {
+      this.cfg.write({ phoneKey: ring.toConfigPatch().phoneKey });
+    } catch (e) {
+      console.error('[roster] could not save the phone key to cloud.json', e instanceof Error ? e.constructor.name : typeof e);
+    }
   }
 
   /**
