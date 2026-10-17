@@ -14,7 +14,7 @@ import {
   type MobilePairingResponse,
   type MobilePairingsMine,
 } from '@agent-hangar/shared';
-import { authMiddleware, requireKind } from './auth.ts';
+import { authMiddleware, LIVE_PHONE_SQL, requireKind } from './auth.ts';
 import { BELL_DEVICE_HEADER, BELL_NAME } from './bellWire.ts';
 import type { Env, Vars } from './env.ts';
 import { isDeviceId, issueDeviceToken } from './join.ts';
@@ -141,7 +141,8 @@ const isJoinBody = (v: unknown): v is MobileJoinRequest => {
  * それ以外は、無い券も、使った券も、期限切れの券も、参加の秘密を渡されたときも、同じ 401 で断る。
  * 参加の秘密はここでは照合しない。スマホは PC として参加できない。
  *
- * 解除されていないスマホが MAX_ACTIVE_PHONES 台あるときは 409 で断る。
+ * まだ使えるスマホ（解除しておらず、期限も切れていないもの、LIVE_PHONE_SQL）が MAX_ACTIVE_PHONES 台あるときは 409 で断る。
+ * 期限の切れた行は数えない。スマホは 90 日ごとに別の ID で接続し直すので、数えると古い行が溜まって枠が埋まる。
  * 断るのは券を照合した後、使い切りにする前なので、券は残り、1 台外せば同じ券で参加できる。
  * 使い切りにする文にも台数の条件を入れる（そこで落ちたときは 401 で、券は残る）。
  * ただし台数を数える文と行を足す文は分かれているので、同時に来た参加は上限を少し越えうる（緩い上限）。越える分は券の取りすぎの制限（1 台の PC から 10 分に 5 枚）で抑えられる。
@@ -162,7 +163,7 @@ mobileApp.post('/join', async (c) => {
   const codeHash = await sha256Hex(body.code);
   const [valid, phones, taken] = await db.batch([
     db.prepare('select 1 ok from mobile_pairings where code_hash = ? and used_at is null and created_at > ?').bind(codeHash, now - PAIRING_TTL_MS),
-    db.prepare("select count(*) n from devices where kind = 'mobile' and revoked_at is null"),
+    db.prepare(`select count(*) n from devices where ${LIVE_PHONE_SQL}`).bind(now, now),
     db.prepare('select 1 ok from devices where id = ?').bind(body.deviceId),
   ]);
   if (!valid?.results?.length) return c.json({ error: deny }, 401);
@@ -172,16 +173,23 @@ mobileApp.post('/join', async (c) => {
   const [used, added] = await db.batch([
     db
       .prepare(
-        "update mobile_pairings set used_at = ?, device_id = ?, request = ? where code_hash = ? and used_at is null and created_at > ? and (select count(*) from devices where kind = 'mobile' and revoked_at is null) < ? and not exists (select 1 from devices where id = ?)",
+        `update mobile_pairings set used_at = ?, device_id = ?, request = ? where code_hash = ? and used_at is null and created_at > ? and (select count(*) from devices where ${LIVE_PHONE_SQL}) < ? and not exists (select 1 from devices where id = ?)`,
       )
-      .bind(now, body.deviceId, sealedToBlob(body.sealed), codeHash, now - PAIRING_TTL_MS, MAX_ACTIVE_PHONES, body.deviceId),
+      .bind(now, body.deviceId, sealedToBlob(body.sealed), codeHash, now - PAIRING_TTL_MS, now, now, MAX_ACTIVE_PHONES, body.deviceId),
     db
       .prepare(
         "insert into devices (id, kind, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, expires_at) select ?, 'mobile', ?, ?, ?, 0, null, ? where exists (select 1 from mobile_pairings where code_hash = ? and used_at = ? and device_id = ?) on conflict(id) do nothing",
       )
       .bind(body.deviceId, tokenHash, now, now, now + PHONE_MAX_AGE_MS, codeHash, now, body.deviceId),
+    // 上の挿入が同じ ID の先客に当たって入らなかったときは、この券の ID と参加リクエストを消す。
+    // 残すと GET /m/pairings/mine に先客の ID 名義のリクエストが出て、PC が先客宛ての keybox を上書きしうる。
+    // 先客かどうかは、この要求のトークンのハッシュで見分ける。
+    db
+      .prepare('update mobile_pairings set device_id = null, request = null where code_hash = ? and used_at = ? and device_id = ? and not exists (select 1 from devices where id = ? and token_hash = ?)')
+      .bind(codeHash, now, body.deviceId, body.deviceId, tokenHash),
   ]);
-  if (Number(used?.meta?.changes ?? 0) !== 1) return c.json({ error: deny }, 401);
+  // 券の主キーで 1 行だけを書き換える文なので、通れば 1 である（0 でないことで見る）。
+  if (Number(used?.meta?.changes ?? 0) < 1) return c.json({ error: deny }, 401);
   // 同じ ID を名乗る 2 台が同時に別の券で来て、片方が先に入った。券は使い切ったが、この ID では入れない。
   if (Number(added?.meta?.changes ?? 0) !== 1) return c.json({ error: 'device-exists' }, 409);
   const res: MobileJoinResponse = { token, deviceId: body.deviceId };
