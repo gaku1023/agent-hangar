@@ -81,33 +81,45 @@ describe('createDesktopBridge', () => {
 });
 
 describe('クラウド同期の参加と解除の口', () => {
-  const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' };
-  it('決まった 4 つの命令だけを呼び、参加トークンは命令の引数にだけ載せる', async () => {
+  const check = { url: 'https://h.example', host: 'h.example', pcCount: 1, current: null };
+  it('決まった 5 つの命令だけを呼び、参加コードは命令の引数にだけ載せる', async () => {
     const invoke = vi.fn(async (cmd: string): Promise<unknown> => {
-      if (cmd === 'cloud_join_plan') return { ok: true, plan };
-      if (cmd === 'cloud_join') return { ok: true, result: { url: 'https://h.example', host: 'h.example' } };
+      if (cmd === 'cloud_join_check') return { ok: true, check };
+      if (cmd === 'cloud_join_request') return { ok: true, request: { sas: '123456', expiresAt: 1760000000000 } };
+      if (cmd === 'cloud_join_poll') return { ok: true, poll: { status: 'waiting' } };
       if (cmd === 'cloud_revoke') return { ok: true, result: { id: 'b', name: 'b', platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: 3, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null } };
       return { ok: true, result: { revoked: true, revokeError: null, creator: false } };
     });
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
-    expect(await b.cloud!.joinPlan('tok')).toEqual({ ok: true, value: plan });
-    expect(await b.cloud!.join('tok', true)).toEqual({ ok: true, value: { url: 'https://h.example', host: 'h.example' } });
+    expect(await b.cloud!.joinCheck('https://h.example')).toEqual({ ok: true, value: check });
+    expect(await b.cloud!.joinRequest('https://h.example', 'K7QM-2XFD', true)).toEqual({ ok: true, value: { sas: '123456', expiresAt: 1760000000000 } });
+    expect(await b.cloud!.joinPoll()).toEqual({ ok: true, value: { status: 'waiting' } });
     expect((await b.cloud!.revoke('b')).ok).toBe(true);
     expect(await b.cloud!.leave(false)).toEqual({ ok: true, value: { revoked: true, revokeError: null, creator: false } });
     expect(invoke.mock.calls).toEqual([
-      ['cloud_join_plan', { token: 'tok' }],
-      ['cloud_join', { token: 'tok', overwrite: true }],
+      ['cloud_join_check', { url: 'https://h.example' }],
+      ['cloud_join_request', { url: 'https://h.example', code: 'K7QM-2XFD', overwrite: true }],
+      ['cloud_join_poll'],
       ['cloud_revoke', { id: 'b' }],
       ['cloud_leave', { revoke: false }],
     ]);
   });
   it('失敗は符号と文で返し、知らない形と投げた失敗も失敗として返す', async () => {
-    const invoke = vi.fn(async (): Promise<unknown> => ({ ok: false, code: 'forbidden', message: '違います' }));
+    const invoke = vi.fn(async (): Promise<unknown> => ({ ok: false, code: 'code-not-found', message: '見つかりません' }));
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
-    expect(await b.cloud!.join('tok', false)).toEqual({ ok: false, failure: { code: 'forbidden', message: '違います' } });
+    expect(await b.cloud!.joinRequest('https://h.example', 'K7QM-2XFD', false)).toEqual({ ok: false, failure: { code: 'code-not-found', message: '見つかりません' } });
     invoke.mockResolvedValueOnce({ ok: true });
-    expect(await b.cloud!.joinPlan('tok')).toEqual({ ok: false, failure: { code: 'unreadable', message: '' } });
+    expect(await b.cloud!.joinCheck('https://h.example')).toEqual({ ok: false, failure: { code: 'unreadable', message: '' } });
+    invoke.mockResolvedValueOnce({ ok: true, poll: { status: 'later' } });
+    expect(await b.cloud!.joinPoll()).toEqual({ ok: false, failure: { code: 'unreadable', message: '' } });
     invoke.mockRejectedValueOnce(new Error('not allowed'));
     expect(await b.cloud!.leave(true)).toEqual({ ok: false, failure: { code: 'shell', message: 'Error: not allowed' } });
+  });
+  it('参加トークンの古い 2 つの命令は殻を呼ばずに retired で断る（画面の作り直しまでの間）', async () => {
+    const invoke = vi.fn(async (): Promise<unknown> => ({ ok: true }));
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.cloud!.joinPlan('tok')).toEqual({ ok: false, failure: { code: 'retired', message: '' } });
+    expect(await b.cloud!.join('tok', false)).toEqual({ ok: false, failure: { code: 'retired', message: '' } });
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

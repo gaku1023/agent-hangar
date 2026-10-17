@@ -522,19 +522,26 @@ describe('capabilities', () => {
     expect(c.permissions).toEqual(['allow-update-status', 'allow-update-check', 'allow-update-download', 'allow-update-install']);
     for (const f of fs.readdirSync(dir)) expect(JSON.stringify(cap(f))).not.toContain('updater:');
   });
-  // 参加トークンはサーバの HTTP API に載せず、殻の命令で受け取る（D9）。参加、PC の解除、この PC の参加の解除は、CLI（hangar join、hangar cloud revoke、hangar cloud leave）を走らせる。
-  it('UI の出どころには、クラウド同期の参加の見立て、参加、PC の解除、この PC の参加の解除の 4 つだけを別に与える', () => {
+  // 参加コードはサーバの HTTP API に載せず、殻の命令で受け取る。参加、PC の解除、この PC の参加の解除は、CLI（hangar cloud join-check、join-request、join-poll、revoke、leave）を走らせる。
+  it('UI の出どころには、クラウド同期の参加の確認、リクエスト、問い合わせ、PC の解除、この PC の参加の解除の 5 つだけを別に与える', () => {
     const c = cap('remote-cloud.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
-    expect(c.permissions).toEqual(['allow-cloud-join-plan', 'allow-cloud-join', 'allow-cloud-revoke', 'allow-cloud-leave']);
+    expect(c.permissions).toEqual(['allow-cloud-join-check', 'allow-cloud-join-request', 'allow-cloud-join-poll', 'allow-cloud-revoke', 'allow-cloud-leave']);
   });
-  it('参加トークンは CLI の引数に載せず、標準入力で渡す', () => {
+  it('参加コードは CLI の引数に載せず、標準入力で渡す', () => {
     const mod = read('src-tauri/src/cloudmember.rs');
     expect(mod).toContain('Stdio::piped()');
-    // 引数を組む関数は、参加トークンを受け取らない。
-    expect(mod).toMatch(/pub fn join_args\(overwrite: bool\)/);
-    expect(mod).toMatch(/pub fn plan_args\(\)/);
+    // 引数を組む関数は、参加コードを受け取らない。
+    expect(mod).toMatch(/pub fn join_request_args\(url: &str, overwrite: bool\)/);
+    expect(mod).toMatch(/pub fn join_check_args\(url: &str\)/);
+    expect(mod).toMatch(/pub fn join_poll_args\(\)/);
+    // 参加コードは run_cloud_cli の input（標準入力）にだけ渡す。
+    const lib = read('src-tauri/src/lib.rs');
+    const req = lib.slice(lib.indexOf('async fn cloud_join_request'), lib.indexOf('async fn cloud_join_poll'));
+    expect(req).toContain('valid_join_code(&code)');
+    expect(req).toContain('Some(&code)');
+    expect(req).not.toMatch(/join_request_args\([^)]*code/);
   });
   it('設定の同期と連携の命令は、見立てを承諾の窓に見せてから CLI を走らせ、書く操作を殻の中で完結させない', () => {
     const lib = read('src-tauri/src/lib.rs');
@@ -561,7 +568,7 @@ describe('capabilities', () => {
   // 入力待ちの知らせの 4 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'approve_answer', 'approve_view', 'boot_card_shown', 'boot_probe', 'boot_state', 'cloud_join', 'cloud_join_plan', 'cloud_leave', 'cloud_revoke', 'notify_feed', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_link', 'open_log', 'pick_folder', 'pick_node', 'restart_app', 'restore_config_sync', 'retry_boot', 'setup_integration', 'update_check', 'update_download', 'update_install', 'update_status']);
+    expect(listed).toEqual(['apply_config_sync', 'approve_answer', 'approve_view', 'boot_card_shown', 'boot_probe', 'boot_state', 'cloud_join_check', 'cloud_join_poll', 'cloud_join_request', 'cloud_leave', 'cloud_revoke', 'notify_feed', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_link', 'open_log', 'pick_folder', 'pick_node', 'restart_app', 'restore_config_sync', 'retry_boot', 'setup_integration', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
@@ -574,7 +581,7 @@ describe('capabilities', () => {
     expect(page).toContain("'approve_view'");
     expect(page).toContain("'approve_answer'");
     for (const [k, cmd] of [['status', 'update_status'], ['check', 'update_check'], ['download', 'update_download'], ['install', 'update_install']]) expect(ui).toContain(`${k}: '${cmd}'`);
-    for (const [k, cmd] of [['joinPlan', 'cloud_join_plan'], ['join', 'cloud_join'], ['revoke', 'cloud_revoke'], ['leave', 'cloud_leave']]) expect(ui).toContain(`${k}: '${cmd}'`);
+    for (const [k, cmd] of [['joinCheck', 'cloud_join_check'], ['joinRequest', 'cloud_join_request'], ['joinPoll', 'cloud_join_poll'], ['revoke', 'cloud_revoke'], ['leave', 'cloud_leave']]) expect(ui).toContain(`${k}: '${cmd}'`);
     const boot = read('loading/boot.js');
     expect(boot).toContain("'retry_boot'");
     expect(boot).toContain("'open_log'");

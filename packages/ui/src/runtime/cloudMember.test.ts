@@ -14,6 +14,9 @@ function rig(bridge: Partial<CloudBridge> | null = {}) {
   const restart = vi.fn();
   const load = vi.fn(async () => devices);
   const full: CloudBridge | null = bridge === null ? null : {
+    joinCheck: async () => ({ ok: true, value: { url: plan.url, host: plan.host, pcCount: 1, current: null } }),
+    joinRequest: async () => ({ ok: true, value: { sas: '123456', expiresAt: 1 } }),
+    joinPoll: async () => ({ ok: true, value: { status: 'waiting' as const } }),
     joinPlan: async () => ({ ok: true, value: plan }),
     join: async () => ({ ok: true, value: { url: plan.url, host: plan.host } }),
     revoke: async (id) => ({ ok: true, value: { id, kind: 'pc' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }),

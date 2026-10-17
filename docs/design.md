@@ -6397,22 +6397,28 @@ Worker が名乗った版が 5 に届かないか、経路が 404 なら `outdat
 `creator` は cloud.json に Worker の名前があるか（この PC がクラウドを作った PC か）である。
 
 **参加と解除の通り道（D9）。**
-参加トークンはこのクラウドの全セッションを読み書きできる秘密なので、サーバの HTTP API に載せない。
+参加コードは、承認されればこのクラウドに PC を足せる値なので、サーバの HTTP API に載せない。
 画面は殻の命令（`apps/desktop/src-tauri/src/cloudmember.rs`、権限は `capabilities/remote-cloud.json`）に渡し、殻は同梱の CLI を `--json` で走らせて、最後の 1 行の JSON を返す。
-参加トークンは CLI の引数に載せず、標準入力で渡す。
-殻は頁から来た値の形（参加トークンは base64url の字だけで 2048 字まで、端末 ID は `isSafeKeyId` と同じ形）を確かめ、命令を重ねて走らせない。
+参加コードは CLI の引数に載せず、標準入力で渡す。殻のログにも失敗の文にも載せない（ログに残すのは命令の頭の 2 語と結果の符号だけ）。
+殻は頁から来た値の形を確かめ、命令を重ねて走らせない（走っている間の呼び出しは `busy` で返る）。
+接続先の URL は `https://` で始まり、空白と制御文字を含まず 512 字まで。
+参加コードは ASCII の英数字と `-` と空白だけで 36 字まで。全角で貼られたコードは、画面が送る前に共有の `normalizeJoinCode` で半角にそろえる。字の並びの検査は CLI が行う。
+端末 ID は `isSafeKeyId` と同じ形。
 宛先の確認と上書きの承諾は画面の段で済ませるので、殻はネイティブの確認を出さない。
-命令は 4 つで、CLI の呼び方は次のとおりである。
+参加の 3 つの命令は、どれも Worker への短い問い合わせで返る。承認を待つ間に `cloud_join_poll` を呼ぶ間隔は画面が決める。
+命令は 5 つで、CLI の呼び方は次のとおりである。
 
 | 殻の命令 | CLI | 返す JSON |
 | --- | --- | --- |
-| `cloud_join_plan(token)` | `hangar join --plan --json`（参加トークンは標準入力） | `{ ok, plan: { url, host, current, change } }`。`change` は `new`、`same`、`other-cloud`、`new-secret` |
-| `cloud_join(token, overwrite)` | `hangar join --yes --json [--overwrite]`（参加トークンは標準入力） | `{ ok, result: { url, host } }` |
+| `cloud_join_check(url)` | `hangar cloud join-check <url> --json` | `{ ok, check: { url, host, pcCount, current } }` |
+| `cloud_join_request(url, code, overwrite?)` | `hangar cloud join-request <url> --json [--overwrite]`（参加コードは標準入力） | `{ ok, request: { sas, expiresAt } }` |
+| `cloud_join_poll()` | `hangar cloud join-poll --json` | `{ ok, poll: { status } }` |
 | `cloud_revoke(id)` | `hangar cloud revoke <id> --yes --json` | `{ ok, result: <PC の行> }` |
 | `cloud_leave(revoke)` | `hangar cloud leave --yes --json [--keep-device]` | `{ ok, result: { revoked, revokeError, creator } }` |
 
 失敗は `{ ok: false, code, message }` で、画面は `code` で言い方を選ぶ（CLI の文は日本語なので、`message` は理由の添え書きにだけ使う）。
-`hangar join --yes` は、別のクラウドか秘密の違う参加し直しを `--overwrite` が無ければ `overwrite-required` で断る。同じ宛先と同じ秘密での参加し直し（解除された PC が戻るとき）は通す。
+殻が自分で返す符号は、形の違う値の `invalid-url`、`invalid-code`、`invalid-id`、重ねた呼び出しの `busy`、CLI を起こせない `cannot-start`、締め切りの `timeout`、読めない返事の `unreadable` である。
+`overwrite` は省けば偽で、参加済み（版 2 か版 1 の cloud.json がある）なら CLI が `overwrite-required` で断る。
 `hangar cloud revoke` は自分自身を `self` で断り、`hangar cloud leave` へ案内する（cloud.json を残したまま自分の鍵だけを無効にすると、同期が止まったままになる）。
 `hangar cloud leave` は、選べば先にクラウドでもこの PC を解除し、繋がらなくても cloud.json を消して、解除できなかった理由を返す。壊れた cloud.json は消さない。
 消すのは cloud.json だけで、`~/.agent-hangar/remote` の受信済みのトランスクリプトと、クラウドを作った PC の `~/.agent-hangar/cloud/wrangler.jsonc` は残す。

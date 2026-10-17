@@ -30,27 +30,59 @@ export type DesktopBridge = {
 /** 殻のクラウド同期の命令の答え。失敗は符号（CLI の code か、殻の cannot-start、timeout など）と文で返す。 */
 export type CloudReply<T> = { ok: true; value: T } | { ok: false; failure: CloudFailure };
 
+/** 接続先の確認の答え（hangar cloud join-check）。url は origin の形にそろえたもの、current は今参加しているクラウドか null。 */
+export type JoinCheckView = { url: string; host: string; pcCount: number; current: { url: string } | null };
+
+/** 参加のリクエストの答え（hangar cloud join-request）。sas は区切りの無い 6 桁の確認コード、expiresAt は期限の目安（ms）。 */
+export type JoinRequestView = { sas: string; expiresAt: number };
+
+/** 承認の問い合わせの答え（hangar cloud join-poll）。approved は cloud.json を書き終えた後だけ、none は下書きが無い。 */
+export type JoinPollStatus = 'waiting' | 'approved' | 'rejected' | 'expired' | 'none';
+const JOIN_POLL_STATUSES: readonly string[] = ['waiting', 'approved', 'rejected', 'expired', 'none'] satisfies JoinPollStatus[];
+
 /**
  * 殻のクラウド同期の命令（src-tauri/src/cloudmember.rs）。殻は同梱の CLI を --json で走らせ、最後の 1 行の JSON を返す。
- * 参加トークンはサーバの HTTP API に載せず、ここから殻へ渡す（殻は CLI の標準入力へ渡す）。
+ * 参加コードはサーバの HTTP API に載せず、ここから殻へ渡す（殻は CLI の標準入力へ渡す）。
+ * 殻は参加コードを ASCII の英数字と `-` と空白だけで受ける。全角で貼られたコードは、送る前に共有の normalizeJoinCode で半角にそろえる。
+ * 殻は命令を重ねて走らせないので、走っている間の呼び出しは busy の失敗で返る。問い合わせの間隔は画面が決める。
  */
 export type CloudBridge = {
+  joinCheck(url: string): Promise<CloudReply<JoinCheckView>>;
+  joinRequest(url: string, code: string, overwrite: boolean): Promise<CloudReply<JoinRequestView>>;
+  joinPoll(): Promise<CloudReply<{ status: JoinPollStatus }>>;
+  /** 参加トークンの古い命令。殻にはもう無く、殻を呼ばずに retired で断る。参加の画面の作り直し（Task 16）で消す。 */
   joinPlan(token: string): Promise<CloudReply<JoinPlanView>>;
+  /** 参加トークンの古い命令。殻にはもう無く、殻を呼ばずに retired で断る。参加の画面の作り直し（Task 16）で消す。 */
   join(token: string, overwrite: boolean): Promise<CloudReply<{ url: string; host: string }>>;
   revoke(id: string): Promise<CloudReply<DeviceOut>>;
   leave(revoke: boolean): Promise<CloudReply<{ revoked: boolean; revokeError: string | null; creator: boolean }>>;
 };
 
 /** クラウド同期の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧と capabilities/remote-cloud.json にそろえる。 */
-export const CLOUD_COMMANDS = { joinPlan: 'cloud_join_plan', join: 'cloud_join', revoke: 'cloud_revoke', leave: 'cloud_leave' } as const;
+export const CLOUD_COMMANDS = { joinCheck: 'cloud_join_check', joinRequest: 'cloud_join_request', joinPoll: 'cloud_join_poll', revoke: 'cloud_revoke', leave: 'cloud_leave' } as const;
 
 /** 殻の答えを決まった形に直す。成功は key の中身が物であるときだけで、形が違えば unreadable の失敗にする。 */
-function cloudReplyOf<T>(r: unknown, key: 'plan' | 'result'): CloudReply<T> {
-  const o = r as { ok?: unknown; code?: unknown; message?: unknown; plan?: unknown; result?: unknown } | null;
+function cloudReplyOf<T>(r: unknown, key: 'check' | 'request' | 'poll' | 'result'): CloudReply<T> {
+  const o = r as { ok?: unknown; code?: unknown; message?: unknown } & Partial<Record<typeof key, unknown>> | null;
   if (o && o.ok === true && o[key] && typeof o[key] === 'object') return { ok: true, value: o[key] as T };
   if (o && o.ok === false && typeof o.code === 'string') return { ok: false, failure: { code: o.code, message: typeof o.message === 'string' ? o.message : '' } };
+  return unreadable();
+}
+
+function unreadable<T>(): CloudReply<T> {
   return { ok: false, failure: { code: 'unreadable', message: '' } };
 }
+
+/** 問い合わせの答えは、知っている status のときだけ成功にする。 */
+function pollReplyOf(r: unknown): CloudReply<{ status: JoinPollStatus }> {
+  const v = cloudReplyOf<{ status?: unknown }>(r, 'poll');
+  if (!v.ok) return v;
+  const s = v.value.status;
+  return typeof s === 'string' && JOIN_POLL_STATUSES.includes(s) ? { ok: true, value: { status: s as JoinPollStatus } } : unreadable();
+}
+
+/** 古い命令の答え。殻を呼ばない。 */
+const retired = <T>(): Promise<CloudReply<T>> => Promise.resolve({ ok: false, failure: { code: 'retired', message: '' } });
 
 /**
  * 殻の updater に頼む口（src-tauri/src/updater.rs）。
@@ -135,8 +167,12 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
     setupIntegration: async (target) => setupOutcomeOf(await invoke(DESKTOP_COMMANDS.setupIntegration, { target })),
     cloud: {
       // 権限で断られたなど、殻が投げた失敗も、答えの形に直して返す（画面は段を閉じずに理由を出す）。
-      joinPlan: (token) => invoke(CLOUD_COMMANDS.joinPlan, { token }).then((r) => cloudReplyOf<JoinPlanView>(r, 'plan'), shellFailure),
-      join: (token, overwrite) => invoke(CLOUD_COMMANDS.join, { token, overwrite }).then((r) => cloudReplyOf<{ url: string; host: string }>(r, 'result'), shellFailure),
+      joinCheck: (url) => invoke(CLOUD_COMMANDS.joinCheck, { url }).then((r) => cloudReplyOf<JoinCheckView>(r, 'check'), shellFailure),
+      // 参加コードは命令の引数にだけ載せる。殻は CLI の標準入力へ渡す。
+      joinRequest: (url, code, overwrite) => invoke(CLOUD_COMMANDS.joinRequest, { url, code, overwrite }).then((r) => cloudReplyOf<JoinRequestView>(r, 'request'), shellFailure),
+      joinPoll: () => invoke(CLOUD_COMMANDS.joinPoll).then(pollReplyOf, shellFailure),
+      joinPlan: () => retired(),
+      join: () => retired(),
       revoke: (id) => invoke(CLOUD_COMMANDS.revoke, { id }).then((r) => cloudReplyOf<DeviceOut>(r, 'result'), shellFailure),
       leave: (revoke) => invoke(CLOUD_COMMANDS.leave, { revoke }).then((r) => cloudReplyOf<{ revoked: boolean; revokeError: string | null; creator: boolean }>(r, 'result'), shellFailure),
     },
