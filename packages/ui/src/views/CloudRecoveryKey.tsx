@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import { normalizeRecoveryTail, type CloudMemberProps, type CloudRecoveryProps } from '../presenters/cloudMember.ts';
-import { clearClipboardLater, saveRecoveryKeyFile } from '../runtime/recoveryKeyOut.ts';
+import { saveRecoveryKeyFile } from '../runtime/recoveryKeyOut.ts';
 import { RECOVERY_SHOW_MS } from '../store/cloudMember.ts';
 import { clock, Strip, useSwap } from './CloudMember.tsx';
 import { CopyButton } from './primitives/CommandLine.tsx';
@@ -181,7 +181,7 @@ function RecoveryShown(props: { r: CloudRecoveryProps; closing: boolean }) {
         ) : (
           <>
             <div className="btns cm-rk-acts">
-              <CopyButton text={r.text ?? ''} label={t('cloudMember.recovery.copy')} ariaLabel={t('cloudMember.recovery.copyAria')} onPress={() => clearClipboardLater(r.text ?? '')} />
+              <CopyButton text={r.text ?? ''} label={t('cloudMember.recovery.copy')} ariaLabel={t('cloudMember.recovery.copyAria')} />
               <button type="button" className="copy-btn" onClick={save}>
                 <Icon name="download" />
                 <span>{t('cloudMember.recovery.save')}</span>

@@ -149,32 +149,18 @@ describe('リカバリーキーの再発行（試作 D2）', () => {
     }
   });
 
-  it('コピーの 60 秒後、クリップボードが写した値のままなら空にする。変わっていたら、読めなければ触らない', async () => {
+  it('コピーの後にクリップボードを読みに行かない（WKWebView では操作の外の読み取りが「ペースト」の吹き出しを出す）', async () => {
     vi.useFakeTimers({ now: NOW });
     const writeText = vi.fn(async () => {});
     const readText = vi.fn(async () => TEXT);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText, writeText } });
     try {
       const onAction = vi.fn();
-      // 3 回の 60 秒の間、暗号鍵を出したままにする。
       render(ui(<Page m={props(shown({ hideAt: NOW + 10 * 60_000 }))} />, onAction));
       fireEvent.click(screen.getByRole('button', { name: 'リカバリーキーをコピー' }));
       expect(onAction).toHaveBeenLastCalledWith({ type: 'clipboard.copy', text: TEXT });
-      await act(async () => { vi.advanceTimersByTime(59_000); await Promise.resolve(); });
+      await act(async () => { vi.advanceTimersByTime(5 * 60_000); await Promise.resolve(); });
       expect(readText).not.toHaveBeenCalled();
-      await act(async () => { vi.advanceTimersByTime(1_000); await Promise.resolve(); await Promise.resolve(); });
-      expect(writeText).toHaveBeenCalledWith('');
-      // 利用者が別のものを写していたら、空にしない。
-      writeText.mockClear();
-      readText.mockResolvedValueOnce('something else');
-      fireEvent.click(screen.getByRole('button', { name: 'リカバリーキーをコピー' }));
-      await act(async () => { vi.advanceTimersByTime(60_000); await Promise.resolve(); await Promise.resolve(); });
-      expect(writeText).not.toHaveBeenCalled();
-      // 読めなければ何もしない。
-      readText.mockRejectedValueOnce(new Error('NotAllowedError'));
-      fireEvent.click(screen.getByRole('button', { name: 'リカバリーキーをコピー' }));
-      await act(async () => { vi.advanceTimersByTime(60_000); await Promise.resolve(); await Promise.resolve(); });
-      expect(writeText).not.toHaveBeenCalled();
     } finally {
       delete (navigator as unknown as { clipboard?: unknown }).clipboard;
     }
