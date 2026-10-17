@@ -2,10 +2,10 @@ import type { noticesKeys } from '../keys/notices.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const noticesJa: AreaDictionary<typeof noticesKeys> = {
-  'notices.bell.label': '注意',
-  'notices.bell.labelUnread': '注意、未読 {n} 件',
-  'notices.list.title': '注意',
-  'notices.list.lead': '画面のほかの箇所に表示されていない項目',
+  'notices.bell.label': '通知',
+  'notices.bell.labelUnread': '通知、未読 {n} 件',
+  'notices.list.title': '通知',
+  'notices.list.lead': '画面の他の箇所に表示されていない項目',
   'notices.list.markAllRead': 'すべて既読にする',
   'notices.row.unread': '未読',
   'notices.kind.sync': '同期',
@@ -29,6 +29,6 @@ export const noticesJa: AreaDictionary<typeof noticesKeys> = {
   'notices.retention.soonDetail': 'Claude Code は {days} 日でトランスクリプトを削除します',
   'notices.retention.open': '保持期間を延長…',
   'notices.config.unsent': '送信しなかった項目 {n} 件',
-  'notices.config.unsentDetail': 'シークレットらしい文字列を含む項目と、絶対パスの規則は送信していません。「それでも送る」で選択できます',
+  'notices.config.unsentDetail': 'シークレットと思われる文字列を含む項目と、絶対パスのルールは送信していません。「それでも送信」で選択できます',
   'notices.config.open': '送信しなかった項目を開く',
 };

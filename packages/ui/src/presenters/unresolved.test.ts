@@ -28,7 +28,7 @@ describe('unresolvedKind', () => {
     expect(unresolvedKind(missing('a'))).toBe('missing');
     expect(unresolvedKind(elsewhere('a'))).toBe('elsewhere');
   });
-  it('unresolved を持たない古いサーバの DTO は、path と resolved から読む', () => {
+  it('unresolved を持たない古いサーバーの DTO は、path と resolved から読む', () => {
     const old = (o: Partial<ProjectDto>): ProjectDto => { const p = project('a', o); delete p.unresolved; return p; };
     expect(unresolvedKind(old({}))).toBeNull();
     expect(unresolvedKind(old({ resolved: false }))).toBe('missing');
@@ -99,13 +99,13 @@ describe('arrivedCount（他の PC から届いたトーストの件数）', () 
 // 直す前の版の「場所を再指定」が残した、この PC で同じフォルダを場所にしている 2 つ（ProjectDto の sameFolder）。
 describe('presentSameFolder（同じフォルダのプロジェクトの群）', () => {
   const dup = (id: string, into: string) => project(id, { path: '/w/shop', sameFolder: { projectId: into, name: 'shop' } });
-  it('まとめる方の行を出し、押すと同じパスで「場所を再指定」を送る（サーバの 409 がまとめる確認を開く）', () => {
+  it('まとめる方の行を出し、押すと同じパスで「場所を再指定」を送る（サーバーの 409 がまとめる確認を開く）', () => {
     const g = presentSameFolder(storeOf([project('p-mac', { path: '/w/shop' }), dup('p-win', 'p-mac')]), ja)!;
     expect(g).toMatchObject({ id: 'sameFolder', label: '同じディレクトリのプロジェクト', icon: 'folder', tone: 'warn', count: 1, morning: false, summary: 'この PC で同じディレクトリを指しています' });
     const row = g.rows[0]!;
     expect(row).toMatchObject({ key: 'sameFolder:p-win', lead: { kind: 'place' }, name: 'p-win', context: 'shop と同じディレクトリ', detail: '/w/shop', open: { type: 'project.open', id: 'p-win' } });
     expect(row.actions.map((a) => [a.id, a.label, a.primary, a.send])).toEqual([
-      ['merge', '1 つにまとめる', true, { type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/w/shop' } }],
+      ['merge', '統合', true, { type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/w/shop' } }],
     ]);
     expect(presentSameFolder(storeOf([project('p-mac'), dup('p-win', 'p-mac')]), en)!.label).toBe('Projects sharing a folder');
   });

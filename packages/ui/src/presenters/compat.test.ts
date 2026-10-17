@@ -28,7 +28,7 @@ describe('止めた機能の表（stopOf）', () => {
   });
   it('レジストリは、pid が無ければ引き取りを、読めない登録は実行中の印を止める', () => {
     expect(stopOf(ja, drift('registry', 'pid=(missing)'))).toEqual({ short: 'hangar に移動', line: '外部ターミナルで実行中の会話を hangar に移動する機能を無効にしています' });
-    expect(stopOf(ja, drift('registry', 'sessionId=(missing)'))).toEqual({ short: '実行中の表示', line: '状態のファイルを読み取れない会話を、実行中として表示する機能を無効にしています' });
+    expect(stopOf(ja, drift('registry', 'sessionId=(missing)'))).toEqual({ short: '実行中の表示', line: '状態ファイルを読み取れない会話を、実行中として表示する機能を無効にしています' });
     expect(stopOf(ja, drift('registry', 'entry=(not-object)'))?.short).toBe('実行中の表示');
   });
   it('statusline は、ミリ秒の resets_at は記録だけで、欠けた項目は使用率の一部を止める', () => {
@@ -41,8 +41,8 @@ describe('止めた機能の表（stopOf）', () => {
   });
   it('CLI は出力の種類ごとに止めるものが違い、サブコマンドの増減は記録だけ', () => {
     expect(stopOf(ja, drift('cli', 'help.commands=(missing)'))).toEqual({ short: 'シェル連携', line: 'シェル連携で claude --help からサブコマンドの一覧を作成する機能を無効にしています' });
-    expect(stopOf(ja, drift('cli', 'auth-status=(not-json)'))).toEqual({ short: 'ログインの状態', line: 'アカウントのログインの状態の読み取りを無効にしています' });
-    expect(stopOf(ja, drift('cli', 'auth-status.loggedIn=(missing)'))?.short).toBe('ログインの状態');
+    expect(stopOf(ja, drift('cli', 'auth-status=(not-json)'))).toEqual({ short: 'ログイン状態', line: 'アカウントのログイン状態の読み取りを無効にしています' });
+    expect(stopOf(ja, drift('cli', 'auth-status.loggedIn=(missing)'))?.short).toBe('ログイン状態');
     expect(stopOf(ja, drift('cli', 'agents-json.kind=remote'))).toEqual({ short: 'attach で再開', line: 'バックグラウンドセッションを attach で再開する機能を無効にしています' });
     expect(stopOf(ja, drift('cli', 'print-json.structured_output=(missing)'))).toEqual({ short: 'Claude で要約', line: 'Claude での要約を無効にしています' });
     expect(stopOf(ja, drift('cli', 'subcommand.added=newcmd'))).toBeNull();
@@ -139,7 +139,7 @@ describe('compatReport', () => {
 });
 
 describe('準備の確かめの compat（readinessCompat）', () => {
-  it('compat があればそれを返し、compat の無い古いサーバの答えでは undefined を返す', () => {
+  it('compat があればそれを返し、compat の無い古いサーバーの答えでは undefined を返す', () => {
     const r = { compat: SUM } as ReadinessDto;
     expect(readinessCompat(r)).toBe(SUM);
     const { compat: _drop, ...older } = r;

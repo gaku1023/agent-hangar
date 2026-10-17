@@ -12,5 +12,9 @@
   // スマホの画面（packages/mobile の build の出力）。dist/app が /app/ に出る。Worker のコードより先に返る。
   // 先に npm run build -w @agent-hangar/mobile が要る。
   "assets": { "directory": "../mobile/dist" },
+  // 呼び鈴（Durable Object の HangarBell）。PC が WebSocket でつなぎ、スマホの起動と問い合わせを渡す。
+  // 無料プランで使えるのは SQLite 型だけなので、new_sqlite_classes で足す。
+  "durable_objects": { "bindings": [{ "name": "BELL", "class_name": "HangarBell" }] },
+  "migrations": [{ "tag": "bell-v1", "new_sqlite_classes": ["HangarBell"] }],
   "vars": {}
 }

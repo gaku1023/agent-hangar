@@ -97,7 +97,7 @@ describe('NewSessionDialog（N2）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
     const groups = within(screen.getByRole('listbox')).getAllByRole('group');
     expect(groups[0]).toHaveAccessibleName('クイックスタート');
-    expect(within(groups[0]!).getByRole('option', { name: 'クイックセッション' })).toHaveAccessibleDescription('名前を決めずに開始し、あとでプロジェクトに昇格できます');
+    expect(within(groups[0]!).getByRole('option', { name: 'クイックセッション' })).toHaveAccessibleDescription('名前を決めずに開始し、あとでプロジェクトにできます');
     expect(within(screen.getByRole('group', { name: '最近' })).getByRole('option', { name: 'alpha' })).toHaveAccessibleDescription('/w/alpha');
     expect(within(screen.getByRole('group', { name: 'すべて' })).getByRole('option', { name: 'beta' })).toHaveTextContent('昨日');
   });
@@ -209,7 +209,7 @@ describe('NewSessionDialog（N2）', () => {
     render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} scratch /></ActionRoot>);
     expect(screen.queryByText(/信頼確認/)).toBeNull();
   });
-  // 未選択で送った後にプロジェクトを選んでも、「プロジェクトを選んでください」が残っていた。
+  // 未選択で送った後にプロジェクトを選んでも、「プロジェクトを選択してください」が残っていた。
   it('失敗の文言は、プロジェクトを選び直したら消え、送り直して同じ失敗ならまた出す', () => {
     const onAction = vi.fn();
     const ui = (error: string | null) => <ActionRoot onAction={onAction}><NewSessionDialog {...base} error={error} /></ActionRoot>;
@@ -355,7 +355,7 @@ describe('NewSessionDialog のクイックセッション', () => {
     expect(screen.queryByText(/プロジェクトを選ばないと/)).toBeNull();
     pick('プロジェクト', 'クイックセッション');
     expect(screen.getByRole('dialog', { name: '新しいセッション' })).toBeInTheDocument();
-    expect(screen.getByText(/あとでプロジェクトに昇格できます/)).toBeInTheDocument();
+    expect(screen.getByText(/あとでプロジェクトにできます/)).toBeInTheDocument();
     start();
     expect(params).toEqual([{ scratch: true }]);
   });
@@ -378,7 +378,7 @@ describe('NewSessionDialog のクイックセッション', () => {
     const params = collectParams({ scratch: true });
     expect(chip('プロジェクト')).toHaveTextContent('クイックセッション');
     pick('プロジェクト', 'alpha');
-    expect(screen.queryByText(/あとでプロジェクトに昇格できます/)).toBeNull();
+    expect(screen.queryByText(/あとでプロジェクトにできます/)).toBeNull();
     start();
     expect(params).toEqual([{ projectId: 'p1' }]);
   });
@@ -433,7 +433,7 @@ describe('NewSessionDialog の下書き（C1）', () => {
     unmount();
     expect(onAction).toHaveBeenCalledWith({ type: 'session.new.draft', name: 'なまえ', prompt: 'やって', attachments: [] });
   });
-  it('添付があると、本文の後に空行とパスを足して起動する。追加ディレクトリは画面では足さない（置き場はサーバが足す）', () => {
+  it('添付があると、本文の後に空行とパスを足して起動する。追加ディレクトリは画面では足さない（置き場はサーバーが足す）', () => {
     const params = collectParams({ projectId: 'p1', draft: { name: '', prompt: '見て', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] } });
     start();
     expect(params).toEqual([{ projectId: 'p1', prompt: '見て\n\n/h/.agent-hangar/drops/1-0-a.png' }]);
@@ -750,7 +750,7 @@ describe('NewSessionDialog から作って始める', () => {
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/url-short' } });
   });
-  it('「ほかの場所を選ぶ…」は殻の中だけで出て、押すと folder.pick を送る', () => {
+  it('「他の場所を選ぶ…」は殻の中だけで出て、押すと folder.pick を送る', () => {
     const { out, view } = collect();
     openList();
     fireEvent.click(screen.getByRole('option', { name: '他のディレクトリを選択…' }));
@@ -760,7 +760,7 @@ describe('NewSessionDialog から作って始める', () => {
     openList();
     expect(screen.queryByRole('option', { name: '他のディレクトリを選択…' })).toBeNull();
   });
-  it('「ほかの場所を選択…」に添える選び手の名前は、macOS は Finder、Windows はエクスプローラー', () => {
+  it('「他の場所を選択…」に添える選び手の名前は、macOS は Finder、Windows はエクスプローラー', () => {
     const { view } = collect();
     openList();
     expect(screen.getByRole('option', { name: '他のディレクトリを選択…' })).toHaveTextContent('Finder');
@@ -988,7 +988,7 @@ describe('NewSessionDialog のアカウントの札', () => {
   });
 });
 
-// 0.6.1：登録済みのプロジェクトの下のフォルダと、ほかの PC から届いた同じプロジェクト（試作の 6 と 7 の A）。
+// 0.6.1：登録済みのプロジェクトの下のフォルダと、他の PC から届いた同じプロジェクト（試作の 6 と 7 の A）。
 describe('NewSessionDialog の選んだフォルダとプロジェクトの結び付き', () => {
   const ui = '/w/alpha/packages/ui';
   type Inspect = NonNullable<NewSessionProps['inspect']>;
@@ -1036,7 +1036,7 @@ describe('NewSessionDialog の選んだフォルダとプロジェクトの結�
     pickWith(ui, nested, { prefs: { p1: { model: 'opus' } } });
     expect(chip('モデル、opus')).toBeInTheDocument();
   });
-  it('ほかの PC から届いた同じリポジトリのプロジェクトがあれば、札に「ほかの PC」を添え、理由と行き先を 1 行で言い、結び付けて始める', () => {
+  it('他の PC から届いた同じリポジトリのプロジェクトがあれば、札に「他の PC」を添え、理由と行き先を 1 行で言い、結び付けて始める', () => {
     const link = ready('/w/notes-app', { link: { projectId: 'p7', name: 'notes-app', match: 'remote', remote: 'github.com/me/notes-app', deviceName: 'work-pc', previousPath: 'D:\\src\\notes-app' } });
     const { out } = pickWith('/w/notes-app', link, { dirs: [{ name: 'notes-app', path: '/w/notes-app' }] });
     expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいセッション');
@@ -1054,7 +1054,7 @@ describe('NewSessionDialog の選んだフォルダとプロジェクトの結�
     start();
     expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' } });
   });
-  it('名前だけが同じときは「同じ名前です」と言う。場所を持つ PC が分からなければ名前だけで言い、札に「ほかの PC」を添えない', () => {
+  it('名前だけが同じときは「同じ名前です」と言う。場所を持つ PC が分からなければ名前だけで言い、札に「他の PC」を添えない', () => {
     pickWith('/w/notes', ready('/w/notes', { link: { projectId: 'p7', name: 'notes', match: 'name', remote: null, deviceName: null, previousPath: null } }));
     expect(note()).toHaveTextContent('notes と同じ名前です。この PC のパス（/w/notes）に関連付けて開始します。');
     expect(chip('プロジェクト')).not.toHaveTextContent('他の PC');
@@ -1066,7 +1066,7 @@ describe('NewSessionDialog の選んだフォルダとプロジェクトの結�
     start();
     expect(submits(out)).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/Users/me/thesis' } }]);
   });
-  it('ほかのフォルダの答えは使わない', () => {
+  it('他のフォルダの答えは使わない', () => {
     const { out } = pickWith('/Users/me/thesis', nested);
     expect(note()).toBeNull();
     start();

@@ -62,7 +62,7 @@ function headersOf(c: Call): Record<string, string> {
   return h;
 }
 
-/** Bearer の中身は真偽だけを見る。こちらも失敗時に値が出ない。 */
+/** Bearer の中身は真偽だけを表示。こちらも失敗時に値が出ない。 */
 function bearerIs(c: Call, token: string): boolean {
   return ((c.init.headers as Record<string, string> | undefined) ?? {}).authorization === `Bearer ${token}`;
 }
@@ -256,7 +256,7 @@ describe('HttpCloudClient', () => {
   });
 
   it('無事に終わった要求は見張りのタイマーを残さない', async () => {
-    // 5 分のタイマーが残ると vitest が終われない。終わった要求の分だけ増えていないことを見る。
+    // 5 分のタイマーが残ると vitest が終われない。終わった要求の分だけ増えていないことを表示。
     const timers = () => process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
     const before = timers();
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch: fakeFetch(() => json({ ok: true, version: '1' })).fetch });
@@ -460,7 +460,7 @@ describe('互換の版', () => {
     expect((e as Error).message).toContain('この PC の hangar');
     expect((e as Error).message).toContain('2 以上');
     // 利用者が選んだ言い回し：クラウドが拒否したことと、更新してほしいことを言う。
-    expect((e as Error).message).toContain('クラウドが同期を拒否しました');
+    expect((e as Error).message).toContain('クラウドと同期できません');
     expect((e as Error).message).toContain('この PC の hangar を更新してください');
   });
 
@@ -603,7 +603,7 @@ describe('PC の一覧と解除', () => {
     await expect(limited.createPairing()).rejects.toMatchObject({ status: 429 });
   });
 
-  it('claimLaunch は POST /m/launches/:id/claim を送り、200 は true、409 は false、ほかの失敗は投げる', async () => {
+  it('claimLaunch は POST /m/launches/:id/claim を送り、200 は true、409 は false、他の失敗は投げる', async () => {
     const f = fakeFetch(() => json({ ok: true }));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
     expect(await c.claimLaunch('l 1/x')).toBe(true);
@@ -627,6 +627,33 @@ describe('PC の一覧と解除', () => {
     await expect(taken.answerLaunch('l1', true, 's')).rejects.toMatchObject({ status: 409 });
   });
 
+  it('getMobileBlob は GET /m/blobs/<依頼>/<番号> のバイト列をそのまま返す。404 と形の違う ID は投げる', async () => {
+    const bytes = new Uint8Array([0, 1, 2, 250, 251, 252]);
+    const f = fakeFetch(() => new Response(bytes, { status: 200, headers: { 'content-type': 'application/octet-stream', 'x-hangar-compat': String(COMPAT_VERSION) } }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect([...await c.getMobileBlob('l-1.x', 2)]).toEqual([...bytes]);
+    expect(f.calls[0]!.url).toBe('https://w.example/m/blobs/l-1.x/2');
+    expect(f.calls[0]!.init.method ?? 'GET').toBe('GET');
+    const missing = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'not found' }, 404)).fetch });
+    await expect(missing.getMobileBlob('l1', 0)).rejects.toMatchObject({ status: 404 });
+    const bad = fakeFetch(() => json({}));
+    const c2 = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: bad.fetch });
+    await expect(c2.getMobileBlob('../x', 0)).rejects.toBeInstanceOf(CloudError);
+    await expect(c2.getMobileBlob('l1', 4)).rejects.toBeInstanceOf(CloudError);
+    await expect(c2.getMobileBlob('l1', -1)).rejects.toBeInstanceOf(CloudError);
+    expect(bad.calls).toHaveLength(0);
+  });
+
+  it('deleteMobileFeed は DELETE /m/feed を送る', async () => {
+    const f = fakeFetch(() => json({ ok: true }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    await c.deleteMobileFeed();
+    expect(f.calls[0]!.url).toBe('https://w.example/m/feed');
+    expect(f.calls[0]!.init.method).toBe('DELETE');
+    const broken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'boom' }, 500)).fetch });
+    await expect(broken.deleteMobileFeed()).rejects.toMatchObject({ status: 500 });
+  });
+
   it('形の違う ID は送る前に断る', async () => {
     const f = fakeFetch(() => json({}));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
@@ -634,7 +661,7 @@ describe('PC の一覧と解除', () => {
     expect(f.calls).toHaveLength(0);
   });
 
-  it('401 の { error: revoked } は RevokedError にする。ほかの 401 は今までどおりの CloudError', async () => {
+  it('401 の { error: revoked } は RevokedError にする。他の 401 は今までどおりの CloudError', async () => {
     const revoked = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'revoked' }, 401)).fetch });
     const e = await revoked.pullChanges(0, 10).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(RevokedError);
@@ -776,5 +803,24 @@ describe('書き込みの前の版の確かめ', () => {
     const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch: f.fetch });
     await c.pushChanges([]);
     expect(f.calls.map(pathOf)).toEqual(['POST /changes']);
+  });
+});
+
+describe('HttpCloudClient.bellTarget（呼び鈴のつなぎ先）', () => {
+  it('https は wss、http は ws にして /m/bell を足し、Bearer と互換の版の見出しを付ける', () => {
+    const { fetch } = fakeFetch(() => json({ ok: true }));
+    const a = new HttpCloudClient({ url: 'https://h.example.workers.dev/', token: 'tok', fetch }).bellTarget();
+    expect(a.url).toBe('wss://h.example.workers.dev/m/bell');
+    expect(a.headers.authorization).toBe('Bearer tok');
+    expect(a.headers[COMPAT_HEADER]).toBe(String(COMPAT_VERSION));
+    expect(new HttpCloudClient({ url: 'http://127.0.0.1:8787', token: 'tok', fetch }).bellTarget().url).toBe('ws://127.0.0.1:8787/m/bell');
+  });
+
+  it('トークンを読み直して差し替えたら、つなぎ先の見出しも新しいトークンになる', async () => {
+    const { fetch } = fakeFetch((c) => (((c.init.headers as Record<string, string>).authorization === 'Bearer new') ? json({ changes: [], nextSeq: 0, more: false }) : json({ error: 'unauthorized' }, 401)));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'old', fetch, reloadCredentials: () => ({ url: 'https://w2.example', token: 'new' }) });
+    expect(c.bellTarget().headers.authorization).toBe('Bearer old');
+    await c.pullChanges(0, 10);
+    expect(c.bellTarget()).toMatchObject({ url: 'wss://w2.example/m/bell', headers: { authorization: 'Bearer new' } });
   });
 });

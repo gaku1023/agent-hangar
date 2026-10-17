@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLOUD_HEADERS } from '@agent-hangar/shared';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { META_SWEEP_AT, SWEEP_EVERY_MS, SWEEP_GRACE_MS, SWEEP_LIST_LIMIT, resetSweepThrottle, sweepIfDue, sweepOnce } from '../src/sweep.ts';
+import { IMAGE_KEEP_MS } from '../src/mobileBlobs.ts';
 import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
 const HOUR = 3_600_000;
@@ -120,6 +121,46 @@ describe('孤児の掃除', () => {
     expect(await bucketKeys()).toHaveLength(3);
     const second = await sweepOnce(cloud.env, now + 3 * HOUR);
     expect(second.bodies).toHaveLength(3);
+    expect(await bucketKeys()).toEqual([]);
+  });
+});
+
+describe('スマホの画像（mobile/ の下）', () => {
+  it('索引で判定せず、置いてから 24 時間たつまでは残す', async () => {
+    const now = Date.now();
+    await orphanBody('mobile/phone-1/launch-1/0');
+    // 索引に無くても、ほかの孤児の猶予（1 時間）では消さない。PC が受け取る前の画像である。
+    const r = await sweepOnce(cloud.env, now + 2 * HOUR);
+    expect(r.bodies).toEqual([]);
+    expect(await bucketKeys()).toEqual(['mobile/phone-1/launch-1/0']);
+  });
+
+  it('置いてから 24 時間より古いものを消す（解除したスマホの画像も消える）', async () => {
+    const now = Date.now();
+    await orphanBody('mobile/phone-1/launch-1/0');
+    await orphanBody(B('orphan'));
+    const r = await sweepOnce(cloud.env, now + IMAGE_KEEP_MS + HOUR);
+    expect(r.bodies.sort()).toEqual([B('orphan'), 'mobile/phone-1/launch-1/0']);
+    expect(await bucketKeys()).toEqual([]);
+  });
+
+  it('画像の一覧の続きは b/ と別に控え、1 回に見る数を区切る', async () => {
+    const now = Date.now();
+    for (let i = 0; i < SWEEP_LIST_LIMIT + 2; i++) await orphanBody(`mobile/phone-1/launch-${String(i).padStart(3, '0')}/0`);
+    await orphanBody(B('orphan'));
+    const first = await sweepOnce(cloud.env, now + IMAGE_KEEP_MS + HOUR);
+    expect(first.bodies).toHaveLength(SWEEP_LIST_LIMIT + 1);
+    const second = await sweepOnce(cloud.env, now + IMAGE_KEEP_MS + 2 * HOUR);
+    expect(second.bodies).toHaveLength(2);
+    expect(await bucketKeys()).toEqual([]);
+  });
+
+  it('索引に同じ鍵の行があっても、24 時間より古い画像は消す', async () => {
+    const now = Date.now();
+    await orphanBody('mobile/phone-1/launch-1/0');
+    await orphanIndex('mobile/phone-1/launch-1/0', now);
+    const r = await sweepOnce(cloud.env, now + IMAGE_KEEP_MS + HOUR);
+    expect(r.bodies).toEqual(['mobile/phone-1/launch-1/0']);
     expect(await bucketKeys()).toEqual([]);
   });
 });

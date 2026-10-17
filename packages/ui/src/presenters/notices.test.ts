@@ -37,8 +37,8 @@ describe('presentNotices：事実から行を組む', () => {
   });
 
   it('同期のエラーは赤の行にして、理由を添え、同期の設定へ移る', () => {
-    const [row] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'サーバが 503 を返しました' }) }), NOW).rows;
-    expect(row).toMatchObject({ key: 'sync|error|サーバが 503 を返しました', kind: 'sync', tone: 'err', kindLabel: '同期', title: '同期エラー', detail: 'サーバが 503 を返しました', when: null, unread: true });
+    const [row] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'サーバーが 503 を返しました' }) }), NOW).rows;
+    expect(row).toMatchObject({ key: 'sync|error|サーバーが 503 を返しました', kind: 'sync', tone: 'err', kindLabel: '同期', title: '同期エラー', detail: 'サーバーが 503 を返しました', when: null, unread: true });
     expect(row!.action).toEqual({ label: '同期の設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } });
   });
 
@@ -54,7 +54,7 @@ describe('presentNotices：事実から行を組む', () => {
     expect(user).toMatchObject({ key: 'sync|paused|user', tone: 'warn', title: '同期を一時停止中', detail: null });
     const until = Date.UTC(2026, 9, 2, 0, 0);
     const [quota] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'paused', paused: true, limitedUntil: until }) }), NOW, 'Asia/Tokyo').rows;
-    expect(quota).toMatchObject({ key: `sync|paused|quota|${until}`, tone: 'warn', title: '無料枠で停止 · 9:00 にリセット' });
+    expect(quota).toMatchObject({ key: `sync|paused|quota|${until}`, tone: 'warn', title: '無料枠の上限で停止 · 9:00 にリセット' });
   });
 
   // リマインダーはホームの帯（要対応）にあるので、注意には入れない（2026-10-13 の決定、9a）。
@@ -132,7 +132,7 @@ describe('presentNotices：事実から行を組む', () => {
   it('設定の同期で送らなかった項目があれば、件数を言う行にして、送らなかった項目の常設の行へ移る', () => {
     const [row] = presentNotices(initialState(), storeOf({ configSync: cfgSync({ unsent: 3 }) }), NOW).rows;
     expect(row).toMatchObject({ key: 'config|unsent|3', kind: 'config', tone: 'warn', icon: 'settings', kindLabel: '設定の同期', title: '送信しなかった項目 3 件', when: null, unread: true });
-    expect(row!.detail).toContain('それでも送る');
+    expect(row!.detail).toContain('それでも送信');
     expect(row!.action).toEqual({ label: '送信しなかった項目を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } });
   });
 
@@ -191,15 +191,15 @@ describe('presentNotices：事実から行を組む', () => {
   });
 
   it('注意の名前は、未読があれば数を添える', () => {
-    expect(presentNotices(initialState(), storeOf(), NOW).label).toBe('注意');
-    expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x' }) }), NOW).label).toBe('注意、未読 1 件');
+    expect(presentNotices(initialState(), storeOf(), NOW).label).toBe('通知');
+    expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x' }) }), NOW).label).toBe('通知、未読 1 件');
   });
 
   it('English では、同じ事実から英語の文を引く', () => {
     const old = dto('old', { hasTranscript: true, transcriptMtime: NOW - 27 * 86_400_000 });
     const store = storeOf({ settings: en, ...withSessions([paused('p', '2026-10-02', '08:35'), old]), sync: sync({ state: 'error', error: 'HTTP 503' }), readiness: compatSummary(1), retention: retention(), configSync: cfgSync({ unsent: 2 }) });
     const p = presentNotices(initialState(), store, NOW);
-    expect(p.label).toBe('Attention, 4 unread');
+    expect(p.label).toBe('Notifications, 4 unread');
     expect(p.rows.map((r) => [r.kindLabel, r.title])).toEqual([['Sync', 'Sync error'], ['Compatibility', 'Changes detected'], ['Retention', '1 session transcript will be deleted soon'], ['Config sync', '2 items not sent']]);
     expect(p.rows[1]!.detail).toBe('Claude Code 2.4.2: 1 change');
     expect(p.rows.map((r) => r.action.label)).toEqual(['Open sync settings', 'Open details', 'Extend retention…', 'Show unsent items']);

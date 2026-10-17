@@ -88,8 +88,8 @@ describe('入力待ちのカード', () => {
     const { onAction } = mount(props({ waiting: [card('s1')], more: 2, blocked: true }));
     const c = screen.getByRole('button', { name: '名前 s1 が入力待ちです：問い s1' });
     expect(c).toBeDisabled();
-    expect(c).toHaveAttribute('title', 'ダイアログを閉じてから開いてください');
-    expect(screen.queryByText('ダイアログを閉じてから開いてください')).toBeNull();
+    expect(c).toHaveAttribute('title', 'ダイアログを閉じてから操作してください');
+    expect(screen.queryByText('ダイアログを閉じてから操作してください')).toBeNull();
     expect(screen.getByRole('button', { name: 'ほか 2 件をホームで見る' })).toBeDisabled();
     fireEvent.click(screen.getByText('問い s1'));
     expect(onAction).not.toHaveBeenCalled();

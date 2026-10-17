@@ -9,7 +9,7 @@ export const summaryJa: AreaDictionary<typeof summaryKeys> = {
   'summary.claude.badStructuredOutput': 'structured_output がスキーマの形式に合っていません',
   'summary.lmstudio.noModel': '要約エンジンの URL でモデルが見つかりません',
   'summary.lmstudio.unreachable': '要約エンジンの URL に接続できません: {reason}',
-  'summary.lmstudio.redirected': '要約エンジンの宛先がリダイレクトを返しました。リダイレクト先へは送信しません。設定の「{label}」を確認してください',
+  'summary.lmstudio.redirected': '要約エンジンの接続先がリダイレクトを返しました。リダイレクト先へは送信しません。設定の「{label}」を確認してください',
   'summary.lmstudio.badStatus': '要約エンジンの URL が {status} を返しました',
   'summary.lmstudio.emptyContent': '本文が空です（思考モデルの可能性があります）',
   'summary.lmstudio.notJson': '本文が JSON ではありません',

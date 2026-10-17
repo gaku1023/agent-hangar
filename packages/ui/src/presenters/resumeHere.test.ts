@@ -15,13 +15,13 @@ const storeWith = (s: SessionDto, p: ProjectDto | null = project()): Store => ({
 const NO_ROOT = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
 
 describe('この PC で再開を押せるか（resumeHereOf）', () => {
-  it('ほかの PC の会話でなければ出さない', () => {
+  it('他の PC の会話でなければ出さない', () => {
     expect(resumeHereOf(storeWith(session({ remoteOnly: false })), session({ remoteOnly: false }), ja)).toBeNull();
   });
   it('この PC にプロジェクトの場所があれば押せる', () => {
     expect(resumeHereOf(storeWith(session()), session(), ja)).toEqual({ disabled: null, noRoot: null });
   });
-  it('この PC にプロジェクトの場所が無い（ほかの PC から届いただけ、見つからない）なら、理由と場所の指定の先を返す', () => {
+  it('この PC にプロジェクトの場所が無い（他の PC から届いただけ、見つからない）なら、理由と場所の指定の先を返す', () => {
     for (const unresolved of [{ kind: 'elsewhere' as const, previousPath: 'D:\\src\\notes-app', deviceName: 'work-pc' }, { kind: 'missing' as const, previousPath: '/gone', deviceName: null }]) {
       const s = session();
       expect(resumeHereOf(storeWith(s, project({ resolved: false, path: null, unresolved })), s, ja)).toEqual({ disabled: NO_ROOT, noRoot: { reason: NO_ROOT, projectId: 'p1' } });
@@ -32,7 +32,7 @@ describe('この PC で再開を押せるか（resumeHereOf）', () => {
     const s = session();
     expect(resumeHereOf(storeWith(s, project({ isScratch: true, resolved: false, path: null, unresolved: null })), s, ja)?.noRoot).toBeNull();
   });
-  it('ほかの PC で実行中（生きたロック）でも押せる（理由にしない）。場所が無ければ場所を理由にする', () => {
+  it('他の PC で実行中（生きたロック）でも押せる（理由にしない）。場所が無ければ場所を理由にする', () => {
     const s = session({ lock: lock() });
     expect(resumeHereOf(storeWith(s), s, ja)?.disabled).toBeNull();
     const r = resumeHereOf(storeWith(s, project({ resolved: false, path: null, unresolved: { kind: 'elsewhere', previousPath: null, deviceName: null } })), s, ja)!;
@@ -41,7 +41,7 @@ describe('この PC で再開を押せるか（resumeHereOf）', () => {
   });
 });
 
-describe('ほかの PC の続きの方が新しい会話（A → B → A）', () => {
+describe('他の PC の続きの方が新しい会話（A → B → A）', () => {
   const back = session({ remoteOnly: false, newerElsewhere: true });
   it('手元にトランスクリプトがあっても「この PC で再開」を出す', () => {
     expect(resumeHereOf(storeWith(back), back, ja)).toEqual({ disabled: null, noRoot: null });
@@ -55,7 +55,7 @@ describe('ほかの PC の続きの方が新しい会話（A → B → A）', ()
   it('一覧の行の「⋯」にも「この PC で再開」を足す', () => {
     expect(presentSessionRow(back, storeWith(back), NOW).resumeHere).toEqual({ disabled: null });
   });
-  it('ほかの PC で実行中（生きたロック）でも押せる（確認の 1 枚で停止して引き継ぐ）', () => {
+  it('他の PC で実行中（生きたロック）でも押せる（確認の 1 枚で停止して引き継ぐ）', () => {
     const s = session({ remoteOnly: false, newerElsewhere: true, lock: lock() });
     expect(presentSession(initialState(), storeWith(s), NOW, 's1').actions.primary).toMatchObject({ id: 'resumeHere', disabled: null });
   });
@@ -81,7 +81,7 @@ describe('セッション画面の見出しと一覧の行', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: true, hasTranscript: true, canResume: false, canFork: false, canResumeHere: true, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
     expect(sessionActions(facts, ja).primary).toMatchObject({ id: 'resumeHere', disabled: null });
   });
-  it('一覧の行は、ほかの PC の会話にだけ「この PC で再開」を持ち、押せない理由を添える', () => {
+  it('一覧の行は、他の PC の会話にだけ「この PC で再開」を持ち、押せない理由を添える', () => {
     expect(presentSessionRow(session(), storeWith(session(), lost), NOW).resumeHere).toEqual({ disabled: NO_ROOT });
     expect(presentSessionRow(session(), storeWith(session()), NOW).resumeHere).toEqual({ disabled: null });
     expect(presentSessionRow(session({ remoteOnly: false }), storeWith(session({ remoteOnly: false })), NOW).resumeHere).toBeUndefined();
@@ -113,9 +113,9 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
   });
   it('手元のトランスクリプトを置き換えるときは、バックアップに残すことを 1 行で言い、承諾は上書きつきにする（A → B → A）', () => {
     const ahead = presentResumeHere(ja, { ...plan, replace: { kind: 'ahead', localSize: 10, remoteSize: 99 } }, '/Users/me', NOW);
-    expect(ahead).toMatchObject({ replace: 'この PC の古いトランスクリプトはバックアップに残し、他の PC で進めた続きから再開します。', overwrite: true, action: 'この PC で再開' });
+    expect(ahead).toMatchObject({ replace: 'この PC の古いトランスクリプトはバックアップに保存し、他の PC で進めた続きから再開します。', overwrite: true, action: 'この PC で再開' });
     const diverged = presentResumeHere(ja, { ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } }, '/Users/me', NOW);
-    expect(diverged).toMatchObject({ replace: 'この PC で進めた続きはバックアップに残し、他の PC の続きから再開します。', overwrite: true });
+    expect(diverged).toMatchObject({ replace: 'この PC で進めた続きはバックアップに保存し、他の PC の続きから再開します。', overwrite: true });
     expect(presentResumeHere(translator('en'), { ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } }, '/Users/me', NOW).replace).toMatch(/backup/);
   });
   it('分からない名前と OS は言い換え、この PC で場所が決まらなければ押せなくして理由を言う', () => {
@@ -125,7 +125,7 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
     expect(p.to).toMatchObject({ name: 'この PC', os: 'Linux', path: null });
     expect(p.blocked).toBe(NO_ROOT);
   });
-  it('ほかの PC のクイックセッションは、作って再開するフォルダのパスと、作ることの 1 行を出し、場所の指定は求めない（6A）', () => {
+  it('他の PC のクイックセッションは、作って再開するフォルダのパスと、作ることの 1 行を出し、場所の指定は求めない（6A）', () => {
     const quick: ResumeHerePlanDto = { ...plan, from: { ...plan.from, path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010' }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/.agent-hangar/quick-sessions/20261016-101010', createsFolder: true } };
     const p = presentResumeHere(ja, quick, '/Users/me', NOW);
     expect(p.to).toEqual({ label: 'この PC', name: 'this-mac', os: 'macOS', path: '~/.agent-hangar/quick-sessions/20261016-101010', at: null, note: 'クイックセッションの保存先に同じ名前の空のディレクトリを作成して、そこで再開します' });
@@ -142,7 +142,7 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
   });
 });
 
-describe('ほかの PC で動いている会話を引き継ぐ確認（presentResumeHere）', () => {
+describe('他の PC で動いている会話を引き継ぐ確認（presentResumeHere）', () => {
   const plan = (lockOver: Partial<NonNullable<ResumeHerePlanDto['lock']>> | null): ResumeHerePlanDto => ({
     sessionId: 's1',
     from: { deviceName: 'pc-b', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: NOW - 3_600_000 },
@@ -155,8 +155,8 @@ describe('ほかの PC で動いている会話を引き継ぐ確認（presentRe
   });
   it('生きた相手には実行中の帯 1 本と「停止して引き継ぐ」（作業中かどうかは共有しないので出し分けない）', () => {
     const p = presentResumeHere(ja, plan({ stale: false }), null, NOW);
-    expect(p).toMatchObject({ mode: 'takeover', title: 'ほかの PC で実行中の会話を、この PC で引き継ぎますか', action: '停止して引き継ぐ' });
-    expect(p.takeover).toEqual({ strong: 'pc-b で実行中です', text: '停止すると、作業中のターンは途中で切れます。そのあと、この PC で再開します。' });
+    expect(p).toMatchObject({ mode: 'takeover', title: '他の PC で実行中の会話を、この PC で引き継ぎますか', action: '停止して引き継ぐ' });
+    expect(p.takeover).toEqual({ strong: 'pc-b で実行中です', text: '停止すると、作業中のターンは中断されます。そのあと、この PC で再開します。' });
     // カードと黄の帯は今のまま。
     expect(p.band.strong).toBe('プロジェクトのファイル、未コミットの変更、開発環境（ツール、環境変数、シークレット）は同期されません。');
   });
@@ -186,9 +186,9 @@ describe('引き継ぎの待ちと返事がないとき（presentTakeover）', (
     const p = presentTakeover(ja, plan, { ...dto, stage: 'waiting' });
     expect(p.kind).toBe('progress');
     expect(p.title).toBe('pc-b から引き継いでいます');
-    expect(p.steps.map((s) => s.label)).toEqual(['停止を依頼しました', 'pc-b が停止するのを待っています', '最後のトランスクリプトを受け取る', 'この PC で再開する']);
+    expect(p.steps.map((s) => s.label)).toEqual(['停止を要求しました', 'pc-b が停止するのを待っています', '最新のトランスクリプトを受信', 'この PC で再開する']);
     expect(states(p)).toEqual(['done', 'active', 'todo', 'todo']);
-    expect(p.hint).toBe('pc-b の Hangar がクラウドを見に来るまで、最大 30 秒ほどかかります。');
+    expect(p.hint).toBe('pc-b の Hangar が次にクラウドを確認するまで、最大 30 秒ほどかかります。');
     expect(p).toMatchObject({ sessionId: 's1', startedAt: 1_000, deadline: 1_000 + TAKEOVER_TIMEOUT_MS, band: null });
   });
   it('asking と、応答待ち（null）は 1 段目が進行中', () => {
@@ -206,9 +206,9 @@ describe('引き継ぎの待ちと返事がないとき（presentTakeover）', (
     const p = presentTakeover(ja, plan, { ...dto, stage: 'timeout' });
     expect(p).toMatchObject({
       kind: 'timeout',
-      title: 'pc-b から返事がありません',
+      title: 'pc-b から応答がありません',
       lead: 'pc-b の Hangar が閉じているか、ネットワークに接続されていない可能性があります。',
-      band: { strong: 'このまま引き継ぐと、会話が分かれることがあります', text: 'pc-b の claude はまだ実行中の可能性があります。そちらで続きが書かれると、その分はこの PC の会話に入りません。claude は、次に pc-b で Hangar が起動したときに停止します。' },
+      band: { strong: 'このまま引き継ぐと、会話が分かれることがあります', text: 'pc-b の claude はまだ実行中の可能性があります。pc-b で会話が続いた場合、その部分はこの PC の会話に含まれません。claude は、次に pc-b で Hangar が起動したときに停止します。' },
       hint: null,
     });
     expect(p.steps).toEqual([]);

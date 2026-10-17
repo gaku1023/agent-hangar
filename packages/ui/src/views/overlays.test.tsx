@@ -183,7 +183,7 @@ describe('CommandPalette の選択を見える位置に保つ（C2）', () => {
   let calls: { el: Element; arg: unknown }[] = [];
   beforeEach(() => {
     calls = [];
-    // jsdom は scrollIntoView を実装していないので、呼ばれたことだけを見る。
+    // jsdom は scrollIntoView を実装していないので、呼ばれたことだけを表示。
     (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = function (this: Element, arg: unknown) { calls.push({ el: this, arg }); };
   });
   afterEach(() => { delete (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView; });
@@ -214,7 +214,7 @@ describe('PromoteDialog', () => {
     expect(name.getAttribute('id')).toBe('promote-name');
     fireEvent.change(name, { target: { value: 'newp' } });
     fireEvent.click(screen.getByLabelText('git init を実行'));
-    fireEvent.click(screen.getByText('昇格'));
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクトにする' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: true });
   });
 
@@ -224,10 +224,10 @@ describe('PromoteDialog', () => {
     const p = { sessionId: 's1', sessionName: 'x', runAlive: false, submitting: false, error: null };
     const { rerender } = render(<ActionRoot onAction={onAction}><PromoteDialog {...p} place={{ workspaceRoot: '', desktop: true, picked: null }} /></ActionRoot>);
     fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'newp' } });
-    expect(screen.getByRole('button', { name: '昇格' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'プロジェクトにする' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '選択…、作成先' }));
     rerender(<ActionRoot onAction={onAction}><PromoteDialog {...p} place={{ workspaceRoot: '', desktop: true, picked: { path: '/Users/me/src', n: 1 } }} /></ActionRoot>);
-    fireEvent.click(screen.getByRole('button', { name: '昇格' }));
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクトにする' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: true, moveFiles: true, parent: '/Users/me/src' });
   });
   it('run が生きているとファイルを移動できない', () => {
@@ -240,7 +240,7 @@ describe('PromoteDialog', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><PromoteDialog sessionId="s1" sessionName="x" runAlive submitting={false} error={null} /></ActionRoot>);
     fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'newp' } });
-    fireEvent.click(screen.getByText('昇格'));
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクトにする' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: true, moveFiles: false });
   });
 
@@ -255,7 +255,7 @@ describe('PromoteDialog', () => {
 
   it('送信中はボタンを止め、失敗は文言で出す', () => {
     render(<ActionRoot onAction={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting error="同じ名前があります" /></ActionRoot>);
-    expect((screen.getByText('昇格') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'プロジェクトにする' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('同じ名前があります')).toBeTruthy();
   });
 
@@ -339,7 +339,7 @@ describe('PromotedDialog', () => {
   // 器を広げ、ボタンの中では折り返さず、入り切らないときはボタンごと次の行へ落とす。
   it('ボタンが語の途中で折り返さない', () => {
     render(<ActionRoot onAction={() => {}}><PromotedDialog projectId="p9" projectName="newp" moved reason={null} /></ActionRoot>);
-    const dialog = screen.getByRole('dialog', { name: 'newp に昇格しました' });
+    const dialog = screen.getByRole('dialog', { name: 'プロジェクト newp を作成しました' });
     expect(dialog.classList.contains('dialog-wide')).toBe(true);
     expect(dialog.classList.contains('dialog-promote')).toBe(true);
     expect(paletteCss).toContain('.dialog-promote .btn { white-space: nowrap; }');

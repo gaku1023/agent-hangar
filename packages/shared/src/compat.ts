@@ -34,8 +34,13 @@
  * 共有表（rows）には足さないので、版 6 の端末が同期から締め出されることはない（MIN_DEVICE_COMPAT は 6 のまま）。
  * 端末は、Worker が名乗る版が MOBILE_MIN_WORKER_COMPAT に届くまで、スマホ向けの書き込みも依頼の処理もしない。
  *
+ * 版 8（スマホ版 0.8.0-rc.2、2026-10-17）：Worker が、呼び鈴（Durable Object。PC と WebSocket でつなぎっぱなし）と、問い合わせの口（POST /m/ask）、画像の口（/m/blobs/）を持つ。
+ * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 6 と 7 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 6 のまま）。
+ * 端末は、Worker が名乗る版が MOBILE_BELL_MIN_WORKER_COMPAT に届くまで呼び鈴を張らず、起動は今までどおり 30 秒の pull で動く。
+ *
  * 版 9（E2E の作り直し）：Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密をやめ、参加コードと承認で参加する。
  * 古い表は読まず、版 8 以下の PC とは話せないので、MIN_DEVICE_COMPAT を 9 に上げ、版 8 以下の PC を 426 で断る。
+ * 呼び鈴と問い合わせと画像の口（版 8）はそのまま持つ。
  *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
@@ -71,6 +76,13 @@ export const TAKEOVER_MIN_WORKER_COMPAT = 6;
  * 設定の画面で「Worker を更新すると使えます」と案内する。端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
  */
 export const MOBILE_MIN_WORKER_COMPAT = 7;
+
+/**
+ * 呼び鈴（Durable Object）と、問い合わせ（/m/ask）、画像（/m/blobs/）の口を持つ Worker の版。
+ * 版 7 までの Worker はこの口を 404 で返す。端末は、Worker が名乗る版がこの値に届くまで呼び鈴を張らない。
+ * 端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
+ */
+export const MOBILE_BELL_MIN_WORKER_COMPAT = 8;
 
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';

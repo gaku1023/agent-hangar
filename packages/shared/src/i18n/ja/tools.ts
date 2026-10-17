@@ -2,7 +2,7 @@ import type { toolsKeys } from '../keys/tools.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const toolsJa: AreaDictionary<typeof toolsKeys> = {
-  'tools.edit.replaceAll': 'すべて置き換え',
+  'tools.edit.replaceAll': 'すべて置換',
   'tools.edit.hunk': '@@ {n} か所目 @@',
   'tools.edit.count': '{n} か所',
   'tools.lines.count': '{n} 行',

@@ -99,7 +99,7 @@ describe('probeAuthorized', () => {
 describe('serverDownMessage', () => {
   it('サーバが居ないときは hangar start を案内し、鍵は出さない', () => {
     const m = serverDownMessage(4177);
-    expect(m).toContain('サーバが動いていません');
+    expect(m).toContain('サーバーが起動していません');
     expect(m).toContain('hangar start');
     expect(m).toContain('4177');
     expect(m.split('\n')).toHaveLength(1);
@@ -110,7 +110,7 @@ describe('startErrorMessage', () => {
   it('EADDRINUSE は日本語の 1 行にして、スタックを出さない', () => {
     const e = Object.assign(new Error('listen EADDRINUSE: address already in use 127.0.0.1:4191'), { code: 'EADDRINUSE' });
     const m = startErrorMessage(e, 4191);
-    expect(m).toContain('ポート 4191 は既に使われています');
+    expect(m).toContain('ポート 4191 はすでに使われています');
     expect(m).not.toContain('EADDRINUSE');
     expect(m).not.toContain('at ');
     expect(m.split('\n')).toHaveLength(1);
@@ -135,7 +135,7 @@ describe('oneLineError', () => {
   it('スタックの付いた例外も、文字列でない例外も 1 行にする', () => {
     expect(oneLineError(new Error('壊れた\n    at x (y:1:1)'))).toBe('壊れた');
     expect(oneLineError('ただの文字列')).toBe('ただの文字列');
-    expect(oneLineError(new Error(''))).toBe('原因の分からない失敗です');
+    expect(oneLineError(new Error(''))).toBe('原因不明のエラーです');
   });
 });
 

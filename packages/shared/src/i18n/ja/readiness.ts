@@ -4,7 +4,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const readinessJa: AreaDictionary<typeof readinessKeys> = {
   'readiness.fix.claude': 'claude コマンドの絶対パスを入力してください',
   'readiness.fix.git': 'git をインストールしてください。git がなくても動作しますが、ブランチと未コミットの件数は表示されません',
-  'readiness.fix.node': '同梱のサーバに対応するバージョンとアーキテクチャの Node を、node の実行ファイルの絶対パスで入力してください',
+  'readiness.fix.node': '同梱のサーバーに対応するバージョンとアーキテクチャの Node を、node の実行ファイルの絶対パスで入力してください',
   'readiness.fix.workspace': '空にするか、別のディレクトリを選択してください',
   'readiness.problem.unset': '見つかりません',
   'readiness.problem.notFile': '{path} はファイルではありません',

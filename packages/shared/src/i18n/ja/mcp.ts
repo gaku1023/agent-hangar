@@ -2,9 +2,9 @@ import type { mcpKeys } from '../keys/mcp.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const mcpJa: AreaDictionary<typeof mcpKeys> = {
-  'mcp.scope.sessionOnly': 'この MCP の URL はセッション {sessionId} 専用です。ほかの session_id は指定できません',
+  'mcp.scope.sessionOnly': 'この MCP の URL はセッション {sessionId} 専用です。他の session_id は指定できません',
   'mcp.scope.noProject': 'このセッションはまだプロジェクトに属していないため、プロジェクトのツールは使えません',
-  'mcp.scope.projectOnly': 'この MCP の URL はプロジェクト {projectId} に閉じています。ほかの project_id は指定できません',
+  'mcp.scope.projectOnly': 'この MCP の URL はプロジェクト {projectId} に閉じています。他の project_id は指定できません',
   'mcp.args.sessionIdRequired': 'session_id が必要です（セッション別 URL では省略できます）',
   'mcp.args.projectIdRequired': 'project_id が必要です',
   'mcp.args.oneOf': '{field} は {values} のいずれかです',
@@ -15,7 +15,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.addTodos.notArray': 'add_todos は、文字列か { text, note } の配列です',
   'mcp.addTodos.badItem': 'add_todos の各項目は、文字列か、text の文字列（と省ける note の文字列）を持つ { text, note } です',
   'mcp.addTodos.noteTooLong': 'add_todos の note は {max} 字までです',
-  'mcp.updateProject.memoRetired': 'プロジェクトのノートは廃止したので、append_memo は書きませんでした。残したいことは、CLAUDE.md などの指示ファイルに書いてください。',
+  'mcp.updateProject.memoRetired': 'プロジェクトのノートは廃止したため、append_memo は保存しませんでした。記録したい内容は、CLAUDE.md などの指示ファイルに書いてください。',
   'mcp.error.sessionNotFound': 'セッションが見つかりません: {id}',
   'mcp.error.projectNotFound': 'プロジェクトが見つかりません: {id}',
   'mcp.error.todoNotFound': 'TODO が見つかりません: {id}',
@@ -33,7 +33,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.sessionStatus.confirmedParam': 'ユーザーが会話の中で選んだときだけ true',
   'mcp.tool.listProjects': 'プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終アクティビティを返す。',
   'mcp.tool.getProject': 'プロジェクトの詳細。TODO、直近のセッション、アーティファクト。',
-  'mcp.tool.updateProject': 'プロジェクトのステータスを変え、TODO を追加し、片付いた TODO を完了の候補として出す。完了にするのはユーザーである。propose_done には TODO の ID と根拠の一文（200 字まで）を渡す。toggle_todos は完了を開き直すか、未完を根拠なしの候補にする。add_todos で追加した TODO は、ユーザーが受け入れるまで提案として置かれる。{ text, note } で理由を添えられる。',
+  'mcp.tool.updateProject': 'プロジェクトのステータスを変更し、TODO を追加し、片付いた TODO を完了の候補として出す。完了にするのはユーザーである。propose_done には TODO の ID と根拠の一文（200 字まで）を渡す。toggle_todos は完了を開き直すか、未完を根拠なしの候補にする。add_todos で追加した TODO は、ユーザーが受け入れるまで提案として置かれる。{ text, note } で理由を添えられる。',
   'mcp.tool.listSessions': 'セッションの一覧。project_id、running、limit で絞る。',
   'mcp.tool.searchSessions': '過去のセッションを全文検索する。題名、要約の 1 文、一致箇所の抜粋、再開コマンド、最後に動かした PC（device。here はこの PC か）を返す。',
   'mcp.tool.getTranscript': 'セッションのトランスクリプトを正規化イベントで返す。セッション別 URL では session_id を省ける。',
@@ -41,6 +41,6 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.setSessionSummary': 'このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。',
   'mcp.tool.setTurnIntent': 'このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。ターンを始めたときと方針を変えたときに呼ぶ。hangar の右パネルに表示される。',
   'mcp.tool.proposeSessionStatus': 'このセッションのステータス（Done か Paused）を提案する。ユーザーが会話の中で選んだときだけ confirmed を true にする。ユーザーに聞かずに true にしてはいけない。',
-  'mcp.tool.getUsage': 'Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。ステータスラインから届いた最新の値。上の 3 項目はメインアカウントの値で、accounts にアカウントごとの値（名前、現在使っているか、同じ 3 項目）が並ぶ。',
+  'mcp.tool.getUsage': 'Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。ステータスラインから受信した最新の値。上の 3 項目はメインアカウントの値で、accounts にアカウントごとの値（名前、現在使っているか、同じ 3 項目）が並ぶ。',
   'mcp.tool.openInHangar': 'セッションかプロジェクトを hangar の UI で開く URL とディープリンクを返す。',
 };

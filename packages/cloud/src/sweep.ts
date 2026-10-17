@@ -1,4 +1,5 @@
 import type { Env } from './env.ts';
+import { IMAGE_KEEP_MS } from './mobileBlobs.ts';
 
 /**
  * R2 と D1 の食い違いを後から拾う掃除である。
@@ -18,13 +19,13 @@ import type { Env } from './env.ts';
  * 索引の方は `delete` に猶予の条件を持たせて、消す文そのものが新しい行を外す形にした（窓は無い）。
  * R2 の方は条件付きの削除が無いので、消す直前に索引と `head` を取り直して窓を 1 往復ぶんまで縮めてある。
  *
- * 1 回の掃除が D1 に書くのは、当番の印と続きの控え 2 行の計 3 行に、消した索引の行を足したものである。
+ * 1 回の掃除が D1 に書くのは、当番の印と続きの控え 3 行の計 4 行に、消した索引の行を足したものである。
  * 消す索引の行は途中で倒れた分だけで、1 回に 50 行までである。
- * 1 日 4 回でも、ふつうは 12 行ほど、多くても 212 行である（無料枠は 1 日 10 万行）。
- * R2 の側は 1 回につき一覧が 1 回（class A）と存在の確認が 50 回（class B）までで、
- * 1 か月に直しても class A が 1 万分の 1 ほどにしかならない。
+ * 1 日 4 回でも、ふつうは 16 行ほど、多くても 216 行である（無料枠は 1 日 10 万行）。
+ * R2 の側は 1 回につき一覧が 2 回（class A）と存在の確認が 100 回（class B）までで、
+ * 1 か月に直しても class A が 4 千分の 1 ほどにしかならない。
  *
- * 見るのは `b/` の下の鍵だけである（互換の版 9 の鍵名、shared の e2e/names.ts）。
+ * 見るのは `b/` の下の鍵（互換の版 9 の鍵名、shared の e2e/names.ts）と、`mobile/` の下のスマホの画像だけである。
  * 利用者が削除したセッションの写しは、Worker では消さない（行の中身を読めないため）。
  * 30 日の判定は PC が手元で行い、`DELETE /blobs`（files.ts）で消す。
  */
@@ -45,8 +46,13 @@ export const SWEEP_LIST_LIMIT = 50;
 /** 1 回に確かめる索引の行数。 */
 export const SWEEP_INDEX_LIMIT = 50;
 
-/** 掃除が見る R2 の鍵の頭。これの外の鍵（版 8 までの鍵名など）には触らない。 */
+/** スマホの画像の一覧の続き。`b/` の続きとは別に控える。 */
+export const META_SWEEP_IMAGE_CURSOR = 'sweep_image_cursor';
+
+/** 掃除が見る R2 の鍵の頭。これと IMAGE_PREFIX の外の鍵（版 8 までの鍵名など）には触らない。 */
 export const SWEEP_PREFIX = 'b/';
+/** スマホの画像の鍵の頭（mobileBlobs.ts）。 */
+export const IMAGE_PREFIX = 'mobile/';
 
 export type SweepResult = {
   /** 索引に無いので消した R2 の鍵。 */
@@ -102,9 +108,10 @@ export async function sweepIfDue(env: Env, now: number): Promise<SweepResult | n
 export async function sweepOnce(env: Env, now: number): Promise<SweepResult> {
   const db = env.DB;
   const bodies = await sweepBodies(env, now);
+  const images = await sweepPhoneImages(env, now);
   const entries = await sweepEntries(env, now);
-  await db.batch([putMeta(db, META_SWEEP_CURSOR, bodies.cursor), putMeta(db, META_SWEEP_SEQ, String(entries.seq))]);
-  return { bodies: bodies.deleted, entries: entries.deleted };
+  await db.batch([putMeta(db, META_SWEEP_CURSOR, bodies.cursor), putMeta(db, META_SWEEP_IMAGE_CURSOR, images.cursor), putMeta(db, META_SWEEP_SEQ, String(entries.seq))]);
+  return { bodies: [...bodies.deleted, ...images.deleted], entries: entries.deleted };
 }
 
 /** R2 の `b/` の下を一覧し、索引に無い本体を消す。 */
@@ -126,6 +133,32 @@ async function sweepBodies(env: Env, now: number): Promise<{ deleted: string[]; 
   const still = await unreferenced(env, doomed);
   const heads = await Promise.all(still.map((k) => env.BUCKET.head(k)));
   const safe = still.filter((_, i) => {
+    const h = heads[i];
+    return !!h && h.uploaded.getTime() < cutoff;
+  });
+  if (safe.length) await env.BUCKET.delete(safe);
+  return { deleted: safe, cursor: next };
+}
+
+/**
+ * R2 の `mobile/` の下を一覧し、残す時間を過ぎたスマホの画像を消す。
+ *
+ * スマホの画像は `files` の索引に載らないので、索引では判定しない（mobileBlobs.ts）。
+ * 置いてから IMAGE_KEEP_MS（24 時間）より古いものだけを消す。
+ * ふだんは PC の答えと、スマホが置くときの掃除で消える。
+ * 解除したスマホの画像は、その掃除が二度と走らないので、ここでしか消えない。
+ * 一覧の続きは `b/` とは別に控える。
+ */
+async function sweepPhoneImages(env: Env, now: number): Promise<{ deleted: string[]; cursor: string }> {
+  const cutoff = now - IMAGE_KEEP_MS;
+  const cursor = (await readMeta(env.DB, META_SWEEP_IMAGE_CURSOR)) ?? '';
+  const listed = await env.BUCKET.list({ prefix: IMAGE_PREFIX, limit: SWEEP_LIST_LIMIT, cursor: cursor === '' ? undefined : cursor });
+  const next = listed.truncated ? listed.cursor : '';
+  const old = listed.objects.filter((o) => o.uploaded.getTime() < cutoff).map((o) => o.key);
+  if (old.length === 0) return { deleted: [], cursor: next };
+  // 同じ鍵に置き直されたかを、消す直前の `uploaded` の新しさで見る。
+  const heads = await Promise.all(old.map((k) => env.BUCKET.head(k)));
+  const safe = old.filter((_, i) => {
     const h = heads[i];
     return !!h && h.uploaded.getTime() < cutoff;
   });

@@ -85,7 +85,7 @@ describe('AddAccountDialog', () => {
     expect(screen.getByText('設定ディレクトリに同じ名前の実ファイルがあるときは、変更せずに通知します。')).toBeInTheDocument();
     fireEvent.change(nameField(), { target: { value: 'univ' } });
     rerender({ preview: preview({ name: 'univ', dir: `${HOME}/.claude-univ`, exists: true, conflicts: ['settings.json', 'skills'] }) });
-    expect(screen.getByText('~/.claude-univ には settings.json、skills が実ファイルとしてあります。上書きせずに残します。共有するときは、中身を確認してから削除してください。')).toBeInTheDocument();
+    expect(screen.getByText('~/.claude-univ には settings.json、skills が実ファイルとしてあります。上書きしません。共有するときは、中身を確認してから削除してください。')).toBeInTheDocument();
     rerender({ preview: preview({ name: 'univ', dir: `${HOME}/.claude-univ`, exists: true }) });
     expect(screen.getByText('この設定ディレクトリはすでにあります。足りないリンクだけを追加します。')).toBeInTheDocument();
   });

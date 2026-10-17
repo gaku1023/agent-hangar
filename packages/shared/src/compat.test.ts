@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
+import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
@@ -11,6 +11,13 @@ describe('互換の版番号', () => {
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
     expect(compatHeaders()).toEqual({ 'x-hangar-compat': '9' });
   });
+
+  it('版 8 は呼び鈴と画像を知る Worker の版', () => {
+    expect(COMPAT_VERSION).toBeGreaterThanOrEqual(8);
+    expect(MOBILE_BELL_MIN_WORKER_COMPAT).toBe(8);
+    expect(shared.MOBILE_BELL_MIN_WORKER_COMPAT).toBe(8);
+  });
+
 
   it('版 7 はスマホ向けの口を知る Worker の版', () => {
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(7);

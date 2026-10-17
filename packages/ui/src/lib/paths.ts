@@ -7,18 +7,12 @@
  * Windows の形では `\` と `/` のどちらも区切りとして読む。
  * macOS と Linux の形では `\` は名前に使える字なので、区切りにしない（これまでの表示を変えないため）。
  */
+import { isWindowsPath } from '@agent-hangar/shared';
 import { clientPlatform } from '../keys.ts';
 
+export { isWindowsPath };
+
 export type Sep = '/' | '\\';
-
-const DRIVE = /^[A-Za-z]:(?=[\\/]|$)/;
-
-/** Windows の形のパスか。ドライブ（`C:`）、UNC（`\\server`）、`~\`、`\` を含む相対パスを Windows の形とみる。 */
-export function isWindowsPath(p: string): boolean {
-  if (DRIVE.test(p) || p.startsWith('\\\\')) return true;
-  if (p.startsWith('/') || p.startsWith('~/')) return false;
-  return p.includes('\\');
-}
 
 /** 区切りの位置か。Windows の形では `\` と `/` の両方、そうでなければ `/` だけ。 */
 const sepTest = (win: boolean) => (c: string | undefined): boolean => c === '/' || (win && c === '\\');

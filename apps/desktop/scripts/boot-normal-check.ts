@@ -234,15 +234,15 @@ async function run(a: Args): Promise<void> {
   // 2. 殻が nodePath の Node で、.app の中の同梱サーバを起こした。
   const log = desktop();
   if (log.node !== a.node) throw new Failed(`殻が nodePath の Node を使っていない（使ったのは ${String(log.node)}、指したのは ${a.node}）`);
-  if (log.serverDir !== a.serverDir) throw new Failed(`殻が起こしたサーバの置き場が ${String(log.serverDir)}（期待は ${a.serverDir}）`);
-  if (log.serverPid === null) throw new Failed('殻が起こしたサーバの pid が desktop.log に無い（4177 の別のサーバを採ったかもしれない）');
+  if (log.serverDir !== a.serverDir) throw new Failed(`殻が起こしたサーバーの置き場が ${String(log.serverDir)}（期待は ${a.serverDir}）`);
+  if (log.serverPid === null) throw new Failed('殻が起こしたサーバーの pid が desktop.log に無い（4177 の別のサーバーを採ったかもしれない）');
   const serverPid = log.serverPid;
   say(`殻が使った Node: ${log.node}（${output(a.node, ['--version']).trim()}）`);
-  say(`同梱サーバ: ${log.serverDir}（pid ${serverPid}）`);
+  say(`同梱サーバー: ${log.serverDir}（pid ${serverPid}）`);
 
   // 3. サーバは殻の子で、殻の server_command が渡す環境を持つ。
   const ppid = Number(output('ps', ['-o', 'ppid=', '-p', String(serverPid)]).trim());
-  if (ppid !== a.shellPid) throw new Failed(`サーバ（pid ${serverPid}）の親が ${ppid}（殻は ${a.shellPid}）`);
+  if (ppid !== a.shellPid) throw new Failed(`サーバー（pid ${serverPid}）の親が ${ppid}（殻は ${a.shellPid}）`);
   const ps = output('ps', ['-E', '-ww', '-o', 'command=', '-p', String(serverPid)]).trim();
   const want = {
     HANGAR_UI_DIST: path.join(a.serverDir, 'ui'),
@@ -252,12 +252,12 @@ async function run(a: Args): Promise<void> {
     PATH: expectedServerPath(a.pathBase, a.userHome, path.dirname(a.node)),
   };
   const wrong = envMismatches(ps, want);
-  if (wrong.length > 0) throw new Failed(`サーバの環境が殻の渡すものと違う: ${wrong.join('、')}`);
-  say(`サーバの環境: ${Object.entries(want).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+  if (wrong.length > 0) throw new Failed(`サーバーの環境が殻の渡すものと違う: ${wrong.join('、')}`);
+  say(`サーバーの環境: ${Object.entries(want).map(([k, v]) => `${k}=${v}`).join(' ')}`);
 
   // 4. 鍵付きの GET / が HANGAR_UI_DIST の index.html を返し、そこから読む資産も返る。
   const token = (read(path.join(a.hangarHome, 'token')) ?? '').trim();
-  if (!token) throw new Failed('サーバが入場の鍵（token）を書いていない');
+  if (!token) throw new Failed('サーバーが入場の鍵（token）を書いていない');
   const page = await get(`${base}/?t=${encodeURIComponent(token)}`);
   const index = read(path.join(a.serverDir, 'ui', 'index.html'));
   if (!page || page.status !== 200) throw new Failed(`鍵付きの GET / が ${page ? page.status : '応えない'}`);
@@ -271,16 +271,16 @@ async function run(a: Args): Promise<void> {
   // 5. 殻が画面をサーバへ移し、WebKit がサーバへつないだ。起動画面が失敗の札を出していれば落とす。
   let ready: Verdict = judgeReady(null);
   let clients: { pid: number; command: string }[] = [];
-  await until('画面がサーバへ移らない', async () => {
+  await until('画面がサーバーへ移らない', async () => {
     ready = judgeReady(read(a.probe));
     if (ready.done && !ready.ok) throw new Failed(ready.message);
     if (!desktop().navigated) return '殻が画面をまだ移していない';
     clients = webkitClients(output('lsof', ['-nP', `-iTCP@127.0.0.1:${a.port}`, '-sTCP:ESTABLISHED', '-F', 'pc']), serverPid);
-    if (clients.length === 0) return '殻は画面を移したが、WebKit がサーバへつないでいない';
+    if (clients.length === 0) return '殻は画面を移したが、WebKit がサーバーへつないでいない';
     return null;
   });
   say(ready.ok ? ready.message : `起動画面は読み込みの合図を描く前に移った（書き出し: ${ready.message}）`);
-  say(`画面がサーバへ移った（${clients.map((c) => `${c.command} pid ${c.pid}`).join('、')} がつないでいる）`);
+  say(`画面がサーバーへ移った（${clients.map((c) => `${c.command} pid ${c.pid}`).join('、')} がつないでいる）`);
 
   // 画面を撮る。描き終わるのを少し待つ。ランナーで画面の収録が許されていなければ撮れない。撮れなくても落とさない。
   if (a.shot) {
@@ -297,8 +297,8 @@ async function run(a: Args): Promise<void> {
   process.kill(a.shellPid, 'SIGTERM');
   const gone = Date.now() + 20_000;
   while (alive(serverPid) && Date.now() < gone) await sleep(250);
-  if (alive(serverPid)) throw new Failed(`殻が終わって 20 秒たっても、サーバ（pid ${serverPid}）が残っている`);
-  say('殻を止めると、サーバも降りた');
+  if (alive(serverPid)) throw new Failed(`殻が終わって 20 秒たっても、サーバー（pid ${serverPid}）が残っている`);
+  say('殻を止めると、サーバーも降りた');
 }
 
 async function main(argv: string[]): Promise<number> {

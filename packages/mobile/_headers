@@ -1,12 +1,8 @@
 # wrangler の assets が読む。build の後に vite.config.ts が dist/_headers へ写す。
 # 画面は同じオリジンの /m/ だけに話す。外のスクリプトも外への通信も許さない（会話から来た文は攻撃者が操れる）。
-# /app/* の * が入口（/app/ の index.html）に当たらない場合に備えて、/app/ にも同じものを付ける。
-/app/
-  Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'
-  X-Content-Type-Options: nosniff
-  Referrer-Policy: no-referrer
-
+# img-src の blob: は、選んだ写真のサムネイルを手元で出すためである（外へは出ない）。
+# /app/ の入口にも /app/* が当たる。/app/ を別の段で足すと、同じ見出しが二重に付く。
 /app/*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer

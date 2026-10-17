@@ -13,12 +13,12 @@ const run = (id: string, sessionId: string, endedAt: number | null = null) => ({
 const en = { language: 'en' } as unknown as SettingsDto;
 
 describe('presentUpdateCard：右下の札', () => {
-  it('新しい版が無いとき、殻が updater を持たないときは札を出さない', () => {
+  it('新しいバージョンが無いとき、殻が updater を持たないときは札を出さない', () => {
     expect(presentUpdateCard(storeOf(up({ kind: 'latest' })))).toBeNull();
     expect(presentUpdateCard(storeOf({ ...up({ kind: 'available', version: '1.5.0' }), supported: false }))).toBeNull();
   });
 
-  it('新しい版があれば、版といまの版を言い、取得とあとでを置く', () => {
+  it('新しいバージョンがあれば、版といまの版を言い、取得とあとでを置く', () => {
     const c = presentUpdateCard(storeOf(up({ kind: 'available', version: '1.5.0' })))!;
     expect(c).toMatchObject({ kind: 'available', tone: 'info', head: '更新あり', title: 'Hangar 1.5.0 を利用できます', detail: '現在のバージョンは 1.4.2 です。', progress: null });
     expect(c.actions).toEqual([
@@ -37,7 +37,7 @@ describe('presentUpdateCard：右下の札', () => {
   it('準備ができたら、実行中のセッションが止まらないことを言い、再起動して更新とあとでだけを置く', () => {
     const store = storeOf(up({ kind: 'ready', version: '1.5.0' }), { runs: { r1: run('r1', 's1'), r2: run('r2', 's2'), r3: run('r3', 's3', 5) } });
     const c = presentUpdateCard(store)!;
-    expect(c).toMatchObject({ kind: 'ready', tone: 'ok', head: 'インストール準備完了', title: '再起動して 1.5.0 に更新', detail: '実行中のセッション 2 件は止まりません。再起動のあと、続きから表示します。' });
+    expect(c).toMatchObject({ kind: 'ready', tone: 'ok', head: 'インストール準備完了', title: '再起動して 1.5.0 に更新', detail: '実行中のセッション 2 件は停止しません。再起動のあと、続きから表示します。' });
     expect(c.actions).toEqual([
       { label: '再起動して更新', action: { type: 'update.install' }, primary: true },
       { label: 'あとで', action: { type: 'update.dismiss' }, primary: false },
@@ -74,7 +74,7 @@ describe('presentUpdateSection：設定の「更新」の節', () => {
   it('最新なら、版と最終確認の時刻、最新の札を出す', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'latest' }, { checkedAt: NOW - 5 * MIN })), NOW);
     expect(p).toMatchObject({ supported: true, badge: { text: '最新', tone: 'ok' }, version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false }, pending: null });
-    expect(p.notify).toEqual({ on: true, desc: '新しいバージョンが出たら通知します。自動ではインストールしません。' });
+    expect(p.notify).toEqual({ on: true, desc: '新しいバージョンが公開されたら通知します。自動ではインストールしません。' });
     expect(p.tocState).toBe('最新');
   });
 
@@ -97,7 +97,7 @@ describe('presentUpdateSection：設定の「更新」の節', () => {
     expect(p.pending).toBeNull();
   });
 
-  it('新しい版があれば、閉じていても節には出す', () => {
+  it('新しいバージョンがあれば、閉じていても節には出す', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'available', version: '1.5.0' }, { dismissed: '1.5.0', checkedAt: NOW })), NOW);
     expect(p.badge).toEqual({ text: '新しいバージョンあり', tone: 'info' });
     expect(p.pending).toMatchObject({ title: 'Hangar 1.5.0 を利用できます', actions: [{ label: 'ダウンロードしてインストール', action: { type: 'update.download' }, primary: true }] });
@@ -137,7 +137,7 @@ describe('リリースノート', () => {
   ];
   const withNotes = (phase: UpdatePhase, over: Partial<UpdateState> = {}) => up(phase, { notes: bundled, seenNotes: '1.4.2', ...over });
 
-  it('新しい版の札に、目録のノートの注意と要点を 3 つまで載せ、ノートを読むで設定の更新の節へ移す', () => {
+  it('新しいバージョンの札に、目録のノートの注意と要点を 3 つまで載せ、ノートを読むで設定の更新の節へ移す', () => {
     const c = presentUpdateCard(storeOf(withNotes({ kind: 'available', version: '1.5.0' }, { foundNotes: { version: '1.5.0', text: NOTE_150 } })))!;
     expect(c.before).toBe('すべての PC を 1.5.0 に上げてください。');
     expect(c.points).toEqual(['一つ目', '二つ目', '三つ目']);
@@ -150,7 +150,7 @@ describe('リリースノート', () => {
     expect(c.actions.map((a) => a.label)).toEqual(['ダウンロードしてインストール', 'あとで']);
   });
 
-  it('更新したあとは、見た版より新しい版の要点と注意を 1 枚にまとめる', () => {
+  it('更新したあとは、見た版より新しいバージョンの要点と注意を 1 枚にまとめる', () => {
     const c = presentWhatsNew(storeOf(withNotes({ kind: 'latest' }, { seenNotes: '1.4.0' })))!;
     expect(c).toMatchObject({ head: '更新しました', title: 'Hangar 1.4.2 になりました', before: 'Worker を入れ替えてください。', points: ['直した。', '足した。'], sub: '1.4.1 の分も含みます' });
     expect(c.actions).toEqual([
@@ -166,7 +166,7 @@ describe('リリースノート', () => {
   it('設定の節に、見つけた版といまの版までのノートを新しい順に並べ、見つけた版といまの版を開いておく', () => {
     const p = presentUpdateSection(storeOf(withNotes({ kind: 'available', version: '1.5.0' }, { foundNotes: { version: '1.5.0', text: NOTE_150 } })), NOW);
     expect(p.notes.map((n) => [n.version, n.tag, n.open, n.before !== null])).toEqual([
-      ['1.5.0', '新しい版', true, true],
+      ['1.5.0', '新しいバージョン', true, true],
       ['1.4.2', '使用中', true, false],
       ['1.4.1', null, false, true],
       ['1.4.0', null, false, false],

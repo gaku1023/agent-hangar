@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { COMPAT_HEADER, compatHeaders } from '@agent-hangar/shared';
-import { bindingNames, bundleWorker, workerBuildOptions, workerMetadata } from '../scripts/build-worker.ts';
+import { bindingNames, bundleWorker, durableObjectsOf, workerBuildOptions, workerMetadata } from '../scripts/build-worker.ts';
 import type { Env } from '../src/env.ts';
 import { sha256Hex } from '../src/util.ts';
 
@@ -52,7 +52,7 @@ function workerScript(minDeviceCompat?: number): Promise<string> {
       : build({
           ...workerBuildOptions(CLOUD_DIR),
           stdin: {
-            contents: `import { createApp } from './app.ts';\nexport default createApp({ minDeviceCompat: ${minDeviceCompat} });\n`,
+            contents: `import { createApp } from './app.ts';\nexport { HangarBell } from './bell.ts';\nexport default createApp({ minDeviceCompat: ${minDeviceCompat} });\n`,
             resolveDir: SRC_DIR,
             sourcefile: 'floor-entry.ts',
             loader: 'ts',
@@ -74,8 +74,12 @@ function withCompat(init: RequestInit = {}): RequestInit {
   return { ...init, headers: { ...given, ...compatHeaders() } };
 }
 
-/** Worker を 1 つ起こす。記憶は instance ごとに新しいので、テストごとに呼んでよい（おおよそ 100 ミリ秒）。 */
-export async function startCloud(options: { BOOTSTRAP_TOKEN_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response>; minDeviceCompat?: number } = {}): Promise<CloudHarness> {
+/**
+ * Worker を 1 つ起こす。記憶は instance ごとに新しいので、テストごとに呼んでよい（おおよそ 100 ミリ秒）。
+ * bell: false で、呼び鈴（Durable Object の束縛）の無い Worker を起こす。rc.1 の設定のまま再配備していない Worker の真似である。
+ * 呼び鈴の答えの待ちを短くするときは、bindings に BELL_ASK_TIMEOUT_MS を渡す。
+ */
+export async function startCloud(options: { BOOTSTRAP_TOKEN_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response>; minDeviceCompat?: number; bell?: boolean } = {}): Promise<CloudHarness> {
   const script = await workerScript(options.minDeviceCompat);
   const bootstrapTokenHash = options.BOOTSTRAP_TOKEN_HASH ?? '';
   const meta = workerMetadata(CLOUD_DIR);
@@ -88,6 +92,7 @@ export async function startCloud(options: { BOOTSTRAP_TOKEN_HASH?: string; bindi
     compatibilityFlags: meta.compatibility_flags,
     d1Databases: bindingNames(meta, 'd1'),
     r2Buckets: bindingNames(meta, 'r2_bucket'),
+    durableObjects: options.bell === false ? {} : durableObjectsOf(meta),
     bindings: { BOOTSTRAP_TOKEN_HASH: bootstrapTokenHash, ...options.bindings },
     // Worker から外への fetch を受ける。渡さなければ外へは出ない（試験は実物の Cloudflare に触らない）。
     outboundService: options.outbound ?? (() => new Response('outbound fetch is not allowed in tests', { status: 599 })),

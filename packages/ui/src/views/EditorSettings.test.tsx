@@ -11,7 +11,7 @@ const props = (over: Partial<EditorSettingsProps> = {}): EditorSettingsProps => 
   setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code', loading: false, test: { running: false, result: null },
   choices: [
     { id: 'vscode', name: 'VS Code', tile: 'VS', state: 'found', path: '/usr/local/bin/code', version: '1.105.1', selected: true, badge: { text: '検出済み', tone: 'ok' } },
-    { id: 'zed', name: 'Zed', tile: 'Ze', state: 'app', path: '/Applications/Zed.app', version: null, selected: false, badge: { text: 'アプリだけ', tone: 'warn' } },
+    { id: 'zed', name: 'Zed', tile: 'Ze', state: 'app', path: '/Applications/Zed.app', version: null, selected: false, badge: { text: 'アプリのみ', tone: 'warn' } },
     { id: 'custom', name: '任意のコマンド', tile: '{ }', state: null, path: null, version: null, selected: false, badge: null },
   ],
   ...over,
@@ -26,7 +26,7 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     const rows = screen.getAllByRole('radio');
     expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
     expect(rows[0]).toHaveTextContent('VS Code1.105.1/usr/local/bin/code検出済み');
-    expect(rows[1]).toHaveTextContent('アプリだけ');
+    expect(rows[1]).toHaveTextContent('アプリのみ');
     // 見つからないものも並ぶので、「見つけたものを並べています」とは言わない。
     expect(screen.getByText(/対応しているエディタと、この PC での検出状況を表示します/)).toBeInTheDocument();
   });
@@ -72,7 +72,7 @@ describe('任意のコマンド（試作の 1-4 の A）', () => {
     expect(preview).toHaveTextContent('subl ~/work/alpha');
     const field = screen.getByLabelText('ファイルを開くコマンド');
     fireEvent.change(field, { target: { value: 'nvim +{line}' } });
-    expect(screen.getByText('{path} が入っていません')).toBeInTheDocument();
+    expect(screen.getByText('{path} が含まれていません')).toBeInTheDocument();
     fireEvent.blur(field);
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'settings.update' }));
     fireEvent.change(field, { target: { value: 'nvim +{line} {path}' } });
@@ -91,7 +91,7 @@ describe('エディタが見つからないときの面（試作の 1-3 の B）
   const missing = (n = 1): EditorMissingProps => ({
     n, title: 'Cursor が未検出', lastPath: '/usr/local/bin/cursor',
     choices: [
-      { key: 'settings', label: '設定でエディタを選ぶ', icon: 'settings', send: { type: 'nav.go', to: { name: 'settings', at: 'editor' } } },
+      { key: 'settings', label: '設定でエディタを選択', icon: 'settings', send: { type: 'nav.go', to: { name: 'settings', at: 'editor' } } },
       { key: 'once:vscode', label: '今回は VS Code で開く', icon: 'openEditor', send: { type: 'project.openEditor', id: 'p1', once: 'vscode' } },
       { key: 'recheck', label: '再確認', icon: 'recheck', send: { type: 'project.openEditor', id: 'p1' } },
     ],

@@ -74,11 +74,11 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
     const agent = toolItem(2, 'Agent', { description: '調べる' }, null, { subagent: { agentId: 'abc', label: 'x' } });
     const t = draw([bash(1, 'a'), agent, bash(3, 'b')]);
     expect(t.container.querySelectorAll('.tr-row')).toHaveLength(3);
-    fireEvent.click(screen.getByText('サブエージェント abc を見る'));
+    fireEvent.click(screen.getByText('サブエージェント abc を表示'));
     expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
     // 開いても、ボタンは 1 つだけ。
     fireEvent.click(within(t.group(2)).getByRole('button', { name: /Agent/ }));
-    expect(screen.getAllByText('サブエージェント abc を見る')).toHaveLength(1);
+    expect(screen.getAllByText('サブエージェント abc を表示')).toHaveLength(1);
   });
   it('まとめないとき（詳細表示）は、今までどおり 1 行ずつのツールの行にする', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={false} live={false} remaining={0} /></ActionRoot>);

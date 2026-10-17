@@ -184,6 +184,67 @@ describe('MobileFeedPublisher', () => {
     expect(timers.pendingCount()).toBe(0);
   });
 
+  it('dropFeed は DELETE /m/feed を 1 回だけ呼び、Worker の素の行が消え、以後は書かない', async () => {
+    const { timers, client, pub, writes } = setup();
+    expect(await pub.flushNow()).toBe('written');
+    expect(client.mobileFeeds.has('pc-a')).toBe(true);
+    expect(await pub.dropFeed()).toBe(true);
+    expect(client.mobileFeeds.has('pc-a')).toBe(false);
+    expect(await pub.dropFeed()).toBe(true);
+    expect(client.calls.filter((c) => c.method === 'deleteMobileFeed')).toHaveLength(1);
+    // canWrite が真でも、消した後は書かない（nudge も flushNow も）。
+    pub.nudge();
+    await timers.advance(FEED_DEBOUNCE_MS + FEED_MIN_GAP_MS);
+    expect(await pub.flushNow()).toBe('skipped');
+    expect(writes()).toBe(1);
+    expect(client.mobileFeeds.has('pc-a')).toBe(false);
+  });
+
+  it('dropFeed の後でも forget（新しいスマホが現れた）で書き直せる。もう一度消すこともできる', async () => {
+    const { client, pub, writes } = setup();
+    await pub.flushNow();
+    await pub.dropFeed();
+    pub.forget();
+    expect(await pub.flushNow()).toBe('written');
+    expect(writes()).toBe(2);
+    expect(await pub.dropFeed()).toBe(true);
+    expect(client.calls.filter((c) => c.method === 'deleteMobileFeed')).toHaveLength(2);
+  });
+
+  it('dropFeed は書き込みの途中を待ち、その後に消す（消した後に書き込みが残らない）', async () => {
+    const { client, pub } = setup();
+    const w = pub.flushNow();
+    const d = pub.dropFeed();
+    await w;
+    expect(await d).toBe(true);
+    expect(client.mobileFeeds.has('pc-a')).toBe(false);
+  });
+
+  it('dropFeed が倒れたら false を返して消した扱いにせず、次の呼び出しでやり直す', async () => {
+    const { client, pub } = setup();
+    await pub.flushNow();
+    client.offline = true;
+    expect(await pub.dropFeed()).toBe(false);
+    client.offline = false;
+    expect(client.mobileFeeds.has('pc-a')).toBe(true);
+    expect(await pub.dropFeed()).toBe(true);
+    expect(client.mobileFeeds.has('pc-a')).toBe(false);
+  });
+
+  it('消す口を知らない Worker（404）には何も消せないので、やり直さない', async () => {
+    const { client, pub } = setup();
+    client.workerCompat = MOBILE_MIN_WORKER_COMPAT;
+    expect(await pub.dropFeed()).toBe(true);
+    expect(await pub.dropFeed()).toBe(true);
+    expect(client.calls.filter((c) => c.method === 'deleteMobileFeed')).toHaveLength(1);
+  });
+
+  it('client が口を持たなければ dropFeed は false', async () => {
+    const { client, pub } = setup();
+    (client as { deleteMobileFeed?: unknown }).deleteMobileFeed = undefined;
+    expect(await pub.dropFeed()).toBe(false);
+  });
+
   it('鍵は参加の秘密ごとに 1 回だけ導く', () => {
     expect(mobileKeyFor(SECRET)).toBe(mobileKeyFor(SECRET));
     expect(mobileKeyFor(SECRET + 'x')).not.toBe(mobileKeyFor(SECRET));

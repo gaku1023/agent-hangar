@@ -389,7 +389,7 @@ describe('createRuntime', () => {
       expect(rt.getState().arrivedProjects).toEqual([]);
     });
 
-    it('サーバが project.unresolved を流しても、ダイアログは開かない', async () => {
+    it('サーバーが project.unresolved を流しても、ダイアログは開かない', async () => {
       const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [lost('p1')] })) });
       rt.start();
       wsHandlers[0]!.onOpen();
@@ -407,7 +407,7 @@ describe('createRuntime', () => {
       expect(rt.getState().overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     });
 
-    it('「場所を再指定」の 409（同じフォルダ）は、まとめる確認になる。ほかの失敗はトーストのまま', async () => {
+    it('「場所を再指定」の 409（同じフォルダ）は、まとめる確認になる。他の失敗はトーストのまま', async () => {
       const conflict = { error: 'このディレクトリは、プロジェクト shop のパスとして登録済みです', code: 'project_same_folder' as const, from: { projectId: 'p1', name: 'shop' }, conflict: { projectId: 'p0', name: 'shop', path: '/w/shop' }, merged: { roots: [{ deviceName: null, path: '/w/shop', here: true }], sessions: 3, fromSessions: 1 } };
       const resolveProject = vi.fn(async () => { throw new ProjectSameFolderApiError(conflict); });
       const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [lost('p1')] })), resolveProject });
@@ -482,7 +482,7 @@ describe('createRuntime', () => {
       expect(rt.getState().arrivedProjects).toEqual(['scratch-like']);
     });
 
-    it('起動の読み込みが済む前に届いたものは、知らせにしない', () => {
+    it('起動の読み込みが済む前に受信したものは、知らせにしない', () => {
       const { rt, wsHandlers } = harness();
       rt.start();
       wsHandlers[0]!.onEvent(upsert(arrived('early')));
@@ -521,7 +521,7 @@ describe('createRuntime', () => {
     b.rt.start();
     expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
   });
-  it('古い保存に残る summaryOpen は、読み戻すときに捨て、書き戻さない', () => {
+  it('古い保存に残る summaryOpen は、読み元に戻すにはに捨て、書き戻さない', () => {
     const b = harness();
     b.store.set('sv:s1', { showThinking: true, summaryOpen: true });
     b.rt.start();
@@ -530,7 +530,7 @@ describe('createRuntime', () => {
     b.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
     expect(b.store.get('sv:s1')).not.toHaveProperty('summaryOpen');
   });
-  it('古い保存に残る右ペインの境目の比率は、読み戻すときに捨て、書き戻さない', () => {
+  it('古い保存に残る右ペインの境目の比率は、読み元に戻すにはに捨て、書き戻さない', () => {
     const a = harness();
     a.store.set('livePane.split', 0.35);
     a.store.set('sv:s1', { showThinking: true, livePaneSplit: 0.25 });
@@ -774,7 +774,7 @@ describe('起動とターミナル', () => {
     expect(rt.getStore().projects.p9).toEqual(created);
     expect(rt.getState()).toMatchObject({ overlay: { kind: 'none' }, projectCreate: { kind: 'idle' } });
   });
-  // 0.6.1：選んだフォルダの事前の問い合わせ（入れ子とほかの PC のプロジェクト）。新しいセッションと作成のダイアログが Store から読む。
+  // 0.6.1：選んだフォルダの事前の問い合わせ（入れ子と他の PC のプロジェクト）。新しいセッションと作成のダイアログが Store から読む。
   describe('選んだフォルダの事前の問い合わせ', () => {
     const inspected = { path: '/w/alpha/packages/ui', git: false, worktree: false, remote: null, registered: null, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'packages/ui' }, link: null };
     it('folder.inspect は問い合わせを読み、読んでいる間と答えを Store に入れる', async () => {
@@ -915,7 +915,7 @@ describe('起動とターミナル', () => {
     expect(terminals.disconnected).toEqual(['r-s1', 'r-s2', 'r-s3']);
   });
   it('取り直した bootstrap から消えた run は終わったものとし、そのタブの接続を切る', async () => {
-    // サーバの再起動中に Claude が終わると、run.ended は届かない。
+    // サーバーの再起動中に Claude が終わると、run.ended は届かない。
     const shell = { ...launched.tabs[0]!, id: 't1', kind: 'shell' as const, title: 'zsh', tmuxName: 'hangar-r1-t1', createdAt: 2 };
     const other = { ...launched.run, id: 'r2', sessionId: 's2', tmuxName: 'hangar-r2' };
     const { rt, terminals, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, runs: [other], tabs: [{ ...launched.tabs[0]!, id: 'r2', runId: 'r2', sessionId: 's2' }] })) });
@@ -1197,7 +1197,7 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().accounts).toEqual(accountsFixture);
     expect(rt.getState().toasts).toEqual([]);
   });
-  it('GET /api/accounts が失敗したらトーストで知らせ、ほかの取得は進む', async () => {
+  it('GET /api/accounts が失敗したらトーストで知らせ、他の取得は進む', async () => {
     const accounts = vi.fn(async () => { throw new Error('500 /api/accounts'); });
     const statusline = vi.fn(async () => ({ command: 'bash statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
     const { rt, wsHandlers, setHash } = harness({ accounts, statusline });
@@ -1225,7 +1225,7 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().cloudUsage).toBeNull();
     setHash('#/settings');
     await flush();
-    // 一時停止の間はサーバが取りに行かないので、ここでは常に取り直しを頼む。
+    // 一時停止の間はサーバーが取りに行かないので、ここでは常に取り直しを頼む。
     expect(syncUsage).toHaveBeenCalledWith(true);
     expect(rt.getStore().cloudUsage).toEqual(dto);
   });
@@ -1323,7 +1323,7 @@ describe('履歴', () => {
   });
 
   it('アプリの最初の頁からは戻らない', () => {
-    // デスクトップでは、その手前がサーバの起動を待つ頁である。そこへ戻ると二度と遷移せず詰む。
+    // デスクトップでは、その手前がサーバーの起動を待つ頁である。そこへ戻ると二度と遷移せず詰む。
     const { rt, go } = harness();
     rt.emit({ type: 'nav.back' });
     expect(go).not.toHaveBeenCalled();
@@ -1715,7 +1715,7 @@ describe('入力待ちの知らせ', () => {
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [{ ...live('u1', 'waiting'), waitingFor: 'permission', permission: { tool: 'Bash', input: 'rm -rf ./build/cache', description: null } }] });
     expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '許可待ち：Bash rm -rf ./build/cache', kind: 'waiting' });
   });
-  // デスクトップでは入力待ちの通知をサーバが決めて殻が出す。頁が背面で止まっていても出るようにするためで、頁も呼ぶと 2 回出る。
+  // デスクトップでは入力待ちの通知をサーバーが決めて殻が出す。頁が背面で止まっていても出るようにするためで、頁も呼ぶと 2 回出る。
   it('サーバから通知が届く環境（デスクトップ）では、頁は入力待ちの通知を呼ばず、受け取るかどうかだけを伝える', async () => {
     const n = { ...fakeNotifier(), serverFed: true, feed: vi.fn() };
     const { rt, wsHandlers } = await started(n);
@@ -1858,7 +1858,7 @@ describe('入力待ちの知らせ', () => {
   describe('戻る時刻を過ぎた知らせ', () => {
     /** 2026-10-05 の手元の時刻。 */
     const at = (h: number, min = 0) => new Date(2026, 9, 5, h, min).getTime();
-    const timed = (id: string, returnTime: string | null, note = 'timer の初回を見る'): SessionDto => ({ ...waitingSession(), id, providerSessionId: 'u-' + id, name: '会話 ' + id, live: null, state: { status: 'paused', note, returnOn: '2026-10-05', returnTime, setBy: 'conversation', setAt: 1, candidate: null } });
+    const timed = (id: string, returnTime: string | null, note = 'timer の初回を表示'): SessionDto => ({ ...waitingSession(), id, providerSessionId: 'u-' + id, name: '会話 ' + id, live: null, state: { status: 'paused', note, returnOn: '2026-10-05', returnTime, setBy: 'conversation', setAt: 1, candidate: null } });
     async function startedAt(clock: { now: number }, sessions: SessionDto[], n = fakeNotifier(), seen?: string[]) {
       const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions })) }, { notifier: n, now: () => clock.now });
       if (seen) h.store.set('return.notified', seen);
@@ -1878,7 +1878,7 @@ describe('入力待ちの知らせ', () => {
       timer!.fn();
       expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 13:30']);
       expect(h.n.show).toHaveBeenCalledTimes(1);
-      expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 13:30 を過ぎました · timer の初回を見る', kind: 'return' });
+      expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 13:30 を過ぎました · timer の初回を表示', kind: 'return' });
       expect(h.store.get('return.notified')).toEqual(['s1|2026-10-05 13:30']);
       // 同じ予約がもう一度走っても、ストアが変わっても、2 度は出さない。
       timer!.fn();
@@ -1934,7 +1934,7 @@ describe('入力待ちの知らせ', () => {
       h.timers.at(-1)!.fn();
       expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 21:50']);
       expect(h.n.show).toHaveBeenCalledTimes(2);
-      expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 21:50 を過ぎました · timer の初回を見る', kind: 'return' });
+      expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 21:50 を過ぎました · timer の初回を表示', kind: 'return' });
     });
   });
   // OS やブラウザの許可は、hangar の外（システム設定、ブラウザの設定）で変わる。
@@ -2184,7 +2184,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(failing.rt.getStore().setupGuide).toBeNull();
     expect(failing.rt.getState().toasts.filter((n) => n.message.includes('boom'))).toEqual([]);
   });
-  it('API やほかの窓から claudePath が直されたら（settings.changed）、準備の確かめを取り直して帯を新しい答えにする', async () => {
+  it('API や他の窓から claudePath が直されたら（settings.changed）、準備の確かめを取り直して帯を新しい答えにする', async () => {
     const NOT_FOUND = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset' as const, version: null } } };
     const answers = [NOT_FOUND, READY];
     const readiness = vi.fn(async () => answers.shift() as never);
@@ -2254,7 +2254,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(compat).toHaveBeenCalledTimes(1);
     expect(rt.getStore().compat).toBeNull();
   });
-  it('ずれが無い答えと、compat の無い古いサーバの答えでは、ずれの中身を取りに行かない', async () => {
+  it('ずれが無い答えと、compat の無い古いサーバーの答えでは、ずれの中身を取りに行かない', async () => {
     const compat = vi.fn(async () => ({ verifiedVersion: '2.1.292', localVersion: null, drifts: [] }));
     const { compat: _drop, ...older } = READY;
     let answer: unknown = READY;
@@ -2513,7 +2513,7 @@ describe('アカウント', () => {
     expect(h.rt.getStore().accounts).toEqual(next);
     expect(h.rt.getState().overlay).toEqual({ kind: 'none' });
   });
-  it('account.add の追加に失敗したら、ログインは始めず、サーバの文をダイアログに残す', async () => {
+  it('account.add の追加に失敗したら、ログインは始めず、サーバーの文をダイアログに残す', async () => {
     const h = await started({ addAccount: vi.fn(async () => { throw new Error('その名前はもう使われています'); }) });
     h.rt.emit({ type: 'account.add.open' });
     h.rt.emit({ type: 'account.add', name: '大学', dir: '' });
@@ -2544,7 +2544,7 @@ describe('アカウント', () => {
     expect(h.rt.getStore().runs.r1).toBeDefined();
     expect(h.rt.getState()).toMatchObject({ launch: { kind: 'idle' }, overlay: { kind: 'none' }, screen: { name: 'session', id: 's1' } });
   });
-  it('account.switchSession の失敗は、サーバの文をトーストに出し、launch は submitting のまま残らない', async () => {
+  it('account.switchSession の失敗は、サーバーの文をトーストに出し、launch は submitting のまま残らない', async () => {
     const h = await started({ switchAccount: vi.fn(async () => { throw new Error('このセッションはすでにそのアカウントで実行中です'); }) });
     h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
     await flush();
@@ -2658,7 +2658,7 @@ describe('設定の同期（作り直した実装）', () => {
     await flush();
     expect(api.configPutOrder).toHaveBeenCalledWith([{ id: 'file:CLAUDE.md', take: 'mine' }]);
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
-    expect(toasts(rt)[0]![1]).toContain('適用の指示書を作成しました');
+    expect(toasts(rt)[0]![1]).toContain('適用内容を保存しました');
   });
 
   it('指示書を書けなかったら、殻の確認へ進まず、理由を赤で知らせて押せる状態に戻す', async () => {
@@ -2946,7 +2946,7 @@ describe('git の表示（ランタイム）', () => {
     await flush();
     expect(projectGit).toHaveBeenCalledTimes(3);
     expect(projectGit).toHaveBeenLastCalledWith('p1');
-    // ほかの画面へ移ったら読まない。
+    // 他の画面へ移ったら読まない。
     setHash('#/');
     await flush();
     poll();

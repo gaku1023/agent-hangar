@@ -51,7 +51,7 @@ export async function runStatuslineInstall(o: {
   const r = resolveStatuslineScript(o.claudeDir);
   if (!r.scriptPath) {
     log(r.command ? `statusLine.command は「${r.command}」で、ファイルとして見つからないため自動では追記しません。` : 'settings.json に statusLine.command がありません。');
-    log('使用量をヘッダーに出すには、statusline スクリプトの先頭（shebang の直後）に次を入れてください。');
+    log('使用量をヘッダーに表示するには、ステータスラインのスクリプトの先頭（shebang の直後）に次を追記してください。');
     log('');
     log(statuslineSnippet(o.port));
     return { installed: false, message: 'スクリプトが見つかりません' };
@@ -59,25 +59,25 @@ export async function runStatuslineInstall(o: {
   // UTF-8 でないスクリプト（UTF-16 など）は、UTF-8 で書き戻すと壊れるので触らない。
   const read = readUtf8Text(r.scriptPath);
   if (read === null || 'problem' in read) {
-    log(`${r.scriptPath} が UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。`);
-    return { installed: false, message: 'UTF-8 でないので書き換えませんでした' };
+    log(`${r.scriptPath} が UTF-8 で保存されていない（UTF-16 など）ため、変更しません。UTF-8 で保存し直すか、手動で追記してください。`);
+    return { installed: false, message: 'UTF-8 ではないため変更しませんでした' };
   }
   // 目印だけを見て終わると、トークンを argv に載せる古い形が入ったまま残る。中身まで見て差し替える。
   const has = hasStatuslineMarker(read.text);
-  if (has && statuslineSnippetUpToDate(r.scriptPath, o.port)) { log('既に追記されています'); return { installed: true, message: '既に追記されています' }; }
+  if (has && statuslineSnippetUpToDate(r.scriptPath, o.port)) { log('すでに追記されています'); return { installed: true, message: 'すでに追記されています' }; }
   log(`${has ? '差し替え先' : '追記先'}: ${r.scriptPath}`);
-  if (has) log('古い形のスニペットが入っています。今の形に差し替えます。');
+  if (has) log('古い形式のスニペットが追記されています。現在の形式に差し替えます。');
   log(`${has ? '差し替える' : '追記する'}内容:`);
   log(statuslineSnippetFor(r.scriptPath, o.port));
-  const question = has ? 'この内容に差し替えますか？差し替え前にバックアップを取ります。' : 'この内容を追記しますか？追記前にバックアップを取ります。';
+  const question = has ? 'この内容に差し替えますか？差し替える前にバックアップを作成します。' : 'この内容を追記しますか？追記する前にバックアップを作成します。';
   if (!o.yes && !(await ask(question))) return { installed: false, message: has ? '差し替えませんでした' : '追記しませんでした' };
   const done = appendStatuslineSnippet(r.scriptPath, o.port);
   if (!done.changed) {
     // 目印はあるのに範囲を読み取れない。手で書き換えられているので、こちらからは触らない。
-    log('スニペットの範囲を読み取れなかったので、何も変えませんでした。手で入れ替えてください。');
-    return { installed: true, message: '変えませんでした' };
+    log('スニペットの範囲を読み取れなかったため、何も変更しませんでした。手動で置き換えてください。');
+    return { installed: true, message: '変更しませんでした' };
   }
   if (done.backup) log(`バックアップ: ${done.backup}`);
-  log(`${has ? '差し替えました' : '追記しました'}。次に Claude Code を起動すると、使用量がヘッダーに出ます。`);
+  log(`${has ? '差し替えました' : '追記しました'}。次に Claude Code を起動すると、使用量がヘッダーに表示されます。`);
   return { installed: true, message: has ? '差し替えました' : '追記しました' };
 }

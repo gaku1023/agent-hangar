@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { aadFeed, deriveMobileKey, fitFeed, seal, type MobileFeed } from '@agent-hangar/shared';
-import type { CloudClient } from '../sync/client.ts';
+import { CloudError, type CloudClient } from '../sync/client.ts';
 import type { Timers } from '../sync/engine.ts';
 
 /** 変化のあと、まとめて書くまでの待ち。 */
@@ -73,6 +73,10 @@ export class MobileFeedPublisher {
   private stopped = false;
   private lastHash: string | null = null;
   private lastWrittenAt = 0;
+  /** 受信箱の素を Worker から消した後か（最後のスマホを解除した後）。真のあいだは書かない。forget で解く。 */
+  private dropped = false;
+  /** 消す要求が済んだか（通った、または口を知らない Worker）。済んだら、forget まで 2 回目を送らない。 */
+  private deleted = false;
   private chain: Promise<unknown> = Promise.resolve();
   private readonly onError: (e: unknown) => void;
 
@@ -89,9 +93,39 @@ export class MobileFeedPublisher {
     this.debounce.unref?.();
   }
 
-  /** 前に書いた中身を忘れる。次の書き込みは、中身が同じでも書く（新しくつながったスマホに今の素を置く）。 */
+  /** 前に書いた中身を忘れる。次の書き込みは、中身が同じでも書く（新しくつながったスマホに今の素を置く）。dropFeed の後も、ここで書けるようにする。 */
   forget(): void {
     this.lastHash = null;
+    this.dropped = false;
+    this.deleted = false;
+  }
+
+  /**
+   * 最後のスマホを解除した後に、この PC の受信箱の素を Worker から消す（DELETE /m/feed）。以後は forget まで書かない。
+   * 走っている書き込みを待ってから消す。消せた（口を知らない古い Worker の 404 と 405 も、消せるものが無いので消せた扱い）か、前に消してあれば true。
+   * 倒れたときと client が口を持たないときは false で、消した扱いにしない。呼び手は次の見回りで呼び直す。投げない。
+   */
+  dropFeed(): Promise<boolean> {
+    this.dropped = true;
+    const run = this.chain.then(async () => {
+      if (this.deleted) return true;
+      const del = this.deps.client.deleteMobileFeed?.bind(this.deps.client);
+      // 待っているあいだに forget（新しいスマホ）が来たら、消さない。
+      if (!del || !this.dropped) return false;
+      try {
+        await del();
+      } catch (e) {
+        if (!(e instanceof CloudError && (e.status === 404 || e.status === 405))) {
+          this.onError(e);
+          return false;
+        }
+      }
+      this.deleted = true;
+      this.lastHash = null;
+      return true;
+    });
+    this.chain = run.catch(() => undefined);
+    return run;
   }
 
   /** 安全網を始め、起動の 1 回を予約する。 */
@@ -143,7 +177,7 @@ export class MobileFeedPublisher {
 
   private async writeOnce(): Promise<FeedWriteResult> {
     const put = this.deps.client.putMobileFeed?.bind(this.deps.client);
-    if (this.stopped || !put || !this.deps.canWrite()) return 'skipped';
+    if (this.stopped || this.dropped || !put || !this.deps.canWrite()) return 'skipped';
     // 48 KiB を超えたら、done、returns、projects、待っていない live の順に古いものから落とし、live の文を詰める（shared の fitFeed）。
     const feed = fitFeed(this.deps.build());
     const hash = createHash('sha256').update(JSON.stringify(feed)).digest('hex');
