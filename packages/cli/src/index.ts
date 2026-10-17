@@ -91,7 +91,7 @@ cloud
 
 cloud
   .command('join-request <url>')
-  .description('参加リクエストを送信して確認コードを出力する（参加コードは標準入力から受け取る。デスクトップアプリが使う）')
+  .description('参加リクエストを送信して確認コードを出力する（参加コードは標準入力から読み取る。デスクトップアプリが使う）')
   .option('--overwrite', '別のクラウドに参加済みでも、cloud.json を上書きして参加する')
   .option('--json', '結果を JSON で 1 行出力する')
   .action(async (url: string, o: { overwrite?: boolean; json?: boolean }) => {

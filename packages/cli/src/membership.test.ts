@@ -279,6 +279,34 @@ describe('joinPoll（1 回だけ問い合わせる）', () => {
     expect(loadCloudConfig(h)!.epochs).toEqual({ '1': c.epochKey });
   });
 
+  it('承認済みで端末トークンを受信した下書きは、新しい参加リクエストで上書きせず join-pending で断る', async () => {
+    const { c, h } = await requested();
+    await issuerApproves(c, CODE, { keybox: false });
+    expect(await joinPoll({ home: h, fetch: c.w.fetch })).toEqual({ status: 'waiting' });
+    const before = fs.readFileSync(pendingJoinPath(h), 'utf8');
+    const next = 'M8RN-3YGE';
+    c.w.issue(await joinCodeHash(next));
+    c.w.calls.length = 0;
+    expect(await codeOf(joinRequest({ home: h, url: URL_, code: next, device, fetch: c.w.fetch }))).toBe('join-pending');
+    // Worker に送らず、下書き（端末トークン）はそのまま。
+    expect(c.w.calls).toEqual([]);
+    expect(fs.readFileSync(pendingJoinPath(h), 'utf8')).toBe(before);
+    const o: string[] = [];
+    expect(await joinRequestCommand({ home: h, url: URL_, code: next, device, overwrite: true, json: true, log: (l) => o.push(l), fetch: c.w.fetch })).toBe(1);
+    expect(JSON.parse(o.at(-1)!)).toMatchObject({ ok: false, code: 'join-pending', message: expect.stringContaining('hangar cloud join-poll') });
+    expect(fs.readFileSync(pendingJoinPath(h), 'utf8')).toBe(before);
+  });
+
+  it('承認前の下書きは、新しい参加リクエストで置き換えられる', async () => {
+    const { c, h } = await requested();
+    const first = readPending(h).codeHash;
+    const next = 'M8RN-3YGE';
+    c.w.issue(await joinCodeHash(next));
+    await joinRequest({ home: h, url: URL_, code: next, device, fetch: c.w.fetch });
+    expect(readPending(h).codeHash).not.toBe(first);
+    expect(readPending(h).codeHash).toBe(await joinCodeHash(next));
+  });
+
   it('expired で下書きを消す', async () => {
     const { c, h } = await requested();
     c.w.now = () => Date.now() + 6 * 60_000;

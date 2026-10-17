@@ -37,6 +37,7 @@ import { brokenConfigMessage, JoinError, legacyConfigMessage, openFloorFirst, wo
  * 失敗の種類。殻と画面は、この符号で言い方を選ぶ。
  * invalid-url は接続先の URL の形式が違う、invalid-code は参加コードの形式が違う、code-not-found は参加コードが期限切れか使用済みか無い、
  * rate-limited は参加リクエストが多すぎる、rejected は参加リクエストが拒否された、expired は承認されないまま期限が切れた、
+ * join-pending は承認済みで端末トークンを受信した下書きがあり、join-poll で完了するまで新しい参加リクエストを送れない、
  * broken-config は cloud.json が壊れている、legacy-config は cloud.json が古い形式、overwrite-required は別のクラウドに参加済みで上書きの承認が無い、
  * not-joined は同期していない、outdated は Worker が古い、self は自分を revoke で解除しようとした、
  * revoked はこの PC が解除されている、unreachable は Worker に接続できない、ほかに Worker との話の失敗（JoinError の符号）を使う。
@@ -48,6 +49,7 @@ export type MembershipErrorCode =
   | 'rate-limited'
   | 'rejected'
   | 'expired'
+  | 'join-pending'
   | 'broken-config'
   | 'legacy-config'
   | 'overwrite-required'
@@ -207,6 +209,11 @@ export async function joinRequest(o: { home: string; url: string; code: string; 
   const code = normalizeJoinCode(String(o.code ?? ''));
   if (code === null) throw new MembershipError('invalid-code', '参加コードの形式が違います。参加済みの PC に表示された 8 文字（例: K7QM-2XFD）を入力してください');
   const url = normalizeUrl(o.url);
+  // 承認済みで端末トークンを受信した下書きは上書きしない。
+  // 端末トークンは 1 回しか受信できないので、上書きすると承認された参加を完了できなくなる。
+  if (readPending(o.home)?.deviceToken) {
+    throw new MembershipError('join-pending', '承認済みの参加リクエストが完了していません。hangar cloud join-poll を実行して参加を完了してください');
+  }
   const current = currentCloud(o.home);
   if (current && !o.overwrite) {
     throw new MembershipError('overwrite-required', 'この PC はすでに別のクラウドに参加しています。上書きして参加するには --overwrite を指定してください');
