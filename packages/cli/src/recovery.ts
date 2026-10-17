@@ -293,9 +293,9 @@ async function recoverWranglerConfig(home: string, wr: WranglerRunner, workerNam
 function registeredDeviceMessage(home: string, deviceId: string): string {
   const file = path.join(home, 'device.json');
   return [
-    `この PC の端末 ID は登録済みです（${deviceId}）。前の hangar recover の途中で下書きを削除したか、この PC が以前このクラウドに参加していたため、同じ端末 ID では登録し直せません。`,
-    `hangar を終了し、${file} を削除してから、もう一度 hangar recover を実行してください。次の実行で新しい端末 ID を作成して登録します。`,
-    'この PC で前の端末 ID のまま作ったセッションとプロジェクトの場所は、別の PC のものとして扱われます。',
+    `この PC の ID は登録済みです（${deviceId}）。前の hangar recover の途中で下書きを削除したか、この PC が以前このクラウドに参加していたため、同じ ID では再登録できません。`,
+    `hangar を終了し、${file} を削除してから、もう一度 hangar recover を実行してください。次の実行で、この PC の新しい ID を作成して登録します。`,
+    'この PC で前の ID のまま作成したセッションとプロジェクトのパスは、別の PC のものとして扱われます。',
   ].join('\n');
 }
 
@@ -366,7 +366,7 @@ export async function runRecover(o: RecoverOptions): Promise<RecoverResult> {
       writeRecoverPending(o.home, pending);
       const cfg = await recoverWranglerConfig(o.home, wr, workerName, cloudDir);
       const put = await wr.run(['secret', 'put', 'BOOTSTRAP_TOKEN_HASH', '--config', cfg], sha256Hex(token) + '\n');
-      if (put.code !== 0) throw new Error(`Worker ${workerName} に最初の端末トークンを登録できませんでした（wrangler secret put の終了コード ${put.code}）。--name と --account-id が Worker を作成したときと同じかを確認してください`);
+      if (put.code !== 0) throw new Error(`Worker ${workerName} にこの PC 用のトークンを登録できませんでした（wrangler secret put の終了コード ${put.code}）。--name と --account-id が Worker を作成したときと同じかを確認してください`);
       try {
         await bootstrapDevice(url, token, o.device.id, { fetch: fetchFn, sleep, log });
       } catch (e) {

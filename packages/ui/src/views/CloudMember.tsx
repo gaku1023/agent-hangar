@@ -143,6 +143,7 @@ export function CloudJoinSteps(props: { m: CloudMemberProps; onClose: () => void
                 <p><b>{t('cloudMember.rejoin.otherCloud')}</b></p>
                 <dl className="cm-urls"><dt>{t('cloudMember.rejoin.current')}</dt><dd>{j.rejoin.current}</dd><dt>{t('cloudMember.rejoin.next')}</dt><dd>{j.rejoin.next}</dd></dl>
                 <p>{t('cloudMember.rejoin.body')}</p>
+                {j.rejoin.legacy && <p>{t('cloudMember.rejoin.legacy')}</p>}
               </Strip>
             )}
             <label className="cm-field">

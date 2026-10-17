@@ -150,10 +150,10 @@ cloud
 
 cloud
   .command('revoke <id>')
-  .description('他の PC を同期から解除する（端末トークンを無効にし、暗号鍵を再生成して残りの PC に配布する。hangar の起動中に行う。ID は hangar cloud devices で確認する）')
+  .description('他の PC を同期から解除する（その PC 用のトークンを無効にし、暗号鍵を再生成して残りの PC に配布する。hangar の起動中に行う。ID は hangar cloud devices で確認する）')
   .option('--yes', '確認せずに解除する')
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
-  .option('--port <n>', '動いている hangar のポート', '4177')
+  .option('--port <n>', '実行中の hangar のポート', '4177')
   .action(async (id: string, o: { yes?: boolean; json?: boolean; port: string }) => {
     const home = hangarHome();
     process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, port: Number(o.port), confirm: promptWord });
@@ -162,7 +162,7 @@ cloud
 cloud
   .command('leave')
   .description('この PC の参加を解除する（cloud.json を削除し、デフォルトでクラウドの一覧でもこの PC を解除する）')
-  .option('--keep-device', 'クラウドの一覧ではこの PC を解除しない（端末トークンを無効にしない）')
+  .option('--keep-device', 'クラウドの一覧ではこの PC を解除しない（この PC 用のトークンを無効にしない）')
   .option('--yes', '確認せずに解除する')
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
   .action(async (o: { keepDevice?: boolean; yes?: boolean; json?: boolean }) => {
@@ -389,7 +389,7 @@ shell
   .description('この PC にインストールされているかを表示する')
   .action(() => { console.log(shellStatusLine({ tmuxPath: tmuxPathFor(hangarHome()) })); });
 
-const config = program.command('config').description('Claude Code の設定の同期（他の PC から届いた設定を適用する、バックアップの世代に戻す）');
+const config = program.command('config').description('Claude Code の設定の同期（他の PC から受信した設定を適用する、バックアップの世代に戻す）');
 
 config
   .command('apply')

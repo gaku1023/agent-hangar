@@ -185,7 +185,7 @@ describe('hangar project remove', () => {
     expect(o.out).toEqual([
       `一覧から削除します: alpha（${alpha}）`,
       '会話 3 件が未分類に戻ります。',
-      '会話は未分類に戻るだけです。トランスクリプトとディレクトリはそのまま残ります。',
+      '会話は未分類に戻るだけです。トランスクリプトとディレクトリは削除されません。',
       '同期している他の PC の一覧からも削除されます。',
       '--dry-run のため、何も書き込んでいません。',
     ]);
@@ -198,7 +198,7 @@ describe('hangar project remove', () => {
     expect(o.out).toEqual([
       `一覧から削除しました: alpha（${alpha}）`,
       '会話 3 件を未分類に戻しました。',
-      '会話は未分類に戻るだけです。トランスクリプトとディレクトリはそのまま残ります。',
+      '会話は未分類に戻るだけです。トランスクリプトとディレクトリは削除されません。',
     ]);
     const j = outs();
     expect(await projectRemoveCommand({ ...base(j, s.fetchFn, true), target: 'p1', dryRun: false, cwd: '/' })).toBe(0);
@@ -325,7 +325,7 @@ describe('hangar workspace set / unset', () => {
     const o = outs();
     expect(await workspaceUnsetCommand({ ...base(o, s.fetchFn), dryRun: true })).toBe(0);
     expect(s.calls[0]!.body).toEqual({ workspaceRoot: '', dryRun: true });
-    expect(o.out).toEqual(['新しいディレクトリの作成先: /w → 未設定', '登録済みのプロジェクトはそのまま残ります。新しいディレクトリの作成先の直下は自動で登録しなくなります。新しいディレクトリは、アプリで作成するときにパスを選択します。', '--dry-run のため、何も書き込んでいません。']);
+    expect(o.out).toEqual(['新しいディレクトリの作成先: /w → 未設定', '登録済みのプロジェクトは削除されません。新しいディレクトリの作成先の直下は自動で登録しなくなります。新しいディレクトリは、アプリで作成するときにパスを選択します。', '--dry-run のため、何も書き込んでいません。']);
     const j = outs();
     expect(await workspaceUnsetCommand({ ...base(j, s.fetchFn, true), dryRun: false })).toBe(0);
     expect(JSON.parse(j.out[0]!)).toEqual({ ok: true, dryRun: false, workspaceRoot: '', registered: [] });

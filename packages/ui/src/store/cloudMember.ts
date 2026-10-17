@@ -9,7 +9,8 @@ import type { CloudDevicesDto, DeviceOut, JoinApproverState, MobilePairingDto } 
  */
 
 /** 接続先の確認の答え（hangar cloud join-check）。url は origin の形にそろえたもの、current は今参加しているクラウドか null。 */
-export type JoinCheckView = { url: string; host: string; pcCount: number; current: { url: string } | null };
+/** current.legacy は、今の設定が古い形式（版 1）であること（CLI の JoinCheck と同じ）。 */
+export type JoinCheckView = { url: string; host: string; pcCount: number; current: { url: string; legacy?: true } | null };
 
 /** 殻か CLI が返した失敗。code で画面の言い方を選び、message は CLI か OS の文をそのまま持つ。 */
 export type CloudFailure = { code: string; message: string };

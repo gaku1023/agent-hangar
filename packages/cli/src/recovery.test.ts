@@ -264,7 +264,7 @@ describe('hangar recover', () => {
   it('secret put で止まった下書き（bootstrapped: false）は、同じトークンで bootstrap からやり直す', async () => {
     const c = await cloud();
     const pc = newPc('pc-b');
-    await expect(recover(c, pc, c.text, { secretFails: true })).rejects.toThrow(/最初の端末トークンを登録できませんでした/);
+    await expect(recover(c, pc, c.text, { secretFails: true })).rejects.toThrow(/この PC 用のトークンを登録できませんでした/);
     const first = readPending(pc.home);
     expect(first.bootstrapped).toBe(false);
     expect(c.worker.devices.has('pc-b')).toBe(false);
@@ -302,7 +302,7 @@ describe('hangar recover', () => {
     fs.rmSync(recoverPendingPath(pc.home));
 
     const err = await run(c.text, device).then(() => null, (e: unknown) => e as Error);
-    expect(err?.message).toContain('この PC の端末 ID は登録済みです');
+    expect(err?.message).toContain('この PC の ID は登録済みです');
     expect(err?.message).toContain(path.join(pc.home, 'device.json'));
     expect(err?.message).not.toMatch(/古いリソース/);
     expect(loadCloudConfig(pc.home)).toBeNull();

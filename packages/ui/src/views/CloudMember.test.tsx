@@ -67,6 +67,15 @@ describe('参加コードで参加（試作 B2）', () => {
     expect(screen.getByText('この PC はすでに別のクラウドに参加しています。')).toBeInTheDocument();
     expect(screen.getByText('https://o.example')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '上書きして参加をリクエスト' })).toBeInTheDocument();
+    expect(screen.queryByText(/0\.8\.x までの古い形式/)).toBeNull();
+  });
+
+  it('古い形式の設定を上書きするときは、上書きの前にバックアップすることを添える', () => {
+    render(ui(<CloudJoinSteps m={props({ join: { kind: 'code', check: { ...check, current: { url: 'https://o.example', legacy: true } } } })} onClose={() => {}} />));
+    // ディレクトリは PC ごとに違いうるので、画面の文に決め打ちのパスを書かない。
+    expect(screen.getByText(/0\.8\.x までの古い形式/)).toHaveTextContent('バックアップのディレクトリに保存します');
+    expect(screen.getByText(/0\.8\.x までの古い形式/)).not.toHaveTextContent('~/.agent-hangar');
+    expect(screen.getByRole('button', { name: '上書きして参加をリクエスト' })).toBeInTheDocument();
   });
 
   it('待ちの文は「参加コードを発行した PC で承認してください。」で、確認コードが出る', () => {

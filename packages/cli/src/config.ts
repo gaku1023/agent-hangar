@@ -81,7 +81,7 @@ const opWord = (i: ApplyPlanItem): string => {
 
 /** 端末に出す見立て。殻の確認と同じ項目を、件数、種類、実行されるものの順に並べる。 */
 export function formatPlan(p: ApplyPlan): string[] {
-  const lines = ['他の PC から届いた設定を ~/.claude に書き込みます。', `  ${counts(p)}`];
+  const lines = ['他の PC から受信した設定を ~/.claude に書き込みます。', `  ${counts(p)}`];
   lines.push(`  種類: ${Object.entries(p.byKind).map(([k, n]) => `${KIND_LABEL[k as ConfigItemKind]} ${n}`).join('、')}`);
   if (p.instructions > 0) lines.push(`Claude が読んで実行する指示（スキル、コマンド、エージェント）を ${p.instructions} 件書き込みます。`);
   if (p.exec.length > 0) {
@@ -128,7 +128,7 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
     }
     for (const l of formatPlan(plan)) log(l);
     if (!(await (o.ask ?? promptYesNo)('適用しますか？'))) {
-      log('適用しませんでした。適用内容はそのまま残っています');
+      log('適用しませんでした。適用内容はそのまま保存されています');
       return 1;
     }
   }
