@@ -191,6 +191,13 @@ export class SyncEngine {
    * 立て直せば最初の要求でまた断られて立ち、参加し直した後なら立たない。利用者の「今すぐ同期」でも 1 度だけ試し直す。
    */
   private revokedBlock = false;
+  /**
+   * 接続先が変わったのに、記録を戻せなかった（sync/rebuild.ts が転んだ）。理由の文を持つ。
+   * 前のクラウドの区切りと台帳のまま新しいクラウドと話すと、送ったつもりの行と本文が新しいクラウドに届かない。
+   * そこで push と pull を止め、本文と設定の出し入れも止める（boot/sync.ts の isPaused）。
+   * sync_state には残さない。立て直せば、起動のときにまた作り直しを試す。
+   */
+  private rebuildBlock: string | null = null;
   private started = false;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
@@ -227,8 +234,11 @@ export class SyncEngine {
    * 立っている間だけ push と pull の入口が開く。定期実行と起動前の pull は `paused` を見るので、開かない。
    */
   private onePass = false;
-  /** push と pull の入口を閉じているか。版で止まっているとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
-  private get halted(): boolean { return this.compatBlock !== null || this.revokedBlock || this.limitedUntil() !== null || (this.paused && !this.onePass); }
+  /** push と pull の入口を閉じているか。版で止まっているとき、作り直しに失敗したとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
+  private get halted(): boolean { return this.compatBlock !== null || this.revokedBlock || this.rebuildBlock !== null || this.limitedUntil() !== null || (this.paused && !this.onePass); }
+
+  /** 接続先が変わったのに記録を戻せず止まっているか。本文と設定の出し入れと使用量も、これを見て止まる。 */
+  rebuildBlocked(): boolean { return this.rebuildBlock !== null; }
 
   /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（sync/halt.ts の syncHalted）。 */
   compatBlocked(): boolean { return this.compatBlock !== null; }
@@ -338,7 +348,7 @@ export class SyncEngine {
     const limitedUntil = this.deps.client && !this.paused ? this.limitedUntil() : null;
     const state: SyncStateKind = !this.deps.client ? 'off'
       // 版で止まっているときは、一時停止より先に見せる。直す道（どちらを上げるか）が error の文にしか無いからである。
-      : this.compatBlock !== null || this.revokedBlock ? 'error'
+      : this.compatBlock !== null || this.revokedBlock || this.rebuildBlock !== null ? 'error'
       : this.paused || limitedUntil !== null ? 'paused'
       : this.pushing ? 'pushing'
       : this.pulling ? 'pulling'
@@ -357,7 +367,7 @@ export class SyncEngine {
       // off のあいだは送り先が無いので数えない（入れたての端末が、同期していないのに「未送信の変更 3」と出していた）。
       // 行は changes に残り、同期を有効にした後の push で送る。
       pending: state === 'off' ? 0 : this.pending(),
-      error: state === 'error' ? (this.compatBlock ?? (this.revokedBlock ? this.errorText(new RevokedError()) : null) ?? this.lastError) : null,
+      error: state === 'error' ? (this.compatBlock ?? (this.revokedBlock ? this.errorText(new RevokedError()) : null) ?? this.rebuildBlock ?? this.lastError) : null,
       deviceCount: this.deviceCount(),
       limitedUntil: shownLimit,
       // 解除されたことは error の文でも言うが、画面は節の先頭に専用の帯を出すので、印を別に載せる。
@@ -409,23 +419,39 @@ export class SyncEngine {
     if (!this.deps.client) { this.emitStatus(); return; }
     // 接続先が変わっていれば、最初の push と pull の前に記録を戻す。
     // 待たずに済む比べ（cloud.json の印）にしてあるので、同じ起動で走り出す本文の上げ下ろし（boot/sync.ts）より必ず先に済む。
-    this.rebuildIfNeeded();
-    this.pullTimer = this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
+    // 戻せなければ、前の記録のまま新しいクラウドと話さない。失敗として見せて、ここで止める。
+    if (!this.rebuildIfNeeded()) {
+      this.offWrite?.(); this.offWrite = null;
+      this.started = false;
+      this.emitStatus();
+      return;
+    }
+    this.pullTimer =this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
     unref(this.pullTimer);
     // 起動は利用者の押下ではないので、上限で退いた印を外さない（syncNow は外す）。
     await this.pushNow();
     await this.pullNow();
   }
 
-  /** 起動のときの cloudId の比べ。失敗しても同期は止めない（記録を戻せなかっただけで、前の記録のまま動く）。 */
-  private rebuildIfNeeded(): void {
+  /**
+   * 起動のときの cloudId の比べ。戻せなかったら false を返す。
+   * 戻す仕事は 1 つの transaction なので、転べば記録は前のまま残り、cloudId も書かない。立て直せば、また試す。
+   * 失敗の理由は同期の失敗として残す（sync_state の lastError と、状態の error）。
+   */
+  private rebuildIfNeeded(): boolean {
     const cloudId = this.deps.cloudId;
-    if (!cloudId || this.deps.home === undefined) return;
+    if (!cloudId || this.deps.home === undefined) return true;
     try {
-      const r = rebuildIfCloudChanged({ db: this.deps.db, state: this.state, health: { cloudId }, home: this.deps.home, deviceId: this.deps.deviceId });
+      const r = rebuildIfCloudChanged({ db: this.deps.db, state: this.state, health: { cloudId }, home: this.deps.home, deviceId: this.deps.deviceId, now: this.now() });
       if (r.rebuilt) console.log('[sync] the cloud changed; uploading all rows and transcripts again');
+      this.rebuildBlock = null;
+      return true;
     } catch (e) {
-      console.error('[sync] could not reset the sync records for the new cloud', e instanceof Error ? e.message : e);
+      console.error('[sync] could not reset the sync records for the new cloud; sync is stopped until hangar restarts', e instanceof Error ? e.message : e);
+      this.rebuildBlock = this.errorText(e);
+      this.pushError = this.rebuildBlock;
+      this.persistError();
+      return false;
     }
   }
 
@@ -931,7 +957,7 @@ export class SyncEngine {
 
   /** セッション起動の直前に呼ぶ。2 秒で諦めるが pull 自体は続く。 */
   async pullBeforeLaunch(timeoutMs = 2000): Promise<boolean> {
-    if (!this.deps.client || this.paused || this.compatBlock !== null || this.revokedBlock || this.limitedUntil() !== null) return false;
+    if (!this.deps.client || this.paused || this.compatBlock !== null || this.revokedBlock || this.rebuildBlock !== null || this.limitedUntil() !== null) return false;
     let timer: NodeJS.Timeout | null = null;
     const gaveUp = new Promise<boolean>((r) => { timer = this.timers.setTimeout(() => r(false), timeoutMs); });
     const done = this.pulling ?? this.pullNow();

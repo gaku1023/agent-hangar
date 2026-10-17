@@ -1130,6 +1130,7 @@ export type LegacyFileEntry = { key: string; path: string; kind: 'transcript' | 
  * 版 8 までの本文の鍵。参加用の秘密から HKDF（SHA-256）で導く。
  * サーバからは消した（版 9 の本文は世代鍵から導く）ので、teardown のためにここにだけ写しを持つ。
  * 版 1 の cloud.json の teardown（旧い Worker の片付け）のほかに使わない。
+ * teardown の版 1 の道でだけ使う（export は cloud.test.ts が古い本文を封じるためだけにある）。
  */
 export function legacyFileKey(joinSecret: string): Buffer {
   return Buffer.from(hkdfSync('sha256', Buffer.from(joinSecret, 'utf8'), 'hangar-salt-v1', 'hangar-file-v1', 32));

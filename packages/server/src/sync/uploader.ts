@@ -8,7 +8,8 @@ import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { CloudError, LimitError, type CloudClient } from './client.ts';
 import { remoteTranscriptPath } from './puller.ts';
-import { RELAY_KIND, relayLedgerKey, relayTargetOf } from './rebuild.ts';
+import { RELAY_HOLD_MS, RELAY_KIND, relayLedgerKey, relayTargetOf } from './rebuild.ts';
+import type { RosterStore } from './roster.ts';
 import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
@@ -29,6 +30,11 @@ export type UploaderDeps = {
   /** R2 の鍵名を求める鍵の束。client（SealedCloudClient）と同じものを渡す。 */
   keyring: RowKeyring | Promise<RowKeyring>;
   state: SyncStateStore;
+  /**
+   * 名簿の写し。remote/ の写しを上げる前に、元の PC が新しいクラウドに居るかを見る。
+   * 手元に持っている写し（cached）だけを読み、Worker には読みに行かない。省くと写しは上げない。
+   */
+  roster?: Pick<RosterStore, 'cached'>;
   now?: () => number; debounceMs?: number; timers?: Timers; isPaused: () => boolean;
   onError?: (path: string, message: string) => void;
 };
@@ -276,11 +282,7 @@ export class TranscriptUploader {
     if (!isSafeKeyId(this.deps.deviceId)) return null;
     try {
       const row = this.countStatement().get({ head: `transcripts/${this.deps.deviceId}/`, from: this.transcriptFloor(), skip: SKIP_PREFIX }) as { n: number } | undefined;
-      // 作り直しで上げ直す remote/ の写しも、これから上がるものに数える（諦めたものは数えない）。
-      const relays = this.deps.home === undefined ? 0 : (this.deps.db
-        .prepare("select count(*) n from file_sync fs left join sync_state sk on sk.key = ? || fs.key where fs.kind = ? and fs.sha256 = '' and sk.key is null")
-        .get(SKIP_PREFIX, RELAY_KIND) as { n: number }).n;
-      return (row?.n ?? 0) + relays;
+      return (row?.n ?? 0) + this.countRelays();
     } catch {
       // 数えられないことは、同期そのものを止める理由にはならない。
       return null;
@@ -342,21 +344,29 @@ export class TranscriptUploader {
   /**
    * 作り直しで置いた remote/ の写し（sync/rebuild.ts の RELAY_KIND の行）のうち、まだ上げていないものを積む。
    * 写しは元の PC の ID を origin にして、自分の device_id の下へ上げる。床（transcriptsFrom）は見ない。作り直しが名指しで置いたものだからである。
+   * 上げるのは、作り直しから RELAY_HOLD_MS が過ぎ、元の PC が新しいクラウドの名簿に居ないものだけである（relayGate）。
+   * 名簿に居る PC の写しと、ファイルの消えた写しは、台帳から落とす。
    * 戻り値は新たに積んだ件数である。
    */
   private sweepRelays(limit: number): number {
     const home = this.deps.home;
     if (home === undefined || limit <= 0) return 0;
+    const present = this.relayGate();
+    if (present === null) return 0;
     const rows = this.deps.db
       .prepare("select key, path, device_id origin from file_sync where kind = ? and sha256 = '' order by key limit ?")
       .all(RELAY_KIND, Number.isFinite(limit) ? limit * SWEEP_SCAN_MULT : -1) as { key: string; path: string; origin: string }[];
     let queued = 0;
     for (const r of rows) {
       if (queued >= limit) break;
+      // 元の PC が新しいクラウドに参加し直していれば、その PC が自分で上げる。写しは上げずに台帳から落とす。
+      if (present.has(r.origin)) { this.dropRelay(r.key); continue; }
       const t = relayTargetOf(r.path);
       if (t === null) continue;
       let abs: string;
       try { abs = remoteTranscriptPath(home, r.origin, r.path); } catch { continue; }
+      // 写しのファイルが消えていれば上げようがない。残すと「未送信」に数え続けるので落とす。
+      if (!fs.existsSync(abs)) { this.dropRelay(r.key); continue; }
       if (this.pending.has(abs)) continue;
       const rec = this.readSkip(r.key);
       if (rec && !this.mayRetrySkipped(r.key, rec, 0, null)) continue;
@@ -364,6 +374,45 @@ export class TranscriptUploader {
       queued++;
     }
     return queued;
+  }
+
+  /**
+   * remote/ の写しを今上げてよいかの関所。
+   * 作り直し（sync_state の rebuiltAt）から RELAY_HOLD_MS のうちは null を返す。元の PC が参加し直して自分で上げるのを待つ。
+   * 名簿の写しをまだ持っていないときも null を返す（今回は上げない）。走査のたびに GET /roster を増やさないよう、Worker には読みに行かない。
+   * どちらでもなければ、新しいクラウドの名簿に居る PC の ID の集まりを返す。
+   */
+  private relayGate(): Set<string> | null {
+    if (this.now() - this.deps.state.getNumber('rebuiltAt', 0) < RELAY_HOLD_MS) return null;
+    const read = this.deps.roster?.cached() ?? null;
+    return read === null ? null : new Set(read.roster.entries.map((e) => e.id));
+  }
+
+  /** 上げない写しを台帳から落とす。諦めた控えも一緒に消す（諦めた本文 N に残さない）。 */
+  private dropRelay(key: string): void {
+    this.deps.db.prepare('delete from file_sync where key = ? and kind = ?').run(key, RELAY_KIND);
+    this.clearSkip(key);
+  }
+
+  /**
+   * 未送信に数える写しの数。sweepRelays が積むものと同じ条件で数える。
+   * 保留の間と名簿の写しが無い間は 0 である（走査が積まないので、数に残すと「未送信 N」が減らない）。
+   * 名簿に居る PC の写しと、ファイルの消えた写しと、諦めた写しは数えない。
+   */
+  private countRelays(): number {
+    const home = this.deps.home;
+    if (home === undefined) return 0;
+    const present = this.relayGate();
+    if (present === null) return 0;
+    const rows = this.deps.db
+      .prepare("select fs.path path, fs.device_id origin from file_sync fs left join sync_state sk on sk.key = ? || fs.key where fs.kind = ? and fs.sha256 = '' and sk.key is null")
+      .all(SKIP_PREFIX, RELAY_KIND) as { path: string; origin: string }[];
+    let n = 0;
+    for (const r of rows) {
+      if (present.has(r.origin) || relayTargetOf(r.path) === null) continue;
+      try { if (fs.existsSync(remoteTranscriptPath(home, r.origin, r.path))) n++; } catch { /* 鍵に使えない形は上げようがない。 */ }
+    }
+    return n;
   }
 
   /**

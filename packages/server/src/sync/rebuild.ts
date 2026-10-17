@@ -22,6 +22,14 @@ import type { SyncStateStore } from './state.ts';
  */
 export const RELAY_KIND = 'remote_copy';
 
+/**
+ * 作り直しから写しを上げ始めるまでの日数（ミリ秒）。
+ * 元の PC が新しいクラウドに参加し直せば、自分の本文を自分で上げる。
+ * 各 PC が他の PC の写しをすぐに上げると、同じ本文が PC の台数の 2 乗の数だけ上がる。
+ * そこで、元の PC が参加し直す時間を待ち、待っても名簿に居ない PC の写しだけを上げる（sync/uploader.ts の sweepRelays）。
+ */
+export const RELAY_HOLD_MS = 3 * 86_400_000;
+
 /** remote/ の写しの台帳の鍵。降ろした写しの鍵（transcripts/<元の PC>/...）と重ならないよう、頭に relay: を付ける。 */
 export function relayLedgerKey(origin: string, rel: string): string | null {
   const k = ledgerKeyOfPath(origin, rel);
@@ -109,7 +117,8 @@ function queueRemoteCopies(db: Db, home: string, deviceId: string): number {
  * 2. 区切り（lastSeq、filesSeq、snapshotDone と、飛ばした行の控え）を戻す。新しいクラウドの写しと索引を頭から読む。
  * 3. 共有テーブルの全行を changes に積み直す。前のクラウドへ送り済みの行も、他の PC が書いた行も送る。
  * 4. remote/ にある他の PC の写しを、元の PC の ID を origin にして、自分の device_id の下へ上げる対象に置く。元の PC がもう無くても、本文が新しいクラウドに残る。
- * 5. 新しい cloudId を書く。
+ *    上げるのは作り直しから RELAY_HOLD_MS が過ぎ、元の PC が新しいクラウドの名簿に居ないときだけである（sync/uploader.ts）。
+ * 5. 新しい cloudId と、作り直した時刻（rebuiltAt、写しの保留の起点）を書く。
  *
  * 他の PC から降ろした写しの台帳（file_sync の他の PC の行）は残す。新しいクラウドに同じ本文が上がっても、指紋が同じなので降ろし直さない。
  * 上げた世代の控え（blob_uploads）は前のクラウドの鍵名なので空にする。
@@ -117,7 +126,7 @@ function queueRemoteCopies(db: Db, home: string, deviceId: string): number {
  * 初めて参加した PC では、送る行が増えるだけで食い違いは生まれない。
  * health.cloudId が空なら何もしない（新しい Worker なら必ず返すので、読めなかったときに記録を捨てない）。
  */
-export function rebuildIfCloudChanged(o: { db: Db; state: SyncStateStore; health: { cloudId: string }; home: string; deviceId: string }): { rebuilt: boolean } {
+export function rebuildIfCloudChanged(o: { db: Db; state: SyncStateStore; health: { cloudId: string }; home: string; deviceId: string; now?: number }): { rebuilt: boolean } {
   const next = o.health.cloudId;
   if (typeof next !== 'string' || next === '') return { rebuilt: false };
   if (o.state.get('cloudId') === next) return { rebuilt: false };
@@ -128,6 +137,7 @@ export function rebuildIfCloudChanged(o: { db: Db; state: SyncStateStore; health
     for (const k of ['lastSeq', 'filesSeq', 'snapshotDone', 'rowsSkippedFrom', 'filesSkippedFrom'] as const) o.state.set(k, null);
     requeueSharedRows(o.db, o.deviceId);
     queueRemoteCopies(o.db, o.home, o.deviceId);
+    o.state.set('rebuiltAt', o.now ?? Date.now());
     o.state.set('cloudId', next);
   })();
   return { rebuilt: true };

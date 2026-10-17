@@ -9,7 +9,8 @@ import { upsertShared } from '../db/shared.ts';
 import { sha256Hex } from './crypto.ts';
 import { SyncEngine } from './engine.ts';
 import { RemotePuller, remoteTranscriptPath } from './puller.ts';
-import { rebuildIfCloudChanged } from './rebuild.ts';
+import { RELAY_HOLD_MS, rebuildIfCloudChanged } from './rebuild.ts';
+import type { RosterRead } from './roster.ts';
 import { SyncStateStore } from './state.ts';
 import { TranscriptUploader } from './uploader.ts';
 
@@ -49,13 +50,20 @@ const markUploaded = (uuid: string, text: string): void => {
     .run(`transcripts/dev-a/${uuid}.jsonl.gz`, 'transcript', `projects/${FOLDER}/${uuid}.jsonl`, 'dev-a', sha256Hex(Buffer.from(text)), Buffer.byteLength(text), 1, 7, 1);
 };
 
-const uploader = (): TranscriptUploader => new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, home, client: cloud, keyring: cloud.keyring, state, now: () => timers.now, timers, isPaused: () => false });
+/** 名簿の写し（RosterStore.cached の代わり）。ids は名簿に居る PC の ID。null は「まだ読んでいない」。 */
+const rosterOf = (ids: string[] | null): { cached(): RosterRead | null } => ({
+  cached: () => (ids === null ? null : { version: 1, roster: { v: 1, entries: ids.map((id) => ({ id, kind: 'pc' as const, name: id, os: 'darwin', pub: '', joinedAt: 1 })), recoveryPub: '', phoneKey: null } }),
+});
+let roster: { cached(): RosterRead | null };
+
+const uploader = (): TranscriptUploader => new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, home, client: cloud, keyring: cloud.keyring, state, roster, now: () => timers.now, timers, isPaused: () => false });
 
 beforeEach(() => {
   db = openDb(':memory:');
   state = new SyncStateStore(db);
   cloud = new FakeCloudClient({ deviceId: 'dev-a' });
   timers = new FakeTimers();
+  roster = rosterOf(['dev-a']);
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rebuild-home-'));
   claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rebuild-claude-'));
 });
@@ -131,7 +139,9 @@ describe('rebuildIfCloudChanged', () => {
     write(`${remoteTranscriptPath(home, 'dev-b', rel)}.part`, 'half');
     write(remoteTranscriptPath(home, 'dev-a', `projects/${FOLDER}/${UUID_A}.jsonl`), '{"mine":1}\n');
 
-    rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a' });
+    rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a', now: timers.now });
+    // 元の PC が参加し直すのを待つ日数を過ぎても、名簿に居ない。
+    timers.now += RELAY_HOLD_MS + 1;
     const up = uploader();
     expect(up.pendingSweep()).toBe(2);
     expect(up.sweep()).toBe(2);
@@ -194,7 +204,91 @@ describe('rebuildIfCloudChanged', () => {
   });
 });
 
+describe('remote/ の写しの保留', () => {
+  const rel = `projects/${FOLDER}/${UUID_R}.jsonl`;
+  const relayRows = (): unknown[] => db.prepare("select key from file_sync where kind = 'remote_copy'").all();
+  const placeCopy = (): void => {
+    write(remoteTranscriptPath(home, 'dev-b', rel), '{"from":"b"}\n');
+    rebuildIfCloudChanged({ db, state, health: { cloudId: 'cloud-new' }, home, deviceId: 'dev-a', now: timers.now });
+  };
+
+  it('元の PC が新しいクラウドの名簿に居れば上げず、台帳の行を消す', async () => {
+    placeCopy();
+    roster = rosterOf(['dev-a', 'dev-b']);
+    timers.now += RELAY_HOLD_MS + 1;
+    const up = uploader();
+    expect(up.pendingSweep()).toBe(0);
+    expect(up.sweep()).toBe(0);
+    await up.idle();
+    expect(await cloud.openedFiles()).toEqual([]);
+    expect(relayRows()).toEqual([]);
+    up.stop();
+  });
+
+  it('作り直しから 3 日のうちは、名簿に居なくても上げない', async () => {
+    placeCopy();
+    timers.now += RELAY_HOLD_MS - 1;
+    const up = uploader();
+    expect(up.pendingSweep()).toBe(0);
+    expect(up.sweep()).toBe(0);
+    await up.idle();
+    expect(await cloud.openedFiles()).toEqual([]);
+    // 台帳の行は残し、日数が過ぎたら上げる。
+    expect(relayRows()).toHaveLength(1);
+    timers.now += 2;
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect((await cloud.openedFiles()).map((e) => [e.origin, e.path])).toEqual([['dev-b', rel]]);
+    up.stop();
+  });
+
+  it('名簿の写しがまだ無ければ、今回は上げない（GET /roster を増やさない）', async () => {
+    placeCopy();
+    roster = rosterOf(null);
+    timers.now += RELAY_HOLD_MS + 1;
+    const up = uploader();
+    expect(up.sweep()).toBe(0);
+    await up.idle();
+    expect(cloud.calls.some((c) => c.method === 'getRoster')).toBe(false);
+    expect(relayRows()).toHaveLength(1);
+    up.stop();
+  });
+
+  it('ファイルの消えた写しは数えず、台帳から落とす', async () => {
+    placeCopy();
+    fs.rmSync(remoteTranscriptPath(home, 'dev-b', rel));
+    timers.now += RELAY_HOLD_MS + 1;
+    const up = uploader();
+    expect(up.pendingSweep()).toBe(0);
+    expect(up.sweep()).toBe(0);
+    expect(relayRows()).toEqual([]);
+    up.stop();
+  });
+});
+
 describe('SyncEngine の起動', () => {
+  it('作り直しに失敗したら、同期の失敗として見せ、push も pull も始めない', async () => {
+    upsertShared(db, 'projects', { id: 'proj-1', name: 'alpha', status: 'active' }, 'dev-a');
+    state.set('cloudId', 'cloud-old');
+    // 作り直しの transaction の途中で転ぶようにする。
+    db.exec('drop table blob_uploads');
+    const engine = new SyncEngine({ db, deviceId: 'dev-a', client: cloud, timers, now: () => timers.now, home, cloudId: 'cloud-new' });
+    await engine.start();
+    await engine.idle();
+    expect(engine.status().state).toBe('error');
+    expect(engine.status().error).toBeTruthy();
+    expect(state.get('lastError')).toBeTruthy();
+    // 前の記録のまま、新しいクラウドに送らない。
+    expect(state.get('cloudId')).toBe('cloud-old');
+    expect(cloud.calls.filter((c) => c.method === 'pushChanges' || c.method === 'pullChanges' || c.method === 'snapshot')).toEqual([]);
+    // 定期の pull も走らない。今すぐ同期でも送らない。
+    await timers.advance(10 * 60_000);
+    await engine.syncNow();
+    await engine.idle();
+    expect(cloud.calls.filter((c) => c.method === 'pushChanges' || c.method === 'pullChanges' || c.method === 'snapshot')).toEqual([]);
+    engine.stop();
+  });
+
   it('cloud.json の cloudId が前と違えば、作り直してから送る', async () => {
     upsertShared(db, 'projects', { id: 'proj-1', name: 'alpha', status: 'active' }, 'dev-a');
     db.prepare('update changes set pushed_at = 1').run();

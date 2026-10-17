@@ -232,7 +232,7 @@ export function bootSync(
      * 互換の版が合わずに止まっているときも止まっていると答える（1 巡の最中でも）。
      * 本文と設定の出し入れはどれもここを見るので、その 1 巡だけ通る。
      */
-    const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: once.pass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null, revoked: engine.revoked() });
+    const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: once.pass.active(), compatBlocked: engine.compatBlocked() || engine.rebuildBlocked(), limited: engine.limitedUntil() !== null, revoked: engine.revoked() });
     // 参加し直すと（hangar setup cloud をやり直す、hangar join し直す）、Worker は同じ端末 ID の token_hash を入れ替え、新しいトークンは cloud.json にだけ書かれる。
     // 古いトークンの要求は 401 の unauthorized で断られるので、そのときに cloud.json を読み直し、トークンだけが変わっていれば client が差し替えて試し直す。
     // 部品（エンジン、本文の上げ手と降ろし手、使用量、設定の同期、PC の一覧）はみな同じ client を持つので、差し替えは全部に一度に効く。
@@ -275,7 +275,7 @@ export function bootSync(
     const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
     const uploader = client && keyring
       ? new TranscriptUploader({
-          db, deviceId, claudeDir, home: home.home, client, keyring, state: syncState,
+          db, deviceId, claudeDir, home: home.home, client, keyring, state: syncState, roster: roster ?? undefined,
           isPaused,
           onError: (p, m) => console.error('[upload]', p, m),
         })
@@ -452,7 +452,7 @@ export function bootSync(
   const canCarry = (min: number): boolean => {
     const { client, engine } = core;
     if (!client) return false;
-    if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
+    if (engine.status().paused || engine.compatBlocked() || engine.rebuildBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
     return (client.lastWorkerCompat?.() ?? 0) >= min;
   };
 
