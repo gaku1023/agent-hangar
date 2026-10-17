@@ -1,35 +1,50 @@
 import { describe, expect, it } from 'vitest';
 import type { CloudDevicesDto } from '@agent-hangar/shared';
-import { initialCloudMember, reduceCloudMember, type JoinPlanView } from './cloudMember.ts';
+import { initialCloudMember, reduceCloudMember, type JoinCheckView } from './cloudMember.ts';
 
-const plan: JoinPlanView = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' };
+const check: JoinCheckView = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
 const row = (id: string, self = false) => ({ id, kind: 'pc' as const, name: id, platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, expiresAt: null, self });
 const devices: CloudDevicesDto = { state: 'ok', devices: [row('a', true), row('b')], creator: false, message: null };
 
 describe('reduceCloudMember', () => {
-  it('参加の段は、確かめる、宛先の確認、参加中、参加済みと進む', () => {
+  it('参加の段は、接続先の URL、確認中、参加コード、送信中、承認待ち、完了と進む', () => {
     let s = initialCloudMember();
-    s = reduceCloudMember(s, { type: 'join.checking' });
-    expect(s.join).toEqual({ kind: 'checking' });
-    s = reduceCloudMember(s, { type: 'join.planned', plan });
-    expect(s.join).toEqual({ kind: 'confirm', plan });
-    s = reduceCloudMember(s, { type: 'join.joining' });
-    expect(s.join).toEqual({ kind: 'joining', plan });
-    s = reduceCloudMember(s, { type: 'join.joined', host: 'h.example' });
-    expect(s.join).toEqual({ kind: 'joined', host: 'h.example' });
+    expect(s.join).toEqual({ kind: 'url', failure: null });
+    s = reduceCloudMember(s, { type: 'join.checking', url: 'https://h.example' });
+    expect(s.join).toEqual({ kind: 'checking', url: 'https://h.example' });
+    s = reduceCloudMember(s, { type: 'join.checked', check });
+    expect(s.join).toEqual({ kind: 'code', check });
+    s = reduceCloudMember(s, { type: 'join.requesting' });
+    expect(s.join).toEqual({ kind: 'requesting', check });
+    s = reduceCloudMember(s, { type: 'join.waiting', sas: '123456', expiresAt: 9 });
+    expect(s.join).toEqual({ kind: 'waiting', check, sas: '123456', expiresAt: 9 });
+    s = reduceCloudMember(s, { type: 'join.done' });
+    expect(s.join).toEqual({ kind: 'done', host: 'h.example' });
   });
 
-  it('参加の失敗は、確かめた宛先を残して理由を持つ。閉じれば最初に戻る', () => {
-    let s = reduceCloudMember(initialCloudMember(), { type: 'join.planned', plan });
-    s = reduceCloudMember(s, { type: 'join.joining' });
-    s = reduceCloudMember(s, { type: 'join.failed', failure: { code: 'network', message: 'x' } });
-    expect(s.join).toEqual({ kind: 'failed', plan, failure: { code: 'network', message: 'x' } });
-    expect(reduceCloudMember(s, { type: 'join.reset' }).join).toEqual({ kind: 'idle' });
+  it('接続先の確認の失敗は、URL の段に理由を持って戻る', () => {
+    const s = reduceCloudMember(reduceCloudMember(initialCloudMember(), { type: 'join.checking', url: 'https://x' }), { type: 'join.checkFailed', failure: { code: 'unreachable', message: '' } });
+    expect(s.join).toEqual({ kind: 'url', failure: { code: 'unreachable', message: '' } });
   });
 
-  it('宛先を確かめる前の失敗は、宛先を持たない', () => {
-    const s = reduceCloudMember(reduceCloudMember(initialCloudMember(), { type: 'join.checking' }), { type: 'join.failed', failure: { code: 'invalid-token', message: '' } });
-    expect(s.join).toEqual({ kind: 'failed', plan: null, failure: { code: 'invalid-token', message: '' } });
+  it('参加の失敗は理由と、接続先の確認の結果を持つ。入力し直すと参加コードの段へ、閉じれば最初に戻る', () => {
+    let s = reduceCloudMember(initialCloudMember(), { type: 'join.checked', check });
+    s = reduceCloudMember(s, { type: 'join.requesting' });
+    s = reduceCloudMember(s, { type: 'join.failed', reason: 'expired', message: '' });
+    expect(s.join).toEqual({ kind: 'failed', reason: 'expired', message: '', check });
+    expect(reduceCloudMember(s, { type: 'join.reenter' }).join).toEqual({ kind: 'code', check });
+    expect(reduceCloudMember(s, { type: 'join.reset' }).join).toEqual({ kind: 'url', failure: null });
+  });
+
+  it('PC を追加の段は、サーバーの承認の状態の写しを持つ。拒否の後に受信した idle では、拒否の知らせを保持する', () => {
+    let s = reduceCloudMember(initialCloudMember(), { type: 'add.issuing' });
+    expect(s.add).toEqual({ kind: 'issuing' });
+    const open = { kind: 'open' as const, code: 'K7QM-2XFD', expiresAt: 9 };
+    s = reduceCloudMember(s, { type: 'add.state', state: open });
+    expect(s.add).toEqual(open);
+    s = reduceCloudMember(s, { type: 'add.rejected', name: 'pc-b' });
+    expect(reduceCloudMember(s, { type: 'add.state', state: { kind: 'idle' } }).add).toEqual({ kind: 'rejected', name: 'pc-b' });
+    expect(reduceCloudMember(s, { type: 'add.reset' }).add).toEqual({ kind: 'idle' });
   });
 
   it('PC を解除したら、一覧のその PC に解除日を付け、済んだ印を持つ', () => {

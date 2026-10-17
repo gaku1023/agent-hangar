@@ -42,7 +42,6 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     syncFocus: vi.fn(async () => {}),
     resumeHere: vi.fn(async () => launchResult),
     resumeHerePlan: vi.fn(async () => { throw new Error('unused'); }),
-    joinToken: vi.fn(async () => ({ token: 'tok' })),
     cloudDevices: vi.fn(async () => ({ state: 'off' as const, devices: [], creator: false, message: null })),
     ...overrides,
   };
@@ -1522,23 +1521,17 @@ describe('同期とこの PC で再開', () => {
     await flush();
     expect(api.resumeHere).toHaveBeenCalledTimes(2);
   });
-  it('参加トークンを取りに行く', async () => {
-    const { rt, api } = harness();
+  it('サーバーの join.update で「PC を追加」の状態を写す', async () => {
+    const { rt, wsHandlers } = harness();
     rt.start();
-    rt.emit({ type: 'sync.joinToken.show' });
+    wsHandlers[0]!.onOpen();
     await flush();
-    expect(rt.getStore().joinToken).toBe('tok');
-  });
-  it('参加トークンはしばらく置くと自分で消える', async () => {
-    const { rt, timers } = harness();
-    rt.start();
-    rt.emit({ type: 'sync.joinToken.show' });
-    await flush();
-    expect(rt.getStore().joinToken).toBe('tok');
-    const timer = timers.find((t) => t.ms >= 10_000);
-    expect(timer).toBeDefined();
-    timer!.fn();
-    expect(rt.getStore().joinToken).toBeNull();
+    const requested = { kind: 'requested' as const, code: 'K7QM-2XFD', expiresAt: 1, request: { name: 'pc-b', os: 'win32', sas: '123456' } };
+    wsHandlers[0]!.onEvent({ type: 'join.update', join: requested });
+    expect(rt.getStore().cloudMember.add).toEqual(requested);
+    // join.request は OS の通知と同じ中身で、状態は変えない。
+    wsHandlers[0]!.onEvent({ type: 'join.request', request: requested.request, expiresAt: 1 });
+    expect(rt.getStore().cloudMember.add).toEqual(requested);
   });
 });
 
@@ -1612,6 +1605,7 @@ describe('入力待ちの知らせ', () => {
   const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
   function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean; status?: NotifyPermission } = {}) {
     let open: ((id: string) => void) | null = null;
+    let openJoin: (() => void) | null = null;
     return {
       defaultOn: o.defaultOn ?? true,
       available: () => o.available ?? true,
@@ -1624,8 +1618,20 @@ describe('入力待ちの知らせ', () => {
       badge: vi.fn(),
       onOpen: (cb: (id: string) => void) => { open = cb; return () => { open = null; }; },
       fireOpen: (id: string) => open?.(id),
+      onOpenJoin: (cb: () => void) => { openJoin = cb; return () => { openJoin = null; }; },
+      fireOpenJoin: () => openJoin?.(),
     };
   }
+  it('参加リクエストの通知を押すと、設定のクラウド同期を開き、承認の欄の状態を取り直す', async () => {
+    const n = fakeNotifier();
+    const h = await started(n);
+    const current = vi.mocked(h.api.joinCodeCurrent);
+    current.mockClear();
+    n.fireOpenJoin();
+    await flush();
+    expect(h.rt.getState().screen).toEqual({ name: 'settings', at: 'cloud' });
+    expect(current).toHaveBeenCalled();
+  });
   async function started(notifier: ReturnType<typeof fakeNotifier> | undefined, sessions: SessionDto[] = [waitingSession()], stored?: boolean) {
     const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions })) }, notifier ? { notifier } : {});
     if (stored !== undefined) h.store.set('notify.waiting', stored);
@@ -2312,13 +2318,6 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(rt.getStore().readiness).toEqual(withDrifts);
     expect(rt.getStore().compat).toEqual(DETAIL);
     expect(compat).toHaveBeenCalledTimes(1);
-  });
-  it('参加トークンは消える時刻と一緒に置く', async () => {
-    const { rt } = harness({}, { now: () => 1_000 });
-    rt.start();
-    rt.emit({ type: 'sync.joinToken.show' });
-    await flush();
-    expect(rt.getStore().joinTokenExpiresAt).toBe(121_000);
   });
 });
 

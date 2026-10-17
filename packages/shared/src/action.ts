@@ -157,14 +157,18 @@ export type UiAction =
    * worktree は、そのセッションのプロジェクトで、worktree の札に名前を入れた新しいセッションのダイアログを開く。
    */
   | { type: 'overlap.dismiss'; sessionId: SessionId; with: SessionId; paths: string[] } | { type: 'overlap.worktree'; sessionId: SessionId }
-  | { type: 'sync.joinToken.show' }
   /**
-   * クラウド同期への参加と、PC の解除と、この PC の参加の解除（0.4.0）。殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
-   * join.plan は貼った参加トークンを殻へ渡して宛先を確かめる。トークンは Runtime だけが持ち、Store にも画面にも残さない。
-   * join.go は確かめた宛先に参加する（overwrite は別のクラウドへの上書きの承諾）。join.cancel は段を閉じてトークンを捨てる。
-   * device.revoke はほかの PC を解除する。leave はこの PC の参加を解除する（revoke はクラウドでもこの PC を解除するか）。
+   * 参加コードでの参加（新しい PC の側、試作 B2）と、PC の解除と、この PC の参加の解除。参加と解除は殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
+   * join.check は接続先の URL を殻へ渡してホストと参加済みの PC の台数を確認する。join.request は半角にそろえた参加コードで参加リクエストを送り、承認を待つ。
+   * 参加コードは Runtime から殻へ渡すだけで、Store にも画面にも保持しない。join.reenter は参加コードの段へ戻り、join.cancel は段を閉じる。
+   * device.revoke は他の PC を解除する。leave はこの PC の参加を解除する（revoke はクラウドでもこの PC を解除するか）。
    */
-  | { type: 'cloud.join.plan'; token: string } | { type: 'cloud.join.go'; overwrite: boolean } | { type: 'cloud.join.cancel' }
+  | { type: 'cloud.join.check'; url: string } | { type: 'cloud.join.request'; code: string } | { type: 'cloud.join.reenter' } | { type: 'cloud.join.cancel' }
+  /**
+   * 参加済みの PC で「PC を追加」（試作 A1）。add.open は参加コードを発行する（期限切れの後の再発行も同じ）。
+   * add.approve と add.reject は受信した参加リクエストを承認か拒否する。add.close は欄を閉じ、生きている参加コードも閉じる。
+   */
+  | { type: 'cloud.add.open' } | { type: 'cloud.add.approve' } | { type: 'cloud.add.reject' } | { type: 'cloud.add.close' }
   | { type: 'cloud.device.revoke'; id: string } | { type: 'cloud.revoke.dismiss' }
   | { type: 'cloud.leave'; revoke: boolean } | { type: 'cloud.leave.dismiss' }
   /**

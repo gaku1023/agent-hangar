@@ -67,9 +67,9 @@ describe('フェーズ 4 の DTO', () => {
     const evs: ServerEvent[] = [{ type: 'sync.status', status }, { type: 'devices.update', devices: [] }];
     expect(evs.map((e) => e.type)).toEqual(['sync.status', 'devices.update']);
   });
-  it('この PC で再開と参加トークンの UiAction がある', () => {
-    const is: UiAction[] = [{ type: 'session.resumeHere', id: 's1' }, { type: 'session.resumeHere', id: 's1', overwrite: true }, { type: 'sync.joinToken.show' }];
-    expect(is).toHaveLength(3);
+  it('この PC で再開と参加コードの UiAction がある', () => {
+    const is: UiAction[] = [{ type: 'session.resumeHere', id: 's1' }, { type: 'session.resumeHere', id: 's1', overwrite: true }, { type: 'cloud.join.request', code: 'K7QM2XFD' }, { type: 'cloud.add.open' }];
+    expect(is).toHaveLength(4);
   });
 });
 

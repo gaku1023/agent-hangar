@@ -958,7 +958,7 @@ describe('presentSettings（フェーズ 2）', () => {
     const store = storeWith();
     store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
-    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code' }, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: 'hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' } });
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code' }, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: 'hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' } });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', editor: { setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' } } });
   });
@@ -984,7 +984,7 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     expect(p.verify.claude).toMatchObject({ ok: false });
     expect(p.mcpRegistered).toBe(true);
     // 参加は同梱の CLI でできるので同じ呼び方にする。クラウドの用意は wrangler が要るので、clone した場所での呼び方にする。
-    expect(p.commands).toEqual({ mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' });
+    expect(p.commands).toEqual({ mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' });
     // 直すものの数は、無くても動くもの（code）を数えない。連携は MCP と statusline を数える。
     expect(p.todo).toEqual({ must: 1, link: 1 });
   });
@@ -1014,10 +1014,6 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
   it('欄ごとの保存の知らせをそのまま渡す', () => {
     const p = presentSettings({ ...initialState(), settingsSave: { tmuxPath: { kind: 'saved', n: 2 } } }, initialStore());
     expect(p.save).toEqual({ tmuxPath: { kind: 'saved', n: 2 } });
-  });
-  it('参加トークンが消える時刻を渡す', () => {
-    const p = presentSettings(initialState(), { ...initialStore(), joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 }, NOW);
-    expect(p.cloud).toMatchObject({ joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 });
   });
   describe('アカウントの節', () => {
     it('アカウントが 1 件でもその一覧を渡し、選べる 5 色を添える', () => {
@@ -1533,9 +1529,9 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(p.sync.visible).toBe(true);
   });
   it('Settings のクラウドの節', () => {
-    const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true, shell: null }], joinToken: 'tok', settings: fullSettings({ }) };
+    const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true, shell: null }], settings: fullSettings({ }) };
     const p = presentSettings(initialState(), store, NOW).cloud;
-    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok' });
+    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前' });
     expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
     const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused' }) }, NOW).cloud;
     expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '同期を一時停止中', paused: true });
@@ -1573,7 +1569,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
   });
   it('同期を設定していない端末のクラウドの節', () => {
     const p = presentSettings(initialState(), initialStore(), NOW).cloud;
-    expect(p).toMatchObject({ configured: false, url: null, state: 'off', paused: false, pending: 0, lastPullAt: '不明', joinToken: null });
+    expect(p).toMatchObject({ configured: false, url: null, state: 'off', paused: false, pending: 0, lastPullAt: '不明' });
     expect(p.devices).toEqual([]);
     // off が届いているだけの端末も「設定していない」と同じ扱いにする。
     expect(presentSettings(initialState(), { ...initialStore(), sync: syncStatus({ state: 'off', url: null }) }, NOW).cloud.configured).toBe(false);
@@ -1856,10 +1852,10 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
   });
   // 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札（PR 33）だけで、戻る時刻の札と通知の誘いはベルの一覧へ移った（PR 29）。
-  it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）以外は渡さない（戻る時刻の札、通知の誘い）', () => {
+  it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と参加リクエストの通知以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'more', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'join', 'more', 'toasts', 'update', 'waiting', 'whatsNew']);
     // 殻が updater を持たなければ、更新の札も更新後の札も出さない。
     expect(p.update).toBeNull();
     expect(p.whatsNew).toBeNull();

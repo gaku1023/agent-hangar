@@ -35,6 +35,17 @@ describe('用語表', () => {
     // 一覧の m（ノートを編集）は、ノートと一緒に外した。
     expect(label('list.memo')).toBeUndefined();
   });
+  it('参加の画面は、参加コード、確認コード、参加リクエスト、接続先の語を使い、「届く」「宛先」「参加トークン」を使わない', () => {
+    const ja = translator('ja');
+    expect(ja('cloudMember.join.button')).toBe('参加コードで参加');
+    expect(ja('cloudMember.join.urlLabel')).toBe('接続先の URL');
+    expect(ja('cloudMember.join.waitingBody')).toBe('参加コードを発行した PC で承認してください。');
+    expect(ja('cloudMember.add.requested', { name: 'pc-b' })).toBe('pc-b から参加リクエストを受信しました');
+    expect(ja('cloudMember.toast.title', { name: 'pc-b' })).toBe('pc-b から参加リクエストを受信しました');
+    expect(ja('cloudMember.join.sasLabel')).toBe('確認コード');
+    const keys = ['cloudMember.join.lead', 'cloudMember.join.sasNote', 'cloudMember.add.lead', 'cloudMember.add.sasNote', 'cloudMember.add.waiting', 'cloudMember.toast.sasNote', 'cloudMember.fail.noAnswer.body', 'cloudMember.fail.rejected.body', 'cloudMember.fail.expired.body'] as const;
+    for (const k of keys) expect(ja(k)).not.toMatch(/届|宛先|参加トークン/);
+  });
   it('横に並べた 2 つの間の仕切りは「左右の幅」と読み上げる', () => {
     render(<ActionRoot onAction={() => {}}><SplitPane left={<div />} right={<div />} /></ActionRoot>);
     expect(screen.getByRole('separator', { name: '左右の幅' })).toBeInTheDocument();

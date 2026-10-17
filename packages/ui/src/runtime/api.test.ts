@@ -111,10 +111,16 @@ describe('フェーズ 4 の同期の経路', () => {
     await api.syncNow();
     await api.syncPause(true);
     await api.resumeHere('s1', false);
-    await api.joinToken();
+    await api.joinCodeIssue();
+    await api.joinCodeCurrent();
+    await api.joinCodeApprove();
+    await api.joinCodeReject();
+    await api.joinCodeClose();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'POST /api/sync/now', 'POST /api/sync/pause',
-      'POST /api/sessions/s1/resume-here', 'GET /api/sync/joinToken',
+      'POST /api/sessions/s1/resume-here',
+      'POST /api/sync/join-codes', 'GET /api/sync/join-codes/current',
+      'POST /api/sync/join-codes/current/approve', 'POST /api/sync/join-codes/current/reject', 'DELETE /api/sync/join-codes/current',
     ]);
     expect(JSON.parse(String(calls[1]!.body))).toEqual({ paused: true });
     expect(JSON.parse(String(calls[2]!.body))).toEqual({ overwrite: false });

@@ -1232,10 +1232,6 @@ describe('同期', () => {
     const { effects } = run([runtime({ type: 'window.focus' })]);
     expect(effects).toEqual([{ kind: 'api.syncFocus' }]);
   });
-  it('参加トークンの再表示', () => {
-    const a = run([action({ type: 'sync.joinToken.show' })]);
-    expect(a.effects).toEqual([{ kind: 'api.joinToken' }]);
-  });
 });
 
 describe('外で動くセッションを hangar で開く', () => {

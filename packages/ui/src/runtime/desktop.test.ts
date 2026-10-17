@@ -115,11 +115,8 @@ describe('クラウド同期の参加と解除の口', () => {
     invoke.mockRejectedValueOnce(new Error('not allowed'));
     expect(await b.cloud!.leave(true)).toEqual({ ok: false, failure: { code: 'shell', message: 'Error: not allowed' } });
   });
-  it('参加トークンの古い 2 つの命令は殻を呼ばずに retired で断る（画面の作り直しまでの間）', async () => {
-    const invoke = vi.fn(async (): Promise<unknown> => ({ ok: true }));
-    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
-    expect(await b.cloud!.joinPlan('tok')).toEqual({ ok: false, failure: { code: 'retired', message: '' } });
-    expect(await b.cloud!.join('tok', false)).toEqual({ ok: false, failure: { code: 'retired', message: '' } });
-    expect(invoke).not.toHaveBeenCalled();
+  it('参加トークンの古い 2 つの命令は橋に無い', () => {
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke: vi.fn() } })!;
+    expect(Object.keys(b.cloud!).sort()).toEqual(['joinCheck', 'joinPoll', 'joinRequest', 'leave', 'revoke']);
   });
 });

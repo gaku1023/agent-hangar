@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
-import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { JoinCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateAct, UpdateCardProps, WhatsNewCardProps } from '../presenters/update.ts';
 import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -27,7 +27,7 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
 const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind);
 const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${c.card.sessionId}`);
@@ -50,6 +50,7 @@ export function ToastStack(props: ToastsProps) {
     ...(props.update ? [{ kind: 'update' as const, card: props.update }] : []),
     ...(props.whatsNew ? [{ kind: 'whatsNew' as const, card: props.whatsNew }] : []),
     ...(props.arrived ? [{ kind: 'arrived' as const, count: props.arrived.count }] : []),
+    ...(props.join ? [{ kind: 'join' as const, card: props.join }] : []),
   ];
   const waits: WaitingItem[] = [
     ...(props.more > 0 ? [{ kind: 'more' as const, n: props.more }] : []),
@@ -64,6 +65,7 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'toast') return item.toast.level === 'error' ? <ErrorToast key={key} toast={item.toast} motion={m} /> : <InfoToast key={key} toast={item.toast} motion={m} />;
         if (item.kind === 'update') return <UpdateCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'whatsNew') return <WhatsNewCard key={key} card={item.card} motion={m} />;
+        if (item.kind === 'join') return <JoinCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
       })}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
@@ -134,6 +136,31 @@ function ArrivedCard(props: { count: number; blocked: boolean; motion: CardMotio
         <div className="notice-acts">
           <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'projects.arrived.view' })}>{t('projects.arrived.view')}</button>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'projects.arrived.dismiss' })}>{t('projects.arrived.later')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 参加リクエストの通知（試作 C1）。この PC が発行した参加コードで、新しい PC が参加リクエストを送ったときに出す。
+ * 名前と OS と確認コードを出し、「確認して承認」で設定のクラウド同期の「PC を追加」の欄（A1）へ移る。承認と拒否はそこで行う。
+ * 時間では消えず、承認か拒否か期限切れで消える（サーバーの承認の状態が requested でなくなる）。
+ * 確認や入力のあるダイアログが開いている間（blocked）は、画面を移せないので押せない。
+ */
+function JoinCard(props: { card: JoinCardProps; blocked: boolean; motion: CardMotion }) {
+  const emit = useEmit();
+  const t = useT();
+  const c = props.card;
+  return (
+    <div className="toast notice" data-kind="join" role="status" aria-label={t('cloudMember.toast.head')} {...motionAttrs(props.motion)}>
+      <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('cloudMember.toast.head')}</span></div>
+      <div className="notice-body">
+        <div className="notice-title">{t('cloudMember.toast.title', { name: c.name })}</div>
+        <div className="notice-sub">{c.os}</div>
+        <div className="notice-sas"><span>{t('cloudMember.toast.sasNote')}</span><b className="mono">{c.sas}</b></div>
+        <div className="notice-acts">
+          <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } })}>{t('cloudMember.toast.open')}</button>
         </div>
       </div>
     </div>

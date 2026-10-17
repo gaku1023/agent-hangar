@@ -156,7 +156,6 @@ export type Effect =
   | { kind: 'api.takeoverStart'; sessionId: string; force: boolean }
   | { kind: 'api.takeoverExtend'; sessionId: string }
   | { kind: 'api.takeoverCancel'; sessionId: string }
-  | { kind: 'api.joinToken' }
   // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
   | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
   | { kind: 'api.configSyncApply'; entries: ConfigApplyOrderEntryIn[] | null }

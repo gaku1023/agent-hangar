@@ -1,6 +1,6 @@
 import type { SetupTarget } from '@agent-hangar/shared';
 import type { DeviceOut } from '@agent-hangar/shared';
-import type { CloudFailure, JoinPlanView } from '../store/cloudMember.ts';
+import type { CloudFailure, JoinCheckView } from '../store/cloudMember.ts';
 import { UPDATE_FAIL_REASONS, type UpdateFailReason } from '../store/update.ts';
 
 /**
@@ -30,8 +30,8 @@ export type DesktopBridge = {
 /** 殻のクラウド同期の命令の答え。失敗は符号（CLI の code か、殻の cannot-start、timeout など）と文で返す。 */
 export type CloudReply<T> = { ok: true; value: T } | { ok: false; failure: CloudFailure };
 
-/** 接続先の確認の答え（hangar cloud join-check）。url は origin の形にそろえたもの、current は今参加しているクラウドか null。 */
-export type JoinCheckView = { url: string; host: string; pcCount: number; current: { url: string } | null };
+/** 接続先の確認の答え（hangar cloud join-check）。形は Store と同じものを使う（store/cloudMember.ts）。 */
+export type { JoinCheckView };
 
 /** 参加のリクエストの答え（hangar cloud join-request）。sas は区切りの無い 6 桁の確認コード、expiresAt は期限の目安（ms）。 */
 export type JoinRequestView = { sas: string; expiresAt: number };
@@ -50,10 +50,6 @@ export type CloudBridge = {
   joinCheck(url: string): Promise<CloudReply<JoinCheckView>>;
   joinRequest(url: string, code: string, overwrite: boolean): Promise<CloudReply<JoinRequestView>>;
   joinPoll(): Promise<CloudReply<{ status: JoinPollStatus }>>;
-  /** 参加トークンの古い命令。殻にはもう無く、殻を呼ばずに retired で断る。参加の画面の作り直し（Task 16）で消す。 */
-  joinPlan(token: string): Promise<CloudReply<JoinPlanView>>;
-  /** 参加トークンの古い命令。殻にはもう無く、殻を呼ばずに retired で断る。参加の画面の作り直し（Task 16）で消す。 */
-  join(token: string, overwrite: boolean): Promise<CloudReply<{ url: string; host: string }>>;
   revoke(id: string): Promise<CloudReply<DeviceOut>>;
   leave(revoke: boolean): Promise<CloudReply<{ revoked: boolean; revokeError: string | null; creator: boolean }>>;
 };
@@ -80,9 +76,6 @@ function pollReplyOf(r: unknown): CloudReply<{ status: JoinPollStatus }> {
   const s = v.value.status;
   return typeof s === 'string' && JOIN_POLL_STATUSES.includes(s) ? { ok: true, value: { status: s as JoinPollStatus } } : unreadable();
 }
-
-/** 古い命令の答え。殻を呼ばない。 */
-const retired = <T>(): Promise<CloudReply<T>> => Promise.resolve({ ok: false, failure: { code: 'retired', message: '' } });
 
 /**
  * 殻の updater に頼む口（src-tauri/src/updater.rs）。
@@ -171,8 +164,6 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
       // 参加コードは命令の引数にだけ載せる。殻は CLI の標準入力へ渡す。
       joinRequest: (url, code, overwrite) => invoke(CLOUD_COMMANDS.joinRequest, { url, code, overwrite }).then((r) => cloudReplyOf<JoinRequestView>(r, 'request'), shellFailure),
       joinPoll: () => invoke(CLOUD_COMMANDS.joinPoll).then(pollReplyOf, shellFailure),
-      joinPlan: () => retired(),
-      join: () => retired(),
       revoke: (id) => invoke(CLOUD_COMMANDS.revoke, { id }).then((r) => cloudReplyOf<DeviceOut>(r, 'result'), shellFailure),
       leave: (revoke) => invoke(CLOUD_COMMANDS.leave, { revoke }).then((r) => cloudReplyOf<{ revoked: boolean; revokeError: string | null; creator: boolean }>(r, 'result'), shellFailure),
     },

@@ -1,7 +1,7 @@
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
-import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
+import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { FolderInspectState } from './folderInspect.ts';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
@@ -60,10 +60,9 @@ export type Store = {
   // 未取得は null で、View は「読み込んでいます」を出す。
   usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; shellHook: ShellHookDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   // クラウド同期（フェーズ 4）。同期を設定していない間は sync が off のまま届く。
-  // joinToken は押したときだけ取りに行く値なので、未取得は null である。
   // 設定の「使用量と費用」。未取得は null である。
   cloudUsage: CloudUsageDto | null;
-  sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null;
+  sync: SyncStatusBody | null; devices: DeviceDto[];
   // 設定の同期（作り直した実装）の状態。クラウドに参加していない端末は届かないので null である。
   configSync: ConfigSyncDto | null; configDetail: ConfigDetail;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
@@ -75,8 +74,6 @@ export type Store = {
   // Claude Code との互換のずれの中身（GET /api/compat）。準備の確かめでずれが 1 件以上あるときだけ取りに行く。
   // 未取得と、ずれが無いときは null である。
   compat: CompatDto | null;
-  // 参加トークンが消える時刻。画面が残りの秒数を数える。
-  joinTokenExpiresAt: number | null;
   // デスクトップの殻の中で動いているか。殻があれば、ログを開くと再起動を殻に頼める。
   desktop: boolean;
   // Claude Code のアカウント（この PC の中だけにある）。未取得、またはサーバが知らせない間は null である。
@@ -139,9 +136,9 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, devices: [], joinToken: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, setupGuide: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
+    readiness: null, setupGuide: null, compat: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,
@@ -241,6 +238,12 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'config.update': return sameValue(store.configSync, ev.configSync) ? store : { ...store, configSync: ev.configSync };
     case 'accounts.update': return sameValue(store.accounts, ev.accounts) ? store : { ...store, accounts: ev.accounts };
     case 'sync.usage': return sameValue(store.cloudUsage, ev.usage) ? store : { ...store, cloudUsage: ev.usage };
+    // 発行した参加コードの承認の状態（設定の「PC を追加」と右下の通知）。
+    // join.request は OS の通知と同じ中身で、状態は join.update が運ぶので、ここでは読まない。
+    case 'join.update': {
+      const cloudMember = reduceCloudMember(store.cloudMember, { type: 'add.state', state: ev.join });
+      return cloudMember === store.cloudMember ? store : { ...store, cloudMember };
+    }
     case 'devices.update': return sameValue(store.devices, ev.devices) ? store : { ...store, devices: ev.devices };
     case 'retention.changed': return sameValue(store.retention, ev.retention) ? store : { ...store, retention: ev.retention };
     case 'interrupted.update': return sameValue(store.interrupted, ev.interrupted) ? store : { ...store, interrupted: ev.interrupted };
@@ -580,9 +583,6 @@ export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?
     .filter((a) => (opts.projectId === undefined || a.projectId === opts.projectId) && (opts.sessionId === undefined || a.sessionIds.includes(opts.sessionId)))
     .sort((a, b) => b.lastPublishedAt - a.lastPublishedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
-
-/** 参加トークンを入れる。押して見せたあとに null で伏せ直せる。 */
-export function applyJoinToken(store: Store, token: string | null, expiresAt: number | null = null): Store { return { ...store, joinToken: token, joinTokenExpiresAt: token === null ? null : expiresAt }; }
 
 /** 通知の受け取りを入れる。変わっていなければ同じ Store を返す。 */
 export function applyNotify(store: Store, next: NotifyState): Store {
