@@ -4666,6 +4666,7 @@ OS の通知を押したときは、殻が頁の `window.__hangarOpenJoin()` を
 旧い `hangar join` は廃止の案内を出して終わるだけなので、案内に使わない。
 クラウドの用意は wrangler で Worker を上げるので、入れた版の hangar では止まる（`requireCloudDir`）。だから `npm run hangar -- setup cloud` と出し、「リポジトリを clone して npm install した場所で」と添える。
 Worker の入れ替えを促す文（`sync.compat.worker`、`configSyncUi.worker.body`）も、同じ呼び方と添え書きにそろえる。
+ただし、Worker の互換の版が 8 以下（0.8.x までのクラウド）のときは入れ替えでは直らないので、`sync.compat.workerRebuild` で `docs/cloud-sync.md` の再構築の手順へ案内する（`sync/client.ts` の `compatMessage`）。
 月の予算の行は置かない（Cloudflare の月の予算で止める仕組みは段 5 で作る）。
 Claude Code の設定の同期は、常設の行で、スイッチと、届いている変更、競合、送らなかった項目、バックアップを出す。中身はダイアログで見せる（「設定の同期の作り直し」の節）。
 ヘッダーの同期の語を押すと、設定がこの節で開く（`#/settings?at=sync`。`sync` は `cloud` の別名）。
@@ -5531,7 +5532,14 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 **setup と参加の CLI（互換の版 9）。**
 `hangar setup cloud` は、デプロイの前に最初の端末トークンを作り、その SHA-256 を `wrangler secret put BOOTSTRAP_TOKEN_HASH` の標準入力で渡す。
 `/health` が通ったら、この PC の鍵ペアを作り、`POST /bootstrap` にこの PC の ID（`home.device.id`）と最初の端末トークンを送って登録する（反映待ちの 401 と 503 は 5 秒おきに 6 回まで待つ）。
-登録できたら、端末トークンを失わないよう、名簿を置く前に `cloud.json`（版 2、0600）を書く。世代 1 の世代鍵もここで作る。
+登録できたら、端末トークンを失わないよう、名簿を置く前に下書き `~/.agent-hangar/cloud-setup-pending.json`（0600）に書く。世代 1 の世代鍵もここで作る。
+下書きの中身は、版 2 の `cloud.json` と同じ設定と、この PC の端末 ID である（`recover` の下書きと同じく、一時ファイルからの rename で書く）。
+`cloud.json` の版 2 は、名簿と `recovery` 宛ての keybox を置けた後に初めて書き、同じ時点で本文の床を刻み、下書きを消す。
+`cloud.json` の版 2 が現れるとアプリが取り込んで同期を始める（`boot/sync.ts` の `watchForCloud`）ので、確認の段で止まったクラウド（名簿もリカバリーキーの keybox も無い）で同期を始めさせないためである。
+確認の段で止まった setup をもう一度実行すると、名前と端末 ID が同じ下書きから続ける。`secret put` も登録もせず、下書きの端末トークンと暗号鍵を使い、リカバリーキーは新しく作って表示からやり直す。
+名簿まで置けて `cloud.json` を書く前に止まっていたときは、名簿の版を写して `cloud.json` を書くだけで終わる（リカバリーキーは前回保存したもの）。
+下書きと別のアカウントを選んだとき、または接続先の `cloudId` が下書きと違うときは、下書きの端末トークンが使えないので、前者は最初から作り、後者は下書きを消すよう案内して止まる。
+サーバーの守りとして、名簿の無いクラウドでは参加の承認が空の名簿を作らず、`sync.join.notSetUp` で断る。
 続けてリカバリーキーの鍵ペアを作り、リカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する（`recovery.ts` の `showAndConfirmRecoveryKey`）。
 `--save <パス>` があれば同じ 4 行をそのファイルに 0600 で書き、端末で `--save` が無ければ保存先を尋ねる。
 保存した暗号鍵の末尾 4 文字を入力してもらい、外れたら聞き直し、3 回外れたら表示し直す。3 回表示しても合わなければ、名簿も keybox も置かずに止まる（setup は終わらない）。
@@ -5539,8 +5547,9 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 確かめた後で、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
 名簿を確認の後に置くのは、確かめられずに止まった setup をやり直したときに、名簿が無いことから新しいリカバリーキーを作り直せるようにするためである。
 確かめられずに止まったときは、`--save` で書いたファイルを消す。確かめた後に keybox か名簿を置けずに止まったときは、保存したキーは使えないので、もう一度実行して新しいキーを保存するよう伝える。
-同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、リカバリーキーの表示と確認、名簿と keybox をここで行う。
-古い形式（版 1）の `cloud.json` があれば上書きせず、先に `hangar cloud teardown`（参加しただけの PC では `cloud.json` の削除）を案内して止まる。
+同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（0.9.0 の前の版の setup が名簿を置く前に止まったもの）、リカバリーキーの表示と確認、名簿と keybox をここで行う。
+古い形式（版 1）の `cloud.json` があれば上書きせずに止まる（`legacyConfigMessage`）。
+Worker を作成した PC（`workerName` がある）には、`npm run hangar -- cloud teardown` で古いクラウドを削除してから `npm run hangar -- setup cloud` で作ることを、参加しただけの PC には、新しいクラウドに上書きして参加することを案内する。
 サーバーは古い形式の `cloud.json` で同期を始めず、同期の状態（`SyncStatusDto`）の off に `legacyConfig: true` を添える。
 設定 › クラウド同期 は、これを未参加と見分け、「この PC だけで使用しています」の代わりに再構築が必要なことの帯と `docs/cloud-sync.md` の手順へのリンク、`hangar cloud status` のコマンドを出し、節の札と目次を「再構築が必要」（要修正の色）にする。
 参加コードでの参加は再構築の手順の中で使うので、ボタンはそのまま出す。
@@ -5558,6 +5567,14 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 `join-poll` は `GET /join/status` を 1 回だけ問い合わせる。承認されたら端末トークンを先に下書きに書き、自分宛ての keybox を開いて世代鍵を読み、名簿の版とスマホ用の鍵を写して `cloud.json`（版 2）を書き、下書きを消す。keybox がまだ無ければ、端末トークンを下書きに持ったまま `waiting` を返し、次の問い合わせで続ける。
 `hangar cloud join <url>` は同じ手順を端末で対話して進める（2 秒ごとに問い合わせる）。
 旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
+
+古い形式（版 1）の `cloud.json` での参加は、Worker を作成した PC かどうかで分ける（`membership.ts` の `currentCloud`）。
+Worker を作成した PC（`workerName` がある）は、`join-check` と `join-request` を `--overwrite` があっても `legacy-config` で断り、先に teardown するよう案内する。
+上書きすると Worker の名前、アカウント、D1 と R2 の名前、R2 の本文の暗号鍵の材料（`joinSecret`）が消え、teardown も R2 の本文の復号もできなくなるからである。
+殻は CLI の `code` をそのまま返し、画面は接続先の欄の下に `cloudMember.join.legacyCreator`（teardown の案内）を出す。
+参加しただけの PC（`workerName` が無い）は、別のクラウドに参加済みの PC と同じく上書きの確認で参加できる。
+`join-poll` は `cloud.json` を書く直前に今の `cloud.json` を確かめ直し、古い形式なら `~/.agent-hangar/backups/cloud.json.legacy-<日時>`（0600）に控えてから上書きする。
+その時点で Worker を作成した古い形式に変わっていれば、書かずに `legacy-config` で止まり、端末トークンは下書きに持ったままにする。
 
 **リカバリーキーで戻る（`hangar recover`、`recovery.ts` の `runRecover`）。**
 すべての PC を失ったときに、新しい PC で実行する。リカバリーキーの 4 行は標準入力で受け取り、argv に載せない。

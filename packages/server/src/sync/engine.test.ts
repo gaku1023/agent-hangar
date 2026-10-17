@@ -1000,8 +1000,9 @@ describe('互換の版', () => {
   });
 
   it('Worker の版がこの PC の下限より古ければ同期を止め、Worker を上げるよう error に出す', async () => {
-    cloud = new FakeCloudClient({ deviceId: 'a', minWorkerCompat: COMPAT_VERSION });
-    cloud.workerCompat = COMPAT_VERSION - 1;
+    // 版 8 以下は再構築の案内になるので、入れ替えの文は今の版の Worker と、それより上の下限で見る。
+    cloud = new FakeCloudClient({ deviceId: 'a', minWorkerCompat: COMPAT_VERSION + 1 });
+    cloud.workerCompat = COMPAT_VERSION;
     const e = make();
     await e.start();
     expect(e.compatBlocked()).toBe(true);

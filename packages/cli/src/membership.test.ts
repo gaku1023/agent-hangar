@@ -238,7 +238,39 @@ describe('joinRequest（参加リクエストを置く）', () => {
     expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true }))).toBe('broken-config');
     expect(c.w.calls).toEqual([]);
   });
+
+  it('古い形式で Worker を作成した PC（workerName あり）は、上書きの指定があっても legacy-config で断り、teardown を案内する', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    const before = JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files' }));
+    fs.writeFileSync(path.join(h, 'cloud.json'), before);
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
+    for (const run of [() => joinCheck({ home: h, url: URL_, fetch: c.w.fetch }), () => joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true })]) {
+      const e = await run().then(() => null, (x: unknown) => x);
+      expect(e).toBeInstanceOf(MembershipError);
+      expect((e as MembershipError).code).toBe('legacy-config');
+      expect((e as MembershipError).message).toContain('npm run hangar -- cloud teardown');
+      expect((e as MembershipError).message).toContain('hangar-old');
+    }
+    expect(c.w.calls).toEqual([]);
+    expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
+    expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
+  });
+
+  it('古い形式で参加しただけの PC は、上書きの指定で参加でき、接続先の確認は今の接続先を添える', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    fs.writeFileSync(path.join(h, 'cloud.json'), JSON.stringify(legacy()));
+    expect((await joinCheck({ home: h, url: URL_, fetch: c.w.fetch })).current).toEqual({ url: 'https://old.workers.dev' });
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
+    expect(await codeOf(joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch }))).toBe('overwrite-required');
+    await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true });
+    expect(c.w.calls.at(-1)).toBe('POST /join/requests');
+  });
 });
+
+/** 0.8.x までの古い形式（版 1）の cloud.json。 */
+const legacy = (over: Record<string, unknown> = {}): Record<string, unknown> => ({ url: 'https://old.workers.dev', joinSecret: 's', deviceToken: 'dt-old', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1, ...over });
 
 describe('joinPoll（1 回だけ問い合わせる）', () => {
   async function requested() {
@@ -289,6 +321,36 @@ describe('joinPoll（1 回だけ問い合わせる）', () => {
     expect(fs.existsSync(pendingJoinPath(h))).toBe(false);
     // 本文をどこから上げるかの床を、cloud.json を書くのと同じ時点で刻む。
     expect(readTranscriptsFrom(h)).toBe(saved.joinedAt);
+  });
+
+  it('古い形式で参加しただけの cloud.json は、上書きの前に backups/ へ時刻つきの名前で控える', async () => {
+    const c = await cloudWithIssuer();
+    const h = home();
+    const before = JSON.stringify(legacy());
+    fs.writeFileSync(path.join(h, 'cloud.json'), before, { mode: 0o600 });
+    c.w.issue(await joinCodeHash(CODE, CLOUD));
+    await joinRequest({ home: h, url: URL_, code: CODE, device, fetch: c.w.fetch, overwrite: true });
+    // 承認の前は控えない（cloud.json はまだ書き換えない）。
+    expect(fs.existsSync(path.join(h, 'backups'))).toBe(false);
+    await issuerApproves(c, CODE);
+    expect(await joinPoll({ home: h, fetch: c.w.fetch })).toEqual({ status: 'approved' });
+    expect(loadCloudConfig(h)).toMatchObject({ v: 2, url: URL_ });
+    const files = fs.readdirSync(path.join(h, 'backups')).filter((f) => f.startsWith('cloud.json.'));
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^cloud\.json\.legacy-\d{8}-\d{6}(-\d+)?$/);
+    const copy = path.join(h, 'backups', files[0]!);
+    expect(fs.readFileSync(copy, 'utf8')).toBe(before);
+    expectMode(copy, 0o600);
+  });
+
+  it('参加を完了する前に cloud.json が Worker を作成した古い形式に変わっていたら、上書きせずに legacy-config で止まり、下書きを保つ', async () => {
+    const { c, h } = await requested();
+    await issuerApproves(c, CODE);
+    const before = JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files' }));
+    fs.writeFileSync(path.join(h, 'cloud.json'), before);
+    expect(await codeOf(joinPoll({ home: h, fetch: c.w.fetch }))).toBe('legacy-config');
+    expect(fs.readFileSync(path.join(h, 'cloud.json'), 'utf8')).toBe(before);
+    expect(readPending(h).deviceToken).toEqual(expect.any(String));
   });
 
   it('承認の直後で keybox がまだ無ければ、受け取った端末トークンを下書きに持って waiting、次の問い合わせで完了する', async () => {

@@ -642,12 +642,12 @@ describe('互換の版', () => {
     expect(off.sync.mobileLink()).toBeNull();
   });
 
-  it('Worker が版の見出しを返さなければ（版 0）、同期を止めて Worker を上げるよう出す', async () => {
+  it('Worker が版の見出しを返さなければ（版 0）、同期を止めてクラウドの再構築へ案内する（版 8 以下は入れ替えでは直らない）', async () => {
     await worker(answerAll(undefined));
     const b = boot({ start: true });
     const st = await until(() => { const v = b.status(); return v.state === 'error' ? v : null; });
     expect(st.error).toContain('Worker');
-    expect(st.error).toContain('今すぐ同期');
+    expect(st.error).toContain('再構築');
   });
 
   describe('上限で退く', () => {
@@ -852,7 +852,7 @@ describe('cloud.json が後から現れる', () => {
       expect(b.status().legacyConfig).toBe(true);
       expect(rec.seen).toEqual([]);
       joinTo(rec.url);
-      await until(() => (rec.seen.length > 0 ? true : null), 3000);
+      await until(() => (rec.seen.length > 0 ? true : null));
       expect(b.status().state).not.toBe('off');
       expect(b.status().url).toBe(rec.url);
       expect(b.status().legacyConfig).toBeUndefined();

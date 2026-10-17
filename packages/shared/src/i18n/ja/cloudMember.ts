@@ -11,6 +11,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.join.checking': '接続先を確認しています…',
   'cloudMember.join.badUrl': '接続先の URL は https:// で始まる形で入力してください。',
   'cloudMember.join.outdated': 'この接続先の Worker は古いバージョンのため、参加コードで参加できません。クラウドを作成した PC で hangar setup cloud を実行して、Worker を更新してください。',
+  'cloudMember.join.legacyCreator': 'この PC は 0.8.x までの古いクラウドの Worker を作成した PC のため、参加できません。参加すると古い設定が上書きされ、古いクラウドを削除できなくなります。先にリポジトリを clone したディレクトリから npm run hangar -- cloud teardown を実行して古いクラウドを削除してください。',
   'cloudMember.join.pcCount': '接続しました。参加済みの PC：{n} 台',
   'cloudMember.join.codeLabel': '参加コード',
   'cloudMember.join.codePlaceholder': 'XXXX-XXXX',

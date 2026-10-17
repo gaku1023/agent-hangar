@@ -79,8 +79,16 @@ export const MIN_WORKER_COMPAT = 9;
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';
 
+/**
+ * 0.8.x までの Worker の互換の版の上限。
+ * 版 8 までの Worker から版 9 へは移行の道が無く、Worker の入れ替え（setup cloud をもう一度）では直らない。
+ * そのときは入れ替えではなく、再構築の手順（docs/cloud-sync.md）へ案内する。
+ */
+const LAST_LEGACY_WORKER_COMPAT = 8;
+
 function compatMessage(upgrade: CompatUpgrade, have: number, need: number | null): Message {
   if (upgrade === 'device') return need === null ? msg('sync.compat.deviceNewer', { have }) : msg('sync.compat.deviceNeed', { have, need });
+  if (have <= LAST_LEGACY_WORKER_COMPAT) return msg('sync.compat.workerRebuild', { have });
   return msg('sync.compat.worker', { have, need: need ?? '?' });
 }
 

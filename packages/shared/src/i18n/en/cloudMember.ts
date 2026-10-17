@@ -11,6 +11,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.join.checking': 'Checking the destination…',
   'cloudMember.join.badUrl': 'Enter a destination URL that starts with https://.',
   'cloudMember.join.outdated': 'The Worker at this destination is an old version, so you cannot join with a join code. Run hangar setup cloud on the computer that created the cloud to update the Worker.',
+  'cloudMember.join.legacyCreator': 'This computer created the Worker of an old cloud from 0.8.x or earlier, so it cannot join. Joining would overwrite the old settings, and you could no longer delete the old cloud. First run npm run hangar -- cloud teardown in the folder where you cloned the repository to delete the old cloud.',
   'cloudMember.join.pcCount': 'Connected. Computers already joined: {n}',
   'cloudMember.join.codeLabel': 'Join code',
   'cloudMember.join.codePlaceholder': 'XXXX-XXXX',

@@ -29,12 +29,27 @@ describe('クラウドの失敗の文', () => {
     expect(errorText('en', device)).toBe(`This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is ${COMPAT_VERSION}; the cloud requires 3 or later). Update hangar on this computer`);
     // 版の下限が読めなかったとき
     expect(errorText('en', new CompatError('device', COMPAT_VERSION, null))).toContain('requires a newer version');
-    const worker = new CompatError('worker', 1, 2);
+    const worker = new CompatError('worker', 9, 10);
     expect(errorText('ja', worker)).toContain('「今すぐ同期」');
     expect(errorText('en', worker)).toContain('"Sync now"');
     // Worker の入れ替えは wrangler が要るので、clone した場所での呼び方と、どこで打つかを言う。
     expect(errorText('en', worker)).toContain('npm run hangar -- setup cloud again in the folder where you cloned the repository');
     expect(errorText('ja', worker)).toContain('リポジトリを clone して npm install したディレクトリから npm run hangar -- setup cloud');
+  });
+
+  it('版 8 以下の Worker（0.8.x までのクラウド）は入れ替えでは直らないので、再構築の手順へ案内する', () => {
+    for (const have of [0, 8]) {
+      const old = new CompatError('worker', have, 9);
+      const ja = errorText('ja', old);
+      expect(ja).toContain('再構築');
+      expect(ja).toContain('docs/cloud-sync.md');
+      expect(ja).not.toContain('setup cloud をもう一度実行');
+      expect(ja).not.toContain('作り直');
+      const en = errorText('en', old);
+      expect(en).toContain('rebuil');
+      expect(en).toContain('docs/cloud-sync.md');
+      expect(en).not.toContain('setup cloud again');
+    }
   });
 
   it('message は日本語のままで、言語を知らない呼び手とログは今までどおり読める', () => {

@@ -200,6 +200,8 @@ function urlError(t: Translate, f: CloudFailure): string {
     case 'outdated': return t('cloudMember.join.outdated');
     case 'compat': return t('cloudMember.fail.compat.body');
     case 'broken-config': return t('cloudMember.fail.brokenConfig.body');
+    // 参加の道で legacy-config になるのは、古い形式で Worker を作成した PC だけである（参加しただけの PC は上書きして参加できる）。
+    case 'legacy-config': return t('cloudMember.join.legacyCreator');
     default: return failureMessage(t, f);
   }
 }

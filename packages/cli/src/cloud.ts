@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
+import { backfillTranscripts, backupsRoot, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, parseCloudConfigV2, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import {
@@ -243,12 +243,17 @@ export function brokenConfigMessage(home: string): string {
  * cloud.json が古い形式（参加トークンを使う版 1）のときの文言。
  * 古い形式の cloud.json は、古いクラウドを片付ける teardown だけが読む。
  * 新しい形式で上書きすると、古いクラウドの Worker の名前と、R2 のトランスクリプトの暗号鍵の材料を失う。
+ * Worker を作成した PC には、teardown で古いクラウドを削除してから setup で新しいクラウドを作ることを案内する。
+ * 参加しただけの PC は失うものが無いので、新しいクラウドに上書きして参加することを案内する（参加は上書きの前に cloud.json を backups/ に控える）。
+ * 手順は docs/cloud-sync.md の「0.9.0 への作り直し」の 3 から 5 と同じである。
  */
 export function legacyConfigMessage(home: string): string {
   const creator = readLegacyCloudConfig(home).config?.workerName ?? null;
-  const head = `${cloudConfigPath(home)} は古い形式（参加トークンを使う形式）の設定です。`;
-  if (creator) return `${head}先に hangar cloud teardown で古いクラウド（Worker ${creator}）を削除してから、もう一度実行してください。R2 にしか無いトランスクリプトは、削除の前にこの PC にダウンロードされます。`;
-  return `${head}この PC は古いクラウドに参加しただけのため、cloud.json を削除してから、もう一度実行してください。`;
+  const head = `${cloudConfigPath(home)} は 0.8.x までの古い形式の設定です。`;
+  if (creator) {
+    return `${head}この PC は古いクラウド（Worker ${creator}）を作成した PC です。リポジトリを clone したディレクトリから npm run hangar -- cloud teardown を実行して古いクラウドを削除してから、npm run hangar -- setup cloud で新しいクラウドを作成してください。R2 にしか無いトランスクリプトは、削除の前にこの PC にダウンロードされます。`;
+  }
+  return `${head}この PC は古いクラウドに参加しただけです。新しいクラウドの参加済みの PC で「PC を追加」をクリックして参加コードを発行し、この PC の 設定 › クラウド同期 の「参加コードで参加」か hangar cloud join <URL> で、cloud.json を上書きして参加してください。古い設定は、上書きの前に ${backupsRoot(home)} に保存します。`;
 }
 
 export const sha256Hex = (s: string): string => createHash('sha256').update(s).digest('hex');
@@ -555,12 +560,14 @@ function printNextSteps(log: (l: string) => void, url: string): void {
  * keybox を先に置き、名簿を後に置く。名簿が置けた時点で作成は完了で、次の setup は何もしない。
  * リカバリーキーは、どちらを置くよりも先に表示し、保存を確かめる（confirm）。
  * 確かめられなければ confirm が投げ、名簿も keybox も置かずに止まる。次の setup は新しいリカバリーキーから続ける。
- * 作ったときはリカバリーキーの 4 行の文字列を返し、名簿がすでにあれば null を返す。
+ * 作ったときはリカバリーキーの 4 行の文字列と名簿の版を返し、名簿がすでにあればキーを null にして今の名簿の版を返す。
+ * cloud.json は書かない。書くのは呼び手で、名簿と recovery の keybox を置けた後に版 2 を書く（それまでは下書き）。
  */
-async function ensureRoster(o: { home: string; conf: CloudConfig; device: DeviceLike; fetch: typeof fetch; now: number; confirm: (text: string) => Promise<void> }): Promise<string | null> {
+async function ensureRoster(o: { conf: CloudConfig; device: DeviceLike; fetch: typeof fetch; now: number; confirm: (text: string) => Promise<void> }): Promise<{ recoveryKey: string | null; rosterVersion: number }> {
   const { conf } = o;
   const client = new HttpCloudClient({ url: conf.url, token: conf.deviceToken, fetch: o.fetch });
-  if (await client.getRoster()) return null;
+  const existing = await client.getRoster();
+  if (existing) return { recoveryKey: null, rosterVersion: existing.version };
   const epoch = conf.currentEpoch;
   const epochKey = conf.epochs[String(epoch)];
   if (!epochKey) throw new Error('cloud.json に現在の世代の暗号鍵がありません');
@@ -590,12 +597,58 @@ async function ensureRoster(o: { home: string; conf: CloudConfig; device: Device
     const base = (e instanceof Error ? e.message : String(e)).trimEnd();
     throw new Error(`${/[。.]$/.test(base) ? base : `${base}。`}${UNREGISTERED_RECOVERY_KEY}`, { cause: e });
   }
-  saveCloudConfig(o.home, { ...conf, rosterVersion: r.version });
-  return text;
+  return { recoveryKey: text, rosterVersion: r.version };
 }
 
 /** 確認の後で名簿か keybox を置けずに止まったときに足す文。 */
 const UNREGISTERED_RECOVERY_KEY = '先に保存したキーは使えません。もう一度実行して、新しいキーを保存してください';
+
+/**
+ * setup cloud の下書き（~/.agent-hangar/cloud-setup-pending.json、0600）。
+ * 最初の端末トークンは、同じ端末 ID では 2 度と登録できない。
+ * そのため、登録（bootstrap）が通ったら、端末トークンと暗号鍵を含む版 2 の設定をここに書く。
+ * cloud.json の版 2 は、名簿と recovery の keybox を置けた後に初めて書く。
+ * cloud.json の版 2 が現れるとアプリが同期を始める（boot/sync.ts の watchForCloud）ので、名簿もリカバリーキーも無いクラウドで同期を始めさせないためである。
+ * 確認の段で止まっても、もう一度の setup はこの下書きから続ける（同じ Worker、同じ端末トークンと暗号鍵）。
+ * 形は recover の下書き（cloud-recover-pending.json）と同じく、書き換えは一時ファイルからの rename で行う。
+ */
+type PendingSetup = { v: 1; deviceId: string; conf: CloudConfig; createdAt: number };
+
+export function setupPendingPath(home: string): string {
+  return path.join(home, 'cloud-setup-pending.json');
+}
+
+function writeSetupPending(home: string, p: PendingSetup): void {
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  const file = setupPendingPath(home);
+  const tmp = `${file}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(tmp, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(p, null, 2) + '\n');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* 閉じられないなら諦める */ } }
+    try { fs.rmSync(tmp, { force: true }); } catch { /* 元のファイルは無事である */ }
+    throw e;
+  }
+}
+
+/** 下書きを読む。無いか形が違えば null（形の違う下書きからは続けない）。 */
+function readSetupPending(home: string): PendingSetup | null {
+  try {
+    const v = JSON.parse(fs.readFileSync(setupPendingPath(home), 'utf8')) as Partial<PendingSetup>;
+    if (v.v !== 1 || typeof v.deviceId !== 'string' || typeof v.conf !== 'object' || v.conf === null) return null;
+    const conf = parseCloudConfigV2(v.conf as unknown as Record<string, unknown>);
+    if (!conf || !conf.workerName) return null;
+    return { v: 1, deviceId: v.deviceId, conf, createdAt: typeof v.createdAt === 'number' ? v.createdAt : 0 };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 床を刻むための DB を先に開く。
@@ -743,6 +796,10 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
   if (prev && prev.workerName !== name) await confirmRename(log, prev, name, o.confirm ?? promptWord);
   // 同じ名前の Worker を作ったのがこの PC なら、Worker の入れ替えである。暗号鍵も端末トークンも作り直さない。
   const redeploy = prev !== null && prev.workerName === name;
+  // 前の setup が登録の後、名簿を置く前に止まっていれば、その下書きから続ける（同じ端末 ID は 2 度登録できない）。
+  // 名前か端末が違う下書きは使わない。新しく作るときに上書きする。
+  const draft = redeploy ? null : readSetupPending(o.home);
+  let resume = draft && draft.deviceId === o.device.id && draft.conf.workerName === name ? draft.conf : null;
 
   // スマホの画面を建てる。配備は Worker と一緒にこの dist を上げるので、資源を作る前に済ませる。
   // 源が無い（clone していない）か、建てても index.html が出なければ、Cloudflare にはまだ何も作らずに止まる。
@@ -780,12 +837,17 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
     const account = await pickAccount({
       accounts: who.accounts,
       requested,
-      prevId: prev?.workerName ? prev.accountId : null,
+      prevId: resume?.accountId ?? (prev?.workerName ? prev.accountId : null),
       interactive,
       choose: o.chooseAccount ?? ((list) => chooseAccountByNumber(list, askLine, log)),
       log,
     });
     if (prev?.workerName && prev.accountId && prev.accountId.toLowerCase() !== account.id) await confirmAccountChange(log, prev, account, o.confirm ?? promptWord);
+    // 下書きの Worker は別のアカウントにある。その端末トークンは、これから作る Worker では使えない。
+    if (resume && resume.accountId?.toLowerCase() !== account.id) {
+      log('途中で止まった前回の setup とは別のアカウントのため、最初から作成します。');
+      resume = null;
+    }
     const accountId = account.id;
     log(`作成先の Cloudflare アカウント: ${accountLabel(account)}`);
     wr = wr.withAccount(accountId);
@@ -818,7 +880,8 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
 
     // 5. 最初の端末トークンのハッシュを Worker の secret へ。平文は argv に載せず、ハッシュを標準入力から渡す。
     // Worker の入れ替えでは入れない。この PC はもう登録済みで、端末トークンは cloud.json にある。
-    const token = redeploy ? null : randomBytes(32).toString('base64url');
+    // 下書きから続けるときも入れない。端末トークンは下書きにあり、Worker に登録済みである。
+    const token = redeploy || resume ? null : randomBytes(32).toString('base64url');
     if (token) {
       const put = await wr.run(['secret', 'put', 'BOOTSTRAP_TOKEN_HASH', '--config', cfg], sha256Hex(token) + '\n');
       if (put.code !== 0) throw wranglerFailure('secret の登録', put);
@@ -831,17 +894,25 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
       throw new Error(`${url}/health から 2 分以内に正常な応答がありませんでした。しばらく待ってから hangar setup cloud をもう一度実行してください`);
     }
 
-    // 7. 登録と cloud.json
+    // 7. 登録と下書き
     let conf: CloudConfig;
     if (prev && redeploy) {
       conf = { ...prev, url, accountId, dbName, bucketName };
       if (prev.url !== url || prev.accountId !== accountId || prev.dbName !== dbName || prev.bucketName !== bucketName) saveCloudConfig(o.home, conf);
+    } else if (resume) {
+      if (health.cloudId !== resume.cloudId) {
+        throw new DetailedError(`${url} のクラウドの ID が、途中で止まった前回の setup のものと違います（D1 を作り直した可能性があります）。前回の端末トークンは使えないため、${setupPendingPath(o.home)} を削除してから、hangar setup cloud をもう一度実行してください`);
+      }
+      log('途中で止まった前回の setup の続きから再開します。');
+      conf = { ...resume, url, accountId, dbName, bucketName };
+      writeSetupPending(o.home, { v: 1, deviceId: o.device.id, conf, createdAt: Date.now() });
     } else {
       if (typeof health.cloudId !== 'string' || health.cloudId === '') throw new Error(`${url}/health が cloudId を返しません。Worker のソースが古い可能性があります。リポジトリを最新にしてから、hangar setup cloud をもう一度実行してください`);
       const keyPair = await generateKeyPair();
       await bootstrapDevice(url, token!, o.device.id, { fetch: fetchFn, sleep, log });
-      // 登録できたら、端末トークンを失わないよう、名簿を置く前に cloud.json を書く。
-      // 名簿を置く前に止まっても、もう一度 setup を実行すれば名簿から続きを作る（ensureRoster）。
+      // 登録できたら、端末トークンを失わないよう、名簿を置く前に下書きへ書く。
+      // cloud.json の版 2 はまだ書かない（書くとアプリが名簿の無いクラウドで同期を始める）。
+      // 名簿を置く前に止まっても、もう一度 setup を実行すれば下書きから続きを作る（ensureRoster）。
       conf = {
         v: 2,
         url,
@@ -858,13 +929,10 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
         bucketName,
         joinedAt: Date.now(),
       };
-      saveCloudConfig(o.home, conf);
-      // 本文をどこから上げるかの床を、設定を書くのと同じ時点で刻む。
-      // サーバの起動を待つと、床を刻まない古いサーバが先に走ったときに床の無い隙が生まれる。
-      floor.stamp(conf.joinedAt);
+      writeSetupPending(o.home, { v: 1, deviceId: o.device.id, conf, createdAt: conf.joinedAt });
     }
 
-    // 8. リカバリーキーの表示と保存の確認、名簿と keybox
+    // 8. リカバリーキーの表示と保存の確認、名簿と keybox、cloud.json
     // 保存を確かめる前に名簿を置くと、確かめられずに止まった setup のやり直しで名簿があるため、リカバリーキーを 2 度と表示できない。
     const confirm = (text: string): Promise<void> =>
       showAndConfirmRecoveryKey({
@@ -874,8 +942,19 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<SetupCloudRes
         ...(o.saveRecoveryTo ? { saveTo: o.saveRecoveryTo } : {}),
         askSavePath: o.recoveryAsk === undefined && process.stdin.isTTY === true,
       });
-    const recoveryKey = await ensureRoster({ home: o.home, conf, device: o.device, fetch: fetchFn, now: Date.now(), confirm });
-    if (!recoveryKey) log('Worker を入れ替えました。この PC の暗号鍵とリカバリーキーは変わりません。');
+    const { recoveryKey, rosterVersion } = await ensureRoster({ conf, device: o.device, fetch: fetchFn, now: Date.now(), confirm });
+    // 名簿と recovery の keybox を置けたので、cloud.json の版 2 を書く。ここで初めてアプリが同期を始める。
+    // Worker の入れ替えで名簿がすでにあったときは、cloud.json の名簿の版はアプリが持っているので書き換えない。
+    if (!redeploy || recoveryKey) saveCloudConfig(o.home, { ...conf, rosterVersion });
+    if (!redeploy) {
+      // 本文をどこから上げるかの床を、cloud.json を書くのと同じ時点で刻む。
+      // サーバーの起動を待つと、床を刻まない古いサーバーが先に走ったときに床の無い隙が生まれる。
+      floor.stamp(conf.joinedAt);
+      fs.rmSync(setupPendingPath(o.home), { force: true });
+    }
+    if (!recoveryKey) {
+      log(redeploy ? 'Worker を入れ替えました。この PC の暗号鍵とリカバリーキーは変わりません。' : '途中で止まった前回の setup を完了しました。リカバリーキーは、前回保存したものを使います。');
+    }
     printNextSteps(log, url);
     // 使用量のトークンは任意。端末から打たれたときだけ尋ね、飛ばしても setup はここで終わる。
     if (process.stdin.isTTY && !o.skipUsageToken) {
