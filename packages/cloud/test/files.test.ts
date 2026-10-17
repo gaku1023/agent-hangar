@@ -1,39 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CLOUD_HEADERS, encodeHeaderText, isHeaderSafe, isValidFileKey, type FileEntry } from '@agent-hangar/shared';
-import { MAX_BODY_BYTES, MAX_R2_META_BYTES, buildMetadata, validKey } from '../src/files.ts';
+import { CLOUD_HEADERS, MAX_SEALED_META_CHARS, isBlobKey, type SealedFileEntry } from '@agent-hangar/shared';
+import { MAX_BODY_BYTES, validKey } from '../src/files.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
-import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
-
-const SECRET = 'join-secret-1';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
 let cloud: CloudHarness;
 let tokA = '';
 let tokB = '';
 
-const join = async (id: string): Promise<string> => {
-  const r = await cloud.SELF.fetch('https://x/join', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }),
-  });
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/** R2 の鍵名。本物は `b/<端末 ID>/<HMAC の base64url（43 字）>` なので、同じ形の作り物にする。 */
+const blobKey = (device: string, name: string): string => `b/${device}/${`h${name}`.padEnd(43, '_')}`;
+const KA = (name: string): string => blobKey('dev-a', name);
+const KB = (name: string): string => blobKey('dev-b', name);
 
-/** 既定は端末 A の transcript 1 件分の見出しである。上書きしたい分だけ渡す。 */
+/** 封じたメタの代わり。Worker は開かないので、base64url の文字列なら何でもよい。 */
+const SEALED_META = Buffer.from('sealed-meta').toString('base64url');
+
+/** 既定は transcript 1 件分の見出しである。上書きしたい分だけ渡す。 */
 const meta = (o: Record<string, string> = {}): Record<string, string> => ({
-  [CLOUD_HEADERS.path]: 'projects/-x/u1.jsonl',
   [CLOUD_HEADERS.kind]: 'transcript',
-  [CLOUD_HEADERS.sha256]: 'a'.repeat(64),
   [CLOUD_HEADERS.size]: '3',
-  [CLOUD_HEADERS.mtime]: '1700000000000',
-  [CLOUD_HEADERS.encrypted]: '1',
+  [CLOUD_HEADERS.epoch]: '1',
+  [CLOUD_HEADERS.meta]: SEALED_META,
   ...o,
 });
-
-/** config を置くときの見出しである。 */
-const configMeta = (rel: string, o: Record<string, string> = {}): Record<string, string> =>
-  meta({ [CLOUD_HEADERS.path]: rel, [CLOUD_HEADERS.kind]: 'config', [CLOUD_HEADERS.size]: '1', ...o });
 
 const put = (tok: string, key: string, body: string, headers: Record<string, string> = meta()): Promise<Response> =>
   cloud.SELF.fetch(`https://x/files/${key}`, {
@@ -45,7 +35,7 @@ const put = (tok: string, key: string, body: string, headers: Record<string, str
 
 const get = (tok: string, key: string): Promise<Response> => cloud.SELF.fetch(`https://x/files/${key}`, { headers: { authorization: `Bearer ${tok}` } });
 
-type Listing = { files: FileEntry[]; nextSeq: number; more: boolean };
+type Listing = { files: SealedFileEntry[]; nextSeq: number; more: boolean };
 
 const list = async (tok: string, since = 0, limit = 500): Promise<Listing> =>
   (await (await cloud.SELF.fetch(`https://x/files?since=${since}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } })).json()) as Listing;
@@ -97,9 +87,9 @@ beforeEach(async () => {
   resetSchemaCache();
   cloud = await startCloud();
   resetSchemaCache();
-  await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
-  tokA = await join('dev-a');
-  tokB = await join('dev-b');
+  await ensureSchema(cloud.env);
+  tokA = await addPcDevice(cloud.env, 'dev-a');
+  tokB = await addPcDevice(cloud.env, 'dev-b');
 });
 
 afterEach(async () => {
@@ -120,45 +110,58 @@ function cutOff(e: unknown): boolean {
   return CODES.includes(String(err?.code));
 }
 
-describe('PUT と GET /files/<key>', () => {
-  it('R2 に置き、索引に載せ、本体を取り出せる', async () => {
-    const r = await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
+describe('PUT と GET /files/<key>（封じたメタ）', () => {
+  it('R2 に置き、索引に封じたメタを載せ、本体を取り出せる', async () => {
+    const key = KA('u1');
+    expect(isBlobKey(key)).toBe(true);
+    const r = await put(tokA, key, 'abc', meta({ [CLOUD_HEADERS.epoch]: '4' }));
     expect(r.status).toBe(201);
     expect(await r.json()).toEqual({ seq: 1 });
-    expect(await (await cloud.env.BUCKET.get('transcripts/dev-a/u1.jsonl.gz'))!.text()).toBe('abc');
+    expect(await (await cloud.env.BUCKET.get(key))!.text()).toBe('abc');
     const l = await list(tokB);
     expect(l.files).toHaveLength(1);
-    expect(l.files[0]).toMatchObject({
+    expect(l.files[0]).toEqual({
       seq: 1,
-      key: 'transcripts/dev-a/u1.jsonl.gz',
-      path: 'projects/-x/u1.jsonl',
+      key,
       kind: 'transcript',
       deviceId: 'dev-a',
-      sha256: 'a'.repeat(64),
       size: 3,
       storedSize: 3,
-      mtime: 1700000000000,
-      encrypted: true,
+      epoch: 4,
+      sealedMeta: SEALED_META,
+      uploadedAt: expect.any(Number),
     });
     expect(l.files[0]!.uploadedAt).toBeGreaterThan(Date.now() - 60_000);
     expect(l).toMatchObject({ nextSeq: 1, more: false });
-    const g = await get(tokB, 'transcripts/dev-a/u1.jsonl.gz');
+    const g = await get(tokB, key);
     expect(g.status).toBe(200);
     expect(g.headers.get('content-length')).toBe('3');
     expect(await g.text()).toBe('abc');
   });
 
+  it('パスも SHA-256 も平文で残さない（R2 の覚え書きにも D1 の列にも）', async () => {
+    const key = KA('u1');
+    await put(tokA, key, 'abc');
+    const head = await cloud.env.BUCKET.head(key);
+    expect(head!.customMetadata ?? {}).toEqual({});
+    const row = await cloud.env.DB.prepare('select * from files').first<Record<string, unknown>>();
+    expect(Object.keys(row!).sort()).toEqual(['device_id', 'epoch', 'key', 'kind', 'sealed_meta', 'seq', 'size', 'stored_size', 'uploaded_at']);
+    // 封じたメタはバイト列の BLOB で持つ。
+    expect(await cloud.env.DB.prepare('select typeof(sealed_meta) t, hex(sealed_meta) h from files').first()).toEqual({ t: 'blob', h: Buffer.from('sealed-meta').toString('hex').toUpperCase() });
+  });
+
   it('同じ鍵を置き直すと新しい seq になり、古い索引は消える', async () => {
-    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
-    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abcd', meta({ [CLOUD_HEADERS.sha256]: 'b'.repeat(64), [CLOUD_HEADERS.size]: '4' }));
+    const key = KA('u1');
+    await put(tokA, key, 'abc');
+    await put(tokA, key, 'abcd', meta({ [CLOUD_HEADERS.size]: '4', [CLOUD_HEADERS.meta]: 'bmV3' }));
     const l = await list(tokB);
-    expect(l.files.map((f) => [f.seq, f.sha256[0], f.storedSize])).toEqual([[2, 'b', 4]]);
+    expect(l.files.map((f) => [f.seq, f.sealedMeta, f.storedSize])).toEqual([[2, 'bmV3', 4]]);
     expect((await list(tokB, 1)).files.map((f) => f.seq)).toEqual([2]);
-    expect(await (await cloud.env.BUCKET.get('transcripts/dev-a/u1.jsonl.gz'))!.text()).toBe('abcd');
+    expect(await (await cloud.env.BUCKET.get(key))!.text()).toBe('abcd');
   });
 
   it('一覧は自端末の分も返し、limit と more を持つ', async () => {
-    for (let i = 0; i < 3; i++) await put(tokA, `transcripts/dev-a/u${i}.jsonl.gz`, 'x', meta({ [CLOUD_HEADERS.size]: '1' }));
+    for (let i = 0; i < 3; i++) await put(tokA, KA(`u${i}`), 'x', meta({ [CLOUD_HEADERS.size]: '1' }));
     const r = await list(tokA, 0, 2);
     expect(r.files.map((f) => f.seq)).toEqual([1, 2]);
     expect(r).toMatchObject({ nextSeq: 2, more: true });
@@ -167,10 +170,15 @@ describe('PUT と GET /files/<key>', () => {
     expect(r2).toMatchObject({ nextSeq: 3, more: false });
   });
 
+  it('config も同じ形の鍵で置ける', async () => {
+    expect((await put(tokA, KA('c1'), 'x', meta({ [CLOUD_HEADERS.kind]: 'config', [CLOUD_HEADERS.size]: '1' }))).status).toBe(201);
+    expect((await list(tokB)).files.map((f) => [f.key, f.kind])).toEqual([[KA('c1'), 'config']]);
+  });
+
   it('長さの分かっている本文は、1 つの部分を超えてもそのまま預け、そのまま取り出せる', async () => {
     const n = 9 * 1024 * 1024 + 7; // かつて multipart に切り替えていた 8 MiB を超え、端数も出る大きさ
     const buf = patterned(n);
-    const key = 'transcripts/dev-a/big.jsonl.gz';
+    const key = KA('big');
     const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
       method: 'PUT',
       // miniflare の dispatchFetch はバイト列の本文でも長さを付けずに流すので、端末と同じく明示する。
@@ -191,7 +199,7 @@ describe('PUT と GET /files/<key>', () => {
     let status: number | null = null;
     let body: unknown = null;
     try {
-      const r = await cloud.SELF.fetch('https://x/files/transcripts/dev-a/u1.jsonl.gz', {
+      const r = await cloud.SELF.fetch(`https://x/files/${KA('u1')}`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(buf.length) }) },
         body: chunked(buf),
@@ -209,7 +217,7 @@ describe('PUT と GET /files/<key>', () => {
   });
 
   it('上限を超える長さを名乗った本文は、読む前に 413 で断り、R2 にも索引にも残さない', async () => {
-    const key = 'transcripts/dev-a/huge.jsonl.gz';
+    const key = KA('huge');
     // Worker は本文を読まずに断って接続を閉じる。送る側がまだ本文を書いている途中だと、書き込みが EPIPE で倒れ、
     // 応答を受け取る前か、応答の本文を読む途中で、fetch が "terminated" で投げることがある。
     // macOS では全体の試験の負荷で時々、Windows では毎回そうなる。どこまで読めたかにかかわらず、断ったこと自体は下の「残さない」で確かめられる。
@@ -234,98 +242,12 @@ describe('PUT と GET /files/<key>', () => {
     expect((await list(tokA)).files).toEqual([]);
   });
 
-  it('無い鍵は 404。本文を消す経路は無い', async () => {
-    expect((await get(tokA, 'transcripts/dev-a/nope.gz')).status).toBe(404);
-    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
-    const d = await cloud.SELF.fetch('https://x/files/transcripts/dev-a/u1.jsonl.gz', { method: 'DELETE', headers: { authorization: `Bearer ${tokA}` } });
+  it('無い鍵は 404。/files に本文を消す経路は無い', async () => {
+    expect((await get(tokA, KA('nope'))).status).toBe(404);
+    await put(tokA, KA('u1'), 'abc');
+    const d = await cloud.SELF.fetch(`https://x/files/${KA('u1')}`, { method: 'DELETE', headers: { authorization: `Bearer ${tokA}` } });
     expect(d.status).toBe(404);
-    expect(await keysInR2()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
-    expect((await list(tokA)).files.map((f) => f.key)).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
-  });
-});
-
-describe('validKey', () => {
-  // 「.」「..」は URL の側で畳まれるので HTTP 越しには届かない。判定そのものはここで見る。
-  it('接頭辞と相対パスの形を見る', () => {
-    expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', 'PUT')).toBe(true);
-    expect(validKey('config/dev-a/skills/日本語 メモ/SKILL.md', 'dev-a', 'PUT')).toBe(true);
-    for (const k of [
-      '',
-      'u1.gz',
-      'other/u1.gz',
-      'transcripts',
-      'transcripts/',
-      '/transcripts/dev-a/u1.gz',
-      'transcripts/dev-a/../dev-b/u1.gz',
-      'transcripts/dev-a/./u1.gz',
-      'transcripts/dev-a//u1.gz',
-      'config/a\u0000b',
-      'config/a\u001fb',
-      'config/a\u007fb',
-      `config/${'a'.repeat(513)}`, // 相対パスの文字数の上限
-      `config/${'あ'.repeat(400)}`, // R2 の鍵のバイト数の上限
-    ])
-      expect([k, validKey(k, 'dev-a', 'GET')]).toEqual([k, false]);
-  });
-
-  it('transcripts も config も自端末の分だけ書ける。読むのは誰でもよい', () => {
-    expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', 'GET')).toBe(true);
-    expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', 'PUT')).toBe(true);
-    expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', 'PUT')).toBe(false);
-    expect(validKey('transcripts/dev-ax/u1.gz', 'dev-a', 'PUT')).toBe(false); // 接頭辞の一致だけでは通さない
-    // config も transcripts と同じ守りにする。分けないと 2 台目が 1 台目の設定を潰す。
-    expect(validKey('config/dev-a/a.md', 'dev-a', 'PUT')).toBe(true);
-    expect(validKey('config/dev-b/a.md', 'dev-a', 'PUT')).toBe(false);
-    expect(validKey('config/a.md', 'dev-a', 'PUT')).toBe(false);
-    expect(validKey('config/dev-b/a.md', 'dev-a', 'GET')).toBe(true);
-    // 端末 ID の形も見る。スラッシュが混ざると他端末の接頭辞の下に潜り込める。
-    expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
-    expect(validKey('transcripts/../dev-a/u1.gz', '..', 'PUT')).toBe(false);
-  });
-});
-
-describe('buildMetadata', () => {
-  const bytes = (m: Record<string, string>): number => Object.entries(m).reduce((n, [k, v]) => n + new TextEncoder().encode(k).length + new TextEncoder().encode(v).length, 0);
-
-  it('入り切る間は path を載せ、境目までは落とさない', () => {
-    const sha = 'a'.repeat(64);
-    // 名前（path, sha256, device）と sha と device を引いた残りが path に使える。
-    const room = MAX_R2_META_BYTES - ('path'.length + 'sha256'.length + 'device'.length) - sha.length - 'dev-a'.length;
-    const fit = buildMetadata('x'.repeat(room), sha, 'dev-a');
-    expect(fit).toEqual({ path: 'x'.repeat(room), sha256: sha, device: 'dev-a' });
-    expect(bytes(fit!)).toBe(MAX_R2_META_BYTES);
-    expect(buildMetadata('x'.repeat(room + 1), sha, 'dev-a')).toEqual({ sha256: sha, device: 'dev-a' });
-  });
-
-  it('入り切らなければ path を落とし、それでも入らなければ null', () => {
-    const sha = 'a'.repeat(64);
-    expect(buildMetadata('%E3%81%82'.repeat(300), sha, 'dev-a')).toEqual({ sha256: sha, device: 'dev-a' });
-    // 端末 ID は参加の入口で 64 文字までに限られるので、実際には null にならない。最後の網である。
-    expect(buildMetadata('x', sha, 'd'.repeat(MAX_R2_META_BYTES))).toBeNull();
-  });
-});
-
-describe('本文の暗号化', () => {
-  it('暗号化していない transcript は 400 で、R2 にも索引にも残らない', async () => {
-    // 決定 5 は「本文は端末で暗号化してから預ける」である。
-    // 降ろす側（packages/server/src/sync/puller.ts）だけが守っていると、置く側の穴に誰も気付かない。
-    const key = 'transcripts/dev-a/u1.jsonl.gz';
-    const r = await put(tokA, key, 'abc', meta({ [CLOUD_HEADERS.encrypted]: '0' }));
-    expect(r.status).toBe(400);
-    expect(await r.json()).toEqual({ error: 'unencrypted transcript' });
-    expect(await keysInR2()).toEqual([]);
-    expect((await list(tokA)).files).toEqual([]);
-  });
-
-  it('暗号化した transcript は今までどおり通る', async () => {
-    expect((await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc')).status).toBe(201);
-    expect((await list(tokA)).files.map((f) => f.encrypted)).toEqual([true]);
-  });
-
-  it('断るのは R2 に触る前である（半端な本体を残さない）', async () => {
-    const big = 'x'.repeat(64 * 1024);
-    expect((await put(tokA, 'transcripts/dev-a/big.jsonl.gz', big, meta({ [CLOUD_HEADERS.encrypted]: '0', [CLOUD_HEADERS.size]: String(big.length) }))).status).toBe(400);
-    expect(await keysInR2()).toEqual([]);
+    expect(await keysInR2()).toEqual([KA('u1')]);
   });
 });
 
@@ -333,12 +255,12 @@ describe('GET /files?since=', () => {
   it('でたらめに大きい since を nextSeq にそのまま返さない', async () => {
     // 返すと、端末が一度でも壊れた since を控えた時点で一覧が永久に空になる。
     // `/changes`（packages/cloud/src/changes.ts）は既にこの形で、ここだけが非対称だった。
-    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
+    await put(tokA, KA('u1'), 'abc');
     expect(await list(tokB, 999_999)).toEqual({ files: [], nextSeq: 1, more: false });
   });
 
   it('桁あふれした since は 0 として読む（数えられない値で読み位置を固めない）', async () => {
-    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
+    await put(tokA, KA('u1'), 'abc');
     for (const since of ['1e21', 'Infinity', '-1', 'abc', '1.5']) {
       const r = (await (await cloud.SELF.fetch(`https://x/files?since=${since}`, { headers: { authorization: `Bearer ${tokB}` } })).json()) as Listing;
       expect([since, r.files.map((f) => f.seq), r.nextSeq]).toEqual([since, [1], 1]);
@@ -350,16 +272,17 @@ describe('GET /files?since=', () => {
   });
 });
 
-describe('鍵の検査', () => {
-  it('接頭辞の違う鍵と危うい相対パスは 400 で、R2 にも索引にも残らない', async () => {
+describe('鍵と見出しの検査', () => {
+  it('b/ の形でない鍵は 400 で、R2 にも索引にも残らない（平文の鍵名は受けない）', async () => {
     for (const key of [
-      'other/u1',
-      'transcripts',
-      'transcripts/',
-      'config',
-      'transcripts/dev-a//u1.gz', // 空の断片
-      'config/a%00b', // NUL
-      'config/a%01b', // 制御文字
+      'transcripts/dev-a/u1.jsonl.gz',
+      'config/dev-a/skills/a.md',
+      'b/dev-a',
+      'b/dev-a/short',
+      `b/dev-a/${'h'.padEnd(44, '_')}`,
+      `b/dev-a/${'h'.padEnd(42, '_')}=`,
+      `b/dev.a/${'h'.padEnd(43, '_')}`,
+      `b/dev-a/x/${'h'.padEnd(43, '_')}`,
     ])
       expect([key, (await put(tokA, key, 'x')).status]).toEqual([key, 400]);
     expect(await keysInR2()).toEqual([]);
@@ -367,23 +290,19 @@ describe('鍵の検査', () => {
   });
 
   it('見出しが欠けていたり形が違えば 400', async () => {
-    const key = 'transcripts/dev-a/u1.jsonl.gz';
-    const bad: Record<string, string>[] = [
-      meta({ [CLOUD_HEADERS.sha256]: 'zz' }),
-      meta({ [CLOUD_HEADERS.sha256]: 'A'.repeat(64) }), // 大文字の hex は受けない
-      meta({ [CLOUD_HEADERS.kind]: 'video' }),
-      meta({ [CLOUD_HEADERS.size]: '-1' }),
-      meta({ [CLOUD_HEADERS.size]: '1.5' }),
-      meta({ [CLOUD_HEADERS.mtime]: 'x' }),
-      meta({ [CLOUD_HEADERS.encrypted]: 'yes' }),
-      meta({ [CLOUD_HEADERS.path]: '/etc/passwd' }),
-      meta({ [CLOUD_HEADERS.path]: 'a/../b' }),
-      meta({ [CLOUD_HEADERS.path]: 'a//b' }),
-      meta({ [CLOUD_HEADERS.path]: 'a/./b' }),
-      meta({ [CLOUD_HEADERS.kind]: 'config' }), // 接頭辞と種別が食い違う
+    const key = KA('u1');
+    const bad: [string, Record<string, string>][] = [
+      ['kind', meta({ [CLOUD_HEADERS.kind]: 'video' })],
+      ['size -1', meta({ [CLOUD_HEADERS.size]: '-1' })],
+      ['size 1.5', meta({ [CLOUD_HEADERS.size]: '1.5' })],
+      ['epoch 0', meta({ [CLOUD_HEADERS.epoch]: '0' })],
+      ['epoch x', meta({ [CLOUD_HEADERS.epoch]: 'x' })],
+      ['meta empty', meta({ [CLOUD_HEADERS.meta]: '' })],
+      ['meta base64', meta({ [CLOUD_HEADERS.meta]: 'a+b/c=' })],
+      ['meta long', meta({ [CLOUD_HEADERS.meta]: 'A'.repeat(MAX_SEALED_META_CHARS + 1) })],
     ];
-    for (const h of bad) expect([h, (await put(tokA, key, 'x', h)).status]).toEqual([h, 400]);
-    for (const drop of [CLOUD_HEADERS.path, CLOUD_HEADERS.kind, CLOUD_HEADERS.sha256, CLOUD_HEADERS.size, CLOUD_HEADERS.mtime, CLOUD_HEADERS.encrypted]) {
+    for (const [name, h] of bad) expect([name, (await put(tokA, key, 'x', h)).status]).toEqual([name, 400]);
+    for (const drop of [CLOUD_HEADERS.kind, CLOUD_HEADERS.size, CLOUD_HEADERS.epoch, CLOUD_HEADERS.meta]) {
       const h = meta();
       delete h[drop];
       expect([drop, (await put(tokA, key, 'x', h)).status]).toEqual([drop, 400]);
@@ -391,142 +310,48 @@ describe('鍵の検査', () => {
     expect(await keysInR2()).toEqual([]);
   });
 
-  it('日本語と空白を含む config の鍵を通し、そのまま取り出せる', async () => {
-    // 利用者の `~/.claude` の中身は名前を選べない。ASCII に限った鍵の検査だと、ここが黙って 400 になる。
-    // なお `x-hangar-path` は見出しなので非 ASCII を運べない（報告の「気になった点」を見ること）。
-    const rel = 'skills/日本語 メモ/SKILL.md';
-    const r = await put(tokB, `config/dev-b/${rel}`, 'x', configMeta('skills/a/SKILL.md'));
-    expect(r.status).toBe(201);
-    expect(await keysInR2()).toEqual([`config/dev-b/${rel}`]);
-    expect((await list(tokA)).files.map((f) => f.key)).toEqual([`config/dev-b/${rel}`]);
-    expect(await (await get(tokA, `config/dev-b/${rel}`)).text()).toBe('x');
-  });
-
-  it('見出しは非 ASCII を運べない。端末側が符号化してから送る必要がある', async () => {
-    // undici（Node の fetch）が送る前に投げる。Worker の検査より手前なので、Worker では直せない。
-    // 実物の `HttpCloudClient.putFile` も同じ経路である。
-    await expect(put(tokB, 'config/dev-b/a.md', 'x', configMeta('skills/日本語/SKILL.md'))).rejects.toThrow();
-  });
-
-  it('符号化した見出しを復号して索引に載せ、端から端まで通す', async () => {
-    // 非 ASCII は見出しに直接載せられないので、端末が `encodeHeaderText` で符号化して送る。
-    // Worker は同じ共有の関数で復号する。片方だけ変えると、索引に百分率のままの文字列が残る。
-    const path = 'skills/日本語 メモ/SKILL.md';
-    const key = `config/dev-b/${path}`;
-    const wire = encodeHeaderText(path)!;
-    expect(isHeaderSafe(wire)).toBe(true);
-    const r = await put(tokB, key, 'x', configMeta(wire));
-    expect(r.status).toBe(201);
-    const e = (await list(tokA)).files[0]!;
-    expect([e.key, e.path]).toEqual([key, path]);
-    expect(await (await get(tokA, key)).text()).toBe('x');
-    // R2 の customMetadata は見出しのままの形で持つ（値も ByteString しか運べない）。
-    expect((await cloud.env.BUCKET.head(key))?.customMetadata?.path).toBe(wire);
-  });
-
-  it('符号化すると R2 の覚え書きの上限を超える path でも上げられる。500 にして永久に再送させない', async () => {
-    // 日本語は `encodeURIComponent` で 1 文字が 9 バイトに伸びるので、
-    // `isSafeRelPath` が許す 512 文字のうち 218 文字あたりから R2 の 2048 バイトを超える。
-    // 超えたら覚え書きの `path` を落とす。索引の正本は D1 なので、降ろす側は何も失わない。
-    const path = `skills/${'あ'.repeat(300)}/SKILL.md`;
-    const wire = encodeHeaderText(path)!;
-    expect(wire.length).toBeGreaterThan(MAX_R2_META_BYTES);
-    const key = `config/dev-b/${path}`;
-    expect((await put(tokB, key, 'x', configMeta(wire))).status).toBe(201);
-    // D1 の索引には元のパスがそのまま入る。
-    const e = (await list(tokA)).files[0]!;
-    expect([e.key, e.path]).toEqual([key, path]);
-    expect(await (await get(tokA, key)).text()).toBe('x');
-    // R2 側の覚え書きからは path だけが落ちる。指紋と端末は残る。
-    const meta = (await cloud.env.BUCKET.head(key))?.customMetadata;
-    expect(meta?.path).toBeUndefined();
-    expect([meta?.sha256, meta?.device]).toEqual(['a'.repeat(64), 'dev-b']);
-  });
-
-  it('百分率の形が壊れた path の見出しは 400', async () => {
-    for (const wire of ['%', '%zz', '%E3%81', 'a/%2E%2E/b', '%2Fabs']) {
-      expect([wire, (await put(tokB, 'config/dev-b/a.md', 'x', configMeta(wire))).status]).toEqual([wire, 400]);
-    }
-    expect(await keysInR2()).toEqual([]);
-  });
-
-  it('鍵の形の物差しは端末と 1 つを共有する', () => {
-    // `isValidFileKey` は端末側（`packages/server/src/sync/client.ts`）も通る共有の判定である。
-    // ここがずれると、端末で作れる鍵が Worker で 400 になる（またはその逆になる）。
-    for (const key of ['transcripts/dev-a/u1.jsonl.gz', 'config/dev-a/skills/日本語 メモ/SKILL.md', 'config/dev-a/memory/🐕.md', 'config/dev-a/a%b.md']) {
-      expect([key, isValidFileKey(key), validKey(key, 'dev-a', 'GET')]).toEqual([key, true, true]);
-    }
-    for (const key of ['other/u1', 'transcripts', 'transcripts/', 'transcripts/../x', 'transcripts/./x', 'transcripts//x', '/transcripts/x', `config/${'あ'.repeat(400)}`]) {
-      expect([key, isValidFileKey(key), validKey(key, 'dev-a', 'GET')]).toEqual([key, false, false]);
-    }
-  });
-
-  it('長すぎる鍵は 400（R2 の鍵の上限に当てて 500 にしない）', async () => {
-    const rel = 'あ'.repeat(400); // 400 文字だが UTF-8 では 1200 バイトで、R2 の 1024 バイトを超える
-    expect((await put(tokB, `config/dev-b/${rel}`, 'x', configMeta('a.md'))).status).toBe(400);
-    expect((await put(tokB, `config/dev-b/${'a'.repeat(513)}`, 'x', configMeta('a.md'))).status).toBe(400);
-    expect(await keysInR2()).toEqual([]);
+  it('上限いっぱいの封じたメタは通る', async () => {
+    expect((await put(tokA, KA('u1'), 'x', meta({ [CLOUD_HEADERS.meta]: 'A'.repeat(MAX_SEALED_META_CHARS) }))).status).toBe(201);
   });
 });
 
 describe('端末の境目', () => {
-  it('他端末の transcripts には書けず、しかし読める', async () => {
-    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
-    expect((await put(tokB, 'transcripts/dev-a/u1.jsonl.gz', 'evil')).status).toBe(403);
-    expect((await put(tokB, 'transcripts/dev-a/new.jsonl.gz', 'evil')).status).toBe(403);
+  it('b/<他人>/ への PUT は 403 で、読むのは誰でもよい', async () => {
+    await put(tokA, KA('u1'), 'abc');
+    expect((await put(tokB, KA('u1'), 'evil')).status).toBe(403);
+    expect((await put(tokB, KA('new'), 'evil')).status).toBe(403);
     // 断られた書き込みは R2 にも索引にも入っていない。
-    expect(await keysInR2()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
-    expect(await (await cloud.env.BUCKET.get('transcripts/dev-a/u1.jsonl.gz'))!.text()).toBe('abc');
+    expect(await keysInR2()).toEqual([KA('u1')]);
+    expect(await (await cloud.env.BUCKET.get(KA('u1')))!.text()).toBe('abc');
     expect((await list(tokB)).files.map((f) => f.seq)).toEqual([1]);
-    // 読むのは誰でもよい。取り直しに要る。
-    expect(await (await get(tokB, 'transcripts/dev-a/u1.jsonl.gz')).text()).toBe('abc');
+    expect(await (await get(tokB, KA('u1'))).text()).toBe('abc');
+    // 自分の下には書ける。
+    expect((await put(tokB, KB('u1'), 'mine')).status).toBe(201);
   });
 
   it('「..」で他端末の接頭辞へ抜けられない', async () => {
-    // 「..」は URL の側で畳まれて `transcripts/dev-b/...` として届く。そこで権限に当たって断られる。
-    // 符号化した `%2e%2e` も URL の規格では同じ扱いで、やはり畳まれる。
-    for (const key of ['transcripts/dev-a/../dev-b/u1.gz', 'transcripts/dev-a/%2e%2e/dev-b/u1.gz', 'transcripts/dev-a/%2E%2E/dev-b/u1.gz'])
+    // 「..」は URL の側で畳まれて `b/dev-b/...` として届く。そこで権限に当たって断られる。
+    const tail = 'h'.padEnd(43, '_');
+    for (const key of [`b/dev-a/../dev-b/${tail}`, `b/dev-a/%2e%2e/dev-b/${tail}`])
       expect([key, (await put(tokA, key, 'x')).status]).toEqual([key, 403]);
     expect(await keysInR2()).toEqual([]);
-    expect((await list(tokA)).files).toEqual([]);
   });
 
-  it('config も自端末の場所にだけ書ける。2 台が同じ相対パスを上げても潰し合わない', async () => {
-    const rel = 'skills/a/SKILL.md';
-    expect((await put(tokB, `config/dev-b/${rel}`, 'x', configMeta(rel))).status).toBe(201);
-    expect((await put(tokA, `config/dev-a/${rel}`, 'y', configMeta(rel))).status).toBe(201);
-    // 同じ相対パスでも別の鍵なので、どちらも残る。
-    expect(await keysInR2()).toEqual([`config/dev-a/${rel}`, `config/dev-b/${rel}`]);
-    expect(await (await cloud.env.BUCKET.get(`config/dev-b/${rel}`))!.text()).toBe('x');
-    expect((await list(tokB)).files.map((f) => [f.seq, f.deviceId])).toEqual([[1, 'dev-b'], [2, 'dev-a']]);
-    // 他端末の場所には書けない。読むのは誰でもよい。
-    expect((await put(tokA, `config/dev-b/${rel}`, 'evil', configMeta(rel))).status).toBe(403);
-    expect(await (await get(tokA, `config/dev-b/${rel}`)).text()).toBe('x');
+  it('validKey は鍵の形と自端末の接頭辞を見る', () => {
+    expect(validKey(KA('u1'), 'dev-a', 'PUT')).toBe(true);
+    expect(validKey(KA('u1'), 'dev-b', 'PUT')).toBe(false);
+    expect(validKey(KA('u1'), 'dev-b', 'GET')).toBe(true);
+    // 前方一致だけで見ると、dev-a が dev-ab の下に書けてしまう。
+    expect(validKey(blobKey('dev-ab', 'u1'), 'dev-a', 'PUT')).toBe(false);
+    expect(validKey('transcripts/dev-a/u1.jsonl.gz', 'dev-a', 'GET')).toBe(false);
   });
 
-  it('端末 ID にスラッシュを混ぜた形は、参加の入口でも鍵の検査でも通らない', async () => {
-    // 入口で断る（Task 3 が `0b6467b` で足した検査）。そもそもこの端末は作れない。
-    const r = await cloud.SELF.fetch('https://x/join', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ secret: SECRET, device: { id: 'dev-a/evil', name: 'evil', platform: 'darwin' } }),
-    });
-    expect(r.status).toBe(400);
-    // 入口を抜けたとしても、鍵の検査でも断る。層は 2 つある。
-    expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
-    expect(validKey('transcripts/dev-a/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
-    // config も端末 ID を見るので、同じく通らない。
-    expect(validKey('config/dev-a/evil/a.md', 'dev-a/evil', 'PUT')).toBe(false);
-    expect(validKey('config/dev-a/a.md', 'dev-a/evil', 'PUT')).toBe(false);
-    expect(await keysInR2()).toEqual([]);
-  });
-
-  it('認証が無ければ files のどの経路も 401', async () => {
+  it('認証が無ければ files と blobs のどの経路も 401', async () => {
     for (const init of [
       { method: 'GET', path: 'https://x/files?since=0' },
-      { method: 'GET', path: 'https://x/files/transcripts/dev-a/u1.gz' },
-      { method: 'PUT', path: 'https://x/files/transcripts/dev-a/u1.gz' },
-      { method: 'DELETE', path: 'https://x/files/transcripts/dev-a/u1.gz' },
+      { method: 'GET', path: `https://x/files/${KA('u1')}` },
+      { method: 'PUT', path: `https://x/files/${KA('u1')}` },
+      { method: 'DELETE', path: 'https://x/blobs' },
     ]) {
       const r = await cloud.SELF.fetch(init.path, { method: init.method, headers: meta(), body: init.method === 'PUT' ? 'x' : undefined });
       expect([init.path, r.status]).toEqual([init.path, 401]);
@@ -537,15 +362,14 @@ describe('端末の境目', () => {
 
 describe('例外の覆い', () => {
   it('中で倒れても文言を外に出さず、秘密も漏らさない', async () => {
-    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc'); // ここでスキーマの用意が済む
+    await put(tokA, KA('u1'), 'abc'); // ここでスキーマの用意が済む
     await cloud.env.DB.prepare('drop table files').run();
-    const r = await put(tokA, 'transcripts/dev-a/u2.jsonl.gz', 'abc');
+    const r = await put(tokA, KA('u2'), 'abc');
     expect(r.status).toBe(500);
     const text = await r.text();
     expect(JSON.parse(text)).toEqual({ error: 'internal error' });
     expect(text).not.toContain('files');
     expect(text).not.toContain('no such table');
     expect(text).not.toContain(tokA);
-    expect(text).not.toContain(SECRET);
   });
 });

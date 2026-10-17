@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MOBILE_ASK_MAX_BYTES, MOBILE_ASK_TIMEOUT_MS, MOBILE_REPLY_MAX_BYTES, type MobileAskIn, type MobileJoinResponse, type MobilePairingResponse } from '@agent-hangar/shared';
 import { askTimeoutMs } from '../src/bellWire.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
-import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
-const SECRET = 'join-secret-bell';
 /** 試験では答えの待ちを短くする（実物は MOBILE_ASK_TIMEOUT_MS の 5 秒）。 */
 const ASK_TIMEOUT_MS = 400;
 
@@ -16,11 +14,8 @@ const auth = (token: string, extra: Record<string, string> = {}) => ({ authoriza
 const post = (token: string, path: string, body?: unknown) =>
   send(path, { method: 'POST', headers: auth(token, { 'content-type': 'application/json' }), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-const joinPc = async (id: string): Promise<string> => {
-  const r = await send('/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }) });
-  expect(r.status).toBe(201);
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/** PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。 */
+const joinPc = (id: string): Promise<string> => addPcDevice(cloud.env, id);
 
 const joinPhone = async (pcToken: string, id = 'phone'): Promise<MobileJoinResponse> => {
   const p = await post(pcToken, '/m/pairings');
@@ -92,7 +87,7 @@ beforeEach(async () => {
   resetSchemaCache();
   cloud = await startCloud({ bindings: { BELL_ASK_TIMEOUT_MS: String(ASK_TIMEOUT_MS) } });
   resetSchemaCache();
-  await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+  await ensureSchema(cloud.env);
 });
 
 afterEach(async () => {
@@ -303,7 +298,7 @@ describe('呼び鈴の無い Worker', () => {
     resetSchemaCache();
     cloud = await startCloud({ bell: false });
     resetSchemaCache();
-    await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+    await ensureSchema(cloud.env);
     const pc = await joinPc('pc-a');
     const phone = await joinPhone(pc);
     const r = await post(phone.token, '/m/launches', { id: 'l-1', targetDevice: 'pc-a', sealed: 'sealed-req' });

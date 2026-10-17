@@ -38,10 +38,14 @@
  * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 6 と 7 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 6 のまま）。
  * 端末は、Worker が名乗る版が MOBILE_BELL_MIN_WORKER_COMPAT に届くまで呼び鈴を張らず、起動は今までどおり 30 秒の pull で動く。
  *
+ * 版 9（E2E の作り直し）：Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密をやめ、参加コードと承認で参加する。
+ * 古い表は読まず、版 8 以下の PC とは話せないので、MIN_DEVICE_COMPAT を 9 に上げ、版 8 以下の PC を 426 で断る。
+ * 呼び鈴と問い合わせと画像の口（版 8）はそのまま持つ。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 8;
+export const COMPAT_VERSION = 9;
 
 /**
  * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。

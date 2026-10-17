@@ -33,3 +33,35 @@ export function d1LimitOfError(e: unknown): 'd1-read' | 'd1-write' | null {
 export function limitBody(kind: 'd1-read' | 'd1-write', now: number): CloudLimitBody {
   return { error: 'limit', limit: kind, resetAt: nextUtcMidnight(now) };
 }
+
+/**
+ * Worker 全体で数える固定の窓である。
+ * meta の 1 行に `{"start": 窓の始まり, "n": 回数}` の JSON を置く。
+ * 端末ごとではなく Worker 全体で数えるのは、認証のない口（参加コードの総当たり）を守るためである。
+ */
+export type WindowLimit = { readonly max: number; readonly windowMs: number };
+
+/** meta の値を読んで、窓の中で上限に達しているかを返す。値が無いか壊れていれば、達していないと読む。 */
+export function windowFull(value: string | null | undefined, now: number, limit: WindowLimit): boolean {
+  if (!value) return false;
+  try {
+    const v = JSON.parse(value) as { start?: unknown; n?: unknown };
+    if (typeof v.start !== 'number' || typeof v.n !== 'number') return false;
+    return now - v.start < limit.windowMs && v.n >= limit.max;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 窓の回数を 1 つ足す文である。
+ * 窓が過ぎていれば、今を始まりにした新しい窓を 1 回目として置く。
+ * 読んで書く 2 文に分けず、1 つの upsert で足すので、同時に来た要求でも数え落とさない。
+ */
+export function countInWindow(db: D1Database, key: string, now: number, limit: WindowLimit): D1PreparedStatement {
+  return db
+    .prepare(
+      "insert into meta (key, value) values (?, json_object('start', ?, 'n', 1)) on conflict(key) do update set value = case when json_extract(meta.value, '$.start') > ? then json_set(meta.value, '$.n', json_extract(meta.value, '$.n') + 1) else excluded.value end",
+    )
+    .bind(key, now, now - limit.windowMs);
+}

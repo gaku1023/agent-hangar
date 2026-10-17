@@ -5,7 +5,7 @@ import { BELL_DEVICE_HEADER, BELL_NAME } from './bellWire.ts';
 import type { Env, Vars } from './env.ts';
 import { isSafeName, issueDeviceToken } from './join.ts';
 import { MAX_LAUNCH_ID_CHARS, blobsApp, deleteLaunchImages, sweepOldImages } from './mobileBlobs.ts';
-import { seenOf, touchIfDue } from './seen.ts';
+import { touchIfDue } from './seen.ts';
 import { randomToken, sha256Hex } from './util.ts';
 
 /**
@@ -155,12 +155,10 @@ mobileApp.post('/join', async (c) => {
   if (Number(used.meta?.changes ?? 0) !== 1) return c.json({ error: deny }, 401);
   const id = crypto.randomUUID();
   const { token, tokenHash } = await issueDeviceToken();
-  const seen = seenOf(c);
+  // 名前は devices に置かない（互換の版 9）。スマホの名前は封じた名簿へ移す。
   await db
-    .prepare(
-      "insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, last_ip, last_city, last_region, last_country, kind) values (?, ?, 'mobile', ?, ?, ?, 0, null, ?, ?, ?, ?, 'mobile')",
-    )
-    .bind(id, body.device.name, tokenHash, now, now, seen.ip, seen.city, seen.region, seen.country)
+    .prepare("insert into devices (id, kind, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at) values (?, 'mobile', ?, ?, ?, 0, null)")
+    .bind(id, tokenHash, now, now)
     .run();
   const res: MobileJoinResponse = { token, deviceId: id };
   return c.json(res, 201);
@@ -183,7 +181,7 @@ mobileApp.put('/feed', authMiddleware(), requireKind('pc'), async (c) => {
       .prepare('insert into mobile_feeds (device_id, sealed, updated_at) values (?, ?, ?) on conflict(device_id) do update set sealed = excluded.sealed, updated_at = excluded.updated_at')
       .bind(device.id, body.sealed, now),
   ];
-  const touch = touchIfDue(db, device, now, seenOf(c));
+  const touch = touchIfDue(db, device, now);
   if (touch) stmts.push(touch);
   await db.batch(stmts);
   return c.json({ ok: true, updatedAt: now });
@@ -198,7 +196,7 @@ mobileApp.delete('/feed', authMiddleware(), requireKind('pc'), async (c) => {
   return c.json({ ok: true });
 });
 
-type InboxDeviceRow = { id: string; name: string; platform: string; last_seen_at: number | null };
+type InboxDeviceRow = { id: string; last_seen_at: number | null };
 type InboxFeedRow = { device_id: string; updated_at: number; sealed: string };
 
 /**
@@ -210,10 +208,10 @@ type InboxFeedRow = { device_id: string; updated_at: number; sealed: string };
 mobileApp.get('/inbox', authMiddleware(), requireKind('mobile'), async (c) => {
   const db = c.env.DB;
   const now = Date.now();
-  const touch = touchIfDue(db, c.get('device'), now, seenOf(c));
+  const touch = touchIfDue(db, c.get('device'), now);
   const results = await db.batch([
     ...(touch ? [touch] : []),
-    db.prepare("select id, name, platform, last_seen_at from devices where kind = 'pc' and revoked_at is null order by joined_at, id"),
+    db.prepare("select id, last_seen_at from devices where kind = 'pc' and revoked_at is null order by joined_at, id"),
     db.prepare("select f.device_id, f.updated_at, f.sealed from mobile_feeds f join devices d on d.id = f.device_id where d.kind = 'pc' and d.revoked_at is null order by f.device_id"),
   ]);
   const off = touch ? 1 : 0;
@@ -221,7 +219,7 @@ mobileApp.get('/inbox', authMiddleware(), requireKind('mobile'), async (c) => {
   const feeds = results[off + 1];
   const res: MobileInboxResponse = {
     now,
-    devices: ((devices?.results ?? []) as InboxDeviceRow[]).map((d) => ({ id: d.id, name: d.name, platform: d.platform, lastSeenAt: d.last_seen_at ?? null })),
+    devices: ((devices?.results ?? []) as InboxDeviceRow[]).map((d) => ({ id: d.id, name: d.id, platform: '', lastSeenAt: d.last_seen_at ?? null })),
     feeds: ((feeds?.results ?? []) as InboxFeedRow[]).map((f) => ({ deviceId: f.device_id, updatedAt: f.updated_at, sealed: f.sealed })),
   };
   return c.json(res);

@@ -3,23 +3,15 @@ import { CLOUD_HEADERS } from '@agent-hangar/shared';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { META_SWEEP_AT, SWEEP_EVERY_MS, SWEEP_GRACE_MS, SWEEP_LIST_LIMIT, resetSweepThrottle, sweepIfDue, sweepOnce } from '../src/sweep.ts';
 import { IMAGE_KEEP_MS } from '../src/mobileBlobs.ts';
-import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
-const SECRET = 'join-secret-1';
 const HOUR = 3_600_000;
+
+/** R2 の鍵名。本物は `b/<端末 ID>/<HMAC の base64url（43 字）>` なので、同じ形の作り物にする。 */
+const B = (name: string): string => `b/a/${`h${name}`.padEnd(43, '_')}`;
 
 let cloud: CloudHarness;
 let tok = '';
-
-const join = async (id: string): Promise<string> => {
-  const r = await cloud.SELF.fetch('https://x/join', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }),
-  });
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
 
 const put = (key: string, body: string, over: Record<string, string> = {}): Promise<Response> =>
   cloud.SELF.fetch(`https://x/files/${key}`, {
@@ -27,12 +19,10 @@ const put = (key: string, body: string, over: Record<string, string> = {}): Prom
     headers: {
       authorization: `Bearer ${tok}`,
       'content-length': String(new TextEncoder().encode(body).length),
-      [CLOUD_HEADERS.path]: 'projects/-x/u1.jsonl',
       [CLOUD_HEADERS.kind]: 'transcript',
-      [CLOUD_HEADERS.sha256]: 'a'.repeat(64),
       [CLOUD_HEADERS.size]: String(body.length),
-      [CLOUD_HEADERS.mtime]: '1700000000000',
-      [CLOUD_HEADERS.encrypted]: '1',
+      [CLOUD_HEADERS.epoch]: '1',
+      [CLOUD_HEADERS.meta]: 'bWV0YQ',
       ...over,
     },
     body,
@@ -53,10 +43,8 @@ const orphanBody = async (key: string): Promise<void> => { await cloud.env.BUCKE
 
 /** 本体の無い索引を D1 に置く。R2 だけ先に消えた後の姿である。 */
 const orphanIndex = async (key: string, uploadedAt: number): Promise<void> => {
-  await cloud.env.DB.prepare(
-    'insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  )
-    .bind(key, 'projects/-x/gone.jsonl', 'transcript', 'a', 'b'.repeat(64), 4, 4, 1, 1, uploadedAt)
+  await cloud.env.DB.prepare('insert into files (key, kind, device_id, size, stored_size, uploaded_at, epoch, sealed_meta) values (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(key, 'transcript', 'a', 4, 4, uploadedAt, 1, 'bWV0YQ')
     .run();
 };
 
@@ -64,57 +52,70 @@ beforeEach(async () => {
   resetSchemaCache();
   // 当番の覚えは isolate ごとなので、テストごとに落とす（本番では isolate が入れ替わるときに落ちる）。
   resetSweepThrottle();
-  cloud = await startCloud({ JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+  cloud = await startCloud();
   await ensureSchema(cloud.env);
-  tok = await join('a');
+  tok = await addPcDevice(cloud.env, 'a');
 });
 
 afterEach(async () => { await cloud.dispose(); resetSchemaCache(); });
 
 describe('孤児の掃除', () => {
-  it('索引に無い本体を消し、索引にある本体は残す', async () => {
-    expect((await put('transcripts/a/live.jsonl.gz', 'honbun')).status).toBe(201);
-    await orphanBody('transcripts/a/orphan.jsonl.gz');
-    expect((await bucketKeys()).sort()).toEqual(['transcripts/a/live.jsonl.gz', 'transcripts/a/orphan.jsonl.gz']);
+  it('sweep が b/ の孤児を消し、索引にある本体は残す', async () => {
+    expect((await put(B('live'), 'honbun')).status).toBe(201);
+    await orphanBody(B('orphan'));
+    expect((await bucketKeys()).sort()).toEqual([B('live'), B('orphan')]);
 
     const r = await sweepOnce(cloud.env, Date.now() + 2 * HOUR);
-    expect(r.bodies).toEqual(['transcripts/a/orphan.jsonl.gz']);
-    expect(await bucketKeys()).toEqual(['transcripts/a/live.jsonl.gz']);
+    expect(r.bodies).toEqual([B('orphan')]);
+    expect(await bucketKeys()).toEqual([B('live')]);
     // 索引は 1 件も減らない。
-    expect(await indexKeys()).toEqual(['transcripts/a/live.jsonl.gz']);
+    expect(await indexKeys()).toEqual([B('live')]);
+  });
+
+  it('b/ の外の鍵には触らない（鍵名の形が違うものは掃除の範囲の外）', async () => {
+    await orphanBody('transcripts/a/old.jsonl.gz');
+    await orphanBody(B('orphan'));
+    const r = await sweepOnce(cloud.env, Date.now() + 2 * HOUR);
+    expect(r.bodies).toEqual([B('orphan')]);
+    expect(await bucketKeys()).toEqual(['transcripts/a/old.jsonl.gz']);
+  });
+
+  it('ゴミ箱の掃除（sweepTrash）は Worker に無い。結果は孤児の 2 つだけ', async () => {
+    const r = await sweepOnce(cloud.env, Date.now() + 2 * HOUR);
+    expect(Object.keys(r).sort()).toEqual(['bodies', 'entries']);
   });
 
   it('置いたばかりの本体には触らない（書いている最中の 1 本を消さない）', async () => {
-    await orphanBody('transcripts/a/justnow.jsonl.gz');
+    await orphanBody(B('justnow'));
     // 猶予の中なので、索引に無くてもまだ孤児とは決めつけない。
     const r = await sweepOnce(cloud.env, Date.now() + SWEEP_GRACE_MS / 2);
     expect(r.bodies).toEqual([]);
-    expect(await bucketKeys()).toEqual(['transcripts/a/justnow.jsonl.gz']);
+    expect(await bucketKeys()).toEqual([B('justnow')]);
   });
 
   it('本体の無い索引を消す（降ろす側が永久に 404 を踏み続けない）', async () => {
     const now = Date.now();
-    await orphanIndex('transcripts/a/gone.jsonl.gz', now - 2 * HOUR);
-    expect((await put('transcripts/a/live.jsonl.gz', 'honbun')).status).toBe(201);
-    expect((await indexKeys()).sort()).toEqual(['transcripts/a/gone.jsonl.gz', 'transcripts/a/live.jsonl.gz']);
+    await orphanIndex(B('gone'), now - 2 * HOUR);
+    expect((await put(B('live'), 'honbun')).status).toBe(201);
+    expect((await indexKeys()).sort()).toEqual([B('gone'), B('live')]);
 
     const r = await sweepOnce(cloud.env, now + 2 * HOUR);
-    expect(r.entries).toEqual(['transcripts/a/gone.jsonl.gz']);
-    expect(await indexKeys()).toEqual(['transcripts/a/live.jsonl.gz']);
-    expect(await bucketKeys()).toEqual(['transcripts/a/live.jsonl.gz']);
+    expect(r.entries).toEqual([B('gone')]);
+    expect(await indexKeys()).toEqual([B('live')]);
+    expect(await bucketKeys()).toEqual([B('live')]);
   });
 
   it('置いたばかりの索引には触らない', async () => {
     const now = Date.now();
-    await orphanIndex('transcripts/a/writing.jsonl.gz', now);
+    await orphanIndex(B('writing'), now);
     const r = await sweepOnce(cloud.env, now + SWEEP_GRACE_MS / 2);
     expect(r.entries).toEqual([]);
-    expect(await indexKeys()).toEqual(['transcripts/a/writing.jsonl.gz']);
+    expect(await indexKeys()).toEqual([B('writing')]);
   });
 
   it('1 回に見る数を区切り、続きは次の回から読む', async () => {
     const now = Date.now();
-    for (let i = 0; i < SWEEP_LIST_LIMIT + 3; i++) await orphanBody(`transcripts/a/o${String(i).padStart(3, '0')}.gz`);
+    for (let i = 0; i < SWEEP_LIST_LIMIT + 3; i++) await orphanBody(B(`o${String(i).padStart(3, '0')}`));
     const first = await sweepOnce(cloud.env, now + 2 * HOUR);
     expect(first.bodies).toHaveLength(SWEEP_LIST_LIMIT);
     expect(await bucketKeys()).toHaveLength(3);
@@ -137,9 +138,20 @@ describe('スマホの画像（mobile/ の下）', () => {
   it('置いてから 24 時間より古いものを消す（解除したスマホの画像も消える）', async () => {
     const now = Date.now();
     await orphanBody('mobile/phone-1/launch-1/0');
-    await orphanBody('transcripts/a/orphan.jsonl.gz');
+    await orphanBody(B('orphan'));
     const r = await sweepOnce(cloud.env, now + IMAGE_KEEP_MS + HOUR);
-    expect(r.bodies.sort()).toEqual(['mobile/phone-1/launch-1/0', 'transcripts/a/orphan.jsonl.gz']);
+    expect(r.bodies.sort()).toEqual([B('orphan'), 'mobile/phone-1/launch-1/0']);
+    expect(await bucketKeys()).toEqual([]);
+  });
+
+  it('画像の一覧の続きは b/ と別に控え、1 回に見る数を区切る', async () => {
+    const now = Date.now();
+    for (let i = 0; i < SWEEP_LIST_LIMIT + 2; i++) await orphanBody(`mobile/phone-1/launch-${String(i).padStart(3, '0')}/0`);
+    await orphanBody(B('orphan'));
+    const first = await sweepOnce(cloud.env, now + IMAGE_KEEP_MS + HOUR);
+    expect(first.bodies).toHaveLength(SWEEP_LIST_LIMIT + 1);
+    const second = await sweepOnce(cloud.env, now + IMAGE_KEEP_MS + 2 * HOUR);
+    expect(second.bodies).toHaveLength(2);
     expect(await bucketKeys()).toEqual([]);
   });
 
@@ -196,7 +208,7 @@ function bucketWithLanding(b: R2Bucket, key: string, land: () => Promise<void>):
 describe('消す直前に置き直しが着地しても、生きているものを消さない', () => {
   it('索引の行（`head` の後に `PUT` が着地する筋）', async () => {
     const now = Date.now();
-    const key = 'transcripts/a/live2.jsonl.gz';
+    const key = B('live2');
     // 本体の無い索引を置く。`PUT` が落ちた跡そのもので、端末が送り直す相手である。
     await orphanIndex(key, now - 2 * HOUR);
     const env = { ...cloud.env, BUCKET: bucketWithLanding(cloud.env.BUCKET, key, async () => { await put(key, 'okurinaoshi'); }) };
@@ -213,8 +225,8 @@ describe('消す直前に置き直しが着地しても、生きているもの�
 
   it('返す鍵は、実際に消えた鍵である', async () => {
     const now = Date.now();
-    const landing = 'transcripts/a/aaa.jsonl.gz';   // 着地する方（消えない）
-    const dead = 'transcripts/a/bbb.jsonl.gz';      // 本当に消える方
+    const landing = B('aaa');   // 着地する方（消えない）
+    const dead = B('bbb');      // 本当に消える方
     await orphanIndex(landing, now - 2 * HOUR);
     await orphanIndex(dead, now - 2 * HOUR);
     const env = { ...cloud.env, BUCKET: bucketWithLanding(cloud.env.BUCKET, landing, async () => { await put(landing, 'okurinaoshi'); }) };
@@ -226,7 +238,7 @@ describe('消す直前に置き直しが着地しても、生きているもの�
 
   it('R2 の本体（索引を引いた後に `PUT` が着地する筋）', async () => {
     const now = Date.now();
-    const key = 'transcripts/a/live.jsonl.gz';
+    const key = B('live');
     await orphanBody(key);
     const env = { ...cloud.env, DB: dbWithLanding(cloud.env.DB, 'select key from files where key in', async () => { await put(key, 'okurinaoshi'); }) };
     // 時刻を進めて、孤児が猶予を抜けた形にする（R2 の `uploaded` は本物の時計で入る）。
@@ -241,12 +253,12 @@ describe('消す直前に置き直しが着地しても、生きているもの�
 describe('掃除の回し方', () => {
   it('間隔が空くまでは走らない', async () => {
     const now = Date.now();
-    await orphanBody('transcripts/a/orphan.jsonl.gz');
+    await orphanBody(B('orphan'));
     expect(await sweepIfDue(cloud.env, now + 2 * HOUR)).not.toBeNull();
     // すぐもう一度呼んでも走らない。重なった要求どうしでも、走るのは 1 本だけである。
-    await orphanBody('transcripts/a/orphan2.jsonl.gz');
+    await orphanBody(B('orphan2'));
     expect(await sweepIfDue(cloud.env, now + 2 * HOUR)).toBeNull();
-    expect(await bucketKeys()).toEqual(['transcripts/a/orphan2.jsonl.gz']);
+    expect(await bucketKeys()).toEqual([B('orphan2')]);
     // 間隔が空けば、また走る。
     expect(await sweepIfDue(cloud.env, now + 2 * HOUR + SWEEP_EVERY_MS)).not.toBeNull();
     expect(await bucketKeys()).toEqual([]);

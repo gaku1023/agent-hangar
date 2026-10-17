@@ -4,6 +4,7 @@ import { Miniflare } from 'miniflare';
 import { COMPAT_HEADER, compatHeaders } from '@agent-hangar/shared';
 import { bindingNames, bundleWorker, durableObjectsOf, workerBuildOptions, workerMetadata } from '../scripts/build-worker.ts';
 import type { Env } from '../src/env.ts';
+import { sha256Hex } from '../src/util.ts';
 
 /**
  * Worker をローカルの workerd（miniflare）で起こす道具である。
@@ -78,9 +79,9 @@ function withCompat(init: RequestInit = {}): RequestInit {
  * bell: false で、呼び鈴（Durable Object の束縛）の無い Worker を起こす。rc.1 の設定のまま再配備していない Worker の真似である。
  * 呼び鈴の答えの待ちを短くするときは、bindings に BELL_ASK_TIMEOUT_MS を渡す。
  */
-export async function startCloud(options: { JOIN_SECRET_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response>; minDeviceCompat?: number; bell?: boolean } = {}): Promise<CloudHarness> {
+export async function startCloud(options: { BOOTSTRAP_TOKEN_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response>; minDeviceCompat?: number; bell?: boolean } = {}): Promise<CloudHarness> {
   const script = await workerScript(options.minDeviceCompat);
-  const joinSecretHash = options.JOIN_SECRET_HASH ?? '';
+  const bootstrapTokenHash = options.BOOTSTRAP_TOKEN_HASH ?? '';
   const meta = workerMetadata(CLOUD_DIR);
   const mf = new Miniflare({
     modules: true,
@@ -92,14 +93,14 @@ export async function startCloud(options: { JOIN_SECRET_HASH?: string; bindings?
     d1Databases: bindingNames(meta, 'd1'),
     r2Buckets: bindingNames(meta, 'r2_bucket'),
     durableObjects: options.bell === false ? {} : durableObjectsOf(meta),
-    bindings: { JOIN_SECRET_HASH: joinSecretHash, ...options.bindings },
+    bindings: { BOOTSTRAP_TOKEN_HASH: bootstrapTokenHash, ...options.bindings },
     // Worker から外への fetch を受ける。渡さなければ外へは出ない（試験は実物の Cloudflare に触らない）。
     outboundService: options.outbound ?? (() => new Response('outbound fetch is not allowed in tests', { status: 599 })),
   });
   const env = {
     DB: await mf.getD1Database('DB'),
     BUCKET: await mf.getR2Bucket('BUCKET'),
-    JOIN_SECRET_HASH: joinSecretHash,
+    BOOTSTRAP_TOKEN_HASH: bootstrapTokenHash,
   } as unknown as Env;
   return {
     env,
@@ -108,4 +109,16 @@ export async function startCloud(options: { JOIN_SECRET_HASH?: string; bindings?
     mf,
     dispose: () => mf.dispose(),
   };
+}
+
+/**
+ * 参加の口を通さずに、PC の行を D1 へ直に置き、その端末トークンを返す。
+ * PC の参加は参加コードと承認の往復（join.test.ts）なので、ほかの口の試験はこの近道で PC を用意する。
+ */
+export async function addPcDevice(env: Env, id: string, o: { joinedAt?: number; expiresAt?: number | null } = {}): Promise<string> {
+  const token = `token-${id}-0123456789abcdef`;
+  await env.DB.prepare("insert into devices (id, kind, token_hash, joined_at, expires_at) values (?, 'pc', ?, ?, ?)")
+    .bind(id, await sha256Hex(token), o.joinedAt ?? Date.now(), o.expiresAt ?? null)
+    .run();
+  return token;
 }

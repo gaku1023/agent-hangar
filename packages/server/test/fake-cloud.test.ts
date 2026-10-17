@@ -357,11 +357,10 @@ describe('FakeCloudClient', () => {
     expect(await a.putFile({ ...meta('config/a/x.md', { encrypted: false }), kind: 'config' as const }, body())).toEqual({ seq: 1 });
   });
 
-  it('その検査は実物の Worker にもある', () => {
-    // 偽物だけが厳しいのも、実物だけが厳しいのも困る。原本にその枝があることをここで縛る。
+  it('その検査は版 9 の Worker には無い（平文のメタを受けないため）', () => {
+    // 偽物を封じた形に写し直すのは Task 9 で、それまでは偽物にだけこの検査が残る。
     const src = fs.readFileSync(new URL('../../cloud/src/files.ts', import.meta.url), 'utf8');
-    expect(src).toMatch(/kind === 'transcript' && enc !== '1'/);
-    expect(src).toContain("'unencrypted transcript'");
+    expect(src).not.toContain("'unencrypted transcript'");
   });
 
   it('でたらめに大きい since を nextSeq にそのまま返さない', async () => {
@@ -374,8 +373,10 @@ describe('FakeCloudClient', () => {
 
   it('上限は実物の Worker と同じ数である', () => {
     // 偽物は実物を写したものである。実物だけが変わったら、ここで落ちて写し直しを促す。
-    expect(MAX_ROW_BYTES).toBe(workerConstant('changes.ts', 'MAX_ROW_BYTES'));
-    expect(MAX_ROW_ID_CHARS).toBe(workerConstant('changes.ts', 'MAX_ROW_ID_CHARS'));
+    // 版 9 の Worker は封じた sealed の字数で測る。偽物の平文の上限を封じて base64url にした最大（1 + 12 + 1 + 16 バイトを足して 4/3 倍）が収まること。
+    expect(Math.ceil(((MAX_ROW_BYTES + 30) * 4) / 3)).toBeLessThanOrEqual(workerConstant('changes.ts', 'MAX_ROW_BYTES'));
+    // MAX_ROW_ID_CHARS は版 9 の Worker から消えた。偽物の写し直し（Task 9）で偽物からも消す。
+    expect(() => workerConstant('changes.ts', 'MAX_ROW_ID_CHARS')).toThrow();
     expect(MAX_BODY_BYTES).toBe(workerConstant('files.ts', 'MAX_BODY_BYTES'));
     expect(TOUCH_EVERY_MS).toBe(workerConstant('seen.ts', 'TOUCH_EVERY_MS'));
     expect(MAX_FEED_BODY_BYTES).toBe(workerConstant('mobile.ts', 'MAX_FEED_BODY_BYTES'));

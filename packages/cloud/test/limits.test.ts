@@ -45,6 +45,7 @@ describe('Worker の応答', () => {
       batch: async () => { throw new Error(message); },
     } as unknown as D1Database,
     BUCKET: {} as R2Bucket,
+    BOOTSTRAP_TOKEN_HASH: '',
   });
   const request = (env: Env) => createApp({ minDeviceCompat: 0 }).request('/changes?since=0', { headers: { [COMPAT_HEADER]: String(COMPAT_VERSION) } }, env);
 
@@ -107,10 +108,12 @@ describe('Worker の応答（経路の中の失敗）', () => {
         prepare: (sql: string) => stmt(sql),
         batch: async (stmts: { sql: string }[]) => {
           if (stmts.some((x) => failOn(x.sql))) throw new Error(LIMIT_MESSAGE);
-          return stmts.map(() => ({ results: [], meta: { rows_written: 0 } }));
+          // スキーマの用意は、同じ batch の最後の文で cloud_id を読む。
+          return stmts.map((x) => ({ results: x.sql.includes('from meta') ? [{ value: 'cloud-test' }] : [], meta: { rows_written: 0 } }));
         },
       } as unknown as D1Database,
       BUCKET: {} as R2Bucket,
+      BOOTSTRAP_TOKEN_HASH: '',
     };
   };
 
@@ -128,7 +131,7 @@ describe('Worker の応答（経路の中の失敗）', () => {
 
   it('POST /changes の中の batch が上限の失敗を投げても 429 で返す', async () => {
     const env = envFailingOn((sql) => sql.includes('insert into rows'));
-    const body = JSON.stringify({ changes: [{ tableName: 'projects', rowId: 'p1', op: 'upsert', payload: { id: 'p1' }, updatedAt: 1 }] });
+    const body = JSON.stringify({ changes: [{ k: 'k'.padEnd(43, '_'), op: 'upsert', updatedAt: 1, epoch: 1, sealed: 'c2VhbGVk' }] });
     const r = await createApp({ minDeviceCompat: 0 }).request('/changes', { method: 'POST', headers, body }, env);
     await expectLimitResponse(r);
   });

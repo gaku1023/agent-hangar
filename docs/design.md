@@ -2982,7 +2982,11 @@ N は UI の store に届いているセッションで数える。
 | `todos`、`artifacts` | プロジェクトのものなので触らない |
 | 本文の索引（端末ローカル） | 片付ける。戻したときに索引し直す |
 
-クラウドの写し（R2 の `transcripts/<端末>/<uuid>.jsonl.gz` と D1 の索引）は、`trashed_at` から 30 日たったら Worker の掃除（sweep）で消す（`packages/cloud/src/sweep.ts` の `sweepTrash`）。
+互換の版 9 の Worker は、この掃除（`sweepTrash`）を持たない。
+印は封じた行の中にあって Worker には読めないので、PC が `DELETE /blobs` で自分の本文を消す形に移す（「Worker の表」）。
+PC の側の作り直しは後の段で入るので、この節の残りは版 8 までの形である。
+
+クラウドの写し（R2 の `transcripts/<端末>/<uuid>.jsonl.gz` と D1 の索引）は、`trashed_at` から 30 日たったら Worker の掃除（sweep）で消していた（`packages/cloud/src/sweep.ts` の `sweepTrash`）。
 消すのは全端末の分で、サブエージェントの本文（`transcripts/<端末>/<uuid>/subagents/...`）も含む。
 印は D1 の `rows` にある `session_states` の行の payload から、uuid は同じセッションの `sessions` の行（論理削除のまま `provider_session_id` を持つ）から読む。
 印から 30 日たち、その後に復元されていない（`restored_at` が `trashed_at` より新しくない）ものだけを消す。
@@ -5485,8 +5489,15 @@ wrangler はプロジェクトのローカル依存として同梱する。
 setup の最後に **参加トークン** を表示する。
 参加トークンは Worker の URL と参加用の秘密を `{url, secret}` の JSON にして base64url で包んだ文字列で、他の PC では `hangar join` でこれを渡す。
 Worker は参加の要求を受けて端末ごとの端末トークン（32 バイトの乱数）を発行し、以後の要求はその端末トークンで認証する。
-参加用の秘密も端末トークンも、D1 にはハッシュだけを置く。
-参加用の秘密のハッシュは `wrangler secret put JOIN_SECRET_HASH` で Worker に渡し、設定ファイルには書かない。
+端末トークンは、D1 にはハッシュだけを置く。
+
+**互換の版 9 の Worker（E2E の作り直し）。**
+Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` を無くした。
+最初の PC は、setup が Worker の secret `BOOTSTRAP_TOKEN_HASH` に入れた最初の端末トークンで `POST /bootstrap` を 1 回だけ通り、`devices` に入る。
+使ったハッシュは `meta.bootstrap_used` に残し、同じハッシュは 2 度通さない。
+`hangar recover` は secret を別のハッシュに入れ替えて、もう 1 度ここを通る。
+2 台目からは、参加済みの PC が発行した参加コード（5 分、1 回限り）に新しい PC がリクエストを置き、発行した PC が承認する（下の「Worker の表」）。
+PC の側（setup、参加の画面と CLI）は、この節の上の段落の形のまま残っており、版 9 の形への作り直しは後の段で入る。
 
 参加し直すと（`hangar setup cloud` のやり直しと、`hangar join` のし直し）、Worker は同じ端末 ID の行の `token_hash` を新しい端末トークンのものに入れ替え、古い端末トークンは 401 の `{ error: 'unauthorized' }` で断られる（解除の `revoked` とは別の本文である）。
 新しい端末トークンは `cloud.json` にだけ書かれ、CLI は動いているサーバへ知らせない。
@@ -5504,18 +5515,51 @@ Worker は参加の要求を受けて端末ごとの端末トークン（32 バ�
 別の人が使うときは、その人が自分の Cloudflare アカウントで同じ `hangar setup cloud` を走らせる。
 デプロイは人ごとに独立し、データは混ざらない。
 
-Worker の D1 は、端末側の共有テーブルの形をそのまま写さない。
-`changes`（変更の列）と `rows`（行の鏡）の 2 表だけを持ち、表の名前と行 ID と payload を文字列として預かる。
-共有テーブルに列が増えても Worker を直さずに済むからである。
+#### Worker の表
+
+Worker の D1 は、端末側の共有テーブルの形をそのまま写さない（`packages/cloud/src/schema.ts`）。
 スキーマは Worker が起動後の最初の要求で整える（`ensureSchema`）。
 マイグレーションの手順を別に持たず、cold start のたびに `create table if not exists` を通す形である。
+互換の版 9 は作り直しなので、版 8 までの D1 は読まず、列足しも移し替えもしない。
+作り替えの後始末（`cleanup.ts`）も無くした。
 
-Workers には配備の後に 1 度だけ走る処理が無いので、作り替えで消したものが D1 に残した行も、この最初の要求で片付ける（`packages/cloud/src/cleanup.ts`）。
-段 1 では、Worker が D1 への書き込みを数えていた台帳（`meta` の鍵が `d1_rows:` で始まる行）を消した。
-Claude Code の設定の同期の索引（`files` の `kind` が `config` の行）と R2 の `config/` の本体は、設定の同期を残すので消さない。
-済んだら `meta` に `stage1_cleanup` の印を置き、2 度目からは印を読むだけで帰る。
-消す文と印は 1 つの batch に入れるので、途中で倒れても半端に残らない。
-後始末が落ちても要求は落とさず、次の cold start でまた試す。
+Worker が平文で持つのは、鍵、連番、時刻、端末の ID、鍵の世代だけである。
+行の中身、ファイルのパス、PC の名前は、PC が封じた値の中にあり、Worker は開けない。
+封じた値は、口では base64url の文字で受け渡し、D1 にはバイト列の BLOB で置く（文字のまま置くと大きさが約 4/3 倍になる）。
+
+| 表 | 1 行の意味 | 平文の列 | 封じた列 |
+| --- | --- | --- | --- |
+| `rows` | 共有テーブルの今の行。1 つの鍵に 1 行 | `seq`（autoincrement）、`k`（表名と行 ID の HMAC）、`op`、`updated_at`、`device_id`、`epoch` | `sealed` |
+| `files` | R2 の本文の索引 | `key`（`b/<端末 ID>/<HMAC>`）、`kind`、`device_id`、`size`、`stored_size`、`uploaded_at`、`epoch` | `sealed_meta`（パス、ハッシュ、時刻） |
+| `devices` | 参加している端末 | `id`、`kind`（`pc` か `mobile`）、`token_hash`、`joined_at`、`last_seen_at`、`revoked_at`、`expires_at` | 無し |
+| `roster` | 名簿（1 行だけ） | `version`、`updated_at` | `sealed`（PC の公開鍵、名前、OS、スマホ用の鍵） |
+| `keyboxes` | 世代鍵を受け手ごとに封じた箱 | `epoch`、`recipient`（PC の ID か `recovery`）、`created_at` | `sealed` |
+| `phone_keyboxes` | スマホ用の鍵を受け手ごとに封じた箱 | `epoch`、`recipient`（スマホの ID）、`created_at` | `sealed` |
+| `join_codes` | 参加コード | `code_hash`、`created_by`、`created_at`、`expires_at`、`used_at`、`status`、`device_id` | `request`（新しい PC の公開鍵、名前、OS） |
+| `meta` | 表を作ったときの印（`cloud_id`）、回数の窓、bootstrap の印 | `key`、`value` | 無し |
+
+スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）は「スマホ（試験的）」の節にある。
+`devices` は IP と所在地を持たない。
+名前と OS は名簿に置く。
+
+口は次のとおりである。
+
+| 経路 | 通せるトークン | 働き |
+| --- | --- | --- |
+| `POST /bootstrap` | 不要（secret のハッシュで認める） | 最初の PC を 1 回だけ登録する |
+| `GET /join/hello`、`POST /join/requests`、`GET /join/status` | 不要 | 接続先の確認、参加リクエストを置く、承認待ちの問い合わせ（承認の後の最初の 1 回で端末トークンを返す） |
+| `POST /join-codes`、`GET /join-codes/mine`、`POST /join-codes/:hash/approve`、`POST /join-codes/:hash/reject` | PC | 参加コードの発行、状態の問い合わせ、承認、拒否 |
+| `GET /roster`、`PUT /roster` | PC | 名簿を読む、版を条件に書き換える（合わなければ 409） |
+| `GET /keyboxes`、`PUT /keyboxes` | PC | 自分宛てのいちばん新しい keybox を読む、keybox を置く |
+| `POST /changes`、`GET /changes`、`GET /rows` | PC | 封じた行の push、pull、取り直し |
+| `PUT /files/:key`、`GET /files`、`GET /files/:key` | PC | 封じた本文とメタの出し入れ |
+| `DELETE /blobs` | PC | 自分の本文を消す（1 回 50 件、1 日 500 件、置いてから 1 時間は消さない） |
+| `GET /devices`、`POST /devices/:id/revoke` | PC | 端末の一覧と解除 |
+
+名簿か keybox を書き換えた要求は、同じ batch で `rows` の印の行（`k = '~roster'`、`sealed` は空）を表の末尾の連番で入れ直す。
+他の PC は pull でこの 1 行を見たときだけ `GET /roster` と `GET /keyboxes` を読むので、`GET /changes` の読み取りの行数は増えない。
+pull と `GET /rows` の 1 頁は、500 行か、`sealed` の合計が 8 MiB を超えたところで切り、続きは `nextSeq` と `nextAfter` から読ませる。
+16 KiB を超える行の `sealed` は、頁に入ると決まってから主キーで読み直す（頁の問い合わせが受け取る量を抑えるため）。
 
 D1 の 1 日の上限（読んだ行、書いた行）に当たった失敗は、500 ではなく 429 で返す（`packages/cloud/src/limits.ts`）。
 見分けるのは D1 の文で、`free tier daily row read limit` か `free tier daily row write limit` を含むものである（大文字と小文字は問わず、原因の文も見る）。
@@ -5582,8 +5626,8 @@ D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、�
 `PUT` は R2 を先に書き、索引を後に書く。
 途中で倒れれば、残るのは索引に無い R2 の本体だけである。
 逆の向きで残る「索引にあるのに本体が無い」は、降ろす側が永久に 404 を踏む。
-本文と設定を消す経路（`DELETE`）は持たない。
-使われていなかったので段 1 で消した。
+本文と設定を消す経路（`DELETE`）は、段 1 で消した。
+互換の版 9 で、PC が自分の本文を消す `DELETE /blobs` を足した（下の掃除の段落）。
 索引の行を消すだけの経路では、一覧を `seq` で差分に読む相手の端末が、消えたことに気付けない。
 設定の同期を作り直すとき（全体計画の段 4）に、消したことを相手へ伝える印が要れば、`seq` を進める形でそこで決める。
 `PUT` は `content-length` のある本文だけを受け、無ければ 411 で断る。
@@ -5597,11 +5641,12 @@ D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、�
 誰も一覧を引かない日は走らないが、孤児が増えるのも上げ下ろしをした日だけなので、取りこぼしにはならない。
 掃除自身が D1 に書くのは、孤児が数件のときのローカルの workerd での実測で 1 回 7 行、1 日 4 回で 28 行である（1 日 10 万行の 0.03%）。
 消す索引の行が増えれば、その分だけ増える。
-同じ回で、削除の印から 30 日たったセッションの写しも消す（「セッションの削除」の節）。
-こちらが増やすのは、1 回につき D1 の読みが 300 行ほどまで（印の行 90 行、端末の数と鍵の数のぶんの索引の行、読み直し）、書き込みが続きの控え 1 行と消した索引の行（50 行まで）である。
-1 日 4 回で、読みは 1,200 行ほど（1 日 500 万行の 0.03%）、書き込みは 4 行に消した分を足した 204 行まで（1 日 10 万行の 0.2%）である。
-R2 は削除だけで、削除は class A にも class B にも数えられない。
-問い合わせは 1 回に 6 つ増え、孤児の掃除と合わせても要求ごとの上限（無料のプランで 50）に収まる。
+互換の版 9 の掃除は孤児の 2 つだけで、R2 は本文の置き場（`b/`）の下だけを一覧する。
+削除の印から 30 日たったセッションの写しを Worker が消す掃除（`sweepTrash`）は無くした。
+印は封じた行の中にあり、Worker には読めないからである。
+消すのは PC で、`DELETE /blobs` に自分の本文の鍵を渡す（「Worker の表」）。
+1 回 50 件、1 日 500 件（UTC の日付で数える）までで、置いてから 1 時間たっていない本文と、他の端末の本文は断る。
+R2 を先に消し、索引の行を後に消す。
 
 ### 設定の同期の作り直し
 
@@ -5790,7 +5835,8 @@ Worker の変更は、名乗る版を 3 に上げることだけである（`COM
 無料枠への影響は、束 1 回の送信につき R2 の PUT が 1 回（class A）、D1 の書き込みが `files` の 2 文（削除、挿入）と `rows` の 2 文（古い行の削除と挿入）に、1 分おきの `devices` の更新で、件数に依らない（同期の版 6 で変更ログをやめた）。束は端末ごとに 1 つなので、旧実装（項目ごとに PUT 1 回と D1 3 文）より、変更の多い日ほど軽い。
 送り直すのは束の指紋が変わったときだけである。
 
-旧実装の置き場（R2 の `config/<端末>/<相対パス>` と `files` の kind が `config` の行）の後始末は、`cleanupLegacyConfig`（`packages/cloud/src/cleanup.ts`）である。PR 15 が実装し、関門 `LEGACY_CONFIG_CLEANUP_ENABLED` は閉じてあった。
+旧実装の置き場（R2 の `config/<端末>/<相対パス>` と `files` の kind が `config` の行）の後始末は、`cleanupLegacyConfig`（`packages/cloud/src/cleanup.ts`）であった。PR 15 が実装し、関門 `LEGACY_CONFIG_CLEANUP_ENABLED` は閉じてあった。
+互換の版 9 は D1 と R2 を作り直すので旧い置き場は残らず、`cleanup.ts` は消した。以下はそれまでの経緯である。
 旧実装を積んだ端末は、この索引と本体を読んで取り込み、置き直しもするので、旧実装が端末から消える前に消せない。
 PR 18 が関門を開け、同時に Worker の `MIN_DEVICE_COMPAT` を 4 へ上げた（`COMPAT_VERSION` も 4。旧実装を持たない最初の版）。
 関門を開ける条件は「この Worker が配備されたとき、版 3 までの端末は 426 で断られ、旧い置き場に触れない」ことである。この 2 つは同じコミットに入れてあり、片方だけを配備する道は無い。
@@ -5944,6 +5990,9 @@ push の 1 行は 2 文で書く。
 圧縮は、消すものが無い回も 14 日分の変更ログを主キーの範囲で全部読み、量の 2 乗で増えて、D1 の読み取りの無料枠（1 日 500 万行）を超えた（2026-10-16）。
 変更ログが無いので刈り込みも要らず、どれだけ古い `since` でも、残っている行をそのまま返す。
 `packages/cloud/test/read-budget.test.ts` が、古い行の多い表で、push、pull、`GET /rows`、`GET /devices` の 1 本が読む行（D1 の `meta.rows_read`）を、返した行数と書いた行数に定数を足した分に縛る。
+互換の版 9 では、名簿と keybox を世代の数だけ回した表で、読み終えた端末の pull が版 7 と同じ定数に収まることも縛る。
+あわせて、`GET /roster` は 2 行、`GET /keyboxes` は PC の数＋1 行、`GET /join/hello` は PC の数＋1 行、承認待ちの問い合わせ（新しい PC の `GET /join/status`、発行した PC の `GET /join-codes/mine`）は 1 回 2 行、1 回の参加（新しい PC 150 回と発行した PC 100 回）は合わせて 500 行に収める。
+頁の大きさの上限は、窓関数で合計を数える形を試し、返した行の約 3 倍を読む数え方になったので採らなかった。
 
 **版 5 までの D1 の移行。**
 スキーマの用意（`schema.ts` の `ensureSchema`）が、`rows` に `seq` が無いときだけ、1 つの batch で作り直す（`migrateRowsV6`）。
@@ -6075,7 +6124,7 @@ D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
 hangar の部品のうち、別々に上がりうるのは、端末どうし（同期で Worker を挟む）、端末と Worker、殻と 4177 で動いている既存のサーバである。
 UI とサーバと CLI は同じ束で配るので、版番号を持たない。
-別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 8。版 3 は、Worker が設定の束の行を受け取る版。版 4 は、設定の同期の旧実装を消した版で、段 4 の PR 18 が Worker の下限を 4 に上げた。版 5 は、Worker が PC の一覧と解除の口を持ち、殻が参加と解除の命令を持つ版。版 6 は、Worker の変更ログをやめ、生存を Worker の観測で見る版で、両方の下限を同時に 6 に上げた。Worker が引き継ぎの頼みと応答の行を受け取るのも版 6 から。版 7 は、Worker がスマホ向けの口（`/m/`）と専用の 3 表を持つ版で、下限は上げない。版 8 は、Worker が呼び鈴と画像の口を持つ版で、下限は上げない）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
+別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 9。版 3 は、Worker が設定の束の行を受け取る版。版 4 は、設定の同期の旧実装を消した版で、段 4 の PR 18 が Worker の下限を 4 に上げた。版 5 は、Worker が PC の一覧と解除の口を持ち、殻が参加と解除の命令を持つ版。版 6 は、Worker の変更ログをやめ、生存を Worker の観測で見る版で、両方の下限を同時に 6 に上げた。Worker が引き継ぎの頼みと応答の行を受け取るのも版 6 から。版 7 は、Worker がスマホ向けの口（`/m/`）と専用の 3 表を持つ版で、下限は上げない。版 8 は、Worker が呼び鈴と画像の口を持つ版で、下限は上げない。版 9 は E2E の作り直しで、Worker の下限を 9 に上げた）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
 古い版のための分岐を部品ごとに抱える代わりに、下限より古い相手とは話さずに、理由を出して止まる。
 
 **見出し。**
@@ -6152,7 +6201,8 @@ Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端�
 | 5 | Worker が PC の一覧（`GET /devices`）と解除（`POST /devices/:id/revoke`）を持ち、解除した PC の端末トークンを 401 の `revoked` で断る。殻は参加と解除の命令（`cloud_join_plan`、`cloud_join`、`cloud_revoke`、`cloud_leave`）を持ち、画面がそれを呼ぶ。端末は、Worker の版が 5（`DEVICE_ADMIN_MIN_WORKER_COMPAT`）に届くまで、一覧と解除を「Worker の更新が要る」と出す | 上げない |
 | 6 | Worker の変更ログ（`changes`）と圧縮と `410` をやめ、`rows` の連番で差分を引く。pull の応答に `peers` と `now` を添え、端末は他の PC の生存をそれで見て、`runs.heartbeat_at` を共有の行に書かない。Worker は引き継ぎの頼みと応答の行（共有表 `takeovers` と `takeover_answers`）も受け取る | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 6 に（例外） |
 | 7 | Worker がスマホ向けの口（`/m/`）と専用の 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）を持ち、`devices` に列 `kind` を足す。`GET /changes` に `launches` を添える。共有表（`rows`）には何も足さない。PC は Worker の版が 7（`MOBILE_MIN_WORKER_COMPAT`）に届くまでスマホ向けの書き込みも依頼の処理もしない（「スマホ（試験的）」） | 上げない |
-| 8 | Worker が呼び鈴（Durable Object `HangarBell`。`GET /m/bell`、`POST /m/ask`）、画像の口（`PUT` と `GET /m/blobs`）、`DELETE /m/feed` を持つ。PC は Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）に届くまで呼び鈴を張らない（「スマホ（試験的）」） | 上げない |
+| 8 | Worker が呼び鈴（Durable Object `HangarBell`。`GET /m/bell`、`POST /m/ask`）、画像の口（`PUT` と `GET /m/blobs`）、`DELETE /m/feed` を持つ。PC は Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）以上になるまで呼び鈴を張らない（「スマホ（試験的）」） | 上げない |
+| 9 | E2E の作り直し。Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密と `POST /join` をやめ、`POST /bootstrap` と参加コードで参加する。名簿と keybox の口、`DELETE /blobs` を足し、`sweepTrash` と `devices` の IP と所在地を無くした（「Worker の表」）。版 8 の呼び鈴と画像の口はそのまま持つ | `MIN_DEVICE_COMPAT` を 9 に |
 
 引き継ぎの 2 表は、同期の版 6 と一緒に 0.7.1 で出すので、別の版を立てずに版 6 に含めた。
 端末は Worker の版が `TAKEOVER_MIN_WORKER_COMPAT`（6）に届くまでこの 2 表の行を書かないが、`MIN_WORKER_COMPAT` も 6 なので、話せる Worker ではいつも届いている。
@@ -6199,23 +6249,20 @@ hangar でない相手（状態コードが 200 で、`ok` が真で `version` �
 語は、解除、この PC の参加を解除、解除した PC、宛先、ホスト、PC である（用語集の 5 章）。
 
 **Worker。**
-`devices` に `revoked_at`、`last_ip`、`last_city`、`last_region`、`last_country` を足した。
-`create table if not exists` は既にある表に列を足さないので、版 4 までの Worker が作った D1 には、起動のたびのスキーマの用意（`ensureSchema`）が `pragma table_info(devices)` を読んで、無い列だけを `alter table` で足す（`DEVICE_ADDED_COLUMNS`）。
-同時に足した別の isolate の `duplicate column` は握る。
-`GET /devices` は全部の行（解除した PC も）を、参加日、最終同期、解除日、最後の IP と場所つきで返す。端末トークンのハッシュと読み位置は返さない。
+`devices` は `revoked_at` を持つ（互換の版 9 の表は「Worker の表」）。
+`GET /devices` は全部の行（解除した PC も）を、ID、種類、参加日、最終同期、解除日、トークンの期限だけで返す。端末トークンのハッシュと読み位置は返さない。
+名前と OS は封じた名簿にあり、Worker は返せない。
 `POST /devices/:id/revoke` は行を消さずに `revoked_at` を付ける。既に解除した PC はそのまま返し、解除日を動かさない。知らない PC は 404、形の違う ID は 400 である。
-どちらも端末トークンが要り、参加している PC ならどれからでも呼べる（全員が参加用の秘密を持っていて対等である。自分自身も解除できる）。
+どちらも端末トークンが要り、参加している PC ならどれからでも呼べる（自分自身も解除できる）。
 `authMiddleware` は、トークンの合った行に `revoked_at` があれば 401 と `{ error: 'revoked' }` を返す。
 トークンが合わない相手には今までどおり一律の `unauthorized` を返すので、理由はトークンの持ち主にだけ伝わる。
-解除した PC が参加トークンで参加し直すと、同じ ID の行に戻り、解除が外れて参加日が今になる（解除していない PC の参加し直しは、参加日を最初のまま残す）。
+互換の版 9 には参加し直しの口（`POST /join`）が無く、解除した PC は参加コードで新しい PC として入り直す。
 解除した PC は、pull の応答の `peers` に載せない。
 
-**最後に同期した IP と場所。**
-Worker は、参加と、同期の要求（push、pull、本文の PUT）で、`CF-Connecting-IP` と `request.cf` の `city`、`region`、`country` を、最終同期の時刻と同じ 1 文で書く（`seen.ts` の `touchDevice`）。
-同期の要求では、前回から 1 分たったときと IP が変わったときだけ書く（`touchIfDue`、同期の版 6）。
-PC ごとに最後の 1 件だけを持ち、履歴は持たない。
-値は Cloudflare の推定で、英語の表記のまま写し、制御文字を落として 64 字で切る。
-IP の無い要求（端を通らない試し）では、前の値を消さない。
+**IP と所在地は保存しない。**
+版 8 までの Worker は、参加と同期の要求で `CF-Connecting-IP` と `request.cf` の所在地を `devices` の `last_ip`、`last_city`、`last_region`、`last_country` に書いていた。
+互換の版 9 は、この 4 列を作らず、保存も表示もしない。
+最終同期の時刻だけを、前回から 1 分たったときに書く（`seen.ts` の `touchIfDue`）。
 
 **解除した PC の本文と設定。**
 解除しても、R2 の `transcripts/<端末 ID>/` と `config/<端末 ID>/`、D1 の `files` の索引、その PC が書いた `rows` は消さない（既定は残す）。

@@ -2,10 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_PHONE, type MobileJoinResponse, type MobilePairingResponse } from '@agent-hangar/shared';
 import { IMAGE_KEEP_MS, MAX_BLOB_BYTES, sweepOldImages } from '../src/mobileBlobs.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
-import { sha256Hex } from '../src/util.ts';
-import { startCloud, type CloudHarness } from './harness.ts';
-
-const SECRET = 'join-secret-blobs';
+import { addPcDevice, startCloud, type CloudHarness } from './harness.ts';
 
 let cloud: CloudHarness;
 
@@ -14,11 +11,8 @@ const auth = (token: string, extra: Record<string, string> = {}) => ({ authoriza
 const post = (token: string, path: string, body?: unknown) =>
   send(path, { method: 'POST', headers: auth(token, { 'content-type': 'application/json' }), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-const joinPc = async (id: string): Promise<string> => {
-  const r = await send('/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: SECRET, device: { id, name: id, platform: 'darwin' } }) });
-  expect(r.status).toBe(201);
-  return ((await r.json()) as { deviceToken: string }).deviceToken;
-};
+/** PC の行を D1 へ直に置く（互換の版 9 で POST /join を消した）。 */
+const joinPc = (id: string): Promise<string> => addPcDevice(cloud.env, id);
 
 const joinPhone = async (pcToken: string): Promise<MobileJoinResponse> => {
   const p = await post(pcToken, '/m/pairings');
@@ -42,7 +36,7 @@ beforeEach(async () => {
   resetSchemaCache();
   cloud = await startCloud();
   resetSchemaCache();
-  await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
+  await ensureSchema(cloud.env);
 });
 
 afterEach(async () => {

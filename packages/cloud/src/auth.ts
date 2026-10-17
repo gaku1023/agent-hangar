@@ -21,6 +21,7 @@ const deny = 'unauthorized';
  * Bearer の端末トークンを `devices.token_hash` で引く。
  * 見つからなければ 401 で、理由（見出しが無い、形が違う、トークンが違う）は返事に出さない。
  * 解除した PC（revoked_at のある行）のトークンも 401 だが、本文は `{ error: 'revoked' }` にする。
+ * 期限（expires_at）を過ぎたトークンも 401 で、本文は `{ error: 'expired' }` にする。
  * D1 に置いてあるのはハッシュだけなので、平文のトークンはどこにも残らない。
  */
 export function authMiddleware(): MiddlewareHandler<{ Bindings: Env; Variables: Vars }> {
@@ -34,6 +35,8 @@ export function authMiddleware(): MiddlewareHandler<{ Bindings: Env; Variables: 
     // 解除した PC の端末トークンである。
     // トークンが合った相手にだけ理由を言う。持ち主は「解除された」と知って参加し直せばよく、トークンを持たない相手には一律の返事しか出ない。
     if (row.revoked_at !== null && row.revoked_at !== undefined) return c.json({ error: REVOKED_ERROR }, 401);
+    // 期限のあるトークン（互換の版 9）で、期限を過ぎたものである。理由を言うのは、解除と同じくトークンが合った相手にだけである。
+    if (row.expires_at !== null && row.expires_at !== undefined && row.expires_at <= Date.now()) return c.json({ error: 'expired' }, 401);
     c.set('device', row);
     await next();
   };
