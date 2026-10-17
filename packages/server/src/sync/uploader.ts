@@ -4,8 +4,12 @@ import path from 'node:path';
 import { PassThrough, Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isSafeKeyId, isSafeRelPath, transcriptBlobKey, type FileMetaIn } from '@agent-hangar/shared';
+import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { CloudError, LimitError, type CloudClient } from './client.ts';
+import { remoteTranscriptPath } from './puller.ts';
+import { RELAY_HOLD_MS, RELAY_KIND, relayLedgerKey, relayTargetOf } from './rebuild.ts';
+import type { RosterStore } from './roster.ts';
 import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
@@ -14,12 +18,23 @@ import type { RowKeyring } from './sealedClient.ts';
 import type { SyncStateStore } from './state.ts';
 import { transcriptsFrom } from './transcriptsFrom.ts';
 
-export type UploadTarget = { path: string; sessionId: string; agentId: string | null };
+/**
+ * 上げる 1 件。origin は remote/ の写しを上げ直すとき（作り直し、sync/rebuild.ts）だけ付け、元の PC の ID を入れる。
+ * 付けたときの path は remote/<origin>/ の下の写しで、台帳は relay: の鍵で引く。
+ */
+export type UploadTarget = { path: string; sessionId: string; agentId: string | null; origin?: string };
 export type UploaderDeps = {
   db: Db; deviceId: string; claudeDir: string; client: CloudClient;
+  /** hangar の home。remote/ の写しを上げ直すのに使う。省くと写しは上げない。 */
+  home?: string;
   /** R2 の鍵名を求める鍵の束。client（SealedCloudClient）と同じものを渡す。 */
   keyring: RowKeyring | Promise<RowKeyring>;
   state: SyncStateStore;
+  /**
+   * 名簿の写し。remote/ の写しを上げる前に、元の PC が新しいクラウドに居るかを見る。
+   * 手元に持っている写し（cached）だけを読み、Worker には読みに行かない。省くと写しは上げない。
+   */
+  roster?: Pick<RosterStore, 'cached'>;
   now?: () => number; debounceMs?: number; timers?: Timers; isPaused: () => boolean;
   onError?: (path: string, message: string) => void;
 };
@@ -170,7 +185,7 @@ export class TranscriptUploader {
    * 一度も上げていない本文と、鍵に使えない ID（上げる側で知らせる）は待たない。
    */
   private reuploadWait(f: UploadTarget): number {
-    const key = this.safeKey(f.sessionId, f.agentId);
+    const key = this.ledgerKeyOf(f);
     if (key === null) return 0;
     this.syncedAtStmt ??= this.deps.db.prepare('select synced_at from file_sync where key = ?');
     const row = this.syncedAtStmt.get(key) as { synced_at: number } | undefined;
@@ -246,6 +261,7 @@ export class TranscriptUploader {
       this.noteChanged({ path: r.path, sessionId: r.uuid, agentId: r.agentId });
       queued++;
     }
+    if (queued < limit) queued += this.sweepRelays(limit - queued);
     // 走査で拾ったものは、もう遅れている。デバウンスの窓を待たずに流す。
     if (queued > 0) this.startFlush();
     return queued;
@@ -266,7 +282,7 @@ export class TranscriptUploader {
     if (!isSafeKeyId(this.deps.deviceId)) return null;
     try {
       const row = this.countStatement().get({ head: `transcripts/${this.deps.deviceId}/`, from: this.transcriptFloor(), skip: SKIP_PREFIX }) as { n: number } | undefined;
-      return row?.n ?? 0;
+      return (row?.n ?? 0) + this.countRelays();
     } catch {
       // 数えられないことは、同期そのものを止める理由にはならない。
       return null;
@@ -326,6 +342,80 @@ export class TranscriptUploader {
   }
 
   /**
+   * 作り直しで置いた remote/ の写し（sync/rebuild.ts の RELAY_KIND の行）のうち、まだ上げていないものを積む。
+   * 写しは元の PC の ID を origin にして、自分の device_id の下へ上げる。床（transcriptsFrom）は見ない。作り直しが名指しで置いたものだからである。
+   * 上げるのは、作り直しから RELAY_HOLD_MS が過ぎ、元の PC が新しいクラウドの名簿に居ないものだけである（relayGate）。
+   * 名簿に居る PC の写しと、ファイルの消えた写しは、台帳から落とす。
+   * 戻り値は新たに積んだ件数である。
+   */
+  private sweepRelays(limit: number): number {
+    const home = this.deps.home;
+    if (home === undefined || limit <= 0) return 0;
+    const present = this.relayGate();
+    if (present === null) return 0;
+    const rows = this.deps.db
+      .prepare("select key, path, device_id origin from file_sync where kind = ? and sha256 = '' order by key limit ?")
+      .all(RELAY_KIND, Number.isFinite(limit) ? limit * SWEEP_SCAN_MULT : -1) as { key: string; path: string; origin: string }[];
+    let queued = 0;
+    for (const r of rows) {
+      if (queued >= limit) break;
+      // 元の PC が新しいクラウドに参加し直していれば、その PC が自分で上げる。写しは上げずに台帳から落とす。
+      if (present.has(r.origin)) { this.dropRelay(r.key); continue; }
+      const t = relayTargetOf(r.path);
+      if (t === null) continue;
+      let abs: string;
+      try { abs = remoteTranscriptPath(home, r.origin, r.path); } catch { continue; }
+      // 写しのファイルが消えていれば上げようがない。残すと「未送信」に数え続けるので落とす。
+      if (!fs.existsSync(abs)) { this.dropRelay(r.key); continue; }
+      if (this.pending.has(abs)) continue;
+      const rec = this.readSkip(r.key);
+      if (rec && !this.mayRetrySkipped(r.key, rec, 0, null)) continue;
+      this.noteChanged({ path: abs, sessionId: t.sessionId, agentId: t.agentId, origin: r.origin });
+      queued++;
+    }
+    return queued;
+  }
+
+  /**
+   * remote/ の写しを今上げてよいかの関所。
+   * 作り直し（sync_state の rebuiltAt）から RELAY_HOLD_MS のうちは null を返す。元の PC が参加し直して自分で上げるのを待つ。
+   * 名簿の写しをまだ持っていないときも null を返す（今回は上げない）。走査のたびに GET /roster を増やさないよう、Worker には読みに行かない。
+   * どちらでもなければ、新しいクラウドの名簿に居る PC の ID の集まりを返す。
+   */
+  private relayGate(): Set<string> | null {
+    if (this.now() - this.deps.state.getNumber('rebuiltAt', 0) < RELAY_HOLD_MS) return null;
+    const read = this.deps.roster?.cached() ?? null;
+    return read === null ? null : new Set(read.roster.entries.map((e) => e.id));
+  }
+
+  /** 上げない写しを台帳から落とす。諦めた控えも一緒に消す（諦めた本文 N に残さない）。 */
+  private dropRelay(key: string): void {
+    this.deps.db.prepare('delete from file_sync where key = ? and kind = ?').run(key, RELAY_KIND);
+    this.clearSkip(key);
+  }
+
+  /**
+   * 未送信に数える写しの数。sweepRelays が積むものと同じ条件で数える。
+   * 保留の間と名簿の写しが無い間は 0 である（走査が積まないので、数に残すと「未送信 N」が減らない）。
+   * 名簿に居る PC の写しと、ファイルの消えた写しと、諦めた写しは数えない。
+   */
+  private countRelays(): number {
+    const home = this.deps.home;
+    if (home === undefined) return 0;
+    const present = this.relayGate();
+    if (present === null) return 0;
+    const rows = this.deps.db
+      .prepare("select fs.path path, fs.device_id origin from file_sync fs left join sync_state sk on sk.key = ? || fs.key where fs.kind = ? and fs.sha256 = '' and sk.key is null")
+      .all(SKIP_PREFIX, RELAY_KIND) as { path: string; origin: string }[];
+    let n = 0;
+    for (const r of rows) {
+      if (present.has(r.origin) || relayTargetOf(r.path) === null) continue;
+      try { if (fs.existsSync(remoteTranscriptPath(home, r.origin, r.path))) n++; } catch { /* 鍵に使えない形は上げようがない。 */ }
+    }
+    return n;
+  }
+
+  /**
    * 待ち行列を流す。上げ直しの間隔が明けていない本文は待ち行列に残し、明ける時刻にタイマーを張り直す。
    * 張り直すので、知らせが止んだ後も最後の中身は必ず上がる。
    */
@@ -365,6 +455,26 @@ export class TranscriptUploader {
 
   private safeKey(sessionUuid: string, agentId: string | null): string | null {
     try { return transcriptLedgerKey(this.deps.deviceId, sessionUuid, agentId); } catch { return null; }
+  }
+
+  /** remote/ の写しか。元の PC の ID が自分と違うときだけ写しとして上げる。 */
+  private isRelay(f: UploadTarget): f is UploadTarget & { origin: string } {
+    return f.origin !== undefined && f.origin !== this.deps.deviceId;
+  }
+
+  /** remote/ の写しの、remote/<origin>/ から見た相対パス。外を指すものは null。 */
+  private relayRel(f: UploadTarget & { origin: string }): string | null {
+    if (this.deps.home === undefined || !isSafeKeyId(f.origin)) return null;
+    const rel = toPosix(path.relative(path.join(remoteRoot(this.deps.home), f.origin), f.path));
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel) || relayTargetOf(rel) === null) return null;
+    return rel;
+  }
+
+  /** 上げる 1 件の台帳の鍵。自分の本文は transcripts/<自分>/...、remote/ の写しは relay: の鍵である。使えなければ null。 */
+  private ledgerKeyOf(f: UploadTarget): string | null {
+    if (!this.isRelay(f)) return this.safeKey(f.sessionId, f.agentId);
+    const rel = this.relayRel(f);
+    return rel === null ? null : relayLedgerKey(f.origin, rel);
   }
 
   private readSkip(key: string): SkipRecord | null {
@@ -445,16 +555,27 @@ export class TranscriptUploader {
 
   private async upload(f: UploadTarget): Promise<'uploaded' | 'unchanged' | 'skipped'> {
     if (this.deps.isPaused()) return 'skipped';
-    // 「この PC で再開」で譲ったセッションは、相手が持ち主なので上げない。
-    if (this.deps.state.isYielded(f.sessionId)) return 'skipped';
+    const relay = this.isRelay(f);
+    // 「この PC で再開」で譲ったセッションは、相手が持ち主なので上げない。remote/ の写しは元の PC の本文なので、譲ったかどうかに依らない。
+    if (!relay && this.deps.state.isYielded(f.sessionId)) return 'skipped';
     let st: fs.Stats;
     try { st = fs.statSync(f.path); } catch { return 'skipped'; }
     if (!st.isFile()) return 'skipped';
-    const rel = toPosix(path.relative(this.deps.claudeDir, f.path));
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel)) return 'skipped';
-    // 台帳の鍵の形が通らない ID は上げ損ねとして知らせる（黙って skipped にしない）。
+    // 本文の origin は、自分の本文なら自分、remote/ の写しなら元の PC である。R2 の鍵名と封じたメタに入る。
+    const origin = relay ? f.origin! : this.deps.deviceId;
+    let rel: string;
     let key: string;
-    try { key = transcriptLedgerKey(this.deps.deviceId, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+    if (relay) {
+      const r = this.relayRel(f as UploadTarget & { origin: string });
+      if (r === null) return 'skipped';
+      rel = r;
+      key = relayLedgerKey(origin, rel)!;
+    } else {
+      rel = toPosix(path.relative(this.deps.claudeDir, f.path));
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel)) return 'skipped';
+      // 台帳の鍵の形が通らない ID は上げ損ねとして知らせる（黙って skipped にしない）。
+      try { key = transcriptLedgerKey(this.deps.deviceId, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+    }
 
     // 指紋も本文も「stat した時点の長さ」までに限って読む。
     // 実行中のセッションは読んでいる最中に伸びるので、限らないと sha256 と中身が食い違う。
@@ -472,8 +593,8 @@ export class TranscriptUploader {
     // 鍵名とメタと本文は同じ世代で封じる（世代を回した直後なら client が断り、次の機会に求め直す）。
     const cur = (await this.deps.keyring).current();
     let blobKey: string;
-    try { blobKey = await transcriptBlobKey(cur.index, this.deps.deviceId, this.deps.deviceId, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
-    const meta: FileMetaIn = { key: blobKey, epoch: cur.epoch, path: rel, kind: 'transcript', sha256: sha, size, mtime: Math.floor(st.mtimeMs), origin: this.deps.deviceId };
+    try { blobKey = await transcriptBlobKey(cur.index, this.deps.deviceId, origin, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+    const meta: FileMetaIn = { key: blobKey, epoch: cur.epoch, path: rel, kind: 'transcript', sha256: sha, size, mtime: Math.floor(st.mtimeMs), origin };
     // R2 は部分更新ができないので、変化のたびにファイル全体を上げ直す（gzip と暗号化は client が行う）。
     const body = new PassThrough();
     const sent = createHash('sha256');
@@ -506,11 +627,13 @@ export class TranscriptUploader {
 
     // file_sync の sha256 は平文の指紋である。降ろす側（puller）は R2 の鍵とこの値を突き合わせて、
     // 丸ごと別の暗号文に差し替えられていないことを確かめる（形式の検査だけでは検出できない）。
+    // remote/ の写しは、kind を RELAY_KIND、device_id を元の PC にして残す（本文の台帳を引く問い合わせに混ざらない）。
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
-      .run(key, 'transcript', rel, this.deps.deviceId, sha, size, meta.mtime, seq, this.now());
+      .run(key, relay ? RELAY_KIND : 'transcript', rel, origin, sha, size, meta.mtime, seq, this.now());
     // 上げた世代を控える。ゴミ箱の掃除が、世代ごとに残る鍵名を求め直して消す（sync/trashSweep.ts）。
-    noteBlobUpload(this.deps.db, key, cur.epoch);
+    // remote/ の写しは掃除が名指ししない（掃除はこの PC の本文の鍵名だけを求める）ので控えない。
+    if (!relay) noteBlobUpload(this.deps.db, key, cur.epoch);
     return 'uploaded';
   }
 
