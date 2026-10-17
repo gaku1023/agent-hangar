@@ -14,11 +14,11 @@ import { SettingsScreen } from './SettingsScreen.tsx';
 
 const NOW = Date.parse('2026-10-12T03:00:00Z');
 const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
-const dev = (id: string, over: Partial<CloudDeviceDto> = {}): CloudDeviceDto => ({ id, name: id, platform: 'darwin', joinedAt: NOW - 20 * 86_400_000, lastSeenAt: NOW - 60_000, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, self: false, ...over });
+const dev = (id: string, over: Partial<CloudDeviceDto> = {}): CloudDeviceDto => ({ id, name: id, platform: 'darwin', joinedAt: NOW - 20 * 86_400_000, lastSeenAt: NOW - 60_000, revokedAt: null, expiresAt: null, kind: 'pc', self: false, ...over });
 const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' as const };
 
 function props(member: Partial<CloudMemberState> = {}, over: Partial<Store> = {}): CloudMemberProps {
-  const devices = { state: 'ok' as const, devices: [dev('studio', { self: true, lastIp: '192.0.2.10', lastCity: 'Chiba', lastRegion: 'Chiba', lastCountry: 'JP' }), dev('desk', { platform: 'win32' })], creator: false, message: null };
+  const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32' })], creator: false, message: null };
   return presentCloudMember({ ...initialStore(), sync: SYNC, desktop: true, device: { id: 'studio', name: 'studio' }, cloudMember: { ...initialCloudMember(), devices, ...member }, ...over }, NOW);
 }
 
@@ -79,31 +79,11 @@ describe('参加の段', () => {
 });
 
 describe('PC の表', () => {
-  it('列に参加日と最終同期、名前の下に最後の IP と場所を出し、場所が推定である旨を添える', () => {
+  it('列に名前と OS を出し、IP と所在地は出さない', () => {
     render(ui(<CloudPcTable m={props()} heading="参加している PC" />));
     const table = screen.getByRole('table', { name: '参加している PC' });
-    expect(within(table).getByText('Chiba, Chiba, JP')).toBeInTheDocument();
-    expect(within(table).getByText('192.0.2.10')).toBeInTheDocument();
     expect(within(table).getByText('Windows')).toBeInTheDocument();
-    expect(screen.getByText(/市区は正確でないことがあります/)).toBeInTheDocument();
-  });
-
-  it('IPv6 の長い IP でも場所を先に置き、切られるのは IP だけで、IP の全文は title で読める', () => {
-    const ip = '2001:db8:1234:5678:9abc:def0:1234:5678';
-    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk', { platform: 'win32', lastIp: ip, lastCity: 'Urayasu', lastRegion: 'Chiba', lastCountry: 'JP' })], creator: false, message: null };
-    render(ui(<CloudPcTable m={props({ devices })} heading="参加している PC" />));
-    const table = screen.getByRole('table', { name: '参加している PC' });
-    const place = within(table).getByText('Urayasu, Chiba, JP');
-    const addr = within(table).getByText(ip);
-    expect(place.compareDocumentPosition(addr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(addr).toHaveClass('cm-ip');
-    expect(place).toHaveClass('cm-place');
-    expect(addr.getAttribute('title')).toBe(`最終 IP：${ip}`);
-    // IP だけのときも同じ欄に出し、title に全文を入れる。
-    cleanup();
-    const only = { state: 'ok' as const, devices: [dev('studio', { self: true, lastIp: '198.51.100.7' })], creator: false, message: null };
-    render(ui(<CloudPcTable m={props({ devices: only })} heading="参加している PC" />));
-    expect(screen.getByText('198.51.100.7').getAttribute('title')).toBe('最終 IP：198.51.100.7');
+    expect(screen.queryByText(/市区は正確でないことがあります/)).toBeNull();
   });
 
   it('他の PC にだけ「解除…」を置き、確認は行の下に開いて、秘密の説明は折りたたむ', () => {

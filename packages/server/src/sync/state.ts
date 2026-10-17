@@ -14,6 +14,7 @@ export type SyncStateKey =
   | 'lastSeq'
   | 'filesSeq'
   | 'filesSkippedFrom'
+  | 'rowsSkippedFrom'
   | 'lastPushAt'
   | 'lastPullAt'
   | 'paused'

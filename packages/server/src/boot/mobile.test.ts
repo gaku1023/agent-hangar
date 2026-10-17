@@ -29,7 +29,7 @@ class FakeEngine {
 }
 
 const device = (id: string, kind: 'pc' | 'mobile', revokedAt: number | null = null): CloudDevicesDto['devices'][number] => ({
-  id, name: id, platform: kind === 'mobile' ? 'mobile' : 'darwin', joinedAt: 1, lastSeenAt: 1, revokedAt, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, kind, self: id === 'pc-a',
+  id, name: id, platform: kind === 'mobile' ? null : 'darwin', joinedAt: 1, lastSeenAt: 1, revokedAt, expiresAt: null, kind, self: id === 'pc-a',
 });
 const devicesDto = (devices: CloudDevicesDto['devices'], state: CloudDevicesDto['state'] = 'ok'): CloudDevicesDto => ({ state, devices, creator: true, message: null });
 /** スマホが 1 台つながっている一覧。 */

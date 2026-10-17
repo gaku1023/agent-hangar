@@ -114,7 +114,7 @@ describe('同期の経路', () => {
 
 describe('PC の一覧（Worker の devices）', () => {
   it('GET /api/sync/cloud-devices は依存の答えをそのまま返す', async () => {
-    const dto = { state: 'ok' as const, devices: [{ id: 'd', name: 'mac', platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, self: true }], creator: true, message: null };
+    const dto = { state: 'ok' as const, devices: [{ id: 'd', kind: 'pc' as const, name: 'mac', platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, expiresAt: null, self: true }], creator: true, message: null };
     app = createApp({ ...deps, cloudDevices: async () => dto });
     expect(await json(await get('/api/sync/cloud-devices'))).toEqual({ status: 200, body: dto });
   });

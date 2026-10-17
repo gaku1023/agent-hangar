@@ -1,5 +1,5 @@
 import type { SetupTarget } from '@agent-hangar/shared';
-import type { CloudDeviceOut } from '@agent-hangar/shared';
+import type { DeviceOut } from '@agent-hangar/shared';
 import type { CloudFailure, JoinPlanView } from '../store/cloudMember.ts';
 import { UPDATE_FAIL_REASONS, type UpdateFailReason } from '../store/update.ts';
 
@@ -37,7 +37,7 @@ export type CloudReply<T> = { ok: true; value: T } | { ok: false; failure: Cloud
 export type CloudBridge = {
   joinPlan(token: string): Promise<CloudReply<JoinPlanView>>;
   join(token: string, overwrite: boolean): Promise<CloudReply<{ url: string; host: string }>>;
-  revoke(id: string): Promise<CloudReply<CloudDeviceOut>>;
+  revoke(id: string): Promise<CloudReply<DeviceOut>>;
   leave(revoke: boolean): Promise<CloudReply<{ revoked: boolean; revokeError: string | null; creator: boolean }>>;
 };
 
@@ -137,7 +137,7 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
       // 権限で断られたなど、殻が投げた失敗も、答えの形に直して返す（画面は段を閉じずに理由を出す）。
       joinPlan: (token) => invoke(CLOUD_COMMANDS.joinPlan, { token }).then((r) => cloudReplyOf<JoinPlanView>(r, 'plan'), shellFailure),
       join: (token, overwrite) => invoke(CLOUD_COMMANDS.join, { token, overwrite }).then((r) => cloudReplyOf<{ url: string; host: string }>(r, 'result'), shellFailure),
-      revoke: (id) => invoke(CLOUD_COMMANDS.revoke, { id }).then((r) => cloudReplyOf<CloudDeviceOut>(r, 'result'), shellFailure),
+      revoke: (id) => invoke(CLOUD_COMMANDS.revoke, { id }).then((r) => cloudReplyOf<DeviceOut>(r, 'result'), shellFailure),
       leave: (revoke) => invoke(CLOUD_COMMANDS.leave, { revoke }).then((r) => cloudReplyOf<{ revoked: boolean; revokeError: string | null; creator: boolean }>(r, 'result'), shellFailure),
     },
     update: {

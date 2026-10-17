@@ -190,37 +190,10 @@ export type KeyboxesPut = { boxes: KeyboxIn[] };
 export type KeyboxesPutOut = { written: number };
 
 /**
- * Worker の `GET /devices` が返す PC の 1 行（互換の版 5 から）。
- * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した PC である。
- * 最後に同期した IP と場所は、Worker が同期の要求を受けたときの CF-Connecting-IP と request.cf の city、region、country をそのまま写したもので、PC ごとに最後の 1 件だけを持つ。
- * 場所は Cloudflare の推定で、英語の表記のままである。
- */
-export type CloudDeviceOut = {
-  id: string;
-  name: string;
-  platform: string;
-  joinedAt: number;
-  lastSeenAt: number | null;
-  revokedAt: number | null;
-  lastIp: string | null;
-  lastCity: string | null;
-  lastRegion: string | null;
-  lastCountry: string | null;
-  /**
-   * PC かスマホか（互換の版 7）。
-   * スマホは `POST /m/join` で参加した行で、platform は `mobile` である。
-   * 版 6 までの Worker は返さないので、無ければ PC として読む。
-   */
-  kind?: 'pc' | 'mobile';
-};
-export type CloudDevicesResponse = { devices: CloudDeviceOut[] };
-export type CloudDeviceRevokeResponse = { device: CloudDeviceOut };
-
-/**
  * Worker の `GET /devices` が返す端末の 1 行（互換の版 9）。
+ * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した端末である。
  * 名前と OS は封じた名簿にあり、IP と所在地は保存しないので、ここには無い。
  * `expiresAt` はトークンの期限で、null なら期限なし。
- * CloudDeviceOut は Task 9/10 でこの形に置き換わって消える。
  */
 export type DeviceOut = { id: string; kind: 'pc' | 'mobile'; joinedAt: number; lastSeenAt: number | null; revokedAt: number | null; expiresAt: number | null };
 export type DevicesOut = { devices: DeviceOut[] };

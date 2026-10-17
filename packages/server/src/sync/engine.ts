@@ -126,16 +126,16 @@ const unref = (h: NodeJS.Timeout): void => { (h as { unref?: () => void }).unref
 type OversizeRow = { tableName: string; rowId: string; bytes: number; limit: number };
 
 /**
- * 413 の本文から、Worker が名指しした「大きすぎる行」を読む。
- * 本文は `{ error, limit, count, row: { tableName, rowId, bytes } }` で、200 字に収まるよう 1 件だけが載る。
- * 413 でないもの、読めないもの、名前の無いものはすべて null である。
- */
-/**
  * 1 巡の pull の数え。
  * unreadable は開けずに飛ばした行の数、refreshed はこの 1 巡で鍵の読み直しをもう試したか（1 巡に 1 度だけ試す）。
  */
 type PassCount = { applied: number; unreadable: number; refreshed: boolean };
 
+/**
+ * 413 の本文から、Worker が名指しした「大きすぎる行」を読む。
+ * 本文は `{ error, limit, count, row: { tableName, rowId, bytes } }` で、200 字に収まるよう 1 件だけが載る。
+ * 413 でないもの、読めないもの、名前の無いものはすべて null である。
+ */
 function oversizeRow(e: unknown): OversizeRow | null {
   if (!(e instanceof CloudError) || e.status !== 413) return null;
   try {
@@ -583,6 +583,25 @@ export class SyncEngine {
   }
 
   /**
+   * 世代の鍵が無くて飛ばした行まで、差分の区切り（lastSeq）を巻き戻す。
+   * 名簿の読み直しで新しい世代の鍵が届いたときに呼ぶ（sync/roster.ts の rosterRefresh）。
+   * 次の pull は控えた連番の手前から差分を読み直すので、飛ばした行が当たる。当て直しは updated_at の比較で冪等である。
+   * 区切りが控えより手前にいれば、その位置のまま（先へは進めない）。
+   * 走っている pull があれば、その終わりを待ってから巻き戻す（pull の終わりの書き込みに上書きされないため）。
+   * pull の中（onRoster）から呼ばれるので、呼び手はこれを待たないこと。
+   * 巻き戻したら true を返し、控えを消す。控えが無ければ何もせず false を返す。
+   */
+  rewindSkippedRows(): Promise<boolean> {
+    const running = this.pulling;
+    if (running) return running.then(() => this.rewindSkippedRows(), () => this.rewindSkippedRows());
+    const from = this.state.getNumber('rowsSkippedFrom', 0);
+    if (from <= 0) return Promise.resolve(false);
+    this.state.set('lastSeq', Math.min(this.state.getNumber('lastSeq', 0), from - 1));
+    this.state.set('rowsSkippedFrom', null);
+    return Promise.resolve(true);
+  }
+
+  /**
    * 親の行がまだ無くて当てられなかった行の持ち越し。鍵は「表:行 ID」で、同じ行は新しい方だけを持つ。
    *
    * 最初の写しは鍵の辞書順で頁ごとに降り、`runs:`、`session_notes:`、`session_states:`、`session_summaries:` は親の `sessions:` より前に並ぶ。
@@ -778,6 +797,10 @@ export class SyncEngine {
     const lost = page.unreadable ?? [];
     if (lost.length > 0) {
       count.unreadable += lost.length;
+      // 飛ばした行のいちばん小さい連番を控える（前の控えがあれば小さい方）。鍵が届いたら rewindSkippedRows がここまで巻き戻す。
+      const from = Math.min(...lost.map((u) => u.seq));
+      const before = this.state.getNumber('rowsSkippedFrom', 0);
+      if (before <= 0 || from < before) this.state.set('rowsSkippedFrom', from);
       console.warn(`[sync] skipped ${lost.length} rows that could not be opened (epochs ${[...new Set(lost.map((u) => u.epoch))].sort((a, b) => a - b).join(', ')})`);
     }
     return page;

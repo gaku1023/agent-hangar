@@ -9,10 +9,12 @@ import { getSessionNote, setSessionName } from '../sessions/notes.ts';
 import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { COMPAT_VERSION } from '@agent-hangar/shared';
+import { COMPAT_VERSION, encodeEpochList, generateKeyPair, sealKeybox, toBase64Url } from '@agent-hangar/shared';
+import type { CloudConfig } from '../config/cloud.ts';
 import { CloudError, LimitError, MIN_WORKER_COMPAT } from './client.ts';
 import { limitedMessage, limitedWhilePausedMessage, SyncEngine } from './engine.ts';
 import { Keyring } from './keyring.ts';
+import { RosterStore, rosterRefresh } from './roster.ts';
 import { peerSeenAt, readPeers } from './peers.ts';
 
 let db: Db;
@@ -608,6 +610,67 @@ describe('開けない行（封じた行、世代鍵の欠け）', () => {
     // 次の 1 巡は差分だけで、飛ばした行はもう降りてこない。
     await b.pullNow();
     expect(onRoster).toHaveBeenCalledTimes(1);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    a.stop(); b.stop();
+  });
+
+  it('飛ばした行のいちばん小さい連番を控え、巻き戻すとそこから読み直す', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', keyring: rotated() });
+    const a = make();
+    await a.start();
+    const ringB = await Keyring.fromConfig(testCloudConfig());
+    const b = makeB(cloud.asDevice('b', { keyring: ringB }));
+    await b.start();
+    project('p1'); project('p2');
+    await a.pushNow();
+    await b.pullNow();
+    expect(b.state.getNumber('rowsSkippedFrom', -1)).toBe(1);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(2);
+    // 後ろでまた飛ばしても、小さい方を残す。
+    project('p3');
+    await a.pushNow();
+    await b.pullNow();
+    expect(b.state.getNumber('rowsSkippedFrom', -1)).toBe(1);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
+    await ringB.addEpochs({ epochs: { '2': testKey(4) } });
+    expect(await b.rewindSkippedRows()).toBe(true);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(0);
+    expect(b.state.get('rowsSkippedFrom')).toBeNull();
+    await b.pullNow();
+    expect([nameB('p1'), nameB('p2'), nameB('p3')]).toEqual(['p1', 'p2', 'p3']);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    // 控えが無ければ巻き戻さない。手前にいる区切りは先へ進めない。
+    expect(await b.rewindSkippedRows()).toBe(false);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
+    b.state.set('rowsSkippedFrom', 9);
+    expect(await b.rewindSkippedRows()).toBe(true);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
+    a.stop(); b.stop();
+  });
+
+  it('知らない世代で封じた行は、keybox が届いた後に当たる（名簿の読み直しから巻き戻す）', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', keyring: rotated() });
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const cfgB = { current: testCloudConfig({ keyPair: await generateKeyPair() }), read: () => cfgB.current, write: (p: Partial<CloudConfig>) => { cfgB.current = { ...cfgB.current, ...p }; } };
+    const ringB = await Keyring.fromConfig(cfgB.current);
+    const storeB = new RosterStore(cloud.wire.asDevice('b'), ringB, cfgB, 'b');
+    const rewinds: Promise<boolean>[] = [];
+    const b: SyncEngine = makeB(cloud.asDevice('b', { keyring: ringB, onRoster: rosterRefresh(storeB, () => { rewinds.push(b.rewindSkippedRows()); }) }));
+    await b.start();
+    expect(nameB('p1')).toBe(null);
+    expect(rewinds).toEqual([]);
+    // 世代を回した PC が、b 宛ての keybox を置く（印の行が進む）。
+    cloud.wire.putKeybox('b', 2, toBase64Url(await sealKeybox(cfgB.current.keyPair.pub, { epoch: 2, recipient: 'b' }, encodeEpochList({ epochs: { '1': testKey(3), '2': testKey(4) } }))));
+    await b.pullNow();
+    expect(rewinds.length).toBe(1);
+    // 巻き戻しは走っていた pull の後に当たる。
+    expect(await rewinds[0]).toBe(true);
+    expect(cfgB.current.currentEpoch).toBe(2);
+    await b.pullNow();
+    expect(nameB('p1')).toBe('p1');
     expect(b.status()).toMatchObject({ state: 'idle', error: null });
     a.stop(); b.stop();
   });

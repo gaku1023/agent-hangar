@@ -132,23 +132,6 @@ export function CloudJoinSteps(props: { m: CloudMemberProps; onClose: () => void
   );
 }
 
-/**
- * 名前の下の 1 行。場所を先に置いて縮めず、縮んで省略記号になるのは最後の IP だけにする。
- * IPv6 の IP は長く、IP を先に置くと、窓を広げても場所が切られて見えなかった（0.4.0-rc.1 の Windows）。IP の全文は title で読む。
- */
-function Where(props: { row: CloudPcRow }) {
-  const t = useT();
-  const { ip, place } = props.row;
-  if (ip === null) return null;
-  return (
-    <span className="cm-where">
-      {place && <span className="cm-place" title={place}>{place}</span>}
-      {place && <span className="cm-sep" aria-hidden="true">·</span>}
-      <span className="cm-ip" title={t('cloudMember.pcs.lastIpTitle', { ip })}>{ip}</span>
-    </span>
-  );
-}
-
 /** 解除の確認。行のすぐ下に開く。秘密の説明は「手放した PC、なくした PC のとき」に折りたたむ。 */
 function RevokeConfirm(props: { row: CloudPcRow; onCancel: () => void }) {
   const emit = useEmit();
@@ -230,7 +213,6 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
               <div className="cm-row" role="row" data-focus={asking === r.id || failed ? 'true' : undefined}>
                 <span className="cm-name" role="cell">
                   <span>{r.name}{r.self && <span className="cm-self">{t('settings.cloud.thisPc')}</span>}{r.phone && <span className="cm-chip">{t('cloudMember.phone.chip')}</span>}</span>
-                  <Where row={r} />
                 </span>
                 <span className="cm-faint" role="cell">{r.os}</span>
                 <span className="cm-faint cm-col" role="cell">{r.joined ?? '—'}</span>
@@ -261,14 +243,13 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
       </div>
       {revoke?.kind === 'done' && <Strip tone="ok" role="status"><p>{t('cloudMember.pcs.done', { name: revoke.name })}</p></Strip>}
       {pcs.note && <div className="cm-note">{pcs.note}</div>}
-      {pcs.state === 'ok' && pcs.rows.some((r) => r.ip !== null) && <div className="cm-note">{t('cloudMember.pcs.placeNote')}</div>}
       {pcs.removed.length > 0 && (
         <>
           <h4 className="sub-h">{t('cloudMember.pcs.removedHeading')}<span className="n">{pcs.removed.length}</span></h4>
           <div className="cm-table" role="table" aria-label={t('cloudMember.pcs.removedHeading')}>
             {pcs.removed.map((r) => (
               <div key={r.id} className="cm-row" data-dim role="row">
-                <span className="cm-name" role="cell"><span>{r.name}</span><Where row={r} /></span>
+                <span className="cm-name" role="cell"><span>{r.name}</span></span>
                 <span role="cell">{r.os}</span>
                 <span className="cm-span" role="cell">{r.removedOn}</span>
               </div>

@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COMPAT_VERSION, transcriptBlobKey } from '@agent-hangar/shared';
+import { COMPAT_VERSION, encodeEpochList, generateKeyPair, sealKeybox, toBase64Url, transcriptBlobKey } from '@agent-hangar/shared';
 import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
+import type { CloudConfig } from '../config/cloud.ts';
+import { RosterStore, rosterRefresh } from './roster.ts';
 import { CompatError, LimitError, type CloudClient } from './client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
@@ -153,6 +155,26 @@ describe('RemotePuller', () => {
     // 控えが無ければ巻き戻さない。
     await p.rewindSkipped();
     expect(state.getNumber('filesSeq', -1)).toBe(3);
+  });
+
+  it('知らない世代で封じた本文は、keybox が届いた後に降りる（名簿の読み直しから巻き戻す）', async () => {
+    const ringB = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 }));
+    await cloud.asDevice('dev-b', { keyring: ringB }).putText({ path: `projects/-w-alpha/${UUID}.jsonl` }, 'new epoch\n');
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    expect(state.getNumber('filesSkippedFrom', -1)).toBe(1);
+    const cfgA = { current: testCloudConfig({ keyPair: await generateKeyPair() }), read: () => cfgA.current, write: (patch: Partial<CloudConfig>) => { cfgA.current = { ...cfgA.current, ...patch }; } };
+    const store = new RosterStore(cloud.wire, await cloud.keyring, cfgA, 'dev-a');
+    const rewinds: Promise<boolean>[] = [];
+    const onRoster = rosterRefresh(store, () => { rewinds.push(p.rewindSkipped()); });
+    cloud.wire.putKeybox('dev-a', 2, toBase64Url(await sealKeybox(cfgA.current.keyPair.pub, { epoch: 2, recipient: 'dev-a' }, encodeEpochList({ epochs: { '1': testKey(3), '2': testKey(4) } }))));
+    await onRoster();
+    expect(await Promise.all(rewinds)).toEqual([true]);
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('new epoch\n');
+    // 鍵が増えなければ巻き戻さない。
+    await onRoster();
+    expect(rewinds.length).toBe(1);
   });
 
   it('巻き戻しは関数だけでも呼べ、手前の区切りを先へ進めない', () => {

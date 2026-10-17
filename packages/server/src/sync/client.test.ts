@@ -545,7 +545,39 @@ describe('上限の失敗', () => {
 });
 
 describe('PC の一覧と解除', () => {
-  const device = { id: 'dev-b', name: 'desk', platform: 'win32', joinedAt: 1, lastSeenAt: 2, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null };
+  const device = { id: 'dev-b', kind: 'pc', joinedAt: 1, lastSeenAt: 2, revokedAt: null, expiresAt: null };
+
+  it('getRoster は GET /roster を読み、まだ無ければ（404）null を返す。ほかの失敗は投げる', async () => {
+    const f = fakeFetch(() => json({ version: 3, sealed: 'abc' }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.getRoster()).toEqual({ version: 3, sealed: 'abc' });
+    expect(f.calls[0]!.url).toBe('https://w.example/roster');
+    const none = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'not found' }, 404)).fetch });
+    expect(await none.getRoster()).toBeNull();
+    const broken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'boom' }, 500)).fetch });
+    await expect(broken.getRoster()).rejects.toMatchObject({ status: 500 });
+  });
+
+  it('putRoster は PUT /roster に版と世代と封じた名簿を送り、409 は投げずに今の版を返す', async () => {
+    const f = fakeFetch(() => json({ version: 4 }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.putRoster({ ifVersion: 3, epoch: 2, sealed: 'abc' })).toEqual({ ok: true, version: 4 });
+    expect(f.calls[0]!.url).toBe('https://w.example/roster');
+    expect(f.calls[0]!.init.method).toBe('PUT');
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ ifVersion: 3, epoch: 2, sealed: 'abc' });
+    expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
+    const taken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ version: 7 }, 409)).fetch });
+    expect(await taken.putRoster({ ifVersion: 3, epoch: 2, sealed: 'abc' })).toEqual({ ok: false, version: 7 });
+    const broken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'boom' }, 500)).fetch });
+    await expect(broken.putRoster({ ifVersion: 3, epoch: 2, sealed: 'abc' })).rejects.toMatchObject({ status: 500 });
+  });
+
+  it('getKeyboxes は GET /keyboxes で自分宛ての箱を読む', async () => {
+    const f = fakeFetch(() => json({ boxes: [{ epoch: 2, sealed: 'xyz' }] }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.getKeyboxes()).toEqual({ boxes: [{ epoch: 2, sealed: 'xyz' }] });
+    expect(f.calls[0]!.url).toBe('https://w.example/keyboxes');
+  });
 
   it('listDevices は GET /devices を Bearer 付きで叩いて一覧を返す', async () => {
     const f = fakeFetch(() => json({ devices: [device] }));

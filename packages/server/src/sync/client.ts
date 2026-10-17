@@ -20,15 +20,19 @@ import {
   REVOKED_ERROR,
   type ChangeIn,
   type ChangeOut,
-  type CloudDeviceOut,
-  type CloudDeviceRevokeResponse,
-  type CloudDevicesResponse,
   type CloudLimitKind,
   type CloudUsageBody,
+  type DeviceOut,
+  type DeviceRevokeOut,
+  type DevicesOut,
   type FileMetaIn,
+  type KeyboxesOut,
   type ListFilesResponse,
   type MobilePairingResponse,
   type PushChangesResponse,
+  type RosterOut,
+  type RosterPut,
+  type RosterPutOut,
   type SealedChangeIn,
   type SealedFileIn,
   type SealedListFilesResponse,
@@ -227,12 +231,12 @@ export interface CloudClientBase {
   /** 使用量と費用。 */
   usage(): Promise<CloudUsageBody>;
   /**
-   * 同期に参加している PC の一覧（互換の版 5 の Worker から）。解除した PC も revokedAt つきで入る。
-   * 版 4 までの Worker は 404 を返す。偽物は実装しなくてよい。
+   * 同期に参加している端末の一覧（互換の版 5 の Worker から。版 9 で名前、OS、IP、所在地が無くなった）。解除した端末も revokedAt つきで入る。
+   * 名前と OS は封じた名簿（sync/roster.ts）にある。版 4 までの Worker は 404 を返す。偽物は実装しなくてよい。
    */
-  listDevices?(): Promise<CloudDeviceOut[]>;
-  /** PC を解除する（自分自身も）。解除した PC の行を返す。 */
-  revokeDevice?(id: string): Promise<CloudDeviceOut>;
+  listDevices?(): Promise<DeviceOut[]>;
+  /** 端末を解除する（自分自身も）。解除した端末の行を返す。 */
+  revokeDevice?(id: string): Promise<DeviceOut>;
   /**
    * Worker が最後に（2xx の応答で）名乗った互換の版。まだ話していなければ null。
    * 設定の同期が、Worker が束の行を知る版に届くまで行を書かないために読む。実装しない偽物は null を返してよい。
@@ -287,7 +291,16 @@ export interface WireCloudClient extends CloudClientBase {
   getFile(key: string): Promise<Readable>;
   /** 封じたメタのままの索引。 */
   listFiles(since: number, limit: number): Promise<SealedListFilesResponse>;
+  /** 封じた名簿（GET /roster）。まだ無ければ（404）null で、投げない。 */
+  getRoster(): Promise<RosterOut | null>;
+  /** 名簿を版の番号つきで書き換える（PUT /roster）。版が合わない 409 は投げずに ok: false と今の版で返す。 */
+  putRoster(body: RosterPut): Promise<RosterPutResult>;
+  /** 自分宛ての keybox（GET /keyboxes）。いちばん新しい世代の 1 つだけで、まだ無ければ空の配列。 */
+  getKeyboxes(): Promise<KeyboxesOut>;
 }
+
+/** 名簿の書き換えの結果。ok が false なら版が合わずに断られた（409）。version はどちらも Worker の今の版。 */
+export type RosterPutResult = { ok: boolean } & RosterPutOut;
 
 /**
  * 端末から見た Worker。行は開いた形（ChangeIn と ChangeOut）で話す。
@@ -537,13 +550,40 @@ export class HttpCloudClient implements WireCloudClient {
 
   usage() { return this.json<CloudUsageBody>('/usage'); }
 
-  async listDevices(): Promise<CloudDeviceOut[]> { return (await this.json<CloudDevicesResponse>('/devices')).devices; }
+  async listDevices(): Promise<DeviceOut[]> { return (await this.json<DevicesOut>('/devices')).devices; }
 
-  async revokeDevice(id: string): Promise<CloudDeviceOut> {
+  async revokeDevice(id: string): Promise<DeviceOut> {
     // ID は URL の断片に入る。Worker も入口で断るが、形の違うものは外へ出さない。
     if (!isSafeKeyId(id)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
-    return (await this.json<CloudDeviceRevokeResponse>(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' })).device;
+    return (await this.json<DeviceRevokeOut>(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' })).device;
   }
+
+  async getRoster(): Promise<RosterOut | null> {
+    try {
+      return await this.json<RosterOut>('/roster');
+    } catch (e) {
+      // 名簿がまだ無いのは、setup の途中か古い参加の名残で、失敗ではない。
+      if (e instanceof CloudError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  async putRoster(body: RosterPut): Promise<RosterPutResult> {
+    await this.ensureWorkerCompat();
+    try {
+      const r = await this.json<RosterPutOut>('/roster', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return { ok: true, version: r.version };
+    } catch (e) {
+      // 409 の本文は今の版（RosterPutOut）だけで、CloudError の先頭 200 字に収まる。
+      if (e instanceof CloudError && e.status === 409) {
+        const v = (() => { try { return (JSON.parse(e.message) as Partial<RosterPutOut>).version; } catch { return undefined; } })();
+        if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) return { ok: false, version: v };
+      }
+      throw e;
+    }
+  }
+
+  getKeyboxes(): Promise<KeyboxesOut> { return this.json<KeyboxesOut>('/keyboxes'); }
 
   async putMobileFeed(sealed: string): Promise<void> {
     await this.ensureWorkerCompat();

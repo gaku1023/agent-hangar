@@ -45,6 +45,11 @@ export class Keyring {
     return this.keys.get(epoch) ?? null;
   }
 
+  /** 手元にある世代の番号。新しい順。 */
+  epochs(): number[] {
+    return [...this.keys.keys()].sort((a, b) => b - a);
+  }
+
   /**
    * keybox から読んだ世代鍵の一覧を足し、今の世代を一番新しいものへ進める。
    * keybox は署名を持たないので、手元にある世代の鍵を別の値で差し替える一覧は信じず、その世代は手元の値を残す。

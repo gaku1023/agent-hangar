@@ -16,9 +16,12 @@ import {
   type ChangeIn,
   type ChangeOp,
   type ChangeOut,
-  type CloudDeviceOut,
   type CloudLimitKind,
   type CloudUsageBody,
+  type DeviceOut,
+  type KeyboxesOut,
+  type RosterOut,
+  type RosterPut,
   type FileEntry,
   type FileKind,
   type FileMetaIn,
@@ -34,7 +37,7 @@ import {
   type SealedPullChangesResponse,
   type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
-import { CloudError, CompatError, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type WireCloudClient } from '../src/sync/client.ts';
+import { CloudError, CompatError, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type RosterPutResult, type WireCloudClient } from '../src/sync/client.ts';
 import { decryptBuffer, encryptBuffer, fileKeyFrom, sha256Hex } from '../src/sync/crypto.ts';
 import { Keyring } from '../src/sync/keyring.ts';
 import { blobKeyFor, openSealedFile, openSealedRow, SealedCloudClient } from '../src/sync/sealedClient.ts';
@@ -75,7 +78,15 @@ export type FakeCloudStore = {
    */
   limited: CloudLimitKind | null;
   /** 参加している PC の行。要求を受けた端末を、初めて見たときに足す（実物は参加の承認で足す）。 */
-  devices: Map<string, CloudDeviceOut>;
+  devices: Map<string, DeviceOut>;
+  /** 封じた名簿（実物の roster の 1 行）。まだ無ければ null。 */
+  roster: RosterOut | null;
+  /** keybox。受け手の ID から、世代の番号から封じた箱（base64url）へ。 */
+  keyboxes: Map<string, Map<number, string>>;
+  /** 次の PUT /roster を受ける直前に 1 度だけ走らせる（ほかの PC の書き換えを割り込ませる試験の口）。 */
+  beforeRosterPut: (() => Promise<void>) | null;
+  /** この回数だけ、次からの PUT /roster を版の食い違い（409）で断る。 */
+  rejectRosterPuts: number;
   /** PC ごとの受信箱の素（PUT /m/feed）。実物の mobile_feeds の表に当たる。 */
   mobileFeeds: Map<string, { sealed: string; updatedAt: number }>;
   /** スマホからの起動の依頼（POST /m/launches）。実物の launch_requests の表に当たる。 */
@@ -127,6 +138,9 @@ export const TOUCH_EVERY_MS = 60_000;
 const errorBody = (error: string): string => JSON.stringify({ error });
 
 const isEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+
+/** 初めて見た PC の行（実物の版 9 の devices の列）。 */
+const newDevice = (id: string, now: number): DeviceOut => ({ id, kind: 'pc', joinedAt: now, lastSeenAt: null, revokedAt: null, expiresAt: null });
 
 /**
  * Worker の isChange（packages/cloud/src/changes.ts）と同じ検査。
@@ -203,6 +217,10 @@ export class FakeWireClient implements WireCloudClient {
       minDeviceCompat: MIN_DEVICE_COMPAT,
       limited: null,
       devices: new Map(),
+      roster: null,
+      keyboxes: new Map(),
+      beforeRosterPut: null,
+      rejectRosterPuts: 0,
       mobileFeeds: new Map(),
       launches: new Map(),
       mobileBlobs: new Map(),
@@ -259,7 +277,7 @@ export class FakeWireClient implements WireCloudClient {
     if (this.store.workerCompat < this.minWorkerCompat) throw new CompatError('worker', this.store.workerCompat, this.minWorkerCompat);
     if (this.store.unauthorized) throw new CloudError(401, errorBody('unauthorized'));
     const now = this.store.now();
-    const row = this.store.devices.get(this.deviceId) ?? { id: this.deviceId, name: this.deviceId, platform: 'darwin', joinedAt: now, lastSeenAt: null, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null };
+    const row = this.store.devices.get(this.deviceId) ?? newDevice(this.deviceId, now);
     // 解除した PC の端末トークンは、Worker が 401 の revoked で断る。
     if (row.revokedAt !== null) throw new RevokedError();
     // 最終確認は、前回から TOUCH_EVERY_MS たったときだけ書く（実物の touchIfDue）。
@@ -270,7 +288,7 @@ export class FakeWireClient implements WireCloudClient {
   /** 端末を解除した状態にする（ほかの PC から解除された筋）。 */
   revoke(deviceId: string): void {
     const now = this.store.now();
-    const row = this.store.devices.get(deviceId) ?? { id: deviceId, name: deviceId, platform: 'darwin', joinedAt: now, lastSeenAt: null, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null };
+    const row = this.store.devices.get(deviceId) ?? newDevice(deviceId, now);
     this.store.devices.set(deviceId, { ...row, revokedAt: row.revokedAt ?? now });
   }
 
@@ -289,16 +307,64 @@ export class FakeWireClient implements WireCloudClient {
     this.store.rows.set(ROSTER_MARKER_K, { seq: ++this.store.seq, k: ROSTER_MARKER_K, op: 'upsert', updatedAt: this.store.now(), deviceId: this.deviceId, epoch, sealed: new Uint8Array(0) });
   }
 
-  async listDevices(): Promise<CloudDeviceOut[]> {
+  async listDevices(): Promise<DeviceOut[]> {
     this.guard('listDevices');
     return [...this.store.devices.values()].map((d) => ({ ...d }));
   }
 
-  async revokeDevice(id: string): Promise<CloudDeviceOut> {
+  async revokeDevice(id: string): Promise<DeviceOut> {
     this.guard('revokeDevice', id);
     if (!this.store.devices.has(id)) throw new CloudError(404, errorBody('not found'));
     this.revoke(id);
     return { ...this.store.devices.get(id)! };
+  }
+
+  get roster(): RosterOut | null { return this.store.roster; }
+  get beforeRosterPut(): (() => Promise<void>) | null { return this.store.beforeRosterPut; }
+  set beforeRosterPut(v: (() => Promise<void>) | null) { this.store.beforeRosterPut = v; }
+  get rejectRosterPuts(): number { return this.store.rejectRosterPuts; }
+  set rejectRosterPuts(v: number) { this.store.rejectRosterPuts = v; }
+
+  async getRoster(): Promise<RosterOut | null> {
+    this.guard('getRoster');
+    return this.store.roster ? { ...this.store.roster } : null;
+  }
+
+  /** 実物（packages/cloud/src/keys.ts）と同じく、版が合えば 1 進め、印の行を進める。合わなければ 409 の代わりに ok: false と今の版。 */
+  async putRoster(body: RosterPut): Promise<RosterPutResult> {
+    this.guard('putRoster', body);
+    if (!isEpoch(body.epoch) || !Number.isSafeInteger(body.ifVersion) || body.ifVersion < 0 || !fromBase64Url(body.sealed)) throw new CloudError(400, errorBody('invalid body'));
+    const hook = this.store.beforeRosterPut;
+    if (hook) {
+      this.store.beforeRosterPut = null;
+      await hook();
+    }
+    const cur = this.store.roster?.version ?? 0;
+    if (this.store.rejectRosterPuts > 0) {
+      this.store.rejectRosterPuts--;
+      return { ok: false, version: cur };
+    }
+    if (body.ifVersion !== cur) return { ok: false, version: cur };
+    this.store.roster = { version: cur + 1, sealed: body.sealed };
+    this.touchRoster(body.epoch);
+    return { ok: true, version: cur + 1 };
+  }
+
+  /** 自分宛ての keybox のうち、いちばん新しい世代の 1 つだけ（実物と同じ）。 */
+  async getKeyboxes(): Promise<KeyboxesOut> {
+    this.guard('getKeyboxes');
+    const mine = this.store.keyboxes.get(this.deviceId);
+    if (!mine || mine.size === 0) return { boxes: [] };
+    const epoch = Math.max(...mine.keys());
+    return { boxes: [{ epoch, sealed: mine.get(epoch)! }] };
+  }
+
+  /** keybox を置き、印の行を進める（PUT /keyboxes の真似。試験の口で、WireCloudClient には無い）。 */
+  putKeybox(recipient: string, epoch: number, sealed: string): void {
+    const mine = this.store.keyboxes.get(recipient) ?? new Map<number, string>();
+    mine.set(epoch, sealed);
+    this.store.keyboxes.set(recipient, mine);
+    this.touchRoster(epoch);
   }
 
   async health(): Promise<{ ok: boolean; version: string }> {
@@ -682,8 +748,8 @@ export class FakeCloudClient implements CloudClient {
   getFile(key: string, epoch: number): Promise<Readable> { return this.sealed.getFile(key, epoch); }
   listFiles(since: number, limit: number): Promise<ListFilesResponse> { return this.sealed.listFiles(since, limit); }
   usage(): Promise<CloudUsageBody> { return this.wire.usage(); }
-  listDevices(): Promise<CloudDeviceOut[]> { return this.wire.listDevices(); }
-  revokeDevice(id: string): Promise<CloudDeviceOut> { return this.wire.revokeDevice(id); }
+  listDevices(): Promise<DeviceOut[]> { return this.wire.listDevices(); }
+  revokeDevice(id: string): Promise<DeviceOut> { return this.wire.revokeDevice(id); }
   lastWorkerCompat(): number | null { return this.wire.lastWorkerCompat(); }
   putMobileFeed(sealed: string): Promise<void> { return this.wire.putMobileFeed(sealed); }
   deleteMobileFeed(): Promise<void> { return this.wire.deleteMobileFeed(); }

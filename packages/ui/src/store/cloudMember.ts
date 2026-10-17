@@ -1,4 +1,4 @@
-import type { CloudDeviceOut, CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
+import type { CloudDeviceDto, CloudDevicesDto, DeviceOut, MobilePairingDto } from '@agent-hangar/shared';
 
 /**
  * クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除の状態（0.4.0）。
@@ -47,7 +47,7 @@ export type CloudMemberEvent =
   | { type: 'devices.loaded'; devices: CloudDevicesDto }
   | { type: 'join.checking' } | { type: 'join.planned'; plan: JoinPlanView } | { type: 'join.joining' } | { type: 'join.joined'; host: string }
   | { type: 'join.failed'; failure: CloudFailure } | { type: 'join.reset' }
-  | { type: 'revoke.start'; id: string } | { type: 'revoke.done'; device: CloudDeviceOut } | { type: 'revoke.failed'; id: string; failure: CloudFailure } | { type: 'revoke.reset' }
+  | { type: 'revoke.start'; id: string } | { type: 'revoke.done'; device: DeviceOut } | { type: 'revoke.failed'; id: string; failure: CloudFailure } | { type: 'revoke.reset' }
   | { type: 'leave.start' } | { type: 'leave.done'; revokeError: string | null } | { type: 'leave.failed'; failure: CloudFailure } | { type: 'leave.reset' }
   | { type: 'phone.loading' } | { type: 'phone.loaded'; pairing: MobilePairingDto } | { type: 'phone.failed'; message: string } | { type: 'phone.expired' } | { type: 'phone.reset' };
 
@@ -56,7 +56,7 @@ export function initialCloudMember(): CloudMemberState {
 }
 
 /** 一覧のうち、解除していないスマホ。版 6 までの Worker は kind を返さないので、無ければ PC として読む。 */
-const activePhones = (devices: CloudDevicesDto): CloudDeviceOut[] => (devices.state === 'ok' ? devices.devices.filter((d) => d.kind === 'mobile' && d.revokedAt === null) : []);
+const activePhones = (devices: CloudDevicesDto): CloudDeviceDto[] => (devices.state === 'ok' ? devices.devices.filter((d) => d.kind === 'mobile' && d.revokedAt === null) : []);
 
 function phoneOf(pairing: MobilePairingDto, devices: CloudDevicesDto | null): PhoneStage {
   switch (pairing.state) {
@@ -73,7 +73,8 @@ function watchPhones(p: PhoneStage, devices: CloudDevicesDto): PhoneStage {
   const phones = activePhones(devices);
   if (p.known === null) return { ...p, known: phones.map((d) => d.id) };
   const fresh = phones.find((d) => !p.known!.includes(d.id));
-  return fresh ? { kind: 'paired', id: fresh.id, name: fresh.name } : p;
+  // 名簿に名前の無い端末（name が null）は ID で呼ぶ。名前のわからない端末の見せ方は PC の一覧の画面（E2）で決める。
+  return fresh ? { kind: 'paired', id: fresh.id, name: fresh.name ?? fresh.id } : p;
 }
 
 /** いまの段が持つ宛先。宛先を確かめる前と、済んだ後は null。 */
@@ -95,9 +96,10 @@ export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): Clo
     case 'join.reset': return { ...s, join: { kind: 'idle' } };
     case 'revoke.start': return { ...s, revoke: { id: e.id, kind: 'busy' } };
     case 'revoke.done': {
-      // 取り直しを待たずに、その PC を「解除した PC」へ移す。
-      const devices = s.devices ? { ...s.devices, devices: s.devices.devices.map((d) => (d.id === e.device.id ? { ...e.device, self: d.self } : d)) } : s.devices;
-      return { ...s, devices, revoke: { id: e.device.id, kind: 'done', name: e.device.name } };
+      // 取り直しを待たずに、その PC を「解除した PC」へ移す。名前は名簿から読んだ一覧の行のものを使う（Worker の行は名前を持たない）。
+      const before = s.devices?.devices.find((d) => d.id === e.device.id);
+      const devices = s.devices ? { ...s.devices, devices: s.devices.devices.map((d) => (d.id === e.device.id ? { ...d, revokedAt: e.device.revokedAt } : d)) } : s.devices;
+      return { ...s, devices, revoke: { id: e.device.id, kind: 'done', name: before?.name ?? e.device.id } };
     }
     case 'revoke.failed': return { ...s, revoke: { id: e.id, kind: 'failed', failure: e.failure } };
     case 'revoke.reset': return { ...s, revoke: null };

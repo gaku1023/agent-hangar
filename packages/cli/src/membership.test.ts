@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CloudConfig, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
-import { encodeJoinToken, type CloudDeviceOut } from '@agent-hangar/shared';
+import { encodeJoinToken, type DeviceOut } from '@agent-hangar/shared';
 import { cloudDevicesText, joinCommand, joinPlan, leaveCloud, leaveCommand, MembershipError, revokeCloudDevice, revokeCommand, runJoinQuiet } from './membership.ts';
 
 const device = { id: 'dev-a', name: 'mac', platform: 'darwin' };
@@ -31,8 +31,8 @@ const conf = (over: Partial<CloudConfig> = {}): CloudConfig => ({
   ...over,
 });
 
-const row = (id: string, over: Partial<CloudDeviceOut> = {}): CloudDeviceOut => ({
-  id, name: id, platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, ...over,
+const row = (id: string, over: Partial<DeviceOut> = {}): DeviceOut => ({
+  id, kind: 'pc', joinedAt: 1, lastSeenAt: 2, revokedAt: null, expiresAt: null, ...over,
 });
 
 const codeOf = async (p: Promise<unknown>): Promise<string> => {
