@@ -76,7 +76,7 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait }: App
   const onEnter = useCallback((pairing: Pairing, pair: PhonePair, keys: Keyring) => {
     setScreen(inboxOf(pairing, pair, keys) ?? { kind: 'join', pairText: null, guide: false, resume: { pairing, pair } });
   }, []);
-  // 受信箱が keybox を読み直して手元の鍵が変わった。新しい依頼は新しい世代で封じる。
+  // 受信箱が keybox を読み直して手元の鍵が変わった。次に開く新しい会話の画面から、新しい世代で封じる。
   const onKeys = useCallback((keys: Keyring) => {
     setScreen((s) => (s.kind === 'inbox' ? (inboxOf(s.pairing, s.pair, keys) ?? s) : s));
   }, []);
@@ -116,20 +116,21 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait }: App
   }, []);
 
   const onWantRefresh = useCallback(() => setRefresh((n) => n + 1), []);
-  const onLaunch = (spec: LaunchSpec): void => {
+  // key は新しい会話の画面を開いたときの鍵。画像もこの鍵で封じてあるので、依頼も同じ世代で封じる（受信箱が後で新しい世代を読んでも替えない）。
+  const onLaunch = (spec: LaunchSpec, key: PhoneKey): void => {
     if (screen.kind !== 'inbox') return;
     run.current?.cancel();
     launchNo.current += 1;
     const no = launchNo.current;
     setLaunch({ spec, state: { kind: 'sending' }, open: true });
-    run.current = startLaunch(screen.pairing, screen.current, spec, {
+    run.current = startLaunch(screen.pairing, key, spec, {
       everyMs: launchEveryMs,
       giveUpMs: launchGiveUpMs,
       onState: (state) => {
         if (launchNo.current !== no) return;
         if (state.kind === 'unpaired') {
           void clearPairing();
-          onUnpaired();
+          onUnpaired(state.reason);
           return;
         }
         setLaunch((l) => (l ? { ...l, state } : l));

@@ -42,6 +42,8 @@ describe('imageFailureText', () => {
     expect(imageFailureText(new ImageError('server', 500), '画像を送信できませんでした', 'もう一度送信してください。')).toBe('画像を送信できませんでした（500）。もう一度送信してください。');
     expect(imageFailureText(new ImageError('network'), '画像を送信できませんでした', 'もう一度送信してください。')).toBe('画像を送信できませんでした。通信を確認してください。もう一度送信してください。');
     expect(imageFailureText(new ImageError('too-many', 429), 'x', '')).toBe('x。クラウドに保存している画像が上限の 40 枚に達しています。PC が受信すると消えます。');
+    expect(imageFailureText(new ImageError('unpaired', 401), 'x', '')).toBe('x。このスマホの接続は解除されています。');
+    expect(imageFailureText(new ImageError('unpaired', 401, 'expired'), 'x', '')).toBe('x。このスマホの接続は期限が切れています。');
   });
 });
 
@@ -138,6 +140,12 @@ describe('putImage', () => {
     expect(await reasonOf(429, { error: 'too many images' })).toBe('too-many');
     expect(await reasonOf(429, { error: 'rate limited' })).toBe('rate-limited');
     expect(await reasonOf(401, {})).toBe('unpaired');
+    {
+      const sent = FakeXhr.nextSend();
+      const p = putImage(pairing, at1(key), 'L-1', 0, new Uint8Array([1]), { xhr });
+      (await sent).respond(401, { error: 'expired' }, null);
+      await expect(p).rejects.toMatchObject({ reason: 'unpaired', unpairedReason: 'expired' });
+    }
     expect(await reasonOf(400, { error: 'invalid key' })).toBe('server');
     // 画像の口の無い古い Worker（rc.1 も JSON の 404 を返す）は、版の見出しで見分ける。
     expect(await reasonOf(404, { error: 'not found' }, MOBILE_BELL_MIN_WORKER_COMPAT - 1)).toBe('unsupported');

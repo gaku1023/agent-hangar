@@ -283,7 +283,7 @@ function Waiting({
         </p>
       ) : (
         <p className="p-mini m-fade" role="status">
-          受け取り中…（最大 1 分）
+          受信中…（最大 1 分）
         </p>
       )}
       <div className="p-spacer" />
@@ -295,6 +295,8 @@ function Waiting({
           <button type="button" className="p-btn sec" onClick={onGiveUp}>
             別の QR で接続する
           </button>
+          {/* 接続はできているので、Worker のスマホの行は PC で解除するまで消えない（10 台の枠にも数える）。 */}
+          <p className="p-mini m-fade">別の QR で接続しても、今の接続は PC の設定 › クラウド で解除するまで削除されません。</p>
         </>
       )}
     </>

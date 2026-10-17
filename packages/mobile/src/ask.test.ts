@@ -107,6 +107,8 @@ describe('askPc', () => {
     expect(await failureOf(q())).toBe('rate-limited');
     serve({ http: 401, body: { error: 'unauthorized' } });
     expect(await failureOf(q())).toBe('unpaired');
+    serve({ http: 401, body: { error: 'expired' } });
+    await expect(q()).rejects.toMatchObject({ reason: 'unpaired', unpairedReason: 'expired' });
     serve({ http: 502, body: { error: 'reply too large' } });
     expect(await failureOf(q())).toBe('server');
     fetchMock.mockRejectedValue(new TypeError('offline'));

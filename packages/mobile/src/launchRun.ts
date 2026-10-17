@@ -1,5 +1,5 @@
 import type { MobileLaunchAnswer, MobileLaunchPayload } from '@agent-hangar/shared/src/mobile.ts';
-import { LaunchError } from './api.ts';
+import { LaunchError, type UnpairedReason } from './api.ts';
 import { imageFailureText, ImageError, putImage as defaultPutImage, type LaunchImage, type PutImage } from './images.ts';
 import { requestLaunch, waitLaunch, type LaunchStage } from './launch.ts';
 import type { Pairing, PhoneKey } from './store.ts';
@@ -31,7 +31,7 @@ export type LaunchSpec = {
  * - started：会話が始まった。
  * - failed：始まらなかった。at は止まった段（send は送信、pc は PC の受け取りと始まり）。reconnect は接続し直しを勧める。
  * - unreadable、unanswered：始まったかもしれない。送り直させない（新しい id で二つ目の会話が起きうる）。
- * - unpaired：このスマホの接続が外された。
+ * - unpaired：このスマホの接続が外された。reason は 401 の理由（期限切れなら参加の画面が期限切れの文を出す）。
  */
 export type RunState =
   | { kind: 'sending' }
@@ -40,7 +40,7 @@ export type RunState =
   | { kind: 'failed'; at: 'send' | 'pc'; message: string; detail?: string; reconnect?: boolean }
   | { kind: 'unreadable' }
   | { kind: 'unanswered' }
-  | { kind: 'unpaired' };
+  | { kind: 'unpaired'; reason: UnpairedReason };
 
 export type LaunchRun = {
   /** 失敗した依頼をもう一度送る。失敗の段でなければ何もしない。 */
@@ -132,7 +132,7 @@ export function startLaunch(
       } catch (e) {
         if (cancelled) return;
         if (e instanceof ImageError && e.reason === 'unpaired') {
-          emit({ kind: 'unpaired' });
+          emit({ kind: 'unpaired', reason: e.unpairedReason });
           return;
         }
         emit(imageFailure(e));
@@ -148,7 +148,7 @@ export function startLaunch(
       if (e instanceof LaunchError && e.reason === 'conflict') unsentId = null;
       if (cancelled) return;
       if (e instanceof LaunchError && e.reason === 'unpaired') {
-        emit({ kind: 'unpaired' });
+        emit({ kind: 'unpaired', reason: e.unpairedReason });
         return;
       }
       emit(requestFailure(spec.pcName, e));
@@ -160,12 +160,12 @@ export function startLaunch(
       everyMs: o.everyMs,
       giveUpMs: o.giveUpMs,
       onClaimed: () => emit({ kind: 'waiting', claimed: true }),
-      onStage: (s: LaunchStage, a?: MobileLaunchAnswer) => {
+      onStage: (s: LaunchStage, a?: MobileLaunchAnswer, why?: UnpairedReason) => {
         if (s === 'waiting') emit({ kind: 'waiting', claimed: false });
         else if (s === 'started') emit(a && a.ok ? { kind: 'started', sessionId: a.sessionId, title: a.title } : { kind: 'unreadable' });
         else if (s === 'unreadable') emit({ kind: 'unreadable' });
         else if (s === 'unanswered') emit({ kind: 'unanswered' });
-        else if (s === 'unpaired') emit({ kind: 'unpaired' });
+        else if (s === 'unpaired') emit({ kind: 'unpaired', reason: why ?? 'unknown' });
         else if (s === 'expired') emit({ kind: 'failed', at: 'pc', message: `${spec.pcName} から応答がありません。${spec.pcName} で hangar が実行中か確認して、もう一度送信してください。` });
         else emit(answerFailure(spec.pcName, a));
       },

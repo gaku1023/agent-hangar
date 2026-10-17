@@ -134,7 +134,10 @@ describe('JoinScreen', () => {
     const { text } = makePairText();
     render(<JoinScreen pairText={text} onEnter={vi.fn()} wait={FAST} />);
     fireEvent.click(screen.getByRole('button', { name: '接続する' }));
+    expect(await screen.findByText('受信中…（最大 1 分）')).toBeInTheDocument();
     expect(await screen.findByText(/PC から応答がありません/)).toBeInTheDocument();
+    // 別の QR で接続し直しても、今の接続は PC の一覧から消えない。
+    expect(screen.getByText('別の QR で接続しても、今の接続は PC の設定 › クラウド で解除するまで削除されません。')).toBeInTheDocument();
     keyboxReady = true;
     fireEvent.click(screen.getByRole('button', { name: 'もう一度待つ' }));
     expect(await screen.findByText('接続しました')).toBeInTheDocument();

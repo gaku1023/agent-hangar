@@ -49,12 +49,15 @@ type Props = {
   view: InboxView;
   /** 候補の問い合わせと画像の置き場に使う。 */
   pairing: Pairing;
-  /** 問い合わせと画像を封じる、いちばん新しい世代のスマホ用の鍵。 */
+  /**
+   * 開いたときの、いちばん新しい世代のスマホ用の鍵。
+   * 画面を閉じるまでこの鍵を使い続ける（後で変わっても読み替えない）。
+   */
   phoneKey: PhoneKey;
   /** 試験で差し替える口。 */
   deps?: { asker?: Asker; putImage?: PutImage; shrink?: Shrink };
-  /** 「始める」。画面を閉じて、起動のシートに進みを見せるのは呼び手。 */
-  onLaunch: (spec: LaunchSpec) => void;
+  /** 「始める」。key は画像を封じた鍵で、依頼も同じ鍵で封じる。画面を閉じて、起動のシートに進みを見せるのは呼び手。 */
+  onLaunch: (spec: LaunchSpec, key: PhoneKey) => void;
   /** 閉じる。 */
   onClose: () => void;
   /** 閉じる動きの間。押せないようにして、下がって消える。 */
@@ -83,9 +86,12 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const [submitted, setSubmitted] = useState(false);
   // 依頼の ID は画面を開いたときに振る。画像はこの ID の下に置き、依頼もこの ID で出す。
   const [launchId] = useState(() => globalThis.crypto.randomUUID());
+  // 鍵は画面を開いたときのものに固める。
+  // 開いている間に受信箱が新しい世代を読んでも、画像、問い合わせ、依頼を同じ世代で封じる（PC は依頼の世代で画像を開く）。
+  const [key] = useState(() => phoneKey);
   // 候補の答えは画面の間だけ覚える（画面は開くたびに作り直す）。
-  const [asker] = useState(() => deps?.asker ?? createAsker(pairing, phoneKey));
-  const att = useAttachments({ pairing, key: phoneKey, launchId, put: deps?.putImage, shrink: deps?.shrink });
+  const [asker] = useState(() => deps?.asker ?? createAsker(pairing, key));
+  const att = useAttachments({ pairing, key, launchId, put: deps?.putImage, shrink: deps?.shrink });
   const promptId = useId();
   const advId = useId();
   const titleId = useId();
@@ -126,27 +132,30 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
     if (!ready || !sel || !pc || !account) return;
     setSubmitted(true);
     const images = att.ready;
-    onLaunch({
-      targetDevice: pc,
-      pcName,
-      projectName: sel.scratch ? null : (project?.name || project?.id || null),
-      accountId: account,
-      accountName: accountOf ? accountOf.name || accountOf.id : null,
-      accountColor: accountOf ? safeColor(accountOf.color) : null,
-      payload: {
-        projectId: sel.scratch ? null : sel.id,
-        scratch: sel.scratch,
+    onLaunch(
+      {
+        targetDevice: pc,
+        pcName,
+        projectName: sel.scratch ? null : (project?.name || project?.id || null),
         accountId: account,
-        permissionMode,
-        model,
-        ...(effortSent ? { effort: effortSent } : {}),
-        prompt,
-        ...(images.length > 0 ? { images: images.map((i) => ({ n: i.n, mime: i.mime, bytes: i.data.length })) } : {}),
+        accountName: accountOf ? accountOf.name || accountOf.id : null,
+        accountColor: accountOf ? safeColor(accountOf.color) : null,
+        payload: {
+          projectId: sel.scratch ? null : sel.id,
+          scratch: sel.scratch,
+          accountId: account,
+          permissionMode,
+          model,
+          ...(effortSent ? { effort: effortSent } : {}),
+          prompt,
+          ...(images.length > 0 ? { images: images.map((i) => ({ n: i.n, mime: i.mime, bytes: i.data.length })) } : {}),
+        },
+        skewMs: view.skewMs,
+        id: launchId,
+        ...(images.length > 0 ? { images } : {}),
       },
-      skewMs: view.skewMs,
-      id: launchId,
-      ...(images.length > 0 ? { images } : {}),
-    });
+      key,
+    );
   };
 
   const label = !sel

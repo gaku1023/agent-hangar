@@ -30,7 +30,12 @@ export async function unpairedOf(res: Response): Promise<UnpairedError> {
   } catch {
     error = undefined;
   }
-  return new UnpairedError(error === EXPIRED_ERROR ? 'expired' : error === REVOKED_ERROR ? 'revoked' : 'unknown');
+  return new UnpairedError(unpairedReasonOf(error));
+}
+
+/** 401 の本文の error から理由を読む。 */
+export function unpairedReasonOf(error: unknown): UnpairedReason {
+  return error === EXPIRED_ERROR ? 'expired' : error === REVOKED_ERROR ? 'revoked' : 'unknown';
 }
 
 /**
@@ -207,11 +212,12 @@ export async function fetchInbox(p: Pairing): Promise<InboxFetched> {
 
 export type LaunchFailure = 'rate-limited' | 'not-found' | 'conflict' | 'too-large' | 'unpaired' | 'network' | 'server';
 
-/** 起動の依頼を送れなかった、または状態を読めなかった。reason で画面の文を分ける。 */
+/** 起動の依頼を送れなかった、または状態を読めなかった。reason で画面の文を分ける。unpairedReason は 401 の理由。 */
 export class LaunchError extends Error {
   constructor(
     readonly reason: LaunchFailure,
     readonly status: number | null = null,
+    readonly unpairedReason: UnpairedReason = 'unknown',
   ) {
     super(`起動の依頼が通りませんでした（${reason}）`);
     this.name = 'LaunchError';
@@ -229,6 +235,7 @@ async function launchFetch(p: Pairing, path: string, init: RequestInit): Promise
     if (e instanceof MobilePairingError) throw new LaunchError('unpaired');
     throw new LaunchError('network');
   }
+  if (res.status === 401) throw new LaunchError('unpaired', 401, (await unpairedOf(res)).reason);
   if (!res.ok) throw new LaunchError(launchFailure(res.status), res.status);
   try {
     return (await res.json()) as MobileLaunchStatus;

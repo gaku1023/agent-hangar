@@ -1,5 +1,5 @@
 import { aadAnswer, aadLaunch, open, seal, sealPhoneKeybox, toBase64Url, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchPayload } from '@agent-hangar/shared';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
 import * as store from './store.ts';
@@ -162,6 +162,18 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: /接続/ })).toBeInTheDocument();
   });
 
+  it('依頼を受けた Worker が 401 expired を返したら、期限切れの文を出す', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/m/inbox')) return json(await inboxOf(key, feeds, { now: Date.now() }));
+      if (init?.method === 'POST') return json({ error: 'expired' }, 401);
+      return json({}, 404);
+    });
+    render(<App pairText={null} launchEveryMs={20} />);
+    await openNew();
+    fillAndStart();
+    expect(await screen.findByText('接続の期限が切れました。PC で QR を出して接続し直してください。')).toBeInTheDocument();
+  });
+
   it('受信箱が 401 expired なら「接続の期限が切れました。PC で QR を出して接続し直してください。」', async () => {
     fetchMock.mockImplementation(async () => json({ error: 'expired' }, 401));
     render(<App pairText={null} />);
@@ -202,5 +214,42 @@ describe('App', () => {
     await waitFor(() => expect(launches).toHaveLength(1));
     expect(launches[0]!.epoch).toBe(2);
     expect(await open<MobileLaunchPayload>(key2, aadLaunch(launches[0]!.id, 'pc-1'), launches[0]!.sealed)).toMatchObject({ prompt: 'テストを足して' });
+  });
+
+  it('新しい会話の画面を開いた後に世代が上がっても、依頼は開いたときの世代で封じる（画像と同じ世代）', async () => {
+    const pair = (await store.loadPhonePair())!;
+    const m2 = globalThis.crypto.getRandomValues(new Uint8Array(32));
+    const key2 = await globalThis.crypto.subtle.importKey('raw', m2 as BufferSource, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    let epoch = 1;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/m/inbox')) {
+        inboxReads++;
+        return json(epoch === 2 ? await inboxOf(key2, feeds, { now: Date.now(), epoch: 2 }) : await inboxOf(key, feeds, { now: Date.now() }));
+      }
+      if (url.endsWith('/m/keybox')) return json({ epoch: 2, sealed: toBase64Url(await sealPhoneKeybox(pair.pub, 'phone-1', 2, m2)) });
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body as string) as { id: string; targetDevice: string; sealed: string; epoch: number };
+        launches.push(body);
+        return json({ id: body.id, status: 'pending', sealedAnswer: null }, 201);
+      }
+      return json({ id: url.split('/').pop(), status: 'pending', sealedAnswer: null });
+    });
+    render(<App pairText={null} launchEveryMs={20} />);
+    await openNew();
+    // 画面を開いている間に、受信箱が新しい世代を読む。
+    epoch = 2;
+    const before = inboxReads;
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(inboxReads).toBeGreaterThan(before));
+    await waitFor(async () => expect([...(await store.loadPhoneKeys()).keys()].sort()).toEqual([1, 2]));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    fillAndStart();
+    await waitFor(() => expect(launches).toHaveLength(1));
+    expect(launches[0]!.epoch).toBe(1);
+    expect(await open<MobileLaunchPayload>(key, aadLaunch(launches[0]!.id, 'pc-1'), launches[0]!.sealed)).toMatchObject({ prompt: 'テストを足して' });
   });
 });

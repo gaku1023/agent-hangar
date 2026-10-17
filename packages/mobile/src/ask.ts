@@ -1,7 +1,7 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
 import type { MobileAsk, MobileAskIn, MobileReply } from '@agent-hangar/shared/src/mobile.ts';
 import { aadAsk, aadReply, MobilePairingError, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
-import { mobileHeaders, originOf, workerCompatOf, workerTooOld } from './api.ts';
+import { mobileHeaders, originOf, unpairedOf, workerCompatOf, workerTooOld, type UnpairedReason } from './api.ts';
 import type { Pairing, PhoneKey } from './store.ts';
 
 /**
@@ -28,10 +28,12 @@ export type AskFailure =
   | 'account-missing'
   | 'bad-request';
 
+/** 問い合わせの失敗。unpairedReason は 401 の理由。 */
 export class AskError extends Error {
   constructor(
     readonly reason: AskFailure,
     readonly status: number | null = null,
+    readonly unpairedReason: UnpairedReason = 'unknown',
   ) {
     super(`問い合わせが通りませんでした（${reason}）`);
     this.name = 'AskError';
@@ -147,6 +149,7 @@ export async function askPc(p: Pairing, key: PhoneKey, targetDevice: string, bod
   }
   // /m/ask を知らない古い Worker（rc.1 も JSON の 404 を返す）は、応答の版の見出しで見分ける。
   if (workerTooOld(workerCompatOf(res))) throw new AskError('unsupported', res.status);
+  if (res.status === 401) throw new AskError('unpaired', 401, (await unpairedOf(res)).reason);
   if (!res.ok) throw failureOf(res);
   let out: unknown;
   try {
@@ -177,7 +180,7 @@ export type Asker = {
 };
 
 /** 問い合わせ口を作る。失敗した問い合わせは覚えない（次で問い合わせ直す）。 */
-export function createAsker(p: Pairing, key: PhoneKey, o:{ now?: () => number; ask?: typeof askPc } = {}): Asker {
+export function createAsker(p: Pairing, key: PhoneKey, o: { now?: () => number; ask?: typeof askPc } = {}): Asker {
   const now = o.now ?? Date.now;
   const ask = o.ask ?? askPc;
   const cmds = new Map<string, Promise<CommandHit[]>>();

@@ -1,6 +1,6 @@
 import type { MobileAccount, MobileFeed, MobileLaunchAnswer, MobileLaunchPayload, MobileProject } from '@agent-hangar/shared/src/mobile.ts';
 import { aadAnswer, aadLaunch, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
-import { getLaunch, LaunchError, postLaunch } from './api.ts';
+import { getLaunch, LaunchError, postLaunch, type UnpairedReason } from './api.ts';
 import type { Pairing, PhoneKey } from './store.ts';
 
 export type LaunchProject = MobileProject & { deviceIds: string[] };
@@ -77,7 +77,7 @@ export async function requestLaunch(
 /**
  * 依頼の行き着いた先。
  * - unreadable：PC の答えが無いか、開けないか、Worker の状態と食い違う。始まったかどうかをスマホは言えない。
- * - unpaired：このスマホの接続が外された（401）。
+ * - unpaired：このスマホの接続が外された（401）。onStage の 3 つ目に 401 の理由を添える。
  * - unanswered：PC は受け取った（claimed を見た）が、諦めるまでに答えが届かなかった。会話が始まっているかもしれない。
  */
 export type LaunchStage = 'waiting' | 'started' | 'failed' | 'expired' | 'unreadable' | 'unpaired' | 'unanswered';
@@ -102,19 +102,20 @@ export function waitLaunch(
   p: Pairing,
   key: PhoneKey,
   id: string,
-  o: { everyMs?: number; giveUpMs?: number; onStage: (s: LaunchStage, a?: MobileLaunchAnswer) => void; onClaimed?: () => void },
+  o: { everyMs?: number; giveUpMs?: number; onStage: (s: LaunchStage, a?: MobileLaunchAnswer, why?: UnpairedReason) => void; onClaimed?: () => void },
 ): () => void {
   const every = o.everyMs ?? LAUNCH_POLL_MS;
   const giveUp = o.giveUpMs ?? LAUNCH_GIVE_UP_MS;
   let done = false;
   let claimed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const finish = (s: LaunchStage, a?: MobileLaunchAnswer): void => {
+  const finish = (s: LaunchStage, a?: MobileLaunchAnswer, why?: UnpairedReason): void => {
     if (done) return;
     done = true;
     if (timer) clearTimeout(timer);
     clearTimeout(limit);
-    if (a) o.onStage(s, a);
+    if (why) o.onStage(s, undefined, why);
+    else if (a) o.onStage(s, a);
     else o.onStage(s);
   };
   const answerOf = async (sealed: string | null): Promise<MobileLaunchAnswer | undefined> => {
@@ -150,7 +151,7 @@ export function waitLaunch(
       }
     } catch (e) {
       if (e instanceof LaunchError && e.reason === 'unpaired') {
-        finish('unpaired');
+        finish('unpaired', undefined, e.unpairedReason);
         return;
       }
       if (e instanceof LaunchError && e.reason === 'not-found') {

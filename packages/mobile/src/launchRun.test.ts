@@ -149,7 +149,7 @@ describe('startLaunch', () => {
       return json({ error: 'unauthorized' }, 401);
     });
     const { last } = run();
-    await vi.waitFor(() => expect(last().kind).toBe('unpaired'));
+    await vi.waitFor(() => expect(last()).toEqual({ kind: 'unpaired', reason: 'unknown' }));
   });
 
   it('届いたか分からない失敗の後の retry は同じ id で送り、受け取られた後の失敗の retry は新しい id', async () => {
@@ -288,11 +288,11 @@ describe('startLaunch の画像', () => {
   it('画像を置くときの 401 は unpaired', async () => {
     serve([{ status: 'pending' }]);
     const put = vi.fn<PutImage>(async () => {
-      throw new ImageError('unpaired', 401);
+      throw new ImageError('unpaired', 401, 'expired');
     });
     const s = withImages();
     s.id = undefined;
     const { last } = runWith(s, put);
-    await vi.waitFor(() => expect(last()).toEqual({ kind: 'unpaired' }));
+    await vi.waitFor(() => expect(last()).toEqual({ kind: 'unpaired', reason: 'expired' }));
   });
 });

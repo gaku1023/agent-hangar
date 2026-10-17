@@ -218,6 +218,13 @@ describe('Composer の @ の候補', () => {
     await waitFor(() => expect(within(sheet()!).getByText('PC が応答しません')).toBeInTheDocument());
   });
 
+  it('接続の期限切れ（401 expired）では「解除されています」でなく期限切れと言う', async () => {
+    const { type } = setup({ asker: { files: vi.fn(async () => Promise.reject(new AskError('unpaired', 401, 'expired'))) } });
+    type('@');
+    await waitFor(() => expect(within(sheet()!).getByText('このスマホの接続は期限が切れています')).toBeInTheDocument());
+    expect(within(sheet()!).queryByText(/解除されています/)).not.toBeInTheDocument();
+  });
+
   it('呼び鈴の口が無いときは「この PC は候補を返せません」と更新を促し、再試行を出さない', async () => {
     const { type } = setup({ asker: { commands: vi.fn(async () => Promise.reject(new AskError('unsupported', 404))) } });
     type('/');

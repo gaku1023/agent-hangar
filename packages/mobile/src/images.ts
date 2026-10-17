@@ -3,7 +3,7 @@ import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, MOBILE_IMAGES_PER_PHO
 import { COMPAT_HEADER, parseCompat } from '@agent-hangar/shared/src/compat.ts';
 import { aadImage, MobilePairingError, sealBytes } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { mobileHeaders, originOf, workerTooOld } from './api.ts';
+import { mobileHeaders, originOf, unpairedReasonOf, workerTooOld, type UnpairedReason } from './api.ts';
 import type { Pairing, PhoneKey } from './store.ts';
 
 /** 縮めた後の長い辺。 */
@@ -37,10 +37,12 @@ export function rejectImage(o: { count: number; name?: string; bytes?: number })
 
 export type ImageFailure = 'too-large' | 'too-many' | 'rate-limited' | 'unpaired' | 'unsupported' | 'network' | 'server' | 'aborted';
 
+/** 置けなかった理由。unpairedReason は 401 の理由。 */
 export class ImageError extends Error {
   constructor(
     readonly reason: ImageFailure,
     readonly status: number | null = null,
+    readonly unpairedReason: UnpairedReason = 'unknown',
   ) {
     super(`画像を送信できませんでした（${reason}）`);
     this.name = 'ImageError';
@@ -55,10 +57,11 @@ export function imageFailureText(e: unknown, lead: string, tail: string): string
   const reason = e instanceof ImageError ? e.reason : 'server';
   const status = e instanceof ImageError ? e.status : null;
   const code = reason === 'server' && status ? `（${status}）` : '';
-  return `${lead}${code}。${imageCause(reason)}${tail}`;
+  const expired = e instanceof ImageError && e.unpairedReason === 'expired';
+  return `${lead}${code}。${imageCause(reason, expired)}${tail}`;
 }
 
-function imageCause(reason: ImageFailure): string {
+function imageCause(reason: ImageFailure, expired: boolean): string {
   switch (reason) {
     case 'too-many':
       return `クラウドに保存している画像が上限の ${MOBILE_IMAGES_PER_PHONE} 枚に達しています。PC が受信すると消えます。`;
@@ -67,7 +70,7 @@ function imageCause(reason: ImageFailure): string {
     case 'rate-limited':
       return '送信の上限です。少し待ってください。';
     case 'unpaired':
-      return 'このスマホの接続は解除されています。';
+      return expired ? 'このスマホの接続は期限が切れています。' : 'このスマホの接続は解除されています。';
     case 'unsupported':
       return 'クラウドが画像の添付に対応していません。PC の hangar を更新して、クラウドを更新してください。';
     case 'network':
@@ -131,7 +134,7 @@ export const putImage: PutImage = async (p, key, launchId, n, data, o = {}) => {
         // 本文が JSON でなければ、理由は状態の番号だけで決める。
       }
       const reason: ImageFailure = s === 401 ? 'unpaired' : s === 413 ? 'too-large' : s === 429 ? (error === 'too many images' ? 'too-many' : 'rate-limited') : 'server';
-      reject(new ImageError(reason, s));
+      reject(new ImageError(reason, s, s === 401 ? unpairedReasonOf(error) : 'unknown'));
     };
     x.onerror = () => reject(new ImageError('network'));
     x.onabort = () => reject(new ImageError('aborted'));

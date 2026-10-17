@@ -297,7 +297,13 @@ describe('waitLaunch', () => {
     const onStage = vi.fn();
     waitLaunch(pairing, at1(key), 'l-12', { onStage });
     await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
-    expect(onStage).toHaveBeenLastCalledWith('unpaired');
+    expect(onStage).toHaveBeenLastCalledWith('unpaired', undefined, 'unknown');
+
+    fetchMock.mockImplementation(async () => json({ error: 'expired' }, 401));
+    const onStageExpired = vi.fn();
+    waitLaunch(pairing, at1(key), 'l-12', { onStage: onStageExpired });
+    await vi.advanceTimersByTimeAsync(LAUNCH_POLL_MS);
+    expect(onStageExpired).toHaveBeenLastCalledWith('unpaired', undefined, 'expired');
 
     fetchMock.mockImplementation(async () => json({ error: 'not found' }, 404));
     const onStage2 = vi.fn();

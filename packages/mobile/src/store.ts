@@ -33,6 +33,19 @@ const LEGACY_KEY_ID = 'mobile-key';
 const PAIR_ID = 'phone-pair';
 const KEYS_ID = 'phone-keys';
 
+/**
+ * 鍵ペアとスマホ用の鍵の書き換えの列。
+ * savePhoneKey は読んでから書くので、2 つが重なると先に書いたほうの世代が消える（受信箱の読み直しと接続の後の待ちが重なるときなど）。
+ * 書き換え（savePhonePair、savePhoneKey、clearPhoneKeys、clearPairing）は全部この列に並べ、呼んだ順に 1 つずつ走らせる。
+ */
+let keysQueue: Promise<unknown> = Promise.resolve();
+
+function inKeysQueue<T>(run: () => Promise<T>): Promise<T> {
+  const next = keysQueue.then(run, run);
+  keysQueue = next.catch(() => undefined);
+  return next;
+}
+
 function isPairing(v: unknown): v is Pairing {
   const o = v as Partial<Record<keyof Pairing, unknown>> | null;
   return !!o && typeof o === 'object' && typeof o.url === 'string' && !!o.url && typeof o.token === 'string' && !!o.token && typeof o.deviceId === 'string' && !!o.deviceId;
@@ -67,11 +80,14 @@ export function clearPairing(): Promise<void> {
   } catch {
     // 消せなくても、Worker がトークンを 401 で断るので受信箱は開けない。
   }
-  return withStore('readwrite', (s) => {
-    s.delete(LEGACY_KEY_ID);
-    s.delete(PAIR_ID);
-    return s.delete(KEYS_ID);
-  }).then(
+  // 鍵の書き換えの列に並べる（先に始まった savePhoneKey が、消した後に書き戻さないように）。
+  return inKeysQueue(() =>
+    withStore('readwrite', (s) => {
+      s.delete(LEGACY_KEY_ID);
+      s.delete(PAIR_ID);
+      return s.delete(KEYS_ID);
+    }),
+  ).then(
     () => undefined,
     () => undefined,
   );
@@ -122,9 +138,14 @@ export async function loadPhonePair(): Promise<PhonePair | null> {
   }
 }
 
-/** 鍵ペアをそのまま（構造化複製で）置く。置けなければ投げる（参加の画面が理由を出す）。 */
-export async function savePhonePair(p: PhonePair): Promise<void> {
-  await withStore('readwrite', (s) => s.put({ pub: p.pub, key: p.key }, PAIR_ID));
+/**
+ * 鍵ペアをそのまま（構造化複製で）置く。置けなければ投げる（参加の画面が理由を出す）。
+ * 鍵の書き換えの列に並べる（待たずに呼んだ clearPairing が、後から置いた鍵ペアを消さないように）。
+ */
+export function savePhonePair(p: PhonePair): Promise<void> {
+  return inKeysQueue(async () => {
+    await withStore('readwrite', (s) => s.put({ pub: p.pub, key: p.key }, PAIR_ID));
+  });
 }
 
 function readKeys(v: unknown): Map<number, CryptoKey> {
@@ -147,17 +168,21 @@ export async function loadPhoneKeys(): Promise<Keyring> {
 }
 
 /** スマホ用の鍵 M[epoch] を足し、新しいほうから KEEP_EPOCHS 世代だけを残す。足した後の手元の鍵を返す。置けなければ投げる。 */
-export async function savePhoneKey(epoch: number, key: CryptoKey): Promise<Keyring> {
-  const ring = new Map(await loadPhoneKeys());
-  ring.set(epoch, key);
-  const kept = [...ring.entries()].sort((a, b) => b[0] - a[0]).slice(0, KEEP_EPOCHS);
-  await withStore('readwrite', (s) => s.put(kept.map(([e, k]) => ({ epoch: e, key: k })), KEYS_ID));
-  return new Map(kept);
+export function savePhoneKey(epoch: number, key: CryptoKey): Promise<Keyring> {
+  return inKeysQueue(async () => {
+    const ring = new Map(await loadPhoneKeys());
+    ring.set(epoch, key);
+    const kept = [...ring.entries()].sort((a, b) => b[0] - a[0]).slice(0, KEEP_EPOCHS);
+    await withStore('readwrite', (s) => s.put(kept.map(([e, k]) => ({ epoch: e, key: k })), KEYS_ID));
+    return new Map(kept);
+  });
 }
 
 /** スマホ用の鍵をすべて忘れる（接続し直したとき。前の接続先の世代と番号が重ならないように）。 */
-export async function clearPhoneKeys(): Promise<void> {
-  await withStore('readwrite', (s) => s.delete(KEYS_ID));
+export function clearPhoneKeys(): Promise<void> {
+  return inKeysQueue(async () => {
+    await withStore('readwrite', (s) => s.delete(KEYS_ID));
+  });
 }
 
 /** いちばん新しい世代の番号。鍵が無ければ 0。 */

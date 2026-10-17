@@ -108,6 +108,13 @@ describe('スマホ用の鍵 M（IndexedDB、世代つき）', () => {
     expect([...(await loadPhoneKeys()).keys()].sort((a, b) => a - b)).toEqual(Array.from({ length: KEEP_EPOCHS }, (_, i) => i + 3));
   });
 
+  it('同時に足しても、読んでから書くまでの間に他の足しが割り込まず、どの世代も失わない', async () => {
+    await clearPairing();
+    const [k1, k2, k3] = await Promise.all([makeKey(), makeKey(), makeKey()]);
+    await Promise.all([savePhoneKey(1, k1), savePhoneKey(2, k2), savePhoneKey(3, k3)]);
+    expect([...(await loadPhoneKeys()).keys()].sort()).toEqual([1, 2, 3]);
+  });
+
   it('鍵が無ければ currentKey は null', () => {
     expect(currentKey(new Map())).toBeNull();
   });
