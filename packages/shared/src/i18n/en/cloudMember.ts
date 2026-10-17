@@ -35,7 +35,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.rejoin.current': 'Current destination',
   'cloudMember.rejoin.next': 'New destination',
   'cloudMember.rejoin.body': 'Once approved, this computer\'s sync settings are replaced with the new destination, and it stops syncing with the current cloud. Transcripts already received on this computer are not deleted.',
-  'cloudMember.rejoin.legacy': 'The current settings use the old format from 0.8.x or earlier. They are backed up to ~/.agent-hangar/backups before being overwritten.',
+  'cloudMember.rejoin.legacy': 'The current settings use the old format from 0.8.x or earlier. They are saved to the backups folder before being overwritten.',
   'cloudMember.fail.expired.title': 'The join code has expired',
   'cloudMember.fail.expired.body': 'The join code expired (after 5 minutes) or was already used. Click "Add a computer" again on a computer that already joined, and enter the new join code.',
   'cloudMember.fail.rejected.title': 'The join request was rejected',

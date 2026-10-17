@@ -175,15 +175,18 @@ export function setLegacyProbeTimeoutForTests(ms: number | null): void {
 /**
  * 古い形式の cloud.json の接続先に、古いクラウドがまだあるか。
  * alive は 0.8.x までの Worker（互換の版が 9 未満か、版を名乗らない）が /health に応答している。
- * gone は、もう無い（404 か、接続できない）か、同じ名前で作り直した新しい Worker（互換の版が 9 以上、または 426 で版を断る）が応答している。
- * unknown は、一時の失敗（打ち切り、5xx、ほかの応答）で決められない。
+ * gone は、もう無い（404 か、名前が引けない ENOTFOUND）か、同じ名前で作り直した新しい Worker（互換の版が 9 以上、または 426 で版を断る）が応答している。
+ * unknown は、一時の失敗（打ち切り、5xx、ENOTFOUND 以外の接続の失敗、リダイレクト、ほかの応答）で決められない。
+ * 接続の切断（ECONNRESET）、TLS の失敗、一時の DNS の失敗（EAI_AGAIN）は、古いクラウドがまだあっても起きるので、もう無いとは決めない。
+ * リダイレクトは追わない。追えば行き先の 404 を、古いクラウドがもう無いと読んでしまうからである。
  */
 async function legacyCloudState(url: string, f: typeof fetch): Promise<'alive' | 'gone' | 'unknown'> {
   let r: Response;
   try {
-    r = await workerFetch(url, '/health', { fetch: f, timeoutMs: legacyProbeTimeoutMs });
+    r = await workerFetch(url, '/health', { fetch: f, timeoutMs: legacyProbeTimeoutMs, redirect: 'manual' });
   } catch (e) {
-    if (e instanceof JoinError && (e.code === 'network' || e.code === 'compat')) return 'gone';
+    if (e instanceof JoinError && e.code === 'compat') return 'gone';
+    if (e instanceof JoinError && e.code === 'network' && e.causeCode === 'ENOTFOUND') return 'gone';
     return 'unknown';
   }
   if (r.status === 404) return 'gone';

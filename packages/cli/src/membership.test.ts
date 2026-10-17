@@ -269,10 +269,13 @@ describe('joinRequest（参加リクエストを置く）', () => {
     }
   });
 
-  it('古い形式で Worker を作成した PC でも、古いクラウドがもう無ければ（404、接続できない、同じ URL に互換の版 9 以上の Worker）、上書きの指定で参加でき、cloud.json を backups/ に保存してから書き換える', async () => {
+  it('古い形式で Worker を作成した PC でも、古いクラウドがもう無ければ（404、名前が無い、426、同じ URL に互換の版 9 以上の Worker）、上書きの指定で参加でき、cloud.json を backups/ に保存してから書き換える', async () => {
     const cases: Array<{ name: string; oldUrl: string; health: OldHealth | null }> = [
       { name: '404', oldUrl: 'https://old.workers.dev', health: async () => new Response('There is nothing here yet', { status: 404 }) },
-      { name: '接続できない', oldUrl: 'https://old.workers.dev', health: async () => { throw new TypeError('fetch failed'); } },
+      // Worker を削除すると workers.dev の名前が引けなくなる。
+      { name: 'ENOTFOUND', oldUrl: 'https://old.workers.dev', health: async () => { throw failedFetch('ENOTFOUND'); } },
+      // 同じ名前で作り直した新しい Worker が、古い版の見出しを 426 で断る。
+      { name: '426', oldUrl: 'https://old.workers.dev', health: async () => new Response(JSON.stringify({ error: 'compat', need: 9 }), { status: 426 }) },
       // 同じ Worker の名前で作り直すと、古い URL には新しい Worker が答える。
       { name: '同じ URL に新しい Worker', oldUrl: URL_, health: null },
     ];
@@ -296,12 +299,22 @@ describe('joinRequest（参加リクエストを置く）', () => {
     }
   });
 
-  it('古いクラウドの状態を一時の失敗（5xx、打ち切り）で確認できなければ、安全側に倒して legacy-unverified で断る', async () => {
+  it('古いクラウドの状態を一時の失敗（5xx、打ち切り、一時の DNS の失敗、接続の切断、TLS の失敗、リダイレクト）で確認できなければ、安全側に倒して legacy-unverified で断る', async () => {
     setLegacyProbeTimeoutForTests(50);
     try {
       const answers: OldHealth[] = [
         async () => new Response('error code: 1101', { status: 503 }),
         (init) => new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+        async () => { throw failedFetch('EAI_AGAIN'); },
+        async () => { throw failedFetch('ECONNRESET'); },
+        async () => { throw failedFetch('UNABLE_TO_VERIFY_LEAF_SIGNATURE'); },
+        async () => { throw failedFetch('ERR_SSL_WRONG_VERSION_NUMBER'); },
+        // 理由の分からない接続の失敗も、もう無いとは決めない。
+        async () => { throw new TypeError('fetch failed'); },
+        // リダイレクトは追わない。追えば行き先の 404 を「もう無い」と読んでしまう。
+        async (init) => (init?.redirect === 'manual'
+          ? new Response(null, { status: 302, headers: { location: 'https://elsewhere.example/health' } })
+          : new Response('', { status: 404 })),
       ];
       for (const health of answers) {
         const c = await cloudWithIssuer();
@@ -367,6 +380,9 @@ const legacy = (over: Record<string, unknown> = {}): Record<string, unknown> => 
 const creatorLegacy = (over: Record<string, unknown> = {}): string => JSON.stringify(legacy({ workerName: 'hangar-old', accountId: 'acc', dbName: 'hangar-old', bucketName: 'hangar-old-files', ...over }));
 
 type OldHealth = (init?: RequestInit) => Promise<Response>;
+
+/** Node の fetch が接続に失敗したときの形（TypeError の cause に、システムの符号がある）。 */
+const failedFetch = (code: string): TypeError => new TypeError('fetch failed', { cause: Object.assign(new Error(code), { code }) });
 
 /** 古いクラウド（old.workers.dev）への問い合わせだけを health で答え、他は新しいクラウドの偽物に回す。 */
 const withOldCloud = (w: FakeWorker, health: OldHealth): typeof fetch =>

@@ -5571,14 +5571,17 @@ teardown の最後は、他の PC に、0.9.0 以降に更新してから新し�
 旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
 
 古い形式（版 1）の `cloud.json` での参加は、Worker を作成した PC かどうかと、古いクラウドがまだあるかで分ける（`membership.ts` の `currentCloud` と `legacyCloudState`）。
-Worker を作成した PC（`workerName` がある）は、古い `cloud.json` の `url` の `/health` を 1 回だけ見る（締め切り 10 秒）。
+Worker を作成した PC（`workerName` がある）は、古い `cloud.json` の `url` の `/health` を 1 回だけ見る（締め切り 10 秒、リダイレクトは追わない）。
 - 0.8.x までの Worker が答える（`ok: true` で、互換の版が 9 未満か、版を名乗らない）なら、古いクラウドはまだ稼働している。`join-check` と `join-request` を `--overwrite` があっても `legacy-config` で断り、先に teardown するよう案内する。上書きすると Worker の名前、アカウント、D1 と R2 の名前、R2 の本文の暗号鍵の材料（`joinSecret`）が消え、teardown も R2 の本文の復号もできなくなるからである。
-- 404 か接続できない、または互換の版が 9 以上の Worker（同じ名前で作り直した新しい Worker）が答える（426 で版を断るのも同じ）なら、古いクラウドはもう無い。失うものが無いので、参加しただけの PC と同じく上書きの確認で参加できる。
+- 404 か、名前が引けない（`ENOTFOUND`。Worker を削除すると workers.dev の名前が無くなる）か、互換の版が 9 以上の Worker（同じ名前で作り直した新しい Worker）が答える（426 で版を断るのも同じ）なら、古いクラウドはもう無い。失うものが無いので、参加しただけの PC と同じく上書きの確認で参加できる。
   昔その PC でも setup を実行していると、本当に作成した PC でなくても `workerName` を持ち、本当に作成した PC の teardown で Worker が消えた後も残る。名前の有無だけで断ると、その PC は teardown もできずに参加できなくなる。
-- 打ち切り、5xx、ほかの応答で決められなければ、安全側に倒して `legacy-unverified` で断り、しばらくしてからもう一度を案内する。
+- 打ち切り、5xx、`ENOTFOUND` 以外の接続の失敗、3xx、ほかの応答で決められなければ、安全側に倒して `legacy-unverified` で断り、しばらくしてからもう一度を案内する。
+  接続の切断（`ECONNRESET`）、TLS の失敗、一時の DNS の失敗（`EAI_AGAIN`）は、古いクラウドがまだあっても起きるので、もう無いとは決めない（`workerFetch` は接続の失敗の `cause.code` を `JoinError` の `causeCode` に持たせる）。
+  リダイレクトを追うと、行き先の 404 を古いクラウドがもう無いと読んでしまうので、3xx は決められない側に置く。
 殻は CLI の `code` をそのまま返し、画面は接続先の欄の下に、`legacy-config` なら `cloudMember.join.legacyCreator`（teardown の案内）を、`legacy-unverified` なら `cloudMember.join.legacyUnverified` を出す。
 参加しただけの PC（`workerName` が無い）は、古いクラウドに問い合わせずに、別のクラウドに参加済みの PC と同じく上書きの確認で参加できる。
 上書きしてよい古い形式では、`join-check` の `current` に `legacy: true` を添える。画面は同じ接続先でも上書きの警告を出し、上書きの前にバックアップすることを添える（`cloudMember.rejoin.legacy`）。
+画面の文はバックアップのパスを書かない（データのディレクトリを変えた PC でも違うパスを示さないため）。CLI の文は `backupsRoot(home)` の実際のパスを書く。
 `join-poll` は `cloud.json` を書く直前に今の `cloud.json` を確かめ直し（古いクラウドの `/health` ももう一度見る）、上書きしてよい古い形式なら `~/.agent-hangar/backups/cloud.json.legacy-<日時>`（0600）に控えてから上書きする。
 その時点で断る形（`legacy-config` か `legacy-unverified`）になっていれば、書かずに止まり、端末トークンは下書きに持ったままにする。
 

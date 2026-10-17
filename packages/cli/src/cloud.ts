@@ -368,19 +368,26 @@ export async function waitForHealth(url: string, o: { fetch: typeof fetch; sleep
  */
 export type JoinErrorCode = 'forbidden' | 'compat' | 'network' | 'timeout' | 'failed';
 
-/** Worker との話の失敗。message は CLI の文で、トークンも応答の本文も載せない。 */
+/**
+ * Worker との話の失敗。message は CLI の文で、トークンも応答の本文も載せない。
+ * causeCode は、network のときにシステムが返した符号（ENOTFOUND、ECONNRESET など）で、分からなければ null である。
+ */
 export class JoinError extends Error {
-  constructor(readonly code: JoinErrorCode, message: string) {
+  constructor(readonly code: JoinErrorCode, message: string, readonly causeCode: string | null = null) {
     super(message);
     this.name = 'JoinError';
   }
 }
 
+/** 接続の失敗の例外から、システムの符号（cause.code）を取り出す。 */
+function causeCodeOf(e: unknown): string | null {
+  const cause = (e as { cause?: { code?: unknown } } | null)?.cause;
+  return typeof cause?.code === 'string' ? cause.code : null;
+}
+
 /** 例外から、ユーザーに見せてよい短い手がかりだけを取り出す。本文も秘密も出さない。 */
 function reasonOf(e: unknown): string {
-  const cause = (e as { cause?: { code?: unknown } } | null)?.cause;
-  const code = typeof cause?.code === 'string' ? cause.code : undefined;
-  return code ?? (e instanceof Error ? e.name : 'unknown');
+  return causeCodeOf(e) ?? (e instanceof Error ? e.name : 'unknown');
 }
 
 /** 426 の本文から、Worker が求める版を読んで文にする。本文が流れてこない相手でも締め切りで打ち切る。 */
@@ -403,9 +410,10 @@ async function compatRefusal(r: Response, timeout: number): Promise<JoinError> {
  * Worker に 1 回だけ要求を出す。
  * 版の見出しを載せ、token があれば Bearer で送る。締め切りは 1 回ごとに掛ける。
  * 接続の失敗と打ち切りは JoinError（network、timeout）で、426 は JoinError（compat）で投げる。ほかの応答はそのまま返す。
+ * redirect を渡すと fetch にそのまま渡す（'manual' なら 3xx をそのまま返す）。省けば fetch の既定（追う）である。
  * トークンは文面に載せない。
  */
-export async function workerFetch(url: string, path: string, o: { fetch: typeof fetch; method?: string; body?: unknown; token?: string; timeoutMs?: number }): Promise<Response> {
+export async function workerFetch(url: string, path: string, o: { fetch: typeof fetch; method?: string; body?: unknown; token?: string; timeoutMs?: number; redirect?: RequestRedirect }): Promise<Response> {
   const timeout = o.timeoutMs ?? WORKER_TIMEOUT_MS;
   const ac = new AbortController();
   let timedOut = false;
@@ -416,10 +424,10 @@ export async function workerFetch(url: string, path: string, o: { fetch: typeof 
   if (o.token) headers.authorization = `Bearer ${o.token}`;
   let r: Response;
   try {
-    r = await o.fetch(`${url}${path}`, { method: o.method ?? 'GET', headers, ...(o.body !== undefined ? { body: JSON.stringify(o.body) } : {}), signal: ac.signal });
+    r = await o.fetch(`${url}${path}`, { method: o.method ?? 'GET', headers, ...(o.body !== undefined ? { body: JSON.stringify(o.body) } : {}), ...(o.redirect ? { redirect: o.redirect } : {}), signal: ac.signal });
   } catch (e) {
     if (timedOut) throw new JoinError('timeout', `${url} が ${timeout} ミリ秒以内に応答しませんでした。接続先が正しいか、${url}/health が応答するかを確認してください`);
-    throw new JoinError('network', `${url} に接続できませんでした（${reasonOf(e)}）`);
+    throw new JoinError('network', `${url} に接続できませんでした（${reasonOf(e)}）`, causeCodeOf(e));
   } finally {
     clearTimeout(timer);
   }

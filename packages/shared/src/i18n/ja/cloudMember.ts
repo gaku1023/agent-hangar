@@ -35,7 +35,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.rejoin.current': '現在の接続先',
   'cloudMember.rejoin.next': '新しい接続先',
   'cloudMember.rejoin.body': '承認されると、この PC の同期の設定は新しい接続先に置き換わり、現在のクラウドとは送受信しなくなります。この PC に受信済みのトランスクリプトは削除されません。',
-  'cloudMember.rejoin.legacy': '現在の設定は 0.8.x までの古い形式です。上書きの前に ~/.agent-hangar/backups にバックアップします。',
+  'cloudMember.rejoin.legacy': '現在の設定は 0.8.x までの古い形式です。上書きの前に、バックアップのディレクトリに保存します。',
   'cloudMember.fail.expired.title': '参加コードの有効期限が切れました',
   'cloudMember.fail.expired.body': '有効期限（5 分）が切れたか、すでに使用された参加コードです。参加済みの PC でもう一度「PC を追加」をクリックし、新しい参加コードを入力してください。',
   'cloudMember.fail.rejected.title': '参加リクエストが拒否されました',
