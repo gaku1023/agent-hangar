@@ -24,7 +24,7 @@ import {
 } from '@agent-hangar/shared';
 import { HttpCloudClient } from '../../server/src/sync/client.ts';
 import { Keyring } from '../../server/src/sync/keyring.ts';
-import { RecoveryKeyReissuer, RecoveryDraftError } from '../../server/src/sync/recoveryReissue.ts';
+import { RECOVERY_RESUME_MIN_INTERVAL_MS, RecoveryKeyReissuer, RecoveryDraftError } from '../../server/src/sync/recoveryReissue.ts';
 import { RosterStore, type ConfigWriter } from '../../server/src/sync/roster.ts';
 import { expectMode } from '../../server/test/platform.ts';
 import { FakeWorker } from '../test/fakeWorker.ts';
@@ -380,7 +380,8 @@ describe('リカバリーキーの再発行（サーバーの RecoveryKeyReissue
     }) as typeof fetch;
     const wire = new HttpCloudClient({ url: URL_, token: TOKEN_A, fetch: ff });
     const roster = new RosterStore(wire, c.keyring, { read: () => c.confA(), write: () => {} }, 'pc-a');
-    const reissuer = new RecoveryKeyReissuer({ roster, keyring: c.keyring, wire, url: () => URL_, state, sleep: async () => {} });
+    let clock = Date.now();
+    const reissuer = new RecoveryKeyReissuer({ roster, keyring: c.keyring, wire, url: () => URL_, state, sleep: async () => {}, now: () => clock });
     const draft = await reissuer.reissue();
     await expect(reissuer.confirm(draft.draftId, recoverySecretTail(draft.text))).rejects.toThrow();
     expect(m.get('recoveryBoxPending')).toBe('1');
@@ -388,8 +389,9 @@ describe('リカバリーキーの再発行（サーバーの RecoveryKeyReissue
     await expect(recover(c, newPc('pc-b'), c.text)).rejects.toThrow(/リカバリーキー/);
     await expect(recover(c, newPc('pc-c'), draft.text)).rejects.toThrow(/リカバリーキー/);
 
-    // 次の巡（pull の後の resumePending）で置き直す。
+    // 次の巡（pull の後の resumePending）で置き直す。巡からの置き直しは前の試みから 60 秒を空ける。
     failing = false;
+    clock += RECOVERY_RESUME_MIN_INTERVAL_MS;
     await reissuer.resumePending();
     expect(m.has('recoveryBoxPending')).toBe(false);
     const pd = newPc('pc-d');
