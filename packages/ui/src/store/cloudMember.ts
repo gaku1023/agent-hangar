@@ -56,8 +56,26 @@ export type PhoneStage =
   | { kind: 'expired' } | { kind: 'paired'; id: string; name: string }
   | { kind: 'old'; compat: number | null } | { kind: 'limited' } | { kind: 'notJoined' } | { kind: 'failed'; message: string };
 
+/** 再発行したリカバリーキーの暗号鍵を画面に出しておく長さ（試作 D2 の 120 秒）。過ぎたら伏せる。 */
+export const RECOVERY_SHOW_MS = 120_000;
+
+/** リカバリーキーの確認の失敗。retry が真なら、同じ下書きと末尾 4 文字のまま送り直せる（Worker の失敗）。 */
+export type RecoveryError = { message: string; retry: boolean };
+
+/**
+ * 「リカバリーキーを再発行」の段（試作 D2）。asking は再発行の確認、issuing は新しいリカバリーキーを作っている。
+ * shown は 4 行の文字列（text）と下書きの ID を持つ。hideAt を過ぎたら暗号鍵を伏せ、entering は末尾 4 文字の入力の段にいる。
+ * busy は確認を送っている、sentTail は最後に送った末尾 4 文字（送り直しに使う）、error は確認の失敗。
+ * done は名簿の差し替えまで済んだ、failed は作成の失敗か下書きが無い（もう一度再発行する）。
+ * text を持つのは shown の間だけで、閉じる、済む、失敗する、のどれでも捨てる。
+ */
+export type RecoveryStage =
+  | { kind: 'idle' } | { kind: 'asking' } | { kind: 'issuing' }
+  | { kind: 'shown'; text: string; draftId: string; hideAt: number; entering: boolean; busy: boolean; sentTail: string | null; error: RecoveryError | null }
+  | { kind: 'done' } | { kind: 'failed'; message: string };
+
 /** devices は Worker の PC の一覧（GET /api/sync/cloud-devices）で、設定に入ったときに取る。未取得は null。 */
-export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; add: AddPcStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage };
+export type CloudMemberState = { devices: CloudDevicesDto | null; join: JoinStage; add: AddPcStage; revoke: RevokeStage | null; leave: LeaveStage; phone: PhoneStage; recovery: RecoveryStage };
 
 export type CloudMemberEvent =
   | { type: 'devices.loaded'; devices: CloudDevicesDto }
@@ -67,10 +85,19 @@ export type CloudMemberEvent =
   | { type: 'add.issuing' } | { type: 'add.state'; state: JoinApproverState } | { type: 'add.rejected'; name: string } | { type: 'add.reset' }
   | { type: 'revoke.start'; id: string } | { type: 'revoke.done'; device: DeviceOut } | { type: 'revoke.failed'; id: string; failure: CloudFailure } | { type: 'revoke.reset' }
   | { type: 'leave.start' } | { type: 'leave.done'; revokeError: string | null } | { type: 'leave.failed'; failure: CloudFailure } | { type: 'leave.reset' }
-  | { type: 'phone.loading' } | { type: 'phone.loaded'; pairing: MobilePairingDto } | { type: 'phone.failed'; message: string } | { type: 'phone.expired' } | { type: 'phone.reset' };
+  | { type: 'phone.loading' } | { type: 'phone.loaded'; pairing: MobilePairingDto } | { type: 'phone.failed'; message: string } | { type: 'phone.expired' } | { type: 'phone.reset' }
+  | { type: 'recovery.ask' } | { type: 'recovery.issuing' } | { type: 'recovery.shown'; text: string; draftId: string; hideAt: number }
+  | { type: 'recovery.saved' } | { type: 'recovery.reveal'; hideAt: number }
+  | { type: 'recovery.confirming'; tail: string } | { type: 'recovery.confirmFailed'; error: RecoveryError }
+  | { type: 'recovery.done' } | { type: 'recovery.failed'; message: string } | { type: 'recovery.reset' };
 
 export function initialCloudMember(): CloudMemberState {
-  return { devices: null, join: { kind: 'url', failure: null }, add: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' } };
+  return { devices: null, join: { kind: 'url', failure: null }, add: { kind: 'idle' }, revoke: null, leave: { kind: 'idle' }, phone: { kind: 'idle' }, recovery: { kind: 'idle' } };
+}
+
+/** 表示中の段だけを書き換える。表示中でなければそのまま返す。 */
+function onShown(s: CloudMemberState, f: (r: Extract<RecoveryStage, { kind: 'shown' }>) => RecoveryStage): CloudMemberState {
+  return s.recovery.kind === 'shown' ? { ...s, recovery: f(s.recovery) } : s;
 }
 
 /** 一覧のうち、解除していないスマホ。版 6 までの Worker は kind を返さないので、無ければ PC として読む。 */
@@ -156,5 +183,16 @@ export function reduceCloudMember(s: CloudMemberState, e: CloudMemberEvent): Clo
     case 'phone.failed': return { ...s, phone: { kind: 'failed', message: e.message } };
     case 'phone.expired': return s.phone.kind === 'ready' ? { ...s, phone: { kind: 'expired' } } : s;
     case 'phone.reset': return { ...s, phone: { kind: 'idle' } };
+    case 'recovery.ask': return { ...s, recovery: { kind: 'asking' } };
+    case 'recovery.issuing': return { ...s, recovery: { kind: 'issuing' } };
+    case 'recovery.shown': return { ...s, recovery: { kind: 'shown', text: e.text, draftId: e.draftId, hideAt: e.hideAt, entering: false, busy: false, sentTail: null, error: null } };
+    case 'recovery.saved': return onShown(s, (r) => ({ ...r, entering: true }));
+    // もう一度表示するときは、入力の段から暗号鍵の段へ戻す（保存し直すため）。
+    case 'recovery.reveal': return onShown(s, (r) => ({ ...r, hideAt: e.hideAt, entering: false, error: null }));
+    case 'recovery.confirming': return onShown(s, (r) => ({ ...r, busy: true, sentTail: e.tail, error: null }));
+    case 'recovery.confirmFailed': return onShown(s, (r) => ({ ...r, busy: false, error: e.error }));
+    case 'recovery.done': return { ...s, recovery: { kind: 'done' } };
+    case 'recovery.failed': return { ...s, recovery: { kind: 'failed', message: e.message } };
+    case 'recovery.reset': return { ...s, recovery: { kind: 'idle' } };
   }
 }

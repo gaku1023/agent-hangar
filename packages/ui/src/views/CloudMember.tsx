@@ -17,7 +17,7 @@ import { usePresence } from './primitives/usePresence.ts';
  * 参加と解除は殻の命令が行う。ブラウザで開いているときは、ボタンの代わりにターミナルのコマンドを出す。
  */
 
-function Strip(props: { tone?: 'ok' | 'danger' | 'warn'; icon?: IconName; children: ReactNode; role?: 'alert' | 'status' }) {
+export function Strip(props: { tone?: 'ok' | 'danger' | 'warn'; icon?: IconName; children: ReactNode; role?: 'alert' | 'status' }) {
   const icon = props.icon ?? (props.tone === 'ok' ? 'check' : props.tone === 'danger' || props.tone === 'warn' ? 'alert' : 'info');
   return (
     <div className="cm-strip" data-tone={props.tone} role={props.role}>
@@ -27,7 +27,7 @@ function Strip(props: { tone?: 'ok' | 'danger' | 'warn'; icon?: IconName; childr
   );
 }
 
-const clock = (ms: number): string => {
+export const clock = (ms: number): string => {
   const s = Math.ceil(Math.max(0, ms) / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
@@ -49,7 +49,7 @@ function SasBox(props: { note: string; sas: string; label: string }) {
  * 中身を入れ替えたら、前の高さから今の高さへ resizeFrom で動かし、中身を fadeIn で現す。
  * group が同じ間（同じ段の中の入力など）は動かさない。前の高さは描くたびに控えておく。
  */
-function useSwap<E extends HTMLElement>(group: string) {
+export function useSwap<E extends HTMLElement>(group: string) {
   const box = useRef<E>(null);
   const body = useRef<HTMLDivElement>(null);
   const last = useRef<{ group: string; height: number } | null>(null);

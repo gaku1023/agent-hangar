@@ -41,6 +41,14 @@ export class ApiNotFoundError extends Error {
 }
 
 /**
+ * それ以外の失敗の答え。文はサーバの理由のままで、状態番号を status に持つ。
+ * リカバリーキーの確認は、400（末尾の違い）、409（下書きが無い）、502（Worker の失敗）で次の手順が違うので、番号で見分ける。
+ */
+export class ApiStatusError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
+/**
  * 本文の読み出しの向き。
  * latest は末尾から（画面を開いたとき）、beforeSeq はその手前へ（過去へ遡るとき）、
  * fromSeq はそこから前向きへ（追記を取り込むとき）。
@@ -250,7 +258,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_nested') throw new ProjectNestedApiError(body as unknown as ProjectNestedDto);
       const message = body?.error ?? `${r.status} ${path}`;
       if (r.status === 404) throw new ApiNotFoundError(message);
-      throw new Error(message);
+      throw new ApiStatusError(message, r.status);
     }
     if (r.status === 202 || r.status === 204) return undefined as T;
     return (await r.json()) as T;

@@ -177,6 +177,14 @@ export type UiAction =
    * QR の中身はブラウザでも作れる（サーバの経路だけを使う）。
    */
   | { type: 'cloud.phone.pair' } | { type: 'cloud.phone.close' }
+  /**
+   * 「リカバリーキーを再発行」（試作 D2）。recovery.ask は確認を開き、recovery.reissue は新しいリカバリーキーを作って表示する（まだ何も差し替えない）。
+   * recovery.saved は末尾 4 文字の入力の段へ進み、recovery.reveal は伏せた暗号鍵をもう一度 120 秒表示する。
+   * recovery.confirm は末尾 4 文字で確認して名簿と keybox を差し替え、recovery.retry は Worker の失敗の後に同じ下書きで送り直す。
+   * recovery.close は欄を閉じ、リカバリーキーの文字列を捨てる。
+   */
+  | { type: 'cloud.recovery.ask' } | { type: 'cloud.recovery.reissue' } | { type: 'cloud.recovery.saved' } | { type: 'cloud.recovery.reveal' }
+  | { type: 'cloud.recovery.confirm'; tail: string } | { type: 'cloud.recovery.retry' } | { type: 'cloud.recovery.close' }
   // 設定の同期。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }

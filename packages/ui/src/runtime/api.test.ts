@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, ApiNotFoundError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ApiStatusError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -349,5 +349,13 @@ describe('リカバリーキーの再発行の経路', () => {
     await expect(api.recoveryKeyConfirm('d1', 'ABCD')).resolves.toBeUndefined();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sync/recovery-key/confirm']);
     expect(JSON.parse(String(calls[0]!.body))).toEqual({ draftId: 'd1', tail: 'ABCD' });
+  });
+
+  it('確認の失敗は、サーバーの文のまま状態番号を持つ（400、409、502 で次の手順が違う）', async () => {
+    for (const status of [400, 409, 502]) {
+      const e = await harness(status, { error: `e${status}` }).api.recoveryKeyConfirm('d1', 'ABCD').catch((err: unknown) => err);
+      expect(e).toBeInstanceOf(ApiStatusError);
+      expect(e).toMatchObject({ message: `e${status}`, status });
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { normalizeJoinCode, type CloudDevicesDto, type JoinApproverState, type MobilePairingDto } from '@agent-hangar/shared';
-import { reduceCloudMember, type CloudMemberEvent, type CloudMemberState, type JoinFailReason } from '../store/cloudMember.ts';
+import { RECOVERY_SHOW_MS, reduceCloudMember, type CloudMemberEvent, type CloudMemberState, type JoinFailReason } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
 
 /**
@@ -22,7 +22,18 @@ export type CloudMemberCommand =
   | { op: 'addOpen' } | { op: 'addApprove' } | { op: 'addReject' } | { op: 'addClose' }
   | { op: 'revoke'; id: string } | { op: 'revokeDismiss' }
   | { op: 'leave'; revoke: boolean } | { op: 'leaveDismiss' }
-  | { op: 'pair' } | { op: 'pairClose' };
+  | { op: 'pair' } | { op: 'pairClose' }
+  | { op: 'recoveryAsk' } | { op: 'recoveryReissue' } | { op: 'recoverySaved' } | { op: 'recoveryReveal' }
+  | { op: 'recoveryConfirm'; tail: string } | { op: 'recoveryRetry' } | { op: 'recoveryClose' };
+
+/**
+ * 「リカバリーキーを再発行」の口（サーバーの /api/sync/recovery-key）。失敗はサーバーの文で投げ、状態番号を status に持つ（runtime/api.ts の ApiStatusError）。
+ * confirm の 400 は末尾 4 文字の違い、409 は下書きが無い（期限切れ、アプリの再起動の後）、502 は Worker の失敗である。
+ */
+export type RecoveryKeyApi = {
+  reissue(): Promise<{ text: string; draftId: string }>;
+  confirm(draftId: string, tail: string): Promise<void>;
+};
 
 /** QR を出している間、端末の一覧を再読み込みする間隔。スマホが参加したのを、この間隔で知る。承認の後に新しい PC を待つ間隔も同じ。 */
 export const PAIR_POLL_MS = 3_000;
@@ -45,7 +56,9 @@ export type CloudMemberRunnerDeps = {
   pair: () => Promise<MobilePairingDto>;
   /** 「PC を追加」の参加コードの発行と承認。ブラウザでも使う（サーバーの経路だけを使う）。 */
   joinCodes: JoinCodesApi;
-  /** 今の時刻（ms）。QR と参加コードの期限の判定に使う。 */
+  /** 「リカバリーキーを再発行」。ブラウザでも使う（サーバーの経路だけを使う）。 */
+  recovery: RecoveryKeyApi;
+  /** 今の時刻（ms）。QR と参加コードの期限、リカバリーキーを伏せる時刻に使う。 */
   now: () => number;
   /** アプリを再起動する（殻の restart_app）。 */
   restart: () => void;
@@ -71,6 +84,12 @@ function requestReason(code: string): JoinFailReason {
 const KEEP_WAITING = new Set(['busy', 'network', 'timeout', 'unreachable']);
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** 失敗の状態番号。HTTP の答えでない失敗（接続できないなど）は null。 */
+const statusOf = (e: unknown): number | null => {
+  const s = (e as { status?: unknown } | null)?.status;
+  return typeof s === 'number' ? s : null;
+};
 
 /**
  * 殻のクラウド同期の命令とサーバーの参加コードの口を呼び、結果を状態に移す（状態の移り方は store/cloudMember.ts の reduceCloudMember）。
@@ -242,6 +261,43 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
     });
   }
 
+  /**
+   * 「リカバリーキーを再発行」（試作 D2）。作るたびと閉じるたびに世代を進め、閉じた後に届いた答えは何もしない。
+   * 新しい鍵ペアはサーバーのメモリにだけあり、確認（末尾 4 文字）が済むまで名簿も keybox も差し替えない。
+   * 確認の 400（末尾の違い）は入力の段のまま理由を出し、409（下書きが無い）は下書きを捨てて再発行し直してもらう。
+   * それ以外（Worker の失敗、接続できない）は下書きを残し、同じ下書きと末尾 4 文字のまま送り直せるようにする。
+   */
+  let recoveryGen = 0;
+  function recoveryReissue(): void {
+    const now = d.get().recovery;
+    if (now.kind === 'issuing' || (now.kind === 'shown' && now.busy)) return;
+    const gen = ++recoveryGen;
+    apply({ type: 'recovery.issuing' });
+    d.recovery.reissue().then(
+      (r) => { if (gen === recoveryGen) apply({ type: 'recovery.shown', text: r.text, draftId: r.draftId, hideAt: d.now() + RECOVERY_SHOW_MS }); },
+      (e: unknown) => { if (gen === recoveryGen) apply({ type: 'recovery.failed', message: errorText(e) }); },
+    );
+  }
+  function recoveryConfirm(tail: string): void {
+    const r = d.get().recovery;
+    if (r.kind !== 'shown' || r.busy || tail === '') return;
+    const gen = recoveryGen;
+    apply({ type: 'recovery.confirming', tail });
+    d.recovery.confirm(r.draftId, tail).then(
+      () => { if (gen === recoveryGen) apply({ type: 'recovery.done' }); },
+      (e: unknown) => {
+        if (gen !== recoveryGen) return;
+        const status = statusOf(e);
+        if (status === 409) { apply({ type: 'recovery.failed', message: errorText(e) }); return; }
+        apply({ type: 'recovery.confirmFailed', error: { message: errorText(e), retry: status !== 400 } });
+      },
+    );
+  }
+  function recoveryRetry(): void {
+    const r = d.get().recovery;
+    if (r.kind === 'shown' && r.sentTail !== null && r.error?.retry) recoveryConfirm(r.sentTail);
+  }
+
   function run(c: CloudMemberCommand): void {
     switch (c.op) {
       case 'load': load(); return;
@@ -259,6 +315,13 @@ export function createCloudMemberRunner(d: CloudMemberRunnerDeps) {
       case 'leaveDismiss': apply({ type: 'leave.reset' }); return;
       case 'pair': pair(); return;
       case 'pairClose': pairGen++; apply({ type: 'phone.reset' }); return;
+      case 'recoveryAsk': if (d.get().recovery.kind === 'idle' || d.get().recovery.kind === 'done' || d.get().recovery.kind === 'failed') apply({ type: 'recovery.ask' }); return;
+      case 'recoveryReissue': recoveryReissue(); return;
+      case 'recoverySaved': apply({ type: 'recovery.saved' }); return;
+      case 'recoveryReveal': apply({ type: 'recovery.reveal', hideAt: d.now() + RECOVERY_SHOW_MS }); return;
+      case 'recoveryConfirm': recoveryConfirm(c.tail); return;
+      case 'recoveryRetry': recoveryRetry(); return;
+      case 'recoveryClose': recoveryGen++; apply({ type: 'recovery.reset' }); return;
     }
   }
 
