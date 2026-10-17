@@ -94,6 +94,28 @@ function collector(port: number, token: string) {
   };
 }
 
+/**
+ * 起動直後に本文を書き、索引が拾って配るまで、同じ本文を書き直す。
+ * macOS の fs.watch（FSEvents）は、見張りを付けた直後の変更を通知しないことがある。
+ * libuv は 1 つのプロセスの見張りを 1 本の FSEvents の流れにまとめ、見張りが増えるたびに流れを別のスレッドで作り直す。
+ * 作り直した流れは、動き出した後の変更しか通知しない。
+ * サーバーは起動の終わりに cloud.json の見張りを足すので、起動の直後に 1 度だけ書くと、混んだ機械ではその変更が流れの外に落ちる。
+ * 落ちた通知は、待ちを延ばしても戻らない（製品は 5 分ごとの全件走査で拾い直す）。
+ * そこで、書き直して新しい通知を起こす。前の書き込みが遅れて拾われても、貯めた配信から見つかるので取りこぼさない。
+ * 待ちの合計は、1 度だけ書いていた頃と同じ 8 秒である。
+ */
+async function writeUntilSeen<T extends ServerEvent>(c: ReturnType<typeof collector>, write: () => void, pred: (e: ServerEvent) => e is T): Promise<T> {
+  const attempts = 8;
+  for (let i = 1; ; i++) {
+    write();
+    try {
+      return await c.waitFor(pred, 1000);
+    } catch (e) {
+      if (i >= attempts) throw e;
+    }
+  }
+}
+
 /** 条件が満たされるまで一定間隔で試す。 */
 async function until<T>(fn: () => Promise<T | null>, ms = 8000): Promise<T> {
   const limit = Date.now() + ms;
@@ -380,8 +402,8 @@ describe('startServer', () => {
       const c = collector(s.port, tokenIn(d.home));
       try {
         await c.opened;
-        writeTranscript(d.claudeDir, dir, 'bbbbbbbb-0000-4000-8000-000000000002', 'second');
-        const ev = await c.waitFor((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.providerSessionId === 'bbbbbbbb-0000-4000-8000-000000000002');
+        const ev = await writeUntilSeen(c, () => writeTranscript(d.claudeDir, dir, 'bbbbbbbb-0000-4000-8000-000000000002', 'second'),
+          (e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.providerSessionId === 'bbbbbbbb-0000-4000-8000-000000000002');
         expect(ev.session.projectId).not.toBeNull();
         const proj = await c.waitFor((e): e is Extract<ServerEvent, { type: 'project.upsert' }> => e.type === 'project.upsert' && e.project.id === ev.session.projectId);
         expect(proj.project.name).toBe('alpha');
@@ -569,10 +591,10 @@ describe('起動と停止の手続きの配線', () => {
       await col.opened;
       const strayToasts = () => col.all().filter((e) => e.type === 'toast' && e.message.includes(outside)).length;
       // 済んだ後に現れた未分類も、知らせは流さない（toast は操作の結果だけ。一覧にそのまま出る）。
-      const before = col.all().filter((e) => e.type === 'transcript.appended').length;
-      writeTranscript(d.claudeDir, outside, 'cccccccc-0000-4000-8000-999999999999', 'late');
-      for (let i = 0; i < 100 && col.all().filter((e) => e.type === 'transcript.appended').length === before; i++) await new Promise((r) => setTimeout(r, 100));
-      expect(col.all().filter((e) => e.type === 'transcript.appended').length).toBeGreaterThan(before);
+      // 起動の直後に書くので、見張りが動き出す前の書き込みを書き直す（writeUntilSeen）。
+      const prior = new Set(col.all());
+      await writeUntilSeen(col, () => writeTranscript(d.claudeDir, outside, 'cccccccc-0000-4000-8000-999999999999', 'late'),
+        (e): e is Extract<ServerEvent, { type: 'transcript.appended' }> => e.type === 'transcript.appended' && !prior.has(e));
       await new Promise((r) => setTimeout(r, 300));
       expect(strayToasts()).toBe(0);
     } finally {
