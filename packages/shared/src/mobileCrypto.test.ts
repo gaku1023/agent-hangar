@@ -1,5 +1,8 @@
+import { hkdfSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { deriveFileKey } from '../../server/src/sync/crypto.ts';
+
+/** 版 8 までの R2 の本文の鍵（参加用の秘密から導いた）。サーバからは消したので、比べるための写しをここに置く。 */
+const deriveFileKey = (joinSecret: string): Buffer => Buffer.from(hkdfSync('sha256', Buffer.from(joinSecret, 'utf8'), 'hangar-salt-v1', 'hangar-file-v1', 32));
 import {
   MobileOpenError,
   MobilePairingError,

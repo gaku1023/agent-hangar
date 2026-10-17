@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
-import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
+import { backfillTranscripts, type CloudConfig, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
+import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken } from '@agent-hangar/shared';
 import { cliErrorText, DetailedError } from './probe.ts';
-import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, buildMobileApp, runJoin, runSetupCloud as runSetupCloudReal, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
+import { chooseAccountByNumber, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, legacyFileKey, type LegacyFileEntry, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, cloudDirMissingMessage, readAppVersion, buildMobileApp, runJoin, runSetupCloud as runSetupCloudReal, runTeardown, USAGE_TOKEN_HELP, waitForHealth, WranglerStepError, writeWranglerConfig } from './cloud.ts';
 import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
@@ -765,11 +765,11 @@ describe('cloudStatus', () => {
 const MTIME = 1_700_000_000_000;
 
 /** R2 に置かれている本文 1 件分（一覧の項目と、暗号化して gzip した実体）。 */
-async function fileFixture(o: { secret: string; deviceId: string; uuid: string; text: string; seq: number; encrypted?: boolean }): Promise<{ entry: FileEntry; body: Buffer }> {
+async function fileFixture(o: { secret: string; deviceId: string; uuid: string; text: string; seq: number; encrypted?: boolean }): Promise<{ entry: LegacyFileEntry; body: Buffer }> {
   const plain = Buffer.from(o.text, 'utf8');
   const encrypted = o.encrypted ?? true;
   // 秘密を持たない相手は暗号化できない。平文の gzip をそのまま置く形も作れるようにしておく。
-  const body = encrypted ? await encryptBuffer(deriveFileKey(o.secret), gzipSync(plain)) : gzipSync(plain);
+  const body = encrypted ? await encryptBuffer(legacyFileKey(o.secret), gzipSync(plain)) : gzipSync(plain);
   return {
     entry: {
       key: `transcripts/${o.deviceId}/${o.uuid}.jsonl.gz`,
@@ -789,7 +789,7 @@ async function fileFixture(o: { secret: string; deviceId: string; uuid: string; 
 }
 
 /** Worker の代わり。端末トークンが合っているときだけ答える。 */
-function cloudFetch(files: { entry: FileEntry; body: Buffer }[], o: { token: string; missing?: string[] }) {
+function cloudFetch(files: { entry: LegacyFileEntry; body: Buffer }[], o: { token: string; missing?: string[] }) {
   const paths: string[] = [];
   const f = (async (input: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(input));
@@ -986,7 +986,7 @@ describe('runTeardown', () => {
 
   it('鍵と相対パスが食い違う本文は、手元に置く先を決めない', () => {
     const { home } = dirs();
-    const base: FileEntry = { key: '', path: '', kind: 'transcript', sha256: 'x', size: 1, mtime: MTIME, encrypted: true, seq: 1, deviceId: 'dev-b', uploadedAt: 1, storedSize: 1 };
+    const base: LegacyFileEntry = { key: '', path: '', kind: 'transcript', sha256: 'x', size: 1, mtime: MTIME, encrypted: true, seq: 1, deviceId: 'dev-b', uploadedAt: 1, storedSize: 1 };
     // 正しく暗号化された別のファイルへの差し替えを、復号と SHA-256 だけでは見抜けない。
     expect(() => rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/other.jsonl.gz', path: 'projects/-w-p/u.jsonl' })).toThrow(/食い違/);
     expect(() => rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/u.jsonl.gz', path: '../../.claude/u.jsonl' })).toThrow(/食い違/);
@@ -1105,7 +1105,7 @@ describe('失敗の理由の見せ方', () => {
 describe('設定の退避先', () => {
   it('端末ごとに分ける。2 台の同じ名前の設定が重ならない', () => {
     const { home } = dirs();
-    const base: FileEntry = { key: '', path: '', kind: 'config', sha256: 'x', size: 1, mtime: MTIME, encrypted: true, seq: 1, deviceId: 'dev-b', uploadedAt: 1, storedSize: 1 };
+    const base: LegacyFileEntry = { key: '', path: '', kind: 'config', sha256: 'x', size: 1, mtime: MTIME, encrypted: true, seq: 1, deviceId: 'dev-b', uploadedAt: 1, storedSize: 1 };
     const b = rescueTargetPath(home, { ...base, deviceId: 'dev-b', key: 'config/dev-b/CLAUDE.md', path: 'CLAUDE.md' });
     const c2 = rescueTargetPath(home, { ...base, deviceId: 'dev-c', key: 'config/dev-c/CLAUDE.md', path: 'CLAUDE.md' });
     expect(b).not.toBe(c2);

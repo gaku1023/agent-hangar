@@ -4,6 +4,7 @@ import type { Db } from '../db/open.ts';
  * sync_state に置く鍵。端末ごとの同期の進み具合と、止まっている理由を持つ。
  * limitedUntil は、Cloudflare の上限で退いている間の戻る時刻である（sync/engine.ts）。
  * skipped:<R2 の鍵> は RemotePuller が降ろすのを諦めた項目の控えである。
+ * filesSkippedFrom は、世代の鍵が無くて開けずに越えた索引の行のうち、いちばん小さい連番である（sync/puller.ts の rewindSkippedFiles が読む）。
  * transcriptsFrom は本文をどこから上げるかの床である（sync/transcriptsFrom.ts）。
  * orphans は、親の行がまだ届かず当てられなかった行の持ち越しである（JSON の配列。sync/engine.ts）。
  * revokedLogged は、この PC が解除されて止まったことをログに残した印である（戻った旨を 1 度だけ残すため。止める印ではない。sync/engine.ts）。
@@ -12,6 +13,8 @@ import type { Db } from '../db/open.ts';
 export type SyncStateKey =
   | 'lastSeq'
   | 'filesSeq'
+  | 'filesSkippedFrom'
+  | 'rowsSkippedFrom'
   | 'lastPushAt'
   | 'lastPullAt'
   | 'paused'

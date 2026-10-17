@@ -5,8 +5,9 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { CompatDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
-import { COMPAT_VERSION } from '@agent-hangar/shared';
+import { COMPAT_VERSION, transcriptBlobKey } from '@agent-hangar/shared';
 import { saveCloudConfig } from './config/cloud.ts';
+import { Keyring } from './sync/keyring.ts';
 import { dbPath, ensureHome, readOrCreateDevice } from './config/paths.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
@@ -20,6 +21,7 @@ import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPend
 import { CLOSE_DEADLINE_MS, installShutdown, startServer, STOP_WATCHDOG_MS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { expectMode, posixDescribe, posixIt } from '../test/platform.ts';
+import { testCloudConfig } from '../test/cloudConfig.ts';
 
 /**
  * サーバを丸ごと起こす端到端の試験。
@@ -60,7 +62,7 @@ function makeDirs(): Dirs {
 
 const tokenIn = (home: string): string => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 const start = (d: Dirs) => startServer({ port: 0, home: d.home, claudeDir: d.claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(d.home, 'no-dist') });
-const joinTo = (home: string, url: string): void => saveCloudConfig(home, { url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+const joinTo = (home: string, url: string): void => saveCloudConfig(home, testCloudConfig({ url }));
 
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
 function writeTranscript(claudeDir: string, cwd: string, sessionId: string, text: string): void {
@@ -441,7 +443,10 @@ describe('startServer', () => {
         await until(async () => (sink.puts.length >= 1 ? sink.puts : null));
         // 参加より前で止まっている 2 件（alpha の本文と subagent）は上がらない。
         await new Promise((r) => setTimeout(r, 300));
-        expect(sink.puts.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort()).toEqual([`${SESSION_OTHER}.jsonl.gz`]);
+        // R2 の鍵名は HMAC なので、試験の cloud.json の世代 1 の鍵で、この PC の ID と other のセッションの UUID から求めて比べる。
+        const device = sink.puts[0]!.split('/')[1]!;
+        const index = (await Keyring.fromConfig(testCloudConfig())).current().index;
+        expect(sink.puts).toEqual([await transcriptBlobKey(index, device, device, SESSION_OTHER, null)]);
         // 画面に出す「未送信の本文」も、上がる予定の無い 2 件を数えない。
         const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${tokenIn(d.home)}` } })).json() as SyncStatusBody;
         expect(status.sweepPending).toBe(0);
@@ -509,11 +514,10 @@ describe('startServer', () => {
       }
     });
 
-    it('参加トークンを作れる', async () => {
-      // 参加トークンは中身を見ない。秘密が差分やログに出ないようにする。
+    it('版 2 の cloud.json では参加トークンを作らない', async () => {
+      // 版 2 は参加用の秘密を持たない。PC の参加は参加コードへ移る。
       const jt = await (await api('/api/sync/joinToken')).json() as { token: string | null };
-      expect(typeof jt.token).toBe('string');
-      expect((jt.token ?? '').length).toBeGreaterThan(0);
+      expect(jt.token).toBeNull();
     });
   });
 });

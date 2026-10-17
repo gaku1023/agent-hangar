@@ -18,7 +18,10 @@ export const TABLE_PK: Record<SharedTable, string> = {
 };
 
 export type ChangeOp = 'upsert' | 'delete';
-/** 平文の行の形。Task 9/10 で封じた行（SealedChangeIn）に置き換わって消える。 */
+/**
+ * 開いた行の形。PC の中だけで使い、線の上には載せない（線の上は SealedChangeIn と SealedChangeOut）。
+ * 封じて送るのと、受けて開くのは、サーバの SealedCloudClient（packages/server/src/sync/sealedClient.ts）である。
+ */
 export type ChangeIn = { tableName: SharedTable; rowId: string; op: ChangeOp; payload: Record<string, unknown>; updatedAt: number };
 export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
 /** push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は新しくなかったので捨てた行の数である。 */
@@ -28,27 +31,6 @@ export type PushChangesResponse = { seq: number; accepted: number; skipped: numb
  * lastSeenAt は Worker の時計で、1 分おきにしか書かないので最大 1 分遅れる。参加の前の行など、まだ見ていなければ null である。
  */
 export type CloudPeer = { id: string; lastSeenAt: number | null };
-/**
- * pull の応答である。
- * changes は自端末以外の行を連番の昇順で、nextSeq は次に渡す since である。
- * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
- * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
- * 平文の行の形なので、Task 9/10 で SealedPullChangesResponse に置き換わって消える。
- */
-export type PullChangesResponse = {
-  changes: ChangeOut[];
-  nextSeq: number;
-  more: boolean;
-  peers: CloudPeer[];
-  now: number;
-  /**
-   * この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。
-   * 版 6 の Worker は載せないので省ける。版 6 の PC は知らない欄として読み飛ばす。
-   */
-  launches?: MobileLaunchOut[];
-};
-/** 平文の行の取り直し。Task 9/10 で SealedSnapshotResponse に置き換わって消える。 */
-export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
 /**
  * 封じた行（互換の版 9）。
@@ -58,13 +40,19 @@ export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null;
  */
 export type SealedChangeIn = { k: string; op: ChangeOp; updatedAt: number; epoch: number; sealed: string };
 export type SealedChangeOut = SealedChangeIn & { seq: number; deviceId: string };
-/** 封じた行の pull（`GET /changes`）。形は行のほかは PullChangesResponse と同じである。 */
+/**
+ * 封じた行の pull（`GET /changes`）。
+ * changes は自端末以外の行を連番の昇順で、nextSeq は次に渡す since である。
+ * peers と now は互換の版 6 で足した生存の知らせで、端末は「now − lastSeenAt」を PC の年齢として読む。
+ * 2 つの時刻はどちらも Worker の時計なので、端末の時計のずれが入らない。
+ */
 export type SealedPullChangesResponse = {
   changes: SealedChangeOut[];
   nextSeq: number;
   more: boolean;
   peers: CloudPeer[];
   now: number;
+  /** この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。 */
   launches?: MobileLaunchOut[];
 };
 /** 封じた行の取り直し（`GET /rows`）。`k` の順に並び、`nextAfter` は次に渡す `after` である。 */
@@ -73,10 +61,20 @@ export type SealedSnapshotResponse = { changes: SealedChangeOut[]; nextAfter: st
 export const SEALED_ROW_K_RE = /^[A-Za-z0-9_-]{43}$/;
 
 export type FileKind = 'transcript' | 'config';
-/** 平文のメタを持つファイルの形。Task 9/10 で SealedFileIn に置き換わって消える。 */
-export type FileMetaIn = { key: string; path: string; kind: FileKind; sha256: string; size: number; mtime: number; encrypted: boolean };
+/**
+ * 開いたファイルのメタ。PC の中だけで使い、線の上には載せない（線の上は SealedFileIn と SealedFileEntry）。
+ * `key` は e2e/names.ts の transcriptBlobKey か configBlobKey で求めた R2 の鍵名で、`epoch` はメタと本文を封じた世代である。
+ * `origin` は本文を作った PC の ID で、`path` は元の PC の `~/.claude` からの相対パスである。
+ * 封じて送るのと、受けて開くのは、サーバの SealedCloudClient（packages/server/src/sync/sealedClient.ts）である。
+ */
+export type FileMetaIn = { key: string; epoch: number; kind: FileKind; path: string; sha256: string; size: number; mtime: number; origin: string };
 export type FileEntry = FileMetaIn & { seq: number; deviceId: string; uploadedAt: number; storedSize: number };
-export type ListFilesResponse = { files: FileEntry[]; nextSeq: number; more: boolean };
+/**
+ * 開いた索引の頁。
+ * unreadable は、世代の鍵が手元に無くて開けなかった行（読み直しても届かなかったもの）の連番と世代である。
+ * 鍵があっても開けない行（付け替え、鍵名と中身の食い違い）は、鍵が届いても開けないので、どちらにも入れない。
+ */
+export type ListFilesResponse = { files: FileEntry[]; unreadable: { seq: number; epoch: number }[]; nextSeq: number; more: boolean };
 
 /**
  * 封じたメタを持つファイル（互換の版 9）。
@@ -102,6 +100,11 @@ export const MAX_BLOB_DELETE_KEYS = 50;
 export const BLOB_DELETE_DAILY = 500;
 /** 置いてからこれだけたっていない本文は消さない。 */
 export const BLOB_DELETE_GRACE_MS = 3_600_000;
+/**
+ * ゴミ箱に入れたセッションのクラウドの写しを残す期間。
+ * 削除の印（session_states.trashed_at）からこれだけたったら、各 PC が自分の上げた本文を `DELETE /blobs` で消す。
+ */
+export const TRASH_KEEP_MS = 30 * 86_400_000;
 
 export type JoinRequest = { secret: string; device: { id: string; name: string; platform: string } };
 export type JoinResponse = { deviceToken: string; deviceId: string };
@@ -192,37 +195,10 @@ export type KeyboxesPut = { boxes: KeyboxIn[] };
 export type KeyboxesPutOut = { written: number };
 
 /**
- * Worker の `GET /devices` が返す PC の 1 行（互換の版 5 から）。
- * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した PC である。
- * 最後に同期した IP と場所は、Worker が同期の要求を受けたときの CF-Connecting-IP と request.cf の city、region、country をそのまま写したもので、PC ごとに最後の 1 件だけを持つ。
- * 場所は Cloudflare の推定で、英語の表記のままである。
- */
-export type CloudDeviceOut = {
-  id: string;
-  name: string;
-  platform: string;
-  joinedAt: number;
-  lastSeenAt: number | null;
-  revokedAt: number | null;
-  lastIp: string | null;
-  lastCity: string | null;
-  lastRegion: string | null;
-  lastCountry: string | null;
-  /**
-   * PC かスマホか（互換の版 7）。
-   * スマホは `POST /m/join` で参加した行で、platform は `mobile` である。
-   * 版 6 までの Worker は返さないので、無ければ PC として読む。
-   */
-  kind?: 'pc' | 'mobile';
-};
-export type CloudDevicesResponse = { devices: CloudDeviceOut[] };
-export type CloudDeviceRevokeResponse = { device: CloudDeviceOut };
-
-/**
  * Worker の `GET /devices` が返す端末の 1 行（互換の版 9）。
+ * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した端末である。
  * 名前と OS は封じた名簿にあり、IP と所在地は保存しないので、ここには無い。
  * `expiresAt` はトークンの期限で、null なら期限なし。
- * CloudDeviceOut は Task 9/10 でこの形に置き換わって消える。
  */
 export type DeviceOut = { id: string; kind: 'pc' | 'mobile'; joinedAt: number; lastSeenAt: number | null; revokedAt: number | null; expiresAt: number | null };
 export type DevicesOut = { devices: DeviceOut[] };
@@ -231,11 +207,10 @@ export type DeviceRevokeOut = { device: DeviceOut };
 export const REVOKED_ERROR = 'revoked';
 
 /**
- * `PUT /files/:key` の見出し。
- * 互換の版 9 の Worker が読むのは kind、size、epoch、meta（封じたメタの base64url）だけである。
- * path、sha256、mtime、encrypted は版 8 までの端末の写しで、Task 9/10 で消える。
+ * `PUT /files/:key` の見出し（互換の版 9）。
+ * kind、size、epoch と、meta（封じたメタの base64url）だけを運ぶ。パス、平文の SHA-256、mtime は meta の中にある。
  */
-export const CLOUD_HEADERS = { path: 'x-hangar-path', kind: 'x-hangar-kind', sha256: 'x-hangar-sha256', size: 'x-hangar-size', mtime: 'x-hangar-mtime', encrypted: 'x-hangar-encrypted', epoch: 'x-hangar-epoch', meta: 'x-hangar-meta' } as const;
+export const CLOUD_HEADERS = { kind: 'x-hangar-kind', size: 'x-hangar-size', epoch: 'x-hangar-epoch', meta: 'x-hangar-meta' } as const;
 
 /** 1 回の POST /changes に載せる上限。Worker は 1 行を 2 文で書くので 81 文以内に収まる。 */
 export const MAX_PUSH_BATCH = 40;
@@ -357,64 +332,12 @@ export function decodeHeaderText(s: string): string | null {
   }
 }
 
-/** R2 の鍵の長さの上限。超えると R2 が投げるので、その手前で 400 にして 500 を出さない。 */
-export const MAX_KEY_BYTES = 1024;
-
-/** 鍵の 1 段目に許す接頭辞。 */
-export type KeyPrefix = 'transcripts' | 'config';
-
 /**
- * R2 の鍵を接頭辞と、その先の相対パスに割る。形が違えば null。
- * Worker（`packages/cloud/src/files.ts`）と端末（`packages/server/src/sync/client.ts`）が
- * この 1 つの物差しを共有する。片方だけ厳しいと、端末で組み立てられる鍵が Worker で 400 になる。
+ * 鍵を URL のパスに載せる形。断片ごとに符号化するので、`/` は潰れない。
+ * R2 の鍵名の形は e2e/names.ts の isBlobKey が決める（`b/<端末 ID>/<HMAC>`）。
  */
-export function splitFileKey(key: string): { prefix: KeyPrefix; rel: string } | null {
-  const i = key.indexOf('/');
-  if (i < 0) return null;
-  const prefix = key.slice(0, i);
-  if (prefix !== 'transcripts' && prefix !== 'config') return null;
-  const rel = key.slice(i + 1);
-  if (!isSafeRelPath(rel)) return null;
-  if (new TextEncoder().encode(key).length > MAX_KEY_BYTES) return null;
-  return { prefix, rel };
-}
-
-/** 権限を抜きにした、鍵の形だけの検査。日本語と空白は通る（`~/.claude` の名前は選べない）。 */
-export function isValidFileKey(key: string): boolean {
-  return splitFileKey(key) !== null;
-}
-
-/** 鍵を URL のパスに載せる形。断片ごとに符号化するので、`/` は潰れない。 */
 export function encodeFileKeyPath(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/');
-}
-
-/**
- * R2 の鍵。端末ごとに分けるので、同じセッション ID の本文が端末間で上書きされない。
- * ID は他端末から届いた値が混ざる経路があるので、組み立ての側でも形を検査する。
- * 検査が無いと、スラッシュ入りのセッション ID がサブエージェントの鍵と衝突して上書きし合う。
- * 平文の鍵名なので、Task 9/10 で e2e/names.ts の transcriptBlobKey に置き換わって消える。
- */
-export function transcriptKey(deviceId: string, sessionUuid: string, agentId: string | null): string {
-  if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
-  if (!isSafeKeyId(sessionUuid)) throw new Error('セッション ID の形が不正です');
-  if (agentId !== null && !isSafeKeyId(agentId)) throw new Error('サブエージェント ID の形が不正です');
-  return agentId === null ? `transcripts/${deviceId}/${sessionUuid}.jsonl.gz` : `transcripts/${deviceId}/${sessionUuid}/subagents/agent-${agentId}.jsonl.gz`;
-}
-
-/**
- * 設定の R2 の鍵。本文と同じく端末ごとに分ける。
- *
- * 分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合う。
- * 負けた側の索引（`file_sync`）には自分が上げた指紋が残るのに中身は相手のものなので、
- * 取り込みは「SHA-256 が一致しません」で永久に止まる。
- * 端末ごとに分ければ、受け取る側が相対パスごとに新しい方を選べる。
- * 平文の鍵名なので、Task 9/10 で e2e/names.ts の configBlobKey に置き換わって消える。
- */
-export function configKey(deviceId: string, rel: string): string {
-  if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
-  if (!isSafeRelPath(rel)) throw new Error('設定ファイルのパスが不正です');
-  return `config/${deviceId}/${rel}`;
 }
 
 /**

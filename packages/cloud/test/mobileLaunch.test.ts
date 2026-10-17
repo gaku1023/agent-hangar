@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { aadLaunch, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_PROMPT_MAX, seal, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse, type PullChangesResponse, readCloudLimit } from '@agent-hangar/shared';
+import { aadLaunch, deriveMobileKey, LAUNCH_TTL_MS, MOBILE_PROMPT_MAX, seal, type MobileJoinResponse, type MobileLaunchIn, type MobileLaunchStatus, type MobilePairingResponse, type SealedPullChangesResponse, readCloudLimit } from '@agent-hangar/shared';
 import { LAUNCH_KEEP_MS, LAUNCH_RATE, MAX_ANSWER_BODY_BYTES, MAX_LAUNCH_BODY_BYTES } from '../src/mobile.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
@@ -30,10 +30,10 @@ const launch = (phone: string, body: MobileLaunchIn) => post(phone, '/m/launches
 const status = (phone: string, id: string) => send(`/m/launches/${encodeURIComponent(id)}`, { headers: auth(phone) });
 const claim = (pc: string, id: string) => post(pc, `/m/launches/${encodeURIComponent(id)}/claim`);
 const answer = (pc: string, id: string, body: unknown) => post(pc, `/m/launches/${encodeURIComponent(id)}/answer`, body);
-const pull = async (pc: string, extra: Record<string, string> = {}): Promise<PullChangesResponse> => {
+const pull = async (pc: string, extra: Record<string, string> = {}): Promise<SealedPullChangesResponse> => {
   const r = await send('/changes?since=0', { headers: auth(pc, extra) });
   expect(r.status).toBe(200);
-  return (await r.json()) as PullChangesResponse;
+  return (await r.json()) as SealedPullChangesResponse;
 };
 const ageAll = (ms: number) => cloud.env.DB.prepare('update launch_requests set created_at = created_at - ?').bind(ms).run();
 const countRows = async () => (await cloud.env.DB.prepare('select count(*) n from launch_requests').first<{ n: number }>())?.n;

@@ -3,18 +3,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PassThrough, Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { createGzip } from 'node:zlib';
-import { isSafeKeyId, isSafeRelPath, transcriptKey, type FileMetaIn } from '@agent-hangar/shared';
+import { isSafeKeyId, isSafeRelPath, transcriptBlobKey, type FileMetaIn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { CloudError, LimitError, type CloudClient } from './client.ts';
-import { encryptStream, sha256Stream } from './crypto.ts';
+import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
+import { transcriptLedgerKey } from './ledgerKey.ts';
+import { noteBlobUpload } from './trashSweep.ts';
+import type { RowKeyring } from './sealedClient.ts';
 import type { SyncStateStore } from './state.ts';
 import { transcriptsFrom } from './transcriptsFrom.ts';
 
 export type UploadTarget = { path: string; sessionId: string; agentId: string | null };
 export type UploaderDeps = {
-  db: Db; deviceId: string; claudeDir: string; client: CloudClient; key: Buffer; state: SyncStateStore;
+  db: Db; deviceId: string; claudeDir: string; client: CloudClient;
+  /** R2 の鍵名を求める鍵の束。client（SealedCloudClient）と同じものを渡す。 */
+  keyring: RowKeyring | Promise<RowKeyring>;
+  state: SyncStateStore;
   now?: () => number; debounceMs?: number; timers?: Timers; isPaused: () => boolean;
   onError?: (path: string, message: string) => void;
 };
@@ -112,8 +117,10 @@ const hashTap = (h: Hash): Transform =>
   });
 
 /**
- * 手元の本文を gzip と AES-256-GCM で包んで R2 に上げる。
- * 鍵は端末ごとに分かれているので、他端末の本文を上書きすることはない。
+ * 手元の本文を R2 に上げる。gzip と暗号化、メタの封は client（SealedCloudClient）が行う。
+ * R2 の鍵名は今の世代の `/index` の鍵で求めた HMAC（`b/<自端末>/...`）で、パスとセッションの UUID は Worker に見えない。
+ * 鍵名は端末ごとに分かれているので、他端末の本文を上書きすることはない。
+ * 手元の台帳（file_sync）と諦めた控えは、R2 の鍵名ではなく台帳の鍵（sync/ledgerKey.ts）で引く。
  * ログを一切出さない（本文も鍵も秘密も、例外の文言にも載せない）。
  */
 export class TranscriptUploader {
@@ -357,7 +364,7 @@ export class TranscriptUploader {
   }
 
   private safeKey(sessionUuid: string, agentId: string | null): string | null {
-    try { return transcriptKey(this.deps.deviceId, sessionUuid, agentId); } catch { return null; }
+    try { return transcriptLedgerKey(this.deps.deviceId, sessionUuid, agentId); } catch { return null; }
   }
 
   private readSkip(key: string): SkipRecord | null {
@@ -445,9 +452,9 @@ export class TranscriptUploader {
     if (!st.isFile()) return 'skipped';
     const rel = toPosix(path.relative(this.deps.claudeDir, f.path));
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel)) return 'skipped';
-    // 鍵の組み立ては shared に任せる。形が通らない ID は上げ損ねとして知らせる（黙って skipped にしない）。
+    // 台帳の鍵の形が通らない ID は上げ損ねとして知らせる（黙って skipped にしない）。
     let key: string;
-    try { key = transcriptKey(this.deps.deviceId, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+    try { key = transcriptLedgerKey(this.deps.deviceId, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
 
     // 指紋も本文も「stat した時点の長さ」までに限って読む。
     // 実行中のセッションは読んでいる最中に伸びるので、限らないと sha256 と中身が食い違う。
@@ -461,14 +468,19 @@ export class TranscriptUploader {
     // 本文は変化のたびに全体を上げ直すので、送り直すたびに転送量を無料枠から削ることになる。
     if (skip && !this.mayRetrySkipped(key, skip, size, sha)) return 'skipped';
 
-    const meta: FileMetaIn = { key, path: rel, kind: 'transcript', sha256: sha, size, mtime: Math.floor(st.mtimeMs), encrypted: true };
-    // R2 は部分更新ができないので、変化のたびにファイル全体を gzip して上げ直す。
+    // R2 の鍵名は、今の世代の鍵で求める。同じ世代のあいだは同じ鍵名なので、上げ直しは同じオブジェクトへの上書きになる。
+    // 鍵名とメタと本文は同じ世代で封じる（世代を回した直後なら client が断り、次の機会に求め直す）。
+    const cur = (await this.deps.keyring).current();
+    let blobKey: string;
+    try { blobKey = await transcriptBlobKey(cur.index, this.deps.deviceId, this.deps.deviceId, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+    const meta: FileMetaIn = { key: blobKey, epoch: cur.epoch, path: rel, kind: 'transcript', sha256: sha, size, mtime: Math.floor(st.mtimeMs), origin: this.deps.deviceId };
+    // R2 は部分更新ができないので、変化のたびにファイル全体を上げ直す（gzip と暗号化は client が行う）。
     const body = new PassThrough();
     const sent = createHash('sha256');
     let pumpError: unknown = null;
     // pipeline で繋ぐ（裸の pipe だと途中の error が誰にも拾われずプロセスごと落ちる）。
     // 先に putFile が倒れたときも body を壊して確実に畳む。
-    const pump = pipeline(source(), hashTap(sent), createGzip(), encryptStream(this.deps.key), body)
+    const pump = pipeline(source(), hashTap(sent), body)
       .catch((e: unknown) => { pumpError = e; });
     let seq: number;
     try {
@@ -497,6 +509,8 @@ export class TranscriptUploader {
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
       .run(key, 'transcript', rel, this.deps.deviceId, sha, size, meta.mtime, seq, this.now());
+    // 上げた世代を控える。ゴミ箱の掃除が、世代ごとに残る鍵名を求め直して消す（sync/trashSweep.ts）。
+    noteBlobUpload(this.deps.db, key, cur.epoch);
     return 'uploaded';
   }
 

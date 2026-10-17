@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CloudConfig, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
-import { encodeJoinToken, type CloudDeviceOut } from '@agent-hangar/shared';
+import { encodeJoinToken, type DeviceOut } from '@agent-hangar/shared';
 import { cloudDevicesText, joinCommand, joinPlan, leaveCloud, leaveCommand, MembershipError, revokeCloudDevice, revokeCommand, runJoinQuiet } from './membership.ts';
 
 const device = { id: 'dev-a', name: 'mac', platform: 'darwin' };
@@ -31,8 +31,8 @@ const conf = (over: Partial<CloudConfig> = {}): CloudConfig => ({
   ...over,
 });
 
-const row = (id: string, over: Partial<CloudDeviceOut> = {}): CloudDeviceOut => ({
-  id, name: id, platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, ...over,
+const row = (id: string, over: Partial<DeviceOut> = {}): DeviceOut => ({
+  id, kind: 'pc', joinedAt: 1, lastSeenAt: 2, revokedAt: null, expiresAt: null, ...over,
 });
 
 const codeOf = async (p: Promise<unknown>): Promise<string> => {
@@ -118,7 +118,7 @@ describe('PC の一覧と解除', () => {
   it('一覧を表にして出す。この PC に印を付け、解除した PC は解除日を添える', async () => {
     const h = home();
     saveCloudConfig(h, conf());
-    const f = (async () => new Response(JSON.stringify({ devices: [row('dev-a'), row('dev-b', { revokedAt: Date.UTC(2026, 9, 12) })] }), { status: 200, headers: { 'x-hangar-compat': '6' } })) as typeof fetch;
+    const f = (async () => new Response(JSON.stringify({ devices: [row('dev-a'), row('dev-b', { revokedAt: Date.UTC(2026, 9, 12) })] }), { status: 200, headers: { 'x-hangar-compat': '9' } })) as typeof fetch;
     const text = await cloudDevicesText({ home: h, deviceId: 'dev-a', fetch: f });
     expect(text).toContain('dev-a');
     expect(text).toContain('この PC');
@@ -131,7 +131,7 @@ describe('PC の一覧と解除', () => {
     // 手元の 0 時 30 分と 23 時 30 分。UTC の日付で出すと、東の時間帯では前の日、西の時間帯では次の日にずれる。
     const early = new Date(2026, 9, 12, 0, 30).getTime();
     const late = new Date(2026, 9, 12, 23, 30).getTime();
-    const f = (async () => new Response(JSON.stringify({ devices: [row('dev-a', { joinedAt: early, lastSeenAt: late }), row('dev-b', { joinedAt: late, revokedAt: early })] }), { status: 200, headers: { 'x-hangar-compat': '6' } })) as typeof fetch;
+    const f = (async () => new Response(JSON.stringify({ devices: [row('dev-a', { joinedAt: early, lastSeenAt: late }), row('dev-b', { joinedAt: late, revokedAt: early })] }), { status: 200, headers: { 'x-hangar-compat': '9' } })) as typeof fetch;
     const lines = (await cloudDevicesText({ home: h, deviceId: 'dev-a', fetch: f })).split('\n');
     expect(lines[0]).toContain('参加 2026-10-12');
     expect(lines[0]).toContain('最終同期 2026-10-12');
@@ -143,7 +143,7 @@ describe('PC の一覧と解除', () => {
     const h = home();
     saveCloudConfig(h, conf());
     const urls: string[] = [];
-    const f = (async (u: string | URL | Request) => { urls.push(String(u)); return new Response(JSON.stringify({ device: row('dev-b', { revokedAt: 5 }) }), { status: 200, headers: { 'x-hangar-compat': '6' } }); }) as typeof fetch;
+    const f = (async (u: string | URL | Request) => { urls.push(String(u)); return new Response(JSON.stringify({ device: row('dev-b', { revokedAt: 5 }) }), { status: 200, headers: { 'x-hangar-compat': '9' } }); }) as typeof fetch;
     expect((await revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-b', fetch: f })).revokedAt).toBe(5);
     expect(urls).toEqual(['https://h.workers.dev/devices/dev-b/revoke']);
     expect(await codeOf(revokeCloudDevice({ home: h, deviceId: 'dev-a', id: 'dev-a', fetch: f }))).toBe('self');
@@ -163,7 +163,7 @@ describe('leaveCloud（この PC の参加を解除）', () => {
     const h = home();
     saveCloudConfig(h, conf());
     const urls: string[] = [];
-    const f = (async (u: string | URL | Request) => { urls.push(String(u)); return new Response(JSON.stringify({ device: row('dev-a', { revokedAt: 5 }) }), { status: 200, headers: { 'x-hangar-compat': '6' } }); }) as typeof fetch;
+    const f = (async (u: string | URL | Request) => { urls.push(String(u)); return new Response(JSON.stringify({ device: row('dev-a', { revokedAt: 5 }) }), { status: 200, headers: { 'x-hangar-compat': '9' } }); }) as typeof fetch;
     const r = await leaveCloud({ home: h, deviceId: 'dev-a', revoke: true, fetch: f });
     expect(r).toEqual({ revoked: true, revokeError: null, creator: false });
     expect(urls).toEqual(['https://h.workers.dev/devices/dev-a/revoke']);
@@ -240,7 +240,7 @@ describe('殻から呼ぶ形（--json の 1 行）', () => {
     const h = home();
     saveCloudConfig(h, conf());
     const o = lines();
-    const f = (async () => new Response(JSON.stringify({ device: row('dev-b', { revokedAt: 5 }) }), { status: 200, headers: { 'x-hangar-compat': '6' } })) as typeof fetch;
+    const f = (async () => new Response(JSON.stringify({ device: row('dev-b', { revokedAt: 5 }) }), { status: 200, headers: { 'x-hangar-compat': '9' } })) as typeof fetch;
     expect(await revokeCommand({ home: h, deviceId: 'dev-a', id: 'dev-b', yes: true, json: true, log: o.log, fetch: f })).toBe(0);
     expect(last(o.out)).toMatchObject({ ok: true, result: { id: 'dev-b', revokedAt: 5 } });
   });

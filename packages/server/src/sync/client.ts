@@ -10,27 +10,36 @@ import {
   COMPAT_VERSION,
   compatHeaders,
   encodeFileKeyPath,
-  encodeHeaderText,
+  isBlobKey,
   isSafeKeyId,
   isSafeRelPath,
-  isValidFileKey,
+  MAX_BLOB_DELETE_KEYS,
   MOBILE_IMAGES_PER_LAUNCH,
   parseCompat,
   readCloudLimit,
   readCompatRefusal,
   REVOKED_ERROR,
+  type BlobsDeleteOut,
   type ChangeIn,
-  type CloudDeviceOut,
-  type CloudDeviceRevokeResponse,
-  type CloudDevicesResponse,
+  type ChangeOut,
   type CloudLimitKind,
   type CloudUsageBody,
+  type DeviceOut,
+  type DeviceRevokeOut,
+  type DevicesOut,
   type FileMetaIn,
+  type KeyboxesOut,
   type ListFilesResponse,
   type MobilePairingResponse,
-  type PullChangesResponse,
   type PushChangesResponse,
-  type SnapshotResponse,
+  type RosterOut,
+  type RosterPut,
+  type RosterPutOut,
+  type SealedChangeIn,
+  type SealedFileIn,
+  type SealedListFilesResponse,
+  type SealedPullChangesResponse,
+  type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
 import { msg, MessageError, type Message } from '../i18n/message.ts';
 
@@ -56,8 +65,10 @@ const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : 
  * 段 2 の PR 11 で 2 に上げた。版 1 の Worker は共有の表の一覧に session_notes を持たず、その行を含む push を丸ごと断る。
  * 同期の版 6 で 6 に上げた（Worker の MIN_DEVICE_COMPAT と同時に上げる例外、docs/design.md「互換の版番号」）。
  * 版 5 までの Worker は pull の応答に peers と now を添えず、他の PC の生存を読めない。変更ログの 410 の取り直しも、この下限で要らなくなった。
+ * E2E の作り直しで 9 に上げた（Worker の MIN_DEVICE_COMPAT と同時）。
+ * 版 8 までの Worker は封じた行（k と sealed）を知らず、行の中身を平文で持つ形なので、この PC は何も書かない。
  */
-export const MIN_WORKER_COMPAT = 6;
+export const MIN_WORKER_COMPAT = 9;
 
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';
@@ -122,11 +133,15 @@ export class LimitError extends CloudError {
 }
 
 /**
- * R2 の鍵として Worker が受け取る形か。
- * 判定の本体は共有（`packages/shared/src/cloud.ts`）にあり、Worker の `validKey` と同じ物差しである。
- * ここで独自に字種を狭めると、日本語や空白を含む `~/.claude` のファイルが端末側だけで止まる。
+ * GET /files/:key に載せてよい鍵か。
+ * 書く鍵は R2 の鍵名（`b/<端末 ID>/<HMAC>`、shared の isBlobKey）だけである。
+ * 読む鍵は、それに加えて版 8 までの Worker の鍵名（`transcripts/...` と `config/...`）も通す。
+ * hangar cloud teardown が、作り直しの前の Worker から本文を降ろすのに使う（Task 26 で作り直す）。
+ * どちらも URL のパスを抜け出す断片（`..`、空の断片、制御文字）は通さない。
  */
-export { isValidFileKey } from '@agent-hangar/shared';
+export function isFetchableKey(key: string): boolean {
+  return isBlobKey(key) || (/^(transcripts|config)\//.test(key) && isSafeRelPath(key));
+}
 
 /** 小さい応答（changes、rows、files の一覧、health）の締め切り。 */
 export const DEFAULT_TIMEOUT_MS = 30_000;
@@ -193,24 +208,37 @@ class Deadline {
   clear(): void { clearTimeout(this.timer); }
 }
 
-/** 端末から見た Worker。HttpCloudClient が本物、FakeCloudClient（test/fake-cloud.ts）がメモリ上の偽物。 */
-export interface CloudClient {
+/** 開けなかった行。中身は分からないので、連番と封じた世代だけを持つ。 */
+export type Unreadable = { seq: number; epoch: number };
+
+/**
+ * 開いた pull の応答。行のほかは線の上の形（SealedPullChangesResponse）と同じである。
+ * 開けなかった行は changes に入れず unreadable に入れる。名簿の印の行はどちらにも入れない。
+ */
+export type OpenedPullResponse = Omit<SealedPullChangesResponse, 'changes'> & { changes: ChangeOut[]; unreadable: Unreadable[] };
+/** 開いた写しの頁。nextAfter は線の上の k のままで、次の頁にそのまま渡す。 */
+export type OpenedSnapshotResponse = Omit<SealedSnapshotResponse, 'changes'> & { changes: ChangeOut[]; unreadable: Unreadable[] };
+
+/**
+ * 世代鍵の読み直しの結果。
+ * not-needed は、どの世代の鍵も手元にあって読み直さなかった（行が壊れているか書き換えられている）。
+ * gained は、読み直して欠けていた世代の鍵が 1 つ以上届いた（頁を読み直せば開ける）。
+ * missing は、読み直しても届かなかった。
+ */
+export type KeyRefresh = 'not-needed' | 'gained' | 'missing';
+
+/** 行と本文のほかの口。線の上（WireCloudClient）と開いた側（CloudClient）で同じ形である。 */
+export interface CloudClientBase {
   health(): Promise<{ ok: boolean; version: string }>;
-  pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse>;
-  pullChanges(since: number, limit: number): Promise<PullChangesResponse>;
-  snapshot(after: string | null, limit: number): Promise<SnapshotResponse>;
-  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
-  getFile(key: string): Promise<Readable>;
-  listFiles(since: number, limit: number): Promise<ListFilesResponse>;
   /** 使用量と費用。 */
   usage(): Promise<CloudUsageBody>;
   /**
-   * 同期に参加している PC の一覧（互換の版 5 の Worker から）。解除した PC も revokedAt つきで入る。
-   * 版 4 までの Worker は 404 を返す。偽物は実装しなくてよい。
+   * 同期に参加している端末の一覧（互換の版 5 の Worker から。版 9 で名前、OS、IP、所在地が無くなった）。解除した端末も revokedAt つきで入る。
+   * 名前と OS は封じた名簿（sync/roster.ts）にある。版 4 までの Worker は 404 を返す。偽物は実装しなくてよい。
    */
-  listDevices?(): Promise<CloudDeviceOut[]>;
-  /** PC を解除する（自分自身も）。解除した PC の行を返す。 */
-  revokeDevice?(id: string): Promise<CloudDeviceOut>;
+  listDevices?(): Promise<DeviceOut[]>;
+  /** 端末を解除する（自分自身も）。解除した端末の行を返す。 */
+  revokeDevice?(id: string): Promise<DeviceOut>;
   /**
    * Worker が最後に（2xx の応答で）名乗った互換の版。まだ話していなければ null。
    * 設定の同期が、Worker が束の行を知る版に届くまで行を書かないために読む。実装しない偽物は null を返してよい。
@@ -249,6 +277,66 @@ export interface CloudClient {
    * 最後のスマホを解除したあとに 1 回呼ぶ。偽物は実装しなくてよい。
    */
   deleteMobileFeed?(): Promise<void>;
+  /**
+   * 自分の端末 ID の下の本文を消す（DELETE /blobs、互換の版 9）。鍵は 1 回に MAX_BLOB_DELETE_KEYS 件まで。
+   * 置いてから 1 時間たっていないもの、ほかの端末の下のもの、1 日の上限からあふれたものは refused で返る。
+   * 1 日の上限を使い切っていれば CloudError(429) で投げる。呼ぶのはゴミ箱の掃除（sync/trashSweep.ts）。偽物は実装しなくてよい。
+   */
+  deleteBlobs?(keys: string[]): Promise<BlobsDeleteOut>;
+}
+
+/**
+ * 線の上の Worker（互換の版 9）。行は封じたまま（SealedChangeIn と SealedChangeOut）で運び、開けない。
+ * HttpCloudClient が本物、FakeWireClient（test/fake-cloud.ts）がメモリ上の偽物。
+ */
+export interface WireCloudClient extends CloudClientBase {
+  pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse>;
+  pullChanges(since: number, limit: number): Promise<SealedPullChangesResponse>;
+  snapshot(after: string | null, limit: number): Promise<SealedSnapshotResponse>;
+  /** 封じたメタと、暗号化済みの本文を置く（PUT /files/:key）。鍵名は自端末の下（`b/<自分>/`）だけ。 */
+  putFile(meta: SealedFileIn, body: Readable): Promise<{ seq: number }>;
+  /** 暗号化されたままの本文を取る。 */
+  getFile(key: string): Promise<Readable>;
+  /** 封じたメタのままの索引。 */
+  listFiles(since: number, limit: number): Promise<SealedListFilesResponse>;
+  /** 封じた名簿（GET /roster）。まだ無ければ（404）null で、投げない。 */
+  getRoster(): Promise<RosterOut | null>;
+  /** 名簿を版の番号つきで書き換える（PUT /roster）。版が合わない 409 は投げずに ok: false と今の版で返す。 */
+  putRoster(body: RosterPut): Promise<RosterPutResult>;
+  /** 自分宛ての keybox（GET /keyboxes）。いちばん新しい世代の 1 つだけで、まだ無ければ空の配列。 */
+  getKeyboxes(): Promise<KeyboxesOut>;
+}
+
+/** 名簿の書き換えの結果。ok が false なら版が合わずに断られた（409）。version はどちらも Worker の今の版。 */
+export type RosterPutResult = { ok: boolean } & RosterPutOut;
+
+/**
+ * 端末から見た Worker。行は開いた形（ChangeIn と ChangeOut）で話す。
+ * 本物は線の client を包む SealedCloudClient（sync/sealedClient.ts）で、行を封じて送り、受けた行を開く。
+ * FakeCloudClient（test/fake-cloud.ts）は偽の Worker を同じ SealedCloudClient で包んだもの。
+ */
+export interface CloudClient extends CloudClientBase {
+  pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse>;
+  pullChanges(since: number, limit: number): Promise<OpenedPullResponse>;
+  snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse>;
+  /**
+   * 平文の本文を上げる。gzip してから meta.epoch の世代の本文の鍵で暗号化し、メタを封じて置く。
+   * 鍵名（meta.key）は呼び手が e2e/names.ts で同じ世代の `/index` の鍵から求める。
+   * meta.epoch が今の世代でなければ上げない（世代を回した後に、古い世代の鍵で書かない）。
+   */
+  putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
+  /** 本文を取り、epoch の世代の鍵で復号して gzip を解いた平文の流れを返す。 */
+  getFile(key: string, epoch: number): Promise<Readable>;
+  /**
+   * 索引を開いて返す。
+   * 世代の鍵が無い行は unreadable に入れ、宛先や鍵名が中身と合わない行は捨てる。
+   */
+  listFiles(since: number, limit: number): Promise<ListFilesResponse>;
+  /**
+   * 開けなかった行の世代（unreadable の epoch）を渡し、手元に無い世代があれば名簿と keybox を読み直す。
+   * 同期のエンジンは 1 巡に 1 度だけ呼び、gained なら同じ頁を読み直す。実装しない偽物は読み直さない。
+   */
+  refreshKeys?(epochs: number[]): Promise<KeyRefresh>;
 }
 
 /** 呼び鈴の WebSocket のつなぎ先。url は wss（手元の Worker では ws）で、headers は Bearer と互換の版。 */
@@ -284,8 +372,11 @@ export type HttpCloudClientOptions = {
   checkWorkerBeforeWrite?: boolean;
 };
 
-/** fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。 */
-export class HttpCloudClient implements CloudClient {
+/**
+ * fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。
+ * 行は封じた形のまま運ぶ（WireCloudClient）。封じて開くのは包む側の SealedCloudClient である。
+ */
+export class HttpCloudClient implements WireCloudClient {
   private base!: string;
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs: number;
@@ -447,8 +538,8 @@ export class HttpCloudClient implements CloudClient {
     }
   }
 
-  private requireValidKey(key: string): void {
-    if (!isValidFileKey(key)) throw new CloudError(400, JSON.stringify({ error: 'invalid key' }));
+  private requireKey(ok: boolean): void {
+    if (!ok) throw new CloudError(400, JSON.stringify({ error: 'invalid key' }));
   }
 
   lastWorkerCompat(): number | null { return this.seenWorkerCompat; }
@@ -457,23 +548,50 @@ export class HttpCloudClient implements CloudClient {
     return { url: `${this.base.replace(/^http/i, 'ws')}/m/bell`, headers: { ...compatHeaders(), authorization: this.authorization() } };
   }
   health() { return this.json<{ ok: boolean; version: string }>('/health'); }
-  async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {
+  async pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse> {
     await this.ensureWorkerCompat();
     return this.json<PushChangesResponse>('/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) });
   }
-  pullChanges(since: number, limit: number) { return this.json<PullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
-  snapshot(after: string | null, limit: number) { return this.json<SnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
-  listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
+  pullChanges(since: number, limit: number) { return this.json<SealedPullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
+  snapshot(after: string | null, limit: number) { return this.json<SealedSnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
+  listFiles(since: number, limit: number) { return this.json<SealedListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
 
   usage() { return this.json<CloudUsageBody>('/usage'); }
 
-  async listDevices(): Promise<CloudDeviceOut[]> { return (await this.json<CloudDevicesResponse>('/devices')).devices; }
+  async listDevices(): Promise<DeviceOut[]> { return (await this.json<DevicesOut>('/devices')).devices; }
 
-  async revokeDevice(id: string): Promise<CloudDeviceOut> {
+  async revokeDevice(id: string): Promise<DeviceOut> {
     // ID は URL の断片に入る。Worker も入口で断るが、形の違うものは外へ出さない。
     if (!isSafeKeyId(id)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
-    return (await this.json<CloudDeviceRevokeResponse>(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' })).device;
+    return (await this.json<DeviceRevokeOut>(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' })).device;
   }
+
+  async getRoster(): Promise<RosterOut | null> {
+    try {
+      return await this.json<RosterOut>('/roster');
+    } catch (e) {
+      // 名簿がまだ無いのは、setup の途中か古い参加の名残で、失敗ではない。
+      if (e instanceof CloudError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  async putRoster(body: RosterPut): Promise<RosterPutResult> {
+    await this.ensureWorkerCompat();
+    try {
+      const r = await this.json<RosterPutOut>('/roster', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return { ok: true, version: r.version };
+    } catch (e) {
+      // 409 の本文は今の版（RosterPutOut）だけで、CloudError の先頭 200 字に収まる。
+      if (e instanceof CloudError && e.status === 409) {
+        const v = (() => { try { return (JSON.parse(e.message) as Partial<RosterPutOut>).version; } catch { return undefined; } })();
+        if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) return { ok: false, version: v };
+      }
+      throw e;
+    }
+  }
+
+  getKeyboxes(): Promise<KeyboxesOut> { return this.json<KeyboxesOut>('/keyboxes'); }
 
   async putMobileFeed(sealed: string): Promise<void> {
     await this.ensureWorkerCompat();
@@ -482,6 +600,13 @@ export class HttpCloudClient implements CloudClient {
 
   async deleteMobileFeed(): Promise<void> {
     await this.json<{ ok: boolean }>('/m/feed', { method: 'DELETE' });
+  }
+
+  async deleteBlobs(keys: string[]): Promise<BlobsDeleteOut> {
+    // Worker も入口で断るが、形の違う鍵と上限を超える数は外へ出さない。
+    if (keys.length === 0 || keys.length > MAX_BLOB_DELETE_KEYS || !keys.every(isBlobKey)) throw new CloudError(400, JSON.stringify({ error: 'invalid body' }));
+    await this.ensureWorkerCompat();
+    return this.json<BlobsDeleteOut>('/blobs', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ keys }) });
   }
 
   async getMobileBlob(launchId: string, n: number): Promise<Uint8Array> {
@@ -517,20 +642,14 @@ export class HttpCloudClient implements CloudClient {
     await this.json<{ ok: boolean }>(`/m/launches/${encodeURIComponent(id)}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ok, sealedAnswer }) });
   }
 
-  async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
-    this.requireValidKey(meta.key);
-    // 見出しの値は ByteString しか運べない。
-    // 符号化せずに日本語を渡すと undici が送る前に TypeError を投げるので、ここで符号化する。
-    // 復号は Worker が同じ共有の関数で行う。
-    const wirePath = isSafeRelPath(meta.path) ? encodeHeaderText(meta.path) : null;
-    if (wirePath === null) throw new CloudError(400, JSON.stringify({ error: 'invalid headers' }));
+  async putFile(meta: SealedFileIn, body: Readable): Promise<{ seq: number }> {
+    this.requireKey(isBlobKey(meta.key));
+    // パス、平文の SHA-256、mtime は封じたメタ（base64url）の中にあり、見出しに平文で載せない。
     const headers: Record<string, string> = {
-      [CLOUD_HEADERS.path]: wirePath,
       [CLOUD_HEADERS.kind]: meta.kind,
-      [CLOUD_HEADERS.sha256]: meta.sha256,
       [CLOUD_HEADERS.size]: String(meta.size),
-      [CLOUD_HEADERS.mtime]: String(meta.mtime),
-      [CLOUD_HEADERS.encrypted]: meta.encrypted ? '1' : '0',
+      [CLOUD_HEADERS.epoch]: String(meta.epoch),
+      [CLOUD_HEADERS.meta]: meta.sealedMeta,
       'content-type': 'application/octet-stream',
     };
     // 中身は暗号化済みなので、一時ファイルに置いても平文は残らない。通っても倒れても消す。
@@ -573,7 +692,7 @@ export class HttpCloudClient implements CloudClient {
   }
 
   async getFile(key: string): Promise<Readable> {
-    this.requireValidKey(key);
+    this.requireKey(isFetchableKey(key));
     const { res, d } = await this.send(`/files/${encodeFileKeyPath(key)}`, {}, this.transferTimeoutMs);
     if (!res.body) {
       d.clear();

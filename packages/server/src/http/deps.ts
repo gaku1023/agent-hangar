@@ -145,7 +145,10 @@ export type AppDeps = {
   resumeHereReplace?: (sessionId: string) => ResumeHereReplaceDto | null;
   /** 設定の同期。同期を設定していない端末では null で、/config-sync/* は 404 を返す。既定は切。 */
   configBundle: ConfigBundleApi | null;
-  /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */
+  /**
+   * 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。
+   * 版 2 の cloud.json は参加用の秘密を持たないので、boot/sync.ts はいつも null を渡す（参加コードへ移るまで）。
+   */
   joinToken: () => string | null;
   devices: () => DeviceDto[];
   /**
@@ -156,6 +159,7 @@ export type AppDeps = {
   /**
    * スマホを接続する QR を作るための、今の client と参加の秘密と Worker の URL（boot/sync.ts の mobileLink）。同期を設定していなければ null。
    * 秘密は QR に入れるスマホ用の暗号鍵を導くのにだけ使い、応答にもログにも出さない。渡さなければ null として読む（試験の世界）。
+   * 版 2 の cloud.json の間は、スマホ用の鍵を名簿の phoneKey から引くようになるまで（Task 22）、boot/sync.ts はいつも null を返す。
    */
   mobileLink?: () => { client: CloudClient; joinSecret: string; url: string } | null;
   /**

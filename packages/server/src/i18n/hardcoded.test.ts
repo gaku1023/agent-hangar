@@ -34,7 +34,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'boot/runs.ts': { lines: 2, why: LOG },
   'boot/stopping.ts': { lines: 2, why: LOG },
   'boot/summary.ts': { lines: 2, why: LOG },
-  'boot/sync.ts': { lines: 3, why: LOG },
+  'boot/sync.ts': { lines: 2, why: LOG },
   'boot/takeover.ts': { lines: 1, why: LOG },
   'config/accounts.ts': { lines: 1, why: FIRST_NAME },
   'config/shellHook.ts': { lines: 4, why: FILE_BODY },

@@ -17,9 +17,9 @@ const feedOf = (title: string): MobileFeed => ({
   done: [{ sessionId: 's1', projectName: 'project-a', title, oneLiner: null, doneAt: 1 }],
 });
 
-function setup(o: { canWrite?: () => boolean } = {}) {
+function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number } = {}) {
   const timers = new FakeTimers();
-  const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now });
+  const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now, ...(o.minWorkerCompat !== undefined ? { minWorkerCompat: o.minWorkerCompat } : {}) });
   let feed = feedOf('会話 1');
   const errors: unknown[] = [];
   const pub = new MobileFeedPublisher({
@@ -116,7 +116,8 @@ describe('MobileFeedPublisher', () => {
   });
 
   it('偽の Worker が版 6 なら PUT /m/feed を断る', async () => {
-    const { client } = setup();
+    // 今の PC の下限（MIN_WORKER_COMPAT）は 9 なので、版 6 の Worker とはそもそも話さない。口の分岐だけを見るため、下限を下げる。
+    const { client } = setup({ minWorkerCompat: 0 });
     client.workerCompat = MOBILE_MIN_WORKER_COMPAT - 1;
     await expect(client.putMobileFeed('x')).rejects.toMatchObject({ status: 404 });
   });
@@ -232,7 +233,8 @@ describe('MobileFeedPublisher', () => {
   });
 
   it('消す口を知らない Worker（404）には何も消せないので、やり直さない', async () => {
-    const { client, pub } = setup();
+    // 今の PC の下限（MIN_WORKER_COMPAT）は 9 なので、版 7 の Worker とはそもそも話さない。口の分岐だけを見るため、下限を下げる。
+    const { client, pub } = setup({ minWorkerCompat: 0 });
     client.workerCompat = MOBILE_MIN_WORKER_COMPAT;
     expect(await pub.dropFeed()).toBe(true);
     expect(await pub.dropFeed()).toBe(true);

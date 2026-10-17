@@ -1,4 +1,3 @@
-import type { CloudDeviceOut } from './cloud.ts';
 import type { CompatSummaryDto } from './claudeCompat.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
@@ -507,13 +506,27 @@ export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | 
 /** 同期の状態の応答。SyncStatusDto に付録を足したものである。 */
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 /**
- * 設定のクラウド同期の節の PC の一覧（GET /api/sync/cloud-devices）。Worker の devices をそのまま運び、この PC に self の印を付ける。
+ * 設定のクラウド同期の節の PC の一覧（GET /api/sync/cloud-devices）。この PC に self の印を付ける。
+ * 端末の並びと、参加日、最終接続、解除、トークンの期限は Worker の devices から取る。
+ * 名前と OS（platform）は封じた名簿から取り、名簿に無い端末は name と platform が null の「名前のわからない端末」である。
+ * IP と所在地は持たない。
  * state は、ok（一覧が取れた）、off（同期していない）、outdated（Worker が版 5 より古く、一覧と解除の口を持たない）、
  * unreachable（Worker に繋がらない、または一覧の問い合わせが失敗した）、revoked（この PC が解除されている）である。
  * creator は、この PC がクラウドを作った PC か（cloud.json に Worker の名前がある）。参加を解除すると teardown できなくなる旨を出すのに使う。
  * message は ok と off のほかで、画面に出す理由の文（サーバの言語）。
  */
-export type CloudDeviceDto = CloudDeviceOut & { self: boolean };
+export type CloudDeviceDto = {
+  id: string;
+  kind: 'pc' | 'mobile';
+  name: string | null;
+  platform: string | null;
+  joinedAt: number;
+  lastSeenAt: number | null;
+  revokedAt: number | null;
+  /** トークンの期限。null なら期限なし。 */
+  expiresAt: number | null;
+  self: boolean;
+};
 export type CloudDevicesDto = { state: 'ok' | 'off' | 'outdated' | 'unreachable' | 'revoked'; devices: CloudDeviceDto[]; creator: boolean; message: string | null };
 /**
  * スマホを接続する QR（POST /api/sync/mobile-pairing）。押すたびに Worker から新しい券を取る。

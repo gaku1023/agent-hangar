@@ -16,7 +16,7 @@ function rig(bridge: Partial<CloudBridge> | null = {}) {
   const full: CloudBridge | null = bridge === null ? null : {
     joinPlan: async () => ({ ok: true, value: plan }),
     join: async () => ({ ok: true, value: { url: plan.url, host: plan.host } }),
-    revoke: async (id) => ({ ok: true, value: { id, name: id, platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: 3, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null } }),
+    revoke: async (id) => ({ ok: true, value: { id, kind: 'pc' as const, joinedAt: 1, lastSeenAt: 2, revokedAt: 3, expiresAt: null } }),
     leave: async () => ({ ok: true, value: { revoked: true, revokeError: null, creator: false } }),
     ...bridge,
   };
@@ -25,7 +25,7 @@ function rig(bridge: Partial<CloudBridge> | null = {}) {
 }
 
 const NOW = 1_700_000_000_000;
-const phone = (id: string, over: Partial<CloudDevicesDto['devices'][number]> = {}) => ({ id, name: id, platform: 'mobile', joinedAt: NOW, lastSeenAt: NOW, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, kind: 'mobile' as const, self: false, ...over });
+const phone = (id: string, over: Partial<CloudDevicesDto['devices'][number]> = {}): CloudDevicesDto['devices'][number] => ({ id, name: id, platform: null, joinedAt: NOW, lastSeenAt: NOW, revokedAt: null, expiresAt: null, kind: 'mobile', self: false, ...over });
 const pc = { ...phone('studio'), platform: 'darwin', kind: 'pc' as const, self: true };
 const ready: MobilePairingDto = { state: 'ready', pairUrl: 'https://w.example/app/#pair=PAIRTEXT', pairText: 'PAIRTEXT', expiresAt: NOW + PAIR_TTL_SHOWN_MS };
 

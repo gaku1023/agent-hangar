@@ -14,7 +14,7 @@ import { translatorOf } from './i18n.ts';
  * PC の 1 行。joined と ip と place は Worker の一覧があるときだけで、同期の表に戻したときは null。
  * ip（最後の IP）と place（場所）を分けて持つ。IPv6 の IP は長く、1 本の文字列にすると後ろの場所が切られて見えなくなるからである。
  */
-export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; ip: string | null; place: string | null; removedOn: string | null; /** スマホ（Worker の kind が mobile）。名前に「スマホ」の札を付け、解除の確認の文を替える。 */ phone: boolean };
+export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; removedOn: string | null; /** スマホ（Worker の kind が mobile）。名前に「スマホ」の札を付け、解除の確認の文を替える。 */ phone: boolean };
 
 /**
  * スマホを接続する QR の段（store/cloudMember.ts の PhoneStage から基準の ID の控えを除いたもの）。
@@ -77,12 +77,6 @@ const pad = (n: number): string => String(n).padStart(2, '0');
 const ymd = (ms: number): string => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const md = (ms: number): string => { const d = new Date(ms); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
-/** 場所。Cloudflare の英語のまま、市区、地域、国の順に並べる。最後の IP が無ければ出さない。 */
-function placeOf(d: CloudDeviceDto): string | null {
-  if (d.lastIp === null) return null;
-  return [d.lastCity, d.lastRegion, d.lastCountry].filter((v): v is string => v !== null && v !== '').join(', ') || null;
-}
-
 /** 殻と CLI の失敗の符号を、画面の文にする（参加の段のほかで使う短い文）。 */
 export function failureMessage(t: Translate, f: CloudFailure): string {
   switch (f.code) {
@@ -133,14 +127,14 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
   const m = store.cloudMember;
   const cloud = m.devices;
   const row = (d: CloudDeviceDto): CloudPcRow => ({
-    // スマホの OS は Worker が持たない（platform は mobile）。名前の横の札で見分けるので、OS の列は空ける。
-    id: d.id, name: d.name, self: d.self, os: d.kind === 'mobile' ? '—' : OS[d.platform] ?? d.platform,
-    joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now), ip: d.lastIp, place: placeOf(d),
+    // スマホは名前の横の札で見分けるので、OS の列は空ける。名簿に無い端末（名前と OS が null）は ID で出す（PC の一覧の画面 E2 で作り直す）。
+    id: d.id, name: d.name ?? d.id, self: d.self, os: d.kind === 'mobile' || d.platform === null ? '—' : OS[d.platform] ?? d.platform,
+    joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now),
     removedOn: d.revokedAt === null ? null : t('cloudMember.pcs.removedOn', { date: md(d.revokedAt) }),
     phone: d.kind === 'mobile',
   });
   // Worker の一覧が無いときは、同期の表の一覧を出しておく（参加日と場所は無い）。
-  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), ip: null, place: null, removedOn: null, phone: false }));
+  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), removedOn: null, phone: false }));
   const pcs: CloudPcsProps = cloud?.state === 'ok'
     ? { state: 'ok', rows: cloud.devices.filter((d) => d.revokedAt === null).map(row), removed: cloud.devices.filter((d) => d.revokedAt !== null).map(row), note: null }
     : cloud && cloud.state !== 'off'

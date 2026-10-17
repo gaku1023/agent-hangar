@@ -3,7 +3,7 @@ import type { CloudDevicesDto } from '@agent-hangar/shared';
 import { initialCloudMember, reduceCloudMember, type JoinPlanView } from './cloudMember.ts';
 
 const plan: JoinPlanView = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' };
-const row = (id: string, self = false) => ({ id, name: id, platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, self });
+const row = (id: string, self = false) => ({ id, kind: 'pc' as const, name: id, platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, expiresAt: null, self });
 const devices: CloudDevicesDto = { state: 'ok', devices: [row('a', true), row('b')], creator: false, message: null };
 
 describe('reduceCloudMember', () => {
@@ -36,7 +36,7 @@ describe('reduceCloudMember', () => {
     let s = reduceCloudMember(initialCloudMember(), { type: 'devices.loaded', devices });
     s = reduceCloudMember(s, { type: 'revoke.start', id: 'b' });
     expect(s.revoke).toEqual({ id: 'b', kind: 'busy' });
-    s = reduceCloudMember(s, { type: 'revoke.done', device: { ...row('b'), revokedAt: 9 } });
+    s = reduceCloudMember(s, { type: 'revoke.done', device: { id: 'b', kind: 'pc', joinedAt: 1, lastSeenAt: 2, revokedAt: 9, expiresAt: null } });
     expect(s.revoke).toEqual({ id: 'b', kind: 'done', name: 'b' });
     expect(s.devices!.devices.find((d) => d.id === 'b')!.revokedAt).toBe(9);
     expect(s.devices!.devices.find((d) => d.id === 'b')!.self).toBe(false);

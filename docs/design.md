@@ -958,6 +958,12 @@ create table trash_applied (
   session_id text primary key,
   trashed_at integer not null
 );
+-- この PC が上げた本文の世代（版 32、「同期対象と暗号化」）。ゴミ箱の掃除が、世代ごとの R2 の鍵名を求め直して消す。
+create table blob_uploads (
+  ledger_key text not null,                           -- 台帳（file_sync）と同じ形の鍵（transcripts/<端末>/<uuid>.jsonl.gz など）
+  epoch integer not null,                             -- 上げたときの世代
+  primary key (ledger_key, epoch)
+);
 
 create table transcript_files (
   path text primary key, session_id text not null, agent_id text,
@@ -2982,19 +2988,16 @@ N は UI の store に届いているセッションで数える。
 | `todos`、`artifacts` | プロジェクトのものなので触らない |
 | 本文の索引（端末ローカル） | 片付ける。戻したときに索引し直す |
 
-互換の版 9 の Worker は、この掃除（`sweepTrash`）を持たない。
-印は封じた行の中にあって Worker には読めないので、PC が `DELETE /blobs` で自分の本文を消す形に移す（「Worker の表」）。
-PC の側の作り直しは後の段で入るので、この節の残りは版 8 までの形である。
-
-クラウドの写し（R2 の `transcripts/<端末>/<uuid>.jsonl.gz` と D1 の索引）は、`trashed_at` から 30 日たったら Worker の掃除（sweep）で消していた（`packages/cloud/src/sweep.ts` の `sweepTrash`）。
-消すのは全端末の分で、サブエージェントの本文（`transcripts/<端末>/<uuid>/subagents/...`）も含む。
-印は D1 の `rows` にある `session_states` の行の payload から、uuid は同じセッションの `sessions` の行（論理削除のまま `provider_session_id` を持つ）から読む。
+クラウドの写し（R2 の本文と D1 の索引）は、`trashed_at` から 30 日（`TRASH_KEEP_MS`）たったら、各 PC のゴミ箱の掃除が消す（`packages/server/src/sync/trashSweep.ts` の `sweepTrashBlobs`）。
+互換の版 9 で、Worker の掃除（`sweepTrash`）から移した。
+印は封じた行の中にあって Worker には読めないからである。
+各 PC は、自分の DB で 30 日の判定をし、自分が上げた本文（主線とサブエージェント）の鍵名を上げた世代ごとに求め直して、`DELETE /blobs` に渡す。
 印から 30 日たち、その後に復元されていない（`restored_at` が `trashed_at` より新しくない）ものだけを消す。
-論理削除された `session_states` の行と、置いてから 1 時間たっていない写しには触らない。
-消す直前に印を読み直し、その間に復元が届いていたら消さない。
-1 回の掃除で読む印の行は 90 行まで、消す鍵は 50 個までで、続きは `meta.trash_cursor` に控えて次の回に読む。
-そのため、消えるのは 30 日をちょうど過ぎた時点ではなく、その後の掃除が印の行に巡ってきたときである。
-端末の API と互換の版は変えていない。
+同じ Claude Code のセッション ID の生きたセッションがあれば消さない。
+Worker は、置いてから 1 時間たっていない写しと、他の PC の写しを断り、1 日に 500 件までしか消さない。
+断られた分は次の回（6 時間後）に送り直す。
+そのため、消えるのは 30 日をちょうど過ぎた時点ではなく、その後の掃除の回である。
+掃除の細部は「同期対象と暗号化」にある。
 30 日を過ぎてから戻した会話は、クラウドの写しが消えている。
 持ち主の PC は戻したときに上げた控えを忘れて上げ直すので（下の「戻す。」）、ほかの PC はその後に降ろせる。
 
@@ -4604,7 +4607,9 @@ MCP サーバー、ステータスライン、シェル連携の見出しの右�
 判定はホームの帯の始める前の確認の互換の行と同じもの（`compatState` と `presentCompat`）を使う。
 準備の確かめが届く前と、`compat` の無い古いサーバの答えでは、節の本文の下に「確かめています」と出す。
 クラウド同期の節は 1 頁に、上から、状態（見出しの右の札と、状態、最終受信、未送信の変更、未送信のトランスクリプト）、操作（今すぐ同期、同期を一時停止、参加トークンを表示）、PC の一覧、Claude Code の設定の同期（常設の行。中身はダイアログで見せる。「設定の同期の作り直し」の節の「画面（PR 17）」）、Cloudflare の使用量と料金、この PC の参加を解除を置く。
-PC の一覧は表で、列は名前、OS（macOS、Windows）、参加日、最終同期で、名前の下に最後の IP とおおよその場所（Cloudflare の英語の表記のまま）を小さく出し、表の下に「場所は Cloudflare が IP から推定したもので、市区はよく外れます」と添える（試作の PC の一覧の A）。
+PC の一覧は表で、列は名前、OS（macOS、Windows）、参加日、最終同期である（試作の PC の一覧の A）。
+互換の版 9 で IP と所在地をやめ、名前と OS は封じた名簿から出す。
+名簿に無い端末は、今は ID で出す（PC の一覧の画面 E2 で作り直す）。
 名前の下の 1 行は、場所を先に置いて縮めず、欄に収まらないときは最後の IP だけを省略記号で切り、IP の全文は title（「最後の IP：<IP>」）で読む。
 IPv6 の IP は長く、IP を先に置いた 1 行では、窓を広げても IP の途中で切られて場所が見えなかったためである（0.4.0-rc.1 の Windows の実機）。
 参加日は手元の時刻の日付で出す。`hangar cloud devices` の日付も同じく手元の時刻で数える（UTC の日付で出していたので、画面と 1 日ずれた）。
@@ -5561,6 +5566,52 @@ Worker が平文で持つのは、鍵、連番、時刻、端末の ID、鍵の�
 pull と `GET /rows` の 1 頁は、500 行か、`sealed` の合計が 8 MiB を超えたところで切り、続きは `nextSeq` と `nextAfter` から読ませる。
 16 KiB を超える行の `sealed` は、頁に入ると決まってから主キーで読み直す（頁の問い合わせが受け取る量を抑えるため）。
 
+PC の側で行を封じて開くのは `SealedCloudClient`（`packages/server/src/sync/sealedClient.ts`）である。
+線の上の client（`HttpCloudClient`）を包み、同期のエンジンには開いた行（`ChangeIn` と `ChangeOut`）だけを見せる。
+push は各行を今の世代の鍵で封じ、`k` は `/index` の鍵で表名と行 ID から求める。
+AAD には `k`、PC の ID、`updated_at`、`op`、世代を入れるので、Worker で行を付け替えると開けなくなる。
+pull と写しは、印の行を開かずに名簿と keybox の読み直しへ回し、ほかの行を行が名乗る世代の鍵で開く。
+印の行の `epoch` は古い世代の PC が書けば後戻りするので、「名簿が変わったかもしれない」以上の意味には使わない。
+開けなかった行（知らない世代、付け替え）は当てずに `unreadable` として返す。
+エンジンは、知らない世代があれば 1 巡に 1 度だけ鍵を読み直し、届けば同じ頁を読み直す。
+それでも開けない行は飛ばして区切りを進め、飛ばした数を `sync_state` の `lastError` に残す（次に何も飛ばさない 1 巡で消える）。
+飛ばした行のいちばん小さい連番は `sync_state` の `rowsSkippedFrom` に控える（前の控えがあれば小さい方）。
+新しい世代の鍵が届いたら、エンジンの `rewindSkippedRows` が差分の区切り（`lastSeq`）をその手前まで巻き戻し、次の pull で当て直す。
+巻き戻しは走っている pull の終わりを待つので、その pull の終わりの書き込みに上書きされない。
+Worker の 413 は封じた行を `k` で名指しするので、`SealedCloudClient` が送った塊から表名と行 ID に戻し、エンジンはその行だけを諦める。
+
+R2 の本文も `SealedCloudClient` が封じて開く。
+鍵名は呼び手（uploader と設定の同期）が今の世代の `/index` の鍵で求める。
+本文は `b/<自端末>/<HMAC("t:" 元の PC ":" セッションの UUID [":" サブエージェントの ID])>`、設定の束は `b/<自端末>/<HMAC("c:" 元の PC ":" 相対パス)>` で、パスとセッションの UUID は Worker に見えない。
+同じ世代のあいだは同じ鍵名なので、上げ直しは同じオブジェクトへの上書き（冪等な `PUT`）になる。
+本文は gzip してから、その世代の `/file` の鍵で今までのストリーム暗号（`sync/crypto.ts`）に通す。
+パス、平文の SHA-256、mtime、元の PC はメタとして `/row` の鍵で封じ、AAD に鍵名、PC の ID、`kind`、世代を入れて `x-hangar-meta` で送る。
+見出しに平文で載るのは `kind`、`size`、`epoch` だけである。
+今の世代でない世代を名乗る本文と、中身のパスから求め直した鍵名が名乗る鍵名と合わない本文は、上げずに断る。
+`GET /files` の行は名乗る世代の鍵で開き、手元に無い世代があれば 1 度だけ名簿と keybox を読み直す。
+鍵があっても開けない行（付け替え、鍵名と中身の食い違い）は捨てる。
+読み直しても世代の鍵が届かない行は `unreadable` で返し、puller は区切り（`filesSeq`）を止めずに越えて、いちばん小さい連番を `sync_state` の `filesSkippedFrom` に控える。
+後で鍵が届いたら `rewindSkippedFiles`（`sync/puller.ts`）が区切りをその手前まで巻き戻し、次の pull が読み直す。
+本文は行の世代の鍵で復号するので、世代 1 と 2 を持つ PC は世代 1 で封じた本文も降ろせる。
+設定の束は行に世代を持たないので、受け取る側は手元の世代を新しい順に鍵名を求めて試す。
+手元の台帳（`file_sync`）と諦めた控えは、R2 の鍵名ではなく版 8 までと同じ形の台帳の鍵（`sync/ledgerKey.ts`、`transcripts/<端末>/<uuid>.jsonl.gz`）で引く。
+R2 の鍵名は世代ごとに変わるが、台帳の鍵は変わらないからである。
+
+名簿と keybox の読み書きは `RosterStore`（`packages/server/src/sync/roster.ts`）である。
+名簿は今の世代の `/roster` の鍵で封じ、AAD に書いた後の版を入れる。
+`GET /roster` は封じた世代を名乗らないので、開くときは手元の世代を新しい順に試す。
+読んだ名簿はメモリに持ち、印の行を見るまで、版が cloud.json の `rosterVersion` と同じ間は読みに行かない。
+読み直した版が手元と同じなら開き直さない。
+書き換え（`update(fn)`）は版を条件に置き、409 なら読み直して `fn` を当て直す。
+3 回とも断られたら投げる。
+2 台が同時に書き換えても、後の方が先の変更の上に当て直すので、どちらの変更も残る。
+`PUT /roster` の `epoch` は今の世代である。
+keybox は自分宛てのいちばん新しい 1 つだけを読み、中身の世代 1 から n までの一覧を `Keyring.addEpochs` で足して cloud.json に書き戻す。
+`SealedCloudClient` の `onRoster`（印の行か、知らない世代の行を受けたとき）は、keybox を先に読み（新しい世代で封じた名簿はその世代の鍵が無いと開けない）、次に名簿を読み直す。
+新しい世代の鍵が増えたら、エンジンの `rewindSkippedRows` と puller の `rewindSkipped` を待たずに呼ぶ。
+名簿がまだ無い（404）こと、自分宛ての keybox がまだ無いこと、開けない名簿と keybox は投げない。
+`onRoster` が投げると pull が区切りを進めないので、投げるのは通信と Worker の失敗だけである。
+
 D1 の 1 日の上限（読んだ行、書いた行）に当たった失敗は、500 ではなく 429 で返す（`packages/cloud/src/limits.ts`）。
 見分けるのは D1 の文で、`free tier daily row read limit` か `free tier daily row write limit` を含むものである（大文字と小文字は問わず、原因の文も見る）。
 本文は共有の `CloudLimitBody`（`{ error: 'limit', limit, resetAt }`）で、`resetAt` は上限が戻る次の UTC の 0 時（epoch のミリ秒）である。
@@ -5585,9 +5636,9 @@ R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 75
 
 同期するものは三つである。
 
-- **hangar のメタデータ**：共有テーブルの全行。D1 に置く。
-- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip して R2 に置く。鍵は主線が `transcripts/<端末 ID>/<セッションの UUID>.jsonl.gz`、サブエージェントが `transcripts/<端末 ID>/<セッションの UUID>/subagents/agent-<hex>.jsonl.gz` で、端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。
-- **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。R2 に置く。鍵は `config/<端末 ID>/<相対パス>` で、本文と同じく端末ごとに分ける。
+- **hangar のメタデータ**：共有テーブルの全行。PC が 1 行ずつ封じてから D1 の `rows` に置く。
+- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip し、暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。
+- **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。本文と同じく暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 相対パス)>` で、相対パスは Worker に見えない。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
 スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）は共有テーブルではなく、PC どうしの同期には載らない（「スマホ（試験的）」）。
@@ -5606,22 +5657,43 @@ R2 は部分更新を持たないので、末尾だけを足す道が無いた�
 `~/.claude` を上書きする前には必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
 控えは 20 世代を残し、古いものから消す。
 
-R2 に置くファイルは端末間で暗号化する。
-鍵は参加用の秘密から `hkdfSync('sha256', joinSecret, 'hangar-salt-v1', 'hangar-file-v1', 32)` で導き、AES-256-GCM で暗号化してから上げる。
-Cloudflare 側は中身を読めない。
-Worker も、`kind` が `transcript` で暗号化の申告が `1` でない `PUT` を、R2 に触る前に 400 で断る。
-降ろす側だけが約束を守っていると、置く側は約束の外に出られる。
+互換の版 9 から、D1 と R2 に置くものはどれも PC どうしの間で暗号化する（E2E）。
+Worker と Cloudflare は、表名、行 ID、行の中身、ファイルのパス、PC の名前、セッションの題を読めない。
+平文で見えるのは、鍵名、連番、時刻、端末の ID、世代、大きさだけである（「Worker の表」）。
+
+鍵は世代鍵 `K[n]`（32 バイト）から HKDF で用途ごとに導く。
+用途は、行の封（`hangar-e2e-v2/row`）、鍵名の HMAC（`/index`）、指紋（`/fp`）、本文の暗号（`/file`）、名簿の封（`/roster`）である。
+PC は持っている世代鍵を `~/.agent-hangar/cloud.json`（版 2）の `epochs` に置き、`Keyring`（`packages/server/src/sync/keyring.ts`）が用途の鍵を導いて世代の番号で引けるようにする。
+書くときは今の世代（`currentEpoch`）を使い、読むときは行やファイルが名乗る世代を使う。
+世代鍵は、受け手の公開鍵で封じた keybox で配る。
+keybox の中身は世代 1 から n までの一覧なので、新しい PC も過去の世代で封じた行と本文を開ける。
+
+行は `sealed = 0x02 || iv(12) || AES-256-GCM(/row の鍵, flag || 本文)` で封じる。
+本文は `{tableName, rowId, payload}` の JSON で、256 バイト以上なら gzip して `flag` を 1 にする。
+`k` は `HMAC(/index, 表名 ":" 行 ID)` で、同じ世代の鍵を持つ PC は同じ `k` を求められるので、LWW の 1 行 1 鍵の形が保たれる。
+AAD は `["row", k, PC の ID, updated_at, op, 世代]` の JSON なので、Worker で `k`、`device_id`、`updated_at` を書き換えた行は開けない。
+ファイルのメタ（パス、平文の SHA-256、mtime、元の PC）も `/row` の鍵で同じ形に封じ、AAD は `["file", 鍵名, PC の ID, kind, 世代]` である。
+
+名簿（PC の名前、OS、公開鍵、スマホ用の鍵）は `/roster` の鍵で封じて 1 行で置く。
+名簿か keybox を書き換えた PC は、`rows` に印の行（`k = "~roster"`、`sealed` は空）を入れ直す。
+他の PC は pull でこの行を見たときだけ名簿と keybox を読み直す（`RosterStore`、「Worker の表」）。
+知らない世代で封じた行と本文は、当てずに区切りを越え、いちばん小さい連番を `rowsSkippedFrom` と `filesSkippedFrom` に控える。
+keybox を読んで新しい世代の鍵が増えたら、控えの手前まで区切りを巻き戻して読み直す。
+
+R2 に置くファイルの本文は、gzip してから、その世代の本文の鍵 `HKDF(K[n], info = "hangar-e2e-v2/file")` でストリーム暗号（`packages/server/src/sync/crypto.ts`）に通す。
+受け取る側は、索引の世代の鍵で開けない本文を受け取らない（暗号化していない本文は開けない）。
 形式は、先頭に `HGR1` の 4 バイトと 8 バイトの nonce 接頭辞を置き、その後ろに 1MB ごとのチャンクを並べる。
 チャンクは `flag`（1 バイト、最後のチャンクだけ 1）と `len`（4 バイト）と本体と 16 バイトの認証タグからなり、nonce は接頭辞にチャンク番号を継いで作る。
 AAD にチャンク番号と `flag` を入れるので、並べ替え、複製、欠落、途中での打ち切りは、どれも認証タグで落ちる。
 `len` には上限（1MB + 64 バイト）を置く。
 他端末が書いた本文は外から来た入力なので、相手の申告する長さをそのまま信じて溜め込まない。
 フェーズ 0 の計測では暗号化 2,700MB/s、復号 600MB/s で、同期の律速は gzip とネットワークである。
-D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、将来 Worker 側の機能に使えるようにする。
+版 8 までは D1 のメタデータ（題名、要約、TODO、メモ）を平文で持っていたが、版 9 からは行ごと封じる。
+Worker 側で中身を使う機能は持たない。
 
-ファイルの一覧は D1 の `files` 表に持ち、パス、端末、SHA-256、サイズ、更新時刻、R2 の鍵を記録する。
+ファイルの一覧は D1 の `files` 表に持ち、端末、サイズ、R2 の鍵名、世代を平文で、パス、SHA-256、更新時刻、元の PC を封じたメタで記録する。
 降ろす側は、この指紋と実際に降りた中身の指紋を突き合わせる。
-暗号化そのものは「鍵の同じ別のファイルへの差し替え」を見抜けないので、鍵と指紋の突き合わせがその守りになる。
+暗号化そのものは「鍵の同じ別のファイルへの差し替え」を見抜けないので、封じたメタの AAD（鍵名）と、鍵名と中身のパスの突き合わせと、指紋の突き合わせがその守りになる。
 
 `PUT` は R2 を先に書き、索引を後に書く。
 途中で倒れれば、残るのは索引に無い R2 の本体だけである。
@@ -5645,8 +5717,25 @@ D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、�
 削除の印から 30 日たったセッションの写しを Worker が消す掃除（`sweepTrash`）は無くした。
 印は封じた行の中にあり、Worker には読めないからである。
 消すのは PC で、`DELETE /blobs` に自分の本文の鍵を渡す（「Worker の表」）。
-1 回 50 件、1 日 500 件（UTC の日付で数える）までで、置いてから 1 時間たっていない本文と、他の端末の本文は断る。
+1 回 50 件、1 日 500 件（UTC の日付で数える）までで、置いてから 1 時間たっていない本文と、他の PC の本文は断る。
 R2 を先に消し、索引の行を後に消す。
+
+PC の側のゴミ箱の掃除は `sweepTrashBlobs`（`packages/server/src/sync/trashSweep.ts`）である。
+同期の部品と一緒に組み、起動の 5 分後に 1 回、その後は 6 時間に 1 回走らせる。
+一時停止の間と、版、解除、上限で同期が止まっている間は走らせない。
+対象は、削除の印（`session_states.trashed_at`）から `TRASH_KEEP_MS`（30 日、shared）を過ぎ、その後に戻されていないセッションである（`trashedLongAgo`、`packages/server/src/sessions/trash.ts`）。
+印は同期で受信するので、他の PC で消したセッションも入る。
+同じ Claude Code のセッション ID を持つ生きたセッションの行があれば外す。
+本文の鍵名はその ID から求めるので、生きている方の本文まで消してしまうからである。
+R2 の鍵名は世代の `/index` の鍵の HMAC なので、世代を回した後に上げ直した本文は、世代ごとに別の鍵名で R2 に置かれたままになる。
+uploader は PUT が通るたびに、台帳の鍵と世代を端末ローカルの `blob_uploads`（版 32）に控える。
+掃除はこの控えから、主線とサブエージェントの本文の、上げた世代ごとの鍵名を求め直す（手元の鍵で当て推量の鍵名を作らない。1 日 500 件の枠を空振りで使わないためである）。
+50 件ずつ `DELETE /blobs` に渡し、消えたと返った鍵（索引に無かったものを含む）を控えから外す。
+断られた鍵（置いてから 1 時間たっていない、1 日の上限からあふれた）は控えたままにし、次の回で送り直す。
+1 日の上限を使い切った 429 は、黙ってその回を終える。
+消すものが無い回は Worker に何も送らない。
+Worker が消させるのは自分の端末 ID の下だけなので、他の PC が上げた写しはその PC の掃除が消す。
+解除した PC が上げた写しは、索引に載ったまま誰も消さない（孤児の掃除は索引に無いものだけを拾う）。
 
 ### 設定の同期の作り直し
 
@@ -5691,7 +5780,7 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 落とした絶対パスの規則も同じ表に入り、同じ口で送れる。
 
 **束。**
-PC ごとに 1 つの tar（`manifest.json` と `blobs/<sha256>`。`sync/config/bundle.ts` の自前の ustar）を gzip し、参加用の秘密から導いた鍵で暗号化して、既存の `PUT /files`（`kind: 'config'`）で上げる。
+PC ごとに 1 つの tar（`manifest.json` と `blobs/<sha256>`。`sync/config/bundle.ts` の自前の ustar）を gzip し、今の世代の本文の鍵で暗号化して、既存の `PUT /files`（`kind: 'config'`、鍵名は相対パスの HMAC。「Worker の表」）で上げる。
 束を先に上げ、行（`config_snapshots`）を後に書くので、行が降りた先で束が見つからない並びにはならない。
 中身（項目の id と指紋の並び）が前回と同じなら上げない。
 何も運ぶものが無く、前に上げてもいない PC は、空の束を上げない。
@@ -5819,7 +5908,7 @@ PR 15 が、Worker の名乗る版（shared の `COMPAT_VERSION`）をこの値�
 
 **Worker の側（PR 15）。**
 Worker に足した経路も、D1 の表も、移行も無い。
-束の本体は既存の `PUT /files/config/<端末>/.hangar/config-bundle.hgr`（kind は `config`、自端末の鍵だけ書ける）と `GET /files/<鍵>` で運び、束の行は既存の `POST /changes` と `GET /changes`、`GET /rows` で運ぶ。
+束の本体は既存の `PUT /files/b/<端末>/<HMAC>`（kind は `config`、HMAC の入力は `c:<端末>:.hangar/config-bundle.hgr`、自端末の鍵だけ書ける）と `GET /files/<鍵>` で運び、束の行は既存の `POST /changes` と `GET /changes`、`GET /rows` で運ぶ。
 `changes` と `rows` は表名と行 ID と payload を文字列で預かるだけなので、`config_snapshots` の行のための D1 の表は要らない。
 Worker が表名を断るのは `packages/cloud/src/changes.ts` の `SHARED_TABLES`（shared の一覧）で、PR 14 がこの一覧に表を足したので、この版の Worker は行を受ける。
 Worker の変更は、名乗る版を 3 に上げることだけである（`COMPAT_VERSION` は殻の `health.rs` の写しと同じ定数なので、殻の写しも 3 に上げた）。
@@ -6144,7 +6233,7 @@ Worker は、端末に求める下限 `MIN_DEVICE_COMPAT`（`packages/cloud/src/
 
 **端末の下限。**
 サーバは、Worker に求める下限 `MIN_WORKER_COMPAT`（`packages/server/src/sync/client.ts`）を持つ。
-いまの下限は 6 で、見出しを返さない Worker（版 0）も、変更ログを持つ版 5 までの Worker も断る。
+いまの下限は 9 で、見出しを返さない Worker（版 0）も、行を平文で持つ版 8 までの Worker も断る。
 そのため、`/usage` の無い古い Worker の 404 を「トークンなし」に読み替える分岐は持たない。
 Worker から 426 が返るか、応答の見出しの版が下限より古ければ、`HttpCloudClient` は `CompatError` を投げる。
 応答の見出しで Worker の版を比べるのは、2xx の応答だけである。
@@ -6202,10 +6291,10 @@ Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端�
 | 6 | Worker の変更ログ（`changes`）と圧縮と `410` をやめ、`rows` の連番で差分を引く。pull の応答に `peers` と `now` を添え、端末は他の PC の生存をそれで見て、`runs.heartbeat_at` を共有の行に書かない。Worker は引き継ぎの頼みと応答の行（共有表 `takeovers` と `takeover_answers`）も受け取る | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 6 に（例外） |
 | 7 | Worker がスマホ向けの口（`/m/`）と専用の 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）を持ち、`devices` に列 `kind` を足す。`GET /changes` に `launches` を添える。共有表（`rows`）には何も足さない。PC は Worker の版が 7（`MOBILE_MIN_WORKER_COMPAT`）に届くまでスマホ向けの書き込みも依頼の処理もしない（「スマホ（試験的）」） | 上げない |
 | 8 | Worker が呼び鈴（Durable Object `HangarBell`。`GET /m/bell`、`POST /m/ask`）、画像の口（`PUT` と `GET /m/blobs`）、`DELETE /m/feed` を持つ。PC は Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）以上になるまで呼び鈴を張らない（「スマホ（試験的）」） | 上げない |
-| 9 | E2E の作り直し。Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密と `POST /join` をやめ、`POST /bootstrap` と参加コードで参加する。名簿と keybox の口、`DELETE /blobs` を足し、`sweepTrash` と `devices` の IP と所在地を無くした（「Worker の表」）。版 8 の呼び鈴と画像の口はそのまま持つ | `MIN_DEVICE_COMPAT` を 9 に |
+| 9 | E2E の作り直し。Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密と `POST /join` をやめ、`POST /bootstrap` と参加コードで参加する。名簿と keybox の口、`DELETE /blobs` を足し、`sweepTrash` と `devices` の IP と所在地を無くした（「Worker の表」）。版 8 の呼び鈴と画像の口はそのまま持つ | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 9 に（作り直しなので混在させない） |
 
 引き継ぎの 2 表は、同期の版 6 と一緒に 0.7.1 で出すので、別の版を立てずに版 6 に含めた。
-端末は Worker の版が `TAKEOVER_MIN_WORKER_COMPAT`（6）に届くまでこの 2 表の行を書かないが、`MIN_WORKER_COMPAT` も 6 なので、話せる Worker ではいつも届いている。
+端末は Worker の版が `TAKEOVER_MIN_WORKER_COMPAT`（6）に届くまでこの 2 表の行を書かないが、`MIN_WORKER_COMPAT` は 9 なので、話せる Worker ではいつも届いている。
 古い PC には頼みが届かず、頼んだ側は 90 秒の打ち切りの経路に落ちる（「他端末セッションのロックと『この PC で再開』」）。
 版 5 までの Worker は、2 表の行を含む push を 400 で丸ごと断るので、端末は Worker の版が 6 に届くまで行を書かない。
 版 2 で下限を両方とも上げたのは、版 1 と版 2 が混ざると名前とメモが消えるからである。
@@ -6280,6 +6369,10 @@ R2 の無料枠（10GB）に対して、1 台分の本文は数百 MB で、残�
 どちらも端末 ID は頭の 8 字だけを書き、トークンと秘密は書かない。
 参加し直すとアプリが再起動するので、ログに残したことを `sync_state` の `revokedLogged` に覚え、立て直した後の最初の同期でも戻った旨を残せるようにする（止める印ではない）。
 設定の節は、Worker の一覧をサーバの `GET /api/sync/cloud-devices`（`sync/devices.ts` の `loadCloudDevices`）から取る。
+並びと、参加日、最終同期、解除日、トークンの期限は Worker の `devices` から取り、名前と OS は封じた名簿（`RosterStore.read`）から ID で突き合わせる。
+Worker にあって名簿に無い端末は、名前と OS が null の「名前のわからない端末」として出す。
+名簿にあって Worker に無い端末は出さない。
+名簿が読めないときは、一覧を名前なしで出す。
 Worker が名乗った版が 5 に届かないか、経路が 404 なら `outdated`、解除されていれば `revoked`、繋がらなければ `unreachable` を返し、画面は同期の表の一覧に戻す。
 `creator` は cloud.json に Worker の名前があるか（この PC がクラウドを作った PC か）である。
 

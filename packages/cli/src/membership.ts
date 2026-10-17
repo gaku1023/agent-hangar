@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { CloudError, cloudConfigPath, HttpCloudClient, readCloudConfig, RevokedError } from '@agent-hangar/server/src/cliEntry.ts';
-import { DEVICE_ADMIN_MIN_WORKER_COMPAT, decodeJoinToken, type CloudDeviceOut } from '@agent-hangar/shared';
+import { DEVICE_ADMIN_MIN_WORKER_COMPAT, decodeJoinToken, type DeviceOut } from '@agent-hangar/shared';
 import { brokenConfigMessage, JoinError, runJoin, type DeviceLike } from './cloud.ts';
 
 /**
@@ -96,7 +96,7 @@ function requireAdmin(client: HttpCloudClient): void {
   if (seen !== null && seen < DEVICE_ADMIN_MIN_WORKER_COMPAT) throw outdatedError();
 }
 
-export async function listCloudDevices(o: { home: string; fetch?: typeof fetch }): Promise<CloudDeviceOut[]> {
+export async function listCloudDevices(o: { home: string; fetch?: typeof fetch }): Promise<DeviceOut[]> {
   const { client } = clientOf(o.home, o.fetch);
   try {
     const rows = await client.listDevices();
@@ -114,25 +114,25 @@ const day = (ms: number | null): string => {
   const d = new Date(ms);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
-const place = (d: CloudDeviceOut): string => [d.lastCity, d.lastRegion, d.lastCountry].filter((v): v is string => v !== null).join(', ') || '-';
-
-/** hangar cloud devices の表。場所は Cloudflare の推定で、英語の表記のまま出す。 */
+/**
+ * hangar cloud devices の表。
+ * 互換の版 9 の Worker は名前、OS、IP、所在地を持たない（名前と OS は封じた名簿にある）ので、種類と ID で出す。
+ * 名簿を開いて名前を出すのは、CLI の参加を作り直すとき（Task 13）にする。
+ */
 export async function cloudDevicesText(o: { home: string; deviceId: string; fetch?: typeof fetch }): Promise<string> {
   const rows = await listCloudDevices(o);
-  const lines = rows.map((d) => {
+  return rows.map((d) => {
     const mark = d.id === o.deviceId ? '（この PC）' : '';
     const state = d.revokedAt !== null ? `${day(d.revokedAt)} に解除` : `最終同期 ${day(d.lastSeenAt)}`;
-    return `${d.name}${mark}  ${d.platform}  ID ${d.id}  参加 ${day(d.joinedAt)}  ${state}  IP ${d.lastIp ?? '-'}  所在地 ${place(d)}`;
-  });
-  lines.push('所在地は Cloudflare が IP アドレスから推定したもので、市区町村は正確でないことがよくあります。');
-  return lines.join('\n');
+    return `${d.kind === 'mobile' ? 'スマホ' : 'PC'}${mark}  ID ${d.id}  参加 ${day(d.joinedAt)}  ${state}`;
+  }).join('\n');
 }
 
 /**
  * ほかの PC を同期から解除する。その PC の端末トークンは使えなくなり、次に同期したときに「解除されました」と出る。
  * 自分自身は断り、hangar cloud leave へ案内する（cloud.json が残ったまま自分の鍵だけを無効にすると、同期が止まったままになる）。
  */
-export async function revokeCloudDevice(o: { home: string; deviceId: string; id: string; fetch?: typeof fetch }): Promise<CloudDeviceOut> {
+export async function revokeCloudDevice(o: { home: string; deviceId: string; id: string; fetch?: typeof fetch }): Promise<DeviceOut> {
   const { client } = clientOf(o.home, o.fetch);
   if (o.id === o.deviceId) throw new MembershipError('self', 'この PC の参加を解除するには hangar cloud leave を使ってください');
   try {
@@ -243,12 +243,12 @@ export async function revokeCommand(o: Out & { home: string; deviceId: string; i
       if (o.json || !o.confirm) return confirmRequired(o, '解除していません');
       const target = (await listCloudDevices(o)).find((d) => d.id === o.id);
       if (!target) throw new MembershipError('unreachable', `PC ${o.id} はこのクラウドに参加していません`);
-      log(`${target.name}（${o.id}）を同期から解除します。その PC はこのクラウドと送受信できなくなります。クラウドにあるその PC のトランスクリプトは残ります。`);
+      log(`${target.kind === 'mobile' ? 'スマホ' : 'PC'} ${o.id} を同期から解除します。その PC はこのクラウドと送受信できなくなります。クラウドにあるその PC のトランスクリプトは残ります。`);
       log('解除しても、その PC が参加トークンを持っていれば参加し直せます。再参加を防ぐには、解除したうえで、クラウドを作成した PC で hangar setup cloud --rotate-secret を実行して参加トークンを再生成してください。');
       if (!(await o.confirm('解除しますか。', 'y'))) { log('解除しませんでした'); return 1; }
     }
     const result = await revokeCloudDevice(o);
-    log(o.json ? JSON.stringify({ ok: true, result }) : `${result.name} を同期から解除しました`);
+    log(o.json ? JSON.stringify({ ok: true, result }) : `${result.id} を同期から解除しました`);
     return 0;
   } catch (e) {
     return fail(o, e);

@@ -1,21 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { encodeJoinToken, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
-import { cloudConfigPath, readCloudConfig, type CloudConfig } from '../config/cloud.ts';
+import { MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto } from '@agent-hangar/shared';
+import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
-import { deriveFileKey } from '../sync/crypto.ts';
 import { loadCloudDevices } from '../sync/devices.ts';
+import { Keyring } from '../sync/keyring.ts';
+import { SealedCloudClient } from '../sync/sealedClient.ts';
 import { SyncEngine } from '../sync/engine.ts';
 import { syncHalted } from '../sync/halt.ts';
 import { memoLossHandlers, type Toast } from '../sync/notices.ts';
 import { createOncePass } from '../sync/oncePass.ts';
 import { backupPruner } from '../sync/pruneBackups.ts';
 import { RemotePuller } from '../sync/puller.ts';
+import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
+import { sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
 import { TranscriptUploader } from '../sync/uploader.ts';
 import { CloudUsagePoller } from '../sync/usage.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -33,6 +36,8 @@ import { followRemoteScratch } from '../projects/scratch.ts';
 export const UPLOAD_SWEEP_MS = 60_000;
 /** 設定の同期の、送受信の間隔。スイッチが切のあいだは何もしない。 */
 export const CONFIG_BUNDLE_TICK_MS = 60_000;
+/** 起動から最初のゴミ箱の掃除までの間。最初の同期と取り残しの走査を先に通す。 */
+const TRASH_SWEEP_FIRST_MS = 5 * 60_000;
 /** fs.watch が使えないときだけ、cloud.json が現れたかを読み直す間隔。 */
 export const CLOUD_JSON_POLL_MS = 30_000;
 /** cloud.json の変化を拾ってから読むまでの間。書き込みの連続を 1 回にまとめる。 */
@@ -61,7 +66,10 @@ export type SyncParts = {
   configBundle: ConfigSyncService | null;
   /** 設定の同期の入り切りを、設定の表示に載せ直し、入った直後に 1 回回す。 */
   publishConfigSync(): void;
-  /** 参加トークン。全セッションの読み書き権を持つ。作るのはここだけで、ログにも例外にも出さない。 */
+  /**
+   * 参加トークン。版 2 の cloud.json は参加用の秘密を持たないので、いつも null を返す。
+   * PC の参加は参加コードへ移る（Task 13 から 16）。そこでこの口ごと消す。
+   */
   joinToken(): string | null;
   /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
@@ -105,6 +113,8 @@ export type SyncParts = {
    * スマホ向けの書き手が使う、今の client と参加の秘密。同期を設定していなければ null。
    * cloud.json が後から現れて組み直すと、別の client を返す。書き手は client が変わったら組み直す（boot/mobile.ts）。
    * 秘密はこの PC の中の部品にだけ渡し、ログにも画面にも出さない。
+   * 版 2 の cloud.json は参加の秘密を持たない。
+   * スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、いつも null を返し、スマホの機能は止めておく。
    */
   mobileLink(): { client: CloudClient; joinSecret: string; url: string } | null;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
@@ -115,10 +125,37 @@ export type SyncParts = {
   drain(left: () => number): Promise<void>;
 };
 
+/**
+ * 名簿の読み書き（RosterStore）が cloud.json を読み書きする口。
+ * 読むのは組み上がった Core の写しで、書くときはファイルを読み直して分だけ当て、Core の写しにも同じ分を当てる。
+ * ファイルが別のクラウドか鍵ペアを指していれば（動いている間に setup をやり直した）、世代鍵を混ぜないよう書かない。
+ */
+function cloudWriter(home: string, cloud: CloudConfig, built: () => { cloud: CloudConfig | null } | null): ConfigWriter {
+  const current = (): CloudConfig => built()?.cloud ?? cloud;
+  return {
+    read: current,
+    write: (patch) => {
+      const now = current();
+      const r = readCloudConfig(home);
+      const disk = r.state === 'ok' && r.config ? r.config : null;
+      if (disk && (disk.url !== now.url || disk.cloudId !== now.cloudId || disk.keyPair.pub !== now.keyPair.pub)) {
+        console.error('[sync] cloud.json now points to a different Worker, cloud or key pair; the new epoch keys were kept in memory only. Restart hangar.');
+        return;
+      }
+      saveCloudConfig(home, { ...(disk ?? now), ...patch });
+      const b = built();
+      if (b?.cloud) b.cloud = { ...b.cloud, ...patch };
+    },
+  };
+}
+
 /** クラウドの設定に依る部品の束。cloud.json が無ければ client は null で、各部品は「off」の形になる。 */
 type Core = {
   cloud: CloudConfig | null;
-  client: HttpCloudClient | null;
+  /** 行を封じて開く client（線の HttpCloudClient を包んだもの）。部品はみなこれを持つ。 */
+  client: SealedCloudClient | null;
+  /** 封じた名簿と keybox の読み書き。PC の一覧の名前と OS もここから読む。 */
+  roster: RosterStore | null;
   engine: SyncEngine;
   cloudUsage: CloudUsagePoller;
   uploader: TranscriptUploader | null;
@@ -128,6 +165,9 @@ type Core = {
   once: ReturnType<typeof createOncePass>;
   bundleTimer: ReturnType<typeof setInterval> | null;
   uploadTimer: ReturnType<typeof setInterval> | null;
+  /** ゴミ箱の掃除の 1 回（sync/trashSweep.ts）。同期を設定していなければ null。 */
+  sweepTrash: (() => Promise<void>) | null;
+  trashTimers: { first: ReturnType<typeof setTimeout>; every: ReturnType<typeof setInterval> } | null;
 };
 
 /**
@@ -140,7 +180,7 @@ type Core = {
  * 起動のときに cloud.json が無かった端末では、置き場を見張り、設定が現れたら起動と同じ組み立てで Core を組み直して始める。
  * 見張るのは「無い（または壊れている）状態から現れる」ときだけである。
  * 参加し直して端末トークンだけが変わったときは、見張らずに、Worker に 401 の unauthorized で断られた時点で cloud.json を読み直して差し替える（下の reloadCredentials）。
- * 動いている同期の cloud.json のそれ以外の書き換え（別のクラウドへの付け替え、秘密の作り直し、削除）は拾わず、今までどおり開き直しで効く。
+ * 動いている同期の cloud.json のそれ以外の書き換え（別のクラウドへの付け替え、鍵の作り直し、削除）は拾わず、今までどおり開き直しで効く。
  */
 export function bootSync(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
@@ -153,8 +193,13 @@ export function bootSync(
   const cloudRead = readCloudConfig(home.home);
   if (cloudRead.state === 'broken') {
     // 「壊れている」を「未参加」と同じに扱わない。
-    // 参加し直すと別の joinSecret が入り、R2 にある既存の暗号化ファイルを誰も復号できなくなる。
+    // 参加し直すと別の鍵ペアが入り、この PC 宛ての keybox を開けなくなる。
     console.error('[sync] ~/.agent-hangar/cloud.json を読めませんでした。同期は止めたままにします。hangar cloud status で確かめてください（参加し直すと既存の本文を復号できなくなります）');
+  }
+  if (cloudRead.state === 'legacy') {
+    // 版 1（参加用の秘密を持つ形）は、E2E の Worker とは話せない。
+    // 同期もスマホの機能も始めず、作り直しを待つ。版 2 の cloud.json が現れたら、下の見張りが拾って始める。
+    console.error('[sync] ~/.agent-hangar/cloud.json is in the old format (before end-to-end encryption). Sync stays off until the cloud is rebuilt.');
   }
   const syncState = new SyncStateStore(db);
   const remoteChangeListeners = new Set<() => void>();
@@ -188,7 +233,8 @@ export function bootSync(
     // 参加し直すと（hangar setup cloud をやり直す、hangar join し直す）、Worker は同じ端末 ID の token_hash を入れ替え、新しいトークンは cloud.json にだけ書かれる。
     // 古いトークンの要求は 401 の unauthorized で断られるので、そのときに cloud.json を読み直し、トークンだけが変わっていれば client が差し替えて試し直す。
     // 部品（エンジン、本文の上げ手と降ろし手、使用量、設定の同期、PC の一覧）はみな同じ client を持つので、差し替えは全部に一度に効く。
-    // 宛先か参加用の秘密が変わっていたら差し替えない。宛先は区切り（lastSeq）と状態の表示に、秘密は本文の鍵に結び付いているので、組み直しの要る変化であり、今までどおり開き直しで効かせる。
+    // 宛先かクラウドか鍵ペアが変わっていたら差し替えない。宛先は区切り（lastSeq）と状態の表示に、クラウドと鍵ペアは世代鍵と本文の鍵に結び付いているので、組み直しの要る変化であり、今までどおり開き直しで効かせる。
+    // 差し替えるのはトークンだけで、世代鍵の書き換え（keybox の読み直し）はこの道では拾わない。
     // 書き込みの前には Worker の版を確かめる（checkWorkerBeforeWrite）。版の下限に届かない Worker に、未送信の行や本文を書き込まない。
     let warnedReload = false;
     // 組み上がった Core。読み直しは通信の応答を受けてから呼ばれるので、そのときには入っている。
@@ -200,33 +246,41 @@ export function bootSync(
       if (!now || r.state !== 'ok' || !r.config) return null;
       const next = r.config;
       if (next.deviceToken === now.deviceToken) return null;
-      if (next.url !== now.url || next.joinSecret !== now.joinSecret) {
-        if (!warnedReload) console.error('[sync] cloud.json の宛先か参加用の秘密が変わっています。hangar を開き直すと新しい設定で同期します');
+      if (next.url !== now.url || next.cloudId !== now.cloudId || next.keyPair.pub !== now.keyPair.pub) {
+        if (!warnedReload) console.error('[sync] cloud.json now points to a different Worker, cloud or key pair. Restart hangar to sync with the new settings.');
         warnedReload = true;
         return null;
       }
-      built.cloud = next;
+      built.cloud = { ...now, deviceToken: next.deviceToken };
       return { url: next.url, token: next.deviceToken };
     };
-    const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, reloadCredentials, checkWorkerBeforeWrite: true }) : null;
-    const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
+    const wire = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken, reloadCredentials, checkWorkerBeforeWrite: true }) : null;
+    // 行は SealedCloudClient が今の世代の鍵で封じ、行が名乗る世代の鍵で開く。
+    // 鍵の束は待たずに渡す（この組み立ては同期で走る）。cloud.json の鍵は readCloudConfig が形を確かめてある。
+    // 本文も同じ鍵の束を使う。uploader と設定の同期は今の世代の `/index` の鍵で R2 の鍵名を求め、client が同じ世代で封じる。
+    const keyring = cloud ? Keyring.fromConfig(cloud) : null;
+    // 名簿の印の行と知らない世代の行を受けたら、keybox と名簿を読み直す（sync/roster.ts）。
+    // 新しい世代の鍵が届いたら、飛ばした行と本文の区切りを巻き戻す（どちらも走っている pull の終わりを待つので、ここでは待たない）。
+    let onKeysGained = (): void => {};
+    const roster = keyring && wire && cloud ? new RosterStore(wire, keyring, cloudWriter(home.home, cloud, () => built), deviceId) : null;
+    const client = keyring && wire ? new SealedCloudClient(wire, keyring, deviceId, roster ? { onRoster: rosterRefresh(roster, () => onKeysGained()) } : {}) : null;
     const engine = new SyncEngine({
       db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
       ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
     });
     // 設定の「使用量と費用」。
     const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
-    const uploader = client
+    const uploader = client && keyring
       ? new TranscriptUploader({
-          db, deviceId, claudeDir, client, key: fileKey, state: syncState,
+          db, deviceId, claudeDir, client, keyring, state: syncState,
           isPaused,
           onError: (p, m) => console.error('[upload]', p, m),
         })
       : null;
     // 設定の同期。スイッチは settings.json の configBundleSync で、既定は切。
-    const configBundle = client
+    const configBundle = client && keyring
       ? new ConfigSyncService({
-          db, deviceId, deviceName: home.device.name, claudeDir, home: home.home, cloud: client, key: fileKey,
+          db, deviceId, deviceName: home.device.name, claudeDir, home: home.home, cloud: client, keyring,
           enabled: () => settings.current.configBundleSync === true && !isPaused(),
           switchedOn: () => settings.current.configBundleSync === true,
           approval: () => (settings.current.configApproval === 'auto' ? 'auto' : 'each'),
@@ -235,7 +289,7 @@ export function bootSync(
       : null;
     const puller = client
       ? new RemotePuller({
-          db, deviceId, home: home.home, client, key: fileKey, state: syncState, language: home.language,
+          db, deviceId, home: home.home, client, state: syncState, language: home.language,
           // 画面へは toast を流さない（トーストは操作の結果だけにした）。
           // 諦めた項目は同期の状態（skipped）に残り、画面のベルの一覧が事実からその行を組む。
           onError: (k, m) => { console.error('[pull]', k, m); },
@@ -253,7 +307,26 @@ export function bootSync(
     engine.on({ applied: (c) => { if (c.tableName === 'takeovers' || c.tableName === 'takeover_answers') takeoversApplied(); } });
     // ほかの PC のスクラッチのプロジェクトや場所の行が届いたら、次の起動を待たずに 1 つにまとめ直す（projects/scratch.ts）。
     engine.on({ applied: followRemoteScratch(db, deviceId, home.home, { onError: (e) => console.error('[sync] 届いたクイックセッションの行をまとめ直せませんでした', e instanceof Error ? e.message : e) }) });
-    const c: Core = { cloud, client, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null };
+    onKeysGained = () => {
+      void engine.rewindSkippedRows();
+      void puller?.rewindSkipped().catch((e: unknown) => console.error('[pull] could not rewind skipped files', e instanceof Error ? e.message : e));
+    };
+    // ゴミ箱の掃除。止まっている間（一時停止、版、解除、上限）は Worker に触らない。走っている回があれば重ねない。
+    let trashRunning = false;
+    const sweepTrash = client && keyring
+      ? async (): Promise<void> => {
+          if (trashRunning || isPaused()) return;
+          trashRunning = true;
+          try {
+            await sweepTrashBlobs({ db, client, keyring, deviceId, now: Date.now() });
+          } catch (e) {
+            console.error('[trash-sweep] could not delete old trashed transcripts from the cloud', e instanceof Error ? e.message : e);
+          } finally {
+            trashRunning = false;
+          }
+        }
+      : null;
+    const c: Core = { cloud, client, roster, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
     built = c;
     return c;
   };
@@ -298,11 +371,19 @@ export function bootSync(
     sweepUploads(c);
     c.uploadTimer = c.uploader ? setInterval(() => sweepUploads(c), UPLOAD_SWEEP_MS) : null;
     c.uploadTimer?.unref();
+    // ゴミ箱の掃除は、最初の同期が落ち着いた頃に 1 回、その後は 6 時間に 1 回。
+    const sweep = c.sweepTrash;
+    if (sweep) {
+      c.trashTimers = { first: setTimeout(() => { void sweep(); }, TRASH_SWEEP_FIRST_MS), every: setInterval(() => { void sweep(); }, TRASH_SWEEP_EVERY_MS) };
+      c.trashTimers.first.unref();
+      c.trashTimers.every.unref();
+    }
   };
   const stopCoreTimers = (c: Core): void => {
     if (c.bundleTimer) clearInterval(c.bundleTimer);
     c.cloudUsage.stop();
     if (c.uploadTimer) clearInterval(c.uploadTimer);
+    if (c.trashTimers) { clearTimeout(c.trashTimers.first); clearInterval(c.trashTimers.every); }
     c.once.stopTicker();
   };
 
@@ -364,7 +445,7 @@ export function bootSync(
     const { client, engine } = core;
     if (!client) return false;
     if (engine.status().paused || engine.compatBlocked() || engine.revoked() || engine.limitedUntil() !== null) return false;
-    return (client.lastWorkerCompat() ?? 0) >= min;
+    return (client.lastWorkerCompat?.() ?? 0) >= min;
   };
 
   return {
@@ -389,13 +470,14 @@ export function bootSync(
     },
     canCarryTakeover: () => canCarry(TAKEOVER_MIN_WORKER_COMPAT),
     canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
-    mobileLink: () => (core.client && core.cloud ? { client: core.client, joinSecret: core.cloud.joinSecret, url: core.cloud.url } : null),
+    // スマホの鍵を名簿の phoneKey から引くようになるまで（Task 22）、スマホの機能は止めておく。
+    mobileLink: () => null,
     refetchSession: (uuid) => {
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
-    joinToken: () => (core.cloud ? encodeJoinToken({ url: core.cloud.url, secret: core.cloud.joinSecret }) : null),
+    joinToken: () => null,
     cloudDevices: async () => {
-      const d = await loadCloudDevices({ client: core.client, deviceId, creator: core.cloud?.workerName != null, language: home.language });
+      const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
       for (const cb of [...cloudDeviceListeners]) {
         try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
       }

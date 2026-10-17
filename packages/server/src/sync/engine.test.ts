@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,19 +6,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { getSessionNote, setSessionName } from '../sessions/notes.ts';
+import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { COMPAT_VERSION } from '@agent-hangar/shared';
+import { COMPAT_VERSION, encodeEpochList, generateKeyPair, sealKeybox, toBase64Url } from '@agent-hangar/shared';
+import type { CloudConfig } from '../config/cloud.ts';
 import { CloudError, LimitError, MIN_WORKER_COMPAT } from './client.ts';
 import { limitedMessage, limitedWhilePausedMessage, SyncEngine } from './engine.ts';
+import { Keyring } from './keyring.ts';
+import { RosterStore, rosterRefresh } from './roster.ts';
 import { peerSeenAt, readPeers } from './peers.ts';
 
 let db: Db;
 let cloud: FakeCloudClient;
 let timers: FakeTimers;
 
+/**
+ * 偽の時計を進めるたびに、エンジンのタイマーから始めた仕事の終わりを待つ（FakeTimers.settleWith）。
+ * 偽のクラウドは行を本物の WebCrypto で封じるので、マイクロタスクを流すだけでは push の終わりを待てない。
+ */
+const settled = <E extends SyncEngine>(e: E): E => { timers.settleWith(() => e.idle()); return e; };
 const make = <E extends SyncEngine = SyncEngine>(over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}, Engine: new (deps: ConstructorParameters<typeof SyncEngine>[0]) => E = SyncEngine as never): E =>
-  new Engine({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', ...over });
+  settled(new Engine({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', ...over }));
 /** protected な failPush と failPull を、並行する push と pull の断りに見立てて直接呼ぶ試験用の派生。 */
 class Probe extends SyncEngine {
   refusePush(): void { this.failPush(new LimitError('d1-write', 429)); }
@@ -55,7 +65,7 @@ describe('SyncEngine の push', () => {
     await timers.advance(999);
     expect(cloud.changes).toHaveLength(0);
     await timers.advance(1);
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1', 'p2']);
     expect(pushBatches()).toEqual([2]);
     expect(unpushed()).toBe(0);
     expect(e.status()).toMatchObject({ state: 'idle', pending: 0, lastPushAt: timers.now, error: null, url: 'https://h' });
@@ -87,7 +97,7 @@ describe('SyncEngine の push', () => {
     expect(unpushed()).toBe(2);
     cloud.offline = false;
     await e.pushNow();
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1', 'p2']);
     expect(e.status()).toMatchObject({ state: 'idle', error: null, pending: 0 });
     e.stop();
   });
@@ -168,7 +178,7 @@ describe('SyncEngine の push', () => {
     expect(on.status().pending).toBe(2);
     await on.start();
     await on.pushNow();
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1', 'p2']);
     expect(on.status()).toMatchObject({ state: 'idle', pending: 0 });
     on.stop();
   });
@@ -266,7 +276,7 @@ describe('SyncEngine の push', () => {
     project('p2');
     await e.syncNow();
     expect(unpushed()).toBe(0);
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1', 'p2']);
     e.stop();
   });
 });
@@ -279,7 +289,7 @@ describe('SyncEngine の pull', () => {
   let dbB: Db;
   let cloudB: FakeCloudClient;
   const makeB = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) =>
-    new SyncEngine({ db: dbB, deviceId: 'b', client: cloudB, now: () => timers.now, timers, url: 'https://h', ...over });
+    settled(new SyncEngine({ db: dbB, deviceId: 'b', client: cloudB, now: () => timers.now, timers, url: 'https://h', ...over }));
   /** upsertShared の updated_at は実時間の Date.now() なので、書き込みの前に実時間を少し進めて順序を確実にする。 */
   const realDelay = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); });
 
@@ -439,7 +449,7 @@ describe('SyncEngine の pull', () => {
       expect((d.prepare('select last_activity_at l from sessions where id = ?').get('s1') as { l: number }).l).toBe(999);
     }
     // sessions の payload は、名前もノートも運ばない。
-    for (const c of cloud.changes.filter((x) => x.tableName === 'sessions')) {
+    for (const c of (await cloud.opened()).filter((x) => x.tableName === 'sessions')) {
       expect(Object.keys(c.payload)).not.toContain('name');
       expect(Object.keys(c.payload)).not.toContain('memo');
     }
@@ -451,7 +461,7 @@ describe('SyncEngine の pull', () => {
     const slow = cloud.asDevice('b');
     const orig = slow.pullChanges.bind(slow);
     slow.pullChanges = (since, limit) => new Promise((r) => { release = () => { void orig(since, limit).then(r); }; });
-    slow.snapshot = async () => ({ changes: [], nextAfter: null, seq: 0 });
+    slow.snapshot = async () => ({ changes: [], nextAfter: null, seq: 0, unreadable: [] });
     const b = makeB({ client: slow });
     b.state.set('snapshotDone', true);
     const p = b.pullBeforeLaunch(2000);
@@ -494,6 +504,193 @@ describe('SyncEngine の pull', () => {
   });
 });
 
+describe('開けない行（封じた行、世代鍵の欠け）', () => {
+  let dbB: Db;
+  const makeB = (client: FakeCloudClient) => settled(new SyncEngine({ db: dbB, deviceId: 'b', client, now: () => timers.now, timers, url: 'https://h' }));
+  const nameB = (id: string) => (dbB.prepare('select name from projects where id = ?').get(id) as { name: string } | undefined)?.name ?? null;
+  /** 世代 2 を今の世代に持つ鍵の束（世代を回した後の PC）。 */
+  const rotated = () => Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 2 }));
+
+  beforeEach(() => { dbB = openDb(':memory:'); });
+
+  it('偽のクラウドの rows の device_id か updated_at を書き換えると、その行は unreadable になり、エンジンは止まらない', async () => {
+    const a = make();
+    await a.start();
+    project('p1'); project('p2'); project('p3');
+    await a.pushNow();
+    const rows = [...cloud.rows.values()].sort((x, y) => x.seq - y.seq);
+    rows[0]!.deviceId = 'pc-x';
+    rows[1]!.updatedAt += 1;
+    const cloudB = cloud.asDevice('b');
+    const b = makeB(cloudB);
+    await b.start();
+    expect([nameB('p1'), nameB('p2'), nameB('p3')]).toEqual([null, null, 'p3']);
+    // 飛ばした数を同期の状態に残す。区切りは先へ進む。
+    expect(b.state.get('lastError')).toContain('2');
+    expect(b.status()).toMatchObject({ state: 'error' });
+    expect(b.state.get('snapshotDone')).toBe('1');
+    // 止まらない。次の行は届き、開けない行の無い 1 巡で印も消える。
+    project('p4');
+    await a.pushNow();
+    await b.pullNow();
+    expect(nameB('p4')).toBe('p4');
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    expect(b.state.get('lastError')).toBe(null);
+    a.stop(); b.stop();
+  });
+
+  it('差分で受けた開けない行も飛ばして数を残し、区切りを進める', async () => {
+    const cloudB = cloud.asDevice('b');
+    const b = makeB(cloudB);
+    await b.start();
+    const a = make();
+    await a.start();
+    project('p1'); project('p2');
+    await a.pushNow();
+    [...cloud.rows.values()].find((r) => r.seq === 1)!.deviceId = 'pc-x';
+    await b.pullNow();
+    expect([nameB('p1'), nameB('p2')]).toEqual([null, 'p2']);
+    expect(b.state.get('lastError')).toContain('1');
+    expect(b.state.getNumber('lastSeq', -1)).toBe(2);
+    a.stop(); b.stop();
+  });
+
+  it('知らない世代の行を受け取ると keybox を読み直し、読めたら当て直す（写し）', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', keyring: rotated() });
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const ringB = await Keyring.fromConfig(testCloudConfig());
+    const onRoster = vi.fn(async () => { await ringB.addEpochs({ epochs: { '2': testKey(4) } }); });
+    const b = makeB(cloud.asDevice('b', { keyring: ringB, onRoster }));
+    await b.start();
+    expect(nameB('p1')).toBe('p1');
+    expect(onRoster).toHaveBeenCalledTimes(1);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    a.stop(); b.stop();
+  });
+
+  it('知らない世代の行を受け取ると keybox を読み直し、読めたら当て直す（差分）', async () => {
+    const ringB = await Keyring.fromConfig(testCloudConfig());
+    const onRoster = vi.fn(async () => { await ringB.addEpochs({ epochs: { '2': testKey(4) } }); });
+    const cloudB = cloud.asDevice('b', { keyring: ringB, onRoster });
+    const b = makeB(cloudB);
+    await b.start();
+    cloud = cloud.asDevice('a', { keyring: rotated() });
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const pulls = () => cloudB.calls.filter((c) => c.method === 'pullChanges').length;
+    const before = pulls();
+    await b.pullNow();
+    expect(nameB('p1')).toBe('p1');
+    expect(onRoster).toHaveBeenCalledTimes(1);
+    // 同じ頁を 1 度だけ読み直す。
+    expect(pulls() - before).toBe(2);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(1);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    a.stop(); b.stop();
+  });
+
+  it('読み直しても鍵が届かなければ、1 巡に 1 度だけ読み直し、その行は飛ばして数を残す', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', keyring: rotated() });
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const onRoster = vi.fn(async () => {});
+    const cloudB = cloud.asDevice('b', { keyring: Keyring.fromConfig(testCloudConfig()), onRoster });
+    const b = makeB(cloudB);
+    await b.start();
+    expect(nameB('p1')).toBe(null);
+    expect(onRoster).toHaveBeenCalledTimes(1);
+    expect(b.state.get('lastError')).toContain('1');
+    // 次の 1 巡は差分だけで、飛ばした行はもう降りてこない。
+    await b.pullNow();
+    expect(onRoster).toHaveBeenCalledTimes(1);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    a.stop(); b.stop();
+  });
+
+  it('飛ばした行のいちばん小さい連番を控え、巻き戻すとそこから読み直す', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', keyring: rotated() });
+    const a = make();
+    await a.start();
+    const ringB = await Keyring.fromConfig(testCloudConfig());
+    const b = makeB(cloud.asDevice('b', { keyring: ringB }));
+    await b.start();
+    project('p1'); project('p2');
+    await a.pushNow();
+    await b.pullNow();
+    expect(b.state.getNumber('rowsSkippedFrom', -1)).toBe(1);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(2);
+    // 後ろでまた飛ばしても、小さい方を残す。
+    project('p3');
+    await a.pushNow();
+    await b.pullNow();
+    expect(b.state.getNumber('rowsSkippedFrom', -1)).toBe(1);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
+    await ringB.addEpochs({ epochs: { '2': testKey(4) } });
+    expect(await b.rewindSkippedRows()).toBe(true);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(0);
+    expect(b.state.get('rowsSkippedFrom')).toBeNull();
+    await b.pullNow();
+    expect([nameB('p1'), nameB('p2'), nameB('p3')]).toEqual(['p1', 'p2', 'p3']);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    // 控えが無ければ巻き戻さない。手前にいる区切りは先へ進めない。
+    expect(await b.rewindSkippedRows()).toBe(false);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
+    b.state.set('rowsSkippedFrom', 9);
+    expect(await b.rewindSkippedRows()).toBe(true);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
+    a.stop(); b.stop();
+  });
+
+  it('知らない世代で封じた行は、keybox が届いた後に当たる（名簿の読み直しから巻き戻す）', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', keyring: rotated() });
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const cfgB = { current: testCloudConfig({ keyPair: await generateKeyPair() }), read: () => cfgB.current, write: (p: Partial<CloudConfig>) => { cfgB.current = { ...cfgB.current, ...p }; } };
+    const ringB = await Keyring.fromConfig(cfgB.current);
+    const storeB = new RosterStore(cloud.wire.asDevice('b'), ringB, cfgB, 'b');
+    const rewinds: Promise<boolean>[] = [];
+    const b: SyncEngine = makeB(cloud.asDevice('b', { keyring: ringB, onRoster: rosterRefresh(storeB, () => { rewinds.push(b.rewindSkippedRows()); }) }));
+    await b.start();
+    expect(nameB('p1')).toBe(null);
+    expect(rewinds).toEqual([]);
+    // 世代を回した PC が、b 宛ての keybox を置く（印の行が進む）。
+    cloud.wire.putKeybox('b', 2, toBase64Url(await sealKeybox(cfgB.current.keyPair.pub, { epoch: 2, recipient: 'b' }, encodeEpochList({ epochs: { '1': testKey(3), '2': testKey(4) } }))));
+    await b.pullNow();
+    expect(rewinds.length).toBe(1);
+    // 巻き戻しは走っていた pull の後に当たる。
+    expect(await rewinds[0]).toBe(true);
+    expect(cfgB.current.currentEpoch).toBe(2);
+    await b.pullNow();
+    expect(nameB('p1')).toBe('p1');
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    a.stop(); b.stop();
+  });
+
+  it('名簿の印の行は当てずに onRoster に回す', async () => {
+    const onRoster = vi.fn(async () => {});
+    const cloudB = cloud.asDevice('b', { onRoster });
+    const b = makeB(cloudB);
+    await b.start();
+    const applied: string[] = [];
+    b.on({ applied: (c) => applied.push(c.tableName) });
+    cloud.touchRoster(1);
+    await b.pullNow();
+    expect(onRoster).toHaveBeenCalledTimes(1);
+    expect(applied).toEqual([]);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    b.stop();
+  });
+});
+
 describe('他の PC の生存（同期の版 6）', () => {
   it('pull の応答の peers を、この PC の時計に置き直して覚える', async () => {
     let w = 9_000_000;
@@ -519,7 +716,7 @@ describe('他の PC の生存（同期の版 6）', () => {
     // 2 頁にまたがる pull（どの頁にも同じ依頼が載る）。
     const b = cloud.asDevice('b');
     const bdb = openDb(':memory:');
-    const eb = new SyncEngine({ db: bdb, deviceId: 'b', client: b, now: () => timers.now, timers, url: 'https://h' });
+    const eb = settled(new SyncEngine({ db: bdb, deviceId: 'b', client: b, now: () => timers.now, timers, url: 'https://h' }));
     for (let i = 0; i < 3; i++) upsertShared(bdb, 'projects', { id: `p${i}`, name: `p${i}`, status: 'active', is_scratch: 0 }, 'b');
     await eb.pushNow();
     const pull = cloud.pullChanges.bind(cloud);
@@ -647,7 +844,7 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
     rejectOversize(cloud, (id) => id === 'big');
 
     await e.pushNow();
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1', 'p2']);
     expect(unpushed()).toBe(0);
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.level).toBe('error');
@@ -664,7 +861,7 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
   });
 
   it('偽クラウドの実物の上限でも、大きすぎるメモだけが諦められて残りは届く', async () => {
-    // ここだけは 413 を手で組み立てず、偽クラウドに実物の上限（128 KiB）で断らせる。
+    // ここだけは 413 を手で組み立てず、偽クラウドに実物の上限（封じた sealed の 180 KiB）で断らせる。
     // 手で組み立てた本文とずれていれば、この 1 件だけが落ちる。
     const e = make();
     await e.start();
@@ -672,25 +869,25 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
     e.on({ toast: (level, message) => toasts.push({ level, message }) });
 
     project('p1'); project('p2');
-    // 日本語は 1 文字 3 バイトなので、これで確実に上限を超える。
-    const huge = 'あ'.repeat(MAX_ROW_BYTES / 2);
+    // gzip で縮まない中身にする。封じて base64url にすると約 4/3 倍になるので、これで確実に上限を超える。
+    const huge = randomBytes(MAX_ROW_BYTES).toString('base64');
     upsertShared(db, 'project_memos', { project_id: 'p1', markdown: huge }, 'a', 'project_id');
     expect(unpushed()).toBe(3);
 
     await e.pushNow();
 
     // 大きすぎる 1 行だけが落ち、同じ塊にいた 2 行は普通に届く。
-    expect(cloud.changes.map((c) => `${c.tableName}:${c.rowId}`)).toEqual(['projects:p1', 'projects:p2']);
+    expect((await cloud.opened()).map((c) => `${c.tableName}:${c.rowId}`)).toEqual(['projects:p1', 'projects:p2']);
     expect(unpushed()).toBe(0);
     expect(e.status()).toMatchObject({ state: 'idle', error: null });
 
-    // 諦めたことは 1 度だけ知らせる。上限は Worker の 128 KiB のまま伝える。
+    // 諦めたことは 1 度だけ知らせる。上限は Worker の 180 KiB のまま伝える。
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.level).toBe('error');
     expect(toasts[0]?.message).toContain('project_memos');
-    expect(toasts[0]?.message).toContain('上限 128 KiB');
+    expect(toasts[0]?.message).toContain('上限 180 KiB');
     // 知らせに本文そのものを混ぜない。
-    expect(toasts[0]?.message).not.toContain('ああ');
+    expect(toasts[0]?.message).not.toContain(huge.slice(0, 16));
 
     // 手元の本文は消えていない。届かないだけである。
     expect((db.prepare('select markdown from project_memos where project_id = ?').get('p1') as { markdown: string }).markdown).toBe(huge);
@@ -719,7 +916,7 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
     rejectOversize(cloud, (id) => id.startsWith('big'));
     project('big1'); project('big2'); project('p1');
     await timers.advance(10 * 60_000);
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
+    expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1']);
     expect(unpushed()).toBe(0);
     e.stop();
   });
@@ -787,8 +984,8 @@ describe('互換の版', () => {
     e.stop();
   });
 
-  it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 6 で断り、Worker を上げるよう error に出す', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(6);
+  it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 9 で断り、Worker を上げるよう error に出す', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(9);
     cloud.workerCompat = 0;
     const e = make();
     await e.start();
@@ -1048,7 +1245,7 @@ describe('上限で退く', () => {
     await e.idle();
     expect(e.limitedUntil()).toBeNull();
     expect(e.status()).toMatchObject({ state: 'idle', limitedUntil: null, error: null, pending: 0 });
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
+    expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1']);
     e.stop();
   });
 
@@ -1180,7 +1377,7 @@ describe('上限で退く', () => {
       await e.idle();
       expect(e.limitedUntil()).toBeNull();
       expect(e.status()).toMatchObject({ state: 'idle', limitedUntil: null, error: null, pending: 0 });
-      expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
+      expect((await cloud.opened()).map((c) => c.rowId)).toEqual(['p1']);
       expect(toasts).toEqual([]);
       e.stop();
     });

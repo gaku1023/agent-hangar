@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLOUD_FREE_LIMITS, r2Included, configKey, decodeHeaderText, decodeJoinToken, encodeFileKeyPath, encodeHeaderText, encodeJoinToken, isAllowedJoinUrl, isHeaderSafe, isSafeRelPath, isValidFileKey, MAX_KEY_BYTES, splitFileKey, type JoinToken, MAX_ID_CHARS, MAX_JOIN_TOKEN_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK, transcriptKey } from './cloud.ts';
+import { CLOUD_FREE_LIMITS, r2Included, decodeHeaderText, decodeJoinToken, encodeFileKeyPath, encodeHeaderText, encodeJoinToken, isAllowedJoinUrl, isHeaderSafe, isSafeKeyId, isSafeRelPath, type JoinToken, MAX_ID_CHARS, MAX_JOIN_TOKEN_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK } from './cloud.ts';
 
 describe('参加トークン', () => {
   it('URL と秘密を base64url の JSON で往復する', () => {
@@ -16,17 +16,6 @@ describe('参加トークン', () => {
 });
 
 describe('鍵と表', () => {
-  it('本文の鍵は端末 ID とセッション UUID を含み、サブエージェントは下に置く', () => {
-    expect(transcriptKey('dev1', 'u1', null)).toBe('transcripts/dev1/u1.jsonl.gz');
-    expect(transcriptKey('dev1', 'u1', 'abc')).toBe('transcripts/dev1/u1/subagents/agent-abc.jsonl.gz');
-    expect(configKey('dev1', 'skills/x/SKILL.md')).toBe('config/dev1/skills/x/SKILL.md');
-  });
-  it('設定の鍵も端末ごとに分ける。分けないと 2 台目が 1 台目の設定を潰す', () => {
-    expect(configKey('dev1', 'CLAUDE.md')).toBe('config/dev1/CLAUDE.md');
-    expect(configKey('dev2', 'CLAUDE.md')).toBe('config/dev2/CLAUDE.md');
-    expect(configKey('dev1', 'CLAUDE.md')).not.toBe(configKey('dev2', 'CLAUDE.md'));
-    expect(splitFileKey(configKey('dev1', 'skills/x/SKILL.md'))).toEqual({ prefix: 'config', rel: 'dev1/skills/x/SKILL.md' });
-  });
   it('共有テーブルは 16 で、主キーは session_summaries と session_states と project_memos と config_snapshots だけが違う', () => {
     expect(SHARED_TABLES).toHaveLength(16);
     expect(SHARED_TABLES).not.toContain('takeover_requests');
@@ -103,31 +92,17 @@ describe('参加トークンの宛先の検査', () => {
   });
 });
 
-describe('鍵の組み立ての検査', () => {
-  it('config の相対パスは .. と先頭のスラッシュと空の断片と制御文字を断る', () => {
+describe('相対パスと ID の検査', () => {
+  it('相対パスは .. と先頭のスラッシュと空の断片と制御文字を断る', () => {
     for (const p of ['', '.', '..', '../../etc/passwd', '/etc/passwd', 'a//b', 'a/./b', 'a/../../b', 'skills/x/', 'a\u0000b', 'a\nb', 'a'.repeat(MAX_REL_PATH_CHARS + 1)]) {
-      expect(() => configKey('dev1', p)).toThrow('パス');
+      expect(isSafeRelPath(p), p).toBe(false);
     }
-    for (const bad of ['', '.', '..', 'a/b', '/a', 'a b', 'a\u0000', '-a', 'a'.repeat(MAX_ID_CHARS + 1)]) {
-      expect(() => configKey(bad, 'CLAUDE.md')).toThrow('ID');
-    }
-    expect(configKey('dev1', 'skills/x/SKILL.md')).toBe('config/dev1/skills/x/SKILL.md');
     expect(isSafeRelPath('skills/x/SKILL.md')).toBe(true);
-    expect(isSafeRelPath('../x')).toBe(false);
+    expect(isSafeRelPath('skills/日本語 メモ/SKILL.md')).toBe(true);
   });
-  it('端末 ID とセッション ID とサブエージェント ID の形を検査する', () => {
-    for (const bad of ['', '.', '..', 'a/b', '/a', 'a b', 'a\u0000', '-a', 'a'.repeat(MAX_ID_CHARS + 1)]) {
-      expect(() => transcriptKey(bad, 'u1', null)).toThrow('ID');
-      expect(() => transcriptKey('dev1', bad, null)).toThrow('ID');
-      expect(() => transcriptKey('dev1', 'u1', bad)).toThrow('ID');
-    }
-    // 実際に使う形（uuidv7 の端末 ID、36 字のセッション UUID、英数字のサブエージェント ID）は通る。
-    expect(transcriptKey('0199b0d1-2b3c-7def-8000-0123456789ab', '2f1c9a10-0000-4000-8000-0123456789ab', null))
-      .toBe('transcripts/0199b0d1-2b3c-7def-8000-0123456789ab/2f1c9a10-0000-4000-8000-0123456789ab.jsonl.gz');
-    expect(transcriptKey('dev1', 'u1', 'abc123')).toBe('transcripts/dev1/u1/subagents/agent-abc123.jsonl.gz');
-  });
-  it('スラッシュ入りのセッション ID でサブエージェントの鍵と衝突させられない', () => {
-    expect(() => transcriptKey('d', 'u/subagents/agent-x', null)).toThrow('ID');
+  it('ID はスラッシュ、ドット始まり、空白、制御文字、長すぎるものを断る', () => {
+    for (const bad of ['', '.', '..', 'a/b', '/a', 'a b', 'a\u0000', '-a', 'a'.repeat(MAX_ID_CHARS + 1)]) expect(isSafeKeyId(bad), bad).toBe(false);
+    expect(isSafeKeyId('0199b0d1-2b3c-7def-8000-0123456789ab')).toBe(true);
   });
 });
 
@@ -214,27 +189,6 @@ describe('見出しに載せる文字列の符号化', () => {
 });
 
 describe('R2 の鍵の形', () => {
-  it('接頭辞とその先の相対パスに割る', () => {
-    expect(splitFileKey('transcripts/dev-a/u1.jsonl.gz')).toEqual({ prefix: 'transcripts', rel: 'dev-a/u1.jsonl.gz' });
-    expect(splitFileKey('config/skills/日本語 メモ/SKILL.md')).toEqual({ prefix: 'config', rel: 'skills/日本語 メモ/SKILL.md' });
-  });
-
-  it('日本語と空白を通し、脱出と空の断片を断る', () => {
-    // 利用者の `~/.claude` の名前は選べないので、ASCII に限ると日本語のスキルが端末側で止まる。
-    for (const ok of ['config/skills/日本語 メモ/SKILL.md', 'config/memory/🐕.md', 'transcripts/dev-a/u1.jsonl.gz', 'config/a%b.md']) {
-      expect(isValidFileKey(ok), ok).toBe(true);
-    }
-    for (const ng of ['', 'other/u1', 'transcripts', 'transcripts/', '/transcripts/a', 'transcripts/../etc', 'transcripts/./a', 'transcripts//a', 'transcripts/a\u0000b', 'config/' + 'あ'.repeat(400)]) {
-      expect(isValidFileKey(ng), ng).toBe(false);
-    }
-  });
-
-  it('長さはバイトで測る（R2 の上限に当てて 500 を出さない）', () => {
-    expect(isValidFileKey('config/' + 'a'.repeat(500))).toBe(true);
-    expect(isValidFileKey('config/' + 'a'.repeat(513))).toBe(false); // 相対パスの字数の上限
-    expect(new TextEncoder().encode('config/' + 'あ'.repeat(400)).length).toBeGreaterThan(MAX_KEY_BYTES);
-  });
-
   it('URL に載せるときは断片ごとに符号化して / を残す', () => {
     expect(encodeFileKeyPath('transcripts/dev-a/u1.jsonl.gz')).toBe('transcripts/dev-a/u1.jsonl.gz');
     expect(encodeFileKeyPath('config/skills/日本語 メモ/SKILL.md')).toBe('config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md');
