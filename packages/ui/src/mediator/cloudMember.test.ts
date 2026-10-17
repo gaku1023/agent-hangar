@@ -22,6 +22,13 @@ describe('クラウド同期の参加と解除の操作', () => {
       [{ type: 'cloud.leave.dismiss' }, { op: 'leaveDismiss' }],
       [{ type: 'cloud.phone.pair' }, { op: 'pair' }],
       [{ type: 'cloud.phone.close' }, { op: 'pairClose' }],
+      [{ type: 'cloud.recovery.ask' }, { op: 'recoveryAsk' }],
+      [{ type: 'cloud.recovery.reissue' }, { op: 'recoveryReissue' }],
+      [{ type: 'cloud.recovery.saved' }, { op: 'recoverySaved' }],
+      [{ type: 'cloud.recovery.reveal' }, { op: 'recoveryReveal' }],
+      [{ type: 'cloud.recovery.confirm', tail: 'K2VB' }, { op: 'recoveryConfirm', tail: 'K2VB' }],
+      [{ type: 'cloud.recovery.retry' }, { op: 'recoveryRetry' }],
+      [{ type: 'cloud.recovery.close' }, { op: 'recoveryClose' }],
     ];
     const s = initialState();
     for (const [a, command] of cases) {

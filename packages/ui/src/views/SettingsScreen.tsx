@@ -22,6 +22,7 @@ import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
 import { CloudAddButton, CloudAddPc, CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudPhones, CloudRevokedBand } from './CloudMember.tsx';
+import { CloudRecoveryButton, CloudRecoveryKey } from './CloudRecoveryKey.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
@@ -411,8 +412,11 @@ export function SettingsScreen(props: SettingsProps) {
               {!props.cloud.limited && !(props.cloud.paused && props.cloud.state === 'error') && <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? t('settings.cloud.resume') : t('settings.cloud.pause')}</button>}
               {/* 「PC を追加」（試作 A1）。押すと参加コードを発行し、下に欄を開く。解除されている間は出さない。 */}
               {member && !member.revoked && <CloudAddButton m={member} />}
+              {/* 「リカバリーキーを再発行」（試作 D2 の「リカバリーキーを表示」を再発行にしたもの）。押すと確認を経て、下に欄を開く。 */}
+              {member && !member.revoked && <CloudRecoveryButton m={member} />}
             </div>
             {member && !member.revoked && <CloudAddPc m={member} />}
+            {member && !member.revoked && <CloudRecoveryKey m={member} />}
             {/* PC の表（0.4.0）。Worker の一覧から、参加日、最終同期、最後の IP と場所、解除を出す。 */}
             {/* 表の下に「スマホ」の小見出しと「スマホを接続」（試作 A1）。解除されている間は出さない。 */}
             {member ? <><CloudPcTable m={member} heading={t('settings.cloud.computers')} />{!member.revoked && <CloudPhones m={member} />}</> : (

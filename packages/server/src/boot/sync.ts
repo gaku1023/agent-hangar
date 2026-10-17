@@ -15,6 +15,7 @@ import { createOncePass } from '../sync/oncePass.ts';
 import { backupPruner } from '../sync/pruneBackups.ts';
 import { RemotePuller } from '../sync/puller.ts';
 import { JoinApprover, joinNotifier } from '../sync/joinApprover.ts';
+import { RecoveryKeyReissuer } from '../sync/recoveryReissue.ts';
 import { RosterStore, rosterRefresh, type ConfigWriter } from '../sync/roster.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
@@ -72,6 +73,11 @@ export type SyncParts = {
    * cloud.json が現れて部品を組み直すと、新しいものに替わる（前のものは止める）。
    */
   joinApprover(): JoinApprover | null;
+  /**
+   * リカバリーキーの再発行（sync/recoveryReissue.ts）。同期を設定していない端末では null。
+   * cloud.json が現れて部品を組み直すと、新しいものに替わり、前の下書きは使えなくなる。
+   */
+  recoveryKey(): RecoveryKeyReissuer | null;
   /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。読めた一覧は onCloudDevices の受け手にも渡す。 */
   cloudDevices(): Promise<CloudDevicesDto>;
   /**
@@ -159,6 +165,8 @@ type Core = {
   roster: RosterStore | null;
   /** 参加コードの発行と承認。同期を設定していなければ null。 */
   joinApprover: JoinApprover | null;
+  /** リカバリーキーの再発行。同期を設定していなければ null。 */
+  recoveryKey: RecoveryKeyReissuer | null;
   engine: SyncEngine;
   cloudUsage: CloudUsagePoller;
   uploader: TranscriptUploader | null;
@@ -333,7 +341,11 @@ export function bootSync(
     const joinApprover = wire && roster && keyring
       ? new JoinApprover({ wire, roster, keyring, language: home.language, ...joinNotifier({ broadcast: (ev) => hub.broadcast(ev), ...(delivery.osNotices ? { osNotices: delivery.osNotices } : {}), language: home.language }) })
       : null;
-    const c: Core = { cloud, client, roster, joinApprover, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
+    // リカバリーキーの再発行。新しい鍵ペアは確認までこの中のメモリにだけ置く。
+    const recoveryKey = wire && roster && keyring && cloud ? new RecoveryKeyReissuer({ roster, keyring, wire, url: () => cloud.url, state: syncState }) : null;
+    // 名簿を書いた後に recovery 宛ての keybox を置けなかった印があれば、pull の度に置き直す（印が無ければ何も送らない）。
+    if (recoveryKey) engine.on({ pulled: () => { void recoveryKey.resumePending(); } });
+    const c: Core = { cloud, client, roster, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null };
     built = c;
     return c;
   };
@@ -484,6 +496,7 @@ export function bootSync(
       void core.puller?.refetchSession(uuid).catch((e: unknown) => console.error('[pull]', uuid, e instanceof Error ? e.message : e));
     },
     joinApprover: () => core.joinApprover,
+    recoveryKey: () => core.recoveryKey,
     cloudDevices: async () => {
       const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
       for (const cb of [...cloudDeviceListeners]) {

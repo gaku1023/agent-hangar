@@ -5508,9 +5508,14 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 `hangar setup cloud` は、デプロイの前に最初の端末トークンを作り、その SHA-256 を `wrangler secret put BOOTSTRAP_TOKEN_HASH` の標準入力で渡す。
 `/health` が通ったら、この PC の鍵ペアを作り、`POST /bootstrap` にこの PC の ID（`home.device.id`）と最初の端末トークンを送って登録する（反映待ちの 401 と 503 は 5 秒おきに 6 回まで待つ）。
 登録できたら、端末トークンを失わないよう、名簿を置く前に `cloud.json`（版 2、0600）を書く。世代 1 の世代鍵もここで作る。
-続けてリカバリーキーの鍵ペアを作り、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
-最後にリカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する。保存したかを末尾 4 文字で確かめる手順は、後の段で必須にする。
-同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、名簿と keybox とリカバリーキーをここで作る。
+続けてリカバリーキーの鍵ペアを作り、リカバリーキー（`hangar リカバリーキー`、作成日、URL、暗号鍵の 4 行）を 1 回だけ表示する（`recovery.ts` の `showAndConfirmRecoveryKey`）。
+`--save <パス>` があれば同じ 4 行をそのファイルに 0600 で書き、端末で `--save` が無ければ保存先を尋ねる。
+保存した暗号鍵の末尾 4 文字を入力してもらい、外れたら聞き直し、3 回外れたら表示し直す。3 回表示しても合わなければ、名簿も keybox も置かずに止まる（setup は終わらない）。
+合ったら、端末なら画面とスクロールバックを消す。
+確かめた後で、世代鍵の一覧をこの PC 宛てと `recovery` 宛ての keybox に封じて `PUT /keyboxes` で置き、この PC とリカバリーキーの公開鍵を入れた名簿を `PUT /roster`（`ifVersion: 0`）で置く。
+名簿を確認の後に置くのは、確かめられずに止まった setup をやり直したときに、名簿が無いことから新しいリカバリーキーを作り直せるようにするためである。
+確かめられずに止まったときは、`--save` で書いたファイルを消す。確かめた後に keybox か名簿を置けずに止まったときは、保存したキーは使えないので、もう一度実行して新しいキーを保存するよう伝える。
+同じ名前でもう一度実行したとき（Worker の入れ替え）は、`secret put` も登録もせず、`cloud.json` の暗号鍵と端末トークンをそのまま使う。名簿が無ければ（名簿を置く前に止まった setup）、リカバリーキーの表示と確認、名簿と keybox をここで行う。
 古い形式（版 1）の `cloud.json` があれば上書きせず、先に `hangar cloud teardown`（参加しただけの PC では `cloud.json` の削除）を案内して止まる。
 
 新しい PC の参加は、殻（と端末）から CLI を短く呼ぶ 3 つのコマンドで進める。どれも `--json` で最後の 1 行に結果を出し、失敗は `{ ok: false, code, message }` である。
@@ -5526,6 +5531,43 @@ Worker は端末ごとの端末トークン（32 バイトの乱数）で要求�
 `join-poll` は `GET /join/status` を 1 回だけ問い合わせる。承認されたら端末トークンを先に下書きに書き、自分宛ての keybox を開いて世代鍵を読み、名簿の版とスマホ用の鍵を写して `cloud.json`（版 2）を書き、下書きを消す。keybox がまだ無ければ、端末トークンを下書きに持ったまま `waiting` を返し、次の問い合わせで続ける。
 `hangar cloud join <url>` は同じ手順を端末で対話して進める（2 秒ごとに問い合わせる）。
 旧い `hangar join` は「参加トークンは廃止されました」と案内して 1 で終わる。
+
+**リカバリーキーで戻る（`hangar recover`、`recovery.ts` の `runRecover`）。**
+すべての PC を失ったときに、新しい PC で実行する。リカバリーキーの 4 行は標準入力で受け取り、argv に載せない。
+どのクラウドにも参加していない PC でだけ動く（`cloud.json` が版 2、版 1、壊れているのどれでも止まる）。
+リカバリーキーを読めなければ、Worker にも wrangler にも触らずに止まる。
+端末トークンは Cloudflare アカウントの所有で取り直す。新しいトークンのハッシュを `wrangler secret put BOOTSTRAP_TOKEN_HASH --config <生成した設定>` で入れ、`POST /bootstrap` にこの PC の ID（`home.device.id`）で登録する。
+生成した設定は setup と同じ `~/.agent-hangar/cloud/wrangler.jsonc` で、D1 の ID は `wrangler d1 info <名前> --json` で読む（D1 は Worker と同名、R2 は `<名前>-files`）。
+Worker の名前は workers.dev の URL の先頭のラベルで、違えば `--name` で渡す。アカウントが複数あれば `--account-id` で選ぶ。
+登録の直後の端末だけが `GET /keyboxes?recipient=recovery` を読める。いちばん新しい箱をリカバリーキーの秘密鍵で開き、世代 1 から n までの鍵を得る。
+名簿を開き、`recoveryPub` がこのリカバリーキーの公開鍵であることを確かめる。開けないか違えば（再発行の後の古いリカバリーキーなど）、何も書かずに止まる。
+合えば、この PC の鍵ペアで自分宛ての keybox を置き、名簿に自分を足し（`RosterStore.update`）、`cloud.json`（版 2。Worker の名前とアカウント、D1 は同名、R2 は `<名前>-files`）を書いて床を刻む。
+登録で受け取った端末トークンは同じ端末 ID では 2 度と受け取れないので、`cloud.json` を書き終えるまで下書き `~/.agent-hangar/cloud-recover-pending.json`（0600）に置く。
+トークンと鍵ペアは `secret put` の前に `bootstrapped: false` で書き、登録が通ってから `true` にする。
+`false` の下書きは同じトークンで登録からやり直す。ただし、そのトークンで `GET /roster` が通れば（登録は通って、書き換える前に止まった）、登録をせずに先へ進む。
+違うリカバリーキーで止まっても、正しいものでもう一度実行すれば、下書きのトークンから続ける。
+端末 ID がすでに Worker の `devices` にある（下書きを消した、この PC が以前このクラウドに参加していた）と登録は断られる。
+そのときは setup の「古いリソースを削除して」ではなく、`~/.agent-hangar/device.json` を消して新しい端末 ID でやり直す手順を出す。
+新しい ID なら登録も recovery 宛ての箱も通る。古い ID は `devices` に残り、名簿には居ない。
+この PC で古い ID のまま作ったセッションとプロジェクトの場所は、別の PC のものとして扱われる。
+
+**リカバリーキーの再発行（`sync/recoveryReissue.ts`）。**
+PC はリカバリーキーの秘密鍵を持たないので、設定には「表示」ではなく「再発行」を置く（画面は D2）。
+`POST /api/sync/recovery-key/reissue` は新しい鍵ペアを作り、`{ text, draftId }` を返すだけで、名簿も keybox も変えない。鍵ペアはサーバのメモリにだけ置き、下書きは 1 つで 30 分まで使える。
+`POST /api/sync/recovery-key/confirm` に `{ draftId, tail }` を送り、末尾 4 文字が合えば（違えば 400、下書きが無ければ 409）、他の PC が回した世代を先に受け取り、名簿の `recoveryPub` を新しい公開鍵にし、`recovery` 宛ての keybox を置き直す。
+末尾 4 文字は CLI の setup と同じ `normalizeRecoveryTail`（NFKC、空白とハイフンを捨てる、大文字）で照合する。同じ下書きで 5 回外れたら下書きを無効にする（409）。
+同時に 2 回呼ばれたら、進行中の確認を共有する。
+置き直すのは世代 1 から n の全部の `recovery` 宛ての箱で、世代 k の箱の中身は世代 1 から k までの世代鍵である（setup と世代を回す PC が置く形）。`PUT /keyboxes` は世代と受け手の組で上書きするので、過去の世代の箱も新しい公開鍵宛てになる。
+箱を置く直前に keybox と名簿を読み直し、いちばん新しい世代と名簿の公開鍵に置く。置いた後にもう一度読み、公開鍵か世代が変わっていれば（他の PC の再発行か世代の回し）置き直す。
+名簿を先に書くのは、間に世代を回した PC が、書き換えた後の名簿の公開鍵に封じるようにするためである。確認の前に保存し損ねても、古いリカバリーキーは使えるままである。
+名簿を書いた後で箱を置けないと、古いキーは名簿の照合で断られ、新しいキーは箱を開けない。
+これを閉じるため、名簿を書く前に `sync_state` の `recoveryBoxPending` に印を残し、箱を置き終えたら消す。箱の PUT はその場で 3 回まで試し、通らなければ印を残したまま 502 を返す。
+印は pull の後（`SyncEngine` の `pulled`）に `resumePending` が見て、名簿の `recoveryPub` 宛てに箱を置き直す。箱は公開鍵だけで封じるので、下書きが無くても（アプリを再起動した後でも）置ける。
+4xx はその場で試し直さず、`resumePending` も前に置きに行ってから 60 秒が過ぎるまでは打たない。
+置き直しの印は再発行した PC の手元の `sync_state` にあるので、その PC を失うと他の PC は箱を置き直せない（他の PC で再発行し直す）。
+再発行で古いリカバリーキーが使えなくなるのは、recover の道（名簿の照合と `recovery` 宛ての箱）についてである。
+置き直しの後は D1 に残る `recovery` 宛ての箱はどれも新しい公開鍵宛てだが、置き直す前に取られた D1 の写し（Time Travel や書き出し）の箱は、古いキーで開ける。
+古いキーが漏れたときの根本の対応は、世代を回すことである。
 
 **互換の版 9 の Worker（E2E の作り直し）。**
 Worker は参加用の秘密を持たず、`JOIN_SECRET_HASH` と `POST /join` を無くした。
@@ -7308,6 +7350,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
 - その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。
 - フォルダ選択の殻の命令：`pick_folder(default_path)` は `blocking_pick_folder` で macOS のフォルダ選択を開き、選んだパスか、取り消しなら null を返す。頁に与える権限は `allow-pick-folder` の 1 つだけで（`capabilities/remote-pick-folder.json`）、プラグインの JS の権限は与えない。UI の `DesktopBridge.pickFolder` は殻の外では口が無く、Finder の操作を出さない。
+- リカバリーキーの保存の殻の命令：`save_recovery_key(text)` は保存のダイアログを既定の名前 `hangar-recovery-key.txt` で開き、利用者が選んだ場所にだけ本文を書く（Unix では 0600）。引数は本文だけで、パスは受け取らない。取り消しは失敗にしない。頁に与える権限はこの命令だけで（`capabilities/remote-save-recovery-key.json`、`http://127.0.0.1:4177/*` に限る）、殻の外では UI がブラウザのダウンロードに替える。コピーの後にクリップボードを読み直して空にすることはしない（WKWebView では操作の外の読み取りが「ペースト」の吹き出しを出す）。
 - `SessionDto.fromScratch`：cwd がスクラッチのルートの下で、属するプロジェクトがスクラッチでないときに真にする。セッション画面は真のとき「再開しても作業ディレクトリはクイックセッションの置き場のままです」を添える。
 - 分割の持ち方：`SessionViewState` に `split: boolean` と `splitTab: string | null` を持つ。左は選択中のタブ、右は `splitTab` で、幅は `SplitPane` の中の状態にして保存しない（0.5 に戻る）。分割の右に置いたタブが閉じたら `splitTab` を null にし、`split` も偽に戻す。
 - 分割にタブが 2 つ要ることの判定は、Mediator がストアのタブの並びを読んで行う。右に置けるタブがあれば状態を変え、無ければトースト「横に並べるにはタブが 2 つ必要です」を出す。

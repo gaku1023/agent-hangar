@@ -4,6 +4,7 @@
 // 札の列（LaunchChips）は ?state=first|regular|bypass|extras と ?w=（列の幅 px。起動ダイアログの本文は 520）で出す。
 // ?only=band で、ホームの帯と引き出しの 4 つの形だけを出す（撮るとき用）。
 // ?only=session で、セッション画面 C の部品（現在の札、冒頭の 1 枚、見出しの札、目次だけの右パネル）を出す（preview/session.tsx）。
+// ?only=recovery で、設定のクラウド同期の節の「リカバリーキーを再発行」を偽の API で動かす（preview/recovery.tsx、撮るとき用）。
 // ?only=bell で、ヘッダーのベルと知らせの一覧を出す（撮るとき用）。?case=open（既定）|closed|read|empty|en|narrow。例の値は作り物である。
 import { useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -27,6 +28,8 @@ import '../src/styles/sync.css';
 import '../src/styles/controls.css';
 import { SessionCases } from './session.tsx';
 import '../src/styles/notices.css';
+import '../src/styles/cloudMember.css';
+import { RecoveryPage } from './recovery.tsx';
 import { presentHomeBand, type BandGroup, type HomeBandProps } from '../src/presenters/home.ts';
 import { translator } from '@agent-hangar/shared';
 import { HomeBand } from '../src/views/HomeBand.tsx';
@@ -238,6 +241,10 @@ function BellPage() {
 
 createRoot(document.getElementById('root')!).render(only === 'session' ? (
   <LanguageRoot language="ja"><SessionCases /></LanguageRoot>
+) : only === 'recovery' ? (
+  <div style={{ maxWidth: 1040, margin: '0 auto', padding: 24 }}>
+    <RecoveryPage />
+  </div>
 ) : only === 'bell' ? (
   <div style={{ maxWidth: 960, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
     <BellPage />

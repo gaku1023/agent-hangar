@@ -37,6 +37,11 @@ export class FakeWorker {
   /** wrangler secret put で入れた BOOTSTRAP_TOKEN_HASH。 */
   bootstrapHash: string | null = null;
   bootstrapUsed: string | null = null;
+  /**
+   * recovery 宛ての keybox を読む道を閉じた端末トークンのハッシュ（meta の recovery_done）。
+   * bootstrap で入った端末が名簿か keybox を書くと閉じる（packages/cloud/src/keys.ts と同じ）。
+   */
+  recoveryDone: string | null = null;
   /** 端末 ID から端末トークンのハッシュ。 */
   devices = new Map<string, { tokenHash: string; revoked: boolean }>();
   roster: RosterOut | null = null;
@@ -148,16 +153,23 @@ export class FakeWorker {
     }
     const me = this.who(headers);
     if (!me) return this.json({ error: 'unauthorized' }, 401);
+    const myHash = this.devices.get(me)!.tokenHash;
+    const closeRecovery = (): void => {
+      if (this.bootstrapUsed === myHash) this.recoveryDone = myHash;
+    };
     if (p === '/roster' && method === 'GET') return this.roster ? this.json(this.roster) : this.json({ error: 'not found' }, 404);
     if (p === '/roster' && method === 'PUT') {
       const cur = this.roster?.version ?? 0;
       if (body?.ifVersion !== cur) return this.json({ version: cur }, 409);
       this.roster = { version: cur + 1, sealed: String(body.sealed) };
+      closeRecovery();
       return this.json({ version: cur + 1 });
     }
     if (p === '/keyboxes' && method === 'GET') {
       const recipient = u.searchParams.get('recipient') ?? me;
       if (recipient !== me && recipient !== RECOVERY_RECIPIENT) return this.json({ error: 'forbidden' }, 403);
+      // recovery 宛ては、bootstrap で入ったばかりで、まだ名簿も keybox も書いていない端末だけが読める。
+      if (recipient === RECOVERY_RECIPIENT && (this.bootstrapUsed !== myHash || this.recoveryDone === myHash)) return this.json({ error: 'forbidden' }, 403);
       const mine = [...this.keyboxes.entries()].filter(([k]) => k.startsWith(`${recipient}:`)).map(([, v]) => v);
       const newest = mine.sort((a, b) => b.epoch - a.epoch)[0];
       return this.json({ boxes: newest ? [newest] : [] });
@@ -170,6 +182,7 @@ export class FakeWorker {
         [...this.codes.values()].some((c) => c.createdBy === me && c.deviceId === id && ((c.status === 'requested' && c.expiresAt > now) || (c.status === 'approved' && c.usedAt === null && c.expiresAt + TTL_MS > now)));
       if (!boxes.every((b) => b.recipient === RECOVERY_RECIPIENT || this.devices.get(b.recipient)?.revoked === false || pending(b.recipient))) return this.json({ error: 'unknown recipient' }, 400);
       for (const b of boxes) this.putBox(b);
+      closeRecovery();
       return this.json({ written: boxes.length });
     }
     if (p === '/join-codes' && method === 'POST') {

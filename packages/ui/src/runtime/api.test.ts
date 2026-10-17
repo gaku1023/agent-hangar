@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, ApiNotFoundError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ApiStatusError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -337,5 +337,25 @@ describe('初期プロンプト欄の API', () => {
     const { api, calls } = harness(200, { paths: ['/d/b.png'] });
     expect(await api.existingDrops(['/d/a.png', '/d/b.png'])).toEqual(['/d/b.png']);
     expect(calls[0]!.url).toBe('/api/drops/existing');
+  });
+});
+
+describe('リカバリーキーの再発行の経路', () => {
+  it('再発行は本文なしの POST で、確認は下書きの ID と末尾 4 文字を送る', async () => {
+    const draft = harness(200, { text: 'hangar リカバリーキー', draftId: 'd1' });
+    expect(await draft.api.recoveryKeyReissue()).toEqual({ text: 'hangar リカバリーキー', draftId: 'd1' });
+    expect(draft.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sync/recovery-key/reissue']);
+    const { api, calls } = harness();
+    await expect(api.recoveryKeyConfirm('d1', 'ABCD')).resolves.toBeUndefined();
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sync/recovery-key/confirm']);
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ draftId: 'd1', tail: 'ABCD' });
+  });
+
+  it('確認の失敗は、サーバーの文のまま状態番号を持つ（400、409、502 で次の手順が違う）', async () => {
+    for (const status of [400, 409, 502]) {
+      const e = await harness(status, { error: `e${status}` }).api.recoveryKeyConfirm('d1', 'ABCD').catch((err: unknown) => err);
+      expect(e).toBeInstanceOf(ApiStatusError);
+      expect(e).toMatchObject({ message: `e${status}`, status });
+    }
   });
 });

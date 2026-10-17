@@ -1,4 +1,4 @@
-import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, SetupGuideDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairingDto, MuxRecheckDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
@@ -38,6 +38,14 @@ export class RetentionConflictApiError extends Error {
  */
 export class ApiNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = 'ApiNotFoundError'; }
+}
+
+/**
+ * それ以外の失敗の答え。文はサーバの理由のままで、状態番号を status に持つ。
+ * リカバリーキーの確認は、400（末尾の違い）、409（下書きが無い）、502（Worker の失敗）で次の手順が違うので、番号で見分ける。
+ */
+export class ApiStatusError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
 }
 
 /**
@@ -187,6 +195,13 @@ export type ApiClient = {
   joinCodeApprove(): Promise<JoinApproverState>;
   joinCodeReject(): Promise<JoinApproverState>;
   joinCodeClose(): Promise<JoinApproverState>;
+  /**
+   * 設定の「リカバリーキーを再発行」（/api/sync/recovery-key）。
+   * reissue は新しいリカバリーキーの 4 行と下書きの ID を返し、まだ何も差し替えない。
+   * confirm に末尾 4 文字を渡し、合えば名簿と keybox を差し替える。違えば 400、下書きが無ければ 409 で、サーバーの文で投げる。
+   */
+  recoveryKeyReissue(): Promise<RecoveryKeyDraftDto>;
+  recoveryKeyConfirm(draftId: string, tail: string): Promise<void>;
   /** Worker の PC の一覧（参加日、解除日、最後に同期した IP と場所）。解除と参加の口は HTTP に無い（殻の命令だけ）。 */
   cloudDevices(): Promise<CloudDevicesDto>;
   /** スマホを接続する QR。押すたびに新しい券を取る。中身にスマホ用の暗号鍵が入るので、QR と「文字列をコピー」にだけ使う。 */
@@ -243,7 +258,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_nested') throw new ProjectNestedApiError(body as unknown as ProjectNestedDto);
       const message = body?.error ?? `${r.status} ${path}`;
       if (r.status === 404) throw new ApiNotFoundError(message);
-      throw new Error(message);
+      throw new ApiStatusError(message, r.status);
     }
     if (r.status === 202 || r.status === 204) return undefined as T;
     return (await r.json()) as T;
@@ -345,6 +360,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     joinCodeApprove: () => post('/api/sync/join-codes/current/approve'),
     joinCodeReject: () => post('/api/sync/join-codes/current/reject'),
     joinCodeClose: () => call('/api/sync/join-codes/current', { method: 'DELETE' }),
+    recoveryKeyReissue: () => post('/api/sync/recovery-key/reissue'),
+    recoveryKeyConfirm: async (draftId, tail) => { await post('/api/sync/recovery-key/confirm', { draftId, tail }); },
     cloudDevices: () => call('/api/sync/cloud-devices'),
     mobilePairing: () => post('/api/sync/mobile-pairing'),
     configSyncState: () => call('/api/config-sync'),

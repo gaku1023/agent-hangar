@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CloudDevicesDto, MobilePairingDto } from '@agent-hangar/shared';
-import { initialCloudMember, type CloudMemberState } from '../store/cloudMember.ts';
+import { initialCloudMember, RECOVERY_SHOW_MS, type CloudMemberState } from '../store/cloudMember.ts';
 import type { CloudBridge } from './desktop.ts';
+import { createApi } from './api.ts';
 import { PAIR_TTL_MS as PAIR_TTL_SHOWN_MS } from '../presenters/cloudMember.ts';
-import { CLOUD_RESTART_MS, createCloudMemberRunner, JOIN_POLL_MS, PAIR_POLL_MS, type JoinCodesApi } from './cloudMember.ts';
+import { CLOUD_RESTART_MS, createCloudMemberRunner, JOIN_POLL_MS, PAIR_POLL_MS, type JoinCodesApi, type RecoveryKeyApi } from './cloudMember.ts';
 
 const check = { url: 'https://h.example', host: 'h.example', pcCount: 1, current: null };
 const devices: CloudDevicesDto = { state: 'ok', devices: [], creator: false, message: null };
@@ -20,7 +21,19 @@ function fakeJoinCodes(over: Partial<JoinCodesApi> = {}): JoinCodesApi {
   };
 }
 
-function rig(bridge: Partial<CloudBridge> | null = {}, o: { joinCodes?: JoinCodesApi; now?: () => number; load?: () => Promise<CloudDevicesDto> } = {}) {
+/** 「リカバリーキーを再発行」の口（サーバーの /api/sync/recovery-key）の偽物。 */
+function fakeRecovery(over: Partial<RecoveryKeyApi> = {}): RecoveryKeyApi {
+  return {
+    reissue: vi.fn(async () => ({ text: RECOVERY_TEXT, draftId: 'd1' })),
+    confirm: vi.fn(async () => {}),
+    ...over,
+  };
+}
+const RECOVERY_TEXT = 'hangar リカバリーキー\n作成日: 2026-10-17\nURL: https://h.example\n暗号鍵: AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH-JJJJ-KKKK-MMMM-NNNN-K2VB';
+/** 状態番号つきの失敗（runtime/api.ts の ApiStatusError と同じ形）。 */
+const statusError = (status: number, message: string) => Object.assign(new Error(message), { status });
+
+function rig(bridge: Partial<CloudBridge> | null = {}, o: { joinCodes?: JoinCodesApi; now?: () => number; load?: () => Promise<CloudDevicesDto>; recovery?: RecoveryKeyApi } = {}) {
   let s: CloudMemberState = initialCloudMember();
   const timers: { fn: () => void; ms: number }[] = [];
   const restart = vi.fn();
@@ -34,7 +47,8 @@ function rig(bridge: Partial<CloudBridge> | null = {}, o: { joinCodes?: JoinCode
     ...bridge,
   };
   const joinCodes = o.joinCodes ?? fakeJoinCodes();
-  const r = createCloudMemberRunner({ bridge: full, load, pair: async () => ({ state: 'not-joined' }), joinCodes, now: o.now ?? (() => 0), restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  const recovery = o.recovery ?? fakeRecovery();
+  const r = createCloudMemberRunner({ bridge: full, load, pair: async () => ({ state: 'not-joined' }), joinCodes, recovery, now: o.now ?? (() => 0), restart, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
   /** いちばん古い、ms の長さの予約を 1 つ走らせる。 */
   const fire = async (ms: number) => {
     const i = timers.findIndex((t) => t.ms === ms);
@@ -43,7 +57,7 @@ function rig(bridge: Partial<CloudBridge> | null = {}, o: { joinCodes?: JoinCode
     t!.fn();
     await flush();
   };
-  return { r, get: () => s, set: (n: CloudMemberState) => { s = n; }, timers, restart, load, joinCodes, fire };
+  return { r, get: () => s, set: (n: CloudMemberState) => { s = n; }, timers, restart, load, joinCodes, recovery, fire };
 }
 
 const NOW = 1_700_000_000_000;
@@ -59,7 +73,7 @@ function phoneRig(o: { pair?: () => Promise<MobilePairingDto>; lists?: CloudDevi
   const lists = [...(o.lists ?? [])];
   const load = vi.fn(async () => lists.shift() ?? s.devices!);
   const pair = vi.fn(o.pair ?? (async () => ready));
-  const r = createCloudMemberRunner({ bridge: null, load, pair, joinCodes: fakeJoinCodes(), now: () => now, restart: () => {}, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
+  const r = createCloudMemberRunner({ bridge: null, load, pair, joinCodes: fakeJoinCodes(), recovery: fakeRecovery(), now: () => now, restart: () => {}, setTimeout: (fn, ms) => { timers.push({ fn, ms }); }, get: () => s, set: (n) => { s = n; } });
   /** いちばん古い、ms の長さの予約を 1 つ走らせる。 */
   const fire = async (ms: number) => {
     const i = timers.findIndex((t) => t.ms === ms);
@@ -377,6 +391,99 @@ describe('createCloudMemberRunner', () => {
     await flush();
     expect(y.get().leave).toEqual({ kind: 'left', revokeError: '繋がりません' });
     expect(y.timers).toEqual([]);
+  });
+
+  it('リカバリーキーの再発行：確認を経て作成し、120 秒の表示の期限と下書きを持つ。保存しましたで入力の段に進む', async () => {
+    const x = rig(null, { now: () => NOW });
+    x.r.run({ op: 'recoveryAsk' });
+    expect(x.get().recovery).toEqual({ kind: 'asking' });
+    expect(x.recovery.reissue).not.toHaveBeenCalled();
+    x.r.run({ op: 'recoveryReissue' });
+    expect(x.get().recovery).toEqual({ kind: 'issuing' });
+    await flush();
+    expect(x.get().recovery).toEqual({ kind: 'shown', text: RECOVERY_TEXT, draftId: 'd1', hideAt: NOW + RECOVERY_SHOW_MS, entering: false, busy: false, sentTail: null, error: null });
+    x.r.run({ op: 'recoverySaved' });
+    expect(x.get().recovery).toMatchObject({ kind: 'shown', entering: true });
+    x.r.run({ op: 'recoveryReveal' });
+    expect(x.get().recovery).toMatchObject({ kind: 'shown', entering: false, hideAt: NOW + RECOVERY_SHOW_MS });
+  });
+
+  it('リカバリーキーの再発行：完了で confirm に下書きの ID と末尾 4 文字を渡し、済んだら done にして暗号鍵を捨てる', async () => {
+    const x = rig(null, { now: () => NOW });
+    x.r.run({ op: 'recoveryReissue' });
+    await flush();
+    x.r.run({ op: 'recoverySaved' });
+    x.r.run({ op: 'recoveryConfirm', tail: 'K2VB' });
+    expect(x.get().recovery).toMatchObject({ kind: 'shown', busy: true, sentTail: 'K2VB' });
+    await flush();
+    expect(x.recovery.confirm).toHaveBeenCalledWith('d1', 'K2VB');
+    expect(x.get().recovery).toEqual({ kind: 'done' });
+  });
+
+  it('リカバリーキーの再発行：Worker の失敗（502）は下書きを残し、もう一度試すで同じ ID と末尾 4 文字を送り直す', async () => {
+    const confirm = vi.fn().mockRejectedValueOnce(statusError(502, 'Worker に接続できません')).mockResolvedValueOnce(undefined);
+    const x = rig(null, { now: () => NOW, recovery: fakeRecovery({ confirm }) });
+    x.r.run({ op: 'recoveryReissue' });
+    await flush();
+    x.r.run({ op: 'recoverySaved' });
+    x.r.run({ op: 'recoveryConfirm', tail: 'K2VB' });
+    await flush();
+    expect(x.get().recovery).toMatchObject({ kind: 'shown', draftId: 'd1', entering: true, busy: false, sentTail: 'K2VB', error: { message: 'Worker に接続できません', retry: true } });
+    x.r.run({ op: 'recoveryRetry' });
+    await flush();
+    expect(confirm).toHaveBeenNthCalledWith(2, 'd1', 'K2VB');
+    expect(x.get().recovery).toEqual({ kind: 'done' });
+  });
+
+  it('リカバリーキーの再発行：下書きが無い（409）は下書きを捨てて failed にし、末尾の違い（400）は入力の段のまま理由を出す', async () => {
+    const x = rig(null, { now: () => NOW, recovery: fakeRecovery({ confirm: vi.fn(async () => { throw statusError(409, '確認できる新しいリカバリーキーがありません。もう一度再発行してください'); }) }) });
+    x.r.run({ op: 'recoveryReissue' });
+    await flush();
+    x.r.run({ op: 'recoverySaved' });
+    x.r.run({ op: 'recoveryConfirm', tail: 'K2VB' });
+    await flush();
+    expect(x.get().recovery).toEqual({ kind: 'failed', message: '確認できる新しいリカバリーキーがありません。もう一度再発行してください' });
+    const y = rig(null, { now: () => NOW, recovery: fakeRecovery({ confirm: vi.fn(async () => { throw statusError(400, '暗号鍵の末尾 4 文字が一致しません'); }) }) });
+    y.r.run({ op: 'recoveryReissue' });
+    await flush();
+    y.r.run({ op: 'recoverySaved' });
+    y.r.run({ op: 'recoveryConfirm', tail: 'K2VB' });
+    await flush();
+    expect(y.get().recovery).toMatchObject({ kind: 'shown', entering: true, busy: false, error: { message: '暗号鍵の末尾 4 文字が一致しません', retry: false } });
+  });
+
+  // サーバーは 5 回外れた下書きを無効にし、409 で { error } を返す（routes/sync.ts）。画面は下書きを捨て、サーバーの文のまま「もう一度再発行」に戻す。
+  it('リカバリーキーの再発行：5 回外れた（409 の too-many-tries）は、本物の API の口を通ってもサーバーの文のまま failed にする', async () => {
+    const MESSAGE = '末尾 4 文字が 5 回一致しなかったため、この新しいリカバリーキーは使えなくなりました。もう一度再発行してください';
+    const fetchFn = vi.fn(async (path: string) => path.endsWith('/confirm')
+      ? new Response(JSON.stringify({ error: MESSAGE }), { status: 409, headers: { 'content-type': 'application/json' } })
+      : new Response(JSON.stringify({ text: RECOVERY_TEXT, draftId: 'd1' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const api = createApi(fetchFn as unknown as typeof fetch);
+    const x = rig(null, { now: () => NOW, recovery: { reissue: () => api.recoveryKeyReissue(), confirm: (id, tail) => api.recoveryKeyConfirm(id, tail) } });
+    x.r.run({ op: 'recoveryReissue' });
+    await flush();
+    x.r.run({ op: 'recoverySaved' });
+    x.r.run({ op: 'recoveryConfirm', tail: 'K2VB' });
+    await flush();
+    expect(fetchFn).toHaveBeenLastCalledWith('/api/sync/recovery-key/confirm', expect.objectContaining({ method: 'POST' }));
+    expect(x.get().recovery).toEqual({ kind: 'failed', message: MESSAGE });
+  });
+
+  it('リカバリーキーの再発行：作成の失敗は failed。閉じたら暗号鍵を捨て、閉じた後に届いた答えは何もしない', async () => {
+    const x = rig(null, { now: () => NOW, recovery: fakeRecovery({ reissue: vi.fn(async () => { throw statusError(502, 'Worker に接続できません'); }) }) });
+    x.r.run({ op: 'recoveryReissue' });
+    await flush();
+    expect(x.get().recovery).toEqual({ kind: 'failed', message: 'Worker に接続できません' });
+    const y = rig(null, { now: () => NOW });
+    y.r.run({ op: 'recoveryReissue' });
+    y.r.run({ op: 'recoveryClose' });
+    await flush();
+    expect(y.get().recovery).toEqual({ kind: 'idle' });
+    y.r.run({ op: 'recoveryReissue' });
+    await flush();
+    y.r.run({ op: 'recoveryClose' });
+    expect(y.get().recovery).toEqual({ kind: 'idle' });
+    expect(JSON.stringify(y.get())).not.toContain('K2VB');
   });
 
   it('一覧を取る。殻が無くても取る（ブラウザでも一覧は見せる）', async () => {
