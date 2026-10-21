@@ -166,7 +166,8 @@ async function postJoin(origin: string, body: MobileJoinRequest): Promise<Pairin
     throw new JoinError('server', res.status);
   }
   if (typeof out.token !== 'string' || !out.token || out.deviceId !== body.deviceId) throw new JoinError('server', res.status);
-  return { url: origin, token: out.token, deviceId: out.deviceId };
+  // 接続した時刻はスマホの時計で持つ。設定の接続のページが、接続した日と接続し直す期限（PHONE_MAX_AGE_MS 後）を出す。
+  return { url: origin, token: out.token, deviceId: out.deviceId, joinedAt: Date.now() };
 }
 
 /**
@@ -188,6 +189,34 @@ export function workerTooOld(compat: number | null): boolean {
 /** スマホ用の口に送る見出し。どの /m/ の要求にも互換の版を付ける（無いと Worker は 426 で断る）。 */
 export function mobileHeaders(p: Pairing): Record<string, string> {
   return { ...compatHeaders(), authorization: `Bearer ${p.token}` };
+}
+
+/** このスマホの接続を外せなかった。network は通信の失敗、server はそれ以外の応答（status に番号）。 */
+export class LeaveError extends Error {
+  constructor(
+    readonly reason: 'network' | 'server',
+    readonly status: number | null = null,
+  ) {
+    super(`接続を解除できませんでした（${reason}）`);
+    this.name = 'LeaveError';
+  }
+}
+
+/**
+ * このスマホの接続を解除（`POST /m/leave`、スマホのトークン、本文なし、204）。
+ * 204 と 401（もう外れている、期限が切れている）は外れたとみなして left を返す。
+ * 404 は口の無い古い Worker で old を返す（Worker の行は残るので、PC の設定からも解除してもらう）。
+ */
+export async function leavePhone(p: Pairing): Promise<'left' | 'old'> {
+  let res: Response;
+  try {
+    res = await fetch(`${originOf(p.url)}/m/leave`, { method: 'POST', headers: mobileHeaders(p), cache: 'no-store' });
+  } catch {
+    throw new LeaveError('network');
+  }
+  if (res.status === 204 || res.status === 401 || res.ok) return 'left';
+  if (res.status === 404) return 'old';
+  throw new LeaveError('server', res.status);
 }
 
 /** 受信箱の応答に、応答の見出しから読んだ Worker の版を添えたもの。 */

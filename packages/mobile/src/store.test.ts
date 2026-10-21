@@ -18,6 +18,16 @@ describe('pairing (localStorage)', () => {
     expect(loadPairing()).toBeNull();
   });
 
+  it('接続した時刻（joinedAt）も保存して読み戻す。無い接続（前の版）は joinedAt を持たない', () => {
+    savePairing({ ...pairing, joinedAt: 1_700_000_000_000 });
+    expect(loadPairing()).toEqual({ ...pairing, joinedAt: 1_700_000_000_000 });
+    savePairing(pairing);
+    expect(loadPairing()).toEqual(pairing);
+    expect(loadPairing()).not.toHaveProperty('joinedAt');
+    localStorage.setItem('hangar.mobile.pairing', JSON.stringify({ ...pairing, joinedAt: 'x' }));
+    expect(loadPairing()).toEqual(pairing);
+  });
+
   it('localStorage が投げても loadPairing は null を返す', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('denied');

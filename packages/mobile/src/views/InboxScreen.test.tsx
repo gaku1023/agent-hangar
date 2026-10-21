@@ -347,10 +347,17 @@ describe('InboxScreen', () => {
     await waitFor(() => expect(onView).toHaveBeenCalledTimes(2));
   });
 
-  it('見出しの下に通知の行がある（このブラウザでは使えない）', async () => {
+  it('見出しの行の右に歯車（設定）があり、押すと設定を開く。通知の行は受信箱に出さない', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
-    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
-    expect(await screen.findByText('このブラウザでは通知を使えません')).toBeInTheDocument();
+    const onSettings = vi.fn();
+    render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onSettings={onSettings} />);
+    await screen.findByText('Mac');
+    const gear = screen.getByRole('button', { name: '設定' });
+    expect(gear.closest('.inbox-title-row')).not.toBeNull();
+    fireEvent.click(gear);
+    expect(onSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('このブラウザでは通知を使えません')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '通知を受け取る' })).not.toBeInTheDocument();
   });
 
   it('通知から開いた会話の行に印を付けて、見える所まで送る', async () => {

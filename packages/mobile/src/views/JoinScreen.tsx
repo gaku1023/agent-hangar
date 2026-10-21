@@ -17,6 +17,17 @@ const BAD_TEXT = '接続コードを読み取れません。PC の QR の下の�
 /** 30 日使わなかったか、接続から 90 日たって、Worker がトークンを断った。 */
 export const EXPIRED_TEXT = '接続の期限が切れました。PC で QR を出して接続し直してください。';
 const UNPAIRED_TEXT = 'このスマホの接続は解除されています。PC で QR を表示して、接続し直してください。';
+/** 設定で接続を外したが、Worker が古く（POST /m/leave が無い）、Worker の行が残っている。 */
+export const LEFT_OLD_TEXT = '接続を解除しました。PC の設定からもこのスマホを解除してください。';
+
+/**
+ * 参加の画面に戻ってきた理由。
+ * - expired：受信箱が 401 expired で戻ってきた。
+ * - left-old：設定で接続を外したが、Worker が古く手元だけを消した。
+ */
+export type JoinNotice = 'expired' | 'left-old';
+
+const noticeText = (n: JoinNotice | null): string | null => (n === 'expired' ? EXPIRED_TEXT : n === 'left-old' ? LEFT_OLD_TEXT : null);
 
 /** 401 で参加の画面に戻ったときの文。 */
 const unpairedNote = (reason: UnpairedReason): string => (reason === 'expired' ? EXPIRED_TEXT : UNPAIRED_TEXT);
@@ -29,9 +40,9 @@ export function guessDeviceName(ua: string = navigator.userAgent): string {
   return 'スマホ';
 }
 
-function initialStep(pairText: string | null, notice: 'expired' | null, resume: Resume | null): Step {
+function initialStep(pairText: string | null, notice: JoinNotice | null, resume: Resume | null): Step {
   if (resume && !pairText) return { kind: 'waiting', pairing: resume.pairing, pair: resume.pair, pcName: null };
-  if (!pairText) return { kind: 'start', note: notice === 'expired' ? EXPIRED_TEXT : null, expired: notice === 'expired' };
+  if (!pairText) return { kind: 'start', note: noticeText(notice), expired: notice === 'expired' };
   try {
     return { kind: 'confirm', text: pairText, blob: readPairText(pairText) };
   } catch {
@@ -63,16 +74,18 @@ type Props = {
   pairText: string | null;
   /** 接続を終えて受信箱へ進む。 */
   onEnter: (pairing: Pairing, pair: PhonePair, keys: Keyring) => void;
-  /** 受信箱が 401 expired で戻ってきた。期限切れの文を出す。 */
-  notice?: 'expired' | null;
+  /** 戻ってきた理由。期限切れ、または PC の設定からも解除してもらう文を出す。 */
+  notice?: JoinNotice | null;
   /** keybox の待ちから続ける。 */
   resume?: Resume | null;
   /** keybox を読む間隔と、待つ長さ。試験で縮める。 */
   wait?: { everyMs?: number; giveUpMs?: number };
+  /** 設定の「QR を読んで接続し直す」から来た。今の接続が残っているので、受信箱に戻れる。 */
+  onBack?: () => void;
 };
 
 /** 参加の画面（画面のメモの C1 の ①〜④）。段が替わるたびに薄れから現す。 */
-export function JoinScreen({ pairText, onEnter, notice = null, resume = null, wait }: Props): ReactNode {
+export function JoinScreen({ pairText, onEnter, notice = null, resume = null, wait, onBack }: Props): ReactNode {
   const [step, setStep] = useState<Step>(() => initialStep(pairText, notice, resume));
   // ホーム画面のアプリでは、接続の画面を開いたらすぐカメラで QR を読む。
   const [home] = useState(isStandalone);
@@ -132,9 +145,9 @@ export function JoinScreen({ pairText, onEnter, notice = null, resume = null, wa
         {step.kind === 'start' && (
           <>
             <Logo />
-            {home ? (
+            {home || onBack ? (
               <>
-                <span className="ctx home">ホーム画面アプリ</span>
+                {home && <span className="ctx home">ホーム画面アプリ</span>}
                 <h1 className="p-h">PC の QR を読み取ります</h1>
                 <p className="p-t">PC の画面の QR を枠に合わせてください。QR は PC で表示してから 5 分有効です。</p>
               </>
@@ -148,6 +161,11 @@ export function JoinScreen({ pairText, onEnter, notice = null, resume = null, wa
             )}
             {step.note && <p className="strip danger m-fade">{step.note}</p>}
             <ReadControls onText={onText} autoScan={home} />
+            {onBack && (
+              <button type="button" className="lnk" onClick={onBack}>
+                受信箱に戻る
+              </button>
+            )}
           </>
         )}
       </div>

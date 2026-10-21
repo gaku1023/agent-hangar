@@ -181,6 +181,57 @@ describe('App', () => {
     expect(store.loadPairing()).toBeNull();
   });
 
+  it('歯車で設定を開き、受信箱は押せなくなる。「完了」で閉じる', async () => {
+    const { container } = render(<App pairText={null} />);
+    await screen.findByText('Mac');
+    fireEvent.click(screen.getByRole('button', { name: '設定' }));
+    expect(screen.getByRole('dialog', { name: '設定' })).toBeInTheDocument();
+    expect(container.querySelector('.under')).toHaveAttribute('inert');
+    fireEvent.click(screen.getByRole('button', { name: '完了' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '設定' })).not.toBeInTheDocument());
+    expect(container.querySelector('.under')).not.toHaveAttribute('inert');
+  });
+
+  const leave = async (res: Response) => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith('/m/inbox')) return json(await inboxOf(key, feeds, { now: Date.now() }));
+      if (url.endsWith('/m/leave')) return res;
+      return json({}, 404);
+    });
+    render(<App pairText={null} />);
+    await screen.findByText('Mac');
+    fireEvent.click(screen.getByRole('button', { name: '設定' }));
+    fireEvent.click(screen.getByRole('button', { name: /^接続/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'このスマホの接続を解除' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'このスマホの接続を解除しますか？' })).getByRole('button', { name: '接続を解除' }));
+  };
+
+  it('設定でこのスマホの接続を解除と、参加の画面へ戻る', async () => {
+    await leave(new Response(null, { status: 204 }));
+    expect(await screen.findByRole('heading', { name: 'このスマホはまだ接続していません' })).toBeInTheDocument();
+    expect(screen.queryByText(/PC の設定からも/)).not.toBeInTheDocument();
+    expect(store.loadPairing()).toBeNull();
+    expect(await store.loadPhonePair()).toBeNull();
+  });
+
+  it('古い Worker（404）なら、PC の設定からも解除するよう参加の画面に出す', async () => {
+    await leave(json({ error: 'not found' }, 404));
+    expect(await screen.findByText('接続を解除しました。PC の設定からもこのスマホを解除してください。')).toBeInTheDocument();
+    expect(store.loadPairing()).toBeNull();
+  });
+
+  it('「QR を読んで接続し直す」で参加の画面へ。接続は消さず、「受信箱に戻る」で戻れる', async () => {
+    render(<App pairText={null} />);
+    await screen.findByText('Mac');
+    fireEvent.click(screen.getByRole('button', { name: '設定' }));
+    fireEvent.click(screen.getByRole('button', { name: /^接続/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'QR を読んで接続し直す' }));
+    expect(await screen.findByRole('button', { name: 'カメラで QR を読む' })).toBeInTheDocument();
+    expect(store.loadPairing()).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '受信箱に戻る' }));
+    expect(await screen.findByRole('button', { name: '＋ 新しい会話' })).toBeInTheDocument();
+  });
+
   it('解除（401 revoked）では期限切れの文を出さない', async () => {
     fetchMock.mockImplementation(async () => json({ error: 'revoked' }, 401));
     render(<App pairText={null} />);

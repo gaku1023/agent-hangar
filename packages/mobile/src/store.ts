@@ -8,7 +8,11 @@
  * どちらの置き場も、プライベートブラウズやサイトデータの消去で投げたり空になったりするので、読み書きは全部 try/catch で包む。
  */
 
-export type Pairing = { url: string; token: string; deviceId: string };
+/**
+ * 接続。joinedAt は接続した時刻（スマホの時計の ms）で、設定の画面を入れた版から、接続するときに置く。
+ * それより前に接続したスマホには無い（設定の接続のページは「不明」と出す）。
+ */
+export type Pairing = { url: string; token: string; deviceId: string; joinedAt?: number };
 
 /** スマホの鍵ペア。pub は P-256 の raw の非圧縮点（65 バイト）の base64url、key は取り出せない秘密鍵。 */
 export type PhonePair = { pub: string; key: CryptoKey };
@@ -56,7 +60,9 @@ export function loadPairing(): Pairing | null {
     const raw = localStorage.getItem(PAIRING_KEY);
     if (!raw) return null;
     const v: unknown = JSON.parse(raw);
-    return isPairing(v) ? { url: v.url, token: v.token, deviceId: v.deviceId } : null;
+    if (!isPairing(v)) return null;
+    const joinedAt = (v as { joinedAt?: unknown }).joinedAt;
+    return { url: v.url, token: v.token, deviceId: v.deviceId, ...(typeof joinedAt === 'number' && Number.isFinite(joinedAt) ? { joinedAt } : {}) };
   } catch {
     return null;
   }
@@ -64,7 +70,7 @@ export function loadPairing(): Pairing | null {
 
 export function savePairing(p: Pairing): void {
   try {
-    localStorage.setItem(PAIRING_KEY, JSON.stringify({ url: p.url, token: p.token, deviceId: p.deviceId }));
+    localStorage.setItem(PAIRING_KEY, JSON.stringify({ url: p.url, token: p.token, deviceId: p.deviceId, ...(p.joinedAt !== undefined ? { joinedAt: p.joinedAt } : {}) }));
   } catch {
     // 置けなければ、次に開いたとき参加の画面に戻るだけである。
   }

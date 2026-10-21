@@ -7,7 +7,6 @@ import { usePresence } from '../presence.ts';
 import { clearPairing, type Keyring, type Pairing } from '../store.ts';
 import { AccountTag } from './AccountTag.tsx';
 import { Fold } from './Fold.tsx';
-import { PushLine } from './PushLine.tsx';
 
 /** /rc の URL が拾えなかったとき、または PC から来た値が claude.ai でないときに開く先。 */
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
@@ -42,6 +41,8 @@ type Props = {
   onNewSession?: (view: InboxView) => void;
   /** 受信箱を読めるたびに、読んだものを渡す（起動のシートが、始まった会話の URL をここから探す）。 */
   onView?: (view: InboxView) => void;
+  /** 見出しの右の歯車。設定の画面を開く。無ければ歯車を出さない。 */
+  onSettings?: () => void;
   /** 変わったら読み直す（新しい会話を始めて戻ったときなど）。 */
   refresh?: number;
   /**
@@ -56,7 +57,7 @@ const OPEN_TRIES = 2;
 
 type Pull = { phase: 'idle' } | { phase: 'pulling'; dist: number } | { phase: 'refreshing' };
 
-export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onNewSession, onView, refresh, openSession }: Props): ReactNode {
+export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onNewSession, onView, onSettings, refresh, openSession }: Props): ReactNode {
   const [view, setView] = useState<InboxView | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -211,7 +212,14 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
             <h1 className="inbox-title">
               入力待ち{view && !allUnreadable ? <span className="inbox-count"> {view.waiting.length}</span> : null}
             </h1>
-            <span className="inbox-date">{dayLabel(today)}</span>
+            <span className="inbox-head-r">
+              <span className="inbox-date">{dayLabel(today)}</span>
+              {onSettings && (
+                <button type="button" className="gear" aria-label="設定" onClick={onSettings}>
+                  <GearIcon />
+                </button>
+              )}
+            </span>
           </div>
           {view && view.devices.length > 0 && (
             <div className="alive-line">
@@ -224,7 +232,6 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
               ))}
             </div>
           )}
-          <PushLine pairing={pairing} />
         </header>
 
         {failed && (
@@ -264,6 +271,15 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
         </button>
       </div>
     </div>
+  );
+}
+
+function GearIcon(): ReactNode {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
   );
 }
 

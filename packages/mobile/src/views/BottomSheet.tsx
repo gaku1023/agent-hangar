@@ -4,8 +4,8 @@ import { useSheetPhase } from '../presence.ts';
 type Props = {
   open: boolean;
   title: string;
-  /** 右上の文字。 */
-  closeText: string;
+  /** 右上の文字。無ければ右上に出さない（確認のシートのように、閉じる操作を中に持つとき）。 */
+  closeText?: string;
   /** 読み上げの名前。画面の文字を含めること。 */
   closeLabel?: string;
   onClose: () => void;
@@ -36,9 +36,13 @@ export function BottomSheet({ open, title, closeText, closeLabel, onClose, child
           <h2 className="bs-title" id={id}>
             {title}
           </h2>
-          <button type="button" className="bs-close" aria-label={closeLabel} onClick={onClose}>
-            {closeText}
-          </button>
+          {closeText ? (
+            <button type="button" className="bs-close" aria-label={closeLabel} onClick={onClose}>
+              {closeText}
+            </button>
+          ) : (
+            <span aria-hidden="true" />
+          )}
         </header>
         <div className="bs-body">{children}</div>
       </div>
