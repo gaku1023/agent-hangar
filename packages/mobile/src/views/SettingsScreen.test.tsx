@@ -162,7 +162,7 @@ describe('SettingsScreen の通知', () => {
     openPage(/^通知/);
     await waitFor(() => expect(sw('夜は鳴らさない')).toHaveAttribute('aria-checked', 'true'));
     fireEvent.click(sw('夜は鳴らさない'));
-    expect(await screen.findByText('通知を設定できませんでした。通信を確認して、もう一度押してください。')).toBeInTheDocument();
+    expect(await screen.findByText('通知を設定できませんでした。通信を確認して、もう一度タップしてください。')).toBeInTheDocument();
     expect(screen.queryByText('保存しました')).not.toBeInTheDocument();
   });
 
@@ -201,7 +201,7 @@ describe('SettingsScreen の通知', () => {
     read.mockResolvedValue({ kind: 'denied' });
     await setup();
     openPage(/^通知/);
-    expect(await screen.findByText('通知が許可されていません。設定で hangar の通知を許可してから、もう一度押してください。')).toBeInTheDocument();
+    expect(await screen.findByText('通知が許可されていません。設定で hangar の通知を許可してから、もう一度タップしてください。')).toBeInTheDocument();
   });
 
   it('使えないブラウザでは、その旨と iPhone の案内（スイッチは出さない）', async () => {
@@ -210,7 +210,7 @@ describe('SettingsScreen の通知', () => {
     await waitFor(() => expect(row(/^通知/)).toHaveTextContent('使えません'));
     openPage(/^通知/);
     expect(screen.getByText('このブラウザでは通知を使えません')).toBeInTheDocument();
-    expect(screen.getByText('iPhone と iPad では、ホーム画面に追加した hangar で「通知を受け取る」を押すと使えます。')).toBeInTheDocument();
+    expect(screen.getByText('iPhone と iPad では、ホーム画面に追加した hangar で「通知を受け取る」をタップすると使えます。')).toBeInTheDocument();
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
   });
 
@@ -221,7 +221,7 @@ describe('SettingsScreen の通知', () => {
     openPage(/^通知/);
     await waitFor(() => expect(sw('通知を受け取る')).toHaveAttribute('aria-checked', 'false'));
     fireEvent.click(sw('通知を受け取る'));
-    expect(await screen.findByText('通知を設定できませんでした。通信を確認して、もう一度押してください。')).toBeInTheDocument();
+    expect(await screen.findByText('通知を設定できませんでした。通信を確認して、もう一度タップしてください。')).toBeInTheDocument();
     expect(sw('通知を受け取る')).toHaveAttribute('aria-checked', 'false');
   });
 });

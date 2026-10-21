@@ -425,7 +425,7 @@ function NotifBody({ status, busy, failed, mute, times, saved, onTogglePush, onT
             <span className="set-k">このブラウザでは通知を使えません</span>
           </div>
         </div>
-        {status.ios && <p className="set-foot">iPhone と iPad では、ホーム画面に追加した hangar で「通知を受け取る」を押すと使えます。</p>}
+        {status.ios && <p className="set-foot">iPhone と iPad では、ホーム画面に追加した hangar で「通知を受け取る」をタップすると使えます。</p>}
       </>
     );
   }
@@ -460,10 +460,10 @@ function NotifBody({ status, busy, failed, mute, times, saved, onTogglePush, onT
           {saved.text}
         </span>
       </div>
-      {status?.kind === 'denied' && !failed && <p className="set-foot">通知が許可されていません。設定で hangar の通知を許可してから、もう一度押してください。</p>}
+      {status?.kind === 'denied' && !failed && <p className="set-foot">通知が許可されていません。設定で hangar の通知を許可してから、もう一度タップしてください。</p>}
       {failed && (
         <p className="set-foot warn" role="alert">
-          通知を設定できませんでした。通信を確認して、もう一度押してください。
+          通知を設定できませんでした。通信を確認して、もう一度タップしてください。
         </p>
       )}
     </>
