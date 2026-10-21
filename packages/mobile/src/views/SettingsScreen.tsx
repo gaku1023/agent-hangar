@@ -72,7 +72,7 @@ const NONE: string[] = [];
 
 /**
  * スマホの設定の画面（受信箱の見出しの歯車から開く）。
- * 最初は 3 行の一覧（通知、新しい会話の既定、接続）で、各行に今の値を添える。
+ * 最初は 3 行の一覧（通知、新しい会話のデフォルト、接続）で、各行に今の値を添える。
  * 行を押すと右からページが出て、一覧は少し左へずれる。
  */
 export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft }: Props): ReactNode {
@@ -217,7 +217,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
     saveQuiet(mute && next.start !== next.end ? next : null);
   };
 
-  // 新しい会話の既定。
+  // 新しい会話のデフォルト。
   const [defaults, setDefaults] = useState<LaunchDefaults>(loadLaunchDefaults);
   const choices = useDefaultChoices(view);
   const pickDefault = <K extends keyof LaunchDefaults>(k: K, v: LaunchDefaults[K]): void => {
@@ -255,8 +255,8 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
       setLeaving(false);
       setLeaveError(
         e instanceof LeaveError && e.reason === 'server'
-          ? `接続を外せませんでした（${e.status ?? '不明'}）。少し待ってから、もう一度タップしてください。`
-          : '接続を外せませんでした。通信を確認して、もう一度タップしてください。',
+          ? `接続を解除できませんでした（${e.status ?? '不明'}）。少し待ってから、もう一度タップしてください。`
+          : '接続を解除できませんでした。通信を確認して、もう一度タップしてください。',
       );
       return;
     }
@@ -288,7 +288,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
           </header>
           <div className="set-grp">
             <ListRow label="通知" value={pushSummary(status, quiet)} onClick={() => setPage('notif')} />
-            <ListRow label="新しい会話の既定" value={defaultsSummary} onClick={() => setPage('defaults')} />
+            <ListRow label="新しい会話のデフォルト" value={defaultsSummary} onClick={() => setPage('defaults')} />
             <ListRow label="接続" value={devices} onClick={() => setPage('conn')} />
           </div>
         </div>
@@ -321,7 +321,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
             {shown === 'defaults' && (
               <>
                 <h2 className="set-h" id={`${titleId}-defaults`}>
-                  新しい会話の既定
+                  新しい会話のデフォルト
                 </h2>
                 <DefaultsBody defaults={defaults} choices={choices} onPick={pickDefault} />
               </>
@@ -342,7 +342,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
                 <p className="set-foot">30 日使わないか、接続から 90 日たつと切れます。切れたら PC の設定で QR を出して読み直してください。</p>
                 <div className="set-grp set-gap">
                   <button type="button" className="set-it danger" onClick={() => setConfirm(true)}>
-                    このスマホの接続を外す
+                    このスマホの接続を解除
                   </button>
                 </div>
               </>
@@ -351,7 +351,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
         )}
       </div>
 
-      <BottomSheet open={outer.mounted && confirm} title="このスマホの接続を外しますか？" onClose={closeConfirm}>
+      <BottomSheet open={outer.mounted && confirm} title="このスマホの接続を解除しますか？" onClose={closeConfirm}>
         <div className="set-confirm">
           <p className="set-confirm-t">受信箱が見えなくなり、通知も止まります。また使うときは、PC の設定で QR を出して読み直してください。</p>
           {leaveError && (
@@ -360,7 +360,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
             </p>
           )}
           <button type="button" className="set-danger-btn" disabled={leaving} onClick={() => void leave()}>
-            {leaving ? '接続を外しています…' : '接続を外す'}
+            {leaving ? '接続を解除しています…' : '接続を解除'}
           </button>
           <button type="button" className="set-cancel-btn" disabled={leaving} onClick={closeConfirm}>
             キャンセル
@@ -502,7 +502,7 @@ type DefKey = keyof LaunchDefaults;
 type Opt = { value: string; label: string };
 const NOT_SET = '指定なし';
 
-/** 新しい会話の既定のページ。5 行のどれかを押すと、その下に選択肢が開く（開くのは 1 つだけ）。 */
+/** 新しい会話のデフォルトのページ。5 行のどれかを押すと、その下に選択肢が開く（開くのは 1 つだけ）。 */
 function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults; choices: DefaultChoices; onPick: <K extends DefKey>(k: K, v: LaunchDefaults[K]) => void }): ReactNode {
   const [opened, setOpened] = useState<DefKey | null>(null);
   const [swapped, setSwapped] = useState<DefKey | null>(null);

@@ -18,7 +18,7 @@ const BAD_TEXT = '接続コードを読み取れません。PC の QR の下の�
 export const EXPIRED_TEXT = '接続の期限が切れました。PC で QR を出して接続し直してください。';
 const UNPAIRED_TEXT = 'このスマホの接続は解除されています。PC で QR を表示して、接続し直してください。';
 /** 設定で接続を外したが、Worker が古く（POST /m/leave が無い）、Worker の行が残っている。 */
-export const LEFT_OLD_TEXT = '接続を外しました。PC の設定からもこのスマホを解除してください。';
+export const LEFT_OLD_TEXT = '接続を解除しました。PC の設定からもこのスマホを解除してください。';
 
 /**
  * 参加の画面に戻ってきた理由。

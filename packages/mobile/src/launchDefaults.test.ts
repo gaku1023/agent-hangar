@@ -8,7 +8,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe('新しい会話の既定（localStorage）', () => {
+describe('新しい会話のデフォルト（localStorage）', () => {
   it('無ければ全部デフォルト（PC とアカウントは指定なし）', () => {
     expect(loadLaunchDefaults()).toEqual({ pc: null, account: null, permissionMode: '', model: '', effort: '' });
     expect(loadLaunchDefaults()).toEqual(EMPTY_DEFAULTS);

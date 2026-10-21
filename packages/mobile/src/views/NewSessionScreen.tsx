@@ -60,7 +60,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   }, [view]);
   const running = useMemo(() => new Map(view.feeds.map((f) => [f.deviceId, (f.live ?? []).filter((l) => l.status === 'busy' || l.status === 'idle').length])), [view]);
 
-  // 設定の「新しい会話の既定」を最初から選んでおく。
+  // 設定の「新しい会話のデフォルト」を最初から選んでおく。
   // 今そのプロジェクトに無い PC、その PC に無いアカウントは、下の候補の判定が無視する（今の初期値に戻す）。
   // caps で effort を使えない PC では effortSent が空にする。
   const [defaults] = useState(loadLaunchDefaults);

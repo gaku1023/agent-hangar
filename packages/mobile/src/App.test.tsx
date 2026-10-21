@@ -202,11 +202,11 @@ describe('App', () => {
     await screen.findByText('Mac');
     fireEvent.click(screen.getByRole('button', { name: '設定' }));
     fireEvent.click(screen.getByRole('button', { name: /^接続/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'このスマホの接続を外す' }));
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'このスマホの接続を外しますか？' })).getByRole('button', { name: '接続を外す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'このスマホの接続を解除' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'このスマホの接続を解除しますか？' })).getByRole('button', { name: '接続を解除' }));
   };
 
-  it('設定でこのスマホの接続を外すと、参加の画面へ戻る', async () => {
+  it('設定でこのスマホの接続を解除と、参加の画面へ戻る', async () => {
     await leave(new Response(null, { status: 204 }));
     expect(await screen.findByRole('heading', { name: 'このスマホはまだ接続していません' })).toBeInTheDocument();
     expect(screen.queryByText(/PC の設定からも/)).not.toBeInTheDocument();
@@ -216,7 +216,7 @@ describe('App', () => {
 
   it('古い Worker（404）なら、PC の設定からも解除するよう参加の画面に出す', async () => {
     await leave(json({ error: 'not found' }, 404));
-    expect(await screen.findByText('接続を外しました。PC の設定からもこのスマホを解除してください。')).toBeInTheDocument();
+    expect(await screen.findByText('接続を解除しました。PC の設定からもこのスマホを解除してください。')).toBeInTheDocument();
     expect(store.loadPairing()).toBeNull();
   });
 

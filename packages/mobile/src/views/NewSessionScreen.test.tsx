@@ -426,7 +426,7 @@ describe('NewSessionScreen と古い PC、古い Worker', () => {
   });
 });
 
-describe('NewSessionScreen と新しい会話の既定（設定）', () => {
+describe('NewSessionScreen と新しい会話のデフォルト（設定）', () => {
   afterEach(() => {
     clearLaunchDefaults();
   });

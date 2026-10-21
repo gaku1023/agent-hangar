@@ -78,7 +78,7 @@ describe('SettingsScreen の一覧', () => {
     const { onClose } = await setup();
     expect(screen.getByRole('dialog', { name: '設定' })).toBeInTheDocument();
     await waitFor(() => expect(row(/^通知/)).toHaveTextContent('オン・23:00〜7:00 は鳴らさない'));
-    expect(row(/^新しい会話の既定/)).toHaveTextContent('すべてデフォルト');
+    expect(row(/^新しい会話のデフォルト/)).toHaveTextContent('すべてデフォルト');
     expect(row(/^接続/)).toHaveTextContent('MacBook、Windows');
     fireEvent.click(screen.getByRole('button', { name: '完了' }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -96,7 +96,7 @@ describe('SettingsScreen の一覧', () => {
   it('既定の値は PC とアカウントの名前と、デフォルトでない値を並べる', async () => {
     saveLaunchDefaults({ pc: 'pc-1', account: 'acc-w', permissionMode: '', model: 'opus', effort: '' });
     await setup();
-    expect(row(/^新しい会話の既定/)).toHaveTextContent('MacBook・会社・opus');
+    expect(row(/^新しい会話のデフォルト/)).toHaveTextContent('MacBook・会社・opus');
   });
 
   it('行を押すと右からページが出て、一覧は押せなくなる。「‹ 設定」で戻る', async () => {
@@ -226,10 +226,10 @@ describe('SettingsScreen の通知', () => {
   });
 });
 
-describe('SettingsScreen の新しい会話の既定', () => {
+describe('SettingsScreen の新しい会話のデフォルト', () => {
   it('5 行があり、押すとその下に選択肢が開く。選ぶとすぐ保存して値が変わる', async () => {
     await setup();
-    openPage(/^新しい会話の既定/);
+    openPage(/^新しい会話のデフォルト/);
     for (const n of ['PC', 'アカウント', '権限', 'モデル', 'effort']) expect(screen.getByRole('button', { name: new RegExp(`^${n}`) })).toBeInTheDocument();
     expect(screen.getByText('新しい会話の画面を開いたときに、最初から選んでおく値です。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^PC/ }));
@@ -246,12 +246,12 @@ describe('SettingsScreen の新しい会話の既定', () => {
     fireEvent.click(within(accts).getByRole('radio', { name: '大学' }));
     expect(loadLaunchDefaults().account).toBe('acc-u');
     back();
-    expect(row(/^新しい会話の既定/)).toHaveTextContent('Windows・大学');
+    expect(row(/^新しい会話のデフォルト/)).toHaveTextContent('Windows・大学');
   });
 
   it('権限、モデル、effort の選択肢は新しい会話の画面と同じ並び', async () => {
     await setup();
-    openPage(/^新しい会話の既定/);
+    openPage(/^新しい会話のデフォルト/);
     fireEvent.click(screen.getByRole('button', { name: /^権限/ }));
     const perms = within(screen.getByRole('radiogroup', { name: '権限' })).getAllByRole('radio');
     expect(perms[0]).toHaveTextContent('デフォルト');
@@ -266,7 +266,7 @@ describe('SettingsScreen の新しい会話の既定', () => {
   it('PC を変えて、前のアカウントがその PC に無ければ、アカウントを指定なしに戻す', async () => {
     saveLaunchDefaults({ pc: 'pc-2', account: 'acc-u', permissionMode: '', model: '', effort: '' });
     await setup();
-    openPage(/^新しい会話の既定/);
+    openPage(/^新しい会話のデフォルト/);
     fireEvent.click(screen.getByRole('button', { name: /^PC/ }));
     fireEvent.click(screen.getByRole('radio', { name: 'MacBook' }));
     expect(loadLaunchDefaults()).toMatchObject({ pc: 'pc-1', account: null });
@@ -302,8 +302,8 @@ describe('SettingsScreen の接続', () => {
 
   const unpair = async () => {
     openPage(/^接続/);
-    fireEvent.click(screen.getByRole('button', { name: 'このスマホの接続を外す' }));
-    const dlg = screen.getByRole('dialog', { name: 'このスマホの接続を外しますか？' });
+    fireEvent.click(screen.getByRole('button', { name: 'このスマホの接続を解除' }));
+    const dlg = screen.getByRole('dialog', { name: 'このスマホの接続を解除しますか？' });
     expect(within(dlg).getByText('受信箱が見えなくなり、通知も止まります。また使うときは、PC の設定で QR を出して読み直してください。')).toBeInTheDocument();
     return dlg;
   };
@@ -312,7 +312,7 @@ describe('SettingsScreen の接続', () => {
     const { onLeft } = await setup();
     const dlg = await unpair();
     fireEvent.click(within(dlg).getByRole('button', { name: 'キャンセル' }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'このスマホの接続を外しますか？' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'このスマホの接続を解除しますか？' })).not.toBeInTheDocument());
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onLeft).not.toHaveBeenCalled();
   });
@@ -322,7 +322,7 @@ describe('SettingsScreen の接続', () => {
     saveLaunchDefaults({ pc: 'pc-1', account: null, permissionMode: '', model: '', effort: '' });
     const { onLeft } = await setup();
     const dlg = await unpair();
-    fireEvent.click(within(dlg).getByRole('button', { name: '接続を外す' }));
+    fireEvent.click(within(dlg).getByRole('button', { name: '接続を解除' }));
     await waitFor(() => expect(onLeft).toHaveBeenCalledWith('left'));
     expect(fetchMock.mock.calls.filter(([u]) => String(u) === `${WORKER}/m/leave`)).toHaveLength(1);
     expect(off).toHaveBeenCalledWith(pairing);
@@ -335,7 +335,7 @@ describe('SettingsScreen の接続', () => {
     savePairing(pairing);
     const { onLeft } = await setup();
     const dlg = await unpair();
-    fireEvent.click(within(dlg).getByRole('button', { name: '接続を外す' }));
+    fireEvent.click(within(dlg).getByRole('button', { name: '接続を解除' }));
     await waitFor(() => expect(onLeft).toHaveBeenCalledWith('old'));
     expect(loadPairing()).toBeNull();
   });
@@ -347,8 +347,8 @@ describe('SettingsScreen の接続', () => {
     savePairing(pairing);
     const { onLeft } = await setup();
     const dlg = await unpair();
-    fireEvent.click(within(dlg).getByRole('button', { name: '接続を外す' }));
-    expect(await within(dlg).findByText('接続を外せませんでした。通信を確認して、もう一度タップしてください。')).toBeInTheDocument();
+    fireEvent.click(within(dlg).getByRole('button', { name: '接続を解除' }));
+    expect(await within(dlg).findByText('接続を解除できませんでした。通信を確認して、もう一度タップしてください。')).toBeInTheDocument();
     expect(onLeft).not.toHaveBeenCalled();
     expect(off).not.toHaveBeenCalled();
     expect(loadPairing()).toEqual(pairing);
