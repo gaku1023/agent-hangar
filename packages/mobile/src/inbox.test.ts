@@ -51,6 +51,36 @@ describe('openInbox', () => {
     ]);
   });
 
+  it('PC の名前は封じた feed から取る（Worker の name は PC の ID なので使わない）', async () => {
+    const key = await makeKey();
+    const mac = '3f9c2a1b-7d4e-4c1a-9b2f-0e6d5c4b3a21';
+    const blank = 'a1b2c3d4-0000-4000-8000-000000000001';
+    const locked = 'c0ffee00-1111-4111-8111-111111111111';
+    const silent = 'deadbeef-2222-4222-8222-222222222222';
+    const res = await inboxOf(
+      key,
+      [
+        feedOf(mac, 'MacBook Pro', { live: [liveItem({ sessionId: 's-1', status: 'busy' })] }),
+        feedOf(blank, '  ', { live: [liveItem({ sessionId: 's-2', status: 'waiting' })] }),
+        feedOf(locked, 'Locked'),
+      ],
+      { otherKeyFor: [locked] },
+    );
+    // 素を置いていない PC（生存の行だけに出る）。
+    res.devices.push({ id: silent, name: silent, platform: '', lastSeenAt: NOW - MIN });
+    const v = await openInbox(res, ring(key), now);
+    expect(v.running.map((r) => r.deviceName)).toEqual(['MacBook Pro']);
+    // 名前が空なら、ID をそのまま出さず短い代わりの表記にする。
+    expect(v.waiting.map((r) => r.deviceName)).toEqual(['PC a1b2']);
+    expect(v.unreadable).toEqual(['PC c0ff']);
+    expect(v.devices.map((d) => [d.id, d.name])).toEqual([
+      [mac, 'MacBook Pro'],
+      [blank, 'PC a1b2'],
+      [locked, 'PC c0ff'],
+      [silent, 'PC dead'],
+    ]);
+  });
+
   it('ちょうど 180,000 ms 前に見た PC はまだ生きている、1 ms 過ぎたら unknown', async () => {
     const key = await makeKey();
     const feeds = [feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting' })] })];
@@ -109,7 +139,7 @@ describe('openInbox', () => {
       { otherKeyFor: ['pc-1'] },
     );
     const v = await openInbox(res, ring(key), now);
-    expect(v.unreadable).toEqual(['Mac']);
+    expect(v.unreadable).toEqual(['PC pc-1']);
     expect(v.waiting.map((r) => r.sessionId)).toEqual(['s-2']);
   });
 
@@ -119,7 +149,7 @@ describe('openInbox', () => {
     res.feeds[0]!.sealed = 'not-sealed';
     res.feeds[1]!.deviceId = 'pc-1';
     const v = await openInbox(res, ring(key), now);
-    expect(v.unreadable).toEqual(['Mac', 'Mac']);
+    expect(v.unreadable).toEqual(['PC pc-1', 'PC pc-1']);
   });
 
   it('今日戻るは returnOn が今日か過ぎた日のもの。過ぎたものが先、明日以降と日付の無いものは出ない', async () => {
@@ -217,7 +247,7 @@ describe('スマホ用の鍵の世代', () => {
     const res = { ...r1, devices: [...r1.devices, ...r2.devices, ...r3.devices], feeds: [...r1.feeds, ...r2.feeds, ...r3.feeds] };
     const v = await openInbox(res, new Map([[1, k1], [2, k2]]), now);
     expect(v.feeds.map((f) => f.deviceId)).toEqual(['pc-1', 'pc-2']);
-    expect(v.unreadable).toEqual(['Mac 3']);
+    expect(v.unreadable).toEqual(['PC pc-3']);
   });
 
   it('受信箱の素の世代が手元より新しいと keybox を読み直し、読み直した鍵で開く', async () => {
@@ -251,7 +281,7 @@ describe('スマホ用の鍵の世代', () => {
     const ring = new Map([[1, k1]]);
     const got = await readInbox(pairing, ring, { reloadKeys: async () => ring, now });
     expect(got.view.feeds.map((f) => f.deviceId)).toEqual(['pc-1']);
-    expect(got.view.unreadable).toEqual(['Mac 2']);
+    expect(got.view.unreadable).toEqual(['PC pc-2']);
   });
 });
 
