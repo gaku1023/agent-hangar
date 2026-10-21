@@ -9,6 +9,7 @@ import type { LaunchSpec } from '../launchRun.ts';
 import { at1, feedOf, inboxOf, liveItem, makeKey, MIN, ring } from '../test/fixtures.ts';
 import { WORKER } from '../test/pairText.ts';
 import type { PhoneKey } from '../store.ts';
+import { clearLaunchDefaults, saveLaunchDefaults } from '../launchDefaults.ts';
 import { NewSessionScreen } from './NewSessionScreen.tsx';
 
 let key: CryptoKey;
@@ -422,5 +423,42 @@ describe('NewSessionScreen と古い PC、古い Worker', () => {
     // effort は PC が効かせるので、Worker が古くても出す。
     fireEvent.click(advanced());
     expect(group('effort')).toBeInTheDocument();
+  });
+});
+
+describe('NewSessionScreen と新しい会話の既定（設定）', () => {
+  afterEach(() => {
+    clearLaunchDefaults();
+  });
+
+  it('既定の PC、アカウント、権限、モデル、effort を最初から選んでおく', async () => {
+    saveLaunchDefaults({ pc: 'pc-2', account: 'acc-3', permissionMode: 'plan', model: 'opus', effort: 'high' });
+    const { onLaunch } = await setup();
+    expect(advanced()).toHaveTextContent('権限 Plan · モデル opus · effort high');
+    pick('プロジェクト', /project-a/);
+    expect(within(group('PC')).getByRole('radio', { name: /Mini/ })).toHaveAttribute('aria-checked', 'true');
+    expect(within(group('アカウント')).getByRole('radio', { name: /アカウント 3/ })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.change(prompt(), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mini で始める' }));
+    expect(specOf(onLaunch)).toMatchObject({ targetDevice: 'pc-2', accountId: 'acc-3', payload: { permissionMode: 'plan', model: 'opus', effort: 'high' } });
+  });
+
+  it('その PC に無いアカウントは無視して、今の初期値に戻す', async () => {
+    saveLaunchDefaults({ pc: 'pc-2', account: 'acc-1', permissionMode: '', model: '', effort: '' });
+    await setup();
+    pick('プロジェクト', /project-a/);
+    // Mini（pc-2）に acc-1 は無いので、アカウントは選ばれていない。
+    expect(within(group('PC')).getByRole('radio', { name: /Mini/ })).toHaveAttribute('aria-checked', 'true');
+    expect(within(group('アカウント')).getAllByRole('radio').every((r) => r.getAttribute('aria-checked') === 'false')).toBe(true);
+    expect(screen.getByRole('button', { name: 'アカウントを選んでください' })).toBeDisabled();
+  });
+
+  it('既定の effort は、caps で effort を使えない PC では送らない', async () => {
+    saveLaunchDefaults({ pc: null, account: null, permissionMode: '', model: '', effort: 'max' });
+    const { onLaunch } = await setup([feedOf('pc-1', 'Mac', { caps: undefined })]);
+    pick('プロジェクト', /project-a/);
+    fireEvent.change(prompt(), { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
+    expect(specOf(onLaunch).payload).not.toHaveProperty('effort');
   });
 });

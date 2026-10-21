@@ -11,11 +11,12 @@ import { InstallGuide } from './views/InstallGuide.tsx';
 import { InboxScreen } from './views/InboxScreen.tsx';
 import { LaunchSheet } from './views/LaunchSheet.tsx';
 import { NewSessionScreen } from './views/NewSessionScreen.tsx';
-import { JoinScreen, type Resume } from './views/JoinScreen.tsx';
+import { JoinScreen, type JoinNotice, type Resume } from './views/JoinScreen.tsx';
+import { SettingsScreen } from './views/SettingsScreen.tsx';
 
 type Screen =
   | { kind: 'loading' }
-  | { kind: 'join'; pairText: string | null; guide: boolean; notice?: 'expired' | null; resume?: Resume | null }
+  | { kind: 'join'; pairText: string | null; guide: boolean; notice?: JoinNotice | null; resume?: Resume | null; rescan?: boolean }
   | { kind: 'inbox'; pairing: Pairing; pair: PhonePair; keys: Keyring; current: PhoneKey };
 
 /** 入口の案内（A1）を先に出すか。iPhone と iPad の Safari で、ホーム画面のアプリでなく、未接続のとき。 */
@@ -111,12 +112,25 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
   // 受信箱で最後に読めたもの。起動のシートが、始まった会話の URL をここから探す。
   const [inboxView, setInboxView] = useState<InboxView | null>(null);
   useEffect(() => () => run.current?.cancel(), []);
-  const onUnpaired = useCallback((reason?: UnpairedReason) => {
+  // 設定の画面。n は開くたびに増やす番号で、開き直すたびに一覧から始める（key に使う）。
+  const [settings, setSettings] = useState<{ open: boolean; n: number } | null>(null);
+  const toJoin = useCallback((notice: JoinNotice | null) => {
     run.current?.cancel();
     run.current = null;
     setLaunch(null);
     setSheet(null);
-    setScreen({ kind: 'join', pairText: null, guide: false, notice: reason === 'expired' ? 'expired' : null });
+    setSettings(null);
+    setScreen({ kind: 'join', pairText: null, guide: false, notice });
+  }, []);
+  const onUnpaired = useCallback((reason?: UnpairedReason) => toJoin(reason === 'expired' ? 'expired' : null), [toJoin]);
+  // 設定でこのスマホの接続を外した。古い Worker（口が無い）なら、PC の設定からも解除してもらう。
+  const onLeft = useCallback((kind: 'left' | 'old') => toJoin(kind === 'old' ? 'left-old' : null), [toJoin]);
+  const onSettings = useCallback(() => setSettings((s) => ({ open: true, n: (s?.n ?? 0) + 1 })), []);
+  const onCloseSettings = useCallback(() => setSettings((s) => (s ? { ...s, open: false } : s)), []);
+  // 「QR を読んで接続し直す」。今の接続は消さずに参加の画面へ進み、「受信箱に戻る」で戻れる（新しい QR で接続できたら置き換わる）。
+  const onRescan = useCallback(() => {
+    setSettings(null);
+    setScreen({ kind: 'join', pairText: null, guide: false, rescan: true });
   }, []);
   const onNewSession = useCallback((view: InboxView) => {
     opened.current += 1;
@@ -169,10 +183,20 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
 
   if (screen.kind === 'loading') return <div className="boot" />;
   if (screen.kind === 'join' && screen.guide) return <InstallGuide expiresAt={expiryOf(screen.pairText)} onContinue={() => setScreen({ ...screen, guide: false })} />;
-  if (screen.kind === 'join') return <JoinScreen pairText={screen.pairText} onEnter={onEnter} notice={screen.notice ?? null} resume={screen.resume ?? null} wait={keyboxWait} />;
+  if (screen.kind === 'join')
+    return (
+      <JoinScreen
+        pairText={screen.pairText}
+        onEnter={onEnter}
+        notice={screen.notice ?? null}
+        resume={screen.resume ?? null}
+        wait={keyboxWait}
+        onBack={screen.rescan ? () => setScreen({ kind: 'loading' }) : undefined}
+      />
+    );
   return (
     <>
-      <div className="under" inert={(!!sheet && !sheet.leaving) || !!launch?.open}>
+      <div className="under" inert={(!!sheet && !sheet.leaving) || !!launch?.open || !!settings?.open}>
         <InboxScreen
           pairing={screen.pairing}
           keys={screen.keys}
@@ -180,11 +204,23 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
           onKeys={onKeys}
           onUnpaired={onUnpaired}
           onNewSession={onNewSession}
+          onSettings={onSettings}
           onView={setInboxView}
           refresh={refresh}
           openSession={openTarget}
         />
       </div>
+      {settings && (
+        <SettingsScreen
+          key={settings.n}
+          open={settings.open}
+          pairing={screen.pairing}
+          view={inboxView}
+          onClose={onCloseSettings}
+          onRescan={onRescan}
+          onLeft={onLeft}
+        />
+      )}
       {sheet && (
         <NewSessionScreen key={sheet.n} view={sheet.view} pairing={screen.pairing} phoneKey={screen.current} leaving={sheet.leaving} onClose={onCloseSheet} onLaunch={onLaunch} />
       )}

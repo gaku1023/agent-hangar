@@ -1,4 +1,3 @@
-import { EFFORT_VALUES, MODEL_CHOICES, PERMISSION_MODE_VALUES } from '@agent-hangar/shared/src/launchChoices.ts';
 import { MOBILE_PROMPT_MAX, type MobileAccount } from '@agent-hangar/shared/src/mobile.ts';
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import { workerTooOld } from '../api.ts';
@@ -6,6 +5,7 @@ import { createAsker, type Asker } from '../ask.ts';
 import { useAttachments, type PutImage, type Shrink } from '../images.ts';
 import type { InboxView } from '../inbox.ts';
 import { launchChoices } from '../launch.ts';
+import { DEFAULT_LABEL, EFFORT_OPTIONS, loadLaunchDefaults, MODEL_OPTIONS, PERMISSION_OPTIONS, permissionName } from '../launchDefaults.ts';
 import type { LaunchSpec } from '../launchRun.ts';
 import { phaseClass, usePresence } from '../presence.ts';
 import type { Pairing, PhoneKey } from '../store.ts';
@@ -18,21 +18,6 @@ import { ProjectPicker, type Sel } from './ProjectPicker.tsx';
 export const PROMPT_MAX = MOBILE_PROMPT_MAX;
 /** 残りがこの字数を切ったら、残りの字数を出す。 */
 const PROMPT_NEAR = 500;
-
-/**
- * 権限モードの表示名。PC の新規セッションのダイアログ（packages/ui の permissionModel.ts と ja の launch.value.default）と同じ文。
- * スマホは packages/ui を読まないので写して持つ。並びと値は shared の PERMISSION_MODE_VALUES。
- */
-const PERMISSION_NAMES: Record<(typeof PERMISSION_MODE_VALUES)[number], string> = {
-  '': 'デフォルト',
-  plan: 'Plan',
-  manual: 'Manual',
-  acceptEdits: 'Accept edits',
-  auto: 'Auto',
-  dontAsk: "Don't ask",
-  bypassPermissions: 'Bypass permissions',
-};
-const DEFAULT_LABEL = 'デフォルト';
 
 /** 候補が無いときの空の並び。描くたびに新しい配列を作らない（usePresence に同じものを渡す）。 */
 const NO_PCS: string[] = [];
@@ -75,12 +60,16 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   }, [view]);
   const running = useMemo(() => new Map(view.feeds.map((f) => [f.deviceId, (f.live ?? []).filter((l) => l.status === 'busy' || l.status === 'idle').length])), [view]);
 
+  // 設定の「新しい会話の既定」を最初から選んでおく。
+  // 今そのプロジェクトに無い PC、その PC に無いアカウントは、下の候補の判定が無視する（今の初期値に戻す）。
+  // caps で effort を使えない PC では effortSent が空にする。
+  const [defaults] = useState(loadLaunchDefaults);
   const [sel, setSel] = useState<Sel>(null);
-  const [pcPicked, setPcPicked] = useState<string | null>(null);
-  const [acctPicked, setAcctPicked] = useState<string | null>(null);
-  const [permissionMode, setPermissionMode] = useState('');
-  const [model, setModel] = useState('');
-  const [effort, setEffort] = useState('');
+  const [pcPicked, setPcPicked] = useState<string | null>(defaults.pc);
+  const [acctPicked, setAcctPicked] = useState<string | null>(defaults.account);
+  const [permissionMode, setPermissionMode] = useState(defaults.permissionMode);
+  const [model, setModel] = useState(defaults.model);
+  const [effort, setEffort] = useState(defaults.effort);
   const [adv, setAdv] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -123,7 +112,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const advShown = usePresence(adv ? ADV_ON : NO_ITEMS, (k) => k);
   const noteShown = usePresence(effortSent === 'xhigh' || effortSent === 'max' ? NOTE_ON : NO_ITEMS, (k) => k);
   const summary = [
-    permissionMode ? `権限 ${PERMISSION_NAMES[permissionMode as keyof typeof PERMISSION_NAMES] ?? permissionMode}` : '',
+    permissionMode ? `権限 ${permissionName(permissionMode)}` : '',
     model ? `モデル ${model}` : '',
     effortSent ? `effort ${effortSent}` : '',
   ].filter(Boolean);
@@ -263,18 +252,18 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
                   <Fold key={x.key} phase={x.phase}>
                     <div className="adv">
                       <Group label="権限モード" grid>
-                        {PERMISSION_MODE_VALUES.map((v) => (
-                          <Choice key={v} small value={v} checked={permissionMode === v} onPick={() => setPermissionMode(v)} title={PERMISSION_NAMES[v]} danger={v === 'bypassPermissions'} />
+                        {PERMISSION_OPTIONS.map((v) => (
+                          <Choice key={v} small value={v} checked={permissionMode === v} onPick={() => setPermissionMode(v)} title={permissionName(v)} danger={v === 'bypassPermissions'} />
                         ))}
                       </Group>
                       <Group label="モデル" grid>
-                        {['', ...MODEL_CHOICES].map((m) => (
+                        {MODEL_OPTIONS.map((m) => (
                           <Choice key={m} small value={m} checked={model === m} onPick={() => setModel(m)} title={m || DEFAULT_LABEL} />
                         ))}
                       </Group>
                       {canEffort && (
                         <Group label="effort" grid>
-                          {EFFORT_VALUES.map((v) => (
+                          {EFFORT_OPTIONS.map((v) => (
                             <Choice key={v} small value={v} checked={effort === v} onPick={() => setEffort(v)} title={v || DEFAULT_LABEL} />
                           ))}
                         </Group>
