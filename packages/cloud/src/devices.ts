@@ -27,6 +27,16 @@ const toOut = (r: DeviceListRow): DeviceOut => ({
   expiresAt: r.expires_at ?? null,
 });
 
+/**
+ * 端末を解除する書き込み。PC からの解除と、スマホが自分で外す `POST /m/leave`（mobile.ts）が同じものを使う。
+ * 既に解除した端末の解除日は動かさない。
+ * スマホのプッシュ通知の購読（0.9.1）も消す。解除したスマホには送らないが、endpoint を残す理由も無い。PC の ID なら行が無く、何も消えない。
+ * スマホ宛ての keybox（phone_keyboxes）と、そのスマホが出した起動の依頼は消さない。keybox はトークンが通らなくなるので読まれず、依頼は残す期間（mobile.ts の LAUNCH_KEEP_MS）を過ぎると掃除されるためである。
+ */
+export async function revokeDevice(db: D1Database, id: string, now: number): Promise<void> {
+  await db.batch([db.prepare('update devices set revoked_at = ? where id = ? and revoked_at is null').bind(now, id), db.prepare('delete from push_subscriptions where device_id = ?').bind(id)]);
+}
+
 /** 端末の数は数台なので、1 回で全部を返す。 */
 devicesApp.get('/', async (c) => {
   const rows = await c.env.DB.prepare(`select ${DEVICE_COLS} from devices order by joined_at, id`).all<DeviceListRow>();
@@ -41,10 +51,7 @@ devicesApp.get('/', async (c) => {
 devicesApp.post('/:id/revoke', async (c) => {
   const id = c.req.param('id');
   if (!isSafeKeyId(id)) return c.json({ error: 'invalid id' }, 400);
-  const now = Date.now();
-  const db = c.env.DB;
-  // スマホのプッシュ通知の購読（0.9.1）も消す。解除したスマホには送らないが、endpoint を残す理由も無い。PC の ID なら行が無く、何も消えない。
-  await db.batch([db.prepare('update devices set revoked_at = ? where id = ? and revoked_at is null').bind(now, id), db.prepare('delete from push_subscriptions where device_id = ?').bind(id)]);
+  await revokeDevice(c.env.DB, id, Date.now());
   const row = await c.env.DB.prepare(`select ${DEVICE_COLS} from devices where id = ?`).bind(id).first<DeviceListRow>();
   if (!row) return c.json({ error: 'not found' }, 404);
   const res: DeviceRevokeOut = { device: toOut(row) };

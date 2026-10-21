@@ -1096,3 +1096,42 @@ function recordingKeyboxes<W extends FakeWireClient>(w: W): { wire: W; recovery:
   });
   return { wire, recovery };
 }
+
+describe('スマホが自分で外した後の後始末（POST /m/leave）', () => {
+  it('名簿に残るスマホが Worker で解除済みなら、revokeMember が名簿から外して M を回し、残りのスマホに置く', async () => {
+    const { wire, a } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    // スマホ A が自分で外した。Worker の行には解除日が付くが、名簿と M はそのまま。
+    wire.revoke('phone-a');
+    expect((await phonesIn(a)).ids).toEqual(['phone-a', 'phone-b']);
+
+    const row = await revokeMember({ id: 'phone-a', ...opts(a) });
+    expect(row.revokedAt).not.toBeNull();
+    expect(await phonesIn(a)).toMatchObject({ ids: ['phone-b'], phoneKey: { epoch: 2 } });
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(2);
+    expect(wire.phoneKeybox('phone-a')?.epoch).toBe(1);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+  });
+
+  it('2 台の PC が同時に見つけて後始末しても、M は 1 度だけ回る', async () => {
+    const { wire, a, pcOf, seeded } = await setup(['pc-a', 'pc-b']);
+    const phones = await pairPhones(a, ['phone-a', 'phone-b']);
+    const b = await pcOf('pc-b', seeded.configs['pc-b']!);
+    await b.roster.read();
+    wire.revoke('phone-a');
+
+    await Promise.all([revokeMember({ id: 'phone-a', ...opts(a) }), revokeMember({ id: 'phone-a', ...opts(b) })]);
+    expect(await phonesIn(a)).toMatchObject({ ids: ['phone-b'], phoneKey: { epoch: 2 } });
+    expect((await phoneM(wire, 'phone-b', phones['phone-b']!))?.epoch).toBe(2);
+    await b.roster.read();
+    expect(b.keyring.phoneKey()?.epoch).toBe(2);
+    expect(readPhoneRevoke(a.state, a.cfg.current.cloudId)).toBeNull();
+    expect(readPhoneRevoke(b.state, b.cfg.current.cloudId)).toBeNull();
+
+    // 後から見つけた PC がもう一度後始末しても、名簿にいないので M は回さない。
+    const version = wire.roster!.version;
+    await revokeMember({ id: 'phone-a', ...opts(b) });
+    expect(wire.roster!.version).toBe(version);
+    expect((await phonesIn(a)).phoneKey?.epoch).toBe(2);
+  });
+});

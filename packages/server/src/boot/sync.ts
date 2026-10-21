@@ -5,7 +5,7 @@ import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } f
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
-import { loadCloudDevices } from '../sync/devices.ts';
+import { leftPhoneSweeper, loadCloudDevices } from '../sync/devices.ts';
 import { Keyring } from '../sync/keyring.ts';
 import { SealedCloudClient } from '../sync/sealedClient.ts';
 import { SyncEngine } from '../sync/engine.ts';
@@ -235,9 +235,15 @@ export function bootSync(
   const takeoverListeners = new Set<() => void>();
   const cloudDeviceListeners = new Set<(d: CloudDevicesDto) => void>();
   const takeoversApplied = (): void => { for (const cb of takeoverListeners) cb(); };
+  /**
+   * スマホが自分で外した後の後始末。名簿にあるのに Worker で解除済みのスマホを、PC からの解除と同じ口（core.revoke）へ渡す。
+   * 見つけるのは下の一覧の読み（設定を開いたとき、スマホの有無の読み直し）で、新しい問い合わせは足さない。
+   * core.revoke は解除と回しの鎖に並ぶので、ほかの解除と重ならない。
+   */
+  const sweepLeftPhones = leftPhoneSweeper((id) => core.revoke?.(id) ?? Promise.resolve());
   /** 端末の一覧を読み、受け手（onCloudDevices）に配る。読むのは呼んだときの core である。 */
   const readCloudDevices = async (): Promise<CloudDevicesDto> => {
-    const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language });
+    const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language, ...(core.revoke ? { onLeftPhones: sweepLeftPhones } : {}) });
     for (const cb of [...cloudDeviceListeners]) {
       try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
     }

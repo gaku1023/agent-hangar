@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEVICE_ADMIN_MIN_WORKER_COMPAT, type Roster } from '@agent-hangar/shared';
 import { testKey } from '../../test/cloudConfig.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { CloudError } from './client.ts';
-import { loadCloudDevices } from './devices.ts';
+import { leftPhoneSweeper, loadCloudDevices } from './devices.ts';
 
 const base = { deviceId: 'a', creator: false, language: () => 'ja' as const, roster: null };
 
@@ -92,5 +92,66 @@ describe('loadCloudDevices', () => {
     const r = await loadCloudDevices({ ...base, client: off });
     expect(r.state).toBe('unreachable');
     expect(r.message).not.toBeNull();
+  });
+
+  it('名簿にあるのに Worker で解除済みのスマホ（自分で外した）を onLeftPhones に渡す', async () => {
+    const cloud = new FakeCloudClient({ deviceId: 'pc-a' });
+    await cloud.health();
+    const devices = cloud.wire.storeForScan().devices;
+    for (const id of ['phone-left', 'phone-live', 'phone-gone']) devices.set(id, { id, kind: 'mobile', joinedAt: 1, lastSeenAt: null, revokedAt: null, expiresAt: null });
+    cloud.revoke('phone-left');
+    cloud.revoke('phone-gone');
+    cloud.revoke('pc-c');
+    const names = roster([
+      { id: 'pc-a', kind: 'pc', name: 'desk', os: 'darwin', pub: testKey(9), joinedAt: 1 },
+      { id: 'pc-c', kind: 'pc', name: 'old', os: 'darwin', pub: testKey(10), joinedAt: 1 },
+      { id: 'phone-left', kind: 'phone', name: 'iPhone', os: 'ios', pub: testKey(11), joinedAt: 2 },
+      { id: 'phone-live', kind: 'phone', name: 'Pixel', os: 'ios', pub: testKey(12), joinedAt: 3 },
+    ]);
+    const seen: string[][] = [];
+    const r = await loadCloudDevices({ ...base, deviceId: 'pc-a', client: cloud, roster: names, onLeftPhones: (ids) => seen.push(ids) });
+    expect(r.state).toBe('ok');
+    // 名簿から外し終えたスマホ（phone-gone）と、解除した PC（pc-c）は渡さない。
+    expect(seen).toEqual([['phone-left']]);
+  });
+
+  it('後始末の要らないときと、名簿が読めないときは onLeftPhones を呼ばない', async () => {
+    const cloud = new FakeCloudClient({ deviceId: 'pc-a' });
+    await cloud.health();
+    const seen: string[][] = [];
+    await loadCloudDevices({ ...base, deviceId: 'pc-a', client: cloud, roster: roster([]), onLeftPhones: (ids) => seen.push(ids) });
+    cloud.wire.storeForScan().devices.set('phone-left', { id: 'phone-left', kind: 'mobile', joinedAt: 1, lastSeenAt: null, revokedAt: 5, expiresAt: null });
+    await loadCloudDevices({ ...base, deviceId: 'pc-a', client: cloud, roster: { read: async () => { throw new CloudError(0, 'offline'); } }, onLeftPhones: (ids) => seen.push(ids) });
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('leftPhoneSweeper', () => {
+  it('見つけたスマホを 1 台ずつ解除の口へ渡し、終わるまでは同じスマホを重ねて渡さない', async () => {
+    const calls: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const sweep = leftPhoneSweeper(async (id) => { calls.push(id); await gate; });
+    sweep(['phone-a', 'phone-b']);
+    sweep(['phone-a']);
+    expect(calls).toEqual(['phone-a', 'phone-b']);
+    release();
+    await gate;
+    await new Promise((r) => setTimeout(r, 0));
+    sweep(['phone-a']);
+    expect(calls).toEqual(['phone-a', 'phone-b', 'phone-a']);
+  });
+
+  it('解除の口が失敗しても投げず、次に見つけたときにもう一度渡す', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const calls: string[] = [];
+    const sweep = leftPhoneSweeper(async (id) => { calls.push(id); throw new Error('offline'); });
+    sweep(['phone-a']);
+    await new Promise((r) => setTimeout(r, 0));
+    sweep(['phone-a']);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['phone-a', 'phone-a']);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
   });
 });
