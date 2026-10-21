@@ -124,6 +124,20 @@ function deviceBrief(deps: ToolDeps, sessionId: string): { name: string | null; 
 }
 
 /**
+ * 再開の手立て。
+ * この PC の素の `claude -r` で開ける会話だけ resume_command を返し、開けない会話は null にして resume_hint で案内する（#313）。
+ * 開けないのは、他の PC が実行中のロックを持つ会話と、トランスクリプトが他の PC にしか無い会話（remoteOnly）である。
+ * 画面が素の再開を閉じて「この PC で再開」に回す条件（ui の sessionActions）と同じ事実を、server の SessionDto から読む。
+ * ロックを先に見るのも画面と同じで、ロックがあれば本文の在りかに関わらず、他の PC を停止しない限り再開できない。
+ */
+function resumeOf(deps: ToolDeps, s: SessionDto): { resume_command: string | null; resume_hint: string | null } {
+  const hint = s.lock ? msg(s.lock.stale ? 'mcp.resumeHint.stale' : 'mcp.resumeHint.running', { device: s.lock.deviceName })
+    : s.remoteOnly ? msg('mcp.resumeHint.remote') : null;
+  if (!hint) return { resume_command: `claude -r ${s.providerSessionId}`, resume_hint: null };
+  return { resume_command: null, resume_hint: render((deps.language ?? defaultLanguage)(), hint) };
+}
+
+/**
  * セッション 1 件の要点。
  * resume_command だけは Claude の UUID を使う。ほかの項目の id は hangar の sessions.id である。
  */
@@ -137,7 +151,7 @@ function sessionBrief(deps: ToolDeps, s: SessionDto) {
     started_at: s.startedAt,
     last_activity_at: s.lastActivityAt,
     summary: s.summary ? { title: s.summary.title, one_liner: s.summary.oneLiner, state: s.summary.state, source: s.summary.source } : null,
-    resume_command: `claude -r ${s.providerSessionId}`,
+    ...resumeOf(deps, s),
     device: deviceBrief(deps, s.id),
   };
 }
@@ -306,7 +320,7 @@ export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Recor
       last_activity_at: s?.lastActivityAt ?? null,
       match_count: h.matchCount,
       snippets: h.snippets,
-      resume_command: s ? `claude -r ${s.providerSessionId}` : null,
+      ...(s ? resumeOf(deps, s) : { resume_command: null, resume_hint: null }),
       device: deviceBrief(deps, h.sessionId),
     };
   });

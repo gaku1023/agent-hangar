@@ -244,6 +244,36 @@ describe('MCP tools', () => {
     const hit = ((call('search_sessions', { query: 'チャンネル' }).hits) as Record<string, unknown>[])[0]!;
     expect(hit.device).toEqual({ name: 'work-pc', platform: 'win32', here: false });
   });
+  it('この PC で開ける会話は resume_command を返し、resume_hint は null にする', () => {
+    const brief = (call('list_sessions') as unknown as Record<string, unknown>[]).find((s) => s.id === alphaId)!;
+    expect(brief).toMatchObject({ resume_command: `claude -r ${SESSION_ALPHA}`, resume_hint: null });
+    const hit = ((call('search_sessions', { query: 'チャンネル' }).hits) as Record<string, unknown>[])[0]!;
+    expect(hit).toMatchObject({ resume_command: `claude -r ${SESSION_ALPHA}`, resume_hint: null });
+  });
+  it('この PC にトランスクリプトが無い会話は、claude -r を返さず「この PC で再開」へ案内する（#313）', () => {
+    // 他の PC から同期した本文だけがある状態（SessionDto.remoteOnly）にする。
+    db.prepare("update transcript_files set device_id = 'win' where session_id = ?").run(alphaId);
+    const brief = (call('list_sessions') as unknown as Record<string, unknown>[]).find((s) => s.id === alphaId)!;
+    const hit = ((call('search_sessions', { query: 'チャンネル' }).hits) as Record<string, unknown>[])[0]!;
+    for (const r of [brief, hit]) {
+      expect(r.resume_command).toBeNull();
+      expect(r.resume_hint).toEqual(expect.stringContaining('この PC で再開'));
+      expect(r.resume_hint).toEqual(expect.stringContaining('open_in_hangar'));
+    }
+    const recent = ((call('get_project', { project_id: 'p1' }).recent_sessions) as Record<string, unknown>[]).find((s) => s.id === alphaId)!;
+    expect(recent.resume_command).toBeNull();
+  });
+  it('他の PC で実行中の会話は、claude -r を返さずその PC の名前を添えて案内する', () => {
+    db.prepare("insert into devices (id, name, platform, last_seen_at, updated_at, origin_device) values ('other', 'mini', 'darwin', ?, 1, 'other')").run(Date.now());
+    db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values ('rX', ?, 'other', 'start', 'hangar-rX', '{}', null, 1, null, null, ?, 1, 'other')").run(alphaId, Date.now());
+    const brief = (call('list_sessions') as unknown as Record<string, unknown>[]).find((s) => s.id === alphaId)!;
+    const hit = ((call('search_sessions', { query: 'チャンネル' }).hits) as Record<string, unknown>[])[0]!;
+    for (const r of [brief, hit]) {
+      expect(r.resume_command).toBeNull();
+      expect(r.resume_hint).toEqual(expect.stringContaining('mini'));
+      expect(r.resume_hint).toEqual(expect.stringContaining('この PC で再開'));
+    }
+  });
   it('get_transcript はセッション別 URL では session_id を省け、既定でツールを落とす', () => {
     const plain = call('get_transcript', {}, { sessionId: alphaId });
     const kinds = (plain.events as { kind: string }[]).map((e) => e.kind);
