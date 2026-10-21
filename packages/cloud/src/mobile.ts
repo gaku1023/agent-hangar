@@ -231,7 +231,7 @@ mobileApp.get('/keybox', authMiddleware(), requireKind('mobile'), async (c) => {
  * スマホが自分で接続を外す（スマホの設定の「このスマホの接続を外す」）。本文は要らず、成功は 204。
  * PC からの解除（`POST /devices/:id/revoke`）と同じ書き込み（devices.ts の revokeDevice）で、解除日を付けてプッシュ通知の購読を消す。
  * 既に解除したトークンは authMiddleware が 401 の revoked で断るので、2 回目は 401 になる。スマホは 401 も「外れた」とみなす。
- * スマホ用の鍵 M は回さない。外すスマホは自分の M を手元から消すので、残りの端末のために次の世代にする理由が無い（docs/design.md「スマホの解除」）。
+ * スマホ用の鍵 M は回さない（Worker は名簿を開けない）。名簿に残ったスマホは、一覧を読んだ PC が見つけて名簿から外し、M を回す（docs/design.md「スマホの解除」の「自分で外したスマホの後始末」）。
  */
 mobileApp.post('/leave', authMiddleware(), requireKind('mobile'), async (c) => {
   await revokeDevice(c.env.DB, c.get('device').id, Date.now());
