@@ -2345,6 +2345,13 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   ノートへの追記（`append_memo`）は 2026-10-11 にやめた。古い指示を覚えた Claude が渡したときは、書かずに、やめたことと CLAUDE.md などの指示ファイルに書くよう促す一文を、応答の `notice` で返す（エラーにはしない）。
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
+- `list_sessions`、`search_sessions`、`get_project` の直近のセッションの再開コマンド（`resume_command`）は、この PC の素の `claude -r` で開ける会話にだけ返す（2026-10-21、#313）。
+  他の PC が実行中のロックを持つ会話と、トランスクリプトが他の PC にしか無い会話（`SessionDto.remoteOnly`）では `null` にし、代わりに `resume_hint` で案内の文を返す。
+  文は、`open_in_hangar` でセッションを開き「この PC で再開」をクリックするようユーザーに案内するよう Claude に求める（`mcp.resumeHint.*`）。
+  条件は、画面が素の再開を閉じて「この PC で再開」に回す条件（`presenters/session.ts` の `sessionActions`）と同じ事実で、server の `SessionDto` の `lock` と `remoteOnly` から読む（`mcp/tools.ts` の `resumeOf`）。
+  ロックを先に見て、`stale` なロックなら応答が無いこと、生きたロックなら実行中であることを、その PC の名前と共に言う。
+  開ける会話では `resume_hint` は `null` である。
+  以前は手元に本文が無い会話にも `claude -r <id>` を返しており、それを打った Claude が失敗していた。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch? })`：tmux で起動して run を返す。
@@ -7222,6 +7229,12 @@ Worker が最後に見てから 3 分（`PEER_STALE_MS`）を過ぎた PC は、
 更新が 7 日（`FEED_HIDE_AFTER_MS`）より古い素は、解除せずに去った PC のものとして、スマホは出さない（開けない封でも「開けない」と言わない）。
 最後に見たのが 7 日より前の PC も、生存の行に出さない。
 「不明」のまま出し続けないためである。
+`GET /m/inbox` の `devices[].name` には PC の ID が入る。
+Worker は PC の名前を持たず、名前は封じた名簿と素の中にしか無いからである。
+そのためスマホは、PC の名前を開けた素の `deviceName` から取り、行の PC 名にも生存の行にも使う（`packages/mobile/src/inbox.ts` の `openInbox`）。
+素を開けない PC や、名前が空の PC は、ID をそのまま出さず、`PC 3f9c` のように ID の先頭 4 文字を添えた表記にする（`shortPcName`）。
+ID をまるごと出すと、行の右端が横にはみ出すからである。
+長い名前は、行の右端でも生存の行でも末尾を「…」で切り、受信箱は横にスクロールさせない。
 画面は、見えている間だけ 30 秒ごとに読み直し、前面に戻ったときと、下に引いたときにも読む。
 
 **起動の依頼の握手。**
