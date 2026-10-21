@@ -110,8 +110,10 @@ describe('JoinScreen', () => {
     expect([...keys.keys()]).toEqual([1]);
     expect(keys.get(1)!.extractable).toBe(false);
 
-    const pairing = { url: WORKER, token: 'tok-9', deviceId: body.deviceId };
+    // 接続した時刻も一緒に置く（設定の接続のページが、接続した日と期限を出す）。
+    const pairing = { url: WORKER, token: 'tok-9', deviceId: body.deviceId, joinedAt: expect.any(Number) as number };
     expect(store.savePairing).toHaveBeenCalledWith(pairing);
+    expect(Math.abs(store.loadPairing()!.joinedAt! - Date.now())).toBeLessThan(60_000);
     fireEvent.click(screen.getByRole('button', { name: 'あとで（このまま受信箱へ）' }));
     expect(onEnter).toHaveBeenCalledWith(pairing, expect.objectContaining({ pub: pair!.pub }), expect.any(Map));
   });

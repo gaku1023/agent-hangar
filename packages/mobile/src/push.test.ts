@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { openMessageOf, PushError, readPushStatus, takeOpenFragment, turnOffPush, turnOnPush } from './push.ts';
+import { openMessageOf, PushError, pushQuiet, readPushStatus, setPushQuiet, takeOpenFragment, turnOffPush, turnOnPush } from './push.ts';
 import { json, WORKER } from './test/pairText.ts';
 
 const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
@@ -94,7 +94,7 @@ describe('通知の購読', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('通知を受け取る：許可を求め、Worker の鍵で購読し、quiet を省いて tzOffset と一緒に送る', async () => {
+  it('通知を受け取る：許可を求め、Worker の鍵で購読し、夜の時間帯（既定は 23:00〜7:00）と tzOffset と一緒に送る', async () => {
     expect(await turnOnPush(pairing, { tzOffset: -540 })).toEqual({ kind: 'on' });
     expect(fake.requestPermission).toHaveBeenCalledTimes(1);
     expect(pm.subscribe).toHaveBeenCalledTimes(1);
@@ -104,8 +104,8 @@ describe('通知の購読', () => {
     const [, keyInit] = calls('GET', '/m/push/key')[0]!;
     expect((keyInit as RequestInit).headers).toMatchObject({ authorization: 'Bearer tok-1' });
     const body = putBodies();
-    expect(body).toEqual([{ endpoint: pm.sub!.endpoint, keys: { p256dh: 'p256dh-1', auth: 'auth-1' }, tzOffset: -540 }]);
-    expect('quiet' in body[0]!).toBe(false);
+    expect(body).toEqual([{ endpoint: pm.sub!.endpoint, keys: { p256dh: 'p256dh-1', auth: 'auth-1' }, quiet: { start: 23 * 60, end: 7 * 60 }, tzOffset: -540 }]);
+    expect(pushQuiet(pairing)).toEqual({ start: 23 * 60, end: 7 * 60 });
     expect(await readPushStatus(pairing, { tzOffset: -540 })).toEqual({ kind: 'on' });
   });
 
@@ -210,6 +210,63 @@ describe('通知の購読', () => {
     });
     expect(await turnOffPush(pairing)).toEqual({ kind: 'off' });
     expect(pm.sub).toBeNull();
+  });
+});
+
+describe('夜は鳴らさない時間帯', () => {
+  it('購読が無ければ既定（23:00〜7:00）', () => {
+    expect(pushQuiet(pairing)).toEqual({ start: 23 * 60, end: 7 * 60 });
+  });
+
+  it('受け取るときに時間帯を渡すと、その値で送って覚える（null は夜も鳴らす）', async () => {
+    await turnOnPush(pairing, { tzOffset: 0, quiet: null });
+    expect(putBodies()[0]!.quiet).toBeNull();
+    expect(pushQuiet(pairing)).toBeNull();
+  });
+
+  it('変えるとすぐ Worker に送り、tzOffset を送り直すときも同じ時間帯を送る', async () => {
+    await turnOnPush(pairing, { tzOffset: -540 });
+    await setPushQuiet(pairing, { start: 22 * 60 + 30, end: 6 * 60 }, { tzOffset: -540 });
+    expect(putBodies()[1]).toMatchObject({ quiet: { start: 1350, end: 360 }, tzOffset: -540 });
+    expect(pushQuiet(pairing)).toEqual({ start: 1350, end: 360 });
+    await readPushStatus(pairing, { tzOffset: 300 });
+    expect(putBodies()[2]).toMatchObject({ quiet: { start: 1350, end: 360 }, tzOffset: 300 });
+    await setPushQuiet(pairing, null, { tzOffset: 300 });
+    expect(putBodies()[3]!.quiet).toBeNull();
+    expect(pushQuiet(pairing)).toBeNull();
+  });
+
+  it('開始と終了が同じなら、夜も鳴らすと同じ扱い（null を送る）', async () => {
+    await turnOnPush(pairing, { tzOffset: 0 });
+    await setPushQuiet(pairing, { start: 60, end: 60 }, { tzOffset: 0 });
+    expect(putBodies()[1]!.quiet).toBeNull();
+    expect(pushQuiet(pairing)).toBeNull();
+  });
+
+  it('Worker が受け取れなければ PushError で、覚えている値は変えない', async () => {
+    await turnOnPush(pairing, { tzOffset: 0 });
+    putStatus = 500;
+    await expect(setPushQuiet(pairing, null, { tzOffset: 0 })).rejects.toBeInstanceOf(PushError);
+    expect(pushQuiet(pairing)).toEqual({ start: 23 * 60, end: 7 * 60 });
+  });
+
+  it('オフのとき（購読が無い）は送らずに PushError', async () => {
+    await expect(setPushQuiet(pairing, null)).rejects.toBeInstanceOf(PushError);
+    expect(putBodies()).toEqual([]);
+  });
+
+  it('時間帯を持たない前の版の記録は既定と見る', async () => {
+    await turnOnPush(pairing, { tzOffset: 0 });
+    const rec = JSON.parse(localStorage.getItem(PUSH_RECORD)!) as Record<string, unknown>;
+    delete rec.quiet;
+    localStorage.setItem(PUSH_RECORD, JSON.stringify(rec));
+    expect(pushQuiet(pairing)).toEqual({ start: 23 * 60, end: 7 * 60 });
+    expect(await readPushStatus(pairing, { tzOffset: 0 })).toEqual({ kind: 'on' });
+  });
+
+  it('前の接続の記録の時間帯は、この接続では既定と見る', async () => {
+    await turnOnPush(otherPairing, { tzOffset: 0, quiet: null });
+    expect(pushQuiet(pairing)).toEqual({ start: 23 * 60, end: 7 * 60 });
   });
 });
 

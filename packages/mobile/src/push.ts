@@ -2,13 +2,14 @@
  * スマホの通知（Web Push）の購読。
  *
  * 「通知を受け取る」で、利用者の操作の中で Notification.requestPermission を呼び、許されたら Worker の VAPID の公開鍵（GET /m/push/key）で PushManager.subscribe し、購読を PUT /m/push/subscription で Worker に置く。
- * 夜の時間帯は既定（23:00〜7:00）のままにするので quiet は送らない。tzOffset は端末の今の値を送る。
+ * 購読と一緒に、鳴らさない夜の時間帯（quiet、既定は 23:00〜7:00、設定の通知のページで変える）と、端末の今の tzOffset を送る。
  * 通知の中身はスマホ用の鍵で封じてあり、開くのはサービスワーカー（public/sw.js）である。
- * 手元には、どの接続で、どの購読を、どの tzOffset で置いたかだけを localStorage に持つ（開くたびに tzOffset が変わっていれば送り直すため）。
+ * 手元には、どの接続で、どの購読を、どの夜の時間帯と tzOffset で置いたかだけを localStorage に持つ。
+ * 開くたびに tzOffset が変わっていれば、同じ夜の時間帯のまま送り直す。
  */
 
 import { fromBase64Url } from '@agent-hangar/shared/src/e2e/bytes.ts';
-import type { PushKeyOut, PushSubscriptionPut } from '@agent-hangar/shared/src/mobile.ts';
+import { PUSH_QUIET_DEFAULT, type PushKeyOut, type PushSubscriptionPut } from '@agent-hangar/shared/src/mobile.ts';
 import { mobileHeaders, originOf } from './api.ts';
 import { isIos } from './platform.ts';
 import type { Pairing } from './store.ts';
@@ -28,8 +29,26 @@ export class PushError extends Error {
   }
 }
 
-type PushRecord = { deviceId: string; endpoint: string; tzOffset: number };
+/** 鳴らさない夜の時間帯（端末の時刻の 0 時からの分、0〜1439）。null は夜も鳴らす。 */
+export type Quiet = { start: number; end: number } | null;
+
+type PushRecord = { deviceId: string; endpoint: string; tzOffset: number; quiet: Quiet };
 type Options = { tzOffset?: number };
+
+const defaultQuiet = (): Quiet => ({ start: PUSH_QUIET_DEFAULT.start, end: PUSH_QUIET_DEFAULT.end });
+const isMinute = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1440;
+
+/** 送る形にそろえる。開始と終了が同じなら、時間帯なし（夜も鳴らす）と同じ扱いにする。 */
+export function normalizeQuiet(q: Quiet): Quiet {
+  return q && isMinute(q.start) && isMinute(q.end) && q.start !== q.end ? { start: q.start, end: q.end } : null;
+}
+
+/** 記録の quiet を読む。前の版の記録（quiet が無い）と形の違う値は、Worker と同じく既定と見る。 */
+function quietOfRecord(v: unknown): Quiet {
+  if (v === null) return null;
+  const o = v as { start?: unknown; end?: unknown } | undefined;
+  return o && typeof o === 'object' && isMinute(o.start) && isMinute(o.end) ? normalizeQuiet({ start: o.start, end: o.end }) : defaultQuiet();
+}
 
 const RECORD_KEY = 'hangar.mobile.push';
 
@@ -37,7 +56,9 @@ function loadRecord(): PushRecord | null {
   try {
     const raw = localStorage.getItem(RECORD_KEY);
     const v = raw ? (JSON.parse(raw) as Partial<PushRecord> | null) : null;
-    return v && typeof v.deviceId === 'string' && typeof v.endpoint === 'string' && typeof v.tzOffset === 'number' ? { deviceId: v.deviceId, endpoint: v.endpoint, tzOffset: v.tzOffset } : null;
+    return v && typeof v.deviceId === 'string' && typeof v.endpoint === 'string' && typeof v.tzOffset === 'number'
+      ? { deviceId: v.deviceId, endpoint: v.endpoint, tzOffset: v.tzOffset, quiet: quietOfRecord(v.quiet) }
+      : null;
   } catch {
     return null;
   }
@@ -122,13 +143,31 @@ const sameBytes = (a: ArrayBuffer | null | undefined, b: Uint8Array): boolean =>
   return x.every((v, i) => v === b[i]);
 };
 
-/** 購読を Worker に置き、手元に記録する。 */
-async function put(p: Pairing, sub: PushSubscription, tzOffset: number): Promise<void> {
+/** 購読を Worker に置き、手元に記録する。quiet は省かずに毎回送る（null は夜も鳴らす）。 */
+async function put(p: Pairing, sub: PushSubscription, tzOffset: number, quiet: Quiet): Promise<void> {
   const j = sub.toJSON();
   const keys = j.keys as { p256dh?: string; auth?: string } | undefined;
   if (!j.endpoint || !keys?.p256dh || !keys.auth) throw new PushError('subscribe');
-  await send(p, 'PUT', { endpoint: j.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth }, tzOffset });
-  saveRecord({ deviceId: p.deviceId, endpoint: j.endpoint, tzOffset });
+  await send(p, 'PUT', { endpoint: j.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth }, quiet, tzOffset });
+  saveRecord({ deviceId: p.deviceId, endpoint: j.endpoint, tzOffset, quiet });
+}
+
+/** この接続で置いた夜の時間帯。購読が無いとき（オフ、前の接続の記録）は既定（23:00〜7:00）。 */
+export function pushQuiet(p: Pairing): Quiet {
+  const rec = loadRecord();
+  return rec && rec.deviceId === p.deviceId ? rec.quiet : defaultQuiet();
+}
+
+/**
+ * 夜の時間帯を変えて、すぐ Worker に送る（PUT /m/push/subscription の quiet）。
+ * この接続の購読が無ければ送らずに PushError を投げる。Worker に送れなければ PushError で、覚えている値は変えない。
+ */
+export async function setPushQuiet(p: Pairing, quiet: Quiet, o: Options = {}): Promise<void> {
+  if (!pushSupported()) throw new PushError('subscribe');
+  const rec = loadRecord();
+  const sub = await currentSubscription();
+  if (!sub || !rec || rec.deviceId !== p.deviceId) throw new PushError('subscribe');
+  await put(p, sub, tzNow(o), normalizeQuiet(quiet));
 }
 
 /**
@@ -150,7 +189,7 @@ export async function readPushStatus(p: Pairing, o: Options = {}): Promise<PushS
   }
   if (!rec || rec.deviceId !== p.deviceId) return { kind: 'off' };
   const tz = tzNow(o);
-  if (rec.endpoint !== sub.endpoint || rec.tzOffset !== tz) await put(p, sub, tz).catch(() => undefined);
+  if (rec.endpoint !== sub.endpoint || rec.tzOffset !== tz) await put(p, sub, tz, rec.quiet).catch(() => undefined);
   return { kind: 'on' };
 }
 
@@ -158,8 +197,9 @@ export async function readPushStatus(p: Pairing, o: Options = {}): Promise<PushS
  * 「通知を受け取る」。押したときの操作の中で呼ぶ（iOS は利用者の操作の外で requestPermission を呼ぶと断る）。
  * 許可を求める前には網に出ない。前の購読が別の鍵（別の接続先）のものなら外してから購読し直す。
  * Worker に置けなければ購読を外して PushError を投げる。
+ * quiet を渡さなければ既定（23:00〜7:00）で置く。
  */
-export async function turnOnPush(p: Pairing, o: Options = {}): Promise<PushStatus> {
+export async function turnOnPush(p: Pairing, o: Options & { quiet?: Quiet } = {}): Promise<PushStatus> {
   if (!pushSupported()) return { kind: 'unsupported', ios: isIos() };
   const perm = await Notification.requestPermission();
   if (perm === 'denied') return { kind: 'denied' };
@@ -179,7 +219,7 @@ export async function turnOnPush(p: Pairing, o: Options = {}): Promise<PushStatu
     }
   }
   try {
-    await put(p, sub, tzNow(o));
+    await put(p, sub, tzNow(o), normalizeQuiet(o.quiet === undefined ? defaultQuiet() : o.quiet));
   } catch (e) {
     await sub.unsubscribe().catch(() => false);
     clearRecord();
