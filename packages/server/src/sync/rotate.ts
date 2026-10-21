@@ -158,14 +158,16 @@ const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r
  * 設定のクラウド同期の「解除」（`POST /api/sync/cloud-devices/:id/revoke`）。解除した端末の行を返す。
  * Worker の一覧で種類を見て、PC なら revokePc で世代を回し、スマホなら revokePhone でスマホ用の鍵 M だけを次の世代にする。
  * 一覧に無い端末は RevokeNotFoundError、自分自身は RevokeSelfError で断る。
- * すでに解除した端末には何もせず、今の行を返す。
+ * すでに解除した PC には何もせず、今の行を返す。
+ * すでに解除したスマホでも revokePhone へ渡す。スマホが自分で外した（`POST /m/leave`）ときは、Worker の行は解除済みでも名簿に残り、M も回っていないからである。
+ * 名簿にいなければ revokePhone は M も名簿も書き換えないので、PC からの解除を終えたスマホでは空回りしない。
+ * 自分で外したスマホは設定の表に出ないので、この道は主に、端末の一覧を読んだ PC の後始末（sync/devices.ts の leftPhoneSweeper）が使う。
  */
 export async function revokeMember(o: RevokePcOptions): Promise<DeviceOut> {
   if (o.id === o.deviceId) throw new RevokeSelfError();
   const target = (await o.client.listDevices()).find((d) => d.id === o.id);
   if (!target) throw new RevokeNotFoundError();
   if (target.kind === 'mobile') {
-    if (target.revokedAt !== null) return target;
     return (await revokePhone(o)) ?? (await deviceRow(o, o.id)) ?? target;
   }
   const done = await revokeKnown(o, target);

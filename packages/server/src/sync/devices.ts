@@ -14,6 +14,12 @@ export type CloudDevicesDeps = {
   /** この PC がクラウドを作った PC か（cloud.json に Worker の名前がある）。 */
   creator: boolean;
   language: () => Language;
+  /**
+   * 名簿にあるのに Worker で解除済みのスマホ（スマホが自分で外した）を見つけたら、その ID を渡す。
+   * 受け手（leftPhoneSweeper）は、PC からの解除と同じく名簿から外して M を回す。
+   * 一覧と名簿の両方が読めたときだけ呼び、見つからなければ呼ばない。
+   */
+  onLeftPhones?: (ids: string[]) => void;
 };
 
 /** 名簿の行を ID で引く。名簿が読めなければ空で、一覧は名前なしで出す（一覧そのものは Worker から取れている）。 */
@@ -48,6 +54,10 @@ export async function loadCloudDevices(d: CloudDevicesDeps): Promise<CloudDevice
       const e = entries.get(r.id);
       return { id: r.id, kind: r.kind, name: e?.name ?? null, platform: e?.os ?? null, joinedAt: r.joinedAt, lastSeenAt: r.lastSeenAt, revokedAt: r.revokedAt, expiresAt: r.expiresAt, self: r.id === d.deviceId };
     });
+    const left = rows.filter((r) => r.kind === 'mobile' && r.revokedAt !== null && entries.get(r.id)?.kind === 'phone').map((r) => r.id);
+    if (left.length > 0) {
+      try { d.onLeftPhones?.(left); } catch (e) { console.error('[sync] could not start removing the phones that left', e instanceof Error ? e.constructor.name : typeof e); }
+    }
     return { state: 'ok', devices, creator: d.creator, message: null };
   } catch (e) {
     if (e instanceof RevokedError) return { state: 'revoked', ...empty, message: errorText(d.language(), e) };
@@ -55,4 +65,26 @@ export async function loadCloudDevices(d: CloudDevicesDeps): Promise<CloudDevice
     if (e instanceof CloudError && e.status === 404) return outdated();
     return { state: 'unreachable', ...empty, message: errorText(d.language(), e) };
   }
+}
+
+/**
+ * スマホが自分で外した（`POST /m/leave`）後の後始末（設計書「スマホの解除」）。
+ * Worker はそのスマホの行に解除日を付けるが、名簿からは外さず、スマホ用の鍵 M も回さない。
+ * 盗まれたスマホで外されると、PC の設定の表から消えたまま名簿に残り、M も前の世代のままになる。
+ * そこで、端末の一覧を読んだ PC が見つけたスマホを、PC からの解除と同じ口（rotate.ts の revokeMember）へ渡し、名簿から外して M を回す。
+ * 新しい問い合わせは足さない。見つけるのは、もともと読んでいる一覧（loadCloudDevices）である。
+ * 後始末の最中のスマホは重ねて渡さない。失敗は知らせるだけで投げず、次に一覧を読んで見つけたときにもう一度渡す。
+ * 複数の PC が同時に見つけても、名簿の書き換えは版の食い違いで当て直し、名簿にいないスマホでは M を回さないので、M は 1 度だけ回る。
+ */
+export function leftPhoneSweeper(revoke: (id: string) => Promise<unknown>): (ids: string[]) => void {
+  const running = new Set<string>();
+  return (ids) => {
+    for (const id of ids) {
+      if (running.has(id)) continue;
+      running.add(id);
+      void revoke(id)
+        .catch((e: unknown) => { console.error('[sync] could not remove a phone that left by itself', e instanceof Error ? e.constructor.name : typeof e); })
+        .finally(() => { running.delete(id); });
+    }
+  };
 }
