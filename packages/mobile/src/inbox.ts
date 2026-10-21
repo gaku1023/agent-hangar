@@ -67,6 +67,21 @@ export function localDay(d: Date): string {
 
 type Candidate = { row: Row; live: boolean; time: number };
 
+/**
+ * 名前が分からない PC の代わりの表記。ID の先頭 4 文字を添える（例：PC 3f9c）。
+ * ID をまるごと出すと、受信箱の行が横にはみ出す。
+ */
+export function shortPcName(id: string): string {
+  const head = str(id).trim().slice(0, 4);
+  return head ? `PC ${head}` : 'PC';
+}
+
+/** Worker が返す PC の名前。いまの Worker は名前を持たず ID を入れて返すので、ID と同じなら名前として使わない。 */
+const workerName = (d: { id: string; name: string }): string => {
+  const n = str(d.name).trim();
+  return n && n !== d.id ? n : '';
+};
+
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -74,6 +89,8 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  *
  * - 更新が FEED_HIDE_AFTER_MS より古い feed は開かずに捨てる（unreadable にも入れない）。最後に見たのがそれより前の PC は devices に入れない。
  * - 開けない PC の分は unreadable に PC 名を入れ、ほかの PC は続ける。
+ * - PC の名前は、開けた feed の deviceName から取る（Worker は名前を持たず、name に ID を入れて返す）。
+ *   feed を開けない PC や名前が空の PC は、ID をそのまま出さず shortPcName の表記にする。行の deviceName も devices の name も同じ。
  * - Worker が最後に見てから PEER_STALE_MS を過ぎた PC の live は、状態を unknown にして running の末尾へ置く（waiting に出さない）。
  *   見ていない時間は Worker の時刻（res.now）で測る。lastSeenAt も Worker の時刻なので、スマホの時計のずれに左右されない。
  * - 「今日」はスマホの日付。returns は returnOn が今日か、過ぎた日のもの（戻り忘れも出す）。done は doneAt が今日のもの。
@@ -82,10 +99,10 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  */
 export async function openInbox(res: MobileInboxResponse & { workerCompat?: number | null }, keys: Keyring, now: Date): Promise<InboxView> {
   const workerNow = num(res.now) ?? now.getTime();
-  const devices: DeviceAlive[] = arr(res.devices)
+  let devices: DeviceAlive[] = arr(res.devices)
     .map((d) => {
       const lastSeenAt = num(d.lastSeenAt);
-      return { id: d.id, name: d.name, lastSeenAt, alive: lastSeenAt !== null && workerNow - lastSeenAt <= PEER_STALE_MS };
+      return { id: d.id, name: workerName(d), lastSeenAt, alive: lastSeenAt !== null && workerNow - lastSeenAt <= PEER_STALE_MS };
     })
     .filter((d) => d.lastSeenAt === null || workerNow - d.lastSeenAt <= FEED_HIDE_AFTER_MS);
   const byId = new Map(devices.map((d) => [d.id, d]));
@@ -93,6 +110,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
 
   const unreadable: string[] = [];
   const feeds: MobileFeed[] = [];
+  const feedNames = new Map<string, string>();
   const candidates = new Map<string, Candidate>();
   const offer = (c: Candidate): void => {
     const prev = candidates.get(c.row.sessionId);
@@ -111,11 +129,12 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
       feed = await open<MobileFeed>(key, aadFeed(f.deviceId), f.sealed);
       if (!feed || typeof feed !== 'object' || feed.v !== 1 || feed.deviceId !== f.deviceId) throw new Error('feed の形が違います');
     } catch {
-      unreadable.push(device?.name ?? f.deviceId);
+      unreadable.push(device?.name || shortPcName(f.deviceId));
       continue;
     }
     feeds.push(feed);
-    const deviceName = device?.name ?? str(feed.deviceName);
+    const deviceName = str(feed.deviceName).trim() || device?.name || shortPcName(f.deviceId);
+    feedNames.set(f.deviceId, deviceName);
     const alive = device?.alive ?? false;
     const accounts = new Map(arr(feed.accounts).map((a) => [a.id, a]));
     const base = (s: { sessionId: string; projectName: string; title: string }, accountId: string | null): Omit<Row, 'status' | 'at' | 'startedAt' | 'waiting' | 'intent' | 'oneLiner' | 'returnOn' | 'returnTime' | 'rcUrl'> => {
@@ -161,6 +180,8 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
       offer({ live: false, time: doneAt ?? -Infinity, row: { ...base(d, null), ...empty, status: 'done', at: doneAt, oneLiner: strOrNull(d.oneLiner) } });
     }
   }
+
+  devices = devices.map((d) => ({ ...d, name: feedNames.get(d.id) || d.name || shortPcName(d.id) }));
 
   const rows = [...candidates.values()].map((c) => c.row);
   const waiting = rows.filter((r) => r.status === 'waiting').sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.sessionId.localeCompare(b.sessionId));

@@ -146,7 +146,8 @@ describe('InboxScreen', () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting', waiting: { kind: 'question', text: '質問 1' } })] }), feedOf('pc-2', 'Mac 2')], { otherKeyFor: ['pc-2'] });
     render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     expect(await screen.findByText('質問 1')).toBeInTheDocument();
-    expect(screen.getByText(/Mac 2 の一覧を開けません/)).toBeInTheDocument();
+    // Worker は PC の名前を持たないので、開けない PC は ID の先頭を添えた表記になる。
+    expect(screen.getByText(/PC pc-2 の一覧を開けません/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '接続し直す' })).toBeNull();
   });
 

@@ -52,7 +52,10 @@ export function feedOf(deviceId: string, deviceName: string, parts: Partial<Mobi
   };
 }
 
-/** feed を key で封じて /m/inbox の応答の形にする。sealedFor に deviceId を渡すと、その PC の分は別の鍵で封じる（開けない）。 */
+/**
+ * feed を key で封じて /m/inbox の応答の形にする。
+ * devices の name は、本物の Worker と同じく PC の ID にする（Worker は PC の名前を持たない）。
+ *sealedFor に deviceId を渡すと、その PC の分は別の鍵で封じる（開けない）。 */
 export async function inboxOf(
   key: CryptoKey,
   feeds: MobileFeed[],
@@ -70,7 +73,7 @@ export async function inboxOf(
   );
   return {
     now,
-    devices: feeds.map((f) => ({ id: f.deviceId, name: f.deviceName, platform: 'darwin', lastSeenAt: opts.lastSeen && f.deviceId in opts.lastSeen ? opts.lastSeen[f.deviceId]! : now - MIN })),
+    devices: feeds.map((f) => ({ id: f.deviceId, name: f.deviceId, platform: 'darwin', lastSeenAt: opts.lastSeen && f.deviceId in opts.lastSeen ? opts.lastSeen[f.deviceId]! : now - MIN })),
     feeds: sealed,
   };
 }
