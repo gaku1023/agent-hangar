@@ -86,7 +86,7 @@ describe('presentNotices：事実から行を組む', () => {
     expect(presentNotices(initialState(), storeOf({ readiness: {} as ReadinessDto }), NOW).rows).toEqual([]);
   });
 
-  // 保持期間の日数（決まり）は設定の「情報」の目次に残し、注意には消えかけがあるときだけ出す（9a）。
+  // 保持期間の日数（決まり）は設定の「セッション」の目次に残し、注意には消えかけがあるときだけ出す（9a）。
   it('保持期間は、消えかけのトランスクリプトが無ければ行にしない', () => {
     for (const r of [null, retention(), retention({ source: 'user', userValue: 365, days: 365 }), retention({ source: 'managed', writable: false }), retention({ writable: false })]) {
       expect(presentNotices(initialState(), storeOf({ retention: r }), NOW).rows).toEqual([]);

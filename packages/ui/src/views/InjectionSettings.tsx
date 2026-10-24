@@ -4,7 +4,6 @@ import type { InjectionSettingsProps } from '../presenters/settings.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
-import { ModelPicker } from './ModelPicker.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
@@ -24,10 +23,10 @@ function AddItem(props: { icon: IconName; title: string; info?: string; always?:
 }
 
 /**
- * 連携の小節「hangar が起動する Claude Code に足すもの」（試作 1 節の推す案 B）。
+ * セッションの小節「Claude Code に渡す設定」（試作 1 節の推す案 B）。
  * MCP の設定と hook は hangar の基本なので切れず、「常に」を添える。
  * スイッチ 2 つと全文の畳みは「システムプロンプトの追記」の行の中に字下げして置き、スイッチが追記の一部だけに効くことを形で見せる。
- * 既定のモデルは追記とは別のものなので、線の外の 1 行に出す。どれも選んだ時点で保存する。
+ * Remote Control と既定のモデルは追記とは別のもので、新しいセッションの小節に置く（2026-10-25 の並び替え）。どれも選んだ時点で保存する。
  * 全文は辞書の 3 つの鍵を画面の言語で埋めたもの（presenters/injection.ts）で、切った段は打ち消し線で残す。
  */
 export function InjectionSettings(props: { injection: InjectionSettingsProps }) {
@@ -61,11 +60,6 @@ export function InjectionSettings(props: { injection: InjectionSettingsProps }) 
           </details>
         </AddItem>
       </ul>
-      {/* 起動のときに claude へ付ける --remote-control（試作 B1）。システムプロンプトの追記ではないので、線の外の 1 行にする。 */}
-      <SetRow title={t('settings.label.remoteControl')} info={t('settings.integrations.inject.remoteControl.desc')}
-        control={<Switch label={t('settings.label.remoteControl')} checked={i.remoteControl} onChange={(next) => emit({ type: 'settings.update', patch: { remoteControl: next } })} />} />
-      <SetRow title={t('settings.label.defaultModel')} info={t('settings.integrations.inject.model.desc')}
-        control={<ModelPicker label={t('settings.label.defaultModel')} value={i.defaultModel} withDefault onChange={(m) => emit({ type: 'settings.update', patch: { defaultModel: m } })} />} />
     </section>
   );
 }

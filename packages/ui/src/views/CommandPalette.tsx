@@ -11,7 +11,7 @@ import { StatusDot } from './primitives/StatusDot.tsx';
 const ICON: Record<PaletteIcon, IconName> = {
   home: 'home', projects: 'projects', settings: 'settings', next: 'nextWaiting', sidebar: 'sidebar', keys: 'command', add: 'add', scratch: 'scratch', rebuild: 'rebuild', fulltext: 'fullText',
   // 設定の節。設定の画面の目次と同じ絵にする（views/SettingsScreen.tsx の SECTION_ICON）。
-  general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', info: 'info', retention: 'retention',
+  general: 'general', sessions: 'sessions', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', environment: 'tool', usage: 'usage', about: 'info', retention: 'retention',
 };
 
 /** 名前の中の、打った語にそのまま一致する部分を印で囲む。部分列でしか当たらないときは囲まない。 */

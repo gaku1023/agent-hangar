@@ -80,7 +80,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.compat.ok': '{version}（検証済み）',
   'home.ready.copyCommand': 'コマンドをコピー',
   'home.ready.openSettings': '設定を開く',
-  'home.ready.toast.done': 'セットアップは完了しています。設定の「情報」でいつでも確認できます',
+  'home.ready.toast.done': 'セットアップは完了しています。設定の「環境」でいつでも確認できます',
   'home.ready.toast.required': '必要な準備は完了しました。MCP とステータスラインは設定の「連携」で設定できます',
   'home.card.noQuestion': '入力待ちです',
   'home.card.noReason': '理由の記載はありません',

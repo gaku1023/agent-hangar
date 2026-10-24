@@ -327,7 +327,7 @@ describe('スマホの接続（試作 A1）', () => {
     expect(screen.getByText(/スマホで受信箱を見て/)).toBeInTheDocument();
     // 解除の確認を無くしたので、なくしたときの注意は表の下の説明に置く。
     expect(screen.getByText(/スマホで受信箱を見て/)).toHaveTextContent('スマホをなくしたときは、すぐに「解除」してください。');
-    expect(screen.getByText('「Remote Control を付けて起動する」の設定は「連携」にあります。')).toBeInTheDocument();
+    expect(screen.getByText('「Remote Control を付けて起動する」の設定は「セッション」にあります。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'スマホを接続' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.pair' });
     rerender(ui(both(props({ phone: ready })), onAction));
@@ -458,7 +458,7 @@ describe('スマホの接続（試作 A1）', () => {
   it('worker-too-old では QR を出さず、更新を促す文を出す。券の取りすぎと失敗も理由を出す', () => {
     const { rerender } = render(ui(both(props({ phone: { kind: 'old', compat: 6 } }))));
     expect(screen.queryByRole('img', { name: 'スマホを接続する QR' })).toBeNull();
-    expect(screen.getByText(/Worker は古いバージョンです（互換の版 6）/)).toBeInTheDocument();
+    expect(screen.getByText(/Worker は古いバージョンです（互換バージョン 6）/)).toBeInTheDocument();
     expect(screen.getByText(/hangar setup cloud/)).toBeInTheDocument();
     rerender(ui(both(props({ phone: { kind: 'limited' } }))));
     expect(screen.getByRole('alert')).toHaveTextContent('10 分ほど待ってから');

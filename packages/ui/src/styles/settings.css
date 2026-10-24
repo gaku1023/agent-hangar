@@ -207,6 +207,12 @@
 .editor-path { display: grid; gap: var(--u); justify-items: start; font-size: var(--fs-sm); }
 .editor-path .field { width: 100%; }
 .editor-path-hint { font-size: var(--fs-xs); }
+/* 「他のエディタ」の開き閉じ（2026-10-25 の案 D）。印は開いている間だけ上を向く。 */
+.editor-others-toggle { justify-self: start; display: inline-flex; align-items: center; gap: var(--u); font-size: var(--fs-sm); }
+.editor-others-toggle svg { transition: transform var(--dur) var(--ease-out); }
+.editor-others-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.editor-group-h { padding: var(--u) calc(var(--u) * 2.5); border-top: 1px solid var(--line); background: var(--bg); font-size: var(--fs-xs); }
+.editor-group-h + .editor-choice { border-top: 1px solid var(--line); }
 .editor-result { display: flex; gap: calc(var(--u) * 1.5); align-items: flex-start; font-size: var(--fs-sm); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); color: var(--ink-2); }
 .editor-result .icon { width: 14px; height: 14px; flex: none; margin-top: 2px; }
 .editor-result[data-tone='ok'] { background: var(--st-done-soft); color: var(--st-done); }

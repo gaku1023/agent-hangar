@@ -2226,7 +2226,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     };
     it('直すものがあった後で全部そろったら、トーストを 1 回だけ出す。取り直しを重ねても繰り返さない', async () => {
       const rt = await run([PENDING, COMPLETE, COMPLETE]);
-      expect(rt.getState().toasts.map((t) => t.message)).toEqual(['セットアップは完了しています。設定の「情報」でいつでも確認できます']);
+      expect(rt.getState().toasts.map((t) => t.message)).toEqual(['セットアップは完了しています。設定の「環境」でいつでも確認できます']);
     });
     it('必須が済んで任意の行だけが残ったときは、帯が消えるので、任意が設定の「連携」に残ることをトーストで言う', async () => {
       const rt = await run([PENDING, OPTIONAL_LEFT, OPTIONAL_LEFT]);

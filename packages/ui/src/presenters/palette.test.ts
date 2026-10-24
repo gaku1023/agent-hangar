@@ -66,13 +66,13 @@ describe('presentPalette（何も打っていないとき）', () => {
   it('空白だけの入力も、何も打っていないのと同じに扱う', () => {
     expect(titles(presentPalette(withPalette(), busy(), '  ', NOW))).toEqual(titles(presentPalette(withPalette(), busy(), '', NOW)));
   });
-  it('入力待ちが 4 本の朝でも、操作と設定の群まで 16 行前後に収まる', () => {
+  it('入力待ちが 4 本の朝でも、操作と設定の群まで 17 行前後に収まる', () => {
     const st = busy();
     for (const id of ['w2', 'w3', 'w4']) st.sessions[id] = at(session(id, `待ち ${id}`, null), { live: 'waiting', lastActivityAt: NOW - 9 * MIN });
     const p = presentPalette(withPalette(), st, '', NOW)!;
     const rows = p.sections.reduce((n, x) => n + x.items.length, 0);
     expect(ids(p, '要対応')).toHaveLength(4);
-    expect(rows).toBe(16);
+    expect(rows).toBe(17);
   });
   it('セッションの行には状態の点とプロジェクト名、右に待った長さや経った時間を添える', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
@@ -114,10 +114,10 @@ describe('presentPalette（何も打っていないとき）', () => {
     expect(all.some((i) => i.id === 'go:home')).toBe(false);
     expect(ids(presentPalette(withPalette(), busy(), 'ホーム', NOW), '操作')).toContain('go:home');
   });
-  it('設定の群は節への行き先で、設定の添え書きを付ける。保持は一般の節へ移る', () => {
+  it('設定の群は節への行き先で、設定の添え書きを付ける。保持はセッションの節へ移る', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
-    expect(ids(p, '設定')).toEqual(['settings:general', 'settings:cloud', 'settings:integrations', 'settings:retention']);
-    expect(p.sections.find((x) => x.title === '設定')!.items.map((i) => i.label)).toEqual(['一般', 'クラウド同期', '連携', 'トランスクリプトの保持']);
+    expect(ids(p, '設定')).toEqual(['settings:general', 'settings:sessions', 'settings:integrations', 'settings:cloud', 'settings:retention']);
+    expect(p.sections.find((x) => x.title === '設定')!.items.map((i) => i.label)).toEqual(['一般', 'セッション', '連携', 'クラウド同期', 'トランスクリプトの保持']);
     expect(item(p, 'settings:cloud')).toMatchObject({ kind: 'command', sub: '設定', lead: { kind: 'icon', icon: 'cloud' } });
   });
   it('新しいセッションは、いまの画面のプロジェクトを最初から選ぶ', () => {
@@ -178,6 +178,14 @@ describe('presentPalette（打ち始めた後）', () => {
     expect(ids(side, '操作')).toEqual(['cmd:sidebar']);
     const idx = presentPalette(withPalette(), store(), 'インデックス', NOW)!;
     expect(ids(idx, '操作')).toEqual(['cmd:rebuild-index']);
+  });
+  it('要約、環境、使用量、Hangar についての節は、打ったときだけ出る', () => {
+    const all = presentPalette(withPalette(), store(), '', NOW)!.sections.flatMap((x) => x.items.map((i) => i.id));
+    for (const id of ['settings:summary', 'settings:environment', 'settings:usage', 'settings:about']) expect(all).not.toContain(id);
+    expect(ids(presentPalette(withPalette(), store(), '要約', NOW), '設定')).toEqual(['settings:summary']);
+    expect(ids(presentPalette(withPalette(), store(), '環境', NOW), '設定')).toEqual(['settings:environment']);
+    expect(ids(presentPalette(withPalette(), store(), '使用量', NOW), '設定')).toEqual(['settings:usage']);
+    expect(ids(presentPalette(withPalette(), store(), 'Hangar について', NOW), '設定')).toEqual(['settings:about']);
   });
   it('Windows では、打鍵を Ctrl で見せる', () => {
     setClientUserAgent(WINDOWS_UA);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
@@ -16,27 +16,68 @@ const props = (over: Partial<EditorSettingsProps> = {}): EditorSettingsProps => 
   ],
   ...over,
 });
-const ui = (p: EditorSettingsProps, onAction: (a: UiAction) => void = () => {}) => render(<ActionRoot onAction={onAction}><EditorSettings editor={p} mark={undefined} /></ActionRoot>);
+const ui = (p: EditorSettingsProps, onAction: (a: UiAction) => void = () => {}, open?: boolean) => render(<ActionRoot onAction={onAction}><EditorSettings editor={p} mark={undefined} open={open} /></ActionRoot>);
+/** 未検出の候補を足した一覧。 */
+const withMissing = (over: Partial<EditorSettingsProps> = {}): EditorSettingsProps => {
+  const base = props(over);
+  return { ...base, choices: [...base.choices.slice(0, 1), { id: 'cursor', name: 'Cursor', tile: 'Cu', state: 'none', path: null, version: null, selected: false, badge: { text: '未検出', tone: 'mute' } }, ...base.choices.slice(1)] };
+};
+const toggle = () => screen.getByRole('button', { name: /^他のエディタ/ });
 
 describe('エディタの欄（試作の 1-1 の A）', () => {
-  it('開いたら候補を読み直し、見つかり方の札と場所を並べる', () => {
+  it('開いたら候補を読み直し、選んでいる 1 本の行だけを出して、ほかの候補は数を添えたボタンに畳む', () => {
     const onAction = vi.fn();
-    ui(props(), onAction);
+    ui(withMissing(), onAction);
     expect(onAction).toHaveBeenCalledWith({ type: 'editors.load' });
     const rows = screen.getAllByRole('radio');
-    expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+    expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true']);
     expect(rows[0]).toHaveTextContent('VS Code1.105.1/usr/local/bin/code検出済み');
-    expect(rows[1]).toHaveTextContent('アプリのみ');
+    // 検出済みの数に任意のコマンドは数えない。
+    expect(toggle()).toHaveTextContent('他のエディタ（検出済み 1 · 未検出 1）');
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
     // 何に使うかは見出しの横の ⓘ に畳む。見つかり方は札で読めるので、文では言わない。
     expect(screen.queryByText(/検出状況/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'エディタの説明' }));
     expect(screen.getByRole('dialog', { name: 'エディタの説明' })).toHaveTextContent('変更したファイルを該当の行から開くときに使います');
   });
-  it('選んだ時点で保存し、前のエディタのパスは持ち越さない。テストは選んだ行にだけある', () => {
+  it('畳みを開くと、検出済み（任意のコマンドを含む）が上、「未検出 n」の見出しの下に未検出が並び、見つかり方の札と場所を出す', () => {
+    ui(withMissing());
+    fireEvent.click(toggle());
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    const others = screen.getByRole('radiogroup', { name: '他のエディタ' });
+    expect(others).toHaveTextContent(/Zed.*アプリのみ.*任意のコマンド.*未検出 1.*Cursor/);
+    const rows = screen.getAllByRole('radio');
+    expect(rows.map((r) => r.textContent?.match(/VS Code|Zed|任意のコマンド|Cursor/)?.[0])).toEqual(['VS Code', 'Zed', '任意のコマンド', 'Cursor']);
+    expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false']);
+    expect(rows[1]).toHaveTextContent('/Applications/Zed.app');
+  });
+  it('未検出が無ければ、未検出の見出しを出さない', () => {
+    ui(props(), undefined, true);
+    expect(screen.getByRole('radiogroup', { name: '他のエディタ' })).not.toHaveTextContent('未検出');
+    expect(toggle()).toHaveTextContent('他のエディタ（検出済み 1 · 未検出 0）');
+  });
+  it('準備の帯から飛んできたとき（open）と、選んでいるエディタが見つからないときは、開いて始める', () => {
+    const { unmount } = ui(props(), undefined, true);
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('radio', { name: /Zed/ })).toBeInTheDocument();
+    unmount();
+    const gone = props({ choices: props().choices.map((c) => (c.id === 'vscode' ? { ...c, state: 'none' as const, path: null, version: null, badge: { text: '未検出', tone: 'mute' as const } } : c)) });
+    ui(gone);
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('radio', { name: /Zed/ })).toBeInTheDocument();
+  });
+  it('検出中は、数を添えない名前だけのボタンにする', () => {
+    ui(props({ loading: true }));
+    expect(toggle()).toHaveTextContent(/^他のエディタ$/);
+  });
+  it('選んだ時点で保存して畳みを閉じ、前のエディタのパスは持ち越さない。テストは選んだ行にだけある', async () => {
     const onAction = vi.fn();
     ui(props({ setting: { id: 'vscode', path: '/opt/code', fileCmd: '', dirCmd: '', terminal: 'none' } }), onAction);
+    fireEvent.click(toggle());
     fireEvent.click(screen.getByRole('radio', { name: /Zed/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { editor: { id: 'zed', path: null, fileCmd: '', dirCmd: '', terminal: 'none' } }, field: 'editor' });
+    await waitFor(() => expect(toggle()).toHaveAttribute('aria-expanded', 'false'));
+    expect(screen.queryByRole('radio', { name: /Zed/ })).toBeNull();
     expect(screen.getAllByRole('button', { name: 'テスト' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'テスト' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'editor.test' });
@@ -56,6 +97,10 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
   it('テストの答えは、選んだ行（テストのボタン）のすぐ下に出す。欄の下端に出すと右下の札に隠れるため', () => {
     ui(props({ test: { running: false, result: { tone: 'ng', text: 'Cursor が未検出。インストール後に「再確認」をクリックするか、パスを指定してください。' } } }));
     expect(screen.getByRole('status')).toHaveTextContent('Cursor が未検出');
+    expect(screen.getByRole('radio', { name: /VS Code/ }).nextElementSibling).toBe(screen.getByRole('status'));
+  });
+  it('畳みを開いても、テストの答えは選んだ行のすぐ下にある', () => {
+    ui(props({ test: { running: false, result: { tone: 'ok', text: '開きました' } } }), undefined, true);
     expect(screen.getByRole('radio', { name: /VS Code/ }).nextElementSibling).toBe(screen.getByRole('status'));
   });
   it('テストの最中の文も、選んだ行のすぐ下に出す', () => {

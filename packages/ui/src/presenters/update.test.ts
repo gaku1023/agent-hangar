@@ -70,7 +70,7 @@ describe('presentUpdateCard：右下の札', () => {
   });
 });
 
-describe('presentUpdateSection：設定の「更新」の節', () => {
+describe('presentUpdateSection：設定の「Hangar について」の更新の段', () => {
   it('最新なら、版と最終確認の時刻、最新の札を出す', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'latest' }, { checkedAt: NOW - 5 * MIN })), NOW);
     expect(p).toMatchObject({ supported: true, badge: { text: '最新', tone: 'ok' }, version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false }, pending: null });
@@ -138,11 +138,11 @@ describe('リリースノート', () => {
   ];
   const withNotes = (phase: UpdatePhase, over: Partial<UpdateState> = {}) => up(phase, { notes: bundled, seenNotes: '1.4.2', ...over });
 
-  it('新しいバージョンの札に、目録のノートの注意と要点を 3 つまで載せ、ノートを読むで設定の更新の節へ移す', () => {
+  it('新しいバージョンの札に、目録のノートの注意と要点を 3 つまで載せ、ノートを読むで設定の「Hangar について」の節へ移す', () => {
     const c = presentUpdateCard(storeOf(withNotes({ kind: 'available', version: '1.5.0' }, { foundNotes: { version: '1.5.0', text: NOTE_150 } })))!;
     expect(c.before).toBe('すべての PC を 1.5.0 に上げてください。');
     expect(c.points).toEqual(['一つ目', '二つ目', '三つ目']);
-    expect(c.actions[0]).toEqual({ label: 'ノートを読む', action: { type: 'nav.go', to: { name: 'settings', at: 'update' } }, primary: false, link: true });
+    expect(c.actions[0]).toEqual({ label: 'ノートを読む', action: { type: 'nav.go', to: { name: 'settings', at: 'about' } }, primary: false, link: true });
   });
 
   it('目録にノートが無ければ、注意も要点もノートを読むも出さない', () => {

@@ -19,7 +19,7 @@ function keysOf(id: KeyId): string {
 }
 
 /** 行頭の印に使う絵の名前。View が Icon の名前へ写す。 */
-export type PaletteIcon = 'home' | 'projects' | 'settings' | 'next' | 'sidebar' | 'keys' | 'add' | 'scratch' | 'rebuild' | 'fulltext' | 'general' | 'cloud' | 'integrations' | 'summary' | 'tools' | 'info' | 'retention';
+export type PaletteIcon = 'home' | 'projects' | 'settings' | 'next' | 'sidebar' | 'keys' | 'add' | 'scratch' | 'rebuild' | 'fulltext' | 'general' | 'sessions' | 'cloud' | 'integrations' | 'summary' | 'environment' | 'usage' | 'about' | 'retention';
 /** 行頭の印。セッションは状態の点、コマンドは絵である。 */
 export type PaletteLead = { kind: 'dot'; live: LiveStatus | null; aside: boolean; reason?: StopReason | null } | { kind: 'icon'; icon: PaletteIcon };
 /**
@@ -147,18 +147,20 @@ export function presentPalette(state: State, store: Store, query: string, now: n
     cmd('cmd:sidebar', t('palette.cmd.sidebar'), 'sidebar', keysOf('sidebar.toggle')),
     cmd('cmd:rebuild-index', t('palette.cmd.rebuildIndex'), 'rebuild'),
   ];
-  // 設定の節は、行き先として並べる。保持は一般の節の中にあるので、一般の節へ移る。
+  // 設定の節は、行き先として並べる。保持はセッションの節の中にあるので、セッションの節へ移る。
   const place = t('settings.heading.title');
   const sectionRows = [
     cmd('settings:general', t('settings.section.general'), 'general', '', place),
-    cmd('settings:cloud', t('settings.section.cloud'), 'cloud', '', place),
+    cmd('settings:sessions', t('settings.section.sessions'), 'sessions', '', place),
     cmd('settings:integrations', t('settings.section.integrations'), 'integrations', '', place),
+    cmd('settings:cloud', t('settings.section.cloud'), 'cloud', '', place),
     cmd('settings:retention', t('settings.general.retention.title'), 'retention', '', place),
   ];
   const typedSections = [
     cmd('settings:summary', t('settings.section.summary'), 'summary', '', place),
-    cmd('settings:tools', t('settings.section.tools'), 'tools', '', place),
-    cmd('settings:info', t('settings.section.info'), 'info', '', place),
+    cmd('settings:environment', t('settings.section.environment'), 'environment', '', place),
+    cmd('settings:usage', t('settings.section.usage'), 'usage', '', place),
+    cmd('settings:about', t('settings.section.about'), 'about', '', place),
   ];
   // 設定の節は、添え書きの「設定」でも当てる。「設定」と打つと、節がそろって出る。
   const scoreAll = (items: PaletteItem[], withSub = false) => items.map((item) => ({ item, score: fuzzyScore(q, withSub ? `${item.label} ${item.sub}` : item.label) }));

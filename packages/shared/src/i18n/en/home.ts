@@ -80,7 +80,7 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.ready.compat.ok': '{version} (verified)',
   'home.ready.copyCommand': 'Copy command',
   'home.ready.openSettings': 'Open settings',
-  'home.ready.toast.done': 'Setup is complete. You can check it any time under Settings > Info',
+  'home.ready.toast.done': 'Setup is complete. You can check it any time under Settings > Environment',
   'home.ready.toast.required': 'The required setup is complete. You can set up MCP and the status line under Settings > Integrations',
   'home.card.noQuestion': 'Waiting for input',
   'home.card.noReason': 'No reason was written',

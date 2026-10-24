@@ -160,7 +160,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.phone.heading': 'Phones',
   'cloudMember.phone.pair': 'Connect a phone',
   'cloudMember.phone.lead': 'See your inbox on your phone and start a conversation on any of your PCs. Conversations open in the Claude app. If you lose your phone, remove it right away.',
-  'cloudMember.phone.rcPointer': 'The “Start with Remote Control” setting is in Integrations.',
+  'cloudMember.phone.rcPointer': 'The “Start with Remote Control” setting is in Sessions.',
   'cloudMember.phone.loading': 'Creating a QR code…',
   'cloudMember.phone.title': 'Scan with your phone',
   'cloudMember.phone.step1': 'Scan the QR code with your phone camera',
