@@ -3,13 +3,10 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const terminalJa: AreaDictionary<typeof terminalKeys> = {
   'terminal.band.title': 'トランスクリプト表示中',
-  'terminal.band.sub': 'Claude はバックグラウンドで実行中です',
-  'terminal.band.subWhen': '{when} のターン · Claude はバックグラウンドで実行中です',
   'terminal.band.latest': '最新へ移動',
   'terminal.off.failed': 'ターミナルに接続できませんでした',
   'terminal.off.detached': 'ターミナルから切り離されました',
   'terminal.off.dropped': 'ターミナルとの接続が切れました',
-  'terminal.off.failedBody': '再接続するか、セッションを開き直してください。',
   'terminal.off.agentRunning': 'Claude は実行を続けています。',
   'terminal.off.shellRunning': 'シェルは実行を続けています。',
   'terminal.off.gaveUp': '接続できませんでした。',

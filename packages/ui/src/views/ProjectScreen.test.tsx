@@ -280,19 +280,26 @@ describe('ProjectScreen の右パネル', () => {
 });
 
 describe('ProjectScreen の指示とメモリ', () => {
-  const section = () => screen.getByRole('heading', { name: '指示とメモリ' }).closest('section')!;
+  const section = () => screen.getByRole('heading', { name: /^指示とメモリ/ }).closest('section')!;
+  const info = () => { fireEvent.click(within(section()).getByRole('button', { name: '指示とメモリの説明' })); return screen.getByRole('dialog', { name: '指示とメモリの説明' }); };
 
-  it('行に名前、説明、大きさと更新を出し、読まれないものに印を付ける', () => {
+  it('行に名前、大きさと更新を出し、読まれないものに印を付ける。種類の説明と /context の脚注は見出しの ⓘ に隠す', () => {
     mount();
     const rows = within(section()).getAllByRole('listitem');
     expect(rows.map((r) => r.textContent)).toEqual([expect.stringContaining('CLAUDE.md'), expect.stringContaining('AGENTS.md')]);
-    expect(rows[0]).toHaveTextContent('プロジェクト指示・チームで共有');
+    expect(rows[0]).not.toHaveTextContent('プロジェクト指示・チームで共有');
     expect(rows[0]).toHaveTextContent('2.3 KB · 2 日前');
     expect(rows[0]).not.toHaveAttribute('data-off');
     expect(rows[1]).toHaveAttribute('data-off', 'true');
-    // 読まれるものの全体の見方を、節の下に添える。
-    expect(section()).toHaveTextContent('読み込まれる内容の全体は、セッションで /context を実行すると確認できます。');
-    expect(within(section()).getByText('/context').tagName).toBe('CODE');
+    expect(section()).not.toHaveTextContent('/context');
+    // ⓘ を押すと、並んでいるファイルの説明と、読まれるものの全体の見方が浮かぶ。
+    const tip = info();
+    expect(tip).toHaveTextContent('CLAUDE.md');
+    expect(tip).toHaveTextContent('プロジェクト指示・チームで共有');
+    expect(tip).toHaveTextContent('AGENTS.md');
+    expect(tip).toHaveTextContent('CLAUDE.md があるため読み込まれない');
+    expect(tip).toHaveTextContent('読み込まれる内容の全体は、セッションで /context を実行すると確認できます。');
+    expect(within(tip).getByText('/context').tagName).toBe('CODE');
   });
 
   it('行を押すとダイアログで本文を描き、読み直しを頼む。Esc で閉じる', () => {
@@ -327,16 +334,17 @@ describe('ProjectScreen の指示とメモリ', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('このファイルを読み込めませんでした。エディタで開いてください。');
   });
 
-  it('ファイルが無ければ説明だけを出す。読み込む前は何も言わない。フォルダが無ければそう言う', () => {
+  it('ファイルが無ければ無いとだけ言う。読み込む前は何も言わない。フォルダが無ければそう言い、ⓘ を出さない', () => {
     const { unmount } = mount(props({ instructions: { state: 'ready', rows: [], legacyNote: null } }));
-    expect(section()).toHaveTextContent('指示ファイルはありません。CLAUDE.md を作成すると、起動のたびに読み込まれます。');
+    expect(within(section()).getByText('指示ファイルはありません')).toBeInTheDocument();
+    expect(info()).toHaveTextContent('/context');
     unmount();
     const r = mount(props({ instructions: { state: 'loading', rows: [], legacyNote: null } }));
     expect(section()).not.toHaveTextContent('指示のファイルはありません');
     r.unmount();
     mount(props({ instructions: { state: 'missing', rows: [], legacyNote: null } }));
     expect(section()).toHaveTextContent('この PC にはディレクトリがありません');
-    expect(section()).not.toHaveTextContent('/context');
+    expect(within(section()).queryByRole('button', { name: '指示とメモリの説明' })).toBeNull();
   });
 
   it('以前のノートは中身があるときだけ出し、削除は確かめてから空で保存する', () => {
@@ -359,7 +367,8 @@ describe('ProjectScreen の指示とメモリ', () => {
 // 窓に収めた右パネル（A1 + B + C3 + D1）。節の見出しの左のシェブロンで折りたたみ、アーティファクトは新しい方から 3 件だけ出す。
 const artN = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 'a' + (i + 1), title: '題名 a' + (i + 1), description: null, favicon: '📊', url: 'https://claude.ai/code/artifact/a' + (i + 1), lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }));
 const headOf = (name: RegExp) => screen.getByRole('heading', { name });
-const toggleOf = (name: RegExp) => within(headOf(name)).getByRole('button');
+// 見出しには ⓘ（説明）のボタンも並ぶので、折りたたみのボタンを名指しで取る。
+const toggleOf = (name: RegExp) => headOf(name).querySelector<HTMLElement>('.rail-toggle')!;
 const bodyOf = (name: RegExp) => document.getElementById(toggleOf(name).getAttribute('aria-controls')!)!;
 
 describe('ProjectScreen の右パネルの節の折りたたみ', () => {

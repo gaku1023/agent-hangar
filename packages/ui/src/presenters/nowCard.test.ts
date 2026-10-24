@@ -87,13 +87,13 @@ describe('現在の札の状態の行', () => {
   it('入力待ちは、動いているサブエージェントや裏の印があっても入力待ちのまま', () => {
     expect(present({ live: 'waiting', aside: { shell: true, agents: 0 }, digest: digest({ agents: [agent({})] }) }).tone).toBe('wait');
   });
-  it('裏だけ動いているときは、バックグラウンドで作業中と、メイン会話が空いていることを言う（問いではない）', () => {
-    expect(present({ aside: { shell: true, agents: 0 } })).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中、メイン会話は入力可能', question: false });
+  it('裏だけ動いているときは、バックグラウンドで作業中と言い、裏のシェルだけを 1 行添える（サブエージェントはチップで見せる。問いではない）', () => {
+    expect(present({ aside: { shell: true, agents: 0 } })).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中', question: false });
     const two = present({ aside: { shell: false, agents: 2 }, digest: digest({ agents: [agent({ agentId: 'a' }), agent({ agentId: 'b' })] }) });
-    expect(two).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'サブエージェント 2 件が実行中、メイン会話は入力可能' });
+    expect(two).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: null });
   });
-  it('裏の担当が数えられないとき（workflow など）は、何が動いているかを言わず、メイン会話が空いていることだけを言う', () => {
-    expect(present({ aside: { shell: false, agents: 0 } }).detail).toBe('メイン会話は入力可能');
+  it('裏の担当が数えられないとき（workflow など）は、何も添えない', () => {
+    expect(present({ aside: { shell: false, agents: 0 } }).detail).toBeNull();
   });
   it('作業中は、手の数とターンの経過を添える（hangar 自身の MCP は数えず、Agent の起こしは数える）', () => {
     seq = 0;
@@ -110,13 +110,13 @@ describe('現在の札の状態の行', () => {
     expect(present({ events }).sub).toBe('ツール呼び出し 2 回');
     expect(present({ events, viewingAgent: true }).sub).toBe('');
   });
-  it('サブエージェントが動いている作業中は、その件数と、メイン会話も手を動かしているかを言う', () => {
+  it('サブエージェントが動いている作業中も、件数やメイン会話の様子は言わず（チップで足りる）、手の数を添える', () => {
     seq = 0;
     const running = digest({ agents: [agent({ agentId: 'a' }), agent({ agentId: 'b' }), agent({ agentId: 'c', state: 'done' })] });
     const open = call('Read', { file_path: '/w/a.ts' });
-    expect(present({ digest: running, events: [prompt('x'), open] })).toMatchObject({ tone: 'busy', state: '作業中', sub: 'サブエージェント 2 件が実行中', detail: 'メイン会話も作業中' });
-    const done = call('Read', { file_path: '/w/b.ts' });
-    expect(present({ digest: running, events: [prompt('x'), done, res(done)] }).detail).toBeNull();
+    const s = present({ digest: running, events: [prompt('x'), open] });
+    expect(s).toMatchObject({ tone: 'busy', state: '作業中', detail: null });
+    expect(s.sub).toMatch(/^ツール呼び出し 1 回/);
   });
   it('アイドルは、アイドルの語と経過', () => {
     expect(present({ live: 'idle' })).toMatchObject({ tone: 'idle', state: 'アイドル', sub: '3 分', detail: null });
@@ -124,7 +124,7 @@ describe('現在の札の状態の行', () => {
   it('英語では、辞書の英語の文が出る', () => {
     expect(present({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: 'Overwrite?' } }, en)).toMatchObject({ state: 'Needs input', sub: 'for 4 分', detail: 'Overwrite?' });
     expect(present({ live: 'idle' }, en)).toMatchObject({ state: 'Idle', sub: 'for 3 分' });
-    expect(present({ aside: { shell: true, agents: 0 } }, en)).toMatchObject({ state: 'Working in background', detail: 'A shell is running, Main conversation is accepting input' });
+    expect(present({ aside: { shell: true, agents: 0 } }, en)).toMatchObject({ state: 'Working in background', detail: 'A shell is running' });
     seq = 0;
     expect(present({ events: [prompt('x'), call('Read', { file_path: '/w/a.ts' })] }, en).sub).toBe('1 tool call');
   });

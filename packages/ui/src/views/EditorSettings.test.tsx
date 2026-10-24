@@ -100,6 +100,7 @@ describe('エディタが見つからないときの面（試作の 1-3 の B）
     const onAction = vi.fn();
     const { rerender } = render(<ActionRoot onAction={onAction}><EditorMissing {...missing()} /></ActionRoot>);
     expect(screen.getByRole('dialog', { name: 'Cursor が未検出' })).toHaveTextContent('前回検出したパス：/usr/local/bin/cursor');
+    expect(screen.getByRole('dialog', { name: 'Cursor が未検出' })).not.toHaveTextContent('移動した可能性があります');
     fireEvent.click(screen.getByRole('button', { name: '今回は VS Code で開く' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.openEditor', id: 'p1', once: 'vscode' });
     expect(screen.queryByRole('dialog')).toBeNull();

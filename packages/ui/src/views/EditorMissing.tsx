@@ -47,7 +47,7 @@ export function EditorMissing(props: EditorMissingProps) {
     <div ref={box} className="menu-pop editor-missing" role="dialog" aria-label={props.title} style={{ left: at.left, top: at.top, width: WIDTH }}>
       <div className="menu-head">
         <b className="editor-missing-title">{props.title}</b>
-        {props.lastPath && <span>{t('editor.missing.lastPath', { path: props.lastPath })}<br />{t('editor.missing.maybeMoved')}</span>}
+        {props.lastPath && <span>{t('editor.missing.lastPath', { path: props.lastPath })}</span>}
       </div>
       {props.choices.map((c) => (
         <button key={c.key} type="button" className="menu-item" onClick={() => { setClosed(props.n); emit(c.send); }}>

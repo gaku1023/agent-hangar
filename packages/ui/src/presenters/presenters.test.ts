@@ -687,7 +687,8 @@ describe('presentSession（見出しの操作、A1）', () => {
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     expect(a.primary).toMatchObject({ id: 'resume', label: '再開', disabled: null });
     expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
-    expect(a.menu[0]).toMatchObject({ disabled: null, note: 'この会話から分岐した新しいセッション' });
+    // 補足は画面に出さず、項目の title に回す。
+    expect(a.menu[0]).toMatchObject({ disabled: null, note: null, title: 'この会話から分岐した新しいセッション' });
     // 本文が無ければ、再開もフォークも理由を添えて押せない。
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
     const b = presentSession(initialState(), store, NOW, 's2').actions;
@@ -721,6 +722,11 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(a.primary.id).toBe('openEditor');
     expect(ids(a)).toEqual(['attach', 'fork', 'regenerate', 'copyAddress', 'copyId']);
     expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja))[0]).toBe('adopt');
+    // つなぐの補足は title に回し、引き取る（外の claude を終わらせる）の補足は画面に残す。
+    expect(a.menu[0]).toMatchObject({ id: 'attach', note: null, title: '外部ターミナルで実行中の Claude に hangar のターミナルから接続する' });
+    expect(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja).menu[0]).toMatchObject({ id: 'adopt', note: '外部ターミナルの claude を終了し、hangar で続ける' });
+    const alive = sessionActions({ ...facts, outsideOpen: null, run: { id: 'r1', kind: 'start', alive: true, started: '' } } as Parameters<typeof sessionActions>[0], ja);
+    expect(alive.menu.find((m) => m.id === 'openTerminal')).toMatchObject({ note: null, title: '外部ターミナルで同じセッションに接続する' });
   });
   it('昇格はメニューに入れ、要約の作成中と失敗は作り直すに 1 行添え、本文が消えた会話では作り直しを出さない', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
@@ -728,7 +734,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
     expect(a.menu[2]!.note).toBe('作成中…');
     // スクラッチで始めたセッションの再開は、作業ディレクトリがスクラッチのままであることを添える。
-    expect(a.primary.note).toBe('再開しても作業ディレクトリはクイックセッションの保存先のままです');
+    expect(a.primary).toMatchObject({ note: null, title: '再開しても作業ディレクトリはクイックセッションの保存先のままです' });
     expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
   });
@@ -1772,7 +1778,7 @@ describe('presentSession の本文が消えた会話', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   it('注記を出し、既定のままなら延ばす手を添える', () => {
     const p = presentSession(initialState(), { ...initialStore(), retention: R, sessions: { g: gone } }, NOW, 'g');
-    expect(p.gone).toEqual({ note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。表示できるのは要約のみです。', canExtend: true, extendTo: 365 });
+    expect(p.gone).toEqual({ note: 'トランスクリプトは Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。', canExtend: true, extendTo: 365 });
   });
   it('自分で値を入れた後は、延ばす手を出さない。まだ 30 日を過ぎていなければ gone は null', () => {
     expect(presentSession(initialState(), { ...initialStore(), retention: { ...R, source: 'user', userValue: 365 }, sessions: { g: gone } }, NOW, 'g').gone!.canExtend).toBe(false);

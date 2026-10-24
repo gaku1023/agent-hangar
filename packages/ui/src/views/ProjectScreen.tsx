@@ -3,7 +3,8 @@ import type { ProjectRailSection } from '@agent-hangar/shared';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
-import { InstructionsPanel } from './InstructionsPanel.tsx';
+import { InstructionsPanel, instructionsInfo } from './InstructionsPanel.tsx';
+import { InfoTip } from './primitives/InfoTip.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { ProjectInfo } from './ProjectInfo.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
@@ -29,16 +30,18 @@ const ARTIFACT_LIMIT = 3;
  * 中身は FoldBox で growIn と collapseOut で出入りし、折りたたみの間も外さない（TODO の欄の書きかけを残す）。
  * 見出しは右パネルのスクロールの間も節の上に留まる（workbench.css の .rail-h）。
  */
-function RailSection(props: { section: ProjectRailSection; title: string; aside?: ReactNode; folded: readonly ProjectRailSection[]; projectId: string; children: ReactNode }) {
+function RailSection(props: { section: ProjectRailSection; title: string; aside?: ReactNode; info?: ReactNode; folded: readonly ProjectRailSection[]; projectId: string; children: ReactNode }) {
   const emit = useEmit();
   const bodyId = useId();
   const open = !props.folded.includes(props.section);
   return (
     <section className="rail-panel" data-open={open ? 'true' : undefined}>
-      <h2 className="rail-h">
+      <h2 className="rail-h" data-info={props.info != null ? 'true' : undefined}>
         <button type="button" className="rail-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => emit({ type: 'project.railFold', id: props.projectId, section: props.section, open: !open })}>
           <Icon name="chevron" /><span className="rail-title">{props.title}</span>{props.aside}
         </button>
+        {/* 説明は見出しの横の ⓘ に隠す。押しても節は畳まない（折りたたみのボタンの外に置く）。 */}
+        {props.info != null && <InfoTip label={props.title}>{props.info}</InfoTip>}
       </h2>
       <FoldBox open={open} keep id={bodyId} className="rail-body">{props.children}</FoldBox>
     </section>
@@ -147,7 +150,7 @@ export function ProjectScreen(props: ProjectProps) {
             aside={<><span className="rail-n num"><RollingNumber value={props.todos.length} /></span>{props.pendingTodos > 0 && <span className="sessions-tab-n" data-hot="true">{t('projectScreen.rail.pending', { n: props.pendingTodos })}</span>}</>}>
             <TodoList projectId={props.id} todos={props.todos} done={props.doneTodos} suggestions={props.suggestions} />
           </RailSection>
-          <RailSection section="instructions" title={t('projectScreen.rail.instructions')} folded={props.railFolded} projectId={props.id}>
+          <RailSection section="instructions" title={t('projectScreen.rail.instructions')} info={instructionsInfo(t, props.instructions)} folded={props.railFolded} projectId={props.id}>
             <InstructionsPanel projectId={props.id} instructions={props.instructions} />
           </RailSection>
           <RailSection section="artifacts" title={t('projectScreen.rail.artifacts')} folded={props.railFolded} projectId={props.id} aside={<span className="rail-n num">{props.artifacts.length}</span>}>

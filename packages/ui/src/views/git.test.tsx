@@ -49,7 +49,14 @@ describe('GitFileList', () => {
     expect(screen.queryByText('x.json')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'ほかに作業ツリーで変更されたファイル 1 件' }));
     expect(screen.getByText('x.json')).toBeInTheDocument();
-    expect(screen.getByText(/このセッションの変更とは限りません/)).toBeInTheDocument();
+    // 注記は 1 文にし、区別できない理由の列挙は title に回す。
+    const note = screen.getByText('このセッションの変更とは限りません。');
+    expect(note.closest('.gitf-note')).toHaveAttribute('title', expect.stringContaining('手動の編集'));
+  });
+  it('このセッションが変えたファイルが無ければ、空の文を出さない', () => {
+    mount(<GitFileList files={{ ...files, files: [] }} />);
+    expect(screen.queryByText('このセッションが変更したファイルはありません')).toBeNull();
+    expect(document.querySelector('.gitf-list')).toBeNull();
   });
 });
 

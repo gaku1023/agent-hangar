@@ -81,7 +81,6 @@
 .pc-tool:disabled { opacity: 0.5; cursor: default; }
 .pc-tool .icon { width: 13px; height: 13px; }
 .pc-tool-key { font: 600 12px var(--font-mono); color: var(--accent); }
-.pc-tools-hint { margin-left: auto; color: var(--ink-3); font-size: var(--fs-xs); }
 .pc-cards { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); margin: 0; padding: 0; list-style: none; }
 .pc-card { position: relative; display: flex; align-items: center; gap: calc(var(--u) * 2); max-width: 220px; padding: var(--u) calc(var(--u) * 7) var(--u) var(--u); border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .pc-thumb { flex: none; width: 44px; height: 44px; border-radius: 7px; object-fit: cover; background: var(--surface-2); }

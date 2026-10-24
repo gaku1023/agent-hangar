@@ -39,7 +39,7 @@ export const projectScreenJa: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.instructions.desc.memory': '自動メモリ・Claude が書き込む',
   'projectScreen.instructions.meta': '{size} · {ago}',
   'projectScreen.instructions.show': '{name} を表示',
-  'projectScreen.instructions.empty': '指示ファイルはありません。CLAUDE.md を作成すると、起動のたびに読み込まれます。',
+  'projectScreen.instructions.empty': '指示ファイルはありません',
   'projectScreen.instructions.footBefore': '読み込まれる内容の全体は、セッションで ',
   'projectScreen.instructions.footAfter': ' を実行すると確認できます。',
   'projectScreen.instructions.missing': 'この PC にはディレクトリがありません',

@@ -61,11 +61,11 @@ describe('TocPane（目次だけの右パネル）', () => {
     expect(screen.getByRole('complementary', { name: '目次' })).toHaveTextContent('ターンの一覧');
   });
 
-  it('Windows の開閉のボタンの title は、ターミナルの中の打鍵も書く', () => {
+  it('Windows の開閉のボタンも、title は名前だけにし、打鍵は aria-keyshortcuts で伝える', () => {
     setClientUserAgent(WINDOWS_UA);
     render(<LanguageRoot language="ja"><ActionRoot onAction={() => {}}><TocToggle open /></ActionRoot></LanguageRoot>);
     const btn = screen.getByRole('button', { name: '右パネルを閉じる' });
-    expect(btn).toHaveAttribute('title', '右パネルの開閉（Ctrl+J、ターミナル内では Ctrl+Shift+J）');
+    expect(btn).toHaveAttribute('title', '右パネルの開閉');
     expect(btn).toHaveAttribute('aria-keyshortcuts', 'Control+J Control+Shift+J');
   });
 
@@ -73,7 +73,7 @@ describe('TocPane（目次だけの右パネル）', () => {
     const onAction = vi.fn<(i: UiAction) => void>();
     const { rerender } = render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><TocToggle open /></ActionRoot></LanguageRoot>);
     const btn = screen.getByRole('button', { name: '右パネルを閉じる' });
-    expect(btn).toHaveAttribute('title', '右パネルの開閉（⌘J）');
+    expect(btn).toHaveAttribute('title', '右パネルの開閉');
     fireEvent.click(btn);
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     rerender(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><TocToggle open={false} /></ActionRoot></LanguageRoot>);

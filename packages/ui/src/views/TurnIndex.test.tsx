@@ -279,10 +279,10 @@ describe('TurnIndex の仮の行', () => {
     expect(document.querySelectorAll('.turn-skel')).toHaveLength(6);
     expect(screen.queryByText('まだ指示がありません')).toBeNull();
   });
-  it('読み込み済みで 0 件なら、仮の行は出さず「まだ指示がありません」を出す', () => {
+  it('読み込み済みで 0 件なら、仮の行も空の文も出さない（件数 0 で見せる）', () => {
     renderIndex({ rows: [], pending: false });
     expect(document.querySelectorAll('.turn-skel')).toHaveLength(0);
-    expect(screen.getByText('まだ指示がありません')).toBeInTheDocument();
+    expect(document.querySelector('.turns .empty, .empty')).toBeNull();
   });
 });
 

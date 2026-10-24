@@ -3,13 +3,10 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const terminalEn: AreaDictionary<typeof terminalKeys> = {
   'terminal.band.title': 'Transcript view',
-  'terminal.band.sub': 'Claude keeps working in the background',
-  'terminal.band.subWhen': 'Turn from {when} · Claude keeps working in the background',
   'terminal.band.latest': 'Jump to latest',
   'terminal.off.failed': 'Could not connect to terminal',
   'terminal.off.detached': 'Detached from terminal',
   'terminal.off.dropped': 'Terminal disconnected',
-  'terminal.off.failedBody': 'Reconnect, or reopen the session.',
   'terminal.off.agentRunning': 'Claude is still running.',
   'terminal.off.shellRunning': 'The shell is still running.',
   'terminal.off.gaveUp': 'Could not connect.',

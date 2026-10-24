@@ -23,7 +23,6 @@ export const transcriptEn: AreaDictionary<typeof transcriptKeys> = {
   'transcript.find.prev': 'Previous match ({keys})',
   'transcript.find.next': 'Next match ({keys})',
   'transcript.find.close': 'Close (esc)',
-  'transcript.empty.none': 'No transcript',
   'transcript.more.older': 'Load older lines ({n} left)',
   'transcript.more.newer': 'Load newer lines',
   'transcript.more.unseen': '{n} new {n|line|lines}',

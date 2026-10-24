@@ -117,7 +117,8 @@ export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 
  * disabled は押せない理由（押せるなら null）、note は下に添える 1 行。
  * danger は取り消せない操作。
  */
-export type SessionAction = { id: SessionActionId; label: string; disabled: string | null; note: string | null; danger?: boolean };
+/** note は項目の下に出す補足（副作用を言うものだけ）。title は画面に出さず、項目の title に入れる補足。 */
+export type SessionAction = { id: SessionActionId; label: string; disabled: string | null; note: string | null; title?: string | null; danger?: boolean };
 export type SessionActions = { primary: SessionAction; menu: SessionAction[] };
 /**
  * 変更したファイルの 1 行。
@@ -262,8 +263,8 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
   };
   // ほかの PC の続きの方が新しいときの素の再開は、手元の古いトランスクリプトで起きる。そう分かる名前と注記にする。
   const stale = f.newerElsewhere === true && f.canResume;
-  const resume: SessionAction = { id: 'resume', label: t(stale ? 'session.action.resumeLocal' : 'session.action.resume'), disabled: f.canResume ? null : why('resume'), note: stale ? t('session.action.resumeLocalNote') : f.fromScratch ? t('session.action.resumeQuickNote') : null };
-  const fork: SessionAction = { id: 'fork', label: t('session.action.fork'), disabled: f.canFork ? null : why('fork'), note: f.canFork ? t('session.action.forkNote') : null };
+  const resume: SessionAction = { id: 'resume', label: t(stale ? 'session.action.resumeLocal' : 'session.action.resume'), disabled: f.canResume ? null : why('resume'), note: stale ? t('session.action.resumeLocalNote') : null, title: !stale && f.fromScratch ? t('session.action.resumeQuickNote') : null };
+  const fork: SessionAction = { id: 'fork', label: t('session.action.fork'), disabled: f.canFork ? null : why('fork'), note: null, title: f.canFork ? t('session.action.forkNote') : null };
   const regenerate: SessionAction[] = f.gone || f.summaryOff ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
   const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: t('session.action.promote'), disabled: null, note: null }] : [];
   const editor = openEditor(editorLabel);
@@ -273,10 +274,10 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
   const copyId: SessionAction = { id: 'copyId', label: t('session.action.copyId'), disabled: null, note: null };
   if (running) {
     const alive = f.run?.alive === true;
-    const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: t('session.action.attach'), disabled: null, note: t('session.action.attachNote') }]
+    const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: t('session.action.attach'), disabled: null, note: null, title: t('session.action.attachNote') }]
       : f.outsideOpen === 'adopt' ? [{ id: 'adopt', label: t('session.action.adopt'), disabled: null, note: t('session.action.adoptNote') }] : [];
     return { primary: editor, menu: [
-      ...(alive ? [{ id: 'openTerminal', label: t('session.action.openTerminal'), disabled: null, note: t('session.action.openTerminalNote') } satisfies SessionAction] : []),
+      ...(alive ? [{ id: 'openTerminal', label: t('session.action.openTerminal'), disabled: null, note: null, title: t('session.action.openTerminalNote') } satisfies SessionAction] : []),
       ...outside, fork, ...regenerate, ...promote, copyAddress, copyId,
       ...(alive ? [{ id: 'stop', label: t('session.action.stop'), disabled: null, note: null, danger: true } satisfies SessionAction] : []),
     ] };

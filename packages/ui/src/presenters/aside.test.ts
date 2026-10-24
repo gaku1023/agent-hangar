@@ -42,9 +42,9 @@ describe('裏だけ動いているセッションの見せ方', () => {
     const card = presentHome(initialState(), storeWith(), NOW).running.find((c) => c.id === 'a');
     expect(card).toMatchObject({ live: 'busy', aside: true, activity: null, intent: null, note: 'バックグラウンドでシェルを実行中。メイン会話は入力可能' });
   });
-  it('セッション画面の帯は「バックグラウンドで作業中」と、メイン会話が空いていることを言い、灯は裏だけの色', () => {
+  it('セッション画面の帯は「バックグラウンドで作業中」と裏のシェルを言い、灯は裏だけの色', () => {
     const p = presentSession(initialState(), storeWith(), NOW, 'a');
     expect(p).toMatchObject({ live: 'busy', aside: true });
-    expect(p.strip).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中、メイン会話は入力可能' });
+    expect(p.strip).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中' });
   });
 });

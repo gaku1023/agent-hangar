@@ -27,7 +27,6 @@ export function OverlapPopover(props: { overlap: OverlapProps; face: (p: Popover
                 <StatusDot status={p.live} aside={p.aside} />
                 <button type="button" className="btn-link ov-name" onClick={() => { close(); emit(p.open); }}>{p.name}</button>
                 <span className="ov-ctx">{p.context}</span>
-                <button type="button" className="btn btn-sm" aria-label={t('home.band.actionFor', { action: t('overlap.pop.open'), name: p.name })} onClick={() => { close(); emit(p.open); }}>{t('overlap.pop.open')}</button>
               </li>
             ))}
           </ul>
@@ -45,7 +44,6 @@ export function OverlapPopover(props: { overlap: OverlapProps; face: (p: Popover
           </table>
           <p className="ov-note">{t('overlap.pop.note')}</p>
           <div className="ov-wt">
-            <p>{t('overlap.worktree.hint')}</p>
             <button type="button" className="btn btn-sm" onClick={() => { close(); emit(o.worktree); }}>{t('overlap.worktree.action')}</button>
           </div>
           <div className="ov-foot">

@@ -228,7 +228,6 @@ export function TurnIndex(props: TurnIndexProps) {
       <div ref={listRef} className="turns-list" onScroll={measureEnd}>
         {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}><span ref={moreRef} className="turns-more-label">{moreLabel}</span></button>}
         {props.rows.length === 0 && props.pending && Array.from({ length: 6 }, (_, i) => <div key={`skel${i}`} className="turn-skel" style={{ width: `${70 + ((i * 37) % 30)}%` }} aria-hidden="true" />)}
-        {props.rows.length === 0 && !props.pending && <div className="empty">{t('session.toc.empty')}</div>}
         {entries.map(({ item: r, key, leaving }) => {
           const i = props.rows.indexOf(r);
           const isOpen = r.open && !leaving;

@@ -2,13 +2,10 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const terminalKeys = {
   'terminal.band.title': [],
-  'terminal.band.sub': [],
-  'terminal.band.subWhen': ['when'],
   'terminal.band.latest': [],
   'terminal.off.failed': [],
   'terminal.off.detached': [],
   'terminal.off.dropped': [],
-  'terminal.off.failedBody': [],
   'terminal.off.agentRunning': [],
   'terminal.off.shellRunning': [],
   'terminal.off.gaveUp': [],

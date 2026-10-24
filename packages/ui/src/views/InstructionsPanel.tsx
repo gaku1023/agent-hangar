@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import type { InstructionFileKind } from '@agent-hangar/shared';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import type { InstructionFileKind, Translate } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { InstructionRowProps, InstructionsProps } from '../presenters/project.ts';
 import { CopyButton } from './primitives/CopyButton.tsx';
@@ -83,9 +83,28 @@ function LegacyNote(props: { projectId: string; text: string }) {
 }
 
 /**
+ * 「指示とメモリ」の見出しの ⓘ に入れる説明。並んでいるファイルの種類（チームで共有か、個人用か、読まれないか）と、
+ * 読まれるものの全体は /context で見る、の 2 つを言う。行と節の下には出さない。
+ * フォルダが無いときは何も読まれないので、ⓘ ごと出さない（null）。
+ */
+export function instructionsInfo(t: Translate, instructions: InstructionsProps): ReactNode {
+  if (instructions.state === 'missing') return null;
+  return (
+    <>
+      {instructions.rows.length > 0 && (
+        <dl className="instr-info">
+          {instructions.rows.map((r) => <div key={r.kind}><dt className="mono">{r.name}</dt><dd>{r.desc}</dd></div>)}
+        </dl>
+      )}
+      <p className="instr-info-foot">{t('projectScreen.instructions.footBefore')}<code>/context</code>{t('projectScreen.instructions.footAfter')}</p>
+    </>
+  );
+}
+
+/**
  * 右パネルの「指示とメモリ」（案 D）。Claude Code が起動時に読むファイルのうち、あるものだけを 1 行ずつ並べる。
  * 行を押すとダイアログで本文を描き、そのときに読み直しを頼む（ファイルは外で書き換わる）。行の右の印はエディタで開く。
- * Hangar では書かず、無いファイルを作りもしない。読まれるものの全体は /context で見る、と節の下に添える。
+ * Hangar では書かず、無いファイルを作りもしない。種類の説明と /context の見方は、見出しの ⓘ（instructionsInfo）に隠す。
  * 節の見出しは、ほかの節と同じく ProjectScreen の RailSection が置く（折りたたみの見出し）。ここは中身だけを描く。
  */
 export function InstructionsPanel(props: { projectId: string; instructions: InstructionsProps }) {
@@ -109,7 +128,6 @@ export function InstructionsPanel(props: { projectId: string; instructions: Inst
             <li key={r.kind} className="instr-row" data-off={r.off ? 'true' : undefined}>
               <button type="button" className="instr-main" aria-label={t('projectScreen.instructions.show', { name: r.name })} onClick={() => show(r.kind)}>
                 <span className="instr-name"><span className="mono">{r.name}</span><span className="instr-meta">{r.meta}</span></span>
-                <span className="instr-desc">{r.desc}</span>
               </button>
               <button type="button" className="btn instr-open" aria-label={editorLabels.openFor(r.name)} title={editorLabels.open}
                 onClick={() => emit({ type: 'instructions.openEditor', projectId: props.projectId, kind: r.kind })}><Icon name="openEditor" /></button>
@@ -118,7 +136,6 @@ export function InstructionsPanel(props: { projectId: string; instructions: Inst
         </ul>
       )}
       {legacyNote !== null && <LegacyNote projectId={props.projectId} text={legacyNote} />}
-      {state !== 'missing' && <p className="instr-foot">{t('projectScreen.instructions.footBefore')}<code>/context</code>{t('projectScreen.instructions.footAfter')}</p>}
       <FileDialog projectId={props.projectId} row={row} onClose={() => setSelected(null)} />
     </>
   );

@@ -460,7 +460,6 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
       {ticks && <div className="tr-ticks" aria-hidden="true">{ticks.map((t) => <i key={t.seq} style={{ top: `${t.top}%` }} data-cur={t.seq === find!.seq ? 'true' : undefined} />)}</div>}
       <div ref={boxRef} className="tr" onScroll={onScroll}>
         {props.head}
-        {n === 0 && !props.loading && <div className="empty">{t('transcript.empty.none')}</div>}
         {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
         {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={loadOlder}>{props.loading ? t('common.state.loading') : t('transcript.more.older', { n: props.remaining })}</button>}
         <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
