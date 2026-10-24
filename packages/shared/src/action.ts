@@ -203,6 +203,8 @@ export type UiAction =
   | { type: 'sidebar.toggle' }
   // サイドバーの「動いている」の行を、利用者が掴んで並べ替えたとき。ids は並べ替えた後の、動いているセッション全部の並び。
   | { type: 'sidebar.order'; ids: SessionId[] }
+  // サイドバーの「実行中」のグループを開く・畳む。key はプロジェクトの id で、未分類は空の文字列。
+  | { type: 'sidebar.fold'; key: string; open: boolean }
   | { type: 'summarizer.test' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
   | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }

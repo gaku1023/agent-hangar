@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup as cleanupAll, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SessionDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
-import { cleanSidebarOrder, mergeSidebarOrder, SIDEBAR_ORDER_KEY, SIDEBAR_ORDER_MAX, trimSidebarOrder } from '../mediator/sidebar.ts';
+import { cleanSidebarFolded, cleanSidebarOrder, mergeSidebarOrder, SIDEBAR_FOLDED_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_ORDER_MAX, trimSidebarOrder } from '../mediator/sidebar.ts';
 import { initialState, transition } from '../mediator/transition.ts';
-import { presentShell, SIDE_LIVE_MAX, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
+import { presentShell, type SideLiveGroup, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
 import type { SessionMenuProps } from '../presenters/sessionMenu.ts';
 import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
@@ -61,15 +61,6 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
   it('覚えた並びに、いま動いていないセッションが残っていても出さない', () => {
     expect(liveOf(store, { ...at('projects'), sidebarOrder: ['gone', 'b', 'z'] }).rows.map((r) => r.id)).toEqual(['b', 'a', 'c']);
   });
-  it('上限を超えて動いているときに新しく始めたものは「ほか N 件」に入り、見えている行は動かない', () => {
-    const ids = Array.from({ length: SIDE_LIVE_MAX }, (_, i) => `s${i}`);
-    const full = storeWith(ids.map((id) => session(id)));
-    const more = storeWith([...ids.map((id) => session(id)), session('new', { live: 'waiting', startedAt: NOW })]);
-    const st = { ...at('projects'), sidebarOrder: ids };
-    expect(liveOf(more, st).rows.map((r) => r.id)).toEqual(liveOf(full, st).rows.map((r) => r.id));
-    expect(liveOf(more, st).more).toBe(1);
-    expect(liveOf(more, st).ids.at(-1)).toBe('new');
-  });
   it('いま見ているセッションに印を付ける', () => {
     const live = liveOf(store, { ...initialState(), screen: { name: 'session', id: 'b' } });
     expect(live.rows.find((r) => r.id === 'b')?.current).toBe(true);
@@ -80,12 +71,57 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
     render(<ActionRoot onAction={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveOf(store, { ...at('home'), ...st })} /></ActionRoot>);
     expect(screen.getAllByRole('link').map((a) => a.textContent)).toEqual([expect.stringContaining('name-c'), expect.stringContaining('name-a'), expect.stringContaining('name-b')]);
   });
-  it('並べるのは上限までで、超えた分は数だけ返す。並べ替えの計算には全部の並びを渡す', () => {
-    const many = storeWith(Array.from({ length: SIDE_LIVE_MAX + 3 }, (_, i) => session(`s${i}`, { lastActivityAt: NOW - i * 1000 })));
+  it('上限を設けず、動いているものを全部並べる（入りきらない分は節の中でスクロールする）', () => {
+    const many = storeWith(Array.from({ length: 30 }, (_, i) => session(`s${i}`, { lastActivityAt: NOW - i * 1000 })));
     const live = liveOf(many, at('projects'));
-    expect(live.rows).toHaveLength(SIDE_LIVE_MAX);
-    expect(live.more).toBe(3);
-    expect(live.ids).toHaveLength(SIDE_LIVE_MAX + 3);
+    expect(live.rows).toHaveLength(30);
+    expect(live).not.toHaveProperty('more');
+  });
+});
+
+describe('サイドバーの「実行中」をプロジェクトごとに分ける（presentShell）', () => {
+  const project = (id: string, name: string) => ({ id, name }) as unknown as Store['projects'][string];
+  const grouped = (state = at('projects')) => {
+    const s = { ...storeWith([
+      session('a', { projectId: 'p1' }), session('b', { projectId: 'p2' }), session('c', { projectId: null, live: 'waiting' }),
+      session('d', { projectId: 'p1', live: 'waiting', waitingFor: 'permission' }), session('e', { projectId: 'p2' }),
+    ]), projects: { p1: project('p1', 'web'), p2: project('p2', 'docs') } };
+    return liveOf(s, { ...state, sidebarOrder: ['b', 'a', 'c', 'd', 'e'] });
+  };
+  it('プロジェクトごとに見出しを分け、グループの順は並びで先に出てくる順、グループの中は並びの順にする。プロジェクトの無いものは「未分類」', () => {
+    const live = grouped();
+    expect(live.groups.map((g) => [g.key, g.name, g.rows.map((r) => r.id)])).toEqual([['p2', 'docs', ['b', 'e']], ['p1', 'web', ['a', 'd']], ['', '未分類', ['c']]]);
+    // 並べ替えの計算に渡す並びは、見えている順（グループをつないだ順）にする。
+    expect(live.ids).toEqual(['b', 'e', 'a', 'd', 'c']);
+    expect(live.rows.map((r) => r.id)).toEqual(['b', 'e', 'a', 'd', 'c']);
+    expect(live.count).toBe(5);
+  });
+  it('グループは開いた形で出し、畳んだグループ（sidebarFolded）だけを閉じる。待っている行の数を持つ', () => {
+    const live = grouped({ ...at('projects'), sidebarFolded: ['p1'] });
+    expect(live.groups.map((g) => [g.key, g.open, g.waiting])).toEqual([['p2', true, 0], ['p1', false, 1], ['', true, 1]]);
+  });
+  it('名前の無い（消えた）プロジェクトは id のまま出さず、未分類と同じ名前にしない', () => {
+    const s = storeWith([session('a', { projectId: 'gone' })]);
+    const g = liveOf(s, at('projects')).groups[0]!;
+    expect(g.key).toBe('gone');
+    expect(g.name).toBe('（名前なし）');
+  });
+});
+
+describe('グループを畳む（sidebar.fold）', () => {
+  it('畳んだグループを状態に入れて localStorage に残し、開くと外す。同じ形なら何もしない', () => {
+    const fold = (state: ReturnType<typeof initialState>, key: string, open: boolean) => transition(state, initialStore(), { kind: 'action', action: { type: 'sidebar.fold', key, open } });
+    const a = fold(initialState(), 'p1', false);
+    expect(a.state.sidebarFolded).toEqual(['p1']);
+    expect(a.effects).toContainEqual({ kind: 'storage.save', key: SIDEBAR_FOLDED_KEY, value: ['p1'] });
+    const b = fold(a.state, '', false);
+    expect(b.state.sidebarFolded).toEqual(['p1', '']);
+    expect(fold(b.state, 'p1', false).effects).toEqual([]);
+    expect(fold(b.state, 'p1', true).state.sidebarFolded).toEqual(['']);
+  });
+  it('壊れた保存値は空にし、文字列でない要素と重なりを落とす。未分類（空の文字列）は残す', () => {
+    expect(cleanSidebarFolded({})).toEqual([]);
+    expect(cleanSidebarFolded(['p1', 1, 'p1', ''])).toEqual(['p1', '']);
   });
 });
 
@@ -180,10 +216,13 @@ describe('行の移し方', () => {
 
 const menuOf = (id: string, stop: SessionMenuProps['stop'] = { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }): SessionMenuProps => ({ id, name: `name-${id}`, status: null, resumeHere: null, stop, moveBlocked: null });
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: menuOf(id), ...over });
-const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
+// 行を 1 つのグループ（web）にまとめた形。groups を渡せば、それで分ける。
+const group = (key: string, rows: SideLiveRow[], over: Partial<SideLiveGroup> = {}): SideLiveGroup => ({ key, name: key === '' ? '未分類' : key, open: true, waiting: rows.filter((r) => r.live === 'waiting').length, rows, ...over });
+const shaped = (rows: SideLiveRow[], groups: SideLiveGroup[] = [group('web', rows)]): SideLiveProps => ({ count: rows.length, ids: groups.flatMap((g) => g.rows.map((r) => r.id)), rows: groups.flatMap((g) => g.rows), groups });
+const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ ...shaped([row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })]), ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 // 並べ替えの途中で一覧が変わったことにする。行は ids の順に並べ、並びの計算にも同じ ids を渡す。
-const liveOfIds = (ids: string[]): SideLiveProps => ({ count: ids.length, ids, rows: ids.map((id) => row(id)), more: 0 });
+const liveOfIds = (ids: string[]): SideLiveProps => shaped(ids.map((id) => row(id)));
 const remount = (m: ReturnType<typeof mount>, ids: string[]) => m.rerender(<ActionRoot onAction={m.onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveOfIds(ids)} /></ActionRoot>);
 const linkOf = (id: string) => screen.getByRole('link', { name: new RegExp(`name-${id}`) });
 
@@ -204,7 +243,7 @@ const pointerAt = (kind: PointerKind, el: HTMLElement, clientY: number, over: { 
 
 describe('サイドバーの「実行中」の節（Sidebar）', () => {
   it('バックグラウンドだけ動いている行は、丸だけを薄いオレンジにし、名前の横に語を添えない', () => {
-    const { container } = mount({ count: 1, ids: ['a'], rows: [row('a', { aside: true })], more: 0 });
+    const { container } = mount(shaped([row('a', { aside: true })]));
     const link = screen.getByRole('link', { name: /name-a/ });
     expect(link).toHaveTextContent(/^name-a$/);
     expect(container.querySelector('.dot')).toHaveAttribute('data-aside', 'true');
@@ -227,13 +266,13 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     expect(screen.getByRole('heading', { name: /実行中/ })).toHaveTextContent(/^実行中3$/);
   });
   it('動いているものが無ければ、節ごと出さない', () => {
-    mount(liveProps({ count: 0, ids: [], rows: [] }));
+    mount(shaped([], []));
     expect(screen.queryByRole('heading', { name: /実行中/ })).toBeNull();
   });
-  it('並べきれない分は「ほか N 件」にして、押すとホームへ行く', () => {
-    const { onAction } = mount(liveProps({ count: 11, more: 8 }));
-    fireEvent.click(screen.getByText('ほか 8 件'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
+  it('「ほか N 件」は出さず、行は全部並べる', () => {
+    mount(shaped(Array.from({ length: 20 }, (_, i) => row(`s${i}`))));
+    expect(screen.queryByText(/ほか/)).toBeNull();
+    expect(screen.getAllByRole('link')).toHaveLength(20);
   });
   it('行を掴んで動かすと、その行が浮いてポインタに付き、ほかの行は入る場所に合わせて行の高さ分ずつよける', () => {
     mount(liveProps());
@@ -621,6 +660,86 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
   });
 });
 
+describe('「実行中」のグループ（Sidebar）', () => {
+  // web に a・b、docs に c、未分類に d。
+  const three = (over: { web?: Partial<SideLiveGroup>; docs?: Partial<SideLiveGroup> } = {}) => {
+    const rows = [row('a'), row('b', { live: 'waiting', waited: '入力待ち 1 分' }), row('c'), row('d')];
+    return shaped(rows, [group('web', rows.slice(0, 2), over.web), group('docs', rows.slice(2, 3), over.docs), group('', rows.slice(3))]);
+  };
+  const head = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}`) });
+  it('グループごとに見出しを出し、名前と件数を添える。見出しは開き閉じのボタンで、開いていれば aria-expanded が真', () => {
+    mount(three());
+    expect(head('web')).toHaveAttribute('aria-expanded', 'true');
+    expect(head('web')).toHaveTextContent(/web.*2/);
+    expect(head('未分類')).toHaveTextContent(/未分類.*1/);
+    const web = head('web').closest('[data-group]')!;
+    expect([...web.querySelectorAll('a')].map((a) => a.dataset.id)).toEqual(['a', 'b']);
+  });
+  it('見出しを押すと畳む手を出し、畳んだグループの見出しを押すと開く手を出す。畳んだグループの行は見せない', () => {
+    const { onAction } = mount(three({ docs: { open: false } }));
+    fireEvent.click(head('web'));
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.fold', key: 'web', open: false });
+    fireEvent.click(head('docs'));
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.fold', key: 'docs', open: true });
+    expect(head('docs')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: /name-c/ })).toBeNull();
+  });
+  it('畳んだグループに入力待ちがあれば、見出しに印を付け、読み上げにも待ちの数を添える。開いているときは付けない', () => {
+    mount(three({ web: { open: false } }));
+    expect(head('web')).toHaveAttribute('data-waiting', 'true');
+    expect(head('web')).toHaveAccessibleName(/入力待ち 1/);
+    cleanupAll();
+    mount(three());
+    expect(head('web')).not.toHaveAttribute('data-waiting');
+  });
+  it('行の ⌥↑↓ はグループの中だけで動かす。グループの端では動かさない', () => {
+    const { onAction } = mount(three());
+    fireEvent.keyDown(linkOf('b'), { key: 'ArrowUp', altKey: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a'] });
+    onAction.mockClear();
+    fireEvent.keyDown(linkOf('b'), { key: 'ArrowDown', altKey: true });
+    fireEvent.keyDown(linkOf('c'), { key: 'ArrowUp', altKey: true });
+    expect(onAction).not.toHaveBeenCalled();
+  });
+  it('見出しの ⌥↑↓ はグループごと動かし、全部の並びを出す。端では動かさない', () => {
+    const { onAction } = mount(three());
+    fireEvent.keyDown(head('web'), { key: 'ArrowDown', altKey: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b', 'd'] });
+    onAction.mockClear();
+    fireEvent.keyDown(head('web'), { key: 'ArrowUp', altKey: true });
+    fireEvent.keyDown(head('未分類'), { key: 'ArrowDown', altKey: true });
+    expect(onAction).not.toHaveBeenCalled();
+  });
+  it('見出しを掴んで動かすとグループごと浮き、ほかのグループはその高さ分よける。離すとグループの順を確定し、離したあとの click では畳まない', () => {
+    const { onAction } = mount(three());
+    // web は 100〜190、docs は 190〜250、未分類は 250〜310。
+    const boxes: Record<string, [number, number]> = { web: [100, 90], docs: [190, 60], '': [250, 60] };
+    for (const el of document.querySelectorAll<HTMLElement>('[data-group]')) {
+      const [top, height] = boxes[el.dataset.group!]!;
+      el.getBoundingClientRect = () => ({ top, height, bottom: top + height, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
+    }
+    const h = head('web');
+    const box = (key: string) => document.querySelector<HTMLElement>(`[data-group="${key}"]`)!;
+    pointerAt('pointerDown', h, 110);
+    pointerAt('pointerMove', h, 230);
+    expect(box('web')).toHaveAttribute('data-lift', 'held');
+    expect(box('web').style.translate).toMatch(/ 120px$/);
+    expect(box('docs').style.translate).toMatch(/-90px$/);
+    expect(box('').style.translate).toBe('');
+    pointerAt('pointerUp', h, 230);
+    fireEvent.click(h);
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b', 'd'] });
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'sidebar.fold' }));
+    expect(box('web')).not.toHaveAttribute('data-lift');
+  });
+  it('行の一覧だけをスクロールの箱に入れ、見出し（実行中）はその外に置く', () => {
+    const { container } = mount(three());
+    const scroller = container.querySelector('.side-live-scroll')!;
+    expect(scroller.querySelectorAll('a')).toHaveLength(4);
+    expect(scroller.contains(screen.getByRole('heading', { name: /実行中/ }))).toBe(false);
+  });
+});
+
 describe('行のメニューの「停止」に要る情報（presentShell）', () => {
   const run = (id: string, sessionId: string, endedAt: number | null = null) => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt, endReason: null, heartbeatAt: 1 });
   const tab = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null) => ({ id, runId, sessionId: 'a', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: 1, closedAt });
@@ -723,6 +842,19 @@ describe('サイドバーの「実行中」の見た目', () => {
   });
   it('reduced motion では浮いた行を大きくしない', () => {
     expect(base).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[^@]*\.side-live-list \.side-live-row\[data-lift='held'\] \{ scale: none; \}/);
+  });
+  it('節は設定の上までの高さを使い、行の一覧だけをスクロールさせる', () => {
+    expect(base).toMatch(/\.side-live \{[^}]*flex: 1[^}]*min-height: 0/);
+    expect(base).toMatch(/\.side-live-scroll \{[^}]*overflow-y: auto/);
+    expect(base).not.toContain('side-live-more');
+  });
+  it('畳んだ帯ではグループの見出しを出さず、畳んだグループの点も出す', () => {
+    expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-grp-h[^{]*\{ display: none; \}/);
+    expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-grp-body\[hidden\] \{ display: block; \}/);
+  });
+  it('掴んだグループは行と同じ形で浮き、ほかのグループは --dur-fast で滑る', () => {
+    expect(base).toMatch(/\.side-live-grp\[data-lift='held'\] \{[^}]*box-shadow: var\(--glass-drop\)/);
+    expect(base).toMatch(/\.side-live-scroll\[data-sorting='true'\] \.side-live-grp \{[^}]*translate var\(--dur-fast\) var\(--ease-out\)/);
   });
   it('畳んだ帯では見出しと名前を出さず、点だけを並べる', () => {
     expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-h, [^{]*\.side-live-name, [^{]*\{ display: none; \}/);

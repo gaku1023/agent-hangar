@@ -1,14 +1,15 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { useEmit } from '../action/chain.tsx';
-import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
+import type { NavItem, SideLiveGroup, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
 import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
 import { SessionMenuPop } from './sessionMenu.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
+import { FoldBox } from './primitives/FoldBox.tsx';
 import { motionMs } from './primitives/motion.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
@@ -99,7 +100,7 @@ function shiftOf(a: SortAt, j: number): number {
 }
 
 /**
- * 「実行中」の節。
+ * 「実行中」の 1 つのグループの行の一覧。並べ替えはこの一覧の中だけで行い、sidebar.order にはこのグループの行の並びを渡す（覚えた並びの、その行の席だけが入れ替わる）。
  * 行を押すとそのセッションへ移る。行を掴んで上下に動かすと並べ替えられ、並びは端末が覚える（sidebar.order）。
  * 掴んで動かすのは、HTML のドラッグ（draggable と dragover と drop）ではなく、ポインタのイベントで作る。
  * デスクトップのアプリ（Tauri）は、Finder からファイルを落とすために窓のドラッグを殻で受けており、窓の中のドラッグでも dragover と drop が画面へ届かないからである。
@@ -109,17 +110,16 @@ function shiftOf(a: SortAt, j: number): number {
  * 確定は離したときに指した行の id で行い、途中で掴んだ行か指した行が一覧から消えたら、並べ替えを捨てる。
  * 並べ替えの間は、⌥↑↓、.、右クリックを受けない。
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
- * 動かすのは行だけで、見出しは動かない。並べ替えの途中の形は、ここだけで持つ。
+ * 動かすのは行だけで、グループの見出しは動かない。並べ替えの途中の形は、ここだけで持つ。グループを動かしている間（blocked）は行を掴まない。
  * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。
  * 行を右クリックするか、行に焦点があるときに . を押すと、その行のセッションのメニュー（1A）を出す。中身は一覧の行の「⋯」と同じである（views/sessionMenu.tsx）。
- * メニューは節に 1 つだけ持ち、開いている行には印（data-menu）を付けて、どの行のものかを見せる。
+ * メニューそのものは節（LiveSection）が 1 つだけ持ち、開いている行には印（data-menu）を付けて、どの行のものかを見せる。
  */
-function LiveSection(props: { live: SideLiveProps }) {
+function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: (id: string, at: MenuAnchor) => void; blocked: boolean }) {
   const emit = useEmit();
   const t = useT();
   const [sort, setSortState] = useState<Sort | null>(null);
-  // 開いているメニュー。at は吊るす相手で、右クリックなら押した点、打鍵なら行の矩形。
-  const [menu, setMenu] = useState<{ id: string; at: MenuAnchor } | null>(null);
+  const setMenu = (m: { id: string; at: MenuAnchor }) => props.openMenu(m.id, m.at);
   const list = useRef<HTMLUListElement>(null);
   // 押し下げの記録と、並べ替えの途中の形の写し。ポインタのイベントの間で、描き直しを待たずに読むため ref にも持つ。
   const press = useRef<Press | null>(null);
@@ -127,18 +127,16 @@ function LiveSection(props: { live: SideLiveProps }) {
   const setSort = (next: Sort | null) => { sortNow.current = next; setSortState(next); };
   // 収まりを待つ予約。並びの確定は、ここから最新の行で組み立てる（待つ間に行が増減しても、古い並びで上書きしない）。
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const liveNow = useRef(props.live);
+  const shapedLive = { rows: props.rows, ids: props.rows.map((r) => r.id) };
+  const liveNow = useRef(shapedLive);
   // 窓の Esc から呼ぶ、いまの描画の settle。
   const settleRef = useRef<(cancel: boolean) => void>(() => {});
-  liveNow.current = props.live;
+  liveNow.current = shapedLive;
   useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
   // 並べ替えで離した直後の click を 1 回だけ飲み込む。
   const swallowClick = useRef(false);
-  // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
-  const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
-  useEffect(() => { if (gone) setMenu(null); }, [gone]);
   // いまの行の並びでの席。描くたびに id から引き直す。
-  const rowIds = props.live.rows.map((r) => r.id);
+  const rowIds = shapedLive.ids;
   const at = sort ? sortAt(sort, rowIds) : null;
   // 並べ替えの途中で掴んだ行か指した行が消えたら、並べ替えごとやめる。
   const sortGone = sort !== null && at === null;
@@ -166,15 +164,7 @@ function LiveSection(props: { live: SideLiveProps }) {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [holding]);
-  const { live } = props;
-  if (live.count === 0) return null;
-  const menuRow = menu ? live.rows.find((r) => r.id === menu.id) ?? null : null;
-  const closeMenu = (how: MenuCloseHow) => {
-    const id = menu?.id;
-    setMenu(null);
-    // 外を押したときは、押した先にフォーカスを任せる。ほかは行へ戻す（止めて行が消えたら、戻す先は無い）。
-    if (how !== 'outside' && id) list.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
-  };
+  const live = shapedLive;
   /**
    * 浮いた行を、空いた席（取り消しなら元の席）へ --dur-fast で収め、収まってから並びを確定する。
    * 確定（sidebar.order）と浮きを外すのを 1 回の描画にまとめ、行が入れ替わる前後でちらつかせない。
@@ -209,8 +199,8 @@ function LiveSection(props: { live: SideLiveProps }) {
   const onPointerDown = (e: PointerEvent, r: SideLiveRow) => {
     // 右ボタンと control を押しながらの押し下げは、メニューを出すためのものなので掴まない。
     if (e.button !== 0 || e.ctrlKey || e.isPrimary === false) return;
-    // 収まる途中の行は、収まりきるまで掴み直さない。
-    if (sortNow.current) return;
+    // 収まる途中の行は、収まりきるまで掴み直さない。グループを動かしている間も掴まない。
+    if (sortNow.current || props.blocked) return;
     press.current = { id: r.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, active: false, cancelled: false };
   };
   const onPointerMove = (e: PointerEvent) => {
@@ -276,8 +266,6 @@ function LiveSection(props: { live: SideLiveProps }) {
     if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
   };
   return (
-    <section className="side-live" aria-label={t('sidebar.live.label')}>
-      <h2 className="side-live-h">{t('sidebar.live.title')}<span className="side-live-n">{live.count}</span></h2>
       <ul className="side-live-list" ref={list} data-sorting={at ? 'true' : undefined}>
         {live.rows.map((r, j) => {
           const shift = at ? shiftOf(at, j) : 0;
@@ -286,7 +274,7 @@ function LiveSection(props: { live: SideLiveProps }) {
           const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
           return (
           <li key={r.id}>
-            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={menu?.id === r.id ? 'true' : undefined}
+            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={props.menuId === r.id ? 'true' : undefined}
               data-live={r.live ?? undefined} data-lift={lift} style={style}
               title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
               onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
@@ -298,14 +286,198 @@ function LiveSection(props: { live: SideLiveProps }) {
           );
         })}
       </ul>
-      {menuRow && menu && <SessionMenuPop key={menuRow.id} menu={menuRow.menu} at={menu.at} onClose={closeMenu} />}
-      {live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>{t('sidebar.live.more', { n: live.more })}</a>}
-    </section>
   );
 }
 
-/** 「ほか N 件」の行き先。ホームの実行中と要対応に全部が並ぶ。 */
-const HOME = { name: 'home' } as const;
+/**
+ * グループを並べ替える途中の形。行の並べ替え（Sort）と同じく、held はポインタに付いている間、settle は離して空いた席（取り消しなら元の席）へ収まる間である。
+ * boxes は掴んだときに測ったグループの上端と高さ。グループの高さはまちまちなので、行のように 1 つの間隔では足りない。
+ */
+type GroupBox = { top: number; height: number };
+type GroupSort =
+  | { phase: 'held'; key: string; from: number; dy: number; boxes: GroupBox[] }
+  | { phase: 'settle'; key: string; from: number; to: number; boxes: GroupBox[] };
+
+/** グループの間のすき間。測った最初の 2 つの差から読む。1 つしか無ければ 0。 */
+const groupGap = (boxes: GroupBox[]) => (boxes.length > 1 ? boxes[1]!.top - boxes[0]!.top - boxes[0]!.height : 0);
+
+/** 掴んだグループの縦のずれから、入る席と浮いたグループのずれを決める。両端の先へは DRAG_OVERSHOOT までしか出さない。収まる間は、入る席までのずれを返す。 */
+function groupSlot(g: GroupSort): { to: number; dy: number } {
+  const { boxes, from } = g;
+  const gap = groupGap(boxes);
+  if (g.phase === 'settle') {
+    const passed = (g.to > from ? boxes.slice(from + 1, g.to + 1) : boxes.slice(g.to, from)).reduce((n, b) => n + b.height + gap, 0);
+    return { to: g.to, dy: g.to > from ? passed : -passed };
+  }
+  const me = boxes[from]!;
+  const first = boxes[0]!;
+  const last = boxes[boxes.length - 1]!;
+  const dy = Math.max(first.top - me.top - DRAG_OVERSHOOT, Math.min(last.top + last.height - (me.top + me.height) + DRAG_OVERSHOOT, g.dy));
+  const center = me.top + me.height / 2 + dy;
+  const mid = (b: GroupBox) => b.top + b.height / 2;
+  const down = boxes.filter((b, j) => j > from && mid(b) < center).length;
+  const up = boxes.filter((b, j) => j < from && mid(b) > center).length;
+  return { to: from + down - up, dy };
+}
+
+/** 並べ替えの途中で、席 j のグループをずらす幅。掴んだグループが通り過ぎたグループは、掴んだグループの高さ分だけ逆へよける。 */
+function groupShift(g: GroupSort, j: number): number {
+  const { to, dy } = groupSlot(g);
+  if (j === g.from) return dy;
+  const span = g.boxes[g.from]!.height + groupGap(g.boxes);
+  if (g.from < to && j > g.from && j <= to) return -span;
+  if (g.from > to && j >= to && j < g.from) return span;
+  return 0;
+}
+
+/**
+ * 「実行中」の節。行をプロジェクトごとのグループに分けて並べる。
+ * 見出しを押すとそのグループを畳み、もう一度押すと開く（sidebar.fold）。開き閉じは FoldBox で伸び縮みさせる。
+ * 畳んだグループに入力待ちがあれば、見出しに待ちの印を付ける。畳んでも待っていることを見落とさないためである。
+ * 見出しを掴んで上下に動かすと、グループごと並べ替えられる。行と同じく浮いてポインタに付き、ほかのグループはその高さ分よける。
+ * 見出しに焦点があるときは ⌥↑ と ⌥↓ でグループを 1 つずつ動かす。グループの順は別に持たず、つないだ並びを sidebar.order で覚え直す。
+ * 行の並べ替えはグループの中だけで行う（RowList）。行のプロジェクトは並べ替えでは変わらないからである。
+ * 見出し（実行中）は動かさず、グループの並び（.side-live-scroll）だけを、設定の上までの高さでスクロールさせる。
+ * 行のメニューは節に 1 つだけ持ち、開いている行には印（data-menu）を付ける。
+ */
+function LiveSection(props: { live: SideLiveProps }) {
+  const emit = useEmit();
+  const t = useT();
+  const baseId = useId();
+  // 開いているメニュー。at は吊るす相手で、右クリックなら押した点、打鍵なら行の矩形。
+  const [menu, setMenu] = useState<{ id: string; at: MenuAnchor } | null>(null);
+  const scroll = useRef<HTMLDivElement>(null);
+  const [gsort, setGsortState] = useState<GroupSort | null>(null);
+  const gsortNow = useRef<GroupSort | null>(null);
+  const setGsort = (next: GroupSort | null) => { gsortNow.current = next; setGsortState(next); };
+  const gpress = useRef<{ key: string; pointer: number; y: number; active: boolean } | null>(null);
+  const gswallow = useRef(false);
+  const gtimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveNow = useRef(props.live);
+  liveNow.current = props.live;
+  useEffect(() => () => { if (gtimer.current) clearTimeout(gtimer.current); }, []);
+  // 一覧の底を薄れさせて、まだ下へ続くことを見せる。底まで来たら（続きが無ければ）外す。
+  const [atEnd, setAtEnd] = useState(true);
+  const measureEnd = () => { const el = scroll.current; if (el) setAtEnd(el.scrollTop + el.clientHeight >= el.scrollHeight - 1); };
+  useLayoutEffect(measureEnd);
+  // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
+  const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
+  useEffect(() => { if (gone) setMenu(null); }, [gone]);
+  const { live } = props;
+  if (live.count === 0) return null;
+  const menuRow = menu ? live.rows.find((r) => r.id === menu.id) ?? null : null;
+  const closeMenu = (how: MenuCloseHow) => {
+    const id = menu?.id;
+    setMenu(null);
+    // 外を押したときは、押した先にフォーカスを任せる。ほかは行へ戻す（止めて行が消えたら、戻す先は無い）。
+    if (how !== 'outside' && id) scroll.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
+  };
+  /** グループをこの順に並べた並びを覚える。いまの並びと同じなら何もしない。 */
+  const order = (groups: SideLiveGroup[]) => {
+    const ids = groups.flatMap((g) => g.rows.map((r) => r.id));
+    if (ids.some((id, i) => id !== liveNow.current.ids[i])) emit({ type: 'sidebar.order', ids });
+  };
+  /** 浮いたグループを空いた席（取り消しなら元の席）へ --dur-fast で収め、収まってからグループの順を確定する。行の settle と同じ組み立てである。 */
+  const gsettle = (cancel: boolean) => {
+    const g = gsortNow.current;
+    if (!g || g.phase !== 'held') return;
+    const next: GroupSort = { phase: 'settle', key: g.key, from: g.from, to: cancel ? g.from : groupSlot(g).to, boxes: g.boxes };
+    setGsort(next);
+    const finish = () => {
+      gtimer.current = null;
+      if (gsortNow.current !== next) return;
+      // 確定は最新のグループで組み立てる。収まる間にグループが増減しても、掴んだグループを入る席へ移すだけにする。
+      const groups = [...liveNow.current.groups];
+      const from = groups.findIndex((x) => x.key === next.key);
+      flushSync(() => {
+        if (from >= 0 && next.to !== from) {
+          const [moved] = groups.splice(from, 1);
+          groups.splice(Math.min(next.to, groups.length), 0, moved!);
+          order(groups);
+        }
+        setGsort(null);
+      });
+    };
+    const ms = motionMs('--dur-fast');
+    if (ms > 0) gtimer.current = setTimeout(finish, ms);
+    else finish();
+  };
+  const onHeadDown = (e: PointerEvent, key: string) => {
+    if (e.button !== 0 || e.ctrlKey || e.isPrimary === false || gsortNow.current) return;
+    gpress.current = { key, pointer: e.pointerId, y: e.clientY, active: false };
+  };
+  const onHeadMove = (e: PointerEvent) => {
+    const p = gpress.current;
+    if (!p || e.pointerId !== p.pointer) return;
+    if (!p.active) {
+      if (Math.abs(e.clientY - p.y) < DRAG_SLOP) return;
+      const els = [...scroll.current?.querySelectorAll<HTMLElement>('[data-group]') ?? []];
+      const from = els.findIndex((el) => el.dataset.group === p.key);
+      if (from < 0) return;
+      p.active = true;
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* 捕まえられなくても、見出しの上にいる間は動く */ }
+      gsortNow.current = { phase: 'held', key: p.key, from, dy: 0, boxes: els.map((el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height }; }) };
+    }
+    const g = gsortNow.current;
+    if (!g || g.phase !== 'held') return;
+    setGsort({ ...g, dy: e.clientY - p.y });
+  };
+  const onHeadUp = (e: PointerEvent) => {
+    const p = gpress.current;
+    if (!p || e.pointerId !== p.pointer) return;
+    gpress.current = null;
+    if (!p.active) return;
+    // 離した直後の click で畳まない。click が来なかったときに、次の押し下げまで飲み込みを残さない。
+    gswallow.current = true;
+    setTimeout(() => { gswallow.current = false; }, 0);
+    gsettle(false);
+  };
+  const onHeadCancel = (e: PointerEvent) => {
+    if (gpress.current?.pointer !== e.pointerId) return;
+    gpress.current = null;
+    gsettle(true);
+  };
+  const onHeadClick = (g: SideLiveGroup) => {
+    if (gswallow.current) { gswallow.current = false; return; }
+    emit({ type: 'sidebar.fold', key: g.key, open: !g.open });
+  };
+  const onHeadKey = (e: KeyboardEvent, g: SideLiveGroup) => {
+    if (gsortNow.current || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    const keys = nudgeId(live.groups.map((x) => x.key), g.key, e.key === 'ArrowUp' ? -1 : 1);
+    order(keys.map((k) => live.groups.find((x) => x.key === k)!));
+  };
+  return (
+    <section className="side-live" aria-label={t('sidebar.live.label')}>
+      <h2 className="side-live-h">{t('sidebar.live.title')}<span className="side-live-n">{live.count}</span></h2>
+      <div className="side-live-scroll" ref={scroll} onScroll={measureEnd} data-end={atEnd ? 'true' : undefined} data-sorting={gsort ? 'true' : undefined}>
+        {live.groups.map((g, i) => {
+          const shift = gsort ? groupShift(gsort, i) : 0;
+          const lift = gsort?.key === g.key ? gsort.phase : undefined;
+          const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
+          const body = `${baseId}-g${i}`;
+          return (
+            <div key={g.key} className="side-live-grp" data-group={g.key} data-lift={lift} style={style}>
+              <button type="button" className="side-live-grp-h" aria-expanded={g.open} aria-controls={body} data-waiting={!g.open && g.waiting > 0 ? 'true' : undefined}
+                onClick={() => onHeadClick(g)} onKeyDown={(e) => onHeadKey(e, g)}
+                onPointerDown={(e) => onHeadDown(e, g.key)} onPointerMove={onHeadMove} onPointerUp={onHeadUp} onPointerCancel={onHeadCancel}>
+                <span className="side-live-grp-chev" aria-hidden="true"><Icon name="chevron" /></span>
+                <span className="side-live-grp-name">{g.name}</span>
+                <span className="side-live-grp-dot" aria-hidden="true" />
+                <span className="side-live-grp-n">{g.rows.length}</span>
+                {!g.open && g.waiting > 0 && <span className="sr-only">{t('sidebar.count.waiting', { n: g.waiting })}</span>}
+              </button>
+              <FoldBox open={g.open} keep id={body} className="side-live-grp-body">
+                <RowList rows={g.rows} menuId={menu?.id ?? null} openMenu={(id, at) => setMenu({ id, at })} blocked={gsort !== null} />
+              </FoldBox>
+            </div>
+          );
+        })}
+      </div>
+      {menuRow && menu && <SessionMenuPop key={menuRow.id} menu={menuRow.menu} at={menu.at} onClose={closeMenu} />}
+    </section>
+  );
+}
 
 /**
  * サイドバー。上から「ホーム」「プロジェクト」の 2 項目、「実行中」の節、下端の「設定」の順に置く（設計書 2.1）。

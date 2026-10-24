@@ -51,6 +51,24 @@ export function sidebarOrderStep(state: State, input: Input): Step | null {
   return { state: { ...state, sidebarOrder: order }, effects: [{ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: order }] };
 }
 
+/** サイドバーの「実行中」で畳んだグループを残す localStorage の鍵。値はプロジェクトの id の配列で、未分類は空の文字列。 */
+export const SIDEBAR_FOLDED_KEY = 'sidebar.folded';
+
+/** 畳んだグループの並びを整える。配列でなければ空にし、文字列でない要素と重なりは落とす。未分類を表す空の文字列は残す。 */
+export function cleanSidebarFolded(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter((x): x is string => typeof x === 'string'))];
+}
+
+/** 「実行中」のグループを開く・畳む。保存し、開き直しても同じ形で出す。形が変わらなければ何もしない。 */
+export function sidebarFoldStep(state: State, input: Input): Step | null {
+  if (input.kind !== 'action' || input.action.type !== 'sidebar.fold') return null;
+  const { key, open } = input.action;
+  if (state.sidebarFolded.includes(key) !== open) return { state, effects: [] };
+  const folded = open ? state.sidebarFolded.filter((k) => k !== key) : [...state.sidebarFolded, key];
+  return { state: { ...state, sidebarFolded: folded }, effects: [{ kind: 'storage.save', key: SIDEBAR_FOLDED_KEY, value: folded }] };
+}
+
 /**
  * 動いているセッションの顔ぶれを、ストアから読んで並びに合わせる（store.ts の liveSessionIds）。ストアが変わるたびに呼ばれる。
  * 初めて現れたものを、始めた順で並びの末尾に書き足す。場所はここで決まり、以後は利用者が動かすまで変わらない。

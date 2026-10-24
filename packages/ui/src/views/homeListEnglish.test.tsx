@@ -96,10 +96,10 @@ describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () =
     expect(screen.getByRole('button', { name: /Go to \/ Actions/ })).toBeInTheDocument();
     noJapanese();
     unmount();
-    const side = inEnglish(<Sidebar nav={shell.nav} foot={shell.foot} collapsed={false} live={{ ...shell.live, more: 2 }} />);
+    const side = inEnglish(<Sidebar nav={shell.nav} foot={shell.foot} collapsed={false} live={shell.live} />);
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close sidebar' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '2 more' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Uncategorized/ })).toHaveAttribute('aria-expanded', 'true');
     noJapanese();
     side.unmount();
     inEnglish(<ConnectionBanner {...shell.conn} />);

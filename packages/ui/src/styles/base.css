@@ -150,7 +150,7 @@ a:hover { text-decoration: underline; }
 .nav-label { white-space: nowrap; transform-origin: 0 0; }
 /* サイドバーの「動いている」。項目の下に、動いているセッションを 1 行ずつ並べる。
    行は掴んで上下に動かせ、入る場所に線を出す。動かすのは行だけで、見出しは動かない。 */
-.side-live { margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 2.5); border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.side-live { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 2.5); border-top: 1px solid rgba(30, 40, 90, 0.1); }
 .side-live-h { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: calc(var(--u) * 6); margin: 0; padding: 0 calc(var(--u) * 3); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap; }
 .side-live-n { font-weight: 500; font-variant-numeric: tabular-nums; }
 .side-live-list { list-style: none; margin: 0; padding: 0; }
@@ -173,8 +173,32 @@ a:hover { text-decoration: underline; }
 .side-live-list .side-live-row[data-lift='held'] { background: rgba(255, 255, 255, 0.96); box-shadow: var(--glass-drop); scale: 1.02; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), scale var(--dur-fast) var(--ease-out); }
 .side-live-list .side-live-row[data-lift='settle'] { transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), scale var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .side-live-list .side-live-row[data-lift='held'] { scale: none; } }
-.side-live-more { display: flex; align-items: center; height: calc(var(--u) * 6.5); padding: 0 calc(var(--u) * 3); font-size: var(--fs-xs); color: var(--ink-3); }
-.side-live-more:hover { color: var(--accent); text-decoration: none; }
+/* 節は設定の上までの高さを使い、見出し（実行中）を残して、グループの並びだけをスクロールさせる。
+   底はまだ続くあいだだけ薄れさせる（data-end が無いとき）。 */
+.side-live-h { flex: none; }
+.side-live-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; margin: 0 calc(var(--u) * -1); padding: 0 calc(var(--u) * 1) calc(var(--u) * 1); -webkit-mask-image: linear-gradient(#000 calc(100% - 16px), transparent); mask-image: linear-gradient(#000 calc(100% - 16px), transparent); }
+.side-live-scroll[data-end='true'] { -webkit-mask-image: none; mask-image: none; }
+/* プロジェクトのグループ。見出しは押すと畳み、掴むとグループごと動く。行は見出しより一段奥に置く。 */
+.side-live-grp + .side-live-grp { margin-top: calc(var(--u) * 1.5); }
+.side-live-grp-h { display: flex; align-items: center; gap: calc(var(--u) * 1.5); width: 100%; height: 26px; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r); background: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); text-align: left; cursor: grab; -webkit-user-select: none; user-select: none; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.side-live-grp-h:hover { background: rgba(255, 255, 255, 0.4); color: var(--ink-2); }
+.side-live-grp-chev { display: inline-flex; flex: none; width: 12px; height: 12px; transition: rotate var(--dur-fast) var(--ease-out); }
+.side-live-grp-chev > svg { width: 12px; height: 12px; }
+/* 矢印のアイコンは右向き。開いているあいだだけ下へ回す（.fold-arrow と同じ）。 */
+.side-live-grp-h[aria-expanded='true'] .side-live-grp-chev { rotate: 90deg; }
+.side-live-grp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-live-grp-n { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; }
+/* 畳んだグループに入力待ちがあるときだけ、件数の前に待ちの点を出す。 */
+.side-live-grp-dot { display: none; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--waiting); }
+.side-live-grp-h[data-waiting='true'] .side-live-grp-dot { display: inline-block; }
+.side-live-grp-h[data-waiting='true'] { color: var(--waiting); }
+.side-live-grp-body .side-live-row { padding-left: calc(var(--u) * 4); }
+/* グループの並べ替え。掴んだグループは行と同じく白い面と影で浮き、ほかのグループは入る場所に合わせて滑ってよける。 */
+.side-live-scroll[data-sorting='true'] .side-live-grp { transition: translate var(--dur-fast) var(--ease-out); }
+.side-live-grp[data-lift] { position: relative; z-index: 2; border-radius: var(--r); }
+.side-live-grp[data-lift='held'] { background: rgba(255, 255, 255, 0.92); box-shadow: var(--glass-drop); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.side-live-grp[data-lift='held'] .side-live-grp-h { cursor: grabbing; }
+.side-live-grp[data-lift='settle'] { transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out); }
 
 /* 折りたたんだサイドバー（⌘B、サイドバーの開閉のボタン）。アイコンだけの細い帯に縮む。
    開閉の動きは views/primitives/sidebarMotion.ts が、ここにある 2 つの形の差を埋めて作る。
@@ -195,7 +219,12 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar='collapsed'] .nav-label { position: absolute; left: calc(var(--item) + var(--u) * 3); top: 50%; translate: 0 -50%; padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
 /* 畳んだ帯では、動いているセッションを点だけで縦に並べる。名前は title に持つ。見出しと「ほか N 件」は出さない。 */
 .shell[data-sidebar='collapsed'] .side-live { margin-top: calc(var(--u) * 2); padding-top: calc(var(--u) * 2); }
-.shell[data-sidebar='collapsed'] .side-live-h, .shell[data-sidebar='collapsed'] .side-live-name, .shell[data-sidebar='collapsed'] .side-live-wait, .shell[data-sidebar='collapsed'] .side-live-more { display: none; }
+.shell[data-sidebar='collapsed'] .side-live-h, .shell[data-sidebar='collapsed'] .side-live-name, .shell[data-sidebar='collapsed'] .side-live-wait { display: none; }
+/* 畳んだ帯ではグループの見出しを出さず、畳んだグループの点も並べる。グループの境は少しの間だけで見せる。 */
+.shell[data-sidebar='collapsed'] .side-live-grp-h { display: none; }
+.shell[data-sidebar='collapsed'] .side-live-grp-body[hidden] { display: block; }
+.shell[data-sidebar='collapsed'] .side-live-grp-body .side-live-row { padding: 0; }
+.shell[data-sidebar='collapsed'] .side-live-scroll { -webkit-mask-image: none; mask-image: none; scrollbar-width: none; }
 .shell[data-sidebar='collapsed'] .side-live-row { justify-content: center; width: var(--item); height: 26px; padding: 0; }
 .shell[data-sidebar='collapsed'] .nav-count { position: absolute; top: 3px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; margin: 0; font-size: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 .shell[data-sidebar='collapsed'] .nav-item:hover .nav-label, .shell[data-sidebar='collapsed'] .nav-item:focus-visible .nav-label { opacity: 1; visibility: visible; }
