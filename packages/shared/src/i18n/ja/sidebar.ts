@@ -9,7 +9,6 @@ export const sidebarJa: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.live.waited': '入力待ち {time}',
   'sidebar.live.stop': '停止',
   'sidebar.live.stopExternal': '外部ターミナルで実行中',
-  'sidebar.live.more': 'ほか {n} 件',
   'sidebar.toggle.open': 'サイドバーを開く',
   'sidebar.toggle.close': 'サイドバーを閉じる',
   'sidebar.toggle.tipOpen': '開く',

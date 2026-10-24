@@ -63,11 +63,13 @@ export const HARD_AFTER_FAILURES = 3;
 export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
   overlap?: string | null };
+/** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
+export type SideLiveGroup = { key: string; name: string; open: boolean; waiting: number; rows: SideLiveRow[] };
 /**
  * サイドバーの「実行中」。
- * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
+ * count は動いているセッションの全数、ids と rows は見えている順（グループをつないだ順）の全部の並びと行（ids は並べ替えの計算に使う）、groups はプロジェクトごとのグループである。
  */
-export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
+export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; groups: SideLiveGroup[] };
 export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
 
 /**
@@ -156,24 +158,24 @@ const footDefs = (t: Translate): NavDef[] => [
   { route: { name: 'settings' }, label: t('sidebar.nav.settings'), matches: ['settings'] },
 ];
 
-/** サイドバーの「実行中」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
-export const SIDE_LIVE_MAX = 8;
-
 /**
  * サイドバーの「実行中」。
  * セッション画面にいる間、ほかのセッションのどれが待っているかを横目で見て、1 押しで移るための場所である。
  * 並びは覚えた順（state.sidebarOrder）だけで決め、状態や最後の活動では並べ直さない。動かすのは利用者の手だけである。
  * 覚えた並びにまだ無いもの（いま動き始めたもの）は、始めた順で末尾に置く。Mediator が同じ順で並びに書き足すので（sidebar.ts の sidebarLiveStep）、書き足す前と後で行は動かない。
  * 入力待ちになっても行は動かさない。待ちは色と太字と待った時間で知らせる。
+ * 行はプロジェクトごとのグループに分ける。グループの順は、並びの中でそのプロジェクトの行が先に出てくる順で、グループの中は並びの順である。
+ * グループの順を別に持たない。グループを動かしたときは、つないだ並びを sidebar.order で覚え直す（views/Sidebar.tsx）。
+ * 行の数に上限は無く、入りきらない分は節の中でスクロールする。
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const t = translatorOf(store);
   const live = liveSessionIds(store);
   const on = new Set(live);
   const known = new Set(state.sidebarOrder);
-  const ids = [...state.sidebarOrder.filter((id) => on.has(id)), ...live.filter((id) => !known.has(id))];
+  const order = [...state.sidebarOrder.filter((id) => on.has(id)), ...live.filter((id) => !known.has(id))];
   const current = state.screen.name === 'session' ? state.screen.id : null;
-  const rows = ids.slice(0, SIDE_LIVE_MAX).map((id): SideLiveRow => {
+  const rowOf = (id: string): SideLiveRow => {
     const s = store.sessions[id]!;
     const aside = asideOf(s.live, s.liveAside);
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
@@ -181,8 +183,20 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
     const reason = shownReason(s, shown);
     return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null };
+  };
+  const byKey = new Map<string, string[]>();
+  for (const id of order) {
+    const key = store.sessions[id]!.projectId ?? '';
+    byKey.set(key, [...byKey.get(key) ?? [], id]);
+  }
+  const folded = new Set(state.sidebarFolded);
+  const groups = [...byKey].map(([key, ids]): SideLiveGroup => {
+    const rows = ids.map(rowOf);
+    const name = key === '' ? t('common.label.uncategorized') : store.projects[key]?.name ?? t('common.label.noName');
+    return { key, name, open: !folded.has(key), waiting: rows.filter((r) => r.live === 'waiting').length, rows };
   });
-  return { count: ids.length, ids, rows, more: ids.length - rows.length };
+  const rows = groups.flatMap((g) => g.rows);
+  return { count: rows.length, ids: rows.map((r) => r.id), rows, groups };
 }
 
 /** サイドバーの行の右端の語。入力待ちと許可待ちは待った時間、使用制限はリセットの時刻、リセット済みはその語。 */

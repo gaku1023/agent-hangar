@@ -8,7 +8,6 @@ export const sidebarKeys = {
   'sidebar.live.waited': ['time'],
   'sidebar.live.stop': [],
   'sidebar.live.stopExternal': [],
-  'sidebar.live.more': ['n'],
   'sidebar.toggle.open': [],
   'sidebar.toggle.close': [],
   'sidebar.toggle.tipOpen': [],

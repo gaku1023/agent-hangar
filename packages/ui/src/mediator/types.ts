@@ -351,6 +351,8 @@ export type State = {
    * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。
    */
   sidebarOrder: string[];
+  /** サイドバーの「実行中」で畳んだグループ（プロジェクトの id。未分類は空の文字列）。 */
+  sidebarFolded: string[];
   /**
    * プロジェクト画面の右パネルで折りたたんだ節（プロジェクトの id から節の並びへ）。無いプロジェクトは 3 つとも開く。
    * 端末ごとに localStorage に残し、起動時に読み戻す（mediator/projectRail.ts）。

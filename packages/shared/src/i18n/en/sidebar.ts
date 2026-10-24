@@ -9,7 +9,6 @@ export const sidebarEn: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.live.waited': 'Waiting {time}',
   'sidebar.live.stop': 'Stop',
   'sidebar.live.stopExternal': 'Running in an external terminal',
-  'sidebar.live.more': '{n} more',
   'sidebar.toggle.open': 'Open sidebar',
   'sidebar.toggle.close': 'Close sidebar',
   'sidebar.toggle.tipOpen': 'Open',
