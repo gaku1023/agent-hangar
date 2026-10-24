@@ -88,7 +88,7 @@ describe('LaunchSheet（D2）', () => {
   it('受信箱の素に会話の URL と意図が来たら、アカウントつきの開くリンクとして出す', () => {
     const { rerender } = setup({ state: started, view: viewOf([]) });
     rerender({ state: started, view: viewOf([row({ rcUrl: 'https://claude.ai/code/session_abc', intent: 'README を読んでいます' })]) });
-    const link = screen.getByRole('link', { name: 'アカウント 1のアカウントで開く ›' });
+    const link = screen.getByRole('link', { name: '開く ›' });
     expect(link).toHaveAttribute('href', 'https://claude.ai/code/session_abc');
     expect(link).toHaveAttribute('target', '_blank');
     expect(screen.getByText('意図：README を読んでいます')).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe('LaunchSheet（D2）', () => {
     setup({ spec: spec({ projectName: null, accountName: null }), state: started, view: viewOf([row({ rcUrl: 'https://claude.ai/code/session_x' })]) });
     const card = screen.getByRole('region', { name: '開始した会話' });
     expect(within(card).getByText('クイックセッション')).toBeInTheDocument();
-    expect(within(card).getByRole('link', { name: 'Claude アプリで開く ›' })).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: '開く ›' })).toBeInTheDocument();
   });
 
   it('始まったあと URL が来るまで 3 秒ごとに受信箱の読み直しを頼み、URL が来たら止める。最大 20 回', () => {

@@ -151,7 +151,7 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
               )}
               {url ? (
                 <a className="ns-start sm" href={openUrlOf(url)} target="_blank" rel="noopener noreferrer">
-                  {spec.accountName ? `${spec.accountName}のアカウントで開く ›` : 'Claude アプリで開く ›'}
+                  開く ›
                 </a>
               ) : (
                 <button type="button" className="ns-start sm" disabled>
