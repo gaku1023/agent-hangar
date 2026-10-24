@@ -4,7 +4,7 @@ import { useSheetPhase } from '../presence.ts';
 
 /** シートの中身。 */
 export type SuggestView =
-  | { kind: 'need'; title: string; text: string }
+  | { kind: 'need'; title: string; text?: string }
   | { kind: 'loading'; pcName: string }
   | { kind: 'error'; title: string; text: string; retry: boolean }
   | { kind: 'commands'; q: string; list: CommandHit[] }
@@ -101,9 +101,9 @@ function Commands({ q, list: given, onPick }: { q: string; list: CommandHit[]; o
   if (!skills && !commands) {
     return (
       <div className="cm-empty">
-        {q ? `「/${q}」に合うスキルはありません。` : 'この PC とアカウントにスキルはありません。'}
+        {q ? `「/${q}」に合うものなし` : 'スキルなし'}
         <br />
-        そのまま文として送ることもできます。
+        そのまま送れます。
       </div>
     );
   }
@@ -118,7 +118,12 @@ function Commands({ q, list: given, onPick }: { q: string; list: CommandHit[]; o
 function Files({ q, list: given, onPick }: { q: string; list: FileHit[]; onPick: (t: string) => void }): ReactNode {
   const list = capFiles(given);
   if (list.length === 0) {
-    return <div className="cm-empty">{q ? `「${q}」に合うファイルはありません。` : '最近変更したファイルはありません。名前を入力すると検索できます。'}</div>;
+    return (
+      <>
+        <div className="cm-empty">{q ? `「${q}」に合うものなし` : '最近変更したファイルなし'}</div>
+        {!q && <p className="cm-foot">名前を入力すると検索できます。</p>}
+      </>
+    );
   }
   return (
     <>
@@ -153,8 +158,12 @@ function Body({ view, onPick, onRetry, onDismiss }: { view: SuggestView } & Pick
       return (
         <div className="cm-empty">
           <b>{view.title}</b>
-          <br />
-          {view.text}
+          {view.text && (
+            <>
+              <br />
+              {view.text}
+            </>
+          )}
         </div>
       );
     case 'loading':
@@ -163,7 +172,7 @@ function Body({ view, onPick, onRetry, onDismiss }: { view: SuggestView } & Pick
           <div className="cm-wait" role="status">
             <span className="cm-spin" aria-hidden="true" />
             <span>
-              {view.pcName} に問い合わせ中…<small>1〜3 秒かかります</small>
+              {view.pcName} に問い合わせ中…
             </span>
           </div>
           <div className="cm-sk" aria-hidden="true">

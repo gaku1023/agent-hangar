@@ -59,9 +59,8 @@ export function ProjectPicker({ projects, sel, onPick, names }: Props): ReactNod
       </h2>
       <div role="radiogroup" aria-labelledby={headId} className="pp">
         <div className="ns-list">
-          <Choice checked={!!sel?.scratch} onPick={() => onPick({ scratch: true })} title="クイックセッション" sub="どの PC でも" />
+          <Choice checked={!!sel?.scratch} onPick={() => onPick({ scratch: true })} title="クイックセッション" />
         </div>
-        {projects.length > 0 && <p className="pp-sub">最近</p>}
         <div className="pp-chips">
           {recent.map((p) => (
             <button key={p.id} type="button" role="radio" aria-checked={isOn(p)} className={`pp-chip ${isOn(p) ? 'on' : ''}`} onClick={() => pick(p)}>
@@ -83,7 +82,7 @@ export function ProjectPicker({ projects, sel, onPick, names }: Props): ReactNod
 
       {many && (
         <>
-          <input className="input pp-search" type="text" enterKeyHint="search" autoComplete="off" aria-label="プロジェクトを検索" placeholder={`プロジェクトを検索（${projects.length} 件）`} value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="input pp-search" type="text" enterKeyHint="search" autoComplete="off" aria-label="プロジェクトを検索" placeholder="検索" value={q} onChange={(e) => setQ(e.target.value)} />
           <Results shown={shown} more={found.length - shown.length} empty={!!needle && found.length === 0} pcs={pcs} isOn={isOn} onPick={pick} />
         </>
       )}
@@ -115,7 +114,7 @@ function ProjectRow({ p, pcs, isOn, onPick }: RowsProps & { p: LaunchProject }):
 /** 検索の結果。行は伸びて入り、畳んで出る。 */
 function Results({ shown, more, empty, pcs, isOn, onPick }: RowsProps & { shown: LaunchProject[]; more: number; empty: boolean }): ReactNode {
   const list = usePresence(shown, (p) => p.id);
-  const note = more > 0 ? `他 ${more} 件（「すべて」で見る）` : empty ? '見つかりません' : null;
+  const note = more > 0 ? `他 ${more} 件` : empty ? '見つかりません' : null;
   if (shown.length === 0 && !note && list.length === 0) return null;
   return (
     <div role="radiogroup" aria-label="検索結果" className="pp-results">

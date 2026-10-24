@@ -108,7 +108,7 @@ describe('App', () => {
     feeds = [feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-new', title: '導入を直す', status: 'busy', intent: 'README を読んでいます', rcUrl: 'https://claude.ai/code/session_new' })] })];
     await waitFor(() => expect(steps()).toEqual(['done', 'done', 'done']));
     expect(within(dlg).getByRole('region', { name: '開始した会話' })).toHaveTextContent('導入を直す');
-    const link = await within(dlg).findByRole('link', { name: 'アカウント 1のアカウントで開く ›' });
+    const link = await within(dlg).findByRole('link', { name: '開く ›' });
     expect(link).toHaveAttribute('href', 'https://claude.ai/code/session_new');
     expect(within(dlg).getByText('意図：README を読んでいます')).toBeInTheDocument();
   });

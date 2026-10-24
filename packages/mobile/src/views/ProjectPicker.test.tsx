@@ -38,9 +38,10 @@ describe('ProjectPicker（B1）', () => {
     render(<Harness />);
     const radios = within(main()).getAllByRole('radio');
     expect(radios.map((r) => r.textContent)).toEqual([expect.stringContaining('クイックセッション'), 'project-1', 'project-2', 'project-3', 'project-4', 'project-5']);
-    expect(radios[0]).toHaveTextContent('どの PC でも');
+    expect(radios[0]).toHaveTextContent(/^クイックセッション$/);
+    expect(screen.queryByText('最近')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'すべて 8 件 ›' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'プロジェクトを検索' })).toHaveAttribute('placeholder', 'プロジェクトを検索（8 件）');
+    expect(screen.getByRole('textbox', { name: 'プロジェクトを検索' })).toHaveAttribute('placeholder', '検索');
   });
 
   it('札を選ぶと、そのプロジェクトの選択を渡す。クイックセッションは scratch', () => {
@@ -66,7 +67,7 @@ describe('ProjectPicker（B1）', () => {
     fireEvent.change(box, { target: { value: 'PROJECT-' } });
     const results = within(screen.getByRole('radiogroup', { name: '検索結果' }));
     expect(results.getAllByRole('radio')).toHaveLength(5);
-    expect(screen.getByText('他 3 件（「すべて」で見る）')).toBeInTheDocument();
+    expect(screen.getByText('他 3 件')).toBeInTheDocument();
     fireEvent.change(box, { target: { value: 'project-2' } });
     const one = within(screen.getByRole('radiogroup', { name: '検索結果' })).getAllByRole('radio');
     expect(one).toHaveLength(1);

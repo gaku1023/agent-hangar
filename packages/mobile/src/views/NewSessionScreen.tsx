@@ -25,6 +25,7 @@ const NO_ACCOUNTS: MobileAccount[] = [];
 const NO_ITEMS: string[] = [];
 const ADV_ON = ['adv'];
 const NOTE_ON = ['note'];
+const STEP_ON = ['step'];
 
 const COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const safeColor = (c: string): string | null => (COLOR.test(c) ? c : null);
@@ -110,6 +111,9 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const nothing = choices.scratchDeviceIds.length === 0;
 
   const advShown = usePresence(adv ? ADV_ON : NO_ITEMS, (k) => k);
+  // まだ選べない段は出さない。前の段を選ぶと、次の段が伸びて現れる。
+  const pcStep = usePresence(sel ? STEP_ON : NO_ITEMS, (k) => k);
+  const acctStep = usePresence(pc ? STEP_ON : NO_ITEMS, (k) => k);
   const noteShown = usePresence(effortSent === 'xhigh' || effortSent === 'max' ? NOTE_ON : NO_ITEMS, (k) => k);
   const summary = [
     permissionMode ? `権限 ${permissionName(permissionMode)}` : '',
@@ -182,32 +186,40 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
           <fieldset className="ns-form" disabled={submitted}>
             <ProjectPicker projects={choices.projects} sel={sel} onPick={setSel} names={names} />
 
-            <Group label="PC" hint={sel ? null : 'プロジェクトを選ぶと表示されます'}>
-              <Options
-                items={pcOptions}
-                keyOf={(d) => d}
-                render={(d) => {
-                  const n = running.get(d) ?? 0;
-                  return <Choice checked={pc === d} onPick={() => setPcPicked(d)} title={names.get(d) ?? d} sub={n > 0 ? `実行中 ${n}` : '空き'} />;
-                }}
-              />
-            </Group>
-
-            <Group label="アカウント" hint={pc ? (accounts.length === 0 ? 'この PC にアカウントがありません' : null) : 'PC を選ぶと表示されます'}>
-              <Options
-                items={accounts}
-                keyOf={(a) => `${pc}:${a.id}`}
-                render={(a) => (
-                  <Choice
-                    checked={account === a.id}
-                    onPick={() => setAcctPicked(a.id)}
-                    title={a.name || a.id}
-                    dot={safeColor(a.color)}
-                    sub={typeof a.fiveHour === 'number' ? `5 時間 ${Math.round(a.fiveHour)}%` : undefined}
+            {pcStep.map((s) => (
+              <Fold key={s.key} phase={s.phase} className="ns-step">
+                <Group label="PC">
+                  <Options
+                    items={pcOptions}
+                    keyOf={(d) => d}
+                    render={(d) => {
+                      const n = running.get(d) ?? 0;
+                      return <Choice checked={pc === d} onPick={() => setPcPicked(d)} title={names.get(d) ?? d} sub={n > 0 ? `実行中 ${n}` : undefined} />;
+                    }}
                   />
-                )}
-              />
-            </Group>
+                </Group>
+              </Fold>
+            ))}
+
+            {acctStep.map((s) => (
+              <Fold key={s.key} phase={s.phase} className="ns-step">
+                <Group label="アカウント" hint={accounts.length === 0 ? 'この PC にアカウントがありません' : null}>
+                  <Options
+                    items={accounts}
+                    keyOf={(a) => `${pc}:${a.id}`}
+                    render={(a) => (
+                      <Choice
+                        checked={account === a.id}
+                        onPick={() => setAcctPicked(a.id)}
+                        title={a.name || a.id}
+                        dot={safeColor(a.color)}
+                        sub={typeof a.fiveHour === 'number' ? `5 時間 ${Math.round(a.fiveHour)}%` : undefined}
+                      />
+                    )}
+                  />
+                </Group>
+              </Fold>
+            ))}
 
             <section className="ns-sec">
               <label className="ns-h" htmlFor={promptId}>
@@ -230,7 +242,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               />
               {tooLong ? (
                 <p className="ns-limit over m-fade" role="status">
-                  初期プロンプトは {PROMPT_MAX.toLocaleString('en-US')} 字までです（{(-left).toLocaleString('en-US')} 字多い）
+                  {`${(-left).toLocaleString('en-US')} 字多い`}
                 </p>
               ) : left < PROMPT_NEAR ? (
                 <p className="ns-limit m-fade">あと {left.toLocaleString('en-US')} 字</p>
@@ -241,7 +253,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               <button type="button" className={`sumrow ${adv ? 'open' : ''}`} aria-expanded={adv} aria-controls={advId} onClick={() => setAdv((v) => !v)}>
                 <span className="sumrow-text">
                   <b>詳しい設定</b>
-                  <small>{summary.length > 0 ? summary.join(' · ') : 'すべてデフォルト'}</small>
+                  {summary.length > 0 && <small>{summary.join(' · ')}</small>}
                 </span>
                 <span className="chev" aria-hidden="true">
                   ›

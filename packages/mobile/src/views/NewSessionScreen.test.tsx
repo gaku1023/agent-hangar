@@ -126,7 +126,8 @@ describe('NewSessionScreen', () => {
     expect(start).toBeEnabled();
     fireEvent.change(prompt(), { target: { value: 'あ'.repeat(8001) } });
     expect(start).toBeDisabled();
-    expect(screen.getByText(/8,000 字まで/)).toBeInTheDocument();
+    expect(screen.getByText('1 字多い')).toBeInTheDocument();
+    expect(screen.queryByText(/8,000 字まで/)).not.toBeInTheDocument();
   });
 
   it('クイックセッションが先頭で、選ぶと生きている PC が全部出て、依頼は projectId null・scratch true', async () => {
@@ -138,13 +139,37 @@ describe('NewSessionScreen', () => {
     const pcs = within(group('PC')).getAllByRole('radio');
     expect(pcs.map((r) => r.textContent)).toEqual([expect.stringContaining('Mac'), expect.stringContaining('Mini')]);
     expect(pcs[0]).toHaveTextContent('実行中 1');
-    expect(pcs[1]).toHaveTextContent('空き');
+    expect(pcs[1]).toHaveTextContent(/^Mini$/);
     pick('PC', /Mac/);
     expect(within(group('アカウント')).getByRole('radio', { name: /アカウント 1/ })).toHaveTextContent('5 時間 32%');
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     expect(specOf(onLaunch)).toMatchObject({ projectName: null, targetDevice: 'pc-1' });
     expect(specOf(onLaunch).payload).toMatchObject({ projectId: null, scratch: true, accountId: 'acc-1', permissionMode: '', model: '' });
+  });
+
+  it('PC とアカウントの段は、前の段を選ぶまで出さず、選ぶと伸びて現れる', async () => {
+    await setup();
+    expect(screen.queryByRole('radiogroup', { name: 'PC' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'アカウント' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/選ぶと表示されます/)).not.toBeInTheDocument();
+    pick('プロジェクト', /project-a/);
+    expect(group('PC').closest('.fold')).toHaveClass('m-grow');
+    expect(screen.queryByRole('radiogroup', { name: 'アカウント' })).not.toBeInTheDocument();
+    pick('PC', /Mini/);
+    expect(group('アカウント').closest('.fold')).toHaveClass('m-grow');
+    expect(screen.queryByText(/選ぶと表示されます/)).not.toBeInTheDocument();
+  });
+
+  it('PC にアカウントが無ければ「この PC にアカウントがありません」は残す', async () => {
+    await setup([feedOf('pc-1', 'Mac', { accounts: [], projects: [{ id: 'p-a', name: 'project-a', lastUsedAt: Date.now() }] })]);
+    pick('プロジェクト', /project-a/);
+    expect(screen.getByText('この PC にアカウントがありません')).toBeInTheDocument();
+  });
+
+  it('初期プロンプトの欄の例に、/ と @ の括弧を付けない', async () => {
+    await setup();
+    expect(prompt()).toHaveAttribute('placeholder', '例：README の導入の節を修正して');
   });
 
   it('PC の欄は、選んだプロジェクトを持つ生きている PC だけ', async () => {
@@ -173,7 +198,7 @@ describe('NewSessionScreen', () => {
     it('閉じていて要約 1 行。開くと権限モード、モデル、effort が出る', async () => {
       await setup();
       expect(advanced()).toHaveAttribute('aria-expanded', 'false');
-      expect(advanced()).toHaveTextContent('すべてデフォルト');
+      expect(advanced()).not.toHaveTextContent('デフォルト');
       expect(screen.queryByRole('radiogroup', { name: '権限モード' })).not.toBeInTheDocument();
       expect(screen.queryByRole('radiogroup', { name: 'effort' })).not.toBeInTheDocument();
       fireEvent.click(advanced());

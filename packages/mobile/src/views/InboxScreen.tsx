@@ -19,11 +19,8 @@ const PULL_MAX = 80;
 /** PC から来た値も信じない。https://claude.ai/ の URL だけを開き、ほかは claude.ai/code にする。 */
 export const openUrlOf = (rcUrl: string | null): string => (rcUrl && isRemoteControlUrl(rcUrl) ? rcUrl : CLAUDE_CODE_URL);
 
-const waitingText = (r: Row): string => {
-  const t = r.waiting?.text.trim();
-  if (t) return t;
-  return r.waiting?.kind === 'permission' ? '許可が必要です' : r.waiting?.kind === 'question' ? '質問があります' : '入力待ちです';
-};
+/** 待っている内容の本文。空なら null（本文の行を出さない。種別は下の行の札が示す）。 */
+const waitingText = (r: Row): string | null => r.waiting?.text.trim() || null;
 
 const waitingKind = (r: Row): string | null => (r.waiting?.kind === 'permission' ? '許可待ち' : r.waiting?.kind === 'question' ? '質問' : null);
 
@@ -292,7 +289,7 @@ function WaitingList({ rows, now, target }: { rows: Row[]; now: number; target: 
   const list = usePresence(rows, rowKey);
   return (
     <section className="waiting" aria-label="入力待ち">
-      {rows.length === 0 && <p className="empty m-fade">入力待ちの会話はありません</p>}
+      {rows.length === 0 && <p className="empty m-fade">なし</p>}
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
           <WaitingCard row={p.item} now={now} target={target} />
@@ -308,6 +305,7 @@ function AccountDot({ color }: { color: string | null }): ReactNode {
 
 function WaitingCard({ row, now, target }: { row: Row; now: number; target: string | null }): ReactNode {
   const kind = waitingKind(row);
+  const text = waitingText(row);
   return (
     <a className={`card wait-card${targetCls(row, target)}`} data-session-id={row.sessionId} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
       <div className="wait-top">
@@ -317,10 +315,13 @@ function WaitingCard({ row, now, target }: { row: Row; now: number; target: stri
         <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="wait-for">{row.at !== null ? waitedFor(now - row.at) : ''}</span>
       </div>
-      <div className="wait-text">{waitingText(row)}</div>
+      {text && <div className="wait-text">{text}</div>}
       <div className="wait-foot">
-        <span className="wait-meta">{kind ? `${row.deviceName} · ${kind}` : row.deviceName}</span>
-        <span className="wait-open">{row.accountName ? `${row.accountName}のアカウントで開く ›` : 'Claude アプリで開く ›'}</span>
+        <span className="wait-left">
+          <span className="wait-meta">{row.deviceName}</span>
+          {kind && <span className="wait-kind">{kind}</span>}
+        </span>
+        <span className="wait-open">開く ›</span>
       </div>
     </a>
   );

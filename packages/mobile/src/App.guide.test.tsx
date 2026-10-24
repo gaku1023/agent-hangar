@@ -32,9 +32,12 @@ describe('App の入口の案内（A1）', () => {
     as(IPHONE, { touch: 5 });
     render(<App pairText={null} />);
     expect(await screen.findByRole('heading', { name: new RegExp(GUIDE) })).toBeInTheDocument();
-    expect(screen.getByText('共有ボタンをタップ')).toBeInTheDocument();
+    expect(screen.getByText('画面下の共有 □↑ をタップ')).toBeInTheDocument();
     expect(screen.getByText('「ホーム画面に追加」を選ぶ')).toBeInTheDocument();
     expect(screen.getByText('ホーム画面の hangar を開く')).toBeInTheDocument();
+    expect(screen.queryByText(/画面下の □↑ をタップ/)).not.toBeInTheDocument();
+    expect(screen.getByText('一覧を下へスクロールすると表示されます')).toBeInTheDocument();
+    expect(screen.getByText('この Safari の画面は閉じて構いません')).toBeInTheDocument();
     expect(screen.queryByText('このスマホはまだ接続していません')).not.toBeInTheDocument();
   });
 

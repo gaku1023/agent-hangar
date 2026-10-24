@@ -119,7 +119,14 @@ describe('SettingsScreen の通知', () => {
     expect(sw('夜は鳴らさない')).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByLabelText('開始')).toHaveValue('23:00');
     expect(screen.getByLabelText('終了')).toHaveValue('07:00');
-    expect(screen.getByText('このスマホの時刻で判定します。ほかのスマホには効きません。')).toBeInTheDocument();
+    expect(screen.getByText('ほかのスマホには効きません。')).toBeInTheDocument();
+    expect(screen.queryByText(/このスマホの時刻で判定します/)).not.toBeInTheDocument();
+    const info = screen.getByRole('button', { name: '通知の説明' });
+    expect(info).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(info);
+    expect(info).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(info.getAttribute('aria-controls')!)).toHaveTextContent('このスマホの時刻で判定します。');
+    expect(screen.getByRole('heading', { name: '通知' })).toBeInTheDocument();
   });
 
   it('時刻を変えるとすぐ保存し、「保存中…」から「保存しました」に変わる', async () => {
@@ -231,7 +238,7 @@ describe('SettingsScreen の新しい会話のデフォルト', () => {
     await setup();
     openPage(/^新しい会話のデフォルト/);
     for (const n of ['PC', 'アカウント', '権限', 'モデル', 'effort']) expect(screen.getByRole('button', { name: new RegExp(`^${n}`) })).toBeInTheDocument();
-    expect(screen.getByText('新しい会話の画面を開いたときに、最初から選んでおく値です。')).toBeInTheDocument();
+    expect(screen.queryByText(/最初から選んでおく値です/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^PC/ }));
     const pcs = screen.getByRole('radiogroup', { name: 'PC' });
     expect(within(pcs).getAllByRole('radio').map((r) => r.textContent)).toEqual(['指定なし', 'MacBook', 'Windows']);
@@ -283,7 +290,14 @@ describe('SettingsScreen の接続', () => {
     expect(within(page).getByText('10月18日')).toBeInTheDocument();
     const until = new Date(joinedAt + PHONE_MAX_AGE_MS);
     expect(within(page).getByText(`${until.getMonth() + 1}月${until.getDate()}日まで`)).toBeInTheDocument();
-    expect(within(page).getByText('30 日使わないか、接続から 90 日たつと切れます。切れたら PC の設定で QR を出して読み直してください。')).toBeInTheDocument();
+    expect(within(page).queryByText(/30 日使わない/)).not.toBeInTheDocument();
+    expect(within(page).queryByText(/90 日たつと/)).not.toBeInTheDocument();
+    const info = within(page).getByRole('button', { name: '接続の説明' });
+    fireEvent.click(info);
+    expect(info).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(info.getAttribute('aria-controls')!)).toHaveTextContent('30 日使わないと切れます。');
+    fireEvent.click(info);
+    expect(within(page).queryByText('30 日使わないと切れます。')).not.toBeInTheDocument();
   });
 
   it('接続した日が無ければ（前の接続）「不明」で、期限は出さない', async () => {

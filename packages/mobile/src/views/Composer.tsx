@@ -197,15 +197,15 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
     const loading: SuggestView = { kind: 'loading', pcName };
     if (trig.kind === '/') {
       head = pc ? `${pcName} · ${accountName ?? accountId ?? ''} のスキル` : 'スキルとコマンド';
-      if (!pc) view = { kind: 'need', title: '先に PC を選んでください', text: '候補は、選んだ PC とアカウントから取得します。' };
+      if (!pc) view = { kind: 'need', title: '先に PC を選んでください' };
       else if (!canAsk) view = errorView('unsupported', pcName, 'スキルやコマンド');
-      else if (!accountId) view = { kind: 'need', title: '先にアカウントを選んでください', text: '候補は、選んだ PC とアカウントから取得します。' };
+      else if (!accountId) view = { kind: 'need', title: '先にアカウントを選んでください' };
       else if (res && res.key === want) view = res.ok ? { kind: 'commands', q: trig.q, list: res.list as CommandHit[] } : errorView(res.reason, pcName, 'スキルやコマンド', res.expired);
       else view = loading;
     } else {
       head = pc && projectId ? `${projectName ?? projectId} のファイル · ${pcName}` : 'ファイル';
       if (!projectId) view = { kind: 'need', title: 'プロジェクトを選ぶと、ファイルが表示されます', text: 'クイックセッションでは、パスを手で入力してください。' };
-      else if (!pc) view = { kind: 'need', title: '先に PC を選んでください', text: '候補は、選んだ PC から取得します。' };
+      else if (!pc) view = { kind: 'need', title: '先に PC を選んでください' };
       else if (!canAsk) view = errorView('unsupported', pcName, 'パス');
       else if (res && res.key === want) view = res.ok ? { kind: 'files', q: trig.q, list: res.list as FileHit[] } : errorView(res.reason, pcName, 'パス', res.expired);
       else {
@@ -266,7 +266,7 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
           className="cm-ta"
           rows={5}
           value={value}
-          placeholder="例：README の導入の節を修正して（/ でスキル、@ でファイル）"
+          placeholder="例：README の導入の節を修正して"
           onChange={(e) => {
             onChange(e.target.value);
             readCaret(e.target);
@@ -278,7 +278,7 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
           }}
           onBlur={() => setFocused(false)}
         />
-        {n > 0 && <p className="cm-anote">{`${n}/4 枚 · 1 枚 5 MB まで`}</p>}
+        {n > 0 && <p className="cm-anote">{`${n}/4 枚`}</p>}
         <div className="cm-tools">
           {canAttach && (
             <button type="button" className="cm-tl plus" aria-label="画像を添付" onClick={() => setAttachOpen(true)}>
