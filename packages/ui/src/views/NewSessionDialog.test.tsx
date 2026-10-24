@@ -88,7 +88,8 @@ describe('NewSessionDialog（N2）', () => {
   it('何も選ばなければ札は「クイックセッション」と言い、そのまま起動すると scratch で始まる', () => {
     const params = collectParams();
     expect(chip('プロジェクト')).toHaveTextContent('クイックセッション');
-    expect(screen.getByText(/プロジェクトを選ばない場合は、クイックセッション/)).toBeInTheDocument();
+    // 札の「クイックセッション」で読めるので、説明の文は添えない。
+    expect(screen.queryByText(/プロジェクトを選ばない場合は/)).toBeNull();
     start();
     expect(params).toEqual([{ scratch: true }]);
   });
@@ -283,13 +284,10 @@ describe('NewSessionDialog（N2）', () => {
       const button = screen.getByRole('button', { name: '起動' });
       expect(button).toHaveAttribute('aria-keyshortcuts', 'Control+Enter');
       expect(button.querySelector('.kc')).toHaveTextContent('Ctrl+Enter');
-      expect(screen.getByText('そのまま Ctrl+Enter でクイックセッションを開始')).toBeInTheDocument();
     });
-    it('クイックセッションのままのときだけ、下端に「そのまま ⌘↵ で」の一言を出す', () => {
+    it('下端には「そのまま ⌘↵ で」の一言を出さない（ボタンのキー帽で足りる）', () => {
       render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} /></ActionRoot>);
-      expect(screen.getByText('そのまま ⌘↵ でクイックセッションを開始')).toBeInTheDocument();
-      pick('プロジェクト', 'alpha');
-      expect(screen.queryByText('そのまま ⌘↵ でクイックセッションを開始')).toBeNull();
+      expect(document.querySelector('.dialog-hint')).toBeNull();
     });
   });
   it('一覧に出ないプロジェクトの id は、選んでいない扱いでクイックセッションにする', () => {
@@ -350,12 +348,11 @@ describe('NewSessionDialog の名前と追加ディレクトリ（「＋」）',
 });
 
 describe('NewSessionDialog のクイックセッション', () => {
-  it('クイックセッションの行は昇格できることを添え、選ぶと説明が出て scratch を付けて送る', () => {
+  it('クイックセッションの行は昇格できることを添え、選ぶと scratch を付けて送る', () => {
     const params = collectParams({ projectId: 'p1' });
     expect(screen.queryByText(/プロジェクトを選ばないと/)).toBeNull();
     pick('プロジェクト', 'クイックセッション');
     expect(screen.getByRole('dialog', { name: '新しいセッション' })).toBeInTheDocument();
-    expect(screen.getByText(/あとでプロジェクトにできます/)).toBeInTheDocument();
     start();
     expect(params).toEqual([{ scratch: true }]);
   });

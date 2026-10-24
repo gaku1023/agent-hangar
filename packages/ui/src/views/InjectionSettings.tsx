@@ -2,20 +2,20 @@ import type { ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { InjectionSettingsProps } from '../presenters/settings.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
+import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
 import { ModelPicker } from './ModelPicker.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
-/** 足すものの 1 行。always は切れないものに添える「常に」の札。 */
-function AddItem(props: { icon: IconName; title: string; desc: string; always?: boolean; children?: ReactNode }) {
+/** 足すものの 1 行。always は切れないものに添える「常に」の札。info は見出しの横の ⓘ に畳む説明。 */
+function AddItem(props: { icon: IconName; title: string; info?: string; always?: boolean; children?: ReactNode }) {
   const t = useT();
   return (
     <li className="add-item">
       <Icon name={props.icon} />
       <div>
-        <div className="add-t">{props.title}</div>
-        <div className="add-d">{props.desc}</div>
+        <div className="add-t">{props.title}{props.info && <InfoTip label={props.title}>{props.info}</InfoTip>}</div>
       </div>
       {props.always ? <span className="always">{t('settings.integrations.inject.always')}</span> : <span />}
       {props.children && <div className="add-nest">{props.children}</div>}
@@ -37,15 +37,14 @@ export function InjectionSettings(props: { injection: InjectionSettingsProps }) 
   const title = t('settings.integrations.inject.title');
   return (
     <section aria-label={title}>
-      <h3 className="h2">{title}</h3>
-      <div className="muted inject-lead">{t('settings.integrations.inject.lead')}</div>
+      <h3 className="h2">{title}<InfoTip label={title}>{t('settings.integrations.inject.lead')}{' '}{t('settings.integrations.inject.note')}</InfoTip></h3>
       <ul className="add-list">
-        <AddItem icon="link" title={t('settings.integrations.inject.mcp.title')} desc={t('settings.integrations.inject.mcp.desc')} always />
-        <AddItem icon="bell" title={t('settings.integrations.inject.hook.title')} desc={t('settings.integrations.inject.hook.desc')} always />
-        <AddItem icon="fullText" title={t('settings.integrations.inject.prompt.title')} desc={t('settings.integrations.inject.prompt.desc')}>
-          <SetRow title={t('settings.label.askStatusAtEnd')} desc={t('settings.integrations.inject.askStatus.desc')}
+        <AddItem icon="link" title={t('settings.integrations.inject.mcp.title')} info={t('settings.integrations.inject.mcp.desc')} always />
+        <AddItem icon="bell" title={t('settings.integrations.inject.hook.title')} always />
+        <AddItem icon="fullText" title={t('settings.integrations.inject.prompt.title')} info={t('settings.integrations.inject.prompt.desc')}>
+          <SetRow title={t('settings.label.askStatusAtEnd')} info={t('settings.integrations.inject.askStatus.desc')}
             control={<Switch label={t('settings.label.askStatusAtEnd')} checked={i.askStatusAtEnd} onChange={(next) => emit({ type: 'settings.update', patch: { askStatusAtEnd: next } })} />} />
-          <SetRow title={t('settings.label.liveHints')} desc={t('settings.integrations.inject.liveHints.desc')}
+          <SetRow title={t('settings.label.liveHints')} info={t('settings.integrations.inject.liveHints.desc')}
             control={<Switch label={t('settings.label.liveHints')} checked={i.liveHints} onChange={(next) => emit({ type: 'settings.update', patch: { liveHints: next } })} />} />
           <details className="cp-more">
             <summary><Icon name="chevron" />{t('settings.integrations.inject.full')}</summary>
@@ -63,11 +62,10 @@ export function InjectionSettings(props: { injection: InjectionSettingsProps }) 
         </AddItem>
       </ul>
       {/* 起動のときに claude へ付ける --remote-control（試作 B1）。システムプロンプトの追記ではないので、線の外の 1 行にする。 */}
-      <SetRow title={t('settings.label.remoteControl')} desc={t('settings.integrations.inject.remoteControl.desc')}
+      <SetRow title={t('settings.label.remoteControl')} info={t('settings.integrations.inject.remoteControl.desc')}
         control={<Switch label={t('settings.label.remoteControl')} checked={i.remoteControl} onChange={(next) => emit({ type: 'settings.update', patch: { remoteControl: next } })} />} />
-      <SetRow title={t('settings.label.defaultModel')} desc={t('settings.integrations.inject.model.desc')}
+      <SetRow title={t('settings.label.defaultModel')} info={t('settings.integrations.inject.model.desc')}
         control={<ModelPicker label={t('settings.label.defaultModel')} value={i.defaultModel} withDefault onChange={(m) => emit({ type: 'settings.update', patch: { defaultModel: m } })} />} />
-      <div className="faint inject-note">{t('settings.integrations.inject.note')}</div>
     </section>
   );
 }

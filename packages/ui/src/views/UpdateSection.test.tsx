@@ -10,7 +10,7 @@ const row = (version: string, open: boolean): UpdateNoteRow => ({ version, tag: 
 const props = (notes: UpdateNoteRow[]): UpdateSectionProps => ({
   supported: true, unsupported: '', badge: null,
   version: { title: 'バージョン 1.4.2', sub: '', checkLabel: '更新を確認', checkDisabled: false },
-  pending: null, notify: { on: true, desc: '' }, tocState: '',
+  pending: null, notify: { on: true, info: '' }, tocState: '',
   notesTitle: 'リリースノート', beforeLabel: '更新の前に', notes,
 });
 const mount = (notes: UpdateNoteRow[]) => render(<LanguageRoot language="ja"><ActionRoot onAction={vi.fn()}><UpdateSection update={props(notes)} /></ActionRoot></LanguageRoot>);

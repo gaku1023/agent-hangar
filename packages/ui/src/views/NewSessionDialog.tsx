@@ -315,7 +315,6 @@ export function NewSessionDialog(props: NewSessionProps) {
       footer={<>
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
-        {scratch && <span className="dialog-hint">{t('newSession.hint.quick', { keys: keyLabel('⌘↵') })}</span>}
         <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0 || blocked} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={submit}>
           {props.submitting ? t('newSession.button.starting') : uploading > 0 ? t('newSession.button.uploading') : <>{bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">{keyLabel('⌘↵')}</span></>}
         </button>
@@ -340,7 +339,6 @@ export function NewSessionDialog(props: NewSessionProps) {
           <button type="button" className="linkish prev-reset" onClick={resetDetail}><Icon name="reset" />{t('newSession.prev.reset')}</button>
         </div>
       )}
-      {scratch && <div className="faint">{t('newSession.note.quick')}</div>}
       {newDir && (
         <>
           <label className="field" htmlFor="new-session-dir-name">{t('newSession.newDir.nameLabel')}
@@ -348,7 +346,7 @@ export function NewSessionDialog(props: NewSessionProps) {
           </label>
           {rootless && <ParentField value={parent} onChange={setParent} desktop={props.desktop} picked={props.picked} />}
           {root !== '' && <div className="faint">{t('newSession.newDir.note', { path: joinPath(root, newName.trim()) })}</div>}
-          <CheckCard label={t('newSession.newDir.gitInit')} description={t('newSession.newDir.gitInitNote')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
+          <CheckCard label={t('newSession.newDir.gitInit')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       )}
       {dirPath && enclosing && (

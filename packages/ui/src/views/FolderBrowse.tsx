@@ -194,7 +194,7 @@ export function useFolderBrowse(b: FolderBrowseProps, active: boolean) {
       {ready && b.rootable && b.parent && (
         <div className="cand-root">
           <Check label={t('newProject.candidates.suggest', { path: b.parent.label })} checked={useRoot} onChange={setUseRoot} />
-          <span>{t('newProject.candidates.suggest', { path: b.parent.label })}<small>{t('newProject.candidates.suggestNote')}</small></span>
+          <span>{t('newProject.candidates.suggest', { path: b.parent.label })}</span>
         </div>
       )}
     </>

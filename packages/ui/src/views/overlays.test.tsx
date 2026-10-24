@@ -266,10 +266,10 @@ describe('PromoteDialog', () => {
     expect(screen.getByText('同じ名前があります')).toBeTruthy();
   });
 
-  it('2 つの選択は、何が起きるかを添えたカードで並ぶ', () => {
+  it('2 つの選択はカードで並び、名前の言い直しの説明は添えない', () => {
     render(<ActionRoot onAction={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></ActionRoot>);
-    expect(screen.getByRole('checkbox', { name: 'git init を実行' })).toHaveAccessibleDescription('空のリポジトリを作成してから移動します');
-    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAccessibleDescription('クイックセッションのファイルを新しいプロジェクトのディレクトリへ移動します');
+    expect(screen.getByRole('checkbox', { name: 'git init を実行' })).not.toHaveAttribute('aria-describedby');
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).not.toHaveAttribute('aria-describedby');
     expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true']);
   });
   it('run が生きているとき、ファイルを移動するのカードは印を外して押せない', () => {

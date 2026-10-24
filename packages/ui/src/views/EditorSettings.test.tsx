@@ -27,8 +27,10 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
     expect(rows[0]).toHaveTextContent('VS Code1.105.1/usr/local/bin/code検出済み');
     expect(rows[1]).toHaveTextContent('アプリのみ');
-    // 見つからないものも並ぶので、「見つけたものを並べています」とは言わない。
-    expect(screen.getByText(/対応しているエディタと、この PC での検出状況を表示します/)).toBeInTheDocument();
+    // 何に使うかは見出しの横の ⓘ に畳む。見つかり方は札で読めるので、文では言わない。
+    expect(screen.queryByText(/検出状況/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'エディタの説明' }));
+    expect(screen.getByRole('dialog', { name: 'エディタの説明' })).toHaveTextContent('変更したファイルを該当の行から開くときに使います');
   });
   it('選んだ時点で保存し、前のエディタのパスは持ち越さない。テストは選んだ行にだけある', () => {
     const onAction = vi.fn();

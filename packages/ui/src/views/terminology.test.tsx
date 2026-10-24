@@ -43,7 +43,7 @@ describe('用語表', () => {
     expect(ja('cloudMember.add.requested', { name: 'pc-b' })).toBe('pc-b から参加リクエストを受信しました');
     expect(ja('cloudMember.toast.title', { name: 'pc-b' })).toBe('pc-b から参加リクエストを受信しました');
     expect(ja('cloudMember.join.sasLabel')).toBe('確認コード');
-    const keys = ['cloudMember.join.lead', 'cloudMember.join.sasNote', 'cloudMember.add.lead', 'cloudMember.add.sasNote', 'cloudMember.add.waiting', 'cloudMember.toast.sasNote', 'cloudMember.fail.noAnswer.body', 'cloudMember.fail.rejected.body', 'cloudMember.fail.expired.body'] as const;
+    const keys = ['cloudMember.join.lead', 'cloudMember.join.sasNote', 'cloudMember.add.lead', 'cloudMember.add.sasNote', 'cloudMember.add.waiting', 'cloudMember.fail.noAnswer.body', 'cloudMember.fail.rejected.body', 'cloudMember.fail.expired.body'] as const;
     for (const k of keys) expect(ja(k)).not.toMatch(/届|宛先|参加トークン/);
   });
   it('横に並べた 2 つの間の仕切りは「左右の幅」と読み上げる', () => {

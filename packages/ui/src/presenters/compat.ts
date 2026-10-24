@@ -81,8 +81,9 @@ export type CompatRow = { key: string; contract: string; value: string; version:
  */
 export type CompatProps = {
   state: CompatState;
-  note: string;
-  lead: string;
+  /** 状態の短い一文と前置き。問題が無いときは、見出しの札と版の並びで足りるので持たない。 */
+  note: string | null;
+  lead: string | null;
   badge: string;
   localVersion: string;
   verifiedVersion: string;
@@ -129,7 +130,7 @@ export function presentCompat(t: Translate, summary: CompatSummaryDto, full: Com
   const state = compatState({ ...summary, driftCount: count });
   const local = summary.localVersion ?? t('common.time.unknown');
   const base = { state, localVersion: local, verifiedVersion: summary.verifiedVersion, count, stops: null, rows: null, report: null };
-  if (state === 'ok') return { ...base, note: t('compat.status.okNote', { verified: summary.verifiedVersion }), lead: t('compat.status.okLead'), badge: t('compat.status.okBadge') };
+  if (state === 'ok') return { ...base, note: null, lead: null, badge: t('compat.status.okBadge') };
   if (state === 'unverified') return { ...base, note: t('compat.status.unverifiedNote', { local, verified: summary.verifiedVersion }), lead: t('compat.status.unverifiedLead'), badge: t('compat.status.unverifiedBadge') };
   const note = summary.localVersion ? t('compat.status.driftNote', { n: count, local: summary.localVersion }) : t('compat.status.driftNoteNoVersion', { n: count });
   const badge = t('compat.status.driftNoteNoVersion', { n: count });

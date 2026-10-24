@@ -2,6 +2,7 @@ import type { CompatState } from '@agent-hangar/shared';
 import type { CompatProps } from '../presenters/compat.ts';
 import { CopyButton } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
 
 /**
@@ -65,6 +66,7 @@ export function CompatSection(props: { compat: CompatProps | null }) {
     <section className="cp-sec" id="settings-compat">
       <h3 className="h2">
         {t('compat.section.title')}
+        <InfoTip label={t('compat.section.title')}>{t('compat.section.leadBefore')}<code>~/.claude</code>{t('compat.section.leadAfter')}</InfoTip>
         {c && (
           <span className="badge" data-tone={BADGE_TONE[c.state]}>
             {c.state === 'ok' && <Icon name="check" />}
@@ -73,17 +75,16 @@ export function CompatSection(props: { compat: CompatProps | null }) {
           </span>
         )}
       </h3>
-      <div className="muted">{t('compat.section.leadBefore')}<code>~/.claude</code>{t('compat.section.leadAfter')}</div>
       {c === null ? <div className="faint" style={{ marginTop: 4 }}>{t('compat.section.checking')}</div> : (
         <div className="cp-vers">
           <span>{t('compat.section.installed')} <code>{c.localVersion}</code></span>
           <span>{t('compat.section.verified')} <code>{c.verifiedVersion}</code></span>
-          {c.state === 'unverified' && <span className="faint">{c.lead}</span>}
+          {c.state === 'unverified' && c.lead && <span className="faint">{c.lead}</span>}
         </div>
       )}
       {c !== null && c.state === 'drift' && (
         <>
-          <div className="cp-lead">{t('compat.section.sentence', { text: c.lead })}</div>
+          {c.lead && <div className="cp-lead">{t('compat.section.sentence', { text: c.lead })}</div>}
           <CompatDrifts c={c} />
         </>
       )}

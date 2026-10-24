@@ -49,13 +49,12 @@ export function PromoteDialog(props: PromoteProps) {
       closeOnBackdrop={false}
       footer={<><button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button><span className="spacer" /><button type="button" className="btn btn-primary" disabled={props.submitting || blocked} onClick={submit}>{t('promote.dialog.action')}</button></>}
     >
-      <div className="faint">{t('promote.dialog.lead', { name: props.sessionName })}</div>
       <label className="field" htmlFor="promote-name">{t('promote.field.name')}
         <input id="promote-name" className="input mono" aria-label={t('promote.field.name')} value={name} placeholder={t('promote.field.namePlaceholder')} onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
       </label>
       {rootless && props.place && <ParentField value={parent} onChange={setParent} desktop={props.place.desktop} picked={props.place.picked} />}
-      <CheckCard label={t('promote.gitInit.label')} description={t('promote.gitInit.description')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
-      <CheckCard label={t('promote.move.label')} description={t('promote.move.description')} icon="moveFiles" checked={willMove} disabled={props.runAlive} onChange={setMoveFiles} />
+      <CheckCard label={t('promote.gitInit.label')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
+      <CheckCard label={t('promote.move.label')} icon="moveFiles" checked={willMove} disabled={props.runAlive} onChange={setMoveFiles} />
       {props.runAlive && <div className="faint">{t('promote.move.blocked')}</div>}
       {props.error && <div className="error" role="alert">{props.error}</div>}
     </Dialog>

@@ -53,7 +53,6 @@ export const configSyncUiKeys = {
   'configSyncUi.incoming.sep': [],
   'configSyncUi.incoming.review': [],
   'configSyncUi.awaiting.title': ['n'],
-  'configSyncUi.awaiting.desc': [],
   'configSyncUi.awaiting.open': [],
   'configSyncUi.approval.title': [],
   'configSyncUi.approval.desc': [],

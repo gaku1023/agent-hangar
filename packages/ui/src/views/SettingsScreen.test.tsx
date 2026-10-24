@@ -31,7 +31,7 @@ const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): Setti
 const updateProps = (over: Partial<SettingsProps['update']> = {}): SettingsProps['update'] => ({
   supported: true, unsupported: '更新の確認はデスクトップアプリで行います。', badge: { text: '最新', tone: 'ok' },
   version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false },
-  pending: null, notify: { on: true, desc: '新しいバージョンが公開されたら通知します。自動ではインストールしません。' }, tocState: '最新',
+  pending: null, notify: { on: true, info: '自動ではインストールしません。' }, tocState: '最新',
   notesTitle: 'リリースノート', beforeLabel: '更新の前に', notes: [],
   ...over,
 });
@@ -58,7 +58,7 @@ const editorProps = (over: Partial<SettingsProps['editor']> = {}): SettingsProps
 
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' },
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', terminalDescAlways: true, editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' },
   summaryEngine: 'openai', summaryClaudeModel: 'haiku', summaryApiKeySet: false,
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   injection: { askStatusAtEnd: true, liveHints: true, remoteControl: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true }) },
@@ -222,8 +222,12 @@ describe('設定の一般', () => {
     render(ui(at('general', { self: { autoDone: true, autoDoneIdleDays: 7, autoPark: false } }), onAction));
     const card = screen.getByRole('heading', { level: 3, name: 'hangar の自動処理' }).closest('section')!;
     expect([...card.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['停止したセッションを自動で Done にする', '長期間アクティビティの無いセッションも Done にする', 'Done と Archived にしたセッションを停止する']);
-    expect(within(card).getByText('停止して 1 分経過したセッションのうち、3 ターン以下のものと、要約が「完了」か「中止」のものを、自動で Done にします。一覧では ✦ のマークで見分けられます。再開して発言すると解除されます。')).toBeInTheDocument();
-    expect(within(card).getByText('Done か Archived にしてアイドルになった Claude Code を、10 秒後に停止します。Paused は停止しません。停止したセッションは「再開」で続けられます。')).toBeInTheDocument();
+    // 説明は見出しの横の ⓘ に畳む。
+    fireEvent.click(screen.getByRole('button', { name: '停止したセッションを自動で Done にするの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('止まって 1 分、3 ターン以下か要約が「完了」「中止」のもの。再開して発言すると戻ります。');
+    fireEvent.click(screen.getByRole('button', { name: '停止したセッションを自動で Done にするの説明' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done と Archived にしたセッションを停止するの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('アイドルになって 10 秒後に停止します。Paused は停止しません。');
     const done = screen.getByRole('switch', { name: '停止したセッションを自動で Done にする' });
     const park = screen.getByRole('switch', { name: 'Done と Archived にしたセッションを停止する' });
     expect(done).toHaveAttribute('aria-checked', 'true');
@@ -239,7 +243,9 @@ describe('設定の一般', () => {
     const group = screen.getByRole('radiogroup', { name: '長期間アクティビティの無いセッションも Done にする' });
     expect(within(group).getAllByRole('radio').map((e) => e.textContent)).toEqual(['3 日', '7 日', '14 日', '30 日', 'しない']);
     expect(within(group).getByRole('radio', { name: '7 日' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText('停止してから選択した日数のあいだ、アクティビティの無いセッションを Done にします。ターン数や要約は関係しません。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '長期間アクティビティの無いセッションも Done にするの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('ターン数や要約は問いません。');
+    fireEvent.click(screen.getByRole('button', { name: '長期間アクティビティの無いセッションも Done にするの説明' }));
     fireEvent.click(within(group).getByRole('radio', { name: '14 日' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoDoneIdleDays: 14 } });
     fireEvent.click(within(group).getByRole('radio', { name: 'しない' }));
@@ -316,7 +322,9 @@ describe('設定の一般', () => {
       render(ui(at('general', { retention }), onAction));
       expect(screen.getByText('トランスクリプトの保持')).toBeInTheDocument();
       expect(screen.getByText('10 年後に約 178 GB')).toBeInTheDocument();
-      expect(screen.getByText(/値は設定の同期で他の PC にも反映されます/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'トランスクリプトの保持の説明' }));
+      expect(screen.getByRole('dialog')).toHaveTextContent(/設定の同期で他の PC にも反映されます/);
+      fireEvent.click(screen.getByRole('button', { name: 'トランスクリプトの保持の説明' }));
       fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
       expect(onAction).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
       onAction.mockClear();
@@ -382,9 +390,9 @@ describe('設定のクラウド同期', () => {
     render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [] }) })));
     expect(screen.queryByText('npm run hangar -- setup cloud')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'クラウドを作成して開始' }));
-    // クラウドの用意は wrangler が要るので、clone した場所で打つと添える。
+    // clone した場所で打つことは節の頭の 1 文で言うので、ここでは同梱の hangar では作れないことだけを添える。
     expect(screen.getByText('npm run hangar -- setup cloud')).toBeInTheDocument();
-    expect(screen.getByText(/リポジトリをクローンして npm install したディレクトリで/)).toBeInTheDocument();
+    expect(screen.getByText(/アプリに同梱の hangar では作成できません/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加コードで参加' }));
     // 参加は入れた版の CLI でできる（参加コードは実行した後に入力する）。
     expect(screen.getByText('/A/hangar cloud join <URL>')).toBeInTheDocument();
@@ -567,7 +575,9 @@ describe('設定の連携', () => {
       expect(screen.getByText('hangar statusline install')).toBeTruthy();
       expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
       // ヘッダーのゲージは使用率で、追記はターミナルで行う。
-      expect(screen.getByText('ヘッダーの使用率のゲージには、ステータスラインのスクリプトに追加する数行が必要です。')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'ステータスラインの説明' }));
+      expect(screen.getByRole('dialog')).toHaveTextContent('ヘッダーの使用率のゲージに使います。');
+      fireEvent.click(screen.getByRole('button', { name: 'ステータスラインの説明' }));
       // ブラウザでは書き込まず、その旨とコマンドを出す（D9）。
       expect(screen.getAllByText(/ブラウザで開いた画面からは変更できません/).length).toBeGreaterThan(0);
     });
@@ -600,7 +610,7 @@ describe('設定の連携', () => {
       expect(within(section).getByText('この PC')).toBeInTheDocument();
       expect(within(section).getByText('/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install')).toBeInTheDocument();
       // 押せるのはコマンドのコピーだけで、~/.zshrc を書き換えるボタンは持たない。
-      expect(within(section).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install をコピー']);
+      expect(within(section).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['シェル連携の説明', '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install をコピー']);
       expect(within(section).queryByRole('checkbox')).toBeNull();
     });
     it('入っている PC では外し方を、使えない PC では直し方を出す', () => {
@@ -673,7 +683,8 @@ describe('設定の連携', () => {
     it('準備の確かめが届く前は、本文の下に「確かめています」と出し、札は出さない', () => {
       render(ui(at('integrations', { compat: null })));
       expect(within(section()).getByText('確認中…')).toBeInTheDocument();
-      expect(section()).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態ファイル、ステータスライン、~/.claude の内容、CLI の出力、画面出力を読み取ります。未知の形式を検出すると、ここに表示します。');
+      fireEvent.click(within(section()).getByRole('button', { name: 'Claude Code との互換性の説明' }));
+      expect(screen.getByRole('dialog')).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態ファイル、ステータスライン、~/.claude の内容、CLI の出力、画面出力を読み取ります。未知の形式を検出すると、ここに表示します。');
     });
     it('問題なしは緑の札で、手元の版と確かめた版を出す', () => {
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
@@ -762,7 +773,11 @@ describe('設定の連携の「足すもの」（1e）', () => {
   it('3 つを行にし、切れない 2 つに「常に」を添え、2 つのスイッチは追記の行の中に置く', () => {
     render(ui(at('integrations')));
     const box = screen.getByRole('region', { name: 'hangar が起動する Claude Code に追加する設定' });
-    expect(within(box).getByText('hangar から起動・再開した Claude Code にだけ追加します。ターミナルから直接 Claude Code を起動した場合は追加しません。')).toBeInTheDocument();
+    fireEvent.click(within(box).getByRole('button', { name: 'hangar が起動する Claude Code に追加する設定の説明' }));
+    // 足す範囲の例外と、効く時期は、見出しの横の ⓘ に畳む。
+    expect(screen.getByRole('dialog')).toHaveTextContent('ターミナルから直接起動した Claude Code には追加しません。');
+    expect(screen.getByRole('dialog')).toHaveTextContent('次に起動・再開したセッションから有効になります。');
+    fireEvent.click(within(box).getByRole('button', { name: 'hangar が起動する Claude Code に追加する設定の説明' }));
     const items = within(box).getAllByRole('listitem');
     expect(items.map((li) => li.querySelector('.add-t')?.textContent)).toEqual(['MCP の設定', '入力待ちと許可の確認を通知する hook', 'システムプロンプトの追記']);
     expect(within(items[0]!).getByText('常に')).toBeInTheDocument();
@@ -770,7 +785,6 @@ describe('設定の連携の「足すもの」（1e）', () => {
     expect(within(items[2]!).queryByText('常に')).toBeNull();
     expect(within(items[2]!).getByRole('switch', { name: '作業の区切りで Done／Paused を確認する' })).toHaveAttribute('aria-checked', 'true');
     expect(within(items[2]!).getByRole('switch', { name: 'ターンの意図と操作の短い説明を送る' })).toHaveAttribute('aria-checked', 'true');
-    expect(within(box).getByText('変更した設定は、次に起動・再開したセッションから有効になります。')).toBeInTheDocument();
   });
   it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
     const onAction = vi.fn();
@@ -785,7 +799,9 @@ describe('設定の連携の「足すもの」（1e）', () => {
     render(ui(at('integrations'), onAction));
     const sw = screen.getByRole('switch', { name: 'Remote Control を付けて起動する' });
     expect(sw).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText(/claude\.ai でログインしたアカウントだけで有効です/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remote Control を付けて起動するの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/claude\.ai でログインしたアカウントだけで有効です/);
+    fireEvent.click(screen.getByRole('button', { name: 'Remote Control を付けて起動するの説明' }));
     fireEvent.click(sw);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { remoteControl: false } });
   });
@@ -847,14 +863,17 @@ describe('設定の要約エンジンの選択（2a）', () => {
     expect(screen.queryByLabelText('URL')).toBeNull();
     expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
     expect(screen.queryByRole('button', { name: '接続テスト' })).toBeNull();
-    expect(screen.getByText('終了したセッションの要約を作成するエンジンです。セッションの中で Claude が書く要約は、どれを選んでも表示されます。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '要約エンジンの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('終了したセッションの要約を作成します。セッションの中で Claude が書く要約は、どれを選んでも表示されます。');
   });
   it('Claude を選んだら、モデルと 1 時間の上限を出し、保存はその 2 つを送る。URL の欄は出さない', () => {
     const onAction = vi.fn();
     render(ui(at('summary', { summaryEngine: 'claude' }), onAction));
     expect(screen.queryByLabelText('URL')).toBeNull();
     expect(screen.getByRole('button', { name: '要約に使う Claude のモデル' })).toHaveTextContent('haiku');
-    expect(screen.getByText('要約には、そのセッションのアカウントを使います。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '要約に使う Claude のモデルの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('要約には、そのセッションのアカウントを使います。');
+    fireEvent.click(screen.getByRole('button', { name: '要約に使う Claude のモデルの説明' }));
     pick('要約に使う Claude のモデル', 'sonnet');
     fireEvent.change(screen.getByLabelText('Claude での要約の 1 時間あたりの上限'), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
@@ -1005,7 +1024,7 @@ describe('設定の要約エンジン', () => {
     render(ui(at('summary'), onAction));
     const cap = screen.getByLabelText('Claude での要約の 1 時間あたりの上限');
     // 上限の案内は、ヘッダーのゲージの見出しと同じ「週」で言う。
-    expect(screen.getByText('1 から 200 まで。週の使用率が 80% を超えた場合は作成しません。')).toBeTruthy();
+    expect(screen.getByText('週の使用率が 80% を超えたら作成しません。')).toBeTruthy();
     // 空は 0 に、文字は NaN になってしまうので、送る前に弾く。
     for (const bad of ['', '0', '-3', '1.5', '201']) {
       fireEvent.change(cap, { target: { value: bad } });
@@ -1057,7 +1076,8 @@ describe('設定のツール', () => {
     const field = screen.getByLabelText('新しいディレクトリの作成先（任意）');
     expect(field).toHaveAttribute('placeholder', '空の場合は、作成するたびにディレクトリを選択します');
     expect(field.closest('.path-field')!.querySelector('.verify')).toBeNull();
-    expect(screen.getByText('「新しいプロジェクト」でディレクトリを作成する親ディレクトリです。直下にある、Claude Code を使ったことのあるディレクトリは、自動でプロジェクトに登録します。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '新しいディレクトリの作成先（任意）の説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('直下にある、Claude Code で会話したディレクトリは、自動でプロジェクトに登録します。');
   });
   it('作成場所を空にすると、空の文字を送る', () => {
     const onAction = vi.fn();
@@ -1097,12 +1117,14 @@ describe('設定のツール', () => {
   it('Node のパスの例と探す順の説明は、画面の OS の形で出す', () => {
     const { unmount } = render(ui(at('tools')));
     expect(screen.getByRole('textbox', { name: 'Node のパス' })).toHaveAttribute('placeholder', '/opt/homebrew/bin/node');
-    expect(screen.getByText(/空の場合は \/opt\/homebrew\/bin\/node/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Node のパスの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/空の場合は \/opt\/homebrew\/bin\/node/);
     unmount();
     setClientUserAgent(WINDOWS_UA);
     render(ui(at('tools')));
     expect(screen.getByRole('textbox', { name: 'Node のパス' })).toHaveAttribute('placeholder', 'C:\\Program Files\\nodejs\\node.exe');
-    expect(screen.getByText(/空の場合は C:\\Program Files\\nodejs\\node\.exe/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Node のパスの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/空の場合は C:\\Program Files\\nodejs\\node\.exe/);
     expect(screen.queryByText(/homebrew/)).toBeNull();
   });
   it('Node のパスを保存でき、空なら null を送る', () => {
@@ -1376,5 +1398,48 @@ describe('更新の節', () => {
     ] }) }));
     expect(screen.getByText('前書きだけの版。')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '全文を読む' })).toBeNull();
+  });
+});
+
+describe('設定の説明は見出しの横の ⓘ に畳む（lean-labels の組 2）', () => {
+  const tip = (label: string) => screen.getByRole('button', { name: `${label}の説明` });
+  it('一般の行の説明は常には出さず、見出しの横の ⓘ を押すと浮かぶ', () => {
+    render(ui(at('general')));
+    expect(screen.queryByText('ステータスは英語のままです')).toBeNull();
+    fireEvent.click(tip('言語'));
+    expect(screen.getByRole('dialog', { name: '言語の説明' })).toHaveTextContent('ステータスは英語のままです');
+    for (const label of ['通知を有効にする', 'エディタ', '停止したセッションを自動で Done にする', '長期間アクティビティの無いセッションも Done にする', 'Done と Archived にしたセッションを停止する']) {
+      expect(tip(label)).toBeInTheDocument();
+    }
+    expect(screen.queryByText(/入力待ちのセッションを/)).toBeNull();
+  });
+  it('通知が拒否されているときの案内は、ⓘ に畳まずに常に出す', () => {
+    render(ui(at('general', { notify: { available: true, on: false, blocked: true } })));
+    expect(screen.getByText(/「通知」で Hangar を許可してください/)).toBeInTheDocument();
+  });
+  it('macOS のターミナルアプリは、iTerm2 の許可の案内を常に出す', () => {
+    render(ui(at('general', { terminalDesc: 'iTerm2 は初回に macOS の自動化の許可を求めます。失敗したら Terminal.app で開きます' })));
+    expect(screen.getByText(/iTerm2 は初回に macOS の自動化の許可を求めます/)).toBeInTheDocument();
+  });
+  it('エディタの未検出の行に「—」を出さない', () => {
+    render(ui(at('general')));
+    expect(screen.queryByText('—')).toBeNull();
+  });
+  it('クラウドの未参加の画面に、押す前の案内の文を出さない', () => {
+    render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [] }) })));
+    expect(screen.queryByText(/クリックすると、ターミナルで実行するコマンドを表示します/)).toBeNull();
+  });
+  it('ツールの「プロジェクトの登録」の行には説明を添えず、作成先の説明は ⓘ に畳む', () => {
+    render(ui(at('tools')));
+    expect(screen.queryByText('ディレクトリをまとめてプロジェクトとして登録します。')).toBeNull();
+    expect(screen.queryByText(/自動でプロジェクトに登録します/)).toBeNull();
+    fireEvent.click(tip('新しいディレクトリの作成先（任意）'));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/自動でプロジェクトに登録します/);
+  });
+  it('要約エンジンの「使わない」には説明を添えない。使用量と送信先の文は常に出す', () => {
+    render(ui(at('summary')));
+    expect(screen.queryByText('事後の要約を作成しません。')).toBeNull();
+    expect(screen.getByText(/トランスクリプトをこの接続先へ送信します/)).toBeInTheDocument();
+    expect(screen.getByText(/127\.0\.0\.1 と localhost 以外の接続先へ/)).toBeInTheDocument();
   });
 });

@@ -29,18 +29,17 @@ export function ConfigRow(props: { row: ConfigRowProps; action?: ReactNode }) {
   );
 }
 
-/** 折りたたみの群。open は最初に開いているか（開閉はそのあと利用者が決める）。 */
+/** 折りたたみの群。open は最初に開いているか（開閉はそのあと利用者が決める）。note（その操作で何が起きるか）は見出しの title に置く。 */
 export function ConfigGroup(props: { group: ConfigGroupProps; renderAction?: (row: ConfigRowProps) => ReactNode }) {
   const g = props.group;
   return (
     <details className="cfg-grp" open={g.open} data-group={g.id}>
-      <summary className="cfg-grp-h">
+      <summary className="cfg-grp-h" title={g.note ?? undefined}>
         <span className="cfg-chev"><Icon name="chevron" /></span>
         <span className="cfg-grp-t">{g.title}</span>
         <span className="cfg-n">{g.count}</span>
         {g.peek && <span className="cfg-peek">{g.peek}</span>}
       </summary>
-      {g.note && <div className="cfg-note">{g.note}</div>}
       {g.rows.map((r) => <ConfigRow key={r.id} row={r} action={props.renderAction?.(r)} />)}
     </details>
   );
