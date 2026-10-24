@@ -248,7 +248,7 @@ export class RunManager {
       .prepare('select p.id, p.name, p.is_scratch, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
       .get(this.deps.deviceId, projectId) as { id: string; name: string; is_scratch: number; path: string | null; resolved: number | null } | undefined;
     if (!r) throw new RunError(404, msg('project.error.notFound'));
-    // クイックセッションの DB の名前（スクラッチ）は内部のもので、画面と同じ辞書の名前で伝える。
+    // クイックセッションの DB の名前（クイックセッション）は内部のもので、画面と同じ辞書の名前で伝える。
     return { id: r.id, name: r.is_scratch === 1 ? this.tr('project.name.quick') : r.name, path: r.path, resolved: r.resolved === 1 };
   }
 
@@ -497,18 +497,18 @@ export class RunManager {
     // 行を作る前に、アカウントとリンクを確かめる。知らないアカウントや壊れたリンクで、本文の無いセッションが残らないようにする。
     const account = this.accounts.resolve(params.account);
     this.accounts.envFor(account);
-    // スクラッチは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
+    // クイックセッションは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
     // 後の precheck を待たずに、ここで tmux と claude の有無だけ先に確かめる。
     // これが無いと、どちらも無い端末で起動を試すたびに空のディレクトリが溜まる。
     if (params.scratch) { this.startPanes(); this.claudeBin(); }
-    // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
+    // クイックセッションは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
     if (!p.path || !p.resolved) throw new RunError(400, msg('run.launch.projectDirMissing'));
-    // 作業の場所（cwd）は、プロジェクトの場所の下のフォルダから始めるときに来る。スクラッチでは使わない。
+    // 作業の場所（cwd）は、プロジェクトの場所の下のフォルダから始めるときに来る。クイックセッションでは使わない。
     // 外を許すと、そのプロジェクトのセッションがプロジェクトの外で動き、紐づけ（場所の最長一致）とも食い違うので断る。
     const sub = params.scratch ? null : this.workDir(p.path, params.cwd);
-    // スクラッチのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
+    // クイックセッションのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
     const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : sub ?? p.path;
     this.precheck(cwd);
     const sessionUuid = crypto.randomUUID();
@@ -546,7 +546,7 @@ export class RunManager {
     return this.project(projectId);
   }
 
-  /** この端末のスクラッチの擬似プロジェクト。無ければ作る。 */
+  /** この端末のクイックセッションの擬似プロジェクト。無ければ作る。 */
   private scratchProject(): ProjectInfo {
     return this.project(ensureScratchProject(this.db, this.deps.deviceId, this.deps.home));
   }

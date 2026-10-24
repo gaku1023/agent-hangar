@@ -43,6 +43,19 @@ describe('scratch', () => {
     expect(fs.existsSync(legacyScratchRoot(home))).toBe(false);
     expect(db.prepare('select count(*) c from projects where is_scratch = 1').get()).toEqual({ c: 1 });
   });
+  it('DB の名前は「クイックセッション」。前の版が付けた旧称の名前は、起動のときに書き換えて同期へ出す', () => {
+    expect(SCRATCH_PROJECT_NAME).toBe('クイックセッション');
+    upsertShared(db, 'projects', { id: 'old', name: '\u30b9\u30af\u30e9\u30c3\u30c1', status: 'active', is_scratch: 1 }, 'other');
+    const before = (db.prepare('select updated_at from projects where id = ?').get('old') as { updated_at: number }).updated_at;
+    expect(ensureScratchProject(db, 'd', home)).toBe('old');
+    const after = db.prepare('select name, origin_device from projects where id = ?').get('old');
+    expect(after).toEqual({ name: SCRATCH_PROJECT_NAME, origin_device: 'd' });
+    // もう一度起動しても、同じ名前なら書かない（同期へ毎回出さない）。
+    const changes = (db.prepare("select count(*) c from changes where table_name = 'projects'").get() as { c: number }).c;
+    ensureScratchProject(db, 'd', home);
+    expect((db.prepare("select count(*) c from changes where table_name = 'projects'").get() as { c: number }).c).toBe(changes);
+    expect((db.prepare('select updated_at from projects where id = ?').get('old') as { updated_at: number }).updated_at).toBeGreaterThanOrEqual(before);
+  });
 
   it('ディレクトリ名は時刻で quick-sessions の下に作り、同じ秒は -2 を付ける', () => {
     const t = new Date(2026, 8, 17, 9, 5, 7);
@@ -119,7 +132,7 @@ describe('既存の利用者（~/.agent-hangar/scratch を使っていた PC）'
   });
 });
 
-describe('PC ごとのスクラッチのプロジェクトを 1 つにまとめる', () => {
+describe('PC ごとのクイックセッションのプロジェクトを 1 つにまとめる', () => {
   // id は uuidv7 なので、小さい方が先に作ったものである。
   const OLD = '0190a000-0000-7000-8000-000000000001';
   const NEW = '0190b000-0000-7000-8000-000000000002';
@@ -188,7 +201,7 @@ describe('PC ごとのスクラッチのプロジェクトを 1 つにまとめ�
     expect(liveScratch()).toEqual([OLD]);
   });
 
-  it('消したスクラッチのプロジェクトに残った自分の場所の行も外す', () => {
+  it('消したクイックセッションのプロジェクトに残った自分の場所の行も外す', () => {
     scratchProject(OLD, 'mac2', '/Users/other/.agent-hangar/scratch');
     scratchProject(NEW, 'd', legacyScratchRoot(home));
     db.prepare('update projects set deleted_at = 5 where id = ?').run(NEW);
@@ -236,7 +249,7 @@ describe('まとめを繰り返しても、同期の変更を出し続けない'
   });
 });
 
-describe('別々に作った 2 つのスクラッチのプロジェクトは、両側から同じ先へ収束する', () => {
+describe('別々に作った 2 つのクイックセッションのプロジェクトは、両側から同じ先へ収束する', () => {
   /** db の未送の変更を、同期で降りたものとして to に当てる。 */
   const deliver = (from: Db, to: Db, toDevice: string) => {
     const rows = from.prepare('select * from changes where pushed_at is null order by seq').all() as { seq: number; table_name: SharedTable; row_id: string; op: 'upsert' | 'delete'; payload: string; updated_at: number; device_id: string }[];
@@ -284,11 +297,11 @@ describe('別々に作った 2 つのスクラッチのプロジェクトは、�
   });
 });
 
-describe('同期でスクラッチの行が届いたら、まとめ直す', () => {
+describe('同期でクイックセッションの行が届いたら、まとめ直す', () => {
   const OLD = '0190a000-0000-7000-8000-000000000001';
   const NEW = '0190b000-0000-7000-8000-000000000002';
 
-  it('スクラッチのプロジェクトかその場所の行のときだけ、取り込みの後に 1 回まとめる', async () => {
+  it('クイックセッションのプロジェクトかその場所の行のときだけ、取り込みの後に 1 回まとめる', async () => {
     const calls: string[] = [];
     const errors: unknown[] = [];
     const follow = followRemoteScratch(db, 'd', home, { onError: (e) => errors.push(e), ensure: (d, device, h) => { calls.push(device); return ensureScratchProject(d, device, h); } });
@@ -300,7 +313,7 @@ describe('同期でスクラッチの行が届いたら、まとめ直す', () =
     follow({ tableName: 'sessions', rowId: 'x' });
     await Promise.resolve();
     expect(calls).toEqual([]);
-    // 前の版の PC が作ったスクラッチのプロジェクトと会話が、同じ取り込みで届いた。
+    // 前の版の PC が作ったクイックセッションのプロジェクトと会話が、同じ取り込みで届いた。
     scratchProject(NEW, 'mac2', '/Users/other/.agent-hangar/scratch');
     session('s-mac2', '/Users/other/.agent-hangar/scratch/20260901-100000', NEW, 'mac2');
     follow({ tableName: 'projects', rowId: NEW });

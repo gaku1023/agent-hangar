@@ -11,7 +11,7 @@ function nameError(name: string, t: Translate): string | null {
   return null;
 }
 
-/** promote 領域：スクラッチのセッションをプロジェクトへ昇格するダイアログ。 */
+/** promote 領域：クイックセッションをプロジェクトへ昇格するダイアログ。 */
 export function promoteStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const e = input.event;

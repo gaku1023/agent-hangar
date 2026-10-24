@@ -185,7 +185,7 @@ describe('保持期間の API', () => {
     expect(e).toBeInstanceOf(ProjectSameFolderApiError);
     expect((e as ProjectSameFolderApiError).body).toEqual(body);
     expect((e as Error).message).toBe(body.error);
-    // まとめられない 409（スクラッチの場所）は、型を付けずに理由だけを投げる。
+    // まとめられない 409（クイックセッションの場所）は、型を付けずに理由だけを投げる。
     const plain = await harness(409, { error: 'あります' }).api.resolveProject('p2', { kind: 'repoint', path: '/w/x' }).catch((err: unknown) => err);
     expect(plain).not.toBeInstanceOf(ProjectSameFolderApiError);
   });

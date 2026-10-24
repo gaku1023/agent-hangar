@@ -15,7 +15,7 @@ export const FORBIDDEN_JA: ReadonlyArray<{ pattern: RegExp; use: string }> = [
   { pattern: /つなぎ|つなぐ|つなが/, use: '接続、再接続' },
   { pattern: /作り直|読み直/, use: '再構築、再生成、再読み込み' },
   { pattern: /外のターミナル|別のターミナル/, use: '外部ターミナル' },
-  { pattern: /スクラッチ/, use: 'クイックセッション' },
+  { pattern: /\u30b9\u30af\u30e9\u30c3\u30c1/, use: 'クイックセッション' },
   { pattern: /ワークスペース/, use: 'プロジェクトの親ディレクトリ' },
   { pattern: /要約器/, use: '要約エンジン' },
   { pattern: /成果物/, use: 'アーティファクト' },

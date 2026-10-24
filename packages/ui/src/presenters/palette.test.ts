@@ -14,7 +14,7 @@ const session = (id: string, name: string, oneLiner: string | null): SessionDto 
 });
 
 const withPalette = () => ({ ...initialState(), overlay: { kind: 'palette' as const } });
-const store = (): Store => ({ ...initialStore(), projects: { p1: project('p1', 'alpha'), sc: project('sc', 'スクラッチ', true) }, sessions: { s1: session('s1', '動画の変換', '動画を mp4 に変換した'), s2: session('s2', 'ログの整理', null) } });
+const store = (): Store => ({ ...initialStore(), projects: { p1: project('p1', 'alpha'), sc: project('sc', 'クイックセッション', true) }, sessions: { s1: session('s1', '動画の変換', '動画を mp4 に変換した'), s2: session('s2', 'ログの整理', null) } });
 
 describe('fuzzyScore', () => {
   it('部分列で一致し、前で連続するほど高い', () => {
@@ -96,7 +96,7 @@ describe('presentPalette（何も打っていないとき）', () => {
     const waiting = p.sections.find((x) => x.title === '要対応')!;
     expect(waiting).toMatchObject({ count: 1, limit: null });
   });
-  it('操作の群は、新しいセッション、スクラッチ、次の入力待ち、新しいプロジェクト、キーの一覧で、打鍵はキーの表から引く', () => {
+  it('操作の群は、新しいセッション、クイックセッション、次の入力待ち、新しいプロジェクト、キーの一覧で、打鍵はキーの表から引く', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
     expect(ids(p, '操作')).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:next-waiting', 'cmd:new-project', 'cmd:shortcuts']);
     expect(item(p, 'cmd:new-session')).toMatchObject({ label: '新しいセッション', keys: '⌘N', kind: 'command', lead: { kind: 'icon', icon: 'add' } });

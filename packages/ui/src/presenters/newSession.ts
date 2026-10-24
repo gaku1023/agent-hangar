@@ -12,7 +12,7 @@ export type NewSessionProps = {
   projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean;
   /** 前に閉じたときの書きかけ。開いたときの名前と初期プロンプトにする。 */
   draft: NewSessionDraft | null;
-  /** 詳細のプロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは ':scratch' である。 */
+  /** 詳細のプロジェクトごとの前回値。鍵はプロジェクトの id で、クイックセッションは ':scratch' である。 */
   prefs: Record<string, LaunchPrefs>;
   /** ワークスペース直下の未登録のフォルダ。store のプロジェクトのパスは除いてある（作った直後に残らないように）。 */
   dirs: { name: string; path: string }[];
@@ -79,7 +79,7 @@ export function accountOptions(t: Translate, accounts: NewSessionAccounts): NewS
 const baseName = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
 
 /**
- * ダイアログのプロジェクトの一覧で、スクラッチの行に当てる値。
+ * ダイアログのプロジェクトの一覧で、クイックセッションの行に当てる値。
  * 前回値（prefs）の鍵と同じ綴りなので、選んだ値でそのまま前回値を引ける。プロジェクトの id とは重ならない。
  */
 export const SCRATCH_CHOICE = SCRATCH_PREFS;
@@ -93,7 +93,7 @@ export type NewSessionTarget = { projectId?: string; scratch?: boolean };
 /**
  * ⌘N とヘッダーの新規ボタンで開くダイアログの、最初の選択。
  * プロジェクトの画面ならそのプロジェクト、セッションの画面ならそのセッションのプロジェクトを選ぶ。
- * スクラッチの擬似プロジェクトは選べないので、その画面の「新規」と同じくスクラッチで開く。
+ * クイックセッションの擬似プロジェクトは選べないので、その画面の「新規」と同じくクイックセッションで開く。
  * ほかの画面とプロジェクトの無いセッションでは何も選ばない。
  */
 export function newSessionTarget(state: State, store: Store): NewSessionTarget {
@@ -107,14 +107,14 @@ export function newSessionTarget(state: State, store: Store): NewSessionTarget {
 export function presentNewSession(state: State, store: Store, now: number): NewSessionProps | null {
   if (state.overlay.kind !== 'newSession') return null;
   const t = translatorOf(store);
-  // スクラッチの擬似プロジェクトは選ばせない。
+  // クイックセッションの擬似プロジェクトは選ばせない。
   const live = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved && p.status !== 'archived');
   const projects = [...live].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(t, p.lastActivityAt, now) }));
   // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
   const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
   const taken = new Set(Object.values(store.projects).map((p) => p.path).filter((p): p is string => !!p));
   const dirs = (store.workspaceDirs ?? []).filter((d) => !taken.has(d.path));
-  // スクラッチはワークスペースの外に置くので、その名前で作っても重ならない。
+  // クイックセッションはワークスペースの外に置くので、その名前で作っても重ならない。
   const takenNames = [...new Set(Object.values(store.projects).filter((p) => !p.isScratch && p.path).map((p) => baseName(p.path!).toLowerCase()))];
   const createdProjectId = state.launch.kind === 'failed' || state.launch.kind === 'submitting' ? state.launch.createdProjectId ?? null : null;
   return {

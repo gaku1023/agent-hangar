@@ -12,6 +12,9 @@ import type { SessionMenuProps } from '../presenters/sessionMenu.ts';
 import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
+// 前の版が DB に付けた名前（旧称）。表示がこれを出さないことを見るための見本で、文字コードで書く（noScratchWord.test.ts）。
+const LEGACY = '\u30b9\u30af\u30e9\u30c3\u30c1';
+
 
 const NOW = 1_800_000_000_000;
 const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
@@ -105,6 +108,11 @@ describe('サイドバーの「実行中」をプロジェクトごとに分け�
     const g = liveOf(s, at('projects')).groups[0]!;
     expect(g.key).toBe('gone');
     expect(g.name).toBe('（名前なし）');
+  });
+  it('クイックセッションのまとまりは、DB の名前（前の版の旧称など）ではなく辞書の名前で出す', () => {
+    const quick = { id: 'q', name: LEGACY, isScratch: true } as unknown as Store['projects'][string];
+    const s = { ...storeWith([session('a', { projectId: 'q' })]), projects: { q: quick } };
+    expect(liveOf(s, at('projects')).groups[0]!.name).toBe('クイックセッション');
   });
 });
 
@@ -720,17 +728,50 @@ describe('「実行中」のグループ（Sidebar）', () => {
     }
     const h = head('web');
     const box = (key: string) => document.querySelector<HTMLElement>(`[data-group="${key}"]`)!;
+    // 80px 下げると、web の下の端（270）が docs の真ん中（220）を越え、未分類の真ん中（280）は越えない。
     pointerAt('pointerDown', h, 110);
-    pointerAt('pointerMove', h, 230);
+    pointerAt('pointerMove', h, 190);
     expect(box('web')).toHaveAttribute('data-lift', 'held');
-    expect(box('web').style.translate).toMatch(/ 120px$/);
+    expect(box('web').style.translate).toMatch(/ 80px$/);
     expect(box('docs').style.translate).toMatch(/-90px$/);
     expect(box('').style.translate).toBe('');
-    pointerAt('pointerUp', h, 230);
+    pointerAt('pointerUp', h, 190);
     fireEvent.click(h);
     expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b', 'd'] });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'sidebar.fold' }));
     expect(box('web')).not.toHaveAttribute('data-lift');
+  });
+  it('背の高いグループも、背の低いグループの下へ動かせる。下へは下の端、上へは上の端が相手の真ん中を越えたら入れ替わる', () => {
+    const { onAction } = mount(three());
+    // web は行の多い背の高いグループ（100〜400）、docs（400〜460）と未分類（460〜520）は低い。
+    const boxes: Record<string, [number, number]> = { web: [100, 300], docs: [400, 60], '': [460, 60] };
+    for (const el of document.querySelectorAll<HTMLElement>('[data-group]')) {
+      const [top, height] = boxes[el.dataset.group!]!;
+      el.getBoundingClientRect = () => ({ top, height, bottom: top + height, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
+    }
+    const h = head('web');
+    // 40px 下げると、web の下の端（440）が docs の真ん中（430）を越える。真ん中同士で比べていた前は、端まで下げても越えられなかった。
+    pointerAt('pointerDown', h, 110);
+    pointerAt('pointerMove', h, 150);
+    const box = (key: string) => document.querySelector<HTMLElement>(`[data-group="${key}"]`)!;
+    expect(box('docs').style.translate).toMatch(/-300px$/);
+    expect(box('').style.translate).toBe('');
+    pointerAt('pointerUp', h, 150);
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b', 'd'] });
+    onAction.mockClear();
+    cleanupAll();
+    // 低いグループを、背の高いグループの上へ動かす向きも同じ決まりで入れ替わる。
+    const again = mount(three());
+    const tall: Record<string, [number, number]> = { web: [100, 300], docs: [400, 60], '': [460, 60] };
+    for (const el of document.querySelectorAll<HTMLElement>('[data-group]')) {
+      const [top, height] = tall[el.dataset.group!]!;
+      el.getBoundingClientRect = () => ({ top, height, bottom: top + height, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
+    }
+    // docs の上の端（400）を 160px 上げて 240 にすると、web の真ん中（250）を越える。
+    pointerAt('pointerDown', head('docs'), 410);
+    pointerAt('pointerMove', head('docs'), 250);
+    pointerAt('pointerUp', head('docs'), 250);
+    expect(again.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b', 'd'] });
   });
   it('行の一覧だけをスクロールの箱に入れ、見出し（実行中）はその外に置く', () => {
     const { container } = mount(three());

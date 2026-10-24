@@ -271,7 +271,7 @@ describe('PromptComposer の @ の候補', () => {
     expect(f).toHaveBeenCalledTimes(2);
     expect(options()).toEqual(['docs/dialogs.md']);
   });
-  it('プロジェクトが無い（スクラッチ）と、@ では候補を出さず、ボタンも押せない', async () => {
+  it('プロジェクトが無い（クイックセッション）と、@ では候補を出さず、ボタンも押せない', async () => {
     const f = files();
     const { ta } = await mount({ files: f }, { projectId: null });
     type(ta, '@a');

@@ -139,7 +139,7 @@ export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot
 
 /**
  * ワークスペースの直下から登録したプロジェクトの数。
- * この PC で解決済みのルートのうち、親がワークスペースのものを数える。スクラッチと消したものは入れない。
+ * この PC で解決済みのルートのうち、親がワークスペースのものを数える。クイックセッションと消したものは入れない。
  */
 export function workspaceProjectCount(db: Db, deviceId: string, workspaceRoot: string): number {
   if (!hasWorkspaceRoot(workspaceRoot)) return 0;
@@ -151,7 +151,7 @@ export function workspaceProjectCount(db: Db, deviceId: string, workspaceRoot: s
 
 /**
  * この PC で場所の分かっているプロジェクトの数（始める前の確認の「プロジェクト」の行）。
- * アーカイブしたものも数える。スクラッチ、消したもの、ほかの PC だけのもの、場所の分からないものは数えない。
+ * アーカイブしたものも数える。クイックセッション、消したもの、ほかの PC だけのもの、場所の分からないものは数えない。
  */
 export function resolvedProjectCount(db: Db, deviceId: string): number {
   return (db.prepare(`select count(distinct p.id) c from project_roots r join projects p on p.id = r.project_id
@@ -160,7 +160,7 @@ export function resolvedProjectCount(db: Db, deviceId: string): number {
 
 /**
  * この端末の解決済みルートを返す。
- * スクラッチのプロジェクトの場所が quick-sessions なら、同じ hangar のホームの前の置き場（scratch）も同じプロジェクトの場所として足す（scratch.ts の scratchPlacesOf）。
+ * クイックセッションのプロジェクトの場所が quick-sessions なら、同じ hangar のホームの前の置き場（scratch）も同じプロジェクトの場所として足す（scratch.ts の scratchPlacesOf）。
  * 前の置き場の下の会話（既存の会話、そこから外のターミナルで始めたものやフォーク）も、いままでどおりクイックセッションに入れるためである。
  * 足すのは完全なパスなので、利用者が自分で作った scratch という名前のフォルダは当たらない。
  */
@@ -271,7 +271,7 @@ export function mergeDirection(db: Db, deviceId: string, projectId: string, conf
 /**
  * この PC で同じフォルダを場所にしているプロジェクトの組。まとめる方の id から、残す方の id と名前を引く。
  * 直す前の版では「場所を再指定」が重複を見なかったので、他の PC から届いた方にも同じフォルダを結び付けられた。その残りを見つけて、まとめる入口に出す。
- * 3 つ以上が同じフォルダなら、残す方 1 つへ、ほかを全部向ける。スクラッチと、一覧から削除したものは数えない。
+ * 3 つ以上が同じフォルダなら、残す方 1 つへ、ほかを全部向ける。クイックセッションと、一覧から削除したものは数えない。
  * ふつうは組が無く、そのときはセッションを数えない（プロジェクトを配るたびに呼ばれるので軽くしておく）。
  */
 export function sameFolderPairs(db: Db, deviceId: string): Map<string, { projectId: string; name: string }> {

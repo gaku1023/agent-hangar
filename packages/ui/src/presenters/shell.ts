@@ -7,6 +7,7 @@ import { presentAccounts, type AccountGauge, type AccountView } from './accounts
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
 import { presentOverlap } from './overlap.ts';
+import { projectDisplayName } from './projectName.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
@@ -192,7 +193,8 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const folded = new Set(state.sidebarFolded);
   const groups = [...byKey].map(([key, ids]): SideLiveGroup => {
     const rows = ids.map(rowOf);
-    const name = key === '' ? t('common.label.uncategorized') : store.projects[key]?.name ?? t('common.label.noName');
+    const p = store.projects[key];
+    const name = key === '' ? t('common.label.uncategorized') : p ? projectDisplayName(p, t) : t('common.label.noName');
     return { key, name, open: !folded.has(key), waiting: rows.filter((r) => r.live === 'waiting').length, rows };
   });
   const rows = groups.flatMap((g) => g.rows);

@@ -114,7 +114,7 @@ export function workspaceLine(t: Translate, w: ReadinessDto['workspace']): Verif
 /**
  * 準備の確かめの「プロジェクト」の数を、画面が持っているプロジェクトの数で置き換える。
  * 準備の確かめは取り直すまで古いままなので、登録した直後やプロジェクトを外した直後でも、行が今の数で決まるようにする。
- * 数えるのは、この PC で場所の分かっている、スクラッチでないものである（サーバの resolvedProjectCount と同じ）。
+ * 数えるのは、この PC で場所の分かっている、クイックセッションでないものである（サーバの resolvedProjectCount と同じ）。
  * projects を持たない古いサーバの答えは、そのまま返す。
  */
 export function liveReadiness(r: ReadinessDto, projects: readonly { isScratch: boolean; resolved: boolean }[]): ReadinessDto {

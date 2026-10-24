@@ -110,7 +110,7 @@ describe('presentProject の見出しと (i) の詳細', () => {
     expect(presentProject(initialState(), store, NOW, 'alpha')).toMatchObject({ path: null, resolved: false });
     expect(presentProject(initialState(), store, NOW, 'beta')).toMatchObject({ path: '/w/beta', resolved: false });
   });
-  it('クイックセッションの置き場（スクラッチ）は isScratch を立てる', () => {
+  it('クイックセッションの置き場（クイックセッション）は isScratch を立てる', () => {
     const store = storeOf([]);
     store.projects = { sc: project('sc', { isScratch: true }) };
     expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);

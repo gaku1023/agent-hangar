@@ -230,7 +230,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       const project = getProject(db, deviceId, deps.live(), r.projectId)!;
       const updated = session(id)!;
       // 新しいプロジェクトとセッションは、書いた行から配る層が配る。
-      // 昇格元のスクラッチは、行は変わらないがセッションが 1 件減るので、名指しして配り直してもらう。
+      // 昇格元のクイックセッションは、行は変わらないがセッションが 1 件減るので、名指しして配り直してもらう。
       if (before.projectId && before.projectId !== r.projectId) touchRow(db, 'projects', before.projectId);
       const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reasonMessage ? render(language(), r.reasonMessage) : r.reason };
       return c.json(out, 201);

@@ -737,7 +737,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     const a = sessionActions(facts, ja);
     expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
     expect(a.menu[2]!.note).toBe('作成中…');
-    // スクラッチで始めたセッションの再開は、作業ディレクトリがスクラッチのままであることを添える。
+    // クイックセッションで始めたセッションの再開は、作業ディレクトリがクイックセッションのままであることを title に添える。
     expect(a.primary).toMatchObject({ note: null, title: '再開しても作業ディレクトリはクイックセッションの保存先のままです' });
     expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
@@ -828,8 +828,8 @@ describe('newSessionTarget', () => {
     expect(newSessionTarget(at({ name: 'session', id: 's3' }), store)).toEqual({});
     expect(newSessionTarget(at({ name: 'session', id: 'zz' }), store)).toEqual({});
   });
-  // スクラッチの擬似プロジェクトは選べないので、その画面の「新規」と同じくスクラッチで始める。
-  it('スクラッチのプロジェクトとそのセッションではスクラッチで開く', () => {
+  // クイックセッションの擬似プロジェクトは選べないので、その画面の「新規」と同じくクイックセッションで始める。
+  it('クイックセッションのプロジェクトとそのセッションではクイックセッションで開く', () => {
     const store = storeWith();
     store.projects = { ...store.projects, scratch: { ...project('scratch'), isScratch: true } };
     store.sessions = { ...store.sessions, sc: session('sc', { projectId: 'scratch' }) };
@@ -1064,7 +1064,7 @@ describe('homePath', () => {
 
 const todoDto = (id: string, position: number, done = false, candidate: TodoDto['candidate'] = null, projectId = 'p1'): TodoDto => ({ id, projectId, text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1, candidate, suggestion: null });
 const artDto = (id: string, over: Partial<ArtifactDto> = {}): ArtifactDto => ({ id, projectId: 'p1', url: `https://claude.ai/code/artifact/${id}`, title: `題名 ${id}`, description: '説明', favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: NOW - 100_000, lastPublishedAt: NOW - 60_000, versionCount: 2, sessionIds: ['s1'], ...over });
-const scratchProject = (): ProjectDto => ({ ...project('sc'), name: 'スクラッチ', isScratch: true, path: '/h/.agent-hangar/scratch', lastActivityAt: NOW });
+const scratchProject = (): ProjectDto => ({ ...project('sc'), name: 'クイックセッション', isScratch: true, path: '/h/.agent-hangar/scratch', lastActivityAt: NOW });
 
 describe('書式', () => {
   it('percentLabel と costLabel', () => {
@@ -1185,7 +1185,7 @@ describe('presentShell のアカウント', () => {
 });
 
 describe('presentProject の右レール', () => {
-  it('TODO とメモとアーティファクトを並べ、スクラッチは印を付ける', () => {
+  it('TODO とメモとアーティファクトを並べ、クイックセッションは印を付ける', () => {
     const store: Store = {
       ...initialStore(),
       projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1, memoHead: '# alpha' } },
@@ -1235,7 +1235,7 @@ describe('presentProject の右レール', () => {
   });
 });
 
-describe('presentHome（スクラッチ）', () => {
+describe('presentHome（クイックセッション）', () => {
   it('起動ダイアログの選択肢からも外す。並びは名前順のまま', () => {
     const store: Store = { ...storeWith(), projects: { ...storeWith().projects, sc: scratchProject() } };
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
@@ -1363,7 +1363,7 @@ describe('presentSessionRow のコストと run', () => {
 });
 
 describe('presentSession のフェーズ 3 の項目（値が無いとき）', () => {
-  it('スクラッチでないプロジェクトは昇格できない。無い値はそのまま空にする', () => {
+  it('クイックセッションでないプロジェクトは昇格できない。無い値はそのまま空にする', () => {
     const store = storeWith();
     store.sessions.s1 = { ...store.sessions.s1!, fromScratch: true };
     store.artifacts = { a1: artDto('a1'), a9: artDto('a9', { sessionIds: ['s9'] }) };
@@ -1383,7 +1383,7 @@ describe('presentSession のフェーズ 3 の項目（値が無いとき）', (
 });
 
 describe('presentProject の右レール（端）', () => {
-  it('スクラッチには印が付く。無いプロジェクトの右レールは空', () => {
+  it('クイックセッションには印が付く。無いプロジェクトの右レールは空', () => {
     const store: Store = { ...initialStore(), projects: { sc: scratchProject() } };
     expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);
     expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [] });

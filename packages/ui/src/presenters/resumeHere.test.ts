@@ -27,7 +27,7 @@ describe('この PC で再開を押せるか（resumeHereOf）', () => {
       expect(resumeHereOf(storeWith(s, project({ resolved: false, path: null, unresolved })), s, ja)).toEqual({ disabled: NO_ROOT, noRoot: { reason: NO_ROOT, projectId: 'p1' } });
     }
   });
-  it('プロジェクトに属さない会話とスクラッチは、場所で止めない', () => {
+  it('プロジェクトに属さない会話とクイックセッションは、場所で止めない', () => {
     expect(resumeHereOf(storeWith(session({ projectId: null }), null), session({ projectId: null }), ja)?.noRoot).toBeNull();
     const s = session();
     expect(resumeHereOf(storeWith(s, project({ isScratch: true, resolved: false, path: null, unresolved: null })), s, ja)?.noRoot).toBeNull();

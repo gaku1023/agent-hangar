@@ -42,7 +42,7 @@ export function registeredAt(db: Db, deviceId: string, dir: string): ProjectRef 
 
 /**
  * dir を下に持つ、この PC のプロジェクトのうち、いちばん深いもの。無ければ null。
- * 数えるのは、場所の見つかっているもの（セッションの紐づけの最長一致と同じ行）で、スクラッチは数えない。
+ * 数えるのは、場所の見つかっているもの（セッションの紐づけの最長一致と同じ行）で、クイックセッションは数えない。
  * includeSelf を付けると、dir が場所そのもののときも返す（まとめて登録の親フォルダの帯に使う）。
  */
 export function enclosingProject(db: Db, deviceId: string, dir: string, o: { includeSelf?: boolean } = {}): EnclosingProject | null {
@@ -59,7 +59,7 @@ export type PlacelessProject = ProjectRef & { remote: string | null; deviceName:
 
 /**
  * この PC に場所の無い（場所の行が無いか、見つからない）プロジェクト。
- * 消したもの、スクラッチ、アーカイブは入れない。アーカイブは、使わないと決めたものを黙って起こさないためである。
+ * 消したもの、クイックセッション、アーカイブは入れない。アーカイブは、使わないと決めたものを黙って起こさないためである。
  * 並びは、新しく書かれた順である。
  */
 export function placelessProjects(db: Db, deviceId: string): PlacelessProject[] {

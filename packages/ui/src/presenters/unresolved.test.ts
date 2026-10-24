@@ -34,7 +34,7 @@ describe('unresolvedKind', () => {
     expect(unresolvedKind(old({ resolved: false }))).toBe('missing');
     expect(unresolvedKind(old({ resolved: false, path: null }))).toBe('elsewhere');
   });
-  it('スクラッチは、どちらでもない', () => {
+  it('クイックセッションは、どちらでもない', () => {
     expect(unresolvedKind(missing('a', { isScratch: true }))).toBeNull();
   });
 });
@@ -51,7 +51,7 @@ describe('presentUnresolved（帯の 4 つ目の錠剤）', () => {
     expect(presentUnresolved(storeOf([]), ja)).toBeNull();
   });
 
-  it('Archived にしたものと、スクラッチは数えない', () => {
+  it('Archived にしたものと、クイックセッションは数えない', () => {
     expect(presentUnresolved(storeOf([missing('a', { status: 'archived' }), missing('b', { isScratch: true })]), ja)).toBeNull();
     expect(presentUnresolved(storeOf([missing('a', { status: 'paused' }), missing('b', { status: 'done' })]), ja)!.count).toBe(2);
   });

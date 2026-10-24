@@ -83,7 +83,7 @@ function GitRail(props: { git: ProjectGitProps }) {
  * 右パネルの開閉は、セッション画面の右の列と同じ動き（paneMotion）で、右の列の幅を縮め（広げ）て左の一覧を滑らかに広げる（戻す）。
  * 閉じる間は中身を描き続け、薄れてから外す。開閉の形は画面の中だけで持ち、覚えない。
  * 見出しの (i) に、場所、セッションの数、最後の活動と、場所や名前を直す操作を置く。
- * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
+ * クイックセッションの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
  */
 export function ProjectScreen(props: ProjectProps) {
   const emit = useEmit();
@@ -117,7 +117,7 @@ export function ProjectScreen(props: ProjectProps) {
         {!props.isScratch && <StatusSelect label={t('projectScreen.status.label')} value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
         <span className="spacer" />
         {/* 新しいセッションの主ボタンはヘッダーにあり、この画面ではこのプロジェクトを最初から選ぶ（presenters/newSession.ts）。同じ主ボタンを見出しの行にも並べない。
-            スクラッチは別の入口なので残す。 */}
+            クイックセッションは別の入口なので残す。 */}
         {props.isScratch && <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="add" /><span className="btn-label">{t('projectScreen.quick.start')}</span></button>}
         {/* この PC にパスが無いと、開く先が無い（サーバも断る）。押せない形にして、乗せると理由が出るよう disabled ではなく aria-disabled にする。 */}
         {!props.isScratch && <button className="btn" {...noPath} onClick={() => { if (!noPath) emit({ type: 'project.openEditor', id: props.id }); }}><Icon name="openEditor" /><span className="btn-label">{editorLabels.open}</span></button>}
