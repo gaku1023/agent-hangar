@@ -47,7 +47,7 @@ export function presentUnresolved(store: Store, t: Translate): BandGroup | null 
       action(t, 'unlink', t('home.band.unlink'), p.name, { type: 'project.resolve', id: p.id, action: { kind: 'unlink' } }, 'ghost'),
     ],
   });
-  return { id: 'unresolved', label: t('home.band.unresolved'), icon: 'folder', tone: 'warn', count: lost.length, summary: t('home.band.unresolvedSummary'), morning: false, rows: lost.map(row) };
+  return { id: 'unresolved', label: t('home.band.unresolved'), icon: 'folder', tone: 'warn', count: lost.length, summary: '', morning: false, rows: lost.map(row) };
 }
 
 /**
@@ -66,7 +66,7 @@ export function presentSameFolder(store: Store, t: Translate): BandGroup | null 
     key: `sameFolder:${p.id}`, lead: { kind: 'place' }, name: p.name, context: t('home.band.sameFolderWith', { name: p.sameFolder.name }), text: '', detail: p.path, tone: null, trail: [], open: { type: 'project.open', id: p.id },
     actions: [action(t, 'merge', t('home.band.merge'), p.name, { type: 'project.resolve', id: p.id, action: { kind: 'repoint', path: p.path } }, 'primary')],
   });
-  return { id: 'sameFolder', label: t('home.band.sameFolder'), icon: 'folder', tone: 'warn', count: dups.length, summary: t('home.band.sameFolderSummary'), morning: false, rows: dups.map(row) };
+  return { id: 'sameFolder', label: t('home.band.sameFolder'), icon: 'folder', tone: 'warn', count: dups.length, summary: '', morning: false, rows: dups.map(row) };
 }
 
 /**

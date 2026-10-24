@@ -112,7 +112,7 @@ describe('一覧の絞り込みと欄', () => {
   it('条件の行は効いている条件を並べ、「条件をクリア」で全部外す', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><List text="索引" filter={{ projectId: 'p1', days: 7 }} projects={[{ id: 'p1', name: 'orbit-notes' }]} rows={[row('s1')]} total={1} loading={false} mode="search" conditions={['『索引』', 'orbit-notes', '7 日']} /></ActionRoot>);
-    expect(screen.getByRole('status', { name: '絞り込みの条件' })).toHaveTextContent('『索引』 · orbit-notes · 7 日 で絞り込み中');
+    expect(screen.getByRole('status', { name: '絞り込みの条件' })).toHaveTextContent(/^『索引』 · orbit-notes · 7 日条件をクリア/);
     fireEvent.click(screen.getByRole('button', { name: '条件をクリア' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'search.clear' });
   });

@@ -60,9 +60,9 @@ describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () =
     ]);
     const home = presentHome(initialState(), store, NOW);
     expect(home.attention[0]).toMatchObject({ waited: '5 min', question: 'Waiting for input' });
-    expect(home.running.find((r) => r.id === 'i')!.note).toBe('Idle. Time since last reply: 3 min');
+    expect(home.running.find((r) => r.id === 'i')).toMatchObject({ note: null, idleFor: '3 min' });
     expect(home.running.find((r) => r.id === 'r')).toMatchObject({ name: '(No name)', note: 'Working' });
-    expect(home.confirm[0]).toMatchObject({ kind: 'session', label: 'Paused · Fri 10/9?', note: 'No reason was written', ago: '2 min ago' });
+    expect(home.confirm[0]).toMatchObject({ kind: 'session', label: 'Paused · Fri 10/9?', note: '', ago: '2 min ago' });
     noJapanese(jsonOf(home));
   });
 
@@ -145,7 +145,7 @@ describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () =
     fireEvent.click(screen.getByRole('button', { name: 'Paused?' }));
     expect(screen.getByRole('menu', { name: 'Claude\'s suggestion for beta' })).toBeInTheDocument();
     expect(screen.getByText('Mark as Paused · Fri 10/9?')).toBeInTheDocument();
-    expect(screen.getByText('Source: Summary · 2 min ago')).toBeInTheDocument();
+    expect(screen.getByText('Summary · 2 min ago')).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /Confirm/ })).toBeInTheDocument();
     noJapanese();
   });

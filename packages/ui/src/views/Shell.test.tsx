@@ -144,7 +144,8 @@ describe('Shell', () => {
     expect(el).toHaveAttribute('data-hard', 'true');
     const banner = within(el);
     expect(banner.getByText('サーバーに接続できません')).toBeInTheDocument();
-    expect(banner.getByText('アプリを再起動してください')).toBeInTheDocument();
+    // 再起動のボタンがあるので、「アプリを再起動してください」は添えない。
+    expect(banner.queryByText('アプリを再起動してください')).toBeNull();
     expect(banner.queryByRole('button', { name: '今すぐ再接続' })).toBeNull();
     fireEvent.click(banner.getByRole('button', { name: 'ログを開く' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'shell.openLog' });
@@ -252,7 +253,7 @@ describe('Shell', () => {
     render(<ActionRoot onAction={() => {}}><Shell {...props} sync={syncFixture({ state: 'pushing', label: '送信中' })} usage={{ fiveHour: 12, sevenDay: 34, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></ActionRoot>);
     expect(screen.getByText('送信中')).toBeInTheDocument();
     expect(screen.getByRole('meter', { name: '5 時間の使用率' })).toBeInTheDocument();
-    expect(screen.getByText('最終更新 3 分前')).toBeInTheDocument();
+    expect(screen.getByRole('meter', { name: '5 時間の使用率' }).closest('.gauge')).toHaveAttribute('title', '5 時間の使用率 12%、最終更新 3 分前');
   });
   // .app ではヘッダの空いた所を掴んで窓を動かす。操作する部品に印が付くと、押しても窓が動くだけになる。
   it('ヘッダ本体と余白だけを、窓を掴む場所にする', () => {

@@ -10,7 +10,6 @@ export const projectsJa: AreaDictionary<typeof projectsKeys> = {
   'projects.col.sessions': 'セッション',
   'projects.col.status': 'ステータス',
   'projects.empty.body1': 'ディレクトリを登録すると、そのディレクトリのセッションがここにまとまります。',
-  'projects.empty.body2': 'TODO も、プロジェクトごとに管理できます。',
   'projects.empty.promote': 'クイックセッションをプロジェクトにする',
   'projects.empty.title': 'プロジェクトはまだありません',
   'projects.filter.label': '名前で絞り込み',

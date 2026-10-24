@@ -142,7 +142,7 @@ function ProjectRow(props: { row: ProjectRowProps; flipRef: (el: HTMLElement | n
   );
 }
 
-/** プロジェクトが 1 つも無い人の 1 枚。できるようになることを 2 文で言い、作る入口と、クイックセッションを昇格する入口を置く。 */
+/** プロジェクトが 1 つも無い人の 1 枚。できるようになることを 1 文で言い、作る入口と、クイックセッションを昇格する入口を置く。 */
 function EmptyCard(props: { promoteSessionId: string | null }) {
   const emit = useEmit();
   const t = useT();
@@ -150,7 +150,6 @@ function EmptyCard(props: { promoteSessionId: string | null }) {
     <div className="empty-card">
       <h2>{t('projects.empty.title')}</h2>
       <p>{t('projects.empty.body1')}</p>
-      <p>{t('projects.empty.body2')}</p>
       <div className="empty-acts">
         <button className="btn btn-primary" onClick={() => emit({ type: 'project.new.open' })}><Icon name="add" />{t('projects.new.button')}</button>
         {props.promoteSessionId !== null && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id: props.promoteSessionId! })}><Icon name="promote" />{t('projects.empty.promote')}</button>}

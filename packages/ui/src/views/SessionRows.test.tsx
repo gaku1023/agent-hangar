@@ -406,7 +406,9 @@ describe('セッションの状態の札と「⋯」', () => {
       sr('f', { state: 'paused', returnOn: '2026-10-02', overdueDays: null }),
     ]);
     expect(screen.getByText('入力待ち')).toHaveClass('row-live');
-    expect(screen.getByText('実行中')).toHaveAttribute('data-live', 'busy');
+    // 「実行中」の語は出さない。動いていることは札の中の点が言う。
+    expect(screen.queryByText('実行中')).toBeNull();
+    expect(rowOf('名前 b').querySelector('.row-status > .dot')).toHaveAttribute('data-status', 'idle');
     const status = (name: string) => rowOf(name).querySelector('.row-status')!;
     expect(status('名前 c')).toHaveTextContent('Done');
     // 札の説明（と会話で承認したこと）はツールチップで添える。説明は Presenter が決める（statusMark）。
@@ -414,7 +416,7 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(status('名前 d')).toHaveTextContent('Archived');
     expect(screen.getByText('Archived')).not.toHaveAttribute('title');
     expect(status('名前 e')).toHaveTextContent('Paused');
-    // 状態の無い行は Active の札を出す。動いている行も止まっている行も同じ札で、動きは点と右の語が言う。
+    // 状態の無い行は Active の札を出す。動いている行も止まっている行も同じ札で、動きは札の中の点（と入力待ちの語）が言う。
     expect(status('名前 a')).toHaveTextContent('Active');
     expect(status('名前 a').querySelector('.row-sq')).toHaveAttribute('data-s', 'active');
     expect(status('名前 b').querySelector('.row-sq')).toHaveAttribute('data-s', 'active');
@@ -455,14 +457,31 @@ describe('セッションの状態の札と「⋯」', () => {
   it('Active の札はプロジェクトの Active と同じ青で、地を塗る', () => {
     expect(rowsCss).toMatch(/\.row-sq\[data-s='active'\] \{[^}]*color: var\(--st-active\);[^}]*background: var\(--st-active-soft\);/);
   });
-  it('statusColumn が偽なら状態の列を畳む', () => {
-    render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[sr('a', { state: 'done' })]} height={400} variant="search" statusColumn={false} /></ActionRoot>);
+  it('statusColumn が偽なら状態の列を畳み、点は行の頭に置く', () => {
+    render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[sr('a', { state: 'done', live: 'busy' })]} height={400} variant="search" statusColumn={false} /></ActionRoot>);
     expect(screen.getByTestId('session-rows')).toHaveAttribute('data-status-col', 'false');
     expect(rowOf('名前 a').querySelector('.row-status')).toBeNull();
     expect(screen.queryByText('Done')).toBeNull();
+    expect(rowOf('名前 a').querySelector(':scope > .dot')).toHaveAttribute('data-status', 'busy');
   });
-  it('状態の列は 62px、時刻の列は 72px の右寄せで、行ごとにずれない', () => {
-    expect(rowsCss).toMatch(/\.rows-host\[data-status-col='true'\] \.row-2 \{[^}]*grid-template-columns: 16px 62px minmax\(0, 1fr\) auto;/);
+  it('状態の列があれば、点は札の中に畳み、動いていない行には点を置かない', () => {
+    mount([sr('a', { live: 'busy' }), sr('b', { state: 'done' }), sr('c', { live: 'waiting', candidate: { status: 'done', note: null, returnOn: null, returnTime: null, source: 'post_hoc', ago: '1 分前' } })]);
+    for (const name of ['名前 a', '名前 b', '名前 c']) expect(rowOf(name).querySelector(':scope > .dot'), name).toBeNull();
+    const a = rowOf('名前 a').querySelector('.row-status')!;
+    expect(a).toHaveAttribute('data-live', 'busy');
+    expect(a.querySelector('.dot')).toHaveAttribute('data-status', 'busy');
+    expect(a).toHaveTextContent('Active');
+    expect(rowOf('名前 b').querySelector('.row-status')).not.toHaveAttribute('data-live');
+    expect(rowOf('名前 b').querySelector('.row-status .dot')).toBeNull();
+    // 提案の札の行も、点は札の中に置く。
+    expect(rowOf('名前 c').querySelector('.row-status > .dot')).toHaveAttribute('data-status', 'waiting');
+  });
+  it('札の中の点は、作業中だけが脈打ち、減らす動きの設定では止まる', () => {
+    expect(rowsCss).toMatch(/\.row-status > \.dot\[data-status='busy'\] \{[^}]*animation: live-pulse var\(--breathe-period\) ease-in-out infinite;/);
+    expect(rowsCss).toMatch(/@media \(prefers-reduced-motion: reduce\) \{ \.row-status > \.dot \{ animation: none; \} \}/);
+  });
+  it('状態の列は 72px（点はその札の中）、時刻の列は 72px の右寄せで、行ごとにずれない', () => {
+    expect(rowsCss).toMatch(/\.rows-host\[data-status-col='true'\] \.row-2 \{[^}]*grid-template-columns: 72px minmax\(0, 1fr\) auto;/);
     expect(rowsCss).toMatch(/\.row-time \{[^}]*justify-content: flex-end;[^}]*width: 72px;/);
   });
   it('「⋯」からセッションのメニュー（1A）を開き、状態を選ぶ。押しても行は開かない', () => {
@@ -558,7 +577,8 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
     const menu = screen.getByRole('menu', { name: '名前 a への Claude の提案' });
     expect(menu).toHaveTextContent('Paused · 10/2（金） にしますか');
     expect(menu).toHaveTextContent('明日の朝、CPU の数字を確かめる');
-    expect(menu).toHaveTextContent('提案元：終了時 · 12 分前');
+    expect(menu).toHaveTextContent('終了時 · 12 分前');
+    expect(menu).not.toHaveTextContent('提案元');
     expect(labels()).toEqual(['確定', '日付を変更', '却下']);
     // 頭の段にはフォーカスが止まらず、確定から始まる。
     expect(document.activeElement).toBe(screen.getAllByRole('menuitem')[0]);
@@ -578,10 +598,12 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.reject', id: 'a' });
     expect(opened(onAction)).toEqual([]);
   });
-  it('根拠の無い提案は「根拠は書かれていません」と出す', () => {
+  it('根拠の無い提案は、根拠の行ごと出さない', () => {
     mount([sr('a', { candidate: { ...cand, note: null } })]);
     fireEvent.click(screen.getByRole('button', { name: 'Paused？' }));
-    expect(screen.getByRole('menu')).toHaveTextContent('根拠はありません');
+    const menu = screen.getByRole('menu');
+    expect(menu).not.toHaveTextContent('根拠はありません');
+    expect(menu).toHaveTextContent(/にしますか終了時 · 12 分前/);
   });
   it.each([['y', 'session.state.confirm'], ['n', 'session.state.reject']])('札から Enter で開いて %s で選び、札が消えても、フォーカスは行に残る', (key, type) => {
     const onAction = vi.fn();

@@ -4,7 +4,6 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const connJa: AreaDictionary<typeof connKeys> = {
   'conn.banner.label': '接続の状態',
   'conn.hard.title': 'サーバーに接続できません',
-  'conn.hard.restartPrompt': 'アプリを再起動してください',
   'conn.hard.openLog': 'ログを開く',
   'conn.hard.restart': '再起動',
   'conn.hard.browserHint': 'アプリを再起動してください。ログ: {path}',

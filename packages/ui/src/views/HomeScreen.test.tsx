@@ -19,7 +19,7 @@ const listProps = (over: Partial<SessionListProps> = {}): SessionListProps => ({
 
 const waiting = (id: string): AttentionCard => ({ id, name: `待ち ${id}`, projectName: 'alpha', waited: '12分', question: `問い ${id}`, answer: 'terminal' });
 const reminder = (id: string): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'alpha', reason: '結果を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true, pastMin: null });
-const running = (id: string): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha · opus', intent: '上限を足す', activity: { tool: 'Edit', summary: 'a.ts' }, note: null, contextPercent: 40, contextLabel: '40%' });
+const running = (id: string): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha', intent: '上限を足す', activity: { tool: 'Edit', summary: 'a.ts' }, note: null, idleFor: null, contextPercent: 40, contextLabel: '40%' });
 const todo = (id: string): ConfirmCard => ({ kind: 'todo', id, text: `やる ${id}`, projectId: 'alpha', projectName: 'alpha', sessionName: 'one', ago: '1 時間前', note: '片付いた' });
 const busy = { attention: [waiting('a'), waiting('b')], returning: [reminder('r')], running: [running('x')], confirm: [todo('t1')] };
 const none = { attention: [], returning: [], running: [], confirm: [] };
@@ -38,15 +38,16 @@ const mount = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy, o
 const tabs = () => within(screen.getByRole('group', { name: 'ステータス' }));
 
 describe('HomeScreen の並び（試作 B）', () => {
-  it('見出し、帯、一覧の見出し、タブ、欄と絞り込みのボタン、行の順に置く。最近とプロジェクトの 1 行は無い', () => {
+  it('見出し、帯、タブ、欄と絞り込みのボタン、行の順に置く。一覧の見出し、最近、プロジェクトの 1 行は無い', () => {
     const { container } = mount();
     const root = container.querySelector('.home') as HTMLElement;
     expect(root.className).toContain('screen-fill');
-    expect([...root.children].map((c) => c.className.split(' ')[0])).toEqual(['page-head', 'home-top', 'list-head', 'sessions-tabs', 'search-row', 'rows-host']);
+    expect([...root.children].map((c) => c.className.split(' ')[0])).toEqual(['page-head', 'home-top', 'sessions-tabs', 'search-row', 'rows-host']);
     // 帯と、帯の代わりの 1 行は、高さを補間する外の箱（.home-top）の中に置く。
     expect(root.querySelector('.home-top > .home-band')).not.toBeNull();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ホーム');
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^セッション1,241 件$/);
+    // 件数はタブが言うので、一覧の見出しは置かない。
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
     expect(screen.queryByText('最近')).toBeNull();
     expect(screen.queryByRole('navigation', { name: 'プロジェクト' })).toBeNull();
     expect(screen.queryByText('すべて見る')).toBeNull();
@@ -73,11 +74,11 @@ describe('HomeScreen の帯と引き出し', () => {
     mount({}, { ...none, running: [running('x')], confirm: [todo('t1')] });
     expect(screen.getByRole('button', { name: '実行中 1' })).toHaveAttribute('aria-expanded', 'true');
   });
-  it('検索の最中は引き出しを閉じ、錠剤を件数だけの札にして、そのことを言う', () => {
-    mount({ searching: true });
+  it('検索の最中は引き出しを閉じ、錠剤を件数だけの札にする。注記は添えない', () => {
+    const { container } = mount({ searching: true });
     expect(screen.queryByRole('region', { name: '要対応' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^要対応/ })).toBeNull();
-    expect(screen.getByText('検索中は折りたたんで表示します')).toBeInTheDocument();
+    expect(container.querySelector('.band-text')).toBeNull();
     expect(screen.getByText('要対応').closest('.count-chip')).toHaveTextContent('3');
   });
   it('検索が終われば、元の開き方へ戻る', () => {
@@ -153,15 +154,6 @@ describe('HomeScreen の動き', () => {
     act(() => rerender(ui({ ...busy, attention: [waiting('a')] })));
     expect(on(container.querySelector('.home-top'))).toHaveLength(0);
   });
-  it('一覧の見出しの件数は、数字だけを回す（「件」は動かさない）', () => {
-    const { rerender } = render(ui(busy, { allCount: 1241 }));
-    const h = screen.getByRole('heading', { level: 2 });
-    expect(h.querySelector('.roll')).toHaveTextContent(/^1,241$/);
-    act(() => rerender(ui(busy, { allCount: 1242 })));
-    expect(h.querySelector('.roll')).toHaveAttribute('data-rolling', 'true');
-    expect(h.querySelector('.roll .roll-new')).toHaveTextContent(/^1,242$/);
-    expect(h).toHaveTextContent(/件$/);
-  });
 });
 
 describe('HomeScreen の絞り込みのボタン', () => {
@@ -234,12 +226,19 @@ describe('HomeScreen の状態のタブ（★）', () => {
 });
 
 describe('HomeScreen の欄（欄が正）', () => {
-  it('欄の案内は、名前、要約、トランスクリプトを探すことと、条件の書き方を言う。「名前はコマンドパレットで」は言わない', () => {
+  it('欄の placeholder は「検索」だけで、条件の書き方は欄の右の ⓘ の札に入れる', () => {
     mount();
     const kw = screen.getByLabelText('検索');
-    expect(kw.getAttribute('placeholder')).toContain('名前、要約、トランスクリプトを検索');
-    expect(kw.getAttribute('placeholder')).toContain('is:paused');
-    expect(kw.getAttribute('placeholder')).not.toContain('コマンドパレット');
+    expect(kw.getAttribute('placeholder')).toBe('検索');
+    const info = screen.getByRole('button', { name: '検索の説明' });
+    expect(info.closest('.sessions-keyword')).not.toBeNull();
+    fireEvent.click(info);
+    const tip = document.getElementById(info.getAttribute('aria-controls')!)!;
+    expect(tip).toHaveTextContent('is:paused');
+    expect(tip).toHaveTextContent('since:7d');
+    expect(tip).toHaveTextContent('project:');
+    expect(tip).toHaveTextContent('file:');
+    expect(tip).not.toHaveTextContent('コマンドパレット');
   });
   it('欄の札は「名前」「要約」「トランスクリプト」の 3 つで、語を打っているあいだだけ色が付く', () => {
     const { unmount } = mount();
@@ -400,6 +399,15 @@ describe('HomeScreen の始める前の確認（帯の最後の群）', () => {
     const { onAction } = mount({ ...withReady(none), allCount: 0, list: listProps({ rows: [], total: 0, allCount: 0 }) }, none);
     expect(screen.getByRole('heading', { name: 'セッションはまだありません' })).toBeInTheDocument();
     expect(screen.getByText('セットアップの確認が済んでいなくても、クイックセッションから始められます')).toBeInTheDocument();
+  });
+  it('確認の群が無い人の空の札は、見出しとボタンだけで、説明の文を添えない', () => {
+    const { container } = mount({ allCount: 0, list: listProps({ rows: [], total: 0, allCount: 0 }) }, none);
+    expect(screen.getByRole('heading', { name: 'セッションはまだありません' })).toBeInTheDocument();
+    expect(container.querySelector('.empty-card p')).toBeNull();
+    expect(screen.getByRole('button', { name: 'クイックセッションを開始' })).toBeInTheDocument();
+  });
+  it('セッションがまだ 1 つも無い人の札のボタンは、UiAction を出す', () => {
+    const { onAction } = mount({ ...withReady(none), allCount: 0, list: listProps({ rows: [], total: 0, allCount: 0 }) }, none);
     expect(screen.queryByText('実行中のセッションはありません')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'クイックセッションを開始' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });

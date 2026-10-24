@@ -5,7 +5,6 @@ export const noticesEn: AreaDictionary<typeof noticesKeys> = {
   'notices.bell.label': 'Notifications',
   'notices.bell.labelUnread': 'Notifications, {n} unread',
   'notices.list.title': 'Notifications',
-  'notices.list.lead': 'Things not shown anywhere else on screen',
   'notices.list.markAllRead': 'Mark all as read',
   'notices.row.unread': 'Unread',
   'notices.kind.sync': 'Sync',

@@ -65,10 +65,10 @@ describe('Header', () => {
     // 何の割合かが画面から読めるよう、見出しを常に出す。
     expect(screen.getByText('5 時間')).toBeTruthy();
     expect(screen.getByText('週')).toBeTruthy();
-    // ホバーで、枠が戻る時刻と最終更新を読める。最終更新は狭いヘッダで畳むので、title にも添える。
+    // ホバーで、枠が戻る時刻と最終更新を読める。最終更新は title だけに置き、ヘッダに文字では出さない。
     expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間の使用率 47%、18:00 にリセットされます、最終更新 10 分前');
     expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の使用率 7%、10/4 09:00 にリセットされます、最終更新 10 分前');
-    expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
+    expect(screen.queryByText('最終更新 10 分前')).toBeNull();
   });
   // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（headerFold.ts が測って畳む）。畳んでも同じ操作ができる。
   it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {

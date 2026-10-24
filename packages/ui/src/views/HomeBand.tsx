@@ -20,7 +20,7 @@ import { usePresence } from './primitives/usePresence.ts';
  * 開いている群は View の中に持つ（設計書 4.4）。はじめは Presenter の morning（朝に開く群）で、あとは利用者が決める。
  * 押した群が開き、開いている群をもう一度押すと閉じる。引き出しは 1 つずつしか開かない。
  * 0 件の群は薄い札にして押せない。件数が 0 になった群の引き出しは残さない。
- * searching の間は引き出しを閉じ、錠剤を件数だけの札にして、「検索中は引き出しを閉じています」を添える。検索が終われば、元の開き方へ戻る。
+ * searching の間は引き出しを閉じ、錠剤を件数だけの札にする（注記は添えない。押せない錠剤がそれを言う）。検索が終われば、元の開き方へ戻る。
  * どの群も 0 件のときは何も描かない。「実行中のセッションはありません」の 1 行は、画面の側が出す。
  * note は帯の右端に添える 1 行の注記で、画面が渡す（始める前の確認の要約など）。
  * 群が progress を持てば錠剤の横に進みの棒を、fold を持てば引き出しの末尾に畳んだ 1 行を出す（始める前の確認）。畳んだ行を押すと、済んだものの行が開く。
@@ -58,7 +58,7 @@ export function HomeBand(props: HomeBandProps & { searching?: boolean; note?: st
   }, [shown?.id ?? null]);
   if (empty) return null;
   const drawerId = (g: BandGroup) => `${uid}-${g.id}`;
-  const note = searching ? t('home.band.searchNote') : props.note ?? null;
+  const note = searching ? null : props.note ?? null;
   const d = shown ?? (drawer.mounted ? lastShown.current : null);
   const leaving = drawer.leaving;
   const pick = (g: BandGroup, expanded: boolean) => {
@@ -97,8 +97,9 @@ export function HomeBand(props: HomeBandProps & { searching?: boolean; note?: st
                   {d.headActions.map((a) => <BandButton key={a.id} action={a} />)}
                 </span>
               )}
-              <button type="button" className="drawer-close" onClick={() => { setOpen(null); pills.current.get(d.id)?.focus(); }}>
-                {t('home.band.collapse')}<Icon name="chevronUp" />
+              {/* 閉じるのは記号だけにする。名前は読み上げとツールチップに残す。 */}
+              <button type="button" className="drawer-close" aria-label={t('home.band.collapse')} title={t('home.band.collapse')} onClick={() => { setOpen(null); pills.current.get(d.id)?.focus(); }}>
+                <Icon name="chevronUp" />
               </button>
             </div>
             <BandRows rows={d.rows} scope={d.id} />
