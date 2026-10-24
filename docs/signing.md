@@ -60,6 +60,18 @@ npm run sign-macos -w apps/desktop -- "$PWD/$APP" --adhoc
 
 証明書の指紋が無いとき、台本は黙って ad-hoc に落とさず、止まって `--adhoc` を案内する（身元が弱くなるので、明示させる）。
 
+証明書の無い手元で build から ad-hoc の署名までを 1 回で行うときは、次の台本を使う。
+
+```bash
+npm run build-mac-local -w apps/desktop
+```
+
+手元の build を署名せずに `/Applications` へ入れてはいけない。
+署名しない Tauri の build は、主の実行ファイルにリンカの仮の署名があるだけで、.app としての署名（Info.plist とリソースの封）が無く、`codesign --verify` が通らない。
+macOS 27 はそういう .app からの通知の許可の求めを、システム設定で許可していても、ダイアログを出さずにエラーで断る（2026-10-24 に実測。通知も Dock のバッジも出なくなる）。
+ad-hoc で署名し直すと、同じ .app で許可が通った。
+入れる前に `codesign --verify --deep --strict <.app>` が通ることを確かめる。
+
 台本は次を行う。
 
 1. 内側の Mach-O（`.node`、`spawn-helper`、主の実行ファイル）を、深いところから先に署名する。`--deep` には頼らない。ハードンドランタイムは付けない（公証をしないので要らない）。

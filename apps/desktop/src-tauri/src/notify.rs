@@ -308,6 +308,17 @@ pub fn open_hash(session_id: &str) -> String {
     }
 }
 
+/// macOS に通知の許可を断られたときに、殻のログへ書く 1 行。
+/// 署名の壊れた .app（署名せずに入れた手元の build）では、システム設定で許可していても、macOS はダイアログを出さずにエラーで断る。
+/// 通知が黙って消えると気づけないので、理由を残す。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn refused_line(reason: Option<&str>) -> String {
+    format!(
+        "notifications refused by macOS: {}",
+        reason.unwrap_or("no reason given")
+    )
+}
+
 /// 通知の許可の状態（UNAuthorizationStatus の値）を、頁に返す名前にする。
 /// `None` は OS に尋ねられないこと（.app の外で動いているとき）を表す。
 /// 仮の許可（Provisional）と一時の許可（Ephemeral）は、通知を出せるので許可とみなす。
@@ -977,16 +988,27 @@ mod mac {
             return;
         }
         let done = Mutex::new(Some(done));
-        let block = RcBlock::new(move |granted: Bool, _err: *mut NSError| {
+        let block = RcBlock::new(move |granted: Bool, err: *mut NSError| {
+            if !granted.as_bool() {
+                // SAFETY: OS が渡すエラーは、この呼び出しの間は生きている（無ければ null）。
+                let reason = unsafe { err.as_ref() }.map(|e| e.localizedDescription().to_string());
+                crate::log(&super::refused_line(reason.as_deref()));
+            }
             if let Some(f) = done.lock().unwrap().take() {
                 f(granted.as_bool());
             }
         });
         UNUserNotificationCenter::currentNotificationCenter()
-            .requestAuthorizationWithOptions_completionHandler(
-                UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
-                &block,
-            );
+            .requestAuthorizationWithOptions_completionHandler(authorization_options(), &block);
+    }
+
+    /// 求める許可。
+    /// Dock のバッジ（set_badge_count）も macOS の通知の設定の「バッジ」に従うので、バッジも求める。
+    /// 求めないと、システム設定にバッジの項目が出ず、入力待ちの数が Dock に出ない。
+    pub fn authorization_options() -> UNAuthorizationOptions {
+        UNAuthorizationOptions::Alert
+            | UNAuthorizationOptions::Sound
+            | UNAuthorizationOptions::Badge
     }
 
     /// 通知の許可の状態を読む。
@@ -1083,6 +1105,28 @@ mod mac {
 mod tests {
     use super::toast::*;
     use super::*;
+
+    #[test]
+    fn a_refused_authorization_is_logged_with_the_reason() {
+        assert_eq!(
+            refused_line(Some("Notifications are not allowed for this application")),
+            "notifications refused by macOS: Notifications are not allowed for this application"
+        );
+        assert_eq!(
+            refused_line(None),
+            "notifications refused by macOS: no reason given"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_authorization_asks_for_the_dock_badge_too() {
+        use objc2_user_notifications::UNAuthorizationOptions;
+        let o = super::mac::authorization_options();
+        assert!(o.contains(UNAuthorizationOptions::Alert));
+        assert!(o.contains(UNAuthorizationOptions::Sound));
+        assert!(o.contains(UNAuthorizationOptions::Badge));
+    }
 
     #[test]
     fn a_waiting_notification_keeps_the_name_and_question() {
