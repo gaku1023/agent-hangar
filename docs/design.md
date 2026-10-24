@@ -4921,6 +4921,10 @@ Windows のトーストは、題と本文を XML の文字として入れ、laun
 フックの値は notify.rs の定数と同じで、`apps/desktop/test/config.test.ts` が食い違いを見る。
 Windows には通知の許可を尋ねるダイアログが無いので、`notify_request` と `notify_status` は通知の設定（`NotificationSetting`）を読むだけで、切られていれば denied になる。
 バッジは Tauri の `set_badge_count` で出す。
+macOS では Dock のバッジも通知の設定の「バッジ」に従うので、許可を求めるときは表示と音に加えてバッジも求める（`notify.rs` の `authorization_options`）。
+macOS は、署名の壊れた `.app`（署名せずに入れた手元の build）からの許可の求めを、システム設定で許可していても、ダイアログを出さずにエラーで断る（2026-10-24 に macOS 27 で実測）。
+断られたら、殻は理由をログ（`notifications refused by macOS: …`）に書く。
+手元の build は `npm run build-mac-local -w apps/desktop` で、build の出力に ad-hoc で署名してから入れる（`docs/signing.md`）。
 ブラウザでは Web Notification と `navigator.setAppBadge` を使い、どちらも無ければ何もしない。
 
 通知を受け取るかは PC ごとに localStorage（`notify.waiting`）に残す。

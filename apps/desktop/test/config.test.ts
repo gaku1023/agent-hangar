@@ -661,3 +661,16 @@ describe('互換の版', () => {
     expect(Number(rust)).toBe(COMPAT_VERSION);
   });
 });
+
+// 手元の build を署名せずに /Applications へ入れると、macOS 27 は通知の許可の求めをダイアログも出さずにエラーで断る（2026-10-24 に実測）。
+// システム設定では許可のままに見えるので気づきにくい。手元向けの build は、署名までを 1 つの台本にする。
+describe('手元向けの macOS の build', () => {
+  const pkg = JSON.parse(read('package.json'));
+  it('tauri build のあと、build の出力の .app に ad-hoc で署名する', () => {
+    const script: string = pkg.scripts['build-mac-local'];
+    expect(script).toBeDefined();
+    const [build, sign] = script.split('&&').map((s) => s.trim());
+    expect(build).toBe('tauri build');
+    expect(sign).toBe('node --import tsx scripts/sign-macos.ts src-tauri/target/release/bundle/macos/Hangar.app --adhoc');
+  });
+});
