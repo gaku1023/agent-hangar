@@ -1276,6 +1276,7 @@ DB のマイグレーションを要らない形にするためにファイル�
 
 確かめた版は、見本のうち最も新しい版である（`VERIFIED_CLAUDE_VERSION`、README にも書く）。
 手元の claude がそれより新しいときは「未確認の版」として知らせるが、止めはしない。
+見本のレジストリの写しは、本番と同じ門（`RegistryMissGate`）に、写しが書かれた時刻で通してからずれを見る。起動の直後には status の欄がまだ無い写しがあるためである（2.1.310 の見本は起動から 5ms の写しを拾った）。
 
 見本は `packages/server/test/fixtures/claude/<版>/` にあり、`npm run capture-claude-fixtures` で採る（`packages/server/test/capture/`）。
 採る道具は、一時ディレクトリで本物の claude を haiku、effort low で動かし、決めた筋書き（タスクの道具を使う、ファイルを書く、Bash を動かす、作業中に次の指示を積む、サブエージェントを使う、終える）を流す。

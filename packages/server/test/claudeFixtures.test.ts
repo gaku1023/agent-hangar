@@ -8,7 +8,7 @@ import { ensureShellScript, shellScriptPath } from '../src/config/shellHook.ts';
 import { openDb } from '../src/db/open.ts';
 import { IndexerService } from '../src/indexer/service.ts';
 import { agentsJsonDrifts, authStatusDrifts, BUILTIN_SUBCOMMANDS, claudeVersionOf, parseHelp, subcommandsFromHelp } from '../src/provider/claude-code/compat/cli.ts';
-import { registryDrifts } from '../src/provider/claude-code/compat/registry.ts';
+import { registryDrifts, registryKey, registryStartedAt, RegistryMissGate } from '../src/provider/claude-code/compat/registry.ts';
 import { statuslineDrifts } from '../src/provider/claude-code/compat/statusline.ts';
 import { transcriptDrifts } from '../src/provider/claude-code/compat/transcript.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../src/provider/claude-code/compat/version.ts';
@@ -49,7 +49,14 @@ for (const f of fixtures) {
     });
     it('レジストリのどの写しもずれが無く、作業中と休みを通る。最後の写しを読める', () => {
       const recs = readFixtureJsonl(f, 'registry.jsonl');
-      expect(recs.flatMap((r) => registryDrifts(r))).toEqual([]);
+      // 起動の直後は status の欄がまだ無い写しがある（2.1.310 の見本は 5ms 後の写しを拾った）。本番と同じ門に、写しが書かれた時刻で通す。
+      const gate = new RegistryMissGate();
+      const drifts = recs.flatMap((r) => {
+        const key = registryKey('fixture.json', r);
+        const found = registryDrifts(r).map((drift) => ({ key, drift, startedAt: registryStartedAt(r) }));
+        return gate.pass(found, new Set([key]), (r as { updatedAt: number }).updatedAt).drifts;
+      });
+      expect(drifts).toEqual([]);
       const statuses = (recs as { status?: string }[]).map((r) => r.status);
       expect(statuses).toContain('busy');
       expect(statuses).toContain('idle');
