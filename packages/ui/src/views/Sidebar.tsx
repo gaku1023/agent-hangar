@@ -301,7 +301,11 @@ type GroupSort =
 /** グループの間のすき間。測った最初の 2 つの差から読む。1 つしか無ければ 0。 */
 const groupGap = (boxes: GroupBox[]) => (boxes.length > 1 ? boxes[1]!.top - boxes[0]!.top - boxes[0]!.height : 0);
 
-/** 掴んだグループの縦のずれから、入る席と浮いたグループのずれを決める。両端の先へは DRAG_OVERSHOOT までしか出さない。収まる間は、入る席までのずれを返す。 */
+/**
+ * 掴んだグループの縦のずれから、入る席と浮いたグループのずれを決める。両端の先へは DRAG_OVERSHOOT までしか出さない。収まる間は、入る席までのずれを返す。
+ * 下へ動かすときは掴んだグループの下の端、上へ動かすときは上の端が、相手の真ん中を越えたら、相手を越えたとみなす。
+ * 真ん中同士で比べると、行の多い背の高いグループは、端まで動かしても低いグループの真ん中に届かず、下へ動かせなかった（2026-10-24）。
+ */
 function groupSlot(g: GroupSort): { to: number; dy: number } {
   const { boxes, from } = g;
   const gap = groupGap(boxes);
@@ -313,10 +317,11 @@ function groupSlot(g: GroupSort): { to: number; dy: number } {
   const first = boxes[0]!;
   const last = boxes[boxes.length - 1]!;
   const dy = Math.max(first.top - me.top - DRAG_OVERSHOOT, Math.min(last.top + last.height - (me.top + me.height) + DRAG_OVERSHOOT, g.dy));
-  const center = me.top + me.height / 2 + dy;
+  const top = me.top + dy;
+  const bottom = top + me.height;
   const mid = (b: GroupBox) => b.top + b.height / 2;
-  const down = boxes.filter((b, j) => j > from && mid(b) < center).length;
-  const up = boxes.filter((b, j) => j < from && mid(b) > center).length;
+  const down = boxes.filter((b, j) => j > from && mid(b) < bottom).length;
+  const up = boxes.filter((b, j) => j < from && mid(b) > top).length;
   return { to: from + down - up, dy };
 }
 
