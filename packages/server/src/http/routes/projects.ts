@@ -92,7 +92,7 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     }
     // 選んだフォルダが、この PC で別のプロジェクトの場所になっているとき（他の PC が同じフォルダを別の ID で登録していた）。
     // そのまま入れると同じフォルダを指すプロジェクトが 2 つになるので、まとめた後の姿を添えて断り、画面に確かめさせる。
-    // merge を付けて来たら、まとめる方を残す方へまとめ、残す方を返す。スクラッチはまとめず、理由だけで断る。
+    // merge を付けて来たら、まとめる方を残す方へまとめ、残す方を返す。クイックセッションはまとめず、理由だけで断る。
     const conflict = target.kind === 'repoint' ? rootConflict(db, deviceId, id, target.path) : null;
     if (conflict && target.kind === 'repoint') {
       const error = tr('project.resolve.sameFolder', { name: conflict.name });

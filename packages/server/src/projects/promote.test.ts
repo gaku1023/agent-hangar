@@ -57,7 +57,7 @@ describe('promoteSession', () => {
     expect(fs.existsSync(dir)).toBe(false);
     expect(db.prepare('select name, is_scratch from projects where id = ?').get(r.projectId)).toEqual({ name: 'newproj', is_scratch: 0 });
     expect(db.prepare('select path from project_roots where project_id = ? and device_id = ?').get(r.projectId, 'd')).toEqual({ path: path.join(ws, 'newproj') });
-    // cwd は変えない。昇格後に再開するとスクラッチのままである。
+    // cwd は変えない。昇格後に再開するとクイックセッションのままである。
     expect(db.prepare('select project_id, cwd from sessions where id = ?').get('s1')).toEqual({ project_id: r.projectId, cwd: dir });
   });
 
@@ -99,7 +99,7 @@ describe('promoteSession', () => {
     expect(fs.existsSync(path.join(dir, 'a.txt'))).toBe(true);
   });
 
-  it('検査：無いセッション、悪い名前、スクラッチ外、既存のディレクトリ', () => {
+  it('検査：無いセッション、悪い名前、クイックセッション外、既存のディレクトリ', () => {
     expect(() => promoteSession(deps(), { sessionId: 'nope', name: 'x', gitInit: false, moveFiles: false })).toThrow(expect.objectContaining({ status: 404 }));
     expect(() => promoteSession(deps(), { sessionId: 's1', name: '', gitInit: false, moveFiles: false })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => promoteSession(deps(), { sessionId: 's1', name: 'a/b', gitInit: false, moveFiles: false })).toThrow(PromoteError);
@@ -133,7 +133,7 @@ describe('promoteSession', () => {
     const d = deps({ gitInit: (dest) => { fs.mkdirSync(path.join(dest, '.git')); fs.writeFileSync(path.join(dest, '.git', 'HEAD'), 'fresh'); } });
     const r = promoteSession(d, { sessionId: 's1', name: 'clash', gitInit: true, moveFiles: true });
     expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('.git') });
-    // 移動先は上書きされず、スクラッチ側も残る。
+    // 移動先は上書きされず、クイックセッション側も残る。
     expect(fs.readFileSync(path.join(ws, 'clash', '.git', 'HEAD'), 'utf8')).toBe('fresh');
     expect(fs.readFileSync(path.join(dir, '.git', 'HEAD'), 'utf8')).toBe('scratch');
     expect(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8')).toBe('A');
@@ -141,7 +141,7 @@ describe('promoteSession', () => {
   });
 
   // 書けない・読めない状態を chmod で作る。Windows の chmod ではできない。
-  posixIt('移動の途中で失敗したら、移したものをスクラッチに戻して理由を返す', () => {
+  posixIt('移動の途中で失敗したら、移したものをクイックセッションに戻して理由を返す', () => {
     // zz は書き込み権限が無いディレクトリなので、親をまたぐ rename が EACCES で落ちる。
     // 名前順に a.txt、sub、zz と移すので、失敗するのは 2 つ移した後である。
     const zz = path.join(dir, 'zz');
@@ -175,7 +175,7 @@ describe('promoteSession', () => {
     }
   });
 
-  it('cwd がスクラッチの外を指すシンボリックリンクなら、その先のファイルを移さない', () => {
+  it('cwd がクイックセッションの外を指すシンボリックリンクなら、その先のファイルを移さない', () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pro-out-'));
     fs.writeFileSync(path.join(outside, 'secret.txt'), 'S');
     const link = path.join(path.dirname(dir), 'linked');
@@ -189,7 +189,7 @@ describe('promoteSession', () => {
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
-  it('スクラッチのディレクトリが既に無ければ、移動せず理由を返す', () => {
+  it('クイックセッションのディレクトリが既に無ければ、移動せず理由を返す', () => {
     fs.rmSync(dir, { recursive: true, force: true });
     const r = promoteSession(deps(), { sessionId: 's1', name: 'gone', gitInit: false, moveFiles: true });
     expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('見つかりません') });

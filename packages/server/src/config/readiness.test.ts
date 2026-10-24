@@ -220,7 +220,7 @@ describe('createReadiness', () => {
     fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({ statusLine: { command: script } }));
     const claudeJson = path.join(tmp, '.claude.json');
     fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { hangar: { type: 'http' } } }));
-    // ワークスペースの直下から登録したプロジェクトを 1 つ、外のプロジェクトを 1 つ、スクラッチを 1 つ置く。
+    // ワークスペースの直下から登録したプロジェクトを 1 つ、外のプロジェクトを 1 つ、クイックセッションを 1 つ置く。
     upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
     upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: path.join(ws, 'alpha'), resolved: 1 }, 'd');
     upsertShared(db, 'projects', { id: 'p2', name: 'far', status: 'active', is_scratch: 0 }, 'd');

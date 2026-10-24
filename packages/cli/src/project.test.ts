@@ -204,7 +204,7 @@ describe('hangar project remove', () => {
     expect(await projectRemoveCommand({ ...base(j, s.fetchFn, true), target: 'p1', dryRun: false, cwd: '/' })).toBe(0);
     expect(JSON.parse(j.out[0]!)).toEqual({ ok: true, dryRun: false, project: { id: 'p1', name: 'alpha', path: alpha }, sessionCount: 3, syncing: false });
   });
-  it('見つからない、スクラッチは exit 1 で断り、書かない', async () => {
+  it('見つからない、クイックセッションは exit 1 で断り、書かない', async () => {
     const s = server(false);
     const j = outs();
     expect(await projectRemoveCommand({ ...base(j, s.fetchFn, true), target: '/w/none', dryRun: false, cwd: '/' })).toBe(1);

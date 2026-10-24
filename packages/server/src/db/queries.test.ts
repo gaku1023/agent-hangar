@@ -183,7 +183,7 @@ describe('listProjects', () => {
       expect(listProjects(db, 'd', live).find((p) => p.id === 'p2')!.unresolved).toMatchObject({ kind: 'elsewhere', previousPath: '/new', deviceName: 'New' });
     });
 
-    it('スクラッチは、この PC にルートが無くても unresolved にしない', () => {
+    it('クイックセッションは、この PC にルートが無くても unresolved にしない', () => {
       upsertShared(db, 'projects', { id: 'sc', name: 'scratch', status: 'active', is_scratch: 1 }, 'd');
       expect(listProjects(db, 'd', live).find((p) => p.id === 'sc')!.unresolved).toBeNull();
     });
@@ -231,21 +231,21 @@ describe('フェーズ 3 の項目', () => {
     const again = getSession(db, live, alpha.id)!;
     expect(again.stats).toMatchObject({ model: 'claude-opus-4-1', effort: 'max', contextPercent: 25, costUsd: 0.1234 });
   });
-  it('cwd がちょうどスクラッチのルートなら fromScratch は偽', () => {
-    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+  it('cwd がちょうどクイックセッションの置き場なら fromScratch は偽', () => {
+    upsertShared(db, 'projects', { id: 'scratch', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
-    // スクラッチの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
+    // クイックセッションの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
     db.prepare('update sessions set cwd = ? where id = ?').run('/Users/me/.agent-hangar/scratch', alpha.id);
     expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
     // 名前がルートで始まるだけの隣のディレクトリも下ではない。
     db.prepare('update sessions set cwd = ? where id = ?').run('/Users/me/.agent-hangar/scratchpad', alpha.id);
     expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
   });
-  it('別の端末のスクラッチのルートでは fromScratch が反転しない', () => {
-    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+  it('別の端末のクイックセッションの置き場では fromScratch が反転しない', () => {
+    upsertShared(db, 'projects', { id: 'scratch', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');
-    upsertShared(db, 'projects', { id: 'scratch-other', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'other');
+    upsertShared(db, 'projects', { id: 'scratch-other', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'other');
     upsertShared(db, 'project_roots', { id: 'rs-other', project_id: 'scratch-other', device_id: 'other', path: '/Users/other/.agent-hangar/scratch', resolved: 1 }, 'other');
     // 別の端末のルートの方が新しくても、この端末のセッションの判定には使わない。
     db.prepare('update project_roots set updated_at = ? where id = ?').run(Date.now() + 1000, 'rs-other');
@@ -256,7 +256,7 @@ describe('フェーズ 3 の項目', () => {
     expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
   });
   it('場所が quick-sessions に替わった後も、前の置き場（scratch）の下で始めた会話は fromScratch のまま。利用者の scratch という名前のフォルダは入れない', () => {
-    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+    upsertShared(db, 'projects', { id: 'scratch', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/quick-sessions', resolved: 1 }, 'd');
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
     for (const cwd of ['/Users/me/.agent-hangar/quick-sessions/20261016-100000', '/Users/me/.agent-hangar/scratch/20260901-100000']) {
@@ -268,8 +268,8 @@ describe('フェーズ 3 の項目', () => {
       expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
     }
   });
-  it('fromScratch はスクラッチの下にあって別のプロジェクトに属するときだけ真', () => {
-    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+  it('fromScratch はクイックセッションの下にあって別のプロジェクトに属するときだけ真', () => {
+    upsertShared(db, 'projects', { id: 'scratch', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
     expect(alpha.fromScratch).toBe(false);

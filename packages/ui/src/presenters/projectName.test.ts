@@ -10,6 +10,9 @@ import { presentSession } from './session.ts';
 import { presentSessionList } from './sessions.ts';
 import { presentSettings } from './settings.ts';
 import { parseQuery } from '../lib/searchTokens.ts';
+// 前の版が DB に付けた名前（旧称）。表示がこれを出さないことを見るための見本で、文字コードで書く（noScratchWord.test.ts）。
+const LEGACY = '\u30b9\u30af\u30e9\u30c3\u30c1';
+
 
 // プロジェクトに属さないセッションのまとまり（擬似プロジェクト）は、DB の名前ではなく辞書の名前で出す。
 
@@ -22,15 +25,15 @@ const project = (id: string, name: string, isScratch = false): ProjectDto => ({ 
 const session = (id: string, projectId: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId, name: id, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: NOW - 2 * H, lastActivityAt: NOW - H, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...over });
 const storeOf = (language: 'ja' | 'en', over: Partial<Store> = {}): Store => ({
   ...initialStore(), bootstrapped: true, settings: { language } as unknown as SettingsDto,
-  projects: { alpha: project('alpha', 'alpha'), sc: project('sc', 'スクラッチ', true) },
+  projects: { alpha: project('alpha', 'alpha'), sc: project('sc', LEGACY, true) },
   sessions: { a1: session('a1', 'alpha'), q1: session('q1', 'sc') },
   ...over,
 });
 
 describe('projectDisplayName', () => {
   it('擬似プロジェクトは、DB の名前ではなく辞書の名前を言語で出す。ふつうのプロジェクトは名前のまま', () => {
-    expect(projectDisplayName({ name: 'スクラッチ', isScratch: true }, ja)).toBe('クイックセッション');
-    expect(projectDisplayName({ name: 'スクラッチ', isScratch: true }, en)).toBe('Quick sessions');
+    expect(projectDisplayName({ name: LEGACY, isScratch: true }, ja)).toBe('クイックセッション');
+    expect(projectDisplayName({ name: LEGACY, isScratch: true }, en)).toBe('Quick sessions');
     expect(projectDisplayName({ name: 'alpha', isScratch: false }, ja)).toBe('alpha');
     expect(projectDisplayName({ name: 'alpha', isScratch: false }, en)).toBe('alpha');
   });
@@ -44,7 +47,7 @@ describe.each([['ja', 'クイックセッション'], ['en', 'Quick sessions']] 
     expect(p.rows.find((r) => r.id === 'q1')!.projectName).toBe(quick);
     expect(p.rows.find((r) => r.id === 'a1')!.projectName).toBe('alpha');
     expect(p.projects.map((x) => x.name)).toContain(quick);
-    expect(p.projects.map((x) => x.name)).not.toContain('スクラッチ');
+    expect(p.projects.map((x) => x.name)).not.toContain(LEGACY);
   });
   it('絞り込みの条件の行と、欄の project: の語も同じ名前になる', () => {
     const state = { ...initialState(), search: { ...initialState().search, filter: { projectId: 'sc' } } };
@@ -66,10 +69,10 @@ describe.each([['ja', 'クイックセッション'], ['en', 'Quick sessions']] 
     expect(h.running[0]!.meta).toContain(quick);
     const palette = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, live, '', NOW)!;
     expect(JSON.stringify(palette)).toContain(quick);
-    expect(JSON.stringify(palette)).not.toContain('スクラッチ');
+    expect(JSON.stringify(palette)).not.toContain(LEGACY);
   });
   it('設定の使用量の表のプロジェクト名', () => {
-    const usage: UsageAggregateDto = { days: [], projects: [{ projectId: 'sc', name: 'スクラッチ', inputTokens: 1, outputTokens: 1, costUsd: null, sessions: 1 }, { projectId: 'alpha', name: 'alpha', inputTokens: 1, outputTokens: 1, costUsd: null, sessions: 1 }] };
+    const usage: UsageAggregateDto = { days: [], projects: [{ projectId: 'sc', name: LEGACY, inputTokens: 1, outputTokens: 1, costUsd: null, sessions: 1 }, { projectId: 'alpha', name: 'alpha', inputTokens: 1, outputTokens: 1, costUsd: null, sessions: 1 }] };
     const p = presentSettings(initialState(), { ...store, usageAggregate: usage });
     expect(p.usageAggregate!.projects.map((x) => x.name)).toEqual([quick, 'alpha']);
   });

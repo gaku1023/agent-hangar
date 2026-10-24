@@ -38,7 +38,7 @@ describe('presentProjects の節と並び', () => {
     store.projects = { ...store.projects, fin: project('fin', 'done') };
     expect(present(store).sections.map((s) => s.status)).toEqual(['active', 'paused', 'done']);
   });
-  it('スクラッチの擬似プロジェクトは出さず、数にも入れない', () => {
+  it('クイックセッションの擬似プロジェクトは出さず、数にも入れない', () => {
     const store = storeWith();
     store.projects = { ...store.projects, sc: project('sc', 'active', { isScratch: true }) };
     const p = present(store);
@@ -79,7 +79,7 @@ describe('presentProjects の空のとき', () => {
     store.projects = {};
     expect(present(store)).toMatchObject({ empty: 'none', sections: [], archived: null, total: 0 });
   });
-  it('スクラッチだけでも none にする', () => {
+  it('クイックセッションだけでも none にする', () => {
     const store = storeWith();
     store.projects = { sc: project('sc', 'active', { isScratch: true }) };
     expect(present(store).empty).toBe('none');

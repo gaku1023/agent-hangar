@@ -8,7 +8,7 @@ import type { Effect, Input, LaunchPrefs, NewSessionDraft, State, Step } from '.
 export const NEW_SESSION_DRAFT_KEY = 'newSession.draft';
 /** 詳細のプロジェクトごとの前回値を残す localStorage の鍵。値は launchPrefs そのもの。 */
 export const LAUNCH_PREFS_KEY = 'newSession.prefs';
-/** スクラッチの前回値の鍵。プロジェクトの id と重ならない綴りにする。 */
+/** クイックセッションの前回値の鍵。プロジェクトの id と重ならない綴りにする。 */
 export const SCRATCH_PREFS = ':scratch';
 
 // worktree は残さない。同じ名前が毎回初期値に入ると、前の worktree の中で起動してしまうからである。
@@ -128,7 +128,7 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
     case 'session.new.open':
       // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。
       if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
-      // スクラッチはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
+      // クイックセッションはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
       return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true, ...(i.dir ? { dir: i.dir } : {}) }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };

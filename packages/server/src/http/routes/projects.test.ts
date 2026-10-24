@@ -210,7 +210,7 @@ describe('routes', () => {
     expect(await merged.json()).toMatchObject({ id, sameFolder: null });
     expect(db.prepare('select device_id, path from project_roots where project_id = ? and deleted_at is null order by device_id').all(id)).toEqual([{ device_id: 'd', path: dir }, { device_id: 'dev-win', path: 'D:\\workspace\\alpha' }]);
   });
-  it('スクラッチの場所と同じフォルダは、まとめずに断る', async () => {
+  it('クイックセッションの場所と同じフォルダは、まとめずに断る', async () => {
     const id = list0ProjectId();
     const dir = path.join(ws, 'scratch');
     fs.mkdirSync(dir);

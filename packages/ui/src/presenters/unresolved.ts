@@ -5,7 +5,7 @@ import type { BandAction, BandGroup, BandRow } from './home.ts';
 /**
  * この PC で場所が無いプロジェクトの種類（設計書 2.11.5）。
  * missing はこの PC に場所を持っていたが消えたもの、elsewhere はこの PC に場所を持ったことが無い（他の PC から届いただけの）ものである。
- * スクラッチは、どちらでもない。
+ * クイックセッションは、どちらでもない。
  * サーバが unresolved を付けない古い DTO は、path と resolved から同じ区分を読む。
  */
 export type UnresolvedKind = 'missing' | 'elsewhere';

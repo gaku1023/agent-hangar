@@ -135,7 +135,7 @@ export function presentProjects(_state: State, store: Store, now: number, filter
     };
   };
 
-  // スクラッチの擬似プロジェクトは出さない。ホームの一覧の絞り込みには残る。
+  // クイックセッションの擬似プロジェクトは出さない。ホームの一覧の絞り込みには残る。
   const real = Object.values(store.projects).filter((p) => !p.isScratch);
   const needle = filter.trim().toLowerCase();
   const matched = real.filter((p) => !needle || p.name.toLowerCase().includes(needle)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));

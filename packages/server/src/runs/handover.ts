@@ -88,7 +88,7 @@ function relativeToAnyRoot(roots: string[], p: string): string[] | null {
 /** 再開とフォークの作業ディレクトリと、そこを起こす前に作る必要があるか（ほかの PC のクイックセッション）。 */
 export type ResumeTarget = { path: string; createsFolder: boolean };
 
-/** この PC のクイックセッションの置き場（スクラッチのプロジェクトのこの PC の場所）。起動時に quick-sessions にそろえてある。行が無ければ null。 */
+/** この PC のクイックセッションの置き場（クイックセッションのプロジェクトのこの PC の場所）。起動時に quick-sessions にそろえてある。行が無ければ null。 */
 function hereScratchRoot(db: Db, selfDeviceId: string): string | null {
   const r = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 1
@@ -98,7 +98,7 @@ function hereScratchRoot(db: Db, selfDeviceId: string): string | null {
 
 /**
  * すべての PC のクイックセッションの置き場（quick-sessions と前の scratch）の完全なパス。
- * スクラッチのプロジェクトの場所の行から組む（projects/scratch.ts の scratchPlacesOf）。深い順に並べる。
+ * クイックセッションのプロジェクトの場所の行から組む（projects/scratch.ts の scratchPlacesOf）。深い順に並べる。
  */
 function quickPlaces(db: Db): string[] {
   const rows = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
@@ -154,7 +154,7 @@ function baseProjectOf(db: Db, selfDeviceId: string, s: { id?: string; cwd: stri
  * 再開とフォークの作業ディレクトリ。
  * 前の cwd（sessions.cwd）がこの PC にあれば、そのまま使う（前の置き場 ~/.agent-hangar/scratch の下の会話も）。
  * cwd がどれかの PC のクイックセッションの置き場（quick-sessions と前の scratch）の下にあれば、この PC の quick-sessions/<元のフォルダ名> にする。
- * 決めるのは cwd で、所属がスクラッチかどうかでは分けない。ほかのプロジェクトへ移した会話も、クイックセッションへ移した普通の会話もあるからである。
+ * 決めるのは cwd で、所属がクイックセッションかどうかでは分けない。ほかのプロジェクトへ移した会話も、クイックセッションへ移した普通の会話もあるからである。
  * 元のフォルダ名は置き場の直下の段で、下位のフォルダで動いていた会話も同じフォルダにまとめる。
  * 無ければ起こす前に作る（createsFolder）。ここでは作らない。確認の 1 枚の見積もりにも使うからである。
  * cwd が置き場そのもの（直下の段が無い）か、名前を決められなければ null（場所が無い）にする。

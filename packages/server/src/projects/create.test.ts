@@ -235,7 +235,7 @@ describe('registerProjectDir の入れ子と結び付け', () => {
     // もう一度同じものを送っても、同じ結果になる。
     expect(reg({ path: dir, linkTo: 'far' })).toEqual({ projectId: 'far', created: false });
   });
-  it('linkTo の先が無い、消した、スクラッチなら 404、この PC に場所があれば 409', () => {
+  it('linkTo の先が無い、消した、クイックセッションなら 404、この PC に場所があれば 409', () => {
     const dir = path.join(ws, 'x');
     fs.mkdirSync(dir);
     elsewhere('gone', 'gone', { deleted_at: 1 });

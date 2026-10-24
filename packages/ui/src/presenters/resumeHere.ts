@@ -9,7 +9,7 @@ import { unresolvedKind } from './unresolved.ts';
  * disabled は押せない理由で、この PC にプロジェクトのフォルダが無いことを言う。
  * ほかの PC で実行中（生きたロック）は理由にしない。押すと、停止して引き継ぐ確認の 1 枚が出る。
  * noRoot は、この PC にプロジェクトのフォルダが無いときの理由と、場所を指定する先のプロジェクト。セッション画面は見出しの下に常に出す（1a）。
- * プロジェクトに属さない会話とスクラッチは、場所では止めない（サーバは前の cwd で起こす）。
+ * プロジェクトに属さない会話とクイックセッションは、場所では止めない（サーバは前の cwd で起こす）。
  * ほかの PC の会話（写しだけか、ほかの PC のロックがあるか、ほかの PC の続きの方が新しい）でなければ null。
  */
 export type ResumeHereFacts = { disabled: string | null; noRoot: { reason: string; projectId: string } | null };
