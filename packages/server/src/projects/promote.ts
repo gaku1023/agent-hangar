@@ -38,8 +38,8 @@ const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * 移動元の実体を求める。
- * cwd がスクラッチの下にあっても、シンボリックリンクなら指す先は外かもしれない。
- * 実体がスクラッチの下に無ければ、外のファイルを動かさないために断る。
+ * cwd がクイックセッションの下にあっても、シンボリックリンクなら指す先は外かもしれない。
+ * 実体がクイックセッションの下に無ければ、外のファイルを動かさないために断る。
  */
 function resolveScratchDir(home: string, from: string): { real: string } | { reason: Message } {
   // 置き場は 2 つある（quick-sessions と前の scratch）。cwd がどちらの綴りの下にあるかで、実体を比べる置き場を決める。
@@ -92,7 +92,7 @@ function rollback(from: string, to: string, done: Done[]): string[] {
 }
 
 /**
- * スクラッチのディレクトリの中身を移し、空になった元を消す。
+ * クイックセッションのディレクトリの中身を移し、空になった元を消す。
  * 先に移動先の衝突を全部調べ、1 つでもぶつかれば何も移動しない。
  * 中身の移動は同じボリュームなので rename で足りる。
  * 途中で失敗したら移したものを戻し、生の例外は外へ出さずに理由の文にして返す。
@@ -149,7 +149,7 @@ function undoneReason(from: string, to: string, done: Done[], name: string, caus
 }
 
 /**
- * スクラッチのセッションをプロジェクトに昇格する。
+ * クイックセッションをプロジェクトに昇格する。
  * 設計文書の手順 1 から 4 をこの順で行い、run が生きていればファイルは移動しない。
  */
 export function promoteSession(

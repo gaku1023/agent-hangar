@@ -342,12 +342,12 @@ describe('起動', () => {
     const b = run([action({ type: 'overlay.close' })], a.state);
     expect(b.state).toMatchObject({ overlay: { kind: 'none' }, launch: { kind: 'idle' } });
   });
-  it('プロジェクト無しの送信は failed、スクラッチはプロジェクトを選ばずに開く', () => {
+  it('プロジェクト無しの送信は failed、クイックセッションはプロジェクトを選ばずに開く', () => {
     expect(run([action({ type: 'session.new.submit', params: {} })]).state.launch).toEqual({ kind: 'failed', message: 'プロジェクトを選択してください' });
     const s = run([action({ type: 'session.new.open', scratch: true })]);
     expect(s.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
     expect(s.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
-    // スクラッチはプロジェクトが無くても送信できる。
+    // クイックセッションはプロジェクトが無くても送信できる。
     expect(run([action({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   // 外部で開く操作は Mediator を通らない（runtime/actionTable.test.ts）。
@@ -445,7 +445,7 @@ describe('新しいセッションの下書きと前回値', () => {
     const prefs = { p1: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits', addDirs: ['/a'] } };
     expect(a.state.launchPrefs).toEqual(prefs);
     expect(a.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.prefs', value: prefs });
-    // スクラッチはプロジェクトを持たないので、スクラッチの 1 枠に持つ。
+    // クイックセッションはプロジェクトを持たないので、クイックセッションの 1 枠に持つ。
     const b = run([runtime({ type: 'launch.failed', message: 'x' }), action({ type: 'session.new.submit', params: { scratch: true, effort: 'low' } })], a.state);
     expect(b.state.launchPrefs).toEqual({ ...prefs, ':scratch': { effort: 'low' } });
   });
@@ -1051,7 +1051,7 @@ describe('作業台の操作', () => {
 describe('パレット', () => {
   const opened = () => run([action({ type: 'palette.open' })]).state;
   it('コマンドを実行して閉じる', () => {
-    const a = run([action({ type: 'palette.run', command: { id: 'cmd:new-scratch', label: 'スクラッチで始める' } })], opened());
+    const a = run([action({ type: 'palette.run', command: { id: 'cmd:new-scratch', label: 'クイックセッションで始める' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
     expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
     const b = run([action({ type: 'palette.run', command: { id: 'settings:cloud', label: 'クラウド同期' } })], opened());
@@ -1069,7 +1069,7 @@ describe('パレット', () => {
     expect(f.effects).toEqual([]);
   });
   // 新しいセッションは、パレットを開いた画面のプロジェクトを最初から選ぶ。どれを選ぶかは presenter が項目の ID に載せる。
-  it('新しいセッションは、ID に載せたプロジェクトかスクラッチを選んで開く', () => {
+  it('新しいセッションは、ID に載せたプロジェクトかクイックセッションを選んで開く', () => {
     const a = run([action({ type: 'palette.run', command: { id: 'cmd:new-session:project:p1', label: '新しいセッション' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
     expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);

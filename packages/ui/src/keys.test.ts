@@ -29,7 +29,7 @@ describe('キーマップ', () => {
     expect(labelOf('transcript.find')).toBe('トランスクリプト内を検索');
   });
 
-  it('⇧ の有無で新規とスクラッチを分ける', () => {
+  it('⇧ の有無で新規とクイックセッションを分ける', () => {
     expect(matchKey({ key: 'n', metaKey: true })).toBe('session.new');
     expect(matchKey({ key: 'N', metaKey: true, shiftKey: true })).toBe('session.newScratch');
   });

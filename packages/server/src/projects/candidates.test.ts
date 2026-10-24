@@ -57,7 +57,7 @@ describe('folderCandidates', () => {
     talk(plain, 1, 5);
     expect(folderCandidates(db, DEV, env()).candidates).toMatchObject([{ path: plain, sessionCount: 1, lastActivityAt: 5, worktreeCount: 0 }]);
   });
-  it('ホームフォルダとその上、一時フォルダ、スクラッチ、隠しの名前を含むもの、無いフォルダは除く', () => {
+  it('ホームフォルダとその上、一時フォルダ、クイックセッション、隠しの名前を含むもの、無いフォルダは除く', () => {
     talk(home, 3);
     talk(tmp, 3);
     talk(mk(tmp, 'tmpdir', 'x'), 3);

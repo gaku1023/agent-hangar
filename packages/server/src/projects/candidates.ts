@@ -12,7 +12,7 @@ import { legacyScratchRoot, quickSessionsRoot } from './scratch.ts';
 
 /**
  * Claude Code と会話したフォルダの候補（初日のプロジェクト。2026-10-13）。
- * homeDir は利用者のホーム、hangarHome は hangar の手元（スクラッチの置き場を引く）、tmpDirs は一時フォルダの置き場である。
+ * homeDir は利用者のホーム、hangarHome は hangar の手元（クイックセッションの置き場を引く）、tmpDirs は一時フォルダの置き場である。
  * workspaceRoot は設定の作成場所で、空のときだけ作成場所の候補（suggestedRoot）を出す。
  */
 export type CandidateEnv = { homeDir?: string; hangarHome: string; tmpDirs?: string[]; workspaceRoot: string; now?: number; cloud?: CloudSyncEnv };
@@ -35,7 +35,7 @@ type Group = { path: string; sessions: number; last: number | null; worktrees: S
 /**
  * まだプロジェクトに入っていない、この PC の会話の作業フォルダを、git のリポジトリの根でまとめて返す。
  * worktree は元のリポジトリへまとめ、まとめた worktree の数を添える。
- * ホームフォルダとその上、一時フォルダ、hangar のスクラッチ、隠しの名前を含むもの、無くなったフォルダ、
+ * ホームフォルダとその上、一時フォルダ、hangar のクイックセッション、隠しの名前を含むもの、無くなったフォルダ、
  * この PC で登録済みのプロジェクトの場所とその下は除く。
  * 並びは会話の数の多い順で、同じ数なら最後の活動の新しい順にする。
  * 作成場所が空で、過半（2 件以上）が同じ親フォルダにあるときだけ、その親を作成場所の候補にする。親がホームフォルダのときは出さない。

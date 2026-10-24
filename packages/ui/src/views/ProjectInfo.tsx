@@ -9,7 +9,7 @@ import { InfoPopover, type PopoverRow } from './primitives/Popover.tsx';
 /**
  * 1 つのプロジェクトの見出しの (i)。押すと、場所、セッションの数、最後の活動と、場所や名前を直す操作を並べた面が開く。
  * プロジェクトは作成日を持たないので、作成の行は置かない。
- * クイックセッションの置き場（スクラッチ）は、名前も場所も直せず、一覧からも消せないので、行とパスのコピーだけを出す。
+ * クイックセッションの置き場（クイックセッション）は、名前も場所も直せず、一覧からも消せないので、行とパスのコピーだけを出す。
  */
 export function ProjectInfo(props: { id: string; name: string; path: string | null; isScratch: boolean; info: ProjectInfoProps }) {
   const t = useT();

@@ -83,7 +83,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
   const rawTrigger = triggerAt(props.value, caret);
   const trigger = focused ? rawTrigger : null;
   // スキルの名前に / は入らない。貼ったパス（/Users/x）の下に「一致なし」を出しても邪魔なので、/ は語に / があれば開かない。
-  // @ の語はパスなので / が入るのがふつうで、その規則は持ち込まない。@ はプロジェクトのファイルを探すので、プロジェクトが無い（スクラッチ）ときは出さない。
+  // @ の語はパスなので / が入るのがふつうで、その規則は持ち込まない。@ はプロジェクトのファイルを探すので、プロジェクトが無い（クイックセッション）ときは出さない。
   const open = trigger !== null && (trigger.kind === '/' ? !trigger.query.includes('/') : props.projectId !== null) && dismissed !== keyOf(trigger);
   const mode = open ? trigger.kind : null;
   const sections = mode === '/' && Array.isArray(commands) ? arrangeCommands(t, commands, trigger!.query) : [];

@@ -333,7 +333,7 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     const r = make().start({ projectId: 'p1', cwd });
     expect(db.prepare('select cwd, project_id from sessions where id = ?').get(r.sessionId)).toEqual({ cwd, project_id: 'p1' });
   });
-  it('scratch は新しいディレクトリを作り、スクラッチのプロジェクトに属するセッションを起動する', async () => {
+  it('scratch は新しいディレクトリを作り、クイックセッションのプロジェクトに属するセッションを起動する', async () => {
     const rm = make();
     // projectId が一緒に来ても scratch を優先する。
     const r = rm.start({ scratch: true, projectId: 'p1', name: 'scratchy' });
@@ -342,9 +342,9 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(fs.existsSync(path.join(home, 'scratch'))).toBe(false);
     expect(fs.statSync(s.cwd).isDirectory()).toBe(true);
     expect(s.name).toBe('scratchy');
-    expect(db.prepare('select is_scratch, name from projects where id = ?').get(s.project_id)).toEqual({ is_scratch: 1, name: 'スクラッチ' });
+    expect(db.prepare('select is_scratch, name from projects where id = ?').get(s.project_id)).toEqual({ is_scratch: 1, name: 'クイックセッション' });
     const args = await launchedArgs(r.run.id);
-    // DB の名前（スクラッチ）ではなく、画面と同じ「クイックセッション」で伝える。
+    // DB の名前（クイックセッション）ではなく、画面と同じ「クイックセッション」で伝える。
     expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：クイックセッション（' + s.cwd + '）');
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
   });

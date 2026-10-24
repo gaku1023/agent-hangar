@@ -16,7 +16,7 @@ export function promptRoutes(api: Hono, deps: PromptRouteDeps): void {
   const tr = translatorOf(deps.language);
   const requireProject = projectOf(deps);
 
-  // 初期プロンプト欄の `/` の候補。projectId が無ければ（スクラッチなど）、プロジェクトのものは読まない。
+  // 初期プロンプト欄の `/` の候補。projectId が無ければ（クイックセッションなど）、プロジェクトのものは読まない。
   api.get('/prompt/commands', (c) => {
     const id = c.req.query('projectId');
     const project = id ? requireProject(id) : null;

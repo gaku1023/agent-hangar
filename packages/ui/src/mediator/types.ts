@@ -371,7 +371,7 @@ export type State = {
    */
   newSessionSent: boolean;
   /**
-   * 新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは ':scratch' である。
+   * 新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、クイックセッションは ':scratch' である。
    * 次にそのプロジェクトでダイアログを開いたときの初期値にする。端末ごとに localStorage に残す。
    */
   launchPrefs: Record<string, LaunchPrefs>;

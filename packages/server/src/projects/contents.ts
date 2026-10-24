@@ -8,7 +8,7 @@ import { repointPins } from '../sessions/move.ts';
  * TODO は into の後ろに、元の順で並べる。
  * メモは、into が空なら移し、両方にあれば into の後ろへ空行を挟んでつなぐ。
  * 呼ぶ側のトランザクションの中で呼ぶ。プロジェクトをまとめる（registry.ts の mergeProjects）ときと、
- * PC ごとのスクラッチのプロジェクトを 1 つにまとめる（scratch.ts の ensureScratchProject）ときに使う。
+ * PC ごとのクイックセッションのプロジェクトを 1 つにまとめる（scratch.ts の ensureScratchProject）ときに使う。
  * 何か 1 行でも移したら真を返す。移すものが無ければ何も書かない。
  */
 export function moveProjectContents(db: Db, deviceId: string, fromId: string, intoId: string): boolean {

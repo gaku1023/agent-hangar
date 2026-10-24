@@ -62,7 +62,7 @@ describe('linkCandidateFor', () => {
     elsewhere('strong', 'tool-old', 'github.com/me/tool');
     expect(linkCandidateFor(placelessProjects(db, DEV), { name: 'tool', remote: 'github.com/me/tool' })).toMatchObject({ projectId: 'strong', match: 'remote' });
   });
-  it('この PC に場所のあるもの、消したもの、スクラッチ、アーカイブは候補にしない', () => {
+  it('この PC に場所のあるもの、消したもの、クイックセッション、アーカイブは候補にしない', () => {
     here('h1', 'mine', path.join(tmp, 'mine'));
     elsewhere('gone', 'gone', null, { deleted_at: 1 });
     elsewhere('arch', 'arch', null, { status: 'archived' });
@@ -90,7 +90,7 @@ describe('registeredAt と enclosingProject', () => {
     expect(enclosingProject(db, DEV, top, { includeSelf: true })).toEqual({ projectId: 'p', name: 'agent-hangar', path: top });
     expect(enclosingProject(db, DEV, tmp)).toBeNull();
   });
-  it('いちばん深い場所を返し、スクラッチと、消したプロジェクトと、見つからない場所は数えない', () => {
+  it('いちばん深い場所を返し、クイックセッションと、消したプロジェクトと、見つからない場所は数えない', () => {
     const top = path.join(tmp, 'mono');
     here('outer', 'mono', top);
     here('inner', 'pkg', path.join(top, 'pkg'));

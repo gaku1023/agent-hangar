@@ -105,7 +105,7 @@ describe('索引とプロジェクトの組み立て', () => {
     return { h, sent, indexing };
   };
 
-  it('起動の手続きで、本文を索引し、ワークスペースの直下をプロジェクトにして紐づけ、スクラッチを用意する', async () => {
+  it('起動の手続きで、本文を索引し、ワークスペースの直下をプロジェクトにして紐づけ、クイックセッションを用意する', async () => {
     const dir = path.join(ws, 'alpha');
     fs.mkdirSync(dir);
     writeTranscript(dir, 'bbbbbbbb-0000-4000-8000-000000000001', 'first');

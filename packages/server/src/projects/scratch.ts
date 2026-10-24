@@ -9,16 +9,17 @@ import { moveProjectContents } from './contents.ts';
 
 /**
  * クイックセッション（コードでは scratch）の擬似プロジェクトの DB の名前。
- * 画面には出さない。画面は辞書の project.name.quick で出す（ui の projectDisplayName）。
+ * 画面は辞書の project.name.quick で出す（ui の projectDisplayName）。
+ * 辞書を通し忘れた画面にも旧称が出ないよう、DB の名前も辞書と同じ語にする。前の版が付けた旧称の行は ensureScratchProject が書き換える。
  */
-export const SCRATCH_PROJECT_NAME = 'スクラッチ';
+export const SCRATCH_PROJECT_NAME = 'クイックセッション';
 
 /** 新しいクイックセッションの置き場の名前。~/.agent-hangar/quick-sessions である。 */
 const QUICK_DIR = 'quick-sessions';
 /** 前の置き場の名前。~/.agent-hangar/scratch である。中身は動かさず、いままでどおり使える。 */
 const LEGACY_DIR = 'scratch';
 
-/** 新しいクイックセッションの置き場。この PC のスクラッチのプロジェクトの場所（project_roots）でもある。 */
+/** 新しいクイックセッションの置き場。この PC のクイックセッションのプロジェクトの場所（project_roots）でもある。 */
 export function quickSessionsRoot(home: string): string {
   return path.join(home, QUICK_DIR);
 }
@@ -29,7 +30,7 @@ export function legacyScratchRoot(home: string): string {
 }
 
 /**
- * スクラッチのプロジェクトの場所の行のパスから、それが表すクイックセッションの置き場の完全なパスを返す。
+ * クイックセッションのプロジェクトの場所の行のパスから、それが表すクイックセッションの置き場の完全なパスを返す。
  * 場所が `<hangar のホーム>/quick-sessions` なら、同じホームの前の置き場 `<hangar のホーム>/scratch` も返す。
  * そうでなければ（まだ前の版の PC の行など）、その場所だけを返す。
  * ほかの PC の行も読むので、/ と \ のどちらの区切りでも扱う。名前の一致ではなく、場所の行から組んだ完全なパスで判定するためのものである。
@@ -40,11 +41,11 @@ export function scratchPlacesOf(root: string): string[] {
 }
 
 /**
- * 端末をまたいで 1 つのスクラッチの擬似プロジェクトを返す。無ければ作る。起動のたびに呼んでよい（冪等）。
+ * 端末をまたいで 1 つのクイックセッションの擬似プロジェクトを返す。無ければ作る。起動のたびに呼んでよい（冪等）。
  *
- * 前の版は PC ごとに別のスクラッチのプロジェクトを作っていた。ここで 1 つにまとめる。
- * - まとめ先は、消していないスクラッチのプロジェクトのうち id の最も小さいもの。id は uuidv7 なので、作った日時の古いもの（同じなら id の小さいもの）になり、どの PC でも同じ先を選ぶ。
- * - ほかのスクラッチのプロジェクトの会話、TODO、成果物、メモはまとめ先へ移す（registry.ts の moveProjectContents）。状態（session_states）は会話の id に付くので引き継がれる。移した先（session_states.project_id）がまとめる元を指していれば、まとめ先へ付け替える。
+ * 前の版は PC ごとに別のクイックセッションのプロジェクトを作っていた。ここで 1 つにまとめる。
+ * - まとめ先は、消していないクイックセッションのプロジェクトのうち id の最も小さいもの。id は uuidv7 なので、作った日時の古いもの（同じなら id の小さいもの）になり、どの PC でも同じ先を選ぶ。
+ * - ほかのクイックセッションのプロジェクトの会話、TODO、成果物、メモはまとめ先へ移す（registry.ts の moveProjectContents）。状態（session_states）は会話の id に付くので引き継がれる。移した先（session_states.project_id）がまとめる元を指していれば、まとめ先へ付け替える。
  * - 動かす場所の行は、この PC の行だけである。同じ PC の行を 2 台が別々に作ると `(project_id, device_id)` の一意の制約が同期でぶつかるからである。
  *   ほかの PC の行が残っている方は消さずに置き、その PC が新しい版で起きて自分の行を外したときに消す。
  * - この PC の場所は `~/.agent-hangar/quick-sessions` にする。前の置き場 `~/.agent-hangar/scratch` は動かさず消さない。
@@ -59,11 +60,15 @@ export function ensureScratchProject(db: Db, deviceId: string, home: string): st
     if (!into) {
       into = newId();
       upsertShared(db, 'projects', { id: into, name: SCRATCH_PROJECT_NAME, status: 'active', is_scratch: 1 }, deviceId);
+    } else {
+      // 前の版が付けた名前（旧称）なら、いまの名前に書き換えて同期へ出す。同じなら書かない。
+      const row = db.prepare('select * from projects where id = ?').get(into) as Record<string, unknown>;
+      if (row.name !== SCRATCH_PROJECT_NAME) upsertShared(db, 'projects', { ...row, name: SCRATCH_PROJECT_NAME }, deviceId);
     }
     let moved = false;
     for (const from of live.slice(1)) if (moveProjectContents(db, deviceId, from, into)) moved = true;
 
-    // この PC の場所の行は、まとめ先の 1 行だけにする。消したスクラッチのプロジェクトに残った行も外す。
+    // この PC の場所の行は、まとめ先の 1 行だけにする。消したクイックセッションのプロジェクトに残った行も外す。
     const mineElsewhere = db.prepare(`select r.id from project_roots r join projects p on p.id = r.project_id
       where r.device_id = ? and r.project_id <> ? and r.deleted_at is null and p.is_scratch = 1`).all(deviceId, into) as { id: string }[];
     for (const r of mineElsewhere) softDeleteShared(db, 'project_roots', r.id, deviceId);
@@ -83,7 +88,7 @@ export function ensureScratchProject(db: Db, deviceId: string, home: string): st
   })();
 }
 
-/** 同期で当てた 1 行が、スクラッチのプロジェクトの行か、スクラッチのプロジェクトの場所の行か。当てた後の DB で見る。 */
+/** 同期で当てた 1 行が、クイックセッションのプロジェクトの行か、クイックセッションのプロジェクトの場所の行か。当てた後の DB で見る。 */
 export function isScratchRow(db: Db, c: { tableName: string; rowId: string }): boolean {
   if (c.tableName === 'projects') return (db.prepare('select is_scratch from projects where id = ?').get(c.rowId) as { is_scratch: number } | undefined)?.is_scratch === 1;
   if (c.tableName === 'project_roots') {
@@ -93,8 +98,8 @@ export function isScratchRow(db: Db, c: { tableName: string; rowId: string }): b
 }
 
 /**
- * 同期の取り込みの受け手（sync/engine.ts の applied）。スクラッチのプロジェクトかその場所の行が届いたら、まとめ直す（ensureScratchProject）。
- * 前の版の PC が作った会話が、次の起動まで別のスクラッチのプロジェクトに割れたままにならないようにする。
+ * 同期の取り込みの受け手（sync/engine.ts の applied）。クイックセッションのプロジェクトかその場所の行が届いたら、まとめ直す（ensureScratchProject）。
+ * 前の版の PC が作った会話が、次の起動まで別のクイックセッションのプロジェクトに割れたままにならないようにする。
  * 1 回の取り込みで届いた行は同期のうちに続けて渡されるので、マイクロタスクで 1 回にまとめる。ほかの表の行では何もしない。
  * まとめに失敗しても投げずに onError へ渡す（マイクロタスクで投げるとプロセスごと落ちる）。
  */

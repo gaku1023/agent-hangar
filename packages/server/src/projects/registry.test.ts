@@ -266,7 +266,7 @@ describe('同じフォルダのプロジェクトをまとめる', () => {
     upsertShared(db, 'project_roots', { id: 'r-dup', project_id: 'p-win', device_id: DEV, path: path.join(ws, 'alpha'), resolved: 1 }, DEV);
     // セッションの多い方を残す。
     expect([...sameFolderPairs(db, DEV)]).toEqual([['p-win', { projectId: pid, name: 'alpha' }]]);
-    // 一覧から削除したものと、スクラッチは数えない。
+    // 一覧から削除したものと、クイックセッションは数えない。
     resolveProject(db, DEV, 'p-win', { kind: 'unlink' });
     expect(sameFolderPairs(db, DEV).size).toBe(0);
   });
@@ -304,7 +304,7 @@ describe('同じフォルダのプロジェクトをまとめる', () => {
     // 場所の当たらないセッションは、そのままにする。
     expect(sessionProject('s-p-win')).toBe(pid);
   });
-  it('同じプロジェクト同士、無いプロジェクト、スクラッチはまとめない', () => {
+  it('同じプロジェクト同士、無いプロジェクト、クイックセッションはまとめない', () => {
     const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
     addElsewhere();
     upsertShared(db, 'projects', { id: 'p-s', name: 'scratch', status: 'active', is_scratch: 1 }, DEV);
@@ -410,7 +410,7 @@ describe('作成場所が空のとき', () => {
 });
 
 describe('resolvedProjectCount', () => {
-  it('この PC で場所の分かっているプロジェクトを数え、スクラッチ、消したもの、ほかの PC のもの、場所の分からないものは数えない', () => {
+  it('この PC で場所の分かっているプロジェクトを数え、クイックセッション、消したもの、ほかの PC のもの、場所の分からないものは数えない', () => {
     expect(resolvedProjectCount(db, DEV)).toBe(0);
     syncProjectsFromWorkspace(db, DEV, ws);
     expect(resolvedProjectCount(db, DEV)).toBe(1);

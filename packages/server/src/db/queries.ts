@@ -305,9 +305,9 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     contextPercent: contextPercent(r.ls_used, r.ls_size),
     costUsd: r.ls_cost,
   };
-  // スクラッチのルートの下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
+  // クイックセッションの置き場の下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
   // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。
-  // スクラッチの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
+  // クイックセッションの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
   // 場所が quick-sessions なら、同じ hangar のホームの前の置き場（scratch）の下も含める（projects/scratch.ts の scratchPlacesOf）。
   // projects/scratch.ts の isUnderScratch と同じ判定である。
   const underScratch = r.scratch_root !== null && scratchPlacesOf(r.scratch_root).some((root) => isStrictlyUnder(r.cwd, root));
@@ -460,7 +460,7 @@ export function memoHead(markdown: string | null): string | null {
 }
 
 /**
- * この PC で場所が無いものの内訳（ProjectUnresolvedDto）。場所があるものとスクラッチは null。
+ * この PC で場所が無いものの内訳（ProjectUnresolvedDto）。場所があるものとクイックセッションは null。
  * この PC のルートの行があって未解決なら missing（前のパスはその行のパス）。
  * この PC に行が無ければ elsewhere で、前のパスと PC の名前は、ほかの PC の行のうちいちばん新しく書かれたものから取る。
  * 列は足さず、project_roots と devices の今の行から組む。

@@ -354,7 +354,7 @@ export function bootSync(
     engine.on({ applied: (c) => { if (c.tableName === 'session_states') statesApplied(); } });
     // 引き継ぎの頼みか応答が届いたら、頼まれた側が止めに行き、頼んだ側が応答を読みに行く（sync/takeoverResponder.ts）。
     engine.on({ applied: (c) => { if (c.tableName === 'takeovers' || c.tableName === 'takeover_answers') takeoversApplied(); } });
-    // ほかの PC のスクラッチのプロジェクトや場所の行が届いたら、次の起動を待たずに 1 つにまとめ直す（projects/scratch.ts）。
+    // ほかの PC のクイックセッションのプロジェクトや場所の行が届いたら、次の起動を待たずに 1 つにまとめ直す（projects/scratch.ts）。
     engine.on({ applied: followRemoteScratch(db, deviceId, home.home, { onError: (e) => console.error('[sync] 届いたクイックセッションの行をまとめ直せませんでした', e instanceof Error ? e.message : e) }) });
     onKeysGained = () => {
       void engine.rewindSkippedRows();

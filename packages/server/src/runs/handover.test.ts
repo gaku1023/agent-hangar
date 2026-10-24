@@ -271,7 +271,7 @@ describe('ほかの PC のクイックセッションの再開', () => {
   beforeEach(() => {
     quick = path.join(here, 'quick-sessions');
     fs.mkdirSync(quick);
-    upsertShared(db, 'projects', { id: 'q', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'me');
+    upsertShared(db, 'projects', { id: 'q', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'me');
     upsertShared(db, 'project_roots', { id: 'rq-me', project_id: 'q', device_id: 'me', path: quick, resolved: 1 }, 'me');
     upsertShared(db, 'project_roots', { id: 'rq-win', project_id: 'q', device_id: 'win', path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions', resolved: 1 }, 'win');
     upsertShared(db, 'project_roots', { id: 'rq-mac2', project_id: 'q', device_id: 'mac2', path: '/Users/o/.agent-hangar/scratch', resolved: 1 }, 'mac2');
@@ -301,8 +301,8 @@ describe('ほかの PC のクイックセッションの再開', () => {
     expect(resumeTarget(db, 'me', { cwd: legacy, project_id: 'q' })).toEqual({ path: legacy, createsFolder: false });
   });
 
-  it('まとめる前の、別のスクラッチのプロジェクトに属していても、この PC のクイックセッションの場所で読み替える', () => {
-    upsertShared(db, 'projects', { id: 'q-win', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'win');
+  it('まとめる前の、別のクイックセッションのプロジェクトに属していても、この PC のクイックセッションの場所で読み替える', () => {
+    upsertShared(db, 'projects', { id: 'q-win', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'win');
     expect(resumeTarget(db, 'me', { cwd: 'C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261016-101010', project_id: 'q-win' })?.path).toBe(path.join(quick, '20261016-101010'));
   });
 
