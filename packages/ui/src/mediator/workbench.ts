@@ -28,9 +28,9 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
   if (kind === 'search') return searchQueryStep(closed, rest);
   if (kind === 'go' && rest === 'home') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'home' } }] };
   if (kind === 'go' && rest === 'projects') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'projects' } }] };
-  // 設定の節の行。保持の設定は一般の節の中にあるので、一般の節へ移る。知らない節の名前は何もしない。
+  // 設定の節の行。保持の設定はセッションの節の中にあるので、セッションの節へ移る。知らない節の名前は何もしない。
   if (kind === 'settings') {
-    const at = rest === 'retention' ? 'general' : SETTINGS_SECTIONS.find((x): x is SettingsSection => x === rest);
+    const at = rest === 'retention' ? 'sessions' : SETTINGS_SECTIONS.find((x): x is SettingsSection => x === rest);
     return { state: closed, effects: at ? [{ kind: 'navigate', route: { name: 'settings', at } }] : [] };
   }
   if (kind === 'cmd') {

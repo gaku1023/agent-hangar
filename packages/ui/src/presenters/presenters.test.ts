@@ -1012,12 +1012,12 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     expect(p.todo).toEqual(presentSettings(initialState(), { ...initialStore(), readiness: READY }).todo);
     expect(p.todo).toEqual({ must: 1, link: 1 });
   });
-  it('作成場所が無いときは注意にとどめ、ツールの「要修正」に数えない（作成場所は任意）', () => {
+  it('作成場所が無いときは注意にとどめ、環境の「要修正」に数えない（作成場所は任意）', () => {
     const r: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: '/x/claude', ok: true, problem: null, version: '2.1.292' } }, workspace: { path: 'C:\\Users\\me\\workspace', exists: false, projectCount: 0 } };
     const p = presentSettings(initialState(), { ...initialStore(), readiness: r });
     expect(p.verify.workspace).toMatchObject({ ok: false, soft: true });
     expect(p.todo.must).toBe(0);
-    expect(p.toc.find((row) => row.id === 'tools')).toMatchObject({ state: 'すべて検出', tone: 'default' });
+    expect(p.toc.find((row) => row.id === 'environment')).toMatchObject({ state: 'すべて検出', tone: 'default' });
   });
   it('準備の確かめが届く前と、compat の無い古いサーバーの答えでは、互換の節を null にする', () => {
     expect(presentSettings(initialState(), initialStore()).compat).toBeNull();

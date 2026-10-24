@@ -4,7 +4,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const runJa: AreaDictionary<typeof runKeys> = {
   'run.launch.claudeMissing': 'claude が見つかりません。設定の「{label}」にパスを入力してください',
   'run.launch.tmuxMissing': 'tmux が見つかりません。設定の「{label}」にパスを入力してください',
-  'run.launch.claudeIsCmd': 'この claude は .cmd のため起動できません。ネイティブ版の Claude Code をインストールして、設定の「{label}」に claude.exe のパスを入力してください',
+  'run.launch.claudeIsCmd': 'この claude は .cmd のため起動できません。ネイティブインストーラーで Claude Code をインストールして、設定の「{label}」に claude.exe のパスを入力してください',
   'run.launch.dirMissing': 'ディレクトリが見つかりません: {path}',
   'run.launch.addDirDash': '追加ディレクトリに - で始まる値は使えません: {dir}',
   'run.launch.tmuxFailed': 'tmux の起動に失敗しました: {reason}',

@@ -877,7 +877,7 @@ describe('アプリの更新', () => {
     const store: Store = { ...initialStore(), update: { ...initialStore().update, supported: true, current: '1.4.2', seenNotes: '1.4.0', notes: [note('1.4.2'), note('1.4.1'), note('1.4.0')] } };
     const seen = { kind: 'update', command: { op: 'notesSeen', open: ['1.4.2', '1.4.1'] } };
     expect(run([action({ type: 'update.notesClose' })], initialState(), store).effects).toEqual([seen]);
-    expect(run([action({ type: 'update.notesRead' })], initialState(), store).effects).toEqual([seen, { kind: 'navigate', route: { name: 'settings', at: 'update' } }]);
+    expect(run([action({ type: 'update.notesRead' })], initialState(), store).effects).toEqual([seen, { kind: 'navigate', route: { name: 'settings', at: 'about' } }]);
   });
 });
 
@@ -1076,14 +1076,16 @@ describe('パレット', () => {
     const b = run([action({ type: 'palette.run', command: { id: 'cmd:new-session:scratch', label: '新しいセッション' } })], opened());
     expect(b.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
   });
-  // 設定の節の行は、その節へ移る。保持は一般の節の中にあるので、一般の節へ移る。
+  // 設定の節の行は、その節へ移る。保持はセッションの節の中にあるので、セッションの節へ移る。
   it('設定の節の行は、その節の画面へ移る', () => {
-    for (const at of ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const) {
+    for (const at of ['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about'] as const) {
       const r = run([action({ type: 'palette.run', command: { id: `settings:${at}`, label: at } })], opened());
       expect(r.state.overlay).toEqual({ kind: 'none' });
       expect(r.effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at } }]);
     }
-    expect(run([action({ type: 'palette.run', command: { id: 'settings:retention', label: 'トランスクリプトの保持' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at: 'general' } }]);
+    expect(run([action({ type: 'palette.run', command: { id: 'settings:retention', label: 'トランスクリプトの保持' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at: 'sessions' } }]);
+    // 0.9.3 までの節の名前（tools、info）は、パレットの行には無いので何もしない。
+    expect(run([action({ type: 'palette.run', command: { id: 'settings:tools', label: '' } })], opened()).effects).toEqual([]);
     // 知らない節の名前は、何もせずに閉じる。
     expect(run([action({ type: 'palette.run', command: { id: 'settings:nope', label: '' } })], opened()).effects).toEqual([]);
   });

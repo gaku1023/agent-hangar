@@ -36,7 +36,7 @@ import { Switch } from './primitives/Switch.tsx';
 export const SAVED_TICK_MS = 2000;
 
 /** 目次の各行のアイコン。 */
-const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', update: 'download', info: 'info' };
+const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', sessions: 'sessions', summary: 'permissionAuto', integrations: 'link', environment: 'tool', cloud: 'cloud', usage: 'usage', about: 'info' };
 
 /** 欄の横に「✓ 保存しました」を 2 秒出す。n が進むたびに出し直す（設定の C1）。 */
 /** 外部ターミナルの選択肢の印。製品のアプリは窓の印、OS の素のターミナルはターミナルの印にする。 */
@@ -175,7 +175,7 @@ function IntegrationWrite(props: { card: IntegrationCard; desktop: boolean; extr
 
 /**
  * 設定画面（S1）。
- * 左の目次で 7 つの節（一般、クラウド同期、連携、要約エンジン、ツール、更新、情報）を切り替え、右は選んだ節だけを出す。
+ * 左の目次で 8 つの節（一般、セッション、要約、連携、環境、クラウド同期、使用量、Hangar について）を切り替え、右は選んだ節だけを出す。
  * 目次の各行は、節の名前と今の状態の 1 行を持つ。
  * 開いている節は URL の `at` が決める（props.section）ので、戻ると進むで節も戻り、目次の灯りは URL に従う。
  * パスの欄は欄を出たら保存し、欄の横に「✓ 保存しました」、欄の下に検証の 1 行を出す（C1 と B1）。
@@ -263,11 +263,11 @@ export function SettingsScreen(props: SettingsProps) {
     root.current?.closest<HTMLElement>('.main')?.scrollTo?.({ top: 0 });
   }, [props.section]);
 
-  // ヘッダのアカウントの設定から来たときは、連携の節のアカウントの位置が見える所へ移る。
+  // ヘッダのアカウントの設定から来たときは、セッションの節のアカウントの位置が見える所へ移る。
   // 節は一覧が届いてから出るので、出たときにも見直す。
   const showAccounts = props.accounts.list.length > 0;
   useEffect(() => {
-    if (props.focus !== 'accounts' || props.section !== 'integrations' || !showAccounts) return;
+    if (props.focus !== 'accounts' || props.section !== 'sessions' || !showAccounts) return;
     const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById('settings-accounts')?.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   }, [props.focus, props.section, showAccounts]);
@@ -299,7 +299,7 @@ export function SettingsScreen(props: SettingsProps) {
   };
 
   const cur = props.toc.find((r) => r.id === props.section)!;
-  const todo = props.section === 'tools' ? props.todo.must : props.section === 'integrations' ? props.todo.link : 0;
+  const todo = props.section === 'environment' ? props.todo.must : props.section === 'integrations' ? props.todo.link : 0;
 
   const general = (
     <section aria-label={cur.title}>
@@ -322,16 +322,21 @@ export function SettingsScreen(props: SettingsProps) {
       <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDescAlways ? props.terminalDesc : undefined} info={props.terminalDescAlways ? undefined : props.terminalDesc}
         control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />
       {/* エディタ。ターミナルアプリと同じく好みで選ぶものなので、その下に置く（試作の 1-1 の A）。 */}
-      <EditorSettings editor={props.editor} mark={props.save.editor} />
-      {/* Claude Code の保持期間。押しても保存せず、差分を見せる確認を開く。hangar が Claude Code の設定を書くのはここだけである。 */}
-      {props.retention && (
-        <SetRow title={t('settings.general.retention.title')}
-          info={<>{t('settings.general.retention.desc')}{props.retention.syncNote && ` ${t('settings.general.retention.syncNote')}`}</>}
-          control={props.retention.writable
-            ? <Segmented label={t('settings.general.retention.period')} value={String(props.retention.days)} options={props.retention.options} onChange={(v) => { if (Number(v) !== props.retention!.days) emit({ type: 'retention.edit', days: Number(v), from: 'settings' }); }} />
-            : <span className="muted">{props.retention.valueLabel}<span className="faint">（{props.retention.reason}）</span></span>}
-          below={props.retention.bar ? <UsageBar {...props.retention.bar} /> : undefined} />
-      )}
+      <EditorSettings editor={props.editor} mark={props.save.editor} open={props.focus === 'editor'} />
+    </section>
+  );
+  // 新しいセッションを起動するときの既定（2026-10-25 の並び替えで、連携とツールの節から集めた）。どれも選んだ時点で保存する。
+  const newSession = (
+    <section aria-label={cur.title}>
+      <h3 className="h2">{t('settings.sessions.new.title')}</h3>
+      <SetRow title={t('settings.label.defaultModel')} info={t('settings.integrations.inject.model.desc')}
+        control={<ModelPicker label={t('settings.label.defaultModel')} value={props.injection.defaultModel} withDefault onChange={(m) => setNow({ defaultModel: m })} />} />
+      {/* 起動のときに claude へ付ける --remote-control（試作 B1）。 */}
+      <SetRow title={t('settings.label.remoteControl')} info={t('settings.integrations.inject.remoteControl.desc')}
+        control={<Switch label={t('settings.label.remoteControl')} checked={props.injection.remoteControl} onChange={(next) => setNow({ remoteControl: next })} />} />
+      {/* 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空を許し、デスクトップでは Finder でも選べる。 */}
+      <SetRow title={t('settings.tools.parent.title')} info={t('settings.tools.parent.desc')} control={null}
+        below={<PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} placeholder={t('settings.tools.parent.placeholder')} quiet={props.workspaceRoot === ''} pick={props.workspacePick} line={props.verify.workspace} mark={props.save.workspaceRoot} />} />
     </section>
   );
   // hangar が claude への指示ではなく自分で行うこと（試作の 5 節の案 A）。押した時点で保存する。次の見回りから効く。
@@ -347,6 +352,18 @@ export function SettingsScreen(props: SettingsProps) {
           onChange={(v) => setNow({ autoDoneIdleDays: Number(v) as AutoDoneIdleDays })} />} />
       <SetRow title={t('settings.general.autoPark.title')} info={t('settings.general.autoPark.desc')}
         control={<Switch label={t('settings.general.autoPark.title')} checked={props.self.autoPark} onChange={(next) => setNow({ autoPark: next })} />} />
+    </section>
+  );
+
+  // Claude Code の保持期間。押しても保存せず、差分を見せる確認を開く。hangar が Claude Code の設定を書くのはここだけである。
+  const retention = props.retention && (
+    <section>
+        <SetRow title={t('settings.general.retention.title')}
+          info={<>{t('settings.general.retention.desc')}{props.retention.syncNote && ` ${t('settings.general.retention.syncNote')}`}</>}
+          control={props.retention.writable
+            ? <Segmented label={t('settings.general.retention.period')} value={String(props.retention.days)} options={props.retention.options} onChange={(v) => { if (Number(v) !== props.retention!.days) emit({ type: 'retention.edit', days: Number(v), from: 'settings' }); }} />
+            : <span className="muted">{props.retention.valueLabel}<span className="faint">（{props.retention.reason}）</span></span>}
+          below={props.retention.bar ? <UsageBar {...props.retention.bar} /> : undefined} />
     </section>
   );
 
@@ -460,8 +477,6 @@ export function SettingsScreen(props: SettingsProps) {
     <>
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />
-      {/* 起動する Claude Code に足すもの（試作 1 節の推す案 B）。互換の 1 枚のすぐ下に置く。 */}
-      <InjectionSettings injection={props.injection} />
       <section>
         <h3 className="h2">{t('settings.integrations.mcp.title')}<InfoTip label={t('settings.integrations.mcp.title')}>{t('settings.integrations.mcp.desc')}</InfoTip><Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
         <IntegrationWrite card={props.integrations.mcp} desktop={props.integrations.desktop} />
@@ -521,8 +536,6 @@ export function SettingsScreen(props: SettingsProps) {
         {!props.integrations.desktop && props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHint', { uninstall: props.shell.uninstallCommand })}</div>}
         {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.noTmux', { install: muxInstallCommand(clientPlatform()) })}</div>}
       </section>}
-      {/* アカウントの追加の入口はここだけ。1 件でも出す。届く前（一覧が空）は出さない。 */}
-      {showAccounts && <AccountSettings {...props.accounts} />}
       {/* セットアップのすゝめ（試作の案 C）。連携の最後に置き、Claude Code に貼る一言を見せる。写しが取れていなければ出さない。 */}
       {props.setupGuide && <SetupGuideCard {...props.setupGuide} />}
     </>
@@ -635,20 +648,9 @@ export function SettingsScreen(props: SettingsProps) {
 
   // パスの例と Node を探す順の説明は、画面を開いている PC の OS の形で出す。
   const win = clientPlatform() === 'win32';
-  const tools = (
+  const environment = (
     <>
       {props.mux && <MuxSection mux={props.mux} />}
-      <section>
-        <h3 className="h2">{t('settings.tools.parent.title')}<InfoTip label={t('settings.tools.parent.title')}>{t('settings.tools.parent.desc')}</InfoTip></h3>
-        {/* 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空を許し、デスクトップでは Finder でも選べる。 */}
-        <PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} placeholder={t('settings.tools.parent.placeholder')} quiet={props.workspaceRoot === ''} pick={props.workspacePick} line={props.verify.workspace} mark={props.save.workspaceRoot} />
-        <SetRow title={t('settings.tools.register.title')}
-          control={<>
-            <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open' })}>{t('settings.tools.register.action')}</button>
-            {/* まとめて登録の「フォルダの中から」（0.6.1）。 */}
-            <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open', source: 'folder' })}>{t('settings.tools.register.folder')}</button>
-          </>} />
-      </section>
       <section>
         <h3 className="h2">{t('settings.tools.paths.title')}</h3>
         <div className="grid2">
@@ -662,13 +664,29 @@ export function SettingsScreen(props: SettingsProps) {
           </div>
         </div>
       </section>
+      <section>
+        <h3 className="h2">{t('settings.info.index.title')}</h3>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <span className="mono muted">{props.indexLabel}</span>
+          <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => emit({ type: 'index.rebuild' })}>{t('settings.info.index.rebuild')}</button>
+        </div>
+        <div className="faint mono" style={{ marginTop: 4 }}>{t('settings.info.index.source', { dir: props.claudeDir })}</div>
+        <div className="faint" style={{ marginTop: 4 }}>{t('settings.info.index.note')}</div>
+      </section>
+      {/* まとめて登録（0.6.1 の「フォルダの中から」を含む）。 */}
+      <section>
+        <SetRow title={t('settings.tools.register.title')}
+          control={<>
+            <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open' })}>{t('settings.tools.register.action')}</button>
+            <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open', source: 'folder' })}>{t('settings.tools.register.folder')}</button>
+          </>} />
+      </section>
     </>
   );
 
-  const info = (
+  const usage = (
     <>
-      <section>
-        <h3 className="h2">{t('settings.info.usage.title')}</h3>
+      <section aria-label={cur.title}>
         {props.usageAggregate === null && <div className="faint">{t('settings.info.usage.loading')}</div>}
         {props.usageAggregate && (
           <div className="grid2">
@@ -687,24 +705,29 @@ export function SettingsScreen(props: SettingsProps) {
         {/* 日ごとの内訳が無いので、期間で切り分けられない。 */}
         <div className="faint">{t('settings.info.usage.noteTotal')}</div>
       </section>
-      <section>
-        <h3 className="h2">{t('settings.info.index.title')}</h3>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span className="mono muted">{props.indexLabel}</span>
-          <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => emit({ type: 'index.rebuild' })}>{t('settings.info.index.rebuild')}</button>
-        </div>
-        <div className="faint mono" style={{ marginTop: 4 }}>{t('settings.info.index.source', { dir: props.claudeDir })}</div>
-        <div className="faint" style={{ marginTop: 4 }}>{t('settings.info.index.note')}</div>
-      </section>
+    </>
+  );
+  // 「Hangar について」。前例（Chrome、Obsidian、Docker Desktop）どおり、バージョンと更新を同じ所に置き、目次の一番下にする。
+  const about = (
+    <>
+      {/* ブラウザでは更新の段を持たないので、バージョンだけを同じ行の形で出す。 */}
+      {props.update.supported ? <UpdateSection update={props.update} /> : (
+        <section>
+          <SetRow title={t('settings.toc.version', { version: props.version })} desc={props.update.unsupported} control={null} />
+        </section>
+      )}
       <section>
         <h3 className="h2">{t('settings.info.thisPc.title')}</h3>
         <div className="mono muted">{props.device?.name}<span className="faint"> {props.device?.id}</span></div>
-        <div className="faint mono">agent-hangar {props.version}</div>
       </section>
     </>
   );
 
-  const body: Record<SettingsSection, ReactNode> = { general: <>{general}{self}</>, cloud, integrations, summary, tools, update: <UpdateSection update={props.update} />, info };
+  const body: Record<SettingsSection, ReactNode> = {
+    general,
+    sessions: <>{newSession}<InjectionSettings injection={props.injection} />{self}{retention}{showAccounts && <AccountSettings {...props.accounts} />}</>,
+    summary, integrations, environment, cloud, usage, about,
+  };
 
   return (
     <div ref={root} className="screen settings-screen">
@@ -727,7 +750,7 @@ export function SettingsScreen(props: SettingsProps) {
               {cur.title}
               {props.section === 'summary' && <InfoTip label={cur.title}>{t('settings.summary.lead')}</InfoTip>}
               {props.section === 'cloud' && <span className="badge" data-tone={props.cloud.badge.tone}>{props.cloud.badge.text}</span>}
-              {props.section === 'update' && props.update.supported && props.update.badge && <span className="badge" data-tone={props.update.badge.tone}>{props.update.badge.text}</span>}
+              {props.section === 'about' && props.update.supported && props.update.badge && <span className="badge" data-tone={props.update.badge.tone}>{props.update.badge.text}</span>}
               {todo > 0 && <span className="badge" data-tone="warn"><Icon name="alert" />{t('settings.fix.count', { n: todo })}</span>}
             </h2>
             {body[props.section]}

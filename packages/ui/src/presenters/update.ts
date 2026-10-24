@@ -57,7 +57,7 @@ export type UpdateSectionProps = {
 const DOWNLOAD: UiAction = { type: 'update.download' };
 const INSTALL: UiAction = { type: 'update.install' };
 const DISMISS: UiAction = { type: 'update.dismiss' };
-const READ_NOTES: UiAction = { type: 'nav.go', to: { name: 'settings', at: 'update' } };
+const READ_NOTES: UiAction = { type: 'nav.go', to: { name: 'settings', at: 'about' } };
 
 /** 見つけた版のノート。目録にノートが無いか、版が食い違えば null。 */
 function foundNote(u: UpdateState, version: string): ReleaseNote | null {

@@ -342,7 +342,9 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
   });
   it('直すのに設定を開く行は、節だけでなく欄まで指す', () => {
     expect(READINESS_AT).toMatchObject({ tmux: 'tmux', claude: 'claude', workspace: 'workspace', compat: 'compat' });
-    expect(settingsSectionOf(READINESS_AT.tmux)).toBe('tools');
+    expect(settingsSectionOf(READINESS_AT.tmux)).toBe('environment');
+    expect(settingsSectionOf(READINESS_AT.workspace)).toBe('sessions');
+    expect(settingsSectionOf(READINESS_AT.git)).toBe('environment');
     expect(settingsSectionOf(READINESS_AT.compat)).toBe('integrations');
   });
   it('git とエディタの行（0.5.0）。git は入れるコマンドをコピーし、エディタは一般の節のエディタの欄を開く。どちらも任意', () => {
@@ -351,7 +353,7 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
     expect(row).toMatchObject({ name: 'git', badge: '任意', text: 'git が見つかりません。無くても使えますが、ブランチと未コミットの件数は表示されません', detail: 'xcode-select --install', lead: { tone: 'soft' } });
     expect(row.actions[0]).toMatchObject({ label: 'コマンドをコピー', send: { type: 'clipboard.copy', text: 'xcode-select --install' } });
     expect(presentReadiness(noGit, ja, 'win32')!.group.rows.find((r) => r.key === 'ready:git')!.detail).toBe('winget install --id Git.Git -e');
-    expect(presentReadiness(noGit, ja, 'linux')!.group.rows.find((r) => r.key === 'ready:git')!.actions[0]).toMatchObject({ send: { type: 'nav.go', to: { name: 'settings', at: 'tools' } } });
+    expect(presentReadiness(noGit, ja, 'linux')!.group.rows.find((r) => r.key === 'ready:git')!.actions[0]).toMatchObject({ send: { type: 'nav.go', to: { name: 'settings', at: 'environment' } } });
     // git とエディタだけが残るなら、帯は出さない（任意の行）。
     expect(readinessPending({ ...ALL_OK, tools: noGit.tools, editor: { id: 'cursor', name: 'Cursor', state: 'none', path: null } })).toBe(false);
     const noEditor: ReadinessDto = { ...READY, editor: { id: 'cursor', name: 'Cursor', state: 'none', path: null } };

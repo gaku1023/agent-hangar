@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { customArgv, dirCommandOf, previewCommand, type EditorId, type EditorTerminal } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import type { EditorChoice, EditorSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { collapseOut, growIn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
@@ -101,15 +102,31 @@ function CustomCommand(props: { fileCmd: string; dirCmd: string; terminal: Edito
 }
 
 /**
- * 設定の一般の節のエディタの欄（試作の 1-1 の A）。
- * この PC で見つけたエディタを候補の一覧で並べ、選んだ時点で保存する。
+ * 設定の一般の節のエディタの欄（試作の 1-1 の A、2026-10-25 の案 D）。
+ * ふだんは選んでいる 1 本の行だけを出し、ほかの候補は「他のエディタ」に畳む。開くと検出済みが上、未検出が下に並ぶ。
+ * 選んだ時点で保存し、畳みを閉じる。選んでいるエディタが見つからないときと、準備の帯から飛んできたとき（open）は開いて始める。
  * 場所は「パスを指定…」に畳み、ふだんは自動で見つけた場所を使う。テストは見本のファイルを 3 行目で開く。
  */
-export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveMark | undefined }) {
+export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveMark | undefined; open?: boolean }) {
   const emit = useEmit();
   const t = useT();
   const e = props.editor;
   const [pathOpen, setPathOpen] = useState(e.setting.path !== null);
+  const selected = e.choices.find((c) => c.selected) ?? e.choices[0]!;
+  const [othersOpen, setOthersOpen] = useState(props.open === true || selected.state === 'none');
+  useEffect(() => { if (props.open) setOthersOpen(true); }, [props.open]);
+  // 開くときは growIn、閉じるときは collapseOut で閉じ切ってから外す（アプリの開き閉じの決まった動き）。
+  const othersBox = useRef<HTMLDivElement>(null);
+  const opened = useRef(false);
+  useLayoutEffect(() => {
+    if (othersOpen && opened.current && othersBox.current) growIn(othersBox.current);
+    opened.current = true;
+  }, [othersOpen]);
+  const closeOthers = () => {
+    const el = othersBox.current;
+    if (!el) { setOthersOpen(false); return; }
+    void collapseOut(el).then(() => setOthersOpen(false));
+  };
   const [path, setPath] = useState(e.setting.path ?? '');
   useEffect(() => { setPath(e.setting.path ?? ''); }, [e.setting.path]);
   // 一般の節を開いたら、候補の一覧を読み直す（入れ直した直後でも合うように）。
@@ -120,12 +137,16 @@ export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveM
     // 別のエディタへ移るときは、前のエディタのパスを持ち越さない。
     save({ id, path: null });
     emit({ type: 'editors.load' });
+    closeOthers();
   };
   const savePath = () => {
     const next = path.trim();
     if (next === (e.setting.path ?? '')) return;
     save({ path: next === '' ? null : next });
   };
+  // 選んでいない候補を、見つかったもの（アプリのみを含む）と任意のコマンド、見つからないものに分ける。検出中は全部上に置く。
+  const rest = e.choices.filter((c) => !c.selected);
+  const others = { top: rest.filter((c) => c.state !== 'none'), missing: rest.filter((c) => c.state === 'none') };
   const error = props.mark?.kind === 'error' ? props.mark.message : null;
   const testText = e.test.running ? t('settings.editor.test.running', { name: e.name ?? t('external.editor.generic') }) : null;
   const r = e.test.result;
@@ -139,13 +160,22 @@ export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveM
         <div className="editor-settings">
           {/* テストの答えは、選んだ行（テストのボタン）のすぐ下に出す。欄の下端に出すと、右下の知らせの札に隠れることがあるためである。 */}
           <div className="editor-choices" role="radiogroup" aria-label={t('settings.editor.title')}>
-            {e.choices.map((c) => (
-              <Fragment key={c.id}>
-                <Choice c={c} loading={e.loading} testing={e.test.running} onPick={pick} onTest={() => emit({ type: 'editor.test' })} />
-                {c.selected && testResult}
-              </Fragment>
-            ))}
+            <Choice c={selected} loading={e.loading} testing={e.test.running} onPick={pick} onTest={() => emit({ type: 'editor.test' })} />
+            {testResult}
           </div>
+          <button type="button" className="btn-link editor-others-toggle" aria-expanded={othersOpen} onClick={() => (othersOpen ? closeOthers() : setOthersOpen(true))}>
+            {e.loading ? t('settings.editor.othersPlain') : t('settings.editor.others', { found: others.top.filter((c) => c.state !== null).length, missing: others.missing.length })}
+            <Icon name="chevronDown" />
+          </button>
+          {othersOpen && (
+            <div ref={othersBox} className="editor-others">
+              <div className="editor-choices" role="radiogroup" aria-label={t('settings.editor.othersPlain')}>
+                {others.top.map((c) => <Choice key={c.id} c={c} loading={e.loading} testing={e.test.running} onPick={pick} onTest={() => {}} />)}
+                {others.missing.length > 0 && <div className="editor-group-h faint">{t('settings.editor.missingGroup', { n: others.missing.length })}</div>}
+                {others.missing.map((c) => <Choice key={c.id} c={c} loading={e.loading} testing={e.test.running} onPick={pick} onTest={() => {}} />)}
+              </div>
+            </div>
+          )}
           {e.setting.id === 'custom'
             ? <CustomCommand fileCmd={e.setting.fileCmd} dirCmd={e.setting.dirCmd} terminal={e.setting.terminal} save={(p) => save(p)} />
             : (
