@@ -28,8 +28,6 @@ export const compatEn: AreaDictionary<typeof compatKeys> = {
   'compat.stop.attachLine': 'Resuming background sessions with attach is disabled',
   'compat.stop.summaryShort': 'Summarize with Claude',
   'compat.stop.summaryLine': 'Summarizing with Claude is disabled',
-  'compat.status.okNote': 'No changes (verified on {verified})',
-  'compat.status.okLead': 'hangar is watching the formats of Claude Code that it reads',
   'compat.status.okBadge': 'No issues',
   'compat.status.unverifiedNote': '{local} (verified version: {verified})',
   'compat.status.unverifiedLead': 'This version has not been verified yet. Nothing is disabled',

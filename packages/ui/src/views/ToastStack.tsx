@@ -168,7 +168,7 @@ function JoinCard(props: { card: JoinCardProps; blocked: boolean; motion: CardMo
       <div className="notice-body">
         <div className="notice-title">{t('cloudMember.toast.title', { name: c.name })}</div>
         <div className="notice-sub">{c.os}</div>
-        <div className="notice-sas"><span>{t('cloudMember.toast.sasNote')}</span><b className="mono">{c.sas}</b></div>
+        <div className="notice-sas"><span>{t('cloudMember.join.sasLabel')}</span><b className="mono">{c.sas}</b></div>
         <div className="notice-acts">
           <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } })}>{t('cloudMember.toast.open')}</button>
         </div>

@@ -55,7 +55,6 @@ export const accountKeys = {
   'account.add.separate.loginDetail': [],
   'account.add.separate.managed': [],
   'account.add.separate.cache': [],
-  'account.add.conflictNote': [],
   'account.add.conflicts': ['dir', 'names'],
   'account.add.exists': [],
   'account.add.registered': ['name'],

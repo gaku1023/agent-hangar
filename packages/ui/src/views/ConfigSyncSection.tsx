@@ -49,18 +49,14 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
   return (
     <section aria-labelledby="settings-config-h">
       <h3 className="h2" id="settings-config-h">{t('settings.cloud.config.title')}</h3>
-      <SetRow title={t('settings.cloud.config.enable')}
-        desc={off ? t('settings.cloud.config.needsCloud') : (
-          <>
-            {t('configSyncUi.section.desc')}
-            {on && (
-              <div className="cfg-line">
-                {c.lastSent !== null ? t('configSyncUi.section.lastSent', { time: c.lastSent }) : t('configSyncUi.section.notSentYet')}
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'configSync.open', part: 'send' })}>{t('configSyncUi.section.showOutgoing')}</button>
-              </div>
-            )}
-          </>
-        )}
+      {/* 何を同期するかは ⓘ に畳む。行には、使えない理由と、最後に送った時刻だけを出す。 */}
+      <SetRow title={t('settings.cloud.config.enable')} info={t('configSyncUi.section.desc')}
+        desc={off ? t('settings.cloud.config.needsCloud') : on ? (
+          <div className="cfg-line">
+            {c.lastSent !== null ? t('configSyncUi.section.lastSent', { time: c.lastSent }) : t('configSyncUi.section.notSentYet')}
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'configSync.open', part: 'send' })}>{t('configSyncUi.section.showOutgoing')}</button>
+          </div>
+        ) : undefined}
         control={<Switch label={t('settings.cloud.config.enable')} checked={on} disabled={off} onChange={toggle} />}
         below={on && c.workerPending ? (
           <div className="cfg-strip" data-tone="warn" role="status">
@@ -94,10 +90,10 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
               ].filter((x) => x !== null).join(t('configSyncUi.incoming.sep'))}
             control={<button type="button" className="btn btn-sm btn-primary" disabled={c.incoming.count + c.incoming.held === 0} onClick={() => emit({ type: 'configSync.open', part: 'review' })}>{t('configSyncUi.incoming.review')}</button>} />
           {c.awaiting > 0 && (
-            <SetRow title={t('configSyncUi.awaiting.title', { n: c.awaiting })} desc={t('configSyncUi.awaiting.desc')}
+            <SetRow title={t('configSyncUi.awaiting.title', { n: c.awaiting })}
               control={<button type="button" className="btn btn-sm" onClick={() => emit({ type: 'configSync.open', part: 'approve' })}>{t('configSyncUi.awaiting.open')}</button>} />
           )}
-          <SetRow title={t('configSyncUi.approval.title')} desc={c.approval === 'auto' ? t('configSyncUi.approval.descAuto') : t('configSyncUi.approval.desc')}
+          <SetRow title={t('configSyncUi.approval.title')} info={c.approval === 'auto' ? t('configSyncUi.approval.descAuto') : t('configSyncUi.approval.desc')}
             control={(
               <Segmented label={t('configSyncUi.approval.title')} value={c.approval}
                 options={[{ value: 'each', label: t('configSyncUi.approval.each') }, { value: 'auto', label: t('configSyncUi.approval.auto') }]}
@@ -115,10 +111,10 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
                 <button type="button" className="btn btn-sm btn-primary" onClick={() => { setAskAuto(false); emit({ type: 'settings.update', patch: { configApproval: 'auto' } }); }}>{t('configSyncUi.approval.makeAuto')}</button>
               </div>
             ) : undefined} />
-          <SetRow title={t('configSyncUi.conflicts.title', { n: c.conflicts })} desc={c.conflicts === 0 ? t('configSyncUi.conflicts.none') : t('configSyncUi.conflicts.desc')}
+          <SetRow title={t('configSyncUi.conflicts.title', { n: c.conflicts })} info={t('configSyncUi.conflicts.desc')}
             control={<button type="button" className="btn btn-sm" disabled={c.conflicts === 0} onClick={() => emit({ type: 'configSync.open', part: 'conflicts' })}>{t('configSyncUi.conflicts.open')}</button>} />
           {/* 送らなかった項目は、0 件でも行を残す（e2）。送った直後の知らせはベルの一覧に入る（段 4 の PR 19）。 */}
-          <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: c.unsent.count })} desc={t('configSyncUi.unsent.desc')}
+          <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: c.unsent.count })} info={t('configSyncUi.unsent.desc')}
             control={<button type="button" className="btn btn-sm" aria-expanded={unsentOpen && c.unsent.count > 0} disabled={c.unsent.count === 0} onClick={() => setUnsentOpen(!unsentOpen)}>{unsentOpen && c.unsent.count > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}
             below={unsentOpen && c.unsent.count > 0 ? (
               <div className="cfg-list">

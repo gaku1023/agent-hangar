@@ -106,7 +106,7 @@ describe('presentCloudUsage', () => {
     expect(p.strip).toEqual({ tone: 'info', text: '読み取り専用の API トークンを入力すると、Cloudflare の実測値、R2、今月の請求額が表示されます。' });
     expect(p.command).toBe(TOKEN_COMMAND);
     // 入れた版の hangar には wrangler が無いので、clone した場所で打つと添える。
-    expect(p.commandWhere).toBe('リポジトリをクローンして npm install したディレクトリで、次を実行してください。');
+    expect(p.commandWhere).toBe('ターミナルで次を実行してください。');
   });
 
   it('トークンの失効は案内の帯をその文に替える', () => {

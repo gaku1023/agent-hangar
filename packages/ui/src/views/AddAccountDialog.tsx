@@ -113,8 +113,7 @@ export function AddAccountDialog(props: AddAccountProps) {
       </div>
       {pv?.registeredAs != null ? <div className="add-account-note" data-tone="stop">{t('account.add.registered', { name: pv.registeredAs })}</div>
         : pv && pv.conflicts.length > 0 ? <div className="add-account-note" data-tone="warn">{t('account.add.conflicts', { dir: dirLabel, names: pv.conflicts.join(sep) })}</div>
-          : pv?.exists ? <div className="add-account-note">{t('account.add.exists')}</div>
-            : <div className="add-account-note faint">{t('account.add.conflictNote')}</div>}
+          : pv?.exists ? <div className="add-account-note">{t('account.add.exists')}</div> : null}
       {props.error && <div className="error" role="alert">{props.error}</div>}
     </Dialog>
   );

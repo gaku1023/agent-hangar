@@ -72,7 +72,7 @@ describe('seenLabel', () => {
 describe('presentCompat', () => {
   it('問題なしは、確かめた版だけを添えて、見張っていると言う', () => {
     expect(presentCompat(ja, { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '0.3.0')).toEqual({
-      state: 'ok', note: '変更点なし（2.1.292 で検証済み）', lead: 'hangar が読み取る Claude Code のデータ形式を監視しています', badge: '問題なし',
+      state: 'ok', note: null, lead: null, badge: '問題なし',
       localVersion: '2.1.292', verifiedVersion: '2.1.292', count: 0, stops: null, rows: null, report: null,
     });
   });
@@ -154,7 +154,7 @@ describe('英語', () => {
     expect(p.stops).toEqual(['Jumping from the turn outline to the instruction in the terminal is disabled', 'Automatically stopping idle sessions is disabled']);
     expect(p.rows!.map((r) => [r.contract, r.stop])).toEqual([['Screen output', 'Jump from outline'], ['Registry', 'Auto-stop when idle'], ['Transcript', null]]);
     expect(presentCompat(en, { ...SUM, driftCount: 1 }, null, '').badge).toBe('1 change');
-    expect(presentCompat(en, { ...SUM, driftCount: 0, localVersion: null }, null, '')).toMatchObject({ localVersion: 'Unknown', note: 'No changes (verified on 2.1.292)', badge: 'No issues' });
+    expect(presentCompat(en, { ...SUM, driftCount: 0, localVersion: null }, null, '')).toMatchObject({ localVersion: 'Unknown', note: null, badge: 'No issues' });
   });
   it('報告用の文も英語で出る', () => {
     const lines = compatReport(en, { ...SUM, localVersion: null }, DETAIL.drifts, '0.3.0').split('\n');

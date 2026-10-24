@@ -91,7 +91,7 @@ export function ProjectCandidatesDialog(props: ProjectCandidatesProps) {
       {props.suggestedRoot && (
         <div className="cand-root">
           <Check label={t('newProject.candidates.suggest', { path: props.suggestedRoot.label })} checked={useRoot} onChange={setUseRoot} />
-          <span>{t('newProject.candidates.suggest', { path: props.suggestedRoot.label })}<small>{t('newProject.candidates.suggestNote')}</small></span>
+          <span>{t('newProject.candidates.suggest', { path: props.suggestedRoot.label })}</span>
         </div>
       )}
     </>

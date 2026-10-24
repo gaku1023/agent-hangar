@@ -31,7 +31,7 @@ function Choice(props: { c: EditorChoice; loading: boolean; testing: boolean; on
       <span className="editor-tile" aria-hidden="true">{c.tile}</span>
       <span className="editor-choice-main">
         <span className="editor-choice-name">{c.name}{c.version && <span className="faint num editor-choice-ver">{c.version}</span>}</span>
-        <span className="editor-choice-path mono" title={c.path ?? undefined}>{c.path ?? (c.id === 'custom' ? '' : '—')}</span>
+        <span className="editor-choice-path mono" title={c.path ?? undefined}>{c.path ?? ''}</span>
       </span>
       {c.badge ? <span className="badge" data-tone={c.badge.tone === 'mute' ? 'off' : c.badge.tone}>{c.badge.text}</span> : props.loading && c.id !== 'custom' ? <span className="faint editor-choice-wait">{t('settings.editor.checking')}</span> : <span />}
       {c.selected
@@ -133,7 +133,7 @@ export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveM
     ? <div className="editor-result" role="status">{testText}</div>
     : r ? <div className="editor-result" data-tone={r.tone} role="status"><Icon name={r.tone === 'ng' ? 'close' : r.tone === 'warn' ? 'alert' : 'check'} />{r.text}</div> : null;
   return (
-    <SetRow id="settings-field-editor" title={t('settings.editor.title')} desc={t('settings.editor.desc')}
+    <SetRow id="settings-field-editor" title={t('settings.editor.title')} info={t('settings.editor.desc')}
       control={<button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'editors.load' })}><Icon name="recheck" />{t('settings.editor.recheck')}</button>}
       below={(
         <div className="editor-settings">

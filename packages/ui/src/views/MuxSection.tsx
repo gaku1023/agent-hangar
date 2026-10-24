@@ -3,6 +3,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { MuxStatus } from '../presenters/readiness.ts';
 import { CommandLine } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
 
 /**
@@ -21,9 +22,9 @@ export function MuxSection(props: { mux: MuxStatus }) {
     <section aria-labelledby={id}>
       <h3 className="h2">
         <span id={id}>{m.name}</span>
+        <InfoTip label={m.name}>{t(m.windows ? 'mux.desc.windows' : 'mux.desc.other')}</InfoTip>
         <span className="badge" data-tone={m.installed && !old ? 'ok' : 'warn'}><Icon name={m.installed && !old ? 'check' : 'alert'} />{old ? t('mux.badge.outdated') : m.installed ? t('mux.badge.installed') : t('mux.badge.missing')}</span>
       </h3>
-      <div className="muted">{t(m.windows ? 'mux.desc.windows' : 'mux.desc.other')}</div>
       {m.installed && m.version && <div className="faint">{old ? t('mux.info.versionNeed', { version: m.version, min: old.min }) : t('mux.info.version', { version: m.version })}</div>}
       {m.installed && m.path && <div className="faint mono">{m.path}</div>}
       {/* 古い psmux（issue #245）。上げると psmux の中のセッションが全部止まり、hangar の端末からは打てないので、その 2 点を先に言う。 */}

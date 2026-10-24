@@ -107,7 +107,8 @@ describe('参加リクエストの通知（試作 C1）', () => {
     expect(c).toHaveTextContent('pc-b から参加リクエストを受信しました');
     expect(c).toHaveTextContent('Windows');
     expect(c).toHaveTextContent('418 207');
-    expect(c).toHaveTextContent('新しい PC の確認コードと一致すれば承認してください');
+    // 照らし合わせ方の文は設定の承認の段で言うので、通知には「確認コード」の名前だけを添える。
+    expect(c).toHaveTextContent('確認コード418 207');
     fireEvent.click(within(c).getByRole('button', { name: '確認して承認' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } });
   });

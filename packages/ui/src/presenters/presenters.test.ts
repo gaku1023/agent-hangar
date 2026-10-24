@@ -947,10 +947,13 @@ describe('presentSettings（フェーズ 2）', () => {
     expect(mac.terminalOptions).toEqual([{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }]);
     expect(mac.terminalApp).toBe('iterm');
     expect(mac.terminalDesc).toMatch(/iTerm2/);
+    // iTerm2 の許可は許可が要る所なので、ⓘ に畳まずに行に常に出す。
+    expect(mac.terminalDescAlways).toBe(true);
     const win = presentSettings(initialState(), store, Date.now(), 'win32');
     expect(win.terminalOptions).toEqual([{ value: 'windowsTerminal', label: 'Windows Terminal' }, { value: 'windowsDefault', label: 'デフォルトのターミナル' }]);
     expect(win.terminalApp).toBe('windowsTerminal');
     expect(win.terminalDesc).not.toMatch(/iTerm2|macOS/);
+    expect(win.terminalDescAlways).toBe(false);
     store.settings = { ...store.settings, terminalApp: 'windowsDefault' };
     expect(presentSettings(initialState(), store, Date.now(), 'win32').terminalApp).toBe('windowsDefault');
     expect(presentSettings(initialState(), store, Date.now(), 'darwin').terminalApp).toBe('terminal');

@@ -63,9 +63,11 @@ describe('AccountSettings の一覧', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'アカウントを追加…' })).toBeInTheDocument();
   });
-  it('説明の 1 行を出す', () => {
+  it('説明は見出しの横の ⓘ に畳み、押すと浮かぶ', () => {
     mount();
-    expect(screen.getByText('Claude Code のアカウントを追加すると、設定、スキル、履歴を共有したまま、ログインだけを切り替えられます。hangar はログイン情報を読み取りません。')).toBeInTheDocument();
+    expect(screen.queryByText(/hangar はログイン情報を読み取りません/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントの説明' }));
+    expect(screen.getByRole('dialog', { name: 'アカウントの説明' })).toHaveTextContent('ログインだけを切り替え、設定、スキル、履歴は共有します。hangar はログイン情報を読み取りません。');
   });
 });
 

@@ -125,8 +125,11 @@ export type SettingsProps = {
   tmuxPath: string | null; terminalApp: TerminalApp;
   /** エディタの欄（一般の節）。 */
   editor: EditorSettingsProps;
-  /** 外部ターミナルの選択肢と説明。画面を開いている OS のものだけを出す（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）。 */
-  terminalOptions: { value: TerminalApp; label: string }[]; terminalDesc: string;
+  /**
+   * 外部ターミナルの選択肢と説明。画面を開いている OS のものだけを出す（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）。
+   * terminalDescAlways は説明を行に常に出すか（macOS の iTerm2 の許可）で、偽なら見出しの横の ⓘ に畳む。
+   */
+  terminalOptions: { value: TerminalApp; label: string }[]; terminalDesc: string; terminalDescAlways: boolean;
   /** ターミナルで打つコマンド。どれも同じ hangar の呼び方にそろえる。 */
   /** join は入れた版の CLI でも打てる。setupCloud は wrangler が要るので、リポジトリを clone した場所での呼び方である。 */
   commands: { mcp: string; statusline: string; join: string; setupCloud: string };
@@ -401,7 +404,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     // 別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定として見せる。
     tmuxPath: s?.tmuxPath ?? null, terminalApp: terminalAppFor(s?.terminalApp, platform), editor: presentEditor(t, store),
     terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
-    terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'),
+    terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'), terminalDescAlways: platform !== 'win32',
     summaryEngine, summaryClaudeModel: s?.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, summaryApiKeySet: s?.summaryApiKeySet === true,
     injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, remoteControl: s?.remoteControl !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false }) },
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? false, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,

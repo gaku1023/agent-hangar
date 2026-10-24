@@ -74,14 +74,15 @@ describe('presentUpdateSection：設定の「更新」の節', () => {
   it('最新なら、版と最終確認の時刻、最新の札を出す', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'latest' }, { checkedAt: NOW - 5 * MIN })), NOW);
     expect(p).toMatchObject({ supported: true, badge: { text: '最新', tone: 'ok' }, version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false }, pending: null });
-    expect(p.notify).toEqual({ on: true, desc: '新しいバージョンが公開されたら通知します。自動ではインストールしません。' });
+    expect(p.notify).toEqual({ on: true, info: '自動ではインストールしません。' });
     expect(p.tocState).toBe('最新');
   });
 
   it('確認中はボタンを押せず、通知オフなら札は通知オフにする', () => {
     const p = presentUpdateSection(storeOf(up({ kind: 'checking' }, { notify: false })), NOW);
     expect(p).toMatchObject({ badge: { text: '通知オフ', tone: 'off' }, version: { sub: '確認中…', checkLabel: '確認中…', checkDisabled: true } });
-    expect(p.notify).toEqual({ on: false, desc: '無効です。手動での確認だけ使えます。' });
+    // 切っているかはスイッチと見出しの札（通知オフ）で読めるので、言い直しの文は持たない。
+    expect(p.notify).toEqual({ on: false, info: '自動ではインストールしません。' });
   });
 
   it('まだ確認していなければ、そう言う', () => {

@@ -6,6 +6,7 @@ import type { AccountSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { useT } from './primitives/language.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { InfoTip } from './primitives/InfoTip.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 
 /**
@@ -157,8 +158,7 @@ export function AccountSettings(props: AccountSettingsProps) {
   const t = useT();
   return (
     <section id="settings-accounts" className="account-set-section" aria-labelledby="settings-accounts-h">
-      <h3 className="h2" id="settings-accounts-h">{t('account.settings.heading')}</h3>
-      <div className="muted">{t('account.settings.lead')}</div>
+      <h3 className="h2"><span id="settings-accounts-h">{t('account.settings.heading')}</span><InfoTip label={t('account.settings.heading')}>{t('account.settings.lead')}</InfoTip></h3>
       <ul className="list account-set-list" aria-label={t('account.settings.listAria')}>
         {props.list.map((a) => <AccountRow key={a.id} account={a} colors={props.colors} />)}
       </ul>
