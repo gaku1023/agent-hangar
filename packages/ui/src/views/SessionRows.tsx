@@ -13,10 +13,10 @@ import { VirtualList } from './primitives/VirtualList.tsx';
 import { pointAnchor, SessionMenuPop, sessionMenuItems, sessionMenuWidth } from './sessionMenu.tsx';
 
 /**
- * 動きの語。入力待ちと実行中だけを語にし、止まっているものは点だけにする。
- * 休みは実行中に数える（shared の liveFilterOf と同じ）。細かい区別は点が読み上げるので、語は読み上げに重ねない。
+ * 右端の動きの語を出すか。入力待ちと、止まっている理由（許可待ち、使用制限の時刻、リセット済み）だけを語にする。
+ * 「実行中」の語は出さない。動いていることは状態の札の中の点が言う（2026-10-24 の決定）。細かい区別は点が読み上げるので、語は読み上げに重ねない。
  */
-const LIVE_WORD_KEY = { waiting: 'list.live.waiting', busy: 'list.live.running', idle: 'list.live.running' } as const;
+const liveWord = (t: Translate, r: SessionRowProps): string | null => r.reasonWord ?? (r.live === 'waiting' ? t('list.live.waiting') : null);
 
 /**
  * 行の中の操作の器のクリックを止める。止めないと、押したときに行も開く。
@@ -39,7 +39,8 @@ function candidatePop(t: Translate, r: SessionRowProps, emit: Emit, onClose: (ho
   const head = (
     <>
       <b className="menu-head-q">{c.status === 'done' ? t('row.candidate.askDone') : t('row.candidate.askPaused', { date: returnOnLabel(t, c.returnOn, null, c.returnTime) })}</b>
-      <span>{c.note ?? t('projectScreen.todo.noNote')}</span>
+      {/* 根拠の無い提案は、根拠の行ごと出さない。 */}
+      {c.note && <span>{c.note}</span>}
       <small>{t('row.candidate.source', { source: candidateSourceLabel(t, c.source), ago: c.ago })}</small>
     </>
   );
@@ -93,7 +94,7 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
  * items を渡すと、行のあいだに検索の結果の組の見出しを挟む。見出しは行ではないので、カーソルとフォーカスは見出しを飛ばす。
  * badgeAction を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
- * statusColumn が偽なら、点の右の状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。
+ * statusColumn が偽なら、状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。動きの点は、列があれば札の中に、無ければ行の頭に置く。
  */
 export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction; /** 並びの替わりを知らせる範囲（VirtualList の scope）。タブ、条件、ページが替わったら替える。 */ scope?: string }) {
   const emit = useEmit();
@@ -273,7 +274,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {r.transcript === 'gone' && <span className="row-gone" title={goneLabel}><Icon name="transcriptGone" label={goneLabel} /></span>}
         {r.interrupted && <span className="row-interrupted" title={r.interrupted.title}>{r.interrupted.label}<span className="sr-only">{` ${r.interrupted.title}`}</span></span>}
         {/* 止まっている理由があれば、右端の語をそれに替える（「許可待ち」「使用制限 · 16:50」「リセット済み」、試作の L1）。 */}
-        {r.live && <span className="row-live" data-live={r.reason === 'limit' ? 'limit' : r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{r.reasonWord ?? t(LIVE_WORD_KEY[r.live])}</span>}
+        {r.live && liveWord(t, r) !== null && <span className="row-live" data-live={r.reason === 'limit' ? 'limit' : r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{liveWord(t, r)}</span>}
         {r.menu && (
           <span className="row-act row-more" onClick={stopClick}>
             <MenuButton label={t('row.menu.label', { name: r.name })} items={sessionMenuItems(t, r.menu, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={sessionMenuWidth(r.menu)} onClose={(how) => menuClosed(r.id, how)} />
@@ -298,10 +299,11 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   );
 
   // 状態の列（F1）。状態の語の札（Active・Paused・Done・Archived）を同じ幅で置き、どの行も空にしない。
-  // 状態の無い行は Active の札で、Claude の提案があればその札を代わりに置く。動いているかどうかは札に出さず、点と右の語が言う。
-  // 状態と提案の両方を持つ行は無い（状態を正とし、提案は無いものとする。presenters/row.ts）。
+  // 状態の無い行は Active の札で、Claude の提案があればその札を代わりに置く。状態と提案の両方を持つ行は無い（状態を正とし、提案は無いものとする。presenters/row.ts）。
+  // 動いている行は、札の中の左に点を畳む（作業中は脈打つ、rows.css）。点は札の外の兄弟にし、札がボタンでも点の読み上げを残す。止まった行には点を置かない。
   const status = (r: SessionRowProps) => (
-    <span className="row-status">
+    <span className="row-status" data-live={r.live ?? undefined}>
+      {r.live && <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />}
       {r.state
         // 札の語は英語のまま、日本語の説明（自動で付いた Done はその理由）をツールチップで添える（statusMark）。
         // 自動で付いた Done は、札の頭に ✦ を置き、枠を点線にする（4a、試作の A）。
@@ -332,8 +334,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
       onClick={() => emit(openAction(r))} onFocus={() => setCursorId(r.id)}
       onContextMenu={r.menu ? (e) => { e.preventDefault(); setCursorId(r.id); setCtx({ id: r.id, at: pointAnchor(e.clientX, e.clientY) }); } : undefined}>
-      <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />
-      {statusColumn && status(r)}
+      {statusColumn ? status(r) : <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />}
       <span className="row-main">
         <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{r.phone && <span className="row-phone" data-bypass={r.phone.bypass ? 'true' : undefined} title={r.phone.title}>{r.phone.label}</span>}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>
         {sub(r)}

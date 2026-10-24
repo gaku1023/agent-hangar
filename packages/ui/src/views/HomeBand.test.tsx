@@ -14,7 +14,7 @@ import { CopiedContext } from './primitives/CommandLine.tsx';
 const ja = translator('ja');
 const waiting = (id: string): AttentionCard => ({ id, name: `待ち ${id}`, projectName: 'alpha', waited: '12分', question: `問い ${id}`, answer: 'terminal' });
 const reminder = (id: string): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'alpha', reason: '結果を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true, pastMin: null });
-const running = (id: string): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha · opus', intent: '上限を足す', activity: { tool: 'Edit', summary: 'a.ts' }, note: null, contextPercent: 40, contextLabel: '40%' });
+const running = (id: string): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha', intent: '上限を足す', activity: { tool: 'Edit', summary: 'a.ts' }, note: null, idleFor: null, contextPercent: 40, contextLabel: '40%' });
 const todo = (id: string): ConfirmCard => ({ kind: 'todo', id, text: `やる ${id}`, projectId: 'alpha', projectName: 'alpha', sessionName: 'one', ago: '1 時間前', note: '片付いた' });
 const none = { attention: [], returning: [], running: [], confirm: [] };
 const busy = { attention: [waiting('a'), waiting('b')], returning: [reminder('r')], running: [running('x')], confirm: [todo('t1'), todo('t2')] };
@@ -107,9 +107,11 @@ describe('HomeBand の引き出し', () => {
     expect(pill('実行中 1')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('「折りたたむ」で閉じ、焦点は押した錠剤へ戻る', () => {
+  it('「折りたたむ」で閉じ、焦点は押した錠剤へ戻る。ボタンは記号だけで、名前は読み上げに残す', () => {
     mount(busy);
-    fireEvent.click(within(screen.getByRole('region', { name: '要対応' })).getByRole('button', { name: '折りたたむ' }));
+    const close = within(screen.getByRole('region', { name: '要対応' })).getByRole('button', { name: '折りたたむ' });
+    expect(close).toHaveTextContent(/^$/);
+    fireEvent.click(close);
     expect(screen.queryByRole('region', { name: '要対応' })).toBeNull();
     expect(pill('要対応 3')).toHaveFocus();
   });
@@ -133,10 +135,10 @@ describe('HomeBand の引き出し', () => {
     expect(screen.queryByRole('region', { name: '要対応' })).toBeNull();
     expect(screen.queryByRole('button', { name: '要対応 3' })).toBeNull();
     expect(screen.getByText('要対応').closest('.count-chip')).toHaveTextContent('要対応 3');
-    expect(screen.getByText('検索中は折りたたんで表示します')).toBeInTheDocument();
+    // 検索中であることは、件数だけになった錠剤が言う。帯の右端に注記は添えない。
+    expect(m.container.querySelector('.band-text')).toBeNull();
     act(() => m.rerender(busy, false));
     expect(screen.getByRole('region', { name: '要対応' })).toBeInTheDocument();
-    expect(screen.queryByText('検索中は折りたたんで表示します')).toBeNull();
   });
 
   it('帯の右端に、画面が渡した 1 行の注記を出せる', () => {
@@ -178,7 +180,8 @@ describe('HomeBand の行', () => {
     expect(drawer).toHaveTextContent('動く x');
     expect(drawer).toHaveTextContent('上限を足す');
     expect(drawer).toHaveTextContent('Edit a.ts');
-    expect(drawer).toHaveTextContent('作業中 5分');
+    expect(drawer).toHaveTextContent('5分');
+    expect(drawer).not.toHaveTextContent('作業中 5分');
     expect(drawer).toHaveTextContent('40%');
   });
 });
@@ -221,7 +224,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     expect(container.querySelector('.band-prog > span')).toHaveStyle({ width: '57%' });
     // tmux と claude が揃っているので、帯の右端の文は出さない。引き出しの見出しに残りの件数も添えない。
     expect(container.querySelector('.band-text')).toBeNull();
-    expect(container.querySelector('.drawer-h')).toHaveTextContent(/^セットアップの確認折りたたむ$/);
+    expect(container.querySelector('.drawer-h')).toHaveTextContent(/^セットアップの確認$/);
   });
 
   it('足りない道具があれば、帯の右端にその名だけを出す', () => {
@@ -324,7 +327,7 @@ describe('HomeBand の場所の不明なプロジェクト（2.11.5）', () => {
     mount(busy, { extra: [group([lost('alpha')])] });
     fireEvent.click(pill('パスが不明なプロジェクト 1'));
     const drawer = screen.getByRole('region', { name: 'パスが不明なプロジェクト' });
-    expect(within(drawer).getByText('この PC でのパスがありません')).toBeInTheDocument();
+    expect(within(drawer).queryByText('この PC でのパスがありません')).toBeNull();
     const row = within(drawer).getByText('alpha').closest('li')!;
     expect(row).toHaveAttribute('data-k', 'place');
     expect(within(row).getByText('セッション 1 件')).toBeInTheDocument();
@@ -470,18 +473,15 @@ describe('HomeBand の動き', () => {
     expect(drawerEl(m.container)).toBeNull();
   });
 
-  it('検索に入ると注記は薄れから現れ、引き出しは畳んで出る。抜けると注記は薄れて消え、引き出しは伸びて戻る', async () => {
+  it('検索に入ると引き出しは畳んで出て、注記は出さない。抜けると引き出しは伸びて戻る', async () => {
     const m = mount(busy);
     const d = drawerEl(m.container)!;
     act(() => m.rerender(busy, true));
-    const note = m.container.querySelector('.band-text')!;
-    expect(on(note).map((a) => [a.frames, a.opts.duration])).toEqual([[[{ opacity: 0 }, { opacity: 1 }], 200]]);
+    expect(m.container.querySelector('.band-text')).toBeNull();
     expect(on(d).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px' });
     await done();
     animations = [];
     act(() => m.rerender(busy, false));
-    expect(m.container.querySelector('.band-text')).toBe(note);
-    expect(on(note).map((a) => a.frames)).toEqual([[{ opacity: 1 }, { opacity: 0 }]]);
     expect(on(drawerEl(m.container)).at(-1)!.frames[0]).toMatchObject({ height: '0px' });
     await done();
     expect(m.container.querySelector('.band-text')).toBeNull();

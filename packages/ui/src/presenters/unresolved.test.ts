@@ -58,7 +58,7 @@ describe('presentUnresolved（帯の 4 つ目の錠剤）', () => {
 
   it('群の形：場所の不明なプロジェクト、警告の色、朝には開かない', () => {
     const g = presentUnresolved(storeOf([missing('a')]), ja)!;
-    expect(g).toMatchObject({ id: 'unresolved', label: 'パスが不明なプロジェクト', icon: 'folder', tone: 'warn', morning: false, summary: 'この PC でのパスがありません' });
+    expect(g).toMatchObject({ id: 'unresolved', label: 'パスが不明なプロジェクト', icon: 'folder', tone: 'warn', morning: false, summary: '' });
     expect(presentUnresolved(storeOf([missing('a')]), en)!.label).toBe('Projects without a folder');
   });
 
@@ -101,7 +101,7 @@ describe('presentSameFolder（同じフォルダのプロジェクトの群）',
   const dup = (id: string, into: string) => project(id, { path: '/w/shop', sameFolder: { projectId: into, name: 'shop' } });
   it('まとめる方の行を出し、押すと同じパスで「場所を再指定」を送る（サーバーの 409 がまとめる確認を開く）', () => {
     const g = presentSameFolder(storeOf([project('p-mac', { path: '/w/shop' }), dup('p-win', 'p-mac')]), ja)!;
-    expect(g).toMatchObject({ id: 'sameFolder', label: '同じディレクトリのプロジェクト', icon: 'folder', tone: 'warn', count: 1, morning: false, summary: 'この PC で同じディレクトリを指しています' });
+    expect(g).toMatchObject({ id: 'sameFolder', label: '同じディレクトリのプロジェクト', icon: 'folder', tone: 'warn', count: 1, morning: false, summary: '' });
     const row = g.rows[0]!;
     expect(row).toMatchObject({ key: 'sameFolder:p-win', lead: { kind: 'place' }, name: 'p-win', context: 'shop と同じディレクトリ', detail: '/w/shop', open: { type: 'project.open', id: 'p-win' } });
     expect(row.actions.map((a) => [a.id, a.label, a.primary, a.send])).toEqual([

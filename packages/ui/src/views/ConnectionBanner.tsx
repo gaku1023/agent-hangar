@@ -22,7 +22,6 @@ export function ConnectionBanner(props: ConnProps) {
         {props.desktop
           ? (
             <>
-              <span>{t('conn.hard.restartPrompt')}</span>
               <button className="btn btn-sm" onClick={() => emit({ type: 'shell.openLog' })}><Icon name="log" />{t('conn.hard.openLog')}</button>
               <button className="btn btn-sm" onClick={() => emit({ type: 'shell.restart' })}><Icon name="restart" />{t('conn.hard.restart')}</button>
             </>

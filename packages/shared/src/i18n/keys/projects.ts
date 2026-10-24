@@ -9,7 +9,6 @@ export const projectsKeys = {
   'projects.col.sessions': [],
   'projects.col.status': [],
   'projects.empty.body1': [],
-  'projects.empty.body2': [],
   'projects.empty.promote': [],
   'projects.empty.title': [],
   'projects.filter.label': [],

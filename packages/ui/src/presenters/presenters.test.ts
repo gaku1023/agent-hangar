@@ -236,6 +236,10 @@ describe('presentHome', () => {
     store.sessions = { ...store.sessions, p1: session('p1', { state: cand('done', 'in_session', NOW - 36 * 3_600_000) }), p2: session('p2', { state: cand('paused', 'post_hoc', NOW - 3_600_000) }) };
     const h = presentHome(initialState(), store, NOW);
     expect(h.confirm.map((c) => (c.kind === 'session' ? [c.id, c.source, c.daysLeft] : null))).toEqual([['p1', 'in_session', 6], ['p2', 'post_hoc', null]]);
+    // 根拠の無い提案は、本文を空にする（「根拠はありません」を出さない）。
+    const bare = cand('done', 'in_session', NOW - 3_600_000);
+    store.sessions = { ...store.sessions, p1: session('p1', { state: { ...bare, candidate: { ...bare.candidate, note: null } } }) };
+    expect(presentHome(initialState(), store, NOW).confirm.find((c) => c.id === 'p1')).toMatchObject({ kind: 'session', note: '' });
   });
   it('候補が無ければ確かめるは空で、件数にも出さない', () => {
     const h = presentHome(initialState(), homeStore(), NOW);
@@ -284,8 +288,8 @@ describe('presentHome', () => {
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
-    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%', limit: null, git: null });
-    expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: 'アイドル。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, idleFor: null, contextPercent: 38.4, contextLabel: '38%', limit: null, git: null });
+    expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: null, idleFor: '8 分', contextPercent: 22, contextLabel: '22%' });
   });
   it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {
     const store = homeStore();
@@ -1752,12 +1756,12 @@ describe('presentSessionRow の本文の印', () => {
 
 describe('presentSessionRow の要約の見立て（B1）', () => {
   const judged = (state: SessionSummaryDto['state'], source: SessionSummaryDto['source'] = 'in_session') => session('a', { summary: { ...session('a').summary!, state, source } });
-  it('ブロック中と中止だけに色の調子を付け、ほかは調子なしで語だけを出す', () => {
+  it('札はブロック中だけに出し、進行中と完了と中止は出さない', () => {
     const store = initialStore();
     expect(presentSessionRow(judged('blocked'), store, NOW).summaryState).toEqual({ label: 'ブロック中', tone: 'blocked' });
-    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toEqual({ label: '中止', tone: 'abandoned' });
-    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toEqual({ label: '進行中', tone: null });
-    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toEqual({ label: '完了', tone: null });
+    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toBeNull();
+    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toBeNull();
+    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toBeNull();
   });
   it('土台の要約の状態は生きているかどうかの写しで見立てではないので出さず、要約が無ければ出さない', () => {
     const store = initialStore();

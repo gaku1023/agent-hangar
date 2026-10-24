@@ -181,11 +181,11 @@ describe('ProjectsScreen の Archived の末尾の 1 行', () => {
 
 describe('ProjectsScreen の空の状態', () => {
   const none = (over: Partial<ProjectsProps> = {}) => props({ sections: [], total: 0, empty: 'none', ...over });
-  it('プロジェクトが無い人には、できるようになることの 2 文と「新しいプロジェクト」を出し、表と名前の欄は出さない', () => {
+  it('プロジェクトが無い人には、できるようになることの 1 文と「新しいプロジェクト」を出し、表と名前の欄は出さない', () => {
     const { container, onAction } = mount(none());
     expect(screen.getByRole('heading', { name: 'プロジェクトはまだありません' })).toBeInTheDocument();
     expect(screen.getByText('ディレクトリを登録すると、そのディレクトリのセッションがここにまとまります。')).toBeInTheDocument();
-    expect(screen.getByText('TODO も、プロジェクトごとに管理できます。')).toBeInTheDocument();
+    expect(screen.queryByText('TODO も、プロジェクトごとに管理できます。')).toBeNull();
     expect(container.querySelector('.pcols')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
     const buttons = screen.getAllByRole('button', { name: '新しいプロジェクト' });

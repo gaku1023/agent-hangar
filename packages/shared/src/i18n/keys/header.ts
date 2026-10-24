@@ -24,7 +24,6 @@ export const headerKeys = {
   'header.gauge.fiveHourShort': [],
   'header.gauge.weeklyLabel': [],
   'header.gauge.weeklyShort': [],
-  'header.gauge.updated': ['time'],
   'header.gauge.resetsTitle': ['time'],
   'header.gauge.updatedTitle': ['time'],
   'header.gauge.none': [],

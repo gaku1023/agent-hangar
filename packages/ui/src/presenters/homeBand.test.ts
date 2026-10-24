@@ -7,7 +7,7 @@ const en = translator('en');
 
 const waiting = (id: string, over: Partial<AttentionCard> = {}): AttentionCard => ({ id, name: `待ち ${id}`, projectName: 'alpha', waited: '12分', question: '削除してよいですか', answer: 'terminal', ...over });
 const reminder = (id: string, over: Partial<ReturnCard> = {}): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'alpha', reason: '結果を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true, pastMin: null, ...over });
-const running = (id: string, over: Partial<RunningCard> = {}): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha · opus', intent: null, activity: null, note: '作業中', contextPercent: 40, contextLabel: '40%', ...over });
+const running = (id: string, over: Partial<RunningCard> = {}): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha', intent: null, activity: null, note: '作業中', idleFor: null, contextPercent: 40, contextLabel: '40%', ...over });
 const todoCard = (id: string): ConfirmCard => ({ kind: 'todo', id, text: `やる ${id}`, projectId: 'alpha', projectName: 'alpha', sessionName: 'one', ago: '1 時間前', note: '片付いた' });
 const sessionCard = (id: string, status: 'paused' | 'done', over: Partial<Extract<ConfirmCard, { kind: 'session' }>> = {}): ConfirmCard => ({ kind: 'session', id, name: `提案 ${id}`, projectName: null, status, label: status === 'done' ? 'Done にする？' : 'Paused · 10/3（土）？', note: '直した', ago: '2 時間前', source: 'in_session', daysLeft: status === 'done' ? 6 : null, ...over });
 const none = { attention: [], returning: [], running: [], confirm: [] };
@@ -32,11 +32,11 @@ describe('presentHomeBand の群', () => {
     expect(g.icon).toBe('alert');
   });
 
-  it('実行中の件数と、作業中とアイドルの内訳', () => {
+  it('実行中は件数だけで、見出しに内訳を添えない', () => {
     const band = presentHomeBand({ ...none, running: [running('a'), running('b', { live: 'idle' }), running('c', { live: 'idle' })] }, ja);
     const g = band.groups[1]!;
     expect(g.count).toBe(3);
-    expect(g.summary).toBe('作業中 1、アイドル 2');
+    expect(g.summary).toBe('');
     expect(g.tone).toBe('default');
   });
 
@@ -90,7 +90,7 @@ describe('presentHomeBand の止まっている理由（試作 stop-reason-proto
   it('使用制限は実行中に砂時計で置き、リセットの時刻と自動で続くかを言う。アイドルには数えない', () => {
     const band = presentHomeBand({ ...none, running: [running('a'), running('l', { live: 'idle', limit: { text: '使用制限（5 時間）· 16:50 にリセット · 自動で再開します', left: 'あと 8 分' } }), running('i', { live: 'idle' })] }, ja);
     const g = band.groups[1]!;
-    expect(g.summary).toBe('作業中 1、アイドル 1、使用制限 1');
+    expect(g.summary).toBe('');
     const row = g.rows[1]!;
     expect(row.lead).toEqual({ kind: 'dot', live: 'idle', aside: false, reason: 'limit' });
     expect(row.text).toBe('使用制限（5 時間）· 16:50 にリセット · 自動で再開します');
@@ -184,8 +184,8 @@ describe('行（実行中）', () => {
 
   it('作業中：意図を本文に、いまの手を等幅の詳細に、経過とコンテキストを末尾に', () => {
     const row = one(running('a', { intent: '金額の上限のテストを足す', activity: { tool: 'Edit', summary: 'src/limit.ts' } }));
-    expect(row).toMatchObject({ key: 'run:a', lead: { kind: 'dot', live: 'busy', aside: false }, name: '動く a', context: 'alpha · opus', text: '金額の上限のテストを足す', detail: 'Edit src/limit.ts', tone: null });
-    expect(row.trail).toEqual([{ text: '作業中 5分', tone: 'busy' }, { text: '40%' }]);
+    expect(row).toMatchObject({ key: 'run:a', lead: { kind: 'dot', live: 'busy', aside: false }, name: '動く a', context: 'alpha', text: '金額の上限のテストを足す', detail: 'Edit src/limit.ts', tone: null });
+    expect(row.trail).toEqual([{ text: '5分', tone: 'busy' }, { text: '40%' }]);
     expect(row.actions).toEqual([]);
     expect(row.open).toEqual({ type: 'session.open', id: 'a' });
   });
@@ -195,9 +195,15 @@ describe('行（実行中）', () => {
     expect(one(running('a', { activity: { tool: 'Read', summary: '' } }))).toMatchObject({ text: '', detail: 'Read' });
   });
 
-  it('アイドルと起動中は、決まりの一言を本文にし、作業中の経過を出さない', () => {
-    const row = one(running('a', { live: 'idle', note: 'アイドル 3分', contextPercent: null, contextLabel: '' }));
-    expect(row).toMatchObject({ text: 'アイドル 3分', detail: null, lead: { kind: 'dot', live: 'idle' } });
+  it('アイドルは本文を空にし、最後の返答からの時間だけを末尾に出す', () => {
+    const row = one(running('a', { live: 'idle', note: null, idleFor: '3分', contextPercent: null, contextLabel: '' }));
+    expect(row).toMatchObject({ text: '', detail: null, lead: { kind: 'dot', live: 'idle' } });
+    expect(row.trail).toEqual([{ text: '3分' }]);
+  });
+
+  it('起動中は、決まりの一言を本文にし、作業中の経過を出さない', () => {
+    const row = one(running('a', { live: null, note: '起動中…', contextPercent: null, contextLabel: '' }));
+    expect(row).toMatchObject({ text: '起動中…', detail: null });
     expect(row.trail).toEqual([]);
   });
 

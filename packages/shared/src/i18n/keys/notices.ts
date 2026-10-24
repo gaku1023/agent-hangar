@@ -4,7 +4,6 @@ export const noticesKeys = {
   'notices.bell.label': [],
   'notices.bell.labelUnread': ['n'],
   'notices.list.title': [],
-  'notices.list.lead': [],
   'notices.list.markAllRead': [],
   'notices.row.unread': [],
   'notices.kind.sync': [],

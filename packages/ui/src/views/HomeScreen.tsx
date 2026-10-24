@@ -6,21 +6,17 @@ import { PageHeading } from './PageHeading.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { fadeIn, resizeFrom } from './primitives/motionKit.ts';
-import { RollingText } from './primitives/RollingText.tsx';
 import { SessionList } from './SessionList.tsx';
-
-/** 件数は桁を区切る（タブの件数と同じ書き方）。 */
-const fmt = (n: number) => n.toLocaleString('en-US');
 
 /**
  * Home（試作 B）。上から、40px の帯（要対応、実行中、確認待ちの件数の錠剤と、押した群の引き出し）、ステータスのタブ、検索の欄と絞り込みのボタン、平らな一覧の順に置く。
+ * 一覧の見出し（「セッション n 件」）は置かない。件数はタブが言う。
  * 一覧が主役で、札は帯に畳む。朝は要対応の引き出しが開き、検索の最中は引き出しを閉じて件数だけを残す。
  * 3 つの群がどれも 0 件のときは、帯の代わりに 1 行の文と 2 つのボタンを置く。
  * 始める前の確認は、直すものがあるあいだ、帯の最後の群（錠剤と引き出し）になり、帯の右端に 1 行の文を添える（2.11.4）。そろったら帯の群ごと消える。
  * セッションが 1 つも無い人には、一覧の空の札に「クイックセッションを開始」を残す。そのときは、ボタンが重ならないよう、帯の代わりの 1 行のほうを出さない。
  * 一覧は窓の下端までの残りの高さを受け取る（.screen-fill）。続きは、検索なら「さらに読み込む」、そうでなければページ送りで読む。
  * 帯と 1 行は外の箱（.home-top）に入れ、入れ替わるときは箱の高さを前の高さから補間し、入る方を --dur-fast で薄れから現す（下の一覧は押されて滑る）。
- * 一覧の見出しの件数は、数字だけを回す。
  */
 export function HomeScreen(props: HomeScreenProps) {
   const emit = useEmit();
@@ -53,12 +49,11 @@ export function HomeScreen(props: HomeScreenProps) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // 件数の文の中で、数字だけを回す。訳文の {n} の前後はそのまま置く。
-  const [countHead, countTail] = t('home.list.count', { n: '\u0000' }).split('\u0000');
   const firstCard = (
     <div className="empty-card">
       <h2>{t('home.empty.title')}</h2>
-      <p>{props.setup ? t('home.empty.textSetup') : t('home.empty.text')}</p>
+      {/* 説明の文は、確認が済んでいなくても始められることを言うときだけ添える。 */}
+      {props.setup && <p>{t('home.empty.textSetup')}</p>}
       <div className="empty-acts">
         <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="scratch" />{t('home.idle.quick')}</button>
         <button type="button" className="btn" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" />{t('home.idle.new')}</button>
@@ -80,7 +75,6 @@ export function HomeScreen(props: HomeScreenProps) {
           )
           : <HomeBand {...props.band} searching={props.searching} note={props.note} />}
       </div>
-      <div className="list-head"><h2 className="home-label">{t('home.list.title')}<span className="home-count">{countHead}<RollingText text={fmt(props.allCount)} />{countTail}</span></h2></div>
       <SessionList {...props.list} loadMore={loadMore} empty={first ? firstCard : undefined} />
     </div>
   );

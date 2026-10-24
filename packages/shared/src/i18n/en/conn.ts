@@ -4,7 +4,6 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const connEn: AreaDictionary<typeof connKeys> = {
   'conn.banner.label': 'Connection status',
   'conn.hard.title': 'Cannot reach the server',
-  'conn.hard.restartPrompt': 'Restart the app',
   'conn.hard.openLog': 'Open log',
   'conn.hard.restart': 'Restart',
   'conn.hard.browserHint': 'Restart the app. Log: {path}',

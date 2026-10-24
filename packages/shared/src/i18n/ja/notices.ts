@@ -5,7 +5,6 @@ export const noticesJa: AreaDictionary<typeof noticesKeys> = {
   'notices.bell.label': '通知',
   'notices.bell.labelUnread': '通知、未読 {n} 件',
   'notices.list.title': '通知',
-  'notices.list.lead': '画面の他の箇所に表示されていない項目',
   'notices.list.markAllRead': 'すべて既読にする',
   'notices.row.unread': '未読',
   'notices.kind.sync': '同期',

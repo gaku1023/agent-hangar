@@ -107,7 +107,7 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
           onChange={(e) => props.onQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        {props.noMatch && <div className="palette-empty">{t('palette.empty.noMatch')}</div>}
+        {props.noMatch && <div className="palette-empty">{t('palette.empty.noItems')}</div>}
         {items.length === 0 && <div className="empty">{t('palette.empty.noItems')}</div>}
         <div id="palette-list" className="palette-list" role="listbox" aria-label={t('palette.list.label')}>
           {props.sections.map((s) => (
@@ -138,7 +138,7 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
                     <span className="palette-meta">
                       {item.meta && <span className="palette-when">{item.meta}</span>}
                       {item.keys && <kbd className="palette-keys">{item.keys}</kbd>}
-                      {item.kind !== 'search' && <span className="palette-ret"><kbd>↵</kbd>{item.kind === 'command' ? '' : ` ${t('palette.hint.open')}`}</span>}
+                      {item.kind !== 'search' && <span className="palette-ret"><kbd>↵</kbd></span>}
                     </span>
                   </div>
                 );

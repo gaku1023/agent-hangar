@@ -79,8 +79,9 @@ describe('Root', () => {
     expect(screen.getByText('読み込み中…')).toBeInTheDocument();
     act(() => handlers[0]!.onOpen());
     await flush();
-    // Home は一覧が主役で、見出しは「セッション」。最近とプロジェクトの 1 行は無い。
-    expect(screen.getByRole('heading', { level: 2, name: /^セッション\d+ 件$/ })).toBeInTheDocument();
+    // Home は一覧が主役で、一覧の見出しは置かない（件数はタブが言う）。最近とプロジェクトの 1 行は無い。
+    expect(screen.getByRole('group', { name: 'ステータス' })).toBeInTheDocument();
+    expect(document.querySelector('.home .list-head')).toBeNull();
     expect(screen.queryByRole('heading', { level: 2, name: '最近' })).toBeNull();
     act(() => setHash('#/projects'));
     expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();

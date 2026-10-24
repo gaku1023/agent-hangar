@@ -31,11 +31,18 @@
    高さは --session-row-h で持ち、SessionRows の SESSION_ROW_H と揃える（rows.test.ts）。
    1 段の部品の --row-h（28px）とは別の値である。 */
 .row-2 { grid-template-columns: 16px minmax(0, 1fr) auto; gap: calc(var(--u) * 4); height: var(--session-row-h); padding: 0 calc(var(--u) * 5); }
-/* 状態の列（F1）。点の右に 62px を取り、札の無い行も場所は取る。名前の書き出しは全行でそろう。
-   状態がどれも同じ一覧（Done のタブなど）では SessionRows が列を畳む（data-status-col が false）。 */
-.rows-host[data-status-col='true'] .row-2 { grid-template-columns: 16px 62px minmax(0, 1fr) auto; }
-.row-status { display: flex; align-items: center; min-width: 0; }
+/* 状態の列（F1）。行の頭に 72px を取り、札の無い行も場所は取る。名前の書き出しは全行でそろう。
+   動きの点は列を持たず、札の中の左に畳む（2026-10-24 の決定）。点は札の外の兄弟として描き、札の上に重ねる。
+   札がボタン（タブへ移る）でも、点の読み上げ（作業中、入力待ち）がボタンの名前に呑まれないようにするためである。
+   状態がどれも同じ一覧（Done のタブなど）では SessionRows が列を畳み（data-status-col が false）、点は行の頭の 16px の列に戻る。 */
+.rows-host[data-status-col='true'] .row-2 { grid-template-columns: 72px minmax(0, 1fr) auto; }
+.row-status { position: relative; display: flex; align-items: center; min-width: 0; }
 .row-status > .badge-link, .row-status > .row-act { width: 100%; }
+.row-status > .dot { position: absolute; left: 7px; top: 50%; margin-top: -4px; z-index: 1; pointer-events: none; }
+.row-status[data-live] .row-sq, .row-status[data-live] .row-cand { padding-left: 12px; }
+/* 作業中の点だけが脈打つ（ほかの場所の .live-dot と同じ周期と曲線）。減らす動きの設定では止める。 */
+.row-status > .dot[data-status='busy'] { animation: live-pulse var(--breathe-period) ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .row-status > .dot { animation: none; } }
 .row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
 .row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
@@ -69,7 +76,7 @@
 .row-live[data-live='busy'] { color: var(--busy); }
 /* 状態の札（F1）。列の幅いっぱいの同じ幅の四角い札にし、語の長さで位置がずれないようにする。
    Done は全体のほとんどを占めるので線だけにして静かにし、ほかの 3 つを地で塗る。Active はプロジェクトの Active と同じ青にする。 */
-.row-sq { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
+.row-sq { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 72px; height: 18px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
 .row-sq[data-s='active'] { color: var(--st-active); background: var(--st-active-soft); }
 .row-sq[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
 .row-sq[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
@@ -86,7 +93,7 @@
 .row-return[data-none='true'] { color: var(--ink-3); font-weight: 500; }
 /* 提案の札（Q3）。枠だけの紫の丸い札で、押すと根拠のポップ（Q1）が開く。状態の列では短い語（Done？・Paused？）で置く。 */
 .row-cand { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: none; box-shadow: inset 0 0 0 1px var(--cand); color: var(--cand); font: inherit; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; cursor: pointer; }
-.row-status .row-cand { width: 62px; padding: 0; }
+.row-status .row-cand { width: 72px; padding: 0; }
 .row-cand:hover, .row-cand[aria-expanded='true'] { background: var(--cand-soft); }
 /* 行の中の操作の器（提案の札と「⋯」）。押しても行が開かないよう、SessionRows がクリックを止める。 */
 .row-act { flex: none; display: inline-flex; }

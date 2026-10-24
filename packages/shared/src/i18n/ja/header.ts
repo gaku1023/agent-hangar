@@ -25,7 +25,6 @@ export const headerJa: AreaDictionary<typeof headerKeys> = {
   'header.gauge.fiveHourShort': '5 時間',
   'header.gauge.weeklyLabel': '週の使用率',
   'header.gauge.weeklyShort': '週',
-  'header.gauge.updated': '最終更新 {time}',
   'header.gauge.resetsTitle': '、{time} にリセットされます',
   'header.gauge.updatedTitle': '、最終更新 {time}',
   'header.gauge.none': '未取得',

@@ -38,7 +38,7 @@ describe('HomeScreen の今日戻る（C1）', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 'r1', status: 'done' });
   });
   it('今日戻るも入力待ちも無ければ、要対応の錠剤は押せない薄い札になる', () => {
-    mount({ running: [{ id: 'x', name: '動く', live: 'busy', aside: false, elapsed: '5分', meta: 'alpha', intent: null, activity: null, note: '作業中', contextPercent: null, contextLabel: '' }] });
+    mount({ running: [{ id: 'x', name: '動く', live: 'busy', aside: false, elapsed: '5分', meta: 'alpha', intent: null, activity: null, note: '作業中', idleFor: null, contextPercent: null, contextLabel: '' }] });
     expect(screen.queryByRole('button', { name: /^要対応/ })).toBeNull();
     expect(screen.getByText('要対応').closest('.count-chip')).toHaveAttribute('data-zero', 'true');
   });
