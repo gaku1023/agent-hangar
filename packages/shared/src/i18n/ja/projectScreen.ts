@@ -60,7 +60,6 @@ export const projectScreenJa: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.todo.rejectButton': '却下',
   'projectScreen.todo.addLabel': 'TODO を追加',
   'projectScreen.todo.addButton': '追加',
-  'projectScreen.todo.noNote': '根拠はありません',
   'projectScreen.todo.unknownSession': '不明なセッション',
   'projectScreen.todo.noName': '（名前なし）',
   'projectScreen.todo.listLabel': 'TODO の一覧',

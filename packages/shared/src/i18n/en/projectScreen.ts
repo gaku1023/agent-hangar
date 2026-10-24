@@ -60,7 +60,6 @@ export const projectScreenEn: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.todo.rejectButton': 'Dismiss',
   'projectScreen.todo.addLabel': 'Add a TODO',
   'projectScreen.todo.addButton': 'Add',
-  'projectScreen.todo.noNote': 'No reason was written',
   'projectScreen.todo.unknownSession': 'Unknown session',
   'projectScreen.todo.noName': '(no name)',
   'projectScreen.todo.listLabel': 'TODO list',

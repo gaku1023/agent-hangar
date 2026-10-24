@@ -30,7 +30,6 @@ export const stopEn: AreaDictionary<typeof stopKeys> = {
   'stop.action.continue': 'Continue in terminal',
   'stop.band.attentionSummary': "Needs input {waiting}, needs permission {permission}, today's reminders {reminders}",
   'stop.band.attentionSummaryReset': "Needs input {waiting}, needs permission {permission}, limit reset {reset}, today's reminders {reminders}",
-  'stop.band.runningSummary': 'Working {busy}, idle {idle}, usage limit {limit}',
   'stop.card.permissionHead': 'Permission Claude is asking for',
   'stop.card.permissionHeadTool': 'Permission Claude is asking for · {tool}',
   'stop.card.permissionHint': 'Allow or deny it in the terminal',

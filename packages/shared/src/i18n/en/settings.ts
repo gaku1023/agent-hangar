@@ -156,7 +156,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.shell.noTmux': 'tmux was not found on this computer. Install it with {install}, or set the tmux path under Tools.',
   'settings.integrations.shell.adopt': 'Without it, a claude waiting for input or idle elsewhere can still be opened with Move to Hangar.',
   'settings.integrations.guide.title': 'Have Claude Code check your setup',
-  'settings.integrations.guide.desc': 'Paste this line into Claude Code. It only reads your environment to diagnose it, then suggests registering scattered conversation folders and setting up integrations. Nothing changes until you approve.',
+  'settings.integrations.guide.desc': 'It only reads your setup, then suggests registrations and integrations. Nothing changes until you approve.',
   'settings.integrations.guide.note': 'It never moves or deletes folders, and never touches CLAUDE.md.',
   'settings.integrations.guide.open': 'View the guide',
   'settings.integrations.inject.title': 'What hangar adds to the Claude Code it starts',

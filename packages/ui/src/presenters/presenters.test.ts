@@ -225,7 +225,7 @@ describe('presentHome', () => {
     };
     const h = presentHome(initialState(), store, NOW);
     expect(h.confirm).toEqual([
-      { kind: 'todo', id: 'b', text: 'やる b', projectId: 'beta', projectName: 'beta', sessionName: '不明なセッション', ago: '30 分前', note: '根拠はありません' },
+      { kind: 'todo', id: 'b', text: 'やる b', projectId: 'beta', projectName: 'beta', sessionName: '不明なセッション', ago: '30 分前', note: '' },
       { kind: 'todo', id: 'a', text: 'やる a', projectId: 'alpha', projectName: 'alpha', sessionName: 'name-s1', ago: '1 分前', note: '新しい' },
     ]);
   });
@@ -1223,7 +1223,7 @@ describe('presentProject の右レール', () => {
     const p = presentProject(initialState(), store, NOW, 'p1');
     expect(p.todos.map((t) => t.candidate)).toEqual([
       { note: '直して確かめた', sessionId: 's1', sessionName: '起動画面の作り直し', ago: '12 分前' },
-      { note: '根拠はありません', sessionId: null, sessionName: '不明なセッション', ago: '1 時間前' },
+      { note: '', sessionId: null, sessionName: '不明なセッション', ago: '1 時間前' },
       { note: 'n', sessionId: null, sessionName: '不明なセッション', ago: '5 分前' },
       null,
     ]);

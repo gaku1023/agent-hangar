@@ -182,12 +182,12 @@ describe('presentProject の右パネル', () => {
       expect(presentProject(initialState(), en, NOW, 'alpha').instructions.rows.map((r) => r.desc)).toEqual(['Project instructions · shared with team', 'Auto memory · written by Claude']);
     });
   });
-  it('候補の TODO の、根拠が無いとき、出したセッションが手元に無いときの文は、言語に従う', () => {
+  it('候補の TODO の根拠が無いときは空にし、出したセッションが手元に無いときの文は言語に従う', () => {
     const t = todo('t1', { candidate: { sessionId: 'gone', note: null, at: NOW - 60_000 } });
     const ja = storeOf([]);
-    expect(presentTodoCandidate(t, ja, NOW)).toEqual({ note: '根拠はありません', sessionId: null, sessionName: '不明なセッション', ago: '1 分前' });
+    expect(presentTodoCandidate(t, ja, NOW)).toEqual({ note: '', sessionId: null, sessionName: '不明なセッション', ago: '1 分前' });
     const en = withLanguage(ja, 'en');
-    expect(presentTodoCandidate(t, en, NOW)).toMatchObject({ note: 'No reason was written', sessionName: 'Unknown session' });
+    expect(presentTodoCandidate(t, en, NOW)).toMatchObject({ note: '', sessionName: 'Unknown session' });
     const named = storeOf([dto('s1', { name: null })]);
     expect(presentTodoCandidate(todo('t2', { candidate: { sessionId: 's1', note: 'n', at: NOW } }), named, NOW)?.sessionName).toBe('（名前なし）');
     expect(presentTodoCandidate(todo('t2', { candidate: { sessionId: 's1', note: 'n', at: NOW } }), withLanguage(named, 'en'), NOW)?.sessionName).toBe('(no name)');

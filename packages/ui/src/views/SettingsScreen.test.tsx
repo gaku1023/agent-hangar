@@ -739,7 +739,7 @@ describe('設定の連携の末尾の「Claude Code に環境を見てもらう�
     const sections = container.querySelectorAll('.settings-group > section');
     expect(sections[sections.length - 1]).toBe(c);
     expect(within(c).getByText('v0.7.0')).toBeInTheDocument();
-    expect(within(c).getByText('このプロンプトを Claude Code に貼り付けると、環境を読み取り専用で診断し、散らばったセッションのディレクトリの登録や連携を提案します。変更は承諾を得てから行います。')).toBeInTheDocument();
+    expect(within(c).getByText('読み取り専用で診断し、登録と連携を提案します。変更は承諾してから行います。')).toBeInTheDocument();
     expect(within(c).getByText(guide.prompt).tagName).toBe('CODE');
     expect(within(c).getByText(/ディレクトリの移動や削除はしません。CLAUDE\.md も変更しません。/)).toBeInTheDocument();
   });

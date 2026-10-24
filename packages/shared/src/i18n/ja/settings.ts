@@ -156,7 +156,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.shell.noTmux': 'この PC では tmux が見つかりません。{install} でインストールするか、ツールの「tmux のパス」を入力してください。',
   'settings.integrations.shell.adopt': 'インストールしなくても、入力待ちかアイドルの claude は「hangar に移動」で開けます。',
   'settings.integrations.guide.title': 'Claude Code で環境を診断',
-  'settings.integrations.guide.desc': 'このプロンプトを Claude Code に貼り付けると、環境を読み取り専用で診断し、散らばったセッションのディレクトリの登録や連携を提案します。変更は承諾を得てから行います。',
+  'settings.integrations.guide.desc': '読み取り専用で診断し、登録と連携を提案します。変更は承諾してから行います。',
   'settings.integrations.guide.note': 'ディレクトリの移動や削除はしません。CLAUDE.md も変更しません。',
   'settings.integrations.guide.open': 'セットアップのすゝめを表示',
   'settings.integrations.inject.title': 'hangar が起動する Claude Code に追加する設定',
