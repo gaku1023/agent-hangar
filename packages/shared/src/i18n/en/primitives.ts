@@ -5,6 +5,7 @@ export const primitivesEn: AreaDictionary<typeof primitivesKeys> = {
   'primitives.clamp.collapse': 'Collapse',
   'primitives.clamp.expand': 'Show all ({rest} more {rest|line|lines})',
   'primitives.commandLine.copyLabel': 'Copy {name}',
+  'primitives.infoTip.label': 'About {label}',
   'primitives.listbox.placeholder': 'Select',
   'primitives.listbox.search': 'Search {label}',
   'primitives.listbox.hintMove': 'Navigate',

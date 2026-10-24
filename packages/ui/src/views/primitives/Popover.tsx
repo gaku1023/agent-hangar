@@ -27,6 +27,7 @@ const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select
  * Tab で中の端を越えたら閉じ、焦点を開く元へ戻して、そこから次へ進ませる。
  * 面は document.body への portal に描く。見出しの段やカードの overflow に切られないため。
  * 幅は width（既定 360px）で、窓の縁には place() が収める。
+ * fit を立てると、幅を width に固定せず、width を上限にして中身に合わせる（短い説明の札）。縁への収め方は width の幅で決める。
  */
 export function Popover(props: {
   label: string;
@@ -35,6 +36,7 @@ export function Popover(props: {
   width?: number;
   align?: 'start' | 'end';
   className?: string;
+  fit?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -116,7 +118,7 @@ export function Popover(props: {
       {props.face({ ref: opener, 'aria-haspopup': 'dialog', 'aria-expanded': open, 'aria-controls': open ? popId : undefined, onClick: () => (open ? hide(false) : change(true)), onKeyDown: onFaceKey })}
       {open && createPortal(
         <div ref={pop} id={popId} role="dialog" aria-label={props.label} tabIndex={-1} className={`menu-pop popover${props.className ? ` ${props.className}` : ''}`} data-up={pos?.up ? 'true' : undefined} onKeyDown={onPopKey}
-          style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden', left: 0, top: 0, width }}>
+          style={{ ...(pos ? { left: pos.left, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden', left: 0, top: 0 }), ...(props.fit ? { width: 'max-content', maxWidth: pos?.width ?? width } : { width: pos?.width ?? width }) }}>
           {typeof props.children === 'function' ? props.children({ close: () => hide(true) }) : props.children}
         </div>,
         document.body,

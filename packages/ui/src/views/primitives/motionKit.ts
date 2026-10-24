@@ -27,6 +27,15 @@ export function fadeIn(el: HTMLElement, token: DurationToken = '--dur'): Animati
   return el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motionMs(token, el), easing: motionEase('--ease-out', el) });
 }
 
+/**
+ * 薄れから現しながら、4px 下から持ち上がる（見出しの横の ⓘ の札、InfoTip）。
+ * 長さと曲線は fadeIn の短い形（--dur-fast、--ease-out）にそろえる。
+ */
+export function liftIn(el: HTMLElement): Animation | null {
+  if (!motionOn(el)) return null;
+  return el.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: motionMs('--dur-fast', el), easing: motionEase('--ease-out', el) });
+}
+
 /** 薄れて消えるだけ（ホームの帯の注記）。最後の形を残し、終わったら解決する。動かないときはすぐ解決する。 */
 export function fadeOut(el: HTMLElement, token: DurationToken = '--dur-fast'): Promise<void> {
   if (!motionOn(el)) return Promise.resolve();

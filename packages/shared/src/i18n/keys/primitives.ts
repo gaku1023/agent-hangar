@@ -4,6 +4,7 @@ export const primitivesKeys = {
   'primitives.clamp.collapse': [],
   'primitives.clamp.expand': ['rest'],
   'primitives.commandLine.copyLabel': ['name'],
+  'primitives.infoTip.label': ['label'],
   'primitives.listbox.placeholder': [],
   'primitives.listbox.search': ['label'],
   'primitives.listbox.hintMove': [],
