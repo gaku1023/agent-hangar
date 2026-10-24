@@ -31,7 +31,6 @@ export function InstallGuide({ expiresAt, onContinue }: Props): ReactNode {
             <i aria-hidden="true">1</i>
             <div>
               <b>共有ボタンをタップ</b>
-              <span>画面下の □↑ をタップ</span>
             </div>
           </li>
           <li>

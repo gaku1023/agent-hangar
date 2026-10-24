@@ -58,7 +58,7 @@ describe('LaunchSheet（D2）', () => {
     setup({ state: { kind: 'sending' } });
     expect(screen.getByRole('dialog', { name: '会話を開始中…' })).toBeInTheDocument();
     expect(steps()).toEqual(['act', 'todo', 'todo']);
-    expect(screen.getByText('送信中…')).toBeInTheDocument();
+    expect(screen.queryByText('送信中…')).not.toBeInTheDocument();
     expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['送信', 'PC で受信', '開始']);
   });
 

@@ -149,7 +149,7 @@ export function JoinScreen({ pairText, onEnter, notice = null, resume = null, wa
               <>
                 {home && <span className="ctx home">ホーム画面アプリ</span>}
                 <h1 className="p-h">PC の QR を読み取ります</h1>
-                <p className="p-t">PC の画面の QR を枠に合わせてください。QR は PC で表示してから 5 分有効です。</p>
+                <p className="p-t">QR は表示してから 5 分有効です。</p>
               </>
             ) : step.expired ? (
               <h1 className="p-h">このスマホの接続が切れています</h1>
@@ -227,7 +227,7 @@ function Confirm({ text, blob, onWaiting, onTicket }: { text: string; blob: Pair
         </p>
       </div>
       <label className="field">
-        このスマホの名前（PC の一覧に表示されます）
+        このスマホの名前
         <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} autoComplete="off" />
       </label>
       {error && (
@@ -236,7 +236,7 @@ function Confirm({ text, blob, onWaiting, onTicket }: { text: string; blob: Pair
         </p>
       )}
       <div className="p-spacer" />
-      <p className="p-mini">接続すると、すべての PC の会話の一覧を確認でき、PC を選んで会話を開始できます。スマホをなくしたら、PC の設定で接続を解除してください。</p>
+      <p className="p-mini">スマホをなくしたら、PC の設定で接続を解除してください。</p>
       <button type="submit" className="p-btn" disabled={busy}>
         {busy ? '接続中…' : '接続する'}
       </button>
@@ -332,7 +332,6 @@ function Joined({ onLater }: { onLater: () => void }): ReactNode {
         </svg>
       </div>
       <h1 className="p-h">接続しました</h1>
-      <p className="p-t">最後に、ホーム画面に追加するとアプリのように開けます。</p>
       <div className="card">
         <ol className="steps">
           {android ? (
@@ -353,7 +352,7 @@ function Joined({ onLater }: { onLater: () => void }): ReactNode {
       </div>
       <div className="p-spacer" />
       <button type="button" className="p-btn sec" onClick={onLater}>
-        あとで（このまま受信箱へ）
+        あとで
       </button>
     </>
   );

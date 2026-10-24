@@ -29,7 +29,6 @@ export function AttachSheet({ open, onClose, onFiles }: Props): ReactNode {
         <label className="cm-arow" htmlFor={libId}>
           <i aria-hidden="true">🖼</i>
           <span>写真ライブラリ</span>
-          <small>ここから選ぶ</small>
           <input id={libId} className="vh" type="file" accept="image/*" multiple onChange={picked} />
         </label>
         <label className="cm-arow" htmlFor={camId}>
@@ -37,7 +36,7 @@ export function AttachSheet({ open, onClose, onFiles }: Props): ReactNode {
           <span>写真を撮る</span>
           <input id={camId} className="vh" type="file" accept="image/*" capture="environment" onChange={picked} />
         </label>
-        <p className="cm-anote">画像は 1 枚 5 MB まで、4 枚までです。長い辺を 2048 px に縮めてから送信します。</p>
+        <p className="cm-anote">4 枚・1 枚 5 MB まで</p>
       </div>
     </BottomSheet>
   );

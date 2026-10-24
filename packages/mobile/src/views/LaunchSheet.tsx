@@ -124,7 +124,6 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
         </div>
 
         <div aria-live="polite">
-          {state.kind === 'sending' && <p className="ls-cap m-fade">送信中…</p>}
           {state.kind === 'waiting' && (
             <p className="ls-cap m-fade" key={state.claimed ? 'claimed' : 'waiting'}>
               {state.claimed ? `${spec.pcName} で受信しました。開始を確認中…` : `${spec.pcName} での受信を確認中…（最大 30 秒ほど）`}

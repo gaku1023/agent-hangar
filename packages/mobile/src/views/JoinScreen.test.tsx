@@ -77,6 +77,10 @@ describe('JoinScreen', () => {
     expect(await screen.findByText('このスマホを hangar に接続する')).toBeInTheDocument();
     expect(screen.getByText('hangar.example.workers.dev')).toBeInTheDocument();
     expect(screen.getByText(/QR を表示した PC：Mac/)).toBeInTheDocument();
+    expect(screen.getByLabelText('このスマホの名前')).toBeInTheDocument();
+    expect(screen.queryByText(/PC の一覧に表示されます/)).not.toBeInTheDocument();
+    expect(screen.getByText('スマホをなくしたら、PC の設定で接続を解除してください。')).toBeInTheDocument();
+    expect(screen.queryByText(/すべての PC の会話の一覧を確認でき/)).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -114,7 +118,8 @@ describe('JoinScreen', () => {
     const pairing = { url: WORKER, token: 'tok-9', deviceId: body.deviceId, joinedAt: expect.any(Number) as number };
     expect(store.savePairing).toHaveBeenCalledWith(pairing);
     expect(Math.abs(store.loadPairing()!.joinedAt! - Date.now())).toBeLessThan(60_000);
-    fireEvent.click(screen.getByRole('button', { name: 'あとで（このまま受信箱へ）' }));
+    expect(screen.queryByText(/アプリのように開けます/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'あとで' }));
     expect(onEnter).toHaveBeenCalledWith(pairing, expect.objectContaining({ pub: pair!.pub }), expect.any(Map));
   });
 

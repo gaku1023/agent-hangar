@@ -132,13 +132,15 @@ describe('Composer の / の候補', () => {
     const { asker, type } = setup({ pc: null });
     type('/');
     await waitFor(() => expect(within(sheet()!).getByText('先に PC を選んでください')).toBeInTheDocument());
+    expect(within(sheet()!).queryByText(/候補は、選んだ/)).not.toBeInTheDocument();
     expect(asker.commands).not.toHaveBeenCalled();
   });
 
   it('合うものが無ければ、そのまま送れると書く', async () => {
     const { type } = setup();
     type('/zzz');
-    await waitFor(() => expect(within(sheet()!).getByText(/「\/zzz」に合うスキルはありません/)).toBeInTheDocument());
+    await waitFor(() => expect(within(sheet()!).getByText(/「\/zzz」に合うものなし/)).toBeInTheDocument());
+    expect(within(sheet()!).getByText(/そのまま送れます/)).toBeInTheDocument();
   });
 
   it('×で閉じ、同じ打ちかけの間は出さない', async () => {
@@ -180,6 +182,7 @@ describe('Composer の @ の候補', () => {
     const { asker, ta, type } = setup({ asker: { files: vi.fn(() => new Promise<FileHit[]>((r) => (resolve = r))) } });
     type('見て @');
     await waitFor(() => expect(within(sheet()!).getByRole('status')).toHaveTextContent('Mac に問い合わせ中…'));
+    expect(within(sheet()!).getByRole('status')).not.toHaveTextContent('1〜3 秒');
     await waitFor(() => expect(asker.files).toHaveBeenCalledWith('pc-1', 'p-a', ''));
     await act(async () => resolve(FILES));
     expect(within(sheet()!).getByText('最近変更したファイル')).toBeInTheDocument();
@@ -284,7 +287,7 @@ describe('Composer の画像', () => {
     fireEvent.click(within(thumbs).getByRole('button', { name: 'c.jpg を削除' }));
     expect(attachments.remove).toHaveBeenCalledWith(3);
     expect(screen.getByText(/画像をタップすると、もう一度送信します/)).toBeInTheDocument();
-    expect(screen.getByText('3/4 枚 · 1 枚 5 MB まで')).toBeInTheDocument();
+    expect(screen.getByText('3/4 枚')).toBeInTheDocument();
   });
 
   it('「＋」で写真とカメラのシートを開き、選んだ画像を足す', async () => {

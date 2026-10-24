@@ -69,11 +69,31 @@ describe('InboxScreen', () => {
     expect(screen.getByText(/^Mac$/, { selector: '.alive-name' })).toBeInTheDocument();
   });
 
-  it('何も待っていなければ「入力待ちの会話はありません」', async () => {
+  it('何も待っていなければ「なし」', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
     render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
-    expect(await screen.findByText('入力待ちの会話はありません')).toBeInTheDocument();
+    expect(await screen.findByText('なし')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: /入力待ち\s*0/ })).toBeInTheDocument();
+  });
+
+  it('本文が空なら本文の行を出さず、種別は下の行の札 1 つだけ', async () => {
+    await serveFeeds([
+      feedOf('pc-1', 'Mac', {
+        live: [
+          liveItem({ sessionId: 's-1', status: 'waiting', waiting: { kind: 'permission', text: '' } }),
+          liveItem({ sessionId: 's-2', status: 'waiting', waiting: { kind: 'question', text: ' ' } }),
+        ],
+      }),
+    ]);
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+    const perm = (await screen.findByText('許可待ち')).closest('a')!;
+    expect(within(perm).getByText('許可待ち')).toHaveClass('wait-kind');
+    expect(perm.querySelector('.wait-text')).toBeNull();
+    expect(within(container).queryByText('許可が必要です')).not.toBeInTheDocument();
+    expect(within(container).queryByText('質問があります')).not.toBeInTheDocument();
+    const q = screen.getByText('質問').closest('a')!;
+    expect(q.querySelector('.wait-text')).toBeNull();
+    expect(within(q).getAllByText(/質問/)).toHaveLength(1);
   });
 
   it('rcUrl の無い行は claude.ai/code へのリンク', async () => {
@@ -163,7 +183,7 @@ describe('InboxScreen', () => {
   it('見えたとき（visibilitychange）と下に引いたときに読み直す', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
     render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
-    await screen.findByText('入力待ちの会話はありません');
+    await screen.findByText('なし');
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -187,7 +207,7 @@ describe('InboxScreen', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     await serveFeeds([feedOf('pc-1', 'Mac')]);
     render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
-    await screen.findByText('入力待ちの会話はありません');
+    await screen.findByText('なし');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await act(async () => {
       vi.advanceTimersByTime(30_000);
@@ -270,7 +290,7 @@ describe('InboxScreen', () => {
     render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onNewSession={onNewSession} />);
     const btn = screen.getByRole('button', { name: '＋ 新しい会話' });
     expect(btn).toBeDisabled();
-    await screen.findByText('入力待ちの会話はありません');
+    await screen.findByText('なし');
     expect(btn).toBeEnabled();
     fireEvent.click(btn);
     expect(onNewSession).toHaveBeenCalledTimes(1);
@@ -281,7 +301,7 @@ describe('InboxScreen', () => {
     await serveFeeds([feedOf('pc-1', 'Mac')]);
     const onUnpaired = vi.fn();
     const { rerender } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={onUnpaired} refresh={0} />);
-    await screen.findByText('入力待ちの会話はありません');
+    await screen.findByText('なし');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     rerender(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={onUnpaired} refresh={1} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -297,7 +317,7 @@ describe('InboxScreen', () => {
     expect(await screen.findByText('実行中')).toBeInTheDocument();
   });
 
-  it('入力待ちの行にアカウントの札が付き、開くボタンが「〈アカウント〉のアカウントで開く ›」になる', async () => {
+  it('入力待ちの行にアカウントの札が付き、開くボタンは「開く ›」だけ', async () => {
     await serveFeeds([
       feedOf('pc-1', 'Mac', {
         accounts: [
@@ -311,8 +331,8 @@ describe('InboxScreen', () => {
     const card = (await screen.findByText('質問 1')).closest('a')!;
     const tag = within(card).getByText('会社', { selector: '.acct-tag' });
     expect(tag.querySelector('i')!.getAttribute('style')).toContain('background-color: rgb(58, 143, 92)');
-    expect(within(card).getByText('会社のアカウントで開く ›')).toBeInTheDocument();
-    expect(within(card).queryByText('Claude アプリで開く ›')).not.toBeInTheDocument();
+    expect(within(card).getByText('開く ›')).toBeInTheDocument();
+    expect(within(card).queryByText(/アカウントで開く/)).not.toBeInTheDocument();
   });
 
   it('実行中の行にもアカウントの札が付く', async () => {
@@ -322,7 +342,7 @@ describe('InboxScreen', () => {
     expect(within(row).getByText('アカウント 1', { selector: '.acct-tag' })).toBeInTheDocument();
   });
 
-  it('アカウントが受信箱の素に無い行は、札を出さず、文言は「Claude アプリで開く ›」のまま', async () => {
+  it('アカウントが受信箱の素に無い行は、札を出さず、文言は「開く ›」', async () => {
     await serveFeeds([
       feedOf('pc-1', 'Mac', {
         live: [
@@ -333,7 +353,7 @@ describe('InboxScreen', () => {
     ]);
     const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
     const card = (await screen.findByText('質問 1')).closest('a')!;
-    expect(within(card).getByText('Claude アプリで開く ›')).toBeInTheDocument();
+    expect(within(card).getByText('開く ›')).toBeInTheDocument();
     expect(container.querySelector('.acct-tag')).toBeNull();
   });
 

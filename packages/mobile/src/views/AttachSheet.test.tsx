@@ -14,7 +14,9 @@ describe('AttachSheet', () => {
     expect(lib).not.toHaveAttribute('capture');
     expect(cam).toHaveAttribute('accept', 'image/*');
     expect(cam).toHaveAttribute('capture', 'environment');
-    expect(within(dlg).getByText(/1 枚 5 MB まで、4 枚まで/)).toBeInTheDocument();
+    expect(within(dlg).getByText('4 枚・1 枚 5 MB まで')).toBeInTheDocument();
+    expect(within(dlg).queryByText(/2048/)).not.toBeInTheDocument();
+    expect(within(dlg).queryByText('ここから選ぶ')).not.toBeInTheDocument();
   });
 
   it('選んだら画像を渡して閉じる。何も選ばなければ渡さない', () => {

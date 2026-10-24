@@ -18,6 +18,7 @@ import { pushQuiet, readPushStatus, setPushQuiet, turnOffPush, turnOnPush, type 
 import { clearPairing, type Pairing } from '../store.ts';
 import { BottomSheet } from './BottomSheet.tsx';
 import { Fold } from './Fold.tsx';
+import { InfoButton, InfoPanel, useInfo } from './Info.tsx';
 
 type Page = 'notif' | 'defaults' | 'conn';
 
@@ -302,9 +303,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
             </div>
             {shown === 'notif' && (
               <>
-                <h2 className="set-h" id={`${titleId}-notif`}>
-                  通知
-                </h2>
+                <InfoHeading id={`${titleId}-notif`} title="通知" info="このスマホの時刻で判定します。" />
                 <NotifBody
                   status={status}
                   busy={busy}
@@ -328,9 +327,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
             )}
             {shown === 'conn' && (
               <>
-                <h2 className="set-h" id={`${titleId}-conn`}>
-                  接続
-                </h2>
+                <InfoHeading id={`${titleId}-conn`} title="接続" info="30 日使わないと切れます。" />
                 <div className="set-grp">
                   <Item label="接続先" value={devices || '不明'} />
                   <Item label="接続した日" value={pairing.joinedAt !== undefined ? dayOf(pairing.joinedAt) : '不明'} />
@@ -339,7 +336,6 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
                     QR を読んで接続し直す
                   </button>
                 </div>
-                <p className="set-foot">30 日使わないか、接続から 90 日たつと切れます。切れたら PC の設定で QR を出して読み直してください。</p>
                 <div className="set-grp set-gap">
                   <button type="button" className="set-it danger" onClick={() => setConfirm(true)}>
                     このスマホの接続を解除
@@ -367,6 +363,24 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
           </button>
         </div>
       </BottomSheet>
+    </>
+  );
+}
+
+/** ページの見出しと、その横の ⓘ。説明は見出しのすぐ下に開く。ページを離れると閉じた状態に戻る。 */
+function InfoHeading({ id, title, info }: { id: string; title: string; info: string }): ReactNode {
+  const s = useInfo();
+  return (
+    <>
+      <div className="info-head">
+        <h2 className="set-h" id={id}>
+          {title}
+        </h2>
+        <InfoButton info={s} label={`${title}の説明`} />
+      </div>
+      <InfoPanel info={s}>
+        <p>{info}</p>
+      </InfoPanel>
     </>
   );
 }
@@ -455,7 +469,7 @@ function NotifBody({ status, busy, failed, mute, times, saved, onTogglePush, onT
         ))}
       </div>
       <div className="set-foot set-foot-row">
-        <span>このスマホの時刻で判定します。ほかのスマホには効きません。</span>
+        <span>ほかのスマホには効きません。</span>
         <span className={`set-saved ${saved.shown ? '' : 'hide'}`} role="status">
           {saved.text}
         </span>
@@ -547,7 +561,6 @@ function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults;
           />
         ))}
       </div>
-      <p className="set-foot">新しい会話の画面を開いたときに、最初から選んでおく値です。</p>
     </>
   );
 }

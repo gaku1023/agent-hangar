@@ -23,6 +23,8 @@ describe('JoinScreen のホーム画面のアプリ', () => {
     standalone(true);
     const { container } = render(<JoinScreen pairText={null} onEnter={vi.fn()} />);
     expect(screen.getByRole('heading', { name: 'PC の QR を読み取ります' })).toBeInTheDocument();
+    expect(screen.getByText('QR は表示してから 5 分有効です。')).toBeInTheDocument();
+    expect(screen.queryByText(/枠に合わせて/)).not.toBeInTheDocument();
     await waitFor(() => expect(scanQr).toHaveBeenCalledTimes(1));
     expect(container.querySelector('video')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'カメラで QR を読む' })).not.toBeInTheDocument();

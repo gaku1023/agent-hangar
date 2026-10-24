@@ -172,6 +172,11 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .wait-text { margin: 6px 0 8px; font-size: 16px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
 .wait-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--ink-2); }
 .wait-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 本文の無い札は、上の行のすぐ下に下の行を置く。 */
+.wait-top + .wait-foot { margin-top: 8px; }
+.wait-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 待っているものの種別（許可待ち、質問）。下の行の小さな札。 */
+.wait-kind { flex: none; font-size: 11px; font-weight: 700; line-height: 1.5; border-radius: 99px; padding: 1px 8px; background: color-mix(in srgb, var(--waiting) 10%, #fff); color: var(--waiting); white-space: nowrap; }
 /* アカウントの札（色の丸と名前）。受信箱の行に付く。 */
 .acct-tag { display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 7em; font-size: 11px; font-weight: 700; line-height: 1.5; border-radius: 99px; padding: 1px 8px 1px 6px; background: var(--accent-soft); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acct-tag i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ink-3); }
@@ -207,6 +212,8 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .ns-sec { display: flex; flex-direction: column; padding-top: 14px; }
 .ns-h { margin: 0 4px 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--ink-3); }
 .ns-hint { margin: 0 4px; font-size: 12.5px; color: var(--ink-3); }
+/* まだ選べない段（PC、アカウント）は出さず、前の段を選ぶと伸びて現れる。段の間の空きは .ns-sec が持つ。 */
+.ns-step > .fold-in > .fold-pad { padding-bottom: 0; }
 .ns-list { display: flex; flex-direction: column; }
 .ns-list > .choice { margin-bottom: 8px; }
 .ns-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -235,7 +242,6 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .ns-actions > .ns-start { flex: 1; }
 
 /* プロジェクトの選び方（B1）。クイックセッション、最近の札、検索、すべて。 */
-.pp-sub { margin: 6px 4px 8px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .pp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .pp-chip { max-width: 100%; min-height: 44px; padding: 8px 14px; border: 0; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--card-line); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .pp-chip:active { transform: scale(0.98); }
@@ -444,6 +450,17 @@ button.set-it:active { background: var(--surface-2); }
 .set-foot-row { display: flex; justify-content: space-between; gap: 10px; }
 .set-saved { flex: none; transition: opacity var(--dur) var(--ease-out); }
 .set-saved.hide { opacity: 0; }
+
+/* ⓘ（views/Info.tsx）。押す的は 44px 四方、見た目の丸は 18px。
+   開いた説明は見出しのすぐ下に .fold で伸びて出て、畳んで消える。 */
+.info-head { display: flex; align-items: center; margin-bottom: 10px; }
+.info-head > .set-h { margin: 0; }
+.info-btn { flex: none; width: 44px; height: 44px; margin: -10px -10px -10px -4px; border: 0; padding: 0; border-radius: 50%; background: none; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; }
+.info-btn i { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; font-size: 11px; font-weight: 700; font-style: normal; line-height: 18px; text-align: center; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.info-btn[aria-expanded="true"] i { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+.info-fold > .fold-in > .fold-pad { padding-bottom: 10px; }
+.info-body { margin: 0 4px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.info-body p { margin: 0; }
 .sw { position: relative; flex: none; width: 46px; height: 28px; border: 0; padding: 0; border-radius: 14px; background: var(--line-strong); cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out); }
 .sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); transition: transform var(--dur) var(--ease-out); }
 .sw[aria-checked='true'] { background: var(--accent); }
