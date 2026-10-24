@@ -37,6 +37,14 @@ describe('claudeDirDrifts', () => {
     expect(claudeDirDrifts(dir)).toEqual([]);
     expect(isClaudeDirDrift('entry=remote-settings.json.synced-at')).toBe(false);
   });
+  it('2.1.308 で現れた組織の設定の署名と state（コネクタごとの MCP の判定）はアカウントごとに持つ項目', () => {
+    const dir = path.join(tmp, 'second');
+    fs.mkdirSync(path.join(dir, 'state'), { recursive: true });
+    const names = ['policy-limits.json.signature.json', 'policy-limits.json.signature-iat.json', 'remote-settings.json.signature.json', 'remote-settings.json.signature-iat.json'];
+    for (const n of names) fs.writeFileSync(path.join(dir, n), '{}');
+    expect(claudeDirDrifts(dir)).toEqual([]);
+    for (const n of [...names, 'state']) expect(isClaudeDirDrift(`entry=${n}`)).toBe(false);
+  });
   it('読めない置き場は空', () => {
     expect(claudeDirDrifts(path.join(tmp, 'none'))).toEqual([]);
   });

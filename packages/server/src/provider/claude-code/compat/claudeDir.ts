@@ -7,10 +7,14 @@ import { splitDriftValue, type CompatSink, type Drift } from './types.ts';
  * 認証、組織から配られる設定、キャッシュ、常駐のサービスの状態と、古い版が作った置き場である
  * （docs/superpowers/specs/2026-10-06-account-switch-design.md と、その後に実物の置き場で見たもの）。
  * remote-settings.json.synced-at は 2.1.300 で現れた、組織の設定を取りに行った時刻で、remote-settings.json と同じくアカウントごとに持つ。
+ * *.signature.json と *.signature-iat.json は 2.1.308 で現れた、組織の設定の署名（jws と受け取った時刻、署名の宛先と発行時刻）である。
+ * state も 2.1.308 で現れ、claude.ai のコネクタ（mcpsrv_ の ID）ごとの MCP の判定を持つ。どちらもアカウントに結びつく。
  */
 export const KNOWN_PER_ACCOUNT_ENTRIES: ReadonlySet<string> = new Set([
   '.claude.json', '.credentials.json', '.last-cleanup', '.last-update-result.json', 'backups', 'cache', 'daemon', 'daemon.log',
-  'downloads', 'ide', 'policy-limits.json', 'policy-limits.json.stamp.json', 'remote-settings.json', 'remote-settings.json.synced-at', 'statsig', 'telemetry', 'todos',
+  'downloads', 'ide', 'policy-limits.json', 'policy-limits.json.signature.json', 'policy-limits.json.signature-iat.json', 'policy-limits.json.stamp.json',
+  'remote-settings.json', 'remote-settings.json.signature.json', 'remote-settings.json.signature-iat.json', 'remote-settings.json.synced-at',
+  'state', 'statsig', 'telemetry', 'todos',
 ]);
 /** Claude Code が作るものではないので見ない名前。 */
 const IGNORED: ReadonlySet<string> = new Set(['.DS_Store']);
