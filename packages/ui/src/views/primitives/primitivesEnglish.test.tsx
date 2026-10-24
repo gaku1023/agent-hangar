@@ -103,8 +103,7 @@ describe('初期プロンプト欄（英語）', () => {
     const files = screen.getByRole('button', { name: 'Files' });
     expect(files).toBeDisabled();
     expect(files).toHaveAttribute('title', 'Select a project to use this');
-    expect(screen.getByRole('button', { name: /Attach/ })).toBeInTheDocument();
-    expect(screen.getByText('You can also paste images with ⌘V')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Attach/ })).toHaveAttribute('title', 'You can also paste images with ⌘V');
     expect(screen.getByRole('list', { name: 'Attachments' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove a.txt' })).toBeInTheDocument();
     noJapanese();

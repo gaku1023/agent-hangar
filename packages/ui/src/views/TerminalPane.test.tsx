@@ -137,7 +137,7 @@ describe('TerminalPane', () => {
       const { rerender } = render(pane(host, null, { when: '10:30', onLatest: () => {} }));
       rerender(pane(host, null, null));
       const band = document.querySelector('.term-band')!;
-      expect(band).toHaveTextContent('10:30 のターン');
+      expect(band).toHaveTextContent('10:30');
       expect(band).toHaveAttribute('aria-hidden', 'true');
       await act(async () => { resolve(); await Promise.resolve(); await Promise.resolve(); });
       expect(document.querySelector('.term-band')).toBeNull();
@@ -201,6 +201,8 @@ describe('TerminalPane', () => {
     const host = { ...fakeHost(), status: () => 'error' as const };
     const { rerender } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);
     expect(screen.getByText('ターミナルに接続できませんでした')).toBeInTheDocument();
+    // ボタンと同じことを言い直す本文は置かない。
+    expect(document.querySelector('.term-off-card p')).toBeNull();
     expect(screen.getByRole('button', { name: '再接続' })).toBeInTheDocument();
     rerender(<TerminalHostContext.Provider value={{ ...host, status: () => 'connecting' as const }}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);
     expect(screen.queryByRole('button', { name: '再接続' })).toBeNull();

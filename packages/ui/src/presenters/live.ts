@@ -217,22 +217,19 @@ function staleWait(i: CardInput, results: ResultMap): boolean {
 }
 
 function plainState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question'> {
-  const sep = t('common.list.separator');
   if (i.live === 'waiting') {
     const detail = staleWait(i, results) ? null : i.activity?.question || i.activity?.summary || null;
     return { tone: 'wait', state: t('session.strip.state.waiting'), sub: t('session.strip.waited', { time: i.waited }), detail, question: detail !== null };
   }
-  // 本体は入力を受け付けていて、裏だけが動いている。作業中の色にせず、メイン会話が空いていることを言う。
+  // 本体は入力を受け付けていて、裏だけが動いている。作業中の色にしない。
+  // 裏のサブエージェントは札のチップ（担当の数）が見せるので言い直さない。チップの無い裏のシェルだけを 1 行添える。
   if (i.aside) {
-    const what = i.aside.agents > 0 ? [t('session.strip.subagentsRunning', { n: i.aside.agents })] : i.aside.shell ? [t('session.strip.shellRunning')] : [];
-    return { tone: 'aside', state: t('session.strip.state.aside'), sub: '', detail: [...what, t('session.strip.mainFree')].join(sep), question: false };
+    const shellOnly = i.aside.agents === 0 && i.aside.shell;
+    return { tone: 'aside', state: t('session.strip.state.aside'), sub: '', detail: shellOnly ? t('session.strip.shellRunning') : null, question: false };
   }
+  // サブエージェントが動いている間も作業中として扱い、件数はチップに任せて、ふつうの作業中と同じく手の数を添える。
   const running = (i.digest?.agents ?? []).filter((a) => a.state === 'running').length;
-  if (running > 0) {
-    const mainBusy = !i.viewingAgent && turnCalls(i).some((e) => !results.has(e.toolId));
-    return { tone: 'busy', state: t('session.strip.state.working'), sub: t('session.strip.subagentsRunning', { n: running }), detail: mainBusy ? t('session.strip.mainWorking') : null, question: false };
-  }
-  if (i.live === 'busy') {
+  if (i.live === 'busy' || running > 0) {
     // サブエージェントの transcript を開いている間は、呼び出しの数も経過もメイン会話のものではないので出さない。
     // 「ツール呼び出し n 回」はメイン会話の呼び出しの数。Agent の起こしは数え、hangar 自身の MCP は数えない。経過は今のターンの頭から。
     const n = turnCalls(i, { agents: true }).length;

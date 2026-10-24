@@ -49,11 +49,11 @@ const SS = (props: SessionProps) => <SessionScreen {...props} actions={sessionAc
 
 describe('引き継がれた側の 1 行', () => {
   it('takenOver の 1 行を見出しの下に出し、無ければ出さない', () => {
-    const { container, rerender } = render(<ActionRoot onAction={() => {}}><SS {...base} takenOver="pc-a に引き継がれました（2026-10-16 10:00）。現在は pc-a で実行中です。" /></ActionRoot>);
-    expect(screen.getByText(/に引き継がれました/)).toBeTruthy();
+    const { container, rerender } = render(<ActionRoot onAction={() => {}}><SS {...base} takenOver="pc-a に引き継ぎ（2026-10-16 10:00）" /></ActionRoot>);
+    expect(screen.getByText(/に引き継ぎ/)).toBeTruthy();
     expect(container.querySelector('.page-head .session-reason')).not.toBeNull();
     rerender(<ActionRoot onAction={() => {}}><SS {...base} takenOver={null} /></ActionRoot>);
-    expect(screen.queryByText(/に引き継がれました/)).toBeNull();
+    expect(screen.queryByText(/に引き継ぎ/)).toBeNull();
   });
 });
 /** 「…」のメニューを開いて、その中の項目を返す。 */
@@ -276,7 +276,8 @@ describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
     fireEvent.click(screen.getByRole('button', { name: '詳細' }));
     const dialog = screen.getByRole('dialog', { name: '詳細' });
     expect(within(dialog).getByText('git config --global --add safe.directory /w/alpha')).toBeInTheDocument();
-    expect(within(dialog).getByText(/hangar は git の設定を変更しません/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/ターミナルで次のコマンドを実行します。$/)).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent('hangar は git の設定を変更しません');
     expect(within(dialog).getByRole('button', { name: /コピー/ })).toBeInTheDocument();
   });
   it('バッジの文は presenter が組む（ロックの札と見出しの札の種類）', () => {
@@ -480,7 +481,7 @@ describe('SessionScreen（実行中）', () => {
     expect(head.lastElementChild).toBe(close);
     expect(head).toHaveTextContent('⌘J');
     expect(close).toHaveAttribute('aria-keyshortcuts', 'Meta+J');
-    expect(close).toHaveAttribute('title', '右パネルの開閉（⌘J）');
+    expect(close).toHaveAttribute('title', '右パネルの開閉');
     expect(close.closest('.toc-pane')).toBeNull();
     expect(close.closest('.now-card')).toBeNull();
     expect(document.querySelector('.turns-head .tr-toggle')).toBeNull();
@@ -627,12 +628,12 @@ describe('SessionScreen（実行中）', () => {
     rerender(<ActionRoot onAction={vi.fn()}><SS {...base} oneLiner="TWO" /></ActionRoot>);
     expect(document.querySelector('.session-oneliner')).not.toBe(first);
   });
-  it('信頼ダイアログの案内と終了の表示', () => {
+  it('信頼ダイアログの案内と終了の表示（終了は言い直さない）', () => {
     withHost(<SS {...running} live={null} trustHint />);
-    expect(screen.getAllByRole('status').some((e) => e.textContent?.includes('信頼確認'))).toBe(true);
+    expect(screen.getAllByRole('status').some((e) => e.textContent === '信頼確認が出たらターミナルで回答')).toBe(true);
     cleanup();
     withHost(<SS {...running} live={null} strip={null} run={{ ...running.run!, alive: false }} canResume />);
-    expect(screen.getByRole('status')).toHaveTextContent('Claude は終了しました');
+    expect(document.querySelector('.term-hint')).toBeNull();
     // 終了した run では新しいシェルを開けないので、＋ を出さない。
     expect(screen.queryByLabelText('シェルタブを追加')).toBeNull();
     expect(screen.getByRole('button', { name: '再開' })).toBeEnabled();
@@ -667,7 +668,7 @@ describe('ターミナルの知らせ（F1）', () => {
     const onAction = withHost(<SS {...running} canSplit split={{ left: 'r1', right: 't1' }} transcriptBand={{ when: '12:09' }} />);
     const left = within(screen.getByTestId('term-r1'));
     expect(left.getByText('トランスクリプト表示中')).toBeInTheDocument();
-    expect(left.getByText('12:09 のターン · Claude はバックグラウンドで実行中です')).toBeInTheDocument();
+    expect(left.getByText('12:09', { selector: '.term-band-sub' })).toBeInTheDocument();
     expect(within(screen.getByTestId('term-t1')).queryByText('トランスクリプト表示中')).toBeNull();
     fireEvent.click(left.getByRole('button', { name: /最新へ移動/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
@@ -986,11 +987,11 @@ describe('SessionScreen（本文が消えた会話）', () => {
     expect(screen.queryByRole('button', { name: '要約を再生成' })).toBeNull();
     expect(menu().queryByRole('menuitem', { name: /要約を再生成/ })).toBeNull();
   });
-  it('延ばせないときは手を出さず、要約も無ければそう言う', () => {
+  it('延ばせないときは手を出さず、要約も無ければ何も言わない', () => {
     const lead = leadOf({ summary: null, hasTranscript: false }, { gone: true });
     render(<ActionRoot onAction={() => {}}><SS {...props} lead={lead} oneLiner={null} gone={{ ...gone, canExtend: false }} /></ActionRoot>);
     expect(screen.queryByRole('button', { name: '保持期間を延長…' })).toBeNull();
-    expect(screen.getByText('要約はありません')).toBeInTheDocument();
+    expect(screen.queryByText('要約はありません')).toBeNull();
   });
 });
 
@@ -1038,13 +1039,13 @@ describe('SessionScreen（英語）', () => {
     expect(screen.getByLabelText('Split side by side')).toBeInTheDocument();
     expect(screen.getByRole('separator', { name: 'Left and right width' })).toHaveAttribute('aria-valuetext', 'Left 50%');
     expect(screen.getByText('Transcript view')).toBeInTheDocument();
-    expect(screen.getByText('Turn from 12:09 · Claude keeps working in the background')).toBeInTheDocument();
+    expect(screen.getByText('12:09', { selector: '.term-band-sub' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Jump to latest/ }).length).toBeGreaterThan(0);
     const right = within(screen.getByTestId('term-t1'));
     expect(right.getByText('Terminal disconnected')).toBeInTheDocument();
     expect(right.getByText('The shell is still running. Reconnecting in 5 seconds.')).toBeInTheDocument();
     expect(right.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
-    expect(screen.getAllByRole('status').some((e) => (e.textContent ?? '').includes('If a trust dialog appears'))).toBe(true);
+    expect(screen.getAllByRole('status').some((e) => (e.textContent ?? '').includes('trust prompt'))).toBe(true);
   });
 });
 

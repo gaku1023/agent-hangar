@@ -115,7 +115,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
         <div ref={band.ref} className="term-band" aria-hidden={band.leaving ? 'true' : undefined}>
           <Icon name="transcriptView" />
           <b>{t('terminal.band.title')}</b>
-          <span className="term-band-sub">{lastBand.current.when ? t('terminal.band.subWhen', { when: lastBand.current.when }) : t('terminal.band.sub')}</span>
+          {lastBand.current.when && <span className="term-band-sub">{lastBand.current.when}</span>}
           <button type="button" className="btn" onClick={lastBand.current.onLatest}><Icon name="latest" />{t('terminal.band.latest')}</button>
         </div>
       )}
@@ -127,7 +127,8 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
           <div className="term-off-card">
             <span className="term-off-ic"><Icon name="disconnected" /></span>
             <b role="alert">{t(failed ? 'terminal.off.failed' : detached ? 'terminal.off.detached' : 'terminal.off.dropped')}</b>
-            <p>{failed ? t('terminal.off.failedBody') : detached ? running : link.gaveUp ? t('terminal.off.gaveUp') : t('terminal.off.then', { first: running, next: t(secs !== null ? 'terminal.off.retryIn' : 'terminal.off.retrying', { n: secs ?? 0 }) })}</p>
+            {/* 断られたときは、見出しと再接続のボタンで足りるので本文を置かない。 */}
+            {!failed && <p>{detached ? running : link.gaveUp ? t('terminal.off.gaveUp') : t('terminal.off.then', { first: running, next: t(secs !== null ? 'terminal.off.retryIn' : 'terminal.off.retrying', { n: secs ?? 0 }) })}</p>}
             <button type="button" className="btn btn-primary" onClick={() => host?.reconnect(props.tabId)}><Icon name="reconnect" />{t(detached ? 'terminal.off.reattach' : 'terminal.off.reconnect')}</button>
           </div>
         </div>

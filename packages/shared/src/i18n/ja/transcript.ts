@@ -23,7 +23,6 @@ export const transcriptJa: AreaDictionary<typeof transcriptKeys> = {
   'transcript.find.prev': '前の一致（{keys}）',
   'transcript.find.next': '次の一致（{keys}）',
   'transcript.find.close': '閉じる（Esc）',
-  'transcript.empty.none': 'トランスクリプトがありません',
   'transcript.more.older': '古い行を読み込む（残り {n} 件）',
   'transcript.more.newer': '新しい行を読み込む',
   'transcript.more.unseen': '新着 {n} 件',

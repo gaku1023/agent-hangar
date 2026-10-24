@@ -22,7 +22,6 @@ export const transcriptKeys = {
   'transcript.find.prev': ['keys'],
   'transcript.find.next': ['keys'],
   'transcript.find.close': [],
-  'transcript.empty.none': [],
   'transcript.more.older': ['n'],
   'transcript.more.newer': [],
   'transcript.more.unseen': ['n'],

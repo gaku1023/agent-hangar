@@ -11,9 +11,7 @@ export const overlapEn: AreaDictionary<typeof overlapKeys> = {
   'overlap.table.theirs': 'Other session',
   'overlap.table.alternating': 'Alternating',
   'overlap.pop.note': 'Only Edit and Write calls are counted. Changes made with Bash aren’t included.',
-  'overlap.worktree.hint': 'To run sessions side by side, use a worktree so they don’t overwrite each other’s changes.',
   'overlap.worktree.action': 'New session in a worktree',
   'overlap.pop.dismiss': 'Don’t show for these files',
-  'overlap.pop.open': 'Open',
   'overlap.card.details': 'Details',
 };

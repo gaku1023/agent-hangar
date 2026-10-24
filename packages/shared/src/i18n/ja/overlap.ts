@@ -11,9 +11,7 @@ export const overlapJa: AreaDictionary<typeof overlapKeys> = {
   'overlap.table.theirs': '他のセッション',
   'overlap.table.alternating': '交互',
   'overlap.pop.note': '集計の対象は Edit と Write の呼び出しだけです。Bash での変更は含みません。',
-  'overlap.worktree.hint': '並行して実行するときは、worktree を使うと互いの変更を上書きしません。',
   'overlap.worktree.action': 'worktree で新しいセッション',
   'overlap.pop.dismiss': 'このファイルでは表示しない',
-  'overlap.pop.open': '開く',
   'overlap.card.details': '詳細',
 };

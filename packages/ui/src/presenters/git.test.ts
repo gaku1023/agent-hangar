@@ -26,8 +26,8 @@ describe('presentGitChip', () => {
     expect(presentGitChip(ja, g, 's1', { s1: session('s1') })).toBeNull();
     expect(presentGitChip(ja, g, 's1', { s1: session('s1', { live: 'busy' }) })).toMatchObject({ name: 'feature/after', value: '未コミット 3' });
   });
-  it('変更なし、件数なし（時間切れ）、1,000+', () => {
-    expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 0 }) } }), 's1', {})).toMatchObject({ value: '変更なし', dirty: false, count: 0 });
+  it('変更が無ければ値を出さない（ブランチだけ）、件数なし（時間切れ）、1,000+', () => {
+    expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 0 }) } }), 's1', {})).toMatchObject({ value: '', dirty: false, count: 0, label: expect.stringMatching(/^ブランチ [^、]+$/) });
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: null, slow: true }) } }), 's1', {})).toMatchObject({ value: '件数不明', dirty: false, count: null, title: 'fix-login\ngit が 3 秒以内に応答しなかったため、件数を省略しました' });
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 1000, capped: true }) } }), 's1', {})).toMatchObject({ value: '未コミット 1,000+', dirty: true, count: 1000 });
   });
@@ -117,6 +117,8 @@ describe('presentDiffBody', () => {
   });
   it('コミット済み、バイナリ、取得中、編集', () => {
     expect(presentDiffBody(ja, { source: 'git', file: changes().files[2]!, diff: undefined, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'このファイルへの変更はコミット済みです。作業ツリーとの差分はありません。' });
+    // ファイルを選んでいなければ、促す文を出さず空にする。
+    expect(presentDiffBody(ja, { source: 'git', file: null, diff: undefined, edits: undefined, cwd: '/w' })).toEqual({ kind: 'none', line: 1 });
     expect(presentDiffBody(ja, { source: 'git', file: changes().files[0]!, diff: { file: '/w/alpha/src/a.ts', rel: 'src/a.ts', status: 'M', text: '', truncated: false, binary: true }, edits: undefined, cwd: '/w' })).toMatchObject({ kind: 'note', text: 'バイナリファイルのため、差分を表示しません。' });
     expect(presentDiffBody(ja, { source: 'git', file: changes().files[0]!, diff: undefined, edits: undefined, cwd: '/w' }).kind).toBe('loading');
     const edits: SessionEditsDto = { file: '/w/alpha/src/a.ts', truncated: false, edits: [
@@ -140,7 +142,7 @@ describe('presentProjectGit', () => {
     expect(v.root).toMatchObject({ name: 'fix-login', value: '未コミット 7' });
     expect(v.rows.map((r) => [r.name, r.worktree, r.value, r.branch, r.sessions])).toEqual([
       ['alpha', false, '未コミット 7', 'ブランチ fix-login', '実行中 2'],
-      ['pay', true, '変更なし', 'ブランチ worktree-pay', '入力待ち 1'],
+      ['pay', true, '', 'ブランチ worktree-pay', '入力待ち 1'],
     ]);
     expect(presentProjectGit(ja, undefined, [], git()).state).toBe('loading');
     expect(presentProjectGit(ja, { root: null, worktrees: [] }, [], git()).state).toBe('nogit');

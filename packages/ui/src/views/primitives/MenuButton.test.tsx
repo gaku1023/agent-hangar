@@ -76,6 +76,13 @@ describe('MenuButton', () => {
     // 補足は押せる項目にも添える。
     expect(menuItems()[0]).toHaveTextContent('外部ターミナルで同じセッションに接続する');
   });
+  it('title を持つ項目は、補足を画面に出さず title に入れる', () => {
+    render(<MenuButton label="ほかの操作" items={[{ key: 'fork', label: 'フォーク', title: 'この会話から分岐した新しいセッション', onSelect: vi.fn() }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'ほかの操作' }));
+    const item = screen.getByRole('menuitem', { name: 'フォーク' });
+    expect(item).toHaveAttribute('title', 'この会話から分岐した新しいセッション');
+    expect(item.querySelector('small')).toBeNull();
+  });
   it('危険な項目は区切りの後ろに危険色で置く', () => {
     const { face, menuItems } = mount();
     fireEvent.click(face);

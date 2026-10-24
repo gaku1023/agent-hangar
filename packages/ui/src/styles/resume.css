@@ -73,8 +73,7 @@
 .ov-path { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink); overflow-wrap: anywhere; }
 .ov-alt { margin-left: calc(var(--u) * 1.5); font-weight: 600; color: var(--st-paused); }
 .ov-note { margin: calc(var(--u) * 2) 0 0; font-size: var(--fs-xs); color: var(--ink-3); }
-.ov-wt { margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--accent-soft); }
-.ov-wt p { margin: 0 0 calc(var(--u) * 1.5); }
+.ov-wt { margin-top: calc(var(--u) * 2); }
 .ov-foot { display: flex; justify-content: flex-end; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2); }
 
 /* トーストの中のボタン（元に戻す）。 */

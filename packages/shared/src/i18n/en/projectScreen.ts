@@ -39,7 +39,7 @@ export const projectScreenEn: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.instructions.desc.memory': 'Auto memory · written by Claude',
   'projectScreen.instructions.meta': '{size} · {ago}',
   'projectScreen.instructions.show': 'Show {name}',
-  'projectScreen.instructions.empty': 'No instruction files. Add a CLAUDE.md and Claude reads it at every start.',
+  'projectScreen.instructions.empty': 'No instruction files',
   'projectScreen.instructions.footBefore': 'Run ',
   'projectScreen.instructions.footAfter': ' in a session to see everything Claude loads.',
   'projectScreen.instructions.missing': 'The folder isn\'t on this PC',

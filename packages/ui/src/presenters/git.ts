@@ -17,7 +17,7 @@ import { presentTool } from './tools.ts';
  * 一覧の行、引き出しの行、現在の札、冒頭の 1 枚に置く小さい札。
  * kind の ok は作業ツリーを読めたもの、remote は他の PC のセッション（本文の gitBranch だけ）、gone は消えた worktree。
  * worktree が真なら、枝の印ではなく分かれ道の印と「worktree」の小札を出し、name は worktree の名前、title にブランチを持つ。
- * value は「・」の後ろの語（未コミット N、変更なし、件数なし、他の PC、削除済み）で、count は件数（回すため）。dirty は琥珀にするか。
+ * value は「・」の後ろの語（未コミット N、件数なし、他の PC、削除済み。変更が無ければ空）で、count は件数（回すため）。dirty は琥珀にするか。
  * shared は自分を含めた本数で、2 本以上の実行中の行にだけ持つ。
  */
 export type GitChipProps = {
@@ -30,7 +30,8 @@ const tsep = (n: number) => n.toLocaleString('en-US');
 /** 未コミットの件数の語。cap を超えたものは「1,000+」。 */
 function countValue(t: Translate, tr: GitTreeDto): { value: string; count: number | null; dirty: boolean } {
   if (tr.slow || tr.dirty === null) return { value: t('gitUi.chip.noCount'), count: null, dirty: false };
-  if (tr.dirty === 0) return { value: t('gitUi.chip.clean'), count: 0, dirty: false };
+  // 変更が無ければ値を出さず、ブランチだけの札にする（「変更なし」と言い直さない）。
+  if (tr.dirty === 0) return { value: '', count: 0, dirty: false };
   if (tr.capped) return { value: t('gitUi.chip.uncommittedCapped', { n: tsep(tr.dirty) }), count: tr.dirty, dirty: true };
   return { value: t('gitUi.chip.uncommitted', { n: tsep(tr.dirty) }), count: tr.dirty, dirty: true };
 }
@@ -104,7 +105,7 @@ export function gitDetailRows(t: Translate, git: GitDto, sessionId: string, sess
   if (tr.slow || tr.dirty === null) { rows.push({ name: t('gitUi.details.tree'), value: t('gitUi.details.treeSlow') }); return rows; }
   const s = sessions[sessionId];
   const n = s && shownLive(s) !== null ? runningOn(git, tr.root, sessions) : 0;
-  rows.push({ name: t('gitUi.details.tree'), value: tr.capped ? t('gitUi.details.treeMany', { n: tsep(tr.dirty) }) : tr.dirty === 0 ? t('gitUi.chip.clean') : t('gitUi.details.treeValue', { n: tsep(tr.dirty) }), ...(n >= 2 ? { note: t('gitUi.details.shared', { n: n - 1 }) } : {}) });
+  rows.push({ name: t('gitUi.details.tree'), value: tr.capped ? t('gitUi.details.treeMany', { n: tsep(tr.dirty) }) : t('gitUi.details.treeValue', { n: tsep(tr.dirty) }), ...(n >= 2 ? { note: t('gitUi.details.shared', { n: n - 1 }) } : {}) });
   const mine = changes && changes.state === 'ok' ? changes.files.filter((f) => f.status !== 'C').length : null;
   rows.push({ name: t('gitUi.details.mine'), value: mine === null ? t('gitUi.details.mineLoading') : t('gitUi.details.mineValue', { n: mine }), link: { label: t('gitUi.details.list'), send: { type: 'diff.open', sessionId } } });
   return rows;
@@ -158,6 +159,7 @@ export function presentGitFiles(t: Translate, changes: SessionChangesDto | undef
  * line はエディタで開く行（最初に足した行、無ければ 1）。
  */
 export type DiffBody =
+  | { kind: 'none'; line: number }
   | { kind: 'loading'; line: number }
   | { kind: 'note'; text: string; line: number }
   | { kind: 'hunks'; hunks: DiffHunk[]; truncated: boolean; line: number }
@@ -176,7 +178,7 @@ function writeHunk(text: string): DiffHunk {
 }
 
 export function presentDiffBody(t: Translate, o: { source: 'git' | 'session'; file: GitFileRow | GitFileDto | null; diff: GitDiffDto | { error: string } | undefined; edits: SessionEditsDto | { error: string } | undefined; cwd: string }): DiffBody {
-  if (!o.file) return { kind: 'note', text: t('gitUi.diff.noFile'), line: 1 };
+  if (!o.file) return { kind: 'none', line: 1 };
   if (o.source === 'git') {
     if (o.file.status === 'C') return { kind: 'note', text: t('gitUi.diff.committed'), line: 1 };
     if (!o.diff) return { kind: 'loading', line: 1 };
@@ -236,7 +238,7 @@ export function presentProjectGit(t: Translate, pg: ProjectGitDto | undefined, s
   });
   const rc = countValue(t, pg.root);
   const branch = pg.root.branch ?? pg.root.head ?? 'HEAD';
-  const root: GitChipProps = { kind: 'ok', worktree: false, name: branch, title: branch, ...rc, shared: null, sharedTitle: null, label: t('gitUi.chip.label', { branch, value: rc.value }) };
+  const root: GitChipProps = { kind: 'ok', worktree: false, name: branch, title: branch, ...rc, shared: null, sharedTitle: null, label: rc.value === '' ? t('gitUi.chip.labelBranch', { branch }) : t('gitUi.chip.label', { branch, value: rc.value }) };
   return { state: 'ok', root, rows, fix: null };
 }
 
