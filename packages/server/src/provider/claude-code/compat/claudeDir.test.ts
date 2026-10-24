@@ -45,6 +45,16 @@ describe('claudeDirDrifts', () => {
     expect(claudeDirDrifts(dir)).toEqual([]);
     for (const n of [...names, 'state']) expect(isClaudeDirDrift(`entry=${n}`)).toBe(false);
   });
+  it('アカウントごとに持つ項目の錠（2.1.310 で現れた <名前>.lock の空のディレクトリ）もアカウントごとに持つ項目', () => {
+    const dir = path.join(tmp, 'second');
+    fs.mkdirSync(path.join(dir, 'remote-settings.json.signature-iat.json.lock'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'policy-limits.json.signature-iat.json.lock'));
+    // 知らない項目の錠は、知らない項目と同じくずれ。
+    fs.mkdirSync(path.join(dir, 'brand-new.json.lock'));
+    expect(claudeDirDrifts(dir)).toEqual([entry('brand-new.json.lock')]);
+    expect(isClaudeDirDrift('entry=remote-settings.json.signature-iat.json.lock')).toBe(false);
+    expect(isClaudeDirDrift('entry=.lock')).toBe(true);
+  });
   it('読めない置き場は空', () => {
     expect(claudeDirDrifts(path.join(tmp, 'none'))).toEqual([]);
   });
