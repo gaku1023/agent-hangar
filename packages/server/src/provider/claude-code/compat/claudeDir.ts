@@ -19,8 +19,14 @@ export const KNOWN_PER_ACCOUNT_ENTRIES: ReadonlySet<string> = new Set([
 /** Claude Code が作るものではないので見ない名前。 */
 const IGNORED: ReadonlySet<string> = new Set(['.DS_Store']);
 
+/**
+ * アカウントごとに持つと知っている項目か。その項目の錠（<名前>.lock）も含める。
+ * 錠は 2.1.310 で現れた、署名を書くときの空のディレクトリで、書き終えても残る。
+ */
+const isPerAccount = (name: string): boolean =>
+  KNOWN_PER_ACCOUNT_ENTRIES.has(name) || (name.endsWith('.lock') && KNOWN_PER_ACCOUNT_ENTRIES.has(name.slice(0, -'.lock'.length)));
 /** 共有のリンクでも、アカウントごとに持つと知っている項目でも、見ない名前でもない名前か。 */
-const isUnknownEntry = (name: string): boolean => !LINKED_ENTRIES.includes(name) && !KNOWN_PER_ACCOUNT_ENTRIES.has(name) && !IGNORED.has(name);
+const isUnknownEntry = (name: string): boolean => !LINKED_ENTRIES.includes(name) && !isPerAccount(name) && !IGNORED.has(name);
 
 /**
  * 記録に残った置き場の項目の値が、今の一覧でもずれかを返す。
