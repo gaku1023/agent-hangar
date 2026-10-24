@@ -25,7 +25,7 @@ export const cloudUsageJa: AreaDictionary<typeof cloudUsageKeys> = {
   'cloudUsage.source.fresh': 'Cloudflare の実測値 · {when}',
   'cloudUsage.strip.limited': 'Cloudflare の無料枠の上限に達したため、同期を停止しています。{time} に枠がリセットされると、自動で再開します。',
   'cloudUsage.strip.pausedNoFetch': '同期の一時停止中は Cloudflare に問い合わせません。再開すると、Cloudflare の実測値と今月の請求額が表示されます。',
-  'cloudUsage.command.where': 'リポジトリをクローンして npm install したディレクトリで、次を実行してください。',
+  'cloudUsage.command.where': 'ターミナルで次を実行してください。',
   'cloudUsage.strip.needToken': '読み取り専用の API トークンを入力すると、Cloudflare の実測値、R2、今月の請求額が表示されます。',
   'cloudUsage.unit.gbMonths': 'GB-月',
   'cloudUsage.row.r2Storage': 'R2 のストレージ',

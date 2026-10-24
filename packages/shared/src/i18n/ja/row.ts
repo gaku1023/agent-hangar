@@ -28,7 +28,7 @@ export const rowJa: AreaDictionary<typeof rowKeys> = {
   'row.candidate.pausedShort': 'Paused？',
   'row.candidate.askDone': 'Done にしますか',
   'row.candidate.askPaused': 'Paused · {date} にしますか',
-  'row.candidate.source': '提案元：{source} · {ago}',
+  'row.candidate.source': '{source} · {ago}',
   'row.candidate.menuLabel': '{name} への Claude の提案',
   'row.candidateSource.conversation': '会話',
   'row.candidateSource.exit': '終了時',

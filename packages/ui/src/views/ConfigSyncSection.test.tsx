@@ -36,7 +36,7 @@ describe('Claude Code の設定の同期の節', () => {
     render(ui(propsOf(dto({ lastSentAt: NOW - 120_000, workerPending: true })), onAction));
     expect(screen.getByText(/最終送信: 2 分前/)).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Worker の更新待ち');
-    expect(screen.getByRole('status')).toHaveTextContent('リポジトリを clone して npm install したディレクトリから npm run hangar -- setup cloud');
+    expect(screen.getByRole('status')).toHaveTextContent('setup した PC で npm run hangar -- setup cloud');
     fireEvent.click(screen.getByRole('button', { name: '送信する項目を表示' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
   });
@@ -59,7 +59,9 @@ describe('Claude Code の設定の同期の節', () => {
   });
   it('何も届いていないとき、確認の入口は押せない', () => {
     render(ui(propsOf(dto())));
-    expect(screen.getAllByText('ありません', { selector: '.set-row-d' })).toHaveLength(2);
+    // 競合は見出しの「競合 0 件」で読めるので、行には「ありません」を添えない。
+    expect(screen.getAllByText('ありません', { selector: '.set-row-d' })).toHaveLength(1);
+    expect(screen.getByText('競合 0 件')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '適用内容を確認' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '差分を表示' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: '選択して承認…' })).toBeNull();
@@ -84,7 +86,8 @@ describe('Claude Code の設定の同期の節', () => {
   it('自動のときは承諾待ちの行を出さず、毎回に戻すのは注意なしにその場で保存する', () => {
     const onAction = vi.fn();
     render(ui(propsOf(dto({ approval: 'auto' })), onAction));
-    expect(screen.getByText(/自動で適用する設定です/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '受信したスキル、コマンド、エージェントの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('承認の一覧は表示せず、受信したものを適用内容の確認に含めます');
     fireEvent.click(screen.getByRole('radio', { name: '毎回承認する' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configApproval: 'each' } });
   });
@@ -92,7 +95,7 @@ describe('Claude Code の設定の同期の節', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(propsOf(dto()), onAction));
     expect(screen.getByText('送信しなかった項目 0 件')).toBeInTheDocument();
-    const rowBtn = () => within(screen.getByText(/^送信しなかった項目 \d+ 件$/).closest('.set-row') as HTMLElement).getByRole('button');
+    const rowBtn = () => within(screen.getByText(/^送信しなかった項目 \d+ 件$/).closest('.set-row') as HTMLElement).getByRole('button', { name: /^(表示|折りたたむ)$/ });
     expect(rowBtn()).toBeDisabled();
     const unsent = { items: [{ id: 'secret:x', kind: 'secret' as const, itemId: 'file:x', label: 'skills/x/SKILL.md', reason: 'secret:ghp_', allowed: false }] };
     rerender(ui(propsOf(dto({ unsent: 1 }), { unsent }), onAction));

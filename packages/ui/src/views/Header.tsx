@@ -33,7 +33,6 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; ac
     <span className="gauges" data-fold-at={foldAt('gauges')}>
       <UsageGauge label={t('header.gauge.fiveHourLabel')} short={t('header.gauge.fiveHourShort')} percent={props.usage.fiveHour} resets={props.usage.fiveHourResets} updated={props.usage.updatedLabel} limited={props.usage.fiveHourLimit ?? null} />
       <UsageGauge label={t('header.gauge.weeklyLabel')} short={t('header.gauge.weeklyShort')} percent={props.usage.sevenDay} resets={props.usage.sevenDayResets} updated={props.usage.updatedLabel} limited={props.usage.sevenDayLimit ?? null} />
-      {props.usage.updatedLabel && <span className="faint gauge-updated" data-fold-at={foldAt('gauge-updated')}>{t('header.gauge.updated', { time: props.usage.updatedLabel })}</span>}
     </span>
   );
   return (

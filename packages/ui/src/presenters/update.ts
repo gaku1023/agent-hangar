@@ -49,7 +49,7 @@ export type UpdateSectionProps = {
   badge: { text: string; tone: 'ok' | 'off' | 'warn' | 'stop' | 'info' } | null;
   version: { title: string; sub: string; checkLabel: string; checkDisabled: boolean };
   pending: { title: string; detail: string | null; progress: UpdateProgress | null; actions: UpdateAct[] } | null;
-  notify: { on: boolean; desc: string };
+  notify: { on: boolean; info: string };
   notesTitle: string; beforeLabel: string; notes: UpdateNoteRow[];
   tocState: string;
 };
@@ -192,7 +192,7 @@ export function presentUpdateSection(store: Store, now: number): UpdateSectionPr
     badge,
     version: { title: versionTitle, sub, checkLabel: checking ? t('update.settings.checking') : t('update.settings.check'), checkDisabled: checking || updateBusy(p) },
     pending: text ? { ...text, actions: acts } : null,
-    notify: { on: u.notify, desc: u.notify ? t('update.settings.notifyOn') : t('update.settings.notifyOff') },
+    notify: { on: u.notify, info: t('update.settings.notifyInfo') },
     notesTitle: t('update.notes.title'), beforeLabel: t('update.notes.before'), notes: noteRows(t, u),
     tocState: badge?.text ?? versionTitle,
   };

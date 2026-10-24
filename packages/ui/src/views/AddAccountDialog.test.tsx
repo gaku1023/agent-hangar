@@ -80,9 +80,9 @@ describe('AddAccountDialog', () => {
     expect(within(separate).getAllByRole('listitem').map((li) => li.firstChild?.textContent)).toEqual(['ログイン', '組織から配布される設定', 'キャッシュと常駐プロセスの状態']);
   });
 
-  it('場所に同じ名前の実ファイルがあれば、名前を挙げて触らないと言う。無いときは決まりの 1 行だけ', () => {
+  it('場所に同じ名前の実ファイルがあれば、名前を挙げて触らないと言う。無いときは何も添えない', () => {
     const { rerender } = mount();
-    expect(screen.getByText('設定ディレクトリに同じ名前の実ファイルがあるときは、変更せずに通知します。')).toBeInTheDocument();
+    expect(document.querySelector('.add-account-note')).toBeNull();
     fireEvent.change(nameField(), { target: { value: 'univ' } });
     rerender({ preview: preview({ name: 'univ', dir: `${HOME}/.claude-univ`, exists: true, conflicts: ['settings.json', 'skills'] }) });
     expect(screen.getByText('~/.claude-univ には settings.json、skills が実ファイルとしてあります。上書きしません。共有するときは、中身を確認してから削除してください。')).toBeInTheDocument();

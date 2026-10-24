@@ -53,7 +53,7 @@ describe('AccountSwitcher のボタン', () => {
   });
   it('名前の字は畳む段（account-name）に載り、点は畳む印を持たない', () => {
     const { face } = mount(home());
-    expect(face.querySelector('.account-name')).toHaveAttribute('data-fold-at', '1');
+    expect(face.querySelector('.account-name')).toHaveAttribute('data-fold-at', '0');
     expect(face.querySelector('.account-dot')).not.toHaveAttribute('data-fold-at');
   });
   it('セッション画面では、そのセッションのアカウントを名前に出す', () => {

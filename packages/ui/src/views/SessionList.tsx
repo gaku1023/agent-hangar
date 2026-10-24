@@ -6,6 +6,7 @@ import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/
 import { isComposing } from './ime.ts';
 import { Pager } from './Pager.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { RollingText } from './primitives/RollingText.tsx';
@@ -78,6 +79,8 @@ export function KeywordField(props: Pick<SessionListProps, 'text' | 'filter' | '
       ))}
       {/* 絞り込みを添えるのは、プロジェクトの画面で、画面を移さずに語だけを外すため（mediator/screen.ts の searchQueryStep）。ホームでは今の絞り込みのままで同じである。 */}
       {props.text && <button type="button" className="btn btn-sm sessions-keyword-clear" aria-label={t('list.search.clear')} onClick={() => emit({ type: 'search.query', text: '', filter: props.filter })}><Icon name="close" /></button>}
+      {/* 条件の書き方（is: since: project: file:）は placeholder に書かず、欄の右の ⓘ に入れる。 */}
+      <InfoTip label={t('list.search.label')} width={320}>{t('list.search.syntax')}</InfoTip>
     </div>
   );
 }
@@ -155,7 +158,7 @@ export function ConditionRow(props: Pick<SessionListProps, 'conditions' | 'tab' 
   return (
     <div className="sessions-cond" role="status" aria-label={t('list.cond.label')}>
       <Icon name="filter" />
-      <span className="sessions-cond-text">{props.conditions.map((c, i) => <span key={i}>{i > 0 && ' · '}<b>{c}</b></span>)}{t('list.cond.suffix')}</span>
+      <span className="sessions-cond-text">{props.conditions.map((c, i) => <span key={i}>{i > 0 && ' · '}<b>{c}</b></span>)}</span>
       <button type="button" className="btn btn-sm sessions-cond-clear" onClick={() => emit({ type: 'search.clear' })}><Icon name="close" />{t('list.cond.clear')}</button>
       <span className="faint num sessions-cond-count">{count}</span>
     </div>

@@ -10,9 +10,7 @@ export const overlapKeys = {
   'overlap.table.theirs': [],
   'overlap.table.alternating': [],
   'overlap.pop.note': [],
-  'overlap.worktree.hint': [],
   'overlap.worktree.action': [],
   'overlap.pop.dismiss': [],
-  'overlap.pop.open': [],
   'overlap.card.details': [],
 } as const satisfies MessageSpec;

@@ -28,7 +28,7 @@ export const rowEn: AreaDictionary<typeof rowKeys> = {
   'row.candidate.pausedShort': 'Paused?',
   'row.candidate.askDone': 'Mark as Done?',
   'row.candidate.askPaused': 'Mark as Paused · {date}?',
-  'row.candidate.source': 'Source: {source} · {ago}',
+  'row.candidate.source': '{source} · {ago}',
   'row.candidate.menuLabel': "Claude's suggestion for {name}",
   'row.candidateSource.conversation': 'Conversation',
   'row.candidateSource.exit': 'On exit',

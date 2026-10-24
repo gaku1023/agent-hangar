@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, fadeIn, fadeOut, growIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, growIn, liftIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -54,6 +54,16 @@ describe('motionKit', () => {
     expect(calls[0]!.frames[0]).toMatchObject({ opacity: 0, transform: 'translateY(6px)', filter: 'blur(6px)' });
     expect(calls[0]!.frames[1]).toEqual({ offset: 0.2, filter: 'none' });
     expect(calls[0]!.opts).toMatchObject({ duration: 420, easing: 'ease-out' });
+  });
+  it('持ち上がる形は、4px 下から薄れを晴らし、--dur-fast と --ease-out で動く。長さ 0 では動かさない', () => {
+    values = { '--dur': '420ms', '--dur-fast': '200ms', '--ease-out': 'ease-out' };
+    const calls = fakeAnimate();
+    liftIn(document.createElement('div'));
+    expect(calls[0]!.frames).toEqual([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }]);
+    expect(calls[0]!.opts).toMatchObject({ duration: 200, easing: 'ease-out' });
+    tokens('0ms');
+    expect(liftIn(document.createElement('div'))).toBeNull();
+    expect(calls).toHaveLength(1);
   });
   it('畳んで出る形は --dur-exit と --dur-fast の和で、--ease-in で、最後の形を残す', async () => {
     tokens('100ms');

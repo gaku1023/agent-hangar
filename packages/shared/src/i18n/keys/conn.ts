@@ -3,7 +3,6 @@ import type { MessageSpec } from '../messageSpec.ts';
 export const connKeys = {
   'conn.banner.label': [],
   'conn.hard.title': [],
-  'conn.hard.restartPrompt': [],
   'conn.hard.openLog': [],
   'conn.hard.restart': [],
   'conn.hard.browserHint': ['path'],

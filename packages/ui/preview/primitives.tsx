@@ -155,8 +155,8 @@ const busyMorning = presentHomeBand({
   ],
   returning: [{ id: 'r1', name: '検索の速度の計測', projectName: 'web-shop', reason: '夜間の再計測の結果を確かめる', returnOn: '2026-10-09', returnTime: '15:00', overdueDays: 0, due: false, pastMin: null }],
   running: [
-    { id: 'x1', name: '金額の上限のテストを足す', live: 'busy', aside: false, elapsed: '4分', meta: 'web-shop · opus · high', intent: '上限を超えた注文を断るテストを足す', activity: { tool: 'Edit', summary: 'src/order/limit.test.ts' }, note: null, contextPercent: 42, contextLabel: '42%' },
-    { id: 'x2', name: '請求書の PDF 化', live: 'idle', aside: false, elapsed: '31分', meta: 'web-shop · sonnet', intent: null, activity: null, note: '休み。最後の返答から 6分', contextPercent: 71, contextLabel: '71%' },
+    { id: 'x1', name: '金額の上限のテストを足す', live: 'busy', aside: false, elapsed: '4分', meta: 'web-shop', intent: '上限を超えた注文を断るテストを足す', activity: { tool: 'Edit', summary: 'src/order/limit.test.ts' }, note: null, idleFor: null, contextPercent: 42, contextLabel: '42%' },
+    { id: 'x2', name: '請求書の PDF 化', live: 'idle', aside: false, elapsed: '31分', meta: 'web-shop', intent: null, activity: null, note: null, idleFor: '6分', contextPercent: 71, contextLabel: '71%' },
   ],
   confirm: [
     { kind: 'todo', id: 't1', text: 'メール送信の再試行を足す', projectId: 'p1', projectName: 'web-shop', sessionName: '通知の見直し', ago: '2 時間前', note: '再試行の実装と試験が入った' },
@@ -167,7 +167,7 @@ const busyMorning = presentHomeBand({
 const quiet = presentHomeBand({
   attention: [],
   returning: [],
-  running: [{ id: 'x1', name: '金額の上限のテストを足す', live: 'busy', aside: false, elapsed: '4分', meta: 'web-shop · opus · high', intent: '上限を超えた注文を断るテストを足す', activity: { tool: 'Edit', summary: 'src/order/limit.test.ts' }, note: null, contextPercent: 42, contextLabel: '42%' }],
+  running: [{ id: 'x1', name: '金額の上限のテストを足す', live: 'busy', aside: false, elapsed: '4分', meta: 'web-shop', intent: '上限を超えた注文を断るテストを足す', activity: { tool: 'Edit', summary: 'src/order/limit.test.ts' }, note: null, idleFor: null, contextPercent: 42, contextLabel: '42%' }],
   confirm: [],
 }, T);
 /** 4 つ目の錠剤（PR 33 が足す形）。作り物の群を extra に渡すだけで増える。 */

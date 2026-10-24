@@ -41,7 +41,7 @@ export function UpdateSection(props: { update: UpdateSectionProps }) {
             </>}
             control={<>{p.actions.map((a) => <button key={a.label} type="button" className={`btn btn-sm${a.primary ? ' btn-primary' : ''}`} onClick={() => emit(a.action)}>{a.label}</button>)}</>} />
         )}
-        <SetRow title={t('update.settings.notifyTitle')} desc={u.notify.desc}
+        <SetRow title={t('update.settings.notifyTitle')} info={u.notify.info}
           control={<Switch label={t('update.settings.notifyTitle')} checked={u.notify.on} onChange={(on) => emit({ type: 'update.notify', on })} />} />
       </section>
       {u.notes.length > 0 && (

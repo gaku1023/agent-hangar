@@ -27,8 +27,6 @@ export const compatKeys = {
   'compat.stop.attachLine': [],
   'compat.stop.summaryShort': [],
   'compat.stop.summaryLine': [],
-  'compat.status.okNote': ['verified'],
-  'compat.status.okLead': [],
   'compat.status.okBadge': [],
   'compat.status.unverifiedNote': ['local', 'verified'],
   'compat.status.unverifiedLead': [],

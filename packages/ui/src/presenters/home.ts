@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
 import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, type Store } from '../store/store.ts';
-import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
+import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
@@ -36,8 +36,10 @@ export type AttentionCard = { id: string; name: string; projectName: string | nu
  * activity があれば墨の帯にツールと対象を、無ければ note の一言を出す。
  * aside は裏だけ動いていること。そのときは activity も intent も出さず、note で裏のものと指揮役が空いていることを言う。
  * limit は使用制限でリセットを待っていること。text は枠とリセットの時刻と自動で続くか、left はリセットまでの残り（過ぎていれば空）である。
+ * meta は行のプロジェクト名である（モデルと effort は出さない、2026-10-24 の決定）。
+ * idleFor はアイドルのとき最後の返答からの時間で、行の右に時刻だけを出す（本文の一言は持たない）。アイドルでなければ null。
  */
-export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string; limit?: { text: string; left: string } | null;
+export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; idleFor: string | null; contextPercent: number | null; contextLabel: string; limit?: { text: string; left: string } | null;
   /** git の札（試作の 2-2 の A）。右端の、経過とコンテキストの左に置く。まだ届いていないものと git でないものは null。省けば出さない。 */
   git?: GitChipProps | null };
 /**
@@ -153,7 +155,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
       // 札の文言は行の提案の札（第 1 段の candidateLabel）と同じにする。
       // Done の提案は放っておくと自動で確定するので、残りの日数を添える。見回りの合間に 0 日になっても「あと 1 日」と言う。
       const daysLeft = c.status === 'done' ? Math.max(1, candidateDaysLeft(c.at, now)) : null;
-      return { at: c.at, card: { kind: 'session', id: s.id, name: name(s), projectName: projectName(s), status: c.status, label: candidateLabel(t, c), note: c.note || t('projectScreen.todo.noNote'), ago: relativeTime(t, c.at, now), source: c.source, daysLeft } };
+      return { at: c.at, card: { kind: 'session', id: s.id, name: name(s), projectName: projectName(s), status: c.status, label: candidateLabel(t, c), note: c.note ?? '', ago: relativeTime(t, c.at, now), source: c.source, daysLeft } };
     }),
   ].sort((a, b) => (a.at - b.at) || a.card.id.localeCompare(b.card.id)).map((x) => x.card);
 
@@ -170,12 +172,14 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     const limit = live === 'idle' && stopReasonOf(s) === 'limit' && s.limit ? limitCardOf(t, s.limit, now) : null;
     const working = live === 'busy' && aside === null;
     const activity = working && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
-    const note = activity ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : live === 'idle' ? t('home.card.idleNote', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
-    const meta = [projectName(s) ?? t('common.label.uncategorized'), shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
+    const idle = live === 'idle' && aside === null;
+    const note = activity || idle ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
+    const idleFor = idle ? durationLabel(t, now - (s.lastActivityAt ?? now)) : null;
+    const meta = projectName(s) ?? t('common.label.uncategorized');
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
     const said = store.liveDigests[s.id]?.intent;
     const intent = working && said && said.inThisTurn ? said.text : null;
-    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), limit, git: presentGitChip(t, store.git, s.id, store.sessions) };
+    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, idleFor, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), limit, git: presentGitChip(t, store.git, s.id, store.sessions) };
   });
 
   return { attention, returning, confirm, running };
@@ -314,11 +318,12 @@ function runningRow(t: Translate, r: RunningCard): BandRow {
   }
   const working = r.live === 'busy' && !r.aside;
   // 作業中は意図が本文で、いまの手は等幅の詳細にする。手が取れない間は note を本文にする。
-  // 作業中でないもの（アイドル、起動中、裏だけ動くもの）は note の一言が本文である。
+  // 起動中と裏だけ動くものは note の一言が本文である。アイドルは本文を空にし、右に最後の返答からの時間だけを出す。
   const detail = working && r.activity ? (r.activity.summary === '' ? r.activity.tool : `${r.activity.tool} ${r.activity.summary}`) : null;
   const text = r.intent ?? (detail !== null ? '' : r.note ?? '');
   const trail: BandTrail[] = [];
-  if (working) trail.push({ text: t('home.band.working', { time: r.elapsed }), tone: 'busy' });
+  if (working) trail.push({ text: r.elapsed, tone: 'busy' });
+  if (r.idleFor !== null) trail.push({ text: r.idleFor });
   if (r.contextPercent !== null) trail.push({ text: r.contextLabel });
   return { key: `run:${r.id}`, lead: { kind: 'dot', live: r.live, aside: r.aside }, name: r.name, context: r.meta, text, detail, tone: null, trail, open: { type: 'session.open', id: r.id }, actions: [], git: r.git ? { id: r.id, chip: r.git } : null };
 }
@@ -368,13 +373,9 @@ function pendingHeadActions(t: Translate, confirm: ConfirmCard[]): BandAction[] 
  * ホームの帯（上の件数の細い帯と、押した群の引き出し）に渡すものを組む。
  * 3 つの群は要対応、実行中、確認待ちの順で、0 件でも群は残す（薄い錠剤として出す）。
  * extra は後ろに足す群で、足したものがそのまま 4 つ目以降の錠剤になる（未解決のプロジェクトなど）。
- * 要対応は入力待ちの札に、今日戻るの札を続ける。実行中の内訳は、作業中（裏だけ動くものも含む）とアイドルを数える。起動中は内訳に入れない。
+ * 要対応は入力待ちの札に、今日戻るの札を続ける。実行中の見出しには内訳を添えない（件数は錠剤が言い、動きは行の点が言う）。
  */
 export function presentHomeBand(home: BandInput, t: Translate, extra: BandGroup[] = []): HomeBandProps {
-  const busy = home.running.filter((r) => r.live === 'busy').length;
-  // 使用制限でリセットを待っているものは、アイドルと分けて数える。
-  const limited = home.running.filter((r) => !!r.limit).length;
-  const idle = home.running.filter((r) => r.live === 'idle' && !r.limit).length;
   const permission = home.attention.filter((a) => a.reason === 'permission').length;
   const reset = home.attention.filter((a) => a.reason === 'reset').length;
   const asking = home.attention.length - permission - reset;
@@ -384,7 +385,7 @@ export function presentHomeBand(home: BandInput, t: Translate, extra: BandGroup[
       : t('home.band.attentionSummary', { waiting: asking, reminders });
   const groups: BandGroup[] = [
     { id: 'attention', label: t('home.band.attention'), icon: 'alert', tone: 'wait', count: home.attention.length + home.returning.length, summary: attentionSummary, morning: true, rows: [...home.attention.map((a) => attentionRow(t, a)), ...home.returning.map((r) => returnRow(t, r))] },
-    { id: 'running', label: t('home.band.running'), icon: 'tool', tone: 'default', count: home.running.length, summary: limited > 0 ? t('stop.band.runningSummary', { busy, idle, limit: limited }) : t('home.band.runningSummary', { busy, idle }), morning: true, rows: home.running.map((r) => runningRow(t, r)) },
+    { id: 'running', label: t('home.band.running'), icon: 'tool', tone: 'default', count: home.running.length, summary: '', morning: true, rows: home.running.map((r) => runningRow(t, r)) },
     { id: 'pending', label: t('home.band.pending'), icon: 'check', tone: 'cand', count: home.confirm.length, summary: t('home.band.pendingSummary', { n: home.confirm.length }), morning: true, rows: home.confirm.map((c) => confirmRow(t, c)), headActions: pendingHeadActions(t, home.confirm) },
     ...extra,
   ];

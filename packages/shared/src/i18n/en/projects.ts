@@ -10,7 +10,6 @@ export const projectsEn: AreaDictionary<typeof projectsKeys> = {
   'projects.col.sessions': 'Sessions',
   'projects.col.status': 'Status',
   'projects.empty.body1': 'Register a folder and its sessions are grouped here.',
-  'projects.empty.body2': 'You can also keep to-dos for each project.',
   'projects.empty.promote': 'Promote a quick session to a project',
   'projects.empty.title': 'No projects yet',
   'projects.filter.label': 'Filter by name',

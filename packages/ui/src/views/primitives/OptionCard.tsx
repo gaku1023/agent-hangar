@@ -20,12 +20,12 @@ export function OptionCards(props: { label: string; value: string; options: Opti
 }
 
 /** 何が起きるかを 1 行添えた、複数選択のカード。右端の四角い印が満ちてチェックが描かれる。 */
-export function CheckCard(props: { label: string; description: string; icon: IconName; checked: boolean; onChange: (next: boolean) => void; disabled?: boolean }) {
+export function CheckCard(props: { label: string; description?: string; icon: IconName; checked: boolean; onChange: (next: boolean) => void; disabled?: boolean }) {
   const id = useId();
   return (
-    <button type="button" role="checkbox" className="option-card check-card" aria-label={props.label} aria-describedby={id} aria-checked={props.checked} disabled={props.disabled} onClick={() => props.onChange(!props.checked)}>
+    <button type="button" role="checkbox" className="option-card check-card" aria-label={props.label} aria-describedby={props.description ? id : undefined} aria-checked={props.checked} disabled={props.disabled} onClick={() => props.onChange(!props.checked)}>
       <Icon name={props.icon} />
-      <span className="option-card-text"><b>{props.label}</b><small id={id}>{props.description}</small></span>
+      <span className="option-card-text"><b>{props.label}</b>{props.description && <small id={id}>{props.description}</small>}</span>
       <span className="check-box" aria-hidden="true"><Icon name="check" /></span>
     </button>
   );

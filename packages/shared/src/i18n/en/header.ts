@@ -25,7 +25,6 @@ export const headerEn: AreaDictionary<typeof headerKeys> = {
   'header.gauge.fiveHourShort': '5-hour',
   'header.gauge.weeklyLabel': 'Weekly percent used',
   'header.gauge.weeklyShort': 'Weekly',
-  'header.gauge.updated': 'Last updated {time}',
   'header.gauge.resetsTitle': ', resets at {time}',
   'header.gauge.updatedTitle': ', last updated {time}',
   'header.gauge.none': 'No values yet',

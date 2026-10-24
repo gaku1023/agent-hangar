@@ -29,7 +29,7 @@ const present = (st: Store) => presentSession(initialState(), st, NOW, 's1');
 describe('引き継がれた会話の見出しの下の 1 行', () => {
   it('takenOver があれば引き継ぎ先と時刻の 1 行を持ち、無ければ null', () => {
     const at = Date.parse('2026-10-16T10:00:00');
-    expect(present(store(session({ takenOver: { deviceName: 'pc-a', at } }))).takenOver).toBe(`pc-a に引き継がれました（${absoluteTime(ja, at)}）。現在は pc-a で実行中です。`);
+    expect(present(store(session({ takenOver: { deviceName: 'pc-a', at } }))).takenOver).toBe(`pc-a に引き継ぎ（${absoluteTime(ja, at)}）`);
     expect(present(store()).takenOver).toBeNull();
     expect(present(store(session({ takenOver: null, fromPhone: null }))).takenOver).toBeNull();
   });

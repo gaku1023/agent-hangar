@@ -374,7 +374,7 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
               onPointerDown={(e) => onDragStart(e, x.id)} onPointerMove={onDragMove} onPointerUp={(e) => onDragEnd(e)} onPointerCancel={(e) => onDragEnd(e, true)}><GripIcon /></span>}
         {/* 押すと緑に満ち、チェックの線が描かれる。候補の間は半分だけ満ちた印にする。 */}
         <button type="button" role="checkbox" tabIndex={-1} className="todo-check" data-candidate={c ? 'true' : undefined} aria-checked={x.done}
-          aria-label={c ? t('projectScreen.todo.nthCandidate', { text: x.text, n: i + 1 }) : label} aria-describedby={open_ ? `todo-why-${x.id}` : undefined}
+          aria-label={c ? t('projectScreen.todo.nthCandidate', { text: x.text, n: i + 1 }) : label} aria-describedby={open_ && c?.note ? `todo-why-${x.id}` : undefined}
           onClick={() => toggle(x)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
         </button>
@@ -388,7 +388,7 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
         )}
         {open_ && c && !isEditing && (
           <Grow className="todo-prop">
-            <div className="todo-why" id={`todo-why-${x.id}`}>{c.note}</div>
+            {c.note && <div className="todo-why" id={`todo-why-${x.id}`}>{c.note}</div>}
             <div className="todo-src">
               {c.sessionId
                 ? <button type="button" className="todo-src-link" onClick={() => emit({ type: 'session.open', id: c.sessionId! })}>{c.sessionName}</button>

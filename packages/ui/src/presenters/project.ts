@@ -49,7 +49,7 @@ export function presentTodoCandidate(t: TodoDto, store: Store, now: number): Tod
   const c = t.candidate;
   if (!c || t.done) return null;
   const tr = translatorOf(store);
-  return { note: c.note ?? tr('projectScreen.todo.noNote'), ...sessionLabel(store, c.sessionId), ago: relativeTime(tr, c.at, now) };
+  return { note: c.note ?? '', ...sessionLabel(store, c.sessionId), ago: relativeTime(tr, c.at, now) };
 }
 
 /** 出したセッションの名前。手元に無ければ開けないので、決まりの文にする。 */

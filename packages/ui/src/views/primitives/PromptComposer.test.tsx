@@ -776,6 +776,9 @@ describe('PromptComposer の添付', () => {
   it('添付ボタンで選んだファイルも同じ道を通る', async () => {
     const up = upload();
     await mount({ upload: up });
+    // 貼り付けの案内は添付ボタンの title に回し、行には出さない。
+    expect(screen.getByRole('button', { name: '添付' })).toHaveAttribute('title', expect.stringContaining('でも貼り付けられます'));
+    expect(document.querySelector('.pc-tools-hint')).toBeNull();
     fireEvent.change(screen.getByTestId('pc-picker'), { target: { files: [png()] } });
     await act(async () => {});
     expect(up).toHaveBeenCalledTimes(1);

@@ -144,7 +144,7 @@ export function NewProjectDialog(props: NewProjectProps) {
           </label>
           {rootless && <ParentField value={parent} onChange={setParent} desktop={props.desktop} picked={props.picked} />}
           {root !== '' && <div className="faint">{t('newProject.name.willCreate', { path: joinPath(root, name.trim()) })}</div>}
-          <CheckCard label={t('newProject.gitInit.label')} description={t('newProject.gitInit.description')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
+          <CheckCard label={t('newProject.gitInit.label')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       ) : (
         <>

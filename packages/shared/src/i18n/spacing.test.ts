@@ -23,6 +23,7 @@ const EXEMPT = new Set([
   'projectScreen.todo.dismiss',
   'projectScreen.todo.candidateChipLabel',
   'pager.nav.label',
+  'primitives.infoTip.label',
   'primitives.listbox.search',
   'primitives.stepper.decrease',
   'primitives.stepper.increase',

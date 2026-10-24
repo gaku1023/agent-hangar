@@ -1,11 +1,7 @@
-/* Home（試作 B）。上から、40px の帯（件数の錠剤と引き出し）、一覧の見出し、ステータスのタブ、検索の欄、平らな一覧を 1 列に置く。
+/* Home（試作 B）。上から、40px の帯（件数の錠剤と引き出し）、ステータスのタブ、検索の欄、平らな一覧を 1 列に置く。
+   一覧の見出しは置かない（件数はタブが言う）。帯とタブのあいだは、この余白で分ける。
    帯と引き出しは白い不透明な読む面で、ぼかしは掛けない。 */
-.home-label { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
-/* 一覧の見出し（「セッション N 件」）。帯と一覧のあいだに置く。余白は .home-label の外側の値を使わず、この行で持つ。 */
-.list-head { display: flex; align-items: center; gap: calc(var(--u) * 2.5); margin: calc(var(--u) * 3) 0 calc(var(--u) * 2) var(--u); }
-.list-head .home-label { margin: 0; }
-/* 件数の数字は回す（.roll）ので、行の高さを数字の枠の 1.2em に揃える。 */
-.home-count { font-weight: 500; line-height: 1.2em; color: var(--ink-3); }
+.home > .sessions-tabs { margin-top: calc(var(--u) * 4); }
 
 /* 帯と、帯の代わりの 1 行を入れる外の箱。入れ替わるときは、この箱の高さを JS が補間する（HomeScreen.tsx）。 */
 .home-top { flex: none; }
@@ -34,7 +30,7 @@
 .drawer-h { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 26px; padding: 0 calc(var(--u) * 2); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
 .drawer-h b { font-weight: 600; }
 .drawer-h .faint { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.drawer-close { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 0 calc(var(--u) * 1.5); height: 22px; border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-weight: 500; color: var(--ink-3); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.drawer-close { margin-left: auto; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 22px; height: 22px; border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-weight: 500; color: var(--ink-3); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .drawer-close:hover { background: var(--surface-2); color: var(--ink); }
 .drawer-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .drawer-close .icon { width: 12px; height: 12px; }

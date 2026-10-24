@@ -58,14 +58,12 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   menu?: SessionMenuProps };
 
 /**
- * 見立ての札を作る。
+ * 見立ての札を作る。札にするのは「ブロック中」だけで、進行中、完了、中止は出さない（2026-10-24 の決定。状態の札と時刻が既に言っている）。
  * 土台の要約の state は Claude の見立てではなく、プロセスが生きているかどうかの写しなので札にしない。
- * 終わったセッションのほとんどに「済んだ」が並ぶと、本当に済んだものと見分けが付かなくなるためである。
  */
 function summaryStateTag(t: Translate, summary: SessionSummaryDto | null): SummaryStateTag | null {
-  if (!summary || summary.source === 'baseline') return null;
-  const tone = summary.state === 'blocked' || summary.state === 'abandoned' ? summary.state : null;
-  return { label: stateLabel(t, summary.state), tone };
+  if (!summary || summary.source === 'baseline' || summary.state !== 'blocked') return null;
+  return { label: stateLabel(t, summary.state), tone: 'blocked' };
 }
 
 /**

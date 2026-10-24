@@ -36,9 +36,7 @@ export function GitFileList(props: { files: GitFilesView; selected?: string | nu
   if (v.state === 'loading') return <div className="gitf-note faint">{t('gitUi.files.loading')}</div>;
   return (
     <div className="gitf">
-      {v.files.length === 0
-        ? <div className="gitf-note faint">{t('gitUi.files.empty')}</div>
-        : <ul className="gitf-list">{v.files.map((f) => <FileRow key={f.path} row={f} selected={f.path === props.selected} onPick={props.onPick} label={props.onPick ? t('gitUi.files.showDiffFor', { path: f.rel }) : undefined} />)}</ul>}
+      {v.files.length > 0 && <ul className="gitf-list">{v.files.map((f) => <FileRow key={f.path} row={f} selected={f.path === props.selected} onPick={props.onPick} label={props.onPick ? t('gitUi.files.showDiffFor', { path: f.rel }) : undefined} />)}</ul>}
       {v.othersLabel !== null && (
         <div className="gitf-others">
           <button type="button" className="gitf-others-head" aria-expanded={others} onClick={() => setOthers((o) => !o)}>
@@ -47,7 +45,7 @@ export function GitFileList(props: { files: GitFilesView; selected?: string | nu
           {others && (
             <>
               <ul className="gitf-list">{v.others.map((f) => <FileRow key={f.path} row={f} />)}</ul>
-              <div className="gitf-note faint"><Icon name="info" />{t('gitUi.files.othersNote')}</div>
+              <div className="gitf-note faint" title={t('gitUi.files.othersNoteTitle')}><Icon name="info" />{t('gitUi.files.othersNote')}</div>
             </>
           )}
         </div>

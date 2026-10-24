@@ -5,6 +5,7 @@ export const primitivesJa: AreaDictionary<typeof primitivesKeys> = {
   'primitives.clamp.collapse': '折りたたむ',
   'primitives.clamp.expand': '全文を表示（残り {rest} 行）',
   'primitives.commandLine.copyLabel': '{name} をコピー',
+  'primitives.infoTip.label': '{label}の説明',
   'primitives.listbox.placeholder': '選択してください',
   'primitives.listbox.search': '{label}を検索',
   'primitives.listbox.hintMove': '移動',

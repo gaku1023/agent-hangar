@@ -17,7 +17,6 @@
 .gauge > .reason-glyph > svg { width: 12px; height: 12px; }
 /* 行の高さを数字の枠（.roll の 1.2em）に揃える。本文の 1.5 のままだと、枠が行の下端に寄って数字が 3px ほど下がり、下端も欠ける。 */
 .gauge-num { font-size: var(--fs-xs); line-height: 1.2em; color: var(--ink-3); min-width: 32px; }
-.gauge-updated { font-size: var(--fs-xs); white-space: nowrap; }
 
 /* 数字の縦回転。古い値を上へ、新しい値を下から上へ動かす。 */
 .roll { position: relative; display: inline-block; overflow: hidden; height: 1.2em; vertical-align: bottom; }
@@ -169,6 +168,7 @@
  */
 .rail-h { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; margin: 0; padding-top: calc(var(--u) * 3); border-radius: var(--r-lg) var(--r-lg) 0 0; background: var(--surface); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 /* シェブロンは TODO の「完了 N」と同じ形で、開いて下向き（90 度）、折りたたんで右向き。--dur で回る。 */
+.rail-h[data-info='true'] .rail-toggle { flex: 0 1 auto; }
 .rail-toggle { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; height: 24px; margin: 0 calc(var(--u) * -1.5); padding: 0 calc(var(--u) * 1.5); border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .rail-toggle:hover { color: var(--ink); background: var(--surface-2); }
 .rail-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
@@ -194,14 +194,15 @@
 .instr-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 calc(var(--u) * 1.5); min-width: 0; max-width: 100%; }
 .instr-name .mono { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
 .instr-meta { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
-.instr-desc { font-size: var(--fs-xs); color: var(--ink-2); }
 .instr-row[data-off='true'] .instr-name .mono { color: var(--ended); text-decoration: line-through; text-decoration-color: var(--line-strong); }
-.instr-row[data-off='true'] .instr-desc { color: var(--ink-3); }
 .btn.instr-open { flex: none; justify-content: center; width: var(--row-h); padding: 0; margin-right: var(--u); color: var(--ink-2); background: none; box-shadow: none; }
 .btn.instr-open:hover { color: var(--accent); background: var(--accent-soft); box-shadow: none; }
 .instr-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-2); }
-.instr-foot { margin: calc(var(--u) * 2) 2px 0; font-size: var(--fs-xs); color: var(--ink-3); }
-.instr-foot code { font-family: var(--font-mono); font-size: 0.95em; }
+.instr-info { display: grid; gap: calc(var(--u) * 1.5); margin: 0 0 calc(var(--u) * 2); }
+.instr-info dt { font-size: var(--fs-xs); font-weight: 600; color: var(--ink); }
+.instr-info dd { margin: 0; color: var(--ink-2); }
+.instr-info-foot { margin: 0; color: var(--ink-2); }
+.instr-info-foot code { font-family: var(--font-mono); font-size: 0.95em; }
 /* 以前のノート。やめた機能の残りなので、Paused の淡い地で「片付けてほしいもの」として置く。 */
 .instr-legacy { margin-top: calc(var(--u) * 2.5); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--st-paused-soft); }
 .instr-legacy-h { margin: 0 0 2px; font-size: var(--fs-xs); font-weight: 700; color: var(--st-paused); }

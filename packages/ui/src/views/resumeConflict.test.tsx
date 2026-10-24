@@ -76,6 +76,9 @@ describe('同じファイルの編集', () => {
     expect(pop.textContent).toContain('src/rank.ts');
     expect(pop.textContent).toContain('交互');
     expect(pop.textContent).toContain('Bash での変更は含みません');
+    // 相手は名前の押下で開く。行ごとの「開く」と worktree の言い直しは置かない。
+    expect(within(pop).queryByRole('button', { name: /^開く/ })).toBeNull();
+    expect(pop.textContent).not.toContain('互いの変更を上書きしません');
     fireEvent.click(within(pop).getByRole('button', { name: 'worktree で新しいセッション' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'overlap.worktree', sessionId: 'x' });
     fireEvent.click(screen.getByRole('button', { name: '同じファイル 1、n-x' }));

@@ -89,7 +89,7 @@ describe('NowCard の状態の行', () => {
     m.rerender({ live: 'busy', activity: null, aside: { shell: true, agents: 0 } });
     expect(card()).toHaveAttribute('data-tone', 'aside');
     expect(screen.getByRole('status')).toHaveTextContent('バックグラウンドで作業中');
-    expect(within(card()).getByText('シェルが実行中、メイン会話は入力可能')).toBeInTheDocument();
+    expect(within(card()).getByText('シェルが実行中')).toBeInTheDocument();
     expect(card().querySelector('.nc-question')).toBeNull();
   });
 
@@ -131,16 +131,14 @@ describe('NowCard の背の節目', () => {
     expect(heightArgs()[1]).not.toBe(waiting);
   });
 
-  it('サブエージェントの 1 行が出入りしたときに鍵を替える', () => {
+  it('サブエージェントが動いていても 1 行を足さない（件数はチップが見せる）', () => {
     seq = 0;
     const r = call('Read', { file_path: '/w/a.ts' });
     const digest = { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a' })] };
     const m = mount({ live: 'busy', activity: null, digest, events: [r] });
-    expect(card().querySelector('.nc-detail')).not.toBeNull();
-    const withLine = heightArgs()[1];
+    expect(card().querySelector('.nc-detail')).toBeNull();
     m.rerender({ live: 'busy', activity: null, digest, events: [r, res(r)] });
     expect(card().querySelector('.nc-detail')).toBeNull();
-    expect(heightArgs()[1]).not.toBe(withLine);
   });
 
   it('中身だけが替わる間（手が増える、意図が替わる）は鍵を替えない', () => {

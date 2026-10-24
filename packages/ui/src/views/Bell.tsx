@@ -39,7 +39,6 @@ export function Bell(props: NoticesProps & { /** 開いた形で描く（試験�
           <>
             <div className="pop-h">
               <span>{t('notices.list.title')}</span>
-              <span className="faint notices-lead">{t('notices.list.lead')}</span>
               <button type="button" className="btn btn-ghost btn-sm end" disabled={props.unread === 0} onClick={() => emit({ type: 'notices.read', keys: props.keys })}>{t('notices.list.markAllRead')}</button>
             </div>
             <NoticeList rows={props.rows} onAct={act} />

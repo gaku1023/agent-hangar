@@ -9,7 +9,6 @@ export const editorKeys = {
   'editor.open.namedAt': ['target', 'name', 'line'],
   'editor.open.genericAt': ['target', 'line'],
   'editor.missing.lastPath': ['path'],
-  'editor.missing.maybeMoved': [],
   'editor.missing.settings': [],
   'editor.missing.once': ['name'],
   'editor.missing.recheck': [],

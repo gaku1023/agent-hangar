@@ -225,7 +225,7 @@ describe('presentHome', () => {
     };
     const h = presentHome(initialState(), store, NOW);
     expect(h.confirm).toEqual([
-      { kind: 'todo', id: 'b', text: 'やる b', projectId: 'beta', projectName: 'beta', sessionName: '不明なセッション', ago: '30 分前', note: '根拠はありません' },
+      { kind: 'todo', id: 'b', text: 'やる b', projectId: 'beta', projectName: 'beta', sessionName: '不明なセッション', ago: '30 分前', note: '' },
       { kind: 'todo', id: 'a', text: 'やる a', projectId: 'alpha', projectName: 'alpha', sessionName: 'name-s1', ago: '1 分前', note: '新しい' },
     ]);
   });
@@ -236,6 +236,10 @@ describe('presentHome', () => {
     store.sessions = { ...store.sessions, p1: session('p1', { state: cand('done', 'in_session', NOW - 36 * 3_600_000) }), p2: session('p2', { state: cand('paused', 'post_hoc', NOW - 3_600_000) }) };
     const h = presentHome(initialState(), store, NOW);
     expect(h.confirm.map((c) => (c.kind === 'session' ? [c.id, c.source, c.daysLeft] : null))).toEqual([['p1', 'in_session', 6], ['p2', 'post_hoc', null]]);
+    // 根拠の無い提案は、本文を空にする（「根拠はありません」を出さない）。
+    const bare = cand('done', 'in_session', NOW - 3_600_000);
+    store.sessions = { ...store.sessions, p1: session('p1', { state: { ...bare, candidate: { ...bare.candidate, note: null } } }) };
+    expect(presentHome(initialState(), store, NOW).confirm.find((c) => c.id === 'p1')).toMatchObject({ kind: 'session', note: '' });
   });
   it('候補が無ければ確かめるは空で、件数にも出さない', () => {
     const h = presentHome(initialState(), homeStore(), NOW);
@@ -284,8 +288,8 @@ describe('presentHome', () => {
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
-    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%', limit: null, git: null });
-    expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: 'アイドル。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, idleFor: null, contextPercent: 38.4, contextLabel: '38%', limit: null, git: null });
+    expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: null, idleFor: '8 分', contextPercent: 22, contextLabel: '22%' });
   });
   it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {
     const store = homeStore();
@@ -687,7 +691,8 @@ describe('presentSession（見出しの操作、A1）', () => {
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     expect(a.primary).toMatchObject({ id: 'resume', label: '再開', disabled: null });
     expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
-    expect(a.menu[0]).toMatchObject({ disabled: null, note: 'この会話から分岐した新しいセッション' });
+    // 補足は画面に出さず、項目の title に回す。
+    expect(a.menu[0]).toMatchObject({ disabled: null, note: null, title: 'この会話から分岐した新しいセッション' });
     // 本文が無ければ、再開もフォークも理由を添えて押せない。
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
     const b = presentSession(initialState(), store, NOW, 's2').actions;
@@ -721,14 +726,19 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(a.primary.id).toBe('openEditor');
     expect(ids(a)).toEqual(['attach', 'fork', 'regenerate', 'copyAddress', 'copyId']);
     expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja))[0]).toBe('adopt');
+    // つなぐの補足は title に回し、引き取る（外の claude を終わらせる）の補足は画面に残す。
+    expect(a.menu[0]).toMatchObject({ id: 'attach', note: null, title: '外部ターミナルで実行中の Claude に hangar のターミナルから接続する' });
+    expect(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja).menu[0]).toMatchObject({ id: 'adopt', note: '外部ターミナルの claude を終了し、hangar で続ける' });
+    const alive = sessionActions({ ...facts, outsideOpen: null, run: { id: 'r1', kind: 'start', alive: true, started: '' } } as Parameters<typeof sessionActions>[0], ja);
+    expect(alive.menu.find((m) => m.id === 'openTerminal')).toMatchObject({ note: null, title: '外部ターミナルで同じセッションに接続する' });
   });
   it('昇格はメニューに入れ、要約の作成中と失敗は作り直すに 1 行添え、本文が消えた会話では作り直しを出さない', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
     const a = sessionActions(facts, ja);
     expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
     expect(a.menu[2]!.note).toBe('作成中…');
-    // クイックセッションで始めたセッションの再開は、作業ディレクトリがクイックセッションのままであることを添える。
-    expect(a.primary.note).toBe('再開しても作業ディレクトリはクイックセッションの保存先のままです');
+    // クイックセッションで始めたセッションの再開は、作業ディレクトリがクイックセッションのままであることを title に添える。
+    expect(a.primary).toMatchObject({ note: null, title: '再開しても作業ディレクトリはクイックセッションの保存先のままです' });
     expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
   });
@@ -947,10 +957,13 @@ describe('presentSettings（フェーズ 2）', () => {
     expect(mac.terminalOptions).toEqual([{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }]);
     expect(mac.terminalApp).toBe('iterm');
     expect(mac.terminalDesc).toMatch(/iTerm2/);
+    // iTerm2 の許可は許可が要る所なので、ⓘ に畳まずに行に常に出す。
+    expect(mac.terminalDescAlways).toBe(true);
     const win = presentSettings(initialState(), store, Date.now(), 'win32');
     expect(win.terminalOptions).toEqual([{ value: 'windowsTerminal', label: 'Windows Terminal' }, { value: 'windowsDefault', label: 'デフォルトのターミナル' }]);
     expect(win.terminalApp).toBe('windowsTerminal');
     expect(win.terminalDesc).not.toMatch(/iTerm2|macOS/);
+    expect(win.terminalDescAlways).toBe(false);
     store.settings = { ...store.settings, terminalApp: 'windowsDefault' };
     expect(presentSettings(initialState(), store, Date.now(), 'win32').terminalApp).toBe('windowsDefault');
     expect(presentSettings(initialState(), store, Date.now(), 'darwin').terminalApp).toBe('terminal');
@@ -1210,7 +1223,7 @@ describe('presentProject の右レール', () => {
     const p = presentProject(initialState(), store, NOW, 'p1');
     expect(p.todos.map((t) => t.candidate)).toEqual([
       { note: '直して確かめた', sessionId: 's1', sessionName: '起動画面の作り直し', ago: '12 分前' },
-      { note: '根拠はありません', sessionId: null, sessionName: '不明なセッション', ago: '1 時間前' },
+      { note: '', sessionId: null, sessionName: '不明なセッション', ago: '1 時間前' },
       { note: 'n', sessionId: null, sessionName: '不明なセッション', ago: '5 分前' },
       null,
     ]);
@@ -1752,12 +1765,12 @@ describe('presentSessionRow の本文の印', () => {
 
 describe('presentSessionRow の要約の見立て（B1）', () => {
   const judged = (state: SessionSummaryDto['state'], source: SessionSummaryDto['source'] = 'in_session') => session('a', { summary: { ...session('a').summary!, state, source } });
-  it('ブロック中と中止だけに色の調子を付け、ほかは調子なしで語だけを出す', () => {
+  it('札はブロック中だけに出し、進行中と完了と中止は出さない', () => {
     const store = initialStore();
     expect(presentSessionRow(judged('blocked'), store, NOW).summaryState).toEqual({ label: 'ブロック中', tone: 'blocked' });
-    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toEqual({ label: '中止', tone: 'abandoned' });
-    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toEqual({ label: '進行中', tone: null });
-    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toEqual({ label: '完了', tone: null });
+    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toBeNull();
+    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toBeNull();
+    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toBeNull();
   });
   it('土台の要約の状態は生きているかどうかの写しで見立てではないので出さず、要約が無ければ出さない', () => {
     const store = initialStore();
@@ -1772,7 +1785,7 @@ describe('presentSession の本文が消えた会話', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   it('注記を出し、既定のままなら延ばす手を添える', () => {
     const p = presentSession(initialState(), { ...initialStore(), retention: R, sessions: { g: gone } }, NOW, 'g');
-    expect(p.gone).toEqual({ note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。表示できるのは要約のみです。', canExtend: true, extendTo: 365 });
+    expect(p.gone).toEqual({ note: 'トランスクリプトは Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。', canExtend: true, extendTo: 365 });
   });
   it('自分で値を入れた後は、延ばす手を出さない。まだ 30 日を過ぎていなければ gone は null', () => {
     expect(presentSession(initialState(), { ...initialStore(), retention: { ...R, source: 'user', userValue: 365 }, sessions: { g: gone } }, NOW, 'g').gone!.canExtend).toBe(false);

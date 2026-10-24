@@ -10,7 +10,7 @@ import { SummaryCard } from './SummaryCard.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { ariaKeyShortcuts, keyLabel, shortcutHint } from '../keys.ts';
+import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
 import { Listbox } from './primitives/Listbox.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
@@ -115,7 +115,7 @@ export function SessionScreen(props: SessionProps) {
       case 'stop': if (run) emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', aside: props.aside, shellTabs: props.tabs.filter((t) => t.kind === 'shell').length }); return;
     }
   };
-  const item = (a: SessionAction): MenuItem => ({ key: a.id, label: a.label, icon: ACTION_ICON[a.id], note: a.note, disabled: a.disabled, danger: a.danger, onSelect: () => act(a.id) });
+  const item = (a: SessionAction): MenuItem => ({ key: a.id, label: a.label, icon: ACTION_ICON[a.id], note: a.note, title: a.title ?? null, disabled: a.disabled, danger: a.danger, onSelect: () => act(a.id) });
   const primary = props.actions.primary;
   // 行の操作（差分の一覧など）はダイアログを開くので、先に (i) の面を閉じる（ダイアログの上に面を残さない）。
   const detailRows = (api: { close: () => void }): PopoverRow[] => props.details.map((d) => ({
@@ -169,7 +169,7 @@ export function SessionScreen(props: SessionProps) {
       {/* 状態の札（4A）。操作の並びの先頭、主の操作の左に置く。見た目と一言はプロジェクト画面の札と同じ。 */}
       {statusPick && <StatusSelect label={t('session.screen.status')} value={statusPick.value} auto={statusPick.auto} title={statusPick.title} onChange={setStatus} onReselect={reselectStatus} isolate={false} />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
-      <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
+      <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? primary.title ?? undefined}
         aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>
         <Icon name={ACTION_ICON[primary.id]} /><span className="btn-label">{primary.label}</span>
       </button>
@@ -187,7 +187,7 @@ export function SessionScreen(props: SessionProps) {
   // 閉じている間は、タブの列（終わった後は切り替えの行）の右端に「目次 N」の札を置く。開いている間は、同じ右上の TocToggle を使う。
   // 現在の札も中に畳まれているので、札のある間はその状態の点を添える。
   const opener = (
-    <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} title={t('session.toc.shortcut', { keys: shortcutHint(t, 'transcript.toggle', '⌘J') })} onClick={toggleToc}>
+    <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} title={t('session.toc.shortcut')} onClick={toggleToc}>
       {hasCard && props.strip && <span className="live-dot" data-tone={props.strip.tone} aria-hidden="true" />}
       <Icon name="paneOpen" /><span>{tocCount === null ? t('session.toc.label') : t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
     </button>
@@ -224,7 +224,7 @@ export function SessionScreen(props: SessionProps) {
             {props.gone.note}
             {props.gone.canExtend && <> <button type="button" className="btn-link" onClick={() => emit({ type: 'retention.edit', days: props.gone!.extendTo, from: 'session' })}>{t('session.screen.extendRetention')}</button></>}
           </div>
-          {props.lead && (props.lead.summary || props.lead.notice ? summaryCard : <div className="faint">{t('session.lead.noSummary')}</div>)}
+          {props.lead && (props.lead.summary || props.lead.notice) && summaryCard}
         </div>
       </div>
     );
@@ -235,7 +235,8 @@ export function SessionScreen(props: SessionProps) {
     // 分割で 2 つ並ぶときも、シェルの側には出さない。
     const terminal = (tabId: string) => {
       const agentTab = tabId === run.id;
-      const hint = agentTab && props.trustHint ? t('session.screen.trustHint') : agentTab && !run.alive ? t('session.screen.endedHint') : null;
+      // 終わった run は、タブの印と再開のボタンが見せるので、案内では言い直さない。
+      const hint = agentTab && props.trustHint ? t('session.screen.trustHint') : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
       return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} reason={props.reason ?? null} agent={agentTab} transcript={transcript} />;
     };

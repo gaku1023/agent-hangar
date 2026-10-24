@@ -19,7 +19,6 @@
 .pop-h .end:disabled { color: var(--ink-3); }
 .notices { margin: 0; padding: 0; list-style: none; }
 /* 見出しの添え書き（何が入るか）。狭い面では切り詰める。 */
-.pop-h .notices-lead { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 行。左に種類、真ん中に題と説明と操作、右に時。未読は左端の点で見せる。 */
 .nrow { position: relative; display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 3.5); border-top: 1px solid var(--line); }

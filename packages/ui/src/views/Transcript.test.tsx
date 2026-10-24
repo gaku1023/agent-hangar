@@ -21,6 +21,15 @@ function setup(follow: boolean, live = true) {
   return { onAction, scrollTo };
 }
 
+describe('Transcript の空', () => {
+  it('行が無くても「トランスクリプトがありません」と言い直さない', () => {
+    const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={[]} hasMore={false} loading={false} follow live={false} remaining={0} /></ActionRoot>);
+    expect(container.querySelector('.empty')).toBeNull();
+    expect(container.textContent).not.toContain('トランスクリプトがありません');
+    cleanup();
+  });
+});
+
 describe('Transcript の追従', () => {
   it('下へ向かう途中のスクロールでは追従を切らない', () => {
     // 追従中の自動スクロールは上から下へ進むので、scrollTop は増え続ける。

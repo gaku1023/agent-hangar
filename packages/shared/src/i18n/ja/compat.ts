@@ -28,8 +28,6 @@ export const compatJa: AreaDictionary<typeof compatKeys> = {
   'compat.stop.attachLine': 'バックグラウンドセッションを attach で再開する機能を無効にしています',
   'compat.stop.summaryShort': 'Claude で要約',
   'compat.stop.summaryLine': 'Claude での要約を無効にしています',
-  'compat.status.okNote': '変更点なし（{verified} で検証済み）',
-  'compat.status.okLead': 'hangar が読み取る Claude Code のデータ形式を監視しています',
   'compat.status.okBadge': '問題なし',
   'compat.status.unverifiedNote': '{local}（検証済みのバージョンは {verified}）',
   'compat.status.unverifiedLead': '未検証のバージョンです。無効にした機能はありません',

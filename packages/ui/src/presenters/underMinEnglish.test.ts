@@ -39,7 +39,7 @@ describe('英語の 1 分未満の表示は <1 min', () => {
   it('ホームの入力待ちの札と、アイドルの札', () => {
     const home = presentHome(initialState(), store('en'), NOW);
     expect(home.attention[0]?.waited).toBe('<1 min');
-    expect(home.running.find((c) => c.id === 'i1')?.note).toBe('Idle. Time since last reply: <1 min');
+    expect(home.running.find((c) => c.id === 'i1')?.idleFor).toBe('<1 min');
   });
 
   it('パレットの右端', () => {

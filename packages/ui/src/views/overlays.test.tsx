@@ -133,10 +133,17 @@ describe('CommandPalette', () => {
     expect(screen.getByRole('option', { name: /トランスクリプトから検索/ })).toHaveTextContent('12 件');
   });
 
-  it('名前に一致しないときはそう知らせ、ホームへ渡す行だけを出す', () => {
+  it('名前に一致しないときは「一致する項目がありません」と知らせ、ホームへ渡す行だけを出す', () => {
     render(<ActionRoot onAction={() => {}}><CommandPalette query="zzz" sections={[{ title: 'ホーム', count: null, limit: null, items: [searchRow] }]} noMatch onQuery={() => {}} /></ActionRoot>);
-    expect(screen.getByText('名前にも操作にも一致しません。')).toBeInTheDocument();
+    expect(screen.getByText('一致する項目がありません')).toBeInTheDocument();
     expect(screen.getAllByRole('option')).toHaveLength(1);
+  });
+
+  it('行の右端は ↵ の印だけで、「開く」の語は添えない', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></ActionRoot>);
+    const rets = [...container.querySelectorAll('.palette-item .palette-ret')];
+    expect(rets.length).toBeGreaterThan(0);
+    for (const r of rets) expect(r.textContent).toBe('↵');
   });
 
   it('下に打鍵の案内を出し、トランスクリプトはホームの欄で探すと添える', () => {
@@ -259,10 +266,10 @@ describe('PromoteDialog', () => {
     expect(screen.getByText('同じ名前があります')).toBeTruthy();
   });
 
-  it('2 つの選択は、何が起きるかを添えたカードで並ぶ', () => {
+  it('2 つの選択はカードで並び、名前の言い直しの説明は添えない', () => {
     render(<ActionRoot onAction={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></ActionRoot>);
-    expect(screen.getByRole('checkbox', { name: 'git init を実行' })).toHaveAccessibleDescription('空のリポジトリを作成してから移動します');
-    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAccessibleDescription('クイックセッションのファイルを新しいプロジェクトのディレクトリへ移動します');
+    expect(screen.getByRole('checkbox', { name: 'git init を実行' })).not.toHaveAttribute('aria-describedby');
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).not.toHaveAttribute('aria-describedby');
     expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true']);
   });
   it('run が生きているとき、ファイルを移動するのカードは印を外して押せない', () => {

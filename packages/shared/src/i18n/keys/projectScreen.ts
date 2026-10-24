@@ -60,7 +60,6 @@ export const projectScreenKeys = {
   'projectScreen.todo.rejectButton': [],
   'projectScreen.todo.addLabel': [],
   'projectScreen.todo.addButton': [],
-  'projectScreen.todo.noNote': [],
   'projectScreen.todo.unknownSession': [],
   'projectScreen.todo.noName': [],
   'projectScreen.todo.listLabel': [],

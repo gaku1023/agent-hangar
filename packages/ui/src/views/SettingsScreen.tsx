@@ -13,6 +13,7 @@ import { ModelPicker } from './ModelPicker.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
+import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { markHit } from './primitives/motionKit.ts';
@@ -85,7 +86,7 @@ function VerifyRow(props: { line: VerifyLine | null; mark?: SaveMark | undefined
  * nullable の欄は、空を「指定なし」の null として送る。
  * 存在と実行権はサーバが保存の前に確かめ、断られたら理由が欄の下に出る。
  */
-function PathField(props: { field: keyof SettingsDto; label: string; value: string | null; nullable: boolean; placeholder?: string; line: VerifyLine | null; mark: SaveMark | undefined; hideLabel?: boolean; quiet?: boolean; pick?: { desktop: boolean; picked: { path: string; n: number } | null }; children?: ReactNode }) {
+function PathField(props: { field: keyof SettingsDto; label: string; info?: ReactNode; value: string | null; nullable: boolean; placeholder?: string; line: VerifyLine | null; mark: SaveMark | undefined; hideLabel?: boolean; quiet?: boolean; pick?: { desktop: boolean; picked: { path: string; n: number } | null }; children?: ReactNode }) {
   const emit = useEmit();
   const t = useT();
   const saved = props.value ?? '';
@@ -111,7 +112,9 @@ function PathField(props: { field: keyof SettingsDto; label: string; value: stri
   };
   return (
     <div className="field path-field" id={`settings-field-${props.field}`}>
-      {!props.hideLabel && <span aria-hidden="true">{props.label}</span>}
+      {!props.hideLabel && (props.info
+        ? <span className="path-field-label"><span aria-hidden="true">{props.label}</span><InfoTip label={props.label}>{props.info}</InfoTip></span>
+        : <span aria-hidden="true">{props.label}</span>)}
       <span className="inrow">
         <input className="input mono" aria-label={props.label} value={v} placeholder={props.placeholder} spellCheck={false} autoComplete="off"
           onChange={(e) => setV(e.target.value)}
@@ -300,32 +303,30 @@ export function SettingsScreen(props: SettingsProps) {
 
   const general = (
     <section aria-label={cur.title}>
-      <SetRow title={t('settings.general.language.title')} desc={t('settings.general.language.desc')}
+      <SetRow title={t('settings.general.language.title')} info={t('settings.general.language.desc')}
         control={<Segmented label={t('settings.general.language.title')} value={props.language.value} options={[{ value: 'ja', label: t('settings.general.language.ja') }, { value: 'en', label: t('settings.general.language.en') }]} onChange={(v) => setNow({ language: v as Language })} />} />
       {/* 入力待ちを OS の通知で知らせる。直すものの数には入れない（無くても動くため）。 */}
-      <SetRow title={t('settings.general.notify.title')}
-        desc={<>
-          {t('settings.general.notify.desc')}
-          {!props.notify.available && <div style={{ marginTop: 4 }}>{t('settings.general.notify.unavailable')}</div>}
-          {props.notify.available && props.notify.blocked && <div style={{ marginTop: 4 }}>{t(notifyBlockedKey(clientPlatform(), 'settings'))}</div>}
-          {/* まだ OS に尋ねていない間は、その旨と［許可する］を添える。押すと始める前の確認の行と同じ道（notify.set の on）で尋ねる。 */}
-          {props.notify.available && props.notify.ask && (
-            <div className="notify-ask" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>{t('settings.general.notify.notAsked')}</span>
-              <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'notify.set', on: true })}>{t('home.ready.notify.allow')}</button>
-            </div>
-          )}
-        </>}
+      {/* 何をするかは ⓘ に畳み、行には許可が要るときの案内だけを出す。 */}
+      <SetRow title={t('settings.general.notify.title')} info={t('settings.general.notify.desc')}
+        desc={!props.notify.available ? t('settings.general.notify.unavailable')
+          : props.notify.blocked ? t(notifyBlockedKey(clientPlatform(), 'settings'))
+            // まだ OS に尋ねていない間は、その旨と［許可する］を添える。押すと始める前の確認の行と同じ道（notify.set の on）で尋ねる。
+            : props.notify.ask ? (
+              <div className="notify-ask" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>{t('settings.general.notify.notAsked')}</span>
+                <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'notify.set', on: true })}>{t('home.ready.notify.allow')}</button>
+              </div>
+            ) : undefined}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
-      {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。選択肢は画面を開いている OS のものだけ。 */}
-      <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDesc}
+      {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出るので、その案内は行に常に出す。選択肢は画面を開いている OS のものだけ。 */}
+      <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDescAlways ? props.terminalDesc : undefined} info={props.terminalDescAlways ? undefined : props.terminalDesc}
         control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />
       {/* エディタ。ターミナルアプリと同じく好みで選ぶものなので、その下に置く（試作の 1-1 の A）。 */}
       <EditorSettings editor={props.editor} mark={props.save.editor} />
       {/* Claude Code の保持期間。押しても保存せず、差分を見せる確認を開く。hangar が Claude Code の設定を書くのはここだけである。 */}
       {props.retention && (
         <SetRow title={t('settings.general.retention.title')}
-          desc={<>{t('settings.general.retention.desc')}{props.retention.syncNote && ` ${t('settings.general.retention.syncNote')}`}</>}
+          info={<>{t('settings.general.retention.desc')}{props.retention.syncNote && ` ${t('settings.general.retention.syncNote')}`}</>}
           control={props.retention.writable
             ? <Segmented label={t('settings.general.retention.period')} value={String(props.retention.days)} options={props.retention.options} onChange={(v) => { if (Number(v) !== props.retention!.days) emit({ type: 'retention.edit', days: Number(v), from: 'settings' }); }} />
             : <span className="muted">{props.retention.valueLabel}<span className="faint">（{props.retention.reason}）</span></span>}
@@ -337,14 +338,14 @@ export function SettingsScreen(props: SettingsProps) {
   const self = (
     <section>
       <h3 className="h2">{t('settings.general.self.title')}</h3>
-      <SetRow title={t('settings.general.autoDone.title')} desc={t('settings.general.autoDone.desc')}
+      <SetRow title={t('settings.general.autoDone.title')} info={t('settings.general.autoDone.desc')}
         control={<Switch label={t('settings.general.autoDone.title')} checked={props.self.autoDone} onChange={(next) => setNow({ autoDone: next })} />} />
       {/* 長く動いていない会話の日数（試作の案 A）。上のスイッチを切っている間は効かないので、選べなくする。 */}
-      <SetRow title={t('settings.general.autoDoneIdle.title')} desc={t('settings.general.autoDoneIdle.desc')}
+      <SetRow title={t('settings.general.autoDoneIdle.title')} info={t('settings.general.autoDoneIdle.desc')}
         control={<Segmented label={t('settings.general.autoDoneIdle.title')} value={String(props.self.autoDoneIdleDays)} disabled={!props.self.autoDone}
           options={AUTO_DONE_IDLE_DAYS.map((d) => ({ value: String(d), label: d === 0 ? t('settings.general.autoDoneIdle.never') : t('settings.general.autoDoneIdle.days', { days: d }) }))}
           onChange={(v) => setNow({ autoDoneIdleDays: Number(v) as AutoDoneIdleDays })} />} />
-      <SetRow title={t('settings.general.autoPark.title')} desc={t('settings.general.autoPark.desc')}
+      <SetRow title={t('settings.general.autoPark.title')} info={t('settings.general.autoPark.desc')}
         control={<Switch label={t('settings.general.autoPark.title')} checked={props.self.autoPark} onChange={(next) => setNow({ autoPark: next })} />} />
     </section>
   );
@@ -368,7 +369,6 @@ export function SettingsScreen(props: SettingsProps) {
                   <p>{t('settings.cloud.legacy.steps')}</p>
                   <p><a href={props.cloud.legacy.docUrl} target="_blank" rel="noreferrer"><Icon name="externalLink" />{t('settings.cloud.legacy.doc')}</a></p>
                 </Strip>
-                <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.legacy.status')}</div>
                 <CommandLine command={props.cloud.legacy.statusCommand} />
               </>
             ) : <p className="muted-p">{t('settings.cloud.off.lead')}</p>}
@@ -381,7 +381,6 @@ export function SettingsScreen(props: SettingsProps) {
                 </div>
                 {cloudCommand === 'join' && <CloudJoinSteps m={member} onClose={() => setCloudCommand(null)} />}
                 {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
-                {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('cloudMember.join.startNote')}</div>}
               </>
             ) : (
               <>
@@ -389,7 +388,6 @@ export function SettingsScreen(props: SettingsProps) {
                   <button type="button" className="btn btn-primary" aria-pressed={cloudCommand === 'start'} onClick={() => setCloudCommand('start')}><Icon name="cloud" />{t('settings.cloud.off.start')}</button>
                   <button type="button" className="btn" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('settings.cloud.off.join')}</button>
                 </div>
-                {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.note')}</div>}
                 {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
                 {cloudCommand === 'join' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runJoin')}</div><CommandLine command={props.commands.join} /></>}
               </>
@@ -465,12 +463,11 @@ export function SettingsScreen(props: SettingsProps) {
       {/* 起動する Claude Code に足すもの（試作 1 節の推す案 B）。互換の 1 枚のすぐ下に置く。 */}
       <InjectionSettings injection={props.injection} />
       <section>
-        <h3 className="h2">{t('settings.integrations.mcp.title')}<Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
-        <div className="muted">{t('settings.integrations.mcp.desc')}</div>
+        <h3 className="h2">{t('settings.integrations.mcp.title')}<InfoTip label={t('settings.integrations.mcp.title')}>{t('settings.integrations.mcp.desc')}</InfoTip><Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
         <IntegrationWrite card={props.integrations.mcp} desktop={props.integrations.desktop} />
       </section>
       <section>
-        <h3 className="h2">{t('settings.integrations.statusline.title')}<Badge ok={props.statusline ? props.statusline.installed : null} yes={t('settings.integrations.statusline.yes')} no={t('settings.integrations.statusline.no')} /></h3>
+        <h3 className="h2">{t('settings.integrations.statusline.title')}<InfoTip label={t('settings.integrations.statusline.title')}>{t('settings.integrations.statusline.note')}</InfoTip><Badge ok={props.statusline ? props.statusline.installed : null} yes={t('settings.integrations.statusline.yes')} no={t('settings.integrations.statusline.no')} /></h3>
         {props.statusline === null && <div className="faint">{t('settings.common.loading')}</div>}
         {props.statusline && props.statusline.scriptPath === null && (
           <>
@@ -485,15 +482,17 @@ export function SettingsScreen(props: SettingsProps) {
             {!props.integrations.desktop && <div className="faint mono">{props.statusline.scriptPath}</div>}
           </>
         )}
-        <div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.statusline.note')}</div>
         {/* 追記されるスニペットの宛先はこのコマンドの --port で決まる。 */}
         {/* 既定の 4177 のまま追記すると、別のポートで動かしているサーバには届かない。ボタンは殻のポートを渡すので、添えるのはコマンドの側だけである。 */}
         <IntegrationWrite card={props.integrations.statusline} desktop={props.integrations.desktop} extra={<div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.statusline.port')}</div>} />
       </section>
       {/* 包みは zsh のもので、Windows では作らない。Windows のサーバでは節ごと出さない。 */}
       {props.shell.available && <section>
-        <h3 className="h2">{t('settings.integrations.shell.title')}<Badge ok={props.shell.state === null ? null : props.shell.state === 'on'} yes={t('settings.integrations.shell.yes')} no={t('settings.integrations.shell.no')} /></h3>
-        <div className="muted">{t('settings.integrations.shell.desc')}</div>
+        <h3 className="h2">
+          {t('settings.integrations.shell.title')}
+          <InfoTip label={t('settings.integrations.shell.title')}>{t('settings.integrations.shell.desc')}{' '}{t('settings.integrations.shell.adopt')}</InfoTip>
+          <Badge ok={props.shell.state === null ? null : props.shell.state === 'on'} yes={t('settings.integrations.shell.yes')} no={t('settings.integrations.shell.no')} />
+        </h3>
         {props.shell.devices.length > 0 && (
           <div className="list" style={{ marginTop: 8 }}>
             {props.shell.devices.map((d) => (
@@ -521,7 +520,6 @@ export function SettingsScreen(props: SettingsProps) {
         )}
         {!props.integrations.desktop && props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHint', { uninstall: props.shell.uninstallCommand })}</div>}
         {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.noTmux', { install: muxInstallCommand(clientPlatform()) })}</div>}
-        <div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.shell.adopt')}</div>
       </section>}
       {/* アカウントの追加の入口はここだけ。1 件でも出す。届く前（一覧が空）は出さない。 */}
       {showAccounts && <AccountSettings {...props.accounts} />}
@@ -540,7 +538,7 @@ export function SettingsScreen(props: SettingsProps) {
   );
   const claudeDetail = (
     <div className="sum-detail">
-      <SetRow title={t('settings.label.summaryClaudeModel')} desc={t('settings.summary.claudeAccount')}
+      <SetRow title={t('settings.label.summaryClaudeModel')} info={t('settings.summary.claudeAccount')}
         control={<ModelPicker label={t('settings.label.summaryClaudeModel')} value={claudeModel} onChange={(m) => { if (m) setClaudeModel(m); }} />} />
       {capRow}
     </div>
@@ -591,7 +589,6 @@ export function SettingsScreen(props: SettingsProps) {
   const pickEngine = (id: SummaryEngine) => { if (id !== engine) setNow({ summaryEngine: id }); };
   const summary = (
     <section aria-label={cur.title}>
-      <div className="muted sum-lead">{t('settings.summary.lead')}</div>
       <div className="editor-choices" role="radiogroup" aria-label={t('settings.label.summaryEngine')}>
         {engines.map((e) => (
           <Fragment key={e.id}>
@@ -602,7 +599,7 @@ export function SettingsScreen(props: SettingsProps) {
               <span className="editor-tile" aria-hidden="true"><Icon name={e.icon} /></span>
               <span className="editor-choice-main">
                 <span className="editor-choice-name">{t(`settings.summary.engine.${e.id}.name`)}</span>
-                <span className="sum-choice-desc">{t(`settings.summary.engine.${e.id}.desc`)}</span>
+                {e.id !== 'off' && <span className="sum-choice-desc">{t(`settings.summary.engine.${e.id}.desc`)}</span>}
               </span>
               {e.id === 'openai' && engine === 'openai' && props.summarizerModels !== null
                 ? <span className="badge" data-tone={props.summarizerModels.length > 0 ? 'ok' : 'warn'}><Icon name={props.summarizerModels.length > 0 ? 'check' : 'alert'} />{props.summarizerModels.length > 0 ? t('settings.summary.connected') : t('settings.summary.offline')}</span>
@@ -642,11 +639,10 @@ export function SettingsScreen(props: SettingsProps) {
     <>
       {props.mux && <MuxSection mux={props.mux} />}
       <section>
-        <h3 className="h2">{t('settings.tools.parent.title')}</h3>
+        <h3 className="h2">{t('settings.tools.parent.title')}<InfoTip label={t('settings.tools.parent.title')}>{t('settings.tools.parent.desc')}</InfoTip></h3>
         {/* 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空を許し、デスクトップでは Finder でも選べる。 */}
         <PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} placeholder={t('settings.tools.parent.placeholder')} quiet={props.workspaceRoot === ''} pick={props.workspacePick} line={props.verify.workspace} mark={props.save.workspaceRoot} />
-        <div className="faint" style={{ marginTop: 4 }}>{t('settings.tools.parent.desc')}</div>
-        <SetRow title={t('settings.tools.register.title')} desc={t('settings.tools.register.desc')}
+        <SetRow title={t('settings.tools.register.title')}
           control={<>
             <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open' })}>{t('settings.tools.register.action')}</button>
             {/* まとめて登録の「フォルダの中から」（0.6.1）。 */}
@@ -658,15 +654,13 @@ export function SettingsScreen(props: SettingsProps) {
         <div className="grid2">
           <PathField field="tmuxPath" label={t('settings.tools.tmux')} value={props.tmuxPath} nullable placeholder={t('settings.tools.tmuxPlaceholder', { install: muxInstallCommand(clientPlatform()) })} line={props.verify.tmux} mark={props.save.tmuxPath} />
           <PathField field="claudePath" label={t('settings.tools.claude')} value={props.claudePath} nullable placeholder={t('settings.tools.claudePlaceholder')} line={props.verify.claude} mark={props.save.claudePath} />
-          <PathField field="nodePath" label={t('settings.tools.node')} value={props.nodePath} nullable placeholder={t(win ? 'settings.tools.nodePlaceholderWindows' : 'settings.tools.nodePlaceholder')} line={props.verify.node} mark={props.save.nodePath} />
+          <PathField field="nodePath" label={t('settings.tools.node')} info={t(win ? 'settings.tools.nodeNoteWindows' : 'settings.tools.nodeNote')} value={props.nodePath} nullable placeholder={t(win ? 'settings.tools.nodePlaceholderWindows' : 'settings.tools.nodePlaceholder')} line={props.verify.node} mark={props.save.nodePath} />
           {/* git は設定の欄が無いので、見つけた場所と版だけを読むだけの行で出す。 */}
           <div className="field path-field" id="settings-field-git">
-            <span>{t('settings.tools.git')}</span>
+            <span>{t('settings.tools.git')}<InfoTip label={t('settings.tools.git')}>{t('settings.tools.gitDesc')}</InfoTip></span>
             <VerifyRow line={props.verify.git} />
-            <span className="faint">{t('settings.tools.gitDesc')}</span>
           </div>
         </div>
-        <div className="faint" style={{ marginTop: 4 }}>{t(win ? 'settings.tools.nodeNoteWindows' : 'settings.tools.nodeNote')}</div>
       </section>
     </>
   );
@@ -731,6 +725,7 @@ export function SettingsScreen(props: SettingsProps) {
           <div className="settings-group" id={`settings-${props.section}`} role="group" aria-labelledby={`settings-${props.section}-h`}>
             <h2 className="settings-group-h" id={`settings-${props.section}-h`}>
               {cur.title}
+              {props.section === 'summary' && <InfoTip label={cur.title}>{t('settings.summary.lead')}</InfoTip>}
               {props.section === 'cloud' && <span className="badge" data-tone={props.cloud.badge.tone}>{props.cloud.badge.text}</span>}
               {props.section === 'update' && props.update.supported && props.update.badge && <span className="badge" data-tone={props.update.badge.tone}>{props.update.badge.text}</span>}
               {todo > 0 && <span className="badge" data-tone="warn"><Icon name="alert" />{t('settings.fix.count', { n: todo })}</span>}

@@ -30,7 +30,6 @@ export const stopJa: AreaDictionary<typeof stopKeys> = {
   'stop.action.continue': 'ターミナルで続ける',
   'stop.band.attentionSummary': '入力待ち {waiting}、許可待ち {permission}、今日のリマインダー {reminders}',
   'stop.band.attentionSummaryReset': '入力待ち {waiting}、許可待ち {permission}、リセット済み {reset}、今日のリマインダー {reminders}',
-  'stop.band.runningSummary': '作業中 {busy}、アイドル {idle}、使用制限 {limit}',
   'stop.card.permissionHead': 'Claude が求めている許可',
   'stop.card.permissionHeadTool': 'Claude が求めている許可 · {tool}',
   'stop.card.permissionHint': 'ターミナルで許可するか拒否してください',

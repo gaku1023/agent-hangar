@@ -7,12 +7,13 @@ import { place, type Placement } from './listboxModel.ts';
  * メニューの 1 項目。
  * disabled は押せない理由で、押せる項目では null か省く。
  * 押せない項目も消さずに並べ、理由を 1 行添える。
- * note は押せる項目に添える補足の 1 行。
+ * note は押せる項目に添える補足の 1 行で、画面に出す（副作用を言うものだけに使う）。
+ * title は画面に出さない補足で、項目の title に入れる。
  * danger は取り消せない操作で、区切りの後ろに危険色で置く。
  * kbd は打鍵の印。メニューが開いている間、その 1 字で選べる（「⋯」の p・d・a・u など）。
  * checked を持つ項目は、いまの値に ✓ を付けて並べる択一の項目である（セッションのメニューの状態）。
  */
-export type MenuItem = { key: string; label: string; icon?: IconName; note?: string | null; disabled?: string | null; danger?: boolean; kbd?: string; onSelect: () => void;
+export type MenuItem = { key: string; label: string; icon?: IconName; note?: string | null; title?: string | null; disabled?: string | null; danger?: boolean; kbd?: string; onSelect: () => void;
   /** この項目の前に区切りを置く。最初の危険な項目の前の区切りとは重ねない。 */
   separatorBefore?: boolean;
   /** 選べる状態の 1 つ（menuitemradio）。真なら頭に ✓ を付ける。持たない項目はふつうの menuitem である。 */
@@ -165,7 +166,7 @@ export function MenuPop(props: { id?: string; label: string; items: MenuItem[]; 
         <Fragment key={item.key}>
           {(i === firstDanger || item.separatorBefore) && i > 0 && <div role="separator" className="menu-sep" />}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={item.checked === undefined ? undefined : item.checked} tabIndex={-1} className="menu-item"
-            aria-disabled={item.disabled ? 'true' : undefined} data-danger={item.danger ? 'true' : undefined}
+            aria-disabled={item.disabled ? 'true' : undefined} data-danger={item.danger ? 'true' : undefined} title={item.title ?? undefined}
             onClick={() => choose(item)}>
             {item.checked !== undefined && <span className="menu-check" aria-hidden="true">{item.checked && <Icon name="check" />}</span>}
             {item.icon && <Icon name={item.icon} />}
