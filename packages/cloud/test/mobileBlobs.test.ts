@@ -20,7 +20,19 @@ const bytes = (n: number, fill = 7): Uint8Array<ArrayBuffer> => new Uint8Array(n
 const putBlob = (token: string, id: string, n: number | string, body: Uint8Array<ArrayBuffer> | null = bytes(64)) =>
   // miniflare の dispatchFetch は本文の長さを付けずに流すので、実機と同じく明示する。
   send(`/m/blobs/${id}/${n}`, { method: 'PUT', headers: auth(token, { 'content-type': 'application/octet-stream', 'content-length': String(body?.byteLength ?? 0) }), ...(body ? { body } : {}) });
-const getBlob = (token: string, id: string, n: number | string) => send(`/m/blobs/${id}/${n}`, { headers: auth(token) });
+/**
+ * 長さだけを名乗り、本文は 16 バイト流したまま閉じない PUT。
+ * 断りは本文を読まずに返るので、5 MiB を書き切る前に workerd が接続を閉じ、書き込みが ECONNRESET で落ちることがあった（CI で揺れた）。
+ * 流し続ける本文なら書き込みが残らず、本文を読もうとすれば試験が止まるので、読まずに断ることも確かめられる。
+ */
+const putDeclared = (token: string, id: string, n: number, declared: number) =>
+  send(`/m/blobs/${id}/${n}`, {
+    method: 'PUT',
+    headers: auth(token, { 'content-type': 'application/octet-stream', 'content-length': String(declared) }),
+    body: new ReadableStream({ start: (c) => c.enqueue(bytes(16)) }),
+    duplex: 'half',
+  } as RequestInit);
+const getBlob =(token: string, id: string, n: number | string) => send(`/m/blobs/${id}/${n}`, { headers: auth(token) });
 const launch = (phone: string, id: string, target: string) => post(phone, '/m/launches', { id, targetDevice: target, sealed: 'sealed-req', epoch: 1 });
 const claim = (pc: string, id: string) => post(pc, `/m/launches/${id}/claim`);
 const answer = (pc: string, id: string, ok = true) => post(pc, `/m/launches/${id}/answer`, { ok, sealedAnswer: 'sealed-ans' });
@@ -79,7 +91,7 @@ describe('PUT /m/blobs/:id/:n（スマホが封をした画像を置く）', () 
     const phone = await joinPhone(pc);
     expect(MAX_BLOB_BYTES).toBe(MOBILE_IMAGE_MAX_BYTES + 28);
     expect((await putBlob(phone.token, 'l-1', 0, bytes(MAX_BLOB_BYTES))).status).toBe(201);
-    const big = await putBlob(phone.token, 'l-1', 1, bytes(MAX_BLOB_BYTES + 1));
+    const big = await putDeclared(phone.token, 'l-1', 1, MAX_BLOB_BYTES + 1);
     expect(big.status).toBe(413);
     expect(await keys(`mobile/${phone.deviceId}/l-1/1`)).toEqual([]);
     expect((await putBlob(phone.token, 'l-1', 2, null)).status).toBe(400);
