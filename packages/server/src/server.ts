@@ -108,7 +108,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
-  delivery.registry.start();
+  delivery.live.start();
   runs.primeLive();
   await indexing.start();
   runs.start();
@@ -149,7 +149,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       indexing.stopMemoWatch();
       runs.runs.stop();
       indexing.indexer.stop();
-      delivery.registry.stop();
+      delivery.live.stop();
       web.stopRelay();
       // WebSocket を先に畳み、残った keep-alive の接続を切ってから listen を閉じる。
       await delivery.stopPublishing();

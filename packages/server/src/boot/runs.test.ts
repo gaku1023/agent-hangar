@@ -55,7 +55,7 @@ function boot(): Booted {
       r.stopParkTimer();
       r.stopPresence();
       r.runs.stop();
-      d.registry.stop();
+      d.live.stop();
       d.publisher.stop();
       d.compatLog.stop();
       h.stop();
@@ -245,16 +245,16 @@ describe('run とアカウントと使用量', () => {
   it('hangar の外で実行中のセッションは、実行中の一覧を引いて見分ける', () => {
     // 見本の登録ファイルが alpha を実行中にしている。
     const b = boot();
-    expect(b.d.registry.current()).toEqual([]);
-    b.d.registry.start();
+    expect(b.d.live.current()).toEqual([]);
+    b.d.live.start();
     b.r.primeLive();
-    expect(b.d.registry.current().map((l) => l.sessionId)).toContain(SESSION_ALPHA);
+    expect(b.d.live.current().map((l) => l.sessionId)).toContain(SESSION_ALPHA);
     expect(b.r.runs.listAlive()).toEqual({ runs: [], tabs: [] });
   });
 
   it('同じファイルの編集の見張りを組む。実行中が 2 本に満たなければ写しは空のまま', () => {
     const b = boot();
-    b.d.registry.start();
+    b.d.live.start();
     b.r.primeLive();
     b.r.overlaps.tick();
     expect(b.h.db.prepare('select count(*) n from session_overlaps').get()).toEqual({ n: 0 });

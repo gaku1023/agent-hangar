@@ -99,17 +99,17 @@ export type RunsParts = {
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
   listening: { host: string; port: number },
   o: { serverDir: string; launcher?: string },
 ): RunsParts {
   const { db, claudeDir, settings, life, device } = home;
-  const { hub, registry, compatLog } = delivery;
+  const { hub, live, compatLog } = delivery;
   const claudeBin = (): string | null => claudeBinOf(settings.current);
   const localClaude: LocalClaude = new LocalClaude({
     bin: claudeBin, closed: () => life.closed, version: delivery.claudeVersion, log: compatLog,
     // 呼ばれるのは版の読み取りを待った後なので、下で作る claudeDirWatch はもうできている。
-    renote: () => { registry.renoteDrifts(); claudeDirWatch.reset(); claudeDirWatch.check(); },
+    renote: () => { delivery.claude.live.renoteDrifts(); claudeDirWatch.reset(); claudeDirWatch.check(); },
     onSubcommands: () => shell.write(),
     beforeList: () => claudeDirWatch.check(),
   });
@@ -135,10 +135,11 @@ export function bootRuns(
     claudeBin: claudeBin(),
     // 起動に失敗した run の後始末で、本文の jsonl があるかを実体で確かめるために要る。
     claudeDir,
-    // hangar の外で動いている Claude を再開すると二重起動になるので、レジストリを見て弾く。
-    isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
-    // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
-    live: () => registry.current(),
+    // hangar の外で動いている Claude を再開すると二重起動になるので、実行中の一覧を見て弾く。
+    // 引き取りと attach も、ここから外で動く claude の pid とバックグラウンドの id を引く。
+    live,
+    // driver は配る層と一緒に組んである（boot/agents.ts）。
+    agents: delivery.agents, claude: delivery.claude,
     accounts: new RunAccounts({ db, claudeDir, store: accountStore, deviceId: device.id }),
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
@@ -166,7 +167,7 @@ export function bootRuns(
   // 読めなかったときは、何も止めない。
   const parkWatch = new ParkWatch({
     // 写しに候補（Done か Archived の付いた休みの会話）が無ければ、登録を読み直さない。待機中に 2 秒ごとに読まないためである。
-    parkedIds: () => { try { return hasMarkedIdle(db, registry.current()) ? parkedSessionIds(db, readRegistry(claudeDir), device.id) : []; } catch { return []; } },
+    parkedIds: () => { try { return hasMarkedIdle(db, live.current()) ? parkedSessionIds(db, readRegistry(claudeDir), device.id) : []; } catch { return []; } },
     stop: (id) => runs.park(id),
     // 設定の「Done と Archived にした会話を止める」。切っている間は止めず、一覧でも実行中として見せる（setParkingSwitch）。
     enabled: () => settings.current.autoPark !== false,
@@ -185,18 +186,18 @@ export function bootRuns(
   // 起動のたびに、セッションとアカウントの対応を配る。
   announceAccountsOnRunStarted(runs, accounts);
   const liveChange = createLiveChangeHandler({ db, deviceId: device.id, hub, resetPark: (id) => parkWatch.reset(id), linkRegistry: (live) => runs.linkRegistry(live) });
-  registry.onChange(liveChange.onChange);
+  live.onChange(liveChange.onChange);
   // 同じファイルの編集の見張り。作業中だったかを、登録の状態の移り変わりから覚える。
-  const overlaps = new OverlapWatch({ db, live: () => registry.current() });
-  registry.onChange((live) => overlaps.noteLive(live));
+  const overlaps = new OverlapWatch({ db, live: () => live.current() });
+  live.onChange((l) => overlaps.noteLive(l));
   // デスクトップ通知のきっかけ（入力待ち、許可待ち、使用制限、リセット済み）。殻が GET /api/notify/feed で読む。
   const stopNotices = new StopNoticeWatch({
-    db, deviceId: device.id, live: () => registry.current(), language: home.language, feed: delivery.osNotices,
+    db, deviceId: device.id, live: () => live.current(), language: home.language, feed: delivery.osNotices,
     accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
   });
   // 待っているもの（問いの文、許可の中身）がある間だけ短い周期で見る。登録が変わったときはその場で見る（paceNotices）。
   const notices = paceNotices(stopNotices);
-  registry.onChange(() => notices.onLiveChange());
+  live.onChange(() => notices.onLiveChange());
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
@@ -244,10 +245,10 @@ export function bootRuns(
     }),
     compat: localClaude.compat,
     primeLive: () => {
-      liveChange.prime(registry.current());
+      liveChange.prime(live.current());
       // 最初の読み取りは onChange を通らないので、生きた run の最後の状態と、状態の移り変わりもここで覚える。
-      runs.noteLastLive(registry.current());
-      overlaps.noteLive(registry.current());
+      runs.noteLastLive(live.current());
+      overlaps.noteLive(live.current());
       notices.onLiveChange();
     },
     start() {

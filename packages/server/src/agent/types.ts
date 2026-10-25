@@ -5,7 +5,7 @@ import type { RecordFacts } from '../provider/claude-code/transcript/normalize.t
 
 // hangar とエージェント（Claude Code、opencode）の境界の型。
 // 境界は 5 つの面（起動、状態、トランスクリプト、許可と質問、システムプロンプトへの追記）を持つ。
-// いま driver が実装しているのは起動の面だけで、残りの面は型を置いただけである（docs/design.md の「Claude Code に固有の部分」）。
+// いま driver が実装しているのは起動と状態の面で、残りの面は型を置いただけである（docs/design.md の「Claude Code に固有の部分」）。
 // 実装した面から、任意の印を外していく。
 
 /** エージェントの種類。値は sessions.provider の列に入る値と同じにする（D8）。 */
@@ -16,8 +16,8 @@ export interface AgentDriver {
   /** エージェントに有るものと無いもの。画面の札の出し分けと、RunManager の入口で断るのに使う。 */
   readonly caps: AgentCaps;
   readonly launch: AgentLauncher;
-  /** 状態の面。まだ境界を通していない。 */
-  readonly live?: LiveSource;
+  /** 状態の面。一覧を読む側は、各 driver の写しを束ねた agent/liveHub.ts の LiveHub を通して読む。 */
+  readonly live: LiveSource;
   /** トランスクリプトの面。まだ境界を通していない。 */
   readonly transcript?: TranscriptSource;
   /** 許可と質問の面。まだ境界を通していない。 */
@@ -85,15 +85,21 @@ export interface AgentLauncher {
   release(target: { providerSessionId: string; cwd: string }, cause: 'killed' | 'parked' | 'tui-gone'): boolean | Promise<boolean>;
 }
 
-// ---- 状態（型だけ） ----
+// ---- 状態 ----
 
+/**
+ * エージェントの実行中の一覧の写し。push 型（SSE）も pull 型（ファイルの読み直し）も、手元の写しと、変わったときの知らせにそろえる。
+ * 写しは読み直しのたびに LiveHub.enrich を通してから、変わったかを見る（liveHub.ts）。
+ */
 export interface LiveSource {
   start(): void;
   stop(): void;
   /** いつでも手元の最新の写しを返す。 */
   current(): LiveSessionDto[];
   onChange(cb: (live: LiveSessionDto[]) => void): () => void;
+  /** 次の読み直しを delayMs 後へ繰り上げる。 */
   kick(delayMs: number): void;
+  /** そのセッションが、その pid で動いているか。RunManager が、一覧から消えた run を閉じてよいかを決めるのに使う。 */
   isRunning(providerSessionId: string, pid: number): boolean;
 }
 

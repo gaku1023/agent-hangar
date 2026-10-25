@@ -346,7 +346,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     stoppedByStatus: r.ss_status !== null && r.last_end_reason === 'parked' && r.last_ended_at !== null && r.ss_set_at !== null && r.last_ended_at >= r.ss_set_at,
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さず、null にする。
     activity: live && r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null,
-    // 何を待っているかと、求めている許可の中身。登録の写し（RegistryWatcher が許可の中身を足したもの）である。
+    // 何を待っているかと、求めている許可の中身。実行中の一覧の写し（LiveHub の足し付けで許可の中身を足したもの）である。
     waitingFor: live?.waitingFor ?? null,
     permission: live?.permission ?? null,
     limit,

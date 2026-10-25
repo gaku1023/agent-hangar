@@ -16,7 +16,7 @@ export type LiveChangeDeps = {
 };
 
 /**
- * 実行中の一覧（Claude の登録）が変わったときの受け手を作る。RegistryWatcher.onChange に渡す。
+ * 実行中の一覧（Claude の登録）が変わったときの受け手を作る。実行中の一覧（agent/liveHub.ts の LiveHub）の onChange に渡す。
  *
  * 持っているのは、直前の一覧の写しである。
  * 出入りしたセッションを見て土台の要約と問いを直し、動きが変わった印付きのセッションを配り直す。

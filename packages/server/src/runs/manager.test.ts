@@ -26,6 +26,9 @@ import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
+import { agentsOf } from '../agent/agents.ts';
+import { claudeDriverFor } from '../boot/agents.ts';
+import { liveSourceOf } from '../../test/fake-live.ts';
 import { RunAccounts } from './accounts.ts';
 import { RUN_STIR_MS, RunManager } from './manager.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
@@ -71,14 +74,20 @@ type Deps = ConstructorParameters<typeof RunManager>[0];
 /**
  * 試験は tmux とアカウントの一覧をそのまま渡す。RunManager が受け取る口（PaneOps、RunAccounts）へは、ここで包む。
  * panes を渡したときは、tmux を使わずにその口をそのまま使う。
+ * live は Claude の登録の写し、isLive は外で動いているかの答えで、実行中の一覧（LiveHub）と Claude の driver の状態の面へは、ここで包む。
+ * どちらも渡さなければ、一覧を読まない構成として組む。
  */
-const make = (over: Partial<Omit<Deps, 'accounts'>> & { tmux?: Tmux | null; accounts?: AccountStore } = {}) => {
-  const { tmux: t = tmux, accounts, ...rest } = over;
-  return new RunManager({
+const make = (over: Partial<Omit<Deps, 'accounts' | 'live' | 'agents' | 'claude'>> & { tmux?: Tmux | null; accounts?: AccountStore; live?: () => LiveSession[]; isLive?: (providerSessionId: string) => boolean } = {}) => {
+  const { tmux: t = tmux, accounts, live, isLive, ...rest } = over;
+  const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => deps.claudeBin, live: liveSourceOf(live), procs: () => deps.procs ?? noJobs });
+  const deps: Deps = {
     db, deviceId: 'd', home, panes: t ? tmuxPaneOps(t) : null, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs, language: () => 'ja',
     accounts: accounts ? new RunAccounts({ db, claudeDir, store: accounts }) : undefined,
+    live: live || isLive ? { current: () => live?.() ?? [], isLive: (id) => !!isLive?.(id) } : undefined,
+    agents: agentsOf([claude]), claude,
     ...rest,
-  });
+  };
+  return new RunManager(deps);
 };
 /** そのセッションを最後に動かしたアカウント。 */
 const accountFor = (accounts: AccountStore, sessionId: string) => new RunAccounts({ db, claudeDir, store: accounts }).accountFor(sessionId);

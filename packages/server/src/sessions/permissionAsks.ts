@@ -12,7 +12,7 @@ export const PERMISSION_ASK_TTL_MS = 30_000;
 /**
  * Claude が求めている許可の中身を、会話（Claude のセッションの id）ごとに預かる。
  * 手元だけの一時の事実なので、DB にも同期にも載せない。サーバを起こし直したら忘れる（札は「内容はターミナルに出ています」に戻る）。
- * 登録の読み直し（RegistryWatcher の enrich）のたびに apply を通し、入力待ちの登録に permission を足す。
+ * 実行中の一覧の読み直し（agent/liveHub.ts の LiveHub が持つ足し付けの鎖）のたびに apply を通し、入力待ちの登録に permission を足す。
  * 待ちに入ったのを見た後、待ちを抜けたら忘れる（許可した、断った）。
  * 許可でない待ち（waitingFor が other、たとえば許可した直後に Claude Code が出すダイアログ）には足さず、
  * 許可の待ちを見た後にそこへ移ったら忘れる。status は waiting のまま続くので、待ちを抜けるのを待つと前の命令が残る。
@@ -22,7 +22,7 @@ export class PermissionAsks {
   private asks = new Map<string, { ask: PermissionAskDto; at: number; seen: boolean }>();
 
   /**
-   * onPut は預けたときに呼ぶ。登録の見張り（RegistryWatcher.kick）に、次の読み直しを繰り上げさせる。
+   * onPut は預けたときに呼ぶ。実行中の一覧（LiveHub.kick）に、次の読み直しを繰り上げさせる。
    * 待機中の読み直しは間が空くので、hook が登録の後に届いたとき、許可の中身を札と通知に載せるのが遅れないようにする。
    */
   constructor(private readonly onPut: () => void = () => {}) {}

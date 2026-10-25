@@ -163,7 +163,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 | 関数（ファイル） | 作る部品 |
 | --- | --- |
 | `bootHome`（`boot/home.ts`） | 置き場、DB、トークン、statusline のヘッダ、端末の ID、設定、起動の包み。DB を開くときに、マイグレーションの前の控えを取る。設定はメモリの上で読み替えるだけで、書き戻さない |
-| `bootDelivery`（`boot/delivery.ts`） | WebSocket の束、配る層（`events/publisher.ts`）、Claude Code との互換のずれの記録、実行中の一覧 |
+| `bootDelivery`（`boot/delivery.ts`） | WebSocket の束、配る層（`events/publisher.ts`）、Claude Code との互換のずれの記録、実行中の一覧（`LiveHub`）とエージェントの driver（`boot/agents.ts`） |
 | `bootSync`（`boot/sync.ts`） | 同期のエンジン、使用量、本文の上げ手、設定の同期、保持期間、本文の降ろし手、頼まれた 1 巡、同期の状態の配り |
 | `bootIndexing`（`boot/indexing.ts`） | 索引、プロジェクトのメモ。現れたセッションのプロジェクトへの紐づけを結ぶ |
 | `bootListen`（`boot/http.ts`） | 待ち受け。アプリを差し込むまでは 503 を返す |
@@ -1107,10 +1107,19 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 `sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
 `AgentKind` の値は `sessions.provider` に入る値と同じにし、`agent/agents.ts` がその値から driver を引く。
 
-いま境界を通っているのは起動の面だけである。
+いま境界を通っているのは起動と状態の面である。
 `RunManager` は、新しい会話の ID（`newSessionId`）、起動の引数と外す環境変数（`plan` が返す `LaunchPlan`）、止めるときの後始末（`release`）を driver から受け取る。
 MCP の秘密を発行することと、`runCommand` で包むことは hangar の側に残す。
 attach や引き取りのような Claude にしか無い起こし方は、`RunManager` が Claude の driver を直に使う。
+
+状態の面では、driver ごとの写し（`LiveSource`）を `agent/liveHub.ts` の `LiveHub` が 1 つの `current()` と `onChange` に束ねる。
+一覧を読む側（配る層、索引、要約、スマホ、ゴミ箱、run の管理）は、どのエージェントの写しかを知らずに `LiveHub` だけを見る。
+裏だけの印（`live/aside.ts`）と許可の中身（`sessions/permissionAsks.ts`）を足す鎖は `LiveHub` が持ち、写しが読み直しのたびに通してから変わったかを見る。
+本文の索引が進んだだけで印が変わっても、写しの元が変わらないまま次の読み直しで知らせるためである。
+Claude の写しは、登録の見張り（`registry.ts` の `RegistryWatcher`）を中身を変えずに包んだもので、これを直に知るのは Claude の driver だけである。
+`RunManager` が一覧から消えた run を閉じてよいかを決めるときは、driver の `live.isRunning` に、そのセッションがその pid で動いているかを聞く。
+driver は、配る層と一緒に `boot/agents.ts` で組む。
+写しは配る層、索引、同期が `RunManager` より先に読むので、run の管理の中では組めないためである。
 
 `provider/claude-code/` の中は、役目ごとに分けてある。
 
@@ -1127,14 +1136,14 @@ attach や引き取りのような Claude にしか無い起こし方は、`RunM
 | `summary/` | `claude -p` での要約（`claude.ts`） |
 | `compat/` | 互換の見張り（次の節） |
 | `types.ts` | 起動の入力と走査の型 |
-| `driver.ts` | Claude の driver（`agent/types.ts` の `AgentDriver`）。いまは起動の面だけで、ID を作り、引数と外す環境変数を組み立て、バックグラウンドのセッションを止める |
+| `driver.ts` | Claude の driver（`agent/types.ts` の `AgentDriver`）。いまは起動と状態の面で、ID を作り、引数と外す環境変数を組み立て、バックグラウンドのセッションを止め、登録の見張りを状態の面として出す（`claudeLiveSource`） |
 
 この置き場の中から読んでよいのは、下の層（`platform/`、`i18n/`、`config/`、`sync/` や `summary/` の型と小さな関数）だけで、HTTP、`boot/`、`events/` は読まない。
 外からは、入口のファイルを通さずに、使うモジュールを直に import する。
 入口 1 つにまとめると、CLI の束（`cliEntry.ts`）がサーバの大半を抱えることになるためである。
 
 Claude Code の事情と hangar 自身の物（DB、tmux、同期）が 1 つのファイルに混ざっているものは、まだ外に残してある。
-索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、run の寿命のうち状態を見る所（`runs/manager.ts` の登録の読み）などである。
+索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、区切りを付けたセッションを止める前の登録の読み直し（`boot/runs.ts` の `readRegistry`）などである。
 これらを割るのは振る舞いに触るので、別の変更で行う。
 
 ### 保存先と読み方
@@ -1148,7 +1157,7 @@ Claude Code の保存先と、その読み方を定める。
 - `user` 行の `message.content` は配列ではなく文字列のことがある。抽出は両方を受ける。
 - サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy、idle、waiting、shell）を持つ。ファイルの出現と消失が起動と終了に対応する。
-  - `RegistryWatcher` は登録のディレクトリを `fs.watch` で見張り、知らせから 50 ミリ秒待って読み直す（`WATCH_SETTLE_MS`。改名で続けて来る知らせを 1 回にまとめる）。周期の読み直しは、作業中が 1 つでもあるか見張れない間は 500 ミリ秒ごと（裏だけの印が本文の索引で変わるため）、見張れていて作業中が無い間は 2 秒ごとである（`boot/delivery.ts` の `REGISTRY_POLL_MS` と `REGISTRY_IDLE_MS`、2026-10-14、0.6.1）。2 秒の周期が拾うのは、Windows で止められた claude の pid が消えたこと（登録が残る）と、見張りの取りこぼしである。hook から許可の中身が届いたときは、周期を待たずに読み直す（`PermissionAsks` の `onPut` から `RegistryWatcher.kick`）。
+  - `RegistryWatcher` は登録のディレクトリを `fs.watch` で見張り、知らせから 50 ミリ秒待って読み直す（`WATCH_SETTLE_MS`。改名で続けて来る知らせを 1 回にまとめる）。周期の読み直しは、作業中が 1 つでもあるか見張れない間は 500 ミリ秒ごと（裏だけの印が本文の索引で変わるため）、見張れていて作業中が無い間は 2 秒ごとである（`boot/agents.ts` の `REGISTRY_POLL_MS` と `REGISTRY_IDLE_MS`、2026-10-14、0.6.1）。2 秒の周期が拾うのは、Windows で止められた claude の pid が消えたこと（登録が残る）と、見張りの取りこぼしである。hook から許可の中身が届いたときは、周期を待たずに読み直す（`PermissionAsks` の `onPut` から `LiveHub.kick`、その先で `RegistryWatcher.kick`）。
   - Claude Code は、一時のファイルからの改名に失敗すると、登録をその場で書き直す（切り詰めてから書く）。Windows では、ほかのプロセスがファイルを開いているだけで改名が失敗しうる。その間に読むと中身が空か途中までになる。`RegistryWatcher` は、読めなかった登録を、前に読めた中身のまま 2 秒まで続ける（`registry.ts` の `RegistryCarry` と `UNREADABLE_CARRY_MS`）。0.6.0 までは読み直しの回数（500 ミリ秒ごとの 4 回）で数えていたが、読み直しの間隔が状態で変わるようになったので時間で数える。読めないまま捨てると、そのセッションが一瞬だけ終わったように見え、待っている問いまで消える（「Home の帯と引き出し」の節）。ファイルが無くなった登録と、はじめから読めない登録は、今までどおり読まない。
 - 起動フラグは `--session-id`、`-n`、`--append-system-prompt`、`--mcp-config`、`--settings`、`--model`、`--effort`、`--permission-mode`、`-w`、`--add-dir`、`-r`、`--fork-session` を使う。
 - Windows の実機（2.1.296）で、AskUserQuestion だけを呼んだ回に、入力待ちの間は本文から問いの文が取れなかった。macOS の 2.1.296 で 2 回試した回は、答える前に本文に書かれて取れた。本文に頼り切らないよう、問いの文は hook からも受け取る（「Home の帯と引き出し」の節）。
@@ -1201,7 +1210,7 @@ Claude Code の保存先と、その読み方を定める。
   Windows では、Claude Code が本文を開いたまま書き足すと、監視の通知が遅れうるためである。
   見るのは主線と、その隣の `<セッション>/subagents` にあるサブエージェントの本文だけで、前に見た大きさと更新時刻から変わったものだけを索引化する。
   主線の場所は全件走査で見たものを使い、まだ見ていなければ登録の cwd から組む。
-  周期は登録が変わったとき（`registry.onChange` から `noteLiveChanged`）に張り直し、実行中が 0 本のあいだは張らない。
+  周期は登録が変わったとき（`LiveHub.onChange` から `noteLiveChanged`）に張り直し、実行中が 0 本のあいだは張らない。
 - 同期が他の PC の `sessions` の行を当てたときと、本文の写しを置いたとき（`RemotePuller` の `onDownloaded`）は、全件走査を 1 回予約する（`requestSweep`、予約済みなら重ねない）。
   写しを採るかどうかは sessions の行が届いているか、消されているかで変わり、ファイルの通知だけでは分からないからである。
   組み立ては `boot/sync.ts` の `onRemoteChange` と `boot/indexing.ts` が結ぶ。

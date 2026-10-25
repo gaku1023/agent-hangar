@@ -41,28 +41,28 @@ export type IndexingParts = {
  */
 export function bootIndexing(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'compatLog' | 'claudeVersion'>,
   sync: Pick<SyncParts, 'uploader' | 'syncState' | 'onRemoteChange'>,
 ): IndexingParts {
   const { db, claudeDir, settings, life } = home;
-  const { hub, registry } = delivery;
+  const { hub, live } = delivery;
   const deviceId = home.device.id;
   const indexer = new IndexerService({
     db, deviceId, claudeDir,
-    isRunning: (id) => registry.current().some((l) => l.sessionId === id),
+    isRunning: (id) => live.current().some((l) => l.sessionId === id),
     // 他端末から降ろした本文も索引化の対象にする。譲ったセッションは相手が持ち主なので見ない。
     remoteRoot: remoteRoot(home.home),
     isYielded: (uuid) => sync.syncState.isYielded(uuid),
     // 実行中のセッションの本文は、通知に頼らず 2 秒ごとにも見る。Windows では開いたままの追記で通知が遅れうる。
-    liveSessions: () => registry.current().map((l) => ({ sessionId: l.sessionId, cwd: l.cwd })),
+    liveSessions: () => live.current().map((l) => ({ sessionId: l.sessionId, cwd: l.cwd })),
     // 状態を外すのは resume した後の発言だけである。発言を出したプロセスの起動時刻を、登録と runs から引く。
-    processStartOf: (q) => processStartOfPrompt(db, deviceId, registry.current(), q),
+    processStartOf: (q) => processStartOfPrompt(db, deviceId, live.current(), q),
     // 手元の本文の行を見張る。手元の claude の版より古い行は昔の形として見ない。版が読めるまでは確かめた版を床にする。
     compat: { sink: delivery.compatLog, since: () => delivery.claudeVersion.current ?? VERIFIED_CLAUDE_VERSION },
   });
   // git の表示。値は端末ローカルで、変わったときだけ git.upsert を配る。
   const git = new GitService({
-    db, deviceId, live: () => registry.current(),
+    db, deviceId, live: () => live.current(),
     broadcast: (g) => hub.broadcast({ type: 'git.upsert', git: g }),
     exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; },
   });
@@ -79,7 +79,7 @@ export function bootIndexing(
     error: (e) => console.error('[indexer]', e.path, e.message),
   });
   // 実行中のセッションが増えたり減ったりしたら、見張りの周期を張り直す（0 本なら張らない）。
-  registry.onChange(() => indexer.noteLiveChanged());
+  live.onChange(() => indexer.noteLiveChanged());
   // 他の PC の行や本文の写しが届いたら、全件走査を 1 回予約する。予約済みなら重ねない。
   sync.onRemoteChange(() => indexer.requestSweep());
   const memos = new MemoStore({ db, deviceId, home: home.home });
