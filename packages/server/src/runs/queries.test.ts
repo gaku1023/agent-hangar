@@ -70,6 +70,17 @@ describe('runs/queries', () => {
     expect(getTab(db, 'nope')).toBeNull();
   });
 
+  it('opencode の会話の run の agent タブは、題を opencode にする（画面のタブと同じ名前）', () => {
+    const db = seed();
+    upsertShared(db, 'sessions', { id: 's2', provider: 'opencode', provider_session_id: 'ses_1', cwd: '/x', home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'ro', session_id: 's2', device_id: 'd', kind: 'start', tmux_name: 'hangar-ro', pid: null, launch_params: '{}', started_at: 200, ended_at: null, end_reason: null, heartbeat_at: 200 }, 'd');
+    upsertShared(db, 'run_tabs', { id: 'to', run_id: 'ro', tmux_name: 'hangar-ro-t1', title: 'シェル 1', created_at: 201, closed_at: null }, 'd');
+    expect(listTabs(db, 'ro').map((t) => [t.kind, t.title])).toEqual([['agent', 'opencode'], ['shell', 'シェル 1']]);
+    expect(getTab(db, 'ro')?.title).toBe('opencode');
+    // Claude Code の会話は今どおり。
+    expect(getTab(db, 'r1')?.title).toBe('Claude');
+  });
+
   describe('RunDto.permissionMode', () => {
     const row = (launchParams: string): RunRow => ({ id: 'r', session_id: 's', device_id: 'd', kind: 'start', tmux_name: 't', pid: null, launch_params: launchParams, started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 });
 

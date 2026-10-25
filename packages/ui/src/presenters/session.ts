@@ -563,7 +563,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const complete = slice ? slice.total <= slice.items.length : true;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((x) => x.id === view.selectedTab) ? view.selectedTab : run.id) : null;
-  // opencode の会話のエージェントのタブは、サーバが付ける題（Claude）ではなく「opencode」と公式ロゴにする。
+  // opencode の会話のエージェントのタブは「opencode」と公式ロゴにする。サーバの題も同じ名前だが、写し（live）だけで opencode と分かる会話もあるので、ここで決める。
   const opencodeTab = agentOfSession(store, s) === 'opencode';
   const tabs: TabItemProps[] = open.map((x) => (x.kind === 'agent' && opencodeTab
     ? { id: x.id, title: AGENT_LABEL.opencode, kind: x.kind, agent: 'opencode', selected: x.id === selectedTab, closable: false }
