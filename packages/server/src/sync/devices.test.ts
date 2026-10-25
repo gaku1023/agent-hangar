@@ -3,7 +3,9 @@ import { DEVICE_ADMIN_MIN_WORKER_COMPAT, type Roster } from '@agent-hangar/share
 import { testKey } from '../../test/cloudConfig.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { CloudError } from './client.ts';
-import { leftPhoneSweeper, loadCloudDevices } from './devices.ts';
+import { openDb } from '../db/open.ts';
+import { upsertShared } from '../db/shared.ts';
+import { leftPhoneSweeper, loadCloudDevices, sharedDeviceOf } from './devices.ts';
 
 const base = { deviceId: 'a', creator: false, language: () => 'ja' as const, roster: null };
 
@@ -48,6 +50,25 @@ describe('loadCloudDevices', () => {
     expect(byId.has('pc-z')).toBe(false);
     // IP と所在地は持たない。
     expect(Object.keys(byId.get('pc-a')!)).not.toContain('lastIp');
+  });
+
+  it('解除して名簿から外れた PC は、共有の devices の行に残る名前と OS で出す（解除済みの行に名前を残す）', async () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'devices', { id: 'pc-c', name: 'old-laptop', platform: 'win32', last_seen_at: 1 }, 'pc-c');
+    upsertShared(db, 'devices', { id: 'pc-d', name: 'spare', platform: 'linux', last_seen_at: 1 }, 'pc-d');
+    const cloud = new FakeCloudClient({ deviceId: 'pc-a' });
+    await cloud.health();
+    await cloud.asDevice('pc-d').health();
+    cloud.revoke('pc-c');
+    const names = roster([{ id: 'pc-a', kind: 'pc', name: 'desk', os: 'darwin', pub: testKey(9), joinedAt: 1 }]);
+    const r = await loadCloudDevices({ ...base, deviceId: 'pc-a', client: cloud, roster: names, sharedDevice: sharedDeviceOf(db) });
+    const byId = new Map(r.devices.map((d) => [d.id, d]));
+    expect(byId.get('pc-c')).toMatchObject({ name: 'old-laptop', platform: 'win32', revokedAt: expect.any(Number) });
+    // 解除していない、名簿に無い端末は今どおり名前のわからない端末（参加し直した PC の古い ID など）。
+    expect(byId.get('pc-d')).toMatchObject({ name: null, platform: null, revokedAt: null });
+    // 名簿の名前があれば、そちらを使う。
+    expect(byId.get('pc-a')).toMatchObject({ name: 'desk' });
+    db.close();
   });
 
   it('一覧を読むたびに名簿の写しを捨ててから読む（一時停止の間に変わった名前を古いまま出さない）', async () => {

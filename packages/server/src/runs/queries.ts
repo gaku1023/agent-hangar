@@ -1,4 +1,4 @@
-import type { EndReason, RunDto, RunKind, TabDto } from '@agent-hangar/shared';
+import { AGENT_LABEL, type EndReason, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { peerStale, readPeers, type PeerBook } from '../sync/peers.ts';
 
@@ -61,9 +61,14 @@ export function listActiveRuns(db: Db, deviceId: string): RunDto[] {
   return (db.prepare(sql).all(deviceId) as RunRow[]).map(toRunDto);
 }
 
-/** タブ 0 は Claude の tmux セッションそのもので、run_tabs に行を持たない。 */
-function agentTab(r: RunRow): TabDto {
-  return { id: r.id, runId: r.id, sessionId: r.session_id, kind: 'agent', title: 'Claude', tmuxName: r.tmux_name, createdAt: r.started_at, closedAt: null };
+/**
+ * タブ 0 はエージェントの tmux セッションそのもので、run_tabs に行を持たない。
+ * 題は会話のエージェント（sessions.provider）で決める。opencode は画面のタブ（presenters/session.ts）と同じ「opencode」、それ以外は今どおり「Claude」。
+ */
+function agentTab(db: Db, r: RunRow): TabDto {
+  const s = db.prepare('select provider from sessions where id = ?').get(r.session_id) as { provider: string } | undefined;
+  const title = s?.provider === 'opencode' ? AGENT_LABEL.opencode : 'Claude';
+  return { id: r.id, runId: r.id, sessionId: r.session_id, kind: 'agent', title, tmuxName: r.tmux_name, createdAt: r.started_at, closedAt: null };
 }
 
 function shellTab(t: TabRow, r: RunRow): TabDto {
@@ -75,13 +80,13 @@ export function listTabs(db: Db, runId: string): TabDto[] {
   const r = db.prepare(`${RUN_SELECT} and id = ?`).get(runId) as RunRow | undefined;
   if (!r) return [];
   const rows = db.prepare('select * from run_tabs where run_id = ? and closed_at is null and deleted_at is null order by created_at').all(runId) as TabRow[];
-  return [agentTab(r), ...rows.map((t) => shellTab(t, r))];
+  return [agentTab(db, r), ...rows.map((t) => shellTab(t, r))];
 }
 
 /** run の id なら agent タブ。閉じたタブと消えた run は null。 */
 export function getTab(db: Db, tabId: string): TabDto | null {
   const r = db.prepare(`${RUN_SELECT} and id = ?`).get(tabId) as RunRow | undefined;
-  if (r) return agentTab(r);
+  if (r) return agentTab(db, r);
   const t = db.prepare('select * from run_tabs where id = ? and closed_at is null and deleted_at is null').get(tabId) as TabRow | undefined;
   if (!t) return null;
   const run = db.prepare(`${RUN_SELECT} and id = ?`).get(t.run_id) as RunRow | undefined;

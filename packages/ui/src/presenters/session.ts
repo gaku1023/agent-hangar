@@ -426,7 +426,8 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   return {
     label: t('session.lead.label'),
     status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null, ...statusMark(t, s.state, s.stats, s.summary, s.lastActivityAt) },
-    ended: stopped || interrupted ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
+    // ほかの PC で実行中（応答のあるロック）の間は終わっていないので、終了を出さない。見出しの札が「<PC 名> で実行中」と言う。
+    ended: stopped || interrupted || (s.lock && !s.lock.stale) ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
     stopped,
     interrupted,
     turns: turnsText(stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(stats.inputTokens + stats.outputTokens) }), cost: stats.costUsd === null ? null : costLabel(stats.costUsd),
@@ -563,7 +564,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const complete = slice ? slice.total <= slice.items.length : true;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((x) => x.id === view.selectedTab) ? view.selectedTab : run.id) : null;
-  // opencode の会話のエージェントのタブは、サーバが付ける題（Claude）ではなく「opencode」と公式ロゴにする。
+  // opencode の会話のエージェントのタブは「opencode」と公式ロゴにする。サーバの題も同じ名前だが、写し（live）だけで opencode と分かる会話もあるので、ここで決める。
   const opencodeTab = agentOfSession(store, s) === 'opencode';
   const tabs: TabItemProps[] = open.map((x) => (x.kind === 'agent' && opencodeTab
     ? { id: x.id, title: AGENT_LABEL.opencode, kind: x.kind, agent: 'opencode', selected: x.id === selectedTab, closable: false }

@@ -230,7 +230,8 @@ function lastCwdOn(db: Db, sessionId: string, deviceId: string): string | null {
  * そこで、前の PC の最後の run が動いた作業ディレクトリを、その PC から降ろした写しの末尾の cwd から取る。
  * runs は作業ディレクトリを持たないので、写しの末尾で代える。その run がターンを残さなかったときは、末尾が別の PC の cwd になりうるので、
  * その PC のプロジェクトの場所の下にあるときだけ使う。
- * 使えなければ、前の PC が会話を作った PC なら sessions.cwd、そうでなければその PC のプロジェクトの場所、どれも無ければ sessions.cwd に倒す。
+ * 使えなければ、前の PC が会話を作った PC なら sessions.cwd、そうでなければ、クイックセッションならその PC の置き場の下の会話のフォルダ（prevQuickPath）、
+ * ほかはその PC のプロジェクトの場所、どれも無ければ sessions.cwd に倒す。
  */
 function prevPathOf(db: Db, sessionId: string, prev: DeviceRef | null, s: { cwd: string; project_id: string | null; home_device: string }): string {
   if (!prev) return s.cwd;
@@ -238,7 +239,29 @@ function prevPathOf(db: Db, sessionId: string, prev: DeviceRef | null, s: { cwd:
   const last = lastCwdOn(db, sessionId, prev.id);
   if (last && root && relativeSegments(root, last)) return last;
   if (prev.id === s.home_device) return s.cwd;
-  return root ?? s.cwd;
+  return prevQuickPath(db, prev.id, s.cwd) ?? root ?? s.cwd;
+}
+
+/** その PC のクイックセッションの置き場（消していないもの）。行が無ければ null。フォルダの有無は見ない（ほかの PC のパスである）。 */
+function deviceScratchRoot(db: Db, deviceId: string): string | null {
+  const r = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
+    where r.device_id = ? and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 1
+    order by r.updated_at desc limit 1`).get(deviceId) as { path: string } | undefined;
+  return r?.path ?? null;
+}
+
+/**
+ * cwd がどれかの PC のクイックセッションの置き場の下なら、前の PC の置き場の下の会話のフォルダ（resumeTarget と同じ、置き場の直下の段）を返す。
+ * 置き場そのものは会話の cwd ではないので、写しの末尾の cwd が無いとき（opencode の会話、前の PC がターンを残さなかった run）でも、置き場に倒さない。
+ * 前の PC のパスの形（Windows か、それ以外か）の区切りで継ぐ。置き場の下でない、名前を決められない、前の PC に置き場の行が無いときは null。
+ */
+function prevQuickPath(db: Db, deviceId: string, cwd: string): string | null {
+  const rel = relativeToAnyRoot(quickPlaces(db), cwd);
+  if (!rel) return null;
+  const name = scratchFolderName(rel[0]);
+  const root = deviceScratchRoot(db, deviceId);
+  if (!name || !root) return null;
+  return isWindowsPath(root) ? path.win32.join(root, name) : path.posix.join(root, name);
 }
 
 /** 本文の末尾のブランチ。本体の本文のうち、いちばん新しく書かれたものから読む。読めなければ null。 */

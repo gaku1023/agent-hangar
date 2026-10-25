@@ -5,7 +5,7 @@ import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } f
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
-import { leftPhoneSweeper, loadCloudDevices } from '../sync/devices.ts';
+import { leftPhoneSweeper, loadCloudDevices, sharedDeviceOf } from '../sync/devices.ts';
 import { Keyring } from '../sync/keyring.ts';
 import { SealedCloudClient } from '../sync/sealedClient.ts';
 import { SyncEngine } from '../sync/engine.ts';
@@ -248,7 +248,7 @@ export function bootSync(
   const sweepLeftPhones = leftPhoneSweeper((id) => core.revoke?.(id) ?? Promise.resolve());
   /** 端末の一覧を読み、受け手（onCloudDevices）に配る。読むのは呼んだときの core である。 */
   const readCloudDevices = async (): Promise<CloudDevicesDto> => {
-    const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language, ...(core.revoke ? { onLeftPhones: sweepLeftPhones } : {}) });
+    const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language, sharedDevice: sharedDeviceOf(db), ...(core.revoke ? { onLeftPhones: sweepLeftPhones } : {}) });
     for (const cb of [...cloudDeviceListeners]) {
       try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
     }
