@@ -22,6 +22,17 @@ describe('runCommand', () => {
     const r = runCommand({ runId: 'r1', wrapper: 'C:\\h\\bin\\hangar-run.mjs', log: 'C:\\h\\logs\\run-r1.log', command: ['claude.exe'], platform: 'win32', node: 'node.exe', unset: ['CLAUDE_CONFIG_DIR'] });
     expect(r.env).toEqual({ HANGAR_RUN_ID: 'r1', HANGAR_UNSET_ENV: 'CLAUDE_CONFIG_DIR' });
   });
+  // 秘密の値そのものは argv にも tmux の環境にも載せない。渡すのは 0600 のファイルの場所だけで、包みが読んで消す（launch/secretEnv.ts）。
+  it('秘密の環境のファイルは、macOS と Linux では場所だけを env で包みに渡す', () => {
+    const r = runCommand({ runId: 'r1', wrapper: '/h/bin/hangar-run.sh', log: '/h/logs/run-r1.log', command: ['/x/oc'], platform: 'darwin', unset: ['A'], secretEnvFile: '/h/run-env/r1.env' });
+    expect(r.command).toEqual(['env', '-u', 'A', 'HANGAR_RUN_ID=r1', 'HANGAR_SECRET_ENV=/h/run-env/r1.env', 'bash', '/h/bin/hangar-run.sh', '/h/logs/run-r1.log', '/x/oc']);
+    expect(r.env).toEqual({});
+  });
+  it('秘密の環境のファイルは、Windows ではセッションの環境で場所だけを渡す', () => {
+    const r = runCommand({ runId: 'r1', wrapper: 'C:\\h\\bin\\hangar-run.mjs', log: 'C:\\h\\logs\\run-r1.log', command: ['oc.exe'], platform: 'win32', node: 'node.exe', secretEnvFile: 'C:\\h\\run-env\\r1.env' });
+    expect(r.command).toEqual(['node.exe', 'C:\\h\\bin\\hangar-run.mjs', 'C:\\h\\logs\\run-r1.log', 'oc.exe']);
+    expect(r.env).toEqual({ HANGAR_RUN_ID: 'r1', HANGAR_SECRET_ENV: 'C:\\h\\run-env\\r1.env' });
+  });
 });
 
 describe('shellTabCommand', () => {

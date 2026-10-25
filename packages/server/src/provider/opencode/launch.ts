@@ -43,6 +43,7 @@ export function instructionValue(entries: readonly InjectionEntry[]): string | n
 /**
  * tmux の中で起こす TUI。返った ID の会話を、その会話の serve につなぐ。
  * パスワードは環境（`OPENCODE_PASSWORD`）で渡し、argv に載せない（URL に入れても通るが、argv は `ps` で誰からも読める）。
+ * tmux の `-e` で渡すと tmux クライアントの argv とセッションの環境に残るので、秘密の環境（`secretEnv`）として 0600 のファイルから包みに読ませる。
  * `--auto` は自動承認がオンのときだけ、初期プロンプトは `--prompt` で渡す（2.1.4 では `-s` の会話にそのまま送られる）。
  * Claude だけの指定（effort、追加ディレクトリ、worktree、Remote Control）は捨てる。RunManager が入口で断る。
  * 起こすものへは CLAUDE 系と HANGAR_* を持ち込まない。アカウントの置き場（CLAUDE_CONFIG_DIR）も opencode には効かせない（決定 9）。
@@ -51,7 +52,7 @@ export function planOpencode(bin: string, providerSessionId: string, spec: Launc
   const argv = [bin, spec.cwd, '--server', serve.url, '-s', providerSessionId];
   if (spec.autoApprove) argv.push('--auto');
   if (spec.prompt) argv.push('--prompt', spec.prompt);
-  return { argv, env: { OPENCODE_PASSWORD: serve.password }, unset: [...new Set([...droppedEnv, 'CLAUDE_CONFIG_DIR'])] };
+  return { argv, env: {}, secretEnv: { OPENCODE_PASSWORD: serve.password }, unset: [...new Set([...droppedEnv, 'CLAUDE_CONFIG_DIR'])] };
 }
 
 export type MaterializeDeps = {

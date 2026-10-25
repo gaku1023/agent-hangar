@@ -99,7 +99,8 @@ posixDescribe('opencode の driver の materialize', () => {
     const info = serves.get('h1')!;
     const plan = driver.launch.plan('/bin/oc', { kind: 'start', id: r!.providerSessionId }, spec(cwd));
     expect(plan.argv).toEqual(['/bin/oc', cwd, '--server', info.url, '-s', r!.providerSessionId]);
-    expect(plan.env).toEqual({ OPENCODE_PASSWORD: info.password });
+    expect(plan.env).toEqual({});
+    expect(plan.secretEnv).toEqual({ OPENCODE_PASSWORD: info.password });
   });
 
   posixIt('追記の段が無ければ PUT しない', async () => {

@@ -21,12 +21,13 @@ const HANGAR_HANDOFF_ENV = ['HANGAR_PARENT_PID', 'HANGAR_PORT', 'HANGAR_UI_DIST'
  * サーバが読まない hangar の変数。
  * HANGAR_RUN_ID は hangar の claude の中で立つ印で、そこから起こされたサーバには関係が無い。
  * HANGAR_UNSET_ENV は Windows の包みへの合図である。
+ * HANGAR_SECRET_ENV は包みへ秘密の環境のファイルの場所を渡す合図で、包みが読んで消す（launch/secretEnv.ts）。
  * HANGAR_CLOUD_DIR は CLI の開発用の上書きで、継いだ claude の中の `hangar setup cloud` が止まっていた。
  * HANGAR_LAUNCHED は Windows の CLI の入口（launch-cli.ts）が、合う Node へ渡し直すときに子へ付ける印である。
  * 入口は読んだ直後に消すが、前の版の入口から起こされたサーバには残っている。
  * 残すと、ペインの中の hangar が版の確かめを飛ばし、PATH の先頭の Node で cli.mjs を直に読む。
  */
-const HANGAR_STRAY_ENV = ['HANGAR_RUN_ID', 'HANGAR_UNSET_ENV', 'HANGAR_CLOUD_DIR', 'HANGAR_LAUNCHED'];
+const HANGAR_STRAY_ENV = ['HANGAR_RUN_ID', 'HANGAR_UNSET_ENV', 'HANGAR_SECRET_ENV', 'HANGAR_CLOUD_DIR', 'HANGAR_LAUNCHED'];
 
 /**
  * サーバが起動の最初に自分の環境から消す名前。殻もサーバを起こすときに外す（server.rs の INHERITED_ENV_DROPPED）。
@@ -38,7 +39,7 @@ export const SERVER_DROPPED_ENV: readonly string[] = [...CLAUDE_CHILD_ENV, ...HA
 /**
  * claude の run とシェルのタブに渡さない名前。tmux サーバの全体の環境がすでに汚れていても外れるよう、起こすたびに外す。
  * HANGAR_HOME は渡す。statusline の台本（`${HANGAR_HOME:-$HOME/.agent-hangar}`）と hangar の CLI が、claude の中で置き場を知るのに読む。
- * HANGAR_RUN_ID は run ごとに立て直す。HANGAR_UNSET_ENV は Windows の包みが自分で読んで消すので、ここに入れると包みに届かない。
+ * HANGAR_RUN_ID は run ごとに立て直す。HANGAR_UNSET_ENV は Windows の包みが、HANGAR_SECRET_ENV はどちらの包みも、自分で読んで消すので、ここに入れると包みに届かない。
  * HANGAR_LAUNCHED は CLI の入口の印で、tmux サーバの全体の環境に残っていてもペインへ持ち込まない。
  * CLAUDE_CONFIG_DIR は利用者の設定なので入れない。アカウントの置き場で決まるので、外すかどうかは呼び手が決める。
  */

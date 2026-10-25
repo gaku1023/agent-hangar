@@ -72,8 +72,12 @@ export type MaterializeMode = { kind: 'start'; id?: string } | Exclude<SessionMo
 export type LaunchPlan = {
   /** tmux の中で起こすもの。 */
   argv: string[];
-  /** hangar の環境に driver が足す変数。 */
+  /** hangar の環境に driver が足す変数。tmux のセッションの環境に残る。 */
   env: Record<string, string>;
+  /**
+   * 秘密の変数（opencode の TUI のパスワード）。argv にも tmux の環境にも載せず、run ごとの 0600 のファイルから包みが読んで消す（launch/secretEnv.ts）。
+   */
+  secretEnv?: Record<string, string>;
   /** 起こすものへ持ち込まない変数の名前（tmux サーバの環境に残っていても外す）。 */
   unset: readonly string[];
   watchRemoteUrl?: boolean;

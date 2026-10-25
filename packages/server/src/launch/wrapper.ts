@@ -18,6 +18,7 @@ export const WRAPPER_NAME_WIN = 'hangar-run.mjs';
  * bash は tee が書き終えるのを待ってから exit= を書く。
  * tee は書き手が全部閉じるまで終わらないので、claude の残した子が標準エラーを握り続けても、2 秒で見切る。
  * macOS の bash 3.2 でも動くように、プロセス置換を exec でつないで $! を取り、kill -0 で待つ（3.2 の wait はこれを待てない）。
+ * HANGAR_SECRET_ENV があれば、そのファイルの `名前=値` を環境に入れてから消し、HANGAR_SECRET_ENV そのものは渡さない（launch/secretEnv.ts）。
  */
 export function wrapperScript(): string {
   return [
@@ -28,6 +29,18 @@ export function wrapperScript(): string {
     'mkdir -p "$(dirname "$LOG")"',
     'stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }',
     'printf \'%s start pid=%s cmd=%s\\n\' "$(stamp)" "$$" "$1" >> "$LOG"',
+    'if [ -n "${HANGAR_SECRET_ENV:-}" ]; then',
+    '  if [ -r "$HANGAR_SECRET_ENV" ]; then',
+    '    while IFS= read -r line || [ -n "$line" ]; do',
+    '      case "$line" in [A-Za-z_]*=*) export "$line" ;; esac',
+    '    done < "$HANGAR_SECRET_ENV"',
+    '    unset line',
+    '  else',
+    '    printf \'%s secret env missing\\n\' "$(stamp)" >> "$LOG"',
+    '  fi',
+    '  rm -f "$HANGAR_SECRET_ENV"',
+    'fi',
+    'unset HANGAR_SECRET_ENV',
     "trap '' HUP",
     'exec 3> >(tee -a "$LOG" >&2)',
     'tee_pid=$!',
