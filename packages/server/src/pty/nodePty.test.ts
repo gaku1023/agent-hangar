@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { disposeConoutWorker, nodePtySpawn, releaseConpty, trackConptyExit } from './nodePty.ts';
+import { disposeAfterExit, nodePtySpawn, releaseConpty, trackConptyExit } from './nodePty.ts';
 
 // 実物の node-pty。Windows の実物は nodePty.win.test.ts と nodePtyRace.win.test.ts が見る。
 describe.skipIf(process.platform === 'win32')('nodePtySpawn（macOS と Linux の実物）', () => {
@@ -17,13 +17,15 @@ describe.skipIf(process.platform === 'win32')('nodePtySpawn（macOS と Linux �
 });
 
 // Windows の node-pty の内側（WindowsTerminal._agent）を真似た偽物で、解放の呼び方を見る。実物は nodePtyRelease.win.test.ts が見る。
-describe('releaseConpty と disposeConoutWorker（node-pty の内側の偽物）', () => {
+describe('releaseConpty と disposeAfterExit（node-pty の内側の偽物）', () => {
   const fake = () => {
-    const kill = vi.fn();
+    const order: string[] = [];
+    const kill = vi.fn((_id: number, _dll: boolean) => { order.push('kill'); });
     const resize = vi.fn();
     const dispose = vi.fn();
-    const agent = { _pty: 7, _useConptyDll: false, _ptyNative: { kill, resize }, _conoutSocketWorker: { dispose } };
-    return { p: { _agent: agent }, agent, kill, resize, dispose };
+    const destroy = vi.fn(() => { order.push('destroy'); });
+    const agent = { _pty: 7, _useConptyDll: false, _ptyNative: { kill, resize }, _conoutSocketWorker: { dispose }, _inSocket: { destroy } };
+    return { p: { _agent: agent }, agent, kill, resize, dispose, destroy, order };
   };
 
   it('native の kill（pseudoconsole を閉じる）と conout の Worker の dispose を呼び、true を返す', () => {
@@ -31,6 +33,14 @@ describe('releaseConpty と disposeConoutWorker（node-pty の内側の偽物）
     expect(releaseConpty(f.p)).toBe(true);
     expect(f.kill).toHaveBeenCalledWith(7, false);
     expect(f.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  // node-pty は conpty.dll を使わない経路で、入力の pipe（conin）の fd をどこでも閉じない。開け閉めのたびにハンドルが 1 つ残り、EMFILE で落ちた。
+  it('pseudoconsole を閉じた後に、入力の socket を壊して conin の fd を閉じる', () => {
+    const f = fake();
+    releaseConpty(f.p);
+    expect(f.destroy).toHaveBeenCalledTimes(1);
+    expect(f.order).toEqual(['kill', 'destroy']);
   });
 
   // 閉じた pseudoconsole の handle を、待ちの後の node-pty の kill がもう一度閉じないようにする（二重の ClosePseudoConsole）。
@@ -47,6 +57,15 @@ describe('releaseConpty と disposeConoutWorker（node-pty の内側の偽物）
     const f = fake();
     f.kill.mockImplementation(() => { throw new Error('boom'); });
     f.dispose.mockImplementation(() => { throw new Error('boom'); });
+    f.destroy.mockImplementation(() => { throw new Error('boom'); });
+    expect(releaseConpty(f.p)).toBe(true);
+    expect(f.dispose).toHaveBeenCalledTimes(1);
+    expect(f.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('入力の socket が無い（別の版）ときも、ほかは放して true を返す', () => {
+    const f = fake();
+    delete (f.agent as { _inSocket?: unknown })._inSocket;
     expect(releaseConpty(f.p)).toBe(true);
     expect(f.dispose).toHaveBeenCalledTimes(1);
   });
@@ -62,12 +81,13 @@ describe('releaseConpty と disposeConoutWorker（node-pty の内側の偽物）
     expect(f.dispose).not.toHaveBeenCalled();
   });
 
-  it('disposeConoutWorker は Worker の dispose だけを呼び、native の kill は呼ばない', () => {
+  it('disposeAfterExit は Worker の dispose と入力の socket の destroy を呼び、native の kill は呼ばない', () => {
     const f = fake();
-    disposeConoutWorker(f.p);
+    disposeAfterExit(f.p);
     expect(f.dispose).toHaveBeenCalledTimes(1);
+    expect(f.destroy).toHaveBeenCalledTimes(1);
     expect(f.kill).not.toHaveBeenCalled();
-    expect(() => disposeConoutWorker({})).not.toThrow();
+    expect(() => disposeAfterExit({})).not.toThrow();
   });
 });
 

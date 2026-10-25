@@ -1,6 +1,7 @@
 // pty/nodePtyRelease.win.test.ts が別のプロセスで起こす。実物の node-pty で cmd.exe の pty を何本も開いて閉じ、何が残るかを数える。
 // node-pty 1.2.0-beta.15 は、子が自分で終わった経路で、conout の Worker（スレッド 1 本）と pseudoconsole（conhost.exe）を放さない。
 // hangar の閉じ方（pty/close.ts）が両方を放すことを、このプロセスの Worker の終わりと、このプロセスを親に持つ conhost.exe の数で見る。
+// 入力の pipe（conin）の fd も node-pty は閉じないので、このプロセスのハンドルの数が開け閉めの数だけ増えないことも見る。
 // 最後の行に、数えた結果を JSON で出す。それより前の行は、何がいつ起きたかの記録である。
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -47,6 +48,13 @@ const conhosts = async (): Promise<number> => {
   return Number(stdout.trim());
 };
 
+// このプロセスのハンドルの数。数える PowerShell を起こすことでも少し揺れるので、増え方を開け閉めの数と比べる。
+const handles = async (): Promise<number> => {
+  const cmd = `(Get-Process -Id ${process.pid}).HandleCount`;
+  const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(cmd, 'utf16le').toString('base64')], { windowsHide: true });
+  return Number(stdout.trim());
+};
+
 type Slot = { p: ReturnType<typeof nodePtySpawn>; ready: Promise<void>; exited: Promise<void>; done: boolean; worker: Watched | undefined };
 const open = (args: string[]): Slot => {
   const before = conoutWorkers.length;
@@ -59,7 +67,14 @@ const open = (args: string[]): Slot => {
 const waitAll = async (ps: Promise<void>[], ms: number): Promise<void> => { await Promise.race([Promise.all(ps), timeout(ms)]); };
 
 const baseline = await conhosts();
-log(`baseline conhost=${baseline}`);
+// ハンドルの数は、最初の pty で作られるもの（libuv の thread pool など）を除くため、1 本開け閉めしてから数える。
+const warm = open([]);
+await waitAll([warm.ready], 30_000);
+warm.p.kill();
+await waitAll([warm.exited, warm.worker?.done ?? Promise.resolve()], 15_000);
+for (let i = 0; i < 15 && (await conhosts()) > baseline; i++) await timeout(1000);
+const handlesBefore = await handles();
+log(`baseline conhost=${baseline} handles=${handlesBefore}`);
 
 // 動いている pty を閉じる。hangar の閉じ方（pty/close.ts）は、つないだ後（pid が決まった後）なら pseudoconsole を閉じる。
 const killed = Array.from({ length: KILLED }, () => open([]));
@@ -76,7 +91,8 @@ log(`killed workers exited=${killedWorkersExited}`);
 // conhost は pseudoconsole を閉じてから少しして終わる。元の数に戻るまで数え直す。
 let after = await conhosts();
 for (let i = 0; i < 15 && after > baseline; i++) { await timeout(1000); after = await conhosts(); }
-log(`after conhost=${after}`);
+const handlesAfterKilled = await handles();
+log(`after conhost=${after} handles=${handlesAfterKilled}`);
 
 // 子が自分で終わる pty。hangar は終わりを見たら conout の Worker を放す。conhost は上流の作りで残るので数えない。
 const selfExited = Array.from({ length: SELF_EXITED }, () => open(['/c', 'exit 0']));
@@ -85,10 +101,14 @@ await waitAll(selfExited.map((s) => s.exited), 30_000);
 for (const s of selfExited) s.p.kill();
 await waitAll(selfExited.map((s) => s.worker?.done ?? Promise.resolve()), 15_000);
 const selfWorkersExited = selfExited.filter((s) => s.worker?.exited).length;
-log(`self exited=${selfExited.filter((s) => s.done).length} workers exited=${selfWorkersExited}`);
+// 子が自分で終わった pty の出力の socket は、node-pty が終わりから 1 秒待って閉じる。それより後に数える。
+// timeout は unref なので、ほかに待つものが無いこの時点で使うとプロセスが先に終わる。ref のままの timer で待つ。
+await new Promise((r) => { setTimeout(r, 2000); });
+const handlesAfterSelf = await handles();
+log(`self exited=${selfExited.filter((s) => s.done).length} workers exited=${selfWorkersExited} handles=${handlesAfterSelf}`);
 
 console.log(JSON.stringify({
-  killed: KILLED, ready, baseline, during, after,
+  killed: KILLED, ready, baseline, during, after, handlesBefore, handlesAfterKilled, handlesAfterSelf,
   killedExited: killed.filter((s) => s.done).length, killedWorkers: killed.filter((s) => s.worker).length, killedWorkersExited,
   selfExited: selfExited.filter((s) => s.done).length, selfWorkers: selfExited.filter((s) => s.worker).length, selfWorkersExited,
 }));

@@ -12,6 +12,7 @@ type Counts = {
   killed: number; ready: number; baseline: number; during: number; after: number;
   killedExited: number; killedWorkers: number; killedWorkersExited: number;
   selfExited: number; selfWorkers: number; selfWorkersExited: number;
+  handlesBefore: number; handlesAfterKilled: number; handlesAfterSelf: number;
 };
 
 // node-pty 1.2.0-beta.15 の Windows は、子が自分で終わった経路で conout の Worker と pseudoconsole（conhost.exe）を放さない。
@@ -41,6 +42,9 @@ describe.skipIf(process.platform !== 'win32')('nodePtySpawn の解放（Windows 
     expect(c.selfExited, why).toBe(SELF_EXITED);
     expect(c.selfWorkers, why).toBe(SELF_EXITED);
     expect(c.selfWorkersExited, why).toBe(SELF_EXITED);
+    // 入力の pipe（conin）の fd を閉じなければ、1 本ごとにハンドルが 1 つ増える。揺れを見込んで、本数の半分より少ないこと。
+    // 子が自分で終わった pty は、上流の作りで pseudoconsole が残り、その分のハンドルも残るので、ここでは見ない。
+    expect(c.handlesAfterKilled - c.handlesBefore, why).toBeLessThan(KILLED / 2);
     // 補助のプロセス（conpty_console_list_agent）を起こさないので、その失敗も出ない。
     expect(r.err, why).not.toContain('AttachConsole');
     expect(r.err, why).not.toContain('conpty_console_list_agent');
