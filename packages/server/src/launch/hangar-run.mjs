@@ -37,6 +37,22 @@ const finish = (code) => {
   process.stdin.once('end', () => process.exit(code));
 };
 
+// HANGAR_SECRET_ENV は秘密の環境（opencode の TUI のパスワードなど）を書いた 0600 のファイル。
+// 1 行に 1 つの 名前=値 を読んで環境に入れ、起こす前に消す。値を tmux の環境に載せないためである（launch/secretEnv.ts）。
+const secretFile = process.env.HANGAR_SECRET_ENV;
+delete process.env.HANGAR_SECRET_ENV;
+if (secretFile) {
+  try {
+    for (const line of fs.readFileSync(secretFile, 'utf8').split('\n')) {
+      const i = line.indexOf('=');
+      if (i > 0) process.env[line.slice(0, i)] = line.slice(i + 1);
+    }
+  } catch {
+    append(`${stamp()} secret env missing\n`);
+  }
+  try { fs.rmSync(secretFile, { force: true }); } catch { /* 残った分は hangar の掃除が消す。 */ }
+}
+
 // HANGAR_UNSET_ENV に ; 区切りで挙げた変数は、claude に渡さない。tmux のセッションはサーバの環境を継ぐので、足さないだけでは外れない（launch/command.ts）。
 for (const name of (process.env.HANGAR_UNSET_ENV ?? '').split(';').filter(Boolean)) delete process.env[name];
 delete process.env.HANGAR_UNSET_ENV;

@@ -104,7 +104,7 @@ pub fn augmented_path(current: Option<&str>, user_home: &Path, node_dir: Option<
 /// 殻を Claude Code のセッションの Bash から起こすと（`open` や osascript の launch）、
 /// 呼び手のセッションの印が殻に入る。そのまま渡すと、サーバが起こす tmux サーバと claude まで届き、
 /// hangar の claude が別のセッションの子として振る舞う（再開の一覧から外れる、別のセッションのソケットへ話しかける）。
-/// 後ろの 9 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
+/// 後ろの 10 個は hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
 ///
 /// 正本は `packages/server/src/launch/env.ts` の `SERVER_DROPPED_ENV` で、ここはその写しである。
 /// サーバも起動の最初に同じ名前を自分の環境から消す。
@@ -134,6 +134,7 @@ pub const INHERITED_ENV_DROPPED: &[&str] = &[
     "HANGAR_LAUNCHER",
     "HANGAR_RUN_ID",
     "HANGAR_UNSET_ENV",
+    "HANGAR_SECRET_ENV",
     "HANGAR_CLOUD_DIR",
     "HANGAR_LAUNCHED",
 ];

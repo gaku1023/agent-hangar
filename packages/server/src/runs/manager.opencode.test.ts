@@ -17,7 +17,8 @@ import type { PaneOps } from '../tmux/pane.ts';
 import { readFakeOpencodeLog, writeFakeOpencode, type FakeOpencodeEvent, type FakeOpencodeOptions } from '../../test/fake-opencode.ts';
 import { writeFakeClaude } from '../../test/fake-claude.ts';
 import { liveSourceOf } from '../../test/fake-live.ts';
-import { posixDescribe, posixIt } from '../../test/platform.ts';
+import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
+import { SECRET_ENV_DIR, secretEnvPath, writeSecretEnv } from '../launch/secretEnv.ts';
 import { mcpSecretFor } from './secrets.ts';
 import { RunManager } from './manager.ts';
 
@@ -117,13 +118,47 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(cmd.slice(-9)).toEqual([bin, cwd, '--server', info.url, '-s', create[0]!.id, '--auto', '--prompt', '直して']);
     expect(cmd.join('\n')).not.toContain(info.password);
     expect(cmd.join('\n')).not.toContain(mcpSecretFor(db, r.sessionId)!);
-    expect(o.env.OPENCODE_PASSWORD).toBe(info.password);
+    // パスワードは tmux の環境（new-session の -e）にも載せない。0600 のファイルに置き、場所だけを包みに渡す。包みが読んで消す。
+    expect(o.env).not.toHaveProperty('OPENCODE_PASSWORD');
+    expect(JSON.stringify(o.env)).not.toContain(info.password);
+    const secret = secretEnvPath(home, r.run.id);
+    expect(cmd.slice(0, cmd.indexOf('bash'))).toContain(`HANGAR_SECRET_ENV=${secret}`);
+    expect(fs.readFileSync(secret, 'utf8')).toBe(`OPENCODE_PASSWORD=${info.password}\n`);
+    expectMode(secret, 0o600);
     // CLAUDE 系と HANGAR_* を env -u で外す。
     for (const n of ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CONFIG_DIR', 'HANGAR_HOME']) expect(cmd.slice(cmd.indexOf('-u'), cmd.indexOf('bash'))).toContain(n);
 
     expect(sessions()).toEqual([expect.objectContaining({ provider: 'opencode', provider_session_id: create[0]!.id, deleted_at: null })]);
     expect(r.run.kind).toBe('start');
     expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'opencode', autoApprove: true });
+    expect((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params).not.toContain(info.password);
+  });
+
+  posixIt('包みが読まずに run が終わっても、秘密の環境のファイルは run の終わりで消す', async () => {
+    const { rm } = make();
+    const r = await rm.start(params());
+    const secret = secretEnvPath(home, r.run.id);
+    expect(fs.existsSync(secret)).toBe(true);
+    rm.kill(r.run.id);
+    expect(fs.existsSync(secret)).toBe(false);
+  });
+
+  posixIt('画面を開けなかったときも、秘密の環境のファイルを残さない', async () => {
+    const { rm } = make({ failOpen: true });
+    await expect(rm.start(params())).rejects.toMatchObject({ status: 400 });
+    const dir = path.join(home, SECRET_ENV_DIR);
+    expect(fs.existsSync(dir) ? fs.readdirSync(dir) : []).toEqual([]);
+  });
+
+  posixIt('起動時の回復と次の起動で、生きている run のもの以外の秘密の環境のファイルを消す', async () => {
+    const { rm } = make();
+    const stale = writeSecretEnv(home, 'stale1', { OPENCODE_PASSWORD: 'old' });
+    rm.recoverAtStartup();
+    expect(fs.existsSync(stale)).toBe(false);
+    const stale2 = writeSecretEnv(home, 'stale2', { OPENCODE_PASSWORD: 'old' });
+    const r = await rm.start(params());
+    expect(fs.existsSync(stale2)).toBe(false);
+    expect(fs.existsSync(secretEnvPath(home, r.run.id))).toBe(true);
   });
 
   posixIt('追記は設定の選択で組む。既定の最小限は条件 d の文、追記しないなら PUT しない', async () => {
@@ -213,6 +248,9 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     const r = await rm.start({ projectId: 'p1' });
     expect(sessions()).toEqual([expect.objectContaining({ id: r.sessionId, provider: 'claude-code' })]);
     expect(opened[0]!.command.join(' ')).toContain('--session-id');
+    // Claude の起動は秘密の環境のファイルを使わない。
+    expect(opened[0]!.command.join(' ')).not.toContain('HANGAR_SECRET_ENV');
+    expect(fs.existsSync(path.join(home, SECRET_ENV_DIR))).toBe(false);
     expect(log()).toEqual([]);
   });
 });

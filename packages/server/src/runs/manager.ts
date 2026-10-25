@@ -18,6 +18,7 @@ import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { needsShell } from '../platform/exec.ts';
 import { toolPathIssue } from '../config/readiness.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
+import { pruneSecretEnvs, removeSecretEnv, secretEnvPath, writeSecretEnv } from '../launch/secretEnv.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession, normalizeDir } from '../projects/registry.ts';
 import { isUnder } from '../platform/paths.ts';
@@ -429,7 +430,9 @@ export class RunManager {
     // tmux サーバの全体の環境に残った Claude Code の印と hangar の受け渡しの変数は、どの起動でも外す（launch/env.ts）。
     // 何を外すかは driver が決める（plan.unset）。
     const plan = o.plan(env);
-    const wrapped = runCommand({ runId, wrapper, log, command: plan.argv, unset: plan.unset });
+    // 秘密の変数は argv にも tmux の環境にも載せない。run ごとの 0600 のファイルに書き、場所だけを包みに渡す（launch/secretEnv.ts）。
+    const secretEnvFile = plan.secretEnv && Object.keys(plan.secretEnv).length > 0 ? secretEnvPath(this.deps.home, runId) : undefined;
+    const wrapped = runCommand({ runId, wrapper, log, command: plan.argv, unset: plan.unset, secretEnvFile });
     // クイックセッションの置き場と、同意を得た作業フォルダでは、信頼の確認を出さずに始められるよう、起こすアカウントの設定に前もって書く。
     // 書けなくても（Claude Code がロックを握っている、設定が壊れているなど）起動は止めない。そのときは claude がいつもどおり確認を出す。
     try {
@@ -441,6 +444,7 @@ export class RunManager {
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
+      if (secretEnvFile) writeSecretEnv(this.deps.home, runId, plan.secretEnv!, this.deps.platform);
       panes.open({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...env, ...plan.env, ...wrapped.env }) });
       // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
       panes.prepareForOutsideTerminals();
@@ -458,6 +462,7 @@ export class RunManager {
     }
     // 異常終了などで消し損ねた MCP の設定と秘密を、ここで拾う。中に鍵が入っているので残さない。
     this.pruneMcpConfigs(alive.map((r) => r.sessionId));
+    this.pruneSecretEnvs(alive.map((r) => r.id));
     const result: LaunchResult = { run: getRun(this.db, runId)!, sessionId: o.sessionId, tabs: listTabs(this.db, runId) };
     if (plan.watchRemoteUrl) this.watchRemoteUrl(runId, o.sessionId, tmuxName, panes);
     this.emit('runStarted', result);
@@ -501,6 +506,8 @@ export class RunManager {
     // claude はもう居ない。秘密の入った設定ファイルを残さず、秘密そのものも無効にする。
     removeMcpConfig(this.deps.home, run.sessionId);
     revokeMcpSecret(this.db, run.sessionId);
+    // 包みが読む前に終わった run の秘密の環境も残さない。
+    removeSecretEnv(this.deps.home, runId);
     this.pruneEmptySession(run);
     this.emit('runEnded', run);
     return run;
@@ -1111,8 +1118,19 @@ export class RunManager {
     pruneLastLive(this.db, listAliveRuns(this.db, this.deviceId).map((r) => r.id));
     // 前回サーバが落ちた拍子に残った設定と秘密も、ここで落とす。
     // tmux の上で生き残った run の分は残る。その claude は再起動後も同じ秘密で繋ぎに来る。
-    this.pruneMcpConfigs(listAliveRuns(this.db, this.deviceId).map((r) => r.sessionId));
+    const alive = listAliveRuns(this.db, this.deviceId);
+    this.pruneMcpConfigs(alive.map((r) => r.sessionId));
+    this.pruneSecretEnvs(alive.map((r) => r.id));
     return out;
+  }
+
+  /** 生きている run のもの以外の秘密の環境のファイルを落とす（launch/secretEnv.ts）。掃除の失敗で起動を止めない。 */
+  private pruneSecretEnvs(aliveRunIds: string[]): void {
+    try {
+      pruneSecretEnvs(this.deps.home, aliveRunIds);
+    } catch (e) {
+      console.error('[runs] 秘密の環境のファイルの掃除に失敗しました', e instanceof Error ? e.message : e);
+    }
   }
 
   /** 生きている run のもの以外の MCP 設定と秘密を落とす。掃除の失敗で起動を止めない。 */

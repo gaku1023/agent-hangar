@@ -43,10 +43,11 @@ describe('instructionValue', () => {
 });
 
 describe('planOpencode', () => {
-  it('TUI を serve につなぎ、返った ID の会話を開く。パスワードは環境で渡し、argv に載せない', () => {
+  it('TUI を serve につなぎ、返った ID の会話を開く。パスワードは秘密の環境で渡し、argv にも tmux の環境にも載せない', () => {
     const plan = planOpencode('/opt/homebrew/bin/opencode', 'ses_abc', spec(), serve, dropped);
     expect(plan.argv).toEqual(['/opt/homebrew/bin/opencode', '/w/alpha', '--server', 'http://127.0.0.1:40123', '-s', 'ses_abc']);
-    expect(plan.env).toEqual({ OPENCODE_PASSWORD: 'serve-password' });
+    expect(plan.env).toEqual({});
+    expect(plan.secretEnv).toEqual({ OPENCODE_PASSWORD: 'serve-password' });
     expect(plan.argv.join(' ')).not.toContain('serve-password');
     expect(plan.argv.join(' ')).not.toContain('run-secret');
     expect(plan.watchRemoteUrl).toBeFalsy();

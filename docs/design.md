@@ -139,7 +139,7 @@ CLI の `launch-cli.ts` の `TEXT` も同じ順にする（nvm-windows の行は
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
 配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
-サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED`）を自分の環境から消す（`launch/env.ts`）。
+サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_SECRET_ENV`、`HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED`）を自分の環境から消す（`launch/env.ts`）。
 殻も、サーバを起こすときに同じ名前を外してから自分の値を入れる（`server.rs` の `INHERITED_ENV_DROPPED`。サーバの正本との一致は試験で縛る）。
 アプリを Claude Code のセッションの Bash から `open` で起こすと、呼び手の環境がそのまま殻とサーバに入り、サーバが起こす tmux サーバの全体の環境と、サーバが直に起こす claude（`--help`、`agents --json`、要約の `-p`、`auth status`）にまで届くためである。
 `/health` の `ready` が真になってから、鍵付きの URL を印字する。
@@ -1477,6 +1477,12 @@ opencode はこれを system prompt の末尾近くに `<context key="hangar">` 
 
 TUI には serve のパスワードを環境の `OPENCODE_PASSWORD` で渡す。
 `--server` の URL に入れても通るが、argv は `ps` で誰からも読めるので載せない。
+tmux の `new-session -e` で渡すのもやめた。tmux クライアントの argv に一瞬見え、tmux のセッションの環境（`tmux show-environment`）にも run の間ずっと残るからである。
+driver は値を `LaunchPlan.secretEnv` で返し、`RunManager` が run ごとの 0600 のファイル `<HANGAR_HOME>/run-env/<runId>.env`（置き場は 0700）に書く（`launch/secretEnv.ts`）。
+包みには場所だけを `HANGAR_SECRET_ENV` で渡す（macOS と Linux は起動コマンドの `env`、Windows はセッションの環境）。
+包み（`hangar-run.sh`、`hangar-run.mjs`）は `名前=値` の行を読んで自分の環境に入れ、エージェントを起こす前にファイルを消し、`HANGAR_SECRET_ENV` そのものは渡さない。
+包みが読まずに run が終わった分は run の終わりで消し、消し損ねた分は次の起動と起動時の回復のときに、生きている run のぶんを残して落とす。
+Claude の run は秘密の環境を使わないので、起動コマンドは変わらない。
 初期プロンプトは `--prompt` で渡し、自動承認がオンのときだけ `--auto` を付ける。
 TUI へは、Claude の run で外す変数に、アカウントの置き場（`CLAUDE_CONFIG_DIR`）とサーバが読む hangar の変数を足して外す（`launch/env.ts` の `AGENT_RUN_DROPPED_ENV`）。
 
@@ -1549,6 +1555,7 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 包みの中身が変わったときはサーバの起動時に書き直すが、走っている run の bash は台本を読みながら進むので、その場で書き換えずに別のファイルから rename で入れ替える。
 起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）と `HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED` を `-u` で外す。
 Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
+秘密の環境（opencode の TUI のパスワード）があるときだけ、`env` に `HANGAR_SECRET_ENV=<0600 のファイル>` を足す（「opencode の起動」の節）。
 tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
 印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
 2026-10-08 に、利用者の既定の tmux サーバでこの状態を見つけた。

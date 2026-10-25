@@ -1,3 +1,5 @@
+import { SECRET_ENV_VAR } from './secretEnv.ts';
+
 // tmux のセッションの中で起こすコマンドの組み立て。OS で変わるのは、包みの起こし方と、シェルのタブの中身である。
 
 /**
@@ -7,13 +9,16 @@
  * unset は claude に渡さない変数の名前（Claude Code の印など。launch/env.ts の RUN_DROPPED_ENV）。
  * tmux の新しいセッションは、tmux サーバを起こしたシェルの環境を継ぐので、足さないだけでは外れない。
  * macOS と Linux は env -u で外し、Windows は名前を HANGAR_UNSET_ENV で包みに渡して、包みが起こす前に消す（hangar-run.mjs）。
+ * secretEnvFile は秘密の環境を書いた 0600 のファイル（launch/secretEnv.ts）。場所だけを HANGAR_SECRET_ENV で包みに渡し、包みが読んで消す。
+ * 値そのものは argv にも tmux のセッションの環境にも載せない。
  */
-export function runCommand(o: { runId: string; wrapper: string; log: string; command: string[]; platform?: NodeJS.Platform; node?: string; unset?: readonly string[] }): { command: string[]; env: Record<string, string> } {
+export function runCommand(o: { runId: string; wrapper: string; log: string; command: string[]; platform?: NodeJS.Platform; node?: string; unset?: readonly string[]; secretEnvFile?: string }): { command: string[]; env: Record<string, string> } {
   const unset = o.unset ?? [];
+  const secret: Record<string, string> = o.secretEnvFile ? { [SECRET_ENV_VAR]: o.secretEnvFile } : {};
   if ((o.platform ?? process.platform) === 'win32') {
-    return { command: [o.node ?? process.execPath, o.wrapper, o.log, ...o.command], env: { HANGAR_RUN_ID: o.runId, ...(unset.length > 0 ? { HANGAR_UNSET_ENV: unset.join(';') } : {}) } };
+    return { command: [o.node ?? process.execPath, o.wrapper, o.log, ...o.command], env: { HANGAR_RUN_ID: o.runId, ...(unset.length > 0 ? { HANGAR_UNSET_ENV: unset.join(';') } : {}), ...secret } };
   }
-  return { command: ['env', ...unset.flatMap((n) => ['-u', n]), `HANGAR_RUN_ID=${o.runId}`, 'bash', o.wrapper, o.log, ...o.command], env: {} };
+  return { command: ['env', ...unset.flatMap((n) => ['-u', n]), `HANGAR_RUN_ID=${o.runId}`, ...Object.entries(secret).map(([k, v]) => `${k}=${v}`), 'bash', o.wrapper, o.log, ...o.command], env: {} };
 }
 
 /**

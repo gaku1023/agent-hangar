@@ -6,7 +6,7 @@ import { RUN_DROPPED_ENV, SERVER_DROPPED_ENV, takeServerEnv } from './env.ts';
 const dirty = (): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(CLAUDE_CHILD_ENV.map((n) => [n, 'x'])),
   HANGAR_PORT: '4199', HANGAR_PARENT_PID: '4242', HANGAR_UI_DIST: '/app/ui', HANGAR_STOP_ON_STDIN_END: '1', HANGAR_LAUNCHER: 'C:\\Hangar\\Hangar.exe',
-  HANGAR_RUN_ID: 'r', HANGAR_UNSET_ENV: 'A;B', HANGAR_CLOUD_DIR: '/w/cloud', HANGAR_LAUNCHED: '1',
+  HANGAR_RUN_ID: 'r', HANGAR_UNSET_ENV: 'A;B', HANGAR_SECRET_ENV: '/h/run-env/r.env', HANGAR_CLOUD_DIR: '/w/cloud', HANGAR_LAUNCHED: '1',
   // 残すもの。利用者の設定と、サーバが動いている間ずっと読む hangar の変数。
   HANGAR_HOME: '/h', HANGAR_CLAUDE_DIR: '/c', HANGAR_CLAUDE_BIN: '/x/claude', HANGAR_DEV: '1',
   CLAUDE_CONFIG_DIR: '/u/.claude-work', CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_EFFORT_LEVEL: 'high', ANTHROPIC_BASE_URL: 'https://gw.example', PATH: '/usr/bin',
@@ -43,10 +43,10 @@ describe('RUN_DROPPED_ENV', () => {
     expect(new Set(RUN_DROPPED_ENV).size).toBe(RUN_DROPPED_ENV.length);
   });
   // HANGAR_HOME は statusline の台本と hangar の CLI が claude の中で読む。
-  // HANGAR_RUN_ID は run ごとに立て直し、HANGAR_UNSET_ENV は Windows の包みが自分で読んで消す。外すと包みに届かない。
+  // HANGAR_RUN_ID は run ごとに立て直し、HANGAR_UNSET_ENV は Windows の包みが、HANGAR_SECRET_ENV はどちらの包みも、自分で読んで消す。外すと包みに届かない。
   // CLAUDE_CONFIG_DIR はアカウントで決まるので、呼び手が足すかを決める。
   it('claude の中で読むもの、run ごとに立てるもの、利用者の設定は入れない', () => {
-    for (const n of ['HANGAR_HOME', 'HANGAR_RUN_ID', 'HANGAR_UNSET_ENV', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_USE_BEDROCK', 'ANTHROPIC_BASE_URL']) {
+    for (const n of ['HANGAR_HOME', 'HANGAR_RUN_ID', 'HANGAR_UNSET_ENV', 'HANGAR_SECRET_ENV', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_USE_BEDROCK', 'ANTHROPIC_BASE_URL']) {
       expect(RUN_DROPPED_ENV, n).not.toContain(n);
     }
   });

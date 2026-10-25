@@ -10,6 +10,7 @@ import { which } from '../config/tools.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript, wrapperScriptWin } from './wrapper.ts';
 import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
+import { writeSecretEnv } from './secretEnv.ts';
 
 let home: string;
 beforeEach(() => {
@@ -118,6 +119,40 @@ posixDescribe('ラッパーの引用（bash を直接呼ぶ）', () => {
     // bash は tee が書き終えるのを待つが、待つのは 2 秒までなので、ここでも待つ。
     await waitFor(() => fs.readFileSync(log, 'utf8').includes('駄目でした'));
   });
+
+  // 秘密（opencode の TUI のパスワード）は argv にも tmux の環境にも載せず、0600 のファイルから包みが読む（launch/secretEnv.ts）。
+  it('HANGAR_SECRET_ENV のファイルを読んで環境に入れ、起こす前に消し、HANGAR_SECRET_ENV そのものは渡さない', () => {
+    const wrapper = ensureWrapperScript(home);
+    const file = writeSecretEnv(home, 'r1', { OPENCODE_PASSWORD: "p a$s 'q' \"w\" =x", OTHER: '' });
+    const log = runLogPath(home, 'r1');
+    const script = `printf '%s|%s|%s|' "$OPENCODE_PASSWORD" "\${OTHER-unset}" "\${HANGAR_SECRET_ENV-unset}"; [ -e ${JSON.stringify(file)} ] && printf exists || printf gone`;
+    const r = spawnSync('env', [`HANGAR_SECRET_ENV=${file}`, 'bash', wrapper, log, 'sh', '-c', script], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("p a$s 'q' \"w\" =x||unset|gone");
+    expect(fs.existsSync(file)).toBe(false);
+    expect(fs.readFileSync(log, 'utf8')).not.toContain('p a$s');
+  });
+
+  it('HANGAR_SECRET_ENV のファイルが無くても、コマンドは起こし、そのことをログに残す', () => {
+    const wrapper = ensureWrapperScript(home);
+    const log = runLogPath(home, 'r2');
+    const r = spawnSync('env', [`HANGAR_SECRET_ENV=${path.join(home, 'run-env', 'none.env')}`, 'bash', wrapper, log, 'sh', '-c', 'printf "%s" "${HANGAR_SECRET_ENV-unset}"'], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('unset');
+    expect(fs.readFileSync(log, 'utf8')).toContain('secret env missing');
+  });
+
+  it('HANGAR_SECRET_ENV が無ければ、今までどおり何も足さない', () => {
+    const wrapper = ensureWrapperScript(home);
+    const log = runLogPath(home, 'r3');
+    const env = { ...process.env };
+    delete env.OPENCODE_PASSWORD;
+    delete env.HANGAR_SECRET_ENV;
+    const r = spawnSync('bash', [wrapper, log, 'sh', '-c', 'printf "%s" "${OPENCODE_PASSWORD-unset}"'], { encoding: 'utf8', env });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('unset');
+    expect(fs.readFileSync(log, 'utf8')).not.toContain('secret env');
+  });
 });
 
 describe.skipIf(!TMUX)('ラッパー（tmux 上）', () => {
@@ -199,6 +234,25 @@ describe.skipIf(!TMUX)('ラッパー（tmux 上）', () => {
     await waitFor(() => !tmux.hasSession('hangar-wrap-linger'), 15_000);
     expect(fs.readFileSync(log, 'utf8')).toMatch(/oops\n[^\n]* exit=0\n$/);
   }, 20_000);
+
+  it('秘密はファイルから包みが読み、tmux のセッションの環境にも new-session の引数にも残らない', async () => {
+    const wrapper = ensureWrapperScript(home);
+    const file = writeSecretEnv(home, 'sec', { OPENCODE_PASSWORD: 'pw-0123456789abcdef' });
+    const out = path.join(home, 'seen.txt');
+    const command = ['env', `HANGAR_SECRET_ENV=${file}`, 'bash', wrapper, runLogPath(home, 'sec'), 'sh', '-c', `printf '%s' "$OPENCODE_PASSWORD" > ${JSON.stringify(out)}; sleep 30`];
+    tmux.newSession({ name: 'hangar-wrap-sec', cwd: home, command });
+    try {
+      await waitFor(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8').length > 0);
+      expect(fs.readFileSync(out, 'utf8')).toBe('pw-0123456789abcdef');
+      expect(fs.existsSync(file)).toBe(false);
+      expect(command.join(' ')).not.toContain('pw-0123456789abcdef');
+      const shown = tmux.run('show-environment', '-t', 'hangar-wrap-sec');
+      expect(shown.stdout).not.toContain('pw-0123456789abcdef');
+      expect(shown.stdout).not.toContain('OPENCODE_PASSWORD');
+    } finally {
+      tmux.killSession('hangar-wrap-sec');
+    }
+  });
 });
 
 /** その試験の home の下に、新しい置き場を作る。home は afterEach が消す。 */
@@ -267,6 +321,27 @@ describe('hangar-run.mjs（Node の包み）', () => {
     });
     expect(r.status).toBe(0);
     expect(JSON.parse(r.stdout.trim())).toEqual([null, 'k', null]);
+  });
+
+  it('HANGAR_SECRET_ENV のファイルを読んで環境に入れ、起こす前に消し、HANGAR_SECRET_ENV そのものは渡さない', () => {
+    const h = tmpHome();
+    const file = writeSecretEnv(h, 'r7', { OPENCODE_PASSWORD: 'p a=ss "q"', OTHER: '' });
+    const log = path.join(h, 'run-7.log');
+    const code = `console.log(JSON.stringify([process.env.OPENCODE_PASSWORD ?? null, process.env.OTHER ?? null, process.env.HANGAR_SECRET_ENV ?? null, require('fs').existsSync(${JSON.stringify(file)})]))`;
+    const r = spawnSync(process.execPath, [RUN_MJS, log, ...child(code)], { encoding: 'utf8', env: { ...process.env, HANGAR_SECRET_ENV: file } });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout.trim())).toEqual(['p a=ss "q"', '', null, false]);
+    expect(fs.existsSync(file)).toBe(false);
+    expect(fs.readFileSync(log, 'utf8')).not.toContain('p a=ss');
+  });
+
+  it('HANGAR_SECRET_ENV のファイルが無くても、コマンドは起こし、そのことをログに残す', () => {
+    const h = tmpHome();
+    const log = path.join(h, 'run-8.log');
+    const r = spawnSync(process.execPath, [RUN_MJS, log, ...child('console.log(process.env.HANGAR_SECRET_ENV ?? "unset")')], { encoding: 'utf8', env: { ...process.env, HANGAR_SECRET_ENV: path.join(h, 'none.env') } });
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe('unset');
+    expect(fs.readFileSync(log, 'utf8')).toContain('secret env missing');
   });
 
   it('起こせないコマンドは 127 で終わり、理由をログに残す', () => {
