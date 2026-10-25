@@ -7,6 +7,7 @@ import { bootHttp, bootListen } from './boot/http.ts';
 import { bootTrash } from './boot/trash.ts';
 import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
+import { bootOpencode } from './boot/opencode.ts';
 import type { StartOptions } from './boot/options.ts';
 import { bootRuns } from './boot/runs.ts';
 import { bootSummary } from './boot/summary.ts';
@@ -105,6 +106,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const takeover = bootTakeover({ home, runs, sync, delivery });
   // スマホの受信箱に預ける素を封じて書く。同期と run（アカウントと使用率）の後に組む。
   const mobile = bootMobile({ home, delivery, runs, sync });
+  // opencode（ベータ）の serve の管理。前の hangar が残した serve の掃除は、設定の入り切りに関わらずここで始まる。
+  const opencode = bootOpencode(home);
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
@@ -144,6 +147,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       mobile.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。
       await trash.stop();
+      // 起こした opencode の serve を止める（interrupt、SIGTERM、間をおいて SIGKILL）。
+      await opencode.stop(left());
       await sync.drain(left);
       // 見張りを止める。書き手が止まってから、配る層と待ち受けを畳む。
       indexing.stopMemoWatch();

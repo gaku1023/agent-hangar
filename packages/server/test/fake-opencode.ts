@@ -1,0 +1,107 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { writeFakeNodeTool } from './fake-bin.ts';
+
+/**
+ * 実物の opencode の代わり（serve のふりだけ）。
+ * `serve --hostname H --port P` で起こされると、`OPENCODE_SERVER_PASSWORD` を basic 認証（ユーザー名は opencode）に使う最小の HTTP を立てる。
+ * 認証つきの `GET /api/session/active` に 200、認証が無ければ 401、`POST /api/session/{id}/interrupt` を受ける。
+ *
+ * 起動から止まるまでの出来事を、1 行 1 件の JSON で logFile に書く。
+ * - `start`：pid、argv、環境変数の全部、時刻。
+ * - `ready`：待ち受けを始めた時刻。
+ * - `interrupt`：受けた会話の ID。
+ * - `term`：SIGTERM を受けた。
+ * - `exit`：自分から終わった理由。
+ *
+ * 実物と同じく、ほかの 1 本が起動の途中（`starting` の印がある間）に起こされると、`database is locked` で落ちる。
+ * 待ち受けのポートが塞がっていれば、実物と同じ文で落ちる。
+ */
+export type FakeOpencodeOptions = {
+  /** 起動から待ち受けまでの間。起動の重なりを試験で見えるようにする。 */
+  startDelayMs?: number;
+  /** 最初の n 回の起動を `database is locked` で落とす。 */
+  failLockTimes?: number;
+  /** SIGTERM を無視する（SIGKILL まで残るふり）。 */
+  ignoreTerm?: boolean;
+  /** `GET /api/session/active` に載せる会話の ID。 */
+  activeIds?: string[];
+};
+
+export type FakeOpencodeEvent =
+  | { ev: 'start'; pid: number; argv: string[]; env: Record<string, string>; t: number }
+  | { ev: 'ready'; pid: number; port: number; t: number }
+  | { ev: 'interrupt'; pid: number; id: string; t: number }
+  | { ev: 'term'; pid: number; t: number }
+  | { ev: 'exit'; pid: number; reason: string; t: number };
+
+export function writeFakeOpencode(dir: string, opts: FakeOpencodeOptions = {}): { bin: string; logFile: string } {
+  fs.mkdirSync(dir, { recursive: true });
+  const logFile = path.join(dir, 'events.jsonl');
+  const starting = path.join(dir, 'starting');
+  const lockCount = path.join(dir, 'lock-count');
+  const script = `
+import fs from 'node:fs';
+import http from 'node:http';
+const LOG = ${JSON.stringify(logFile)};
+const STARTING = ${JSON.stringify(starting)};
+const LOCK_COUNT = ${JSON.stringify(lockCount)};
+const OPTS = ${JSON.stringify(opts)};
+const log = (o) => fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, t: Date.now(), ...o }) + '\\n');
+const argv = process.argv.slice(2);
+log({ ev: 'start', argv, env: { ...process.env } });
+const exit = (reason, code) => { log({ ev: 'exit', reason }); process.exit(code); };
+if (argv[0] !== 'serve') exit('not-serve', 2);
+const port = Number(argv[argv.indexOf('--port') + 1]);
+const host = argv[argv.indexOf('--hostname') + 1];
+const done = Number(fs.existsSync(LOCK_COUNT) ? fs.readFileSync(LOCK_COUNT, 'utf8') : '0');
+if (done < (OPTS.failLockTimes ?? 0)) {
+  fs.writeFileSync(LOCK_COUNT, String(done + 1));
+  process.stderr.write('SQLiteError: database is locked\\n');
+  exit('locked', 1);
+}
+if (fs.existsSync(STARTING)) {
+  process.stderr.write('SQLiteError: database is locked\\n');
+  exit('locked-overlap', 1);
+}
+fs.writeFileSync(STARTING, String(process.pid));
+const clearStarting = () => { try { if (fs.readFileSync(STARTING, 'utf8') === String(process.pid)) fs.unlinkSync(STARTING); } catch {} };
+process.on('SIGTERM', () => {
+  log({ ev: 'term' });
+  if (OPTS.ignoreTerm) return;
+  clearStarting();
+  exit('sigterm', 0);
+});
+const auth = 'Basic ' + Buffer.from('opencode:' + (process.env.OPENCODE_SERVER_PASSWORD ?? '')).toString('base64');
+const server = http.createServer((req, res) => {
+  if (req.headers.authorization !== auth) { res.writeHead(401); res.end('unauthorized'); return; }
+  const m = /^\\/api\\/session\\/([^/]+)\\/interrupt$/.exec(req.url ?? '');
+  if (req.method === 'POST' && m) { log({ ev: 'interrupt', id: decodeURIComponent(m[1]) }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":true}'); return; }
+  if (req.method === 'GET' && req.url === '/api/session/active') {
+    const data = Object.fromEntries((OPTS.activeIds ?? []).map((id) => [id, { type: 'busy' }]));
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data })); return;
+  }
+  res.writeHead(404); res.end();
+});
+server.on('error', (e) => {
+  clearStarting();
+  process.stderr.write('ServeError: \\n  [cause]: Error: Failed to start server. Is port ' + port + ' in use?\\n');
+  exit('port-in-use', 1);
+});
+setTimeout(() => {
+  server.listen(port, host, () => {
+    clearStarting();
+    log({ ev: 'ready', port });
+    process.stdout.write('server listening on http://' + host + ':' + port + '\\n');
+  });
+}, OPTS.startDelayMs ?? 0);
+`;
+  const bin = writeFakeNodeTool(dir, 'opencode', script);
+  return { bin, logFile };
+}
+
+/** writeFakeOpencode が書いた出来事を読む。まだ何も無ければ空の配列。 */
+export function readFakeOpencodeLog(logFile: string): FakeOpencodeEvent[] {
+  if (!fs.existsSync(logFile)) return [];
+  return fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as FakeOpencodeEvent);
+}
