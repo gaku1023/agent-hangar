@@ -594,6 +594,10 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards,
     reason, permission: s.permission, limit: s.limit, waitingFor: s.waitingFor,
     liveHints: store.settings?.liveHints !== false,
+    // opencode の会話は、見出しの語と、意図が無いときの依頼と、札の下の使用量の欄が変わる（計画の C5）。
+    agent: opencodeTab ? 'opencode' : 'claude-code',
+    usage: opencodeTab ? { contextPercent: s.stats.contextPercent, contextTokens: s.stats.contextTokens ?? null, costUsd: s.stats.costUsd, model: s.stats.model } : null,
+    firstPrompt: s.firstPrompt, firstTurn: s.stats.turns <= 1,
   }, t) : null;
   // 終わったセッションの見出しの下の 1 行と要約の札。ターミナルが出る間（run がある間）は出さない。
   const summaryOff = (store.settings?.summaryEngine ?? 'off') === 'off';

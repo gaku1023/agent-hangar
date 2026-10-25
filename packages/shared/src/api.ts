@@ -21,7 +21,9 @@ export type ProjectUnresolvedDto = { kind: 'missing' | 'elsewhere'; previousPath
  */
 export type ProjectSameFolderRef = { projectId: string; name: string };
 export type ProjectDto = { id: string; name: string; status: ProjectStatus; isScratch: boolean; path: string | null; resolved: boolean; lastActivityAt: number | null; runningCount: number; openTodoCount: number; memoHead: string | null; updatedAt: number; unresolved?: ProjectUnresolvedDto | null; sameFolder?: ProjectSameFolderRef | null };
-export type SessionStatsDto = { turns: number; model: string | null; effort: string | null; filesChanged: number; prUrl: string | null; inputTokens: number; outputTokens: number; contextPercent: number | null; costUsd: number | null };
+export type SessionStatsDto = { turns: number; model: string | null; effort: string | null; filesChanged: number; prUrl: string | null; inputTokens: number; outputTokens: number; contextPercent: number | null; costUsd: number | null;
+  /** 文脈の量（トークン、最後の値。session_live_stats.context_used）。右欄の opencode の使用量の札が使う。項目を知らない古いサーバは送らない。 */
+  contextTokens?: number | null };
 /** sourceId は書いた要約器の id。source_id を持たない古い行と、要約器を通さない要約では null になる。 */
 export type SessionSummaryDto = { title: string; oneLiner: string; body: string; state: SummaryState; nextSteps: string[]; source: SummarySource; sourceId: string | null; sourceModel: string | null; basedOnTurns: number; updatedAt: number };
 /**

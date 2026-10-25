@@ -5,6 +5,8 @@ import { ActionRoot } from '../action/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
 import type { SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import type { TabItemProps } from '../presenters/session.ts';
+import type { BandRow } from '../presenters/home.ts';
+import { HomeBand } from './HomeBand.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -81,5 +83,28 @@ describe('ターミナルの上のタブ', () => {
   it('Claude のタブはいまのまま（Clawd を置かない）', () => {
     render(<ActionRoot onAction={vi.fn()}><TabStrip sessionId="s1" tabs={[{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }]} canAdd canSplit={false} split={false} /></ActionRoot>);
     expect(screen.getByRole('tab', { name: 'Claude' }).querySelector('.agent-icon')).toBeNull();
+  });
+});
+
+describe('ホームの上の帯の行のアイコン', () => {
+  const bandRow = (key: string, agent?: BandRow['agent']): BandRow => ({ key, lead: { kind: 'dot', live: 'busy', aside: false }, name: 'n' + key, context: 'alpha', text: '', detail: null, tone: null, trail: [], open: null, actions: [], ...(agent !== undefined ? { agent } : {}) });
+  const mountBand = (rows: BandRow[]) => render(
+    <ActionRoot onAction={vi.fn()}>
+      <HomeBand morning="running" groups={[{ id: 'running', label: '実行中', icon: 'tool', tone: 'default', count: rows.length, summary: '', morning: true, rows }]} />
+    </ActionRoot>,
+  );
+  it('agent を持つ行は、名前の左の同じ幅の枠に絵を置く。知らない種類は空の枠', () => {
+    const { container } = mountBand([bandRow('a', 'claude-code'), bandRow('o', 'opencode'), bandRow('x', null)]);
+    const frames = [...container.querySelectorAll('.crow')].map((li) => li.querySelector('.c-agent'));
+    expect(frames.map((f) => f?.getAttribute('data-agent'))).toEqual(['claude-code', 'opencode', 'none']);
+    expect(frames[1]!.querySelector('.agent-icon')?.getAttribute('aria-label')).toBe('opencode');
+    expect(frames[2]!.querySelector('.agent-icon')).toBeNull();
+  });
+  it('agent の無い行（アイコンを出さないとき）は枠ごと置かない', () => {
+    const { container } = mountBand([bandRow('a'), bandRow('b')]);
+    expect(container.querySelectorAll('.c-agent')).toHaveLength(0);
+  });
+  it('枠の幅は一覧の行と同じ 20px', () => {
+    expect(cssOf('home.css')).toMatch(/\.c-agent\s*\{[^}]*width:\s*20px/);
   });
 });

@@ -39,6 +39,8 @@
 .crow + .crow { border-top: 1px solid var(--line); border-radius: 0; }
 .crow[data-k='wait'] { background: color-mix(in srgb, var(--waiting) 5%, var(--surface)); }
 .crow > .dot, .crow > .return-when, .crow > .home-cand, .crow > .cand-mark { flex: none; }
+/* エージェントの絵の枠（presenters/agentIcon.ts）。一覧の行（.row-agent）と同じ 20px で、どの行も名前の頭がそろう。 */
+.crow .c-agent { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 14px; }
 .crow .c-name { flex: 0 1 auto; max-width: 36%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .crow .c-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: inherit; text-align: left; cursor: pointer; }
 .crow .c-link:hover { text-decoration: underline; }

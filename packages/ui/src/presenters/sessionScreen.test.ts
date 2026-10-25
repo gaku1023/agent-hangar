@@ -259,3 +259,19 @@ describe('見出しの状態の札（4A）', () => {
     expect(present(store(session({ hasTranscript: false, lastActivityAt: NOW - 40 * 86_400_000 }))).statusPick).toBeNull();
   });
 });
+
+describe('opencode の会話の「いま」の札（計画の C5）', () => {
+  const ocStats = { ...stats, model: 'lmstudio/qwen3.8-27b', contextPercent: 34, contextTokens: 13_600, costUsd: 0, turns: 1 };
+  it('使用量（コンテキストの割合、トークン、コスト、モデル）を札に渡す', () => {
+    const p = present(store(session({ provider: 'opencode', live: 'busy', stats: ocStats }), run()));
+    expect(p.strip?.usage).toEqual({ percent: 34, percentLabel: '34%', chips: ['13.6k トークン', '$0.00', 'lmstudio/qwen3.8-27b'] });
+  });
+  it('意図が無ければ会話の最初の依頼を「初期プロンプト」で出す', () => {
+    const p = present(store(session({ provider: 'opencode', live: 'busy', stats: ocStats, firstPrompt: 'tests/ に pytest の雛形を 3 本書いて' }), run()));
+    expect(p.strip?.intent).toEqual({ kind: 'request', text: 'tests/ に pytest の雛形を 3 本書いて', label: '初期プロンプト' });
+  });
+  it('Claude の会話には使用量を渡さない（ヘッダの 5 時間・週と見出しの (i) のまま）', () => {
+    const p = present(store(session({ live: 'busy', stats: { ...stats, contextTokens: 13_600 } }), run()));
+    expect(p.strip?.usage).toBeNull();
+  });
+});
