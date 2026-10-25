@@ -5,7 +5,7 @@ import { accountsFixture } from './accounts.ts';
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinCodeCurrent' | 'joinCodeIssue' | 'joinCodeApprove' | 'joinCodeReject' | 'joinCodeClose' | 'recoveryKeyReissue' | 'recoveryKeyConfirm' | 'cloudDevices' | 'mobilePairing' | 'mobilePaired'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
@@ -70,6 +70,7 @@ export function fakeApiExtras(): Extras {
     // 再確認は、使う試験が答えを上書きする。
     recheckMux: vi.fn(async () => unused()),
     compat: vi.fn(async () => ({ verifiedVersion: '2.1.292', localVersion: '2.1.292', drifts: [] })),
+    opencodeStatus: vi.fn(async () => ({ found: false, version: null, verified: false })),
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),
     setTodoDone: vi.fn(async (id: string, done: boolean) => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),

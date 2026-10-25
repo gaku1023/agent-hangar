@@ -60,6 +60,11 @@ describe('createApi（フェーズ 2）', () => {
     expect(await api.compat()).toEqual({ verifiedVersion: '2.1.292', localVersion: null, drifts: [] });
     expect(calls.at(-1)).toMatchObject({ url: '/api/compat', method: 'GET' });
   });
+  it('opencode の検出は GET /api/opencode/status で取る', async () => {
+    const { api, calls } = harness(200, { found: true, version: '2.1.4', verified: true });
+    expect(await api.opencodeStatus()).toEqual({ found: true, version: '2.1.4', verified: true });
+    expect(calls.at(-1)).toMatchObject({ url: '/api/opencode/status', method: 'GET' });
+  });
 });
 
 describe('フェーズ 3 の経路', () => {

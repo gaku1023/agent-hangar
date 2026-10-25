@@ -1183,6 +1183,25 @@ describe('フェーズ 3 の効果', () => {
     // LM Studio に繋がらないのは普通の状態なので、トーストにしない。
     expect(rt.getState().toasts).toEqual([]);
   });
+  it('設定画面に入ると opencode の検出を読み、失敗は黙って null のままにする', async () => {
+    const opencodeStatus = vi.fn(async () => ({ found: true, version: '2.1.4', verified: true }));
+    const { rt, wsHandlers, setHash } = harness({ opencodeStatus });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/settings');
+    await flush();
+    expect(opencodeStatus).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().opencodeStatus).toEqual({ found: true, version: '2.1.4', verified: true });
+    const failing = harness({ opencodeStatus: vi.fn(async () => { throw new Error('404 /api/opencode/status'); }) });
+    failing.rt.start();
+    failing.wsHandlers[0]!.onOpen();
+    await flush();
+    failing.setHash('#/settings');
+    await flush();
+    expect(failing.rt.getStore().opencodeStatus).toBeNull();
+    expect(failing.rt.getState().toasts).toEqual([]);
+  });
   it('設定画面に入ると GET /api/accounts を呼び、結果を Store に入れる', async () => {
     const accounts = vi.fn(async () => accountsFixture);
     const { rt, wsHandlers, setHash } = harness({ accounts });
