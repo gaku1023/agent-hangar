@@ -1,5 +1,5 @@
 import { agentsOf, type Agents } from '../agent/agents.ts';
-import type { LiveSessionDto } from '@agent-hangar/shared';
+import { opencodePermissionPresetOf, type LiveSessionDto } from '@agent-hangar/shared';
 import { RUN_DROPPED_ENV, AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
@@ -12,6 +12,7 @@ import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider
 import type { GetLanguage } from '../i18n/language.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
+import { permissionPresetFor } from '../provider/opencode/permissionPreset.ts';
 import { safeErrorText } from '../runs/manager.ts';
 import type { HomeParts } from './home.ts';
 
@@ -71,6 +72,8 @@ export function bootAgents(
     droppedEnv: AGENT_RUN_DROPPED_ENV,
     // 状態の面が組み直すたびに、Claude と同じ足し付けの鎖を通す。
     enrich: o.enrich,
+    // 許可のひな形は、起こすたびに今の設定と、利用者の opencode.json（会話のフォルダから上も）を読んで決める。
+    permissions: (cwd) => permissionPresetFor({ enabled: opencodePermissionPresetOf(home.settings.current), home: home.home, cwd }),
   });
   return { agents: agentsOf([claude, opencode]), claude, opencode, bindOpencodeServes: (s) => { serves = s; } };
 }

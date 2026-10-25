@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, type OpencodeInjection, type OpencodeStatusDto } from '@agent-hangar/shared';
+import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -42,6 +42,11 @@ export type OpencodeSettingsProps = {
    * note は、この PC にシェル連携が入っていないときの入れ方の注記。opencode() はシェル連携の本体の中に書くので、入っていなければ効かない。
    */
   intercept: { available: boolean; on: boolean; note: string | null };
+  /**
+   * 「コマンド実行前に確認」の行（許可のひな形）。byConfig は利用者の opencode.json が許可を決めていること（OpencodeStatusDto.configPermissions）で、
+   * そのときはひな形を重ねないので、切に見せてスイッチを無効にし、note を添える。
+   */
+  permissionPreset: { on: boolean; byConfig: boolean; note: string | null };
 };
 
 const OPENCODE_INJECTION_KEY = { minimal: 'settings.opencode.injection.minimal', claude: 'settings.opencode.injection.claude', none: 'settings.opencode.injection.none' } as const;
@@ -62,7 +67,7 @@ export function opencodeVersionKind(s: OpencodeStatusDto): OpencodeVersionKind {
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows ではコマンドの横取りの行だけを出さない。 */
-function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
@@ -76,6 +81,9 @@ function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; op
     badge: text ? { text: t(text.badge), tone: text.tone } : null,
     claudeNote: injection === 'claude' ? t('settings.opencode.injection.claudeNote') : null,
     intercept: { available: platform !== 'win32', on: opencodeInterceptOf(settings), note: shell !== null && shell !== 'on' ? t('settings.opencode.intercept.needsShell') : null },
+    permissionPreset: status?.configPermissions === true
+      ? { on: false, byConfig: true, note: t('settings.opencode.permissionPreset.byConfig') }
+      : { on: opencodePermissionPresetOf(settings), byConfig: false, note: null },
   };
 }
 

@@ -15,6 +15,7 @@ const props = (over: Partial<OpencodeSettingsProps> = {}): OpencodeSettingsProps
   available: true, enabled: false, injection: 'minimal', injectionOptions: OPTIONS, claudeNote: null,
   full: [{ label: '最小限（意図と要約）', off: false, mark: null, pieces: [{ kind: 'text', text: 'あなたは agent-hangar から起動されたセッションです。' }] }],
   intercept: { available: true, on: false, note: null },
+  permissionPreset: { on: true, byConfig: false, note: null },
   version: { kind: 'verified', installed: '2.1.4', verified: '2.1.x', note: null },
   badge: { text: '検証済み', tone: 'ok' },
   ...over,
@@ -108,6 +109,20 @@ describe('設定の opencode の面', () => {
     rerender(ui(props({ enabled: true, intercept: { available: true, on: true, note: 'この PC にシェル連携をインストールすると使えます。' } })));
     expect(screen.getByRole('switch', { name: 'opencode コマンドを hangar 経由で起動' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByText('この PC にシェル連携をインストールすると使えます。')).toBeInTheDocument();
+  });
+
+  it('コマンドの実行前の確認の行は、入のときだけ出し、押すと opencodePermissionPreset を保存する。利用者の設定が決めているときは無効にして注記を出す', () => {
+    const onAction = vi.fn();
+    const { rerender } = render(ui(props(), onAction));
+    expect(screen.queryByRole('switch', { name: 'コマンド実行前に確認' })).toBeNull();
+    rerender(ui(props({ enabled: true }), onAction));
+    const sw = screen.getByRole('switch', { name: 'コマンド実行前に確認' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'settings.update', patch: { opencodePermissionPreset: false } }));
+    rerender(ui(props({ enabled: true, permissionPreset: { on: false, byConfig: true, note: 'opencode.json の permission 設定が適用されています。' } }), onAction));
+    expect(screen.getByRole('switch', { name: 'コマンド実行前に確認' })).toBeDisabled();
+    expect(screen.getByText('opencode.json の permission 設定が適用されています。')).toBeInTheDocument();
   });
 
   it('Windows（available が偽）では面ごと出さない', () => {

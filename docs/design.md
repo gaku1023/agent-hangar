@@ -1572,6 +1572,26 @@ hangar の MCP は、serve の環境の `OPENCODE_CONFIG_CONTENT` に `mcp.serve
 2.1.4 はこれを利用者の設定（`~/.config/opencode/opencode.json`）に重ねて読むので、利用者のファイルは書き換えない。
 hangar 専用の設定ファイルを `OPENCODE_CONFIG` で渡す道も同じように効いたが、秘密の入ったファイルを残さずに済む環境のほうを選んだ。
 
+#### opencode の許可のひな形
+
+同じ `OPENCODE_CONFIG_CONTENT` に、安全寄りの許可の規則（2.x の `permissions`）を足す（`provider/opencode/permissionPreset.ts`）。
+2.1.4 の既定の agent は `* allow`（`.env` を読むときだけ ask）で、shell も聞かずに打つからである。
+ひな形は shell だけを書く。まず `shell *` を ask にし、読むだけのよくあるコマンド（`git status`、`git diff`、`git log`、`ls`、`cat` など）を allow に戻し、最後に `>` を含むものと `git * --output*` を ask に戻す。
+規則は後に書いたものが勝つので、read などの allow をここで書くと、既定の「`.env` は ask」を上書きしてしまう。ほかの道具は opencode の既定のままにする。
+`find`（`-exec`）や `rg`（`--pre`）のように、引数で書き換えや実行ができるコマンドは allow に入れない。
+
+照らし方は 2.1.4 のソースと実物（模擬の LLM に打たせた）で確かめた。
+shell の道具は打つ文をシェルの文法で割り、つないだコマンド（`&&`、`;`、`||`、`|`、改行、`$(…)`、`` `…` ``、`<(…)` の中）を 1 つずつ照らし、1 つでも ask なら全体を ask にする。
+`git status && rm -rf x` は `rm -rf x` が ask に当たるので、つなぎで allow をすり抜けない。
+ただし 1 つのコマンドの照らす文には、付いた書き出し（`> file`）が含まれ、`cat a > b` は `cat *` に当たる。最後の ask の規則はそのためにある。
+`FOO=1 git status` や `bash -c '…'` は型に当たらず ask になる。
+
+opencode は `OPENCODE_CONFIG_CONTENT` を利用者の設定とプロジェクトの設定より後に読むので、重ねると利用者の規則に勝ってしまう。
+そこで、利用者の設定（`opencodeConfigPath`）か、会話のフォルダから上へたどった各階の `opencode.json(c)` と `.opencode/opencode.json(c)` の上の段に、許可を決める鍵（`permission`、`permissions`、`tools`）があれば、ひな形は重ねない。
+agent ごとの許可は見ない。opencode はそれを上の段の規則より後に足すので、重ねても利用者の規則が勝つ。
+設定の `opencodePermissionPreset`（既定は入り）で切れる。起こすたびに設定とファイルを読み直す。
+設定の画面は、利用者の設定に許可の鍵があれば（`GET /api/opencode/status` の `configPermissions`）、スイッチを無効にして注記を出す。
+
 MCP の接続は `GET /api/mcp?location[directory]=<dir>` で見る（`location` を JSON の文字列で渡すと 400 になる）。
 つながる前に最初のプロンプトを送ると、1 歩目の Code Mode の目録に hangar の道具が載らないので待つ。
 15 秒を過ぎても、`failed` でも、起動は続ける（2 歩目から呼べるようになる）。
