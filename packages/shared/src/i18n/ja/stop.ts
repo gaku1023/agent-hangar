@@ -32,6 +32,8 @@ export const stopJa: AreaDictionary<typeof stopKeys> = {
   'stop.band.attentionSummaryReset': '入力待ち {waiting}、許可待ち {permission}、リセット済み {reset}、今日のリマインダー {reminders}',
   'stop.card.permissionHead': 'Claude が求めている許可',
   'stop.card.permissionHeadTool': 'Claude が求めている許可 · {tool}',
+  'stop.card.permissionWaiting': '許可を待っています',
+  'stop.card.permissionWaitingTool': '許可を待っています · {tool}',
   'stop.card.permissionHint': 'ターミナルで許可するか拒否してください',
   'stop.card.permissionUnknown': '何の許可かはターミナルに表示されています。hangar の外で起動したセッションからは内容を取得できません。',
   'stop.card.limitHead': '{kind}の使用制限',

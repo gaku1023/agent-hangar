@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useEmit } from '../action/chain.tsx';
-import type { CardLane, CardStep, NowCardProps, NowStop } from '../presenters/live.ts';
+import type { CardLane, CardStep, NowCardProps, NowStop, NowUsage } from '../presenters/live.ts';
 import type { OverlapProps } from '../presenters/overlap.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { OverlapBlock } from './OverlapPopover.tsx';
@@ -8,6 +8,7 @@ import type { SessionGitView } from '../presenters/session.ts';
 import { GitFilesPop } from './GitFiles.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { fadeIn, motionOn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { useEditorLabels } from './primitives/editorName.tsx';
 import { Popover } from './primitives/Popover.tsx';
@@ -24,6 +25,7 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 「ほか N」、サブエージェント、アーティファクトの数の札を積む。意図は切らずに折り返す。
  * 札の全体は読み上げの領域にせず（追記のたびに読み上げない）、状態の語だけを role="status" にする。
  * 動き（D3）：描いた後に増えた呼び出しはフェードで入り一度だけ光る。意図は替わったときにフェードで入れ替わる。灯は静止する。
+ * opencode の会話だけは、いちばん下に使用量の欄（コンテキストの帯と、トークン・コスト・モデルの小札。試作の C1）を置く。
  * 背は中身に合わせ、伸びるのはすぐ、縮むのは節目だけにする（useCardHeight と usePhaseKey）。
  * 中身（意図の折り返し、手の数、問い）のたびに縮めると、下の目次が押されて跳ねるためである。
  */
@@ -36,6 +38,7 @@ export function NowCard(props: NowCardProps & { sessionId: string; overlap?: Ove
   const hidden = props.stepsTotal - props.steps.length;
   const phase = usePhaseKey(props.sessionId, props.tone, props.detail !== null || props.stop !== null, props.stepsTotal);
   const { card, body } = useCardHeight<HTMLElement, HTMLDivElement>(props.sessionId, phase);
+  const usageFresh = useAppeared(props.sessionId, props.usage !== null);
   return (
     <section ref={card} className="now-card" data-tone={props.tone} aria-label={t('session.strip.label')}>
       <div ref={body} className="nc-body">
@@ -47,7 +50,7 @@ export function NowCard(props: NowCardProps & { sessionId: string; overlap?: Ove
           {props.sub && <span className="nc-sub">{props.sub}</span>}
         </div>
         {props.detail !== null && (props.question
-          ? <p className="nc-question" key={props.detail}><span className="nc-question-label">{t('session.strip.questionLabel')}</span><span className="nc-question-text">{props.detail}</span></p>
+          ? <p className="nc-question" key={props.detail}><span className="nc-question-label">{props.questionLabel}</span><span className="nc-question-text">{props.detail}</span></p>
           : <p className="nc-detail">{props.detail}</p>)}
         {props.stop && <StopBlock stop={props.stop} />}
         {props.intent.kind === 'said'
@@ -81,8 +84,41 @@ export function NowCard(props: NowCardProps & { sessionId: string; overlap?: Ove
             {props.git?.chip && <GitFilesPop sessionId={props.sessionId} chip={props.git.chip} files={props.git.files} />}
           </div>
         )}
+        {props.usage && <UsageBlock usage={props.usage} fresh={usageFresh} />}
       </div>
     </section>
+  );
+}
+
+/**
+ * opencode の使用量の欄（試作の C1）。上に「コンテキスト」と割合、その下に細い帯、いちばん下にトークン・コスト・モデルの小札を並べる。
+ * 上限が分からなければ帯の段を出さない。帯の伸びは CSS の幅の補間（--dur）で、数は置き換えるだけにする。
+ * 開いたあとに欄が現れたとき（最初の使用量が届いたとき）だけ、薄れから現す（fadeIn）。開いた時点で既にあるものと、セッションを替えたときは動かさない。
+ * 読み上げでは 1 つのまとまり（「使用量」）として読み、帯は数と重なるので読ませない。
+ */
+function UsageBlock(props: { usage: NowUsage; fresh: boolean }) {
+  const t = useT();
+  const u = props.usage;
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (props.fresh && ref.current && motionOn(ref.current)) fadeIn(ref.current);
+    // 現れた描画でだけ動かす。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div ref={ref} className="nc-usage" role="group" aria-label={t('session.strip.usage.label')}>
+      {u.percent !== null && (
+        <div className="nc-usage-ctx">
+          <span className="nc-usage-head"><span className="nc-usage-label">{t('session.strip.usage.context')}</span><span className="nc-usage-pct num">{u.percentLabel}</span></span>
+          <span className="nc-usage-meter" aria-hidden="true"><i style={{ width: `${u.percent}%` }} /></span>
+        </div>
+      )}
+      {u.chips.length > 0 && (
+        <div className="nc-usage-chips">
+          {u.chips.map((c) => <span key={c} className="nc-usage-chip">{c}</span>)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -128,6 +164,18 @@ function usePhaseKey(sessionId: string, tone: NowCardProps['tone'], detail: bool
   // 覚え直すのは描き終えた後にする（描き直しで数が進まないように）。
   useLayoutEffect(() => { seen.current = { sessionId, phase, n }; });
   return String(n);
+}
+
+/**
+ * 同じセッションのまま、無かったものが現れた描画か。開いた直後と、セッションを替えた直後は現れたと見なさない。
+ * 覚え直すのは描き終えた後にする（useFreshKeys と同じ）。
+ */
+function useAppeared(sessionId: string, present: boolean): boolean {
+  const seen = useRef<{ sessionId: string; present: boolean } | null>(null);
+  const prev = seen.current;
+  const appeared = present && prev !== null && prev.sessionId === sessionId && !prev.present;
+  useLayoutEffect(() => { seen.current = { sessionId, present }; });
+  return appeared;
 }
 
 /**

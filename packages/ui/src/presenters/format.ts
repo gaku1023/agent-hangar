@@ -60,6 +60,18 @@ export function tokensLabel(n: number): string {
 }
 
 /**
+ * 文脈の量（トークン）の短い形（試作の C1 の「13.6k」）。1000 未満はそのまま、10 万未満は小数 1 桁の k、それ以上は整数の k、100 万からは小数 1 桁の M。
+ * 小数の .0 は落とす。一覧の tokensLabel より 1 桁細かいのは、ターンごとに伸びるのを札の上で読めるようにするためである。
+ */
+export function contextTokensLabel(n: number): string {
+  const trim = (x: number) => x.toFixed(1).replace(/\.0$/, '');
+  if (n >= 1_000_000) return `${trim(n / 1_000_000)}M`;
+  if (n >= 100_000) return `${Math.round(n / 1_000)}k`;
+  if (n >= 1_000) return `${trim(n / 1_000)}k`;
+  return String(n);
+}
+
+/**
  * 要約の見立て。
  * Claude が要約を書いた時点で、その仕事がどこまで進んだかを表す。
  * セッションのプロセスが生きているかどうかとは別物なので、実行中や終了とは重ならない語にする。

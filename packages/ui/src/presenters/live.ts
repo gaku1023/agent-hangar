@@ -1,6 +1,6 @@
 import { limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
 import { baseName } from '../lib/paths.ts';
-import { durationLabel } from './format.ts';
+import { contextTokensLabel, costLabel, durationLabel, percentLabel } from './format.ts';
 import type { ArtifactCardProps } from './project.ts';
 
 export type LaneProps = { agentId: string; title: string; tone: 'running' | 'done' | 'error'; elapsed: string; line: string; quoted: boolean; selectable: boolean };
@@ -87,6 +87,13 @@ export type NowStop =
   | { kind: 'permission'; head: string; command: string | null; why: string | null; hint: string }
   | { kind: 'limit'; head: string; at: string; meter: number | null; hint: string }
   | { kind: 'reset'; head: string; body: string };
+/**
+ * opencode の会話の使用量（試作の C1）。札の下に、コンテキストの使用率の細い帯と、トークン・コスト・モデルの小札を置く。
+ * percent は帯の幅（0 から 100 に収めたもの）で、上限が分からなければ null で帯を出さない。percentLabel は帯の右の数。
+ * chips は小札の語（「13.6k トークン」「$0.00」「lmstudio/qwen3.8-27b」）で、届いていない値の札は持たない。
+ * Claude の会話は、使用量をヘッダ（5 時間・週）と見出しの (i) に出すので、ここは null である。
+ */
+export type NowUsage = { percent: number | null; percentLabel: string; chips: string[] };
 export type NowCardProps = {
   /** 札の左の縁と灯の色。limit は使用制限の青みの灰である。 */
   tone: 'busy' | 'aside' | 'wait' | 'idle' | 'limit';
@@ -98,6 +105,8 @@ export type NowCardProps = {
   detail: string | null;
   /** detail が Claude の問いか。真なら「Claude の問い」の見出しを付けて目立たせる。 */
   question: boolean;
+  /** 問いの見出し（「Claude からの質問」、opencode なら「opencode からの質問」）。 */
+  questionLabel: string;
   /** 止まっている理由の欄。理由が無ければ null。 */
   stop: NowStop | null;
   intent: CardIntent;
@@ -107,6 +116,8 @@ export type NowCardProps = {
   stepsAll: CardStep[];
   lanes: { count: number; tone: 'running' | 'done' | 'error'; items: CardLane[] };
   artifacts: { count: number; items: ArtifactCardProps[] };
+  /** opencode の使用量。Claude の会話は null。 */
+  usage: NowUsage | null;
 };
 
 export type CardInput = LiveInput & {
@@ -119,8 +130,16 @@ export type CardInput = LiveInput & {
   limit?: SessionLimitDto | null;
   /** 入力待ちが何を待っているか（登録の waitingFor）。無ければ省ける。 */
   waitingFor?: WaitKind | null;
-  /** 設定の「ターンの意図と操作の短い説明を送る」。切なら、意図の代わりに依頼の冒頭を出す。省けば入り。 */
+  /** 設定の「ターンの意図と操作の短い説明を送る」。切なら、意図の代わりに依頼の冒頭を出す。省けば入り。Claude にだけ効く。 */
   liveHints?: boolean;
+  /** 会話のエージェント。見出しの語（意図、質問、許可）と、使用量の欄の有無が変わる。省けば Claude。 */
+  agent?: 'claude-code' | 'opencode';
+  /** opencode の使用量の素（SessionStatsDto の contextPercent、contextTokens、costUsd、model）。Claude では使わない。 */
+  usage?: { contextPercent: number | null; contextTokens: number | null; costUsd: number | null; model: string | null } | null;
+  /** 会話の最初の依頼（SessionDto.firstPrompt）。opencode で本文がまだ届かない最初のターンに、意図の代わりに出す。 */
+  firstPrompt?: string | null;
+  /** 今のターンが会話の最初のターンか。opencode で意図が無いときの見出し（「初期プロンプト」か「プロンプト · 時刻」）を分ける。 */
+  firstTurn?: boolean;
 };
 
 /** 使用制限の枠の長さ。残りの棒は、この長さのうち過ぎた割合で描く。 */
@@ -180,9 +199,12 @@ function turnElapsed(i: LiveInput, t: Translate): string | null {
 function stopState(i: CardInput, t: Translate): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question' | 'stop'> | null {
   if (i.reason === 'permission') {
     const p = i.permission ?? null;
+    // opencode の許可は道具の名前（shell など）を「許可を待っています · shell」の見出しにする（HANDOFF の 4 節）。
+    const oc = i.agent === 'opencode';
+    const head = p ? t(oc ? 'stop.card.permissionWaitingTool' : 'stop.card.permissionHeadTool', { tool: p.tool }) : t(oc ? 'stop.card.permissionWaiting' : 'stop.card.permissionHead');
     const stop: NowStop = p
-      ? { kind: 'permission', head: t('stop.card.permissionHeadTool', { tool: p.tool }), command: p.input || null, why: p.description, hint: t('stop.card.permissionHint') }
-      : { kind: 'permission', head: t('stop.card.permissionHead'), command: null, why: null, hint: t('stop.card.permissionUnknown') };
+      ? { kind: 'permission', head, command: p.input || null, why: p.description, hint: t('stop.card.permissionHint') }
+      : { kind: 'permission', head, command: null, why: null, hint: t('stop.card.permissionUnknown') };
     return { tone: 'wait', state: t('stop.state.permission'), sub: t('session.strip.waited', { time: i.waited }), detail: null, question: false, stop };
   }
   if (i.reason === 'limit' && i.limit) {
@@ -270,7 +292,40 @@ function turnRequest(i: LiveInput, t: Translate): { text: string; ts: number | u
   return null;
 }
 
+/**
+ * opencode の意図。このターンの意図があれば「opencode の意図 · 時刻」で出し、無ければ依頼を出す（決定 6。モデルが MCP を呼ばなくても困らない作り）。
+ * 依頼は、最初のターンなら「初期プロンプト」、2 ターン目からは「プロンプト · 時刻」の見出しにする。
+ * 最初のターンで本文がまだ届いていなければ、会話の最初の依頼（firstPrompt）を出す。
+ */
+function opencodeIntent(i: CardInput, t: Translate): CardIntent {
+  const it = i.digest?.intent;
+  if (it?.inThisTurn) {
+    const time = i.clock(it.at);
+    return { kind: 'said', text: it.text, label: t('session.strip.opencode.intentLabel', { time }), title: t('session.strip.opencode.intentMeta', { time, n: it.stepsSince }), stale: it.stepsSince > STALE_STEPS };
+  }
+  const first = i.firstTurn === true;
+  const r = turnRequest(i, t);
+  if (r) return { kind: 'request', text: r.text, label: first || r.ts === undefined ? t('session.strip.initialPrompt') : t('session.strip.requestLabel', { time: i.clock(r.ts) }) };
+  const prompt = i.firstPrompt?.trim();
+  if (first && prompt) return { kind: 'request', text: [...prompt].slice(0, REQUEST_MAX).join(''), label: t('session.strip.initialPrompt') };
+  return { kind: 'none', text: '' };
+}
+
+/** opencode の使用量の欄。届いた値だけを札にし、何も無ければ null（欄ごと出さない）。 */
+function stripUsage(i: CardInput, t: Translate): NowUsage | null {
+  const u = i.usage;
+  if (i.agent !== 'opencode' || !u) return null;
+  const chips: string[] = [];
+  if (u.contextTokens !== null) chips.push(t('session.strip.usage.tokens', { n: contextTokensLabel(u.contextTokens) }));
+  if (u.costUsd !== null) chips.push(costLabel(u.costUsd));
+  if (u.model) chips.push(u.model);
+  const percent = u.contextPercent === null ? null : Math.min(100, Math.max(0, u.contextPercent));
+  if (percent === null && chips.length === 0) return null;
+  return { percent, percentLabel: percentLabel(t, u.contextPercent), chips };
+}
+
 function stripIntent(i: CardInput, t: Translate): CardIntent {
+  if (i.agent === 'opencode') return opencodeIntent(i, t);
   const it = i.digest?.intent;
   // 意図を送らない設定では、Claude は意図を書かない。「まだ意図が届いていません」は出さず、利用者の依頼の冒頭を出す（1f）。
   // 切る前に起こした run がこのターンの意図を書いていれば、そちらを先に出す。
@@ -308,15 +363,18 @@ function stripLanes(i: LiveInput, t: Translate): NowCardProps['lanes'] {
  * 現在の札。セッション画面の右の欄の上（目次の上）に置く値を組む（2026-10-11 の試作の A2・B2）。
  * 状態の行、入力待ちの問い、意図の全文、直近 3 つのツール呼び出し、サブエージェントとアーティファクトの数の札である。
  * コンテキスト使用量、コスト、ターンとトークンは見出しの (i)（presentDetails）に出す。
+ * opencode の会話だけは、札の下に使用量の欄（usage）を置く（試作の C1。opencode には 5 時間・週の枠が無いため）。
  */
 export function presentNowCard(i: CardInput, t: Translate): NowCardProps {
   const results = i.results ?? resultsOf(i.events);
   const steps = stripSteps(i, results);
   return {
     ...stripState(i, t, results),
+    questionLabel: t(i.agent === 'opencode' ? 'session.strip.opencode.questionLabel' : 'session.strip.questionLabel'),
     intent: stripIntent(i, t),
     steps: steps.steps, stepsTotal: steps.total, stepsAll: steps.all,
     lanes: stripLanes(i, t),
     artifacts: { count: i.artifacts.length, items: i.artifacts },
+    usage: stripUsage(i, t),
   };
 }

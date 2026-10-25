@@ -81,6 +81,21 @@ export class OpencodeOptionsService {
     return this.now() - c.at < this.freshMs() ? c.dto : { ...c.dto, stale: true };
   }
 
+  /**
+   * モデル（`provider/model` の ID）のコンテキストの長さ（トークン）。右欄のコンテキストの帯の分母になる（計画の C5）。
+   * 取りに行かない。手元に持ったどこかの場所の一覧にあればその値を、無ければ models.dev のカタログを引く。どちらにも無ければ null。
+   * opencode の本文（メッセージ）には文脈の大きさが無いので、索引が使用量を書くときにここから引く。
+   */
+  contextOf(model: string): number | null {
+    for (const c of this.cache.values()) {
+      const hit = c.dto.models.find((m) => m.id === model && m.context !== null);
+      if (hit) return hit.context;
+    }
+    const slash = model.indexOf('/');
+    if (slash <= 0) return null;
+    return this.deps.catalog?.lookup(model.slice(0, slash), model.slice(slash + 1))?.context ?? null;
+  }
+
   private async fetch(directory: string): Promise<OpencodeOptionsDto> {
     const raw = await this.withServe((serve) => this.readWithRetry(serve, directory));
     const status = await this.deps.status().catch(() => ({ found: true, version: null, verified: false }));

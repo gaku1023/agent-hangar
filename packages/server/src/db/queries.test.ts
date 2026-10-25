@@ -232,6 +232,12 @@ describe('フェーズ 3 の項目', () => {
     const again = getSession(db, live, alpha.id)!;
     expect(again.stats).toMatchObject({ model: 'claude-opus-4-1', effort: 'max', contextPercent: 25, costUsd: 0.1234 });
   });
+  it('文脈の量（context_used）も stats の contextTokens に乗り、無ければ null', () => {
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    expect(alpha.stats.contextTokens).toBeNull();
+    db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)').run(SESSION_ALPHA, 'lmstudio/qwen3.8-27b', null, 13_600, null, 0, 1);
+    expect(getSession(db, live, alpha.id)!.stats).toMatchObject({ contextTokens: 13_600, contextPercent: null, costUsd: 0 });
+  });
   it('cwd がちょうどクイックセッションの置き場なら fromScratch は偽', () => {
     upsertShared(db, 'projects', { id: 'scratch', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');

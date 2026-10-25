@@ -306,6 +306,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     outputTokens: r.st_out ?? 0,
     contextPercent: contextPercent(r.ls_used, r.ls_size),
     costUsd: r.ls_cost,
+    contextTokens: r.ls_used,
   };
   // クイックセッションの置き場の下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
   // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。

@@ -3,6 +3,7 @@ import { GitChip } from './GitChip.tsx';
 import { useEmit } from '../action/chain.tsx';
 import type { BandAction, BandGroup, BandLead, BandRow, BandSection, HomeBandProps } from '../presenters/home.ts';
 import { OverlapChip } from './OverlapPopover.tsx';
+import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { useCopy } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -267,6 +268,8 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
       onContextMenu={r.menu && !props.leaving ? onContextMenu : undefined}
       onKeyDown={r.menu ? onKeyDown : undefined}>
       <Lead lead={r.lead} />
+      {/* エージェントの絵（一覧の行と同じ 20px の枠）。出さないとき（agent が無い）は枠ごと置かない。 */}
+      {r.agent !== undefined && <span className="c-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}
       {/* 小札（「任意」、提案の出どころ）は名前の後ろに置く。名前がボタンの行では、ボタンの外に置いて読み上げの名前に混ぜない。 */}
       {open
         ? <><button type="button" className="c-name c-link" onClick={() => emit(open)}>{r.name}</button>{r.badge && <span className="c-badge c-src">{r.badge}</span>}</>

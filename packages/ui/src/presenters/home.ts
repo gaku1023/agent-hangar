@@ -1,10 +1,11 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
 import { presentGitChip, type GitChipProps } from './git.ts';
-import { setupGuidePrompt, candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
+import { setupGuidePrompt, candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type AgentIconKind, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
+import { rowAgent } from './agentIcon.ts';
 import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
@@ -29,7 +30,9 @@ import { presentSessionList, type SessionListProps } from './sessions.ts';
  * reason は止まっている理由（試作 stop-reason-proto の B1）。permission は許可待ちで、permission にその中身（道具と命令）を持つ。
  * reset はリセット済みで、waited はリセットの時刻からの経過になる。どちらでもなければ問いの入力待ちである。
  */
-export type AttentionCard = { id: string; name: string; projectName: string | null; waited: string; question: string; answer: 'terminal' | 'attach' | 'adopt' | null; reason?: StopReason | null; permission?: PermissionAskDto | null };
+export type AttentionCard = { id: string; name: string; projectName: string | null; waited: string; question: string; answer: 'terminal' | 'attach' | 'adopt' | null; reason?: StopReason | null; permission?: PermissionAskDto | null;
+  /** エージェントの絵の種類（presenters/agentIcon.ts の rowAgent）。絵を出さないときは省く。 */
+  agent?: AgentIconKind | null };
 /**
  * 実行中の札。
  * intent は Claude がこのターンに書いた意図の 1 文で、書かれていなければ null である（右の欄の「いま」と同じもの。presenters/live.ts）。
@@ -41,7 +44,9 @@ export type AttentionCard = { id: string; name: string; projectName: string | nu
  */
 export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; idleFor: string | null; contextPercent: number | null; contextLabel: string; limit?: { text: string; left: string } | null;
   /** git の札（試作の 2-2 の A）。右端の、経過とコンテキストの左に置く。まだ届いていないものと git でないものは null。省けば出さない。 */
-  git?: GitChipProps | null };
+  git?: GitChipProps | null;
+  /** エージェントの絵の種類（presenters/agentIcon.ts の rowAgent）。絵を出さないときは省く。 */
+  agent?: AgentIconKind | null };
 /**
  * 今日戻るの札（C1）。要対応の札の並びに、入力待ちの札の後ろで置く。
  * 戻る時点が来た Paused 1 件につき 1 枚。日付だけのものはその日の朝から、時刻つきのものは時刻を過ぎてから出す（returnHasCome）。
@@ -137,7 +142,8 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     const reason = stopReasonOf(s);
     const shown = reason === 'permission' || reason === 'reset' ? reason : null;
     const since = shown === 'reset' && s.limit ? s.limit.resetsAt : s.lastActivityAt ?? now;
-    return { id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, Math.max(0, now - since)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s), reason: shown, permission: shown === 'permission' ? s.permission : null };
+    const agent = rowAgent(store, s);
+    return { id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, Math.max(0, now - since)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s), reason: shown, permission: shown === 'permission' ? s.permission : null, ...(agent !== undefined ? { agent } : {}) };
   });
 
   const returning = returningCards(store, now, alive);
@@ -179,7 +185,9 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
     const said = store.liveDigests[s.id]?.intent;
     const intent = working && said && said.inThisTurn ? said.text : null;
-    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, idleFor, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), limit, git: presentGitChip(t, store.git, s.id, store.sessions) };
+    // エージェントの絵は一覧とサイドバーと同じ規則で出す（opencode が切で、opencode の会話が無ければ出さない）。
+    const agent = rowAgent(store, s);
+    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, idleFor, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), limit, git: presentGitChip(t, store.git, s.id, store.sessions), ...(agent !== undefined ? { agent } : {}) };
   });
 
   return { attention, returning, confirm, running };
@@ -220,9 +228,10 @@ export type BandTrail = { text: string; tone?: 'wait' | 'busy' | 'limit' };
  * open があれば名前がボタンになり、押すとその UiAction を発行する。tone の wait は行の地に入力待ちの色を薄く敷く。
  * badge は名前の横に添える小さな札で、始める前の確認の「任意」に使う。
  * ask は許可待ちの道具と命令で、本文の前に道具の札と等幅の命令として出す。
+ * agent はセッションの行のエージェントの絵の種類で、行頭の印と名前の間に同じ幅の枠で置く（null は空の枠）。省けば枠ごと置かない。
  * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
  */
-export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[]; ask?: { tool: string; input: string } | null;
+export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[]; ask?: { tool: string; input: string } | null; agent?: AgentIconKind | null;
   /** 本文の頭に添える色の語（中断の行の「作業中だった」「再開中」「失敗」）。 */
   textHead?: { text: string; tone: 'busy' | 'wait' | 'faint' | 'error' };
   /** 行の上に小見出しを置く区切り。key が前の行と替わったところで見出しを出す（中断の群のアカウントごとの小見出し）。 */
@@ -274,6 +283,11 @@ function action(t: Translate, id: string, label: string, name: string, send: UiA
 }
 
 function attentionRow(t: Translate, a: AttentionCard): BandRow {
+  const row = attentionRowBody(t, a);
+  return a.agent !== undefined ? { ...row, agent: a.agent } : row;
+}
+
+function attentionRowBody(t: Translate, a: AttentionCard): BandRow {
   const open: UiAction = { type: 'session.open', id: a.id };
   // 許可待ちは「ターミナルで許可」、リセット済みは「ターミナルで続ける」で答える。
   const answerLabel = a.reason === 'permission' ? t('stop.action.allow') : a.reason === 'reset' ? t('stop.action.continue') : t('home.band.answer');
@@ -311,6 +325,11 @@ function returnRow(t: Translate, r: ReturnCard): BandRow {
 }
 
 function runningRow(t: Translate, r: RunningCard): BandRow {
+  const row = runningRowBody(t, r);
+  return r.agent !== undefined ? { ...row, agent: r.agent } : row;
+}
+
+function runningRowBody(t: Translate, r: RunningCard): BandRow {
   // 使用制限でリセットを待っているものは、砂時計と時刻を主役にする。利用者にできることは無いので、ボタンは「開く」だけ。
   if (r.limit) {
     const open: UiAction = { type: 'session.open', id: r.id };

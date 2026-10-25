@@ -39,7 +39,14 @@ export type ProcessStartOf = (q: { sessionId: string; providerSessionId: string;
  * ファイルの束ではファイルのパスを渡す。省けば storedOrigin で決める。
  * sessionId は、呼び手が既に引いた hangar の会話の id である（transcript_files の行など）。渡せば、削除と写しの見送りの確かめを省く。
  */
-export type WriteOptions = { deviceId: string; remote?: boolean; cwdFallback?: string; processStartOf?: ProcessStartOf; origin?: string; sessionId?: string };
+export type WriteOptions = {
+  deviceId: string; remote?: boolean; cwdFallback?: string; processStartOf?: ProcessStartOf; origin?: string; sessionId?: string;
+  /**
+   * モデル（`provider/model`）のコンテキストの長さを引く口。記録ごとに文脈の量を持つエージェント（opencode）の context_size を書くのに使う。
+   * 本文に文脈の大きさが無いので、モデルの一覧から引く（boot/indexing.ts が opencode の選択肢の口をつなぐ）。引けなければ null で、前の値を残す。
+   */
+  contextSizeOf?: (model: string) => number | null;
+};
 /** skipped は、論理削除した会話か、まだ行の届いていない他端末の写しなので書かなかったこと。 */
 export type WriteResult = { sessionId: string; appended: number; artifactIds: string[]; skipped: boolean };
 
@@ -206,7 +213,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
       }
     }
-    if (mainLocal && (acc.cost !== undefined || acc.contextTokens !== undefined)) writeLiveStats(db, b.providerSessionId, acc, reset);
+    if (mainLocal && (acc.cost !== undefined || acc.contextTokens !== undefined)) writeLiveStats(db, b.providerSessionId, acc, reset, opts.contextSizeOf);
     if (mainLocal && b.fold) {
       if (writeActivity(db, sessionId, reset, b.fold.activity)) acc.turnEnded = true;
       writeLimit(db, sessionId, reset, b.fold.limit);
@@ -233,15 +240,20 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
 /**
  * 記録ごとに費用と文脈の量を持つエージェント（opencode）の、会話の今の値を書く。Claude は statusline から同じ表へ書く（usage/statusline.ts）。
  * 費用は記録の和なので、続きの束では前の値に足し、作り直しでは置き換える。文脈の量とモデルは最後の値にする。
- * 文脈の大きさ（context_size）は本文に無いので書かない（モデルの一覧から読むのは画面の段）。
+ * 文脈の大きさ（context_size）は本文に無いので、モデル（束のものか、前に書いたもの）の上限を contextSizeOf で引いて書く。
+ * 引けなければ書かず、前の値を残す。
  */
-function writeLiveStats(db: Db, providerSessionId: string, acc: Acc, reset: boolean): void {
-  const prev = reset ? undefined : (stmt(db, 'select cost_usd from session_live_stats where provider_session_id = ?').get(providerSessionId) as { cost_usd: number | null } | undefined);
-  const cost = acc.cost === undefined ? (prev?.cost_usd ?? null) : (prev?.cost_usd ?? 0) + acc.cost;
+function writeLiveStats(db: Db, providerSessionId: string, acc: Acc, reset: boolean, contextSizeOf?: (model: string) => number | null): void {
+  const prev = stmt(db, 'select cost_usd, model from session_live_stats where provider_session_id = ?').get(providerSessionId) as { cost_usd: number | null; model: string | null } | undefined;
+  const prevCost = reset ? undefined : prev?.cost_usd;
+  const cost = acc.cost === undefined ? (prevCost ?? null) : (prevCost ?? 0) + acc.cost;
+  const model = acc.model ?? prev?.model ?? null;
+  const size = model !== null && contextSizeOf ? contextSizeOf(model) : null;
   stmt(db, `insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)
     on conflict(provider_session_id) do update set model = coalesce(excluded.model, session_live_stats.model),
-      context_used = coalesce(excluded.context_used, session_live_stats.context_used), cost_usd = excluded.cost_usd, updated_at = excluded.updated_at`)
-    .run(providerSessionId, acc.model ?? null, null, acc.contextTokens ?? null, null, cost, Date.now());
+      context_used = coalesce(excluded.context_used, session_live_stats.context_used), context_size = coalesce(excluded.context_size, session_live_stats.context_size),
+      cost_usd = excluded.cost_usd, updated_at = excluded.updated_at`)
+    .run(providerSessionId, acc.model ?? null, null, acc.contextTokens ?? null, size, cost, Date.now());
 }
 
 /** 「いま何をしているか」を畳んで書く。新しい問いが出たら真を返す。 */

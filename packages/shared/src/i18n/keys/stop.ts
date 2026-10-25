@@ -35,6 +35,8 @@ export const stopKeys = {
   'stop.band.attentionSummaryReset': ['waiting', 'permission', 'reset', 'reminders'],
   'stop.card.permissionHead': [],
   'stop.card.permissionHeadTool': ['tool'],
+  'stop.card.permissionWaiting': [],
+  'stop.card.permissionWaitingTool': ['tool'],
   'stop.card.permissionHint': [],
   'stop.card.permissionUnknown': [],
   'stop.card.limitHead': ['kind'],

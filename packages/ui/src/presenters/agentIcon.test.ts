@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { LiveSessionDto, RunDto, SessionDto, SettingsDto, TabDto } from '@agent-hangar/shared';
+import { translator, type LiveSessionDto, type RunDto, type SessionDto, type SettingsDto, type TabDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
+import { presentHome, presentHomeBand } from './home.ts';
 import { presentSessionRow } from './row.ts';
 import { presentSession } from './session.ts';
 import { presentSessionList } from './sessions.ts';
@@ -82,5 +83,31 @@ describe('ターミナルの上のタブ', () => {
     store.tabs = { r1: tab('r1', 'r1', 'a', 'agent') };
     expect(presentSession(initialState(), store, NOW, 'a').tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }]);
     expect(presentSession(initialState(), store, NOW, 'a').tabs[0]).not.toHaveProperty('agent');
+  });
+});
+
+describe('ホームの上の帯（実行中と要対応）の行のアイコン', () => {
+  const homeRows = (store: Store) => {
+    const h = presentHome(initialState(), store, NOW);
+    return { running: h.running, attention: h.attention };
+  };
+  it('opencode が切で、opencode の会話が無ければ出さない（agent を付けない）', () => {
+    const { running, attention } = homeRows(storeWith([session('a', { live: 'busy' }), session('b', { live: 'waiting' })]));
+    expect(running.map((r) => r.agent)).toEqual([undefined]);
+    expect(attention.map((r) => r.agent)).toEqual([undefined]);
+  });
+  it('opencode の会話があれば、全部の行にエージェントを付ける', () => {
+    const { running, attention } = homeRows(storeWith([session('a', { live: 'busy' }), session('o', { provider: 'opencode', live: 'busy' }), session('w', { provider: 'opencode', live: 'waiting' })]));
+    expect(Object.fromEntries(running.map((r) => [r.id, r.agent]))).toEqual({ a: 'claude-code', o: 'opencode' });
+    expect(attention.map((r) => r.agent)).toEqual(['opencode']);
+  });
+  it('設定が入なら、Claude の会話だけでも Clawd を出す', () => {
+    const { running } = homeRows(storeWith([session('a', { live: 'busy' })], { enabled: true }));
+    expect(running.map((r) => r.agent)).toEqual(['claude-code']);
+  });
+  it('帯の行にもそのまま渡る', () => {
+    const h = presentHome(initialState(), storeWith([session('o', { provider: 'opencode', live: 'busy' })]), NOW);
+    const band = presentHomeBand(h, translator('ja'));
+    expect(band.groups.find((g) => g.id === 'running')!.rows.map((r) => r.agent)).toEqual(['opencode']);
   });
 });

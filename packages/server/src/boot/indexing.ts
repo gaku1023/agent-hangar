@@ -29,6 +29,11 @@ export type IndexingParts = {
   stopTimers(): void;
   /** メモのファイルの監視を止める。 */
   stopMemoWatch(): void;
+  /**
+   * opencode のモデルのコンテキストの長さを引く口を渡す。opencode の部品（boot/opencode.ts）は索引より後に組むので、組んでから渡す。
+   * 渡すまでは、opencode の使用量の context_size を書かない。
+   */
+  bindContextSize(of: (model: string) => number | null): void;
 };
 
 /**
@@ -45,8 +50,11 @@ export function bootIndexing(
   const { db, settings, life } = home;
   const { hub, live } = delivery;
   const deviceId = home.device.id;
+  // opencode のモデルのコンテキストの長さ。opencode の部品を組んだら bindContextSize で渡される。
+  let contextSize: ((model: string) => number | null) | null = null;
   const indexer = new IndexerService({
     db, deviceId,
+    contextSizeOf: (model) => contextSize?.(model) ?? null,
     // 本文の発見と見張りは Claude の driver のトランスクリプトの面が受け持つ。他端末から降ろした本文も、そこが見つける。
     transcript: delivery.claude.transcript,
     // opencode（ベータ）の本文は serve の API から読んで束で押し込む。hangar が起こした会話だけを読むので、設定が切なら何も読まない。
@@ -86,6 +94,7 @@ export function bootIndexing(
   let rootTimer: ReturnType<typeof setInterval> | null = null;
   return {
     indexer, memos, git,
+    bindContextSize(of) { contextSize = of; },
     async start() {
       await indexer.start();
       // この PC に場所のあるプロジェクトの git の remote の空きを埋める。ほかの PC が同じリポジトリを見分けるのに使う（projects/link.ts）。

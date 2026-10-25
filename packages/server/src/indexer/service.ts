@@ -53,6 +53,8 @@ export type IndexerServiceOptions = {
   isYielded?: (sessionUuid: string) => boolean;
   /** 打った発言を出したプロセスの起動時刻を引く口。渡さなければ、発言で状態を外さない（提案は外す）。 */
   processStartOf?: ProcessStartOf;
+  /** 押し込まれた束（opencode）のモデルのコンテキストの長さを引く口（write.ts の WriteOptions.contextSizeOf）。渡さなければ context_size を書かない。 */
+  contextSizeOf?: (model: string) => number | null;
   /**
    * いま実行中のセッション（Claude Code のセッション ID と cwd）。
    * 渡すと、その主線とサブエージェントの本文だけは、通知に頼らず liveMs ごとに stat で見る。
@@ -446,7 +448,7 @@ export class IndexerService {
   private onBatch(b: IndexBatch): void {
     if (!this.running) return;
     try {
-      const r = writeBatch(this.opts.db, b, { deviceId: this.opts.deviceId, processStartOf: this.opts.processStartOf });
+      const r = writeBatch(this.opts.db, b, { deviceId: this.opts.deviceId, processStartOf: this.opts.processStartOf, contextSizeOf: this.opts.contextSizeOf });
       if (r.skipped) return;
       if (b.agentId === null || r.appended > 0) writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(b.providerSessionId));
       touchRow(this.opts.db, 'sessions', r.sessionId);

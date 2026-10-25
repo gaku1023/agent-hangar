@@ -55,6 +55,16 @@
 .nc-step-arg { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nc-step-tool { flex: none; font-size: 10.5px; color: var(--ink-3); }
 .nc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); }
+/* opencode の使用量（試作の C1）。「コンテキスト」と割合の行、4px の帯、トークン・コスト・モデルの小札。帯の伸びは幅の補間にする。 */
+.nc-usage { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); }
+.nc-usage-ctx { display: flex; flex-direction: column; gap: 4px; }
+.nc-usage-head { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-xs); color: var(--ink-3); }
+.nc-usage-pct { font-family: var(--font-mono); }
+.nc-usage-meter { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--ink) 10%, var(--surface)); overflow: hidden; }
+.nc-usage-meter > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur) var(--ease-out); }
+.nc-usage-chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
+.nc-usage-chip { display: inline-block; height: 22px; line-height: 22px; padding: 0 calc(var(--u) * 2); border-radius: 99px; background: var(--surface-2); font-size: var(--fs-xs); color: var(--ink-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .nc-usage-meter > i { transition: none; } }
 /* 動き（D3）。描いた後に増えた呼び出しはフェードで入り、一度だけ薄い杏色に光る。意図と問いは替わったときにフェードで入れ替わる（key で描き直す）。 */
 @keyframes nc-in { from { opacity: 0; } }
 @keyframes nc-flash { from { background: color-mix(in srgb, var(--busy) 16%, var(--surface)); } to { background: transparent; } }
