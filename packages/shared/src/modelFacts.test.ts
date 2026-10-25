@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataUseOf, MODEL_FACTS, MODEL_FACTS_STALE_DAYS, MODEL_FACTS_UPDATED, modelFactsStale, providerFactOf } from './modelFacts.ts';
+import { dataUseOf, modelDataUse, MODEL_FACTS, MODEL_FACTS_STALE_DAYS, MODEL_FACTS_UPDATED, modelFactsStale, providerFactOf } from './modelFacts.ts';
 
 const DAY = 86_400_000;
 const updated = Date.parse(`${MODEL_FACTS_UPDATED}T00:00:00Z`);
@@ -36,6 +36,16 @@ describe('modelFacts（データの扱いと上限の手書きの表）', () => 
     expect(dataUseOf('opencode-go', 'kimi-k3.1-pro')).toBe('no-training');
     expect(dataUseOf('opencode', 'brand-new-free')).toBeNull();
     expect(dataUseOf('somebody', 'x')).toBeNull();
+  });
+
+  it('札に出すデータの扱いは、この PC のものは PC 外への送信なし、ほかのローカルは無し、それ以外は表から引く（PC の小窓とスマホの答えが使う）', () => {
+    expect(modelDataUse({ provider: 'lmstudio', id: 'lmstudio/qwen3.6-35b-a3b' }, 'local', 'device')).toBe('on-device');
+    expect(modelDataUse({ provider: 'home', id: 'home/qwen3.8-27b-awq' }, 'local', 'lan')).toBeNull();
+    expect(modelDataUse({ provider: 'opencode', id: 'opencode/glm-5.3-flash-free' }, 'free', 'remote')).toBe('no-training');
+    expect(modelDataUse({ provider: 'opencode', id: 'opencode/deepseek-v4-flash-free' }, 'free', 'remote')).toBe('no-training');
+    expect(modelDataUse({ provider: 'opencode', id: 'opencode/big-pickle' }, 'free', 'remote')).toBe('may-train');
+    expect(modelDataUse({ provider: 'deepseek', id: 'deepseek/deepseek-v4-flash' }, 'metered', 'remote')).toBe('no-training');
+    expect(modelDataUse({ provider: 'opencode', id: 'opencode/brand-new-free' }, 'free', 'remote')).toBeNull();
   });
 
   it('プロバイダーの事実は表示名と費用の型を持ち、知らないものは空', () => {
