@@ -586,7 +586,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && (tj.status === 'found' || tj.status === 'notFound') ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((x) => x.id === view.splitTab && x.id !== selectedTab) ?? open.find((x) => x.id !== selectedTab) ?? null : null;
-  const sessionAccount = hasMultipleAccounts(store) ? accountOfSession(store, id) : null;
+  // opencode の会話には Claude のアカウントが無い。対応に無い会話としてメインのアカウントの札を出さないよう、札は出さない。
+  const sessionAccount = hasMultipleAccounts(store) && !opencodeTab ? accountOfSession(store, id) : null;
   const artifactCards = artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(t, a, now));
   const account = sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null;
   // 現在の帯は生きた run があるときだけ。右パネルの「いま」の段が持っていた中身がここへ移る。

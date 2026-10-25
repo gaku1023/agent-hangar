@@ -365,6 +365,11 @@ describe('presentSession', () => {
     it('store に無いセッションの画面には札を出さない', () => {
       expect(presentSession(initialState(), two(), NOW, 'nope').account).toBeNull();
     });
+    it('opencode の会話には Claude のアカウントが無いので、札を出さない', () => {
+      const store = two();
+      store.sessions = { ...store.sessions, o1: session('o1', { provider: 'opencode' }) };
+      expect(presentSession(initialState(), store, NOW, 'o1').account).toBeNull();
+    });
   });
   it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
     const store = storeWith();

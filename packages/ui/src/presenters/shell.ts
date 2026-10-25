@@ -257,7 +257,7 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const screenId = state.screen.name === 'session' ? state.screen.id : null;
   const screenSession = screenId === null ? undefined : store.sessions[screenId];
   const sessionId = screenSession && agentOfSession(store, screenSession) === 'opencode' ? null : screenId;
-  const raw =(sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
+  const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
   const list = presentAccounts(store, now);
   const shown = list.find((a) => a.id === raw.id) ?? list[0]!;
   const live = sessionId === null ? null : store.sessions[sessionId]?.live ?? null;
