@@ -68,6 +68,11 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
   turnRows: TurnRowProps[]; turnsComplete: boolean; turnsPending: boolean; turnCount: TurnCount | null; loadingOlder: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
+  /**
+   * 目次のターンを押したとき、左のエージェントの画面をその指示へ跳ばせるか（サーバの driver の caps.promptJump と同じ）。
+   * 跳び方は Claude Code の画面の操作なので、Claude Code の会話だけ真。偽なら目次は run を持たず、終わった会話と同じくターンを開くだけにする。
+   */
+  promptJump: boolean;
   /** 検索の結果から開いたときの跳び先。 */
   jump: JumpState | null;
   /** 読んだ頁より新しい行がまだあるか（検索の結果から真ん中の頁だけを読んで開いたとき）。 */
@@ -523,7 +528,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const view = state.sessionView[id] ?? defaultSessionView();
   // ターンの少ない終わった会話は、右の欄をはじめ畳み、その画面だけの開閉（tocPeek）に従う。
   const transcriptOpen = tocFolds(store, view, id) ? view.tocPeek : view.transcriptOpen;
-  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -620,6 +625,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     gitFix: gitUnsafeFix(store.git, id),
     git: store.git.sessions[id] ? { chip: presentGitChip(t, store.git, id, store.sessions), files: presentGitFiles(t, store.gitChanges[id]) } : null,
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,
+    promptJump: agentOfSession(store, s) === 'claude-code',
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,

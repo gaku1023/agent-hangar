@@ -38,7 +38,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, turnCount: { n: 104, plus: false }, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: leadOf(), badges: [], details: [], gone: null, jump: null, hasNewer: false,
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, turnCount: { n: 104, plus: false }, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: leadOf(), badges: [], details: [], gone: null, jump: null, hasNewer: false, promptJump: true,
   actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, transcriptBand: null, account: null };
 
 /**
@@ -431,6 +431,18 @@ describe('SessionScreen（実行中）', () => {
     withHost(<SS {...running} />);
     expect(screen.queryByRole('button', { name: /^ノート/ })).toBeNull();
     expect(document.querySelector('.session-hero .nc-note')).toBeNull();
+  });
+  it('目次のターンを押すと、跳べるエージェント（Claude Code）だけ左のターミナルを跳ばす', () => {
+    // opencode の画面に Claude Code の跳び方のキー（ctrl+o など）を送ると、opencode の別の小窓が開く。
+    // 跳べないエージェントでは run を渡さず、終わった会話と同じく、目次のターンを開くだけにする。
+    const turnRows = [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 0, open: false, band: [] }, { seq: 5, when: '10:05', text: 'next', head: 'next', tools: 0, open: false, band: [] }];
+    const claude = withHost(<SS {...running} turnRows={turnRows} turnsComplete />);
+    fireEvent.click(document.querySelectorAll('.toc-pane .turn-row')[0]!);
+    expect(claude).toHaveBeenCalledWith({ type: 'turn.open', sessionId: 's1', seq: 0, runId: 'r1', jump: { heads: ['hi', 'next'], index: 0, from: 'top' } });
+    cleanup();
+    const opencode = withHost(<SS {...running} turnRows={turnRows} turnsComplete promptJump={false} />);
+    fireEvent.click(document.querySelectorAll('.toc-pane .turn-row')[0]!);
+    expect(opencode).toHaveBeenCalledWith({ type: 'turn.open', sessionId: 's1', seq: 0, runId: null, jump: null });
   });
   it('右は会話の全文ではなくターンの目次にする', () => {
     withHost(<SS {...running} />);

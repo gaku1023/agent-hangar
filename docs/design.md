@@ -1125,6 +1125,10 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 ID を先に決めない driver（opencode）は、`newSessionId` を持たず、起こす前の下ごしらえ（`materialize`）で ID を返す。
 そのため `RunManager.start` は非同期で、HTTP の `POST /api/runs`、MCP の `create_session`、スマホの起動の依頼は、どれも結果を待ってから答える。
 Claude にしか無い操作（フォーク、attach、引き取り、アカウントの切り替え）は、driver の `caps` が持たないと言えば `RunManager` が入口で断る。
+目次から画面を指示へ跳ばすこと（`caps.promptJump`）も同じで、跳び方は Claude Code の画面の操作（ctrl+o、G、`{`）なので、持たないエージェント（opencode）の run には、画面を読む前に 400 で断り、キーを送らない。
+opencode の TUI に送ると、opencode の別の小窓（セッションの検索）が開いていた（0.10.0-rc.1 の実機で見つけた）。
+画面も読まないので、Claude Code の画面の互換のずれとしても数えない。
+transcript から抜ける口（`leaveTranscript`）は、断らずに何もしなかったと返す。
 MCP の秘密を発行することと、`runCommand` で包むことは hangar の側に残す。
 attach や引き取りのような Claude にしか無い起こし方は、`RunManager` が Claude の driver を直に使う。
 
@@ -4970,6 +4974,9 @@ hangar が自動で付けた状態は、札の頭に ✦ を置き、説明は�
 上乗せは本体の上端から重ね、タブの列のある画面では頭の行が「目次 N」の札の場所を覆う（キーの表示は添えない）。
 このとき ⌘J も重なりの開閉になり、保存する開閉（`transcriptOpen`）の意味は広い窓のものとして保つ。
 目次の行の `TurnIndex` は、実行中は生きた run の id を持ち、終わった後は持たない（跳ばす相手が無い）。
+目次から画面を跳ばせない会話（opencode。presenter の `promptJump` が偽で、サーバの `caps.promptJump` と同じ）も、実行中でも run の id を持たない。
+行は押せて、終わった会話と同じくそのターンを中身つきで開くだけにし、左のターミナルには何も送らない。
+行を押せないようにはしない。ターンの中身を読む手は opencode の会話でも要るからである。
 意図とサブエージェントのレーンは、サーバの `GET /api/sessions/:id/live`（今のターンの頭から読んだライブの要約）で作る。
 サーバは要約を覚えておき、そのセッションの本文のファイルの行（`transcript_files`）と意図が変わるまで作り直さない。
 裏の印（`live/aside.ts`）も 500 ミリ秒ごとに同じ要約を引くので、サーバは 1 つの覚えを両方に渡す。

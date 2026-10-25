@@ -1518,9 +1518,13 @@ export class RunManager {
     return next;
   }
 
-  /** Claude のタブを transcript の中の指示へ跳ばす。手順と送るキーの制限は promptJump.ts にある。 */
+  /**
+   * Claude のタブを transcript の中の指示へ跳ばす。手順と送るキーの制限は promptJump.ts にある。
+   * 跳べないエージェント（caps.promptJump が偽の opencode）は、画面を読む前に 400 で断る。キーを送らず、互換のずれとしても数えない。
+   */
   jumpToPrompt(runId: string, heads: string[], index: number, from: JumpFrom): Promise<JumpResult> {
     const io = this.agentPane(runId);
+    this.assertCan(this.session(this.getRun(runId)!.sessionId), 'promptJump');
     // 画面の目印が続けて見つからなかったら、Claude Code との互換のずれとして記録する（provider/claude-code/compat/screen.ts）。
     // 1 回の見落としは描き直しの遅れなどでも起きるので、門を通して数える。跳び方そのものは変えない。
     return this.queuePane(runId, async () => {
@@ -1531,9 +1535,13 @@ export class RunManager {
     });
   }
 
-  /** Claude のタブが transcript を開いていれば閉じて、入力欄のある画面へ戻す。 */
+  /**
+   * Claude のタブが transcript を開いていれば閉じて、入力欄のある画面へ戻す。
+   * 跳べないエージェントは transcript に入れていないので、画面に触らずに何もしなかったと返す（「最新へ」で呼ばれても断らない）。
+   */
   leaveTranscript(runId: string): Promise<{ left: boolean }> {
     const io = this.agentPane(runId);
+    if (!this.agentOf(this.session(this.getRun(runId)!.sessionId)).caps.promptJump) return Promise.resolve({ left: false });
     return this.queuePane(runId, async () => ({ left: await leaveTranscript(io) }));
   }
 }

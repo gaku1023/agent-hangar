@@ -208,7 +208,7 @@ export function SessionScreen(props: SessionProps) {
           {/* 終わった画面の要約の札も、同じ場所（目次の上）に置き、目次といっしょに畳む。 */}
           {!hasCard && summaryCard}
           <TocPane>
-            <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} trail={withStrip ? undefined : toggle} />
+            <TurnIndex sessionId={id} runId={run?.alive && props.promptJump ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} trail={withStrip ? undefined : toggle} />
           </TocPane>
         </div>
       )}

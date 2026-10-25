@@ -270,6 +270,10 @@ describe('opencode の会話の「いま」の札（計画の C5）', () => {
     const p = present(store(session({ provider: 'opencode', live: 'busy', stats: ocStats, firstPrompt: 'tests/ に pytest の雛形を 3 本書いて' }), run()));
     expect(p.strip?.intent).toEqual({ kind: 'request', text: 'tests/ に pytest の雛形を 3 本書いて', label: '初期プロンプト' });
   });
+  it('目次から左の画面を跳ばせるのは Claude Code の会話だけ（サーバの caps.promptJump）', () => {
+    expect(present(store(session({ provider: 'opencode', live: 'busy', stats: ocStats }), run())).promptJump).toBe(false);
+    expect(present(store(session({ live: 'busy' }), run())).promptJump).toBe(true);
+  });
   it('Claude の会話には使用量を渡さない（ヘッダの 5 時間・週と見出しの (i) のまま）', () => {
     const p = present(store(session({ live: 'busy', stats: { ...stats, contextTokens: 13_600 } }), run()));
     expect(p.strip?.usage).toBeNull();

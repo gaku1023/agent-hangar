@@ -110,7 +110,7 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
 
   return {
     kind: 'claude-code',
-    caps: { accounts: true, effort: true, permissionMode: true, remoteControl: true, fork: true, attachExternal: true },
+    caps: { accounts: true, effort: true, permissionMode: true, remoteControl: true, fork: true, attachExternal: true, promptJump: true },
     launch: {
       newSessionId: () => crypto.randomUUID(),
       /**
