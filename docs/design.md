@@ -2256,17 +2256,28 @@ hangar は生きた run ごとに、Claude の登録の最後の状態（busy、
 
 UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux -L hangar attach -t =<tmux_name>`（前の版が既定のサーバに作ったものは `-L` なし）を実行して入出力を中継する。
 リサイズは xterm.js の寸法を PTY に伝える。
-Windows で pty を閉じるとき、node-pty は子のコンソールの一覧を取る補助のプロセスを起こしてから pseudoconsole を閉じるので、補助が「AttachConsole failed」を標準エラー（サーバのログ）へ出すことがある。
-そこで Windows では pty の kill を直には呼ばず、子の `tmux attach` のプロセスだけを終わらせて、node-pty が終了を見て後始末をするのを待つ（`pty/close.ts`）。
-5 秒待っても終わらなければ、元の kill に落とす（node-pty は子が終わってから終了を伝えるまでに 1 秒以上かかることがある）。終わっている pty は閉じ直さない。
-子の pid は閉じる時に読む。node-pty 1.2 の Windows は子を pseudoconsole につないだ後で pid を決め、それまでは 0 を返す。Windows の `process.kill(0)` はサーバ自身を終わらせるので、0 のうちは元の kill に任せる。
+Windows で pty を閉じるとき、hangar は node-pty の `kill` を直には呼ばない（`pty/close.ts`）。
+`kill` は子のコンソールの一覧を取る補助のプロセスを起こしてから pseudoconsole を閉じるので、補助が「AttachConsole failed」を標準エラー（サーバのログ）へ出すことがある。
+pid が使い回されたときに呼んだ側を止めうることもある（下の段落）。
+一方で、子のプロセスだけを終わらせると、node-pty は「子が自分で終わった」経路に入る。
+`1.2.0-beta.15`（上流の beta.18 も同じ作り）のこの経路は、出力の socket を閉じるだけで、conout の Worker も pseudoconsole（conhost）も放さない。
+native の側は子が終わると pty の表から baton を消し、baton にデストラクタは無いので、`ClosePseudoConsole` はどこからも呼ばれない。消えた後に native の kill を呼んでも、baton が見つからず何もしない。
+このため以前の閉じ方では、端末を閉じるたびにスレッドが 1 本、私用メモリが約 16MB、ハンドルが約 14 残り、開け閉めを約 2,100 回繰り返すとサーバが heap out of memory で落ちた。
+そこで Windows では、子の pid が決まっていれば、まず node-pty の内側から native の kill（`ClosePseudoConsole` と pipe の後始末）と conout の Worker の dispose だけを呼ぶ（`pty/nodePty.ts` の `releaseConpty`）。
+conhost が終わるとつながっている子（`tmux attach`）も終わり、node-pty が終了を見て後始末をする。補助のプロセスは起こさない。
+5 秒待っても終わらなければ子のプロセスを止め、さらに 5 秒待っても終わらなければ元の `kill` に落とす（node-pty は子が終わってから終了を伝えるまでに 1 秒以上かかることがある）。終わっている pty は閉じ直さない。
+解放の後は、その pty の native の kill を空にしておく。子が生きている間は baton が残るので、元の `kill` に落ちたときに同じ handle へ `ClosePseudoConsole` が 2 回届くのを避ける。
+node-pty の内側の形が違う（別の版で `_agent` が無いなど）ときは解放をせず、子のプロセスを止めて待ち、元の `kill` に落とす。
+子が自分で終わったときは、終了の知らせを受けて conout の Worker だけを dispose する。pseudoconsole（conhost）は上記の上流の作りで閉じる手が無く、子が自分で終わるたびに 1 つ残る。正式の版で直ったら、そちらに任せる。
+CI の windows-test が `pty/nodePtyRelease.win.test.ts` で、cmd.exe の pty を 20 本開いて閉じたあと、各 pty の conout の Worker が終わり、このプロセスを親に持つ conhost.exe が元の数に戻ることを見る。
+子の pid は閉じる時に読む。node-pty 1.2 の Windows は子を pseudoconsole につないだ後で pid を決め、それまでは 0 を返す。Windows の `process.kill(0)` はサーバ自身を終わらせるので、0 のうちは解放も子のプロセスを止めることもせず、元の kill に任せる。
 子が終わった後の大きさの知らせは捨てる。node-pty の resize は終わった pty で投げ（Unix は ioctl の `EBADF`、Windows は「Cannot resize a pty that has already exited」）、知らせは WebSocket の受け口から届くので、投げるとサーバごと落ちる。
 `node-pty` は `1.2.0-beta.15` に固定している（`^` を付けない）。
 1.1.0 の Windows の `conpty.node` は pty の表を錠なしで触り、子の終わりを待つスレッドが表から消すのと、メインのスレッドの起動、resize、kill が重なると、サーバが 0xC0000409 や 0xC0000005 で落ちた（8 本を同時に閉じるのを 13 巡ほどで再現した）。
 上流は 1.2.0-beta.13 から錠で守っている。正式の 1.2.0 が出たら、そちらへ移す。CI の windows-test が `pty/nodePtyRace.win.test.ts` で、同時に閉じるのを繰り返しても落ちないことを見る。
-試験の閉じ方も hangar と同じく子のプロセスだけを終わらせ、node-pty の `kill` は使わない。
+この試験の閉じ方は子のプロセスだけを終わらせ、node-pty の `kill` は使わない。
 `kill` は子のコンソールのプロセスの一覧を補助のプロセス（`conpty_console_list_agent`）に取らせて全部に `process.kill` を送るので、子が先に終わって pid が使い回されると、呼んだ側のコンソールの一覧を取って自分を終了コード 1 で止めることがある（CI で 2 回起きた。1.1.0 からある上流の作り）。
-hangar では、子が猶予のうちに終わらないときと pid がまだ 0 のときだけ `kill` に落ちる（どちらも子は生きているので、pid は使い回されていない）。
+hangar では、解放と子のプロセスを止めた後の猶予のうちに終わらないときと、pid がまだ 0 のときだけ `kill` に落ちる（どちらも子は生きているので、pid は使い回されていない）。
 
 ターミナルの打鍵と写しは次のようにする。
 
