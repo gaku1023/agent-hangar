@@ -2291,6 +2291,7 @@ native の側は子が終わると pty の表から baton を消し、baton に�
 そこで Windows では、子の pid が決まっていれば、まず node-pty の内側から native の kill（`ClosePseudoConsole` と pipe の後始末）と conout の Worker の dispose だけを呼ぶ（`pty/nodePty.ts` の `releaseConpty`）。
 conhost が終わるとつながっている子（`tmux attach`）も終わり、node-pty が終了を見て後始末をする。補助のプロセスは起こさない。
 5 秒待っても終わらなければ子のプロセスを止め、さらに 5 秒待っても終わらなければ元の `kill` に落とす（node-pty は子が終わってから終了を伝えるまでに 1 秒以上かかることがある）。終わっている pty は閉じ直さない。
+「終わった」とみなすのは、node-pty が子の終了コードを受けたときだけにする（`pty/nodePty.ts` の `trackConptyExit`）。node-pty の終了の知らせは出力の socket が閉じたことから出るので、解放で conout の Worker を放すと、子が生きていても 1 秒後に届く。最初の出力より前に解放すると、pseudoconsole を閉じても conhost と `tmux attach` が終わらないことがまれにあり、この知らせで待ちを取り消すと 2 つが残った。
 解放の後は、その pty の native の kill を空にしておく。子が生きている間は baton が残るので、元の `kill` に落ちたときに同じ handle へ `ClosePseudoConsole` が 2 回届くのを避ける。
 node-pty の内側の形が違う（別の版で `_agent` が無いなど）ときは解放をせず、子のプロセスを止めて待ち、元の `kill` に落とす。
 子が自分で終わったときは、終了の知らせを受けて conout の Worker だけを dispose する。pseudoconsole（conhost）は上記の上流の作りで閉じる手が無く、子が自分で終わるたびに 1 つ残る。正式の版で直ったら、そちらに任せる。

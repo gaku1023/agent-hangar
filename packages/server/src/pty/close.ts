@@ -17,6 +17,8 @@
  * pseudoconsole が閉じると conhost が終わり、つながっている子（tmux attach、孫を持たない）も終わる。補助のプロセスは起こさない。
  * 子が終われば node-pty が終了を見て、出力の socket を閉じ、終了を知らせる。
  * 待っても終わらないときは子の pid を止め、さらに待っても終わらないときだけ、元の kill に落とす。
+ * 最初の出力より前に解放すると、pseudoconsole を閉じても conhost と子が終わらないことがある。このとき node-pty は、socket が閉じただけで終了を知らせる。
+ * 終わりとみなすのは子が本当に終わったときだけにして（nodePty.ts の trackConptyExit）、待ちの後に子の pid を止める手を残す。
  * 解放できない（node-pty の内側の形が違う）ときは、今までどおり子の pid を止めて待ち、元の kill に落とす。
  *
  * 子の pid は閉じる時に読む。node-pty 1.2 の Windows は、子を pseudoconsole につないだ後（ready）で pid を決め、それまでは 0 を返す。
