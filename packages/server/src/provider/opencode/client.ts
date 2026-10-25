@@ -1,9 +1,12 @@
-import { authHeader } from './serve/spawn.ts';
+import { serveHeaders } from './serve/spawn.ts';
 
 /**
  * opencode の serve の HTTP の口（docs/design.md「opencode の起動」）。
  * hangar が opencode の API に触るのは、この包みを通すだけにする。v2 の API は版で変わりうる（experimental の道もある）ので、道の名前と本文の形をここに集める。
  * パスワードは basic 認証の header にだけ載せ、投げる文には載せない。
+ * serve の場所（directory、会話のフォルダ）を持っていれば、どの要求にも `x-opencode-directory` の header で付ける。
+ * opencode 2.1.4 は場所の無い要求を serve の作業フォルダに寄せるので、会話の ID だけの道（本文、interrupt、追記など）も会話のフォルダを指すようにする。
+ * 場所を問い（`location[directory]=`）で渡す道は、問いが先に効く。
  */
 
 /** 応答が 2xx でなかった。status は HTTP の状態、path は道（パスワードを含まない）。 */
@@ -135,7 +138,7 @@ export type OpencodeFormField = { key: string; title?: string; description?: str
 export type OpencodeForm = { id: string; sessionID: string; title: string; metadata?: { kind?: string; tool?: { id?: string } }; fields: OpencodeFormField[] };
 
 export class OpencodeClient {
-  constructor(private readonly serve: { url: string; password: string }, private readonly o: OpencodeClientOptions = {}) {}
+  constructor(private readonly serve: { url: string; password: string; directory?: string | null }, private readonly o: OpencodeClientOptions = {}) {}
 
   /** 新しい会話を作り、opencode が振った ID を返す。 */
   async createSession(b: CreateSessionBody): Promise<string> {
@@ -360,7 +363,7 @@ export class OpencodeClient {
    * 上限の時間は付けない（流れは開いたままにするものなので）。つながらなければ投げる。
    */
   async events(signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
-    const r = await fetch(this.serve.url + '/api/event', { headers: { authorization: authHeader(this.serve.password), accept: 'text/event-stream' }, signal });
+    const r = await fetch(this.serve.url + '/api/event', { headers: { ...serveHeaders(this.serve), accept: 'text/event-stream' }, signal });
     if (!r.ok || !r.body) {
       const text = await r.text().catch(() => '');
       throw new OpencodeApiError(r.status, '/api/event', text.split(this.serve.password).join('***').slice(0, 300));
@@ -372,7 +375,7 @@ export class OpencodeClient {
   private async request(method: string, p: string, body?: unknown, secrets: string[] = []): Promise<unknown> {
     const r = await fetch(this.serve.url + p, {
       method,
-      headers: { authorization: authHeader(this.serve.password), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      headers: { ...serveHeaders(this.serve), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(this.o.timeoutMs ?? 10_000),
     });

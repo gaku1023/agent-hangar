@@ -1,15 +1,34 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import { judgeOpencodeVersion, type OpencodeVersionVerdict } from '../compat/version.ts';
 import { serveEnv, type ServeConfig } from './env.ts';
 import { LaunchQueue, retryOnLock } from './queue.ts';
 import type { ServeRegistry } from './registry.ts';
-import { authHeader, killGroup, startServe, type ServeProcess } from './spawn.ts';
+import { killGroup, serveHeaders, startServe, type ServeProcess } from './spawn.ts';
 
 /**
  * 会話ごとの `opencode serve` を起こし、止める（docs/design.md「opencode の serve の管理」）。
  * 起動は待ち行列で 1 本ずつにし、ロックで落ちたら起こし直す。止めるときは interrupt、SIGTERM、SIGKILL の順にする。
  */
 
-export type ServeInfo = { url: string; password: string; pid: number };
+/** 起きている serve。directory は serve の作業フォルダ（会話のフォルダ）で、OpencodeClient は場所を言わない要求もここを指す。ServeManager は必ず埋める（試験の偽物は省ける）。 */
+export type ServeInfo = { url: string; password: string; pid: number; directory?: string };
+
+/**
+ * 起こすときにだけ効く指定。directory は serve の作業フォルダで、会話のフォルダを渡す。
+ * 省くと（会話に依らない選択肢とプロバイダーの問い合わせ）ホームにする。hangar の作業フォルダは継がない。
+ * 渡した場所がフォルダとして無ければ（消した、まだ作っていない）ホームにする。無い場所を cwd にすると spawn が ENOENT で落ちるからである。
+ */
+export type ServeEnsureOptions = ServeConfig & { directory?: string };
+
+/** serve の作業フォルダ。頼まれた場所、ホームの順に、フォルダとしてあるものを選ぶ。どちらも無ければ undefined（spawn は呼び手の場所を継ぐ）。 */
+export function serveDirectory(requested: string | undefined, home: string = os.homedir()): string | undefined {
+  for (const d of [requested, home]) {
+    if (!d) continue;
+    try { if (fs.statSync(d).isDirectory()) return d; } catch { /* 無い。次を見る */ }
+  }
+  return undefined;
+}
 
 /**
  * 確かめた範囲の外の版で serve を起こしたときの、知らせの種。表示（一度だけの札）は段 C（C7）で作る。
@@ -74,9 +93,9 @@ export class ServeManager {
 
   /**
    * 会話の serve。起きていればそれを返し、無ければ待ち行列で起こす。同じ会話を同時に頼まれても 1 本だけ起こす。
-   * config は起こすときにだけ渡す設定（hangar の MCP）で、起きている serve には効かない。
+   * config は起こすときにだけ渡す設定（hangar の MCP）と作業フォルダで、起きている serve には効かない。
    */
-  async ensure(sessionId: string, config: ServeConfig = {}): Promise<ServeInfo> {
+  async ensure(sessionId: string, config: ServeEnsureOptions = {}): Promise<ServeInfo> {
     const s = this.live.get(sessionId) ?? (await this.launch(sessionId, config));
     return infoOf(s);
   }
@@ -115,7 +134,7 @@ export class ServeManager {
     await Promise.all([...this.live.keys()].map((id) => this.stop(id)));
   }
 
-  private launch(sessionId: string, config: ServeConfig): Promise<ServeProcess> {
+  private launch(sessionId: string, config: ServeEnsureOptions): Promise<ServeProcess> {
     const inflight = this.launching.get(sessionId);
     if (inflight) return inflight;
     const p = this.startOne(sessionId, config).finally(() => this.launching.delete(sessionId));
@@ -123,7 +142,7 @@ export class ServeManager {
     return p;
   }
 
-  private async startOne(sessionId: string, config: ServeConfig): Promise<ServeProcess> {
+  private async startOne(sessionId: string, config: ServeEnsureOptions): Promise<ServeProcess> {
     const { deps } = this;
     await deps.ready?.catch(() => undefined);
     if (!deps.enabled()) throw new OpencodeDisabledError();
@@ -133,9 +152,10 @@ export class ServeManager {
     const version = await deps.version().catch(() => null);
     const verdict = judgeOpencodeVersion(version);
     if (verdict !== 'verified') deps.onVersionNotice?.({ kind: 'opencode-version', version, verdict });
-    const env = serveEnv(bin, deps.env, undefined, config);
+    const env = serveEnv(bin, deps.env, undefined, { configContent: config.configContent });
+    const directory = serveDirectory(config.directory);
     const s = await this.queue.run(() => retryOnLock(
-      () => startServe({ bin, env, pickPort: deps.pickPort, readyTimeoutMs: deps.readyTimeoutMs }),
+      () => startServe({ bin, env, directory, pickPort: deps.pickPort, readyTimeoutMs: deps.readyTimeoutMs }),
       { delaysMs: deps.lockDelaysMs },
     ));
     deps.registry.add({ sessionId, pid: s.pid, port: s.port, startedAt: s.startedAt });
@@ -166,7 +186,7 @@ export class ServeManager {
   /** serve の上で走っている会話を全部 interrupt する。TUI を閉じてもサーバ側の処理は続くので、信号の前に止める。 */
   private async interruptAll(s: ServeProcess): Promise<void> {
     const ms = this.deps.interruptTimeoutMs ?? 1500;
-    const headers = { authorization: authHeader(s.password), 'content-type': 'application/json' };
+    const headers = { ...serveHeaders(s), 'content-type': 'application/json' };
     const r = await fetch(`${s.url}/api/session/active`, { headers, signal: AbortSignal.timeout(ms) });
     if (!r.ok) return;
     const body = (await r.json()) as { data?: Record<string, unknown> } | null;
@@ -179,4 +199,4 @@ export class ServeManager {
   }
 }
 
-const infoOf = (s: ServeProcess): ServeInfo => ({ url: s.url, password: s.password, pid: s.pid });
+const infoOf = (s: ServeProcess): ServeInfo => ({ url: s.url, password: s.password, pid: s.pid, ...(s.directory ? { directory: s.directory } : {}) });

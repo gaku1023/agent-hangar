@@ -3,7 +3,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readFakeOpencodeLog, writeFakeOpencode } from '../../../../test/fake-opencode.ts';
+import { readFakeOpencodeLog, readFakeOpencodeRequests, writeFakeOpencode } from '../../../../test/fake-opencode.ts';
 import { until } from '../../../../test/fake-opencode-events.ts';
 import { isWindows } from '../../../../test/platform.ts';
 import type { ProcRun } from '../../../platform/proc.ts';
@@ -42,6 +42,24 @@ describe('startServe', () => {
     expect(start.argv.join(' ')).not.toContain(s.password);
     expect(start.env.OPENCODE_SERVER_PASSWORD).toBe(s.password);
     if (!isWindows) expect(start.pid).toBe(s.pid);
+  });
+
+  it('会話のフォルダを作業フォルダにして起こし、応答の確かめの GET もその場所を指す', async () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-work-'));
+    try {
+      const { bin, logFile, requestsFile } = writeFakeOpencode(dir);
+      const s = await startServe({ bin, env: serveEnv(bin), directory: work });
+      started.push(s);
+      expect(s.directory).toBe(work);
+      const start = readFakeOpencodeLog(logFile).find((e) => e.ev === 'start');
+      if (start?.ev !== 'start') throw new Error('no start');
+      expect(fs.realpathSync(start.cwd)).toBe(fs.realpathSync(work));
+      const reqs = readFakeOpencodeRequests(requestsFile);
+      expect(reqs.length).toBeGreaterThan(0);
+      expect(reqs.map((r) => r.directory)).toEqual(reqs.map(() => work));
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
   });
 
   it('ポートが塞がっていたら、取り直して起こす', async () => {

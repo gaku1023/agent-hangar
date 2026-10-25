@@ -75,7 +75,7 @@ export class OpencodeTransfer {
     if (!isSafeKeyId(o.providerSessionId)) throw new OpencodeImportError('session id');
     const bin = this.deps.bin();
     if (bin === null) throw new OpencodeImportError('opencode not found');
-    const serve = await this.deps.serves.ensure(o.hangarSessionId);
+    const serve = await this.deps.serves.ensure(o.hangarSessionId, { directory: o.directory });
     const via = ['--server', serve.url];
     if (o.replace) {
       // 消せなかった（無い会話など）ときは、そのまま入れてみる。入らなければ下で exists になる。

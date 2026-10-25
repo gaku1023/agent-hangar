@@ -28,7 +28,7 @@ export type OpencodeSlashCommand = { name: string; description: string; kind: 'c
 
 export type OpencodeOptionsDeps = {
   /** serve の管理（serve/manager.ts の ServeManager）。 */
-  serves: { any(): ServeInfo | null; ensure(key: string): Promise<ServeInfo>; stop(key: string): Promise<void> };
+  serves: { any(): ServeInfo | null; ensure(key: string, config?: { directory?: string }): Promise<ServeInfo>; stop(key: string): Promise<void> };
   /** 手元の opencode の版（設定の検出と同じ口）。 */
   status: () => Promise<OpencodeStatusDto>;
   /** 場所を省いたときに聞く場所。 */
@@ -123,7 +123,7 @@ export class OpencodeOptionsService {
   }
 
   private async fetch(directory: string): Promise<OpencodeOptionsDto> {
-    const raw = await this.withServe((serve) => this.readWithRetry(serve, directory));
+    const raw = await this.withServe(directory, (serve) => this.readWithRetry(serve, directory));
     const status = await this.deps.status().catch(() => ({ found: true, version: null, verified: false }));
     const at = this.now();
     const catalog = this.deps.catalog;
@@ -139,11 +139,11 @@ export class OpencodeOptionsService {
     return dto;
   }
 
-  /** 起きている serve があればそれで、無ければ 1 本起こして聞き、聞き終えたら（失敗しても）止める。 */
-  private async withServe<T>(f: (serve: ServeInfo) => Promise<T>): Promise<T> {
+  /** 起きている serve があればそれで、無ければ聞く場所で 1 本起こして聞き、聞き終えたら（失敗しても）止める。 */
+  private async withServe<T>(directory: string, f: (serve: ServeInfo) => Promise<T>): Promise<T> {
     const live = this.deps.serves.any();
     if (live) return f(live);
-    const serve = await this.deps.serves.ensure(OPTIONS_SERVE_KEY);
+    const serve = await this.deps.serves.ensure(OPTIONS_SERVE_KEY, { directory });
     try {
       return await f(serve);
     } finally {
