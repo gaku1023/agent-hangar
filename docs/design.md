@@ -1449,6 +1449,8 @@ opencode は数週間で版が上がり、v2 の API には experimental の道�
 利用者の opencode の記録と設定には触らず、終わったら置き場ごと消す。
 LLM は呼ばない。
 試しの置き場の `opencode.json` に OpenAI 互換の模擬（手元の 127.0.0.1）をプロバイダーとして置き、決まった並び（shell、execute の中の `hangar.set_turn_intent`、write、edit、read、question、文）で道具を呼ばせる。
+模擬は、頭（`TURN:` など）の付いた利用者の発言とその後の道具の結果の数で次の一手を決める。
+opencode は会話の途中の `system` の発言（MCP の道具が後から増えたときの「The Code Mode tool catalog has changed.」など）を利用者の発言としてモデルへ送るので、頭の無い利用者の発言は筋書きの切れ目と見ない。
 hangar の MCP の代わりに同じ形の小さな MCP を立て、hangar と同じく `OPENCODE_CONFIG_CONTENT` で渡す。
 採るのは `--version` と `--help` の出力、`/api/event` の流れ（1 ターン、許可の待ちの途中の interrupt、つなぎ直しの頭）、取り直しの道の答え（`rest.json`）、本文の答え（全部、ページ送り、form の待ち、shell の実行中）である。
 手元のパスは決まった名前（`/work/repo` など）に置き換え、serve のパスワード、MCP の秘密、置き場とホームのパスが残っていれば書かずに止める。
