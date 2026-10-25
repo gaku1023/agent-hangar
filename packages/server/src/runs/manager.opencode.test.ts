@@ -336,6 +336,54 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(rm.tick().ended.map((e) => e.id)).toEqual([r.run.id]);
   });
 
+  // opencode の TUI が閉じても登録は変わらないので、stir されず、待機の周期（10 秒）で 2 回抜けるのを待っていた（5〜19 秒）。
+  posixIt('TUI の包みが終わったら、包みの見張りで気づき、一覧から 1 回抜けただけで閉じて serve を止める', async () => {
+    const wrapper = 777_773;
+    let alive = true;
+    const { rm, manager } = make({ pidAlive: (pid) => pid === wrapper && alive, startTimeOf: () => fileTime(Date.now()) });
+    const r = await rm.start(params());
+    writeWrapperLog(r.run.id, wrapper);
+    const pid = manager.get(r.sessionId)!.pid;
+    expect(rm.watchWrappers()).toEqual([]);
+    alive = false;
+    expect(rm.watchWrappers()).toEqual([r.run.id]);
+    // 2 回目からは知らせ直さない。
+    expect(rm.watchWrappers()).toEqual([]);
+    expect(rm.tick().ended.map((e) => [e.id, e.endReason])).toEqual([[r.run.id, 'exited']]);
+    await until(() => !isAlive(pid));
+  });
+
+  posixIt('包みのログがまだ無い間は見張れず、書かれたら見張る', async () => {
+    const wrapper = 777_774;
+    let alive = true;
+    const { rm } = make({ pidAlive: (pid) => pid === wrapper && alive });
+    const r = await rm.start(params());
+    expect(rm.watchWrappers()).toEqual([]);
+    writeWrapperLog(r.run.id, wrapper);
+    expect(rm.watchWrappers()).toEqual([]);
+    alive = false;
+    expect(rm.watchWrappers()).toEqual([r.run.id]);
+  });
+
+  posixIt('startPolling の間は、包みが終わってから待機の周期を待たずに閉じる', async () => {
+    const wrapper = 777_775;
+    let alive = true;
+    const { rm, manager } = make({ pidAlive: (pid) => pid === wrapper && alive, startTimeOf: () => fileTime(Date.now()) });
+    const r = await rm.start(params());
+    writeWrapperLog(r.run.id, wrapper);
+    const pid = manager.get(r.sessionId)!.pid;
+    // 起動の stir の短い周期が過ぎた後を作るため、どちらの周期も長くする。
+    rm.startPolling(60_000, 60_000);
+    try {
+      alive = false;
+      await until(() => runRow(r.run.id).ended_at !== null, 2000);
+      expect(runRow(r.run.id).end_reason).toBe('exited');
+      await until(() => !isAlive(pid));
+    } finally {
+      rm.stop();
+    }
+  });
+
   posixIt('止めた（killed）ときと区切りで止めた（parked）ときも、interrupt して serve を止める', async () => {
     const { rm, manager, log, listed, closed } = make({ fake: { activeIds: ['ses_busy'] } });
     const a = await rm.start(params());
