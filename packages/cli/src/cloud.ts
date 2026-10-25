@@ -1378,6 +1378,13 @@ export async function rescueSealedBodies(o: {
         r.already++;
         continue;
       }
+      // opencode の本文の写し（opencode/<会話>.json）は、ほかの PC のものは Claude と同じく remote/<元の PC>/opencode/ に降ろす。
+      // 自分の会話は原本が opencode の記録の置き場にあり、上げた書き出しも ~/.agent-hangar/opencode/export にあるので、それがあれば降ろし直さない。
+      const oc = /^opencode\/([^/]+)\.json$/.exec(e.path);
+      if (e.kind === 'transcript' && oc && o.deviceId && origin === o.deviceId && isSafeKeyId(oc[1]!) && fs.existsSync(path.join(o.home, 'opencode', 'export', `${oc[1]!}.json`))) {
+        r.already++;
+        continue;
+      }
       let target: string;
       if (e.kind === 'config') {
         if (!isSafeKeyId(origin)) throw new Error(`PC の ID が不正です: ${origin}`);

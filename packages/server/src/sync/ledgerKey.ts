@@ -50,11 +50,14 @@ export function opencodeSessionOfPath(rel: string): string | null {
 }
 
 /**
- * 写しの相対パス（`projects/<フォルダ>/` の下）から、台帳の鍵を求める。形が違えば null。
+ * 写しの相対パス（`projects/<フォルダ>/` の下か、opencode の `opencode/<会話>.json`）から、台帳の鍵を求める。形が違えば null。
  * 上げる側の transcriptLedgerKey と同じ鍵になる（`<uuid>.jsonl` は `<uuid>.jsonl.gz` に、サブエージェントはその下に）。
+ * opencode の写しは、上げる側の ledgerKeyFor('opencode', …) と同じ `opencode/<端末>/<会話>.json.gz` になる。
  */
 export function ledgerKeyOfPath(deviceId: string, rel: string): string | null {
   if (!isSafeKeyId(deviceId)) return null;
+  const oc = opencodeSessionOfPath(rel);
+  if (oc !== null) return ledgerKeyFor('opencode', deviceId, oc, null);
   const parts = path.posix.normalize(rel).split('/');
   const suffix = parts.slice(2).join('/');
   if (parts[0] !== 'projects' || parts.length < 3 || suffix === '' || parts.includes('..')) return null;

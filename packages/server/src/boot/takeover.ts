@@ -1,9 +1,11 @@
+import path from 'node:path';
 import type { RunManager } from '../runs/manager.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { TakeoverService } from '../sync/takeover.ts';
 import { TakeoverResponder } from '../sync/takeoverResponder.ts';
 import { cancelOrphanAsks, pruneTakeoverRows } from '../sync/takeoverRows.ts';
 import type { HomeParts } from './home.ts';
+import type { OpencodeParts } from './opencode.ts';
 import type { SyncParts } from './sync.ts';
 
 export type TakeoverParts = {
@@ -29,6 +31,8 @@ export function bootTakeover(p: {
   sync: Pick<SyncParts, 'flushSession' | 'pushNow' | 'onTakeoversApplied' | 'pullForTakeover' | 'canCarryTakeover'>;
   delivery: { hub: { broadcast(ev: NoticeEvent): void } };
   againMs?: number;
+  /** opencode の serve の管理（boot/opencode.ts）。引き継ぎの受け手より後に組むので、呼ばれた時点で引く。無ければ opencode の会話も Claude と同じ順で止める。 */
+  opencode?: () => Pick<OpencodeParts, 'transfer' | 'exporter'> | null;
 }): TakeoverParts {
   const { db, language } = p.home;
   const deviceId = p.home.device.id;
@@ -42,6 +46,12 @@ export function bootTakeover(p: {
     deviceName: (id) => (nameOf.get(id) as { name: string } | undefined)?.name ?? id,
     language,
     ...(p.againMs !== undefined ? { againMs: p.againMs } : {}),
+    // opencode の会話は、interrupt して idle を待ち、書き出して上げてから止める。
+    opencode: {
+      quiesce: async (sessionId, providerSessionId) => p.opencode?.()?.transfer.quiesce(sessionId, providerSessionId),
+      // 書き出しの置き場がまだ無ければ（serve の管理を組む前）、空の名前を返して台帳の版で答えさせる。
+      exportFile: (providerSessionId) => { const ex = p.opencode?.()?.exporter; return ex ? path.join(ex.dir, `${providerSessionId}.json`) : ''; },
+    },
   });
   const service = new TakeoverService({
     db, deviceId,

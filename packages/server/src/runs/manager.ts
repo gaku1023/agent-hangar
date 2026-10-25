@@ -338,6 +338,22 @@ export class RunManager {
   }
 
   /**
+   * 下ごしらえの要る driver（opencode）の会話を「この PC で再開」するとき、ほかの PC の本文を取り込む前に呼ぶ（sync/opencodeResume.ts）。
+   * 再開（resumeMaterialized）と同じ理由（設定が切、動いている run、実行ファイルが無い、場所が無い）で断り、通れば再開する場所を返す。
+   * opencode の import は無い場所を断るので、ほかの PC のクイックセッションのフォルダはここで作る。serve は起こさない。
+   */
+  prepareResumeDir(sessionId: string): string {
+    const s = this.session(sessionId);
+    const agent = this.agentOf(s).kind;
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
+    if (!this.deps.agentBin?.(agent)) throw new RunError(400, msg('run.agent.notFound'));
+    const { path: cwd, createsFolder } = this.cwdFor(s);
+    this.precheck(cwd, { agent, create: createsFolder });
+    return cwd;
+  }
+
+  /**
    * --add-dir に渡す値を整える。
    * --add-dir は可変長オプションなので、`-` で始まる値はそのまま claude のフラグとして食われる。
    * `addDirs: ["--dangerously-skip-permissions"]` のような指定を通さない。

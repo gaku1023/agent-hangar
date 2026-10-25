@@ -155,6 +155,12 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
     // 鍵に出どころ（ファイルのパス）を持たせてあるので、消すのはこの出どころのぶんだけでよい。
     // 主線を作り直しても、サブエージェントのファイル由来の日別はそのまま残る。
     if (reset) stmt(db, 'delete from usage_daily where session_id = ? and file_path = ?').run(sessionId, origin);
+    // 本文を DB に持つ束は、同じ位置を手元の束（`opencode:<会話>`）とほかの PC の写しの束（`opencode:<会話>@<PC>`）が書き替え合う。
+    // 作り直しでは、どちらの出どころの日別も消してから積む（ファイルの束が写しを選び替えたときに前の写しの日別を消すのと同じ。二重に数えない）。
+    const storedBase = storedOrigin(b);
+    if (reset && (origin === storedBase || origin.startsWith(`${storedBase}@`))) {
+      stmt(db, 'delete from usage_daily where session_id = ? and (file_path = ? or substr(file_path, 1, ?) = ?)').run(sessionId, storedBase, storedBase.length + 1, `${storedBase}@`);
+    }
     const artifactIds = new Set<string>();
     const insCall = stmt(db, 'insert into artifact_calls (tool_id, session_id, file_path, description, favicon) values (?,?,?,?,?) on conflict(tool_id) do update set file_path = excluded.file_path, description = excluded.description, favicon = excluded.favicon');
     const getCall = stmt(db, 'select file_path, description, favicon from artifact_calls where tool_id = ? and session_id = ?');

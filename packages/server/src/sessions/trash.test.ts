@@ -680,3 +680,55 @@ describe('持ち主の PC で戻したら、本文を上げ直す', () => {
     ]);
   });
 });
+
+describe('opencode の会話', () => {
+  const SES = 'ses_e8e86939cffewIeT7kgc690PVE';
+  let exportDir: string;
+  const exportFile = () => path.join(exportDir, `${SES}.json`);
+  const remoteCopy = () => path.join(remoteRoot, OTHER, 'opencode', `${SES}.json`);
+  const ocService = (deviceId = DEV): SessionTrash => new SessionTrash({
+    db, deviceId, claudeDir, remoteRoot, opencodeExportDir: exportDir,
+    trash: async (p) => { trashCalls.push(p); },
+    runsAnywhere: () => runsAnywhere, runsHere: () => runsHere, log: () => {},
+  });
+  const count = (sql: string) => (db.prepare(sql).get('s-oc') as { c: number }).c;
+  beforeEach(() => {
+    exportDir = path.join(tmp, 'export');
+    upsertShared(db, 'sessions', { id: 's-oc', provider: 'opencode', provider_session_id: SES, cwd: CWD, home_device: DEV, project_id: 'pa' }, DEV);
+    fs.mkdirSync(exportDir, { recursive: true });
+    fs.writeFileSync(exportFile(), '{"info":{},"messages":[]}');
+    fs.mkdirSync(path.dirname(remoteCopy()), { recursive: true });
+    fs.writeFileSync(remoteCopy(), '{"info":{},"messages":[]}');
+    db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', ?, ?, 'x', 1, 1, 1, 1)")
+      .run(`opencode/${OTHER}/${SES}.json.gz`, `opencode/${SES}.json`, OTHER);
+    // 索引に写した本文（agent_events）と、検索と、いまの手。
+    db.prepare("insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref) values ('s-oc', 0, 'user', 1, 0, 0, ?)").run(`opencode:${SES}`);
+    db.prepare("insert into event_fts (session_id, agent_id, seq, role, text) values ('s-oc', null, 0, 'user', 'hello')").run();
+    db.prepare("insert into agent_events (session_id, agent_key, seq, body) values ('s-oc', '', 0, '{}')").run();
+    db.prepare("insert into session_activity (session_id, tool, summary, tool_id, updated_at) values ('s-oc', 'Bash', 'x', 't', 1)").run();
+    db.prepare("insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values ('s-oc', '2026-10-25', ?, 5, 5)").run(`opencode:${SES}`);
+  });
+
+  it('消すと、書き出しのファイルと降ろした写しを消し、索引の本文を片付ける。使用量は残す。ゴミ箱は使わない', async () => {
+    await ocService().deleteSession('s-oc');
+    expect(fs.existsSync(exportFile())).toBe(false);
+    expect(fs.existsSync(remoteCopy())).toBe(false);
+    expect(trashCalls).toEqual([]);
+    expect(count('select count(*) c from agent_events where session_id = ?')).toBe(0);
+    expect(count('select count(*) c from event_index where session_id = ?')).toBe(0);
+    expect(count('select count(*) c from event_fts where session_id = ?')).toBe(0);
+    expect(count('select count(*) c from session_activity where session_id = ?')).toBe(0);
+    expect(count('select count(*) c from usage_daily where session_id = ?')).toBe(1);
+    expect(db.prepare("select deleted_at from sessions where id = 's-oc'").get()).toEqual({ deleted_at: expect.any(Number) });
+    expect(db.prepare("select trashed_at from session_states where session_id = 's-oc'").get()).toEqual({ trashed_at: expect.any(Number) });
+  });
+
+  it('印を受け取った PC でも、写しと索引の本文を片付ける', async () => {
+    db.prepare("insert into session_states (session_id, trashed_at, updated_at, origin_device) values ('s-oc', ?, 1, ?)").run(Date.now(), OTHER);
+    const r = await ocService().applyMarks();
+    expect(r.trashed).toContain('s-oc');
+    expect(fs.existsSync(remoteCopy())).toBe(false);
+    expect(fs.existsSync(exportFile())).toBe(false);
+    expect(count('select count(*) c from agent_events where session_id = ?')).toBe(0);
+  });
+});

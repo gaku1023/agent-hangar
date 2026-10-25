@@ -147,7 +147,7 @@ export type AppDeps = {
   /** 「この PC で再開」の頼む側（sync/takeover.ts）。ほかの PC で動く会話を止めてもらい、最後の本文が降りるのを待つ。 */
   takeover: Pick<TakeoverService, 'start' | 'extend' | 'cancel' | 'get' | 'forcedWithoutRow'>;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
-  resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
+  resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto | Promise<LaunchResultDto | ResumeHereConflictDto>;
   /**
    * 「この PC で再開」の確認に出す、手元のトランスクリプトを置き換えるか（sync/copy.ts の compareForResume）。
    * 渡さなければ置き換えないものとして null を返す（試験の世界）。

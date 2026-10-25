@@ -313,6 +313,21 @@ export class OpencodeClient {
   }
 
   /**
+   * 会話 1 つの情報（`GET /api/session/{id}`）のうち、hangar が使う場所（2.1.4 は `location.directory`）。
+   * 無い会話は OpencodeApiError（404）で投げる。場所の書いていない答えは null にする。
+   */
+  async session(sessionId: string): Promise<{ id: string; directory: string | null }> {
+    const r = await this.request('GET', `/api/session/${encodeURIComponent(sessionId)}`) as { data?: { id?: unknown; location?: { directory?: unknown }; directory?: unknown } } | null;
+    const d = r?.data;
+    return { id: str(d?.id) ?? sessionId, directory: str(d?.location?.directory) ?? str(d?.directory) };
+  }
+
+  /** 会話の作業を止める（`POST /api/session/{id}/interrupt`）。動いていなくても 200 で答える。 */
+  async interrupt(sessionId: string): Promise<void> {
+    await this.request('POST', `/api/session/${encodeURIComponent(sessionId)}/interrupt`, {});
+  }
+
+  /**
    * その場所（directory）で許可を待っている確認。会話の下のサブエージェントの確認も、同じ場所なら載る。
    * 2.1.4 は場所を文字列のまま照らす（シンボリックリンクを解いた形は別の場所になる）ので、会話を作ったときと同じ形で渡す。
    * 形の合わない行は捨てる。

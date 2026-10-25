@@ -1,4 +1,5 @@
 import { remoteRoot } from '../config/cloud.ts';
+import { opencodeExportDir } from '../provider/opencode/export.ts';
 import { moveToTrash } from '../platform/trash.ts';
 import { sessionRunsAnywhere } from '../runs/announce.ts';
 import { SessionTrash } from '../sessions/trash.ts';
@@ -34,7 +35,7 @@ export function bootTrash(
   const runHere = db.prepare('select 1 from runs where session_id = ? and device_id = ? and ended_at is null and deleted_at is null limit 1');
   const providerOf = db.prepare('select provider_session_id p from sessions where id = ?');
   const trash = new SessionTrash({
-    db, deviceId, claudeDir, remoteRoot: remoteRoot(home.home),
+    db, deviceId, claudeDir, remoteRoot: remoteRoot(home.home), opencodeExportDir: opencodeExportDir(home.home),
     trash: (p) => moveToTrash(p),
     runsAnywhere: (id) => sessionRunsAnywhere({ db, deviceId, live }, id),
     runsHere: (id) => {

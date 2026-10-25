@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { RunError } from '../runs/manager.ts';
 import type { CopyResult } from './copy.ts';
-import { resumeHere } from './resumeHere.ts';
+import { ensureSession } from '../indexer/write.ts';
+import { resumeHere, resumeHereFor } from './resumeHere.ts';
 
 describe('この PC で再開', () => {
   let db: Db;
@@ -62,5 +63,47 @@ describe('この PC で再開', () => {
     }, 's1', false);
     expect(run).toThrow('no root');
     expect(calls).toEqual(['check s1']);
+  });
+});
+
+describe('この PC で再開の振り分け（resumeHereFor）', () => {
+  let db: Db;
+  beforeEach(() => { db = openDb(':memory:'); });
+  afterEach(() => { db.close(); });
+  const launched = { sessionId: 's1' } as unknown as LaunchResultDto;
+
+  it('Claude の会話は今までどおり本文を写して再開し、opencode の口には触らない', () => {
+    const id = ensureSession(db, '11111111-1111-4111-8111-111111111111', '/w', 'dev-b');
+    const calls: string[] = [];
+    const r = resumeHereFor({
+      db,
+      claude: { db, home: '/nope/home', claudeDir: '/nope/claude', resume: (x) => { calls.push(`resume ${x}`); return launched; }, pruneTranscripts: () => undefined, copy: () => ({ kind: 'kept', target: '/t' }) },
+      opencode: () => { calls.push('opencode'); throw new Error('must not be called'); },
+    }, id, false);
+    // Claude の道は同期のまま返す（待たせない）。
+    expect(r).toBe(launched);
+    expect(calls).toEqual([`resume ${id}`]);
+  });
+
+  it('opencode の会話は取り込みの道（resumeOpencodeHere）へ回す', async () => {
+    const id = ensureSession(db, 'ses_e8e86939cffewIeT7kgc690PVE', '/w', 'dev-b', 'opencode');
+    const calls: string[] = [];
+    const r = resumeHereFor({
+      db,
+      claude: { db, home: '/nope/home', claudeDir: '/nope/claude', resume: () => { calls.push('claude'); return launched; }, pruneTranscripts: () => undefined, copy: () => { calls.push('copy'); return { kind: 'kept', target: '/t' }; } },
+      opencode: () => ({
+        db, home: '/nope/home', deviceId: 'dev-a',
+        prepare: (x) => { calls.push(`prepare ${x}`); return '/w'; },
+        exportLocal: async () => '/nope/local.json',
+        transfer: { importSession: async () => { calls.push('import'); } },
+        stopServe: async () => undefined,
+        resume: async (x) => { calls.push(`resumeWith ${x}`); return launched; },
+        pruneTranscripts: () => undefined,
+      }),
+    }, id, false);
+    expect(r).toBeInstanceOf(Promise);
+    // 写しが無く手元に会話があるので、取り込まずに再開する。
+    expect(await r).toBe(launched);
+    expect(calls).toEqual([`prepare ${id}`, `resumeWith ${id}`]);
   });
 });

@@ -15,6 +15,7 @@ import type { Db } from '../db/open.ts';
  * recoveryBoxPending は、リカバリーキーの再発行で名簿を書いた後、recovery 宛ての keybox を置き終えていない印である（sync/recoveryReissue.ts）。
  * cloudId は最後に同期した接続先の印（Worker の `GET /health` が返す `meta.cloud_id`）、rebuiltAt は作り直した時刻（ミリ秒）である（sync/rebuild.ts）。
  * configBundleKey は、最後に上げた設定の同期の束の中身の指紋である（sync/config/service.ts。作り直しで消す）。
+ * `opencodeView:<会話>` は、閲覧のために索引へ入れた opencode の写しの印である（provider/opencode/transcript/remote.ts。消えても読み直すだけ）。
  */
 export type SyncStateKey =
   | 'lastSeq'
@@ -37,7 +38,8 @@ export type SyncStateKey =
   | 'cloudId'
   | 'rebuiltAt'
   | 'configBundleKey'
-  | `skipped:${string}`;
+  | `skipped:${string}`
+  | `opencodeView:${string}`;
 
 /**
  * sync_state（端末ローカル）の薄い包み。

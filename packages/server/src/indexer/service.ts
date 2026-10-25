@@ -7,7 +7,7 @@ import type { FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntr
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
 import { forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat } from './indexFile.ts';
-import { ensureSession, writeBatch, type ProcessStartOf } from './write.ts';
+import { ensureSession, storedOrigin, writeBatch, type ProcessStartOf } from './write.ts';
 import { stmt } from './statements.ts';
 
 export type IndexerListener = {
@@ -448,11 +448,13 @@ export class IndexerService {
   private onBatch(b: IndexBatch): void {
     if (!this.running) return;
     try {
-      const r = writeBatch(this.opts.db, b, { deviceId: this.opts.deviceId, processStartOf: this.opts.processStartOf, contextSizeOf: this.opts.contextSizeOf });
+      // ほかの PC の写しの束（remoteDevice）は、他端末の写しとして書く。出どころの名前も手元の束と分ける（使用量の鍵と、手元の本文の有無の見分け）。
+      const remote = b.remoteDevice !== undefined;
+      const r = writeBatch(this.opts.db, b, { deviceId: this.opts.deviceId, processStartOf: this.opts.processStartOf, contextSizeOf: this.opts.contextSizeOf, ...(remote ? { remote: true, origin: `${storedOrigin(b)}@${b.remoteDevice}` } : {}) });
       if (r.skipped) return;
-      if (b.agentId === null || r.appended > 0) writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(b.providerSessionId));
+      if (!remote && (b.agentId === null || r.appended > 0)) writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(b.providerSessionId));
       touchRow(this.opts.db, 'sessions', r.sessionId);
-      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: b.providerSessionId, agentId: b.agentId, appended: r.appended, artifactIds: r.artifactIds, deviceId: null, path: null });
+      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: b.providerSessionId, agentId: b.agentId, appended: r.appended, artifactIds: r.artifactIds, deviceId: b.remoteDevice ?? null, path: null });
     } catch (e) {
       this.emitError(`${b.agent}:${b.providerSessionId}`, errorMessage(e));
     }

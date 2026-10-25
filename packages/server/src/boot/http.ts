@@ -11,7 +11,8 @@ import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
 import { PtyRelay } from '../pty/relay.ts';
 import { sessionRunsAnywhere } from '../runs/announce.ts';
-import { resumeHere } from '../sync/resumeHere.ts';
+import { resumeHereFor } from '../sync/resumeHere.ts';
+import { compareOpencodeForResume } from '../sync/opencodeResume.ts';
 import { compareForResume } from '../sync/copy.ts';
 import { guardUpgrades } from '../ws/guard.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -78,7 +79,7 @@ export type HttpParts = {
  */
 export function bootHttp(p: {
   home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane' | 'service'>;
-  opencode: Pick<OpencodeParts, 'options' | 'providers'>;
+  opencode: Pick<OpencodeParts, 'options' | 'providers' | 'exporter' | 'transfer' | 'serves'>;
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
@@ -137,8 +138,22 @@ export function bootHttp(p: {
     syncSweep: () => sync.feed.sweep(),
     syncOncePass: () => sync.feed.oncePass(),
     takeover: takeover.service,
-    resumeHereReplace: (sessionId) => compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),
-    resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
+    // 手元を置き換えるかの確認。opencode の会話は、上げるために書き出した最後のファイルとメッセージの ID で比べる（sync/opencodeResume.ts）。
+    resumeHereReplace: (sessionId) => compareOpencodeForResume({ db, home: home.home, deviceId: device.id, sessionId }) ?? compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),
+    // Claude は本文を ~/.claude に写して再開し、opencode は降ろした export を opencode に取り込んでから再開する（sync/resumeHere.ts の resumeHereFor）。
+    resumeHere: (sessionId, overwrite) => resumeHereFor({
+      db,
+      claude: { db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') },
+      opencode: () => ({
+        db, home: home.home, deviceId: device.id,
+        prepare: (id) => runs.runs.prepareResumeDir(id),
+        exportLocal: (id) => p.opencode.exporter.export(id),
+        transfer: p.opencode.transfer,
+        stopServe: (id) => p.opencode.serves.stop(id),
+        resume: (id) => runs.runs.resumeWith(id),
+        pruneTranscripts: () => sync.pruneBackups('transcripts'),
+      }),
+    }, sessionId, overwrite),
     get configBundle() { return sync.configBundle; },
     joinApprover: sync.joinApprover,
     recoveryKey: sync.recoveryKey,

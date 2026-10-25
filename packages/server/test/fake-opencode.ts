@@ -24,8 +24,15 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * - `mcp`：MCP の状態を聞かれた場所（directory）と、答えた状態。
  * - `list`：一覧の道（agent、model、provider、config）と、聞かれた場所（directory）。
  * - `export`：`session export` の書き出し先（server か standalone）と、会話の ID。
+ * - `import`：`session import` のつなぎ先、会話の ID、`--directory` の値、結果（imported、exists、location）。
+ * - `delete`：`session delete` のつなぎ先、会話の ID、結果（deleted、not-found）。
+ * - `session`：`GET /api/session/{id}` で聞かれた会話の ID。
  * - `term`：SIGTERM を受けた。
  * - `exit`：自分から終わった理由。
+ *
+ * 会話の記録は、実物の SQLite の代わりに dir の `store.json` に置く（import、delete、export、`GET /api/session/{id}` が同じものを見る）。
+ * 実物の 2.1.4 と同じく、既にある ID への import は標準エラーに `Session already exists` を書いて何も変えずに 0 で終わり、
+ * 無い `--directory` への import は `LocationNotFoundError` で 1 で終わる。
  *
  * 実物と同じく、ほかの 1 本が起動の途中（`starting` の印がある間）に起こされると、`database is locked` で落ちる。
  * 待ち受けのポートが塞がっていれば、実物と同じ文で落ちる。
@@ -90,6 +97,10 @@ export type FakeOpencodeOptions = {
   exportTruncate?: boolean;
   /** 書き出しを終えるまでの間。 */
   exportDelayMs?: number;
+  /** interrupt を受けたら、その会話を `GET /api/session/active` から外す（作業が止まって idle になったふり）。 */
+  activeUntilInterrupt?: boolean;
+  /** import が `--directory` を無視して、起こされた場所を会話の場所にする（場所の確かめの試験に使う）。 */
+  importIgnoresDirectory?: boolean;
 };
 
 /** 偽のカタログの 1 行。methods は実物の Integration.Method の形。 */
@@ -146,6 +157,9 @@ export type FakeOpencodeEvent =
   | { ev: 'integration'; pid: number; id: string | null; t: number }
 
   | { ev: 'export'; pid: number; via: 'server' | 'standalone'; id: string; t: number }
+  | { ev: 'import'; pid: number; via: 'server' | 'standalone'; id: string; directory: string | null; result: 'imported' | 'exists' | 'location' | 'unreadable'; t: number }
+  | { ev: 'delete'; pid: number; via: 'server' | 'standalone'; id: string; result: 'deleted' | 'not-found'; t: number }
+  | { ev: 'session'; pid: number; id: string; t: number }
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
@@ -154,6 +168,7 @@ export function writeFakeOpencode(dir: string, opts: FakeOpencodeOptions = {}): 
   const logFile = path.join(dir, 'events.jsonl');
   const starting = path.join(dir, 'starting');
   const lockCount = path.join(dir, 'lock-count');
+  const store = path.join(dir, 'store.json');
   const script = `
 import fs from 'node:fs';
 import http from 'node:http';
@@ -172,7 +187,38 @@ const log = (o) => fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, t: 
 const argv = process.argv.slice(2);
 log({ ev: 'start', argv, env: { ...process.env } });
 const exit = (reason, code) => { log({ ev: 'exit', reason }); process.exit(code); };
-if (argv[0] === 'session' && argv[1] === 'export') {
+const STORE = ${JSON.stringify(store)};
+const readStore = () => (fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, 'utf8')) : {});
+const writeStore = (st) => fs.writeFileSync(STORE, JSON.stringify(st));
+// 消した会話は store に null で残し、OPTS.exports の同じ ID も隠す。
+const lookup = (id) => { const st = readStore(); if (Object.prototype.hasOwnProperty.call(st, id)) return st[id] ?? undefined; return (OPTS.exports ?? {})[id]; };
+const viaOf = () => (argv.indexOf('--server') >= 0 ? 'server' : 'standalone');
+const needPassword = () => { const at = argv.indexOf('--server'); if (at >= 0 && !process.env.OPENCODE_PASSWORD) { process.stderr.write('Server at ' + argv[at + 1] + ' requires a password; set OPENCODE_PASSWORD\\n'); exit('no-password', 1); } };
+if (argv[0] === 'session' && argv[1] === 'import') {
+  needPassword();
+  const file = argv[argv.length - 1];
+  const dAt = argv.indexOf('--directory');
+  const directory = dAt >= 0 ? argv[dAt + 1] : null;
+  let data;
+  try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { log({ ev: 'import', via: viaOf(), id: '', directory, result: 'unreadable' }); process.stderr.write('Failed to read ' + file + '\\n'); exit('import-unreadable', 1); }
+  const id = data.info.id;
+  if (directory !== null && !fs.existsSync(directory)) { log({ ev: 'import', via: viaOf(), id, directory, result: 'location' }); process.stderr.write('LocationNotFoundError: Location not found: ' + directory + '\\n'); exit('import-location', 1); }
+  if (lookup(id) !== undefined) { log({ ev: 'import', via: viaOf(), id, directory, result: 'exists' }); process.stderr.write('Session already exists\\n'); exit('import-exists', 0); }
+  const st = readStore();
+  st[id] = { ...data, info: { ...data.info, location: { directory: OPTS.importIgnoresDirectory || directory === null ? process.cwd() : directory } } };
+  writeStore(st);
+  log({ ev: 'import', via: viaOf(), id, directory, result: 'imported' });
+  process.stdout.write('Imported session: ' + id + '\\n', () => exit('imported', 0));
+} else if (argv[0] === 'session' && argv[1] === 'delete') {
+  needPassword();
+  const id = argv[argv.length - 1];
+  if (lookup(id) === undefined) { log({ ev: 'delete', via: viaOf(), id, result: 'not-found' }); process.stderr.write('Session not found: ' + id + '\\n'); exit('delete-not-found', 1); }
+  const st = readStore();
+  st[id] = null;
+  writeStore(st);
+  log({ ev: 'delete', via: viaOf(), id, result: 'deleted' });
+  process.stdout.write('Session ' + id + ' deleted\\n', () => exit('deleted', 0));
+} else if (argv[0] === 'session' && argv[1] === 'export') {
   const EXPORT_LOCKS = ${JSON.stringify(path.join(dir, 'export-lock-count'))};
   const at = argv.indexOf('--server');
   const via = at >= 0 ? 'server' : 'standalone';
@@ -182,7 +228,7 @@ if (argv[0] === 'session' && argv[1] === 'export') {
   if (via === 'server' && OPTS.exportServerDown) { process.stderr.write('Unable to connect. Is the computer able to access the url?\\n'); exit('export-server-down', 1); }
   const n = Number(fs.existsSync(EXPORT_LOCKS) ? fs.readFileSync(EXPORT_LOCKS, 'utf8') : '0');
   if (n < (OPTS.exportLockTimes ?? 0)) { fs.writeFileSync(EXPORT_LOCKS, String(n + 1)); process.stderr.write('SQLiteError: database is locked\\n'); exit('export-locked', 1); }
-  const data = (OPTS.exports ?? {})[id];
+  const data = lookup(id);
   if (data === undefined) { process.stderr.write('Session not found: ' + id + '\\n'); exit('export-not-found', 1); }
   const text = JSON.stringify(data, null, 2) + '\\n';
   setTimeout(() => {
@@ -216,6 +262,7 @@ const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'a
 const readBody = (req) => new Promise((resolve) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve({ unreadable: b }); } }); });
 const mcpNames = (() => { try { return Object.keys(JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? '{}').mcp?.servers ?? {}); } catch { return []; } })();
 let created = 0;
+const active = new Set(OPTS.activeIds ?? []);
 const agentAsked = new Set();
 let mcpPolls = 0;
 // 接続の記録（実物は DB）。id → { integrationID, key, method }。
@@ -315,6 +362,15 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { location, data: rows.map((p) => ({ id: p.id, integrationID: p.id, name: p.name, activation: p.id === 'lmstudio' ? 'auto' : 'enabled', ...(p.baseURL ? { settings: { apiKey: 'sk-fake-secret', baseURL: p.baseURL } } : {}) })) });
     return;
   }
+  const one = /^\\/api\\/session\\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'GET' && one && one[1] !== 'active') {
+    const id = decodeURIComponent(one[1]);
+    log({ ev: 'session', id });
+    const data = lookup(id);
+    if (data === undefined) { json(res, 404, { error: 'Session not found: ' + id }); return; }
+    json(res, 200, { data: data.info });
+    return;
+  }
   const msg = /^\\/api\\/session\\/([^/]+)\\/message$/.exec(url.pathname);
   if (req.method === 'GET' && msg) {
     log({ ev: 'messages', id: decodeURIComponent(msg[1]), query: url.search });
@@ -381,9 +437,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'DELETE') { attempts.delete(attempt); res.writeHead(204); res.end(); return; }
   }
   const m = /^\\/api\\/session\\/([^/]+)\\/interrupt$/.exec(req.url ?? '');
-  if (req.method === 'POST' && m) { log({ ev: 'interrupt', id: decodeURIComponent(m[1]) }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":true}'); return; }
+  if (req.method === 'POST' && m) { log({ ev: 'interrupt', id: decodeURIComponent(m[1]) }); if (OPTS.activeUntilInterrupt) active.delete(decodeURIComponent(m[1])); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":true}'); return; }
   if (req.method === 'GET' && req.url === '/api/session/active') {
-    const data = Object.fromEntries((OPTS.activeIds ?? []).map((id) => [id, { type: 'busy' }]));
+    const data = Object.fromEntries([...active].map((id) => [id, { type: 'busy' }]));
     res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data })); return;
   }
   res.writeHead(404); res.end();

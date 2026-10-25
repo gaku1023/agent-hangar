@@ -185,3 +185,72 @@ describe('頼まれた側の応答', () => {
     expect(pruneTakeoverRows(db, SELF, 5000)).toBe(0);
   });
 });
+
+describe('opencode の会話の引き継ぎ（頼まれた側）', () => {
+  const SES = 'ses_e8e86939cffewIeT7kgc690PVE';
+  let db: Db;
+  let sessionId: string;
+  let calls: string[];
+  let runs: Map<string, RunDto>;
+  let exportDir: string;
+
+  beforeEach(() => {
+    db = openDb(':memory:');
+    sessionId = ensureSession(db, SES, '/w', SELF, 'opencode');
+    calls = [];
+    runs = new Map([['r1', { id: 'r1', sessionId, deviceId: SELF, kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 } as RunDto]]);
+    exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-oc-takeover-'));
+  });
+  afterEach(() => { db.close(); fs.rmSync(exportDir, { recursive: true, force: true }); });
+
+  const build = (o: { quiesce?: () => Promise<unknown> } = {}): TakeoverResponder => new TakeoverResponder({
+    db, deviceId: SELF,
+    runs: {
+      getRun: (id) => runs.get(id) ?? null,
+      kill: (id, reason) => { calls.push(`kill:${id}:${reason}`); const r = { ...runs.get(id)!, endedAt: 2, endReason: reason ?? 'killed' } as RunDto; runs.set(id, r); return r; },
+    },
+    // 上げる側は opencode の会話を書き出し直してから上げる（sync/uploader.ts の flushSession）。
+    flushSession: async (u) => { calls.push(`flush:${u}`); fs.writeFileSync(path.join(exportDir, `${u}.json`), '{"info":{},"messages":["last"]}'); },
+    pushNow: async () => { calls.push('push'); },
+    notePane: (_n, t) => { calls.push(`note:${t}`); },
+    deviceName: (id) => id,
+    language: () => 'ja',
+    sleep: async (ms) => { calls.push(`sleep:${ms}`); },
+    now: () => 5000,
+    opencode: {
+      quiesce: async (hangarId, providerId) => { calls.push(`quiesce:${hangarId}:${providerId}`); return o.quiesce?.(); },
+      exportFile: (id) => path.join(exportDir, `${id}.json`),
+    },
+  });
+  const ask = () => writeAsk(db, 'pc-a', { sessionId, runId: 'r1', targetDevice: SELF, mode: 'ask', now: 1000 });
+
+  it('interrupt して idle を待ち、書き出し直して上げ、それから止める。版は書き出したファイルで答える', async () => {
+    const a = ask();
+    expect(await build().scan()).toBe(1);
+    expect(calls).toEqual([
+      'note:[hangar] pc-a に引き継がれたため、この PC の opencode を停止しました。',
+      `quiesce:${sessionId}:${SES}`,
+      `flush:${SES}`,
+      'kill:r1:taken_over',
+      'push',
+    ]);
+    const body = '{"info":{},"messages":["last"]}';
+    expect(answerOf(db, a.id)).toMatchObject({ result: 'stopped', transcriptSha256: createHash('sha256').update(body).digest('hex'), transcriptSize: Buffer.byteLength(body) });
+  });
+
+  it('止めるのに失敗しても（idle を待てない）、書き出して上げてから止める', async () => {
+    ask();
+    await build({ quiesce: async () => { throw new Error('serve が応えない'); } }).scan();
+    expect(calls.filter((c) => !c.startsWith('note:'))).toEqual([`quiesce:${sessionId}:${SES}`, `flush:${SES}`, 'kill:r1:taken_over', 'push']);
+  });
+
+  it('動いていなければ止めずに、opencode の台帳の版で not_running と答える', async () => {
+    runs.set('r1', { ...runs.get('r1')!, endedAt: 3, endReason: 'killed' } as RunDto);
+    db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', 'p', ?, 'sha-oc', 7, 0, 1, 0)")
+      .run(`opencode/${SELF}/${SES}.json.gz`, SELF);
+    const a = ask();
+    await build().scan();
+    expect(calls).toEqual(['push']);
+    expect(answerOf(db, a.id)).toMatchObject({ result: 'not_running', transcriptSha256: 'sha-oc', transcriptSize: 7 });
+  });
+});

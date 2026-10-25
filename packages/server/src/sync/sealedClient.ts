@@ -253,9 +253,6 @@ export class SealedCloudClient implements CloudClient {
     let dropped = 0;
     opened.forEach((e, i) => {
       const f = page.files[i]!;
-      // opencode の本文の写しは、まだ取り込む口が無い（段 E の E3 で足す）。開けても渡さず、区切りは先へ進める。
-      // 本文は変化のたびに全体を上げ直すので、取り込みを足した版は次に上がった行から降ろせる。
-      if (e && opencodeSessionOfPath(e.path) !== null) return;
       if (e) files.push(e);
       // 鍵の無い世代の行は、鍵が届けば開けるので名指しで返す（呼び手が後で読み直す）。
       else if (ring.at(f.epoch) === null) unreadable.push({ seq: f.seq, epoch: f.epoch });

@@ -166,6 +166,11 @@ export type IndexBatch = {
   records: IndexRecord[];
   /** 持たなければ、書く側は「いま」と使用制限の表に触らない。 */
   fold?: IndexFold;
+  /**
+   * ほかの PC から降ろした写しの束なら、その PC の id（opencode の閲覧の写し。provider/opencode/transcript/remote.ts）。
+   * 索引は他端末の写しとして書く（会話の行と要約には書かず、行がまだ無ければ書かない）。手元の束では持たない。
+   */
+  remoteDevice?: string;
 };
 
 /** 本文のファイルを from バイト目から読んだ束。nextByte は次に読み始める所、badLines は読めなかった行の数である。 */

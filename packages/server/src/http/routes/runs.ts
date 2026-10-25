@@ -47,7 +47,7 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
       }
     }
     try {
-      const r = deps.resumeHere(id, body.overwrite === true);
+      const r = await deps.resumeHere(id, body.overwrite === true);
       return 'error' in r ? c.json(r, 409) : c.json(r);
     } catch (e) {
       if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);

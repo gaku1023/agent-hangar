@@ -8,6 +8,7 @@ import { forgetTranscriptFile } from '../indexer/indexFile.ts';
 import { stmt } from '../indexer/statements.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import type { TrashFn } from '../platform/trash.ts';
+import { isSafeKeyId } from '@agent-hangar/shared';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { setSessionTrashed } from './states.ts';
 
@@ -31,6 +32,10 @@ import { setSessionTrashed } from './states.ts';
  * ゴミ箱へ移す本文の元のパスは、移す前に端末ローカルの trashed_transcripts に控え、移せなかったら取り消す（版 26）。
  * 移した後の DB の書き込みで転んでも、控えが残るので、利用者がゴミ箱から戻せば元に戻る。
  * 同じパスに主線の本文が戻ってきたら、印と論理削除を外して索引し直す（checkRestores）。復元は同期でほかの PC にも届く。
+ *
+ * opencode の会話の本文は opencode の記録の置き場にあり、hangar は消さない（ゴミ箱へ移せるファイルが無い）。
+ * hangar の持ち物である、同期のための書き出し（`~/.agent-hangar/opencode/export/<会話>.json`）と、降ろした写し（`remote/<PC>/opencode/<会話>.json`）は消す。
+ * 索引に写した本文（agent_events）と、その索引と検索も片付ける。日別の使用量は Claude と同じく残す。
  */
 
 /** 削除の誤り。status は HTTP の応答の番号で、message はトーストにそのまま出せる一文である。 */
@@ -48,6 +53,8 @@ export type SessionTrashDeps = {
   claudeDir: string;
   /** hangar が他の PC から降ろした本文の置き場（~/.agent-hangar/remote）。この下は hangar の持ち物なので、ゴミ箱を通さずに消す。 */
   remoteRoot: string;
+  /** opencode の会話の同期のための書き出しの置き場（~/.agent-hangar/opencode/export）。hangar の持ち物なので、ゴミ箱を通さずに消す。省けば見ない。 */
+  opencodeExportDir?: string;
   /** ゴミ箱へ移す口（platform/trash.ts の moveToTrash）。試験が差し替える。 */
   trash: TrashFn;
   /** そのセッションがどこかの PC で動いているか（runs/announce.ts の sessionRunsAnywhere）。消すときに断る。 */
@@ -63,7 +70,7 @@ export type SessionTrashDeps = {
   now?: () => number;
 };
 
-type SessionFacts = { id: string; provider_session_id: string; cwd: string; project_id: string | null; deleted_at: number | null };
+type SessionFacts = { id: string; provider: string; provider_session_id: string; cwd: string; project_id: string | null; deleted_at: number | null };
 type Target = { path: string; kind: 'file' | 'dir' };
 /** 印を処理する 1 件。 */
 type MarkRow = { id: string; t: number };
@@ -136,16 +143,18 @@ export function alignSessionTrash(db: Db, sessionId: string, prevTrashedAt: numb
  * 削除の印が before 以前で、その後に戻されていないセッション（ゴミ箱の掃除の対象。sync/trashSweep.ts）。
  * 印は同期で届くので、ほかの PC で消したセッションも入る。
  * 同じ Claude Code のセッション ID を持つ生きたセッションの行があれば外す（本文の鍵名はその ID から求めるので、生きている方の本文まで消してしまう）。
- * ID の形が違うものも外す。
+ * ID の形が違うものも外す（Claude は UUID、opencode は鍵に使える形。sync/trashSweep.ts が鍵名を会話のエージェントで求める）。
  */
 export function trashedLongAgo(db: Db, before: number): { sessionId: string; uuid: string }[] {
-  const rows = db.prepare(`select st.session_id sessionId, s.provider_session_id uuid from session_states st
+  const rows = db.prepare(`select st.session_id sessionId, s.provider_session_id uuid, s.provider provider from session_states st
     join sessions s on s.id = st.session_id
     where st.deleted_at is null and st.trashed_at is not null and st.trashed_at <= ?
       and (st.restored_at is null or st.restored_at < st.trashed_at)
       and not exists (select 1 from sessions o where o.provider_session_id = s.provider_session_id and o.deleted_at is null)
-    order by st.trashed_at, st.session_id`).all(before) as { sessionId: string; uuid: string }[];
-  return rows.filter((r) => SESSION_UUID.test(r.uuid));
+    order by st.trashed_at, st.session_id`).all(before) as { sessionId: string; uuid: string; provider: string }[];
+  return rows
+    .filter((r) => (r.provider === 'opencode' ? isSafeKeyId(r.uuid) : SESSION_UUID.test(r.uuid)))
+    .map((r) => ({ sessionId: r.sessionId, uuid: r.uuid }));
 }
 
 /** 1 回の処理の結果。trashed はこの回に処理し終えたセッション、waiting はこの PC で動いているので待ったセッション。 */
@@ -182,7 +191,7 @@ export class SessionTrash {
   }
 
   private facts(sessionId: string): SessionFacts | undefined {
-    return this.db.prepare('select id, provider_session_id, cwd, project_id, deleted_at from sessions where id = ?').get(sessionId) as SessionFacts | undefined;
+    return this.db.prepare('select id, provider, provider_session_id, cwd, project_id, deleted_at from sessions where id = ?').get(sessionId) as SessionFacts | undefined;
   }
 
   private underRemote(p: string): boolean { return isStrictlyUnder(p, this.deps.remoteRoot); }
@@ -212,6 +221,7 @@ export class SessionTrash {
    */
   private remoteTargets(s: SessionFacts): string[] {
     const uuid = s.provider_session_id;
+    if (s.provider === 'opencode') return this.opencodeTargets(s);
     if (!SESSION_UUID.test(uuid)) return [];
     const fromIndex = (this.db.prepare('select path from transcript_files where session_id = ?').all(s.id) as { path: string }[]).map((r) => r.path).filter((p) => this.underRemote(p));
     const fromLedger = (this.db.prepare("select path, device_id from file_sync where kind = 'transcript' and device_id <> ? and path like ?").all(this.deps.deviceId, `%/${uuid}.jsonl`) as { path: string; device_id: string }[])
@@ -226,6 +236,27 @@ export class SessionTrash {
       const dir = path.join(path.dirname(main), uuid);
       if (exists(main) && this.underRemote(main)) out.add(main);
       if (isDir(dir) && this.underRemote(dir)) out.add(dir);
+    }
+    return [...out];
+  }
+
+  /**
+   * opencode の会話の、hangar の持ち物のファイル。同期のための書き出しと、降ろした写し（台帳から引く）。いまあるものだけ。
+   * 置き場の外を指すものは返さない。
+   */
+  private opencodeTargets(s: SessionFacts): string[] {
+    const id = s.provider_session_id;
+    if (!isSafeKeyId(id)) return [];
+    const out = new Set<string>();
+    const dir = this.deps.opencodeExportDir;
+    if (dir) {
+      const f = path.join(dir, `${id}.json`);
+      if (exists(f) && isStrictlyUnder(f, dir)) out.add(f);
+    }
+    const rows = this.db.prepare("select device_id from file_sync where kind = 'transcript' and device_id <> ? and key like ?").all(this.deps.deviceId, `opencode/%/${id}.json.gz`) as { device_id: string }[];
+    for (const r of rows) {
+      const p = path.join(this.deps.remoteRoot, r.device_id, 'opencode', `${id}.json`);
+      if (exists(p) && this.underRemote(p)) out.add(p);
     }
     return [...out];
   }
@@ -250,6 +281,14 @@ export class SessionTrash {
    */
   private forgetIndex(sessionId: string): void {
     for (const r of this.db.prepare('select path from transcript_files where session_id = ?').all(sessionId) as { path: string }[]) forgetTranscriptFile(this.db, r.path, { keepUsage: true });
+    // 本文を DB に持つ会話（opencode）は、ファイルの行が無いので会話ごと片付ける。
+    const p = this.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;
+    if (p?.provider === 'opencode') {
+      for (const sql of [
+        'delete from event_index where session_id = ?', 'delete from event_fts where session_id = ?', 'delete from agent_events where session_id = ?',
+        'delete from session_activity where session_id = ?', 'delete from session_limits where session_id = ?',
+      ]) this.db.prepare(sql).run(sessionId);
+    }
   }
 
   private record(sessionId: string, moved: Target[], at: number): void {
