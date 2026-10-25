@@ -127,7 +127,9 @@ describe('束を送る', () => {
     expect(key).toMatch(/^b\/dev-a\/[A-Za-z0-9_-]{43}$/);
     const f = shared.files.get(key!)!;
     const dump = [key, JSON.stringify(f.entry), Buffer.from(fromBase64Url(f.entry.sealedMeta)!).toString('latin1'), f.body.toString('latin1')].join('|');
-    for (const plain of ['.hangar', 'config-bundle', 'hgr', 'CLAUDE.md', '# rules']) expect(dump).not.toContain(plain);
+    // 鍵名と sealedMeta は毎回変わる base64url の文字列である。
+    // 3 文字の 'hgr' は、その中にたまたま現れる（3000 回に 2 回ほど）ので、点を付けた '.hgr' で探す（点は base64url に無い）。
+    for (const plain of ['.hangar', 'config-bundle', '.hgr', 'CLAUDE.md', '# rules']) expect(dump).not.toContain(plain);
     // 別の PC は鍵名を同じく求めて取りに行ける。
     const b = pc('dev-b', 'mini');
     deliver(a, b);
