@@ -1801,8 +1801,9 @@ tmux の中での入れ子の扱い（hangar の専用のサーバなら `switch
 alias で opencode を包んでいる人がいても読み込みで壊れないよう、関数は `function opencode` の形で書く。
 
 `opencode --help` はまだ読まず、包みは組み込みの一覧で書く。
-横取りに使うフラグが help から消えたか、値の取り方が変わったときは、`opencodeSubcommandsFromHelp` がずれ（`flag.removed`、`flag.valueChanged`）として返す。
-ずれを記録に入れるときは、Claude の `cli` の契約と混ぜない（Claude の見直しが誤って読むため）。
+横取りに使うフラグが help から消えたか、値の取り方が変わったときは、`opencodeSubcommandsFromHelp` がずれ（`flag.removed`、`flag.valueChanged`）として、ほかのずれと同じ契約 `opencode-cli` で返す（「opencode との互換」）。
+Claude の `cli` の契約には混ぜない（Claude の見直しが誤って読むため）。
+ずれを記録に入れる口はまだ無い（`opencodeSubcommandsFromHelp` を呼ぶ所が無い）。
 
 ## セッションの起動と観察
 

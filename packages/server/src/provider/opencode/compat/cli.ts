@@ -87,7 +87,7 @@ const cliDrift = (value: string): Drift => ({ contract: 'opencode-cli', value, v
  * 読めたときは、組み込みの一覧とのサブコマンドの差と、組み込みの一覧に無いフラグを、1 つずつずれとして返す。
  * 包みは知っているフラグだけを横取りし、知らないフラグがあれば素通しにするので、フラグが増えても動作は変わらない。知らせるだけである。
  * 横取りに使うフラグ（OPENCODE_INTERCEPT_FLAGS）は、消えたもの（flag.removed）と値の取り方が変わったもの（flag.valueChanged）も返す。
- * ずれの契約は今は 'cli' で返す。記録に入れるときは Claude の 'cli' と混ぜない（Claude の見直し isCliDrift が誤って読むため）。
+ * ずれはどれも契約 'opencode-cli' で返す（cliDrift）。Claude の 'cli' とは混ぜない（Claude の見直し isCliDrift が誤って読むため）。
  */
 export function opencodeSubcommandsFromHelp(text: string | null): { subcommands: readonly string[]; drifts: Drift[] } {
   if (text === null || text.trim() === '') return { subcommands: BUILTIN_OPENCODE_SUBCOMMANDS, drifts: [] };
