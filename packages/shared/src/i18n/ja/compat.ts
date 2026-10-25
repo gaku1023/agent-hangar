@@ -8,6 +8,7 @@ export const compatJa: AreaDictionary<typeof compatKeys> = {
   'compat.contract.claudeDir': '~/.claude の内容',
   'compat.contract.cli': 'CLI',
   'compat.contract.screen': '画面出力',
+  'compat.contract.opencodeCli': 'opencode の CLI',
   'compat.stop.jumpShort': '目次からジャンプ',
   'compat.stop.jumpLine': 'ターンの目次からターミナルの指示へのジャンプを無効にしています',
   'compat.stop.parkShort': 'アイドル時の自動停止',

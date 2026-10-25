@@ -7,6 +7,7 @@ export const compatKeys = {
   'compat.contract.claudeDir': [],
   'compat.contract.cli': [],
   'compat.contract.screen': [],
+  'compat.contract.opencodeCli': [],
   'compat.stop.jumpShort': [],
   'compat.stop.jumpLine': [],
   'compat.stop.parkShort': [],

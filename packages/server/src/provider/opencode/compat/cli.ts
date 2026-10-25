@@ -71,7 +71,8 @@ export function parseOpencodeHelp(text: string): OpencodeHelp | null {
   return { subcommands: [...subs].sort(), flags: [...flags].sort(), valueFlags: [...valueFlags].sort() };
 }
 
-const cliDrift = (value: string): Drift => ({ contract: 'cli', value, version: null });
+/** opencode のずれは 'opencode-cli' で返す。Claude の 'cli' に混ぜると、Claude の見直し（isCliDrift）が Claude の一覧で読んでしまう。 */
+const cliDrift = (value: string): Drift => ({ contract: 'opencode-cli', value, version: null });
 
 /**
  * --help の出力から、opencode の包みに書くサブコマンドの一覧を作る。

@@ -56,6 +56,11 @@ describe('止めた機能の表（stopOf）', () => {
     ];
     for (const [c, v] of cases) expect(stopOf(ja, drift(c, v))!.line, `${c} ${v}`).toMatch(/無効にしています$/);
   });
+  it('opencode の CLI のずれは、Claude の契約と別の呼び名で、止めた機能は無い', () => {
+    expect(contractLabel(ja, 'opencode-cli')).toBe('opencode の CLI');
+    expect(contractLabel(en, 'opencode-cli')).toBe('opencode CLI');
+    for (const v of ['subcommand.added=newcmd', 'flag.added=--newflag', 'help.subcommands=(missing)']) expect(stopOf(ja, drift('opencode-cli', v)), v).toBeNull();
+  });
   it('契約の呼び名は spec の 6 つ', () => {
     const labels = (t: typeof ja) => Object.fromEntries((['transcript', 'registry', 'statusline', 'claude-dir', 'cli', 'screen'] as CompatContract[]).map((c) => [c, contractLabel(t, c)]));
     expect(labels(ja)).toEqual({ transcript: 'トランスクリプト', registry: 'レジストリ', statusline: 'ステータスライン', 'claude-dir': '~/.claude の内容', cli: 'CLI', screen: '画面出力' });

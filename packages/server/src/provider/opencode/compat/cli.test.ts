@@ -69,7 +69,8 @@ describe('parseOpencodeHelp', () => {
   });
 });
 
-const c = (value: string) => ({ contract: 'cli', value, version: null });
+// opencode のずれは Claude の 'cli' と分けた契約で返す（Claude の見直し isCliDrift が opencode の値を誤って読まないため）。
+const c = (value: string) => ({ contract: 'opencode-cli', value, version: null });
 
 describe('opencodeSubcommandsFromHelp', () => {
   it('読めた一覧を使い、組み込みの一覧との差と、知らないフラグをずれとして返す', () => {
