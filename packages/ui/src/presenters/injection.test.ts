@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { t as translate, translator } from '@agent-hangar/shared';
-import { presentInjection } from './injection.ts';
+import { presentInjection, presentOpencodeInjection } from './injection.ts';
 
 const ja = translator('ja');
 const textOf = (pieces: { text: string }[] | { kind: string; text: string }[]) => pieces.map((p) => p.text).join('');
@@ -40,5 +40,35 @@ describe('足す指示の全文', () => {
     expect(body!.label).toBe('Basics (always)');
     expect(body!.pieces.filter((p) => p.kind === 'token').map((p) => p.text)).toEqual(['project name', 'path', 'TODO list']);
     expect(presentInjection(translator('en'), { askStatusAtEnd: true, liveHints: true })[1]!.mark).toBe('Only when you use sync');
+  });
+});
+
+describe('opencode に足す指示の全文', () => {
+  const on = { askStatusAtEnd: true, liveHints: true };
+  it('最小限は辞書の 1 段だけで、名前は選択肢の名前', () => {
+    const parts = presentOpencodeInjection(ja, on, 'minimal');
+    expect(parts.map((p) => p.label)).toEqual(['最小限（意図と要約）']);
+    expect(parts[0]).toMatchObject({ off: false, mark: null });
+    expect(textOf(parts[0]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.minimal'));
+  });
+  it('Claude Code と同じは Claude の 5 段で、意図の段だけ opencode 向けの文に替える', () => {
+    const parts = presentOpencodeInjection(ja, on, 'claude');
+    const claude = presentInjection(ja, on);
+    expect(parts.map((p) => p.label)).toEqual(claude.map((p) => p.label));
+    expect(parts.slice(0, 4)).toEqual(claude.slice(0, 4));
+    expect(textOf(parts[4]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.live'));
+  });
+  it('Claude Code と同じでも、切った段は打ち消しで残す', () => {
+    const parts = presentOpencodeInjection(ja, { askStatusAtEnd: false, liveHints: false }, 'claude');
+    expect(parts.map((p) => p.off)).toEqual([false, false, false, true, true]);
+    expect(textOf(parts[4]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.live'));
+  });
+  it('追記しないは段が無い', () => {
+    expect(presentOpencodeInjection(ja, on, 'none')).toEqual([]);
+  });
+  it('英語の画面では英語の指示を出す', () => {
+    const [p] = presentOpencodeInjection(translator('en'), on, 'minimal');
+    expect(p!.label).toBe('Minimal (intent and summary)');
+    expect(textOf(p!.pieces)).toBe(translate('en', 'launch.injection.opencode.minimal'));
   });
 });

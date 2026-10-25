@@ -19,14 +19,14 @@ posixDescribe('OpencodeExporter', () => {
   });
   afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-  const make = (opts: FakeOpencodeOptions, o: { serve?: { url: string; password: string } | null; bin?: string | null } = {}) => {
+  const make = (opts: FakeOpencodeOptions, o: { serve?: { url: string; password: string } | null; bin?: string | null; env?: NodeJS.ProcessEnv } = {}) => {
     const fake = writeFakeOpencode(path.join(dir, 'bin'), opts);
     const exporter = new OpencodeExporter({
       home,
       bin: () => (o.bin === undefined ? fake.bin : o.bin),
       serveOf: () => o.serve ?? null,
       // 呼び手（hangar のサーバ）の環境に印が混ざっていても、書き出しの opencode には渡さない。
-      env: { HOME: home, USER: 'me', PATH: '/usr/bin:/bin', CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'x', HANGAR_TOKEN: 'secret', ANTHROPIC_API_KEY: 'sk' },
+      env: { HOME: home, USER: 'me', PATH: '/usr/bin:/bin', CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'x', HANGAR_TOKEN: 'secret', ANTHROPIC_API_KEY: 'sk', ...o.env },
       lockDelaysMs: [10, 10, 10],
       log: () => undefined,
     });
@@ -59,6 +59,15 @@ posixDescribe('OpencodeExporter', () => {
     expect(keys.sort()).toEqual(['HOME', 'LANG', 'PATH', 'USER']);
     expect(start.env.HOME).toBe(home);
     expect(start.env.OPENCODE_PASSWORD).toBeUndefined();
+  });
+
+  posixIt('利用者の XDG の置き場は渡す（ふだんの opencode と同じ DB から書き出す）', async () => {
+    const { exporter, log } = make({ exports: { [SES]: exportOf(SES) } }, { env: { XDG_DATA_HOME: '/d/data', XDG_CONFIG_HOME: '/d/config' } });
+    await exporter.export(SES);
+    const start = log().find((e) => e.ev === 'start');
+    if (start?.ev !== 'start') throw new Error('no start');
+    expect(start.env).toMatchObject({ XDG_DATA_HOME: '/d/data', XDG_CONFIG_HOME: '/d/config' });
+    expect(Object.keys(start.env).filter((k) => /^(CLAUDE|HANGAR_)/.test(k))).toEqual([]);
   });
 
   posixIt('会話の serve が起きていれば --server でつなぎ、パスワードは環境だけで渡す', async () => {

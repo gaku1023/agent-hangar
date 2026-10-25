@@ -50,6 +50,11 @@ export type MobileParts = {
   start(): void;
   /** 購読と見回りを外し、書き手を止める。走っている書き込みは待たない。 */
   stop(): void;
+  /**
+   * 素の中身に効く設定が変わった（opencode の入り切り。素の caps と opencode の行が変わる）。組み直しを予約する。
+   * 設定は DB の行ではないので、表の変化の購読（FEED_TABLES）では拾えない。start の前と stop の後は何もしない。
+   */
+  settingsChanged(): void;
 };
 
 type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
@@ -326,6 +331,10 @@ export function bootMobile(p: {
       try { ensure(); } catch (e) { console.error('[mobile] could not set up the mobile feed', e instanceof Error ? e.constructor.name : typeof e); }
       ringCheck();
       checkPhones();
+    },
+    settingsChanged() {
+      if (!started || stopped) return;
+      kick();
     },
     stop() {
       stopped = true;

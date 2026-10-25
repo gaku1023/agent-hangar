@@ -13,6 +13,7 @@ export const runKeys = {
   'run.agent.unknown': ['agent'],
   'run.agent.disabled': ['label'],
   'run.agent.notFound': [],
+  'run.agent.isCmd': ['file'],
   'run.agent.optionUnsupported': ['option'],
   'run.agent.actionUnsupported': [],
   'run.agent.launchFailed': ['reason'],

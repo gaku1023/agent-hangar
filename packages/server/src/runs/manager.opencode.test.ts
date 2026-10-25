@@ -68,7 +68,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     return { panes, opened, listed, closed };
   };
 
-  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean } = {}) => {
+  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
@@ -87,6 +87,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     const { panes, opened, listed, closed } = recordingPanes(logFile, { fail: o.failOpen });
     const rm = new RunManager({
       db, deviceId: 'd', home, panes, claudeBin: fakeClaude.bin, claudeDir: home, port: 4177, token: 'tok', shell: 'sh', language: () => 'ja',
+      ...(o.platform ? { platform: o.platform } : {}),
       procs: { ...realProcOps, listJobs: () => [], ...(o.startTimeOf ? { startTimeOf: o.startTimeOf } : {}) },
       ...(o.pidAlive ? { pidAlive: o.pidAlive } : {}),
       agents: agentsOf([claude, opencode]), claude,
@@ -210,6 +211,18 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     await expect(rm.start(params())).rejects.toMatchObject({ status: 400, message: expect.stringContaining('opencode が見つかりません') });
     expect(sessions()).toEqual([]);
     expect(log()).toEqual([]);
+  });
+
+  // npm の包み（opencode.cmd）が .exe を指していなければ、読み替えられずに .cmd のまま届く。.cmd は tmux（psmux）から直に起こせない。
+  posixIt('Windows で opencode が .cmd のままなら、起動の入口で理由を添えて断り、行も serve も作らない', async () => {
+    const cmd = 'C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd';
+    const { rm, log, opened } = make({ bin: cmd, platform: 'win32' });
+    const err = (await rm.start(params()).then(() => null, (e: unknown) => e)) as Error & { status: number };
+    expect(err).toMatchObject({ status: 400 });
+    expect(err.message).toBe(`opencode を起動できませんでした: ${cmd} は .cmd のため使えません。opencode.exe が PATH から見つかるようにしてください`);
+    expect(sessions()).toEqual([]);
+    expect(log()).toEqual([]);
+    expect(opened).toEqual([]);
   });
 
   posixIt('知らないエージェントと、opencode に無い指定（アカウント、effort、権限モード、追加ディレクトリ、worktree）は、行を作らずに断る', async () => {

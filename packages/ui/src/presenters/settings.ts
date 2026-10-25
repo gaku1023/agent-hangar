@@ -15,7 +15,7 @@ import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
 import { clientPlatform, presentMux, toolLine, workspaceLine, type MuxStatus, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 import { presentUpdateSection, type UpdateSectionProps } from './update.ts';
-import { presentInjection, type InjectionPart } from './injection.ts';
+import { presentInjection, presentOpencodeInjection, type InjectionPart } from './injection.ts';
 
 /**
  * 設定の「連携 › opencode」の版の区分。
@@ -32,6 +32,8 @@ export type OpencodeVersionKind = 'verified' | 'unverified' | 'legacy' | 'unknow
 export type OpencodeSettingsProps = {
   available: boolean; enabled: boolean; injection: OpencodeInjection;
   injectionOptions: { value: OpencodeInjection; label: string }[];
+  /** 選んでいる量で送る追記の全文（presenters/injection.ts の presentOpencodeInjection）。追記しないときは空で、画面は畳みごと出さない。 */
+  full: InjectionPart[];
   version: { kind: OpencodeVersionKind; installed: string | null; verified: string; note: string | null } | null;
   badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null;
   claudeNote: string | null;
@@ -60,7 +62,7 @@ export function opencodeVersionKind(s: OpencodeStatusDto): OpencodeVersionKind {
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows では面を出さない（段 G1 で外す）。 */
-function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
@@ -69,6 +71,7 @@ function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; op
     enabled: opencodeEnabledOf(settings),
     injection,
     injectionOptions: OPENCODE_INJECTIONS.map((value) => ({ value, label: t(OPENCODE_INJECTION_KEY[value]) })),
+    full: presentOpencodeInjection(t, { askStatusAtEnd: settings.askStatusAtEnd !== false, liveHints: settings.liveHints !== false }, injection),
     version: status && kind && text ? { kind, installed: status.version, verified: OPENCODE_VERIFIED_RANGE, note: text.note ? t(text.note) : null } : null,
     badge: text ? { text: t(text.badge), tone: text.tone } : null,
     claudeNote: injection === 'claude' ? t('settings.opencode.injection.claudeNote') : null,

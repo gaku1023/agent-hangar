@@ -94,6 +94,15 @@ describe('opencodeSubcommandsFromHelp', () => {
     expect(gone.drifts.some((d) => d.value.startsWith('flag.removed=--') && !d.value.endsWith('--session'))).toBe(false);
     expect(gone.drifts.some((d) => d.value === 'flag.removed=--continue')).toBe(false);
   });
+  it('横取りのフラグのずれも含め、どのずれも契約は opencode-cli で、Claude の cli は 1 件も無い', () => {
+    const all = [
+      ...opencodeSubcommandsFromHelp('FLAGS\n  --auto string    x\n  --newflag    y\n\nSUBCOMMANDS\n  newcmd    y\n').drifts,
+      ...opencodeSubcommandsFromHelp('no sections here').drifts,
+    ];
+    expect(all.some((d) => d.value.startsWith('flag.removed='))).toBe(true);
+    expect(all.some((d) => d.value.startsWith('flag.valueChanged='))).toBe(true);
+    expect(new Set(all.map((d) => d.contract))).toEqual(new Set(['opencode-cli']));
+  });
   it('出力が無ければ、ずれ無しで組み込みの一覧を使う', () => {
     expect(opencodeSubcommandsFromHelp(null)).toEqual({ subcommands: BUILTIN_OPENCODE_SUBCOMMANDS, drifts: [] });
     expect(opencodeSubcommandsFromHelp('  ')).toEqual({ subcommands: BUILTIN_OPENCODE_SUBCOMMANDS, drifts: [] });

@@ -93,11 +93,19 @@ describe('設定の opencode の面', () => {
     expect(en.injectionOptions.map((o) => o.label)).toEqual(['Minimal (intent and summary)', 'Same as Claude Code', 'None']);
     expect(en.claudeNote).toBe('Some models may confirm status proposals without asking you.');
     expect(en.badge).toEqual({ text: 'Unverified version', tone: 'info' });
-    expect(en.version?.note).toBe('This version is unverified. API changes may cause status and permission prompts to display incorrectly.');
+    expect(en.version?.note).toBe('This version is unverified. API changes may cause status and permission checks to display incorrectly.');
     const missing = present(store({ language: 'en', opencodeEnabled: true }, { found: false, version: null, verified: false }));
     expect(missing.version?.note).toBe('opencode not found (check your PATH).');
     expect(missing.badge?.text).toBe('Not found');
     expect(present(store({ language: 'en', opencodeEnabled: true })).badge?.text).toBe('Verified');
     expect(present({ ...store({ language: 'en', opencodeEnabled: true }), shellHook: { state: 'off', zshrc: '/u/.zshrc', line: 'x', command: 'hangar shell install', osSupported: true } }).intercept.note).toBe('Install the shell integration on this PC to use this.');
+  });
+
+  it('追記の全文は選んでいる量で組み、Claude と同じスイッチが効く', () => {
+    expect(present(store({ opencodeEnabled: true })).full.map((p) => p.label)).toEqual(['最小限（意図と要約）']);
+    const claude = present(store({ opencodeEnabled: true, opencodeInjection: 'claude', liveHints: false }));
+    expect(claude.full).toHaveLength(5);
+    expect(claude.full[4]!.off).toBe(true);
+    expect(present(store({ opencodeEnabled: true, opencodeInjection: 'none' })).full).toEqual([]);
   });
 });

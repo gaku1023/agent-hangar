@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { onRowChange, type RowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { convertMessages } from '../provider/opencode/transcript/convert.ts';
@@ -75,5 +76,21 @@ describe('IndexerService の contextSizeOf', () => {
     source.track({ providerSessionId: SID, cwd: CWD, serve });
     await until(() => (stats(db) as { context_size: number | null } | undefined)?.context_size === 200);
     expect(stats(db)).toEqual({ model: 'mock/mock', context_used: 12, context_size: 200, cost_usd: 0 });
+  });
+
+  // スマホの一覧（boot/mobile.ts の FEED_TABLES）は session_live_stats を見ない。使用量の変化は、束を書いた後の sessions の名指しで届く（計画の F1）。
+  it('使用量を書いた束の後に sessions の行を名指しする（スマホの一覧の組み直しの契機）', async () => {
+    const seen: RowChange[] = [];
+    const off = onRowChange((c) => { if (c.db === db) seen.push(c); });
+    try {
+      const source = new OpencodeTranscript({ debounceMs: 0, log: () => {} });
+      svc = new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), stored: [source], isRunning: () => false, contextSizeOf: () => 200 });
+      await svc.start();
+      serve.state.messages.set(SID, ALL);
+      source.track({ providerSessionId: SID, cwd: CWD, serve });
+      await until(() => (stats(db) as { context_size: number | null } | undefined)?.context_size === 200);
+      const sid = (db.prepare("select id from sessions where provider = 'opencode' and provider_session_id = ?").get(SID) as { id: string }).id;
+      await until(() => seen.some((c) => c.table === 'sessions' && c.rowId === sid));
+    } finally { off(); }
   });
 });

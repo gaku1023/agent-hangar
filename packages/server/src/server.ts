@@ -126,7 +126,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // スマホの受信箱に預ける素を封じて書く。同期と run（アカウントと使用率）の後に組む。
   // スマホの opencode の問い合わせ（モードとモデル、`/` の候補）には、opencode の選択肢が手元に持った一覧で答える。
   const mobile = bootMobile({ home, delivery, runs, sync, opencode });
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, opts, serverDir });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();

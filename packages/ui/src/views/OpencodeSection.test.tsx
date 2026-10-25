@@ -13,6 +13,7 @@ const OPTIONS: OpencodeSettingsProps['injectionOptions'] = [
 ];
 const props = (over: Partial<OpencodeSettingsProps> = {}): OpencodeSettingsProps => ({
   available: true, enabled: false, injection: 'minimal', injectionOptions: OPTIONS, claudeNote: null,
+  full: [{ label: '最小限（意図と要約）', off: false, mark: null, pieces: [{ kind: 'text', text: 'あなたは agent-hangar から起動されたセッションです。' }] }],
   intercept: { available: true, on: false, note: null },
   version: { kind: 'verified', installed: '2.1.4', verified: '2.1.x', note: null },
   badge: { text: '検証済み', tone: 'ok' },
@@ -121,6 +122,25 @@ describe('設定の opencode の面', () => {
     expect(screen.getByText('Version')).toBeInTheDocument();
     expect(section().querySelector('.oc-vers')).toHaveTextContent('Installed 2.1.4 · Verified 2.1.x');
     expect(screen.getByText('System prompt additions')).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Launch the opencode command through Hangar' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Launch the opencode command through hangar' })).toBeInTheDocument();
+  });
+
+  it('追記の行の下に、選んでいる量で送る全文を Claude と同じ畳みで出す', () => {
+    render(ui(props({ enabled: true })));
+    const fold = section().querySelector('details.cp-more');
+    expect(fold).not.toBeNull();
+    expect(fold!.querySelector('summary')).toHaveTextContent('追加する指示の全文を表示');
+    expect(fold!.querySelector('.inject-part-k')).toHaveTextContent('最小限（意図と要約）');
+    expect(fold).toHaveTextContent('あなたは agent-hangar から起動されたセッションです。');
+  });
+
+  it('切った段は打ち消しの印で残す', () => {
+    render(ui(props({ enabled: true, injection: 'claude', full: [{ label: 'ターンの意図', off: true, mark: null, pieces: [{ kind: 'text', text: '意図の段' }] }] })));
+    expect(screen.getByText('意図の段').parentElement).toHaveClass('inject-off');
+  });
+
+  it('追記しないときは全文の畳みを出さない', () => {
+    render(ui(props({ enabled: true, injection: 'none', full: [] })));
+    expect(section().querySelector('details.cp-more')).toBeNull();
   });
 });

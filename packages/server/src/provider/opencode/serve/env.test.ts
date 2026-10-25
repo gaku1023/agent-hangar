@@ -92,4 +92,26 @@ describe('serveEnv', () => {
     expect(Object.keys(env).sort()).toEqual([...WINDOWS_SERVE_ALLOWLIST, 'OPENCODE_CONFIG_CONTENT'].sort());
     expect(env.OPENCODE_CONFIG_CONTENT).toBe('{"mcp":{}}');
   });
+
+  // 利用者が置き場を変えていれば、ふだんの opencode と同じ設定と DB を見るように渡す（段 G1 の申し送り）。
+  const xdg = { XDG_DATA_HOME: '/d/data', XDG_CONFIG_HOME: '/d/config', XDG_CACHE_HOME: '/d/cache', XDG_STATE_HOME: '/d/state' };
+  it('macOS と Linux は、利用者の XDG の置き場 4 つがあれば渡す（印は渡さないまま）', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      const env = serveEnv('/opt/homebrew/bin/opencode', { ...dirty, ...xdg, XDG_RUNTIME_DIR: '/run/user/1' }, platform);
+      expect(env).toMatchObject(xdg);
+      expect(env.XDG_RUNTIME_DIR).toBeUndefined();
+      expect(Object.keys(env).filter((k) => /^(CLAUDE|HANGAR_|OPENCODE_)/.test(k))).toEqual([]);
+    }
+  });
+  it('XDG の置き場が無ければ足さない（空の値も渡さない）', () => {
+    const env = serveEnv('/opt/homebrew/bin/opencode', { ...dirty, XDG_CONFIG_HOME: '' }, 'darwin');
+    expect(Object.keys(env).filter((k) => k.startsWith('XDG_'))).toEqual([]);
+  });
+  it('Windows でも、利用者の XDG の置き場があれば許可リストに足して渡す', () => {
+    const env = serveEnv(exe, { ...winDirty, xdg_config_home: 'C:\\x\\config', XDG_DATA_HOME: 'C:\\x\\data' }, 'win32');
+    expect(env.XDG_CONFIG_HOME).toBe('C:\\x\\config');
+    expect(env.XDG_DATA_HOME).toBe('C:\\x\\data');
+    expect(env.XDG_CACHE_HOME).toBeUndefined();
+    expect(Object.keys(env).filter((k) => /^(CLAUDE|HANGAR_|OPENCODE_)/i.test(k))).toEqual([]);
+  });
 });

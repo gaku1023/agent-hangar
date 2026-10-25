@@ -72,6 +72,12 @@ describe('opencodeProbeEnv', () => {
       expect(Object.keys(env).filter((k) => /^(CLAUDE|HANGAR_|OPENCODE_|NODE_OPTIONS|ANTHROPIC_)/.test(k))).toEqual([]);
     }
   });
+  it('利用者の XDG の置き場は、版を読むときも serve と同じく渡す', () => {
+    for (const platform of ['darwin', 'linux', 'win32'] as const) {
+      const env = opencodeProbeEnv(platform === 'win32' ? 'C:\\tools\\opencode.exe' : '/x/opencode', { ...src, XDG_CONFIG_HOME: '/d/config', XDG_STATE_HOME: '/d/state' }, platform);
+      expect(env).toMatchObject({ XDG_CONFIG_HOME: '/d/config', XDG_STATE_HOME: '/d/state' });
+    }
+  });
   it('Windows の版を読む環境は、serve を起こす環境と同じ許可リストにする', () => {
     const win = { ...src, SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming', Path: 'C:\\Windows\\system32' };
     expect(opencodeProbeEnv('C:\\tools\\opencode.exe', win, 'win32')).toEqual(serveEnv('C:\\tools\\opencode.exe', win, 'win32'));
@@ -108,7 +114,7 @@ process.exit(${code});
     expect(got[0]!.args).toEqual(['--version']);
     // 偽の bin を起こす包み（sh）と Node が足す鍵（PWD、SHLVL、_ など）のほかは、決まった鍵だけである。
     const keys = Object.keys(got[0]!.env).filter((k) => !['PWD', 'OLDPWD', 'SHLVL', '_', '__CF_USER_TEXT_ENCODING'].includes(k));
-    expect(keys.every((k) => ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'PATH'].includes(k))).toBe(true);
+    expect(keys.every((k) => ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'PATH', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME'].includes(k))).toBe(true);
     expect(Object.keys(got[0]!.env).filter((k) => k.startsWith('CLAUDE') || k.startsWith('HANGAR_'))).toEqual([]);
     expect(got[0]!.env.PATH!.split(':')[0]).toBe(path.dirname(bin));
   });
