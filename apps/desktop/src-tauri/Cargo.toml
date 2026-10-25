@@ -1,6 +1,6 @@
 [package]
 name = "hangar-desktop"
-version = "0.10.0-rc.5"
+version = "0.10.0"
 description = "agent-hangar desktop shell"
 edition = "2021"
 rust-version = "1.80"
