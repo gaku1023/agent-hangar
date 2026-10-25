@@ -107,6 +107,14 @@ describe('getSession', () => {
     expect(getSession(db, [], id)).toEqual(before);
   });
 
+  it('lastTurnAt は、手元の統計の最後の入力・返答の時刻（last_turn_ts）。統計が無ければ null', () => {
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    expect(alpha.lastTurnAt).toBe((db.prepare('select last_turn_ts t from session_stats where session_id = ?').get(alpha.id) as { t: number }).t);
+    expect(alpha.lastTurnAt).toBeTypeOf('number');
+    db.prepare('delete from session_stats where session_id = ?').run(alpha.id);
+    expect(getSession(db, live, alpha.id)!.lastTurnAt).toBeNull();
+  });
+
   it('transcriptMtime は、この PC の主線の本文の更新時刻だけを見る', () => {
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
     db.prepare('update transcript_files set mtime = 1234 where session_id = ? and agent_id is null').run(alpha.id);
