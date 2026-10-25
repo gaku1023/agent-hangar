@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { disposeConoutWorker, nodePtySpawn, releaseConpty } from './nodePty.ts';
+import { disposeConoutWorker, nodePtySpawn, releaseConpty, trackConptyExit } from './nodePty.ts';
 
 // 実物の node-pty。Windows の実物は nodePty.win.test.ts と nodePtyRace.win.test.ts が見る。
 describe.skipIf(process.platform === 'win32')('nodePtySpawn（macOS と Linux の実物）', () => {
@@ -68,5 +68,63 @@ describe('releaseConpty と disposeConoutWorker（node-pty の内側の偽物）
     expect(f.dispose).toHaveBeenCalledTimes(1);
     expect(f.kill).not.toHaveBeenCalled();
     expect(() => disposeConoutWorker({})).not.toThrow();
+  });
+});
+
+// node-pty の 'exit' は出力の socket の閉じから出るので、解放で conout の Worker を放すと、子が生きたままでも届く。
+// 子の終わりとみなすのは、native の終了の知らせ（_$onProcessExit）か、終了コードが付いた 'exit' だけにする。
+describe('trackConptyExit（node-pty の内側の偽物）', () => {
+  const fake = () => {
+    const agent = {
+      _pty: 7, _useConptyDll: false, _ptyNative: { kill: vi.fn() }, _conoutSocketWorker: { dispose: vi.fn() },
+      _exitCode: undefined as number | undefined,
+      calls: [] as number[],
+      _$onProcessExit(c: number) { this._exitCode = c; this.calls.push(c); },
+    };
+    // native は `(c) => _this._$onProcessExit(c)` の形で、呼ぶ時に agent から引く。
+    const nativeExit = (c: number) => agent._$onProcessExit(c);
+    return { p: { _agent: agent }, agent, nativeExit };
+  };
+
+  it('終了コードの無い exit（socket が閉じただけ）では、終わりとみなさない', () => {
+    const f = fake();
+    const mark = vi.fn();
+    trackConptyExit(f.p, mark)();
+    expect(mark).not.toHaveBeenCalled();
+  });
+
+  it('native の終了の知らせで終わりとみなし、node-pty の元の処理も呼ぶ', () => {
+    const f = fake();
+    const mark = vi.fn();
+    trackConptyExit(f.p, mark);
+    f.nativeExit(0xc000013a);
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect(f.agent.calls).toEqual([0xc000013a]);
+    expect(f.agent._exitCode).toBe(0xc000013a);
+  });
+
+  it('終了コードが付いた exit（つなぐのに失敗した、終わった後の socket の閉じ）では、終わりとみなす', () => {
+    const f = fake();
+    const mark = vi.fn();
+    const onExit = trackConptyExit(f.p, mark);
+    f.agent._exitCode = -1;
+    onExit();
+    expect(mark).toHaveBeenCalledTimes(1);
+  });
+
+  it('元の処理が投げても、終わりは知らせる', () => {
+    const f = fake();
+    f.agent._$onProcessExit = () => { throw new Error('boom'); };
+    const mark = vi.fn();
+    trackConptyExit(f.p, mark);
+    expect(() => f.nativeExit(1)).toThrow('boom');
+    expect(mark).toHaveBeenCalledTimes(1);
+  });
+
+  it('内側の形が違う（別の版、Unix）ときは、今までどおり exit で終わりとみなす', () => {
+    const mark = vi.fn();
+    trackConptyExit({}, mark)();
+    trackConptyExit({ _agent: { _pty: 7 } }, mark)();
+    expect(mark).toHaveBeenCalledTimes(2);
   });
 });

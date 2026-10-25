@@ -53,6 +53,26 @@ export function disposeConoutWorker(p: unknown): void {
   try { a._conoutSocketWorker.dispose(); } catch { /* 既に放している */ }
 }
 
+/**
+ * Windows で、子が本当に終わったときにだけ markExited を呼ぶようにする。返す関数は node-pty の 'exit' で呼ぶ。
+ * node-pty の 'exit' は、出力の socket が閉じたことから出る。解放（releaseConpty）で conout の Worker を放すと、その 1 秒後に socket が閉じ、子が生きていても 'exit' が届く。
+ * 最初の出力より前に閉じると、pseudoconsole を閉じても conhost と子（tmux attach）が終わらないことがまれにある。
+ * これを終わりとみなすと、close.ts の待ちの後に子を止める手が取り消され、attach と conhost が残る。
+ * 子の終わりは、native の終了の知らせ（WindowsPtyAgent._$onProcessExit。終了コードを _exitCode に置く）だけが確かなので、そこに差し込む。
+ * 'exit' のうち終了コードが付いたもの（つなぐのに失敗した、終わった後の socket の閉じ）も終わりとみなす。
+ * native は `(c) => _this._$onProcessExit(c)` の形で呼ぶ時に agent から引くので、agent の上に置けば効く。
+ * 内側の形が違う（別の版、Unix）ときは差し込まず、今までどおり 'exit' で終わりとみなす。
+ */
+export function trackConptyExit(p: unknown, markExited: () => void): () => void {
+  const a = conptyAgentOf(p) as (ConptyAgent & { _exitCode?: number; _$onProcessExit?: (c: number) => void }) | null;
+  const orig = a?._$onProcessExit;
+  if (!a || typeof orig !== 'function') return markExited;
+  a._$onProcessExit = (c: number) => {
+    try { orig.call(a, c); } finally { markExited(); }
+  };
+  return () => { if (a._exitCode !== undefined) markExited(); };
+}
+
 /** 本物の node-pty。テストでは偽の spawn を渡すので、このファイルはサーバ起動時にだけ読まれる。 */
 export const nodePtySpawn: PtySpawn = (file, args, opts) => {
   const p = pty.spawn(file, args, { name: opts.name, cols: opts.cols, rows: opts.rows, cwd: opts.cwd, env: opts.env as Record<string, string> });
@@ -61,8 +81,10 @@ export const nodePtySpawn: PtySpawn = (file, args, opts) => {
   // node-pty 1.2 の Windows の pid は、子を pseudoconsole につないだ後で決まる。spawn の直後に写さず、閉じる時に読む。
   const closer = createPtyCloser({ pid: () => p.pid, hardKill: () => p.kill(), killPid: (pid) => process.kill(pid), release: () => releaseConpty(p) });
   let closed = false;
+  // 子が生きたまま出力の socket だけが閉じた 'exit' では、終わりとみなさない（trackConptyExit）。
+  const onExit = win ? trackConptyExit(p, () => closer.markExited()) : () => closer.markExited();
   p.onExit(() => {
-    closer.markExited();
+    onExit();
     if (win) disposeConoutWorker(p);
   });
   return {
