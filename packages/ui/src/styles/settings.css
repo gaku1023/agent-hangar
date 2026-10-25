@@ -183,6 +183,45 @@
 .oc-vers code { font: 500 var(--fs-sm) var(--font-mono); color: var(--ink); }
 .oc-note { display: block; margin-top: 2px; }
 .oc-note[data-tone='warn'] { color: var(--st-paused); }
+/* 連携の opencode の「プロバイダー」（試作 model-picker.html の設定の面）。つないだ先の行、行の下に伸びる欄、追加の一覧。 */
+.ocp { padding: calc(var(--u) * 3) 0 calc(var(--u) * 1); border-top: 1px solid var(--line); }
+.ocp-back { display: inline-block; margin-bottom: calc(var(--u) * 2); font-size: var(--fs-sm); font-weight: 600; }
+.ocp-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--u) calc(var(--u) * 3); margin-bottom: calc(var(--u) * 1.5); }
+.ocp-title { font-weight: 700; }
+.ocp-note { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.ocp-empty { padding: calc(var(--u) * 2) 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.ocp-empty[data-tone='warn'] { color: var(--st-paused); }
+.ocp-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--u) calc(var(--u) * 3); min-height: var(--row-h); padding: calc(var(--u) * 1.5) var(--u); border-top: 1px solid var(--line); }
+.ocp-row:first-child { border-top: 0; }
+.ocp-row-l { flex: 1 1 220px; min-width: 0; }
+.ocp-name { font-weight: 600; }
+.ocp-desc { font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; }
+.ocp-desc code, .ocp-hint code { font: 500 var(--fs-xs) var(--font-mono); color: var(--ink-2); }
+.ocp-acts { display: flex; flex-wrap: wrap; gap: var(--u) calc(var(--u) * 3); font-size: var(--fs-sm); }
+.ocp-danger { color: var(--error); }
+.ocp-inline { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); flex-basis: 100%; padding-top: var(--u); }
+.ocp-inline .input { flex: 1 1 220px; min-width: 0; height: 28px; font-size: var(--fs-sm); }
+.ocp-err { flex-basis: 100%; font-size: var(--fs-sm); color: var(--error); overflow-wrap: anywhere; }
+.ocp-hint { font-size: var(--fs-xs); color: var(--ink-3); }
+.ocp-add { display: block; width: 100%; height: 32px; margin-top: calc(var(--u) * 2); border: 1px dashed var(--line-strong); border-radius: var(--r); background: none; font: 600 var(--fs-sm) var(--font-sans); color: var(--accent); cursor: pointer; }
+.ocp-add:hover { background: var(--surface-2); }
+.ocp-adder { padding: calc(var(--u) * 2) 0 var(--u); }
+.ocp-search { width: 100%; height: 30px; font-size: var(--fs-sm); }
+.ocp-alist { max-height: 360px; margin-top: calc(var(--u) * 1.5); overflow-y: auto; overscroll-behavior: contain; }
+.ocp-pick-h { padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 0.5); font: 600 var(--fs-xs) var(--font-sans); color: var(--ink-3); }
+.ocp-arow { display: flex; justify-content: space-between; align-items: baseline; gap: calc(var(--u) * 3); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.ocp-arow:hover, .ocp-arow[aria-selected='true'] { background: var(--surface-2); }
+.ocp-arow-k { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.ocp-custom { margin-top: var(--u); }
+.ocp-alist + .ocp-custom { border-top: 1px solid var(--line); border-radius: 0 0 var(--r) var(--r); padding-top: calc(var(--u) * 2); }
+.ocp-connect { padding: 0 calc(var(--u) * 2) calc(var(--u) * 1.5); }
+.ocp-cform { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); padding: var(--u) calc(var(--u) * 2) calc(var(--u) * 2); }
+.ocp-cform .input { width: 100%; max-width: 420px; height: 28px; font-size: var(--fs-sm); }
+.ocp-login { display: flex; flex-direction: column; gap: var(--u); padding-top: var(--u); }
+.ocp-login-ins { font-size: var(--fs-sm); color: var(--ink); overflow-wrap: anywhere; }
+.ocp-login-row { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); }
+.ocp-login-note { font-size: var(--fs-sm); color: var(--ink-2); }
+.ocp-login[data-state='failed'] .ocp-login-note, .ocp-login[data-state='expired'] .ocp-login-note { color: var(--error); }
 .cp-lead { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2.5); border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--ink-2); }
 /* 更新の節の取得の進み（棒は右下の札と同じ .update-bar）。 */
 .update-progress { display: block; max-width: 280px; }

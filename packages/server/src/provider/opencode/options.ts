@@ -72,6 +72,14 @@ export class OpencodeOptionsService {
   }
 
   /**
+   * 手元に持った選択肢を古いことにする。設定でプロバイダーを変えたあと、次の get で取り直させる。
+   * 捨てはしないので、last（スマホ）は取り直すまで前の一覧を stale で返せる。
+   */
+  forget(): void {
+    for (const [k, v] of this.cache) this.cache.set(k, { ...v, at: Number.NEGATIVE_INFINITY });
+  }
+
+  /**
    * 手元に持った選択肢（取りに行かない）。スマホの問い合わせは 5 秒しか待てないので、これを答える。
    * 場所を省くとホームの一覧、それも無ければ最後に取った一覧を返す。間が空いていれば stale にする。
    */
@@ -151,6 +159,11 @@ export function whereOfHost(host: string): OpencodeProviderWhere {
 /** この PC で動くものとして知っているプロバイダー（URL が無くてもこの PC とする）。 */
 const DEVICE_PROVIDERS = new Set(['lmstudio', 'ollama']);
 
+/** プロバイダーの宛先。URL の宛先の名前（host）があればそれで決め、無ければ知っている ID（LM Studio、Ollama）だけをこの PC とする。 */
+export function providerWhere(id: string, host: string | null): OpencodeProviderWhere {
+  return host !== null ? whereOfHost(host) : DEVICE_PROVIDERS.has(id) ? 'device' : 'remote';
+}
+
 /**
  * 素の一覧を画面の選択肢にする。モードは隠れていない primary（と all）だけ、モデルは無効にされていないものだけを、opencode の並びのまま出す。
  * lookup を渡すと、opencode が料金やコンテキストを返さなかったモデルを、それで埋める。ツール呼び出しの対応は opencode の答えだけを使う。
@@ -169,7 +182,7 @@ export function optionsOf(raw: OpencodeOptionsRaw, lookup?: (provider: string, m
         tools: m.tools, context: m.context ?? known?.context ?? null, cost: m.cost ?? known?.cost ?? null,
       };
     });
-  const providers: OpencodeProviderOption[] = raw.providers.map((p) => ({ id: p.id, name: p.name, where: p.host !== null ? whereOfHost(p.host) : DEVICE_PROVIDERS.has(p.id) ? 'device' : 'remote' }));
+  const providers: OpencodeProviderOption[] = raw.providers.map((p) => ({ id: p.id, name: p.name, where: providerWhere(p.id, p.host) }));
   return { modes, models, providers, defaultModel: raw.defaultModel };
 }
 

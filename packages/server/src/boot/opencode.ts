@@ -4,6 +4,8 @@ import type { Settings } from '../config/paths.ts';
 import { findOpencode } from '../config/tools.ts';
 import { catalogPath, ModelsDevCatalog } from '../provider/opencode/catalog.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
+import { opencodeConfigPath } from '../provider/opencode/configFile.ts';
+import { OpencodeProvidersService } from '../provider/opencode/integration.ts';
 import { OpencodeOptionsService } from '../provider/opencode/options.ts';
 import { ServeManager, type OpencodeVersionNoticeSeed } from '../provider/opencode/serve/manager.ts';
 import { ServeRegistry, serveRegistryPath, sweepLeftoverServes } from '../provider/opencode/serve/registry.ts';
@@ -13,6 +15,8 @@ export type OpencodeParts = {
   serves: ServeManager;
   /** 新しいセッションの選択肢（モードとモデル）。取った一覧を場所ごとに手元に持つ。 */
   options: OpencodeOptionsService;
+  /** 設定のプロバイダー（つないだ先、API キー、ログイン、OpenAI 互換のサーバー）。変えたら options を取り直させる。 */
+  providers: OpencodeProvidersService;
   /** 起動のときの掃除が済むと解決する。 */
   swept: Promise<unknown>;
   /** 最後に出た、範囲の外の版の知らせの種。表示は段 C（C7）で作る。 */
@@ -50,15 +54,17 @@ export function bootOpencode(
   // models.dev の料金の保存。取りに行くのは選択肢を取ったときだけ（1 日 1 回まで）。
   const catalog = new ModelsDevCatalog({ file: catalogPath(p.home), log });
   const options = new OpencodeOptionsService({ serves, status: () => local.status(), home: os.homedir(), catalog });
+  const providers = new OpencodeProvidersService({ serves, home: os.homedir(), configFile: opencodeConfigPath(os.homedir()), catalog, onChange: () => options.forget() });
   return {
     serves,
     options,
+    providers,
     swept,
     versionNotice: () => notice,
     stop: async (ms) => {
       let timer: NodeJS.Timeout | undefined;
       await Promise.race([
-        serves.stopAll(),
+        providers.close().then(() => serves.stopAll()),
         new Promise<void>((r) => { timer = setTimeout(r, ms); timer.unref?.(); }),
       ]).finally(() => { if (timer) clearTimeout(timer); });
     },

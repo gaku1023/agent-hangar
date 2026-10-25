@@ -5,7 +5,7 @@ import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { FolderInspectState } from './folderInspect.ts';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeOptionsDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -40,6 +40,24 @@ export const EMPTY_CONFIG_DETAIL: ConfigDetail = { outgoing: null, inbox: null, 
  * data は最後に読めた答えで、同じ場所を読み直す間と失敗したときも残す（ダイアログの札が空に戻らないように）。
  */
 export type OpencodeOptionsState = { dir: string | null; status: 'loading' | 'ready' | 'failed'; data: OpencodeOptionsDto | null };
+
+/** 設定のプロバイダーの面の操作。key は API キーの接続と変更、model はモデル ID の追加、custom は OpenAI 互換のサーバー、login はログイン。 */
+export type OpencodeProviderOp = 'load' | 'key' | 'disconnect' | 'model' | 'custom' | 'login';
+/** OpenAI 互換のサーバーの欄の、行の ID の代わり。 */
+export const CUSTOM_PROVIDER_ROW = ':custom';
+/**
+ * 設定の「連携 › opencode › プロバイダー」（GET /api/opencode/providers ほか）。API キーはここに持たない。
+ * busy は送っている操作（行の ID と操作）、error は最後の失敗（その行の欄のそばに出す）、added は直前に接続した行（入るときに目立たせる）。
+ * login は始めたログイン（開く URL と案内、進み）。
+ */
+export type OpencodeProvidersState = {
+  status: 'loading' | 'ready' | 'failed';
+  data: OpencodeProvidersDto | null;
+  busy: { id: string; op: OpencodeProviderOp } | null;
+  error: { id: string; op: OpencodeProviderOp; message: string } | null;
+  added: string | null;
+  login: { id: string; attempt: OpencodeLoginDto; status: OpencodeLoginStatusDto['status']; message: string | null } | null;
+};
 
 export type Store = {
   bootstrapped: boolean; version: string; device: { id: string; name: string } | null; settings: SettingsDto | null;
@@ -84,6 +102,8 @@ export type Store = {
   opencodeStatus: OpencodeStatusDto | null;
   /** 新しいセッションで opencode を選んだときのモードとモデル（GET /api/opencode/options）。最後に頼んだ 1 件だけを持つ。頼む前は null。 */
   opencodeOptions: OpencodeOptionsState | null;
+  /** 設定のプロバイダー（ベータ）。設定の opencode の面を開くまでは null。 */
+  opencodeProviders: OpencodeProvidersState | null;
   // デスクトップの殻の中で動いているか。殻があれば、ログを開くと再起動を殻に頼める。
   desktop: boolean;
   // Claude Code のアカウント（この PC の中だけにある）。未取得、またはサーバが知らせない間は null である。
@@ -148,7 +168,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, opencodeOptions: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
+    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, opencodeOptions: null, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,

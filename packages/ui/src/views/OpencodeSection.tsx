@@ -1,7 +1,9 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { OpencodeInjection } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
+import type { OpencodeProvidersProps } from '../presenters/opencodeProviders.ts';
 import type { OpencodeSettingsProps } from '../presenters/settings.ts';
+import { OpencodeProviders } from './OpencodeProviders.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
@@ -32,9 +34,10 @@ function OpencodeVersion(props: { version: OpencodeSettingsProps['version'] }) {
  * 設定の「連携 › opencode」（ベータ、試作の D1）。Claude Code との互換性の節のすぐ下に置く。
  * 有効にする行だけを常に出し、入れたときだけバージョンとシステムプロンプトへの追記の行を growIn で伸ばして入れる（切ると collapseOut で畳んでから外す）。
  * 見出しの右端の札も入のときだけ出し、fadeIn と fadeOut で出入りさせる。
+ * その下に「プロバイダー」（つないだ先と追加、views/OpencodeProviders.tsx）を置く。providers を渡さなければ出さない。
  * コマンドの横取りの行は段 D2 で足す。Windows では段 G1 まで面ごと出さない（available が偽）。どれも選んだ時点で保存する。
  */
-export function OpencodeSection(props: { o: OpencodeSettingsProps }) {
+export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: OpencodeProvidersProps }) {
   const t = useT();
   const emit = useEmit();
   const o = props.o;
@@ -80,6 +83,7 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps }) {
             desc={o.claudeNote ? <span className="oc-note" data-tone="warn">{o.claudeNote}</span> : undefined}
             control={<Listbox label={t('settings.label.opencodeInjection')} value={o.injection} options={o.injectionOptions} align="end"
               onChange={(v) => emit({ type: 'settings.update', patch: { opencodeInjection: v as OpencodeInjection } })} />} />
+          {props.providers && <OpencodeProviders p={props.providers} />}
         </div>
       )}
     </section>

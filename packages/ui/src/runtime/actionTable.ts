@@ -1,5 +1,6 @@
 import type { AccountsDto, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
-import { applyConfigDetail, gitFileKey, type EditorOpenAction, type Store } from '../store/store.ts';
+import { applyConfigDetail, CUSTOM_PROVIDER_ROW, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
+import type { OpencodeProvidersDto } from '@agent-hangar/shared';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
 import { sameInspect } from '../store/folderInspect.ts';
 
@@ -64,6 +65,30 @@ const editorOpen = (action: EditorOpenAction, run: (api: ApiClient) => Promise<v
   ...(failHoldMs !== undefined ? { failHoldMs } : {}),
 });
 const withAccounts = (store: Store, accounts: AccountsDto): Store => ({ ...store, accounts });
+
+const EMPTY_PROVIDERS: OpencodeProvidersState = { status: 'loading', data: null, busy: null, error: null, added: null, login: null };
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+/** 設定のプロバイダーの面を書き換える。まだ読んでいなければ空から。 */
+const withProviders = (store: Store, f: (p: OpencodeProvidersState) => Partial<OpencodeProvidersState>): Store => {
+  const p = store.opencodeProviders ?? EMPTY_PROVIDERS;
+  return { ...store, opencodeProviders: { ...p, ...f(p) } };
+};
+/**
+ * プロバイダーを変える操作（接続、解除、モデル ID の追加、OpenAI 互換のサーバー）。答えは新しい一覧で、そのまま入れる。
+ * 送る間はその行を busy にし、失敗はトーストにせず、その行の欄のそばに出す（入れたものを残せるように）。
+ * 接続して一覧に新しく入った行を added にする（入るときに目立たせる）。
+ */
+function providerCall(id: string, op: OpencodeProviderOp, run: (api: ApiClient) => Promise<OpencodeProvidersDto>): ApiCall {
+  return call(run, {
+    before: (store) => withProviders(store, () => ({ busy: { id, op }, error: null, added: null })),
+    apply: (store, data) => withProviders(store, (p) => {
+      const had = new Set(p.data?.connected.map((x) => x.id) ?? []);
+      const fresh = data.connected.find((x) => !had.has(x.id))?.id ?? null;
+      return { status: 'ready', data, busy: null, added: op === 'disconnect' || op === 'model' ? null : fresh };
+    }),
+    failed: (store, e) => withProviders(store, () => ({ busy: null, error: { id, op, message: errText(e) } })),
+  });
+}
 
 type Rows = { [K in UiAction['type']]?: (action: Extract<UiAction, { type: K }>, store: Store) => ApiCall | null };
 
@@ -167,6 +192,51 @@ export const actionTable = {
     apply: (store, data) => (store.opencodeOptions?.dir === i.dir ? { ...store, opencodeOptions: { dir: i.dir, status: 'ready', data } } : store),
     failed: (store) => (store.opencodeOptions?.dir === i.dir ? { ...store, opencodeOptions: { ...store.opencodeOptions, status: 'failed' } } : store),
   }),
+  // 設定の「連携 › opencode › プロバイダー」。読み直しの間と失敗したときは、前の一覧を残す。
+  'opencode.providers.load': () => call((api) => api.opencodeProviders(), {
+    before: (store) => withProviders(store, (p) => ({ status: p.data ? 'ready' : 'loading', error: null })),
+    // ログインが終わったあとの読み直しなら、ログインの欄を閉じ、その行を接続した行として目立たせる。
+    apply: (store, data) => withProviders(store, (p) => (p.login?.status === 'complete' ? { status: 'ready', data, login: null, added: p.login.id } : { status: 'ready', data })),
+    failed: (store, e) => withProviders(store, (p) => ({ status: p.data ? 'ready' : 'failed', error: { id: '', op: 'load', message: errText(e) } })),
+  }),
+  // API キーはこの呼び出しに渡すだけで、Store に置かない。
+  'opencode.providers.key': (i) => providerCall(i.id, 'key', (api) => api.opencodeProviderKey(i.id, i.key)),
+  'opencode.providers.disconnect': (i) => providerCall(i.id, 'disconnect', (api) => api.opencodeProviderDisconnect(i.id)),
+  'opencode.providers.model': (i) => providerCall(i.id, 'model', (api) => api.opencodeProviderModel(i.id, i.model)),
+  'opencode.providers.custom': (i) => providerCall(CUSTOM_PROVIDER_ROW, 'custom', (api) => api.opencodeCustomProvider({ name: i.name, url: i.url, ...(i.apiKey ? { apiKey: i.apiKey } : {}) })),
+  'opencode.providers.login': (i) => call((api) => api.opencodeLogin(i.id, i.method), {
+    before: (store) => withProviders(store, () => ({ busy: { id: i.id, op: 'login' }, error: null, login: null })),
+    apply: (store, attempt) => withProviders(store, () => ({ busy: null, login: { id: i.id, attempt, status: 'pending', message: null } })),
+    failed: (store, e) => withProviders(store, () => ({ busy: null, error: { id: i.id, op: 'login', message: errText(e) } })),
+  }),
+  // ログインの進み。画面が数秒おきに頼む。終わったら画面が一覧を読み直す。始め直したあとに届いた古い答えは捨てる。
+  'opencode.providers.login.poll': (_i, store) => {
+    const login = store.opencodeProviders?.login;
+    if (!login || login.status !== 'pending') return null;
+    const same = (p: OpencodeProvidersState) => p.login?.attempt.attemptId === login.attempt.attemptId;
+    return call((api) => api.opencodeLoginStatus(login.id, login.attempt.attemptId), {
+      apply: (s, st) => withProviders(s, (p) => (same(p) && p.login ? { login: { ...p.login, status: st.status, message: st.message } } : {})),
+      failed: (s, e) => withProviders(s, (p) => (same(p) && p.login ? { login: { ...p.login, status: 'failed', message: errText(e) } } : {})),
+    });
+  },
+  'opencode.providers.login.code': (i, store) => {
+    const login = store.opencodeProviders?.login;
+    if (!login) return null;
+    return call((api) => api.opencodeLoginComplete(login.id, login.attempt.attemptId, i.code), {
+      before: (s) => withProviders(s, () => ({ busy: { id: login.id, op: 'login' }, error: null })),
+      apply: (s) => withProviders(s, () => ({ busy: null })),
+      failed: (s, e) => withProviders(s, () => ({ busy: null, error: { id: login.id, op: 'login', message: errText(e) } })),
+    });
+  },
+  'opencode.providers.login.cancel': (_i, store) => {
+    const login = store.opencodeProviders?.login;
+    if (!login) return null;
+    return call((api) => api.opencodeLoginCancel(login.id, login.attempt.attemptId), {
+      before: (s) => withProviders(s, () => ({ login: null })),
+      // 取り消せなくても（serve が止まって試みが消えたなど）、画面からは消えたままでよい。
+      failed: (s) => s,
+    });
+  },
   'account.add.preview': (i) => call((api) => api.previewAccountDir(i.name, i.dir), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
   'account.choose': (i) => call((api) => api.setCurrentAccount(i.accountId), { apply: withAccounts }),
   'account.update': (i) => {

@@ -1791,6 +1791,7 @@ worktree と追加ディレクトリは opencode の起動が受けない（Clau
 設定の既定のモデルと要約のモデルを選ぶ `ModelPicker.tsx` は Claude の別名の一覧と名前の入力の部品なので、分けて作った。
 小窓は選ぶだけの面で、プロバイダーをつなぐのは設定で行う。
 一番下の「プロバイダーを管理…」は、ダイアログを閉じて（書きかけは下書きに残る）設定の連携の節の opencode の面（`at=opencode`）へ移る。
+移った先には「‹ 新しいセッションに戻る」を出す（「opencode のプロバイダー」）。
 
 - 出すのは、つないだプロバイダーのモデルと、API キーの要らない無料のもの（OpenCode Zen）だけで、どちらも opencode の `/api/model` がそのまま返す一覧である。
   未接続の会社は出さない。
@@ -1824,6 +1825,61 @@ hangar の起動では取りに行かないので、opencode を有効にして�
 表は書いた日（`MODEL_FACTS_UPDATED`）を持ち、30 日を過ぎたら事実の札に「要確認」を添える。
 表に無いモデルのデータの扱いも「要確認」にする。
 無料モデルの顔ぶれは数週間で変わるので、モデル ID を名指しせず `*` を含む型で書き、顔ぶれは `/api/model` に任せる。
+
+#### opencode のプロバイダー
+
+設定の連携の節の opencode の面の下に、「プロバイダー」を置く（試作 model-picker.html の設定の面。`views/OpencodeProviders.tsx`）。
+opencode を有効にしたときだけ、面の下の行と一緒に伸びて入る。
+見出しの右に「API キーは opencode が保存します（hangar には残りません）」を添える。
+
+- つないだ先の行は、名前と、接続の仕方と料金の型の 1 行（「従量 · 接続済み」「ローカル · 自動で取得」「API キー不要 · 期間限定」「OpenAI 互換」「環境変数 GROQ_API_KEY」）と、宛先（opencode.json の baseURL を方式を落として出す）である。
+  行の右に「モデル ID を追加」「API キーを変更」「接続を解除」を出す。
+  「API キーを変更」は API キーで接続した行と OpenAI 互換のサーバーだけ、「接続を解除」は API キーかログインで接続した行と OpenAI 互換のサーバーだけに出す。
+  環境変数で接続した行と、何もしなくても使える行（LM Studio の自動の検出、OpenCode Zen の無料）は、hangar から外せない。
+- 「＋ プロバイダーを追加」は、opencode の `/api/integration` のカタログ（2.1.4 で 235 社）から、まだつないでいない会社を並べる。
+  先頭に「おすすめ」（DeepSeek、Z.AI、OpenCode Go、GLM Coding Plan、GitHub Copilot の順。`shared/opencodeProviders.ts` の `RECOMMENDED_PROVIDERS`）、その下に「その他のプロバイダー」を名前の順に置き、上の検索欄（「プロバイダーを検索（{n} 社）」）で絞る。
+  行の右の料金の型は、手書きの表（`shared/modelFacts.ts`）の定額とローカルを先に使い（OpenCode Go は月額の「月 $10」を添え、API キーの方法が無い定額は「要ログイン」を添える）、無ければ models.dev の保存の料金で決める（全部 0 円なら「無料」、0 円が混ざれば「従量・無料枠あり」、ほかは「従量」、分からなければ出さない）。
+  行を選ぶと、下に API キーの欄が伸びる。
+  API キーの方法が無くログインの方法がある会社（GitHub Copilot）は「ブラウザでログイン」を出す。
+- 一番下の「OpenAI 互換のサーバー」は、名前、URL、API キー（任意）を受ける。
+- 開き閉じ（追加の一覧、行の下の欄）は growIn と collapseOut で、接続した行は伸びて入ってから地を淡く光らせる（`markHit`）。
+  接続できたら追加の一覧を閉じる。
+- モデルの小窓の「プロバイダーを管理…」から来たときだけ、面の上に「‹ 新しいセッションに戻る」を出す。
+  小窓から来たときに Mediator がダイアログの開き方（プロジェクト、クイックセッション、場所）を `opencodeReturn` に覚え、押すと同じ開き方で開き直す。
+  設定の外へ移ったら忘れる。
+
+サーバは `provider/opencode/integration.ts` の `OpencodeProvidersService` が持ち、経路は `/api/opencode/providers`（一覧）、`…/:id/key`（API キー）、`DELETE …/:id`（接続を解除）、`…/:id/models`（モデル ID）、`/api/opencode/custom-providers`（OpenAI 互換）、`…/:id/login`（ログイン）である。
+どれも opencode を有効にしていなければ 409 で断る。
+opencode の HTTP は `client.ts` に足した口（`/api/provider`、`/api/integration`、`connect/key`、`DELETE /api/credential/{id}`、`connect/oauth` の始め、進み、完了、取り消し）だけを通す。
+問い合わせには専用の serve（鍵 `:providers`）を 1 本起こし、使い終えて 1 分だれも使わなければ止める。
+ログインの途中の状態は serve のメモリにあるので、問い合わせのたびには止めない。
+2.1.4 は場所ごとの最初の `/api/provider` に空の一覧を返すことがあるので、空なら少し待って聞き直す。
+
+API キーは opencode の integration（`POST /api/integration/{id}/connect/key`）に渡すだけで、hangar はファイル、DB、ログ、応答、argv、環境変数のどこにも書かない（opencode が自分の DB に保存する）。
+`GET /api/credential` は API キーの値を返すので呼ばない。
+接続の記録は `/api/integration` の connections（値を含まない）から読む。
+`/api/provider` の `settings` にも API キーが載るので、`baseURL` のほかは読まない。
+opencode と経路が返す断りの文に API キーが混ざっていたら、伏せてから返す。
+画面でも Store に置かず、送る操作（UiAction）に載せて API へ渡すだけにする。
+「API キーを変更」は新しい接続を作ってから前の接続を消す（opencode は同じ会社に 2 つ目の接続を作り、前のものを無効にして残すため）。
+
+ログインは opencode の方法の入力の欄を、隠れた欄の既定と選択肢の最初で埋めて始める（GitHub Copilot は GitHub.com）。
+答えられない必須の欄があれば始めない。
+始めたら、開く URL と opencode の案内（デバイスのコードなど）を出し、画面が 2 秒おきに進みを聞く。
+コードを入れる型なら欄を出し、`complete` に送る。
+終わったら一覧を読み直し、その行を接続した行として光らせる。
+
+OpenAI 互換のサーバーとモデル ID の追加は、利用者の `~/.config/opencode/opencode.json`（無く .jsonc があればそちら）に書く（`provider/opencode/configFile.ts`）。
+serve は HOME だけの空の環境で起こすので、opencode が読むのもいつもこのファイルである。
+書く前に、同じディレクトリへ `opencode.json.bak-<日時>` の形でバックアップする。
+書き方は `config/jsonTextEdit.ts` の `setJsoncPath` と `removeJsoncPath` で保つ（コメント、末尾のカンマ、字下げ、キーの順、CRLF と BOM に触れず、書いた後に読み直して狙ったキーのほかが変わっていないことを確かめる）。
+読めないファイルには書かない。
+OpenAI 互換のサーバーは、`<URL>/models` を聞き（URL が /v1 で終わらず答えが無ければ `<URL>/v1/models` も聞く）、返ったモデルを `providers.<ID>` に `{ name, package: "@opencode/ai/providers/openai-compatible", settings: { baseURL }, models }` で書く。
+ID は名前の英数字から作り（無ければ `openai-compatible`）、重なれば番号を付ける。
+API キーがあれば、opencode が書き換えを読み直してその ID の integration が現れるのを待ち、そこへ渡す（opencode.json には書かない）。
+モデル ID の追加は、そのプロバイダーの `models` に空のオブジェクトで足す（1.x の書き方の `provider` に書いた行ならそこへ）。
+OpenAI 互換のサーバーの「接続を解除」は、接続を消してから opencode.json のその行も消す（バックアップしてから）。
+プロバイダーを変えたら、新しいセッションの選択肢の手元の一覧を古いことにし（`OpencodeOptionsService.forget`）、次に開いたときに取り直させる。
 
 #### 始める場所：新しいフォルダと未登録のフォルダ
 

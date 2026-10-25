@@ -1181,7 +1181,8 @@ describe('NewSessionDialog のエージェント（opencode、ベータ）', () 
     fireEvent.click(screen.getByRole('button', { name: '再読み込み' }));
     expect(actions).toContainEqual({ type: 'opencode.options', dir: '/w/alpha', refresh: true });
     fireEvent.click(screen.getByRole('button', { name: 'プロバイダーを管理…' }));
-    expect(actions.slice(-2)).toEqual([{ type: 'overlay.close' }, { type: 'nav.go', to: { name: 'settings', at: 'opencode' } }]);
+    // 閉じて移るのと、設定に「‹ 新しいセッションに戻る」を出すための戻り先を覚えるのは Mediator が行う（mediator/opencodeReturn.test.ts）。
+    expect(actions.at(-1)).toEqual({ type: 'opencode.providers.manage' });
   });
   it('起動の本文に agent・mode・model・autoApprove を載せ、Claude だけの値は載せない', async () => {
     const { params } = collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { model: 'opus', effort: 'high', permissionMode: 'plan', addDirs: ['/a'] } }, accounts: null });

@@ -25,8 +25,9 @@ export type ModelDataUse = 'on-device' | 'no-training' | 'retain-30d' | 'may-tra
  * プロバイダーごとの事実。
  * name は画面に出す名前（opencode の名前が分かりにくいときだけ書く）。cost は API の料金から決められない費用の型（定額、ローカル）。
  * data はそのプロバイダーのモデルの既定のデータの扱い。limitedFree は、無料のモデルが期間限定であること。
+ * monthlyUsd は定額の月額（米ドル）で、設定のプロバイダーの追加の一覧に「定額 · 月 $10」の形で添える。
  */
-export type ModelProviderFact = { name?: string; cost?: 'plan' | 'local'; data?: ModelDataUse; limitedFree?: boolean };
+export type ModelProviderFact = { name?: string; cost?: 'plan' | 'local'; data?: ModelDataUse; limitedFree?: boolean; monthlyUsd?: number };
 
 /** モデルごとのデータの扱い。match はプロバイダーの中のモデル ID で、`*` は任意の文字の並び。上から順に最初に合ったものを使う。 */
 export type ModelDataFact = { provider: string; match: string; data: ModelDataUse };
@@ -34,7 +35,7 @@ export type ModelDataFact = { provider: string; match: string; data: ModelDataUs
 /** プロバイダーの ID（opencode の providerID）ごとの事実。 */
 export const PROVIDER_FACTS: Readonly<Record<string, ModelProviderFact>> = {
   opencode: { name: 'OpenCode Zen', limitedFree: true },
-  'opencode-go': { name: 'OpenCode Go', cost: 'plan', data: 'no-training' },
+  'opencode-go': { name: 'OpenCode Go', cost: 'plan', data: 'no-training', monthlyUsd: 10 },
   'zai-coding-plan': { name: 'GLM Coding Plan', cost: 'plan', data: 'no-training' },
   'github-copilot': { name: 'GitHub Copilot', cost: 'plan', data: 'no-training' },
   deepseek: { data: 'no-training' },

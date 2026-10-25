@@ -36,6 +36,32 @@ export type OpencodeModelInfo = { providerID: string; id: string; name: string; 
  */
 export type OpencodeProviderInfo = { id: string; name: string; host: string | null };
 
+/**
+ * `GET /api/provider` の 1 行を、設定のプロバイダーの面のために読んだもの。
+ * activation は enabled か auto（LM Studio の自動の検出）、baseURL は settings.baseURL（無ければ null）。settings の apiKey は読まない。
+ */
+export type OpencodeProviderRow = { id: string; integrationID: string; name: string; activation: string; baseURL: string | null };
+
+/** 入力の欄の 1 つ（opencode の Form.Field のうち hangar が使うもの）。when は、ほかの欄の値がそれと等しいときだけ出る、の条件。 */
+export type OpencodeLoginField = { key: string; required: boolean; hidden: boolean; default: unknown; options: unknown[]; when: { key: string; op: string; value: unknown }[] };
+
+/**
+ * `GET /api/integration` の 1 行のうち hangar が使うもの（設定のプロバイダーの面）。
+ * key は API キーで接続できるか、logins はログインの方法、env は API キーを読む環境変数の名前。
+ * connections は接続の記録で、credential（API キーかログイン、opencode の DB にある）と env（環境変数）がある。API キーの値は opencode もここに載せない。
+ */
+export type OpencodeIntegrationInfo = {
+  id: string; name: string; key: boolean;
+  logins: { id: string; label: string; form: OpencodeLoginField[] }[];
+  env: string[];
+  connections: ({ type: 'credential'; id: string; method: string } | { type: 'env'; name: string })[];
+};
+
+/** ログインを始めた答え（Integration.AttemptEncoded）。 */
+export type OpencodeOauthAttempt = { attemptId: string; url: string; instructions: string; mode: 'auto' | 'code' };
+/** ログインの進み（Integration.AttemptStatus）。 */
+export type OpencodeOauthStatus = { status: 'pending' | 'complete' | 'failed' | 'expired'; message: string | null };
+
 export type OpencodeClientOptions = { timeoutMs?: number };
 
 /** 場所（directory）を `location[directory]=` の形の問いにする。JSON の文字列だと 400 になる。 */
@@ -52,6 +78,35 @@ const firstCost = (v: unknown): { input: number; output: number } | null => {
 const hostOf = (url: string | null): string | null => {
   if (!url) return null;
   try { return new URL(url).hostname || null; } catch { return null; }
+};
+const fieldsOf = (v: unknown): OpencodeLoginField[] => (Array.isArray(v) ? v : []).flatMap((f) => {
+  const o = objOf(f);
+  const key = str(o?.key);
+  if (!o || !key) return [];
+  const when = (Array.isArray(o.when) ? o.when : []).flatMap((w) => {
+    const c = objOf(w);
+    const k = str(c?.key);
+    return c && k ? [{ key: k, op: str(c.op) ?? 'eq', value: c.value }] : [];
+  });
+  const options = (Array.isArray(o.options) ? o.options : []).map((x) => objOf(x)?.value ?? x);
+  return [{ key, required: o.required === true, hidden: o.hidden === true, default: o.default, options, when }];
+});
+const integrationOf = (x: Record<string, unknown>): OpencodeIntegrationInfo | null => {
+  const id = str(x.id);
+  if (!id) return null;
+  const methods = (Array.isArray(x.methods) ? x.methods : []).map(objOf).filter((m): m is Record<string, unknown> => m !== null);
+  const connections = (Array.isArray(x.connections) ? x.connections : []).map(objOf).flatMap((c): OpencodeIntegrationInfo['connections'] => {
+    if (c?.type === 'credential' && str(c.id)) return [{ type: 'credential', id: str(c.id)!, method: str(c.method) ?? 'key' }];
+    if (c?.type === 'env' && str(c.name)) return [{ type: 'env', name: str(c.name)! }];
+    return [];
+  });
+  return {
+    id, name: str(x.name) ?? id,
+    key: methods.some((m) => m.type === 'key'),
+    logins: methods.flatMap((m) => (m.type === 'oauth' && str(m.id) ? [{ id: str(m.id)!, label: str(m.label) ?? str(m.id)!, form: fieldsOf(m.form) }] : [])),
+    env: methods.flatMap((m) => (m.type === 'env' && Array.isArray(m.names) ? m.names.filter((n): n is string => typeof n === 'string') : [])),
+    connections,
+  };
 };
 const rowsOf = (r: unknown): Record<string, unknown>[] => {
   const data = (r as { data?: unknown } | null)?.data;
@@ -137,6 +192,73 @@ export class OpencodeClient {
     });
   }
 
+  /** その場所のプロバイダーの行（設定のプロバイダーの面）。settings の apiKey は読まない。 */
+  async providerRows(directory: string): Promise<OpencodeProviderRow[]> {
+    const r = await this.request('GET', `/api/provider${at(directory)}`);
+    return rowsOf(r).flatMap((x) => {
+      const id = str(x.id);
+      return id ? [{ id, integrationID: str(x.integrationID) ?? id, name: str(x.name) ?? id, activation: str(x.activation) ?? 'enabled', baseURL: str(objOf(x.settings)?.baseURL) }] : [];
+    });
+  }
+
+  /** opencode が知っている integration（プロバイダーのカタログ）の全部。 */
+  async integrations(directory: string): Promise<OpencodeIntegrationInfo[]> {
+    const r = await this.request('GET', `/api/integration${at(directory)}`);
+    return rowsOf(r).flatMap((x) => integrationOf(x) ?? []);
+  }
+
+  /** 1 つの integration。知らない ID なら null（opencode は 404 を返す）。 */
+  async integration(id: string, directory: string): Promise<OpencodeIntegrationInfo | null> {
+    try {
+      const r = await this.request('GET', `/api/integration/${encodeURIComponent(id)}${at(directory)}`);
+      const data = objOf(objOf(r)?.data);
+      return data ? integrationOf(data) : null;
+    } catch (e) {
+      if (e instanceof OpencodeApiError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  /**
+   * API キーで接続する。opencode は新しい接続を作って有効にし、前の接続は無効にして残す（消すのは呼び手）。
+   * API キーは本文にだけ載せ、断りの文からは伏せる。
+   */
+  async connectKey(id: string, key: string, directory: string): Promise<void> {
+    await this.request('POST', `/api/integration/${encodeURIComponent(id)}/connect/key${at(directory)}`, { key }, [key]);
+  }
+
+  /** 接続の記録を 1 つ消す。 */
+  async deleteCredential(credentialId: string): Promise<void> {
+    await this.request('DELETE', `/api/credential/${encodeURIComponent(credentialId)}`);
+  }
+
+  /** ログインを始める。answer はその方法の入力の欄への答え。 */
+  async oauthStart(id: string, methodId: string, answer: Record<string, unknown>, directory: string): Promise<OpencodeOauthAttempt> {
+    const r = await this.request('POST', `/api/integration/${encodeURIComponent(id)}/connect/oauth${at(directory)}`, { methodID: methodId, ...(Object.keys(answer).length ? { answer } : {}) });
+    const d = objOf(objOf(r)?.data);
+    const attemptId = str(d?.attemptID);
+    if (!d || !attemptId) throw new OpencodeApiError(200, '/api/integration/{id}/connect/oauth', 'the answer has no attempt id');
+    return { attemptId, url: str(d.url) ?? '', instructions: str(d.instructions) ?? '', mode: d.mode === 'code' ? 'code' : 'auto' };
+  }
+
+  /** ログインの進み。 */
+  async oauthStatus(id: string, attemptId: string, directory: string): Promise<OpencodeOauthStatus> {
+    const r = await this.request('GET', `/api/integration/${encodeURIComponent(id)}/connect/oauth/${encodeURIComponent(attemptId)}${at(directory)}`);
+    const d = objOf(objOf(r)?.data);
+    const status = d?.status === 'complete' || d?.status === 'failed' || d?.status === 'expired' ? d.status : 'pending';
+    return { status, message: str(d?.message) };
+  }
+
+  /** コードを入れる型のログインを終える。 */
+  async oauthComplete(id: string, attemptId: string, code: string | null, directory: string): Promise<void> {
+    await this.request('POST', `/api/integration/${encodeURIComponent(id)}/connect/oauth/${encodeURIComponent(attemptId)}/complete${at(directory)}`, { code }, code ? [code] : []);
+  }
+
+  /** ログインを取り消す。 */
+  async oauthCancel(id: string, attemptId: string, directory: string): Promise<void> {
+    await this.request('DELETE', `/api/integration/${encodeURIComponent(id)}/connect/oauth/${encodeURIComponent(attemptId)}${at(directory)}`);
+  }
+
   /**
    * 設定（opencode.json の層の重なり）の既定のモデル。`provider/model` の形で、書いていなければ null。
    * `GET /api/config` は `{ data }` で包まずに、層の配列を返す。並びは弱い順で、ふだんの設定（~/.config/opencode）の後にその場所の opencode.json が来る（2.1.4 で確かめた）。
@@ -201,7 +323,8 @@ export class OpencodeClient {
     return r.body;
   }
 
-  private async request(method: string, p: string, body?: unknown): Promise<unknown> {
+  /** secrets は断りの文から伏せる値（パスワードのほかに、本文に載せた API キーなど）。 */
+  private async request(method: string, p: string, body?: unknown, secrets: string[] = []): Promise<unknown> {
     const r = await fetch(this.serve.url + p, {
       method,
       headers: { authorization: authHeader(this.serve.password), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
@@ -210,7 +333,10 @@ export class OpencodeClient {
     });
     const text = await r.text();
     const route = p.split('?')[0] ?? p;
-    if (!r.ok) throw new OpencodeApiError(r.status, route, text.split(this.serve.password).join('***').slice(0, 300));
+    if (!r.ok) {
+      const detail = [this.serve.password, ...secrets].filter(Boolean).reduce((t, s) => t.split(s).join('***'), text);
+      throw new OpencodeApiError(r.status, route, detail.slice(0, 300));
+    }
     if (!text) return null;
     try {
       return JSON.parse(text) as unknown;

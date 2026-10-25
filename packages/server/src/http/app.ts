@@ -21,6 +21,7 @@ import { sessionRoutes } from './routes/sessions.ts';
 import { settingsRoutes } from './routes/settings.ts';
 import { syncRoutes } from './routes/sync.ts';
 import { systemRoutes } from './routes/system.ts';
+import { opencodeProviderRoutes } from './routes/opencodeProviders.ts';
 import { gitRoutes } from './routes/git.ts';
 import { GitService } from '../git/service.ts';
 import { gitPath } from '../git/find.ts';
@@ -132,6 +133,7 @@ export function createApp(deps: AppDeps): Hono {
   settingsRoutes(api, deps);
   retentionRoutes(api, deps);
   systemRoutes(api, deps);
+  opencodeProviderRoutes(api, deps);
   syncRoutes(api, deps);
   runRoutes(api, deps);
   usageRoutes(api, deps);

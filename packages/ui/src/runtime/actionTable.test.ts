@@ -46,7 +46,8 @@ describe('表の鍵', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'editor.test', 'editors.load', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'memo.save',
-      'opencode.options', 'overlap.dismiss', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
+      'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
+      'overlap.dismiss', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'setupGuide.openEditor', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
     ]);
@@ -324,5 +325,54 @@ describe('git の表示', () => {
     expect(ok.store.gitDiffs).toEqual({ 's1\n/w/a.ts': diff });
     const bad = await runRow({ type: 'git.edits.load', sessionId: 's1', file: '/w/a.ts' }, fakeApi({ sessionEdits: vi.fn(async () => { throw new Error('ありません'); }) }));
     expect(bad.store.gitEdits).toEqual({ 's1\n/w/a.ts': { error: 'ありません' } });
+  });
+});
+
+describe('opencode のプロバイダー（設定）', () => {
+  const SECRET = 'sk-ui-secret-123';
+  const row = (id: string) => ({ id, name: id, via: 'key' as const, envName: null, url: null, where: 'remote' as const, price: null, canChangeKey: true, canDisconnect: true });
+  const dto = (...ids: string[]) => ({ connected: ids.map(row), catalog: [], configPath: '/u/.config/opencode/opencode.json' });
+
+  it('一覧を読む。読み直しが失敗しても前の一覧を残す', async () => {
+    const opencodeProviders = vi.fn(async () => dto('opencode'));
+    const r = await runRow({ type: 'opencode.providers.load' }, fakeApi({ opencodeProviders }));
+    expect(r.during.opencodeProviders?.status).toBe('loading');
+    expect(r.store.opencodeProviders).toMatchObject({ status: 'ready', data: dto('opencode') });
+    const failed = await runRow({ type: 'opencode.providers.load' }, fakeApi({ opencodeProviders: vi.fn(async () => { throw new Error('boom'); }) }), r.store);
+    expect(failed.store.opencodeProviders).toMatchObject({ status: 'ready', data: dto('opencode'), error: { op: 'load', message: 'boom' } });
+  });
+
+  it('API キーは呼び出しに渡すだけで、Store には置かない。接続して新しく入った行を added にする', async () => {
+    const opencodeProviderKey = vi.fn(async () => dto('opencode', 'deepseek'));
+    const start = { ...initialStore(), opencodeProviders: { status: 'ready' as const, data: dto('opencode'), busy: null, error: null, added: null, login: null } };
+    const r = await runRow({ type: 'opencode.providers.key', id: 'deepseek', key: SECRET }, fakeApi({ opencodeProviderKey }), start);
+    expect(opencodeProviderKey.mock.calls).toEqual([['deepseek', SECRET]]);
+    expect(r.during.opencodeProviders?.busy).toEqual({ id: 'deepseek', op: 'key' });
+    expect(r.store.opencodeProviders).toMatchObject({ busy: null, added: 'deepseek', data: dto('opencode', 'deepseek') });
+    expect(JSON.stringify(r.store)).not.toContain(SECRET);
+    expect(JSON.stringify(r.during)).not.toContain(SECRET);
+  });
+
+  it('失敗はトーストにせず、その行の欄のそばに出す理由として持つ', async () => {
+    const r = await runRow({ type: 'opencode.providers.custom', name: 'gpu', url: 'http://x/v1', apiKey: SECRET }, fakeApi({ opencodeCustomProvider: vi.fn(async () => { throw new Error('モデル一覧を取得できませんでした。'); }) }));
+    expect(r.store.opencodeProviders?.error).toEqual({ id: ':custom', op: 'custom', message: 'モデル一覧を取得できませんでした。' });
+    expect(JSON.stringify(r.store)).not.toContain(SECRET);
+  });
+
+  it('ログインを始めて進みを聞く。始め直したあとに届いた古い答えは捨て、取り消すと消える', async () => {
+    const opencodeLoginStatus = vi.fn(async () => ({ status: 'complete' as const, message: null }));
+    const started = await runRow({ type: 'opencode.providers.login', id: 'github-copilot', method: 'device' }, fakeApi());
+    expect(started.store.opencodeProviders?.login).toMatchObject({ id: 'github-copilot', status: 'pending', attempt: { attemptId: 'a1' } });
+    const polled = await runRow({ type: 'opencode.providers.login.poll' }, fakeApi({ opencodeLoginStatus }), started.store);
+    expect(opencodeLoginStatus.mock.calls).toEqual([['github-copilot', 'a1']]);
+    expect(polled.store.opencodeProviders?.login?.status).toBe('complete');
+    // 終わったものには聞かない。
+    expect((await runRow({ type: 'opencode.providers.login.poll' }, fakeApi(), polled.store)).called).toBe(false);
+    const call = actionCall({ type: 'opencode.providers.login.poll' }, started.store)!;
+    const restarted = { ...started.store, opencodeProviders: { ...started.store.opencodeProviders!, login: { ...started.store.opencodeProviders!.login!, attempt: { ...started.store.opencodeProviders!.login!.attempt, attemptId: 'a2' } } } };
+    const done = await call.run(fakeApi({ opencodeLoginStatus }));
+    expect(done.apply!(restarted).opencodeProviders?.login?.status).toBe('pending');
+    const cancelled = await runRow({ type: 'opencode.providers.login.cancel' }, fakeApi(), started.store);
+    expect(cancelled.during.opencodeProviders?.login).toBeNull();
   });
 });
