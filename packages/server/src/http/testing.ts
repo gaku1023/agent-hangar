@@ -237,6 +237,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     nodeCheck: { need: () => ({ napi: 10, min: '22.14', arch: 'x64' }), probe: async () => ({ version: '22.14.0', napi: 10, arch: 'x64' }) },
     findMux: () => null,
     compat: async () => ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] }),
+    opencodeStatus: async () => ({ found: false, version: null, verified: false }),
     uiDist: null,
     ...overrides,
   };

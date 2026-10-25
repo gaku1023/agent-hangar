@@ -35,6 +35,17 @@ describe('Claude Code との互換', () => {
   });
 });
 
+describe('opencode の検出', () => {
+  it('GET /api/opencode/status は検出の口の答えを {found, version, verified} で返す', async () => {
+    expect((await json(await get('/api/opencode/status'))).body).toEqual({ found: false, version: null, verified: false });
+    const found = createApp({ ...deps, opencodeStatus: async () => ({ found: true, version: '2.1.4', verified: true }) });
+    expect(await (await found.request('/api/opencode/status', { headers: H })).json()).toEqual({ found: true, version: '2.1.4', verified: true });
+  });
+  it('トークンが無ければ断る', async () => {
+    expect((await get('/api/opencode/status', {})).status).toBe(401);
+  });
+});
+
 describe('POST /api/readiness/mux（psmux と tmux の再確認）', () => {
   const post = (a: ReturnType<typeof createApp>) => a.request('/api/readiness/mux', { method: 'POST', headers: H });
   it('設定が空で見つかれば tmuxPath を埋め、取り直した準備の確かめを返す', async () => {

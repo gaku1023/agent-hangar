@@ -2,10 +2,11 @@ import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
 import { applySettingsPatch } from '../config/settingsUpdate.ts';
-import { whichMux } from '../config/tools.ts';
+import { findOpencode, whichMux } from '../config/tools.ts';
 import { listDevices } from '../db/queries.ts';
 import { createApp } from '../http/app.ts';
 import { promoteSession } from '../projects/promote.ts';
+import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
 import { PtyRelay } from '../pty/relay.ts';
 import { sessionRunsAnywhere } from '../runs/announce.ts';
@@ -89,6 +90,8 @@ export function bootHttp(p: {
   // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
   // 入口（main.ts）が読んで消してから opts.uiDist で渡す。無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');
+  // opencode の検出（ベータ）。版は聞かれたときに 1 度だけ読み、同じファイルなら覚えた版を返す。
+  const opencode = new LocalOpencode({ bin: () => findOpencode() });
   const app = createApp({
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
@@ -146,6 +149,7 @@ export function bootHttp(p: {
     readiness: runs.readiness,
     findMux: () => whichMux(),
     compat: runs.compat,
+    opencodeStatus: opencode.status,
     overlapRefresh: () => runs.overlaps.tick(),
     uiDist,
   });

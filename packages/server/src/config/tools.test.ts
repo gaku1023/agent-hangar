@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Settings } from './paths.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { isWindows, posixIt } from '../../test/platform.ts';
-import { resolveToolPaths, which, whichMux } from './tools.ts';
+import { findOpencode, resolveToolPaths, which, whichMux } from './tools.ts';
 
 describe('which', () => {
   it('PATH の順に探し、実行できるものを返す', () => {
@@ -35,6 +35,25 @@ describe('which', () => {
     expect(which('mytool', env)).toBe(mytool);
     // ~/.claude/local は古い npm 版の置き場で、Windows の既知の置き場には入れていない。
     if (!isWindows) expect(which('oldtool', env)).toBe(oldtool);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe('findOpencode', () => {
+  it('PATH から opencode を探す', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-opencode-path-'));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
+    const tool = writeFakeTool(dir, 'opencode', { sh: '', cmd: '' });
+    expect(findOpencode({ PATH: dir, HOME: home, USERPROFILE: home })).toBe(tool);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  it('PATH に無くても、公式の入れ方の置き場（~/.opencode/bin）を見る', () => {
+    // 公式の install の台本は ~/.opencode/bin に入れ、シェルの rc で PATH に足す。
+    // Finder から起こした .app の PATH には入らないので、自分で見に行かなければ見つけられない。
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
+    const tool = writeFakeTool(path.join(home, '.opencode', 'bin'), 'opencode', { sh: '', cmd: '' });
+    expect(findOpencode({ PATH: '', HOME: home, USERPROFILE: home })).toBe(tool);
     fs.rmSync(home, { recursive: true, force: true });
   });
 });

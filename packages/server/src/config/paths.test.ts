@@ -168,6 +168,20 @@ describe('paths', () => {
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', remoteControl: 'no' }));
     expect(loadSettings(tmp).remoteControl).toBe(true);
   });
+  it('古い settings.json に opencode の項目が無ければ持たず、保存した値を読め、手で書き換えた値は捨てる', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    const s = loadSettings(tmp);
+    // 無い項目は既定（切、最小限）として読む。既定は読む側（toSettingsDto と opencode の入口）が決める。
+    expect(s.opencodeEnabled).toBeUndefined();
+    expect(s.opencodeInjection).toBeUndefined();
+    saveSettings(tmp, { ...s, opencodeEnabled: true, opencodeInjection: 'none' });
+    expect(loadSettings(tmp)).toMatchObject({ opencodeEnabled: true, opencodeInjection: 'none' });
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', opencodeEnabled: 'yes', opencodeInjection: 'full' }));
+    const bad = loadSettings(tmp);
+    expect('opencodeEnabled' in bad).toBe(false);
+    expect('opencodeInjection' in bad).toBe(false);
+  });
   it('手で書き換えた要約エンジンとモデルの値は、既定に寄せる', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', summaryEngine: 'lmstudio', summaryClaudeModel: '--tools', summaryApiKey: 3, defaultModel: '' }));

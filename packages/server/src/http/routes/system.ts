@@ -7,7 +7,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 索引、準備の確かめ、互換、要約器の経路が使う依存。 */
-export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'summary' | 'external'> & LanguageDeps;
+export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'summary' | 'external'> & LanguageDeps;
 
 /**
  * この PC の道具立ての経路。
@@ -38,6 +38,8 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
   // 「テスト」。見本のファイルを書いて 3 行目を開く。開けなかった理由は答えの中に入れ、200 で返す（画面は欄の下に出す）。
   api.post('/editor/test', async (c) => c.json(await deps.external.testEditor()));
   api.get('/compat', async (c) => c.json(await deps.compat()));
+  // opencode の検出（ベータ）。設定の入り切りに関わらず答える（有効にする前に、入っているかと版を見せるため）。
+  api.get('/opencode/status', async (c) => c.json(await deps.opencodeStatus()));
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));
   api.post('/summarizer/test', async (c) => c.json(await deps.summary.test()));
 }
