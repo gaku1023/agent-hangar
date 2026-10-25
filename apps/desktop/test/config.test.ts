@@ -136,6 +136,15 @@ describe('tauri.conf.json', () => {
     expect(section, '[package] が見つかりません').toBeDefined();
     expect(/^version = "(.+)"$/m.exec(section!)?.[1]).toBe(pkg.version);
   });
+  // wry は、カスタムプロトコルの応答（頁が呼んだ async の command の返事）を objc2::exception::catch で包み、
+  // 頁が移った後の「もう止まった要求」への返事で出る NSException を受ける。
+  // panic = "abort" だと、この catch は例外を受けられず、殻が「panic in a function that cannot unwind」で落ちる（CI の起動確認で揺れた）。
+  it('release の殻は panic を unwind にする（wry が ObjC の例外を受けられるように）', () => {
+    const cargo = read('src-tauri/Cargo.toml');
+    const section = cargo.split(/^\[/m).find((s) => s.startsWith('profile.release]'));
+    expect(section, '[profile.release] が見つかりません').toBeDefined();
+    expect(/^panic = "(.+)"$/m.exec(section!)?.[1] ?? 'unwind').toBe('unwind');
+  });
   // 自動更新（段 5-4）。目録は GitHub の Release の最新から引き、更新物は minisign の公開鍵で確かめる。
   // 公開鍵は本物の鍵のもので、秘密鍵は CI の secret だけにある。
   it('updater は Release の最新の目録を https で引き、公開鍵で更新物を確かめる', () => {
