@@ -100,7 +100,21 @@ export function killGroup(pid: number, signal: NodeJS.Signals, platform: NodeJS.
   }
 }
 
-function isProcessAlive(pid: number): boolean {
+/**
+ * 子として持っていないプロセス（画面の中の serve、引き継いだ serve）の終わりを、間をおいて生死を見て拾う。
+ * 見張りの間はサーバの終わりを引き止めない（unref）。
+ */
+export function watchExit(pid: number, everyMs = 1000, alive: (pid: number) => boolean = isProcessAlive): Promise<void> {
+  return new Promise((resolve) => {
+    const tick = (): void => {
+      if (!alive(pid)) { resolve(); return; }
+      setTimeout(tick, everyMs).unref?.();
+    };
+    tick();
+  });
+}
+
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -118,7 +132,12 @@ export type ServeProcess = {
   directory: string | null;
   /** 起こした時刻（エポックのミリ秒）。残った serve の掃除で、pid の使い回しを見分けるのに使う。 */
   startedAt: number;
-  child: ChildProcess;
+  /** hangar が直に起こした子。tmux（Windows は psmux）の画面の中で起こした serve と、前の hangar から引き継いだ serve には無い。 */
+  child?: ChildProcess;
+  /** serve を包んで動かしている画面の名前（pane.ts）。直に起こした serve には無い。 */
+  pane?: string;
+  /** 合言葉の元（manager.ts の ServeSecrets）。これがある serve は、hangar を起こし直した後も合言葉を作り直してつなぎ直せる。 */
+  nonce?: string;
   /** プロセスが終わると解決する。 */
   exited: Promise<void>;
 };
@@ -129,6 +148,8 @@ export type StartServeOptions = {
   env: NodeJS.ProcessEnv;
   /** 作業フォルダ（会話のフォルダ）。応答の確かめの GET もここを指す。ServeManager は必ず渡す。 */
   directory?: string;
+  /** 合言葉。省くと起動ごとに乱数で作る。 */
+  password?: string;
   pickPort?: () => Promise<number>;
   /** ポートが塞がっていたときに取り直す上限（最初の 1 回を含む）。 */
   portAttempts?: number;
@@ -144,7 +165,7 @@ const TAIL_BYTES = 8192;
 
 /** serve を起こし、応答するまで待つ。ポートが塞がっていたら取り直す。ほかの失敗は ServeStartError で投げる。 */
 export async function startServe(o: StartServeOptions): Promise<ServeProcess> {
-  const password = newServePassword();
+  const password = o.password ?? newServePassword();
   const attempts = o.portAttempts ?? 5;
   for (let i = 0; ; i++) {
     const port = await (o.pickPort ?? pickFreePort)();

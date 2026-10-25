@@ -80,6 +80,16 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
         transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         return { providerSessionId: r.providerSessionId };
       },
+      // hangar を起こし直したとき、前の hangar から引き継いだ serve（ServeManager.adopt）に、状態とトランスクリプトの面を載せ直す。
+      // 本文は全部を作り直しの束として読み直す（どこまで写したかはメモリにだけ持つ）。
+      reattach(target) {
+        const serve = deps.serves()?.get(target.sessionId);
+        if (!serve) return false;
+        hangarIdOf.set(target.providerSessionId, target.sessionId);
+        live.track({ providerSessionId: target.providerSessionId, cwd: target.cwd, serve });
+        transcript.track({ providerSessionId: target.providerSessionId, cwd: target.cwd, serve });
+        return true;
+      },
       // 新しい会話も再開も、materialize が返した（再開なら既にある）会話へ -s でつなぐ。フォークは受けない。
       plan(bin, mode, spec) {
         if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);

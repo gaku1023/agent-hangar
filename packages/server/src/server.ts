@@ -9,7 +9,7 @@ import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
 import { bootOpencode } from './boot/opencode.ts';
 import type { StartOptions } from './boot/options.ts';
-import { bootRuns } from './boot/runs.ts';
+import { bootRuns, panesOf } from './boot/runs.ts';
 import { bootSummary } from './boot/summary.ts';
 import { bootSync } from './boot/sync.ts';
 import { bootTakeover } from './boot/takeover.ts';
@@ -112,7 +112,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const takeover = bootTakeover({ home, runs, sync, delivery, opencode: () => opencodeParts });
   // opencode（ベータ）の serve の管理。前の hangar が残した serve の掃除は、設定の入り切りに関わらずここで始まる。
   // 範囲の外の版で serve を起こすたびに、画面へ知らせの種を配る（右下の札、同じ版では画面が一度だけ出す）。
-  const opencode = bootOpencode(home, { onVersionNotice: (s) => delivery.hub.broadcast({ type: 'opencode.version', version: s.version, verdict: s.verdict }) });
+  // 動いている run の会話の serve は、前の hangar から引き継ぐ。Windows は serve を psmux の画面の中で起こすので、run と同じ画面の口を渡す。
+  const opencode = bootOpencode(home, {
+    onVersionNotice: (s) => delivery.hub.broadcast({ type: 'opencode.version', version: s.version, verdict: s.verdict }),
+    panes: () => panesOf(runs.mux()),
+  });
   opencodeParts = opencode;
   // opencode の driver は配る層と一緒に組んである。serve の管理をここで渡す（それまでの opencode の起動は断る）。
   delivery.bindOpencodeServes(opencode.serves);

@@ -4,9 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFakeOpencodeLog, readFakeOpencodeRequests, writeFakeOpencode, type FakeOpencodeEvent, type FakeOpencodeOptions } from '../../../../test/fake-opencode.ts';
 import { isWindows, posixIt } from '../../../../test/platform.ts';
-import { OpencodeDisabledError, ServeManager, type OpencodeVersionNoticeSeed, type ServeManagerDeps } from './manager.ts';
-import { isAlive, ServeRegistry } from './registry.ts';
-import { killGroup } from './spawn.ts';
+import { OpencodeDisabledError, ServeManager, serveSecrets, type OpencodeVersionNoticeSeed, type ServeManagerDeps } from './manager.ts';
+import { adoptableServes, isAlive, ServeRegistry } from './registry.ts';
+import { authHeader, killGroup } from './spawn.ts';
 
 // hangar を Claude Code のセッションから起こしたときにサーバの環境に入っている印。
 const dirtyEnv: NodeJS.ProcessEnv = {
@@ -201,6 +201,59 @@ describe('ServeManager', () => {
     await m.stopAll();
     for (const i of infos) expect(isAlive(i.pid)).toBe(false);
     expect(registry.list()).toEqual([]);
+  });
+
+  it('stopAll の keep が真の会話（動いている run）の serve は止めずに残し、記録にも残す', async () => {
+    const { m, registry, logFile } = make({ activeIds: ['ses_x'] });
+    const [a, b] = await Promise.all(['a', 'b'].map((id) => m.ensure(id)));
+    await m.stopAll({ keep: (id) => id === 'a' });
+    expect(isAlive(a!.pid)).toBe(true);
+    expect(isAlive(b!.pid)).toBe(false);
+    expect(registry.list().map((r) => r.sessionId)).toEqual(['a']);
+    // 残した serve の作業は interrupt しない（返答の途中でも止めない）。interrupt は止めた b の 1 回だけ。
+    expect(readFakeOpencodeLog(logFile).filter((e) => e.ev === 'interrupt')).toHaveLength(1);
+    killGroup(a!.pid, 'SIGKILL');
+  });
+
+  it('合言葉の元を記録に残し、起こし直した hangar は同じ鍵で合言葉を作り直して serve を引き継ぐ', async () => {
+    const secrets = serveSecrets(dir);
+    const first = make({}, { secrets });
+    const info = await first.m.ensure('a');
+    const rec = first.registry.list()[0]!;
+    expect(rec.nonce).toEqual(expect.any(String));
+    expect(fs.readFileSync(first.registry.file, 'utf8')).not.toContain(info.password);
+    await first.m.stopAll({ keep: () => true });
+    // 起こし直し。鍵のファイルから読み直す。
+    const second = make({}, { secrets: serveSecrets(dir), watchMs: 50 });
+    expect(second.m.adopt(adoptableServes(second.registry, (id) => id === 'a'))).toEqual(['a']);
+    const got = second.m.get('a')!;
+    expect(got).toMatchObject({ pid: info.pid, url: info.url, password: info.password, directory: info.directory });
+    const r = await fetch(`${got.url}/api/session/active`, { headers: { authorization: authHeader(got.password) } });
+    expect(r.status).toBe(200);
+    await second.m.stop('a');
+    expect(isAlive(info.pid)).toBe(false);
+    expect(second.registry.list()).toEqual([]);
+  });
+
+  it('引き継いだ serve が自分で終わったら手放し、記録から消す', async () => {
+    const secrets = serveSecrets(dir);
+    const first = make({}, { secrets });
+    const info = await first.m.ensure('a');
+    await first.m.stopAll({ keep: () => true });
+    const second = make({}, { secrets, watchMs: 20 });
+    second.m.adopt(adoptableServes(second.registry, () => true));
+    killGroup(info.pid, 'SIGKILL');
+    for (let i = 0; i < 100 && second.m.get('a'); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(second.m.get('a')).toBeNull();
+    expect(second.registry.list()).toEqual([]);
+  });
+
+  it('合言葉の元の無い記録（前の版、secrets を持たない管理）は引き継がない', async () => {
+    const first = make();
+    const info = await first.m.ensure('a');
+    await first.m.stopAll({ keep: () => true });
+    expect(adoptableServes(first.registry, () => true)).toEqual([]);
+    killGroup(info.pid, 'SIGKILL');
   });
 
   it('起動の前の掃除が済むまで、起こさない', async () => {

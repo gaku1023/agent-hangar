@@ -1514,9 +1514,13 @@ opencode 2.1.4 の serve は、同時に起こすと起動の途中で `SQLiteEr
   場所を問いで渡す道（モデルや MCP の一覧など）は、問いが先に効く。
   本文、interrupt、追記、出来事の流れのような会話の ID だけの道も、これで会話のフォルダを指す。
 - パスワードは起動ごとに 32 バイトの乱数を作り、`OPENCODE_SERVER_PASSWORD` で渡す（basic 認証、ユーザー名は `opencode`）。argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かず、メモリにだけ持つ。
-- macOS と Linux は、プロセスのまとまりの頭として起こす（detached）。hangar が落ちても道連れにならないので、下の記録で掃除する。止めるときは、serve が起こした子ごとまとまりに信号を送る。
-- Windows は detached にせず、`windowsHide` で起こす。標準入出力を 1 つも継がないので、libuv はこれを `CREATE_NO_WINDOW` にし、serve は見えないコンソールを持つ。serve の上で動く道具（シェル、git など）はそのコンソールを継ぐので、黒い窓を開かない。detached（`DETACHED_PROCESS`）にするとコンソールが無くなり、道具を起こすたびに新しい窓が開く。
-- Windows で serve をジョブオブジェクトに入れる仕組みは、新しくは作らない。detached にしない子は libuv のジョブ（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）に入るので、hangar のサーバが落ちると serve 本体も止まる。serve の下の子は libuv のジョブからは黙って抜けるが、殻のジョブ（`src-tauri/src/winjob.rs`、黙って抜けるのを許さない）には残るので、殻を閉じれば止まる。殻の無い起動（`npm run dev`）で残った分は、下の記録で掃除する。この振る舞いは実機で確かめていない（計画の 3 節の 4）。
+- macOS と Linux は、プロセスのまとまりの頭として起こす（detached）。hangar を閉じても落ちても道連れにならない（「hangar を閉じたとき」）。止めるときは、serve が起こした子ごとまとまりに信号を送る。
+- Windows は、tmux の口（psmux）があれば、serve を psmux の画面の中で起こす（`pane.ts`）。hangar が直に起こした子は libuv のジョブ（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）に入り、hangar のサーバが終わると道連れになる。serve の下の子も殻のジョブ（`src-tauri/src/winjob.rs`）に残るので、Hangar を閉じると止まる。psmux はサーバをジョブの外に起こす（`CREATE_BREAKAWAY_FROM_JOB`）ので、その画面の中の serve は claude と同じく Hangar を閉じても動き続ける。
+  - 画面の名前は `hangar-serve-<会話の ID>` で、run の画面（`hangar-<16 進>`）とシェルタブの形には当たらない。
+  - 画面の中では包み（`hangar-serve.mjs`、`<HANGAR_HOME>/bin` に置き、同梱版では `server.mjs` の隣から写す）が serve を起こす。起こす指定（場所、引数、作業フォルダ、環境）は `<HANGAR_HOME>/opencode/panes/<画面>.spec.json`（0600、置き場は 0700）に書いて場所だけを渡し、包みが読んですぐ消す。環境には合言葉と hangar の MCP の秘密が入るので、argv にも psmux のセッションの環境にも載せない（「opencode の起動」の秘密の環境と同じ考え）。包みは渡された環境だけで serve を起こすので、psmux のサーバの環境は継がない。
+  - 包みは serve を `windowsHide` と標準入出力のパイプで起こす（直に起こすときと同じく、serve は見えないコンソールを持ち、道具は黒い窓を開かない）。出力は `<画面>.log` に書き（256KB を越えたら末尾の 8KB だけ残す）、serve の pid と終わりを `<画面>.state.json` に書く。hangar はこれを読んで応答を待ち、落ちたらログの末尾で理由（`database is locked`、ポート）を読む。包みが状態を書く前に画面ごと消えたら、時間切れを待たずに諦める。
+  - 止め方は直に起こした serve と同じで、serve の pid に木ごと止める（`taskkill /T /F`）。包みは serve の終わりを待って終わり、画面も閉じる。残っていれば hangar が画面を閉じ、ファイルを消す。
+  - psmux が無い（tmux の設定が無い）ときは直に起こす。そのときは `windowsHide` で起こし、detached にしない（`DETACHED_PROCESS` にするとコンソールが無くなり、道具を起こすたびに新しい窓が開く）。この serve は Hangar を閉じると止まり、起こし直したときに引き継げない。
 - 起こす場所が `.cmd` のまま（npm の包みを読み替えられなかったもの）なら、cmd.exe 越しに起こす。渡す引数は決まった語とポートの数だけなので崩れない。
 
 止めるときは、serve の上で走っている会話（`GET /api/session/active` の鍵）を `POST /api/session/{id}/interrupt` で止め、SIGTERM を送り、3 秒で降りなければ SIGKILL を送る。
@@ -1524,16 +1528,21 @@ TUI を閉じてもサーバ側の処理は続くので、信号の前に interr
 Windows には SIGTERM もまとまりへの信号も無いので、interrupt の後は `taskkill /PID <pid> /T /F` でプロセスの木ごと強制で止める（`spawn.ts` の `killGroup`）。
 穏やかに止める段は interrupt が受け持つ。
 `killGroup` は 0 以下の pid には何もしない。`process.kill` に 0 や負の数を渡すと、hangar 自身のまとまりに信号が届くからである。
-hangar の終わりの後片付けでも、起こした serve を全部この順で止める。
+hangar の終わりの後片付けでは、動いている run の会話の serve を残し、ほかの serve（選択肢とプロバイダーの問い合わせ、取り込み、起動の途中）をこの順で止める（「hangar を閉じたとき」）。
 
-起こした serve の pid、ポート、起こした時刻は `<HANGAR_HOME>/opencode/serves.json`（`registry.ts`）に残す。パスワードは書かない。
-hangar が起きたときに、記録に残った serve を探して止める（1 本あたり 160〜260MB を握るため）。
+起こした serve の pid、ポート、起こした時刻、合言葉の元（nonce）、作業フォルダ、画面の名前（psmux の中で起こしたときだけ）は `<HANGAR_HOME>/opencode/serves.json`（`registry.ts`、0600）に残す。パスワードは書かない。
+合言葉は、起動ごとに作る元と、置き場の鍵（`<HANGAR_HOME>/opencode/serve.key`、32 バイトの乱数、0600）から HMAC-SHA256 で作る（`manager.ts` の `serveSecrets`）。記録を読まれても合言葉は漏れず、hangar を起こし直したら同じ合言葉を作り直せる。
+hangar が起きたときに、記録に残った serve を探し、この PC で動いている opencode の run の会話の serve は引き継ぎ（`ServeManager.adopt`）、ほかを止める（1 本あたり 160〜260MB を握るため）。
+引き継ぐのは、元のある記録で、下の見分け方でいまも hangar の起こした serve であるものだけである。元の無い記録（前の版の記録）は引き継がない。
+引き継いだ serve は子として持たないので、終わりは 1 秒おきに生死を見て拾う（`spawn.ts` の `watchExit`）。
 この掃除だけは設定の入り切りに関わらず回し、済むまで新しい serve を起こさない。
+止めた serve が画面の中のものなら、その画面も閉じる。
 pid は使い回されるので、`ps` で見たコマンド行（`serve` と記録したポート）と、`etime` から逆算した起動の時刻の両方が合うものだけを止める。
 Windows には `ps` が無いので、PowerShell の `Get-CimInstance Win32_Process` で、記録の pid のコマンド行と起動の時刻（`ToFileTimeUtc`）をまとめて 1 回で聞く（`registry.ts` の `windowsProbeAll`）。
 Windows のコマンド行は引用符を含む（空白を含む場所、cmd.exe 越しの `.cmd` の `/c ""…" serve … --port N"`）ので、引用符を区切りとして読む。
 合わないものには触らず、記録から消すだけにする。
-合言葉を持っていないので、残った serve には interrupt を送らず、SIGTERM と SIGKILL だけで止める。
+残った serve には interrupt を送らず、SIGTERM と SIGKILL だけで止める。
+記録の pid は、引き継ぐかの判定と掃除で 1 回だけまとめて見る（Windows は PowerShell の起動が遅いため）。
 
 起動のたびに手元の版を判定し（「opencode の検出（ベータ）」）、範囲の外なら知らせの種（`OpencodeVersionNoticeSeed`）を出す。
 起動は止めない。
@@ -1791,6 +1800,7 @@ opencode の会話がいつ serve を持ち、いつ手放すかを決める（�
 約束は、開いていない会話の serve を残さないことである（1 本あたり 160〜260MB を握るため）。
 
 TUI だけが閉じたら、すぐ止める。
+hangar を閉じても、動いている会話の serve は止めない（下の「hangar を閉じたとき」）。
 TUI を閉じても serve の上の作業は続くので、残すと見えないところでモデルが動き続けるからである。
 `RunManager` は、run が `exited` か `lost` で終わるとき（`end`）に、driver の `release` を `tui-gone` で 1 回呼ぶ。
 `killed` と `parked` は、止めにいった `kill` と `park` が先に `release` を呼ぶので、`end` では呼ばない。
@@ -1828,11 +1838,22 @@ serve が残っていれば止めてから起こし直す。
 外のターミナルの opencode の `-s` は、同期の口ではなく `resumeMaterialized` を通す（「外のターミナルの opencode」）。
 「この PC で再開」は、降ろした写しを取り込んでから非同期の `resumeWith` で開く（「同期対象と暗号化」の「opencode の本文」）。
 
-hangar を起こし直したときは、どの会話の serve も起こさない。
-serve は hangar の終わりで止め、残ったものは起動のときに掃除するので、前の hangar の TUI は serve を失っている。
-そこで起動時の回復（`recoverAtStartup`）は、生きている run のうち opencode のものの画面を閉じ、中断として `lost` で閉じる（ホームの「前回実行中」に並び、「再開」で続けられる）。
-閉じた opencode の run の画面が一覧に戻っても、生き返らせずに画面を閉じる（serve はもう無い）。
-driver の hangar の会話の ID の表（`hangarIdOf`）はメモリだけでよい。`RunManager` は `release` に hangar の会話の ID を渡し、再起動の後に serve を持つ会話は、その後の `materialize` で表に載るからである。
+#### hangar を閉じたとき
+
+Claude と同じく、hangar を閉じても opencode の会話は tmux（Windows は psmux）の中で動き続ける。返答の途中でも止めない。
+hangar の終わりの後片付け（`boot/opencode.ts` の `stop`）は、この PC で動いている opencode の run の会話の serve を止めず、interrupt も送らない。
+TUI はその serve につながったまま動き、serve は記録（`serves.json`）に残る。
+macOS と Linux の serve はプロセスのまとまりを分けて起こしてあり、Windows の serve は psmux の画面の中にあるので、hangar のサーバが終わっても道連れにならない（「opencode の serve の管理」）。
+
+hangar を起こし直したら、どの会話の serve も新しくは起こさない。
+起動のとき、記録から動いている run の会話の serve を引き継ぎ（合言葉は記録の元から作り直す）、起動時の回復（`recoverAtStartup`）が、画面の残っている opencode の run を driver の `reattach` でその serve につなぎ直す。
+`reattach` は、状態とトランスクリプトの面に会話を載せ直し、hangar の会話の ID の表（`hangarIdOf`）に足す。本文はどこまで写したかを覚えていないので、全部を作り直しの束として読み直す（二度読んでも行は重ならない）。
+run の MCP の秘密は DB にあり、生きている run の分は起動時の回復で消さないので、serve の上の会話は同じ秘密で hangar の MCP につなぎ続ける。
+
+つなぎ直せない run（serve を失った）は、画面を閉じ、中断として `lost` で閉じる（ホームの「前回実行中」に並び、「再開」で続けられる）。
+serve を失うのは、psmux の無い Windows で直に起こした serve がサーバと一緒に止まったとき、記録の無い前の版の serve を掃除したとき、serve が自分で落ちたときである。
+画面が閉じていた run は、Claude と同じく `lost` で閉じ、その `release` が引き継いだ serve も止める。
+閉じた opencode の run の画面が一覧に戻っても、生き返らせずに画面を閉じる（serve は run の終わりで止めている）。
 
 区切り（Done、Archived）を付けた会話の自動停止は Claude と同じで、休みが続いたら `park` で止める。
 `parkedSessionIds` は Claude の登録に opencode の状態の面の行を足して読み、行の `agent` とセッションの `provider` の組で突き合わせる。

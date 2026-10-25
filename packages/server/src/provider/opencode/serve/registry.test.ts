@@ -7,7 +7,7 @@ import { writeFakeOpencode } from '../../../../test/fake-opencode.ts';
 import { isWindows, posixIt } from '../../../../test/platform.ts';
 import type { ProcRun } from '../../../platform/proc.ts';
 import { serveEnv } from './env.ts';
-import { isAlive, isOurServe, ServeRegistry, sweepLeftoverServes, windowsProbeAll } from './registry.ts';
+import { adoptableServes, isAlive, isOurServe, ServeRegistry, sweepLeftoverServes, windowsProbeAll } from './registry.ts';
 import { killGroup, startServe } from './spawn.ts';
 
 describe('ServeRegistry', () => {
@@ -86,6 +86,45 @@ describe('sweepLeftoverServes', () => {
     expect(r.stopped).toEqual([]);
     expect(isAlive(otherPid)).toBe(true);
     expect(isAlive(s.pid)).toBe(true);
+    expect(reg.list()).toEqual([]);
+  });
+});
+
+describe('引き継ぐ serve と掃除', () => {
+  let dir: string;
+  const pids: number[] = [];
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-adopt-')); });
+  afterEach(() => {
+    for (const pid of pids.splice(0)) killGroup(pid, 'SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('動いている会話の serve で、合言葉の元があり、いまも hangar の serve であるものだけを引き継ぐ。掃除は引き継いだものを止めず、記録にも残す', async () => {
+    const { bin } = writeFakeOpencode(path.join(dir, 'oc'));
+    const a = await startServe({ bin, env: serveEnv(bin) });
+    const b = await startServe({ bin, env: serveEnv(bin) });
+    pids.push(a.pid, b.pid);
+    const reg = new ServeRegistry(path.join(dir, 'serves.json'));
+    reg.add({ sessionId: 'a', pid: a.pid, port: a.port, startedAt: a.startedAt, nonce: 'n1', directory: dir, pane: 'hangar-serve-a' });
+    reg.add({ sessionId: 'b', pid: b.pid, port: b.port, startedAt: b.startedAt, nonce: 'n2' });
+    reg.add({ sessionId: 'c', pid: 999_999, port: 4102, startedAt: Date.now(), nonce: 'n3' });
+    const keep = (id: string) => id === 'a' || id === 'c';
+    const adopt = adoptableServes(reg, keep);
+    expect(adopt.map((r) => r.sessionId)).toEqual(['a']);
+    const closed: string[] = [];
+    const r = await sweepLeftoverServes(reg, { graceMs: 1000, keep: new Set(adopt.map((x) => x.pid)), closePane: (n) => closed.push(n) });
+    expect(r.stopped).toEqual([b.pid]);
+    expect(isAlive(a.pid)).toBe(true);
+    expect(reg.list().map((x) => x.sessionId)).toEqual(['a']);
+    expect(closed).toEqual([]);
+  });
+
+  it('止めた serve の画面を閉じる', async () => {
+    const reg = new ServeRegistry(path.join(dir, 'serves.json'));
+    reg.add({ sessionId: 'x', pid: 999_998, port: 4103, startedAt: Date.now(), pane: 'hangar-serve-x' });
+    const closed: string[] = [];
+    await sweepLeftoverServes(reg, { graceMs: 100, closePane: (n) => closed.push(n) });
+    expect(closed).toEqual(['hangar-serve-x']);
     expect(reg.list()).toEqual([]);
   });
 });

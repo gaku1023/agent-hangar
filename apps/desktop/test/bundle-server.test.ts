@@ -78,8 +78,8 @@ describe.skipIf(!host)('bundleServer', () => {
     // macOS の同梱物は、Windows の対応を足す前から変わらない。launch-cli.mjs は Windows だけに入る。
     expect(r.files.sort()).toEqual(
       onWindows
-        ? ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'docs', 'hangar-run.mjs', 'launch-cli.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui']
-        : ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'docs', 'hangar-run.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui'],
+        ? ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'docs', 'hangar-run.mjs', 'hangar-serve.mjs', 'launch-cli.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui']
+        : ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'docs', 'hangar-run.mjs', 'hangar-serve.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui'],
     );
 
     // バンドルが外部のまま残した import の宛先と、同梱した node_modules がぴたり一致することを見る。
@@ -782,6 +782,7 @@ describe('bundleServer の target 別の同梱物', () => {
     expect(files).toContain('bin/hangar.cmd');
     expect(files).toContain('launch-cli.mjs');
     expect(files).toContain('hangar-run.mjs');
+    expect(files).toContain('hangar-serve.mjs');
     expect(files).toContain('node_modules/better-sqlite3/prebuilds/win32-x64.node');
     // ConPTY（Windows 11 の疑似端末）が要るものが揃っている。node-pty 1.2 で winpty をやめたので、pty.node は無い。
     for (const f of ['conpty.node', 'conpty_console_list.node', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']) {
