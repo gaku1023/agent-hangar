@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { OPENCODE_VERIFIED_RANGE, type OpencodeStatusDto } from '@agent-hangar/shared';
 import { captureOutput } from '../../../platform/capture.ts';
 import { needsShell } from '../../../platform/exec.ts';
+import { opencodeBaseEnv } from '../serve/env.ts';
 
 /**
  * 手元の opencode の版と、確かめた範囲との突き合わせ（docs/design.md「opencode の検出（ベータ）」）。
@@ -33,35 +33,13 @@ export function judgeOpencodeVersion(version: string | null, range: string = OPE
   return inRange ? 'verified' : 'unverified';
 }
 
-/** macOS と Linux で opencode に渡す PATH の固定の部分。opencode の置き場はこの前に足す。 */
-const POSIX_BASE_PATH = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
-/** macOS と Linux で呼び手の環境から写す鍵。ほかは何も渡さない。 */
-const POSIX_KEYS = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG'] as const;
 /**
- * Windows で写す鍵。OS の DLL と一時ディレクトリとホームを引くのに要る最小である。
- * 起動（serve）の許可リストは段 G で実機を見て決める。ここは版を読むためだけの仮の一覧である。
- */
-const WINDOWS_KEYS = ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'USERPROFILE', 'USERNAME', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP'] as const;
-
-/**
- * opencode の版を読むときの空の環境。
+ * opencode の版を読むときの空の環境。serve を起こすときと同じ作り（serve/env.ts の opencodeBaseEnv）にそろえる。
  * hangar を Claude Code のセッションから起こすと、呼び手の印（CLAUDE で始まる鍵）と hangar の印（HANGAR_*）がサーバに入っている。
  * opencode は環境から設定（OPENCODE_* やプロバイダーの API キー）を読むので、版を読むだけでも決まった鍵のほかは渡さない。
- * PATH の先頭は opencode の置き場にする。npm で入れた opencode は `#!/usr/bin/env node` の台本で、隣の node を引くからである。
  */
 export function opencodeProbeEnv(bin: string, src: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  if (platform === 'win32') {
-    for (const k of WINDOWS_KEYS) if (src[k] !== undefined) env[k] = src[k];
-    const root = src.SystemRoot ?? 'C:\\Windows';
-    env.Path = [path.win32.dirname(bin), path.win32.join(root, 'System32'), root].join(';');
-    return env;
-  }
-  for (const k of POSIX_KEYS) if (src[k] !== undefined) env[k] = src[k];
-  env.LANG ??= 'en_US.UTF-8';
-  const dir = path.posix.dirname(bin);
-  env.PATH = [...(POSIX_BASE_PATH.includes(dir) ? [] : [dir]), ...POSIX_BASE_PATH].join(':');
-  return env;
+  return opencodeBaseEnv(bin, src, platform);
 }
 
 export type LocalOpencodeDeps = {

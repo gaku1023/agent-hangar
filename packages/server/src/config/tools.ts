@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import type { Settings } from './paths.ts';
-import { findInDirs, knownDirs, MUX_NAMES, splitPathEnv } from '../platform/exec.ts';
+import { findInDirs, knownDirs, MUX_NAMES, resolveNpmExeShim, splitPathEnv } from '../platform/exec.ts';
 
 /** PATH を読む。Windows の環境変数は大文字小文字を区別しないが、試験が渡す素のオブジェクトは区別する。 */
 const pathOf = (env: NodeJS.ProcessEnv): string | undefined => env.PATH ?? env.Path;
@@ -27,10 +27,13 @@ export function which(cmd: string, env: NodeJS.ProcessEnv = process.env): string
  * 台本はシェルの rc で PATH の先頭に足すだけなので、Finder から起こした .app の PATH には入らない。
  * 台本で入れた人のシェルでは Homebrew より先に引かれるので、既知の置き場（/opt/homebrew/bin など）より前に置く。
  * 設定には場所を埋めない。見つけた場所は、版を読むたびと起動のたびにこれで引き直す。
+ * Windows で npm の .cmd の包みを見つけたら、包みが指す .exe を返す（platform/exec.ts の resolveNpmExeShim）。
  */
 export function findOpencode(env: NodeJS.ProcessEnv = process.env): string | null {
   const home = (process.platform === 'win32' ? env.USERPROFILE : env.HOME) ?? os.homedir();
-  return findInDirs('opencode', [...splitPathEnv(pathOf(env)), path.join(home, '.opencode', 'bin'), ...knownDirs(env)], env);
+  const found = findInDirs('opencode', [...splitPathEnv(pathOf(env)), path.join(home, '.opencode', 'bin'), ...knownDirs(env)], env);
+  // Windows で npm で入れた opencode は、PATH に opencode.cmd（npm の包み）が置かれる。包みが指す opencode.exe を直に起こす。
+  return found === null ? null : resolveNpmExeShim(found);
 }
 
 /** tmux の役を担う道具を探す。Windows では psmux を先に見る。 */

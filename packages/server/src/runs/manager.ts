@@ -148,6 +148,11 @@ export class RunManager {
    * 一覧に出たら消す。メモリだけに持ち、サーバを起こし直したら数え直す。
    */
   private misses = new Map<string, { count: number; mux: boolean }>();
+  /**
+   * hangar が持つ serve につながる run（opencode）の、包みの pid。起動時刻を確かめられなければ null。
+   * 一覧から抜けた最初の見回りで読み、run が一覧に戻るか閉じるまで覚える（wrapperAlive）。
+   */
+  private wrapperPids = new Map<string, number | null>();
   /** この時刻までは、生きた run が無くても一覧を読む（REVIVE_WATCH_MS）。 */
   private reviveWatchUntil = -Infinity;
   /** 本物のプロセスに触る口。procs を渡されなかったときに、compat を結んで 1 度だけ作る。 */
@@ -510,6 +515,7 @@ export class RunManager {
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
     this.parking.delete(runId);
     this.misses.delete(runId);
+    this.wrapperPids.delete(runId);
     this.remoteWatches.get(runId)?.();
     this.remoteWatches.delete(runId);
     const run = getRun(this.db, runId)!;
@@ -1058,6 +1064,7 @@ export class RunManager {
         continue;
       }
       this.misses.delete(run.id);
+      this.wrapperPids.delete(run.id);
       // 落としにいったのに残っているなら、落とせていない。後で自分で終わったときに parked と書かないよう、印を外す。
       this.parking.delete(run.id);
       // heartbeat は手元だけの書き込みで、共有の changes に積まない（同期の版 6）。
@@ -1082,10 +1089,38 @@ export class RunManager {
    * pid だけで見ると、OS が pid を別のプロセスに使い回したとき、永久に閉じなくなる。登録を読む口が無ければ、pid の生存だけで決める。
    */
   private stillRunning(run: RunDto): boolean {
-    if (run.pid === null || !(this.deps.pidAlive ?? isAlive)(run.pid)) return false;
+    if (run.pid === null) return this.servedByHangar(this.providerOf(run.sessionId)) && this.wrapperAlive(run);
+    if (!(this.deps.pidAlive ?? isAlive)(run.pid)) return false;
     if (!this.deps.live) return true;
     const s = this.db.prepare('select provider, provider_session_id from sessions where id = ?').get(run.sessionId) as { provider: string; provider_session_id: string } | undefined;
     return !!s && this.agents.of(s.provider).live.isRunning(s.provider_session_id, run.pid);
+  }
+
+  /**
+   * hangar が持つ serve につながる画面（opencode の TUI）を起こした包みが、まだ動いているか。
+   * その run には pid が無い（linkRegistry が serve の pid を書かない）ので、包み（hangar-run.sh、hangar-run.mjs）が run のログの頭に書く `start pid=` を読む。
+   * Windows の psmux は、混んだときに一覧からセッションが一瞬抜ける（issue #258）。
+   * 閉じると serve も止める（release の tui-gone）ので、抜けた間も包みが動いていれば、TUI は閉じていないと見る。
+   * 包みは TUI が終わると自分も終わる（異常終了のときは Enter を待つが、その間は画面が一覧に残る）。
+   * pid は使い回されるので、包みの起動時刻が run の起動の少し前（STRAY_SLACK_MS）より後のときだけ使う。
+   * 起動時刻は Windows では PowerShell に聞くので、run ごとに 1 回だけ聞いて覚える。
+   */
+  private wrapperAlive(run: RunDto): boolean {
+    let pid = this.wrapperPids.get(run.id);
+    if (pid === undefined) {
+      pid = this.wrapperPidOf(run);
+      this.wrapperPids.set(run.id, pid);
+    }
+    return pid !== null && (this.deps.pidAlive ?? isAlive)(pid);
+  }
+
+  private wrapperPidOf(run: RunDto): number | null {
+    const pid = readWrapperPid(runLogPath(this.deps.home, run.id));
+    if (pid === null || !(this.deps.pidAlive ?? isAlive)(pid)) return null;
+    const raw = this.procs().startTimeOf(pid);
+    const at = raw === null ? null : parseProcStart(raw);
+    if (at === null || at < run.startedAt - STRAY_SLACK_MS) return null;
+    return pid;
   }
 
   /**
@@ -1441,5 +1476,24 @@ export class RunManager {
   leaveTranscript(runId: string): Promise<{ left: boolean }> {
     const io = this.agentPane(runId);
     return this.queuePane(runId, async () => ({ left: await leaveTranscript(io) }));
+  }
+}
+
+/** 包みのログの頭だけを読む長さ。`start pid=` は包みが最初に書く行である。 */
+const WRAPPER_LOG_HEAD_BYTES = 4096;
+
+/** run のログの頭から、包みが書いた `start pid=` の pid を読む。無ければ null。 */
+function readWrapperPid(log: string): number | null {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(log, 'r');
+    const buf = Buffer.alloc(WRAPPER_LOG_HEAD_BYTES);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    const m = /\bstart pid=(\d+)\b/.exec(buf.subarray(0, n).toString('utf8'));
+    return m ? Number(m[1]) : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
   }
 }

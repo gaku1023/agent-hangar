@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { writeFakeTool } from '../../test/fake-bin.ts';
-import { findInDirs, isCommandName, knownDirs, MUX_NAMES, needsShell, pathExts, splitPathEnv } from './exec.ts';
+import { findInDirs, isCommandName, knownDirs, MUX_NAMES, needsShell, pathExts, resolveNpmExeShim, splitPathEnv } from './exec.ts';
 
 const dirs: string[] = [];
 const tmp = (): string => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-exec-')); dirs.push(d); return d; };
@@ -92,5 +92,52 @@ describe('findInDirs（実物のファイル）', () => {
     expect(findInDirs('MYTOOL', [d])?.toLowerCase()).toBe(tool.toLowerCase());
     fs.writeFileSync(path.join(d, 'readme.txt'), 'x');
     expect(findInDirs('readme.txt', [d])).toBeNull();
+  });
+});
+
+describe('resolveNpmExeShim', () => {
+  // npm の cmd-shim が、実行ファイル（#! の無い .exe）を指すときに書く形。@opencode/cli 2.x の bin は bin/opencode.exe である。
+  const shim = (target: string) => `@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%dp0%\\${target}"   %*\r\n`;
+  const exeOf = (dir: string) => {
+    const exe = path.join(dir, 'node_modules', '@opencode', 'cli', 'bin', 'opencode.exe');
+    fs.mkdirSync(path.dirname(exe), { recursive: true });
+    fs.writeFileSync(exe, '');
+    return exe;
+  };
+
+  it('npm の .cmd が .exe を指していれば、その .exe を返す', () => {
+    const dir = tmp();
+    const exe = exeOf(dir);
+    const cmd = path.join(dir, 'opencode.cmd');
+    fs.writeFileSync(cmd, shim('node_modules\\@opencode\\cli\\bin\\opencode.exe'));
+    expect(resolveNpmExeShim(cmd, 'win32')).toBe(exe);
+  });
+
+  it('古い cmd-shim の %~dp0 の形も読む', () => {
+    const dir = tmp();
+    const exe = exeOf(dir);
+    const cmd = path.join(dir, 'opencode.cmd');
+    fs.writeFileSync(cmd, `@"%~dp0\\node_modules\\@opencode\\cli\\bin\\opencode.exe"   %*\r\n`);
+    expect(resolveNpmExeShim(cmd, 'win32')).toBe(exe);
+  });
+
+  it('.exe でない先（node の台本）、指す先が無い、npm の形でない、.cmd でない、Windows でない、はそのまま返す', () => {
+    const dir = tmp();
+    exeOf(dir);
+    const cases: [string, string][] = [
+      ['node.cmd', `"%_prog%"  "%dp0%\\node_modules\\x\\bin\\x.js" %*\r\n`],
+      ['missing.cmd', shim('node_modules\\nothing\\opencode.exe')],
+      ['plain.cmd', '@echo off\r\n"C:\\node.exe" "C:\\x.mjs" %*\r\n'],
+    ];
+    for (const [name, body] of cases) {
+      const cmd = path.join(dir, name);
+      fs.writeFileSync(cmd, body);
+      expect(resolveNpmExeShim(cmd, 'win32')).toBe(cmd);
+    }
+    const good = path.join(dir, 'opencode.cmd');
+    fs.writeFileSync(good, shim('node_modules\\@opencode\\cli\\bin\\opencode.exe'));
+    expect(resolveNpmExeShim(good, 'darwin')).toBe(good);
+    expect(resolveNpmExeShim(path.join(dir, 'opencode.exe'), 'win32')).toBe(path.join(dir, 'opencode.exe'));
+    expect(resolveNpmExeShim(path.join(dir, 'nothing.cmd'), 'win32')).toBe(path.join(dir, 'nothing.cmd'));
   });
 });

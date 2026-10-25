@@ -83,3 +83,33 @@ export function needsShell(file: string, platform: NodeJS.Platform = process.pla
 export function MUX_NAMES(platform: NodeJS.Platform = process.platform): string[] {
   return platform === 'win32' ? ['psmux', 'tmux'] : ['tmux'];
 }
+
+/** npm の包みとして読む .cmd の大きさの上限。cmd-shim の包みは 1KB に満たない。 */
+const SHIM_MAX_BYTES = 64 * 1024;
+
+/**
+ * npm が Windows の PATH に置く .cmd の包み（cmd-shim）が実行ファイル（.exe）を指していれば、その .exe の場所を返す。読めなければ file をそのまま返す。
+ * .cmd は cmd.exe 越しにしか起こせず、改行や引用符や `&` を含む引数（初期プロンプトなど）を安全に渡せない。
+ * 指す先が .exe なら、包みを通さずに直に起こせる。@opencode/cli 2.x の bin は `bin/opencode.exe` で、包みは `"%dp0%\node_modules\@opencode\cli\bin\opencode.exe" %*` の 1 行で起こす。
+ * 指す先が node の台本（.js など）の包みは読み替えない。
+ */
+export function resolveNpmExeShim(file: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'win32' || !/\.cmd$/i.test(file)) return file;
+  let text: string;
+  try {
+    if (fs.statSync(file).size > SHIM_MAX_BYTES) return file;
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return file;
+  }
+  // 包みの最後の起動の行の、%dp0%（古い包みは %~dp0）から見た .exe の場所。後ろに %* が続くものだけを見る。
+  const all = [...text.matchAll(/"%~?dp0%?\\([^"\r\n]+?\.exe)"\s*%\*/gi)];
+  const rel = all.at(-1)?.[1];
+  if (!rel) return file;
+  const target = path.join(path.dirname(file), ...rel.split(/[\\/]+/));
+  try {
+    return fs.statSync(target).isFile() ? target : file;
+  } catch {
+    return file;
+  }
+}

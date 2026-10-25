@@ -19,6 +19,7 @@ import { writeFakeClaude } from '../../test/fake-claude.ts';
 import { liveSourceOf } from '../../test/fake-live.ts';
 import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
 import { SECRET_ENV_DIR, secretEnvPath, writeSecretEnv } from '../launch/secretEnv.ts';
+import { runLogPath } from '../launch/wrapper.ts';
 import { mcpSecretFor } from './secrets.ts';
 import { RunManager } from './manager.ts';
 import { until } from '../../test/fake-opencode-events.ts';
@@ -26,7 +27,9 @@ import { until } from '../../test/fake-opencode-events.ts';
 const ev = <K extends FakeOpencodeEvent['ev']>(log: FakeOpencodeEvent[], k: K) => log.filter((e): e is Extract<FakeOpencodeEvent, { ev: K }> => e.ev === k);
 type Row = { id: string; provider: string; provider_session_id: string; project_id: string | null; deleted_at: number | null };
 
-// 偽の opencode の serve を本当に起こす。画面（tmux）は開いた中身を記録するだけの口にする。止め方が POSIX のものなので、Windows では飛ばす。
+// 偽の opencode の serve を本当に起こす。画面（tmux）は開いた中身を記録するだけの口にする。
+// 起動のコマンド（bash の包みと env -u）を macOS と Linux の形で確かめるので、Windows では飛ばす。
+// serve の起こし方と止め方そのものの Windows の試験は provider/opencode/serve/ の試験が受け持つ。
 posixDescribe('RunManager.start で opencode を起こす（materialize）', () => {
   let db: Db;
   let home: string;
@@ -65,7 +68,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     return { panes, opened, listed, closed };
   };
 
-  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean } = {}) => {
+  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
@@ -84,7 +87,8 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     const { panes, opened, listed, closed } = recordingPanes(logFile, { fail: o.failOpen });
     const rm = new RunManager({
       db, deviceId: 'd', home, panes, claudeBin: fakeClaude.bin, claudeDir: home, port: 4177, token: 'tok', shell: 'sh', language: () => 'ja',
-      procs: { ...realProcOps, listJobs: () => [] },
+      procs: { ...realProcOps, listJobs: () => [], ...(o.startTimeOf ? { startTimeOf: o.startTimeOf } : {}) },
+      ...(o.pidAlive ? { pidAlive: o.pidAlive } : {}),
       agents: agentsOf([claude, opencode]), claude,
       agentEnabled: (k) => k === 'claude-code' || enabled(),
       agentBin: (k) => (k === 'opencode' ? (o.bin === undefined ? bin : o.bin) : null),
@@ -268,6 +272,46 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(ev(l, 'interrupt').map((e) => e.id)).toEqual(['ses_busy']);
     expect(manager.get(r.sessionId)).toBeNull();
     expect(opencode.live.current()).toEqual([]);
+  });
+
+  /** 起動時刻を Windows の書式（1601 年からの 100 ナノ秒）で書く。parseProcStart はどの OS でもこれを読む。 */
+  const fileTime = (ms: number): string => String((BigInt(ms) + 11_644_473_600_000n) * 10_000n);
+  /** 包み（hangar-run.sh、hangar-run.mjs）が run のログの頭に書く行を、包みの代わりに書く。 */
+  const writeWrapperLog = (runId: string, pid: number): void => {
+    const log = runLogPath(home, runId);
+    fs.mkdirSync(path.dirname(log), { recursive: true });
+    fs.writeFileSync(log, `2026-10-25T00:00:00Z start pid=${pid} cmd=opencode\n`);
+  };
+
+  // Windows の psmux は、混んだときに一覧からセッションが一瞬抜ける（issue #258）。opencode の run には pid が無いので、包みの pid で守る。
+  posixIt('一覧から抜けても、TUI の包み（run のログの start pid）が動いていれば閉じない。包みが終われば閉じて serve を止める', async () => {
+    const wrapper = 777_771;
+    let alive = true;
+    const asked: number[] = [];
+    const { rm, manager } = make({
+      pidAlive: (pid) => pid === wrapper && alive,
+      startTimeOf: (pid) => { asked.push(pid); return pid === wrapper ? fileTime(Date.now()) : null; },
+    });
+    const r = await rm.start(params());
+    writeWrapperLog(r.run.id, wrapper);
+    const pid = manager.get(r.sessionId)!.pid;
+    for (let i = 0; i < 4; i++) expect(rm.tick().ended).toEqual([]);
+    expect(runRow(r.run.id).ended_at).toBeNull();
+    expect(isAlive(pid)).toBe(true);
+    // 起動時刻は run ごとに 1 回だけ聞く（Windows では PowerShell を起こすため）。
+    expect(asked).toEqual([wrapper]);
+    alive = false;
+    expect(rm.tick().ended.map((e) => [e.id, e.endReason])).toEqual([[r.run.id, 'exited']]);
+    await until(() => !isAlive(pid));
+  });
+
+  posixIt('包みの pid が使い回されていたら（起動が run より前）、守らずに 2 回で閉じる', async () => {
+    const wrapper = 777_772;
+    const { rm } = make({ pidAlive: (pid) => pid === wrapper, startTimeOf: () => fileTime(Date.now() - 3_600_000) });
+    const r = await rm.start(params());
+    writeWrapperLog(r.run.id, wrapper);
+    rm.tick();
+    expect(rm.tick().ended.map((e) => e.id)).toEqual([r.run.id]);
   });
 
   posixIt('止めた（killed）ときと区切りで止めた（parked）ときも、interrupt して serve を止める', async () => {

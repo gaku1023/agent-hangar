@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeFakeNodeTool } from '../../../../test/fake-bin.ts';
 import { posixIt } from '../../../../test/platform.ts';
+import { serveEnv } from '../serve/env.ts';
 import { judgeOpencodeVersion, LocalOpencode, opencodeProbeEnv, opencodeVersionOf } from './version.ts';
 
 describe('opencodeVersionOf', () => {
@@ -70,6 +71,10 @@ describe('opencodeProbeEnv', () => {
       const env = opencodeProbeEnv(platform === 'win32' ? 'C:\\tools\\opencode.exe' : '/x/opencode', { ...src, SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\me' }, platform);
       expect(Object.keys(env).filter((k) => /^(CLAUDE|HANGAR_|OPENCODE_|NODE_OPTIONS|ANTHROPIC_)/.test(k))).toEqual([]);
     }
+  });
+  it('Windows の版を読む環境は、serve を起こす環境と同じ許可リストにする', () => {
+    const win = { ...src, SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming', Path: 'C:\\Windows\\system32' };
+    expect(opencodeProbeEnv('C:\\tools\\opencode.exe', win, 'win32')).toEqual(serveEnv('C:\\tools\\opencode.exe', win, 'win32'));
   });
 });
 
