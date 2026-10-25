@@ -6,7 +6,7 @@ import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
 import { OPENCODE_VERSION_SEEN_KEY, readOpencodeVersionSeen } from '../mediator/opencodeVersion.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { cleanSidebarFolded, cleanSidebarOrder, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
+import { cleanSidebarFolded, cleanSidebarOrder, cleanSidebarWidth, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_WIDTH_KEY } from '../mediator/sidebar.ts';
 import { PROJECT_RAIL_KEY, readProjectRailFolded } from '../mediator/projectRail.ts';
 import { NOTIFY_KEY, notifyKeep } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
@@ -1041,7 +1041,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
         ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
-        sidebarFolded: cleanSidebarFolded(deps.storage.get(SIDEBAR_FOLDED_KEY)),
+        sidebarFolded: cleanSidebarFolded(deps.storage.get(SIDEBAR_FOLDED_KEY)), sidebarWidth: cleanSidebarWidth(deps.storage.get(SIDEBAR_WIDTH_KEY)),
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // プロジェクト画面の右パネルで折りたたんだ節。形の違う値は捨てる。
         projectRailFolded: readProjectRailFolded(deps.storage.get(PROJECT_RAIL_KEY)),

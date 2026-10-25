@@ -138,3 +138,24 @@ export function playSidebarMotion(shell: HTMLElement): void {
   // 図のハンガーは、帯の動きに引かれて振り子で揺れて止まる。閉じると右へ、開くと左へ引かれる（composite: add、回転の中心はフックの辺り）。
   p.mark?.animate(swingKeyframes(collapsed ? 1 : -1), { duration: swingMs(), composite: 'add', id: ID });
 }
+
+const WIDTH_ID = 'sidebar-width';
+
+/**
+ * 幅の変わり目の動き（矢印、ダブルクリックで戻す）。from は前の --sidebar-w の値。
+ * 開閉と同じく、前の値を一瞬だけ書き戻して列の幅を測り、今の幅まで列と --col1 を動かす。
+ */
+export function playSidebarWidth(shell: HTMLElement, from: string): void {
+  const dur = motionMs('--dur', shell);
+  if (!dur || typeof shell.animate !== 'function') { settleNow(shell); return; }
+  for (const a of shell.getAnimations()) if (a.id === WIDTH_ID) a.cancel();
+  const now = shell.style.getPropertyValue('--sidebar-w');
+  shell.style.setProperty('--sidebar-w', from);
+  const F = { cols: getComputedStyle(shell).gridTemplateColumns, col1: getComputedStyle(shell).getPropertyValue('--col1').trim() };
+  shell.style.setProperty('--sidebar-w', now);
+  const L = { cols: getComputedStyle(shell).gridTemplateColumns, col1: getComputedStyle(shell).getPropertyValue('--col1').trim() };
+  if (F.cols === L.cols && F.col1 === L.col1) { settleNow(shell); return; }
+  beginLayoutMotion(shell);
+  const a = shell.animate([{ gridTemplateColumns: F.cols, '--col1': F.col1 }, { gridTemplateColumns: L.cols, '--col1': L.col1 }], { duration: dur, easing: motionEase('--ease-out', shell), id: WIDTH_ID });
+  a.finished.then(() => endLayoutMotion(shell), () => endLayoutMotion(shell));
+}

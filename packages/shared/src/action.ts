@@ -219,6 +219,8 @@ export type UiAction =
   | { type: 'sidebar.order'; ids: SessionId[] }
   // サイドバーの「実行中」のグループを開く・畳む。key はプロジェクトの id で、未分類は空の文字列。
   | { type: 'sidebar.fold'; key: string; open: boolean }
+  // サイドバーの幅を変えたとき（px）。ドラッグの途中は部品の中だけで動かし、ここへは離したときと、矢印・ダブルクリックのときだけ来る。
+  | { type: 'sidebar.width'; width: number }
   | { type: 'summarizer.test' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
   | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }

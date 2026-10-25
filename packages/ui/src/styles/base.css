@@ -216,6 +216,15 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar='collapsed'] .sidebar .btn.sidebar-toggle:hover { background: rgba(255, 255, 255, 0.5); }
 .shell[data-sidebar='collapsed'] .toggle-tip { top: 50%; right: auto; left: calc(var(--item) + var(--u) * 3); translate: 0 -50%; }
 .shell[data-sidebar-moving] .sidebar { overflow: hidden; }
+/* サイドバーの右の縁（views/SidebarGrip.tsx）。ガラスの縁を挟んで 8px の当たりを置き、普段は何も見せない。
+   触れたときと掴んでいる間だけ、縁に沿って細い線を出す（試作 S10 の案 A）。浮いたガラスに常に何かを足さないためである。
+   位置は --col1 から決めるので、開閉や幅の動きにそのまま付いてくる。 */
+.sidebar-grip { position: absolute; z-index: 3; top: calc(var(--header-h) + var(--float-gap) + var(--u) * 3); bottom: calc(var(--float-gap) + var(--u) * 3); left: calc(var(--col1) - 4px); width: 8px; cursor: col-resize; touch-action: none; }
+.sidebar-grip::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 1px; background: var(--accent); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.sidebar-grip:hover::after, .sidebar-grip:focus-visible::after, .shell[data-sidebar-drag] .sidebar-grip::after { opacity: 0.55; }
+.sidebar-grip:focus-visible { outline: none; }
+.shell[data-sidebar-drag], .shell[data-sidebar-drag] * { cursor: col-resize !important; -webkit-user-select: none; user-select: none; }
+.shell[data-sidebar-moving] .sidebar-grip { display: none; }
 /* 項目の中の位置は、箱の幅に左右されない値で置く。動きの途中は箱の幅が変わるので、中央寄せや 100% で置くと、アイコンと吹き出しが幅に引きずられる。 */
 .shell[data-sidebar='collapsed'] .nav-item { position: relative; width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); margin: 0 0 calc(var(--u) * 1); border-radius: var(--r-lg); }
 .shell[data-sidebar='collapsed'] .nav-label { position: absolute; left: calc(var(--item) + var(--u) * 3); top: 50%; translate: 0 -50%; padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
