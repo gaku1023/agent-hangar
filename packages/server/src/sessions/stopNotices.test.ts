@@ -78,6 +78,17 @@ describe('StopNoticeWatch：入力待ち', () => {
     expect(pushed).toEqual([{ kind: 'waiting', sessionId: s1, title: '請求書の書き出し', body: '許可待ち：Bash rm -rf ./build/cache', bare: false }]);
   });
 
+  it('opencode の会話（agent の付いた行）の許可待ちも、許可の中身で知らせる', () => {
+    const oc = ensureSession(db, 'ses_oc1', '/w', 'd', 'opencode');
+    setSessionName(db, 'd', oc, 'opencode の作業');
+    const w = watch();
+    live = [entry('ses_oc1', 'busy', { agent: 'opencode' })];
+    w.tick();
+    live = [entry('ses_oc1', 'waiting', { agent: 'opencode', waitingFor: 'permission', permission: { tool: 'shell', input: 'echo hangar', description: null } })];
+    w.tick();
+    expect(pushed).toEqual([{ kind: 'waiting', sessionId: oc, title: 'opencode の作業', body: '許可待ち：shell echo hangar', bare: false }]);
+  });
+
   it('許可の中身がまだ届いていなければ少しだけ待ち、来なければ中身なしで知らせる', () => {
     const w = watch();
     w.tick();

@@ -6,6 +6,7 @@ import { insertProject } from '../projects/registry.ts';
 import { Publisher } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { createLiveChangeHandler } from './liveChange.ts';
 import { setSessionState } from './states.ts';
@@ -89,6 +90,20 @@ describe('実行中の一覧の変化', () => {
     expect(questionOf()).toBeNull();
     // 最後の呼び出しは残す。消すのは問いだけである。
     expect(db.prepare('select tool from session_activity where session_id = ?').get(alpha)).toEqual({ tool: 'AskUserQuestion' });
+  });
+
+  it('opencode の会話（agent の付いた行）も、抜けたら答えを待っていた問いを消し、行を配り直す', () => {
+    const oc = ensureSession(db, 'ses_oc1', '/w', 'd', 'opencode');
+    db.prepare('insert or replace into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)').run(oc, 'AskUserQuestion', 'Color', 'call_q', 'どれにしますか？', 1);
+    const questionOf = () => (db.prepare('select question from session_activity where session_id = ?').get(oc) as { question: string | null } | undefined)?.question;
+    const ocEntry = (status: LiveSessionDto['status']): LiveSessionDto => ({ sessionId: 'ses_oc1', status, name: null, nameSource: null, cwd: '/w', pid: 777, agent: 'opencode' });
+    const h = handler();
+    change(h, [entry('busy'), ocEntry('waiting')]);
+    expect(questionOf()).toBe('どれにしますか？');
+    sent.length = 0;
+    change(h, [entry('busy')]);
+    expect(questionOf()).toBeNull();
+    expect(sent.some((e) => e.type === 'session.upsert' && e.session.id === oc)).toBe(true);
   });
 
   it('印を付けたセッションは、動きが変わるたびに行ごと配り直す。休みになれば parked が立ち、作業中に戻れば外れる', () => {

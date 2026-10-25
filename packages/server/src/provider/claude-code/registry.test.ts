@@ -33,6 +33,19 @@ describe('readRegistry', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+  it('Claude の行には agent を付けない。登録に同じ名前の欄があっても写さない', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.rmSync(path.join(sessions, '12345.json'));
+      fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ pid: 7, sessionId: 'u-agent', cwd: '/x', status: 'idle', agent: 'opencode' }));
+      const [l] = readRegistry(dir);
+      expect(l).toEqual({ sessionId: 'u-agent', status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 7 });
+      expect('agent' in l!).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('本体が休みで裏の Bash だけが動いている（shell）は、作業中のまま裏だけの印を付ける', () => {
     const dir = copyFixtureClaudeDir();
     try {

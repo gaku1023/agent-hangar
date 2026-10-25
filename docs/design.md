@@ -1122,6 +1122,8 @@ attach や引き取りのような Claude にしか無い起こし方は、`RunM
 
 状態の面では、driver ごとの写し（`LiveSource`）を `agent/liveHub.ts` の `LiveHub` が 1 つの `current()` と `onChange` に束ねる。
 一覧を読む側（配る層、索引、要約、スマホ、ゴミ箱、run の管理）は、どのエージェントの写しかを知らずに `LiveHub` だけを見る。
+写しが 2 つ以上でも、どの写しも変わっていなければ `current()` は前と同じ配列を返す（呼ぶたびに並べ直さない）。
+一覧の行（`LiveSessionDto`）の `agent` は、Claude 以外のエージェントの行にだけ付く。会話の行（`sessions`）を引く側（`sessions/liveChange.ts`、`sessions/stopNotices.ts`）は、無ければ `claude-code` として `provider` で引く。
 裏だけの印（`live/aside.ts`）と許可の中身（`sessions/permissionAsks.ts`）を足す鎖は `LiveHub` が持ち、写しが読み直しのたびに通してから変わったかを見る。
 本文の索引が進んだだけで印が変わっても、写しの元が変わらないまま次の読み直しで知らせるためである。
 Claude の写しは、登録の見張り（`registry.ts` の `RegistryWatcher`）を中身を変えずに包んだもので、これを直に知るのは Claude の driver だけである。
@@ -1486,10 +1488,43 @@ Claude の run は秘密の環境を使わないので、起動コマンドは�
 初期プロンプトは `--prompt` で渡し、自動承認がオンのときだけ `--auto` を付ける。
 TUI へは、Claude の run で外す変数に、アカウントの置き場（`CLAUDE_CONFIG_DIR`）とサーバが読む hangar の変数を足して外す（`launch/env.ts` の `AGENT_RUN_DROPPED_ENV`）。
 
-状態、トランスクリプト、許可と質問の面は、段 B4 と B5 で入れるまで空にしてある。
+トランスクリプトの面は、段 B5 で入れるまで空にしてある。状態と許可と質問の面は「opencode の状態」の節に書く。
 hook の受け口は、opencode の会話では何も読まずに 204 を返す。
 本文の有無をファイルで確かめられないので、終わった run の会話を「本文が無い」として消す後始末（`pruneEmptySession`）は Claude の会話だけに効かせる。
 再開は段 B6 で入れるので、それまでは opencode の会話の再開を断る。
+
+### opencode の状態
+
+opencode の会話の実行中、入力待ち、許可と質問を、Claude と同じ実行中の一覧（`LiveSessionDto`）と許可と質問の面に載せる（計画の B4）。
+置き場は `provider/opencode/live.ts`（`OpencodeLive`）と `asks.ts` である。
+
+driver は、`materialize` で会話を作ったら、その会話と serve を写しに載せ（`track`）、`release` で外す（`untrack`）。
+写しは serve ごとに出来事の流れ（`GET /api/event`、SSE）を開き、次の出来事で行を変える（2.1.4 で記録した並びは `test/fixtures/opencode/2.1.4/` にある）。
+
+| 出来事 | 写し |
+| --- | --- |
+| `session.execution.started`（その会話） | 作業中（busy） |
+| `session.execution.` のほか（succeeded、interrupted など。その会話） | 休み（idle）。残った許可と form は捨てる（interrupt では許可の答えの知らせが来ない） |
+| `permission.asked` | 入力待ち（waiting）、`waitingFor` は `permission`、`permission` は道具の名前（`shell` など）と中身（`resources`） |
+| `permission.replied` | その許可を外す |
+| `form.created` | 入力待ち、`waitingFor` は `question` |
+| `form.replied` など | その form を外す |
+
+許可と form は、serve の上のどの会話のものでも、その会話の待ちに数える（serve は hangar の会話 1 つに 1 本で、サブエージェントの待ちも利用者が答える）。
+流れの頭には状態が来ない（`server.connected` だけ）。
+そこで、つないだとき（つなぎ直しも）と `kick` のときは、`GET /api/session/active`、`GET /api/permission/request`、`GET /api/form` で全体を取り直す。
+後の 2 つは `location[directory]` に会話を作ったときと同じ作業の場所を渡す（2.1.4 は文字列のまま照らすので、シンボリックリンクを解いた形とは別の場所になる）。
+取り直しの答えが来るまでに届いた出来事は、答えの上にもう一度当てる。
+流れが切れたら、serve の pid が生きていれば間をあけて（0.5 秒から 5 秒まで延ばす）つなぎ直し、消えていれば行を外す。
+
+行は、載せてから外すまで、休みの間も載る（Claude の登録と同じ）。
+`pid` は serve の pid で、`isRunning` もそれで答える。名前は持たず、hangar の会話の名前を使う。
+組み直すたびに `LiveHub` の足し付けの鎖を通し、変わったときだけ `onChange` を出す。
+
+許可と問いは `asks.subscribe` で流す。
+受けるのは配る層（`boot/delivery.ts`）で、hook の受け口と同じ書き手で書く（`sessions/agentAsks.ts` から、問いは `sessions/questionHook.ts`、許可は `sessions/permissionAsks.ts`）。
+問いは form の最初の項目の説明を問いの文にし、道具の呼び出しの ID（`metadata.tool.id`）で出入りを結ぶ。form が消えたら答えたと流す。
+答えはターミナルで行う。hangar から `…/reply` は送らない。
 
 ## セッションの起動と観察
 

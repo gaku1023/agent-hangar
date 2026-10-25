@@ -40,6 +40,21 @@ describe('LiveHub', () => {
     expect(hub.current()).toBe(a.source.current());
   });
 
+  it('写しが 2 つでも、どちらも変わらなければ同じ配列を返す。変われば新しい配列にする', () => {
+    const a = fakeSource([entry('s1')]);
+    const b = fakeSource([entry('s2')]);
+    const hub = new LiveHub();
+    hub.add(a.source);
+    hub.add(b.source);
+    const first = hub.current();
+    expect(hub.current()).toBe(first);
+    b.set([entry('s2'), entry('s3')]);
+    const second = hub.current();
+    expect(second).not.toBe(first);
+    expect(second.map((l) => l.sessionId)).toEqual(['s1', 's2', 's3']);
+    expect(hub.current()).toBe(second);
+  });
+
   it('写しが無ければ空を返す', () => {
     expect(new LiveHub().current()).toEqual([]);
   });

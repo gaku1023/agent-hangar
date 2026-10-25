@@ -1,0 +1,38 @@
+data: {"id":"evt_1713cce5a001ID4RZpAR3bWusA","type":"server.connected","data":{}}
+
+: heartbeat
+
+data: {"id":"evt_1713ccf910010l5uEDmwLlwaeo","created":1792901173137,"type":"session.created","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","slug":"lucky-river","version":"2.1.4","projectID":"009ff4f082af118c656dbc5e7660c0fd1f2e7592","location":{"directory":"/work/repo"},"subpath":""},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":0,"version":1}}
+
+data: {"id":"evt_1713ccf9a002D5mByo14zbVWz5","created":1792901173146,"type":"session.inbox.enqueued","location":{"directory":"/work/repo"},"data":{"inboxID":"msg_1713ccf9a0019VVeIY8mLjdbLB","sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","item":{"type":"user","payload":{"text":"Run echo again."},"delivery":"steer"}},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":1,"version":1}}
+
+data: {"id":"evt_1713ccf9b001NZHQu7b0R1qR35","created":1792901173147,"type":"session.execution.started","data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo"},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":2,"version":1}}
+
+data: {"id":"evt_1713ccf9f001osS7iA9V0de4y8","created":1792901173151,"metadata":{"instructions":{"initial":true}},"type":"session.instructions.updated","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","delta":{"core/codemode":"e6428fd7742161f6c3a6c86e53cbbe2c6e4dcc462bbf1a1a07bc4fcbeb9e0b0b","core/skill-guidance":"c8ea54eb31089eb2792402b7b2bf8161b3ace42a2c7a1dc5c198e7fe122fd276","core/date":"6cca3aaa5d70c805feb813a8b749d6dcef1cd53b2bbcb9428aa093276b5a3a46","core/environment":"05547fa0eab5448abd460980a884898da95d15d025a3fc8ed9e38cbf8b15fc6f"}},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":3,"version":2}}
+
+data: {"id":"evt_1713ccfa0001HFgkg1S3hDJrce","created":1792901173152,"type":"session.inbox.delivered","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","inboxID":"msg_1713ccf9a0019VVeIY8mLjdbLB"},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":4,"version":1}}
+
+data: {"id":"evt_1713ccfac001RPFsaYWQOz3Cu5","created":1792901173164,"type":"session.step.started","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","agent":"build","model":{"id":"mock","providerID":"mock"},"assistantMessageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4","started":1792901173161},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":5,"version":1}}
+
+data: {"id":"evt_1713ccfad001W1vaR3K0gPOvIs","created":1792901173165,"type":"session.tool.input.started","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","assistantMessageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4","id":"call_shell_7","name":"shell"},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":6,"version":1}}
+
+data: {"id":"evt_1713ccfae0017F4exxIvCax1yK","created":1792901173166,"type":"session.tool.input.ended","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","assistantMessageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4","id":"call_shell_7","text":"{\"command\":\"echo hangar-capture\"}"},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":7,"version":1}}
+
+data: {"id":"evt_1713ccfaf0016BAxRP5IHkCekC","created":1792901173167,"type":"session.tool.called","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","assistantMessageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4","id":"call_shell_7","input":{"command":"echo hangar-capture"},"executed":false},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":8,"version":1}}
+
+data: {"id":"evt_1713ccfaf002qdyVUBJELiY1IW","created":1792901173167,"type":"session.step.streamed","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","assistantMessageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4"},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":9,"version":1}}
+
+data: {"id":"evt_1713ccfb2002TGEjvWOPK2kDGQ","created":1792901173170,"type":"permission.asked","location":{"directory":"/work/repo"},"data":{"id":"per_1713ccfb2001DVxQ4E3k742Xmr","sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","action":"shell","resources":["echo hangar-capture"],"save":["echo *"],"source":{"type":"tool","messageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4","id":"call_shell_7"}}}
+
+data: {"id":"evt_1713ccfb3001pGSVvFC8TeRyzP","created":1792901173171,"type":"session.usage.updated","data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","cost":0,"tokens":{"input":10,"output":3,"reasoning":0,"cache":{"read":0,"write":0}}}}
+
+data: {"id":"evt_1713ccfb3002cZaC6s6pXqZWJj","created":1792901173171,"type":"session.renamed","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","title":"Mock title"},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":11,"version":1}}
+
+data: {"id":"evt_1713cd0a0001C1aPVV7HxgZ7RD","created":1792901173408,"type":"session.tool.failed","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","assistantMessageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4","id":"call_shell_7","error":{"type":"aborted","message":"Tool execution interrupted"},"executed":false},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":12,"version":2}}
+
+data: {"id":"evt_1713cd0a1001BLognLt4cBYrEV","created":1792901173409,"type":"session.step.failed","location":{"directory":"/work/repo"},"data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","assistantMessageID":"msg_1713ccfa4001vyZ5QTNB4LV3V4","error":{"type":"aborted","message":"Step interrupted"},"rawFinish":"tool_calls","cost":0,"tokens":{"input":10,"output":3,"reasoning":0,"cache":{"read":0,"write":0}}},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":13,"version":1}}
+
+data: {"id":"evt_1713cd0a3001YCSDUDBc7nxg7s","created":1792901173411,"type":"session.usage.updated","data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","cost":0,"tokens":{"input":20,"output":6,"reasoning":0,"cache":{"read":0,"write":0}}}}
+
+data: {"id":"evt_1713cd0a4001B7s0G42J5pv5Eg","created":1792901173412,"type":"session.execution.interrupted","data":{"sessionID":"ses_e8ec33071ffemdvRj4cRirznTo","reason":"user"},"durable":{"aggregateID":"ses_e8ec33071ffemdvRj4cRirznTo","seq":14,"version":1}}
+

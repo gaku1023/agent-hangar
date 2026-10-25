@@ -21,9 +21,10 @@ describe('opencode の driver（serve を起こさない面）', () => {
     expect(driver.launch.newSessionId).toBeUndefined();
     expect(driver.launch.materialize).toBeTypeOf('function');
     expect(driver.asks.parseHook).toBeUndefined();
+    expect(driver.asks.subscribe).toBeTypeOf('function');
     expect(driver.instructions.when).toBe('live');
   });
-  it('状態とトランスクリプトの面は B4・B5 まで空のまま', () => {
+  it('状態の面は会話を載せるまで空。トランスクリプトの面は B5 まで空のまま', () => {
     expect(driver.live.current()).toEqual([]);
     expect(driver.live.isRunning('ses_x', 1)).toBe(false);
     const off = driver.live.onChange(() => {});
@@ -151,6 +152,17 @@ posixDescribe('opencode の driver の materialize', () => {
     expect(serves.get('h1')).toBeNull();
     expect(isAlive(ev(log(), 'start')[0]!.pid)).toBe(false);
     expect(await driver.launch.release({ sessionId: 'h1', providerSessionId: r!.providerSessionId, cwd }, 'killed')).toBe(false);
+  });
+
+  posixIt('作った会話を状態の面に載せ（serve の pid、opencode の印）、release で外す', async () => {
+    const { driver, serves } = make();
+    const r = await driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    const pid = serves.get('h1')!.pid;
+    expect(driver.live.current()).toEqual([expect.objectContaining({ sessionId: r!.providerSessionId, status: 'idle', cwd, pid, agent: 'opencode' })]);
+    expect(driver.live.isRunning(r!.providerSessionId, pid)).toBe(true);
+    await driver.launch.release({ sessionId: 'h1', providerSessionId: r!.providerSessionId, cwd }, 'killed');
+    expect(driver.live.current()).toEqual([]);
+    expect(driver.live.isRunning(r!.providerSessionId, pid)).toBe(false);
   });
 
   posixIt('instructions.update は、その会話の serve に PUT し直す', async () => {
