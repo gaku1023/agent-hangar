@@ -13,6 +13,7 @@ const OPTIONS: OpencodeSettingsProps['injectionOptions'] = [
 ];
 const props = (over: Partial<OpencodeSettingsProps> = {}): OpencodeSettingsProps => ({
   available: true, enabled: false, injection: 'minimal', injectionOptions: OPTIONS, claudeNote: null,
+  intercept: { available: true, on: false, note: null },
   version: { kind: 'verified', installed: '2.1.4', verified: '2.1.x', note: null },
   badge: { text: '検証済み', tone: 'ok' },
   ...over,
@@ -85,6 +86,29 @@ describe('設定の opencode の面', () => {
     expect(screen.queryByText('モデルによっては、状態の提案を確認せずに確定させることがあります。')).toBeNull();
   });
 
+  it('入のときは、バージョンと追記の間にコマンドの横取りの行を出し、切り替えると opencodeIntercept を保存する', () => {
+    const onAction = vi.fn();
+    render(ui(props({ enabled: true }), onAction));
+    const sw = screen.getByRole('switch', { name: 'opencode コマンドを hangar 経由で起動' });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    const titles = [...section().querySelectorAll('.oc-more .set-row-t')].map((e) => e.textContent);
+    const order = ['バージョン', 'opencode コマンドを hangar 経由で起動', 'システムプロンプトへの追記'].map((x) => titles.findIndex((tt) => tt?.includes(x)));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    fireEvent.click(sw);
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'settings.update', patch: { opencodeIntercept: true } }));
+  });
+
+  it('横取りの行は、切のときと、出さない OS（intercept.available が偽）では出さない。入れ方の注記は渡されたときだけ出す', () => {
+    const { rerender } = render(ui(props()));
+    expect(screen.queryByRole('switch', { name: 'opencode コマンドを hangar 経由で起動' })).toBeNull();
+    rerender(ui(props({ enabled: true, intercept: { available: false, on: false, note: null } })));
+    expect(screen.queryByRole('switch', { name: 'opencode コマンドを hangar 経由で起動' })).toBeNull();
+    rerender(ui(props({ enabled: true, intercept: { available: true, on: true, note: 'この PC にシェル連携をインストールすると使えます。' } })));
+    expect(screen.getByRole('switch', { name: 'opencode コマンドを hangar 経由で起動' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('この PC にシェル連携をインストールすると使えます。')).toBeInTheDocument();
+  });
+
   it('Windows（available が偽）では面ごと出さない', () => {
     const { container } = render(ui(props({ available: false, enabled: true })));
     expect(container).toBeEmptyDOMElement();
@@ -97,5 +121,6 @@ describe('設定の opencode の面', () => {
     expect(screen.getByText('Version')).toBeInTheDocument();
     expect(section().querySelector('.oc-vers')).toHaveTextContent('Installed 2.1.4 · Verified 2.1.x');
     expect(screen.getByText('System prompt additions')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Launch the opencode command through Hangar' })).toBeInTheDocument();
   });
 });

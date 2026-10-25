@@ -33,6 +33,7 @@ export const runJa: AreaDictionary<typeof runKeys> = {
   'run.terminal.notInHangar': 'この会話は hangar で管理されていません',
   'run.terminal.flagRefused': '{flag} を指定して起動した会話は hangar で開けません',
   'run.terminal.resumeNeedsId': '会話の ID を指定せずに再開した会話は hangar で開けません',
+  'run.terminal.interceptOff': '設定の「{label}」がオフです',
   'run.attach.notBackground': 'このセッションはバックグラウンドセッションとして実行されていません',
   'run.adopt.notRunning': 'このセッションは実行中ではありません',
   'run.adopt.busy': '作業中のセッションは hangar に移動できません。入力待ちまたはアイドルになってから hangar に移動してください',

@@ -83,7 +83,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   language: { value: 'ja' },
   focus: null,
   compat: null,
-  opencode: { available: true, enabled: false, injection: 'minimal', injectionOptions: [{ value: 'minimal', label: '最小限（意図と要約）' }, { value: 'claude', label: 'Claude Code と同じ' }, { value: 'none', label: '追記しない' }], claudeNote: null, version: null, badge: null },
+  opencode: { available: true, enabled: false, injection: 'minimal', injectionOptions: [{ value: 'minimal', label: '最小限（意図と要約）' }, { value: 'claude', label: 'Claude Code と同じ' }, { value: 'none', label: '追記しない' }], claudeNote: null, version: null, badge: null, intercept: { available: true, on: false, note: null } },
   update: updateProps(),
   self: { autoDone: true, autoDoneIdleDays: 7, autoPark: true },
   setupGuide: null,

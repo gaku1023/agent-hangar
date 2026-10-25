@@ -1384,13 +1384,14 @@ GitHub Actions の `claude-compat`（`.github/workflows/claude-compat.yml`）が
 opencode を足す作業の 1 段目（計画の B1）で、設定のスイッチと、入っている opencode の場所と版の読みだけを入れた。
 画面の入口は、次の段（計画の C1）で足した設定の面だけである。
 
-設定は 2 つある。
+設定は 3 つある。
 `opencodeEnabled` は opencode を有効にするスイッチで、既定は切である。
 切のままなら、opencode の入口（新しいセッションの選択肢、外の端末の横取り、スマホ）はどこにも出さない。
 `opencodeInjection` は、hangar が起動する opencode のシステムプロンプトへの追記の量で、`minimal`（hangar の MCP の使い方だけ）、`claude`（Claude Code に足すのと同じ段）、`none`（足さない）の 3 つである。
 既定は `minimal` である。
-どちらも `configBundleSync` と同じく既定の設定には足さず、項目が無いうちは既定として読む。
-読む側の既定は `@agent-hangar/shared` の `opencodeEnabledOf` と `opencodeInjectionOf` にまとめてあり、項目を知らない古いサーバの答えも同じ既定に寄せる。
+`opencodeIntercept` は、シェルで打った opencode を hangar のセッションとして起こすか（段 D2、「外のターミナルの opencode」）で、既定は切である。
+どれも `configBundleSync` と同じく既定の設定には足さず、項目が無いうちは既定として読む。
+読む側の既定は `@agent-hangar/shared` の `opencodeEnabledOf`、`opencodeInjectionOf`、`opencodeInterceptOf` にまとめてあり、項目を知らない古いサーバの答えも同じ既定に寄せる。
 手で書き換えた知らない値は、読み込みのときに捨てる。
 
 場所は `config/tools.ts` の `findOpencode` が探す。
@@ -1419,12 +1420,13 @@ Windows は serve を起こすときと同じ許可リストの鍵を渡す（�
 設定の入り切りに関わらず答える。有効にする前に、入っているかと版を見せるためである。
 
 設定の画面では、「連携」の節の Claude Code との互換性のすぐ下に、opencode の面（小見出しに「ベータ」の小札）を置く。
-行は「opencode を有効にする」「バージョン」「システムプロンプトへの追記」の 3 つで、有効にしたときだけ下の 2 行を growIn で伸ばして入れ、切ると collapseOut で畳んでから外す。
+行は「opencode を有効にする」「バージョン」「opencode コマンドを hangar 経由で起動」「システムプロンプトへの追記」の 4 つで、有効にしたときだけ下の 3 行を growIn で伸ばして入れ、切ると collapseOut で畳んでから外す。
 見出しの右端の札（検証済み、未検証のバージョン、未対応のバージョン、バージョン不明、見つかりません）も、入のときだけ出す。
 画面は設定の画面に入ったときに `GET /api/opencode/status` を取り、答えの 4 つの判定に「見つからない」を足した 5 つで版の行の文を分ける。
 1.x は答えに区分が無いので、画面が版の頭の数で見分ける。
 「Claude Code と同じ」を選んでいる間は、状態の提案を確認せずに確定させるモデルがあることを行に添える。
-コマンドの横取りの行は段 D2 で足す。
+コマンドの横取りの行は macOS と Linux だけに出す（Windows ではシェルの包みを作らないため）。
+この PC にシェル連携が入っていなければ、行に入れ方の注記を添える（opencode() はシェル連携の本体の中に書くので、入っていなければ効かない）。
 Windows では、画面を開いている OS を見て面ごと出さない。
 serve と TUI は段 G1 で Windows でも動くようにしたが、実機での確かめ（もう 1 台の PC）が済むまで面は出さないままにする。
 
@@ -1668,7 +1670,8 @@ serve が残っていれば止めてから起こし直す。
 初期プロンプトと自動承認は持ち越さない（Claude の再開と同じく、起動の指定を引き継がない）。
 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
 フォークは断ったままにする。
-同期の再開の口（`resume`。ターミナルの包み方と「この PC で再開」が使う）も、opencode の会話では断ったままにする（「この PC で再開」は段 E3）。
+同期の再開の口（`resume`。Claude のターミナルの包み方と「この PC で再開」が使う）も、opencode の会話では断ったままにする（「この PC で再開」は段 E3）。
+外のターミナルの opencode の `-s` は、同期の口ではなく `resumeMaterialized` を通す（「外のターミナルの opencode」）。
 
 hangar を起こし直したときは、どの会話の serve も起こさない。
 serve は hangar の終わりで止め、残ったものは起動のときに掃除するので、前の hangar の TUI は serve を失っている。
@@ -1698,6 +1701,45 @@ opencode の行には起動時刻が無いので、印より前に始まった�
   - 動き：帯の伸びは幅の補間（`--dur`）にし、開いたあとに欄が現れたときだけ薄れから現す（`fadeIn`）。開いた時点で既にあるものと、セッションを替えたときは動かさない。
 
 行の名前は、opencode が自動で付ける題（`session.renamed`）をまだ使わない。hangar で付けた名前、無ければ最初の依頼の先頭 40 字のままである（`displayName`）。
+
+### 外のターミナルの opencode
+
+シェルで打った opencode を、claude と同じく hangar の tmux の中で起こし、すぐそのターミナルからつなぐ（決定 4、計画の D2）。
+macOS と Linux だけで、Windows ではシェルの包みごと作らない。
+設定の「opencode を有効にする」と「opencode コマンドを hangar 経由で起動」（`opencodeIntercept`）の両方が入りのときだけ、サーバは包みの本体（`claude.zsh`）に `opencode` の関数を書く。
+本体のファイルは claude の包みと同じものにする。`~/.zshrc` の 1 行がこのファイルを指しているので、別のファイルにすると `~/.zshrc` の書き換えの承諾をもう一度求めることになるからである。
+どちらかの設定を変えたら本体を書き直し、次に開いたターミナルから効く。
+書き直す前から開いているターミナルの頼みも、サーバが設定を見て断る。
+
+包み方は許可リスト方式である（`provider/opencode/compat/cli.ts` の `OPENCODE_INTERCEPT_FLAGS` と `BUILTIN_OPENCODE_VALUE_FLAGS`）。
+写すのは `--auto`（自動承認）、`--prompt`（初期プロンプト）、`-s` と `--session`（再開する会話）、位置引数のディレクトリ 1 つだけである。
+ほかのフラグ、サブコマンド（組み込みの一覧）、ディレクトリでない位置引数、2 つ目の位置引数が 1 つでもあれば、素の opencode を起動する。
+Claude の包みは素通しの拒否リストだが、opencode の TUI へ渡せる引数は限られ、知らないフラグを hangar の組み立てに混ぜると起動が壊れるからである。
+新しいフラグやサブコマンドが増えても、壊れずに素通しへ倒れる。
+値を取るフラグの次の語は値として読み、ディレクトリやサブコマンドと取り違えない。
+`-c`（最後の会話）と `mini` は、最初の版では素通しにする（hangar は「最後の会話」を決められず、`mini` の tmux での見え方は確かめていない）。
+`-s` は会話の ID の形（`ses_…`）のときだけ hangar に頼み、hangar の opencode の会話でなければ hangar が 404 で断るので、素の opencode になる。
+
+opencode の置き場や設定を環境変数で変えた起動も素通しにする。
+`OPENCODE_` で始まる変数が 1 つでも環境にあるとき、XDG の置き場（`XDG_DATA_HOME`、`XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_STATE_HOME`）のどれかが既定と違う場所のときである。
+hangar は serve を自分の空の環境で起こし、ふだんの置き場と設定だけを使うので、変えた起動を hangar の管理に入れると利用者の意図と違う置き場で動くからである。
+XDG の変数を名前だけで見ないのは、Linux のデスクトップが `XDG_RUNTIME_DIR` などを常に立て、既定と同じ場所を `XDG_CONFIG_HOME` に書く人も多いからである。
+
+包み方は本文に `"agent":"opencode"` を足して `POST /api/runs/terminal` へ送り、端末の環境変数は送らない。
+サーバは agent の無い本文（claude の包みと古い包み方）を Claude Code として読み、知らない agent は 400 で断る。
+opencode の頼みは非同期の `RunManager.startOpencodeFromTerminal` が受ける。
+1. 設定の 2 つを確かめ、引数を同じ許可リストで読み直す（`runs/terminal.ts` の `splitOpencodeTerminalArgs`）。
+2. `-s` があれば、その ID の opencode の会話を引く。動いている run があればつなぐだけにし（`attached` が真）、止まっていれば `resumeMaterialized` で再開する。一緒に打った `--prompt` と `--auto` はその再開に写す。
+3. 無ければ、作業ディレクトリ（ディレクトリの引数があれば、そこからの相対を解いた場所）で `startMaterialized` を通す。会話の ID は opencode が振ったものを記録し、hangar は決めない（無料枠のモデルが hangar の決めた ID を断るため）。プロジェクトは場所の最長一致で紐づけ、無ければ未分類にする。
+
+serve も TUI も、hangar の画面から起こすときと同じく hangar が組む環境で起こす。
+下ごしらえを待つので、包み方が答えを待つ上限は 90 秒にする（claude は 10 秒）。待ち切れずに素の opencode を起こすと、hangar の会話と 2 つになるからである。
+tmux の中での入れ子の扱い（hangar の専用のサーバなら `switch-client`、ほかの tmux なら素の opencode）は claude と同じである。
+alias で opencode を包んでいる人がいても読み込みで壊れないよう、関数は `function opencode` の形で書く。
+
+`opencode --help` はまだ読まず、包みは組み込みの一覧で書く。
+横取りに使うフラグが help から消えたか、値の取り方が変わったときは、`opencodeSubcommandsFromHelp` がずれ（`flag.removed`、`flag.valueChanged`）として返す。
+ずれを記録に入れるときは、Claude の `cli` の契約と混ぜない（Claude の見直しが誤って読むため）。
 
 ## セッションの起動と観察
 

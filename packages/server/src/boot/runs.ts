@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { opencodeEnabledOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -115,7 +115,9 @@ export function bootRuns(
     beforeList: () => claudeDirWatch.check(),
   });
   const bundledHangar = bundledHangarIn(o.serverDir);
-  const shell = createShellWrap({ home: home.home, host: listening.host, port: listening.port, tmuxPath: () => settings.current.tmuxPath, subcommands: () => localClaude.subcommands, bundledHangar });
+  const shell = createShellWrap({ home: home.home, host: listening.host, port: listening.port, tmuxPath: () => settings.current.tmuxPath, subcommands: () => localClaude.subcommands, bundledHangar,
+    // opencode の包みは組み込みの一覧で書く（opencode --help はまだ読まない）。知らないサブコマンドはディレクトリでない位置引数として素通しになる。
+    opencode: () => (opencodeEnabledOf(settings.current) && opencodeInterceptOf(settings.current) ? {} : null) });
   // 起動のたびと claude のパスを変えたときに、claude --help と --version を裏で読み直す。
   shell.write();
   void localClaude.refreshSubcommands();
@@ -149,6 +151,8 @@ export function bootRuns(
     injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false, opencode: opencodeInjectionOf(settings.current) }),
     // opencode（ベータ）は設定で有効にしたときだけ起こす。場所は起こすたびに探す（PATH、~/.opencode/bin、既知の置き場）。
     agentEnabled: (kind) => kind === 'claude-code' || (kind === 'opencode' && opencodeEnabledOf(settings.current)),
+    // 外のターミナルの opencode（シェルの包み）を受けるか。包みの本体を書き直す前に開いていたターミナルからの頼みも、ここで断る。
+    terminalIntercept: (kind) => kind === 'opencode' && opencodeInterceptOf(settings.current),
     agentBin: (kind) => (kind === 'opencode' ? findOpencode() : null),
     // 設定の「Remote Control を付けて起動する」（remoteControl）で足す --remote-control。足してよいかは、起こすアカウントの認証と、claude を起こす環境で決める。
     // 環境は、このサーバの環境に、アカウントの置き場を足した後のもの（runs/manager.ts）を重ねる。

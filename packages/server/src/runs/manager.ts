@@ -40,7 +40,7 @@ import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type Pan
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { forgetInterruption, interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { isAlive } from '../platform/proc.ts';
-import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
+import { splitOpencodeTerminalArgs, splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
 import { handoverFacts, projectDeviceCount, resumeTarget, type ResumeTarget } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
 import { saveRemoteUrl, watchRemoteUrl } from '../mobile/remoteUrl.ts';
@@ -117,7 +117,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 /** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
@@ -596,8 +596,9 @@ export class RunManager {
    * 3. driver の materialize（serve、ID なしの作成、追記、MCP の接続）を待ち、返った ID を行に書く。
    * 4. その ID で TUI を tmux の中に起こす。
    * 下ごしらえか画面で失敗したら、serve を止め、仮の行と秘密を消して 400 で断る。
+   * from は外のターミナルからの起動（startOpencodeFromTerminal）で、その作業ディレクトリで起こし、プロジェクトは場所の最長一致で紐づける（無ければ未分類）。
    */
-  private async startMaterialized(agent: AgentKind, params: LaunchParams): Promise<LaunchResult> {
+  private async startMaterialized(agent: AgentKind, params: LaunchParams, from?: { cwd: string }): Promise<LaunchResult> {
     const driver = this.agents.of(agent);
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
     if (!driver.launch.materialize) throw new Error(`agent ${agent} cannot launch without choosing a session id`);
@@ -613,12 +614,14 @@ export class RunManager {
     if (bad) throw new RunError(400, msg('run.agent.optionUnsupported', { option: bad[0] }));
     const bin = this.deps.agentBin?.(agent) ?? null;
     if (!bin) throw new RunError(400, msg('run.agent.notFound'));
-    if (params.scratch) this.startPanes();
-    const { project: p, cwd } = this.startTarget(params);
+    if (params.scratch && !from) this.startPanes();
+    const target = from ? null : this.startTarget(params);
+    const cwd = from ? from.cwd : target!.cwd;
     this.precheck(cwd, { agent });
     const sessionId = newId();
     const now = this.now();
-    upsertShared(this.db, 'sessions', { id: sessionId, provider: agent, provider_session_id: `pending:${newId()}`, cwd, home_device: this.deps.deviceId, project_id: p.id, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    upsertShared(this.db, 'sessions', { id: sessionId, provider: agent, provider_session_id: `pending:${newId()}`, cwd, home_device: this.deps.deviceId, project_id: target?.project.id ?? null, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    const projectId = target ? target.project.id : assignSession(this.db, this.deps.deviceId, sessionId);
     setSessionName(this.db, this.deps.deviceId, sessionId, params.name?.trim() || null);
     const discard = () => {
       revokeMcpSecret(this.db, sessionId);
@@ -627,7 +630,7 @@ export class RunManager {
     let providerSessionId: string;
     let base: Omit<LaunchSpec, 'env'>;
     try {
-      base = this.baseInput(sessionId, p.id, cwd, params, undefined, undefined, agent);
+      base = this.baseInput(sessionId, projectId, cwd, params, undefined, undefined, agent);
       const r = await driver.launch.materialize({ kind: 'start' }, { ...base, env: {} });
       if (!r?.providerSessionId) throw new Error(`agent ${agent} did not return a session id`);
       providerSessionId = r.providerSessionId;
@@ -641,7 +644,7 @@ export class RunManager {
       throw new RunError(400, msg('run.agent.launchFailed', { reason: this.safeError(e) }));
     }
     try {
-      return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...params, agent } });
+      return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...params, agent, ...(from && projectId ? { projectId } : {}) } });
     } catch (e) {
       await Promise.resolve(driver.launch.release({ sessionId, providerSessionId, cwd }, 'killed')).catch(() => false);
       discard();
@@ -782,9 +785,10 @@ export class RunManager {
    * 3. 既にある会話へ -s でつなぐ TUI を tmux の中に起こす（kind = 'resume'）。
    * 本文の有無は見ない。会話は opencode の記録の置き場にあり、本文がまだ写っていなくても -s でつなげるからである。
    * 初期プロンプトと自動承認は持ち越さない（Claude の再開と同じく、起動の指定を引き継がない）。
+   * 外のターミナルで -s と一緒に打った --prompt と --auto だけは、その再開の指定として extra で受ける（startOpencodeFromTerminal）。
    * 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
    */
-  private async resumeMaterialized(s: SessionRow): Promise<LaunchResult> {
+  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean } = {}): Promise<LaunchResult> {
     const driver = this.agentOf(s);
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
@@ -803,13 +807,13 @@ export class RunManager {
     };
     let base: Omit<LaunchSpec, 'env'>;
     try {
-      base = this.baseInput(s.id, s.project_id, cwd, {}, s.id, undefined, agent);
+      base = this.baseInput(s.id, s.project_id, cwd, extra, s.id, undefined, agent);
       await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: {} });
     } catch (e) {
       return fail(e);
     }
     try {
-      return this.launch({ sessionId: s.id, cwd, kind: 'resume', agent, plan: (env) => driver.launch.plan(bin, { kind: 'resume', id }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent } });
+      return this.launch({ sessionId: s.id, cwd, kind: 'resume', agent, plan: (env) => driver.launch.plan(bin, { kind: 'resume', id }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent, ...(extra.autoApprove ? { autoApprove: true } : {}) } });
     } catch (e) {
       return fail(e);
     }
@@ -883,6 +887,35 @@ export class RunManager {
       return { ...p, argv: [...p.argv, ...rest] };
     };
     return { ...this.launch({ sessionId, cwd: req.cwd, kind: 'start', plan, params: { projectId: projectId ?? undefined }, env, account }), attached: false };
+  }
+
+  /**
+   * 外のターミナルで打った opencode（シェルの包みの opencode()、docs/design.md「外のターミナルの opencode」）。
+   * 引数は許可リストで読む（splitOpencodeTerminalArgs）。端末の環境変数は使わない。serve も TUI も、hangar の画面から起こすときと同じく hangar が組む環境で起こす。
+   * -s の会話が hangar の opencode の会話なら、動いている run にはつなぐだけにし（attached が真）、止まっていれば再開する（resumeMaterialized）。
+   * それ以外は、作業ディレクトリ（ディレクトリの引数があればそこ）で新しい会話を起こす。会話の ID は opencode が振ったものを記録する（startMaterialized）。
+   * 設定の opencode かコマンドの横取りが切なら断り、包み方は素の opencode を起動する。
+   */
+  async startOpencodeFromTerminal(req: TerminalRequest): Promise<LaunchResult & { attached: boolean }> {
+    const agent: AgentKind = 'opencode';
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg('settings.label.opencodeIntercept') }));
+    const a = splitOpencodeTerminalArgs(req.args);
+    const params = { ...(a.prompt !== null ? { prompt: a.prompt } : {}), ...(a.autoApprove ? { autoApprove: true } : {}) };
+    if (a.session !== null) {
+      const id = findSession(this.db, a.session, agent);
+      if (!id) throw new RunError(404, msg('run.terminal.notInHangar'));
+      const alive = aliveRunForSession(this.db, id, this.deps.deviceId, this.now());
+      if (alive) return { run: alive, sessionId: id, tabs: listTabs(this.db, alive.id), attached: true };
+      return { ...(await this.resumeMaterialized(this.session(id), params)), attached: false };
+    }
+    // ディレクトリの引数は作業ディレクトリからの相対で読み、シンボリックリンクを解く（包み方が送る作業ディレクトリと同じ形にする）。無いディレクトリは precheck が断る。
+    let cwd = req.cwd;
+    if (a.dir !== null) {
+      const dir = path.resolve(req.cwd, a.dir);
+      try { cwd = fs.realpathSync(dir); } catch { cwd = dir; }
+    }
+    return { ...(await this.startMaterialized(agent, { ...params, agent }, { cwd })), attached: false };
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */

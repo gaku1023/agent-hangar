@@ -1,5 +1,7 @@
 import path from 'node:path';
+import type { AgentKind } from '../agent/types.ts';
 import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
+import { BUILTIN_OPENCODE_SUBCOMMANDS, BUILTIN_OPENCODE_VALUE_FLAGS, OPENCODE_INTERCEPT_FLAGS } from '../provider/opencode/compat/cli.ts';
 import { RunError } from './errors.ts';
 import { msg } from '../i18n/message.ts';
 
@@ -29,6 +31,60 @@ export function decodeTerminalRequest(body: unknown): TerminalRequest | null {
     if (i > 0) env[kv.slice(0, i)] = kv.slice(i + 1);
   }
   return { cwd, args: args === '' ? [] : args.split('\0'), env };
+}
+
+/**
+ * どのエージェントの起動か。包み方は opencode のときだけ本文に agent を足す。
+ * agent の無い本文（claude の包み、古い包み方）は Claude Code にする。知らない値は null（400 で断る）。
+ */
+export function terminalAgentOf(body: unknown): AgentKind | null {
+  const a = body && typeof body === 'object' ? (body as Record<string, unknown>).agent : undefined;
+  if (a === undefined || a === 'claude' || a === 'claude-code') return 'claude-code';
+  if (a === 'opencode') return 'opencode';
+  return null;
+}
+
+/** 外のターミナルの opencode の引数のうち、hangar の起動に写すもの。dir は作業ディレクトリからの相対のまま返す。 */
+export type OpencodeTerminalArgs = { session: string | null; prompt: string | null; autoApprove: boolean; dir: string | null };
+
+/** opencode の会話の ID の形。hangar は ID を決めず、opencode が振った ID（ses_…）を記録する。 */
+const OPENCODE_SESSION_ID = /^ses_[0-9A-Za-z]+$/;
+
+/**
+ * 外のターミナルの opencode の引数を読む。許可リスト方式で、包み方（config/shellHook.ts の opencode()）と同じ一覧を使う。
+ * 写せるのは --auto（自動承認）、--prompt（初期プロンプト）、-s と --session（再開する会話）、位置引数のディレクトリ 1 つだけである。
+ * ほかのフラグ、サブコマンド、2 つ目の位置引数、値の無い値を取るフラグは 400 で断り、包み方は素の opencode を起動する。
+ * 包み方が先に素通しにしているので、ここに届くのは古い包み方か、包み方を通さない頼みだけである。
+ */
+export function splitOpencodeTerminalArgs(args: string[]): OpencodeTerminalArgs {
+  const out: OpencodeTerminalArgs = { session: null, prompt: null, autoApprove: false, dir: null };
+  const takesValue = new Set(OPENCODE_INTERCEPT_FLAGS.filter((f) => BUILTIN_OPENCODE_VALUE_FLAGS.includes(f)));
+  const refuse = (flag: string): never => { throw new RunError(400, msg('run.terminal.flagRefused', { flag })); };
+  const put = (flag: string, v: string) => {
+    if (flag === '--prompt') out.prompt = v;
+    else if (flag === '-s' || flag === '--session') out.session = v;
+  };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a.startsWith('-')) {
+      const eq = a.startsWith('--') ? a.indexOf('=') : -1;
+      const flag = eq > 0 ? a.slice(0, eq) : a;
+      if (!OPENCODE_INTERCEPT_FLAGS.includes(flag)) refuse(flag);
+      if (!takesValue.has(flag)) {
+        if (eq > 0) refuse(flag);
+        if (flag === '--auto') out.autoApprove = true;
+        continue;
+      }
+      const v = eq > 0 ? a.slice(eq + 1) : args[++i];
+      if (v === undefined) refuse(flag);
+      put(flag, v!);
+      continue;
+    }
+    if (out.dir !== null || BUILTIN_OPENCODE_SUBCOMMANDS.includes(a)) refuse(a);
+    out.dir = a;
+  }
+  if (out.session !== null && !OPENCODE_SESSION_ID.test(out.session)) throw new RunError(404, msg('run.terminal.notInHangar'));
+  return out;
 }
 
 /**

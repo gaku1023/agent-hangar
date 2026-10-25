@@ -22,6 +22,9 @@ export const isOpencodeInjection = (v: unknown): v is OpencodeInjection => typeo
 /** opencode を有効にするか（ベータ）。この項目を知らない古いサーバは返さないので、true のときだけ入りとして読む。 */
 export const opencodeEnabledOf = (s: { opencodeEnabled?: boolean }): boolean => s.opencodeEnabled === true;
 
+/** 外のターミナルの opencode コマンドを hangar 経由で起動するか（シェルの包み、macOS と Linux だけ）。既定は切で、true のときだけ入りとして読む。 */
+export const opencodeInterceptOf = (s: { opencodeIntercept?: boolean }): boolean => s.opencodeIntercept === true;
+
 /** システムプロンプトへの追記。無い項目と知らない値は既定（最小限）に寄せる。 */
 export const opencodeInjectionOf = (s: { opencodeInjection?: OpencodeInjection }): OpencodeInjection => (isOpencodeInjection(s.opencodeInjection) ? s.opencodeInjection : DEFAULT_OPENCODE_INJECTION);
 

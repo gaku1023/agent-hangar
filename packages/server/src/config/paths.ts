@@ -125,6 +125,8 @@ export type Settings = {
   opencodeEnabled?: boolean;
   /** hangar が起動する opencode のシステムプロンプトへの追記。項目が無いうちは最小限（minimal）として読む。 */
   opencodeInjection?: OpencodeInjection;
+  /** 外のターミナルの opencode コマンドを hangar 経由で起動するか（シェルの包み、macOS と Linux だけ）。項目が無いうちは切として読む。opencodeEnabled も入りのときだけ効く。 */
+  opencodeIntercept?: boolean;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -220,6 +222,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // opencode の項目は既定の設定に無いので、手で書き換えた値は捨てて、無い項目（既定）として読ませる。
   if (s.opencodeEnabled !== undefined && typeof s.opencodeEnabled !== 'boolean') delete s.opencodeEnabled;
   if (s.opencodeInjection !== undefined && !isOpencodeInjection(s.opencodeInjection)) delete s.opencodeInjection;
+  if (s.opencodeIntercept !== undefined && typeof s.opencodeIntercept !== 'boolean') delete s.opencodeIntercept;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

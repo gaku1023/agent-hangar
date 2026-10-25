@@ -68,7 +68,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     return { panes, opened, listed, closed };
   };
 
-  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null } = {}) => {
+  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
@@ -93,6 +93,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
       agentEnabled: (k) => k === 'claude-code' || enabled(),
       agentBin: (k) => (k === 'opencode' ? (o.bin === undefined ? bin : o.bin) : null),
       injection: () => ({ askStatusAtEnd: true, liveHints: true, opencode: o.injection ?? 'minimal' }),
+      terminalIntercept: (k) => k === 'opencode' && o.intercept !== false,
     });
     return { rm, opened, ensured, manager, bin, opencode, claude, fakeClaude, listed, closed, log: () => readFakeOpencodeLog(logFile) };
   };
@@ -462,5 +463,81 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(opened[0]!.command.join(' ')).not.toContain('HANGAR_SECRET_ENV');
     expect(fs.existsSync(path.join(home, SECRET_ENV_DIR))).toBe(false);
     expect(log()).toEqual([]);
+  });
+
+  // 外のターミナルの opencode（シェルの包みからの起動、段 D2）。端末の環境変数は届いても使わない。
+  const term = (args: string[], at = cwd) => ({ cwd: at, args, env: { OPENCODE_CONFIG: '/x/opencode.json', PATH: '/from-terminal' } });
+
+  posixIt('外のターミナルの opencode は、作業ディレクトリのプロジェクトで新しい会話を起こし、--auto と --prompt を写す。端末の環境は使わない', async () => {
+    const { rm, opened, manager, bin, log } = make();
+    const r = await rm.startOpencodeFromTerminal(term(['--auto', '--prompt', '直して']));
+    expect(r.attached).toBe(false);
+    expect(r.run.kind).toBe('start');
+    const create = ev(log(), 'create');
+    expect(create).toHaveLength(1);
+    expect(create[0]!.body).not.toHaveProperty('id');
+    expect(create[0]!.body).toMatchObject({ location: { directory: cwd } });
+    expect(sessions()).toEqual([expect.objectContaining({ id: r.sessionId, provider: 'opencode', provider_session_id: create[0]!.id, project_id: 'p1', deleted_at: null })]);
+    const info = manager.get(r.sessionId)!;
+    expect(opened[0]!.command.slice(-9)).toEqual([bin, cwd, '--server', info.url, '-s', create[0]!.id, '--auto', '--prompt', '直して']);
+    expect(JSON.stringify(opened[0]!.env)).not.toContain('/from-terminal');
+    expect(opened[0]!.command.join('\n')).not.toContain('OPENCODE_CONFIG=');
+    expect(ev(log(), 'start')[0]!.env.OPENCODE_CONFIG).toBeUndefined();
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'opencode', projectId: 'p1', autoApprove: true });
+  });
+
+  posixIt('ディレクトリの引数は作業ディレクトリからの相対で読む。プロジェクトの外なら未分類で起こす', async () => {
+    fs.mkdirSync(path.join(cwd, 'sub'));
+    const { rm, opened, log } = make();
+    await rm.startOpencodeFromTerminal(term(['sub']));
+    const sub = fs.realpathSync(path.join(cwd, 'sub'));
+    expect(ev(log(), 'create')[0]!.body).toMatchObject({ location: { directory: sub } });
+    expect(opened[0]!.cwd).toBe(sub);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-oc-out-'));
+    try {
+      const r = await rm.startOpencodeFromTerminal(term([], outside));
+      expect(sessions().find((x) => x.id === r.sessionId)).toMatchObject({ provider: 'opencode', project_id: null, deleted_at: null });
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  posixIt('-s の hangar の会話は、動いていればその run につなぐだけにし、止まっていれば再開して --prompt と --auto を写す', async () => {
+    const { rm, opened, manager, log } = make();
+    const r = await rm.start(params());
+    const id = ev(log(), 'create')[0]!.id;
+    const same = await rm.startOpencodeFromTerminal(term(['-s', id]));
+    expect(same).toMatchObject({ attached: true, sessionId: r.sessionId, run: { id: r.run.id } });
+    expect(ev(log(), 'start')).toHaveLength(1);
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    const again = await rm.startOpencodeFromTerminal(term(['--session', id, '--prompt', '続けて', '--auto']));
+    expect(again).toMatchObject({ attached: false, sessionId: r.sessionId });
+    expect(again.run.kind).toBe('resume');
+    expect(ev(log(), 'create')).toHaveLength(1);
+    const info = manager.get(r.sessionId)!;
+    expect(opened.at(-1)!.command.slice(-9)).toEqual([expect.any(String), cwd, '--server', info.url, '-s', id, '--auto', '--prompt', '続けて']);
+  });
+
+  posixIt('hangar の会話でない -s は 404、知らないフラグは 400 で断り、行も serve も作らない', async () => {
+    const { rm, log } = make();
+    upsertShared(db, 'sessions', { id: 'h-cc', provider: 'claude-code', provider_session_id: 'ses_fromclaude', cwd, home_device: 'd', project_id: 'p1' }, 'd');
+    await expect(rm.startOpencodeFromTerminal(term(['-s', 'ses_unknown']))).rejects.toMatchObject({ status: 404 });
+    // Claude Code の会話は、ID が同じでも opencode の会話として開かない。
+    await expect(rm.startOpencodeFromTerminal(term(['-s', 'ses_fromclaude']))).rejects.toMatchObject({ status: 404 });
+    for (const a of [['-c'], ['--server', 'http://x'], ['--model', 'x']]) {
+      await expect(rm.startOpencodeFromTerminal(term(a)), a.join(' ')).rejects.toMatchObject({ status: 400 });
+    }
+    expect(sessions().filter((x) => x.provider === 'opencode')).toEqual([]);
+    expect(log()).toEqual([]);
+  });
+
+  posixIt('設定の opencode か、コマンドの横取りが切なら 400 で断る（包み方は素の opencode に回す）', async () => {
+    const off = make({ enabled: false });
+    await expect(off.rm.startOpencodeFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('opencode は有効になっていません') });
+    const noIntercept = make({ intercept: false });
+    await expect(noIntercept.rm.startOpencodeFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('opencode コマンドを hangar 経由で起動') });
+    expect(sessions()).toEqual([]);
+    expect(noIntercept.log()).toEqual([]);
   });
 });

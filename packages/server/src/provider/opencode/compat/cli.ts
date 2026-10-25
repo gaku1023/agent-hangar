@@ -23,6 +23,12 @@ export const BUILTIN_OPENCODE_VALUE_FLAGS: readonly string[] = [
   '--completions', '--log-level', '--prompt', '--server', '--session', '-s',
 ];
 
+/**
+ * シェルの包み（config/shellHook.ts の opencode()）が横取りして hangar の起動へ写すフラグ。ほかのフラグが 1 つでもあれば包まずに渡す（許可リスト方式）。
+ * 値を取るかは BUILTIN_OPENCODE_VALUE_FLAGS で決める。どれかが help から消えるか値の取り方が変わると、横取りした起動が壊れるので、ずれとして知らせる。
+ */
+export const OPENCODE_INTERCEPT_FLAGS: readonly string[] = ['--auto', '--prompt', '--session', '-s'];
+
 /** subcommands と flags は全部の名前、valueFlags はそのうち値を取るもの。どれも並べ替えて返す。 */
 export type OpencodeHelp = { subcommands: string[]; flags: string[]; valueFlags: string[] };
 
@@ -79,6 +85,8 @@ const cliDrift = (value: string): Drift => ({ contract: 'cli', value, version: n
  * 出力はあるのに読めない（SUBCOMMANDS の節が無い）ときは、組み込みの一覧を使い、ずれを 1 件返す。
  * 読めたときは、組み込みの一覧とのサブコマンドの差と、組み込みの一覧に無いフラグを、1 つずつずれとして返す。
  * 包みは知っているフラグだけを横取りし、知らないフラグがあれば素通しにするので、フラグが増えても動作は変わらない。知らせるだけである。
+ * 横取りに使うフラグ（OPENCODE_INTERCEPT_FLAGS）は、消えたもの（flag.removed）と値の取り方が変わったもの（flag.valueChanged）も返す。
+ * ずれの契約は今は 'cli' で返す。記録に入れるときは Claude の 'cli' と混ぜない（Claude の見直し isCliDrift が誤って読むため）。
  */
 export function opencodeSubcommandsFromHelp(text: string | null): { subcommands: readonly string[]; drifts: Drift[] } {
   if (text === null || text.trim() === '') return { subcommands: BUILTIN_OPENCODE_SUBCOMMANDS, drifts: [] };
@@ -87,12 +95,18 @@ export function opencodeSubcommandsFromHelp(text: string | null): { subcommands:
   const builtin = new Set(BUILTIN_OPENCODE_SUBCOMMANDS);
   const got = new Set(help.subcommands);
   const knownFlags = new Set(BUILTIN_OPENCODE_FLAGS);
+  const flags = new Set(help.flags);
+  const valueFlags = new Set(help.valueFlags);
+  const builtinValue = new Set(BUILTIN_OPENCODE_VALUE_FLAGS);
   return {
     subcommands: help.subcommands,
     drifts: [
       ...help.subcommands.filter((s) => !builtin.has(s)).map((s) => cliDrift(`subcommand.added=${s}`)),
       ...BUILTIN_OPENCODE_SUBCOMMANDS.filter((s) => !got.has(s)).map((s) => cliDrift(`subcommand.removed=${s}`)),
       ...help.flags.filter((f) => !knownFlags.has(f)).map((f) => cliDrift(`flag.added=${f}`)),
+      // 横取りに使うフラグだけは、減と値の取り方の変化も見る。ほかのフラグは包みが素通しにするので、減っても動作は変わらない。
+      ...OPENCODE_INTERCEPT_FLAGS.filter((f) => !flags.has(f)).map((f) => cliDrift(`flag.removed=${f}`)),
+      ...OPENCODE_INTERCEPT_FLAGS.filter((f) => flags.has(f) && valueFlags.has(f) !== builtinValue.has(f)).map((f) => cliDrift(`flag.valueChanged=${f}`)),
     ],
   };
 }
@@ -110,6 +124,9 @@ export function isOpencodeCliDrift(value: string): boolean {
     case 'subcommand.added': return !BUILTIN_OPENCODE_SUBCOMMANDS.includes(got);
     case 'subcommand.removed': return BUILTIN_OPENCODE_SUBCOMMANDS.includes(got);
     case 'flag.added': return !BUILTIN_OPENCODE_FLAGS.includes(got);
+    // 横取りに使うフラグの減と値の取り方の変化は、組み込みの一覧と包みを直すまでずれのままにする。それ以外のフラグのものはずれでない。
+    case 'flag.removed':
+    case 'flag.valueChanged': return OPENCODE_INTERCEPT_FLAGS.includes(got);
     default: return true;
   }
 }
