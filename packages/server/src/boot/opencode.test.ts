@@ -43,4 +43,19 @@ describe('bootOpencode', () => {
     expect(isAlive(info.pid)).toBe(false);
     expect(new ServeRegistry(serveRegistryPath(home)).list()).toEqual([]);
   });
+
+  it.skipIf(process.platform === 'win32')('範囲の外の版で serve を起こすたびに、知らせの種を画面へ配る口に渡す', async () => {
+    const { bin } = writeFakeOpencode(path.join(home, 'oc'));
+    const settings = { current: { opencodeEnabled: true } };
+    const seeds: unknown[] = [];
+    const oc = bootOpencode({ home, settings }, { bin: () => bin, version: async () => '1.4.0', onVersionNotice: (s) => { seeds.push(s); } });
+    await oc.serves.ensure('s1');
+    await oc.serves.ensure('s2');
+    expect(seeds).toEqual([
+      { kind: 'opencode-version', version: '1.4.0', verdict: 'legacy' },
+      { kind: 'opencode-version', version: '1.4.0', verdict: 'legacy' },
+    ]);
+    expect(oc.versionNotice()).toEqual({ kind: 'opencode-version', version: '1.4.0', verdict: 'legacy' });
+    await oc.stop(3000);
+  });
 });

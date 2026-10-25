@@ -111,7 +111,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // スマホの受信箱に預ける素を封じて書く。同期と run（アカウントと使用率）の後に組む。
   const mobile = bootMobile({ home, delivery, runs, sync });
   // opencode（ベータ）の serve の管理。前の hangar が残した serve の掃除は、設定の入り切りに関わらずここで始まる。
-  const opencode = bootOpencode(home);
+  // 範囲の外の版で serve を起こすたびに、画面へ知らせの種を配る（右下の札、同じ版では画面が一度だけ出す）。
+  const opencode = bootOpencode(home, { onVersionNotice: (s) => delivery.hub.broadcast({ type: 'opencode.version', version: s.version, verdict: s.verdict }) });
   // opencode の driver は配る層と一緒に組んである。serve の管理をここで渡す（それまでの opencode の起動は断る）。
   delivery.bindOpencodeServes(opencode.serves);
   // opencode の本文には文脈の大きさが無いので、索引は使用量を書くときにモデルの一覧（とカタログ）から引く。

@@ -10,6 +10,7 @@ import { durationLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { arrivedCount } from './unresolved.ts';
 import { presentUpdateCard, presentWhatsNew, type UpdateCardProps, type WhatsNewCardProps } from './update.ts';
+import { presentOpencodeVersionCard, type OpencodeVersionCardProps } from './opencodeNotice.ts';
 
 /**
  * 入力待ちのカード 1 枚。
@@ -30,12 +31,13 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * 押しても Mediator が画面を移さないので、押せないように見せる。
  * arrived は、同期で他の PC から届いたプロジェクトの札（設計書 2.11.5）で、count は、いまも届いたままのものの数である。0 なら null で、札は出さない。
  * update は、アプリの更新の札（presenters/update.ts）。どの画面でも出す（画面を移さないので、ダイアログが開いていても押せる）。
+ * opencodeVersion は、未検証の opencode の版の札（C7、presenters/opencodeNotice.ts）。同じ版では一度だけ出す。
  * join は、発行した参加コードへの参加リクエストの通知（試作 C1）。承認か拒否か期限切れで消える。設定のクラウド同期を開いている間は、そこの欄が同じことを言うので出さない。
  * phoneUndo は、スマホの解除の「元に戻す」（試作 E2）。Runtime が 5 秒を数え、解除を送るか元に戻すと消える。どの画面でも出す。
  * phoneLaunches は、スマホからの依頼でこの PC が起こした会話の通知（試作 F1）。受信した順で、その会話の画面を開いている間は出さない。
  * 入力待ちと同じく新しい SHOWN 枚までを並べ、並べきれない数を phoneLaunchMore に置く。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number };
 
 /**
  * スマホから起動した会話の通知の中身（試作 F1）。
@@ -99,5 +101,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   const arrived = arrivedCount(store, state.arrivedProjects);
   const launches = presentPhoneLaunches(state, store, t);
   const phoneLaunches = launches.slice(-SHOWN);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length };
 }

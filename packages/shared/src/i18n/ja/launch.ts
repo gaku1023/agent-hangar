@@ -54,6 +54,7 @@ export const launchJa: AreaDictionary<typeof launchKeys> = {
   'launch.model.footer': '料金は models.dev と各社の公開情報（{date} 取得）。',
   'launch.opencode.loading': 'opencode から一覧を取得しています…',
   'launch.opencode.failed': 'opencode から一覧を取得できませんでした。',
+  'launch.opencode.modelReset': '前回の {model} は一覧にないため、デフォルトに戻しました。',
   'launch.chip.account': 'アカウント',
   'launch.chip.addDirs': '追加ディレクトリ',
   'launch.chip.effort': 'effort レベル',

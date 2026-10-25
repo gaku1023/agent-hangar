@@ -286,6 +286,11 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       return { ...store, summaryPending: without(store.summaryPending, ev.sessionId), summaryFailed: without(store.summaryFailed, ev.sessionId) };
     }
     case 'summary.failed': return { ...store, summaryPending: without(store.summaryPending, ev.sessionId), summaryFailed: { ...store.summaryFailed, [ev.sessionId]: ev.message } };
+    // 範囲の外の版で serve を起こした（C7）。検出の答えとして入れ、設定の版の行と右下の札が同じ答えを読む。
+    case 'opencode.version': {
+      const status = { found: true, version: ev.version, verified: false };
+      return sameValue(store.opencodeStatus, status) ? store : { ...store, opencodeStatus: status };
+    }
     default: return store;
   }
 }

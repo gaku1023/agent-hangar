@@ -517,3 +517,13 @@ describe('git の表示の store', () => {
     expect(gitFileKey('s1', '/w/a.ts')).toBe('s1\n/w/a.ts');
   });
 });
+
+describe('opencode の版の知らせ（C7）', () => {
+  it('範囲の外の版で serve を起こした知らせは、検出の答えとして入れる（設定の版の行も同じ答えを読む）', () => {
+    const s = applyServerEvent(initialStore(), { type: 'opencode.version', version: '2.2.0', verdict: 'unverified' });
+    expect(s.opencodeStatus).toEqual({ found: true, version: '2.2.0', verified: false });
+    const legacy = applyServerEvent(s, { type: 'opencode.version', version: '1.4.0', verdict: 'legacy' });
+    expect(legacy.opencodeStatus).toEqual({ found: true, version: '1.4.0', verified: false });
+    expect(applyServerEvent(legacy, { type: 'opencode.version', version: '1.4.0', verdict: 'legacy' })).toBe(legacy);
+  });
+});

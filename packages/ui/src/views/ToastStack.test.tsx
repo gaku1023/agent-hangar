@@ -416,3 +416,42 @@ describe('知らせの出る動き（⑨ の b）', () => {
     expect(animations).toHaveLength(0);
   });
 });
+
+describe('未検証の opencode の版の札（C7、試作の N1）', () => {
+  const oc = { version: '2.2.0', head: '未検証のバージョン', who: 'opencode 2.2.0', title: 'opencode 2.2.0 は未検証のバージョンです', body: '検証済み：2.1.x。API の変更により、状態や権限確認が正しく表示されない可能性があります。', settings: '設定を開く', proceed: 'このまま続行' };
+  it('見出しに種類と版、その下に題と本文、ボタンと文字だけの操作を並べる', () => {
+    mount(props({ opencodeVersion: oc }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="opencode-version"]')!;
+    expect(c).toHaveAttribute('role', 'status');
+    const head = within(c.querySelector<HTMLElement>('.notice-head')!);
+    expect(head.getByText('未検証のバージョン')).toBeInTheDocument();
+    expect(head.getByText('opencode 2.2.0')).toBeInTheDocument();
+    expect(c.querySelector('.notice-title')).toHaveTextContent('opencode 2.2.0 は未検証のバージョンです');
+    expect(c.querySelector('.notice-sub')).toHaveTextContent('検証済み：2.1.x。');
+    expect(within(c).getByRole('button', { name: '設定を開く' })).toHaveClass('btn', 'btn-sm');
+    expect(within(c).getByRole('button', { name: 'このまま続行' })).toHaveClass('btn-link');
+  });
+  it('「このまま続行」と閉じるはその版を知らせ終え、「設定を開く」は設定の opencode の面へ移る', () => {
+    const { onAction } = mount(props({ opencodeVersion: oc }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="opencode-version"]')!;
+    fireEvent.click(within(c).getByRole('button', { name: 'このまま続行' }));
+    fireEvent.click(within(c).getByRole('button', { name: '閉じる' }));
+    fireEvent.click(within(c).getByRole('button', { name: '設定を開く' }));
+    expect(onAction.mock.calls).toEqual([
+      [{ type: 'opencode.version.continue', version: '2.2.0' }],
+      [{ type: 'opencode.version.continue', version: '2.2.0' }],
+      [{ type: 'opencode.version.settings', version: '2.2.0' }],
+    ]);
+  });
+  it('確認や入力のあるダイアログの間は、画面を移す「設定を開く」だけを押せなくする', () => {
+    mount(props({ opencodeVersion: oc, blocked: true }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="opencode-version"]')!;
+    expect(within(c).getByRole('button', { name: '設定を開く' })).toBeDisabled();
+    expect(within(c).getByRole('button', { name: 'このまま続行' })).not.toBeDisabled();
+  });
+  it('更新の札の下、入力待ちのカードより上に積む', () => {
+    mount(props({ opencodeVersion: oc, waiting: [card('s1')], update: { kind: 'available', tone: 'info', head: '更新あり', title: 'Hangar 1.5.0', detail: null, progress: null, beforeLabel: '更新の前に', before: null, points: [], actions: [] } }));
+    const kinds = [...document.querySelectorAll<HTMLElement>('.toasts .notice')].map((n) => n.dataset.kind);
+    expect(kinds).toEqual(['update', 'opencode-version', 'waiting']);
+  });
+});

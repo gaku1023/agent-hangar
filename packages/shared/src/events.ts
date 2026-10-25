@@ -53,5 +53,10 @@ export type ServerEvent =
   | { type: 'join.request'; request: JoinRequestView; expiresAt: number }
   /** スマホからの依頼でこの PC が会話を起こした。1 つの依頼につき 1 回だけ配る（右下の通知、試作 F1）。 */
   | { type: 'phone.launch'; launch: PhoneLaunchDto }
+  /**
+   * opencode（ベータ）の serve を、確かめた範囲の外の版で起こした。起こすたびに配る（docs/design.md「opencode の検出（ベータ）」）。
+   * verdict は unverified（範囲の外）、legacy（1.x）、unknown（版が読めない）。画面は検出の答え（GET /api/opencode/status）として受け、右下の札を一度だけ出す。
+   */
+  | { type: 'opencode.version'; version: string | null; verdict: 'unverified' | 'legacy' | 'unknown' }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
   | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };

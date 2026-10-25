@@ -187,6 +187,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.lead.summarizerOpenai': 'OpenAI-compatible',
   'session.transcript.skillLoaded': 'Loaded skill {name}',
   'session.screen.trustHint': 'Answer the trust prompt in the terminal if it appears',
+  'session.ended.opencode': 'opencode has exited. Use "{action}" to continue.',
   'session.screen.loading': 'Loading session',
   'session.screen.moreActions': 'More actions',
   'session.screen.status': 'Session status',
