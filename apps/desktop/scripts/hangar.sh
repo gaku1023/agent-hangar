@@ -89,7 +89,11 @@ tried=""
 # 同じ場所は 1 度しか調べない。HANGAR_NODE や nodePath が探索先と重なることがあるためである。
 seen="
 "
-while IFS= read -r n; do
+# 候補の一覧は標準入力ではなく fd 3 から読む。
+# 標準入力のまま回すと、最後の exec で CLI の標準入力が一覧になり、
+# `echo CODE | hangar cloud join-request <url>` のパイプも、端末で打つ参加コードや復元の語も CLI に届かない。
+# ループの中の標準入力は利用者のものなので、exec はそれをそのまま CLI へ渡す。
+while IFS= read -r n <&3; do
   [ -n "$n" ] || continue
   case "$seen" in
     *"
@@ -123,7 +127,8 @@ $n
   # Rosetta の x64 Node が先に当たると、hangar コマンドだけが起動の途中で落ちる。
   # 訊く式と読み方はアプリ本体（node.rs）と同じで、出力は v<版> <アーキ> <Node-API の版> の 1 行である。
   # 前置きや後置きの行を出す候補（NODE_OPTIONS の警告、包みの script）があるので、その形の最後の行を読む（node.rs の parse_probe と同じ）。
-  probe="$("$n" -p 'process.version+" "+process.arch+" "+(process.versions.napi||0)' 2>/dev/null)" || probe=""
+  # 探りには標準入力を渡さない。標準入力を読む包みの script が、利用者の入力を先に食わないようにする。
+  probe="$("$n" -p 'process.version+" "+process.arch+" "+(process.versions.napi||0)' </dev/null 2>/dev/null 3<&-)" || probe=""
   answer="$(printf '%s\n' "$probe" | tr -d '\r' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+ [a-z0-9]+ [0-9]+$' | tail -n 1)" || answer=""
   if [ -z "$answer" ]; then
     tried="${tried}  ${n}: Node ではありません（別の実行ファイルのようです）
@@ -149,8 +154,9 @@ $n
   # 単一ファイルにまとめた時点で、コードの置き場からの相対では探せなくなる。
   # hangar start が子として起こす server.mjs も、この値を継ぐ。
   export HANGAR_UI_DIST="$dist/ui"
-  exec "$n" "$dist/cli.mjs" "$@"
-done <<CANDIDATES
+  # 一覧を読んでいた fd 3 は閉じてから渡す。
+  exec "$n" "$dist/cli.mjs" "$@" 3<&-
+done 3<<CANDIDATES
 $candidates
 CANDIDATES
 # 変数は波括弧で括る。

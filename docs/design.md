@@ -126,6 +126,7 @@ GUI のアプリの PATH は launchd の最小のものなので、PATH は見�
 要る版は、配布版では `server.mjs` の隣の `manifest.json` から読み、ソースから動かしているときは規則の既定の値（`config/nodeRule.ts` の `NODE_API_MIN` と `NODE_MIN_LABEL`）とサーバを動かしている Node のアーキである。
 同梱の CLI（`hangar.sh`）は `HANGAR_NODE` と `nodePath` を先に見て、そのあとは同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
 `HANGAR_NODE` と `nodePath` は、殻と同じくフルパスだけを受け、そうでなければ「絶対パスではありません」と挙げて次へ進む。
+`hangar.sh` は候補の一覧を標準入力ではなく fd 3 から読み、探りの `node -p` には `/dev/null` をつなぐので、利用者の標準入力（`echo CODE | hangar cloud join-request <url>` のパイプや、端末で打つ参加コードと復元の語）はそのまま CLI に届く。
 見つからないときの文（殻の詳細は `node.rs` の `describe_error_for`）は、何が起きたか（見つからない、版が古い、アーキテクチャが違う）、理由の 1 文（「Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node 22.14 以上が要ります。」）、入れ方、指し方、調べた場所とそれぞれが合わなかった理由の順に出す。
 入れ方は、合わない Node がすでにあるかで変える。
 今ある Node を置き換える入れ方を先に出すと、利用者が使っている Node を壊すおそれがあるためである（Node 24 だけがある Windows で、winget の 22 を案内していた。2026-10-13 の報告）。
