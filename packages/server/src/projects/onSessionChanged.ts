@@ -39,7 +39,8 @@ export function createSessionChangeHandler(deps: SessionChangeDeps): (e: Session
   const triedRegister = new Set<string>();
   return (e) => {
     // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。
-    if (e.deviceId === null) deps.onLocalTranscript?.({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
+    // 本文を DB に持つエージェント（opencode）の変化は path が無く、上げ手へは渡さない（opencode の本文は export を上げる。段 E）。
+    if (e.deviceId === null && e.path !== null) deps.onLocalTranscript?.({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
     // 起動後に現れたセッションは project_id が空のままなので、ここで紐づける。
     const row = db.prepare('select project_id, cwd from sessions where id = ? and deleted_at is null').get(e.sessionId) as { project_id: string | null; cwd: string } | undefined;
     // 消されたセッションは配らない。

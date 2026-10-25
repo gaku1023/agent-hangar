@@ -4,7 +4,10 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFakeOpencodeLog, writeFakeOpencode, type FakeOpencodeEvent, type FakeOpencodeOptions } from '../../../test/fake-opencode.ts';
 import { posixDescribe, posixIt } from '../../../test/platform.ts';
+import { until } from '../../../test/fake-opencode-events.ts';
 import type { LaunchSpec } from '../../agent/types.ts';
+import { openDb } from '../../db/open.ts';
+import { readStoredPage } from '../../transcript/stored.ts';
 import { createOpencodeDriver, type OpencodeDriverDeps } from './driver.ts';
 import { isAlive, ServeRegistry } from './serve/registry.ts';
 import { ServeManager } from './serve/manager.ts';
@@ -24,12 +27,15 @@ describe('opencode の driver（serve を起こさない面）', () => {
     expect(driver.asks.subscribe).toBeTypeOf('function');
     expect(driver.instructions.when).toBe('live');
   });
-  it('状態の面は会話を載せるまで空。トランスクリプトの面は B5 まで空のまま', () => {
+  it('状態の面は会話を載せるまで空。トランスクリプトの面は本文を hangar の DB（agent_events）から読む', () => {
     expect(driver.live.current()).toEqual([]);
     expect(driver.live.isRunning('ses_x', 1)).toBe(false);
     const off = driver.live.onChange(() => {});
     off();
-    expect(driver.transcript.readPage(null as never, 'h1', {})).toEqual({ sessionId: 'h1', events: [], total: 0, nextSeq: null });
+    expect(driver.transcript.readPage).toBe(readStoredPage);
+    const db = openDb(':memory:');
+    expect(driver.transcript.readPage(db, 'h1', {})).toEqual({ sessionId: 'h1', events: [], total: 0, nextSeq: null });
+    db.close();
   });
   it('serve の管理がまだ無ければ、起こさずに断る', async () => {
     await expect(driver.launch.materialize!({ kind: 'start' }, spec('/w'))).rejects.toThrow();
@@ -163,6 +169,22 @@ posixDescribe('opencode の driver の materialize', () => {
     await driver.launch.release({ sessionId: 'h1', providerSessionId: r!.providerSessionId, cwd }, 'killed');
     expect(driver.live.current()).toEqual([]);
     expect(driver.live.isRunning(r!.providerSessionId, pid)).toBe(false);
+  });
+
+  posixIt('作った会話の本文を写しに載せて読み（/message）、release では serve を止める前にもう一度読む', async () => {
+    const { driver, log } = make();
+    const batches: unknown[] = [];
+    driver.transcript.start({ batch: (b) => batches.push(b), named: () => {}, rescan: () => {}, historyChanged: () => {}, error: () => {} });
+    const r = await driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    await until(() => ev(log(), 'messages').length >= 1);
+    expect(ev(log(), 'messages')[0]).toMatchObject({ id: r!.providerSessionId });
+    const before = ev(log(), 'messages').length;
+    await driver.launch.release({ sessionId: 'h1', providerSessionId: r!.providerSessionId, cwd }, 'killed');
+    const reads = ev(log(), 'messages');
+    expect(reads.length).toBe(before + 1);
+    expect(reads.at(-1)!.t).toBeLessThanOrEqual(ev(log(), 'interrupt')[0]?.t ?? ev(log(), 'term')[0]!.t);
+    driver.transcript.stop();
+    expect(batches).toEqual([]);
   });
 
   posixIt('instructions.update は、その会話の serve に PUT し直す', async () => {

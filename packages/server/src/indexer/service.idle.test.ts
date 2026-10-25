@@ -84,7 +84,7 @@ async function boot(extra: Partial<IndexerServiceOptions> & { remoteRoot?: strin
   const errors: string[] = [];
   const changed: string[] = [];
   const gone: string[] = [];
-  s.on({ error: (e) => errors.push(e.message), sessionChanged: (e) => changed.push(e.path), transcriptGone: (e) => gone.push(e.sessionId) });
+  s.on({ error: (e) => errors.push(e.message), sessionChanged: (e) => changed.push(e.path!), transcriptGone: (e) => gone.push(e.sessionId) });
   await s.start();
   vi.mocked(indexFile).mockClear();
   changed.length = 0;

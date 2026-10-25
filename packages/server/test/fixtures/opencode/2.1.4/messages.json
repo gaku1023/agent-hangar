@@ -1,0 +1,701 @@
+{
+ "data": [
+  {
+   "id": "msg_1714f72fc0027J8UXkBuEgG4B1",
+   "time": {
+    "created": 1792902394620
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_1714f72e1001swO0kqxqE72NuM",
+   "time": {
+    "created": 1792902394597,
+    "streamed": 1792902394610,
+    "completed": 1792902394619
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Hi."
+    }
+   ],
+   "snapshot": {
+    "start": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "end": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "files": []
+   },
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0,
+   "tokens": {
+    "input": 8,
+    "output": 5,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f72d9001nJ0J6vBwfIox3w",
+   "time": {
+    "created": 1792902394591
+   },
+   "text": "Say hi.",
+   "type": "user"
+  },
+  {
+   "id": "msg_1714f6feb002E7XMQTlGAR6ZIe",
+   "time": {
+    "created": 1792902393835
+   },
+   "type": "idle",
+   "outcome": "interrupted"
+  },
+  {
+   "id": "msg_1714f6ceb0017M6pgYmV2vUCm0",
+   "time": {
+    "created": 1792902393071,
+    "streamed": 1792902393086,
+    "completed": 1792902393833
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_shell_10",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "error",
+      "input": {
+       "command": "sleep 20"
+      },
+      "error": {
+       "type": "aborted",
+       "message": "Tool execution interrupted"
+      },
+      "metadata": {
+       "shellID": "sh_1714f6d000016tvlR30BNga5nP"
+      }
+     },
+     "time": {
+      "created": 1792902393085,
+      "ran": 1792902393086,
+      "completed": 1792902393824
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "end": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "files": []
+   },
+   "finish": "error",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   },
+   "error": {
+    "type": "aborted",
+    "message": "Step interrupted"
+   }
+  },
+  {
+   "id": "msg_1714f6ce2001qbGty25gwbZELW",
+   "time": {
+    "created": 1792902393064
+   },
+   "text": "Sleep please.",
+   "type": "user"
+  },
+  {
+   "id": "msg_1714f6c04002i8xuKQNyCwCW66",
+   "time": {
+    "created": 1792902392836
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_1714f6bed001smaS5zjN9jproR",
+   "time": {
+    "created": 1792902392815,
+    "streamed": 1792902392827,
+    "completed": 1792902392835
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user picked a color; wrap up.",
+     "native": {
+      "reasoningField": "reasoning_content"
+     },
+     "time": {
+      "created": 1792902392826,
+      "completed": 1792902392827
+     }
+    },
+    {
+     "type": "text",
+     "text": "All done."
+    }
+   ],
+   "snapshot": {
+    "start": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "end": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "files": []
+   },
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0,
+   "tokens": {
+    "input": 8,
+    "output": 5,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f6b560016gqt7ruI4mNFIv",
+   "time": {
+    "created": 1792902392664,
+    "streamed": 1792902392674,
+    "completed": 1792902392808
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_question_8",
+     "name": "question",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "questions": [
+        {
+         "question": "Which color do you prefer?",
+         "header": "Color",
+         "options": [
+          {
+           "label": "Red",
+           "description": "warm"
+          },
+          {
+           "label": "Blue",
+           "description": "cool"
+          }
+         ]
+        }
+       ]
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "User has answered your questions: \"Which color do you prefer?\"=\"Red\". You can now continue with the user's answers in mind."
+       }
+      ],
+      "metadata": {
+       "answers": [
+        [
+         "Red"
+        ]
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1792902392673,
+      "ran": 1792902392674,
+      "completed": 1792902392798
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "end": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f6b3e001j2BD2HmXZEpz22",
+   "time": {
+    "created": 1792902392640,
+    "streamed": 1792902392650,
+    "completed": 1792902392659
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_read_7",
+     "name": "read",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/repo/notes.txt"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Read file /work/repo/notes.txt, lines 1-2\n1: alpha\n2: gamma"
+       }
+      ],
+      "metadata": {
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1792902392649,
+      "ran": 1792902392650,
+      "completed": 1792902392651
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "end": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f6b0b001IcC6JPNn9xDWab",
+   "time": {
+    "created": 1792902392589,
+    "streamed": 1792902392599,
+    "completed": 1792902392635
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_edit_6",
+     "name": "edit",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/repo/notes.txt",
+       "oldString": "beta",
+       "newString": "gamma"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Edited notes.txt (1 replacement)"
+       }
+      ],
+      "metadata": {
+       "files": [
+        {
+         "file": "notes.txt",
+         "patch": "Index: notes.txt\n===================================================================\n--- notes.txt\n+++ notes.txt\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+gamma\n",
+         "status": "modified",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1792902392597,
+      "ran": 1792902392598,
+      "completed": 1792902392600
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "4b44e24b8aba3e27d6bbc925120d58cd4836a336",
+    "end": "0b0d4770be0fcecf1cb326f48dff617bc3e906e5",
+    "files": [
+     "notes.txt"
+    ]
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f6ad4001iabq6m1DtXMJJX",
+   "time": {
+    "created": 1792902392535,
+    "streamed": 1792902392546,
+    "completed": 1792902392584
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_write_5",
+     "name": "write",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/repo/notes.txt",
+       "content": "alpha\nbeta\n"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Created file successfully: notes.txt"
+       }
+      ],
+      "metadata": {
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1792902392545,
+      "ran": 1792902392545,
+      "completed": 1792902392547
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "0964490a127cda808f6746ee1723f478a4e59623",
+    "end": "4b44e24b8aba3e27d6bbc925120d58cd4836a336",
+    "files": [
+     "notes.txt"
+    ]
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f6a5b001MW9MRBEDpOwZDH",
+   "time": {
+    "created": 1792902392413,
+    "streamed": 1792902392424,
+    "completed": 1792902392528
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_execute_4",
+     "name": "execute",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "code": "await tools.hangar.set_turn_intent({ text: \"Capture the transcript\" });\nreturn \"ok\";"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ],
+      "metadata": {
+       "toolCalls": [
+        {
+         "tool": "hangar.set_turn_intent",
+         "status": "completed",
+         "input": {
+          "text": "Capture the transcript"
+         }
+        }
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1792902392423,
+      "ran": 1792902392423,
+      "completed": 1792902392430
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "0964490a127cda808f6746ee1723f478a4e59623",
+    "end": "0964490a127cda808f6746ee1723f478a4e59623",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f6a3c001k1J214fS1zqwf3",
+   "time": {
+    "created": 1792902392383,
+    "streamed": 1792902392394,
+    "completed": 1792902392407
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "I will run echo first.",
+     "native": {
+      "reasoningField": "reasoning_content"
+     },
+     "time": {
+      "created": 1792902392392,
+      "completed": 1792902392393
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_shell_3",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "command": "echo hangar-capture\necho second-line"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "hangar-capture\nsecond-line\n"
+       }
+      ],
+      "metadata": {
+       "status": "completed",
+       "truncated": false,
+       "exit": 0
+      }
+     },
+     "time": {
+      "created": 1792902392392,
+      "ran": 1792902392394,
+      "completed": 1792902392400
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "0964490a127cda808f6746ee1723f478a4e59623",
+    "end": "0964490a127cda808f6746ee1723f478a4e59623",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f6a3a001HmiAX0qQSJclUS",
+   "metadata": {
+    "notice": "instructions",
+    "instructionSources": [
+     "core/codemode"
+    ]
+   },
+   "time": {
+    "created": 1792902392378
+   },
+   "type": "system",
+   "text": "The Code Mode tool catalog has changed. This catalog supersedes the previous Code Mode tool catalog.\n\n# Code Mode\n\nUse the `execute` tool to call the tools listed below. They cannot be called directly, and neither can `search`. Both only work inside code you pass to `execute`.\n\nThe catalog is partial. Inside `execute`, use `search(...)` to find a tool, then call it by the `path` in the result. `search` is synchronous. Call it without `await`; it does not return a Promise. Do not guess tool names.\n\n- search({\n  query?: string,\n  namespace?: string,\n  /** @integer @exclusiveMinimum 0 */\n  limit?: number,\n  /** @integer @minimum 0 */\n  offset?: number,\n}): {\n  items: Array<{\n      path: string,\n      description: string,\n      signature: string,\n    }>,\n  /** @integer @minimum 0 */\n  remaining: number,\n  next: {\n      /** @integer @minimum 0 */\n      offset: number,\n    } | null,\n}\n\n## Available tools\n\n- hangar (14 tools, 12 shown)\n  - tools.hangar.create_session({\n  project_id: string,\n  name?: string,\n  prompt?: string,\n  model?: string,\n  effort?: string,\n  permission_mode?: string,\n  scratch?: boolean,\n}): Promise<unknown> // agent-hangar: プロジェクトで新しい Claude Code セッションを tmux 上に起動する。\n  - tools.hangar.draft_issue_report({\n  /** bug（不具合）か request（要望）。 */\n  kind: \"bug\" | \"request\",\n  title: string,\n  symptom?: string,\n  steps?: string,\n  cause?: string,\n  fix?: string,\n  problem?: string,\n  proposal?: string,\n  alternatives?: string,\n  notes?: string,\n}): Promise<unknown> // agent-hangar: hangar の不具合の報告か要望を、作者（公開リポジトリ gaku1023/agent-hangar の GitHub Issues）へ送るための下書きを作成する。これだけでは送らない。ユーザーが報告や要...\n  - tools.hangar.get_project({\n  project_id: string,\n}): Promise<unknown> // agent-hangar: プロジェクトの詳細。TODO、直近のセッション、アーティファクト。\n  - tools.hangar.get_transcript({\n  session_id?: string,\n  /** @integer @minimum -9007199254740991 @maximum 9007199254740991 */\n  from_seq?: number,\n  /** @integer @maximum 9007199254740991 @exclusiveMinimum 0 */\n  limit?: number,\n  include_tools?: boolean,\n}): Promise<unknown> // agent-hangar: セッションのトランスクリプトを正規化イベントで返す。セッション別 URL では session_id を省ける。\n  - tools.hangar.get_usage(): Promise<unknown> // agent-hangar: Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。ステータスラインから受信した最新の値。上の 3 項目はメインアカウントの値で、accounts にアカウントごとの値（名前、現在使って...\n  - tools.hangar.list_projects(): Promise<unknown> // agent-hangar: プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終アクティビティを返す。\n  - tools.hangar.list_sessions({\n  project_id?: string,\n  running?: boolean,\n  /** @integer @maximum 9007199254740991 @exclusiveMinimum 0 */\n  limit?: number,\n}): Promise<unknown> // agent-hangar: セッションの一覧。project_id、running、limit で絞る。各項目に再開コマンド（resume_command）と最後に実行した PC（device。here はこの PC か）を添える。こ...\n  - tools.hangar.open_in_hangar({\n  session_id?: string,\n  project_id?: string,\n}): Promise<unknown> // agent-hangar: セッションかプロジェクトを hangar の UI で開く URL とディープリンクを返す。\n  - tools.hangar.search_sessions({\n  query: string,\n  project_id?: string,\n  since?: number,\n  until?: number,\n  file?: string,\n  /** @integer @maximum 9007199254740991 @exclusiveMinimum 0 */\n  limit?: number,\n}): Promise<unknown> // agent-hangar: 過去のセッションを全文検索する。題名、要約の 1 文、一致箇所の抜粋、再開コマンド（resume_command）、最後に実行した PC（device。here はこの PC か）を返す。この PC の c...\n  - tools.hangar.set_session_summary({\n  session_id?: string,\n  title: string,\n  one_liner: string,\n  body: string,\n  state: \"in_progress\" | \"done\" | \"blocked\" | \"abandoned\",\n  next_steps: Array<string>,\n}): Promise<unknown> // agent-hangar: このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。\n  - tools.hangar.set_turn_intent({\n  session_id?: string,\n  text: string,\n}): Promise<unknown> // agent-hangar: このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。ターンを始めたときと方針を変えたときに呼ぶ。hangar の右パネルに表示される。\n  - tools.hangar.submit_issue_report({\n  draft_id: string,\n  /** ユーザーが下書きの全文を読み、送ってよいと言ったときだけ true。 */\n  confirmed?: boolean,\n}): Promise<unknown> // agent-hangar: draft_issue_report で作成した下書きを、そのまま作者へ送る。gh でログイン済みなら issue を作成し、そうでなければ下書きを埋めた GitHub のページをブラウザで開く（送信はユー...\n- opencode (8 tools) // Tools for managing OpenCode itself, such as working with sessions and worktrees, searching the available models, and reading MCP resources.\n  - tools.opencode.list_mcp_resources({\n  /** MCP server name as configured. Omit to list every server. */\n  server?: string,\n}): Promise<{\n  resources: Array<{\n      server: string,\n      name: string,\n      uri: string,\n      description?: string,\n      mimeType?: string,\n    }>,\n  templates: Array<{\n      server: string,\n      name: string,\n      uriTemplate: string,\n      description?: string,\n      mimeType?: string,\n    }>,\n}> // List documents, records, and other data exposed by MCP servers. Use this when the user refers to something that is no...\n  - tools.opencode.models({\n  /** Text to search for in model names and IDs. */\n  query?: string,\n  /** Provider ID or name to filter by. Try your own provider first. */\n  provider?: string,\n  /** Include older versions of each model family. By default only the newest version is listed. */\n  all?: boolean,\n  /** Maximum number of models to return. Defaults to 20. @integer @minimum 1 @maximum 100 */\n  limit?: number,\n  /** Number of models to skip, for paging through results. @integer @minimum 0 */\n  offset?: number,\n}): Promise<{\n  /** Matching models grouped by provider. Your own provider comes first. */\n  providers: Array<{\n      id: string,\n      name: string,\n      /** Newest first. */\n      models: Array<{\n          /** providerID/modelID */\n          id: string,\n          name: string,\n          /** Release date as a Unix timestamp in milliseconds, or 0 when unknown. */\n          released: number,\n          variants: Array<string>,\n          /** Pricing in USD per million tokens. */\n          cost: Array<{\n              tier?: {\n                type: \"context\",\n                /** @integer */\n                size: number,\n              },\n              input: number,\n              output: number,\n              cache: {\n                read: number,\n                write: number,\n              },\n            }>,\n          status: \"alpha\" | \"beta\" | \"deprecated\" | \"active\",\n        }>,\n    }>,\n  /** Number of matching models across all pages. @integer */\n  total: number,\n  /** Offset of the next page, or null on the last page. */\n  next: number | null,\n}> // Search the models available to use. Use this to turn a model name the user mentions into an exact reference before ru...\n  - tools.opencode.read_mcp_resource({\n  /** The server field of the discovered resource. */\n  server: string,\n  /** Exact resource URI from discovery, an expanded uriTemplate, or the user. */\n  uri: string,\n}): Promise<{\n  server: string,\n  uri: string,\n  contents: Array<{\n        type: \"text\",\n        uri: string,\n        text: string,\n        mimeType?: string,\n      } | {\n        type: \"blob\",\n        uri: string,\n        blob: string,\n        mimeType?: string,\n      }>,\n}> // Read one MCP resource by server and URI. Not for local files. Always return the full contents rather than slicing or ...\n  - tools.opencode.session_move({\n  /** Omit to move the current session. @pattern ^ses */\n  sessionID?: string,\n  /** Destination directory, relative to the target session's directory or absolute. Supports ~. @minLength 1 */\n  directory: string,\n}): Promise<{\n  /** @pattern ^ses */\n  sessionID: string,\n  directory: string,\n}> // Move a session to another directory, or omit sessionID to move the current session. The current session moves at the ...\n  - tools.opencode.session_rename({\n  /** Omit to rename the current session. @pattern ^ses */\n  sessionID?: string,\n  /** New session title. @minLength 1 */\n  title: string,\n}): Promise<{\n  /** @pattern ^ses */\n  sessionID: string,\n  title: string,\n}> // Rename a session, or omit sessionID to rename the current session. Use a short, specific title that summarizes the wo...\n  - tools.opencode.worktree_create({\n  name: string,\n}): Promise<{\n  directory: string,\n}> // Create a named worktree. Returns its directory.\n  - tools.opencode.worktree_list(): Promise<{\n  worktrees: Array<{\n      directory: string,\n      strategy?: string,\n    }>,\n}> // List a repository's worktrees.\n  - tools.opencode.worktree_remove({\n  /** Absolute path of the worktree to remove. @minLength 1 */\n  directory: string,\n  /** Discard modified and untracked files. Only set this when the user has confirmed forced removal. */\n  force?: boolean,\n}): Promise<{\n  directory: string,\n  removed: boolean,\n}> // Remove a worktree. The repository location selects configuration; directory identifies the worktree to remove.",
+   "description": "Instructions updated: core/codemode"
+  },
+  {
+   "id": "msg_1714f69db001UZZ8k90aHn8D5g",
+   "time": {
+    "created": 1792902392286,
+    "streamed": 1792902392333,
+    "completed": 1792902392374
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "I will run echo first.",
+     "native": {
+      "reasoningField": "reasoning_content"
+     },
+     "time": {
+      "created": 1792902392330,
+      "completed": 1792902392332
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_shell_1",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "command": "echo hangar-capture\necho second-line"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "hangar-capture\nsecond-line\n"
+       }
+      ],
+      "metadata": {
+       "status": "completed",
+       "truncated": false,
+       "exit": 0
+      }
+     },
+     "time": {
+      "created": 1792902392331,
+      "ran": 1792902392333,
+      "completed": 1792902392347
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "0964490a127cda808f6746ee1723f478a4e59623",
+    "end": "0964490a127cda808f6746ee1723f478a4e59623",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1714f69b2001XIiZDwrl3B2GdL",
+   "time": {
+    "created": 1792902392280
+   },
+   "text": "Run echo, record the intent, write and edit a file, then ask me a question.",
+   "type": "user"
+  }
+ ],
+ "cursor": {
+  "previous": "eyJpZCI6Im1zZ18xNzE0ZjcyZmMwMDI3SjhVWGtCdUVnRzRCMSIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6InByZXZpb3VzIn0",
+  "next": "eyJpZCI6Im1zZ18xNzE0ZjY5YjIwMDFYSWlaRHdybDNCMkdkTCIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6Im5leHQifQ"
+ }
+}

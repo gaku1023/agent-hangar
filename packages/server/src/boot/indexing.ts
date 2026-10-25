@@ -39,7 +39,7 @@ export type IndexingParts = {
  */
 export function bootIndexing(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'claude'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'claude' | 'opencode'>,
   sync: Pick<SyncParts, 'uploader' | 'syncState' | 'onRemoteChange'>,
 ): IndexingParts {
   const { db, settings, life } = home;
@@ -49,6 +49,8 @@ export function bootIndexing(
     db, deviceId,
     // 本文の発見と見張りは Claude の driver のトランスクリプトの面が受け持つ。他端末から降ろした本文も、そこが見つける。
     transcript: delivery.claude.transcript,
+    // opencode（ベータ）の本文は serve の API から読んで束で押し込む。hangar が起こした会話だけを読むので、設定が切なら何も読まない。
+    stored: [delivery.opencode.transcript],
     isRunning: (id) => live.current().some((l) => l.sessionId === id),
     // 譲ったセッションは相手が持ち主なので見ない。
     isYielded: (uuid) => sync.syncState.isYielded(uuid),

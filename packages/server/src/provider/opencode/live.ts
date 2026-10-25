@@ -38,6 +38,9 @@ export type OpencodeLiveOptions = {
 
 type Ev = { type: string; data: Record<string, unknown> };
 
+/** serve の出来事の受け手。providerSessionId は流れを読んでいる会話、type は出来事の種類（`session.step.ended` など）である。 */
+export type OpencodeEventListener = (providerSessionId: string, type: string) => void;
+
 type Conn = {
   t: OpencodeLiveTarget;
   client: OpencodeClient;
@@ -64,6 +67,7 @@ export class OpencodeLive implements LiveSource, AskFeed {
   private readonly conns = new Map<string, Conn>();
   private readonly listeners = new Set<(live: LiveSessionDto[]) => void>();
   private readonly askListeners = new Set<(a: AgentAsk) => void>();
+  private readonly eventListeners = new Set<OpencodeEventListener>();
   private cur: LiveSessionDto[] = [];
   private key = '[]';
   private started = false;
@@ -122,6 +126,16 @@ export class OpencodeLive implements LiveSource, AskFeed {
   onAsk(cb: (a: AgentAsk) => void): () => void {
     this.askListeners.add(cb);
     return () => { this.askListeners.delete(cb); };
+  }
+
+  /**
+   * serve の出来事を 1 件ずつ受ける口。トランスクリプトの面（transcript/source.ts）が、本文を読み直す契機に使う。
+   * providerSessionId は流れを読んでいる serve の会話（hangar の会話）で、出来事の data.sessionID（サブエージェントの会話のことがある）とは限らない。
+   * つないだとき（つなぎ直しも）は、流れの頭の `server.connected` が届く。
+   */
+  onEvent(cb: OpencodeEventListener): () => void {
+    this.eventListeners.add(cb);
+    return () => { this.eventListeners.delete(cb); };
   }
 
   /** delayMs 後に、流れを読んでいる serve の全部を取り直す。先に予約した取り直しのほうが早ければ、そちらに任せる。 */
@@ -185,7 +199,7 @@ export class OpencodeLive implements LiveSource, AskFeed {
         try { ev = JSON.parse(data); } catch { continue; }
         if (typeof ev !== 'object' || ev === null || typeof (ev as { type?: unknown }).type !== 'string') continue;
         const d = (ev as { data?: unknown }).data;
-        this.onEvent(c, { type: (ev as { type: string }).type, data: typeof d === 'object' && d !== null ? d as Record<string, unknown> : {} });
+        this.handle(c, { type: (ev as { type: string }).type, data: typeof d === 'object' && d !== null ? d as Record<string, unknown> : {} });
       }
     }
   }
@@ -226,10 +240,13 @@ export class OpencodeLive implements LiveSource, AskFeed {
 
   // ---- 状態 ----
 
-  private onEvent(c: Conn, ev: Ev): void {
+  private handle(c: Conn, ev: Ev): void {
     if (this.conns.get(c.t.providerSessionId) !== c) return;
     c.syncing?.push(ev);
     if (this.apply(c, ev)) this.update(c);
+    for (const cb of this.eventListeners) {
+      try { cb(c.t.providerSessionId, ev.type); } catch (e) { this.o.log?.(`[opencode] event listener failed: ${e instanceof Error ? e.message : String(e)}`); }
+    }
   }
 
   /**

@@ -7,7 +7,7 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * `serve --hostname H --port P` で起こされると、`OPENCODE_SERVER_PASSWORD` を basic 認証（ユーザー名は opencode）に使う最小の HTTP を立てる。
  * 認証つきの `GET /api/session/active` に 200、認証が無ければ 401、`POST /api/session/{id}/interrupt` を受ける。
  * 起動の面（materialize）のために、`POST /api/session`（ID を opencode が振る）、指示の `PUT …/instructions/entries/{key}`、
- * MCP の状態の `GET /api/mcp?location[directory]=…` も受ける。MCP の一覧は、起こされたときの `OPENCODE_CONFIG_CONTENT` の `mcp.servers` から作る。
+ * MCP の状態の `GET /api/mcp?location[directory]=…` も受ける。本文の `GET /api/session/{id}/message` は空の一覧を答える（写しの試験は test/fake-opencode-events.ts で行う）。MCP の一覧は、起こされたときの `OPENCODE_CONFIG_CONTENT` の `mcp.servers` から作る。
  * 新しいセッションの選択肢のために、`GET /api/agent`、`/api/model`、`/api/provider`（どれも `location[directory]=…` を受け、`{ location, data }` で答える）と、
  * 設定の層の配列を返す `GET /api/config` も受ける。実物の 2.1.4 と同じく、場所ごとの最初の `/api/agent` は空の一覧を返せる（agentsEmptyFirst）。
  *
@@ -83,6 +83,7 @@ export type FakeOpencodeEvent =
   | { ev: 'instructions'; pid: number; id: string; key: string; body: Record<string, unknown>; status: number; t: number }
   | { ev: 'mcp'; pid: number; directory: string | null; status: string; t: number }
   | { ev: 'list'; pid: number; what: 'agent' | 'model' | 'provider' | 'config'; directory: string | null; t: number }
+  | { ev: 'messages'; pid: number; id: string; query: string; t: number }
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
@@ -185,6 +186,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     json(res, 200, { location, data: PROVIDERS.map((p) => ({ id: p.id, integrationID: p.id, name: p.name, activation: 'enabled', ...(p.baseURL ? { settings: { apiKey: 'sk-fake-secret', baseURL: p.baseURL } } : {}) })) });
+    return;
+  }
+  const msg = /^\\/api\\/session\\/([^/]+)\\/message$/.exec(url.pathname);
+  if (req.method === 'GET' && msg) {
+    log({ ev: 'messages', id: decodeURIComponent(msg[1]), query: url.search });
+    json(res, 200, { data: [], cursor: { previous: null, next: null } });
     return;
   }
   const m = /^\\/api\\/session\\/([^/]+)\\/interrupt$/.exec(req.url ?? '');

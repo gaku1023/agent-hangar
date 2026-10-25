@@ -14,9 +14,16 @@ const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
  */
 export const DROPPED_LINE_TYPES: ReadonlySet<string> = new Set(['api-request', 'api-request-blob', 'api-request-shape']);
 
+/**
+ * 1 つの記録から読める事実。索引の書き手（indexer/write.ts）が sessions、session_stats、usage_daily に積む。
+ * costUsd と contextTokens は、記録ごとに費用と文脈の量を持つエージェント（opencode の返答）だけが付ける。
+ * costUsd はその記録の費用（ドル）、contextTokens はその記録を作るときにモデルへ渡した量（入力とキャッシュの和）である。
+ * Claude は statusline から受けるので付けない。
+ */
 export type RecordFacts = {
   cwd?: string; ts?: number; model?: string; effort?: string;
   usage?: { input: number; output: number };
+  costUsd?: number; contextTokens?: number;
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string;
   isUserTurn: boolean;
 };

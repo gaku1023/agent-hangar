@@ -3,7 +3,7 @@ import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
-import type { FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink } from '../agent/types.ts';
+import type { FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink, TranscriptSource } from '../agent/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
 import { forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat } from './indexFile.ts';
@@ -12,7 +12,11 @@ import { stmt } from './statements.ts';
 
 export type IndexerListener = {
   progress?: (p: IndexProgressDto) => void;
-  sessionChanged?: (e: { sessionId: string; providerSessionId: string; agentId: string | null; appended: number; artifactIds: string[]; deviceId: string | null; path: string }) => void;
+  /**
+   * セッションの索引が変わった。path は本文のファイルで、本文を DB に持つエージェント（opencode）の束では null である（上げ手へは渡さない）。
+   * deviceId は他端末から降ろした写しならその端末の id で、手元の本文（opencode の束も）では null である。
+   */
+  sessionChanged?: (e: { sessionId: string; providerSessionId: string; agentId: string | null; appended: number; artifactIds: string[]; deviceId: string | null; path: string | null }) => void;
   error?: (e: { path: string; message: string }) => void;
   /** 手元の本文ファイルが消え、そのセッションの索引を片付けた。hasTranscript が変わるので配り直す。 */
   transcriptGone?: (e: { sessionId: string }) => void;
@@ -32,6 +36,11 @@ export type IndexerServiceOptions = {
    * 束を DB に書くのは indexer/write.ts である。
    */
   transcript: FileTranscriptSource;
+  /**
+   * 本文を DB に持つエージェントのトランスクリプトの面（opencode の provider/opencode/transcript/source.ts）。
+   * 束を作って batch で押し込むだけなので、索引は start と stop を呼び、届いた束を書く。全件の見比べと見張りの周期には入らない。
+   */
+  stored?: readonly TranscriptSource[];
   isRunning: (providerSessionId: string) => boolean;
   /** 取りこぼし対策の全件走査の周期。既定は 5 分。 */
   sweepMs?: number;
@@ -431,7 +440,8 @@ export class IndexerService {
 
   /**
    * 本文を DB に持つエージェントが押し込んだ束を書く。手元の本文なので、土台の要約も書く。
-   * B5 の前の準備で、画面と同期への知らせ（sessionChanged）はまだ出さない。行の配り直しだけを頼む。
+   * 書いたら、ファイルの本文と同じく sessionChanged を出す（プロジェクトへの紐づけ、伸びの知らせ、git の読み直し）。
+   * 本文のファイルは無いので path は null で、同期の上げ手へは渡らない（opencode の本文は export を上げる。段 E）。
    */
   private onBatch(b: IndexBatch): void {
     if (!this.running) return;
@@ -440,6 +450,7 @@ export class IndexerService {
       if (r.skipped) return;
       if (b.agentId === null || r.appended > 0) writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(b.providerSessionId));
       touchRow(this.opts.db, 'sessions', r.sessionId);
+      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: b.providerSessionId, agentId: b.agentId, appended: r.appended, artifactIds: r.artifactIds, deviceId: null, path: null });
     } catch (e) {
       this.emitError(`${b.agent}:${b.providerSessionId}`, errorMessage(e));
     }
@@ -573,6 +584,7 @@ export class IndexerService {
   async start(): Promise<void> {
     this.running = true;
     this.transcript.start(this.sink);
+    for (const t of this.opts.stored ?? []) t.start(this.sink);
     // 前の版が先頭からの索引を消してしまったファイルは、この全走査で先頭から読み直す。
     markTruncatedForReindex(this.opts.db);
     await this.fullScan();
@@ -583,6 +595,7 @@ export class IndexerService {
   stop(): void {
     this.running = false;
     this.transcript.stop();
+    for (const t of this.opts.stored ?? []) t.stop();
     if (this.flushTimer) this.timers.clearTimeout(this.flushTimer);
     if (this.historyTimer) this.timers.clearTimeout(this.historyTimer);
     if (this.liveTimer) this.timers.clearTimeout(this.liveTimer);

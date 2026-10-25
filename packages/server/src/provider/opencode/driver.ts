@@ -1,9 +1,10 @@
 import type { LiveSessionDto } from '@agent-hangar/shared';
-import type { AgentDriver, TranscriptSource } from '../../agent/types.ts';
+import type { AgentDriver } from '../../agent/types.ts';
 import { opencodeAsks } from './asks.ts';
 import { OpencodeClient } from './client.ts';
 import { materializeOpencode, planOpencode, putInstructions, type MaterializeDeps, type OpencodeServes } from './launch.ts';
 import { OpencodeLive } from './live.ts';
+import { OpencodeTranscript } from './transcript/source.ts';
 
 /**
  * opencode の driver に呼び手が渡すもの。
@@ -27,15 +28,8 @@ export class OpencodeNotReadyError extends Error {
   }
 }
 
-/** トランスクリプトの面。本文を DB に写すのは段 B5 で、それまでは空のページを返す。 */
-const emptyTranscript: TranscriptSource = {
-  start: () => {},
-  stop: () => {},
-  readPage: (_db, sessionId) => ({ sessionId, events: [], total: 0, nextSeq: null }),
-};
-
 /**
- * opencode の driver。起動、状態、許可・質問の面を持ち、トランスクリプトの面は段 B5 まで型を満たすだけの空にしておく。
+ * opencode の driver。起動、状態、トランスクリプト、許可・質問、追記の面を持つ。
  * Claude にしか無いもの（アカウント、effort、権限モード、Remote Control、フォーク、外の会話の引き取り）は caps で持たないと言い、RunManager が入口で断る。
  */
 export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
@@ -49,6 +43,11 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
   const hangarIdOf = new Map<string, string>();
   /** 状態の面。作った会話を載せ、serve の出来事の流れで写しを持つ（live.ts）。許可と質問もここから流す。 */
   const live = new OpencodeLive({ enrich: deps.enrich, log: (line) => { console.log(line); } });
+  /**
+   * トランスクリプトの面。作った会話の本文を serve の API から読み、索引へ束で渡す（transcript/source.ts）。
+   * 読む契機は、状態の面が読んでいる serve の出来事の流れから受ける（流れを serve 1 本に 1 本にするため）。
+   */
+  const transcript = new OpencodeTranscript({ events: (cb) => live.onEvent(cb), requestTimeoutMs: deps.requestTimeoutMs });
 
   return {
     kind: 'opencode',
@@ -59,6 +58,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
         const r = await materializeOpencode({ serves: serves(), report, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep }, mode, spec);
         hangarIdOf.set(r.providerSessionId, spec.hangarSessionId);
         live.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
+        transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         return { providerSessionId: r.providerSessionId };
       },
       plan(bin, mode, spec) {
@@ -69,10 +69,13 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
       },
       /**
        * その会話の serve を止める（interrupt、SIGTERM、SIGKILL の順は serve の管理が持つ）。止めにいったら true を返す。
+       * 止める前に本文をもう一度読む。serve が止まると本文を読めなくなるためである（読めなくても止める）。
        * TUI が閉じたとき（tui-gone）の止め方と、hangar の再起動のあとの扱いは段 B6 で決める。
        */
       async release(target) {
         live.untrack(target.providerSessionId);
+        await transcript.sync(target.providerSessionId).catch(() => undefined);
+        transcript.untrack(target.providerSessionId);
         const s = deps.serves();
         const id = target.sessionId ?? hangarIdOf.get(target.providerSessionId);
         if (!s || !id || !s.get(id)) return false;
@@ -82,7 +85,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
       },
     },
     live,
-    transcript: emptyTranscript,
+    transcript,
     // 許可と質問は serve の出来事の流れから流す（subscribe）。hook は使わないので parseHook を持たない（hook の受け口は何も読まずに 204 を返す）。
     asks: opencodeAsks(live),
     instructions: {
