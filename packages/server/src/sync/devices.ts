@@ -1,4 +1,5 @@
 import { DEVICE_ADMIN_MIN_WORKER_COMPAT, type CloudDevicesDto, type Language, type RosterEntry } from '@agent-hangar/shared';
+import type { Db } from '../db/open.ts';
 import { errorText, msg, render } from '../i18n/message.ts';
 import { CloudError, RevokedError, type CloudClient } from './client.ts';
 import type { RosterStore } from './roster.ts';
@@ -20,7 +21,23 @@ export type CloudDevicesDeps = {
    * 一覧と名簿の両方が読めたときだけ呼び、見つからなければ呼ばない。
    */
   onLeftPhones?: (ids: string[]) => void;
+  /**
+   * 共有テーブルの devices の行（PC の名前と OS）を ID で引く。行が無ければ null。
+   * 解除した PC は名簿から外れるので、解除済みの行の名前はここから取る（sharedDeviceOf）。渡さなければ名前なしで出す。
+   */
+  sharedDevice?: (id: string) => { name: string; platform: string } | null;
 };
+
+/**
+ * 共有テーブルの devices から PC の名前と OS を引く口。
+ * 消した印（deleted_at）の付いた行も読む。解除した PC の名前を残すための控えで、生きているかは Worker の一覧で決める。
+ */
+export function sharedDeviceOf(db: Db): (id: string) => { name: string; platform: string } | null {
+  return (id) => {
+    const r = db.prepare('select name, platform from devices where id = ?').get(id) as { name: string; platform: string } | undefined;
+    return r ?? null;
+  };
+}
 
 /** 名簿の行を ID で引く。名簿が読めなければ空で、一覧は名前なしで出す（一覧そのものは Worker から取れている）。 */
 async function rosterEntries(roster: CloudDevicesDeps['roster']): Promise<Map<string, RosterEntry>> {
@@ -33,10 +50,16 @@ async function rosterEntries(roster: CloudDevicesDeps['roster']): Promise<Map<st
   }
 }
 
+/** 解除した PC の名前の控え。読めなければ null（一覧は名前なしで出す）。 */
+function keptName(d: CloudDevicesDeps, id: string): { name: string; platform: string } | null {
+  try { return d.sharedDevice?.(id) ?? null; } catch { return null; }
+}
+
 /**
  * 設定のクラウド同期の節に出す端末の一覧を組む。
  * 並びと、参加日、最終接続、解除日、トークンの期限は Worker の devices から取り、名前と OS は封じた名簿から ID で突き合わせる。
  * Worker にあって名簿に無い端末は、名前のわからない端末（name と platform が null）として出す。
+ * ただし解除した PC は、名簿から外れても共有の devices に名前が残っていれば、その名前と OS で出す（sharedDevice）。
  * 名簿にあって Worker に無い端末は出さない（認証できる端末の正は Worker である）。
  * 共有テーブルの devices（シェル連携の状態とロックの端末名）とは別に取る。
  * 一時停止の間も取りに行く。設定を開いたときの 1 回だけで、D1 は読むだけである。
@@ -52,7 +75,9 @@ export async function loadCloudDevices(d: CloudDevicesDeps): Promise<CloudDevice
     const [rows, entries] = await Promise.all([d.client.listDevices(), rosterEntries(d.roster)]);
     const devices = rows.map((r) => {
       const e = entries.get(r.id);
-      return { id: r.id, kind: r.kind, name: e?.name ?? null, platform: e?.os ?? null, joinedAt: r.joinedAt, lastSeenAt: r.lastSeenAt, revokedAt: r.revokedAt, expiresAt: r.expiresAt, self: r.id === d.deviceId };
+      // 解除した PC は名簿から外れるので、共有の devices に残る名前で出す。解除していない名前のわからない端末（参加し直した PC の古い ID など）は今どおり名前なし。
+      const kept = !e && r.kind === 'pc' && r.revokedAt !== null ? keptName(d, r.id) : null;
+      return { id: r.id, kind: r.kind, name: e?.name ?? kept?.name ?? null, platform: e?.os ?? kept?.platform ?? null, joinedAt: r.joinedAt, lastSeenAt: r.lastSeenAt, revokedAt: r.revokedAt, expiresAt: r.expiresAt, self: r.id === d.deviceId };
     });
     const left = rows.filter((r) => r.kind === 'mobile' && r.revokedAt !== null && entries.get(r.id)?.kind === 'phone').map((r) => r.id);
     if (left.length > 0) {

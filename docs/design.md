@@ -7451,6 +7451,7 @@ R2 の無料枠（10GB）に対して、1 台分の本文は数百 MB で、残�
 設定の節は、Worker の一覧をサーバの `GET /api/sync/cloud-devices`（`sync/devices.ts` の `loadCloudDevices`）から取る。
 並びと、参加日、最終同期、解除日、トークンの期限は Worker の `devices` から取り、名前と OS は封じた名簿（`RosterStore.read`）から ID で突き合わせる。
 Worker にあって名簿に無い端末は、名前と OS が null の「名前のわからない端末」として出す。
+ただし解除した PC は名簿から外れるので、共有テーブルの `devices` に行が残っていれば、その名前と OS で出す（`sharedDeviceOf`。消した印の付いた行も読む）。解除済みの行に名前を残すためである。解除していない名前のわからない端末（参加し直した PC の古い ID など）は、今どおり名前なしで出す。
 名簿にあって Worker に無い端末は出さない。
 名簿が読めないときは、一覧を名前なしで出す。
 Worker が名乗った版が 5 に届かないか、経路が 404 なら `outdated`、解除されていれば `revoked`、繋がらなければ `unreachable` を返し、画面は同期の表の一覧に戻す。
