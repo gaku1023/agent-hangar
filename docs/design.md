@@ -1402,6 +1402,8 @@ Windows で npm で入れた opencode は、PATH に `opencode.cmd`（npm の cm
 `.cmd` は cmd.exe 越しにしか起こせず、初期プロンプトのような改行や引用符や `&` を含む引数を安全に渡せない。
 そこで、包みが `.exe` を指していれば（`@opencode/cli` 2.x の bin は `bin/opencode.exe`）、その `.exe` を返す（`platform/exec.ts` の `resolveNpmExeShim`）。
 読み替えられない `.cmd` はそのまま返す。
+起動と再開の入口（`RunManager` の `agentBin`）は、`.cmd` のままのものを、行も serve も作る前に「opencode を起動できませんでした: <場所> は .cmd のため使えません。opencode.exe が PATH から見つかるようにしてください」で断る（Claude の `run.launch.claudeIsCmd` と同じ扱い）。
+そのまま渡すと、serve を起こした後に TUI が EINVAL で落ち、理由が画面に出ないためである。
 
 版は `provider/opencode/compat/version.ts` の `LocalOpencode` が、`opencode --version` を空の環境で打って読む。
 渡すのは `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と、opencode の置き場を先頭に足した固定の最小の `PATH` と、利用者が置いていれば XDG の置き場 4 つ（serve と同じ。「opencode の serve の管理」）だけである。

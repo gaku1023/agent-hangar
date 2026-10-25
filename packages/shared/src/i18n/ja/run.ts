@@ -14,6 +14,7 @@ export const runJa: AreaDictionary<typeof runKeys> = {
   'run.agent.unknown': '知らないエージェントです: {agent}',
   'run.agent.disabled': 'opencode は有効になっていません。設定の「{label}」をオンにしてください',
   'run.agent.notFound': 'opencode が見つかりません（PATH を確認してください）',
+  'run.agent.isCmd': '{file} は .cmd のため使えません。opencode.exe が PATH から見つかるようにしてください',
   'run.agent.optionUnsupported': '{option} は opencode のセッションでは指定できません',
   'run.agent.actionUnsupported': 'この操作は opencode のセッションでは使えません',
   'run.agent.launchFailed': 'opencode を起動できませんでした: {reason}',

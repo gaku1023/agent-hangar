@@ -14,6 +14,7 @@ export const runEn: AreaDictionary<typeof runKeys> = {
   'run.agent.unknown': 'Unknown agent: {agent}',
   'run.agent.disabled': 'opencode is not enabled. Turn on "{label}" in Settings',
   'run.agent.notFound': 'opencode was not found (check your PATH)',
+  'run.agent.isCmd': '{file} is a .cmd file and cannot be used. Make sure opencode.exe can be found on PATH',
   'run.agent.optionUnsupported': '{option} cannot be set for opencode sessions',
   'run.agent.actionUnsupported': 'This action is not available for opencode sessions',
   'run.agent.launchFailed': 'Failed to start opencode: {reason}',

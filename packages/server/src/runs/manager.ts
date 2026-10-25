@@ -267,6 +267,18 @@ export class RunManager {
     return this.deps.claudeBin;
   }
 
+  /**
+   * Claude Code 以外のエージェントの実行ファイル。見つからなければ起動そのものを断る。
+   * Windows で npm の包み（opencode.cmd）が .exe に読み替えられずに届いたら、それも入口で断る（Claude の claudeIsCmd と同じ扱い）。
+   * .cmd は tmux（psmux）から直に起こせず、そのまま渡すと serve を起こした後に TUI が EINVAL で落ち、理由が画面に出ないためである。
+   */
+  private agentBin(agent: AgentKind): string {
+    const bin = this.deps.agentBin?.(agent) ?? null;
+    if (!bin) throw new RunError(400, msg('run.agent.notFound'));
+    if (needsShell(bin, this.deps.platform)) throw new RunError(400, msg('run.agent.launchFailed', { reason: msg('run.agent.isCmd', { file: bin }) }));
+    return bin;
+  }
+
   private project(projectId: string): ProjectInfo {
     const r = this.db
       .prepare('select p.id, p.name, p.is_scratch, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
@@ -628,8 +640,7 @@ export class RunManager {
     ];
     const bad = claudeOnly.find(([, v]) => v);
     if (bad) throw new RunError(400, msg('run.agent.optionUnsupported', { option: bad[0] }));
-    const bin = this.deps.agentBin?.(agent) ?? null;
-    if (!bin) throw new RunError(400, msg('run.agent.notFound'));
+    const bin = this.agentBin(agent);
     if (params.scratch && !from) this.startPanes();
     const target = from ? null : this.startTarget(params);
     const cwd = from ? from.cwd : target!.cwd;
@@ -809,8 +820,7 @@ export class RunManager {
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
-    const bin = this.deps.agentBin?.(agent) ?? null;
-    if (!bin) throw new RunError(400, msg('run.agent.notFound'));
+    const bin = this.agentBin(agent);
     const { path: cwd, createsFolder } = this.cwdFor(s);
     // serve と会話の場所が要るので、ほかの PC のクイックセッションのフォルダは下ごしらえの前に作る。
     this.precheck(cwd, { agent, create: createsFolder });
