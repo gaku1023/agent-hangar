@@ -4,7 +4,7 @@ import type { ResumeHerePlanDto, ResumeHereReplaceDto } from '@agent-hangar/shar
 import type { Db } from '../db/open.ts';
 import { sessionLock } from '../db/queries.ts';
 import { readGitHint } from '../git/hint.ts';
-import { EDIT_TOOLS } from '../indexer/indexFile.ts';
+import { EDIT_TOOLS } from '../indexer/write.ts';
 import { scratchPlacesOf } from '../projects/scratch.ts';
 import { pinnedProjectOf } from '../sessions/move.ts';
 

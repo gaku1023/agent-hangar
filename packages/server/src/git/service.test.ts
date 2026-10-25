@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { GitDto, LiveSessionDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { indexFile } from '../indexer/indexFile.ts';
+import { indexFile } from '../../test/claudeIndex.ts';
 import { asDifferentOwner, git, hasGit, makeRepo } from '../../test/git.ts';
 import { GitService } from './service.ts';
 import { spawnGit, type GitExec } from './status.ts';

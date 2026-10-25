@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { Publisher } from '../events/publisher.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { runAnnouncer, sessionRunsAnywhere } from './announce.ts';
 import { PEERS_FRESH_MS, recordPeers } from '../sync/peers.ts';
 

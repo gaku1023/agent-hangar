@@ -8,6 +8,7 @@ import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA } from '../../test/fi
 import { aggregateUsage } from '../usage/aggregate.ts';
 import { IndexerService } from './service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
+import type { TranscriptSink } from '../agent/types.ts';
 import { expectMode, posixIt } from '../../test/platform.ts';
 
 let dir: string;
@@ -295,5 +296,24 @@ describe('消えた本文の片付け', () => {
     await svc.fullScan();
     expect(count('select count(*) c from transcript_files')).toBe(before);
     expect(gone).toEqual([]);
+  });
+});
+
+describe('IndexerService の束の受け口', () => {
+  it('トランスクリプトの面が押し込んだ束（本文を DB に持つもの）を、その provider の会話として書く', async () => {
+    const claude = claudeTranscriptSource({ claudeDir: dir });
+    let sink: TranscriptSink | null = null;
+    const svc = make({ transcript: { ...claude, start: (s) => { sink = s; claude.start(s); } } });
+    cleanups.push(() => svc.stop());
+    await svc.start();
+    const ts = Date.parse('2026-10-20T10:00:00.000Z');
+    sink!.batch({
+      agent: 'opencode', providerSessionId: 'ses_0123456789abcdef', agentId: null, reset: true,
+      records: [{ events: [{ kind: 'user', seq: 0, ts, text: 'はじめの依頼' }], facts: { isUserTurn: true, ts, cwd: '/w/oc' }, locator: { kind: 'stored' } }],
+    });
+    const row = db.prepare("select id, cwd, first_prompt from sessions where provider = 'opencode' and provider_session_id = ?").get('ses_0123456789abcdef') as { id: string; cwd: string; first_prompt: string };
+    expect(row).toMatchObject({ cwd: '/w/oc', first_prompt: 'はじめの依頼' });
+    expect(count('select count(*) c from event_index where session_id = ?', row.id)).toBe(1);
+    expect(count('select count(*) c from session_summaries where session_id = ?', row.id)).toBe(1);
   });
 });

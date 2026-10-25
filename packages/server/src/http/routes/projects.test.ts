@@ -7,7 +7,7 @@ import type { Db } from '../../db/open.ts';
 import { onRowChange } from '../../db/notify.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { SESSION_OTHER } from '../../../test/fixtures.ts';
-import { ensureSession } from '../../indexer/indexFile.ts';
+import { ensureSession } from '../../indexer/write.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 

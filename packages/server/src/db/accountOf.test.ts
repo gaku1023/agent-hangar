@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from './open.ts';
 import { accountOfSession, sessionAccounts } from './queries.ts';
 import { upsertShared } from './shared.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 
 let db: Db;
 let s1: string;

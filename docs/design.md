@@ -1112,7 +1112,7 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 `sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
 `AgentKind` の値は `sessions.provider` に入る値と同じにし、`agent/agents.ts` がその値から driver を引く。
 
-5 つの面はどれも境界を通っている（本文の正規化だけは、まだ索引の側にある。下のトランスクリプトの面の段落）。
+5 つの面はどれも境界を通っている。
 `RunManager` は、新しい会話の ID（`newSessionId`）、起動の引数と外す環境変数（`plan` が返す `LaunchPlan`）、止めるときの後始末（`release`）を driver から受け取る。
 MCP の秘密を発行することと、`runCommand` で包むことは hangar の側に残す。
 attach や引き取りのような Claude にしか無い起こし方は、`RunManager` が Claude の driver を直に使う。
@@ -1130,10 +1130,17 @@ driver は、配る層と一緒に `boot/agents.ts` で組む。
 読む側の入口（`transcript/read.ts` の `readEvents`）は、会話の `sessions.provider` で読み手をふり分けるだけで、読み方は driver の `readPage` が決める。
 行の無い会話は既定のエージェント（Claude）の道で読み、読み手の無いエージェントの会話は空のページを返す。
 索引に入れる側では、どのファイルが本文か、どれを索引化するか、どこを見張るかを driver が受け持ち（Claude は `provider/claude-code/transcript/source.ts`）、いつ見比べていつ索引化するかを索引（`indexer/service.ts`）が受け持つ。
-索引は driver の発見の口（`agent/types.ts` の `TranscriptFiles`）を引き、見張りの知らせを `start` に渡した受け口で受ける。
-この受け口と発見の口は、本文をファイルに持つ Claude のための仮の形である。
-本文を読んで正規化するのは、まだ索引の側（`indexer/indexFile.ts`）に残っている。
-これを driver が `IndexBatch` を作る側と、DB に書く側に割るときに、受け口を `IndexBatch` の形にそろえる。
+索引に入れるものは、どのエージェントも記録の束（`agent/types.ts` の `IndexBatch`）にそろえる。
+束の 1 件は、正規化した出来事（`TranscriptEvent`）と事実（`RecordFacts`）と本文のありか（`locator`）で、ありかはファイルのバイト位置（`file`）か、hangar の DB に持つ本文（`stored`）である。
+「いま何をしているか」と使用制限の畳み方は本文の形に依るので、束を作る側が `fold` として添える。
+束を作る側は DB を読み書きしない。
+DB に書くのは hangar の側（`indexer/write.ts` の `writeBatch`）で、本文の索引（`event_index`、`event_fts`）、「いま」（`session_activity`）、使用制限（`session_limits`）、成果物（`artifact_calls`、`artifact_versions`）、日別の使用量（`usage_daily`）、会話の行と統計（`sessions`、`session_stats`）、新しい発言での状態の外し、論理削除した会話と行の無い他端末の写しの見送りを、どのエージェントにも同じ規則で行う。
+束の中の seq は 0 から振り、`writeBatch` がその位置の続きの番号に付け替える。
+本文をファイルに持つ Claude は、どのファイルをいつ読むかを索引が決める。
+索引は、見張りが名指ししたファイルと全件の見比べで変わったファイルについて、どこまで読んだか（`transcript_files`、`indexer/indexFile.ts`）を見て、driver の読み出しの口（`TranscriptFiles.read`、Claude は `provider/claude-code/transcript/batch.ts`）に続きを束にさせ、`writeBatch` で書く。
+互換の見張り（`compat/transcript.ts`）は、この読み出しの口が手元の本文の行にだけかける。
+本文を DB に持つエージェントは、作った束を `start` に渡した受け口の `batch` へ押し込み、索引はそれをそのまま `writeBatch` で書く。
+押し込んだ束の出どころの名前（`storedOrigin`）は、日別の使用量の鍵と `event_index.file_path_ref` に入る。
 
 許可と質問の面（`AskSource`）は、hook の本文を読む口（`parseHook`）と、流してくる口（`subscribe`）のどちらかを持つ。
 Claude は前者で、hook の受け口（`mcp/app.ts` の `/mcp/s/<sessionId>/hook`）は、URL のセッションの `sessions.provider` から driver を引き、その `parseHook` で本文を読む。
@@ -1147,7 +1154,7 @@ Claude は段を区切りを足さずにつないで `--append-system-prompt` �
 
 | 置き場 | 中身 |
 | --- | --- |
-| `transcript/` | jsonl の走査（`discover.ts`）、発見と見張り（`source.ts`、トランスクリプトの面）、1 ページの読み出し（`page.ts`）、追記分の読み（`lines.ts`）、正規化（`normalize.ts`）、最後の動きの畳み込み（`activity.ts`） |
+| `transcript/` | jsonl の走査（`discover.ts`）、発見と見張り（`source.ts`、トランスクリプトの面）、索引に入れる束の組み立て（`batch.ts`）、1 ページの読み出し（`page.ts`）、追記分の読み（`lines.ts`）、正規化（`normalize.ts`）、最後の動きの畳み込み（`activity.ts`）、使用制限の畳み込み（`limit.ts`） |
 | `hooks/` | hook の入力から AskUserQuestion の出入り（`question.ts`）と許可の確認（`permission.ts`）を読み、許可と質問の面にまとめる（`asks.ts`） |
 | `registry.ts` | 実行中のセッションの登録（`~/.claude/sessions/<pid>.json`）の読み |
 | `launch/` | 起動の引数（`args.ts`）、`--mcp-config` に渡すファイル（`mcpConfig.ts`）、`--settings` に渡す hook の設定（`hookSettings.ts`） |
@@ -1165,7 +1172,7 @@ Claude は段を区切りを足さずにつないで `--append-system-prompt` �
 入口 1 つにまとめると、CLI の束（`cliEntry.ts`）がサーバの大半を抱えることになるためである。
 
 Claude Code の事情と hangar 自身の物（DB、tmux、同期）が 1 つのファイルに混ざっているものは、まだ外に残してある。
-索引の本文の読みと正規化（`indexer/indexFile.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、区切りを付けたセッションを止める前の登録の読み直し（`boot/runs.ts` の `readRegistry`）などである。
+statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、区切りを付けたセッションを止める前の登録の読み直し（`boot/runs.ts` の `readRegistry`）などである。
 これらを割るのは振る舞いに触るので、別の変更で行う。
 
 ### 保存先と読み方
@@ -1219,6 +1226,7 @@ Claude の本文を読むとき（`provider/claude-code/transcript/page.ts`）�
   全件走査の途中で全走査（起動、作り直し）が始まったら、全件走査は手を引く。
 - 全件走査では、索引に記録済みの大きさ、更新時刻、版を 1 回の問い合わせでまとめて引き、stat と比べる。
   同じなら `indexFile` を呼ばない。条件は `indexFile` が何もせずに返す条件（`isUnchanged`）そのものである。
+  `indexFile` は、読み進めた位置から先を driver に束にさせ（`TranscriptFiles.read`）、`indexer/write.ts` の `writeBatch` で書き、同じ取引の中で `transcript_files` の位置を進める。
   選ぶときに取った stat は `indexFile` へ渡し、同じファイルを二度 stat しない。
   消えた本文の片付け（`forgetVanished`）は、全件を列挙したときだけ行う。
   片付け（`forgetTranscriptFile`）は索引を位置（セッションと主線かサブエージェントか）ごとに消すので、同じ位置を別のパスで読んでいた行は版を 0 にして先頭から読み直させる。
@@ -3101,7 +3109,7 @@ N は UI の store に届いているセッションで数える。
   印は、その行を受け取った新しい PC が上の 2 で保って上げ直す。移した先は上げ直されず、新しい PC が次にその行を書くまでクラウドの行から落ちたままになる。
   両方の PC を上げる前提とする（「セッションを別のプロジェクトへ移す」の版 25 の注意と同じ）。
 - 同期の取り込み（`sync/apply.ts`）は、`sessions` と `session_states` の行を当てたあとで、印のあるセッションの `sessions` を論理削除のまま保つ（`alignSessionTrash`）。upsert が `deleted_at` を null にする所の後で直すので、古い `sessions` の upsert が後から届いても、同じ束で届いても戻らない。手元の表だけを直し、押し返さない。
-- 索引（`indexer/indexFile.ts`）は、論理削除したセッションの本文を掘り起こさない。`history.jsonl` にだけ残る会話の登録（`syncHistoryOnly`）も、論理削除した行を書き直さない。
+- 索引（`indexer/write.ts` の `skipWrite`）は、論理削除したセッションの本文を掘り起こさない。`history.jsonl` にだけ残る会話の登録（`syncHistoryOnly`）も、論理削除した行を書き直さない。
 - 自動の振り分け（`assignSessions`）は論理削除した行を読まない。プロジェクトをまとめる（`mergeProjects`）と一覧から削除する（`unlink`）は、行全体を `deleted_at` ごと書き直すので戻らない。
 
 **関係する行。**
@@ -4043,7 +4051,7 @@ Done の提案には、右端に自動で確定するまでの日数（「あと
 - 始める前の確認：進みの棒は幅を `--dur` で伸ばし、通った行は引き出しの行として畳んで出る。群が消えたら引き出しが畳んで出る（ほかの群も 0 件なら、帯と 1 行の入れ替えになる）。
 - 検索の最中：引き出しは畳んで閉じ、終われば伸びて戻る。帯の右端の注記は `--dur-fast` で薄く出入りする（`fadeIn`、`fadeOut`）。
 
-引き出しの行の「いま何をしているか」と「待っている問い」は、サーバが索引の追記を読む経路（`indexFile`）で主線の出来事を畳んで取り出す。
+引き出しの行の「いま何をしているか」と「待っている問い」は、サーバが索引の追記を読む経路（`indexFile` から `writeBatch`。畳み方は束の `fold`）で主線の出来事を畳んで取り出す。
 最後の `tool_call` の名前と要約を残し、それが AskUserQuestion なら入力の最初の問いの文も残す。
 その呼び出しへの `tool_result` が来たら、答えが済んだとして問いを消す。
 hangar が起こした run では、問いの文を hook からも受け取る（「起動」の節の `--settings`）。
@@ -6387,7 +6395,7 @@ Worker は D1 の上限の失敗を 429 で返す（「構成と setup」）。
 ただし push には最小間隔 10 秒があり、実行中のセッション 1 本で 2 秒ごとに送り続けることはしない。
 送る変更そのものも、時刻の刻みは間引く（同期の版 6）。
 `runs.heartbeat_at` の 30 秒ごとの書き直しは共有の行に書かない（「他端末セッションのロック」）。
-`sessions.last_activity_at` は、索引（`indexer/indexFile.ts` の `applySessionFacts`）が、ほかの事実が変わらず進みが 5 分（`ACTIVITY_SHARE_MS`）未満なら書かない。
+`sessions.last_activity_at` は、索引（`indexer/write.ts` の `applySessionFacts`）が、ほかの事実が変わらず進みが 5 分（`ACTIVITY_SHARE_MS`）未満なら書かない。
 ターンの終わり（system の `turn_duration`）と、入力待ちの問いが新しく出たときは、5 分未満でも書く。
 間引いた進みは手元の `sessions` にも書かず、この PC の画面の時刻と一覧の並びは、手元の統計の `session_stats.last_ts` との新しい方で出す（`db/queries.ts` の `SESSION_SELECT` の `activity_at`）。
 検索の期間、プロジェクトの最後の動き、自動の Done などは共有の値を読むので、最大で 5 分遅れる。

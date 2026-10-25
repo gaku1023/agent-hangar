@@ -1,6 +1,6 @@
 import type { SessionFilesDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { EDIT_TOOLS } from '../indexer/indexFile.ts';
+import { EDIT_TOOLS } from '../indexer/write.ts';
 
 type Row = { file_path: string; parent_agent: string | null };
 

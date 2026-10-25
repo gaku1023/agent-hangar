@@ -1,6 +1,8 @@
 import type { EventsPageDto, LiveSessionDto, PermissionAskDto, TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import type { QuestionHook } from '../provider/claude-code/hooks/question.ts';
+import type { Activity } from '../provider/claude-code/transcript/activity.ts';
+import type { Limit } from '../provider/claude-code/transcript/limit.ts';
 import type { RecordFacts } from '../provider/claude-code/transcript/normalize.ts';
 
 // hangar とエージェント（Claude Code、opencode）の境界の型。
@@ -104,17 +106,50 @@ export interface LiveSource {
 
 // ---- トランスクリプト ----
 
-/** A5 で、索引に入れる側が渡す束。いまは型だけである。 */
+/**
+ * 索引に入れる記録の 1 件。本文の 1 行（Claude）か、1 つのメッセージ（opencode）にあたる。
+ * events の seq は束の中で 0 から振る。DB に書く側（indexer/write.ts）が、その位置の続きの番号に付け替える。
+ */
+export type IndexRecord = {
+  events: TranscriptEvent[];
+  facts: RecordFacts;
+  /** 本文のありか。file はファイルのバイト位置で、読む側がそこを読み直す。stored は本文を hangar の DB に持つ。 */
+  locator: { kind: 'file'; path: string; offset: number; length: number } | { kind: 'stored' };
+  /** 利用者が打った発言か。状態を外す合図に使う（sessions/states.ts の clearOnNewPrompt）。 */
+  typedPrompt?: boolean;
+  /** ターンの終わりの印か。共有の last_activity_at の間引きを外す合図に使う。 */
+  endsTurn?: boolean;
+};
+
+/**
+ * 「いま何をしているか」と使用制限の畳み方。どちらもエージェントの本文の形に依るので、束を作る側が渡す。
+ * 書く側は、前の値（DB にある値、作り直しなら null）を渡して呼び、返った値を DB に書く。手元の主線の束にだけ使う。
+ * 前と同じなら同じ値（同じ参照）を返す。書く側は参照が変わったときだけ書く。
+ */
+export type IndexFold = {
+  /** asked は、畳む途中で新しい問いが出たか（ターンの終わりと同じく、間引きを外す合図）。 */
+  activity(prev: Activity | null): { next: Activity | null; asked: boolean };
+  limit(prev: Limit | null): Limit | null;
+};
+
+/**
+ * 索引に入れる側が渡す束。1 つの位置（主線か、agentId のサブエージェント）の続きの記録である。
+ * DB に書くのは hangar の側（indexer/write.ts）で、束を作る側は DB を読み書きしない。
+ */
 export type IndexBatch = {
+  agent: AgentKind;
   providerSessionId: string;
   agentId: string | null;
   cwd?: string;
-  records: {
-    events: TranscriptEvent[];
-    facts: RecordFacts;
-    locator: { kind: 'file'; path: string; offset: number; length: number } | { kind: 'stored' };
-  }[];
+  /** 真なら、この位置の索引を消してから先頭として積む。 */
+  reset: boolean;
+  records: IndexRecord[];
+  /** 持たなければ、書く側は「いま」と使用制限の表に触らない。 */
+  fold?: IndexFold;
 };
+
+/** 本文のファイルを from バイト目から読んだ束。nextByte は次に読み始める所、badLines は読めなかった行の数である。 */
+export type FileBatch = IndexBatch & { nextByte: number; badLines: number };
 
 export type ReadOpts = { fromSeq?: number; limit?: number; agentId?: string | null; latest?: boolean; beforeSeq?: number };
 
@@ -133,12 +168,14 @@ export type PromptHistory = {
 };
 
 /**
- * 索引に入れる側が、見張りの知らせを渡す先。hangar の索引（indexer/service.ts）が受ける。
- * いまは仮の形で、本文を読んで正規化するのは索引の側（indexer/indexFile.ts）に残っている。
- * A5 で、driver が IndexBatch を作って渡す形に置き換える。
+ * 索引に入れる側が、束と見張りの知らせを渡す先。hangar の索引（indexer/service.ts）が受け、DB に書くのは indexer/write.ts である。
+ * 本文を DB に持つエージェント（opencode）は、作った束を batch で押し込む。
+ * 本文をファイルに持つエージェント（Claude）は、変わったファイルを named で名指しし、索引の側がいつ読むかを決めて TranscriptFiles.read で束を引く。
  */
 export type TranscriptSink = {
-  /** この本文が変わった。索引の側が集めて、少し待ってから索引化する。 */
+  /** 作った束。索引の側がそのまま DB に書く。 */
+  batch(b: IndexBatch): void;
+  /** この本文が変わった。索引の側が集めて、少し待ってから TranscriptFiles.read で読む。 */
   named(file: TranscriptFile): void;
   /** どの本文が変わったか分からない、または見張りが外れた。索引の側が全件の見比べを早めに回す。 */
   rescan(): void;
@@ -152,10 +189,17 @@ export type TranscriptSink = {
 export type TranscriptPick = { index: TranscriptFile[]; drop: TranscriptFile[]; stats: Map<string, { size: number; mtimeMs: number } | null> };
 
 /**
- * 本文をファイルに持つエージェント（Claude）の発見の口。hangar の索引が、全件の見比べと見張りの知らせに合わせて引く。
- * A4 の仮の形で、A5 で IndexBatch の形に寄せるときに見直す。
+ * 本文をファイルに持つエージェント（Claude）の発見と読み出しの口。hangar の索引が、全件の見比べと見張りの知らせに合わせて引く。
+ * どのファイルをいつ読むか、どこまで読んだか（transcript_files）は索引の側が持ち、ここは DB を読み書きしない。
  */
 export interface TranscriptFiles {
+  /** 本文の持ち主。索引の側が sessions の行を引くのに使う。 */
+  readonly agent: AgentKind;
+  /**
+   * 本文の from バイト目から後ろの、改行で終わった行を読んで束にする。
+   * ファイルが from より短くなっていたら作り直されたと見て先頭から読み、束の reset を立てる（from が 0 のときも立てる）。
+   */
+  read(file: TranscriptFile, from: number): FileBatch;
   /**
    * 全件を列挙し、同じ位置（主線かサブエージェント）の写しから索引化する 1 つを選ぶ。
    * seen は列挙した全部のパスで、索引の側は、ここに無く手元からも消えた本文を索引から外す。
@@ -177,7 +221,7 @@ export interface TranscriptFiles {
 }
 
 export interface TranscriptSource {
-  /** 索引に入れる側。見張りを付け、知らせを sink に渡す。 */
+  /** 索引に入れる側。見張りを付け、束か知らせを sink に渡す。 */
   start(sink: TranscriptSink): void;
   stop(): void;
   /** 読む側。 */

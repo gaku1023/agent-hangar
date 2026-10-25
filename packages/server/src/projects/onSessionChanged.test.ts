@@ -6,7 +6,7 @@ import type { ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { Publisher } from '../events/publisher.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { createSessionChangeHandler } from './onSessionChanged.ts';
 import { insertProject, normalizeDir } from './registry.ts';
 

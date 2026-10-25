@@ -4,7 +4,7 @@ import type { Context, Hono } from 'hono';
 import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { getProject, listSessions } from '../../db/queries.ts';
-import { EDIT_TOOLS } from '../../indexer/indexFile.ts';
+import { EDIT_TOOLS } from '../../indexer/write.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';

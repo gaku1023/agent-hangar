@@ -13,7 +13,7 @@ import { runTmuxId, type RunDto, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { errorText } from '../i18n/message.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';

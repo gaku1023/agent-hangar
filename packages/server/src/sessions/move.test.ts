@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChangeOut } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { indexFile } from '../indexer/indexFile.ts';
+import { indexFile } from '../../test/claudeIndex.ts';
 import { assignSession, assignSessions, mergeProjects, resolveProject } from '../projects/registry.ts';
 import { listTranscriptFiles } from '../provider/claude-code/transcript/discover.ts';
 import { applyRemoteBatch } from '../sync/apply.ts';

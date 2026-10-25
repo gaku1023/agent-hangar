@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { foldActivity } from '../provider/claude-code/transcript/activity.ts';
 import { applyQuestionHook } from './questionHook.ts';
 
