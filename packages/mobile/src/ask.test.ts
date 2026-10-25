@@ -1,4 +1,4 @@
-import { aadAsk, aadReply, COMPAT_HEADER, MOBILE_BELL_MIN_WORKER_COMPAT, open, seal, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
+import { aadAsk, aadReply, COMPAT_HEADER, MOBILE_BELL_MIN_WORKER_COMPAT, open, seal, type MobileAgentOptions, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { askPc, AskError, ASK_DEBOUNCE_MS, createAsker, debounce, FILES_CACHE_MS, MOBILE_ASK_COMMANDS_MAX, MOBILE_ASK_FILES_MAX, type AskFailure } from './ask.ts';
 import { at1, makeKey } from './test/fixtures.ts';
@@ -178,6 +178,57 @@ describe('askPc', () => {
   });
 });
 
+const OC_OPTIONS: MobileAgentOptions = {
+  version: '2.1.4',
+  verified: true,
+  modes: [{ id: 'build', description: 'The default agent.' }, { id: 'plan', description: null }],
+  models: [{ id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode Zen', cost: 'free', data: 'no-training' }],
+  defaultModel: null,
+  stale: false,
+  fetchedAt: 1_000,
+};
+
+describe('askPc（opencode）', () => {
+  it('agent-options を問い合わせ、opencode の選択肢を受け取る', async () => {
+    serve({ agentOptions: OC_OPTIONS });
+    const r = await askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'opencode', projectId: 'p-a' });
+    expect(r).toEqual({ agentOptions: OC_OPTIONS });
+    const sent = await open<MobileAsk>(key, aadAsk(asks[0]!.body.id, 'pc-1'), asks[0]!.body.sealed);
+    expect(sent).toEqual({ v: 1, kind: 'agent-options', agent: 'opencode', projectId: 'p-a' });
+  });
+
+  it('PC がまだ一覧を持っていなければ agentOptions は null', async () => {
+    serve({ agentOptions: null });
+    expect(await askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'opencode', projectId: null })).toEqual({ agentOptions: null });
+  });
+
+  it('送れない形のモードとモデル、知らない費用の型は落とし、知らないデータの扱いは null にする', async () => {
+    serve({
+      agentOptions: {
+        ...OC_OPTIONS,
+        modes: [{ id: 'build', description: 'x' }, { id: '--x', description: null }, { id: 'a b', description: null }, { id: 'plan' } as never],
+        models: [
+          OC_OPTIONS.models[0]!,
+          { id: '-p', label: 'bad', group: 'g', cost: 'free', data: null },
+          { id: 'x/y', label: 'odd', group: 'g', cost: 'gold' as never, data: null },
+          { id: 'x/z', label: 'z', group: 'g', cost: 'metered', data: 'sold' as never },
+        ],
+        defaultModel: '--model',
+      },
+    });
+    const r = await askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'opencode', projectId: null });
+    if (!('agentOptions' in r) || !r.agentOptions) throw new Error('agentOptions でない');
+    expect(r.agentOptions.modes).toEqual([{ id: 'build', description: 'x' }, { id: 'plan', description: null }]);
+    expect(r.agentOptions.models.map((m) => [m.id, m.data])).toEqual([['opencode/glm-5.3-flash-free', 'no-training'], ['x/z', null]]);
+    expect(r.agentOptions.defaultModel).toBeNull();
+  });
+
+  it('opencode を使えない PC の答えは agent-missing', async () => {
+    serve({ error: 'agent-missing' });
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'opencode', projectId: null }))).toBe('agent-missing');
+  });
+});
+
 describe('createAsker', () => {
   const cmds: MobileReply = { commands: [{ name: 'review', description: 'レビュー', kind: 'skill' }] };
 
@@ -200,6 +251,31 @@ describe('createAsker', () => {
     serve(cmds);
     expect(await a.commands('pc-1', 'p-a', 'acc-1')).toHaveLength(1);
     expect(asks).toHaveLength(2);
+  });
+
+  it('opencode の commands は agent を付けアカウントなしで問い合わせ、Claude の候補とは別に覚える', async () => {
+    serve(cmds);
+    const a = createAsker(pairing, at1(key));
+    await a.commands('pc-1', 'p-a', '', 'opencode');
+    await a.commands('pc-1', 'p-a', '', 'opencode');
+    await a.commands('pc-1', 'p-a', '');
+    expect(asks).toHaveLength(2);
+    const first = await open<MobileAsk>(key, aadAsk(asks[0]!.body.id, 'pc-1'), asks[0]!.body.sealed);
+    expect(first).toEqual({ v: 1, kind: 'commands', projectId: 'p-a', accountId: '', agent: 'opencode' });
+    const second = await open<MobileAsk>(key, aadAsk(asks[1]!.body.id, 'pc-1'), asks[1]!.body.sealed);
+    expect(second).not.toHaveProperty('agent');
+  });
+
+  it('agentOptions は同じ PC とプロジェクトなら 1 回だけ問い合わせ、失敗は覚えない', async () => {
+    serve({ http: 504, body: { error: 'pc-timeout' } });
+    const a = createAsker(pairing, at1(key));
+    await expect(a.agentOptions('pc-1', 'p-a')).rejects.toBeInstanceOf(AskError);
+    serve({ agentOptions: OC_OPTIONS });
+    expect(await a.agentOptions('pc-1', 'p-a')).toEqual(OC_OPTIONS);
+    await a.agentOptions('pc-1', 'p-a');
+    expect(asks).toHaveLength(2);
+    await a.agentOptions('pc-1', null);
+    expect(asks).toHaveLength(3);
   });
 
   it('files は同じ q を 30 秒覚える', async () => {

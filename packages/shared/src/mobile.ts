@@ -1,4 +1,6 @@
 import type { LiveStatus, WaitKind } from './api.ts';
+import type { ModelCostKind, ModelDataUse } from './modelFacts.ts';
+import type { OpencodeModeOption } from './opencodeOptions.ts';
 
 /** 文は 300 字で切る（待っている内容、意図、要約の 1 行）。 */
 export const MOBILE_TEXT_MAX = 300;
@@ -104,22 +106,76 @@ export type MobileLaunchPayload = {
   effort?: string;
   /** 付けた画像。依頼は画像を全部置いてから出す。 */
   images?: MobileImageRef[];
+  /**
+   * 起こすエージェント（0.10.0 で足した）。無ければ Claude Code。
+   * スマホは caps.agents に opencode のある PC にだけ opencode を送る。古い PC は知らない欄を断らずに Claude を起こすからである。
+   * opencode のとき、accountId と permissionMode は空、effort は無い。PC はこれが崩れた依頼を断る。
+   */
+  agent?: MobileLaunchAgent;
+  /** opencode のモード（primary のエージェント。build、plan など）。無ければ opencode の既定。MOBILE_MODE_RE の形だけ。 */
+  mode?: string;
+  /** opencode の自動承認（--auto）。真なら deny 以外をすべて許可する。 */
+  autoApprove?: boolean;
 };
+
+/** 起動の依頼で選べるエージェント。 */
+export type MobileLaunchAgent = 'claude-code' | 'opencode';
+
+/** opencode のモードの ID の形。--agent に渡る値なので、引数に読まれる形と空白を断る。 */
+export const MOBILE_MODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
+
+/** モードの ID として通る値か。 */
+export const isMobileMode = (v: unknown): v is string => typeof v === 'string' && MOBILE_MODE_RE.test(v);
 
 export type MobileLaunchAnswer =
   | { ok: true; sessionId: string; title: string }
-  | { ok: false; reason: 'project-missing' | 'account-missing' | 'bad-payload' | 'expired' | 'launch-failed' | 'images-missing'; detail?: string };
+  | { ok: false; reason: 'project-missing' | 'account-missing' | 'agent-missing' | 'bad-payload' | 'expired' | 'launch-failed' | 'images-missing'; detail?: string };
 
-/** スマホから PC への問い合わせ（封の中身。AAD は aadAsk）。`@` のファイルと `/` の候補。 */
+/**
+ * スマホから PC への問い合わせ（封の中身。AAD は aadAsk）。`@` のファイル、`/` の候補、opencode の選択肢。
+ * commands の agent が opencode なら、accountId は空で、PC は opencode のコマンドとスキルを返す。
+ * agent-options は opencode のモードとモデル（0.10.0 で足した）。PC は手元に持った一覧を答え、取りに行かない（呼び鈴は 5 秒しか待てない）。
+ */
 export type MobileAsk =
   | { v: 1; kind: 'files'; projectId: string; q: string }
-  | { v: 1; kind: 'commands'; projectId: string | null; accountId: string };
+  | { v: 1; kind: 'commands'; projectId: string | null; accountId: string; agent?: 'opencode' }
+  | { v: 1; kind: 'agent-options'; agent: 'opencode'; projectId: string | null };
 
-/** PC の答え（封の中身。AAD は aadReply）。 */
+/** 答えの opencode のモデルの件数の上限と、名前の字数の上限。 */
+export const MOBILE_AGENT_MODELS_MAX = 100;
+export const MOBILE_AGENT_LABEL_MAX = 60;
+/** 答えの opencode のモードの件数の上限。 */
+export const MOBILE_AGENT_MODES_MAX = 20;
+
+/**
+ * スマホに渡す opencode のモデル 1 つ。id は `provider/model`、label は opencode の表示名、group はプロバイダーの表示名。
+ * cost は費用の型、data はデータの扱い（分からなければ null）で、PC がモデルの小窓と同じ決め方で付ける。ツール呼び出しに対応しないモデルは載せない。
+ */
+export type MobileModelOption = { id: string; label: string; group: string; cost: ModelCostKind; data: ModelDataUse | null };
+
+/**
+ * スマホに渡す opencode の選択肢（PC の OpencodeOptionsDto を縮めたもの）。
+ * stale は、PC が最後に取ってから間が空いた一覧であること。fetchedAt は PC が取った時刻（ミリ秒）。
+ */
+export type MobileAgentOptions = {
+  version: string | null;
+  verified: boolean;
+  modes: OpencodeModeOption[];
+  models: MobileModelOption[];
+  defaultModel: string | null;
+  stale: boolean;
+  fetchedAt: number;
+};
+
+/**
+ * PC の答え（封の中身。AAD は aadReply）。
+ * agentOptions が null なのは、PC がまだ一覧を持っていないとき。agent-missing は、PC で opencode を使えない（無効か、見つからない）とき。
+ */
 export type MobileReply =
   | { files: { path: string; changed: boolean }[] }
   | { commands: { name: string; description: string; kind: 'skill' | 'command' }[] }
-  | { error: 'project-missing' | 'account-missing' | 'bad-request' };
+  | { agentOptions: MobileAgentOptions | null }
+  | { error: 'project-missing' | 'account-missing' | 'agent-missing' | 'bad-request' };
 
 /**
  * スマホのトークンは、この時間使わないと失効する（互換の版 9）。使うたびに延びる。

@@ -12,6 +12,8 @@ import { buildMobileFeed } from '../mobile/feed.ts';
 import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
+import { findOpencode } from '../config/tools.ts';
+import type { OpencodeOptionsService } from '../provider/opencode/options.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { BellTarget, CloudClient } from '../sync/client.ts';
 import type { SyncEngine, Timers } from '../sync/engine.ts';
@@ -95,11 +97,23 @@ export function bootMobile(p: {
   now?: () => number;
   /** 呼び鈴の WebSocket を作る口。既定は ws。 */
   bellConnect?: (t: BellTarget) => WebSocket;
+  /**
+   * opencode（ベータ）の選択肢。スマホの問い合わせ（モードとモデル、`/` の候補）に、手元に持った一覧（取りに行かない）で答える。
+   * 省けば、スマホの opencode の問い合わせと起動の依頼を断る（agent-missing）。
+   */
+  opencode?: { options: Pick<OpencodeOptionsService, 'last' | 'lastCommands'> };
+  /** opencode の置き場を探す口。既定は config/tools.ts の findOpencode。試験が差し替える。 */
+  findOpencode?: () => string | null;
 }): MobileParts {
   const { db } = p.home;
   const deviceId = p.home.device.id;
   const timers: Timers = p.timers ?? { setTimeout, clearTimeout, setInterval, clearInterval };
   const accounts = p.runs.accounts;
+  /** スマホから opencode を起こせるか。設定で有効にしてあり、手元に見つかること（RunManager の入口と同じ確かめ）。 */
+  const opencodeOn = (): boolean => !!p.opencode && !!p.home.settings && opencodeEnabledOf(p.home.settings.current);
+  const opencodeAsk = p.opencode
+    ? { ready: opencodeOn, options: (dir: string | null) => p.opencode!.options.last(dir), commands: (dir: string | null) => p.opencode!.options.lastCommands(dir) }
+    : undefined;
   let cur: { pub: MobileFeedPublisher; inbox: MobileLaunchInbox; bell: MobileBell; link: Link } | null = null;
   /** 今購読している engine と、その解除。 */
   let sub: { engine: Pick<SyncEngine, 'on'>; off: () => void } | null = null;
@@ -163,6 +177,7 @@ export function bootMobile(p: {
       },
       hasProjectHere: (projectId) => !!placeHere.get(projectId, deviceId),
       hasAccount: (id) => accounts.store.list().some((a) => a.id === id),
+      hasAgent: (agent) => agent === 'opencode' && opencodeOn() && (p.findOpencode ?? findOpencode)() !== null,
       canProcess: () => p.sync.canCarryMobile(),
       now: Date.now,
       onStarted: (e) => { void announceLaunch(e).catch((err: unknown) => console.error('[mobile] could not announce the started session', err instanceof Error ? err.constructor.name : typeof err)); },
@@ -183,6 +198,7 @@ export function bootMobile(p: {
         deviceId,
         projectPath: (projectId) => (rootHere.get(projectId, deviceId) as { path: string } | undefined)?.path ?? null,
         accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
+        ...(opencodeAsk ? { opencode: opencodeAsk } : {}),
       }, id, sealed, epoch),
       timers,
       ...(p.bellConnect ? { connect: p.bellConnect } : {}),

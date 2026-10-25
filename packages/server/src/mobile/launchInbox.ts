@@ -6,6 +6,7 @@ import {
   appendPaths,
   clampText,
   isEffort,
+  isMobileMode,
   isModelName,
   LAUNCH_TTL_MS,
   MOBILE_IMAGE_MAX_BYTES,
@@ -54,6 +55,8 @@ export type MobileLaunchInboxDeps = {
   hasProjectHere: (projectId: string) => boolean;
   /** この PC に登録したアカウントか。 */
   hasAccount: (id: string) => boolean;
+  /** この PC でそのエージェントを起こせるか（opencode なら、設定で有効にしてあり、手元に見つかること）。省けば opencode を起こせない PC。 */
+  hasAgent?: (agent: 'opencode') => boolean;
   /** いま依頼を扱ってよいか（boot/sync.ts の canCarryMobile）。偽なら claim せずに残す（Worker の行は pending のまま）。 */
   canProcess: () => boolean;
   now: () => number;
@@ -89,11 +92,16 @@ function isImageRefs(v: unknown): v is MobileImageRef[] {
   return true;
 }
 
-/** 開けた中身が依頼の形か。権限モードとモデルは、PC の新規セッションのダイアログと同じ値だけを通す（--model へそのまま渡すので、引数に読まれる形を断る）。 */
+/**
+ * 開けた中身が依頼の形か。権限モードとモデルは、PC の新規セッションのダイアログと同じ値だけを通す（--model へそのまま渡すので、引数に読まれる形を断る）。
+ * agent は無いか、claude-code か opencode だけを通す。
+ * opencode では、アカウントと権限モードは空、effort は無いこと（opencode には効かない値が混ざった依頼は、スマホの作りの崩れとして断る）。
+ * Claude では、opencode の欄（mode、autoApprove）が無いこと。
+ */
 function isPayload(v: unknown): v is MobileLaunchPayload {
   const o = v as Partial<MobileLaunchPayload> | null;
-  return (
-    !!o && typeof o === 'object' &&
+  if (!o || typeof o !== 'object') return false;
+  const base =
     o.v === 1 &&
     typeof o.createdAt === 'number' && Number.isFinite(o.createdAt) &&
     (o.projectId === null || (typeof o.projectId === 'string' && o.projectId.length <= MOBILE_LAUNCH_ID_MAX)) &&
@@ -103,13 +111,36 @@ function isPayload(v: unknown): v is MobileLaunchPayload {
     typeof o.model === 'string' && (o.model === '' || isModelName(o.model)) &&
     typeof o.prompt === 'string' && o.prompt.length <= MOBILE_PROMPT_MAX &&
     (o.effort === undefined || isEffort(o.effort)) &&
-    (o.images === undefined || isImageRefs(o.images))
-  );
+    (o.images === undefined || isImageRefs(o.images));
+  if (!base) return false;
+  if (o.agent === 'opencode') {
+    return (
+      o.accountId === '' &&
+      o.permissionMode === '' &&
+      o.effort === undefined &&
+      (o.mode === undefined || isMobileMode(o.mode)) &&
+      (o.autoApprove === undefined || typeof o.autoApprove === 'boolean')
+    );
+  }
+  return (o.agent === undefined || o.agent === 'claude-code') && o.mode === undefined && o.autoApprove === undefined;
 }
 
-/** 依頼から起動の params を組む。scratch ならプロジェクトを渡さない。空（既定）の権限モードとモデルと effort は含めない。prompt は画像のパスを足したものを渡せる。 */
+const isOpencode = (p: MobileLaunchPayload): boolean => p.agent === 'opencode';
+
+/**
+ * 依頼から起動の params を組む。scratch ならプロジェクトを渡さない。空（既定）の権限モードとモデルと effort は含めない。prompt は画像のパスを足したものを渡せる。
+ * opencode では、アカウントを渡さず、agent と、選んだ mode、model、自動承認（真のときだけ）を渡す（B3 の LaunchParams）。
+ */
 function paramsOf(p: MobileLaunchPayload, prompt = p.prompt): LaunchParams {
   const params: LaunchParams = p.scratch ? { scratch: true } : { projectId: p.projectId! };
+  if (isOpencode(p)) {
+    params.agent = 'opencode';
+    if (p.mode) params.mode = p.mode;
+    if (p.model) params.model = p.model;
+    if (p.autoApprove) params.autoApprove = true;
+    if (prompt) params.prompt = prompt;
+    return params;
+  }
   params.account = p.accountId;
   if (p.permissionMode) params.permissionMode = p.permissionMode;
   if (p.model) params.model = p.model;
@@ -117,6 +148,12 @@ function paramsOf(p: MobileLaunchPayload, prompt = p.prompt): LaunchParams {
   if (prompt) params.prompt = prompt;
   return params;
 }
+
+/**
+ * 手元の記録と右下の通知に控える権限モード。
+ * opencode の自動承認（deny 以外をすべて許可）は、Claude の Bypass permissions と同じラベル（「スマホから」の危険の印）を出すため bypassPermissions として控える。
+ */
+const recordedMode = (p: MobileLaunchPayload): string => (isOpencode(p) ? (p.autoApprove ? 'bypassPermissions' : '') : p.permissionMode);
 
 /** 最初の指示の、空でない最初の行の先頭 40 字（表示名の決め方と同じ長さ）。 */
 const firstLine = (prompt: string): string => [...(prompt.split(/\r?\n/).find((x) => x.trim()) ?? '').trim()].slice(0, 40).join('');
@@ -245,10 +282,10 @@ export class MobileLaunchInbox {
     const started = answer.ok && opened.p ? { ...answer, p: opened.p } : null;
     this.deps.db
       .prepare('insert or ignore into mobile_launches (id, handled_at, result, sealed_answer, ok, answered, session_id, permission_mode) values (?, ?, ?, ?, ?, 0, ?, ?)')
-      .run(l.id, now(), answer.ok ? 'started' : answer.reason, sealed, answer.ok ? 1 : 0, started?.sessionId ?? null, started?.p.permissionMode ?? null);
+      .run(l.id, now(), answer.ok ? 'started' : answer.reason, sealed, answer.ok ? 1 : 0, started?.sessionId ?? null, started ? recordedMode(started.p) : null);
     if (started) {
       try {
-        this.deps.onStarted?.({ sessionId: started.sessionId, from: l.from ?? null, projectId: started.p.scratch ? null : started.p.projectId, scratch: started.p.scratch, permissionMode: started.p.permissionMode, title: started.title });
+        this.deps.onStarted?.({ sessionId: started.sessionId, from: l.from ?? null, projectId: started.p.scratch ? null : started.p.projectId, scratch: started.p.scratch, permissionMode: recordedMode(started.p), title: started.title });
       } catch (e) {
         console.error('[mobile] could not announce the started session', kindOf(e));
       }
@@ -270,7 +307,9 @@ export class MobileLaunchInbox {
     opened.p = p;
     if (p.createdAt < this.deps.now() - LAUNCH_TTL_MS - LAUNCH_CLOCK_SLACK_MS) return fail('expired');
     if (!p.scratch && (p.projectId === null || !this.deps.hasProjectHere(p.projectId))) return fail('project-missing');
-    if (!this.deps.hasAccount(p.accountId)) return fail('account-missing');
+    if (isOpencode(p)) {
+      if (!this.deps.hasAgent?.('opencode')) return fail('agent-missing');
+    } else if (!this.deps.hasAccount(p.accountId)) return fail('account-missing');
     // 画像は、起こすと決まってから取る（プロジェクトの無い依頼で本体を運ばない）。1 枚でも欠ければ起こさない。
     // 置いた画像は、起こせたときだけ残す。それ以外の出口（欠け、起動の失敗、途中の例外）では、finally で必ず消す。
     const saved: string[] = [];

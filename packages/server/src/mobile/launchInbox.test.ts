@@ -26,7 +26,7 @@ const result = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sessi
 const tmpDirs: string[] = [];
 afterEach(() => { for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>; phoneKeys?: Pick<PhoneKeySource, 'at'>; onStarted?: MobileLaunchInboxDeps['onStarted'] } = {}) {
+function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>; phoneKeys?: Pick<PhoneKeySource, 'at'>; onStarted?: MobileLaunchInboxDeps['onStarted']; opencodeReady?: boolean } = {}) {
   const db = openDb(':memory:');
   const dropsDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-inbox-')), 'drops');
   tmpDirs.push(path.dirname(dropsDir));
@@ -38,6 +38,7 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchRe
   const inbox = new MobileLaunchInbox({
     db, client: cloud, phoneKeys: o.phoneKeys ?? fixedPhoneKeys(), deviceId: 'pc-a', dropsDir, start, hasProjectHere,
     hasAccount: (id) => id === 'primary', canProcess: () => canProcess, now: () => now,
+    hasAgent: (a) => a === 'opencode' && (o.opencodeReady ?? true),
     ...(o.onStarted ? { onStarted: o.onStarted } : {}),
   });
   /** スマホの依頼を置き、pull で届く形（launches）を返す。key は封じる M（省けば M[1]）、epoch は依頼が名乗る世代（省けば 1）。置くのはスマホ phone-1 である。 */
@@ -420,6 +421,98 @@ describe('MobileLaunchInbox の effort', () => {
     await inbox.receive(await post('l3', payload({ effort: '--dangerous' })));
     expect(start).not.toHaveBeenCalled();
     for (const id of ['l1', 'l2', 'l3']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+});
+
+/** opencode の依頼。アカウントと権限モードは空、effort は無い。 */
+const ocPayload = (over: Partial<MobileLaunchPayload> = {}): MobileLaunchPayload => payload({ agent: 'opencode', accountId: '', permissionMode: '', model: 'opencode/glm-5.3-flash-free', mode: 'plan', autoApprove: true, ...over });
+
+describe('MobileLaunchInbox の opencode', () => {
+  it('agent が opencode なら、アカウントを見ずに agent、mode、model、autoApprove を params に写して起こす', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', ocPayload()));
+    expect(start).toHaveBeenCalledWith({ projectId: 'project-a', agent: 'opencode', mode: 'plan', model: 'opencode/glm-5.3-flash-free', autoApprove: true, prompt: 'TODO の先頭をやって' });
+    expect((await answerOf('l1')).ok).toBe(true);
+  });
+
+  it('mode、model、autoApprove が無い（既定）なら params に付けない。autoApprove が偽でも付けない', async () => {
+    const { start, inbox, post } = setup();
+    await inbox.receive(await post('l1', ocPayload({ mode: undefined, model: '', autoApprove: undefined })));
+    await inbox.receive(await post('l2', ocPayload({ autoApprove: false, scratch: true, projectId: null })));
+    expect(start.mock.calls[0]![0]).toEqual({ projectId: 'project-a', agent: 'opencode', prompt: 'TODO の先頭をやって' });
+    expect(start.mock.calls[1]![0]).toEqual({ scratch: true, agent: 'opencode', mode: 'plan', model: 'opencode/glm-5.3-flash-free', prompt: 'TODO の先頭をやって' });
+  });
+
+  it('agent が claude-code と明示された依頼は、無いときと同じく Claude を起こす（params に agent を付けない）', async () => {
+    const { start, inbox, post } = setup();
+    await inbox.receive(await post('l1', payload({ agent: 'claude-code' })));
+    expect(start).toHaveBeenCalledWith({ projectId: 'project-a', account: 'primary', permissionMode: 'acceptEdits', model: 'sonnet', prompt: 'TODO の先頭をやって' });
+  });
+
+  it('知らない agent は bad-payload で起こさない', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', payload({ agent: 'codex' as never })));
+    await inbox.receive(await post('l2', { ...payload(), agent: 1 }));
+    await inbox.receive(await post('l3', { ...payload(), agent: null }));
+    expect(start).not.toHaveBeenCalled();
+    for (const id of ['l1', 'l2', 'l3']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+
+  it('opencode に権限モード、effort、アカウントが混ざった依頼は bad-payload で起こさない', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', ocPayload({ permissionMode: 'bypassPermissions' })));
+    await inbox.receive(await post('l2', ocPayload({ effort: 'high' })));
+    await inbox.receive(await post('l3', ocPayload({ effort: '' })));
+    await inbox.receive(await post('l4', ocPayload({ accountId: 'primary' })));
+    expect(start).not.toHaveBeenCalled();
+    for (const id of ['l1', 'l2', 'l3', 'l4']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+
+  it('形の違う mode、model、autoApprove は bad-payload', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', ocPayload({ mode: '--dangerous' })));
+    await inbox.receive(await post('l2', ocPayload({ mode: 'a b' })));
+    await inbox.receive(await post('l3', ocPayload({ mode: '' })));
+    await inbox.receive(await post('l4', ocPayload({ mode: 'x'.repeat(41) })));
+    await inbox.receive(await post('l5', ocPayload({ model: '-p' })));
+    await inbox.receive(await post('l6', { ...ocPayload(), autoApprove: 'yes' }));
+    expect(start).not.toHaveBeenCalled();
+    for (const id of ['l1', 'l2', 'l3', 'l4', 'l5', 'l6']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+
+  it('Claude の依頼に mode や autoApprove が混ざったら bad-payload', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', payload({ mode: 'plan' })));
+    await inbox.receive(await post('l2', payload({ autoApprove: true })));
+    await inbox.receive(await post('l3', payload({ agent: 'claude-code', autoApprove: false })));
+    expect(start).not.toHaveBeenCalled();
+    for (const id of ['l1', 'l2', 'l3']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+
+  it('この PC で opencode を使えない（無効、見つからない）なら agent-missing と答え、起こさない', async () => {
+    const { start, inbox, post, answerOf, recorded } = setup({ opencodeReady: false });
+    await inbox.receive(await post('l1', ocPayload()));
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toEqual({ ok: false, reason: 'agent-missing' });
+    expect(recorded('l1')).toMatchObject({ result: 'agent-missing' });
+  });
+
+  it('opencode の依頼でも、場所の無いプロジェクトは project-missing', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', ocPayload({ projectId: 'project-b' })));
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'project-missing' });
+  });
+
+  it('自動承認の opencode の依頼は、権限モードを bypassPermissions として控える（一覧のラベル「スマホから」）。自動承認なしは空', async () => {
+    const onStarted = vi.fn();
+    const { db, inbox, post } = setup({ onStarted });
+    await inbox.receive(await post('l1', ocPayload({ autoApprove: true })));
+    await inbox.receive(await post('l2', ocPayload({ autoApprove: false })));
+    const row = (id: string) => db.prepare('select permission_mode from mobile_launches where id = ?').get(id);
+    expect(row('l1')).toEqual({ permission_mode: 'bypassPermissions' });
+    expect(row('l2')).toEqual({ permission_mode: '' });
+    expect(onStarted.mock.calls.map((c) => (c[0] as { permissionMode: string }).permissionMode)).toEqual(['bypassPermissions', '']);
   });
 });
 

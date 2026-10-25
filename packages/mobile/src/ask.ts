@@ -1,5 +1,6 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
-import type { MobileAsk, MobileAskIn, MobileReply } from '@agent-hangar/shared/src/mobile.ts';
+import { isMobileMode, type MobileAgentOptions, type MobileAsk, type MobileAskIn, type MobileModelOption, type MobileReply } from '@agent-hangar/shared/src/mobile.ts';
+import { isModelName } from '@agent-hangar/shared/src/summaryEngine.ts';
 import { aadAsk, aadReply, MobilePairingError, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { mobileHeaders, originOf, unpairedOf, workerCompatOf, workerTooOld, type UnpairedReason } from './api.ts';
 import type { Pairing, PhoneKey } from './store.ts';
@@ -12,6 +13,7 @@ import type { Pairing, PhoneKey } from './store.ts';
  * - not-found：宛先の PC が無いか、解除された（404）。
  * - unreadable：答えを開けないか、形が違う。
  * - project-missing、account-missing、bad-request：PC が断った（封の中の答え）。
+ * - agent-missing：PC で opencode を使えない（無効か、見つからない）。
  */
 export type AskFailure =
   | 'pc-offline'
@@ -26,6 +28,7 @@ export type AskFailure =
   | 'server'
   | 'project-missing'
   | 'account-missing'
+  | 'agent-missing'
   | 'bad-request';
 
 /** 問い合わせの失敗。unpairedReason は 401 の理由。 */
@@ -44,14 +47,14 @@ export class AskError extends Error {
 export type AskBody = MobileAsk extends infer A ? (A extends { v: 1 } ? Omit<A, 'v'> : never) : never;
 export type CommandHit = { name: string; description: string; kind: 'skill' | 'command' };
 export type FileHit = { path: string; changed: boolean };
-export type AskReply = { files: FileHit[] } | { commands: CommandHit[] };
+export type AskReply = { files: FileHit[] } | { commands: CommandHit[] } | { agentOptions: MobileAgentOptions | null };
 
 /** 打つたびの問い合わせを出すまでに待つ長さ。 */
 export const ASK_DEBOUNCE_MS = 250;
 /** 同じ q の files を覚えておく長さ。 */
 export const FILES_CACHE_MS = 30_000;
 
-const PC_REFUSALS = new Set<AskFailure>(['project-missing', 'account-missing', 'bad-request']);
+const PC_REFUSALS = new Set<AskFailure>(['project-missing', 'account-missing', 'agent-missing', 'bad-request']);
 
 /** 画面が受け取り、描く数の上限（設計書の答えの上限と同じ）。PC がこれを超えて返しても、画面の側で切る。 */
 export const MOBILE_ASK_FILES_MAX = 50;
@@ -98,6 +101,51 @@ export function capCommands(list: readonly unknown[]): CommandHit[] {
   return out;
 }
 
+/** opencode のモデルとモードの件数、名前と説明の字数の上限（PC の答えの上限と同じ）。 */
+const AGENT_MODELS_MAX = 100;
+const AGENT_MODES_MAX = 20;
+const AGENT_LABEL_MAX = 60;
+const COSTS: ReadonlySet<string> = new Set(['local', 'free', 'metered', 'plan']);
+const DATA_USES: ReadonlySet<string> = new Set(['on-device', 'no-training', 'retain-30d', 'may-train', 'provider-logs']);
+const cut = (s: string, n: number): string => [...s].slice(0, n).join('');
+
+/**
+ * opencode の選択肢を、送れる形の行だけに絞る。
+ * モードとモデルは、PC が起動の依頼で受ける形（isMobileMode、isModelName）のものだけを残す。知らない費用の型のモデルは落とし、知らないデータの扱いは null（分からない）にする。
+ * 形の違う答えは null。
+ */
+export function capAgentOptions(v: unknown): MobileAgentOptions | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Partial<Record<keyof MobileAgentOptions, unknown>>;
+  if (!Array.isArray(o.modes) || !Array.isArray(o.models) || typeof o.stale !== 'boolean') return null;
+  const modes: MobileAgentOptions['modes'] = [];
+  for (const m of o.modes as unknown[]) {
+    if (modes.length >= AGENT_MODES_MAX) break;
+    const x = m as { id?: unknown; description?: unknown } | null;
+    if (!x || typeof x !== 'object' || !isMobileMode(x.id) || modes.some((y) => y.id === x.id)) continue;
+    modes.push({ id: x.id, description: typeof x.description === 'string' ? cut(x.description, MOBILE_ASK_DESCRIPTION_MAX) : null });
+  }
+  const models: MobileModelOption[] = [];
+  for (const m of o.models as unknown[]) {
+    if (models.length >= AGENT_MODELS_MAX) break;
+    const x = m as Partial<Record<keyof MobileModelOption, unknown>> | null;
+    if (!x || typeof x !== 'object' || !isModelName(x.id) || typeof x.cost !== 'string' || !COSTS.has(x.cost) || models.some((y) => y.id === x.id)) continue;
+    const label = typeof x.label === 'string' && x.label.trim() ? cut(x.label, AGENT_LABEL_MAX) : x.id;
+    const group = typeof x.group === 'string' ? cut(x.group, AGENT_LABEL_MAX) : '';
+    const data = typeof x.data === 'string' && DATA_USES.has(x.data) ? (x.data as MobileModelOption['data']) : null;
+    models.push({ id: x.id, label, group, cost: x.cost as MobileModelOption['cost'], data });
+  }
+  return {
+    version: typeof o.version === 'string' ? cut(o.version, 40) : null,
+    verified: o.verified === true,
+    modes,
+    models,
+    defaultModel: isModelName(o.defaultModel) ? o.defaultModel : null,
+    stale: o.stale,
+    fetchedAt: typeof o.fetchedAt === 'number' && Number.isFinite(o.fetchedAt) ? o.fetchedAt : 0,
+  };
+}
+
 /** 開いた答えから、形の合う行だけを残す。形の違う答えは null。 */
 function readReply(v: unknown): AskReply | { error: AskFailure } | null {
   if (!v || typeof v !== 'object') return null;
@@ -105,6 +153,11 @@ function readReply(v: unknown): AskReply | { error: AskFailure } | null {
   if (typeof o.error === 'string') return PC_REFUSALS.has(o.error as AskFailure) ? { error: o.error as AskFailure } : null;
   if (Array.isArray(o.files)) return { files: capFiles(o.files as unknown[]) };
   if (Array.isArray(o.commands)) return { commands: capCommands(o.commands as unknown[]) };
+  if ('agentOptions' in o) {
+    if (o.agentOptions === null) return { agentOptions: null };
+    const a = capAgentOptions(o.agentOptions);
+    return a ? { agentOptions: a } : null;
+  }
   return null;
 }
 
@@ -173,10 +226,15 @@ export async function askPc(p: Pairing, key: PhoneKey, targetDevice: string, bod
 
 /** 画面の間だけ答えを覚える問い合わせ口。 */
 export type Asker = {
-  /** `/` の候補。同じ PC、プロジェクト、アカウントは画面の間 1 回だけ問い合わせる。 */
-  commands: (pc: string, projectId: string | null, accountId: string) => Promise<CommandHit[]>;
+  /**
+   * `/` の候補。同じ PC、プロジェクト、アカウント、エージェントは画面の間 1 回だけ問い合わせる。
+   * agent が opencode なら、アカウントは空で、PC は opencode のコマンドとスキルを返す。
+   */
+  commands: (pc: string, projectId: string | null, accountId: string, agent?: 'opencode') => Promise<CommandHit[]>;
   /** `@` の候補。同じ PC、プロジェクト、q は 30 秒覚える。 */
   files: (pc: string, projectId: string, q: string) => Promise<FileHit[]>;
+  /** opencode のモードとモデル。同じ PC とプロジェクトは画面の間 1 回だけ問い合わせる。PC がまだ一覧を持っていなければ null。 */
+  agentOptions: (pc: string, projectId: string | null) => Promise<MobileAgentOptions | null>;
 };
 
 /** 問い合わせ口を作る。失敗した問い合わせは覚えない（次で問い合わせ直す）。 */
@@ -185,18 +243,27 @@ export function createAsker(p: Pairing, key: PhoneKey, o: { now?: () => number; 
   const ask = o.ask ?? askPc;
   const cmds = new Map<string, Promise<CommandHit[]>>();
   const files = new Map<string, { at: number; p: Promise<FileHit[]> }>();
+  const options = new Map<string, Promise<MobileAgentOptions | null>>();
+  /** 画面の間覚え、失敗したものは忘れる（次で問い合わせ直す）。 */
+  const remember = <T>(m: Map<string, Promise<T>>, k: string, make: () => Promise<T>): Promise<T> => {
+    const hit = m.get(k);
+    if (hit) return hit;
+    const pr = make();
+    m.set(k, pr);
+    pr.catch(() => {
+      if (m.get(k) === pr) m.delete(k);
+    });
+    return pr;
+  };
   return {
-    commands: (pc, projectId, accountId) => {
-      const k = JSON.stringify([pc, projectId, accountId]);
-      const hit = cmds.get(k);
-      if (hit) return hit;
-      const pr = ask(p, key, pc, { kind: 'commands', projectId, accountId }).then((r) => ('commands' in r ? r.commands : []));
-      cmds.set(k, pr);
-      pr.catch(() => {
-        if (cmds.get(k) === pr) cmds.delete(k);
-      });
-      return pr;
-    },
+    commands: (pc, projectId, accountId, agent) =>
+      remember(cmds, JSON.stringify([pc, projectId, accountId, agent ?? null]), () =>
+        ask(p, key, pc, agent ? { kind: 'commands', projectId, accountId, agent } : { kind: 'commands', projectId, accountId }).then((r) => ('commands' in r ? r.commands : [])),
+      ),
+    agentOptions: (pc, projectId) =>
+      remember(options, JSON.stringify([pc, projectId]), () =>
+        ask(p, key, pc, { kind: 'agent-options', agent: 'opencode', projectId }).then((r) => ('agentOptions' in r ? r.agentOptions : null)),
+      ),
     files: (pc, projectId, q) => {
       const k = JSON.stringify([pc, projectId, q]);
       const t = now();

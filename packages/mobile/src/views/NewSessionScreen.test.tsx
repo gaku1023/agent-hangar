@@ -381,7 +381,7 @@ describe('NewSessionScreen の画像', () => {
 });
 
 describe('NewSessionScreen と古い PC、古い Worker', () => {
-  const asker = (): Asker => ({ commands: vi.fn(async () => []), files: vi.fn(async () => []) });
+  const asker = (): Asker => ({ commands: vi.fn(async () => []), files: vi.fn(async () => []), agentOptions: vi.fn(async () => null) });
 
   beforeEach(() => {
     vi.stubGlobal('URL', Object.assign(Object.create(URL), { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }));

@@ -287,6 +287,13 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .ns-grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .choice.sm { justify-content: center; padding: 8px 6px; font-size: 13px; text-align: center; }
 .choice.sm .choice-title { flex: none; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+/* エージェントの札（opencode の「ベータ」）と、題名の下に説明を置くモデルの札。 */
+.choice > [aria-hidden] > .agent-icon { vertical-align: middle; }
+.beta { display: inline-block; margin-left: 6px; border-radius: 99px; padding: 0 7px; background: var(--st-paused-soft); color: var(--st-paused); font-size: 10.5px; font-weight: 700; line-height: 1.5; vertical-align: 1px; }
+.choice.stack { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 8px 12px; text-align: left; }
+.choice.stack .choice-title { flex: none; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.choice.stack .choice-sub { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 11.5px; line-height: 1.4; }
+.ns-hint + .ns-grid, .ns-hint + .ns-list { margin-top: 8px; }
 
 /* 下から出るシート。背景（scrim）の上に、下から上がって現れ、閉じると下がって消える。 */
 @keyframes m-bsheet-in { from { transform: translateY(100%); } }

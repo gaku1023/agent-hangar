@@ -87,6 +87,18 @@ describe('LaunchSheet（D2）', () => {
     expect(within(card).queryByText(/意図：/)).not.toBeInTheDocument();
   });
 
+  it('opencode の会話には開くボタンを出さず（Remote Control が無い）、URL を待って受信箱を読み直させない', () => {
+    vi.useFakeTimers();
+    const ocSpec = spec({ accountId: '', accountName: null, accountColor: null, payload: { projectId: 'p-a', scratch: false, accountId: '', permissionMode: '', model: '', prompt: 'a', agent: 'opencode' } });
+    const { onWantRefresh } = setup({ spec: ocSpec, state: started, view: viewOf([row({ agent: 'opencode', accountName: null })]) });
+    const card = screen.getByRole('region', { name: '開始した会話' });
+    expect(within(card).getByText('実行中')).toBeInTheDocument();
+    expect(within(card).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(card).queryByRole('link')).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(onWantRefresh).not.toHaveBeenCalled();
+  });
+
   it('受信箱の素に会話の URL と意図が来たら、アカウントつきの開くリンクとして出す', () => {
     const { rerender } = setup({ state: started, view: viewOf([]) });
     rerender({ state: started, view: viewOf([row({ rcUrl: 'https://claude.ai/code/session_abc', intent: 'README を読んでいます' })]) });

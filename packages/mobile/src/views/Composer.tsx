@@ -65,6 +65,8 @@ function errorView(reason: AskFailure, pcName: string, what: string, expired = f
       return { kind: 'error', title: 'その PC にプロジェクトのディレクトリがありません', text: manual, retry: false };
     case 'account-missing':
       return { kind: 'error', title: 'その PC に選んだアカウントがありません', text: manual, retry: false };
+    case 'agent-missing':
+      return { kind: 'error', title: 'opencode が見つかりません（PC の PATH を確認してください）。', text: manual, retry: false };
     case 'not-found':
       return { kind: 'error', title: `${pcName} はクラウドに参加していません`, text: '別の PC を選んでください。', retry: false };
     case 'unpaired':
@@ -89,6 +91,8 @@ type Props = {
   projectName: string | null;
   accountId: string | null;
   accountName: string | null;
+  /** opencode なら、アカウントなしで opencode のコマンドとスキルを問い合わせる。省けば Claude Code。 */
+  agent?: 'opencode';
   attachments: Attachments;
   /** 選んだ PC が `/` と `@` の問い合わせに答えられるか。false なら問い合わせずに、hangar の更新を促す。 */
   canAsk?: boolean;
@@ -105,7 +109,7 @@ type Result = { key: string; ok: true; list: CommandHit[] | FileHit[] } | { key:
  * 初期プロンプトの欄。欄の上に添付した画像、下に道具の列（「＋」「/」「@」）。
  * `/` と `@` の候補は、キーボードの上のシート（SuggestSheet）に出す。
  */
-export function Composer({ id, value, onChange, asker, pc, pcName, projectId, projectName, accountId, accountName, attachments: att, canAsk = true, canAttach = true }: Props): ReactNode {
+export function Composer({ id, value, onChange, asker, pc, pcName, projectId, projectName, accountId, accountName, agent, attachments: att, canAsk = true, canAttach = true }: Props): ReactNode {
   const ta = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(value.length);
@@ -154,7 +158,9 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
 
   const where = `${pc ?? ''}\n${projectId ?? ''}`;
   const fileQ = trig ? [...trig.q].slice(0, FILE_QUERY_MAX).join('') : '';
-  const want = !open || !trig || !pc || !canAsk ? null : trig.kind === '/' ? (accountId ? `/\n${where}\n${accountId}\n${retryNo}` : null) : projectId ? `@\n${where}\n${fileQ}\n${retryNo}` : null;
+  // opencode の `/` はアカウントを使わない（PC は opencode のコマンドとスキルを返す）。
+  const slashWho = agent === 'opencode' ? '\u0000opencode' : accountId;
+  const want = !open || !trig || !pc || !canAsk ? null : trig.kind === '/' ? (slashWho ? `/\n${where}\n${slashWho}\n${retryNo}` : null) : projectId ? `@\n${where}\n${fileQ}\n${retryNo}` : null;
 
   useEffect(() => {
     if (!want || !trig || !pc) return;
@@ -163,7 +169,8 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
     const kind = trig.kind;
     const q = fileQ;
     const go = (): void => {
-      const p: Promise<CommandHit[] | FileHit[]> = kind === '/' ? asker.commands(pc, projectId, accountId ?? '') : asker.files(pc, projectId ?? '', q);
+      const p: Promise<CommandHit[] | FileHit[]> =
+        kind === '/' ? (agent === 'opencode' ? asker.commands(pc, projectId, '', 'opencode') : asker.commands(pc, projectId, accountId ?? '')) : asker.files(pc, projectId ?? '', q);
       p.then(
         (list) => {
           if (stale) return;
@@ -196,10 +203,10 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
   if (open && trig) {
     const loading: SuggestView = { kind: 'loading', pcName };
     if (trig.kind === '/') {
-      head = pc ? `${pcName} · ${accountName ?? accountId ?? ''} のスキル` : 'スキルとコマンド';
+      head = pc ? (agent === 'opencode' ? `${pcName} · opencode のコマンドとスキル` : `${pcName} · ${accountName ?? accountId ?? ''} のスキル`) : 'スキルとコマンド';
       if (!pc) view = { kind: 'need', title: '先に PC を選んでください' };
       else if (!canAsk) view = errorView('unsupported', pcName, 'スキルやコマンド');
-      else if (!accountId) view = { kind: 'need', title: '先にアカウントを選んでください' };
+      else if (!slashWho) view = { kind: 'need', title: '先にアカウントを選んでください' };
       else if (res && res.key === want) view = res.ok ? { kind: 'commands', q: trig.q, list: res.list as CommandHit[] } : errorView(res.reason, pcName, 'スキルやコマンド', res.expired);
       else view = loading;
     } else {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { aadAsk, aadReply, MOBILE_REPLY_MAX_BYTES, open, seal, type MobileAsk, type MobileReply } from '@agent-hangar/shared';
+import { aadAsk, aadReply, MOBILE_AGENT_LABEL_MAX, MOBILE_AGENT_MODELS_MAX, MOBILE_REPLY_MAX_BYTES, open, seal, type MobileAsk, type MobileReply, type OpencodeOptionsDto } from '@agent-hangar/shared';
 import { testKey } from '../../test/cloudConfig.ts';
 import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
 import { answerAsk, ASK_COMMANDS_MAX, ASK_DESCRIPTION_MAX, ASK_RECENT_FILES, ASK_SEARCH_FILES, replyTo, type AskDeps } from './asks.ts';
@@ -101,6 +101,120 @@ describe('replyTo（commands）', () => {
   it('手元に無いアカウントは account-missing、手元に無いプロジェクトは project-missing', async () => {
     expect(await ask({ v: 1, kind: 'commands', projectId: null, accountId: 'nobody' })).toEqual({ error: 'account-missing' });
     expect(await ask({ v: 1, kind: 'commands', projectId: 'p-none', accountId: 'primary' })).toEqual({ error: 'project-missing' });
+  });
+});
+
+/** PC が手元に持った opencode の選択肢（C2 の OpencodeOptionsDto）。 */
+const ocDto = (over: Partial<OpencodeOptionsDto> = {}): OpencodeOptionsDto => ({
+  version: '2.1.4',
+  verified: true,
+  modes: [{ id: 'build', description: 'The default agent.' }, { id: 'plan', description: null }],
+  models: [
+    { id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode Zen', provider: 'opencode', tools: true, context: 200_000, cost: { input: 0, output: 0 } },
+    { id: 'opencode/big-pickle', label: 'Big Pickle', group: 'OpenCode Zen', provider: 'opencode', tools: true, context: null, cost: { input: 0, output: 0 } },
+    { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash', group: 'DeepSeek', provider: 'deepseek', tools: true, context: null, cost: { input: 0.15, output: 0.6 } },
+    { id: 'lmstudio/qwen/qwen3-coder-30b', label: 'Qwen3 Coder 30B', group: 'LM Studio', provider: 'lmstudio', tools: true, context: null, cost: null },
+    { id: 'lmstudio/embed', label: 'Embed', group: 'LM Studio', provider: 'lmstudio', tools: false, context: null, cost: null },
+  ],
+  providers: [{ id: 'opencode', name: 'OpenCode Zen', where: 'remote' }, { id: 'deepseek', name: 'DeepSeek', where: 'remote' }, { id: 'lmstudio', name: 'LM Studio', where: 'device' }],
+  defaultModel: 'lmstudio/qwen/qwen3-coder-30b',
+  pricesAt: null,
+  fetchedAt: 1_000,
+  stale: false,
+  ...over,
+});
+
+const ocCommands = [
+  { name: 'init', description: 'create/update AGENTS.md', kind: 'command' as const },
+  { name: 'frontend-design', description: 'Distinctive visual design.', kind: 'skill' as const },
+];
+
+function ocDeps(o: { ready?: boolean; dto?: OpencodeOptionsDto | null; commands?: typeof ocCommands | null } = {}) {
+  const options = vi.fn((_dir: string | null) => (o.dto === undefined ? ocDto() : o.dto));
+  const commands = vi.fn((_dir: string | null) => (o.commands === undefined ? ocCommands : o.commands));
+  return deps({ opencode: { ready: () => o.ready ?? true, options, commands } });
+}
+
+describe('replyTo（agent-options）', () => {
+  it('手元に持った opencode の選択肢を、スマホの形に縮めて返す。費用の型とデータの扱いを付け、ツール非対応のモデルは載せない', async () => {
+    const d = ocDeps();
+    expect(await replyTo(d, { v: 1, kind: 'agent-options', agent: 'opencode', projectId: 'p1' })).toEqual({
+      agentOptions: {
+        version: '2.1.4',
+        verified: true,
+        modes: [{ id: 'build', description: 'The default agent.' }, { id: 'plan', description: null }],
+        models: [
+          { id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode Zen', cost: 'free', data: 'no-training' },
+          { id: 'opencode/big-pickle', label: 'Big Pickle', group: 'OpenCode Zen', cost: 'free', data: 'may-train' },
+          { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash', group: 'DeepSeek', cost: 'metered', data: 'no-training' },
+          { id: 'lmstudio/qwen/qwen3-coder-30b', label: 'Qwen3 Coder 30B', group: 'LM Studio', cost: 'local', data: 'on-device' },
+        ],
+        defaultModel: 'lmstudio/qwen/qwen3-coder-30b',
+        stale: false,
+        fetchedAt: 1_000,
+      },
+    });
+    // 一覧はプロジェクトの場所のものを読む（opencode.json の重なりが場所で変わる）。
+    expect(d.opencode!.options).toHaveBeenCalledWith(ROOT);
+  });
+
+  it('PC の一覧が古ければ stale を立てたまま返す', async () => {
+    const r = await replyTo(ocDeps({ dto: ocDto({ stale: true }) }), { v: 1, kind: 'agent-options', agent: 'opencode', projectId: null });
+    expect(r).toMatchObject({ agentOptions: { stale: true } });
+  });
+
+  it('プロジェクトが無い（すぐ始める）なら場所を省いて読む', async () => {
+    const d = ocDeps();
+    await replyTo(d, { v: 1, kind: 'agent-options', agent: 'opencode', projectId: null });
+    expect(d.opencode!.options).toHaveBeenCalledWith(null);
+  });
+
+  it('PC がまだ一覧を持っていなければ agentOptions は null', async () => {
+    expect(await replyTo(ocDeps({ dto: null }), { v: 1, kind: 'agent-options', agent: 'opencode', projectId: 'p1' })).toEqual({ agentOptions: null });
+  });
+
+  it('opencode を使えない PC（無効、見つからない、口が無い）は agent-missing。手元に無いプロジェクトは project-missing', async () => {
+    expect(await replyTo(ocDeps({ ready: false }), { v: 1, kind: 'agent-options', agent: 'opencode', projectId: 'p1' })).toEqual({ error: 'agent-missing' });
+    expect(await replyTo(deps(), { v: 1, kind: 'agent-options', agent: 'opencode', projectId: 'p1' })).toEqual({ error: 'agent-missing' });
+    expect(await replyTo(ocDeps(), { v: 1, kind: 'agent-options', agent: 'opencode', projectId: 'p-none' })).toEqual({ error: 'project-missing' });
+  });
+
+  it('送れない形のモードとモデル（引数に読まれる、空白入り）は落とす。既定のモデルも同じ', async () => {
+    const dto = ocDto({
+      modes: [{ id: 'build', description: null }, { id: '--x', description: null }, { id: 'my mode', description: null }],
+      models: [{ id: 'cf/@cf/llama', label: 'L', group: 'CF', provider: 'cf', tools: true, context: null, cost: null }, ...ocDto().models.slice(0, 1)],
+      defaultModel: 'cf/@cf/llama',
+    });
+    const r = (await replyTo(ocDeps({ dto }), { v: 1, kind: 'agent-options', agent: 'opencode', projectId: null })) as { agentOptions: { modes: { id: string }[]; models: { id: string }[]; defaultModel: string | null } };
+    expect(r.agentOptions.modes.map((m) => m.id)).toEqual(['build']);
+    expect(r.agentOptions.models.map((m) => m.id)).toEqual(['opencode/glm-5.3-flash-free']);
+    expect(r.agentOptions.defaultModel).toBeNull();
+  });
+
+  it('モデルは 100 件で、名前は 60 字で切る', async () => {
+    const models = Array.from({ length: 130 }, (_, i) => ({ id: `opencode/m${i}`, label: 'あ'.repeat(90), group: 'OpenCode Zen', provider: 'opencode', tools: true, context: null, cost: null }));
+    const r = (await replyTo(ocDeps({ dto: ocDto({ models }) }), { v: 1, kind: 'agent-options', agent: 'opencode', projectId: null })) as { agentOptions: { models: { label: string }[] } };
+    expect(r.agentOptions.models).toHaveLength(MOBILE_AGENT_MODELS_MAX);
+    expect([...r.agentOptions.models[0]!.label]).toHaveLength(MOBILE_AGENT_LABEL_MAX);
+  });
+});
+
+describe('replyTo（opencode の / の候補）', () => {
+  it('agent が opencode なら、アカウントを見ずに opencode のコマンドとスキルを返す', async () => {
+    const d = ocDeps();
+    expect(await replyTo(d, { v: 1, kind: 'commands', projectId: 'p1', accountId: '', agent: 'opencode' })).toEqual({ commands: ocCommands });
+    expect(d.opencode!.commands).toHaveBeenCalledWith(ROOT);
+    expect(d.commands).not.toHaveBeenCalled();
+  });
+
+  it('PC がまだ候補を持っていなければ空。opencode を使えなければ agent-missing', async () => {
+    expect(await replyTo(ocDeps({ commands: null }), { v: 1, kind: 'commands', projectId: null, accountId: '', agent: 'opencode' })).toEqual({ commands: [] });
+    expect(await replyTo(ocDeps({ ready: false }), { v: 1, kind: 'commands', projectId: null, accountId: '', agent: 'opencode' })).toEqual({ error: 'agent-missing' });
+  });
+
+  it('知らない agent の問い合わせは bad-request', async () => {
+    expect(await replyTo(ocDeps(), { v: 1, kind: 'commands', projectId: null, accountId: '', agent: 'codex' })).toEqual({ error: 'bad-request' });
+    expect(await replyTo(ocDeps(), { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({ error: 'bad-request' });
   });
 });
 

@@ -57,6 +57,8 @@ function answerFailure(pc: string, a: MobileLaunchAnswer | undefined): Failed {
   switch (a.reason) {
     case 'project-missing':
       return pcFail('その PC にプロジェクトのディレクトリがありません。別の PC を選ぶか、PC の hangar でディレクトリを追加してください。');
+    case 'agent-missing':
+      return pcFail('opencode が見つかりません（PC の PATH を確認してください）。');
     case 'account-missing':
       return pcFail('その PC に選んだアカウントがありません。アカウントを選び直してください。');
     case 'images-missing':

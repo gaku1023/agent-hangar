@@ -30,6 +30,7 @@ function setup(o: Opts = {}) {
   const asker: Asker = {
     commands: vi.fn(async () => COMMANDS),
     files: vi.fn(async () => FILES),
+    agentOptions: vi.fn(async () => null),
     ...o.asker,
   };
   const attachments = o.attachments ?? noAttachments();
