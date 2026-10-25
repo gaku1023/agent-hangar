@@ -65,6 +65,11 @@ export type LaunchSpec = {
   env: Record<string, string>;
   /** Remote Control の名前。Claude だけが読み、ほかのエージェントは捨てる。null と未指定は付けない。 */
   remoteControl?: string | null;
+  /**
+   * 起動前の準備（runs/launchPrep.ts）。進みを配る口と、利用者の答え（問いのあとに送り直したとき）。
+   * 準備を持つ driver（opencode の LM Studio）だけが読み、ほかは捨てる。
+   */
+  prep?: { run: import('../runs/launchPrep.ts').LaunchPrep; choice: import('@agent-hangar/shared').LaunchPrepChoice };
 };
 
 export type SessionMode =
@@ -98,6 +103,11 @@ export interface AgentLauncher {
    */
   materialize?(mode: MaterializeMode, spec: LaunchSpec): Promise<void | { providerSessionId: string }>;
   plan(bin: string, mode: SessionMode, spec: LaunchSpec): LaunchPlan;
+  /**
+   * 動いている会話のモデルを整え直す（起動前の準備のうち、ローカルのモデルの段だけ）。
+   * 起動後に長さが足りずに落ちた札の「整えて再開」から呼ぶ。持たない driver（Claude）では呼ばない。
+   */
+  prepare?(target: { sessionId: string; cwd: string; model: string | null }, prep: import('../runs/launchPrep.ts').LaunchPrep): Promise<void>;
   /**
    * 画面（TUI）が、hangar が起こして持つ裏のプロセス（opencode の serve）につながっているか。Claude は持たない（偽）。
    * 真なら、状態の面の行の pid は裏のプロセスの pid で、run のプロセス（TUI）のものではない。RunManager は run の pid に書かない。

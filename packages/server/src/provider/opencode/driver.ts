@@ -2,9 +2,10 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import type { AgentDriver } from '../../agent/types.ts';
 import { opencodeAsks } from './asks.ts';
 import { OpencodeClient } from './client.ts';
-import { materializeOpencode, planOpencode, putInstructions, type MaterializeDeps, type OpencodeServes } from './launch.ts';
+import { materializeOpencode, planOpencode, prepareRunning, putInstructions, type MaterializeDeps, type OpencodeServes } from './launch.ts';
 import { OpencodeLive, type OpencodeEventListener } from './live.ts';
 import { OpencodeTranscript } from './transcript/source.ts';
+import type { LocalModelsDeps } from './localModels/prepare.ts';
 
 /**
  * opencode の driver に呼び手が渡すもの。
@@ -19,13 +20,20 @@ export type OpencodeDriverDeps = {
   droppedEnv: readonly string[];
   enrich?: (live: LiveSessionDto[]) => LiveSessionDto[];
   report?: (what: 'instructions' | 'mcp' | 'stop', e: unknown) => void;
-} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep'>;
+} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep'> & {
+  /** 起動前にローカルのモデルを整える口（localModels/prepare.ts）。無ければ整えない。動いている会話かどうかは serve の有無で見る。 */
+  localModels?: Omit<LocalModelsDeps, 'isRunning'>;
+};
 
 /**
  * opencode の driver。共通の面のほかに、serve の出来事の流れの口（events）を持つ。
  * 同期の上げる側が、ターンの終わりを本文の書き出しの契機に使う（sync/opencodeTurnEnd.ts）。流れを別に開かないためである。
  */
-export type OpencodeDriver = AgentDriver & { events: (cb: OpencodeEventListener) => () => void };
+export type OpencodeDriver = AgentDriver & {
+  events: (cb: OpencodeEventListener) => () => void;
+  /** モデルの長さが足りずに断られた失敗を、hangar の会話の ID で受ける（live.ts の onContextShort）。起動後の札に使う。 */
+  contextShort: (cb: (hangarSessionId: string) => void) => () => void;
+};
 
 /** serve の管理がまだ組まれていない。 */
 export class OpencodeNotReadyError extends Error {
@@ -64,7 +72,9 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
       servedByHangar: true,
       // ID は opencode に振らせる（materialize が返す）。再開は serve を起こし直して、状態とトランスクリプトの面に載せ直す。
       async materialize(mode, spec) {
-        const r = await materializeOpencode({ serves: serves(), report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep }, mode, spec);
+        const s = serves();
+        const localModels = deps.localModels ? { ...deps.localModels, isRunning: (id: string) => s.get(id) !== null } : undefined;
+        const r = await materializeOpencode({ serves: s, report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep, localModels }, mode, spec);
         hangarIdOf.set(r.providerSessionId, spec.hangarSessionId);
         live.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
@@ -85,6 +95,12 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
        * serve は hangar の会話の ID で持つ。RunManager は sessionId を渡すので、hangar を起こし直した後（hangarIdOf が空）も引ける。
        * serve の無い会話（開いていない会話）では何も起こさない。
        */
+      async prepare(target, prep) {
+        const serve = serves().get(target.sessionId);
+        if (!serve || !deps.localModels) return;
+        const s = serves();
+        await prepareRunning({ ...deps.localModels, isRunning: (id) => s.get(id) !== null }, serve, { hangarSessionId: target.sessionId, cwd: target.cwd, model: target.model, prep, requestTimeoutMs: deps.requestTimeoutMs });
+      },
       async release(target) {
         live.untrack(target.providerSessionId);
         await transcript.sync(target.providerSessionId).catch(() => undefined);
@@ -100,6 +116,10 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
     live,
     transcript,
     events: (cb) => live.onEvent(cb),
+    contextShort: (cb) => live.onContextShort((providerSessionId) => {
+      const id = hangarIdOf.get(providerSessionId);
+      if (id) cb(id);
+    }),
     // 許可と質問は serve の出来事の流れから流す（subscribe）。hook は使わないので parseHook を持たない（hook の受け口は何も読まずに 204 を返す）。
     asks: opencodeAsks(live),
     instructions: {

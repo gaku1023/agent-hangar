@@ -289,6 +289,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeInjection': 'システムプロンプトへの追記',
   'settings.label.opencodeIntercept': 'opencode コマンドを hangar 経由で起動',
   'settings.label.opencodePermissionPreset': 'コマンド実行前に確認',
+  'settings.label.opencodeLocalContext': 'ローカルモデルのコンテキスト長',
   'settings.opencode.title': 'opencode',
   'settings.opencode.enabledDesc': '新しいセッションで Claude Code の代わりに opencode を選べるようにします。',
   'settings.opencode.version.title': 'バージョン',

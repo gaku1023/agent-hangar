@@ -3,7 +3,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import type { AgentAsk } from '../../agent/types.ts';
 import { fixtureFrames, fixtureRest, startFakeEventsServe, until, type FakeEventsServe } from '../../../test/fake-opencode-events.ts';
 import { opencodeAsks } from './asks.ts';
-import { OpencodeLive } from './live.ts';
+import { isContextShortError, OpencodeLive } from './live.ts';
 
 // 記録した 2.1.4 の流れの会話（test/fixtures/opencode/2.1.4/README.md）。
 const TURN_ID = 'ses_e8ec38c04ffejXAUxlisHJOU1I';
@@ -219,5 +219,28 @@ describe('OpencodeLive', () => {
     live.kick(0);
     await until(() => asks.length === 2);
     expect(asks[1]).toEqual({ kind: 'question', providerSessionId: TURN_ID, hook: { kind: 'answered', providerSessionId: TURN_ID, toolId: 'call_question_5' } });
+  });
+
+  it('長さが足りずに断られた失敗（session.execution.failed）を、会話の ID と文で知らせる。ほかの失敗は知らせない', async () => {
+    const { serve, live } = await setup();
+    const got: [string, string][] = [];
+    live.onContextShort((id, message) => { got.push([id, message]); });
+    live.track({ providerSessionId: TURN_ID, cwd: CWD, serve });
+    live.start();
+    await until(() => serve.open() === 1 && serve.requests.some((r) => r.startsWith('/api/form')));
+    const failed = (message: string) => `data: ${JSON.stringify({ id: 'evt_x', type: 'session.execution.failed', data: { sessionID: TURN_ID, error: { type: 'provider.unknown', message } } })}`;
+    serve.send(failed('rate limited'));
+    serve.send(failed('The number of tokens to keep from the initial prompt is greater than the context length'));
+    await until(() => got.length === 1);
+    expect(got).toEqual([[TURN_ID, 'The number of tokens to keep from the initial prompt is greater than the context length']]);
+  });
+});
+
+describe('isContextShortError', () => {
+  it('LM Studio と llama.cpp の、長さが足りないときの文を見分ける', () => {
+    expect(isContextShortError('The number of tokens to keep from the initial prompt is greater than the context length')).toBe(true);
+    expect(isContextShortError('Trying to keep the first 9000 tokens when context the overflows. However, the model is loaded with context length of only 8192 tokens')).toBe(true);
+    expect(isContextShortError('request (9000 tokens) exceeds the available context size (8192 tokens)')).toBe(true);
+    expect(isContextShortError('rate limited')).toBe(false);
   });
 });

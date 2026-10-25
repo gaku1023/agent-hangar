@@ -58,5 +58,9 @@ export type ServerEvent =
    * verdict は unverified（範囲の外）、legacy（1.x）、unknown（版が読めない）。画面は検出の答え（GET /api/opencode/status）として受け、右下の札を一度だけ出す。
    */
   | { type: 'opencode.version'; version: string | null; verdict: 'unverified' | 'legacy' | 'unknown' }
+  /** opencode の会話が、ローカルのモデルの長さが足りずに断られた（起動後の検出）。右下の札に「整えて再開」を出す。 */
+  | { type: 'opencode.contextShort'; sessionId: string }
+  /** 起動前の準備の進み（launchPrep.ts）。段が動くたびに、鍵ごとの全体を配る。 */
+  | { type: 'launch.prep'; prep: import('./launchPrep.ts').LaunchPrepDto }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
   | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };

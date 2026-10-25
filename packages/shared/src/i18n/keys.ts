@@ -18,6 +18,7 @@ import { interruptedKeys } from './keys/interrupted.ts';
 import { overlapKeys } from './keys/overlap.ts';
 import { httpKeys } from './keys/http.ts';
 import { launchKeys } from './keys/launch.ts';
+import { launchPrepKeys } from './keys/launchPrep.ts';
 import { listKeys } from './keys/list.ts';
 import { mcpKeys } from './keys/mcp.ts';
 import { reportKeys } from './keys/report.ts';
@@ -100,6 +101,7 @@ export const MESSAGES = {
   ...overlapKeys,
   ...httpKeys,
   ...launchKeys,
+  ...launchPrepKeys,
   ...listKeys,
   ...mcpKeys,
   ...reportKeys,

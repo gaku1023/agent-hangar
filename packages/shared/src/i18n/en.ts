@@ -18,6 +18,7 @@ import { interruptedEn } from './en/interrupted.ts';
 import { overlapEn } from './en/overlap.ts';
 import { httpEn } from './en/http.ts';
 import { launchEn } from './en/launch.ts';
+import { launchPrepEn } from './en/launchPrep.ts';
 import { listEn } from './en/list.ts';
 import { mcpEn } from './en/mcp.ts';
 import { reportEn } from './en/report.ts';
@@ -88,6 +89,7 @@ export const en: Dictionary = {
   ...overlapEn,
   ...httpEn,
   ...launchEn,
+  ...launchPrepEn,
   ...listEn,
   ...mcpEn,
   ...reportEn,

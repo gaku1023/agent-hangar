@@ -1,7 +1,10 @@
+import type { LaunchPrepChoice } from '@agent-hangar/shared';
 import type { InjectionEntry, LaunchPlan, LaunchSpec, MaterializeMode } from '../../agent/types.ts';
+import type { LaunchPrep } from '../../runs/launchPrep.ts';
 import { OpencodeClient, type OpencodeModelRef } from './client.ts';
 import type { OpencodePermissionRule } from './permissionPreset.ts';
 import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
+import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
 
 /**
  * opencode の会話を hangar から起こす面（docs/design.md「opencode の起動」）。
@@ -23,10 +26,12 @@ export type OpencodeServes = {
 /**
  * serve にだけ足す設定。hangar の MCP を remote で、この run の秘密を Authorization の header で渡す。
  * permissions は許可のひな形（permissionPreset.ts）で、渡されたときだけ 2.x の `permissions` に並びのまま入れる。
+ * extra は起動前の準備が重ねる設定（1 モデルに寄せるときの agent と small_model の上書き）。
  * 利用者の opencode.json は書き換えない（opencode はこれを利用者の設定に重ねて読む）。
  */
-export function hangarServeConfig(mcp: { url: string; secret: string }, permissions: readonly OpencodePermissionRule[] | null = null): string {
+export function hangarServeConfig(mcp: { url: string; secret: string }, permissions: readonly OpencodePermissionRule[] | null = null, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
+    ...extra,
     mcp: { servers: { [HANGAR_MCP_NAME]: { type: 'remote', url: mcp.url, headers: { Authorization: `Bearer ${mcp.secret}` } } } },
     ...(permissions ? { permissions } : {}),
   });
@@ -70,6 +75,8 @@ export type MaterializeDeps = {
   mcpPollMs?: number;
   requestTimeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** 起動前にローカルのモデルを整える口（localModels/prepare.ts）。無ければ整えない。 */
+  localModels?: LocalModelsDeps;
 };
 
 /**
@@ -89,22 +96,80 @@ export type MaterializeDeps = {
 export async function materializeOpencode(deps: MaterializeDeps, mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; serve: ServeInfo }> {
   if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
   if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
-  const serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null), directory: spec.cwd });
-  const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
+  let serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null), directory: spec.cwd });
+  let model = spec.model;
   let providerSessionId: string;
-  if (mode.kind === 'resume') {
-    providerSessionId = mode.id;
-  } else {
-    try {
-      providerSessionId = await client.createSession({ directory: spec.cwd, title: spec.name, agent: spec.mode, model: modelRefOf(spec.model) });
-    } catch (e) {
-      await deps.serves.stop(spec.hangarSessionId).catch(() => undefined);
-      throw e;
+  try {
+    if (spec.prep && deps.localModels && !spec.prep.choice.skip) ({ serve, model } = await prepareModels(deps, deps.localModels, serve, spec));
+    if (mode.kind === 'resume') {
+      providerSessionId = mode.id;
+    } else {
+      providerSessionId = await new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }).createSession({ directory: spec.cwd, title: spec.name, agent: spec.mode, model: modelRefOf(model) });
     }
+  } catch (e) {
+    await deps.serves.stop(spec.hangarSessionId).catch(() => undefined);
+    throw e;
   }
+  const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
   await putInstructions(client, providerSessionId, spec.instructions, deps.report);
   await waitForMcp(client, spec.cwd, deps);
   return { providerSessionId, serve };
+}
+
+/**
+ * 起動前に、会話と agent が使うローカルのモデルを整える（docs/design.md「起動前の準備」）。
+ * 使うモデルは起きた serve の設定の層から読む（場所の opencode.json も重なるので、hangar が自分で読むより確か）。
+ * 答えが「1 モデルに寄せる」（choice.singleModel）なら、agent と small_model のモデルをそのモデルに上書きする設定で serve を起こし直し、会話もそのモデルで作る。
+ * 返すのは、使う serve（起こし直したらその serve）と会話のモデル。
+ */
+export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDeps, serve: ServeInfo, spec: LaunchSpec): Promise<{ serve: ServeInfo; model: string | undefined }> {
+  const prep = spec.prep!;
+  const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
+  const conf = await client.modelUses(spec.cwd);
+  prep.run.throwIfCancelled();
+  const single = prep.choice.singleModel;
+  if (!single) {
+    const model = spec.model ?? conf.model ?? undefined;
+    await prepareWith(local, client, { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses: usesOf(conf, model), prep: prep.run, choice: prep.choice });
+    return { serve, model };
+  }
+  const agent = Object.fromEntries(conf.agents.filter((a) => a.model !== single).map((a) => [a.id, { model: single }]));
+  const override: Record<string, unknown> = { ...(Object.keys(agent).length ? { agent } : {}), ...(conf.small && conf.small !== single ? { small_model: single } : {}) };
+  if (Object.keys(override).length) {
+    await deps.serves.stop(spec.hangarSessionId);
+    serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, override), directory: spec.cwd });
+  }
+  const uses = [{ ref: single, uses: ['$session', ...(conf.small ? ['$small'] : []), ...conf.agents.map((a) => a.id)] }];
+  await prepareWith(local, new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }), { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses, prep: prep.run, choice: prep.choice });
+  return { serve, model: single };
+}
+
+/**
+ * 動いている会話のモデルを整え直す（起動後に長さが足りずに落ちた札の「整えて再開」）。serve は起こし直さない。
+ * 利用者が頼んだので、使うモデルが短く載っていれば、手で載せたものでも載せ直す（reloadShort）。ほかのモデルは外さない。
+ * model は会話のモデル（分からなければ設定の既定）。
+ */
+export async function prepareRunning(local: LocalModelsDeps, serve: ServeInfo, o: { hangarSessionId: string; cwd: string; model: string | null; prep: LaunchPrep; requestTimeoutMs?: number }): Promise<void> {
+  const client = new OpencodeClient(serve, { timeoutMs: o.requestTimeoutMs });
+  const conf = await client.modelUses(o.cwd);
+  await prepareWith(local, client, { hangarSessionId: o.hangarSessionId, cwd: o.cwd, uses: usesOf(conf, o.model ?? conf.model ?? undefined), prep: o.prep, choice: {}, reloadShort: true });
+}
+
+/** 会話のモデル、small_model、agent ごとのモデルを、モデルごとの使い手にまとめる。 */
+function usesOf(conf: { small: string | null; agents: { id: string; model: string }[] }, model: string | undefined): LocalModelUse[] {
+  const byRef = new Map<string, string[]>();
+  const add = (ref: string | null | undefined, use: string) => { if (ref) byRef.set(ref, [...(byRef.get(ref) ?? []), use]); };
+  add(model, '$session');
+  add(conf.small, '$small');
+  for (const a of conf.agents) add(a.model, a.id);
+  return [...byRef].map(([ref, u]) => ({ ref, uses: u }));
+}
+
+async function prepareWith(local: LocalModelsDeps, client: OpencodeClient, o: { hangarSessionId: string; cwd: string; uses: LocalModelUse[]; prep: LaunchPrep; choice: LaunchPrepChoice; reloadShort?: boolean }): Promise<void> {
+  const [providers, models] = await Promise.all([client.providerRows(o.cwd), client.models(o.cwd)]);
+  o.prep.throwIfCancelled();
+  const limits = new Map(models.flatMap((m) => (m.context ? [[`${m.providerID}/${m.id}`, m.context] as const] : [])));
+  await prepareLocalModels(local, { hangarSessionId: o.hangarSessionId, uses: o.uses, providers: providers.map((p) => ({ id: p.id, baseURL: p.baseURL })), limits, choice: o.choice, prep: o.prep, reloadShort: o.reloadShort });
 }
 
 /** 追記を差し込む。段が無ければ何もしない。失敗は知らせるだけで投げない。 */

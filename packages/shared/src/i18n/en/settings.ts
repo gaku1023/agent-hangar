@@ -289,6 +289,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeInjection': 'System prompt additions',
   'settings.label.opencodeIntercept': 'Launch the opencode command through hangar',
   'settings.label.opencodePermissionPreset': 'Ask before running commands',
+  'settings.label.opencodeLocalContext': 'Context length for local models',
   'settings.opencode.title': 'opencode',
   'settings.opencode.enabledDesc': 'Use opencode instead of Claude Code for new sessions.',
   'settings.opencode.version.title': 'Version',

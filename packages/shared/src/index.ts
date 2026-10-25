@@ -35,3 +35,4 @@ export * from './e2e/index.ts';
 export * from './launchChoices.ts';
 export * from './promptPaths.ts';
 export * from './agentIcons.ts';
+export * from './launchPrep.ts';
