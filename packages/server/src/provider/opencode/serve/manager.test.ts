@@ -115,6 +115,15 @@ posixDescribe('ServeManager', () => {
     expect(m.get('a')).toBeNull();
   });
 
+  posixIt('止めている途中に重ねて頼まれたら、どちらも止め終わるまで待つ', async () => {
+    const { m } = make({ ignoreTerm: true });
+    const info = await m.ensure('a');
+    const first = m.stop('a');
+    await m.stop('a');
+    expect(isAlive(info.pid)).toBe(false);
+    await first;
+  });
+
   posixIt('SIGTERM で降りなければ、間をおいて SIGKILL で止める', async () => {
     const { m, logFile } = make({ ignoreTerm: true });
     const info = await m.ensure('a');

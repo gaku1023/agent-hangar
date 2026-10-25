@@ -93,8 +93,15 @@ export interface AgentLauncher {
   materialize?(mode: MaterializeMode, spec: LaunchSpec): Promise<void | { providerSessionId: string }>;
   plan(bin: string, mode: SessionMode, spec: LaunchSpec): LaunchPlan;
   /**
+   * 画面（TUI）が、hangar が起こして持つ裏のプロセス（opencode の serve）につながっているか。Claude は持たない（偽）。
+   * 真なら、状態の面の行の pid は裏のプロセスの pid で、run のプロセス（TUI）のものではない。RunManager は run の pid に書かない。
+   * hangar が終わると裏のプロセスも止まるので、画面は hangar の再起動を越えて使えない。RunManager は起動のときに閉じて lost にし、生き返らせない。
+   */
+  servedByHangar?: boolean;
+  /**
    * run が終わるとき、または止めたいときに呼ぶ。止めにいったら true を返す。
    * sessionId は hangar の会話の ID で、hangar の ID で持ち物（opencode の serve）を引く driver が使う。
+   * cause は、利用者が止めた（killed）、区切りで止めた（parked）、画面が閉じた（tui-gone。run が exited か lost で終わった）のどれか。RunManager は run 1 つの終わりにつき 1 回呼ぶ。
    */
   release(target: { sessionId?: string; providerSessionId: string; cwd: string }, cause: 'killed' | 'parked' | 'tui-gone'): boolean | Promise<boolean>;
 }

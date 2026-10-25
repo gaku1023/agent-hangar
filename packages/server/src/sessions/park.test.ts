@@ -80,6 +80,21 @@ describe('parkedSessionIds', () => {
   it('動いているものが無ければ空', () => {
     expect(parkedSessionIds(seed(), [])).toEqual([]);
   });
+  it('opencode の会話にも効く。起動時刻は hangar の生きた run の始まりで見て、provider の違う同じ ID の会話とは取り違えない', () => {
+    const db = seed();
+    upsertShared(db, 'sessions', { id: 'o1', provider: 'opencode', provider_session_id: 'ses_1', cwd: '/w', home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 'o1', device_id: 'd', kind: 'start', tmux_name: 'hangar-r1', pid: null, launch_params: '{}', started_at: T('2026-10-02T02:30:00.000Z'), ended_at: null, end_reason: null, heartbeat_at: T('2026-10-02T02:30:00.000Z') }, 'd');
+    setSessionState(db, 'd', 'o1', { status: 'done', setBy: 'user', now: SET_AT });
+    const oc = (sessionId: string, status: LiveSession['status'] = 'idle'): LiveSession => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 99, agent: 'opencode' });
+    expect(hasMarkedIdle(db, [oc('ses_1')])).toBe(true);
+    expect(parkedSessionIds(db, [oc('ses_1')], 'd')).toEqual(['o1']);
+    expect(parkedSessionIds(db, [oc('ses_1', 'busy')], 'd')).toEqual([]);
+    // Claude の会話の ID と同じ値の opencode の行は、Claude の会話を止めない（逆も同じ）。
+    setSessionState(db, 'd', 's1', { status: 'done', setBy: 'user', now: SET_AT });
+    expect(parkedSessionIds(db, [oc('u1')], 'd')).toEqual([]);
+    expect(hasMarkedIdle(db, [oc('u1')])).toBe(false);
+    expect(parkedSessionIds(db, [live('ses_1')], 'd')).toEqual([]);
+  });
 });
 
 describe('ParkWatch', () => {

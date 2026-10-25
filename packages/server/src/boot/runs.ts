@@ -171,7 +171,8 @@ export function bootRuns(
   // 読めなかったときは、何も止めない。
   const parkWatch = new ParkWatch({
     // 写しに候補（Done か Archived の付いた休みの会話）が無ければ、登録を読み直さない。待機中に 2 秒ごとに読まないためである。
-    parkedIds: () => { try { return hasMarkedIdle(db, live.current()) ? parkedSessionIds(db, readRegistry(claudeDir), device.id) : []; } catch { return []; } },
+    // Claude は登録を読み直し、opencode は状態の面の写し（serve の出来事の流れで持つので、読み直すものが無い）を足す。
+    parkedIds: () => { try { return hasMarkedIdle(db, live.current()) ? parkedSessionIds(db, [...readRegistry(claudeDir), ...delivery.agents.of('opencode').live.current()], device.id) : []; } catch { return []; } },
     stop: (id) => runs.park(id),
     // 設定の「Done と Archived にした会話を止める」。切っている間は止めず、一覧でも実行中として見せる（setParkingSwitch）。
     enabled: () => settings.current.autoPark !== false,

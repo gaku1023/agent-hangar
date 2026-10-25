@@ -393,9 +393,19 @@ export class RunManager {
     return this.agents.of(s.provider);
   }
 
+  /** その provider の画面が、hangar が持つ裏のプロセス（opencode の serve）につながっているか（agent/types.ts の servedByHangar）。知らない provider は偽。 */
+  private servedByHangar(provider: string): boolean {
+    try {
+      return this.agents.of(provider).launch.servedByHangar === true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Claude にしか無い操作（フォーク、attach、引き取り、アカウントの切り替え）を、そのエージェントが持たなければ入口で断る（driver の caps）。
-   * 再開は、opencode の分（serve を起こし直して -s でつなぐ）を段 B6 で入れるまで、Claude だけにする。
+   * 'resume' は同期の再開（resume）の口で、Claude だけにする。opencode の再開は serve を起こし直すのを待つので、非同期の resumeWith（resumeMaterialized）が受ける。
+   * 同期の再開を使うターミナルの包み方と「この PC で再開」は、opencode の会話では断ったままにする。
    */
   private assertCan(s: SessionRow, what: keyof AgentDriver['caps'] | 'resume'): void {
     const d = this.agentOf(s);
@@ -508,6 +518,9 @@ export class RunManager {
     revokeMcpSecret(this.db, run.sessionId);
     // 包みが読む前に終わった run の秘密の環境も残さない。
     removeSecretEnv(this.deps.home, runId);
+    // 画面が閉じた（exited、lost）なら、エージェントの側の後始末を driver に頼む（opencode は作業を interrupt し serve を止める。Claude は何もしない）。
+    // killed と parked は、止めにいった kill と park が先に release を呼んでいるので、ここでは呼ばない（run 1 つの終わりにつき 1 回）。
+    if (reason === 'exited' || reason === 'lost') this.release(run.sessionId, 'tui-gone');
     this.pruneEmptySession(run);
     this.emit('runEnded', run);
     return run;
@@ -745,6 +758,8 @@ export class RunManager {
    * ignore は、この判定を飛ばして再開する（2 つの claude が同じ会話を進めることを、利用者が承知している）。
    */
   async resumeWith(sessionId: string, o: { stray?: ResumeStray } = {}): Promise<LaunchResult> {
+    const target = this.session(sessionId);
+    if (this.agentOf(target).launch.materialize) return this.resumeMaterialized(target);
     if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray });
     const s = this.session(sessionId);
     this.assertCan(s, 'resume');
@@ -752,6 +767,46 @@ export class RunManager {
     const pid = this.strayPid(s);
     if (pid !== null && !(await this.procs().terminate(pid, TERMINATE_MS))) throw new RunError(409, msg('run.error.strayNotStopped', { pid }));
     return this.resume(sessionId, { stray: 'ignore' });
+  }
+
+  /**
+   * 下ごしらえの要る driver（opencode）の会話を再開する（docs/design.md「opencode の寿命」）。
+   * 1. 設定、動いている run、実行ファイル、作業の場所、画面の口を確かめる。設定が切なら断る（新しい起動と同じ）。
+   * 2. 新しい run の MCP の秘密で、driver の materialize（serve の起こし直し、追記の PUT、MCP の接続、状態とトランスクリプトの面への載せ直し）を待つ。
+   * 3. 既にある会話へ -s でつなぐ TUI を tmux の中に起こす（kind = 'resume'）。
+   * 本文の有無は見ない。会話は opencode の記録の置き場にあり、本文がまだ写っていなくても -s でつなげるからである。
+   * 初期プロンプトと自動承認は持ち越さない（Claude の再開と同じく、起動の指定を引き継がない）。
+   * 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
+   */
+  private async resumeMaterialized(s: SessionRow): Promise<LaunchResult> {
+    const driver = this.agentOf(s);
+    const agent = driver.kind;
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
+    const bin = this.deps.agentBin?.(agent) ?? null;
+    if (!bin) throw new RunError(400, msg('run.agent.notFound'));
+    const { path: cwd, createsFolder } = this.cwdFor(s);
+    // serve と会話の場所が要るので、ほかの PC のクイックセッションのフォルダは下ごしらえの前に作る。
+    this.precheck(cwd, { agent, create: createsFolder });
+    const id = s.provider_session_id;
+    const fail = async (e: unknown): Promise<never> => {
+      await Promise.resolve(driver.launch.release({ sessionId: s.id, providerSessionId: id, cwd }, 'killed')).catch(() => false);
+      revokeMcpSecret(this.db, s.id);
+      if (e instanceof RunError) throw e;
+      throw new RunError(400, msg('run.agent.launchFailed', { reason: this.safeError(e) }));
+    };
+    let base: Omit<LaunchSpec, 'env'>;
+    try {
+      base = this.baseInput(s.id, s.project_id, cwd, {}, s.id, undefined, agent);
+      await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: {} });
+    } catch (e) {
+      return fail(e);
+    }
+    try {
+      return this.launch({ sessionId: s.id, cwd, kind: 'resume', agent, plan: (env) => driver.launch.plan(bin, { kind: 'resume', id }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent } });
+    } catch (e) {
+      return fail(e);
+    }
   }
 
   /**
@@ -1058,6 +1113,11 @@ export class RunManager {
       const name = row.tmux_name as string;
       if (seen.has(name)) continue;
       seen.add(name);
+      // hangar が持つ serve につながる画面は、run を閉じたときに serve を止めているので、生き返らせても使えない。残った画面を閉じる。
+      if (this.servedByHangar(this.providerOf(row.session_id as string))) {
+        this.deps.panes?.close(name);
+        continue;
+      }
       if (aliveRunForSession(this.db, row.session_id as string, this.deps.deviceId, this.now())) continue;
       upsertShared(this.db, 'runs', { ...row, ended_at: null, end_reason: null, heartbeat_at: now }, this.deviceId);
       if (forgetInterruption(this.db, row.id as string)) forgot = true;
@@ -1068,6 +1128,11 @@ export class RunManager {
     if (forgot) this.emit('interrupted', interruptedGroup(this.db));
     if (out.length) console.log(`[runs] tmux セッションが残っていた run を ${out.length} 件生き返らせました`);
     return out;
+  }
+
+  /** その hangar の会話の provider。行が無ければ Claude Code と見る。 */
+  private providerOf(sessionId: string): string {
+    return (this.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined)?.provider ?? DEFAULT_AGENT;
   }
 
   /** 中断の束を記録し、新しい群を知らせる。 */
@@ -1103,6 +1168,12 @@ export class RunManager {
     // tick と同じく、消えたタブを先に閉じる。
     for (const t of this.openShellTabs()) if (!names.has(t.tmuxName)) this.closeTabRow(t.id);
     for (const run of listAliveRuns(this.db, this.deviceId)) {
+      // hangar が持つ serve につながる画面（opencode の TUI）は、前の hangar の終わりで serve を失っている。画面を閉じ、中断として lost で閉じる。
+      // 開いていない会話の serve は起こさない。続けるときは利用者が「再開」で serve を起こし直す。
+      if (names.has(run.tmuxName) && this.servedByHangar(this.providerOf(run.sessionId))) {
+        this.deps.panes?.close(run.tmuxName);
+        names.delete(run.tmuxName);
+      }
       if (!names.has(run.tmuxName)) {
         const e = this.end(run.id, 'lost');
         if (e) out.push(e);
@@ -1158,9 +1229,11 @@ export class RunManager {
     this.noteLastLive(live);
     const byUuid = new Map(live.map((l) => [l.sessionId, l]));
     for (const run of listAliveRuns(this.db, this.deviceId)) {
-      const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
+      const s = this.db.prepare('select provider, provider_session_id from sessions where id = ?').get(run.sessionId) as { provider: string; provider_session_id: string } | undefined;
       const l = s ? byUuid.get(s.provider_session_id) : undefined;
       if (!l || l.pid === run.pid) continue;
+      // opencode の行の pid は serve の pid で、run のプロセス（TUI）ではない。書くと、TUI が閉じても serve が生きている間は stillRunning が真のままになり、run を閉じられない。
+      if (this.servedByHangar(s!.provider)) continue;
       const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
       upsertShared(this.db, 'runs', { ...row, pid: l.pid }, this.deviceId);
       this.emit('runUpdated', getRun(this.db, run.id)!);
@@ -1205,7 +1278,7 @@ export class RunManager {
    * attach の run の tmux を落としても画面の口が閉じるだけで、claude は動き続けるからである。
    * 止め終わるのは待たない。失敗しても run は閉じ、ログにだけ残す。
    */
-  private release(sessionId: string, cause: 'killed' | 'parked'): boolean {
+  private release(sessionId: string, cause: 'killed' | 'parked' | 'tui-gone'): boolean {
     const s = this.db.prepare('select provider, provider_session_id, cwd from sessions where id = ?').get(sessionId) as { provider: string; provider_session_id: string; cwd: string } | undefined;
     if (!s) return false;
     const r = this.agents.of(s.provider).launch.release({ sessionId, providerSessionId: s.provider_session_id, cwd: s.cwd }, cause);

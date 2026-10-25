@@ -21,6 +21,7 @@ import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
 import { SECRET_ENV_DIR, secretEnvPath, writeSecretEnv } from '../launch/secretEnv.ts';
 import { mcpSecretFor } from './secrets.ts';
 import { RunManager } from './manager.ts';
+import { until } from '../../test/fake-opencode-events.ts';
 
 const ev = <K extends FakeOpencodeEvent['ev']>(log: FakeOpencodeEvent[], k: K) => log.filter((e): e is Extract<FakeOpencodeEvent, { ev: K }> => e.ev === k);
 type Row = { id: string; provider: string; provider_session_id: string; project_id: string | null; deleted_at: number | null };
@@ -48,22 +49,27 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
   const sessions = (): Row[] => db.prepare('select id, provider, provider_session_id, project_id, deleted_at from sessions').all() as Row[];
 
   /** 開いた画面と、開いたときの sessions の行と偽の opencode の記録を残す口。 */
+  // listed は tmux の一覧に載せる名前（既定は空。開いた画面を載せたいときは試験が足す）。closed は閉じた画面の名前。
   const recordingPanes = (logFile: string, o: { fail?: boolean } = {}) => {
     const opened: { name: string; cwd: string; command: string[]; env: Record<string, string>; rows: Row[]; log: FakeOpencodeEvent[] }[] = [];
+    const listed: string[] = [];
+    const closed: string[] = [];
     const panes: PaneOps = {
       open: (p) => {
         if (o.fail) throw new Error('no room');
         opened.push({ ...p, env: p.env ?? {}, rows: sessions(), log: readFakeOpencodeLog(logFile) });
       },
-      close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {},
+      close: (name) => { closed.push(name); const i = listed.indexOf(name); if (i >= 0) listed.splice(i, 1); },
+      list: () => [...listed], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {},
     };
-    return { panes, opened };
+    return { panes, opened, listed, closed };
   };
 
-  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean } = {}) => {
+  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean } = {}) => {
+    const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
-    const manager = new ServeManager({ enabled: () => o.enabled !== false, bin: () => bin, version: async () => '2.1.4', registry, killGraceMs: 300 });
+    const manager = new ServeManager({ enabled, bin: () => bin, version: async () => '2.1.4', registry, killGraceMs: 300 });
     serves.push(manager);
     // ensure が呼ばれた時点の行と、偽の opencode の記録を残す（仮の行が serve より先に在ることを見る）。
     const ensured: { rows: Row[]; log: FakeOpencodeEvent[] }[] = [];
@@ -75,16 +81,16 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     const opencode = createOpencodeDriver({ serves: () => watched, droppedEnv: AGENT_RUN_DROPPED_ENV, mcpPollMs: 10, mcpWaitMs: 2000, report: () => {} });
     const fakeClaude = writeFakeClaude(home);
     const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => fakeClaude.bin, live: liveSourceOf(), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => realProcOps });
-    const { panes, opened } = recordingPanes(logFile, { fail: o.failOpen });
+    const { panes, opened, listed, closed } = recordingPanes(logFile, { fail: o.failOpen });
     const rm = new RunManager({
       db, deviceId: 'd', home, panes, claudeBin: fakeClaude.bin, claudeDir: home, port: 4177, token: 'tok', shell: 'sh', language: () => 'ja',
       procs: { ...realProcOps, listJobs: () => [] },
       agents: agentsOf([claude, opencode]), claude,
-      agentEnabled: (k) => k === 'claude-code' || o.enabled !== false,
+      agentEnabled: (k) => k === 'claude-code' || enabled(),
       agentBin: (k) => (k === 'opencode' ? (o.bin === undefined ? bin : o.bin) : null),
       injection: () => ({ askStatusAtEnd: true, liveHints: true, opencode: o.injection ?? 'minimal' }),
     });
-    return { rm, opened, ensured, manager, bin, log: () => readFakeOpencodeLog(logFile) };
+    return { rm, opened, ensured, manager, bin, opencode, claude, fakeClaude, listed, closed, log: () => readFakeOpencodeLog(logFile) };
   };
 
   const params = (over: Partial<LaunchParams> = {}): LaunchParams => ({ agent: 'opencode', projectId: 'p1', ...over });
@@ -229,7 +235,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(isAlive(ev(log(), 'start')[0]!.pid)).toBe(false);
   });
 
-  posixIt('Claude だけの操作（フォーク、attach、引き取り、アカウントの切り替え）と、まだ無い再開は、opencode の会話では入口で断る', async () => {
+  posixIt('Claude だけの操作（フォーク、attach、引き取り、アカウントの切り替え）と、同期の再開（ターミナルの包み方、この PC で再開）は、opencode の会話では入口で断る', async () => {
     const { rm, log } = make();
     upsertShared(db, 'sessions', { id: 'h-oc', provider: 'opencode', provider_session_id: 'ses_old', cwd, home_device: 'd', project_id: 'p1' }, 'd');
     const unsupported = expect.objectContaining({ status: 400, message: expect.stringContaining('opencode のセッションでは使えません') });
@@ -237,10 +243,170 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(() => rm.attach('h-oc')).toThrow(unsupported);
     expect(() => rm.resume('h-oc')).toThrow(unsupported);
     await expect(rm.adopt('h-oc')).rejects.toThrow(unsupported);
-    await expect(rm.resumeWith('h-oc')).rejects.toThrow(unsupported);
     await expect(rm.switchAccount('h-oc', 'primary')).rejects.toThrow(unsupported);
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
     expect(log()).toEqual([]);
+  });
+
+  const runRow = (id: string) => db.prepare('select ended_at, end_reason, pid from runs where id = ?').get(id) as { ended_at: number | null; end_reason: string | null; pid: number | null };
+
+  posixIt('TUI が閉じたら（tmux から消えたら）exited で閉じ、作業を interrupt して serve を止める。serve の pid を run の pid に書かない', async () => {
+    const { rm, manager, opencode, log } = make({ fake: { activeIds: ['ses_busy'] } });
+    const r = await rm.start(params());
+    const pid = manager.get(r.sessionId)!.pid;
+    // 状態の面の行（pid は serve の pid）が届いても、run の pid にはしない。TUI の生き死にとは別だからである。
+    expect(opencode.live.current()).toEqual([expect.objectContaining({ pid, agent: 'opencode' })]);
+    rm.linkRegistry(opencode.live.current());
+    expect(runRow(r.run.id).pid).toBeNull();
+    // 一覧から消えた（listed は空）。2 回の見回りで閉じる。
+    rm.tick();
+    expect(runRow(r.run.id).ended_at).toBeNull();
+    const { ended } = rm.tick();
+    expect(ended.map((e) => [e.id, e.endReason])).toEqual([[r.run.id, 'exited']]);
+    await until(() => !isAlive(pid));
+    const l = log();
+    expect(ev(l, 'interrupt').map((e) => e.id)).toEqual(['ses_busy']);
+    expect(manager.get(r.sessionId)).toBeNull();
+    expect(opencode.live.current()).toEqual([]);
+  });
+
+  posixIt('止めた（killed）ときと区切りで止めた（parked）ときも、interrupt して serve を止める', async () => {
+    const { rm, manager, log, listed, closed } = make({ fake: { activeIds: ['ses_busy'] } });
+    const a = await rm.start(params());
+    const pidA = manager.get(a.sessionId)!.pid;
+    rm.kill(a.run.id);
+    await until(() => !isAlive(pidA));
+    expect(runRow(a.run.id).end_reason).toBe('killed');
+
+    const b = await rm.start(params());
+    const pidB = manager.get(b.sessionId)!.pid;
+    listed.push(b.run.tmuxName);
+    expect(rm.park(b.sessionId)).toBe(true);
+    expect(closed).toContain(b.run.tmuxName);
+    await until(() => !isAlive(pidB));
+    expect(runRow(b.run.id).end_reason).toBe('parked');
+    expect(ev(log(), 'interrupt')).toHaveLength(2);
+  });
+
+  posixIt('「再開」は serve を新しい秘密で起こし直し、追記を PUT し直し、MCP を待ってから、-s で同じ会話につなぐ。秘密は argv に無い', async () => {
+    const { rm, manager, opencode, opened, log } = make();
+    const r = await rm.start(params({ prompt: '直して', autoApprove: true }));
+    const id = ev(log(), 'create')[0]!.id;
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    const secret1 = ev(log(), 'start')[0]!.env.OPENCODE_CONFIG_CONTENT!;
+
+    const again = await rm.resumeWith(r.sessionId);
+    expect(again.sessionId).toBe(r.sessionId);
+    expect(again.run.kind).toBe('resume');
+    const l = log();
+    const starts = ev(l, 'start');
+    expect(starts).toHaveLength(2);
+    // 新しい run の MCP の秘密で起こし直す（前の run の秘密は run の終わりで無効にしてある）。
+    const config = JSON.parse(starts[1]!.env.OPENCODE_CONFIG_CONTENT!) as { mcp: { servers: { hangar: { headers: { Authorization: string } } } } };
+    expect(config.mcp.servers.hangar.headers.Authorization).toBe(`Bearer ${mcpSecretFor(db, r.sessionId)!}`);
+    expect(starts[1]!.env.OPENCODE_CONFIG_CONTENT).not.toBe(secret1);
+    // 会話は作らない。追記を同じ会話に PUT し直し、MCP の connected を待ってから画面を開く。
+    expect(ev(l, 'create')).toHaveLength(1);
+    expect(ev(l, 'instructions').map((e) => e.id)).toEqual([id, id]);
+    const o = opened.at(-1)!;
+    expect(ev(o.log, 'mcp').filter((m) => m.pid === starts[1]!.pid).at(-1)?.status).toBe('connected');
+    // -s で同じ会話につなぐ。初期プロンプトと自動承認は持ち越さない。パスワードは argv にも tmux の環境にも無い。
+    const info = manager.get(r.sessionId)!;
+    expect(info.pid).toBe(starts[1]!.pid);
+    expect(o.command.slice(-6)).toEqual([expect.any(String), cwd, '--server', info.url, '-s', id]);
+    expect(o.command.join('\n')).not.toContain(info.password);
+    expect(JSON.stringify(o.env)).not.toContain(info.password);
+    expect(fs.readFileSync(secretEnvPath(home, again.run.id), 'utf8')).toBe(`OPENCODE_PASSWORD=${info.password}\n`);
+    // 状態の面に新しい serve で載せ直す。
+    expect(opencode.live.current()).toEqual([expect.objectContaining({ sessionId: id, pid: info.pid })]);
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(again.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'opencode' });
+  });
+
+  posixIt('「再開」は、動いている run があれば 409、設定が切なら 400 で断り、serve を起こさない', async () => {
+    let enabled = true;
+    const { rm, manager, log } = make({ enabledFn: () => enabled });
+    const r = await rm.start(params());
+    await expect(rm.resumeWith(r.sessionId)).rejects.toMatchObject({ status: 409 });
+    expect(ev(log(), 'start')).toHaveLength(1);
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    enabled = false;
+    await expect(rm.resumeWith(r.sessionId)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('opencode は有効になっていません') });
+    expect(ev(log(), 'start')).toHaveLength(1);
+    expect(db.prepare("select count(*) c from runs where kind = 'resume'").get()).toEqual({ c: 0 });
+  });
+
+  posixIt('設定を切にしても、動いている会話は止めない', async () => {
+    let enabled = true;
+    const { rm, manager } = make({ enabledFn: () => enabled });
+    const r = await rm.start(params());
+    enabled = false;
+    rm.linkRegistry([]);
+    expect(manager.get(r.sessionId)).not.toBeNull();
+    expect(runRow(r.run.id).ended_at).toBeNull();
+  });
+
+  posixIt('「再開」で serve を起こせなければ 400 で断り、run を作らず、行は消さない', async () => {
+    const { rm, manager } = make();
+    const r = await rm.start(params());
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    const ensure = manager.ensure.bind(manager);
+    manager.ensure = () => Promise.reject(new Error('boom'));
+    await expect(rm.resumeWith(r.sessionId)).rejects.toMatchObject({ status: 400 });
+    manager.ensure = ensure;
+    expect(sessions().filter((s) => s.deleted_at === null)).toHaveLength(1);
+    expect(db.prepare("select count(*) c from runs where kind = 'resume'").get()).toEqual({ c: 0 });
+    expect(mcpSecretFor(db, r.sessionId)).toBeNull();
+  });
+
+  posixIt('hangar を起こし直したあと、開いていない会話の serve を起こさない。serve を失った TUI の画面は閉じて lost にする', async () => {
+    const first = make();
+    const open = await first.rm.start(params());
+    const closedOne = await first.rm.start(params());
+    first.rm.kill(closedOne.run.id);
+    // hangar の終わりで serve を全部止める（boot/opencode.ts の stop）。tmux の画面は残る。
+    await first.manager.stopAll();
+    const before = first.log().filter((e) => e.ev === 'start').length;
+
+    const second = make();
+    second.listed.push(open.run.tmuxName);
+    const lost = second.rm.recoverAtStartup();
+    expect(lost.map((e) => [e.id, e.endReason])).toEqual([[open.run.id, 'lost']]);
+    expect(second.closed).toContain(open.run.tmuxName);
+    second.rm.tick(); second.rm.tick();
+    second.rm.linkRegistry(second.opencode.live.current());
+    await new Promise((res) => setTimeout(res, 100));
+    expect(second.log().filter((e) => e.ev === 'start').length).toBe(before);
+    expect(second.manager.get(open.sessionId)).toBeNull();
+    expect(second.manager.get(closedOne.sessionId)).toBeNull();
+    // 再開すれば、その会話の serve だけを起こす。
+    await second.rm.resumeWith(open.sessionId);
+    expect(second.log().filter((e) => e.ev === 'start').length).toBe(before + 1);
+    expect(second.manager.get(open.sessionId)).not.toBeNull();
+  });
+
+  posixIt('閉じた opencode の run の画面が一覧に戻っても生き返らせず、画面を閉じる（serve はもう無い）', async () => {
+    const { rm, manager, listed, closed } = make();
+    const r = await rm.start(params());
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    listed.push(r.run.tmuxName);
+    rm.tick();
+    expect(runRow(r.run.id).end_reason).toBe('exited');
+    expect(closed).toContain(r.run.tmuxName);
+  });
+
+  posixIt('Claude の run の終わり方は変わらない（TUI が閉じても claude stop を呼ばない）', async () => {
+    const { rm, listed } = make();
+    const calls: string[][] = [];
+    const r = await rm.start({ projectId: 'p1' });
+    (rm as unknown as { deps: { procs: { runClaude: (b: string, a: string[]) => Promise<unknown> } } }).deps.procs.runClaude = async (_b, a) => { calls.push(a); return undefined; };
+    expect(listed).toEqual([]);
+    rm.tick(); rm.tick();
+    expect(runRow(r.run.id).end_reason).toBe('exited');
+    expect(calls).toEqual([]);
   });
 
   posixIt('agent を付けない起動は今までどおり Claude で起こし、opencode には触らない', async () => {

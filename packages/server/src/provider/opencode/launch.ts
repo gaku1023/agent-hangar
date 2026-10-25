@@ -74,18 +74,27 @@ export type MaterializeDeps = {
  * 4. hangar の MCP が connected になるのを待つ。待たずに最初のプロンプトを送ると、1 歩目の Code Mode の目録に hangar の道具が載らない。
  *    上限を過ぎても、failed でも、起動は続ける（2 歩目から呼べるようになる）。
  * 会話を作れなければ、起こした serve を止めて投げる。
- * 再開とフォークは段 B6 で入れるので、いまは受けない。
+ *
+ * 再開（resume）は、終わった画面の「再開」から来る。既にある会話（mode.id）に、新しい serve でつなぎ直す。
+ * serve が残っていれば先に止める。起きている serve には新しい run の MCP の秘密を当て直せない（ensure の config は起こすときにだけ効く）からである。
+ * 会話は作らず、追記を PUT し直し（serve を起こし直すと追記は消える）、MCP を待つ。
+ * フォークは受けない（caps.fork が偽で、RunManager が入口で断る）。
  */
 export async function materializeOpencode(deps: MaterializeDeps, mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; serve: ServeInfo }> {
-  if (mode.kind !== 'start') throw new Error(`opencode cannot ${mode.kind} a session yet`);
+  if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
+  if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
   const serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarMcpConfig(spec.mcp) });
   const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
   let providerSessionId: string;
-  try {
-    providerSessionId = await client.createSession({ directory: spec.cwd, title: spec.name, agent: spec.mode, model: modelRefOf(spec.model) });
-  } catch (e) {
-    await deps.serves.stop(spec.hangarSessionId).catch(() => undefined);
-    throw e;
+  if (mode.kind === 'resume') {
+    providerSessionId = mode.id;
+  } else {
+    try {
+      providerSessionId = await client.createSession({ directory: spec.cwd, title: spec.name, agent: spec.mode, model: modelRefOf(spec.model) });
+    } catch (e) {
+      await deps.serves.stop(spec.hangarSessionId).catch(() => undefined);
+      throw e;
+    }
   }
   await putInstructions(client, providerSessionId, spec.instructions, deps.report);
   await waitForMcp(client, spec.cwd, deps);
