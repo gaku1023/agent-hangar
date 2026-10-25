@@ -8,6 +8,7 @@ export const compatEn: AreaDictionary<typeof compatKeys> = {
   'compat.contract.claudeDir': '~/.claude contents',
   'compat.contract.cli': 'CLI',
   'compat.contract.screen': 'Screen output',
+  'compat.contract.opencodeCli': 'opencode CLI',
   'compat.stop.jumpShort': 'Jump from outline',
   'compat.stop.jumpLine': 'Jumping from the turn outline to the instruction in the terminal is disabled',
   'compat.stop.parkShort': 'Auto-stop when idle',

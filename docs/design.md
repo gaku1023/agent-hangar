@@ -1428,6 +1428,47 @@ Windows は serve を起こすときと同じ許可リストの鍵を渡す（�
 Windows では、画面を開いている OS を見て面ごと出さない。
 serve と TUI は段 G1 で Windows でも動くようにしたが、実機での確かめ（もう 1 台の PC）が済むまで面は出さないままにする。
 
+### opencode との互換
+
+opencode は数週間で版が上がり、v2 の API には experimental の道（システムプロンプトへの追記、export）もある。
+そこで Claude Code と同じく、頼っている形を見本に残し、週に 1 度、最新の 2.x と突き合わせる（計画の H1）。
+確かめた範囲は `OPENCODE_VERIFIED_RANGE` の 1 か所に持ち、範囲の外でも起動は止めない（「opencode の検出（ベータ）」）。
+
+#### ずれの記録
+
+`provider/opencode/compat/cli.ts` の `opencodeSubcommandsFromHelp` が返すずれは、契約 `opencode-cli` で返す。
+値の形（`subcommand.added=…`、`flag.added=…`）は Claude の `cli` と同じだが、Claude の見直し（`isCliDrift`）は Claude の組み込みの一覧で読むので、同じ契約に入れると opencode の値を誤ってずれと読む。
+記録（`compat.json`）は Claude と同じ 1 つのファイルで、記録に残った値の見直し（`current.ts` の `isCurrentDrift`）は、`opencode-cli` を opencode の組み込みの一覧（`isOpencodeCliDrift`）で行う。
+設定の互換の表では、契約の列に「opencode の CLI」と出す。
+包みは知っているサブコマンドとフラグだけを横取りし、ほかは素の opencode に渡すので、止めた機能は無い。
+
+#### 見本
+
+見本は `packages/server/test/fixtures/opencode/<版>/` にあり、`npm run capture-opencode-fixtures` で採る（`packages/server/test/capture-opencode/run.ts`、道具は `packages/server/test/opencodeHarness.ts`）。
+採る道具は、本物の opencode を、試しの置き場（`XDG_CONFIG_HOME`・`XDG_DATA_HOME`・`XDG_STATE_HOME`・`XDG_CACHE_HOME` を一時ディレクトリへ）と空の環境で 1 本だけ起こす。
+利用者の opencode の記録と設定には触らず、終わったら置き場ごと消す。
+LLM は呼ばない。
+試しの置き場の `opencode.json` に OpenAI 互換の模擬（手元の 127.0.0.1）をプロバイダーとして置き、決まった並び（shell、execute の中の `hangar.set_turn_intent`、write、edit、read、question、文）で道具を呼ばせる。
+hangar の MCP の代わりに同じ形の小さな MCP を立て、hangar と同じく `OPENCODE_CONFIG_CONTENT` で渡す。
+採るのは `--version` と `--help` の出力、`/api/event` の流れ（1 ターン、許可の待ちの途中の interrupt、つなぎ直しの頭）、取り直しの道の答え（`rest.json`）、本文の答え（全部、ページ送り、form の待ち、shell の実行中）である。
+手元のパスは決まった名前（`/work/repo` など）に置き換え、serve のパスワード、MCP の秘密、置き場とホームのパスが残っていれば書かずに止める。
+使用量を使わないので、動かす前に聞かなくてよい。
+採り直したら、`provider/opencode/compat/cli.ts` の組み込みの一覧を最も新しい見本の `help.txt` と揃える（`cli.test.ts` が突き合わせる）。
+
+#### 週に 1 度の照合
+
+GitHub Actions の `opencode-compat`（`.github/workflows/opencode-compat.yml`）が、週に 1 度と手動で、最新の 2.x の opencode を npm（`@opencode/cli`）から入れ、`packages/server/test/opencodeLive.test.ts` を流す。
+npm の `opencode-ai` は 1.x の系統なので使わない。
+試験は `HANGAR_LIVE_OPENCODE=1` のときだけ走り、ふだんの `npm test` では飛ぶ。
+見本を採る道具と同じ形で serve を 1 本起こし、次を確かめる。
+
+- `--help` のサブコマンドとフラグ（値を取るかも）が、最も新しい見本と同じで、組み込みの一覧とのずれが 0 件であること。外のターミナルの横取りに使うフラグ（`--auto`、`--prompt`、`--session`、`-s`）もここで見る。
+- hangar が使う道が、包み（`provider/opencode/client.ts`）の読み方のままで答えること。会話の作成（ID なし）、`/api/session/active`、`/api/event` の出来事の種類、`/api/permission/request`、`/api/form`、システムプロンプトへの追記（モデルへの要求に `<context key="hangar">` として届くこと）、`/api/mcp`、`/api/agent`・`/api/model`・`/api/provider`・`/api/integration`・`/api/config`、`/api/session/{id}/message` のページ送りと共通の形への変換（知らない種類が出ないこと）。
+- CLI の `session export` と `import` が、会話の ID と場所と本文を保つこと。
+
+違っていればジョブを落とし、見本を採り直す合図にする。
+版が新しいだけでは落とさない。
+
 ### opencode の serve の管理
 
 hangar は、opencode の会話ごとに `opencode serve` を 1 本起こす（計画の B2）。

@@ -51,6 +51,16 @@ describe('isCurrentDrift', () => {
     for (const v of ['agents-json.kind=remote', 'agents-json.kind=(missing)', 'agents-json.id=(missing)', 'help.commands=(missing)', 'auth-status=(not-json)',
       'auth-status.loggedIn=(missing)', 'print-json.structured_output=(missing)']) expect(isCurrentDrift('cli', v), v).toBe(true);
   });
+  it('opencode の CLI は Claude の CLI と分けて、opencode の組み込みの一覧で見直す', () => {
+    // serve は opencode の組み込みにあるが Claude の組み込みには無い。同じ値でも契約で答えが分かれる。
+    expect(isCurrentDrift('opencode-cli', 'subcommand.added=serve')).toBe(false);
+    expect(isCurrentDrift('cli', 'subcommand.added=serve')).toBe(true);
+    expect(isCurrentDrift('opencode-cli', 'subcommand.added=brand-new')).toBe(true);
+    expect(isCurrentDrift('opencode-cli', 'subcommand.removed=attach')).toBe(false);
+    expect(isCurrentDrift('opencode-cli', 'flag.added=--auto')).toBe(false);
+    expect(isCurrentDrift('opencode-cli', 'help.subcommands=(missing)')).toBe(true);
+    expect(isCurrentDrift('opencode-cli', 'no-equals-sign')).toBe(true);
+  });
   it('値だけでは決められない契約（statusline、画面の文字）と、知らない形の値は残す', () => {
     for (const v of ['rate_limits.five_hour.resets_at=ms', 'cost.total_cost_usd=(missing)', 'session_id=(missing)']) expect(isCurrentDrift('statusline', v), v).toBe(true);
     for (const v of ['transcript-footer=(missing)', 'prompt-marker=(missing)']) expect(isCurrentDrift('screen', v), v).toBe(true);

@@ -1,9 +1,11 @@
 /**
  * Claude Code との互換（docs/design.md「Claude Code との互換」）。
  * hangar が頼る Claude Code の形式を 6 つの契約に分け、知らない値に出会ったら「ずれ」として記録する。
+ * opencode-cli は opencode の `--help` のずれ（docs/design.md「opencode との互換」）。
+ * Claude の cli と値の形が同じ（`subcommand.added=…`）なので、契約を分けて、見直し（記録に残った値が今もずれか）を opencode の組み込みの一覧で行う。
  */
-export type CompatContract = 'transcript' | 'registry' | 'statusline' | 'claude-dir' | 'cli' | 'screen';
-export const COMPAT_CONTRACTS: readonly CompatContract[] = ['transcript', 'registry', 'statusline', 'claude-dir', 'cli', 'screen'];
+export type CompatContract = 'transcript' | 'registry' | 'statusline' | 'claude-dir' | 'cli' | 'screen' | 'opencode-cli';
+export const COMPAT_CONTRACTS: readonly CompatContract[] = ['transcript', 'registry', 'statusline', 'claude-dir', 'cli', 'screen', 'opencode-cli'];
 
 /**
  * 記録したずれの 1 件。同じ契約と値の組は 1 件にまとめ、回数と最初と最後に見た時刻を持つ。

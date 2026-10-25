@@ -12,6 +12,7 @@ export type CompatStop = { short: string; line: string };
 const CONTRACT_KEY = {
   transcript: 'compat.contract.transcript', registry: 'compat.contract.registry', statusline: 'compat.contract.statusline',
   'claude-dir': 'compat.contract.claudeDir', cli: 'compat.contract.cli', screen: 'compat.contract.screen',
+  'opencode-cli': 'compat.contract.opencodeCli',
 } as const satisfies Record<CompatContract, string>;
 export const contractLabel = (t: Translate, c: CompatContract): string => t(CONTRACT_KEY[c]);
 
@@ -59,6 +60,8 @@ const STOPS: Record<CompatContract, readonly (readonly [RegExp, StopId | null])[
   // サブコマンドの増減は、包み方のサブコマンドの一覧を claude --help から作り直して吸収するので、止めたものは無い。
   cli: [[/^help[.=]/, HELP], [/^auth-status[.=]/, AUTH], [/^agents-json[.=]/, ATTACH], [/^print-json[.=]/, SUMMARY], [/^/, null]],
   screen: [[/^/, JUMP]],
+  // opencode の包みは知っているサブコマンドとフラグだけを横取りし、ほかは素の opencode に渡すので、止めたものは無い。
+  'opencode-cli': [[/^/, null]],
 };
 
 /** そのずれで止めた機能。止めたものが無ければ null。 */

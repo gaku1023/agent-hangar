@@ -1,5 +1,6 @@
 import type { CompatContract } from '@agent-hangar/shared';
 import { isClaudeDirDrift } from './claudeDir.ts';
+import { isOpencodeCliDrift } from '../../opencode/compat/cli.ts';
 import { isCliDrift } from './cli.ts';
 import { isRegistryDrift } from './registry.ts';
 import { isTranscriptDrift } from './transcript.ts';
@@ -11,6 +12,7 @@ import { isTranscriptDrift } from './transcript.ts';
  *
  * 値だけで決められるのは、知っている集合と比べて記録した値である（トランスクリプトの種類、レジストリの status、
  * ~/.claude の項目、CLI のサブコマンドの増減と agents --json の行の種類）。
+ * opencode の CLI（opencode-cli）は、同じ形の値を opencode の組み込みの一覧で見る。
  * statusline と画面の文字は、欠けた項目と見つからない目印の記録で、値だけでは今もそうかを決められないので残す。
  * ほかの契約の欠けと、知らない形の値も残す。
  */
@@ -20,6 +22,7 @@ export function isCurrentDrift(contract: CompatContract, value: string): boolean
     case 'registry': return isRegistryDrift(value);
     case 'claude-dir': return isClaudeDirDrift(value);
     case 'cli': return isCliDrift(value);
+    case 'opencode-cli': return isOpencodeCliDrift(value);
     case 'statusline':
     case 'screen':
       return true;
