@@ -46,6 +46,18 @@ describe('新しい会話のデフォルト（localStorage）', () => {
     expect(() => clearLaunchDefaults()).not.toThrow();
   });
 
+  it('エージェントは opencode のときだけ持つ。Claude Code と知らない値は持たない（欄が無い）', () => {
+    saveLaunchDefaults({ ...EMPTY_DEFAULTS, agent: 'opencode' });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toMatchObject({ agent: 'opencode' });
+    expect(loadLaunchDefaults()).toEqual({ ...EMPTY_DEFAULTS, agent: 'opencode' });
+    saveLaunchDefaults({ ...EMPTY_DEFAULTS });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).not.toHaveProperty('agent');
+    localStorage.setItem(KEY, JSON.stringify({ agent: 'codex' }));
+    expect(loadLaunchDefaults()).toEqual(EMPTY_DEFAULTS);
+    localStorage.setItem(KEY, JSON.stringify({ agent: 'claude-code' }));
+    expect(loadLaunchDefaults()).toEqual(EMPTY_DEFAULTS);
+  });
+
   it('権限モードの表示名は PC の新しいセッションのダイアログと同じ', () => {
     expect(PERMISSION_NAMES['']).toBe('デフォルト');
     expect(PERMISSION_NAMES.bypassPermissions).toBe('Bypass permissions');

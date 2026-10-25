@@ -107,6 +107,31 @@ posixDescribe('OpencodeOptionsService', () => {
     expect(serves.get(OPTIONS_SERVE_KEY)).toBeNull();
   });
 
+  posixIt('一覧と一緒に、コマンドとスキルを読んで手元に持つ。lastCommands は取りに行かずにそれを返す（スマホの / の候補）', async () => {
+    const { service, logFile, advance } = make();
+    expect(service.lastCommands('/w/alpha')).toBeNull();
+    await service.get('/w/alpha');
+    const want = [
+      { name: 'init', description: 'create/update AGENTS.md', kind: 'command' },
+      { name: 'review', description: 'review changes', kind: 'command' },
+      { name: 'frontend-design', description: 'Distinctive visual design.', kind: 'skill' },
+    ];
+    expect(service.lastCommands('/w/alpha')).toEqual(want);
+    advance(120_000);
+    expect(service.lastCommands('/w/alpha')).toEqual(want);
+    expect(service.lastCommands(null)).toEqual(want);
+    expect(service.lastCommands('/w/other')).toBeNull();
+    const lists = readFakeOpencodeLog(logFile).filter((e) => e.ev === 'list' && (e.what === 'command' || e.what === 'skill'));
+    expect(lists.length).toBe(2);
+    expect(lists.every((e) => e.ev === 'list' && e.directory === '/w/alpha')).toBe(true);
+  });
+
+  posixIt('コマンドとスキルの道が無い版でも一覧は取れ、候補は空になる', async () => {
+    const { service } = make({ noSlashLists: true });
+    expect((await service.get('/w/alpha')).modes.map((m) => m.id)).toEqual(['build', 'plan']);
+    expect(service.lastCommands('/w/alpha')).toEqual([]);
+  });
+
   posixIt('last は手元の一覧を返す。無ければ null、間が空いていれば stale', async () => {
     const { service, advance } = make();
     expect(service.last('/w/alpha')).toBeNull();

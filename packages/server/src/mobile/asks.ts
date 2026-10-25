@@ -1,4 +1,22 @@
-import { aadAsk, aadReply, isSafeRelPath, MOBILE_REPLY_MAX_BYTES, open, seal, type MobileReply } from '@agent-hangar/shared';
+import {
+  aadAsk,
+  aadReply,
+  dataUseOf,
+  isMobileMode,
+  isModelName,
+  isSafeRelPath,
+  MOBILE_AGENT_LABEL_MAX,
+  MOBILE_AGENT_MODELS_MAX,
+  MOBILE_AGENT_MODES_MAX,
+  MOBILE_REPLY_MAX_BYTES,
+  modelCostKind,
+  open,
+  seal,
+  type MobileAgentOptions,
+  type MobileModelOption,
+  type MobileReply,
+  type OpencodeOptionsDto,
+} from '@agent-hangar/shared';
 import { changedFiles, listProjectFiles, listRecentFiles } from '../prompt/files.ts';
 import { listPromptCommandsWithKind, type PromptCommandKind } from '../provider/claude-code/prompt/commands.ts';
 import type { PhoneKeySource } from '../sync/phoneKeys.ts';
@@ -31,6 +49,16 @@ export type AskDeps = {
   };
   /** `/` の候補の読み取り。既定は listPromptCommandsWithKind。 */
   commands?: (o: { claudeDir: string; projectPath: string | null }) => CommandRow[];
+  /**
+   * opencode の口（0.10.0 で足した）。省けば opencode を使えない PC として答える。
+   * ready は設定で有効にしているか。options と commands は手元に持った一覧（provider/opencode/options.ts の last と lastCommands）で、取りに行かない。
+   * 場所（プロジェクトの根）を省くと、ホームか最後に取った場所の一覧になる。持っていなければ null。
+   */
+  opencode?: {
+    ready(): boolean;
+    options(dir: string | null): OpencodeOptionsDto | null;
+    commands(dir: string | null): { name: string; description: string; kind: 'skill' | 'command' }[] | null;
+  };
 };
 
 const DEFAULT_FILES: NonNullable<AskDeps['files']> = { recent: listRecentFiles, search: listProjectFiles, changed: changedFiles };
@@ -91,14 +119,70 @@ function commandsReply(d: AskDeps, projectId: string | null, accountId: string):
   return { commands: ordered.slice(0, ASK_COMMANDS_MAX).map((c) => ({ name: c.name, description: clip(c.description, ASK_DESCRIPTION_MAX), kind: c.kind })) };
 }
 
+/** opencode の問い合わせの場所。プロジェクトが無ければ null（ホームか最後に取った場所）、手元に無いプロジェクトなら undefined。 */
+function opencodeDir(d: AskDeps, projectId: string | null): string | null | undefined {
+  if (projectId === null) return null;
+  return d.projectPath(projectId) ?? undefined;
+}
+
+/**
+ * PC の選択肢（OpencodeOptionsDto）をスマホの形に縮める。
+ * モードとモデルは、起動の依頼で PC が受ける形（isMobileMode、isModelName）のものだけを残す。ツール呼び出しに対応しないモデルはエージェントで使えないので載せない。
+ * 費用の型とデータの扱いは、PC のモデルの小窓と同じ表（shared/modelFacts.ts）から付ける。この PC のプロバイダーは「PC 外への送信なし」、ほかのローカルは付けない。
+ */
+export function mobileAgentOptions(dto: OpencodeOptionsDto): MobileAgentOptions {
+  const whereOf = new Map(dto.providers.map((p) => [p.id, p.where]));
+  const models: MobileModelOption[] = [];
+  for (const m of dto.models) {
+    if (models.length >= MOBILE_AGENT_MODELS_MAX) break;
+    if (!m.tools || !isModelName(m.id)) continue;
+    const where = whereOf.get(m.provider) ?? 'remote';
+    const cost = modelCostKind(m.provider, m.cost, where);
+    const data = where === 'device' ? 'on-device' : cost === 'local' ? null : dataUseOf(m.provider, m.id.slice(m.provider.length + 1));
+    models.push({ id: m.id, label: clip(m.label, MOBILE_AGENT_LABEL_MAX), group: clip(m.group, MOBILE_AGENT_LABEL_MAX), cost, data });
+  }
+  return {
+    version: dto.version,
+    verified: dto.verified,
+    modes: dto.modes.filter((m) => isMobileMode(m.id)).slice(0, MOBILE_AGENT_MODES_MAX).map((m) => ({ id: m.id, description: m.description === null ? null : clip(m.description, ASK_DESCRIPTION_MAX) })),
+    models,
+    defaultModel: dto.defaultModel !== null && isModelName(dto.defaultModel) ? dto.defaultModel : null,
+    stale: dto.stale,
+    fetchedAt: dto.fetchedAt,
+  };
+}
+
+function agentOptionsReply(d: AskDeps, projectId: string | null): MobileReply {
+  if (!d.opencode?.ready()) return { error: 'agent-missing' };
+  const dir = opencodeDir(d, projectId);
+  if (dir === undefined) return { error: 'project-missing' };
+  const dto = d.opencode.options(dir);
+  return { agentOptions: dto ? mobileAgentOptions(dto) : null };
+}
+
+function opencodeCommandsReply(d: AskDeps, projectId: string | null): MobileReply {
+  if (!d.opencode?.ready()) return { error: 'agent-missing' };
+  const dir = opencodeDir(d, projectId);
+  if (dir === undefined) return { error: 'project-missing' };
+  const rows = d.opencode.commands(dir) ?? [];
+  return { commands: rows.slice(0, ASK_COMMANDS_MAX).map((c) => ({ name: c.name, description: clip(c.description, ASK_DESCRIPTION_MAX), kind: c.kind })) };
+}
+
 /**
  * 開けた問い合わせ（MobileAsk）に答える。形が違えば bad-request。
+ * opencode の問い合わせ（agent-options と、agent が opencode の commands）は、PC が手元に持った一覧で答え、取りに行かない。opencode を使えない PC は agent-missing。
  * 手元に無いプロジェクトは project-missing、手元に無いアカウントは account-missing。投げない。
  */
 export async function replyTo(d: AskDeps, ask: unknown): Promise<MobileReply> {
   if (!isRecord(ask) || ask.v !== 1) return { error: 'bad-request' };
   if (ask.kind === 'files' && typeof ask.projectId === 'string' && typeof ask.q === 'string') return filesReply(d, ask.projectId, ask.q);
-  if (ask.kind === 'commands' && (ask.projectId === null || typeof ask.projectId === 'string') && typeof ask.accountId === 'string') return commandsReply(d, ask.projectId, ask.accountId);
+  const projectOk = ask.projectId === null || typeof ask.projectId === 'string';
+  if (ask.kind === 'commands' && projectOk && typeof ask.accountId === 'string') {
+    if (ask.agent === undefined) return commandsReply(d, ask.projectId as string | null, ask.accountId);
+    if (ask.agent === 'opencode') return opencodeCommandsReply(d, ask.projectId as string | null);
+    return { error: 'bad-request' };
+  }
+  if (ask.kind === 'agent-options' && projectOk && ask.agent === 'opencode') return agentOptionsReply(d, ask.projectId as string | null);
   return { error: 'bad-request' };
 }
 
@@ -124,6 +208,11 @@ function fitReply(reply: MobileReply, budget: number): MobileReply {
     const commands = [...reply.commands];
     while (commands.length > 0 && size({ commands }) > budget) commands.pop();
     return { commands };
+  }
+  if ('agentOptions' in reply && reply.agentOptions) {
+    const models = [...reply.agentOptions.models];
+    while (models.length > 0 && size({ agentOptions: { ...reply.agentOptions, models } }) > budget) models.pop();
+    return { agentOptions: { ...reply.agentOptions, models } };
   }
   return reply;
 }

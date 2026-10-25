@@ -280,6 +280,46 @@ describe('SettingsScreen の新しい会話のデフォルト', () => {
   });
 });
 
+describe('SettingsScreen の既定のエージェント', () => {
+  const withOpencode = (): MobileFeed[] => {
+    const fs = twoPcs();
+    fs[1] = { ...fs[1]!, caps: { asks: true, images: true, effort: true, agents: ['claude-code', 'opencode'] } };
+    return fs;
+  };
+
+  it('opencode を有効にした PC が無ければ、エージェントの行を出さない', async () => {
+    await setup();
+    openPage(/^新しい会話のデフォルト/);
+    expect(screen.queryByRole('button', { name: /^エージェント/ })).not.toBeInTheDocument();
+  });
+
+  it('opencode のある PC があれば、エージェントの行を出し、選ぶとすぐ保存する', async () => {
+    await setup({ view: await viewOf(withOpencode()) });
+    openPage(/^新しい会話のデフォルト/);
+    const rowBtn = screen.getByRole('button', { name: /^エージェント/ });
+    expect(rowBtn).toHaveTextContent('Claude Code');
+    fireEvent.click(rowBtn);
+    const agents = screen.getByRole('radiogroup', { name: 'エージェント' });
+    expect(within(agents).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Claude Code', 'opencode']);
+    fireEvent.click(within(agents).getByRole('radio', { name: 'opencode' }));
+    expect(loadLaunchDefaults().agent).toBe('opencode');
+    expect(screen.getByRole('button', { name: /^エージェント/ })).toHaveTextContent('opencode');
+    back();
+    expect(row(/^新しい会話のデフォルト/)).toHaveTextContent('opencode');
+    openPage(/^新しい会話のデフォルト/);
+    fireEvent.click(screen.getByRole('button', { name: /^エージェント/ }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'エージェント' })).getByRole('radio', { name: 'Claude Code' }));
+    expect(loadLaunchDefaults()).not.toHaveProperty('agent');
+  });
+
+  it('既定が opencode なら、opencode のある PC が今無くても行を出す（戻せるように）', async () => {
+    saveLaunchDefaults({ pc: null, account: null, permissionMode: '', model: '', effort: '', agent: 'opencode' });
+    await setup();
+    openPage(/^新しい会話のデフォルト/);
+    expect(screen.getByRole('button', { name: /^エージェント/ })).toHaveTextContent('opencode');
+  });
+});
+
 describe('SettingsScreen の接続', () => {
   it('接続先、接続した日、接続し直す期限を出す', async () => {
     const joinedAt = new Date(2026, 9, 18, 12, 0).getTime();

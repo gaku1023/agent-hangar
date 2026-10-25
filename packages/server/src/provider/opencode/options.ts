@@ -1,6 +1,6 @@
 import type { OpencodeModelOption, OpencodeModeOption, OpencodeOptionsDto, OpencodeProviderOption, OpencodeProviderWhere, OpencodeStatusDto } from '@agent-hangar/shared';
 import type { CatalogModel } from './catalog.ts';
-import { OpencodeClient, type OpencodeAgentInfo, type OpencodeModelInfo, type OpencodeProviderInfo } from './client.ts';
+import { OpencodeApiError, OpencodeClient, type OpencodeAgentInfo, type OpencodeModelInfo, type OpencodeProviderInfo, type OpencodeSlashInfo } from './client.ts';
 import type { ServeInfo } from './serve/manager.ts';
 
 /**
@@ -17,8 +17,14 @@ const FRESH_MS = 60_000;
 /** モードの説明を切る長さ（opencode の既定のエージェントの説明は長い英文である）。 */
 const DESCRIPTION_MAX = 120;
 
-/** serve から読んだ素の一覧。 */
-export type OpencodeOptionsRaw = { agents: OpencodeAgentInfo[]; models: OpencodeModelInfo[]; providers: OpencodeProviderInfo[]; defaultModel: string | null };
+/**
+ * serve から読んだ素の一覧。
+ * commands と skills はスマホの `/` の候補（F2）に使う。道の無い版や読めなかったときは空で、省いても空と同じ。
+ */
+export type OpencodeOptionsRaw = { agents: OpencodeAgentInfo[]; models: OpencodeModelInfo[]; providers: OpencodeProviderInfo[]; defaultModel: string | null; commands?: OpencodeSlashInfo[]; skills?: OpencodeSlashInfo[] };
+
+/** スマホの `/` の候補の 1 行。kind は opencode のスラッシュコマンドか、スキルか。 */
+export type OpencodeSlashCommand = { name: string; description: string; kind: 'command' | 'skill' };
 
 export type OpencodeOptionsDeps = {
   /** serve の管理（serve/manager.ts の ServeManager）。 */
@@ -42,7 +48,7 @@ export type OpencodeOptionsDeps = {
   catalog?: { refresh(): Promise<boolean>; current(): { fetchedAt: number } | null; lookup(provider: string, model: string): CatalogModel | null };
 };
 
-type Cached = { dto: OpencodeOptionsDto; at: number };
+type Cached = { dto: OpencodeOptionsDto; at: number; commands: OpencodeSlashCommand[] };
 
 export class OpencodeOptionsService {
   private readonly cache = new Map<string, Cached>();
@@ -84,9 +90,21 @@ export class OpencodeOptionsService {
    * 場所を省くとホームの一覧、それも無ければ最後に取った一覧を返す。間が空いていれば stale にする。
    */
   last(dir: string | null): OpencodeOptionsDto | null {
-    const c = this.cache.get(dir || this.deps.home) ?? (dir ? undefined : this.lastDir !== null ? this.cache.get(this.lastDir) : undefined);
+    const c = this.cached(dir);
     if (!c) return null;
     return this.now() - c.at < this.freshMs() ? c.dto : { ...c.dto, stale: true };
+  }
+
+  /**
+   * 手元に持ったスラッシュコマンドとスキル（取りに行かない）。スマホの `/` の候補に答える。
+   * 場所の選び方は last と同じ。一覧を取ったことが無ければ null。
+   */
+  lastCommands(dir: string | null): OpencodeSlashCommand[] | null {
+    return this.cached(dir)?.commands ?? null;
+  }
+
+  private cached(dir: string | null): Cached | undefined {
+    return this.cache.get(dir || this.deps.home) ?? (dir ? undefined : this.lastDir !== null ? this.cache.get(this.lastDir) : undefined);
   }
 
   /**
@@ -112,7 +130,11 @@ export class OpencodeOptionsService {
     void catalog?.refresh().catch(() => false);
     const options = optionsOf(raw, catalog ? (p, m) => catalog.lookup(p, m) : undefined);
     const dto: OpencodeOptionsDto = { version: status.version, verified: status.verified, ...options, pricesAt: catalog?.current()?.fetchedAt ?? null, fetchedAt: at, stale: false };
-    this.cache.set(directory, { dto, at });
+    const commands: OpencodeSlashCommand[] = [
+      ...(raw.commands ?? []).map((c) => ({ ...c, kind: 'command' as const })),
+      ...(raw.skills ?? []).map((c) => ({ ...c, kind: 'skill' as const })),
+    ];
+    this.cache.set(directory, { dto, at, commands });
     this.lastDir = directory;
     return dto;
   }
@@ -152,8 +174,24 @@ export class OpencodeOptionsService {
 /** serve から一覧を読む。設定を先に読むのは、その場所の読み込みを始めさせるため（2.1.4 は場所ごとの最初の問いに空の一覧を返すことがある）。 */
 export async function readOptions(client: OpencodeClient, directory: string): Promise<OpencodeOptionsRaw> {
   const defaultModel = await client.configuredModel(directory);
-  const [agents, models, providers] = await Promise.all([client.agents(directory), client.models(directory), client.providers(directory)]);
-  return { agents, models, providers, defaultModel };
+  const [agents, models, providers, commands, skills] = await Promise.all([
+    client.agents(directory),
+    client.models(directory),
+    client.providers(directory),
+    slashOrEmpty(client.commands(directory)),
+    slashOrEmpty(client.skills(directory)),
+  ]);
+  return { agents, models, providers, defaultModel, commands, skills };
+}
+
+/** スラッシュコマンドとスキルは候補の飾りなので、道の無い版（404）や読めないときは空にして、一覧そのものは取る。 */
+async function slashOrEmpty(p: Promise<OpencodeSlashInfo[]>): Promise<OpencodeSlashInfo[]> {
+  try {
+    return await p;
+  } catch (e) {
+    if (!(e instanceof OpencodeApiError)) console.warn(`[opencode] could not list slash commands: ${(e as Error).message}`);
+    return [];
+  }
 }
 
 /**

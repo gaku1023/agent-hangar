@@ -108,8 +108,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const summary = bootSummary(home, delivery, runs, sync);
   const trash = bootTrash(home, delivery, sync, indexing);
   const takeover = bootTakeover({ home, runs, sync, delivery });
-  // スマホの受信箱に預ける素を封じて書く。同期と run（アカウントと使用率）の後に組む。
-  const mobile = bootMobile({ home, delivery, runs, sync });
   // opencode（ベータ）の serve の管理。前の hangar が残した serve の掃除は、設定の入り切りに関わらずここで始まる。
   const opencode = bootOpencode(home);
   // opencode の driver は配る層と一緒に組んである。serve の管理をここで渡す（それまでの opencode の起動は断る）。
@@ -120,6 +118,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // opencode の本文は、ターンの終わり（serve の出来事の流れ）と run の終わり（bootSummary の flushOnRunEnded）で書き出して上げる。
   opencodeExport = opencode.exporter;
   uploadOnOpencodeTurnEnd(delivery.opencode.events, () => sync.uploader);
+
+  // スマホの受信箱に預ける素を封じて書く。同期と run（アカウントと使用率）の後に組む。
+  // スマホの opencode の問い合わせ（モードとモデル、`/` の候補）には、opencode の選択肢が手元に持った一覧で答える。
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode });
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。

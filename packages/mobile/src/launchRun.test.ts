@@ -81,6 +81,7 @@ describe('startLaunch', () => {
     const cases: [MobileLaunchAnswer, RegExp][] = [
       [{ ok: false, reason: 'project-missing' }, /その PC にプロジェクトのディレクトリがありません/],
       [{ ok: false, reason: 'account-missing' }, /その PC に選んだアカウントがありません/],
+      [{ ok: false, reason: 'agent-missing' }, /opencode が見つかりません（PC の PATH を確認してください）。/],
       [{ ok: false, reason: 'images-missing' }, /画像/],
       [{ ok: false, reason: 'expired' }, /時間切れ/],
     ];

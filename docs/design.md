@@ -7629,6 +7629,19 @@ PC を指定しないときのアカウントの選択肢は、全 PC のアカ�
 新しい会話の画面は、開いたときにこの値を最初から選んでおく。
 選んだプロジェクトに無い PC、その PC に無いアカウント、caps で使えない effort は、今までの判定がそのまま無視する（今の初期値に戻す）。
 知らない権限、モデル、effort の値は、読むときにデフォルトに戻す。
+opencode を有効にした PC（`caps.agents` に opencode）があるときは、PC の次に「エージェント」の行（Claude Code／opencode）を足す（0.10.0）。
+既定が opencode なら、その PC が今無くても行を出す（戻せるように）。
+エージェントは opencode のときだけ `agent: 'opencode'` として置く。
+opencode のモードとモデルは PC の一覧から選ぶので既定に持たず、自動承認も毎回オフから始める。
+
+新しい会話の画面で opencode のある PC を選ぶと、PC の段の次に「エージェント」の段（Claude Code／opencode と小札「ベータ」）が伸びて現れる。
+opencode にすると、アカウントの段と、詳しい設定の権限モード・モデル・effort の組は既存の Fold で畳まれ、モード・モデル・自動承認の組が伸びて現れる（試作 S1。新しい動きは足さない）。
+要約の行は「モード build · モデル … · 自動承認 オフ」になる。
+モードとモデルの一覧は、opencode を選んだときに呼び鈴の問い合わせ（`agent-options`）で PC から取り、届いた札は順に伸びて入る。
+モデルの札には、プロバイダー、費用の型（ローカル、無料、従量、定額）と、PC 外へ出ないことか気を付けるデータの扱い（⚠）を添える。
+自動承認のオンは危険の色にし、下に「deny 以外をすべて許可」を出す（オフなら「ask のツールは実行前に確認」）。
+`/` の候補は、アカウントなしで opencode のコマンドとスキルを問い合わせる。
+opencode の会話には Remote Control が無いので、起動のシートは開くボタンを出さず、URL も待たない。
 
 接続のページには、接続先（受信箱の PC の名前）、接続した日、接続し直す期限（接続した日から `PHONE_MAX_AGE_MS`）を出す。
 接続した日は、接続するときに接続の値（`hangar.mobile.pairing` の `joinedAt`、スマホの時計）と一緒に置く。
@@ -7927,9 +7940,22 @@ Worker が受け取るか、409（もう答えた、時間切れ）を返した�
 claim が通ったのに応答が失われた場合は、起こされず、スマホは時間切れと言う。
 二度起こすより、起こさない側へ倒す設計である。
 claim が通信で倒れたときは記録せず、次の pull で試し直す。
-断る理由は `project-missing`、`account-missing`、`bad-payload`、`expired`、`launch-failed`、`images-missing` である。
+断る理由は `project-missing`、`account-missing`、`agent-missing`、`bad-payload`、`expired`、`launch-failed`、`images-missing` である。
 `images-missing` は、依頼に付いた画像を 1 枚でも取れない、または開けないときで、起こさずに返す。
 依頼の封の中身には、`effort`（無ければデフォルト）と `images`（番号、MIME、バイト数の並び）を足せる（「effort」「画像」）。
+
+**opencode の起動の依頼（0.10.0）。**
+依頼の封の中身に、`agent`（`claude-code` か `opencode`、無ければ Claude Code）、`mode`（opencode のモード）、`autoApprove`（自動承認）を足せる。
+モデルは今の `model` に `provider/model` の形で入れる。
+PC（`packages/server/src/mobile/launchInbox.ts`）は、知らない `agent` を `bad-payload` で断る。
+opencode の依頼は、アカウントと権限モードが空で、`effort` が無いことを確かめ、崩れていれば `bad-payload` で断る。
+`mode` は `MOBILE_MODE_RE`（英数字で始まる 40 字まで。引数に読まれる形を断る）に合うものだけを通す。
+Claude の依頼に `mode` や `autoApprove` が混ざったものも断る。
+opencode の依頼ではアカウントを確かめず、代わりに設定で opencode を有効にしてあり、手元に opencode が見つかることを確かめる（無ければ `agent-missing`）。
+起動の params には、アカウントを渡さず、`agent: 'opencode'` と、選んだ `mode`、`model`、自動承認（真のときだけ）を渡す。
+手元の記録の権限モードは、自動承認なら `bypassPermissions`、そうでなければ空で控える（一覧のラベル「スマホから」の危険の印を Claude と同じにする）。
+古い PC は `agent` を知らずに Claude を起こしてしまうので、スマホは受信箱の素の `caps.agents` に opencode のある PC にだけ、エージェントの段を出し、`agent` を送る。
+`caps.agents` の無い PC（古い PC と、opencode を無効にした PC）への依頼は、既定のエージェントが opencode でも Claude の依頼にする。
 PC が一時停止しているときと、Worker の版が 7 に届かないときは、claim せずに残す。
 
 上限は次のとおりである。
@@ -8003,11 +8029,22 @@ SQLite 型で作る（無料プランで使えるのはこれだけ）。
     PC の指示欄と同じ一覧を、そのアカウントの設定ディレクトリで読む。
     使った回数の多い順に最大 200 件で、説明は 120 字で切る。
     `projectId` が null ならプロジェクトのスキルは含めない。
-  - 失敗は `{ error: 'project-missing' | 'account-missing' | 'bad-request' }` である。
+  - `{ kind: 'commands', projectId | null, accountId: '', agent: 'opencode' }` に、opencode のスラッシュコマンドとスキルを同じ形で返す（0.10.0）。
+    一覧は、opencode の選択肢（`OpencodeOptionsService`）がモードとモデルと一緒に serve の `GET /api/command` と `GET /api/skill` から読んで手元に持ったもので（`lastCommands`）、取りに行かない。
+    持っていなければ空である。
+  - `{ kind: 'agent-options', agent: 'opencode', projectId | null }` に、`{ agentOptions }` を返す（0.10.0）。
+    中身は、PC が手元に持った opencode の選択肢（`OpencodeOptionsService.last`）を縮めたもので、取りに行かない（呼び鈴は 5 秒しか待てず、serve を起こすと間に合わない）。
+    PC が一覧を取るのは、デスクトップの新しいセッションで opencode を選んだときである。
+    版、検証済みか、モード（`{ id, description }`、`MOBILE_MODE_RE` に合うもの、最大 20）、モデル（`{ id, label, group, cost, data }`、ツール呼び出しに対応し `isModelName` に合うもの、最大 100、名前は 60 字）、opencode.json の既定のモデル、`stale`、取った時刻を載せる。
+    `cost`（費用の型）と `data`（データの扱い）は、モデルの小窓と同じ手書きの表（`shared/modelFacts.ts`）から PC が付ける。
+    取ってから 1 分を過ぎた一覧は `stale` を立てる。
+    PC がまだ一覧を持っていなければ `agentOptions` は null で、スマホは「モデルの一覧を取得できません。デフォルトで起動します。」と出す。
+  - opencode の問い合わせは、PC で opencode を有効にしていなければ `{ error: 'agent-missing' }` である。
+  - 失敗は `{ error: 'project-missing' | 'account-missing' | 'agent-missing' | 'bad-request' }` である。
   - 答えは `reply:` の AAD で封じる。
     PC は、開けない問い合わせには答えない（スマホは 5 秒で時間切れになる）。
 - **スマホ側。**
-  答えは画面の間だけ覚える（同じ PC、プロジェクト、アカウントの `/` は 1 回、`@` は同じ `q` を 30 秒）。
+  答えは画面の間だけ覚える（同じ PC、プロジェクト、アカウントの `/` は 1 回、`@` は同じ `q` を 30 秒、opencode の選択肢は同じ PC とプロジェクトで 1 回）。
   打つたびの問い合わせは 250 ms 待ってから出す。
   PC がつないでいない、答えない、呼び鈴が無い Worker のときは、候補の欄にその旨を表示し、プロンプトは手で入力できる。
 - **PC 側の張る条件。**

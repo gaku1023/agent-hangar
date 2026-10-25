@@ -60,6 +60,12 @@ export type FakeOpencodeOptions = {
   configModel?: { providerID: string; model: string } | null;
   /** 場所ごとの最初の `GET /api/agent` に空の一覧を返す（実物の 2.1.4 の振る舞い）。 */
   agentsEmptyFirst?: boolean;
+  /** `GET /api/command` の一覧（実物の Command.Info）。既定は init と review。 */
+  commands?: { name: string; description?: string }[];
+  /** `GET /api/skill` の一覧（実物の Skill.Info の一部）。既定は frontend-design。 */
+  skills?: { id: string; name: string; description?: string }[];
+  /** `/api/command` と `/api/skill` を 404 で断る（道の無い版のふり）。 */
+  noSlashLists?: boolean;
   /** 一覧の道を 500 で断る。 */
   failLists?: boolean;
   /** `GET /api/integration` のカタログ。既定は FAKE_OPENCODE_INTEGRATIONS。 */
@@ -100,6 +106,13 @@ export const FAKE_OPENCODE_MODELS: NonNullable<FakeOpencodeOptions['models']> = 
   { providerID: 'lmstudio', id: 'qwen/qwen3-coder-30b', name: 'Qwen3 Coder 30B' },
   { providerID: 'lmstudio', id: 'gemma-4-26b', name: 'Gemma 4 26B' },
 ];
+export const FAKE_OPENCODE_COMMANDS: NonNullable<FakeOpencodeOptions['commands']> = [
+  { name: 'init', description: 'create/update AGENTS.md' },
+  { name: 'review', description: 'review changes' },
+];
+export const FAKE_OPENCODE_SKILLS: NonNullable<FakeOpencodeOptions['skills']> = [
+  { id: 'frontend-design', name: 'frontend-design', description: 'Distinctive visual design.' },
+];
 export const FAKE_OPENCODE_PROVIDERS: NonNullable<FakeOpencodeOptions['providers']> = [
   { id: 'opencode', name: 'OpenCode' },
   { id: 'lmstudio', name: 'LM Studio (local)' },
@@ -124,7 +137,7 @@ export type FakeOpencodeEvent =
   | { ev: 'create'; pid: number; body: Record<string, unknown>; id: string; t: number }
   | { ev: 'instructions'; pid: number; id: string; key: string; body: Record<string, unknown>; status: number; t: number }
   | { ev: 'mcp'; pid: number; directory: string | null; status: string; t: number }
-  | { ev: 'list'; pid: number; what: 'agent' | 'model' | 'provider' | 'config'; directory: string | null; t: number }
+  | { ev: 'list'; pid: number; what: 'agent' | 'model' | 'provider' | 'config' | 'command' | 'skill'; directory: string | null; t: number }
   | { ev: 'messages'; pid: number; id: string; query: string; t: number }
   | { ev: 'connectKey'; pid: number; id: string; key: string; t: number }
   | { ev: 'deleteCredential'; pid: number; id: string; t: number }
@@ -153,6 +166,8 @@ const MODELS = ${JSON.stringify(opts.models ?? FAKE_OPENCODE_MODELS)};
 const PROVIDERS = ${JSON.stringify(opts.providers ?? FAKE_OPENCODE_PROVIDERS)};
 const CONFIG_MODEL = ${JSON.stringify(opts.configModel === undefined ? { providerID: 'lmstudio', model: 'qwen/qwen3-coder-30b' } : opts.configModel)};
 const INTEGRATIONS = ${JSON.stringify(opts.integrations ?? FAKE_OPENCODE_INTEGRATIONS)};
+const COMMANDS = ${JSON.stringify(opts.commands ?? FAKE_OPENCODE_COMMANDS)};
+const SKILLS = ${JSON.stringify(opts.skills ?? FAKE_OPENCODE_SKILLS)};
 const log = (o) => fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, t: Date.now(), ...o }) + '\\n');
 const argv = process.argv.slice(2);
 log({ ev: 'start', argv, env: { ...process.env } });
@@ -264,13 +279,21 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { location: { directory }, data: mcpNames.map((name) => ({ name, status: { status } })) });
     return;
   }
-  const list = /^\\/api\\/(agent|model|provider|config)$/.exec(url.pathname);
+  const list = /^\\/api\\/(agent|model|provider|config|command|skill)$/.exec(url.pathname);
   if (req.method === 'GET' && list) {
     const what = list[1];
     const directory = url.searchParams.get('location[directory]');
     log({ ev: 'list', what, directory });
     if (OPTS.failLists) { json(res, 500, { error: 'boom' }); return; }
     const location = { directory: directory ?? process.cwd() };
+    if (what === 'command' || what === 'skill') {
+      if (OPTS.noSlashLists) { json(res, 404, { error: 'not found' }); return; }
+      const data = what === 'command'
+        ? COMMANDS.map((c) => ({ name: c.name, ...(c.description ? { description: c.description } : {}) }))
+        : SKILLS.map((k) => ({ id: k.id, name: k.name, ...(k.description ? { description: k.description } : {}), path: '/skills/' + k.id + '/SKILL.md', content: '# ' + k.name }));
+      json(res, 200, { location, data });
+      return;
+    }
     if (what === 'config') {
       json(res, 200, [{ type: 'document', path: '/home/.config/opencode/opencode.json', info: CONFIG_MODEL ? { model: CONFIG_MODEL } : {} }, { type: 'directory', path: '/home/.config/opencode' }]);
       return;

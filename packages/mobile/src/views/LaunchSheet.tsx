@@ -101,11 +101,13 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
   const row = sessionId ? findRow(view, sessionId) : null;
   const url = row?.rcUrl && isRemoteControlUrl(row.rcUrl) ? row.rcUrl : null;
   const hasUrl = url !== null;
+  // opencode には Remote Control が無いので、開くボタンを出さず、URL も待たない（一覧の opencode の行がリンクでないのと同じ）。
+  const opencode = spec.payload.agent === 'opencode';
 
   // 始まったあと、URL が来るまで受信箱を読み直してもらう。
   const want = useRef(onWantRefresh);
   want.current = onWantRefresh;
-  const gaveUp = useGaveUp(open && sessionId !== null && !hasUrl, sessionId, () => want.current());
+  const gaveUp = useGaveUp(open && sessionId !== null && !hasUrl && !opencode, sessionId, () => want.current());
 
   const bad = state.kind === 'failed' || state.kind === 'unpaired';
   return (
@@ -149,7 +151,7 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
                   <p className="intent">意図：{row.intent.trim()}</p>
                 </Reveal>
               )}
-              {url ? (
+              {opencode ? null : url ? (
                 <a className="ns-start sm" href={openUrlOf(url)} target="_blank" rel="noopener noreferrer">
                   開く ›
                 </a>

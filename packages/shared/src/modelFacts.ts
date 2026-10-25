@@ -82,3 +82,16 @@ export function dataUseOf(provider: string, model: string): ModelDataUse | null 
   const hit = MODEL_FACTS.find((f) => f.provider === provider && matches(f.match, model));
   return hit?.data ?? providerFactOf(provider).data ?? null;
 }
+
+/**
+ * 費用の型。定額のプロバイダー（手書きの表）、この PC か内側の網、料金のあるもの（従量）、0 円のもの（無料）の順に決める。
+ * 料金の分からないものは、opencode.json で足した自前のサーバーとしてローカルにする（opencode も models.dev も知らないモデルである）。
+ * where はプロバイダーの宛先（device、lan、remote）。PC のモデルの小窓とスマホの答えが同じ決め方を使う。
+ */
+export function modelCostKind(provider: string, cost: { input: number; output: number } | null, where: 'device' | 'lan' | 'remote'): ModelCostKind {
+  const fact = providerFactOf(provider);
+  if (fact.cost === 'plan') return 'plan';
+  if (fact.cost === 'local' || where !== 'remote') return 'local';
+  if (cost === null) return 'local';
+  return cost.input > 0 || cost.output > 0 ? 'metered' : 'free';
+}

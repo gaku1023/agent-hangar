@@ -108,6 +108,12 @@ const integrationOf = (x: Record<string, unknown>): OpencodeIntegrationInfo | nu
     connections,
   };
 };
+/** スラッシュコマンドとスキルの 1 行（名前と説明。説明が無ければ空）。 */
+export type OpencodeSlashInfo = { name: string; description: string };
+
+/** 一覧の行。`{ data }` で包んだものと、包まない配列の両方を読む（2.1.4 の command と skill の答えの包みは実物で確かめていない）。 */
+const slashRows = (r: unknown): Record<string, unknown>[] => (Array.isArray(r) ? r.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : rowsOf(r));
+
 const rowsOf = (r: unknown): Record<string, unknown>[] => {
   const data = (r as { data?: unknown } | null)?.data;
   return Array.isArray(data) ? data.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : [];
@@ -273,6 +279,30 @@ export class OpencodeClient {
       if (providerID && model) found = `${providerID}/${model}`;
     }
     return found;
+  }
+
+  /**
+   * その場所で使えるスラッシュコマンド（`GET /api/command`、2.1.4 の Command.Info は name と省ける description）。
+   * スマホの `/` の候補に使う。
+   */
+  async commands(directory: string): Promise<OpencodeSlashInfo[]> {
+    const r = await this.request('GET', `/api/command${at(directory)}`);
+    return slashRows(r).flatMap((x) => {
+      const name = str(x.name);
+      return name ? [{ name, description: str(x.description) ?? '' }] : [];
+    });
+  }
+
+  /**
+   * その場所で使えるスキル（`GET /api/skill`、2.1.4 の Skill.Info）。本文（content）とパスは読まない。
+   * スマホの `/` の候補に使う。
+   */
+  async skills(directory: string): Promise<OpencodeSlashInfo[]> {
+    const r = await this.request('GET', `/api/skill${at(directory)}`);
+    return slashRows(r).flatMap((x) => {
+      const name = str(x.name) ?? str(x.id);
+      return name ? [{ name, description: str(x.description) ?? '' }] : [];
+    });
   }
 
   /** いま動いている会話の ID。`GET /api/session/active` は動いている間の会話だけを鍵に持つ。 */

@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { LeaveError, leavePhone } from '../api.ts';
 import type { InboxView } from '../inbox.ts';
 import {
+  AGENT_NAMES,
   clearLaunchDefaults,
   DEFAULT_LABEL,
   EFFORT_OPTIONS,
@@ -231,6 +232,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
   const defaultsSummary =
     [
       defaults.pc ? choices.pcName(defaults.pc) : '',
+      defaults.agent === 'opencode' ? AGENT_NAMES.opencode : '',
       defaults.account ? choices.accountName(defaults.account) : '',
       defaults.permissionMode ? permissionName(defaults.permissionMode) : '',
       defaults.model,
@@ -489,6 +491,8 @@ type DefaultChoices = {
   accountsOf: (pc: string | null) => { id: string; name: string }[];
   pcName: (id: string) => string;
   accountName: (id: string) => string;
+  /** opencode を有効にした PC（caps.agents に opencode のある PC）があるか。無ければエージェントの行を出さない。 */
+  opencode: boolean;
 };
 
 /**
@@ -508,6 +512,7 @@ function useDefaultChoices(view: InboxView | null): DefaultChoices {
       accountsOf: (pc) => (pc ? (accts.get(pc) ?? []) : [...all.values()]),
       pcName: (id) => names.get(id) ?? id,
       accountName: (id) => all.get(id)?.name ?? id,
+      opencode: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('opencode')),
     };
   }, [view]);
 }
@@ -516,7 +521,10 @@ type DefKey = keyof LaunchDefaults;
 type Opt = { value: string; label: string };
 const NOT_SET = '指定なし';
 
-/** 新しい会話のデフォルトのページ。5 行のどれかを押すと、その下に選択肢が開く（開くのは 1 つだけ）。 */
+/**
+ * 新しい会話のデフォルトのページ。5 行（opencode を有効にした PC があれば、エージェントを足して 6 行）のどれかを押すと、その下に選択肢が開く（開くのは 1 つだけ）。
+ * エージェントの行は、既定が opencode なら、opencode の PC が今無くても出す（Claude Code に戻せるように）。
+ */
 function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults; choices: DefaultChoices; onPick: <K extends DefKey>(k: K, v: LaunchDefaults[K]) => void }): ReactNode {
   const [opened, setOpened] = useState<DefKey | null>(null);
   const [swapped, setSwapped] = useState<DefKey | null>(null);
@@ -527,6 +535,19 @@ function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults;
       value: defaults.pc ? choices.pcName(defaults.pc) : NOT_SET,
       options: [{ value: '', label: NOT_SET }, ...choices.pcs.map((p) => ({ value: p.id, label: p.name }))],
     },
+    ...(choices.opencode || defaults.agent === 'opencode'
+      ? [
+          {
+            k: 'agent' as const,
+            label: 'エージェント',
+            value: AGENT_NAMES[defaults.agent ?? 'claude-code'],
+            options: [
+              { value: '', label: AGENT_NAMES['claude-code'] },
+              { value: 'opencode', label: AGENT_NAMES.opencode },
+            ],
+          },
+        ]
+      : []),
     {
       k: 'account',
       label: 'アカウント',
@@ -540,6 +561,7 @@ function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults;
   const pick = (k: DefKey, v: string): void => {
     setSwapped(k);
     if (k === 'pc' || k === 'account') onPick(k, v || null);
+    else if (k === 'agent') onPick('agent', v === 'opencode' ? 'opencode' : undefined);
     else onPick(k, v);
   };
   const current = (k: DefKey): string => defaults[k] ?? '';
