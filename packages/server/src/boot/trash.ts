@@ -24,13 +24,13 @@ export type TrashParts = {
  */
 export function bootTrash(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir'>,
-  delivery: Pick<DeliveryParts, 'registry'>,
+  delivery: Pick<DeliveryParts, 'live'>,
   sync: Pick<SyncParts, 'onStatesApplied' | 'refetchSession'>,
   indexing: Pick<IndexingParts, 'indexer'>,
 ): TrashParts {
   const { db, claudeDir } = home;
   const deviceId = home.device.id;
-  const live = () => delivery.registry.current();
+  const live = () => delivery.live.current();
   const runHere = db.prepare('select 1 from runs where session_id = ? and device_id = ? and ended_at is null and deleted_at is null limit 1');
   const providerOf = db.prepare('select provider_session_id p from sessions where id = ?');
   const trash = new SessionTrash({

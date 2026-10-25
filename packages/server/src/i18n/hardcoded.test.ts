@@ -28,6 +28,7 @@ const LEFT = '利用者に見える文で、まだ鍵へ移していない。次
 
 /** ファイル（server/src からの相対）ごとの、直書きの日本語の行の数と、残す理由。 */
 const ALLOWED: Record<string, { lines: number; why: string }> = {
+  'boot/agents.ts': { lines: 2, why: LOG },
   'boot/bootError.ts': { lines: 1, why: LOG },
   'boot/home.ts': { lines: 3, why: LOG },
   'boot/http.ts': { lines: 1, why: LOG },
@@ -53,7 +54,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'provider/claude-code/config/accountAuth.ts': { lines: 1, why: LOG },
   'provider/claude-code/config/statusline.ts': { lines: 1, why: FILE_BODY },
   'provider/claude-code/driver.ts': { lines: 1, why: INTERNAL },
-  'runs/manager.ts': { lines: 7, why: LOG },
+  'runs/manager.ts': { lines: 5, why: LOG },
   'runs/queries.ts': { lines: 1, why: LEFT },
   'sessions/autoDone.ts': { lines: 1, why: LOG },
   'sessions/candidateExpiry.ts': { lines: 1, why: LOG },

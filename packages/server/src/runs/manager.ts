@@ -17,16 +17,16 @@ import { runCommand, shellTabCommand } from '../launch/command.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { needsShell } from '../platform/exec.ts';
 import { toolPathIssue } from '../config/readiness.ts';
-import { ensureHookScript } from '../launch/hookScript.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession, normalizeDir } from '../projects/registry.ts';
 import { isUnder } from '../platform/paths.ts';
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/transcript/discover.ts';
-import { createClaudeDriver, type ClaudeDriver } from '../provider/claude-code/driver.ts';
+import type { ClaudeDriver } from '../provider/claude-code/driver.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
-import { agentsOf, DEFAULT_AGENT, type Agents } from '../agent/agents.ts';
+import { DEFAULT_AGENT, type Agents } from '../agent/agents.ts';
+import type { LiveHub } from '../agent/liveHub.ts';
 import type { AgentDriver, LaunchPlan, LaunchSpec } from '../agent/types.ts';
 import type { PaneOps } from '../tmux/pane.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
@@ -54,6 +54,19 @@ const HEARTBEAT_MS = 30_000;
 export const RUN_STIR_MS = 10_000;
 /** 応答に載せる外部コマンドの失敗の長さの上限。 */
 const MAX_ERROR_LEN = 200;
+
+/**
+ * 外部コマンドの失敗を、応答やログに載せられる 1 行に整える。
+ * トークンを名指しで伏せ、64 桁の 16 進（トークンとセッション別の秘密の形）もまとめて伏せる。
+ * RunManager の失敗の文と、boot が組む driver の知らせ（boot/agents.ts）が使う。
+ */
+export function safeErrorText(language: Language, token: string, e: unknown): string {
+  const line = errorText(language, e).split('\n')[0]!.trim();
+  const named = token ? line.replaceAll(token, '***') : line;
+  const masked = named.replace(/\b[0-9a-f]{64}\b/g, '***');
+  return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
+}
+
 /** 引き取るときに、元の claude が SIGTERM で終わるのを待つ長さ。 */
 const TERMINATE_MS = 10_000;
 /**
@@ -93,7 +106,9 @@ export type LaunchResult = LaunchResultDto;
 /** remoteUrl は、--remote-control で起こした run の画面から Remote Control の URL を拾い、run_remote_urls に書いたこと。 */
 export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run: RunDto): void; runEnded?(run: RunDto): void; tabChanged?(tab: TabDto): void; interrupted?(group: InterruptedDto | null): void; remoteUrl?(e: { runId: string; sessionId: string; url: string }): void };
 /**
- * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
+ * live は実行中の一覧（agent/liveHub.ts の LiveHub）である。外で動いている会話の再開を断り、引き取りと attach が外で動く claude の pid とバックグラウンドの id を引くのに使う。
+ * 渡さなければ一覧を読まない構成として動き、見回りは pid の生存だけで run を閉じるかを決める。
+ * agents は sessions.provider の値から driver を引く口（agent/agents.ts）、claude はその中の Claude の driver で、attach のような Claude にしか無い起こし方に直に使う。組み立てるのは boot/agents.ts である。
  * procs は外のプロセスに触る口で、テストでは差し替える。
  * panes は run とシェルタブの画面に触る口（tmux/pane.ts）。無ければ起動を断り、見張りは何も閉じない。
  * accounts はアカウントの解決（runs/accounts.ts）。渡さなければ、アカウントを使わない構成として動く。
@@ -101,7 +116,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'> };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'> };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 /** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
@@ -152,21 +167,8 @@ export class RunManager {
   constructor(private readonly deps: RunManagerDeps) {
     this.tr = translatorOf(deps.language);
     this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir, deviceId: deps.deviceId });
-    this.claude = createClaudeDriver({
-      home: deps.home,
-      // hook の台本はサーバ自身の node で走らせる。
-      nodeBin: () => this.deps.nodeBin ?? process.execPath,
-      hookScript: () => ensureHookScript(this.deps.home),
-      droppedEnv: RUN_DROPPED_ENV,
-      claudeBin: () => this.deps.claudeBin,
-      live: () => this.deps.live?.() ?? [],
-      procs: () => this.procs(),
-      report: (what, e) => {
-        if (what === 'hook-settings') console.error('[runs] hook の設定を書けませんでした', e instanceof Error ? e.message : e);
-        else console.error('[runs] バックグラウンドのセッションを止められませんでした', this.safeError(e));
-      },
-    });
-    this.agents = agentsOf([this.claude]);
+    this.claude = deps.claude;
+    this.agents = deps.agents;
   }
 
   on(l: RunListener): () => void {
@@ -198,10 +200,7 @@ export class RunManager {
    * 併せて 1 行に切り詰める。UI はこれをそのままトーストに出す。
    */
   private safeError(e: unknown): string {
-    const line = errorText(this.language(), e).split('\n')[0]!.trim();
-    const named = this.deps.token ? line.replaceAll(this.deps.token, '***') : line;
-    const masked = named.replace(/\b[0-9a-f]{64}\b/g, '***');
-    return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
+    return safeErrorText(this.language(), this.deps.token, e);
   }
 
   private language(): Language {
@@ -589,7 +588,7 @@ export class RunManager {
     if (!this.hasBody(s.id)) throw new RunError(400, msg('run.resume.noTranscript'));
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const strayError = (pid: number) => new RunError(409, msg('run.error.strayProcess', { pid }), { code: 'stray_process', pid });
-    if (this.deps.isLive?.(s.provider_session_id)) {
+    if (this.deps.live?.isLive(s.provider_session_id)) {
       // 登録に載っていても、その pid が終わった扱いの run の claude なら、hangar の外ではなく見失った自分の claude である（issue #258 の場面そのもの）。
       // 止めた後も登録はしばらく残りうるので、ignore（止めた後の再開も含む）はそれで断らない。
       if (stray === 'off' || !this.ownLive(s)) throw new RunError(409, msg('run.error.runningOutside'));
@@ -606,7 +605,7 @@ export class RunManager {
   private ownLive(s: SessionRow): boolean {
     const r = latestRunForSession(this.db, s.id, this.deviceId);
     if (!r || r.endedAt === null || (r.endReason !== 'exited' && r.endReason !== 'lost') || r.pid === null) return false;
-    return (this.deps.live?.() ?? []).some((l) => l.sessionId === s.provider_session_id && l.pid === r.pid);
+    return (this.deps.live?.current() ?? []).some((l) => l.sessionId === s.provider_session_id && l.pid === r.pid);
   }
 
   /**
@@ -745,7 +744,7 @@ export class RunManager {
       // ほかの PC のクイックセッションのフォルダがまだ無ければ、ここでは作らず、再開（launch）が確かめの後に作る。
       precheck: (id) => { const t = this.cwdFor(this.session(id)); this.precheck(t.path, { mayCreate: t.createsFolder }); },
       isBackground: (providerSessionId) => !!this.liveOf(providerSessionId)?.background,
-      isLive: (providerSessionId) => !!this.deps.isLive?.(providerSessionId),
+      isLive: (providerSessionId) => !!this.deps.live?.isLive(providerSessionId),
       aliveRun: (id) => aliveRunForSession(this.db, id, this.deps.deviceId, this.now()),
       kill: (runId) => { this.kill(runId); },
       resume: (id, extra) => this.resume(id, extra),
@@ -755,7 +754,7 @@ export class RunManager {
 
   /** レジストリのうち、Claude の UUID が一致する項目。 */
   private liveOf(providerSessionId: string): LiveSession | null {
-    return this.deps.live?.().find((l) => l.sessionId === providerSessionId) ?? null;
+    return this.deps.live?.current().find((l) => l.sessionId === providerSessionId) ?? null;
   }
 
   private procs(): ProcOps {
@@ -826,7 +825,7 @@ export class RunManager {
     const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     const until = this.now() + GONE_WAIT_MS;
     for (;;) {
-      if (!(this.deps.live?.() ?? []).some((l) => l.sessionId === providerSessionId)) return true;
+      if (!(this.deps.live?.current() ?? []).some((l) => l.sessionId === providerSessionId)) return true;
       if (this.now() >= until) return false;
       await sleep(100);
     }
@@ -907,8 +906,8 @@ export class RunManager {
   private stillRunning(run: RunDto): boolean {
     if (run.pid === null || !(this.deps.pidAlive ?? isAlive)(run.pid)) return false;
     if (!this.deps.live) return true;
-    const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
-    return !!s && this.deps.live().some((l) => l.sessionId === s.provider_session_id && l.pid === run.pid);
+    const s = this.db.prepare('select provider, provider_session_id from sessions where id = ?').get(run.sessionId) as { provider: string; provider_session_id: string } | undefined;
+    return !!s && this.agents.of(s.provider).live.isRunning(s.provider_session_id, run.pid);
   }
 
   /**

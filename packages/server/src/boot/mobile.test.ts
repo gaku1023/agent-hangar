@@ -84,7 +84,7 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
   const events: ServerEvent[] = [];
   const mobile = bootMobile({
     home: { db, device: { id: 'pc-a', name: 'PC A' }, home: homeDir },
-    delivery: { registry, hub: { broadcast: (ev: ServerEvent) => { events.push(ev); } } },
+    delivery: { live: registry, hub: { broadcast: (ev: ServerEvent) => { events.push(ev); } } },
     runs: { runs: { start, on }, accounts },
     sync,
     timers,

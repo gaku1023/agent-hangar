@@ -69,7 +69,7 @@ export class OsNoticeFeed {
 export type StopNoticeDeps = {
   db: Db;
   deviceId: string;
-  /** いまの登録（RegistryWatcher.current、許可の中身を足したもの）。 */
+  /** いまの実行中の一覧（agent/liveHub.ts の LiveHub.current、許可の中身を足したもの）。 */
   live: () => LiveSessionDto[];
   language: GetLanguage;
   feed: Pick<OsNoticeFeed, 'push'>;

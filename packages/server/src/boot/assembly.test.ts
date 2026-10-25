@@ -65,11 +65,11 @@ describe('配る層と実行中の一覧の組み立て', () => {
   it('実行中の一覧は作るだけで、読み始めるのは起動の手続きである', () => {
     const h = homeParts();
     const d = bootDelivery(h, { registryIsGone: ALL_ALIVE });
-    cleanups.push(async () => { d.registry.stop(); await d.stopPublishing(); d.compatLog.stop(); });
-    expect(d.registry.current()).toEqual([]);
-    d.registry.start();
+    cleanups.push(async () => { d.live.stop(); await d.stopPublishing(); d.compatLog.stop(); });
+    expect(d.live.current()).toEqual([]);
+    d.live.start();
     // 見本の登録ファイルが alpha を実行中にしている。
-    expect(d.registry.current().map((l) => l.sessionId)).toEqual([SESSION_ALPHA]);
+    expect(d.live.current().map((l) => l.sessionId)).toEqual([SESSION_ALPHA]);
     expect(d.claudeVersion.current).toBeNull();
   });
 

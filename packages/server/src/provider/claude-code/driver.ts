@@ -1,16 +1,18 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import type { AgentDriver, LaunchPlan, LaunchSpec, SessionMode } from '../../agent/types.ts';
+import type { AgentDriver, LaunchPlan, LaunchSpec, LiveSource, SessionMode } from '../../agent/types.ts';
 import { buildClaudeArgs } from './launch/args.ts';
 import { writeHookSettings, type HookSettingsInput } from './launch/hookSettings.ts';
 import { writeMcpConfig } from './launch/mcpConfig.ts';
 import type { ProcOps } from './process/procs.ts';
+import { RegistryWatcher, watchDir } from './registry.ts';
+import type { CompatSink } from './compat/types.ts';
 import type { LaunchMode, LiveSession } from './types.ts';
 
 /**
  * Claude の driver に呼び手が渡すもの。
  * この置き場から hangar の層（launch/、runs/）を読まないよう、hook の台本の場所と外す変数の一覧は呼び手が渡す。
- * live は Claude の登録のいまの中身で、バックグラウンドの id を引くのに使う。
+ * live は状態の面（claudeLiveSource で作る）。driver の live としてそのまま出し、止めるときにバックグラウンドの id を引くのにも使う。
  * report は、hook の設定を書けなかったときと、バックグラウンドのセッションを止められなかったときに呼ぶ（起動も停止も止めない）。
  * files は、設定のファイルを書く口。試験で差し替える。
  */
@@ -23,7 +25,7 @@ export type ClaudeDriverDeps = {
   /** 起こすものへ持ち込まない変数（launch/env.ts の RUN_DROPPED_ENV）。 */
   droppedEnv: readonly string[];
   claudeBin: () => string | null;
-  live: () => readonly LiveSession[];
+  live: ClaudeLiveSource;
   procs: () => Pick<ProcOps, 'runClaude'>;
   report: (what: 'hook-settings' | 'stop', e: unknown) => void;
   files?: { mcpConfig?: typeof writeMcpConfig; hookSettings?: (home: string, sessionId: string, o: HookSettingsInput) => string | undefined };
@@ -53,12 +55,38 @@ function unsetFor(droppedEnv: readonly string[], env: Record<string, string>): r
   return env.CLAUDE_CONFIG_DIR ? droppedEnv : [...droppedEnv, 'CLAUDE_CONFIG_DIR'];
 }
 
+/** Claude の状態の面。登録のずれを数え直す口（renoteDrifts）だけ、境界の型より多く持つ。 */
+export type ClaudeLiveSource = LiveSource & {
+  /** 最後に数えた登録を忘れ、次の読み直しで残っている登録のずれを 1 回だけ数え直す（RegistryWatcher.renoteDrifts）。 */
+  renoteDrifts(): void;
+};
+
+/**
+ * Claude の状態の面を作る。中身は登録（~/.claude/sessions/<pid>.json）の見張り（registry.ts の RegistryWatcher）で、振る舞いはそのままである。
+ * pollMs は作業中があるか見張れない間の読み直しの間隔、idleMs は見張れていて作業中が無い間の間隔である。
+ * isGone は消えたプロセスの残りと見る pid（省けば OS で決める）。enrich は読み直しのたびに通す足し付けで、LiveHub.enrich を渡す。
+ * compat は形のずれを受け取る口。
+ */
+export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs: number; isGone?: (pid: number) => boolean; enrich: (live: LiveSession[]) => LiveSession[]; compat: CompatSink }): ClaudeLiveSource {
+  const w = new RegistryWatcher(o.claudeDir, o.pollMs, o.isGone, o.enrich, o.compat, { idleMs: o.idleMs, watch: watchDir });
+  return {
+    start: () => w.start(),
+    stop: () => w.stop(),
+    current: () => w.current(),
+    onChange: (cb) => w.onChange(cb),
+    kick: (ms) => w.kick(ms),
+    isRunning: (providerSessionId, pid) => w.current().some((l) => l.sessionId === providerSessionId && l.pid === pid),
+    renoteDrifts: () => w.renoteDrifts(),
+  };
+}
+
 export type ClaudeDriver = AgentDriver & {
+  readonly live: ClaudeLiveSource;
   /** バックグラウンドのサービスが持つセッションに `claude attach` でつなぐ。Claude にしか無い起こし方なので、境界の型には無い。 */
   attachPlan(bin: string, jobId: string, env: Record<string, string>): LaunchPlan;
 };
 
-/** Claude Code の driver。いまは起動の面だけを持つ。 */
+/** Claude Code の driver。いまは起動と状態の面を持つ。 */
 export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
   const files = { mcpConfig: deps.files?.mcpConfig ?? writeMcpConfig, hookSettings: deps.files?.hookSettings ?? writeHookSettings };
 
@@ -111,7 +139,7 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
        */
       release(target, cause) {
         if (cause === 'tui-gone') return false;
-        const jobId = deps.live().find((l) => l.sessionId === target.providerSessionId)?.background?.jobId;
+        const jobId = deps.live.current().find((l) => l.sessionId === target.providerSessionId)?.background?.jobId;
         const bin = deps.claudeBin();
         if (!jobId || !bin) return false;
         const cwd = isDirectory(target.cwd) ? target.cwd : deps.home;
@@ -119,6 +147,7 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
         return true;
       },
     },
+    live: deps.live,
     attachPlan(bin, jobId, env) {
       return { argv: [bin, 'attach', jobId], env: {}, unset: unsetFor(deps.droppedEnv, env) };
     },

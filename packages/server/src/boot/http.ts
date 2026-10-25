@@ -115,13 +115,13 @@ export function bootHttp(p: {
       onSummaryCap: summary.rebuildClaude,
       publishConfigSync: sync.publishConfigSync,
     }, patch),
-    live: () => delivery.registry.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, osNotices: delivery.osNotices,
+    live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, osNotices: delivery.osNotices,
     summary: summary.api,
     trash: trash.trash,
     trustWorkspace: runs.trustWorkspace,
     promote: (o) => promoteSession({
       db, deviceId: device.id, home: home.home, workspaceRoot: settings.current.workspaceRoot,
-      runAlive: (id) => sessionRunsAnywhere({ db, deviceId: device.id, live: () => delivery.registry.current() }, id),
+      runAlive: (id) => sessionRunsAnywhere({ db, deviceId: device.id, live: () => delivery.live.current() }, id),
     }, o),
     sync: {
       status: () => sync.engine.status(),

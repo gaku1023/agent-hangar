@@ -51,21 +51,21 @@ export function summaryAccountOf(accounts: Pick<RunAccounts, 'lastUsed'>): (sess
  */
 export function bootSummary(
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'language'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'sockets' | 'registry' | 'compatLog'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'sockets' | 'live' | 'compatLog'>,
   runs: Pick<RunsParts, 'runs' | 'usage' | 'claudeBin' | 'accounts'>,
   sync: Pick<SyncParts, 'uploader'>,
 ): SummaryParts {
   const { db } = home;
   const accountOf = summaryAccountOf(new RunAccounts({ db, claudeDir: runs.accounts.primaryDir, store: runs.accounts.store, deviceId: home.device.id }));
   const summarizers = new SummarizerSet({ settings: () => home.settings.current, claudeBin: runs.claudeBin, usage: (accountId) => runs.usage.of(accountId), accountOf, compat: delivery.compatLog });
-  const summary = new SummaryJob({ db, deviceId: home.device.id, summarizers: summarizers.list, live: () => delivery.registry.current(), hub: delivery.hub, language: home.language });
+  const summary = new SummaryJob({ db, deviceId: home.device.id, summarizers: summarizers.list, live: () => delivery.live.current(), hub: delivery.hub, language: home.language });
   runs.runs.on(runAnnouncer({ db, hub: delivery.hub, onEnded: (run) => { summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); } }));
   // RunManager.on は listener を足せるので、上の登録はそのまま残して 2 つ目として足す。
   runs.runs.on({ runEnded: flushOnRunEnded({ db, get uploader() { return sync.uploader; } }) });
   // 止まったセッションを自動で Done にする（sessions/autoDone.ts）。
   // 外で起こした長いものの事後要約は、このサーバが起きてから止まったものだけに回す。
   const bootedAt = Date.now();
-  const liveProviderIds = () => new Set(delivery.registry.current().map((l) => l.sessionId));
+  const liveProviderIds = () => new Set(delivery.live.current().map((l) => l.sessionId));
   const autoDone = new AutoDoneWatch({
     candidates: () => autoDoneCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), pending: new Set(summary.pending()), now: Date.now(), idleDays: home.settings.current.autoDoneIdleDays ?? DEFAULT_AUTO_DONE_IDLE_DAYS }),
     mark: (id) => markAutoDone(db, home.device.id, id),

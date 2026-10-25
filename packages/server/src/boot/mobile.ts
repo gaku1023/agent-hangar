@@ -10,7 +10,7 @@ import { MobileBell } from '../mobile/bell.ts';
 import { buildMobileFeed } from '../mobile/feed.ts';
 import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
-import type { RegistryWatcher } from '../provider/claude-code/registry.ts';
+import type { LiveHub } from '../agent/liveHub.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { BellTarget, CloudClient } from '../sync/client.ts';
 import type { SyncEngine, Timers } from '../sync/engine.ts';
@@ -86,7 +86,7 @@ export function bootMobile(p: {
   /** home は hangar の home（置き場 drops の親）。 */
   home: { db: Db; device: { id: string; name: string }; home: string };
   /** hub は画面への配り口。スマホから起こした会話の右下の通知（phone.launch、試作 F1）を配る。無ければ配らない。 */
-  delivery: { registry: Pick<RegistryWatcher, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
+  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
   sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'> };
@@ -124,7 +124,7 @@ export function bootMobile(p: {
 
   const build = () => buildMobileFeed({
     db, deviceId, deviceName: p.home.device.name,
-    live: p.delivery.registry.current(),
+    live: p.delivery.live.current(),
     accounts: accounts.store.list(),
     usageOf: (id) => accounts.usage.of(id),
     now: Date.now(),
@@ -284,7 +284,7 @@ export function bootMobile(p: {
     start() {
       if (started || stopped) return;
       started = true;
-      offs.push(p.delivery.registry.onChange(() => kick()));
+      offs.push(p.delivery.live.onChange(() => kick()));
       offs.push(onIntent(() => kick()));
       offs.push(p.runs.runs.on({ remoteUrl: () => kick() }));
       offs.push(onRowChange((c) => { if (c.db === db && FEED_TABLES.has(c.table)) kick(); }));

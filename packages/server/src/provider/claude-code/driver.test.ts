@@ -3,6 +3,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import { agentsOf } from '../../agent/agents.ts';
 import type { AgentDriver, AgentLauncher, LaunchPlan, LaunchSpec, SessionMode } from '../../agent/types.ts';
 import { createClaudeDriver, type ClaudeDriverDeps } from './driver.ts';
+import { liveSourceOf } from '../../../test/fake-live.ts';
 
 const BIN = '/opt/homebrew/bin/claude';
 /** MCP の設定のファイル。driver が書く代わりに、このパスを返す偽物を渡す。 */
@@ -15,7 +16,7 @@ function driverWith(over: Partial<ClaudeDriverDeps> = {}) {
     hookScript: () => '/home/.agent-hangar/hooks/hook.mjs',
     droppedEnv: ['CLAUDECODE', 'HANGAR_PORT'],
     claudeBin: () => BIN,
-    live: () => [],
+    live: liveSourceOf(),
     procs: () => ({ runClaude: async () => '' }),
     report: () => {},
     files: { mcpConfig: () => mcpConfigPath, hookSettings: () => undefined },
@@ -104,7 +105,7 @@ describe('Claude の driver が AgentDriver の起動の型を満たす', () => 
   it('release はバックグラウンドのセッションだけ claude stop で止め、止めにいったら true を返す', async () => {
     const runClaude = vi.fn(async () => '');
     const live = [{ sessionId: 'u1', background: { jobId: 'job1' } }] as unknown as LiveSessionDto[];
-    const d = driverWith({ live: () => live, procs: () => ({ runClaude }) });
+    const d = driverWith({ live: liveSourceOf(() => live), procs: () => ({ runClaude }) });
     expect(await d.launch.release({ providerSessionId: 'u1', cwd: '/no/such/dir' }, 'killed')).toBe(true);
     // cwd が無ければ hangar の置き場で走らせる。
     expect(runClaude).toHaveBeenCalledWith(BIN, ['stop', 'job1'], '/home/.agent-hangar');
@@ -112,6 +113,6 @@ describe('Claude の driver が AgentDriver の起動の型を満たす', () => 
     // 画面が閉じれば claude も終わるので、tui-gone では何もしない。
     expect(await d.launch.release({ providerSessionId: 'u1', cwd: '/' }, 'tui-gone')).toBe(false);
     expect(runClaude).toHaveBeenCalledTimes(1);
-    expect(await driverWith({ live: () => live, claudeBin: () => null }).launch.release({ providerSessionId: 'u1', cwd: '/' }, 'killed')).toBe(false);
+    expect(await driverWith({ live: liveSourceOf(() => live), claudeBin: () => null }).launch.release({ providerSessionId: 'u1', cwd: '/' }, 'killed')).toBe(false);
   });
 });
