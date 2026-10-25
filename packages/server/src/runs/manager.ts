@@ -91,6 +91,12 @@ const GONE_WAIT_MS = 5_000;
  */
 const MISSES_TO_END = 2;
 /**
+ * hangar が持つ serve につながる run（opencode）の、TUI の包みが終わったかを見る間隔。
+ * opencode の TUI が閉じても Claude の登録のようには何も変わらず stir されないので、待機の周期（RUN_IDLE_POLL_MS）で 2 回抜けるのを待つと 5〜19 秒かかっていた。
+ * 包みの生存は kill(pid, 0) で見るだけで、子プロセスを起こさない。
+ */
+export const WRAPPER_WATCH_MS = 500;
+/**
  * 見回りが run を exited か lost で閉じた後、生きた run が無くなっても一覧を読み続ける長さ。
  * 閉じた run の tmux 名が一覧に戻ってきたら、生き返らせるためである（revive）。
  */
@@ -118,7 +124,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 /** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
@@ -160,6 +166,11 @@ export class RunManager {
    * 一覧から抜けた最初の見回りで読み、run が一覧に戻るか閉じるまで覚える（wrapperAlive）。
    */
   private wrapperPids = new Map<string, number | null>();
+  /** 包みの見張り（watchWrappers）が読んだ包みの pid。ログに `start pid=` が書かれてから覚え、run が閉じたら消す。 */
+  private watchedWrappers = new Map<string, number>();
+  /** 包みの見張りが、包みが終わったと見た run。一覧から 1 回抜けただけで閉じる（MISSES_TO_END を待たない）。 */
+  private wrappersGone = new Set<string>();
+  private wrapperWatch: ReturnType<Timers['setInterval']> | null = null;
   /** この時刻までは、生きた run が無くても一覧を読む（REVIVE_WATCH_MS）。 */
   private reviveWatchUntil = -Infinity;
   /** 本物のプロセスに触る口。procs を渡されなかったときに、compat を結んで 1 度だけ作る。 */
@@ -574,6 +585,8 @@ export class RunManager {
     this.parking.delete(runId);
     this.misses.delete(runId);
     this.wrapperPids.delete(runId);
+    this.watchedWrappers.delete(runId);
+    this.wrappersGone.delete(runId);
     this.remoteWatches.get(runId)?.();
     this.remoteWatches.delete(runId);
     const run = getRun(this.db, runId)!;
@@ -1188,7 +1201,7 @@ export class RunManager {
         const miss = this.misses.get(run.id) ?? { count: 0, mux: muxGone };
         miss.count++;
         this.misses.set(run.id, miss);
-        if (miss.count < MISSES_TO_END || this.stillRunning(run)) continue;
+        if ((miss.count < MISSES_TO_END && !this.wrappersGone.has(run.id)) || this.stillRunning(run)) continue;
         const e = this.end(run.id, miss.mux ? 'lost' : 'exited');
         if (e) ended.push(e);
         if (e && e.endReason === 'lost') lost.push(e);
@@ -1471,6 +1484,44 @@ export class RunManager {
       onError: (e) => console.error('[runs]', e instanceof Error ? e.message : e),
     });
     this.pacer.start();
+    const timers = this.deps.timers ?? { setInterval, clearInterval };
+    this.wrapperWatch = timers.setInterval(() => {
+      try {
+        this.watchWrappers();
+      } catch (e) {
+        console.error('[runs]', e instanceof Error ? e.message : e);
+      }
+    }, WRAPPER_WATCH_MS);
+    (this.wrapperWatch as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * hangar が持つ serve につながる生きた run（opencode。pid が無い）の、TUI の包みが終わったかを見る（WRAPPER_WATCH_MS ごと）。
+   * 終わっていたら、次の見回りをすぐに回す。見回りは、一覧から 1 回抜けただけでその run を閉じ、serve を止める（release の tui-gone）。
+   * 包みの pid は run のログの `start pid=` から読む。ログは run ごとで、包み自身が起動時に書くので、起動時刻は確かめない。
+   * pid が使い回されて生きて見えるだけなら、これまでどおりの見回り（wrapperAlive は起動時刻も確かめる）に任せる。
+   * 新しく終わったと見た run の ID を返す（試験のため）。
+   */
+  watchWrappers(): string[] {
+    const gone: string[] = [];
+    for (const run of listAliveRuns(this.db, this.deviceId)) {
+      if (run.pid !== null || this.wrappersGone.has(run.id) || !this.servedByHangar(this.providerOf(run.sessionId))) continue;
+      let pid = this.watchedWrappers.get(run.id);
+      if (pid === undefined) {
+        const read = readWrapperPid(runLogPath(this.deps.home, run.id));
+        if (read === null) continue;
+        pid = read;
+        this.watchedWrappers.set(run.id, pid);
+      }
+      if ((this.deps.pidAlive ?? isAlive)(pid)) continue;
+      this.wrappersGone.add(run.id);
+      gone.push(run.id);
+    }
+    if (gone.length) {
+      this.stirredAt = this.now();
+      this.pacer?.kick(0);
+    }
+    return gone;
   }
 
   /** 画面が閉じそうなことが起きた（run の出入り、登録の変化、端末の中継の終わり）。しばらく短い周期で見る。 */
@@ -1482,6 +1533,8 @@ export class RunManager {
   stop(): void {
     this.pacer?.stop();
     this.pacer = null;
+    if (this.wrapperWatch) (this.deps.timers ?? { setInterval, clearInterval }).clearInterval(this.wrapperWatch);
+    this.wrapperWatch = null;
     for (const stop of this.remoteWatches.values()) stop();
     this.remoteWatches.clear();
   }
