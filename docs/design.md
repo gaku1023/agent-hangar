@@ -6645,6 +6645,10 @@ serve が無ければ `--standalone` で、私用のサーバを一時だけ起�
 
 索引の stored の束（B5）は `sessionChanged` を path なしで出すので、上げる側へは渡さない。
 契機は上の 2 つだけで、一定間隔の走査も入れない（取り残しは横取りしない起動だけである）。
+どちらの契機でも、消した（ゴミ箱に入れた、`sessions.deleted_at` のある）会話は書き出さない。
+上げる側は書き出しの直前に会話の行を見て、消してあれば書き出さずに飛ばす。
+書き出しの最中に消されたら、書いたファイルを消して上げない。
+消すと書き出しのファイルも消える（「削除とゴミ箱の掃除」）ので、確かめないと、遅れて走る書き出し（run の終わりの 5 秒後の 2 回目、待ち行列の窓）がファイルを作り直して残す。
 
 鍵名は Claude と分ける。
 Claude の本文の鍵名と台帳の鍵は 1 字も変えない。
@@ -6726,6 +6730,7 @@ import した会話を OpenCode Zen の無料枠のモデルで続けられる�
 ##### 削除とゴミ箱の掃除
 
 opencode の会話を消すと、本文は opencode の記録の置き場に残したまま（hangar は消さない）、hangar の持ち物である書き出しのファイルと降ろした写しを消し、索引の本文（`agent_events`、`event_index`、検索、いまの手）を片付ける。日別の使用量は残す。
+消した後に遅れて走る書き出しは、上げる側が会話の行を見て飛ばすので、書き出しのファイルは作り直されない（「opencode の本文」の上げる契機）。
 ゴミ箱の 30 日の掃除（`trashedLongAgo`、`sweepTrashBlobs`）は opencode の会話も拾い、この PC が上げた export の鍵名を消す。
 
 ##### 片付け（teardown）
@@ -7600,7 +7605,10 @@ UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき
   `force` の行は残す（相手の次の起動で止める約束である）。
   段は `TakeoverStage`（`asking`、`waiting`、`receiving`、`ready`、`timeout`、`cancelled`）で、`takeover.update`（`TakeoverDto`：`sessionId`、`deviceName`、`stage`、`startedAt`、`deadline`）として画面へ配る。
   経路は `POST /api/sessions/:id/takeover`（本文の `force`）、`GET` 同、`POST /api/sessions/:id/takeover/extend`、`DELETE /api/sessions/:id/takeover`（取り下げ）である。
-  - `POST /api/sessions/:id/takeover` は、この PC でセッションを起こせない（tmux や psmux、claude が無い）とき、頼みを書かずに起動と同じ理由で断る（`RunManager.assertCanStart`、400）。
+  - `POST /api/sessions/:id/takeover` は、この PC でセッションを起こせない（tmux や psmux、会話のエージェントの実行ファイルが無い）とき、頼みを書かずに起動と同じ理由で断る（`RunManager.assertCanStart(会話)`、400）。
+    見る実行ファイルは会話のエージェントで決める。
+    Claude の会話は claude を、opencode の会話は再開と同じく設定の「opencode を有効にする」と opencode を見て、claude は見ない（文は `run.agent.disabled` と `run.agent.notFound`）。
+    claude の無い PC（opencode だけ入れた PC）でも、opencode の会話は引き継げる。
     頼むと相手の claude は停止するのに、この PC で再開できないためである。
   - 始め方。
     ロックが無ければ行を書かずに `ready`。

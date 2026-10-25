@@ -203,6 +203,14 @@ export class TranscriptUploader {
 
   private opencodeStmt: ReturnType<Db['prepare']> | null = null;
 
+  /** この PC の、消していない（ゴミ箱に入れていない）opencode の会話か。書き出しの直前と直後に見る。 */
+  private isLiveOpencodeSession(sessionId: string): boolean {
+    this.liveOpencodeStmt ??= this.deps.db.prepare("select 1 from sessions where provider = 'opencode' and provider_session_id = ? and deleted_at is null limit 1");
+    return this.liveOpencodeStmt.get(sessionId) !== undefined;
+  }
+
+  private liveOpencodeStmt: ReturnType<Db['prepare']> | null = null;
+
   /** 索引化が変化を見たファイルを待ち行列に入れる。1 件目から 30 秒後にまとめて上げる。 */
   noteChanged(f: UploadTarget): void {
     if (this.stopped) return;
@@ -627,9 +635,17 @@ export class TranscriptUploader {
         key = ledgerKeyFor('opencode', this.deps.deviceId, f.sessionId, null);
         rel = opencodeSyncPath(f.sessionId);
       } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+      // 消した（ゴミ箱に入れた）会話は書き出さない。消すと書き出しのファイルも消える（sessions/trash.ts）ので、
+      // 遅れて走る書き出し（run の終わりの 2 回目、待ち行列の窓）がファイルを作り直して残すことになる。
+      if (!this.isLiveOpencodeSession(f.sessionId)) return 'skipped';
       // 本文は opencode の DB にあるので、上げる直前に書き出し直す。書き出せなければ（opencode が無い、会話が消えた）今回は上げない。
       const out = await src.export(f.sessionId);
       if (out === null) return 'skipped';
+      // 書き出しの最中に消されたら、書いたファイルを消して上げない。消す側はもう書き出しを片付け終えている。
+      if (!this.isLiveOpencodeSession(f.sessionId)) {
+        try { fs.rmSync(out, { force: true }); } catch { /* 消せなくても上げはしない */ }
+        return 'skipped';
+      }
       file = out;
     }
     let st: fs.Stats;
