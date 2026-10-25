@@ -72,6 +72,12 @@ describe('opencodeProbeEnv', () => {
       expect(Object.keys(env).filter((k) => /^(CLAUDE|HANGAR_|OPENCODE_|NODE_OPTIONS|ANTHROPIC_)/.test(k))).toEqual([]);
     }
   });
+  it('利用者の XDG の置き場は、版を読むときも serve と同じく渡す', () => {
+    for (const platform of ['darwin', 'linux', 'win32'] as const) {
+      const env = opencodeProbeEnv(platform === 'win32' ? 'C:\\tools\\opencode.exe' : '/x/opencode', { ...src, XDG_CONFIG_HOME: '/d/config', XDG_STATE_HOME: '/d/state' }, platform);
+      expect(env).toMatchObject({ XDG_CONFIG_HOME: '/d/config', XDG_STATE_HOME: '/d/state' });
+    }
+  });
   it('Windows の版を読む環境は、serve を起こす環境と同じ許可リストにする', () => {
     const win = { ...src, SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming', Path: 'C:\\Windows\\system32' };
     expect(opencodeProbeEnv('C:\\tools\\opencode.exe', win, 'win32')).toEqual(serveEnv('C:\\tools\\opencode.exe', win, 'win32'));

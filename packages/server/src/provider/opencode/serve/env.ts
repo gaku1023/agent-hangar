@@ -16,6 +16,14 @@ const POSIX_BASE_PATH = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bi
 /** macOS と Linux で呼び手の環境から写す鍵。ほかは何も渡さない。 */
 const POSIX_KEYS = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG'] as const;
 
+/**
+ * 利用者が置いていれば写す XDG の置き場（macOS、Linux、Windows とも）。
+ * opencode は設定、DB、キャッシュ、状態をこの 4 つの下に置くので、渡さないと hangar が起こす opencode だけが別の置き場を見て、
+ * ふだんの opencode のプロバイダーの接続も会話も見えなくなる。どれも場所であり、呼び手や hangar の印ではない。
+ * 空の値は渡さない（opencode は空を既定の置き場として読まないことがある）。
+ */
+export const XDG_KEYS = ['XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME'] as const;
+
 /** Windows で serve に写す鍵の許可リストの型。 */
 export type WindowsServeAllowlist = readonly string[];
 
@@ -48,6 +56,8 @@ export type ServeConfig = { configContent?: string };
  * macOS と Linux は `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と、opencode の置き場を先頭に足した固定の最小の `PATH` だけである。
  * 置き場を先頭に足すのは、npm で入れた opencode が隣の node を引く台本だからである。
  * Windows は許可リスト（WINDOWS_SERVE_ALLOWLIST）の鍵だけを写し、PATH の先頭に opencode の置き場を足す。
+ * どの OS でも、利用者が置いていれば XDG の置き場 4 つ（XDG_KEYS）を足す。
+ * 書き出しと取り込みの CLI（export.ts など）もこの土台を使うので、serve と同じ置き場を見る。
  */
 export function opencodeBaseEnv(bin: string, src: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   return platform === 'win32' ? windowsEnv(bin, src) : posixEnv(bin, src);
@@ -56,6 +66,7 @@ export function opencodeBaseEnv(bin: string, src: NodeJS.ProcessEnv = process.en
 function posixEnv(bin: string, src: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const k of POSIX_KEYS) if (src[k] !== undefined) env[k] = src[k];
+  for (const k of XDG_KEYS) if (src[k]) env[k] = src[k];
   env.LANG ??= 'en_US.UTF-8';
   const dir = path.posix.dirname(bin);
   env.PATH = [...(POSIX_BASE_PATH.includes(dir) ? [] : [dir]), ...POSIX_BASE_PATH].join(':');
@@ -77,6 +88,10 @@ function windowsEnv(bin: string, src: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   for (const k of WINDOWS_SERVE_ALLOWLIST) {
     const v = byLower.get(k.toLowerCase());
     if (v !== undefined) env[k] = v;
+  }
+  for (const k of XDG_KEYS) {
+    const v = byLower.get(k.toLowerCase());
+    if (v) env[k] = v;
   }
   const dir = path.win32.dirname(bin);
   const root = env.SystemRoot ?? 'C:\\Windows';

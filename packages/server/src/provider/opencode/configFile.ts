@@ -6,12 +6,13 @@ import { parseJsonc } from '../../config/jsonTextEdit.ts';
  * 利用者の opencode の設定（`~/.config/opencode/opencode.json`）を、hangar が書き換える口（docs/design.md「opencode のプロバイダー」）。
  * hangar が書くのは、設定のプロバイダーの面の「OpenAI 互換のサーバー」と「モデル ID を追加」と、OpenAI 互換のサーバーの「接続を解除」だけである。
  * 書く前に、同じディレクトリへ `opencode.json.bak-<日時>` の形でバックアップする。書き方（コメント、字下げ、キーの順）は config/jsonTextEdit.ts で保つ。
- * opencode の serve は hangar の空の環境（HOME だけ）で起こすので、読む設定はいつも HOME の下の .config/opencode である（XDG_CONFIG_HOME は渡さない）。
+ * opencode の serve は hangar の空の環境で起こし、利用者が置いていれば XDG_CONFIG_HOME も渡す（serve/env.ts の XDG_KEYS）。
+ * そこで、読む設定は XDG_CONFIG_HOME があればその下の opencode、無ければ HOME の下の .config/opencode である。
  */
 
-/** opencode.json の場所。.json が無く .jsonc があれば、そちらを使う。どちらも無ければ .json（書くときに作る）。 */
-export function opencodeConfigPath(home: string): string {
-  const dir = path.join(home, '.config', 'opencode');
+/** opencode.json の場所。.json が無く .jsonc があれば、そちらを使う。どちらも無ければ .json（書くときに作る）。env は hangar の環境で、XDG_CONFIG_HOME を見る。 */
+export function opencodeConfigPath(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  const dir = path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode');
   const json = path.join(dir, 'opencode.json');
   const jsonc = path.join(dir, 'opencode.jsonc');
   return !fs.existsSync(json) && fs.existsSync(jsonc) ? jsonc : json;

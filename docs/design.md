@@ -1404,7 +1404,7 @@ Windows で npm で入れた opencode は、PATH に `opencode.cmd`（npm の cm
 読み替えられない `.cmd` はそのまま返す。
 
 版は `provider/opencode/compat/version.ts` の `LocalOpencode` が、`opencode --version` を空の環境で打って読む。
-渡すのは `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と、opencode の置き場を先頭に足した固定の最小の `PATH` だけである。
+渡すのは `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と、opencode の置き場を先頭に足した固定の最小の `PATH` と、利用者が置いていれば XDG の置き場 4 つ（serve と同じ。「opencode の serve の管理」）だけである。
 hangar を Claude Code のセッションから起こすと、サーバの環境に呼び手の印（`CLAUDE` で始まる鍵）と hangar の印（`HANGAR_*`）が入っており、opencode は環境から設定や API キーを読むからである。
 置き場を先頭に足すのは、npm で入れた opencode が隣の node を引く台本だからである。
 Windows は serve を起こすときと同じ許可リストの鍵を渡す（「opencode の serve の管理」）。
@@ -1493,6 +1493,7 @@ opencode 2.1.4 の serve は、同時に起こすと起動の途中で `SQLiteEr
 起こし方は `spawn.ts` にある。
 
 - 環境は `env.ts` の `serveEnv` で組む。版を読むときと同じく、macOS と Linux は `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と固定の最小の `PATH` だけを渡す。ほかに足すのは、hangar の MCP の設定（`OPENCODE_CONFIG_CONTENT`、「opencode の起動」）だけである。裏のサービスは起こしたプロセスの環境を持ち続けるので、`CLAUDE` で始まる鍵や `HANGAR_*` を継ぐと、そこから動く道具の全部に配ってしまうからである。
+- どの OS でも、hangar の環境に XDG の置き場（`XDG_DATA_HOME`、`XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_STATE_HOME`）があれば渡す（`env.ts` の `XDG_KEYS`。空の値は渡さない）。opencode は設定、DB、キャッシュ、状態をこの下に置くので、渡さないと hangar の opencode だけが別の置き場を見て、ふだんの opencode のプロバイダーの接続も会話も見えなくなるからである。書き出し、取り込み、`--version` の CLI も同じ土台（`opencodeBaseEnv`）で起こすので、同じ置き場を見る。
 - Windows は空にすると、ソケット（Winsock は `SystemRoot` を引く）もホームも引けずに落ちることが多いので、許可リスト（`WINDOWS_SERVE_ALLOWLIST`）の鍵だけを写す（計画の G1）。OS の置き場とシェル（`SystemRoot`、`windir`、`SystemDrive`、`ComSpec`、`PATHEXT`、`PATH`）、ホームと利用者（`USERPROFILE`、`HOMEDRIVE`、`HOMEPATH`、`USERNAME`）、置き場（`APPDATA`、`LOCALAPPDATA`、`TEMP`、`TMP`）、入れた道具の置き場と機械の形（`ProgramFiles` 系、`ProgramData`、`PROCESSOR_ARCHITECTURE`、`NUMBER_OF_PROCESSORS`、`OS`）である。どれも呼び手や hangar の印ではない。名前は大文字小文字を問わずに拾い、許可リストの綴りで 1 つだけ渡す。`PATH` は固定にせず hangar の `PATH`（Explorer から継いだ利用者の `PATH`）を写し、先頭に opencode の置き場を足す。固定の最小にすると、エージェントが git も node も引けなくなるからである。
 - 待ち受けは `127.0.0.1` だけで、ポートは空きを取って渡す。取ってから渡すまでの間に塞がれて落ちたら（`Is port N in use?`）、取り直す。
 - パスワードは起動ごとに 32 バイトの乱数を作り、`OPENCODE_SERVER_PASSWORD` で渡す（basic 認証、ユーザー名は `opencode`）。argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かず、メモリにだけ持つ。
@@ -1782,7 +1783,7 @@ Claude の包みは素通しの拒否リストだが、opencode の TUI へ渡�
 
 opencode の置き場や設定を環境変数で変えた起動も素通しにする。
 `OPENCODE_` で始まる変数が 1 つでも環境にあるとき、XDG の置き場（`XDG_DATA_HOME`、`XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_STATE_HOME`）のどれかが既定と違う場所のときである。
-hangar は serve を自分の空の環境で起こし、ふだんの置き場と設定だけを使うので、変えた起動を hangar の管理に入れると利用者の意図と違う置き場で動くからである。
+hangar は serve を hangar の環境の置き場で起こす（シェルで変えた置き場は届かない）ので、変えた起動を hangar の管理に入れると利用者の意図と違う置き場で動くからである。
 XDG の変数を名前だけで見ないのは、Linux のデスクトップが `XDG_RUNTIME_DIR` などを常に立て、既定と同じ場所を `XDG_CONFIG_HOME` に書く人も多いからである。
 
 包み方は本文に `"agent":"opencode"` を足して `POST /api/runs/terminal` へ送り、端末の環境変数は送らない。
@@ -2019,7 +2020,8 @@ opencode と経路が返す断りの文に API キーが混ざっていたら、
 終わったら一覧を読み直し、その行を接続した行として光らせる。
 
 OpenAI 互換のサーバーとモデル ID の追加は、利用者の `~/.config/opencode/opencode.json`（無く .jsonc があればそちら）に書く（`provider/opencode/configFile.ts`）。
-serve は HOME だけの空の環境で起こすので、opencode が読むのもいつもこのファイルである。
+hangar の環境に `XDG_CONFIG_HOME` があれば、その下の `opencode/opencode.json` に書く。
+serve には hangar の環境の `XDG_CONFIG_HOME` を渡すので、opencode が読むのもいつもこのファイルである。
 書く前に、同じディレクトリへ `opencode.json.bak-<日時>` の形でバックアップする。
 書き方は `config/jsonTextEdit.ts` の `setJsoncPath` と `removeJsoncPath` で保つ（コメント、末尾のカンマ、字下げ、キーの順、CRLF と BOM に触れず、書いた後に読み直して狙ったキーのほかが変わっていないことを確かめる）。
 読めないファイルには書かない。
