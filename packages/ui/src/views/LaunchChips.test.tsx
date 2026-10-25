@@ -294,4 +294,21 @@ describe('LaunchChips のエージェント（opencode、ベータ）', () => {
     render(<LaunchChips lead={<button type="button">web-shop</button>} agent={{ ...agent, value: 'opencode' }} opencode={OC} values={{ ...BASE, name: 'n' }} onChange={vi.fn()} />);
     expect(within(group()).getAllByRole('button').map(agentOf)).toEqual([null, null, 'opencode', 'opencode', 'opencode', null]);
   });
+
+  it('一覧の行の頭にエージェントの絵を出す。絵は隣の名前と重ねて読み上げない', () => {
+    render(<LaunchChips agent={{ value: 'claude-code', onChange: vi.fn(), opencodeNote: null }} values={BASE} onChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'エージェント、Claude Code' }));
+    const options = within(screen.getByRole('listbox', { name: 'エージェント' })).getAllByRole('option');
+    expect(options.map((o) => o.querySelector('.agent-icon')?.getAttribute('data-agent'))).toEqual(['claude-code', 'opencode']);
+    expect(options.map((o) => o.querySelector('.agent-icon')?.getAttribute('aria-hidden'))).toEqual(['true', 'true']);
+  });
+
+  it('札にも、選んでいるエージェントの絵を名前の左に出す', () => {
+    const { rerender } = render(<LaunchChips agent={{ value: 'claude-code', onChange: vi.fn(), opencodeNote: null }} values={BASE} onChange={vi.fn()} />);
+    const face = () => screen.getByRole('button', { name: /^エージェント、/ });
+    expect(face().querySelector('.agent-icon')?.getAttribute('data-agent')).toBe('claude-code');
+    expect(face().querySelector('.agent-icon + .set-chip-value')).toHaveTextContent('Claude Code');
+    rerender(<LaunchChips agent={{ value: 'opencode', onChange: vi.fn(), opencodeNote: null }} opencode={OC} values={BASE} onChange={vi.fn()} />);
+    expect(face().querySelector('.agent-icon')?.getAttribute('data-agent')).toBe('opencode');
+  });
 });

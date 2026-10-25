@@ -52,13 +52,14 @@ export function fadeOut(el: HTMLElement, token: DurationToken = '--dur-fast'): P
 /**
  * 高さの補間。中身を入れ替えた箱を、前の高さ（from、px）から今の高さへ --dur で動かし、下の要素を押して滑らせる（ホームの引き出しの群の切替、帯と 1 行の入れ替え）。
  * 前の高さは入れ替える前に呼び手が測って渡す。高さが同じなら動かさない。動く間は中身をはみ出させない。
+ * axis が x なら幅を動かす（新しいセッションのエージェントの札。名前の長さで幅が変わる）。
  */
-export function resizeFrom(el: HTMLElement, from: number): Animation | null {
-  const to = el.offsetHeight;
+export function resizeFrom(el: HTMLElement, from: number, axis: 'y' | 'x' = 'y'): Animation | null {
+  const to = sizeOf(el, axis);
   if (Math.abs(to - from) < 0.5 || !motionOn(el)) return null;
   const overflow = el.style.overflow;
   el.style.overflow = 'hidden';
-  const a = el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+  const a = el.animate([{ [prop(axis)]: `${from}px` }, { [prop(axis)]: `${to}px` }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
   const restore = () => { el.style.overflow = overflow; };
   a.finished.then(restore, restore);
   return a;

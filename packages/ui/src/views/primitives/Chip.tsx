@@ -82,12 +82,13 @@ export function CountChip(props: { label: string; count: number; countText?: str
  * dot は色の点（アカウントの色）で、値の前に置く。
  * tone の muted は既定のまま（値が薄い）、danger は赤い縁（Bypass permissions）。開いている間（aria-expanded）は青い縁である。
  */
-export function SettingChip(props: { name: string; value: string; icon?: IconName; dot?: string; showName?: boolean; tone?: 'default' | 'muted' | 'danger'; badge?: string } & Omit<ButtonProps, 'children' | 'className' | 'aria-label'>) {
-  const { name, value, icon, dot, showName, tone = 'default', badge, ...rest } = props;
+export function SettingChip(props: { name: string; value: string; icon?: IconName; lead?: ReactNode; dot?: string; showName?: boolean; tone?: 'default' | 'muted' | 'danger'; badge?: string } & Omit<ButtonProps, 'children' | 'className' | 'aria-label'>) {
+  const { name, value, icon, lead, dot, showName, tone = 'default', badge, ...rest } = props;
   const t = useT();
   return (
     <button type="button" {...rest} className="set-chip" data-tone={tone} aria-label={t('common.chip.nameValue', { name, value })}>
       {icon && <Icon name={icon} />}
+      {lead}
       {dot && <span className="st-dot" style={{ color: dot }} aria-hidden="true" />}
       {showName && <span className="set-chip-name">{name}</span>}
       <span className="set-chip-value">{value}</span>
