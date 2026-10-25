@@ -16,9 +16,11 @@ import { authHeader, killGroup, newServePassword, pickFreePort, startServe, type
 describe('startServe', () => {
   let dir: string;
   const started: ServeProcess[] = [];
+  const workDirs: string[] = [];
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-')); });
   afterEach(async () => {
     for (const s of started.splice(0)) { killGroup(s.pid, 'SIGKILL'); await s.exited; }
+    for (const w of workDirs.splice(0)) fs.rmSync(w, { recursive: true, force: true, maxRetries: 5 });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -45,8 +47,10 @@ describe('startServe', () => {
   });
 
   it('会話のフォルダを作業フォルダにして起こし、応答の確かめの GET もその場所を指す', async () => {
+    // Windows では動いているプロセスの作業フォルダを消せない（EBUSY）。serve を止めた後の afterEach で消す。
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-work-'));
-    try {
+    workDirs.push(work);
+    {
       const { bin, logFile, requestsFile } = writeFakeOpencode(dir);
       const s = await startServe({ bin, env: serveEnv(bin), directory: work });
       started.push(s);
@@ -57,8 +61,6 @@ describe('startServe', () => {
       const reqs = readFakeOpencodeRequests(requestsFile);
       expect(reqs.length).toBeGreaterThan(0);
       expect(reqs.map((r) => r.directory)).toEqual(reqs.map(() => work));
-    } finally {
-      fs.rmSync(work, { recursive: true, force: true });
     }
   });
 
