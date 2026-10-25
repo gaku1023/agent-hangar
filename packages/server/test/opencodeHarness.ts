@@ -32,6 +32,8 @@ export const MOCK_MCP_SECRET = 'hangar-live-mcp-secret';
 export const PROMPT_TURN = 'TURN: run echo, record the intent, write and edit a file, then ask me a question.';
 export const PROMPT_SLEEP = 'SLEEP: run a long command.';
 export const PROMPT_HI = 'HI: just say hi.';
+/** 筋書きの頭。模擬の LLM は、これで始まる利用者の発言だけを筋書きの始まりと見る。 */
+const SCENARIO_HEADS = ['TURN:', 'SLEEP:', 'HI:'];
 
 const sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); });
 
@@ -59,7 +61,8 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 
 /**
  * OpenAI 互換の模擬 LLM（`/v1/chat/completions` の SSE と `/v1/models`）。
- * 最後の利用者の発言の頭（TURN、SLEEP、HI）と、その後に返った道具の結果の数で、次の一手を決める。
+ * 頭（TURN:、SLEEP:、HI:）の付いた最後の利用者の発言と、その後に返った道具の結果の数で、次の一手を決める。
+ * 頭の無い利用者の発言（opencode がターンの途中に差し込む知らせ）は、筋書きの切れ目と見ない。
  * TURN：shell → execute（中で hangar.set_turn_intent）→ write → edit → read → question → 文。execute が無ければ飛ばす。
  * SLEEP：shell で `sleep 20` → 文。HI：文だけ。道具の無い要求（題名づけ）は短い文で答える。
  * chats は chat/completions の要求の本文で、システムプロンプトへの追記がモデルまで届いたかを見るのに使う。
@@ -104,13 +107,15 @@ export async function startMockLlm(o: { repo: string }): Promise<MockServer & { 
       const tools = (Array.isArray(body.tools) ? body.tools : []).map((t) => (isRec(t) && isRec(t.function) ? String(t.function.name) : ''));
       if (tools.length === 0) return sse(text('Mock title'));
       const msgs = (Array.isArray(body.messages) ? body.messages : []).filter(isRec);
+      // 筋書きは、頭の付いた利用者の発言で選ぶ。opencode はターンの途中にも利用者の発言を差し込む
+      // （hangar の MCP の道具が後から増えたときの「The Code Mode tool catalog has changed.」）ので、ただ最後の発言を見ると筋書きの頭に戻ってしまう。
       let lastUser = -1;
-      msgs.forEach((m, k) => { if (m.role === 'user' && userText(m).trim()) lastUser = k; });
-      const prompt = lastUser >= 0 ? userText(msgs[lastUser]!) : '';
+      msgs.forEach((m, k) => { if (m.role === 'user' && SCENARIO_HEADS.some((h) => userText(m).trimStart().startsWith(h))) lastUser = k; });
+      const prompt = lastUser >= 0 ? userText(msgs[lastUser]!).trimStart() : '';
       const done = msgs.slice(lastUser + 1).filter((m) => m.role === 'tool').length;
       const shell = tools.find((t) => t === 'shell' || t === 'bash') ?? 'shell';
-      if (prompt.includes('SLEEP')) return sse(done === 0 ? call(shell, { command: 'sleep 20', description: 'Wait' }) : text('Woke up.'));
-      if (prompt.includes('HI')) return sse(text('Hi.'));
+      if (prompt.startsWith(PROMPT_SLEEP)) return sse(done === 0 ? call(shell, { command: 'sleep 20', description: 'Wait' }) : text('Woke up.'));
+      if (prompt.startsWith(PROMPT_HI)) return sse(text('Hi.'));
       const plan: (() => unknown[])[] = [
         () => call(shell, { command: LIVE_ECHO, description: 'Print a word' }, 'I will run echo first.'),
         ...(tools.includes('execute') ? [() => call('execute', { code: 'await tools.hangar.set_turn_intent({ text: "Check the opencode API" });\nreturn "ok";' })] : []),
