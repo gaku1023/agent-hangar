@@ -1,3 +1,4 @@
+import { launchJa } from '@agent-hangar/shared/src/i18n/ja/launch.ts';
 import { MOBILE_PROMPT_MAX, type MobileAccount, type MobileAgentOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { workerTooOld } from '../api.ts';
@@ -39,13 +40,14 @@ type Agent = 'claude-code' | 'opencode';
 /** モデルの札に添える費用の型（PC のモデルの小窓と同じ語）。 */
 const COST_LABEL: Record<MobileModelOption['cost'], string> = { local: 'ローカル', free: '無料', metered: '従量', plan: '定額' };
 /**
- * モデルの札に添えるデータの扱い。狭い札に収めるため、PC 外へ出ないことと、気を付けるもの（⚠）だけを出す。
- * 学習に使わない、30 日保持は、PC のモデルの小窓で見る。
+ * モデルの札に添えるデータの扱い。判定は PC が shared の modelDataUse で付け（PC のモデルの小窓と同じ）、文も小窓と同じ辞書から引く。
+ * 狭い札に収めるため、PC 外へ出ないこと、学習に使わないこと、気を付けるもの（⚠）を出す。30 日保持は、PC のモデルの小窓で見る。
  */
 const DATA_LABEL: Partial<Record<NonNullable<MobileModelOption['data']>, string>> = {
-  'on-device': 'PC 外への送信なし',
-  'may-train': '⚠ 学習利用の可能性あり',
-  'provider-logs': '⚠ プロバイダー側で記録',
+  'on-device': launchJa['launch.model.data.onDevice'],
+  'no-training': launchJa['launch.model.data.noTraining'],
+  'may-train': launchJa['launch.model.data.mayTrain'],
+  'provider-logs': launchJa['launch.model.data.providerLogs'],
 };
 const modelSub = (m: MobileModelOption): string => [m.group, COST_LABEL[m.cost], m.data ? DATA_LABEL[m.data] : undefined].filter(Boolean).join(' · ');
 

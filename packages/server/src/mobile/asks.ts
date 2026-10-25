@@ -1,7 +1,6 @@
 import {
   aadAsk,
   aadReply,
-  dataUseOf,
   isMobileMode,
   isModelName,
   isSafeRelPath,
@@ -10,6 +9,7 @@ import {
   MOBILE_AGENT_MODES_MAX,
   MOBILE_REPLY_MAX_BYTES,
   modelCostKind,
+  modelDataUse,
   open,
   seal,
   type MobileAgentOptions,
@@ -138,7 +138,7 @@ export function mobileAgentOptions(dto: OpencodeOptionsDto): MobileAgentOptions 
     if (!m.tools || !isModelName(m.id)) continue;
     const where = whereOf.get(m.provider) ?? 'remote';
     const cost = modelCostKind(m.provider, m.cost, where);
-    const data = where === 'device' ? 'on-device' : cost === 'local' ? null : dataUseOf(m.provider, m.id.slice(m.provider.length + 1));
+    const data = modelDataUse(m, cost, where);
     models.push({ id: m.id, label: clip(m.label, MOBILE_AGENT_LABEL_MAX), group: clip(m.group, MOBILE_AGENT_LABEL_MAX), cost, data });
   }
   return {

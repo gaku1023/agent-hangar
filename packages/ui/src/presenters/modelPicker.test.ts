@@ -59,9 +59,10 @@ describe('contextLabel と priceLabel', () => {
   it('コンテキストは K と M で縮める', () => {
     expect([262_144, 131_072, 200_000, 1_000_000, 1_048_576, 1_500_000, 900].map(contextLabel)).toEqual(['262K', '131K', '200K', '1M', '1M', '1.5M', '900']);
   });
-  it('値段は、ローカルと無料は 0 円、従量は入力と出力（100 万トークンあたり）、定額は「定額に含む」', () => {
-    expect(priceLabel(ja, 'local', null)).toEqual({ main: '0 円', sub: null });
-    expect(priceLabel(ja, 'free', { input: 0, output: 0 })).toEqual({ main: '0 円', sub: null });
+  it('値段は、ローカルと無料は $0.00（会話の費用と同じドルの書式）、従量は入力と出力（100 万トークンあたり）、定額は「定額に含む」', () => {
+    expect(priceLabel(ja, 'local', null)).toEqual({ main: '$0.00', sub: null });
+    expect(priceLabel(ja, 'free', { input: 0, output: 0 })).toEqual({ main: '$0.00', sub: null });
+    expect(priceLabel(en, 'free', { input: 0, output: 0 })).toEqual({ main: '$0.00', sub: null });
     expect(priceLabel(ja, 'metered', { input: 0.15, output: 0.6 })).toEqual({ main: '$0.15 / $0.6', sub: '入力 / 出力 · 100万トークン' });
     expect(priceLabel(ja, 'plan', { input: 2, output: 10 })).toEqual({ main: '定額に含む', sub: null });
     expect(priceLabel(en, 'metered', { input: 2, output: 10 })).toEqual({ main: '$2 / $10', sub: 'Input / output · per 1M tokens' });
@@ -85,7 +86,7 @@ describe('presentModelPicker', () => {
     const rows = presentModelPicker(ja, input()).groups.flatMap((g) => g.rows);
     const row = (id: string) => rows.find((r) => r.id === id)!;
     expect(labels(row('lmstudio/qwen3.6-35b-a3b').tags)).toEqual(['ローカル', 'PC 外への送信なし', '262K']);
-    expect(row('lmstudio/qwen3.6-35b-a3b').price).toEqual({ main: '0 円', sub: null });
+    expect(row('lmstudio/qwen3.6-35b-a3b').price).toEqual({ main: '$0.00', sub: null });
     // 内側の網のサーバーは PC の外へ出るので、「PC 外への送信なし」は付けない。
     expect(labels(row('home/qwen3.8-27b-awq').tags)).toEqual(['ローカル', '128K']);
     expect(labels(row('opencode/glm-5.3-flash-free').tags)).toEqual(['無料', '学習への利用なし', '200K', '期間限定']);
@@ -160,6 +161,6 @@ describe('presentModelPicker', () => {
   it('英語でも組める', () => {
     const v = presentModelPicker(en, input());
     expect(v.groups[0]!.kind.label).toBe('Local');
-    expect(v.groups[0]!.rows[0]!.price.main).toBe('$0');
+    expect(v.groups[0]!.rows[0]!.price.main).toBe('$0.00');
   });
 });

@@ -84,6 +84,17 @@ export function dataUseOf(provider: string, model: string): ModelDataUse | null 
 }
 
 /**
+ * モデルの札に出すデータの扱い。PC のモデルの小窓とスマホの答えが同じ決め方を使う。
+ * m はプロバイダーと `<プロバイダー>/<モデル>` の ID、kind は費用の型（modelCostKind）、where はプロバイダーの宛先。
+ * この PC のプロバイダーは on-device、ほかのローカル（内側の網や自前のサーバー）は null（札を出さない）、それ以外は表から引き、表に無ければ null（分からない）。
+ */
+export function modelDataUse(m: { provider: string; id: string }, kind: ModelCostKind, where: 'device' | 'lan' | 'remote'): ModelDataUse | null {
+  if (where === 'device') return 'on-device';
+  if (kind === 'local') return null;
+  return dataUseOf(m.provider, m.id.slice(m.provider.length + 1));
+}
+
+/**
  * 費用の型。定額のプロバイダー（手書きの表）、この PC か内側の網、料金のあるもの（従量）、0 円のもの（無料）の順に決める。
  * 料金の分からないものは、opencode.json で足した自前のサーバーとしてローカルにする（opencode も models.dev も知らないモデルである）。
  * where はプロバイダーの宛先（device、lan、remote）。PC のモデルの小窓とスマホの答えが同じ決め方を使う。

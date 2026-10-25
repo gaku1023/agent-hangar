@@ -169,6 +169,21 @@ describe('NewSessionScreen のエージェント', () => {
     expect(onLaunch).toHaveBeenCalledTimes(1);
   });
 
+  it('学習に使わないモデル（GLM と DeepSeek の無料など）には、PC の小窓と同じ「学習への利用なし」を添える', async () => {
+    const models: MobileAgentOptions['models'] = [
+      { id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode Zen', cost: 'free', data: 'no-training' },
+      { id: 'opencode/deepseek-v4-flash-free', label: 'DeepSeek V4 Flash Free', group: 'OpenCode Zen', cost: 'free', data: 'no-training' },
+    ];
+    await setup(askerOf({ options: async () => ({ ...OPTIONS, models }) }));
+    pick('プロジェクト', /project-a/);
+    pick('エージェント', /opencode/);
+    fireEvent.click(advanced());
+    await waitFor(() => expect(within(group('モデル')).getAllByRole('radio')).toHaveLength(3));
+    const radios = within(group('モデル')).getAllByRole('radio');
+    expect(radios[1]).toHaveTextContent('OpenCode Zen · 無料 · 学習への利用なし');
+    expect(radios[2]).toHaveTextContent('OpenCode Zen · 無料 · 学習への利用なし');
+  });
+
   it('PC の一覧が古ければ「PC の一覧（更新が古い可能性があります）」を添える', async () => {
     await setup(askerOf({ options: async () => ({ ...OPTIONS, stale: true }) }));
     pick('プロジェクト', /project-a/);
