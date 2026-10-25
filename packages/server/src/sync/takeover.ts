@@ -1,6 +1,8 @@
 import { TAKEOVER_TIMEOUT_MS, type TakeoverDto, type TakeoverStage } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { sessionLock } from '../db/queries.ts';
+import type { AgentKind } from '../agent/types.ts';
+import { ledgerKeyFor } from './ledgerKey.ts';
 import type { Timers } from './engine.ts';
 import { answerOf, askOf, cancelAsk, setAskForce, writeAsk, type TakeoverAnswer, type TakeoverAsk } from './takeoverRows.ts';
 
@@ -66,12 +68,15 @@ function liveAsks(db: Db, self: string, sessionId: string, runId?: string): Take
 /**
  * 応答の本文の版が、手元の台帳（file_sync）に降りきっているか。
  * 応答の sha256 が null（相手に上げた本文が無い）なら台帳を見ずに真。あれば、台帳の sha256 と大きさが応答と同じになるまで偽。
+ * 台帳の鍵は会話のエージェントで決める（Claude は transcripts/…jsonl.gz、opencode は opencode/…json.gz。sync/ledgerKey.ts）。
  */
 function landed(db: Db, sessionId: string, target: string, a: TakeoverAnswer): boolean {
   if (a.transcriptSha256 === null) return true;
-  const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(sessionId) as { p: string } | undefined)?.p ?? null;
-  if (!uuid) return false;
-  const led = db.prepare('select sha256, size from file_sync where key = ?').get(`transcripts/${target}/${uuid}.jsonl.gz`) as { sha256: string; size: number } | undefined;
+  const s = db.prepare('select provider, provider_session_id p from sessions where id = ?').get(sessionId) as { provider: AgentKind; p: string } | undefined;
+  if (!s?.p) return false;
+  let key: string;
+  try { key = ledgerKeyFor(s.provider, target, s.p, null); } catch { return false; }
+  const led = db.prepare('select sha256, size from file_sync where key = ?').get(key) as { sha256: string; size: number } | undefined;
   return !!led && led.sha256 === a.transcriptSha256 && led.size === a.transcriptSize;
 }
 

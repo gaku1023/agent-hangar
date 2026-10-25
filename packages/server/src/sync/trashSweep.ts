@@ -2,7 +2,7 @@ import { MAX_BLOB_DELETE_KEYS, opencodeBlobKey, TRASH_KEEP_MS, transcriptBlobKey
 import type { Db } from '../db/open.ts';
 import { trashedLongAgo } from '../sessions/trash.ts';
 import { CloudError, type CloudClient } from './client.ts';
-import { transcriptLedgerKey } from './ledgerKey.ts';
+import { ledgerKeyFor, transcriptLedgerKey } from './ledgerKey.ts';
 import type { RowKeyring } from './sealedClient.ts';
 
 /**
@@ -41,7 +41,22 @@ type Target = { blobKey: string; ledgerKey: string; epoch: number };
 async function targets(db: Db, ring: RowKeyring, deviceId: string, now: number): Promise<Target[]> {
   const out: Target[] = [];
   const pick = db.prepare("select ledger_key ledgerKey, epoch from blob_uploads where ledger_key = ? or ledger_key like ? escape '\\' order by ledger_key, epoch");
+  const providerOf = db.prepare('select provider from sessions where id = ?');
+  const exact = db.prepare('select ledger_key ledgerKey, epoch from blob_uploads where ledger_key = ? order by epoch');
   for (const s of trashedLongAgo(db, now - TRASH_KEEP_MS)) {
+    // opencode の会話は export の 1 本だけ（サブエージェントの本文は分けない）。鍵名の求め方も Claude と違う。
+    if ((providerOf.get(s.sessionId) as { provider: string } | undefined)?.provider === 'opencode') {
+      let key: string;
+      try { key = ledgerKeyFor('opencode', deviceId, s.uuid, null); } catch { continue; }
+      for (const r of exact.all(key) as { ledgerKey: string; epoch: number }[]) {
+        const keys = ring.at(r.epoch);
+        if (!keys) continue;
+        try {
+          out.push({ blobKey: await opencodeBlobKey(keys.index, deviceId, deviceId, s.uuid), ledgerKey: r.ledgerKey, epoch: r.epoch });
+        } catch { /* 形の違う ID は鍵名にならない */ }
+      }
+      continue;
+    }
     let main: string;
     try { main = transcriptLedgerKey(deviceId, s.uuid, null); } catch { continue; }
     const head = main.slice(0, -'.jsonl.gz'.length);

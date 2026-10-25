@@ -199,3 +199,21 @@ describe('sweepSupersededBlobs（世代を回した後に上げ直した本文�
     expect(remembered()).toBe(2);
   });
 });
+
+describe('opencode の会話のゴミ箱の掃除', () => {
+  const SES = 'ses_e8e86939cffewIeT7kgc690PVE';
+  it('30 日を過ぎた opencode の会話も拾い、上げた export の鍵名を消す', async () => {
+    db.prepare('insert into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
+      .run('s-oc', 'opencode', SES, '/w/alpha', 1, 1, 'dev-a', 'dev-a', 1);
+    setSessionTrashed(db, 'dev-a', 's-oc', clock - TRASH_KEEP_MS - 1, clock - TRASH_KEEP_MS - 1);
+    db.prepare('update sessions set deleted_at = 1 where id = ?').run('s-oc');
+    expect(trashedLongAgo(db, clock - TRASH_KEEP_MS)).toEqual([{ sessionId: 's-oc', uuid: SES }]);
+    noteBlobUpload(db, `opencode/dev-a/${SES}.json.gz`, 2);
+    const { key } = await cloud.asDevice('dev-a', { keyring: ring }).putText({ path: `opencode/${SES}.json` }, '{"info":{},"messages":[]}');
+    expect(key).toBe(await cloud.asDevice('dev-a', { keyring: ring }).opencodeKey(SES));
+    clock += 2 * 3_600_000;
+    expect(await sweep()).toEqual({ deleted: 1, refused: 0 });
+    expect(cloud.files.has(key)).toBe(false);
+    expect(remembered()).toBe(0);
+  });
+});

@@ -3,6 +3,8 @@ import { Readable } from 'node:stream';
 import type { Language } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { msg, render } from '../i18n/message.ts';
+import type { AgentKind } from '../agent/types.ts';
+import { ledgerKeyFor } from './ledgerKey.ts';
 import type { RunManager } from '../runs/manager.ts';
 import { sha256Stream } from './crypto.ts';
 import { FLUSH_AGAIN_MS } from './flushOnRunEnd.ts';
@@ -24,6 +26,15 @@ export type TakeoverResponderDeps = {
   againMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * opencode の会話の口（provider/opencode/transfer.ts と export.ts）。省けば opencode の会話も Claude と同じ順で止める。
+   * quiesce は、会話の作業を interrupt して idle になるまで待つ（hangar の会話の ID と opencode の会話の ID）。
+   * exportFile は、上げるために書き出したファイルの場所（`~/.agent-hangar/opencode/export/<会話>.json`）。
+   */
+  opencode?: {
+    quiesce(sessionId: string, providerSessionId: string): Promise<unknown>;
+    exportFile(providerSessionId: string): string;
+  };
 };
 
 /**
@@ -32,6 +43,10 @@ export type TakeoverResponderDeps = {
  * 頼んだ側は、応答の版（本文の sha256 と size）が台帳に降りてくるのを待ってから引き継ぐ。
  * 応答の版は、止めたあとの手元の本文のファイルから作る（手元に無ければ台帳の版）。
  * 先に頼みを扱った方が止め、同じ run への後の頼みは、すでに動いていないので not_running になる。
+ *
+ * opencode の会話は順番を変える（docs/design.md「opencode の本文の同期」）。
+ * TUI を閉じてもサーバの側の作業は続き、止めたあとの本文は serve の外からしか書き出せないので、
+ * interrupt して idle を待ち、書き出し直して上げてから、TUI と serve を止める。版は書き出したファイルで答える。
  */
 export class TakeoverResponder {
   private tail: Promise<unknown> = Promise.resolve();
@@ -71,9 +86,18 @@ export class TakeoverResponder {
     const now = this.deps.now ?? Date.now;
     const run = runs.getRun(ask.runId);
     const mine = !!run && run.deviceId === deviceId && run.sessionId === ask.sessionId && run.endedAt === null;
-    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(ask.sessionId) as { p: string } | undefined)?.p ?? null;
+    const row = db.prepare('select provider, provider_session_id p from sessions where id = ?').get(ask.sessionId) as { provider: AgentKind; p: string } | undefined;
+    const uuid = row?.p ?? null;
+    const opencode = row?.provider === 'opencode' && this.deps.opencode ? this.deps.opencode : null;
     let result: TakeoverResult = 'not_running';
-    if (mine) {
+    if (mine && opencode && uuid) {
+      this.deps.notePane?.(run.tmuxName, render(this.deps.language(), msg('sync.takeover.paneNoteOpencode', { device: this.deps.deviceName(ask.fromDevice) })));
+      // 止まらなくても先へ進む（書き出しは途中のターンを含みうるが、止めないまま残すよりよい）。
+      await opencode.quiesce(ask.sessionId, uuid).catch((e: unknown) => console.error('[takeover] could not quiesce the opencode session', e instanceof Error ? e.message : e));
+      await this.deps.flushSession(uuid);
+      runs.kill(run.id, 'taken_over');
+      result = 'stopped';
+    } else if (mine) {
       // 止める前に端末へ残す。止めたあとは画面が閉じる。
       this.deps.notePane?.(run.tmuxName, render(this.deps.language(), msg('sync.takeover.paneNote', { device: this.deps.deviceName(ask.fromDevice) })));
       runs.kill(run.id, 'taken_over');
@@ -83,7 +107,9 @@ export class TakeoverResponder {
       await (this.deps.sleep ?? ((ms) => new Promise<void>((r) => { setTimeout(r, ms); })))(this.deps.againMs ?? FLUSH_AGAIN_MS);
       if (uuid) await this.deps.flushSession(uuid);
     }
-    const version = (await this.localVersion(ask.sessionId)) ?? (uuid ? this.transcriptVersion(uuid) : null);
+    const version = opencode && uuid
+      ? ((await this.fileVersion(opencode.exportFile(uuid))) ?? this.transcriptVersion('opencode', uuid))
+      : ((await this.localVersion(ask.sessionId)) ?? (uuid ? this.transcriptVersion(row?.provider ?? 'claude-code', uuid) : null));
     writeAnswer(db, deviceId, {
       askId: ask.id, runId: ask.runId, result, answeredAt: now(),
       transcriptSha256: version?.sha256 ?? null, transcriptSize: version?.size ?? null,
@@ -101,22 +127,28 @@ export class TakeoverResponder {
    */
   private async localVersion(sessionId: string): Promise<{ sha256: string; size: number } | null> {
     const f = this.deps.db.prepare('select path from transcript_files where session_id = ? and agent_id is null and device_id is null order by mtime desc limit 1').get(sessionId) as { path: string } | undefined;
-    if (!f) return null;
+    return f ? this.fileVersion(f.path) : null;
+  }
+
+  /** ファイルの版（平文の sha256 と大きさ）。無ければ null。 */
+  private async fileVersion(file: string): Promise<{ sha256: string; size: number } | null> {
     let size: number;
     try {
-      const st = fs.statSync(f.path);
+      const st = fs.statSync(file);
       if (!st.isFile()) return null;
       size = st.size;
     } catch {
       return null;
     }
     // 上げる側と同じく、stat した長さまでに限って読む（止めたあとなので伸びないはずだが、指紋と大きさを食い違わせない）。
-    const sha256 = await sha256Stream(size === 0 ? Readable.from([]) : fs.createReadStream(f.path, { start: 0, end: size - 1 }));
+    const sha256 = await sha256Stream(size === 0 ? Readable.from([]) : fs.createReadStream(file, { start: 0, end: size - 1 }));
     return { sha256, size };
   }
 
   /** 台帳（file_sync）にある、この PC の主線の本文の版。上げていなければ null。手元のファイルが無いときだけ使う。 */
-  private transcriptVersion(uuid: string): { sha256: string; size: number } | null {
-    return (this.deps.db.prepare('select sha256, size from file_sync where key = ?').get(`transcripts/${this.deps.deviceId}/${uuid}.jsonl.gz`) as { sha256: string; size: number } | undefined) ?? null;
+  private transcriptVersion(provider: AgentKind, uuid: string): { sha256: string; size: number } | null {
+    let key: string;
+    try { key = ledgerKeyFor(provider, this.deps.deviceId, uuid, null); } catch { return null; }
+    return (this.deps.db.prepare('select sha256, size from file_sync where key = ?').get(key) as { sha256: string; size: number } | undefined) ?? null;
   }
 }

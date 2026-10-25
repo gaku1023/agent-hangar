@@ -1127,6 +1127,30 @@ describe('runTeardown', () => {
     expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
   });
 
+  it('opencode の本文の写しも降ろす。自分の会話で、書き出しが手元にあるものは降ろし直さない', async () => {
+    const { home, cloudDir } = dirs();
+    fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
+    const cfg = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });
+    saveCloudConfig(home, cfg);
+    const keyring = Keyring.fromConfig(cfg);
+    const cloudB = new FakeCloudClient({ deviceId: 'dev-b', keyring });
+    await cloudB.putText({ path: 'opencode/ses_theirs.json' }, '{"info":{"id":"ses_theirs"},"messages":[]}\n');
+    const cloudA = cloudB.asDevice('dev-a', { keyring });
+    await cloudA.putText({ path: 'opencode/ses_mine.json' }, '{"info":{"id":"ses_mine"},"messages":[]}\n');
+    // 自分の会話の原本は opencode の記録の置き場にあり、上げた書き出しも手元にある。
+    fs.mkdirSync(path.join(home, 'opencode', 'export'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'opencode', 'export', 'ses_mine.json'), '{"info":{"id":"ses_mine"},"messages":[]}\n');
+    const w = fakeWrangler({ 'r2 object delete': () => ok(), 'r2 bucket delete': () => ok(), 'delete --name': () => ok(), 'd1 delete': () => ok() });
+    const lines: string[] = [];
+
+    const done = await runTeardown({ home, deviceId: 'dev-a', claudeDir: path.join(home, 'claude'), wire: cloudA.wire, wrangler: w.runner('a'.repeat(32), cloudDir), confirm: fakeConfirm([true, true]).fn, log: (l) => lines.push(l) });
+    expect(done).toBe(true);
+    expect(fs.readFileSync(path.join(home, 'remote', 'dev-b', 'opencode', 'ses_theirs.json'), 'utf8')).toBe('{"info":{"id":"ses_theirs"},"messages":[]}\n');
+    expect(fs.existsSync(path.join(home, 'remote', 'dev-a'))).toBe(false);
+    expect(lines.join('\n')).toContain('1 件をこの PC にダウンロードしました');
+  });
+
   it('setup を確認の段で止めて cloud.json が無く下書きだけがあるときも、下書きの Worker、D1、R2 を消し、下書きも消す', async () => {
     const { home, cloudDir } = dirs();
     const conf = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });

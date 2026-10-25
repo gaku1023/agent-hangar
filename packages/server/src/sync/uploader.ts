@@ -510,7 +510,7 @@ export class TranscriptUploader {
     try { return transcriptLedgerKey(this.deps.deviceId, sessionUuid, agentId); } catch { return null; }
   }
 
-  /** remote/ の写しか。元の PC の ID が自分と違うときだけ写しとして上げる。opencode の写しはまだ無い（取り込みは段 E の E3）。 */
+  /** remote/ の写しか。元の PC の ID が自分と違うときだけ写しとして上げる。opencode の写し（remote/<PC>/opencode/）は上げ直さない（作り直しが上げ直すのは projects/ の下だけ。sync/rebuild.ts）。 */
   private isRelay(f: UploadTarget): f is UploadTarget & { origin: string } {
     return f.provider !== 'opencode' && f.origin !== undefined && f.origin !== this.deps.deviceId;
   }

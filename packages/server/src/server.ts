@@ -107,10 +107,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const runs = bootRuns(home, delivery, listening, { serverDir, launcher: opts.launcher });
   const summary = bootSummary(home, delivery, runs, sync);
   const trash = bootTrash(home, delivery, sync, indexing);
-  const takeover = bootTakeover({ home, runs, sync, delivery });
+  // opencode の serve の管理は下で組むので、引き継ぎの受け手には呼ばれた時点で引く口を渡す。
+  let opencodeParts: ReturnType<typeof bootOpencode> | null = null;
+  const takeover = bootTakeover({ home, runs, sync, delivery, opencode: () => opencodeParts });
   // opencode（ベータ）の serve の管理。前の hangar が残した serve の掃除は、設定の入り切りに関わらずここで始まる。
   // 範囲の外の版で serve を起こすたびに、画面へ知らせの種を配る（右下の札、同じ版では画面が一度だけ出す）。
   const opencode = bootOpencode(home, { onVersionNotice: (s) => delivery.hub.broadcast({ type: 'opencode.version', version: s.version, verdict: s.verdict }) });
+  opencodeParts = opencode;
   // opencode の driver は配る層と一緒に組んである。serve の管理をここで渡す（それまでの opencode の起動は断る）。
   delivery.bindOpencodeServes(opencode.serves);
   // opencode の本文には文脈の大きさが無いので、索引は使用量を書くときにモデルの一覧（とカタログ）から引く。

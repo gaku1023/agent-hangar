@@ -48,6 +48,14 @@ describe('remoteTranscriptPath', () => {
     expect(() => remoteTranscriptPath('/h', 'dev-b', 'skills/x.md')).toThrow();
     expect(() => remoteTranscriptPath('/h', 'dev-b', '/projects/x.jsonl')).toThrow();
   });
+
+  it('opencode の本文の写し（opencode/<会話>.json）は remote/<端末>/opencode/ に置き、ほかの形は拒む', () => {
+    const ses = 'ses_0123456789abcdefABCDEF';
+    expect(remoteTranscriptPath('/h', 'dev-b', `opencode/${ses}.json`)).toBe(path.join('/h', 'remote', 'dev-b', 'opencode', `${ses}.json`));
+    for (const bad of [`opencode/x/${ses}.json`, 'opencode/../x.json', 'opencode/..json', `opencode/${ses}.jsonl`, 'opencode/', 'opencode/-a.json']) {
+      expect(() => remoteTranscriptPath('/h', 'dev-b', bad)).toThrow();
+    }
+  });
 });
 
 describe('RemotePuller', () => {
@@ -596,12 +604,12 @@ describe('削除したセッションの写し', () => {
 
 /**
  * opencode の本文の写しは、path が projects/ で始まらない（opencode/<セッション>.json）。
- * それを知らない版の PC が同じ一覧を pull しても、その行だけが降りてこず、Claude の本文は降り続けなければならない。
- * 守りは 2 段ある。
+ * 取り込む版（段 E の E3）は remote/<端末>/opencode/ に降ろす。
+ * 知らない形の path の行は、その行だけが降りてこず、Claude の本文は降り続けなければならない。守りは 2 段ある。
  * 1 段目は SealedCloudClient で、中身のパスから鍵名を求め直せない行を開かずに捨てる（puller まで届かない）。
  * 2 段目は puller で、届いてしまっても行ごとの失敗として数え、3 回で飛ばして先へ進む。
  */
-describe('projects/ で始まらない写し（opencode の本文）を知らない puller', () => {
+describe('projects/ で始まらない写し（opencode の本文）', () => {
   const OTHER = '22222222-2222-4222-8222-222222222222';
   const LATER = '33333333-3333-4333-8333-333333333333';
   const OPENCODE_PATH = 'opencode/ses_0123456789abcdefABCDEF.json';
@@ -649,16 +657,17 @@ describe('projects/ で始まらない写し（opencode の本文）を知らな
     expect(cloud.calls.filter((c) => c.method === 'getFile' && c.args[0] === oc.key)).toEqual([]);
   });
 
-  it('上げる側（uploader）が本物の鍵名で上げた opencode の本文も、取り込みの無い版は降ろさずに Claude の本文を降ろし続ける', async () => {
+  it('上げる側（uploader）が本物の鍵名で上げた opencode の本文は、remote/<端末>/opencode/ に降ろし、台帳を opencode の鍵で書く', async () => {
     const ses = 'ses_0123456789abcdefABCDEF';
     const devB = cloud.asDevice('dev-b');
     const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ocx-'));
     const dbB = openDb(':memory:');
     dbB.prepare('insert into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
       .run('s-oc', 'opencode', ses, '/w/alpha', 1, 1, 'dev-b', 'dev-b', 1);
+    const text = `{"info":{"id":"${ses}"},"messages":[]}\n`;
     const upB = new TranscriptUploader({
       db: dbB, deviceId: 'dev-b', claudeDir: path.join(exportDir, 'claude'), client: devB, keyring: devB.keyring, state: new SyncStateStore(dbB), isPaused: () => false,
-      opencode: () => ({ dir: exportDir, async export(id) { const f = path.join(exportDir, `${id}.json`); fs.writeFileSync(f, `{"info":{"id":"${id}"},"messages":[]}\n`); return f; } }),
+      opencode: () => ({ dir: exportDir, async export(id) { const f = path.join(exportDir, `${id}.json`); fs.writeFileSync(f, text); return f; } }),
     });
     await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
     await upB.flushSession(ses);
@@ -667,16 +676,37 @@ describe('projects/ で始まらない写し（opencode の本文）を知らな
     expect(cloud.files.has(ocKey)).toBe(true);
     await putRemote('dev-b', `projects/-w-alpha/${OTHER}.jsonl`, '{"b":2}\n');
     const p = make();
-    expect(await p.pullNow()).toEqual({ downloaded: 2 });
+    expect(await p.pullNow()).toEqual({ downloaded: 3 });
     expect(state.getNumber('filesSeq', -1)).toBe(3);
     expect(p.skippedEntries()).toEqual([]);
     expect(errors).toEqual([]);
-    expect(cloud.calls.filter((c) => c.method === 'getFile' && c.args[0] === ocKey)).toEqual([]);
-    expect(remoteTree().filter((r) => !r.startsWith('dev-b/projects') && r !== 'dev-b')).toEqual([]);
+    const target = remoteTranscriptPath(home, 'dev-b', `opencode/${ses}.json`);
+    expect(fs.readFileSync(target, 'utf8')).toBe(text);
+    expectMode(target, 0o600);
+    expect(db.prepare('select kind, path, device_id, sha256, size from file_sync where key = ?').get(`opencode/dev-b/${ses}.json.gz`))
+      .toEqual({ kind: 'transcript', path: `opencode/${ses}.json`, device_id: 'dev-b', sha256: sha256Hex(text), size: Buffer.byteLength(text) });
+    // Claude の台帳の鍵（transcripts/）には混ざらない。
+    expect(db.prepare("select count(*) n from file_sync where key like 'transcripts/%' and path like 'opencode/%'").get()).toEqual({ n: 0 });
+    // 同じ指紋のものは降ろし直さない。
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
     fs.rmSync(exportDir, { recursive: true, force: true });
   });
 
-  it('client を通り抜けて puller に届いても、行ごとの失敗として 3 回で飛ばし、ほかの本文は止めない', async () => {
+  it('削除の印のある opencode の会話の写しは降ろさず、戻されたら refetchSession で降ろし直す', async () => {
+    const ses = 'ses_0123456789abcdefABCDEF';
+    db.prepare('insert into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
+      .run('s-oc', 'opencode', ses, '/w/alpha', 1, 1, 'dev-b', 'dev-b', 1);
+    db.prepare("insert into session_states (session_id, trashed_at, updated_at, origin_device) values ('s-oc', 1, 1, 'dev-b')").run();
+    await putRemote('dev-b', `opencode/${ses}.json`, '{"x":1}\n');
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    db.prepare("update session_states set trashed_at = null where session_id = 's-oc'").run();
+    expect(await p.refetchSession(ses)).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `opencode/${ses}.json`), 'utf8')).toBe('{"x":1}\n');
+  });
+
+  it('知らない形の path（projects/ と opencode/ の外）が client を通り抜けて puller に届いても、行ごとの失敗として 3 回で飛ばし、ほかの本文は止めない', async () => {
+    const OPENCODE_PATH = 'elsewhere/ses_0123456789abcdefABCDEF.json';
     await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
     // 2 番目の行を、client が開いた後の opencode の写しに差し替える（鍵名の検査を持たない client を真似る）。
     const own = await putRemote('dev-a', `projects/-w-alpha/${OTHER}.jsonl`, 'mine\n');

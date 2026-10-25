@@ -190,7 +190,7 @@ const MAX_BACKUP_TRIES = 100;
 /**
  * 上書きの前に控えを取り、置けた場所を返す。
  *
- * 名前は `<uuid>-<yyyyMMdd-HHmmss>.jsonl` で、時刻は秒までしか持たない。
+ * 名前は `<uuid>-<yyyyMMdd-HHmmss>.jsonl` で、時刻は秒までしか持たない（opencode の書き出しは ext に `.json` を渡す）。
  * 同じ秒に 2 度上書きすると名前が当たるので、`-2`、`-3` と連番を足す。
  * 控えは「上書きする前の姿を残す」ためのものなので、控えが控えを潰すとその回の直前の姿が失われる。
  * 空いている名前は `wx`（無ければ作る、あれば失敗）で押さえる。
@@ -200,13 +200,13 @@ const MAX_BACKUP_TRIES = 100;
  * 置けなければ投げる。呼び手は ~/.claude を触らずに戻る。
  * この形は apply.ts の `writeMemoConflictCopy` と揃えてある。
  */
-function backupBeforeOverwrite(target: string, home: string, sessionUuid: string, now: number): string {
+export function backupBeforeOverwrite(target: string, home: string, sessionUuid: string, now: number, ext = '.jsonl'): string {
   const root = backupsRoot(home);
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   const base = `${sessionUuid}-${timestampLabel(now)}`;
   for (let i = 1; i <= MAX_BACKUP_TRIES; i++) {
     // 控えの置き場も段ごとに解く。transcripts がリンクだと控えが控えの外へ出る。
-    const dest = resolveUnder(root, `transcripts/${i === 1 ? `${base}.jsonl` : `${base}-${i}.jsonl`}`, msg('sync.copy.labelBackups'), { create: true });
+    const dest = resolveUnder(root, `transcripts/${i === 1 ? `${base}${ext}` : `${base}-${i}${ext}`}`, msg('sync.copy.labelBackups'), { create: true });
     const tmp = `${dest}.hangar-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
     try {
       fs.copyFileSync(target, tmp, fs.constants.COPYFILE_EXCL);

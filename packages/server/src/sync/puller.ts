@@ -8,7 +8,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, MessageError } from '../i18n/message.ts';
 import { CompatError, LimitError, type CloudClient } from './client.ts';
 import { sha256Stream } from './crypto.ts';
-import { ledgerKeyOfPath } from './ledgerKey.ts';
+import { ledgerKeyOfPath, opencodeSessionOfPath } from './ledgerKey.ts';
 import type { SyncStateStore } from './state.ts';
 
 /**
@@ -17,8 +17,13 @@ import type { SyncStateStore } from './state.ts';
  */
 const originOf = (e: FileEntry): string => (typeof e.origin === 'string' && e.origin !== '' ? e.origin : e.deviceId);
 
-/** 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）から、セッションの ID を取り出す。取れなければ空。 */
+/**
+ * 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）から、セッションの ID を取り出す。取れなければ空。
+ * opencode の写し（opencode/<会話>.json）は、その会話の ID を返す。
+ */
 function uuidOfTranscript(rel: string): string {
+  const oc = opencodeSessionOfPath(rel);
+  if (oc !== null) return oc;
   const parts = path.posix.normalize(rel).split('/');
   return (parts[2] ?? '').replace(/\.jsonl$/, '');
 }
@@ -99,11 +104,13 @@ function parseSkip(raw: string): SkipRecord | null {
 
 /**
  * 他端末の本文の置き場。
- * 相対パスは projects/ の下に限り、端末 ID も名前として安全な文字だけを許す。
+ * 相対パスは projects/ の下か、opencode の本文の写し（opencode/<会話>.json、会話の ID は鍵に使える形だけ）に限り、端末 ID も名前として安全な文字だけを許す。
  * ここを通さずに R2 の申告した文字列で組み立てると、~/.claude のような外の場所へ書けてしまう。
  */
 export function remoteTranscriptPath(home: string, deviceId: string, rel: string): string {
   if (!/^[A-Za-z0-9._-]+$/.test(deviceId) || deviceId === '.' || deviceId === '..') throw new MessageError(msg('sync.pull.badDevice', { id: deviceId }));
+  const oc = opencodeSessionOfPath(rel);
+  if (oc !== null) return path.join(remoteRoot(home), deviceId, 'opencode', `${oc}.json`);
   const norm = path.posix.normalize(rel);
   if (!norm.startsWith('projects/') || norm.split('/').includes('..') || norm.startsWith('/')) throw new MessageError(msg('sync.pull.badPath', { path: rel }));
   return path.join(remoteRoot(home), deviceId, ...norm.split('/'));

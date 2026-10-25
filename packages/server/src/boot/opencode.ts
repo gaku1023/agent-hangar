@@ -9,6 +9,7 @@ import { opencodeConfigPath } from '../provider/opencode/configFile.ts';
 import { OpencodeProvidersService } from '../provider/opencode/integration.ts';
 import { OpencodeExporter } from '../provider/opencode/export.ts';
 import { OpencodeOptionsService } from '../provider/opencode/options.ts';
+import { OpencodeTransfer } from '../provider/opencode/transfer.ts';
 import { ServeManager, type OpencodeVersionNoticeSeed } from '../provider/opencode/serve/manager.ts';
 import { ServeRegistry, serveRegistryPath, sweepLeftoverServes } from '../provider/opencode/serve/registry.ts';
 
@@ -21,6 +22,8 @@ export type OpencodeParts = {
   providers: OpencodeProvidersService;
   /** 同期で上げる本文の書き出し（`opencode session export`）。会話の serve が起きていればそれにつなぐ。 */
   exporter: OpencodeExporter;
+  /** ほかの PC の会話の取り込み（`session import`）と、引き継ぎの前の作業の止め（interrupt と idle 待ち）。会話の serve につなぐ。 */
+  transfer: OpencodeTransfer;
   /** 起動のときの掃除が済むと解決する。 */
   swept: Promise<unknown>;
   /** 最後に出た、範囲の外の版の知らせの種。画面へは起こすたびに onVersionNotice で配る（C7）。 */
@@ -74,11 +77,13 @@ export function bootOpencode(
       return row ? serves.get(row.id) : null;
     },
   });
+  const transfer = new OpencodeTransfer({ bin, serves });
   return {
     serves,
     options,
     providers,
     exporter,
+    transfer,
     swept,
     versionNotice: () => notice,
     stop: async (ms) => {

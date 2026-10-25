@@ -39,8 +39,10 @@ describe('台帳の鍵', () => {
     const ses = 'ses_f55764078ffeDvMj180Fvan87g';
     expect(ledgerKeyFor('opencode', 'dev1', ses, null)).toBe(`opencode/dev1/${ses}.json.gz`);
     expect(ledgerKeyFor('opencode', 'dev1', ses, null).startsWith('transcripts/')).toBe(false);
-    // 写しのパスから求める鍵（降ろす側、projects/ の下だけ）にも当たらない。
-    expect(ledgerKeyOfPath('dev1', opencodeSyncPath(ses))).toBeNull();
+    // 降ろす側が写しのパスから求める鍵も、上げる側と同じ鍵になる。
+    expect(ledgerKeyOfPath('dev1', opencodeSyncPath(ses))).toBe(ledgerKeyFor('opencode', 'dev1', ses, null));
+    // opencode/ の下でも、形の違うものは鍵にしない（子のフォルダ、拡張子違い、怪しい ID）。
+    for (const bad of [`opencode/x/${ses}.json`, `opencode/${ses}.jsonl`, 'opencode/..json', 'opencode/-a.json', 'opencode/.json']) expect(ledgerKeyOfPath('dev1', bad)).toBeNull();
     for (const bad of ['', '..', 'a/b', '-a']) {
       expect(() => ledgerKeyFor('opencode', bad, ses, null)).toThrow(/id/);
       expect(() => ledgerKeyFor('opencode', 'dev1', bad, null)).toThrow(/id/);

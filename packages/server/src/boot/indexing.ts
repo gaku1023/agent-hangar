@@ -9,6 +9,9 @@ import { fillProjectRemotes } from '../projects/link.ts';
 import { checkRoots } from '../projects/rootCheck.ts';
 import { ensureScratchProject } from '../projects/scratch.ts';
 import { processStartOfPrompt } from '../sessions/promptProcess.ts';
+import { remoteRoot } from '../config/cloud.ts';
+import { opencodeExportDir } from '../provider/opencode/export.ts';
+import { RemoteOpencodeTranscripts } from '../provider/opencode/transcript/remote.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import type { SyncParts } from './sync.ts';
@@ -52,13 +55,20 @@ export function bootIndexing(
   const deviceId = home.device.id;
   // opencode のモデルのコンテキストの長さ。opencode の部品を組んだら bindContextSize で渡される。
   let contextSize: ((model: string) => number | null) | null = null;
+  // ほかの PC から降ろした opencode の本文の写し（export の JSON）を、閲覧のために索引へ入れる。
+  const remoteOpencode = new RemoteOpencodeTranscripts({
+    db, remoteRoot: remoteRoot(home.home), exportDir: opencodeExportDir(home.home),
+    marks: { get: (id) => sync.syncState.get(`opencodeView:${id}`), set: (id, v) => { sync.syncState.set(`opencodeView:${id}`, v); } },
+    isRunningHere: (id) => live.current().some((l) => l.sessionId === id),
+  });
   const indexer = new IndexerService({
     db, deviceId,
     contextSizeOf: (model) => contextSize?.(model) ?? null,
     // 本文の発見と見張りは Claude の driver のトランスクリプトの面が受け持つ。他端末から降ろした本文も、そこが見つける。
     transcript: delivery.claude.transcript,
     // opencode（ベータ）の本文は serve の API から読んで束で押し込む。hangar が起こした会話だけを読むので、設定が切なら何も読まない。
-    stored: [delivery.opencode.transcript],
+    // ほかの PC の opencode の会話は、降ろした export の写しから読む（設定に依らず閲覧できる）。
+    stored: [delivery.opencode.transcript, remoteOpencode],
     isRunning: (id) => live.current().some((l) => l.sessionId === id),
     // 譲ったセッションは相手が持ち主なので見ない。
     isYielded: (uuid) => sync.syncState.isYielded(uuid),
@@ -89,6 +99,8 @@ export function bootIndexing(
   live.onChange(() => indexer.noteLiveChanged());
   // 他の PC の行や本文の写しが届いたら、全件走査を 1 回予約する。予約済みなら重ねない。
   sync.onRemoteChange(() => indexer.requestSweep());
+  // 写しが降りたときと会話の行が届いたときに、opencode の写しも見直す（行が後から届いた写しも、ここで入る）。
+  sync.onRemoteChange(() => { remoteOpencode.refresh(); });
   const memos = new MemoStore({ db, deviceId, home: home.home });
   let stopMemoWatch: () => void = () => undefined;
   let rootTimer: ReturnType<typeof setInterval> | null = null;

@@ -382,6 +382,20 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(db.prepare("select count(*) c from runs where kind = 'resume'").get()).toEqual({ c: 0 });
   });
 
+  posixIt('「この PC で再開」の取り込みの前の用意（prepareResumeDir）は、再開と同じ理由で断り、通れば場所を返す。serve は起こさない', async () => {
+    let enabled = true;
+    const { rm, manager, log } = make({ enabledFn: () => enabled });
+    const r = await rm.start(params());
+    expect(() => rm.prepareResumeDir(r.sessionId)).toThrow(expect.objectContaining({ status: 409 }) as Error);
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    const starts = ev(log(), 'start').length;
+    expect(rm.prepareResumeDir(r.sessionId)).toBe((db.prepare('select cwd from sessions where id = ?').get(r.sessionId) as { cwd: string }).cwd);
+    expect(ev(log(), 'start')).toHaveLength(starts);
+    enabled = false;
+    expect(() => rm.prepareResumeDir(r.sessionId)).toThrow(expect.objectContaining({ status: 400 }) as Error);
+  });
+
   posixIt('設定を切にしても、動いている会話は止めない', async () => {
     let enabled = true;
     const { rm, manager } = make({ enabledFn: () => enabled });

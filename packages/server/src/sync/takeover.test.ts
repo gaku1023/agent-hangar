@@ -390,3 +390,24 @@ describe('resumeHereAllowed', () => {
     expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: false, deviceName: 'pc-b' });
   });
 });
+
+describe('opencode の会話の引き継ぎ（頼む側）', () => {
+  const SES = 'ses_e8e86939cffewIeT7kgc690PVE';
+  it('応答の版は opencode の台帳の鍵（opencode/<相手>/<会話>.json.gz）で見比べる', async () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'opencode', provider_session_id: SES, cwd: '/w/a', home_device: OTHER }, OTHER);
+    addRun('r1', T0 - 1_000);
+    svc.start('s1', { force: false });
+    await flush();
+    answerStopped(onlyAsk().id, { sha: 'v2', size: 20 });
+    // Claude の鍵の形で同じ版があっても、opencode の会話では見ない。
+    db.prepare('insert or replace into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`transcripts/${OTHER}/${SES}.jsonl.gz`, 'transcript', 'x', OTHER, 'v2', 20, 1, 1, 1);
+    svc.noteApplied();
+    expect(svc.get('s1')?.stage).toBe('receiving');
+    db.prepare('insert or replace into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`opencode/${OTHER}/${SES}.json.gz`, 'transcript', `opencode/${SES}.json`, OTHER, 'v2', 20, 1, 1, 1);
+    svc.noteApplied();
+    expect(svc.get('s1')?.stage).toBe('ready');
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: true });
+  });
+});

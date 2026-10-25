@@ -1722,8 +1722,9 @@ serve が残っていれば止めてから起こし直す。
 初期プロンプトと自動承認は持ち越さない（Claude の再開と同じく、起動の指定を引き継がない）。
 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
 フォークは断ったままにする。
-同期の再開の口（`resume`。Claude のターミナルの包み方と「この PC で再開」が使う）も、opencode の会話では断ったままにする（「この PC で再開」は段 E3）。
+同期の再開の口（`resume`。Claude のターミナルの包み方が使う）も、opencode の会話では断ったままにする。
 外のターミナルの opencode の `-s` は、同期の口ではなく `resumeMaterialized` を通す（「外のターミナルの opencode」）。
+「この PC で再開」は、降ろした写しを取り込んでから非同期の `resumeWith` で開く（「同期対象と暗号化」の「opencode の本文」）。
 
 hangar を起こし直したときは、どの会話の serve も起こさない。
 serve は hangar の終わりで止め、残ったものは起動のときに掃除するので、前の hangar の TUI は serve を失っている。
@@ -6634,10 +6635,77 @@ Worker の変更は要らない。
 HMAC の入力の頭を `o:` にするのは、Claude の入力に provider の文字を足す形（`t:opencode:…`）だと、元の PC の ID が `opencode` の Claude のサブエージェントと入力が重なるからである。
 path を `projects/` の外に置くのは、opencode を知らない版の PC が Claude の本文として取り込まないためである。
 その版の PC は、中身のパスから鍵名を求め直せない行を開かずに捨て、届いてしまっても行ごとの失敗として 3 回で飛ばす（E1 の試験、`sync/puller.test.ts`）。
-この版も、取り込みの口（計画の E3）を足すまでは、開けた opencode の行を puller に渡さずに区切りを先へ進める（`SealedCloudClient.listFiles`）。
-本文は変化のたびに全体を上げ直すので、取り込みを足した版は次に上がった行から降ろせる。
+取り込みの口を持たない E2 の版は、開けた opencode の行を puller に渡さずに区切りを先へ進めていた。
+本文は変化のたびに全体を上げ直すので、取り込みを足した版（計画の E3）は次に上がった行から降ろせる。
 世代を回した後の古い世代の鍵名の掃除（`sweepSupersededBlobs`）は opencode の台帳の鍵も読む。
-ゴミ箱の 30 日の掃除と、ほかの PC での取り込み、再開、引き継ぎは E3 で足す。
+
+##### 降ろす（計画の E3）
+
+puller は opencode の行を Claude の本文と同じ道で降ろす。
+置き場は `~/.agent-hangar/remote/<元の PC>/opencode/<ID>.json`（`remoteTranscriptPath`）で、`opencode/` の下は `<鍵に使える ID>.json` の形だけを許す。
+台帳の鍵は、上げる側と同じ `opencode/<元の PC>/<ID>.json.gz`（`ledgerKeyOfPath`）である。
+削除の印のある会話の写しを降ろさないこと、戻されたら `refetchSession` で降ろし直すことも Claude と同じである。
+作り直し（`sync/rebuild.ts`）は opencode の写しを上げ直さない（上げ直すのは `projects/` の下だけ）。
+
+##### 閲覧
+
+ほかの PC の opencode の会話は、降ろした export を手元の会話と同じ変換（`convertMessages`、古い順）に通して `agent_events` に入れ、手元の会話と同じ読み方（`transcript/stored.ts`）で読む。
+置き場は `provider/opencode/transcript/remote.ts`（`RemoteOpencodeTranscripts`）で、索引の stored の面の 1 つとして組む（`boot/indexing.ts`）。
+見直すのは、索引が始まったときと、写しが降りたときと、会話の行が届いたとき（`onRemoteChange`）である。
+束には元の PC（`IndexBatch.remoteDevice`）を付け、索引は他端末の写しとして書く（会話の行と要約には書かず、行がまだ届いていなければ書かない）。
+出どころの名前（`event_index.file_path_ref` と日別の使用量の鍵）は `opencode:<ID>@<元の PC>` にし、手元の束（`opencode:<ID>`）と分ける。
+手元の本文があるか（`SessionDto.remoteOnly` の元）は、主線の先頭のイベントの出どころが手元の束かで見る。
+手元の束と写しの束は互いに作り直しで置き換え、作り直しはどちらの出どころの日別も消してから積む（二重に数えない）。
+写しが何台分もあれば本文の新しい方を選び、この PC で動いている会話と、この PC の書き出しの方が新しい会話には入れない。
+入れた写しの印（大きさと更新時刻）は `sync_state` の `opencodeView:<ID>` に残し、写しが変わらず索引の本文もあれば読み直さない。
+
+##### この PC で再開
+
+「この PC で再開」は、会話のエージェントで道を分ける（`sync/resumeHere.ts` の `resumeHereFor`）。
+Claude は今までどおり本文を `~/.claude` に写す。
+opencode は `sync/opencodeResume.ts` の `resumeOpencodeHere` が次の順で行う。
+
+1. `RunManager.prepareResumeDir` で、再開と同じ理由（設定が切、この PC で動いている、opencode が無い、場所が無い）で断り、ほかの PC のクイックセッションのフォルダを作り、再開する場所を決める。2 台のパスの違いはこの場所（`cwdFor` の値）で吸収する。
+2. この PC の opencode にある会話を書き出し直す（`OpencodeExporter`）。この PC に会話が無ければ書き出しは無い。
+3. 降ろした写しのうち、台帳の指紋と合う最も新しいものを選ぶ（`pickRemoteOpencode`）。
+4. 比べる。export は場所を含み PC ごとに大きさが変わるので、Claude の大きさではなくメッセージの ID で比べる。写しのメッセージが全部手元にあれば取り込まずに開く。手元に会話が無ければそのまま取り込む。写しに手元に無い続きがあれば、上書きの承諾を求める（`local_smaller`）。確認の 1 枚の `replace`（`compareOpencodeForResume`）は、上げるために書き出した最後のファイルで同じ比べ方をし、手元が写しの先頭部分なら `ahead`、そうでなければ `diverged` である。
+5. 置き換えるときは、手元の書き出しの控えを `~/.agent-hangar/backups/transcripts/<ID>-<時刻>.json` に取ってから、`opencode session delete` で消し、`opencode session import --server <url> --directory <場所> <写し>` で入れる（`provider/opencode/transfer.ts` の `OpencodeTransfer`）。控えが取れなければ置き換えない。
+6. 入れたら `GET /api/session/{id}` の `location.directory` が頼んだ場所かを確かめる（綴りか実体が同じなら同じとみなす）。
+7. 非同期の `resumeWith`（「opencode の寿命」）で開く。serve は新しい MCP の秘密で起こし直す。
+
+取り込みは会話の serve につないで行い、私用のサーバ（`--standalone`）を別に起こさない。同じ記録の置き場を 2 本で開くと `database is locked` で落ちうるからである。
+CLI は空の環境から起こし、パスワードは環境の `OPENCODE_PASSWORD` だけで渡す。
+取り込めなければ serve を止めて 400 で断る。
+
+既にある ID への import の振る舞いは、実物の 2.1.4 で確かめた（2026-10-25、XDG の置き場を分けた空の環境、LLM は呼ばない）。
+上書きも重複もせず、標準エラーに `Session already exists` を書いて、終わりの状態 0 で何も変えない。
+`session delete` で消してから入れると、新しい中身で入る。
+無い `--directory` への import は `LocationNotFoundError` で 1 を返す。
+そこで、置き換えは消してから入れる形を仮に置いている。手元を残して別の ID にする案と、どちらにするかは利用者に聞く件である（計画の未決 5）。
+import した会話を OpenCode Zen の無料枠のモデルで続けられるか（ID が保たれるので 403 にならないか）は、実物の 2 台ではまだ確かめていない（計画の 3 節 6）。
+
+##### 引き継ぎ
+
+頼む側は Claude と同じで、応答の版が台帳に降りきったかを、会話のエージェントの台帳の鍵（`ledgerKeyFor`）で見る。
+頼まれた側（`TakeoverResponder`）は、opencode の会話では順番を変える。
+
+1. 端末に 1 行を残す（`sync.takeover.paneNoteOpencode`）。
+2. 会話の作業を interrupt し、`/api/session/active` から外れる（idle になる）まで待つ（`OpencodeTransfer.quiesce`、上限 30 秒）。TUI を閉じてもサーバの側の作業は続くからである。止まらなくても先へ進む。
+3. `flushSession` で書き出し直して上げる。
+4. TUI と serve を止める（run の kill、`taken_over`）。
+5. 版は書き出したファイル（無ければ台帳）の sha256 と大きさで答える。
+
+止めたあとの run の終わりの書き出し（`flushOnRunEnded`）は、同じ中身なら PUT しない。
+
+##### 削除とゴミ箱の掃除
+
+opencode の会話を消すと、本文は opencode の記録の置き場に残したまま（hangar は消さない）、hangar の持ち物である書き出しのファイルと降ろした写しを消し、索引の本文（`agent_events`、`event_index`、検索、いまの手）を片付ける。日別の使用量は残す。
+ゴミ箱の 30 日の掃除（`trashedLongAgo`、`sweepTrashBlobs`）は opencode の会話も拾い、この PC が上げた export の鍵名を消す。
+
+##### 片付け（teardown）
+
+`hangar cloud teardown` の救出（`rescueSealedBodies`）は、ほかの PC の opencode の写しも `remote/<元の PC>/opencode/` に降ろす。
+自分の会話の写しは、原本が opencode の記録の置き場にあり、書き出しも手元にあるので、書き出しがあれば降ろし直さない。
 
 ### 設定の同期の作り直し
 
