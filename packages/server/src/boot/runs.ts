@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { opencodeEnabledOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -31,6 +31,7 @@ import { accountOfProviderSession } from '../usage/accountOf.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
+import { findOpencode } from '../config/tools.ts';
 
 /** run の出入りや登録の変化の後（RunManager.stir）に、tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
@@ -144,8 +145,11 @@ export function bootRuns(
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
     language: home.language,
-    // 足す段の入り切り（設定の askStatusAtEnd と liveHints）。起動のたびに今の設定を読む。
-    injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false }),
+    // 足す段の入り切り（設定の askStatusAtEnd と liveHints）と、opencode に足す量（opencodeInjection）。起動のたびに今の設定を読む。
+    injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false, opencode: opencodeInjectionOf(settings.current) }),
+    // opencode（ベータ）は設定で有効にしたときだけ起こす。場所は起こすたびに探す（PATH、~/.opencode/bin、既知の置き場）。
+    agentEnabled: (kind) => kind === 'claude-code' || (kind === 'opencode' && opencodeEnabledOf(settings.current)),
+    agentBin: (kind) => (kind === 'opencode' ? findOpencode() : null),
     // 設定の「Remote Control を付けて起動する」（remoteControl）で足す --remote-control。足してよいかは、起こすアカウントの認証と、claude を起こす環境で決める。
     // 環境は、このサーバの環境に、アカウントの置き場を足した後のもの（runs/manager.ts）を重ねる。
     // accountAuth.get は最初の読み取りが済むまで null を返す。そのときは意図して --remote-control を付けずに起こす（安全な側）。

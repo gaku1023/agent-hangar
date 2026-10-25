@@ -45,6 +45,19 @@ describe('routes', () => {
     expect(refused.status).toBe(400);
     expect((await refused.json()).error).toContain('--session-id');
   });
+  it('起動は非同期の start（opencode の materialize）を待ってから 201 で答え、断りは理由つきの 400 にする', async () => {
+    const post = (body: unknown) => app.request('/api/runs', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const start = runs.start as unknown as ReturnType<typeof vi.fn>;
+    start.mockImplementationOnce(async () => { await new Promise((r) => setTimeout(r, 5)); return launched; });
+    const ok = await post({ projectId: 'p1', agent: 'opencode' });
+    expect(ok.status).toBe(201);
+    expect(await ok.json()).toEqual(launched);
+    expect(start).toHaveBeenLastCalledWith({ projectId: 'p1', agent: 'opencode' });
+    start.mockImplementationOnce(async () => { await new Promise((r) => setTimeout(r, 5)); throw new RunError(400, 'opencode は有効になっていません'); });
+    const refused = await post({ projectId: 'p1', agent: 'opencode' });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toBe('opencode は有効になっていません');
+  });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     const r = await post('/api/runs', { projectId: 'p1', name: 'n' });

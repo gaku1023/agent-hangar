@@ -66,6 +66,9 @@ export type SessionMode =
   | { kind: 'resume'; id: string }
   | { kind: 'fork'; id: string; newId: string };
 
+/** materialize が受ける起こし方。新しい会話は、ID を先に決めない driver のために ID 無しでも渡せる。 */
+export type MaterializeMode = { kind: 'start'; id?: string } | Exclude<SessionMode, { kind: 'start' }>;
+
 export type LaunchPlan = {
   /** tmux の中で起こすもの。 */
   argv: string[];
@@ -79,11 +82,17 @@ export type LaunchPlan = {
 export interface AgentLauncher {
   /** ID を先に決められる driver だけが持つ。Claude は UUID を作る。 */
   newSessionId?(): string;
-  /** 起こす前の下ごしらえ。ID を後で知る driver は、ここで providerSessionId を返す。Claude は持たない。 */
-  materialize?(mode: SessionMode, spec: LaunchSpec): Promise<void | { providerSessionId: string }>;
+  /**
+   * 起こす前の下ごしらえ。ID を後で知る driver は、ここで providerSessionId を返す。Claude は持たない。
+   * 新しい会話（start）の ID は、ID を先に決めない driver にはまだ無いので、mode は ID 無しの start も受ける。
+   */
+  materialize?(mode: MaterializeMode, spec: LaunchSpec): Promise<void | { providerSessionId: string }>;
   plan(bin: string, mode: SessionMode, spec: LaunchSpec): LaunchPlan;
-  /** run が終わるとき、または止めたいときに呼ぶ。止めにいったら true を返す。 */
-  release(target: { providerSessionId: string; cwd: string }, cause: 'killed' | 'parked' | 'tui-gone'): boolean | Promise<boolean>;
+  /**
+   * run が終わるとき、または止めたいときに呼ぶ。止めにいったら true を返す。
+   * sessionId は hangar の会話の ID で、hangar の ID で持ち物（opencode の serve）を引く driver が使う。
+   */
+  release(target: { sessionId?: string; providerSessionId: string; cwd: string }, cause: 'killed' | 'parked' | 'tui-gone'): boolean | Promise<boolean>;
 }
 
 // ---- 状態 ----

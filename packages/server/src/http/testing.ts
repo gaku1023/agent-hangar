@@ -56,7 +56,7 @@ export const RET: RetentionDto = { days: 30, source: 'default', userValue: null,
 /** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
 export function fakeRuns(): RunsApi {
   return {
-    start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'プロジェクトを選んでください'); return launched; }),
+    start: vi.fn(async (p: LaunchParams): Promise<LaunchResultDto> => { if (!p.projectId) throw new RunError(400, 'プロジェクトを選んでください'); return launched; }),
     resume: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     resumeWith: vi.fn(async (id: string): Promise<LaunchResultDto> => {
       if (id === 'busy') throw new RunError(409, 'busy');

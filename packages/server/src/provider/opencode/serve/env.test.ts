@@ -28,6 +28,12 @@ describe('serveEnv', () => {
     }
   });
 
+  it('hangar の MCP の設定は OPENCODE_CONFIG_CONTENT の 1 つだけ足す（呼び手の OPENCODE_* は渡さないまま）', () => {
+    const env = serveEnv('/opt/homebrew/bin/opencode', dirty, 'darwin', { configContent: '{"mcp":{}}' });
+    expect(Object.keys(env).sort()).toEqual(['HOME', 'LANG', 'LOGNAME', 'OPENCODE_CONFIG_CONTENT', 'PATH', 'SHELL', 'TMPDIR', 'USER']);
+    expect(env.OPENCODE_CONFIG_CONTENT).toBe('{"mcp":{}}');
+  });
+
   it('置き場が固定の PATH に無ければ先頭に足す', () => {
     expect(serveEnv('/home/u/.opencode/bin/opencode', dirty, 'linux').PATH).toBe('/home/u/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin');
   });

@@ -1,4 +1,4 @@
-import { DEFAULT_LANGUAGE, localDate, localTime, osName, t, translator, type Language } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, DEFAULT_OPENCODE_INJECTION, localDate, localTime, osName, t, translator, type Language, type OpencodeInjection } from '@agent-hangar/shared';
 import type { InjectionEntry } from '../agent/types.ts';
 import type { HandoverFacts } from '../runs/handover.ts';
 
@@ -13,7 +13,12 @@ export type InjectionInput = { projectName: string; projectPath: string; todos: 
  * 足す段の入り切り。設定の 2 つのスイッチ（askStatusAtEnd、liveHints）から組む。どちらも既定は入りである。
  * askStatusAtEnd は区切りで Done か Paused を聞く段（launch.injection.status）、liveHints はターンの意図と短い手の説明の段（launch.injection.live）である。
  */
-export type InjectionParts = { askStatusAtEnd: boolean; liveHints: boolean };
+export type InjectionParts = {
+  askStatusAtEnd: boolean;
+  liveHints: boolean;
+  /** opencode に足す量（設定の opencodeInjection）。省けば既定の最小限。Claude には効かない。 */
+  opencode?: OpencodeInjection;
+};
 export const DEFAULT_INJECTION_PARTS: InjectionParts = { askStatusAtEnd: true, liveHints: true };
 
 /**
@@ -42,6 +47,20 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
   if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
   if (parts.liveHints) entries.push({ key: 'live', text: t(language, 'launch.injection.live') });
   return entries;
+}
+
+/**
+ * opencode に足す段（docs/design.md「opencode の起動」）。量は設定の opencodeInjection で選ぶ。
+ * minimal（既定）は hangar の MCP の使い方だけの 1 段である（決定 6 の (a)）。
+ * 文は Claude 向けのものを流用せず、意図を呼ぶ時機を「各ターンの最初の一手で、他のツールより先に」と書き、Code Mode の呼び方（`tools.hangar.…`）を添える。
+ * opencode 2.1.4 で 4 つのモデルを試し、ターンの始めの意図がどれも 3/3 になった書き方である（検証の条件 d）。
+ * claude は Claude に足すのと同じ段で、意図の段だけ時機を同じ書き方に替える（条件 g）。段の入り切りの設定も Claude と同じく効く。
+ * none は何も足さない。
+ */
+export function renderOpencodeInjectionEntries(i: InjectionInput, language: Language = DEFAULT_LANGUAGE, parts: InjectionParts = DEFAULT_INJECTION_PARTS, choice: OpencodeInjection = DEFAULT_OPENCODE_INJECTION): InjectionEntry[] {
+  if (choice === 'none') return [];
+  if (choice === 'minimal') return [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
+  return renderInjectionEntries(i, language, parts).map((e) => (e.key === 'live' ? { key: 'live', text: t(language, 'launch.injection.opencode.live') } : e));
 }
 
 /** 段を区切りを足さずにつないだ 1 つの指示。Claude の --append-system-prompt に渡す文と同じである。 */

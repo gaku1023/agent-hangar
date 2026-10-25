@@ -1,5 +1,5 @@
 import { judgeOpencodeVersion, type OpencodeVersionVerdict } from '../compat/version.ts';
-import { serveEnv } from './env.ts';
+import { serveEnv, type ServeConfig } from './env.ts';
 import { LaunchQueue, retryOnLock } from './queue.ts';
 import type { ServeRegistry } from './registry.ts';
 import { authHeader, killGroup, startServe, type ServeProcess } from './spawn.ts';
@@ -71,9 +71,12 @@ export class ServeManager {
     this.queue = deps.queue ?? new LaunchQueue();
   }
 
-  /** 会話の serve。起きていればそれを返し、無ければ待ち行列で起こす。同じ会話を同時に頼まれても 1 本だけ起こす。 */
-  async ensure(sessionId: string): Promise<ServeInfo> {
-    const s = this.live.get(sessionId) ?? (await this.launch(sessionId));
+  /**
+   * 会話の serve。起きていればそれを返し、無ければ待ち行列で起こす。同じ会話を同時に頼まれても 1 本だけ起こす。
+   * config は起こすときにだけ渡す設定（hangar の MCP）で、起きている serve には効かない。
+   */
+  async ensure(sessionId: string, config: ServeConfig = {}): Promise<ServeInfo> {
+    const s = this.live.get(sessionId) ?? (await this.launch(sessionId, config));
     return infoOf(s);
   }
 
@@ -98,15 +101,15 @@ export class ServeManager {
     await Promise.all([...this.live.keys()].map((id) => this.stop(id)));
   }
 
-  private launch(sessionId: string): Promise<ServeProcess> {
+  private launch(sessionId: string, config: ServeConfig): Promise<ServeProcess> {
     const inflight = this.launching.get(sessionId);
     if (inflight) return inflight;
-    const p = this.startOne(sessionId).finally(() => this.launching.delete(sessionId));
+    const p = this.startOne(sessionId, config).finally(() => this.launching.delete(sessionId));
     this.launching.set(sessionId, p);
     return p;
   }
 
-  private async startOne(sessionId: string): Promise<ServeProcess> {
+  private async startOne(sessionId: string, config: ServeConfig): Promise<ServeProcess> {
     const { deps } = this;
     await deps.ready?.catch(() => undefined);
     if (!deps.enabled()) throw new OpencodeDisabledError();
@@ -116,7 +119,7 @@ export class ServeManager {
     const version = await deps.version().catch(() => null);
     const verdict = judgeOpencodeVersion(version);
     if (verdict !== 'verified') deps.onVersionNotice?.({ kind: 'opencode-version', version, verdict });
-    const env = serveEnv(bin, deps.env);
+    const env = serveEnv(bin, deps.env, undefined, config);
     const s = await this.queue.run(() => retryOnLock(
       () => startServe({ bin, env, pickPort: deps.pickPort, readyTimeoutMs: deps.readyTimeoutMs }),
       { delaysMs: deps.lockDelaysMs },

@@ -26,7 +26,7 @@ const result = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sessi
 const tmpDirs: string[] = [];
 afterEach(() => { for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-function setup(o: { start?: (p: LaunchParams) => LaunchResult; phoneKeys?: Pick<PhoneKeySource, 'at'>; onStarted?: MobileLaunchInboxDeps['onStarted'] } = {}) {
+function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>; phoneKeys?: Pick<PhoneKeySource, 'at'>; onStarted?: MobileLaunchInboxDeps['onStarted'] } = {}) {
   const db = openDb(':memory:');
   const dropsDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-inbox-')), 'drops');
   tmpDirs.push(path.dirname(dropsDir));
@@ -218,6 +218,17 @@ describe('MobileLaunchInbox', () => {
     expect(await answerOf('l2')).toMatchObject({ ok: false, reason: 'project-missing' });
     expect(await answerOf('l3')).toMatchObject({ ok: false, reason: 'account-missing' });
     expect(recorded('l3')?.result).toBe('account-missing');
+  });
+
+  it('start が非同期でも待ってから答える。拒まれたら launch-failed', async () => {
+    const ok = setup({ start: async () => { await new Promise((r) => setTimeout(r, 5)); return result('s-async'); } });
+    await ok.inbox.receive(await ok.post('l1', payload()));
+    expect(await ok.answerOf('l1')).toMatchObject({ ok: true, sessionId: 's-async' });
+    expect(ok.recorded('l1')?.result).toBe('started');
+    const ng = setup({ start: async () => { await new Promise((r) => setTimeout(r, 5)); throw new Error('opencode を起動できませんでした'); } });
+    await ng.inbox.receive(await ng.post('l2', payload()));
+    expect(await ng.answerOf('l2')).toEqual({ ok: false, reason: 'launch-failed', detail: 'opencode を起動できませんでした' });
+    expect(ng.recorded('l2')?.result).toBe('launch-failed');
   });
 
   it('start が投げたら launch-failed と答え、mobile_launches に記録される', async () => {

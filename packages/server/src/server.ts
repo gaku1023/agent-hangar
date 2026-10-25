@@ -108,6 +108,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const mobile = bootMobile({ home, delivery, runs, sync });
   // opencode（ベータ）の serve の管理。前の hangar が残した serve の掃除は、設定の入り切りに関わらずここで始まる。
   const opencode = bootOpencode(home);
+  // opencode の driver は配る層と一緒に組んである。serve の管理をここで渡す（それまでの opencode の起動は断る）。
+  delivery.bindOpencodeServes(opencode.serves);
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。

@@ -20,7 +20,7 @@ export type ToolDeps = {
   deviceId: string;
   port: number;
   live: () => LiveSessionDto[];
-  runs: { start(params: LaunchParams): LaunchResult };
+  runs: { start(params: LaunchParams): LaunchResult | Promise<LaunchResult> };
   usage: () => UsageDto;
   /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
@@ -341,13 +341,13 @@ export function getTranscriptTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return { session_id: id, events: page.events.filter(keep), total: page.total, next_seq: page.nextSeq };
 }
 
+/** プロジェクトの確かめはその場で投げ、起動（runs.start）は待つ。MCP の層は await してから包む。 */
 export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const projectId = projectIdOf(deps, ctx, args);
-  const r = deps.runs.start({
+  return Promise.resolve(deps.runs.start({
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
-  });
-  return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`) };
+  })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`) }));
 }
 
 export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -479,7 +479,7 @@ function reportOf(deps: ToolDeps, name: string): NonNullable<ToolDeps['report']>
 
 /**
  * 名前で振り分ける。MCP の層はこれを content に包むだけにする。
- * 問い合わせの 2 つは外と話すので Promise を返す。MCP の層は await してから包む。
+ * 問い合わせの 2 つと create_session は待つので Promise を返す。MCP の層は await してから包む。
  */
 export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: Record<string, unknown>): unknown {
   switch (name) {

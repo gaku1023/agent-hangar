@@ -30,8 +30,11 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
 /**
  * 起動の指定。cwd は作業の場所で、プロジェクトの場所の下のフォルダから始めるときに渡す（0.6.1）。
  * 省けばプロジェクトの場所で起こす。プロジェクトの場所の外は断る。セッションは projectId のプロジェクトに入る。scratch では使わない。
+ * agent は起こすエージェントで、省けば Claude Code である。opencode（ベータ）は設定で有効にしたときだけ起こせる。
+ * mode と autoApprove は opencode だけが読む。mode は opencode のエージェント（build、plan など）、autoApprove は `--auto` で、Claude Code では捨てる。
+ * account、effort、permissionMode、worktree、addDirs は Claude Code だけのもので、opencode に付けると断る。
  */
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string };
+export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: 'claude-code' | 'opencode'; mode?: string; autoApprove?: boolean };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };

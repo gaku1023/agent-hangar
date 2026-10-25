@@ -169,7 +169,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 | `bootListen`（`boot/http.ts`） | 待ち受け。アプリを差し込むまでは 503 を返す |
 | `bootRuns`（`boot/runs.ts`） | tmux の口、手元の claude の読み取り、包みの本体、アカウント、RunManager、休みの見張り、使用量、外のターミナルとエディタ |
 | `bootSummary`（`boot/summary.ts`） | 要約器の列、要約の job。run の出来事の受け手を結ぶ |
-| `bootOpencode`（`boot/opencode.ts`） | opencode（ベータ）の serve の管理（`ServeManager`）。前の hangar が残した serve の掃除を、設定の入り切りに関わらずここで始める |
+| `bootOpencode`（`boot/opencode.ts`） | opencode（ベータ）の serve の管理（`ServeManager`）。前の hangar が残した serve の掃除を、設定の入り切りに関わらずここで始める。作った serve の管理は、配る層と一緒に組んだ opencode の driver に渡す（`bindOpencodeServes`） |
 | `bootHttp`（`boot/http.ts`） | 端末の中継、HTTP と MCP のアプリ。WebSocket の経路を結び、未知の経路を切る番人を置く |
 
 呼ぶ順は、上の表の順である。
@@ -1114,6 +1114,9 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 
 5 つの面はどれも境界を通っている。
 `RunManager` は、新しい会話の ID（`newSessionId`）、起動の引数と外す環境変数（`plan` が返す `LaunchPlan`）、止めるときの後始末（`release`）を driver から受け取る。
+ID を先に決めない driver（opencode）は、`newSessionId` を持たず、起こす前の下ごしらえ（`materialize`）で ID を返す。
+そのため `RunManager.start` は非同期で、HTTP の `POST /api/runs`、MCP の `create_session`、スマホの起動の依頼は、どれも結果を待ってから答える。
+Claude にしか無い操作（フォーク、attach、引き取り、アカウントの切り替え）は、driver の `caps` が持たないと言えば `RunManager` が入口で断る。
 MCP の秘密を発行することと、`runCommand` で包むことは hangar の側に残す。
 attach や引き取りのような Claude にしか無い起こし方は、`RunManager` が Claude の driver を直に使う。
 
@@ -1418,7 +1421,7 @@ opencode 2.1.4 の serve は、同時に起こすと起動の途中で `SQLiteEr
 
 起こし方は `spawn.ts` にある。
 
-- 環境は `env.ts` の `serveEnv` で組む。版を読むときと同じく、`HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と固定の最小の `PATH` だけを渡す。裏のサービスは起こしたプロセスの環境を持ち続けるので、`CLAUDE` で始まる鍵や `HANGAR_*` を継ぐと、そこから動く道具の全部に配ってしまうからである。Windows の許可リストは型（`WindowsServeAllowlist`）だけを置き、中身は段 G で決める。それまで Windows では起こさない。
+- 環境は `env.ts` の `serveEnv` で組む。版を読むときと同じく、`HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と固定の最小の `PATH` だけを渡す。ほかに足すのは、hangar の MCP の設定（`OPENCODE_CONFIG_CONTENT`、「opencode の起動」）だけである。裏のサービスは起こしたプロセスの環境を持ち続けるので、`CLAUDE` で始まる鍵や `HANGAR_*` を継ぐと、そこから動く道具の全部に配ってしまうからである。Windows の許可リストは型（`WindowsServeAllowlist`）だけを置き、中身は段 G で決める。それまで Windows では起こさない。
 - 待ち受けは `127.0.0.1` だけで、ポートは空きを取って渡す。取ってから渡すまでの間に塞がれて落ちたら（`Is port N in use?`）、取り直す。
 - パスワードは起動ごとに 32 バイトの乱数を作り、`OPENCODE_SERVER_PASSWORD` で渡す（basic 認証、ユーザー名は `opencode`）。argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かず、メモリにだけ持つ。
 - プロセスのまとまりの頭として起こす（detached）。hangar が落ちても道連れにならないので、下の記録で掃除する。止めるときは、serve が起こした子ごとまとまりに信号を送る。
@@ -1437,6 +1440,50 @@ pid は使い回されるので、`ps` で見たコマンド行（`serve` と記
 起動のたびに手元の版を判定し（「opencode の検出（ベータ）」）、範囲の外なら知らせの種（`OpencodeVersionNoticeSeed`）を出す。
 起動は止めない。
 種を札にして見せるのは段 C の C7 である。
+
+### opencode の起動
+
+hangar の画面や API から opencode の会話を起こす面である（計画の B3）。
+置き場は `provider/opencode/` の `driver.ts`、`launch.ts`、`client.ts` で、opencode の API に触るのは `client.ts` の包みだけにする。
+起動の指定（`LaunchParams`）の `agent` が `opencode` のときに通り、設定の `opencodeEnabled` が切なら行を 1 つも作らずに断る。
+Claude だけの指定（アカウント、effort、権限モード、追加ディレクトリ、worktree）が付いていても断る。
+
+opencode では会話の ID を hangar が決めない。
+`POST /api/session` に hangar が決めた ID を渡して作った会話は、OpenCode Zen の無料枠のモデルが `FreeTierError`（403）で断るからである（2.1.4 で確かめた）。
+そこで `RunManager` は次の順で起こす。
+
+1. 設定、opencode の場所、作業の場所、tmux を確かめる。
+2. `sessions` の行を仮の ID（`pending:` で始まる）で作る。MCP の URL と秘密は hangar の会話の ID で決まるので、serve より先に要る。
+3. driver の `materialize` が、serve を起こし（hangar の MCP の設定を足して）、ID を付けずに `POST /api/session` で会話を作り、追記を差し込み、hangar の MCP が `connected` になるのを待つ。
+4. 返った ID を行の `provider_session_id` に書く。
+5. その ID で TUI を tmux の中に起こす（`opencode <dir> --server <url> -s <id>`）。
+
+下ごしらえか画面のどこかで失敗したら、serve を止め、仮の行を消し、秘密を無効にして 400 で断る。
+
+hangar の MCP は、serve の環境の `OPENCODE_CONFIG_CONTENT` に `mcp.servers.hangar`（remote、`Authorization: Bearer <run の秘密>`）を入れて渡す。
+2.1.4 はこれを利用者の設定（`~/.config/opencode/opencode.json`）に重ねて読むので、利用者のファイルは書き換えない。
+hangar 専用の設定ファイルを `OPENCODE_CONFIG` で渡す道も同じように効いたが、秘密の入ったファイルを残さずに済む環境のほうを選んだ。
+
+MCP の接続は `GET /api/mcp?location[directory]=<dir>` で見る（`location` を JSON の文字列で渡すと 400 になる）。
+つながる前に最初のプロンプトを送ると、1 歩目の Code Mode の目録に hangar の道具が載らないので待つ。
+15 秒を過ぎても、`failed` でも、起動は続ける（2 歩目から呼べるようになる）。
+
+追記は `PUT /api/experimental/session/{id}/instructions/entries/hangar` で差し込む。
+opencode はこれを system prompt の末尾近くに `<context key="hangar">` の形で入れる。
+段（`InjectionEntry`）はつないで 1 つの鍵で送り、量は設定の `opencodeInjection` で選ぶ（`launch/injection.ts` の `renderOpencodeInjectionEntries`）。
+既定の `minimal` は hangar の MCP の使い方だけで、意図を呼ぶ時機を「各ターンの最初の一手で、他のツールより先に」と書き、Code Mode の呼び方（`tools.hangar.…`）を添える。
+`claude` は Claude に足すのと同じ段で、意図の段だけ同じ書き方に替える。`none` は何も足さない。
+この API が無い版でも起動は続け、知らせだけ出す。
+
+TUI には serve のパスワードを環境の `OPENCODE_PASSWORD` で渡す。
+`--server` の URL に入れても通るが、argv は `ps` で誰からも読めるので載せない。
+初期プロンプトは `--prompt` で渡し、自動承認がオンのときだけ `--auto` を付ける。
+TUI へは、Claude の run で外す変数に、アカウントの置き場（`CLAUDE_CONFIG_DIR`）とサーバが読む hangar の変数を足して外す（`launch/env.ts` の `AGENT_RUN_DROPPED_ENV`）。
+
+状態、トランスクリプト、許可と質問の面は、段 B4 と B5 で入れるまで空にしてある。
+hook の受け口は、opencode の会話では何も読まずに 204 を返す。
+本文の有無をファイルで確かめられないので、終わった run の会話を「本文が無い」として消す後始末（`pruneEmptySession`）は Claude の会話だけに効かせる。
+再開は段 B6 で入れるので、それまでは opencode の会話の再開を断る。
 
 ## セッションの起動と観察
 

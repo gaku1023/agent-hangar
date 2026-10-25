@@ -49,7 +49,7 @@ export type MobileLaunchInboxDeps = {
   /** 画像を置く場所（PC の指示欄の添付と同じ drops）。 */
   dropsDir: string;
   /** 会話を起こす（RunManager.start）。tmux と psmux の違いは RunManager が持つ。 */
-  start: (p: LaunchParams) => LaunchResult;
+  start: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>;
   /** この PC に場所のある（未解決でない）プロジェクトか。 */
   hasProjectHere: (projectId: string) => boolean;
   /** この PC に登録したアカウントか。 */
@@ -283,7 +283,7 @@ export class MobileLaunchInbox {
       }
       let r: LaunchResult;
       try {
-        r = this.deps.start(paramsOf(p, prompt));
+        r = await this.deps.start(paramsOf(p, prompt));
       } catch (e) {
         // 理由の文は封じてスマホにだけ渡す。
         return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);

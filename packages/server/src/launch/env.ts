@@ -44,6 +44,19 @@ export const SERVER_DROPPED_ENV: readonly string[] = [...CLAUDE_CHILD_ENV, ...HA
  */
 export const RUN_DROPPED_ENV: readonly string[] = [...CLAUDE_CHILD_ENV, ...HANGAR_HANDOFF_ENV, 'HANGAR_CLOUD_DIR', 'HANGAR_LAUNCHED'];
 
+/**
+ * サーバが動いている間ずっと読む hangar の変数。Claude の run には渡す（statusline の台本と hangar の CLI が HANGAR_HOME を読む）が、
+ * ほかのエージェント（opencode の TUI）には渡さない。
+ */
+const HANGAR_SERVER_ENV = ['HANGAR_HOME', 'HANGAR_CLAUDE_DIR', 'HANGAR_CLAUDE_BIN', 'HANGAR_DEV', 'HANGAR_TOKEN', 'HANGAR_SOCKET', 'HANGAR_NODE', 'HANGAR_OS_LANGUAGE'];
+
+/**
+ * Claude Code 以外のエージェント（opencode の TUI）に渡さない名前。
+ * RUN_DROPPED_ENV に、アカウントの置き場（CLAUDE_CONFIG_DIR。opencode にはアカウントを効かせない）と、サーバが読む hangar の変数を足す。
+ * HANGAR_RUN_ID は包みが run ごとに立て直すので入れない。
+ */
+export const AGENT_RUN_DROPPED_ENV: readonly string[] = [...RUN_DROPPED_ENV, 'CLAUDE_CONFIG_DIR', ...HANGAR_SERVER_ENV];
+
 /** サーバが起動のときに受け取る値。 */
 export type ServerHandoff = { port: number | undefined; parentPid: number | undefined; uiDist: string | undefined; stopOnStdinEnd: boolean; launcher: string | undefined };
 

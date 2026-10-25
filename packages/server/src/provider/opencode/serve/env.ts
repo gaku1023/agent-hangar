@@ -15,6 +15,9 @@ import { opencodeProbeEnv } from '../compat/version.ts';
  */
 export type WindowsServeAllowlist = readonly string[];
 
+/** hangar が serve にだけ足す設定。 */
+export type ServeConfig = { configContent?: string };
+
 /** この OS では serve をまだ起こせない。 */
 export class ServeUnsupportedError extends Error {
   constructor(platform: NodeJS.Platform) {
@@ -28,8 +31,11 @@ export class ServeUnsupportedError extends Error {
  * macOS と Linux は `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と、opencode の置き場を先頭に足した固定の最小の `PATH` だけである。
  * 版を読むとき（compat/version.ts の `opencodeProbeEnv`）と同じ作りにそろえる。
  * パスワード（`OPENCODE_SERVER_PASSWORD`）は起こす側（spawn.ts）が足す。
+ * configContent は hangar がこの serve にだけ足す設定（hangar の MCP、`mcp.servers.hangar`）で、`OPENCODE_CONFIG_CONTENT` で渡す。
+ * opencode 2.1.4 はこれを利用者の設定（`~/.config/opencode/opencode.json`）に重ねて読むので、利用者の設定は書き換えずに済む。
  */
-export function serveEnv(bin: string, src: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+export function serveEnv(bin: string, src: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, o: ServeConfig = {}): NodeJS.ProcessEnv {
   if (platform === 'win32') throw new ServeUnsupportedError(platform);
-  return opencodeProbeEnv(bin, src, platform);
+  const env = opencodeProbeEnv(bin, src, platform);
+  return o.configContent === undefined ? env : { ...env, OPENCODE_CONFIG_CONTENT: o.configContent };
 }
