@@ -2,10 +2,12 @@ import { vi } from 'vitest';
 import type { ApiClient } from '../runtime/api.ts';
 import { accountsFixture } from './accounts.ts';
 
+const EMPTY_OC_PROVIDERS = { connected: [], catalog: [], configPath: '/Users/me/.config/opencode/opencode.json' };
+
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinCodeCurrent' | 'joinCodeIssue' | 'joinCodeApprove' | 'joinCodeReject' | 'joinCodeClose' | 'recoveryKeyReissue' | 'recoveryKeyConfirm' | 'cloudDevices' | 'mobilePairing' | 'mobilePaired'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
@@ -72,6 +74,15 @@ export function fakeApiExtras(): Extras {
     compat: vi.fn(async () => ({ verifiedVersion: '2.1.292', localVersion: '2.1.292', drifts: [] })),
     opencodeStatus: vi.fn(async () => ({ found: false, version: null, verified: false })),
     opencodeOptions: vi.fn(async () => ({ version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }, { id: 'plan', description: null }], models: [], providers: [], defaultModel: null, pricesAt: null, fetchedAt: 0, stale: false })),
+    opencodeProviders: vi.fn(async () => EMPTY_OC_PROVIDERS),
+    opencodeProviderKey: vi.fn(async () => EMPTY_OC_PROVIDERS),
+    opencodeProviderDisconnect: vi.fn(async () => EMPTY_OC_PROVIDERS),
+    opencodeProviderModel: vi.fn(async () => EMPTY_OC_PROVIDERS),
+    opencodeCustomProvider: vi.fn(async () => EMPTY_OC_PROVIDERS),
+    opencodeLogin: vi.fn(async () => ({ attemptId: 'a1', url: 'https://example.invalid/device', instructions: 'Enter code: AB-12', mode: 'auto' as const })),
+    opencodeLoginStatus: vi.fn(async () => ({ status: 'pending' as const, message: null })),
+    opencodeLoginComplete: vi.fn(async () => undefined),
+    opencodeLoginCancel: vi.fn(async () => undefined),
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),
     setTodoDone: vi.fn(async (id: string, done: boolean) => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),

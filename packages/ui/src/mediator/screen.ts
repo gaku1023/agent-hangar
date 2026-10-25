@@ -203,7 +203,8 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
   const i = input.action;
   switch (i.type) {
     // 画面を移す UiAction は、確認や入力のあるダイアログの裏では何もしない（canMoveBehind）。
-    case 'nav.go': return canMoveBehind(state) ? { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: i.to }] } : { state, effects: [] };
+    // 設定の外へ移ったら、モデルの小窓から来た戻り先（opencodeReturn）を忘れる。
+    case 'nav.go': return canMoveBehind(state) ? { state: { ...state, overlay: closeTransient(state), ...(state.opencodeReturn && i.to.name !== 'settings' ? { opencodeReturn: null } : {}) }, effects: [{ kind: 'navigate', route: i.to }] } : { state, effects: [] };
     // 行き先はブラウザの履歴が決めるので、ここでは動かす向きだけを出す。戻った先は hash.changed で入ってくる。
     // 着いた先の hash.changed がパレットや読むだけのダイアログを閉じる。
     case 'nav.back': return canMoveBehind(state) ? { state, effects: [{ kind: 'history.go', delta: -1 }] } : { state, effects: [] };

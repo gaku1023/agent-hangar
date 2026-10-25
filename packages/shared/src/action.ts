@@ -73,6 +73,14 @@ export type UiAction =
   // 新しいセッションで opencode（ベータ）を選んだときの、モードとモデルの一覧（GET /api/opencode/options）。dir はその場所（opencode.json の重なりが場所で変わる）で、null はホーム。
   // 答えは Store の opencodeOptions に入る。最後に頼んだ 1 件だけを持つ。refresh は手元の一覧を使わずに取り直す（モデルの小窓の LM Studio の「再読み込み」）。
   | { type: 'opencode.options'; dir: string | null; refresh?: boolean }
+  // 設定の「連携 › opencode › プロバイダー」（ベータ）。どれも答えは Store の opencodeProviders に入る。
+  // key は API キーで接続する（変更も同じ）。API キーは opencode の integration に渡すだけで、Store にも残さない。
+  // custom は OpenAI 互換のサーバー（opencode.json に書く）、model はモデル ID の追加、login はログインを始め、poll で進みを聞き、code でコードを送り、cancel で取り消す。
+  | { type: 'opencode.providers.load' } | { type: 'opencode.providers.key'; id: string; key: string } | { type: 'opencode.providers.disconnect'; id: string }
+  | { type: 'opencode.providers.model'; id: string; model: string } | { type: 'opencode.providers.custom'; name: string; url: string; apiKey?: string }
+  | { type: 'opencode.providers.login'; id: string; method: string } | { type: 'opencode.providers.login.poll' } | { type: 'opencode.providers.login.code'; code: string } | { type: 'opencode.providers.login.cancel' }
+  // 新しいセッションのモデルの小窓の「プロバイダーを管理…」。ダイアログを閉じて設定へ移り、設定に「‹ 新しいセッションに戻る」を出す。back はダイアログを同じ開き方で開き直す。
+  | { type: 'opencode.providers.manage' } | { type: 'opencode.providers.back' }
   // 作成のダイアログで、選んだフォルダが登録済みのプロジェクトの下だったとき、そのプロジェクトを開く（startSession が偽）か、そのフォルダで始める（真）。
   | { type: 'project.new.enclosing'; projectId: ProjectId; dir: string; startSession: boolean }
   | { type: 'project.resolve.open'; id: ProjectId }

@@ -1,6 +1,6 @@
 import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -136,6 +136,16 @@ export type ApiClient = {
   opencodeStatus(): Promise<OpencodeStatusDto>;
   /** 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、null はホーム。refresh は手元の一覧を使わずに取り直す。 */
   opencodeOptions(dir: string | null, refresh?: boolean): Promise<OpencodeOptionsDto>;
+  /** 設定のプロバイダー（ベータ）。API キーは本文で送るだけで、応答には載らない。 */
+  opencodeProviders(): Promise<OpencodeProvidersDto>;
+  opencodeProviderKey(id: string, key: string): Promise<OpencodeProvidersDto>;
+  opencodeProviderDisconnect(id: string): Promise<OpencodeProvidersDto>;
+  opencodeProviderModel(id: string, model: string): Promise<OpencodeProvidersDto>;
+  opencodeCustomProvider(body: OpencodeCustomProviderBody): Promise<OpencodeProvidersDto>;
+  opencodeLogin(id: string, method: string): Promise<OpencodeLoginDto>;
+  opencodeLoginStatus(id: string, attemptId: string): Promise<OpencodeLoginStatusDto>;
+  opencodeLoginComplete(id: string, attemptId: string, code: string): Promise<void>;
+  opencodeLoginCancel(id: string, attemptId: string): Promise<void>;
   addTodo(projectId: string, text: string): Promise<TodoDto>;
   setTodoDone(id: string, done: boolean): Promise<TodoDto>;
   removeTodo(id: string): Promise<TodoDto>;
@@ -325,6 +335,15 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     compat: () => call('/api/compat'),
     opencodeStatus: () => call('/api/opencode/status'),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
+    opencodeProviders: () => call('/api/opencode/providers'),
+    opencodeProviderKey: (id, key) => post(`/api/opencode/providers/${encodeURIComponent(id)}/key`, { key }),
+    opencodeProviderDisconnect: (id) => call(`/api/opencode/providers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    opencodeProviderModel: (id, model) => post(`/api/opencode/providers/${encodeURIComponent(id)}/models`, { model }),
+    opencodeCustomProvider: (body) => post('/api/opencode/custom-providers', body),
+    opencodeLogin: (id, method) => post(`/api/opencode/providers/${encodeURIComponent(id)}/login`, { method }),
+    opencodeLoginStatus: (id, attemptId) => call(`/api/opencode/providers/${encodeURIComponent(id)}/login/${encodeURIComponent(attemptId)}`),
+    opencodeLoginComplete: (id, attemptId, code) => post(`/api/opencode/providers/${encodeURIComponent(id)}/login/${encodeURIComponent(attemptId)}/complete`, { code }),
+    opencodeLoginCancel: (id, attemptId) => call(`/api/opencode/providers/${encodeURIComponent(id)}/login/${encodeURIComponent(attemptId)}`, { method: 'DELETE' }),
     addTodo: (projectId, text) => post(`/api/projects/${projectId}/todos`, { text }),
     setTodoDone: (id, done) => call(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
     removeTodo: (id) => call(`/api/todos/${id}`, { method: 'DELETE' }),

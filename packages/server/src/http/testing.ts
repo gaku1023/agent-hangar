@@ -84,6 +84,17 @@ export function fakeRuns(): RunsApi {
   };
 }
 
+/** 設定のプロバイダーの口の偽物。どれも空の一覧を返す。 */
+export function fakeOpencodeProviders(): AppDeps['opencodeProviders'] {
+  const empty = async () => ({ connected: [], catalog: [], configPath: '/home/me/.config/opencode/opencode.json' });
+  return {
+    list: empty, connectKey: empty, disconnect: empty, addModel: empty, addCustom: empty,
+    login: async () => ({ attemptId: 'a', url: 'https://example.invalid', instructions: '', mode: 'auto' as const }),
+    loginStatus: async () => ({ status: 'pending' as const, message: null }),
+    loginComplete: async () => undefined, loginCancel: async () => undefined,
+  };
+}
+
 export function fakeExternal(): ExternalApi {
   return {
     openTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
@@ -240,6 +251,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     compat: async () => ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] }),
     opencodeStatus: async () => ({ found: false, version: null, verified: false }),
     opencodeOptions: async () => ({ version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }, { id: 'plan', description: null }], models: [], providers: [], defaultModel: null, pricesAt: null, fetchedAt: 0, stale: false }),
+    opencodeProviders: fakeOpencodeProviders(),
     uiDist: null,
     ...overrides,
   };

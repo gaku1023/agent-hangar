@@ -298,6 +298,11 @@ export type State = {
   /** 起動の進み。ダイアログからの起動も、再開もフォークも同じ状態を共有する。 */
   launch: LaunchState;
   /**
+   * 新しいセッションのモデルの小窓の「プロバイダーを管理…」で設定へ移ったときの、ダイアログの開き方。
+   * 設定の opencode の面に「‹ 新しいセッションに戻る」を出し、押すと同じ開き方で開き直す。設定の外へ移ったら忘れる。持っていなければ null か無し。
+   */
+  opencodeReturn?: { projectId: string | null; scratch: boolean; dir?: string } | null;
+  /**
    * すでに知らせた入力待ちのセッション（hangar の id）。
    * 入力待ちが解けたら忘れる。
    */

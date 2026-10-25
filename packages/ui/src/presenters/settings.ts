@@ -1,3 +1,4 @@
+import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
 import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, type OpencodeInjection, type OpencodeStatusDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
@@ -237,6 +238,8 @@ export type SettingsProps = {
   compat: CompatProps | null;
   /** 連携の「opencode」の面（ベータ）。互換の節のすぐ下に置く。 */
   opencode: OpencodeSettingsProps;
+  /** 連携の opencode の面の下の「プロバイダー」（ベータ）。opencode を有効にしたときだけ出す。 */
+  opencodeProviders?: OpencodeProvidersProps;
   accounts: AccountSettingsProps;
   /** 右に出している節。URL の `at` で決まる（無ければ「一般」、`sync` はクラウド同期、`accounts` はセッション）。 */
   section: SettingsSection;
@@ -452,6 +455,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     mux: presentMux(r, state.muxCheck),
     compat: compatSummary ? presentCompat(t, compatSummary, store.compat, store.version) : null,
     opencode: presentOpencode(t, s ?? {}, store.opencodeStatus, platform),
+    opencodeProviders: presentOpencodeProviders(state, store),
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。

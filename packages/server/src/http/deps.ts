@@ -21,6 +21,7 @@ import type { RecoveryKeyReissuer } from '../sync/recoveryReissue.ts';
 import type { TakeoverService } from '../sync/takeover.ts';
 import type { AccountsDeps } from './accounts.ts';
 import type { GitService } from '../git/service.ts';
+import type { OpencodeProvidersService } from '../provider/opencode/integration.ts';
 
 /**
  * HTTP の層が外から受け取る依存の一覧。
@@ -218,6 +219,11 @@ export type AppDeps = {
    * refresh は、手元の一覧が新しくても取り直すこと（モデルの小窓の LM Studio の「再読み込み」）。
    */
   opencodeOptions: (dir: string | null, o?: { refresh?: boolean }) => Promise<OpencodeOptionsDto>;
+  /**
+   * 設定の「連携 › opencode › プロバイダー」（provider/opencode/integration.ts）。
+   * API キーは opencode の integration に渡すだけで、応答にもログにも載せない。試験は opencode を起こさない偽物を渡す。
+   */
+  opencodeProviders: Pick<OpencodeProvidersService, 'list' | 'connectKey' | 'disconnect' | 'addModel' | 'addCustom' | 'login' | 'loginStatus' | 'loginComplete' | 'loginCancel'>;
   /**
    * 同じファイルの編集の見張り（sessions/overlap.ts）に、すぐ読み直させる。「このファイルでは表示しない」の後に呼ぶ。
    * 渡さなければ、次の周期（数秒）で消える。

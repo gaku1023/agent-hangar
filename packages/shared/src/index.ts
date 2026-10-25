@@ -15,6 +15,7 @@ export * from './compat.ts';
 export * from './claudeCompat.ts';
 export * from './opencodeCompat.ts';
 export * from './opencodeOptions.ts';
+export * from './opencodeProviders.ts';
 export * from './modelFacts.ts';
 export * from './cloudLimit.ts';
 export * from './terminal.ts';

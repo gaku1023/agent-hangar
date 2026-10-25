@@ -139,6 +139,17 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
       // クイックセッションはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
       return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true, ...(i.dir ? { dir: i.dir } : {}) }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+    case 'opencode.providers.manage': {
+      // ダイアログから来たときだけ、戻る先を覚える。ダイアログを閉じて、設定の opencode の面へ移る。
+      const o = state.overlay;
+      const back = o.kind === 'newSession' ? { projectId: o.projectId, scratch: o.scratch, ...(o.dir ? { dir: o.dir } : {}) } : null;
+      return { state: { ...state, overlay: o.kind === 'newSession' ? { kind: 'none' } : o, launch: { kind: 'idle' }, opencodeReturn: back }, effects: [{ kind: 'navigate', route: { name: 'settings', at: 'opencode' } }] };
+    }
+    case 'opencode.providers.back': {
+      const back = state.opencodeReturn;
+      if (!back) return { state, effects: [] };
+      return launchStep({ ...state, opencodeReturn: null }, store, { kind: 'action', action: { type: 'session.new.open', scratch: back.scratch, ...(back.projectId ? { projectId: back.projectId } : {}), ...(back.dir ? { dir: back.dir } : {}) } });
+    }
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       // 新しいフォルダと未登録のフォルダは、プロジェクトを作ってから起動する（runtime が 2 つを順に行う）。

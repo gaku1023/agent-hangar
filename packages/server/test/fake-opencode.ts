@@ -10,6 +10,10 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * MCP の状態の `GET /api/mcp?location[directory]=…` も受ける。本文の `GET /api/session/{id}/message` は空の一覧を答える（写しの試験は test/fake-opencode-events.ts で行う）。MCP の一覧は、起こされたときの `OPENCODE_CONFIG_CONTENT` の `mcp.servers` から作る。
  * 新しいセッションの選択肢のために、`GET /api/agent`、`/api/model`、`/api/provider`（どれも `location[directory]=…` を受け、`{ location, data }` で答える）と、
  * 設定の層の配列を返す `GET /api/config` も受ける。実物の 2.1.4 と同じく、場所ごとの最初の `/api/agent` は空の一覧を返せる（agentsEmptyFirst）。
+ * 設定のプロバイダーのために、`GET /api/integration`（と `/{id}`）、`POST /api/integration/{id}/connect/key`、`DELETE /api/credential/{id}`、
+ * ログインの `POST …/connect/oauth`、`GET …/connect/oauth/{attempt}`、`POST …/complete`、`DELETE …/connect/oauth/{attempt}` も受ける。
+ * API キーはメモリにだけ持ち（実物は opencode の DB に書く）、`GET /api/integration` の connections には載せない（実物と同じ）。
+ * configFile を渡すと、その opencode.json の `providers` と `provider` のプロバイダーを、API キーの方法を持つ integration と、`/api/provider` の行として足す（実物は書き換えを見張って読み直す）。
  *
  * 起動から止まるまでの出来事を、1 行 1 件の JSON で logFile に書く。
  * - `start`：pid、argv、環境変数の全部、時刻。
@@ -57,7 +61,18 @@ export type FakeOpencodeOptions = {
   agentsEmptyFirst?: boolean;
   /** 一覧の道を 500 で断る。 */
   failLists?: boolean;
+  /** `GET /api/integration` のカタログ。既定は FAKE_OPENCODE_INTEGRATIONS。 */
+  integrations?: FakeIntegration[];
+  /** 読む opencode.json（実物の ~/.config/opencode/opencode.json の代わり）。 */
+  configFile?: string;
+  /** ログインの状態を何回 pending と答えてから complete にするか。 */
+  oauthPendingPolls?: number;
+  /** 起きたときから持っている API キーの接続（integration の ID）。 */
+  credentials?: string[];
 };
+
+/** 偽のカタログの 1 行。methods は実物の Integration.Method の形。 */
+export type FakeIntegration = { id: string; name: string; methods: Record<string, unknown>[] };
 
 export const FAKE_OPENCODE_AGENTS: NonNullable<FakeOpencodeOptions['agents']> = [
   { id: 'build', mode: 'primary', description: 'The default agent.' },
@@ -75,6 +90,18 @@ export const FAKE_OPENCODE_PROVIDERS: NonNullable<FakeOpencodeOptions['providers
   { id: 'lmstudio', name: 'LM Studio (local)' },
 ];
 
+export const FAKE_OPENCODE_INTEGRATIONS: FakeIntegration[] = [
+  { id: 'groq', name: 'Groq', methods: [{ type: 'key' }, { type: 'env', names: ['GROQ_API_KEY'] }] },
+  { id: 'deepseek', name: 'DeepSeek', methods: [{ type: 'key' }, { type: 'env', names: ['DEEPSEEK_API_KEY'] }] },
+  { id: 'github-copilot', name: 'GitHub Copilot', methods: [{ type: 'env', names: ['GITHUB_TOKEN'] }, { id: 'device', type: 'oauth', label: 'Login with GitHub Copilot', form: [{ key: 'deploymentType', title: 'Select GitHub deployment type', required: true, type: 'string', options: [{ value: 'github.com', label: 'GitHub.com' }, { value: 'enterprise', label: 'GitHub Enterprise' }] }, { key: 'enterpriseUrl', title: 'URL', required: true, when: [{ key: 'deploymentType', op: 'eq', value: 'enterprise' }], type: 'string' }] }] },
+  { id: 'abacus', name: 'Abacus', methods: [{ type: 'key' }] },
+  { id: 'zai', name: 'Z.AI', methods: [{ type: 'key' }, { type: 'env', names: ['ZHIPU_API_KEY'] }] },
+  { id: 'opencode-go', name: 'OpenCode Go', methods: [{ type: 'key' }, { type: 'env', names: ['OPENCODE_API_KEY'] }] },
+  { id: 'zai-coding-plan', name: 'Z.AI Coding Plan', methods: [{ type: 'key' }] },
+  { id: 'lmstudio', name: 'LMStudio', methods: [{ type: 'key' }, { type: 'env', names: ['LMSTUDIO_API_KEY'] }] },
+  { id: 'opencode', name: 'OpenCode Console', methods: [{ type: 'key', label: 'API key (service account)' }, { id: 'device', type: 'oauth', label: 'OpenCode Console account', form: [{ key: 'server', hidden: true, type: 'string', default: 'https://opencode.ai/console' }] }] },
+];
+
 export type FakeOpencodeEvent =
   | { ev: 'start'; pid: number; argv: string[]; env: Record<string, string>; t: number }
   | { ev: 'ready'; pid: number; port: number; t: number }
@@ -84,6 +111,11 @@ export type FakeOpencodeEvent =
   | { ev: 'mcp'; pid: number; directory: string | null; status: string; t: number }
   | { ev: 'list'; pid: number; what: 'agent' | 'model' | 'provider' | 'config'; directory: string | null; t: number }
   | { ev: 'messages'; pid: number; id: string; query: string; t: number }
+  | { ev: 'connectKey'; pid: number; id: string; key: string; t: number }
+  | { ev: 'deleteCredential'; pid: number; id: string; t: number }
+  | { ev: 'oauth'; pid: number; id: string; body: Record<string, unknown>; t: number }
+  | { ev: 'oauthComplete'; pid: number; id: string; attempt: string; code: unknown; t: number }
+  | { ev: 'integration'; pid: number; id: string | null; t: number }
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
@@ -103,6 +135,7 @@ const AGENTS = ${JSON.stringify(opts.agents ?? FAKE_OPENCODE_AGENTS)};
 const MODELS = ${JSON.stringify(opts.models ?? FAKE_OPENCODE_MODELS)};
 const PROVIDERS = ${JSON.stringify(opts.providers ?? FAKE_OPENCODE_PROVIDERS)};
 const CONFIG_MODEL = ${JSON.stringify(opts.configModel === undefined ? { providerID: 'lmstudio', model: 'qwen/qwen3-coder-30b' } : opts.configModel)};
+const INTEGRATIONS = ${JSON.stringify(opts.integrations ?? FAKE_OPENCODE_INTEGRATIONS)};
 const log = (o) => fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, t: Date.now(), ...o }) + '\\n');
 const argv = process.argv.slice(2);
 log({ ev: 'start', argv, env: { ...process.env } });
@@ -135,6 +168,39 @@ const mcpNames = (() => { try { return Object.keys(JSON.parse(process.env.OPENCO
 let created = 0;
 const agentAsked = new Set();
 let mcpPolls = 0;
+// 接続の記録（実物は DB）。id → { integrationID, key, method }。
+const creds = new Map();
+let credSeq = 0;
+for (const id of OPTS.credentials ?? []) creds.set('cred_fake' + (++credSeq), { integrationID: id, key: 'sk-preexisting', method: 'key' });
+const attempts = new Map();
+let attemptSeq = 0;
+// opencode.json のプロバイダー（コメントは行と塊を雑に除く。偽物なので文字列の中の // は考えない）。
+const configProviders = () => {
+  if (!OPTS.configFile) return {};
+  try {
+    const raw = fs.readFileSync(OPTS.configFile, 'utf8');
+    const t = raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
+    // 文字列の外のコメントと、閉じ括弧の前のカンマを除く（台本はテンプレート文字列の中なので、逆斜線を使わずに書く）。
+    const BS = String.fromCharCode(92);
+    const NL = String.fromCharCode(10);
+    let text = '';
+    for (let i = 0, inStr = false; i < t.length;) {
+      const c = t[i];
+      if (inStr) { text += c; if (c === BS) { text += t[i + 1]; i += 2; continue; } if (c === '"') inStr = false; i++; continue; }
+      if (c === '"') { inStr = true; text += c; i++; continue; }
+      if (c === '/' && t[i + 1] === '/') { while (i < t.length && t[i] !== NL) i++; continue; }
+      if (c === '/' && t[i + 1] === '*') { const e = t.indexOf('*/', i + 2); i = e < 0 ? t.length : e + 2; continue; }
+      if (c === ',') { let j = i + 1; while (j < t.length && t.charCodeAt(j) <= 32) j++; if (t[j] === '}' || t[j] === ']') { i++; continue; } }
+      text += c; i++;
+    }
+    const j = JSON.parse(text);
+    return { ...(j.provider ?? {}), ...(j.providers ?? {}) };
+  } catch { return {}; }
+};
+const integrationsNow = () => {
+  const custom = Object.entries(configProviders()).filter(([id]) => !INTEGRATIONS.some((x) => x.id === id)).map(([id, p]) => ({ id, name: p.name ?? id, methods: [{ type: 'key', label: 'Manually enter API Key' }] }));
+  return [...INTEGRATIONS, ...custom].map((x) => ({ ...x, connections: [...creds.entries()].filter(([, c]) => c.integrationID === x.id).map(([cid, c]) => ({ type: 'credential', id: cid, label: x.name, method: c.method })) }));
+};
 const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== auth) { res.writeHead(401); res.end('unauthorized'); return; }
   const url = new URL(req.url ?? '/', 'http://x');
@@ -185,7 +251,10 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { location, data: MODELS.map((m) => ({ id: m.id, modelID: m.id, providerID: m.providerID, name: m.name, enabled: m.enabled ?? true, status: 'active', capabilities: { tools: m.tools ?? true }, ...(m.cost ? { cost: m.cost.map((c) => ({ ...c, cache: { read: 0, write: 0 } })) } : {}), ...(m.limit ? { limit: m.limit } : {}) })) });
       return;
     }
-    json(res, 200, { location, data: PROVIDERS.map((p) => ({ id: p.id, integrationID: p.id, name: p.name, activation: 'enabled', ...(p.baseURL ? { settings: { apiKey: 'sk-fake-secret', baseURL: p.baseURL } } : {}) })) });
+    const fromConfig = Object.entries(configProviders()).map(([id, p]) => ({ id, name: p.name ?? id, baseURL: p.settings?.baseURL ?? p.options?.baseURL }));
+    const fromCreds = [...creds.values()].map((c) => c.integrationID).map((id) => ({ id, name: (INTEGRATIONS.find((x) => x.id === id) ?? { name: id }).name }));
+    const rows = [...PROVIDERS, ...fromConfig, ...fromCreds].filter((p, i, all) => all.findIndex((q) => q.id === p.id) === i);
+    json(res, 200, { location, data: rows.map((p) => ({ id: p.id, integrationID: p.id, name: p.name, activation: p.id === 'lmstudio' ? 'auto' : 'enabled', ...(p.baseURL ? { settings: { apiKey: 'sk-fake-secret', baseURL: p.baseURL } } : {}) })) });
     return;
   }
   const msg = /^\\/api\\/session\\/([^/]+)\\/message$/.exec(url.pathname);
@@ -193,6 +262,65 @@ const server = http.createServer(async (req, res) => {
     log({ ev: 'messages', id: decodeURIComponent(msg[1]), query: url.search });
     json(res, 200, { data: [], cursor: { previous: null, next: null } });
     return;
+  }
+  if (req.method === 'GET' && (url.pathname === '/api/integration' || url.pathname.startsWith('/api/integration/')) && !url.pathname.includes('/connect/')) {
+    const id = url.pathname === '/api/integration' ? null : decodeURIComponent(url.pathname.slice('/api/integration/'.length));
+    log({ ev: 'integration', id });
+    const all = integrationsNow();
+    if (id === null) { json(res, 200, { location: { directory: process.cwd() }, data: all }); return; }
+    const one = all.find((x) => x.id === id);
+    if (!one) { json(res, 404, { _tag: 'IntegrationNotFoundError', integrationID: id, message: 'Integration not found: ' + id }); return; }
+    json(res, 200, { location: { directory: process.cwd() }, data: one });
+    return;
+  }
+  const ck = /^\\/api\\/integration\\/([^/]+)\\/connect\\/key$/.exec(url.pathname);
+  if (req.method === 'POST' && ck) {
+    const id = decodeURIComponent(ck[1]);
+    const body = await readBody(req);
+    if (!integrationsNow().some((x) => x.id === id)) { json(res, 404, { _tag: 'IntegrationNotFoundError', integrationID: id, message: 'Integration not found: ' + id }); return; }
+    if (typeof body.key !== 'string' || !body.key) { json(res, 400, { _tag: 'InvalidRequestError', message: 'bad key ' + JSON.stringify(body) }); return; }
+    log({ ev: 'connectKey', id, key: body.key });
+    creds.set('cred_fake' + (++credSeq), { integrationID: id, key: body.key, method: 'key' });
+    res.writeHead(204); res.end();
+    return;
+  }
+  const dc = /^\\/api\\/credential\\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && dc) {
+    const id = decodeURIComponent(dc[1]);
+    log({ ev: 'deleteCredential', id });
+    creds.delete(id);
+    res.writeHead(204); res.end();
+    return;
+  }
+  const oa = /^\\/api\\/integration\\/([^/]+)\\/connect\\/oauth(?:\\/([^/]+)(\\/complete)?)?$/.exec(url.pathname);
+  if (oa) {
+    const id = decodeURIComponent(oa[1]);
+    const attempt = oa[2] ? decodeURIComponent(oa[2]) : null;
+    if (req.method === 'POST' && !attempt) {
+      const body = await readBody(req);
+      log({ ev: 'oauth', id, body });
+      const a = 'att_fake' + (++attemptSeq);
+      attempts.set(a, { id, polls: 0, done: false });
+      json(res, 200, { location: { directory: process.cwd() }, data: { attemptID: a, url: 'https://example.invalid/device', instructions: 'Enter code ABCD-1234', mode: id === 'opencode' ? 'code' : 'auto', time: { created: Date.now(), expires: Date.now() + 600000 } } });
+      return;
+    }
+    const st = attempt ? attempts.get(attempt) : null;
+    if (!st) { json(res, 404, { _tag: 'IntegrationAttemptNotFoundError', integrationID: id, attemptID: attempt, message: 'not found' }); return; }
+    const finish = () => { if (!st.done) { st.done = true; creds.set('cred_fake' + (++credSeq), { integrationID: id, key: 'oauth-token', method: 'oauth' }); } };
+    if (req.method === 'GET') {
+      st.polls++;
+      if (st.polls > (OPTS.oauthPendingPolls ?? 1)) finish();
+      json(res, 200, { location: { directory: process.cwd() }, data: { status: st.done ? 'complete' : 'pending', time: { created: 0, expires: 1 } } });
+      return;
+    }
+    if (req.method === 'POST' && oa[3]) {
+      const body = await readBody(req);
+      log({ ev: 'oauthComplete', id, attempt, code: body.code });
+      finish();
+      res.writeHead(204); res.end();
+      return;
+    }
+    if (req.method === 'DELETE') { attempts.delete(attempt); res.writeHead(204); res.end(); return; }
   }
   const m = /^\\/api\\/session\\/([^/]+)\\/interrupt$/.exec(req.url ?? '');
   if (req.method === 'POST' && m) { log({ ev: 'interrupt', id: decodeURIComponent(m[1]) }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":true}'); return; }

@@ -78,7 +78,7 @@ export type HttpParts = {
  */
 export function bootHttp(p: {
   home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane' | 'service'>;
-  opencode: Pick<OpencodeParts, 'options'>;
+  opencode: Pick<OpencodeParts, 'options' | 'providers'>;
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
@@ -153,6 +153,7 @@ export function bootHttp(p: {
     compat: runs.compat,
     opencodeStatus: opencode.status,
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
+    opencodeProviders: p.opencode.providers,
     overlapRefresh: () => runs.overlaps.tick(),
     uiDist,
   });
