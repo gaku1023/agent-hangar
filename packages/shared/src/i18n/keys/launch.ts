@@ -8,6 +8,8 @@ export const launchKeys = {
   'launch.injection.handover': ['prevDevice', 'prevOs', 'lastAt', 'prevPath', 'device', 'os', 'path', 'branch', 'editedCount', 'missing'],
   'launch.injection.missing': ['n', 'files'],
   'launch.injection.multiDevice': ['deviceCount'],
+  'launch.injection.opencode.minimal': [],
+  'launch.injection.opencode.live': [],
   'launch.mcpConfig.badId': [],
   'launch.add.label': [],
   'launch.chip.account': [],

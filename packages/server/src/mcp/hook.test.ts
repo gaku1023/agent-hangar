@@ -8,6 +8,9 @@ import { claudeAsks } from '../provider/claude-code/hooks/asks.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
 import { PermissionAsks } from '../sessions/permissionAsks.ts';
 import { createMcpApp } from './app.ts';
+import { agentsOf } from '../agent/agents.ts';
+import { upsertShared } from '../db/shared.ts';
+import { createOpencodeDriver } from '../provider/opencode/driver.ts';
 
 /**
  * hook の受け口（/mcp/s/<id>/hook）。
@@ -49,6 +52,17 @@ describe('hook の受け口', () => {
     expect(r.status).toBe(204);
     const l = asks.apply([{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }], Date.now())[0];
     expect(l?.permission).toEqual({ tool: 'Bash', input: 'npm test', description: '試験' });
+  });
+
+  it('opencode の会話の hook は、driver が読まないので何も書かずに 204 を返す（投げない）', async () => {
+    const oc = createOpencodeDriver({ serves: () => null, droppedEnv: [] });
+    app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
+      usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), permissionAsks: asks, asksOf: (p) => agentsOf([oc]).of(p).asks });
+    upsertShared(db, 'sessions', { id: 'h-oc', provider: 'opencode', provider_session_id: 'ses_1', cwd: '/w', home_device: 'd' }, 'd');
+    const secret = issueMcpSecret(db, 'h-oc', 1);
+    const r = await post(secret, pre, 'h-oc');
+    expect(r.status).toBe(204);
+    expect(db.prepare('select question from session_activity where session_id = ?').get('h-oc')).toBeUndefined();
   });
 
   it('鍵が無いか違えば 401 で、何も書かない', async () => {

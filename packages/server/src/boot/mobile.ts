@@ -154,8 +154,8 @@ export function bootMobile(p: {
     const inbox = new MobileLaunchInbox({
       db, client: link.client, phoneKeys: link.phoneKeys, deviceId,
       dropsDir: path.join(p.home.home, 'drops'),
-      start: (params) => {
-        const r = p.runs.runs.start(params);
+      start: async (params) => {
+        const r = await p.runs.runs.start(params);
         kick();
         return r;
       },

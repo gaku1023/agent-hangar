@@ -6,11 +6,16 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * 実物の opencode の代わり（serve のふりだけ）。
  * `serve --hostname H --port P` で起こされると、`OPENCODE_SERVER_PASSWORD` を basic 認証（ユーザー名は opencode）に使う最小の HTTP を立てる。
  * 認証つきの `GET /api/session/active` に 200、認証が無ければ 401、`POST /api/session/{id}/interrupt` を受ける。
+ * 起動の面（materialize）のために、`POST /api/session`（ID を opencode が振る）、指示の `PUT …/instructions/entries/{key}`、
+ * MCP の状態の `GET /api/mcp?location[directory]=…` も受ける。MCP の一覧は、起こされたときの `OPENCODE_CONFIG_CONTENT` の `mcp.servers` から作る。
  *
  * 起動から止まるまでの出来事を、1 行 1 件の JSON で logFile に書く。
  * - `start`：pid、argv、環境変数の全部、時刻。
  * - `ready`：待ち受けを始めた時刻。
  * - `interrupt`：受けた会話の ID。
+ * - `create`：`POST /api/session` の本文と、振った ID。
+ * - `instructions`：指示の PUT の会話の ID、鍵、本文。
+ * - `mcp`：MCP の状態を聞かれた場所（directory）と、答えた状態。
  * - `term`：SIGTERM を受けた。
  * - `exit`：自分から終わった理由。
  *
@@ -26,12 +31,23 @@ export type FakeOpencodeOptions = {
   ignoreTerm?: boolean;
   /** `GET /api/session/active` に載せる会話の ID。 */
   activeIds?: string[];
+  /** `POST /api/session` を 500 で断る。 */
+  failCreate?: boolean;
+  /** 指示の PUT に返す状態（既定は 200）。API が消えた版のふりに 404 を使う。 */
+  instructionsStatus?: number;
+  /** MCP の状態。既定は pendingPolls 回だけ pending と答えてから connected。never はずっと pending、failed は failed。 */
+  mcp?: 'connect' | 'never' | 'failed';
+  /** connected と答えるまでに pending と答える回数。 */
+  mcpPendingPolls?: number;
 };
 
 export type FakeOpencodeEvent =
   | { ev: 'start'; pid: number; argv: string[]; env: Record<string, string>; t: number }
   | { ev: 'ready'; pid: number; port: number; t: number }
   | { ev: 'interrupt'; pid: number; id: string; t: number }
+  | { ev: 'create'; pid: number; body: Record<string, unknown>; id: string; t: number }
+  | { ev: 'instructions'; pid: number; id: string; key: string; body: Record<string, unknown>; status: number; t: number }
+  | { ev: 'mcp'; pid: number; directory: string | null; status: string; t: number }
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
@@ -73,8 +89,39 @@ process.on('SIGTERM', () => {
   exit('sigterm', 0);
 });
 const auth = 'Basic ' + Buffer.from('opencode:' + (process.env.OPENCODE_SERVER_PASSWORD ?? '')).toString('base64');
-const server = http.createServer((req, res) => {
+const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+const readBody = (req) => new Promise((resolve) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve({ unreadable: b }); } }); });
+const mcpNames = (() => { try { return Object.keys(JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? '{}').mcp?.servers ?? {}); } catch { return []; } })();
+let created = 0;
+let mcpPolls = 0;
+const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== auth) { res.writeHead(401); res.end('unauthorized'); return; }
+  const url = new URL(req.url ?? '/', 'http://x');
+  if (req.method === 'POST' && url.pathname === '/api/session') {
+    const body = await readBody(req);
+    if (OPTS.failCreate) { log({ ev: 'create', body, id: '' }); json(res, 500, { error: 'boom' }); return; }
+    created++;
+    const id = 'ses_fake' + process.pid + 'n' + created;
+    log({ ev: 'create', body, id });
+    json(res, 200, { data: { id, location: body.location ?? null } });
+    return;
+  }
+  const ins = /^\\/api\\/experimental\\/session\\/([^/]+)\\/instructions\\/entries\\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'PUT' && ins) {
+    const body = await readBody(req);
+    const status = OPTS.instructionsStatus ?? 200;
+    log({ ev: 'instructions', id: decodeURIComponent(ins[1]), key: decodeURIComponent(ins[2]), body, status });
+    if (status === 200) json(res, 200, { data: true }); else json(res, status, { error: 'no' });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/mcp') {
+    mcpPolls++;
+    const directory = url.searchParams.get('location[directory]');
+    const status = OPTS.mcp === 'failed' ? 'failed' : OPTS.mcp === 'never' || mcpPolls <= (OPTS.mcpPendingPolls ?? 0) ? 'pending' : 'connected';
+    log({ ev: 'mcp', directory, status });
+    json(res, 200, { location: { directory }, data: mcpNames.map((name) => ({ name, status: { status } })) });
+    return;
+  }
   const m = /^\\/api\\/session\\/([^/]+)\\/interrupt$/.exec(req.url ?? '');
   if (req.method === 'POST' && m) { log({ ev: 'interrupt', id: decodeURIComponent(m[1]) }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":true}'); return; }
   if (req.method === 'GET' && req.url === '/api/session/active') {

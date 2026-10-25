@@ -1,6 +1,6 @@
 import { agentsOf, type Agents } from '../agent/agents.ts';
 import type { LiveSessionDto } from '@agent-hangar/shared';
-import { RUN_DROPPED_ENV } from '../launch/env.ts';
+import { RUN_DROPPED_ENV, AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
 import type { CompatLog } from '../provider/claude-code/compat/log.ts';
@@ -10,6 +10,9 @@ import { claudeLiveSource, createClaudeDriver, type ClaudeDriver, type ClaudeLiv
 import { realProcOpsWith, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import type { GetLanguage } from '../i18n/language.ts';
+import type { AgentDriver } from '../agent/types.ts';
+import { createOpencodeDriver } from '../provider/opencode/driver.ts';
+import type { OpencodeServes } from '../provider/opencode/launch.ts';
 import { safeErrorText } from '../runs/manager.ts';
 import type { HomeParts } from './home.ts';
 
@@ -26,6 +29,13 @@ export type AgentParts = {
   agents: Agents;
   /** Claude の driver。attach や登録のずれの数え直しのような、Claude にしか無いものに直に使う。 */
   claude: ClaudeDriver;
+  /** opencode（ベータ）の driver。起こすかどうかは設定（opencodeEnabled）で RunManager が決める。 */
+  opencode: AgentDriver;
+  /**
+   * opencode の serve の管理（boot/opencode.ts）を driver に渡す。
+   * serve の管理は、前の hangar が残した serve の掃除を待ち受けの後に始めるので、配る層より後で組む。それまでの起動は断る。
+   */
+  bindOpencodeServes(serves: OpencodeServes): void;
 };
 
 /**
@@ -55,7 +65,13 @@ export function bootAgents(
     }),
     procs: () => procs,
   });
-  return { agents: agentsOf([claude]), claude };
+  let serves: OpencodeServes | null = null;
+  const opencode = createOpencodeDriver({
+    serves: () => serves,
+    // TUI へは CLAUDE 系と hangar の変数を持ち込まない（serve の環境は serve/env.ts が別に空から組む）。
+    droppedEnv: AGENT_RUN_DROPPED_ENV,
+  });
+  return { agents: agentsOf([claude, opencode]), claude, opencode, bindOpencodeServes: (s) => { serves = s; } };
 }
 
 /**

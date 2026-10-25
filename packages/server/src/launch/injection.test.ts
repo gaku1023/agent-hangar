@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { localDate, localTime, osName, t as tt, translator, type Language } from '@agent-hangar/shared';
 import type { HandoverFacts } from '../runs/handover.ts';
-import { DEFAULT_INJECTION_PARTS, renderInjection, renderInjectionEntries, type InjectionInput, type InjectionParts } from './injection.ts';
+import { DEFAULT_INJECTION_PARTS, renderInjection, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionInput, type InjectionParts } from './injection.ts';
 
 const todo = (n: number | string) => ({ id: `id${n}`, text: `t${n}` });
 
@@ -236,5 +236,37 @@ describe('renderInjectionEntries', () => {
     expect(keys(BASE, { askStatusAtEnd: false, liveHints: false })).toEqual(['body']);
     expect(keys({ ...BASE, deviceCount: 2 }, { askStatusAtEnd: false, liveHints: true })).toEqual(['body', 'multiDevice', 'live']);
     for (const e of renderInjectionEntries({ ...BASE, handover: FACTS, deviceCount: 2 })) expect(e.text, e.key).not.toBe('');
+  });
+});
+
+describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
+  const input: InjectionInput = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 't1', text: '直す' }], deviceCount: 2 };
+
+  it('最小限（既定）は、hangar の MCP の使い方だけの 1 段。時機は各ターンの最初の一手で、Code Mode の呼び方を添える（RESULT.md の条件 d）', () => {
+    const entries = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
+    expect(entries).toEqual([{ key: 'body', text:
+      'あなたは agent-hangar から起動されたセッションです。\n'
+      + '各ターンの最初の一手で、他のツールより先に、execute で `await tools.hangar.set_turn_intent({ text: "<このターンで何のために何をするか、1〜2 文>" })` を呼んでください。方針を変えたときも呼びます。\n'
+      + '依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、execute で `await tools.hangar.set_session_summary({ title, one_liner, body, state, next_steps })` を呼び、題名、2〜3 文の要約、進捗（state）、次のステップを更新してください。\n' }]);
+    // 英語も同じ道具と同じ時機を指す。
+    const en = renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal')[0]!;
+    expect(en.text).toContain('tools.hangar.set_turn_intent');
+    expect(en.text).toContain('tools.hangar.set_session_summary');
+    expect(en.text).toMatch(/first step of every turn, before any other tool/);
+  });
+
+  it('追記しないなら段は無い', () => {
+    expect(renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'none')).toEqual([]);
+  });
+
+  it('Claude Code と同じなら Claude の段を使い、意図の段だけ時機を各ターンの最初の一手に書き直す（条件 g）', () => {
+    const claude = renderInjectionEntries(input, 'ja');
+    const oc = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'claude');
+    expect(oc.map((e) => e.key)).toEqual(claude.map((e) => e.key));
+    expect(oc.filter((e) => e.key !== 'live')).toEqual(claude.filter((e) => e.key !== 'live'));
+    expect(oc.find((e) => e.key === 'live')!.text).toBe('各ターンの最初の一手で、他のツールより先に、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。方針を変えたときも呼びます。\nBash と Agent の description は日本語で短く（20 字程度）書いてください。\n');
+    // 段の入り切りの設定は Claude と同じく効く。
+    expect(renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: false }, 'claude').map((e) => e.key)).toEqual(['body', 'multiDevice']);
+    expect(renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'claude').find((e) => e.key === 'live')!.text).toMatch(/^At the first step of every turn, before any other tool/);
   });
 });

@@ -107,7 +107,8 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     if (!params || typeof params !== 'object') return c.json({ error: tr('http.request.notJson') }, 400);
     // 他端末の最新を先に取り込む。間に合わなくても起動する（結果は見ない）。
     await beforeLaunch();
-    return runResult(c, language, () => deps.runs.start(params), 201);
+    // opencode の起動は serve と会話の下ごしらえ（materialize）を待つので、応答まで数秒かかることがある。
+    return runResultAsync(c, language, () => deps.runs.start(params), 201);
   });
   // ターミナルの包み方（~/.agent-hangar/shell/claude.zsh）からの起動。断ったら、包み方は素の claude を起動する。
   api.post('/runs/terminal', async (c) => {

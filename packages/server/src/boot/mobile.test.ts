@@ -61,7 +61,7 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
     usage: { of: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) },
     broadcast: (dto: AccountsDto) => { broadcasts.push(dto); },
   };
-  const start = vi.fn((params: LaunchParams): LaunchResult => ({ run: { id: 'run-1', sessionId: 's-new' } as LaunchResult['run'], sessionId: 's-new', tabs: [] }));
+  const start = vi.fn(async (params: LaunchParams): Promise<LaunchResult> => ({ run: { id: 'run-1', sessionId: 's-new' } as LaunchResult['run'], sessionId: 's-new', tabs: [] }));
   const runListeners = new Set<RunListener>();
   const on = (l: RunListener): (() => void) => { runListeners.add(l); return () => { runListeners.delete(l); }; };
   let engine = new FakeEngine();

@@ -10,7 +10,7 @@ import { setSessionPlacement } from '../sessions/states.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/write.ts';
-import { DEFAULT_INJECTION_PARTS, renderInjectionEntries, type InjectionParts } from '../launch/injection.ts';
+import { DEFAULT_INJECTION_PARTS, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionParts } from '../launch/injection.ts';
 import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
 import { pruneMcpConfigs, removeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
@@ -27,7 +27,7 @@ import type { ClaudeDriver } from '../provider/claude-code/driver.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { DEFAULT_AGENT, type Agents } from '../agent/agents.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
-import type { AgentDriver, InjectionEntry, LaunchPlan, LaunchSpec } from '../agent/types.ts';
+import type { AgentDriver, AgentKind, InjectionEntry, LaunchPlan, LaunchSpec } from '../agent/types.ts';
 import type { PaneOps } from '../tmux/pane.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';
@@ -116,7 +116,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'> };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 /** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
@@ -280,9 +280,10 @@ export class RunManager {
    * 作るのは claude と tmux の確かめの後である。断ったときに空のフォルダを残さない。
    * mayCreate は、後で作るので無くてもよいが、ここでは作らないとき（アカウントの切り替えの、止める前の確かめ）。
    */
-  private precheck(cwd: string, o: { create?: boolean; mayCreate?: boolean } = {}): PaneOps {
+  private precheck(cwd: string, o: { create?: boolean; mayCreate?: boolean; agent?: AgentKind } = {}): PaneOps {
     if (!o.create && !o.mayCreate && !isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
-    this.claudeBin();
+    // claude の場所は Claude を起こすときだけ確かめる。ほかのエージェントの実行ファイルは、行を作る前に呼び手が確かめる（agentBin）。
+    if ((o.agent ?? DEFAULT_AGENT) === DEFAULT_AGENT) this.claudeBin();
     const panes = this.startPanes();
     if (o.create) fs.mkdirSync(cwd, { recursive: true });
     return panes;
@@ -294,12 +295,16 @@ export class RunManager {
    * 直前の run がほかの PC なら引き継ぎの段を、プロジェクトを 2 台以上の PC で使っていれば弱い 1 文を足す（runs/handover.ts）。
    * 段（InjectionEntry）に分けて返し、どう渡すかは driver が決める（Claude は段をつないで --append-system-prompt に渡す）。
    */
-  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string): InjectionEntry[] {
+  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string, agent: AgentKind = DEFAULT_AGENT): InjectionEntry[] {
     const p = projectId ? this.project(projectId) : null;
     const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and suggested_at is null and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
     const handover = handoverFrom ? handoverFacts(this.db, { sessionId: handoverFrom, selfDeviceId: this.deps.deviceId, cwd }) : null;
     const deviceCount = projectId ? projectDeviceCount(this.db, projectId) : 0;
-    return renderInjectionEntries({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount }, this.language(), this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS);
+    const input = { projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount };
+    const parts = this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS;
+    // opencode に足す量は設定の opencodeInjection で選ぶ（launch/injection.ts の renderOpencodeInjectionEntries）。
+    if (agent === 'opencode') return renderOpencodeInjectionEntries(input, this.language(), parts, parts.opencode);
+    return renderInjectionEntries(input, this.language(), parts);
   }
 
   /**
@@ -360,19 +365,22 @@ export class RunManager {
    * 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
    * 秘密をどう渡すか（Claude は 0600 のファイルに置き、パスだけを argv に載せる）は driver が決める。
    */
-  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams, handoverFrom?: string, rc?: RemoteControlAsk): Omit<LaunchSpec, 'env'> {
+  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams, handoverFrom?: string, rc?: RemoteControlAsk, agent: AgentKind = DEFAULT_AGENT): Omit<LaunchSpec, 'env'> {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     const secret = issueMcpSecret(this.db, sessionId, this.now());
+    const claude = agent === DEFAULT_AGENT;
     return {
       cwd,
       hangarSessionId: sessionId,
       mcp: { url: this.mcpUrl(sessionId), secret },
-      instructions: this.injectionFor(projectId, cwd, handoverFrom),
+      instructions: this.injectionFor(projectId, cwd, handoverFrom, agent),
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),
       effort: s(params.effort),
-      mode: s(params.permissionMode),
+      // Claude は権限のモード（--permission-mode）、opencode はエージェント（build、plan など）。
+      mode: claude ? s(params.permissionMode) : s(params.mode),
+      ...(claude ? {} : { autoApprove: params.autoApprove === true }),
       worktree: s(params.worktree),
       addDirs: this.addDirs(params),
       remoteControl: this.remoteControlFor(rc, { projectId, name: s(params.name), prompt: s(params.prompt), handoverFrom }),
@@ -382,6 +390,16 @@ export class RunManager {
   /** そのセッションの driver。sessions.provider の値で引く。 */
   private agentOf(s: SessionRow): AgentDriver {
     return this.agents.of(s.provider);
+  }
+
+  /**
+   * Claude にしか無い操作（フォーク、attach、引き取り、アカウントの切り替え）を、そのエージェントが持たなければ入口で断る（driver の caps）。
+   * 再開は、opencode の分（serve を起こし直して -s でつなぐ）を段 B6 で入れるまで、Claude だけにする。
+   */
+  private assertCan(s: SessionRow, what: keyof AgentDriver['caps'] | 'resume'): void {
+    const d = this.agentOf(s);
+    const ok = what === 'resume' ? d.kind === DEFAULT_AGENT : d.caps[what];
+    if (!ok) throw new RunError(400, msg('run.agent.actionUnsupported'));
   }
 
   /** 起こす前に新しい会話の ID を決める。ID を後で知る driver は、起動を async にするまで受けない。 */
@@ -394,9 +412,10 @@ export class RunManager {
    * run の行を作り、tmux セッションでエージェントを起こす。失敗したら run を閉じて 400 を投げる。
    * plan は、アカウントの置き場を足した後の環境を受けて、driver が組み立てた起動（agent/types.ts の LaunchPlan）を返す。
    */
-  private launch(o: { sessionId: string; cwd: string; kind: RunKind; plan: (env: Record<string, string>) => LaunchPlan; params: LaunchParams; env?: Record<string, string>; account?: Account | null; /** cwd がまだ無く、確かめが通ったら作る（precheck の create）。 */ createFolder?: boolean }): LaunchResult {
+  private launch(o: { sessionId: string; cwd: string; kind: RunKind; plan: (env: Record<string, string>) => LaunchPlan; params: LaunchParams; env?: Record<string, string>; account?: Account | null; /** cwd がまだ無く、確かめが通ったら作る（precheck の create）。 */ createFolder?: boolean; /** 起こすエージェント。省けば Claude Code。 */ agent?: AgentKind }): LaunchResult {
+    const agent = o.agent ?? DEFAULT_AGENT;
     // フォルダを作るのは確かめの後で、信頼を書く（trustFolder）より前である。作ったフォルダに信頼を書く。
-    const panes = this.precheck(o.cwd, { create: o.createFolder });
+    const panes = this.precheck(o.cwd, { create: o.createFolder, agent });
     // 利用者が自分で付けた CLAUDE_CONFIG_DIR（o.env）は、アカウントの置き場で上書きしない。
     // その置き場が登録済みならそのアカウントとして、未登録なら何も記録しない。呼び手が別のアカウントを渡していても、実際に動く置き場に合わせる。
     const own = o.env?.CLAUDE_CONFIG_DIR;
@@ -414,7 +433,8 @@ export class RunManager {
     // クイックセッションの置き場と、同意を得た作業フォルダでは、信頼の確認を出さずに始められるよう、起こすアカウントの設定に前もって書く。
     // 書けなくても（Claude Code がロックを握っている、設定が壊れているなど）起動は止めない。そのときは claude がいつもどおり確認を出す。
     try {
-      this.deps.trustFolder?.(env.CLAUDE_CONFIG_DIR || null, o.cwd);
+      // 信頼は Claude の .claude.json に書くものなので、ほかのエージェントでは書かない。
+      if (agent === DEFAULT_AGENT) this.deps.trustFolder?.(env.CLAUDE_CONFIG_DIR || null, o.cwd);
     } catch (e) {
       console.error('[runs] フォルダの信頼を書けませんでした', e instanceof Error ? e.message : e);
     }
@@ -494,8 +514,10 @@ export class RunManager {
    */
   private pruneEmptySession(run: RunDto): void {
     if (run.kind !== 'start') return;
-    const s = this.db.prepare('select provider_session_id, cwd from sessions where id = ?').get(run.sessionId) as { provider_session_id: string; cwd: string } | undefined;
+    const s = this.db.prepare('select provider, provider_session_id, cwd from sessions where id = ?').get(run.sessionId) as { provider: string; provider_session_id: string; cwd: string } | undefined;
     if (!s) return;
+    // 本文の有無をファイルで確かめられるのは Claude だけである。opencode の本文を写すのは段 B5 で、それまでは消さない（起動に失敗した行は startMaterialized が消す）。
+    if (s.provider !== DEFAULT_AGENT) return;
     // 開いたシェルタブが残っているなら、そのシェルは tmux の上でまだ動いている。
     // セッションを消すと、UI から到達も停止もできないシェルになる。
     const openTab = this.db.prepare('select 1 from run_tabs where run_id = ? and closed_at is null and deleted_at is null limit 1').get(run.id);
@@ -510,16 +532,25 @@ export class RunManager {
     softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
   }
 
-  /** 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。 */
-  start(params: LaunchParams): LaunchResult {
-    this.addDirs(params);
-    // 行を作る前に、アカウントとリンクを確かめる。知らないアカウントや壊れたリンクで、本文の無いセッションが残らないようにする。
-    const account = this.accounts.resolve(params.account);
-    this.accounts.envFor(account);
-    // クイックセッションは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
-    // 後の precheck を待たずに、ここで tmux と claude の有無だけ先に確かめる。
-    // これが無いと、どちらも無い端末で起動を試すたびに空のディレクトリが溜まる。
-    if (params.scratch) { this.startPanes(); this.claudeBin(); }
+  /**
+   * 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。
+   * agent を省けば Claude Code で起こす。ID を先に決めない driver（opencode）は、下ごしらえ（materialize）を待つので非同期である。
+   */
+  async start(params: LaunchParams): Promise<LaunchResult> {
+    const agent = this.agentKindOf(params.agent);
+    if (agent === DEFAULT_AGENT) return this.startClaude(params);
+    return this.startMaterialized(agent, params);
+  }
+
+  /** 起動の指定の agent を確かめる。省けば Claude Code、知らない値は 400 で断る。 */
+  private agentKindOf(raw: unknown): AgentKind {
+    if (raw === undefined || raw === null || raw === DEFAULT_AGENT) return DEFAULT_AGENT;
+    if (raw === 'opencode') return raw;
+    throw new RunError(400, msg('run.agent.unknown', { agent: String(raw).slice(0, 40) }));
+  }
+
+  /** 起動の作業の場所。クイックセッションは使い捨てのディレクトリを作り、ほかはプロジェクトの場所（か、その下の cwd）にする。 */
+  private startTarget(params: LaunchParams): { project: ProjectInfo; cwd: string } {
     // クイックセッションは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
@@ -529,6 +560,80 @@ export class RunManager {
     const sub = params.scratch ? null : this.workDir(p.path, params.cwd);
     // クイックセッションのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
     const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : sub ?? p.path;
+    return { project: p, cwd };
+  }
+
+  /**
+   * ID を先に決めない driver（opencode）で新しい会話を起こす（docs/design.md「opencode の起動」）。
+   * 1. 設定、実行ファイル、Claude だけの指定、作業の場所、画面の口を、行を作る前に確かめる。
+   * 2. 会話の ID がまだ無いので、仮の ID（pending:…）で sessions の行を作る。MCP の秘密と URL は hangar の会話の ID で決まるので、先に要る。
+   * 3. driver の materialize（serve、ID なしの作成、追記、MCP の接続）を待ち、返った ID を行に書く。
+   * 4. その ID で TUI を tmux の中に起こす。
+   * 下ごしらえか画面で失敗したら、serve を止め、仮の行と秘密を消して 400 で断る。
+   */
+  private async startMaterialized(agent: AgentKind, params: LaunchParams): Promise<LaunchResult> {
+    const driver = this.agents.of(agent);
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (!driver.launch.materialize) throw new Error(`agent ${agent} cannot launch without choosing a session id`);
+    // Claude だけの指定は黙って捨てずに断る（画面の札は出さないので、届くのは API を直に叩いたときだけ）。
+    const claudeOnly: [string, boolean][] = [
+      ['account', !driver.caps.accounts && !!params.account],
+      ['effort', !driver.caps.effort && !!params.effort?.trim()],
+      ['permissionMode', !driver.caps.permissionMode && !!params.permissionMode?.trim()],
+      ['addDirs', (params.addDirs ?? []).some((d) => d.trim())],
+      ['worktree', !!params.worktree?.trim()],
+    ];
+    const bad = claudeOnly.find(([, v]) => v);
+    if (bad) throw new RunError(400, msg('run.agent.optionUnsupported', { option: bad[0] }));
+    const bin = this.deps.agentBin?.(agent) ?? null;
+    if (!bin) throw new RunError(400, msg('run.agent.notFound'));
+    if (params.scratch) this.startPanes();
+    const { project: p, cwd } = this.startTarget(params);
+    this.precheck(cwd, { agent });
+    const sessionId = newId();
+    const now = this.now();
+    upsertShared(this.db, 'sessions', { id: sessionId, provider: agent, provider_session_id: `pending:${newId()}`, cwd, home_device: this.deps.deviceId, project_id: p.id, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    setSessionName(this.db, this.deps.deviceId, sessionId, params.name?.trim() || null);
+    const discard = () => {
+      revokeMcpSecret(this.db, sessionId);
+      softDeleteShared(this.db, 'sessions', sessionId, this.deps.deviceId);
+    };
+    let providerSessionId: string;
+    let base: Omit<LaunchSpec, 'env'>;
+    try {
+      base = this.baseInput(sessionId, p.id, cwd, params, undefined, undefined, agent);
+      const r = await driver.launch.materialize({ kind: 'start' }, { ...base, env: {} });
+      if (!r?.providerSessionId) throw new Error(`agent ${agent} did not return a session id`);
+      providerSessionId = r.providerSessionId;
+      const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
+      upsertShared(this.db, 'sessions', { ...cur, provider_session_id: providerSessionId }, this.deps.deviceId);
+    } catch (e) {
+      // driver は会話を作れなかったときに自分で serve を止めている。ここでも念のため止める（ほかの段で落ちたとき）。
+      await Promise.resolve(driver.launch.release({ sessionId, providerSessionId: '', cwd }, 'killed')).catch(() => false);
+      discard();
+      if (e instanceof RunError) throw e;
+      throw new RunError(400, msg('run.agent.launchFailed', { reason: this.safeError(e) }));
+    }
+    try {
+      return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...params, agent } });
+    } catch (e) {
+      await Promise.resolve(driver.launch.release({ sessionId, providerSessionId, cwd }, 'killed')).catch(() => false);
+      discard();
+      throw e;
+    }
+  }
+
+  /** Claude Code で新しいセッションを起こす。ID を先に決めるので、行を作ってからすぐ起こす。 */
+  private startClaude(params: LaunchParams): LaunchResult {
+    this.addDirs(params);
+    // 行を作る前に、アカウントとリンクを確かめる。知らないアカウントや壊れたリンクで、本文の無いセッションが残らないようにする。
+    const account = this.accounts.resolve(params.account);
+    this.accounts.envFor(account);
+    // クイックセッションは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
+    // 後の precheck を待たずに、ここで tmux と claude の有無だけ先に確かめる。
+    // これが無いと、どちらも無い端末で起動を試すたびに空のディレクトリが溜まる。
+    if (params.scratch) { this.startPanes(); this.claudeBin(); }
+    const { project: p, cwd } = this.startTarget(params);
     this.precheck(cwd);
     const driver = this.agents.of(DEFAULT_AGENT);
     const sessionUuid = this.newSessionId(driver);
@@ -635,6 +740,7 @@ export class RunManager {
   async resumeWith(sessionId: string, o: { stray?: ResumeStray } = {}): Promise<LaunchResult> {
     if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray });
     const s = this.session(sessionId);
+    this.assertCan(s, 'resume');
     this.assertResumable(s, 'ignore');
     const pid = this.strayPid(s);
     if (pid !== null && !(await this.procs().terminate(pid, TERMINATE_MS))) throw new RunError(409, msg('run.error.strayNotStopped', { pid }));
@@ -649,6 +755,7 @@ export class RunManager {
    */
   resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string; stray?: 'ignore' } = {}): LaunchResult {
     const s = this.session(sessionId);
+    this.assertCan(s, 'resume');
     this.assertResumable(s, extra.stray === 'ignore' ? 'ignore' : 'check');
     // ほかの PC のクイックセッションのフォルダは、アカウント、バックグラウンドの一覧、起動の確かめが通ってから launch が作る。
     const { path: cwd, createsFolder: createFolder } = this.cwdFor(s);
@@ -713,6 +820,7 @@ export class RunManager {
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
   fork(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
+    this.assertCan(s, 'fork');
     this.assertResumable(s);
     const account = this.accounts.lastUsed(s.id);
     // リンクの確かめも行を作る前に済ませる。壊れていると、本文の無い行が残る。
@@ -738,6 +846,11 @@ export class RunManager {
 
   /** 開いているセッションを、別のアカウントで再開し直す。手順と断る理由は runs/accounts.ts にある。ここは run の寿命の側の手を渡すだけである。 */
   switchAccount(sessionId: string, accountId: string): Promise<LaunchResult> {
+    try {
+      this.assertCan(this.session(sessionId), 'accounts');
+    } catch (e) {
+      return Promise.reject(e);
+    }
     return switchAccount(this.accounts, {
       session: (id) => this.session(id),
       hasBody: (id) => this.hasBody(id),
@@ -771,6 +884,7 @@ export class RunManager {
    */
   attach(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
+    this.assertCan(s, 'attachExternal');
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const l = this.liveOf(s.provider_session_id);
     if (!l?.background) throw new RunError(409, msg('run.attach.notBackground'));
@@ -792,6 +906,7 @@ export class RunManager {
    */
   async adopt(sessionId: string): Promise<LaunchResult> {
     const s = this.session(sessionId);
+    this.assertCan(s, 'attachExternal');
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const l = this.liveOf(s.provider_session_id);
     if (!l) throw new RunError(409, msg('run.adopt.notRunning'));
@@ -1075,7 +1190,7 @@ export class RunManager {
   private release(sessionId: string, cause: 'killed' | 'parked'): boolean {
     const s = this.db.prepare('select provider, provider_session_id, cwd from sessions where id = ?').get(sessionId) as { provider: string; provider_session_id: string; cwd: string } | undefined;
     if (!s) return false;
-    const r = this.agents.of(s.provider).launch.release({ providerSessionId: s.provider_session_id, cwd: s.cwd }, cause);
+    const r = this.agents.of(s.provider).launch.release({ sessionId, providerSessionId: s.provider_session_id, cwd: s.cwd }, cause);
     if (typeof r === 'boolean') return r;
     r.catch((e) => console.error('[runs] release failed', this.safeError(e)));
     return true;

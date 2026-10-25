@@ -308,10 +308,14 @@ describe('MCP tools', () => {
     expect(ids(call('search_sessions', { query: 'チャンネル' }).hits)).not.toContain(alphaId);
     expect(ids(call('get_project', { project_id: pid }).recent_sessions)).not.toContain(alphaId);
   });
-  it('create_session は runs.start を呼び、URL を返す', () => {
-    const r = call('create_session', { project_id: 'p1', name: 'n', prompt: 'p', permission_mode: 'default' });
+  it('create_session は runs.start を呼び、URL を返す', async () => {
+    const r = await call('create_session', { project_id: 'p1', name: 'n', prompt: 'p', permission_mode: 'default' });
     expect(started[0]).toEqual({ projectId: 'p1', name: 'n', prompt: 'p', model: undefined, effort: undefined, permissionMode: 'default', scratch: undefined });
     expect(r).toEqual({ run_id: 'r1', session_id: 'sNew', tmux_name: 'hangar-r1', url: 'http://127.0.0.1:4177/#/session/sNew' });
+  });
+  it('create_session は非同期の start を待ってから答える', async () => {
+    deps = { ...deps, runs: { start: async (p) => { started.push(p); await new Promise((r) => setTimeout(r, 5)); return { run: { id: 'r2', sessionId: 'sLater', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sLater', tabs: [] }; } } };
+    expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater' });
   });
   it('set_session_summary は in_session で保存して配信する', () => {
     const r = call('set_session_summary', { title: 'T', one_liner: 'O', body: 'B', state: 'blocked', next_steps: ['n1'] }, { sessionId: alphaId });

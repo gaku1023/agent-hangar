@@ -9,6 +9,8 @@ export const launchJa: AreaDictionary<typeof launchKeys> = {
   'launch.injection.handover': "この会話は {prevDevice}（{prevOs}）で {lastAt} まで進め、作業ディレクトリは {prevPath} でした。現在は {device}（{os}）の {path} で続けています。\n同期されたのは会話のトランスクリプトと hangar の記録だけです。ファイル、git の作業ツリー、未コミットの変更、環境（インストール、環境変数、シークレット）は同期されていません。\n会話の中のパスは前の PC の形式です。この PC では {path} からの相対パスで読み替え、前の PC の絶対パスをそのまま使わないでください。\n会話の終わりのブランチは {branch} でした。この会話で編集したファイル {editedCount} 件のうち、この PC に無いもの：{missing}\n次の指示を受けたら、作業に入る前に 1 度だけ、git status と git log -1 と現在のブランチを見て、会話の終わりの状態と合うかを短く報告してください。\n無いファイルがある、ブランチやコミットが違う、前の PC に未コミットの変更が残っていたらしい、のどれかなら、推し量って再生成したり続けたりせず、AskUserQuestion で聞いてください。選択肢は「この PC で環境をそろえて続ける（足りないものを一緒に用意する）」「前の PC からファイルを持ってくる（手順を示す。実行するのはユーザー）」「前の PC で続ける（この PC では何もしない）」「差を承知でこのまま進める」です。\nssh、scp、rsync は自分で実行しないでください。1 度合っていると確認したものは、その後は疑わないでください。\n",
   'launch.injection.missing': '{n} 件{files}',
   'launch.injection.multiDevice': 'このプロジェクトは {deviceCount} 台の PC で使っています。過去の会話のパスやファイルの状態は、この PC と違うことがあります。\n',
+  'launch.injection.opencode.minimal': 'あなたは agent-hangar から起動されたセッションです。\n各ターンの最初の一手で、他のツールより先に、execute で `await tools.hangar.set_turn_intent({ text: "<このターンで何のために何をするか、1〜2 文>" })` を呼んでください。方針を変えたときも呼びます。\n依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、execute で `await tools.hangar.set_session_summary({ title, one_liner, body, state, next_steps })` を呼び、題名、2〜3 文の要約、進捗（state）、次のステップを更新してください。\n',
+  'launch.injection.opencode.live': "各ターンの最初の一手で、他のツールより先に、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。方針を変えたときも呼びます。\nBash と Agent の description は日本語で短く（20 字程度）書いてください。\n",
   'launch.mcpConfig.badId': 'この ID は設定ファイルの名前に使えません',
   'launch.add.label': '設定を追加',
   'launch.chip.account': 'アカウント',
