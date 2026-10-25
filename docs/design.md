@@ -1032,6 +1032,9 @@ create table artifact_calls (
   file_path text, description text, favicon text
 );
 
+-- 同じ URL の Artifact を 2 台が別の ID で記録したときの付け替え（版 34）。alias_id は残さなかった方、artifact_id は残した方。
+create table artifact_aliases (alias_id text primary key, artifact_id text not null);
+
 -- jsonl の usage から導いた、セッションとファイルと日ごとのトークン数。
 create table usage_daily (
   session_id text not null, day text not null, file_path text not null,
@@ -2689,6 +2692,12 @@ git の外では、その旨の 1 行だけを出す。
 
 呼び出しと結果は別の記録にあり、追記の境目で分かれることがあるので、端末ローカルの `artifact_calls` に呼び出しを控えて結果と突き合わせる。
 題名は表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。
+
+同じ会話の本文を 2 台が別々に索引すると、同じ URL を別々の ID で記録することがある。本文の同期と行の同期は別々に届くので、相手の行が届く前に索引すれば、手元に無い URL として新しい ID を振る。
+`artifacts.url` は一意なので、同期で届いた方はそのままでは当たらない。同期の適用（`sync/apply.ts` の `settleArtifactUrl`）は、ID の小さい方（先に記録した方）を残す。どの PC が比べても同じ方が残る。
+残さなかった方の ID は、端末ローカルの `artifact_aliases` に残した方の ID と組で覚え、その ID を指す版が後から届いたら残した方へ付け替える。同じ Artifact に同じ会話・同じ公開時刻の版がもうあれば、重ねて足さない。
+手元の方を残さないときは、手元の版を届いた方へ移して手元の行を消す。どちらも手元の表だけを直し、上げ直さない。
+
 カードのクリックは `POST /api/artifacts/:id/open` でサーバが `open` を実行する（ブラウザの `window.open` は使わない）。
 
 ## 使用量

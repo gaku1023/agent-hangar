@@ -584,6 +584,16 @@ create index mobile_launches_session on mobile_launches(session_id);
 `;
 
 /**
+ * 同じ URL の Artifact を、2 台が別々の ID で記録したときの付け替え（版 34）。
+ * artifacts.url は unique なので、同期で届いた方と手元の方のどちらかしか残せない。ID の小さい方を残す（sync/apply.ts の settleArtifactUrl）。
+ * alias_id は残さなかった方の ID、artifact_id は残した方の ID である。その ID を指す版が後から届いたら、残した方へ付け替える。
+ * 端末ローカルの表で、同期しない。どの PC も、両方の行を受け取った時点で同じ表を作る。
+ */
+const V34_ARTIFACT_ALIASES_SQL = `
+create table artifact_aliases (alias_id text primary key, artifact_id text not null);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -607,4 +617,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 31, sql: V31_MOBILE_LAUNCH_ANSWERS_SQL },
   { version: 32, sql: V32_BLOB_UPLOADS_SQL },
   { version: 33, sql: V33_MOBILE_LAUNCH_SESSION_SQL },
+  { version: 34, sql: V34_ARTIFACT_ALIASES_SQL },
 ];

@@ -258,8 +258,25 @@ function carriesOldNote(c: ChangeOut): boolean {
  * 古い形の payload の名前は、手元に session_notes の行が無いときだけ拾う（adoptNoteFromOldSession）。memo は拾わない。
  */
 export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' {
+  // artifacts は URL をずらしてから当てるので、当てるのに失敗したらずらしたのも戻す（入れ子の transaction は savepoint になる）。
+  return c.tableName === 'artifacts' ? db.transaction(() => applyOne(db, c, o))() : applyOne(db, c, o);
+}
+
+function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' {
   if (!ORDER.has(c.tableName)) return 'skipped';
   if (o.skipOwn && c.deviceId === o.ownDeviceId) return 'skipped';
+  // 同じ URL の Artifact が別の ID で届いたら、どちらか 1 つに寄せる（settleArtifactUrl）。
+  let displaced: string | null = null;
+  if (c.tableName === 'artifacts') {
+    const s = settleArtifactUrl(db, c);
+    if (s === 'merged') return 'skipped';
+    displaced = s;
+  }
+  if (c.tableName === 'artifact_versions') {
+    const v = aliasVersion(db, c);
+    if (v === null) return 'skipped';
+    c = v;
+  }
   const pk = TABLE_PK[c.tableName];
   const cols = tableColumns(db, c.tableName);
   const cur = db.prepare(`select updated_at from ${c.tableName} where ${pk} = ?`).get(c.rowId) as { updated_at: number } | undefined;
@@ -290,6 +307,7 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
   const keys = Object.keys(row);
   const sets = keys.filter((k) => k !== pk).map((k) => `${k} = excluded.${k}`).join(', ');
   db.prepare(`insert into ${c.tableName} (${keys.join(', ')}) values (${keys.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`).run(...keys.map((k) => bindable(row[k])));
+  if (displaced) replaceArtifact(db, displaced, c.rowId);
   // 利用者が移したセッションは、届いた行が古い所属を持っていても、移した先に合わせ直す（sessions/move.ts）。
   // 移した印（session_states）が後から届いたときも、その時点で合わせる。どちらも手元の表だけを直し、押し返さない。
   // 版 25 より古い DB（試験）には当てない。session_states に移した先の列が無いからである。
@@ -308,6 +326,73 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
     else adoptNoteFromOldSession(db, c);
   }
   return 'applied';
+}
+
+/** 寄せた先の ID。寄せていなければ null。 */
+function artifactAlias(db: Db, id: string): string | null {
+  const r = db.prepare('select artifact_id from artifact_aliases where alias_id = ?').get(id) as { artifact_id: string } | undefined;
+  return r?.artifact_id ?? null;
+}
+
+type ArtifactRange = { id: string; first_published_at: number; last_published_at: number };
+
+/**
+ * 届いた artifacts の行が、手元の別の ID の行と同じ URL を持つときの決着（版 34）。
+ *
+ * 同じ会話の本文を 2 台が別々に索引すると、どちらも手元に無い URL として新しい ID で記録することがある（本文の同期と行の同期は別々に届く）。
+ * artifacts.url は unique なので、そのまま当てると外部キーでなく一意の制約で落ち、子の版と一緒に「親の行が無い」として持ち越され続けていた。
+ *
+ * ID の小さい方を残す。ID は時刻順なので、先に記録した方である。どの PC が比べても同じ方が残る。
+ * - 手元が残るとき、または届いた行が削除のときは、届いた ID を手元へ寄せて（artifact_aliases）、行は当てない。'merged' を返す。
+ *   公開の範囲（最初と最後の公開時刻）だけ手元の行へ広げる。手元の表だけを直し、上げ直さない。
+ * - 届いた方が残るときは、手元の行の URL を空けて、残す側の ID を返す。呼び手は届いた行を当ててから replaceArtifact で版を移す。
+ * - ぶつからなければ null を返す。
+ */
+function settleArtifactUrl(db: Db, c: ChangeOut): 'merged' | string | null {
+  const to = artifactAlias(db, c.rowId);
+  const local = (to
+    ? db.prepare('select id, first_published_at, last_published_at from artifacts where id = ?').get(to)
+    : typeof c.payload.url === 'string' ? db.prepare('select id, first_published_at, last_published_at from artifacts where url = ? and id <> ?').get(c.payload.url, c.rowId) : undefined) as ArtifactRange | undefined;
+  if (!local) return null;
+  const deleted = c.op === 'delete' || c.payload.deleted_at != null;
+  if (!to && !deleted && c.rowId < local.id) {
+    // 一意の制約を外すため、寄せられる側の URL をいったんずらす。版を移したら行ごと消す。
+    db.prepare("update artifacts set url = url || '#' || id where id = ?").run(local.id);
+    return local.id;
+  }
+  if (!to) db.prepare('insert or replace into artifact_aliases (alias_id, artifact_id) values (?, ?)').run(c.rowId, local.id);
+  const first = c.payload.first_published_at, last = c.payload.last_published_at;
+  if (!deleted && typeof first === 'number' && typeof last === 'number') {
+    db.prepare('update artifacts set first_published_at = min(first_published_at, ?), last_published_at = max(last_published_at, ?) where id = ?').run(first, last, local.id);
+  }
+  return 'merged';
+}
+
+/** 手元の Artifact（from）を、届いた行（to）へ寄せる。版を移し、同じ会話・同じ時刻の版は 1 つに畳み、from の行を消す。 */
+function replaceArtifact(db: Db, from: string, to: string): void {
+  const old = db.prepare('select first_published_at, last_published_at from artifacts where id = ?').get(from) as Omit<ArtifactRange, 'id'>;
+  db.prepare('update artifact_versions set artifact_id = ? where artifact_id = ?').run(to, from);
+  db.prepare(`delete from artifact_versions where artifact_id = ? and deleted_at is null and exists (
+    select 1 from artifact_versions v where v.artifact_id = artifact_versions.artifact_id and v.session_id = artifact_versions.session_id
+      and v.published_at = artifact_versions.published_at and v.deleted_at is null and v.id < artifact_versions.id)`).run(to);
+  db.prepare('update artifacts set first_published_at = min(first_published_at, ?), last_published_at = max(last_published_at, ?) where id = ?').run(old.first_published_at, old.last_published_at, to);
+  db.prepare('delete from artifacts where id = ?').run(from);
+  db.prepare('update artifact_aliases set artifact_id = ? where artifact_id = ?').run(to, from);
+  db.prepare('insert or replace into artifact_aliases (alias_id, artifact_id) values (?, ?)').run(from, to);
+}
+
+/**
+ * 届いた artifact_versions の行を、寄せた先の Artifact へ付け替える。
+ * 同じ Artifact に、同じ会話・同じ公開時刻の版が別の ID で既にあれば、重ねずに null を返す（2 台が同じ公開を別々に記録したもの）。
+ */
+function aliasVersion(db: Db, c: ChangeOut): ChangeOut | null {
+  const from = c.payload.artifact_id;
+  const to = typeof from === 'string' ? artifactAlias(db, from) : null;
+  const v = to ? { ...c, payload: { ...c.payload, artifact_id: to } } : c;
+  if (v.op === 'delete' || v.payload.deleted_at != null) return v;
+  const dup = db.prepare('select 1 from artifact_versions where artifact_id = ? and session_id = ? and published_at = ? and deleted_at is null and id <> ?')
+    .get(v.payload.artifact_id, v.payload.session_id, v.payload.published_at, v.rowId);
+  return dup ? null : v;
 }
 
 /**
