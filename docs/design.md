@@ -2259,6 +2259,11 @@ UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux -L ha
 Windows で pty を閉じるとき、node-pty は子のコンソールの一覧を取る補助のプロセスを起こしてから pseudoconsole を閉じるので、補助が「AttachConsole failed」を標準エラー（サーバのログ）へ出すことがある。
 そこで Windows では pty の kill を直には呼ばず、子の `tmux attach` のプロセスだけを終わらせて、node-pty が終了を見て後始末をするのを待つ（`pty/close.ts`）。
 5 秒待っても終わらなければ、元の kill に落とす（node-pty は子が終わってから終了を伝えるまでに 1 秒以上かかることがある）。終わっている pty は閉じ直さない。
+子の pid は閉じる時に読む。node-pty 1.2 の Windows は子を pseudoconsole につないだ後で pid を決め、それまでは 0 を返す。Windows の `process.kill(0)` はサーバ自身を終わらせるので、0 のうちは元の kill に任せる。
+子が終わった後の大きさの知らせは捨てる。node-pty の resize は終わった pty で投げ（Unix は ioctl の `EBADF`、Windows は「Cannot resize a pty that has already exited」）、知らせは WebSocket の受け口から届くので、投げるとサーバごと落ちる。
+`node-pty` は `1.2.0-beta.15` に固定している（`^` を付けない）。
+1.1.0 の Windows の `conpty.node` は pty の表を錠なしで触り、子の終わりを待つスレッドが表から消すのと、メインのスレッドの起動、resize、kill が重なると、サーバが 0xC0000409 や 0xC0000005 で落ちた（8 本を同時に閉じるのを 13 巡ほどで再現した）。
+上流は 1.2.0-beta.13 から錠で守っている。正式の 1.2.0 が出たら、そちらへ移す。CI の windows-test が `pty/nodePtyRace.win.test.ts` で、同時に閉じるのを繰り返しても落ちないことを見る。
 
 ターミナルの打鍵と写しは次のようにする。
 
@@ -8831,7 +8836,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   `cloud/` は段 5 で Cloudflare の REST から Worker を上げるための下地で、いまは誰も読まない。
   UI の sourcemap は入れないので、実測で 6.5MB である。
   Node 本体は同梱しない。
-- Node の版の規則：同梱のネイティブモジュール（`better-sqlite3` 13、`node-pty` 1.1）は Node-API の prebuild で、Node の ABI（`NODE_MODULE_VERSION`）には縛られない。
+- Node の版の規則：同梱のネイティブモジュール（`better-sqlite3` 13、`node-pty` 1.2.0-beta.15）は Node-API の prebuild で、Node の ABI（`NODE_MODULE_VERSION`）には縛られない。
   `better-sqlite3` は Node-API 10 の関数を使う（`NAPI_VERSION=10`）ので、要るのは `process.versions.napi` が 10 以上の Node（22.14 以上。23 の系列では 23.6 以上）で、アーキテクチャが同じものである。上限は付けない。
   手元で 0.6.0 の束を読ませて確かめた（2026-10-13）。Node 24.21（modules 137）と 22.14（Node-API 10）では SQLite の読み書きと `node-pty` の spawn が動き、Node 20.18（Node-API 9）は異常終了した。
   0.6.0 までは「Node の ABI に縛られる」とみなして `manifest.json` の `nodeMajor`（22）と同じメジャー版だけを採っていたため、Node 24 だけがある PC で起動できなかった（2026-10-13 の報告）。

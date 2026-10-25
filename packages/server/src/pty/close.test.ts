@@ -69,6 +69,28 @@ describe('createPtyCloser', () => {
     expect(hardKill).toHaveBeenCalledTimes(1);
   });
 
+  // node-pty 1.2 の Windows は、子の pid を pseudoconsole につないだ後（ready）で決める。spawn の直後は 0 である。
+  // pid を spawn の時に写すと、閉じるときに process.kill(0) を呼ぶ。Windows の process.kill(0) はサーバ自身を終わらせる。
+  it('Windows では子の pid を閉じる時に読む', () => {
+    let pid = 0;
+    const killPid = vi.fn();
+    const c = createPtyCloser({ pid: () => pid, platform: 'win32', hardKill: () => {}, killPid, graceMs: 2000 });
+    pid = 5678;
+    c.close();
+    expect(killPid).toHaveBeenCalledWith(5678);
+  });
+
+  it('Windows で子の pid がまだ決まっていなければ（0）、process.kill を呼ばず pty の kill に任せる', () => {
+    const hardKill = vi.fn();
+    const killPid = vi.fn();
+    const c = createPtyCloser({ pid: () => 0, platform: 'win32', hardKill, killPid, graceMs: 2000 });
+    c.close();
+    expect(killPid).not.toHaveBeenCalled();
+    expect(hardKill).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(10_000);
+    expect(hardKill).toHaveBeenCalledTimes(1);
+  });
+
   it('待ちの後の pty の kill が投げても、投げない', () => {
     const hardKill = vi.fn(() => { throw new Error('boom'); });
     const c = createPtyCloser({ pid: 1, platform: 'win32', hardKill, killPid: () => {}, graceMs: 10 });

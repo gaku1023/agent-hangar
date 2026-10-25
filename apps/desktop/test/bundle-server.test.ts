@@ -96,8 +96,9 @@ describe.skipIf(!host)('bundleServer', () => {
       `node_modules/better-sqlite3/prebuilds/${host}.node`,
       'node_modules/node-pty/package.json',
       'node_modules/node-pty/lib/index.js',
-      `node_modules/node-pty/prebuilds/${host}/pty.node`,
-      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty.node` : `node_modules/node-pty/prebuilds/${host}/spawn-helper`,
+      // Windows の node-pty は 1.2 で winpty をやめ、pty.node（winpty の口）を持たない。ConPTY の conpty.node だけで動く。
+      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty.node` : `node_modules/node-pty/prebuilds/${host}/pty.node`,
+      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty_console_list.node` : `node_modules/node-pty/prebuilds/${host}/spawn-helper`,
       'cloud/worker.mjs',
       'cloud/metadata.json',
     ]) {
@@ -782,8 +783,8 @@ describe('bundleServer の target 別の同梱物', () => {
     expect(files).toContain('launch-cli.mjs');
     expect(files).toContain('hangar-run.mjs');
     expect(files).toContain('node_modules/better-sqlite3/prebuilds/win32-x64.node');
-    // ConPTY（Windows 11 の疑似端末）が要るものが揃っている。
-    for (const f of ['pty.node', 'conpty.node', 'conpty_console_list.node', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']) {
+    // ConPTY（Windows 11 の疑似端末）が要るものが揃っている。node-pty 1.2 で winpty をやめたので、pty.node は無い。
+    for (const f of ['conpty.node', 'conpty_console_list.node', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']) {
       expect(files, f).toContain(`node_modules/node-pty/prebuilds/win32-x64/${f}`);
     }
     expect(files.filter((f) => f.includes('prebuilds/') && !f.includes('win32-x64'))).toEqual([]);

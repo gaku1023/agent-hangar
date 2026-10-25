@@ -11,6 +11,10 @@
  * 子（tmux attach）は孫を持たないので、一覧を取る必要はない。
  * 子が終われば node-pty が終了を見て自分で後始末をする（通常の終わり方と同じ経路）。
  * 待っても終わらないときだけ、元の kill に落とす。
+ *
+ * 子の pid は閉じる時に読む。node-pty 1.2 の Windows は、子を pseudoconsole につないだ後（ready）で pid を決め、それまでは 0 を返す。
+ * Windows の process.kill(0) は呼んだプロセス自身を終わらせるので、0 のうちは子だけを終わらせることをせず、元の kill に任せる。
+ * node-pty の kill は、つなぐ前なら後回しにし、つなぐ途中の後始末もする。
  */
 export type PtyCloser = {
   /** 閉じる。何度呼んでも 1 回だけ働き、投げない。 */
@@ -20,7 +24,8 @@ export type PtyCloser = {
 };
 
 export function createPtyCloser(o: {
-  pid: number;
+  /** 子の pid。関数なら閉じる時に呼ぶ。0 以下はまだ決まっていない。 */
+  pid: number | (() => number);
   /** node-pty の kill。 */
   hardKill: () => void;
   /** 子のプロセスだけを終わらせる。 */
@@ -44,8 +49,10 @@ export function createPtyCloser(o: {
       if (exited || closing) return;
       closing = true;
       if (platform !== 'win32') { hard(); return; }
+      const pid = typeof o.pid === 'function' ? o.pid() : o.pid;
+      if (!(pid > 0)) { hard(); return; }
       // 終わらせるのは子だけ。既に無くて投げたときは、終了の通知がもうすぐ届くので、待ちの後に確かめる。
-      try { o.killPid(o.pid); } catch { /* 既に終わっている */ }
+      try { o.killPid(pid); } catch { /* 既に終わっている */ }
       timer = setTimeout(hard, graceMs);
       timer.unref();
     },
