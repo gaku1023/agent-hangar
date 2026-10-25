@@ -1,9 +1,10 @@
 import { resumeHereOf } from './resumeHere.ts';
+import { agentOfSession } from './agentIcon.ts';
 import { asideOf } from '../lib/aside.ts';
 import { gitDetailRows, gitUnsafeFix, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
 import { openForLabel, openLabel } from './editor.ts';
 import { baseName, splitLast } from '../lib/paths.ts';
-import { stopReasonOf, type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
+import { AGENT_LABEL, stopReasonOf, type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
@@ -31,7 +32,8 @@ export type TranscriptItem =
   // view は種類ごとの見せ方。raw は生の記録を出すときだけ持つ、生の入力の JSON と結果の文である。
   | { kind: 'tool'; seq: number; summary: string; name: string; view: ToolView; raw: { input: string; result: string | null } | null; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
   | { kind: 'meta'; seq: number; name: string; json: string };
-export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; selected: boolean; closable: boolean };
+/** agent は opencode の会話のエージェントのタブにだけ付け、公式ロゴと「opencode」を出す。Claude のタブはいまのまま（ロボットの印と「Claude」）。 */
+export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; agent?: 'opencode'; selected: boolean; closable: boolean };
 /** 目次の見出しの数。plus は、数えきれていない古い行が残ること。 */
 export type TurnCount = { n: number; plus: boolean };
 /** 目次の 1 行。head は左のターミナルの指示の行と突き合わせる書き出しで、跳ぶ要求にそのまま載る。 */
@@ -551,7 +553,11 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const complete = slice ? slice.total <= slice.items.length : true;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((x) => x.id === view.selectedTab) ? view.selectedTab : run.id) : null;
-  const tabs: TabItemProps[] = open.map((x) => ({ id: x.id, title: x.title, kind: x.kind, selected: x.id === selectedTab, closable: x.kind === 'shell' }));
+  // opencode の会話のエージェントのタブは、サーバが付ける題（Claude）ではなく「opencode」と公式ロゴにする。
+  const opencodeTab = agentOfSession(store, s) === 'opencode';
+  const tabs: TabItemProps[] = open.map((x) => (x.kind === 'agent' && opencodeTab
+    ? { id: x.id, title: AGENT_LABEL.opencode, kind: x.kind, agent: 'opencode', selected: x.id === selectedTab, closable: false }
+    : { id: x.id, title: x.title, kind: x.kind, selected: x.id === selectedTab, closable: x.kind === 'shell' }));
   const idle = !alive && s.live === null && state.launch.kind !== 'submitting';
   const canSplit = open.length >= 2;
   // 保持期間で本文が消えたとみられる会話。要約しか残っていないことを、要約の上の一行で伝える。

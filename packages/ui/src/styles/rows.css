@@ -45,6 +45,9 @@
 @media (prefers-reduced-motion: reduce) { .row-status > .dot { animation: none; } }
 .row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
 .row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+/* 題名の左のエージェントのアイコン（B10）。どの行も同じ幅の枠に置き、題名の頭をそろえる。絵の無い種類も枠だけ取る。
+   幅は shared の AGENT_ICON_FRAME と同じにする。 */
+.row-agent { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 14px; margin-right: calc(var(--u) * 1.5); vertical-align: -2px; }
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
 /* スマホから起動した会話のラベル（試作 F1）。名前の後ろの小さな文字の枠で、Bypass permissions は赤い枠にする。 */
 .row-phone { display: inline-flex; align-items: center; height: 18px; margin-left: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; vertical-align: 1px; color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
