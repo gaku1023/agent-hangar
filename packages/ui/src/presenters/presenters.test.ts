@@ -365,6 +365,11 @@ describe('presentSession', () => {
     it('store に無いセッションの画面には札を出さない', () => {
       expect(presentSession(initialState(), two(), NOW, 'nope').account).toBeNull();
     });
+    it('opencode の会話には Claude のアカウントが無いので、札を出さない', () => {
+      const store = two();
+      store.sessions = { ...store.sessions, o1: session('o1', { provider: 'opencode' }) };
+      expect(presentSession(initialState(), store, NOW, 'o1').account).toBeNull();
+    });
   });
   it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
     const store = storeWith();
@@ -1190,6 +1195,26 @@ describe('presentShell のアカウント', () => {
     expect(w('missing')).toBe(false);
     // ホームでは、動いているセッションがあっても関係しない。
     expect(w('busy', at({ name: 'home' }))).toBe(false);
+  });
+  it('opencode の会話の画面では、ホームと同じく、いまのアカウントを出す（会話に Claude のアカウントは無い）', () => {
+    const store: Store = { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } };
+    store.sessions = { ...store.sessions, o1: session('o1', { provider: 'opencode', live: 'busy' }) };
+    const home = presentShell(initialState(), store, NOW);
+    const p = presentShell(at({ name: 'session', id: 'o1' }), store, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.usage).toEqual(home.usage);
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 9 });
+    // 切り替えは会話の付け替えではなく、いまのアカウントの切り替えにする。
+    expect(p.account?.sessionId).toBeNull();
+    expect(p.account?.working).toBe(false);
+  });
+  it('会話の行がまだ Claude の形でも、実行中の写しが opencode と言っていれば、いまのアカウントを出す', () => {
+    const store: Store = { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } };
+    store.sessions = { ...store.sessions, o2: session('o2', { live: 'busy' }) };
+    store.live = [{ sessionId: 'uo2', status: 'busy', name: null, nameSource: null, cwd: '/w/alpha', pid: 1, agent: 'opencode' }];
+    const p = presentShell(at({ name: 'session', id: 'o2' }), store, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.account?.sessionId).toBeNull();
   });
 });
 
