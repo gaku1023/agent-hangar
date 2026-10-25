@@ -1,13 +1,17 @@
+import os from 'node:os';
 import { opencodeEnabledOf } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import { findOpencode } from '../config/tools.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
+import { OpencodeOptionsService } from '../provider/opencode/options.ts';
 import { ServeManager, type OpencodeVersionNoticeSeed } from '../provider/opencode/serve/manager.ts';
 import { ServeRegistry, serveRegistryPath, sweepLeftoverServes } from '../provider/opencode/serve/registry.ts';
 
 export type OpencodeParts = {
   /** 会話ごとの serve。設定が切なら ensure は OpencodeDisabledError で断る。 */
   serves: ServeManager;
+  /** 新しいセッションの選択肢（モードとモデル）。取った一覧を場所ごとに手元に持つ。 */
+  options: OpencodeOptionsService;
   /** 起動のときの掃除が済むと解決する。 */
   swept: Promise<unknown>;
   /** 最後に出た、範囲の外の版の知らせの種。表示は段 C（C7）で作る。 */
@@ -42,8 +46,10 @@ export function bootOpencode(
     log,
     onVersionNotice: (seed) => { notice = seed; },
   });
+  const options = new OpencodeOptionsService({ serves, status: () => local.status(), home: os.homedir() });
   return {
     serves,
+    options,
     swept,
     versionNotice: () => notice,
     stop: async (ms) => {

@@ -233,7 +233,11 @@ export type MuxCheck = 'idle' | 'checking' | 'missing';
  */
 export type NewSessionDraft = { name: string; prompt: string; attachments: { path: string; name: string; size: number | null }[] };
 /** 新しいセッションの詳細の前回値。起動したときの値のうち、既定でないものだけを持つ。 */
-export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'>;
+/**
+ * 新しいセッションの、プロジェクトごとの前回値。model、effort、permissionMode、addDirs は Claude Code の札の値である。
+ * agent は前回 opencode で起こしたときだけ 'opencode' を持ち、無ければ Claude Code である。opencodeModel は opencode のモデル（`provider/model`）で、無ければデフォルト。
+ */
+export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'> & { agent?: 'opencode'; opencodeModel?: string };
 /** createdProjectId は、作ってから起動する送信でプロジェクトができた後の印である。起動だけが失敗しても、押し直しで二重に作らない。 */
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */

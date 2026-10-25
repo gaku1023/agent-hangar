@@ -1,5 +1,8 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
-import { EFFORT_VALUES } from '@agent-hangar/shared';
+import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
+import { EFFORT_VALUES, type AgentValue, type OpencodeModeOption, type OpencodeModelOption } from '@agent-hangar/shared';
+import { AGENT_ONLY_ATTR } from './agentSwap.ts';
+import { Listbox } from './primitives/Listbox.tsx';
+import type { ListboxGroup, ListboxOption } from './primitives/listboxModel.ts';
 import { isComposing } from './ime.ts';
 import { SettingChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -17,17 +20,34 @@ export type LaunchChipValues = { model: string; effort: string; permissionMode: 
 export type LaunchAccountOption = { value: string; label: string; color?: string; disabled?: boolean; tag?: string };
 
 const MODELS = ['', 'fable', 'opus', 'sonnet', 'haiku'];
-/** 「＋」から足せる札。並びはここの順で、足した順ではない。 */
+/** 「＋」から足せる札。並びはここの順で、足した順ではない。追加ディレクトリは Claude Code だけのもの。 */
 const EXTRAS = ['name', 'addDirs'] as const;
 type Extra = (typeof EXTRAS)[number];
+const OPENCODE_EXTRAS: readonly Extra[] = ['name'];
+/** モデルの一覧の「デフォルト」の行の値。モデルの ID（`provider/model`）とは重ならない。 */
+const DEFAULT_MODEL_ROW = ':default';
+
+/** エージェントの札。opencodeNote は一覧の opencode の行に添える版の確かめ（「opencode 2.1.4 · 検証済み」）。 */
+export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue) => void; opencodeNote: string | null };
+
+/**
+ * opencode を選んだときの札。mode と model の空は既定（params に載せない）。
+ * modelReset は前回のモデルが一覧から消えていてデフォルトに戻したことで、札に data-reset で持つ（知らせの見せ方は試作で選ぶ途中）。
+ * status は一覧の読み込みで、idle は読み込みを頼む前である。
+ */
+export type LaunchOpencodeChips = {
+  mode: string; modes: OpencodeModeOption[]; onMode: (value: string) => void;
+  model: string; models: OpencodeModelOption[]; defaultModel: string | null; modelReset: boolean; onModel: (value: string) => void;
+  autoApprove: boolean; onAutoApprove: (value: boolean) => void;
+};
 
 const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).length;
 
 /** 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。 */
-function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; dot?: string; showName?: boolean; width?: number; defaultOpen?: boolean; children: (close: () => void) => ReactNode }) {
+function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; dot?: string; badge?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentValue; children: (close: () => void) => ReactNode }) {
   return (
     <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" defaultOpen={props.defaultOpen}
-      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} dot={props.dot} {...p} />}>
+      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} dot={props.dot} badge={props.badge} {...{ [AGENT_ONLY_ATTR]: props.agentOnly }} {...p} />}>
       {({ close }) => (
         <>
           <div className="pick-head">{props.name}</div>
@@ -80,11 +100,18 @@ function ModelEditor(props: { value: string; onChange: (v: string) => void; clos
  * 札の名前は用語集のとおりで、幅が足りなければ折り返す（短い語に替えない）。
  * lead は先頭の札（プロジェクト。呼ぶ側の Listbox が描く）、account はアカウントが 2 件以上あるときだけ渡す。
  * 値は props で受け、変えるたびに onChange へ変えた欄だけを渡す。
+ * agent は opencode（ベータ）を設定で有効にしたときだけ渡し、列の先頭に「エージェント」の札を出す。
+ * opencode を渡すと（エージェントが opencode のとき）、アカウント、モデル、effort レベル、権限モード、worktree、追加ディレクトリの札の代わりに、モード、モデル、自動承認の札を出す。
+ * どちらかのエージェントだけの札は data-agent-only を持ち、切り替えの動き（agentSwap.ts）がそれで消える札と入る札を見分ける。
  */
 export function LaunchChips(props: {
   values: LaunchChipValues;
   onChange: (patch: Partial<LaunchChipValues>) => void;
   lead?: ReactNode;
+  agent?: LaunchAgentChip;
+  opencode?: LaunchOpencodeChips;
+  /** 札の列の要素。切り替えの動きがダイアログを探す起点にする。 */
+  rootRef?: Ref<HTMLDivElement>;
   account?: { value: string; options: LaunchAccountOption[]; onChange: (value: string) => void };
   /** 前回の権限モード。一覧のその行に「前回」を添える。 */
   previousPermission?: string;
@@ -106,43 +133,51 @@ export function LaunchChips(props: {
   const accountNow = account?.options.find((o) => o.value === account.value);
   const accountLabel = account ? accountNow?.label ?? account.value : '';
   const names: Record<Extra, string> = { name: t('launch.chip.name'), addDirs: t('launch.chip.addDirs') };
-  const extraItems = EXTRAS.filter((k) => !added.has(k)).map((k) => ({ key: k, label: names[k], onSelect: () => add(k) }));
+  const oc = props.opencode;
+  const extras = oc ? OPENCODE_EXTRAS : EXTRAS;
+  const extraItems = extras.filter((k) => !added.has(k)).map((k) => ({ key: k, label: names[k], onSelect: () => add(k) }));
 
   return (
-    <div className="launch-chips" role="group" aria-label={t('launch.chips.label')}>
+    <div className="launch-chips" role="group" aria-label={t('launch.chips.label')} ref={props.rootRef}>
+      {props.agent && <AgentChip {...props.agent} />}
       {props.lead}
-      {account && (
-        <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260}>
-          {(close) => (
-            <PickList label={t('launch.chip.account')} value={account.value}
-              items={account.options.map((o) => ({ value: o.value, label: o.label, disabled: o.disabled, tag: o.tag, lead: o.color ? <span className="st-dot" style={{ color: o.color }} aria-hidden="true" /> : undefined }))}
-              onPick={(v) => { account.onChange(v); close(); }} />
+      {oc && <OpencodeChips {...oc} />}
+      {!oc && (
+        <>
+          {account && (
+            <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260} agentOnly="claude-code">
+              {(close) => (
+                <PickList label={t('launch.chip.account')} value={account.value}
+                  items={account.options.map((o) => ({ value: o.value, label: o.label, disabled: o.disabled, tag: o.tag, lead: o.color ? <span className="st-dot" style={{ color: o.color }} aria-hidden="true" /> : undefined }))}
+                  onPick={(v) => { account.onChange(v); close(); }} />
+              )}
+            </ChipPopover>
           )}
-        </ChipPopover>
+          <ChipPopover name={t('launch.chip.model')} value={values.model || def} tone={values.model ? 'default' : 'muted'} agentOnly="claude-code">
+            {(close) => <ModelEditor value={values.model} onChange={(v) => onChange({ model: v })} close={close} />}
+          </ChipPopover>
+          <ChipPopover name={t('launch.chip.effort')} value={values.effort || def} tone={values.effort ? 'default' : 'muted'} agentOnly="claude-code">
+            {(close) => (
+              <PickList label={t('launch.chip.effort')} value={values.effort}
+                items={EFFORT_VALUES.map((e, i) => ({ value: e, label: e || def, lead: e ? <EffortBars level={i} /> : undefined }))}
+                onPick={(v) => { onChange({ effort: v }); close(); }} />
+            )}
+          </ChipPopover>
+          <ChipPopover name={t('launch.permission.label')} value={permissionLabel(values.permissionMode, t)} tone={bypass ? 'danger' : values.permissionMode === PERMISSION_DEFAULT ? 'muted' : 'default'} icon={bypass ? 'warning' : undefined} agentOnly="claude-code">
+            {(close) => <PermissionList value={values.permissionMode} previous={props.previousPermission} onChange={(v) => { onChange({ permissionMode: v }); close(); }} />}
+          </ChipPopover>
+          <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="claude-code">
+            {(close) => <TextEditor name={t('launch.chip.worktree')} placeholder={t('launch.edit.worktreePlaceholder')} value={values.worktree} onChange={(v) => onChange({ worktree: v })} close={close} mono />}
+          </ChipPopover>
+        </>
       )}
-      <ChipPopover name={t('launch.chip.model')} value={values.model || def} tone={values.model ? 'default' : 'muted'}>
-        {(close) => <ModelEditor value={values.model} onChange={(v) => onChange({ model: v })} close={close} />}
-      </ChipPopover>
-      <ChipPopover name={t('launch.chip.effort')} value={values.effort || def} tone={values.effort ? 'default' : 'muted'}>
-        {(close) => (
-          <PickList label={t('launch.chip.effort')} value={values.effort}
-            items={EFFORT_VALUES.map((e, i) => ({ value: e, label: e || def, lead: e ? <EffortBars level={i} /> : undefined }))}
-            onPick={(v) => { onChange({ effort: v }); close(); }} />
-        )}
-      </ChipPopover>
-      <ChipPopover name={t('launch.permission.label')} value={permissionLabel(values.permissionMode, t)} tone={bypass ? 'danger' : values.permissionMode === PERMISSION_DEFAULT ? 'muted' : 'default'} icon={bypass ? 'warning' : undefined}>
-        {(close) => <PermissionList value={values.permissionMode} previous={props.previousPermission} onChange={(v) => { onChange({ permissionMode: v }); close(); }} />}
-      </ChipPopover>
-      <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} tone={values.worktree.trim() ? 'default' : 'muted'} width={280}>
-        {(close) => <TextEditor name={t('launch.chip.worktree')} placeholder={t('launch.edit.worktreePlaceholder')} value={values.worktree} onChange={(v) => onChange({ worktree: v })} close={close} mono />}
-      </ChipPopover>
       {added.has('name') && (
         <ChipPopover name={names.name} value={values.name.trim() || none} tone={values.name.trim() ? 'default' : 'muted'} width={280} defaultOpen={fresh === 'name'}>
           {(close) => <TextEditor name={names.name} placeholder={t('launch.edit.namePlaceholder')} value={values.name} onChange={(v) => onChange({ name: v })} close={close} />}
         </ChipPopover>
       )}
-      {added.has('addDirs') && (
-        <ChipPopover name={names.addDirs} value={dirCount(values.addDirs) ? t('launch.value.dirCount', { n: dirCount(values.addDirs) }) : none} tone={dirCount(values.addDirs) ? 'default' : 'muted'} width={320} defaultOpen={fresh === 'addDirs'}>
+      {!oc && added.has('addDirs') && (
+        <ChipPopover name={names.addDirs} value={dirCount(values.addDirs) ? t('launch.value.dirCount', { n: dirCount(values.addDirs) }) : none} tone={dirCount(values.addDirs) ? 'default' : 'muted'} width={320} defaultOpen={fresh === 'addDirs'} agentOnly="claude-code">
           {() => (
             <>
               <textarea className="input launch-input mono" data-autofocus="true" rows={3} aria-label={names.addDirs} value={values.addDirs} onChange={(e) => onChange({ addDirs: e.target.value })} />
@@ -153,6 +188,76 @@ export function LaunchChips(props: {
       )}
       {extraItems.length > 0 && <MenuButton label={t('launch.add.label')} title={t('launch.add.label')} items={extraItems} face={<Icon name="add" />} faceClassName="set-add" minWidth={200} align="start" />}
     </div>
+  );
+}
+
+/**
+ * エージェントの札（列の先頭）。値は Claude Code か opencode で、opencode のときは「ベータ」の小札を添える。
+ * 札は名前を見せず、値だけを出す（アカウントの札と同じ）。一覧の opencode の行には「ベータ」と版の確かめを添える。
+ */
+function AgentChip(props: LaunchAgentChip) {
+  const t = useT();
+  const beta = t('launch.agent.beta');
+  const label = (v: AgentValue) => t(v === 'opencode' ? 'launch.agent.opencode' : 'launch.agent.claude');
+  return (
+    <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} badge={props.value === 'opencode' ? beta : undefined} showName={false} width={260}>
+      {(close) => (
+        <PickList label={t('launch.chip.agent')} value={props.value}
+          items={[
+            { value: 'claude-code', label: label('claude-code') },
+            { value: 'opencode', label: label('opencode'), badge: beta, ...(props.opencodeNote ? { sub: props.opencodeNote } : {}) },
+          ]}
+          onPick={(v) => { close(); props.onChange(v as AgentValue); }} />
+      )}
+    </ChipPopover>
+  );
+}
+
+/**
+ * opencode の札。モード（primary のエージェント）、モデル（素の一覧。デフォルトの行と、プロバイダーごとのまとまり）、自動承認（オフ／オン（--auto））。
+ * 自動承認がオンの札は赤い縁にする（Bypass permissions と同じ）。
+ */
+function OpencodeChips(props: LaunchOpencodeChips) {
+  const t = useT();
+  const def = t('launch.value.default');
+  const modeName = t('launch.chip.mode');
+  const modelName = t('launch.chip.model');
+  const autoName = t('launch.chip.autoApprove');
+  const groups = new Map<string, string[]>();
+  for (const m of props.models) groups.set(m.group, [...(groups.get(m.group) ?? []), m.id]);
+  const options: ListboxOption[] = [
+    { value: DEFAULT_MODEL_ROW, label: def, ...(props.defaultModel ? { sub: props.defaultModel } : {}) },
+    ...props.models.map((m) => ({ value: m.id, label: m.label, sub: m.id })),
+  ];
+  const listGroups: ListboxGroup[] = [
+    { title: t('launch.model.defaultGroup'), values: [DEFAULT_MODEL_ROW] },
+    ...[...groups].map(([name, values]) => ({ title: t('launch.model.group', { name, n: values.length }), values })),
+  ];
+  const chosen = props.models.find((m) => m.id === props.model);
+  return (
+    <>
+      <ChipPopover name={modeName} value={props.mode || def} tone={props.mode ? 'default' : 'muted'} width={300} agentOnly="opencode">
+        {(close) => (
+          <PickList label={modeName} value={props.mode}
+            items={props.modes.length ? props.modes.map((m) => ({ value: m.id, label: m.id, ...(m.description ? { sub: m.description } : {}) })) : [{ value: '', label: def }]}
+            onPick={(v) => { props.onMode(v); close(); }} />
+        )}
+      </ChipPopover>
+      <Listbox label={modelName} value={props.model || DEFAULT_MODEL_ROW} options={options} groups={listGroups} onChange={(v) => props.onModel(v === DEFAULT_MODEL_ROW ? '' : v)}
+        searchPlaceholder={t('launch.model.search')} minWidth={360} align="start" faceClassName="set-chip"
+        faceProps={{ 'data-tone': props.model ? 'default' : 'muted', [AGENT_ONLY_ATTR]: 'opencode', ...(props.modelReset ? { 'data-reset': 'true' } : {}) }}
+        renderFace={() => <><span className="set-chip-name">{modelName}</span><span className="set-chip-value">{chosen?.label ?? (props.model || def)}</span><Icon name="chevronDown" /></>} />
+      <ChipPopover name={autoName} value={t(props.autoApprove ? 'launch.autoApprove.on' : 'launch.autoApprove.off')} tone={props.autoApprove ? 'danger' : 'muted'} width={280} agentOnly="opencode">
+        {(close) => (
+          <PickList label={autoName} value={props.autoApprove ? 'on' : 'off'}
+            items={[
+              { value: 'off', label: t('launch.autoApprove.off'), sub: t('launch.autoApprove.offNote') },
+              { value: 'on', label: t('launch.autoApprove.on'), sub: t('launch.autoApprove.onNote'), tone: 'danger' },
+            ]}
+            onPick={(v) => { props.onAutoApprove(v === 'on'); close(); }} />
+        )}
+      </ChipPopover>
+    </>
   );
 }
 

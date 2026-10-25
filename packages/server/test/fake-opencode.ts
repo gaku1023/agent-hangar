@@ -8,6 +8,8 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * 認証つきの `GET /api/session/active` に 200、認証が無ければ 401、`POST /api/session/{id}/interrupt` を受ける。
  * 起動の面（materialize）のために、`POST /api/session`（ID を opencode が振る）、指示の `PUT …/instructions/entries/{key}`、
  * MCP の状態の `GET /api/mcp?location[directory]=…` も受ける。MCP の一覧は、起こされたときの `OPENCODE_CONFIG_CONTENT` の `mcp.servers` から作る。
+ * 新しいセッションの選択肢のために、`GET /api/agent`、`/api/model`、`/api/provider`（どれも `location[directory]=…` を受け、`{ location, data }` で答える）と、
+ * 設定の層の配列を返す `GET /api/config` も受ける。実物の 2.1.4 と同じく、場所ごとの最初の `/api/agent` は空の一覧を返せる（agentsEmptyFirst）。
  *
  * 起動から止まるまでの出来事を、1 行 1 件の JSON で logFile に書く。
  * - `start`：pid、argv、環境変数の全部、時刻。
@@ -16,6 +18,7 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * - `create`：`POST /api/session` の本文と、振った ID。
  * - `instructions`：指示の PUT の会話の ID、鍵、本文。
  * - `mcp`：MCP の状態を聞かれた場所（directory）と、答えた状態。
+ * - `list`：一覧の道（agent、model、provider、config）と、聞かれた場所（directory）。
  * - `term`：SIGTERM を受けた。
  * - `exit`：自分から終わった理由。
  *
@@ -39,7 +42,35 @@ export type FakeOpencodeOptions = {
   mcp?: 'connect' | 'never' | 'failed';
   /** connected と答えるまでに pending と答える回数。 */
   mcpPendingPolls?: number;
+  /** `GET /api/agent` の一覧。既定は build・plan（primary）、general（subagent）、title（隠れた primary）。 */
+  agents?: { id: string; mode: string; hidden?: boolean; description?: string }[];
+  /** `GET /api/model` の一覧。既定は OpenCode の無料のもの 1 つと LM Studio の 2 つ。 */
+  models?: { providerID: string; id: string; name: string; enabled?: boolean }[];
+  /** `GET /api/provider` の一覧。既定は opencode（OpenCode）と lmstudio（LM Studio (local)）。 */
+  providers?: { id: string; name: string }[];
+  /** `GET /api/config` の opencode.json の既定のモデル。null なら書いていない。既定は lmstudio/qwen3-coder-30b。 */
+  configModel?: { providerID: string; model: string } | null;
+  /** 場所ごとの最初の `GET /api/agent` に空の一覧を返す（実物の 2.1.4 の振る舞い）。 */
+  agentsEmptyFirst?: boolean;
+  /** 一覧の道を 500 で断る。 */
+  failLists?: boolean;
 };
+
+export const FAKE_OPENCODE_AGENTS: NonNullable<FakeOpencodeOptions['agents']> = [
+  { id: 'build', mode: 'primary', description: 'The default agent.' },
+  { id: 'general', mode: 'subagent', description: 'General-purpose agent.' },
+  { id: 'title', mode: 'primary', hidden: true },
+  { id: 'plan', mode: 'primary', description: 'Plan mode. Disallows all edit tools.' },
+];
+export const FAKE_OPENCODE_MODELS: NonNullable<FakeOpencodeOptions['models']> = [
+  { providerID: 'opencode', id: 'glm-5.3-flash-free', name: 'GLM-5.3-Flash Free' },
+  { providerID: 'lmstudio', id: 'qwen/qwen3-coder-30b', name: 'Qwen3 Coder 30B' },
+  { providerID: 'lmstudio', id: 'gemma-4-26b', name: 'Gemma 4 26B' },
+];
+export const FAKE_OPENCODE_PROVIDERS: NonNullable<FakeOpencodeOptions['providers']> = [
+  { id: 'opencode', name: 'OpenCode' },
+  { id: 'lmstudio', name: 'LM Studio (local)' },
+];
 
 export type FakeOpencodeEvent =
   | { ev: 'start'; pid: number; argv: string[]; env: Record<string, string>; t: number }
@@ -48,6 +79,7 @@ export type FakeOpencodeEvent =
   | { ev: 'create'; pid: number; body: Record<string, unknown>; id: string; t: number }
   | { ev: 'instructions'; pid: number; id: string; key: string; body: Record<string, unknown>; status: number; t: number }
   | { ev: 'mcp'; pid: number; directory: string | null; status: string; t: number }
+  | { ev: 'list'; pid: number; what: 'agent' | 'model' | 'provider' | 'config'; directory: string | null; t: number }
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
@@ -63,6 +95,10 @@ const LOG = ${JSON.stringify(logFile)};
 const STARTING = ${JSON.stringify(starting)};
 const LOCK_COUNT = ${JSON.stringify(lockCount)};
 const OPTS = ${JSON.stringify(opts)};
+const AGENTS = ${JSON.stringify(opts.agents ?? FAKE_OPENCODE_AGENTS)};
+const MODELS = ${JSON.stringify(opts.models ?? FAKE_OPENCODE_MODELS)};
+const PROVIDERS = ${JSON.stringify(opts.providers ?? FAKE_OPENCODE_PROVIDERS)};
+const CONFIG_MODEL = ${JSON.stringify(opts.configModel === undefined ? { providerID: 'lmstudio', model: 'qwen/qwen3-coder-30b' } : opts.configModel)};
 const log = (o) => fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, t: Date.now(), ...o }) + '\\n');
 const argv = process.argv.slice(2);
 log({ ev: 'start', argv, env: { ...process.env } });
@@ -93,6 +129,7 @@ const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'a
 const readBody = (req) => new Promise((resolve) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve({ unreadable: b }); } }); });
 const mcpNames = (() => { try { return Object.keys(JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? '{}').mcp?.servers ?? {}); } catch { return []; } })();
 let created = 0;
+const agentAsked = new Set();
 let mcpPolls = 0;
 const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== auth) { res.writeHead(401); res.end('unauthorized'); return; }
@@ -120,6 +157,31 @@ const server = http.createServer(async (req, res) => {
     const status = OPTS.mcp === 'failed' ? 'failed' : OPTS.mcp === 'never' || mcpPolls <= (OPTS.mcpPendingPolls ?? 0) ? 'pending' : 'connected';
     log({ ev: 'mcp', directory, status });
     json(res, 200, { location: { directory }, data: mcpNames.map((name) => ({ name, status: { status } })) });
+    return;
+  }
+  const list = /^\\/api\\/(agent|model|provider|config)$/.exec(url.pathname);
+  if (req.method === 'GET' && list) {
+    const what = list[1];
+    const directory = url.searchParams.get('location[directory]');
+    log({ ev: 'list', what, directory });
+    if (OPTS.failLists) { json(res, 500, { error: 'boom' }); return; }
+    const location = { directory: directory ?? process.cwd() };
+    if (what === 'config') {
+      json(res, 200, [{ type: 'document', path: '/home/.config/opencode/opencode.json', info: CONFIG_MODEL ? { model: CONFIG_MODEL } : {} }, { type: 'directory', path: '/home/.config/opencode' }]);
+      return;
+    }
+    if (what === 'agent') {
+      const first = !agentAsked.has(location.directory);
+      agentAsked.add(location.directory);
+      const data = OPTS.agentsEmptyFirst && first ? [] : AGENTS.map((a) => ({ id: a.id, name: a.id, mode: a.mode, hidden: a.hidden ?? false, ...(a.description ? { description: a.description } : {}), permissions: [] }));
+      json(res, 200, { location, data });
+      return;
+    }
+    if (what === 'model') {
+      json(res, 200, { location, data: MODELS.map((m) => ({ id: m.id, modelID: m.id, providerID: m.providerID, name: m.name, enabled: m.enabled ?? true, status: 'active', capabilities: { tools: true } })) });
+      return;
+    }
+    json(res, 200, { location, data: PROVIDERS.map((p) => ({ id: p.id, integrationID: p.id, name: p.name, activation: 'enabled' })) });
     return;
   }
   const m = /^\\/api\\/session\\/([^/]+)\\/interrupt$/.exec(req.url ?? '');

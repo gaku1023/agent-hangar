@@ -1,0 +1,139 @@
+import type { OpencodeModelOption, OpencodeModeOption, OpencodeOptionsDto, OpencodeStatusDto } from '@agent-hangar/shared';
+import { OpencodeClient, type OpencodeAgentInfo, type OpencodeModelInfo, type OpencodeProviderInfo } from './client.ts';
+import type { ServeInfo } from './serve/manager.ts';
+
+/**
+ * 新しいセッションで opencode を選んだときの選択肢（docs/design.md「opencode の起動」の「選択肢」）。
+ * モードとモデルは opencode の serve の API からしか取れない。起きている serve があればそれに聞き、1 本も無ければ待ち行列で 1 本起こして聞き、聞き終えたら止める。
+ * serve を起こすのは 1〜2 秒かかるので、取った一覧は場所ごとに手元に持ち、間もなければそれを返す。スマホ（F2）は last で手元の一覧だけを読む。
+ */
+
+/** 選択肢を聞くためだけに起こす serve の鍵。hangar の会話の ID とは重ならない綴りにする。 */
+export const OPTIONS_SERVE_KEY = ':options';
+
+/** 一覧を取り直さずに返す間。 */
+const FRESH_MS = 60_000;
+/** モードの説明を切る長さ（opencode の既定のエージェントの説明は長い英文である）。 */
+const DESCRIPTION_MAX = 120;
+
+/** serve から読んだ素の一覧。 */
+export type OpencodeOptionsRaw = { agents: OpencodeAgentInfo[]; models: OpencodeModelInfo[]; providers: OpencodeProviderInfo[]; defaultModel: string | null };
+
+export type OpencodeOptionsDeps = {
+  /** serve の管理（serve/manager.ts の ServeManager）。 */
+  serves: { any(): ServeInfo | null; ensure(key: string): Promise<ServeInfo>; stop(key: string): Promise<void> };
+  /** 手元の opencode の版（設定の検出と同じ口）。 */
+  status: () => Promise<OpencodeStatusDto>;
+  /** 場所を省いたときに聞く場所。 */
+  home: string;
+  now?: () => number;
+  freshMs?: number;
+  /** エージェントの一覧が空のときに聞き直す回数と間。2.1.4 は場所ごとの最初の問いに空の一覧を返すことがある。 */
+  emptyRetries?: number;
+  retryMs?: number;
+  requestTimeoutMs?: number;
+  /** serve から読む口。試験が差し替える。 */
+  read?: (serve: ServeInfo, directory: string) => Promise<OpencodeOptionsRaw>;
+};
+
+type Cached = { dto: OpencodeOptionsDto; at: number };
+
+export class OpencodeOptionsService {
+  private readonly cache = new Map<string, Cached>();
+  private lastDir: string | null = null;
+  /** 取りに行くのは 1 度に 1 つ。選択肢のための serve を、ほかの問いの最中に止めないためである。 */
+  private chain: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly deps: OpencodeOptionsDeps) {}
+
+  /** その場所の選択肢。間もなく取ったものがあればそれを返す。取れなければ手元の一覧を stale で返し、手元にも無ければ投げる。 */
+  async get(dir: string | null): Promise<OpencodeOptionsDto> {
+    const directory = dir || this.deps.home;
+    const hit = this.cache.get(directory);
+    if (hit && this.now() - hit.at < this.freshMs()) return hit.dto;
+    const run = this.chain.then(() => this.fetch(directory));
+    this.chain = run.catch(() => undefined);
+    try {
+      return await run;
+    } catch (e) {
+      const kept = this.cache.get(directory);
+      if (kept) return { ...kept.dto, stale: true };
+      throw e;
+    }
+  }
+
+  /**
+   * 手元に持った選択肢（取りに行かない）。スマホの問い合わせは 5 秒しか待てないので、これを答える。
+   * 場所を省くとホームの一覧、それも無ければ最後に取った一覧を返す。間が空いていれば stale にする。
+   */
+  last(dir: string | null): OpencodeOptionsDto | null {
+    const c = this.cache.get(dir || this.deps.home) ?? (dir ? undefined : this.lastDir !== null ? this.cache.get(this.lastDir) : undefined);
+    if (!c) return null;
+    return this.now() - c.at < this.freshMs() ? c.dto : { ...c.dto, stale: true };
+  }
+
+  private async fetch(directory: string): Promise<OpencodeOptionsDto> {
+    const raw = await this.withServe((serve) => this.readWithRetry(serve, directory));
+    const status = await this.deps.status().catch(() => ({ found: true, version: null, verified: false }));
+    const at = this.now();
+    const dto: OpencodeOptionsDto = { version: status.version, verified: status.verified, ...optionsOf(raw), fetchedAt: at, stale: false };
+    this.cache.set(directory, { dto, at });
+    this.lastDir = directory;
+    return dto;
+  }
+
+  /** 起きている serve があればそれで、無ければ 1 本起こして聞き、聞き終えたら（失敗しても）止める。 */
+  private async withServe<T>(f: (serve: ServeInfo) => Promise<T>): Promise<T> {
+    const live = this.deps.serves.any();
+    if (live) return f(live);
+    const serve = await this.deps.serves.ensure(OPTIONS_SERVE_KEY);
+    try {
+      return await f(serve);
+    } finally {
+      await this.deps.serves.stop(OPTIONS_SERVE_KEY).catch(() => undefined);
+    }
+  }
+
+  private async readWithRetry(serve: ServeInfo, directory: string): Promise<OpencodeOptionsRaw> {
+    const read = this.deps.read ?? ((s: ServeInfo, d: string) => readOptions(new OpencodeClient(s, { timeoutMs: this.deps.requestTimeoutMs }), d));
+    const tries = (this.deps.emptyRetries ?? 5) + 1;
+    let raw = await read(serve, directory);
+    for (let i = 1; i < tries && raw.agents.length === 0; i++) {
+      await new Promise<void>((r) => { setTimeout(r, this.deps.retryMs ?? 200); });
+      raw = await read(serve, directory);
+    }
+    return raw;
+  }
+
+  private now(): number {
+    return (this.deps.now ?? Date.now)();
+  }
+
+  private freshMs(): number {
+    return this.deps.freshMs ?? FRESH_MS;
+  }
+}
+
+/** serve から一覧を読む。設定を先に読むのは、その場所の読み込みを始めさせるため（2.1.4 は場所ごとの最初の問いに空の一覧を返すことがある）。 */
+export async function readOptions(client: OpencodeClient, directory: string): Promise<OpencodeOptionsRaw> {
+  const defaultModel = await client.configuredModel(directory);
+  const [agents, models, providers] = await Promise.all([client.agents(directory), client.models(directory), client.providers(directory)]);
+  return { agents, models, providers, defaultModel };
+}
+
+/** 素の一覧を画面の選択肢にする。モードは隠れていない primary（と all）だけ、モデルは無効にされていないものだけを、opencode の並びのまま出す。 */
+export function optionsOf(raw: OpencodeOptionsRaw): Pick<OpencodeOptionsDto, 'modes' | 'models' | 'defaultModel'> {
+  const modes: OpencodeModeOption[] = raw.agents
+    .filter((a) => (a.mode === 'primary' || a.mode === 'all') && !a.hidden)
+    .map((a) => ({ id: a.id, description: a.description === null ? null : clip(a.description) }));
+  const names = new Map(raw.providers.map((p) => [p.id, p.name]));
+  const models: OpencodeModelOption[] = raw.models
+    .filter((m) => m.enabled)
+    .map((m) => ({ id: `${m.providerID}/${m.id}`, label: m.name, group: names.get(m.providerID) ?? m.providerID }));
+  return { modes, models, defaultModel: raw.defaultModel };
+}
+
+const clip = (s: string): string => {
+  const one = s.replace(/\s+/g, ' ').trim();
+  return one.length > DESCRIPTION_MAX ? `${one.slice(0, DESCRIPTION_MAX - 1)}…` : one;
+};

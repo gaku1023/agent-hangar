@@ -464,6 +464,18 @@ describe('新しいセッションの下書きと前回値', () => {
     const b = run([action({ type: 'session.new.submit', params: { projectId: 'p1', model: 'opus' } })], initialState(), store);
     expect(b.state.launchPrefs).toEqual({ p1: { model: 'opus' } });
   });
+  it('opencode で起動したら、エージェントと opencode のモデルだけを前回値に足し、Claude の前回値は残す。モードと自動承認は残さない', () => {
+    const start = { ...initialState(), launchPrefs: { p1: { model: 'opus', effort: 'high' } } };
+    const a = run([action({ type: 'session.new.submit', params: { projectId: 'p1', agent: 'opencode', mode: 'plan', model: 'lmstudio/qwen/qwen3-coder-30b', autoApprove: true } })], start);
+    expect(a.state.launchPrefs).toEqual({ p1: { model: 'opus', effort: 'high', agent: 'opencode', opencodeModel: 'lmstudio/qwen/qwen3-coder-30b' } });
+    expect(a.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.prefs', value: a.state.launchPrefs });
+    // 次に Claude で起動したら、エージェントは Claude（印なし）に戻し、opencode のモデルは残す。
+    const b = run([runtime({ type: 'launch.failed', message: 'x' }), action({ type: 'session.new.submit', params: { projectId: 'p1', effort: 'low' } })], a.state);
+    expect(b.state.launchPrefs).toEqual({ p1: { effort: 'low', opencodeModel: 'lmstudio/qwen/qwen3-coder-30b' } });
+    // opencode をデフォルトのモデルで起動したら、opencode のモデルを消す。
+    const c = run([runtime({ type: 'launch.failed', message: 'x' }), action({ type: 'session.new.submit', params: { projectId: 'p1', agent: 'opencode' } })], b.state);
+    expect(c.state.launchPrefs).toEqual({ p1: { effort: 'low', agent: 'opencode' } });
+  });
   it('プロジェクトを選ばずに送った失敗では前回値を残さない', () => {
     const a = run([action({ type: 'session.new.submit', params: { model: 'opus' } })]);
     expect(a.state.launchPrefs).toEqual({});

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CompatDto } from '@agent-hangar/shared';
+import type { CompatDto, OpencodeOptionsDto } from '@agent-hangar/shared';
 import { VERIFIED_CLAUDE_VERSION } from '../../provider/claude-code/compat/version.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
@@ -43,6 +43,38 @@ describe('opencode の検出', () => {
   });
   it('トークンが無ければ断る', async () => {
     expect((await get('/api/opencode/status', {})).status).toBe(401);
+  });
+});
+
+describe('opencode の選択肢', () => {
+  const OPTIONS: OpencodeOptionsDto = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode' }], defaultModel: null, fetchedAt: 5, stale: false };
+  const withOptions = (f: AppDeps['opencodeOptions'], enabled = true) => {
+    const settings = { ...deps.settings(), opencodeEnabled: enabled };
+    return createApp({ ...deps, settings: () => settings, opencodeOptions: f });
+  };
+  it('GET /api/opencode/options は、選んだ場所の選択肢を返す。場所を省けば null で聞く', async () => {
+    const asked: (string | null)[] = [];
+    const a = withOptions(async (dir) => { asked.push(dir); return OPTIONS; });
+    expect(await json(await a.request(`/api/opencode/options?dir=${encodeURIComponent('/w/alpha')}`, { headers: H }))).toEqual({ status: 200, body: OPTIONS });
+    await a.request('/api/opencode/options', { headers: H });
+    expect(asked).toEqual(['/w/alpha', null]);
+  });
+  it('設定で有効にしていなければ 409 で断り、serve を起こさない', async () => {
+    let asked = 0;
+    const a = withOptions(async () => { asked++; return OPTIONS; }, false);
+    const r = await json(await a.request('/api/opencode/options', { headers: H }));
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('opencode が有効になっていません。');
+    expect(asked).toBe(0);
+  });
+  it('取れなければ 502 で、理由を添える', async () => {
+    const a = withOptions(async () => { throw new Error('serve did not answer'); });
+    const r = await json(await a.request('/api/opencode/options', { headers: H }));
+    expect(r.status).toBe(502);
+    expect(r.body.error).toBe('opencode から一覧を取得できませんでした: serve did not answer');
+  });
+  it('トークンが無ければ断る', async () => {
+    expect((await get('/api/opencode/options', {})).status).toBe(401);
   });
 });
 

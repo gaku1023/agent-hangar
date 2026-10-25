@@ -1,6 +1,6 @@
-import type { ProjectStatus, Translate } from '@agent-hangar/shared';
+import { opencodeEnabledOf, type OpencodeOptionsDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
-import { hasMultipleAccounts, type Store } from '../store/store.ts';
+import { hasMultipleAccounts, type OpencodeOptionsState, type Store } from '../store/store.ts';
 import type { FolderInspectState } from '../store/folderInspect.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
 import { approveText, isPickableAccount, loggedOutText, presentAccounts, type AccountView } from './accounts.ts';
@@ -43,7 +43,13 @@ export type NewSessionProps = {
    * ダイアログは path が選んだフォルダと同じときだけ使う。無ければ null で、今までどおり登録して始める。
    */
   inspect?: FolderInspectState | null;
+  /**
+   * opencode（ベータ）。設定で有効にしたときだけ渡し、ダイアログは札の先頭に「エージェント」を出す。null と省略は無効で、ダイアログは今のまま。
+   * options は opencode を選んだときに読むモードとモデル（最後に頼んだ場所の 1 件）。ダイアログは dir が自分の場所と同じときだけ使う。
+   */
+  opencode?: NewSessionOpencode | null;
 };
+export type NewSessionOpencode = { options: OpencodeOptionsState | null };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
 
 /**
@@ -122,7 +128,25 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
     ...(state.overlay.worktree ? { worktree: true } : {}),
     dir: state.overlay.dir ?? null, inspect: store.folderInspect,
+    opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,
   };
+}
+
+/**
+ * opencode のモデルの札の値。remembered は前回の値（利用者がいま選んだ値も同じ扱い）で、空はデフォルト。
+ * 一覧が届いていて、そこから前回のモデルが消えていたら（無料枠の終わりなど）、デフォルトに戻し、reset を真にする。
+ * reset はダイアログが「戻した」ことを小さく知らせるための印である（知らせの見せ方は試作で選ぶ途中で、まだ出さない）。
+ * 一覧がまだ無いときは、消えたかどうか分からないので前回のままにする。
+ */
+export function opencodeModelChoice(remembered: string, options: OpencodeOptionsDto | null): { model: string; reset: boolean } {
+  if (!remembered || !options) return { model: remembered, reset: false };
+  return options.models.some((m) => m.id === remembered) ? { model: remembered, reset: false } : { model: '', reset: true };
+}
+
+/** エージェントの一覧の opencode の行に添える「opencode 2.1.4 · 検証済み」。版が分からなければ null。 */
+export function opencodeAgentNote(t: Translate, options: OpencodeOptionsDto | null): string | null {
+  if (!options?.version) return null;
+  return t(options.verified ? 'launch.agent.opencodeVerified' : 'launch.agent.opencodeUnverified', { version: options.version });
 }
 
 /** アカウントが 2 件以上のときだけ札の中身を作る。1 件以下の画面は今までと変えない。 */

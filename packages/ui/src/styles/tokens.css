@@ -96,6 +96,9 @@
   --dur-fast: 200ms;
   --dur: 420ms;
   --dur-exit: 250ms;
+  /* 札の入れ替え（新しいセッションのエージェントの切り替え、M1）。消える札が薄れる長さと、新しい札を 1 枚ずつずらす間。 */
+  --dur-swap: 150ms;
+  --stagger: 30ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
   /* 現れるときの縦の移動と、晴れていくぼかし。 */
@@ -110,5 +113,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --rise: 0px; --blur-in: 0px; }
+  :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --dur-swap: 0ms; --stagger: 0ms; --rise: 0px; --blur-in: 0px; }
 }

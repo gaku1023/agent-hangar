@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, fadeIn, fadeOut, growIn, liftIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, staggerIn, growIn, liftIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -8,7 +8,7 @@ import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED 
  */
 let values: Record<string, string> = {};
 const tokens = (dur: string) => {
-  values = { '--dur': dur, '--dur-fast': dur, '--dur-exit': dur, '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' };
+  values = { '--dur': dur, '--dur-fast': dur, '--dur-exit': dur, '--dur-swap': '150ms', '--stagger': '30ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' };
 };
 const fakeAnimate = () => {
   const calls: { frames: Keyframe[]; opts: KeyframeAnimationOptions }[] = [];
@@ -36,6 +36,16 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
 
 describe('motionKit', () => {
+  it('並べて入る形は、riseIn を --stagger ずつ遅らせる。札の入れ替えの薄れは --dur-swap で、最後の形を残す', async () => {
+    tokens('420ms');
+    const calls = fakeAnimate();
+    const els = [document.createElement('div'), document.createElement('div'), document.createElement('div')];
+    staggerIn(els);
+    expect(calls.map((c) => c.opts.delay)).toEqual([0, 30, 60]);
+    expect(calls.every((c) => c.opts.duration === 420 && c.opts.fill === 'backwards')).toBe(true);
+    await fadeOut(els[0]!, '--dur-swap');
+    expect(calls[3]!.opts).toMatchObject({ duration: 150, easing: 'ease-in', fill: 'forwards' });
+  });
   it('Web Animations が無い環境と長さ 0 では動かさない', async () => {
     tokens('420ms');
     const el = document.createElement('div');

@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import type { MuxRecheckDto } from '@agent-hangar/shared';
+import { opencodeEnabledOf, type MuxRecheckDto } from '@agent-hangar/shared';
 import { recheckMuxPath } from '../../config/readiness.ts';
 import { statuslineStatus } from '../../provider/claude-code/config/statusline.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
@@ -7,7 +7,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 索引、準備の確かめ、互換、要約器の経路が使う依存。 */
-export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'summary' | 'external'> & LanguageDeps;
+export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'summary' | 'external'> & LanguageDeps;
 
 /**
  * この PC の道具立ての経路。
@@ -40,6 +40,16 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
   api.get('/compat', async (c) => c.json(await deps.compat()));
   // opencode の検出（ベータ）。設定の入り切りに関わらず答える（有効にする前に、入っているかと版を見せるため）。
   api.get('/opencode/status', async (c) => c.json(await deps.opencodeStatus()));
+  // 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、省けばホームで聞く。
+  // serve を起こすことがあるので、設定で有効にしていなければ断る（有効にするまで、どこにも出さない）。
+  api.get('/opencode/options', async (c) => {
+    if (!opencodeEnabledOf(deps.settings())) return c.json({ error: tr('system.opencode.disabled') }, 409);
+    try {
+      return c.json(await deps.opencodeOptions(c.req.query('dir') || null));
+    } catch (e) {
+      return c.json({ error: tr('system.opencode.optionsFailed', { reason: errorText(language(), e) }) }, 502);
+    }
+  });
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));
   api.post('/summarizer/test', async (c) => c.json(await deps.summary.test()));
 }

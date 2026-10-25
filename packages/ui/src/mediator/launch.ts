@@ -17,11 +17,18 @@ const PREF_TEXT = ['model', 'effort', 'permissionMode'] as const;
 /**
  * 起動の params から、前回値として残す詳細だけを取り出す。空欄と既定は params に入らないので、入っているものだけが残る。
  * 設定の既定のモデル（defaultModel）と同じモデルは残さない。残すと、既定のモデルを変えてもそのプロジェクトだけ古い既定に留まる。
+ * before はそのプロジェクトの前の前回値である。opencode で起こしたときは、Claude Code の札の値を前のまま残し、エージェントと opencode のモデルだけを書き換える。
+ * Claude Code で起こしたときは、opencode のモデルを前のまま残す。opencode のモードと自動承認は残さない（自動承認は毎回オフから始める）。
  */
-export function launchPrefsOf(params: LaunchParams, defaultModel: string | null = null): LaunchPrefs {
+export function launchPrefsOf(params: LaunchParams, defaultModel: string | null = null, before: LaunchPrefs = {}): LaunchPrefs {
+  if (params.agent === 'opencode') {
+    const { agent: _agent, opencodeModel: _model, worktree: _worktree, ...claude } = before;
+    return { ...claude, agent: 'opencode', ...(params.model ? { opencodeModel: params.model } : {}) };
+  }
   const out: LaunchPrefs = {};
   for (const k of PREF_TEXT) if (params[k] && !(k === 'model' && params[k] === defaultModel)) out[k] = params[k];
   if (params.addDirs?.length) out.addDirs = [...params.addDirs];
+  if (before.opencodeModel) out.opencodeModel = before.opencodeModel;
   return out;
 }
 
@@ -51,6 +58,8 @@ export function readLaunchPrefs(v: unknown): Record<string, LaunchPrefs> {
     const p: LaunchPrefs = {};
     for (const k of PREF_TEXT) { const x = r[k]; if (typeof x === 'string' && x) p[k] = x; }
     if (Array.isArray(r.addDirs) && r.addDirs.length && r.addDirs.every((d) => typeof d === 'string')) p.addDirs = r.addDirs as string[];
+    if (r.agent === 'opencode') p.agent = 'opencode';
+    if (typeof r.opencodeModel === 'string' && r.opencodeModel) p.opencodeModel = r.opencodeModel;
     if (Object.keys(p).length) out[key] = p;
   }
   return out;
@@ -62,8 +71,8 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
 function rememberPrefs(state: State, params: LaunchParams, defaultModel: string | null): Step {
   const key = params.scratch ? SCRATCH_PREFS : params.projectId;
   if (!key) return { state, effects: [] };
-  const prefs = launchPrefsOf(params, defaultModel);
   const { [key]: before, ...rest } = state.launchPrefs;
+  const prefs = launchPrefsOf(params, defaultModel, before);
   const next = Object.keys(prefs).length ? { ...rest, [key]: prefs } : rest;
   if (sameJson(before ?? null, Object.keys(prefs).length ? prefs : null)) return { state, effects: [] };
   return { state: { ...state, launchPrefs: next }, effects: [{ kind: 'storage.save', key: LAUNCH_PREFS_KEY, value: next }] };
