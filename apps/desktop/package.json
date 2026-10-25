@@ -1,6 +1,6 @@
 {
   "name": "@agent-hangar/desktop",
-  "version": "0.9.5",
+  "version": "0.10.0-rc.1",
   "private": true,
   "type": "module",
   "scripts": {
