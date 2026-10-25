@@ -1324,6 +1324,40 @@ GitHub Actions の `claude-compat`（`.github/workflows/claude-compat.yml`）が
 見本がまだ無いときは、「見本がありません」と書いて落ちる。
 認証は要らない。
 
+### opencode の検出（ベータ）
+
+opencode を足す作業の 1 段目（計画の B1）で、設定のスイッチと、入っている opencode の場所と版の読みだけを入れた。
+画面の入口はまだ無い。
+
+設定は 2 つある。
+`opencodeEnabled` は opencode を有効にするスイッチで、既定は切である。
+切のままなら、opencode の入口（新しいセッションの選択肢、外の端末の横取り、スマホ）はどこにも出さない。
+`opencodeInjection` は、hangar が起動する opencode のシステムプロンプトへの追記の量で、`minimal`（hangar の MCP の使い方だけ）、`claude`（Claude Code に足すのと同じ段）、`none`（足さない）の 3 つである。
+既定は `minimal` である。
+どちらも `configBundleSync` と同じく既定の設定には足さず、項目が無いうちは既定として読む。
+読む側の既定は `@agent-hangar/shared` の `opencodeEnabledOf` と `opencodeInjectionOf` にまとめてあり、項目を知らない古いサーバの答えも同じ既定に寄せる。
+手で書き換えた知らない値は、読み込みのときに捨てる。
+
+場所は `config/tools.ts` の `findOpencode` が探す。
+PATH の次に公式の install の台本の置き場（`~/.opencode/bin`）を見て、最後に既知の置き場（`/opt/homebrew/bin` など）を見る。
+台本はシェルの rc で PATH に足すだけなので、Finder から起こした .app の PATH には入らないからである。
+設定には場所を埋めない。
+
+版は `provider/opencode/compat/version.ts` の `LocalOpencode` が、`opencode --version` を空の環境で打って読む。
+渡すのは `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と、opencode の置き場を先頭に足した固定の最小の `PATH` だけである。
+hangar を Claude Code のセッションから起こすと、サーバの環境に呼び手の印（`CLAUDE` で始まる鍵）と hangar の印（`HANGAR_*`）が入っており、opencode は環境から設定や API キーを読むからである。
+置き場を先頭に足すのは、npm で入れた opencode が隣の node を引く台本だからである。
+Windows の鍵の一覧は版を読むためだけの仮のもので、起動の許可リストは段 G で決める。
+同じファイル（パス、更新時刻、大きさ）なら打ち直さず、同時に聞かれても 1 回にまとめる。
+読めなかった答えも覚え、時間切れと起動の失敗だけは覚えない。
+
+確かめた範囲は `@agent-hangar/shared` の `OPENCODE_VERIFIED_RANGE`（`2.1.x`）である。
+判定は、範囲の中（verified）、範囲の外（unverified）、1.x（legacy。2.x と API の形が違う古い系統）、読めない（unknown）の 4 つに分ける。
+範囲の外でも起動は止めず、知らせるだけにする。
+
+`GET /api/opencode/status` は `{ found, version, verified }` を返す。
+設定の入り切りに関わらず答える。有効にする前に、入っているかと版を見せるためである。
+
 ## セッションの起動と観察
 
 ### tmux による起動

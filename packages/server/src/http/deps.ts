@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, OpencodeStatusDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -204,6 +204,11 @@ export type AppDeps = {
    * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。準備の確かめでずれがあるとき、画面が続けて読む。
    */
   compat: () => Promise<CompatDto>;
+  /**
+   * opencode の検出（ベータ）。PATH と既知の置き場から探し、版を空の環境の `--version` で読み、確かめた範囲と突き合わせる。
+   * 試験は子プロセスを起こさない偽物を渡す。
+   */
+  opencodeStatus: () => Promise<OpencodeStatusDto>;
   /**
    * 同じファイルの編集の見張り（sessions/overlap.ts）に、すぐ読み直させる。「このファイルでは表示しない」の後に呼ぶ。
    * 渡さなければ、次の周期（数秒）で消える。

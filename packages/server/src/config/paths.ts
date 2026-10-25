@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isLanguage, isModelName, isSummaryEngine, newId, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isLanguage, isModelName, isOpencodeInjection, isSummaryEngine, newId, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
@@ -118,6 +118,13 @@ export type Settings = {
    * `loadSettings` が必ず埋める。settings.json が無ければ OS の表示言語、あって項目が無ければ日本語にする（i18n/osLanguage.ts の decideLanguage）。
    */
   language?: Language;
+  /**
+   * opencode を有効にするか（ベータ）。既定は切で、項目が無いうちは切として読む（configBundleSync と同じく、既定の設定には足さない）。
+   * 切のままなら、opencode の入口（新しいセッションの選択肢、外の端末の横取り、スマホ）はどこにも出さない。
+   */
+  opencodeEnabled?: boolean;
+  /** hangar が起動する opencode のシステムプロンプトへの追記。項目が無いうちは最小限（minimal）として読む。 */
+  opencodeInjection?: OpencodeInjection;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -210,6 +217,9 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (!isAutoDoneIdleDays(s.autoDoneIdleDays)) s.autoDoneIdleDays = DEFAULT_AUTO_DONE_IDLE_DAYS;
   if (typeof s.autoPark !== 'boolean') s.autoPark = true;
   if (typeof s.remoteControl !== 'boolean') s.remoteControl = true;
+  // opencode の項目は既定の設定に無いので、手で書き換えた値は捨てて、無い項目（既定）として読ませる。
+  if (s.opencodeEnabled !== undefined && typeof s.opencodeEnabled !== 'boolean') delete s.opencodeEnabled;
+  if (s.opencodeInjection !== undefined && !isOpencodeInjection(s.opencodeInjection)) delete s.opencodeInjection;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

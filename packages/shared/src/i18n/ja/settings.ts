@@ -285,6 +285,8 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.autoDoneIdleDays': '長期間アクティビティの無いセッションも Done にする',
   'settings.label.autoPark': 'Done と Archived にしたセッションを停止する',
   'settings.label.remoteControl': 'Remote Control を付けて起動する',
+  'settings.label.opencodeEnabled': 'opencode を有効にする',
+  'settings.label.opencodeInjection': 'システムプロンプトへの追記',
   'settings.editor.title': 'エディタ',
   'settings.editor.desc': '「<名前> で開く」と、変更したファイルを該当の行から開くときに使います。',
   'settings.editor.found': '検出済み',

@@ -284,6 +284,8 @@ export const settingsKeys = {
   'settings.label.autoDoneIdleDays': [],
   'settings.label.autoPark': [],
   'settings.label.remoteControl': [],
+  'settings.label.opencodeEnabled': [],
+  'settings.label.opencodeInjection': [],
   'settings.editor.title': [],
   'settings.editor.desc': [],
   'settings.editor.found': [],

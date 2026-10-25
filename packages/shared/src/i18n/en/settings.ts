@@ -285,6 +285,8 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.autoDoneIdleDays': 'Also mark long-idle conversations as Done',
   'settings.label.autoPark': 'Stop conversations marked Done or Archived',
   'settings.label.remoteControl': 'Start with Remote Control',
+  'settings.label.opencodeEnabled': 'Enable opencode',
+  'settings.label.opencodeInjection': 'System prompt additions',
   'settings.editor.title': 'Editor',
   'settings.editor.desc': 'Used by "Open in <name>" and to open a changed file at a line.',
   'settings.editor.found': 'Found',
