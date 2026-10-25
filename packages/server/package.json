@@ -15,7 +15,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^13.0.3",
     "hono": "^4.13.8",
-    "node-pty": "^1.1.0",
+    "node-pty": "1.2.0-beta.15",
     "tsx": "^4.23.13",
     "ws": "^8.21.3",
     "zod": "^4.6.5"
