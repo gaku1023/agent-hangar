@@ -1,4 +1,4 @@
-import { MAX_BLOB_DELETE_KEYS, TRASH_KEEP_MS, transcriptBlobKey } from '@agent-hangar/shared';
+import { MAX_BLOB_DELETE_KEYS, opencodeBlobKey, TRASH_KEEP_MS, transcriptBlobKey } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { trashedLongAgo } from '../sessions/trash.ts';
 import { CloudError, type CloudClient } from './client.ts';
@@ -75,8 +75,13 @@ export async function sweepTrashBlobs(o: {
   return deleteTargets(o, await targets(o.db, await o.keyring, o.deviceId, o.now));
 }
 
-/** 台帳の鍵から、本文の鍵名を求めるのに要るセッションの UUID とサブエージェントの ID を取り出す。この PC のものでなければ null。 */
-function idsOfLedgerKey(deviceId: string, ledgerKey: string): { uuid: string; agentId: string | null } | null {
+/**
+ * 台帳の鍵から、本文の鍵名を求めるのに要るセッションの UUID とサブエージェントの ID を取り出す。この PC のものでなければ null。
+ * opencode の本文（`opencode/<端末>/<会話>.json.gz`）は opencode の印を付けて返す（鍵名の求め方が違う）。
+ */
+function idsOfLedgerKey(deviceId: string, ledgerKey: string): { uuid: string; agentId: string | null; opencode?: true } | null {
+  const oc = /^opencode\/([^/]+)\/([^/]+)\.json\.gz$/.exec(ledgerKey);
+  if (oc) return oc[1] === deviceId ? { uuid: oc[2]!, agentId: null, opencode: true } : null;
   const head = `transcripts/${deviceId}/`;
   if (!ledgerKey.startsWith(head)) return null;
   const rest = ledgerKey.slice(head.length);
@@ -116,7 +121,10 @@ export async function sweepSupersededBlobs(o: {
     const ids = idsOfLedgerKey(o.deviceId, r.ledgerKey);
     if (!keys || !ids) continue;
     try {
-      all.push({ blobKey: await transcriptBlobKey(keys.index, o.deviceId, o.deviceId, ids.uuid, ids.agentId), ledgerKey: r.ledgerKey, epoch: r.epoch });
+      const blobKey = ids.opencode
+        ? await opencodeBlobKey(keys.index, o.deviceId, o.deviceId, ids.uuid)
+        : await transcriptBlobKey(keys.index, o.deviceId, o.deviceId, ids.uuid, ids.agentId);
+      all.push({ blobKey, ledgerKey: r.ledgerKey, epoch: r.epoch });
     } catch {
       // 形の違う ID は鍵名にならない。上げる側も同じ検査で断るので、控えにも無いはずである。
     }

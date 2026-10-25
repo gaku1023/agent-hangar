@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveEpochKeys, randomEpochKey } from './keys.ts';
-import { configBlobKey, fingerprint, isBlobKey, rowK, transcriptBlobKey } from './names.ts';
+import { configBlobKey, fingerprint, isBlobKey, opencodeBlobKey, rowK, transcriptBlobKey } from './names.ts';
 
 async function keys() {
   return deriveEpochKeys(1, randomEpochKey());
@@ -27,6 +27,28 @@ describe('鍵名（HMAC）', () => {
     expect(isBlobKey(main)).toBe(true);
     expect(isBlobKey(sub)).toBe(true);
     expect(await transcriptBlobKey(index, 'pc-a', 'pc-b', UUID, null)).not.toBe(main);
+  });
+
+  it('Claude の本文の鍵名は、opencode を足す前と 1 字も変わらない', async () => {
+    // 固定の世代鍵で求めた値を書き写してある。HMAC の入力を変えると、上げ済みの本文がほかの PC から見つからなくなる。
+    const { index } = await deriveEpochKeys(1, 'A'.repeat(43));
+    expect(await transcriptBlobKey(index, 'pc-a', 'pc-a', UUID, null)).toBe('b/pc-a/NkHKDU8Nbc60bTFsADMrZcURVfGXZXTHofDvz5R0RZM');
+    expect(await transcriptBlobKey(index, 'pc-a', 'pc-b', UUID, 'a1b2c3')).toBe('b/pc-a/PwSmqymm9mECQSKKGoX1FFBhk239OGDOlskLIwuy6nk');
+  });
+
+  it('opencodeBlobKey は Claude の鍵名と交わらない', async () => {
+    const { index } = await keys();
+    const ses = 'ses_f55764078ffeDvMj180Fvan87g';
+    const oc = await opencodeBlobKey(index, 'pc-a', 'pc-a', ses);
+    expect(isBlobKey(oc)).toBe(true);
+    expect(oc.startsWith('b/pc-a/')).toBe(true);
+    expect(oc.includes(ses)).toBe(false);
+    expect(await opencodeBlobKey(index, 'pc-a', 'pc-a', ses)).toBe(oc);
+    expect(oc).not.toBe(await transcriptBlobKey(index, 'pc-a', 'pc-a', ses, null));
+    // 元の PC の ID が「opencode」でも、Claude のサブエージェントの鍵名と同じ入力にならない。
+    expect(await opencodeBlobKey(index, 'pc-a', 'x', ses)).not.toBe(await transcriptBlobKey(index, 'pc-a', 'opencode', 'x', ses));
+    expect(await opencodeBlobKey(index, 'pc-a', 'pc-b', ses)).not.toBe(oc);
+    await expect(opencodeBlobKey(index, '../x', 'pc-a', ses)).rejects.toThrow();
   });
 
   it('configBlobKey は相対パスごとに別で、同じ入力なら同じ', async () => {

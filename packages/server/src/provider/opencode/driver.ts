@@ -3,7 +3,7 @@ import type { AgentDriver } from '../../agent/types.ts';
 import { opencodeAsks } from './asks.ts';
 import { OpencodeClient } from './client.ts';
 import { materializeOpencode, planOpencode, putInstructions, type MaterializeDeps, type OpencodeServes } from './launch.ts';
-import { OpencodeLive } from './live.ts';
+import { OpencodeLive, type OpencodeEventListener } from './live.ts';
 import { OpencodeTranscript } from './transcript/source.ts';
 
 /**
@@ -20,6 +20,12 @@ export type OpencodeDriverDeps = {
   report?: (what: 'instructions' | 'mcp' | 'stop', e: unknown) => void;
 } & Pick<MaterializeDeps, 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep'>;
 
+/**
+ * opencode の driver。共通の面のほかに、serve の出来事の流れの口（events）を持つ。
+ * 同期の上げる側が、ターンの終わりを本文の書き出しの契機に使う（sync/opencodeTurnEnd.ts）。流れを別に開かないためである。
+ */
+export type OpencodeDriver = AgentDriver & { events: (cb: OpencodeEventListener) => () => void };
+
 /** serve の管理がまだ組まれていない。 */
 export class OpencodeNotReadyError extends Error {
   constructor() {
@@ -32,7 +38,7 @@ export class OpencodeNotReadyError extends Error {
  * opencode の driver。起動、状態、トランスクリプト、許可・質問、追記の面を持つ。
  * Claude にしか無いもの（アカウント、effort、権限モード、Remote Control、フォーク、外の会話の引き取り）は caps で持たないと言い、RunManager が入口で断る。
  */
-export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
+export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
   const report = deps.report ?? ((what: string, e: unknown) => { console.warn(`[opencode] ${what}: ${e instanceof Error ? e.message : String(e)}`); });
   const serves = (): OpencodeServes => {
     const s = deps.serves();
@@ -92,6 +98,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
     },
     live,
     transcript,
+    events: (cb) => live.onEvent(cb),
     // 許可と質問は serve の出来事の流れから流す（subscribe）。hook は使わないので parseHook を持たない（hook の受け口は何も読まずに 204 を返す）。
     asks: opencodeAsks(live),
     instructions: {

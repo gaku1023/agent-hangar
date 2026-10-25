@@ -1,11 +1,13 @@
 import os from 'node:os';
 import { opencodeEnabledOf } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
+import type { Db } from '../db/open.ts';
 import { findOpencode } from '../config/tools.ts';
 import { catalogPath, ModelsDevCatalog } from '../provider/opencode/catalog.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { opencodeConfigPath } from '../provider/opencode/configFile.ts';
 import { OpencodeProvidersService } from '../provider/opencode/integration.ts';
+import { OpencodeExporter } from '../provider/opencode/export.ts';
 import { OpencodeOptionsService } from '../provider/opencode/options.ts';
 import { ServeManager, type OpencodeVersionNoticeSeed } from '../provider/opencode/serve/manager.ts';
 import { ServeRegistry, serveRegistryPath, sweepLeftoverServes } from '../provider/opencode/serve/registry.ts';
@@ -17,6 +19,8 @@ export type OpencodeParts = {
   options: OpencodeOptionsService;
   /** 設定のプロバイダー（つないだ先、API キー、ログイン、OpenAI 互換のサーバー）。変えたら options を取り直させる。 */
   providers: OpencodeProvidersService;
+  /** 同期で上げる本文の書き出し（`opencode session export`）。会話の serve が起きていればそれにつなぐ。 */
+  exporter: OpencodeExporter;
   /** 起動のときの掃除が済むと解決する。 */
   swept: Promise<unknown>;
   /** 最後に出た、範囲の外の版の知らせの種。表示は段 C（C7）で作る。 */
@@ -31,7 +35,7 @@ export type OpencodeParts = {
  * 設定が切なら、ほかには何も起こさない。
  */
 export function bootOpencode(
-  p: { home: string; settings: { current: Pick<Settings, 'opencodeEnabled'> } },
+  p: { home: string; settings: { current: Pick<Settings, 'opencodeEnabled'> }; db?: Db },
   o: { bin?: () => string | null; version?: () => Promise<string | null> } = {},
 ): OpencodeParts {
   const bin = o.bin ?? (() => findOpencode());
@@ -55,10 +59,21 @@ export function bootOpencode(
   const catalog = new ModelsDevCatalog({ file: catalogPath(p.home), log });
   const options = new OpencodeOptionsService({ serves, status: () => local.status(), home: os.homedir(), catalog });
   const providers = new OpencodeProvidersService({ serves, home: os.homedir(), configFile: opencodeConfigPath(os.homedir()), catalog, onChange: () => options.forget() });
+  // serve は hangar の会話の ID で持つので、opencode の会話の ID から引き直す。DB が無ければ（試験）serve につながず私用のサーバで書き出す。
+  const hangarIdOf = p.db?.prepare("select id from sessions where provider = 'opencode' and provider_session_id = ? and deleted_at is null");
+  const exporter = new OpencodeExporter({
+    home: p.home,
+    bin,
+    serveOf: (providerSessionId) => {
+      const row = hangarIdOf?.get(providerSessionId) as { id: string } | undefined;
+      return row ? serves.get(row.id) : null;
+    },
+  });
   return {
     serves,
     options,
     providers,
+    exporter,
     swept,
     versionNotice: () => notice,
     stop: async (ms) => {

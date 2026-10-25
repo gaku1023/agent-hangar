@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PassThrough, Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { isSafeKeyId, isSafeRelPath, transcriptBlobKey, type FileMetaIn } from '@agent-hangar/shared';
+import { isSafeKeyId, isSafeRelPath, opencodeBlobKey, transcriptBlobKey, type FileMetaIn } from '@agent-hangar/shared';
+import type { AgentKind } from '../agent/types.ts';
 import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { CloudError, LimitError, type CloudClient } from './client.ts';
@@ -12,7 +13,7 @@ import { RELAY_HOLD_MS, RELAY_KIND, relayLedgerKey, relayTargetOf } from './rebu
 import type { RosterStore } from './roster.ts';
 import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
-import { transcriptLedgerKey } from './ledgerKey.ts';
+import { ledgerKeyFor, opencodeSyncPath, transcriptLedgerKey } from './ledgerKey.ts';
 import { noteBlobUpload, sweepSupersededBlobs } from './trashSweep.ts';
 import type { RowKeyring } from './sealedClient.ts';
 import type { SyncStateStore } from './state.ts';
@@ -21,10 +22,33 @@ import { transcriptsFrom } from './transcriptsFrom.ts';
 /**
  * 上げる 1 件。origin は remote/ の写しを上げ直すとき（作り直し、sync/rebuild.ts）だけ付け、元の PC の ID を入れる。
  * 付けたときの path は remote/<origin>/ の下の写しで、台帳は relay: の鍵で引く。
+ * provider は本文のエージェントで、省くと Claude である。
+ * opencode の path は書き出しの置き場の `<会話>.json` で、待ち行列の見分けにだけ使う（上げる直前に書き出し直したファイルを読む）。
  */
-export type UploadTarget = { path: string; sessionId: string; agentId: string | null; origin?: string };
+export type UploadTarget = { path: string; sessionId: string; agentId: string | null; origin?: string; provider?: AgentKind };
+
+/**
+ * opencode の本文の書き出しの口（provider/opencode/export.ts の OpencodeExporter）。
+ * opencode の本文は opencode の SQLite にあり、見張れるファイルが無い。上げる直前に `session export` で JSON に書き出し、そのファイルを上げる。
+ */
+export type OpencodeExportSource = {
+  /** 書き出しの置き場（`~/.agent-hangar/opencode/export`）。 */
+  dir: string;
+  /** 会話を書き出し直し、書いたファイルの絶対パスを返す。書けなければ null（前に書いたファイルは残る）。 */
+  export(sessionId: string): Promise<string | null>;
+};
+
 export type UploaderDeps = {
+  /**
+   * 本文の置き場の基準。Claude の本文は claudeDir（`~/.claude`）からの相対パスを封じたメタの path にする。
+   * opencode の本文は書き出しの置き場（opencode）から読み、path は `opencode/<会話>.json` にする（sync/ledgerKey.ts の opencodeSyncPath）。
+   */
   db: Db; deviceId: string; claudeDir: string; client: CloudClient;
+  /**
+   * opencode の本文の書き出しの口。呼ばれた時点の値を読む（serve の管理は同期より後に組むため）。
+   * 省くか null なら、opencode の本文は上げない。
+   */
+  opencode?: () => OpencodeExportSource | null;
   /** hangar の home。remote/ の写しを上げ直すのに使う。省くと写しは上げない。 */
   home?: string;
   /** R2 の鍵名を求める鍵の束。client（SealedCloudClient）と同じものを渡す。 */
@@ -154,6 +178,30 @@ export class TranscriptUploader {
 
   private get timers(): Timers { return this.deps.timers ?? REAL_TIMERS; }
   private now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
+
+  /**
+   * opencode の会話のターンが終わった（sync/opencodeTurnEnd.ts）。Claude の noteChanged と同じ待ち行列に入れる。
+   * 書き出しはここでは行わず、窓（30 秒）と上げ直しの間隔（10 分）を通ったあと、上げる直前に 1 回だけ行う。
+   * ターンの終わりのたびに書き出すと、その都度 opencode を起こすことになるからである。
+   */
+  noteOpencode(sessionId: string): void {
+    const t = this.opencodeTarget(sessionId);
+    if (t) this.noteChanged(t);
+  }
+
+  /** opencode の会話の上げる 1 件。書き出しの口がまだ無ければ null。 */
+  private opencodeTarget(sessionId: string): UploadTarget | null {
+    const src = this.deps.opencode?.() ?? null;
+    return src === null ? null : { provider: 'opencode', path: path.join(src.dir, `${sessionId}.json`), sessionId, agentId: null };
+  }
+
+  /** この PC の opencode の会話か。run の終わりと引き継ぎは会話の ID だけを渡してくるので、ここで見分ける。 */
+  private isOpencodeSession(sessionId: string): boolean {
+    this.opencodeStmt ??= this.deps.db.prepare("select 1 from sessions where provider = 'opencode' and provider_session_id = ? limit 1");
+    return this.opencodeStmt.get(sessionId) !== undefined;
+  }
+
+  private opencodeStmt: ReturnType<Db['prepare']> | null = null;
 
   /** 索引化が変化を見たファイルを待ち行列に入れる。1 件目から 30 秒後にまとめて上げる。 */
   noteChanged(f: UploadTarget): void {
@@ -431,12 +479,17 @@ export class TranscriptUploader {
     });
   }
 
-  /** run の終了と「この PC で再開」から呼ぶ。待ち行列と、既に上げたことのある鍵の両方を見る。 */
+  /**
+   * run の終了と「この PC で再開」から呼ぶ。待ち行列と、既に上げたことのある鍵の両方を見る。
+   * opencode の会話は、待ち行列に無くても書き出し直して上げる（上げ直しの間隔は待たない）。
+   */
   flushSession(sessionUuid: string): Promise<void> {
     return this.enqueue(async () => {
       const targets = new Map<string, UploadTarget>();
       for (const f of this.pending.values()) if (f.sessionId === sessionUuid) targets.set(f.path, f);
       for (const f of this.knownTargets(sessionUuid)) if (!targets.has(f.path)) targets.set(f.path, f);
+      const oc = this.isOpencodeSession(sessionUuid) ? this.opencodeTarget(sessionUuid) : null;
+      if (oc && !targets.has(oc.path)) targets.set(oc.path, oc);
       for (const f of targets.values()) await this.attempt(f);
     });
   }
@@ -457,9 +510,9 @@ export class TranscriptUploader {
     try { return transcriptLedgerKey(this.deps.deviceId, sessionUuid, agentId); } catch { return null; }
   }
 
-  /** remote/ の写しか。元の PC の ID が自分と違うときだけ写しとして上げる。 */
+  /** remote/ の写しか。元の PC の ID が自分と違うときだけ写しとして上げる。opencode の写しはまだ無い（取り込みは段 E の E3）。 */
   private isRelay(f: UploadTarget): f is UploadTarget & { origin: string } {
-    return f.origin !== undefined && f.origin !== this.deps.deviceId;
+    return f.provider !== 'opencode' && f.origin !== undefined && f.origin !== this.deps.deviceId;
   }
 
   /** remote/ の写しの、remote/<origin>/ から見た相対パス。外を指すものは null。 */
@@ -472,6 +525,9 @@ export class TranscriptUploader {
 
   /** 上げる 1 件の台帳の鍵。自分の本文は transcripts/<自分>/...、remote/ の写しは relay: の鍵である。使えなければ null。 */
   private ledgerKeyOf(f: UploadTarget): string | null {
+    if (f.provider === 'opencode') {
+      try { return ledgerKeyFor('opencode', this.deps.deviceId, f.sessionId, null); } catch { return null; }
+    }
     if (!this.isRelay(f)) return this.safeKey(f.sessionId, f.agentId);
     const rel = this.relayRel(f);
     return rel === null ? null : relayLedgerKey(f.origin, rel);
@@ -558,19 +614,36 @@ export class TranscriptUploader {
     const relay = this.isRelay(f);
     // 「この PC で再開」で譲ったセッションは、相手が持ち主なので上げない。remote/ の写しは元の PC の本文なので、譲ったかどうかに依らない。
     if (!relay && this.deps.state.isYielded(f.sessionId)) return 'skipped';
+    const opencode = f.provider === 'opencode';
+    // 読むファイル。Claude の本文は f.path、opencode の本文は書き出し直したファイルである。
+    let file = f.path;
+    let rel = '';
+    let key = '';
+    if (opencode) {
+      const src = this.deps.opencode?.() ?? null;
+      if (src === null) return 'skipped';
+      // 鍵に使えない ID は書き出す前に断る（置き場の外を指す名前で opencode を起こさない）。
+      try {
+        key = ledgerKeyFor('opencode', this.deps.deviceId, f.sessionId, null);
+        rel = opencodeSyncPath(f.sessionId);
+      } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+      // 本文は opencode の DB にあるので、上げる直前に書き出し直す。書き出せなければ（opencode が無い、会話が消えた）今回は上げない。
+      const out = await src.export(f.sessionId);
+      if (out === null) return 'skipped';
+      file = out;
+    }
     let st: fs.Stats;
-    try { st = fs.statSync(f.path); } catch { return 'skipped'; }
+    try { st = fs.statSync(file); } catch { return 'skipped'; }
     if (!st.isFile()) return 'skipped';
     // 本文の origin は、自分の本文なら自分、remote/ の写しなら元の PC である。R2 の鍵名と封じたメタに入る。
     const origin = relay ? f.origin! : this.deps.deviceId;
-    let rel: string;
-    let key: string;
+    // opencode の本文の鍵と path は、書き出しの前に決めてある（opencode の写しは relay にならない）。
     if (relay) {
       const r = this.relayRel(f as UploadTarget & { origin: string });
       if (r === null) return 'skipped';
       rel = r;
       key = relayLedgerKey(origin, rel)!;
-    } else {
+    } else if (!opencode) {
       rel = toPosix(path.relative(this.deps.claudeDir, f.path));
       if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel)) return 'skipped';
       // 台帳の鍵の形が通らない ID は上げ損ねとして知らせる（黙って skipped にしない）。
@@ -580,7 +653,7 @@ export class TranscriptUploader {
     // 指紋も本文も「stat した時点の長さ」までに限って読む。
     // 実行中のセッションは読んでいる最中に伸びるので、限らないと sha256 と中身が食い違う。
     const size = st.size;
-    const source = (): Readable => (size === 0 ? Readable.from([]) : fs.createReadStream(f.path, { start: 0, end: size - 1 }));
+    const source = (): Readable => (size === 0 ? Readable.from([]) : fs.createReadStream(file, { start: 0, end: size - 1 }));
     const sha = await sha256Stream(source());
     const skip = this.readSkip(key);
     const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(key) as { sha256: string } | undefined;
@@ -593,7 +666,12 @@ export class TranscriptUploader {
     // 鍵名とメタと本文は同じ世代で封じる（世代を回した直後なら client が断り、次の機会に求め直す）。
     const cur = (await this.deps.keyring).current();
     let blobKey: string;
-    try { blobKey = await transcriptBlobKey(cur.index, this.deps.deviceId, origin, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+    // opencode の本文は Claude と別の入力の HMAC で求める（Claude の鍵名は変えない）。種類は Worker が受ける transcript のままで、path で見分ける。
+    try {
+      blobKey = opencode
+        ? await opencodeBlobKey(cur.index, this.deps.deviceId, origin, f.sessionId)
+        : await transcriptBlobKey(cur.index, this.deps.deviceId, origin, f.sessionId, f.agentId);
+    } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
     const meta: FileMetaIn = { key: blobKey, epoch: cur.epoch, path: rel, kind: 'transcript', sha256: sha, size, mtime: Math.floor(st.mtimeMs), origin };
     // R2 は部分更新ができないので、変化のたびにファイル全体を上げ直す（gzip と暗号化は client が行う）。
     const body = new PassThrough();

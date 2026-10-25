@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
-import { COMPAT_VERSION, fromBase64Url, type FileMetaIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION, fromBase64Url, transcriptBlobKey, type FileMetaIn } from '@agent-hangar/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { FakeCloudClient, MAX_BODY_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
@@ -783,6 +783,169 @@ describe('TranscriptUploader の走査は使い始めた時刻で区切る', () 
     expect(up.sweep()).toBe(1);
     await up.idle();
     expect((await storedKeys())).toEqual([MAIN_KEY]);
+    up.stop();
+  });
+});
+
+/**
+ * opencode の本文（docs/design.md「opencode の本文の同期」）。
+ * 本文は opencode の SQLite にあり、見張れるファイルが無い。上げる直前に `session export` で書き出したファイルを、Claude の本文と同じ道で上げる。
+ * 試験では書き出しの口を偽物にする（実物の書き出しは provider/opencode/export.test.ts）。
+ */
+describe('TranscriptUploader の opencode の本文', () => {
+  const SES = 'ses_f55764078ffeDvMj180Fvan87g';
+  const OC_KEY = `opencode/dev-a/${SES}.json.gz`;
+  let exportDir: string;
+  /** 書き出すたびに返す中身。null なら書き出しに失敗する。 */
+  let content: string | null;
+  let exports: string[];
+  const source = () => ({
+    dir: exportDir,
+    async export(id: string): Promise<string | null> {
+      exports.push(id);
+      if (content === null) return null;
+      const file = path.join(exportDir, `${id}.json`);
+      write(file, content);
+      return file;
+    },
+  });
+  const makeOc = (o: { bound?: boolean } = {}) => new TranscriptUploader({
+    db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: cloud.keyring, state, now: () => timers.now, timers, isPaused: () => paused,
+    onError: (p, m) => errors.push({ path: p, message: m }),
+    opencode: () => (o.bound === false ? null : source()),
+  });
+  const addOpencodeSession = (id: string) => {
+    db.prepare('insert or ignore into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`s-${id}`, 'opencode', id, '/Users/me/workspace/alpha', 1, 1, 'dev-a', 'dev-a', 1);
+  };
+  const openedOc = async () => (await cloud.openedFile(await cloud.opencodeKey(SES)))!;
+
+  beforeEach(() => {
+    exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ocx-'));
+    content = '{"info":{"id":"ses_f55764078ffeDvMj180Fvan87g"},"messages":[]}\n';
+    exports = [];
+    addOpencodeSession(SES);
+  });
+
+  it('ターンの終わりから 30 秒の窓で書き出して上げる。path は projects/ の外、種類は transcript のまま', async () => {
+    const up = makeOc();
+    up.noteOpencode(SES);
+    await timers.advance(29_000);
+    await up.idle();
+    // 書き出しは上げる直前に 1 回だけ行う（ターンの終わりのたびには書き出さない）。
+    expect(exports).toEqual([]);
+    await timers.advance(1_000);
+    await up.idle();
+    expect(exports).toEqual([SES]);
+    expect(puts()).toBe(1);
+    const o = await openedOc();
+    expect(o.body.toString()).toBe(content);
+    expect(o.entry).toMatchObject({ path: `opencode/${SES}.json`, kind: 'transcript', origin: 'dev-a', size: Buffer.byteLength(content!), sha256: sha256Hex(content!) });
+    // R2 の鍵名にもメタの外側にも、会話の ID は出ない。
+    const stored = [...cloud.files.values()][0]!;
+    expect(stored.entry.key.includes(SES)).toBe(false);
+    expect(JSON.stringify(stored.entry).includes(SES)).toBe(false);
+    expect(db.prepare('select kind, path, device_id, sha256 from file_sync where key = ?').get(OC_KEY)).toEqual({ kind: 'transcript', path: `opencode/${SES}.json`, device_id: 'dev-a', sha256: sha256Hex(content!) });
+    expect(errors).toEqual([]);
+    up.stop();
+  });
+
+  it('一度上げた会話は、ターンが続いても上げてから 10 分たつまで書き出しも上げ直しもしない', async () => {
+    const up = makeOc();
+    up.noteOpencode(SES);
+    await timers.advance(30_000);
+    await up.idle();
+    expect(exports).toHaveLength(1);
+    content = '{"info":{"id":"ses_f55764078ffeDvMj180Fvan87g"},"messages":[1]}\n';
+    for (let i = 0; i < 5; i++) {
+      up.noteOpencode(SES);
+      await timers.advance(60_000);
+      await up.idle();
+    }
+    expect(exports).toHaveLength(1);
+    expect(puts()).toBe(1);
+    await timers.advance(REUPLOAD_GAP_MS);
+    await up.idle();
+    expect(exports).toHaveLength(2);
+    expect(puts()).toBe(2);
+    expect((await openedOc()).body.toString()).toBe(content);
+    up.stop();
+  });
+
+  it('run の終わり（flushSession）は間隔を待たずに書き出して上げ、中身が同じなら送らない', async () => {
+    const up = makeOc();
+    up.noteOpencode(SES);
+    await timers.advance(30_000);
+    await up.idle();
+    content = '{"info":{"id":"ses_f55764078ffeDvMj180Fvan87g"},"messages":[2]}\n';
+    // 待ち行列に何も無くても、opencode の会話なら書き出し直す。
+    await up.flushSession(SES);
+    expect(exports).toHaveLength(2);
+    expect(puts()).toBe(2);
+    expect((await openedOc()).body.toString()).toBe(content);
+    // run の終わりの 2 回目（5 秒後）。中身が変わらなければ PUT しない。
+    await up.flushSession(SES);
+    expect(exports).toHaveLength(3);
+    expect(puts()).toBe(2);
+    up.stop();
+  });
+
+  it('一時停止、譲った会話、書き出しの口が無いときは書き出さない。書き出しの失敗は黙って飛ばす', async () => {
+    paused = true;
+    const up = makeOc();
+    await up.flushSession(SES);
+    paused = false;
+    state.setYielded(SES, true);
+    await up.flushSession(SES);
+    state.setYielded(SES, false);
+    expect(exports).toEqual([]);
+    const unbound = makeOc({ bound: false });
+    unbound.noteOpencode(SES);
+    await unbound.flushSession(SES);
+    content = null;
+    await up.flushSession(SES);
+    expect(exports).toEqual([SES]);
+    expect(puts()).toBe(0);
+    expect(errors).toEqual([]);
+    up.stop();
+    unbound.stop();
+  });
+
+  it('Claude の会話の flushSession は書き出さない。Claude の本文の鍵名と台帳は今までと同じ', async () => {
+    const up = makeOc();
+    addSession(UUID);
+    await up.flushSession(UUID);
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    expect(exports).toEqual([]);
+    const stored = [...cloud.files.values()].map((f) => f.entry.key);
+    expect(stored).toEqual([await transcriptBlobKey((await cloud.keyring).current().index, 'dev-a', 'dev-a', UUID, null)]);
+    expect((db.prepare('select key from file_sync').all() as { key: string }[]).map((r) => r.key)).toEqual([MAIN_KEY]);
+    up.stop();
+  });
+
+  it('鍵に使えない会話の ID は書き出さずに知らせる', async () => {
+    const up = makeOc();
+    up.noteOpencode('../evil');
+    await timers.advance(30_000);
+    await up.idle();
+    expect(exports).toEqual([]);
+    expect(puts()).toBe(0);
+    expect(errors).toHaveLength(1);
+    up.stop();
+  });
+
+  it('世代を回した後に上げ直したら、古い世代の鍵名を消しにいく', async () => {
+    const ring = await Keyring.fromConfig(testCloudConfig({ epochs: { '1': testKey(3), '2': testKey(4) }, currentEpoch: 1 }));
+    cloud = new FakeCloudClient({ deviceId: 'dev-a', keyring: ring });
+    const up = new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: ring, state, now: () => timers.now, timers, isPaused: () => paused, opencode: () => source() });
+    await up.flushSession(SES);
+    const first = await cloud.opencodeKey(SES);
+    ring.useEpoch(2);
+    content = '{"info":{"id":"ses_f55764078ffeDvMj180Fvan87g"},"messages":[3]}\n';
+    await up.flushSession(SES);
+    const del = cloud.calls.filter((c) => c.method === 'deleteBlobs');
+    expect(del).toHaveLength(1);
+    expect(del[0]!.args[0]).toEqual([first]);
     up.stop();
   });
 });

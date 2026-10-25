@@ -953,6 +953,11 @@ export class FakeCloudClient implements CloudClient {
     return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'transcript', origin, agentId === null ? `projects/-x/${uuid}.jsonl` : `projects/-x/${uuid}/subagents/agent-${agentId}.jsonl`))!;
   }
 
+  /** この端末が今の世代で上げる opencode の本文（書き出した JSON）の R2 の鍵名。 */
+  async opencodeKey(sessionId: string, origin = this.deviceId): Promise<string> {
+    return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'transcript', origin, `opencode/${sessionId}.json`))!;
+  }
+
   /** この端末が今の世代で上げる設定のファイルの R2 の鍵名。 */
   async configKey(rel: string, origin = this.deviceId): Promise<string> {
     return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'config', origin, rel))!;

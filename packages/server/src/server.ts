@@ -13,6 +13,8 @@ import { bootRuns } from './boot/runs.ts';
 import { bootSummary } from './boot/summary.ts';
 import { bootSync } from './boot/sync.ts';
 import { bootTakeover } from './boot/takeover.ts';
+import { uploadOnOpencodeTurnEnd } from './sync/opencodeTurnEnd.ts';
+import type { OpencodeExportSource } from './sync/uploader.ts';
 
 export { CLOSE_DEADLINE_MS, STOP_WATCHDOG_MS } from './boot/budget.ts';
 export { VERSION, type StartOptions } from './boot/options.ts';
@@ -84,7 +86,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const home = bootHome(opts);
   const delivery = bootDelivery(home, opts);
   // メモの置き場は索引の側が持つ。同期が使うのは競合で負けたときだけなので、後から作る部品を呼ばれた時点で引く。
-  const sync = bootSync(home, delivery, { memoPath: (projectId) => indexing.memos.memoPath(projectId) });
+  // opencode の本文の書き出しの口は、serve の管理（下の bootOpencode）を組んだ後に入る。それまで opencode の本文は上げない。
+  let opencodeExport: OpencodeExportSource | null = null;
+  const sync = bootSync(home, delivery, { memoPath: (projectId) => indexing.memos.memoPath(projectId), opencodeExport: () => opencodeExport });
   const indexing = bootIndexing(home, delivery, sync);
   // 待ち受けを始める。/health はここから返る。実際のポート番号を、この後の run と包みと MCP が使う。
   let listening: Awaited<ReturnType<typeof bootListen>>;
@@ -112,6 +116,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   delivery.bindOpencodeServes(opencode.serves);
   // opencode の本文には文脈の大きさが無いので、索引は使用量を書くときにモデルの一覧（とカタログ）から引く。
   indexing.bindContextSize((model) => opencode.options.contextOf(model));
+
+  // opencode の本文は、ターンの終わり（serve の出来事の流れ）と run の終わり（bootSummary の flushOnRunEnded）で書き出して上げる。
+  opencodeExport = opencode.exporter;
+  uploadOnOpencodeTurnEnd(delivery.opencode.events, () => sync.uploader);
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。

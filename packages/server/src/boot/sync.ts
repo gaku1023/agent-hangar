@@ -24,7 +24,7 @@ import { createSyncFeed, type SyncFeed } from '../sync/statusFeed.ts';
 import { markTranscriptsFrom } from '../sync/transcriptsFrom.ts';
 import { resumeRotation, revokeMember, rotationPending, rotationRetrier, type RotateDeps } from '../sync/rotate.ts';
 import { sweepSupersededBlobs, sweepTrashBlobs, TRASH_SWEEP_EVERY_MS } from '../sync/trashSweep.ts';
-import { TranscriptUploader } from '../sync/uploader.ts';
+import { TranscriptUploader, type OpencodeExportSource } from '../sync/uploader.ts';
 import { CloudUsagePoller } from '../sync/usage.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
@@ -211,7 +211,12 @@ type Core = {
 export function bootSync(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
   delivery: Pick<DeliveryParts, 'hub'> & Partial<Pick<DeliveryParts, 'publisher' | 'osNotices'>> & { toast: Toast },
-  o: { memoPath: (projectId: string) => string; cloudWatch?: CloudWatchOptions },
+  o: {
+    memoPath: (projectId: string) => string;
+    cloudWatch?: CloudWatchOptions;
+    /** opencode の本文の書き出しの口（boot/opencode.ts）。serve の管理は同期より後に組むので、呼ばれた時点で引く。 */
+    opencodeExport?: () => OpencodeExportSource | null;
+  },
 ): SyncParts {
   const { db, claudeDir, settings } = home;
   const { hub, toast } = delivery;
@@ -323,6 +328,7 @@ export function bootSync(
       ? new TranscriptUploader({
           db, deviceId, claudeDir, home: home.home, client, keyring, state: syncState, roster: roster ?? undefined,
           isPaused,
+          ...(o.opencodeExport ? { opencode: o.opencodeExport } : {}),
           onError: (p, m) => console.error('[upload]', p, m),
         })
       : null;
