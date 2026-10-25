@@ -455,3 +455,57 @@ describe('未検証の opencode の版の札（C7、試作の N1）', () => {
     expect(kinds).toEqual(['update', 'opencode-version', 'waiting']);
   });
 });
+
+describe('閉じた後に走り続ける起動前の準備の札', () => {
+  it('今の段の 1 行と経過時間を出し、「準備を中止」で鍵を添えて止める', () => {
+    vi.useFakeTimers({ now: 100_000 });
+    try {
+      const { onAction } = mount(props({ prepProgress: { key: 'key-12345678', line: 'qwen をロード中…（64K）', startedAt: 91_000 } }));
+      const c = document.querySelector<HTMLElement>('[data-kind="prep-progress"]')!;
+      expect(within(c).getByText('qwen をロード中…（64K）')).toBeInTheDocument();
+      expect(within(c).getByText('0:09')).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(2_000); });
+      expect(within(c).getByText('0:11')).toBeInTheDocument();
+      fireEvent.click(within(c).getByRole('button', { name: '準備を中止' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'launchPrep.cancel', key: 'key-12345678' });
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('起動後にコンテキストが足りなかった札', () => {
+  const short = (over: Partial<NonNullable<ToastsProps['contextShorts']>[number]> = {}) => ({ sessionId: 's1', fix: null, done: false, ...over });
+  it('見出しと本文と、「再ロードして再開」「閉じる」を出す。「再ロードして再開」は鍵を作って頼む', () => {
+    const { onAction } = mount(props({ contextShorts: [short()] }));
+    const c = document.querySelector<HTMLElement>('[data-kind="context-short"]')!;
+    expect(within(c).getByText('コンテキスト長が足りません')).toBeInTheDocument();
+    expect(within(c).getByText(/opencode の指示を処理できませんでした/)).toBeInTheDocument();
+    fireEvent.click(within(c).getByRole('button', { name: '再ロードして再開' }));
+    const sent = onAction.mock.calls[0]![0] as { type: string; sessionId: string; prepKey: string };
+    expect(sent).toMatchObject({ type: 'launchPrep.short.fix', sessionId: 's1' });
+    expect(sent.prepKey).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    fireEvent.click(within(c).getByRole('button', { name: '閉じる' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'launchPrep.short.dismiss', sessionId: 's1' });
+  });
+  it('整え直しの最中は、進みを札の中に 1 行で出し、ボタンは外す', () => {
+    mount(props({ contextShorts: [short({ fix: { text: 'qwen を再ロード中…（64K）', startedAt: Date.now() - 4_000 } })] }));
+    const c = document.querySelector<HTMLElement>('[data-kind="context-short"]')!;
+    expect(within(c).getByText('qwen を再ロード中…（64K）')).toBeInTheDocument();
+    expect(within(c).getByText(/^0:0\d$/)).toBeInTheDocument();
+    expect(within(c).queryByRole('button', { name: '再ロードして再開' })).toBeNull();
+  });
+  it('済んだら「再ロードしました」の知らせに替え、閉じるボタンを残し、時間で下げる', () => {
+    vi.useFakeTimers();
+    try {
+      const { onAction } = mount(props({ contextShorts: [short({ done: true })] }));
+      const c = document.querySelector<HTMLElement>('[data-kind="context-short"]')!;
+      expect(within(c).getByText(/モデルを再ロードしました/)).toBeInTheDocument();
+      expect(within(c).queryByRole('button', { name: '再ロードして再開' })).toBeNull();
+      act(() => { vi.advanceTimersByTime(PHONE_LAUNCH_TOAST_MS); });
+      expect(onAction).toHaveBeenCalledWith({ type: 'launchPrep.short.dismiss', sessionId: 's1' });
+    } finally { vi.useRealTimers(); }
+  });
+  it('同じ会話の札は 1 枚、別の会話は別の札', () => {
+    mount(props({ contextShorts: [short(), short({ sessionId: 's2' })] }));
+    expect(document.querySelectorAll('[data-kind="context-short"]')).toHaveLength(2);
+  });
+});

@@ -116,3 +116,16 @@ describe('設定の opencode の面', () => {
     expect(present(store({ opencodeEnabled: true, opencodeInjection: 'none' })).full).toEqual([]);
   });
 });
+
+describe('設定の opencode の面のローカルモデルのコンテキスト長', () => {
+  it('選べる長さは 32K、64K（推奨）、128K。項目が無いか形が違えば 64K', () => {
+    const p = present(store({ opencodeEnabled: true })).localContext;
+    expect(p.value).toBe(65_536);
+    expect(p.options).toEqual([{ value: 32_768, label: '32K' }, { value: 65_536, label: '64K（推奨）' }, { value: 131_072, label: '128K' }]);
+    expect(present(store({ opencodeEnabled: true, opencodeLocalContext: 131_072 })).localContext.value).toBe(131_072);
+    expect(present(store({ opencodeEnabled: true, opencodeLocalContext: 1234 })).localContext.value).toBe(65_536);
+  });
+  it('英語の辞書で出す', () => {
+    expect(present(store({ language: 'en', opencodeEnabled: true })).localContext.options.map((o) => o.label)).toEqual(['32K', '64K (Recommended)', '128K']);
+  });
+});

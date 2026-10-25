@@ -8,6 +8,7 @@ import { osLabel, sasText } from './cloudMember.ts';
 import type { Store } from '../store/store.ts';
 import { durationLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
+import { presentLaunchPrep } from './launchPrep.ts';
 import { arrivedCount } from './unresolved.ts';
 import { presentUpdateCard, presentWhatsNew, type UpdateCardProps, type WhatsNewCardProps } from './update.ts';
 import { presentOpencodeVersionCard, type OpencodeVersionCardProps } from './opencodeNotice.ts';
@@ -37,7 +38,31 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * phoneLaunches は、スマホからの依頼でこの PC が起こした会話の通知（試作 F1）。受信した順で、その会話の画面を開いている間は出さない。
  * 入力待ちと同じく新しい SHOWN 枚までを並べ、並べきれない数を phoneLaunchMore に置く。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number; prepProgress?: PrepProgressCardProps | null; contextShorts?: ContextShortCardProps[] };
+
+/**
+ * ダイアログを閉じた後に走り続けている起動前の準備の進みの札（試作の「途中で閉じる」）。line は今の段の 1 行、startedAt から経過時間を数える。
+ * 準備が走っている間だけ出し、済んだら「開始しました」の知らせ（mediator/launch.ts）に替わる。key は「準備を中止」に添える。
+ */
+export type PrepProgressCardProps = { key: string; line: string; startedAt: number };
+/**
+ * 起動した後にコンテキストが足りなかった会話の札（試作の §3）。fix は整え直しの最中の 1 行（鍵の進みがまだ届かなければ確認中の文、startedAt は null）、done は済んだこと。
+ */
+export type ContextShortCardProps = { sessionId: string; fix: { text: string; startedAt: number | null } | null; done: boolean };
+
+function presentPrepProgress(state: State, store: Store, t: Translate): PrepProgressCardProps | null {
+  const mark = state.launchPrep;
+  const prep = mark ? store.launchPreps[mark.key] : undefined;
+  if (!mark || !prep || prep.phase !== 'running' || state.overlay.kind === 'newSession' || !state.newSessionSent) return null;
+  return { key: mark.key, line: presentLaunchPrep(prep, t, mark.model).line.text, startedAt: prep.startedAt };
+}
+
+function presentContextShorts(state: State, store: Store, t: Translate): ContextShortCardProps[] {
+  return state.contextShorts.map((c) => {
+    const prep = c.fix ? store.launchPreps[c.fix.key] : undefined;
+    return { sessionId: c.sessionId, fix: c.fix ? { text: prep ? presentLaunchPrep(prep, t, null).line.text : t('launchPrep.step.check'), startedAt: prep?.startedAt ?? null } : null, done: c.done };
+  });
+}
 
 /**
  * スマホから起動した会話の通知の中身（試作 F1）。
@@ -101,5 +126,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   const arrived = arrivedCount(store, state.arrivedProjects);
   const launches = presentPhoneLaunches(state, store, t);
   const phoneLaunches = launches.slice(-SHOWN);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length, prepProgress: presentPrepProgress(state, store, t), contextShorts: presentContextShorts(state, store, t) };
 }

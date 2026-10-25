@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { defaultOpencodeMode, type AgentValue, type LaunchParams, type ProjectPlace } from '@agent-hangar/shared';
+import { defaultOpencodeMode, type AgentValue, type LaunchParams, type LaunchPrepChoice, type ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
 import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
@@ -12,6 +12,8 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { isMacClient, keyLabel } from '../keys.ts';
 import { baseName, joinPath } from '../lib/paths.ts';
+import { newPrepKey } from '../lib/prepKey.ts';
+import { CancelPrepButton, LaunchPrepAsk, LaunchPrepBox, LaunchPrepFailed } from './LaunchPrepBox.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import type { ListboxAction, ListboxOption } from './primitives/listboxModel.ts';
 import { CheckCard } from './primitives/OptionCard.tsx';
@@ -246,7 +248,8 @@ export function NewSessionDialog(props: NewSessionProps) {
     document.getElementById(PROMPT_ID)?.focus();
   };
 
-  const submit = () => {
+  // answer は、準備が止まって聞かれたことへの答え（LaunchPrepChoice）。同じ詳細に添え、新しい鍵で送り直す。
+  const submit = (answer?: LaunchPrepChoice) => {
     if (props.submitting || uploading > 0 || blocked) return;
     setStaleError(null);
     const params: LaunchParams = {};
@@ -274,6 +277,9 @@ export function NewSessionDialog(props: NewSessionProps) {
       if (ocMode) params.mode = ocMode;
       if (ocModel.model) params.model = ocModel.model;
       params.autoApprove = autoApprove;
+      // 起動前の準備（ローカルのモデルを載せる）の進みを受け取る鍵。送るたびに新しく作る。
+      params.prepKey = newPrepKey();
+      if (answer) params.prepChoice = answer;
       emit({ type: 'session.new.submit', params, ...(place ? { place } : {}) });
       return;
     }
@@ -349,6 +355,13 @@ export function NewSessionDialog(props: NewSessionProps) {
   );
 
   const close = () => emit({ type: 'overlay.close' });
+  // 起動前の準備。進みの箱は準備が走っている間（送信中）だけ、問いの札は止まっている間（送信中でない）だけ、失敗の札は準備が失敗した後の失敗の文があるときだけ出す。
+  // 準備の進みが無い起動（Claude Code、ローカルでないモデル）は、どれも出さず今までの見た目のままである。
+  const prep = props.prep ?? null;
+  const preparing = props.submitting && prep !== null && prep.phase === 'running';
+  const asking = !props.submitting && prep?.ask ? prep.ask : null;
+  const errorShown = props.error && props.error !== staleError ? props.error : null;
+  const failure = !props.submitting && prep?.failure != null && errorShown !== null ? prep.failure || errorShown : null;
   // 書きかけを背景の押し違いで失わないよう、背景では閉じない。
   return (
     <Dialog
@@ -366,8 +379,9 @@ export function NewSessionDialog(props: NewSessionProps) {
       footer={<>
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
-        <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0 || blocked} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={submit}>
-          {props.submitting ? t('newSession.button.starting') : uploading > 0 ? t('newSession.button.uploading') : <>{bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">{keyLabel('⌘↵')}</span></>}
+        {preparing && prep && <CancelPrepButton onClick={() => emit({ type: 'launchPrep.cancel', key: prep.key })} />}
+        <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0 || blocked} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={() => submit()}>
+          {preparing ? t('launchPrep.button.preparing') : props.submitting ? t('newSession.button.starting') : uploading > 0 ? t('newSession.button.uploading') : <>{bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">{keyLabel('⌘↵')}</span></>}
         </button>
       </>}
     >
@@ -431,7 +445,10 @@ export function NewSessionDialog(props: NewSessionProps) {
       )}
       {dirPath && !enclosing && !link && <div className="faint">{outside ? t('newSession.dir.outside') : t('newSession.dir.unregistered', { path: dirPath })}</div>}
       {!scratch && !opencode && <div className="faint" {...{ [AGENT_ONLY_ATTR]: 'claude-code' }}>{t('newSession.note.trust')}</div>}
-      {props.error && props.error !== staleError && <div className="error" role="alert">{props.error}</div>}
+      {errorShown !== null && failure === null && <div className="error" role="alert">{errorShown}</div>}
+      <LaunchPrepAsk ask={asking} onChoose={submit} />
+      <LaunchPrepFailed reason={failure} />
+      <LaunchPrepBox open={preparing} view={prep} />
     </Dialog>
   );
 }

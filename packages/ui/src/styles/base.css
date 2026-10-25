@@ -431,6 +431,10 @@ a:hover { text-decoration: underline; }
 /* スマホから起動した会話の通知（試作 F1）。通常は info と同じ青で、Bypass permissions は赤にして「停止」を置く。 */
 .notice[data-kind='phone-launch'] { --k: var(--accent); cursor: default; }
 .notice[data-kind='phone-launch'][data-tone='err'] { --k: var(--error); }
+/* ダイアログを閉じた後に走り続ける起動前の準備の進みと、起動後にコンテキストが足りなかった札。中の 1 行は新しいセッションのダイアログの進みの箱と同じ（controls.css の .launch-prep-line）。 */
+.notice[data-kind='prep-progress'] { --k: var(--accent); cursor: default; }
+.notice[data-kind='context-short'] { --k: var(--st-paused); cursor: default; }
+.notice[data-kind='context-short'][data-tone='ok'] { --k: var(--st-done); }
 .notice-sas { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5) calc(var(--u) * 3); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); line-height: 1.45; color: color-mix(in srgb, var(--accent) 70%, var(--ink)); }
 .notice-sas > b { font-size: 20px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink); white-space: nowrap; }
 /* リリースノートの注意（「更新の前に」の節）。ほかの PC や Worker とそろえる話なので、Paused と同じ黄の地で目立たせ、3 行まで見せる。 */
@@ -480,6 +484,8 @@ a:hover { text-decoration: underline; }
 .notice-title { font-size: var(--fs); line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 /* error と info の本文は 2 行まで見せ、error は「詳しく」で開く。 */
 .notice-message { font-size: var(--fs); line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* 起動後のコンテキスト長の札は、直し方まで読ませる（2 行で切ると「再ロードします」が隠れる）。 */
+.toast[data-kind="context-short"] .notice-message { -webkit-line-clamp: 4; }
 .notice[data-open='true'] .notice-message { display: block; }
 .btn-link.notice-more { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
 .toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; }

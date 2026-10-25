@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { prepChoiceOf, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -32,6 +32,7 @@ import type { AgentDriver, AgentKind, InjectionEntry, LaunchPlan, LaunchSpec } f
 import type { PaneOps } from '../tmux/pane.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';
+import { LaunchPrepAsked, LaunchPrepCancelled, type LaunchPreps } from './launchPrep.ts';
 import { aliveRunForSession, getRun, getTab, latestRunForSession, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
 import { parseProcStart, realProcOpsWith, sameStartTime, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { ScreenMissGate, screenDrift, type ScreenMark } from '../provider/claude-code/compat/screen.ts';
@@ -117,13 +118,19 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りの時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 /** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
 type RemoteControlAsk = { account: Account | null; env?: Record<string, string>; userArgs?: string[] };
 
 type SessionRow = { id: string; provider: string; provider_session_id: string; project_id: string | null; cwd: string };
+
+/** 起動の指定から、準備の鍵と答えを除く（run に残す起動の指定には要らない）。 */
+function withoutPrep(params: LaunchParams): LaunchParams {
+  const { prepKey: _key, prepChoice: _choice, ...rest } = params;
+  return rest;
+}
 
 function isDirectory(p: string): boolean {
   try {
@@ -667,9 +674,12 @@ export class RunManager {
     };
     let providerSessionId: string;
     let base: Omit<LaunchSpec, 'env'>;
+    // 起動前の準備（LM Studio のモデル）。外のターミナルからの起動は、問いに答える画面が無いので準備しない。
+    const prep = from ? null : this.deps.preps?.begin(params.prepKey) ?? null;
     try {
       base = this.baseInput(sessionId, projectId, cwd, params, undefined, undefined, agent);
-      const r = await driver.launch.materialize({ kind: 'start' }, { ...base, env: {} });
+      const r = await driver.launch.materialize({ kind: 'start' }, { ...base, env: {}, ...(prep ? { prep: { run: prep, choice: prepChoiceOf(params.prepChoice) } } : {}) });
+      prep?.finish();
       if (!r?.providerSessionId) throw new Error(`agent ${agent} did not return a session id`);
       providerSessionId = r.providerSessionId;
       const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
@@ -678,15 +688,54 @@ export class RunManager {
       // driver は会話を作れなかったときに自分で serve を止めている。ここでも念のため止める（ほかの段で落ちたとき）。
       await Promise.resolve(driver.launch.release({ sessionId, providerSessionId: '', cwd }, 'killed')).catch(() => false);
       discard();
-      if (e instanceof RunError) throw e;
-      throw new RunError(400, msg('run.agent.launchFailed', { reason: this.safeError(e) }));
+      throw this.prepError(prep, e);
     }
     try {
-      return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...params, agent, ...(from && projectId ? { projectId } : {}) } });
+      return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...withoutPrep(params), agent, ...(from && projectId ? { projectId } : {}) } });
     } catch (e) {
       await Promise.resolve(driver.launch.release({ sessionId, providerSessionId, cwd }, 'killed')).catch(() => false);
       discard();
       throw e;
+    }
+  }
+
+  /**
+   * 準備か下ごしらえの失敗を、起動の口の答えにする。
+   * 問いは 409（code: prep-ask）で、画面は届いている進み（launch.prep の ask）を読んで問いを出す。やめたときは 400（code: prep-cancelled）。
+   * ほかの失敗は、準備の進みにも理由を載せてから 400 にする。
+   */
+  private prepError(prep: { fail(reason: string): void } | null, e: unknown): RunError {
+    if (e instanceof LaunchPrepAsked) return new RunError(409, msg('launchPrep.error.asked'), { code: LAUNCH_PREP_ASK_CODE });
+    if (e instanceof LaunchPrepCancelled) return new RunError(400, msg('launchPrep.error.cancelled'), { code: LAUNCH_PREP_CANCELLED_CODE });
+    const reason = this.safeError(e);
+    prep?.fail(reason);
+    if (e instanceof RunError) return e;
+    return new RunError(400, msg('run.agent.launchFailed', { reason }));
+  }
+
+  /** 走っている起動前の準備をやめる。無ければ偽。 */
+  cancelPrep(key: string): boolean {
+    return this.deps.preps?.cancel(key) ?? false;
+  }
+
+  /**
+   * 動いている会話のローカルのモデルを整え直す（起動後に長さが足りずに落ちた札の「整えて再開」）。進みは prepKey の鍵で配る。
+   * 会話のモデルは、起動のときの指定（run の params）を使う。動いていなければ 409 で断る。
+   */
+  async prepareModels(sessionId: string, prepKey: string | undefined): Promise<void> {
+    const s = this.session(sessionId);
+    const driver = this.agentOf(s);
+    const run = aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now());
+    if (!run || run.deviceId !== this.deps.deviceId || !driver.launch.prepare || !this.deps.preps) throw new RunError(409, msg('launchPrep.error.notRunning'));
+    const row = this.db.prepare('select launch_params from runs where id = ?').get(run.id) as { launch_params: string } | undefined;
+    let model: string | null = null;
+    try { const m = (JSON.parse(row?.launch_params ?? '{}') as { model?: unknown }).model; model = typeof m === 'string' && m ? m : null; } catch { /* 読めなければ設定の既定 */ }
+    const prep = this.deps.preps.begin(prepKey);
+    try {
+      await driver.launch.prepare({ sessionId: s.id, cwd: this.cwdFor(s).path, model }, prep);
+      prep.finish();
+    } catch (e) {
+      throw this.prepError(prep, e);
     }
   }
 

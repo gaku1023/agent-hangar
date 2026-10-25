@@ -16,6 +16,7 @@ const props = (over: Partial<OpencodeSettingsProps> = {}): OpencodeSettingsProps
   full: [{ label: '最小限（意図と要約）', off: false, mark: null, pieces: [{ kind: 'text', text: 'あなたは agent-hangar から起動されたセッションです。' }] }],
   intercept: { available: true, on: false, note: null },
   permissionPreset: { on: true, byConfig: false, note: null },
+  localContext: { value: 65_536, options: [{ value: 32_768, label: '32K' }, { value: 65_536, label: '64K（推奨）' }, { value: 131_072, label: '128K' }] },
   version: { kind: 'verified', installed: '2.1.4', verified: '2.1.x', note: null },
   badge: { text: '検証済み', tone: 'ok' },
   ...over,
@@ -157,5 +158,25 @@ describe('設定の opencode の面', () => {
   it('追記しないときは全文の畳みを出さない', () => {
     render(ui(props({ enabled: true, injection: 'none', full: [] })));
     expect(section().querySelector('details.cp-more')).toBeNull();
+  });
+});
+
+describe('設定の opencode の面のローカルモデルのコンテキスト長', () => {
+  it('入のときだけ、追記の行の下に「ローカルモデルのコンテキスト長」を出し、いまの長さを札に見せる', () => {
+    const { rerender } = render(ui(props()));
+    expect(screen.queryByText('ローカルモデルのコンテキスト長')).toBeNull();
+    rerender(ui(props({ enabled: true })));
+    const titles = [...section().querySelectorAll('.oc-more .set-row-t')].map((e) => e.textContent);
+    const at = (x: string) => titles.findIndex((tt) => tt?.includes(x));
+    expect(at('ローカルモデルのコンテキスト長')).toBeGreaterThan(at('システムプロンプトへの追記'));
+    expect(screen.getByRole('button', { name: /ローカルモデルのコンテキスト長/ })).toHaveTextContent('64K（推奨）');
+  });
+  it('説明を添え、選ぶと opencodeLocalContext を保存する', () => {
+    const onAction = vi.fn();
+    render(ui(props({ enabled: true }), onAction));
+    expect(screen.getByText(/Hangar がロードしたモデルのみ/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /ローカルモデルのコンテキスト長/ }));
+    fireEvent.click(screen.getByRole('option', { name: '128K' }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'settings.update', patch: { opencodeLocalContext: 131_072 } }));
   });
 });

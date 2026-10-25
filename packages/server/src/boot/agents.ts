@@ -1,5 +1,5 @@
 import { agentsOf, type Agents } from '../agent/agents.ts';
-import { opencodePermissionPresetOf, type LiveSessionDto } from '@agent-hangar/shared';
+import { localContextOf, opencodePermissionPresetOf, type LiveSessionDto } from '@agent-hangar/shared';
 import { RUN_DROPPED_ENV, AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
@@ -74,6 +74,8 @@ export function bootAgents(
     enrich: o.enrich,
     // 許可のひな形は、起こすたびに今の設定と、利用者の opencode.json（会話のフォルダから上も）を読んで決める。
     permissions: (cwd) => permissionPresetFor({ enabled: opencodePermissionPresetOf(home.settings.current), home: home.home, cwd }),
+    // 起動前に LM Studio のモデルを整える。長さは設定から、呼ばれた時点の値を読む。
+    localModels: { home: home.home, context: () => localContextOf(home.settings.current) },
   });
   return { agents: agentsOf([claude, opencode]), claude, opencode, bindOpencodeServes: (s) => { serves = s; } };
 }

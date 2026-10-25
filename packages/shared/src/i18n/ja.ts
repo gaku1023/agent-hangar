@@ -18,6 +18,7 @@ import { interruptedJa } from './ja/interrupted.ts';
 import { overlapJa } from './ja/overlap.ts';
 import { httpJa } from './ja/http.ts';
 import { launchJa } from './ja/launch.ts';
+import { launchPrepJa } from './ja/launchPrep.ts';
 import { listJa } from './ja/list.ts';
 import { mcpJa } from './ja/mcp.ts';
 import { reportJa } from './ja/report.ts';
@@ -88,6 +89,7 @@ export const ja: Dictionary = {
   ...overlapJa,
   ...httpJa,
   ...launchJa,
+  ...launchPrepJa,
   ...listJa,
   ...mcpJa,
   ...reportJa,

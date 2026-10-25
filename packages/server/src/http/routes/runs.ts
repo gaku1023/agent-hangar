@@ -110,6 +110,15 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     // opencode の起動は serve と会話の下ごしらえ（materialize）を待つので、応答まで数秒かかることがある。
     return runResultAsync(c, language, () => deps.runs.start(params), 201);
   });
+  // 起動前の準備をやめる。鍵は起動の要求に添えた prepKey である。走っていなければ 404。
+  api.delete('/runs/prep/:key', (c) => (deps.runs.cancelPrep(c.req.param('key')) ? c.body(null, 204) : c.json({ error: tr('launchPrep.error.notFound') }, 404)));
+  // 動いている opencode の会話のローカルのモデルを整え直す（起動後に長さが足りずに断られた札の「整えて再開」）。進みは prepKey の鍵で配る。
+  api.post('/sessions/:id/local-models', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const key = ((b.value ?? {}) as { prepKey?: unknown }).prepKey;
+    return runResultAsync(c, language, async () => { await deps.runs.prepareModels(c.req.param('id'), typeof key === 'string' ? key : undefined); return { ok: true }; });
+  });
   // ターミナルの包み方（~/.agent-hangar/shell/claude.zsh）からの起動。断ったら、包み方は素の claude（opencode）を起動する。
   // 本文の agent が opencode なら opencode の口へ渡す。agent の無い本文（claude の包み、古い包み方）は Claude Code にする。
   api.post('/runs/terminal', async (c) => {

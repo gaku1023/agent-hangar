@@ -6,6 +6,7 @@ import { SCRATCH_PREFS } from '../mediator/launch.ts';
 import { approveText, isPickableAccount, loggedOutText, presentAccounts, type AccountView } from './accounts.ts';
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
+import { presentLaunchPrep, type LaunchPrepView } from './launchPrep.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
 export type NewSessionProps = {
@@ -48,6 +49,11 @@ export type NewSessionProps = {
    * options は opencode を選んだときに読むモードとモデル（最後に頼んだ場所の 1 件）。ダイアログは dir が自分の場所と同じときだけ使う。
    */
   opencode?: NewSessionOpencode | null;
+  /**
+   * 送った起動の準備の進み（起動前の準備、docs/design.md）。段の無い準備と、まだ何も届かないうちは null で、今までどおりの見た目になる。
+   * 進みの箱、問いの札、失敗の札はこれから出す。
+   */
+  prep?: LaunchPrepView | null;
 };
 export type NewSessionOpencode = { options: OpencodeOptionsState | null };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
@@ -122,13 +128,16 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   const dirs = (store.workspaceDirs ?? []).filter((d) => !taken.has(d.path));
   // クイックセッションはワークスペースの外に置くので、その名前で作っても重ならない。
   const takenNames = [...new Set(Object.values(store.projects).filter((p) => !p.isScratch && p.path).map((p) => baseName(p.path!).toLowerCase()))];
-  const createdProjectId = state.launch.kind === 'failed' || state.launch.kind === 'submitting' ? state.launch.createdProjectId ?? null : null;
+  const createdProjectId = state.launch.kind === 'failed' || state.launch.kind === 'submitting' || state.launch.kind === 'halted' ? state.launch.createdProjectId ?? null : null;
+  const mark = state.launchPrep;
+  const prepDto = mark ? store.launchPreps[mark.key] : undefined;
   return {
     projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
     dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
     ...(state.overlay.worktree ? { worktree: true } : {}),
     dir: state.overlay.dir ?? null, inspect: store.folderInspect,
     opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,
+    prep: mark && prepDto ? presentLaunchPrep(prepDto, t, mark.model) : null,
   };
 }
 

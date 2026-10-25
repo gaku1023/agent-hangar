@@ -34,7 +34,7 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
  * mode と autoApprove は opencode だけが読む。mode は opencode のエージェント（build、plan など）、autoApprove は `--auto` で、Claude Code では捨てる。
  * account、effort、permissionMode、worktree、addDirs は Claude Code だけのもので、opencode に付けると断る。
  */
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: 'claude-code' | 'opencode'; mode?: string; autoApprove?: boolean };
+export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: 'claude-code' | 'opencode'; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };
@@ -243,6 +243,10 @@ export type UiAction =
   // スマホから起動した会話の右下の通知（試作 F1）。どれも通知を下げる。open はその会話を開き、stop はその run を止める（確認の要否は session.kill と同じ）。
   | { type: 'phoneLaunch.open'; sessionId: string } | { type: 'phoneLaunch.dismiss'; sessionId: string }
   | { type: 'phoneLaunch.stop'; sessionId: string; stop: { runId: string; working: boolean; aside: boolean; shellTabs: number } }
+  // 起動前の準備（docs/design.md「起動前の準備」）。cancel は進みの「準備を中止」（鍵は起動の要求に添えた prepKey）。
+  // short は、起動した後にローカルのモデルのコンテキストが足りなかった右下の札。fix は prepKey を添えて整え直しを頼み、dismiss は札を下げる。
+  | { type: 'launchPrep.cancel'; key: string }
+  | { type: 'launchPrep.short.fix'; sessionId: string; prepKey: string } | { type: 'launchPrep.short.dismiss'; sessionId: string }
   // アプリの自動更新（段 5-4）。check は手動の確認、download は取得してインストールの準備、install は再起動して入れる。
   // dismiss は右下の札を閉じ、その版の札を 2 度出さない。notify は新しい版を知らせるか（切ると自動の確認もしない）。
   | { type: 'update.check' } | { type: 'update.download' } | { type: 'update.install' } | { type: 'update.dismiss' }

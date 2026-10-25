@@ -19,6 +19,7 @@ import { remoteControlRefusal } from '../provider/claude-code/launch/remoteContr
 import { claudeBinOf, LocalClaude } from '../provider/claude-code/compat/localClaude.ts';
 import { readRegistry } from '../provider/claude-code/registry.ts';
 import { RunAccounts } from '../runs/accounts.ts';
+import { LaunchPreps } from '../runs/launchPrep.ts';
 import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
@@ -168,6 +169,8 @@ export function bootRuns(
       return false;
     },
     // クイックセッションの置き場と、同意を得た作業フォルダでは、起こすアカウントの .claude.json へ前もってフォルダの信頼を書く。
+    // 起動前の準備（LM Studio のモデル）の進みを、起動の鍵ごとに画面へ配る。
+    preps: new LaunchPreps({ broadcast: (ev) => { hub.broadcast(ev); } }),
     trustFolder: (configDir, cwd) => { trustBeforeLaunch({ hangarHome: home.home, homeDir: os.homedir(), trustedWorkspace: () => trustedWorkspaceOf(settings.current) }, configDir, cwd); },
   });
   // 区切り（Done、Archived）を付けたセッションが休みになったら、Claude を止める。Paused は戻ってくる会話なので止めない。

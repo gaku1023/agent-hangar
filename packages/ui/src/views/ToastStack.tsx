@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
-import type { JoinCardProps, PhoneLaunchCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { ContextShortCardProps, JoinCardProps, PhoneLaunchCardProps, PrepProgressCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import { newPrepKey } from '../lib/prepKey.ts';
+import { PrepLine } from './LaunchPrepBox.tsx';
 import type { UpdateAct, UpdateCardProps, WhatsNewCardProps } from '../presenters/update.ts';
 import type { OpencodeVersionCardProps } from '../presenters/opencodeNotice.ts';
 import { ReasonGlyph } from './primitives/StatusDot.tsx';
@@ -28,9 +30,9 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps } | { kind: 'prepProgress'; card: PrepProgressCardProps } | { kind: 'contextShort'; card: ContextShortCardProps };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
-const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind);
+const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind === 'contextShort' ? `contextShort:${c.card.sessionId}` : c.kind);
 
 /** スマホから起動した会話の通常の通知が出ている時間（Bypass permissions の通知は時間では消さない）。読む文が info より長いので、その 2 倍にする。 */
 export const PHONE_LAUNCH_TOAST_MS = INFO_TOAST_MS * 2;
@@ -38,7 +40,8 @@ const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${
 
 /**
  * 画面右下に積む知らせ。
- * 上から error と info のトースト、更新の札、更新したあとの札、未検証の opencode の版の札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、並べきれないスマホからの通知の数、スマホから起動した会話の通知、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 上から error と info のトースト、更新の札、更新したあとの札、未検証の opencode の版の札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、並べきれないスマホからの通知の数、スマホから起動した会話の通知、
+ * 閉じた後に走り続ける起動前の準備の進み、起動後にコンテキストが足りなかった札、並べきれない入力待ちの数、入力待ちのカードの順に積む。
  * トーストは操作の結果だけである。戻る時刻の札はホームの帯に、通知の誘いは始める前の確認に、保持期間と互換の知らせはヘッダーの注意にある。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
@@ -59,6 +62,8 @@ export function ToastStack(props: ToastsProps) {
     ...(props.phoneUndo ? [{ kind: 'phoneUndo' as const, name: props.phoneUndo.name }] : []),
     ...((props.phoneLaunchMore ?? 0) > 0 ? [{ kind: 'phoneLaunchMore' as const, n: props.phoneLaunchMore! }] : []),
     ...(props.phoneLaunches ?? []).map((card) => ({ kind: 'phoneLaunch' as const, card })),
+    ...(props.prepProgress ? [{ kind: 'prepProgress' as const, card: props.prepProgress }] : []),
+    ...(props.contextShorts ?? []).map((card) => ({ kind: 'contextShort' as const, card })),
   ];
   const waits: WaitingItem[] = [
     ...(props.more > 0 ? [{ kind: 'more' as const, n: props.more }] : []),
@@ -77,6 +82,8 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'join') return <JoinCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
         if (item.kind === 'phoneUndo') return <PhoneUndoCard key={key} name={item.name} motion={m} />;
         if (item.kind === 'phoneLaunch') return <PhoneLaunchCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
+        if (item.kind === 'prepProgress') return <PrepProgressCard key={key} card={item.card} motion={m} />;
+        if (item.kind === 'contextShort') return <ContextShortCard key={key} card={item.card} motion={m} />;
         // 並べきれないスマホからの通知の数。押す先は無いので、ボタンにせず文だけの 1 行にする。
         if (item.kind === 'phoneLaunchMore') return <div key={key} className="toast toast-pill" data-kind="phone-launch-more" {...motionAttrs(m)}>{t('phoneLaunch.notice.more', { n: item.n })}</div>;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
@@ -231,6 +238,64 @@ function PhoneLaunchCard(props: { card: PhoneLaunchCardProps; blocked: boolean; 
           {c.bypass && c.stop && <button type="button" className="btn btn-sm btn-danger" disabled={props.blocked} title={blockedTitle} onClick={() => emit({ type: 'phoneLaunch.stop', sessionId: c.sessionId, stop: c.stop! })}>{t('phoneLaunch.button.stop')}</button>}
           <button type="button" className={c.bypass ? 'btn btn-sm btn-primary' : 'btn btn-sm'} disabled={props.blocked} title={blockedTitle} onClick={() => emit({ type: 'phoneLaunch.open', sessionId: c.sessionId })}>{t('phoneLaunch.button.open')}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ダイアログを閉じた後に走り続ける起動前の準備の進み（試作 s5-launch-prep の案 1の「途中で閉じる」）。1 行の今の段と経過時間、「準備を中止」を出す。
+ * 準備が済めば「開始しました」の知らせ、失敗すればエラーのトーストに替わる（mediator/launch.ts）。画面を移さないので、ダイアログが開いていても押せる。
+ */
+function PrepProgressCard(props: { card: PrepProgressCardProps; motion: CardMotion }) {
+  const emit = useEmit();
+  const t = useT();
+  const c = props.card;
+  return (
+    <div className="toast notice" data-kind="prep-progress" role="status" {...motionAttrs(props.motion)}>
+      <div className="notice-body">
+        <PrepLine text={c.line} startedAt={c.startedAt} active />
+        <div className="notice-acts">
+          <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'launchPrep.cancel', key: c.key })}>{t('launchPrep.button.cancel')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 起動した後にコンテキストが足りなかった会話の札（試作の §3）。同じ会話は 1 枚で、見出し、本文、「再ロードして再開」と「閉じる」を出す。
+ * 「再ロードして再開」は新しい鍵を作って整え直しを頼み、進みは札の中に 1 行で出す（その間はボタンを外す）。済んだら「再ロードしました」の知らせに替わり、PHONE_LAUNCH_TOAST_MS で下がる。
+ * 画面を移さないので、ダイアログが開いていても押せる。
+ */
+function ContextShortCard(props: { card: ContextShortCardProps; motion: CardMotion }) {
+  const emit = useEmit();
+  const t = useT();
+  const c = props.card;
+  const dismiss = () => emit({ type: 'launchPrep.short.dismiss', sessionId: c.sessionId });
+  const pause = useAutoDismiss(c.done ? PHONE_LAUNCH_TOAST_MS : null, dismiss);
+  if (c.done) {
+    return (
+      <div className="toast notice" data-kind="context-short" data-tone="ok" role="status" {...motionAttrs(props.motion)} {...pause}>
+        <div className="notice-head">
+          <Icon name="check" />
+          <button type="button" className="notice-close" aria-label={t('common.button.close')} onClick={dismiss}><Icon name="close" /></button>
+        </div>
+        <div className="notice-body"><div className="notice-title">{t('launchPrep.short.done')}</div></div>
+      </div>
+    );
+  }
+  return (
+    <div className="toast notice" data-kind="context-short" role="status" aria-label={t('launchPrep.short.title')} {...motionAttrs(props.motion)}>
+      <div className="notice-head"><Icon name="alert" /><span className="notice-label">{t('launchPrep.short.title')}</span></div>
+      <div className="notice-body">
+        <div className="notice-message">{t('launchPrep.short.body')}</div>
+        {c.fix ? <PrepLine text={c.fix.text} startedAt={c.fix.startedAt} active /> : (
+          <div className="notice-acts">
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => emit({ type: 'launchPrep.short.fix', sessionId: c.sessionId, prepKey: newPrepKey() })}>{t('launchPrep.short.fix')}</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={dismiss}>{t('launchPrep.short.close')}</button>
+          </div>
+        )}
       </div>
     </div>
   );

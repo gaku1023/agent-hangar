@@ -1619,6 +1619,36 @@ hook の受け口は、opencode の会話では何も読まずに 204 を返す�
 本文の有無をファイルで確かめられないので、終わった run の会話を「本文が無い」として消す後始末（`pruneEmptySession`）は Claude の会話だけに効かせる。
 再開と、TUI が閉じたときの止め方は「opencode の寿命」の節に書く。
 
+### 起動前の準備
+
+opencode の会話を作る前に、hangar が段を走らせる（`runs/launchPrep.ts`）。
+段は 2 種類を想定する。この PC の LM Studio のモデルを足りる長さでロードする段（local-model）と、接続先の準備のコマンドを走らせる段（command、0.10.1 の後続で足す）。
+起動 1 回に `LaunchPrep` を 1 つ作り、段が動くたびに鍵ごとの全体を `launch.prep` で配る。鍵は画面が起動の要求に添える（`LaunchParams.prepKey`）。段の無い準備は何も配らない。
+利用者がやめたら（`DELETE /api/runs/prep/:key`）signal を切り、起動は 400（code `prep-cancelled`）で終わる。
+利用者に聞くことができたら、進みを asking で配り、起動を 409（code `prep-ask`）で止める。画面は届いた `ask` で問いを出し、答え（`LaunchParams.prepChoice`）を添えて送り直す。
+
+LM Studio の段（`provider/opencode/localModels/`）は、serve を起こした後、会話を作る前に走る。
+
+1. 使うモデルを serve の設定の層（`GET /api/config`）から集める。会話のモデル（指定が無ければ設定の `model`）、`small_model`、agent ごとの `model` である。
+2. プロバイダーの baseURL が 127.0.0.1 か localhost のものだけを触る。LAN の LM Studio はほかの人の PC かもしれないので触らない。`/api/v1/models` が 404 かつながらない宛先は、黙って飛ばす。
+3. ロードする長さは、設定の `opencodeLocalContext`（既定 64K）と、opencode の `limit.context` と、LM Studio の `max_context_length` の小さい方である。
+4. 足りる長さで載っていれば何もしない。載っていなければロードし、短く載っていれば、アンロードしてからロードし直す。
+5. アンロードしてよいのは、hangar がロードしたもの（ホームの `opencode/local-models.json` に、宛先と使った hangar の会話と一緒に記録する）のうち、ほかの実行中の会話（serve がある会話）が使っていないものだけである。手動でロードされたものは、答え（`unload`）が無ければ触らずに聞く（`unload-manual`）。
+6. メモリは、残る instance と新しくロードするものの重みの合計が物理メモリの 8 割を超えるかで見る。会話と agent が別々のモデルを使い、それだけで超えるなら、1 モデルに寄せるかを聞く（`memory`、勧めるのは会話のモデル）。答えが `singleModel` なら、agent と `small_model` をそのモデルに上書きする設定で serve を起こし直す。1 つで収まらないモデルは聞かずにロードしてみる。
+
+起動の後に、短く載ったモデルで断られたとき（`session.execution.failed` の文が「コンテキスト長を超えた」もの、`live.ts` の `isContextShortError`）は、`opencode.contextShort` を配って右下の札を出す。
+札の「再ロードして再開」は `POST /api/sessions/:id/local-models` で、動いている会話の serve のまま同じ段を走らせる。利用者が頼んだので、使うモデルが短く載っていれば手動でロードされたものでもロードし直す（ほかのモデルはアンロードしない）。
+外のターミナルからの起動と、終わった会話の再開では、問いに答える画面が無いので準備しない。
+
+画面は `launch.prep` を Store に鍵ごとに持ち（`launchPreps`、走っていない古いものから 8 件まで）、Mediator は起動を送った鍵と、起動のモデルと名前を `launchPrep` に覚える（opencode の起動だけが鍵を持つ。新しいセッションのダイアログが、送るたびに新しい `prepKey` を作る）。
+新しいセッションのダイアログは、送信の間、送信ボタンの上に進みの箱を出す。1 行の今の段（スピナー、文、経過時間 m:ss）、load と reload の間だけの進みの帯（中身は不定）、済んだ段の一覧（✓）である。出るときは `growIn`、消えるときは `collapseOut`（`usePresence`）。
+ボタンは「準備中…」で押せず、その左に「準備を中止」が出る。失敗したら箱を閉じ、ダイアログの中に失敗の札（理由は `launch.prep` の `reason`）を出す。段の無い準備は何も届かないので、見た目は今までのままである。
+問いで止まったとき（409、code `prep-ask`）は `launch.halted` で送信中を解き（`LaunchState` の `halted`、失敗ではない）、届いている `ask` を黄色の札で出す。答えは同じ詳細に `prepChoice` を足し、新しい鍵で送り直す。
+手で載せたモデルが求めたモデルと同じものだけなら「再ロード」、別のモデルが載っていれば「アンロードしてロード」を聞く（外す instance は全部送る）。メモリの問いの「{model} のみで開始」は、起動のモデルの provider を使い、起動のモデルが無ければ出さない。
+進みの途中でダイアログを閉じても起動は裏で続き、右下に進みの札と「準備を中止」が出る。済んだら画面を移さず「開始しました」と「開く」の知らせにし、失敗したらエラーのトーストで理由を出す。段の無い準備は、閉じた後でも今までどおり会話の画面へ移る。
+`opencode.contextShort` は右下の札（同じ会話は 1 枚、`State.contextShorts`）になる。「再ロードして再開」は画面が作った鍵で `POST /api/sessions/:id/local-models` を呼び、進みは札の中の 1 行に出す。済んだら「再ロードしました」の知らせに替わる。
+設定の opencode の節の「ローカルモデルのコンテキスト長」（32K、64K（推奨）、128K）は `opencodeLocalContext` を保存する。次の起動から効く。
+
 ### opencode の状態
 
 opencode の会話の実行中、入力待ち、許可と質問を、Claude と同じ実行中の一覧（`LiveSessionDto`）と許可と質問の面に載せる（計画の B4）。

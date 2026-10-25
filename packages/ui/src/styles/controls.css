@@ -332,6 +332,21 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .oc-model-note-x { flex: none; display: grid; place-items: center; width: 18px; height: 18px; margin-left: auto; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-3); cursor: pointer; }
 .oc-model-note-x:hover { background: var(--surface-2); color: var(--ink); }
 .oc-model-note-x > .icon { width: 12px; height: 12px; }
+/* 起動前の準備（試作 s5-launch-prep の案 1）。進みの箱、問いと失敗の札。出入りは高さを伸び縮みさせる（growIn、collapseOut）ので、箱の外に余白を持たない。 */
+.launch-prep { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); font-size: var(--fs-sm); line-height: 1.5; }
+.launch-prep-line { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
+.launch-prep-text { min-width: 0; overflow-wrap: anywhere; }
+.launch-prep-time { flex: none; margin-left: auto; font: var(--fs-xs) var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.launch-prep .launch-prep-bar { margin-top: 0; }
+.launch-prep-bar-gap { display: block; height: 4px; }
+.launch-prep-done { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-xs); color: var(--st-done); }
+.launch-prep-done > li { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.launch-prep-done > li > .icon { flex: none; width: 12px; height: 12px; }
+.launch-card { --k: var(--st-paused); display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); font-size: var(--fs-sm); line-height: 1.5; background: color-mix(in srgb, var(--k) 9%, #ffffff); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 28%, #ffffff); }
+.launch-card[data-tone='bad'] { --k: var(--error); }
+.launch-card-h { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.launch-card-b { color: var(--ink-2); overflow-wrap: anywhere; }
+.launch-card-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 0.5); }
 /* 下端の一言（そのまま ⌘↵ で）。キャンセルと起動の間の余白に右寄せで置く。 */
 .dialog-hint { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-xs); color: var(--ink-3); text-align: right; }
 

@@ -41,6 +41,14 @@ type Ev = { type: string; data: Record<string, unknown> };
 /** serve の出来事の受け手。providerSessionId は流れを読んでいる会話、type は出来事の種類（`session.step.ended` など）である。 */
 export type OpencodeEventListener = (providerSessionId: string, type: string) => void;
 
+/**
+ * 失敗の文が「モデルの長さが足りない」ことを言っているか（docs/design.md「起動前の準備」）。
+ * LM Studio が JIT で短く載せたモデルに、opencode の最初の一手（システムプロンプトと道具の定義）が収まらなかったときの文を見る。
+ */
+export function isContextShortError(message: string): boolean {
+  return /greater than the context length|when context the overflows|context length of only|exceeds the (available )?context( size| length| window)|maximum context length/i.test(message);
+}
+
 type Conn = {
   t: OpencodeLiveTarget;
   client: OpencodeClient;
@@ -68,6 +76,7 @@ export class OpencodeLive implements LiveSource, AskFeed {
   private readonly listeners = new Set<(live: LiveSessionDto[]) => void>();
   private readonly askListeners = new Set<(a: AgentAsk) => void>();
   private readonly eventListeners = new Set<OpencodeEventListener>();
+  private readonly contextShortListeners = new Set<(providerSessionId: string, message: string) => void>();
   private cur: LiveSessionDto[] = [];
   private key = '[]';
   private started = false;
@@ -136,6 +145,15 @@ export class OpencodeLive implements LiveSource, AskFeed {
   onEvent(cb: OpencodeEventListener): () => void {
     this.eventListeners.add(cb);
     return () => { this.eventListeners.delete(cb); };
+  }
+
+  /**
+   * モデルの長さが足りずに断られた失敗（`session.execution.failed` の error.message）を受ける口。
+   * providerSessionId は流れを読んでいる serve の会話である（サブエージェントの会話の失敗も、親の会話として知らせる）。
+   */
+  onContextShort(cb: (providerSessionId: string, message: string) => void): () => void {
+    this.contextShortListeners.add(cb);
+    return () => { this.contextShortListeners.delete(cb); };
   }
 
   /** delayMs 後に、流れを読んでいる serve の全部を取り直す。先に予約した取り直しのほうが早ければ、そちらに任せる。 */
@@ -246,6 +264,11 @@ export class OpencodeLive implements LiveSource, AskFeed {
     if (this.apply(c, ev)) this.update(c);
     for (const cb of this.eventListeners) {
       try { cb(c.t.providerSessionId, ev.type); } catch (e) { this.o.log?.(`[opencode] event listener failed: ${e instanceof Error ? e.message : String(e)}`); }
+    }
+    if (ev.type === 'session.execution.failed') {
+      const err = ev.data.error;
+      const message = typeof err === 'object' && err !== null && typeof (err as { message?: unknown }).message === 'string' ? (err as { message: string }).message : '';
+      if (isContextShortError(message)) for (const cb of this.contextShortListeners) cb(c.t.providerSessionId, message);
     }
   }
 

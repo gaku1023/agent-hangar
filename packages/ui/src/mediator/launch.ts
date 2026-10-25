@@ -2,7 +2,13 @@ import type { LaunchParams } from '@agent-hangar/shared';
 import { translatorOf } from '../presenters/i18n.ts';
 import type { Store } from '../store/store.ts';
 import { overlayReplaceable } from './overlay.ts';
-import type { Effect, Input, LaunchPrefs, NewSessionDraft, State, Step } from './types.ts';
+import type { Effect, Input, LaunchPrefs, LaunchPrepMark, NewSessionDraft, State, Step } from './types.ts';
+
+/** 閉じた後に済んだ起動の知らせを出しておく長さ（ミリ秒）。既定の info（4 秒）より長く、「開く」を押す間を取る。 */
+const NOTICE_MS = 8000;
+
+/** 起動の要求に準備の鍵があれば、見張りの印にする。鍵が無い起動（Claude Code）は準備を持たない。 */
+const prepMarkOf = (p: LaunchParams): LaunchPrepMark | null => (p.prepKey ? { key: p.prepKey, model: p.model ?? null, name: p.name ?? null } : null);
 
 /** 新しいセッションのダイアログの書きかけを残す localStorage の鍵。値は NewSessionDraft か null。 */
 export const NEW_SESSION_DRAFT_KEY = 'newSession.draft';
@@ -118,7 +124,24 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       const fromDialog = state.overlay.kind === 'newSession' || state.newSessionSent;
       const overlay = state.overlay.kind === 'newSession' ? { kind: 'none' as const } : state.overlay;
       const cleared = fromDialog ? setDraft(state, null) : { state, effects: [] as Effect[] };
-      return { state: { ...cleared.state, launch: { kind: 'idle' }, overlay, newSessionSent: false }, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }, ...cleared.effects] };
+      const done: State = { ...cleared.state, launch: { kind: 'idle' }, overlay, newSessionSent: false, launchPrep: null };
+      // 段のあった準備（ローカルのモデルを載せた）の進みを見ていて、閉じた後に済んだときは、勝手に会話の画面へ移さず、右下の知らせで知らせる。
+      // 段の無い準備は何も届かず、今までと見た目が同じなので、今までどおり移る。
+      const prep = state.launchPrep ? store.launchPreps[state.launchPrep.key] : undefined;
+      if (state.newSessionSent && state.overlay.kind !== 'newSession' && prep && prep.steps.length > 0) {
+        const t = translatorOf(store);
+        const name = store.sessions[ev.sessionId]?.name ?? state.launchPrep?.name ?? t('common.label.noName');
+        const toast = { id: String(done.nextToastId), level: 'info' as const, message: t('launchPrep.notice.started', { name }), holdMs: NOTICE_MS, action: { label: t('launchPrep.notice.open'), send: { type: 'session.open' as const, id: ev.sessionId } } };
+        return { state: { ...done, toasts: [...done.toasts, toast], nextToastId: done.nextToastId + 1 }, effects: cleared.effects };
+      }
+      return { state: done, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }, ...cleared.effects] };
+    }
+    if (ev.type === 'launch.halted') {
+      // 準備が問いで止まったか、利用者がやめた。失敗ではない。ダイアログが開いていれば進みと問いの札がそこに出るので、何も重ねない。
+      // 閉じた後に問いで止まったときだけ、続けるには確認が要ることを知らせる（やめたのは利用者自身なので、知らせない）。
+      const created = state.launch.kind === 'submitting' || state.launch.kind === 'halted' ? state.launch.createdProjectId : undefined;
+      const shown = state.overlay.kind === 'newSession';
+      return { state: { ...state, launch: { kind: 'halted', ...(created ? { createdProjectId: created } : {}) }, newSessionSent: false }, effects: shown || ev.why === 'cancel' ? [] : [{ kind: 'toast', level: 'error', message: ev.message }] };
     }
     if (ev.type === 'launch.failed') {
       // 起動ダイアログが開いていれば、その中に同じ文言が出るのでトーストは重ねない。
@@ -138,7 +161,8 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。
       if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
       // クイックセッションはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
-      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true, ...(i.dir ? { dir: i.dir } : {}) }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+      // 前の起動の準備は、まだ走っているときだけ残す（開き直した画面に進みと「準備を中止」を出す）。止まった問いと失敗は、新しい画面に持ち越さない。
+      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true, ...(i.dir ? { dir: i.dir } : {}) }, launch: { kind: 'idle' }, launchPrep: state.launchPrep && store.launchPreps[state.launchPrep.key]?.phase === 'running' ? state.launchPrep : null }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     case 'opencode.providers.manage': {
       // ダイアログから来たときだけ、戻る先を覚える。ダイアログを閉じて、設定の opencode の面へ移る。
       const o = state.overlay;
@@ -153,12 +177,12 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       // 新しいフォルダと未登録のフォルダは、プロジェクトを作ってから起動する（runtime が 2 つを順に行う）。
-      if (i.place) return { state: { ...state, launch: { kind: 'submitting' }, newSessionSent: true }, effects: [{ kind: 'api.createProjectThenLaunch', place: i.place, params: i.params }] };
+      if (i.place) return { state: { ...state, launch: { kind: 'submitting' }, newSessionSent: true, launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.createProjectThenLaunch', place: i.place, params: i.params }] };
       if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: translatorOf(store)('mediator.launch.pickProject') } }, effects: [] };
       {
         // 詳細は、送った時点でそのプロジェクトの前回値にする。起動に失敗しても、選んだ詳細は利用者の意図なので残す。
         const r = rememberPrefs(state, i.params, store.settings?.defaultModel ?? null);
-        return { state: { ...r.state, launch: { kind: 'submitting' }, newSessionSent: true }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
+        return { state: { ...r.state, launch: { kind: 'submitting' }, newSessionSent: true, launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
       }
     case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt, attachments: i.attachments ?? [] });
     case 'session.new.draft.attach': {

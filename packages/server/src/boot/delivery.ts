@@ -71,6 +71,8 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   // opencode の写し（serve の出来事の流れ）。会話を起こすまで行は無い。
   live.add(agents.opencode.live);
   // opencode は hook を持たないので、許可と問いは流れから受け、hook の受け口と同じ書き手で書く（sessions/agentAsks.ts）。
+  // 起動後にモデルの長さが足りずに断られたら、右下の札で知らせる（「整えて再開」）。
+  agents.opencode.contextShort((sessionId) => { publisher.broadcast({ type: 'opencode.contextShort', sessionId }); });
   agents.opencode.asks.subscribe?.((a) => { routeAgentAsk(db, agents.opencode.kind, a, permissionAsks, Date.now()); });
   return {
     ...agents,

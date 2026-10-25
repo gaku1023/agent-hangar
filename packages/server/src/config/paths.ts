@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isLanguage, isModelName, isOpencodeInjection, isSummaryEngine, newId, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
@@ -129,6 +129,8 @@ export type Settings = {
   opencodeIntercept?: boolean;
   /** hangar が起動する opencode に許可のひな形を重ねるか（provider/opencode/permissionPreset.ts）。項目が無いうちは入りとして読む。 */
   opencodePermissionPreset?: boolean;
+  /** 起動前に LM Studio のモデルを載せる長さ（起動前の準備）。項目が無いうちは既定の 64K として読む。 */
+  opencodeLocalContext?: number;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -226,6 +228,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.opencodeInjection !== undefined && !isOpencodeInjection(s.opencodeInjection)) delete s.opencodeInjection;
   if (s.opencodeIntercept !== undefined && typeof s.opencodeIntercept !== 'boolean') delete s.opencodeIntercept;
   if (s.opencodePermissionPreset !== undefined && typeof s.opencodePermissionPreset !== 'boolean') delete s.opencodePermissionPreset;
+  if (s.opencodeLocalContext !== undefined && !isLocalContext(s.opencodeLocalContext)) delete s.opencodeLocalContext;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

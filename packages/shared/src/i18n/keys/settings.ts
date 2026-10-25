@@ -288,6 +288,7 @@ export const settingsKeys = {
   'settings.label.opencodeInjection': [],
   'settings.label.opencodeIntercept': [],
   'settings.label.opencodePermissionPreset': [],
+  'settings.label.opencodeLocalContext': [],
   'settings.opencode.title': [],
   'settings.opencode.enabledDesc': [],
   'settings.opencode.version.title': [],

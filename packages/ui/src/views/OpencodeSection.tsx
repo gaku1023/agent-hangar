@@ -96,6 +96,9 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: O
             below={o.full.length > 0 ? <InjectionFull parts={o.full} /> : undefined}
             control={<Listbox label={t('settings.label.opencodeInjection')} value={o.injection} options={o.injectionOptions} align="end"
               onChange={(v) => emit({ type: 'settings.update', patch: { opencodeInjection: v as OpencodeInjection } })} />} />
+          <SetRow title={t('settings.label.opencodeLocalContext')} desc={t('launchPrep.settings.hint')}
+            control={<Listbox label={t('settings.label.opencodeLocalContext')} value={String(o.localContext.value)} options={o.localContext.options.map((c) => ({ value: String(c.value), label: c.label }))} align="end"
+              onChange={(v) => emit({ type: 'settings.update', patch: { opencodeLocalContext: Number(v) } })} />} />
           {props.providers && <OpencodeProviders p={props.providers} />}
         </div>
       )}
