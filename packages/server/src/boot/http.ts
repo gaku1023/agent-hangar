@@ -6,6 +6,7 @@ import { findOpencode, whichMux } from '../config/tools.ts';
 import { listDevices } from '../db/queries.ts';
 import { createApp } from '../http/app.ts';
 import { promoteSession } from '../projects/promote.ts';
+import type { MobileParts } from './mobile.ts';
 import type { OpencodeParts } from './opencode.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
@@ -80,6 +81,8 @@ export type HttpParts = {
 export function bootHttp(p: {
   home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane' | 'service'>;
   opencode: Pick<OpencodeParts, 'options' | 'providers' | 'exporter' | 'transfer' | 'serves'>;
+  /** スマホの受信箱の素。opencode の入り切りで組み直させる。 */
+  mobile: Pick<MobileParts, 'settingsChanged'>;
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
@@ -117,6 +120,7 @@ export function bootHttp(p: {
       },
       onSummaryCap: summary.rebuildClaude,
       publishConfigSync: sync.publishConfigSync,
+      onOpencodeEnabled: () => p.mobile.settingsChanged(),
     }, patch),
     live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, asksOf: (provider) => delivery.agents.of(provider).asks, osNotices: delivery.osNotices,
     summary: summary.api,

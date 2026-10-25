@@ -15,6 +15,8 @@ export type SettingsUpdateDeps = {
   onSummaryCap: () => void;
   /** 設定の同期の入り切りを、ヘッダと Settings の表示に載せ直す。 */
   publishConfigSync: (s: Settings) => void;
+  /** opencodeEnabled の欄が来たとき。スマホの一覧（受信箱の素）は opencode の入り切りで中身が変わるので、組み直させる。 */
+  onOpencodeEnabled?: () => void;
 };
 
 /**
@@ -30,6 +32,7 @@ export function applySettingsPatch(deps: SettingsUpdateDeps, patch: Partial<Sett
   if (patch.tmuxPath !== undefined || patch.opencodeEnabled !== undefined || patch.opencodeIntercept !== undefined) deps.onTmuxPath();
   if (patch.claudePath !== undefined) deps.onClaudePath(settings);
   if (patch.summaryHourlyCap !== undefined) deps.onSummaryCap();
+  if (patch.opencodeEnabled !== undefined) deps.onOpencodeEnabled?.();
   deps.publishConfigSync(settings);
   return settings;
 }

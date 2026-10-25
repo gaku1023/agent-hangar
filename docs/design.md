@@ -8069,6 +8069,9 @@ opencode の会話の Remote Control の URL はいつも null で、アカウ�
 変化を 2 秒待ってまとめ（`FEED_DEBOUNCE_MS`）、同じ PC からの書き込みは前の書き込みから 15 秒あける（`FEED_MIN_GAP_MS`）。
 間に来た変化は、間が明けたところで 1 回にまとめる。
 取りこぼしを防ぐ安全網として 60 秒ごとにも作り直すが、ハッシュが同じなら書かない。
+作り直しのきっかけは、実行中の一覧と意図の変化、Remote Control の URL、アカウントの配り、素が読む表（`boot/mobile.ts` の `FEED_TABLES`）の行の変化と、設定の opencode の入り切り（`settingsChanged`。素の `caps.agents` と opencode の行が変わる。設定は DB の行ではないので表の変化では拾えない）である。
+opencode の使用量（`session_live_stats`）は `FEED_TABLES` に入れない。
+その表を書くのは索引の束（`indexer/write.ts`）と statusline の受け口で、どちらも書いた後に sessions の行を名指しする（`touchRow`）ので、使用量の変化はそれで届く。
 書き込みに失敗したらハッシュを覚えないので、次のきっかけで同じ中身でも書き直す。
 
 `GET /m/inbox` が読むのは `devices` と `mobile_feeds` だけで、行の数は PC の数程度である。

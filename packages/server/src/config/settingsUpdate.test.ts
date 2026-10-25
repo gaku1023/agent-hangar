@@ -23,6 +23,7 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     onClaudePath: (s) => { calls.push(`claude ${s.claudePath}`); },
     onSummaryCap: () => { calls.push('cap'); },
     publishConfigSync: (s) => { calls.push(`publish ${s.configBundleSync}`); },
+    onOpencodeEnabled: () => { calls.push('opencode'); },
   }, p);
 
   it('書き替えた値を返し、置き場と settings.json の両方に残す', () => {
@@ -64,5 +65,13 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     calls.length = 0;
     patch({ configBundleSync: false, tmuxPath: '/t', claudePath: '/c', summaryHourlyCap: 1 });
     expect(calls).toEqual(['tmux /t', 'shell', 'claude /c', 'cap', 'publish false']);
+  });
+
+  it('opencodeEnabled の欄が来たときだけ、opencode の入り切りの口を呼ぶ（スマホの一覧を組み直す）', () => {
+    patch({ lmStudioModel: 'm1' });
+    patch({ opencodeIntercept: true });
+    expect(calls).not.toContain('opencode');
+    patch({ opencodeEnabled: true });
+    expect(calls.filter((c) => c === 'opencode')).toHaveLength(1);
   });
 });

@@ -217,7 +217,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
   posixIt('Windows で opencode が .cmd のままなら、起動の入口で理由を添えて断り、行も serve も作らない', async () => {
     const cmd = 'C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd';
     const { rm, log, opened } = make({ bin: cmd, platform: 'win32' });
-    const err = await rm.start(params()).catch((e: unknown) => e as Error & { status: number });
+    const err = (await rm.start(params()).then(() => null, (e: unknown) => e)) as Error & { status: number };
     expect(err).toMatchObject({ status: 400 });
     expect(err.message).toBe(`opencode を起動できませんでした: ${cmd} は .cmd のため使えません。opencode.exe が PATH から見つかるようにしてください`);
     expect(sessions()).toEqual([]);

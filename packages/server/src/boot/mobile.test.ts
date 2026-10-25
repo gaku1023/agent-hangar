@@ -155,6 +155,17 @@ describe('bootMobile', () => {
     expect(broadcasts).toHaveLength(2);
   });
 
+  it('設定が変わったら（opencode の入り切り）nudge し、止めた後は nudge しない', () => {
+    const { mobile } = setup();
+    mobile.start();
+    const nudge = vi.spyOn(mobile.publisher()!, 'nudge');
+    mobile.settingsChanged();
+    expect(nudge).toHaveBeenCalledTimes(1);
+    mobile.stop();
+    mobile.settingsChanged();
+    expect(nudge).toHaveBeenCalledTimes(1);
+  });
+
   it('同期を設定していなければ書き手を作らず、設定が現れたら次のきっかけか見回りで作る', async () => {
     const { timers, client, mobile, setLink } = setup({ link: false });
     mobile.start();
