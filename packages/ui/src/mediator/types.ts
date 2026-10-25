@@ -96,7 +96,7 @@ export type Effect =
   | { kind: 'api.recheckMux' }
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
-  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray } | { kind: 'api.fork'; sessionId: string }
+  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string } | { kind: 'api.fork'; sessionId: string }
   // 起動した後にコンテキストが足りなかった会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届き、結果は contextShort.done か contextShort.failed で返る。
   | { kind: 'api.fixContextShort'; sessionId: string; prepKey: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
@@ -253,7 +253,7 @@ export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjec
  * 起動前の準備の見張り（起動の要求に添えた prepKey）。model は起動のモデル（provider/model）で、問いの答えの provider を取る。
  * name は利用者が付けた名前で、閉じた後に済んだときの知らせに使う（会話の名前が Store に届く前のため）。
  */
-export type LaunchPrepMark = { key: string; model: string | null; name: string | null };
+export type LaunchPrepMark = { key: string; model: string | null; name: string | null; /** 再開の準備（進みは右下の札に出す）。 */ resume?: true };
 /** 起動した後にコンテキストが足りなかった会話の札。fix は整え直しの最中の鍵、done は済んだこと。 */
 export type ContextShort = { sessionId: string; fix: { key: string } | null; done: boolean };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */

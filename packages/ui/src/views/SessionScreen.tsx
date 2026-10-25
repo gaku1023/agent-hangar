@@ -26,6 +26,7 @@ import { TocPane, TocToggle } from './TocPane.tsx';
 import { Transcript } from './Transcript.tsx';
 import { TurnIndex } from './TurnIndex.tsx';
 import { useNarrow } from './useNarrow.ts';
+import { newPrepKey } from '../lib/prepKey.ts';
 
 const ACTION_ICON: Record<SessionActionId, IconName> = {
   openEditor: 'openEditor', resume: 'resume', resumeHere: 'resumeHere', fork: 'fork', openTerminal: 'openTerminal',
@@ -100,7 +101,8 @@ export function SessionScreen(props: SessionProps) {
   const act = (a: SessionActionId) => {
     switch (a) {
       case 'openEditor': emit({ type: 'session.openEditor', sessionId: id }); return;
-      case 'resume': emit({ type: 'session.resume', id }); return;
+      // 鍵は opencode の接続先の準備の進みを右下の札で受けるため。準備の無い再開では何も届かない。
+      case 'resume': emit({ type: 'session.resume', id, prepKey: newPrepKey() }); return;
       // 確認の 1 枚（前の PC とこの PC）を出してから写す。確認に出すものは Mediator が取りに行く。
       case 'resumeHere': emit({ type: 'session.resumeHere.open', id }); return;
       case 'fork': emit({ type: 'session.fork', id }); return;

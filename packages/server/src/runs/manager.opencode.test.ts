@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect } from 'vitest';
-import type { LaunchParams } from '@agent-hangar/shared';
+import type { LaunchParams, LaunchPrepDto } from '@agent-hangar/shared';
+import { LaunchPreps } from './launchPrep.ts';
+import { ProviderPreps } from '../provider/opencode/providerPrep.ts';
 import { agentsOf } from '../agent/agents.ts';
 import { claudeDriverFor } from '../boot/agents.ts';
 import { openDb, type Db } from '../db/open.ts';
@@ -75,7 +77,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     return { panes, opened, listed, closed, touched };
   };
 
-  const make = (o: { secrets?: boolean; fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink; claudeBin?: string | null } = {}) => {
+  const make = (o: { secrets?: boolean; fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink; claudeBin?: string | null; providerPreps?: ProviderPreps; preps?: LaunchPreps } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
@@ -88,7 +90,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
       get: (id: string) => manager.get(id),
       stop: (id: string) => manager.stop(id),
     };
-    const opencode = createOpencodeDriver({ serves: () => watched, droppedEnv: AGENT_RUN_DROPPED_ENV, mcpPollMs: 10, mcpWaitMs: 2000, report: () => {} });
+    const opencode = createOpencodeDriver({ serves: () => watched, droppedEnv: AGENT_RUN_DROPPED_ENV, mcpPollMs: 10, mcpWaitMs: 2000, report: () => {}, ...(o.providerPreps ? { providerPreps: o.providerPreps } : {}) });
     const fakeClaude = writeFakeClaude(home);
     const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => fakeClaude.bin, live: liveSourceOf(), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => realProcOps });
     const { panes, opened, listed, closed, touched } = recordingPanes(logFile, { fail: o.failOpen, screen: o.screen });
@@ -103,6 +105,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
       agentBin: (k) => (k === 'opencode' ? (o.bin === undefined ? bin : o.bin) : null),
       injection: () => ({ askStatusAtEnd: true, liveHints: true, opencode: o.injection ?? 'minimal' }),
       terminalIntercept: (k) => k === 'opencode' && o.intercept !== false,
+      ...(o.preps ? { preps: o.preps } : {}),
     });
     return { rm, opened, ensured, manager, registry, bin, opencode, claude, fakeClaude, listed, closed, touched, log: () => readFakeOpencodeLog(logFile) };
   };
@@ -400,6 +403,33 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     await until(() => !isAlive(pidB));
     expect(runRow(b.run.id).end_reason).toBe('parked');
     expect(ev(log(), 'interrupt')).toHaveLength(2);
+  });
+
+  posixIt('「再開」でも接続先の準備のコマンドを走らせ、進みを再開の鍵で配る。失敗したら再開せずに 400 で断る', async () => {
+    const runs: string[] = [];
+    let code = 0;
+    const providerPreps = new ProviderPreps({
+      preps: () => ({ lmstudio: { start: 'gpu up', stop: '', stopAfter: 15 } }),
+      run: async (command) => { runs.push(command); return { code, tail: code ? 'no route to host' : '' }; },
+      exitReason: (c) => `exit ${c}`, timeoutReason: (m) => `timeout ${m}`,
+    });
+    const sent: LaunchPrepDto[] = [];
+    const preps = new LaunchPreps({ broadcast: (e) => { sent.push(structuredClone(e.prep)); } });
+    const { rm, manager } = make({ providerPreps, preps });
+    const r = await rm.start(params({ model: 'lmstudio/qwen3.8' }));
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    runs.length = 0;
+    const again = await rm.resumeWith(r.sessionId, { prepKey: 'resume-key-01' });
+    expect(again.run.kind).toBe('resume');
+    expect(runs).toEqual(['gpu up']);
+    expect(sent.filter((p) => p.key === 'resume-key-01').at(-1)).toMatchObject({ phase: 'ready', steps: [{ kind: 'command', action: 'run', state: 'done' }] });
+    rm.tick(); rm.tick();
+    await until(() => manager.get(r.sessionId) === null);
+    code = 10;
+    await expect(rm.resumeWith(r.sessionId, { prepKey: 'resume-key-02' })).rejects.toMatchObject({ status: 400, message: expect.stringContaining('no route to host') });
+    expect(sent.filter((p) => p.key === 'resume-key-02').at(-1)).toMatchObject({ phase: 'failed', reason: 'no route to host' });
+    expect(manager.get(r.sessionId)).toBeNull();
   });
 
   posixIt('「再開」は serve を新しい秘密で起こし直し、追記を PUT し直し、MCP を待ってから、-s で同じ会話につなぐ。秘密は argv に無い', async () => {

@@ -34,6 +34,11 @@ describe('右下の知らせの準備の進み', () => {
     expect(presentToasts(closed({ newSessionSent: false }), storeWith(prep()), 5_000).prepProgress).toBeNull();
     expect(presentToasts(closed({ launchPrep: null }), storeWith(prep()), 5_000).prepProgress).toBeNull();
   });
+  it('再開の準備（接続先の準備のコマンド）は、ダイアログを経ずに同じ札で出す', () => {
+    const resume = closed({ newSessionSent: false, launch: { kind: 'submitting' }, launchPrep: { key: 'key-12345678', model: null, name: null, resume: true } });
+    const run = prep({ steps: [{ id: '1', kind: 'command', target: 'my-gpu', action: 'run', state: 'running', fromContext: null, toContext: null, startedAt: 1_000, endedAt: null, reason: null }] });
+    expect(presentToasts(resume, storeWith(run), 5_000).prepProgress).toMatchObject({ key: 'key-12345678', line: 'my-gpu を準備中…' });
+  });
 });
 
 describe('右下の知らせのコンテキスト不足の札', () => {

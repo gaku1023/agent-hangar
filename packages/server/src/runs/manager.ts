@@ -878,9 +878,10 @@ export class RunManager {
    * stop は、その claude を止め、止まったのを確かめてから再開する。止められなければ 409（run.error.strayNotStopped）で断り、再開しない。
    * ignore は、この判定を飛ばして再開する（2 つの claude が同じ会話を進めることを、利用者が承知している）。
    */
-  async resumeWith(sessionId: string, o: { stray?: ResumeStray } = {}): Promise<LaunchResult> {
+  async resumeWith(sessionId: string, o: { stray?: ResumeStray; prepKey?: string } = {}): Promise<LaunchResult> {
     const target = this.session(sessionId);
-    if (this.agentOf(target).launch.materialize) return this.resumeMaterialized(target);
+    // hangar からの再開は、新しい起動と同じく接続先の準備を走らせる。進みは prepKey の鍵で配る（無ければ hangar が鍵を作る）。
+    if (this.agentOf(target).launch.materialize) return this.resumeMaterialized(target, {}, { key: o.prepKey });
     if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray });
     const s = this.session(sessionId);
     this.assertCan(s, 'resume');
@@ -899,8 +900,9 @@ export class RunManager {
    * 初期プロンプトと自動承認は持ち越さない（Claude の再開と同じく、起動の指定を引き継がない）。
    * 外のターミナルで -s と一緒に打った --prompt と --auto だけは、その再開の指定として extra で受ける（startOpencodeFromTerminal）。
    * 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
+   * prep を渡されたら（hangar の画面、スマホ、同期の再開）、起動前の準備（接続先の準備のコマンド）を走らせる。外のターミナルからの再開は渡さない。
    */
-  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean } = {}): Promise<LaunchResult> {
+  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
     const driver = this.agentOf(s);
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
@@ -917,11 +919,13 @@ export class RunManager {
       throw new RunError(400, msg('run.agent.launchFailed', { reason: this.safeError(e) }));
     };
     let base: Omit<LaunchSpec, 'env'>;
+    const prep = prepOf ? this.deps.preps?.begin(prepOf.key) ?? null : null;
     try {
       base = this.baseInput(s.id, s.project_id, cwd, extra, s.id, undefined, agent);
-      await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: {} });
+      await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: {}, ...(prep ? { prep: { run: prep, choice: {} } } : {}) });
+      prep?.finish();
     } catch (e) {
-      return fail(e);
+      return fail(this.prepError(prep, e));
     }
     try {
       return this.launch({ sessionId: s.id, cwd, kind: 'resume', agent, plan: (env) => driver.launch.plan(bin, { kind: 'resume', id }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent, ...(extra.autoApprove ? { autoApprove: true } : {}) } });

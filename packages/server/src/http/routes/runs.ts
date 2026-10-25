@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import { MAX_JUMP_HEADS, PROMPT_HEAD_LEN as HEAD_LEN, type LaunchParams, type TakeoverLockedDto } from '@agent-hangar/shared';
+import { isLaunchPrepKey, MAX_JUMP_HEADS, PROMPT_HEAD_LEN as HEAD_LEN, type LaunchParams, type TakeoverLockedDto } from '@agent-hangar/shared';
 import { sessionLock } from '../../db/queries.ts';
 import { RunError } from '../../runs/manager.ts';
 import { resumeHereAllowed } from '../../sync/takeover.ts';
@@ -179,10 +179,11 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
   api.post('/sessions/:id/resume', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const stray = ((b.value ?? {}) as { stray?: unknown }).stray;
+    const { stray, prepKey } = (b.value ?? {}) as { stray?: unknown; prepKey?: unknown };
     if (stray !== undefined && stray !== 'stop' && stray !== 'ignore') return c.json({ error: tr('http.request.badShape') }, 400);
     await beforeLaunch();
-    return runResultAsync(c, language, () => deps.runs.resumeWith(c.req.param('id'), stray ? { stray } : {}), 201);
+    // prepKey は起動前の準備の進みの鍵（opencode の接続先の準備）。形の違うものは捨てる（hangar が鍵を作る）。
+    return runResultAsync(c, language, () => deps.runs.resumeWith(c.req.param('id'), { ...(stray ? { stray } : {}), ...(isLaunchPrepKey(prepKey) ? { prepKey } : {}) }), 201);
   });
   api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); return runResult(c, language, () => deps.runs.fork(c.req.param('id')), 201); });
   // バックグラウンドのサービスが持つセッションに、hangar の tmux からつなぐ。本文はその claude が書くので、他端末の取り込みは待たない。

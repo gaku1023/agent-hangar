@@ -106,7 +106,8 @@ export type ApiClient = {
   /** 動いている opencode の会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届く。 */
   prepareModels(sessionId: string, prepKey: string): Promise<void>;
   /** stray は、残った claude の確認で選んだもの。付けなければ、残っていれば StrayProcessApiError で投げる。 */
-  resume(sessionId: string, stray?: ResumeStray): Promise<LaunchResultDto>;
+  /** prepKey は起動前の準備（opencode の接続先の準備）の進みの鍵。 */
+  resume(sessionId: string, stray?: ResumeStray, prepKey?: string): Promise<LaunchResultDto>;
   fork(sessionId: string): Promise<LaunchResultDto>;
   attach(sessionId: string): Promise<LaunchResultDto>;
   adopt(sessionId: string): Promise<LaunchResultDto>;
@@ -326,7 +327,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     launch: (params) => post('/api/runs', params),
     cancelPrep: (key) => call(`/api/runs/prep/${encodeURIComponent(key)}`, { method: 'DELETE' }),
     prepareModels: (sessionId, prepKey) => post(`/api/sessions/${sessionId}/local-models`, { prepKey }),
-    resume: (sessionId, stray) => post(`/api/sessions/${sessionId}/resume`, stray ? { stray } : undefined),
+    resume: (sessionId, stray, prepKey) => post(`/api/sessions/${sessionId}/resume`, stray || prepKey ? { ...(stray ? { stray } : {}), ...(prepKey ? { prepKey } : {}) } : undefined),
     fork: (sessionId) => post(`/api/sessions/${sessionId}/fork`),
     attach: (sessionId) => post(`/api/sessions/${sessionId}/attach`),
     adopt: (sessionId) => post(`/api/sessions/${sessionId}/adopt`),
