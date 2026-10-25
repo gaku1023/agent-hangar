@@ -1397,12 +1397,17 @@ opencode を足す作業の 1 段目（計画の B1）で、設定のスイッ�
 PATH の次に公式の install の台本の置き場（`~/.opencode/bin`）を見て、最後に既知の置き場（`/opt/homebrew/bin` など）を見る。
 台本はシェルの rc で PATH に足すだけなので、Finder から起こした .app の PATH には入らないからである。
 設定には場所を埋めない。
+Windows で npm で入れた opencode は、PATH に `opencode.cmd`（npm の cmd-shim の包み）が置かれる。
+`.cmd` は cmd.exe 越しにしか起こせず、初期プロンプトのような改行や引用符や `&` を含む引数を安全に渡せない。
+そこで、包みが `.exe` を指していれば（`@opencode/cli` 2.x の bin は `bin/opencode.exe`）、その `.exe` を返す（`platform/exec.ts` の `resolveNpmExeShim`）。
+読み替えられない `.cmd` はそのまま返す。
 
 版は `provider/opencode/compat/version.ts` の `LocalOpencode` が、`opencode --version` を空の環境で打って読む。
 渡すのは `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と、opencode の置き場を先頭に足した固定の最小の `PATH` だけである。
 hangar を Claude Code のセッションから起こすと、サーバの環境に呼び手の印（`CLAUDE` で始まる鍵）と hangar の印（`HANGAR_*`）が入っており、opencode は環境から設定や API キーを読むからである。
 置き場を先頭に足すのは、npm で入れた opencode が隣の node を引く台本だからである。
-Windows の鍵の一覧は版を読むためだけの仮のもので、起動の許可リストは段 G で決める。
+Windows は serve を起こすときと同じ許可リストの鍵を渡す（「opencode の serve の管理」）。
+組み立ては serve と同じ `serve/env.ts` の `opencodeBaseEnv` 1 つにまとめてある。
 同じファイル（パス、更新時刻、大きさ）なら打ち直さず、同時に聞かれても 1 回にまとめる。
 読めなかった答えも覚え、時間切れと起動の失敗だけは覚えない。
 
@@ -1420,7 +1425,8 @@ Windows の鍵の一覧は版を読むためだけの仮のもので、起動の
 1.x は答えに区分が無いので、画面が版の頭の数で見分ける。
 「Claude Code と同じ」を選んでいる間は、状態の提案を確認せずに確定させるモデルがあることを行に添える。
 コマンドの横取りの行は段 D2 で足す。
-Windows では段 G1 まで、画面を開いている OS を見て面ごと出さない。
+Windows では、画面を開いている OS を見て面ごと出さない。
+serve と TUI は段 G1 で Windows でも動くようにしたが、実機での確かめ（もう 1 台の PC）が済むまで面は出さないままにする。
 
 ### opencode の serve の管理
 
@@ -1436,19 +1442,28 @@ opencode 2.1.4 の serve は、同時に起こすと起動の途中で `SQLiteEr
 
 起こし方は `spawn.ts` にある。
 
-- 環境は `env.ts` の `serveEnv` で組む。版を読むときと同じく、`HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と固定の最小の `PATH` だけを渡す。ほかに足すのは、hangar の MCP の設定（`OPENCODE_CONFIG_CONTENT`、「opencode の起動」）だけである。裏のサービスは起こしたプロセスの環境を持ち続けるので、`CLAUDE` で始まる鍵や `HANGAR_*` を継ぐと、そこから動く道具の全部に配ってしまうからである。Windows の許可リストは型（`WindowsServeAllowlist`）だけを置き、中身は段 G で決める。それまで Windows では起こさない。
+- 環境は `env.ts` の `serveEnv` で組む。版を読むときと同じく、macOS と Linux は `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と固定の最小の `PATH` だけを渡す。ほかに足すのは、hangar の MCP の設定（`OPENCODE_CONFIG_CONTENT`、「opencode の起動」）だけである。裏のサービスは起こしたプロセスの環境を持ち続けるので、`CLAUDE` で始まる鍵や `HANGAR_*` を継ぐと、そこから動く道具の全部に配ってしまうからである。
+- Windows は空にすると、ソケット（Winsock は `SystemRoot` を引く）もホームも引けずに落ちることが多いので、許可リスト（`WINDOWS_SERVE_ALLOWLIST`）の鍵だけを写す（計画の G1）。OS の置き場とシェル（`SystemRoot`、`windir`、`SystemDrive`、`ComSpec`、`PATHEXT`、`PATH`）、ホームと利用者（`USERPROFILE`、`HOMEDRIVE`、`HOMEPATH`、`USERNAME`）、置き場（`APPDATA`、`LOCALAPPDATA`、`TEMP`、`TMP`）、入れた道具の置き場と機械の形（`ProgramFiles` 系、`ProgramData`、`PROCESSOR_ARCHITECTURE`、`NUMBER_OF_PROCESSORS`、`OS`）である。どれも呼び手や hangar の印ではない。名前は大文字小文字を問わずに拾い、許可リストの綴りで 1 つだけ渡す。`PATH` は固定にせず hangar の `PATH`（Explorer から継いだ利用者の `PATH`）を写し、先頭に opencode の置き場を足す。固定の最小にすると、エージェントが git も node も引けなくなるからである。
 - 待ち受けは `127.0.0.1` だけで、ポートは空きを取って渡す。取ってから渡すまでの間に塞がれて落ちたら（`Is port N in use?`）、取り直す。
 - パスワードは起動ごとに 32 バイトの乱数を作り、`OPENCODE_SERVER_PASSWORD` で渡す（basic 認証、ユーザー名は `opencode`）。argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かず、メモリにだけ持つ。
-- プロセスのまとまりの頭として起こす（detached）。hangar が落ちても道連れにならないので、下の記録で掃除する。止めるときは、serve が起こした子ごとまとまりに信号を送る。
+- macOS と Linux は、プロセスのまとまりの頭として起こす（detached）。hangar が落ちても道連れにならないので、下の記録で掃除する。止めるときは、serve が起こした子ごとまとまりに信号を送る。
+- Windows は detached にせず、`windowsHide` で起こす。標準入出力を 1 つも継がないので、libuv はこれを `CREATE_NO_WINDOW` にし、serve は見えないコンソールを持つ。serve の上で動く道具（シェル、git など）はそのコンソールを継ぐので、黒い窓を開かない。detached（`DETACHED_PROCESS`）にするとコンソールが無くなり、道具を起こすたびに新しい窓が開く。
+- Windows で serve をジョブオブジェクトに入れる仕組みは、新しくは作らない。detached にしない子は libuv のジョブ（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）に入るので、hangar のサーバが落ちると serve 本体も止まる。serve の下の子は libuv のジョブからは黙って抜けるが、殻のジョブ（`src-tauri/src/winjob.rs`、黙って抜けるのを許さない）には残るので、殻を閉じれば止まる。殻の無い起動（`npm run dev`）で残った分は、下の記録で掃除する。この振る舞いは実機で確かめていない（計画の 3 節の 4）。
+- 起こす場所が `.cmd` のまま（npm の包みを読み替えられなかったもの）なら、cmd.exe 越しに起こす。渡す引数は決まった語とポートの数だけなので崩れない。
 
 止めるときは、serve の上で走っている会話（`GET /api/session/active` の鍵）を `POST /api/session/{id}/interrupt` で止め、SIGTERM を送り、3 秒で降りなければ SIGKILL を送る。
 TUI を閉じてもサーバ側の処理は続くので、信号の前に interrupt を送る。
+Windows には SIGTERM もまとまりへの信号も無いので、interrupt の後は `taskkill /PID <pid> /T /F` でプロセスの木ごと強制で止める（`spawn.ts` の `killGroup`）。
+穏やかに止める段は interrupt が受け持つ。
+`killGroup` は 0 以下の pid には何もしない。`process.kill` に 0 や負の数を渡すと、hangar 自身のまとまりに信号が届くからである。
 hangar の終わりの後片付けでも、起こした serve を全部この順で止める。
 
 起こした serve の pid、ポート、起こした時刻は `<HANGAR_HOME>/opencode/serves.json`（`registry.ts`）に残す。パスワードは書かない。
 hangar が起きたときに、記録に残った serve を探して止める（1 本あたり 160〜260MB を握るため）。
 この掃除だけは設定の入り切りに関わらず回し、済むまで新しい serve を起こさない。
 pid は使い回されるので、`ps` で見たコマンド行（`serve` と記録したポート）と、`etime` から逆算した起動の時刻の両方が合うものだけを止める。
+Windows には `ps` が無いので、PowerShell の `Get-CimInstance Win32_Process` で、記録の pid のコマンド行と起動の時刻（`ToFileTimeUtc`）をまとめて 1 回で聞く（`registry.ts` の `windowsProbeAll`）。
+Windows のコマンド行は引用符を含む（空白を含む場所、cmd.exe 越しの `.cmd` の `/c ""…" serve … --port N"`）ので、引用符を区切りとして読む。
 合わないものには触らず、記録から消すだけにする。
 合言葉を持っていないので、残った serve には interrupt を送らず、SIGTERM と SIGKILL だけで止める。
 
@@ -1627,6 +1642,12 @@ TUI が閉じたことは、Claude と同じく tmux の一覧から消えたこ
 状態の面の行の pid は serve の pid なので、`linkRegistry` はこれを run の pid に書かない（driver の `servedByHangar`）。
 書くと、TUI が閉じても serve が生きている間は `stillRunning` が真のままになり、run を閉じられないからである。
 run の pid が空なので、2 回続けて一覧に無ければ閉じる（`MISSES_TO_END`）。
+ただし、Windows の psmux は、混んだときに一覧からセッションが一瞬抜ける（issue #258）。
+閉じると serve も止めるので、抜けた間も TUI を起こした包みが動いていれば閉じない（`RunManager` の `wrapperAlive`）。
+包み（`hangar-run.sh`、`hangar-run.mjs`）は run のログ（`<HANGAR_HOME>/logs/run-<runId>.log`）の頭に `start pid=<包みの pid>` を書き、TUI が終わると自分も終わる（異常終了のときは Enter を待つが、その間は画面が一覧に残る）。
+`RunManager` は、一覧から抜けた最初の見回りでこの pid を読み、起動時刻が run の起動の少し前（`STRAY_SLACK_MS`）より後なら、その pid を run が一覧に戻るか閉じるまで覚える。
+pid の使い回しを見分けるためで、起動時刻は Windows では PowerShell に聞くので run ごとに 1 回だけ聞く。
+包みが動いている間は何回抜けても閉じず、包みが終わったら次の見回りで閉じる。
 
 終わった画面の「再開」は、非同期の `resumeWith` が受け、`resumeMaterialized` で起こす。
 1. 設定、動いている run、opencode の場所、作業の場所、tmux を確かめる（設定が切なら断る）。

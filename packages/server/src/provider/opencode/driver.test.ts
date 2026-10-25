@@ -52,7 +52,10 @@ function spec(cwd: string, over: Partial<LaunchSpec> = {}): LaunchSpec {
   };
 }
 
-// 偽の opencode の serve を本当に起こす。止め方が POSIX のものなので、Windows では飛ばす。
+// 偽の opencode の serve を本当に起こす。
+// serve の pid を偽の opencode の記録の pid と突き合わせる試験と、SIGTERM の記録（term）で止めた順を見る試験がある。
+// Windows では偽の opencode が .cmd の包みの下の子になり（serve の pid は cmd.exe）、taskkill で止めるので term も残らない。Windows では飛ばす。
+// serve の起こし方と止め方そのものの Windows の試験は serve/ の試験が受け持つ。
 posixDescribe('opencode の driver の materialize', () => {
   let dir: string;
   let cwd: string;

@@ -8,7 +8,9 @@ import { OPTIONS_SERVE_KEY, OpencodeOptionsService, type OpencodeOptionsDeps } f
 import { ServeManager } from './serve/manager.ts';
 import { ServeRegistry } from './serve/registry.ts';
 
-// 偽の opencode の serve を本当に起こして一覧を取る。止め方が POSIX のものなので、Windows では飛ばす。
+// 偽の opencode の serve を本当に起こして一覧を取る。
+// 止めたことを偽の opencode の SIGTERM の記録（term）で見る試験があり、Windows は taskkill で強制で止めるので記録が残らない。Windows では飛ばす。
+// serve の起こし方と止め方そのものの Windows の試験は serve/ の試験が受け持つ。
 posixDescribe('OpencodeOptionsService', () => {
   let dir: string;
   let managers: ServeManager[];

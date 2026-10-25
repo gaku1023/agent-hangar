@@ -56,6 +56,16 @@ describe('findOpencode', () => {
     expect(findOpencode({ PATH: '', HOME: home, USERPROFILE: home })).toBe(tool);
     fs.rmSync(home, { recursive: true, force: true });
   });
+  // npm で入れた opencode は、PATH に opencode.cmd（npm の包み）が置かれる。.cmd は cmd.exe 越しにしか起こせないので、包みが指す .exe を返す。
+  it.skipIf(!isWindows)('Windows で npm の .cmd を見つけたら、それが指す opencode.exe を返す', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-opencode-npm-'));
+    const exe = path.join(dir, 'node_modules', '@opencode', 'cli', 'bin', 'opencode.exe');
+    fs.mkdirSync(path.dirname(exe), { recursive: true });
+    fs.writeFileSync(exe, '');
+    fs.writeFileSync(path.join(dir, 'opencode.cmd'), '@ECHO off\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%dp0%\\node_modules\\@opencode\\cli\\bin\\opencode.exe"   %*\r\n');
+    expect(findOpencode({ PATH: dir, USERPROFILE: dir })).toBe(exe);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe('whichMux', () => {

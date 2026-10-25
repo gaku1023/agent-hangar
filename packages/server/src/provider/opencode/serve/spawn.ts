@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import net from 'node:net';
+import { needsShell } from '../../../platform/exec.ts';
+import { spawnRun, type ProcRun } from '../../../platform/proc.ts';
 
 /**
  * `opencode serve` を 1 本起こし、認証つきの GET が 200 を返すまで待つ。
@@ -9,7 +11,11 @@ import net from 'node:net';
  * - パスワードは起動ごとに 32 バイトの乱数を作り、環境変数 `OPENCODE_SERVER_PASSWORD` で渡す。
  *   argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かない（持つのはメモリだけ）。
  * - ポートは空きを取って渡し、取ってから渡すまでの間に塞がれて落ちたら取り直す。
- * - プロセスのまとまりの頭として起こす（detached）。止めるときは、serve が起こした子（LSP など）ごとまとまりに信号を送る。
+ * - macOS と Linux は、プロセスのまとまりの頭として起こす（detached）。止めるときは、serve が起こした子（LSP など）ごとまとまりに信号を送る。
+ * - Windows は detached にせず、windowsHide で起こす。標準入出力を 1 つも継がないので、libuv はこれを `CREATE_NO_WINDOW` にし、
+ *   serve は見えないコンソールを持つ。serve の上で動く道具（シェル、git など）はそのコンソールを継ぐので、黒い窓を開かない。
+ *   detached（`DETACHED_PROCESS`）にするとコンソールが無くなり、道具を起こすたびに新しい窓が開く。
+ *   止めるときは taskkill でプロセスの木ごと止める（killGroup）。Windows にはまとまりへの信号が無いからである。
  */
 
 export const SERVE_HOST = '127.0.0.1';
@@ -50,24 +56,42 @@ export function pickFreePort(): Promise<number> {
   });
 }
 
+const treeKillRun = spawnRun(10_000);
+
 /**
- * プロセスのまとまりへ信号を送る。まとまりに送れなければ（Windows、まとまりの頭でない）プロセスだけに送る。
- * 送れたら真。もう居なければ偽。
+ * serve をプロセスの木ごと止める。送れたら真。もう居なければ偽。
+ * macOS と Linux はプロセスのまとまりへ信号を送り、まとまりに送れなければ（まとまりの頭でない）プロセスだけに送る。
+ * Windows には SIGTERM もまとまりへの信号も無いので、信号に依らず `taskkill /T /F` で木ごと強制で止める。
+ * 穏やかに止める段は、信号の前の interrupt（API）が受け持つ。
+ * pid が正の整数でなければ何もしない。0 や負の数を process.kill に渡すと、hangar 自身のまとまりに信号が届くからである。
  */
-export function killGroup(pid: number, signal: NodeJS.Signals): boolean {
-  if (process.platform !== 'win32') {
-    try {
-      process.kill(-pid, signal);
-      return true;
-    } catch {
-      // まとまりが無い。下でプロセスだけに送る。
-    }
+export function killGroup(pid: number, signal: NodeJS.Signals, platform: NodeJS.Platform = process.platform, run: ProcRun = treeKillRun): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (platform === 'win32') {
+    if (run('taskkill.exe', ['/PID', String(pid), '/T', '/F']).status === 0) return true;
+    // 木の一部を止められなくても、頭が居なくなっていれば止まっている。居続けていれば、呼び手が間をおいて重ねて止める。
+    return isProcessAlive(pid);
+  }
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch {
+    // まとまりが無い。下でプロセスだけに送る。
   }
   try {
     process.kill(pid, signal);
     return true;
   } catch {
     return false;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -118,11 +142,15 @@ export async function startServe(o: StartServeOptions): Promise<ServeProcess> {
 async function launchOnce(o: StartServeOptions, port: number, password: string): Promise<ServeProcess> {
   const url = `http://${SERVE_HOST}:${port}`;
   const startedAt = Date.now();
-  const child = spawn(o.bin, ['serve', '--hostname', SERVE_HOST, '--port', String(port)], {
+  // .cmd と .bat は cmd.exe 越しにしか起こせない。npm の包みは findOpencode が指す先の .exe に読み替えるので、ここに来るのはそれ以外の包みである。
+  // cmd.exe には引数を引用せずにつないで渡すが、渡すのは決まった語とポートの数だけなので崩れない。場所は空白を含みうるので引用で包む。
+  const viaShell = needsShell(o.bin);
+  const child = spawn(viaShell ? `"${o.bin}"` : o.bin, ['serve', '--hostname', SERVE_HOST, '--port', String(port)], {
     env: { ...o.env, OPENCODE_SERVER_PASSWORD: password },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
     windowsHide: true,
+    shell: viaShell,
   });
   // 出力は読み続ける（読まないとパイプが詰まって serve が止まる）。失敗の理由を見るために末尾だけ持つ。
   let tail = '';

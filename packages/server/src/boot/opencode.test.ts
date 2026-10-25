@@ -1,17 +1,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, expect } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFakeOpencodeLog, writeFakeOpencode } from '../../test/fake-opencode.ts';
-import { posixDescribe, posixIt } from '../../test/platform.ts';
 import { serveEnv } from '../provider/opencode/serve/env.ts';
 import { OpencodeDisabledError } from '../provider/opencode/serve/manager.ts';
 import { isAlive, ServeRegistry, serveRegistryPath } from '../provider/opencode/serve/registry.ts';
 import { killGroup, startServe } from '../provider/opencode/serve/spawn.ts';
 import { bootOpencode } from './opencode.ts';
 
-// 偽の opencode を本当に起こして止める。止め方が POSIX のものなので、Windows では飛ばす。
-posixDescribe('bootOpencode', () => {
+// 偽の opencode を本当に起こして止める。
+describe('bootOpencode', () => {
   let home: string;
   const pids: number[] = [];
   beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-boot-oc-')); });
@@ -20,7 +19,7 @@ posixDescribe('bootOpencode', () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
-  posixIt('設定が切でも、前の hangar が残した serve は起動のときに掃除する。ほかは何も起こさない', async () => {
+  it('設定が切でも、前の hangar が残した serve は起動のときに掃除する。ほかは何も起こさない', async () => {
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'));
     const left = await startServe({ bin, env: serveEnv(bin) });
     pids.push(left.pid);
@@ -34,7 +33,7 @@ posixDescribe('bootOpencode', () => {
     await oc.stop(1000);
   });
 
-  posixIt('有効なら起こせて、終わりの後片付けで止める。範囲の外の版は種として持つ', async () => {
+  it('有効なら起こせて、終わりの後片付けで止める。範囲の外の版は種として持つ', async () => {
     const { bin } = writeFakeOpencode(path.join(home, 'oc'));
     const settings = { current: { opencodeEnabled: true } };
     const oc = bootOpencode({ home, settings }, { bin: () => bin, version: async () => '2.3.0' });

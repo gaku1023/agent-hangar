@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseStartTime, spawnRun, type ProcRun } from '../../../platform/proc.ts';
 import { killGroup } from './spawn.ts';
 
 /**
@@ -83,17 +84,53 @@ export const psProbe: ProcessProbe = (pid) => {
   }
 };
 
+const slowRun = spawnRun(20_000);
+
+/**
+ * Windows には ps が無いので、PowerShell の Get-CimInstance（Win32_Process）で見る。
+ * 起動は遅い（CI で数秒、混めば 10 秒を越えた回がある。platform/proc.ts の probeStartTime）ので、記録の pid をまとめて 1 回で聞き、答えを pid ごとに引く口を返す。
+ * 起動の時刻は 1601 年からの 100 ナノ秒（ToFileTimeUtc）で受け、起動からの時間に直す。
+ * コマンド行を読めないプロセス（権限の無いもの）は空のコマンド行で返すので、isOurServe が serve と見なさない。
+ */
+export function windowsProbeAll(pids: readonly number[], run: ProcRun = slowRun, now: () => number = Date.now): ProcessProbe {
+  const ids = [...new Set(pids.filter((p) => Number.isInteger(p) && p > 0))];
+  const found = new Map<number, { elapsedMs: number; command: string }>();
+  if (ids.length > 0) {
+    // pid は整数であることを確かめてから問いの文に埋める。区切りはタブ（[char]9）にし、二重引用符を使わない（引数の引用の崩れを避ける）。
+    const filter = ids.map((p) => `ProcessId=${p}`).join(' OR ');
+    const script = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process -Filter '${filter}' | ForEach-Object { [string]::Join([string][char]9, @($_.ProcessId, $_.CreationDate.ToFileTimeUtc(), $_.CommandLine)) }`;
+    const r = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+    if (r.status === 0) {
+      const at = now();
+      for (const line of r.stdout.split(/\r?\n/)) {
+        const [pid, ft, ...rest] = line.split('\t');
+        const started = ft === undefined ? null : parseStartTime(ft);
+        if (pid === undefined || !/^\d+$/.test(pid) || started === null) continue;
+        found.set(Number(pid), { elapsedMs: at - started, command: rest.join('\t').trim() });
+      }
+    }
+  }
+  return (pid) => found.get(pid) ?? null;
+}
+
+
+/** その OS で記録の pid を見る口。Windows は pid をまとめて 1 回で聞く。 */
+function defaultProbe(pids: readonly number[]): ProcessProbe {
+  return process.platform === 'win32' ? windowsProbeAll(pids) : psProbe;
+}
+
 /** 起こした時刻と、ps から逆算した起動の時刻の、許すずれ。etime は秒の刻みなので、数秒の幅を持たせる。 */
 const START_TOLERANCE_MS = 10_000;
 
 /**
  * 記録の行のプロセスが、いまも hangar の起こした serve か。
  * pid は使い回されるので、コマンド行（serve と、記録したポート）と、起動の時刻の両方が合うときだけ真にする。
+ * Windows のコマンド行は引用符を含む（空白を含む場所、cmd.exe 越しの .cmd の `/c ""…" serve … --port N"`）ので、引用符を区切りとして読む。
  */
 export function isOurServe(r: ServeRecord, probe: ProcessProbe = psProbe, now: number = Date.now()): boolean {
   const p = probe(r.pid);
   if (!p) return false;
-  const args = p.command.split(/\s+/);
+  const args = p.command.replace(/"/g, ' ').split(/\s+/);
   const portAt = args.indexOf('--port');
   if (!args.includes('serve') || portAt < 0 || args[portAt + 1] !== String(r.port)) return false;
   return Math.abs(now - p.elapsedMs - r.startedAt) <= START_TOLERANCE_MS;
@@ -108,12 +145,13 @@ export type SweepOptions = {
 
 /**
  * 前の hangar が残した serve を止め、記録を空にする。
- * 合言葉を持っていないので interrupt は送れない。SIGTERM を送り、間をおいて残っていれば SIGKILL で止める。
+ * 合言葉を持っていないので interrupt は送れない。SIGTERM を送り、間をおいて残っていれば SIGKILL で止める（Windows は最初から木ごと強制で止める）。
  * hangar の起こした serve と見分けられないプロセスには触らず、記録から消すだけにする。
  */
 export async function sweepLeftoverServes(reg: ServeRegistry, o: SweepOptions = {}): Promise<{ stopped: number[] }> {
   const rows = reg.list();
-  const ours = rows.filter((r) => isOurServe(r, o.probe));
+  const probe = o.probe ?? defaultProbe(rows.map((r) => r.pid));
+  const ours = rows.filter((r) => isOurServe(r, probe));
   for (const r of ours) killGroup(r.pid, 'SIGTERM');
   const graceMs = o.graceMs ?? 3000;
   const deadline = Date.now() + graceMs;
