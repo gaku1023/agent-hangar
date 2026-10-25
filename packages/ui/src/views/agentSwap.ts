@@ -1,0 +1,31 @@
+import { fadeOut, resizeFrom, slideFrom, staggerIn } from './primitives/motionKit.ts';
+
+/**
+ * 新しいセッションのエージェントの切り替えの動き（M1）。
+ * 消える札は --dur-swap で薄れ、残る札は前の位置から新しい位置へ滑り（FLIP）、新しい札は --stagger ずつずれて浮き上がる。ダイアログの高さは resizeFrom で変える。
+ * どの札がどのエージェントのものかは、要素の data-agent-only（claude-code か opencode）で見分ける。札の列は `.launch-chips` の子である。
+ * 動かない環境（jsdom、reduced motion）では、薄れを待たずにすぐ入れ替わる。
+ */
+
+export const AGENT_ONLY_ATTR = 'data-agent-only';
+
+/** 入れ替える直前の形。残る札の位置とダイアログの高さ。 */
+export type AgentSwapSnapshot = { dialog: HTMLElement; height: number; rects: Map<Element, DOMRect> };
+
+const only = (root: HTMLElement, agent: string): HTMLElement[] => [...root.querySelectorAll<HTMLElement>(`[${AGENT_ONLY_ATTR}="${agent}"]`)];
+
+/** 消える札（from のもの）を薄れさせ、薄れ終えたら、残る札の位置とダイアログの高さを覚えて返す。 */
+export async function leaveAgent(dialog: HTMLElement, from: string): Promise<AgentSwapSnapshot> {
+  const leaving = only(dialog, from);
+  await Promise.all(leaving.map((el) => fadeOut(el, '--dur-swap')));
+  const rects = new Map<Element, DOMRect>();
+  for (const el of dialog.querySelectorAll('.launch-chips > *')) if (!leaving.includes(el as HTMLElement)) rects.set(el, el.getBoundingClientRect());
+  return { dialog, height: dialog.offsetHeight, rects };
+}
+
+/** 入れ替えた後の描画で呼ぶ。残った札を滑らせ、新しい札（to のもの）を浮き上がらせ、ダイアログの高さを前の高さから動かす。 */
+export function enterAgent(s: AgentSwapSnapshot, to: string): void {
+  resizeFrom(s.dialog, s.height);
+  for (const [el, before] of s.rects) if (el.isConnected && el instanceof HTMLElement) slideFrom(el, before, el.getBoundingClientRect());
+  staggerIn(only(s.dialog, to));
+}

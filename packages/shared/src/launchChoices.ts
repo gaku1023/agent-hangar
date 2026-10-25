@@ -16,4 +16,23 @@ export function isEffort(v: unknown): v is EffortValue {
   return typeof v === 'string' && (EFFORT_VALUES as readonly string[]).includes(v);
 }
 
+/**
+ * 起こすエージェント（新しいセッションの「エージェント」の札）。並びは札の一覧の順で、先頭が既定である。
+ * opencode（ベータ）は設定で有効にしたときだけ選べる。
+ */
+export const AGENT_VALUES = ['claude-code', 'opencode'] as const;
+export type AgentValue = (typeof AGENT_VALUES)[number];
+
+export function isAgentValue(v: unknown): v is AgentValue {
+  return typeof v === 'string' && (AGENT_VALUES as readonly string[]).includes(v);
+}
+
+/** opencode のモードの既定。opencode が既定で使う primary のエージェントである。 */
+export const OPENCODE_DEFAULT_MODE = 'build';
+
+/** モードの一覧から、はじめに選んでおくモード。build があれば build、無ければ先頭、一覧が空なら空（params に載せない）。 */
+export function defaultOpencodeMode(modes: readonly { id: string }[]): string {
+  return modes.some((m) => m.id === OPENCODE_DEFAULT_MODE) ? OPENCODE_DEFAULT_MODE : modes[0]?.id ?? '';
+}
+
 export { MODEL_CHOICES } from './summaryEngine.ts';

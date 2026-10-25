@@ -86,6 +86,15 @@ posixDescribe('ServeManager', () => {
     expect(info.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
 
+  posixIt('any は起きている serve のどれか 1 本を返す。1 本も無ければ null', async () => {
+    const { m } = make();
+    expect(m.any()).toBeNull();
+    const a = await m.ensure('a');
+    expect(m.any()).toEqual(a);
+    await m.stop('a');
+    expect(m.any()).toBeNull();
+  });
+
   posixIt('同じ会話を 2 度頼んでも 1 本だけ起こす', async () => {
     const { m, logFile } = make();
     const [a, b] = await Promise.all([m.ensure('a'), m.ensure('a')]);

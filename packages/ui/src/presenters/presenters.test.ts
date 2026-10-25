@@ -10,7 +10,7 @@ import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoad
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { presentHome, presentHomeScreen } from './home.ts';
-import { newSessionTarget, presentNewSession } from './newSession.ts';
+import { newSessionTarget, opencodeAgentNote, opencodeModelChoice, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, presentSessionBadges, sessionActions, summarizerLabel, type SessionProps } from './session.ts';
@@ -887,6 +887,15 @@ describe('presentNewSession', () => {
     expect(presentNewSession(state, storeWith(), NOW)!.defaultModel).toBeNull();
     const store = { ...storeWith(), settings: fullSettings({ defaultModel: 'sonnet' }) };
     expect(presentNewSession(state, store, NOW)!.defaultModel).toBe('sonnet');
+  });
+  it('opencode は設定で有効にしたときだけ渡し、選択肢の読み込みを添える。切なら null（見た目は今のまま）', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    expect(presentNewSession(state, storeWith(), NOW)!.opencode).toBeNull();
+    expect(presentNewSession(state, { ...storeWith(), settings: fullSettings({ opencodeEnabled: false }) }, NOW)!.opencode).toBeNull();
+    const on = { ...storeWith(), settings: fullSettings({ opencodeEnabled: true }) };
+    expect(presentNewSession(state, on, NOW)!.opencode).toEqual({ options: null });
+    const loaded = { ...on, opencodeOptions: { dir: '/w/alpha', status: 'ready' as const, data: OC_OPTIONS } };
+    expect(presentNewSession(state, loaded, NOW)!.opencode).toEqual({ options: loaded.opencodeOptions });
   });
   it('ステータスと最後に使った時期を添え、最近は最後に使った順の上位 5 件', () => {
     const store = storeWith();
@@ -2091,5 +2100,30 @@ describe('スマホから起動したセッション（試作 F1）', () => {
     expect(presentSessionRow(storeWith().sessions.s2!, storeWith(), NOW).phone).toBeUndefined();
     expect(presentSessionBadges(bypass.sessions.s1!, NOW, ja)).toEqual([{ kind: 'phoneBypass', label: 'スマホから · Bypass permissions', title: 'スマホから起動したセッション' }]);
     expect(presentSessionBadges(plain.sessions.s1!, NOW, ja)).toEqual([{ kind: 'phone', label: 'スマホから', title: 'スマホから起動したセッション' }]);
+  });
+});
+
+const OC_OPTIONS = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode' }, { id: 'lmstudio/qwen', label: 'Qwen', group: 'LM Studio' }], defaultModel: 'lmstudio/qwen', fetchedAt: 1, stale: false };
+
+describe('opencodeModelChoice（前回の opencode のモデル）', () => {
+  it('一覧に前回のモデルがあればそれを使う', () => {
+    expect(opencodeModelChoice('lmstudio/qwen', OC_OPTIONS)).toEqual({ model: 'lmstudio/qwen', reset: false });
+  });
+  it('一覧から消えていたら、デフォルト（空）に戻し、戻したことを持つ', () => {
+    expect(opencodeModelChoice('opencode/gone-free', OC_OPTIONS)).toEqual({ model: '', reset: true });
+  });
+  it('デフォルトのままなら戻さない。一覧がまだ無ければ、前回のまま（消えたかは分からない）', () => {
+    expect(opencodeModelChoice('', OC_OPTIONS)).toEqual({ model: '', reset: false });
+    expect(opencodeModelChoice('opencode/gone-free', null)).toEqual({ model: 'opencode/gone-free', reset: false });
+  });
+});
+
+describe('opencodeAgentNote（エージェントの一覧の opencode の説明）', () => {
+  const t = translator('ja');
+  it('版と、確かめた範囲に入るかを添える。版が分からなければ出さない', () => {
+    expect(opencodeAgentNote(t, OC_OPTIONS)).toBe('opencode 2.1.4 · 検証済み');
+    expect(opencodeAgentNote(t, { ...OC_OPTIONS, version: '2.2.0', verified: false })).toBe('opencode 2.2.0 · 未検証');
+    expect(opencodeAgentNote(t, { ...OC_OPTIONS, version: null })).toBeNull();
+    expect(opencodeAgentNote(t, null)).toBeNull();
   });
 });

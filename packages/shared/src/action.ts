@@ -70,6 +70,9 @@ export type UiAction =
   // 選んだ 1 つのフォルダの事前の問い合わせ（0.6.1）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
   // 答えは Store の folderInspect に入り、新しいセッションと作成のダイアログが読む。name は作成のダイアログで名前を直したときだけ添える（弱い一致をその名前で見る）。
   | { type: 'folder.inspect'; path: string; name?: string }
+  // 新しいセッションで opencode（ベータ）を選んだときの、モードとモデルの一覧（GET /api/opencode/options）。dir はその場所（opencode.json の重なりが場所で変わる）で、null はホーム。
+  // 答えは Store の opencodeOptions に入る。最後に頼んだ 1 件だけを持つ。
+  | { type: 'opencode.options'; dir: string | null }
   // 作成のダイアログで、選んだフォルダが登録済みのプロジェクトの下だったとき、そのプロジェクトを開く（startSession が偽）か、そのフォルダで始める（真）。
   | { type: 'project.new.enclosing'; projectId: ProjectId; dir: string; startSession: boolean }
   | { type: 'project.resolve.open'; id: ProjectId }

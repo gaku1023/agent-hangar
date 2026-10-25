@@ -21,6 +21,13 @@ export function riseIn(el: HTMLElement, delay = 0): Animation | null {
   return el.animate(enterFrames(el), { duration: motionMs('--dur', el), delay, easing: motionEase('--ease-out', el), fill: 'backwards' });
 }
 
+/**
+ * 並べて入る形。els を riseIn で、1 枚ずつ --stagger ずつ遅らせて入れる（新しいセッションのエージェントの切り替えで、新しい札が浮き上がる M1）。
+ */
+export function staggerIn(els: readonly HTMLElement[]): (Animation | null)[] {
+  return els.map((el, i) => riseIn(el, i * motionMs('--stagger', el)));
+}
+
 /** 薄れから現すだけ（一覧を一度に入れたとき、端末の最初の描画）。中身を入れ替えるとき（ホームの引き出しの群、帯の注記）は --dur-fast で短く現す。 */
 export function fadeIn(el: HTMLElement, token: DurationToken = '--dur'): Animation | null {
   if (!motionOn(el)) return null;

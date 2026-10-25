@@ -7,7 +7,8 @@ import { Icon, type IconName } from './Icon.tsx';
  * separatorBefore は、この行の前に細い線を引く。
  * disabled の行は選べない（押しても Enter でも onPick を呼ばない）。理由は tag に書く。印は動かせるので、読み上げで理由に届く。
  */
-export type PickItem = { value: string; label: string; icon?: IconName; lead?: ReactNode; tone?: 'danger'; tag?: string; separatorBefore?: boolean; disabled?: boolean };
+/** 一覧の 1 行。badge は名前の横の小札（「ベータ」）、sub は名前の下の小さい説明の 1 行（opencode のモードと自動承認）。 */
+export type PickItem = { value: string; label: string; icon?: IconName; lead?: ReactNode; tone?: 'danger'; tag?: string; badge?: string; sub?: string; separatorBefore?: boolean; disabled?: boolean };
 
 /**
  * 小さい縦の一覧（Popover の中に置く、択一の面）。
@@ -44,10 +45,12 @@ export function PickList(props: { label: string; value: string; items: PickItem[
       {props.items.map((item, i) => (
         <Fragment key={item.value}>
           {item.separatorBefore && i > 0 && <div className="pick-sep" aria-hidden="true" />}
-          <div id={optId(i)} role="option" className="pick-li" aria-selected={item.value === props.value} aria-disabled={item.disabled ? 'true' : undefined} data-active={i === active ? 'true' : undefined} data-danger={item.tone === 'danger' ? 'true' : undefined}
+          <div id={optId(i)} role="option" className="pick-li" data-sub={item.sub ? 'true' : undefined} aria-selected={item.value === props.value} aria-disabled={item.disabled ? 'true' : undefined} data-active={i === active ? 'true' : undefined} data-danger={item.tone === 'danger' ? 'true' : undefined}
             onMouseMove={() => { if (i !== active) setActive(i); }} onClick={() => { if (!item.disabled) props.onPick(item.value); }}>
             {plain ? null : item.lead ?? (item.icon ? <Icon name={item.icon} /> : <span className="pick-nolead" />)}
-            <span className="pick-label">{item.label}</span>
+            {item.sub || item.badge
+              ? <span className="pick-text"><span className="pick-label">{item.label}{item.badge && <span className="tag-beta">{item.badge}</span>}</span>{item.sub && <span className="pick-sub">{item.sub}</span>}</span>
+              : <span className="pick-label">{item.label}</span>}
             <span className="pick-end">
               {item.tag && <span className="pick-tag">{item.tag}</span>}
               <Icon name="check" />

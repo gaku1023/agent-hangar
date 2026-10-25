@@ -86,6 +86,12 @@ export class ServeManager {
     return s ? infoOf(s) : null;
   }
 
+  /** 起きている serve のどれか 1 本。1 本も無ければ null。会話に依らない問い合わせ（新しいセッションの選択肢）が、新しく起こさずに済ませるために使う。 */
+  any(): ServeInfo | null {
+    const s = this.live.values().next();
+    return s.done ? null : infoOf(s.value);
+  }
+
   /** 会話の serve を止める。起動の途中なら起き切るのを待ってから止める。 */
   async stop(sessionId: string): Promise<void> {
     await this.launching.get(sessionId)?.catch(() => undefined);

@@ -3,7 +3,7 @@
  * 長さと曲線は CSS と同じ値を使い、JS に数値を直書きしない。
  * reduced motion では tokens.css が長さを 0 にするので、ここも 0 を返す。
  */
-export type DurationToken = '--dur-fast' | '--dur' | '--dur-exit';
+export type DurationToken = '--dur-fast' | '--dur' | '--dur-exit' | '--dur-swap' | '--stagger';
 export type MotionToken = DurationToken | '--ease-out' | '--ease-in' | '--rise' | '--blur-in';
 
 /** トークンの計算済みの値。読めなければ空文字。 */

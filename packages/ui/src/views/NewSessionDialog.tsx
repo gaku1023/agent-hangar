@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { LaunchParams, ProjectPlace } from '@agent-hangar/shared';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { defaultOpencodeMode, type AgentValue, type LaunchParams, type ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
-import { accountChoice, accountOptions, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
+import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
+import { AGENT_ONLY_ATTR, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
 import { isComposing } from './ime.ts';
 import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
@@ -55,6 +56,9 @@ const hasNonDefault = (o: Options): boolean => !!(o.model.trim() || o.effort || 
  * アカウントが 2 件以上あるときだけ、プロジェクトの次に「どのアカウントで起こすか」の札を出し、送るときに選んだ id を params.account に必ず入れる。
  * 選んでもいまのアカウントは変えない（account.choose は出さない）。1 件以下のときは札も params.account も出さず、今までと変わらない。
  * 権限モードに Bypass permissions を選ぶと、札が赤い縁になり、起動のボタンが赤い「Bypass permissions で起動」になる。確認のダイアログは足さない。
+ * opencode（ベータ）を設定で有効にしたとき（props.opencode）だけ、札の先頭に「エージェント」を出す。opencode を選ぶと、アカウント、モデル、effort、権限モード、worktree、追加ディレクトリの札と信頼の注記を外し、
+ * モード、モデル、自動承認の札を出す。モードとモデルは、選んだ場所の一覧（opencode.options）から選ぶ。前回のエージェントと opencode のモデルは、プロジェクトごとの前回値から戻す。
+ * 前回のモデルが一覧から消えていたら、デフォルトに戻す（opencodeModelChoice）。切り替えの動きは agentSwap.ts（M1）。
  * 打鍵のたびには送らない。送るたびに画面全体を描き直すことになるからである。
  * プロジェクトが未選択のまま送っても止めない。未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
  */
@@ -166,6 +170,39 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 選んだ id が一覧から消えたとき、選べなくなったときも、同じ規則でいまのアカウントへ戻る。
   const [pickedAccount, setPickedAccount] = useState<string | null>(null);
   const account = props.accounts ? accountChoice(props.accounts, pickedAccount) : null;
+  // エージェント。利用者が選んだものだけを覚え、選んでいなければプロジェクトの前回値（無ければ Claude Code）。設定で無効なら、いつも Claude Code。
+  const oc = props.opencode ?? null;
+  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(null);
+  const agent: AgentValue = oc === null ? 'claude-code' : pickedAgent ?? (props.prefs[prefKey]?.agent === 'opencode' ? 'opencode' : 'claude-code');
+  const opencode = agent === 'opencode';
+  // opencode の一覧を聞く場所。opencode.json の重なりが場所で変わるので、起こす場所で聞く。新しいフォルダとクイックセッションはホームで聞く。
+  const ocDir = dirPath ?? (scratch || newDir ? null : props.projects.find((p) => p.id === choice)?.path ?? null);
+  const ocState = oc?.options && oc.options.dir === ocDir ? oc.options : null;
+  const ocData = ocState?.data ?? null;
+  useEffect(() => { if (opencode) emit({ type: 'opencode.options', dir: ocDir }); }, [opencode, ocDir]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // モードは選んだものが一覧にあればそれ、無ければ一覧の既定（build）。一覧が届く前は空（params に載せず、opencode の既定に任せる）。
+  const [pickedMode, setPickedMode] = useState<string | null>(null);
+  const ocMode = pickedMode !== null && (!ocData || ocData.modes.some((m) => m.id === pickedMode)) ? pickedMode : ocData ? defaultOpencodeMode(ocData.modes) : '';
+  // モデルは選んだもの、選んでいなければ前回値。一覧から消えていたらデフォルトに戻す。
+  const [pickedModel, setPickedModel] = useState<string | null>(null);
+  const ocModel = opencodeModelChoice(pickedModel ?? props.prefs[prefKey]?.opencodeModel ?? '', ocData);
+  // 自動承認は毎回オフから始める（前回値に残さない）。
+  const [autoApprove, setAutoApprove] = useState(false);
+  // 切り替えの動き（M1）。消える札を薄れさせてから入れ替え、入れ替えた後の描画で残る札を滑らせ、新しい札を入れる。
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const swap = useRef<{ snap: AgentSwapSnapshot; to: AgentValue } | null>(null);
+  const switchAgent = async (to: AgentValue) => {
+    if (to === agent) return;
+    const dialog = chipsRef.current?.closest<HTMLElement>('.dialog');
+    if (dialog) swap.current = { snap: await leaveAgent(dialog, agent), to };
+    setPickedAgent(to);
+  };
+  useLayoutEffect(() => {
+    const s = swap.current;
+    if (!s || s.to !== agent) return;
+    swap.current = null;
+    enterAgent(s.snap, agent);
+  }, [agent]);
   // 開いたときに 1 回、認証と使用量を読み直させる。
   const hasAccounts = props.accounts !== null;
   useEffect(() => { if (hasAccounts) emit({ type: 'accounts.load' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -220,12 +257,22 @@ export function NewSessionDialog(props: NewSessionProps) {
     else if (dirPath) place = { kind: 'dir', path: dirPath, ...(enclosing ? { allowNested: true } : {}), ...(linking ? { linkTo: linking.projectId } : {}) };
     else if (choice) params.projectId = choice;
     // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
-    if (account !== null) params.account = account;
+    // opencode にはアカウントを効かせない（サーバも断る）。
+    if (account !== null && !opencode) params.account = account;
     if (name.trim()) params.name = name.trim();
     // 添付は、本文の後にパスを足して渡す。起動の API は変えない（promptComposerModel.ts の composePrompt）。
     // 添付の置き場を claude に渡す --add-dir はサーバが足すので、ここでは addDirs に混ぜない。
     const text = composePrompt(prompt, attachments);
     if (text) params.prompt = text;
+    // opencode は、エージェント、モード（POST の agent）、モデル（provider/model）、自動承認（--auto）だけを渡す。Claude Code だけの値は載せない（サーバが断る）。
+    if (opencode) {
+      params.agent = 'opencode';
+      if (ocMode) params.mode = ocMode;
+      if (ocModel.model) params.model = ocModel.model;
+      params.autoApprove = autoApprove;
+      emit({ type: 'session.new.submit', params, ...(place ? { place } : {}) });
+      return;
+    }
     if (model.trim()) params.model = model.trim();
     if (effort) params.effort = effort;
     if (permissionMode) params.permissionMode = permissionMode;
@@ -278,8 +325,8 @@ export function NewSessionDialog(props: NewSessionProps) {
 
   // 前回値のままなら、札の下に「前回と同じ」と出どころを言い、「既定に戻す」を添える（D1）。
   const prev = props.prefs[prefKey];
-  const sameAsPrev = !!prev && hasNonDefault(detail) && sameOptions(detail, optionsOf(prev, defaultModel));
-  const bypass = permissionMode === PERMISSION_BYPASS;
+  const sameAsPrev = !opencode && !!prev && hasNonDefault(detail) && sameOptions(detail, optionsOf(prev, defaultModel));
+  const bypass = !opencode && permissionMode === PERMISSION_BYPASS;
 
   const onChips = (patch: Partial<LaunchChipValues>) => {
     const { name: nextName, ...rest } = patch;
@@ -326,14 +373,24 @@ export function NewSessionDialog(props: NewSessionProps) {
         <PromptComposer id={PROMPT_ID} hero placeholder={t('newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} />
       </div>
       <LaunchChips
+        rootRef={chipsRef}
+        agent={oc ? { value: agent, onChange: (v) => { void switchAgent(v); }, opencodeNote: opencodeAgentNote(t, ocData) } : undefined}
+        opencode={opencode ? {
+          mode: ocMode, modes: ocData?.modes ?? [], onMode: setPickedMode,
+          model: ocModel.model, models: ocData?.models ?? [], defaultModel: ocData?.defaultModel ?? null, modelReset: ocModel.reset, onModel: setPickedModel,
+          autoApprove, onAutoApprove: setAutoApprove,
+        } : undefined}
         lead={projectChip}
         account={props.accounts && account !== null ? { value: account, options: accountOptions(t, props.accounts), onChange: setPickedAccount } : undefined}
         values={{ model, effort, permissionMode, worktree, addDirs, name }}
         onChange={onChips}
         previousPermission={prev ? prev.permissionMode ?? '' : undefined}
       />
+      {opencode && ocState?.data === null && (ocState.status === 'loading' || ocState.status === 'failed') && (
+        <div className="faint" {...{ [AGENT_ONLY_ATTR]: 'opencode' }}>{t(ocState.status === 'loading' ? 'launch.opencode.loading' : 'launch.opencode.failed')}</div>
+      )}
       {sameAsPrev && (
-        <div className="prev-line">
+        <div className="prev-line" {...{ [AGENT_ONLY_ATTR]: 'claude-code' }}>
           <span className="prev-tag">{t('newSession.prev.tag')}</span>
           <span className="faint">{t('newSession.prev.note', { name: nested?.name ?? chosen?.label ?? '' })}</span>
           <button type="button" className="linkish prev-reset" onClick={resetDetail}><Icon name="reset" />{t('newSession.prev.reset')}</button>
@@ -364,7 +421,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         </div>
       )}
       {dirPath && !enclosing && !link && <div className="faint">{outside ? t('newSession.dir.outside') : t('newSession.dir.unregistered', { path: dirPath })}</div>}
-      {!scratch && <div className="faint">{t('newSession.note.trust')}</div>}
+      {!scratch && !opencode && <div className="faint" {...{ [AGENT_ONLY_ATTR]: 'claude-code' }}>{t('newSession.note.trust')}</div>}
       {props.error && props.error !== staleError && <div className="error" role="alert">{props.error}</div>}
     </Dialog>
   );

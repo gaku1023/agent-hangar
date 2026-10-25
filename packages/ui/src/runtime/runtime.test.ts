@@ -568,6 +568,12 @@ describe('createRuntime', () => {
     expect(b.rt.getState().newSessionDraft).toBeNull();
     expect(b.rt.getState().launchPrefs).toEqual({});
   });
+  it('前回値のエージェントと opencode のモデルを読み戻す。知らないエージェントは捨てる', () => {
+    const a = harness();
+    a.store.set('newSession.prefs', { p1: { agent: 'opencode', opencodeModel: 'opencode/glm' }, p2: { agent: 'codex', effort: 'low' }, p3: { opencodeModel: 3 } });
+    a.rt.start();
+    expect(a.rt.getState().launchPrefs).toEqual({ p1: { agent: 'opencode', opencodeModel: 'opencode/glm' }, p2: { effort: 'low' } });
+  });
   it('保存済みの follow: false を無視し、開いた直後は必ず追う', () => {
     // 遡るために一度上へスクロールしただけで follow: false が焼き付くと、次から最古の側で開いてしまう。
     const b = harness();
@@ -772,6 +778,44 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getStore().projects.p9).toEqual(created);
     expect(rt.getState()).toMatchObject({ overlay: { kind: 'none' }, projectCreate: { kind: 'idle' } });
+  });
+  // 新しいセッションで opencode（ベータ）を選んだときのモードとモデル。ダイアログが Store から読む。
+  describe('opencode の選択肢', () => {
+    const options = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode' }], defaultModel: null, fetchedAt: 1, stale: false };
+    it('opencode.options は一覧を読み、読んでいる間と答えを Store に入れる。同じ場所を読み直す間は前の答えを残す', async () => {
+      const opencodeOptions = vi.fn(async () => options);
+      const { rt } = harness({ opencodeOptions });
+      rt.start();
+      rt.emit({ type: 'opencode.options', dir: '/w/alpha' });
+      expect(rt.getStore().opencodeOptions).toEqual({ dir: '/w/alpha', status: 'loading', data: null });
+      await flush();
+      expect(opencodeOptions).toHaveBeenCalledWith('/w/alpha');
+      expect(rt.getStore().opencodeOptions).toEqual({ dir: '/w/alpha', status: 'ready', data: options });
+      rt.emit({ type: 'opencode.options', dir: '/w/alpha' });
+      expect(rt.getStore().opencodeOptions).toEqual({ dir: '/w/alpha', status: 'loading', data: options });
+      rt.emit({ type: 'opencode.options', dir: null });
+      expect(rt.getStore().opencodeOptions).toEqual({ dir: null, status: 'loading', data: null });
+    });
+    it('後から頼んだ場所の答えを、古い場所の答えで上書きしない', async () => {
+      let release: (() => void) | null = null;
+      const opencodeOptions = vi.fn((dir: string | null) => (dir === '/w/old' ? new Promise<typeof options>((r) => { release = () => r({ ...options, fetchedAt: 9 }); }) : Promise.resolve(options)));
+      const { rt } = harness({ opencodeOptions });
+      rt.start();
+      rt.emit({ type: 'opencode.options', dir: '/w/old' });
+      rt.emit({ type: 'opencode.options', dir: '/w/new' });
+      await flush();
+      release!();
+      await flush();
+      expect(rt.getStore().opencodeOptions).toEqual({ dir: '/w/new', status: 'ready', data: options });
+    });
+    it('読めなければ failed にし、トーストは出さない（ダイアログがその場で言う）', async () => {
+      const { rt } = harness({ opencodeOptions: vi.fn(async () => { throw new Error('502'); }) });
+      rt.start();
+      rt.emit({ type: 'opencode.options', dir: '/w/x' });
+      await flush();
+      expect(rt.getStore().opencodeOptions).toEqual({ dir: '/w/x', status: 'failed', data: null });
+      expect(rt.getState().toasts).toEqual([]);
+    });
   });
   // 0.6.1：選んだフォルダの事前の問い合わせ（入れ子と他の PC のプロジェクト）。新しいセッションと作成のダイアログが Store から読む。
   describe('選んだフォルダの事前の問い合わせ', () => {

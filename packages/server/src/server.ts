@@ -110,7 +110,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const opencode = bootOpencode(home);
   // opencode の driver は配る層と一緒に組んである。serve の管理をここで渡す（それまでの opencode の起動は断る）。
   delivery.bindOpencodeServes(opencode.serves);
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opts, serverDir });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();

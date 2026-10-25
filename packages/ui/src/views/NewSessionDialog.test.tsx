@@ -1083,3 +1083,159 @@ describe('NewSessionDialog の選んだフォルダとプロジェクトの結�
     expect(submits(out)).toEqual([{ type: 'session.new.submit', params: { projectId: 'p1', cwd: ui } }]);
   });
 });
+
+describe('NewSessionDialog のエージェント（opencode、ベータ）', () => {
+  const OPTIONS = {
+    version: '2.1.4', verified: true,
+    modes: [{ id: 'build', description: 'The default agent.' }, { id: 'plan', description: 'Plan mode.' }],
+    models: [{ id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode' }, { id: 'lmstudio/qwen/qwen3-coder-30b', label: 'Qwen3 Coder 30B', group: 'LM Studio (local)' }],
+    defaultModel: 'lmstudio/qwen/qwen3-coder-30b', fetchedAt: 1, stale: false,
+  };
+  const ready = (dir: string | null = '/w/alpha') => ({ options: { dir, status: 'ready' as const, data: OPTIONS } });
+  function collect(over: Partial<NewSessionProps> = {}) {
+    const actions: UiAction[] = [];
+    const ui = (p: Partial<NewSessionProps>) => <ActionRoot onAction={(i) => { actions.push(i); }}><NewSessionDialog {...base} {...p} /></ActionRoot>;
+    const view = render(ui(over));
+    return {
+      actions,
+      params: () => actions.flatMap((i) => (i.type === 'session.new.submit' ? [i.params] : [])),
+      asked: () => actions.flatMap((i) => (i.type === 'opencode.options' ? [i.dir] : [])),
+      rerender: (p: Partial<NewSessionProps>) => view.rerender(ui({ ...over, ...p })),
+    };
+  }
+  const names = () => within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.getAttribute('title'));
+  /** エージェントの札から opencode を選ぶ。消える札が薄れ終わってから入れ替わる。 */
+  const toOpencode = async () => {
+    fireEvent.click(chip('エージェント、Claude Code'));
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: /opencode/ })); });
+    await screen.findByRole('button', { name: 'エージェント、opencode' });
+  };
+
+  it('設定で有効にしていなければ、エージェントの札を出さず、札も起動の本文も今のまま', () => {
+    const { params, asked } = collect({ projectId: 'p1' });
+    expect(names()).toEqual(['プロジェクト', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
+    expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1' }]);
+    expect(asked()).toEqual([]);
+  });
+  it('有効なら札の先頭にエージェント（Claude Code）を出し、Claude の札と信頼の注記はそのまま。opencode の一覧は読まない', () => {
+    const { params, asked } = collect({ projectId: 'p1', opencode: { options: null } });
+    expect(names()).toEqual(['エージェント、Claude Code', 'プロジェクト', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
+    expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1' }]);
+    expect(asked()).toEqual([]);
+  });
+  it('エージェントの一覧は Claude Code と opencode で、opencode に「ベータ」と版の確かめを添える', () => {
+    collect({ projectId: 'p1', opencode: ready() });
+    fireEvent.click(chip('エージェント、Claude Code'));
+    const list = screen.getByRole('listbox', { name: 'エージェント' });
+    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual(['Claude Code', 'opencodeベータopencode 2.1.4 · 検証済み']);
+  });
+  it('opencode を選ぶと、アカウント・モデル・effort・権限モード・worktree の札と信頼の注記を外し、モード・モデル・自動承認を出す。選んだ場所の一覧を読む', async () => {
+    const { asked } = collect({ projectId: 'p1', opencode: ready(), accounts: null });
+    await toOpencode();
+    expect(names()).toEqual(['エージェント、opencode', 'プロジェクト', 'モード、build', 'モデル', '自動承認、オフ', '設定を追加']);
+    expect(chip('エージェント、opencode')).toHaveTextContent('ベータ');
+    expect(screen.queryByText(/信頼の確認ダイアログ/)).toBeNull();
+    expect(asked()).toEqual(['/w/alpha']);
+    // 「＋」から足せるのは名前だけ（追加ディレクトリは Claude Code だけのもの）。
+    fireEvent.click(chip('設定を追加'));
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['名前']);
+  });
+  it('モードは primary の一覧から、自動承認はオフとオン（--auto）から選び、説明を添える', async () => {
+    collect({ projectId: 'p1', opencode: ready() });
+    await toOpencode();
+    fireEvent.click(chip('モード、build'));
+    expect(within(screen.getByRole('listbox', { name: 'モード' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['buildThe default agent.', 'planPlan mode.']);
+    fireEvent.click(screen.getByRole('option', { name: /^plan/ }));
+    expect(chip('モード、plan')).toBeInTheDocument();
+    fireEvent.click(chip('自動承認、オフ'));
+    expect(within(screen.getByRole('listbox', { name: '自動承認' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['オフask のツールは実行前に確認', 'オン（--auto）deny 以外をすべて許可']);
+    fireEvent.click(screen.getByRole('option', { name: /^オン/ }));
+    expect(chip('自動承認、オン（--auto）')).toHaveAttribute('data-tone', 'danger');
+  });
+  it('モデルはデフォルトとプロバイダーごとのまとまりで並べ、デフォルトには opencode.json のモデルを添える', async () => {
+    collect({ projectId: 'p1', opencode: ready() });
+    await toOpencode();
+    expect(chip('モデル')).toHaveTextContent('デフォルト');
+    fireEvent.click(chip('モデル'));
+    const list = screen.getByRole('listbox', { name: 'モデル' });
+    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('デフォルト'), expect.stringContaining('GLM-5.3-Flash Free'), expect.stringContaining('Qwen3 Coder 30B'),
+    ]);
+    expect(within(list).getAllByRole('option')[0]).toHaveTextContent('lmstudio/qwen/qwen3-coder-30b');
+    expect(screen.getByText('opencode.json のデフォルト')).toBeInTheDocument();
+    expect(screen.getByText('OpenCode（1）')).toBeInTheDocument();
+    expect(screen.getByText('LM Studio (local)（1）')).toBeInTheDocument();
+  });
+  it('起動の本文に agent・mode・model・autoApprove を載せ、Claude だけの値は載せない', async () => {
+    const { params } = collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { model: 'opus', effort: 'high', permissionMode: 'plan', addDirs: ['/a'] } }, accounts: null });
+    await toOpencode();
+    fireEvent.click(chip('モード、build'));
+    fireEvent.click(screen.getByRole('option', { name: /^plan/ }));
+    pick('モデル', /GLM-5.3-Flash Free/);
+    fireEvent.click(chip('自動承認、オフ'));
+    fireEvent.click(screen.getByRole('option', { name: /^オン/ }));
+    fireEvent.change(prompt(), { target: { value: 'やって' } });
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', prompt: 'やって', agent: 'opencode', mode: 'plan', model: 'opencode/glm-5.3-flash-free', autoApprove: true }]);
+  });
+  it('既定のままの opencode では、モデルを載せず、自動承認はオフで載せる', async () => {
+    const { params } = collect({ projectId: 'p1', opencode: ready() });
+    await toOpencode();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', agent: 'opencode', mode: 'build', autoApprove: false }]);
+  });
+  it('一覧が届く前は、モードを載せない（opencode の既定に任せる）。届かなければ札の下で言う', async () => {
+    const view = collect({ projectId: 'p1', opencode: { options: { dir: '/w/alpha', status: 'loading', data: null } } });
+    await toOpencode();
+    expect(screen.getByText('opencode から一覧を取得しています…')).toBeInTheDocument();
+    start();
+    expect(view.params()[0]).toEqual({ projectId: 'p1', agent: 'opencode', autoApprove: false });
+    view.rerender({ opencode: { options: { dir: '/w/alpha', status: 'failed', data: null } } });
+    expect(screen.getByText('opencode から一覧を取得できませんでした。')).toBeInTheDocument();
+  });
+  it('ほかの場所の一覧は使わない', async () => {
+    collect({ projectId: 'p1', opencode: ready('/w/beta') });
+    await toOpencode();
+    fireEvent.click(chip('モデル'));
+    expect(within(screen.getByRole('listbox', { name: 'モデル' })).getAllByRole('option')).toHaveLength(1);
+  });
+  it('前回 opencode で起動したプロジェクトは、opencode と前回のモデルで開く', () => {
+    const { params, asked } = collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/glm-5.3-flash-free' } } });
+    expect(names()[0]).toBe('エージェント、opencode');
+    expect(chip('モデル')).toHaveTextContent('GLM-5.3-Flash Free');
+    expect(asked()).toEqual(['/w/alpha']);
+    start();
+    expect(params()[0]).toMatchObject({ agent: 'opencode', model: 'opencode/glm-5.3-flash-free' });
+  });
+  it('前回のモデルが一覧から消えていたら、デフォルトに戻して起動する（戻したことは札が持つ）', () => {
+    const { params } = collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/gone-free' } } });
+    expect(chip('モデル')).toHaveTextContent('デフォルト');
+    expect(chip('モデル')).toHaveAttribute('data-reset', 'true');
+    start();
+    expect(params()[0]).not.toHaveProperty('model');
+  });
+  it('前回 opencode でも、設定で無効にしたら Claude Code で開く', () => {
+    const { params } = collect({ projectId: 'p1', prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/glm-5.3-flash-free', effort: 'high' } } });
+    expect(names()[0]).toBe('プロジェクト');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', effort: 'high' }]);
+  });
+  it('札に触れる前にプロジェクトを選び直すと、そのプロジェクトの前回のエージェントにする', () => {
+    collect({ projectId: 'p1', opencode: ready(), prefs: { p2: { agent: 'opencode' } } });
+    expect(names()[0]).toBe('エージェント、Claude Code');
+    pick('プロジェクト', 'beta');
+    expect(names()[0]).toBe('エージェント、opencode');
+  });
+  it('opencode から Claude Code に戻すと、Claude の札と信頼の注記が戻る', async () => {
+    collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode' } } });
+    fireEvent.click(chip('エージェント、opencode'));
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Claude Code' })); });
+    await screen.findByRole('button', { name: 'エージェント、Claude Code' });
+    expect(names()).toEqual(['エージェント、Claude Code', 'プロジェクト', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
+    expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
+  });
+});
