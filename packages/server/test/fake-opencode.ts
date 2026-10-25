@@ -101,6 +101,8 @@ export type FakeOpencodeOptions = {
   exportTruncate?: boolean;
   /** 書き出しを終えるまでの間。 */
   exportDelayMs?: number;
+  /** 書き出しを、この標準エラーを書いて exit 1 で落とす（理由の分からない失敗のふり）。 */
+  exportFailStderr?: string;
   /** interrupt を受けたら、その会話を `GET /api/session/active` から外す（作業が止まって idle になったふり）。 */
   activeUntilInterrupt?: boolean;
   /** import が `--directory` を無視して、起こされた場所を会話の場所にする（場所の確かめの試験に使う）。 */
@@ -237,6 +239,7 @@ if (argv[0] === 'session' && argv[1] === 'import') {
   if (via === 'server' && OPTS.exportServerDown) { process.stderr.write('Unable to connect. Is the computer able to access the url?\\n'); exit('export-server-down', 1); }
   const n = Number(fs.existsSync(EXPORT_LOCKS) ? fs.readFileSync(EXPORT_LOCKS, 'utf8') : '0');
   if (n < (OPTS.exportLockTimes ?? 0)) { fs.writeFileSync(EXPORT_LOCKS, String(n + 1)); process.stderr.write('SQLiteError: database is locked\\n'); exit('export-locked', 1); }
+  if (OPTS.exportFailStderr !== undefined) { process.stderr.write(OPTS.exportFailStderr); exit('export-failed', 1); }
   const data = lookup(id);
   if (data === undefined) { process.stderr.write('Session not found: ' + id + '\\n'); exit('export-not-found', 1); }
   const text = JSON.stringify(data, null, 2) + '\\n';

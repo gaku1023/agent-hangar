@@ -21,6 +21,7 @@ posixDescribe('OpencodeExporter', () => {
 
   const make = (opts: FakeOpencodeOptions, o: { serve?: { url: string; password: string } | null; bin?: string | null; env?: NodeJS.ProcessEnv } = {}) => {
     const fake = writeFakeOpencode(path.join(dir, 'bin'), opts);
+    const lines: string[] = [];
     const exporter = new OpencodeExporter({
       home,
       bin: () => (o.bin === undefined ? fake.bin : o.bin),
@@ -28,9 +29,9 @@ posixDescribe('OpencodeExporter', () => {
       // 呼び手（hangar のサーバ）の環境に印が混ざっていても、書き出しの opencode には渡さない。
       env: { HOME: home, USER: 'me', PATH: '/usr/bin:/bin', CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'x', HANGAR_TOKEN: 'secret', ANTHROPIC_API_KEY: 'sk', ...o.env },
       lockDelaysMs: [10, 10, 10],
-      log: () => undefined,
+      log: (l) => { lines.push(l); },
     });
-    return { exporter, log: () => readFakeOpencodeLog(fake.logFile) };
+    return { exporter, log: () => readFakeOpencodeLog(fake.logFile), lines };
   };
   const leftovers = () => fs.readdirSync(opencodeExportDir(home)).filter((f) => f !== `${SES}.json`);
 
@@ -85,6 +86,32 @@ posixDescribe('OpencodeExporter', () => {
     const { exporter, log } = make({ exports: { [SES]: exportOf(SES) }, exportServerDown: true }, { serve: { url: 'http://127.0.0.1:1', password: 'pw' } });
     expect(await exporter.export(SES)).not.toBeNull();
     expect(log().filter((e) => e.ev === 'export').map((e) => (e.ev === 'export' ? e.via : ''))).toEqual(['server', 'standalone']);
+  });
+
+  posixIt('opencode に無い会話は、--server で無いと分かったら --standalone で取り直さない。ログには会話の ID と標準エラーの先頭を出す', async () => {
+    const { exporter, log, lines } = make({ exports: {} }, { serve: { url: 'http://127.0.0.1:1', password: 'pw' } });
+    expect(await exporter.export(SES)).toBeNull();
+    expect(log().filter((e) => e.ev === 'export').map((e) => (e.ev === 'export' ? e.via : ''))).toEqual(['server']);
+    expect(lines).toEqual([`[opencode] could not export a session for sync: ${SES}: not found: Session not found: ${SES}`]);
+  });
+
+  posixIt('serve につながらずに取り直した --standalone でも無ければ、最後の理由をログに出す', async () => {
+    const { exporter, log, lines } = make({ exports: {}, exportServerDown: true }, { serve: { url: 'http://127.0.0.1:1', password: 'pw' } });
+    expect(await exporter.export(SES)).toBeNull();
+    expect(log().filter((e) => e.ev === 'export').map((e) => (e.ev === 'export' ? e.via : ''))).toEqual(['server', 'standalone']);
+    expect(lines).toEqual([`[opencode] could not export a session for sync: ${SES}: not found: Session not found: ${SES}`]);
+  });
+
+  posixIt('理由の分からない失敗は、終わりの状態と標準エラーの最初の行をログに出す。パスワードは伏せ、長い行は切る', async () => {
+    const serve = { url: 'http://127.0.0.1:1', password: 'pw-secret' };
+    const { exporter, lines } = make({ exports: { [SES]: exportOf(SES) }, exportFailStderr: `\nError: boom pw-secret ${'x'.repeat(400)}\n    at stack line\n` }, { serve });
+    expect(await exporter.export(SES)).toBeNull();
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    expect(line.startsWith(`[opencode] could not export a session for sync: ${SES}: exit 1: Error: boom *** x`)).toBe(true);
+    expect(line).not.toContain('pw-secret');
+    expect(line).not.toContain('stack line');
+    expect(line.length).toBeLessThan(400);
   });
 
   posixIt('database is locked で落ちたら間をあけて取り直す', async () => {

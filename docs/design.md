@@ -6635,12 +6635,17 @@ serve の `/api/experimental/session/{id}/export` は実験用で、版で変わ
 会話の serve が起きていれば `--server <url>` でつなぎ、パスワードは環境の `OPENCODE_PASSWORD` だけで渡す。
 serve が無ければ `--standalone` で、私用のサーバを一時だけ起こして書き出す。
 `--server` で失敗したら `--standalone` で取り直す。
+ただし、opencode が会話を知らない（`Session not found: <ID>` で 1 で終わる）と答えたら取り直さない。serve も私用のサーバも同じ記録の置き場を見るからである。
 起こすときの環境は、版を読むときと同じ空の環境（`opencodeProbeEnv`）で、CLAUDE 系と HANGAR_* と API キーを渡さない。
 置き場は `~/.agent-hangar/opencode/export/<ID>.json`（置き場は 0700、ファイルは 0600）で、原子的に書く。
 同じ置き場の一時ファイルに書き、終わりの状態が 0 で、中身が JSON で、`info.id` が頼んだ ID と同じときだけ名前を付け替える。
 失敗したら一時ファイルを消し、前のファイルを残す。
 `database is locked` で落ちたら、serve の起動と同じ間（0.5、1、2 秒）をあけて取り直す。
 同じ会話を同時に頼まれたら、書き出しを重ねない。
+書き出せなかったら、`[opencode] could not export a session for sync: <ID>: <理由>: <標準エラーの最初の行>` の 1 行をログに出す。
+理由は `not found`（opencode が会話を知らない）、`locked`（取り直しても解けなかった）、`exit <状態>`、`signal <信号>` などで、標準エラーの行は serve のパスワードを伏せ、200 字で切る。
+本文はログに出さない。
+「この PC で再開」の比べ（`sync/opencodeResume.ts`）は、この PC に無い会話でも書き出しを試すので、`not found` の行は失敗ではなく、手元に無いことの知らせである。
 
 上げる契機は 2 つである。
 

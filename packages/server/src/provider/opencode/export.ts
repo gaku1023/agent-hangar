@@ -17,13 +17,15 @@ import { LOCK_RETRY_DELAYS_MS } from './serve/queue.ts';
  * - 会話の serve が起きていれば `--server <url>` でつなぎ、パスワードは環境の `OPENCODE_PASSWORD` だけで渡す（argv は `ps` で誰からも読める）。
  *   serve が無ければ（止まった後の run の終わり）`--standalone` で、私用のサーバを一時だけ起こして書き出す。
  *   `--server` で失敗したら（serve が先に止まった）`--standalone` で取り直す。
+ *   ただし、opencode が会話を知らない（`Session not found`）と答えたら取り直さない。serve も私用のサーバも同じ記録の置き場を見るからである。
  * - 空の環境から起こす（compat/version.ts の opencodeProbeEnv）。hangar の環境の CLAUDE 系と HANGAR_* と API キーを渡さない。
  * - 原子的に書く。同じ置き場の一時ファイルに書き、終わりの状態が 0 で、中身が JSON で、会話の ID が頼んだ ID と同じときだけ名前を付け替える。
  *   失敗したら一時ファイルを消し、前に書いたファイルはそのまま残す。上げる側は途中まで書いたファイルを決して読まない。
  * - `database is locked` で落ちたら、serve の起動と同じ間をあけて取り直す（serve/queue.ts）。
  * - 同じ会話を同時に頼まれたら、書き出しを重ねずに同じ結果を返す。
  *
- * 本文を含むので、置き場は 0700、ファイルは 0600 にする。ログには本文も会話の ID も秘密も出さない。
+ * 本文を含むので、置き場は 0700、ファイルは 0600 にする。ログには本文も秘密も出さない。
+ * 書き出せなかったときだけ、理由を追えるように、会話の ID、理由、標準エラーの最初の行（serve のパスワードは伏せ、200 字で切る）を 1 行に出す。
  */
 
 /** 書き出しの置き場。 */
@@ -48,12 +50,26 @@ export type OpencodeExporterDeps = {
   log?: (line: string) => void;
 };
 
-/** 1 回の書き出しの結果。locked は取り直してよい失敗である。 */
-type Attempt = { ok: true } | { ok: false; locked: boolean; reason: string };
+/**
+ * 1 回の書き出しの結果。locked は取り直してよい失敗、missing は opencode が会話を知らない（取り直しても同じ）失敗である。
+ * detail は標準エラーの最初の行で、ログにだけ使う。
+ */
+type Attempt = { ok: true } | { ok: false; locked: boolean; missing?: boolean; reason: string; detail?: string };
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 /** 標準エラーは理由を見分けるのにだけ使う。長い出力を抱えない。 */
 const STDERR_CAP = 4096;
+/** ログに出す標準エラーの最初の行の長さの上限。 */
+const DETAIL_CAP = 200;
+/** opencode が会話を知らないときの標準エラー（2.1.4 は `Session not found: <ID>` で 1 で終わる）。 */
+const NOT_FOUND = /Session not found/i;
+
+/** 標準エラーの最初の空でない行。secrets は伏せ、DETAIL_CAP で切る。 */
+function firstLine(stderr: string, secrets: readonly string[]): string {
+  const line = stderr.split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '') ?? '';
+  const hidden = secrets.filter(Boolean).reduce((t, x) => t.split(x).join('***'), line);
+  return hidden.length > DETAIL_CAP ? `${hidden.slice(0, DETAIL_CAP)}…` : hidden;
+}
 
 export class OpencodeExporter {
   private readonly inflight = new Map<string, Promise<string | null>>();
@@ -88,14 +104,16 @@ export class OpencodeExporter {
     }
     const target = path.join(dir, `${id}.json`);
     const serve = this.deps.serveOf(id);
-    let last = 'unknown';
-    // serve が起きていればまずそれにつなぎ、だめなら私用のサーバで取り直す。
+    let last: Extract<Attempt, { ok: false }> = { ok: false, locked: false, reason: 'unknown' };
+    // serve が起きていればまずそれにつなぎ、だめなら私用のサーバで取り直す。会話が無いと分かったら取り直さない。
     for (const via of serve ? (['server', 'standalone'] as const) : (['standalone'] as const)) {
       const r = await this.withLockRetry(() => this.attempt(bin, id, target, via === 'server' ? serve : null));
       if (r.ok) return target;
-      last = r.reason;
+      last = r;
+      if (r.missing) break;
     }
-    this.log(`[opencode] could not export a session for sync: ${last}`);
+    const detail = last.detail ? firstLine(last.detail, serve ? [serve.password] : []) : '';
+    this.log(`[opencode] could not export a session for sync: ${id}: ${last.reason}${detail ? `: ${detail}` : ''}`);
     return null;
   }
 
@@ -147,7 +165,8 @@ export class OpencodeExporter {
           if (settled) return;
           if (code !== 0) {
             const locked = /database is locked/i.test(stderr);
-            finish({ ok: false, locked, reason: locked ? 'locked' : signal ? `signal ${signal}` : `exit ${String(code)}` });
+            const missing = !locked && NOT_FOUND.test(stderr);
+            finish({ ok: false, locked, missing, reason: locked ? 'locked' : missing ? 'not found' : signal ? `signal ${signal}` : `exit ${String(code)}`, detail: stderr });
             return;
           }
           if (!this.valid(tmp, id)) { finish({ ok: false, locked: false, reason: 'invalid output' }); return; }
