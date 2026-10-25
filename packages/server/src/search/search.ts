@@ -34,6 +34,21 @@ export function likeSnippet(text: string, token: string): string {
 }
 
 /**
+ * MATCH の経路の抜粋（snippet()）が、検索語を 1 つも丸ごと含まないときは、本文から最初の長い語の前後を切り出し直す。
+ * snippet() の窓は trigram の 12 トークン（14 文字ほど）で、当たりが列の頭に近いと列の頭から切るので、語が途中で切れる。
+ * 短い依頼で起きやすく、14 文字を超える語はいつでも起きうる。
+ * 画面は抜粋の中の検索語に印を付ける（ui の markTerms）ので、語が切れると印が付かない。
+ * 比べ方は画面の印と同じく、引用符を外し、大文字と小文字を問わない。どれか 1 つでも含めば、snippet() の抜粋をそのまま返す。
+ */
+export function fitSnippet(snippet: string, full: string, tokens: { long: string[]; short: string[] }): string {
+  const terms = [...tokens.long, ...tokens.short].map((t) => t.replace(/"/g, '')).filter((t) => t !== '');
+  const lower = snippet.toLowerCase();
+  if (terms.length === 0 || terms.some((t) => lower.includes(t.toLowerCase()))) return snippet;
+  const anchor = tokens.long.map((t) => t.replace(/"/g, '')).find((t) => t !== '') ?? terms[0]!;
+  return likeSnippet(full, anchor);
+}
+
+/**
  * event_fts を全文検索し、session_id ごとに件数と抜粋をまとめて返す。
  * 3 文字以上の語は toFtsQuery で MATCH に載せ、複数語は AND になる。
  * 3 文字未満の語は trigram に当たらないので、行の text への like で補う。
@@ -133,7 +148,8 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
   const total = rows.length;
 
   // snippet() は MATCH した問い合わせでしか使えないので、like だけの経路は本文を取って切り出す。
-  const column = match ? "snippet(event_fts, 4, '', '', '…', 12) text" : 'text';
+  // 抜粋が語を丸ごと含まないときに切り出し直すため、MATCH の経路は本文も取る（fitSnippet）。
+  const column = match ? "snippet(event_fts, 4, '', '', '…', 12) text, text body" : 'text';
   // seq は主線とサブエージェントで別々に振るので、どの線の行かを agentId で添える（主線は null）。
   // 並びは主線を先に、seq の順にする。決めないと、跳び先（J1）に使う最初の抜粋が挿入の順で揺れる。
   const snip = db.prepare(`select seq, role, agent_id agentId, ${column} from event_fts f where f.session_id = ? and ${textWhere.join(' and ')} order by (agent_id is not null), cast(seq as integer) limit ${SNIPPETS_PER_HIT}`);
@@ -143,11 +159,12 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
     if (r.sm) matched.push('summary');
     if (r.n > 0) matched.push('transcript');
     if (r.n === 0) return { sessionId: r.sid, matchCount: 0, snippets: [], matched };
-    const snippets = snip.all(r.sid, ...textArgs) as SearchHitDto['snippets'];
+    const got = snip.all(r.sid, ...textArgs) as (SearchHitDto['snippets'][number] & { body?: string })[];
+    const snippets: SearchHitDto['snippets'] = got.map(({ body, ...s }) => ({ ...s, text: match ? fitSnippet(s.text, body ?? s.text, { long, short }) : likeSnippet(s.text, short[0]!) }));
     return {
       sessionId: r.sid,
       matchCount: r.n,
-      snippets: match ? snippets : snippets.map((s) => ({ ...s, text: likeSnippet(s.text, short[0]!) })),
+      snippets,
       matched,
     };
   });

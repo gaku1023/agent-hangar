@@ -6,7 +6,7 @@ import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { proposeSessionState, setSessionState } from '../sessions/states.ts';
-import { likeSnippet, searchSessions } from './search.ts';
+import { fitSnippet, likeSnippet, searchSessions } from './search.ts';
 
 let dir: string;
 let db: Db;
@@ -67,6 +67,20 @@ describe('searchSessions', () => {
       const r = searchSessions(db, { q });
       expect(r.hits[0]!.snippets.map((x) => [x.agentId, x.seq])).toEqual([[null, 3], [null, 7], ['ag1', 0]]);
     }
+  });
+  // snippet() の窓は trigram の 12 トークン（14 文字ほど）で、当たりが列の頭に近いと列の頭から切る。
+  // 短い依頼（rc.1 の opencode の会話の「シェルで ls /etc/hosts を実行してください。」）では語が途中で切れ、画面の印が付かなかった。
+  it('当たりが本文の頭に近くても、抜粋は検索語を丸ごと含む（画面が印を付けられる）', () => {
+    const sid = idOf(SESSION_ALPHA);
+    db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)').run(sid, null, 0, 'user', 'シェルで ls /etc/hosts を実行してください。');
+    for (const q of ['/etc/hosts', 'etc/hosts', '/ETC/HOSTS']) {
+      expect(searchSessions(db, { q }).hits[0]!.snippets[0]!.text.toLowerCase()).toContain('/etc/hosts');
+    }
+  });
+  it('snippet() の抜粋が検索語を含むときは、そのまま返す', () => {
+    const sid = idOf(SESSION_ALPHA);
+    db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)').run(sid, null, 0, 'user', 'please run ls /etc/hosts');
+    expect(searchSessions(db, { q: '/etc/hosts' }).hits[0]!.snippets[0]!.text).toBe('… ls /etc/hosts');
   });
   it('どこにも無い短い語は空の結果', () => {
     expect(searchSessions(db, { q: 'zz' })).toEqual({ hits: [], total: 0 });
@@ -397,6 +411,24 @@ describe('searchSessions の名前と要約', () => {
     const r = searchSessions(db, { q: '', file: 'a.md' });
     expect(r.hits).toHaveLength(1);
     expect(r.hits[0]).not.toHaveProperty('matched');
+  });
+});
+
+describe('fitSnippet', () => {
+  it('抜粋が検索語のどれかを丸ごと含めば、そのまま返す（大文字小文字は問わない）', () => {
+    expect(fitSnippet('…etc/hosts を実行し…', 'x', { long: ['hosts'], short: [] })).toBe('…etc/hosts を実行し…');
+    expect(fitSnippet('シェルで ls /etc/h…', 'x', { long: ['/etc/hosts'], short: ['ls'] })).toBe('シェルで ls /etc/h…');
+    expect(fitSnippet('…ETC/HOSTS…', 'x', { long: ['etc/hosts'], short: [] })).toBe('…ETC/HOSTS…');
+  });
+  it('どの語も丸ごと含まなければ、本文から最初の長い語の前後を切り出し直す', () => {
+    expect(fitSnippet('シェルで ls /etc/h…', 'シェルで ls /etc/hosts を実行してください。', { long: ['/etc/hosts'], short: [] })).toBe('シェルで ls /etc/hosts を実行してください。');
+    const full = 'あ'.repeat(100) + 'packages/server/src/search' + 'い'.repeat(100);
+    const out = fitSnippet('…packages/se…', full, { long: ['packages/server/src/search'], short: [] });
+    expect(out).toContain('packages/server/src/search');
+    expect(out.startsWith('…') && out.endsWith('…')).toBe(true);
+  });
+  it('引用符は検索の構文なので外して比べる（画面の印と同じ）', () => {
+    expect(fitSnippet('…a "b c" d…', 'x', { long: ['"b'], short: [] })).toBe('…a "b c" d…');
   });
 });
 
