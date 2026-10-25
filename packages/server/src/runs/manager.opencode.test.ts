@@ -75,7 +75,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     return { panes, opened, listed, closed, touched };
   };
 
-  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink } = {}) => {
+  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink; claudeBin?: string | null } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
@@ -93,7 +93,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => fakeClaude.bin, live: liveSourceOf(), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => realProcOps });
     const { panes, opened, listed, closed, touched } = recordingPanes(logFile, { fail: o.failOpen, screen: o.screen });
     const rm = new RunManager({
-      db, deviceId: 'd', home, panes, claudeBin: fakeClaude.bin, claudeDir: home, port: 4177, token: 'tok', shell: 'sh', language: () => 'ja',
+      db, deviceId: 'd', home, panes, claudeBin: o.claudeBin === undefined ? fakeClaude.bin : o.claudeBin, claudeDir: home, port: 4177, token: 'tok', shell: 'sh', language: () => 'ja',
       ...(o.platform ? { platform: o.platform } : {}),
       ...(o.compat ? { compat: o.compat } : {}),
       procs: { ...realProcOps, listJobs: () => [], ...(o.startTimeOf ? { startTimeOf: o.startTimeOf } : {}) },
@@ -415,6 +415,23 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(ev(log(), 'start')).toHaveLength(starts);
     enabled = false;
     expect(() => rm.prepareResumeDir(r.sessionId)).toThrow(expect.objectContaining({ status: 400 }) as Error);
+  });
+
+  posixIt('引き継ぎの前の確かめ（assertCanStart）は会話のエージェントで見る。claude の無い PC でも opencode の会話は通し、opencode が切か無ければ opencode の文で断る', async () => {
+    const add = (id: string, provider: string) => upsertShared(db, 'sessions', { id, provider, provider_session_id: provider === 'opencode' ? `ses_${id}` : '22222222-2222-4222-8222-222222222222', cwd, home_device: 'other', project_id: 'p1', started_at: 1, last_activity_at: 1 }, 'other');
+    add('oc1', 'opencode');
+    add('cc1', 'claude-code');
+    // claude の無い PC（opencode だけ入れた PC）。opencode の会話は通し、Claude の会話は今までどおり claude の文で断る。
+    const noClaude = make({ claudeBin: null });
+    expect(() => noClaude.rm.assertCanStart('oc1')).not.toThrow();
+    expect(() => noClaude.rm.assertCanStart('cc1')).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('claude が見つかりません') }) as Error);
+    expect(() => noClaude.rm.assertCanStart()).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('claude が見つかりません') }) as Error);
+    // opencode が切か、見つからなければ、起動と同じ文で断る。
+    expect(() => make({ claudeBin: null, enabled: false }).rm.assertCanStart('oc1')).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('opencode は有効になっていません') }) as Error);
+    expect(() => make({ claudeBin: null, bin: null }).rm.assertCanStart('oc1')).toThrow(expect.objectContaining({ status: 400, message: 'opencode が見つかりません（PATH を確認してください）' }) as Error);
+    // 確かめるだけで、run も serve も起こさない。
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+    expect(ev(noClaude.log(), 'start')).toEqual([]);
   });
 
   posixIt('設定を切にしても、動いている会話は止めない', async () => {

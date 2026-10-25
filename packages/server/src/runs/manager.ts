@@ -245,12 +245,23 @@ export class RunManager {
 
   /**
    * この PC でセッションを起こせるかだけを確かめ、起こせなければ起動と同じ RunError で断る。何も書かない。
-   * 引き継ぎ（sync/takeover.ts）はほかの PC の claude を停止してからこの PC で再開するので、頼む前に確かめる。
+   * 引き継ぎ（sync/takeover.ts）はほかの PC の会話を停止してからこの PC で再開するので、頼む前に確かめる。
    * 確かめないと、相手を止めたあとで再開に失敗する（adopt が startPanes を止める前に通すのと同じ理由）。
+   * 確かめる実行ファイルは会話のエージェントで決める。opencode の会話は、再開（resumeMaterialized）と同じく設定と opencode の有無を見て、claude は見ない。
+   * claude の無い PC（opencode だけ入れた PC）でも opencode の会話を引き継げるようにするためである。
+   * 会話を渡さないか、行が無ければ Claude として見る。
    */
-  assertCanStart(): void {
+  assertCanStart(sessionId?: string): void {
+    const row = sessionId === undefined ? undefined : (this.db.prepare('select provider from sessions where id = ? and deleted_at is null').get(sessionId) as { provider: string } | undefined);
+    const agent: AgentKind = row?.provider === 'opencode' ? 'opencode' : DEFAULT_AGENT;
+    if (agent === DEFAULT_AGENT) {
+      this.startPanes();
+      this.claudeBin();
+      return;
+    }
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    this.agentBin(agent);
     this.startPanes();
-    this.claudeBin();
   }
 
   /**

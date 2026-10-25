@@ -309,6 +309,13 @@ describe('同期の経路', () => {
     expect(t.events).not.toContainEqual(expect.objectContaining({ type: 'takeover.update' }));
   });
 
+  it('takeover の前の確かめは、その会話で行う（会話のエージェントで claude か opencode かを見るため）', async () => {
+    const id = await sid();
+    remoteRun(id);
+    await post(`/api/sessions/${id}/takeover`, {});
+    expect(runs.assertCanStart).toHaveBeenCalledWith(id);
+  });
+
   it('takeover は force を真偽で受け、無い会話は 404、本文の形が違えば 400', async () => {
     const id = await sid();
     remoteRun(id);

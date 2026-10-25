@@ -7599,7 +7599,10 @@ UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき
   `force` の行は残す（相手の次の起動で止める約束である）。
   段は `TakeoverStage`（`asking`、`waiting`、`receiving`、`ready`、`timeout`、`cancelled`）で、`takeover.update`（`TakeoverDto`：`sessionId`、`deviceName`、`stage`、`startedAt`、`deadline`）として画面へ配る。
   経路は `POST /api/sessions/:id/takeover`（本文の `force`）、`GET` 同、`POST /api/sessions/:id/takeover/extend`、`DELETE /api/sessions/:id/takeover`（取り下げ）である。
-  - `POST /api/sessions/:id/takeover` は、この PC でセッションを起こせない（tmux や psmux、claude が無い）とき、頼みを書かずに起動と同じ理由で断る（`RunManager.assertCanStart`、400）。
+  - `POST /api/sessions/:id/takeover` は、この PC でセッションを起こせない（tmux や psmux、会話のエージェントの実行ファイルが無い）とき、頼みを書かずに起動と同じ理由で断る（`RunManager.assertCanStart(会話)`、400）。
+    見る実行ファイルは会話のエージェントで決める。
+    Claude の会話は claude を、opencode の会話は再開と同じく設定の「opencode を有効にする」と opencode を見て、claude は見ない（文は `run.agent.disabled` と `run.agent.notFound`）。
+    claude の無い PC（opencode だけ入れた PC）でも、opencode の会話は引き継げる。
     頼むと相手の claude は停止するのに、この PC で再開できないためである。
   - 始め方。
     ロックが無ければ行を書かずに `ready`。
