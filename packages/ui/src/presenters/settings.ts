@@ -25,7 +25,7 @@ import { presentInjection, presentOpencodeInjection, type InjectionPart } from '
 export type OpencodeVersionKind = 'verified' | 'unverified' | 'legacy' | 'unknown' | 'missing';
 /**
  * 設定の「連携 › opencode」の面（ベータ、試作の D1）。
- * available は面を出すか（Windows では段 G1 まで出さない）。enabled が偽の間は、有効にする行だけを出す。
+ * available は面を出すか（いまはどの OS でも出す。Windows も実機で確かめた）。enabled が偽の間は、有効にする行だけを出す。
  * version は検出の答えが届く前は null。installed は手元の版、verified は確かめた範囲、note は版の並びの下に添える文である。
  * badge は見出しの右端の札で、答えが届く前は null。claudeNote は「Claude Code と同じ」を選んでいるときだけ添える注記である。
  */
@@ -61,13 +61,13 @@ export function opencodeVersionKind(s: OpencodeStatusDto): OpencodeVersionKind {
   return /^1\./.test(s.version) ? 'legacy' : 'unverified';
 }
 
-/** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows では面を出さない（段 G1 で外す）。 */
+/** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows ではコマンドの横取りの行だけを出さない。 */
 function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
   return {
-    available: platform !== 'win32',
+    available: true,
     enabled: opencodeEnabledOf(settings),
     injection,
     injectionOptions: OPENCODE_INJECTIONS.map((value) => ({ value, label: t(OPENCODE_INJECTION_KEY[value]) })),
