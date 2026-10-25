@@ -2103,7 +2103,7 @@ describe('スマホから起動したセッション（試作 F1）', () => {
   });
 });
 
-const OC_OPTIONS = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode' }, { id: 'lmstudio/qwen', label: 'Qwen', group: 'LM Studio' }], defaultModel: 'lmstudio/qwen', fetchedAt: 1, stale: false };
+const OC_OPTIONS = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode', provider: 'opencode', tools: true, context: null, cost: null }, { id: 'lmstudio/qwen', label: 'Qwen', group: 'LM Studio', provider: 'lmstudio', tools: true, context: null, cost: null }], providers: [], defaultModel: 'lmstudio/qwen', pricesAt: null, fetchedAt: 1, stale: false };
 
 describe('opencodeModelChoice（前回の opencode のモデル）', () => {
   it('一覧に前回のモデルがあればそれを使う', () => {

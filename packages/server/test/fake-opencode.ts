@@ -44,10 +44,13 @@ export type FakeOpencodeOptions = {
   mcpPendingPolls?: number;
   /** `GET /api/agent` の一覧。既定は build・plan（primary）、general（subagent）、title（隠れた primary）。 */
   agents?: { id: string; mode: string; hidden?: boolean; description?: string }[];
-  /** `GET /api/model` の一覧。既定は OpenCode の無料のもの 1 つと LM Studio の 2 つ。 */
-  models?: { providerID: string; id: string; name: string; enabled?: boolean }[];
-  /** `GET /api/provider` の一覧。既定は opencode（OpenCode）と lmstudio（LM Studio (local)）。 */
-  providers?: { id: string; name: string }[];
+  /**
+   * `GET /api/model` の一覧。既定は OpenCode の無料のもの 1 つと LM Studio の 2 つ。
+   * tools は capabilities.tools（省けば true）、cost は実物と同じ段の配列（省けば載せない）、limit は上限（省けば載せない）。
+   */
+  models?: { providerID: string; id: string; name: string; enabled?: boolean; tools?: boolean; cost?: { input: number; output: number }[]; limit?: { context?: number; output?: number } }[];
+  /** `GET /api/provider` の一覧。既定は opencode（OpenCode）と lmstudio（LM Studio (local)）。baseURL は settings.baseURL に載せる（apiKey も偽の値で載せる）。 */
+  providers?: { id: string; name: string; baseURL?: string }[];
   /** `GET /api/config` の opencode.json の既定のモデル。null なら書いていない。既定は lmstudio/qwen3-coder-30b。 */
   configModel?: { providerID: string; model: string } | null;
   /** 場所ごとの最初の `GET /api/agent` に空の一覧を返す（実物の 2.1.4 の振る舞い）。 */
@@ -178,10 +181,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (what === 'model') {
-      json(res, 200, { location, data: MODELS.map((m) => ({ id: m.id, modelID: m.id, providerID: m.providerID, name: m.name, enabled: m.enabled ?? true, status: 'active', capabilities: { tools: true } })) });
+      json(res, 200, { location, data: MODELS.map((m) => ({ id: m.id, modelID: m.id, providerID: m.providerID, name: m.name, enabled: m.enabled ?? true, status: 'active', capabilities: { tools: m.tools ?? true }, ...(m.cost ? { cost: m.cost.map((c) => ({ ...c, cache: { read: 0, write: 0 } })) } : {}), ...(m.limit ? { limit: m.limit } : {}) })) });
       return;
     }
-    json(res, 200, { location, data: PROVIDERS.map((p) => ({ id: p.id, integrationID: p.id, name: p.name, activation: 'enabled' })) });
+    json(res, 200, { location, data: PROVIDERS.map((p) => ({ id: p.id, integrationID: p.id, name: p.name, activation: 'enabled', ...(p.baseURL ? { settings: { apiKey: 'sk-fake-secret', baseURL: p.baseURL } } : {}) })) });
     return;
   }
   const m = /^\\/api\\/session\\/([^/]+)\\/interrupt$/.exec(req.url ?? '');

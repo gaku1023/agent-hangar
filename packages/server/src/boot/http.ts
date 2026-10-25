@@ -152,7 +152,7 @@ export function bootHttp(p: {
     findMux: () => whichMux(),
     compat: runs.compat,
     opencodeStatus: opencode.status,
-    opencodeOptions: (dir) => p.opencode.options.get(dir),
+    opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     overlapRefresh: () => runs.overlaps.tick(),
     uiDist,
   });

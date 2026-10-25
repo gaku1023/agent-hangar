@@ -68,6 +68,10 @@ describe('settingsSectionOf', () => {
     for (const at of ['tmux', 'claude'] as const) expect(settingsSectionOf(at)).toBe('environment');
     expect(settingsSectionOf('compat')).toBe('integrations');
   });
+  it('opencode の小さな節は連携の節にある（モデルの小窓の「プロバイダーを管理…」が開く）', () => {
+    expect(settingsSectionOf('opencode')).toBe('integrations');
+    expect(parseRoute('#/settings?at=opencode')).toEqual({ name: 'settings', at: 'opencode' });
+  });
   it('エディタの欄は一般の節にある', () => {
     expect(settingsSectionOf('editor')).toBe('general');
     expect(parseRoute('#/settings?at=editor')).toEqual({ name: 'settings', at: 'editor' });

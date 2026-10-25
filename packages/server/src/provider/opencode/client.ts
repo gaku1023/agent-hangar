@@ -24,16 +24,35 @@ export type McpServerStatus = { name: string; status: string };
 
 /** `GET /api/agent` の 1 行のうち hangar が使うもの。mode は primary、subagent、all。 */
 export type OpencodeAgentInfo = { id: string; mode: string; hidden: boolean; description: string | null };
-/** `GET /api/model` の 1 行のうち hangar が使うもの。id はプロバイダーの中の ID（/ を含むことがある）。 */
-export type OpencodeModelInfo = { providerID: string; id: string; name: string; enabled: boolean };
-/** `GET /api/provider` の 1 行のうち hangar が使うもの。 */
-export type OpencodeProviderInfo = { id: string; name: string };
+/**
+ * `GET /api/model` の 1 行のうち hangar が使うもの。id はプロバイダーの中の ID（/ を含むことがある）。
+ * tools は capabilities.tools（書いていなければ真）。context は limit.context（0 や無いときは null）。
+ * cost は料金の段の配列の最初の段（100 万トークンあたりの入力と出力、米ドル）で、空の配列や無いときは null（LM Studio の手で足したモデルは空で来る）。
+ */
+export type OpencodeModelInfo = { providerID: string; id: string; name: string; enabled: boolean; tools: boolean; context: number | null; cost: { input: number; output: number } | null };
+/**
+ * `GET /api/provider` の 1 行のうち hangar が使うもの。host は settings.baseURL の宛先の名前（無ければ null）。
+ * settings には API キーも載るので、ほかの欄は読まない。
+ */
+export type OpencodeProviderInfo = { id: string; name: string; host: string | null };
 
 export type OpencodeClientOptions = { timeoutMs?: number };
 
 /** 場所（directory）を `location[directory]=` の形の問いにする。JSON の文字列だと 400 になる。 */
 const at = (directory: string): string => `?${encodeURIComponent('location[directory]')}=${encodeURIComponent(directory)}`;
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+const objOf = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null);
+const firstCost = (v: unknown): { input: number; output: number } | null => {
+  const c = Array.isArray(v) ? objOf(v[0]) : null;
+  const input = num(c?.input);
+  const output = num(c?.output);
+  return input !== null && output !== null ? { input, output } : null;
+};
+const hostOf = (url: string | null): string | null => {
+  if (!url) return null;
+  try { return new URL(url).hostname || null; } catch { return null; }
+};
 const rowsOf = (r: unknown): Record<string, unknown>[] => {
   const data = (r as { data?: unknown } | null)?.data;
   return Array.isArray(data) ? data.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : [];
@@ -84,7 +103,13 @@ export class OpencodeClient {
     return rowsOf(r).flatMap((x) => {
       const providerID = str(x.providerID);
       const id = str(x.id) ?? str(x.modelID);
-      return providerID && id ? [{ providerID, id, name: str(x.name) ?? id, enabled: x.enabled !== false }] : [];
+      const context = num(objOf(x.limit)?.context);
+      return providerID && id ? [{
+        providerID, id, name: str(x.name) ?? id, enabled: x.enabled !== false,
+        tools: objOf(x.capabilities)?.tools !== false,
+        context: context ? context : null,
+        cost: firstCost(x.cost),
+      }] : [];
     });
   }
 
@@ -93,7 +118,7 @@ export class OpencodeClient {
     const r = await this.request('GET', `/api/provider${at(directory)}`);
     return rowsOf(r).flatMap((x) => {
       const id = str(x.id);
-      return id ? [{ id, name: str(x.name) ?? id }] : [];
+      return id ? [{ id, name: str(x.name) ?? id, host: hostOf(str(objOf(x.settings)?.baseURL)) }] : [];
     });
   }
 

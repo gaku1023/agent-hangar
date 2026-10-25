@@ -40,12 +40,12 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
   api.get('/compat', async (c) => c.json(await deps.compat()));
   // opencode の検出（ベータ）。設定の入り切りに関わらず答える（有効にする前に、入っているかと版を見せるため）。
   api.get('/opencode/status', async (c) => c.json(await deps.opencodeStatus()));
-  // 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、省けばホームで聞く。
+  // 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、省けばホームで聞く。refresh=1 は手元の一覧を使わずに取り直す。
   // serve を起こすことがあるので、設定で有効にしていなければ断る（有効にするまで、どこにも出さない）。
   api.get('/opencode/options', async (c) => {
     if (!opencodeEnabledOf(deps.settings())) return c.json({ error: tr('system.opencode.disabled') }, 409);
     try {
-      return c.json(await deps.opencodeOptions(c.req.query('dir') || null));
+      return c.json(await deps.opencodeOptions(c.req.query('dir') || null, { refresh: c.req.query('refresh') === '1' }));
     } catch (e) {
       return c.json({ error: tr('system.opencode.optionsFailed', { reason: errorText(language(), e) }) }, 502);
     }

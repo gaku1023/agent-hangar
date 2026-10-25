@@ -162,7 +162,7 @@ export const actionTable = {
   },
   // 新しいセッションで opencode を選んだときのモードとモデル。後から頼んだ場所があれば、古い場所の答えは捨てる。
   // 同じ場所を読み直す間と失敗したときは、前の答えを残す。読めなくてもトーストにせず、ダイアログが札の下で言う。
-  'opencode.options': (i) => call((api) => api.opencodeOptions(i.dir), {
+  'opencode.options': (i) => call((api) => (i.refresh ? api.opencodeOptions(i.dir, true) : api.opencodeOptions(i.dir)), {
     before: (store) => ({ ...store, opencodeOptions: { dir: i.dir, status: 'loading', data: store.opencodeOptions?.dir === i.dir ? store.opencodeOptions.data : null } }),
     apply: (store, data) => (store.opencodeOptions?.dir === i.dir ? { ...store, opencodeOptions: { dir: i.dir, status: 'ready', data } } : store),
     failed: (store) => (store.opencodeOptions?.dir === i.dir ? { ...store, opencodeOptions: { ...store.opencodeOptions, status: 'failed' } } : store),

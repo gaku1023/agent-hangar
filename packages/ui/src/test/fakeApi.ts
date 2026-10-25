@@ -71,7 +71,7 @@ export function fakeApiExtras(): Extras {
     recheckMux: vi.fn(async () => unused()),
     compat: vi.fn(async () => ({ verifiedVersion: '2.1.292', localVersion: '2.1.292', drifts: [] })),
     opencodeStatus: vi.fn(async () => ({ found: false, version: null, verified: false })),
-    opencodeOptions: vi.fn(async () => ({ version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }, { id: 'plan', description: null }], models: [], defaultModel: null, fetchedAt: 0, stale: false })),
+    opencodeOptions: vi.fn(async () => ({ version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }, { id: 'plan', description: null }], models: [], providers: [], defaultModel: null, pricesAt: null, fetchedAt: 0, stale: false })),
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),
     setTodoDone: vi.fn(async (id: string, done: boolean) => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null })),

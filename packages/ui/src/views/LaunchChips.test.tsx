@@ -284,7 +284,7 @@ describe('LaunchChips（札の列）', () => {
 });
 
 describe('LaunchChips のエージェント（opencode、ベータ）', () => {
-  const OC = { mode: 'build', modes: [{ id: 'build', description: null }], onMode: vi.fn(), model: '', models: [], defaultModel: null, modelReset: false, onModel: vi.fn(), autoApprove: false, onAutoApprove: vi.fn() };
+  const OC = { mode: 'build', modes: [{ id: 'build', description: null }], onMode: vi.fn(), model: '', models: [], defaultModel: null, modelReset: false, onModel: vi.fn(), providers: [], pricesAt: null, fetchedAt: 0, reloading: false, onReload: vi.fn(), onManage: vi.fn(), autoApprove: false, onAutoApprove: vi.fn() };
   const agentOf = (b: HTMLElement) => b.getAttribute('data-agent-only');
   it('片方のエージェントだけの札は data-agent-only を持ち、エージェント、プロジェクト、名前、「＋」の札は持たない（切り替えの動きが見分ける）', () => {
     const agent = { value: 'claude-code' as const, onChange: vi.fn(), opencodeNote: null };

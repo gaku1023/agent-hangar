@@ -47,7 +47,7 @@ describe('opencode の検出', () => {
 });
 
 describe('opencode の選択肢', () => {
-  const OPTIONS: OpencodeOptionsDto = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode' }], defaultModel: null, fetchedAt: 5, stale: false };
+  const OPTIONS: OpencodeOptionsDto = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode', provider: 'opencode', tools: true, context: 200_000, cost: { input: 0, output: 0 } }], providers: [{ id: 'opencode', name: 'OpenCode', where: 'remote' }], defaultModel: null, pricesAt: null, fetchedAt: 5, stale: false };
   const withOptions = (f: AppDeps['opencodeOptions'], enabled = true) => {
     const settings = { ...deps.settings(), opencodeEnabled: enabled };
     return createApp({ ...deps, settings: () => settings, opencodeOptions: f });
@@ -58,6 +58,13 @@ describe('opencode の選択肢', () => {
     expect(await json(await a.request(`/api/opencode/options?dir=${encodeURIComponent('/w/alpha')}`, { headers: H }))).toEqual({ status: 200, body: OPTIONS });
     await a.request('/api/opencode/options', { headers: H });
     expect(asked).toEqual(['/w/alpha', null]);
+  });
+  it('refresh=1 を付けると、手元の一覧を使わずに取り直すよう頼む', async () => {
+    const asked: unknown[] = [];
+    const a = withOptions(async (dir, o) => { asked.push([dir, o?.refresh ?? false]); return OPTIONS; });
+    await a.request(`/api/opencode/options?dir=${encodeURIComponent('/w/alpha')}&refresh=1`, { headers: H });
+    await a.request('/api/opencode/options', { headers: H });
+    expect(asked).toEqual([['/w/alpha', true], [null, false]]);
   });
   it('設定で有効にしていなければ 409 で断り、serve を起こさない', async () => {
     let asked = 0;

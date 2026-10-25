@@ -134,8 +134,8 @@ export type ApiClient = {
   compat(): Promise<CompatDto>;
   /** opencode の検出（ベータ）。設定の「連携 › opencode」の版の行が読む。設定が切でも答える。 */
   opencodeStatus(): Promise<OpencodeStatusDto>;
-  /** 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、null はホーム。 */
-  opencodeOptions(dir: string | null): Promise<OpencodeOptionsDto>;
+  /** 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、null はホーム。refresh は手元の一覧を使わずに取り直す。 */
+  opencodeOptions(dir: string | null, refresh?: boolean): Promise<OpencodeOptionsDto>;
   addTodo(projectId: string, text: string): Promise<TodoDto>;
   setTodoDone(id: string, done: boolean): Promise<TodoDto>;
   removeTodo(id: string): Promise<TodoDto>;
@@ -324,7 +324,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     recheckMux: () => post('/api/readiness/mux'),
     compat: () => call('/api/compat'),
     opencodeStatus: () => call('/api/opencode/status'),
-    opencodeOptions: (dir) => call(`/api/opencode/options${qs({ dir })}`),
+    opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
     addTodo: (projectId, text) => post(`/api/projects/${projectId}/todos`, { text }),
     setTodoDone: (id, done) => call(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
     removeTodo: (id) => call(`/api/todos/${id}`, { method: 'DELETE' }),

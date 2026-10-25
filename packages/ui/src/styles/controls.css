@@ -268,6 +268,50 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 /* 札から開く小さい面。余白は一覧が持つので、面の余白は詰める。 */
 .launch-pop { padding: calc(var(--u) * 1.5); gap: 0; }
 .pick-head { padding: calc(var(--u) * 1) calc(var(--u) * 2.5) calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+/* opencode のモデルの小窓（OpencodeModelPicker、試作 model-picker.html の W1・L2・D1）。面は .menu-pop と .launch-pop をそのまま使う。
+   行は札だけの簡潔な形で、右端に値段。費用の型の札は状態の色のトークンを借りる（ローカルは上限の青、無料は Done の緑、従量は Paused の茶、定額は候補の紫）。
+   開くと面は listbox-in で現れ、行は staggerIn で浮き上がる。まとまりの開き閉じは FoldBox（growIn、collapseOut）で、矢印は --dur で回る。 */
+.mpk-pop { padding-bottom: 0; }
+.mpk-search { margin: 0 calc(var(--u) * 1) calc(var(--u) * 1.5); }
+.mpk-body { max-height: min(360px, 60vh); overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 1px; padding: 0 calc(var(--u) * 0.5) calc(var(--u) * 1); }
+.mpk-sec { padding: calc(var(--u) * 1.5) calc(var(--u) * 2) 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.mpk-grp-h { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 1); font-size: var(--fs-xs); color: var(--ink-3); }
+.mpk-grp-toggle { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.mpk-grp-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.mpk-grp-toggle > .icon { width: 12px; height: 12px; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.mpk-grp-toggle[aria-expanded='false'] > .icon { transform: rotate(-90deg); }
+.mpk-grp-st { margin-left: auto; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mpk-grp-body { display: flex; flex-direction: column; gap: 1px; }
+.mpk-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: start; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.75) calc(var(--u) * 2); border-radius: 8px; cursor: pointer; }
+.mpk-row[data-active='true'] { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 0 0 1px var(--line); }
+.mpk-row[aria-selected='true'] { background: var(--accent-soft); }
+.mpk-row[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
+.mpk-chk { padding-top: 2px; }
+.mpk-chk > .icon { width: 14px; height: 14px; color: var(--accent); visibility: hidden; }
+.mpk-row[aria-selected='true'] .mpk-chk > .icon { visibility: visible; }
+.mpk-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mpk-name { font-size: var(--fs-sm); font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mpk-name mark { background: none; color: var(--accent); }
+.mpk-sub { font: 400 var(--fs-xs) var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mpk-tags { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1); }
+.mpk-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--ink-2); background: var(--surface-2); }
+.mpk-tag[data-tone='local'] { color: var(--limit); background: var(--limit-soft); }
+.mpk-tag[data-tone='free'] { color: var(--st-done); background: var(--st-done-soft); }
+.mpk-tag[data-tone='metered'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.mpk-tag[data-tone='plan'] { color: var(--cand); background: var(--cand-soft); }
+.mpk-tag[data-tone='muted'] { color: var(--ink-3); }
+.mpk-tag[data-tone='warn'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, #ffffff); }
+.mpk-tag[data-tone='outline'] { color: var(--ink-3); background: none; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.mpk-price { display: flex; flex-direction: column; align-items: flex-end; padding-top: 1px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.mpk-price > b { font: 600 var(--fs-xs) var(--font-mono); color: var(--ink-2); }
+.mpk-gfoot { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 2px calc(var(--u) * 2) calc(var(--u) * 1.5) 34px; font-size: var(--fs-xs); color: var(--ink-3); }
+.mpk-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; }
+.mpk-link:disabled { color: var(--ink-3); cursor: default; }
+.mpk-empty { padding: calc(var(--u) * 3) calc(var(--u) * 2.5); font-size: var(--fs-sm); color: var(--ink-3); }
+.mpk-manage { display: block; width: calc(100% - var(--u) * 2); height: 32px; margin: calc(var(--u) * 1) auto calc(var(--u) * 1.5); border: 1px dashed var(--line-strong); border-radius: 8px; background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--accent); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.mpk-manage:hover { background: rgba(255, 255, 255, 0.92); }
+.mpk-manage:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mpk-foot { margin: 0 calc(var(--u) * -1.5); padding: calc(var(--u) * 1.5) calc(var(--u) * 3); border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-3); }
 .launch-input { width: 100%; margin-top: calc(var(--u) * 1.5); font-size: var(--fs-sm); }
 textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); resize: vertical; }
 .launch-hint { padding: calc(var(--u) * 1) calc(var(--u) * 1) 0; font-size: var(--fs-xs); color: var(--ink-3); }

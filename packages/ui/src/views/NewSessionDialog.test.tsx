@@ -1088,8 +1088,12 @@ describe('NewSessionDialog のエージェント（opencode、ベータ）', () 
   const OPTIONS = {
     version: '2.1.4', verified: true,
     modes: [{ id: 'build', description: 'The default agent.' }, { id: 'plan', description: 'Plan mode.' }],
-    models: [{ id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode' }, { id: 'lmstudio/qwen/qwen3-coder-30b', label: 'Qwen3 Coder 30B', group: 'LM Studio (local)' }],
-    defaultModel: 'lmstudio/qwen/qwen3-coder-30b', fetchedAt: 1, stale: false,
+    models: [
+      { id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode', provider: 'opencode', tools: true, context: 200_000, cost: { input: 0, output: 0 } },
+      { id: 'lmstudio/qwen/qwen3-coder-30b', label: 'Qwen3 Coder 30B', group: 'LM Studio (local)', provider: 'lmstudio', tools: true, context: 262_144, cost: null },
+    ],
+    providers: [{ id: 'opencode', name: 'OpenCode', where: 'remote' as const }, { id: 'lmstudio', name: 'LM Studio (local)', where: 'device' as const }],
+    defaultModel: 'lmstudio/qwen/qwen3-coder-30b', pricesAt: null, fetchedAt: 1, stale: false,
   };
   const ready = (dir: string | null = '/w/alpha') => ({ options: { dir, status: 'ready' as const, data: OPTIONS } });
   function collect(over: Partial<NewSessionProps> = {}) {
@@ -1156,19 +1160,28 @@ describe('NewSessionDialog のエージェント（opencode、ベータ）', () 
     fireEvent.click(screen.getByRole('option', { name: /^オン/ }));
     expect(chip('自動承認、オン（--auto）')).toHaveAttribute('data-tone', 'danger');
   });
-  it('モデルはデフォルトとプロバイダーごとのまとまりで並べ、デフォルトには opencode.json のモデルを添える', async () => {
+  it('モデルはデフォルトとプロバイダーごとのまとまり（ローカル、無料の順）で並べ、デフォルトには opencode.json のモデルを添える', async () => {
     collect({ projectId: 'p1', opencode: ready() });
     await toOpencode();
     expect(chip('モデル')).toHaveTextContent('デフォルト');
     fireEvent.click(chip('モデル'));
     const list = screen.getByRole('listbox', { name: 'モデル' });
     expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual([
-      expect.stringContaining('デフォルト'), expect.stringContaining('GLM-5.3-Flash Free'), expect.stringContaining('Qwen3 Coder 30B'),
+      expect.stringContaining('デフォルト'), expect.stringContaining('Qwen3 Coder 30B'), expect.stringContaining('GLM-5.3-Flash Free'),
     ]);
     expect(within(list).getAllByRole('option')[0]).toHaveTextContent('lmstudio/qwen/qwen3-coder-30b');
     expect(screen.getByText('opencode.json のデフォルト')).toBeInTheDocument();
-    expect(screen.getByText('OpenCode（1）')).toBeInTheDocument();
-    expect(screen.getByText('LM Studio (local)（1）')).toBeInTheDocument();
+    expect(screen.getByText('LM Studio（1）')).toBeInTheDocument();
+    expect(screen.getByText('OpenCode Zen（1）')).toBeInTheDocument();
+  });
+  it('モデルの小窓の再読み込みは、同じ場所の一覧の取り直しを頼み、「プロバイダーを管理…」は閉じて設定の opencode の面へ移る', async () => {
+    const { actions } = collect({ projectId: 'p1', opencode: ready() });
+    await toOpencode();
+    fireEvent.click(chip('モデル'));
+    fireEvent.click(screen.getByRole('button', { name: '再読み込み' }));
+    expect(actions).toContainEqual({ type: 'opencode.options', dir: '/w/alpha', refresh: true });
+    fireEvent.click(screen.getByRole('button', { name: 'プロバイダーを管理…' }));
+    expect(actions.slice(-2)).toEqual([{ type: 'overlay.close' }, { type: 'nav.go', to: { name: 'settings', at: 'opencode' } }]);
   });
   it('起動の本文に agent・mode・model・autoApprove を載せ、Claude だけの値は載せない', async () => {
     const { params } = collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { model: 'opus', effort: 'high', permissionMode: 'plan', addDirs: ['/a'] } }, accounts: null });

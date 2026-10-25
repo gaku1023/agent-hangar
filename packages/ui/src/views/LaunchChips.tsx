@@ -1,9 +1,8 @@
 import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
-import { EFFORT_VALUES, type AgentValue, type OpencodeModeOption, type OpencodeModelOption } from '@agent-hangar/shared';
+import { EFFORT_VALUES, type AgentValue, type OpencodeModeOption, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
 import { AGENT_ONLY_ATTR } from './agentSwap.ts';
-import { Listbox } from './primitives/Listbox.tsx';
-import type { ListboxGroup, ListboxOption } from './primitives/listboxModel.ts';
 import { isComposing } from './ime.ts';
+import { OpencodeModelPicker } from './OpencodeModelPicker.tsx';
 import { SettingChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -24,8 +23,6 @@ const MODELS = ['', 'fable', 'opus', 'sonnet', 'haiku'];
 const EXTRAS = ['name', 'addDirs'] as const;
 type Extra = (typeof EXTRAS)[number];
 const OPENCODE_EXTRAS: readonly Extra[] = ['name'];
-/** モデルの一覧の「デフォルト」の行の値。モデルの ID（`provider/model`）とは重ならない。 */
-const DEFAULT_MODEL_ROW = ':default';
 
 /** エージェントの札。opencodeNote は一覧の opencode の行に添える版の確かめ（「opencode 2.1.4 · 検証済み」）。 */
 export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue) => void; opencodeNote: string | null };
@@ -33,11 +30,13 @@ export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue)
 /**
  * opencode を選んだときの札。mode と model の空は既定（params に載せない）。
  * modelReset は前回のモデルが一覧から消えていてデフォルトに戻したことで、札に data-reset で持つ（知らせの見せ方は試作で選ぶ途中）。
- * status は一覧の読み込みで、idle は読み込みを頼む前である。
+ * providers、pricesAt、fetchedAt はモデルの小窓（OpencodeModelPicker）が費用の型と取得日に使う。
+ * reloading は一覧の取り直しの途中、onReload は LM Studio の「再読み込み」、onManage は「プロバイダーを管理…」。
  */
 export type LaunchOpencodeChips = {
   mode: string; modes: OpencodeModeOption[]; onMode: (value: string) => void;
   model: string; models: OpencodeModelOption[]; defaultModel: string | null; modelReset: boolean; onModel: (value: string) => void;
+  providers: OpencodeProviderOption[]; pricesAt: number | null; fetchedAt: number; reloading: boolean; onReload: () => void; onManage: () => void;
   autoApprove: boolean; onAutoApprove: (value: boolean) => void;
 };
 
@@ -214,7 +213,7 @@ function AgentChip(props: LaunchAgentChip) {
 }
 
 /**
- * opencode の札。モード（primary のエージェント）、モデル（素の一覧。デフォルトの行と、プロバイダーごとのまとまり）、自動承認（オフ／オン（--auto））。
+ * opencode の札。モード（primary のエージェント）、モデル（モデルの小窓。プロバイダーごとのまとまりで、費用の型とデータの扱いを添える）、自動承認（オフ／オン（--auto））。
  * 自動承認がオンの札は赤い縁にする（Bypass permissions と同じ）。
  */
 function OpencodeChips(props: LaunchOpencodeChips) {
@@ -223,17 +222,6 @@ function OpencodeChips(props: LaunchOpencodeChips) {
   const modeName = t('launch.chip.mode');
   const modelName = t('launch.chip.model');
   const autoName = t('launch.chip.autoApprove');
-  const groups = new Map<string, string[]>();
-  for (const m of props.models) groups.set(m.group, [...(groups.get(m.group) ?? []), m.id]);
-  const options: ListboxOption[] = [
-    { value: DEFAULT_MODEL_ROW, label: def, ...(props.defaultModel ? { sub: props.defaultModel } : {}) },
-    ...props.models.map((m) => ({ value: m.id, label: m.label, sub: m.id })),
-  ];
-  const listGroups: ListboxGroup[] = [
-    { title: t('launch.model.defaultGroup'), values: [DEFAULT_MODEL_ROW] },
-    ...[...groups].map(([name, values]) => ({ title: t('launch.model.group', { name, n: values.length }), values })),
-  ];
-  const chosen = props.models.find((m) => m.id === props.model);
   return (
     <>
       <ChipPopover name={modeName} value={props.mode || def} tone={props.mode ? 'default' : 'muted'} width={300} agentOnly="opencode">
@@ -243,10 +231,9 @@ function OpencodeChips(props: LaunchOpencodeChips) {
             onPick={(v) => { props.onMode(v); close(); }} />
         )}
       </ChipPopover>
-      <Listbox label={modelName} value={props.model || DEFAULT_MODEL_ROW} options={options} groups={listGroups} onChange={(v) => props.onModel(v === DEFAULT_MODEL_ROW ? '' : v)}
-        searchPlaceholder={t('launch.model.search')} minWidth={360} align="start" faceClassName="set-chip"
-        faceProps={{ 'data-tone': props.model ? 'default' : 'muted', [AGENT_ONLY_ATTR]: 'opencode', ...(props.modelReset ? { 'data-reset': 'true' } : {}) }}
-        renderFace={() => <><span className="set-chip-name">{modelName}</span><span className="set-chip-value">{chosen?.label ?? (props.model || def)}</span><Icon name="chevronDown" /></>} />
+      <OpencodeModelPicker label={modelName} value={props.model} models={props.models} providers={props.providers} defaultModel={props.defaultModel}
+        pricesAt={props.pricesAt} fetchedAt={props.fetchedAt} reset={props.modelReset} reloading={props.reloading}
+        onChange={props.onModel} onReload={props.onReload} onManage={props.onManage} faceProps={{ [AGENT_ONLY_ATTR]: 'opencode' }} />
       <ChipPopover name={autoName} value={t(props.autoApprove ? 'launch.autoApprove.on' : 'launch.autoApprove.off')} tone={props.autoApprove ? 'danger' : 'muted'} width={280} agentOnly="opencode">
         {(close) => (
           <PickList label={autoName} value={props.autoApprove ? 'on' : 'off'}
