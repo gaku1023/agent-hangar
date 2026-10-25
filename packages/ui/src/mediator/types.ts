@@ -375,6 +375,8 @@ export type State = {
   toasts: Toast[]; nextToastId: number;
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
+  /** 開いたサイドバーの幅（px）。境目を掴んで変え、端末ごとに保存して起動時に読み戻す。 */
+  sidebarWidth: number;
   /**
    * サイドバーの「動いている」の行を、利用者が並べた順（セッションの id）。端末ごとに localStorage に残し、起動時に読み戻す。
    * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。

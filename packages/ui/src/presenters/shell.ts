@@ -74,7 +74,7 @@ export type SideLiveGroup = { key: string; name: string; open: boolean; waiting:
  * count は動いているセッションの全数、ids と rows は見えている順（グループをつないだ順）の全部の並びと行（ids は並べ替えの計算に使う）、groups はプロジェクトごとのグループである。
  */
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; groups: SideLiveGroup[] };
-export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
+export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; sidebarWidth: number; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -278,5 +278,5 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
   const item = (n: NavDef): NavItem => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 });
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, sidebarWidth: state.sidebarWidth, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

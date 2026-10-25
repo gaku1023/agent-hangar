@@ -69,6 +69,31 @@ export function sidebarFoldStep(state: State, input: Input): Step | null {
   return { state: { ...state, sidebarFolded: folded }, effects: [{ kind: 'storage.save', key: SIDEBAR_FOLDED_KEY, value: folded }] };
 }
 
+/** サイドバーの幅を残す localStorage の鍵。値は px の数。 */
+export const SIDEBAR_WIDTH_KEY = 'sidebar.width';
+/** 既定で最小の幅。境目のダブルクリックでここへ戻す。base.css の --sidebar-w の初期値と同じ。 */
+export const SIDEBAR_WIDTH_DEFAULT = 208;
+export const SIDEBAR_WIDTH_MAX = 400;
+/** 窓の幅に対する上限の割合。狭い窓で本文を潰さないため。 */
+export const SIDEBAR_WIDTH_VIEWPORT = 0.35;
+
+/** 幅を範囲に収めて丸める。数でなければ既定にする。 */
+export function cleanSidebarWidth(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return SIDEBAR_WIDTH_DEFAULT;
+  return Math.max(SIDEBAR_WIDTH_DEFAULT, Math.min(SIDEBAR_WIDTH_MAX, Math.round(v)));
+}
+
+/** --sidebar-w に書く値。窓の幅の 35% で頭打ちにするが、既定より狭くはしない。 */
+export const sidebarWidthCss = (width: number): string => `clamp(${SIDEBAR_WIDTH_DEFAULT}px, ${SIDEBAR_WIDTH_VIEWPORT * 100}vw, ${width}px)`;
+
+/** サイドバーの幅を変える。保存し、開き直しても同じ幅で出す。同じ幅なら何もしない。 */
+export function sidebarWidthStep(state: State, input: Input): Step | null {
+  if (input.kind !== 'action' || input.action.type !== 'sidebar.width') return null;
+  const width = cleanSidebarWidth(input.action.width);
+  if (width === state.sidebarWidth) return { state, effects: [] };
+  return { state: { ...state, sidebarWidth: width }, effects: [{ kind: 'storage.save', key: SIDEBAR_WIDTH_KEY, value: width }] };
+}
+
 /**
  * 動いているセッションの顔ぶれを、ストアから読んで並びに合わせる（store.ts の liveSessionIds）。ストアが変わるたびに呼ばれる。
  * 初めて現れたものを、始めた順で並びの末尾に書き足す。場所はここで決まり、以後は利用者が動かすまで変わらない。

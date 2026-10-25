@@ -6,7 +6,7 @@ import type { SideLiveGroup } from '../presenters/shell.ts';
 import { Shell } from './Shell.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const props = { live: { count: 0, ids: [], rows: [], groups: [] }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
+const props = { live: { count: 0, ids: [], rows: [], groups: [] }, sidebarCollapsed: false, sidebarWidth: 208, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -16,6 +16,17 @@ describe('Shell の本文の幅', () => {
     expect(container.querySelector('.shell')).toHaveAttribute('data-wide', 'true');
     rerender(<ActionRoot onAction={vi.fn()}><Shell {...props} overlays={null}><div>body</div></Shell></ActionRoot>);
     expect(container.querySelector('.shell')).not.toHaveAttribute('data-wide');
+  });
+});
+
+describe('Shell のサイドバーの幅', () => {
+  it('幅を --sidebar-w に書き、開いているときだけ縁を出す', () => {
+    const { container, rerender } = render(<ActionRoot onAction={vi.fn()}><Shell {...props} sidebarWidth={300} overlays={null}><div>body</div></Shell></ActionRoot>);
+    const shell = container.querySelector<HTMLElement>('.shell')!;
+    expect(shell.style.getPropertyValue('--sidebar-w')).toBe('clamp(208px, 35vw, 300px)');
+    expect(screen.getByRole('separator', { name: 'サイドバーの幅' })).toHaveAttribute('aria-valuenow', '300');
+    rerender(<ActionRoot onAction={vi.fn()}><Shell {...props} sidebarWidth={300} sidebarCollapsed overlays={null}><div>body</div></Shell></ActionRoot>);
+    expect(screen.queryByRole('separator', { name: 'サイドバーの幅' })).toBeNull();
   });
 });
 
