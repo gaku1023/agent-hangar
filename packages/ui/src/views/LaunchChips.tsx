@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { EFFORT_VALUES, type AgentValue, type OpencodeModeOption, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
 import { AGENT_ONLY_ATTR } from './agentSwap.ts';
+import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { isComposing } from './ime.ts';
 import { OpencodeModelPicker } from './OpencodeModelPicker.tsx';
 import { SettingChip } from './primitives/Chip.tsx';
@@ -43,10 +44,10 @@ export type LaunchOpencodeChips = {
 const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).length;
 
 /** 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。 */
-function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; dot?: string; badge?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentValue; children: (close: () => void) => ReactNode }) {
+function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentValue; children: (close: () => void) => ReactNode }) {
   return (
     <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" defaultOpen={props.defaultOpen}
-      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} dot={props.dot} badge={props.badge} {...{ [AGENT_ONLY_ATTR]: props.agentOnly }} {...p} />}>
+      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} lead={props.lead} dot={props.dot} badge={props.badge} {...{ [AGENT_ONLY_ATTR]: props.agentOnly }} {...p} />}>
       {({ close }) => (
         <>
           <div className="pick-head">{props.name}</div>
@@ -193,18 +194,19 @@ export function LaunchChips(props: {
 /**
  * エージェントの札（列の先頭）。値は Claude Code か opencode で、opencode のときは「ベータ」の小札を添える。
  * 札は名前を見せず、値だけを出す（アカウントの札と同じ）。一覧の opencode の行には「ベータ」と版の確かめを添える。
+ * 札と一覧の行の頭には、エージェントの絵（サイドバーとタブと同じ組）を置く。隣に名前があるので、絵は読み上げない。
  */
 function AgentChip(props: LaunchAgentChip) {
   const t = useT();
   const beta = t('launch.agent.beta');
   const label = (v: AgentValue) => t(v === 'opencode' ? 'launch.agent.opencode' : 'launch.agent.claude');
   return (
-    <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} badge={props.value === 'opencode' ? beta : undefined} showName={false} width={260}>
+    <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} lead={<AgentIcon kind={props.value} decorative />} badge={props.value === 'opencode' ? beta : undefined} showName={false} width={260}>
       {(close) => (
         <PickList label={t('launch.chip.agent')} value={props.value}
           items={[
-            { value: 'claude-code', label: label('claude-code') },
-            { value: 'opencode', label: label('opencode'), badge: beta, ...(props.opencodeNote ? { sub: props.opencodeNote } : {}) },
+            { value: 'claude-code', label: label('claude-code'), lead: <AgentIcon kind="claude-code" decorative /> },
+            { value: 'opencode', label: label('opencode'), lead: <AgentIcon kind="opencode" decorative />, badge: beta, ...(props.opencodeNote ? { sub: props.opencodeNote } : {}) },
           ]}
           onPick={(v) => { close(); props.onChange(v as AgentValue); }} />
       )}

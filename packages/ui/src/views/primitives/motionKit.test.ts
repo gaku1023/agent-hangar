@@ -244,6 +244,15 @@ describe('motionKit', () => {
     tokens('0ms');
     expect(resizeFrom(el, 120)).toBeNull();
   });
+  it('横の補間は、幅を前の幅から今の幅へ動かす（新しいセッションのエージェントの札）', () => {
+    tokens('420ms');
+    const calls = fakeAnimate();
+    const el = document.createElement('button');
+    Object.defineProperty(el, 'offsetWidth', { configurable: true, get: () => 96 });
+    expect(resizeFrom(el, 96, 'x')).toBeNull();
+    resizeFrom(el, 130, 'x');
+    expect(calls[0]!.frames).toEqual([{ width: '130px' }, { width: '96px' }]);
+  });
   it('高さだけを畳む形は、不透明度に触れない（先に薄れた札を、もう一度見せない）', async () => {
     tokens('100ms');
     const calls = fakeAnimate();

@@ -43,4 +43,20 @@ describe('エージェントの切り替えの動き（M1）', () => {
     expect(by('proj')[0]?.frames[0]).toEqual({ transform: 'translate(40px, 0px)' });
     expect(['mode', 'model', 'auto'].map((id) => by(id)[0]?.opts.delay)).toEqual([0, 30, 60]);
   });
+
+  it('エージェントの札は、幅を前の幅から横に動かし、新しい絵を --dur-swap で現す', async () => {
+    document.body.innerHTML = `<div class="dialog"><div class="launch-chips"><button id="agent" class="set-chip"><span class="agent-icon" data-agent="claude-code"></span>Claude Code</button><button id="m" data-agent-only="claude-code"></button></div></div>`;
+    const dialog = document.querySelector<HTMLElement>('.dialog')!;
+    const chip = document.getElementById('agent')!;
+    Object.defineProperty(chip, 'offsetWidth', { configurable: true, get: () => 120 });
+    const snap = await leaveAgent(dialog, 'claude-code');
+    calls = [];
+    chip.innerHTML = '<span class="agent-icon" data-agent="opencode"></span>opencode';
+    Object.defineProperty(chip, 'offsetWidth', { configurable: true, get: () => 100 });
+    enterAgent(snap, 'opencode');
+    expect(calls.find((c) => c.el === chip && 'width' in (c.frames[0] ?? {}))?.frames).toEqual([{ width: '120px' }, { width: '100px' }]);
+    const icon = calls.find((c) => (c.el as HTMLElement).classList.contains('agent-icon'));
+    expect(icon?.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    expect(icon?.opts.duration).toBe(150);
+  });
 });

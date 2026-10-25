@@ -250,6 +250,8 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .set-chip[data-tone='danger'] { color: var(--error); box-shadow: inset 0 0 0 1.5px var(--error); }
 /* 札の中の「ベータ」の小札（エージェントの札の opencode）。札の gap で離れるので、小札の左の余白は使わない。 */
 .set-chip > .tag-beta { margin-left: 0; }
+/* エージェントの札の絵。サイドバーの行と同じ枠（shared の AGENT_ICON_FRAME）に置き、Claude Code と opencode で名前の頭をそろえる。 */
+.set-chip > .agent-icon { width: 20px; height: 14px; }
 .set-chip[data-tone='danger'] > .icon { color: var(--error); }
 .set-chip-value { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
 /* 登録済みのプロジェクトの下のフォルダか、ほかの PC のプロジェクトに結び付けるときの札（0.6.1）。札の値が選んだフォルダと違うことを、淡い青で示す。 */
@@ -340,6 +342,8 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .pick-li { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: calc(var(--u) * 2.5); height: 30px; padding: 0 calc(var(--u) * 2.5); border-radius: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink); white-space: nowrap; cursor: pointer; }
 .pick-li > .icon, .pick-li > .effort-bars { width: 14px; height: 14px; color: var(--ink-3); }
 .pick-li > .effort-bars { height: 10px; }
+/* エージェントの一覧の絵。Clawd（18px）は頭の列（16px）より少し広いので、列の中央に置いてはみ出させ、名前の頭は他の一覧とそろえる。 */
+.pick-li > .agent-icon { width: 16px; overflow: visible; }
 .pick-list[data-plain='true'] .pick-li { grid-template-columns: minmax(0, 1fr) auto; }
 .pick-li:hover { background: rgba(255, 255, 255, 0.92); }
 .pick-list:focus .pick-li[data-active='true'] { box-shadow: inset 0 0 0 1px var(--accent); }
