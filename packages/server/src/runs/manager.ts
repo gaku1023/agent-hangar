@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
@@ -13,8 +12,7 @@ import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { DEFAULT_INJECTION_PARTS, renderInjection, type InjectionParts } from '../launch/injection.ts';
 import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
-import { writeHookSettings } from '../provider/claude-code/launch/hookSettings.ts';
-import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
+import { pruneMcpConfigs, removeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { needsShell } from '../platform/exec.ts';
@@ -26,8 +24,10 @@ import { assignSession, normalizeDir } from '../projects/registry.ts';
 import { isUnder } from '../platform/paths.ts';
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/transcript/discover.ts';
-import { claudeCodeProvider } from '../provider/claude-code/index.ts';
-import type { LaunchInput, LiveSession } from '../provider/claude-code/types.ts';
+import { createClaudeDriver, type ClaudeDriver } from '../provider/claude-code/driver.ts';
+import type { LiveSession } from '../provider/claude-code/types.ts';
+import { agentsOf, DEFAULT_AGENT, type Agents } from '../agent/agents.ts';
+import type { AgentDriver, LaunchPlan, LaunchSpec } from '../agent/types.ts';
 import type { PaneOps } from '../tmux/pane.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';
@@ -107,7 +107,7 @@ type ProjectInfo = { id: string; name: string; path: string | null; resolved: bo
 /** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
 type RemoteControlAsk = { account: Account | null; env?: Record<string, string>; userArgs?: string[] };
 
-type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
+type SessionRow = { id: string; provider: string; provider_session_id: string; project_id: string | null; cwd: string };
 
 function isDirectory(p: string): boolean {
   try {
@@ -144,10 +144,29 @@ export class RunManager {
   private readonly tr: Translate;
   /** --remote-control で起こした run の、URL を拾う見張りの止め口。run が終わったら止める。 */
   private remoteWatches = new Map<string, () => void>();
+  /** Claude の driver。attach のような Claude にしか無い起こし方に、直に使う。 */
+  private readonly claude: ClaudeDriver;
+  /** sessions.provider の値から driver を引く（agent/agents.ts）。 */
+  private readonly agents: Agents;
 
   constructor(private readonly deps: RunManagerDeps) {
     this.tr = translatorOf(deps.language);
     this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir, deviceId: deps.deviceId });
+    this.claude = createClaudeDriver({
+      home: deps.home,
+      // hook の台本はサーバ自身の node で走らせる。
+      nodeBin: () => this.deps.nodeBin ?? process.execPath,
+      hookScript: () => ensureHookScript(this.deps.home),
+      droppedEnv: RUN_DROPPED_ENV,
+      claudeBin: () => this.deps.claudeBin,
+      live: () => this.deps.live?.() ?? [],
+      procs: () => this.procs(),
+      report: (what, e) => {
+        if (what === 'hook-settings') console.error('[runs] hook の設定を書けませんでした', e instanceof Error ? e.message : e);
+        else console.error('[runs] バックグラウンドのセッションを止められませんでした', this.safeError(e));
+      },
+    });
+    this.agents = agentsOf([this.claude]);
   }
 
   on(l: RunListener): () => void {
@@ -257,20 +276,6 @@ export class RunManager {
   }
 
   /**
-   * AskUserQuestion の問いの文を本文より先に受け取る hook の設定を書く（provider/claude-code/launch/hookSettings.ts）。
-   * 台本はサーバ自身の node で走らせる。
-   * 書けなくても起動は止めない。問いの文は今までどおり本文から取る。
-   */
-  private hookSettings(sessionId: string, mcpConfigPath: string): string | undefined {
-    try {
-      return writeHookSettings(this.deps.home, sessionId, { node: this.deps.nodeBin ?? process.execPath, script: ensureHookScript(this.deps.home), mcpConfigPath });
-    } catch (e) {
-      console.error('[runs] hook の設定を書けませんでした', e instanceof Error ? e.message : e);
-      return undefined;
-    }
-  }
-
-  /**
    * 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。
    * create は、cwd がまだ無く、確かめが通ったら作るとき（ほかの PC のクイックセッション、resumeTarget の createsFolder）。
    * 作るのは claude と tmux の確かめの後である。断ったときに空のフォルダを残さない。
@@ -349,32 +354,47 @@ export class RunManager {
     return remoteControlName({ name: o.name ?? (o.handoverFrom ? sessionTitleOf(this.db, o.handoverFrom) ?? undefined : undefined), prompt: o.prompt, projectName: o.projectId ? this.project(o.projectId).name : null });
   }
 
-  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams, handoverFrom?: string, rc?: RemoteControlAsk): Omit<LaunchInput, 'mode'> {
+  /**
+   * 起こすものの指定（agent/types.ts の LaunchSpec）のうち、環境を除いた部分。環境はアカウントを決めた後に launch が足す。
+   * エージェントに渡すのは本体のトークンではなく、この run 専用の秘密である。
+   * 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
+   * 秘密をどう渡すか（Claude は 0600 のファイルに置き、パスだけを argv に載せる）は driver が決める。
+   */
+  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams, handoverFrom?: string, rc?: RemoteControlAsk): Omit<LaunchSpec, 'env'> {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
-    // claude に渡すのは本体のトークンではなく、この run 専用の秘密である。
-    // 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
-    // 秘密を argv に載せないため、MCP の設定は 0600 のファイルに置き、パスだけを claude に渡す。
-    const mcpConfigPath = writeMcpConfig(this.deps.home, sessionId, this.mcpUrl(sessionId), issueMcpSecret(this.db, sessionId, this.now()));
+    const secret = issueMcpSecret(this.db, sessionId, this.now());
     return {
-      systemPrompt: this.injectionFor(projectId, cwd, handoverFrom),
-      mcpConfigPath,
-      settingsPath: this.hookSettings(sessionId, mcpConfigPath),
+      cwd,
+      hangarSessionId: sessionId,
+      mcp: { url: this.mcpUrl(sessionId), secret },
+      instructions: [{ key: 'body', text: this.injectionFor(projectId, cwd, handoverFrom) }],
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),
       effort: s(params.effort),
-      permissionMode: s(params.permissionMode),
+      mode: s(params.permissionMode),
       worktree: s(params.worktree),
       addDirs: this.addDirs(params),
       remoteControl: this.remoteControlFor(rc, { projectId, name: s(params.name), prompt: s(params.prompt), handoverFrom }),
     };
   }
 
+  /** そのセッションの driver。sessions.provider の値で引く。 */
+  private agentOf(s: SessionRow): AgentDriver {
+    return this.agents.of(s.provider);
+  }
+
+  /** 起こす前に新しい会話の ID を決める。ID を後で知る driver は、起動を async にするまで受けない。 */
+  private newSessionId(driver: AgentDriver): string {
+    if (!driver.launch.newSessionId) throw new Error(`agent ${driver.kind} cannot choose a session id before launch`);
+    return driver.launch.newSessionId();
+  }
+
   /**
-   * run の行を作り、tmux セッションで claude を起こす。失敗したら run を閉じて 400 を投げる。
-   * claude の argv は provider が組み立てたものをそのまま受け取る。
+   * run の行を作り、tmux セッションでエージェントを起こす。失敗したら run を閉じて 400 を投げる。
+   * plan は、アカウントの置き場を足した後の環境を受けて、driver が組み立てた起動（agent/types.ts の LaunchPlan）を返す。
    */
-  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams; env?: Record<string, string>; account?: Account | null; /** cwd がまだ無く、確かめが通ったら作る（precheck の create）。 */ createFolder?: boolean; /** claude に --remote-control を付けたか。付けたら画面から URL を拾う。 */ remoteControl?: boolean }): LaunchResult {
+  private launch(o: { sessionId: string; cwd: string; kind: RunKind; plan: (env: Record<string, string>) => LaunchPlan; params: LaunchParams; env?: Record<string, string>; account?: Account | null; /** cwd がまだ無く、確かめが通ったら作る（precheck の create）。 */ createFolder?: boolean }): LaunchResult {
     // フォルダを作るのは確かめの後で、信頼を書く（trustFolder）より前である。作ったフォルダに信頼を書く。
     const panes = this.precheck(o.cwd, { create: o.createFolder });
     // 利用者が自分で付けた CLAUDE_CONFIG_DIR（o.env）は、アカウントの置き場で上書きしない。
@@ -388,10 +408,9 @@ export class RunManager {
     const wrapper = ensureWrapperScript(this.deps.home);
     const log = runLogPath(this.deps.home, runId);
     // tmux サーバの全体の環境に残った Claude Code の印と hangar の受け渡しの変数は、どの起動でも外す（launch/env.ts）。
-    // 置き場を足さない起動（最初のアカウント）は、tmux サーバが持っている CLAUDE_CONFIG_DIR も外す。
-    // tmux サーバを別のアカウントのシェルから起こしていると、足さないだけではその置き場で動いてしまう。
-    const unset = env.CLAUDE_CONFIG_DIR ? RUN_DROPPED_ENV : [...RUN_DROPPED_ENV, 'CLAUDE_CONFIG_DIR'];
-    const wrapped = runCommand({ runId, wrapper, log, command: o.command, unset });
+    // 何を外すかは driver が決める（plan.unset）。
+    const plan = o.plan(env);
+    const wrapped = runCommand({ runId, wrapper, log, command: plan.argv, unset: plan.unset });
     // クイックセッションの置き場と、同意を得た作業フォルダでは、信頼の確認を出さずに始められるよう、起こすアカウントの設定に前もって書く。
     // 書けなくても（Claude Code がロックを握っている、設定が壊れているなど）起動は止めない。そのときは claude がいつもどおり確認を出す。
     try {
@@ -402,7 +421,7 @@ export class RunManager {
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
-      panes.open({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...env, ...wrapped.env }) });
+      panes.open({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...env, ...plan.env, ...wrapped.env }) });
       // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
       panes.prepareForOutsideTerminals();
     } catch (e) {
@@ -420,7 +439,7 @@ export class RunManager {
     // 異常終了などで消し損ねた MCP の設定と秘密を、ここで拾う。中に鍵が入っているので残さない。
     this.pruneMcpConfigs(alive.map((r) => r.sessionId));
     const result: LaunchResult = { run: getRun(this.db, runId)!, sessionId: o.sessionId, tabs: listTabs(this.db, runId) };
-    if (o.remoteControl) this.watchRemoteUrl(runId, o.sessionId, tmuxName, panes);
+    if (plan.watchRemoteUrl) this.watchRemoteUrl(runId, o.sessionId, tmuxName, panes);
     this.emit('runStarted', result);
     return result;
   }
@@ -511,7 +530,8 @@ export class RunManager {
     // クイックセッションのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
     const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : sub ?? p.path;
     this.precheck(cwd);
-    const sessionUuid = crypto.randomUUID();
+    const driver = this.agents.of(DEFAULT_AGENT);
+    const sessionUuid = this.newSessionId(driver);
     const sessionId = ensureSession(this.db, sessionUuid, cwd, this.deps.deviceId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
@@ -524,9 +544,8 @@ export class RunManager {
     // 足すのは claude に渡す引数だけで、run に残す起動の指定（params）は変えない。画面が覚える addDirs に混ざらないためである。
     const dropsDir = path.join(this.deps.home, 'drops');
     const addDirs = promptMentionsDrops(params.prompt, dropsDir) && !base.addDirs?.includes(dropsDir) ? [...(base.addDirs ?? []), dropsDir] : base.addDirs;
-    const input: LaunchInput = { ...base, addDirs, mode: { kind: 'start', sessionUuid } };
-    const command = claudeCodeProvider.launchCommand(this.claudeBin(), input);
-    return this.launch({ sessionId, cwd, kind: 'start', command, params, account, remoteControl: input.remoteControl != null });
+    const bin = this.claudeBin();
+    return this.launch({ sessionId, cwd, kind: 'start', plan: (env) => driver.launch.plan(bin, { kind: 'start', id: sessionUuid }, { ...base, addDirs, env }), params, account });
   }
 
   /**
@@ -636,11 +655,15 @@ export class RunManager {
     const account = extra.account !== undefined ? this.accounts.resolve(extra.account) : this.accounts.lastUsed(s.id);
     const bin = this.claudeBin();
     const job = this.procs().listJobs(bin)?.find((j) => j.sessionId === s.provider_session_id) ?? null;
-    if (job) return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder });
+    if (job) return this.launch({ sessionId: s.id, cwd, kind: 'resume', plan: (env) => this.claude.attachPlan(bin, job.id, env), params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder });
     // claude -r <uuid> は、cwd が前と違っても、どのプロジェクトの置き場にある本文でも見つけて、その本文に書き足す（Claude Code 2.1 で確かめた）。
     const base = this.baseInput(s.id, s.project_id, cwd, {}, s.id, { account, env: extra.env, userArgs: extra.args });
-    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), base, { providerSessionId: s.provider_session_id }, false);
-    return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder, remoteControl: base.remoteControl != null });
+    const driver = this.agentOf(s);
+    const plan = (env: Record<string, string>): LaunchPlan => {
+      const p = driver.launch.plan(bin, { kind: 'resume', id: s.provider_session_id }, { ...base, env });
+      return { ...p, argv: [...p.argv, ...(extra.args ?? [])] };
+    };
+    return this.launch({ sessionId: s.id, cwd, kind: 'resume', plan, params: { projectId: s.project_id ?? undefined }, env: extra.env, account, createFolder });
   }
 
   /**
@@ -671,15 +694,20 @@ export class RunManager {
     this.precheck(req.cwd);
     // リンクの確かめは行を作る前に済ませる。利用者が自分で置き場を付けたときは、アカウントの置き場を使わないので確かめない。
     if (!env.CLAUDE_CONFIG_DIR) this.accounts.envFor(account);
-    const sessionUuid = crypto.randomUUID();
+    const driver = this.agents.of(DEFAULT_AGENT);
+    const sessionUuid = this.newSessionId(driver);
     const sessionId = ensureSession(this.db, sessionUuid, req.cwd, this.deps.deviceId);
     const projectId = assignSession(this.db, this.deps.deviceId, sessionId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const input: LaunchInput = { ...this.baseInput(sessionId, projectId, req.cwd, {}, undefined, { account, env, userArgs: rest }), mode: { kind: 'start', sessionUuid } };
-    const command = [...claudeCodeProvider.launchCommand(this.claudeBin(), input), ...rest];
-    return { ...this.launch({ sessionId, cwd: req.cwd, kind: 'start', command, params: { projectId: projectId ?? undefined }, env, account, remoteControl: input.remoteControl != null }), attached: false };
+    const base = this.baseInput(sessionId, projectId, req.cwd, {}, undefined, { account, env, userArgs: rest });
+    const bin = this.claudeBin();
+    const plan = (runEnv: Record<string, string>): LaunchPlan => {
+      const p = driver.launch.plan(bin, { kind: 'start', id: sessionUuid }, { ...base, env: runEnv });
+      return { ...p, argv: [...p.argv, ...rest] };
+    };
+    return { ...this.launch({ sessionId, cwd: req.cwd, kind: 'start', plan, params: { projectId: projectId ?? undefined }, env, account }), attached: false };
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
@@ -694,7 +722,8 @@ export class RunManager {
     // ほかの PC のクイックセッションのフォルダは、この確かめが通ってから作る（precheck の create）。
     const { path: cwd, createsFolder } = this.cwdFor(s);
     this.precheck(cwd, { create: createsFolder });
-    const newUuid = crypto.randomUUID();
+    const driver = this.agentOf(s);
+    const newUuid = this.newSessionId(driver);
     const newSessionId = ensureSession(this.db, newUuid, cwd, this.deps.deviceId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
@@ -703,8 +732,8 @@ export class RunManager {
     const pin = pinnedProjectOf(this.db, s.id);
     if (pin !== null) setSessionPlacement(this.db, this.deps.deviceId, newSessionId, pin);
     const base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, { account });
-    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), base, { providerSessionId: s.provider_session_id }, true, newUuid);
-    return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account, remoteControl: base.remoteControl != null });
+    const bin = this.claudeBin();
+    return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, env }), params: { projectId: s.project_id ?? undefined }, account });
   }
 
   /** 開いているセッションを、別のアカウントで再開し直す。手順と断る理由は runs/accounts.ts にある。ここは run の寿命の側の手を渡すだけである。 */
@@ -745,8 +774,9 @@ export class RunManager {
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const l = this.liveOf(s.provider_session_id);
     if (!l?.background) throw new RunError(409, msg('run.attach.notBackground'));
-    const command = [this.claudeBin(), 'attach', l.background.jobId];
-    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined }, account: this.accounts.lastUsed(s.id) });
+    const bin = this.claudeBin();
+    const jobId = l.background.jobId;
+    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', plan: (env) => this.claude.attachPlan(bin, jobId, env), params: { projectId: s.project_id ?? undefined }, account: this.accounts.lastUsed(s.id) });
   }
 
   /**
@@ -1010,7 +1040,7 @@ export class RunManager {
     if (!run) throw new RunError(404, msg('run.error.notFound'));
     if (run.endedAt !== null) throw new RunError(409, msg('run.error.alreadyEnded'));
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
-    this.stopBackground(run.sessionId);
+    this.release(run.sessionId, 'killed');
     this.deps.panes?.close(run.tmuxName);
     return this.end(runId, reason) ?? run;
   }
@@ -1023,7 +1053,7 @@ export class RunManager {
    */
   park(sessionId: string): boolean {
     const run = listAliveRuns(this.db, this.deviceId).filter((r) => r.sessionId === sessionId).at(-1) ?? null;
-    const background = this.stopBackground(sessionId);
+    const background = this.release(sessionId, 'parked');
     const panes = this.deps.panes;
     // tmux が無ければ run には触らない。止められていないのに run を閉じると、動いている claude を hangar が見失う。
     if (!run || !panes) return background;
@@ -1037,16 +1067,17 @@ export class RunManager {
   }
 
   /**
-   * バックグラウンドのサービスが持つセッションなら、その本体も止める。止めにいったら true を返す。
+   * 止めにいくときに、エージェントの側で要る後始末を driver に頼む（agent/types.ts の release）。止めにいったら true を返す。
+   * Claude は、バックグラウンドのサービスが持つセッションなら、その本体も止める。
    * attach の run の tmux を落としても画面の口が閉じるだけで、claude は動き続けるからである。
    * 止め終わるのは待たない。失敗しても run は閉じ、ログにだけ残す。
    */
-  private stopBackground(sessionId: string): boolean {
-    const s = this.db.prepare('select provider_session_id, cwd from sessions where id = ?').get(sessionId) as { provider_session_id: string; cwd: string } | undefined;
-    const jobId = s ? this.liveOf(s.provider_session_id)?.background?.jobId : undefined;
-    if (!s || !jobId || !this.deps.claudeBin) return false;
-    const cwd = isDirectory(s.cwd) ? s.cwd : this.deps.home;
-    this.procs().runClaude(this.deps.claudeBin, ['stop', jobId], cwd).catch((e) => console.error('[runs] バックグラウンドのセッションを止められませんでした', this.safeError(e)));
+  private release(sessionId: string, cause: 'killed' | 'parked'): boolean {
+    const s = this.db.prepare('select provider, provider_session_id, cwd from sessions where id = ?').get(sessionId) as { provider: string; provider_session_id: string; cwd: string } | undefined;
+    if (!s) return false;
+    const r = this.agents.of(s.provider).launch.release({ providerSessionId: s.provider_session_id, cwd: s.cwd }, cause);
+    if (typeof r === 'boolean') return r;
+    r.catch((e) => console.error('[runs] release failed', this.safeError(e)));
     return true;
   }
 
