@@ -4,6 +4,7 @@ import { AsideReader } from '../live/aside.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { LiveHub } from '../agent/liveHub.ts';
 import { CompatLog, compatPath } from '../provider/claude-code/compat/log.ts';
+import { routeAgentAsk } from '../sessions/agentAsks.ts';
 import { PermissionAsks } from '../sessions/permissionAsks.ts';
 import { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import { toastVia, type Toast } from '../sync/notices.ts';
@@ -29,7 +30,7 @@ export type DeliveryParts = AgentParts & {
   /** 右ペインの要約器。裏の印と HTTP（UI の取り直し）で 1 つの覚えを共有する。別々に持つと、長いセッションの同じ要約を二度作る。 */
   digester: LiveDigester;
   /**
-   * 実行中の一覧。エージェントごとの driver の写し（いまは Claude の登録の見張り）を束ねる（agent/liveHub.ts）。
+   * 実行中の一覧。エージェントごとの driver の写し（Claude の登録の見張りと、opencode の serve の出来事の流れ）を束ねる（agent/liveHub.ts）。
    * 作るだけで、読み始めるのは起動の手続きの中である。
    */
   live: LiveHub;
@@ -67,6 +68,10 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now)] });
   const agents = bootAgents(home, { compatLog, claudeVersion, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });
   live.add(agents.claude.live);
+  // opencode の写し（serve の出来事の流れ）。会話を起こすまで行は無い。
+  live.add(agents.opencode.live);
+  // opencode は hook を持たないので、許可と問いは流れから受け、hook の受け口と同じ書き手で書く（sessions/agentAsks.ts）。
+  agents.opencode.asks.subscribe?.((a) => { routeAgentAsk(db, agents.opencode.kind, a, permissionAsks, Date.now()); });
   return {
     ...agents,
     sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, live, digester, permissionAsks, osNotices,

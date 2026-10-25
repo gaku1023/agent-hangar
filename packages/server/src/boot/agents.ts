@@ -39,7 +39,7 @@ export type AgentParts = {
 };
 
 /**
- * エージェントの driver を組む。いまは Claude だけである。
+ * エージェントの driver を組む。Claude と opencode（ベータ）である。
  *
  * driver は状態の面（実行中の一覧の写し）を持ち、写しは配る層より前から要る（publisher、索引、同期が読む）。
  * だから run の管理（runs/manager.ts）の中ではなく、配る層を組むときにここで組み、run の管理には出来たものを渡す。
@@ -70,6 +70,8 @@ export function bootAgents(
     serves: () => serves,
     // TUI へは CLAUDE 系と hangar の変数を持ち込まない（serve の環境は serve/env.ts が別に空から組む）。
     droppedEnv: AGENT_RUN_DROPPED_ENV,
+    // 状態の面が組み直すたびに、Claude と同じ足し付けの鎖を通す。
+    enrich: o.enrich,
   });
   return { agents: agentsOf([claude, opencode]), claude, opencode, bindOpencodeServes: (s) => { serves = s; } };
 }

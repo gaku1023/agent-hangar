@@ -143,8 +143,9 @@ export class StopNoticeWatch {
     this.watchLimits(live, now, primed);
   }
 
-  private idOf(providerSessionId: string): string | null {
-    const r = this.deps.db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(providerSessionId) as { id: string } | undefined;
+  /** 実行中の一覧の 1 行の会話の id。agent の無い行は Claude である。 */
+  private idOf(l: Pick<LiveSessionDto, 'sessionId' | 'agent'>): string | null {
+    const r = this.deps.db.prepare('select id from sessions where provider = ? and provider_session_id = ? and deleted_at is null').get(l.agent ?? 'claude-code', l.sessionId) as { id: string } | undefined;
     return r?.id ?? null;
   }
 
@@ -169,7 +170,7 @@ export class StopNoticeWatch {
         this.episodes.set(l.sessionId, ep);
       }
       if (ep.phase === 'done') continue;
-      const id = this.idOf(l.sessionId);
+      const id = this.idOf(l);
       const s = id ? this.session(live, id, now) : null;
       if (!s || quietLive(s.live, s.state?.status) !== 'waiting') { ep.phase = 'done'; continue; }
       const question = s.activity?.question ?? null;

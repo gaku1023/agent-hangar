@@ -28,16 +28,24 @@ export function createLiveChangeHandler(deps: LiveChangeDeps): { prime(live: rea
   let liveIds = new Set<string>();
   // 会話ごとの直前の動き。動きが変わった印付きのセッションを配り直すために持つ。
   let liveStatus = new Map<string, LiveSessionDto['status']>();
+  // 会話ごとのエージェント。抜けた会話の行も引けるように、前の一覧の分も持つ。agent の無い行は Claude である。
+  let agentOf = new Map<string, string>();
+  const noteAgents = (live: readonly LiveSessionDto[]): void => {
+    agentOf = new Map([...[...agentOf].filter(([id]) => liveIds.has(id)), ...live.map((l) => [l.sessionId, l.agent ?? 'claude-code'] as const)]);
+  };
   const sessionIdOf = (providerSessionId: string): string | null =>
-    (db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as { id: string } | undefined)?.id ?? null;
+    (db.prepare('select id from sessions where provider = ? and provider_session_id = ?').get(agentOf.get(providerSessionId) ?? 'claude-code', providerSessionId) as { id: string } | undefined)?.id ?? null;
   return {
     prime(live) {
+      noteAgents(live);
       liveIds = new Set(live.map((l) => l.sessionId));
       // 起動のときに動いていた会話の動きも覚えておく。
       liveStatus = new Map(live.map((l) => [l.sessionId, l.status]));
     },
     onChange(live) {
       hub.broadcast({ type: 'live.update', live });
+      // 前の一覧（liveIds）にいた会話のエージェントは残したまま、新しい一覧の分を足す。
+      noteAgents(live);
       // Claude の最後の書き込みは登録ファイルの削除より前に起きるので、索引の側では終了に気付けない。
       // 出入りしたセッションだけ、ここで土台の要約を書き直す。
       const now = new Set(live.map((l) => l.sessionId));

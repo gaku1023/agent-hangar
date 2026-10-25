@@ -1,0 +1,75 @@
+{
+  "idle": {
+    "data": {}
+  },
+  "running": {
+    "data": {
+      "ses_e8ec38c04ffejXAUxlisHJOU1I": {
+        "type": "running"
+      }
+    }
+  },
+  "permission": {
+    "data": [
+      {
+        "id": "per_1713c74a9001UphM5Iww7qrBLF",
+        "sessionID": "ses_e8ec38c04ffejXAUxlisHJOU1I",
+        "action": "shell",
+        "resources": [
+          "echo hangar-capture"
+        ],
+        "save": [
+          "echo *"
+        ],
+        "source": {
+          "type": "tool",
+          "messageID": "msg_1713c7490001J26B3hj9twrjiJ",
+          "id": "call_shell_3"
+        }
+      }
+    ]
+  },
+  "form": {
+    "data": [
+      {
+        "id": "frm_1713c7cd3001CxeaMbMfwVGtM3",
+        "sessionID": "ses_e8ec38c04ffejXAUxlisHJOU1I",
+        "title": "Questions",
+        "metadata": {
+          "kind": "question",
+          "tool": {
+            "messageID": "msg_1713c7cc8001zAfDJiT0kJQjWg",
+            "id": "call_question_5"
+          }
+        },
+        "fields": [
+          {
+            "key": "q0",
+            "title": "Color",
+            "description": "Which color do you prefer?",
+            "type": "string",
+            "options": [
+              {
+                "value": "Red",
+                "label": "Red",
+                "description": "warm"
+              },
+              {
+                "value": "Blue",
+                "label": "Blue",
+                "description": "cool"
+              }
+            ],
+            "custom": true
+          }
+        ]
+      }
+    ]
+  },
+  "noPermission": {
+    "data": []
+  },
+  "noForm": {
+    "data": []
+  }
+}

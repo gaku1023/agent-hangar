@@ -39,6 +39,21 @@ const rowsOf = (r: unknown): Record<string, unknown>[] => {
   return Array.isArray(data) ? data.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : [];
 };
 
+/**
+ * 許可を待っている 1 件（`GET /api/permission/request` と `permission.asked` の data）。
+ * action は道具の名前（2.x の Bash は `shell`）、resources は許すかを聞いている中身（shell なら命令の全文）である。
+ */
+export type OpencodePermissionRequest = { id: string; sessionID: string; action: string; resources: string[] };
+
+/** form（question の道具など）の 1 項目。description が問いの文、title は短い見出しである。 */
+export type OpencodeFormField = { key: string; title?: string; description?: string };
+
+/**
+ * 答えを待っている form の 1 件（`GET /api/form` と `form.created` の data.form）。
+ * question の道具の form は metadata.kind が `question` で、metadata.tool.id が道具の呼び出しの ID である。
+ */
+export type OpencodeForm = { id: string; sessionID: string; title: string; metadata?: { kind?: string; tool?: { id?: string } }; fields: OpencodeFormField[] };
+
 export class OpencodeClient {
   constructor(private readonly serve: { url: string; password: string }, private readonly o: OpencodeClientOptions = {}) {}
 
@@ -113,6 +128,42 @@ export class OpencodeClient {
     return found;
   }
 
+  /** いま動いている会話の ID。`GET /api/session/active` は動いている間の会話だけを鍵に持つ。 */
+  async active(): Promise<Set<string>> {
+    const r = await this.request('GET', '/api/session/active') as { data?: unknown } | null;
+    const data = r?.data;
+    return new Set(data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : []);
+  }
+
+  /**
+   * その場所（directory）で許可を待っている確認。会話の下のサブエージェントの確認も、同じ場所なら載る。
+   * 2.1.4 は場所を文字列のまま照らす（シンボリックリンクを解いた形は別の場所になる）ので、会話を作ったときと同じ形で渡す。
+   * 形の合わない行は捨てる。
+   */
+  async permissionRequests(directory: string): Promise<OpencodePermissionRequest[]> {
+    const r = await this.request('GET', `/api/permission/request?${locationQuery(directory)}`) as { data?: unknown } | null;
+    return (Array.isArray(r?.data) ? r.data : []).flatMap((x) => { const p = permissionRequestOf(x); return p ? [p] : []; });
+  }
+
+  /** その場所（directory）で答えを待っている form。形の合わない行は捨てる。 */
+  async forms(directory: string): Promise<OpencodeForm[]> {
+    const r = await this.request('GET', `/api/form?${locationQuery(directory)}`) as { data?: unknown } | null;
+    return (Array.isArray(r?.data) ? r.data : []).flatMap((x) => { const f = formOf(x); return f ? [f] : []; });
+  }
+
+  /**
+   * serve の出来事の流れ（`GET /api/event`、SSE）を開く。返すのは本文の流れで、読み終えるか signal で切るまで続く。
+   * 上限の時間は付けない（流れは開いたままにするものなので）。つながらなければ投げる。
+   */
+  async events(signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+    const r = await fetch(this.serve.url + '/api/event', { headers: { authorization: authHeader(this.serve.password), accept: 'text/event-stream' }, signal });
+    if (!r.ok || !r.body) {
+      const text = await r.text().catch(() => '');
+      throw new OpencodeApiError(r.status, '/api/event', text.split(this.serve.password).join('***').slice(0, 300));
+    }
+    return r.body;
+  }
+
   private async request(method: string, p: string, body?: unknown): Promise<unknown> {
     const r = await fetch(this.serve.url + p, {
       method,
@@ -130,4 +181,36 @@ export class OpencodeClient {
       throw new OpencodeApiError(r.status, route, 'the answer is not JSON');
     }
   }
+}
+
+/** 場所の指定。`location[directory]=` の形で渡す（JSON の文字列だと 400）。 */
+const locationQuery = (directory: string): string => `${encodeURIComponent('location[directory]')}=${encodeURIComponent(directory)}`;
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** 許可の確認の 1 件を読む。API の答えと `permission.asked` の data は同じ形である。読めなければ null。 */
+export function permissionRequestOf(v: unknown): OpencodePermissionRequest | null {
+  if (!isObj(v)) return null;
+  const id = str(v.id);
+  const sessionID = str(v.sessionID);
+  const action = str(v.action);
+  if (!id || !sessionID || !action) return null;
+  const resources = Array.isArray(v.resources) ? v.resources.filter((x): x is string => typeof x === 'string') : [];
+  return { id, sessionID, action, resources };
+}
+
+/** form の 1 件を読む。API の答えと `form.created` の data.form は同じ形である。読めなければ null。 */
+export function formOf(v: unknown): OpencodeForm | null {
+  if (!isObj(v)) return null;
+  const id = str(v.id);
+  const sessionID = str(v.sessionID);
+  if (!id || !sessionID) return null;
+  const fields = (Array.isArray(v.fields) ? v.fields : []).flatMap((f): OpencodeFormField[] => {
+    if (!isObj(f) || !str(f.key)) return [];
+    return [{ key: f.key as string, ...(str(f.title) ? { title: f.title as string } : {}), ...(str(f.description) ? { description: f.description as string } : {}) }];
+  });
+  const m = isObj(v.metadata) ? v.metadata : null;
+  const tool = m && isObj(m.tool) && str(m.tool.id) ? { id: m.tool.id as string } : undefined;
+  const metadata = m ? { ...(str(m.kind) ? { kind: m.kind as string } : {}), ...(tool ? { tool } : {}) } : undefined;
+  return { id, sessionID, title: str(v.title) ?? '', ...(metadata ? { metadata } : {}), fields };
 }

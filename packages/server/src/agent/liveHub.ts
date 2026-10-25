@@ -18,6 +18,8 @@ export class LiveHub {
   private readonly listeners = new Set<(live: LiveSessionDto[]) => void>();
   private readonly chain: readonly LiveEnrich[];
   private readonly now: () => number;
+  /** 最後に合わせた一覧と、そのときの各写しの一覧。 */
+  private merged: { parts: LiveSessionDto[][]; live: LiveSessionDto[] } | null = null;
 
   constructor(o: { enrich?: readonly LiveEnrich[]; now?: () => number } = {}) {
     this.chain = o.enrich ?? [];
@@ -46,11 +48,17 @@ export class LiveHub {
 
   /**
    * 合わせた一覧。並びはセッションの id の順である。
-   * 写しが 1 つなら、その写しをそのまま返す。写しの中身は変わったときだけ差し替わるので、受け手が同じものかで変化を見られる。
+   * 写しが 1 つなら、その写しをそのまま返す。写しが 2 つ以上なら、どの写しも前と同じものを返している間は、前に合わせた一覧を返す。
+   * 写しの中身は変わったときだけ差し替わるので、受け手は同じものかで変化を見られる（呼ぶたびに並べ直さない）。
    */
   current(): LiveSessionDto[] {
     if (this.sources.length === 1) return this.sources[0]!.current();
-    return this.sources.flatMap((s) => s.current()).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    const parts = this.sources.map((s) => s.current());
+    const m = this.merged;
+    if (m && m.parts.length === parts.length && m.parts.every((p, i) => p === parts[i])) return m.live;
+    const live = parts.flat().sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    this.merged = { parts, live };
+    return live;
   }
 
   /** そのセッション（エージェントの側の id）が、どれかの写しに載っているか。 */
