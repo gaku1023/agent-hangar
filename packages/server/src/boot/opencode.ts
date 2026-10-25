@@ -23,7 +23,7 @@ export type OpencodeParts = {
   exporter: OpencodeExporter;
   /** 起動のときの掃除が済むと解決する。 */
   swept: Promise<unknown>;
-  /** 最後に出た、範囲の外の版の知らせの種。表示は段 C（C7）で作る。 */
+  /** 最後に出た、範囲の外の版の知らせの種。画面へは起こすたびに onVersionNotice で配る（C7）。 */
   versionNotice: () => OpencodeVersionNoticeSeed | null;
   /** hangar の終わりの後片付け。起こした serve を全部止める。上限を過ぎたら待たずに返す。 */
   stop: (ms: number) => Promise<void>;
@@ -36,7 +36,12 @@ export type OpencodeParts = {
  */
 export function bootOpencode(
   p: { home: string; settings: { current: Pick<Settings, 'opencodeEnabled'> }; db?: Db },
-  o: { bin?: () => string | null; version?: () => Promise<string | null> } = {},
+  o: {
+    bin?: () => string | null;
+    version?: () => Promise<string | null>;
+    /** 範囲の外の版で serve を起こすたびに呼ぶ。server.ts が画面へ配る（右下の札の種、C7）。 */
+    onVersionNotice?: (seed: OpencodeVersionNoticeSeed) => void;
+  } = {},
 ): OpencodeParts {
   const bin = o.bin ?? (() => findOpencode());
   const local = new LocalOpencode({ bin });
@@ -53,7 +58,7 @@ export function bootOpencode(
     registry,
     ready: swept,
     log,
-    onVersionNotice: (seed) => { notice = seed; },
+    onVersionNotice: (seed) => { notice = seed; o.onVersionNotice?.(seed); },
   });
   // models.dev の料金の保存。取りに行くのは選択肢を取ったときだけ（1 日 1 回まで）。
   const catalog = new ModelsDevCatalog({ file: catalogPath(p.home), log });

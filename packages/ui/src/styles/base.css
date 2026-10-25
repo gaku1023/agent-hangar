@@ -422,6 +422,8 @@ a:hover { text-decoration: underline; }
 .notice[data-kind='update'][data-tone='ok'] { --k: var(--st-done); }
 .notice[data-kind='update'][data-tone='err'] { --k: var(--error); }
 .notice[data-kind='whats-new'] { --k: var(--st-done); cursor: default; }
+/* 未検証の opencode の版の札（C7、試作の N1）。Paused と同じ黄の見出しで、更新の札と同じ形にする。 */
+.notice[data-kind='opencode-version'] { --k: var(--st-paused); cursor: default; }
 /* 参加リクエストの通知（試作 C1）。確認コードを大きな等幅で出す。 */
 .notice[data-kind='join'] { --k: var(--accent); cursor: default; }
 /* スマホの解除の「元に戻す」（試作 E2）。info と同じ青で、本文の下に「元に戻す」を置く。 */

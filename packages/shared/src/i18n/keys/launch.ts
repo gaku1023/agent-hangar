@@ -53,6 +53,7 @@ export const launchKeys = {
   'launch.model.footer': ['date'],
   'launch.opencode.loading': [],
   'launch.opencode.failed': [],
+  'launch.opencode.modelReset': ['model'],
   'launch.chip.account': [],
   'launch.chip.addDirs': [],
   'launch.chip.effort': [],

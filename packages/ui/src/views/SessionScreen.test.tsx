@@ -1131,3 +1131,48 @@ describe('見出しの状態の札（4A）', () => {
     expect(container.querySelector('.ended-facts .lead-status')).not.toBeNull();
   });
 });
+
+describe('終わった opencode の会話の 1 行（C7、試作の E1）', () => {
+  const LINE = 'opencode を終了しました。続きは「再開」から開けます。';
+  it('opencode の会話だけ、本文の面の最後に区切りと 1 行を置き、「再開」を強めて示す', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} endedLine="opencode" /></ActionRoot>);
+    const line = container.querySelector<HTMLElement>('.tr-sheet > .ended-line')!;
+    expect(line).toHaveTextContent(LINE);
+    expect(line.querySelector('em')).toHaveTextContent('再開');
+    expect(line).toBe(container.querySelector('.tr-sheet')!.lastElementChild);
+  });
+  it('Claude の会話には出さない', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} endedLine={null} /></ActionRoot>);
+    expect(container.querySelector('.ended-line')).toBeNull();
+    expect(screen.queryByText(/opencode を終了しました/)).toBeNull();
+  });
+  describe('動き', () => {
+    let restore: (() => void) | null = null;
+    let animations: { el: Element; frames: Keyframe[] }[] = [];
+    beforeEach(() => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      animations = [];
+      (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+        animations.push({ el: this, frames });
+        return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
+      };
+    });
+    afterEach(() => {
+      restore?.(); restore = null;
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+    });
+    const lineAnims = (c: HTMLElement) => animations.filter((a) => a.el === c.querySelector('.ended-line'));
+    it('終わった会話を開いたときは動かさない', () => {
+      const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} endedLine="opencode" /></ActionRoot>);
+      expect(lineAnims(container)).toEqual([]);
+    });
+    it('見ている間に終わったら、1 行を高さ 0 から伸ばして入れる（growIn）', () => {
+      const ui = (p: SessionProps) => <ActionRoot onAction={() => {}}><TerminalHostContext.Provider value={host}><SS {...p} /></TerminalHostContext.Provider></ActionRoot>;
+      const { container, rerender } = render(ui({ ...running, endedLine: null }));
+      rerender(ui({ ...base, endedLine: 'opencode' }));
+      expect(lineAnims(container).map((a) => a.frames[0])).toEqual([expect.objectContaining({ height: '0px', opacity: 0 })]);
+    });
+  });
+});

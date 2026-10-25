@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UiAction, LaunchParams } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
 import { presentAccounts, type AccountView } from '../presenters/accounts.ts';
 import { accountsFixture } from '../test/accounts.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { initialStore } from '../store/store.ts';
 import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
@@ -1231,6 +1232,66 @@ describe('NewSessionDialog のエージェント（opencode、ベータ）', () 
     expect(chip('モデル')).toHaveAttribute('data-reset', 'true');
     start();
     expect(params()[0]).not.toHaveProperty('model');
+  });
+  const RESET_NOTE = '前回の opencode/gone-free は一覧にないため、デフォルトに戻しました。';
+  const resetNote = () => screen.queryByText(RESET_NOTE)?.closest<HTMLElement>('.oc-model-note') ?? null;
+  it('前回のモデルが一覧から消えていたら、札の列の下に 1 行の注記で言う（試作の M1）', () => {
+    collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/gone-free' } } });
+    const note = resetNote()!;
+    expect(note).not.toBeNull();
+    expect(group().compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note.querySelector('[data-icon="info"]')).not.toBeNull();
+  });
+  it('前回のモデルが一覧にあれば、注記は出さない', () => {
+    collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/glm-5.3-flash-free' } } });
+    expect(document.querySelector('.oc-model-note')).toBeNull();
+  });
+  it('注記は ✕ で消える。起動にはデフォルトのまま載せない', () => {
+    const { params } = collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/gone-free' } } });
+    fireEvent.click(within(resetNote()!).getByRole('button', { name: '閉じる' }));
+    expect(resetNote()).toBeNull();
+    start();
+    expect(params()[0]).not.toHaveProperty('model');
+  });
+  it('モデルを選び直すと、注記は消える', () => {
+    collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/gone-free' } } });
+    fireEvent.click(chip('モデル'));
+    fireEvent.click(within(screen.getByRole('listbox', { name: 'モデル' })).getByRole('option', { name: /GLM-5.3-Flash Free/ }));
+    expect(resetNote()).toBeNull();
+    expect(chip('モデル')).not.toHaveAttribute('data-reset');
+  });
+  describe('注記の出入りの動き', () => {
+    let restore: (() => void) | null = null;
+    let animations: { el: Element; frames: Keyframe[]; resolve: () => void }[] = [];
+    beforeEach(() => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      animations = [];
+      (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+        let resolve!: () => void;
+        const finished = new Promise<void>((r) => { resolve = r; });
+        animations.push({ el: this, frames, resolve });
+        return { finished, cancel: vi.fn() };
+      };
+    });
+    afterEach(() => {
+      restore?.(); restore = null;
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+    });
+    it('高さを 0 から伸ばして入り（growIn）、✕ で高さを畳んでから外れる（collapseOut）', async () => {
+      collect({ projectId: 'p1', opencode: ready(), prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/gone-free' } } });
+      const note = resetNote()!;
+      expect(animations.filter((a) => a.el === note).map((a) => a.frames[0])).toEqual([expect.objectContaining({ height: '0px', opacity: 0 })]);
+      fireEvent.click(within(note).getByRole('button', { name: '閉じる' }));
+      const out = animations.filter((a) => a.el === note).at(-1)!;
+      expect(out.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+      // 畳み終わるまでは前の中身のまま残り、読み上げからは外す。
+      expect(resetNote()).toBe(note);
+      expect(note).toHaveAttribute('aria-hidden', 'true');
+      await act(async () => { out.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      expect(resetNote()).toBeNull();
+    });
   });
   it('前回 opencode でも、設定で無効にしたら Claude Code で開く', () => {
     const { params } = collect({ projectId: 'p1', prefs: { p1: { agent: 'opencode', opencodeModel: 'opencode/glm-5.3-flash-free', effort: 'high' } } });

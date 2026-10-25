@@ -372,6 +372,10 @@ export type State = {
    * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。
    */
   noticesRead: string[];
+  /**
+   * 未検証の opencode の版の札（C7）を閉じた版。同じ版では二度出さない。端末ごとに localStorage に残し、起動時に読み戻す（mediator/opencodeVersion.ts）。
+   */
+  opencodeVersionSeen: string | null;
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */
   newSessionDraft: NewSessionDraft | null;
   /**

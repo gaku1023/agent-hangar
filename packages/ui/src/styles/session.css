@@ -80,6 +80,9 @@ a.chip { color: var(--accent); text-decoration: none; }
 .c-body[data-narrow] .toc-slot { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; width: 240px; grid-row: auto; grid-column: auto; overflow: visible; filter: drop-shadow(0 16px 28px rgba(30, 40, 90, 0.28)); }
 .c-body[data-narrow] .toc-slot[data-collapsed='true'] { display: none; }
 .tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 終わった opencode の会話の、本文の面の最後の 1 行（C7、試作の E1）。区切り線の下に置き、「再開」を札の形で強める。 */
+.tr-sheet > .ended-line { flex: none; margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 1) calc(var(--u) * 0.5); border-top: 1px solid var(--line); font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-2); }
+.ended-line em { font-style: normal; font-weight: 700; color: var(--ink); background: var(--surface-2); border-radius: 5px; padding: 0 6px; }
 /* 本文の無い会話は右の列を持たないので、要約の札を本文の欄の上に置く（縮めない）。 */
 .c-main > .summary-card { flex: none; max-height: none; }
 /* 本文が消えた会話は、注記と要約の札を 1 列に積む。 */

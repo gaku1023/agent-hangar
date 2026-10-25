@@ -6,6 +6,7 @@ import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, 
 import { AGENT_ONLY_ATTR, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
 import { isComposing } from './ime.ts';
 import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
+import { OpencodeModelResetNote } from './OpencodeModelResetNote.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -185,7 +186,10 @@ export function NewSessionDialog(props: NewSessionProps) {
   const ocMode = pickedMode !== null && (!ocData || ocData.modes.some((m) => m.id === pickedMode)) ? pickedMode : ocData ? defaultOpencodeMode(ocData.modes) : '';
   // モデルは選んだもの、選んでいなければ前回値。一覧から消えていたらデフォルトに戻す。
   const [pickedModel, setPickedModel] = useState<string | null>(null);
-  const ocModel = opencodeModelChoice(pickedModel ?? props.prefs[prefKey]?.opencodeModel ?? '', ocData);
+  const ocRemembered = pickedModel ?? props.prefs[prefKey]?.opencodeModel ?? '';
+  const ocModel = opencodeModelChoice(ocRemembered, ocData);
+  // 戻したことの注記（M1）は ✕ で閉じられる。閉じたら、このダイアログの間は出さない。
+  const [resetNoteClosed, setResetNoteClosed] = useState(false);
   // 自動承認は毎回オフから始める（前回値に残さない）。
   const [autoApprove, setAutoApprove] = useState(false);
   // 切り替えの動き（M1）。消える札を薄れさせてから入れ替え、入れ替えた後の描画で残る札を滑らせ、新しい札を入れる。
@@ -390,6 +394,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         onChange={onChips}
         previousPermission={prev ? prev.permissionMode ?? '' : undefined}
       />
+      <OpencodeModelResetNote open={opencode && ocModel.reset && !resetNoteClosed} model={ocRemembered} onClose={() => setResetNoteClosed(true)} />
       {opencode && ocState?.data === null && (ocState.status === 'loading' || ocState.status === 'failed') && (
         <div className="faint" {...{ [AGENT_ONLY_ATTR]: 'opencode' }}>{t(ocState.status === 'loading' ? 'launch.opencode.loading' : 'launch.opencode.failed')}</div>
       )}

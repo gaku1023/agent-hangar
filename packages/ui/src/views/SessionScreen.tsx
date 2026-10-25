@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
-import { EndedFacts } from './EndedFacts.tsx';
+import { EndedAgentLine, EndedFacts } from './EndedFacts.tsx';
 import { NowCard } from './NowCard.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
@@ -52,6 +52,9 @@ export function SessionScreen(props: SessionProps) {
   // フックなので、下の早い return より前に置く。
   const narrow = useNarrow();
   const [drawer, setDrawer] = useState(false);
+  // 見ている間に動いていた会話か。終わった画面の 1 行（E1）は、見ている間に終わったときだけ伸ばして入れ、開いたときにもう終わっていた会話では動かさない。
+  const seenAlive = useRef<string | null>(null);
+  if (props.run?.alive === true || props.live !== null) seenAlive.current = props.id;
   // 開いているセッションの git を取ってもらい（git の表示）、(i) の「このセッションの変更」のために差分の一覧も読む。
   // 作業ツリーの件数が替わったら、一覧も読み直す。
   const gitCount = props.git?.chip?.count ?? null;
@@ -285,7 +288,7 @@ export function SessionScreen(props: SessionProps) {
     <div className="screen session-screen">
       {header}
       <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} data-toc={props.hasTranscript ? undefined : 'none'} style={props.hasTranscript ? bodyStyle : undefined}>
-        <div className="c-main">{!props.hasTranscript && summaryCard}<section className="tr-sheet">{toggles}{transcript}</section></div>
+        <div className="c-main">{!props.hasTranscript && summaryCard}<section className="tr-sheet">{toggles}{transcript}{props.endedLine && <EndedAgentLine grow={seenAlive.current === id} />}</section></div>
         {props.hasTranscript && toc}
       </div>
     </div>

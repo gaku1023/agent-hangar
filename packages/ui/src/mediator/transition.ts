@@ -12,6 +12,7 @@ import { returnStep } from './returnDue.ts';
 import { noticesStep } from './notices.ts';
 import { notifyStep } from './notify.ts';
 import { updateStep } from './update.ts';
+import { opencodeVersionStep } from './opencodeVersion.ts';
 import { cloudMemberStep } from './cloudMember.ts';
 import { overlayStep } from './overlay.ts';
 import { projectCandidatesStep } from './projectCandidates.ts';
@@ -35,7 +36,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarOrder: [], sidebarFolded: [], projectRailFolded: {}, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarOrder: [], sidebarFolded: [], projectRailFolded: {}, noticesRead: [], opencodeVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -62,6 +63,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
   const phoneLaunch = (s: State, i: Input) => phoneLaunchStep(s, store, i);
   const update = (s: State, i: Input) => updateStep(s, store, i);
+  const opencodeVersion = (s: State, i: Input) => opencodeVersionStep(s, store, i);
   const configSync = (s: State, i: Input) => configSyncStep(s, store, i);
   const connection = (s: State, i: Input) => connectionStep(s, store, i);
   const launch = (s: State, i: Input) => launchStep(s, store, i);
@@ -71,7 +73,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
   const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, sidebarFoldStep, projectRailStep, returnStep, arrived, phoneLaunch, noticesStep, notifyStep, update, cloudMemberStep, todos, workbench]) {
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, sidebarFoldStep, projectRailStep, returnStep, arrived, phoneLaunch, noticesStep, notifyStep, update, opencodeVersion, cloudMemberStep, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r, store);
   }

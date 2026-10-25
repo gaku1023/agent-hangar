@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { LeadCardProps, SessionGitView } from '../presenters/session.ts';
 import { GitChip } from './GitChip.tsx';
@@ -6,6 +6,7 @@ import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { useEditorLabels } from './primitives/editorName.tsx';
+import { growIn } from './primitives/motionKit.ts';
 
 type Open = 'files' | 'artifacts' | null;
 
@@ -83,6 +84,30 @@ export function EndedFacts(props: LeadCardProps & { sessionId: string; /** git �
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 置き換えの印。訳文の中の {action} をここで割り、「再開」を強めた要素に差し替える。 */
+const ACTION_SLOT = '\u0001';
+
+/**
+ * 終わった opencode の会話の、本文の面の最後の 1 行（C7、試作の E1）。
+ * 区切り線の下に「opencode を終了しました。続きは「再開」から開けます。」を置き、「再開」を見出しの主の操作と同じ語で強めて示す。
+ * grow は見ている間に終わったときで、そのときだけ高さを 0 から伸ばして入れる（growIn）。開いたときにもう終わっていた会話では動かさない。
+ */
+export function EndedAgentLine(props: { grow: boolean }) {
+  const t = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (props.grow && ref.current) growIn(ref.current);
+    // 入ったときに 1 度だけ動かす。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [before, after] = t('session.ended.opencode', { action: ACTION_SLOT }).split(ACTION_SLOT);
+  return (
+    <div ref={ref} className="ended-line" role="note">
+      <span>{before}<em>{t('session.action.resume')}</em>{after}</span>
     </div>
   );
 }

@@ -1,9 +1,10 @@
-import { formatRoute, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
+import { OPENCODE_VERSION_SEEN_KEY, readOpencodeVersionSeen } from '../mediator/opencodeVersion.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { cleanSidebarFolded, cleanSidebarOrder, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { PROJECT_RAIL_KEY, readProjectRailFolded } from '../mediator/projectRail.ts';
@@ -274,6 +275,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * サーバは起動のたびに写し直すので、bootstrap を取り直すたびに取る（アプリを入れ替えた後の版とハッシュに合わせる）。
    * 取れないのは同梱物が壊れているときだけで、そのときは札も行も出さない。知らせは出さない（直す手が利用者に無いため）。
    */
+  /**
+   * opencode（ベータ）の検出を取りに行く。有効にしている間だけ、起動のたびと、有効にしたときに取る。
+   * 未検証の版なら、右下の札が設定の画面を開く前に出せる（C7）。取れなくても知らせない（設定の版の行が「読み込み中…」のままになるだけ）。
+   */
+  const loadOpencodeStatus = () => {
+    if (!opencodeEnabledOf(store.settings ?? {})) return;
+    deps.api.opencodeStatus().then((o) => setStore({ ...store, opencodeStatus: o })).catch(() => undefined);
+  };
   const loadSetupGuide = () => {
     deps.api.setupGuide().then((g) => setStore({ ...store, setupGuide: g })).catch(() => setStore({ ...store, setupGuide: null }));
   };
@@ -452,6 +461,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // ホームの帯は、直すものがあれば始める前の確認を出す。誰にでも出すので、起動のたびにその中身を取りに行く（遅れは 1 回の which の数回分）。
           loadReadiness();
           loadSetupGuide();
+          loadOpencodeStatus();
         }).catch(fail);
         return;
       case 'api.loadEvents': {
@@ -976,6 +986,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
+      // opencode を有効にしたら、その場で版を読む（未検証なら右下の札を出す）。
+      if (input.event.type === 'settings.changed' && input.event.keys.includes('opencodeEnabled')) loadOpencodeStatus();
       if (input.event.type === 'run.ended' && state.screen.name === 'session' && state.screen.id === input.event.run.sessionId) loadFiles(input.event.run.sessionId);
       // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
       if (state.screen.name === 'home') {
@@ -1028,6 +1040,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         waitingCarried: readWaitingNotified(deps.storage.get(WAITING_NOTIFIED_KEY)),
         // ベルの既読の鍵。事実が変われば鍵も変わるので、残っていても古い版の鍵が行を隠すことはない。
         noticesRead: readNoticesRead(deps.storage.get(NOTICES_READ_KEY)),
+        // 未検証の opencode の版の札を閉じた版。同じ版では開き直しても出さない。
+        opencodeVersionSeen: readOpencodeVersionSeen(deps.storage.get(OPENCODE_VERSION_SEEN_KEY)),
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };

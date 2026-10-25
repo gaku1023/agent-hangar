@@ -93,6 +93,11 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   overlap?: OverlapProps | null;
   /** 終わったセッションの、トランスクリプトの冒頭の 1 枚。run が無いときだけ。 */
   lead: LeadCardProps | null;
+  /**
+   * 終わった画面の本文の面の最後に置く 1 行（C7、試作の E1）。opencode の会話で、run が無く、再開できるときだけ 'opencode'。
+   * 1 行は「再開」から続けられることを言うので、再開を押せない会話（ほかの PC の会話、本文が無い）には付けない。Claude の会話にも付けない。
+   */
+  endedLine?: 'opencode' | null;
   /** 見出しの名前の横の札（ロック、トランスクリプトの在りか）。 */
   badges: BadgeProps[];
   /**
@@ -634,5 +639,6 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand,
   };
+  props.endedLine = run === null && opencodeTab && props.canResume ? 'opencode' : null;
   return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
 }

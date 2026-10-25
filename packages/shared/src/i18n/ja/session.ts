@@ -187,6 +187,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.lead.summarizerOpenai': 'OpenAI 互換',
   'session.transcript.skillLoaded': 'スキル {name} を読み込みました',
   'session.screen.trustHint': '信頼確認が出たらターミナルで回答',
+  'session.ended.opencode': 'opencode を終了しました。続きは「{action}」から開けます。',
   'session.screen.loading': 'セッションを読み込み中…',
   'session.screen.moreActions': '他の操作',
   'session.screen.status': 'セッションのステータス',

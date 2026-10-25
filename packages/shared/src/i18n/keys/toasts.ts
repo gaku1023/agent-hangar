@@ -9,4 +9,10 @@ export const toastsKeys = {
   'toasts.info.head': [],
   'toasts.error.head': [],
   'toasts.error.more': [],
+  'toasts.opencodeVersion.head': [],
+  'toasts.opencodeVersion.who': ['version'],
+  'toasts.opencodeVersion.title': ['version'],
+  'toasts.opencodeVersion.body': ['range'],
+  'toasts.opencodeVersion.settings': [],
+  'toasts.opencodeVersion.continue': [],
 } as const satisfies MessageSpec;

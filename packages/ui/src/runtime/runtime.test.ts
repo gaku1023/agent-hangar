@@ -3118,3 +3118,42 @@ describe('スマホの解除の「元に戻す」の間に頁を閉じる', () =
     expect(hide.size).toBe(0);
   });
 });
+
+describe('opencode の版の知らせの種（C7）', () => {
+  const enabledBoot = { ...boot, settings: { ...boot.settings, opencodeEnabled: true } };
+  it('opencode を有効にしていれば、起動のたびに検出を読み、設定の画面を開かなくても答えを Store に入れる', async () => {
+    const opencodeStatus = vi.fn(async () => ({ found: true, version: '2.2.0', verified: false }));
+    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => enabledBoot), opencodeStatus });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(opencodeStatus).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().opencodeStatus).toEqual({ found: true, version: '2.2.0', verified: false });
+  });
+  it('切のままなら、起動では読まない', async () => {
+    const opencodeStatus = vi.fn(async () => ({ found: true, version: '2.2.0', verified: false }));
+    const { rt, wsHandlers } = harness({ opencodeStatus });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(opencodeStatus).not.toHaveBeenCalled();
+  });
+  it('設定で有効にしたら、その場で検出を読む', async () => {
+    const opencodeStatus = vi.fn(async () => ({ found: true, version: '2.2.0', verified: false }));
+    const { rt, wsHandlers } = harness({ opencodeStatus });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings: enabledBoot.settings, keys: ['opencodeEnabled'] });
+    await flush();
+    expect(opencodeStatus).toHaveBeenCalledTimes(1);
+  });
+  it('知らせ終えた版は、開き直しても端末から読み戻す', async () => {
+    const { rt, store } = harness();
+    store.set('opencode.versionSeen', '2.2.0');
+    rt.start();
+    expect(rt.getState().opencodeVersionSeen).toBe('2.2.0');
+  });
+});

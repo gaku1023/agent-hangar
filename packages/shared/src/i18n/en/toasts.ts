@@ -10,4 +10,10 @@ export const toastsEn: AreaDictionary<typeof toastsKeys> = {
   'toasts.info.head': 'Notice',
   'toasts.error.head': 'Error',
   'toasts.error.more': 'Show more',
+  'toasts.opencodeVersion.head': 'Unverified version',
+  'toasts.opencodeVersion.who': 'opencode {version}',
+  'toasts.opencodeVersion.title': 'opencode {version} is an unverified version',
+  'toasts.opencodeVersion.body': 'Verified: {range}. API changes may cause status and permission prompts to display incorrectly.',
+  'toasts.opencodeVersion.settings': 'Open Settings',
+  'toasts.opencodeVersion.continue': 'Continue anyway',
 };

@@ -323,6 +323,13 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .dialog-new-session .faint { font-size: var(--fs-sm); }
 /* 札の下の「前回と同じ」の行。右端の「既定に戻す」は文字だけの操作である。 */
 .prev-line { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--u) * 2); min-height: 22px; font-size: var(--fs-sm); }
+/* 前回の opencode のモデルが一覧から消えたことの注記（C7、試作の M1）。札の列の下の ⓘ 付きの 1 行で、右端に ✕ を置く。 */
+.oc-model-note { display: flex; align-items: flex-start; gap: calc(var(--u) * 1.5); padding: 1px var(--u) 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-3); }
+.oc-model-note > .icon { flex: none; width: 13px; height: 13px; margin-top: 2px; color: var(--st-paused); }
+.oc-model-note > span { min-width: 0; overflow-wrap: anywhere; }
+.oc-model-note-x { flex: none; display: grid; place-items: center; width: 18px; height: 18px; margin-left: auto; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-3); cursor: pointer; }
+.oc-model-note-x:hover { background: var(--surface-2); color: var(--ink); }
+.oc-model-note-x > .icon { width: 12px; height: 12px; }
 /* 下端の一言（そのまま ⌘↵ で）。キャンセルと起動の間の余白に右寄せで置く。 */
 .dialog-hint { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-xs); color: var(--ink-3); text-align: right; }
 

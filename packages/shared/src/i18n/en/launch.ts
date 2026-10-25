@@ -54,6 +54,7 @@ export const launchEn: AreaDictionary<typeof launchKeys> = {
   'launch.model.footer': 'Prices from models.dev and each provider\'s public information (fetched {date}).',
   'launch.opencode.loading': 'Getting the list from opencode…',
   'launch.opencode.failed': 'Could not get the list from opencode.',
+  'launch.opencode.modelReset': 'The previous model {model} is no longer listed, so the default is used.',
   'launch.chip.account': 'Account',
   'launch.chip.addDirs': 'Additional directories',
   'launch.chip.effort': 'Effort level',
