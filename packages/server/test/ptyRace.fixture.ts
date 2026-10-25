@@ -39,13 +39,14 @@ let stragglers = 0;
 let batch = Array.from({ length: WIDTH }, open);
 for (let round = 1; round <= ROUNDS; round++) {
   await Promise.race([Promise.all(batch.map((s) => s.ready)), timeout(10_000)]);
-  // 同じ瞬間に、全部の大きさを変え、全部を閉じる。閉じ方は、node-pty の kill と、子だけを終わらせる hangar の閉じ方（pty/close.ts）を半分ずつにする。
+  // 同じ瞬間に、全部の大きさを変え、全部を閉じる。閉じ方は hangar（pty/close.ts）と同じく、子のプロセスだけを終わらせる。
+  // node-pty の kill は使わない。kill は子のコンソールのプロセスの一覧を補助のプロセスに取らせ、その全部に process.kill を送る。
+  // 子が先に終わって pid が使い回されると、一覧がこのプロセスのコンソールのものになり、自分を終了コード 1 で止めることがある（CI で 2 回起きた）。
+  // pty の表の競合は、子の終わりを待つスレッドが表から消すのと、メインのスレッドの起動と resize が重なることで起きるので、この閉じ方でも試せる。
   for (const s of batch) quietly(() => s.p.resize(100, 30));
-  batch.forEach((s, i) => {
-    if (i % 2 === 0) quietly(() => s.p.kill());
-    // pid は pseudoconsole につないだ後に決まり、それまでは 0 である。Windows の process.kill(0) は自分を終わらせるので、0 のときは kill に回す。
-    else quietly(() => { if (s.p.pid > 0) process.kill(s.p.pid); else s.p.kill(); });
-  });
+  // pid は pseudoconsole につないだ後に決まり、それまでは 0 である。Windows の process.kill(0) は自分を終わらせるので、0 のものはつないでから閉じる。
+  const stop = (s: Slot): void => quietly(() => { if (s.p.pid > 0) process.kill(s.p.pid); });
+  for (const s of batch) { if (s.p.pid > 0) stop(s); else void s.ready.then(() => stop(s)); }
   // 前の組の終わりを待つスレッドが表から消している間に、次の組を起こし、大きさを変え続ける。
   const closing = batch;
   batch = round < ROUNDS ? Array.from({ length: WIDTH }, open) : [];
