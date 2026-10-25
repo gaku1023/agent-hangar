@@ -21,13 +21,17 @@ import { convertMessages, messageIdOf, settledCount } from './convert.ts';
  * どこまで写したかはメモリだけに持つ。載せ直したとき（hangar の再起動、再開）は分からないので、全部を作り直しの束として読み直す。
  */
 
-/** 本文が伸びたことを表す出来事。手順の終わり、文の終わり、使用量、作業の終わり、発言が届いたとき、つないだとき。 */
+/**
+ * 本文が伸びたことを表す出来事。手順の終わり、文の終わり、使用量、作業の終わり、発言が届いたとき、モデルの切り替え、つないだとき。
+ * モデルの切り替えは、TUI で /models を選んだ後の最初の送信で届き、本文に model-switched の印が 1 つ入る（返答より先）。
+ */
 const TRIGGERS = new Set([
   'server.connected',
   'session.step.ended', 'session.step.failed',
   'session.text.ended',
   'session.usage.updated',
   'session.inbox.delivered',
+  'session.model.selected',
   'session.execution.succeeded', 'session.execution.failed', 'session.execution.interrupted',
 ]);
 

@@ -10,6 +10,7 @@ import { pickFilePath, toolSummary, type RecordFacts } from '../../claude-code/t
  * - user：`{ id, type: 'user', time: { created }, text }`
  * - assistant：1 回のモデルの呼び出し（手順）が 1 つ。`content` に reasoning・text・tool が並び、`model`、`tokens`、`cost`、`finish` を持つ。
  *   終わると `time.completed` が付く。interrupt で止まった手順は `error`（type が aborted）を持ち、終わった道具は `state.status` が error になる。
+ * - model-switched：会話のモデルの切り替え。`model`（`{ id, providerID }`）と `previous` を持つ。TUI の /models の後の最初の送信で入る。
  * - idle：ターンの終わりの印。`outcome` は succeeded、interrupted など。
  * - system：hangar の外から差し込まれた知らせ（Code Mode の目録の変化など）。`metadata.notice` が種類である。
  *
@@ -104,6 +105,14 @@ export function convertMessage(m: unknown, seqStart: number): IndexRecord {
         facts.contextTokens = input;
       }
       if (typeof m.cost === 'number' && Number.isFinite(m.cost)) facts.costUsd = m.cost;
+      return rec;
+    }
+    case 'model-switched': {
+      // TUI の /models の切り替えは、選んだ後の最初の送信で会話に当たる（2.1.4）。返答を待たずに札を切り替えるため、今の値のモデルとして持つ。
+      const model = modelOf(m.model);
+      if (model) { facts.model = model; facts.modelSelected = true; }
+      const { id: _id, type, time: _time, ...rest } = m;
+      push({ kind: 'meta', name: str(type) ?? 'model-switched', value: rest });
       return rec;
     }
     case 'idle':

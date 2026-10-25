@@ -24,6 +24,8 @@ export type RecordFacts = {
   cwd?: string; ts?: number; model?: string; effort?: string;
   usage?: { input: number; output: number };
   costUsd?: number; contextTokens?: number;
+  /** 記録がモデルの切り替えそのもの（opencode の model-switched）。費用や文脈の量が無くても、今の値のモデルを書き換える。 */
+  modelSelected?: boolean;
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string;
   isUserTurn: boolean;
 };

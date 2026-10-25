@@ -64,6 +64,8 @@ type Acc = {
   userTurns: number; input: number; output: number;
   /** 記録ごとの費用の和と、最後の文脈の量（RecordFacts.costUsd、contextTokens）。持たない束では undefined のまま。 */
   cost?: number; contextTokens?: number;
+  /** 束にモデルの切り替え（RecordFacts.modelSelected）があった。 */
+  modelSelected?: boolean;
   daily: Map<string, { input: number; output: number }>;
   /** ターンの終わりの印か、入力待ちの問いが新しく出たか。last_activity_at の共有の間引きを外す合図である。 */
   turnEnded?: boolean;
@@ -209,6 +211,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       if (f.agentName) acc.agentName = f.agentName;
       if (f.prUrl) acc.prUrl = f.prUrl;
       if (f.model) acc.model = f.model;
+      if (f.modelSelected) acc.modelSelected = true;
       if (f.effort) acc.effort = f.effort;
       if (f.costUsd !== undefined) acc.cost = (acc.cost ?? 0) + f.costUsd;
       if (f.contextTokens !== undefined) acc.contextTokens = f.contextTokens;
@@ -219,7 +222,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
       }
     }
-    if (mainLocal && (acc.cost !== undefined || acc.contextTokens !== undefined)) writeLiveStats(db, b.providerSessionId, acc, reset, opts.contextSizeOf);
+    if (mainLocal && (acc.cost !== undefined || acc.contextTokens !== undefined || acc.modelSelected)) writeLiveStats(db, b.providerSessionId, acc, reset, opts.contextSizeOf);
     if (mainLocal && b.fold) {
       if (writeActivity(db, sessionId, reset, b.fold.activity)) acc.turnEnded = true;
       writeLimit(db, sessionId, reset, b.fold.limit);
@@ -248,6 +251,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
  * 費用は記録の和なので、続きの束では前の値に足し、作り直しでは置き換える。文脈の量とモデルは最後の値にする。
  * 文脈の大きさ（context_size）は本文に無いので、モデル（束のものか、前に書いたもの）の上限を contextSizeOf で引いて書く。
  * 引けなければ書かず、前の値を残す。
+ * モデルの切り替えだけの束（opencode の model-switched）でも書く。返答を待たずに札のモデルと文脈の大きさを切り替えるためである。
  */
 function writeLiveStats(db: Db, providerSessionId: string, acc: Acc, reset: boolean, contextSizeOf?: (model: string) => number | null): void {
   const prev = stmt(db, 'select cost_usd, model from session_live_stats where provider_session_id = ?').get(providerSessionId) as { cost_usd: number | null; model: string | null } | undefined;

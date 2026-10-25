@@ -129,7 +129,7 @@ describe('OpencodeTranscript', () => {
     expect(batches[1]!.records).toHaveLength(1);
   });
 
-  it('本文の出来事（手順の終わり、文の終わり、使用量、作業の終わり、つないだとき）で読み直し、ほかの出来事では読まない', async () => {
+  it('本文の出来事（手順の終わり、文の終わり、使用量、作業の終わり、モデルの切り替え、つないだとき）で読み直し、ほかの出来事では読まない', async () => {
     const { serve, source, sink, batches, emit, messageReads } = await setup();
     serve.state.messages.set(SID, ALL.slice(0, FIRST_TURN));
     source.start(sink);
@@ -141,7 +141,7 @@ describe('OpencodeTranscript', () => {
     emit('permission.asked');
     await new Promise((r) => setTimeout(r, 30));
     expect(messageReads()).toBe(before);
-    for (const type of ['session.step.ended', 'session.text.ended', 'session.usage.updated', 'session.execution.succeeded', 'session.execution.interrupted', 'session.inbox.delivered', 'server.connected']) {
+    for (const type of ['session.step.ended', 'session.text.ended', 'session.usage.updated', 'session.execution.succeeded', 'session.execution.interrupted', 'session.inbox.delivered', 'session.model.selected', 'server.connected']) {
       const n = messageReads();
       emit(type);
       await until(() => messageReads() > n);
