@@ -46,7 +46,7 @@ export class OpencodeProvidersError extends Error {
 
 export type OpencodeProvidersDeps = {
   /** serve の管理（serve/manager.ts の ServeManager）。 */
-  serves: { ensure(key: string): Promise<ServeInfo>; stop(key: string): Promise<void> };
+  serves: { ensure(key: string, config?: { directory?: string }): Promise<ServeInfo>; stop(key: string): Promise<void> };
   /** 問い合わせの場所（location[directory]）。ホーム（ふだんの設定だけが効く場所）を渡す。 */
   home: string;
   /** 書き換える opencode.json（configFile.ts の opencodeConfigPath）。 */
@@ -345,7 +345,7 @@ export class OpencodeProvidersService {
     this.inUse++;
     if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
     try {
-      const serve = await this.deps.serves.ensure(PROVIDERS_SERVE_KEY);
+      const serve = await this.deps.serves.ensure(PROVIDERS_SERVE_KEY, { directory: this.deps.home });
       return await f(new OpencodeClient(serve, { timeoutMs: this.deps.requestTimeoutMs }));
     } finally {
       this.inUse--;

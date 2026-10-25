@@ -16,7 +16,7 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * configFile を渡すと、その opencode.json の `providers` と `provider` のプロバイダーを、API キーの方法を持つ integration と、`/api/provider` の行として足す（実物は書き換えを見張って読み直す）。
  *
  * 起動から止まるまでの出来事を、1 行 1 件の JSON で logFile に書く。
- * - `start`：pid、argv、環境変数の全部、時刻。
+ * - `start`：pid、argv、環境変数の全部、作業フォルダ（cwd）、時刻。
  * - `ready`：待ち受けを始めた時刻。
  * - `interrupt`：受けた会話の ID。
  * - `create`：`POST /api/session` の本文と、振った ID。
@@ -29,6 +29,10 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * - `session`：`GET /api/session/{id}` で聞かれた会話の ID。
  * - `term`：SIGTERM を受けた。
  * - `exit`：自分から終わった理由。
+ *
+ * serve が受けた認証つきの要求は、logFile とは別の requestsFile に 1 行 1 件で書く（readFakeOpencodeRequests で読む）。
+ * 要求の場所（directory）は、実物の 2.1.4 と同じ順で読む。`location[directory]` の問い、無ければ `x-opencode-directory` の header（URL の符号を解く）、
+ * どちらも無ければ null（実物は serve の作業フォルダに寄せる）。
  *
  * 会話の記録は、実物の SQLite の代わりに dir の `store.json` に置く（import、delete、export、`GET /api/session/{id}` が同じものを見る）。
  * 実物の 2.1.4 と同じく、既にある ID への import は標準エラーに `Session already exists` を書いて何も変えずに 0 で終わり、
@@ -97,6 +101,8 @@ export type FakeOpencodeOptions = {
   exportTruncate?: boolean;
   /** 書き出しを終えるまでの間。 */
   exportDelayMs?: number;
+  /** 書き出しを、この標準エラーを書いて exit 1 で落とす（理由の分からない失敗のふり）。 */
+  exportFailStderr?: string;
   /** interrupt を受けたら、その会話を `GET /api/session/active` から外す（作業が止まって idle になったふり）。 */
   activeUntilInterrupt?: boolean;
   /** import が `--directory` を無視して、起こされた場所を会話の場所にする（場所の確かめの試験に使う）。 */
@@ -142,7 +148,7 @@ export const FAKE_OPENCODE_INTEGRATIONS: FakeIntegration[] = [
 ];
 
 export type FakeOpencodeEvent =
-  | { ev: 'start'; pid: number; argv: string[]; env: Record<string, string>; t: number }
+  | { ev: 'start'; pid: number; argv: string[]; env: Record<string, string>; cwd: string; t: number }
   | { ev: 'ready'; pid: number; port: number; t: number }
   | { ev: 'interrupt'; pid: number; id: string; t: number }
   | { ev: 'create'; pid: number; body: Record<string, unknown>; id: string; t: number }
@@ -163,9 +169,13 @@ export type FakeOpencodeEvent =
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
-export function writeFakeOpencode(dir: string, opts: FakeOpencodeOptions = {}): { bin: string; logFile: string } {
+/** serve が受けた認証つきの要求の 1 件。directory は要求が指した場所で、via はその読み元（none なら serve の作業フォルダに寄る）。 */
+export type FakeOpencodeRequest = { pid: number; method: string; path: string; directory: string | null; via: 'query' | 'header' | 'none'; t: number };
+
+export function writeFakeOpencode(dir: string, opts: FakeOpencodeOptions = {}): { bin: string; logFile: string; requestsFile: string } {
   fs.mkdirSync(dir, { recursive: true });
   const logFile = path.join(dir, 'events.jsonl');
+  const requestsFile = path.join(dir, 'requests.jsonl');
   const starting = path.join(dir, 'starting');
   const lockCount = path.join(dir, 'lock-count');
   const store = path.join(dir, 'store.json');
@@ -173,6 +183,7 @@ export function writeFakeOpencode(dir: string, opts: FakeOpencodeOptions = {}): 
 import fs from 'node:fs';
 import http from 'node:http';
 const LOG = ${JSON.stringify(logFile)};
+const REQUESTS = ${JSON.stringify(requestsFile)};
 const STARTING = ${JSON.stringify(starting)};
 const LOCK_COUNT = ${JSON.stringify(lockCount)};
 const OPTS = ${JSON.stringify(opts)};
@@ -185,7 +196,7 @@ const COMMANDS = ${JSON.stringify(opts.commands ?? FAKE_OPENCODE_COMMANDS)};
 const SKILLS = ${JSON.stringify(opts.skills ?? FAKE_OPENCODE_SKILLS)};
 const log = (o) => fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, t: Date.now(), ...o }) + '\\n');
 const argv = process.argv.slice(2);
-log({ ev: 'start', argv, env: { ...process.env } });
+log({ ev: 'start', argv, env: { ...process.env }, cwd: process.cwd() });
 const exit = (reason, code) => { log({ ev: 'exit', reason }); process.exit(code); };
 const STORE = ${JSON.stringify(store)};
 const readStore = () => (fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, 'utf8')) : {});
@@ -228,6 +239,7 @@ if (argv[0] === 'session' && argv[1] === 'import') {
   if (via === 'server' && OPTS.exportServerDown) { process.stderr.write('Unable to connect. Is the computer able to access the url?\\n'); exit('export-server-down', 1); }
   const n = Number(fs.existsSync(EXPORT_LOCKS) ? fs.readFileSync(EXPORT_LOCKS, 'utf8') : '0');
   if (n < (OPTS.exportLockTimes ?? 0)) { fs.writeFileSync(EXPORT_LOCKS, String(n + 1)); process.stderr.write('SQLiteError: database is locked\\n'); exit('export-locked', 1); }
+  if (OPTS.exportFailStderr !== undefined) { process.stderr.write(OPTS.exportFailStderr); exit('export-failed', 1); }
   const data = lookup(id);
   if (data === undefined) { process.stderr.write('Session not found: ' + id + '\\n'); exit('export-not-found', 1); }
   const text = JSON.stringify(data, null, 2) + '\\n';
@@ -301,6 +313,15 @@ const integrationsNow = () => {
 const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== auth) { res.writeHead(401); res.end('unauthorized'); return; }
   const url = new URL(req.url ?? '/', 'http://x');
+  {
+    // 実物の 2.1.4 と同じ順で場所を読む。問い、header、どちらも無ければ serve の作業フォルダ（ここでは null で残す）。
+    const q = url.searchParams.get('location[directory]');
+    const h = req.headers['x-opencode-directory'];
+    const hv = typeof h === 'string' && h ? (() => { try { return decodeURIComponent(h); } catch { return h; } })() : null;
+    const directory = q || hv;
+    const via = q ? 'query' : hv ? 'header' : 'none';
+    fs.appendFileSync(REQUESTS, JSON.stringify({ pid: process.pid, method: req.method, path: url.pathname, directory: directory ?? null, via, t: Date.now() }) + '\\n');
+  }
   if (req.method === 'POST' && url.pathname === '/api/session') {
     const body = await readBody(req);
     if (OPTS.failCreate) { log({ ev: 'create', body, id: '' }); json(res, 500, { error: 'boom' }); return; }
@@ -459,11 +480,17 @@ setTimeout(() => {
 }
 `;
   const bin = writeFakeNodeTool(dir, 'opencode', script);
-  return { bin, logFile };
+  return { bin, logFile, requestsFile };
 }
 
 /** writeFakeOpencode が書いた出来事を読む。まだ何も無ければ空の配列。 */
 export function readFakeOpencodeLog(logFile: string): FakeOpencodeEvent[] {
   if (!fs.existsSync(logFile)) return [];
   return fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as FakeOpencodeEvent);
+}
+
+/** writeFakeOpencode の serve が受けた要求を読む。まだ何も無ければ空の配列。 */
+export function readFakeOpencodeRequests(requestsFile: string): FakeOpencodeRequest[] {
+  if (!fs.existsSync(requestsFile)) return [];
+  return fs.readFileSync(requestsFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as FakeOpencodeRequest);
 }

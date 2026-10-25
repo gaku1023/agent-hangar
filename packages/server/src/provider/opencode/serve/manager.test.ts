@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readFakeOpencodeLog, writeFakeOpencode, type FakeOpencodeEvent, type FakeOpencodeOptions } from '../../../../test/fake-opencode.ts';
+import { readFakeOpencodeLog, readFakeOpencodeRequests, writeFakeOpencode, type FakeOpencodeEvent, type FakeOpencodeOptions } from '../../../../test/fake-opencode.ts';
 import { isWindows, posixIt } from '../../../../test/platform.ts';
 import { OpencodeDisabledError, ServeManager, type OpencodeVersionNoticeSeed, type ServeManagerDeps } from './manager.ts';
 import { isAlive, ServeRegistry } from './registry.ts';
@@ -31,8 +31,8 @@ describe('ServeManager', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const make = (fake: FakeOpencodeOptions = {}, deps: Partial<ServeManagerDeps> = {}): { m: ServeManager; logFile: string; registry: ServeRegistry } => {
-    const { bin, logFile } = writeFakeOpencode(path.join(dir, 'oc'), fake);
+  const make = (fake: FakeOpencodeOptions = {}, deps: Partial<ServeManagerDeps> = {}): { m: ServeManager; logFile: string; requestsFile: string; registry: ServeRegistry } => {
+    const { bin, logFile, requestsFile } = writeFakeOpencode(path.join(dir, 'oc'), fake);
     const registry = new ServeRegistry(path.join(dir, 'serves.json'));
     const m = new ServeManager({
       enabled: () => true,
@@ -45,7 +45,7 @@ describe('ServeManager', () => {
       ...deps,
     });
     managers.push(m);
-    return { m, logFile, registry };
+    return { m, logFile, requestsFile, registry };
   };
 
   it('5 本を同時に頼んでも、起動は 1 本ずつ。前の 1 本が応答してから次を起こす', async () => {
@@ -86,6 +86,29 @@ describe('ServeManager', () => {
     expect(start?.argv.some((a) => a.includes(info.password))).toBe(false);
     expect(fs.readFileSync(path.join(dir, 'serves.json'), 'utf8')).not.toContain(info.password);
     expect(info.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  it('serve は頼まれた会話のフォルダで起こし、止めるときの問い合わせも同じ場所を指す。hangar の作業フォルダには寄らない', async () => {
+    const work = path.join(dir, 'work');
+    fs.mkdirSync(work);
+    const { m, logFile, requestsFile } = make({ activeIds: ['ses_x'] });
+    const info = await m.ensure('a', { directory: work });
+    expect(info.directory).toBe(work);
+    const [start] = starts(readFakeOpencodeLog(logFile));
+    expect(fs.realpathSync(start!.cwd)).toBe(fs.realpathSync(work));
+    expect(fs.realpathSync(start!.cwd)).not.toBe(fs.realpathSync(process.cwd()));
+    await m.stop('a');
+    const reqs = readFakeOpencodeRequests(requestsFile);
+    expect(reqs.some((r) => r.path === '/api/session/ses_x/interrupt')).toBe(true);
+    expect(reqs.filter((r) => r.directory !== work)).toEqual([]);
+  });
+
+  it('場所を言わずに頼まれた serve（選択肢とプロバイダーの問い合わせ）は、ホームで起こす', async () => {
+    const { m, logFile } = make();
+    const info = await m.ensure('a');
+    expect(info.directory).toBe(os.homedir());
+    const [start] = starts(readFakeOpencodeLog(logFile));
+    expect(fs.realpathSync(start!.cwd)).toBe(fs.realpathSync(os.homedir()));
   });
 
   it('any は起きている serve のどれか 1 本を返す。1 本も無ければ null', async () => {

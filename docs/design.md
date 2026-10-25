@@ -1488,7 +1488,7 @@ npm の `opencode-ai` は 1.x の系統なので使わない。
 ### opencode の serve の管理
 
 hangar は、opencode の会話ごとに `opencode serve` を 1 本起こす（計画の B2）。
-置き場は `provider/opencode/serve/` で、`ServeManager.ensure(sessionId)` が `{ url, password, pid }` を返し、`stop(sessionId)` が止める。
+置き場は `provider/opencode/serve/` で、`ServeManager.ensure(sessionId, { directory })` が会話のフォルダで起こして `{ url, password, pid, directory }` を返し、`stop(sessionId)` が止める。
 組み立ては `boot/opencode.ts` の `bootOpencode` で、設定の `opencodeEnabled` が切なら `ensure` は断り、何も起こさない。
 
 起動は待ち行列（`queue.ts`）で 1 本ずつにする。
@@ -1503,6 +1503,15 @@ opencode 2.1.4 の serve は、同時に起こすと起動の途中で `SQLiteEr
 - どの OS でも、hangar の環境に XDG の置き場（`XDG_DATA_HOME`、`XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_STATE_HOME`）があれば渡す（`env.ts` の `XDG_KEYS`。空の値は渡さない）。opencode は設定、DB、キャッシュ、状態をこの下に置くので、渡さないと hangar の opencode だけが別の置き場を見て、ふだんの opencode のプロバイダーの接続も会話も見えなくなるからである。書き出し、取り込み、`--version` の CLI も同じ土台（`opencodeBaseEnv`）で起こすので、同じ置き場を見る。
 - Windows は空にすると、ソケット（Winsock は `SystemRoot` を引く）もホームも引けずに落ちることが多いので、許可リスト（`WINDOWS_SERVE_ALLOWLIST`）の鍵だけを写す（計画の G1）。OS の置き場とシェル（`SystemRoot`、`windir`、`SystemDrive`、`ComSpec`、`PATHEXT`、`PATH`）、ホームと利用者（`USERPROFILE`、`HOMEDRIVE`、`HOMEPATH`、`USERNAME`）、置き場（`APPDATA`、`LOCALAPPDATA`、`TEMP`、`TMP`）、入れた道具の置き場と機械の形（`ProgramFiles` 系、`ProgramData`、`PROCESSOR_ARCHITECTURE`、`NUMBER_OF_PROCESSORS`、`OS`）である。どれも呼び手や hangar の印ではない。名前は大文字小文字を問わずに拾い、許可リストの綴りで 1 つだけ渡す。`PATH` は固定にせず hangar の `PATH`（Explorer から継いだ利用者の `PATH`）を写し、先頭に opencode の置き場を足す。固定の最小にすると、エージェントが git も node も引けなくなるからである。
 - 待ち受けは `127.0.0.1` だけで、ポートは空きを取って渡す。取ってから渡すまでの間に塞がれて落ちたら（`Is port N in use?`）、取り直す。
+- 作業フォルダ（spawn の cwd）は会話のフォルダにする（`ensure` の `directory`）。
+  opencode 2.1.4 は、場所の無い要求を serve の作業フォルダに寄せる（`location[directory]` の問い、`x-opencode-directory` の header、どちらも無ければ serve の `process.cwd()` の順に読む）。
+  初めて見る場所なら、そこで設定を読み、MCP をつなぎ、見張りを始める。
+  TUI の要求の一部は場所を付けないので、hangar の作業フォルダを継ぐと、会話と関わりの無い場所をもう 1 つ起こす（Windows ではタスクスケジューラから起こすので `C:\WINDOWS\system32` になり、`C:\` からホームまでを見張り始めた）。
+  会話に依らない serve（新しいセッションの選択肢は聞く場所、プロバイダーの問い合わせはホーム）も、hangar の作業フォルダは継がない。
+  渡した場所がフォルダとして無ければホームにする（無い場所を cwd にすると spawn が `ENOENT` で落ちる）。
+- hangar から serve への要求（`client.ts` の `OpencodeClient`、止めるときの interrupt、起動の確かめの GET）は、どれも `x-opencode-directory` の header で serve の作業フォルダを指す（URL の符号にする。opencode が解く）。
+  場所を問いで渡す道（モデルや MCP の一覧など）は、問いが先に効く。
+  本文、interrupt、追記、出来事の流れのような会話の ID だけの道も、これで会話のフォルダを指す。
 - パスワードは起動ごとに 32 バイトの乱数を作り、`OPENCODE_SERVER_PASSWORD` で渡す（basic 認証、ユーザー名は `opencode`）。argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かず、メモリにだけ持つ。
 - macOS と Linux は、プロセスのまとまりの頭として起こす（detached）。hangar が落ちても道連れにならないので、下の記録で掃除する。止めるときは、serve が起こした子ごとまとまりに信号を送る。
 - Windows は detached にせず、`windowsHide` で起こす。標準入出力を 1 つも継がないので、libuv はこれを `CREATE_NO_WINDOW` にし、serve は見えないコンソールを持つ。serve の上で動く道具（シェル、git など）はそのコンソールを継ぐので、黒い窓を開かない。detached（`DETACHED_PROCESS`）にするとコンソールが無くなり、道具を起こすたびに新しい窓が開く。
@@ -6626,12 +6635,17 @@ serve の `/api/experimental/session/{id}/export` は実験用で、版で変わ
 会話の serve が起きていれば `--server <url>` でつなぎ、パスワードは環境の `OPENCODE_PASSWORD` だけで渡す。
 serve が無ければ `--standalone` で、私用のサーバを一時だけ起こして書き出す。
 `--server` で失敗したら `--standalone` で取り直す。
+ただし、opencode が会話を知らない（`Session not found: <ID>` で 1 で終わる）と答えたら取り直さない。serve も私用のサーバも同じ記録の置き場を見るからである。
 起こすときの環境は、版を読むときと同じ空の環境（`opencodeProbeEnv`）で、CLAUDE 系と HANGAR_* と API キーを渡さない。
 置き場は `~/.agent-hangar/opencode/export/<ID>.json`（置き場は 0700、ファイルは 0600）で、原子的に書く。
 同じ置き場の一時ファイルに書き、終わりの状態が 0 で、中身が JSON で、`info.id` が頼んだ ID と同じときだけ名前を付け替える。
 失敗したら一時ファイルを消し、前のファイルを残す。
 `database is locked` で落ちたら、serve の起動と同じ間（0.5、1、2 秒）をあけて取り直す。
 同じ会話を同時に頼まれたら、書き出しを重ねない。
+書き出せなかったら、`[opencode] could not export a session for sync: <ID>: <理由>: <標準エラーの最初の行>` の 1 行をログに出す。
+理由は `not found`（opencode が会話を知らない）、`locked`（取り直しても解けなかった）、`exit <状態>`、`signal <信号>` などで、標準エラーの行は serve のパスワードを伏せ、200 字で切る。
+本文はログに出さない。
+「この PC で再開」の比べ（`sync/opencodeResume.ts`）は、この PC に無い会話でも書き出しを試すので、`not found` の行は失敗ではなく、手元に無いことの知らせである。
 
 上げる契機は 2 つである。
 

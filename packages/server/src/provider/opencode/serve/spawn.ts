@@ -11,6 +11,9 @@ import { spawnRun, type ProcRun } from '../../../platform/proc.ts';
  * - パスワードは起動ごとに 32 バイトの乱数を作り、環境変数 `OPENCODE_SERVER_PASSWORD` で渡す。
  *   argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かない（持つのはメモリだけ）。
  * - ポートは空きを取って渡し、取ってから渡すまでの間に塞がれて落ちたら取り直す。
+ * - 作業フォルダ（spawn の cwd）は会話のフォルダにする。opencode 2.1.4 は場所の無い要求（TUI の一部の要求など）を serve の作業フォルダに寄せ、
+ *   そこで初めて見る場所なら設定を読み、MCP をつなぎ、見張りを始める。hangar の作業フォルダ（Windows のタスクスケジューラから起こすと system32）を継ぐと、
+ *   会話と関わりの無い場所をもう 1 つ起こすことになる。
  * - macOS と Linux は、プロセスのまとまりの頭として起こす（detached）。止めるときは、serve が起こした子（LSP など）ごとまとまりに信号を送る。
  * - Windows は detached にせず、windowsHide で起こす。標準入出力を 1 つも継がないので、libuv はこれを `CREATE_NO_WINDOW` にし、
  *   serve は見えないコンソールを持つ。serve の上で動く道具（シェル、git など）はそのコンソールを継ぐので、黒い窓を開かない。
@@ -41,6 +44,17 @@ export function newServePassword(): string {
 
 export function authHeader(password: string): string {
   return `Basic ${Buffer.from(`${SERVE_USERNAME}:${password}`).toString('base64')}`;
+}
+
+/** 場所を指す header の名前。opencode 2.1.4 は `location[directory]` の問いが無ければこれを読み、それも無ければ serve の作業フォルダに寄せる。 */
+export const DIRECTORY_HEADER = 'x-opencode-directory';
+
+/**
+ * serve への要求に付ける header。basic 認証と、場所があればそれを指す header（URL の符号にする。opencode が解く）。
+ * 場所を問いで渡す要求でも付けてよい（問いが先に効く）。
+ */
+export function serveHeaders(serve: { password: string; directory?: string | null }): Record<string, string> {
+  return { authorization: authHeader(serve.password), ...(serve.directory ? { [DIRECTORY_HEADER]: encodeURIComponent(serve.directory) } : {}) };
 }
 
 /** 127.0.0.1 の空きポートを 1 つ取る。閉じてから返すので、渡すまでの間に塞がれることはある（spawn の側で取り直す）。 */
@@ -100,6 +114,8 @@ export type ServeProcess = {
   port: number;
   url: string;
   password: string;
+  /** serve の作業フォルダ（会話のフォルダ）。渡されなければ null（hangar の作業フォルダを継いだ）。 */
+  directory: string | null;
   /** 起こした時刻（エポックのミリ秒）。残った serve の掃除で、pid の使い回しを見分けるのに使う。 */
   startedAt: number;
   child: ChildProcess;
@@ -111,6 +127,8 @@ export type StartServeOptions = {
   bin: string;
   /** 空の環境（env.ts の serveEnv）。パスワードはここで足す。 */
   env: NodeJS.ProcessEnv;
+  /** 作業フォルダ（会話のフォルダ）。応答の確かめの GET もここを指す。ServeManager は必ず渡す。 */
+  directory?: string;
   pickPort?: () => Promise<number>;
   /** ポートが塞がっていたときに取り直す上限（最初の 1 回を含む）。 */
   portAttempts?: number;
@@ -145,7 +163,9 @@ async function launchOnce(o: StartServeOptions, port: number, password: string):
   // .cmd と .bat は cmd.exe 越しにしか起こせない。npm の包みは findOpencode が指す先の .exe に読み替えるので、ここに来るのはそれ以外の包みである。
   // cmd.exe には引数を引用せずにつないで渡すが、渡すのは決まった語とポートの数だけなので崩れない。場所は空白を含みうるので引用で包む。
   const viaShell = needsShell(o.bin);
+  const directory = o.directory ?? null;
   const child = spawn(viaShell ? `"${o.bin}"` : o.bin, ['serve', '--hostname', SERVE_HOST, '--port', String(port)], {
+    ...(directory ? { cwd: directory } : {}),
     env: { ...o.env, OPENCODE_SERVER_PASSWORD: password },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
@@ -184,9 +204,9 @@ async function launchOnce(o: StartServeOptions, port: number, password: string):
       throw new ServeStartError('timeout', `opencode serve did not answer within the time limit: ${why()}`);
     }
     try {
-      const r = await fetch(url + READY_PATH, { headers: { authorization: authHeader(password) }, signal: AbortSignal.timeout(1000) });
+      const r = await fetch(url + READY_PATH, { headers: serveHeaders({ password, directory }), signal: AbortSignal.timeout(1000) });
       await r.arrayBuffer().catch(() => undefined);
-      if (r.status === 200 && child.pid !== undefined && !gone) return { pid: child.pid, port, url, password, startedAt, child, exited };
+      if (r.status === 200 && child.pid !== undefined && !gone) return { pid: child.pid, port, url, password, directory, startedAt, child, exited };
     } catch {
       // まだ待ち受けていない。
     }

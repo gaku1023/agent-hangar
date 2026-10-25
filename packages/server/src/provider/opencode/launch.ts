@@ -1,7 +1,6 @@
 import type { InjectionEntry, LaunchPlan, LaunchSpec, MaterializeMode } from '../../agent/types.ts';
 import { OpencodeClient, type OpencodeModelRef } from './client.ts';
-import type { ServeConfig } from './serve/env.ts';
-import type { ServeInfo } from './serve/manager.ts';
+import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
 
 /**
  * opencode の会話を hangar から起こす面（docs/design.md「opencode の起動」）。
@@ -15,7 +14,7 @@ export const HANGAR_INSTRUCTION_KEY = 'hangar';
 
 /** serve の管理のうち、起動の面が使う口（serve/manager.ts の ServeManager）。鍵は hangar の会話の ID である。 */
 export type OpencodeServes = {
-  ensure(sessionId: string, config?: ServeConfig): Promise<ServeInfo>;
+  ensure(sessionId: string, config?: ServeEnsureOptions): Promise<ServeInfo>;
   get(sessionId: string): ServeInfo | null;
   stop(sessionId: string): Promise<void>;
 };
@@ -68,7 +67,7 @@ export type MaterializeDeps = {
 
 /**
  * 新しい会話を起こす前の下ごしらえ。返すのは opencode が振った会話の ID である。
- * 1. serve を起こす（hangar の MCP の設定を足して）。
+ * 1. serve を会話のフォルダで起こす（hangar の MCP の設定を足して）。
  * 2. ID を付けずに `POST /api/session` で会話を作る。hangar が決めた ID の会話は、OpenCode Zen の無料枠のモデルが FreeTierError（403）で断るからである。
  * 3. 追記を `PUT …/instructions/entries/hangar` で差し込む。API が無い版でも起動は続け、知らせだけ出す。
  * 4. hangar の MCP が connected になるのを待つ。待たずに最初のプロンプトを送ると、1 歩目の Code Mode の目録に hangar の道具が載らない。
@@ -83,7 +82,7 @@ export type MaterializeDeps = {
 export async function materializeOpencode(deps: MaterializeDeps, mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; serve: ServeInfo }> {
   if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
   if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
-  const serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarMcpConfig(spec.mcp) });
+  const serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarMcpConfig(spec.mcp), directory: spec.cwd });
   const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
   let providerSessionId: string;
   if (mode.kind === 'resume') {

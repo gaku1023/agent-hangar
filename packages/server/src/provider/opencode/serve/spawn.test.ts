@@ -3,7 +3,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readFakeOpencodeLog, writeFakeOpencode } from '../../../../test/fake-opencode.ts';
+import { readFakeOpencodeLog, readFakeOpencodeRequests, writeFakeOpencode } from '../../../../test/fake-opencode.ts';
 import { until } from '../../../../test/fake-opencode-events.ts';
 import { isWindows } from '../../../../test/platform.ts';
 import type { ProcRun } from '../../../platform/proc.ts';
@@ -16,9 +16,11 @@ import { authHeader, killGroup, newServePassword, pickFreePort, startServe, type
 describe('startServe', () => {
   let dir: string;
   const started: ServeProcess[] = [];
+  const workDirs: string[] = [];
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-')); });
   afterEach(async () => {
     for (const s of started.splice(0)) { killGroup(s.pid, 'SIGKILL'); await s.exited; }
+    for (const w of workDirs.splice(0)) fs.rmSync(w, { recursive: true, force: true, maxRetries: 5 });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -42,6 +44,24 @@ describe('startServe', () => {
     expect(start.argv.join(' ')).not.toContain(s.password);
     expect(start.env.OPENCODE_SERVER_PASSWORD).toBe(s.password);
     if (!isWindows) expect(start.pid).toBe(s.pid);
+  });
+
+  it('会話のフォルダを作業フォルダにして起こし、応答の確かめの GET もその場所を指す', async () => {
+    // Windows では動いているプロセスの作業フォルダを消せない（EBUSY）。serve を止めた後の afterEach で消す。
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-work-'));
+    workDirs.push(work);
+    {
+      const { bin, logFile, requestsFile } = writeFakeOpencode(dir);
+      const s = await startServe({ bin, env: serveEnv(bin), directory: work });
+      started.push(s);
+      expect(s.directory).toBe(work);
+      const start = readFakeOpencodeLog(logFile).find((e) => e.ev === 'start');
+      if (start?.ev !== 'start') throw new Error('no start');
+      expect(fs.realpathSync(start.cwd)).toBe(fs.realpathSync(work));
+      const reqs = readFakeOpencodeRequests(requestsFile);
+      expect(reqs.length).toBeGreaterThan(0);
+      expect(reqs.map((r) => r.directory)).toEqual(reqs.map(() => work));
+    }
   });
 
   it('ポートが塞がっていたら、取り直して起こす', async () => {

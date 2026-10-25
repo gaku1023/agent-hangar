@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readFakeOpencodeLog, writeFakeOpencode, type FakeOpencodeEvent, type FakeOpencodeOptions } from '../../../test/fake-opencode.ts';
+import { readFakeOpencodeLog, readFakeOpencodeRequests, writeFakeOpencode, type FakeOpencodeEvent, type FakeOpencodeOptions } from '../../../test/fake-opencode.ts';
 import { posixDescribe, posixIt } from '../../../test/platform.ts';
 import { until } from '../../../test/fake-opencode-events.ts';
 import type { LaunchSpec } from '../../agent/types.ts';
@@ -72,7 +72,7 @@ posixDescribe('opencode の driver の materialize', () => {
   });
 
   const make = (fake: FakeOpencodeOptions = {}, over: Partial<OpencodeDriverDeps> = {}) => {
-    const { bin, logFile } = writeFakeOpencode(path.join(dir, 'oc'), fake);
+    const { bin, logFile, requestsFile } = writeFakeOpencode(path.join(dir, 'oc'), fake);
     const serves = new ServeManager({
       enabled: () => true, bin: () => bin, version: async () => '2.1.4', registry: new ServeRegistry(path.join(dir, 'serves.json')),
       env: { ...process.env, CLAUDECODE: '1', HANGAR_TOKEN: 'secret' }, killGraceMs: 300,
@@ -80,7 +80,7 @@ posixDescribe('opencode の driver の materialize', () => {
     managers.push(serves);
     const reports: string[] = [];
     const driver = createOpencodeDriver({ serves: () => serves, droppedEnv: ['CLAUDECODE'], mcpPollMs: 10, mcpWaitMs: 2000, report: (what) => reports.push(what), ...over });
-    return { driver, serves, bin, logFile, reports, log: () => readFakeOpencodeLog(logFile) };
+    return { driver, serves, bin, logFile, reports, log: () => readFakeOpencodeLog(logFile), requests: () => readFakeOpencodeRequests(requestsFile) };
   };
 
   posixIt('serve を起こし、ID を付けずに会話を作り、追記を PUT し、MCP がつながるのを待ってから返す', async () => {
@@ -111,6 +111,18 @@ posixDescribe('opencode の driver の materialize', () => {
     expect(plan.argv).toEqual(['/bin/oc', cwd, '--server', info.url, '-s', r!.providerSessionId]);
     expect(plan.env).toEqual({});
     expect(plan.secretEnv).toEqual({ OPENCODE_PASSWORD: info.password });
+  });
+
+  posixIt('serve は会話のフォルダで起こし、hangar から serve への要求はどれも会話のフォルダを指す', async () => {
+    const { driver, serves, log, requests } = make({ activeIds: ['ses_busy'] });
+    await driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    expect(fs.realpathSync(ev(log(), 'start')[0]!.cwd)).toBe(fs.realpathSync(cwd));
+    expect(serves.get('h1')!.directory).toBe(cwd);
+    // release は走っている作業を interrupt してから serve を止める。
+    await driver.launch.release!({ sessionId: 'h1', providerSessionId: ev(log(), 'create')[0]!.id, cwd }, 'tui-gone');
+    const reqs = requests();
+    expect(reqs.some((r) => r.path === '/api/session/ses_busy/interrupt')).toBe(true);
+    expect(reqs.filter((r) => r.directory !== cwd).map((r) => `${r.method} ${r.path}`)).toEqual([]);
   });
 
   posixIt('追記の段が無ければ PUT しない', async () => {
