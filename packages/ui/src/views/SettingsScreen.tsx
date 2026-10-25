@@ -26,6 +26,7 @@ import { CloudAddButton, CloudAddPc, CloudJoinSteps, CloudLeaveBand, CloudPcTabl
 import { CloudRecoveryButton, CloudRecoveryKey } from './CloudRecoveryKey.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
+import { OpencodeSection } from './OpencodeSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
 import { SetupGuideCard } from './SetupGuideCard.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
@@ -477,6 +478,8 @@ export function SettingsScreen(props: SettingsProps) {
     <>
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />
+      {/* opencode（ベータ、試作の D1）。互換性の下に置き、Windows では段 G1 まで面ごと出さない。 */}
+      <OpencodeSection o={props.opencode} />
       <section>
         <h3 className="h2">{t('settings.integrations.mcp.title')}<InfoTip label={t('settings.integrations.mcp.title')}>{t('settings.integrations.mcp.desc')}</InfoTip><Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
         <IntegrationWrite card={props.integrations.mcp} desktop={props.integrations.desktop} />

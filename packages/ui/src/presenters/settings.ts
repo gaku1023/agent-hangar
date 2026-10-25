@@ -1,4 +1,4 @@
-import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt } from '@agent-hangar/shared';
+import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, type OpencodeInjection, type OpencodeStatusDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -15,6 +15,59 @@ import { clientPlatform, presentMux, toolLine, workspaceLine, type MuxStatus, ty
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 import { presentUpdateSection, type UpdateSectionProps } from './update.ts';
 import { presentInjection, type InjectionPart } from './injection.ts';
+
+/**
+ * 設定の「連携 › opencode」の版の区分。
+ * verified、unverified、legacy（1.x）、unknown（見つかったが版を読めない）はサーバの judgeOpencodeVersion と同じ分け方で、
+ * missing は PATH と既知の置き場に見つからないときである。
+ */
+export type OpencodeVersionKind = 'verified' | 'unverified' | 'legacy' | 'unknown' | 'missing';
+/**
+ * 設定の「連携 › opencode」の面（ベータ、試作の D1）。
+ * available は面を出すか（Windows では段 G1 まで出さない）。enabled が偽の間は、有効にする行だけを出す。
+ * version は検出の答えが届く前は null。installed は手元の版、verified は確かめた範囲、note は版の並びの下に添える文である。
+ * badge は見出しの右端の札で、答えが届く前は null。claudeNote は「Claude Code と同じ」を選んでいるときだけ添える注記である。
+ */
+export type OpencodeSettingsProps = {
+  available: boolean; enabled: boolean; injection: OpencodeInjection;
+  injectionOptions: { value: OpencodeInjection; label: string }[];
+  version: { kind: OpencodeVersionKind; installed: string | null; verified: string; note: string | null } | null;
+  badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null;
+  claudeNote: string | null;
+};
+
+const OPENCODE_INJECTION_KEY = { minimal: 'settings.opencode.injection.minimal', claude: 'settings.opencode.injection.claude', none: 'settings.opencode.injection.none' } as const;
+const OPENCODE_VERSION_TEXT = {
+  verified: { badge: 'settings.opencode.badge.verified', tone: 'ok', note: null },
+  unverified: { badge: 'settings.opencode.badge.unverified', tone: 'info', note: 'settings.opencode.version.unverifiedNote' },
+  legacy: { badge: 'settings.opencode.badge.legacy', tone: 'warn', note: 'settings.opencode.version.legacyNote' },
+  unknown: { badge: 'settings.opencode.badge.unknown', tone: 'info', note: 'settings.opencode.version.unknownNote' },
+  missing: { badge: 'settings.opencode.badge.missing', tone: 'warn', note: 'settings.opencode.version.missing' },
+} as const;
+
+/** 検出の答えを区分に分ける。1.x は 2.x と API の形が違う古い系統なので、範囲の外とは分けて言う。 */
+export function opencodeVersionKind(s: OpencodeStatusDto): OpencodeVersionKind {
+  if (!s.found) return 'missing';
+  if (s.version === null) return 'unknown';
+  if (s.verified) return 'verified';
+  return /^1\./.test(s.version) ? 'legacy' : 'unverified';
+}
+
+/** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows では面を出さない（段 G1 で外す）。 */
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection }, status: OpencodeStatusDto | null, platform: string): OpencodeSettingsProps {
+  const injection = opencodeInjectionOf(settings);
+  const kind = status ? opencodeVersionKind(status) : null;
+  const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
+  return {
+    available: platform !== 'win32',
+    enabled: opencodeEnabledOf(settings),
+    injection,
+    injectionOptions: OPENCODE_INJECTIONS.map((value) => ({ value, label: t(OPENCODE_INJECTION_KEY[value]) })),
+    version: status && kind && text ? { kind, installed: status.version, verified: OPENCODE_VERIFIED_RANGE, note: text.note ? t(text.note) : null } : null,
+    badge: text ? { text: t(text.badge), tone: text.tone } : null,
+    claudeNote: injection === 'claude' ? t('settings.opencode.injection.claudeNote') : null,
+  };
+}
 
 // id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
 export type CloudDeviceProps = { id: string; name: string; platform: string; lastSeen: string; self: boolean };
@@ -182,6 +235,8 @@ export type SettingsProps = {
   todo: { must: number; link: number };
   /** Claude Code との互換の節（C2）。準備の確かめが届く前と、compat の無い古いサーバの答えでは null。 */
   compat: CompatProps | null;
+  /** 連携の「opencode」の面（ベータ）。互換の節のすぐ下に置く。 */
+  opencode: OpencodeSettingsProps;
   accounts: AccountSettingsProps;
   /** 右に出している節。URL の `at` で決まる（無ければ「一般」、`sync` はクラウド同期、`accounts` はセッション）。 */
   section: SettingsSection;
@@ -396,6 +451,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     verify, todo,
     mux: presentMux(r, state.muxCheck),
     compat: compatSummary ? presentCompat(t, compatSummary, store.compat, store.version) : null,
+    opencode: presentOpencode(t, s ?? {}, store.opencodeStatus, platform),
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。

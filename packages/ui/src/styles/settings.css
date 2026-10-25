@@ -177,6 +177,12 @@
 .cp-sec code { font: 500 11px var(--font-mono); }
 .cp-vers { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px calc(var(--u) * 4); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
 .cp-vers code { font-size: var(--fs-sm); color: var(--ink); }
+/* 連携の opencode の面（ベータ、試作の D1）。伸びて入る下の行の箱は、中の最初の行にも上の線を引く。 */
+.oc-more > .set-row:first-child { border-top: 1px solid var(--line); }
+.oc-vers { display: block; font-size: var(--fs-sm); color: var(--ink-2); }
+.oc-vers code { font: 500 var(--fs-sm) var(--font-mono); color: var(--ink); }
+.oc-note { display: block; margin-top: 2px; }
+.oc-note[data-tone='warn'] { color: var(--st-paused); }
 .cp-lead { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2.5); border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--ink-2); }
 /* 更新の節の取得の進み（棒は右下の札と同じ .update-bar）。 */
 .update-progress { display: block; max-width: 280px; }

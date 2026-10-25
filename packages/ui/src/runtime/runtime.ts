@@ -789,6 +789,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.loadSettingsExtras':
         deps.api.statusline().then((s) => setStore({ ...store, statusline: s })).catch(fail);
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
+        // opencode の検出（ベータ）。取れなくても設定の面の版の行が「読み込み中…」のままになるだけなので、知らせは出さない。
+        deps.api.opencodeStatus().then((o) => setStore({ ...store, opencodeStatus: o })).catch(() => undefined);
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
         // アカウントの認証は、この呼び出しで読まれる（節に出るメールとプラン）。
