@@ -4,7 +4,16 @@
 // プロセスごと落ちる（0xC0000409、0xC0000005）。1.2.0-beta.13 から錠で守られている。
 // このプロセスが落ちずに最後まで回り、終了コード 0 で終わることを試験が見る。
 // 標準出力には何がいつ起きたかの記録を出す。試験が落ちたとき、その記録を添えて原因を追えるようにする。
+import * as fs from 'node:fs';
 import * as pty from 'node-pty';
+
+// Windows のパイプへの書き込みは非同期なので、捕まえなかった例外の文が出る前にプロセスが終わることがある。同期で書いてから終える。
+for (const ev of ['uncaughtException', 'unhandledRejection'] as const) {
+  process.on(ev, (e: unknown) => {
+    fs.writeSync(1, `${ev}: ${e instanceof Error ? e.stack ?? e.message : String(e)}\n`);
+    process.exit(1);
+  });
+}
 
 const ROUNDS = Number(process.argv[2] ?? 30);
 const WIDTH = 8;
