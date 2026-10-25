@@ -1,7 +1,7 @@
 import type { LiveSessionDto, LiveStatus, OverlapFileDto, SessionOverlapDto } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
-import { EDIT_TOOLS } from '../indexer/indexFile.ts';
+import { EDIT_TOOLS } from '../indexer/write.ts';
 
 /**
  * 同じファイルを 2 本のセッションが編集していることの警告（止めない）。

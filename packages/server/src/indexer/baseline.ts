@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { SessionSummaryDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { EDIT_TOOLS } from './indexFile.ts';
+import { EDIT_TOOLS } from './write.ts';
 import { stmt } from './statements.ts';
 
 export type BaselineInput = {

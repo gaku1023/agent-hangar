@@ -2,7 +2,7 @@ import { PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { accountOfProviderSession } from './accountOf.ts';
 
 describe('statusline の payload のアカウント', () => {

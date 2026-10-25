@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { GitDiffDto, GitDto, GitFileDto, GitSessionDto, GitTreeDto, LiveSessionDto, ProjectGitDto, SessionChangesDto, SessionEditDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { EDIT_TOOLS } from '../indexer/indexFile.ts';
+import { EDIT_TOOLS } from '../indexer/write.ts';
 import { changedFilesOf } from '../sessions/files.ts';
 import { readEvents } from '../transcript/read.ts';
 import { readGitHint } from './hint.ts';

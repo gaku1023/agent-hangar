@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
 import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { setSessionName } from './notes.ts';
 import { setSessionState } from './states.ts';
 import { NOTICE_IDLE_MS, NOTICE_POLL_MS, OsNoticeFeed, paceNotices, StopNoticeWatch } from './stopNotices.ts';

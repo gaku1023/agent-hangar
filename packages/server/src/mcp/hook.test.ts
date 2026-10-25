@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { claudeAsks } from '../provider/claude-code/hooks/asks.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
 import { PermissionAsks } from '../sessions/permissionAsks.ts';

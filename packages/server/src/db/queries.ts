@@ -387,7 +387,7 @@ const parkingOn = (db: Db): boolean => parkingSwitches.get(db)?.() ?? true;
  * セッション一覧。
  * 最後の動き（activity_at）の降順で、null は末尾に置く。
  * 最後の動きは、共有の last_activity_at と手元の統計（session_stats.last_ts）の新しい方である。
- * 共有の値は 5 分未満の進みを間引く（indexer/indexFile.ts の ACTIVITY_SHARE_MS）ので、この PC の本文がある会話は統計の方が新しい。
+ * 共有の値は 5 分未満の進みを間引く（indexer/write.ts の ACTIVITY_SHARE_MS）ので、この PC の本文がある会話は統計の方が新しい。
  */
 export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryOptions = {}): SessionDto[] {
   const where: string[] = [];

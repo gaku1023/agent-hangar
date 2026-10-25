@@ -5,7 +5,7 @@ import { upsertShared } from '../db/shared.ts';
 import { listTranscriptFiles } from '../provider/claude-code/transcript/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { buildBaselineSummary, formatDuration, writeBaselineIfNeeded } from './baseline.ts';
-import { indexFile } from './indexFile.ts';
+import { indexFile } from '../../test/claudeIndex.ts';
 
 describe('formatDuration', () => {
   it('粒度を切り替える', () => {

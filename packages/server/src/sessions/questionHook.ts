@@ -4,7 +4,7 @@ import type { QuestionHook } from '../provider/claude-code/hooks/question.ts';
 
 /**
  * hook から届いた AskUserQuestion の出入りを、索引と同じ表（session_activity）へ書く。
- * 索引（indexer/indexFile.ts）は、この行を前の値として本文の追記を畳む。
+ * 索引（indexer/write.ts）は、この行を前の値として本文の追記を畳む。
  * 同じ呼び出しが本文に載ってもそのまま残り、その呼び出しへの答え（tool_result）が載れば消える。
  * 本文が答えの時まで呼び出しを書かなくても、問いはここで先に入る。
  *

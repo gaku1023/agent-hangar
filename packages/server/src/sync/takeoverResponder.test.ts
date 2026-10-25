@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { FLUSH_AGAIN_MS } from './flushOnRunEnd.ts';
 import { answerOf, cancelAsk, pruneTakeoverRows, writeAsk } from './takeoverRows.ts';
 import { TakeoverResponder } from './takeoverResponder.ts';

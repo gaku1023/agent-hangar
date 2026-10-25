@@ -9,7 +9,7 @@ import { pinnedProjectOf } from '../sessions/move.ts';
 import { setSessionPlacement } from '../sessions/states.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
-import { ensureSession, findSession } from '../indexer/indexFile.ts';
+import { ensureSession, findSession } from '../indexer/write.ts';
 import { DEFAULT_INJECTION_PARTS, renderInjectionEntries, type InjectionParts } from '../launch/injection.ts';
 import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
 import { pruneMcpConfigs, removeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';

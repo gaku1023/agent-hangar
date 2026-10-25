@@ -11,7 +11,7 @@ import { setSessionPlacement } from './states.ts';
  * 動かすのは hangar 上の所属だけで、本文（jsonl）と sessions.cwd は元のままにする。
  * 移した先は利用者が決めたことなので、session_states.project_id に置く。利用者の操作でしか書かれないので、索引の書き直しや後勝ちで戻らない。
  * sessions.project_id は一覧や絞り込みが読む所属で、移した先があればそれに合わせ直す。
- * 合わせ直すのは、索引（indexer/indexFile.ts の applySessionFacts）、自動の振り分け（projects/registry.ts の assignSessions と assignSession）、
+ * 合わせ直すのは、索引（indexer/write.ts の applySessionFacts）、自動の振り分け（projects/registry.ts の assignSessions と assignSession）、
  * 同期の取り込み（sync/apply.ts）のあとである。
  * 移した先が一覧から削除されたプロジェクトなら、移した印は無いものとして読み、cwd からの自動の振り分けに戻る。
  */

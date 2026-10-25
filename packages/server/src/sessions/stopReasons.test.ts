@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, type LiveSessionDto } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { stopReasonsOf } from './stopReasons.ts';
 
 const entry = (sessionId: string, status: LiveSessionDto['status'], over: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1, ...over });

@@ -3,10 +3,11 @@ import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
-import type { FileTranscriptSource, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink } from '../agent/types.ts';
+import type { FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink } from '../agent/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
-import { ensureSession, forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat, type IndexFileOptions, type ProcessStartOf } from './indexFile.ts';
+import { forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat } from './indexFile.ts';
+import { ensureSession, writeBatch, type ProcessStartOf } from './write.ts';
 import { stmt } from './statements.ts';
 
 export type IndexerListener = {
@@ -27,7 +28,8 @@ export type IndexerServiceOptions = {
   deviceId: string;
   /**
    * エージェントのトランスクリプトの面（いまは Claude の provider/claude-code/transcript/source.ts）。
-   * どのファイルが本文か、どれを索引化するか、どこを見張るかはここが決め、ここの索引はいつ見比べていつ索引化するかを決める。
+   * どのファイルが本文か、どれを索引化するか、どこを見張るか、本文をどう読んで束にするかはここが決め、ここの索引はいつ見比べていつ索引化するかを決める。
+   * 束を DB に書くのは indexer/write.ts である。
    */
   transcript: FileTranscriptSource;
   isRunning: (providerSessionId: string) => boolean;
@@ -42,8 +44,6 @@ export type IndexerServiceOptions = {
   isYielded?: (sessionUuid: string) => boolean;
   /** 打った発言を出したプロセスの起動時刻を引く口。渡さなければ、発言で状態を外さない（提案は外す）。 */
   processStartOf?: ProcessStartOf;
-  /** 手元の本文の行を Claude Code との互換の契約で見張る口。渡さなければ見張らない。 */
-  compat?: IndexFileOptions['compat'];
   /**
    * いま実行中のセッション（Claude Code のセッション ID と cwd）。
    * 渡すと、その主線とサブエージェントの本文だけは、通知に頼らず liveMs ごとに stat で見る。
@@ -123,6 +123,7 @@ export class IndexerService {
 
   /** トランスクリプトの面の見張りの知らせを受ける口。 */
   private readonly sink: TranscriptSink = {
+    batch: (b) => this.onBatch(b),
     named: (file) => this.onNamed(file),
     rescan: () => this.requestSweep(),
     historyChanged: () => this.onHistoryChanged(),
@@ -219,7 +220,7 @@ export class IndexerService {
       return false;
     }
     try {
-      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null, processStartOf: this.opts.processStartOf, compat: this.opts.compat, stat: st ?? undefined });
+      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, reader: this.transcript, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null, processStartOf: this.opts.processStartOf, stat: st ?? undefined });
       this.reportedErrors.delete(file.path);
       if (r.skipped && r.sessionId !== '' && file.deviceId === null && file.agentId === null) {
         for (const l of this.listeners) l.deletedSeen?.({ sessionId: r.sessionId, path: file.path });
@@ -355,7 +356,7 @@ export class IndexerService {
     const upsertStats = stmt(db, 'insert into session_stats (session_id, turns, last_prompt) values (?, ?, ?) on conflict(session_id) do update set turns = excluded.turns');
     let n = 0;
     for (const [providerSessionId, h] of history) {
-      const sessionId = ensureSession(db, providerSessionId, h.cwd, this.opts.deviceId);
+      const sessionId = ensureSession(db, providerSessionId, h.cwd, this.opts.deviceId, this.transcript.agent);
       if (hasMain.get(sessionId)) continue;
       const cur = getSession.get(sessionId) as Record<string, unknown>;
       // 論理削除したセッション（削除したもの、本文の無いまま片付けたもの）は書き直さない。history.jsonl には消した後も残っている。
@@ -426,6 +427,22 @@ export class IndexerService {
     if (lost) this.requestSweep();
     this.forgetDropped(drop);
     for (const f of index) this.indexOne(f, history, stats.get(f.path));
+  }
+
+  /**
+   * 本文を DB に持つエージェントが押し込んだ束を書く。手元の本文なので、土台の要約も書く。
+   * B5 の前の準備で、画面と同期への知らせ（sessionChanged）はまだ出さない。行の配り直しだけを頼む。
+   */
+  private onBatch(b: IndexBatch): void {
+    if (!this.running) return;
+    try {
+      const r = writeBatch(this.opts.db, b, { deviceId: this.opts.deviceId, processStartOf: this.opts.processStartOf });
+      if (r.skipped) return;
+      if (b.agentId === null || r.appended > 0) writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(b.providerSessionId));
+      touchRow(this.opts.db, 'sessions', r.sessionId);
+    } catch (e) {
+      this.emitError(`${b.agent}:${b.providerSessionId}`, errorMessage(e));
+    }
   }
 
   /** 監視が名指しした本文を集めて、最初の通知から debounce の後にまとめて索引化する。 */

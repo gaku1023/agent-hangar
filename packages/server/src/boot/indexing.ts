@@ -8,7 +8,6 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { fillProjectRemotes } from '../projects/link.ts';
 import { checkRoots } from '../projects/rootCheck.ts';
 import { ensureScratchProject } from '../projects/scratch.ts';
-import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { processStartOfPrompt } from '../sessions/promptProcess.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
@@ -40,7 +39,7 @@ export type IndexingParts = {
  */
 export function bootIndexing(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'claude' | 'compatLog' | 'claudeVersion'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'claude'>,
   sync: Pick<SyncParts, 'uploader' | 'syncState' | 'onRemoteChange'>,
 ): IndexingParts {
   const { db, settings, life } = home;
@@ -57,8 +56,6 @@ export function bootIndexing(
     liveSessions: () => live.current().map((l) => ({ sessionId: l.sessionId, cwd: l.cwd })),
     // 状態を外すのは resume した後の発言だけである。発言を出したプロセスの起動時刻を、登録と runs から引く。
     processStartOf: (q) => processStartOfPrompt(db, deviceId, live.current(), q),
-    // 手元の本文の行を見張る。手元の claude の版より古い行は昔の形として見ない。版が読めるまでは確かめた版を床にする。
-    compat: { sink: delivery.compatLog, since: () => delivery.claudeVersion.current ?? VERIFIED_CLAUDE_VERSION },
   });
   // git の表示。値は端末ローカルで、変わったときだけ git.upsert を配る。
   const git = new GitService({

@@ -7,7 +7,7 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { indexFile } from '../indexer/indexFile.ts';
+import { indexFile } from '../../test/claudeIndex.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { assignSessions, mergeProjects } from '../projects/registry.ts';

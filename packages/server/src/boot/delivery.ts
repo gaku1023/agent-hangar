@@ -65,7 +65,7 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   const osNotices = new OsNoticeFeed();
   // 実行中の一覧。足し付けの鎖（裏だけの印、許可の中身の順）は束ねる側が持ち、各 driver の写しが読み直しのたびに通す。
   const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now)] });
-  const agents = bootAgents(home, { compatLog, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });
+  const agents = bootAgents(home, { compatLog, claudeVersion, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });
   live.add(agents.claude.live);
   return {
     ...agents,

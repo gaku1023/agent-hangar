@@ -5,6 +5,7 @@ import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
 import type { CompatLog } from '../provider/claude-code/compat/log.ts';
 import { claudeBinOf } from '../provider/claude-code/compat/localClaude.ts';
+import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { claudeLiveSource, createClaudeDriver, type ClaudeDriver, type ClaudeLiveSource } from '../provider/claude-code/driver.ts';
 import { realProcOpsWith, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
@@ -37,7 +38,7 @@ export type AgentParts = {
  */
 export function bootAgents(
   home: Pick<HomeParts, 'home' | 'token' | 'claudeDir' | 'settings' | 'language'>,
-  o: { compatLog: CompatLog; enrich: (live: LiveSessionDto[]) => LiveSessionDto[]; registryIsGone?: (pid: number) => boolean },
+  o: { compatLog: CompatLog; claudeVersion: { current: string | null }; enrich: (live: LiveSessionDto[]) => LiveSessionDto[]; registryIsGone?: (pid: number) => boolean },
 ): AgentParts {
   const procs = realProcOpsWith(o.compatLog);
   const claude = claudeDriverFor({
@@ -47,7 +48,11 @@ export function bootAgents(
     // 登録のディレクトリを見張り、見張れていて作業中が無い間は REGISTRY_IDLE_MS ごとにしか読まない（provider/claude-code/registry.ts）。
     live: claudeLiveSource({ claudeDir: home.claudeDir, pollMs: REGISTRY_POLL_MS, idleMs: REGISTRY_IDLE_MS, isGone: o.registryIsGone, enrich: o.enrich, compat: o.compatLog }),
     // 本文の置き場の発見と見張り。ほかの PC から降ろした本文（~/.agent-hangar/remote）も見る。見張りを付けるのは索引が始まるときである（boot/indexing.ts）。
-    transcript: claudeTranscriptSource({ claudeDir: home.claudeDir, remoteRoot: remoteRoot(home.home) }),
+    // 手元の本文の行を見張る。手元の claude の版より古い行は昔の形として見ない。版が読めるまでは確かめた版を床にする。
+    transcript: claudeTranscriptSource({
+      claudeDir: home.claudeDir, remoteRoot: remoteRoot(home.home),
+      compat: { sink: o.compatLog, since: () => o.claudeVersion.current ?? VERIFIED_CLAUDE_VERSION },
+    }),
     procs: () => procs,
   });
   return { agents: agentsOf([claude]), claude };

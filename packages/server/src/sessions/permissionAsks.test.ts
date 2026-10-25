@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { applyPermissionHook, PERMISSION_ASK_TTL_MS, PermissionAsks } from './permissionAsks.ts';
 
 const ask = { tool: 'Bash', input: 'npm test', description: null };

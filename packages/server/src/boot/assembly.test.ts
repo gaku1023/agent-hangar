@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDto, ServerEvent } from '@agent-hangar/shared';
 import type { NoticeEvent } from '../events/publisher.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import type { RunListener } from '../runs/manager.ts';
 import { toastVia } from '../sync/notices.ts';

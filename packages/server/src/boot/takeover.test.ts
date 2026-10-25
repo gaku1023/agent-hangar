@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { upsertShared } from '../db/shared.ts';
 import { recordPeers } from '../sync/peers.ts';
 import { answerOf, askOf, writeAnswer, writeAsk } from '../sync/takeoverRows.ts';

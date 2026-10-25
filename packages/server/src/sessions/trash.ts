@@ -26,7 +26,7 @@ import { setSessionTrashed } from './states.ts';
  * 生き返らないように、同期の取り込み（sync/apply.ts）は、印のあるセッションの sessions の行を論理削除のまま保つ（alignSessionTrash）。
  * 印は明示の復元でしか外れない。印の無い session_states の行が後勝ちで届いても、restored_at が印より新しくなければ印を保つ（版 27）。
  * 戻した後に、戻す前の印を持つ行が届いても、印は restored_at 以下なので付き直らない（sync/apply.ts の mergeTrash）。
- * 索引（indexer/indexFile.ts）は、論理削除したセッションの本文を掘り起こさない。
+ * 索引（indexer/write.ts）は、論理削除したセッションの本文を掘り起こさない。
  *
  * ゴミ箱へ移す本文の元のパスは、移す前に端末ローカルの trashed_transcripts に控え、移せなかったら取り消す（版 26）。
  * 移した後の DB の書き込みで転んでも、控えが残るので、利用者がゴミ箱から戻せば元に戻る。

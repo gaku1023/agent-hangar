@@ -5,6 +5,8 @@ import {
   AGENT_FILE_RE, classifyProjectsEntry, classifyRemoteEntry, HistoryIndexReader, listRemoteTranscriptFiles, listTranscriptFiles, mangleCwd, selectFilesToIndex,
   type WatchedEntry,
 } from './discover.ts';
+import type { TranscriptCompat } from '../compat/transcript.ts';
+import { readClaudeBatch } from './batch.ts';
 import { readClaudePage } from './page.ts';
 
 /** fs.watch の形。試験が通知を自分で起こすために差し替える。 */
@@ -38,11 +40,12 @@ export type ClaudeTranscriptSource = FileTranscriptSource;
  * ~/.claude 配下は fs.watch と読み取りだけで触り、書き込みは一切しない。
  * remoteRoot はほかの PC から降ろした本文の置き場（~/.agent-hangar/remote）で、省けば手元だけを見る。
  * watch は fs.watch の代わりで、試験が差し替える。
+ * compat を渡すと、手元の本文の行を Claude Code との互換の契約で見張る（他端末の写しは、その端末の claude の版で書かれているので見ない）。
  *
  * いつ全件を見比べるか、名指しされた本文をいつ索引化するかは、hangar の索引（indexer/service.ts）が決める。
- * ここは、どのファイルが本文か、どれを索引化するか、どこを見張るかだけを受け持つ。
+ * ここは、どのファイルが本文か、どれを索引化するか、どこを見張るか、本文をどう読んで束にするか（batch.ts）を受け持つ。
  */
-export function claudeTranscriptSource(o: { claudeDir: string; remoteRoot?: string; watch?: WatchFn }): ClaudeTranscriptSource {
+export function claudeTranscriptSource(o: { claudeDir: string; remoteRoot?: string; watch?: WatchFn; compat?: TranscriptCompat }): ClaudeTranscriptSource {
   const projectsDir = path.join(o.claudeDir, 'projects');
   const history = new HistoryIndexReader(o.claudeDir);
   const watchers = new Map<WatchKey, { close(): void }>();
@@ -111,6 +114,8 @@ export function claudeTranscriptSource(o: { claudeDir: string; remoteRoot?: stri
   };
 
   return {
+    agent: 'claude-code',
+    read: (file, from) => readClaudeBatch(file, from, { compat: file.deviceId === null ? o.compat : undefined }),
     start(s) {
       sink = s;
       // 他端末の会話の本文なので、本人だけが読める権限で作る（puller 側も同じ 0700 で作る）。

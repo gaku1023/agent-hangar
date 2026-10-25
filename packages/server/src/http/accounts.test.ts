@@ -8,7 +8,7 @@ import { AccountAuth, type RunClaude } from '../provider/claude-code/config/acco
 import { AccountStore } from '../config/accounts.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { RunError, type RunListener } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { accountsRoutes, announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './accounts.ts';

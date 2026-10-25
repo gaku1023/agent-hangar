@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
-import { ensureSession } from '../indexer/indexFile.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { FLUSH_AGAIN_MS, flushOnRunEnded } from './flushOnRunEnd.ts';
 
 describe('run が終わったセッションの本文を上げる', () => {
