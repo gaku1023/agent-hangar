@@ -169,6 +169,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 | `bootListen`（`boot/http.ts`） | 待ち受け。アプリを差し込むまでは 503 を返す |
 | `bootRuns`（`boot/runs.ts`） | tmux の口、手元の claude の読み取り、包みの本体、アカウント、RunManager、休みの見張り、使用量、外のターミナルとエディタ |
 | `bootSummary`（`boot/summary.ts`） | 要約器の列、要約の job。run の出来事の受け手を結ぶ |
+| `bootOpencode`（`boot/opencode.ts`） | opencode（ベータ）の serve の管理（`ServeManager`）。前の hangar が残した serve の掃除を、設定の入り切りに関わらずここで始める |
 | `bootHttp`（`boot/http.ts`） | 端末の中継、HTTP と MCP のアプリ。WebSocket の経路を結び、未知の経路を切る番人を置く |
 
 呼ぶ順は、上の表の順である。
@@ -197,10 +198,11 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 
 1. 周期の仕事を止める（ルートの確かめ、休みの見張り、生存の刻み、同期の定期の仕事）。
 2. 走っている通信を待ってから止める。頼まれた 1 巡、設定の押し出し、本文の上げ、メタデータの同期、本文の降ろしの順である。待ちの上限は 1 本の締め切り（`boot/budget.ts` の `CLOSE_DEADLINE_MS`）で持つ。
-3. 見張りと書き手を止める（メモの監視、RunManager、索引、実行中の一覧、端末の中継）。
-4. 配る層は、溜まっている知らせを出し切ってから止める。続けて WebSocket を畳み、残った keep-alive の接続を切ってから listen を閉じる。
-5. 走っている要約を待つ。要約は DB に書くので、DB を閉じる前に待つ。
-6. 互換のずれの記録を書き出し、最後に DB を閉じる。
+3. 起こした opencode の serve を止める（「opencode の serve の管理」）。同じ締め切りの残りで待つ。
+4. 見張りと書き手を止める（メモの監視、RunManager、索引、実行中の一覧、端末の中継）。
+5. 配る層は、溜まっている知らせを出し切ってから止める。続けて WebSocket を畳み、残った keep-alive の接続を切ってから listen を閉じる。
+6. 走っている要約を待つ。要約は DB に書くので、DB を閉じる前に待つ。
+7. 互換のずれの記録を書き出し、最後に DB を閉じる。
 
 信号の受け口（`installShutdown`）は `server.ts` に残してある。
 `startServer` の解決を待たずに立てる必要があり、入口（`main.ts`）が直に呼ぶからである。
@@ -1376,6 +1378,40 @@ Windows の鍵の一覧は版を読むためだけの仮のもので、起動の
 
 `GET /api/opencode/status` は `{ found, version, verified }` を返す。
 設定の入り切りに関わらず答える。有効にする前に、入っているかと版を見せるためである。
+
+### opencode の serve の管理
+
+hangar は、opencode の会話ごとに `opencode serve` を 1 本起こす（計画の B2）。
+置き場は `provider/opencode/serve/` で、`ServeManager.ensure(sessionId)` が `{ url, password, pid }` を返し、`stop(sessionId)` が止める。
+組み立ては `boot/opencode.ts` の `bootOpencode` で、設定の `opencodeEnabled` が切なら `ensure` は断り、何も起こさない。
+
+起動は待ち行列（`queue.ts`）で 1 本ずつにする。
+opencode 2.1.4 の serve は、同時に起こすと起動の途中で `SQLiteError: database is locked` を出して落ちるからである（5 本を同時に起こして 4 本が落ちた）。
+1 つの仕事は、起こしてから、認証つきの `GET /api/session/active` が 200 を返すまでで、それが済むまで次を起こさない。
+起動の後の同時の読み書きは、30 往復でロックの失敗が 0 件だったので並べない。
+それでも `database is locked` で落ちたら（利用者がふだん使う opencode と同じ時に起きた場合）、間をあけて 3 回まで起こし直す。
+
+起こし方は `spawn.ts` にある。
+
+- 環境は `env.ts` の `serveEnv` で組む。版を読むときと同じく、`HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG` と固定の最小の `PATH` だけを渡す。裏のサービスは起こしたプロセスの環境を持ち続けるので、`CLAUDE` で始まる鍵や `HANGAR_*` を継ぐと、そこから動く道具の全部に配ってしまうからである。Windows の許可リストは型（`WindowsServeAllowlist`）だけを置き、中身は段 G で決める。それまで Windows では起こさない。
+- 待ち受けは `127.0.0.1` だけで、ポートは空きを取って渡す。取ってから渡すまでの間に塞がれて落ちたら（`Is port N in use?`）、取り直す。
+- パスワードは起動ごとに 32 バイトの乱数を作り、`OPENCODE_SERVER_PASSWORD` で渡す（basic 認証、ユーザー名は `opencode`）。argv に載せると `ps` で誰からも読めるので載せない。DB とログにも書かず、メモリにだけ持つ。
+- プロセスのまとまりの頭として起こす（detached）。hangar が落ちても道連れにならないので、下の記録で掃除する。止めるときは、serve が起こした子ごとまとまりに信号を送る。
+
+止めるときは、serve の上で走っている会話（`GET /api/session/active` の鍵）を `POST /api/session/{id}/interrupt` で止め、SIGTERM を送り、3 秒で降りなければ SIGKILL を送る。
+TUI を閉じてもサーバ側の処理は続くので、信号の前に interrupt を送る。
+hangar の終わりの後片付けでも、起こした serve を全部この順で止める。
+
+起こした serve の pid、ポート、起こした時刻は `<HANGAR_HOME>/opencode/serves.json`（`registry.ts`）に残す。パスワードは書かない。
+hangar が起きたときに、記録に残った serve を探して止める（1 本あたり 160〜260MB を握るため）。
+この掃除だけは設定の入り切りに関わらず回し、済むまで新しい serve を起こさない。
+pid は使い回されるので、`ps` で見たコマンド行（`serve` と記録したポート）と、`etime` から逆算した起動の時刻の両方が合うものだけを止める。
+合わないものには触らず、記録から消すだけにする。
+合言葉を持っていないので、残った serve には interrupt を送らず、SIGTERM と SIGKILL だけで止める。
+
+起動のたびに手元の版を判定し（「opencode の検出（ベータ）」）、範囲の外なら知らせの種（`OpencodeVersionNoticeSeed`）を出す。
+起動は止めない。
+種を札にして見せるのは段 C の C7 である。
 
 ## セッションの起動と観察
 
