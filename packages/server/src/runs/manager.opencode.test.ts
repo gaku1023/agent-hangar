@@ -9,8 +9,8 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { createOpencodeDriver } from '../provider/opencode/driver.ts';
-import { ServeManager } from '../provider/opencode/serve/manager.ts';
-import { isAlive, ServeRegistry } from '../provider/opencode/serve/registry.ts';
+import { ServeManager, serveSecrets } from '../provider/opencode/serve/manager.ts';
+import { adoptableServes, isAlive, ServeRegistry } from '../provider/opencode/serve/registry.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { realProcOps } from '../provider/claude-code/process/procs.ts';
 import type { PaneOps } from '../tmux/pane.ts';
@@ -75,11 +75,11 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     return { panes, opened, listed, closed, touched };
   };
 
-  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink; claudeBin?: string | null } = {}) => {
+  const make = (o: { secrets?: boolean; fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink; claudeBin?: string | null } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
-    const manager = new ServeManager({ enabled, bin: () => bin, version: async () => '2.1.4', registry, killGraceMs: 300 });
+    const manager = new ServeManager({ enabled, bin: () => bin, version: async () => '2.1.4', registry, killGraceMs: 300, watchMs: 50, ...(o.secrets ? { secrets: serveSecrets(home) } : {}) });
     serves.push(manager);
     // ensure が呼ばれた時点の行と、偽の opencode の記録を残す（仮の行が serve より先に在ることを見る）。
     const ensured: { rows: Row[]; log: FakeOpencodeEvent[] }[] = [];
@@ -104,7 +104,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
       injection: () => ({ askStatusAtEnd: true, liveHints: true, opencode: o.injection ?? 'minimal' }),
       terminalIntercept: (k) => k === 'opencode' && o.intercept !== false,
     });
-    return { rm, opened, ensured, manager, bin, opencode, claude, fakeClaude, listed, closed, touched, log: () => readFakeOpencodeLog(logFile) };
+    return { rm, opened, ensured, manager, registry, bin, opencode, claude, fakeClaude, listed, closed, touched, log: () => readFakeOpencodeLog(logFile) };
   };
 
   const params = (over: Partial<LaunchParams> = {}): LaunchParams => ({ agent: 'opencode', projectId: 'p1', ...over });
@@ -482,6 +482,52 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     await second.rm.resumeWith(open.sessionId);
     expect(second.log().filter((e) => e.ev === 'start').length).toBe(before + 1);
     expect(second.manager.get(open.sessionId)).not.toBeNull();
+  });
+
+  posixIt('hangar を閉じても動いている会話の serve は残り、起こし直した hangar が引き継いで同じ会話につなぎ直す', async () => {
+    const first = make({ secrets: true, fake: { activeIds: [] } });
+    const open = await first.rm.start(params());
+    const closedOne = await first.rm.start(params());
+    first.rm.kill(closedOne.run.id);
+    await until(() => first.manager.get(closedOne.sessionId) === null);
+    const pid = first.manager.get(open.sessionId)!.pid;
+    // hangar の終わり（boot/opencode.ts の stop）。動いている run の会話の serve は止めない。
+    await first.manager.stopAll({ keep: (id) => id === open.sessionId });
+    expect(isAlive(pid)).toBe(true);
+    const before = first.log().filter((e) => e.ev === 'start').length;
+    expect(first.log().filter((e) => e.ev === 'interrupt')).toEqual([]);
+
+    const second = make({ secrets: true });
+    expect(second.manager.adopt(adoptableServes(second.registry, (id) => id === open.sessionId))).toEqual([open.sessionId]);
+    second.listed.push(open.run.tmuxName);
+    const lost = second.rm.recoverAtStartup();
+    expect(lost).toEqual([]);
+    expect(second.closed).not.toContain(open.run.tmuxName);
+    expect(runRow(open.run.id).ended_at).toBeNull();
+    // 同じ serve に、作り直した合言葉でつながる。状態の面にも載り直す。
+    expect(second.manager.get(open.sessionId)?.pid).toBe(pid);
+    const { provider_session_id: ocId } = db.prepare('select provider_session_id from sessions where id = ?').get(open.sessionId) as { provider_session_id: string };
+    await until(() => second.opencode.live.current().some((l) => l.sessionId === ocId));
+    expect(second.log().filter((e) => e.ev === 'start').length).toBe(before);
+    // TUI が閉じたら、引き継いだ serve もいつもどおり止める。
+    second.listed.splice(0);
+    second.rm.tick(); second.rm.tick();
+    await until(() => !isAlive(pid));
+    expect(second.manager.get(open.sessionId)).toBeNull();
+    expect(second.registry.list()).toEqual([]);
+  });
+
+  posixIt('引き継いだ serve の TUI の画面が起こし直しの間に閉じていたら、run を lost で閉じて serve も止める', async () => {
+    const first = make({ secrets: true });
+    const open = await first.rm.start(params());
+    const pid = first.manager.get(open.sessionId)!.pid;
+    await first.manager.stopAll({ keep: () => true });
+    const second = make({ secrets: true });
+    second.manager.adopt(adoptableServes(second.registry, () => true));
+    const lost = second.rm.recoverAtStartup();
+    expect(lost.map((e) => [e.id, e.endReason])).toEqual([[open.run.id, 'lost']]);
+    await until(() => !isAlive(pid));
+    expect(second.manager.get(open.sessionId)).toBeNull();
   });
 
   posixIt('閉じた opencode の run の画面が一覧に戻っても生き返らせず、画面を閉じる（serve はもう無い）', async () => {

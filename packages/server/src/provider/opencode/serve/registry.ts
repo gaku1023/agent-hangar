@@ -7,12 +7,24 @@ import { killGroup } from './spawn.ts';
 /**
  * hangar が起こした serve の記録（pid、ポート、起こした時刻）。
  *
- * hangar が落ちても serve は残る（プロセスのまとまりを分けて起こすので、親が死んでも道連れにならない）。
- * 1 本あたり 160〜260MB を握るので、次に hangar が起きたときに、この記録から残った serve を探して止める。
- * パスワードは書かない。
+ * hangar を閉じても serve は残る（macOS と Linux はプロセスのまとまりを分けて起こし、Windows は psmux の画面の中で起こす）。
+ * 次に hangar が起きたら、この記録から残った serve を探し、動いている会話の serve は引き継ぎ（ServeManager.adopt）、ほかは止める。
+ * 1 本あたり 160〜260MB を握るので、開いていない会話の serve は残さない。
+ * パスワードは書かない。書くのは合言葉の元（nonce）だけで、合言葉は hangar の置き場の鍵と合わせて作り直す（manager.ts の ServeSecrets）。
  */
 
-export type ServeRecord = { sessionId: string; pid: number; port: number; startedAt: number };
+export type ServeRecord = {
+  sessionId: string;
+  pid: number;
+  port: number;
+  startedAt: number;
+  /** 合言葉の元。無い記録（前の版の記録）の serve は引き継げない。 */
+  nonce?: string;
+  /** serve の作業フォルダ。引き継いだ serve への要求の場所に使う。 */
+  directory?: string;
+  /** serve を包んでいる画面の名前（pane.ts）。直に起こした serve には無い。 */
+  pane?: string;
+};
 
 export function serveRegistryPath(home: string): string {
   return path.join(home, 'opencode', 'serves.json');
@@ -20,7 +32,9 @@ export function serveRegistryPath(home: string): string {
 
 const isRecord = (v: unknown): v is ServeRecord => {
   const r = v as Partial<ServeRecord> | null;
-  return typeof r === 'object' && r !== null && typeof r.sessionId === 'string' && Number.isInteger(r.pid) && Number.isInteger(r.port) && typeof r.startedAt === 'number';
+  const optString = (v: unknown): boolean => v === undefined || typeof v === 'string';
+  return typeof r === 'object' && r !== null && typeof r.sessionId === 'string' && Number.isInteger(r.pid) && Number.isInteger(r.port) && typeof r.startedAt === 'number'
+    && optString(r.nonce) && optString(r.directory) && optString(r.pane);
 };
 
 export class ServeRegistry {
@@ -115,7 +129,7 @@ export function windowsProbeAll(pids: readonly number[], run: ProcRun = slowRun,
 
 
 /** その OS で記録の pid を見る口。Windows は pid をまとめて 1 回で聞く。 */
-function defaultProbe(pids: readonly number[]): ProcessProbe {
+export function defaultProbe(pids: readonly number[]): ProcessProbe {
   return process.platform === 'win32' ? windowsProbeAll(pids) : psProbe;
 }
 
@@ -136,20 +150,34 @@ export function isOurServe(r: ServeRecord, probe: ProcessProbe = psProbe, now: n
   return Math.abs(now - p.elapsedMs - r.startedAt) <= START_TOLERANCE_MS;
 }
 
+/**
+ * 引き継げる serve の記録。動いている会話の serve（keep が真）で、合言葉の元があり、いまも hangar の起こした serve であるものだけ。
+ */
+export function adoptableServes(reg: ServeRegistry, keep: (sessionId: string) => boolean, probe?: ProcessProbe): ServeRecord[] {
+  const rows = reg.list().filter((r) => keep(r.sessionId) && r.nonce !== undefined);
+  if (rows.length === 0) return [];
+  const p = probe ?? defaultProbe(rows.map((r) => r.pid));
+  return rows.filter((r) => isOurServe(r, p));
+}
+
 export type SweepOptions = {
   probe?: ProcessProbe;
+  /** 止めずに記録に残す pid（引き継いだ serve）。 */
+  keep?: ReadonlySet<number>;
+  /** 止めた serve の画面を閉じる（pane.ts）。 */
+  closePane?: (name: string) => void;
   /** SIGTERM から SIGKILL までの間。 */
   graceMs?: number;
   log?: (line: string) => void;
 };
 
 /**
- * 前の hangar が残した serve を止め、記録を空にする。
+ * 前の hangar が残した serve のうち、引き継がないもの（keep に無いもの）を止め、記録から消す。
  * 合言葉を持っていないので interrupt は送れない。SIGTERM を送り、間をおいて残っていれば SIGKILL で止める（Windows は最初から木ごと強制で止める）。
  * hangar の起こした serve と見分けられないプロセスには触らず、記録から消すだけにする。
  */
 export async function sweepLeftoverServes(reg: ServeRegistry, o: SweepOptions = {}): Promise<{ stopped: number[] }> {
-  const rows = reg.list();
+  const rows = reg.list().filter((r) => !o.keep?.has(r.pid));
   const probe = o.probe ?? defaultProbe(rows.map((r) => r.pid));
   const ours = rows.filter((r) => isOurServe(r, probe));
   for (const r of ours) killGroup(r.pid, 'SIGTERM');
@@ -157,7 +185,10 @@ export async function sweepLeftoverServes(reg: ServeRegistry, o: SweepOptions = 
   const deadline = Date.now() + graceMs;
   while (ours.some((r) => isAlive(r.pid)) && Date.now() < deadline) await new Promise((res) => setTimeout(res, 50));
   for (const r of ours) if (isAlive(r.pid)) killGroup(r.pid, 'SIGKILL');
-  for (const r of rows) reg.remove(r.pid);
+  for (const r of rows) {
+    if (r.pane) o.closePane?.(r.pane);
+    reg.remove(r.pid);
+  }
   if (ours.length > 0) o.log?.(`[opencode] stopped ${ours.length} serve process(es) left by the previous run`);
   return { stopped: ours.map((r) => r.pid) };
 }

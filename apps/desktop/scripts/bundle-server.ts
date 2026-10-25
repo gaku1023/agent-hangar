@@ -175,6 +175,8 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
 
   // Windows で claude を包むスクリプト。束には入らない単独のファイルで、server.mjs が隣から読む（launch/wrapper.ts）。
   fs.copyFileSync(path.join(opts.repoRoot, 'packages/server/src/launch/hangar-run.mjs'), path.join(opts.outDir, 'hangar-run.mjs'));
+  // opencode の serve を tmux（Windows は psmux）の画面の中で起こす包み。同じく server.mjs が隣から読む（provider/opencode/serve/pane.ts）。
+  fs.copyFileSync(path.join(opts.repoRoot, 'packages/server/src/provider/opencode/serve/hangar-serve.mjs'), path.join(opts.outDir, 'hangar-serve.mjs'));
 
   // セットアップのすゝめの md。束には入らない単独のファイルで、server.mjs が隣の docs/ から読み、起動のたびに置き場へ写す（setupGuide/guide.ts）。
   // 束と同じく build のときの中身が入るので、版とハッシュは配布物ごとに決まる。

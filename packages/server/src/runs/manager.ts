@@ -444,6 +444,18 @@ export class RunManager {
     return this.agents.of(s.provider);
   }
 
+  /** 動いている run の会話を、前の hangar から引き継いだ裏のプロセスにつなぎ直す（agent/types.ts の reattach）。つなげなければ偽。 */
+  private reattach(run: RunDto): boolean {
+    const s = this.db.prepare('select provider, provider_session_id, cwd from sessions where id = ?').get(run.sessionId) as { provider: string; provider_session_id: string; cwd: string } | undefined;
+    if (!s) return false;
+    try {
+      return this.agents.of(s.provider).launch.reattach?.({ sessionId: run.sessionId, providerSessionId: s.provider_session_id, cwd: s.cwd }) ?? false;
+    } catch (e) {
+      console.error('[runs] could not reattach to the backing process', e instanceof Error ? e.message : e);
+      return false;
+    }
+  }
+
   /** その provider の画面が、hangar が持つ裏のプロセス（opencode の serve）につながっているか（agent/types.ts の servedByHangar）。知らない provider は偽。 */
   private servedByHangar(provider: string): boolean {
     try {
@@ -1322,9 +1334,10 @@ export class RunManager {
     // tick と同じく、消えたタブを先に閉じる。
     for (const t of this.openShellTabs()) if (!names.has(t.tmuxName)) this.closeTabRow(t.id);
     for (const run of listAliveRuns(this.db, this.deviceId)) {
-      // hangar が持つ serve につながる画面（opencode の TUI）は、前の hangar の終わりで serve を失っている。画面を閉じ、中断として lost で閉じる。
+      // hangar が持つ serve につながる画面（opencode の TUI）は、前の hangar から引き継いだ serve につなぎ直す（hangar を閉じても会話は続く）。
+      // serve を失っていれば（hangar が落ちて Windows で道連れになった、前の版が止めた）画面を閉じ、中断として lost で閉じる。
       // 開いていない会話の serve は起こさない。続けるときは利用者が「再開」で serve を起こし直す。
-      if (names.has(run.tmuxName) && this.servedByHangar(this.providerOf(run.sessionId))) {
+      if (names.has(run.tmuxName) && this.servedByHangar(this.providerOf(run.sessionId)) && !this.reattach(run)) {
         this.deps.panes?.close(run.tmuxName);
         names.delete(run.tmuxName);
       }

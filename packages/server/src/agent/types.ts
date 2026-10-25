@@ -111,9 +111,15 @@ export interface AgentLauncher {
   /**
    * 画面（TUI）が、hangar が起こして持つ裏のプロセス（opencode の serve）につながっているか。Claude は持たない（偽）。
    * 真なら、状態の面の行の pid は裏のプロセスの pid で、run のプロセス（TUI）のものではない。RunManager は run の pid に書かない。
-   * hangar が終わると裏のプロセスも止まるので、画面は hangar の再起動を越えて使えない。RunManager は起動のときに閉じて lost にし、生き返らせない。
+   * hangar を閉じても、動いている run の裏のプロセスは止めない。RunManager は起動のときに reattach で裏のプロセスにつなぎ直し、
+   * つなぎ直せなかった画面だけを閉じて lost にする。終わった run の画面は生き返らせない（裏のプロセスは run の終わりで止めている）。
    */
   servedByHangar?: boolean;
+  /**
+   * hangar を起こし直したとき、動いている run の会話を、前の hangar から引き継いだ裏のプロセスにつなぎ直す（状態とトランスクリプトの面に載せ直す）。
+   * 裏のプロセスが無ければ偽を返す。servedByHangar の driver だけが持つ。
+   */
+  reattach?(target: { sessionId: string; providerSessionId: string; cwd: string }): boolean;
   /**
    * run が終わるとき、または止めたいときに呼ぶ。止めにいったら true を返す。
    * sessionId は hangar の会話の ID で、hangar の ID で持ち物（opencode の serve）を引く driver が使う。
