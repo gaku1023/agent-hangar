@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { AgentDriver, LaunchPlan, LaunchSpec, LiveSource, SessionMode } from '../../agent/types.ts';
+import { claudeAsks } from './hooks/asks.ts';
 import { buildClaudeArgs } from './launch/args.ts';
 import { writeHookSettings, type HookSettingsInput } from './launch/hookSettings.ts';
 import { writeMcpConfig } from './launch/mcpConfig.ts';
@@ -90,7 +91,7 @@ export type ClaudeDriver = AgentDriver & {
   attachPlan(bin: string, jobId: string, env: Record<string, string>): LaunchPlan;
 };
 
-/** Claude Code の driver。いまは起動と状態とトランスクリプトの面を持つ。 */
+/** Claude Code の driver。起動、状態、トランスクリプト、許可と質問、追記の 5 つの面を持つ。 */
 export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
   const files = { mcpConfig: deps.files?.mcpConfig ?? writeMcpConfig, hookSettings: deps.files?.hookSettings ?? writeHookSettings };
 
@@ -121,6 +122,7 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
         const mcpConfigPath = files.mcpConfig(deps.home, spec.hangarSessionId, spec.mcp.url, spec.mcp.secret);
         const argv = [bin, ...buildClaudeArgs({
           mode: launchMode,
+          // 段の文は末尾の改行まで含むので、区切りを足さずにつなぐ（launch/injection.ts の renderInjection と同じ文になる）。
           systemPrompt: spec.instructions.map((e) => e.text).join(''),
           mcpConfigPath,
           settingsPath: hookSettings(spec.hangarSessionId, mcpConfigPath),
@@ -153,6 +155,9 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
     },
     live: deps.live,
     transcript: deps.transcript,
+    asks: claudeAsks,
+    // 追記は起動の引数（--append-system-prompt）でだけ渡せる。動いている会話の指示は差し替えられない。
+    instructions: { when: 'launch' },
     attachPlan(bin, jobId, env) {
       return { argv: [bin, 'attach', jobId], env: {}, unset: unsetFor(deps.droppedEnv, env) };
     },

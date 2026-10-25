@@ -115,7 +115,7 @@ export function bootHttp(p: {
       onSummaryCap: summary.rebuildClaude,
       publishConfigSync: sync.publishConfigSync,
     }, patch),
-    live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, osNotices: delivery.osNotices,
+    live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, asksOf: (provider) => delivery.agents.of(provider).asks, osNotices: delivery.osNotices,
     summary: summary.api,
     trash: trash.trash,
     trustWorkspace: runs.trustWorkspace,

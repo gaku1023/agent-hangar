@@ -3,11 +3,10 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { tokenEquals, tokenFromRequest } from '../auth/request.ts';
+import type { AskSource } from '../agent/types.ts';
 import { VERSION } from '../boot/options.ts';
 import { defaultLanguage } from '../i18n/language.ts';
 import { errorText, translatorOf } from '../i18n/message.ts';
-import { readPermissionHook } from '../provider/claude-code/hooks/permission.ts';
-import { readQuestionHook } from '../provider/claude-code/hooks/question.ts';
 import { mcpSecretMatches } from '../runs/secrets.ts';
 import { applyPermissionHook } from '../sessions/permissionAsks.ts';
 import { applyQuestionHook } from '../sessions/questionHook.ts';
@@ -107,7 +106,14 @@ async function openWithOs(url: string): Promise<void> {
   if (r.code !== 0) throw new Error(r.stderr.trim() || `${c.file} exit ${r.code}`);
 }
 
-export function createMcpApp(given: ToolDeps & { token: string }): Hono {
+/**
+ * hook の受け口が本文を読む口。sessions.provider の値から、その driver の許可と質問の面（AskSource）を返す。
+ * 受け口は hook の形を知らず、読むのは driver の parseHook である。
+ */
+export type AsksOf = (provider: string) => AskSource;
+
+/** asksOf を渡さなければ、hook の本文は読まずに 204 を返す。 */
+export function createMcpApp(given: ToolDeps & { token: string; asksOf?: AsksOf }): Hono {
   // 問い合わせの下書きは要求をまたいで残すので、口はアプリに 1 つだけ作る（MCP のサーバは要求ごとに作り直す）。
   const deps = given.report ? given : {
     ...given,
@@ -130,9 +136,10 @@ export function createMcpApp(given: ToolDeps & { token: string }): Hono {
     return handle(c.req.raw, id);
   });
   /**
-   * hook の受け口。hangar が起こした claude の hook（provider/claude-code/launch/hookSettings.ts）が、台本を通して入力を送ってくる。
-   * MCP の入口と同じ鍵で開く。claude が持っているのは run の秘密だけだからである。
-   * いま読むのは AskUserQuestion の出入りと、道具の許可の確認（PermissionRequest）だけで、ほかの出来事は書かずに 204 を返す。
+   * hook の受け口。hangar が起こしたエージェントの hook（Claude は provider/claude-code/launch/hookSettings.ts）が、台本を通して入力を送ってくる。
+   * MCP の入口と同じ鍵で開く。エージェントが持っているのは run の秘密だけだからである。
+   * 本文は、セッションの provider の driver の parseHook で読む。いま読むのは質問の出入りと、道具の許可の確認だけで、ほかの出来事は書かずに 204 を返す。
+   * 無いセッションと消したセッションは、読まずに 204 を返す（書く側も、そのセッションの行が無ければ書かない）。
    */
   app.post('/s/:sessionId/hook', async (c) => {
     const id = c.req.param('sessionId');
@@ -144,10 +151,13 @@ export function createMcpApp(given: ToolDeps & { token: string }): Hono {
     } catch {
       return c.json({ error: 'invalid json' }, 400);
     }
-    const hook = readQuestionHook(body);
-    if (hook) applyQuestionHook(deps.db, id, hook, Date.now());
-    const ask = deps.permissionAsks ? readPermissionHook(body) : null;
-    if (ask && deps.permissionAsks) applyPermissionHook(deps.db, id, ask, deps.permissionAsks, Date.now());
+    const row = deps.db.prepare('select provider from sessions where id = ? and deleted_at is null').get(id) as { provider: string } | undefined;
+    const asks = row && given.asksOf ? given.asksOf(row.provider).parseHook?.(body) ?? [] : [];
+    const now = Date.now();
+    for (const a of asks) {
+      if (a.kind === 'question') applyQuestionHook(deps.db, id, a.hook, now);
+      else if (deps.permissionAsks) applyPermissionHook(deps.db, id, { providerSessionId: a.providerSessionId, ask: a.ask }, deps.permissionAsks, now);
+    }
     return c.body(null, 204);
   });
   return app;
