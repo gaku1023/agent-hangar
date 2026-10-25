@@ -1,5 +1,6 @@
 import type { InjectionEntry, LaunchPlan, LaunchSpec, MaterializeMode } from '../../agent/types.ts';
 import { OpencodeClient, type OpencodeModelRef } from './client.ts';
+import type { OpencodePermissionRule } from './permissionPreset.ts';
 import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
 
 /**
@@ -21,10 +22,14 @@ export type OpencodeServes = {
 
 /**
  * serve にだけ足す設定。hangar の MCP を remote で、この run の秘密を Authorization の header で渡す。
+ * permissions は許可のひな形（permissionPreset.ts）で、渡されたときだけ 2.x の `permissions` に並びのまま入れる。
  * 利用者の opencode.json は書き換えない（opencode はこれを利用者の設定に重ねて読む）。
  */
-export function hangarMcpConfig(mcp: { url: string; secret: string }): string {
-  return JSON.stringify({ mcp: { servers: { [HANGAR_MCP_NAME]: { type: 'remote', url: mcp.url, headers: { Authorization: `Bearer ${mcp.secret}` } } } } });
+export function hangarServeConfig(mcp: { url: string; secret: string }, permissions: readonly OpencodePermissionRule[] | null = null): string {
+  return JSON.stringify({
+    mcp: { servers: { [HANGAR_MCP_NAME]: { type: 'remote', url: mcp.url, headers: { Authorization: `Bearer ${mcp.secret}` } } } },
+    ...(permissions ? { permissions } : {}),
+  });
 }
 
 /** `provider/model` の形のモデルの指定を、最初の / で割る。割れないものは渡さない（opencode の既定のモデルで始まる）。 */
@@ -56,6 +61,8 @@ export function planOpencode(bin: string, providerSessionId: string, spec: Launc
 
 export type MaterializeDeps = {
   serves: OpencodeServes;
+  /** 会話のフォルダで重ねる許可のひな形（permissionPreset.ts の permissionPresetFor）。null か省けば重ねない。 */
+  permissions?: (cwd: string) => readonly OpencodePermissionRule[] | null;
   /** 知らせ。指示を差し込めなかった（instructions）、MCP がつながらなかった（mcp）。どちらも起動は止めない。 */
   report: (what: 'instructions' | 'mcp', e: unknown) => void;
   /** MCP の接続を待つ上限と間隔。 */
@@ -67,7 +74,7 @@ export type MaterializeDeps = {
 
 /**
  * 新しい会話を起こす前の下ごしらえ。返すのは opencode が振った会話の ID である。
- * 1. serve を会話のフォルダで起こす（hangar の MCP の設定を足して）。
+ * 1. serve を会話のフォルダで起こす（hangar の MCP の設定と、許可のひな形を足して）。
  * 2. ID を付けずに `POST /api/session` で会話を作る。hangar が決めた ID の会話は、OpenCode Zen の無料枠のモデルが FreeTierError（403）で断るからである。
  * 3. 追記を `PUT …/instructions/entries/hangar` で差し込む。API が無い版でも起動は続け、知らせだけ出す。
  * 4. hangar の MCP が connected になるのを待つ。待たずに最初のプロンプトを送ると、1 歩目の Code Mode の目録に hangar の道具が載らない。
@@ -82,7 +89,7 @@ export type MaterializeDeps = {
 export async function materializeOpencode(deps: MaterializeDeps, mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; serve: ServeInfo }> {
   if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
   if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
-  const serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarMcpConfig(spec.mcp), directory: spec.cwd });
+  const serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null), directory: spec.cwd });
   const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
   let providerSessionId: string;
   if (mode.kind === 'resume') {

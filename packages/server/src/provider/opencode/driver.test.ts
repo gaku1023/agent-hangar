@@ -113,6 +113,19 @@ posixDescribe('opencode の driver の materialize', () => {
     expect(plan.secretEnv).toEqual({ OPENCODE_PASSWORD: info.password });
   });
 
+  posixIt('許可のひな形を渡されたら、hangar の MCP と一緒に serve の設定（permissions）で重ねる。null なら重ねない', async () => {
+    const rules = [{ action: 'shell', resource: '*', effect: 'ask' as const }];
+    const seen: string[] = [];
+    const on = make({}, { permissions: (c) => { seen.push(c); return rules; } });
+    await on.driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    expect(seen).toEqual([cwd]);
+    expect(JSON.parse(ev(on.log(), 'start')[0]!.env.OPENCODE_CONFIG_CONTENT!)).toMatchObject({ mcp: { servers: { hangar: { type: 'remote' } } }, permissions: rules });
+    await on.serves.stopAll();
+    const off = make({}, { permissions: () => null });
+    await off.driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    expect(JSON.parse(ev(off.log(), 'start').at(-1)!.env.OPENCODE_CONFIG_CONTENT!)).not.toHaveProperty('permissions');
+  });
+
   posixIt('serve は会話のフォルダで起こし、hangar から serve への要求はどれも会話のフォルダを指す', async () => {
     const { driver, serves, log, requests } = make({ activeIds: ['ses_busy'] });
     await driver.launch.materialize!({ kind: 'start' }, spec(cwd));

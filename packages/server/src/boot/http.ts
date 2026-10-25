@@ -18,6 +18,7 @@ import { compareForResume } from '../sync/copy.ts';
 import { guardUpgrades } from '../ws/guard.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
+import { userConfigDefinesPermissions } from '../provider/opencode/permissionPreset.ts';
 import type { IndexingParts } from './indexing.ts';
 import { VERSION, type StartOptions } from './options.ts';
 import type { RunsParts } from './runs.ts';
@@ -170,7 +171,8 @@ export function bootHttp(p: {
     readiness: runs.readiness,
     findMux: () => whichMux(),
     compat: runs.compat,
-    opencodeStatus: opencode.status,
+    // 利用者の opencode.json が許可を決めているかも、聞かれるたびに読み直して添える（設定の画面の許可のひな形の行）。
+    opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,
     overlapRefresh: () => runs.overlaps.tick(),

@@ -80,6 +80,13 @@ describe('設定の opencode の面', () => {
     expect(present(store({ opencodeEnabled: true }), 'win32').intercept.available).toBe(false);
   });
 
+  it('コマンドの実行前の確認（許可のひな形）は、古いサーバの答えでは入り。利用者の opencode.json が許可を決めていれば、切に見せて無効にし、注記を添える', () => {
+    expect(present(store({ opencodeEnabled: true })).permissionPreset).toEqual({ on: true, byConfig: false, note: null });
+    expect(present(store({ opencodeEnabled: true, opencodePermissionPreset: false })).permissionPreset.on).toBe(false);
+    const mine = present(store({ opencodeEnabled: true }, { ...FOUND, configPermissions: true })).permissionPreset;
+    expect(mine).toEqual({ on: false, byConfig: true, note: 'opencode.json の permission 設定が適用されています。' });
+  });
+
   it('この PC にシェル連携が入っていなければ、横取りの行に入れ方を添える。状態が届く前と入っているときは添えない', () => {
     const hook = (state: 'on' | 'off' | 'unsupported'): Store => ({ ...store({ opencodeEnabled: true }), shellHook: { state, zshrc: '/u/.zshrc', line: 'x', command: 'hangar shell install', osSupported: true } });
     expect(present(hook('off')).intercept.note).toBe('この PC にシェル連携をインストールすると使えます。');

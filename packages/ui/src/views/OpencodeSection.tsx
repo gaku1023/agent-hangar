@@ -35,7 +35,8 @@ function OpencodeVersion(props: { version: OpencodeSettingsProps['version'] }) {
  * 設定の「連携 › opencode」（ベータ、試作の D1）。Claude Code との互換性の節のすぐ下に置く。
  * 有効にする行だけを常に出し、入れたときだけバージョンとシステムプロンプトへの追記の行を growIn で伸ばして入れる（切ると collapseOut で畳んでから外す）。
  * 見出しの右端の札も入のときだけ出し、fadeIn と fadeOut で出入りさせる。
- * 入のときの行は、バージョン、コマンドの横取り（段 D2、macOS と Linux だけ）、システムプロンプトへの追記の順。
+ * 入のときの行は、バージョン、コマンドの横取り（段 D2、macOS と Linux だけ）、コマンドの実行前の確認（許可のひな形）、システムプロンプトへの追記の順。
+ * 実行前の確認は、利用者の opencode.json が許可を決めていればスイッチを無効にし、注記を出す（試作 S4 の案 A）。
  * 追記の行の下には、選んでいる量で送る全文の畳みを Claude の「システムプロンプトの追記」と同じ形で置く（views/InjectionFull.tsx）。追記しないときは出さない。
  * その下に「プロバイダー」（つないだ先と追加、views/OpencodeProviders.tsx）を置く。providers を渡さなければ出さない。
  * available が偽なら面ごと出さない（いまはどの OS でも真）。横取りの行は Windows では出さない（intercept.available）。どれも選んだ時点で保存する。
@@ -87,6 +88,9 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: O
               desc={o.intercept.note ? <span className="oc-note" data-tone="info">{o.intercept.note}</span> : undefined}
               control={<Switch label={t('settings.label.opencodeIntercept')} checked={o.intercept.on} onChange={(next) => emit({ type: 'settings.update', patch: { opencodeIntercept: next } })} />} />
           )}
+          <SetRow title={t('settings.label.opencodePermissionPreset')} info={t('settings.opencode.permissionPreset.desc')}
+            desc={o.permissionPreset.note ? <span className="oc-note" data-tone="info">{o.permissionPreset.note}</span> : undefined}
+            control={<Switch label={t('settings.label.opencodePermissionPreset')} checked={o.permissionPreset.on} disabled={o.permissionPreset.byConfig} onChange={(next) => emit({ type: 'settings.update', patch: { opencodePermissionPreset: next } })} />} />
           <SetRow title={t('settings.label.opencodeInjection')} info={t('settings.opencode.injection.desc')}
             desc={o.claudeNote ? <span className="oc-note" data-tone="warn">{o.claudeNote}</span> : undefined}
             below={o.full.length > 0 ? <InjectionFull parts={o.full} /> : undefined}

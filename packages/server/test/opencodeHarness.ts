@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { findOpencode } from '../src/config/tools.ts';
 import { OPENAI_COMPATIBLE_PACKAGE } from '../src/provider/opencode/integration.ts';
-import { hangarMcpConfig } from '../src/provider/opencode/launch.ts';
+import { hangarServeConfig } from '../src/provider/opencode/launch.ts';
 import { opencodeProbeEnv } from '../src/provider/opencode/compat/version.ts';
 import { authHeader, killGroup, startServe, type ServeProcess } from '../src/provider/opencode/serve/spawn.ts';
 
@@ -18,7 +18,7 @@ import { authHeader, killGroup, startServe, type ServeProcess } from '../src/pro
  * - hangar の MCP の代わりに、同じ形で設定する小さな MCP（startMockMcp）を立てる。
  * - serve は空の環境（opencodeProbeEnv と同じ鍵）に、試しの置き場の `XDG_*_HOME` を足して起こす。
  *   利用者の `~/.config/opencode` と `~/.local/share/opencode` には触らないので、試しの会話は置き場ごと消せる。
- * - hangar の MCP は、hangar が serve に渡すのと同じ `OPENCODE_CONFIG_CONTENT`（launch.ts の hangarMcpConfig）で渡す。
+ * - hangar の MCP は、hangar が serve に渡すのと同じ `OPENCODE_CONFIG_CONTENT`（launch.ts の hangarServeConfig）で渡す。
  */
 
 /** 試しに打つ shell の命令。模擬の LLM が呼ぶ。 */
@@ -223,7 +223,7 @@ export function liveEnv(bin: string, w: LiveWorld): NodeJS.ProcessEnv {
 
 /** serve を 1 本起こす。hangar の MCP は hangar と同じ形で渡す。 */
 export function startLiveServe(bin: string, w: LiveWorld, mcpUrl: string): Promise<ServeProcess> {
-  return startServe({ bin, env: { ...liveEnv(bin, w), OPENCODE_CONFIG_CONTENT: hangarMcpConfig({ url: mcpUrl, secret: MOCK_MCP_SECRET }) }, readyTimeoutMs: 60_000 });
+  return startServe({ bin, env: { ...liveEnv(bin, w), OPENCODE_CONFIG_CONTENT: hangarServeConfig({ url: mcpUrl, secret: MOCK_MCP_SECRET }) }, readyTimeoutMs: 60_000 });
 }
 
 /** serve を止める。プロセスの組ごと SIGTERM を送り、5 秒で終わらなければ SIGKILL。 */

@@ -25,6 +25,9 @@ export const opencodeEnabledOf = (s: { opencodeEnabled?: boolean }): boolean => 
 /** 外のターミナルの opencode コマンドを hangar 経由で起動するか（シェルの包み、macOS と Linux だけ）。既定は切で、true のときだけ入りとして読む。 */
 export const opencodeInterceptOf = (s: { opencodeIntercept?: boolean }): boolean => s.opencodeIntercept === true;
 
+/** hangar が起動する opencode に許可のひな形を重ねるか。既定は入りで、false のときだけ切として読む。 */
+export const opencodePermissionPresetOf = (s: { opencodePermissionPreset?: boolean }): boolean => s.opencodePermissionPreset !== false;
+
 /** システムプロンプトへの追記。無い項目と知らない値は既定（最小限）に寄せる。 */
 export const opencodeInjectionOf = (s: { opencodeInjection?: OpencodeInjection }): OpencodeInjection => (isOpencodeInjection(s.opencodeInjection) ? s.opencodeInjection : DEFAULT_OPENCODE_INJECTION);
 
@@ -32,5 +35,6 @@ export const opencodeInjectionOf = (s: { opencodeInjection?: OpencodeInjection }
  * GET /api/opencode/status。
  * found は PATH と既知の置き場に opencode があるか、version は `opencode --version` から読めた版（読めなければ null）、
  * verified は版が確かめた範囲の中にあるか。見つからないときと版が読めないときは false である。
+ * configPermissions は設定の画面が、許可のひな形のスイッチを無効にして注記を出すのに使う。
  */
-export type OpencodeStatusDto = { found: boolean; version: string | null; verified: boolean };
+export type OpencodeStatusDto = { found: boolean; version: string | null; verified: boolean; /** 利用者の opencode.json の上の段に許可の規則（permission、permissions、tools）があるか。あれば許可のひな形は重ねない。この項目を知らない古いサーバは返さない。 */ configPermissions?: boolean };

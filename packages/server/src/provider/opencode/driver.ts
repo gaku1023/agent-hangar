@@ -12,13 +12,14 @@ import { OpencodeTranscript } from './transcript/source.ts';
  * droppedEnv は TUI へ持ち込まない変数（launch/env.ts の RUN_DROPPED_ENV と hangar の変数）。この置き場から hangar の層を読まないよう、呼び手が渡す。
  * report は、指示を差し込めなかったときと、hangar の MCP がつながらなかったときに呼ぶ（どちらも起動は止めない）。
  * enrich は実行中の一覧の足し付けの鎖（agent/liveHub.ts の LiveHub.enrich）で、状態の面が組み直すたびに通す。
+ * permissions は会話のフォルダで重ねる許可のひな形（permissionPreset.ts）。呼び手が設定と利用者の opencode.json から決める。
  */
 export type OpencodeDriverDeps = {
   serves: () => OpencodeServes | null;
   droppedEnv: readonly string[];
   enrich?: (live: LiveSessionDto[]) => LiveSessionDto[];
   report?: (what: 'instructions' | 'mcp' | 'stop', e: unknown) => void;
-} & Pick<MaterializeDeps, 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep'>;
+} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep'>;
 
 /**
  * opencode の driver。共通の面のほかに、serve の出来事の流れの口（events）を持つ。
@@ -63,7 +64,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
       servedByHangar: true,
       // ID は opencode に振らせる（materialize が返す）。再開は serve を起こし直して、状態とトランスクリプトの面に載せ直す。
       async materialize(mode, spec) {
-        const r = await materializeOpencode({ serves: serves(), report, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep }, mode, spec);
+        const r = await materializeOpencode({ serves: serves(), report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep }, mode, spec);
         hangarIdOf.set(r.providerSessionId, spec.hangarSessionId);
         live.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LaunchSpec } from '../../agent/types.ts';
-import { HANGAR_INSTRUCTION_KEY, hangarMcpConfig, instructionValue, modelRefOf, planOpencode } from './launch.ts';
+import { HANGAR_INSTRUCTION_KEY, hangarServeConfig, instructionValue, modelRefOf, planOpencode } from './launch.ts';
 
 const spec = (over: Partial<LaunchSpec> = {}): LaunchSpec => ({
   cwd: '/w/alpha',
@@ -13,11 +13,16 @@ const spec = (over: Partial<LaunchSpec> = {}): LaunchSpec => ({
 const serve = { url: 'http://127.0.0.1:40123', password: 'serve-password', pid: 1 };
 const dropped = ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'HANGAR_HOME'] as const;
 
-describe('hangarMcpConfig', () => {
+describe('hangarServeConfig', () => {
   it('hangar の MCP を remote として、run の秘密を Authorization の header で渡す設定にする', () => {
-    expect(JSON.parse(hangarMcpConfig({ url: 'http://127.0.0.1:4177/mcp/s/h1', secret: 's3' }))).toEqual({
+    expect(JSON.parse(hangarServeConfig({ url: 'http://127.0.0.1:4177/mcp/s/h1', secret: 's3' }))).toEqual({
       mcp: { servers: { hangar: { type: 'remote', url: 'http://127.0.0.1:4177/mcp/s/h1', headers: { Authorization: 'Bearer s3' } } } },
     });
+  });
+  it('許可のひな形を渡されたら permissions に並びのまま入れる（規則は後に書いたものが勝つ）', () => {
+    const rules = [{ action: 'shell', resource: '*', effect: 'ask' as const }, { action: 'shell', resource: 'ls *', effect: 'allow' as const }];
+    expect(JSON.parse(hangarServeConfig({ url: 'u', secret: 's' }, rules)).permissions).toEqual(rules);
+    expect(JSON.parse(hangarServeConfig({ url: 'u', secret: 's' }, null))).not.toHaveProperty('permissions');
   });
 });
 
