@@ -28,3 +28,21 @@
 | `events-interrupt.sse` | 別の会話で、許可の待ちの途中に `POST /api/session/{id}/interrupt` を送った流れ。`permission.replied` は来ず、`session.step.failed` と `session.execution.interrupted` で終わる。 |
 | `events-reconnect.sse` | 待ちの途中でもう 1 本つないだときの頭。`server.connected` と heartbeat だけで、それまでの状態は流れてこない。 |
 | `rest.json` | 取り直しに使う道の答え。`idle`・`running` は `GET /api/session/active`、`permission`・`noPermission` は `GET /api/session/{id}/permission`、`form`・`noForm` は `GET /api/session/{id}/form`。 |
+
+## 本文（`/api/session/{id}/message`）
+
+- 採った日：2026-10-25。版は同じ 2.1.4（Homebrew）。
+- 採り方：空の環境（上と同じ鍵に、試験用に分けた `XDG_CONFIG_HOME`・`XDG_DATA_HOME`・`XDG_STATE_HOME`・`XDG_CACHE_HOME` と `OPENCODE_SERVER_PASSWORD` を足した）から `opencode serve --hostname 127.0.0.1 --port 4643` を 1 本だけ起こした。
+  LLM は呼んでいない。設定の `provider` に OpenAI 互換の模擬（手元の 127.0.0.1 で、reasoning_content も返す）を置き、`permission` は shell・edit・write を `allow` にした。
+  `mcp.servers.hangar` に hangar と同じ形の小さな MCP（`set_turn_intent` などを持つ）を置き、Code Mode の `execute` から呼ばせた。
+- 会話は 1 つ（`ses_e8eb096a3ffekAvQlPtKFewFB4`）で、ID なしの `POST /api/session` で作り、3 つの発言を `POST /api/session/{id}/prompt` で送った。
+  1 つ目は shell → execute（中で `hangar.set_turn_intent`）→ write → edit → read → question（form に `{"q0":"Red"}` で答えた）→ 文。途中で Code Mode の目録の知らせ（system）が入り、模擬が数え直して shell をもう 1 回呼んでいる。
+  2 つ目は shell の `sleep 20` の途中で `POST /api/session/{id}/interrupt` を送った。3 つ目は文だけ。
+- 書き留めた後で、手元のパスだけを置き換えた（作業のフォルダは `/work/repo`）。ほかは手で直していない。
+
+| ファイル | 中身 |
+| --- | --- |
+| `messages.json` | 3 つの発言が終わった後の `GET /api/session/{id}/message?limit=100` の答え。data は新しい順。 |
+| `messages-pages.json` | 同じ時点で `limit=4` と `cursor` で送った答えの並び（`query`、`status`、`body`）。最後のページの後に空の data と null の cursor が来る。 |
+| `messages-while-form.json` | 1 つ目の発言で form を待っている間の答え。いちばん新しい返答は `time.completed` が無く、question の道具は `running`。 |
+| `messages-while-running.json` | 2 つ目の発言で `sleep 20` が動いている間の答え。いちばん新しい返答は終わっておらず、shell の道具は `running`。 |

@@ -144,6 +144,15 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
     expect(uploads).toEqual(['mine']);
   });
 
+  it('本文のファイルを持たない会話（opencode、path が null）は上げ手へ知らせず、プロジェクトへの紐づけと伸びの知らせは同じく行う', () => {
+    const s = ensureSession(db, 'ses_stored_change', outside, 'd', 'opencode');
+    const h = handler();
+    h({ ...changed(s, { uuid: 'ses_stored_change', appended: 2 }), path: null });
+    publisher.flush();
+    expect(uploads).toEqual([]);
+    expect(sent.some((e) => e.type === 'transcript.appended' && e.sessionId === s)).toBe(true);
+  });
+
   it('消されたセッションは配らない', () => {
     const s = ensureSession(db, '11111111-1111-4111-8111-111111111118', outside, 'd');
     softDeleteShared(db, 'sessions', s, 'd');

@@ -992,6 +992,14 @@ create virtual table event_fts using fts5 (
   tokenize = 'trigram'
 );
 
+-- 本文を DB に持つエージェント（opencode）の本文。1 イベント 1 行で、正規化したイベントの JSON を持つ（版 35）。
+-- 位置は event_index と同じ番号で、agent_key は主線なら空、サブエージェントなら agentId。共有しない。
+create table agent_events (
+  session_id text not null, agent_key text not null, seq integer not null,
+  body text not null,
+  primary key (session_id, agent_key, seq)
+) without rowid;
+
 -- 索引から導出した統計。共有しない。
 create table session_stats (
   session_id text primary key,
@@ -1146,6 +1154,11 @@ DB に書くのは hangar の側（`indexer/write.ts` の `writeBatch`）で、�
 互換の見張り（`compat/transcript.ts`）は、この読み出しの口が手元の本文の行にだけかける。
 本文を DB に持つエージェントは、作った束を `start` に渡した受け口の `batch` へ押し込み、索引はそれをそのまま `writeBatch` で書く。
 押し込んだ束の出どころの名前（`storedOrigin`）は、日別の使用量の鍵と `event_index.file_path_ref` に入る。
+本文そのものは、`writeBatch` が同じ取引で `agent_events` に 1 行 1 イベントで写す。作り直しの束では、その位置の行を消してから積む。
+読む側は `transcript/stored.ts` の `readStoredPage` で、ページの切り方は Claude の読み手と同じにする。
+こうした面は、索引（`IndexerServiceOptions.stored`）が `start` と `stop` を呼ぶだけで、全件の見比べと見張りの周期には入らない。
+書いたら、ファイルの本文と同じく `sessionChanged` を出す。本文のファイルは無いので `path` は null、`deviceId` は手元なので null で、同期の上げ手へは渡さない（プロジェクトへの紐づけ、伸びの知らせ、git の読み直しはファイルと同じに行う）。
+会話の一覧の「本文がある」（`hasTranscript`）と「手元にある」は、`agent_events` の主線の行でも真になる。
 
 許可と質問の面（`AskSource`）は、hook の本文を読む口（`parseHook`）と、流してくる口（`subscribe`）のどちらかを持つ。
 Claude は前者で、hook の受け口（`mcp/app.ts` の `/mcp/s/<sessionId>/hook`）は、URL のセッションの `sessions.provider` から driver を引き、その `parseHook` で本文を読む。
@@ -1547,6 +1560,53 @@ README の「商標」の節に、非公式であることと、各商標が各�
 - 一覧の行は、題名の左に同じ幅（20px）の枠を取り、そこに絵を置く。どの行も同じ枠なので、題名の頭がそろう。
 - サイドバーの行は、名前の右端に同じ絵を置く。畳んだサイドバーでは名前と一緒に隠す。
 - ターミナルの上のタブは、opencode の会話のエージェントのタブだけを、公式ロゴと「opencode」にする（サーバのタブの題は Claude のまま）。選んだタブは端末の板と同じ墨色なので暗い地用、選んでいないタブは白い地なので明るい地用を置く。Claude のタブはいまのまま（ロボットの印と「Claude」）。
+
+### opencode のトランスクリプト
+
+opencode の本文を、共通の形（`TranscriptEvent`）に直して hangar の DB（`agent_events`）に写す（決定 3、計画の B5）。
+opencode の SQLite は読まない。
+置き場は `provider/opencode/transcript/` で、変換（`convert.ts`）と読む契機と差分（`source.ts`、`OpencodeTranscript`）である。
+
+本文は serve の `GET /api/session/{id}/message` から読む。
+2.1.4 は新しい順に並べ、`limit` と `cursor`（`cursor.next`）でページを送る。最後のページの後に空のページを返し、そのときの `cursor.next` が null になる。
+メッセージは 4 種類で、user（発言）、assistant（モデルの呼び出し 1 回。reasoning、text、tool を並べ、モデル、トークン、費用を持つ）、idle（ターンの終わり）、system（Code Mode の目録の知らせなど）である。
+記録した見本は `test/fixtures/opencode/2.1.4/messages*.json` にある。
+
+変換はメッセージ 1 つを記録 1 つにする。
+
+| メッセージ | イベント | 事実 |
+| --- | --- | --- |
+| user | `user` | 打った発言（`isUserTurn`、`typedPrompt`） |
+| assistant の reasoning | `thinking` | |
+| assistant の text | `assistant`（`model` は `provider/model`） | `model`、`usage`（入力はキャッシュの読み書きを足した値、出力は reasoning を足した値）、`costUsd`、`contextTokens` |
+| assistant の tool | `tool_call` と、終わっていれば直後に `tool_result` | |
+| assistant の error | `system`（subtype は `error`、文は error の message） | |
+| idle | `system`（subtype と文は `idle`。画面では畳む） | ターンの終わり（`endsTurn`） |
+| system | `system`（subtype は `metadata.notice`） | |
+| 知らない種類 | `meta` | |
+
+道具は、2.1.4 で引数の形を確かめたものだけ、hangar の画面と索引が読む共通の名前と引数（Claude Code の形）に直す。
+`shell` は `Bash`（description が無いので、summary は命令の 1 行目から作る）、`read`・`write`・`edit` は `Read`・`Write`・`Edit`（`path` は `file_path`、`oldString` は `old_string` など）、`grep` は `Grep`、`question` は `AskUserQuestion` である。
+編集したファイルの数（`EDIT_TOOLS`）、手の表示、問いの「いま」は、この名前と形で読んでいるためである。ほかの道具は名前と引数をそのまま持つ。
+Code Mode の `execute` は、中で呼んだ MCP の道具（`metadata.toolCalls` の `サーバ.道具`）を、Claude と同じ `mcp__サーバ__道具` の呼び出しに展開する（呼び出しの ID は `<execute の ID>#<番号>`）。中の呼び出しには個別の結果が無いので、`execute` の結果は最後の呼び出しに付ける。呼び出しの無い `execute` は `execute` のまま残す。
+
+まだ終わっていない返答（`time.completed` の無い assistant）は、まだ無いものとして写さず、そこから後ろも待つ（未作成の扱い）。
+写しは続きを足していくだけにし、変わりうるものを先に写さないためである。
+ただし、後ろにターンの終わり（idle）があれば、その返答はもう変わらないので写す。
+
+読み方は、新しい方からページを送り、前に写した最後のメッセージに着いたら止める。その手前が続きで、続きの束（`reset` が偽）として渡す。
+前に写した最後のメッセージが見つからなければ（巻き戻しで消えたなど）、全部を読み直して作り直しの束にする。
+どこまで写したかはメモリにだけ持つ。載せ直したとき（hangar の再起動、再開）は分からないので、全部を作り直しの束として読み直す。二度読んでも行は重ならない。
+「いま」は Claude と同じ畳み方（最後の道具の呼び出し。問いは結果が来たら消える）で、使用制限は本文に無いので前の値のままにする。
+
+読む契機は、状態の面（`live.ts`）が読んでいる serve の出来事の流れから受ける（`OpencodeLive.onEvent`）。
+流れを別に開かないのは、serve 1 本に流れを 1 本にし、つなぎ直しを 1 か所に置くためである。
+契機は `session.step.ended`、`session.step.failed`、`session.text.ended`、`session.usage.updated`、`session.inbox.delivered`、`session.execution.` の終わり（succeeded、failed、interrupted）と、つないだとき（つなぎ直しも）の `server.connected` で、続けて届いたものは 150 ミリ秒待って 1 回にまとめる。
+driver は、`materialize` で会話を作ったら載せて（`track`）すぐに読み、`release` では serve を止める前にもう一度読んでから外す。
+
+返答の費用と文脈の量は、事実（`RecordFacts` の `costUsd`、`contextTokens`）として持つ。
+書き手は、Claude が statusline から書くのと同じ `session_live_stats` に、モデル、文脈の量（最後の値）、費用（和）を書く。文脈の大きさは本文に無いので書かない。
+サブエージェント（opencode の子の会話）の本文はまだ写さない。
 
 ## セッションの起動と観察
 

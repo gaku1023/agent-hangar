@@ -177,6 +177,18 @@ export class OpencodeClient {
   }
 
   /**
+   * 会話の本文の 1 ページ（`GET /api/session/{id}/message`）。メッセージは新しい順に並ぶ。
+   * next は次の（より古い）ページの印で、無ければ null。2.1.4 は最後のページの後にもう 1 つ空のページを返し、その印が null になる。
+   * 形の合わない行は捨てずに返す（変換が知らない種類を meta にする）。
+   */
+  async messages(sessionId: string, o: { limit: number; cursor?: string | null }): Promise<{ data: unknown[]; next: string | null }> {
+    const q = new URLSearchParams({ limit: String(o.limit), ...(o.cursor ? { cursor: o.cursor } : {}) });
+    const r = await this.request('GET', `/api/session/${encodeURIComponent(sessionId)}/message?${q.toString()}`) as { data?: unknown; cursor?: { next?: unknown } } | null;
+    const data = Array.isArray(r?.data) ? r.data : [];
+    return { data, next: str(r?.cursor?.next) };
+  }
+
+  /**
    * serve の出来事の流れ（`GET /api/event`、SSE）を開く。返すのは本文の流れで、読み終えるか signal で切るまで続く。
    * 上限の時間は付けない（流れは開いたままにするものなので）。つながらなければ投げる。
    */

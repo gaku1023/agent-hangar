@@ -183,7 +183,7 @@ describe('他端末の本文の索引化', () => {
     fs.writeFileSync(rp, line('remote-body'));
     const svc = new IndexerService({ db, deviceId: 'dev-a', transcript: claudeTranscriptSource({ claudeDir, remoteRoot: remote }), isRunning: () => false });
     const seen: { deviceId: string | null; path: string }[] = [];
-    svc.on({ sessionChanged: (e) => seen.push({ deviceId: e.deviceId, path: e.path }) });
+    svc.on({ sessionChanged: (e) => seen.push({ deviceId: e.deviceId, path: e.path! }) });
     await svc.fullScan();
     expect(db.prepare('select device_id from transcript_files where session_id = ?').get('s1')).toEqual({ device_id: 'dev-b' });
     expect(count('select count(*) c from event_index where session_id = ?', 's1')).toBe(1);

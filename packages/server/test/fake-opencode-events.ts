@@ -9,6 +9,8 @@ import { authHeader } from '../src/provider/opencode/serve/spawn.ts';
  * 実物の opencode は起こさず、試験の中で HTTP を立てる。basic 認証（ユーザー名は opencode）を見て、合わなければ 401 を返す。
  * - `GET /api/event`：SSE を開き、send で渡した 1 件を書く。開いた直後は実物と同じく `server.connected` だけを書く。
  * - `GET /api/session/active`、`GET /api/permission/request`、`GET /api/form`：state の中身を答える（取り直しの道）。
+ * - `GET /api/session/{id}/message`：state.messages の会話の本文を、実物の 2.1.4 と同じく新しい順に、limit と cursor でページに切って答える。
+ *   cursor はそのページの最後（いちばん古い）メッセージの ID を包んだもので、続きはそれより古いものになる。最後のページの後は空の data と null の cursor を返す。
  * requests は受けた道（クエリ込み）を順に覚える。
  */
 export type FakeEventsServe = {
@@ -16,7 +18,8 @@ export type FakeEventsServe = {
   password: string;
   /** serve の pid のふり。試験の中で生きているかを決めるのに使う。 */
   pid: number;
-  state: { active: Set<string>; permissions: unknown[]; forms: unknown[] };
+  /** messages は会話の ID ごとの本文で、古い順に並べる（答えるときに新しい順にする）。 */
+  state: { active: Set<string>; permissions: unknown[]; forms: unknown[]; messages: Map<string, { id: string }[]> };
   requests: string[];
   /** いま開いている流れの数。 */
   open(): number;
@@ -31,7 +34,7 @@ export type FakeEventsServe = {
 
 export async function startFakeEventsServe(o: { password?: string; pid?: number } = {}): Promise<FakeEventsServe> {
   const password = o.password ?? 'pw';
-  const state = { active: new Set<string>(), permissions: [] as unknown[], forms: [] as unknown[] };
+  const state = { active: new Set<string>(), permissions: [] as unknown[], forms: [] as unknown[], messages: new Map<string, { id: string }[]>() };
   const requests: string[] = [];
   const streams = new Set<http.ServerResponse>();
   let opened = 0;
@@ -49,6 +52,17 @@ export async function startFakeEventsServe(o: { password?: string; pid?: number 
       return;
     }
     if (url.pathname === '/api/session/active') return json(res, { data: Object.fromEntries([...state.active].map((id) => [id, { type: 'running' }])) });
+    const msg = /^\/api\/session\/([^/]+)\/message$/.exec(url.pathname);
+    if (msg) {
+      const all = [...(state.messages.get(decodeURIComponent(msg[1]!)) ?? [])].reverse();
+      const limit = Number(url.searchParams.get('limit') ?? '100');
+      const cursor = url.searchParams.get('cursor');
+      const after = cursor ? (JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { id: string }).id : null;
+      const from = after === null ? 0 : all.findIndex((m) => m.id < after);
+      const data = from < 0 ? [] : all.slice(from, from + limit);
+      const wrap = (id: string, direction: string) => Buffer.from(JSON.stringify({ id, order: 'desc', direction })).toString('base64url');
+      return json(res, { data, cursor: data.length ? { previous: wrap(data[0]!.id, 'previous'), next: wrap(data.at(-1)!.id, 'next') } : { previous: null, next: null } });
+    }
     const directory = url.searchParams.get('location[directory]');
     if (url.pathname === '/api/permission/request') return json(res, { location: { directory }, data: state.permissions });
     if (url.pathname === '/api/form') return json(res, { location: { directory }, data: state.forms });
@@ -75,6 +89,14 @@ export function fixtureFrames(name: string): string[] {
 /** 記録した取り直しの答え（test/fixtures/opencode/2.1.4/rest.json）。 */
 export function fixtureRest(): { idle: { data: Record<string, unknown> }; running: { data: Record<string, unknown> }; permission: { data: unknown[] }; form: { data: unknown[] }; noPermission: { data: unknown[] }; noForm: { data: unknown[] } } {
   return JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'opencode', '2.1.4', 'rest.json'), 'utf8'));
+}
+
+/**
+ * 記録した 2.1.4 の本文の答え（test/fixtures/opencode/2.1.4/messages*.json）。
+ * messages.json などは `GET /api/session/{id}/message` の答えそのもので、data は新しい順に並ぶ。messages-pages.json は limit=4 で送った答えの並びである。
+ */
+export function fixtureMessages<T = { data: { id: string }[]; cursor: { previous: string | null; next: string | null } }>(name: string): T {
+  return JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'opencode', '2.1.4', name), 'utf8')) as T;
 }
 
 /** 条件が真になるまで短い間隔で待つ。上限を過ぎたら投げる。 */

@@ -4,16 +4,17 @@ import type { ReadOpts, TranscriptSource } from '../agent/types.ts';
 import type { Db } from '../db/open.ts';
 import { stmt } from '../indexer/statements.ts';
 import { readClaudePage } from '../provider/claude-code/transcript/page.ts';
+import { readStoredPage } from './stored.ts';
 
 /**
  * sessions.provider の値から、その会話の本文を読む口を引く。
- * 読み方はエージェントごとに違う（Claude は索引のバイト位置から本文のファイルを読み直す）ので、driver の readPage と同じものを返す。
+ * 読み方はエージェントごとに違う（Claude は索引のバイト位置から本文のファイルを読み直し、opencode は hangar の DB の agent_events を読む）ので、driver の readPage と同じものを返す。
  * 読み手の無いエージェントには undefined を返す。
  */
 export type PageReaders = (provider: string) => TranscriptSource['readPage'] | undefined;
 
-/** 既定の読み手。Claude の driver の transcript.readPage と同じ関数である。 */
-export const DEFAULT_PAGE_READERS: PageReaders = (provider) => (provider === 'claude-code' ? readClaudePage : undefined);
+/** 既定の読み手。各 driver の transcript.readPage と同じ関数である（Claude は readClaudePage、opencode は readStoredPage）。 */
+export const DEFAULT_PAGE_READERS: PageReaders = (provider) => (provider === 'claude-code' ? readClaudePage : provider === 'opencode' ? readStoredPage : undefined);
 
 /**
  * セッションに属するサブエージェントの id を、始まった順に返す。

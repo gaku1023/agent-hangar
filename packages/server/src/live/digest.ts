@@ -225,6 +225,8 @@ export class LiveDigester {
   }
   private keyOf(sessionId: string): string {
     const r = this.db.prepare('select count(*) c, sum(indexed_bytes) b, max(mtime) m from transcript_files where session_id = ?').get(sessionId) as { c: number; b: number | null; m: number | null };
-    return `${r.c}:${r.b}:${r.m}:${latestIntent(this.db, sessionId)?.at ?? ''}`;
+    // 本文を DB に持つエージェント（opencode）は transcript_files を持たないので、主線の最後の seq で見る（主キーの順に引くので全行は見ない）。
+    const stored = (this.db.prepare("select max(seq) s from agent_events where session_id = ? and agent_key = ''").get(sessionId) as { s: number | null }).s;
+    return `${r.c}:${r.b}:${r.m}:${stored ?? ''}:${latestIntent(this.db, sessionId)?.at ?? ''}`;
   }
 }

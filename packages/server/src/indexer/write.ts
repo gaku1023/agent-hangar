@@ -55,6 +55,8 @@ type Acc = {
   /** 利用者が打った発言（IndexRecord.typedPrompt）のうち、最も新しい時刻。状態を外す合図に使う。 */
   lastTypedPromptTs?: number;
   userTurns: number; input: number; output: number;
+  /** 記録ごとの費用の和と、最後の文脈の量（RecordFacts.costUsd、contextTokens）。持たない束では undefined のまま。 */
+  cost?: number; contextTokens?: number;
   daily: Map<string, { input: number; output: number }>;
   /** ターンの終わりの印か、入力待ちの問いが新しく出たか。last_activity_at の共有の間引きを外す合図である。 */
   turnEnded?: boolean;
@@ -109,7 +111,7 @@ export function skipWrite(known: SessionRow | undefined, remote: boolean): Write
 /**
  * 束を索引の表に書く。1 つの取引で書く（呼び手の取引の中で呼べば、その中の区切りになる）。
  * reset なら、この位置（主線かサブエージェント）の本文の索引、検索、日別の使用量を消してから先頭として積む。
- * 本文そのものは書かない。ファイルの束はバイト位置を、本文を DB に持つ束は出どころの名前を event_index に残す。
+ * ファイルの束は本文を書かず、バイト位置を event_index に残す。本文を DB に持つ束は、出どころの名前を event_index に残し、イベントそのものを agent_events に写す。
  */
 export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResult {
   const remote = opts.remote === true;
@@ -125,6 +127,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
 
   const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?,?,?,?,?,?,?,?,?,?)');
   const insFts = stmt(db, 'insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
+  // 本文を DB に持つ束（stored）は、イベントそのものを agent_events に写す（読むのは transcript/stored.ts）。
+  const insBody = stmt(db, 'insert or replace into agent_events (session_id, agent_key, seq, body) values (?,?,?,?)');
 
   let out: WriteResult = { sessionId: '', appended: 0, artifactIds: [], skipped: false };
   const run = db.transaction(() => {
@@ -133,6 +137,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
     if (reset) {
       stmt(db, "delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
       stmt(db, "delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
+      stmt(db, 'delete from agent_events where session_id = ? and agent_key = ?').run(sessionId, agentKey);
     }
     // 作り直しでも artifact_versions は消さない。
     // 同じ版を二重に積まない仕組みが recordArtifactPublish にあるので、積み直すだけで冪等になる。
@@ -163,6 +168,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, ref, b.agentId, toolName, filePath);
+        if (r.locator.kind === 'stored') insBody.run(sessionId, agentKey, ev.seq, JSON.stringify(ev));
         if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {
           const c = artifactCallOf(ev.input);
           insCall.run(ev.toolId, sessionId, c.filePath, c.description, c.favicon);
@@ -191,6 +197,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       if (f.prUrl) acc.prUrl = f.prUrl;
       if (f.model) acc.model = f.model;
       if (f.effort) acc.effort = f.effort;
+      if (f.costUsd !== undefined) acc.cost = (acc.cost ?? 0) + f.costUsd;
+      if (f.contextTokens !== undefined) acc.contextTokens = f.contextTokens;
       if (f.usage) {
         acc.input += f.usage.input; acc.output += f.usage.output;
         const day = localDay(f.ts ?? Date.now());
@@ -198,6 +206,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
       }
     }
+    if (mainLocal && (acc.cost !== undefined || acc.contextTokens !== undefined)) writeLiveStats(db, b.providerSessionId, acc, reset);
     if (mainLocal && b.fold) {
       if (writeActivity(db, sessionId, reset, b.fold.activity)) acc.turnEnded = true;
       writeLimit(db, sessionId, reset, b.fold.limit);
@@ -219,6 +228,20 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
   });
   run();
   return out;
+}
+
+/**
+ * 記録ごとに費用と文脈の量を持つエージェント（opencode）の、会話の今の値を書く。Claude は statusline から同じ表へ書く（usage/statusline.ts）。
+ * 費用は記録の和なので、続きの束では前の値に足し、作り直しでは置き換える。文脈の量とモデルは最後の値にする。
+ * 文脈の大きさ（context_size）は本文に無いので書かない（モデルの一覧から読むのは画面の段）。
+ */
+function writeLiveStats(db: Db, providerSessionId: string, acc: Acc, reset: boolean): void {
+  const prev = reset ? undefined : (stmt(db, 'select cost_usd from session_live_stats where provider_session_id = ?').get(providerSessionId) as { cost_usd: number | null } | undefined);
+  const cost = acc.cost === undefined ? (prev?.cost_usd ?? null) : (prev?.cost_usd ?? 0) + acc.cost;
+  stmt(db, `insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)
+    on conflict(provider_session_id) do update set model = coalesce(excluded.model, session_live_stats.model),
+      context_used = coalesce(excluded.context_used, session_live_stats.context_used), cost_usd = excluded.cost_usd, updated_at = excluded.updated_at`)
+    .run(providerSessionId, acc.model ?? null, null, acc.contextTokens ?? null, null, cost, Date.now());
 }
 
 /** 「いま何をしているか」を畳んで書く。新しい問いが出たら真を返す。 */

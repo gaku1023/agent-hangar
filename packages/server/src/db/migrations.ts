@@ -594,6 +594,25 @@ create table artifact_aliases (alias_id text primary key, artifact_id text not n
 `;
 
 /**
+ * 本文を DB に持つエージェント（opencode）の本文（版 35）。
+ * opencode の本文は serve の API（`/api/session/{id}/message`）から読み、正規化したイベント（TranscriptEvent）にして、ここに 1 行 1 イベントで写す（provider/opencode/transcript/）。
+ * opencode の SQLite は読まない。
+ * 位置（session_id、agent_key、seq）は event_index と同じ番号で、agent_key は主線なら空、サブエージェントなら agentId である。
+ * 書くのは索引の書き手（indexer/write.ts）だけで、event_index と同じ取引で書く。読むのは transcript/stored.ts である。
+ * event_index に本文の列を足さずに別の表にしたのは、Claude の行（本文はファイルにある）に空の列を増やさず、本文を持つ行だけをこの表で数え、消し、作り直せるようにするためである。
+ * 端末ローカルの表で、同期しない（ほかの PC へは opencode の export を上げる。段 E）。
+ */
+const V35_AGENT_EVENTS_SQL = `
+create table agent_events (
+  session_id text not null,
+  agent_key text not null,
+  seq integer not null,
+  body text not null,
+  primary key (session_id, agent_key, seq)
+) without rowid;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -618,4 +637,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 32, sql: V32_BLOB_UPLOADS_SQL },
   { version: 33, sql: V33_MOBILE_LAUNCH_SESSION_SQL },
   { version: 34, sql: V34_ARTIFACT_ALIASES_SQL },
+  { version: 35, sql: V35_AGENT_EVENTS_SQL },
 ];

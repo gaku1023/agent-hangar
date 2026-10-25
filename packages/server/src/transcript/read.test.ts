@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventsPageDto, TranscriptEvent } from '@agent-hangar/shared';
-import type { ReadOpts } from '../agent/types.ts';
+import type { IndexRecord, ReadOpts } from '../agent/types.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { logQueries } from '../../test/queryLog.ts';
+import { writeBatch } from '../indexer/write.ts';
 import { readEvents, subagentIds } from './read.ts';
 
 let dir: string;
@@ -172,5 +173,45 @@ describe('readEvents の provider のふり分け', () => {
   });
   it('行の無い会話は今までどおり Claude の道で空のページを返す', () => {
     expect(readEvents(db, 'no-such-session', {})).toEqual({ sessionId: 'no-such-session', events: [], total: 0, nextSeq: null });
+  });
+});
+
+describe('opencode の会話（本文を DB に持つ）', () => {
+  // 主線 7 行とサブエージェントの 2 行を、索引の書き手（writeBatch）で書く。
+  const OC = 'ses_stored_read';
+  const ev = (seq: number, text: string): TranscriptEvent => ({ kind: 'assistant', seq, ts: 100 + seq, text });
+  let ocId: string;
+  beforeEach(() => {
+    const rec = (events: TranscriptEvent[]): IndexRecord => ({ events, facts: { isUserTurn: false }, locator: { kind: 'stored' } });
+    const main = [0, 1, 2, 3, 4, 5, 6].map((n) => ev(n, `main ${n}`));
+    ocId = writeBatch(db, { agent: 'opencode', providerSessionId: OC, agentId: null, cwd: '/w/oc', reset: true, records: [rec(main.slice(0, 3)), rec(main.slice(3))] }, { deviceId: 'd' }).sessionId;
+    writeBatch(db, { agent: 'opencode', providerSessionId: OC, agentId: 'sub1', reset: true, records: [rec([ev(0, 'sub 0'), ev(1, 'sub 1')])] }, { deviceId: 'd' });
+  });
+  const texts = (p: EventsPageDto) => p.events.map((e) => (e as { text: string }).text);
+
+  it('既定の読み手で、agent_events から主線を seq 順に読む', () => {
+    const page = readEvents(db, ocId, {});
+    expect(page).toMatchObject({ sessionId: ocId, total: 7, nextSeq: null });
+    expect(page.events).toEqual([0, 1, 2, 3, 4, 5, 6].map((n) => ev(n, `main ${n}`)));
+  });
+  it('fromSeq と limit でページを切り、続きの seq を返す', () => {
+    const page = readEvents(db, ocId, { fromSeq: 2, limit: 3 });
+    expect(texts(page)).toEqual(['main 2', 'main 3', 'main 4']);
+    expect(page.nextSeq).toBe(5);
+  });
+  it('latest と beforeSeq は末尾から読み、nextSeq は付けない', () => {
+    expect(readEvents(db, ocId, { latest: true, limit: 2 })).toMatchObject({ total: 7, nextSeq: null });
+    expect(texts(readEvents(db, ocId, { latest: true, limit: 2 }))).toEqual(['main 5', 'main 6']);
+    expect(texts(readEvents(db, ocId, { beforeSeq: 3, limit: 2 }))).toEqual(['main 1', 'main 2']);
+    expect(readEvents(db, ocId, { beforeSeq: 0 }).events).toEqual([]);
+  });
+  it('サブエージェントは agentId で読む', () => {
+    expect(texts(readEvents(db, ocId, { agentId: 'sub1' }))).toEqual(['sub 0', 'sub 1']);
+    expect(readEvents(db, ocId, { agentId: 'sub1' }).total).toBe(2);
+  });
+  it('作り直しの束で書き直すと、前の行は残らない', () => {
+    writeBatch(db, { agent: 'opencode', providerSessionId: OC, agentId: null, reset: true, records: [{ events: [ev(0, 'again')], facts: { isUserTurn: false }, locator: { kind: 'stored' } }] }, { deviceId: 'd' });
+    expect(texts(readEvents(db, ocId, {}))).toEqual(['again']);
+    expect(texts(readEvents(db, ocId, { agentId: 'sub1' }))).toEqual(['sub 0', 'sub 1']);
   });
 });

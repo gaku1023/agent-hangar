@@ -85,9 +85,11 @@ type SessionRow = {
 };
 
 const SESSION_SELECT = `
-select s.*, exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null) has_transcript,
+select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)
+    or exists(select 1 from agent_events ae where ae.session_id = s.id and ae.agent_key = '')) has_transcript,
   case when st.last_ts is not null and (s.last_activity_at is null or st.last_ts > s.last_activity_at) then st.last_ts else s.last_activity_at end activity_at,
-  exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) has_local,
+  (exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null)
+    or exists(select 1 from agent_events ae where ae.session_id = s.id and ae.agent_key = '')) has_local,
   (select max(t.mtime) from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) local_mtime,
   p.is_scratch project_is_scratch,
   (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
