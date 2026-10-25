@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { InjectionSettingsProps } from '../presenters/settings.ts';
+import { InjectionFull } from './InjectionFull.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
@@ -45,19 +46,7 @@ export function InjectionSettings(props: { injection: InjectionSettingsProps }) 
             control={<Switch label={t('settings.label.askStatusAtEnd')} checked={i.askStatusAtEnd} onChange={(next) => emit({ type: 'settings.update', patch: { askStatusAtEnd: next } })} />} />
           <SetRow title={t('settings.label.liveHints')} info={t('settings.integrations.inject.liveHints.desc')}
             control={<Switch label={t('settings.label.liveHints')} checked={i.liveHints} onChange={(next) => emit({ type: 'settings.update', patch: { liveHints: next } })} />} />
-          <details className="cp-more">
-            <summary><Icon name="chevron" />{t('settings.integrations.inject.full')}</summary>
-            <div className="inject-full">
-              {i.full.map((part) => (
-                <div key={part.label} className="inject-part">
-                  <span className="inject-part-k">{part.label}{part.mark && <span className="inject-mark">{part.mark}</span>}</span>
-                  <span className={part.off ? 'inject-off' : undefined}>
-                    {part.pieces.map((p, n) => (p.kind === 'token' ? <span key={n} className="inject-token">{p.text}</span> : <span key={n}>{p.text}</span>))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </details>
+          <InjectionFull parts={i.full} />
         </AddItem>
       </ul>
     </section>

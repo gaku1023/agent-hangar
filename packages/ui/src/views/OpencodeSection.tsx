@@ -3,6 +3,7 @@ import type { OpencodeInjection } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { OpencodeProvidersProps } from '../presenters/opencodeProviders.ts';
 import type { OpencodeSettingsProps } from '../presenters/settings.ts';
+import { InjectionFull } from './InjectionFull.tsx';
 import { OpencodeProviders } from './OpencodeProviders.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -35,6 +36,7 @@ function OpencodeVersion(props: { version: OpencodeSettingsProps['version'] }) {
  * 有効にする行だけを常に出し、入れたときだけバージョンとシステムプロンプトへの追記の行を growIn で伸ばして入れる（切ると collapseOut で畳んでから外す）。
  * 見出しの右端の札も入のときだけ出し、fadeIn と fadeOut で出入りさせる。
  * 入のときの行は、バージョン、コマンドの横取り（段 D2、macOS と Linux だけ）、システムプロンプトへの追記の順。
+ * 追記の行の下には、選んでいる量で送る全文の畳みを Claude の「システムプロンプトの追記」と同じ形で置く（views/InjectionFull.tsx）。追記しないときは出さない。
  * その下に「プロバイダー」（つないだ先と追加、views/OpencodeProviders.tsx）を置く。providers を渡さなければ出さない。
  * Windows では段 G1 まで面ごと出さない（available が偽）。横取りの行は G1 の後も Windows では出さない（intercept.available）。どれも選んだ時点で保存する。
  */
@@ -87,6 +89,7 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: O
           )}
           <SetRow title={t('settings.label.opencodeInjection')} info={t('settings.opencode.injection.desc')}
             desc={o.claudeNote ? <span className="oc-note" data-tone="warn">{o.claudeNote}</span> : undefined}
+            below={o.full.length > 0 ? <InjectionFull parts={o.full} /> : undefined}
             control={<Listbox label={t('settings.label.opencodeInjection')} value={o.injection} options={o.injectionOptions} align="end"
               onChange={(v) => emit({ type: 'settings.update', patch: { opencodeInjection: v as OpencodeInjection } })} />} />
           {props.providers && <OpencodeProviders p={props.providers} />}
