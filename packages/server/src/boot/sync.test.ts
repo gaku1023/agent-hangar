@@ -9,6 +9,7 @@ import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { BACKUP_GENERATIONS, MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS } from '../sync/pruneBackups.ts';
 import { memoLossHandlers, toastVia } from '../sync/notices.ts';
 import { MIN_WORKER_COMPAT } from '../sync/client.ts';
@@ -107,7 +108,7 @@ function boot(o: { start?: boolean; index?: boolean; cloudWatch?: Parameters<typ
 /** 見本の 3 件の本文を、同期を組む前の DB に索引しておく。全体の起動では、索引が先に済んでいる。 */
 async function indexFixture(): Promise<void> {
   const db = openDb(dbPath(home));
-  try { await new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: () => false }).fullScan(); } finally { db.close(); }
+  try { await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false }).fullScan(); } finally { db.close(); }
 }
 
 describe('同期の組み立て', () => {

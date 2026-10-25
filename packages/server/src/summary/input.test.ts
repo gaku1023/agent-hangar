@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TranscriptEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { buildSummaryInput, CANNED_INPUT, cannedInput, compressEvents } from './input.ts';
 import { parseSummaryOutput, SUMMARY_SCHEMA, SUMMARY_SYSTEM_PROMPT } from './types.ts';
@@ -42,7 +43,7 @@ describe('compressEvents', () => {
 
 describe('buildSummaryInput', () => {
   let dir: string; let db: Db;
-  beforeEach(async () => { dir = copyFixtureClaudeDir(); db = openDb(':memory:'); await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan(); });
+  beforeEach(async () => { dir = copyFixtureClaudeDir(); db = openDb(':memory:'); await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan(); });
   afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
   it('主線から入力を組み立てる', () => {
     const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;

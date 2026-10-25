@@ -6,7 +6,8 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { indexFile } from './indexFile.ts';
-import { IndexerService, type IndexerServiceOptions, type WatchFn } from './service.ts';
+import { claudeTranscriptSource, type WatchFn } from '../provider/claude-code/transcript/source.ts';
+import { IndexerService, type IndexerServiceOptions } from './service.ts';
 
 // 索引化の回数を数えるため、中身はそのままに indexFile を包む。
 vi.mock('./indexFile.ts', async (importOriginal) => {
@@ -75,9 +76,10 @@ afterEach(() => {
 });
 
 /** 起動して全走査を済ませ、そこから先の呼び出しだけを数える。 */
-async function boot(extra: Partial<IndexerServiceOptions> = {}, n = N_SMALL) {
+async function boot(extra: Partial<IndexerServiceOptions> & { remoteRoot?: string } = {}, n = N_SMALL) {
   build(n);
-  const s = new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false, timers, watch: fw.watch, ...extra });
+  const { remoteRoot, ...rest } = extra;
+  const s = new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir, remoteRoot, watch: fw.watch }), isRunning: () => false, timers, ...rest });
   svc = s;
   const errors: string[] = [];
   const changed: string[] = [];

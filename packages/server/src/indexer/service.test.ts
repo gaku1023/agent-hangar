@@ -7,6 +7,7 @@ import { upsertShared } from '../db/shared.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA } from '../../test/fixtures.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
 import { IndexerService } from './service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { expectMode, posixIt } from '../../test/platform.ts';
 
 let dir: string;
@@ -19,7 +20,7 @@ afterEach(() => {
 });
 
 const make = (extra: Partial<ConstructorParameters<typeof IndexerService>[0]> = {}) =>
-  new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: (id) => id === SESSION_ALPHA, ...extra });
+  new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: (id) => id === SESSION_ALPHA, ...extra });
 const count = (sql: string, ...args: unknown[]) => (db.prepare(sql).get(...args) as { c: number }).c;
 const alphaPath = () => path.join(dir, 'projects/-Users-me-workspace-alpha', `${SESSION_ALPHA}.jsonl`);
 const userLine = (sessionId: string, cwd: string, text: string, uuid: string, ts: string) =>
@@ -179,7 +180,7 @@ describe('他端末の本文の索引化', () => {
     const rp = path.join(remote, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
     fs.mkdirSync(path.dirname(rp), { recursive: true });
     fs.writeFileSync(rp, line('remote-body'));
-    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: remote, isRunning: () => false });
+    const svc = new IndexerService({ db, deviceId: 'dev-a', transcript: claudeTranscriptSource({ claudeDir, remoteRoot: remote }), isRunning: () => false });
     const seen: { deviceId: string | null; path: string }[] = [];
     svc.on({ sessionChanged: (e) => seen.push({ deviceId: e.deviceId, path: e.path }) });
     await svc.fullScan();
@@ -202,7 +203,7 @@ describe('他端末の本文の索引化', () => {
     const rp = path.join(remote, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
     fs.mkdirSync(path.dirname(rp), { recursive: true });
     fs.writeFileSync(rp, line('remote-body'));
-    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: remote, isRunning: () => false });
+    const svc = new IndexerService({ db, deviceId: 'dev-a', transcript: claudeTranscriptSource({ claudeDir, remoteRoot: remote }), isRunning: () => false });
     await svc.fullScan();
     expect(count('select count(*) c from sessions')).toBe(0);
     expect(count('select count(*) c from transcript_files')).toBe(0);
@@ -222,7 +223,7 @@ describe('他端末の本文の索引化', () => {
 
   it('start は remote の置き場を 0700 で作る', async () => {
     const root = path.join(remote, 'not-yet');
-    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: root, isRunning: () => false, sweepMs: 10_000 });
+    const svc = new IndexerService({ db, deviceId: 'dev-a', transcript: claudeTranscriptSource({ claudeDir, remoteRoot: root }), isRunning: () => false, sweepMs: 10_000 });
     cleanups.push(() => svc.stop());
     await svc.start();
     // 他端末の会話の本文を置くので、~/.agent-hangar/mcp と同じく本人だけが読める。
@@ -242,7 +243,7 @@ describe('他端末の本文の索引化', () => {
     const rp = path.join(remote, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
     fs.mkdirSync(path.dirname(rp), { recursive: true });
     fs.writeFileSync(rp, body);
-    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: remote, isRunning: () => false });
+    const svc = new IndexerService({ db, deviceId: 'dev-a', transcript: claudeTranscriptSource({ claudeDir, remoteRoot: remote }), isRunning: () => false });
     await svc.fullScan();
     const at = Date.parse('2026-09-01T12:00:00.000Z');
     expect(aggregateUsage(db, { days: 7, now: at }).days).toEqual([{ day: '2026-09-01', inputTokens: 1000, outputTokens: 500, sessions: 1 }]);

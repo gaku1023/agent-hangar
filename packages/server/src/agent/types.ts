@@ -5,7 +5,7 @@ import type { RecordFacts } from '../provider/claude-code/transcript/normalize.t
 
 // hangar とエージェント（Claude Code、opencode）の境界の型。
 // 境界は 5 つの面（起動、状態、トランスクリプト、許可と質問、システムプロンプトへの追記）を持つ。
-// いま driver が実装しているのは起動と状態の面で、残りの面は型を置いただけである（docs/design.md の「Claude Code に固有の部分」）。
+// いま driver が実装しているのは起動と状態とトランスクリプトの面で、残りの面は型を置いただけである（docs/design.md の「Claude Code に固有の部分」）。
 // 実装した面から、任意の印を外していく。
 
 /** エージェントの種類。値は sessions.provider の列に入る値と同じにする（D8）。 */
@@ -18,8 +18,8 @@ export interface AgentDriver {
   readonly launch: AgentLauncher;
   /** 状態の面。一覧を読む側は、各 driver の写しを束ねた agent/liveHub.ts の LiveHub を通して読む。 */
   readonly live: LiveSource;
-  /** トランスクリプトの面。まだ境界を通していない。 */
-  readonly transcript?: TranscriptSource;
+  /** トランスクリプトの面。索引に入れる側（発見と見張り）と、読む側（readPage）を持つ。 */
+  readonly transcript: TranscriptSource;
   /** 許可と質問の面。まだ境界を通していない。 */
   readonly asks?: AskSource;
   /** システムプロンプトへの追記の面。まだ境界を通していない。 */
@@ -103,8 +103,9 @@ export interface LiveSource {
   isRunning(providerSessionId: string, pid: number): boolean;
 }
 
-// ---- トランスクリプト（型だけ） ----
+// ---- トランスクリプト ----
 
+/** A5 で、索引に入れる側が渡す束。いまは型だけである。 */
 export type IndexBatch = {
   providerSessionId: string;
   agentId: string | null;
@@ -118,13 +119,74 @@ export type IndexBatch = {
 
 export type ReadOpts = { fromSeq?: number; limit?: number; agentId?: string | null; latest?: boolean; beforeSeq?: number };
 
+/**
+ * 本文のファイル 1 つ。providerSessionId の主線か、agentId のサブエージェントの本文である。
+ * deviceId は、ほかの PC から降ろした写しならその PC の id で、手元の本文なら null である。
+ */
+export type TranscriptFile = { path: string; sessionId: string; agentId: string | null; deviceId: string | null };
+
+/** 本文の無い会話の覚え（Claude は history.jsonl）。会話の ID ごとに 1 件である。 */
+export type PromptHistoryEntry = { cwd: string; firstTs: number; lastTs: number; firstDisplay: string; count: number };
+export type PromptHistory = {
+  index: Map<string, PromptHistoryEntry>;
+  /** 読んだ中身が変わるたびに増える。呼び手は前に見た値と比べて、変わったときだけ後の処理を回す。 */
+  version: number;
+};
+
+/**
+ * 索引に入れる側が、見張りの知らせを渡す先。hangar の索引（indexer/service.ts）が受ける。
+ * いまは仮の形で、本文を読んで正規化するのは索引の側（indexer/indexFile.ts）に残っている。
+ * A5 で、driver が IndexBatch を作って渡す形に置き換える。
+ */
+export type TranscriptSink = {
+  /** この本文が変わった。索引の側が集めて、少し待ってから索引化する。 */
+  named(file: TranscriptFile): void;
+  /** どの本文が変わったか分からない、または見張りが外れた。索引の側が全件の見比べを早めに回す。 */
+  rescan(): void;
+  /** 本文の無い会話の覚えが変わったかもしれない。 */
+  historyChanged(): void;
+  /** 見張りを付けられなかった、または見張りが壊れた。 */
+  error(path: string, message: string): void;
+};
+
+/** 選んだ本文と、索引から外す本文。stats は選ぶのに取った stat で、索引の側が索引化に使い回す（同じファイルを二度 stat しない）。 */
+export type TranscriptPick = { index: TranscriptFile[]; drop: TranscriptFile[]; stats: Map<string, { size: number; mtimeMs: number } | null> };
+
+/**
+ * 本文をファイルに持つエージェント（Claude）の発見の口。hangar の索引が、全件の見比べと見張りの知らせに合わせて引く。
+ * A4 の仮の形で、A5 で IndexBatch の形に寄せるときに見直す。
+ */
+export interface TranscriptFiles {
+  /**
+   * 全件を列挙し、同じ位置（主線かサブエージェント）の写しから索引化する 1 つを選ぶ。
+   * seen は列挙した全部のパスで、索引の側は、ここに無く手元からも消えた本文を索引から外す。
+   * 置き場そのものが見えないとき（外れたなど）は seen を null にし、全部を消させない。
+   */
+  scan(o: { isYielded?: (providerSessionId: string) => boolean }): TranscriptPick & { seen: Set<string> | null };
+  /** 見張りが名指しした本文を、前の scan で見た同じ位置の写しと合わせて選び直す。stat は file の stat。写しが消えていたら lost を真にする。 */
+  pick(file: TranscriptFile, stat: { size: number; mtimeMs: number }, o: { isYielded?: (providerSessionId: string) => boolean }): TranscriptPick & { lost: boolean };
+  /** 実行中の会話の手元の本文（主線と、いまあるサブエージェント）。 */
+  liveFiles(providerSessionId: string, cwd: string): TranscriptFile[];
+  /** 本文の無い会話の覚えを読む。変わっていなければ前と同じものを返す。 */
+  history(): PromptHistory;
+  /** 付いていない見張りを付ける。start の前と stop の後は何もしない。 */
+  rewatch(): void;
+  /** 見張るべき置き場に、どれも見張りが付いているか。欠けていれば索引の側が全件の見比べを短めの周期で回す。 */
+  healthy(): boolean;
+  /** 失敗を知らせるときに添える場所。scan は全件の見比べ、history は本文の無い会話の覚えである。 */
+  readonly where: { scan: string; history: string };
+}
+
 export interface TranscriptSource {
-  /** 索引に入れる側。 */
-  start(sink: (b: IndexBatch) => void): void;
+  /** 索引に入れる側。見張りを付け、知らせを sink に渡す。 */
+  start(sink: TranscriptSink): void;
   stop(): void;
   /** 読む側。 */
   readPage(db: Db, sessionId: string, opts: ReadOpts): EventsPageDto;
 }
+
+/** 本文をファイルに持つエージェントのトランスクリプトの面。いまの索引（indexer/service.ts）は、この形を受ける。 */
+export type FileTranscriptSource = TranscriptSource & TranscriptFiles;
 
 // ---- 許可と質問（型だけ） ----
 

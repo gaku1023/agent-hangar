@@ -28,6 +28,7 @@ import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { agentsOf } from '../agent/agents.ts';
 import { claudeDriverFor } from '../boot/agents.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { liveSourceOf } from '../../test/fake-live.ts';
 import { RunAccounts } from './accounts.ts';
 import { RUN_STIR_MS, RunManager } from './manager.ts';
@@ -79,7 +80,7 @@ type Deps = ConstructorParameters<typeof RunManager>[0];
  */
 const make = (over: Partial<Omit<Deps, 'accounts' | 'live' | 'agents' | 'claude'>> & { tmux?: Tmux | null; accounts?: AccountStore; live?: () => LiveSession[]; isLive?: (providerSessionId: string) => boolean } = {}) => {
   const { tmux: t = tmux, accounts, live, isLive, ...rest } = over;
-  const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => deps.claudeBin, live: liveSourceOf(live), procs: () => deps.procs ?? noJobs });
+  const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => deps.claudeBin, live: liveSourceOf(live), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => deps.procs ?? noJobs });
   const deps: Deps = {
     db, deviceId: 'd', home, panes: t ? tmuxPaneOps(t) : null, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs, language: () => 'ja',
     accounts: accounts ? new RunAccounts({ db, claudeDir, store: accounts }) : undefined,

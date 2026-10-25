@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EventsPageDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { ReadOpts } from '../agent/types.ts';
 import { openDb, type Db } from '../db/open.ts';
+import { upsertShared } from '../db/shared.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { logQueries } from '../../test/queryLog.ts';
@@ -12,7 +16,7 @@ let db: Db;
 let alphaId: string;
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:');
-  await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+  await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
 });
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
@@ -74,7 +78,7 @@ describe('readEvents', () => {
     const line = (agentId: string, ts: string) => JSON.stringify({ type: 'user', message: { role: 'user', content: 'go' }, uuid: 'x-' + agentId, parentUuid: null, isSidechain: true, agentId, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA }) + '\n';
     fs.writeFileSync(path.join(sub, 'agent-aaa999.jsonl'), line('aaa999', '2026-09-01T10:05:00.000Z'));
     fs.writeFileSync(path.join(sub, 'agent-zzz111.jsonl'), line('zzz111', '2026-09-01T10:01:00.000Z'));
-    await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+    await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
     expect(subagentIds(db, alphaId)).toEqual(['abc123', 'zzz111', 'aaa999']);
   });
   it('知らないセッションは空', () => {
@@ -104,7 +108,7 @@ describe('1 つの記録から何行も出る本文', () => {
   beforeEach(async () => {
     const rows = [{ type: 'user', message: { role: 'user', content: '読んで' }, ...base(0) }, ...[1, 2, 3, 4].flatMap(round)];
     fs.writeFileSync(path.join(dir, 'projects', '-Users-me-workspace-alpha', `${SID}.jsonl`), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
-    await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+    await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
     wideId = (db.prepare('select id from sessions where provider_session_id = ?').get(SID) as { id: string }).id;
   });
 
@@ -129,5 +133,44 @@ describe('1 つの記録から何行も出る本文', () => {
     const many = logQueries(db);
     readEvents(many.db, wideId, { fromSeq: 0, limit: total });
     expect(many.ran.length).toBe(few.ran.length);
+  });
+});
+
+describe('readEvents の provider のふり分け', () => {
+  const ocId = 'oc-session-1';
+  beforeEach(() => {
+    upsertShared(db, 'sessions', { id: ocId, provider: 'opencode', provider_session_id: 'ses_test', cwd: '/w/oc', home_device: 'd' }, 'd');
+  });
+  const pageOf = (sessionId: string): EventsPageDto => ({ sessionId, events: [{ seq: 0, kind: 'user', text: 'from opencode', ts: 1 } as TranscriptEvent], total: 1, nextSeq: null });
+
+  it('会話の provider の読み手に渡し、その結果をそのまま返す', () => {
+    const opencode = vi.fn((_db: Db, sessionId: string, _opts: ReadOpts) => pageOf(sessionId));
+    const claude = vi.fn(() => { throw new Error('Claude の読み手を呼んだ'); });
+    const readers = (p: string) => (p === 'opencode' ? opencode : p === 'claude-code' ? claude : undefined);
+    const opts = { fromSeq: 3, limit: 7, agentId: null };
+    expect(readEvents(db, ocId, opts, readers)).toEqual(pageOf(ocId));
+    expect(opencode).toHaveBeenCalledTimes(1);
+    expect(opencode.mock.calls[0]![1]).toBe(ocId);
+    expect(opencode.mock.calls[0]![2]).toEqual(opts);
+    expect(claude).not.toHaveBeenCalled();
+  });
+  it('Claude の会話は Claude の読み手に渡す（既定の読み手と同じ結果）', () => {
+    const expected = readEvents(db, alphaId, { limit: 5 });
+    const opencode = vi.fn(() => { throw new Error('opencode の読み手を呼んだ'); });
+    const claude = vi.fn((d: Db, id: string, o: ReadOpts) => readEvents(d, id, o));
+    const readers = (p: string) => (p === 'opencode' ? opencode : p === 'claude-code' ? claude : undefined);
+    expect(readEvents(db, alphaId, { limit: 5 }, readers)).toEqual(expected);
+    expect(claude).toHaveBeenCalledTimes(1);
+    expect(opencode).not.toHaveBeenCalled();
+  });
+  it('既定の読み手は Claude の driver の readPage と同じ行を返す', () => {
+    const source = claudeTranscriptSource({ claudeDir: dir });
+    expect(source.readPage(db, alphaId, {})).toEqual(readEvents(db, alphaId, {}));
+  });
+  it('読み手の無い provider の会話は空のページを返す', () => {
+    expect(readEvents(db, ocId, {})).toEqual({ sessionId: ocId, events: [], total: 0, nextSeq: null });
+  });
+  it('行の無い会話は今までどおり Claude の道で空のページを返す', () => {
+    expect(readEvents(db, 'no-such-session', {})).toEqual({ sessionId: 'no-such-session', events: [], total: 0, nextSeq: null });
   });
 });

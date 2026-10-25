@@ -5,6 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { insertProject } from '../projects/registry.ts';
 import { Publisher } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { createLiveChangeHandler } from './liveChange.ts';
 import { setSessionState } from './states.ts';
@@ -29,7 +30,7 @@ describe('実行中の一覧の変化', () => {
     claudeDir = copyFixtureClaudeDir();
     db = openDb(':memory:');
     live = [entry('busy')];
-    await new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: (id) => live.some((l) => l.sessionId === id) }).fullScan();
+    await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir }), isRunning: (id) => live.some((l) => l.sessionId === id) }).fullScan();
     alpha = (db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(SESSION_ALPHA) as { id: string }).id;
     sent = [];
     calls = [];

@@ -1,18 +1,12 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
-import {
-  AGENT_FILE_RE, classifyProjectsEntry, classifyRemoteEntry, HistoryIndexReader, listRemoteTranscriptFiles, listTranscriptFiles, mangleCwd, selectFilesToIndex,
-  type HistoryEntry, type HistoryRead, type WatchedEntry,
-} from '../provider/claude-code/transcript/discover.ts';
-import type { TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
-import type { DiscoveredFile } from '../provider/claude-code/types.ts';
+import type { FileTranscriptSource, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink } from '../agent/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
-import { ensureSession, forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat, type ProcessStartOf } from './indexFile.ts';
+import { ensureSession, forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat, type IndexFileOptions, type ProcessStartOf } from './indexFile.ts';
 import { stmt } from './statements.ts';
 
 export type IndexerListener = {
@@ -28,17 +22,14 @@ export type IndexerListener = {
   deletedSeen?: (e: { sessionId: string; path: string }) => void;
 };
 
-/** fs.watch の形。試験が通知を自分で起こすために差し替える。 */
-export type WatchFn = (
-  dir: string,
-  options: { recursive: boolean },
-  listener: (event: string, filename: string | null) => void,
-) => { close(): void; on(event: 'error', listener: (e: Error) => void): unknown };
-
 export type IndexerServiceOptions = {
   db: Db;
   deviceId: string;
-  claudeDir: string;
+  /**
+   * エージェントのトランスクリプトの面（いまは Claude の provider/claude-code/transcript/source.ts）。
+   * どのファイルが本文か、どれを索引化するか、どこを見張るかはここが決め、ここの索引はいつ見比べていつ索引化するかを決める。
+   */
+  transcript: FileTranscriptSource;
   isRunning: (providerSessionId: string) => boolean;
   /** 取りこぼし対策の全件走査の周期。既定は 5 分。 */
   sweepMs?: number;
@@ -48,13 +39,11 @@ export type IndexerServiceOptions = {
   debounceMs?: number;
   /** 名前の分からない通知から全件走査までの間。既定は 1 秒。 */
   rescanDelayMs?: number;
-  /** 他端末の本文の置き場（~/.agent-hangar/remote）。渡さなければ手元だけを索引化する。 */
-  remoteRoot?: string;
   isYielded?: (sessionUuid: string) => boolean;
   /** 打った発言を出したプロセスの起動時刻を引く口。渡さなければ、発言で状態を外さない（提案は外す）。 */
   processStartOf?: ProcessStartOf;
   /** 手元の本文の行を Claude Code との互換の契約で見張る口。渡さなければ見張らない。 */
-  compat?: TranscriptCompat;
+  compat?: IndexFileOptions['compat'];
   /**
    * いま実行中のセッション（Claude Code のセッション ID と cwd）。
    * 渡すと、その主線とサブエージェントの本文だけは、通知に頼らず liveMs ごとに stat で見る。
@@ -65,15 +54,14 @@ export type IndexerServiceOptions = {
   liveMs?: number;
   /** 試験が時計を差し替える口。 */
   timers?: Timers;
-  /** 試験が fs.watch を差し替える口。 */
-  watch?: WatchFn;
 };
 
 /** 進行中の走査に付ける段階。rebuild のときだけ rebuilding になる。 */
 type ScanPhase = 'indexing' | 'rebuilding';
 /** 索引に記録済みの、ファイルごとの大きさと更新時刻と版。 */
 type KnownRow = { size: number; mtime: number; indexer_version: number };
-type WatchKey = 'projects' | 'claude' | 'remote';
+type DiscoveredFile = TranscriptFile;
+type HistoryEntry = PromptHistoryEntry;
 
 const YIELD_EVERY = 20;
 const HISTORY_DEBOUNCE_MS = 1000;
@@ -83,10 +71,8 @@ const DEBOUNCE_MS = 300;
 const RESCAN_DELAY_MS = 1000;
 const LIVE_MS = 2000;
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
-const realWatch: WatchFn = (dir, options, listener) => fs.watch(dir, options, listener);
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-const groupKey = (f: DiscoveredFile): string => `${f.sessionId}:${f.agentId ?? ''}`;
 const yieldToLoop = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
 
 /** ファイルの大きさと更新時刻。読めなければ null。 */
@@ -100,7 +86,7 @@ function statOrNull(filePath: string): fs.Stats | null {
 
 /**
  * transcript の全走査と監視を受け持つ。
- * ~/.claude 配下は fs.watch と読み取りだけで触り、書き込みは一切しない。
+ * どのファイルが本文か、どこを見張るかはエージェントのトランスクリプトの面（opts.transcript）が決め、ここはいつ見比べていつ索引化するかを決める。
  * 1 ファイルの失敗は error に流して他のファイルの索引化を止めない。
  *
  * 待機中に何もしないことを優先する。
@@ -111,9 +97,6 @@ function statOrNull(filePath: string): fs.Stats | null {
 export class IndexerService {
   private listeners = new Set<IndexerListener>();
   private state: IndexProgressDto = { phase: 'idle', done: 0, total: 0 };
-  private watchers = new Map<WatchKey, { close(): void }>();
-  /** 監視を付けられなかったと知らせた置き場。同じ失敗を走査のたびにくり返さない。 */
-  private watchFailReported = new Set<WatchKey>();
   private flushTimer: NodeJS.Timeout | null = null;
   private sweepTimer: NodeJS.Timeout | null = null;
   private historyTimer: NodeJS.Timeout | null = null;
@@ -132,21 +115,24 @@ export class IndexerService {
   private running = false;
   /** 監視が名指しした、まだ索引化していない本文。 */
   private pending = new Map<string, DiscoveredFile>();
-  /** 最後の全件走査で見た、同じ位置（主線かサブエージェント）ごとの候補。名指しされたファイルを全件走査と同じ規則で選ぶのに使う。 */
-  private groups = new Map<string, DiscoveredFile[]>();
-  private history: HistoryIndexReader;
   /** 本文なしのセッションの登録を最後に回したときの history の版。 */
   private syncedHistory = -1;
   private inflight = new Set<Promise<unknown>>();
   /** 失敗を知らせたファイルと、そのときの大きさと更新時刻。同じ失敗を毎周期くり返さないために持つ。 */
   private reportedErrors = new Map<string, string>();
 
-  constructor(private readonly opts: IndexerServiceOptions) {
-    this.history = new HistoryIndexReader(opts.claudeDir);
-  }
+  /** トランスクリプトの面の見張りの知らせを受ける口。 */
+  private readonly sink: TranscriptSink = {
+    named: (file) => this.onNamed(file),
+    rescan: () => this.requestSweep(),
+    historyChanged: () => this.onHistoryChanged(),
+    error: (where, message) => this.emitError(where, message),
+  };
+
+  constructor(private readonly opts: IndexerServiceOptions) {}
 
   private get timers(): Timers { return this.opts.timers ?? REAL_TIMERS; }
-  private get projectsDir(): string { return path.join(this.opts.claudeDir, 'projects'); }
+  private get transcript(): FileTranscriptSource { return this.opts.transcript; }
 
   on(listener: IndexerListener): () => void {
     this.listeners.add(listener);
@@ -168,25 +154,10 @@ export class IndexerService {
    * 索引化するファイルを選び、外れたものと消えたものを索引から落とす。
    * 選ぶときに取った stat を返し、呼び手はそれを索引化に回して同じファイルを二度 stat しない。
    */
-  private targets(): { files: DiscoveredFile[]; stats: Map<string, fs.Stats | null> } {
-    const local = listTranscriptFiles(this.opts.claudeDir);
-    const remote = this.opts.remoteRoot ? listRemoteTranscriptFiles(this.opts.remoteRoot) : [];
-    const all = [...local, ...remote];
-    const stats = new Map<string, fs.Stats | null>();
-    const statOf = (p: string): fs.Stats | null => {
-      if (!stats.has(p)) stats.set(p, statOrNull(p));
-      return stats.get(p) ?? null;
-    };
-    const { index, drop } = selectFilesToIndex(all, { statOf, isYielded: this.opts.isYielded });
+  private targets(): { files: DiscoveredFile[]; stats: Map<string, FileStat | null> } {
+    const { index, drop, stats, seen } = this.transcript.scan({ isYielded: this.opts.isYielded });
     this.forgetDropped(drop);
-    this.forgetVanished(new Set(all.map((f) => f.path)));
-    const groups = new Map<string, DiscoveredFile[]>();
-    for (const f of all) {
-      const g = groups.get(groupKey(f));
-      if (g) g.push(f);
-      else groups.set(groupKey(f), [f]);
-    }
-    this.groups = groups;
+    if (seen) this.forgetVanished(seen);
     return { files: index, stats };
   }
 
@@ -206,12 +177,11 @@ export class IndexerService {
    * 索引にはあるのに、手元のファイルがもう無い行を片付ける。
    * Claude Code は保持期間を過ぎた本文を黙って消すので、放っておくと「本文あり」のまま開けない会話が残る。
    * 消すのは DB の行だけで、利用者のファイルには触れない。
-   * projects そのものが見えないとき（置き場が外れたなど）は、全部を消してしまわないよう何もしない。
+   * 置き場そのものが見えないとき（外れたなど）は、トランスクリプトの面が seen を渡さないので呼ばない。全部を消してしまわないためである。
    * 他の PC の写し（device_id あり）は持ち主の同期が扱うので、ここでは見ない。
    * 全件を列挙したときだけ呼ぶ。
    */
   private forgetVanished(seen: Set<string>): void {
-    if (!fs.existsSync(this.projectsDir)) return;
     const rows = stmt(this.opts.db, 'select path, session_id from transcript_files where device_id is null').all() as { path: string; session_id: string }[];
     const gone = new Set<string>();
     for (const r of rows) {
@@ -241,7 +211,7 @@ export class IndexerService {
    * stat は呼び手が取った大きさと更新時刻で、known は索引に記録済みの値をまとめて引いたものである。
    * 両方あって変わっていなければ、indexFile を呼ばずに返す（indexFile が何もせずに返す条件と同じ）。
    */
-  private indexOne(file: DiscoveredFile, history: Map<string, HistoryEntry>, stat?: fs.Stats | null, known?: Map<string, KnownRow>): boolean {
+  private indexOne(file: DiscoveredFile, history: Map<string, HistoryEntry>, stat?: FileStat | null, known?: Map<string, KnownRow>): boolean {
     const st = stat === undefined ? statOrNull(file.path) : stat;
     const row = known?.get(file.path);
     if (st && row && isUnchanged(row, st)) {
@@ -290,7 +260,7 @@ export class IndexerService {
     try {
       this.setProgress({ phase: 'scanning', done: 0, total: 0 });
       const { files, stats } = this.targets();
-      const history = this.history.read();
+      const history = this.transcript.history();
       const known = this.knownFiles();
       let changed = 0;
       this.setProgress({ phase, done: 0, total: files.length });
@@ -319,7 +289,7 @@ export class IndexerService {
    */
   private *sweepSteps(): Generator<void, number> {
     const { files, stats } = this.targets();
-    const history = this.history.read();
+    const history = this.transcript.history();
     const known = this.knownFiles();
     let changed = 0;
     for (let i = 0; i < files.length; i++) {
@@ -348,7 +318,7 @@ export class IndexerService {
     this.sweeping = true;
     const epoch = this.scanEpoch;
     try {
-      this.ensureWatchers();
+      this.transcript.rewatch();
       const steps = this.sweepSteps();
       for (let r = steps.next(); !r.done; r = steps.next()) {
         await yieldToLoop();
@@ -358,7 +328,7 @@ export class IndexerService {
         }
       }
     } catch (e) {
-      this.emitError(this.projectsDir, errorMessage(e));
+      this.emitError(this.transcript.where.scan, errorMessage(e));
     } finally {
       this.sweeping = false;
       if (this.running) {
@@ -377,7 +347,7 @@ export class IndexerService {
    * 既に本文があるセッションは触らない。
    * 土台の要約は、行を書き換えたときと要約がまだ無いときだけ書き、走査のたびに changes を増やさない。
    */
-  syncHistoryOnly(history: Map<string, HistoryEntry> = this.history.read().index): number {
+  syncHistoryOnly(history: Map<string, HistoryEntry> = this.transcript.history().index): number {
     const db = this.opts.db;
     const hasMain = stmt(db, 'select 1 from transcript_files where session_id = ? and agent_id is null limit 1');
     const hasSummary = stmt(db, 'select 1 from session_summaries where session_id = ? limit 1');
@@ -406,13 +376,13 @@ export class IndexerService {
   }
 
   /** history.jsonl が前に登録を回したときから変わっていれば、本文なしのセッションの登録を回す。 */
-  private syncHistoryIfChanged(history: HistoryRead = this.history.read()): void {
+  private syncHistoryIfChanged(history: PromptHistory = this.transcript.history()): void {
     if (history.version === this.syncedHistory) return;
     try {
       this.syncHistoryOnly(history.index);
       this.syncedHistory = history.version;
     } catch (e) {
-      this.emitError(path.join(this.opts.claudeDir, 'history.jsonl'), errorMessage(e));
+      this.emitError(this.transcript.where.history, errorMessage(e));
     }
   }
 
@@ -425,7 +395,7 @@ export class IndexerService {
     try {
       const batch = [...this.pending.values()];
       this.pending.clear();
-      const history = this.history.read().index;
+      const history = this.transcript.history().index;
       for (let i = 0; i < batch.length; i++) {
         this.indexNamed(batch[i]!, history);
         if (i % YIELD_EVERY === YIELD_EVERY - 1) {
@@ -434,7 +404,7 @@ export class IndexerService {
         }
       }
     } catch (e) {
-      this.emitError(this.projectsDir, errorMessage(e));
+      this.emitError(this.transcript.where.scan, errorMessage(e));
     } finally {
       this.flushing = false;
       if (this.running && this.pending.size > 0) this.scheduleFlush();
@@ -452,40 +422,27 @@ export class IndexerService {
       this.requestSweep();
       return;
     }
-    const key = groupKey(file);
-    const others = (this.groups.get(key) ?? []).filter((g) => g.path !== file.path);
-    if (others.length === 0) {
-      this.groups.set(key, [file]);
-      this.indexOne(file, history, st);
-      return;
-    }
-    const stats = new Map<string, fs.Stats>([[file.path, st]]);
-    const alive = [file];
-    for (const g of others) {
-      const s = statOrNull(g.path);
-      if (s) {
-        stats.set(g.path, s);
-        alive.push(g);
-      } else {
-        this.requestSweep();
-      }
-    }
-    this.groups.set(key, alive);
-    const { index, drop } = selectFilesToIndex(alive, { statOf: (p) => stats.get(p) ?? null, isYielded: this.opts.isYielded });
+    const { index, drop, stats, lost } = this.transcript.pick(file, st, { isYielded: this.opts.isYielded });
+    if (lost) this.requestSweep();
     this.forgetDropped(drop);
     for (const f of index) this.indexOne(f, history, stats.get(f.path));
   }
 
-  /** 監視の通知を受ける。名指しされた本文は集めて、最初の通知から debounce の後にまとめて索引化する。 */
-  private onWatched(entry: WatchedEntry | null): void {
+  /** 監視が名指しした本文を集めて、最初の通知から debounce の後にまとめて索引化する。 */
+  private onNamed(file: DiscoveredFile): void {
     if (!this.running) return;
-    if (entry === null || entry.kind === 'rescan') {
-      this.requestSweep();
-      return;
-    }
-    if (entry.kind === 'ignore') return;
-    this.pending.set(entry.file.path, entry.file);
+    this.pending.set(file.path, file);
     this.scheduleFlush();
+  }
+
+  /** 本文の無い会話の覚えが変わったかもしれない。続けて変わる間は待ち、落ち着いてから登録を回す。 */
+  private onHistoryChanged(): void {
+    if (!this.running) return;
+    if (this.historyTimer) this.timers.clearTimeout(this.historyTimer);
+    this.historyTimer = this.timers.setTimeout(() => {
+      this.historyTimer = null;
+      this.syncHistoryIfChanged();
+    }, HISTORY_DEBOUNCE_MS);
   }
 
   /**
@@ -520,7 +477,7 @@ export class IndexerService {
   private armSweep(): void {
     if (!this.running) return;
     this.clearSweepTimer();
-    const ms = this.watchesHealthy() ? (this.opts.sweepMs ?? SWEEP_MS) : (this.opts.pollFallbackMs ?? POLL_FALLBACK_MS);
+    const ms = this.transcript.healthy() ? (this.opts.sweepMs ?? SWEEP_MS) : (this.opts.pollFallbackMs ?? POLL_FALLBACK_MS);
     this.sweepTimer = this.timers.setTimeout(() => this.fireSweep(), ms);
   }
 
@@ -559,7 +516,7 @@ export class IndexerService {
       try {
         this.checkLive();
       } catch (e) {
-        this.emitError(this.projectsDir, errorMessage(e));
+        this.emitError(this.transcript.where.scan, errorMessage(e));
       }
       this.noteLiveChanged();
     }, this.opts.liveMs ?? LIVE_MS);
@@ -572,101 +529,23 @@ export class IndexerService {
     const seen = new Set<string>();
     let history: Map<string, HistoryEntry> | null = null;
     for (const s of live) {
-      for (const f of this.liveFilesOf(s.sessionId, s.cwd)) {
+      for (const f of this.transcript.liveFiles(s.sessionId, s.cwd)) {
         const st = statOrNull(f.path);
         if (!st) continue;
         seen.add(f.path);
         const stamp = `${st.size}:${st.mtimeMs}`;
         if (this.liveStamps.get(f.path) === stamp) continue;
         this.liveStamps.set(f.path, stamp);
-        history ??= this.history.read().index;
+        history ??= this.transcript.history().index;
         this.indexNamed(f, history);
       }
     }
     for (const p of this.liveStamps.keys()) if (!seen.has(p)) this.liveStamps.delete(p);
   }
 
-  /**
-   * 実行中のセッションの手元の本文。主線は全件走査で見た場所を使い、まだ見ていなければ cwd から組む。
-   * サブエージェントは、主線の隣の <セッション>/subagents を読んで、途中で増えたものも拾う。
-   */
-  private liveFilesOf(sessionId: string, cwd: string): DiscoveredFile[] {
-    const known = (this.groups.get(`${sessionId}:`) ?? []).find((f) => f.deviceId === null);
-    const main: DiscoveredFile = known ?? { path: path.join(this.projectsDir, mangleCwd(cwd), `${sessionId}.jsonl`), sessionId, agentId: null, deviceId: null };
-    const out = [main];
-    let names: string[] = [];
-    try {
-      names = fs.readdirSync(path.join(path.dirname(main.path), sessionId, 'subagents'));
-    } catch {
-      // サブエージェントがまだ無い。
-    }
-    for (const n of names) {
-      const m = AGENT_FILE_RE.exec(n);
-      if (m) out.push({ path: path.join(path.dirname(main.path), sessionId, 'subagents', n), sessionId, agentId: m[1]!, deviceId: null });
-    }
-    return out;
-  }
-
   /** 走り出した索引化と全件走査が済むまで待つ。試験が時計を進めた後に使う。 */
   async settled(): Promise<void> {
     while (this.inflight.size > 0) await Promise.allSettled([...this.inflight]);
-  }
-
-  /** 見張るべき置き場に、どれも監視が付いているか。欠けていれば全件走査を短めの周期で回す。 */
-  private watchesHealthy(): boolean {
-    return this.watchers.has('claude') && this.watchers.has('projects') && (!this.opts.remoteRoot || this.watchers.has('remote'));
-  }
-
-  /** 付いていない監視を付ける。置き場がまだ無いものは、現れてから付ける。 */
-  private ensureWatchers(): void {
-    this.attach('claude', this.opts.claudeDir, false, (name) => this.onClaudeDirName(name));
-    if (fs.existsSync(this.projectsDir)) {
-      this.attach('projects', this.projectsDir, true, (name) => this.onWatched(name === null ? null : classifyProjectsEntry(this.projectsDir, name, null)));
-    }
-    const remoteRoot = this.opts.remoteRoot;
-    if (remoteRoot) {
-      this.attach('remote', remoteRoot, true, (name) => this.onWatched(name === null ? null : classifyRemoteEntry(remoteRoot, name)));
-    }
-  }
-
-  private attach(key: WatchKey, dir: string, recursive: boolean, onName: (name: string | null) => void): void {
-    if (this.watchers.has(key)) return;
-    const watchFn = this.opts.watch ?? realWatch;
-    try {
-      const w = watchFn(dir, { recursive }, (_event, name) => onName(name === null || name === undefined ? null : String(name)));
-      w.on('error', (e) => {
-        this.emitError(dir, `fs.watch error: ${errorMessage(e)}`);
-        // 監視が壊れた。外して短めの周期の全件走査に切り替え、次の走査で付け直す。
-        if (this.watchers.get(key) === w) {
-          this.watchers.delete(key);
-          try { w.close(); } catch { /* もう閉じている */ }
-        }
-        this.requestSweep();
-      });
-      this.watchers.set(key, w);
-      this.watchFailReported.delete(key);
-    } catch (e) {
-      if (!this.watchFailReported.has(key)) {
-        this.watchFailReported.add(key);
-        this.emitError(dir, `fs.watch failed, polling only: ${errorMessage(e)}`);
-      }
-    }
-  }
-
-  /** ~/.claude そのものの通知。history.jsonl の追記と、projects が現れたことだけを見る。 */
-  private onClaudeDirName(name: string | null): void {
-    if (!this.running) return;
-    if (name === null || name === 'history.jsonl') {
-      if (this.historyTimer) this.timers.clearTimeout(this.historyTimer);
-      this.historyTimer = this.timers.setTimeout(() => {
-        this.historyTimer = null;
-        this.syncHistoryIfChanged();
-      }, HISTORY_DEBOUNCE_MS);
-    }
-    if (name === 'projects' && !this.watchers.has('projects')) {
-      this.ensureWatchers();
-      this.requestSweep();
-    }
   }
 
   /**
@@ -676,9 +555,7 @@ export class IndexerService {
    */
   async start(): Promise<void> {
     this.running = true;
-    // 他端末の会話の本文なので、本人だけが読める権限で作る（puller 側も同じ 0700 で作る）。
-    if (this.opts.remoteRoot) fs.mkdirSync(this.opts.remoteRoot, { recursive: true, mode: 0o700 });
-    this.ensureWatchers();
+    this.transcript.start(this.sink);
     // 前の版が先頭からの索引を消してしまったファイルは、この全走査で先頭から読み直す。
     markTruncatedForReindex(this.opts.db);
     await this.fullScan();
@@ -688,10 +565,7 @@ export class IndexerService {
 
   stop(): void {
     this.running = false;
-    for (const w of this.watchers.values()) {
-      try { w.close(); } catch { /* もう閉じている */ }
-    }
-    this.watchers.clear();
+    this.transcript.stop();
     if (this.flushTimer) this.timers.clearTimeout(this.flushTimer);
     if (this.historyTimer) this.timers.clearTimeout(this.historyTimer);
     if (this.liveTimer) this.timers.clearTimeout(this.liveTimer);

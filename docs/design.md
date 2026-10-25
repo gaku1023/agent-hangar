@@ -1110,7 +1110,7 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 `sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
 `AgentKind` の値は `sessions.provider` に入る値と同じにし、`agent/agents.ts` がその値から driver を引く。
 
-いま境界を通っているのは起動と状態の面である。
+いま境界を通っているのは起動と状態とトランスクリプトの面である。
 `RunManager` は、新しい会話の ID（`newSessionId`）、起動の引数と外す環境変数（`plan` が返す `LaunchPlan`）、止めるときの後始末（`release`）を driver から受け取る。
 MCP の秘密を発行することと、`runCommand` で包むことは hangar の側に残す。
 attach や引き取りのような Claude にしか無い起こし方は、`RunManager` が Claude の driver を直に使う。
@@ -1124,11 +1124,20 @@ Claude の写しは、登録の見張り（`registry.ts` の `RegistryWatcher`�
 driver は、配る層と一緒に `boot/agents.ts` で組む。
 写しは配る層、索引、同期が `RunManager` より先に読むので、run の管理の中では組めないためである。
 
+トランスクリプトの面（`TranscriptSource`）は、索引に入れる側と読む側を持つ。
+読む側の入口（`transcript/read.ts` の `readEvents`）は、会話の `sessions.provider` で読み手をふり分けるだけで、読み方は driver の `readPage` が決める。
+行の無い会話は既定のエージェント（Claude）の道で読み、読み手の無いエージェントの会話は空のページを返す。
+索引に入れる側では、どのファイルが本文か、どれを索引化するか、どこを見張るかを driver が受け持ち（Claude は `provider/claude-code/transcript/source.ts`）、いつ見比べていつ索引化するかを索引（`indexer/service.ts`）が受け持つ。
+索引は driver の発見の口（`agent/types.ts` の `TranscriptFiles`）を引き、見張りの知らせを `start` に渡した受け口で受ける。
+この受け口と発見の口は、本文をファイルに持つ Claude のための仮の形である。
+本文を読んで正規化するのは、まだ索引の側（`indexer/indexFile.ts`）に残っている。
+これを driver が `IndexBatch` を作る側と、DB に書く側に割るときに、受け口を `IndexBatch` の形にそろえる。
+
 `provider/claude-code/` の中は、役目ごとに分けてある。
 
 | 置き場 | 中身 |
 | --- | --- |
-| `transcript/` | jsonl の走査（`discover.ts`）、追記分の読み（`lines.ts`）、正規化（`normalize.ts`）、最後の動きの畳み込み（`activity.ts`） |
+| `transcript/` | jsonl の走査（`discover.ts`）、発見と見張り（`source.ts`、トランスクリプトの面）、1 ページの読み出し（`page.ts`）、追記分の読み（`lines.ts`）、正規化（`normalize.ts`）、最後の動きの畳み込み（`activity.ts`） |
 | `hooks/` | hook の入力から AskUserQuestion の出入りを読む（`question.ts`） |
 | `registry.ts` | 実行中のセッションの登録（`~/.claude/sessions/<pid>.json`）の読み |
 | `launch/` | 起動の引数（`args.ts`）、`--mcp-config` に渡すファイル（`mcpConfig.ts`）、`--settings` に渡す hook の設定（`hookSettings.ts`） |
@@ -1139,14 +1148,14 @@ driver は、配る層と一緒に `boot/agents.ts` で組む。
 | `summary/` | `claude -p` での要約（`claude.ts`） |
 | `compat/` | 互換の見張り（次の節） |
 | `types.ts` | 起動の入力と走査の型 |
-| `driver.ts` | Claude の driver（`agent/types.ts` の `AgentDriver`）。いまは起動と状態の面で、ID を作り、引数と外す環境変数を組み立て、バックグラウンドのセッションを止め、登録の見張りを状態の面として出す（`claudeLiveSource`） |
+| `driver.ts` | Claude の driver（`agent/types.ts` の `AgentDriver`）。いまは起動と状態とトランスクリプトの面で、ID を作り、引数と外す環境変数を組み立て、バックグラウンドのセッションを止め、登録の見張りを状態の面として出し（`claudeLiveSource`）、本文の発見と読み出しをトランスクリプトの面として出す（`claudeTranscriptSource`） |
 
 この置き場の中から読んでよいのは、下の層（`platform/`、`i18n/`、`config/`、`sync/` や `summary/` の型と小さな関数）だけで、HTTP、`boot/`、`events/` は読まない。
 外からは、入口のファイルを通さずに、使うモジュールを直に import する。
 入口 1 つにまとめると、CLI の束（`cliEntry.ts`）がサーバの大半を抱えることになるためである。
 
 Claude Code の事情と hangar 自身の物（DB、tmux、同期）が 1 つのファイルに混ざっているものは、まだ外に残してある。
-索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、区切りを付けたセッションを止める前の登録の読み直し（`boot/runs.ts` の `readRegistry`）などである。
+索引の本文の読みと正規化（`indexer/indexFile.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、区切りを付けたセッションを止める前の登録の読み直し（`boot/runs.ts` の `readRegistry`）などである。
 これらを割るのは振る舞いに触るので、別の変更で行う。
 
 ### 保存先と読み方
@@ -1168,7 +1177,7 @@ Claude Code の保存先と、その読み方を定める。
 サブエージェントの本文は主線と別のファイルで独立に伸びるので、`event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)` とし、主線とサブエージェントで `seq` の空間を分ける。
 主線を絞る問い合わせは、この索引の式に合わせて `ifnull(parent_agent, '') = ''` と書く。
 `parent_agent is null` と書くと索引に乗らず、長いセッションでは 1 回でそのセッションの全行を表まで見に行く。
-本文を読むとき（`transcript/read.ts`）は、索引のバイト位置からファイルを読み、正規化し直す。
+Claude の本文を読むとき（`provider/claude-code/transcript/page.ts`）は、索引のバイト位置からファイルを読み、正規化し直す。
 1 つの記録から出た行は `seq` が続いているので、ページの中の 2 つ目からの記録は、ページに入った最初の行が記録の先頭である。
 記録の途中から始まりうるのはページの最初の記録だけで、その先頭は索引を 1 行ずつ遡って確かめる。
 `byte_offset` は索引に無いので、記録ごとにバイト位置で先頭を引くと、読む件数とセッションの長さの積で重くなる。
@@ -1185,6 +1194,7 @@ Claude Code の保存先と、その読み方を定める。
 以前は 2 秒ごとに全件を stat し、ファイルごとに SQL を準備して引き、`history.jsonl` を頭から読み直していた。
 数千ファイルの置き場では、何も変わっていなくてもサーバが CPU を使い続け、1 周にファイルの数の 2 倍の prepare とその実行が走っていた（0.6.0 の報告）。
 
+- 周期と待ちは `indexer/service.ts` が、置き場の列挙、選び方、`fs.watch` は Claude の driver のトランスクリプトの面（`provider/claude-code/transcript/source.ts`）が受け持つ。
 - 起動すると、先に監視を付けてから全走査する。全走査の間に届いた通知は、走査が済んでから索引化する。
 - `~/.claude/projects` と他端末の置き場（`~/.agent-hangar/remote`）は `fs.watch` の recursive で、`~/.claude` そのものは recursive なしで見張る。
 - 通知の名前は `discover.ts` の `classifyProjectsEntry` と `classifyRemoteEntry` で振り分ける。

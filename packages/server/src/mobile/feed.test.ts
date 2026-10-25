@@ -6,6 +6,7 @@ import { MOBILE_TEXT_MAX, PRIMARY_ACCOUNT_ID, type LiveSessionDto } from '@agent
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { addIntent } from '../live/intents.ts';
 import { buildMobileFeed, LAST_USED_SQL, type FeedSources } from './feed.ts';
 import { saveRemoteUrl } from './remoteUrl.ts';
@@ -159,7 +160,7 @@ describe('buildMobileFeed', () => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
       const db = seed();
-      await new IndexerService({ db, deviceId: ME, claudeDir: dir, isRunning: () => false }).fullScan();
+      await new IndexerService({ db, deviceId: ME, transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
       const sid = (db.prepare('select id from sessions where provider_session_id = ?').get(UUID) as { id: string }).id;
       run(db, 'run1', sid);
       db.prepare("insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?, 'AskUserQuestion', '', 'toolu_q', 'どちらにしますか', ?) on conflict(session_id) do update set question = excluded.question").run(sid, NOW);

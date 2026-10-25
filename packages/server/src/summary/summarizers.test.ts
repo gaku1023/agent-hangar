@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveSessionDto, SummaryEngine, UsageDto } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { NO_COMPAT } from '../provider/claude-code/compat/types.ts';
 import type { SpawnText } from '../provider/claude-code/summary/claude.ts';
 import { CANNED_INPUT } from './input.ts';
@@ -21,7 +22,7 @@ describe('要約の契機', () => {
     // 必ず「生きている」と出る。run の終了を知っている側は、その判定を当てにしない。
     const db = openDb(':memory:');
     try {
-      await new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: () => false }).fullScan();
+      await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false }).fullScan();
       const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
       const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/w', pid: 1 }];
       const summarizer: Summarizer = { id: 'lmstudio', available: async () => true, summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] }) };
