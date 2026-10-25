@@ -61,6 +61,19 @@ describe('writeBatch', () => {
     expect(one('select turns, input_tokens from session_stats where session_id = ?', first.sessionId)).toEqual({ turns: 1, input_tokens: 0 });
   });
 
+  it('最後の入力・返答の時刻（last_turn_ts）は、主線の発言と返答だけから取る。後に書かれた system の記録や道具では進めない', () => {
+    const late = (seq: number) => stored([{ kind: 'system', seq, ts: TS + 180_000, text: 'away summary' }], { ts: TS + 180_000 });
+    const first = writeBatch(db, batch([prompt(0, 'はじめの依頼'), reply(1, '直しました'), late(3)], true), { deviceId: DEV });
+    expect(one('select last_ts, last_turn_ts from session_stats where session_id = ?', first.sessionId)).toEqual({ last_ts: TS + 180_000, last_turn_ts: TS + 1000 });
+    // 返答の無い続きの束では前の値を残し、作り直しでは束の値に置き換える。
+    writeBatch(db, batch([late(0)]), { deviceId: DEV });
+    expect(one('select last_turn_ts from session_stats where session_id = ?', first.sessionId)).toEqual({ last_turn_ts: TS + 1000 });
+    writeBatch(db, batch([prompt(0, '作り直した依頼', TS + 500)], true), { deviceId: DEV });
+    expect(one('select last_turn_ts from session_stats where session_id = ?', first.sessionId)).toEqual({ last_turn_ts: TS + 500 });
+    writeBatch(db, batch([late(0)], true), { deviceId: DEV });
+    expect(one('select last_turn_ts from session_stats where session_id = ?', first.sessionId)).toEqual({ last_turn_ts: null });
+  });
+
   it('論理削除した会話の束は書かない', () => {
     const first = writeBatch(db, batch([prompt(0, 'はじめの依頼')], true), { deviceId: DEV });
     softDeleteShared(db, 'sessions', first.sessionId, DEV);

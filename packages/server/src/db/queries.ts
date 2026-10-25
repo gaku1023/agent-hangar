@@ -40,6 +40,8 @@ type SessionRow = {
   sum_turns: number | null;
   sum_updated: number | null;
   st_turns: number | null;
+  /** 最後の入力・返答の時刻（session_stats.last_turn_ts）。 */
+  st_last_turn: number | null;
   st_model: string | null;
   st_effort: string | null;
   st_files: number | null;
@@ -95,7 +97,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   p.is_scratch project_is_scratch,
   (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
-  st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
+  st.turns st_turns, st.last_turn_ts st_last_turn, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
   ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question,
   lim.kind lim_kind, lim.resets_at lim_resets_at, lim.auto lim_auto,
   sn.name sn_name,
@@ -327,6 +329,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     aiTitle: r.ai_title,
     startedAt: r.started_at,
     lastActivityAt: r.activity_at,
+    lastTurnAt: r.st_last_turn,
     hasTranscript: r.has_transcript === 1,
     live: live?.status ?? null,
     liveAside: live?.aside ?? null,

@@ -61,6 +61,8 @@ type Acc = {
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string; model?: string; effort?: string;
   /** 利用者が打った発言（IndexRecord.typedPrompt）のうち、最も新しい時刻。状態を外す合図に使う。 */
   lastTypedPromptTs?: number;
+  /** 主線の発言と返答の時刻の最大（session_stats.last_turn_ts）。 */
+  lastTurnTs?: number;
   userTurns: number; input: number; output: number;
   /** 記録ごとの費用の和と、最後の文脈の量（RecordFacts.costUsd、contextTokens）。持たない束では undefined のまま。 */
   cost?: number; contextTokens?: number;
@@ -183,6 +185,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, ref, b.agentId, toolName, filePath);
+        if ((ev.kind === 'user' || ev.kind === 'assistant') && ev.ts !== undefined) acc.lastTurnTs = Math.max(acc.lastTurnTs ?? ev.ts, ev.ts);
         if (r.locator.kind === 'stored') insBody.run(sessionId, agentKey, ev.seq, JSON.stringify(ev));
         if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {
           const c = artifactCallOf(ev.input);
@@ -346,11 +349,12 @@ function onlyActivityCreeps(base: Record<string, unknown>, next: Record<string, 
 function writeSessionStats(db: Db, sessionId: string, acc: Acc, reset: boolean): void {
   const st = stmt(db, 'select * from session_stats where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   const base = reset || !st ? { turns: 0, input_tokens: 0, output_tokens: 0 } : { turns: st.turns as number, input_tokens: st.input_tokens as number, output_tokens: st.output_tokens as number };
-  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt) values (?,?,?,?,?,?,?,?,?,?)
-    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt`)
+  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt, last_turn_ts) values (?,?,?,?,?,?,?,?,?,?,?)
+    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt, last_turn_ts = excluded.last_turn_ts`)
     .run(sessionId, base.turns + acc.userTurns, acc.model ?? (reset ? null : st?.model ?? null), acc.effort ?? (reset ? null : st?.effort ?? null), acc.prUrl ?? (reset ? null : st?.pr_url ?? null),
       base.input_tokens + acc.input, base.output_tokens + acc.output,
       acc.firstTs ?? (reset ? null : st?.first_ts ?? null), acc.lastTs ?? (reset ? null : st?.last_ts ?? null),
-      acc.lastPrompt ?? (reset ? null : st?.last_prompt ?? null));
+      acc.lastPrompt ?? (reset ? null : st?.last_prompt ?? null),
+      acc.lastTurnTs ?? (reset ? null : st?.last_turn_ts ?? null));
   refreshFilesChanged(db, sessionId);
 }

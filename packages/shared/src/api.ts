@@ -112,9 +112,10 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * activity は実行中のときだけ値を持ち、実行中でなければ null である。
  * waitingFor と permission は登録の同じ欄を写したもので、入力待ちの間だけ付く（LiveSessionDto）。
  * limit は使用制限で止まっていることで、実行中のときだけ値を持つ（SessionLimitDto）。
+ * lastTurnAt は最後の入力・返答の時刻（手元の統計）で、終わった会話の見出しの「終了」に使う。統計の無い会話は null。
  * provider は会話を動かすエージェントで、一覧とサイドバーのアイコンを決める（agentIcons.ts）。古いサーバは opencode を知らないので、読む側は agentIconKindOf で読む。
  */
-export type SessionDto = { id: string; provider: 'claude-code' | 'opencode'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
+export type SessionDto = { id: string; provider: 'claude-code' | 'opencode'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; lastTurnAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
   /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
   interrupted: SessionInterruptDto | null;
   /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */

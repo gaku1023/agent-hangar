@@ -1011,7 +1011,8 @@ create table session_stats (
   input_tokens integer not null default 0,
   output_tokens integer not null default 0,
   first_ts integer, last_ts integer,
-  last_prompt text
+  last_prompt text,
+  last_turn_ts integer   -- 主線の発言と返答の時刻の最大（版 36）
 );
 
 create table usage_snapshots (
@@ -4977,6 +4978,9 @@ hangar が自動で付けた状態は、札の頭に ✦ を置き、説明は�
 
 実行中は、見出しの下に行を置かない。
 終わった後は、見出しの下に事実の小さい 1 行（見出しの下の 1 行）を置く（下の段落）。
+1 行の「最終メッセージ N 分前」（英語は Last message）は、最後の入力・返答の時刻（`SessionDto.lastTurnAt`、手元の `session_stats.last_turn_ts`）から数える。
+最後の動き（`lastActivityAt`）は、返答の後に書かれる system の記録（離席中の要約など）や再開した時刻でも進み、閉じた時刻とも最後のやりとりとも合わないため（2026-10-26。それまでの語は「終了」）。
+`last_turn_ts` を持たない会話（本文の索引が無い他端末の会話など）だけ、最後の動きで数える。
 今までの行の印は、次の場所へ移った。
 
 - 状態と経過は、実行中なら現在の札の 1 行目。コンテキスト使用量、コスト、ターンとトークンは (i) に出し（2026-10-11 に札から移した）、終わった後は見出しの下の 1 行にも出す。
@@ -8744,7 +8748,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 初回索引は背景で走らせ、UI は「N / 総数 件」の静的な文字で進行を示す。
 - 意味検索は持たないが、LM Studio に埋め込みモデルがあるので、将来ローカルで追加できる。
 - `event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)`。サブエージェントの本文は別ファイルで独立に伸びるので、主線と `seq` の空間を分ける。
-- 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言を索引から導出して置き、共有しない。
+- 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言、最後の入力・返答の時刻（`last_turn_ts`）を索引から導出して置き、共有しない。
 - 土台の要約の `state` は、レジストリに生きた項目があれば `in_progress`、無ければ `done`。UI は `source = 'baseline'` の状態を控えめに描く。
 - サブエージェントは、そのファイルの先頭の記録から `subagent` イベントを作り、親の時系列でその直前にある `Agent` か `Task` のツール呼び出しの下にネストする。該当が無ければ独立した項目として出す。
 - セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`（索引が `sessions.custom_title` に拾う）、hangar で付けた名前（`session_notes.name`）、`ai-title`、最初の発言の先頭 40 字の順で決める。

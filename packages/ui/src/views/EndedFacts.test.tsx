@@ -14,7 +14,7 @@ const NOW = Date.UTC(2026, 9, 9, 3, 0, 0);
 const DAY = 86_400_000;
 
 const session = (p: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, 
+  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, lastTurnAt: null, 
   hasTranscript: true, live: null,
   summary: { title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 11, updatedAt: NOW - 3 * DAY },
   stats: { turns: 11, model: null, effort: null, filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
@@ -56,7 +56,7 @@ describe('見出しの下の 1 行（H1）', () => {
     // 札の語は英語のまま、日本語の説明をツールチップで添える。
     expect(c.getByText('Done')).toHaveAttribute('title', '完了したもの');
     expect(c.getByText(/に設定$/)).toBeInTheDocument();
-    expect(c.getByText('終了 3 日前')).toBeInTheDocument();
+    expect(c.getByText('最終メッセージ 3 日前')).toBeInTheDocument();
     expect(c.getByText('11 ターン')).toBeInTheDocument();
     expect(c.getByText('20k トークン')).toBeInTheDocument();
     expect(c.getByText('$0.42')).toBeInTheDocument();

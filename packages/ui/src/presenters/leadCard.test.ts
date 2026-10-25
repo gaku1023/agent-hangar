@@ -11,7 +11,7 @@ const DAY = 86_400_000;
 const summary = (p: Partial<SessionSummaryDto> = {}): SessionSummaryDto => ({ title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにし、PR をマージした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'qwen3-8b', basedOnTurns: 11, updatedAt: Date.UTC(2026, 9, 6, 9, 40), ...p });
 const state = (p: Partial<SessionStateDto> = {}): SessionStateDto => ({ status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: Date.UTC(2026, 9, 6, 3, 0), candidate: null, ...p });
 const session = (p: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, 
+  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, lastTurnAt: null, 
   hasTranscript: true, live: null, summary: summary(), stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...p,
 });
@@ -28,7 +28,7 @@ describe('冒頭の 1 枚の 1 行目', () => {
     expect(present({ session: session({ state: state({ setBy: 'import' }), stats: { ...session().stats, turns: 2 } }) }).status).toMatchObject({ value: 'done', auto: true, title: 'hangar が自動で Done にしました（3 ターン以下で終了した会話）' });
     // 設定した日は端末の時刻で月と日にする。
     expect(c.status.since).toBe(`${new Date(Date.UTC(2026, 9, 6, 3, 0)).getMonth() + 1}/${new Date(Date.UTC(2026, 9, 6, 3, 0)).getDate()} に設定`);
-    expect(c.ended).toBe('終了 3 日前');
+    expect(c.ended).toBe('最終メッセージ 3 日前');
     expect(c.stopped).toBeNull();
     expect(c).toMatchObject({ turns: '11 ターン', tokens: '20k トークン', cost: '$0.42' });
   });
@@ -43,6 +43,12 @@ describe('冒頭の 1 枚の 1 行目', () => {
   it('コストが届いていなければ null（行の桁を崩さない）', () => {
     expect(present({ session: session({ stats: { ...session().stats, costUsd: null } }) }).cost).toBeNull();
   });
+  it('終了の時刻は最後の入力・返答の時刻（lastTurnAt）で数える。後の system の記録や再開の時刻で進んだ最後の動きは使わない', () => {
+    expect(present({ session: session({ lastActivityAt: NOW - 60_000, lastTurnAt: NOW - 2 * DAY }) }).ended).toBe('最終メッセージ 2 日前');
+    // 最後の入力・返答の時刻を持たない会話（ほかの PC の写しで統計がまだ無いなど）は、最後の動きで数える。
+    expect(present({ session: session({ lastTurnAt: null }) }).ended).toBe('最終メッセージ 3 日前');
+    expect(present({ session: session({ lastTurnAt: NOW - 2 * DAY }) }, en).ended).toBe('Last message 2 days ago');
+  });
   it('区切りを付けたので止めたときは、終了の代わりにその知らせを出す', () => {
     const c = present({ session: session({ stoppedByStatus: true, state: state({ status: 'paused' }) }) });
     expect(c.stopped).toBe('Paused にしたため停止しました。再開すると続けられます');
@@ -54,7 +60,7 @@ describe('冒頭の 1 枚の 1 行目', () => {
     expect(present({ session: session({ lock: lock(false), remoteOnly: true }) }).ended).toBeNull();
     expect(present({ session: session({ lock: lock(false), provider: 'opencode' }) }).ended).toBeNull();
     // 応答が途絶えた PC は、動いているとは言えないので、最後の動きを終了として出す（今どおり）。
-    expect(present({ session: session({ lock: lock(true) }) }).ended).toBe('終了 3 日前');
+    expect(present({ session: session({ lock: lock(true) }) }).ended).toBe('最終メッセージ 3 日前');
   });
   it('本文が消えた会話は「要約のみ」、本文が無い会話は「トランスクリプトがありません」', () => {
     expect(present({ gone: true, session: session({ hasTranscript: false }) }).flags).toEqual(['要約のみ']);

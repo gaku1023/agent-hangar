@@ -339,7 +339,7 @@ export type LeadCardProps = {
   label: string;
   /** title は札のツールチップ（日本語の説明、自動の Done はその理由）、auto は hangar が自動で付けた Done（札に ✦ と点線の枠）。 */
   status: { value: 'active' | 'paused' | 'done' | 'archived'; label: string; since: string | null; title: string; auto: boolean };
-  /** 終了の文。区切りを付けたので止めたときは stopped を、中断したときは interrupted を出すので null。 */
+  /** 最終メッセージの文（「最終メッセージ 5 分前」）。区切りを付けたので止めたときは stopped を、中断したときは interrupted を出すので null。 */
   ended: string | null;
   /** 中断の文（「PC の再起動で中断 · 10/12 03:12」）。ステータスの無いセッションで、最後の run が中断で終わったときだけ。 */
   interrupted?: string | null;
@@ -409,7 +409,7 @@ function leadFiles(i: LeadInput, t: Translate): LeadCardProps['files'] {
 
 /**
  * 終わったセッションの、見出しの下の 1 行（H1）と、右の欄の要約の札（S5）の中身（2026-10-16 の試作）。
- * 1 行にはステータスの札と設定した日、終了、ターンとトークンとコスト、git と変更したファイルとアーティファクトと PR の札を並べる。
+ * 1 行にはステータスの札と設定した日、最終メッセージ（最後の入力・返答の時刻）、ターンとトークンとコスト、git と変更したファイルとアーティファクトと PR の札を並べる。
  * 要約の札には、要約の本文、次のステップ、進捗、作成中と失敗の知らせ、「要約を再生成」を入れる。
  * 土台の要約（索引が組んだ事実の羅列）と、「要約はありません」「要約は設定で有効にできます」は出さない（見出しと重なる事実の羅列になっていた）。
  */
@@ -427,7 +427,8 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
     label: t('session.lead.label'),
     status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null, ...statusMark(t, s.state, s.stats, s.summary, s.lastActivityAt) },
     // ほかの PC で実行中（応答のあるロック）の間は終わっていないので、終了を出さない。見出しの札が「<PC 名> で実行中」と言う。
-    ended: stopped || interrupted || (s.lock && !s.lock.stale) ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
+    // 時刻は最後の入力・返答で数える。最後の動きは、返答の後の system の記録や再開した時刻でも進むため。持たない会話だけ最後の動きで数える。
+    ended: stopped || interrupted || (s.lock && !s.lock.stale) ? null : t('session.lead.ended', { when: relativeTime(t, s.lastTurnAt ?? s.lastActivityAt, i.now) }),
     stopped,
     interrupted,
     turns: turnsText(stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(stats.inputTokens + stats.outputTokens) }), cost: stats.costUsd === null ? null : costLabel(stats.costUsd),

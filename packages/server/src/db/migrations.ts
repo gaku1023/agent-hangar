@@ -613,6 +613,18 @@ create table agent_events (
 `;
 
 /**
+ * 最後の入力・返答の時刻（版 36）。終わった会話の見出しの「終了 N 分前」はこれで数える（ui の presentLeadCard）。
+ * last_ts は本文の最後の記録の時刻で、返答の後に書かれる system の記録（離席中の要約など）でも進むので、別の列にする。
+ * 主線の発言（user）と返答（assistant）の時刻の最大で、索引の書き手（indexer/write.ts）が書く。今ある行は event_index から埋める。
+ * 端末ローカルの表で、同期しない。
+ */
+const V36_LAST_TURN_TS_SQL = `
+alter table session_stats add column last_turn_ts integer;
+update session_stats set last_turn_ts = (select max(e.ts) from event_index e
+  where e.session_id = session_stats.session_id and e.parent_agent is null and e.kind in ('user', 'assistant'));
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -638,4 +650,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 33, sql: V33_MOBILE_LAUNCH_SESSION_SQL },
   { version: 34, sql: V34_ARTIFACT_ALIASES_SQL },
   { version: 35, sql: V35_AGENT_EVENTS_SQL },
+  { version: 36, sql: V36_LAST_TURN_TS_SQL },
 ];

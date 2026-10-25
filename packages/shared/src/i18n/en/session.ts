@@ -87,7 +87,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.toc.shortcut': 'Toggle right panel',
   'session.lead.label': 'Summary of this session',
   'session.lead.statusSince': 'Set {date}',
-  'session.lead.ended': 'Ended {when}',
+  'session.lead.ended': 'Last message {when}',
   'session.lead.stopped': 'Stopped because it was marked {status}. Resume to continue',
   'session.lead.summaryOnly': 'Summary only',
   'session.lead.noTranscript': 'No transcript',
