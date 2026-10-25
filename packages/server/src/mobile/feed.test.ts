@@ -396,4 +396,100 @@ describe('buildMobileFeed', () => {
     expect(f.done.map((d) => d.sessionId)).toEqual(['s1', 's2']);
     expect(f.returns.map((d) => d.sessionId)).toEqual(['s3', 's4']);
   });
+
+  describe('opencode の会話（F1）', () => {
+    function ocSession(db: Db, id: string, o: { name?: string } = {}): void {
+      upsertShared(db, 'sessions', { id, provider: 'opencode', provider_session_id: `ses_${id}`, project_id: 'p-a', cwd: '/w/project-a', first_prompt: null, ai_title: o.name ?? null, home_device: ME }, ME);
+    }
+    const ocLive = (id: string, o: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId: `ses_${id}`, status: 'busy', name: null, nameSource: null, cwd: '/w/project-a', pid: 2, statusAt: NOW - 1000, agent: 'opencode', ...o });
+    function stats(db: Db, providerSessionId: string, o: { model?: string | null; used?: number | null; size?: number | null; cost?: number | null }): void {
+      db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)')
+        .run(providerSessionId, o.model ?? null, null, o.used ?? null, o.size ?? null, o.cost ?? null, NOW);
+    }
+
+    it('opencode の実行中の会話も live に出て、agent に opencode が付く。Claude の行には agent も usage も付かない', () => {
+      const db = seed();
+      session(db, 's1', { name: 'Claude の会話' });
+      ocSession(db, 'o1', { name: 'opencode の会話' });
+      run(db, 'run1', 's1');
+      run(db, 'run2', 'o1');
+      stats(db, 'u-s1', { model: 'claude-opus', used: 50_000, size: 200_000, cost: 1.5 });
+      const feed = buildMobileFeed(src(db, { live: [liveOf('s1', { statusAt: NOW - 1 }), ocLive('o1', { statusAt: NOW - 2 })] }));
+      expect(feed.live.map((l) => l.sessionId)).toEqual(['s1', 'o1']);
+      const [claude, oc] = feed.live;
+      expect(claude).not.toHaveProperty('agent');
+      expect(claude).not.toHaveProperty('usage');
+      expect(oc).toMatchObject({ sessionId: 'o1', title: 'opencode の会話', agent: 'opencode', rcUrl: null });
+      // アカウントは Claude だけのもの。opencode の行は空にして、スマホにアカウントの札を出させない。
+      expect(claude!.accountId).toBe(PRIMARY_ACCOUNT_ID);
+      expect(oc!.accountId).toBe('');
+    });
+
+    it('同じ provider_session_id の Claude の会話と取り違えない（provider で引く）', () => {
+      const db = seed();
+      upsertShared(db, 'sessions', { id: 'c-dup', provider: 'claude-code', provider_session_id: 'ses_o1', project_id: 'p-a', cwd: '/w/project-a', first_prompt: null, ai_title: 'Claude 側', home_device: ME }, ME);
+      ocSession(db, 'o1', { name: 'opencode 側' });
+      run(db, 'run-c', 'c-dup');
+      run(db, 'run-o', 'o1');
+      const feed = buildMobileFeed(src(db, { live: [ocLive('o1')] }));
+      expect(feed.live.map((l) => [l.sessionId, l.title, l.agent])).toEqual([['o1', 'opencode 側', 'opencode']]);
+    });
+
+    it('opencode の行の使用量は session_live_stats から（ctx は 0〜100 の整数、tokens は使ったコンテキスト）', () => {
+      const db = seed();
+      for (const id of ['o1', 'o2', 'o3', 'o4']) { ocSession(db, id); run(db, `run-${id}`, id); }
+      stats(db, 'ses_o1', { model: 'opencode/big-pickle', used: 13_600, size: 200_000, cost: 0 });
+      stats(db, 'ses_o2', { model: 'lmstudio/qwen', used: 9_000, size: null, cost: null });
+      stats(db, 'ses_o3', { model: 'x/y', used: 300_000, size: 200_000, cost: 0.4249 });
+      // 使った量がまだ無い行（o4）と、行そのものが無い会話には usage を付けない。
+      stats(db, 'ses_o4', { model: 'x/y', used: null, size: 200_000, cost: null });
+      const feed = buildMobileFeed(src(db, { live: ['o1', 'o2', 'o3', 'o4'].map((id, i) => ocLive(id, { statusAt: NOW - i })) }));
+      const by = Object.fromEntries(feed.live.map((l) => [l.sessionId, l.usage]));
+      expect(by.o1).toEqual({ ctx: 7, tokens: 13_600, cost: 0, model: 'opencode/big-pickle' });
+      expect(by.o2).toEqual({ ctx: null, tokens: 9_000, cost: null, model: 'lmstudio/qwen' });
+      expect(by.o3).toEqual({ ctx: 100, tokens: 300_000, cost: 0.4249, model: 'x/y' });
+      expect(by.o4).toBeUndefined();
+      expect(feed.live.find((l) => l.sessionId === 'o4')).not.toHaveProperty('usage');
+    });
+
+    it('opencode の許可待ちは「shell: 命令」、form の問いは session_activity の問いの文が waiting に入る', () => {
+      const db = seed();
+      ocSession(db, 'o1');
+      ocSession(db, 'o2');
+      run(db, 'run1', 'o1');
+      run(db, 'run2', 'o2');
+      db.prepare("insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values ('o2', 'AskUserQuestion', '', 'call_1', 'どの枝に出しますか', ?)").run(NOW);
+      const feed = buildMobileFeed(src(db, {
+        live: [
+          ocLive('o1', { status: 'waiting', waitingFor: 'permission', permission: { tool: 'shell', input: 'git push origin main', description: null }, statusAt: NOW - 1 }),
+          ocLive('o2', { status: 'waiting', waitingFor: 'question', statusAt: NOW - 2 }),
+        ],
+      }));
+      const by = Object.fromEntries(feed.live.map((l) => [l.sessionId, l.waiting]));
+      expect(by.o1).toEqual({ kind: 'permission', text: 'shell: git push origin main' });
+      expect(by.o2).toEqual({ kind: 'question', text: 'どの枝に出しますか' });
+    });
+
+    it('opencode の Paused と Done にも agent が付き、Claude の行には付かない', () => {
+      const db = seed();
+      session(db, 's1');
+      ocSession(db, 'o1');
+      ocSession(db, 'o2');
+      for (const id of ['s1', 'o1', 'o2']) run(db, `run-${id}`, id, { endedAt: NOW - 100 });
+      state(db, 's1', { status: 'done', setAt: NOW - HOUR });
+      state(db, 'o1', { status: 'done', setAt: NOW - 2 * HOUR });
+      state(db, 'o2', { status: 'paused', returnOn: '2026-10-17' });
+      const feed = buildMobileFeed(src(db));
+      expect(feed.done.map((d) => [d.sessionId, d.agent])).toEqual([['s1', undefined], ['o1', 'opencode']]);
+      expect(feed.done[0]).not.toHaveProperty('agent');
+      expect(feed.returns.map((r) => [r.sessionId, r.agent, r.accountId])).toEqual([['o2', 'opencode', '']]);
+    });
+
+    it('caps.agents は、設定で opencode が有効のときだけ載せる（切なら caps は今までと同じ形）', () => {
+      const db = seed();
+      expect(buildMobileFeed(src(db)).caps).toEqual({ asks: true, images: true, effort: true });
+      expect(buildMobileFeed(src(db, { opencodeEnabled: false })).caps).toEqual({ asks: true, images: true, effort: true });
+      expect(buildMobileFeed(src(db, { opencodeEnabled: true })).caps).toEqual({ asks: true, images: true, effort: true, agents: ['claude-code', 'opencode'] });
+    });
+  });
 });

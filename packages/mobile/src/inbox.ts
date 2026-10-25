@@ -1,5 +1,6 @@
 import type { LiveStatus } from '@agent-hangar/shared/src/api.ts';
-import { PEER_STALE_MS, type MobileFeed, type MobileInboxResponse, type MobileWaiting } from '@agent-hangar/shared/src/mobile.ts';
+import { agentIconsShown } from '@agent-hangar/shared/src/agentIcons.ts';
+import { PEER_STALE_MS, type MobileFeed, type MobileInboxResponse, type MobileUsage, type MobileWaiting } from '@agent-hangar/shared/src/mobile.ts';
 import { aadFeed, open } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { fetchInbox, type InboxFetched } from './api.ts';
 import { newestEpoch, type Keyring, type Pairing } from './store.ts';
@@ -26,6 +27,13 @@ export type Row = {
   returnOn: string | null;
   returnTime: string | null;
   rcUrl: string | null;
+  /**
+   * Claude Code 以外のエージェント（いまは opencode）。null は Claude Code（PC は Claude の行に agent を付けない）。
+   * 知らない値もそのまま持つ。画面は Claude でない行を claude.ai へつながない。
+   */
+  agent: string | null;
+  /** 実行中の行の使用量。opencode の行で PC が載せたときだけ値を持つ。 */
+  usage: MobileUsage | null;
 };
 
 export type DeviceAlive = { id: string; name: string; lastSeenAt: number | null; alive: boolean };
@@ -44,6 +52,11 @@ export type InboxView = {
   skewMs: number;
   /** 受信箱の応答の見出しから読んだ Worker の版。分からなければ null（古いとはみなさない）。 */
   workerCompat?: number | null;
+  /**
+   * 行の題名の左にエージェントの絵を出すか（shared の agentIconsShown）。
+   * どれかの PC が opencode を有効にしている（caps.agents に opencode）か、opencode の行が 1 つでもあれば、全部の行に出す。
+   */
+  agentIcons: boolean;
 };
 
 /**
@@ -59,6 +72,23 @@ const arr = <T>(v: T[] | undefined | null): T[] => (Array.isArray(v) ? v : []);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** 行のエージェント。無いか空なら Claude Code（null）。 */
+const agentOf = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
+
+/**
+ * 使用量を形で確かめて読む（PC から来た値も信じない）。tokens が 0 以上の数でなければ捨てる。
+ * ctx は 0 から 100 に収め、数でなければ null。cost は 0 以上の数でなければ null。
+ */
+function usageOf(v: unknown): MobileUsage | null {
+  if (!v || typeof v !== 'object') return null;
+  const u = v as Record<string, unknown>;
+  const tokens = num(u.tokens);
+  if (tokens === null || tokens < 0) return null;
+  const ctx = num(u.ctx);
+  const cost = num(u.cost);
+  return { ctx: ctx === null ? null : Math.min(100, Math.max(0, ctx)), tokens, cost: cost !== null && cost >= 0 ? cost : null, model: str(u.model) };
+}
 
 /** スマホの手元の日付（YYYY-MM-DD）。 */
 export function localDay(d: Date): string {
@@ -137,7 +167,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
     feedNames.set(f.deviceId, deviceName);
     const alive = device?.alive ?? false;
     const accounts = new Map(arr(feed.accounts).map((a) => [a.id, a]));
-    const base = (s: { sessionId: string; projectName: string; title: string }, accountId: string | null): Omit<Row, 'status' | 'at' | 'startedAt' | 'waiting' | 'intent' | 'oneLiner' | 'returnOn' | 'returnTime' | 'rcUrl'> => {
+    const base = (s: { sessionId: string; projectName: string; title: string; agent?: unknown }, accountId: string | null): Omit<Row, 'status' | 'at' | 'startedAt' | 'waiting' | 'intent' | 'oneLiner' | 'returnOn' | 'returnTime' | 'rcUrl' | 'usage'> => {
       const acc = accountId ? accounts.get(accountId) : undefined;
       return {
         sessionId: str(s.sessionId),
@@ -147,9 +177,10 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
         title: str(s.title),
         accountName: acc ? str(acc.name) || null : null,
         accountColor: acc && COLOR.test(str(acc.color)) ? acc.color : null,
+        agent: agentOf(s.agent),
       };
     };
-    const empty = { waiting: null, intent: null, oneLiner: null, returnOn: null, returnTime: null, rcUrl: null, startedAt: null };
+    const empty = { waiting: null, intent: null, oneLiner: null, returnOn: null, returnTime: null, rcUrl: null, startedAt: null, usage: null };
 
     for (const l of arr(feed.live)) {
       if (!l || !str(l.sessionId)) continue;
@@ -167,6 +198,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
           waiting,
           intent: strOrNull(l.intent),
           rcUrl: strOrNull(l.rcUrl),
+          usage: usageOf(l.usage),
         },
       });
     }
@@ -199,7 +231,11 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0) || a.sessionId.localeCompare(b.sessionId));
 
   const skewMs = num(res.now) !== null ? workerNow - now.getTime() : 0;
-  return { waiting, running, returning, doneToday, devices, unreadable, feeds, skewMs, workerCompat: res.workerCompat ?? null };
+  const agentIcons = agentIconsShown({
+    opencodeEnabled: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('opencode')),
+    hasOpencode: rows.some((r) => r.agent === 'opencode'),
+  });
+  return { waiting, running, returning, doneToday, devices, unreadable, feeds, skewMs, workerCompat: res.workerCompat ?? null, agentIcons };
 }
 
 /** 受信箱の素のうち、いちばん新しい世代。素が無ければ 0。 */

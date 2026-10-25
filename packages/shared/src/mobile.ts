@@ -27,6 +27,19 @@ export const MOBILE_ASK_TIMEOUT_MS = 5_000;
 
 export type MobileWaiting = { kind: WaitKind; text: string };
 
+/**
+ * Claude Code 以外のエージェントの印（opencode の行にだけ付ける）。
+ * Claude の行には付けない。古い PC の素と同じ形にし、バイトも節約するためである。古いスマホは読み捨てる。
+ */
+export type MobileAgent = 'opencode';
+
+/**
+ * 実行中の opencode の行の使用量（server の session_live_stats から）。
+ * ctx はコンテキストの使用率（0 から 100 の整数）で、モデルの上限が分からなければ null。tokens は使ったコンテキストのトークン数。
+ * cost は米ドルで、分からなければ null。model は opencode のモデルの ID（provider/model）。
+ */
+export type MobileUsage = { ctx: number | null; tokens: number; cost: number | null; model: string };
+
 export type MobileLiveItem = {
   sessionId: string;
   projectId: string | null;
@@ -39,10 +52,14 @@ export type MobileLiveItem = {
   waiting: MobileWaiting | null;
   intent: string | null;
   rcUrl: string | null;
+  /** Claude Code 以外のエージェントの行だけに付く。無ければ Claude Code。 */
+  agent?: MobileAgent;
+  /** 使用量。opencode の行で、使った量が分かるときだけ付く。fitFeed は収まらないときに真っ先に削る。 */
+  usage?: MobileUsage;
 };
 
-export type MobileReturnItem = { sessionId: string; projectName: string; title: string; accountId: string; returnOn: string; returnTime: string | null };
-export type MobileDoneItem = { sessionId: string; projectName: string; title: string; oneLiner: string | null; doneAt: number };
+export type MobileReturnItem = { sessionId: string; projectName: string; title: string; accountId: string; returnOn: string; returnTime: string | null; agent?: MobileAgent };
+export type MobileDoneItem = { sessionId: string; projectName: string; title: string; oneLiner: string | null; doneAt: number; agent?: MobileAgent };
 export type MobileAccount = { id: string; name: string; color: string; fiveHour: number | null; sevenDay: number | null };
 export type MobileProject = { id: string; name: string; lastUsedAt: number | null };
 
@@ -50,8 +67,11 @@ export type MobileProject = { id: string; name: string; lastUsedAt: number | nul
  * PC の hangar ができること（rc.2 で足した）。
  * asks は `/` と `@` の問い合わせに答えること、images は起動の依頼の画像を受け取ること、effort は依頼の effort を効かせること。
  * rc.1 の PC は caps を載せず、依頼の images と effort を黙って捨てるので、スマホは caps の無い PC にそれらを出さない。
+ *
+ * agents は、この PC で起こせるエージェント（0.10.0 で足した）。opencode は、PC の設定で opencode を有効にしているときだけ載せる。
+ * 無ければ Claude Code だけの PC である。古い PC は依頼の知らない欄（agent）を断らずに Claude を起こしてしまうので、スマホは agents に opencode のある PC にだけ opencode の依頼を出す。
  */
-export type MobileCaps = { asks: boolean; images: boolean; effort: boolean };
+export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: ('claude-code' | 'opencode')[] };
 
 /** 1 台の PC が Worker に預ける受信箱の素。暗号化して置くので、Worker は中身を読めない。 */
 export type MobileFeed = {
@@ -216,6 +236,7 @@ const SHORT_TEXT_MAX = 60;
 /**
  * 受信箱の素を上限に収める。超えたら次の順に、収まったところでやめる。
  *
+ * 0. live の使用量（usage）を全部消す。飾りの数字なので、行を落とすより先に消す。
  * 1. done、returns、projects の順に、古いものから 1 件ずつ落とす。
  * 2. 待っていない live（status が waiting でないもの）を、idle、busy の順に、statusAt の古いものから落とす。
  * 3. live の意図を SHORT_TEXT_MAX 字に詰め、それでも収まらなければ意図を消す。
@@ -239,6 +260,7 @@ export function fitFeed(feed: MobileFeed, maxBytes: number = MOBILE_FEED_MAX_BYT
     }
   };
   const mapLive = (f: (l: MobileLiveItem) => MobileLiveItem): void => { out = { ...out, live: out.live.map(f) }; };
+  if (out.live.some((l) => l.usage !== undefined)) mapLive(({ usage: _usage, ...l }) => l);
   trim('done', (a, b) => a.doneAt - b.doneAt);
   trim('returns', (a, b) => (a.returnOn + ' ' + (a.returnTime ?? '')).localeCompare(b.returnOn + ' ' + (b.returnTime ?? '')));
   trim('projects', (a, b) => (a.lastUsedAt ?? -Infinity) - (b.lastUsedAt ?? -Infinity));

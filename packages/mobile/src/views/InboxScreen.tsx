@@ -1,11 +1,13 @@
+import { agentIconKindOf } from '@agent-hangar/shared/src/agentIcons.ts';
 import { isRemoteControlUrl } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from 'react';
 import { UnpairedError, type UnpairedReason } from '../api.ts';
-import { ago, clock, dayLabel, elapsed, monthDay, waitedFor } from '../format.ts';
+import { ago, clock, dayLabel, elapsed, monthDay, usageLabel, waitedFor } from '../format.ts';
 import { localDay, readInbox, type InboxView, type Row } from '../inbox.ts';
 import { usePresence } from '../presence.ts';
 import { clearPairing, type Keyring, type Pairing } from '../store.ts';
 import { AccountTag } from './AccountTag.tsx';
+import { AgentIcon } from './AgentIcon.tsx';
 import { Fold } from './Fold.tsx';
 
 /** /rc の URL が拾えなかったとき、または PC から来た値が claude.ai でないときに開く先。 */
@@ -21,6 +23,12 @@ export const openUrlOf = (rcUrl: string | null): string => (rcUrl && isRemoteCon
 
 /** 待っている内容の本文。空なら null（本文の行を出さない。種別は下の行の札が示す）。 */
 const waitingText = (r: Row): string | null => r.waiting?.text.trim() || null;
+
+/**
+ * 行を押して開けるか。Remote Control（claude.ai）につながるのは Claude Code の行だけである。
+ * opencode などほかのエージェントの行はリンクにしない（claude.ai/code へ飛ばすと誤誘導になる）。
+ */
+const opensRemote = (r: Row): boolean => r.agent === null;
 
 const waitingKind = (r: Row): string | null => (r.waiting?.kind === 'permission' ? '許可待ち' : r.waiting?.kind === 'question' ? '質問' : null);
 
@@ -256,7 +264,7 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
                 {view.unreadable.join('、')} の一覧を開けません。その PC の hangar が古いか、キーが合っていません。
               </p>
             )}
-            <WaitingList rows={view.waiting} now={pcNow} target={target} />
+            <WaitingList rows={view.waiting} now={pcNow} target={target} icons={view.agentIcons} />
             <Sections view={view} now={pcNow} today={localDay(today)} target={target} />
           </>
         )}
@@ -285,14 +293,14 @@ const rowKey = (r: Row): string => r.sessionId;
 /** 行の印（通知から開いた会話）の class。 */
 const targetCls = (row: Row, target: string | null): string => (target !== null && row.sessionId === target ? ' is-target' : '');
 
-function WaitingList({ rows, now, target }: { rows: Row[]; now: number; target: string | null }): ReactNode {
+function WaitingList({ rows, now, target, icons }: { rows: Row[]; now: number; target: string | null; icons: boolean }): ReactNode {
   const list = usePresence(rows, rowKey);
   return (
     <section className="waiting" aria-label="入力待ち">
       {rows.length === 0 && <p className="empty m-fade">なし</p>}
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
-          <WaitingCard row={p.item} now={now} target={target} />
+          <WaitingCard row={p.item} now={now} target={target} icons={icons} />
         </Fold>
       ))}
     </section>
@@ -303,15 +311,41 @@ function AccountDot({ color }: { color: string | null }): ReactNode {
   return <span className="acct-dot" style={color ? { background: color } : undefined} aria-hidden="true" />;
 }
 
-function WaitingCard({ row, now, target }: { row: Row; now: number; target: string | null }): ReactNode {
+/** 行の題名の左の絵。opencode を使っていない画面（icons が偽）では何も置かず、今までと同じ見た目にする。 */
+function RowIcon({ row, icons }: { row: Row; icons: boolean }): ReactNode {
+  return icons ? <AgentIcon kind={agentIconKindOf(row.agent)} /> : null;
+}
+
+/**
+ * 押して開ける行は Remote Control へのリンク（a）、開けない行（opencode）はただの箱（div）にする。
+ * 開けない行の札は押しても何も起きない。
+ */
+function RowBox({ row, className, children }: { row: Row; className: string; children: ReactNode }): ReactNode {
+  if (opensRemote(row)) {
+    return (
+      <a className={className} data-session-id={row.sessionId} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  }
+  return (
+    <div className={className} data-session-id={row.sessionId}>
+      {children}
+    </div>
+  );
+}
+
+function WaitingCard({ row, now, target, icons }: { row: Row; now: number; target: string | null; icons: boolean }): ReactNode {
   const kind = waitingKind(row);
   const text = waitingText(row);
   return (
-    <a className={`card wait-card${targetCls(row, target)}`} data-session-id={row.sessionId} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
+    <RowBox row={row} className={`card wait-card${targetCls(row, target)}`}>
       <div className="wait-top">
         <AccountDot color={row.accountColor} />
         <span className="wait-proj">{row.projectName}</span>
-        <span className="wait-title">· {row.title}</span>
+        {/* 絵を出す画面では、題の前の「·」を絵に置き換える（試作 L1）。 */}
+        <RowIcon row={row} icons={icons} />
+        <span className="wait-title">{icons ? row.title : `· ${row.title}`}</span>
         <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="wait-for">{row.at !== null ? waitedFor(now - row.at) : ''}</span>
       </div>
@@ -321,9 +355,9 @@ function WaitingCard({ row, now, target }: { row: Row; now: number; target: stri
           <span className="wait-meta">{row.deviceName}</span>
           {kind && <span className="wait-kind">{kind}</span>}
         </span>
-        <span className="wait-open">開く ›</span>
+        {opensRemote(row) ? <span className="wait-open">開く ›</span> : <span className="wait-pc">PC で答えてください</span>}
       </div>
-    </a>
+    </RowBox>
   );
 }
 
@@ -347,7 +381,7 @@ function Sections({ view, now, today, target }: { view: InboxView; now: number; 
         <Fold key={p.key} phase={p.phase}>
           <section className="sec" aria-label={p.item.label}>
             <h2 className="sec-h">{p.item.label}</h2>
-            <SectionRows def={p.item} now={now} today={today} target={target} />
+            <SectionRows def={p.item} now={now} today={today} target={target} icons={view.agentIcons} />
           </section>
         </Fold>
       ))}
@@ -355,40 +389,59 @@ function Sections({ view, now, today, target }: { view: InboxView; now: number; 
   );
 }
 
-function SectionRows({ def, now, today, target }: { def: SectionDef; now: number; today: string; target: string | null }): ReactNode {
+function SectionRows({ def, now, today, target, icons }: { def: SectionDef; now: number; today: string; target: string | null; icons: boolean }): ReactNode {
   const list = usePresence(def.rows, rowKey);
   return (
     <>
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
-          <ThinRow kind={def.key} row={p.item} now={now} today={today} target={target} />
+          <ThinRow kind={def.key} row={p.item} now={now} today={today} target={target} icons={icons} />
         </Fold>
       ))}
     </>
   );
 }
 
-function ThinRow({ kind, row, now, today, target }: { kind: SectionDef['key']; row: Row; now: number; today: string; target: string | null }): ReactNode {
+/** コンテキストの使用率がこれを超えたら、帯を作業中の橙にする（試作 U2）。 */
+const CTX_HOT = 80;
+
+function ThinRow({ kind, row, now, today, target, icons }: { kind: SectionDef['key']; row: Row; now: number; today: string; target: string | null; icons: boolean }): ReactNode {
   const mark = targetCls(row, target);
   if (kind === 'running') {
     const unknown = row.status === 'unknown';
+    const meta = unknown ? `${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`;
+    const u = row.usage;
     return (
-      <a className={`thin ${unknown ? 'unknown' : ''}${mark}`} data-session-id={row.sessionId} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
+      <RowBox row={row} className={`thin ${unknown ? 'unknown' : ''}${u ? ' has-usage' : ''}${mark}`}>
         <span className={`dot ${unknown ? 'unknown' : 'busy'}`} aria-hidden="true" />
+        <RowIcon row={row} icons={icons} />
         <span className="thin-text">
           <span className="thin-proj">{row.projectName}</span>
           <span className="thin-sep"> · </span>
           <span className="thin-intent">{row.intent?.trim() || row.title}</span>
         </span>
         <AccountTag name={row.accountName} color={row.accountColor} />
-        <span className="thin-meta">{unknown ?`${row.deviceName} · 不明` : `${row.deviceName} · ${row.startedAt !== null ? elapsed(now - row.startedAt) : ''}`}</span>
-      </a>
+        {u ? (
+          <span className="thin-meta2">
+            <span className="thin-meta">{meta}</span>
+            <span className="thin-usage">{usageLabel(u)}</span>
+          </span>
+        ) : (
+          <span className="thin-meta">{meta}</span>
+        )}
+        {u && u.ctx !== null && (
+          <span className="ctx-band" aria-hidden="true">
+            <i className={u.ctx > CTX_HOT ? 'hot' : undefined} style={{ width: `${u.ctx}%` }} />
+          </span>
+        )}
+      </RowBox>
     );
   }
   if (kind === 'returning') {
     return (
       <div className={`thin${mark}`} data-session-id={row.sessionId}>
         <span className="dot returning" aria-hidden="true" />
+        <RowIcon row={row} icons={icons} />
         <span className="thin-text">{row.title || row.projectName}</span>
         <AccountTag name={row.accountName} color={row.accountColor} />
         <span className="thin-meta">{row.returnOn && row.returnOn < today ? monthDay(row.returnOn) : (row.returnTime ?? '今日')}</span>
@@ -398,6 +451,7 @@ function ThinRow({ kind, row, now, today, target }: { kind: SectionDef['key']; r
   return (
     <div className={`thin${mark}`} data-session-id={row.sessionId}>
       <span className="dot done" aria-hidden="true" />
+      <RowIcon row={row} icons={icons} />
       <span className="thin-text">{row.oneLiner?.trim() || row.title}</span>
       <span className="thin-meta">{row.at !== null ? clock(row.at) : ''}</span>
     </div>

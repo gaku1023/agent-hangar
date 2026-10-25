@@ -191,6 +191,20 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .thin-sep { color: var(--ink-3); }
 /* 右端（PC の名前と経過など）は縮められ、長ければ末尾を … で切る。行から横にはみ出さない。 */
 .thin-meta { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* opencode の行（試作 L1・U2）。エージェントの絵は題名の左の幅 20px の枠にそろえる。 */
+.agent-icon { width: 20px; height: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.agent-icon svg { display: block; }
+/* 押しても開けない札（opencode）。PC で答えてもらう旨を「開く ›」の場所に出す。 */
+.wait-pc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-weight: 600; font-size: 12.5px; }
+/* 実行中の opencode の行の使用量。右端を 2 段にし、下に小さく「13.6k · $0.00」、行の下端に 2px のコンテキストの帯。 */
+.thin.has-usage { position: relative; overflow: hidden; min-height: 50px; }
+.thin-meta2 { display: flex; flex-direction: column; align-items: flex-end; flex: 0 1 auto; min-width: 0; max-width: 45%; line-height: 1.35; }
+.thin-meta2 .thin-meta { max-width: 100%; }
+.thin-usage { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.ctx-band { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in srgb, var(--ink-3) 14%, transparent); }
+.ctx-band > i { display: block; height: 100%; background: var(--accent); transition: width var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+/* 80% を超えたら作業中の橙にする。 */
+.ctx-band > i.hot { background: var(--busy); }
 
 /* 下の帯は動かさない（固定の白い帯と黒の大きなボタン）。 */
 .bottom-bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -1px 0 var(--line); }

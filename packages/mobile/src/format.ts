@@ -53,3 +53,20 @@ export function clock(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+
+/** 1 桁の小数にし、末尾の .0 を落とす。 */
+const oneDecimal = (n: number): string => n.toFixed(1).replace(/\.0$/, '');
+
+/** トークン数の略記（例「950」「13.6k」「148k」「1.3M」）。10 万未満は小数 1 桁、100 万未満は整数の k。 */
+export function tokensShort(n: number): string {
+  if (n < 1_000) return String(Math.round(n));
+  if (n < 99_950) return `${oneDecimal(n / 1_000)}k`;
+  if (n < 999_500) return `${Math.round(n / 1_000)}k`;
+  return `${oneDecimal(n / 1_000_000)}M`;
+}
+
+/** 実行中の行の使用量（例「13.6k · $0.00」）。コストが分からなければトークンだけ。 */
+export function usageLabel(u: { tokens: number; cost: number | null }): string {
+  const t = tokensShort(u.tokens);
+  return u.cost === null ? t : `${t} · $${u.cost.toFixed(2)}`;
+}

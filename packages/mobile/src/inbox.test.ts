@@ -235,6 +235,60 @@ describe('openInbox', () => {
   });
 });
 
+describe('opencode の行（F1）', () => {
+  it('行に agent と使用量を載せる。agent の無い行（Claude）は agent が null で使用量も無い', async () => {
+    const key = await makeKey();
+    const res = await inboxOf(key, [
+      feedOf('pc-1', 'Mac', {
+        live: [
+          liveItem({ sessionId: 's-claude', status: 'busy' }),
+          liveItem({ sessionId: 's-oc', status: 'busy', agent: 'opencode', usage: { ctx: 34, tokens: 13_600, cost: 0, model: 'opencode/big-pickle' } }),
+        ],
+        done: [{ sessionId: 'd-oc', projectName: 'project-a', title: '終わった', oneLiner: null, doneAt: NOW - MIN, agent: 'opencode' }],
+        returns: [{ sessionId: 'r-oc', projectName: 'project-a', title: '戻る', accountId: 'acc-1', returnOn: '2026-10-17', returnTime: null, agent: 'opencode' }],
+      }),
+    ]);
+    const v = await openInbox(res, ring(key), now);
+    const by = Object.fromEntries([...v.running, ...v.doneToday, ...v.returning].map((r) => [r.sessionId, r]));
+    expect(by['s-claude']).toMatchObject({ agent: null, usage: null });
+    expect(by['s-oc']).toMatchObject({ agent: 'opencode', usage: { ctx: 34, tokens: 13_600, cost: 0 } });
+    expect(by['d-oc']!.agent).toBe('opencode');
+    expect(by['r-oc']!.agent).toBe('opencode');
+  });
+
+  it('形の違う使用量は捨てる（PC から来た値も信じない）。ctx は 0〜100 に収める', async () => {
+    const key = await makeKey();
+    const bad = (sessionId: string, usage: unknown) => liveItem({ sessionId, agent: 'opencode', usage: usage as never });
+    const res = await inboxOf(key, [
+      feedOf('pc-1', 'Mac', {
+        live: [
+          bad('s-str', { ctx: '34', tokens: 1, cost: 0, model: 'm' }),
+          bad('s-notokens', { ctx: 34, tokens: null, cost: 0, model: 'm' }),
+          bad('s-over', { ctx: 250, tokens: 5, cost: 'x', model: 3 }),
+          bad('s-null', null),
+        ],
+      }),
+    ]);
+    const v = await openInbox(res, ring(key), now);
+    const by = Object.fromEntries(v.running.map((r) => [r.sessionId, r.usage]));
+    expect(by['s-str']).toEqual({ ctx: null, tokens: 1, cost: 0, model: 'm' });
+    expect(by['s-notokens']).toBeNull();
+    expect(by['s-over']).toEqual({ ctx: 100, tokens: 5, cost: null, model: '' });
+    expect(by['s-null']).toBeNull();
+  });
+
+  it('絵は、opencode を有効にした PC（caps.agents に opencode）か opencode の行があるときだけ出す', async () => {
+    const key = await makeKey();
+    const open = async (feeds: Parameters<typeof inboxOf>[1]) => openInbox(await inboxOf(key, feeds), ring(key), now);
+    const plain = await open([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1' })] })]);
+    expect(plain.agentIcons).toBe(false);
+    const enabled = await open([feedOf('pc-1', 'Mac', { caps: { asks: true, images: true, effort: true, agents: ['claude-code', 'opencode'] } })]);
+    expect(enabled.agentIcons).toBe(true);
+    const hasRow = await open([feedOf('pc-1', 'Mac', { done: [{ sessionId: 'd-1', projectName: 'p', title: 't', oneLiner: null, doneAt: NOW - MIN, agent: 'opencode' }] })]);
+    expect(hasRow.agentIcons).toBe(true);
+  });
+});
+
 describe('スマホ用の鍵の世代', () => {
   const pairing = { url: WORKER, token: 't', deviceId: 'phone-1' };
 
