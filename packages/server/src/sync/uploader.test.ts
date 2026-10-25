@@ -799,10 +799,13 @@ describe('TranscriptUploader の opencode の本文', () => {
   /** 書き出すたびに返す中身。null なら書き出しに失敗する。 */
   let content: string | null;
   let exports: string[];
+  /** 書き出しの最中に走らせる手（書き出しの間に会話を消す試験）。 */
+  let duringExport: (() => void) | null;
   const source = () => ({
     dir: exportDir,
     async export(id: string): Promise<string | null> {
       exports.push(id);
+      duringExport?.();
       if (content === null) return null;
       const file = path.join(exportDir, `${id}.json`);
       write(file, content);
@@ -824,6 +827,7 @@ describe('TranscriptUploader の opencode の本文', () => {
     exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ocx-'));
     content = '{"info":{"id":"ses_f55764078ffeDvMj180Fvan87g"},"messages":[]}\n';
     exports = [];
+    duringExport = null;
     addOpencodeSession(SES);
   });
 
@@ -909,6 +913,39 @@ describe('TranscriptUploader の opencode の本文', () => {
     expect(errors).toEqual([]);
     up.stop();
     unbound.stop();
+  });
+
+  it('消した（ゴミ箱に入れた）会話は書き出さない。run の終わりの 2 回目も、待ち行列に残っていた分も、書き出しのファイルを作り直さない', async () => {
+    const up = makeOc();
+    up.noteOpencode(SES);
+    const file = path.join(exportDir, `${SES}.json`);
+    // run の終わりの 1 回目のあとに会話を消す。消すと書き出しのファイルも消える（sessions/trash.ts）。
+    await up.flushSession(SES);
+    expect(exports).toEqual([SES]);
+    db.prepare('update sessions set deleted_at = 5 where provider_session_id = ?').run(SES);
+    fs.rmSync(file, { force: true });
+    // 5 秒後の 2 回目と、待ち行列の 30 秒の窓。
+    await up.flushSession(SES);
+    up.noteOpencode(SES);
+    await timers.advance(30_000);
+    await up.idle();
+    expect(exports).toEqual([SES]);
+    expect(fs.existsSync(file)).toBe(false);
+    expect(puts()).toBe(1);
+    expect(errors).toEqual([]);
+    up.stop();
+  });
+
+  it('書き出しの最中に会話が消されたら、書いたファイルを消して上げない', async () => {
+    const up = makeOc();
+    const file = path.join(exportDir, `${SES}.json`);
+    duringExport = () => { db.prepare('update sessions set deleted_at = 5 where provider_session_id = ?').run(SES); };
+    await up.flushSession(SES);
+    expect(exports).toEqual([SES]);
+    expect(fs.existsSync(file)).toBe(false);
+    expect(puts()).toBe(0);
+    expect(errors).toEqual([]);
+    up.stop();
   });
 
   it('Claude の会話の flushSession は書き出さない。Claude の本文の鍵名と台帳は今までと同じ', async () => {
