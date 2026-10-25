@@ -49,6 +49,13 @@ describe('冒頭の 1 枚の 1 行目', () => {
     expect(c.ended).toBeNull();
     expect(present({ session: session({ stoppedByStatus: true, state: state({ status: 'done' }) }) }, en).stopped).toBe('Stopped because it was marked Done. Resume to continue');
   });
+  it('ほかの PC で実行中（応答のあるロック）の間は、終了を出さない。見出しの札の「<PC 名> で実行中」と食い違うため', () => {
+    const lock = (stale: boolean) => ({ deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 60_000, stale });
+    expect(present({ session: session({ lock: lock(false), remoteOnly: true }) }).ended).toBeNull();
+    expect(present({ session: session({ lock: lock(false), provider: 'opencode' }) }).ended).toBeNull();
+    // 応答が途絶えた PC は、動いているとは言えないので、最後の動きを終了として出す（今どおり）。
+    expect(present({ session: session({ lock: lock(true) }) }).ended).toBe('終了 3 日前');
+  });
   it('本文が消えた会話は「要約のみ」、本文が無い会話は「トランスクリプトがありません」', () => {
     expect(present({ gone: true, session: session({ hasTranscript: false }) }).flags).toEqual(['要約のみ']);
     expect(present({ session: session({ hasTranscript: false }) }).flags).toEqual(['トランスクリプトがありません']);
