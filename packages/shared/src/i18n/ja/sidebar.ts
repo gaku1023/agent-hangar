@@ -15,7 +15,7 @@ export const sidebarJa: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.toggle.tipClose': '閉じる',
   'sidebar.width.label': 'サイドバーの幅',
   'sidebar.width.valueText': '{width}px',
-  'sidebar.width.tip': 'ドラッグで幅を変える。ダブルクリックで元の幅に戻す',
+  'sidebar.width.tip': 'ドラッグして幅を変更、ダブルクリックでリセット',
   'sidebar.nav.label': 'メインナビゲーション',
   'sidebar.nav.home': 'ホーム',
   'sidebar.nav.projects': 'プロジェクト',
