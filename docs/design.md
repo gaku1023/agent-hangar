@@ -2366,10 +2366,11 @@ native の側は子が終わると pty の表から baton を消し、baton に�
 conhost が終わるとつながっている子（`tmux attach`）も終わり、node-pty が終了を見て後始末をする。補助のプロセスは起こさない。
 5 秒待っても終わらなければ子のプロセスを止め、さらに 5 秒待っても終わらなければ元の `kill` に落とす（node-pty は子が終わってから終了を伝えるまでに 1 秒以上かかることがある）。終わっている pty は閉じ直さない。
 「終わった」とみなすのは、node-pty が子の終了コードを受けたときだけにする（`pty/nodePty.ts` の `trackConptyExit`）。node-pty の終了の知らせは出力の socket が閉じたことから出るので、解放で conout の Worker を放すと、子が生きていても 1 秒後に届く。最初の出力より前に解放すると、pseudoconsole を閉じても conhost と `tmux attach` が終わらないことがまれにあり、この知らせで待ちを取り消すと 2 つが残った。
+入力の pipe（conin）は、node-pty が `fs.openSync` で開いた fd を socket に包んだもので、conpty.dll を使わない経路（既定）では `kill` でも子の終わりでも閉じられない。開け閉めのたびにハンドルが 1 つ残り、続けると fd の上限に当たって、次の pty を開く `fs.openSync` が `EMFILE` で投げた。解放では pseudoconsole を閉じた後にこの socket を壊す。
 解放の後は、その pty の native の kill を空にしておく。子が生きている間は baton が残るので、元の `kill` に落ちたときに同じ handle へ `ClosePseudoConsole` が 2 回届くのを避ける。
 node-pty の内側の形が違う（別の版で `_agent` が無いなど）ときは解放をせず、子のプロセスを止めて待ち、元の `kill` に落とす。
-子が自分で終わったときは、終了の知らせを受けて conout の Worker だけを dispose する。pseudoconsole（conhost）は上記の上流の作りで閉じる手が無く、子が自分で終わるたびに 1 つ残る。正式の版で直ったら、そちらに任せる。
-CI の windows-test が `pty/nodePtyRelease.win.test.ts` で、cmd.exe の pty を 20 本開いて閉じたあと、各 pty の conout の Worker が終わり、このプロセスを親に持つ conhost.exe が元の数に戻ることを見る。
+子が自分で終わったときは、終了の知らせを受けて conout の Worker を dispose し、入力の pipe の socket を壊す（`disposeAfterExit`）。以後の書き込みは捨てる。pseudoconsole（conhost）は上記の上流の作りで閉じる手が無く、子が自分で終わるたびに 1 つ残る。正式の版で直ったら、そちらに任せる。
+CI の windows-test が `pty/nodePtyRelease.win.test.ts` で、cmd.exe の pty を 20 本開いて閉じたあと、各 pty の conout の Worker が終わり、このプロセスを親に持つ conhost.exe が元の数に戻り、このプロセスのハンドルの数が開け閉めの数だけ増えないことを見る。
 子の pid は閉じる時に読む。node-pty 1.2 の Windows は子を pseudoconsole につないだ後で pid を決め、それまでは 0 を返す。Windows の `process.kill(0)` はサーバ自身を終わらせるので、0 のうちは解放も子のプロセスを止めることもせず、元の kill に任せる。
 子が終わった後の大きさの知らせは捨てる。node-pty の resize は終わった pty で投げ（Unix は ioctl の `EBADF`、Windows は「Cannot resize a pty that has already exited」）、知らせは WebSocket の受け口から届くので、投げるとサーバごと落ちる。
 `node-pty` は `1.2.0-beta.15` に固定している（`^` を付けない）。

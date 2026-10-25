@@ -15,6 +15,8 @@ type ConptyAgent = {
   _useConptyDll: boolean;
   _ptyNative: { kill(id: number, useConptyDll: boolean): void };
   _conoutSocketWorker: { dispose(): void };
+  /** 入力の pipe（conin）を fs.openSync で開いた fd の socket。無い版もありうるので、使う時に確かめる。 */
+  _inSocket?: { destroy(): void };
 };
 
 function conptyAgentOf(p: unknown): ConptyAgent | null {
@@ -24,10 +26,20 @@ function conptyAgentOf(p: unknown): ConptyAgent | null {
 }
 
 /**
- * Windows の pty の pseudoconsole を閉じ、conout の Worker を放す。node-pty の kill のうち、補助のプロセスを起こす所だけを抜いたもの。
+ * 入力の pipe（conin）の fd を閉じる。
+ * node-pty は conpty.dll を使わない経路（既定）で、この socket を kill でも子の終わりでも壊さない。開け閉めのたびに pipe のハンドルが 1 つ残り、
+ * 続けると fd の上限に当たって、次の pty を開く fs.openSync が EMFILE で投げた。
+ */
+function destroyConin(a: ConptyAgent): void {
+  try { a._inSocket?.destroy(); } catch { /* 既に閉じている */ }
+}
+
+/**
+ * Windows の pty の pseudoconsole を閉じ、conout の Worker と入力の pipe を放す。node-pty の kill のうち、補助のプロセスを起こす所だけを抜いたもの。
  * native の kill は ClosePseudoConsole と pipe の後始末をする。conhost が終わり、つながっている子も終わる。
  * conout の Worker は dispose の 1 秒後に terminate される（出力を流し切るための node-pty の待ち）。
- * どちらも投げたら捨てる。内側の形が違うときは何もせず false を返し、呼んだ側は今までの閉じ方に戻る（close.ts）。
+ * 入力の pipe は pseudoconsole を閉じた後に閉じる（destroyConin）。
+ * どれも投げたら捨てる。内側の形が違うときは何もせず false を返し、呼んだ側は今までの閉じ方に戻る（close.ts）。
  */
 export function releaseConpty(p: unknown): boolean {
   const a = conptyAgentOf(p);
@@ -39,18 +51,20 @@ export function releaseConpty(p: unknown): boolean {
   a._ptyNative = Object.assign(Object.create(native) as ConptyAgent['_ptyNative'], { kill: () => {} });
   try { native.kill(a._pty, a._useConptyDll); } catch { /* 既に閉じている */ }
   try { a._conoutSocketWorker.dispose(); } catch { /* 既に放している */ }
+  destroyConin(a);
   return true;
 }
 
 /**
- * Windows の pty の conout の Worker だけを放す。子が自分で終わったときに使う。
- * node-pty は子が自分で終わった経路で、出力の socket を閉じるだけで Worker を放さないので、pty ごとにスレッドが 1 本残る。
+ * Windows の pty の conout の Worker と入力の pipe を放す。node-pty が終わりを知らせた後に使う。
+ * node-pty は子が自分で終わった経路で、出力の socket を閉じるだけで Worker も入力の pipe も放さないので、pty ごとにスレッドが 1 本と pipe のハンドルが 1 つ残る。
  * pseudoconsole（conhost）はこの経路では閉じられない。native の側が子の終わりで baton を表から消し、hpc の handle を持つ所が無くなるためである（上流の作り）。
  */
-export function disposeConoutWorker(p: unknown): void {
+export function disposeAfterExit(p: unknown): void {
   const a = conptyAgentOf(p);
   if (!a) return;
   try { a._conoutSocketWorker.dispose(); } catch { /* 既に放している */ }
+  destroyConin(a);
 }
 
 /**
@@ -85,7 +99,8 @@ export const nodePtySpawn: PtySpawn = (file, args, opts) => {
   const onExit = win ? trackConptyExit(p, () => closer.markExited()) : () => closer.markExited();
   p.onExit(() => {
     onExit();
-    if (win) disposeConoutWorker(p);
+    // 入力の pipe はここで閉じるので、この後の書き込みは捨てる。
+    if (win) { closed = true; disposeAfterExit(p); }
   });
   return {
     get pid() { return p.pid; },
