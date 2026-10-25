@@ -152,7 +152,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536 });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeProviderPrep: {} });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -418,6 +418,7 @@ describe('設定の往復', () => {
         ['opencodeIntercept', true],
         ['opencodePermissionPreset', false],
         ['opencodeLocalContext', 131072],
+        ['opencodeProviderPrep', { gpu: { start: 'gpu up', stop: '', stopAfter: 15 } }],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -442,6 +443,16 @@ describe('設定の往復', () => {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
     }
+  });
+
+  it('接続先の準備は届いた接続先だけを替え、null と空のコマンドで外す。形の違うものは断る', async () => {
+    const prepOf = async (body: unknown) => (await (await patch({ opencodeProviderPrep: body })).json()).opencodeProviderPrep;
+    expect(await prepOf({ gpu: { start: ' gpu up ', stop: 'gpu down', stopAfter: 60 } })).toEqual({ gpu: { start: 'gpu up', stop: 'gpu down', stopAfter: 60 } });
+    // 止める時期が知らない値なら既定の 15 分。ほかの接続先は残す。
+    expect(await prepOf({ other: { start: 'x', stopAfter: 7 } })).toEqual({ gpu: { start: 'gpu up', stop: 'gpu down', stopAfter: 60 }, other: { start: 'x', stop: '', stopAfter: 15 } });
+    expect(await prepOf({ gpu: null, other: { start: '  ' } })).toEqual({});
+    expect((await patch({ opencodeProviderPrep: [] })).status).toBe(400);
+    expect((await patch({ opencodeProviderPrep: { 'a\nb': { start: 'x' } } })).status).toBe(400);
   });
 
   it('届いた設定の承諾の仕方は、既定が毎回で、auto を保存でき、知らない値は断る', async () => {

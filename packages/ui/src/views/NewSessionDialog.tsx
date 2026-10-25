@@ -447,7 +447,7 @@ export function NewSessionDialog(props: NewSessionProps) {
       {!scratch && !opencode && <div className="faint" {...{ [AGENT_ONLY_ATTR]: 'claude-code' }}>{t('newSession.note.trust')}</div>}
       {errorShown !== null && failure === null && <div className="error" role="alert">{errorShown}</div>}
       <LaunchPrepAsk ask={asking} onChoose={submit} />
-      <LaunchPrepFailed reason={failure} />
+      <LaunchPrepFailed reason={failure} title={failure !== null ? prep?.failureTitle ?? null : null} />
       <LaunchPrepBox open={preparing} view={prep} />
     </Dialog>
   );

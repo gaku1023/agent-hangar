@@ -5,6 +5,7 @@ import { OpencodeClient, type OpencodeModelRef } from './client.ts';
 import type { OpencodePermissionRule } from './permissionPreset.ts';
 import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
 import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
+import type { ProviderPreps } from './providerPrep.ts';
 
 /**
  * opencode の会話を hangar から起こす面（docs/design.md「opencode の起動」）。
@@ -77,6 +78,8 @@ export type MaterializeDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** 起動前にローカルのモデルを整える口（localModels/prepare.ts）。無ければ整えない。 */
   localModels?: LocalModelsDeps;
+  /** 起動前に接続先の準備のコマンドを走らせる口（providerPrep.ts）。無ければ走らせない。 */
+  providerPreps?: ProviderPreps;
 };
 
 /**
@@ -100,6 +103,7 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
   let model = spec.model;
   let providerSessionId: string;
   try {
+    if (spec.prep && deps.providerPreps?.any() && !spec.prep.choice.skip) await prepareProviders(deps, deps.providerPreps, serve, spec);
     if (spec.prep && deps.localModels && !spec.prep.choice.skip) ({ serve, model } = await prepareModels(deps, deps.localModels, serve, spec));
     if (mode.kind === 'resume') {
       providerSessionId = mode.id;
@@ -114,6 +118,23 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
   await putInstructions(client, providerSessionId, spec.instructions, deps.report);
   await waitForMcp(client, spec.cwd, deps);
   return { providerSessionId, serve };
+}
+
+/**
+ * 起動前に、会話と agent が使う接続先の準備のコマンドを走らせる（docs/design.md「接続先の準備」）。LM Studio のモデルを整えるより先に走らせる。
+ * 使う接続先は起きた serve の設定の層から読む。答えが「1 モデルに寄せる」なら、そのモデルの接続先だけを使う。
+ * 準備のある接続先が無ければ何もしない。失敗は ProviderPrepFailed で投げる（起動の口が serve を止めて断る）。
+ */
+export async function prepareProviders(deps: MaterializeDeps, preps: ProviderPreps, serve: ServeInfo, spec: LaunchSpec): Promise<void> {
+  const prep = spec.prep!;
+  const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
+  const conf = prep.choice.singleModel ? null : await client.modelUses(spec.cwd);
+  const refs = conf ? usesOf(conf, spec.model ?? conf.model ?? undefined).map((u) => u.ref) : [prep.choice.singleModel!];
+  const ids = preps.configured(refs.flatMap((r) => (r.indexOf('/') > 0 ? [r.slice(0, r.indexOf('/'))] : [])));
+  if (!ids.length) return;
+  prep.run.throwIfCancelled();
+  const names = new Map((await client.providerRows(spec.cwd).catch(() => [])).map((r) => [r.id, r.name]));
+  for (const id of ids) await preps.prepare(id, names.get(id) ?? id, spec.hangarSessionId, prep.run);
 }
 
 /**

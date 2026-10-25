@@ -21,6 +21,15 @@ describe('起動前の準備の見せ方', () => {
     expect(elapsedLabel(-5)).toBe('0:00');
   });
 
+  it('接続先の準備のコマンド（run）は接続先の名前で進み、済み、失敗の見出しを出す', () => {
+    const run = (over: Partial<LaunchPrepStepDto> = {}) => step({ kind: 'command', action: 'run', target: 'my-gpu', toContext: null, ...over });
+    expect(presentLaunchPrep(prep({ steps: [run()] }), t, null).line).toEqual({ text: 'my-gpu を準備中…', bar: false });
+    expect(presentLaunchPrep(prep({ steps: [run({ state: 'done', endedAt: 162_000 })] }), t, null).done).toEqual([{ id: '1', text: 'my-gpu の準備ができました（2:41）' }]);
+    const failed = presentLaunchPrep(prep({ phase: 'failed', reason: 'no route', steps: [run({ state: 'failed', endedAt: 2_000, reason: 'no route' })] }), t, null);
+    expect([failed.failure, failed.failureTitle]).toEqual(['no route', 'my-gpu の準備に失敗しました']);
+    expect(presentLaunchPrep(prep({ phase: 'failed', steps: [run()] }), en, null).failureTitle).toBe('Failed to load the model');
+  });
+
   it('いまの段の文を 1 行にし、load と reload の間だけ帯を出す', () => {
     const v = presentLaunchPrep(prep({ steps: [step()] }), t, null);
     expect(v.line).toEqual({ text: 'qwen3.8-27b をロード中…（64K）', bar: true });

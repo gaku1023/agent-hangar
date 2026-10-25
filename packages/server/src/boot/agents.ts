@@ -1,5 +1,5 @@
 import { agentsOf, type Agents } from '../agent/agents.ts';
-import { localContextOf, opencodePermissionPresetOf, type LiveSessionDto } from '@agent-hangar/shared';
+import { localContextOf, opencodePermissionPresetOf, providerPrepsOf, type LiveSessionDto } from '@agent-hangar/shared';
 import { RUN_DROPPED_ENV, AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
@@ -13,6 +13,8 @@ import type { GetLanguage } from '../i18n/language.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
 import { permissionPresetFor } from '../provider/opencode/permissionPreset.ts';
+import { ProviderPreps } from '../provider/opencode/providerPrep.ts';
+import { msg, render } from '../i18n/message.ts';
 import { safeErrorText } from '../runs/manager.ts';
 import type { HomeParts } from './home.ts';
 
@@ -76,6 +78,13 @@ export function bootAgents(
     permissions: (cwd) => permissionPresetFor({ enabled: opencodePermissionPresetOf(home.settings.current), home: home.home, cwd }),
     // 起動前に LM Studio のモデルを整える。長さは設定から、呼ばれた時点の値を読む。
     localModels: { home: home.home, context: () => localContextOf(home.settings.current) },
+    // 接続先の準備のコマンド（この PC の設定）。呼ばれた時点の値を読む。
+    providerPreps: new ProviderPreps({
+      preps: () => providerPrepsOf(home.settings.current.opencodeProviderPrep),
+      exitReason: (code) => render(home.language(), code === null ? msg('launchPrep.run.killed') : msg('launchPrep.run.exitCode', { code })),
+      timeoutReason: (minutes) => render(home.language(), msg('launchPrep.run.timeout', { minutes })),
+      report: (providerId, reason) => { console.warn(`[opencode] stop command for ${providerId} failed: ${reason}`); },
+    }),
   });
   return { agents: agentsOf([claude, opencode]), claude, opencode, bindOpencodeServes: (s) => { serves = s; } };
 }

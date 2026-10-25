@@ -8,7 +8,10 @@ import { until } from '../../../test/fake-opencode-events.ts';
 import type { LaunchSpec } from '../../agent/types.ts';
 import { openDb } from '../../db/open.ts';
 import { readStoredPage } from '../../transcript/stored.ts';
+import type { LaunchPrepDto } from '@agent-hangar/shared';
+import { LaunchPreps } from '../../runs/launchPrep.ts';
 import { createOpencodeDriver, type OpencodeDriverDeps } from './driver.ts';
+import { ProviderPrepFailed, ProviderPreps } from './providerPrep.ts';
 import { isAlive, ServeRegistry } from './serve/registry.ts';
 import { ServeManager } from './serve/manager.ts';
 
@@ -171,6 +174,35 @@ posixDescribe('opencode の driver の materialize', () => {
     const pid = ev(log(), 'start')[0]!.pid;
     expect(isAlive(pid)).toBe(false);
     expect(ev(log(), 'instructions')).toEqual([]);
+  });
+
+  posixIt('接続先の準備のコマンドは、会話を作る前に走らせる。失敗したら会話を作らずに serve を止めて断る', async () => {
+    const runs: string[] = [];
+    let code = 0;
+    const providerPreps = new ProviderPreps({
+      preps: () => ({ lmstudio: { start: 'gpu up', stop: 'gpu down', stopAfter: 5 } }),
+      run: async (command) => { runs.push(command); return { code, tail: code ? 'no route to host' : '' }; },
+      exitReason: (c) => `exit ${c}`, timeoutReason: (m) => `timeout ${m}`,
+    });
+    const sent: LaunchPrepDto[] = [];
+    const preps = new LaunchPreps({ broadcast: (e) => { sent.push(structuredClone(e.prep)); } });
+    const { driver, serves, log } = make({}, { providerPreps });
+    const r = await driver.launch.materialize!({ kind: 'start' }, spec(cwd, { prep: { run: preps.begin('key-ok01'), choice: {} } }));
+    expect(runs).toEqual(['gpu up']);
+    expect(sent.at(-1)!.steps).toEqual([expect.objectContaining({ kind: 'command', action: 'run', target: 'LM Studio (local)', state: 'done' })]);
+    expect(ev(log(), 'create')).toHaveLength(1);
+    await driver.launch.release!({ sessionId: 'h1', providerSessionId: r!.providerSessionId, cwd }, 'killed');
+    providerPreps.dispose();
+    code = 10;
+    await expect(driver.launch.materialize!({ kind: 'start' }, spec(cwd, { prep: { run: preps.begin('key-ng01'), choice: {} } }))).rejects.toThrow(new ProviderPrepFailed('no route to host'));
+    expect(ev(log(), 'create')).toHaveLength(1);
+    expect(serves.get('h1')).toBeNull();
+    // 準備の無い接続先だけを使う会話では走らせない。「そのまま開始」の答えでも走らせない。
+    runs.length = 0;
+    await driver.launch.materialize!({ kind: 'start' }, spec(cwd, { model: 'opencode/big', prep: { run: preps.begin('key-ot01'), choice: {} } }));
+    await serves.stopAll();
+    await driver.launch.materialize!({ kind: 'start' }, spec(cwd, { prep: { run: preps.begin('key-sk01'), choice: { skip: true } } }));
+    expect(runs).toEqual([]);
   });
 
   posixIt('フォークは受けない（materialize も plan も）', async () => {

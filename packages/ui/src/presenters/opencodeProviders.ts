@@ -1,4 +1,4 @@
-import { providerFactOf, type OpencodeConnectedDto, type OpencodeLoginDto, type ProviderPrice, type Translate } from '@agent-hangar/shared';
+import { providerFactOf, providerPrepsOf, type OpencodeConnectedDto, type ProviderPrep, type OpencodeLoginDto, type ProviderPrice, type Translate } from '@agent-hangar/shared';
 import { homePath } from '../lib/paths.ts';
 import type { State } from '../mediator/types.ts';
 import { CUSTOM_PROVIDER_ROW, type OpencodeProviderOp, type Store } from '../store/store.ts';
@@ -15,6 +15,8 @@ export type OpencodeProviderRowProps = {
   id: string; name: string; desc: string; url: string | null;
   canChangeKey: boolean; canDisconnect: boolean;
   busy: OpencodeProviderOp | null; error: string | null; fresh: boolean;
+  /** 「準備」を出すか（OpenAI 互換サーバーの行だけ）と、この PC の設定の準備（無ければ null）。 */
+  canPrep: boolean; prep: ProviderPrep | null;
 };
 /** 追加の一覧の 1 行。side は右に出す料金の型（分からなければ null）、key は API キーの欄を出すか、login はログインの方法（API キーが無いときに使う）。 */
 export type OpencodeCatalogRowProps = { id: string; name: string; side: string | null; recommended: boolean; key: boolean; login: { id: string; label: string } | null; busy: boolean; error: string | null };
@@ -78,11 +80,16 @@ export function presentOpencodeProviders(state: State, store: Store): OpencodePr
   const data = p?.data ?? null;
   const busyOf = (id: string) => (p?.busy?.id === id ? p.busy.op : null);
   const errorOf = (id: string) => (p?.error && p.error.id === id && p.error.op !== 'load' ? p.error.message : null);
-  const rows: OpencodeProviderRowProps[] = (data?.connected ?? []).map((r) => ({
-    id: r.id, name: r.name, desc: descOf(t, r), url: shortUrl(r.url),
-    canChangeKey: r.canChangeKey, canDisconnect: r.canDisconnect,
-    busy: busyOf(r.id), error: errorOf(r.id), fresh: p?.added === r.id,
-  }));
+  const preps = providerPrepsOf(store.settings?.opencodeProviderPrep);
+  const rows: OpencodeProviderRowProps[] = (data?.connected ?? []).map((r) => {
+    const prep = preps[r.id] ?? null;
+    return {
+      id: r.id, name: r.name, desc: [descOf(t, r), prep ? t('settings.opencode.providers.prep.set') : ''].filter(Boolean).join(' · '), url: shortUrl(r.url),
+      canChangeKey: r.canChangeKey, canDisconnect: r.canDisconnect,
+      busy: busyOf(r.id), error: errorOf(r.id), fresh: p?.added === r.id,
+      canPrep: r.via === 'config', prep,
+    };
+  });
   const catalog: OpencodeCatalogRowProps[] = (data?.catalog ?? []).map((c) => ({
     id: c.id, name: c.name, side: priceText(t, c.price), recommended: c.recommended, key: c.key,
     login: c.key ? null : c.logins[0] ?? null, busy: busyOf(c.id) !== null, error: errorOf(c.id),
