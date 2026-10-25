@@ -628,6 +628,58 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     expect(r.code, r.stderr).toBe(0);
     expect(JSON.parse(r.stdout).cloud).toBe(mine);
   });
+
+  // `echo CODE | hangar cloud join-request <url>` や `hangar recover` は、利用者の標準入力を CLI が読む。
+  // 候補を回す作りが標準入力を候補の一覧に差し替えると、CLI には利用者の入力が届かない。
+  describe('利用者の標準入力', () => {
+    /** cli.mjs の代わりに、標準入力を最後まで読み、読んだ中身と、選ばれた node を印字する。 */
+    function stdinDist(): string {
+      const dist = fakeDist();
+      fs.writeFileSync(
+        path.join(dist, 'cli.mjs'),
+        "import fs from 'node:fs';\n" +
+          "console.log(JSON.stringify({ stdin: fs.readFileSync(0, 'utf8'), node: process.env.HANGAR_TEST_SHIM ?? null, args: process.argv.slice(2) }));\n",
+      );
+      return dist;
+    }
+
+    /** 探りの node -p で標準入力を読み切ってしまう node（包みの script にありうる形）。 */
+    function drainingNode(at: string, napi = UNREACHABLE_API): string {
+      fakeNode(at, napi);
+      fs.writeFileSync(at, fs.readFileSync(at, 'utf8').replace('if [ "$1" = "-p" ]; then ', 'if [ "$1" = "-p" ]; then cat >/dev/null; '));
+      return at;
+    }
+
+    const runWithInput = (bin: string, args: string[], input: string, env: NodeJS.ProcessEnv) =>
+      spawnSync(bin, args, { input, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', LANG: 'ja_JP.UTF-8', ...env } });
+
+    it('パイプで渡した標準入力が、そのまま CLI に届く', () => {
+      const dist = stdinDist();
+      const node = fakeNode(path.join(emptyDirFor('hangar nodes-'), 'n d', 'node'));
+      const input = 'ABCD-1234\n2 行目\n';
+      const r = runWithInput(path.join(dist, 'bin/hangar'), ['cloud', 'join-request', 'https://example.invalid'], input, {
+        HANGAR_NODE: node,
+        HANGAR_HOME: emptyDirFor('hangar home-'),
+        HOME: emptyDirFor('hangar userhome-'),
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(JSON.parse(r.stdout)).toEqual({ stdin: input, node, args: ['cloud', 'join-request', 'https://example.invalid'] });
+    });
+
+    it('探りの node が標準入力を読んでも、利用者の入力も候補の一覧も食われない', () => {
+      const dist = stdinDist();
+      const nodes = emptyDirFor('hangar nodes-');
+      // 先に見る HANGAR_NODE は版が足りずに外れ、次の nodePath が選ばれる。どちらも探りで標準入力を読み切る。
+      const old = drainingNode(path.join(nodes, 'old', 'node'), 1);
+      const good = drainingNode(path.join(nodes, 'good', 'node'));
+      const home = emptyDirFor('hangar home-');
+      fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: good }));
+      const input = 'recovery words\n';
+      const r = runWithInput(path.join(dist, 'bin/hangar'), ['recover'], input, { HANGAR_NODE: old, HANGAR_HOME: home, HOME: emptyDirFor('hangar userhome-') });
+      expect(r.status, r.stderr).toBe(0);
+      expect(JSON.parse(r.stdout)).toEqual({ stdin: input, node: good, args: ['recover'] });
+    });
+  });
 });
 
 describe('bundleServer が途中で失敗したとき', () => {
@@ -832,6 +884,19 @@ describe.skipIf(process.platform === 'win32')('bin/hangar（Git Bash 用の shim
     fakeBin(bin, 'node', 'echo oops; exit 1');
     const r3 = run(dist, ['status', 'a b'], { PATH: `${bin}:/usr/bin:/bin` });
     expect(r3.stdout.trimEnd().split('\n')).toEqual(want);
+  });
+
+  it('パイプで渡した標準入力が、そのまま launch-cli.mjs に届く', () => {
+    const dist = shimDist();
+    fs.writeFileSync(path.join(dist, 'launch-cli.mjs'), "import fs from 'node:fs';\nconsole.log(JSON.stringify(fs.readFileSync(0, 'utf8')));\n");
+    const input = 'ABCD-1234\n';
+    const r = spawnSync('/bin/sh', [path.join(dist, 'bin/hangar'), 'recover'], {
+      input,
+      encoding: 'utf8',
+      env: { HOME: os.tmpdir(), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` },
+    });
+    expect(r.stderr).toBe('');
+    expect(JSON.parse(r.stdout)).toBe(input);
   });
 });
 
