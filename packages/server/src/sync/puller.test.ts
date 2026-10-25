@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COMPAT_VERSION, encodeEpochList, generateKeyPair, sealKeybox, toBase64Url, transcriptBlobKey } from '@agent-hangar/shared';
+import { COMPAT_VERSION, encodeEpochList, generateKeyPair, sealFileMeta, sealKeybox, toBase64Url, transcriptBlobKey, type FileEntry } from '@agent-hangar/shared';
 import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import type { CloudConfig } from '../config/cloud.ts';
 import { RosterStore, rosterRefresh } from './roster.ts';
@@ -590,5 +590,102 @@ describe('削除したセッションの写し', () => {
   it('ほかのセッションと自分の写しは降ろさない', async () => {
     await putRemote('dev-b', `projects/-w-alpha/22222222-2222-4222-8222-222222222222.jsonl`, '{"x":1}\n');
     expect(await make().refetchSession(UUID)).toEqual({ downloaded: 0 });
+  });
+});
+
+/**
+ * opencode の本文の写しは、path が projects/ で始まらない（opencode/<セッション>.json）。
+ * それを知らない版の PC が同じ一覧を pull しても、その行だけが降りてこず、Claude の本文は降り続けなければならない。
+ * 守りは 2 段ある。
+ * 1 段目は SealedCloudClient で、中身のパスから鍵名を求め直せない行を開かずに捨てる（puller まで届かない）。
+ * 2 段目は puller で、届いてしまっても行ごとの失敗として数え、3 回で飛ばして先へ進む。
+ */
+describe('projects/ で始まらない写し（opencode の本文）を知らない puller', () => {
+  const OTHER = '22222222-2222-4222-8222-222222222222';
+  const LATER = '33333333-3333-4333-8333-333333333333';
+  const OPENCODE_PATH = 'opencode/ses_0123456789abcdefABCDEF.json';
+
+  /** dev-b として、opencode の本文の写しを置く。鍵名は Claude の求め方と別の入力の HMAC で、パスからは求め直せない。 */
+  const seedOpencode = async (): Promise<{ seq: number; key: string }> => {
+    const devB = cloud.asDevice('dev-b');
+    const cur = (await devB.keyring).current();
+    const key = await transcriptBlobKey(cur.index, 'dev-b', 'dev-b', 'opencode:ses_0123456789abcdefABCDEF', null);
+    const text = '{"info":{"id":"ses_0123456789abcdefABCDEF"},"messages":[]}\n';
+    const sealedMeta = await sealFileMeta(cur.row, { key, deviceId: 'dev-b', kind: 'transcript', epoch: cur.epoch }, { path: OPENCODE_PATH, sha256: sha256Hex(text), mtime: 1_700_000_000_000, origin: 'dev-b' });
+    const body = await devB.sealBody(text);
+    const { seq } = devB.wire.seedUnchecked({ key, kind: 'transcript', size: Buffer.byteLength(text), epoch: cur.epoch, sealedMeta: toBase64Url(sealedMeta) }, body);
+    return { seq, key };
+  };
+
+  /** remote/ の下に置かれたものを、相対パスで全部返す。 */
+  const remoteTree = (): string[] => {
+    const root = path.join(home, 'remote');
+    if (!fs.existsSync(root)) return [];
+    return (fs.readdirSync(root, { recursive: true }) as string[]).map((p) => p.split(path.sep).join('/')).sort();
+  };
+
+  it('一覧の間に挟まっても、その行だけを捨てて Claude の本文を降ろし続け、区切りを先へ進める', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    const oc = await seedOpencode();
+    await putRemote('dev-b', `projects/-w-alpha/${OTHER}.jsonl`, '{"b":2}\n');
+    expect(oc.seq).toBe(2);
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 2 });
+    expect(state.getNumber('filesSeq', -1)).toBe(3);
+    expect(state.get('filesSkippedFrom')).toBeNull();
+    expect(p.skippedEntries()).toEqual([]);
+    expect(errors).toEqual([]);
+    // 後から上がった Claude の本文も、止まらずに降りてくる。
+    await putRemote('dev-b', `projects/-w-alpha/${LATER}.jsonl`, '{"c":3}\n');
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(state.getNumber('filesSeq', -1)).toBe(4);
+    expect(remoteTree()).toEqual([
+      'dev-b', 'dev-b/projects', 'dev-b/projects/-w-alpha',
+      `dev-b/projects/-w-alpha/${UUID}.jsonl`, `dev-b/projects/-w-alpha/${OTHER}.jsonl`, `dev-b/projects/-w-alpha/${LATER}.jsonl`,
+    ].sort());
+    expect(errors).toEqual([]);
+    // opencode の本文の本体は一度も取りに行かない。
+    expect(cloud.calls.filter((c) => c.method === 'getFile' && c.args[0] === oc.key)).toEqual([]);
+  });
+
+  it('client を通り抜けて puller に届いても、行ごとの失敗として 3 回で飛ばし、ほかの本文は止めない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    // 2 番目の行を、client が開いた後の opencode の写しに差し替える（鍵名の検査を持たない client を真似る）。
+    const own = await putRemote('dev-a', `projects/-w-alpha/${OTHER}.jsonl`, 'mine\n');
+    await putRemote('dev-b', `projects/-w-alpha/${OTHER}.jsonl`, '{"b":2}\n');
+    const swap = (e: FileEntry): FileEntry => (e.key === own.key ? { ...e, deviceId: 'dev-b', origin: 'dev-b', path: OPENCODE_PATH } : e);
+    const client = new Proxy(cloud, {
+      get(t, prop) {
+        if (prop === 'listFiles') {
+          return async (since: number, limit: number) => {
+            const page = await t.listFiles(since, limit);
+            return { ...page, files: page.files.map(swap) };
+          };
+        }
+        const v = Reflect.get(t, prop, t) as unknown;
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+      },
+    });
+    const p = make({ client });
+    // 1 回目：後ろの Claude の本文はその回のうちに降りる。区切りは失敗した行の手前で止まる。
+    expect(await p.pullNow()).toEqual({ downloaded: 2 });
+    expect(state.getNumber('filesSeq', -1)).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.message).toContain(OPENCODE_PATH);
+    // 2 回目：同じ所から読み直すが、降ろし済みの本文は降ろし直さない。鳴らさない。
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    expect(state.getNumber('filesSeq', -1)).toBe(1);
+    expect(errors).toHaveLength(1);
+    // 3 回目：諦めて飛ばし、区切りを先へ進める。
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    expect(state.getNumber('filesSeq', -1)).toBe(3);
+    expect(errors).toHaveLength(2);
+    expect(p.skippedEntries()).toEqual([{ key: own.key, attempts: 3, message: expect.stringContaining(OPENCODE_PATH) }]);
+    // 以後の Claude の本文は止まらずに降りてくる。
+    await putRemote('dev-b', `projects/-w-alpha/${LATER}.jsonl`, '{"c":3}\n');
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(state.getNumber('filesSeq', -1)).toBe(4);
+    // projects/ の外へは何も書かない。
+    expect(remoteTree().filter((r) => !r.startsWith('dev-b/projects') && r !== 'dev-b')).toEqual([]);
   });
 });
