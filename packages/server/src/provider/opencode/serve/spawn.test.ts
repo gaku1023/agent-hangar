@@ -20,7 +20,8 @@ describe('startServe', () => {
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-')); });
   afterEach(async () => {
     for (const s of started.splice(0)) { killGroup(s.pid, 'SIGKILL'); await s.exited; }
-    for (const w of workDirs.splice(0)) fs.rmSync(w, { recursive: true, force: true, maxRetries: 5 });
+    // exited は cmd.exe の終わりで解ける。子の node がフォルダを放すのはその少し後のことがあり、CI で 5 回 × 100ms の待ちでは足りなかった。
+    for (const w of workDirs.splice(0)) fs.rmSync(w, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
