@@ -1,0 +1,86 @@
+import { describe, expect, it } from 'vitest';
+import type { LiveSessionDto, RunDto, SessionDto, SettingsDto, TabDto } from '@agent-hangar/shared';
+import { initialState } from '../mediator/transition.ts';
+import { initialStore, type Store } from '../store/store.ts';
+import { presentSessionRow } from './row.ts';
+import { presentSession } from './session.ts';
+import { presentSessionList } from './sessions.ts';
+import { presentShell } from './shell.ts';
+
+const NOW = Date.parse('2026-10-25T12:00:00Z');
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name: 'name-' + id, cwd: '/w', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 180_000, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...over });
+// 写しの sessionId はエージェントの側の ID（providerSessionId、ここでは 'u' + id）。
+const liveOf = (id: string, over: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId: 'u' + id, status: 'busy', name: null, nameSource: null, cwd: '/w', pid: 1, ...over });
+const run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt: null, endReason: null, heartbeatAt: 1 });
+const tab = (id: string, runId: string, sessionId: string, kind: TabDto['kind']): TabDto => ({ id, runId, sessionId, kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${id}`, createdAt: 1, closedAt: null });
+
+function storeWith(sessions: SessionDto[], opts: { enabled?: boolean; live?: LiveSessionDto[] } = {}): Store {
+  const s = initialStore();
+  s.bootstrapped = true;
+  s.settings = { opencodeEnabled: opts.enabled ?? false } as SettingsDto;
+  s.sessions = Object.fromEntries(sessions.map((x) => [x.id, x]));
+  s.live = opts.live ?? [];
+  return s;
+}
+const listRows = (store: Store) => presentSessionList(initialState(), store, NOW).rows;
+const sideRows = (store: Store) => presentShell(initialState(), store, NOW).live.rows;
+
+describe('一覧の行のエージェントのアイコン', () => {
+  it('opencode が切で、opencode の会話が 1 つも無いときは出さない（行に agent を付けない）', () => {
+    const store = storeWith([session('a'), session('b', { live: 'busy' })]);
+    for (const r of listRows(store)) expect(r).not.toHaveProperty('agent');
+    expect(presentSessionRow(store.sessions.a!, store, NOW)).not.toHaveProperty('agent');
+  });
+
+  it('opencode を有効にしたら、全部の行に出す。Claude の行は Clawd', () => {
+    const store = storeWith([session('a'), session('b', { live: 'busy' })], { enabled: true });
+    expect(listRows(store).map((r) => r.agent)).toEqual(['claude-code', 'claude-code']);
+  });
+
+  it('切でも opencode の会話が 1 つあれば、全部の行に出す', () => {
+    const store = storeWith([session('a'), session('o', { provider: 'opencode' })]);
+    expect(Object.fromEntries(listRows(store).map((r) => [r.id, r.agent]))).toEqual({ a: 'claude-code', o: 'opencode' });
+  });
+
+  it('種類の無い行（古いサーバ）は Clawd、知らない種類は空の枠', () => {
+    const old = session('old') as Partial<SessionDto>;
+    delete old.provider;
+    const store = storeWith([old as SessionDto, session('x', { provider: 'codex' as SessionDto['provider'] })], { enabled: true });
+    expect(Object.fromEntries(listRows(store).map((r) => [r.id, r.agent]))).toEqual({ old: 'claude-code', x: null });
+  });
+
+  it('実行中の写しが opencode なら、セッションの provider が届く前でも opencode にする（写しは providerSessionId で突き合わせる）', () => {
+    const store = storeWith([session('o', { live: 'busy' }), session('a', { live: 'busy' })], { live: [liveOf('o', { agent: 'opencode' }), { ...liveOf('x', { agent: 'opencode' }), sessionId: 'a' }] });
+    expect(Object.fromEntries(listRows(store).map((r) => [r.id, r.agent]))).toEqual({ o: 'opencode', a: 'claude-code' });
+  });
+});
+
+describe('サイドバーの行のエージェントのアイコン', () => {
+  it('切で opencode の会話が無いときは出さない', () => {
+    const store = storeWith([session('a', { live: 'busy' })], { live: [liveOf('a')] });
+    expect(sideRows(store)[0]).not.toHaveProperty('agent');
+  });
+  it('出すときは、一覧と同じ種類を名前の右端に置く', () => {
+    const store = storeWith([session('a', { live: 'busy' }), session('o', { live: 'idle', provider: 'opencode' })], { live: [liveOf('a'), liveOf('o', { status: 'idle', agent: 'opencode' })] });
+    expect(Object.fromEntries(sideRows(store).map((r) => [r.id, r.agent]))).toEqual({ a: 'claude-code', o: 'opencode' });
+  });
+});
+
+describe('ターミナルの上のタブ', () => {
+  it('opencode の会話のエージェントのタブは「opencode」と公式ロゴ。シェルのタブは変えない', () => {
+    const store = storeWith([session('o', { live: 'busy', provider: 'opencode' })], { enabled: true });
+    store.runs = { r1: run('r1', 'o') };
+    store.tabs = { r1: tab('r1', 'r1', 'o', 'agent'), t1: tab('t1', 'r1', 'o', 'shell') };
+    expect(presentSession(initialState(), store, NOW, 'o').tabs).toEqual([
+      { id: 'r1', title: 'opencode', kind: 'agent', agent: 'opencode', selected: true, closable: false },
+      { id: 't1', title: 'シェル t1', kind: 'shell', selected: false, closable: true },
+    ]);
+  });
+  it('Claude の会話のタブはいまのまま（有効にしていても）', () => {
+    const store = storeWith([session('a', { live: 'busy' })], { enabled: true });
+    store.runs = { r1: run('r1', 'a') };
+    store.tabs = { r1: tab('r1', 'r1', 'a', 'agent') };
+    expect(presentSession(initialState(), store, NOW, 'a').tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }]);
+    expect(presentSession(initialState(), store, NOW, 'a').tabs[0]).not.toHaveProperty('agent');
+  });
+});

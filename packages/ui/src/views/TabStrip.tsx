@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { TabItemProps } from '../presenters/session.ts';
+import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { ariaKeyShortcuts, shortcutHint } from '../keys.ts';
@@ -40,6 +41,12 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); emit({ type: 'tab.select', tabId: props.tabs[i]!.id }); }
   };
 
+  // タブの頭の印。opencode のタブは公式ロゴで、選んだタブ（板と同じ墨色）には暗い地用、選んでいないタブ（白い地）には明るい地用を置く。
+  // 名前は隣の語が言うので、絵は読み上げから外す。
+  const mark = (t: TabItemProps) => (t.agent === 'opencode'
+    ? <AgentIcon kind="opencode" tone={t.selected ? 'dark' : 'light'} decorative />
+    : <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} />);
+
   return (
     <div ref={listRef} className="tabs" role="tablist"
       onBlur={(e) => {
@@ -52,7 +59,7 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
         if (leaving) {
           return (
             <div key={key} ref={tabRef(key)} className="tab" role="presentation" aria-hidden="true">
-              <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} /><span>{t.title}</span>
+              {mark(t)}<span>{t.title}</span>
             </div>
           );
         }
@@ -60,7 +67,7 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
         return (
           <div key={key} ref={tabRef(key)} className={`tab${t.selected ? ' tab-selected' : ''}`} role="tab" aria-selected={t.selected} tabIndex={t.id === stopId ? 0 : -1}
             onClick={() => emit({ type: 'tab.select', tabId: t.id })} onFocus={() => setFocusId(t.id)} onKeyDown={(e) => onTabKey(e, i)}>
-            <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} /><span>{t.title}</span>
+            {mark(t)}<span>{t.title}</span>
             {t.closable && <button className="tab-close" tabIndex={-1} aria-label={tr('terminal.tab.close', { title: t.title })} onClick={(e) => { e.stopPropagation(); emit({ type: 'tab.close', tabId: t.id }); }}><Icon name="close" /></button>}
           </div>
         );

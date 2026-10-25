@@ -1,6 +1,7 @@
 import { resumeHereOf } from './resumeHere.ts';
+import { rowAgent } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
-import { AUTO_DONE_IDLE_DAYS, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
+import { AUTO_DONE_IDLE_DAYS, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate, type AgentIconKind } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -51,6 +52,8 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   interrupted?: { label: string; title: string };
   /** スマホから起動した会話のラベル（試作 F1、名前の後ろ）。bypass は Bypass permissions で、赤い枠にする。PC で起こした会話は持たない。 */
   phone?: { label: string; title: string; bypass: boolean };
+  /** 題名の左のエージェントのアイコン（B10、agentIcon.ts）。null は空の枠（絵の無い種類）。アイコンを出さないとき（opencode が切で、その会話も無い）は持たない。 */
+  agent?: AgentIconKind | null;
 
   /** git の札（2 段目の右端、試作の 2-1 の A）。まだ届いていないものと git でないものは null。 */
   git?: GitChipProps | null;
@@ -140,6 +143,8 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
   const phone = phoneLabelOf(s, t);
   if (phone) row.phone = phone;
+  const agent = rowAgent(store, s);
+  if (agent !== undefined) row.agent = agent;
   return row;
 }
 

@@ -957,3 +957,12 @@ hangar は、利用状況やクラッシュを集めて送る仕組みを持た�
 - [docs/release.md](docs/release.md)：リリースの手順。
 - [docs/signing.md](docs/signing.md)：署名の仕組み。
 - [docs/design.md](docs/design.md)：設計。実装計画は `docs/plans/` にあります。
+
+## 商標
+
+agent-hangar は非公式のツールです。
+Anthropic からも、opencode の開発元からも、承認や支援を受けていません。
+Claude、Claude Code と、その起動画面のキャラクター（Clawd）は Anthropic に帰属します。
+opencode の名前とロゴは、opencode の開発元に帰属します。
+その他の商標は、それぞれの権利者に帰属します。
+一覧、サイドバー、ターミナルのタブのアイコンは、どのエージェントの会話かを見分けるためだけに使っています。

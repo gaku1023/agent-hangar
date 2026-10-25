@@ -4,6 +4,7 @@ import { useBackgroundEmit, useEmit, type Emit } from '../action/chain.tsx';
 import { ACTIVE_LABEL, candidateLabel, candidateSourceLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem } from '../presenters/listItem.ts';
 import { GitChip } from './GitChip.tsx';
+import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
@@ -336,7 +337,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       onContextMenu={r.menu ? (e) => { e.preventDefault(); setCursorId(r.id); setCtx({ id: r.id, at: pointAnchor(e.clientX, e.clientY) }); } : undefined}>
       {statusColumn ? status(r) : <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />}
       <span className="row-main">
-        <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{r.phone && <span className="row-phone" data-bypass={r.phone.bypass ? 'true' : undefined} title={r.phone.title}>{r.phone.label}</span>}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>
+        <span className="row-name">{r.agent !== undefined && <span className="row-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{r.phone && <span className="row-phone" data-bypass={r.phone.bypass ? 'true' : undefined} title={r.phone.title}>{r.phone.label}</span>}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>
         {sub(r)}
       </span>
       {side(r)}
