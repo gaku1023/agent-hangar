@@ -1619,6 +1619,27 @@ hook の受け口は、opencode の会話では何も読まずに 204 を返す�
 本文の有無をファイルで確かめられないので、終わった run の会話を「本文が無い」として消す後始末（`pruneEmptySession`）は Claude の会話だけに効かせる。
 再開と、TUI が閉じたときの止め方は「opencode の寿命」の節に書く。
 
+### 起動前の準備
+
+opencode の会話を作る前に、hangar が段を走らせる（`runs/launchPrep.ts`）。
+段は 2 種類を想定する。この PC の LM Studio のモデルを足りる長さでロードする段（local-model）と、接続先の準備のコマンドを走らせる段（command、0.10.1 の後続で足す）。
+起動 1 回に `LaunchPrep` を 1 つ作り、段が動くたびに鍵ごとの全体を `launch.prep` で配る。鍵は画面が起動の要求に添える（`LaunchParams.prepKey`）。段の無い準備は何も配らない。
+利用者がやめたら（`DELETE /api/runs/prep/:key`）signal を切り、起動は 400（code `prep-cancelled`）で終わる。
+利用者に聞くことができたら、進みを asking で配り、起動を 409（code `prep-ask`）で止める。画面は届いた `ask` で問いを出し、答え（`LaunchParams.prepChoice`）を添えて送り直す。
+
+LM Studio の段（`provider/opencode/localModels/`）は、serve を起こした後、会話を作る前に走る。
+
+1. 使うモデルを serve の設定の層（`GET /api/config`）から集める。会話のモデル（指定が無ければ設定の `model`）、`small_model`、agent ごとの `model` である。
+2. プロバイダーの baseURL が 127.0.0.1 か localhost のものだけを触る。LAN の LM Studio はほかの人の PC かもしれないので触らない。`/api/v1/models` が 404 かつながらない宛先は、黙って飛ばす。
+3. ロードする長さは、設定の `opencodeLocalContext`（既定 64K）と、opencode の `limit.context` と、LM Studio の `max_context_length` の小さい方である。
+4. 足りる長さで載っていれば何もしない。載っていなければロードし、短く載っていれば、アンロードしてからロードし直す。
+5. アンロードしてよいのは、hangar がロードしたもの（ホームの `opencode/local-models.json` に、宛先と使った hangar の会話と一緒に記録する）のうち、ほかの実行中の会話（serve がある会話）が使っていないものだけである。手動でロードされたものは、答え（`unload`）が無ければ触らずに聞く（`unload-manual`）。
+6. メモリは、残る instance と新しくロードするものの重みの合計が物理メモリの 8 割を超えるかで見る。会話と agent が別々のモデルを使い、それだけで超えるなら、1 モデルに寄せるかを聞く（`memory`、勧めるのは会話のモデル）。答えが `singleModel` なら、agent と `small_model` をそのモデルに上書きする設定で serve を起こし直す。1 つで収まらないモデルは聞かずにロードしてみる。
+
+起動の後に、短く載ったモデルで断られたとき（`session.execution.failed` の文が「コンテキスト長を超えた」もの、`live.ts` の `isContextShortError`）は、`opencode.contextShort` を配って右下の札を出す。
+札の「再ロードして再開」は `POST /api/sessions/:id/local-models` で、動いている会話の serve のまま同じ段を走らせる。利用者が頼んだので、使うモデルが短く載っていれば手動でロードされたものでもロードし直す（ほかのモデルはアンロードしない）。
+外のターミナルからの起動と、終わった会話の再開では、問いに答える画面が無いので準備しない。
+
 ### opencode の状態
 
 opencode の会話の実行中、入力待ち、許可と質問を、Claude と同じ実行中の一覧（`LiveSessionDto`）と許可と質問の面に載せる（計画の B4）。

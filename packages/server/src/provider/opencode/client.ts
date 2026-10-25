@@ -288,6 +288,7 @@ export class OpencodeClient {
    * 設定の層が決めるモデル（起動前の準備で、載せるローカルのモデルを集めるのに使う）。
    * model は既定のモデル、small は small_model（題名づけなどに使う）、agents は agent ごとに書いたモデル。どれも `provider/model` の形である。
    * 層は弱い順に並ぶので、後の層が前の層を上書きする。モデルは `{ providerID, model }` の形と `provider/model` の文字列の両方を読む。
+   * 2.x の層では small_model が agents.title の model になるので、題名づけの agent（title）として数える。
    * 止めた agent（disable）は数えない。
    */
   async modelUses(directory: string): Promise<{ model: string | null; small: string | null; agents: { id: string; model: string }[] }> {
@@ -308,7 +309,8 @@ export class OpencodeClient {
       if (!info) continue;
       model = refOf(info.model) ?? model;
       small = refOf(info.small_model) ?? refOf(info.smallModel) ?? small;
-      for (const [id, a] of Object.entries(objOf(info.agent) ?? {})) {
+      // 2.x は 1.x の agent と mode を agents に読み替え、small_model を agents.title.model にする。どちらの形も読む。
+      for (const [id, a] of [...Object.entries(objOf(info.agent) ?? {}), ...Object.entries(objOf(info.agents) ?? {})]) {
         const o = objOf(a);
         if (!o) continue;
         if (o.disable === true) { agents.set(id, null); continue; }
