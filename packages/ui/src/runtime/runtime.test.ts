@@ -928,7 +928,7 @@ describe('起動とターミナル', () => {
     expect(rt.getState().toasts).toEqual([]);
   });
   it('「準備を中止」は DELETE を呼び、失敗しても黙る', async () => {
-    const cancelPrep = vi.fn(async () => { throw new Error('実行中の準備がありません。'); });
+    const cancelPrep = vi.fn(async () => { throw new Error('進行中の準備はありません。'); });
     const { rt } = harness({ cancelPrep });
     rt.start();
     rt.emit({ type: 'launchPrep.cancel', key: 'key-12345678' });

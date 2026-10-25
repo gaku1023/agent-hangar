@@ -67,7 +67,7 @@ describe('準備の問い', () => {
   it('求めたモデルと別のモデルが手で載っていれば、アンロードしてロードを聞く。外す instance は全部送る', () => {
     const a = ask({ kind: 'unload-manual', model: 'qwen3.8-27b', want: 65_536, blocking: [inst('i1', 'gemma-4-26b'), inst('i2', 'other')] })!;
     expect(a.title).toBe('gemma-4-26b、other をアンロードしてロードしますか？');
-    expect(a.body).toBe('LM Studio で手動ロードされた gemma-4-26b、other が残っているため、qwen3.8-27b をロードする空きメモリが足りません。');
+    expect(a.body).toBe('LM Studio で手動でロードされた gemma-4-26b、other が残っているため、qwen3.8-27b をロードするためのメモリが足りません。');
     expect(a.hint).toBeNull();
     expect(a.choices.map((c) => [c.label, c.choice, c.primary])).toEqual([
       ['アンロードしてロード', { unload: ['i1', 'i2'] }, true],
@@ -87,7 +87,7 @@ describe('準備の問い', () => {
     ], totalBytes: 31.7 * 1024 ** 3, limitBytes: 25.6 * 1024 ** 3, suggest: 'qwen3.8-27b', suggestRef: 'lmstudio/qwen3.8-27b' })!;
     expect(a.title).toBe('これらのモデルは同時にロードできません');
     expect(a.body).toBe('メイン会話、build: qwen3.8-27b（16.1 GB）、small_model、scout: gemma-4-26b（15.6 GB）。合計で 31.7 GB 必要となり、メモリ上限の目安（25.6 GB / 80%）を超えます。');
-    expect(a.hint).toBe('サブエージェントにも同じモデルを指定すると、LM Studio は 1 つのモデルで並列に処理するため、メモリに収まります。');
+    expect(a.hint).toBe('サブエージェントにも同じモデルを指定すると、LM Studio は 1 つのモデルで並列処理するため、メモリに収まります。');
     expect(a.choices.map((c) => [c.label, c.choice])).toEqual([['qwen3.8-27b のみで開始', { singleModel: 'lmstudio/qwen3.8-27b' }], ['そのまま開始', { skip: true }]]);
   });
   it('勧めるモデルの指定（provider/model）が無ければ、1 つに寄せるボタンを出さない', () => {
