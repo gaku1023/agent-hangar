@@ -10,7 +10,7 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.once.leftChanges': 'Synced once, but {pending} unsent changes remain. Sync is still paused',
   'sync.once.leftTranscripts': 'Synced once, but {transcripts} unsent transcripts remain. Sync is still paused',
   'sync.resume.noTranscript': "This session's transcript was not found",
-  'sync.resume.opencodeImportFailed': 'Could not import the session from the other PC into opencode ({reason})',
+  'sync.resume.opencodeImportFailed': 'Failed to import the session from another PC into opencode ({reason})',
   'sync.takeover.locked': "It is running on {device}. Stop it there first, then take it over.",
   'sync.takeover.paneNote': "[hangar] {device} took this session over, so claude on this PC was stopped.",
   'sync.takeover.paneNoteOpencode': "[hangar] {device} took this session over, so opencode on this PC was stopped.",
