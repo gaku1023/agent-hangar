@@ -401,4 +401,103 @@ describe('InboxScreen', () => {
     await screen.findByText('待ち 1');
     expect(container.querySelector('.is-target')).toBeNull();
   });
+
+  describe('opencode の行（F1）', () => {
+    const OC_CAPS = { asks: true, images: true, effort: true, agents: ['claude-code' as const, 'opencode' as const] };
+    const usage = (ctx: number | null, tokens: number, cost: number | null) => ({ ctx, tokens, cost, model: 'opencode/big-pickle' });
+
+    it('opencode の入力待ちの札はリンクにせず、「開く ›」の代わりに「PC で答えてください」を出す。Claude の札はリンクのまま', async () => {
+      await serveFeeds([
+        feedOf('pc-1', 'Mac', {
+          caps: OC_CAPS,
+          live: [
+            liveItem({ sessionId: 's-claude', status: 'waiting', waiting: { kind: 'permission', text: 'Bash: npm test' } }),
+            liveItem({ sessionId: 's-oc', status: 'waiting', agent: 'opencode', waiting: { kind: 'permission', text: 'shell: git push origin main' }, rcUrl: 'https://claude.ai/code/session_abc' }),
+          ],
+        }),
+      ]);
+      render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+      const oc = (await screen.findByText('shell: git push origin main')).closest('.wait-card')!;
+      expect(oc.tagName).toBe('DIV');
+      expect(oc.closest('a')).toBeNull();
+      expect(oc.querySelector('[href]')).toBeNull();
+      expect(within(oc as HTMLElement).getByText('PC で答えてください')).toBeInTheDocument();
+      expect(within(oc as HTMLElement).queryByText('開く ›')).not.toBeInTheDocument();
+      const claude = screen.getByText('Bash: npm test').closest('a')!;
+      expect(claude).toHaveAttribute('href', 'https://claude.ai/code');
+      expect(within(claude).getByText('開く ›')).toBeInTheDocument();
+      expect(screen.getAllByText('PC で答えてください')).toHaveLength(1);
+    });
+
+    it('実行中の opencode の行はリンクにせず、右端の 2 段目に使用量、下端にコンテキストの帯を出す。80% を超えると帯が橙', async () => {
+      await serveFeeds([
+        feedOf('pc-1', 'Mac', {
+          caps: OC_CAPS,
+          live: [
+            liveItem({ sessionId: 's-claude', status: 'busy', intent: 'Claude の作業' }),
+            liveItem({ sessionId: 's-oc1', status: 'busy', agent: 'opencode', intent: '見出しの整理', usage: usage(34, 13_600, 0) }),
+            liveItem({ sessionId: 's-oc2', status: 'busy', agent: 'opencode', intent: '実験ログの集計', usage: usage(83, 148_000, 0.42) }),
+            liveItem({ sessionId: 's-oc3', status: 'busy', agent: 'opencode', intent: '使用量なし' }),
+          ],
+        }),
+      ]);
+      const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+      const row1 = (await screen.findByText('見出しの整理')).closest('.thin')!;
+      expect(row1.tagName).toBe('DIV');
+      expect(row1.closest('a')).toBeNull();
+      expect(within(row1 as HTMLElement).getByText('13.6k · $0.00')).toHaveClass('thin-usage');
+      const band1 = row1.querySelector('.ctx-band > i') as HTMLElement;
+      expect(band1.style.width).toBe('34%');
+      expect(band1).not.toHaveClass('hot');
+      const row2 = screen.getByText('実験ログの集計').closest('.thin')!;
+      expect(within(row2 as HTMLElement).getByText('148k · $0.42')).toBeInTheDocument();
+      expect(row2.querySelector('.ctx-band > i')).toHaveClass('hot');
+      const row3 = screen.getByText('使用量なし').closest('.thin')!;
+      expect(row3.tagName).toBe('DIV');
+      expect(row3.querySelector('.ctx-band, .thin-usage')).toBeNull();
+      // Claude の行はリンクのままで、使用量も帯も出さない。
+      const claude = screen.getByText('Claude の作業').closest('a')!;
+      expect(claude.querySelector('.ctx-band, .thin-usage')).toBeNull();
+      expect(container.querySelectorAll('.ctx-band')).toHaveLength(2);
+    });
+
+    it('コンテキストの量が分からない（ctx が null）行は、数字だけ出して帯を出さない', async () => {
+      await serveFeeds([feedOf('pc-1', 'Mac', { caps: OC_CAPS, live: [liveItem({ sessionId: 's-oc', status: 'busy', agent: 'opencode', intent: 'ローカル', usage: usage(null, 9_000, null) })] })]);
+      render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+      const row = (await screen.findByText('ローカル')).closest('.thin')!;
+      expect(within(row as HTMLElement).getByText('9k')).toHaveClass('thin-usage');
+      expect(row.querySelector('.ctx-band')).toBeNull();
+    });
+
+    it('絵を出す PC では、全部の行の題名の左に絵を置き、入力待ちの札の「·」を絵に置き換える', async () => {
+      await serveFeeds([
+        feedOf('pc-1', 'Mac', {
+          caps: OC_CAPS,
+          live: [
+            liveItem({ sessionId: 's-claude', status: 'waiting', waiting: { kind: 'question', text: '質問 1' } }),
+            liveItem({ sessionId: 's-oc', status: 'busy', agent: 'opencode', intent: '作業 oc' }),
+          ],
+          done: [{ sessionId: 'd-1', projectName: 'project-a', title: '終わった会話', oneLiner: null, doneAt: Date.now() - MIN }],
+        }),
+      ]);
+      render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+      const card = (await screen.findByText('質問 1')).closest('a')!;
+      expect(card.querySelector('.agent-icon')).toHaveAttribute('data-agent', 'claude-code');
+      expect(within(card).getByRole('img', { name: 'Claude Code' })).toBeInTheDocument();
+      expect(card.querySelector('.wait-title')!.textContent).not.toMatch(/^·/);
+      const oc = screen.getByText('作業 oc').closest('.thin')!;
+      expect(oc.querySelector('.agent-icon')).toHaveAttribute('data-agent', 'opencode');
+      const done = screen.getByText('終わった会話').closest('.thin')!;
+      expect(done.querySelector('.agent-icon')).toHaveAttribute('data-agent', 'claude-code');
+    });
+
+    it('opencode を有効にしていない PC だけなら絵を出さず、今までと同じ見た目', async () => {
+      await serveFeeds([feedOf('pc-1', 'Mac', { live: [liveItem({ sessionId: 's-1', status: 'waiting', waiting: { kind: 'question', text: '質問 1' } }), liveItem({ sessionId: 's-2', status: 'busy', intent: '作業 2' })] })]);
+      const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+      const card = (await screen.findByText('質問 1')).closest('a')!;
+      expect(card.querySelector('.wait-title')!.textContent).toMatch(/^· /);
+      expect(container.querySelector('.agent-icon')).toBeNull();
+    });
+  });
 });
+

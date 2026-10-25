@@ -1,7 +1,8 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { MOBILE_BELL_MIN_WORKER_COMPAT, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
+import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { onIntent } from '../live/intents.ts';
@@ -84,7 +85,7 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
  */
 export function bootMobile(p: {
   /** home は hangar の home（置き場 drops の親）。 */
-  home: { db: Db; device: { id: string; name: string }; home: string };
+  home: { db: Db; device: { id: string; name: string }; home: string; settings?: { readonly current: Pick<Settings, 'opencodeEnabled'> } };
   /** hub は画面への配り口。スマホから起こした会話の右下の通知（phone.launch、試作 F1）を配る。無ければ配らない。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
@@ -128,6 +129,7 @@ export function bootMobile(p: {
     accounts: accounts.store.list(),
     usageOf: (id) => accounts.usage.of(id),
     now: Date.now(),
+    opencodeEnabled: p.home.settings ? opencodeEnabledOf(p.home.settings.current) : false,
   });
 
   /** 今の engine を購読する。組み直されていたら前の購読を外す。 */

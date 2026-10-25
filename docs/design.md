@@ -7780,8 +7780,20 @@ PC の設定のスマホの表は Worker の一覧から解除済みを除いて
 素は PC ごとの 1 つの JSON（`MobileFeed`）で、アカウントと使用量、プロジェクト、動いている会話、戻る会話、今日終わった会話を持つ。
 動いている会話には、待っている内容、意図の文、Remote Control の URL が入る。
 文は 300 字で切る（`MOBILE_TEXT_MAX`）。
+動いている会話は、どのエージェントの会話も載せる。
+会話は実行中の一覧の行の `agent`（無ければ Claude Code）と ID の組で `sessions` から引く。
+待っている内容は、境界の同じ形（状態の面の行の `waitingFor` と `permission`、`session_activity` の問い）から作る（`packages/server/src/agent/waiting.ts`）。
+opencode の許可は「shell: 命令」の形になり、form の問いは Claude の問いと同じく `session_activity` から入る。
+Claude Code 以外の会話の行（動いている会話、戻る会話、今日終わった会話）には `agent: 'opencode'` を付ける。
+Claude の行には付けない（古い PC の素と同じ形にし、古いスマホとの互換を保つ）。
+動いている opencode の会話には、使用量（`usage`）を付ける。
+中身は `session_live_stats` の使ったコンテキストのトークン数、モデルの上限に対する割合（0 から 100 の整数、上限が分からなければ null）、費用、モデルの ID で、使った量がまだ無ければ付けない。
+opencode の会話の Remote Control の URL はいつも null で、アカウント（`accountId`）は空にする（アカウントは Claude Code だけのもので、スマホにアカウントの札を出させない）。
+素の `caps.agents` は、設定で opencode を有効にしているときだけ `['claude-code', 'opencode']` を載せ、切なら欄ごと省く。
+古い PC は起動の依頼の知らない欄を断らずに Claude を起こすので、スマホは `agents` に opencode のある PC にだけ opencode の依頼を出す。
 暗号化の前で 48 KiB（`MOBILE_FEED_MAX_BYTES`）までとし、超えたら次の順に、収まったところでやめる（`packages/shared/src/mobile.ts` の `fitFeed`）。
 
+0. 動いている会話の使用量を全部消す。飾りの数字なので、行を落とすより先に消す。
 1. 終わった会話、戻る会話、プロジェクトの順に、古いものから落とす。
 2. 待っていない動いている会話を、idle、busy の順に、状態の時刻の古いものから落とす。
 3. 意図の文を 60 字に詰め、それでも収まらなければ消す。
@@ -7826,6 +7838,18 @@ Worker は PC の名前を持たず、名前は封じた名簿と素の中にし
 ID をまるごと出すと、行の右端が横にはみ出すからである。
 長い名前は、行の右端でも生存の行でも末尾を「…」で切り、受信箱は横にスクロールさせない。
 画面は、見えている間だけ 30 秒ごとに読み直し、前面に戻ったときと、下に引いたときにも読む。
+
+opencode の行は、押しても開かない（`a` ではなく `div`）。
+opencode には Remote Control が無く、`claude.ai/code` を開くと誤誘導になるからである。
+入力待ちの札は、「開く ›」の場所に「PC で答えてください」を出す。
+どれかの PC が `caps.agents` に opencode を載せているか、opencode の行が 1 つでもあれば、全部の行の題名の左に幅 20px の枠でエージェントの絵を置く（shared の `agentIconsShown`）。
+入力待ちの札では、題の前の「·」を絵に置き換える。
+絵は shared の `AGENT_ICONS` から React の要素として描く（`packages/mobile/src/views/AgentIcon.tsx`）。
+SVG の文字列を流し込むと innerHTML が要るからである。
+動いている opencode の行は、右端を 2 段にし、下の段に「13.6k · $0.00」のように使ったトークンと費用を小さく出す（費用が分からなければトークンだけ）。
+行の下端には 2px のコンテキストの帯を引き、幅を使用率にする。
+使用率が 80% を超えると帯を作業中の橙にする。
+帯の伸び縮みは幅の補間（`--dur` と `--ease-out`）だけで、行の出入りは今までどおり `Fold` と `usePresence` である。
 
 **起動の依頼の握手。**
 

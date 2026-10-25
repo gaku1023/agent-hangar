@@ -194,6 +194,22 @@ describe('fitFeed', () => {
     expect(f.live[0]!.intent!.length).toBe(MOBILE_TEXT_MAX);
   });
 
+  it('使用量（usage）は何より先に削る。usage を消せば収まるなら、done も live も落とさない', () => {
+    const usage = { ctx: 34, tokens: 13_600, cost: 0, model: 'opencode/' + 'm'.repeat(50) };
+    const items = live(40).map((l) => ({ ...l, intent: null, agent: 'opencode' as const, usage }));
+    const base = feed({ live: items.map(({ usage: _u, ...l }) => l), done: done(3) });
+    const f = feed({ live: items, done: done(3) });
+    const out = fitFeed(f, bytes(base));
+    expect(out.done.length).toBe(3);
+    expect(out.live.length).toBe(40);
+    for (const l of out.live) {
+      expect(l).not.toHaveProperty('usage');
+      expect(l.agent).toBe('opencode');
+    }
+    // 元の feed は変えない。
+    expect(f.live[0]!.usage).toEqual(usage);
+  });
+
   it('意図を詰めれば収まるなら、待っている live を落とさない', () => {
     const items = heavy(50, 'waiting', 1000).map((l) => ({ ...l, title: '会話', projectName: 'project-a', waiting: { kind: 'question' as const, text: '進めてよいですか' } }));
     const f = feed({ live: items });
