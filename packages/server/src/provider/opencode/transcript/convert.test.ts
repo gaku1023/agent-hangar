@@ -107,6 +107,12 @@ describe('convertMessages（記録した 2.1.4 の本文）', () => {
     expect(records.every((r) => r.locator.kind === 'stored')).toBe(true);
   });
 
+  it('モデルの切り替え（/models の後の送信）は、切り替えた先のモデルを facts に持ち、印は meta のまま残す', () => {
+    const r = convertMessage({ id: 'msg_m', type: 'model-switched', time: { created: 9 }, model: { id: 'deepseek-v4.1-flash-free', providerID: 'opencode' }, previous: { id: 'big-pickle', providerID: 'opencode', variant: 'default' } }, 3);
+    expect(r.facts).toEqual({ isUserTurn: false, ts: 9, model: 'opencode/deepseek-v4.1-flash-free', modelSelected: true });
+    expect(r.events).toEqual([{ kind: 'meta', seq: 3, ts: 9, name: 'model-switched', value: { model: { id: 'deepseek-v4.1-flash-free', providerID: 'opencode' }, previous: { id: 'big-pickle', providerID: 'opencode', variant: 'default' } } }]);
+  });
+
   it('知らない種類のメッセージは捨てずに meta にする', () => {
     const r = convertMessage({ id: 'msg_x', type: 'compaction', time: { created: 5 }, summary: 's' }, 7);
     expect(r.events).toEqual([{ kind: 'meta', seq: 7, ts: 5, name: 'compaction', value: { summary: 's' } }]);

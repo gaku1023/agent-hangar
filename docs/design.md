@@ -1721,7 +1721,7 @@ Code Mode の `execute` は、中で呼んだ MCP の道具（`metadata.toolCall
 
 読む契機は、状態の面（`live.ts`）が読んでいる serve の出来事の流れから受ける（`OpencodeLive.onEvent`）。
 流れを別に開かないのは、serve 1 本に流れを 1 本にし、つなぎ直しを 1 か所に置くためである。
-契機は `session.step.ended`、`session.step.failed`、`session.text.ended`、`session.usage.updated`、`session.inbox.delivered`、`session.execution.` の終わり（succeeded、failed、interrupted）と、つないだとき（つなぎ直しも）の `server.connected` で、続けて届いたものは 150 ミリ秒待って 1 回にまとめる。
+契機は `session.step.ended`、`session.step.failed`、`session.text.ended`、`session.usage.updated`、`session.inbox.delivered`、`session.model.selected`、`session.execution.` の終わり（succeeded、failed、interrupted）と、つないだとき（つなぎ直しも）の `server.connected` で、続けて届いたものは 150 ミリ秒待って 1 回にまとめる。
 driver は、`materialize` で会話を作ったら載せて（`track`）すぐに読み、`release` では serve を止める前にもう一度読んでから外す。
 
 返答の費用と文脈の量は、事実（`RecordFacts` の `costUsd`、`contextTokens`）として持つ。
@@ -1729,6 +1729,11 @@ driver は、`materialize` で会話を作ったら載せて（`track`）すぐ�
 文脈の大きさは本文に無いので、モデル（束のものか、前に書いたもの）の上限を、新しいセッションの選択肢の一覧から引いて書く（`OpencodeOptionsService.contextOf`）。
 一覧は取った場所ごとに手元にあり、どの場所の一覧にも無ければ models.dev のカタログを引く。どちらにも無ければ書かず、前の値を残す。
 索引は opencode の部品より先に組むので、口は後から渡す（`boot/indexing.ts` の `bindContextSize`）。
+
+TUI の `/models` の切り替えは、選んだ時点では TUI の中だけにあり、serve には届かない（2.1.4）。
+選んだ後の最初の送信で TUI が `POST /api/session/{id}/model` を呼び、本文に `model-switched` の印が入り、流れに `session.model.selected` が出る（返答より先）。
+印は切り替えた先のモデルを事実（`RecordFacts` の `model` と `modelSelected`）として持ち、費用や文脈の量の無い束でも `session_live_stats` のモデルと文脈の大きさを書き換える。
+右欄のモデルの札は、返答を待たずに送信の時点で切り替わる。選んだだけで送っていない間は、前のモデルのままである。
 文脈の量は `SessionStatsDto.contextTokens` で画面に渡る。
 サブエージェント（opencode の子の会話）の本文はまだ写さない。
 

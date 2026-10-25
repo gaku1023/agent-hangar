@@ -6,6 +6,7 @@ import { onRowChange, type RowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { convertMessages } from '../provider/opencode/transcript/convert.ts';
+import { OpencodeLive } from '../provider/opencode/live.ts';
 import { OpencodeTranscript } from '../provider/opencode/transcript/source.ts';
 import { fixtureMessages, startFakeEventsServe, until, type FakeEventsServe } from '../../test/fake-opencode-events.ts';
 import { IndexerService } from './service.ts';
@@ -43,6 +44,13 @@ describe('writeBatch の文脈の大きさ', () => {
     const usageOnly = convertMessages(ALL).map((r) => ({ ...r, facts: { ...r.facts, model: undefined } }));
     writeBatch(db, batch(false, usageOnly), { deviceId: 'd', contextSizeOf: (m) => (m === 'mock/mock' ? 64_000 : null) });
     expect(stats(db)).toMatchObject({ model: 'mock/mock', context_size: 64_000 });
+  });
+
+  it('モデルの切り替えだけの束でも、今の値のモデルと文脈の大きさを書き換え、量と費用は残す', () => {
+    writeBatch(db, batch(true), { deviceId: 'd', contextSizeOf: () => 100 });
+    const switched = convertMessages([{ id: 'msg_m', type: 'model-switched', time: { created: 1792902399000 }, model: { id: 'other', providerID: 'lmstudio' } }]);
+    writeBatch(db, batch(false, switched), { deviceId: 'd', contextSizeOf: (m) => (m === 'lmstudio/other' ? 32_000 : null) });
+    expect(stats(db)).toEqual({ model: 'lmstudio/other', context_used: 12, context_size: 32_000, cost_usd: 0 });
   });
 
   it('口を渡さなければ context_size は null のまま（B5 と同じ）', () => {
@@ -92,5 +100,30 @@ describe('IndexerService の contextSizeOf', () => {
       const sid = (db.prepare("select id from sessions where provider = 'opencode' and provider_session_id = ?").get(SID) as { id: string }).id;
       await until(() => seen.some((c) => c.table === 'sessions' && c.rowId === sid));
     } finally { off(); }
+  });
+
+  // TUI の /models の後の送信で、serve は本文に model-switched を入れて session.model.selected を流す（2.1.4 で確かめた）。返答を待たずに札を切り替える。
+  it('流れの session.model.selected で読み直し、返答の前に今の値のモデルを切り替えて sessions を名指しする', async () => {
+    const seen: RowChange[] = [];
+    const off = onRowChange((c) => { if (c.db === db) seen.push(c); });
+    const live = new OpencodeLive({ pidAlive: () => true });
+    try {
+      const source = new OpencodeTranscript({ debounceMs: 0, events: (cb) => live.onEvent(cb), log: () => {} });
+      svc = new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), stored: [source], isRunning: () => false, contextSizeOf: (m) => (m === 'lmstudio/other' ? 32_000 : 200) });
+      await svc.start();
+      serve.state.messages.set(SID, ALL);
+      live.start();
+      live.track({ providerSessionId: SID, cwd: CWD, serve });
+      source.track({ providerSessionId: SID, cwd: CWD, serve });
+      await until(() => (stats(db) as { model: string | null } | undefined)?.model === 'mock/mock' && serve.open() === 1);
+      const sid = (db.prepare("select id from sessions where provider = 'opencode' and provider_session_id = ?").get(SID) as { id: string }).id;
+      seen.length = 0;
+      const created = 1792902399000;
+      serve.state.messages.set(SID, [...ALL, { id: 'msg_zz_switch', type: 'model-switched', time: { created }, model: { id: 'other', providerID: 'lmstudio' } } as { id: string }]);
+      serve.send(`data: ${JSON.stringify({ id: 'evt_zz', created, type: 'session.model.selected', data: { sessionID: SID, model: { id: 'other', providerID: 'lmstudio' } } })}`);
+      await until(() => (stats(db) as { model: string | null } | undefined)?.model === 'lmstudio/other');
+      expect(stats(db)).toEqual({ model: 'lmstudio/other', context_used: 12, context_size: 32_000, cost_usd: 0 });
+      await until(() => seen.some((c) => c.table === 'sessions' && c.rowId === sid));
+    } finally { off(); live.stop(); }
   });
 });
