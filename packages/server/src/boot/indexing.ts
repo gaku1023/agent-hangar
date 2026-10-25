@@ -1,4 +1,3 @@
-import { remoteRoot } from '../config/cloud.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { gitPath } from '../git/find.ts';
 import { GitService } from '../git/service.ts';
@@ -40,18 +39,19 @@ export type IndexingParts = {
  * 手元の本文が動いたら、同期の上げ手へ知らせる。
  */
 export function bootIndexing(
-  home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'compatLog' | 'claudeVersion'>,
+  home: Pick<HomeParts, 'home' | 'db' | 'device' | 'settings' | 'language' | 'life'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'claude' | 'compatLog' | 'claudeVersion'>,
   sync: Pick<SyncParts, 'uploader' | 'syncState' | 'onRemoteChange'>,
 ): IndexingParts {
-  const { db, claudeDir, settings, life } = home;
+  const { db, settings, life } = home;
   const { hub, live } = delivery;
   const deviceId = home.device.id;
   const indexer = new IndexerService({
-    db, deviceId, claudeDir,
+    db, deviceId,
+    // 本文の発見と見張りは Claude の driver のトランスクリプトの面が受け持つ。他端末から降ろした本文も、そこが見つける。
+    transcript: delivery.claude.transcript,
     isRunning: (id) => live.current().some((l) => l.sessionId === id),
-    // 他端末から降ろした本文も索引化の対象にする。譲ったセッションは相手が持ち主なので見ない。
-    remoteRoot: remoteRoot(home.home),
+    // 譲ったセッションは相手が持ち主なので見ない。
     isYielded: (uuid) => sync.syncState.isYielded(uuid),
     // 実行中のセッションの本文は、通知に頼らず 2 秒ごとにも見る。Windows では開いたままの追記で通知が遅れうる。
     liveSessions: () => live.current().map((l) => ({ sessionId: l.sessionId, cwd: l.cwd })),

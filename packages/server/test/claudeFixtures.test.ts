@@ -7,6 +7,7 @@ import { parseAuthStatus } from '../src/provider/claude-code/config/accountAuth.
 import { ensureShellScript, shellScriptPath } from '../src/config/shellHook.ts';
 import { openDb } from '../src/db/open.ts';
 import { IndexerService } from '../src/indexer/service.ts';
+import { claudeTranscriptSource } from '../src/provider/claude-code/transcript/source.ts';
 import { agentsJsonDrifts, authStatusDrifts, BUILTIN_SUBCOMMANDS, claudeVersionOf, parseHelp, subcommandsFromHelp } from '../src/provider/claude-code/compat/cli.ts';
 import { registryDrifts, registryKey, registryStartedAt, RegistryMissGate } from '../src/provider/claude-code/compat/registry.ts';
 import { statuslineDrifts } from '../src/provider/claude-code/compat/statusline.ts';
@@ -128,7 +129,7 @@ for (const f of fixtures) {
       for (const name of fixtureSubagents(f)) fs.copyFileSync(path.join(f.dir, name), path.join(proj, f.sessionId, name));
       const db = openDb(':memory:');
       try {
-        await new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: () => false }).fullScan();
+        await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false }).fullScan();
         const s = db.prepare('select id, custom_title from sessions where provider_session_id = ?').get(f.sessionId) as { id: string; custom_title: string | null };
         expect(s.custom_title).toBe(SCENARIO.name);
         const stats = db.prepare('select turns, input_tokens, output_tokens from session_stats where session_id = ?').get(s.id) as { turns: number; input_tokens: number; output_tokens: number };

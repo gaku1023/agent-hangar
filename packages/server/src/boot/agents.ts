@@ -2,10 +2,12 @@ import { agentsOf, type Agents } from '../agent/agents.ts';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
+import { remoteRoot } from '../config/cloud.ts';
 import type { CompatLog } from '../provider/claude-code/compat/log.ts';
 import { claudeBinOf } from '../provider/claude-code/compat/localClaude.ts';
 import { claudeLiveSource, createClaudeDriver, type ClaudeDriver, type ClaudeLiveSource } from '../provider/claude-code/driver.ts';
 import { realProcOpsWith, type ProcOps } from '../provider/claude-code/process/procs.ts';
+import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { safeErrorText } from '../runs/manager.ts';
 import type { HomeParts } from './home.ts';
@@ -44,6 +46,8 @@ export function bootAgents(
     claudeBin: () => claudeBinOf(home.settings.current),
     // 登録のディレクトリを見張り、見張れていて作業中が無い間は REGISTRY_IDLE_MS ごとにしか読まない（provider/claude-code/registry.ts）。
     live: claudeLiveSource({ claudeDir: home.claudeDir, pollMs: REGISTRY_POLL_MS, idleMs: REGISTRY_IDLE_MS, isGone: o.registryIsGone, enrich: o.enrich, compat: o.compatLog }),
+    // 本文の置き場の発見と見張り。ほかの PC から降ろした本文（~/.agent-hangar/remote）も見る。見張りを付けるのは索引が始まるときである（boot/indexing.ts）。
+    transcript: claudeTranscriptSource({ claudeDir: home.claudeDir, remoteRoot: remoteRoot(home.home) }),
     procs: () => procs,
   });
   return { agents: agentsOf([claude]), claude };
@@ -51,9 +55,9 @@ export function bootAgents(
 
 /**
  * hangar の決まり（hook の台本の場所、外す変数、失敗の知らせ方）で Claude の driver を組む。
- * 実物の口（claude の場所、状態の面、プロセスの口）は呼び手が渡す。run の管理の試験も、これで組む。
+ * 実物の口（claude の場所、状態の面、トランスクリプトの面、プロセスの口）は呼び手が渡す。run の管理の試験も、これで組む。
  */
-export function claudeDriverFor(o: { home: string; token: string; language: GetLanguage; claudeBin: () => string | null; live: ClaudeLiveSource; procs: () => Pick<ProcOps, 'runClaude'> }): ClaudeDriver {
+export function claudeDriverFor(o: { home: string; token: string; language: GetLanguage; claudeBin: () => string | null; live: ClaudeLiveSource; transcript: ClaudeTranscriptSource; procs: () => Pick<ProcOps, 'runClaude'> }): ClaudeDriver {
   return createClaudeDriver({
     home: o.home,
     // hook の台本はサーバ自身の node で走らせる。
@@ -62,6 +66,7 @@ export function claudeDriverFor(o: { home: string; token: string; language: GetL
     droppedEnv: RUN_DROPPED_ENV,
     claudeBin: o.claudeBin,
     live: o.live,
+    transcript: o.transcript,
     procs: o.procs,
     report: (what, e) => {
       if (what === 'hook-settings') console.error('[runs] hook の設定を書けませんでした', e instanceof Error ? e.message : e);

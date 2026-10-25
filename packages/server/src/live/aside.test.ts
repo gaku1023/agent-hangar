@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { logQueries, unnarrowedScans } from '../../test/queryLog.ts';
 import { ASIDE_SETTLE_MS, AsideReader } from './aside.ts';
@@ -41,7 +42,7 @@ function write(rows: unknown[]) {
 }
 async function index(rows: unknown[]) {
   write(rows);
-  await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+  await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
 }
 const busy = (over: Partial<LiveSession> = {}): LiveSession => ({ sessionId: SID, status: 'busy', name: null, nameSource: null, cwd: '/w/aside', pid: 1, statusAt: at(0), ...over });
 const read = (live: LiveSession[], now: number) => new AsideReader(db).apply(live, now);

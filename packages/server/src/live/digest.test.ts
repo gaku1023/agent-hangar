@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { addIntent } from './intents.ts';
 import { buildLiveDigest, LiveDigester } from './digest.ts';
 
@@ -27,7 +28,7 @@ function write(file: string, rows: unknown[]) {
   fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
 }
 async function index() {
-  await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+  await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
   sid = (db.prepare('select id from sessions where provider_session_id = ?').get(SID) as { id: string }).id;
 }
 const proj = () => path.join(dir, 'projects', '-w-live');

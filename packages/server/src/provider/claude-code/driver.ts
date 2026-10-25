@@ -7,12 +7,14 @@ import { writeMcpConfig } from './launch/mcpConfig.ts';
 import type { ProcOps } from './process/procs.ts';
 import { RegistryWatcher, watchDir } from './registry.ts';
 import type { CompatSink } from './compat/types.ts';
+import type { ClaudeTranscriptSource } from './transcript/source.ts';
 import type { LaunchMode, LiveSession } from './types.ts';
 
 /**
  * Claude の driver に呼び手が渡すもの。
  * この置き場から hangar の層（launch/、runs/）を読まないよう、hook の台本の場所と外す変数の一覧は呼び手が渡す。
  * live は状態の面（claudeLiveSource で作る）。driver の live としてそのまま出し、止めるときにバックグラウンドの id を引くのにも使う。
+ * transcript はトランスクリプトの面（transcript/source.ts の claudeTranscriptSource で作る）。driver の transcript としてそのまま出す。
  * report は、hook の設定を書けなかったときと、バックグラウンドのセッションを止められなかったときに呼ぶ（起動も停止も止めない）。
  * files は、設定のファイルを書く口。試験で差し替える。
  */
@@ -26,6 +28,7 @@ export type ClaudeDriverDeps = {
   droppedEnv: readonly string[];
   claudeBin: () => string | null;
   live: ClaudeLiveSource;
+  transcript: ClaudeTranscriptSource;
   procs: () => Pick<ProcOps, 'runClaude'>;
   report: (what: 'hook-settings' | 'stop', e: unknown) => void;
   files?: { mcpConfig?: typeof writeMcpConfig; hookSettings?: (home: string, sessionId: string, o: HookSettingsInput) => string | undefined };
@@ -82,11 +85,12 @@ export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs:
 
 export type ClaudeDriver = AgentDriver & {
   readonly live: ClaudeLiveSource;
+  readonly transcript: ClaudeTranscriptSource;
   /** バックグラウンドのサービスが持つセッションに `claude attach` でつなぐ。Claude にしか無い起こし方なので、境界の型には無い。 */
   attachPlan(bin: string, jobId: string, env: Record<string, string>): LaunchPlan;
 };
 
-/** Claude Code の driver。いまは起動と状態の面を持つ。 */
+/** Claude Code の driver。いまは起動と状態とトランスクリプトの面を持つ。 */
 export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
   const files = { mcpConfig: deps.files?.mcpConfig ?? writeMcpConfig, hookSettings: deps.files?.hookSettings ?? writeHookSettings };
 
@@ -148,6 +152,7 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
       },
     },
     live: deps.live,
+    transcript: deps.transcript,
     attachPlan(bin, jobId, env) {
       return { argv: [bin, 'attach', jobId], env: {}, unset: unsetFor(deps.droppedEnv, env) };
     },

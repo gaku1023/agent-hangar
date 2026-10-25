@@ -3,6 +3,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import { agentsOf } from '../../agent/agents.ts';
 import type { AgentDriver, AgentLauncher, LaunchPlan, LaunchSpec, SessionMode } from '../../agent/types.ts';
 import { createClaudeDriver, type ClaudeDriverDeps } from './driver.ts';
+import { claudeTranscriptSource } from './transcript/source.ts';
 import { liveSourceOf } from '../../../test/fake-live.ts';
 
 const BIN = '/opt/homebrew/bin/claude';
@@ -17,6 +18,7 @@ function driverWith(over: Partial<ClaudeDriverDeps> = {}) {
     droppedEnv: ['CLAUDECODE', 'HANGAR_PORT'],
     claudeBin: () => BIN,
     live: liveSourceOf(),
+    transcript: claudeTranscriptSource({ claudeDir: '/home/.claude' }),
     procs: () => ({ runClaude: async () => '' }),
     report: () => {},
     files: { mcpConfig: () => mcpConfigPath, hookSettings: () => undefined },

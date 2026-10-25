@@ -19,6 +19,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { languageReader } from '../i18n/language.ts';
 import { Publisher } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { PromoteError } from '../projects/promote.ts';
@@ -165,7 +166,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   const db = openDb(':memory:');
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
   fs.mkdirSync(path.join(ws, 'alpha'));
-  const indexer = new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: () => false });
+  const indexer = new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false });
   await indexer.fullScan();
   db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(path.join(ws, 'alpha'), SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');

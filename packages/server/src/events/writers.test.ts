@@ -6,6 +6,7 @@ import type { ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { callTool, type ToolDeps } from '../mcp/tools.ts';
 import { resolveProject } from '../projects/registry.ts';
 import { addTodo, confirmTodo, proposeTodoDone, rejectTodo } from '../projects/todos.ts';
@@ -153,7 +154,7 @@ describe('事後要約のジョブ', () => {
 
   it('要約と状態の提案を書いても、session.upsert は両方の載った 1 回で、summary.updated の前に届く', async () => {
     claudeDir = copyFixtureClaudeDir();
-    await new IndexerService({ db, deviceId: ME, claudeDir, isRunning: () => false }).fullScan();
+    await new IndexerService({ db, deviceId: ME, transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false }).fullScan();
     const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
     const summarizer: Summarizer = {
       id: 'lmstudio',

@@ -6,6 +6,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './open.ts';
 import { softDeleteShared, upsertShared } from './shared.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { setSessionName } from '../sessions/notes.ts';
@@ -22,7 +23,7 @@ const live: LiveSessionDto[] = [
 beforeEach(async () => {
   dir = copyFixtureClaudeDir();
   db = openDb(':memory:');
-  await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+  await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
   upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
   upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: '/Users/me/workspace/alpha', resolved: 1 }, 'd');
   assignSessions(db, 'd');

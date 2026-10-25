@@ -6,6 +6,7 @@ import { Publisher } from '../events/publisher.ts';
 import { upsertShared } from '../db/shared.ts';
 import { getSessionState, proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { isSummaryStale, SummaryJob } from './job.ts';
 import type { SummaryEnqueueOpts } from '../http/app.ts';
@@ -23,7 +24,7 @@ function fake(id: Summarizer['id'], o: { available?: boolean; fail?: boolean; de
 }
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0;
-  await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+  await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
 });
 const publishers: Publisher[] = [];

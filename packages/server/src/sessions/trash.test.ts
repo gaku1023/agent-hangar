@@ -9,6 +9,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { indexFile } from '../indexer/indexFile.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { assignSessions, mergeProjects } from '../projects/registry.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { applyRemoteBatch } from '../sync/apply.ts';
@@ -219,7 +220,7 @@ describe('生き返らない', () => {
   it('history.jsonl にだけ残る会話としても書き直さない', async () => {
     await service().deleteSession('s1');
     db.prepare('update changes set pushed_at = 1').run();
-    const indexer = new IndexerService({ db, deviceId: DEV, claudeDir, isRunning: () => false });
+    const indexer = new IndexerService({ db, deviceId: DEV, transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false });
     indexer.syncHistoryOnly(new Map([[UUID, { cwd: CWD, firstTs: 1, lastTs: Date.now() + 1000, firstDisplay: 'こんにちは', count: 3 }]]));
     expect(unpushed('sessions')).toEqual([]);
     expect(db.prepare("select last_activity_at from sessions where id = 's1'").get()).toEqual({ last_activity_at: null });
