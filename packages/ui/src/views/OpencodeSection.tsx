@@ -38,7 +38,7 @@ function OpencodeVersion(props: { version: OpencodeSettingsProps['version'] }) {
  * 入のときの行は、バージョン、コマンドの横取り（段 D2、macOS と Linux だけ）、システムプロンプトへの追記の順。
  * 追記の行の下には、選んでいる量で送る全文の畳みを Claude の「システムプロンプトの追記」と同じ形で置く（views/InjectionFull.tsx）。追記しないときは出さない。
  * その下に「プロバイダー」（つないだ先と追加、views/OpencodeProviders.tsx）を置く。providers を渡さなければ出さない。
- * Windows では段 G1 まで面ごと出さない（available が偽）。横取りの行は G1 の後も Windows では出さない（intercept.available）。どれも選んだ時点で保存する。
+ * available が偽なら面ごと出さない（いまはどの OS でも真）。横取りの行は Windows では出さない（intercept.available）。どれも選んだ時点で保存する。
  */
 export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: OpencodeProvidersProps }) {
   const t = useT();

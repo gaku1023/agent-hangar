@@ -68,8 +68,8 @@ describe('設定の opencode の面', () => {
     expect(p.badge).toBeNull();
   });
 
-  it('Windows では G1 まで面ごと出さない', () => {
-    expect(present(store({ opencodeEnabled: true }), 'win32').available).toBe(false);
+  it('Windows でも面を出す（Windows の実機で確かめた）', () => {
+    expect(present(store({ opencodeEnabled: true }), 'win32').available).toBe(true);
     expect(present(store({ opencodeEnabled: true }), 'linux').available).toBe(true);
   });
 
