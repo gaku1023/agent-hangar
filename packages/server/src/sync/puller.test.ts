@@ -12,7 +12,7 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { sha256Hex } from './crypto.ts';
 import { Keyring } from './keyring.ts';
-import { RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS, rewindSkippedFiles } from './puller.ts';
+import { diskReserve, RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS, rewindSkippedFiles } from './puller.ts';
 import { SyncStateStore } from './state.ts';
 import { TranscriptUploader } from './uploader.ts';
 import { expectMode } from '../../test/platform.ts';
@@ -25,8 +25,8 @@ let state: SyncStateStore;
 const errors: { key: string; message: string }[] = [];
 
 /** device として平文の本文を上げる。R2 の鍵名は中身のパスから今の世代で求める（uploader と同じ）。 */
-const putRemote = async (device: string, rel: string, text: string, kind: 'transcript' | 'config' = 'transcript', o: { sha256?: string } = {}) =>
-  cloud.asDevice(device).putText({ path: rel, kind, sha256: o.sha256 }, text);
+const putRemote = async (device: string, rel: string, text: string, kind: 'transcript' | 'config' = 'transcript', o: { sha256?: string; mtime?: number } = {}) =>
+  cloud.asDevice(device).putText({ path: rel, kind, sha256: o.sha256, mtime: o.mtime }, text);
 const make = (over: Partial<ConstructorParameters<typeof RemotePuller>[0]> = {}) =>
   new RemotePuller({ db, deviceId: 'dev-a', home, client: cloud, state, onError: (k, m) => errors.push({ key: k, message: m }), ...over });
 
@@ -745,5 +745,107 @@ describe('projects/ で始まらない写し（opencode の本文）', () => {
     expect(state.getNumber('filesSeq', -1)).toBe(4);
     // projects/ の外へは何も書かない。
     expect(remoteTree().filter((r) => !r.startsWith('dev-b/projects') && r !== 'dev-b')).toEqual([]);
+  });
+});
+
+/**
+ * 新しく参加した PC での降ろし方。
+ * 一覧を先に読み切り、新しい会話から順に降ろす。降ろす前に空きを見て、残す分を割るならそこで止める。
+ */
+describe('新しい会話から順に、空きを見て降ろす', () => {
+  const S1 = 'a1111111-1111-4111-8111-111111111111';
+  const S2 = 'a2222222-2222-4222-8222-222222222222';
+  const S3 = 'a3333333-3333-4333-8333-333333333333';
+  const rel = (s: string) => `projects/-w-alpha/${s}.jsonl`;
+  const T = 1_700_000_000_000;
+  const GB = 1024 ** 3;
+  /** 降ろした順。getFile を呼んだ鍵の並びで見る。 */
+  const fetched = () => {
+    const keys: string[] = [];
+    const orig = cloud.getFile.bind(cloud);
+    vi.spyOn(cloud, 'getFile').mockImplementation((k, e) => { keys.push(k); return orig(k, e); });
+    return keys;
+  };
+  /** remote/ の下に置いた本文の合計の大きさ。偽の空きはここから減らす。 */
+  const written = (): number => {
+    const root = path.join(home, 'remote');
+    if (!fs.existsSync(root)) return 0;
+    return (fs.readdirSync(root, { recursive: true }) as string[]).map((p) => path.join(root, p)).filter((p) => fs.statSync(p).isFile()).reduce((n, p) => n + fs.statSync(p).size, 0);
+  };
+  /** 全体 100 GB（残す分は 5 GB）で、残す分の上に budget バイトだけ空いているディスク。 */
+  const disk = (budget: { n: number }) => () => ({ free: 5 * GB + budget.n - written(), total: 100 * GB });
+
+  it('残す分は 5 GB とディスクの 10% の小さい方', () => {
+    expect(diskReserve(100 * GB)).toBe(5 * GB);
+    expect(diskReserve(20 * GB)).toBe(2 * GB);
+  });
+
+  it('上げた順ではなく、新しい会話から順に降ろす（会話の中の写しはまとめて）', async () => {
+    const k1 = await putRemote('dev-b', rel(S1), 'one\n', 'transcript', { mtime: T + 1 });
+    const k3 = await putRemote('dev-b', rel(S3), 'three\n', 'transcript', { mtime: T + 3 });
+    const k2 = await putRemote('dev-b', rel(S2), 'two\n', 'transcript', { mtime: T + 2 });
+    // S1 のサブエージェントがいちばん新しいので、S1 の会話が先頭に来る。
+    const sub = await putRemote('dev-b', `projects/-w-alpha/${S1}/subagents/agent-x.jsonl`, 'sub\n', 'transcript', { mtime: T + 9 });
+    const keys = fetched();
+    expect(await make().pullNow()).toEqual({ downloaded: 4 });
+    expect(keys).toEqual([sub.key, k1.key, k3.key, k2.key]);
+    expect(state.getNumber('filesSeq', -1)).toBe(4);
+  });
+
+  it('同じ写しの古い版は降ろさず、最新の版だけを降ろす', async () => {
+    await putRemote('dev-b', rel(S1), 'old\n', 'transcript', { mtime: T + 1 });
+    await putRemote('dev-b', rel(S1), 'old\nnew\n', 'transcript', { mtime: T + 2 });
+    const keys = fetched();
+    expect(await make().pullNow()).toEqual({ downloaded: 1 });
+    expect(keys).toHaveLength(1);
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', rel(S1)), 'utf8')).toBe('old\nnew\n');
+  });
+
+  it('降ろした後の空きが残す分を割るなら、そこで止めて古い会話を残し、区切りもその手前で止める', async () => {
+    const body = 'x'.repeat(99) + '\n';
+    await putRemote('dev-b', rel(S1), body, 'transcript', { mtime: T + 1 });
+    await putRemote('dev-b', rel(S2), body, 'transcript', { mtime: T + 2 });
+    await putRemote('dev-b', rel(S3), body, 'transcript', { mtime: T + 3 });
+    const seen: unknown[] = [];
+    const p = make({ diskSpace: disk({ n: 250 }), onDiskShortChanged: (v) => seen.push(v) });
+    expect(await p.pullNow()).toEqual({ downloaded: 2 });
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', rel(S3)))).toBe(true);
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', rel(S2)))).toBe(true);
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', rel(S1)))).toBe(false);
+    // S1 は連番 1 なので、次はそこから読み直す。
+    expect(state.getNumber('filesSeq', -1)).toBe(0);
+    const short = { sessions: 1, needBytes: 100, freeBytes: 5 * GB + 50, reserveBytes: 5 * GB };
+    expect(p.diskShort()).toEqual(short);
+    expect(seen).toEqual([short]);
+    // 空きの不足は諦めに数えない。
+    expect(p.skippedEntries()).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it('止まっている間は、空きが戻るまで一覧を読みに行かない。戻れば続きを降ろして知らせを消す', async () => {
+    const body = 'x'.repeat(99) + '\n';
+    await putRemote('dev-b', rel(S1), body, 'transcript', { mtime: T + 1 });
+    await putRemote('dev-b', rel(S2), body, 'transcript', { mtime: T + 2 });
+    const budget = { n: 150 };
+    const seen: unknown[] = [];
+    const p = make({ diskSpace: disk(budget), onDiskShortChanged: (v) => seen.push(v) });
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(p.diskShort()).not.toBeNull();
+    const list = vi.spyOn(cloud, 'listFiles');
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    expect(list).not.toHaveBeenCalled();
+    budget.n = 1000;
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(p.diskShort()).toBeNull();
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toBeNull();
+    expect(state.getNumber('filesSeq', -1)).toBe(2);
+  });
+
+  it('空きが測れない端末では、測らずに降ろす', async () => {
+    await putRemote('dev-b', rel(S1), 'one\n');
+    const p = make({ diskSpace: () => null });
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(p.diskShort()).toBeNull();
   });
 });

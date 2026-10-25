@@ -15,7 +15,7 @@ import { SettingsScreen } from './SettingsScreen.tsx';
 import { ToastStack } from './ToastStack.tsx';
 
 const NOW = Date.parse('2026-10-12T03:00:00Z');
-const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
+const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
 const dev = (id: string, over: Partial<CloudDeviceDto> = {}): CloudDeviceDto => ({ id, name: id, platform: 'darwin', joinedAt: NOW - 20 * 86_400_000, lastSeenAt: NOW - 60_000, revokedAt: null, expiresAt: null, kind: 'pc', self: false, ...over });
 const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
 

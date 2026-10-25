@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { vi } from 'vitest';
-import type { LaunchParams, LaunchResultDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import type { LaunchParams, LaunchResultDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SummarizerTestDto, SyncDiskShortDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
@@ -139,6 +139,7 @@ export type SyncFakeState = {
   skipped: { key: string; attempts: number; message: string }[];
   sweepPending: number | null;
   oncePass: boolean;
+  diskShort?: SyncDiskShortDto | null;
   resumeHereResult: LaunchResultDto | ResumeHereConflictDto;
 };
 
@@ -238,6 +239,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     syncSkipped: () => sync.skipped,
     syncSweep: () => sync.sweepPending,
     syncOncePass: () => sync.oncePass,
+    syncDiskShort: () => sync.diskShort ?? null,
     takeover,
     resumeHere: (id: string, overwrite: boolean) => { sync.calls.push(`resumeHere:${id}:${overwrite}`); return sync.resumeHereResult; },
     configBundle: null,

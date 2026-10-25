@@ -18,6 +18,8 @@ export const noticesKeys = {
   'notices.sync.pausedToo': [],
   'notices.sync.open': [],
   'notices.sync.skipped': ['n'],
+  'notices.sync.diskShort': ['n'],
+  'notices.sync.diskShortDetail': ['need', 'reserve'],
   'notices.compat.title': [],
   'notices.compat.detailOne': ['version'],
   'notices.compat.detailMany': ['version', 'n'],

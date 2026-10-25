@@ -1,10 +1,10 @@
-import { compatState, type UiAction, type Language, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
+import { compatState, type UiAction, type Language, type SyncDiskShortDto, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import { readinessCompat } from './compat.ts';
 import { storeLanguage, translatorOf } from './i18n.ts';
-import { countExpiring } from './retention.ts';
+import { bytesLabel, countExpiring } from './retention.ts';
 import { limitedWord } from './syncLabel.ts';
 
 /**
@@ -63,7 +63,7 @@ function syncFacts({ store, t, language, tz }: Ctx): Draft[] {
   const s = store.sync;
   if (!s) return [];
   const base = { kind: 'sync', icon: 'sync', kindLabel: t('notices.kind.sync'), when: null, action: { label: t('notices.sync.open'), send: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } } } as const;
-  return [...syncState(s, base, t, language, tz), ...syncSkipped(s, base, t)];
+  return [...syncState(s, base, t, language, tz), ...syncSkipped(s, base, t), ...syncDiskShort(s, base, t)];
 }
 
 type SyncBase = { kind: 'sync'; icon: 'sync'; kindLabel: string; when: null; action: NoticeRow['action'] };
@@ -90,6 +90,20 @@ function syncSkipped(s: SyncStatusBody, base: SyncBase, t: Translate): Draft[] {
   if (s.state === 'off' || s.skipped.length === 0) return [];
   return [{ ...base, key: `sync|skipped|${s.skipped.length}`, tone: 'err', title: t('notices.sync.skipped', { n: s.skipped.length }), detail: s.skipped[0]!.message }];
 }
+
+/**
+ * 空きが足りずに、本文の取得を止めている（同期の状態の diskShort、sync/puller.ts）。
+ * 空ければ続きを取得して消えるので、失敗の赤ではなく黄にする。止めた瞬間は札でも知らせる（mediator/diskShort.ts、題は同じ文）。
+ * 会話の数が変われば鍵が変わり、また未読になる。大きさは空けている途中で動くので鍵に入れない。
+ */
+function syncDiskShort(s: SyncStatusBody, base: SyncBase, t: Translate): Draft[] {
+  if (s.state === 'off' || !s.diskShort) return [];
+  const d = s.diskShort;
+  return [{ ...base, key: `sync|diskShort|${d.sessions}`, tone: 'warn', title: diskShortTitle(t, d), detail: t('notices.sync.diskShortDetail', { need: bytesLabel(d.needBytes), reserve: bytesLabel(d.reserveBytes) }) }];
+}
+
+/** 空きが足りずに止めたときの題。注意の行と札が同じ文を使う。 */
+export const diskShortTitle = (t: Translate, d: SyncDiskShortDto): string => t('notices.sync.diskShort', { n: d.sessions });
 
 /**
  * Claude Code との互換の変更点。変更点が 1 件以上あるときだけ行にする（未検証の版は止めた機能が無いので行にしない）。

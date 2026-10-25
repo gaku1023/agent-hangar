@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, OpencodeOptionsDto, OpencodeStatusDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, OpencodeOptionsDto, OpencodeStatusDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncDiskShortDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -144,6 +144,8 @@ export type AppDeps = {
   syncSweep: () => number | null;
   /** 一時停止のまま頼まれた 1 巡の最中か。 */
   syncOncePass: () => boolean;
+  /** 空きが足りずに本文の取得を止めている事実（sync/puller.ts の diskShort）。同期していない端末では null。 */
+  syncDiskShort: () => SyncDiskShortDto | null;
   /** 「この PC で再開」の頼む側（sync/takeover.ts）。ほかの PC で動く会話を止めてもらい、最後の本文が降りるのを待つ。 */
   takeover: Pick<TakeoverService, 'start' | 'extend' | 'cancel' | 'get' | 'forcedWithoutRow'>;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */

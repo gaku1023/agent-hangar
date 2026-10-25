@@ -539,6 +539,11 @@ export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string
  */
 export type SyncSkippedDto = { key: string; attempts: number; message: string };
 /**
+ * 空きが足りずに、本文の取得を止めている事実（sync/puller.ts）。
+ * sessions は取得していない会話の数、needBytes はその大きさ、freeBytes は止めたときの空き、reserveBytes は残す分（5 GB かディスクの 10% の小さい方）である。
+ */
+export type SyncDiskShortDto = { sessions: number; needBytes: number; freeBytes: number; reserveBytes: number };
+/**
  * 同期の状態に添える付録。
  * SyncStatusDto を組み立てる SyncEngine は、どちらの値も持っていない。
  * 諦めた本文を覚えているのは RemotePuller で、取り残しを数えられるのは TranscriptUploader だけである。
@@ -550,7 +555,11 @@ export type SyncSkippedDto = { key: string; attempts: number; message: string };
  * oncePass は、一時停止のまま利用者が「今すぐ同期」で頼んだ 1 巡の最中かどうかである。
  * そのあいだも state は paused のままなので、進んでいることはこの印でしか分からない。
  */
-export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null; oncePass: boolean };
+export type SyncDetailDto = {
+  skipped: SyncSkippedDto[]; sweepPending: number | null; oncePass: boolean;
+  /** 空きが足りずに取得を止めているときの事実。止めていなければ null。 */
+  diskShort: SyncDiskShortDto | null;
+};
 /** 同期の状態の応答。SyncStatusDto に付録を足したものである。 */
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 /**

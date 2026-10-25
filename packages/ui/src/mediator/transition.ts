@@ -29,6 +29,7 @@ import { sidebarFoldStep, sidebarLiveStep, sidebarOrderStep, sidebarStep } from 
 import { projectRailStep } from './projectRail.ts';
 import { syncStep } from './sync.ts';
 import { todosStep } from './todos.ts';
+import { diskShortStep } from './diskShort.ts';
 import { workbenchStep } from './workbench.ts';
 import type { Input, State, Step } from './types.ts';
 import type { Store } from '../store/store.ts';
@@ -37,7 +38,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarOrder: [], sidebarFolded: [], projectRailFolded: {}, noticesRead: [], opencodeVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarOrder: [], sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -102,7 +103,8 @@ export function transition(state: State, store: Store, input: Input): Step {
  * 入力待ちの知らせ（live.ts の liveStep）、サイドバーの「動いている」の並び（sidebar.ts の sidebarLiveStep）の順である。
  * どちらも、ストアの顔ぶれが前に見たものと同じなら何もしない。
  */
-function storeChanged(state: State, store: Store): Step {
+function storeChanged(prev: State, store: Store): Step {
+  const state = diskShortStep(prev, store);
   const waiting = liveStep(state, store);
   const live = sidebarLiveStep(waiting.state, store);
   // どちらも動かなかったら、整え（settled）を通さずそのまま返す。

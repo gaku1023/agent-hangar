@@ -11,7 +11,7 @@ import type { AppDeps, JoinApproverApi, LanguageDeps, RecoveryKeyApi } from '../
 import { BODY_LIMITS, readJson, syncStatusOf, tooLargeResult } from './common.ts';
 
 /** 同期の経路が使う依存。 */
-export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'cloudRevoke' | 'mobileLink' | 'deviceName' | 'joinApprover' | 'recoveryKey' | 'configBundle'> & LanguageDeps;
+export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'syncDiskShort' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'cloudRevoke' | 'mobileLink' | 'deviceName' | 'joinApprover' | 'recoveryKey' | 'configBundle'> & LanguageDeps;
 
 /**
  * 端末の解除の失敗を、符号と HTTP の状態にする。CLI の hangar cloud revoke はこの符号を読む。

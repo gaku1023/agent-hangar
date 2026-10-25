@@ -23,7 +23,7 @@ const PRIV = btoa(String.fromCharCode(...Array.from({ length: 32 }, (_, i) => (i
 const TEXT = formatRecoveryKey({ priv: PRIV, url: URL_, createdAt: NOW });
 
 const SETTINGS = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null } as unknown as SettingsDto;
-const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: URL_, lastPushAt: NOW - 60_000, lastPullAt: NOW - 30_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
+const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: URL_, lastPushAt: NOW - 60_000, lastPullAt: NOW - 30_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
 const DEVICES: CloudDevicesDto = {
   state: 'ok', creator: true, message: null,
   devices: [

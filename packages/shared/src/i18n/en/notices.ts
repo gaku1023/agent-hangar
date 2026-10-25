@@ -19,6 +19,8 @@ export const noticesEn: AreaDictionary<typeof noticesKeys> = {
   'notices.sync.pausedToo': 'Sync is paused',
   'notices.sync.open': 'Open sync settings',
   'notices.sync.skipped': '{n} {n|transcript|transcripts} could not be received',
+  'notices.sync.diskShort': 'Not enough disk space to download {n} {n|conversation|conversations}',
+  'notices.sync.diskShortDetail': 'An additional {need} is required to finish. Download was stopped to keep at least {reserve} of free space. Free up disk space to resume.',
   'notices.compat.title': 'Changes detected',
   'notices.compat.detailOne': 'Claude Code {version}: 1 change',
   'notices.compat.detailMany': 'Claude Code {version}: {n} {n|change|changes}',

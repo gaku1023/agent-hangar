@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { PULL_LIMIT, type FileEntry } from '@agent-hangar/shared';
+import { PULL_LIMIT, type FileEntry, type SyncDiskShortDto } from '@agent-hangar/shared';
 import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -44,7 +44,78 @@ export type PullerDeps = {
    * 残した理由は書いた時点の言語のままで、言語を変えても書き直さない（次の失敗で新しい言語になる）。
    */
   language?: GetLanguage;
+  /**
+   * 置き場のあるディスクの空き（free）と全体（total）のバイト数。測れなければ null で、そのときは空きを見ずに降ろす。
+   * 省くと statfs で測る（diskSpaceAt）。試験が偽の空きを渡す。
+   */
+  diskSpace?: () => { free: number; total: number } | null;
+  /** 空きが足りずに止めたとき（中身）と、空きが戻って解けたとき（null）に知らせる。画面へ同期の状態を配り直す（boot/sync.ts）。 */
+  onDiskShortChanged?: (short: SyncDiskShortDto | null) => void;
 };
+
+const GB = 1024 ** 3;
+
+/**
+ * 降ろした後に残しておく空き。5 GB か、ディスクの 10% の小さい方である。
+ * 小さいディスクで 5 GB を残そうとすると何も降ろせず、大きいディスクで 10% を残そうとすると 100 GB 単位で余らせる。
+ */
+export function diskReserve(total: number): number {
+  return Math.min(5 * GB, Math.floor(total * 0.1));
+}
+
+/** dir（無ければ、在る親）のディスクの空きと全体を statfs で測る。測れなければ null。 */
+export function diskSpaceAt(dir: string): { free: number; total: number } | null {
+  let d = dir;
+  for (;;) {
+    try {
+      const s = fs.statfsSync(d);
+      return { free: s.bavail * s.bsize, total: s.blocks * s.bsize };
+    } catch {
+      const up = path.dirname(d);
+      if (up === d) return null;
+      d = up;
+    }
+  }
+}
+
+/** 空きが足りずに、その項目を降ろさなかった。項目のせいではないので、諦めには数えない。 */
+class DiskShortError extends Error {
+  constructor(readonly freeBytes: number, readonly reserveBytes: number) { super('disk short'); }
+}
+
+/** 止めたときの事実と、空きが戻ったかを見るための先頭の項目の大きさ。 */
+type ShortState = SyncDiskShortDto & { firstSize: number };
+
+/** 会話のまとまりの鍵。元の PC とセッションの ID で、本文の主線とサブエージェントを 1 つにまとめる。 */
+const sessionGroupOf = (e: FileEntry): string => `${originOf(e)}\0${uuidOfTranscript(e.path)}`;
+
+/**
+ * 降ろす順に並べ替える。新しい会話（まとまりの中の最新の mtime が新しい方）から順で、まとまりの中も新しい写しから。
+ * 新しく参加した PC は一覧の頭（いちばん古い本文）から降ろしていたので、いま続けたい会話がいちばん後に届いていた。
+ * 同じ写し（元の PC とパス）の版が並んでいれば、最新の 1 件だけを残す。古い版を後から降ろすと、新しい版を上書きする。
+ * 最新は mtime で決め、同じなら連番の大きい方（世代を回して鍵名だけ変わった行）を採る。
+ * 上げ直した写し（sync/rebuild.ts）は連番が大きくても中身が古いことがあるので、連番より mtime を先に見る。
+ */
+function newestFirst(entries: FileEntry[]): FileEntry[] {
+  const latest = new Map<string, FileEntry>();
+  for (const e of entries) {
+    const id = `${originOf(e)}\0${e.path}`;
+    const prev = latest.get(id);
+    if (!prev || prev.mtime < e.mtime || (prev.mtime === e.mtime && prev.seq < e.seq)) latest.set(id, e);
+  }
+  const top = new Map<string, number>();
+  for (const e of latest.values()) {
+    const g = sessionGroupOf(e);
+    top.set(g, Math.max(top.get(g) ?? -Infinity, e.mtime));
+  }
+  const byNewest = (a: FileEntry, b: FileEntry) => b.mtime - a.mtime || b.seq - a.seq;
+  return [...latest.values()].sort((a, b) => {
+    const ga = sessionGroupOf(a);
+    const gb = sessionGroupOf(b);
+    if (ga === gb) return byNewest(a, b);
+    return top.get(gb)! - top.get(ga)! || (ga < gb ? -1 : 1);
+  });
+}
 
 /**
  * 同じ項目で続けて失敗してよい回数。これを超えたら飛ばして先に進む。
@@ -159,9 +230,44 @@ export class RemotePuller {
    * 起こす手続きを持たない作りなので、`started` ではなくこの向きで持つ。
    */
   private stopped = false;
+  /**
+   * 空きが足りずに止めている間の事実。null なら止めていない。
+   * 起こし直すと消えるが、次の 1 回で一覧を読み直して同じ所でまた止まるので、残さなくてよい。
+   */
+  private short: ShortState | null = null;
+  private readonly diskSpace: () => { free: number; total: number } | null;
 
   constructor(private readonly deps: PullerDeps) {
     this.now = deps.now ?? (() => Date.now());
+    this.diskSpace = deps.diskSpace ?? (() => diskSpaceAt(remoteRoot(deps.home)));
+  }
+
+  /** 空きが足りずに降ろしていない会話の数と、要る大きさ。止めていなければ null。同期の状態に添えて画面へ出す。 */
+  diskShort(): SyncDiskShortDto | null {
+    if (this.short === null) return null;
+    const { firstSize: _, ...dto } = this.short;
+    return dto;
+  }
+
+  private setShort(next: ShortState | null): void {
+    const was = this.diskShort();
+    this.short = next;
+    const now = this.diskShort();
+    if (JSON.stringify(was) !== JSON.stringify(now)) this.deps.onDiskShortChanged?.(now);
+  }
+
+  /** size バイトを降ろしても、残す分を割らないか。割るなら DiskShortError を投げる。測れなければ通す。 */
+  private ensureRoom(size: number): void {
+    const d = this.diskSpace();
+    if (d === null) return;
+    const reserve = diskReserve(d.total);
+    if (d.free - size < reserve) throw new DiskShortError(d.free, reserve);
+  }
+
+  /** 止めている間、空きが戻ったか。先頭の項目が入るだけの空きができたら戻ったとみなす。 */
+  private roomBack(): boolean {
+    if (this.short === null) return true;
+    try { this.ensureRoom(this.short.firstSize); return true; } catch { return false; }
   }
 
   /** 失敗の理由を、いまの言語の文にする。辞書の文を持たない失敗（応答の本文、OS の失敗）は message のまま。 */
@@ -271,6 +377,8 @@ export class RemotePuller {
         if (await this.download(rec.entries[0]!)) downloaded++;
         this.clearSkip(key);
       } catch (err) {
+        // 空きが足りないのも、この項目のせいではない。数を足さずに、残りの取り直しを次の機会へ回す。
+        if (err instanceof DiskShortError) break;
         // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。
         // 諦めた回数と理由を書き換えずに、その回の残りの取り直しも打ち切る（呼び手の pullNow ごと投げる）。
         if (err instanceof CompatError || err instanceof LimitError) throw err;
@@ -291,6 +399,9 @@ export class RemotePuller {
   private async pullNowInner(): Promise<{ downloaded: number }> {
     let downloaded = 0;
     const startedAt = this.now();
+    // 空きが足りずに止めている間は、一覧も読みに行かない。
+    // 区切りは止めた項目の手前にあるので、読みに行くと 2 秒ごとに降ろせない一覧を頭から読み直し、D1 の読み取りを使い続ける。
+    if (!this.roomBack()) return { downloaded: 0 };
     // 諦めた項目を取り戻す機会。起こし直した直後（lastRetryAt が無い）と、間隔が空いたときに試す。
     if (this.lastRetryAt === null || startedAt - this.lastRetryAt >= RETRY_SKIPPED_AFTER_MS) {
       this.lastRetryAt = startedAt;
@@ -300,6 +411,8 @@ export class RemotePuller {
     let advanceTo = since;
     let minFailed: number | null = null;
     let minUnreadable: number | null = null;
+    // 一覧を先に読み切ってから、新しい会話から順に降ろす（newestFirst）。
+    const candidates: FileEntry[] = [];
     for (;;) {
       const page = await this.deps.client.listFiles(since, PULL_LIMIT);
       // 世代の鍵が無くて開けなかった行は、区切りを止めずに越え、いちばん小さい連番を控える。
@@ -312,13 +425,7 @@ export class RemotePuller {
         if (e.kind === 'config') continue;
         // 削除したセッション（sessions/trash.ts）の写しは降ろさない。印を受け取る前の持ち主が上げた分でも、置けば消し直すだけになる。
         if (this.isTrashed(e.path)) continue;
-        try {
-          if (await this.download(e)) { downloaded++; this.clearSkip(e.key); }
-        } catch (err) {
-          // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。諦めに数えずに回ごと止め、filesSeq も進めない。
-          if (err instanceof CompatError || err instanceof LimitError) throw err;
-          if (this.noteFailure(e.key, [e], e.sha256, this.errorText(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
-        }
+        candidates.push(e);
       }
       // その回の出発点より下がらないようにする。
       // 壊れた応答（手前を指す nextSeq）で filesSeq を巻き戻すと、降ろし済みの項目を延々と読み直す。
@@ -328,6 +435,28 @@ export class RemotePuller {
       if (!page.more || page.nextSeq <= since) break;
       since = page.nextSeq;
     }
+    const order = newestFirst(candidates);
+    let short: ShortState | null = null;
+    for (let i = 0; i < order.length; i++) {
+      const e = order[i]!;
+      try {
+        if (await this.download(e)) { downloaded++; this.clearSkip(e.key); }
+      } catch (err) {
+        // 空きが足りなければ、ここで止める。古い会話ほど後ろにあるので、残るのは古い方である。
+        // 残りのいちばん小さい連番の手前で区切りを止め、空きが戻ったらそこから読み直す。
+        if (err instanceof DiskShortError) {
+          const rest = order.slice(i);
+          short = this.shortOf(rest, err);
+          const minRest = Math.min(...rest.map((r) => r.seq));
+          minFailed = minFailed === null ? minRest : Math.min(minFailed, minRest);
+          break;
+        }
+        // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。諦めに数えずに回ごと止め、filesSeq も進めない。
+        if (err instanceof CompatError || err instanceof LimitError) throw err;
+        if (this.noteFailure(e.key, [e], e.sha256, this.errorText(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
+      }
+    }
+    this.setShort(short);
     // 失敗した項目より手前で止めて、次の pull で取り直す。
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
     if (minUnreadable !== null) {
@@ -378,6 +507,8 @@ export class RemotePuller {
           if (await this.download(e)) downloaded++;
         } catch (err) {
           if (err instanceof CompatError || err instanceof LimitError) throw err;
+          // 空きが足りなければ残りも入らない。止めた事実は、いつもの降ろし（pullNow）が知らせる。
+          if (err instanceof DiskShortError) break;
           this.deps.onError?.(e.key, this.errorText(err));
         }
       }
@@ -386,16 +517,47 @@ export class RemotePuller {
     });
   }
 
-  /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */
-  private async download(e: FileEntry): Promise<boolean> {
+  /**
+   * 止めたときの事実。降ろさずに残した項目のうち、降ろす要るものの会話の数と大きさを数える。
+   * firstSize は止めた項目の大きさで、空きが戻ったかをこれで見る（roomBack）。
+   */
+  private shortOf(rest: FileEntry[], err: DiskShortError): ShortState {
+    const need = rest.filter((e) => { try { return this.needsDownload(e) !== null; } catch { return false; } });
+    return {
+      sessions: new Set(need.map(sessionGroupOf)).size,
+      needBytes: need.reduce((n, e) => n + e.size, 0),
+      freeBytes: err.freeBytes,
+      reserveBytes: err.reserveBytes,
+      firstSize: rest[0]!.size,
+    };
+  }
+
+  /**
+   * 降ろす要るか。要るなら置き場のパスと台帳の鍵を返し、既に同じ指紋の実体があるなどで要らなければ null を返す。
+   * パスが不正なら投げる。
+   */
+  private needsDownload(e: FileEntry): { target: string; ledger: string } | null {
     const origin = originOf(e);
     const ledger = ledgerKeyOfPath(origin, e.path);
     if (ledger === null) throw new MessageError(msg('sync.pull.badPath', { path: e.path }));
     const target = remoteTranscriptPath(this.deps.home, origin, e.path);
     const prev = this.deps.db.prepare('select sha256, mtime from file_sync where key = ?').get(ledger) as { sha256: string; mtime: number } | undefined;
-    if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return false;
+    if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return null;
     // 上げ直した写し（上げた PC と元の PC が違う）は、元の PC の上げた本文より古いことがある。手元の写しの方が新しければ残す。
-    if (origin !== e.deviceId && prev && prev.mtime > e.mtime && fs.existsSync(target)) return false;
+    if (origin !== e.deviceId && prev && prev.mtime > e.mtime && fs.existsSync(target)) return null;
+    return { target, ledger };
+  }
+
+  /**
+   * 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。
+   * 書く前に空きを見て、降ろした後の空きが残す分を割るなら DiskShortError を投げる（呼び手がそこで止める）。
+   */
+  private async download(e: FileEntry): Promise<boolean> {
+    const origin = originOf(e);
+    const need = this.needsDownload(e);
+    if (need === null) return false;
+    const { target, ledger } = need;
+    this.ensureRoom(e.size);
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
     // 直接の宛先には書かない。
     // 切り詰められた入力では error が出る前に 1 チャンク分の平文が流れるので、

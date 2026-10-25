@@ -1,11 +1,11 @@
-import type { SyncSkippedDto, SyncStatusDto } from '@agent-hangar/shared';
+import type { SyncDiskShortDto, SyncSkippedDto, SyncStatusDto } from '@agent-hangar/shared';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { SyncListener } from './engine.ts';
 import type { Toast } from './notices.ts';
 
 export type SyncFeedDeps = {
   hub: { broadcast(ev: NoticeEvent): void };
-  puller: { skippedEntries(): SyncSkippedDto[]; pullNow(): Promise<unknown> } | null;
+  puller: { skippedEntries(): SyncSkippedDto[]; diskShort(): SyncDiskShortDto | null; pullNow(): Promise<unknown> } | null;
   uploader: { pendingSweep(): number | null } | null;
   /** 一時停止のまま頼まれた 1 巡の最中か。 */
   oncePass: () => boolean;
@@ -21,6 +21,8 @@ export type SyncFeed = {
   skipped(): SyncSkippedDto[];
   /** 取り残した本文の件数。数えられない端末では null。 */
   sweep(): number | null;
+  /** 空きが足りずに本文の取得を止めている事実。止めていなければ null。 */
+  diskShort(): SyncDiskShortDto | null;
   oncePass(): boolean;
   /** 同期の状態を、付録を添えて画面へ配る。 */
   broadcastSync(s: SyncStatusDto): void;
@@ -43,8 +45,9 @@ export function createSyncFeed(deps: SyncFeedDeps): SyncFeed {
   const skipped = (): SyncSkippedDto[] => deps.puller?.skippedEntries() ?? [];
   const sweep = (): number | null => deps.uploader?.pendingSweep() ?? null;
   const oncePass = (): boolean => deps.oncePass();
+  const diskShort = (): SyncDiskShortDto | null => deps.puller?.diskShort() ?? null;
   const broadcastSync = (s: SyncStatusDto): void => {
-    deps.hub.broadcast({ type: 'sync.status', status: { ...s, skipped: skipped(), sweepPending: sweep(), oncePass: oncePass() } });
+    deps.hub.broadcast({ type: 'sync.status', status: { ...s, skipped: skipped(), sweepPending: sweep(), oncePass: oncePass(), diskShort: diskShort() } });
   };
   // 重なりは RemotePuller が自分の鎖で防ぐので、ここでは頼むだけでよい。
   const pullFiles = (): void => {
@@ -70,5 +73,5 @@ export function createSyncFeed(deps: SyncFeedDeps): SyncFeed {
       pulled: () => { if (!deps.oncePass()) pullFiles(); },
     };
   };
-  return { skipped, sweep, oncePass, broadcastSync, pullFiles, listener };
+  return { skipped, sweep, oncePass, diskShort, broadcastSync, pullFiles, listener };
 }

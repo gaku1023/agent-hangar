@@ -138,7 +138,7 @@ export const projectOf = (deps: Pick<AppDeps, 'db' | 'deviceId' | 'live'>) => (i
 /** 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。 */
 export const externalOf = (deps: Pick<AppDeps, 'token'> & LanguageDeps) => (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty, deps.language());
 /** 同期の状態。諦めた項目と、取り残しの残り件数を添えて返す。 */
-export const syncStatusOf = (deps: Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass'>) => (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped(), sweepPending: deps.syncSweep(), oncePass: deps.syncOncePass() });
+export const syncStatusOf = (deps: Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'syncDiskShort'>) => (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped(), sweepPending: deps.syncSweep(), oncePass: deps.syncOncePass(), diskShort: deps.syncDiskShort() });
 /**
  * セッションを起こす前に、他端末の変更を 2 秒だけ待って取り込む。
  * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。

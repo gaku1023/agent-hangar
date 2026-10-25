@@ -1,4 +1,4 @@
-import type { SyncStatusDto } from '@agent-hangar/shared';
+import type { SyncDiskShortDto, SyncStatusDto } from '@agent-hangar/shared';
 import { describe, expect, it } from 'vitest';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { createSyncFeed } from './statusFeed.ts';
@@ -12,9 +12,10 @@ function setup(o: { paused?: boolean; oncePass?: boolean; withParts?: boolean } 
   let paused = o.paused ?? false;
   let sweep = 3;
   let skipped = [{ key: 'k', attempts: 2, message: 'm' }];
+  let diskShort: SyncDiskShortDto | null = null;
   const feed = createSyncFeed({
     hub: { broadcast: (ev) => { sent.push(ev); } },
-    puller: o.withParts === false ? null : { skippedEntries: () => skipped, pullNow: async () => { calls.push('pull'); } },
+    puller: o.withParts === false ? null : { skippedEntries: () => skipped, diskShort: () => diskShort, pullNow: async () => { calls.push('pull'); } },
     uploader: o.withParts === false ? null : { pendingSweep: () => sweep },
     oncePass: () => o.oncePass ?? false,
     isPaused: () => paused,
@@ -22,7 +23,7 @@ function setup(o: { paused?: boolean; oncePass?: boolean; withParts?: boolean } 
     toast: (_l, m) => { toasts.push(m); },
     log: () => {},
   });
-  return { feed, sent, calls, toasts, setPaused: (v: boolean) => { paused = v; }, setSweep: (n: number) => { sweep = n; }, clearSkipped: () => { skipped = []; } };
+  return { feed, sent, calls, toasts, setPaused: (v: boolean) => { paused = v; }, setSweep: (n: number) => { sweep = n; }, clearSkipped: () => { skipped = []; }, setDiskShort: (v: SyncDiskShortDto | null) => { diskShort = v; } };
 }
 
 describe('同期の状態の配り', () => {
@@ -37,6 +38,18 @@ describe('同期の状態の配り', () => {
     t.clearSkipped();
     l.status!(status('idle'));
     expect(t.sent[1]).toMatchObject({ type: 'sync.status', status: { sweepPending: 0, skipped: [] } });
+  });
+
+  it('空きが足りずに取得を止めている事実も付録で運び、降ろし手が無ければ null にする', () => {
+    const t = setup();
+    const short = { sessions: 3, needBytes: 100, freeBytes: 5, reserveBytes: 10 };
+    t.setDiskShort(short);
+    t.feed.broadcastSync(status('idle'));
+    expect(t.sent[0]).toMatchObject({ type: 'sync.status', status: { diskShort: short } });
+    expect(t.feed.diskShort()).toEqual(short);
+    const none = setup({ withParts: false });
+    none.feed.broadcastSync(status('idle'));
+    expect(none.sent[0]).toMatchObject({ type: 'sync.status', status: { diskShort: null } });
   });
 
   it('同期を設定していない端末では、諦めた項目は空で、取り残しは数えられない（null）', () => {

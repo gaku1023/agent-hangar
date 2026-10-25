@@ -86,7 +86,7 @@ function boot(o: { start?: boolean; index?: boolean; cloudWatch?: Parameters<typ
   const sent: NoticeEvent[] = [];
   const hub = { broadcast: (ev: NoticeEvent) => { sent.push(ev); } };
   const sync = bootSync(h, { hub, toast: toastVia(hub) }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md'), ...(o.cloudWatch ? { cloudWatch: o.cloudWatch } : {}) });
-  const status = (): SyncStatusBody => ({ ...sync.engine.status(), skipped: sync.feed.skipped(), sweepPending: sync.feed.sweep(), oncePass: sync.feed.oncePass() });
+  const status = (): SyncStatusBody => ({ ...sync.engine.status(), skipped: sync.feed.skipped(), sweepPending: sync.feed.sweep(), oncePass: sync.feed.oncePass(), diskShort: sync.feed.diskShort() });
   let closed = false;
   const b: Booted = {
     h, sync, sent, status,

@@ -44,7 +44,8 @@ export const FORBIDDEN_JA: ReadonlyArray<{ pattern: RegExp; use: string }> = [
   { pattern: /降ろせ/, use: '取得できなかった' },
   { pattern: /入れてください|入れ直/, use: '入力、インストール、オンにする' },
   // 2026-10-16 の文言の見直し（用語集 14 章）。ふつうの UI 語と開発者の語にそろえる。
-  { pattern: /足(?:す|し|さ)/, use: '追加する' },
+  // 「不足して」（足りない）は追加の意味ではないので外す。
+  { pattern: /(?<!不)足(?:す|し|さ)/, use: '追加する' },
   { pattern: /やめる/, use: 'キャンセル' },
   { pattern: /(?<![必重主概])要(?:る|ら|り)/, use: '必要、不要' },
   { pattern: /(?:^|[、。「（\s])いま/, use: '省く、現在' },
