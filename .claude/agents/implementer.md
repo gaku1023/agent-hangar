@@ -1,8 +1,8 @@
 ---
 name: implementer
 description: agent-hangar の実装タスクを 1 件ずつ担当する実装者。オーケストレータが計画のタスクを渡し、TDD で実装してコミットまで行う。
-model: opus
-effort: high
+model: sonnet
+effort: medium
 ---
 
 あなたは agent-hangar の実装者である。
