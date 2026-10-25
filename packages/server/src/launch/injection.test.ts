@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { renderInjection } from './injection.ts';
+import { localDate, localTime, osName, t as tt, translator, type Language } from '@agent-hangar/shared';
+import type { HandoverFacts } from '../runs/handover.ts';
+import { DEFAULT_INJECTION_PARTS, renderInjection, renderInjectionEntries, type InjectionInput, type InjectionParts } from './injection.ts';
 
 const todo = (n: number | string) => ({ id: `id${n}`, text: `t${n}` });
 
@@ -166,5 +168,73 @@ describe('renderInjection の PC をまたぐ段', () => {
     expect(en).toContain('this-mac (macOS)');
     expect(en).toContain('2026-10-12 18:05');
     for (const s of ['git status', 'git log -1', 'AskUserQuestion', 'ssh, scp, or rsync', 'feature/x', '- src/new.ts', 'This project is used on 2 computers']) expect(en, s).toContain(s);
+  });
+});
+
+/**
+ * 段に割る前の renderInjection の写し。段に割った後も、出る文字列が 1 字も変わらないことを、これと見比べて確かめる。
+ */
+function renderBeforeSplit(i: InjectionInput, language: Language = 'ja', parts: InjectionParts = DEFAULT_INJECTION_PARTS): string {
+  const none = tt(language, 'launch.injection.none');
+  const todos = i.todos.slice(0, 10);
+  const todoText = todos.length ? '\n' + todos.map((todo) => `- [${todo.id}] ${todo.text}`).join('\n') : none;
+  const handover = (h: HandoverFacts): string => {
+    const os = (p: string | null) => osName(translator(language), p) ?? none;
+    const files = h.missing.map((f) => `\n- ${f}`).join('') + (h.missingCount > h.missing.length ? '\n- …' : '');
+    return tt(language, 'launch.injection.handover', {
+      prevDevice: h.prevDevice ?? none, prevOs: os(h.prevPlatform),
+      lastAt: h.lastAt === null ? none : `${localDate(h.lastAt)} ${localTime(h.lastAt)}`,
+      prevPath: h.prevPath, device: h.device ?? none, os: os(h.platform), path: h.path,
+      branch: h.branch ?? none, editedCount: String(h.editedCount),
+      missing: h.missingCount === 0 ? none : tt(language, 'launch.injection.missing', { n: String(h.missingCount), files }),
+    });
+  };
+  return [
+    tt(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, todos: todoText }),
+    i.handover ? handover(i.handover) : '',
+    (i.deviceCount ?? 0) >= 2 ? tt(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) : '',
+    parts.askStatusAtEnd ? tt(language, 'launch.injection.status') : '',
+    parts.liveHints ? tt(language, 'launch.injection.live') : '',
+  ].join('');
+}
+
+describe('renderInjectionEntries', () => {
+  const inputs: InjectionInput[] = [
+    { ...BASE },
+    { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }, { id: 'tb', text: 'b' }] },
+    { projectName: 'p', projectPath: '/p', todos: Array.from({ length: 12 }, (_, i) => todo(i)) },
+    { ...BASE, handover: FACTS },
+    { ...BASE, handover: { ...FACTS, prevDevice: null, prevPlatform: null, lastAt: null, branch: null, missing: [], missingCount: 0 } },
+    { ...BASE, handover: { ...FACTS, editedCount: 14, missing: Array.from({ length: 10 }, (_, i) => `f${i}.ts`), missingCount: 12 } },
+    { ...BASE, handover: null, deviceCount: 1 },
+    { ...BASE, deviceCount: 2 },
+    { ...BASE, handover: FACTS, deviceCount: 3 },
+  ];
+  const partsList: InjectionParts[] = [
+    { askStatusAtEnd: true, liveHints: true }, { askStatusAtEnd: false, liveHints: true },
+    { askStatusAtEnd: true, liveHints: false }, { askStatusAtEnd: false, liveHints: false },
+  ];
+
+  it('段を順につないだ文字列は、段に割る前の renderInjection と 1 字も違わない', () => {
+    for (const language of ['ja', 'en'] as const) {
+      for (const input of inputs) {
+        for (const parts of partsList) {
+          const want = renderBeforeSplit(input, language, parts);
+          const label = JSON.stringify({ language, input, parts });
+          expect(renderInjectionEntries(input, language, parts).map((e) => e.text).join(''), label).toBe(want);
+          expect(renderInjection(input, language, parts), label).toBe(want);
+        }
+      }
+    }
+    expect(renderInjectionEntries(BASE).map((e) => e.text).join('')).toBe(renderBeforeSplit(BASE));
+  });
+
+  it('段は body、handover、multiDevice、status、live の順で、足さない段は入れない', () => {
+    const keys = (i: InjectionInput, parts?: InjectionParts) => renderInjectionEntries(i, 'ja', parts).map((e) => e.key);
+    expect(keys({ ...BASE, handover: FACTS, deviceCount: 2 })).toEqual(['body', 'handover', 'multiDevice', 'status', 'live']);
+    expect(keys(BASE)).toEqual(['body', 'status', 'live']);
+    expect(keys(BASE, { askStatusAtEnd: false, liveHints: false })).toEqual(['body']);
+    expect(keys({ ...BASE, deviceCount: 2 }, { askStatusAtEnd: false, liveHints: true })).toEqual(['body', 'multiDevice', 'live']);
+    for (const e of renderInjectionEntries({ ...BASE, handover: FACTS, deviceCount: 2 })) expect(e.text, e.key).not.toBe('');
   });
 });

@@ -4,6 +4,7 @@ import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import type { Message } from '../i18n/message.ts';
+import type { AsksOf } from '../mcp/app.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import type { CandidateEnv } from '../projects/candidates.ts';
@@ -93,6 +94,8 @@ export type AppDeps = {
   digester?: Pick<LiveDigester, 'digest'>;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。登録の読み直しが許可待ちの札の中身として足す。無ければ預けない。 */
   permissionAsks?: Pick<PermissionAsks, 'put'>;
+  /** hook の受け口（/mcp/s/<id>/hook）が本文を読む口。sessions.provider の値から driver の許可と質問の面を返す。無ければ hook の本文は読まない。 */
+  asksOf?: AsksOf;
   /** デスクトップ通知の並び（sessions/stopNotices.ts）。殻が `GET /api/notify/feed` で読む。無ければ経路を持たない。 */
   osNotices?: Pick<OsNoticeFeed, 'wait'>;
   /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */

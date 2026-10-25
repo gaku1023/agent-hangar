@@ -10,7 +10,7 @@ import { setSessionPlacement } from '../sessions/states.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
-import { DEFAULT_INJECTION_PARTS, renderInjection, type InjectionParts } from '../launch/injection.ts';
+import { DEFAULT_INJECTION_PARTS, renderInjectionEntries, type InjectionParts } from '../launch/injection.ts';
 import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
 import { pruneMcpConfigs, removeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
@@ -27,7 +27,7 @@ import type { ClaudeDriver } from '../provider/claude-code/driver.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { DEFAULT_AGENT, type Agents } from '../agent/agents.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
-import type { AgentDriver, LaunchPlan, LaunchSpec } from '../agent/types.ts';
+import type { AgentDriver, InjectionEntry, LaunchPlan, LaunchSpec } from '../agent/types.ts';
 import type { PaneOps } from '../tmux/pane.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';
@@ -292,13 +292,14 @@ export class RunManager {
    * 注入する指示。プロジェクトが無ければ「未分類」として cwd だけを書く。TODO には、利用者がまだ受け入れていない Claude の提案を入れない。
    * handoverFrom は、引き継ぎを判定する会話（再開ならその会話、フォークなら元の会話）。新しい会話では渡さない。
    * 直前の run がほかの PC なら引き継ぎの段を、プロジェクトを 2 台以上の PC で使っていれば弱い 1 文を足す（runs/handover.ts）。
+   * 段（InjectionEntry）に分けて返し、どう渡すかは driver が決める（Claude は段をつないで --append-system-prompt に渡す）。
    */
-  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string): string {
+  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string): InjectionEntry[] {
     const p = projectId ? this.project(projectId) : null;
     const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and suggested_at is null and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
     const handover = handoverFrom ? handoverFacts(this.db, { sessionId: handoverFrom, selfDeviceId: this.deps.deviceId, cwd }) : null;
     const deviceCount = projectId ? projectDeviceCount(this.db, projectId) : 0;
-    return renderInjection({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount }, this.language(), this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS);
+    return renderInjectionEntries({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount }, this.language(), this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS);
   }
 
   /**
@@ -366,7 +367,7 @@ export class RunManager {
       cwd,
       hangarSessionId: sessionId,
       mcp: { url: this.mcpUrl(sessionId), secret },
-      instructions: [{ key: 'body', text: this.injectionFor(projectId, cwd, handoverFrom) }],
+      instructions: this.injectionFor(projectId, cwd, handoverFrom),
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),

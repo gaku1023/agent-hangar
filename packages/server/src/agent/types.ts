@@ -4,9 +4,8 @@ import type { QuestionHook } from '../provider/claude-code/hooks/question.ts';
 import type { RecordFacts } from '../provider/claude-code/transcript/normalize.ts';
 
 // hangar とエージェント（Claude Code、opencode）の境界の型。
-// 境界は 5 つの面（起動、状態、トランスクリプト、許可と質問、システムプロンプトへの追記）を持つ。
-// いま driver が実装しているのは起動と状態とトランスクリプトの面で、残りの面は型を置いただけである（docs/design.md の「Claude Code に固有の部分」）。
-// 実装した面から、任意の印を外していく。
+// 境界は 5 つの面（起動、状態、トランスクリプト、許可と質問、システムプロンプトへの追記）を持つ（docs/design.md の「Claude Code に固有の部分」）。
+// 面の中で、エージェントによって持つものと持たないものがある口は、任意にしてある（AgentLauncher.newSessionId、AskSource.parseHook など）。
 
 /** エージェントの種類。値は sessions.provider の列に入る値と同じにする（D8）。 */
 export type AgentKind = 'claude-code' | 'opencode';
@@ -20,10 +19,10 @@ export interface AgentDriver {
   readonly live: LiveSource;
   /** トランスクリプトの面。索引に入れる側（発見と見張り）と、読む側（readPage）を持つ。 */
   readonly transcript: TranscriptSource;
-  /** 許可と質問の面。まだ境界を通していない。 */
-  readonly asks?: AskSource;
-  /** システムプロンプトへの追記の面。まだ境界を通していない。 */
-  readonly instructions?: InstructionChannel;
+  /** 許可と質問の面。Claude は hook の本文を読み、opencode は流してくる。 */
+  readonly asks: AskSource;
+  /** システムプロンプトへの追記の面。段（InjectionEntry）は hangar の側（launch/injection.ts）が組み、渡し方は driver が決める。 */
+  readonly instructions: InstructionChannel;
 }
 
 export type AgentCaps = {
@@ -188,25 +187,33 @@ export interface TranscriptSource {
 /** 本文をファイルに持つエージェントのトランスクリプトの面。いまの索引（indexer/service.ts）は、この形を受ける。 */
 export type FileTranscriptSource = TranscriptSource & TranscriptFiles;
 
-// ---- 許可と質問（型だけ） ----
+// ---- 許可と質問 ----
 
 export type AgentAsk =
   | { kind: 'question'; providerSessionId: string; hook: QuestionHook }
   | { kind: 'permission'; providerSessionId: string; ask: PermissionAskDto };
 
+/**
+ * 許可と質問を受け取る口。どちらの口を持つかはエージェントによる。
+ * 書くのは hangar の側（sessions/questionHook.ts、sessions/permissionAsks.ts）で、ここは読むだけにする。
+ */
 export interface AskSource {
-  /** hook の HTTP の本文を読む。 */
+  /** hook の HTTP の本文を読む（Claude）。hangar の受け口（mcp/app.ts）が、セッションの provider の driver のものを呼ぶ。読めないものは空にする。 */
   parseHook?(body: unknown): AgentAsk[];
-  /** 許可と質問を流してくる。 */
+  /** 許可と質問を流してくる（opencode の SSE）。 */
   subscribe?(cb: (a: AgentAsk) => void): () => void;
 }
 
 // ---- システムプロンプトへの追記 ----
 
+/**
+ * システムプロンプトに足す段の 1 つ。text は末尾の改行まで含み、区切りを足さずにつなげば 1 つの指示になる。
+ * 段の組み立ては launch/injection.ts の renderInjectionEntries で、どのエージェントにも同じ形で渡す。
+ */
 export type InjectionEntry = { key: 'body' | 'handover' | 'multiDevice' | 'status' | 'live'; text: string };
 
 export interface InstructionChannel {
-  /** 起動の引数でだけ渡せるか、途中でも差し替えられるか。 */
+  /** 起動の引数でだけ渡せるか（Claude）、途中でも差し替えられるか。 */
   readonly when: 'launch' | 'live';
   update?(providerSessionId: string, entries: InjectionEntry[]): Promise<void>;
 }

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
+import { claudeAsks } from '../provider/claude-code/hooks/asks.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
 import { PermissionAsks } from '../sessions/permissionAsks.ts';
 import { createMcpApp } from './app.ts';
@@ -28,7 +29,7 @@ beforeEach(() => {
   sid = ensureSession(db, 'u1', '/w', 'd');
   asks = new PermissionAsks();
   app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), permissionAsks: asks });
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), permissionAsks: asks, asksOf: () => claudeAsks });
 });
 afterEach(() => { db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
@@ -64,5 +65,20 @@ describe('hook の受け口', () => {
     expect((await post(secret, '{not json')).status).toBe(400);
     expect((await post(secret, { ...pre, tool_name: 'Bash' })).status).toBe(204);
     expect(question()).toBeUndefined();
+  });
+
+  it('本文はセッションの provider の driver の asks で読み、読む口の無いエージェントでは何も書かない', async () => {
+    const seen: string[] = [];
+    app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
+      usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), permissionAsks: asks,
+      asksOf: (provider) => { seen.push(provider); return provider === 'claude-code' ? claudeAsks : {}; } });
+    const secret = issueMcpSecret(db, sid, 1);
+    expect((await post(secret, pre)).status).toBe(204);
+    expect(seen).toEqual(['claude-code']);
+    expect(question()).toBe('色は？');
+    db.prepare("update sessions set provider = 'opencode' where id = ?").run(sid);
+    expect((await post(secret, { ...pre, hook_event_name: 'PostToolUse' })).status).toBe(204);
+    expect(seen).toEqual(['claude-code', 'opencode']);
+    expect(question()).toBe('色は？');
   });
 });

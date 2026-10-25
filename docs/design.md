@@ -1112,7 +1112,7 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 `sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
 `AgentKind` の値は `sessions.provider` に入る値と同じにし、`agent/agents.ts` がその値から driver を引く。
 
-いま境界を通っているのは起動と状態とトランスクリプトの面である。
+5 つの面はどれも境界を通っている（本文の正規化だけは、まだ索引の側にある。下のトランスクリプトの面の段落）。
 `RunManager` は、新しい会話の ID（`newSessionId`）、起動の引数と外す環境変数（`plan` が返す `LaunchPlan`）、止めるときの後始末（`release`）を driver から受け取る。
 MCP の秘密を発行することと、`runCommand` で包むことは hangar の側に残す。
 attach や引き取りのような Claude にしか無い起こし方は、`RunManager` が Claude の driver を直に使う。
@@ -1135,12 +1135,20 @@ driver は、配る層と一緒に `boot/agents.ts` で組む。
 本文を読んで正規化するのは、まだ索引の側（`indexer/indexFile.ts`）に残っている。
 これを driver が `IndexBatch` を作る側と、DB に書く側に割るときに、受け口を `IndexBatch` の形にそろえる。
 
+許可と質問の面（`AskSource`）は、hook の本文を読む口（`parseHook`）と、流してくる口（`subscribe`）のどちらかを持つ。
+Claude は前者で、hook の受け口（`mcp/app.ts` の `/mcp/s/<sessionId>/hook`）は、URL のセッションの `sessions.provider` から driver を引き、その `parseHook` で本文を読む。
+受け口は hook の形を知らず、読んだ問いと許可を書くのは hangar の側（`sessions/questionHook.ts`、`sessions/permissionAsks.ts`）である。
+
+システムプロンプトへの追記の面では、足す指示を段（`InjectionEntry`、鍵は `body`、`handover`、`multiDevice`、`status`、`live`）に分けて渡す。
+段を組むのは hangar の側（`launch/injection.ts` の `renderInjectionEntries`）で、どのエージェントにも同じ形で渡し、渡し方は driver が決める。
+Claude は段を区切りを足さずにつないで `--append-system-prompt` に渡すので、起動のときにしか渡せない（`InstructionChannel` の `when` は `'launch'`）。
+
 `provider/claude-code/` の中は、役目ごとに分けてある。
 
 | 置き場 | 中身 |
 | --- | --- |
 | `transcript/` | jsonl の走査（`discover.ts`）、発見と見張り（`source.ts`、トランスクリプトの面）、1 ページの読み出し（`page.ts`）、追記分の読み（`lines.ts`）、正規化（`normalize.ts`）、最後の動きの畳み込み（`activity.ts`） |
-| `hooks/` | hook の入力から AskUserQuestion の出入りを読む（`question.ts`） |
+| `hooks/` | hook の入力から AskUserQuestion の出入り（`question.ts`）と許可の確認（`permission.ts`）を読み、許可と質問の面にまとめる（`asks.ts`） |
 | `registry.ts` | 実行中のセッションの登録（`~/.claude/sessions/<pid>.json`）の読み |
 | `launch/` | 起動の引数（`args.ts`）、`--mcp-config` に渡すファイル（`mcpConfig.ts`）、`--settings` に渡す hook の設定（`hookSettings.ts`） |
 | `config/` | `~/.claude.json`（`claudeJson.ts`）、設定ファイルの書き方（`claudeFileWrite.ts`）、保持期間（`retention.ts`）、statusline の台本（`statusline.ts`）、アカウントの認証（`accountAuth.ts`）と共有のリンク（`accountLinks.ts`） |
@@ -1150,7 +1158,7 @@ driver は、配る層と一緒に `boot/agents.ts` で組む。
 | `summary/` | `claude -p` での要約（`claude.ts`） |
 | `compat/` | 互換の見張り（次の節） |
 | `types.ts` | 起動の入力と走査の型 |
-| `driver.ts` | Claude の driver（`agent/types.ts` の `AgentDriver`）。いまは起動と状態とトランスクリプトの面で、ID を作り、引数と外す環境変数を組み立て、バックグラウンドのセッションを止め、登録の見張りを状態の面として出し（`claudeLiveSource`）、本文の発見と読み出しをトランスクリプトの面として出す（`claudeTranscriptSource`） |
+| `driver.ts` | Claude の driver（`agent/types.ts` の `AgentDriver`）。ID を作り、引数と外す環境変数を組み立て、バックグラウンドのセッションを止め、登録の見張りを状態の面として出し（`claudeLiveSource`）、本文の発見と読み出しをトランスクリプトの面として出し（`claudeTranscriptSource`）、hook の本文の読みを許可と質問の面として出す（`claudeAsks`）。追記は起動のときだけ渡す |
 
 この置き場の中から読んでよいのは、下の層（`platform/`、`i18n/`、`config/`、`sync/` や `summary/` の型と小さな関数）だけで、HTTP、`boot/`、`events/` は読まない。
 外からは、入口のファイルを通さずに、使うモジュールを直に import する。
@@ -1895,6 +1903,7 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 プロジェクトのメモは渡さない。Claude Code は CLAUDE.md と自動メモリを自分で読むので、渡すと同じ役が二重になる（2026-10-11 にやめた）。
 
 指示は 3 つの段に分け、辞書の 3 つの鍵に置く（`launch/injection.ts`、2026-10-13 の決定）。
+起動のときは、段ごとに分けたまま driver に渡す（`renderInjectionEntries`、「Claude Code に固有の部分」の節）。
 常に足す段（`launch.injection.body`）、区切りの問いの段（`launch.injection.status`）、ターンの意図と短い手の説明の段（`launch.injection.live`）である。
 後の 2 つは設定の `askStatusAtEnd` と `liveHints` で入り切りし、どちらも既定は入りである（鍵の無い古い設定も入りとして読む）。
 `askStatusAtEnd` を切ると問いの段を足さず、状態は事後の要約の提案と自動の Done だけで付く。
@@ -4038,7 +4047,7 @@ Done の提案には、右端に自動で確定するまでの日数（「あと
 最後の `tool_call` の名前と要約を残し、それが AskUserQuestion なら入力の最初の問いの文も残す。
 その呼び出しへの `tool_result` が来たら、答えが済んだとして問いを消す。
 hangar が起こした run では、問いの文を hook からも受け取る（「起動」の節の `--settings`）。
-受け口は `/mcp/s/<sessionId>/hook` で、run の MCP の秘密で開く。hook の会話（`session_id`）が URL のセッションのものでなければ書かない。
+受け口は `/mcp/s/<sessionId>/hook` で、run の MCP の秘密で開く。本文はセッションの provider の driver の `parseHook` で読む（「Claude Code に固有の部分」の節）。hook の会話（`session_id`）が URL のセッションのものでなければ書かない。
 `PreToolUse` で同じ表へ問いを書き（`sessions/questionHook.ts`）、`PostToolUse` と `PostToolUseFailure` でその呼び出しの問いを消す。
 索引はこの行を前の値として本文を畳むので、同じ呼び出しが本文に載っても問いは残り、その答えが載れば消える。
 本文が答えの時まで呼び出しを書かなくても、入力待ちの間に問いの文が出る。

@@ -118,3 +118,29 @@ describe('Claude の driver が AgentDriver の起動の型を満たす', () => 
     expect(await driverWith({ live: liveSourceOf(() => live), claudeBin: () => null }).launch.release({ providerSessionId: 'u1', cwd: '/' }, 'killed')).toBe(false);
   });
 });
+
+describe('Claude の driver の許可と質問、追記の面', () => {
+  const pre = { session_id: 'u1', hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: '色は？' }] }, tool_use_id: 't1' };
+  it('asks.parseHook は AskUserQuestion の出入りを question に、PermissionRequest を permission に読む', () => {
+    const parse = driver.asks.parseHook!;
+    expect(parse(pre)).toEqual([{ kind: 'question', providerSessionId: 'u1', hook: { kind: 'asked', providerSessionId: 'u1', toolId: 't1', summary: expect.any(String), question: '色は？' } }]);
+    expect(parse({ ...pre, hook_event_name: 'PostToolUse' })).toEqual([{ kind: 'question', providerSessionId: 'u1', hook: { kind: 'answered', providerSessionId: 'u1', toolId: 't1' } }]);
+    expect(parse({ session_id: 'u1', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test', description: '試験' } }))
+      .toEqual([{ kind: 'permission', providerSessionId: 'u1', ask: { tool: 'Bash', input: 'npm test', description: '試験' } }]);
+  });
+  it('asks.parseHook は関係の無い出来事と読めない本文を空にする', () => {
+    const parse = driver.asks.parseHook!;
+    expect(parse({ ...pre, tool_name: 'Bash' })).toEqual([]);
+    expect(parse(null)).toEqual([]);
+    expect(parse('x')).toEqual([]);
+  });
+  it('asks は流してくる口を持たず、追記は起動の引数でだけ渡す', () => {
+    expect(driver.asks.subscribe).toBeUndefined();
+    expect(driver.instructions.when).toBe('launch');
+    expect(driver.instructions.update).toBeUndefined();
+  });
+  it('追記の段は区切りを足さずに順につないで --append-system-prompt に渡す', () => {
+    const argv = plan({ kind: 'start', id: 'u1' }, { ...base, instructions: [{ key: 'body', text: 'A\n' }, { key: 'status', text: 'B\n' }, { key: 'live', text: 'C\n' }] });
+    expect(valueOf(argv, '--append-system-prompt')).toBe('A\nB\nC\n');
+  });
+});
