@@ -30,6 +30,16 @@ export async function transcriptBlobKey(indexKey: CryptoKey, deviceId: string, o
   return blobKey(deviceId, await mac(indexKey, input));
 }
 
+/**
+ * opencode の本文（`session export` で書き出した JSON）の R2 の鍵名。
+ * 入力の頭を Claude の本文（`t:`）と設定（`c:`）と別の `o:` にして、どの ID の組でも同じ入力にならないようにする。
+ * Claude の入力に provider の文字を足す形（`t:opencode:...`）にすると、元の PC の ID が `opencode` の Claude のサブエージェントと入力が重なる。
+ * Claude の本文の鍵名は変えない（上げ済みの本文をほかの PC が引けなくなる）。
+ */
+export async function opencodeBlobKey(indexKey: CryptoKey, deviceId: string, origin: string, sessionId: string): Promise<string> {
+  return blobKey(deviceId, await mac(indexKey, `o:${origin}:${sessionId}`));
+}
+
 /** 設定の同期のファイルの R2 の鍵名。相対パスを平文で残さない。 */
 export async function configBlobKey(indexKey: CryptoKey, deviceId: string, origin: string, rel: string): Promise<string> {
   return blobKey(deviceId, await mac(indexKey, `c:${origin}:${rel}`));

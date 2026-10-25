@@ -30,6 +30,16 @@ describe('run が終わったセッションの本文を上げる', () => {
     expect(flushed).toEqual([]);
   });
 
+  it('opencode の会話も、終了の直後と少し置いた後の 2 回、会話の ID で上げる（書き出しは上げる側が行う）', async () => {
+    const ses = 'ses_f55764078ffeDvMj180Fvan87g';
+    const oc = ensureSession(db, ses, '/w', 'd', 'opencode');
+    const flushed: string[] = [];
+    flushOnRunEnded({ db, uploader: { flushSession: async (u) => { flushed.push(u); } }, againMs: 20 })({ sessionId: oc });
+    expect(flushed).toEqual([ses]);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(flushed).toEqual([ses, ses]);
+  });
+
   it('2 度目までの待ちは数秒に収める', () => {
     expect(FLUSH_AGAIN_MS).toBe(5_000);
   });

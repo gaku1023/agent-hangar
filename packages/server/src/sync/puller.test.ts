@@ -14,6 +14,7 @@ import { sha256Hex } from './crypto.ts';
 import { Keyring } from './keyring.ts';
 import { RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS, rewindSkippedFiles } from './puller.ts';
 import { SyncStateStore } from './state.ts';
+import { TranscriptUploader } from './uploader.ts';
 import { expectMode } from '../../test/platform.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
@@ -646,6 +647,33 @@ describe('projects/ で始まらない写し（opencode の本文）を知らな
     expect(errors).toEqual([]);
     // opencode の本文の本体は一度も取りに行かない。
     expect(cloud.calls.filter((c) => c.method === 'getFile' && c.args[0] === oc.key)).toEqual([]);
+  });
+
+  it('上げる側（uploader）が本物の鍵名で上げた opencode の本文も、取り込みの無い版は降ろさずに Claude の本文を降ろし続ける', async () => {
+    const ses = 'ses_0123456789abcdefABCDEF';
+    const devB = cloud.asDevice('dev-b');
+    const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ocx-'));
+    const dbB = openDb(':memory:');
+    dbB.prepare('insert into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
+      .run('s-oc', 'opencode', ses, '/w/alpha', 1, 1, 'dev-b', 'dev-b', 1);
+    const upB = new TranscriptUploader({
+      db: dbB, deviceId: 'dev-b', claudeDir: path.join(exportDir, 'claude'), client: devB, keyring: devB.keyring, state: new SyncStateStore(dbB), isPaused: () => false,
+      opencode: () => ({ dir: exportDir, async export(id) { const f = path.join(exportDir, `${id}.json`); fs.writeFileSync(f, `{"info":{"id":"${id}"},"messages":[]}\n`); return f; } }),
+    });
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    await upB.flushSession(ses);
+    upB.stop();
+    const ocKey = await devB.opencodeKey(ses);
+    expect(cloud.files.has(ocKey)).toBe(true);
+    await putRemote('dev-b', `projects/-w-alpha/${OTHER}.jsonl`, '{"b":2}\n');
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 2 });
+    expect(state.getNumber('filesSeq', -1)).toBe(3);
+    expect(p.skippedEntries()).toEqual([]);
+    expect(errors).toEqual([]);
+    expect(cloud.calls.filter((c) => c.method === 'getFile' && c.args[0] === ocKey)).toEqual([]);
+    expect(remoteTree().filter((r) => !r.startsWith('dev-b/projects') && r !== 'dev-b')).toEqual([]);
+    fs.rmSync(exportDir, { recursive: true, force: true });
   });
 
   it('client を通り抜けて puller に届いても、行ごとの失敗として 3 回で飛ばし、ほかの本文は止めない', async () => {

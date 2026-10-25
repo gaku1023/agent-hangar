@@ -10,8 +10,7 @@ import { claudeLiveSource, createClaudeDriver, type ClaudeDriver, type ClaudeLiv
 import { realProcOpsWith, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import type { GetLanguage } from '../i18n/language.ts';
-import type { AgentDriver } from '../agent/types.ts';
-import { createOpencodeDriver } from '../provider/opencode/driver.ts';
+import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
 import { safeErrorText } from '../runs/manager.ts';
 import type { HomeParts } from './home.ts';
@@ -30,7 +29,7 @@ export type AgentParts = {
   /** Claude の driver。attach や登録のずれの数え直しのような、Claude にしか無いものに直に使う。 */
   claude: ClaudeDriver;
   /** opencode（ベータ）の driver。起こすかどうかは設定（opencodeEnabled）で RunManager が決める。 */
-  opencode: AgentDriver;
+  opencode: OpencodeDriver;
   /**
    * opencode の serve の管理（boot/opencode.ts）を driver に渡す。
    * serve の管理は、前の hangar が残した serve の掃除を待ち受けの後に始めるので、配る層より後で組む。それまでの起動は断る。

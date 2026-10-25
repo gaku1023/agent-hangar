@@ -6341,7 +6341,7 @@ R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 75
 同期するものは三つである。
 
 - **hangar のメタデータ**：共有テーブルの全行。PC が 1 行ずつ封じてから D1 の `rows` に置く。
-- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip し、暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。
+- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip し、暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。opencode（ベータ）の会話は、`session export` で書き出した JSON を同じ道で上げる（下の「opencode の本文」）。
 - **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。本文と同じく暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 相対パス)>` で、相対パスは Worker に見えない。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
@@ -6464,6 +6464,58 @@ uploader は PUT が通るたびに、台帳の鍵と世代を端末ローカル
 消すものが無い回は Worker に何も送らない。
 Worker が消させるのは自分の端末 ID の下だけなので、他の PC が上げた写しはその PC の掃除が消す。
 解除した PC が上げた写しは、索引に載ったまま誰も消さない（孤児の掃除は索引に無いものだけを拾う）。
+
+#### opencode の本文
+
+opencode（ベータ）の本文は opencode の SQLite にあり、Claude の jsonl のように見張れるファイルが無い（計画の E2）。
+そこで会話 1 つを `opencode session export <ID>` で JSON（info と messages の全体）に書き出し、そのファイルを Claude の本文と同じ道（`sync/uploader.ts`）で上げる。
+単位は会話 1 つにつき書き出し 1 つで、Claude の本文と同じく差分を作らず全体を上げ直す。
+
+書き出しは `provider/opencode/export.ts`（`OpencodeExporter`）が行う。
+CLI を既定にする。
+serve の `/api/experimental/session/{id}/export` は実験用で、版で変わりうるからである。
+会話の serve が起きていれば `--server <url>` でつなぎ、パスワードは環境の `OPENCODE_PASSWORD` だけで渡す。
+serve が無ければ `--standalone` で、私用のサーバを一時だけ起こして書き出す。
+`--server` で失敗したら `--standalone` で取り直す。
+起こすときの環境は、版を読むときと同じ空の環境（`opencodeProbeEnv`）で、CLAUDE 系と HANGAR_* と API キーを渡さない。
+置き場は `~/.agent-hangar/opencode/export/<ID>.json`（置き場は 0700、ファイルは 0600）で、原子的に書く。
+同じ置き場の一時ファイルに書き、終わりの状態が 0 で、中身が JSON で、`info.id` が頼んだ ID と同じときだけ名前を付け替える。
+失敗したら一時ファイルを消し、前のファイルを残す。
+`database is locked` で落ちたら、serve の起動と同じ間（0.5、1、2 秒）をあけて取り直す。
+同じ会話を同時に頼まれたら、書き出しを重ねない。
+
+上げる契機は 2 つである。
+
+- ターンの終わり：serve の出来事の流れ（`OpencodeLive.onEvent`、driver の `events`）の `session.execution.succeeded`、`failed`、`interrupted` を、`sync/opencodeTurnEnd.ts` が上げる側の `noteOpencode` に渡す。
+  Claude の `noteChanged` と同じ待ち行列に入り、30 秒の窓と上げ直しの間隔（10 分、`REUPLOAD_GAP_MS`）を通る。
+  書き出しは上げる直前に 1 回だけ行い、ターンの終わりのたびには行わない。
+  ターンごとに opencode を起こさないためである。
+- run の終わり：Claude と同じ `flushOnRunEnded` が、会話の ID で `flushSession` を終了の直後と 5 秒後の 2 回呼ぶ。
+  上げる側は DB の `sessions.provider` で opencode の会話と見分け、待ち行列に無くても書き出し直して上げる。
+  間隔は待たず、中身が前と同じなら PUT しない。
+
+索引の stored の束（B5）は `sessionChanged` を path なしで出すので、上げる側へは渡さない。
+契機は上の 2 つだけで、一定間隔の走査も入れない（取り残しは横取りしない起動だけである）。
+
+鍵名は Claude と分ける。
+Claude の本文の鍵名と台帳の鍵は 1 字も変えない。
+
+| | Claude | opencode |
+| --- | --- | --- |
+| 封じたメタの path | `projects/<フォルダ>/<UUID>.jsonl` | `opencode/<ID>.json` |
+| 台帳の鍵（`ledgerKeyFor`） | `transcripts/<端末>/<UUID>.jsonl.gz` | `opencode/<端末>/<ID>.json.gz` |
+| R2 の鍵名の HMAC の入力 | `t:<元の PC>:<UUID>[:<サブエージェント>]` | `o:<元の PC>:<ID>`（`opencodeBlobKey`） |
+| kind | `transcript` | `transcript` |
+
+kind は Worker が受ける `transcript` のままにし、種類は封じたメタの path で見分ける。
+Worker の変更は要らない。
+HMAC の入力の頭を `o:` にするのは、Claude の入力に provider の文字を足す形（`t:opencode:…`）だと、元の PC の ID が `opencode` の Claude のサブエージェントと入力が重なるからである。
+path を `projects/` の外に置くのは、opencode を知らない版の PC が Claude の本文として取り込まないためである。
+その版の PC は、中身のパスから鍵名を求め直せない行を開かずに捨て、届いてしまっても行ごとの失敗として 3 回で飛ばす（E1 の試験、`sync/puller.test.ts`）。
+この版も、取り込みの口（計画の E3）を足すまでは、開けた opencode の行を puller に渡さずに区切りを先へ進める（`SealedCloudClient.listFiles`）。
+本文は変化のたびに全体を上げ直すので、取り込みを足した版は次に上がった行から降ろせる。
+世代を回した後の古い世代の鍵名の掃除（`sweepSupersededBlobs`）は opencode の台帳の鍵も読む。
+ゴミ箱の 30 日の掃除と、ほかの PC での取り込み、再開、引き継ぎは E3 で足す。
 
 ### 設定の同期の作り直し
 

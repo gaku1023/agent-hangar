@@ -23,6 +23,7 @@ import { writeFakeNodeTool } from './fake-bin.ts';
  * - `instructions`：指示の PUT の会話の ID、鍵、本文。
  * - `mcp`：MCP の状態を聞かれた場所（directory）と、答えた状態。
  * - `list`：一覧の道（agent、model、provider、config）と、聞かれた場所（directory）。
+ * - `export`：`session export` の書き出し先（server か standalone）と、会話の ID。
  * - `term`：SIGTERM を受けた。
  * - `exit`：自分から終わった理由。
  *
@@ -69,6 +70,20 @@ export type FakeOpencodeOptions = {
   oauthPendingPolls?: number;
   /** 起きたときから持っている API キーの接続（integration の ID）。 */
   credentials?: string[];
+
+  /**
+   * `session export [--server URL | --standalone] <ID>` で書き出す中身。ID ごとの JSON を、実物と同じく整形して標準出力に書く。
+   * 載っていない ID は、実物と同じ文（`Session not found: <ID>`）で落ちる。
+   */
+  exports?: Record<string, unknown>;
+  /** 書き出しの最初の n 回を `database is locked` で落とす。 */
+  exportLockTimes?: number;
+  /** `--server` つきの書き出しを、つながらない失敗で落とす（serve が先に止まったふり）。 */
+  exportServerDown?: boolean;
+  /** 書き出しの途中で落ちる（半端な JSON を書いて exit 1）。 */
+  exportTruncate?: boolean;
+  /** 書き出しを終えるまでの間。 */
+  exportDelayMs?: number;
 };
 
 /** 偽のカタログの 1 行。methods は実物の Integration.Method の形。 */
@@ -116,6 +131,8 @@ export type FakeOpencodeEvent =
   | { ev: 'oauth'; pid: number; id: string; body: Record<string, unknown>; t: number }
   | { ev: 'oauthComplete'; pid: number; id: string; attempt: string; code: unknown; t: number }
   | { ev: 'integration'; pid: number; id: string | null; t: number }
+
+  | { ev: 'export'; pid: number; via: 'server' | 'standalone'; id: string; t: number }
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
@@ -140,6 +157,24 @@ const log = (o) => fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, t: 
 const argv = process.argv.slice(2);
 log({ ev: 'start', argv, env: { ...process.env } });
 const exit = (reason, code) => { log({ ev: 'exit', reason }); process.exit(code); };
+if (argv[0] === 'session' && argv[1] === 'export') {
+  const EXPORT_LOCKS = ${JSON.stringify(path.join(dir, 'export-lock-count'))};
+  const at = argv.indexOf('--server');
+  const via = at >= 0 ? 'server' : 'standalone';
+  const id = argv[argv.length - 1];
+  log({ ev: 'export', via, id });
+  if (via === 'server' && !process.env.OPENCODE_PASSWORD) { process.stderr.write('Server at ' + argv[at + 1] + ' requires a password; set OPENCODE_PASSWORD\\n'); exit('export-no-password', 1); }
+  if (via === 'server' && OPTS.exportServerDown) { process.stderr.write('Unable to connect. Is the computer able to access the url?\\n'); exit('export-server-down', 1); }
+  const n = Number(fs.existsSync(EXPORT_LOCKS) ? fs.readFileSync(EXPORT_LOCKS, 'utf8') : '0');
+  if (n < (OPTS.exportLockTimes ?? 0)) { fs.writeFileSync(EXPORT_LOCKS, String(n + 1)); process.stderr.write('SQLiteError: database is locked\\n'); exit('export-locked', 1); }
+  const data = (OPTS.exports ?? {})[id];
+  if (data === undefined) { process.stderr.write('Session not found: ' + id + '\\n'); exit('export-not-found', 1); }
+  const text = JSON.stringify(data, null, 2) + '\\n';
+  setTimeout(() => {
+    if (OPTS.exportTruncate) { process.stdout.write(text.slice(0, Math.floor(text.length / 2)), () => exit('export-truncated', 1)); return; }
+    process.stdout.write(text, () => exit('exported', 0));
+  }, OPTS.exportDelayMs ?? 0);
+} else {
 if (argv[0] !== 'serve') exit('not-serve', 2);
 const port = Number(argv[argv.indexOf('--port') + 1]);
 const host = argv[argv.indexOf('--hostname') + 1];
@@ -342,6 +377,7 @@ setTimeout(() => {
     process.stdout.write('server listening on http://' + host + ':' + port + '\\n');
   });
 }, OPTS.startDelayMs ?? 0);
+}
 `;
   const bin = writeFakeNodeTool(dir, 'opencode', script);
   return { bin, logFile };

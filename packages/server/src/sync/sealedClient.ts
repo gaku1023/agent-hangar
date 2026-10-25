@@ -12,6 +12,7 @@ import {
   sealRow,
   SHARED_TABLES,
   toBase64Url,
+  opencodeBlobKey,
   transcriptBlobKey,
   type ChangeIn,
   type ChangeOut,
@@ -27,6 +28,7 @@ import {
   type SealedFileEntry,
   type SharedTable,
 } from '@agent-hangar/shared';
+import { opencodeSessionOfPath } from './ledgerKey.ts';
 import { CloudError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type Unreadable, type WireCloudClient } from './client.ts';
 import { decryptStream, encryptStream, fileKeyFrom } from './crypto.ts';
 
@@ -88,11 +90,14 @@ const TRANSCRIPT_AGENT_RE = /^projects\/[^/]+\/([^/]+)\/subagents\/agent-([^/]+)
 /**
  * 中身（種類、元の PC、パス）から、そのファイルが置かれるはずの R2 の鍵名を求める。
  * 本文はパスからセッションの UUID とサブエージェントの ID を取り出して transcriptBlobKey に、設定は相対パスのまま configBlobKey に渡す。
+ * opencode の本文（`opencode/<会話>.json`）は、会話の ID を opencodeBlobKey に渡す。種類は Worker が受ける `transcript` のままで、path で見分ける。
  * 形の違うパスと、鍵名に使えない端末 ID は null。
  */
 export async function blobKeyFor(index: CryptoKey, deviceId: string, kind: FileKind, origin: string, path: string): Promise<string | null> {
   try {
     if (kind === 'config') return await configBlobKey(index, deviceId, origin, path);
+    const oc = opencodeSessionOfPath(path);
+    if (oc !== null) return await opencodeBlobKey(index, deviceId, origin, oc);
     const sub = TRANSCRIPT_AGENT_RE.exec(path);
     if (sub) return await transcriptBlobKey(index, deviceId, origin, sub[1]!, sub[2]!);
     const main = TRANSCRIPT_MAIN_RE.exec(path);
@@ -248,6 +253,9 @@ export class SealedCloudClient implements CloudClient {
     let dropped = 0;
     opened.forEach((e, i) => {
       const f = page.files[i]!;
+      // opencode の本文の写しは、まだ取り込む口が無い（段 E の E3 で足す）。開けても渡さず、区切りは先へ進める。
+      // 本文は変化のたびに全体を上げ直すので、取り込みを足した版は次に上がった行から降ろせる。
+      if (e && opencodeSessionOfPath(e.path) !== null) return;
       if (e) files.push(e);
       // 鍵の無い世代の行は、鍵が届けば開けるので名指しで返す（呼び手が後で読み直す）。
       else if (ring.at(f.epoch) === null) unreadable.push({ seq: f.seq, epoch: f.epoch });

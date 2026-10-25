@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { isSafeKeyId } from '@agent-hangar/shared';
+import type { AgentKind } from '../agent/types.ts';
 
 /**
  * 手元の台帳（file_sync）と、上げるのを諦めた控え（sync_state の `skipped:`）の鍵。
@@ -17,6 +18,35 @@ export function transcriptLedgerKey(deviceId: string, sessionUuid: string, agent
   if (!isSafeKeyId(sessionUuid)) throw new Error('invalid session id');
   if (agentId !== null && !isSafeKeyId(agentId)) throw new Error('invalid subagent id');
   return agentId === null ? `transcripts/${deviceId}/${sessionUuid}.jsonl.gz` : `transcripts/${deviceId}/${sessionUuid}/subagents/agent-${agentId}.jsonl.gz`;
+}
+
+/**
+ * 本文の台帳の鍵を、エージェントの種類ごとに求める。
+ * Claude は transcriptLedgerKey そのもので、鍵は 1 字も変えない（上げた本文の台帳を引き直せなくなる）。
+ * opencode は `opencode/<端末>/<会話>.json.gz` で、Claude の `transcripts/` と頭で分ける（台帳を引く問い合わせが混ざらない）。
+ * opencode は子の会話（サブエージェント）も親の書き出しに入るので、サブエージェントの鍵は無い。
+ */
+export function ledgerKeyFor(provider: AgentKind, deviceId: string, sessionId: string, agentId: string | null): string {
+  if (provider === 'claude-code') return transcriptLedgerKey(deviceId, sessionId, agentId);
+  if (!isSafeKeyId(deviceId)) throw new Error('invalid device id');
+  if (!isSafeKeyId(sessionId)) throw new Error('invalid session id');
+  if (agentId !== null) throw new Error('opencode has no separate subagent transcripts');
+  return `opencode/${deviceId}/${sessionId}.json.gz`;
+}
+
+/**
+ * opencode の本文の写しの相対パス（封じたメタの path）。`projects/` の外に置く。
+ * `projects/` の下に置くと、opencode を知らない版の PC が Claude の本文として取り込んでしまうからである（E1 で確かめた）。
+ */
+export function opencodeSyncPath(sessionId: string): string {
+  if (!isSafeKeyId(sessionId)) throw new Error('invalid session id');
+  return `opencode/${sessionId}.json`;
+}
+
+/** 封じたメタの path が opencode の本文の写しなら、その会話の ID を返す。違えば null。 */
+export function opencodeSessionOfPath(rel: string): string | null {
+  const m = /^opencode\/([^/]+)\.json$/.exec(rel);
+  return m && isSafeKeyId(m[1]!) ? m[1]! : null;
 }
 
 /**
