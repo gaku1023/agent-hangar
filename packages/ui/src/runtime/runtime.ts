@@ -20,7 +20,7 @@ import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending }
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
-import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
 import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
@@ -306,7 +306,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   };
   const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
-  const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+  // 準備が問いで止まったことと、利用者がやめたことは失敗ではない（launch.halted）。進みと問いは launch.prep で届いている。
+  const launchFailed = (e: unknown) => {
+    if (e instanceof LaunchPrepAskApiError) dispatch({ kind: 'runtime', event: { type: 'launch.halted', why: 'ask', message: e.message } });
+    else if (e instanceof LaunchPrepCancelledApiError) dispatch({ kind: 'runtime', event: { type: 'launch.halted', why: 'cancel', message: e.message } });
+    else dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+  };
   const strayConflict = (sessionId: string, err: StrayProcessApiError, queued: boolean) =>
     dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'strayProcess', sessionId, pid: err.body.pid, message: err.body.error, queued } });
   // 登録が 409（入れ子）で断られたら、事前の問い合わせの答えの代わりに包むプロジェクトを持つ（0.6.1）。
@@ -584,6 +589,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.rebuildIndex': deps.api.rebuildIndex().catch(fail); return;
       case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
+      // 起動後にコンテキストが足りなかった会話のローカルのモデルの整え直し。進みは prepKey の鍵の launch.prep で届く。
+      case 'api.fixContextShort':
+        deps.api.prepareModels(e.sessionId, e.prepKey)
+          .then(() => dispatch({ kind: 'runtime', event: { type: 'contextShort.done', sessionId: e.sessionId } }))
+          .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'contextShort.failed', sessionId: e.sessionId, message: errMsg(err) } }));
+        return;
       case 'api.createProjectThenLaunch':
         // 作ってから起動する。作れたら store に入れて Mediator に知らせ（起動だけが失敗しても二重に作らないため）、そのプロジェクトで起動する。
         deps.api.createProject(e.place)

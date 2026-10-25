@@ -1,7 +1,7 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
-import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
@@ -906,6 +906,51 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が未検出' });
     expect(rt.getState().toasts).toEqual([]);
+  });
+  it('準備が問いで止まった起動は、失敗にせず halted にし、launch.prep の進みを Store に入れる', async () => {
+    const { rt } = harness({ launch: vi.fn(async () => { throw new LaunchPrepAskApiError('続行するにはユーザーの確認が必要です。'); }) });
+    rt.start();
+    rt.emit({ type: 'session.new.open', projectId: 'p1' });
+    rt.dispatch({ kind: 'server', event: { type: 'launch.prep', prep: { key: 'key-12345678', phase: 'asking', startedAt: 1, endedAt: 2, steps: [], ask: null, reason: null } } });
+    rt.emit({ type: 'session.new.submit', params: { projectId: 'p1', agent: 'opencode', prepKey: 'key-12345678' } });
+    await flush();
+    expect(rt.getStore().launchPreps['key-12345678']?.phase).toBe('asking');
+    expect(rt.getState().launch).toEqual({ kind: 'halted' });
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('利用者がやめた起動も halted で、エラーのトーストは出さない', async () => {
+    const { rt } = harness({ launch: vi.fn(async () => { throw new LaunchPrepCancelledApiError('準備を中止しました。'); }) });
+    rt.start();
+    rt.emit({ type: 'session.new.open', projectId: 'p1' });
+    rt.emit({ type: 'session.new.submit', params: { projectId: 'p1' } });
+    await flush();
+    expect(rt.getState().launch).toEqual({ kind: 'halted' });
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('「準備を中止」は DELETE を呼び、失敗しても黙る', async () => {
+    const cancelPrep = vi.fn(async () => { throw new Error('実行中の準備がありません。'); });
+    const { rt } = harness({ cancelPrep });
+    rt.start();
+    rt.emit({ type: 'launchPrep.cancel', key: 'key-12345678' });
+    await flush();
+    expect(cancelPrep).toHaveBeenCalledWith('key-12345678');
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('コンテキスト不足の札の「再ロードして再開」は整え直しを頼み、済んだら札を済んだ印にする。失敗はトーストで出す', async () => {
+    const prepareModels = vi.fn(async () => undefined);
+    const { rt } = harness({ prepareModels });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'opencode.contextShort', sessionId: 's1' } });
+    rt.emit({ type: 'launchPrep.short.fix', sessionId: 's1', prepKey: 'key-12345678' });
+    await flush();
+    expect(prepareModels).toHaveBeenCalledWith('s1', 'key-12345678');
+    expect(rt.getState().contextShorts).toEqual([{ sessionId: 's1', fix: null, done: true }]);
+    prepareModels.mockRejectedValueOnce(new Error('メモリが足りません'));
+    rt.dispatch({ kind: 'server', event: { type: 'opencode.contextShort', sessionId: 's1' } });
+    rt.emit({ type: 'launchPrep.short.fix', sessionId: 's1', prepKey: 'key-87654321' });
+    await flush();
+    expect(rt.getState().contextShorts).toEqual([{ sessionId: 's1', fix: null, done: false }]);
+    expect(rt.getState().toasts).toEqual([expect.objectContaining({ level: 'error', message: 'メモリが足りません' })]);
   });
   it('セッション画面に入ると生きた run の Claude タブに繋ぎ、終了した run には繋がない', async () => {
     const { rt, terminals, setHash } = harness();

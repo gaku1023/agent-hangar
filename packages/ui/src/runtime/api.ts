@@ -1,3 +1,4 @@
+import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
@@ -25,6 +26,16 @@ export class ProjectSameFolderApiError extends Error {
 /** 登録しようとしたフォルダが、登録済みのプロジェクトの下だった（409、0.6.1）。UI はその場の 1 行と「別のプロジェクトにする」を出す。 */
 export class ProjectNestedApiError extends Error {
   constructor(public readonly body: ProjectNestedDto) { super(body.error); this.name = 'ProjectNestedApiError'; }
+}
+
+/** 起動前の準備が、利用者に聞くことができて止まった（409、code は prep-ask）。聞くことの中身は、届いている launch.prep の ask にある。 */
+export class LaunchPrepAskApiError extends Error {
+  constructor(message: string) { super(message); this.name = 'LaunchPrepAskApiError'; }
+}
+
+/** 利用者が起動前の準備をやめた（code は prep-cancelled）。失敗ではない。 */
+export class LaunchPrepCancelledApiError extends Error {
+  constructor(message: string) { super(message); this.name = 'LaunchPrepCancelledApiError'; }
 }
 
 /** 保持期間の下見の後に、設定ファイルがほかで変わった。UI は下見を取り直す。 */
@@ -90,6 +101,10 @@ export type ApiClient = {
   updateSettings(patch: Partial<SettingsDto>): Promise<SettingsDto>;
   rebuildIndex(): Promise<void>;
   launch(params: LaunchParams): Promise<LaunchResultDto>;
+  /** 起動前の準備をやめる（鍵は起動の要求に添えた prepKey）。走っていなければ 404 で投げる。 */
+  cancelPrep(key: string): Promise<void>;
+  /** 動いている opencode の会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届く。 */
+  prepareModels(sessionId: string, prepKey: string): Promise<void>;
   /** stray は、残った claude の確認で選んだもの。付けなければ、残っていれば StrayProcessApiError で投げる。 */
   resume(sessionId: string, stray?: ResumeStray): Promise<LaunchResultDto>;
   fork(sessionId: string): Promise<LaunchResultDto>;
@@ -273,6 +288,9 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'stray_process') throw new StrayProcessApiError(body as unknown as StrayProcessDto);
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_nested') throw new ProjectNestedApiError(body as unknown as ProjectNestedDto);
       const message = body?.error ?? `${r.status} ${path}`;
+      const code = (body as { code?: unknown } | null)?.code;
+      if (r.status === 409 && code === LAUNCH_PREP_ASK_CODE) throw new LaunchPrepAskApiError(message);
+      if (code === LAUNCH_PREP_CANCELLED_CODE) throw new LaunchPrepCancelledApiError(message);
       if (r.status === 404) throw new ApiNotFoundError(message);
       throw new ApiStatusError(message, r.status);
     }
@@ -306,6 +324,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     updateSettings: (patch) => call('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
     rebuildIndex: () => post('/api/index/rebuild'),
     launch: (params) => post('/api/runs', params),
+    cancelPrep: (key) => call(`/api/runs/prep/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+    prepareModels: (sessionId, prepKey) => post(`/api/sessions/${sessionId}/local-models`, { prepKey }),
     resume: (sessionId, stray) => post(`/api/sessions/${sessionId}/resume`, stray ? { stray } : undefined),
     fork: (sessionId) => post(`/api/sessions/${sessionId}/fork`),
     attach: (sessionId) => post(`/api/sessions/${sessionId}/attach`),

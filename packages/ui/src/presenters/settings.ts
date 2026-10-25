@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto } from '@agent-hangar/shared';
+import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -47,6 +47,8 @@ export type OpencodeSettingsProps = {
    * そのときはひな形を重ねないので、切に見せてスイッチを無効にし、note を添える。
    */
   permissionPreset: { on: boolean; byConfig: boolean; note: string | null };
+  /** 「ローカルモデルのコンテキスト長」の行。起動前に LM Studio のモデルを載せる長さ（opencodeLocalContext）で、選べる長さは 32K、64K（推奨）、128K。 */
+  localContext: { value: number; options: { value: number; label: string }[] };
 };
 
 const OPENCODE_INJECTION_KEY = { minimal: 'settings.opencode.injection.minimal', claude: 'settings.opencode.injection.claude', none: 'settings.opencode.injection.none' } as const;
@@ -67,7 +69,7 @@ export function opencodeVersionKind(s: OpencodeStatusDto): OpencodeVersionKind {
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows ではコマンドの横取りの行だけを出さない。 */
-function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; opencodeLocalContext?: number; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
@@ -84,6 +86,7 @@ function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; op
     permissionPreset: status?.configPermissions === true
       ? { on: false, byConfig: true, note: t('settings.opencode.permissionPreset.byConfig') }
       : { on: opencodePermissionPresetOf(settings), byConfig: false, note: null },
+    localContext: { value: localContextOf(settings), options: LOCAL_CONTEXT_CHOICES.map((value) => ({ value, label: t(value === DEFAULT_LOCAL_CONTEXT ? 'launchPrep.settings.recommended' : 'launchPrep.settings.option', { n: value / 1024 }) })) },
   };
 }
 

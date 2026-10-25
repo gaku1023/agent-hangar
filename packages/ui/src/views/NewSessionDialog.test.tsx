@@ -7,6 +7,7 @@ import { presentAccounts, type AccountView } from '../presenters/accounts.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { initialStore } from '../store/store.ts';
+import type { LaunchPrepView } from '../presenters/launchPrep.ts';
 import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
@@ -1195,20 +1196,20 @@ describe('NewSessionDialog のエージェント（opencode、ベータ）', () 
     fireEvent.click(screen.getByRole('option', { name: /^オン/ }));
     fireEvent.change(prompt(), { target: { value: 'やって' } });
     start();
-    expect(params()).toEqual([{ projectId: 'p1', prompt: 'やって', agent: 'opencode', mode: 'plan', model: 'opencode/glm-5.3-flash-free', autoApprove: true }]);
+    expect(params()).toEqual([{ projectId: 'p1', prompt: 'やって', agent: 'opencode', mode: 'plan', model: 'opencode/glm-5.3-flash-free', autoApprove: true, prepKey: expect.any(String) }]);
   });
   it('既定のままの opencode では、モデルを載せず、自動承認はオフで載せる', async () => {
     const { params } = collect({ projectId: 'p1', opencode: ready() });
     await toOpencode();
     start();
-    expect(params()).toEqual([{ projectId: 'p1', agent: 'opencode', mode: 'build', autoApprove: false }]);
+    expect(params()).toEqual([{ projectId: 'p1', agent: 'opencode', mode: 'build', autoApprove: false, prepKey: expect.any(String) }]);
   });
   it('一覧が届く前は、モードを載せない（opencode の既定に任せる）。届かなければ札の下で言う', async () => {
     const view = collect({ projectId: 'p1', opencode: { options: { dir: '/w/alpha', status: 'loading', data: null } } });
     await toOpencode();
     expect(screen.getByText('opencode から一覧を取得しています…')).toBeInTheDocument();
     start();
-    expect(view.params()[0]).toEqual({ projectId: 'p1', agent: 'opencode', autoApprove: false });
+    expect(view.params()[0]).toEqual({ projectId: 'p1', agent: 'opencode', autoApprove: false, prepKey: expect.any(String) });
     view.rerender({ opencode: { options: { dir: '/w/alpha', status: 'failed', data: null } } });
     expect(screen.getByText('opencode から一覧を取得できませんでした。')).toBeInTheDocument();
   });
@@ -1312,5 +1313,165 @@ describe('NewSessionDialog のエージェント（opencode、ベータ）', () 
     await screen.findByRole('button', { name: 'エージェント、Claude Code' });
     expect(names()).toEqual(['エージェント、Claude Code', 'プロジェクト', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
     expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
+  });
+});
+
+describe('NewSessionDialog の起動前の準備（opencode のローカルのモデル）', () => {
+  const OPTIONS = {
+    version: '2.1.4', verified: true,
+    modes: [{ id: 'build', description: 'The default agent.' }],
+    models: [{ id: 'lmstudio/qwen3.8-27b', label: 'Qwen3.8 27B', group: 'LM Studio (local)', provider: 'lmstudio', tools: true, context: 262_144, cost: null }],
+    providers: [{ id: 'lmstudio', name: 'LM Studio (local)', where: 'device' as const }],
+    defaultModel: 'lmstudio/qwen3.8-27b', pricesAt: null, fetchedAt: 1, stale: false,
+  };
+  const ocProps: Partial<NewSessionProps> = { projectId: 'p1', opencode: { options: { dir: '/w/alpha', status: 'ready' as const, data: OPTIONS } }, prefs: { p1: { agent: 'opencode', opencodeModel: 'lmstudio/qwen3.8-27b' } } };
+  const prepView = (over: Partial<LaunchPrepView> = {}): LaunchPrepView => ({ key: 'key-12345678', phase: 'running', startedAt: Date.now() - 9_000, line: { text: 'qwen3.8-27b をロード中…（64K）', bar: true }, done: [{ id: '1', text: 'old をアンロードしました' }], ask: null, failure: null, ...over });
+  const mount = (over: Partial<NewSessionProps> = {}) => {
+    const actions: UiAction[] = [];
+    const ui = (p: Partial<NewSessionProps>) => <ActionRoot onAction={(i) => { actions.push(i); }}><NewSessionDialog {...base} {...ocProps} {...p} /></ActionRoot>;
+    const view = render(ui(over));
+    return { actions, submits: () => actions.flatMap((i) => (i.type === 'session.new.submit' ? [i] : [])), rerender: (p: Partial<NewSessionProps>) => view.rerender(ui({ ...over, ...p })) };
+  };
+  const box = () => document.querySelector<HTMLElement>('.launch-prep');
+  const startButton = () => screen.getByRole('button', { name: /^(起動|準備中…)/ });
+
+  it('opencode の起動には、送るたびに新しい準備の鍵（8〜64 字の英数と _-）を添える', () => {
+    const { submits } = mount();
+    fireEvent.click(startButton());
+    fireEvent.click(startButton());
+    const keys = submits().map((i) => i.params.prepKey);
+    expect(keys[0]).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    expect(keys[1]).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(submits()[0]!.params).toMatchObject({ projectId: 'p1', agent: 'opencode', model: 'lmstudio/qwen3.8-27b' });
+  });
+  it('Claude Code の起動は、準備の鍵を持たない', () => {
+    const out = collectParams({ projectId: 'p1', prefs: {} });
+    start();
+    expect(out[0]).not.toHaveProperty('prepKey');
+  });
+
+  it('準備の進みが無ければ、今までどおり送信中の「起動中…」だけで、箱は出さない', () => {
+    mount({ submitting: true, prep: null });
+    expect(box()).toBeNull();
+    expect(screen.getByRole('button', { name: '起動中…' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '準備を中止' })).toBeNull();
+  });
+  it('進みの間は、箱に今の段の 1 行と経過時間と済んだ段を出し、始めるボタンを「準備中…」にして、左に「準備を中止」を置く', () => {
+    const { actions } = mount({ submitting: true, prep: prepView() });
+    expect(box()).not.toBeNull();
+    expect(within(box()!).getByText('qwen3.8-27b をロード中…（64K）')).toBeInTheDocument();
+    expect(within(box()!).getByText(/^0:0\d$/)).toBeInTheDocument();
+    expect(within(box()!).getByText('old をアンロードしました')).toBeInTheDocument();
+    expect(box()!.querySelector('[role="progressbar"]')).not.toBeNull();
+    const go = screen.getByRole('button', { name: '準備中…' });
+    expect(go).toBeDisabled();
+    const cancel = screen.getByRole('button', { name: '準備を中止' });
+    expect(cancel.compareDocumentPosition(go) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(cancel);
+    expect(actions).toContainEqual({ type: 'launchPrep.cancel', key: 'key-12345678' });
+  });
+  it('帯は load と reload の間だけ。確かめや起動中の行には出さない', () => {
+    mount({ submitting: true, prep: prepView({ line: { text: 'opencode を起動中…', bar: false } }) });
+    expect(box()!.querySelector('[role="progressbar"]')).toBeNull();
+  });
+  it('経過時間は 1 秒ごとに進む', () => {
+    vi.useFakeTimers({ now: 100_000 });
+    try {
+      mount({ submitting: true, prep: prepView({ startedAt: 100_000 }) });
+      expect(within(box()!).getByText('0:00')).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(3_000); });
+      expect(within(box()!).getByText('0:03')).toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
+  });
+  it('準備が済んだあとの送信中（opencode を起動中…）は、準備中…を出さずに起動中…にする', () => {
+    mount({ submitting: true, prep: prepView({ phase: 'ready' }) });
+    expect(screen.getByRole('button', { name: '起動中…' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '準備を中止' })).toBeNull();
+  });
+
+  const unloadAsk: LaunchPrepView['ask'] = { title: 'gemma-4-26b をアンロードしてロードしますか？', body: 'LM Studio で手動ロードされた gemma-4-26b が残っています。', hint: null, choices: [{ id: 'unload', label: 'アンロードしてロード', choice: { unload: ['i1'] }, primary: true }, { id: 'skip', label: 'そのまま開始', choice: { skip: true }, primary: false }] };
+  it('問いが来たら、ダイアログの中に札を出す（見出し、本文、答えのボタン）', () => {
+    mount({ prep: prepView({ phase: 'asking', ask: unloadAsk }) });
+    const card = screen.getByRole('group', { name: 'gemma-4-26b をアンロードしてロードしますか？' });
+    expect(within(card).getByText(/手動ロードされた gemma-4-26b/)).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'アンロードしてロード' })).toBeInTheDocument();
+    expect(box()).toBeNull();
+  });
+  it('問いの補足があれば添える', () => {
+    mount({ prep: prepView({ phase: 'asking', ask: { ...unloadAsk, hint: 'サブエージェントにも同じモデルを指定すると、メモリに収まります。' } }) });
+    expect(screen.getByText('サブエージェントにも同じモデルを指定すると、メモリに収まります。')).toBeInTheDocument();
+  });
+  it('答えを選ぶと、同じ詳細に prepChoice を足し、新しい鍵で送り直す', () => {
+    const { submits } = mount({ prep: prepView({ phase: 'asking', ask: unloadAsk }) });
+    fireEvent.click(screen.getByRole('button', { name: 'アンロードしてロード' }));
+    fireEvent.click(screen.getByRole('button', { name: 'そのまま開始' }));
+    const [a, b] = submits();
+    expect(a!.params).toMatchObject({ projectId: 'p1', agent: 'opencode', model: 'lmstudio/qwen3.8-27b', prepChoice: { unload: ['i1'] } });
+    expect(b!.params).toMatchObject({ prepChoice: { skip: true } });
+    expect(a!.params.prepKey).not.toBe(b!.params.prepKey);
+    expect(a!.params.prepKey).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+  });
+  it('送信中は問いの札を出さない', () => {
+    mount({ submitting: true, prep: prepView({ phase: 'asking', ask: unloadAsk }) });
+    expect(screen.queryByRole('group', { name: unloadAsk!.title })).toBeNull();
+  });
+
+  it('失敗したら、箱を閉じ、ダイアログの中に失敗の札（見出しと理由）を出す。同じ理由の赤い 1 行は重ねない', () => {
+    mount({ error: 'LM Studio が「メモリが足りません」と返しました。', prep: prepView({ phase: 'failed', failure: 'LM Studio が「メモリが足りません」と返しました。' }) });
+    const card = screen.getByRole('alert');
+    expect(within(card).getByText('モデルのロードに失敗しました')).toBeInTheDocument();
+    expect(within(card).getByText('LM Studio が「メモリが足りません」と返しました。')).toBeInTheDocument();
+    expect(screen.getAllByText('LM Studio が「メモリが足りません」と返しました。')).toHaveLength(1);
+    expect(box()).toBeNull();
+  });
+  it('理由が空なら、起動の失敗の文を理由にする。準備の失敗でない失敗は今までの赤い 1 行', () => {
+    const { rerender } = mount({ error: 'tmux が未検出', prep: prepView({ phase: 'failed', failure: '' }) });
+    expect(within(screen.getByRole('alert')).getByText('tmux が未検出')).toBeInTheDocument();
+    rerender({ error: 'tmux が未検出', prep: prepView({ phase: 'ready' }) });
+    expect(screen.queryByText('モデルのロードに失敗しました')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('tmux が未検出');
+  });
+
+  describe('出入りの動き', () => {
+    let restore: (() => void) | null = null;
+    let animations: { el: Element; frames: Keyframe[]; resolve: () => void }[] = [];
+    beforeEach(() => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      animations = [];
+      (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+        let resolve!: () => void;
+        const finished = new Promise<void>((r) => { resolve = r; });
+        animations.push({ el: this, frames, resolve });
+        return { finished, cancel: vi.fn() };
+      };
+    });
+    afterEach(() => {
+      restore?.(); restore = null;
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+    });
+    it('進みの箱は高さを 0 から伸ばして入り（growIn）、準備が済んだら畳んでから外れる（collapseOut）', async () => {
+      const { rerender } = mount({ submitting: false, prep: null });
+      rerender({ submitting: true, prep: prepView() });
+      const el = box()!;
+      expect(animations.filter((a) => a.el === el).map((a) => a.frames[0])).toEqual([expect.objectContaining({ height: '0px', opacity: 0 })]);
+      rerender({ submitting: false, prep: prepView({ phase: 'failed', failure: 'x' }), error: 'x' });
+      const out = animations.filter((a) => a.el === el).at(-1)!;
+      expect(out.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+      expect(box()).toBe(el);
+      await act(async () => { out.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      expect(box()).toBeNull();
+    });
+    it('問いの札と失敗の札も、伸びて入る', () => {
+      const { rerender } = mount({ prep: null });
+      rerender({ prep: prepView({ phase: 'asking', ask: unloadAsk }) });
+      const ask = screen.getByRole('group', { name: unloadAsk!.title });
+      expect(animations.filter((a) => a.el === ask).map((a) => a.frames[0])).toEqual([expect.objectContaining({ height: '0px', opacity: 0 })]);
+      rerender({ prep: prepView({ phase: 'failed', failure: 'x' }), error: 'x' });
+      const fail = screen.getByRole('alert');
+      expect(animations.filter((a) => a.el === fail).map((a) => a.frames[0])).toEqual([expect.objectContaining({ height: '0px', opacity: 0 })]);
+    });
   });
 });

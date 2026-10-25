@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, ApiNotFoundError, ApiStatusError, createApi, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ApiStatusError, createApi, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -362,5 +362,26 @@ describe('リカバリーキーの再発行の経路', () => {
       expect(e).toBeInstanceOf(ApiStatusError);
       expect(e).toMatchObject({ message: `e${status}`, status });
     }
+  });
+});
+
+describe('起動前の準備の API', () => {
+  it('準備をやめるのは DELETE /api/runs/prep/:key、整え直しは POST /api/sessions/:id/local-models に prepKey を送る', async () => {
+    const { api, calls } = harness();
+    await api.cancelPrep('key-12345678');
+    await api.prepareModels('s1', 'key-87654321');
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['DELETE /api/runs/prep/key-12345678', 'POST /api/sessions/s1/local-models']);
+    expect(calls[1]!.body).toBe('{"prepKey":"key-87654321"}');
+  });
+  it('起動が準備の問いで止まった 409 は LaunchPrepAskApiError、やめた応答は LaunchPrepCancelledApiError にする', async () => {
+    const asked = harness(409, { error: '続行するにはユーザーの確認が必要です。', code: 'prep-ask' });
+    await expect(asked.api.launch({ projectId: 'p1' })).rejects.toBeInstanceOf(LaunchPrepAskApiError);
+    const cancelled = harness(400, { error: '準備を中止しました。', code: 'prep-cancelled' });
+    await expect(cancelled.api.launch({ projectId: 'p1' })).rejects.toMatchObject({ name: 'LaunchPrepCancelledApiError', message: '準備を中止しました。' });
+    await expect(cancelled.api.launch({ projectId: 'p1' })).rejects.toBeInstanceOf(LaunchPrepCancelledApiError);
+  });
+  it('code の無い 409 は今までどおりのふつうの失敗', async () => {
+    const other = harness(409, { error: 'busy' });
+    await expect(other.api.launch({ projectId: 'p1' })).rejects.toMatchObject({ message: 'busy', status: 409 });
   });
 });

@@ -4,7 +4,7 @@ import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { FolderInspectState } from './folderInspect.ts';
-import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
+import type { LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
@@ -102,6 +102,11 @@ export type Store = {
   opencodeStatus: OpencodeStatusDto | null;
   /** 新しいセッションで opencode を選んだときのモードとモデル（GET /api/opencode/options）。最後に頼んだ 1 件だけを持つ。頼む前は null。 */
   opencodeOptions: OpencodeOptionsState | null;
+  /**
+   * 起動前の準備の進み（launch.prep、docs/design.md「起動前の準備」）。鍵（起動の要求に添えた prepKey）ごとに全体を持つ。
+   * 古いものから LAUNCH_PREPS_KEPT 件まで残し、走っているものは捨てない。段の無い準備は何も届かない。
+   */
+  launchPreps: Record<string, LaunchPrepDto>;
   /** 設定のプロバイダー（ベータ）。設定の opencode の面を開くまでは null。 */
   opencodeProviders: OpencodeProvidersState | null;
   // デスクトップの殻の中で動いているか。殻があれば、ログを開くと再起動を殻に頼める。
@@ -168,7 +173,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, opencodeOptions: null, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
+    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, opencodeOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,
@@ -291,8 +296,28 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       const status = { found: true, version: ev.version, verified: false };
       return sameValue(store.opencodeStatus, status) ? store : { ...store, opencodeStatus: status };
     }
+    // 起動前の準備の進み。鍵ごとに全体で置き換え、古い済みのものから捨てる。
+    case 'launch.prep': return sameValue(store.launchPreps[ev.prep.key], ev.prep) ? store : { ...store, launchPreps: keepLaunchPreps({ ...store.launchPreps, [ev.prep.key]: ev.prep }) };
     default: return store;
   }
+}
+
+/** 持っておく起動前の準備の数。 */
+export const LAUNCH_PREPS_KEPT = 8;
+
+/** 走っていない準備を、古いものから捨てて LAUNCH_PREPS_KEPT 件に収める。 */
+function keepLaunchPreps(all: Record<string, LaunchPrepDto>): Record<string, LaunchPrepDto> {
+  const keys = Object.keys(all);
+  let over = keys.length - LAUNCH_PREPS_KEPT;
+  if (over <= 0) return all;
+  const out = { ...all };
+  for (const k of keys) {
+    if (over <= 0) break;
+    if (out[k]!.phase === 'running') continue;
+    delete out[k];
+    over--;
+  }
+  return out;
 }
 
 /**

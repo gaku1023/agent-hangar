@@ -15,6 +15,10 @@ export type RuntimeEvent =
   | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
   | { type: 'api.failed'; message: string; holdMs?: number } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
+  // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
+  | { type: 'launch.halted'; why: 'ask' | 'cancel'; message: string }
+  // 起動した後にコンテキストが足りなかった札の「再ロードして再開」の結果。
+  | { type: 'contextShort.done'; sessionId: string } | { type: 'contextShort.failed'; sessionId: string; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
   | { type: 'promote.failed'; message: string }
   // 作ってから起動する送信の途中で、プロジェクトができた。params は作ったプロジェクトの id を入れた起動の詳細である。
@@ -93,6 +97,8 @@ export type Effect =
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray } | { kind: 'api.fork'; sessionId: string }
+  // 起動した後にコンテキストが足りなかった会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届き、結果は contextShort.done か contextShort.failed で返る。
+  | { kind: 'api.fixContextShort'; sessionId: string; prepKey: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
   // まとめて再開（中断の群）の 1 本。起きても画面は移さず、結果は resumeQueue.done か resumeQueue.failed で返る。
   | { kind: 'api.resumeQueued'; sessionId: string; stray?: ResumeStray }
@@ -238,8 +244,18 @@ export type NewSessionDraft = { name: string; prompt: string; attachments: { pat
  * agent は前回 opencode で起こしたときだけ 'opencode' を持ち、無ければ Claude Code である。opencodeModel は opencode のモデル（`provider/model`）で、無ければデフォルト。
  */
 export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'> & { agent?: 'opencode'; opencodeModel?: string };
-/** createdProjectId は、作ってから起動する送信でプロジェクトができた後の印である。起動だけが失敗しても、押し直しで二重に作らない。 */
-export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string };
+/**
+ * createdProjectId は、作ってから起動する送信でプロジェクトができた後の印である。起動だけが失敗しても、押し直しで二重に作らない。
+ * halted は、準備が問いで止まったか、利用者がやめたこと。失敗ではないので文を持たず、画面は準備の進み（launchPrep）を読んで問いを出す。
+ */
+export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string } | { kind: 'halted'; createdProjectId?: string };
+/**
+ * 起動前の準備の見張り（起動の要求に添えた prepKey）。model は起動のモデル（provider/model）で、問いの答えの provider を取る。
+ * name は利用者が付けた名前で、閉じた後に済んだときの知らせに使う（会話の名前が Store に届く前のため）。
+ */
+export type LaunchPrepMark = { key: string; model: string | null; name: string | null };
+/** 起動した後にコンテキストが足りなかった会話の札。fix は整え直しの最中の鍵、done は済んだこと。 */
+export type ContextShort = { sessionId: string; fix: { key: string } | null; done: boolean };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
 /** 検索の結果から開いたときの跳び先（J1）。n は開いた回数で、同じ所をもう一度開いても跳び直す合図にする。 */
@@ -297,6 +313,10 @@ export type State = {
   pageSize: number;
   /** 起動の進み。ダイアログからの起動も、再開もフォークも同じ状態を共有する。 */
   launch: LaunchState;
+  /** 送った起動の準備の鍵（opencode のときだけ）。ダイアログが進みと問いを、閉じた後の知らせが成否の出し方を、これで決める。 */
+  launchPrep: LaunchPrepMark | null;
+  /** 起動した後にコンテキストが足りなかった会話の右下の札（opencode.contextShort）。同じ会話は 1 枚で、古いものが先。 */
+  contextShorts: ContextShort[];
   /**
    * 新しいセッションのモデルの小窓の「プロバイダーを管理…」で設定へ移ったときの、ダイアログの開き方。
    * 設定の opencode の面に「‹ 新しいセッションに戻る」を出し、押すと同じ開き方で開き直す。設定の外へ移ったら忘れる。持っていなければ null か無し。

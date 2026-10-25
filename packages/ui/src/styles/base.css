@@ -431,6 +431,10 @@ a:hover { text-decoration: underline; }
 /* スマホから起動した会話の通知（試作 F1）。通常は info と同じ青で、Bypass permissions は赤にして「停止」を置く。 */
 .notice[data-kind='phone-launch'] { --k: var(--accent); cursor: default; }
 .notice[data-kind='phone-launch'][data-tone='err'] { --k: var(--error); }
+/* ダイアログを閉じた後に走り続ける起動前の準備の進みと、起動後にコンテキストが足りなかった札。中の 1 行は新しいセッションのダイアログの進みの箱と同じ（controls.css の .launch-prep-line）。 */
+.notice[data-kind='prep-progress'] { --k: var(--accent); cursor: default; }
+.notice[data-kind='context-short'] { --k: var(--st-paused); cursor: default; }
+.notice[data-kind='context-short'][data-tone='ok'] { --k: var(--st-done); }
 .notice-sas { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5) calc(var(--u) * 3); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); line-height: 1.45; color: color-mix(in srgb, var(--accent) 70%, var(--ink)); }
 .notice-sas > b { font-size: 20px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink); white-space: nowrap; }
 /* リリースノートの注意（「更新の前に」の節）。ほかの PC や Worker とそろえる話なので、Paused と同じ黄の地で目立たせ、3 行まで見せる。 */
