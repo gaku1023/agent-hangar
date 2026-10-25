@@ -41,6 +41,15 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     expect(calls).toContain('shell');
   });
 
+  it('opencode の入り切りとコマンドの横取りの欄が来たら、包みの本体を書き直す', () => {
+    patch({ opencodeInjection: 'none' });
+    expect(calls).not.toContain('shell');
+    patch({ opencodeEnabled: true });
+    expect(calls.filter((c) => c === 'shell')).toHaveLength(1);
+    patch({ opencodeIntercept: true });
+    expect(calls.filter((c) => c === 'shell')).toHaveLength(2);
+  });
+
   it('claudePath の欄が来たら claude の読み直しを、上限の欄が来たら要約器の作り直しを頼む', () => {
     patch({ lmStudioModel: 'm1' });
     expect(calls.some((c) => c.startsWith('claude ') || c === 'cap')).toBe(false);

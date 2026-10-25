@@ -34,8 +34,9 @@ function OpencodeVersion(props: { version: OpencodeSettingsProps['version'] }) {
  * 設定の「連携 › opencode」（ベータ、試作の D1）。Claude Code との互換性の節のすぐ下に置く。
  * 有効にする行だけを常に出し、入れたときだけバージョンとシステムプロンプトへの追記の行を growIn で伸ばして入れる（切ると collapseOut で畳んでから外す）。
  * 見出しの右端の札も入のときだけ出し、fadeIn と fadeOut で出入りさせる。
+ * 入のときの行は、バージョン、コマンドの横取り（段 D2、macOS と Linux だけ）、システムプロンプトへの追記の順。
  * その下に「プロバイダー」（つないだ先と追加、views/OpencodeProviders.tsx）を置く。providers を渡さなければ出さない。
- * コマンドの横取りの行は段 D2 で足す。Windows では段 G1 まで面ごと出さない（available が偽）。どれも選んだ時点で保存する。
+ * Windows では段 G1 まで面ごと出さない（available が偽）。横取りの行は G1 の後も Windows では出さない（intercept.available）。どれも選んだ時点で保存する。
  */
 export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: OpencodeProvidersProps }) {
   const t = useT();
@@ -79,6 +80,11 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: O
       {more.mounted && (
         <div className="oc-more" ref={more.ref}>
           <SetRow title={t('settings.opencode.version.title')} desc={<OpencodeVersion version={o.version} />} control={null} />
+          {o.intercept.available && (
+            <SetRow title={t('settings.label.opencodeIntercept')} info={t('settings.opencode.intercept.desc')}
+              desc={o.intercept.note ? <span className="oc-note" data-tone="info">{o.intercept.note}</span> : undefined}
+              control={<Switch label={t('settings.label.opencodeIntercept')} checked={o.intercept.on} onChange={(next) => emit({ type: 'settings.update', patch: { opencodeIntercept: next } })} />} />
+          )}
           <SetRow title={t('settings.label.opencodeInjection')} info={t('settings.opencode.injection.desc')}
             desc={o.claudeNote ? <span className="oc-note" data-tone="warn">{o.claudeNote}</span> : undefined}
             control={<Listbox label={t('settings.label.opencodeInjection')} value={o.injection} options={o.injectionOptions} align="end"

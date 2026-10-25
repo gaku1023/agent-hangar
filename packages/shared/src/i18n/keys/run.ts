@@ -32,6 +32,7 @@ export const runKeys = {
   'run.terminal.notInHangar': [],
   'run.terminal.flagRefused': ['flag'],
   'run.terminal.resumeNeedsId': [],
+  'run.terminal.interceptOff': ['label'],
   'run.attach.notBackground': [],
   'run.adopt.notRunning': [],
   'run.adopt.busy': [],

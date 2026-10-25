@@ -7,7 +7,7 @@ export type SettingsUpdateDeps = {
   box: { current: Settings };
   /** tmux のパスを、これから起こす run と新しい attach へ行き渡らせる。変わっていなくても毎回呼ぶ。 */
   applyTmux: (s: Settings) => void;
-  /** tmuxPath の欄が来たとき。包みの本体を書き直す。 */
+  /** tmuxPath、opencodeEnabled、opencodeIntercept の欄が来たとき。包みの本体を書き直す（tmux のパスと、opencode() を書くか）。 */
   onTmuxPath: () => void;
   /** claudePath の欄が来たとき。これから起こす run と要約が新しい場所を使い、包みのサブコマンドと手元の版も読み直す。 */
   onClaudePath: (s: Settings) => void;
@@ -27,7 +27,7 @@ export function applySettingsPatch(deps: SettingsUpdateDeps, patch: Partial<Sett
   saveSettings(deps.home, settings);
   // tmuxPath が変われば、これから起こす run も新しい attach も新しいパスを使う。
   deps.applyTmux(settings);
-  if (patch.tmuxPath !== undefined) deps.onTmuxPath();
+  if (patch.tmuxPath !== undefined || patch.opencodeEnabled !== undefined || patch.opencodeIntercept !== undefined) deps.onTmuxPath();
   if (patch.claudePath !== undefined) deps.onClaudePath(settings);
   if (patch.summaryHourlyCap !== undefined) deps.onSummaryCap();
   deps.publishConfigSync(settings);

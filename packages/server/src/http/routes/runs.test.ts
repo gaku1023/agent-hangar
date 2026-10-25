@@ -45,6 +45,21 @@ describe('routes', () => {
     expect(refused.status).toBe(400);
     expect((await refused.json()).error).toContain('--session-id');
   });
+  it('ターミナルからの起動は、agent が無ければ Claude Code（古い包み方の本文）、opencode なら opencode の口へ渡し、知らない agent は 400', async () => {
+    const post = (body: unknown) => app.request('/api/runs/terminal', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const b64 = (x: string) => Buffer.from(x).toString('base64');
+    const oc = runs.startOpencodeFromTerminal as unknown as ReturnType<typeof vi.fn>;
+    expect((await post({ cwd: b64('/w/a'), args: '', env: '' })).status).toBe(201);
+    expect(runs.startFromTerminal).toHaveBeenCalledTimes(1);
+    expect(oc).not.toHaveBeenCalled();
+    oc.mockImplementationOnce(async () => { await new Promise((r) => setTimeout(r, 5)); return { ...launched, attached: false }; });
+    const ok = await post({ cwd: b64('/w/a'), args: b64('--auto'), env: '', agent: 'opencode' });
+    expect(ok.status).toBe(201);
+    expect(await ok.json()).toEqual({ ...launched, attached: false });
+    expect(oc).toHaveBeenCalledWith({ cwd: '/w/a', args: ['--auto'], env: {} });
+    expect(runs.startFromTerminal).toHaveBeenCalledTimes(1);
+    expect((await post({ cwd: b64('/w/a'), args: '', env: '', agent: 'codex' })).status).toBe(400);
+  });
   it('起動は非同期の start（opencode の materialize）を待ってから 201 で答え、断りは理由つきの 400 にする', async () => {
     const post = (body: unknown) => app.request('/api/runs', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const start = runs.start as unknown as ReturnType<typeof vi.fn>;

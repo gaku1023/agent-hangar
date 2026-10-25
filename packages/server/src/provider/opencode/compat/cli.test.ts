@@ -82,6 +82,18 @@ describe('opencodeSubcommandsFromHelp', () => {
     expect(r.drifts.some((d) => d.value === 'subcommand.removed=run')).toBe(false);
     expect(r.drifts.some((d) => d.value === 'flag.added=--auto')).toBe(false);
   });
+  it('横取りに使うフラグ（--auto、--prompt、-s）が消えたか、値の取り方が変わったら、ずれとして返す。ほかのフラグの減は見ない', () => {
+    const subs = '\nSUBCOMMANDS\n  run    x\n';
+    const r = opencodeSubcommandsFromHelp(`FLAGS\n  --auto string    x\n  --prompt    y\n  --session, -s string    z\n${subs}`);
+    expect(r.drifts).toContainEqual(c('flag.valueChanged=--auto'));
+    expect(r.drifts).toContainEqual(c('flag.valueChanged=--prompt'));
+    expect(r.drifts.some((d) => /=(--session|-s)$/.test(d.value))).toBe(false);
+    const gone = opencodeSubcommandsFromHelp(`FLAGS\n  --auto    x\n  --prompt string    y\n${subs}`);
+    expect(gone.drifts).toContainEqual(c('flag.removed=--session'));
+    expect(gone.drifts).toContainEqual(c('flag.removed=-s'));
+    expect(gone.drifts.some((d) => d.value.startsWith('flag.removed=--') && !d.value.endsWith('--session'))).toBe(false);
+    expect(gone.drifts.some((d) => d.value === 'flag.removed=--continue')).toBe(false);
+  });
   it('出力が無ければ、ずれ無しで組み込みの一覧を使う', () => {
     expect(opencodeSubcommandsFromHelp(null)).toEqual({ subcommands: BUILTIN_OPENCODE_SUBCOMMANDS, drifts: [] });
     expect(opencodeSubcommandsFromHelp('  ')).toEqual({ subcommands: BUILTIN_OPENCODE_SUBCOMMANDS, drifts: [] });
@@ -115,6 +127,11 @@ describe('isOpencodeCliDrift', () => {
     expect(isOpencodeCliDrift('subcommand.removed=serve')).toBe(true);
     expect(isOpencodeCliDrift('flag.added=--auto')).toBe(false);
     expect(isOpencodeCliDrift('flag.added=--newflag')).toBe(true);
+  });
+  it('横取りに使うフラグの減と値の取り方の変化は、ずれのまま', () => {
+    expect(isOpencodeCliDrift('flag.removed=--prompt')).toBe(true);
+    expect(isOpencodeCliDrift('flag.valueChanged=-s')).toBe(true);
+    expect(isOpencodeCliDrift('flag.removed=--continue')).toBe(false);
   });
   it('欠けと知らない形の値はずれのまま', () => {
     expect(isOpencodeCliDrift('help.subcommands=(missing)')).toBe(true);

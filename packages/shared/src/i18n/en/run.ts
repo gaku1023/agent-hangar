@@ -33,6 +33,7 @@ export const runEn: AreaDictionary<typeof runKeys> = {
   'run.terminal.notInHangar': 'This conversation is not in Hangar',
   'run.terminal.flagRefused': 'A launch with {flag} cannot be opened in Hangar',
   'run.terminal.resumeNeedsId': 'A resume without a conversation ID cannot be opened in Hangar',
+  'run.terminal.interceptOff': '"{label}" is off in Settings',
   'run.attach.notBackground': 'This session is not running in the background',
   'run.adopt.notRunning': 'This session is not running',
   'run.adopt.busy': 'A session that is working cannot be moved to Hangar. Move it once it needs input or is idle',

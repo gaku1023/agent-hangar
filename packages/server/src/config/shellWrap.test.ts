@@ -13,17 +13,30 @@ describe('包みの本体と、この PC の状態', () => {
   const wrap = (o: { host?: string; tmuxPath?: string | null; subcommands?: readonly string[]; zshrc?: string; platform?: NodeJS.Platform } = {}) => {
     let tmuxPath = o.tmuxPath === undefined ? '/opt/tmux' : o.tmuxPath;
     let subcommands = o.subcommands ?? ['agents'];
+    let opencode = false;
     const w = createShellWrap({
       home, host: o.host ?? '127.0.0.1', port: 4321,
-      tmuxPath: () => tmuxPath, subcommands: () => subcommands,
+      tmuxPath: () => tmuxPath, subcommands: () => subcommands, opencode: () => (opencode ? {} : null),
       bundledHangar: null, zshrc: () => o.zshrc ?? path.join(home, '.zshrc'),
       errorLog: () => {},
       // 包みは macOS の zsh のものなので、試験は動いている OS によらず macOS として走らせる。
       platform: o.platform ?? 'darwin',
     });
-    return { w, setTmux: (p: string | null) => { tmuxPath = p; }, setSubcommands: (l: readonly string[]) => { subcommands = l; } };
+    return { w, setTmux: (p: string | null) => { tmuxPath = p; }, setSubcommands: (l: readonly string[]) => { subcommands = l; }, setOpencode: (on: boolean) => { opencode = on; } };
   };
   const script = () => fs.readFileSync(shellScriptPath(home), 'utf8');
+
+  it('opencode の包みは、設定で opencode と横取りを入れたときだけ書き、切れば書き直して外す', () => {
+    const t = wrap();
+    t.w.write();
+    expect(script()).not.toContain('function opencode');
+    t.setOpencode(true);
+    t.w.write();
+    expect(script()).toContain('function opencode {');
+    t.setOpencode(false);
+    t.w.write();
+    expect(script()).not.toContain('function opencode');
+  });
 
   it('本体には、実際に待ち受けているポートと tmux のパスとサブコマンドを埋め込む', () => {
     const { w } = wrap({ subcommands: ['agents', 'newcmd'] });

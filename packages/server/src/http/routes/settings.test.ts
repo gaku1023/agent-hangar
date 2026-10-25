@@ -152,7 +152,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', opencodeEnabled: false, opencodeInjection: 'minimal' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -415,6 +415,7 @@ describe('設定の往復', () => {
         ['remoteControl', false],
         ['opencodeEnabled', true],
         ['opencodeInjection', 'claude'],
+        ['opencodeIntercept', true],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -461,6 +462,16 @@ describe('設定の往復', () => {
       const r = await patch({ configBundleSync: v });
       expect([v, r.status]).toEqual([v, 400]);
     }
+  });
+  it('opencode コマンドの横取りは、既定が切で、保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.opencodeIntercept).toBe(false);
+    expect((await (await patch({ opencodeIntercept: true })).json()).opencodeIntercept).toBe(true);
+    for (const v of ['true', 1, null]) {
+      const r = await patch({ opencodeIntercept: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「opencode コマンドを hangar 経由で起動」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.opencodeIntercept).toBe(true);
   });
   it('opencode を有効にするスイッチ（ベータ）は、既定が切で、保存でき、真偽値でない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.opencodeEnabled).toBe(false);

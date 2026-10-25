@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
 import { errorText } from '../i18n/message.ts';
 import { RunError } from './errors.ts';
-import { decodeTerminalRequest, splitTerminalArgs, terminalEnv } from './terminal.ts';
+import { decodeTerminalRequest, splitOpencodeTerminalArgs, splitTerminalArgs, terminalAgentOf, terminalEnv } from './terminal.ts';
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 const UUID = '480a20da-0b1b-4e20-b8f5-2b5c82124ecb';
@@ -45,6 +45,46 @@ describe('splitTerminalArgs', () => {
   });
   it('-- の後ろは引数として読まない', () => {
     expect(splitTerminalArgs(['--', '-p', 'について説明して'])).toEqual({ resume: null, rest: ['--', '-p', 'について説明して'] });
+  });
+});
+
+describe('terminalAgentOf（どのエージェントの起動か）', () => {
+  it('agent の無い本文（古い包み方）は Claude Code にする', () => {
+    expect(terminalAgentOf({ cwd: 'x', args: '', env: '' })).toBe('claude-code');
+    expect(terminalAgentOf({ agent: 'claude' })).toBe('claude-code');
+    expect(terminalAgentOf({ agent: 'claude-code' })).toBe('claude-code');
+  });
+  it('opencode はそのまま、知らない値は null', () => {
+    expect(terminalAgentOf({ agent: 'opencode' })).toBe('opencode');
+    expect(terminalAgentOf({ agent: 'codex' })).toBeNull();
+    expect(terminalAgentOf({ agent: 1 })).toBeNull();
+  });
+});
+
+describe('splitOpencodeTerminalArgs（許可リスト方式）', () => {
+  const none = { session: null, prompt: null, autoApprove: false, dir: null };
+  it('引数が無ければ、何も写さない', () => {
+    expect(splitOpencodeTerminalArgs([])).toEqual(none);
+  });
+  it('--auto、--prompt、-s、ディレクトリを写す。値を取るフラグの値をディレクトリと取り違えない', () => {
+    expect(splitOpencodeTerminalArgs(['--auto', '--prompt', 'sub', 'dir'])).toEqual({ session: null, prompt: 'sub', autoApprove: true, dir: 'dir' });
+    expect(splitOpencodeTerminalArgs(['--prompt=直して ください'])).toEqual({ ...none, prompt: '直して ください' });
+    expect(splitOpencodeTerminalArgs(['-s', 'ses_abc123'])).toEqual({ ...none, session: 'ses_abc123' });
+    expect(splitOpencodeTerminalArgs(['--session', 'ses_abc123', '--prompt', '-c'])).toEqual({ ...none, session: 'ses_abc123', prompt: '-c' });
+    expect(splitOpencodeTerminalArgs(['--session=ses_abc123'])).toEqual({ ...none, session: 'ses_abc123' });
+  });
+  it('知らないフラグと、素通しにするフラグは断る。包み方は素の opencode に回す', () => {
+    for (const a of [['-c'], ['--continue'], ['--server', 'http://x'], ['--standalone'], ['-h'], ['--model', 'x'], ['--auto=1'], ['--'], ['-v']]) {
+      expect(() => splitOpencodeTerminalArgs(a), a.join(' ')).toThrow(expect.objectContaining({ status: 400 }));
+    }
+  });
+  it('値の無い値を取るフラグ、2 つ目のディレクトリ、サブコマンドは断る', () => {
+    expect(() => splitOpencodeTerminalArgs(['--prompt'])).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => splitOpencodeTerminalArgs(['a', 'b'])).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => splitOpencodeTerminalArgs(['run', 'x'])).toThrow(expect.objectContaining({ status: 400 }));
+  });
+  it('会話の ID の形でない -s は、hangar の会話ではないので 404 で断る', () => {
+    expect(() => splitOpencodeTerminalArgs(['-s', 'さっきの'])).toThrow(expect.objectContaining({ status: 404 }));
   });
 });
 

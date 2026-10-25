@@ -4,7 +4,7 @@ import { sessionLock } from '../../db/queries.ts';
 import { RunError } from '../../runs/manager.ts';
 import { resumeHereAllowed } from '../../sync/takeover.ts';
 import type { JumpFrom } from '../../provider/claude-code/screen/promptJump.ts';
-import { decodeTerminalRequest } from '../../runs/terminal.ts';
+import { decodeTerminalRequest, terminalAgentOf } from '../../runs/terminal.ts';
 import { interruptedGroup, setInterruptedDismissed } from '../../runs/interrupted.ts';
 import { resumeHerePlan } from '../../runs/handover.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
@@ -110,13 +110,17 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     // opencode の起動は serve と会話の下ごしらえ（materialize）を待つので、応答まで数秒かかることがある。
     return runResultAsync(c, language, () => deps.runs.start(params), 201);
   });
-  // ターミナルの包み方（~/.agent-hangar/shell/claude.zsh）からの起動。断ったら、包み方は素の claude を起動する。
+  // ターミナルの包み方（~/.agent-hangar/shell/claude.zsh）からの起動。断ったら、包み方は素の claude（opencode）を起動する。
+  // 本文の agent が opencode なら opencode の口へ渡す。agent の無い本文（claude の包み、古い包み方）は Claude Code にする。
   api.post('/runs/terminal', async (c) => {
     const b = await readJson(c, BODY_LIMITS.terminal);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.terminal, tr);
     const req = decodeTerminalRequest(b.value);
-    if (!req) return c.json({ error: tr('http.request.badShape') }, 400);
+    const agent = terminalAgentOf(b.value);
+    if (!req || !agent) return c.json({ error: tr('http.request.badShape') }, 400);
     await beforeLaunch();
+    // opencode は serve と会話の下ごしらえ（materialize）を待つので、非同期の口で受ける。
+    if (agent === 'opencode') return runResultAsync(c, language, () => deps.runs.startOpencodeFromTerminal(req), 201);
     return runResult(c, language, () => deps.runs.startFromTerminal(req), 201);
   });
   api.delete('/runs/:id', (c) => runResult(c, language, () => deps.runs.kill(c.req.param('id'))));

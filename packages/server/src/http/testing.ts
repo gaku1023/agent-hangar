@@ -81,6 +81,7 @@ export function fakeRuns(): RunsApi {
     leaveTranscript: vi.fn(async () => ({ left: true })),
     assertCanStart: vi.fn(() => {}),
     startFromTerminal: vi.fn((req: { cwd: string; args: string[] }) => { if (req.args.includes('--session-id')) throw new RunError(400, '--session-id を付けた起動は hangar では開けません'); return { ...launched, attached: false }; }),
+    startOpencodeFromTerminal: vi.fn(async () => ({ ...launched, attached: false })),
   };
 }
 

@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, type OpencodeInjection, type OpencodeStatusDto } from '@agent-hangar/shared';
+import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, type OpencodeInjection, type OpencodeStatusDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -35,6 +35,11 @@ export type OpencodeSettingsProps = {
   version: { kind: OpencodeVersionKind; installed: string | null; verified: string; note: string | null } | null;
   badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null;
   claudeNote: string | null;
+  /**
+   * 「opencode コマンドを hangar 経由で起動」の行（段 D2）。available は macOS と Linux だけ真（Windows ではシェルの包みを作らない）。
+   * note は、この PC にシェル連携が入っていないときの入れ方の注記。opencode() はシェル連携の本体の中に書くので、入っていなければ効かない。
+   */
+  intercept: { available: boolean; on: boolean; note: string | null };
 };
 
 const OPENCODE_INJECTION_KEY = { minimal: 'settings.opencode.injection.minimal', claude: 'settings.opencode.injection.claude', none: 'settings.opencode.injection.none' } as const;
@@ -55,7 +60,7 @@ export function opencodeVersionKind(s: OpencodeStatusDto): OpencodeVersionKind {
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows では面を出さない（段 G1 で外す）。 */
-function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection }, status: OpencodeStatusDto | null, platform: string): OpencodeSettingsProps {
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
@@ -67,6 +72,7 @@ function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; op
     version: status && kind && text ? { kind, installed: status.version, verified: OPENCODE_VERIFIED_RANGE, note: text.note ? t(text.note) : null } : null,
     badge: text ? { text: t(text.badge), tone: text.tone } : null,
     claudeNote: injection === 'claude' ? t('settings.opencode.injection.claudeNote') : null,
+    intercept: { available: platform !== 'win32', on: opencodeInterceptOf(settings), note: shell !== null && shell !== 'on' ? t('settings.opencode.intercept.needsShell') : null },
   };
 }
 
@@ -454,7 +460,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     verify, todo,
     mux: presentMux(r, state.muxCheck),
     compat: compatSummary ? presentCompat(t, compatSummary, store.compat, store.version) : null,
-    opencode: presentOpencode(t, s ?? {}, store.opencodeStatus, platform),
+    opencode: presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null),
     opencodeProviders: presentOpencodeProviders(state, store),
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
