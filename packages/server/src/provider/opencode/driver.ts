@@ -36,7 +36,7 @@ export class OpencodeNotReadyError extends Error {
 
 /**
  * opencode の driver。起動、状態、トランスクリプト、許可・質問、追記の面を持つ。
- * Claude にしか無いもの（アカウント、effort、権限モード、Remote Control、フォーク、外の会話の引き取り）は caps で持たないと言い、RunManager が入口で断る。
+ * Claude にしか無いもの（アカウント、effort、権限モード、Remote Control、フォーク、外の会話の引き取り、目次から画面を跳ばすこと）は caps で持たないと言い、RunManager が入口で断る。
  */
 export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
   const report = deps.report ?? ((what: string, e: unknown) => { console.warn(`[opencode] ${what}: ${e instanceof Error ? e.message : String(e)}`); });
@@ -57,7 +57,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
 
   return {
     kind: 'opencode',
-    caps: { accounts: false, effort: false, permissionMode: false, remoteControl: false, fork: false, attachExternal: false },
+    caps: { accounts: false, effort: false, permissionMode: false, remoteControl: false, fork: false, attachExternal: false, promptJump: false },
     launch: {
       // TUI は hangar が起こした serve につなぐ。状態の面の行の pid は serve の pid である。
       servedByHangar: true,

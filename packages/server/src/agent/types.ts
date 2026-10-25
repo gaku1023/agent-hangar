@@ -34,6 +34,12 @@ export type AgentCaps = {
   remoteControl: boolean;
   fork: boolean;
   attachExternal: boolean;
+  /**
+   * 目次のターンを押したとき、エージェントの画面（TUI）をその指示へ跳ばせるか。
+   * 跳び方は Claude Code の画面の操作（ctrl+o で transcript に入り、G と { で動く。provider/claude-code/screen/promptJump.ts）である。
+   * 偽のエージェントにはキーを送らず、画面も読まない（読んだ結果を Claude Code の画面の互換のずれとして数えない）。
+   */
+  promptJump: boolean;
 };
 
 // ---- 起動 ----

@@ -18,7 +18,7 @@ describe('opencode の driver（serve を起こさない面）', () => {
   const driver = createOpencodeDriver({ serves: () => null, droppedEnv: [] });
   it('Claude にしか無い操作は caps で持たない', () => {
     expect(driver.kind).toBe('opencode');
-    expect(driver.caps).toEqual({ accounts: false, effort: false, permissionMode: false, remoteControl: false, fork: false, attachExternal: false });
+    expect(driver.caps).toEqual({ accounts: false, effort: false, permissionMode: false, remoteControl: false, fork: false, attachExternal: false, promptJump: false });
   });
   it('ID を先に決めない。hook は読まない。追記は途中でも差し替えられる', () => {
     expect(driver.launch.newSessionId).toBeUndefined();

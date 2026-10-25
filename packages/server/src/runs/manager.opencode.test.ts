@@ -22,6 +22,7 @@ import { SECRET_ENV_DIR, secretEnvPath, writeSecretEnv } from '../launch/secretE
 import { runLogPath } from '../launch/wrapper.ts';
 import { mcpSecretFor } from './secrets.ts';
 import { RunManager } from './manager.ts';
+import type { CompatSink, Drift } from '../provider/claude-code/compat/types.ts';
 import { until } from '../../test/fake-opencode-events.ts';
 
 const ev = <K extends FakeOpencodeEvent['ev']>(log: FakeOpencodeEvent[], k: K) => log.filter((e): e is Extract<FakeOpencodeEvent, { ev: K }> => e.ev === k);
@@ -53,22 +54,28 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
 
   /** 開いた画面と、開いたときの sessions の行と偽の opencode の記録を残す口。 */
   // listed は tmux の一覧に載せる名前（既定は空。開いた画面を載せたいときは試験が足す）。closed は閉じた画面の名前。
-  const recordingPanes = (logFile: string, o: { fail?: boolean } = {}) => {
+  // touched は画面を読んだか、キーや文字を送った記録（名前と中身）。screen は capture が返す画面。
+  const recordingPanes = (logFile: string, o: { fail?: boolean; screen?: string } = {}) => {
     const opened: { name: string; cwd: string; command: string[]; env: Record<string, string>; rows: Row[]; log: FakeOpencodeEvent[] }[] = [];
     const listed: string[] = [];
     const closed: string[] = [];
+    const touched: string[][] = [];
     const panes: PaneOps = {
       open: (p) => {
         if (o.fail) throw new Error('no room');
         opened.push({ ...p, env: p.env ?? {}, rows: sessions(), log: readFakeOpencodeLog(logFile) });
       },
       close: (name) => { closed.push(name); const i = listed.indexOf(name); if (i >= 0) listed.splice(i, 1); },
-      list: () => [...listed], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {},
+      list: () => [...listed],
+      capture: (name) => { touched.push([name, 'capture']); return o.screen ?? ''; },
+      sendText: (name, text) => { touched.push([name, 'text', text]); },
+      sendKey: (name, key) => { touched.push([name, 'key', key]); },
+      prepareForOutsideTerminals: () => {},
     };
-    return { panes, opened, listed, closed };
+    return { panes, opened, listed, closed, touched };
   };
 
-  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform } = {}) => {
+  const make = (o: { fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
@@ -84,10 +91,11 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     const opencode = createOpencodeDriver({ serves: () => watched, droppedEnv: AGENT_RUN_DROPPED_ENV, mcpPollMs: 10, mcpWaitMs: 2000, report: () => {} });
     const fakeClaude = writeFakeClaude(home);
     const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => fakeClaude.bin, live: liveSourceOf(), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => realProcOps });
-    const { panes, opened, listed, closed } = recordingPanes(logFile, { fail: o.failOpen });
+    const { panes, opened, listed, closed, touched } = recordingPanes(logFile, { fail: o.failOpen, screen: o.screen });
     const rm = new RunManager({
       db, deviceId: 'd', home, panes, claudeBin: fakeClaude.bin, claudeDir: home, port: 4177, token: 'tok', shell: 'sh', language: () => 'ja',
       ...(o.platform ? { platform: o.platform } : {}),
+      ...(o.compat ? { compat: o.compat } : {}),
       procs: { ...realProcOps, listJobs: () => [], ...(o.startTimeOf ? { startTimeOf: o.startTimeOf } : {}) },
       ...(o.pidAlive ? { pidAlive: o.pidAlive } : {}),
       agents: agentsOf([claude, opencode]), claude,
@@ -96,7 +104,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
       injection: () => ({ askStatusAtEnd: true, liveHints: true, opencode: o.injection ?? 'minimal' }),
       terminalIntercept: (k) => k === 'opencode' && o.intercept !== false,
     });
-    return { rm, opened, ensured, manager, bin, opencode, claude, fakeClaude, listed, closed, log: () => readFakeOpencodeLog(logFile) };
+    return { rm, opened, ensured, manager, bin, opencode, claude, fakeClaude, listed, closed, touched, log: () => readFakeOpencodeLog(logFile) };
   };
 
   const params = (over: Partial<LaunchParams> = {}): LaunchParams => ({ agent: 'opencode', projectId: 'p1', ...over });
@@ -566,5 +574,23 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     await expect(noIntercept.rm.startOpencodeFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('opencode コマンドを hangar 経由で起動') });
     expect(sessions()).toEqual([]);
     expect(noIntercept.log()).toEqual([]);
+  });
+  posixIt('opencode の画面には目次の跳び方のキーを送らず、Claude Code の画面の互換のずれとしても数えない', async () => {
+    // 跳び方（ctrl+o、G、{）は Claude Code の画面の操作である。opencode の TUI に送ると、opencode の別の小窓が開く。
+    // 画面は Claude の transcript に見えるものにしておく。読みに行けば、指示の行の記号が見つからないことを 3 回目に互換のずれとして記録してしまう。
+    const seen: Drift[] = [];
+    const { rm, touched } = make({ screen: '  返答だけが見えている\n\n  Showing detailed transcript · ctrl+o to toggle', compat: { note: (d) => seen.push(d) } });
+    upsertShared(db, 'sessions', { id: 'h-oc', provider: 'opencode', provider_session_id: 'ses_oc', cwd, home_device: 'd', project_id: 'p1' }, 'd');
+    upsertShared(db, 'runs', { id: 'r-oc', session_id: 'h-oc', device_id: 'd', kind: 'start', tmux_name: 'hangar-r-oc', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    for (let i = 0; i < 3; i++) expect(() => rm.jumpToPrompt('r-oc', ['a'], 0, 'bottom')).toThrow(expect.objectContaining({ status: 400 }));
+    expect(await rm.leaveTranscript('r-oc')).toEqual({ left: false });
+    expect(touched).toEqual([]);
+    expect(seen).toEqual([]);
+
+    // 同じ RunManager でも、Claude Code の会話には今までどおり送る。
+    upsertShared(db, 'sessions', { id: 'h-cc', provider: 'claude-code', provider_session_id: 'u-cc', cwd, home_device: 'd', project_id: 'p1' }, 'd');
+    upsertShared(db, 'runs', { id: 'r-cc', session_id: 'h-cc', device_id: 'd', kind: 'start', tmux_name: 'hangar-r-cc', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    expect(await rm.jumpToPrompt('r-cc', ['a'], 0, 'bottom')).toEqual({ found: false, reason: 'notFound' });
+    expect(touched.filter((t) => t[1] !== 'capture')).toContainEqual(['hangar-r-cc', 'text', 'G']);
   });
 });
