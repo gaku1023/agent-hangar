@@ -12,7 +12,7 @@ const MIN = 60_000;
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
 const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 5 * H, lastActivityAt: NOW - 4 * H, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...over });
 const paused = (id: string, returnOn: string | null, returnTime: string | null = null, note = `${id} を確かめる`) => dto(id, { state: st({ status: 'paused', note, returnOn, returnTime, setBy: 'user', setAt: 1 }) });
-const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', paused: false, url: 'https://w', lastPushAt: null, lastPullAt: NOW - MIN, pending: 0, error: null, deviceCount: 1, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false, ...o });
+const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', paused: false, url: 'https://w', lastPushAt: null, lastPullAt: NOW - MIN, pending: 0, error: null, deviceCount: 1, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false, diskShort: null, ...o });
 const compatSummary = (driftCount: number, localVersion: string | null = '2.4.2') => ({ compat: { verifiedVersion: '2.4.0', localVersion, driftCount } }) as unknown as ReadinessDto;
 const drift = (n: number, lastSeenAt = NOW - 12 * MIN): CompatDto => ({ verifiedVersion: '2.4.0', localVersion: '2.4.2', drifts: Array.from({ length: n }, (_, i) => ({ contract: 'registry' as const, value: `status=v${i}`, version: '2.4.2', count: 3, firstSeenAt: lastSeenAt - H, lastSeenAt: lastSeenAt - i * MIN })) });
 const retention = (o: Partial<RetentionDto> = {}): RetentionDto => ({ days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null, ...o });
@@ -21,6 +21,9 @@ const storeOf = (over: Partial<Store> = {}): Store => ({ ...initialStore(), boot
 const withSessions = (list: SessionDto[]) => ({ sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const read = (keys: string[]): State => ({ ...initialState(), noticesRead: keys });
 const en = { language: 'en' } as unknown as SettingsDto;
+/** 空きが足りずに止めたときの行の文（会話 3 件、あと 2.4 GB、残す分 5 GB）。札も同じ題を使う。 */
+const DISK_TITLE_JA = '空き容量が不足しているため、会話 3 件の取得を中断しました';
+const DISK_DETAIL_JA = '取得を終えるには、あと 2.4 GB 必要です。5 GB 以上の空き容量を残すため、中断しました。ディスクの空きを増やすと再開します。';
 
 describe('presentNotices：事実から行を組む', () => {
   it('どの事実も無ければ行は無く、未読も 0 である', () => {
@@ -119,6 +122,18 @@ describe('presentNotices：事実から行を組む', () => {
     expect(presentNotices(read(['sync|skipped|2']), storeOf({ sync: sync({ skipped }) }), NOW).unread).toBe(0);
     expect(presentNotices(read(['sync|skipped|2']), storeOf({ sync: sync({ skipped: skipped.slice(0, 1) }) }), NOW).unread).toBe(1);
     expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'off', url: null, skipped }) }), NOW).rows).toEqual([]);
+  });
+
+  it('空きが足りずに取得を止めていれば、黄の行で会話の数と要る大きさを言い、同期の設定へ移る', () => {
+    const GB = 1024 ** 3;
+    const diskShort = { sessions: 3, needBytes: 2.4 * GB, freeBytes: 6 * GB, reserveBytes: 5 * GB };
+    const rows = presentNotices(initialState(), storeOf({ sync: sync({ diskShort }) }), NOW).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ key: 'sync|diskShort|3', kind: 'sync', tone: 'warn', title: DISK_TITLE_JA, detail: DISK_DETAIL_JA, unread: true });
+    expect(rows[0]!.action.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
+    // 同期を使っていない端末では出さない。止めていなければ出さない。
+    expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'off', url: null, diskShort }) }), NOW).rows).toEqual([]);
+    expect(presentNotices(initialState(), storeOf({ sync: sync() }), NOW).rows).toEqual([]);
   });
 
   // 通知の誘いは注意から外し、始める前の確認の任意の行にした（9c）。

@@ -5,7 +5,7 @@ import { initialCloudMember, type CloudMemberState, type JoinFailReason } from '
 import { cloudJoinCommand, presentCloudMember } from './cloudMember.ts';
 
 const NOW = Date.parse('2026-10-12T03:00:00Z');
-const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
+const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
 const dev = (id: string, over: Partial<CloudDeviceDto> = {}): CloudDeviceDto => ({ id, name: id, platform: 'darwin', joinedAt: Date.parse('2026-09-21T03:00:00Z'), lastSeenAt: NOW - 12 * 60_000, revokedAt: null, expiresAt: null, kind: 'pc', self: false, ...over });
 const member = (over: Partial<CloudMemberState> = {}): CloudMemberState => ({ ...initialCloudMember(), ...over });
 const store = (over: Partial<Store> = {}): Store => ({ ...initialStore(), sync: SYNC, device: { id: 'a', name: 'studio' }, ...over });

@@ -392,6 +392,8 @@ export type State = {
    * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。
    */
   noticesRead: string[];
+  /** 空きが足りずに本文の取得を止めた札を、いまの止まりで出し終えたか（mediator/diskShort.ts）。解けたら false に戻す。 */
+  diskShortToasted: boolean;
   /**
    * 未検証の opencode の版の札（C7）を閉じた版。同じ版では二度出さない。端末ごとに localStorage に残し、起動時に読み戻す（mediator/opencodeVersion.ts）。
    */

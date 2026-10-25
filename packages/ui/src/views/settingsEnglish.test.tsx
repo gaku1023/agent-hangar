@@ -140,7 +140,7 @@ describe('設定（英語）', () => {
   });
 
   it('参加コード：PC を追加（A1）、新しい PC（B2）、参加リクエストの通知（C1）', () => {
-    const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
+    const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
     const check = { url: 'https://h.example', host: 'h.example', pcCount: 2, current: null };
     const member = (over: Partial<CloudMemberState>) => presentCloudMember({ ...english, sync: SYNC, desktop: true, cloudMember: { ...initialCloudMember(), ...over } }, NOW);
     const requested = { kind: 'requested' as const, code: 'K7QM-2XFD', expiresAt: NOW + 262_000, request: { name: 'pc-b', os: 'win32', sas: '418207' } };

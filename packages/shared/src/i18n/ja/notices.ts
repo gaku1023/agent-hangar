@@ -19,6 +19,8 @@ export const noticesJa: AreaDictionary<typeof noticesKeys> = {
   'notices.sync.pausedToo': '同期は一時停止中です',
   'notices.sync.open': '同期の設定を開く',
   'notices.sync.skipped': '取得できなかったトランスクリプト {n} 件',
+  'notices.sync.diskShort': '空き容量が不足しているため、会話 {n} 件の取得を中断しました',
+  'notices.sync.diskShortDetail': '取得を終えるには、あと {need} 必要です。{reserve} 以上の空き容量を残すため、中断しました。ディスクの空きを増やすと再開します。',
   'notices.compat.title': '変更点あり',
   'notices.compat.detailOne': 'Claude Code {version}：変更点 1 件',
   'notices.compat.detailMany': 'Claude Code {version}：変更点 {n} 件',

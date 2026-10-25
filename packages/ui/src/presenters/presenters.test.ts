@@ -1444,7 +1444,7 @@ describe('presentSettings の既定値', () => {
 });
 
 const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
-const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
+const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
 describe('ヘッダーの無料枠の上限で停止', () => {
@@ -1731,7 +1731,7 @@ describe('presentShell のベル', () => {
     expect('retention' in p).toBe(false);
   });
   it('既読の鍵は State から読み、未読の数をベルの名前に添える', () => {
-    const store: Store = { ...initialStore(), bootstrapped: true, sync: { state: 'paused', paused: true, url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false } };
+    const store: Store = { ...initialStore(), bootstrapped: true, sync: { state: 'paused', paused: true, url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false, diskShort: null } };
     expect(presentShell(initialState(), store, NOW).notices.unread).toBe(1);
     expect(presentShell({ ...initialState(), noticesRead: ['sync|paused|user'] }, store, NOW).notices.unread).toBe(0);
   });

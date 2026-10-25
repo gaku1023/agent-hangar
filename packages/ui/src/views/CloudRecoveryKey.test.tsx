@@ -12,7 +12,7 @@ import { CloudRecoveryButton, CloudRecoveryKey } from './CloudRecoveryKey.tsx';
 import { SettingsScreen } from './SettingsScreen.tsx';
 
 const NOW = Date.parse('2026-10-17T03:00:00Z');
-const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
+const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
 /** 作り物の秘密鍵（32 バイト）で作ったリカバリーキー。 */
 const TEXT = formatRecoveryKey({ priv: btoa(String.fromCharCode(...new Uint8Array(32).fill(7))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), url: 'https://h.example', createdAt: NOW });
 const SECRET = TEXT.split('\n').find((l) => l.startsWith('暗号鍵'))!.replace(/^暗号鍵:\s*/, '');

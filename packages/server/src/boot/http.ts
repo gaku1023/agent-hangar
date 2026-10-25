@@ -142,6 +142,7 @@ export function bootHttp(p: {
     syncSkipped: () => sync.feed.skipped(),
     syncSweep: () => sync.feed.sweep(),
     syncOncePass: () => sync.feed.oncePass(),
+    syncDiskShort: () => sync.feed.diskShort(),
     takeover: takeover.service,
     // 手元を置き換えるかの確認。opencode の会話は、上げるために書き出した最後のファイルとメッセージの ID で比べる（sync/opencodeResume.ts）。
     resumeHereReplace: (sessionId) => compareOpencodeForResume({ db, home: home.home, deviceId: device.id, sessionId }) ?? compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),

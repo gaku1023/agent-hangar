@@ -349,6 +349,9 @@ export function bootSync(
           // 諦めた項目は同期の状態（skipped）に残り、画面のベルの一覧が事実からその行を組む。
           onError: (k, m) => { console.error('[pull]', k, m); },
           onDownloaded: () => remoteChanged(),
+          // 空きが足りずに止めたときと解けたときは、同期の状態を配り直す。画面が札を出し、注意の一覧に行を足す（presenters/notices.ts）。
+          // feed は下で組むが、降ろしは起動の後にしか走らないので、呼ばれる時には組み終わっている。
+          onDiskShortChanged: () => feed.broadcastSync(engine.status()),
         })
       : null;
     const feed = createSyncFeed({ hub, puller, uploader, oncePass: () => once.pass.active(), isPaused, cloudUsage, toast });
