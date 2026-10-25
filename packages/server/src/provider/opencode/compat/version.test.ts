@@ -114,7 +114,7 @@ process.exit(${code});
     expect(got[0]!.args).toEqual(['--version']);
     // 偽の bin を起こす包み（sh）と Node が足す鍵（PWD、SHLVL、_ など）のほかは、決まった鍵だけである。
     const keys = Object.keys(got[0]!.env).filter((k) => !['PWD', 'OLDPWD', 'SHLVL', '_', '__CF_USER_TEXT_ENCODING'].includes(k));
-    expect(keys.every((k) => ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'PATH'].includes(k))).toBe(true);
+    expect(keys.every((k) => ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'PATH', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME'].includes(k))).toBe(true);
     expect(Object.keys(got[0]!.env).filter((k) => k.startsWith('CLAUDE') || k.startsWith('HANGAR_'))).toEqual([]);
     expect(got[0]!.env.PATH!.split(':')[0]).toBe(path.dirname(bin));
   });
