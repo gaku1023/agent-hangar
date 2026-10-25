@@ -89,8 +89,7 @@ function askOf(a: LaunchPrepAsk, t: Translate, model: string | null): LaunchPrep
   }
   const name = (u: string) => (u === '$session' ? t('launchPrep.ask.memory.session') : u === '$small' ? 'small_model' : u);
   const list = a.models.map((m) => t('launchPrep.ask.memory.item', { uses: m.uses.map(name).join(t('common.list.separator')), model: m.model, size: gb(m.sizeBytes) })).join(t('common.list.separator'));
-  const provider = model !== null && model.indexOf('/') > 0 ? model.slice(0, model.indexOf('/')) : null;
-  const single: LaunchPrepChoiceView[] = provider === null ? [] : [{ id: 'single', label: t('launchPrep.ask.memory.ok', { model: a.suggest }), choice: { singleModel: `${provider}/${a.suggest}` }, primary: true }];
+  const single: LaunchPrepChoiceView[] = a.suggestRef.indexOf('/') > 0 ? [{ id: 'single', label: t('launchPrep.ask.memory.ok', { model: a.suggest }), choice: { singleModel: a.suggestRef }, primary: true }] : [];
   return {
     title: t('launchPrep.ask.memory.title'),
     body: t('launchPrep.ask.memory.body', { list, total: gb(a.totalBytes), limit: gb(a.limitBytes) }),

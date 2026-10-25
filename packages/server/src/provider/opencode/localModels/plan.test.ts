@@ -68,7 +68,7 @@ describe('planLocalModels', () => {
     const wanted = [{ model: 'qwen', uses: ['$session', 'build'], limit: null }, { model: 'gemma', uses: ['scout', 'fetcher'], limit: null }];
     const p = planLocalModels(input({ wanted }));
     expect(p.actions).toEqual([]);
-    expect(p.ask).toEqual({ kind: 'memory', models: [{ model: 'qwen', uses: ['$session', 'build'], sizeBytes: 16 * GB }, { model: 'gemma', uses: ['scout', 'fetcher'], sizeBytes: 15 * GB }], totalBytes: 31 * GB, limitBytes: 25.6 * GB, suggest: 'qwen' });
+    expect(p.ask).toEqual({ kind: 'memory', models: [{ model: 'qwen', uses: ['$session', 'build'], sizeBytes: 16 * GB }, { model: 'gemma', uses: ['scout', 'fetcher'], sizeBytes: 15 * GB }], totalBytes: 31 * GB, limitBytes: 25.6 * GB, suggest: 'qwen', suggestRef: 'qwen' });
   });
 
   it('このまま始める（skip）なら何もしない', () => {

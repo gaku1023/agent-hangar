@@ -77,7 +77,7 @@ export function planLocalModels(p: PlanInput): Plan {
     const wantedTotal = wanted.reduce((n, w) => n + size(w.model), 0);
     if (wanted.length > 1 && wantedTotal > p.memLimitBytes) {
       const suggest = (wanted.find((w) => w.uses.includes('$session')) ?? wanted[0]!).model;
-      return { actions: [], ask: { kind: 'memory', models: wanted.map((w) => ({ model: w.model, uses: w.uses, sizeBytes: size(w.model) })), totalBytes: wantedTotal, limitBytes: p.memLimitBytes, suggest } };
+      return { actions: [], ask: { kind: 'memory', models: wanted.map((w) => ({ model: w.model, uses: w.uses, sizeBytes: size(w.model) })), totalBytes: wantedTotal, limitBytes: p.memLimitBytes, suggest, suggestRef: suggest } };
     }
     // hangar が載せて今は使っていないもの、答えで外してよいと言われたものを、大きい順に外す。
     for (const o of [...others].sort((a, b) => size(b.m.key) - size(a.m.key))) {

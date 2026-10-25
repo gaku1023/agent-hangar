@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { isLaunchPrepKey, type LaunchPrepAction, type LaunchPrepAsk, type LaunchPrepDto, type LaunchPrepStepDto, type LaunchPrepStepKind } from '@agent-hangar/shared';
 
 /**
@@ -122,7 +122,7 @@ export class LaunchPreps {
 
   /** 準備を始める。鍵が無いか形が違えば、hangar が鍵を作る（進みは配るが、受け取る画面は無い）。 */
   begin(key: string | undefined): LaunchPrep {
-    const k = isLaunchPrepKey(key) && !this.running.has(key) ? key : randomBytes(12).toString('base64url');
+    const k = isLaunchPrepKey(key) && !this.running.has(key) ? key : randomUUID().replaceAll('-', '');
     const p = new LaunchPrep(k, this.deps, () => { if (this.running.get(k) === p) this.running.delete(k); });
     this.running.set(k, p);
     return p;

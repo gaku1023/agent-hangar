@@ -83,18 +83,20 @@ function deviceOrigin(baseURL: string | null): string | null {
 export async function prepareLocalModels(deps: LocalModelsDeps, input: PrepareInput): Promise<void> {
   if (input.choice.skip) return;
   const byOrigin = new Map<string, WantedModel[]>();
+  const refs = new Map<string, string>();
   for (const u of input.uses) {
     const r = split(u.ref);
     const origin = r ? deviceOrigin(input.providers.find((p) => p.id === r.provider)?.baseURL ?? null) : null;
     if (!r || !origin) continue;
     const list = byOrigin.get(origin) ?? [];
     list.push({ model: r.model, uses: u.uses, limit: input.limits.get(u.ref) ?? null });
+    refs.set(r.model, u.ref);
     byOrigin.set(origin, list);
   }
-  for (const [origin, wanted] of byOrigin) await prepareAt(deps, input, origin, wanted);
+  for (const [origin, wanted] of byOrigin) await prepareAt(deps, input, origin, wanted, refs);
 }
 
-async function prepareAt(deps: LocalModelsDeps, input: PrepareInput, origin: string, wanted: WantedModel[]): Promise<void> {
+async function prepareAt(deps: LocalModelsDeps, input: PrepareInput, origin: string, wanted: WantedModel[], refs: ReadonlyMap<string, string>): Promise<void> {
   const lm = new LmStudio(origin, { fetch: deps.fetch });
   const models = await lm.list(input.prep.signal);
   input.prep.throwIfCancelled();
@@ -106,7 +108,8 @@ async function prepareAt(deps: LocalModelsDeps, input: PrepareInput, origin: str
     context: deps.context(),
     memLimitBytes: (deps.totalmem ?? os.totalmem)() * MEMORY_SHARE,
   });
-  if (plan.ask) input.prep.ask(plan.ask);
+  // 計画は LM Studio の名前で考える。勧めるモデルは、答えにそのまま入れられるよう opencode の指定に直す。
+  if (plan.ask) input.prep.ask(plan.ask.kind === 'memory' ? { ...plan.ask, suggestRef: refs.get(plan.ask.suggest) ?? plan.ask.suggest } : plan.ask);
   let entries = ledger;
   const save = () => { writeLedger(deps.home, entries); };
   // 足りていたもののうち hangar が載せたものは、この会話も使うと記録する（ほかの会話の起動で外されないため）。

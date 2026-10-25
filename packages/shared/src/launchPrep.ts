@@ -32,11 +32,12 @@ export type LaunchPrepInstance = { instanceId: string; model: string; sizeBytes:
  * 準備が止まって、利用者に 1 問だけ聞くこと。
  * unload-manual：手で載せたモデル（同じモデルが短い長さで載っているものを含む）を外さないと載らない。外すかを聞く。
  * memory：会話と agent が別々のモデルを使う設定で、合わせるとメモリに収まらない。1 モデルに寄せるかを聞く（既定の案内）。
+ * suggest は勧めるモデル（LM Studio の名前）、suggestRef はその opencode の指定（`provider/model`、答えの singleModel に入れる）。
  * uses は、そのモデルを使う agent の名前。会話の既定のモデルは '$session'、opencode の small_model は '$small' と書く。
  */
 export type LaunchPrepAsk =
   | { kind: 'unload-manual'; model: string; want: number; blocking: LaunchPrepInstance[] }
-  | { kind: 'memory'; models: { model: string; uses: string[]; sizeBytes: number }[]; totalBytes: number; limitBytes: number; suggest: string };
+  | { kind: 'memory'; models: { model: string; uses: string[]; sizeBytes: number }[]; totalBytes: number; limitBytes: number; suggest: string; suggestRef: string };
 
 /**
  * 問いへの答え。起動の要求（LaunchParams.prepChoice）に添えて送り直す。

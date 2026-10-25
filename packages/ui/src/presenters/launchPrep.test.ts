@@ -84,17 +84,17 @@ describe('準備の問い', () => {
     const a = ask({ kind: 'memory', models: [
       { model: 'qwen3.8-27b', uses: ['$session', 'build'], sizeBytes: 16.1 * 1024 ** 3 },
       { model: 'gemma-4-26b', uses: ['$small', 'scout'], sizeBytes: 15.6 * 1024 ** 3 },
-    ], totalBytes: 31.7 * 1024 ** 3, limitBytes: 25.6 * 1024 ** 3, suggest: 'qwen3.8-27b' })!;
+    ], totalBytes: 31.7 * 1024 ** 3, limitBytes: 25.6 * 1024 ** 3, suggest: 'qwen3.8-27b', suggestRef: 'lmstudio/qwen3.8-27b' })!;
     expect(a.title).toBe('これらのモデルは同時にロードできません');
     expect(a.body).toBe('メイン会話、build: qwen3.8-27b（16.1 GB）、small_model、scout: gemma-4-26b（15.6 GB）。合計で 31.7 GB 必要となり、メモリ上限の目安（25.6 GB / 80%）を超えます。');
     expect(a.hint).toBe('サブエージェントにも同じモデルを指定すると、LM Studio は 1 つのモデルで並列に処理するため、メモリに収まります。');
     expect(a.choices.map((c) => [c.label, c.choice])).toEqual([['qwen3.8-27b のみで開始', { singleModel: 'lmstudio/qwen3.8-27b' }], ['そのまま開始', { skip: true }]]);
   });
-  it('起動したモデルが分からなければ、1 つに寄せるボタンを出さない', () => {
-    const a = presentLaunchPrep(prep({ phase: 'asking', ask: { kind: 'memory', models: [], totalBytes: 1, limitBytes: 1, suggest: 'x' } }), t, null).ask!;
+  it('勧めるモデルの指定（provider/model）が無ければ、1 つに寄せるボタンを出さない', () => {
+    const a = presentLaunchPrep(prep({ phase: 'asking', ask: { kind: 'memory', models: [], totalBytes: 1, limitBytes: 1, suggest: 'x', suggestRef: 'x' } }), t, null).ask!;
     expect(a.choices.map((c) => c.label)).toEqual(['そのまま開始']);
   });
   it('asking でなければ問いは出さない', () => {
-    expect(presentLaunchPrep(prep({ phase: 'failed', ask: { kind: 'memory', models: [], totalBytes: 1, limitBytes: 1, suggest: 'x' } }), t, 'a/b').ask).toBeNull();
+    expect(presentLaunchPrep(prep({ phase: 'failed', ask: { kind: 'memory', models: [], totalBytes: 1, limitBytes: 1, suggest: 'x', suggestRef: 'a/x' } }), t, 'a/b').ask).toBeNull();
   });
 });

@@ -484,6 +484,8 @@ a:hover { text-decoration: underline; }
 .notice-title { font-size: var(--fs); line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 /* error と info の本文は 2 行まで見せ、error は「詳しく」で開く。 */
 .notice-message { font-size: var(--fs); line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* 起動後のコンテキスト長の札は、直し方まで読ませる（2 行で切ると「再ロードします」が隠れる）。 */
+.toast[data-kind="context-short"] .notice-message { -webkit-line-clamp: 4; }
 .notice[data-open='true'] .notice-message { display: block; }
 .btn-link.notice-more { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
 .toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; }

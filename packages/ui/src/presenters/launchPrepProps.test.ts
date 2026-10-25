@@ -16,8 +16,8 @@ describe('新しいセッションのダイアログに渡す準備の進み', (
     expect(presentNewSession(dialog(), storeWith(null), 5_000)!.prep).toBeNull();
     expect(presentNewSession(dialog({ launchPrep: null }), storeWith(prep()), 5_000)!.prep).toBeNull();
   });
-  it('止まった問いの答えの provider は、送ったモデルから取る', () => {
-    const ask = prep({ phase: 'asking', ask: { kind: 'memory', models: [], totalBytes: 2 * 1024 ** 3, limitBytes: 1024 ** 3, suggest: 'qwen' } });
+  it('止まった問いの答えは、サーバが勧めたモデルの指定（既定のモデルで送ったときも）', () => {
+    const ask = prep({ phase: 'asking', ask: { kind: 'memory', models: [], totalBytes: 2 * 1024 ** 3, limitBytes: 1024 ** 3, suggest: 'qwen', suggestRef: 'lmstudio/qwen' } });
     expect(presentNewSession(dialog({ launch: { kind: 'halted' } }), storeWith(ask), 5_000)!.prep?.ask?.choices[0]!.choice).toEqual({ singleModel: 'lmstudio/qwen' });
   });
   it('準備が止まった（halted）あとも、作ったプロジェクトを渡す', () => {
