@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MODEL_FACTS_STALE_DAYS, MODEL_FACTS_UPDATED, translator, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
+import { MODEL_FACTS_STALE_DAYS, MODEL_FACTS_UPDATED, modelCostKind, translator, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
 import { contextLabel, costKindOf, presentModelPicker, priceLabel, type ModelPickerInput } from './modelPicker.ts';
 
 const ja = translator('ja');
@@ -45,6 +45,13 @@ describe('costKindOf（費用の型）', () => {
     expect(costKindOf(m('opencode/x', { cost: { input: 0, output: 0 } }), 'remote')).toBe('free');
     // 料金の分からない、外のサーバーは自前のものとして扱う（opencode.json で足した OpenAI 互換のサーバー）。
     expect(costKindOf(m('school/x', { cost: null }), 'remote')).toBe('local');
+  });
+  it('スマホの答えと同じ決め方（shared の modelCostKind）と、どの組でも同じ型になる', () => {
+    const providers = ['opencode-go', 'lmstudio', 'deepseek', 'opencode', 'school', 'anthropic'];
+    const costs = [null, { input: 0, output: 0 }, { input: 0.15, output: 0.6 }, { input: 0, output: 1 }];
+    for (const provider of providers) for (const cost of costs) for (const w of ['device', 'lan', 'remote'] as const) {
+      expect(costKindOf(m(`${provider}/x`, { cost }), w)).toBe(modelCostKind(provider, cost, w));
+    }
   });
 });
 

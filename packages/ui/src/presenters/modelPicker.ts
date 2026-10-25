@@ -1,5 +1,5 @@
 import {
-  dataUseOf, modelFactsStale, providerFactOf,
+  dataUseOf, modelCostKind, modelFactsStale, providerFactOf,
   type MessageKey, type ModelCostKind, type ModelDataUse, type OpencodeModelCost, type OpencodeModelOption, type OpencodeProviderOption, type OpencodeProviderWhere, type Translate,
 } from '@agent-hangar/shared';
 
@@ -47,15 +47,11 @@ const DATA = {
 } as const satisfies Record<ModelDataUse, { key: MessageKey; tone: ModelTagTone }>;
 
 /**
- * 費用の型。定額のプロバイダー（手書きの表）、この PC か内側の網、料金のあるもの（従量）、0 円のもの（無料）の順に決める。
- * 料金の分からないものは、opencode.json で足した自前のサーバーとしてローカルにする（opencode も models.dev も知らないモデルである）。
+ * 費用の型。決め方は shared の modelCostKind（スマホの答えと同じ）に任せる。
+ * 定額のプロバイダー（手書きの表）、この PC か内側の網、料金のあるもの（従量）、0 円のもの（無料）の順で、料金の分からないものはローカルにする。
  */
 export function costKindOf(m: Pick<OpencodeModelOption, 'provider' | 'cost'>, where: OpencodeProviderWhere): ModelCostKind {
-  const fact = providerFactOf(m.provider);
-  if (fact.cost === 'plan') return 'plan';
-  if (fact.cost === 'local' || where !== 'remote') return 'local';
-  if (m.cost === null) return 'local';
-  return m.cost.input > 0 || m.cost.output > 0 ? 'metered' : 'free';
+  return modelCostKind(m.provider, m.cost, where);
 }
 
 const trim = (n: number, digits: number): string => String(Number(n.toFixed(digits)));
