@@ -251,8 +251,13 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
     const limited = limitedSessions(store, null);
     return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), ...limitTimes(t, limited, now) } };
   }
-  const sessionId = state.screen.name === 'session' ? state.screen.id : null;
-  const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
+  // opencode の会話には Claude のアカウントが無いので、ホームと同じく、いまのアカウントを出す（決まりは design.md の opencode の札の節）。
+  // 会話のアカウントを引くと、対応に無い会話としてメインのアカウントが出て、いまのアカウントと違う使用量になる。
+  // 切り替えも会話の付け替えではなく、いまのアカウントの切り替えにするため、sessionId は null にする。
+  const screenId = state.screen.name === 'session' ? state.screen.id : null;
+  const screenSession = screenId === null ? undefined : store.sessions[screenId];
+  const sessionId = screenSession && agentOfSession(store, screenSession) === 'opencode' ? null : screenId;
+  const raw =(sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
   const list = presentAccounts(store, now);
   const shown = list.find((a) => a.id === raw.id) ?? list[0]!;
   const live = sessionId === null ? null : store.sessions[sessionId]?.live ?? null;
