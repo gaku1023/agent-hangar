@@ -27,6 +27,8 @@ async function setup(o: { alive?: (pid: number) => boolean; reconnectDelaysMs?: 
   return { serve, live, changes };
 }
 
+/** 取り直しの 3 本（作業中、許可、form）が、どれも requests にあるか。 */
+const resynced = (requests: string[]) => ['/api/session/active', '/api/permission/request', '/api/form'].every((p) => requests.some((r) => r.split('?')[0] === p));
 /** 写しの 1 行を、変化を見るのに要る欄だけにする。 */
 const shape = (l: LiveSessionDto | undefined) => (l ? { status: l.status, waitingFor: l.waitingFor ?? null, tool: l.permission?.tool ?? null } : null);
 /** 続けて同じ形が出たものを 1 つにまとめる。 */
@@ -103,16 +105,22 @@ describe('OpencodeLive', () => {
     const { serve, live } = await setup();
     live.track({ providerSessionId: TURN_ID, cwd: CWD, serve });
     live.start();
-    await until(() => serve.open() === 1 && live.current().length === 1);
+    // つないだときの取り直しの 3 本が serve に届くまで待つ。
+    // 届く前に下で state を変えると、その取り直しが変化を拾ってしまい、つなぎ直しの取り直しを確かめられない（CPU が遅いときに起きた）。
+    await until(() => serve.open() === 1 && resynced(serve.requests));
     expect(live.current()[0]!.status).toBe('idle');
-    const actives = serve.requests.filter((r) => r === '/api/session/active').length;
+    const before = serve.requests.length;
     serve.drop();
     // 切れている間に、作業が始まって問いが出た（流れには載らない）。
     serve.state.active.add(TURN_ID);
     serve.state.forms = fixtureRest().form.data;
-    await until(() => serve.opened() === 2 && live.current()[0]?.status === 'waiting');
+    await until(() => live.current()[0]?.status === 'waiting');
     expect(live.current()[0]).toMatchObject({ status: 'waiting', waitingFor: 'question' });
-    expect(serve.requests.filter((r) => r === '/api/session/active').length).toBeGreaterThan(actives);
+    // 問い待ちは、つなぎ直してからの取り直しで拾ったものである。
+    const after = serve.requests.slice(before);
+    expect(after[0]).toBe('/api/event');
+    expect(resynced(after)).toBe(true);
+    expect(serve.opened()).toBe(2);
   });
 
   it('kick で取り直す。流れに載らなかった変化も写しに入る', async () => {
