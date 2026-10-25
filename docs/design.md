@@ -1096,10 +1096,21 @@ type TranscriptEvent =
 
 ## Claude Code に固有の部分
 
-hangar が対応するのは Claude Code だけである（2026-10-07 の決定 D7）。
+hangar は Claude Code に加えて opencode に対応する（2026-10-25、D7 を改める）。
+以前に Provider の抽象を消したのは、実装していたのが起動の 2 項目だけで、索引がそれを通らなかったためである。
+今度の境界（`agent/types.ts` の `AgentDriver`）は、起動、状態、トランスクリプト、許可・質問、システムプロンプトへの追記の 5 つの面をすべて持ち、索引と読み出しもこれを通す。
+情報源の形（ファイルと hook と登録か、HTTP と SSE か）の違いは面の中で吸収し、外には `LiveSessionDto` と `TranscriptEvent` だけを見せる。
+Claude の本文は今までどおり jsonl をバイト位置で読み直し、opencode の本文は DB に写す。2 つをそろえるのは別の決定で行う。
+使用量と同期は、まだ境界の外にある。
+
 Claude Code の形式や振る舞いを直接知っている部分は、`packages/server/src/provider/claude-code/` に集めてある（段 2 の PR 12）。
-以前は Provider のインターフェースを置いていたが、実装していたのは起動の 2 項目だけで、索引はインターフェースを通らずに jsonl を読んでいたので、段 1 で消した。
 `sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
+`AgentKind` の値は `sessions.provider` に入る値と同じにし、`agent/agents.ts` がその値から driver を引く。
+
+いま境界を通っているのは起動の面だけである。
+`RunManager` は、新しい会話の ID（`newSessionId`）、起動の引数と外す環境変数（`plan` が返す `LaunchPlan`）、止めるときの後始末（`release`）を driver から受け取る。
+MCP の秘密を発行することと、`runCommand` で包むことは hangar の側に残す。
+attach や引き取りのような Claude にしか無い起こし方は、`RunManager` が Claude の driver を直に使う。
 
 `provider/claude-code/` の中は、役目ごとに分けてある。
 
@@ -1115,14 +1126,15 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 | `screen/` | fullscreen の画面を操作して指示へ跳ぶ（`promptJump.ts`） |
 | `summary/` | `claude -p` での要約（`claude.ts`） |
 | `compat/` | 互換の見張り（次の節） |
-| `types.ts`、`index.ts` | 起動の入力と走査の型、起動コマンドの組み立て |
+| `types.ts` | 起動の入力と走査の型 |
+| `driver.ts` | Claude の driver（`agent/types.ts` の `AgentDriver`）。いまは起動の面だけで、ID を作り、引数と外す環境変数を組み立て、バックグラウンドのセッションを止める |
 
 この置き場の中から読んでよいのは、下の層（`platform/`、`i18n/`、`config/`、`sync/` や `summary/` の型と小さな関数）だけで、HTTP、`boot/`、`events/` は読まない。
 外からは、入口のファイルを通さずに、使うモジュールを直に import する。
 入口 1 つにまとめると、CLI の束（`cliEntry.ts`）がサーバの大半を抱えることになるためである。
 
 Claude Code の事情と hangar 自身の物（DB、tmux、同期）が 1 つのファイルに混ざっているものは、まだ外に残してある。
-索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、run の寿命（`runs/manager.ts`）などである。
+索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、run の寿命のうち状態を見る所（`runs/manager.ts` の登録の読み）などである。
 これらを割るのは振る舞いに触るので、別の変更で行う。
 
 ### 保存先と読み方
