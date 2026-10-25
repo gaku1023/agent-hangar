@@ -433,7 +433,7 @@ describe('createRuntime', () => {
       expect(rt.getState().launch).toEqual({ kind: 'idle' });
       expect(rt.getState().toasts).toEqual([]);
       rt.emit({ type: 'session.resume', id: 's1', stray: 'stop' });
-      expect(resume).toHaveBeenLastCalledWith('s1', 'stop');
+      expect(resume).toHaveBeenLastCalledWith('s1', 'stop', undefined);
       await flush();
       rt.emit({ type: 'overlay.close' });
       rt.emit({ type: 'interrupted.resume', ids: ['s2'] });

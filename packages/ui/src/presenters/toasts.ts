@@ -53,7 +53,7 @@ export type ContextShortCardProps = { sessionId: string; fix: { text: string; st
 function presentPrepProgress(state: State, store: Store, t: Translate): PrepProgressCardProps | null {
   const mark = state.launchPrep;
   const prep = mark ? store.launchPreps[mark.key] : undefined;
-  if (!mark || !prep || prep.phase !== 'running' || state.overlay.kind === 'newSession' || !state.newSessionSent) return null;
+  if (!mark || !prep || prep.phase !== 'running' || state.overlay.kind === 'newSession' || (!state.newSessionSent && !mark.resume)) return null;
   return { key: mark.key, line: presentLaunchPrep(prep, t, mark.model).line.text, startedAt: prep.startedAt };
 }
 

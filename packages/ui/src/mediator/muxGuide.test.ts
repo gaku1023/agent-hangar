@@ -34,6 +34,11 @@ describe('セッションを始める前の止め（B2）', () => {
     expect(transition(initialState(), storeWith(READY), action({ type: 'session.resume', id: 's1' })).effects).toEqual([{ kind: 'api.resume', sessionId: 's1' }]);
     expect(transition(initialState(), storeWith(null), action({ type: 'session.resume', id: 's1' })).effects).toEqual([{ kind: 'api.resume', sessionId: 's1' }]);
   });
+  it('再開に準備の鍵が添えてあれば、送る要求に載せ、右下の札で進みを受けるために覚える', () => {
+    const r = transition(initialState(), storeWith(READY), action({ type: 'session.resume', id: 's1', prepKey: 'key-resume1' }));
+    expect(r.effects).toEqual([{ kind: 'api.resume', sessionId: 's1', prepKey: 'key-resume1' }]);
+    expect(r.state.launchPrep).toEqual({ key: 'key-resume1', model: null, name: null, resume: true });
+  });
   it('新しいセッションの「開始」は、ダイアログを覚えて止め、キャンセルでダイアログへ戻る', () => {
     const open: State = { ...initialState(), overlay: { kind: 'newSession', projectId: 'p1', scratch: false } };
     const r = transition(open, storeWith(MISSING), action({ type: 'session.new.submit', params }));

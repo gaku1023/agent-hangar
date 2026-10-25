@@ -193,7 +193,7 @@ describe('見出しの段（A1、C1）', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '再開' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.resume', id: 's1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.resume', id: 's1', prepKey: expect.stringMatching(/^[A-Za-z0-9_-]{8,64}$/) });
     fireEvent.click(menu().getByRole('menuitem', { name: /フォーク/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.fork', id: 's1' });
     fireEvent.click(menu().getByRole('menuitem', { name: /VS Code で開く/ }));

@@ -679,7 +679,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       // 終わった扱いの run の claude が動き続けていて断られたら、止めて再開するかを聞く確認にする（issue #258）。
       case 'api.resume':
-        (e.stray ? deps.api.resume(e.sessionId, e.stray) : deps.api.resume(e.sessionId)).then(launched).catch((err: unknown) => {
+        (e.stray || e.prepKey ? deps.api.resume(e.sessionId, e.stray, e.prepKey) : deps.api.resume(e.sessionId)).then(launched).catch((err: unknown) => {
           if (err instanceof StrayProcessApiError) strayConflict(e.sessionId, err, false);
           else launchFailed(err);
         });

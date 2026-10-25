@@ -104,7 +104,8 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
   let providerSessionId: string;
   try {
     if (spec.prep && deps.providerPreps?.any() && !spec.prep.choice.skip) await prepareProviders(deps, deps.providerPreps, serve, spec);
-    if (spec.prep && deps.localModels && !spec.prep.choice.skip) ({ serve, model } = await prepareModels(deps, deps.localModels, serve, spec));
+    // LM Studio の段は新しい会話だけ（問いに答える画面が新しいセッションのダイアログにしか無い）。再開は接続先の準備だけを走らせる。
+    if (spec.prep && deps.localModels && !spec.prep.choice.skip && mode.kind === 'start') ({ serve, model } = await prepareModels(deps, deps.localModels, serve, spec));
     if (mode.kind === 'resume') {
       providerSessionId = mode.id;
     } else {

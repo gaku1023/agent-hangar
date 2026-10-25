@@ -200,7 +200,9 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
     case 'session.resume': {
       // 残った claude の確認から選んだときは、確認を閉じてから送る。
       const overlay = i.stray && state.overlay.kind === 'confirm' && state.overlay.confirm.kind === 'strayProcess' ? { kind: 'none' as const } : state.overlay;
-      return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.resume', sessionId: i.id, ...(i.stray ? { stray: i.stray } : {}) }] };
+      // 鍵があれば、準備の進み（opencode の接続先の準備）を右下の札で見せるために覚える。準備の無い再開は何も届かないので、札は出ない。
+      const launchPrep = i.prepKey ? { key: i.prepKey, model: null, name: null, resume: true as const } : state.launchPrep;
+      return { state: { ...state, overlay, launch: { kind: 'submitting' }, launchPrep }, effects: [{ kind: 'api.resume', sessionId: i.id, ...(i.stray ? { stray: i.stray } : {}), ...(i.prepKey ? { prepKey: i.prepKey } : {}) }] };
     }
     case 'session.fork': return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.fork', sessionId: i.id }] };
     case 'session.attach':

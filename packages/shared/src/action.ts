@@ -132,7 +132,7 @@ export type UiAction =
   // ダイアログを閉じた後に送り終えた添付を、いまの下書きへ足す。名前と本文には触れない（開き直したダイアログの書きかけを上書きしないため）。下書きが無ければ、名前と本文が空のものを作る。
   | { type: 'session.new.draft.attach'; attachments: { path: string; name: string; size: number | null }[] }
   // stray は、終わった扱いの run の claude が動き続けていたときの確認で選んだもの（stop は止めてから、ignore は止めずに再開する）。
-  | { type: 'session.resume'; id: SessionId; stray?: ResumeStray } | { type: 'session.fork'; id: SessionId }
+  | { type: 'session.resume'; id: SessionId; stray?: ResumeStray; /** 起動前の準備の進みの鍵（opencode の接続先の準備）。画面が再開を押すたびに作る。 */ prepKey?: string } | { type: 'session.fork'; id: SessionId }
   // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
   | { type: 'session.kill'; runId: RunId; working: boolean; aside?: boolean; shellTabs: number; confirmed?: boolean }
   // attach はバックグラウンドのサービスが持つセッションに hangar からつなぐ。adopt は外のターミナルの claude を引き取る。confirmed が無ければ先に確認を出す。
