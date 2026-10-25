@@ -7580,6 +7580,7 @@ UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき
 - 真のときは、手元に本文があっても「この PC で再開」を主にする（見出しと一覧の行の「⋯」、`presenters/resumeHere.ts` と `presenters/session.ts`）。素の再開は「この PC のトランスクリプトのまま再開」と名前を替え、注記を添えて「…」に残す。
 - 確認の 1 枚を出すときに、手元と写しの本文を読み比べる（`sync/copy.ts` の `compareForResume`、`ResumeHerePlanDto.replace`）。手元が写しの先頭部分なら `ahead`、そうでなければ `diverged`（この PC でも別の続きを進めた）である。どちらも同じ 1 枚に、控えに残して置き換えることを 1 行で言い、承諾を上書きつきで送る。上書きの確認をもう 1 枚は出さない。
 - 前の PC の作業ディレクトリ（確認の 1 枚の前の PC のパスと、引き継ぎの段の `prevPath`）は、会話を作った PC の `sessions.cwd` ではなく、前の PC の最後の run から取る（`runs/handover.ts` の `prevPathOf`）。`runs` は cwd を持たないので、その PC から降ろした写しの末尾の cwd を使い、その PC の `project_roots` の場所の下にあるときだけ採る。採れなければ、前の PC が会話を作った PC なら `sessions.cwd`、そうでなければその PC の `project_roots` の場所にする。
+  ただし `sessions.cwd` がクイックセッションの置き場の下なら、前の PC の置き場ではなく、その下の会話のフォルダ（置き場の直下の段で、再開の `resumeTarget` と同じ名前）にする（`prevQuickPath`）。置き場そのものは会話の cwd ではなく、写しの無い opencode の会話で置き場が出ていた。
 - 再開に使うアカウントは、この PC の run だけから引く（`RunAccounts.accountFor`、`accountOfSession` と `sessionAccounts` の `deviceId`）。アカウントの id と名前は PC ごとの設定なので、ほかの PC の run のアカウントは引かない。この PC に run が無ければ、この PC でいま選んでいるアカウントにする。
 
 **停止を頼んで引き継ぐ（2026-10-16）。**

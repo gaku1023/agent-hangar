@@ -202,6 +202,25 @@ describe('前の PC の作業ディレクトリ（A → B → A）', () => {
     run(id, 'win', 1);
     expect(handoverFacts(db, { sessionId: id, selfDeviceId: 'me', cwd: here })?.prevPath).toBe('D:\\src\\notes-app\\sub');
   });
+  it('クイックセッションは、前の PC の置き場そのものではなく、その下の会話のフォルダ（日付の段）を返す（写しの末尾の cwd が無い opencode の会話も）', () => {
+    upsertShared(db, 'projects', { id: 'pq', name: 'quick', status: 'active', is_scratch: 1 }, 'me');
+    const quickHere = path.join(here, '.agent-hangar', 'quick-sessions');
+    upsertShared(db, 'project_roots', { id: 'q-me', project_id: 'pq', device_id: 'me', path: quickHere, resolved: 1 }, 'me');
+    upsertShared(db, 'project_roots', { id: 'q-win', project_id: 'pq', device_id: 'win', path: 'C:\\Users\\x\\.agent-hangar\\quick-sessions', resolved: 1 }, 'win');
+    upsertShared(db, 'project_roots', { id: 'q-mac2', project_id: 'pq', device_id: 'mac2', path: '/Users/someone/.agent-hangar/quick-sessions', resolved: 1 }, 'mac2');
+    const cwd = path.join(quickHere, '20261025-120000');
+    const id = session({ cwd, home: 'me', project: 'pq' });
+    run(id, 'me', 1);
+    run(id, 'win', 2);
+    expect(handoverFacts(db, { sessionId: id, selfDeviceId: 'me', cwd })?.prevPath).toBe('C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261025-120000');
+    expect(resumeHerePlan(db, 'me', id)?.from.path).toBe('C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261025-120000');
+    run(id, 'mac2', 3);
+    expect(resumeHerePlan(db, 'me', id)?.from.path).toBe('/Users/someone/.agent-hangar/quick-sessions/20261025-120000');
+    // ほかのプロジェクトへ移した会話も、cwd がクイックセッションの置き場の下なら同じに読む。
+    const moved = session({ id: 's-moved', cwd, home: 'me', project: 'p1' });
+    run(moved, 'win', 4);
+    expect(resumeHerePlan(db, 'me', moved)?.from.path).toBe('C:\\Users\\x\\.agent-hangar\\quick-sessions\\20261025-120000');
+  });
   it('前の PC の場所も run の作業ディレクトリも分からなければ、sessions.cwd に倒す', () => {
     const id = session({ cwd: here, home: 'me' });
     run(id, 'mac2', 2);
