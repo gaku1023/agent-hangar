@@ -122,7 +122,7 @@ describe('設定の opencode の面', () => {
     expect(screen.getByText('Version')).toBeInTheDocument();
     expect(section().querySelector('.oc-vers')).toHaveTextContent('Installed 2.1.4 · Verified 2.1.x');
     expect(screen.getByText('System prompt additions')).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Launch the opencode command through Hangar' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Launch the opencode command through hangar' })).toBeInTheDocument();
   });
 
   it('追記の行の下に、選んでいる量で送る全文を Claude と同じ畳みで出す', () => {

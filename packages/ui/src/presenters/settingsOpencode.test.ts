@@ -93,7 +93,7 @@ describe('設定の opencode の面', () => {
     expect(en.injectionOptions.map((o) => o.label)).toEqual(['Minimal (intent and summary)', 'Same as Claude Code', 'None']);
     expect(en.claudeNote).toBe('Some models may confirm status proposals without asking you.');
     expect(en.badge).toEqual({ text: 'Unverified version', tone: 'info' });
-    expect(en.version?.note).toBe('This version is unverified. API changes may cause status and permission prompts to display incorrectly.');
+    expect(en.version?.note).toBe('This version is unverified. API changes may cause status and permission checks to display incorrectly.');
     const missing = present(store({ language: 'en', opencodeEnabled: true }, { found: false, version: null, verified: false }));
     expect(missing.version?.note).toBe('opencode not found (check your PATH).');
     expect(missing.badge?.text).toBe('Not found');
