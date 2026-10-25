@@ -40,7 +40,6 @@ export const launchKeys = {
   'launch.model.limited': [],
   'launch.model.noTools': [],
   'launch.model.noToolsNote': [],
-  'launch.model.price.zero': [],
   'launch.model.price.unit': [],
   'launch.model.price.plan': [],
   'launch.model.status.lmstudio': [],

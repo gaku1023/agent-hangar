@@ -2,6 +2,7 @@ import {
   dataUseOf, modelCostKind, modelFactsStale, providerFactOf,
   type MessageKey, type ModelCostKind, type ModelDataUse, type OpencodeModelCost, type OpencodeModelOption, type OpencodeProviderOption, type OpencodeProviderWhere, type Translate,
 } from '@agent-hangar/shared';
+import { costLabel } from './format.ts';
 
 /**
  * opencode のモデルの小窓（新しいセッションの「モデル」の札。docs/design.md「opencode のモデルの小窓」）の中身を組む。
@@ -63,11 +64,14 @@ export function contextLabel(n: number): string {
   return String(n);
 }
 
-/** 右端の値段。ローカルと無料は 0 円、従量は 100 万トークンあたりの入力と出力、定額は「定額に含む」。 */
+/**
+ * 右端の値段。ローカルと無料は $0.00、従量は 100 万トークンあたりの入力と出力、定額は「定額に含む」。
+ * 0 の書式は会話の費用（costLabel）と同じにし、アプリの中で通貨と桁をそろえる。
+ */
 export function priceLabel(t: Translate, kind: ModelCostKind, cost: OpencodeModelCost | null): ModelPrice {
   if (kind === 'plan') return { main: t('launch.model.price.plan'), sub: null };
   if (kind === 'metered' && cost) return { main: `$${trim(cost.input, 3)} / $${trim(cost.output, 3)}`, sub: t('launch.model.price.unit') };
-  return { main: t('launch.model.price.zero'), sub: null };
+  return { main: costLabel(0), sub: null };
 }
 
 /** データの扱いの札。この PC のものは宛先から決め、ほかは手書きの表から引く。表に無いもの、表が古いものには「要確認」を出す。 */
