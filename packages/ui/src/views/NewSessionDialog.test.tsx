@@ -1325,7 +1325,7 @@ describe('NewSessionDialog の起動前の準備（opencode のローカルの�
     defaultModel: 'lmstudio/qwen3.8-27b', pricesAt: null, fetchedAt: 1, stale: false,
   };
   const ocProps: Partial<NewSessionProps> = { projectId: 'p1', opencode: { options: { dir: '/w/alpha', status: 'ready' as const, data: OPTIONS } }, prefs: { p1: { agent: 'opencode', opencodeModel: 'lmstudio/qwen3.8-27b' } } };
-  const prepView = (over: Partial<LaunchPrepView> = {}): LaunchPrepView => ({ key: 'key-12345678', phase: 'running', startedAt: Date.now() - 9_000, line: { text: 'qwen3.8-27b をロード中…（64K）', bar: true }, done: [{ id: '1', text: 'old をアンロードしました' }], ask: null, failure: null, ...over });
+  const prepView = (over: Partial<LaunchPrepView> = {}): LaunchPrepView => ({ key: 'key-12345678', phase: 'running', startedAt: Date.now() - 9_000, line: { text: 'qwen3.8-27b をロード中…（64K）', bar: true }, done: [{ id: '1', text: 'old をアンロードしました' }], ask: null, failure: null, failureTitle: 'モデルのロードに失敗しました', ...over });
   const mount = (over: Partial<NewSessionProps> = {}) => {
     const actions: UiAction[] = [];
     const ui = (p: Partial<NewSessionProps>) => <ActionRoot onAction={(i) => { actions.push(i); }}><NewSessionDialog {...base} {...ocProps} {...p} /></ActionRoot>;

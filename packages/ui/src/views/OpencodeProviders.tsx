@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { DEFAULT_PROVIDER_PREP_STOP_AFTER, PROVIDER_PREP_STOP_AFTER, type ProviderPrep, type ProviderPrepStopAfter } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { OpencodeCatalogRowProps, OpencodeLoginProps, OpencodeProviderRowProps, OpencodeProvidersProps } from '../presenters/opencodeProviders.ts';
 import { useT } from './primitives/language.tsx';
@@ -41,12 +42,68 @@ function useSettled(busy: boolean, error: string | null, done: () => void): () =
   return () => { sent.current = true; };
 }
 
-/** つないだ先の 1 行。「モデル ID を追加」と「API キーを変更」は行の下に欄を伸ばし、「接続を解除」はすぐ送る。 */
+/** 止める時期の選択肢の文。 */
+function stopAfterLabel(t: ReturnType<typeof useT>, v: ProviderPrepStopAfter): string {
+  if (v === null) return t('settings.opencode.providers.prep.after.never');
+  if (v === 60) return t('settings.opencode.providers.prep.after.hour');
+  return t('settings.opencode.providers.prep.after.minutes', { n: String(v) });
+}
+
+const sameDraft = (a: ProviderPrep, b: ProviderPrep | null): boolean => !!b && a.start.trim() === b.start && a.stop.trim() === b.stop && a.stopAfter === b.stopAfter;
+
+/**
+ * 接続先の準備の欄（試作 s5-launch-prep の §4 案 1）。「始める前に」「終わったあと」（任意）「止める時期」を書き、保存でこの PC の設定に送る。
+ * 保存したものが設定に戻ってきたら、保存中の札を下ろす。「準備を解除」は設定から外す。
+ */
+function PrepForm(props: { id: string; prep: ProviderPrep | null }) {
+  const t = useT();
+  const emit = useEmit();
+  const saved = props.prep;
+  const [draft, setDraft] = useState<ProviderPrep>(() => saved ?? { start: '', stop: '', stopAfter: DEFAULT_PROVIDER_PREP_STOP_AFTER });
+  const [sent, setSent] = useState(false);
+  const clean = sameDraft(draft, saved) || (!saved && !draft.start.trim());
+  const saving = sent && !clean;
+  useEffect(() => { if (clean) setSent(false); }, [clean]);
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    if (clean || !draft.start.trim()) return;
+    setSent(true);
+    emit({ type: 'settings.update', patch: { opencodeProviderPrep: { [props.id]: { start: draft.start.trim(), stop: draft.stop.trim(), stopAfter: draft.stopAfter } } } });
+  };
+  const remove = () => {
+    setDraft({ start: '', stop: '', stopAfter: DEFAULT_PROVIDER_PREP_STOP_AFTER });
+    emit({ type: 'settings.update', patch: { opencodeProviderPrep: { [props.id]: null } } });
+  };
+  return (
+    <>
+      <label className="field">{t('settings.opencode.providers.prep.start')}
+        <input className="input mono" spellCheck={false} autoComplete="off" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} />
+      </label>
+      <div className="ocp-hint">{t('settings.opencode.providers.prep.startHint')}</div>
+      <label className="field">{t('settings.opencode.providers.prep.stop')}
+        <input className="input mono" spellCheck={false} autoComplete="off" value={draft.stop} placeholder={t('settings.opencode.providers.prep.optional')} onChange={(e) => setDraft({ ...draft, stop: e.target.value })} />
+      </label>
+      <label className="field">{t('settings.opencode.providers.prep.stopAfter')}
+        <select className="input" value={String(draft.stopAfter)} disabled={!draft.stop.trim()} onChange={(e) => setDraft({ ...draft, stopAfter: e.target.value === 'null' ? null : Number(e.target.value) as ProviderPrepStopAfter })}>
+          {PROVIDER_PREP_STOP_AFTER.map((v) => <option key={String(v)} value={String(v)}>{stopAfterLabel(t, v)}</option>)}
+        </select>
+      </label>
+      <div className="ocp-hint">{t('settings.opencode.providers.prep.note')}</div>
+      <div className="ocp-prep-acts">
+        <button type="button" className="btn btn-sm btn-primary" disabled={clean || !draft.start.trim()} onClick={save}>{t(saving ? 'settings.opencode.providers.prep.saving' : 'settings.opencode.providers.prep.save')}</button>
+        {saved && <button type="button" className="btn-link ocp-danger" onClick={remove}>{t('settings.opencode.providers.prep.remove')}</button>}
+      </div>
+    </>
+  );
+}
+
+/** つないだ先の 1 行。「モデル ID を追加」と「API キーを変更」と「準備」は行の下に欄を伸ばし、「接続を解除」はすぐ送る。 */
 function ProviderRow(props: { r: OpencodeProviderRowProps }) {
   const t = useT();
   const emit = useEmit();
   const r = props.r;
   const [form, setForm] = useState<'model' | 'key' | null>(null);
+  const [prepOpen, setPrepOpen] = useState(false);
   const [value, setValue] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const markSent = useSettled(r.busy !== null, r.error, () => { setForm(null); setValue(''); });
@@ -56,7 +113,7 @@ function ProviderRow(props: { r: OpencodeProviderRowProps }) {
     // 入った最初の描画でだけ動かす。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const toggle = (f: 'model' | 'key') => { setValue(''); setForm(form === f ? null : f); };
+  const toggle = (f: 'model' | 'key') => { setValue(''); setPrepOpen(false); setForm(form === f ? null : f); };
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!value.trim() || r.busy) return;
@@ -70,6 +127,7 @@ function ProviderRow(props: { r: OpencodeProviderRowProps }) {
         <div className="ocp-desc">{r.desc}{r.url && <>{r.desc ? ' · ' : ''}<code>{r.url}</code></>}</div>
       </div>
       <div className="ocp-acts">
+        {r.canPrep && <button type="button" className="btn-link" aria-expanded={prepOpen} onClick={() => { setForm(null); setPrepOpen(!prepOpen); }}>{prepOpen ? '▾' : '▸'} {t('settings.opencode.providers.prep.toggle')}</button>}
         <button type="button" className="btn-link" aria-expanded={form === 'model'} onClick={() => toggle('model')}>{t('settings.opencode.providers.addModel')}</button>
         {r.canChangeKey && <button type="button" className="btn-link" aria-expanded={form === 'key'} onClick={() => toggle('key')}>{t('settings.opencode.providers.changeKey')}</button>}
         {r.canDisconnect && <button type="button" className="btn-link ocp-danger" disabled={r.busy !== null} onClick={() => emit({ type: 'opencode.providers.disconnect', id: r.id })}>{t('settings.opencode.providers.disconnect')}</button>}
@@ -82,6 +140,7 @@ function ProviderRow(props: { r: OpencodeProviderRowProps }) {
           {form === 'key' ? t(r.busy === 'key' ? 'settings.opencode.providers.key.connecting' : 'settings.opencode.providers.key.connect') : t('settings.opencode.providers.model.submit')}
         </button>
       </Grow>
+      {r.canPrep && <Grow open={prepOpen} className="ocp-cform ocp-prep"><PrepForm id={r.id} prep={r.prep} /></Grow>}
       {r.error && <div className="ocp-err" role="alert">{r.error}</div>}
     </div>
   );

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
@@ -8,8 +8,8 @@ import { OpencodeProviders } from './OpencodeProviders.tsx';
 const props = (over: Partial<OpencodeProvidersProps> = {}): OpencodeProvidersProps => ({
   status: 'ready', failure: null, total: 3, configPath: '~/.config/opencode/opencode.json', custom: { busy: false, error: null }, login: null, back: false,
   rows: [
-    { id: 'lmstudio', name: 'LM Studio', desc: 'ローカル · 自動で取得', url: '127.0.0.1:1234/v1', canChangeKey: false, canDisconnect: false, busy: null, error: null, fresh: false },
-    { id: 'deepseek', name: 'DeepSeek', desc: '従量 · 接続済み', url: null, canChangeKey: true, canDisconnect: true, busy: null, error: null, fresh: false },
+    { id: 'lmstudio', name: 'LM Studio', desc: 'ローカル · 自動で取得', url: '127.0.0.1:1234/v1', canChangeKey: false, canDisconnect: false, busy: null, error: null, fresh: false, canPrep: false, prep: null },
+    { id: 'deepseek', name: 'DeepSeek', desc: '従量 · 接続済み', url: null, canChangeKey: true, canDisconnect: true, busy: null, error: null, fresh: false, canPrep: false, prep: null },
   ],
   catalog: [
     { id: 'opencode-go', name: 'OpenCode Go', side: '定額 · 月 $10', recommended: true, key: true, login: null, busy: false, error: null },
@@ -114,5 +114,51 @@ describe('設定のプロバイダー', () => {
     fireEvent.click(screen.getByText('再読み込み'));
     expect(on).toHaveBeenLastCalledWith({ type: 'opencode.providers.load' });
     expect(screen.queryByText(/プロバイダーを追加/)).toBeNull();
+  });
+});
+
+describe('OpenAI 互換サーバーの行の「準備」', () => {
+  const gpuRow = (prep: OpencodeProvidersProps['rows'][number]['prep']) => ({ id: 'my-gpu', name: 'my-gpu', desc: 'opencode.json', url: '127.0.0.1:18080/v1', canChangeKey: false, canDisconnect: true, busy: null, error: null, fresh: false, canPrep: true, prep });
+  const mount = (prep: OpencodeProvidersProps['rows'][number]['prep'] = null) => {
+    const actions: UiAction[] = [];
+    const ui = (p: OpencodeProvidersProps['rows'][number]['prep']) => <ActionRoot onAction={(a) => { actions.push(a); }}><OpencodeProviders p={props({ rows: [gpuRow(p)] })} /></ActionRoot>;
+    const view = render(ui(prep));
+    return { actions, updates: () => actions.flatMap((a) => (a.type === 'settings.update' ? [a.patch] : [])), rerender: (p: OpencodeProvidersProps['rows'][number]['prep']) => view.rerender(ui(p)) };
+  };
+
+  it('OpenAI 互換サーバーの行だけに出し、開くと欄が伸びる', () => {
+    render(<ActionRoot onAction={() => {}}><OpencodeProviders p={props()} /></ActionRoot>);
+    expect(screen.queryByRole('button', { name: /準備/ })).toBeNull();
+    cleanup();
+    mount();
+    expect(screen.queryByLabelText('始める前に')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /準備/ }));
+    expect(screen.getByLabelText('始める前に')).toBeInTheDocument();
+    // 止めるコマンドが空のうちは、止める時期を選べない。
+    expect(screen.getByLabelText('停止のタイミング')).toBeDisabled();
+  });
+
+  it('保存でこの接続先の準備だけを送り、戻ってきたら保存中を下ろす。解除は null を送る', () => {
+    const { updates, rerender } = mount();
+    fireEvent.click(screen.getByRole('button', { name: /準備/ }));
+    const save = screen.getByRole('button', { name: '保存' });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('始める前に'), { target: { value: ' gpu up ' } });
+    fireEvent.change(screen.getByLabelText('終わったあと'), { target: { value: 'gpu down' } });
+    fireEvent.change(screen.getByLabelText('停止のタイミング'), { target: { value: '60' } });
+    fireEvent.click(save);
+    expect(updates()).toEqual([{ opencodeProviderPrep: { 'my-gpu': { start: 'gpu up', stop: 'gpu down', stopAfter: 60 } } }]);
+    expect(screen.getByRole('button', { name: '保存中…' })).toBeInTheDocument();
+    rerender({ start: 'gpu up', stop: 'gpu down', stopAfter: 60 });
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '準備を解除' }));
+    expect(updates().at(-1)).toEqual({ opencodeProviderPrep: { 'my-gpu': null } });
+  });
+
+  it('保存済みの準備を欄に入れて開く', () => {
+    mount({ start: 'gpu up', stop: '', stopAfter: 15 });
+    fireEvent.click(screen.getByRole('button', { name: /準備/ }));
+    expect(screen.getByLabelText('始める前に')).toHaveValue('gpu up');
+    expect(screen.getByLabelText('停止のタイミング')).toHaveValue('15');
   });
 });

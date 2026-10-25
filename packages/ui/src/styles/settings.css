@@ -217,6 +217,10 @@
 .ocp-connect { padding: 0 calc(var(--u) * 2) calc(var(--u) * 1.5); }
 .ocp-cform { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); padding: var(--u) calc(var(--u) * 2) calc(var(--u) * 2); }
 .ocp-cform .input { width: 100%; max-width: 420px; height: 28px; font-size: var(--fs-sm); }
+/* 接続先の準備の欄は、行の下に全幅で伸びる。説明はすぐ上の欄に寄せる。 */
+.ocp-prep { flex-basis: 100%; padding-left: 0; padding-right: 0; }
+.ocp-prep .field + .ocp-hint { margin-top: calc(var(--u) * -1); }
+.ocp-prep-acts { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 3); }
 .ocp-login { display: flex; flex-direction: column; gap: var(--u); padding-top: var(--u); }
 .ocp-login-ins { font-size: var(--fs-sm); color: var(--ink); overflow-wrap: anywhere; }
 .ocp-login-row { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); }

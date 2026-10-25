@@ -99,15 +99,15 @@ export function LaunchPrepAsk(props: { ask: LaunchPrepAskView | null; onChoose: 
   );
 }
 
-/** 準備が失敗したときの札。見出しは「モデルのロードに失敗しました」、本文は理由。 */
-export function LaunchPrepFailed(props: { reason: string | null }) {
-  const t = useT();
+/** 準備が失敗したときの札。見出しは「モデルのロードに失敗しました」か「（接続先）の準備に失敗しました」、本文は理由。 */
+export function LaunchPrepFailed(props: { reason: string | null; title: string | null }) {
   const card = useGrow<HTMLDivElement>(props.reason !== null);
   const reason = useLast(props.reason);
+  const title = useLast(props.title);
   if (!card.mounted || reason === null) return null;
   return (
     <div ref={card.ref} className="launch-card" data-tone="bad" role={card.leaving ? undefined : 'alert'} aria-hidden={card.leaving ? 'true' : undefined}>
-      <div className="launch-card-h">{t('launchPrep.failed.title')}</div>
+      <div className="launch-card-h">{title}</div>
       <div className="launch-card-b">{reason}</div>
     </div>
   );

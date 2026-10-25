@@ -20,7 +20,7 @@ export type OpencodeDriverDeps = {
   droppedEnv: readonly string[];
   enrich?: (live: LiveSessionDto[]) => LiveSessionDto[];
   report?: (what: 'instructions' | 'mcp' | 'stop', e: unknown) => void;
-} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep'> & {
+} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep' | 'providerPreps'> & {
   /** 起動前にローカルのモデルを整える口（localModels/prepare.ts）。無ければ整えない。動いている会話かどうかは serve の有無で見る。 */
   localModels?: Omit<LocalModelsDeps, 'isRunning'>;
 };
@@ -74,7 +74,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
       async materialize(mode, spec) {
         const s = serves();
         const localModels = deps.localModels ? { ...deps.localModels, isRunning: (id: string) => s.get(id) !== null } : undefined;
-        const r = await materializeOpencode({ serves: s, report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep, localModels }, mode, spec);
+        const r = await materializeOpencode({ serves: s, report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep, localModels, providerPreps: deps.providerPreps }, mode, spec);
         hangarIdOf.set(r.providerSessionId, spec.hangarSessionId);
         live.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
@@ -107,6 +107,8 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
         transcript.untrack(target.providerSessionId);
         const s = deps.serves();
         const id = target.sessionId ?? hangarIdOf.get(target.providerSessionId);
+        // 接続先の準備で数えていた会話から外す（最後の会話なら、止める時期の後に止めるコマンドが走る）。
+        if (id) deps.providerPreps?.release(id);
         if (!s || !id || !s.get(id)) return false;
         hangarIdOf.delete(target.providerSessionId);
         await s.stop(id).catch((e: unknown) => report('stop', e));

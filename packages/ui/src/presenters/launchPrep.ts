@@ -22,6 +22,8 @@ export type LaunchPrepView = {
   ask: LaunchPrepAskView | null;
   /** 失敗の理由。phase が failed のときだけ持ち、理由が無ければ空の文字列である。 */
   failure: string | null;
+  /** 失敗の札の見出し。接続先の準備のコマンドで落ちたらその接続先の名前、ほかはモデルのロードの失敗。 */
+  failureTitle: string;
 };
 
 const GB = 1024 ** 3;
@@ -36,7 +38,7 @@ export function elapsedLabel(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** 段の進行中の文。run（接続先の準備のコマンド）は今回の画面に文が無いので、起動中の文で受ける。 */
+/** 段の進行中の文。run は接続先の準備のコマンドで、target は接続先の名前である。 */
 function lineOf(s: LaunchPrepStepDto | undefined, t: Translate): LaunchPrepLine {
   if (!s) return { text: t('launchPrep.step.starting'), bar: false };
   const context = contextLabel(s.toContext);
@@ -45,17 +47,19 @@ function lineOf(s: LaunchPrepStepDto | undefined, t: Translate): LaunchPrepLine 
     case 'load': return { text: t('launchPrep.step.load', { model: s.target, context }), bar: true };
     case 'reload': return { text: t('launchPrep.step.reload', { model: s.target, context }), bar: true };
     case 'unload': return { text: t('launchPrep.step.unload', { model: s.target }), bar: false };
+    case 'run': return { text: t('launchPrep.step.run', { name: s.target }), bar: false };
     default: return { text: t('launchPrep.step.starting'), bar: false };
   }
 }
 
-/** 済んだ段の文。確かめと run は、一覧に載せる文が無いので null。 */
+/** 済んだ段の文。確かめは、一覧に載せる文が無いので null。 */
 function doneOf(s: LaunchPrepStepDto, t: Translate): string | null {
   const time = elapsedLabel((s.endedAt ?? s.startedAt) - s.startedAt);
   switch (s.action) {
     case 'load': return t('launchPrep.done.load', { model: s.target, context: contextLabel(s.toContext), time });
     case 'reload': return t('launchPrep.done.reload', { model: s.target, from: contextLabel(s.fromContext), to: contextLabel(s.toContext), time });
     case 'unload': return t('launchPrep.done.unload', { model: s.target });
+    case 'run': return t('launchPrep.done.run', { name: s.target, time });
     default: return null;
   }
 }
@@ -100,6 +104,7 @@ function askOf(a: LaunchPrepAsk, t: Translate, model: string | null): LaunchPrep
 
 export function presentLaunchPrep(prep: LaunchPrepDto, t: Translate, model: string | null): LaunchPrepView {
   const running = prep.steps.find((s) => s.state === 'running');
+  const failedRun = prep.steps.find((s) => s.state === 'failed' && s.kind === 'command');
   return {
     key: prep.key,
     phase: prep.phase,
@@ -112,5 +117,6 @@ export function presentLaunchPrep(prep: LaunchPrepDto, t: Translate, model: stri
     }),
     ask: prep.phase === 'asking' && prep.ask ? askOf(prep.ask, t, model) : null,
     failure: prep.phase === 'failed' ? prep.reason ?? '' : null,
+    failureTitle: failedRun ? t('launchPrep.failed.run', { name: failedRun.target }) : t('launchPrep.failed.title'),
   };
 }
