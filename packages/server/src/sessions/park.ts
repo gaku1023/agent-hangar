@@ -10,30 +10,37 @@ import type { LiveSession } from '../provider/claude-code/types.ts';
  * 止めると、Claude Code が予約した自動の続きごと消えるからである。休みに見えても、リセットを待っている。
  * 同じ会話に登録が 2 つ以上あるときは返さない。hangar の run と外のターミナルの両方で開いていると、
  * 休みなのがどちらのプロセスか決められず、作業中の run を落としかねない。
- * deviceId は、起動時刻の代わりに使う run をこの端末のものに限るために渡す。
+ * deviceId は、起動時刻の代わりに使う run をこの端末のものに限るために渡す。opencode の行には起動時刻（procStart）が無いので、run の始まりで見る。
+ * live は Claude の登録と opencode の状態の面の行を合わせたもので、行の agent（省けば Claude Code）とセッションの provider の組で突き合わせる。
  * 休みの会話だけを引くので、動いている会話が多くても軽い。
  */
 export function parkedSessionIds(db: Db, live: readonly LiveSession[], deviceId?: string): string[] {
   const entries = new Map<string, number>();
-  for (const l of live) entries.set(l.sessionId, (entries.get(l.sessionId) ?? 0) + 1);
+  for (const l of live) entries.set(keyOf(l), (entries.get(keyOf(l)) ?? 0) + 1);
   const marked = markedIdle(db, live);
   const out: string[] = [];
   for (const l of live) {
     // 区切りの無いものは、セッションの行を組まずに外す。待機中に休みの会話が多くても軽くする。
-    if (l.status !== 'idle' || entries.get(l.sessionId) !== 1 || !marked.has(l.sessionId)) continue;
-    const row = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(l.sessionId) as { id: string } | undefined;
+    if (l.status !== 'idle' || entries.get(keyOf(l)) !== 1 || !marked.has(keyOf(l))) continue;
+    const row = db.prepare('select id from sessions where provider = ? and provider_session_id = ? and deleted_at is null').get(providerOf(l), l.sessionId) as { id: string } | undefined;
     if (row && getSession(db, [l], row.id, deviceId ? { deviceId } : {})?.parked) out.push(row.id);
   }
   return out;
 }
 
-/** 休みの会話のうち、Done か Archived の付いたものの Claude の UUID。1 回の問い合わせで引く。 */
+/** 行のエージェント（省けば Claude Code）。 */
+const providerOf = (l: LiveSession): string => l.agent ?? 'claude-code';
+/** エージェントと会話の ID の組。Claude と opencode の会話の ID を取り違えないために、組で数える。 */
+const keyOf = (l: LiveSession): string => `${providerOf(l)}\0${l.sessionId}`;
+
+/** 休みの会話のうち、Done か Archived の付いたものの組（keyOf）。1 回の問い合わせで引く。 */
 function markedIdle(db: Db, live: readonly LiveSession[]): Set<string> {
   const idle = [...new Set(live.filter((l) => l.status === 'idle').map((l) => l.sessionId))];
   if (idle.length === 0) return new Set();
-  const rows = db.prepare(`select s.provider_session_id p from sessions s join session_states ss on ss.session_id = s.id and ss.deleted_at is null
-    where s.provider = 'claude-code' and s.deleted_at is null and ss.status in ('done', 'archived') and s.provider_session_id in (${idle.map(() => '?').join(',')})`).all(...idle) as { p: string }[];
-  return new Set(rows.map((r) => r.p));
+  const rows = db.prepare(`select s.provider p, s.provider_session_id id from sessions s join session_states ss on ss.session_id = s.id and ss.deleted_at is null
+    where s.deleted_at is null and ss.status in ('done', 'archived') and s.provider_session_id in (${idle.map(() => '?').join(',')})`).all(...idle) as { p: string; id: string }[];
+  const marked = new Set(rows.map((r) => `${r.p}\0${r.id}`));
+  return new Set(live.filter((l) => l.status === 'idle' && marked.has(keyOf(l))).map(keyOf));
 }
 
 /**

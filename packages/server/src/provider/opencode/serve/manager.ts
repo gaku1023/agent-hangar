@@ -65,6 +65,7 @@ export type ServeManagerDeps = {
 export class ServeManager {
   private readonly live = new Map<string, ServeProcess>();
   private readonly launching = new Map<string, Promise<ServeProcess>>();
+  private readonly stopping = new Map<string, Promise<void>>();
   private readonly queue: LaunchQueue;
 
   constructor(private readonly deps: ServeManagerDeps) {
@@ -92,13 +93,20 @@ export class ServeManager {
     return s.done ? null : infoOf(s.value);
   }
 
-  /** 会話の serve を止める。起動の途中なら起き切るのを待ってから止める。 */
+  /**
+   * 会話の serve を止める。起動の途中なら起き切るのを待ってから止める。
+   * 止めている途中に重ねて頼まれたら、同じ止め終わりを待つ（画面が閉じた run の後始末と、起動の失敗の後始末が重なることがある）。
+   */
   async stop(sessionId: string): Promise<void> {
     await this.launching.get(sessionId)?.catch(() => undefined);
+    const inflight = this.stopping.get(sessionId);
+    if (inflight) return inflight;
     const s = this.live.get(sessionId);
     if (!s) return;
     this.live.delete(sessionId);
-    await this.terminate(s);
+    const p = this.terminate(s).finally(() => { if (this.stopping.get(sessionId) === p) this.stopping.delete(sessionId); });
+    this.stopping.set(sessionId, p);
+    await p;
   }
 
   /** 全部を止める。hangar の終わりの後片付けで呼ぶ。 */

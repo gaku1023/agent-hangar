@@ -145,10 +145,78 @@ posixDescribe('opencode の driver の materialize', () => {
     expect(ev(log(), 'instructions')).toEqual([]);
   });
 
-  posixIt('再開とフォークはまだ受けない（B6）', async () => {
+  posixIt('フォークは受けない（materialize も plan も）', async () => {
     const { driver, log } = make();
-    await expect(driver.launch.materialize!({ kind: 'resume', id: 'ses_x' }, spec(cwd))).rejects.toThrow();
+    await expect(driver.launch.materialize!({ kind: 'fork', id: 'ses_x', newId: 'ses_y' }, spec(cwd))).rejects.toThrow();
+    expect(() => driver.launch.plan('/bin/oc', { kind: 'fork', id: 'ses_x', newId: 'ses_y' }, spec(cwd))).toThrow();
     expect(ev(log(), 'start')).toEqual([]);
+  });
+
+  posixIt('再開は serve を止めて新しい MCP の秘密で起こし直し、会話は作らず、追記を PUT し直し、MCP を待ち、写しに載せ直す', async () => {
+    const { driver, serves, log } = make();
+    const r = await driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    const id = r!.providerSessionId;
+    const first = serves.get('h1')!;
+    const again = await driver.launch.materialize!({ kind: 'resume', id }, spec(cwd, { mcp: { url: 'http://127.0.0.1:4177/mcp/s/h1', secret: 'run-secret-2' } }));
+    expect(again).toEqual({ providerSessionId: id });
+    const l = log();
+    // 前の serve は止め、新しい秘密で起こし直す（起きている serve には新しい設定を当て直せない）。
+    const starts = ev(l, 'start');
+    expect(starts).toHaveLength(2);
+    expect(isAlive(first.pid)).toBe(false);
+    expect(JSON.parse(starts[1]!.env.OPENCODE_CONFIG_CONTENT!).mcp.servers.hangar.headers).toEqual({ Authorization: 'Bearer run-secret-2' });
+    const second = serves.get('h1')!;
+    expect(second.pid).toBe(starts[1]!.pid);
+    // 会話は作らない。追記は同じ会話に PUT し直し、MCP の接続を待つ。
+    expect(ev(l, 'create')).toHaveLength(1);
+    expect(ev(l, 'instructions').map((e) => [e.pid, e.id])).toEqual([[first.pid, id], [second.pid, id]]);
+    expect(ev(l, 'mcp').filter((m) => m.pid === second.pid).at(-1)?.status).toBe('connected');
+    // 状態の面は新しい serve で載せ直す。
+    expect(driver.live.current()).toEqual([expect.objectContaining({ sessionId: id, pid: second.pid, agent: 'opencode' })]);
+    // plan は -s で既存の会話につなぐ。パスワードは argv に無く、秘密の環境で渡す。
+    const plan = driver.launch.plan('/bin/oc', { kind: 'resume', id }, spec(cwd));
+    expect(plan.argv).toEqual(['/bin/oc', cwd, '--server', second.url, '-s', id]);
+    expect(plan.argv.join(' ')).not.toContain(second.password);
+    expect(plan.secretEnv).toEqual({ OPENCODE_PASSWORD: second.password });
+  });
+
+  posixIt('再開で serve を起こせなければ投げる。追記の差し込みも写しへの載せ直しもしない', async () => {
+    const { driver, serves, log } = make();
+    const r = await driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    await driver.launch.release({ sessionId: 'h1', providerSessionId: r!.providerSessionId, cwd }, 'tui-gone');
+    const off = createOpencodeDriver({ serves: () => ({ ensure: () => Promise.reject(new Error('disabled')), get: (x) => serves.get(x), stop: (x) => serves.stop(x) }), droppedEnv: [] });
+    await expect(off.launch.materialize!({ kind: 'resume', id: r!.providerSessionId }, spec(cwd))).rejects.toThrow('disabled');
+    expect(off.live.current()).toEqual([]);
+    expect(ev(log(), 'instructions')).toHaveLength(1);
+  });
+
+  for (const cause of ['tui-gone', 'parked', 'killed'] as const) {
+    posixIt(`release（${cause}）は走っている作業を interrupt してから serve を止め、写しから外す`, async () => {
+      const { driver, serves, log } = make({ activeIds: ['ses_busy'] });
+      const r = await driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+      const pid = serves.get('h1')!.pid;
+      expect(await driver.launch.release({ sessionId: 'h1', providerSessionId: r!.providerSessionId, cwd }, cause)).toBe(true);
+      const l = log();
+      const interrupt = ev(l, 'interrupt');
+      expect(interrupt.map((e) => e.id)).toEqual(['ses_busy']);
+      expect(interrupt[0]!.t).toBeLessThanOrEqual(ev(l, 'term')[0]!.t);
+      expect(serves.get('h1')).toBeNull();
+      expect(isAlive(pid)).toBe(false);
+      expect(driver.live.current()).toEqual([]);
+    });
+  }
+
+  posixIt('hangar の会話の ID を渡さなくても、作った会話なら serve を引いて止める（再起動の後は呼び手が ID を渡す）', async () => {
+    const { driver, serves } = make();
+    const r = await driver.launch.materialize!({ kind: 'start' }, spec(cwd));
+    expect(await driver.launch.release({ providerSessionId: r!.providerSessionId, cwd }, 'tui-gone')).toBe(true);
+    expect(serves.get('h1')).toBeNull();
+  });
+
+  posixIt('serve の無い会話の release は何も起こさない（開いていない会話の serve を起こさない）', async () => {
+    const { driver, log } = make();
+    expect(await driver.launch.release({ sessionId: 'h-old', providerSessionId: 'ses_old', cwd }, 'tui-gone')).toBe(false);
+    expect(log()).toEqual([]);
   });
 
   posixIt('release は serve を止める', async () => {

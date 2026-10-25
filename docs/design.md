@@ -1504,7 +1504,7 @@ TUI へは、Claude の run で外す変数に、アカウントの置き場（`
 トランスクリプトの面は、段 B5 で入れるまで空にしてある。状態と許可と質問の面は「opencode の状態」の節に書く。
 hook の受け口は、opencode の会話では何も読まずに 204 を返す。
 本文の有無をファイルで確かめられないので、終わった run の会話を「本文が無い」として消す後始末（`pruneEmptySession`）は Claude の会話だけに効かせる。
-再開は段 B6 で入れるので、それまでは opencode の会話の再開を断る。
+再開と、TUI が閉じたときの止め方は「opencode の寿命」の節に書く。
 
 ### opencode の状態
 
@@ -1532,6 +1532,7 @@ driver は、`materialize` で会話を作ったら、その会話と serve を�
 
 行は、載せてから外すまで、休みの間も載る（Claude の登録と同じ）。
 `pid` は serve の pid で、`isRunning` もそれで答える。名前は持たず、hangar の会話の名前を使う。
+この pid は run のプロセス（TUI）のものではないので、`RunManager.linkRegistry` は run の pid に書かない（「opencode の寿命」）。
 組み直すたびに `LiveHub` の足し付けの鎖を通し、変わったときだけ `onChange` を出す。
 
 許可と問いは `asks.subscribe` で流す。
@@ -1607,6 +1608,55 @@ driver は、`materialize` で会話を作ったら載せて（`track`）すぐ�
 返答の費用と文脈の量は、事実（`RecordFacts` の `costUsd`、`contextTokens`）として持つ。
 書き手は、Claude が statusline から書くのと同じ `session_live_stats` に、モデル、文脈の量（最後の値）、費用（和）を書く。文脈の大きさは本文に無いので書かない。
 サブエージェント（opencode の子の会話）の本文はまだ写さない。
+
+### opencode の寿命
+
+opencode の会話がいつ serve を持ち、いつ手放すかを決める（決定 2、計画の B6）。
+約束は、開いていない会話の serve を残さないことである（1 本あたり 160〜260MB を握るため）。
+
+TUI だけが閉じたら、すぐ止める。
+TUI を閉じても serve の上の作業は続くので、残すと見えないところでモデルが動き続けるからである。
+`RunManager` は、run が `exited` か `lost` で終わるとき（`end`）に、driver の `release` を `tui-gone` で 1 回呼ぶ。
+`killed` と `parked` は、止めにいった `kill` と `park` が先に `release` を呼ぶので、`end` では呼ばない。
+opencode の driver の `release` は、どの理由でも同じに止める。
+状態とトランスクリプトの面から外し（本文はその前にもう一度読む）、serve の上で走っている作業を interrupt し、SIGTERM、3 秒で降りなければ SIGKILL を送る。
+Claude の `release` は、`tui-gone` では何もしない（claude は画面と一緒に終わっている）。
+同じ serve を止める頼みが重なったら（起動の失敗の後始末と、run の終わりの後始末など）、どちらも同じ止め終わりを待つ。
+
+TUI が閉じたことは、Claude と同じく tmux の一覧から消えたことで拾う。
+状態の面の行の pid は serve の pid なので、`linkRegistry` はこれを run の pid に書かない（driver の `servedByHangar`）。
+書くと、TUI が閉じても serve が生きている間は `stillRunning` が真のままになり、run を閉じられないからである。
+run の pid が空なので、2 回続けて一覧に無ければ閉じる（`MISSES_TO_END`）。
+
+終わった画面の「再開」は、非同期の `resumeWith` が受け、`resumeMaterialized` で起こす。
+1. 設定、動いている run、opencode の場所、作業の場所、tmux を確かめる（設定が切なら断る）。
+2. 新しい run の MCP の秘密で、driver の `materialize`（`resume`）を待つ（serve の起こし直し、追記の PUT のし直し、MCP の接続、状態とトランスクリプトの面への載せ直し）。
+3. 既にある会話へ `-s <ID>` でつなぐ TUI を、`kind = 'resume'` の run として起こす。
+
+serve が残っていれば止めてから起こし直す。
+起きている serve には、新しい秘密を含む設定（`OPENCODE_CONFIG_CONTENT`）を当て直せないからである。
+会話は作らない。
+パスワードは新しい起動と同じく秘密の環境のファイルで渡す。
+
+本文の有無は見ない。会話は opencode の記録の置き場にあり、本文がまだ写っていなくてもつなげるからである。
+初期プロンプトと自動承認は持ち越さない（Claude の再開と同じく、起動の指定を引き継がない）。
+失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
+フォークは断ったままにする。
+同期の再開の口（`resume`。ターミナルの包み方と「この PC で再開」が使う）も、opencode の会話では断ったままにする（「この PC で再開」は段 E3）。
+
+hangar を起こし直したときは、どの会話の serve も起こさない。
+serve は hangar の終わりで止め、残ったものは起動のときに掃除するので、前の hangar の TUI は serve を失っている。
+そこで起動時の回復（`recoverAtStartup`）は、生きている run のうち opencode のものの画面を閉じ、中断として `lost` で閉じる（ホームの「前回実行中」に並び、「再開」で続けられる）。
+閉じた opencode の run の画面が一覧に戻っても、生き返らせずに画面を閉じる（serve はもう無い）。
+driver の hangar の会話の ID の表（`hangarIdOf`）はメモリだけでよい。`RunManager` は `release` に hangar の会話の ID を渡し、再起動の後に serve を持つ会話は、その後の `materialize` で表に載るからである。
+
+区切り（Done、Archived）を付けた会話の自動停止は Claude と同じで、休みが続いたら `park` で止める。
+`parkedSessionIds` は Claude の登録に opencode の状態の面の行を足して読み、行の `agent` とセッションの `provider` の組で突き合わせる。
+opencode の行には起動時刻が無いので、印より前に始まったかは hangar の生きた run の始まりで見る。
+
+設定の「opencode を有効にする」を切にしても、動いている会話は止めない。
+断るのは新しい起動と再開だけである。
+動いている会話は、TUI が閉じるか、止めるか、区切りで止まるときに、いつもどおり serve ごと止まる。
 
 ## セッションの起動と観察
 

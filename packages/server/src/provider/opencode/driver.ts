@@ -53,7 +53,9 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
     kind: 'opencode',
     caps: { accounts: false, effort: false, permissionMode: false, remoteControl: false, fork: false, attachExternal: false },
     launch: {
-      // ID は opencode に振らせる（materialize が返す）。
+      // TUI は hangar が起こした serve につなぐ。状態の面の行の pid は serve の pid である。
+      servedByHangar: true,
+      // ID は opencode に振らせる（materialize が返す）。再開は serve を起こし直して、状態とトランスクリプトの面に載せ直す。
       async materialize(mode, spec) {
         const r = await materializeOpencode({ serves: serves(), report, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep }, mode, spec);
         hangarIdOf.set(r.providerSessionId, spec.hangarSessionId);
@@ -61,8 +63,9 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
         transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         return { providerSessionId: r.providerSessionId };
       },
+      // 新しい会話も再開も、materialize が返した（再開なら既にある）会話へ -s でつなぐ。フォークは受けない。
       plan(bin, mode, spec) {
-        if (mode.kind !== 'start') throw new Error(`opencode cannot ${mode.kind} a session yet`);
+        if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
         const serve = serves().get(spec.hangarSessionId);
         if (!serve) throw new Error('the opencode serve for this session is not running');
         return planOpencode(bin, mode.id, spec, serve, deps.droppedEnv);
@@ -70,7 +73,10 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): AgentDriver {
       /**
        * その会話の serve を止める（interrupt、SIGTERM、SIGKILL の順は serve の管理が持つ）。止めにいったら true を返す。
        * 止める前に本文をもう一度読む。serve が止まると本文を読めなくなるためである（読めなくても止める）。
-       * TUI が閉じたとき（tui-gone）の止め方と、hangar の再起動のあとの扱いは段 B6 で決める。
+       * 止め方は、TUI が閉じた（tui-gone）、区切りで止めた（parked）、利用者が止めた（killed）のどれでも同じである（決定 2）。
+       * TUI を閉じてもサーバ側の作業は続くので、TUI だけが閉じたときも作業を interrupt し、serve も止める。
+       * serve は hangar の会話の ID で持つ。RunManager は sessionId を渡すので、hangar を起こし直した後（hangarIdOf が空）も引ける。
+       * serve の無い会話（開いていない会話）では何も起こさない。
        */
       async release(target) {
         live.untrack(target.providerSessionId);
