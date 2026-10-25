@@ -4,12 +4,13 @@
  * 並びは目次の並びで、毎日触るもの、一度整えるもの、上級者向けのベータのクラウド同期、読むだけのもの、の順にする（2026-10-25 の決定。Gemini と Fable と詰めた）。
  * `sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`unsent` はその節の「送らなかった項目」の行（ベルの一覧から開く）、`accounts` はセッションの節のアカウントの位置である。
  * `workspace` はセッションの節の作成先の欄、`tmux`、`claude` は環境の節のパスの欄、`compat` は連携の節の互換性の節、`editor` は一般の節のエディタの欄で、ホームの準備の帯の「設定を開く」が、直す欄を指して開くのに使う。
+ * `opencode` は連携の節の opencode の小さな節で、新しいセッションのモデルの小窓の「プロバイダーを管理…」が開く。
  * 0.9.3 までの節の名前（tools、update、info）は、殻のディープリンクと利用者の履歴に残っているので、新しい節の別名として読み続ける。
  */
 export const SETTINGS_SECTIONS = ['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** 節の中の、1 つの欄（か小さな節）を指す開く先。開いたら、その欄が見える所へ移って目立たせる。 */
-export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor'] as const;
+export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor', 'opencode'] as const;
 export type SettingsField = (typeof SETTINGS_FIELDS)[number];
 /** 0.9.3 までの節の名前。 */
 const LEGACY_SECTIONS = { tools: 'environment', update: 'about', info: 'about' } as const;
@@ -26,7 +27,7 @@ export function isSettingsField(at: SettingsAt | undefined): at is SettingsField
 export function settingsSectionOf(at: SettingsAt | undefined): SettingsSection {
   if (at === 'sync' || at === 'unsent') return 'cloud';
   if (at === 'accounts' || at === 'workspace') return 'sessions';
-  if (at === 'compat') return 'integrations';
+  if (at === 'compat' || at === 'opencode') return 'integrations';
   if (at === 'tmux' || at === 'claude') return 'environment';
   if (at === 'editor') return 'general';
   if (at !== undefined && at in LEGACY_SECTIONS) return LEGACY_SECTIONS[at as LegacySection];

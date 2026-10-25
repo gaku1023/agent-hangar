@@ -132,7 +132,7 @@ function PathField(props: { field: keyof SettingsDto; label: string; info?: Reac
 }
 
 /** 準備の帯が指す欄と、それを包む要素の id。パスの欄は PathField の外箱、互換は節そのもの。 */
-const FIELD_BOX: Record<SettingsField, string> = { workspace: 'settings-field-workspaceRoot', tmux: 'settings-field-tmuxPath', claude: 'settings-field-claudePath', compat: 'settings-compat', editor: 'settings-field-editor' };
+const FIELD_BOX: Record<SettingsField, string> = { workspace: 'settings-field-workspaceRoot', tmux: 'settings-field-tmuxPath', claude: 'settings-field-claudePath', compat: 'settings-compat', editor: 'settings-field-editor', opencode: 'settings-opencode' };
 
 /** 札（✓ 登録済み、まだです）。形でも分け、色だけに頼らない。 */
 function Badge(props: { ok: boolean | null; yes: string; no: string }) {

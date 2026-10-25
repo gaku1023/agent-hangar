@@ -1,4 +1,5 @@
-import type { OpencodeModelOption, OpencodeModeOption, OpencodeOptionsDto, OpencodeStatusDto } from '@agent-hangar/shared';
+import type { OpencodeModelOption, OpencodeModeOption, OpencodeOptionsDto, OpencodeProviderOption, OpencodeProviderWhere, OpencodeStatusDto } from '@agent-hangar/shared';
+import type { CatalogModel } from './catalog.ts';
 import { OpencodeClient, type OpencodeAgentInfo, type OpencodeModelInfo, type OpencodeProviderInfo } from './client.ts';
 import type { ServeInfo } from './serve/manager.ts';
 
@@ -34,6 +35,11 @@ export type OpencodeOptionsDeps = {
   requestTimeoutMs?: number;
   /** serve から読む口。試験が差し替える。 */
   read?: (serve: ServeInfo, directory: string) => Promise<OpencodeOptionsRaw>;
+  /**
+   * models.dev のカタログ（catalog.ts の ModelsDevCatalog）。opencode が料金やコンテキストを返さないモデルを埋める。
+   * 一覧を取るたびに refresh を頼むが、待たない（取れた分は次の一覧から使う）。省けば埋めない。
+   */
+  catalog?: { refresh(): Promise<boolean>; current(): { fetchedAt: number } | null; lookup(provider: string, model: string): CatalogModel | null };
 };
 
 type Cached = { dto: OpencodeOptionsDto; at: number };
@@ -46,11 +52,14 @@ export class OpencodeOptionsService {
 
   constructor(private readonly deps: OpencodeOptionsDeps) {}
 
-  /** その場所の選択肢。間もなく取ったものがあればそれを返す。取れなければ手元の一覧を stale で返し、手元にも無ければ投げる。 */
-  async get(dir: string | null): Promise<OpencodeOptionsDto> {
+  /**
+   * その場所の選択肢。間もなく取ったものがあればそれを返す。取れなければ手元の一覧を stale で返し、手元にも無ければ投げる。
+   * refresh を立てると、間もなくても取り直す（モデルの小窓の LM Studio の「再読み込み」）。
+   */
+  async get(dir: string | null, o: { refresh?: boolean } = {}): Promise<OpencodeOptionsDto> {
     const directory = dir || this.deps.home;
     const hit = this.cache.get(directory);
-    if (hit && this.now() - hit.at < this.freshMs()) return hit.dto;
+    if (hit && !o.refresh && this.now() - hit.at < this.freshMs()) return hit.dto;
     const run = this.chain.then(() => this.fetch(directory));
     this.chain = run.catch(() => undefined);
     try {
@@ -76,7 +85,10 @@ export class OpencodeOptionsService {
     const raw = await this.withServe((serve) => this.readWithRetry(serve, directory));
     const status = await this.deps.status().catch(() => ({ found: true, version: null, verified: false }));
     const at = this.now();
-    const dto: OpencodeOptionsDto = { version: status.version, verified: status.verified, ...optionsOf(raw), fetchedAt: at, stale: false };
+    const catalog = this.deps.catalog;
+    void catalog?.refresh().catch(() => false);
+    const options = optionsOf(raw, catalog ? (p, m) => catalog.lookup(p, m) : undefined);
+    const dto: OpencodeOptionsDto = { version: status.version, verified: status.verified, ...options, pricesAt: catalog?.current()?.fetchedAt ?? null, fetchedAt: at, stale: false };
     this.cache.set(directory, { dto, at });
     this.lastDir = directory;
     return dto;
@@ -121,16 +133,44 @@ export async function readOptions(client: OpencodeClient, directory: string): Pr
   return { agents, models, providers, defaultModel };
 }
 
-/** 素の一覧を画面の選択肢にする。モードは隠れていない primary（と all）だけ、モデルは無効にされていないものだけを、opencode の並びのまま出す。 */
-export function optionsOf(raw: OpencodeOptionsRaw): Pick<OpencodeOptionsDto, 'modes' | 'models' | 'defaultModel'> {
+/**
+ * 宛先の名前から、この PC（localhost、ループバック）か、内側の網（私用の IPv4、CGNAT、リンクローカル、ULA、.local、.lan、.internal、.home.arpa）か、それ以外かを決める。
+ */
+export function whereOfHost(host: string): OpencodeProviderWhere {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h === '::1' || h.endsWith('.localhost') || /^127\./.test(h)) return 'device';
+  if (/\.(local|lan|internal|home\.arpa)$/.test(h)) return 'lan';
+  if (/^(fc|fd)[0-9a-f]{2}:/.test(h) || h.startsWith('fe80:')) return 'lan';
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+  if (!m) return 'remote';
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  return a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127) ? 'lan' : 'remote';
+}
+
+/** この PC で動くものとして知っているプロバイダー（URL が無くてもこの PC とする）。 */
+const DEVICE_PROVIDERS = new Set(['lmstudio', 'ollama']);
+
+/**
+ * 素の一覧を画面の選択肢にする。モードは隠れていない primary（と all）だけ、モデルは無効にされていないものだけを、opencode の並びのまま出す。
+ * lookup を渡すと、opencode が料金やコンテキストを返さなかったモデルを、それで埋める。ツール呼び出しの対応は opencode の答えだけを使う。
+ */
+export function optionsOf(raw: OpencodeOptionsRaw, lookup?: (provider: string, model: string) => CatalogModel | null): Pick<OpencodeOptionsDto, 'modes' | 'models' | 'providers' | 'defaultModel'> {
   const modes: OpencodeModeOption[] = raw.agents
     .filter((a) => (a.mode === 'primary' || a.mode === 'all') && !a.hidden)
     .map((a) => ({ id: a.id, description: a.description === null ? null : clip(a.description) }));
   const names = new Map(raw.providers.map((p) => [p.id, p.name]));
   const models: OpencodeModelOption[] = raw.models
     .filter((m) => m.enabled)
-    .map((m) => ({ id: `${m.providerID}/${m.id}`, label: m.name, group: names.get(m.providerID) ?? m.providerID }));
-  return { modes, models, defaultModel: raw.defaultModel };
+    .map((m) => {
+      const known = m.cost !== null && m.context !== null ? null : lookup?.(m.providerID, m.id) ?? null;
+      return {
+        id: `${m.providerID}/${m.id}`, label: m.name, group: names.get(m.providerID) ?? m.providerID, provider: m.providerID,
+        tools: m.tools, context: m.context ?? known?.context ?? null, cost: m.cost ?? known?.cost ?? null,
+      };
+    });
+  const providers: OpencodeProviderOption[] = raw.providers.map((p) => ({ id: p.id, name: p.name, where: p.host !== null ? whereOfHost(p.host) : DEVICE_PROVIDERS.has(p.id) ? 'device' : 'remote' }));
+  return { modes, models, providers, defaultModel: raw.defaultModel };
 }
 
 const clip = (s: string): string => {

@@ -215,8 +215,9 @@ export type AppDeps = {
   /**
    * 新しいセッションで opencode を選んだときのモードとモデル（provider/opencode/options.ts）。dir はその場所で、null はホーム。
    * 起きている serve に聞き、無ければ 1 本起こして聞く。取れなければ投げる（手元に前の一覧があれば stale で返す）。
+   * refresh は、手元の一覧が新しくても取り直すこと（モデルの小窓の LM Studio の「再読み込み」）。
    */
-  opencodeOptions: (dir: string | null) => Promise<OpencodeOptionsDto>;
+  opencodeOptions: (dir: string | null, o?: { refresh?: boolean }) => Promise<OpencodeOptionsDto>;
   /**
    * 同じファイルの編集の見張り（sessions/overlap.ts）に、すぐ読み直させる。「このファイルでは表示しない」の後に呼ぶ。
    * 渡さなければ、次の周期（数秒）で消える。

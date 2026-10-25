@@ -46,11 +46,13 @@ posixDescribe('OpencodeOptionsService', () => {
       verified: true,
       modes: [{ id: 'build', description: 'The default agent.' }, { id: 'plan', description: 'Plan mode. Disallows all edit tools.' }],
       models: [
-        { id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode' },
-        { id: 'lmstudio/qwen/qwen3-coder-30b', label: 'Qwen3 Coder 30B', group: 'LM Studio (local)' },
-        { id: 'lmstudio/gemma-4-26b', label: 'Gemma 4 26B', group: 'LM Studio (local)' },
+        { id: 'opencode/glm-5.3-flash-free', label: 'GLM-5.3-Flash Free', group: 'OpenCode', provider: 'opencode', tools: true, context: null, cost: null },
+        { id: 'lmstudio/qwen/qwen3-coder-30b', label: 'Qwen3 Coder 30B', group: 'LM Studio (local)', provider: 'lmstudio', tools: true, context: null, cost: null },
+        { id: 'lmstudio/gemma-4-26b', label: 'Gemma 4 26B', group: 'LM Studio (local)', provider: 'lmstudio', tools: true, context: null, cost: null },
       ],
+      providers: [{ id: 'opencode', name: 'OpenCode', where: 'remote' }, { id: 'lmstudio', name: 'LM Studio (local)', where: 'device' }],
       defaultModel: 'lmstudio/qwen/qwen3-coder-30b',
+      pricesAt: null,
       fetchedAt: 1_000,
       stale: false,
     });
@@ -82,7 +84,7 @@ posixDescribe('OpencodeOptionsService', () => {
       configModel: null,
     });
     const o = await service.get('/w/alpha');
-    expect(o.models).toEqual([{ id: 'ollama/b', label: 'B', group: 'ollama' }]);
+    expect(o.models).toEqual([{ id: 'ollama/b', label: 'B', group: 'ollama', provider: 'ollama', tools: true, context: null, cost: null }]);
     expect(o.defaultModel).toBeNull();
   });
 
@@ -112,6 +114,67 @@ posixDescribe('OpencodeOptionsService', () => {
     expect(service.last('/w/alpha')).toMatchObject({ stale: true });
     // 場所を省くとホームの一覧（無ければ、最後に取ったもの）を返す。
     expect(service.last(null)).toMatchObject({ fetchedAt: 1_000 });
+  });
+
+  posixIt('料金（最初の段）、コンテキスト、ツール呼び出しの対応を読む。プロバイダーは URL の宛先でこの PC・内側の網・それ以外に分け、API キーは持ち出さない', async () => {
+    const { service } = make({
+      models: [
+        { providerID: 'opencode', id: 'beam-free', name: 'Beam Free', cost: [{ input: 0, output: 0 }], limit: { context: 1_048_576, output: 131_072 } },
+        { providerID: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', cost: [{ input: 0.15, output: 0.6 }, { input: 0.3, output: 1.2 }], limit: { context: 1_000_000 } },
+        { providerID: 'home', id: 'laguna', name: 'Laguna', tools: false, cost: [], limit: { context: 0 } },
+      ],
+      providers: [
+        { id: 'opencode', name: 'OpenCode', baseURL: 'https://opencode.ai/inference/openai/v1' },
+        { id: 'deepseek', name: 'DeepSeek' },
+        { id: 'home', name: 'Home GPU', baseURL: 'http://192.168.3.40:8000/v1' },
+        { id: 'box', name: 'Box', baseURL: 'http://gpu-box.local:8000/v1' },
+        { id: 'lmstudio', name: 'LM Studio (local)', baseURL: 'http://127.0.0.1:1234/v1' },
+      ],
+    });
+    const o = await service.get('/w/alpha');
+    expect(o.models).toEqual([
+      { id: 'opencode/beam-free', label: 'Beam Free', group: 'OpenCode', provider: 'opencode', tools: true, context: 1_048_576, cost: { input: 0, output: 0 } },
+      { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash', group: 'DeepSeek', provider: 'deepseek', tools: true, context: 1_000_000, cost: { input: 0.15, output: 0.6 } },
+      { id: 'home/laguna', label: 'Laguna', group: 'Home GPU', provider: 'home', tools: false, context: null, cost: null },
+    ]);
+    expect(o.providers).toEqual([
+      { id: 'opencode', name: 'OpenCode', where: 'remote' },
+      { id: 'deepseek', name: 'DeepSeek', where: 'remote' },
+      { id: 'home', name: 'Home GPU', where: 'lan' },
+      { id: 'box', name: 'Box', where: 'lan' },
+      { id: 'lmstudio', name: 'LM Studio (local)', where: 'device' },
+    ]);
+    expect(JSON.stringify(o)).not.toContain('sk-fake-secret');
+  });
+
+  posixIt('opencode が料金やコンテキストを返さないモデルは、models.dev の保存から埋め、その取得の時刻を添える。取り直しは頼むだけで待たない', async () => {
+    let refreshed = 0;
+    const catalog = {
+      refresh: async () => { refreshed++; return false; },
+      current: () => ({ fetchedAt: 500 }),
+      lookup: (p: string, m: string) => (p === 'deepseek' && m === 'deepseek-v4-pro' ? { cost: { input: 0.66, output: 1.98 }, context: 1_000_000, tools: true } : null),
+    };
+    const { service } = make({
+      models: [
+        { providerID: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+        { providerID: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', cost: [{ input: 0.15, output: 0.6 }], limit: { context: 1_000_000 } },
+      ],
+    }, { catalog });
+    const o = await service.get('/w/alpha');
+    expect(o.models.map((m) => [m.id, m.cost, m.context])).toEqual([
+      ['deepseek/deepseek-v4-pro', { input: 0.66, output: 1.98 }, 1_000_000],
+      ['deepseek/deepseek-v4-flash', { input: 0.15, output: 0.6 }, 1_000_000],
+    ]);
+    expect(o.pricesAt).toBe(500);
+    expect(refreshed).toBe(1);
+  });
+
+  posixIt('refresh を立てると、間もなくても取り直す（LM Studio の再読み込み）', async () => {
+    const { service, logFile, advance } = make();
+    await service.get('/w/alpha');
+    advance(5_000);
+    expect((await service.get('/w/alpha', { refresh: true })).fetchedAt).toBe(6_000);
+    expect(starts(logFile)).toBe(2);
   });
 
   posixIt('場所を省くとホームで聞く', async () => {

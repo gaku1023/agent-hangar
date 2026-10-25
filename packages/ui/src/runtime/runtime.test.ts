@@ -781,7 +781,18 @@ describe('起動とターミナル', () => {
   });
   // 新しいセッションで opencode（ベータ）を選んだときのモードとモデル。ダイアログが Store から読む。
   describe('opencode の選択肢', () => {
-    const options = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode' }], defaultModel: null, fetchedAt: 1, stale: false };
+    const options = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode', provider: 'opencode', tools: true, context: null, cost: null }], providers: [], defaultModel: null, pricesAt: null, fetchedAt: 1, stale: false };
+    it('refresh を立てると、取り直しを頼む（モデルの小窓の再読み込み）。読み直す間は前の答えを残す', async () => {
+      const opencodeOptions = vi.fn(async () => options);
+      const { rt } = harness({ opencodeOptions });
+      rt.start();
+      rt.emit({ type: 'opencode.options', dir: '/w/alpha' });
+      await flush();
+      rt.emit({ type: 'opencode.options', dir: '/w/alpha', refresh: true });
+      expect(rt.getStore().opencodeOptions).toEqual({ dir: '/w/alpha', status: 'loading', data: options });
+      await flush();
+      expect(opencodeOptions).toHaveBeenLastCalledWith('/w/alpha', true);
+    });
     it('opencode.options は一覧を読み、読んでいる間と答えを Store に入れる。同じ場所を読み直す間は前の答えを残す', async () => {
       const opencodeOptions = vi.fn(async () => options);
       const { rt } = harness({ opencodeOptions });

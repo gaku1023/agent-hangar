@@ -2,6 +2,7 @@ import os from 'node:os';
 import { opencodeEnabledOf } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import { findOpencode } from '../config/tools.ts';
+import { catalogPath, ModelsDevCatalog } from '../provider/opencode/catalog.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { OpencodeOptionsService } from '../provider/opencode/options.ts';
 import { ServeManager, type OpencodeVersionNoticeSeed } from '../provider/opencode/serve/manager.ts';
@@ -46,7 +47,9 @@ export function bootOpencode(
     log,
     onVersionNotice: (seed) => { notice = seed; },
   });
-  const options = new OpencodeOptionsService({ serves, status: () => local.status(), home: os.homedir() });
+  // models.dev の料金の保存。取りに行くのは選択肢を取ったときだけ（1 日 1 回まで）。
+  const catalog = new ModelsDevCatalog({ file: catalogPath(p.home), log });
+  const options = new OpencodeOptionsService({ serves, status: () => local.status(), home: os.homedir(), catalog });
   return {
     serves,
     options,

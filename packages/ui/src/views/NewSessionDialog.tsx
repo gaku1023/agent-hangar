@@ -378,6 +378,10 @@ export function NewSessionDialog(props: NewSessionProps) {
         opencode={opencode ? {
           mode: ocMode, modes: ocData?.modes ?? [], onMode: setPickedMode,
           model: ocModel.model, models: ocData?.models ?? [], defaultModel: ocData?.defaultModel ?? null, modelReset: ocModel.reset, onModel: setPickedModel,
+          providers: ocData?.providers ?? [], pricesAt: ocData?.pricesAt ?? null, fetchedAt: ocData?.fetchedAt ?? 0, reloading: ocState?.status === 'loading',
+          onReload: () => emit({ type: 'opencode.options', dir: ocDir, refresh: true }),
+          // 設定の opencode の面へ移る（プロバイダーの面は C6）。書きかけは閉じるときに下書きとして残る。
+          onManage: () => { emit({ type: 'overlay.close' }); emit({ type: 'nav.go', to: { name: 'settings', at: 'opencode' } }); },
           autoApprove, onAutoApprove: setAutoApprove,
         } : undefined}
         lead={projectChip}
