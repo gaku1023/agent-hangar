@@ -823,3 +823,25 @@ describe('手元にあるが運ばない同名の項目を、相手の項目で�
     expect(b.service.dto()).toMatchObject({ incoming: 1, conflicts: 0, held: 0 });
   });
 });
+
+describe('git・dotfiles の検出（表示だけ）', () => {
+  it('入れ物に .git があれば dto の vcs に載り、無ければ載らない', () => {
+    const a = pc('dev-a', 'mac');
+    expect(a.service.dto().vcs).toBeUndefined();
+    fs.mkdirSync(path.join(a.claudeDir, '.git'));
+    clock += 61_000;
+    expect(a.service.dto().vcs).toEqual([{ target: 'claude', tools: ['git'] }]);
+  });
+
+  it('検出しても送受信は止まらない', async () => {
+    const a = pc('dev-a', 'mac');
+    const b = pc('dev-b', 'win');
+    fs.mkdirSync(path.join(a.claudeDir, '.git'));
+    a.write('CLAUDE.md', '# rules');
+    expect(a.service.dto().vcs).toEqual([{ target: 'claude', tools: ['git'] }]);
+    expect(await a.service.send()).toEqual({ sent: true, items: 1 });
+    deliver(a, b);
+    await b.service.receive();
+    expect(b.service.dto().incoming).toBe(1);
+  });
+});

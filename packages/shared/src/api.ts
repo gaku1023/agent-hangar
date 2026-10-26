@@ -644,6 +644,8 @@ export type ConfigOutgoingDto = {
   /** 送らなかった項目の数（GET /api/config-sync/unsent の長さ）。 */
   unsentCount: number;
   lastSentAt: number | null;
+  /** 入れ物が git や dotfiles の道具で管理されているか（対象ごと、管理されているものだけ。印が無ければ欄ごと省く）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
+  vcs?: ConfigVcsDto[];
 };
 /** 届いた変更の操作。conflict は手元と相手の両方が変えた（または片方が消した）もの。 */
 export type ConfigInboxOp = 'create' | 'overwrite' | 'delete' | 'conflict';
@@ -671,6 +673,10 @@ export type ConfigApplyOrderEntryIn = { id: string; take?: 'remote' | 'mine' };
 export type ConfigApplyOrderItemDto = { id: string; kind: ConfigItemKind; op: ConfigInboxOp; take: 'remote' | 'mine'; fromDeviceId: string; sha256: string; /** 書き込み先。ファイルは設定の入れ物からの相対パス、settings は `settings.json#<鍵>`。 */ target: string };
 /** 適用の指示書。サーバは ~/.claude に書かず、殻の命令と hangar config apply が読む。 */
 export type ConfigApplyOrderDto = { createdAt: number; items: ConfigApplyOrderItemDto[] };
+/** 設定の入れ物を管理している道具（SPEC 8 章）。表示のためだけで、同期は止めない。 */
+export type ConfigVcsTool = 'git' | 'chezmoi' | 'yadm' | 'stow';
+/** 入れ物ごとの検出。tools が空の入れ物は載せない。 */
+export type ConfigVcsDto = { target: string; tools: ConfigVcsTool[] };
 export type ConfigSyncDto = {
   enabled: boolean;
   /** スイッチは入っているが、Worker がまだ束の行を知る版に届いていないので、送っていない（Worker の更新待ち）。Worker の版がまだ分からないあいだは偽。 */
