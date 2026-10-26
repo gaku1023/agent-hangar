@@ -15,7 +15,8 @@ import { openTargetCommand } from '../platform/browser.ts';
 import { execFile } from '../external/open.ts';
 import { realReportDeps } from '../report/real.ts';
 import { ReportService } from '../report/service.ts';
-import { callTool, type ToolContext, type ToolDeps } from './tools.ts';
+import { MAX_SCREEN_LINES, MAX_SEND_CHARS } from './screenTools.ts';
+import { callTool,type ToolContext, type ToolDeps } from './tools.ts';
 
 /**
  * MCP の入口が受け付ける Origin。
@@ -60,6 +61,8 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('delete_session', D(tr('mcp.tool.deleteSession')), { session_id: z.string(), confirmed: z.boolean().optional().describe(tr('mcp.deleteSession.confirmedParam')) });
   reg('get_usage', D(tr('mcp.tool.getUsage')), {});
   reg('open_in_hangar', D(tr('mcp.tool.openInHangar')), { session_id: z.string().optional(), project_id: z.string().optional() });
+  reg('send_to_session', D(tr('mcp.tool.sendToSession')), { session_id: z.string(), text: z.string().describe(tr('mcp.sendToSession.textParam', { max: MAX_SEND_CHARS })), submit: z.boolean().optional().describe(tr('mcp.sendToSession.submitParam')) });
+  reg('read_session_screen', D(tr('mcp.tool.readSessionScreen')), { session_id: z.string().optional(), lines: z.number().int().positive().optional().describe(tr('mcp.screen.linesParam', { max: MAX_SCREEN_LINES })) });
   // 節は種類ごとに必須が違うので、ここでは全部を任意にし、検査は report/compose.ts に任せる。断りの文で足りない節を名指しできる。
   const section = z.string().optional();
   reg('draft_issue_report', D(tr('report.tool.draft')), {

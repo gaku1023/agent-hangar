@@ -3659,6 +3659,9 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 さらにこの URL は、そのセッションとそのプロジェクトに閉じる。
 ほかの `session_id` や `project_id` を渡されたら、黙って読み替えず、断りの文を返す。
 ただし読むだけの `get_transcript` は、ほかの `session_id` も受け付ける（2026-10-15）。セッション画面でコピーした宛先の 1 行（session_id 入り）を渡された別の Claude が、そのセッションの様子を読むためである。
+`send_to_session` と `read_session_screen` も、この枠に縛られず、ほかの `session_id` を受け付ける（2026-10-27、利用者の決定）。
+オーケストレータ役の Claude が、束ねるセッションの画面を見回り、指示を送るための道具だからである。
+送る側の書き込みの道具は「自分のセッションだけ」という決まりだったが、`send_to_session` に限って外した。
 `list_projects` と `list_sessions` も枠の外を返さない。
 セッションがプロジェクトに属していないときは、プロジェクトを必要とするツールを断る。
 共通の `/mcp` には枠が無く、今までどおりすべてを指せる。
@@ -3700,6 +3703,21 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
+- `send_to_session({ session_id, text, submit? })`：この PC の hangar の tmux（Windows では psmux）で動いているそのセッションの主の画面に、`text` を入力として送る（2026-10-27）。
+  どのセッションにも、聞かずに送れる。ただし呼んだセッション自身には断る。
+  複数行の `text` は tmux の貼り付け（`set-buffer` と `paste-buffer -p -d`、bracketed paste）で 1 回に届け、1 つの入力になる。`send-keys` は 1 行ごとに Enter を打つのと変わらず、行ごとに確定してしまうので使わない。
+  `submit`（既定 true）なら、貼り付けの 150 ミリ秒後に Enter キーで確定する。false なら入力欄に置くだけである。
+  Claude Code 2.1.311、Codex 0.164.0、opencode 2.1.4 の TUI で、複数行（空行を含む）が 1 つの入力になり、Enter で 1 つのメッセージとして送られることを、専用の tmux（macOS、tmux 3.6a）で確かめた。
+  Claude Code と opencode は貼り付けを「[Pasted text +N lines]」のように畳んで入力欄に置き、Codex は全文をそのまま置く。
+  `text` は 8,000 字までで、それを越えたら断る（psmux は CreateProcess のコマンドライン 32,767 文字の上限に当たるため）。
+  貼り付けの括弧を壊されないように、ESC を含む制御文字は落とす（改行とタブは残し、CRLF は LF にそろえる）。
+  貼り付けが使えない裏（psmux が `set-buffer` か `paste-buffer` を断ったとき）では、1 行の `text` だけ素の文字で打ち込み、複数行は Windows の事情を言う文で断る。psmux の貼り付けは Windows の実機では未確認である。
+  動いていない会話には「`resume_session` で再開してから」と促して断る。ほかの PC で動く会話（その PC の名前を添える）と、hangar の外の端末で動く会話（run が無く live だけに載る）にも断る。
+  結果は `{ session_id, sent_chars, submitted }` である。
+- `read_session_screen({ session_id?, lines? })`：そのセッションの主の画面の末尾を文字で返す（2026-10-27）。
+  `lines` の既定は 40、上限は 200 で、越えた指定は上限に丸める。読めるのは画面にいま見えている範囲だけで、スクロールバックは含まない（履歴は `get_transcript` で読む）。画面の下の空行は落とす。
+  live の状態を添え、結果は `{ session_id, status, waiting_for, screen }` である（live に載っていなければ `status` と `waiting_for` は null）。
+  どのセッションでも、自分自身でも読める。セッション別 URL では `session_id` を省くと自分を読む。動いていない会話、ほかの PC の会話、hangar の外の端末の会話は、`send_to_session` と同じ文で断る。
 - `draft_issue_report({ kind, title, ...節 })` と `submit_issue_report({ draft_id, confirmed })`：作者への問い合わせの下書きと送信。プロジェクトもセッションも指さないので、セッション別 URL の枠に関わりなく使える。詳しくは「作者への問い合わせ」の節。
 
 `update_project` は status の変更、TODO の追加、完了の印、完了の候補の提出を行い（ノートへの追記はしない）、TODO の書き込みは全部成功か全部失敗のどちらかにする（途中で失敗したものが残らない）。

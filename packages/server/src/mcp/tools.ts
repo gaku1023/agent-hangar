@@ -14,6 +14,7 @@ import { getSessionState, proposeSessionState, setSessionState, StateInputError,
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
+import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 
 export type ToolDeps = {
   db: Db;
@@ -29,6 +30,10 @@ export type ToolDeps = {
     kill?(runId: string): unknown;
     /** UI の再開（POST /api/sessions/:id/resume）と同じ処理。account は Claude Code の会話のときだけ渡す。 */
     resumeWith?(sessionId: string, o?: { account?: string }): LaunchResult | Promise<LaunchResult>;
+    /** tmux の名前の画面にいま見えている文字。画面が無ければ null。無ければ read_session_screen は断る。 */
+    readScreen?(tmuxName: string): string | null;
+    /** tmux の名前の画面へ、text を 1 つの入力として貼り、submit なら Enter で確定する。届けられなければ投げる。無ければ send_to_session は断る。 */
+    sendInput?(tmuxName: string, text: string, submit: boolean): Promise<void>;
   };
   /** 削除（DELETE /api/sessions/:id）と同じ処理。無ければ delete_session は知らない道具として断る。 */
   trash?: { deleteSession(sessionId: string): Promise<void> };
@@ -67,6 +72,7 @@ export const TOOL_NAMES = [
   'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
   'stop_session', 'resume_session', 'delete_session',
+  'send_to_session', 'read_session_screen',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -626,6 +632,8 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'delete_session': return deleteSessionTool(deps, ctx, args);
     case 'draft_issue_report': return reportOf(deps, name).draft(args);
     case 'submit_issue_report': return reportOf(deps, name).submit(args);
+    case 'send_to_session': return sendToSessionTool(deps, ctx, args);
+    case 'read_session_screen': return readSessionScreenTool(deps, ctx, args);
     default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }

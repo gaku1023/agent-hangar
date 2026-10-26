@@ -208,6 +208,24 @@ export class Tmux {
     this.run('send-keys', '-t', `=${name}:`, ...keys);
   }
 
+  /**
+   * text を 1 回の貼り付け（bracketed paste）としてペインに届ける。複数行でも 1 つの入力になり、途中の改行で確定されない。
+   * send-keys は 1 行ごとに Enter を送るのと変わらないので、複数行にはこちらを使う。
+   * 中のプログラムが貼り付けのモードを求めていれば括弧（ESC[200~ と ESC[201~）で囲んで届き、求めていなければ素の文字として届く。
+   * バッファは貼ったら消す（-d）。貼れなかったときも、残らないように消す。
+   * 貼れなかったら投げる。
+   */
+  pasteText(name: string, text: string): void {
+    const buf = `hangar-paste-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const set = this.run('set-buffer', '-b', buf, '--', text);
+    if (set.code !== 0 || set.failed) throw new Error(`tmux set-buffer failed: ${set.stderr.trim() || set.stdout.trim() || `exit ${set.code}`}`);
+    const paste = this.run('paste-buffer', '-p', '-d', '-b', buf, '-t', `=${name}:`);
+    if (paste.code !== 0 || paste.failed) {
+      this.run('delete-buffer', '-b', buf);
+      throw new Error(`tmux paste-buffer failed: ${paste.stderr.trim() || paste.stdout.trim() || `exit ${paste.code}`}`);
+    }
+  }
+
   /** ペインにいま見えている文字だけを返す。色や属性は落とす。 */
   capturePane(name: string): string {
     return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout.replace(/\r\n/g, '\n');
