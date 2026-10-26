@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon.tsx';
 import { useT } from './language.tsx';
-import { place, type Placement } from './listboxModel.ts';
+import { fitHeight, place, type Placement } from './listboxModel.ts';
 
 /** 開く元のボタンが受け取る属性。`<button {...p}>` のように広げて使う。 */
 export type PopoverFaceProps = {
@@ -28,6 +28,7 @@ const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select
  * 面は document.body への portal に描く。見出しの段やカードの overflow に切られないため。
  * 幅は width（既定 360px）で、窓の縁には place() が収める。
  * fit を立てると、幅を width に固定せず、width を上限にして中身に合わせる（短い説明の札）。縁への収め方は width の幅で決める。
+ * bounded を立てると、開く側の空きを面の高さの上限にする（長い一覧が窓の外へ出ないように）。中で縮める箱は呼ぶ側が置く。
  */
 export function Popover(props: {
   label: string;
@@ -37,12 +38,13 @@ export function Popover(props: {
   align?: 'start' | 'end';
   className?: string;
   fit?: boolean;
+  bounded?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const { width = 360, align = 'end' } = props;
+  const { width = 360, align = 'end', bounded = false } = props;
   const [open, setOpen] = useState(props.defaultOpen ?? false);
-  const [pos, setPos] = useState<Placement | null>(null);
+  const [pos, setPos] = useState<(Placement & { maxHeight?: number }) | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
   const popId = `${useId()}-popover`;
@@ -64,8 +66,16 @@ export function Popover(props: {
     const el = opener.current;
     if (!el || !pop.current) return;
     const r = el.getBoundingClientRect();
-    setPos(place({ top: r.top, bottom: r.bottom, left: r.left, width: r.width }, pop.current.offsetHeight, { width: window.innerWidth, height: window.innerHeight }, { minWidth: width, align }));
-  }, [width, align]);
+    const face = { top: r.top, bottom: r.bottom, left: r.left, width: r.width };
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    // 上限を付けたままでは本来の高さが読めず、上下の向きを決め損なう。測る間だけ外す。
+    const s = pop.current.style;
+    const kept = s.maxHeight;
+    if (bounded) s.maxHeight = 'none';
+    const next = place(face, pop.current.offsetHeight, viewport, { minWidth: width, align });
+    s.maxHeight = kept;
+    setPos(bounded ? { ...next, maxHeight: fitHeight(face, viewport, next.up, Infinity) } : next);
+  }, [width, align, bounded]);
   useLayoutEffect(() => { if (open) reposition(); }, [open, reposition]);
 
   // 位置が決まって見えてから、開くたびに一度だけ焦点を送る。隠れたままの要素には焦点が入らない。
@@ -89,11 +99,13 @@ export function Popover(props: {
     };
     document.addEventListener('mousedown', onDown);
     window.addEventListener('resize', reposition);
-    window.addEventListener('scroll', reposition, true);
+    // 面の中の送り（bounded の一覧）では測り直さない。測る間に上限を外すので、中の送りが頭へ戻ってしまう。
+    const onScroll = (e: Event) => { if (!(e.target instanceof Node && pop.current?.contains(e.target))) reposition(); };
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       document.removeEventListener('mousedown', onDown);
       window.removeEventListener('resize', reposition);
-      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [open, reposition, hide]);
 
@@ -118,7 +130,7 @@ export function Popover(props: {
       {props.face({ ref: opener, 'aria-haspopup': 'dialog', 'aria-expanded': open, 'aria-controls': open ? popId : undefined, onClick: () => (open ? hide(false) : change(true)), onKeyDown: onFaceKey })}
       {open && createPortal(
         <div ref={pop} id={popId} role="dialog" aria-label={props.label} tabIndex={-1} className={`menu-pop popover${props.className ? ` ${props.className}` : ''}`} data-up={pos?.up ? 'true' : undefined} onKeyDown={onPopKey}
-          style={{ ...(pos ? { left: pos.left, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden', left: 0, top: 0 }), ...(props.fit ? { width: 'max-content', maxWidth: pos?.width ?? width } : { width: pos?.width ?? width }) }}>
+          style={{ ...(pos ? { left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : { visibility: 'hidden', left: 0, top: 0 }), ...(props.fit ? { width: 'max-content', maxWidth: pos?.width ?? width } : { width: pos?.width ?? width }) }}>
           {typeof props.children === 'function' ? props.children({ close: () => hide(true) }) : props.children}
         </div>,
         document.body,

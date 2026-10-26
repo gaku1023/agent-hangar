@@ -153,3 +153,34 @@ describe('PopoverRows と InfoPopover', () => {
     expect(screen.getByRole('button', { name: 'パスをコピー' })).toBeInTheDocument();
   });
 });
+
+describe('Popover の bounded', () => {
+  const at = (top: number) => vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top, bottom: top + 30, left: 100, right: 200, width: 100, height: 30, x: 100, y: top, toJSON: () => ({}) });
+  it('立てると、開く側の空きを面の高さの上限にする（窓の外へ出さない）', () => {
+    const spy = at(100);
+    render(<Popover label="属性" bounded face={face}><p>中身</p></Popover>);
+    fireEvent.click(screen.getByRole('button', { name: '開く' }));
+    // 下に開く。空きは窓の高さ − 顔の下端 − 隙間 6 − 縁 8。
+    expect(screen.getByRole('dialog').style.maxHeight).toBe(`${window.innerHeight - 130 - 14}px`);
+    spy.mockRestore();
+  });
+  it('面の中の送りでは測り直さず、送った位置を保つ', () => {
+    const spy = at(100);
+    render(<Popover label="属性" bounded face={face}><div data-testid="box" style={{ overflow: 'auto' }}>中身</div></Popover>);
+    fireEvent.click(screen.getByRole('button', { name: '開く' }));
+    // 測り直しは開く元の位置を読む。読んだ回数で、測り直したかを見る。
+    const before = spy.mock.calls.length;
+    fireEvent.scroll(screen.getByTestId('box'));
+    expect(spy.mock.calls.length).toBe(before);
+    fireEvent.scroll(window);
+    expect(spy.mock.calls.length).toBeGreaterThan(before);
+    spy.mockRestore();
+  });
+  it('立てなければ上限を付けない', () => {
+    const spy = at(100);
+    render(<Popover label="属性" face={face}><p>中身</p></Popover>);
+    fireEvent.click(screen.getByRole('button', { name: '開く' }));
+    expect(screen.getByRole('dialog').style.maxHeight).toBe('');
+    spy.mockRestore();
+  });
+});

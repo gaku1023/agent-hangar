@@ -33,6 +33,7 @@ export const launchKeys = {
   'launch.agent.codexVerified': ['version'],
   'launch.chip.codexPermission': [],
   'launch.chip.reasoning': [],
+  'launch.codex.olderModels': [],
   'launch.agent.opencodeVerified': ['version'],
   'launch.agent.opencodeUnverified': ['version'],
   'launch.chip.mode': [],

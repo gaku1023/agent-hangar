@@ -34,6 +34,7 @@ export const launchEn: AreaDictionary<typeof launchKeys> = {
   'launch.agent.codexVerified': 'codex {version} · Verified',
   'launch.chip.codexPermission': 'Permissions',
   'launch.chip.reasoning': 'Reasoning',
+  'launch.codex.olderModels': 'Older models',
   'launch.agent.opencodeVerified': 'opencode {version} · Verified',
   'launch.agent.opencodeUnverified': 'opencode {version} · Unverified',
   'launch.chip.mode': 'Mode',

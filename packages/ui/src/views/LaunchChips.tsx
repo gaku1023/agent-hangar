@@ -13,6 +13,7 @@ import { PermissionList } from './primitives/PermissionList.tsx';
 import { PERMISSION_BYPASS, PERMISSION_DEFAULT, permissionLabel } from './primitives/permissionModel.ts';
 import { PickList, type PickItem } from './primitives/PickList.tsx';
 import { Popover } from './primitives/Popover.tsx';
+import { splitCodexModels } from './codexModelGroups.ts';
 
 /** 札の列が持つ値。空は「既定」で、起動の params に含めない。addDirs は 1 行に 1 つの文字で持つ（起動ダイアログと同じ）。 */
 export type LaunchChipValues = { model: string; effort: string; permissionMode: string; worktree: string; name: string; addDirs: string };
@@ -66,15 +67,18 @@ export type LaunchOpencodeChips = {
 
 const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).length;
 
-/** 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。 */
+/**
+ * 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。
+ * 面の高さは開く側の空きまでに抑え（bounded）、見出しを残して中身を送る。長い一覧（Codex のモデル）が窓の外へ出ないためである。
+ */
 function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentUiCap; children: (close: () => void) => ReactNode }) {
   return (
-    <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" defaultOpen={props.defaultOpen}
+    <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" bounded defaultOpen={props.defaultOpen}
       face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} lead={props.lead} dot={props.dot} badge={props.badge} {...(props.agentOnly ? agentOnlyAttr(props.agentOnly) : {})} {...p} />}>
       {({ close }) => (
         <>
           <div className="pick-head">{props.name}</div>
-          {props.children(close)}
+          <div className="pick-scroll" data-pick-scroll="true">{props.children(close)}</div>
         </>
       )}
     </Popover>
@@ -285,6 +289,7 @@ function OpencodeChips(props: LaunchOpencodeChips) {
 
 /**
  * Codex の札。モデル（Codex が返す一覧。デフォルトは codex の設定に任せる）、推論（選んだモデルで選べる段階）、権限（3 段の 1 枚）。
+ * モデルは古い世代（splitCodexModels）を「過去のモデル」に畳んで下に置く。
  * フルアクセスは赤い縁と警告の印にする（Bypass permissions と同じ）。下の注意はダイアログが出す。
  */
 function CodexChips(props: LaunchCodexChips) {
@@ -294,13 +299,16 @@ function CodexChips(props: LaunchCodexChips) {
   const reasoningName = t('launch.chip.reasoning');
   const permName = t('launch.chip.codexPermission');
   const modelNow = props.models.find((m) => m.id === props.model);
+  const { current, older } = splitCodexModels(props.models);
+  const modelItem = (m: CodexModelOption) => ({ value: m.id, label: m.label, ...(m.description ? { sub: m.description } : {}) });
   const full = props.permission === 'full-access';
   return (
     <>
       <ChipPopover name={modelName} value={props.model ? modelNow?.label ?? props.model : def} tone={props.model ? 'default' : 'muted'} width={300} agentOnly="modelList">
         {(close) => (
-          <PickList label={modelName} value={props.model}
-            items={[{ value: '', label: def }, ...props.models.map((m) => ({ value: m.id, label: m.label, ...(m.description ? { sub: m.description } : {}) }))]}
+          <PickList label={modelName} value={props.model} className="pick-clip"
+            items={[{ value: '', label: def }, ...current.map(modelItem)]}
+            more={older.length ? { label: t('launch.codex.olderModels'), items: older.map(modelItem) } : undefined}
             onPick={(v) => { props.onModel(v); close(); }} />
         )}
       </ChipPopover>
