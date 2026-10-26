@@ -1,4 +1,5 @@
-import { type AgentKind, limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
+import { AGENT_UI_CAPS, DEFAULT_AGENT_KIND, type AgentKind, limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
+import { AGENT_TEXT } from './agentText.ts';
 import { baseName } from '../lib/paths.ts';
 import { contextTokensLabel, costLabel, durationLabel, percentLabel } from './format.ts';
 import type { ArtifactCardProps } from './project.ts';
@@ -200,8 +201,7 @@ function stopState(i: CardInput, t: Translate): Pick<NowCardProps, 'tone' | 'sta
   if (i.reason === 'permission') {
     const p = i.permission ?? null;
     // opencode の許可は道具の名前（shell など）を「許可を待っています · shell」の見出しにする（HANDOFF の 4 節）。
-    const oc = i.agent === 'opencode';
-    const head = p ? t(oc ? 'stop.card.permissionWaitingTool' : 'stop.card.permissionHeadTool', { tool: p.tool }) : t(oc ? 'stop.card.permissionWaiting' : 'stop.card.permissionHead');
+    const head = AGENT_TEXT[i.agent ?? DEFAULT_AGENT_KIND].permissionHead(t, p ? p.tool : null);
     const stop: NowStop = p
       ? { kind: 'permission', head, command: p.input || null, why: p.description, hint: t('stop.card.permissionHint') }
       : { kind: 'permission', head, command: null, why: null, hint: t('stop.card.permissionUnknown') };
@@ -314,7 +314,7 @@ function opencodeIntent(i: CardInput, t: Translate): CardIntent {
 /** opencode の使用量の欄。届いた値だけを札にし、何も無ければ null（欄ごと出さない）。 */
 function stripUsage(i: CardInput, t: Translate): NowUsage | null {
   const u = i.usage;
-  if (i.agent !== 'opencode' || !u) return null;
+  if (!AGENT_UI_CAPS[i.agent ?? DEFAULT_AGENT_KIND].usagePanel || !u) return null;
   const chips: string[] = [];
   if (u.contextTokens !== null) chips.push(t('session.strip.usage.tokens', { n: contextTokensLabel(u.contextTokens) }));
   if (u.costUsd !== null) chips.push(costLabel(u.costUsd));
@@ -325,7 +325,7 @@ function stripUsage(i: CardInput, t: Translate): NowUsage | null {
 }
 
 function stripIntent(i: CardInput, t: Translate): CardIntent {
-  if (i.agent === 'opencode') return opencodeIntent(i, t);
+  if (!AGENT_UI_CAPS[i.agent ?? DEFAULT_AGENT_KIND].digestIntent) return opencodeIntent(i, t);
   const it = i.digest?.intent;
   // 意図を送らない設定では、Claude は意図を書かない。「まだ意図が届いていません」は出さず、利用者の依頼の冒頭を出す（1f）。
   // 切る前に起こした run がこのターンの意図を書いていれば、そちらを先に出す。
@@ -370,7 +370,7 @@ export function presentNowCard(i: CardInput, t: Translate): NowCardProps {
   const steps = stripSteps(i, results);
   return {
     ...stripState(i, t, results),
-    questionLabel: t(i.agent === 'opencode' ? 'session.strip.opencode.questionLabel' : 'session.strip.questionLabel'),
+    questionLabel: t(AGENT_TEXT[i.agent ?? DEFAULT_AGENT_KIND].questionLabel),
     intent: stripIntent(i, t),
     steps: steps.steps, stepsTotal: steps.total, stepsAll: steps.all,
     lanes: stripLanes(i, t),

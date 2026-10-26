@@ -4,7 +4,7 @@ import { asideOf } from '../lib/aside.ts';
 import { gitDetailRows, gitUnsafeFix, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
 import { openForLabel, openLabel } from './editor.ts';
 import { baseName, splitLast } from '../lib/paths.ts';
-import { AGENT_LABEL, stopReasonOf, type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
+import { AGENT_DISPLAY_NAME, AGENT_UI_CAPS, DEFAULT_AGENT_KIND, stopReasonOf, type LiveStatus, type NonDefaultAgentKind, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
@@ -33,7 +33,7 @@ export type TranscriptItem =
   | { kind: 'tool'; seq: number; summary: string; name: string; view: ToolView; raw: { input: string; result: string | null } | null; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
   | { kind: 'meta'; seq: number; name: string; json: string };
 /** agent は opencode の会話のエージェントのタブにだけ付け、公式ロゴと「opencode」を出す。Claude のタブはいまのまま（ロボットの印と「Claude」）。 */
-export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; agent?: 'opencode'; selected: boolean; closable: boolean };
+export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; agent?: NonDefaultAgentKind; selected: boolean; closable: boolean };
 /** 目次の見出しの数。plus は、数えきれていない古い行が残ること。 */
 export type TurnCount = { n: number; plus: boolean };
 /** 目次の 1 行。head は左のターミナルの指示の行と突き合わせる書き出しで、跳ぶ要求にそのまま載る。 */
@@ -565,10 +565,12 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const complete = slice ? slice.total <= slice.items.length : true;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((x) => x.id === view.selectedTab) ? view.selectedTab : run.id) : null;
-  // opencode の会話のエージェントのタブは「opencode」と公式ロゴにする。サーバの題も同じ名前だが、写し（live）だけで opencode と分かる会話もあるので、ここで決める。
-  const opencodeTab = agentOfSession(store, s) === 'opencode';
-  const tabs: TabItemProps[] = open.map((x) => (x.kind === 'agent' && opencodeTab
-    ? { id: x.id, title: AGENT_LABEL.opencode, kind: x.kind, agent: 'opencode', selected: x.id === selectedTab, closable: false }
+  // Claude Code 以外の会話のエージェントのタブは、そのエージェントの名前と公式ロゴにする。サーバの題も同じ名前だが、写し（live）だけでエージェントが分かる会話もあるので、ここで決める。
+  const agentKind = agentOfSession(store, s);
+  const otherAgent: NonDefaultAgentKind | null = agentKind !== null && agentKind !== 'claude-code' ? agentKind : null;
+  const opencodeTab = agentKind === 'opencode';
+  const tabs: TabItemProps[] = open.map((x) => (x.kind === 'agent' && otherAgent !== null
+    ? { id: x.id, title: AGENT_DISPLAY_NAME[otherAgent], kind: x.kind, agent: otherAgent, selected: x.id === selectedTab, closable: false }
     : { id: x.id, title: x.title, kind: x.kind, selected: x.id === selectedTab, closable: x.kind === 'shell' }));
   const idle = !alive && s.live === null && state.launch.kind !== 'submitting';
   const canSplit = open.length >= 2;
@@ -594,7 +596,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((x) => x.id === view.splitTab && x.id !== selectedTab) ?? open.find((x) => x.id !== selectedTab) ?? null : null;
   // opencode の会話には Claude のアカウントが無い。対応に無い会話としてメインのアカウントの札を出さないよう、札は出さない。
-  const sessionAccount = hasMultipleAccounts(store) && !opencodeTab ? accountOfSession(store, id) : null;
+  const sessionAccount = hasMultipleAccounts(store) && (agentKind === null || AGENT_UI_CAPS[agentKind].accounts) ? accountOfSession(store, id) : null;
   const artifactCards = artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(t, a, now));
   const account = sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null;
   // 現在の帯は生きた run があるときだけ。右パネルの「いま」の段が持っていた中身がここへ移る。
@@ -607,9 +609,9 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards,
     reason, permission: s.permission, limit: s.limit, waitingFor: s.waitingFor,
     liveHints: store.settings?.liveHints !== false,
-    // opencode の会話は、見出しの語と、意図が無いときの依頼と、札の下の使用量の欄が変わる（計画の C5）。
-    agent: opencodeTab ? 'opencode' : 'claude-code',
-    usage: opencodeTab ? { contextPercent: s.stats.contextPercent, contextTokens: s.stats.contextTokens ?? null, costUsd: s.stats.costUsd, model: s.stats.model } : null,
+    // Claude Code 以外の会話は、見出しの語と、意図が無いときの依頼と、札の下の使用量の欄が変わる（計画の C5）。
+    agent: otherAgent ?? DEFAULT_AGENT_KIND,
+    usage: otherAgent !== null && AGENT_UI_CAPS[otherAgent].usagePanel ? { contextPercent: s.stats.contextPercent, contextTokens: s.stats.contextTokens ?? null, costUsd: s.stats.costUsd, model: s.stats.model } : null,
     firstPrompt: s.firstPrompt, firstTurn: s.stats.turns <= 1,
   }, t) : null;
   // 終わったセッションの見出しの下の 1 行と要約の札。ターミナルが出る間（run がある間）は出さない。
@@ -628,7 +630,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     gitFix: gitUnsafeFix(store.git, id),
     git: store.git.sessions[id] ? { chip: presentGitChip(t, store.git, id, store.sessions), files: presentGitFiles(t, store.gitChanges[id]) } : null,
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,
-    promptJump: agentOfSession(store, s) === 'claude-code',
+    promptJump: agentKind !== null && AGENT_UI_CAPS[agentKind].promptJump,
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,

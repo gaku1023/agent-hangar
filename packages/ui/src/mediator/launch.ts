@@ -1,4 +1,4 @@
-import type { LaunchParams } from '@agent-hangar/shared';
+import { DEFAULT_AGENT_KIND, isAgentKind, type LaunchParams, type NonDefaultAgentKind } from '@agent-hangar/shared';
 import { translatorOf } from '../presenters/i18n.ts';
 import type { Store } from '../store/store.ts';
 import { overlayReplaceable } from './overlay.ts';
@@ -64,7 +64,7 @@ export function readLaunchPrefs(v: unknown): Record<string, LaunchPrefs> {
     const p: LaunchPrefs = {};
     for (const k of PREF_TEXT) { const x = r[k]; if (typeof x === 'string' && x) p[k] = x; }
     if (Array.isArray(r.addDirs) && r.addDirs.length && r.addDirs.every((d) => typeof d === 'string')) p.addDirs = r.addDirs as string[];
-    if (r.agent === 'opencode') p.agent = 'opencode';
+    if (isAgentKind(r.agent) && r.agent !== DEFAULT_AGENT_KIND) p.agent = r.agent as NonDefaultAgentKind;
     if (typeof r.opencodeModel === 'string' && r.opencodeModel) p.opencodeModel = r.opencodeModel;
     if (Object.keys(p).length) out[key] = p;
   }

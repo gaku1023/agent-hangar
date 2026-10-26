@@ -30,7 +30,8 @@ export function agentIconsOn(store: Pick<Store, 'settings' | 'sessions' | 'live'
  */
 export function agentOfSession(store: Pick<Store, 'live'>, s: SessionDto): AgentIconKind | null {
   // 写しの sessionId はエージェントの側の ID（SessionDto.providerSessionId）である（store の relive と同じ突き合わせ）。
-  if (store.live.some((l) => l.sessionId === s.providerSessionId && l.agent === 'opencode')) return 'opencode';
+  const liveAgent = store.live.find((l) => l.sessionId === s.providerSessionId && l.agent !== undefined)?.agent;
+  if (liveAgent) return liveAgent;
   return agentIconKindOf(s.provider);
 }
 

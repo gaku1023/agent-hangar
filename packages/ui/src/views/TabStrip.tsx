@@ -41,10 +41,10 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); emit({ type: 'tab.select', tabId: props.tabs[i]!.id }); }
   };
 
-  // タブの頭の印。opencode のタブは公式ロゴで、選んだタブ（板と同じ墨色）には暗い地用、選んでいないタブ（白い地）には明るい地用を置く。
+  // タブの頭の印。Claude Code 以外のタブはそのエージェントの公式ロゴで、選んだタブ（板と同じ墨色）には暗い地用、選んでいないタブ（白い地）には明るい地用を置く。
   // 名前は隣の語が言うので、絵は読み上げから外す。
-  const mark = (t: TabItemProps) => (t.agent === 'opencode'
-    ? <AgentIcon kind="opencode" tone={t.selected ? 'dark' : 'light'} decorative />
+  const mark = (t: TabItemProps) => (t.agent
+    ? <AgentIcon kind={t.agent} tone={t.selected ? 'dark' : 'light'} decorative />
     : <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} />);
 
   return (

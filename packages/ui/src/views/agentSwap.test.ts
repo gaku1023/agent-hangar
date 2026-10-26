@@ -60,3 +60,16 @@ describe('エージェントの切り替えの動き（M1）', () => {
     expect(icon?.opts.duration).toBe(150);
   });
 });
+
+import { agentOnlyAttr } from './agentSwap.ts';
+describe('agentOnlyAttr', () => {
+  it('能力を持つエージェントの一覧を data-agent-only に入れる', () => {
+    expect(agentOnlyAttr('effort')).toEqual({ 'data-agent-only': 'claude-code' });
+    expect(agentOnlyAttr('modes')).toEqual({ 'data-agent-only': 'opencode' });
+  });
+  it('複数のエージェントが持つ札は、どちらの切り替えでも見分けられる', () => {
+    document.body.innerHTML = '<div class="dialog"><div class="launch-chips"><button id="x" data-agent-only="claude-code codex"></button></div></div>';
+    const dialog = document.querySelector<HTMLElement>('.dialog')!;
+    return leaveAgent(dialog, 'codex').then((snap) => { expect(snap.rects.has(document.getElementById('x')!)).toBe(false); });
+  });
+});
