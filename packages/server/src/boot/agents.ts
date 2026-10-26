@@ -10,6 +10,7 @@ import { claudeLiveSource, createClaudeDriver, type ClaudeDriver, type ClaudeLiv
 import { realProcOpsWith, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import type { GetLanguage } from '../i18n/language.ts';
+import { LocalCodex } from '../provider/codex/compat/version.ts';
 import { createCodexDriver, type CodexDriver } from '../provider/codex/driver.ts';
 import { createCodexLive } from '../provider/codex/live.ts';
 import { findCodex } from '../config/tools.ts';
@@ -99,9 +100,12 @@ export function bootAgents(
   });
   // Codex の状態と許可・質問の面（B4）。起こした会話は driver が track し、止めたら untrack する。足し付けの鎖は opencode と同じものを通す。
   const codexSurface = createCodexLive({ enrich: o.enrich, log: (line) => { console.warn(line); } });
+  const codexProbe = new LocalCodex({ bin: () => findCodex() });
   const codex = createCodexDriver({
     // 場所は起こすたびに探す（PATH）。ChatGPT.app の同梱は使わない。
     bin: () => findCodex(),
+    // 起こす前に `codex login status` で確かめ、ログインしていなければ断る。
+    loggedIn: async () => (await codexProbe.status()).loggedIn,
     home: home.home,
     // TUI へは CLAUDE 系と hangar の変数を持ち込まない（app-server の環境は provider/codex/env.ts が空から組む）。
     droppedEnv: AGENT_RUN_DROPPED_ENV,

@@ -32,9 +32,9 @@ export const codexInjectionOf = (s: { codexInjection?: CodexInjection }): CodexI
  * 手元の codex の検出の結果（server の provider/codex/compat/version.ts の LocalCodex.status）。
  * found は PATH に codex があるか、version は `codex --version` から読めた版（読めなければ null）、
  * verified は版が確かめた範囲の中にあるか（見つからないときと版が読めないときは false）、
- * loggedIn は `codex login status` が 0 で終わったか（見つからないとき、確かめられないときは null ではなく false）。
+ * loggedIn は `codex login status` が 0 で終わったか（0 以外は false、時間切れで分からないときは null、見つからないときと起こせないときは false）。
  */
-export type CodexStatusDto = { found: boolean; version: string | null; verified: boolean; loggedIn: boolean };
+export type CodexStatusDto = { found: boolean; version: string | null; verified: boolean; loggedIn: boolean | null };
 
 /**
  * 新しい会話の権限（Codex の /approvals と同じ 3 段）。LaunchParams.permissionMode にこの値を入れる。

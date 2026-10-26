@@ -30,6 +30,11 @@ export function noRolloutError(): MessageError {
   return new MessageError(msg('run.agent.codex.noRollout'));
 }
 
+/** ログインしていない codex は起動を断る。画面には辞書の文を出す（利用者が打つ手は codex login）。 */
+export function loggedOutError(): MessageError {
+  return new MessageError(msg('run.agent.codex.loggedOut'));
+}
+
 /** TOML の基本文字列（JSON の文字列の記法で足りる）。 */
 const toml = (s: string): string => JSON.stringify(s);
 

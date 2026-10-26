@@ -24,6 +24,8 @@ const requireFromHere = createRequire(import.meta.url);
 export type FakeCodexOptions = {
   version?: string;
   loggedIn?: boolean;
+  /** `login status` が終わらない（時間切れの試験用）。 */
+  loginHang?: boolean;
   /** 起動の記録の置き場。 */
   logFile?: string;
   /** app-server が起動時に孫を 1 つ起こし、その pid をこのファイルに書く。 */
@@ -57,6 +59,7 @@ const rlog = (o) => { if (OPTS.r) fs.appendFileSync(OPTS.r, JSON.stringify(o) + 
 ${o.logFile ? `fs.appendFileSync(${JSON.stringify(o.logFile)}, JSON.stringify({ argv: args, env: process.env }) + '\\n');` : ''}
 if (args[0] === '--version') { process.stdout.write('codex-cli ${version}\\n'); process.exit(0); }
 if (args[0] === 'login' && args[1] === 'status') {
+  ${o.loginHang ? 'await new Promise(() => setTimeout(() => {}, 600000));' : ''}
   if (${o.loggedIn === false ? 'false' : 'true'}) { process.stdout.write('Logged in using ChatGPT\\n'); process.exit(0); }
   process.stderr.write('Not logged in\\n'); process.exit(1);
 }

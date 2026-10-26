@@ -40,6 +40,10 @@ describe('設定の Codex の面', () => {
     expect(p.version?.login).toBe('codex にログインしていません（ターミナルで codex login を実行してください）。');
     expect(p.badge).toEqual({ text: '検証済み', tone: 'ok' });
   });
+  it('ログインが分からないとき（null）は、注記を出さない', () => {
+    const p = present(store({ codexEnabled: true }, { ...FOUND, loggedIn: null }));
+    expect(p.version?.login).toBeNull();
+  });
   it('答えが届く前は版も札も無い。コマンドの横取りは Windows では出さない', () => {
     const p = present(store({ codexEnabled: true }, null));
     expect([p.version, p.badge]).toEqual([null, null]);

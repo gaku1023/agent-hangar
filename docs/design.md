@@ -1437,7 +1437,7 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 
 #### 設定の面と版の知らせ（C4）
 
-検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。
+検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。`loggedIn` は `codex login status` が 0 で終われば true、0 以外なら false、時間切れで分からないときは null（設定の注記は出さない）。
 設定が切でも答える（有効にする前に、入っているかと版とログインを見せるため）。
 サーバは `LocalCodex.status()` を呼ぶだけで、画面は有効にしている間の起動時と、有効にしたとき、設定の画面に入ったときに取る。
 
@@ -1841,6 +1841,7 @@ RunManager は包みの生死で TUI の終わりを見て、終わったら `re
   cwd は、そのプロセスで最初の resume だけ上書きできる（E0）。app-server は会話ごとに起こしたてなので、ここで渡す。resume は rollout に `thread_settings_applied` を 1 行足す。
 - hangar の外で作られた会話（索引の provider が codex の行）も同じ道で再開する。終わった画面の「再開」（`resumeWith`、`resumeMaterialized`）は、driver が `materialize` を持つのでこの道を通る。
 - 最初の入力の前のスレッド（rollout が無い）は再開できない。app-server の `-32600 no rollout found` と、ID が仮のまま（`pending:`）の行を、どちらも `run.agent.codex.noRollout` で断る（行は消さず、app-server も残さない）。
+- 起こす前に `codex login status`（`LocalCodex`）で確かめ、ログインしていなければ（0 以外で終わったときだけ。時間切れで分からないときは断らず起動を続ける）`run.agent.codex.loggedOut`「codex にログインしていません（ターミナルで codex login を実行してください）」で断る（driver の `loggedIn`。app-server は起こさない）。見つからないときは `run.agent.codex.notFound`。版が範囲外でも起動は止めず、知らせの札だけを出す（決定 8）。
 - フォーク：app-server に `thread/fork` があり、driver は `materialize` で新しいスレッドを作ってその ID を返し、`plan` は `fork` の `newId` を `resume` でつなぐ。
   `caps.fork` は真で、`RunManager.fork`（B3c）は、`materialize` を持つ driver だけ別の道（`forkMaterialized`）を通る。Claude と opencode の道は変えない。
   新しい会話の ID はまだ無いので、`startMaterialized` と同じく仮の ID（`pending:…`）で新しい行を作り（プロジェクトと移した印は元から写す）、`materialize`（`kind: 'fork'`）を待って ID を書き換え、`plan` の `resume <新しい ID>` でつなぐ。run の種類は `fork` である。
@@ -2416,6 +2417,11 @@ worktree と追加ディレクトリは opencode の起動が受けない（Clau
 opencode の会話の終わった画面では、本文の面の最後に区切り線と 1 行「opencode を終了しました。続きは「再開」から開けます。」を置く（C7、試作の E1、presenter の `endedLine`、`EndedFacts.tsx` の `EndedAgentLine`）。
 「再開」から続けられることを言うので、run が無く再開を押せる会話にだけ付ける。
 見ている間に終わったときだけ growIn で入れ、開いたときにもう終わっていた会話では動かさない。
+
+Codex の会話も同じ形である（C5）。
+文は「Codex を終了しました。続きは「再開」から開けます。」で、どのエージェントのどの 1 行かは `presenters/agentText.ts` の `AGENT_TEXT`（`endedLine`、`endedPending`）と `ENDED_LINE_KEY` で引く。
+hangar の外の会話（状態を持たない）も、本文があれば同じ 1 行が付き、「再開」から続けられる。
+`provider_session_id` が `pending:` のまま終わった会話（最初の入力の前）は、rollout が無く再開できないので、`canResume` を偽にして再開を出さず、「この会話は、まだ最初の入力が送られていないため、再開できません。」の 1 行（`session.ended.codex.pending`）にする。
 切り替えの動きは M1 である（`views/agentSwap.ts`）。消える札は `--dur-swap`（150ms）で薄れ、残る札は前の位置から滑り（FLIP）、新しい札は `--stagger`（30ms）ずつずれて浮き上がる。ダイアログの高さは `resizeFrom` で変える。
 どちらかのエージェントだけの札と注記は `data-agent-only` を持ち、動きはそれで消えるものと入るものを見分ける。
 値は能力（`AGENT_UI_CAPS`）から `agentOnlyAttr` が作り、そのエージェントの名前を空白で並べる。

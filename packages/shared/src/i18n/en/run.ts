@@ -24,6 +24,7 @@ export const runEn: AreaDictionary<typeof runKeys> = {
   'run.agent.codex.optionUnsupported': '{option} cannot be set for Codex sessions',
   'run.agent.codex.actionUnsupported': 'This action is not available for Codex sessions',
   'run.agent.codex.launchFailed': 'Failed to start Codex: {reason}',
+  'run.agent.codex.loggedOut': 'You are not logged in to codex (run codex login in a terminal)',
   'run.agent.codex.noRollout': 'This conversation has no first message yet, so it cannot be resumed. Start a new one',
   'run.tab.notFound': 'Tab not found',
   'run.tab.shell': 'Shell',

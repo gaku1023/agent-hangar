@@ -215,6 +215,19 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     expect(fs.existsSync(log)).toBe(false);
   });
 
+  it('ログインしていないときは、app-server を起こさずに断る。ログイン済みなら通る', async () => {
+    const out = make({}, { loggedIn: async () => false });
+    const err = (await out.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' })).then(() => null, (e: unknown) => e)) as MessageError;
+    expect(err).toBeInstanceOf(MessageError);
+    expect(err.text?.key).toBe('run.agent.codex.loggedOut');
+    expect(fs.existsSync(log)).toBe(false);
+    const unknown = make({}, { loggedIn: async () => null });
+    expect(await unknown.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }))).toEqual({ providerSessionId: expect.stringMatching(/^01a/) });
+    const ok = make({}, { loggedIn: async () => true });
+    const r = await ok.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));
+    expect(r).toEqual({ providerSessionId: expect.stringMatching(/^01a/) });
+  });
+
   it('フォーク：thread/fork（cwd、権限）で新しいスレッドを作り、その ID を返す。plan は新しい ID を resume でつなぐ。元の会話は変えない', async () => {
     const { d } = make({ knownThreads: [{ id: EXT, cwd }] });
     const r = (await d.launch.materialize!({ kind: 'fork', id: EXT, newId: 'unused' }, spec({ mode: 'full-access' }))) as { providerSessionId: string };

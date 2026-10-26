@@ -290,7 +290,7 @@ export function SessionScreen(props: SessionProps) {
     <div className="screen session-screen">
       {header}
       <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} data-toc={props.hasTranscript ? undefined : 'none'} style={props.hasTranscript ? bodyStyle : undefined}>
-        <div className="c-main">{!props.hasTranscript && summaryCard}<section className="tr-sheet">{toggles}{transcript}{props.endedLine && <EndedAgentLine grow={seenAlive.current === id} />}</section></div>
+        <div className="c-main">{!props.hasTranscript && summaryCard}<section className="tr-sheet">{toggles}{transcript}{props.endedLine && <EndedAgentLine grow={seenAlive.current === id} line={props.endedLine} />}</section></div>
         {props.hasTranscript && toc}
       </div>
     </div>

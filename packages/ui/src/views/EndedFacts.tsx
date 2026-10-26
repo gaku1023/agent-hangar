@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
+import { ENDED_LINE_KEY, type EndedLine } from '../presenters/agentText.ts';
 import type { LeadCardProps, SessionGitView } from '../presenters/session.ts';
 import { GitChip } from './GitChip.tsx';
 import { CountChip } from './primitives/Chip.tsx';
@@ -96,7 +97,7 @@ const ACTION_SLOT = '\u0001';
  * 区切り線の下に「opencode を終了しました。続きは「再開」から開けます。」を置き、「再開」を見出しの主の操作と同じ語で強めて示す。
  * grow は見ている間に終わったときで、そのときだけ高さを 0 から伸ばして入れる（growIn）。開いたときにもう終わっていた会話では動かさない。
  */
-export function EndedAgentLine(props: { grow: boolean }) {
+export function EndedAgentLine(props: { grow: boolean; line: EndedLine }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -104,10 +105,12 @@ export function EndedAgentLine(props: { grow: boolean }) {
     // 入ったときに 1 度だけ動かす。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [before, after] = t('session.ended.opencode', { action: ACTION_SLOT }).split(ACTION_SLOT);
+  // 再開できないとき（pending）の文には {action} が無い。「再開」を強めるのは、枠が文の中にあるときだけ。
+  const key = ENDED_LINE_KEY[props.line];
+  const [before, after] = (key === 'session.ended.codex.pending' ? t(key) : t(key, { action: ACTION_SLOT })).split(ACTION_SLOT);
   return (
     <div ref={ref} className="ended-line" role="note">
-      <span>{before}<em>{t('session.action.resume')}</em>{after}</span>
+      <span>{before}{after !== undefined && <><em>{t('session.action.resume')}</em>{after}</>}</span>
     </div>
   );
 }
