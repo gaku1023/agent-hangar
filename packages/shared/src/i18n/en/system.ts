@@ -5,6 +5,8 @@ export const systemEn: AreaDictionary<typeof systemKeys> = {
   'system.index.rebuildFailed': 'Failed to rebuild the index: {reason}',
   'system.opencode.disabled': 'opencode is disabled.',
   'system.opencode.optionsFailed': 'Could not get the list from opencode: {reason}',
+  'system.codex.disabled': 'Codex is not enabled.',
+  'system.codex.optionsFailed': 'Could not load the list from codex: {reason}',
   'system.opencode.providersFailed': 'Could not reach opencode: {reason}',
   'system.opencode.providers.unknownProvider': 'opencode does not know this provider.',
   'system.opencode.providers.emptyKey': 'Enter an API key.',

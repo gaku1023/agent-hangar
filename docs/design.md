@@ -1535,6 +1535,59 @@ driver への差し方は `createCodexLive(options)` が返す `{ live, asks }` 
 
 試験は、接続のふり（通知と要求を手で流す）と、偽の codex（`test/fake-codex.ts`。入力の頭の `ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` で要求を送り、TUI の代わりの接続が応答すると resolved を流す。`hang` は終わらない。`thread/read` に答える）の両方で行う。
 
+### Codex の互換の見張り（ベータ）
+
+Codex は版の変わりが速い（1 か月半のあいだに、daemon の既定化、paginated の既定化、承認の方針の値の削除があった）。
+そこで Claude Code、opencode と同じく、頼っている形を見本に残し、週に 1 度、確かめた範囲の codex と突き合わせる（計画の H1）。
+Codex の見張りは、既存の 5 ジョブとは別の仕事 `.github/workflows/codex-compat.yml` で、月曜 1:00 UTC と手動で走る（claude-compat は 0:00、opencode-compat は 0:30）。
+毎回の PR では走らせない。
+
+#### 版を持つ場所
+
+確かめた範囲は `CODEX_VERIFIED_RANGE`（`0.164.x`）の 1 か所だけに持つ。
+CI が入れる版は、`scripts/codex-compat-version.mjs` がこの範囲から作る（`0.164.x` なら npm の指定は `0.164`、つまり 0.164 のうちいちばん新しい版）。
+ワークフローに版は書かない。
+範囲を広げるときは、新しい版で見本を採り直し、差分を読んでから範囲を上げる。
+Claude と opencode のように最新へ追いかけない。範囲の外は利用者に知らせるだけで起動は止めないので、追いかける側が先に壊れるのを待つほうが、見張りとして意味がある。
+
+#### 見張るもの
+
+見本は `packages/server/test/fixtures/codex-compat/<版>/` にあり、`npm run capture-codex-fixtures` で採る（`packages/server/test/capture-codex/run.ts`、道具は `packages/server/test/codexHarness.ts`）。
+照合は `codexLive.test.ts` で、`HANGAR_LIVE_CODEX=1` のときだけ走る。
+ふだんの `npm test` では `codexCompatFixtures.test.ts`（見本の自己点検）と `codexCompatUnits.test.ts`（比べる道具）だけが走り、codex は起こさない。
+
+1. **app-server の JSON Schema**。`codex app-server generate-json-schema` の束のうち、hangar が使う要求、通知、承認の要求（`compat/schemaSubset.ts` の `HANGAR_CODEX_METHODS`。thread/start、resume、fork、read、turn/start、interrupt、thread/status/changed、thread/started、turn/*、account/rateLimits/*、thread/tokenUsage/updated、承認と質問の要求、mcpServerStatus/list ほか）の包みと、そこから参照をたどった定義だけを控える。
+   説明文（`description`）は版ごとに書き換わるが hangar の読み方は変わらないので控えに入れない。
+   ずれたら、パスつきの差分（`definitions.v2/Turn.properties.x: in the fixture, missing now`）を落ちた文に出す。
+   hangar が使う方法を足したら `HANGAR_CODEX_METHODS` に足して見本を採り直す（足し忘れは `codexCompatFixtures.test.ts` が落ちる）。
+2. **app-server に話した答え**（`app-server-probe.json`）。ログイン無しの app-server を標準入出力で起こし、initialize、thread/start、thread/started、thread/resume、account/rateLimits/read、mcpServerStatus/list の答えのキーの名前を控える。
+   ターンの前は rollout が書かれず、thread/resume が `no rollout found` で断られること（B4 の再購読の再試行が頼る振る舞い）も見る。
+   ログイン無しでは account/rateLimits/read が断られることも控える。本物の使用量の形は、JSON Schema の側（`GetAccountRateLimitsResponse`）で見る。
+3. **rollout の形**（`rollout-shape.json`）。手元に立てた Responses API の模擬（モデルは使わない）で `codex exec` を 2 本走らせる（文で答えるターンと、道具を呼ぶターン）。
+   できた rollout の行を、種類（`type` と `payload.type`）ごとに、キーの道と型の和へ畳んで控える（`compat/rolloutShape.ts`）。値は見ない。
+   読み捨てる `world_state` は見ない。
+   形が同じでも読めなければ意味がないので、同じ rollout を hangar の読み手（`transcript/batch.ts` の `readCodexBatch`）に通し、読めない行が無いことと、返事が出てくることも見る。
+4. **`codex --help`**（`help.txt`）。Commands の名前と別名を読み（`compat/help.ts` の `parseCodexHelp`）、控えと比べる。
+   外のターミナルの横取り（D1 の `provider/codex/compat/cli.ts` の `BUILTIN_CODEX_SUBCOMMANDS`）が入ったら、同じ一覧を見る。
+   見ているのは `builtinSubcommandDrifts` で、`resume`（ID が 1 つのときだけ hangar の起動へ写す）を除く名前と別名が、一覧と過不足なく同じかである。
+   `cli.ts` が無いあいだは飛ばし、入ると同じ試験が自動で見る。
+
+#### 見張れないもの
+
+- **ログインの要るもの**。本物のモデルを通した応答、`account/rateLimits/updated` と `thread/tokenUsage/updated` の本物の中身、承認の要求が届く順は、JSON Schema の形（包みと型）までしか見ない。実際の値や順序は実機の確かめである。
+- **legacy の rollout**。いまの codex が書くのは paginated（`ordinal` つき）だけなので、legacy の読み方は B5 の試験の写しで守り、この見張りでは見ない。
+- **zstd の圧縮、会話の fork と resume の中身、TUI の見た目**。模擬では作らない。
+- **Windows の codex**。照合は ubuntu で走る。
+- **道具の実行の記録**。`exec_command` の実行は、sandbox の効き方が OS で違う。CI の Linux で形が変わったら、見本を Mac の版から採った差として読み、必要なら道具を呼ぶターンの比べ方を絞る。
+
+#### 見本の採り方
+
+本物の codex を、試しの置き場（`HOME` と `CODEX_HOME` を一時ディレクトリへ）と空の環境（`codexBaseEnv`）で動かす。
+利用者の `~/.codex` は読まず、書かない。終わったら置き場ごと消す。
+ログインはせず、モデルも呼ばない（模擬は 127.0.0.1 だけで答える）ので、使用量は使わず、動かす前に聞かなくてよい。
+模擬は codex と同じプロセスにいるので、codex は同期で待たず非同期で待つ（同期で待つと模擬が答えられず、固まる）。
+採り直したら、差分を読んで、hangar の読み手と `HANGAR_CODEX_METHODS` に響くものが無いかを見てから、`CODEX_VERIFIED_RANGE` を上げる。
+
 ### Codex の使用量（ベータ）
 
 Codex を足す作業の段 B の 7 つ目（計画の B7）で、枠と会話の値の取り手を入れた。
@@ -1818,6 +1871,36 @@ driver が、会話を起こしたあとに `live.track({providerSessionId, cwd,
 - reattach：接続を持たないので、上のとおりつなぎ直してから載せる。
 トランスクリプト（`transcript`）は B5 が載せるまで空の面を持つ。
 `CodexDriver.served(sessionId)` と `onServe` は、動いている app-server の接続とスレッドの ID の口である。使用量（B7）の `codexUsage.track` はこの口にはつないでいない。
+
+### Codex の新しいセッションのダイアログ（ベータ）
+
+Codex を足す作業の段 C の 1 つ目（計画の C1）で、新しいセッションのダイアログに Codex を選べるようにした。
+設定の `codexEnabled` が切のあいだは、ダイアログは今のままで、エージェントの札も出ない。
+
+**札の列**：エージェントの札の一覧は、設定で有効にしたものだけを並べる（Claude Code は常に。`NewSessionProps.codex` が有効なときだけ渡り、`LaunchAgentChip.offered` が並びを決める）。
+前回のエージェントが無効になっていたら、Claude Code で開く。
+Codex を選ぶと、アカウント、モデルの自由入力、effort、権限モード、worktree、追加ディレクトリの札と信頼の注記を外し、モデル、推論、権限の 3 枚を出す（`LaunchChips` の `CodexChips`）。
+この 3 枚は `AGENT_UI_CAPS` の `modelList`（Codex だけが真）で見分ける。`effort` と `permissionMode` の能力は Claude Code の自由な値の札のもので、Codex では偽のままにしてある（切り替えの動きが、Claude の札と Codex の札を取り違えないため）。
+切り替えの動きは opencode と同じ（`agentSwap.ts`）。
+
+**モデルと推論**：一覧は `GET /api/codex/options`（`provider/codex/options.ts` の `CodexOptionsService`）が、`codex debug models` を空の環境（`codexBaseEnv`）で打って作る。
+app-server の `model/list` は使わない。app-server を起こすのは重く、ログインも要るので、子プロセスを 1 回打つだけで済む `debug models` を選んだ。
+出力は 500KB ほどあるので、`visibility` が `list` のものを `priority` の順に、モデルの ID、表示名、説明、選べる推論の段階、既定の段階だけに縮める。
+60 秒は取り直さず、同時の問いは 1 回にまとめる。取り直しに失敗しても、前の一覧があれば返す。設定で有効にしていなければ 409、取れなければ 502 で、画面は札の下で言う。
+応答には手元の codex の版と、確かめた範囲に入るかを添える（エージェントの一覧の「codex 0.164.0 · 検証済み」）。
+画面の取得は Codex を選んだときに 1 回頼む（`codex.options`、Store の `codexOptions`）。
+
+**推論の戻し**：推論の初めの値は medium。選べる段階はモデルごとの一覧で決まる（モデルがデフォルトのときは、一覧の先頭のモデルの段階を使う）。
+モデルを替えて、いまの推論がそのモデルで選べなくなったら、その場で medium に戻す。medium も無いモデルは、そのモデルの既定の段階にする。
+前回のモデルが一覧から消えていたらデフォルトに戻す（opencode のような知らせは出さない）。一覧が届く前は、前回の値をそのまま見せる。（`presenters/codexLaunch.ts`）
+
+**権限**：札は 1 枚で、読み取りのみ（`read-only`）、自動（`auto`、既定）、フルアクセス（`full-access`）の 3 段。値は `LaunchParams.permissionMode` にそのまま入る（組の中身は `CODEX_PERMISSION_FLAGS`）。
+フルアクセスは札を赤い縁と警告の印にし、下に注意の 1 行を出す（`CodexFullAccessNote`。入りは `growIn`、外れは `collapseOut`）。起動のボタンは赤くしない。
+権限は毎回自動から始め、前回値には残さない。
+
+**前回の選択**：プロジェクトごとの前回値（`LaunchPrefs`）に、エージェントのほか `codexModel` と `codexEffort` を持つ。
+Codex で起こすと、エージェントとモデルと推論を書き換え、Claude の札と opencode のモデルは前のまま残す。Claude Code や opencode で起こしても、Codex のモデルと推論は前のまま残す。
+起動の params は、エージェント、モデル（デフォルトなら載せない）、推論、権限だけを載せる。
 
 ### opencode の起動
 

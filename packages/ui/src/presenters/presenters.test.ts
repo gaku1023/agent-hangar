@@ -904,6 +904,15 @@ describe('presentNewSession', () => {
     const loaded = { ...on, opencodeOptions: { dir: '/w/alpha', status: 'ready' as const, data: OC_OPTIONS } };
     expect(presentNewSession(state, loaded, NOW)!.opencode).toEqual({ options: loaded.opencodeOptions });
   });
+  it('Codex は設定で有効にしたときだけ渡し、選択肢の読み込みを添える。切なら null（見た目は今のまま）', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    expect(presentNewSession(state, storeWith(), NOW)!.codex).toBeNull();
+    expect(presentNewSession(state, { ...storeWith(), settings: fullSettings({ codexEnabled: false }) }, NOW)!.codex).toBeNull();
+    const on = { ...storeWith(), settings: fullSettings({ codexEnabled: true }) };
+    expect(presentNewSession(state, on, NOW)!.codex).toEqual({ options: null });
+    const loaded = { ...on, codexOptions: { status: 'ready' as const, data: { version: '0.164.0', verified: true, models: [], fetchedAt: 1 } } };
+    expect(presentNewSession(state, loaded, NOW)!.codex).toEqual({ options: loaded.codexOptions });
+  });
   it('ステータスと最後に使った時期を添え、最近は最後に使った順の上位 5 件', () => {
     const store = storeWith();
     for (const [id, ago] of [['p1', 1], ['p2', 5], ['p3', 3], ['p4', 9], ['p5', 2], ['p6', 7], ['p7', null]] as const) {

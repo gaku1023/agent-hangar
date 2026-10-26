@@ -11,7 +11,8 @@
     "dev": "node scripts/dev.mjs",
     "hangar": "hangar",
     "capture-claude-fixtures": "node --import tsx scripts/capture-claude-fixtures.ts",
-    "capture-opencode-fixtures": "node --import tsx scripts/capture-opencode-fixtures.ts"
+    "capture-opencode-fixtures": "node --import tsx scripts/capture-opencode-fixtures.ts",
+    "capture-codex-fixtures": "node --import tsx scripts/capture-codex-fixtures.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

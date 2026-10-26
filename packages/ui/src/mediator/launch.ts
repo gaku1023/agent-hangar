@@ -25,16 +25,24 @@ const PREF_TEXT = ['model', 'effort', 'permissionMode'] as const;
  * 設定の既定のモデル（defaultModel）と同じモデルは残さない。残すと、既定のモデルを変えてもそのプロジェクトだけ古い既定に留まる。
  * before はそのプロジェクトの前の前回値である。opencode で起こしたときは、Claude Code の札の値を前のまま残し、エージェントと opencode のモデルだけを書き換える。
  * Claude Code で起こしたときは、opencode のモデルを前のまま残す。opencode のモードと自動承認は残さない（自動承認は毎回オフから始める）。
+ * Codex で起こしたときは、エージェントとモデルと推論の段階だけを書き換える（Claude の札と opencode のモデルは前のまま。権限は毎回自動から始めるので残さない）。
+ * Codex のモデルと推論は、どのエージェントで起こしても前のまま残す。
  */
 export function launchPrefsOf(params: LaunchParams, defaultModel: string | null = null, before: LaunchPrefs = {}): LaunchPrefs {
   if (params.agent === 'opencode') {
     const { agent: _agent, opencodeModel: _model, worktree: _worktree, ...claude } = before;
     return { ...claude, agent: 'opencode', ...(params.model ? { opencodeModel: params.model } : {}) };
   }
+  if (params.agent === 'codex') {
+    const { agent: _agent, codexModel: _model, codexEffort: _effort, worktree: _worktree, ...claude } = before;
+    return { ...claude, agent: 'codex', ...(params.model ? { codexModel: params.model } : {}), ...(params.effort ? { codexEffort: params.effort } : {}) };
+  }
   const out: LaunchPrefs = {};
   for (const k of PREF_TEXT) if (params[k] && !(k === 'model' && params[k] === defaultModel)) out[k] = params[k];
   if (params.addDirs?.length) out.addDirs = [...params.addDirs];
   if (before.opencodeModel) out.opencodeModel = before.opencodeModel;
+  if (before.codexModel) out.codexModel = before.codexModel;
+  if (before.codexEffort) out.codexEffort = before.codexEffort;
   return out;
 }
 
@@ -66,6 +74,8 @@ export function readLaunchPrefs(v: unknown): Record<string, LaunchPrefs> {
     if (Array.isArray(r.addDirs) && r.addDirs.length && r.addDirs.every((d) => typeof d === 'string')) p.addDirs = r.addDirs as string[];
     if (isAgentKind(r.agent) && r.agent !== DEFAULT_AGENT_KIND) p.agent = r.agent as NonDefaultAgentKind;
     if (typeof r.opencodeModel === 'string' && r.opencodeModel) p.opencodeModel = r.opencodeModel;
+    if (typeof r.codexModel === 'string' && r.codexModel) p.codexModel = r.codexModel;
+    if (typeof r.codexEffort === 'string' && r.codexEffort) p.codexEffort = r.codexEffort;
     if (Object.keys(p).length) out[key] = p;
   }
   return out;

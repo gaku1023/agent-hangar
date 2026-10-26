@@ -1,6 +1,6 @@
-import { opencodeEnabledOf, type OpencodeOptionsDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, type OpencodeOptionsDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
-import { hasMultipleAccounts, type OpencodeOptionsState, type Store } from '../store/store.ts';
+import { hasMultipleAccounts, type CodexOptionsState, type OpencodeOptionsState, type Store } from '../store/store.ts';
 import type { FolderInspectState } from '../store/folderInspect.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
 import { approveText, isPickableAccount, loggedOutText, presentAccounts, type AccountView } from './accounts.ts';
@@ -54,12 +54,18 @@ export type NewSessionProps = {
    */
   opencode?: NewSessionOpencode | null;
   /**
+   * Codex（ベータ）。設定で有効にしたときだけ渡し、ダイアログはエージェントの一覧に Codex を足す。null と省略は無効で、一覧に出さない。
+   * options は Codex を選んだときに読むモデルと推論の段階（場所に依らない）。
+   */
+  codex?: NewSessionCodex | null;
+  /**
    * 送った起動の準備の進み（起動前の準備、docs/design.md）。段の無い準備と、まだ何も届かないうちは null で、今までどおりの見た目になる。
    * 進みの箱、問いの札、失敗の札はこれから出す。
    */
   prep?: LaunchPrepView | null;
 };
 export type NewSessionOpencode = { options: OpencodeOptionsState | null };
+export type NewSessionCodex = { options: CodexOptionsState | null };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
 
 /**
@@ -146,6 +152,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     ...(state.overlay.pickModel ? { pickModel: true } : {}),
     dir: state.overlay.dir ?? null, inspect: store.folderInspect,
     opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,
+    codex: codexEnabledOf(store.settings ?? {}) ? { options: store.codexOptions } : null,
     prep: mark && prepDto ? presentLaunchPrep(prepDto, t, mark.model) : null,
   };
 }

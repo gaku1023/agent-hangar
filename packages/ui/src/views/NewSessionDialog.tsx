@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { AGENT_UI_CAPS, DEFAULT_AGENT_KIND, defaultOpencodeMode, isAgentKind, type AgentValue, type LaunchParams, type LaunchPrepChoice, type ProjectPlace } from '@agent-hangar/shared';
+import { AGENT_UI_CAPS, DEFAULT_AGENT_KIND, defaultOpencodeMode, DEFAULT_CODEX_PERMISSION, isAgentKind, type AgentValue, type CodexPermission, type LaunchParams, type LaunchPrepChoice, type ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
+import { codexAgentNote, codexEffortChoice, codexEffortsOf, codexModelChoice } from '../presenters/codexLaunch.ts';
 import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
 import { STATUS_LABEL } from '../presenters/format.ts';
 import { agentOnlyAttr, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
 import { isComposing } from './ime.ts';
 import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
+import { CodexFullAccessNote } from './CodexFullAccessNote.tsx';
 import { OpencodeModelResetNote } from './OpencodeModelResetNote.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -176,10 +178,16 @@ export function NewSessionDialog(props: NewSessionProps) {
   const account = props.accounts ? accountChoice(props.accounts, pickedAccount) : null;
   // エージェント。利用者が選んだものだけを覚え、選んでいなければプロジェクトの前回値（無ければ Claude Code）。設定で無効なら、いつも Claude Code。
   const oc = props.opencode ?? null;
-  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(props.opencode && props.agent ? props.agent : null);
+  const cx = props.codex ?? null;
+  // 一覧に並べるエージェントは、設定で有効にしたものだけ（Claude Code は常に）。前回のエージェントが無効になっていたら Claude Code で開く。
+  const offered: AgentValue[] = [DEFAULT_AGENT_KIND, ...(oc ? (['opencode'] as const) : []), ...(cx ? (['codex'] as const) : [])];
+  // 開く経路が決めたエージェント（起動後の札の「別のモデルでやり直す」は opencode）。一覧に無ければ前回の値に任せる。
+  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(props.agent && offered.includes(props.agent) ? props.agent : null);
   const remembered = props.prefs[prefKey]?.agent;
-  const agent: AgentValue = oc === null ? DEFAULT_AGENT_KIND : pickedAgent ?? (isAgentKind(remembered) ? remembered : DEFAULT_AGENT_KIND);
+  const chosenAgent = pickedAgent ?? remembered;
+  const agent: AgentValue = isAgentKind(chosenAgent) && offered.includes(chosenAgent) ? chosenAgent : DEFAULT_AGENT_KIND;
   const opencode = agent === 'opencode';
+  const codex = agent === 'codex';
   const caps = AGENT_UI_CAPS[agent];
   // opencode の一覧を聞く場所。opencode.json の重なりが場所で変わるので、起こす場所で聞く。新しいフォルダとクイックセッションはホームで聞く。
   const ocDir = dirPath ?? (scratch || newDir ? null : props.projects.find((p) => p.id === choice)?.path ?? null);
@@ -193,6 +201,20 @@ export function NewSessionDialog(props: NewSessionProps) {
   const [pickedModel, setPickedModel] = useState<string | null>(null);
   const ocRemembered = pickedModel ?? props.prefs[prefKey]?.opencodeModel ?? '';
   const ocModel = opencodeModelChoice(ocRemembered, ocData);
+  // Codex。モデルと推論は選んだもの、選んでいなければ前回値。一覧から消えたモデルはデフォルトに戻し、そのモデルで選べない推論は medium に戻す。権限は毎回自動から始める（前回値に残さない）。
+  const cxState = cx?.options ?? null;
+  const cxData = cxState?.data ?? null;
+  useEffect(() => { if (codex) emit({ type: 'codex.options' }); }, [codex]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const [pickedCxModel, setPickedCxModel] = useState<string | null>(null);
+  const cxModel = codexModelChoice(pickedCxModel ?? props.prefs[prefKey]?.codexModel ?? '', cxData);
+  const [pickedCxEffort, setPickedCxEffort] = useState<string | null>(null);
+  const cxEffort = codexEffortChoice(pickedCxEffort ?? props.prefs[prefKey]?.codexEffort ?? '', cxData, cxModel);
+  const [cxPermission, setCxPermission] = useState<CodexPermission>(DEFAULT_CODEX_PERMISSION);
+  // モデルを替えて、選んでいる推論がそのモデルで選べなくなったら、その場で medium（無ければそのモデルの既定）に戻す。
+  const pickCxModel = (v: string) => {
+    setPickedCxModel(v);
+    setPickedCxEffort(codexEffortChoice(cxEffort, cxData, v));
+  };
   // 戻したことの注記（M1）は ✕ で閉じられる。閉じたら、このダイアログの間は出さない。
   const [resetNoteClosed, setResetNoteClosed] = useState(false);
   // 自動承認は毎回オフから始める（前回値に残さない）。
@@ -274,6 +296,15 @@ export function NewSessionDialog(props: NewSessionProps) {
     // 添付の置き場を claude に渡す --add-dir はサーバが足すので、ここでは addDirs に混ぜない。
     const text = composePrompt(prompt, attachments);
     if (text) params.prompt = text;
+    // Codex は、エージェント、モデル、推論、権限の 3 段だけを渡す。Claude Code だけの値は載せない（サーバが断る）。モデルが空（デフォルト）なら載せない。
+    if (codex) {
+      params.agent = agent;
+      if (cxModel) params.model = cxModel;
+      params.effort = cxEffort;
+      params.permissionMode = cxPermission;
+      emit({ type: 'session.new.submit', params, ...(place ? { place } : {}) });
+      return;
+    }
     // opencode は、エージェント、モード（POST の agent）、モデル（provider/model）、自動承認（--auto）だけを渡す。Claude Code だけの値は載せない（サーバが断る）。
     if (opencode) {
       params.agent = agent;
@@ -396,7 +427,12 @@ export function NewSessionDialog(props: NewSessionProps) {
       </div>
       <LaunchChips
         rootRef={chipsRef}
-        agent={oc ? { value: agent, onChange: (v) => { void switchAgent(v); }, opencodeNote: opencodeAgentNote(t, ocData) } : undefined}
+        agent={oc || cx ? { value: agent, onChange: (v) => { void switchAgent(v); }, opencodeNote: opencodeAgentNote(t, ocData), codexNote: codexAgentNote(t, cxData), offered } : undefined}
+        codex={codex ? {
+          model: cxModel, models: cxData?.models ?? [], onModel: pickCxModel,
+          effort: cxEffort, efforts: codexEffortsOf(cxData, cxModel), onEffort: setPickedCxEffort,
+          permission: cxPermission, onPermission: setCxPermission,
+        } : undefined}
         opencode={opencode ? {
           mode: ocMode, modes: ocData?.modes ?? [], onMode: setPickedMode,
           model: ocModel.model, models: ocData?.models ?? [], defaultModel: ocData?.defaultModel ?? null, modelReset: ocModel.reset, onModel: setPickedModel,
@@ -412,6 +448,10 @@ export function NewSessionDialog(props: NewSessionProps) {
         onChange={onChips}
         previousPermission={prev ? prev.permissionMode ?? '' : undefined}
       />
+      <CodexFullAccessNote open={codex && cxPermission === 'full-access'} />
+      {codex && cxData === null && (cxState?.status === 'loading' || cxState?.status === 'failed') && (
+        <div className="faint" {...agentOnlyAttr('modelList')}>{t(cxState.status === 'loading' ? 'launch.codex.loading' : 'launch.codex.failed')}</div>
+      )}
       <OpencodeModelResetNote open={opencode && ocModel.reset && !resetNoteClosed} model={ocRemembered} onClose={() => setResetNoteClosed(true)} />
       {opencode && ocState?.data === null && (ocState.status === 'loading' || ocState.status === 'failed') && (
         <div className="faint" {...agentOnlyAttr('modes')}>{t(ocState.status === 'loading' ? 'launch.opencode.loading' : 'launch.opencode.failed')}</div>
