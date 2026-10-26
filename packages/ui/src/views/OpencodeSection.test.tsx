@@ -7,13 +7,13 @@ import { OpencodeSection } from './OpencodeSection.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
 const OPTIONS: OpencodeSettingsProps['injectionOptions'] = [
-  { value: 'minimal', label: '最小限（意図と要約）' },
+  { value: 'minimal', label: '最小限（意図・要約・状態）' },
   { value: 'claude', label: 'Claude Code と同じ' },
   { value: 'none', label: '追記しない' },
 ];
 const props = (over: Partial<OpencodeSettingsProps> = {}): OpencodeSettingsProps => ({
   available: true, enabled: false, injection: 'minimal', injectionOptions: OPTIONS, claudeNote: null,
-  full: [{ label: '最小限（意図と要約）', off: false, mark: null, pieces: [{ kind: 'text', text: 'あなたは agent-hangar から起動されたセッションです。' }] }],
+  full: [{ label: '最小限（意図・要約・状態）', off: false, mark: null, pieces: [{ kind: 'text', text: 'あなたは agent-hangar から起動されたセッションです。' }] }],
   intercept: { available: true, on: false, note: null },
   permissionPreset: { on: true, byConfig: false, note: null },
   localContext: { value: 65_536, options: [{ value: 32_768, label: '32K' }, { value: 65_536, label: '64K（推奨）' }, { value: 131_072, label: '128K' }] },
@@ -146,7 +146,7 @@ describe('設定の opencode の面', () => {
     const fold = section().querySelector('details.cp-more');
     expect(fold).not.toBeNull();
     expect(fold!.querySelector('summary')).toHaveTextContent('追加する指示の全文を表示');
-    expect(fold!.querySelector('.inject-part-k')).toHaveTextContent('最小限（意図と要約）');
+    expect(fold!.querySelector('.inject-part-k')).toHaveTextContent('最小限（意図・要約・状態）');
     expect(fold).toHaveTextContent('あなたは agent-hangar から起動されたセッションです。');
   });
 

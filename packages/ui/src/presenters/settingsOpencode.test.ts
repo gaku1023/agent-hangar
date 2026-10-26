@@ -21,7 +21,7 @@ describe('設定の opencode の面', () => {
 
   it('追記の選択肢は最小限、Claude Code と同じ、追記しないの順', () => {
     expect(present(store()).injectionOptions).toEqual([
-      { value: 'minimal', label: '最小限（意図と要約）' },
+      { value: 'minimal', label: '最小限（意図・要約・状態）' },
       { value: 'claude', label: 'Claude Code と同じ' },
       { value: 'none', label: '追記しない' },
     ]);
@@ -97,7 +97,7 @@ describe('設定の opencode の面', () => {
 
   it('英語の文面', () => {
     const en = present(store({ language: 'en', opencodeEnabled: true, opencodeInjection: 'claude' }, { found: true, version: '2.2.0', verified: false }));
-    expect(en.injectionOptions.map((o) => o.label)).toEqual(['Minimal (intent and summary)', 'Same as Claude Code', 'None']);
+    expect(en.injectionOptions.map((o) => o.label)).toEqual(['Minimal (intent, summary, status)', 'Same as Claude Code', 'None']);
     expect(en.claudeNote).toBe('Some models may confirm status proposals without asking you.');
     expect(en.badge).toEqual({ text: 'Unverified version', tone: 'info' });
     expect(en.version?.note).toBe('This version is unverified. API changes may cause status and permission checks to display incorrectly.');
@@ -109,7 +109,7 @@ describe('設定の opencode の面', () => {
   });
 
   it('追記の全文は選んでいる量で組み、Claude と同じスイッチが効く', () => {
-    expect(present(store({ opencodeEnabled: true })).full.map((p) => p.label)).toEqual(['最小限（意図と要約）']);
+    expect(present(store({ opencodeEnabled: true })).full.map((p) => p.label)).toEqual(['最小限（意図・要約・状態）', '作業の区切りで Done／Paused を確認する（オン）']);
     const claude = present(store({ opencodeEnabled: true, opencodeInjection: 'claude', liveHints: false }));
     expect(claude.full).toHaveLength(5);
     expect(claude.full[4]!.off).toBe(true);

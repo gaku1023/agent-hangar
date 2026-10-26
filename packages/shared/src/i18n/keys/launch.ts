@@ -9,6 +9,7 @@ export const launchKeys = {
   'launch.injection.missing': ['n', 'files'],
   'launch.injection.multiDevice': ['deviceCount'],
   'launch.injection.opencode.minimal': [],
+  'launch.injection.opencode.status': [],
   'launch.injection.opencode.live': [],
   'launch.mcpConfig.badId': [],
   'launch.add.label': [],

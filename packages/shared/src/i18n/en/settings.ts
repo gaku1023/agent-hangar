@@ -310,7 +310,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.opencode.intercept.needsShell': 'Install the shell integration on this PC to use this.',
   'settings.opencode.permissionPreset.desc': 'Read-only commands like git status, ls, and cat run automatically, while other shell commands require confirmation. Other actions, such as reading and editing files, follow opencode defaults.',
   'settings.opencode.permissionPreset.byConfig': 'Overridden by permissions in opencode.json.',
-  'settings.opencode.injection.minimal': 'Minimal (intent and summary)',
+  'settings.opencode.injection.minimal': 'Minimal (intent, summary, status)',
   'settings.opencode.injection.claude': 'Same as Claude Code',
   'settings.opencode.injection.none': 'None',
   'settings.opencode.injection.claudeNote': 'Some models may confirm status proposals without asking you.',

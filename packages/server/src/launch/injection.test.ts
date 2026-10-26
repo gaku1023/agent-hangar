@@ -242,17 +242,33 @@ describe('renderInjectionEntries', () => {
 describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
   const input: InjectionInput = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 't1', text: '直す' }], deviceCount: 2 };
 
-  it('最小限（既定）は、hangar の MCP の使い方だけの 1 段。時機は各ターンの最初の一手で、Code Mode の呼び方を添える（RESULT.md の条件 d）', () => {
+  it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。時機は各ターンの最初の一手で、Code Mode の呼び方を添える（RESULT.md の条件 d）', () => {
     const entries = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(entries).toEqual([{ key: 'body', text:
+    expect(entries.map((e) => e.key)).toEqual(['body', 'status']);
+    expect(entries[0]!.text).toBe(
       'あなたは agent-hangar から起動されたセッションです。\n'
       + '各ターンの最初の一手で、他のツールより先に、execute で `await tools.hangar.set_turn_intent({ text: "<このターンで何のために何をするか、1〜2 文>" })` を呼んでください。方針を変えたときも呼びます。\n'
-      + '依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、execute で `await tools.hangar.set_session_summary({ title, one_liner, body, state, next_steps })` を呼び、題名、2〜3 文の要約、進捗（state）、次のステップを更新してください。\n' }]);
+      + '依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、execute で `await tools.hangar.set_session_summary({ title, one_liner, body, state, next_steps })` を呼び、題名、2〜3 文の要約、進捗（state）、次のステップを更新してください。\n'
+      + 'ユーザーがこのセッションを Done か Paused にしてと言ったら、execute で `await tools.hangar.propose_session_status({ status, note, confirmed: true })` を呼んでください。status は "done" か "paused"、note は根拠の一文です。Paused でリマインダーの日付があれば return_on（YYYY-MM-DD）に渡します。set_session_summary の state を変えても、セッションの状態は変わりません。\n');
+    expect(entries[1]!.text).toBe(
+      '頼まれたことが全部済んで次のステップが残っていないとき、ユーザーが終わりを告げたとき（「ありがとう」「ここまで」など）は、ターンの終わりに execute で `await tools.hangar.propose_session_status({ status: "done", note })` を confirmed なしで呼び、提案だけ出してください。ユーザーが外の出来事（CI、レビュー、明日の確認など）を待つと言ったときは status: "paused" で同じようにします。\n'
+      + 'ユーザーが Done か Paused にしてと言っていないのに、confirmed: true を渡さないでください。\n');
     // 英語も同じ道具と同じ時機を指す。
-    const en = renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal')[0]!;
-    expect(en.text).toContain('tools.hangar.set_turn_intent');
-    expect(en.text).toContain('tools.hangar.set_session_summary');
-    expect(en.text).toMatch(/first step of every turn, before any other tool/);
+    const en = renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
+    expect(en.map((e) => e.key)).toEqual(['body', 'status']);
+    expect(en[0]!.text).toContain('tools.hangar.set_turn_intent');
+    expect(en[0]!.text).toContain('tools.hangar.set_session_summary');
+    expect(en[0]!.text).toContain('tools.hangar.propose_session_status({ status, note, confirmed: true })');
+    expect(en[0]!.text).toMatch(/first step of every turn, before any other tool/);
+    expect(en[1]!.text).toContain('without confirmed');
+    // 段は区切りを足さずにつなぐので、どの言語の段も改行で終わる。
+    for (const e of [...entries, ...en]) expect(e.text.endsWith('\n'), e.key).toBe(true);
+  });
+
+  it('最小限でも、区切りで状態を確認する設定を切れば状態の段は足さない。頼まれたときの確定は本文に残る', () => {
+    const entries = renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: true }, 'minimal');
+    expect(entries.map((e) => e.key)).toEqual(['body']);
+    expect(entries[0]!.text).toContain('propose_session_status({ status, note, confirmed: true })');
   });
 
   it('追記しないなら段は無い', () => {
