@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { builtinSubcommandDrifts, parseCodexHelp } from '../src/provider/codex/compat/help.ts';
+import { builtinSubcommandDrifts, helpDrifts, parseCodexHelp } from '../src/provider/codex/compat/help.ts';
 import { shapeOfRollout } from '../src/provider/codex/compat/rolloutShape.ts';
 import { diffJson, extractSchemaSubset, type SchemaSubset } from '../src/provider/codex/compat/schemaSubset.ts';
 import { codexVersionOf, judgeCodexVersion } from '../src/provider/codex/compat/version.ts';
@@ -52,7 +52,8 @@ describe.skipIf(!LIVE)('いまの codex と最も新しい見本', () => {
     const now = parseCodexHelp(codexHelpText(bin, world.env));
     const want = parseCodexHelp(readCodexFixture(f!, 'help.txt'));
     expect(now).not.toBeNull();
-    expect(now).toEqual(want);
+    expect(want).not.toBeNull();
+    expect(helpDrifts(now!, want!)).toEqual([]);
     const cli = new URL('../src/provider/codex/compat/cli.ts', import.meta.url);
     if (fs.existsSync(cli)) {
       const mod = (await import(cli.href)) as { BUILTIN_CODEX_SUBCOMMANDS: readonly string[] };

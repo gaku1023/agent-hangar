@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinSubcommandDrifts, parseCodexHelp } from '../src/provider/codex/compat/help.ts';
+import { builtinSubcommandDrifts, helpDrifts, parseCodexHelp } from '../src/provider/codex/compat/help.ts';
 import { shapeOfRollout } from '../src/provider/codex/compat/rolloutShape.ts';
 import { diffJson, extractSchemaSubset, type SchemaMethod } from '../src/provider/codex/compat/schemaSubset.ts';
 
@@ -104,5 +104,25 @@ describe('builtinSubcommandDrifts', () => {
   it('増えたものと消えたものを分けて出す', () => {
     const d = builtinSubcommandDrifts(help, ['exec', 'gone']);
     expect(d).toEqual(['in codex --help but not in the intercept list: e', 'in codex --help but not in the intercept list: fork', 'in the intercept list but not in codex --help: gone']);
+  });
+});
+
+describe('helpDrifts（機種によるサブコマンドを許す）', () => {
+  const sample = { commands: ['app', 'exec', 'resume'], aliases: ['e'] };
+  it('Linux の help に app が無くても、見本と同じとみなす', () => {
+    expect(helpDrifts({ commands: ['exec', 'resume'], aliases: ['e'] }, sample)).toEqual([]);
+  });
+  it('app があっても同じ', () => {
+    expect(helpDrifts(sample, sample)).toEqual([]);
+  });
+  it('見本に無いサブコマンドが増えたら落とす（機種によるものの名でも、見本に無ければ別）', () => {
+    expect(helpDrifts({ commands: ['exec', 'resume', 'newcmd'], aliases: ['e'] }, sample)).toEqual(['in codex --help but not in the sample: newcmd']);
+    expect(helpDrifts({ commands: ['app', 'exec', 'resume'], aliases: ['e', 'x'] }, { commands: ['exec', 'resume'], aliases: ['e'] })).toEqual(['in codex --help but not in the sample: app', 'in codex --help but not in the sample: x']);
+  });
+  it('見本にある普通のサブコマンドが消えたら落とす', () => {
+    expect(helpDrifts({ commands: ['app', 'exec'], aliases: ['e'] }, sample)).toEqual(['in the sample but not in codex --help: resume']);
+  });
+  it('横取りの一覧に app があっても、help に無いだけでは落とさない', () => {
+    expect(builtinSubcommandDrifts({ commands: ['exec', 'resume'], aliases: ['e'] }, ['app', 'e', 'exec'])).toEqual([]);
   });
 });

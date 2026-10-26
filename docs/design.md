@@ -1568,6 +1568,7 @@ Claude と opencode のように最新へ追いかけない。範囲の外は利
    読み捨てる `world_state` は見ない。
    形が同じでも読めなければ意味がないので、同じ rollout を hangar の読み手（`transcript/batch.ts` の `readCodexBatch`）に通し、読めない行が無いことと、返事が出てくることも見る。
 4. **`codex --help`**（`help.txt`）。Commands の名前と別名を読み（`compat/help.ts` の `parseCodexHelp`）、控えと比べる。
+   機種によってあるサブコマンド（`app`。デスクトップアプリを開くもので、Linux の版には無い）は、今の help に無いだけならずれとしない（`PLATFORM_DEPENDENT_COMMANDS`、`helpDrifts`）。見本に無いものが増えたら、これも落とす。
    外のターミナルの横取り（D1 の `provider/codex/compat/cli.ts` の `BUILTIN_CODEX_SUBCOMMANDS`）が入ったら、同じ一覧を見る。
    見ているのは `builtinSubcommandDrifts` で、`resume`（ID が 1 つのときだけ hangar の起動へ写す）を除く名前と別名が、一覧と過不足なく同じかである。
    `cli.ts` が無いあいだは飛ばし、入ると同じ試験が自動で見る。
