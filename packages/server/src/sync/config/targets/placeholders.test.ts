@@ -6,7 +6,7 @@ import { openDb, type Db } from '../../../db/open.ts';
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
 import { defaultTargetPaths } from './paths.ts';
 
-const PLACEHOLDERS = ['claude-hooks', 'claude-plugins', 'opencode', 'agents-skills', 'hangar'];
+const PLACEHOLDERS = ['claude-hooks', 'claude-plugins', 'agents-skills', 'hangar'];
 let tmp: string;
 let db: Db;
 const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({

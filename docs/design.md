@@ -7514,7 +7514,7 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
 0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
 `claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
-後の対象 `opencode`、`agents-skills`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
+後の対象 `agents-skills`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
 枠は owns が常に false、collect は空で、`placeholder` の印を持つ。印のある対象は束の `targets` と判定の「こちらが扱える対象」に載せない。載せると、まだ書けないのに他の PC の項目を受けてしまうためである。
 `claude-hooks` と `claude-plugins` は `claude` より前に登録する。実装する PR は印を外す。
 TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir、agentsSkillsDir、claudeJsonPath、hangarSettingsPath）と、Codex・opencode がその PC で有効か（codexEnabled、opencodeEnabled）を持つ。有効な入れ物は、service の vcs() の検出の表にも載る。
@@ -7595,6 +7595,22 @@ Claude、Codex、opencode のように設定の入れ物ごとに「対象」（
 古い版は知らない欄を捨てて目録を作り直すので、新しい版の束を受けても壊れない。
 知らない頭の id は、今までどおりその項目だけ飛ばす。
 受け取った束の `targets` と `os` は、inbox の `meta.json` に残す（欄の無い写しは `['claude']` と読む）。
+
+**対象 opencode（v0.12.0 の S5、`targets/opencode.ts`・`targets/opencodeKeys.ts`）。**
+入れ物は `ctx.opencodeDir`（`$XDG_CONFIG_HOME/opencode`、既定 `~/.config/opencode`）。入切は、その PC で opencode が有効（`opencodeEnabled`）で、かつ設定の `configTargets.opencode` が真のときだけである。
+id は 3 種類。`opencode:file:<相対パス>`、`opencode:json:<鍵の道>`、`opencode:cli:<鍵の道>`。鍵の道は `.` で区切り、各段は URL 符号化に `.` も加えた形にする（agent の名前に `.` があってよい）。符号化が正規の形でない id は読まない。
+`opencode:mcp:` はこの対象のものではない（MCP の PR が持つ）。
+- ファイル：`AGENTS.md`、`agents/`・`agent/`、`commands/`・`command/`、`skills/`・`skill/`、`plugins/`・`plugin/`、`themes/`。v1 形と v2 形のディレクトリは名前を変えずに運ぶ。`opencode.json(c)`、`cli.json`、`tui.json`、`service.json`、`package.json`、`bun.lock*` は、ファイルとしては運ばない。
+- opencode.json(c) の鍵：運ぶのは `model`、`small_model`、`compaction`、`permission`、`share`、`autoupdate`、`theme`、`instructions`、`agent(s).<名前>.{prompt,description,mode,temperature,top_p,steps,permission}`。1 つの鍵が 1 項目である。
+  運ばないのは `provider(s)`、`skills`、`plugin(s)`、`agent(s).<名前>.model`（理由は `machine`）、絶対パスの `instructions` の要素（理由は `path`。`~/…` と URL と相対は運ぶ）。`$schema` と `mcp` は黙って外す。それ以外の鍵と、型の合わない値は「知らない鍵」で、`config_unsent` の `unknown-key`（id は `unknown-key:opencode:json:…`）に出し、値は持たない。
+  `instructions` を書くとき、手元の絶対パスの要素は残す（他の PC に運ばれていないので、届いた値で消さない）。
+- 両方あるとき：`opencode.json` と `opencode.jsonc` の両方があれば jsonc を正として読み、書くのも jsonc にする（opencode は両方読んで jsonc を優先し、自分が書くときは json に書くので、画面で「両方あります」と知らせる。`opencodeNotices` と `ConfigNoticeDto`）。
+- `{env:X}`：そのまま運ぶ。受け手の環境に X が無いと opencode は空文字にして黙って壊れるので、項目に添えて知らせる（`opencodeItemNotes`）。
+- `{file:p}`：p が入れ物の中の相対パスなら、そのファイルも `opencode:file:` の項目として運ぶ。外（絶対、`~`、`..`、opencode.json 自身）を指すなら、その項目ごと運ばず、`dropped`（理由は `path`）に出し、手元の項目として塞ぐ（相手の同名の項目で上書きしない）。受け手に届いた値が外を指していれば、適用を断る（`bad-content`）。
+- cli.json の鍵：`plugins` と `attention.sounds` を除いて運ぶ。最上位の鍵が 1 項目で、`attention` だけ 1 段下で分ける。
+- 承諾：`agents/`・`commands/`・`skills/`・`plugins/`（v1 形を含む）と、`{file:}` で運ぶファイルは、設定が each のとき承諾が要る（消去は要らない）。`permission` と `agent(s).*.permission` は、消去も承諾に掛ける（拒否の規則を外すと権限が広がるため）。`AGENTS.md`、`themes/`、ほかの鍵は要らない。
+- 書き戻し：jsonc と cli.json は鍵の差し替えだけで、コメントと並びと体裁を保つ（`setJsonc`・`removeJsonc`）。json は opencode が書くのと同じ 2 空白で整形し直す（`setJson`・`removeJson`）。書く前に `<hangar の置き場>/backups/opencode-config/<時刻>/` へ元の中身を控え、控えを作れなければ何も書かない。途中で失敗したら控えから戻す。控えの記録（`.hangar-apply.json`）は Claude の世代と同じ形である。`write` は指示書のうち opencode の項目だけを見て、指示書は消さない（ほかの対象の項目が残るため、消すのは呼び出し側）。
+- 既存の Claude の適用（`apply.ts`）は、opencode の項目を書き込み先の食い違いとして断る。
 
 消去の条件は対象ごとに数える。
 - id の持ち主の対象を `owns` で決め、その対象を扱う相手（束の `targets` に入れている相手）の束だけで、holder と「どの束にも無い」を決める。

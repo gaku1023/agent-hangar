@@ -19,7 +19,7 @@ import { listBackups } from './backups.ts';
 import { ConfigBase } from './base.ts';
 import { bundleTargetsOf, packBundle, unpackBundle, type BundleManifest, type BundleOs, type ManifestItem } from './bundle.ts';
 import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
-import { CODEX_CONFIG_FILE, parseItemId } from './ids.ts';
+import { otherRefLabelTarget, parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
 import { collectAll, enabledTargetNames, targetOfId, type TargetContext } from './targets/index.ts';
@@ -388,8 +388,7 @@ export class ConfigSyncService {
       let held: ConfigHeldReason | null = null;
       if (ref.type === 'file') { label = ref.rel; target = ref.rel; }
       else if (ref.type === 'settings') { label = ref.key; target = `settings.json#${ref.key}`; }
-      else if (ref.type === 'codex-file') { label = ref.rel; target = ref.rel; }
-      else if (ref.type === 'codex-toml') { label = ref.path.join('.'); target = `${CODEX_CONFIG_FILE}#${ref.path.join('.')}`; }
+      else if (ref.type !== 'memory') { ({ label, target } = otherRefLabelTarget(ref)); }
       else {
         const p = projects.get(ref.projectId);
         label = `${p?.name ?? ref.projectId}/${ref.rel}`;

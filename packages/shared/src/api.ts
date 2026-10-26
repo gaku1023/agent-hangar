@@ -675,6 +675,8 @@ export type ConfigApplyOrderDto = { createdAt: number; items: ConfigApplyOrderIt
 export type ConfigVcsTool = 'git' | 'chezmoi' | 'yadm' | 'stow';
 /** 入れ物ごとの検出。tools が空の入れ物は載せない。 */
 export type ConfigVcsDto = { target: string; tools: ConfigVcsTool[] };
+/** 対象ごとの知らせ。両方ある opencode.json と opencode.jsonc（opencode は jsonc を読み、json に書く）。 */
+export type ConfigNoticeDto = { target: string; code: 'both-json-jsonc' };
 export type ConfigSyncDto = {
   enabled: boolean;
   /** スイッチは入っているが、Worker がまだ束の行を知る版に届いていないので、送っていない（Worker の更新待ち）。Worker の版がまだ分からないあいだは偽。 */
@@ -690,6 +692,8 @@ export type ConfigSyncDto = {
   lastSentAt: number | null;
   /** 入れ物が git や dotfiles の道具で管理されているか（対象ごと、管理されているものだけ。印が無ければ欄ごと省く）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
   vcs?: ConfigVcsDto[];
+  /** 対象ごとの知らせ。無ければ欄ごと省く。 */
+  notices?: ConfigNoticeDto[];
 };
 /**
  * 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所になっているときの 409。

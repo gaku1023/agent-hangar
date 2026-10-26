@@ -7,7 +7,7 @@ import { diffLines } from '../../config/jsonTextEdit.ts';
 import { deleteApplyOrder, readApplyOrder } from './applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from './backups.ts';
 import { ConfigBase } from './base.ts';
-import { parseItemId, type ItemRef } from './ids.ts';
+import { otherRefLabelTarget, parseItemId, type ItemRef } from './ids.ts';
 import { readInbox, readInboxBlob } from './inbox.ts';
 import { applyOrderPath, configBackupsDir } from './paths.ts';
 import { isAbsolutePathRule, valueFits } from './settingsSort.ts';
@@ -84,12 +84,12 @@ function loadOrder(home: string) {
 function targetMatches(ref: ItemRef, target: string): boolean {
   if (ref.type === 'file') return target === ref.rel;
   if (ref.type === 'settings') return target === `settings.json#${ref.key}`;
-  if (ref.type !== 'memory') return false; // Codex の項目は targets/codex.ts が書く。ここでは扱わない
+  if (ref.type !== 'memory') return false; // Claude 以外の対象（Codex、opencode）の項目は Claude の適用では書かない（各対象の write が書く）
   const m = /^projects\/[A-Za-z0-9-]+\/memory\/(.+)$/.exec(target);
   return !!m && isSafeRelPath(target) && m[1] === ref.rel;
 }
 
-const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' ? ref.key : ref.type === 'memory' ? `memory/${ref.rel}` : ref.type === 'codex-file' ? ref.rel : ref.path.join('.'));
+const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' ? ref.key : ref.type === 'memory' ? `memory/${ref.rel}` : otherRefLabelTarget(ref).label);
 
 function contentFits(key: string, v: unknown): boolean {
   if (key.startsWith('permissions.')) {

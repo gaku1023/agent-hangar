@@ -2,6 +2,7 @@ import { isSafeKeyId, isSafeRelPath, type ConfigItemKind } from '@agent-hangar/s
 import { isCarriedSettingsKey } from './settingsSort.ts';
 import { parseTargetItemId } from './targets/index.ts';
 import { isCarriedPath } from './targets/codexKeys.ts';
+import { ocPathId, OC_CLI_PREFIX, OC_JSON_PREFIX } from './targets/opencodeKeys.ts';
 
 /**
  * 設定の同期の項目の id。端末をまたいで同じ項目を指す名前で、束の目録にも基準の表にも載る。
@@ -46,7 +47,11 @@ export type ItemRef =
   | { type: 'memory'; projectId: string; rel: string }
   // Codex（`$CODEX_HOME`）。codex-file は入れ物からの相対パス、codex-toml は config.toml の鍵の道。
   | { type: 'codex-file'; rel: string }
-  | { type: 'codex-toml'; path: string[] };
+  | { type: 'codex-toml'; path: string[] }
+  /** opencode（`opencode:file:`、`opencode:json:`、`opencode:cli:`）。json と cli の path は鍵の道（段ごと）。 */
+  | { type: 'opencode-file'; rel: string }
+  | { type: 'opencode-json'; path: string[] }
+  | { type: 'opencode-cli'; path: string[] };
 
 /** id を解く。持ち主の対象に任せる薄い関数。形が悪い、運ばない場所を指す、知らない頭、のどれかなら null。 */
 export function parseItemId(id: string): { kind: ConfigItemKind; ref: ItemRef } | null {
@@ -121,4 +126,18 @@ export function parseCodexItemId(id: string): { kind: ConfigItemKind; ref: ItemR
     return isCarriedPath(keys) ? { kind: 'codex-config', ref: { type: 'codex-toml', path: keys } } : null;
   }
   return null;
+}
+
+/**
+ * Claude 以外の対象の ref の、画面に出す名前と書き込み先。書き込み先は、適用の指示書の target と同じ形で、対象の write が突き合わせる。
+ * Claude の ref（file、settings、memory）は service.ts が自分で決めるので、ここでは扱わない。
+ */
+export function otherRefLabelTarget(ref: Exclude<ItemRef, { type: 'file' | 'settings' | 'memory' }>): { label: string; target: string } {
+  switch (ref.type) {
+    case 'codex-file': return { label: ref.rel, target: ref.rel };
+    case 'codex-toml': return { label: ref.path.join('.'), target: `${CODEX_CONFIG_FILE}#${ref.path.join('.')}` };
+    case 'opencode-file': return { label: ref.rel, target: ref.rel };
+    case 'opencode-json': return { label: ref.path.join('.'), target: `opencode.json#${ocPathId(OC_JSON_PREFIX, ref.path).slice(OC_JSON_PREFIX.length)}` };
+    case 'opencode-cli': return { label: ref.path.join('.'), target: `cli.json#${ocPathId(OC_CLI_PREFIX, ref.path).slice(OC_CLI_PREFIX.length)}` };
+  }
 }
