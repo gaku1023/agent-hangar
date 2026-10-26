@@ -1,6 +1,6 @@
 import { overlayReplaceable } from '../mediator/overlay.ts';
 import type { State, Toast } from '../mediator/types.ts';
-import { settingsSectionOf, stopReasonOf, type Translate } from '@agent-hangar/shared';
+import { providerFactOf, settingsSectionOf, stopReasonOf, type Translate } from '@agent-hangar/shared';
 import { PERMISSION_BYPASS, permissionLabel } from '../views/primitives/permissionModel.ts';
 import { projectDisplayName } from './projectName.ts';
 import { presentSessionMenu, type SessionMenuStop } from './sessionMenu.ts';
@@ -75,7 +75,9 @@ function presentModelMissings(state: State, store: Store): ModelMissingCardProps
     // 会話のモデルが provider/model で分かり、文から取れた名前と合うときだけ使う（合わなければ、文の名前のまま出す）。
     const ref = known && known.includes('/') && (!c.model || known.endsWith(`/${c.model}`)) ? known : c.model ?? '';
     const provider = ref.includes('/') ? ref.slice(0, ref.indexOf('/')) : '';
-    return { sessionId: c.sessionId, model: ref, name: providers.find((p) => p.id === provider)?.name || provider || 'opencode', projectId: s?.projectId ?? null };
+    // 表示名は小窓のまとまりの見出しと同じ順（手書きの表、opencode の一覧、ID）。一覧は小窓を開くまで無いことがある。
+    const name = (provider ? providerFactOf(provider).name : null) ?? providers.find((p) => p.id === provider)?.name ?? (provider || 'opencode');
+    return { sessionId: c.sessionId, model: ref, name, projectId: s?.projectId ?? null };
   });
 }
 
