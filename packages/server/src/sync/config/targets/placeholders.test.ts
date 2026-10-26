@@ -6,7 +6,6 @@ import { openDb, type Db } from '../../../db/open.ts';
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
 import { defaultTargetPaths } from './paths.ts';
 
-const PLACEHOLDERS = ['hangar'];
 let tmp: string;
 let db: Db;
 const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({
@@ -19,26 +18,14 @@ beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-')); fs.mkdir
 afterEach(() => { db.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 describe('枠だけの対象', () => {
-  it('登録されている（claude-hooks と claude-plugins は本物になった。claudeHooksPlugins.test.ts）', () => {
-    const names = allTargets().map((t) => t.name);
-    for (const n of PLACEHOLDERS) expect(names).toContain(n);
+  it('v0.12.0 の統合のあとは、枠だけの対象は無い（全部本物）。settings: の鍵の持ち主は変わらない', () => {
+    expect(allTargets().filter((t) => t.placeholder).map((t) => t.name)).toEqual([]);
+    expect(targetNameOfId('settings:hooks')).toBe('claude-hooks');
   });
-  it('どの id も持たず、集めるものも無い。settings: の鍵の持ち主は変わらない', () => {
-    for (const t of allTargets().filter((x) => PLACEHOLDERS.includes(x.name))) {
-      expect(t.owns('settings:hooks')).toBe(false);
-      expect(t.owns('codex:file:AGENTS.md')).toBe(false);
-      expect(t.collect(ctx()).items).toEqual([]);
-    }
-    expect(targetNameOfId('settings:hooks')).toBe('claude');
-  });
-  it('全部入にしても、集める項目は変わらず、束の targets にも載らない', () => {
-    const all = Object.fromEntries(PLACEHOLDERS.map((n) => [n, true]));
+  it('項目を集めると、束の targets は有効な対象だけになる', () => {
     fs.writeFileSync(path.join(tmp, 'claude', 'CLAUDE.md'), 'x');
-    const off = collectAll(ctx());
-    const on = collectAll(ctx({ switches: all }));
-    expect(on.items.map((i) => i.id)).toEqual(off.items.map((i) => i.id));
-    expect(enabledTargetNames(ctx({ switches: all }))).toEqual(enabledTargetNames(ctx()));
-    expect(enabledTargetNames(ctx({ switches: all }))).not.toEqual(expect.arrayContaining(PLACEHOLDERS));
+    expect(collectAll(ctx()).items.map((i) => i.id)).toContain('CLAUDE.md');
+    expect(enabledTargetNames(ctx())).toContain('claude');
   });
   it('codex と opencode は、その PC で有効でなければ入にしても切', () => {
     const find = (n: string) => allTargets().find((t) => t.name === n)!;

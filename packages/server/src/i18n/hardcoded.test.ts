@@ -76,6 +76,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/config/targets/claudeHooks.ts': { lines: 6, why: CLI },
   'sync/config/targets/claudePlugins.ts': { lines: 3, why: CLI },
   'sync/config/targets/settingsItemWriter.ts': { lines: 12, why: CLI },
+  'sync/config/targets/hangar.ts': { lines: 7, why: CLI },
   'sync/crypto.ts': { lines: 1, why: INTERNAL },
   'sync/engine.ts': { lines: 8, why: LOG },
   'sync/pruneBackups.ts': { lines: 3, why: LOG },

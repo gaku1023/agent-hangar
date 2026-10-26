@@ -7515,7 +7515,7 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
 0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
 `claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
-後の対象 `hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
+枠だけの対象（`targets/placeholder.ts`）は、すべての対象が本物になった今は無い。仕組みは残してある。
 枠は owns が常に false、collect は空で、`placeholder` の印を持つ。印のある対象は束の `targets` と判定の「こちらが扱える対象」に載せない。載せると、まだ書けないのに他の PC の項目を受けてしまうためである。
 `claude-hooks` と `claude-plugins` は枠を外して本物になった（下の「hooks と statusLine」「plugins」）。`claude` より前に登録する。
 対象 `agents-skills`（`targets/agentsSkills.ts`）は枠を外した本物で、`~/.agents/skills`（Codex と opencode が読む共通の skills）の中身全部を `agents-skills:<相対>` の項目で運ぶ。
@@ -7646,6 +7646,15 @@ id は 3 種類。`opencode:file:<相対パス>`、`opencode:json:<鍵の道>`�
 - 承諾：`agents/`・`commands/`・`skills/`・`plugins/`（v1 形を含む）と、`{file:}` で運ぶファイルは、設定が each のとき承諾が要る（消去は要らない）。`permission` と `agent(s).*.permission` は、消去も承諾に掛ける（拒否の規則を外すと権限が広がるため）。`AGENTS.md`、`themes/`、ほかの鍵は要らない。
 - 書き戻し：jsonc と cli.json は鍵の差し替えだけで、コメントと並びと体裁を保つ（`setJsonc`・`removeJsonc`）。json は opencode が書くのと同じ 2 空白で整形し直す（`setJson`・`removeJson`）。書く前に `<hangar の置き場>/backups/opencode-config/<時刻>/` へ元の中身を控え、控えを作れなければ何も書かない。途中で失敗したら控えから戻す。控えの記録（`.hangar-apply.json`）は Claude の世代と同じ形である。`write` は指示書のうち opencode の項目だけを見て、指示書は消さない（ほかの対象の項目が残るため、消すのは呼び出し側）。
 - 既存の Claude の適用（`apply.ts`）は、opencode の項目を書き込み先の食い違いとして断る。
+
+**hangar の好み（対象 `hangar`、`targets/hangar.ts`）。**
+hangar の `settings.json` の鍵のうち、PC をまたいで同じでよいものを `hangar:<鍵>`（kind は `hangar-pref`）で運ぶ。
+鍵は `language`、`askStatusAtEnd`、`liveHints`、`defaultModel`、`autoDone`、`autoDoneIdleDays`、`autoPark`、`remoteControl`、`summaryEngine`、`summaryClaudeModel`、`configApproval`、`opencodeInjection`、`opencodePermissionPreset`、`opencodeLocalContext`、`codexInjection` の 15 個で、値は JSON、形は鍵ごとに検査する。
+設定にある鍵だけを集め、形の合わない値は塞ぐ（相手の値で上書きしない）。ファイルが壊れていれば `hangar:` を全部塞ぐ。
+Codex・opencode の有効と横取り、パス、エディタ、端末アプリ、秘密（`summaryApiKey`）、要約器の宛先、接続先の準備、対象ごとの入切（`configTargets`）は、PC ごとの選びなので運ばない。
+サーバが `settings.json` を書くので、殻の承諾の窓は通さない。承諾が要るのは `configApproval` の項目だけで、承諾の仕方の設定に依らない（`needsApproval` は値を受け取らないため、`each` へ戻す変更も承諾になる）。
+書き込みは `loadSettings` と `saveSettings` で鍵を差し替える。走っているサーバは設定を自分の入れ物に持つので、サーバの中で適用するときは `setHangarPrefsApplier` で `applySettingsPatch` を通す口を登録する。
+古い版の束には `hangar` が無いので、`hangar:` の項目は消去に見えない。
 
 消去の条件は対象ごとに数える。
 - id の持ち主の対象を `owns` で決め、その対象を扱う相手（束の `targets` に入れている相手）の束だけで、holder と「どの束にも無い」を決める。

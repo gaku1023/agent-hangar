@@ -51,7 +51,9 @@ export type ItemRef =
   /** opencode（`opencode:file:`、`opencode:json:`、`opencode:cli:`）。json と cli の path は鍵の道（段ごと）。 */
   | { type: 'opencode-file'; rel: string }
   | { type: 'opencode-json'; path: string[] }
-  | { type: 'opencode-cli'; path: string[] };
+  | { type: 'opencode-cli'; path: string[] }
+  /** hangar の好み（`hangar:<鍵>`、hangar の settings.json の鍵 1 つ）。 */
+  | { type: 'hangar'; key: string };
 
 /** id を解く。持ち主の対象に任せる薄い関数。形が悪い、運ばない場所を指す、知らない頭、のどれかなら null。 */
 export function parseItemId(id: string): { kind: ConfigItemKind; ref: ItemRef } | null {
@@ -136,6 +138,7 @@ export function otherRefLabelTarget(ref: Exclude<ItemRef, { type: 'file' | 'sett
   switch (ref.type) {
     case 'codex-file': return { label: ref.rel, target: ref.rel };
     case 'codex-toml': return { label: ref.path.join('.'), target: `${CODEX_CONFIG_FILE}#${ref.path.join('.')}` };
+    case 'hangar': return { label: ref.key, target: `hangar-settings.json#${ref.key}` };
     case 'opencode-file': return { label: ref.rel, target: ref.rel };
     case 'opencode-json': return { label: ref.path.join('.'), target: `opencode.json#${ocPathId(OC_JSON_PREFIX, ref.path).slice(OC_JSON_PREFIX.length)}` };
     case 'opencode-cli': return { label: ref.path.join('.'), target: `cli.json#${ocPathId(OC_CLI_PREFIX, ref.path).slice(OC_CLI_PREFIX.length)}` };
