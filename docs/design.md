@@ -7514,9 +7514,16 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
 0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
 `claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
-後の対象 `codex`、`opencode`、`agents-skills`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
+後の対象 `codex`、`opencode`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
 枠は owns が常に false、collect は空で、`placeholder` の印を持つ。印のある対象は束の `targets` と判定の「こちらが扱える対象」に載せない。載せると、まだ書けないのに他の PC の項目を受けてしまうためである。
 `claude-hooks` と `claude-plugins` は `claude` より前に登録する。実装する PR は印を外す。
+対象 `agents-skills`（`targets/agentsSkills.ts`）は枠を外した本物で、`~/.agents/skills`（Codex と opencode が読む共通の skills）の中身全部を `agents-skills:<相対>` の項目で運ぶ。
+除外の決まり（`node_modules` などの名前、同期自身の写し、1 MiB 超、シンボリックリンク）と秘密の走査、実行の印は、Claude の skills と同じ物差しを当てる。
+Codex か opencode のどちらかがその PC で有効で、設定の `configTargets` が入のときだけ集める。どちらも無効なら入でも出さない。
+他の PC から届いたときは、消去も含めて全部承諾に掛ける（承諾の仕方が自動なら要らない）。
+古い版の PC はこの項目を運ばないので、別の対象にしてある。古い版の束を受けても消去に見えない。
+書き戻しは Claude と同じ作法で、先の元の中身を `backups/agents-skills-config/<時刻>/` に控え、控えを取れなければ書かず、途中で失敗したら元へ戻す。
+書き戻しの口は `runAgentsSkillsApply`（置き場は `agentsSkillsDir` で渡す）。CLI と殻への接続は後の PR で行う。
 TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir、agentsSkillsDir、claudeJsonPath、hangarSettingsPath）と、Codex・opencode がその PC で有効か（codexEnabled、opencodeEnabled）を持つ。有効な入れ物は、service の vcs() の検出の表にも載る。
 入切は設定の `configTargets`（対象名から真偽）で、既定は切。入れる画面は後の PR で作る。
 - 好み：`modelSettings`、`promptSuggestionEnabled`、`tui`、`voice`、`voiceEnabled`、`agentPushNotifEnabled`、`inputNeededNotifEnabled`、`skipWorkflowUsageWarning`、`autoUpdatesChannel`。
