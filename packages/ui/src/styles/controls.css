@@ -10,6 +10,24 @@
 .switch[aria-checked='true']:active:not(:disabled)::after { transform: translateX(10px); }
 .switch:disabled { opacity: 0.5; cursor: default; }
 
+/* 目盛りで止まるスライダー（views/primitives/StepSlider.tsx）。溝と塗りはスイッチと同じ色で、玉もスイッチの玉と同じ形。
+   玉と塗りは目盛りへ吸い付くように動き、引いている間（data-drag）は追従させるために動きを切って玉を少し大きくする。 */
+.step-slider { padding: calc(var(--u) * 1) calc(var(--u) * 2.5) 0; user-select: none; }
+.step-slider-track { position: relative; height: 22px; cursor: pointer; touch-action: none; }
+.step-slider-track::before { content: ''; position: absolute; left: 0; right: 0; top: 9px; height: 4px; border-radius: var(--r-pill); background: #d5d7e3; box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); }
+.step-slider-fill { position: absolute; left: 0; top: 9px; height: 4px; border-radius: var(--r-pill); background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur-fast) var(--ease-out); }
+.step-slider-mark { position: absolute; top: 8px; width: 2px; height: 6px; margin-left: -1px; border-radius: 1px; background: var(--surface); opacity: 0.9; }
+.step-slider-knob { position: absolute; top: 2px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(30, 40, 90, 0.3); transition: left var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); outline: none; }
+.step-slider-knob:focus-visible { box-shadow: 0 1px 3px rgba(30, 40, 90, 0.3), 0 0 0 4px var(--accent-soft); }
+.step-slider[data-drag] .step-slider-knob, .step-slider[data-drag] .step-slider-fill { transition: none; }
+.step-slider[data-drag] .step-slider-knob { transform: scale(1.12); }
+.step-slider-ticks { position: relative; height: 18px; margin-top: 2px; font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.step-slider-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
+.step-slider-ticks span[data-edge='start'] { transform: translateX(-9px); }
+.step-slider-ticks span[data-edge='end'] { transform: translateX(calc(-100% + 9px)); }
+.step-slider-ticks span[data-on] { color: var(--accent); font-weight: 600; }
+.step-slider[data-disabled] { opacity: 0.5; pointer-events: none; }
+
 /* 一覧の顔。選んだ項目の点、名前、補足、下向きの矢印を描く。 */
 .listbox-face { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; min-width: 0; height: 34px; padding: 0 calc(var(--u) * 2.5) 0 calc(var(--u) * 3); border: 0; border-radius: 10px; text-align: left; cursor: pointer; color: var(--ink); background: rgba(255, 255, 255, 0.85); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 2px rgba(30, 40, 90, 0.05); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
 .listbox-face:hover { background: var(--surface); box-shadow: inset 0 0 0 1px #c9cbe0, 0 3px 10px -4px rgba(30, 40, 90, 0.18); }

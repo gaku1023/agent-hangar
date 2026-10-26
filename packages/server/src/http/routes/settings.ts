@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { codexEnabledOf, codexInjectionOf, codexInterceptOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
+import { codexEnabledOf, codexInjectionOf, codexInterceptOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isIdleUnload, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, idleUnloadOf, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
@@ -44,7 +44,7 @@ const SETTING_LABEL = {
 /** Codex の 3 項目（ベータ）。設定の画面の行があるので、書かれていなくても既定（切、最小限、切）で常に返す。 */
 const codexSettingsDto = (s: Settings): Pick<SettingsDto, 'codexEnabled' | 'codexInjection' | 'codexIntercept'> => ({ codexEnabled: codexEnabledOf(s), codexInjection: codexInjectionOf(s), codexIntercept: codexInterceptOf(s) });
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -306,6 +306,12 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const v = body.opencodeLocalContext;
       if (!isLocalContext(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.opencodeLocalContext') }) }, 400);
       patch.opencodeLocalContext = v;
+    }
+    // 使っていないローカルのモデルを外すまでの分。選べる分だけを受ける（0 は外さない）。見張りが呼ばれるたびに読むので、すぐ効く。
+    if ('opencodeIdleUnload' in body) {
+      const v = body.opencodeIdleUnload;
+      if (!isIdleUnload(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.opencodeIdleUnload') }) }, 400);
+      patch.opencodeIdleUnload = v;
     }
     // 接続先の準備のコマンド。届いた接続先だけを替える（null か、始める前のコマンドが空なら外す）。次の起動から効く。
     if ('opencodeProviderPrep' in body) {

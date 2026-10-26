@@ -13,6 +13,9 @@ import { bootRuns, panesOf } from './boot/runs.ts';
 import { bootSummary } from './boot/summary.ts';
 import { bootSync } from './boot/sync.ts';
 import { bootTakeover } from './boot/takeover.ts';
+import { translatorOf } from './i18n/message.ts';
+import { IdleUnloadWatch } from './provider/opencode/localModels/idleUnload.ts';
+import { idleUnloadOf } from '@agent-hangar/shared';
 import { uploadOnOpencodeTurnEnd } from './sync/opencodeTurnEnd.ts';
 import type { OpencodeExportSource } from './sync/uploader.ts';
 
@@ -140,6 +143,18 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   await indexing.start();
   runs.start();
   summary.startAutoDone();
+  // 使っていない LM Studio のモデルを外す見張り（provider/opencode/localModels/idleUnload.ts）。
+  const idleUnload = new IdleUnloadWatch({
+    home: home.home,
+    minutes: () => idleUnloadOf(home.settings.current),
+    isRunning: (id) => opencode.serves.get(id) !== null,
+    announce: (model, minutes) => {
+      const tr = translatorOf(home.language);
+      const time = minutes % 60 === 0 ? tr('launchPrep.idleUnload.spanHours', { n: minutes / 60 }) : tr('launchPrep.idleUnload.spanMinutes', { n: minutes });
+      delivery.hub.broadcast({ type: 'toast', level: 'info', message: tr('launchPrep.idleUnload.done', { model, time }) });
+    },
+  });
+  idleUnload.start();
   // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
   home.life.started = true;
   runs.startPresence();
@@ -165,6 +180,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       indexing.stopTimers();
       runs.stopParkTimer();
       summary.stopAutoDone();
+      idleUnload.stop();
       runs.stopPresence();
       sync.stopTimers();
       takeover.stop();

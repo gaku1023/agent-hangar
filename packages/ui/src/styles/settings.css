@@ -43,6 +43,7 @@
 .set-row-d { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; }
 .set-row-r { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 2); }
 .set-row-below { flex: 1 0 100%; }
+.set-row-value { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
 /* 同期の節の状態の行、ボタンの段、小見出し。 */
 .stat { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1) calc(var(--u) * 4.5); font-size: var(--fs-sm); color: var(--ink-2); }
 .btns { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2.5); }

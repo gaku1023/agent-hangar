@@ -293,6 +293,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeIntercept': 'opencode コマンドを hangar 経由で起動',
   'settings.label.opencodePermissionPreset': 'コマンド実行前に確認',
   'settings.label.opencodeLocalContext': 'ローカルモデルのコンテキスト長',
+  'settings.label.opencodeIdleUnload': '使っていないモデルのアンロード',
   'settings.label.opencodeProviderPrep': '接続先の準備',
   'settings.opencode.title': 'opencode',
   'settings.codex.title': 'Codex',

@@ -17,6 +17,7 @@ const props = (over: Partial<OpencodeSettingsProps> = {}): OpencodeSettingsProps
   intercept: { available: true, on: false, note: null },
   permissionPreset: { on: true, byConfig: false, note: null },
   localContext: { value: 65_536, options: [{ value: 32_768, label: '32K' }, { value: 65_536, label: '64K（推奨）' }, { value: 131_072, label: '128K' }] },
+  idleUnload: { value: 5, stops: [{ value: 1, label: '1 分', tick: '1 分' }, { value: 5, label: '5 分（推奨）', tick: '5 分' }, { value: 60, label: '1 時間', tick: '1 時間' }, { value: 0, label: 'しない', tick: 'しない' }] },
   version: { kind: 'verified', installed: '2.1.4', verified: '2.1.x', note: null },
   badge: { text: '検証済み', tone: 'ok' },
   ...over,

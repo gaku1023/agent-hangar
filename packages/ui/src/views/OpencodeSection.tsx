@@ -9,6 +9,7 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { collapseOut, fadeIn, fadeOut, growIn, motionOn } from './primitives/motionKit.ts';
+import { StepSlider } from './primitives/StepSlider.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Switch } from './primitives/Switch.tsx';
 import { usePresence } from './primitives/usePresence.ts';
@@ -99,6 +100,10 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: O
           <SetRow title={t('settings.label.opencodeLocalContext')} desc={t('launchPrep.settings.hint')}
             control={<Listbox label={t('settings.label.opencodeLocalContext')} value={String(o.localContext.value)} options={o.localContext.options.map((c) => ({ value: String(c.value), label: c.label }))} align="end"
               onChange={(v) => emit({ type: 'settings.update', patch: { opencodeLocalContext: Number(v) } })} />} />
+          <SetRow title={t('settings.label.opencodeIdleUnload')} desc={t('launchPrep.idleUnload.hint')}
+            control={<span className="set-row-value">{o.idleUnload.stops.find((s) => s.value === o.idleUnload.value)?.label}</span>}
+            below={<StepSlider label={t('settings.label.opencodeIdleUnload')} stops={o.idleUnload.stops} value={o.idleUnload.value}
+              onChange={(v) => emit({ type: 'settings.update', patch: { opencodeIdleUnload: v } })} />} />
           {props.providers && <OpencodeProviders p={props.providers} />}
         </div>
       )}

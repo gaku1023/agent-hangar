@@ -44,11 +44,11 @@ export type PrepareInput = {
 /** 載せてよいメモリの割合。モデルの重みのほかに KV キャッシュと OS の分が要る。 */
 const MEMORY_SHARE = 0.8;
 
-type LedgerEntry = { origin: string; instanceId: string; model: string; sessions: string[] };
+export type LedgerEntry = { origin: string; instanceId: string; model: string; sessions: string[] };
 
 export const ledgerPath = (home: string): string => path.join(home, 'opencode', 'local-models.json');
 
-function readLedger(home: string): LedgerEntry[] {
+export function readLedger(home: string): LedgerEntry[] {
   try {
     const j = JSON.parse(fs.readFileSync(ledgerPath(home), 'utf8')) as { entries?: unknown };
     return Array.isArray(j.entries) ? j.entries.filter((e): e is LedgerEntry => !!e && typeof e === 'object' && typeof (e as LedgerEntry).origin === 'string' && typeof (e as LedgerEntry).instanceId === 'string' && Array.isArray((e as LedgerEntry).sessions)) : [];
@@ -57,7 +57,7 @@ function readLedger(home: string): LedgerEntry[] {
   }
 }
 
-function writeLedger(home: string, entries: LedgerEntry[]): void {
+export function writeLedger(home: string, entries: LedgerEntry[]): void {
   const file = ledgerPath(home);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify({ entries }, null, 2)}\n`);

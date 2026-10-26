@@ -292,6 +292,7 @@ export const settingsKeys = {
   'settings.label.opencodeIntercept': [],
   'settings.label.opencodePermissionPreset': [],
   'settings.label.opencodeLocalContext': [],
+  'settings.label.opencodeIdleUnload': [],
   'settings.label.opencodeProviderPrep': [],
   'settings.opencode.title': [],
   'settings.codex.title': [],
