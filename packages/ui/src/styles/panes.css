@@ -5,7 +5,9 @@
 .pane-node { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .pane-node[data-dir='row'] { flex-direction: row; }
 .pane-node[data-dir='col'] { flex-direction: column; }
-.pane-slot { display: flex; min-width: 0; min-height: 0; flex-basis: 0; }
+.pane-slot { display: flex; min-width: 0; min-height: 0; flex-basis: 0; transition: flex-grow var(--dur) var(--ease-out); }
+/* 境目や角を掴んでいる間は切る。transition があると、ポインタに遅れて追いつくまで 150ms ほどかかる（右欄の .split-h と同じ）。reduced motion では --dur が 0 になり、動かない。 */
+.pane-node[data-dragging='true'] > .pane-slot { transition: none; }
 /* 境目。掴める帯は 8px で、見える線は乗せたときと掴んだときだけ出す。 */
 .pane-divider { flex: none; position: relative; z-index: 2; }
 .pane-divider:focus { outline: none; }

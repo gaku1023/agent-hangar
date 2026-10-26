@@ -7,6 +7,9 @@ import { PaneCornerHandle } from './PaneCorner.tsx';
 import { beginLayoutMotion, endLayoutMotion } from './primitives/layoutMotion.ts';
 import { useT } from './primitives/language.tsx';
 
+/** 掴んでいる間、節の要素に立てる印。CSS が比の動き（flex-grow の transition）を切り、ドラッグの追従を遅らせない。 */
+export const DRAGGING_ATTR = 'data-dragging';
+
 /** 1 つのペインの最小の幅（高さ）。描画の側で守る（mediator の比率は 0.1〜0.9 まで）。 */
 export const PANE_MIN_SIZE = 280;
 
@@ -37,6 +40,7 @@ export function PaneDivider(props: { node: PaneSplit; hostRef: RefObject<HTMLDiv
     const size = sizeOf(rect);
     if (!(size > 0)) return;
     beginLayoutMotion(host);
+    host.setAttribute(DRAGGING_ATTR, 'true');
     const move = (ev: globalThis.PointerEvent) => {
       const at = row ? ev.clientX - rect.left : ev.clientY - rect.top;
       emit({ type: 'pane.resize', node: props.node.id, ratio: clampPaneRatio(at / size, size) });
@@ -45,6 +49,7 @@ export function PaneDivider(props: { node: PaneSplit; hostRef: RefObject<HTMLDiv
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      host.removeAttribute(DRAGGING_ATTR);
       endLayoutMotion(host);
     };
     window.addEventListener('pointermove', move);

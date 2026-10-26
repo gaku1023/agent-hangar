@@ -2,6 +2,7 @@ import { useState, type PointerEvent } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import { cornerEqualize, cornerResizes, dominantAxis, type PaneCorner, type PaneId, type PaneRect } from '../lib/paneCorners.ts';
 
+import { DRAGGING_ATTR } from './PaneDivider.tsx';
 import { beginLayoutMotion, endLayoutMotion } from './primitives/layoutMotion.ts';
 
 /** 角に関わる境目の線を濃くする印（data-hot）を付け外しする。乗せたとき 'on'、つかんだとき 'grab'。 */
@@ -44,6 +45,7 @@ export function PaneCornerHandle(props: { corner: PaneCorner; ratios: Record<Pan
     setGrab(true);
     markDividers(corner, 'grab');
     beginLayoutMotion(host);
+    for (const id of ids) nodeEl(id)?.setAttribute(DRAGGING_ATTR, 'true');
     const move = (ev: globalThis.PointerEvent) => {
       const at = { x: ev.clientX, y: ev.clientY };
       const lock = ev.shiftKey ? dominantAxis(from, at) : null;
@@ -55,6 +57,7 @@ export function PaneCornerHandle(props: { corner: PaneCorner; ratios: Record<Pan
       window.removeEventListener('pointercancel', up);
       setGrab(false);
       markDividers(corner, null);
+      for (const id of ids) nodeEl(id)?.removeAttribute(DRAGGING_ATTR);
       endLayoutMotion(host);
     };
     window.addEventListener('pointermove', move);
