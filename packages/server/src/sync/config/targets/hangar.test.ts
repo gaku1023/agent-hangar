@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../../../db/open.ts';
 import { loadSettings } from '../../../config/paths.ts';
+import { expectMode } from '../../../../test/platform.ts';
 import { ConfigBase } from '../base.ts';
 import { writeApplyOrder } from '../applyOrder.ts';
 import { writeInbox } from '../inbox.ts';
@@ -128,7 +129,7 @@ describe('hangar の好み：書く', () => {
     expect(s.codexEnabled).toBe(true);
     expect(s.summaryApiKey).toBe('keep-me');
     expect(new ConfigBase(db).all().get('hangar:language')).toBe(sha('"en"'));
-    expect(fs.statSync(settingsFile()).mode & 0o777).toBe(0o600);
+    expectMode(settingsFile(), 0o600);
   });
 
   it('走っているサーバの設定の入れ物を通す口があれば、そちらへ渡す', () => {
