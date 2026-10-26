@@ -1535,6 +1535,59 @@ driver への差し方は `createCodexLive(options)` が返す `{ live, asks }` 
 
 試験は、接続のふり（通知と要求を手で流す）と、偽の codex（`test/fake-codex.ts`。入力の頭の `ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` で要求を送り、TUI の代わりの接続が応答すると resolved を流す。`hang` は終わらない。`thread/read` に答える）の両方で行う。
 
+### Codex の互換の見張り（ベータ）
+
+Codex は版の変わりが速い（1 か月半のあいだに、daemon の既定化、paginated の既定化、承認の方針の値の削除があった）。
+そこで Claude Code、opencode と同じく、頼っている形を見本に残し、週に 1 度、確かめた範囲の codex と突き合わせる（計画の H1）。
+Codex の見張りは、既存の 5 ジョブとは別の仕事 `.github/workflows/codex-compat.yml` で、月曜 1:00 UTC と手動で走る（claude-compat は 0:00、opencode-compat は 0:30）。
+毎回の PR では走らせない。
+
+#### 版を持つ場所
+
+確かめた範囲は `CODEX_VERIFIED_RANGE`（`0.164.x`）の 1 か所だけに持つ。
+CI が入れる版は、`scripts/codex-compat-version.mjs` がこの範囲から作る（`0.164.x` なら npm の指定は `0.164`、つまり 0.164 のうちいちばん新しい版）。
+ワークフローに版は書かない。
+範囲を広げるときは、新しい版で見本を採り直し、差分を読んでから範囲を上げる。
+Claude と opencode のように最新へ追いかけない。範囲の外は利用者に知らせるだけで起動は止めないので、追いかける側が先に壊れるのを待つほうが、見張りとして意味がある。
+
+#### 見張るもの
+
+見本は `packages/server/test/fixtures/codex-compat/<版>/` にあり、`npm run capture-codex-fixtures` で採る（`packages/server/test/capture-codex/run.ts`、道具は `packages/server/test/codexHarness.ts`）。
+照合は `codexLive.test.ts` で、`HANGAR_LIVE_CODEX=1` のときだけ走る。
+ふだんの `npm test` では `codexCompatFixtures.test.ts`（見本の自己点検）と `codexCompatUnits.test.ts`（比べる道具）だけが走り、codex は起こさない。
+
+1. **app-server の JSON Schema**。`codex app-server generate-json-schema` の束のうち、hangar が使う要求、通知、承認の要求（`compat/schemaSubset.ts` の `HANGAR_CODEX_METHODS`。thread/start、resume、fork、read、turn/start、interrupt、thread/status/changed、thread/started、turn/*、account/rateLimits/*、thread/tokenUsage/updated、承認と質問の要求、mcpServerStatus/list ほか）の包みと、そこから参照をたどった定義だけを控える。
+   説明文（`description`）は版ごとに書き換わるが hangar の読み方は変わらないので控えに入れない。
+   ずれたら、パスつきの差分（`definitions.v2/Turn.properties.x: in the fixture, missing now`）を落ちた文に出す。
+   hangar が使う方法を足したら `HANGAR_CODEX_METHODS` に足して見本を採り直す（足し忘れは `codexCompatFixtures.test.ts` が落ちる）。
+2. **app-server に話した答え**（`app-server-probe.json`）。ログイン無しの app-server を標準入出力で起こし、initialize、thread/start、thread/started、thread/resume、account/rateLimits/read、mcpServerStatus/list の答えのキーの名前を控える。
+   ターンの前は rollout が書かれず、thread/resume が `no rollout found` で断られること（B4 の再購読の再試行が頼る振る舞い）も見る。
+   ログイン無しでは account/rateLimits/read が断られることも控える。本物の使用量の形は、JSON Schema の側（`GetAccountRateLimitsResponse`）で見る。
+3. **rollout の形**（`rollout-shape.json`）。手元に立てた Responses API の模擬（モデルは使わない）で `codex exec` を 2 本走らせる（文で答えるターンと、道具を呼ぶターン）。
+   できた rollout の行を、種類（`type` と `payload.type`）ごとに、キーの道と型の和へ畳んで控える（`compat/rolloutShape.ts`）。値は見ない。
+   読み捨てる `world_state` は見ない。
+   形が同じでも読めなければ意味がないので、同じ rollout を hangar の読み手（`transcript/batch.ts` の `readCodexBatch`）に通し、読めない行が無いことと、返事が出てくることも見る。
+4. **`codex --help`**（`help.txt`）。Commands の名前と別名を読み（`compat/help.ts` の `parseCodexHelp`）、控えと比べる。
+   外のターミナルの横取り（D1 の `provider/codex/compat/cli.ts` の `BUILTIN_CODEX_SUBCOMMANDS`）が入ったら、同じ一覧を見る。
+   見ているのは `builtinSubcommandDrifts` で、`resume`（ID が 1 つのときだけ hangar の起動へ写す）を除く名前と別名が、一覧と過不足なく同じかである。
+   `cli.ts` が無いあいだは飛ばし、入ると同じ試験が自動で見る。
+
+#### 見張れないもの
+
+- **ログインの要るもの**。本物のモデルを通した応答、`account/rateLimits/updated` と `thread/tokenUsage/updated` の本物の中身、承認の要求が届く順は、JSON Schema の形（包みと型）までしか見ない。実際の値や順序は実機の確かめである。
+- **legacy の rollout**。いまの codex が書くのは paginated（`ordinal` つき）だけなので、legacy の読み方は B5 の試験の写しで守り、この見張りでは見ない。
+- **zstd の圧縮、会話の fork と resume の中身、TUI の見た目**。模擬では作らない。
+- **Windows の codex**。照合は ubuntu で走る。
+- **道具の実行の記録**。`exec_command` の実行は、sandbox の効き方が OS で違う。CI の Linux で形が変わったら、見本を Mac の版から採った差として読み、必要なら道具を呼ぶターンの比べ方を絞る。
+
+#### 見本の採り方
+
+本物の codex を、試しの置き場（`HOME` と `CODEX_HOME` を一時ディレクトリへ）と空の環境（`codexBaseEnv`）で動かす。
+利用者の `~/.codex` は読まず、書かない。終わったら置き場ごと消す。
+ログインはせず、モデルも呼ばない（模擬は 127.0.0.1 だけで答える）ので、使用量は使わず、動かす前に聞かなくてよい。
+模擬は codex と同じプロセスにいるので、codex は同期で待たず非同期で待つ（同期で待つと模擬が答えられず、固まる）。
+採り直したら、差分を読んで、hangar の読み手と `HANGAR_CODEX_METHODS` に響くものが無いかを見てから、`CODEX_VERIFIED_RANGE` を上げる。
+
 ### Codex の使用量（ベータ）
 
 Codex を足す作業の段 B の 7 つ目（計画の B7）で、枠と会話の値の取り手を入れた。
