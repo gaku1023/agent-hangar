@@ -961,8 +961,9 @@ hangar は、利用状況やクラッシュを集めて送る仕組みを持た�
 ## 商標
 
 agent-hangar は非公式のツールです。
-Anthropic からも、opencode の開発元からも、承認や支援を受けていません。
+Anthropic からも、opencode の開発元からも、OpenAI からも、承認や支援を受けていません。
 Claude、Claude Code と、その起動画面のキャラクター（Clawd）は Anthropic に帰属します。
 opencode の名前とロゴは、opencode の開発元に帰属します。
+OpenAI と Codex の名前とアイコンは OpenAI に帰属します。
 その他の商標は、それぞれの権利者に帰属します。
 一覧、サイドバー、ターミナルのタブのアイコンは、どのエージェントの会話かを見分けるためだけに使っています。

@@ -1756,13 +1756,16 @@ driver は、`materialize` で会話を作ったら、その会話と serve を�
 絵は `@agent-hangar/shared` の `agentIcons.ts` の 1 か所にまとめ、スマホもここから引く（React を使わない画面は `agentIconSvg` で文字列にする）。
 Claude Code の絵は Clawd（起動の見出しの文字絵を 1 文字 2×2 の升に起こし、縦を 2 倍にしたもの）で、opencode の絵は opencode.ai/brand の公式の SVG の形と色そのままである。
 どちらにも明るい地用と暗い地用がある。
-Codex の絵は置かない（ロゴの使い方に承認が要る）。
+Codex の絵は、ChatGPT.app に同梱の公式のアイコン（白い地に青紫の雲と `>_`）を 14px に縮めて起こし直したもので、勾配は使わず雲は 1 色にした。
+白い地なので暗い地でも読め、明るい地では灰色の細い縁を 1 枚下に敷く。
+OpenAI の商標で承認は得ていない。opencode と Clawd と同じく、指摘されたら `agentIcons.ts` だけを直す。
+ターミナルの上のタブは、Codex の会話なら同じ絵と「Codex」を置く（`AGENT_DISPLAY_NAME`）。
 README の「商標」の節に、非公式であることと、各商標が各社に帰属することを書く。
 
 出すかどうかは、画面の `presenters/agentIcon.ts` の `agentIconsOn` が決める。
-設定の `opencodeEnabled` が切で、opencode の会話が 1 つも無いときは出さない（切のままなら見た目は変わらない）。
-どちらかが真なら、全部の行に出す。
-会話は bootstrap で全部が届くので、会話の表（と実行中の写し）に opencode の行が無ければ、その hangar に opencode の会話は無い。
+設定の `opencodeEnabled` と `codexEnabled` がどちらも切で、Claude 以外のエージェントの会話が 1 つも無いときは出さない（切のままなら見た目は変わらない）。
+どれかが真なら、全部の行に出す。
+会話は bootstrap で全部が届くので、会話の表（と実行中の写し）に Claude 以外の行が無ければ、その hangar にその会話は無い。
 有効にしたあと切にしても、opencode の会話が残っていれば出し続ける。行がどのエージェントのものか分からなくなるからである。
 
 新しいセッションのダイアログのエージェントの札（opencode を有効にしたときだけ出る）も、札と一覧の行の頭に同じ絵を置く。札の絵は Claude Code と opencode で同じ 20×14 の枠に置き、名前の頭をそろえる。
@@ -8336,7 +8339,7 @@ ID をまるごと出すと、行の右端が横にはみ出すからである�
 opencode の行は、押しても開かない（`a` ではなく `div`）。
 opencode には Remote Control が無く、`claude.ai/code` を開くと誤誘導になるからである。
 入力待ちの札は、「開く ›」の場所に「PC で答えてください」を出す。
-どれかの PC が `caps.agents` に opencode を載せているか、opencode の行が 1 つでもあれば、全部の行の題名の左に幅 20px の枠でエージェントの絵を置く（shared の `agentIconsShown`）。
+どれかの PC が `caps.agents` に opencode か codex を載せているか、その行が 1 つでもあれば、全部の行の題名の左に幅 20px の枠でエージェントの絵を置く（shared の `agentIconsShown`）。
 入力待ちの札では、題の前の「·」を絵に置き換える。
 絵は shared の `AGENT_ICONS` から React の要素として描く（`packages/mobile/src/views/AgentIcon.tsx`）。
 SVG の文字列を流し込むと innerHTML が要るからである。
