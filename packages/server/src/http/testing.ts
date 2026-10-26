@@ -80,6 +80,7 @@ export function fakeRuns(): RunsApi {
     jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この Claude はもう終了しています'); return { found: true as const }; }),
     leaveTranscript: vi.fn(async () => ({ left: true })),
     assertCanStart: vi.fn(() => {}),
+    agentEnabled: vi.fn(() => true),
     cancelPrep: vi.fn(() => false),
     prepareModels: vi.fn(async () => {}),
     startFromTerminal: vi.fn((req: { cwd: string; args: string[] }) => { if (req.args.includes('--session-id')) throw new RunError(400, '--session-id を付けた起動は hangar では開けません'); return { ...launched, attached: false }; }),

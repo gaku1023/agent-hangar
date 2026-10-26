@@ -33,9 +33,14 @@ describe('一覧の行のアイコン（B10）', () => {
     expect(frames[2]!.querySelector('svg')).toBeNull();
   });
 
-  it('Codex の絵は無い', () => {
+  it('Codex の行は同じ枠に Codex の絵を置く。ほかの行には Codex の名前が出ない', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[row('a', { agent: 'claude-code' }), row('o', { agent: 'opencode' })]} height={400} variant="search" /></ActionRoot>);
     expect(container.innerHTML.toLowerCase()).not.toMatch(/codex|openai/);
+    cleanup();
+    render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[row('c', { agent: 'codex' })]} height={400} variant="search" /></ActionRoot>);
+    const frame = rowEls()[0]!.querySelector('.row-name > .row-agent')!;
+    expect(frame.getAttribute('data-agent')).toBe('codex');
+    expect(within(rowEls()[0]!).getByRole('img', { name: 'Codex' }).querySelector('svg')).not.toBeNull();
   });
 
   it('agent の無い行（アイコンを出さないとき）は枠ごと置かない', () => {
