@@ -91,20 +91,18 @@ describe('AccountSwitcher の開いた先', () => {
     expect(within(card(/会社/)).getAllByText(`${list[0]!.fiveHour!.resets} にリセット`).length).toBeGreaterThan(0);
     expect(within(card(/大学/)).getByRole('meter', { name: '大学 週の使用率' })).toBeInTheDocument();
   });
-  it('札の右上は、shown が「現在のアカウント」、ほかは「切り替える」', () => {
+  it('Claude の札の右上には一言を出さない。いまの札は aria-checked（青い輪）だけで示す', () => {
     const { face } = mount(home());
     fireEvent.click(face);
-    expect(within(card(/会社/)).getByText('現在のアカウント')).toBeInTheDocument();
-    expect(within(card(/大学/)).getByText('切り替える')).toBeInTheDocument();
+    expect(screen.getByRole('dialog').querySelector('.account-card-tag')).toBeNull();
+    for (const text of ['現在のアカウント', 'このセッションのアカウント', '切り替える']) expect(screen.queryByText(text)).toBeNull();
   });
-  it('セッション画面では shown の札が「このセッションのアカウント」になり、aria-checked もそのセッションのアカウントに付く', () => {
+  it('セッション画面では、aria-checked がそのセッションのアカウントに付き、右上の一言は出さない', () => {
     const { face } = mount(inSession());
     fireEvent.click(face);
     expect(card(/大学/)).toHaveAttribute('aria-checked', 'true');
     expect(card(/会社/)).toHaveAttribute('aria-checked', 'false');
-    expect(within(card(/大学/)).getByText('このセッションのアカウント')).toBeInTheDocument();
-    expect(within(card(/会社/)).getByText('切り替える')).toBeInTheDocument();
-    expect(screen.queryByText('現在のアカウント')).toBeNull();
+    expect(screen.getByRole('dialog').querySelector('.account-card-tag')).toBeNull();
   });
   it('開いたとき、shown の札にフォーカスを置く', () => {
     const { face } = mount(inSession());
@@ -194,7 +192,6 @@ describe('AccountSwitcher で札を押す', () => {
     onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).not.toHaveAttribute('aria-disabled');
-    expect(within(univ).getByText('切り替える')).toBeInTheDocument();
     expect(within(univ).getByText('taro@example.ac.jp')).toBeInTheDocument();
     expect(within(univ).getByText('ブラウザで承認してください…')).toBeInTheDocument();
     fireEvent.click(univ);
@@ -207,7 +204,6 @@ describe('AccountSwitcher で札を押す', () => {
     onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).not.toHaveAttribute('aria-disabled');
-    expect(within(univ).getByText('切り替える')).toBeInTheDocument();
     fireEvent.click(univ);
     expect(onAction.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
   });
@@ -277,7 +273,6 @@ describe('AccountSwitcher でアカウントが 1 つ', () => {
     expect(screen.getAllByRole('menuitemradio')).toHaveLength(1);
     const c = card(/会社/);
     expect(c).toHaveAttribute('aria-checked', 'true');
-    expect(within(c).getByText('現在のアカウント')).toBeInTheDocument();
     expect(c.textContent).toContain('14:00');
     expect(c.textContent).toContain('10/20 9:00');
     expect(screen.getByRole('button', { name: 'アカウントを追加' })).toBeInTheDocument();
@@ -316,6 +311,12 @@ describe('AccountSwitcher の Codex の節', () => {
     const group = screen.getByRole('group', { name: 'Codex' });
     expect(within(group).getByText('このセッション')).toBeInTheDocument();
     expect(group.querySelector('.account-card')).toHaveAttribute('data-here', 'true');
+  });
+  it('Claude のアカウントが 1 つなら、見出しに「クリックで切り替え」を添えない', () => {
+    const { face } = mount(home({ list: [list[0]!], codex: codex(false) }));
+    fireEvent.click(face);
+    expect(screen.getByRole('group', { name: 'Claude Code' })).toBeInTheDocument();
+    expect(screen.queryByText('クリックで切り替え')).toBeNull();
   });
   it('Codex の枠が無ければ、節の見出しを出さず今の面のまま', () => {
     const { face } = mount(home({ codex: null }));

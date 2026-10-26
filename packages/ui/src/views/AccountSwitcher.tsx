@@ -23,7 +23,7 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
  * アカウントが 1 件のときも同じ顔と同じ面にする。面の札でリセットの時刻が読め、下の段から 2 件目を足せる。
  * ヘッダは窓を掴む領域なので、押す部品はボタンにする。
  * 一覧はアカウントごとに 1 枚の札で、選ぶと、ホームなら「いまのアカウント」を、セッション画面ならそのセッションのアカウントを替える。
- * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札と初めてのログインの途中の札は押せない（右上は空で、理由は札の中身が言う）。ログインし直しの途中の札は、いまのログインが生きているので押せる。
+ * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札と初めてのログインの途中の札は押せない（理由は札の中身が言う）。ログインし直しの途中の札は、いまのログインが生きているので押せる。
  * Codex の枠が届いていれば、面を Claude Code と Codex の節に分け、Codex の枠も並べる（顔は開いている会話のエージェントの枠だけを出すので、ほかの枠はここで見る）。
  * 開くたびに accounts.load を出し、認証を読み直させる。
  * 面は document.body への portal に描く（ヘッダの重なりに切られないため）。
@@ -105,8 +105,7 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
         const disabled = blocked(a);
         return (
           <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
-            {/* 押せない札の右上は空にする。理由は札の中身（メールの行）が言う。 */}
-            {!disabled && <span className="account-card-tag" data-kind={isShown ? 'shown' : 'go'}>{isShown ? (sessionId === null ? t('accountSwitcher.tag.current') : t('accountSwitcher.tag.session')) : t('accountSwitcher.tag.switch')}</span>}
+            {/* 右上に一言（「現在のアカウント」「切り替える」）は置かない（2026-10-27 の利用者の決定）。いまの札は青い輪で、押せない理由は札の中身（メールの行）が言う。 */}
             <AccountMeters account={a} showResets />
           </button>
         );
@@ -130,7 +129,7 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
           {codex ? (
             <div className="account-cards">
               <div role="group" aria-labelledby={`${popId}-claude`} className="account-group">
-                <div className="account-sec"><AgentIcon kind="claude-code" decorative /><span id={`${popId}-claude`}>{t('accountSwitcher.section.claude')}</span><span className="account-sec-hint">{t('accountSwitcher.section.claudeHint')}</span></div>
+                <div className="account-sec"><AgentIcon kind="claude-code" decorative /><span id={`${popId}-claude`}>{t('accountSwitcher.section.claude')}</span>{list.length > 1 && <span className="account-sec-hint">{t('accountSwitcher.section.claudeHint')}</span>}</div>
                 {claudeMenu}
               </div>
               <div role="group" aria-labelledby={`${popId}-codex`} className="account-group">

@@ -137,7 +137,7 @@ describe('ダイアログ類（英語）', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Switch account/ }));
     expect(screen.getByRole('dialog', { name: 'Switch account' })).toBeInTheDocument();
     expect(screen.getByText('Account settings')).toBeInTheDocument();
-    expect(screen.getByText('Current account')).toBeInTheDocument();
+    expect(screen.getByText('Add account')).toBeInTheDocument();
   });
 
   it('未解決のプロジェクト：この PC で消えたものと、他の PC から届いただけのもの', () => {
