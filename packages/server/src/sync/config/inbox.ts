@@ -19,6 +19,10 @@ export type InboxMeta = {
   at: number;
   itemCount: number;
   skipped: number;
+  /** その束で集めた対象。欄の無い写し（古い版の束、この欄を足す前の写し）は Claude だけと読む。 */
+  targets?: string[];
+  /** 送り手の OS。 */
+  os?: 'darwin' | 'win32' | 'linux';
 };
 
 export type InboxEntry = { deviceId: string; meta: InboxMeta; items: ManifestItem[] };
@@ -31,7 +35,7 @@ function readJson<T>(file: string): T | null {
 
 const isMeta = (v: unknown): v is InboxMeta => {
   const m = v as Partial<InboxMeta> | null;
-  return !!m && typeof m.bundleSha256 === 'string' && typeof m.forRowSha256 === 'string' && typeof m.at === 'number' && typeof m.itemCount === 'number' && typeof m.skipped === 'number';
+  return !!m && typeof m.bundleSha256 === 'string' && typeof m.forRowSha256 === 'string' && typeof m.at === 'number' && typeof m.itemCount === 'number' && typeof m.skipped === 'number' && (m.targets === undefined || (Array.isArray(m.targets) && m.targets.every((t) => typeof t === 'string')));
 };
 
 export function writeInbox(home: string, deviceId: string, bundle: UnpackedBundle, meta: InboxMeta): void {

@@ -49,6 +49,19 @@ export type ConfigRestoreOpts = Common & {
 
 const KIND_LABEL: Record<ConfigItemKind, string> = {
   'claude-md': 'CLAUDE.md', settings: 'settings.json のキー', keybindings: 'keybindings.json', skills: 'スキル', commands: 'コマンド', agents: 'エージェント', memory: 'メモリ',
+  'claude-mcp': 'Claude の MCP サーバー',
+  'claude-hooks': 'Claude のフック',
+  'claude-statusline': 'Claude のステータス行',
+  'plugins': 'プラグイン',
+  'codex-file': 'Codex のファイル',
+  'codex-config': 'Codex の設定',
+  'codex-mcp': 'Codex の MCP サーバー',
+  'opencode-file': 'opencode のファイル',
+  'opencode-config': 'opencode の設定',
+  'opencode-cli': 'opencode の CLI 設定',
+  'opencode-mcp': 'opencode の MCP サーバー',
+  'agents-skills': '共通のスキル',
+  'hangar-pref': 'Hangar の好み',
 };
 const MARK_LABEL: Record<ConfigExecMark, string> = { hooks: 'フック', shell: 'シェルのコマンド実行', script: 'スクリプト' };
 const MAX_LISTED = 40;

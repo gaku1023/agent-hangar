@@ -1,4 +1,5 @@
 import type { ConfigInboxOp } from '@agent-hangar/shared';
+import { CLAUDE_TARGET_NAME, targetNameOfId } from './targets/index.ts';
 
 /**
  * 3 方向の判定（設定の同期の設計書の 3 章）。
@@ -23,6 +24,11 @@ import type { ConfigInboxOp } from '@agent-hangar/shared';
  * 項目が消えたと見なすのは、どの相手の束にもその項目が無いときだけである。
  * 1 台の束から消えても、別の相手がまだ持っているあいだは消さない（本当に消えたのか、その PC が持っていなかっただけなのかが、束からは分からない）。
  * 消した PC が 3 台のうち 1 台だけのとき、その消去は他の PC に伝わらない（安全な側に倒した割り切り）。
+ *
+ * 対象（Claude、Codex など）ごとに、その対象を扱う相手の束だけで holder と「どの束にも無い」を決める。
+ * 古い版の束は、新しい対象を知らず、自分の束に新しい項目を入れない。それを「消した」と読まないための決まりである。
+ * - その対象を扱う相手が 1 台もいない id は、何もしない（delete も forget もしない。基準の行は残す）。
+ * - 手元でその対象が切（localTargets に無い）の id は、何もしない（create もしない）。
  */
 
 export type RemoteSnapshot = {
@@ -30,6 +36,8 @@ export type RemoteSnapshot = {
   /** 束を上げた時刻（config_snapshots.updated_at）。新しい方を採る。 */
   at: number;
   items: ReadonlyMap<string, { sha256: string }>;
+  /** その束で集めた対象の名前。省くと古い版の束と同じに、Claude だけを扱う相手と読む。 */
+  targets?: ReadonlySet<string>;
 };
 
 export type Action = {
@@ -54,24 +62,33 @@ export type Judgement = {
 /** 新しい束を前にする。同じ新しさなら端末 ID の大きい方を前にする。 */
 const newerFirst = (a: RemoteSnapshot, b: RemoteSnapshot): number => b.at - a.at || (a.deviceId < b.deviceId ? 1 : a.deviceId > b.deviceId ? -1 : 0);
 
-export function judge(i: { local: ReadonlyMap<string, string>; base: ReadonlyMap<string, string>; remotes: readonly RemoteSnapshot[] }): Judgement {
+const OLD_BUNDLE_TARGETS: ReadonlySet<string> = new Set([CLAUDE_TARGET_NAME]);
+
+export function judge(i: {
+  local: ReadonlyMap<string, string>; base: ReadonlyMap<string, string>; remotes: readonly RemoteSnapshot[];
+  /** 手元で集める対象。省くと、全部の対象が入りとして扱う。 */
+  localTargets?: ReadonlySet<string>;
+}): Judgement {
   const out: Judgement = { actions: [], agreed: new Map(), forget: [] };
   if (i.remotes.length === 0) return out;
   const remotes = [...i.remotes].sort(newerFirst);
-  const newest = remotes[0]!;
   const ids = new Set<string>([...i.local.keys(), ...i.base.keys()]);
   for (const r of remotes) for (const id of r.items.keys()) ids.add(id);
 
   for (const id of [...ids].sort()) {
     const l = i.local.get(id) ?? null;
     const b = i.base.get(id) ?? null;
-    const holder = remotes.find((r) => r.items.has(id));
+    const target = targetNameOfId(id);
+    if (i.localTargets && !i.localTargets.has(target)) continue; // 手元で切の対象
+    const handlers = remotes.filter((r) => (r.targets ?? OLD_BUNDLE_TARGETS).has(target));
+    if (handlers.length === 0) continue; // その対象を扱う相手がいない。消去と見なさない
+    const holder = handlers.find((r) => r.items.has(id));
     const rsha = holder ? holder.items.get(id)!.sha256 : null;
 
     if (!holder) {
       if (l === null) { if (b !== null) out.forget.push(id); continue; }
       if (b === null) continue; // 手元だけ
-      out.actions.push({ id, op: l === b ? 'delete' : 'conflict', fromDeviceId: newest.deviceId, remoteSha256: null, localSha256: l });
+      out.actions.push({ id, op: l === b ? 'delete' : 'conflict', fromDeviceId: handlers[0]!.deviceId, remoteSha256: null, localSha256: l });
       continue;
     }
     const from = holder.deviceId;

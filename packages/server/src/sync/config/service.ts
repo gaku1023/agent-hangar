@@ -16,11 +16,12 @@ import type { RowKeyring } from '../sealedClient.ts';
 import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.ts';
 import { listBackups } from './backups.ts';
 import { ConfigBase } from './base.ts';
-import { packBundle, unpackBundle, type BundleManifest, type ManifestItem } from './bundle.ts';
-import { collectLocal, isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
+import { bundleTargetsOf, packBundle, unpackBundle, type BundleManifest, type BundleOs, type ManifestItem } from './bundle.ts';
+import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
 import { parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
+import { collectAll, enabledTargetNames, targetOfId, type TargetContext } from './targets/index.ts';
 import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
 
 /**
@@ -62,7 +63,6 @@ export class ConfigSyncError extends MessageError {
   constructor(readonly status: 400 | 404, text: Message) { super(text); this.name = 'ConfigSyncError'; }
 }
 
-const EXEC_KINDS = new Set<ConfigItemKind>(['skills', 'commands', 'agents']);
 const HEAD_CHARS = 400;
 const MAX_DIFF_LINES = 200;
 /** 手元の目録を行に載せる上限。クラウドの 1 行の上限（128 KiB）に収める。超えたら行には載せず、束の中の目録だけを使う。 */
@@ -143,9 +143,13 @@ export class ConfigSyncService {
     return new Map((this.deps.db.prepare('select id, content_sha256 from config_unsent where allowed = 1').all() as { id: string; content_sha256: string }[]).map((r) => [r.id, r.content_sha256]));
   }
 
+  private targetCtx(): TargetContext {
+    return { db: this.deps.db, deviceId: this.deps.deviceId, home: this.deps.home, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent() };
+  }
+
   /** 手元の項目を集め、送らなかった項目の表を今の姿に合わせる。 */
   private collect(): Collected {
-    const c = collectLocal({ db: this.deps.db, deviceId: this.deps.deviceId, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent() });
+    const c = collectAll(this.targetCtx());
     if (this.refreshUnsent(c.unsent)) this.touch();
     return c;
   }
@@ -219,7 +223,9 @@ export class ConfigSyncService {
     if (own && last?.value === contentKey) return { sent: false, items: items.length };
 
     const now = this.now();
-    const manifest: BundleManifest = { version: 1, deviceId, createdAt: now, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: i.sha256, size: i.size, marks: i.marks })) };
+    const manifest: BundleManifest = { version: 1, deviceId, createdAt: now, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: i.sha256, size: i.size, marks: i.marks })),
+      targets: enabledTargetNames(this.targetCtx()), os: process.platform === 'darwin' || process.platform === 'win32' ? (process.platform as BundleOs) : 'linux',
+    };
     const tar = packBundle(manifest, new Map(items.map((i) => [i.sha256, i.content])));
     const bundleSha = sha256(tar);
     // 鍵名は今の世代の鍵で求め、同じ世代で封じる。gzip と暗号化は cloud（SealedCloudClient）が行う。
@@ -258,7 +264,7 @@ export class ConfigSyncService {
       try {
         const bundle = await this.fetchBundle(row.device_id, row.bundle_sha256);
         if (bundle.manifest.deviceId !== row.device_id) throw new Error('束の中の端末 ID が行の端末と違います');
-        writeInbox(home, row.device_id, bundle.opened, { bundleSha256: bundle.sha, forRowSha256: row.bundle_sha256, at: row.updated_at, itemCount: bundle.manifest.items.length, skipped: bundle.opened.skipped });
+        writeInbox(home, row.device_id, bundle.opened, { bundleSha256: bundle.sha, forRowSha256: row.bundle_sha256, at: row.updated_at, itemCount: bundle.manifest.items.length, skipped: bundle.opened.skipped, targets: bundleTargetsOf(bundle.manifest), ...(bundle.manifest.os ? { os: bundle.manifest.os } : {}) });
         this.failed.delete(row.device_id);
         fetched++;
       } catch (e) {
@@ -332,7 +338,7 @@ export class ConfigSyncService {
   // ---- 判定 ----
 
   private snapshots(): RemoteSnapshot[] {
-    return readInbox(this.deps.home).map((e: InboxEntry) => ({ deviceId: e.deviceId, at: e.meta.at, items: new Map(e.items.map((i) => [i.id, { sha256: i.sha256 }])) }));
+    return readInbox(this.deps.home).map((e: InboxEntry) => ({ deviceId: e.deviceId, at: e.meta.at, items: new Map(e.items.map((i) => [i.id, { sha256: i.sha256 }])), targets: new Set(e.meta.targets ?? ['claude']) }));
   }
 
   /** 3 方向の判定を回し、手元と相手が同じだった項目を基準に書き、どこにも無くなった項目の基準を消す。 */
@@ -340,7 +346,7 @@ export class ConfigSyncService {
     const collected = this.collect();
     const items = new Map(collected.items.map((i) => [i.id, i]));
     const base = this.base.all();
-    const j = judge({ local: new Map([...items].map(([id, i]) => [id, i.sha256])), base, remotes: this.snapshots() });
+    const j = judge({ local: new Map([...items].map(([id, i]) => [id, i.sha256])), base, remotes: this.snapshots(), localTargets: new Set(enabledTargetNames(this.targetCtx())) });
     const now = this.now();
     for (const [id, sha] of j.agreed) if (base.get(id) !== sha) this.base.set(id, sha, now);
     for (const id of j.forget) this.base.remove(id);
@@ -395,7 +401,7 @@ export class ConfigSyncService {
     const items: ConfigInboxItemDto[] = this.resolved().map((r) => ({
       id: r.action.id, kind: r.kind, label: r.label, op: r.action.op,
       fromDeviceId: r.action.fromDeviceId, fromDevice: r.fromDevice, size: r.size, marks: r.marks, head: r.head, held: r.held,
-      needsApproval: r.action.op !== 'delete' && EXEC_KINDS.has(r.kind) && approval === 'each',
+      needsApproval: targetOfId(r.action.id)?.needsApproval({ kind: r.kind, op: r.action.op }, approval) ?? false,
     }));
     return { items, approval };
   }

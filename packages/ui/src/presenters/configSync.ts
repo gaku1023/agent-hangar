@@ -37,8 +37,15 @@ export function sizeLabel(n: number, platform: string = clientPlatform()): strin
   return `${(n / k / k).toFixed(1)} MB`;
 }
 
-/** 種類の見出しの鍵。鍵にハイフンは使えないので、claude-md だけ読み替える。 */
-const kindKey = (kind: ConfigItemKind) => (kind === 'claude-md' ? 'claudeMd' : kind);
+/** 種類の見出しの鍵。鍵にハイフンは使えないので、claude-md を claudeMd のように読み替える。 */
+const KIND_KEYS = {
+  'claude-md': 'claudeMd', settings: 'settings', keybindings: 'keybindings', skills: 'skills', commands: 'commands', agents: 'agents', memory: 'memory',
+  'claude-mcp': 'claudeMcp', 'claude-hooks': 'claudeHooks', 'claude-statusline': 'claudeStatusline', plugins: 'plugins',
+  'codex-file': 'codexFile', 'codex-config': 'codexConfig', 'codex-mcp': 'codexMcp',
+  'opencode-file': 'opencodeFile', 'opencode-config': 'opencodeConfig', 'opencode-cli': 'opencodeCli', 'opencode-mcp': 'opencodeMcp',
+  'agents-skills': 'agentsSkills', 'hangar-pref': 'hangarPref',
+} as const satisfies Record<ConfigItemKind, string>;
+const kindKey = <K extends ConfigItemKind>(kind: K): (typeof KIND_KEYS)[K] => KIND_KEYS[kind];
 
 const markLabels = (t: Translate, marks: ConfigExecMark[]): string[] => marks.map((m) => t(`configSyncUi.mark.${m}`));
 
