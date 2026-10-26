@@ -119,7 +119,8 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
     const ev = input.event;
     switch (ev.type) {
       case 'transcript.appended': {
-        const open = currentSession(state) === ev.sessionId;
+        // 並べたペインのセッションなら、操作中でなくても取り直す（右欄の目次や本文が止まらないように）。
+        const open = currentSession(state) === ev.sessionId || paneShows(state, ev.sessionId);
         // 追記は末尾に足すだけでよい。-1（過去へ遡る）を出すと、全件を読み終えるまで古い側が 500 件ずつ入ってしまう。
         return { state, effects: open ? [{ kind: 'api.loadEvents', sessionId: ev.sessionId, fromSeq: -2 }] : [] };
       }

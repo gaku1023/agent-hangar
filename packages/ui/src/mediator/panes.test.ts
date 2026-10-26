@@ -338,3 +338,36 @@ describe('ペインの木：端末の接続', () => {
     expect(ons(r.effects)).toEqual(['s2']);
   });
 });
+
+describe('ペインの木：右欄と本文の取り直し', () => {
+  type Eff = { kind: string; sessionId?: string; fromSeq?: number };
+  const appended = (sessionId: string): Input => ({ kind: 'server', event: { type: 'transcript.appended', sessionId, count: 1 } });
+  const loads = (effects: Eff[]) => effects.filter((e) => e.kind === 'api.loadEvents').map((e) => `${e.sessionId}:${e.fromSeq}`);
+
+  it('操作中でないペインのセッションに追記が来ても、本文を取り直す', () => {
+    const two = open(one(), 's2', 'right');
+    expect(focusSession(two)).toBe('s2');
+    const r = run(two, [appended('s1')]);
+    expect(loads(r.effects)).toEqual(['s1:-2']);
+  });
+  it('操作中のペインのセッションは今までどおり取り直す', () => {
+    const two = open(one(), 's2', 'right');
+    expect(loads(run(two, [appended('s2')]).effects)).toEqual(['s2:-2']);
+  });
+  it('ペインに無いセッションの追記では取り直さない', () => {
+    const two = open(one(), 's2', 'right');
+    expect(loads(run(two, [appended('s9')]).effects)).toEqual([]);
+  });
+  it('分割していないときは今までどおり（開いているセッションだけ）', () => {
+    const s = one();
+    expect(loads(run(s, [appended('s1')]).effects)).toEqual(['s1:-2']);
+    expect(loads(run(s, [appended('s2')]).effects)).toEqual([]);
+  });
+  it('新しく見えた操作中でないペインのセッションの本文も読み始める', () => {
+    const two = open(one(), 's2', 'right');
+    const home: Input = { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'home' } } };
+    const away = run(two, [home]).state;
+    const back = run(away, [hash('s2')]);
+    expect(loads(back.effects).sort()).toEqual(['s1:0', 's2:0']);
+  });
+});

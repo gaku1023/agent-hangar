@@ -217,6 +217,8 @@ export function paneTerminals(prev: State, state: State, effects: Effect[]): Eff
   const extra: Effect[] = [
     ...before.filter((s) => !after.includes(s) && !off.has(s)).map((s): Effect => ({ kind: 'terminal.disconnectSession', sessionId: s })),
     ...after.filter((s) => !before.includes(s) && !on.has(s)).map((s): Effect => ({ kind: 'terminal.connect', sessionId: s, tabId: null })),
+    // 新しく見えたペインのセッションは、本文も読み始める（画面が読むのは操作中のセッションだけなので、並びを戻したときに右欄が空になる）。
+    ...after.filter((s) => !before.includes(s) && !effects.some((e) => e.kind === 'api.loadEvents' && e.sessionId === s)).map((s): Effect => ({ kind: 'api.loadEvents', sessionId: s, fromSeq: 0 })),
   ];
   return kept.length === effects.length && extra.length === 0 ? effects : [...kept, ...extra];
 }
