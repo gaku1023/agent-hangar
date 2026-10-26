@@ -4,6 +4,7 @@ import type { PaneId } from '@agent-hangar/shared';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
+import { usePaneHeaderDrag } from './usePaneHeaderDrag.ts';
 
 /** SessionScreen が variant="pane" のときに受け取る、ペインの見え方。tight と tiny は PaneCell が幅から決める。 */
 export type PaneView = { id: PaneId; toc: boolean; tight: boolean; tiny: boolean; zoomed: boolean };
@@ -34,9 +35,10 @@ export function PaneHeader(props: {
   const emit = useEmit();
   const t = useT();
   const { pane } = props;
+  const drag = usePaneHeaderDrag(pane.id, props.title);
   const tocLabel = pane.toc ? t('pane.toc.close') : t('pane.toc.open');
   return (
-    <div className="pane-head" data-pane-header={pane.id} role="group" aria-label={t('pane.header.label', { name: props.title })}>
+    <div className="pane-head" data-pane-header={pane.id} role="group" aria-label={t('pane.header.label', { name: props.title })} onPointerDown={drag.onPointerDown}>
       {props.lead}
       <span className="pane-head-title" title={props.title}>{props.title}</span>
       {props.project && !pane.tight && <span className="pane-head-project" title={props.project}>{props.project}</span>}
@@ -61,8 +63,9 @@ export function EmptyPaneHeader(props: { pane: PaneView }) {
   const emit = useEmit();
   const t = useT();
   const { pane } = props;
+  const drag = usePaneHeaderDrag(pane.id, t('pane.empty.title'));
   return (
-    <div className="pane-head" data-pane-header={pane.id} data-empty="true" role="group" aria-label={t('pane.empty.title')}>
+    <div className="pane-head" data-pane-header={pane.id} data-empty="true" role="group" aria-label={t('pane.empty.title')} onPointerDown={drag.onPointerDown}>
       <span className="pane-head-title">{t('pane.empty.title')}</span>
       <span className="spacer" />
       {pane.zoomed && <button type="button" className="btn btn-icon btn-ghost pane-head-btn" data-pane-unzoom={pane.id} aria-label={t('pane.header.unzoom')} title={t('pane.header.unzoom')} onClick={() => emit({ type: 'pane.zoom', pane: pane.id })}><Icon name="restore" /></button>}

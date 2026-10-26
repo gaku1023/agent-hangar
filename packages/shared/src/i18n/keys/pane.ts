@@ -13,4 +13,11 @@ export const paneKeys = {
   'pane.divider.title': [],
   'pane.divider.name': [],
   'pane.divider.valueText': ['percent'],
+  'pane.drop.left': [],
+  'pane.drop.right': [],
+  'pane.drop.up': [],
+  'pane.drop.down': [],
+  'pane.drop.open': [],
+  'pane.drop.swap': [],
+  'pane.drop.self': [],
 } as const satisfies MessageSpec;

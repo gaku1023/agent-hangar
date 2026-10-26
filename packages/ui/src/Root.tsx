@@ -51,6 +51,7 @@ import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
 import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
 import { PaneWorkspace } from './views/PaneWorkspace.tsx';
+import { PaneDropOverlay } from './views/PaneDropOverlay.tsx';
 import { presentPanes } from './presenters/panes.ts';
 import { SettingsScreen } from './views/SettingsScreen.tsx';
 import { ShortcutsDialog } from './views/ShortcutsDialog.tsx';
@@ -473,6 +474,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     </>
   );
 
+      <PaneDropOverlay />
   return (
     <ActionRoot onAction={rt.emit} background={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>

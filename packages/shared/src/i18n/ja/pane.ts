@@ -14,4 +14,11 @@ export const paneJa: AreaDictionary<typeof paneKeys> = {
   'pane.divider.title': 'ドラッグでサイズ変更 / ダブルクリックで均等化',
   'pane.divider.name': 'ペインの境目',
   'pane.divider.valueText': '前のペイン {percent}%',
+  'pane.drop.left': '左に分割',
+  'pane.drop.right': '右に分割',
+  'pane.drop.up': '上に分割',
+  'pane.drop.down': '下に分割',
+  'pane.drop.open': 'ここで開く',
+  'pane.drop.swap': '位置を入れ替える',
+  'pane.drop.self': '同じ位置には配置できません',
 };

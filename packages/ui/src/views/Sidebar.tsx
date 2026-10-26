@@ -12,6 +12,7 @@ import { SessionMenuPop } from './sessionMenu.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
 import { motionMs } from './primitives/motion.ts';
+import { paneDrag } from './paneDrag.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
 const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', settings: 'settings' };
@@ -125,6 +126,10 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
   // 押し下げの記録と、並べ替えの途中の形の写し。ポインタのイベントの間で、描き直しを待たずに読むため ref にも持つ。
   const press = useRef<Press | null>(null);
   const sortNow = useRef<Sort | null>(null);
+  // 掴んだ行が本体の側（サイドバーの外）にいる間は、並べ替えでなく画面の分割の落とし先を指している（paneDrag）。
+  const overBody = useRef(false);
+  const [paneOn, setPaneOn] = useState(false);
+  const setOverBody = (on: boolean) => { overBody.current = on; setPaneOn(on); };
   const setSort = (next: Sort | null) => { sortNow.current = next; setSortState(next); };
   // 収まりを待つ予約。並びの確定は、ここから最新の行で組み立てる（待つ間に行が増減しても、古い並びで上書きしない）。
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,6 +151,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleTimer.current = null;
     press.current = null;
+    if (overBody.current) { paneDrag.cancel(); setOverBody(false); }
     setSort(null);
   }, [sortGone]);
   // 並べ替えの途中の Esc は、並べ替えをやめて元の席へ戻す。離すまでの記録は残し、離したあとの click を飲み込む。
@@ -160,6 +166,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
       e.preventDefault();
       e.stopImmediatePropagation();
       press.current.cancelled = true;
+      if (overBody.current) { paneDrag.cancel(); setOverBody(false); }
       settleRef.current(true);
     };
     window.addEventListener('keydown', onKey, true);
@@ -223,6 +230,17 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     }
     const s = sortNow.current;
     if (!s || s.phase !== 'held') return;
+    // 本体の側（サイドバーの右端より外）に出たら、並べ替えをやめて落とし先を指す。サイドバーへ戻したら並べ替えに戻る。
+    const side = list.current?.closest('nav')?.getBoundingClientRect();
+    if (side && side.width > 0 && e.clientX > side.right) {
+      const row = live.rows.find((r) => r.id === p.id);
+      if (!overBody.current) setOverBody(true);
+      paneDrag.move({ kind: 'session', sessionId: p.id, name: row?.name ?? '', live: row?.live ?? null }, e.clientX, e.clientY);
+      // 席に残して並べ替えのずれは 0 に戻す。
+      if (!sort || s.pointerDy !== 0) setSort({ ...s, pointerDy: 0 });
+      return;
+    }
+    if (overBody.current) { paneDrag.cancel(); setOverBody(false); }
     const next: Sort = { ...s, pointerDy: e.clientY - p.y };
     // 席もずれも変わらなければ描き直さない（両端の先で止まっている間など）。掴んだ最初の動きは、まだ描いていないので描く。
     const was = sortAt(s, rowIds);
@@ -239,17 +257,27 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     // click が来なかったとき（行の外で離した、など）に、次の押し下げまで飲み込みを残さない。
     setTimeout(() => { swallowClick.current = false; }, 0);
     if (p.cancelled) return;
+    if (overBody.current) {
+      // 本体の上で離した：落とせる所なら pane.open を出し、並びは変えない（元の席へ収める）。
+      const hit = paneDrag.finish();
+      setOverBody(false);
+      if (hit) emit({ type: 'pane.open', sessionId: p.id, target: hit.target, side: hit.side });
+      settle(true);
+      return;
+    }
     settle(false);
   };
   const onPointerCancel = (e: PointerEvent) => {
     if (press.current?.pointer !== e.pointerId) return;
     press.current = null;
+    if (overBody.current) { paneDrag.cancel(); setOverBody(false); }
     settle(true);
   };
   const onClick = (e: MouseEvent, r: SideLiveRow) => {
     e.preventDefault();
     if (swallowClick.current) { swallowClick.current = false; return; }
-    emit({ type: 'session.open', id: r.id });
+    // ⌥クリック（ほかは Alt+クリック）は、操作中のペインの右に分割して開く。
+    emit(e.altKey ? { type: 'pane.open', sessionId: r.id, target: null, side: 'right' } : { type: 'session.open', id: r.id });
   };
   const onKeyDown = (e: KeyboardEvent, r: SideLiveRow) => {
     // 並べ替えの間は、並びもメニューも動かさない。
@@ -276,7 +304,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
           return (
           <li key={r.id}>
             <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={props.menuId === r.id ? 'true' : undefined}
-              data-live={r.live ?? undefined} data-lift={lift} style={style}
+              data-live={r.live ?? undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === r.id ? 'true' : undefined} style={style}
               title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
               onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
               onContextMenu={(e) => { e.preventDefault(); if (sortNow.current) return; setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}

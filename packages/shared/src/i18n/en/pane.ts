@@ -14,4 +14,11 @@ export const paneEn: AreaDictionary<typeof paneKeys> = {
   'pane.divider.title': 'Drag to resize / Double-click to equalize',
   'pane.divider.name': 'Pane divider',
   'pane.divider.valueText': 'First pane {percent}%',
+  'pane.drop.left': 'Split Left',
+  'pane.drop.right': 'Split Right',
+  'pane.drop.up': 'Split Up',
+  'pane.drop.down': 'Split Down',
+  'pane.drop.open': 'Open Here',
+  'pane.drop.swap': 'Swap Panes',
+  'pane.drop.self': 'Cannot drop on same pane',
 };

@@ -52,3 +52,16 @@
 
 /* サイドバーの行の右端の、ペインの番号の札。 */
 .side-pane-badge { flex: none; min-width: 16px; height: 16px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; }
+
+/* ドラッグの予告の枠とドラッグの札（手本は session-split-proto.html の .preview と .ghost）。枠は 1 つだけで、位置と大きさは style で替える。動きは T5。 */
+.pane-drop-preview { position: fixed; z-index: 70; pointer-events: none; border-radius: var(--r-lg); background: color-mix(in srgb, var(--accent) 12%, transparent); border: 2px solid var(--accent-hi); display: flex; align-items: center; justify-content: center; opacity: 0; }
+.pane-drop-preview[data-on='true'] { opacity: 1; }
+.pane-drop-preview span { background: var(--accent); color: #fff; font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--r-pill); box-shadow: var(--glass-drop); }
+.pane-drop-preview[data-replace='true'] { background: color-mix(in srgb, var(--accent) 7%, transparent); border-style: dashed; }
+.pane-drop-preview[data-blocked='true'] { border-color: var(--line-strong); background: rgba(0, 0, 0, 0.03); }
+.pane-drop-preview[data-blocked='true'] span { background: var(--ink-3); }
+.pane-drop-ghost { position: fixed; z-index: 71; pointer-events: none; padding: 4px 10px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.94); box-shadow: var(--glass-drop); font-size: var(--fs-xs); display: flex; gap: 6px; align-items: center; transform: translate(10px, 10px); }
+/* 見出しは掴んで動かす。選択は始めない。 */
+.pane-head { user-select: none; }
+/* サイドバーの行を本体へ引いている間、元の行は薄くして席に残す。 */
+.side-live-list .side-live-row[data-pane-drag] { opacity: 0.45; }
