@@ -7514,6 +7514,10 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
 0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
 `claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
+後の対象 `codex`、`opencode`、`agents-skills`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
+枠は owns が常に false、collect は空で、`placeholder` の印を持つ。印のある対象は束の `targets` と判定の「こちらが扱える対象」に載せない。載せると、まだ書けないのに他の PC の項目を受けてしまうためである。
+`claude-hooks` と `claude-plugins` は `claude` より前に登録する。実装する PR は印を外す。
+TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir、agentsSkillsDir、claudeJsonPath、hangarSettingsPath）と、Codex・opencode がその PC で有効か（codexEnabled、opencodeEnabled）を持つ。有効な入れ物は、service の vcs() の検出の表にも載る。
 入切は設定の `configTargets`（対象名から真偽）で、既定は切。入れる画面は後の PR で作る。
 - 好み：`modelSettings`、`promptSuggestionEnabled`、`tui`、`voice`、`voiceEnabled`、`agentPushNotifEnabled`、`inputNeededNotifEnabled`、`skipWorkflowUsageWarning`、`autoUpdatesChannel`。
 - 権限（他の PC から届くとき承諾が要る。承諾の仕方が自動なら要らない）：`autoMode`（分類器の許可と拒否の規則）、`skipAutoPermissionPrompt`、`deniedMcpServers`。

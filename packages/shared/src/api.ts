@@ -644,8 +644,6 @@ export type ConfigOutgoingDto = {
   /** 送らなかった項目の数（GET /api/config-sync/unsent の長さ）。 */
   unsentCount: number;
   lastSentAt: number | null;
-  /** 入れ物が git や dotfiles の道具で管理されているか（対象ごと、管理されているものだけ。印が無ければ欄ごと省く）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
-  vcs?: ConfigVcsDto[];
 };
 /** 届いた変更の操作。conflict は手元と相手の両方が変えた（または片方が消した）もの。 */
 export type ConfigInboxOp = 'create' | 'overwrite' | 'delete' | 'conflict';
@@ -690,6 +688,8 @@ export type ConfigSyncDto = {
   backups: number;
   applyOrder: { count: number; createdAt: number } | null;
   lastSentAt: number | null;
+  /** 入れ物が git や dotfiles の道具で管理されているか（対象ごと、管理されているものだけ。印が無ければ欄ごと省く）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
+  vcs?: ConfigVcsDto[];
 };
 /**
  * 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所になっているときの 409。

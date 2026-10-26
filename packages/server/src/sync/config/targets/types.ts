@@ -17,6 +17,20 @@ export type TargetContext = {
   home: string;
   claudeDir: string;
   allowedUnsent: ReadonlyMap<string, string>;
+  /** Codex の入れ物（`$CODEX_HOME`、既定 `~/.codex`）。 */
+  codexHome: string;
+  /** その PC で Codex が有効か（設定の codexEnabled）。切なら Codex の対象は集めない。 */
+  codexEnabled: boolean;
+  /** opencode の入れ物（`$XDG_CONFIG_HOME/opencode`、既定 `~/.config/opencode`）。 */
+  opencodeDir: string;
+  /** その PC で opencode が有効か（設定の opencodeEnabled）。 */
+  opencodeEnabled: boolean;
+  /** 共通の skills の入れ物（`~/.agents/skills`）。 */
+  agentsSkillsDir: string;
+  /** Claude の `~/.claude.json`。 */
+  claudeJsonPath: string;
+  /** hangar の settings.json。 */
+  hangarSettingsPath: string;
   /** 項目の数の上限。試験が小さくするために使う。 */
   maxItems?: number;
   /** 対象ごとの入切（設定の configTargets）。無い対象は切。 */
@@ -29,6 +43,8 @@ export type ParsedId = { kind: ConfigItemKind; ref: ItemRef };
 export interface ConfigTarget {
   /** 対象名。束の目録の `targets` に載る名前で、一度出したら変えない。 */
   readonly name: string;
+  /** 枠だけで、まだ何も運ばない対象（placeholder.ts）。束の `targets` に載せない。本物にするときは外す。 */
+  readonly placeholder?: true;
   /**
    * その id がこの対象のものか。id の頭だけでなく中身でも決めてよい。
    * 古い版が運ばない項目は、古い版が運ぶ項目と別の対象にする（でないと、古い版の束で消去に見える）。

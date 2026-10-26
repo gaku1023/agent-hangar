@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
   CONFIG_BUNDLE_MIN_WORKER_COMPAT, configBlobKey, isSafeKeyId,
@@ -22,6 +23,7 @@ import { parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
 import { collectAll, enabledTargetNames, targetOfId, type TargetContext } from './targets/index.ts';
+import { defaultTargetPaths, type TargetPaths } from './targets/paths.ts';
 import { CLAUDE_TARGET_NAME } from './targets/claude.ts';
 import { detectVcsCached } from './vcs.ts';
 import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
@@ -57,6 +59,12 @@ export type ConfigSyncDeps = {
   approval: () => ConfigApproval;
   /** 対象ごとの入切（設定の configTargets）。省くと、入切のある対象は全部切。 */
   targetSwitches?: () => Readonly<Record<string, boolean>>;
+  /** Codex・opencode の対象が見る、その PC で有効かの判定（設定の codexEnabled・opencodeEnabled）。省くと切。 */
+  agentsEnabled?: () => { codex: boolean; opencode: boolean };
+  /** Claude 以外の入れ物のパス。省くと、環境変数とホームの既定（targets/paths.ts）。試験は一時のディレクトリに向ける。 */
+  targetPaths?: Partial<TargetPaths>;
+  /** hangar の settings.json のパス。省くと `<home>/settings.json`。 */
+  hangarSettingsPath?: string;
   now?: () => number;
   /** 取りに行って失敗した理由など、利用者に急ぎで見せないものの出し先。 */
   onError?: (message: string) => void;
@@ -148,7 +156,12 @@ export class ConfigSyncService {
   }
 
   private targetCtx(): TargetContext {
-    return { db: this.deps.db, deviceId: this.deps.deviceId, home: this.deps.home, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent(), switches: this.deps.targetSwitches?.() ?? {} };
+    const paths = { ...defaultTargetPaths(), ...this.deps.targetPaths };
+    const on = this.deps.agentsEnabled?.() ?? { codex: false, opencode: false };
+    return {
+      db: this.deps.db, deviceId: this.deps.deviceId, home: this.deps.home, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent(), switches: this.deps.targetSwitches?.() ?? {},
+      ...paths, codexEnabled: on.codex, opencodeEnabled: on.opencode, hangarSettingsPath: this.deps.hangarSettingsPath ?? path.join(this.deps.home, 'settings.json'),
+    };
   }
 
   /** 手元の項目を集め、送らなかった項目の表を今の姿に合わせる。 */
@@ -490,7 +503,12 @@ export class ConfigSyncService {
   /** 入れ物ごとの検出（表示だけ）。失敗しても、同期にも dto にも響かせない。後の対象の入れ物はここに足す。 */
   private vcs(): ConfigVcsDto[] {
     const out: ConfigVcsDto[] = [];
-    for (const c of [{ target: CLAUDE_TARGET_NAME, dir: this.deps.claudeDir }]) {
+    const ctx = this.targetCtx();
+    const dirs: { target: string; dir: string }[] = [{ target: CLAUDE_TARGET_NAME, dir: ctx.claudeDir }];
+    if (ctx.codexEnabled) dirs.push({ target: 'codex', dir: ctx.codexHome });
+    if (ctx.opencodeEnabled) dirs.push({ target: 'opencode', dir: ctx.opencodeDir });
+    if (ctx.codexEnabled || ctx.opencodeEnabled) dirs.push({ target: 'agents-skills', dir: ctx.agentsSkillsDir });
+    for (const c of dirs) {
       const tools = detectVcsCached(c.dir, this.deps.home, this.now());
       if (tools.length) out.push({ target: c.target, tools });
     }

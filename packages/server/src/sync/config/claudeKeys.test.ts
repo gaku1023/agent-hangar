@@ -7,6 +7,7 @@ import { openDb, type Db } from '../../db/open.ts';
 import { collectLocal } from './collect.ts';
 import { parseItemId } from './ids.ts';
 import { CLAUDE_KEYS2_NAME, CLAUDE_KEYS2_KEYS, claudeKeys2Target } from './targets/claudeKeys2.ts';
+import { defaultTargetPaths } from './targets/paths.ts';
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, targetOfId, type TargetContext } from './targets/index.ts';
 import { sortSettings } from './settingsSort.ts';
 import { judge, type RemoteSnapshot } from './threeWay.ts';
@@ -91,7 +92,7 @@ describe('集める', () => {
   let tmp: string; let claudeDir: string; let db: Db;
   beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-keys2-')); claudeDir = path.join(tmp, 'c'); fs.mkdirSync(claudeDir); db = openDb(':memory:'); });
   afterEach(() => { db.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
-  const ctx = (switches: Record<string, boolean>): TargetContext => ({ db, deviceId: 'd', home: tmp, claudeDir, allowedUnsent: new Map(), switches });
+  const ctx = (switches: Record<string, boolean>): TargetContext => ({ db, deviceId: 'd', home: tmp, claudeDir, allowedUnsent: new Map(), switches, ...defaultTargetPaths({}, tmp), codexEnabled: false, opencodeEnabled: false, hangarSettingsPath: path.join(tmp, 'settings.json') });
   const put = (o: unknown) => fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify(o));
 
   it('既定は切。切のあいだ、新しい鍵は項目にも知らない鍵にも出ない', () => {
