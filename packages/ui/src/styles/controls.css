@@ -330,6 +330,8 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .oc-model-note > .icon { flex: none; width: 13px; height: 13px; margin-top: 2px; color: var(--st-paused); }
 .oc-model-note > span { min-width: 0; overflow-wrap: anywhere; }
 .oc-model-note-x { flex: none; display: grid; place-items: center; width: 18px; height: 18px; margin-left: auto; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-3); cursor: pointer; }
+/* Codex のフルアクセスの注意。札の下の赤い 1 行。出入りは高さを伸び縮みさせる（growIn、collapseOut）ので、外に余白を持たない。 */
+.codex-full-note { padding: 1px var(--u) 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--error); overflow-wrap: anywhere; }
 .oc-model-note-x:hover { background: var(--surface-2); color: var(--ink); }
 .oc-model-note-x > .icon { width: 12px; height: 12px; }
 /* 起動前の準備（試作 s5-launch-prep の案 1）。進みの箱、問いと失敗の札。出入りは高さを伸び縮みさせる（growIn、collapseOut）ので、箱の外に余白を持たない。 */

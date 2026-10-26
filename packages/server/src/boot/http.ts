@@ -8,6 +8,7 @@ import { createApp } from '../http/app.ts';
 import { promoteSession } from '../projects/promote.ts';
 import type { MobileParts } from './mobile.ts';
 import type { OpencodeParts } from './opencode.ts';
+import { CodexOptionsService } from '../provider/codex/options.ts';
 import { LocalCodex } from '../provider/codex/compat/version.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
@@ -100,8 +101,9 @@ export function bootHttp(p: {
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');
   // opencode の検出（ベータ）。版は聞かれたときに 1 度だけ読み、同じファイルなら覚えた版を返す。
   const opencode = new LocalOpencode({ bin: () => findOpencode() });
-  // Codex の検出（ベータ）。版は 1 度だけ読んで覚え、ログインの有無は聞かれるたびに読む。
+  // Codex の検出と選択肢（ベータ）。版は 1 度だけ読んで覚え、ログインの有無は聞かれるたびに読む。codex debug models は空の環境で打つ。
   const codex = new LocalCodex({ bin: () => findCodex() });
+  const codexOptions = new CodexOptionsService({ bin: () => findCodex(), status: codex.status });
   const app = createApp({
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
@@ -177,6 +179,7 @@ export function bootHttp(p: {
     compat: runs.compat,
     // 利用者の opencode.json が許可を決めているかも、聞かれるたびに読み直して添える（設定の画面の許可のひな形の行）。
     opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
+    codexOptions: (o) => codexOptions.get(o),
     codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,

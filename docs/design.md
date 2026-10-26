@@ -1872,6 +1872,36 @@ driver が、会話を起こしたあとに `live.track({providerSessionId, cwd,
 トランスクリプト（`transcript`）は B5 が載せるまで空の面を持つ。
 `CodexDriver.served(sessionId)` と `onServe` は、動いている app-server の接続とスレッドの ID の口である。使用量（B7）の `codexUsage.track` はこの口にはつないでいない。
 
+### Codex の新しいセッションのダイアログ（ベータ）
+
+Codex を足す作業の段 C の 1 つ目（計画の C1）で、新しいセッションのダイアログに Codex を選べるようにした。
+設定の `codexEnabled` が切のあいだは、ダイアログは今のままで、エージェントの札も出ない。
+
+**札の列**：エージェントの札の一覧は、設定で有効にしたものだけを並べる（Claude Code は常に。`NewSessionProps.codex` が有効なときだけ渡り、`LaunchAgentChip.offered` が並びを決める）。
+前回のエージェントが無効になっていたら、Claude Code で開く。
+Codex を選ぶと、アカウント、モデルの自由入力、effort、権限モード、worktree、追加ディレクトリの札と信頼の注記を外し、モデル、推論、権限の 3 枚を出す（`LaunchChips` の `CodexChips`）。
+この 3 枚は `AGENT_UI_CAPS` の `modelList`（Codex だけが真）で見分ける。`effort` と `permissionMode` の能力は Claude Code の自由な値の札のもので、Codex では偽のままにしてある（切り替えの動きが、Claude の札と Codex の札を取り違えないため）。
+切り替えの動きは opencode と同じ（`agentSwap.ts`）。
+
+**モデルと推論**：一覧は `GET /api/codex/options`（`provider/codex/options.ts` の `CodexOptionsService`）が、`codex debug models` を空の環境（`codexBaseEnv`）で打って作る。
+app-server の `model/list` は使わない。app-server を起こすのは重く、ログインも要るので、子プロセスを 1 回打つだけで済む `debug models` を選んだ。
+出力は 500KB ほどあるので、`visibility` が `list` のものを `priority` の順に、モデルの ID、表示名、説明、選べる推論の段階、既定の段階だけに縮める。
+60 秒は取り直さず、同時の問いは 1 回にまとめる。取り直しに失敗しても、前の一覧があれば返す。設定で有効にしていなければ 409、取れなければ 502 で、画面は札の下で言う。
+応答には手元の codex の版と、確かめた範囲に入るかを添える（エージェントの一覧の「codex 0.164.0 · 検証済み」）。
+画面の取得は Codex を選んだときに 1 回頼む（`codex.options`、Store の `codexOptions`）。
+
+**推論の戻し**：推論の初めの値は medium。選べる段階はモデルごとの一覧で決まる（モデルがデフォルトのときは、一覧の先頭のモデルの段階を使う）。
+モデルを替えて、いまの推論がそのモデルで選べなくなったら、その場で medium に戻す。medium も無いモデルは、そのモデルの既定の段階にする。
+前回のモデルが一覧から消えていたらデフォルトに戻す（opencode のような知らせは出さない）。一覧が届く前は、前回の値をそのまま見せる。（`presenters/codexLaunch.ts`）
+
+**権限**：札は 1 枚で、読み取りのみ（`read-only`）、自動（`auto`、既定）、フルアクセス（`full-access`）の 3 段。値は `LaunchParams.permissionMode` にそのまま入る（組の中身は `CODEX_PERMISSION_FLAGS`）。
+フルアクセスは札を赤い縁と警告の印にし、下に注意の 1 行を出す（`CodexFullAccessNote`。入りは `growIn`、外れは `collapseOut`）。起動のボタンは赤くしない。
+権限は毎回自動から始め、前回値には残さない。
+
+**前回の選択**：プロジェクトごとの前回値（`LaunchPrefs`）に、エージェントのほか `codexModel` と `codexEffort` を持つ。
+Codex で起こすと、エージェントとモデルと推論を書き換え、Claude の札と opencode のモデルは前のまま残す。Claude Code や opencode で起こしても、Codex のモデルと推論は前のまま残す。
+起動の params は、エージェント、モデル（デフォルトなら載せない）、推論、権限だけを載せる。
+
 ### opencode の起動
 
 hangar の画面や API から opencode の会話を起こす面である（計画の B3）。

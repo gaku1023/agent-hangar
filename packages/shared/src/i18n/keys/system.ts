@@ -4,6 +4,8 @@ export const systemKeys = {
   'system.index.rebuildFailed': ['reason'],
   'system.opencode.disabled': [],
   'system.opencode.optionsFailed': ['reason'],
+  'system.codex.disabled': [],
+  'system.codex.optionsFailed': ['reason'],
   'system.opencode.providersFailed': ['reason'],
   'system.opencode.providers.unknownProvider': [],
   'system.opencode.providers.emptyKey': [],

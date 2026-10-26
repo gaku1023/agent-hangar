@@ -44,6 +44,7 @@ describe('能力から引く', () => {
     expect(DEFAULT_AGENT_KIND).toBe('claude-code');
     expect(agentsWithCap('effort')).toEqual(['claude-code']);
     expect(agentsWithCap('modes')).toEqual(['opencode']);
+    expect(agentsWithCap('modelList')).toEqual(['codex']);
     expect(agentsWithCap('modelText')).toEqual(['claude-code']);
     expect(agentsWithCap('digestIntent')).toEqual(['claude-code']);
   });

@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
-import { AGENT_KINDS, AGENT_UI_CAPS, EFFORT_VALUES, type AgentUiCap, type AgentValue, type OpencodeModeOption, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
+import { AGENT_KINDS, AGENT_UI_CAPS, CODEX_PERMISSIONS, EFFORT_VALUES, type AgentUiCap, type AgentValue, type CodexEffortOption, type CodexModelOption, type CodexPermission, type OpencodeModeOption, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
 import { agentOnlyAttr } from './agentSwap.ts';
 import { AGENT_TEXT } from '../presenters/agentText.ts';
 import { AgentIcon } from './primitives/AgentIcon.tsx';
@@ -26,8 +26,28 @@ const EXTRAS = ['name', 'addDirs'] as const;
 type Extra = (typeof EXTRAS)[number];
 const OPENCODE_EXTRAS: readonly Extra[] = ['name'];
 
-/** エージェントの札。opencodeNote は一覧の opencode の行に添える版の確かめ（「opencode 2.1.4 · 検証済み」）。 */
-export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue) => void; opencodeNote: string | null };
+/**
+ * エージェントの札。opencodeNote と codexNote は一覧の opencode と Codex の行に添える版の確かめ（「opencode 2.1.4 · 検証済み」）。
+ * offered は一覧に並べるエージェント（設定で有効にしたものだけ）。省くと Claude Code と opencode。
+ */
+export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue) => void; opencodeNote: string | null; codexNote?: string | null; offered?: readonly AgentValue[] };
+
+/**
+ * Codex を選んだときの札。モデルの空はデフォルト（params に載せない）。
+ * models は Codex から取った一覧（届く前は空）、efforts は選んだモデルで選べる推論の段階。permission は 3 段（読み取りのみ・自動・フルアクセス）の 1 枚の札で、フルアクセスは赤い縁にする。
+ */
+export type LaunchCodexChips = {
+  model: string; models: CodexModelOption[]; onModel: (value: string) => void;
+  effort: string; efforts: CodexEffortOption[]; onEffort: (value: string) => void;
+  permission: CodexPermission; onPermission: (value: CodexPermission) => void;
+};
+
+/** 権限の 3 段の文言のキー。 */
+const CODEX_PERMISSION_TEXT: Record<CodexPermission, { label: 'launch.codexPermission.readOnly' | 'launch.codexPermission.auto' | 'launch.codexPermission.fullAccess'; note: 'launch.codexPermission.readOnlyNote' | 'launch.codexPermission.autoNote' | 'launch.codexPermission.fullAccessNote' }> = {
+  'read-only': { label: 'launch.codexPermission.readOnly', note: 'launch.codexPermission.readOnlyNote' },
+  auto: { label: 'launch.codexPermission.auto', note: 'launch.codexPermission.autoNote' },
+  'full-access': { label: 'launch.codexPermission.fullAccess', note: 'launch.codexPermission.fullAccessNote' },
+};
 
 /**
  * opencode を選んだときの札。mode と model の空は既定（params に載せない）。
@@ -111,6 +131,7 @@ export function LaunchChips(props: {
   lead?: ReactNode;
   agent?: LaunchAgentChip;
   opencode?: LaunchOpencodeChips;
+  codex?: LaunchCodexChips;
   /** 札の列の要素。切り替えの動きがダイアログを探す起点にする。 */
   rootRef?: Ref<HTMLDivElement>;
   account?: { value: string; options: LaunchAccountOption[]; onChange: (value: string) => void };
@@ -135,7 +156,10 @@ export function LaunchChips(props: {
   const accountLabel = account ? accountNow?.label ?? account.value : '';
   const names: Record<Extra, string> = { name: t('launch.chip.name'), addDirs: t('launch.chip.addDirs') };
   const oc = props.opencode;
-  const extras = oc ? OPENCODE_EXTRAS : EXTRAS;
+  const cx = props.codex;
+  // opencode と Codex は自前の札の組を持ち、アカウント・effort・権限モード・worktree・追加ディレクトリの札は出さない。
+  const alt = !!(oc || cx);
+  const extras = alt ? OPENCODE_EXTRAS : EXTRAS;
   const extraItems = extras.filter((k) => !added.has(k)).map((k) => ({ key: k, label: names[k], onSelect: () => add(k) }));
 
   return (
@@ -143,7 +167,8 @@ export function LaunchChips(props: {
       {props.agent && <AgentChip {...props.agent} />}
       {props.lead}
       {oc && <OpencodeChips {...oc} />}
-      {!oc && (
+      {cx && <CodexChips {...cx} />}
+      {!alt && (
         <>
           {account && (
             <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260} agentOnly="accounts">
@@ -177,7 +202,7 @@ export function LaunchChips(props: {
           {(close) => <TextEditor name={names.name} placeholder={t('launch.edit.namePlaceholder')} value={values.name} onChange={(v) => onChange({ name: v })} close={close} />}
         </ChipPopover>
       )}
-      {!oc && added.has('addDirs') && (
+      {!alt && added.has('addDirs') && (
         <ChipPopover name={names.addDirs} value={dirCount(values.addDirs) ? t('launch.value.dirCount', { n: dirCount(values.addDirs) }) : none} tone={dirCount(values.addDirs) ? 'default' : 'muted'} width={320} defaultOpen={fresh === 'addDirs'} agentOnly="addDirs">
           {() => (
             <>
@@ -197,8 +222,8 @@ export function LaunchChips(props: {
  * 札は名前を見せず、値だけを出す（アカウントの札と同じ）。一覧の opencode の行には「ベータ」と版の確かめを添える。
  * 札と一覧の行の頭には、エージェントの絵（サイドバーとタブと同じ組）を置く。隣に名前があるので、絵は読み上げない。
  */
-/** 札に並べるエージェント。Codex は面が無いうちは出さない（C1 で、設定で有効なものだけを出す形に替える）。 */
-const OFFERED_AGENTS = AGENT_KINDS.filter((k) => k !== 'codex');
+/** 一覧に並べるエージェントの既定（offered を省いたとき）。Codex は設定で有効にしたときだけ呼び手が足す。 */
+const DEFAULT_OFFERED: readonly AgentValue[] = AGENT_KINDS.filter((k) => k !== 'codex');
 
 function AgentChip(props: LaunchAgentChip) {
   const t = useT();
@@ -208,10 +233,11 @@ function AgentChip(props: LaunchAgentChip) {
     <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} lead={<AgentIcon kind={props.value} decorative />} badge={AGENT_UI_CAPS[props.value].beta ? beta : undefined} showName={false} width={260}>
       {(close) => (
         <PickList label={t('launch.chip.agent')} value={props.value}
-          items={OFFERED_AGENTS.map((k) => ({
+          items={(props.offered ?? DEFAULT_OFFERED).map((k) => ({
             value: k, label: label(k), lead: <AgentIcon kind={k} decorative />,
             ...(AGENT_UI_CAPS[k].beta ? { badge: beta } : {}),
             ...(k === 'opencode' && props.opencodeNote ? { sub: props.opencodeNote } : {}),
+            ...(k === 'codex' && props.codexNote ? { sub: props.codexNote } : {}),
           }))}
           onPick={(v) => { close(); props.onChange(v as AgentValue); }} />
       )}
@@ -249,6 +275,45 @@ function OpencodeChips(props: LaunchOpencodeChips) {
               { value: 'on', label: t('launch.autoApprove.on'), sub: t('launch.autoApprove.onNote'), tone: 'danger' },
             ]}
             onPick={(v) => { props.onAutoApprove(v === 'on'); close(); }} />
+        )}
+      </ChipPopover>
+    </>
+  );
+}
+
+/**
+ * Codex の札。モデル（Codex が返す一覧。デフォルトは codex の設定に任せる）、推論（選んだモデルで選べる段階）、権限（3 段の 1 枚）。
+ * フルアクセスは赤い縁と警告の印にする（Bypass permissions と同じ）。下の注意はダイアログが出す。
+ */
+function CodexChips(props: LaunchCodexChips) {
+  const t = useT();
+  const def = t('launch.value.default');
+  const modelName = t('launch.chip.model');
+  const reasoningName = t('launch.chip.reasoning');
+  const permName = t('launch.chip.codexPermission');
+  const modelNow = props.models.find((m) => m.id === props.model);
+  const full = props.permission === 'full-access';
+  return (
+    <>
+      <ChipPopover name={modelName} value={props.model ? modelNow?.label ?? props.model : def} tone={props.model ? 'default' : 'muted'} width={300} agentOnly="modelList">
+        {(close) => (
+          <PickList label={modelName} value={props.model}
+            items={[{ value: '', label: def }, ...props.models.map((m) => ({ value: m.id, label: m.label, ...(m.description ? { sub: m.description } : {}) }))]}
+            onPick={(v) => { props.onModel(v); close(); }} />
+        )}
+      </ChipPopover>
+      <ChipPopover name={reasoningName} value={props.effort} width={300} agentOnly="modelList">
+        {(close) => (
+          <PickList label={reasoningName} value={props.effort}
+            items={props.efforts.length ? props.efforts.map((e) => ({ value: e.id, label: e.id, ...(e.description ? { sub: e.description } : {}) })) : [{ value: props.effort, label: props.effort }]}
+            onPick={(v) => { props.onEffort(v); close(); }} />
+        )}
+      </ChipPopover>
+      <ChipPopover name={permName} value={t(CODEX_PERMISSION_TEXT[props.permission].label)} tone={full ? 'danger' : 'default'} icon={full ? 'warning' : undefined} width={320} agentOnly="modelList">
+        {(close) => (
+          <PickList label={permName} value={props.permission}
+            items={CODEX_PERMISSIONS.map((p) => ({ value: p, label: t(CODEX_PERMISSION_TEXT[p].label), sub: t(CODEX_PERMISSION_TEXT[p].note), ...(p === 'full-access' ? { tone: 'danger' as const } : {}) }))}
+            onPick={(v) => { props.onPermission(v as CodexPermission); close(); }} />
         )}
       </ChipPopover>
     </>

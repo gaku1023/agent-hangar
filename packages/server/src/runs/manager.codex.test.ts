@@ -146,6 +146,17 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex', permissionMode: 'full-access' });
   });
 
+  it('新しいセッションのダイアログの既定の送り（agent・model・effort=medium・permissionMode=auto）が、driver と入口をそのまま通る', async () => {
+    const { rm, opened, rpcs } = make();
+    const dialog: LaunchParams = { agent: 'codex', projectId: 'p1', prompt: 'やって', model: 'gpt-x', effort: 'medium', permissionMode: 'auto' };
+    const r = await rm.start(dialog);
+    const start = rpcs().find((x) => x.method === 'thread/start')!;
+    expect(start.params).toMatchObject({ cwd, model: 'gpt-x', approvalPolicy: 'on-request', sandbox: 'workspace-write' });
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-c', 'model_reasoning_effort="medium"']));
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex', model: 'gpt-x', effort: 'medium', permissionMode: 'auto' });
+  });
+
   it('初期プロンプトなし：仮の ID のまま TUI を resume なしで開き、TUI がつないで thread/started が届いたら ID を記録する', async () => {
     const { rm, codex, opened, rpcs } = make();
     const r = await rm.start(params());

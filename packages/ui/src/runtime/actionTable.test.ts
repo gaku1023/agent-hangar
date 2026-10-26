@@ -45,7 +45,7 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの UiAction である', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
-      'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'editor.test', 'editors.load', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
+      'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.order.cancel', 'configSync.unsent.send', 'editor.test', 'editors.load', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
       'overlap.dismiss', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'setupGuide.openEditor', 'summarizer.test', 'summary.regenerate',
