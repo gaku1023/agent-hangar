@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { codexInjectionOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -29,7 +29,10 @@ import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { HANGAR_SOCKET, hangarMux, type MuxServers } from '../tmux/servers.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
+import { AgentUsageTracker } from '../usage/agentUsage.ts';
 import { UsageTracker } from '../usage/statusline.ts';
+import { createCodexUsage, type CodexUsage } from '../provider/codex/usage.ts';
+import { touchRow } from '../db/notify.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import { AGENT_ENTRY } from '../agent/entry.ts';
@@ -59,6 +62,10 @@ export function panesOf(t: MuxServers | null): PaneOps | null {
 export type RunsParts = {
   runs: RunManager;
   usage: UsageTracker;
+  /** Claude 以外のエージェント（Codex）の枠。設定で切の間は何も持たない。AccountsDto.agents に載る。 */
+  agentUsage: AgentUsageTracker;
+  /** Codex の使用量の読み手。hangar が起こした会話の app-server の接続を track し、外の会話の rollout の枠を noteRolloutRateLimits で受ける（配線は B3a と B5 が入ってから）。 */
+  codexUsage: CodexUsage;
   /** アカウントの HTTP と、起動後の認証の読み直しが、同じ組み立てを使う。 */
   accounts: AccountsDeps;
   /** 作業フォルダのフォルダの信頼を、登録したアカウントの全部の .claude.json に書く（POST /api/workspace/trust）。 */
@@ -148,8 +155,8 @@ export function bootRuns(
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
     language: home.language,
-    // 足す段の入り切り（設定の askStatusAtEnd と liveHints）と、opencode に足す量（opencodeInjection）。起動のたびに今の設定を読む。
-    injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false, opencode: opencodeInjectionOf(settings.current) }),
+    // 足す段の入り切り（設定の askStatusAtEnd と liveHints）と、opencode と Codex に足す量（opencodeInjection、codexInjection）。起動のたびに今の設定を読む。
+    injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false, opencode: opencodeInjectionOf(settings.current), codex: codexInjectionOf(settings.current) }),
     // opencode（ベータ）は設定で有効にしたときだけ起こす。場所は起こすたびに探す（PATH、~/.opencode/bin、既知の置き場）。
     agentEnabled: (kind) => AGENT_ENTRY[kind].enabled(settings.current),
     // 外のターミナルの opencode（シェルの包み）を受けるか。包みの本体を書き直す前に開いていたターミナルからの頼みも、ここで断る。
@@ -189,12 +196,24 @@ export function bootRuns(
     accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
     compat: compatLog,
   });
+  const codexOn = (): boolean => AGENT_ENTRY.codex.enabled(settings.current);
+  const agentUsage = new AgentUsageTracker({ enabled: codexOn });
+  const codexUsage = createCodexUsage({
+    db, tracker: agentUsage, enabled: codexOn, log: (l) => console.error(l),
+    // 会話の文脈とモデルが変わった。行は変わらないが中身が変わるので、名指しして配り直してもらう。
+    onStats: (providerSessionId) => {
+      const s = db.prepare("select id from sessions where provider = 'codex' and provider_session_id = ? and deleted_at is null").get(providerSessionId) as { id: string } | undefined;
+      if (s) touchRow(db, 'sessions', s.id);
+    },
+  });
   const accounts: AccountsDeps = {
-    db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir, deviceId: device.id,
+    db, store: accountStore, auth: accountAuth, usage, agentUsage, runs, primaryDir: claudeDir, deviceId: device.id,
     broadcast: (dto) => hub.broadcast({ type: 'accounts.update', accounts: dto }),
   };
   // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
   accountAuth.setOnChange(() => accounts.broadcast(buildAccountsDto(accounts)));
+  // Codex の枠が変わったときも、同じ道（accounts.update）で配る。
+  agentUsage.onChange(() => accounts.broadcast(buildAccountsDto(accounts)));
   // 起動のたびに、セッションとアカウントの対応を配る。
   announceAccountsOnRunStarted(runs, accounts);
   const liveChange = createLiveChangeHandler({ db, deviceId: device.id, hub, resetPark: (id) => parkWatch.reset(id), linkRegistry: (live) => runs.linkRegistry(live) });
@@ -215,7 +234,7 @@ export function bootRuns(
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   return {
-    runs, usage, accounts, claudeBin, localClaude, overlaps,
+    runs, usage, agentUsage, codexUsage, accounts, claudeBin, localClaude, overlaps,
     // 最初のアカウントは CLAUDE_CONFIG_DIR を付けずに起こすので、ホームの直下の .claude.json を読む（RunAccounts.envFor）。
     trustWorkspace: (root, dryRun) => trustWorkspaceFolders({
       root, dryRun, backupDir: path.join(home.home, 'backups'),

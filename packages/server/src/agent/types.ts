@@ -97,8 +97,10 @@ export interface AgentLauncher {
   /**
    * 起こす前の下ごしらえ。ID を後で知る driver は、ここで providerSessionId を返す。Claude は持たない。
    * 新しい会話（start）の ID は、ID を先に決めない driver にはまだ無いので、mode は ID 無しの start も受ける。
+   * ID が画面（TUI）をつないだ後でないと分からない driver（Codex の、初期プロンプトの無い会話）は、providerSessionId に仮の ID（pending:…）を返し、本当の ID を lateSessionId で返す。
+   * RunManager は仮の ID のまま画面を開き、lateSessionId が解けたら行の ID を書き換える。解けなければ（待ちが尽きた、止めた）仮の ID のままにする。
    */
-  materialize?(mode: MaterializeMode, spec: LaunchSpec): Promise<void | { providerSessionId: string }>;
+  materialize?(mode: MaterializeMode, spec: LaunchSpec): Promise<void | { providerSessionId: string; lateSessionId?: Promise<string> }>;
   plan(bin: string, mode: SessionMode, spec: LaunchSpec): LaunchPlan;
   /**
    * 動いている会話のモデルを整え直す（起動前の準備のうち、ローカルのモデルの段だけ）。

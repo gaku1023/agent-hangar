@@ -1430,7 +1430,7 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 `CODEX_HOME` は渡さず、いつも `~/.codex` で動かす（アカウントの切り替えは効かせない）。
 
 この段で Codex が断る、または何もしないもの。
-- 起動：`RunManager` は driver が無い Codex を、知らないエージェントと同じ文（`run.agent.unknown`）で断る。
+- 起動：B1 の時点では、`RunManager` は driver が無い Codex を、知らないエージェントと同じ文（`run.agent.unknown`）で断った。driver は B3a で入り、いまは設定の `codexEnabled` が切のとき `run.agent.codex.disabled` で断る（次の節）。
 - 同期：`AGENT_SYNC` の codex の行は `source: 'none'` で、上げも降ろしも台帳の鍵も作らない。本物の行は E1 で入れる。
 - スマホ：`feedCaps` は caps に codex を出さない。F1 で、`codexEnabled` が入りのときだけ出す形にする。
 - 画面：エージェントの札は codex を並べない。絵は無い（`AGENT_ICONS` に行が無く、`agentIconArt` が undefined を返す。C2 で入れる）。
@@ -1586,6 +1586,41 @@ Claude と opencode のように最新へ追いかけない。範囲の外は利
 ログインはせず、モデルも呼ばない（模擬は 127.0.0.1 だけで答える）ので、使用量は使わず、動かす前に聞かなくてよい。
 模擬は codex と同じプロセスにいるので、codex は同期で待たず非同期で待つ（同期で待つと模擬が答えられず、固まる）。
 採り直したら、差分を読んで、hangar の読み手と `HANGAR_CODEX_METHODS` に響くものが無いかを見てから、`CODEX_VERIFIED_RANGE` を上げる。
+
+### Codex の使用量（ベータ）
+
+Codex を足す作業の段 B の 7 つ目（計画の B7）で、枠と会話の値の取り手を入れた。
+`provider/codex/usage.ts` の `createCodexUsage` と、`usage/agentUsage.ts` の `AgentUsageTracker` である。
+`codexEnabled` が切のままなら、読まず、書かず、配る形にも出ない。
+
+供給源は 2 つある。
+
+- hangar が起こした会話は、app-server への接続から取る。接続したとき `account/rateLimits/read`（ターンは要らない）を 1 回読み、ターン中に届く通知 `account/rateLimits/updated`（疎な更新）で重ねる。
+- hangar の外の会話は、rollout の `event_msg:token_count.rate_limits` から取る。B5 の読み手は、これを meta（name は `rate_limits`、value は `{ rate_limits, model_context_window }`）にして返すので、`noteRolloutRateLimits(value, ts)` に渡す。ts はその行の時刻である。
+
+本物の応答（0.164.0、ChatGPT Plus）の項目は次のとおりである。
+`rateLimits` は `limitId`（`codex`）、`limitName`、`primary`、`secondary`、`credits`、`individualLimit`、`spendControlReached`、`planType`、`rateLimitReachedType` を持つ。
+窓は `usedPercent`、`windowDurationMins`、`resetsAt`（epoch 秒）である。`primary` は 300 分（5 時間）、`secondary` は 10080 分（週）だった。
+応答は `rateLimitsByLimitId`（キーは limit_id）と `ordinaryUsageAllowed`、`rateLimitResetCredits` も持つ。`account/rateLimits/read` の params は null である。
+
+窓は長さで決める（300 分以下が 5 時間、10080 分以上が週）。長さが無ければ primary を 5 時間、secondary を週とみなす。
+`resetsAt` はミリ秒に直す（Claude の枠と同じ）。`limitId` が `codex` でない通知（別の枠）は取らない。
+疎な更新で無い窓は、前の値を保つ。`planType` も同じである。
+観測の時刻がいちばん新しいものを使い、古い観測は新しい値を上書きしない。戻る時刻を過ぎた窓は 0% として返す（`usageAt`）。値はメモリだけに置き、起動のたびに読み直す。
+
+配る形は `AccountsDto.agents`（`AgentUsagesDto`）である。
+`{ codex?: AgentUsageDto }` で、`AgentUsageDto` は `UsageDto`（`fiveHour`、`sevenDay`、`updatedAt`）に `plan`（planType の文字、無ければ null）を足したものである。
+値が 1 度も届いていないとき、設定で切のときは、項目ごと付けない。Claude の枠（`AccountDto.usage`）の形と値は変えない。
+枠が変わったとき（窓か plan が変わったとき）は `accounts.update` で配る。ヘッダの切り替え（開いている会話のエージェントの枠を出す）は UI の C3 が、この値を読んで行う。
+
+会話の値は `thread/tokenUsage/updated` から `session_live_stats` に書く（opencode と同じ欄）。
+`context_used` は最後の呼び出しの `last.inputTokens`（cached を含む量で、B5 が rollout から書く値と同じ）、`context_size` は `modelContextWindow`、`model` は起こした側が渡した値である。
+`effort` と `cost_usd` は書かない。null の項目は前の値を保つ。書いたら、その会話の行を名指しして配り直す。
+`SessionStatsDto.contextPercent` と `contextTokens` は、この表から導く既存の道をそのまま通る。
+
+差し込む口は `createCodexUsage` が返す `{ track, untrack, noteRolloutRateLimits }` で、`RunsParts.codexUsage` に載っている。
+起動の面（B3a）が app-server につないだあとに `track({ providerSessionId, rpc, model })` を呼び、止めるときに `untrack` する。
+rollout の読み手（B5）が `rate_limits` の meta を出したら `noteRolloutRateLimits` に渡す。
 
 ### opencode の検出（ベータ）
 
@@ -1760,6 +1795,73 @@ Windows のコマンド行は引用符を含む（空白を含む場所、cmd.ex
 「設定を開く」も知らせ終えたことにして、設定の opencode の面へ移る。
 同じ版では二度出さず、版が変われば、また出す。
 設定の連携の節を開いている間は、版の行が同じことを言うので出さない。
+
+### Codex の起動（ベータ）
+
+Codex を足す作業の段 B の 3 つ目の前半（計画の B3a）で、新しい会話を API から起こし、止めるところまでを入れた。
+再開とフォークは B3b、トランスクリプトは B5、ダイアログの札は C1 である。
+`provider/codex/driver.ts` の `createCodexDriver` が Codex の `AgentDriver` で、`boot/agents.ts` が Claude と opencode のとなりに登録する。
+driver が登録されたので、B1 の「知らないエージェント」の断りは外れる。
+代わりに `RunManager` が、設定の `codexEnabled` が切のとき `run.agent.codex.disabled` で断る（`AGENT_ENTRY.codex.enabled`。行も app-server も作らない）。
+断りの文は、opencode の文の鍵を変えずに、Codex の鍵（`run.agent.codex.*`、`agentMsg` の表）を別に持つ。
+
+仕組みは opencode の serve と同じ形で、hangar の会話 1 つに app-server を 1 本起こし（B2 の `launchCodexAppServer`）、TUI を tmux の中で `--remote` でそれにつなぐ。
+`servedByHangar` は真で、run の pid は TUI の包みのものである。
+RunManager は包みの生死で TUI の終わりを見て、終わったら `release` を呼ぶ。
+
+**起動の入口**（`RunManager.startMaterialized`、opencode と共有）で、Codex が受けない指定を断る。
+アカウント、追加ディレクトリ、worktree は断る（`run.agent.codex.optionUnsupported`）。アカウントの切り替えは効かせない（決定 9）。
+推論（`effort`）と権限（`permissionMode`）は Codex が持つので受ける（`caps.effort` と `caps.permissionMode` が真）。
+権限は 3 段で、`permissionMode` に `read-only`、`auto`（既定）、`full-access` を入れる（`@agent-hangar/shared` の `CODEX_PERMISSION_FLAGS`）。
+読み取りのみは `-s read-only -a on-request`、自動は `-s workspace-write -a on-request`、フルアクセスは `-s danger-full-access -a never` である。
+知らない値は、app-server を起こす前に `CodexLaunchError` で断る（`run.agent.codex.launchFailed`）。
+
+**materialize**（`driver.ts`）は、行を仮の ID（`pending:…`）で作ったあとに呼ばれる。
+1. 空の環境（`codexBaseEnv`）に、この run だけの MCP の秘密（環境変数 `HANGAR_CODEX_MCP_TOKEN`）を足して app-server を起こす。
+2. app-server に `-c` で設定を渡す（`launcher.ts` の `codexAppServerConfig`）。`~/.codex` の設定ファイルは書かず、`CODEX_HOME` も渡さない。
+   - MCP：`mcp_servers.hangar.url`、`bearer_token_env_var`、`default_tools_approval_mode="approve"`。トークンの値は argv にも設定にも載せない。
+   - 追記：`developer_instructions`（`model_instructions_file` は標準の約 17,000 字の指示を置き換えるので使わない）。
+   - 推論（`model_reasoning_effort`）、モデル、権限の組（`sandbox_mode`、`approval_policy`）。
+   TUI の `-c` は app-server に効かない（findings 3 節）うえ、resume なしの TUI が作るスレッドは hangar の `thread/start` を通らないので、効かせたい設定は app-server の起動時に渡す。
+3. **初期プロンプトがあるとき**：`thread/start`（cwd、model、approvalPolicy、sandbox、developerInstructions）で ID を作って返す。
+   最初の入力の前のスレッドは TUI から resume できないので、hangar が最初の入力を `turn/start`（effort つき）で流してから、TUI を `resume <ID>` でつなぐ。
+   最初の入力は、MCP がつながってから流す（`mcpServerStatus/list` を `threadId` つきで引いて、hangar が `connected` になるのを待つ。上限 15 秒）。
+   つながる前に流すと、1 歩目の道具の目録に hangar の道具が載らない。failed でも上限を過ぎても、起動は続けて知らせるだけにする。
+4. **初期プロンプトが無いとき**：`watchStartedThread` を TUI より先に作る。
+   TUI を resume なしで `--remote` につなぎ、つないだ時点で全接続へ届く `thread/started`（`ephemeral:false`、cwd が合うもの）から ID を拾う。
+   拾うまでの行は仮の ID のままで、TUI の argv に `resume` は付かない。
+   `materialize` は `{ providerSessionId: 'pending:…', lateSessionId }` を返し、RunManager は `lateSessionId` が解けたら行の `provider_session_id` を書き換える（`agent/types.ts`。解けなければ仮の ID のまま）。
+   拾った ID は app-server の記録にも書く。
+   待ちの上限は 60 秒で、尽きたら知らせるだけにする。
+
+**plan**（`launcher.ts` の `planCodex`）は TUI の argv と環境を返す。
+`codex --remote ws://127.0.0.1:<port> --remote-auth-token-env HANGAR_CODEX_TOKEN [-m モデル] [-c model_reasoning_effort=…] -s … -a … [resume <ID>]` である。
+token の値は `secretEnv` に置き、argv にも tmux の環境にも載せない（0600 のファイルから包みが読んで消す）。
+起こすものへ持ち込まない変数に、CLAUDE 系と `HANGAR_*` のほか `CLAUDE_CONFIG_DIR` と `CODEX_HOME` を足す。
+
+**追記の量**は設定 `codexInjection` で選ぶ（`launch/injection.ts` の `renderCodexInjectionEntries`）。
+最小限（既定）は、opencode の最小限の段を Codex 向けにした 2 段で、本体（`launch.injection.codex.minimal`）と状態（`launch.injection.codex.status`、`askStatusAtEnd` で入り切り）である。
+opencode の文は Code Mode の呼び方（`tools.hangar.…`）を添えるが、Codex の文は道具を名前だけで指す。
+「Claude Code と同じ」は Claude の段をそのまま、「追記しない」は段なしである。既定の量は B6 で、本物のモデルで比べて決める。
+
+**止め方**（`release`）は、動いているターンを `turn/interrupt` してから app-server に SIGTERM を送る。
+RunManager は `release` を呼んだ直後の同じ手の中で画面（TUI）を閉じるので、TUI が先に閉じる。app-server だけ先に止めると、TUI は「Reconnecting to server…」のまま居残る（B2-PROBE）。
+interrupt だけではシェルの子などの孫が残るので、app-server ごと止める。
+止め方は、利用者が止めた、区切りで止めた、TUI が閉じた（TUI だけが閉じたときも作業を止める。決定 2）のどれも同じである。
+動いているターンの ID は、hangar の接続が見た `turn/started` から覚え、無ければ `thread/read` で探す。interrupt も待ちに上限があり、返らなくても止める。
+
+**hangar を起こし直したとき**：app-server は（macOS と Linux では）プロセスのまとまりを分けて起こすので、hangar を閉じても残る（TUI がつないだまま会話が続く）。
+`provider/codex/registry.ts` が、`<hangar の置き場>/codex/app-servers.json` に、会話ごとの pid、ポート、token のファイルのパス、スレッドの ID を書く（token そのものは書かない）。
+`reattach` はこの記録から app-server を引き継ぐ。pid が死んでいる、token のファイルが無いときは引き継がない。
+接続は、スレッドの ID が分かっている会話だけ、引き継ぎの直後に token でつなぎ直し、状態の面に載せる（`subscribed:false`。購読は状態の面が最初の active で行う）。ID が分からない会話は載せない。つなげなければ知らせるだけで、引き継ぎは続ける。止めるときに token でつなげなかった（pid が別のプロセスに使い回されたかもしれない）引き継ぎ済みのものは、止めずに手放す。
+
+状態の面（`live`）と許可と質問（`asks`）は、B4 の `createCodexLive` を `createCodexDriver` の deps に差す（`boot/agents.ts`）。`boot/delivery.ts` が `live.add(codex.live)` で実行中の一覧に束ね、`asks.subscribe` を opencode と同じ書き手（`routeAgentAsk`）につなぐ。
+driver が、会話を起こしたあとに `live.track({providerSessionId, cwd, pid, rpc, subscribed})` を呼び、止めたとき（release、起動の失敗）に `untrack` する。
+- 初期プロンプトあり：`thread/start` した接続なので `subscribed:true`。thread/start の直後に載せる。
+- 初期プロンプトなし：`watchStartedThread` で ID を拾ったときに `subscribed:false` で載せる。それまでは行が無い（行の ID は thread の ID なので、仮の `pending:` の ID では載せない）。
+- reattach：接続を持たないので、上のとおりつなぎ直してから載せる。
+トランスクリプト（`transcript`）は B5 が載せるまで空の面を持つ。
+`CodexDriver.served(sessionId)` と `onServe` は、動いている app-server の接続とスレッドの ID の口である。使用量（B7）の `codexUsage.track` はこの口にはつないでいない。
 
 ### opencode の起動
 

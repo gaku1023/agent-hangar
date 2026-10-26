@@ -35,3 +35,18 @@ export const codexInjectionOf = (s: { codexInjection?: CodexInjection }): CodexI
  * loggedIn は `codex login status` が 0 で終わったか（見つからないとき、確かめられないときは null ではなく false）。
  */
 export type CodexStatusDto = { found: boolean; version: string | null; verified: boolean; loggedIn: boolean };
+
+/**
+ * 新しい会話の権限（Codex の /approvals と同じ 3 段）。LaunchParams.permissionMode にこの値を入れる。
+ * 空と未指定は auto（Codex の既定と同じ）。サンドボックスと承認の組は CODEX_PERMISSION_FLAGS が決める。
+ */
+export type CodexPermission = 'read-only' | 'auto' | 'full-access';
+export const CODEX_PERMISSIONS: readonly CodexPermission[] = ['read-only', 'auto', 'full-access'];
+export const DEFAULT_CODEX_PERMISSION: CodexPermission = 'auto';
+export const isCodexPermission = (v: unknown): v is CodexPermission => typeof v === 'string' && (CODEX_PERMISSIONS as readonly string[]).includes(v);
+/** 3 段それぞれの `-s`（sandbox）と `-a`（approval）。 */
+export const CODEX_PERMISSION_FLAGS: Record<CodexPermission, { sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'; approval: 'on-request' | 'never' }> = {
+  'read-only': { sandbox: 'read-only', approval: 'on-request' },
+  auto: { sandbox: 'workspace-write', approval: 'on-request' },
+  'full-access': { sandbox: 'danger-full-access', approval: 'never' },
+};
