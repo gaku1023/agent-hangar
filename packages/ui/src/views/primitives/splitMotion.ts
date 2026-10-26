@@ -18,6 +18,41 @@ const lerp = (a: number, b: number, e: number): number => a + (b - a) * e;
 
 const enterBlur = (el: Element) => `blur(${motionValue('--blur-in', el)})`;
 
+/** afterHeavyFrames が動きを止めている間の印。名前の札は、これが解けてから飛び始める。 */
+let held: Promise<void> | null = null;
+/** こまの間隔がこれ以下に戻ったら、重いこまは過ぎたとみなす。 */
+const SMOOTH_FRAME_MS = 20;
+/** 重いこまが続いても、これより長くは待たせない。 */
+const HOLD_MAX_MS = 250;
+
+/**
+ * run の中で作られた動きを止めておき、描き替えの重いこま（ペインの端末の作り直しなど）が過ぎてから動かす。
+ * 曲線は出だしに動きが寄っているので、重いこまの間に動かすと、動きの大半が 1 こまで跳ぶ。
+ * 止めている間は最初の形（閉じたペインはそのまま、残るペインは元の大きさ）で見えている。
+ * getAnimations の無い環境と動きを減らす設定では、run を呼ぶだけ。
+ */
+export function afterHeavyFrames(run: () => void): void {
+  if (typeof document.getAnimations !== 'function' || !motionOn(document.documentElement)) { run(); return; }
+  const before = new Set(document.getAnimations());
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  held = gate;
+  try { run(); } finally { if (held === gate) held = null; }
+  const made = document.getAnimations().filter((a) => !before.has(a));
+  for (const a of made) a.pause();
+  let first = -1;
+  let last = -1;
+  const frame = (now: number) => {
+    if (first < 0) first = now;
+    const smooth = last >= 0 && now - last <= SMOOTH_FRAME_MS;
+    last = now;
+    if (!smooth && now - first < HOLD_MAX_MS) { requestAnimationFrame(frame); return; }
+    for (const a of made) a.play();
+    release();
+  };
+  requestAnimationFrame(frame);
+}
+
 /** いまの姿を NameSnap に写す。 */
 export function nameSnap(el: HTMLElement): NameSnap {
   const r = el.getBoundingClientRect();
@@ -42,7 +77,7 @@ export function flyName(from: NameSnap, target: HTMLElement | null, done?: () =>
   document.body.appendChild(c);
   const hidden = target.style.visibility;
   target.style.visibility = 'hidden';
-  const t0 = performance.now();
+  let t0 = -1;
   let raf = 0;
   let over = false;
   const finish = () => {
@@ -55,6 +90,8 @@ export function flyName(from: NameSnap, target: HTMLElement | null, done?: () =>
   };
   const frame = (now: number) => {
     if (over) return;
+    // 測り始めは最初のこま。作った時刻から数えると、描き替えの重いこまの分だけ跳ぶ。
+    if (t0 < 0) t0 = now;
     const t = Math.min(1, (now - t0) / dur);
     const e = easeOutExpo(t);
     const to = target.getBoundingClientRect();
@@ -66,7 +103,12 @@ export function flyName(from: NameSnap, target: HTMLElement | null, done?: () =>
     if (t < 1) raf = requestAnimationFrame(frame);
     else finish();
   };
-  raf = requestAnimationFrame(frame);
+  // 飛び始めるまで（afterHeavyFrames が止めている間）は、元の位置で待つ。
+  c.style.left = `${from.rect.left}px`;
+  c.style.top = `${from.rect.top}px`;
+  const start = () => { if (!over) raf = requestAnimationFrame(frame); };
+  if (held) void held.then(start);
+  else start();
   return finish;
 }
 
@@ -109,6 +151,24 @@ export function flipFrom(el: HTMLElement, from: Rect, to: Rect, lift = true): bo
   const restore = () => { el.style.zIndex = z; };
   a.finished.then(restore, restore);
   return true;
+}
+
+/**
+ * 元の矩形から今の形へ広がる。flipFrom と違って中身を伸ばさない（端末の文字が歪まない）。
+ * 元の左上へ位置だけ戻し、はみ出す分（今の方が大きい分）を右と下で切り抜いて、どちらも 0 へ戻す。
+ * 動かないときは null。
+ */
+export function growFrom(el: HTMLElement, from: Rect, to: Rect): Animation | null {
+  if (!motionOn(el) || !to.width || !to.height) return null;
+  const dx = from.left - to.left;
+  const dy = from.top - to.top;
+  const cutX = Math.max(0, to.width - from.width);
+  const cutY = Math.max(0, to.height - from.height);
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && cutX < 1 && cutY < 1) return null;
+  const r = getComputedStyle(el).borderTopLeftRadius;
+  const round = r && r !== '0px' ? ` round ${r}` : '';
+  return el.animate([{ transform: `translate(${dx}px, ${dy}px)`, clipPath: `inset(0px ${cutX}px ${cutY}px 0px${round})` }, { transform: 'none', clipPath: `inset(0px 0px 0px 0px${round})` }],
+    { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
 }
 
 /** 新しいペイン（や中身が替わったペイン）が、ぼかしと縮小から出る。delay は ms。light なら縮みを浅くする（最大化を戻したとき、あとから出るペイン）。 */
@@ -161,8 +221,11 @@ export function landGhost(el: HTMLElement, to: Rect | null, ok: boolean): Promis
   return a.finished.then(() => undefined, () => undefined);
 }
 
-/** 外れる前に測った要素を、元の位置に fixed で戻して、薄れて縮ませ、終わったら外す（閉じるペインと、畳まれる大きな見出しの片付け）。 */
-function ghostAt(el: HTMLElement, rect: Rect): void {
+/**
+ * 外れる前に測った要素を、元の位置に fixed で戻す（閉じるペインと、畳まれる大きな見出しの片付け）。
+ * below があれば、その直前に差し込んで z-index を付けない。同じ重なりの中で DOM の順に描かれるので、below の下に敷かれる。
+ */
+function ghostAt(el: HTMLElement, rect: Rect, below?: Element | null): void {
   el.style.position = 'fixed';
   el.style.left = `${rect.left}px`;
   el.style.top = `${rect.top}px`;
@@ -170,18 +233,23 @@ function ghostAt(el: HTMLElement, rect: Rect): void {
   el.style.height = `${rect.height}px`;
   el.style.margin = '0';
   el.style.pointerEvents = 'none';
-  el.style.zIndex = '60';
   el.setAttribute('aria-hidden', 'true');
   el.setAttribute('inert', '');
+  if (below?.parentNode) { below.parentNode.insertBefore(el, below); return; }
+  el.style.zIndex = '60';
   document.body.appendChild(el);
 }
 
-/** 閉じるペインが、薄れて縮む。閉じたペインの要素（外れたあと）を、元の位置から動かす。 */
-export function leavePane(el: HTMLElement, rect: Rect): Promise<void> {
+/**
+ * 閉じるペインが薄れる。閉じたペインの要素（外れたあと）を元の位置に戻し、below（残るもの）の下に敷く。
+ * 残るものが growFrom で広がって上を覆うので、薄れるのは不透明度だけで短く、出だしを速くする。
+ * ぼかしと縮みは、ペインほどの面を毎こま描き直させ、出だしの重いこま（端末の作り直し）と重なってカクつくので使わない。
+ */
+export function leavePane(el: HTMLElement, rect: Rect, below?: Element | null): Promise<void> {
   // まだ文書にある要素は、React がほかのペインの描画に使い回している。動かして外すと、生きているペインが消える。
   if (el.isConnected || !motionOn(document.documentElement) || typeof el.animate !== 'function') return Promise.resolve();
-  ghostAt(el, rect);
-  const a = el.animate([{ opacity: 1, transform: 'none', filter: 'none' }, { opacity: 0, transform: 'scale(0.97)', filter: enterBlur(el) }], { duration: motionMs('--dur-exit', el) + motionMs('--dur-fast', el), easing: motionEase('--ease-in', el), fill: 'forwards' });
+  ghostAt(el, rect, below);
+  const a = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: motionMs('--dur-exit', el), easing: motionEase('--ease-out', el), fill: 'forwards' });
   const gone = () => el.remove();
   return a.finished.then(gone, gone);
 }
