@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, backupsRoot, cloudConfigPath, type CloudConfig, decryptStream, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, parseCloudConfigV2, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
+import { backfillTranscripts, backupsRoot, cloudConfigPath, type CloudConfig, decryptStream, agentOfSyncPath, AGENT_SYNC, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, parseCloudConfigV2, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import {
@@ -1380,8 +1380,9 @@ export async function rescueSealedBodies(o: {
       }
       // opencode の本文の写し（opencode/<会話>.json）は、ほかの PC のものは Claude と同じく remote/<元の PC>/opencode/ に降ろす。
       // 自分の会話は原本が opencode の記録の置き場にあり、上げた書き出しも ~/.agent-hangar/opencode/export にあるので、それがあれば降ろし直さない。
-      const oc = /^opencode\/([^/]+)\.json$/.exec(e.path);
-      if (e.kind === 'transcript' && oc && o.deviceId && origin === o.deviceId && isSafeKeyId(oc[1]!) && fs.existsSync(path.join(o.home, 'opencode', 'export', `${oc[1]!}.json`))) {
+      const own = agentOfSyncPath(e.path);
+      const ownFile = own === null ? null : AGENT_SYNC[own.provider].exportFile;
+      if (e.kind === 'transcript' && own && ownFile && o.deviceId && origin === o.deviceId && fs.existsSync(ownFile(o.home, own.sessionId))) {
         r.already++;
         continue;
       }

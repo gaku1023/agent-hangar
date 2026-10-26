@@ -2,6 +2,7 @@ import type { LaunchResultDto, ResumeHereConflictDto } from '@agent-hangar/share
 import type { Db } from '../db/open.ts';
 import { RunError } from '../runs/manager.ts';
 import { copyTranscriptForResume } from './copy.ts';
+import { isExportAgent } from './agentSync.ts';
 import { resumeOpencodeHere, type OpencodeResumeDeps } from './opencodeResume.ts';
 import { msg } from '../i18n/message.ts';
 
@@ -43,6 +44,6 @@ export function resumeHereFor(
   overwrite: boolean,
 ): LaunchResultDto | ResumeHereConflictDto | Promise<LaunchResultDto | ResumeHereConflictDto> {
   const row = o.db.prepare('select provider from sessions where id = ? and deleted_at is null').get(sessionId) as { provider: string } | undefined;
-  if (row?.provider === 'opencode') return resumeOpencodeHere(o.opencode(), sessionId, overwrite);
+  if (isExportAgent(row?.provider)) return resumeOpencodeHere(o.opencode(), sessionId, overwrite);
   return resumeHere(o.claude, sessionId, overwrite);
 }

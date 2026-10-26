@@ -8,7 +8,8 @@ import { forgetTranscriptFile } from '../indexer/indexFile.ts';
 import { stmt } from '../indexer/statements.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import type { TrashFn } from '../platform/trash.ts';
-import { isSafeKeyId } from '@agent-hangar/shared';
+import { isAgentKind, isSafeKeyId } from '@agent-hangar/shared';
+import { AGENT_SYNC, isExportAgent } from '../sync/agentSync.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { setSessionTrashed } from './states.ts';
 
@@ -153,7 +154,7 @@ export function trashedLongAgo(db: Db, before: number): { sessionId: string; uui
       and not exists (select 1 from sessions o where o.provider_session_id = s.provider_session_id and o.deleted_at is null)
     order by st.trashed_at, st.session_id`).all(before) as { sessionId: string; uuid: string; provider: string }[];
   return rows
-    .filter((r) => (r.provider === 'opencode' ? isSafeKeyId(r.uuid) : SESSION_UUID.test(r.uuid)))
+    .filter((r) => (isAgentKind(r.provider) ? AGENT_SYNC[r.provider] : AGENT_SYNC['claude-code']).isSessionId(r.uuid))
     .map((r) => ({ sessionId: r.sessionId, uuid: r.uuid }));
 }
 
@@ -221,7 +222,7 @@ export class SessionTrash {
    */
   private remoteTargets(s: SessionFacts): string[] {
     const uuid = s.provider_session_id;
-    if (s.provider === 'opencode') return this.opencodeTargets(s);
+    if (isExportAgent(s.provider)) return this.opencodeTargets(s);
     if (!SESSION_UUID.test(uuid)) return [];
     const fromIndex = (this.db.prepare('select path from transcript_files where session_id = ?').all(s.id) as { path: string }[]).map((r) => r.path).filter((p) => this.underRemote(p));
     const fromLedger = (this.db.prepare("select path, device_id from file_sync where kind = 'transcript' and device_id <> ? and path like ?").all(this.deps.deviceId, `%/${uuid}.jsonl`) as { path: string; device_id: string }[])
@@ -283,7 +284,7 @@ export class SessionTrash {
     for (const r of this.db.prepare('select path from transcript_files where session_id = ?').all(sessionId) as { path: string }[]) forgetTranscriptFile(this.db, r.path, { keepUsage: true });
     // 本文を DB に持つ会話（opencode）は、ファイルの行が無いので会話ごと片付ける。
     const p = this.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;
-    if (p?.provider === 'opencode') {
+    if (isExportAgent(p?.provider)) {
       for (const sql of [
         'delete from event_index where session_id = ?', 'delete from event_fts where session_id = ?', 'delete from agent_events where session_id = ?',
         'delete from session_activity where session_id = ?', 'delete from session_limits where session_id = ?',
