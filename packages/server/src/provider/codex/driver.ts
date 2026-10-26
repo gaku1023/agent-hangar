@@ -37,8 +37,8 @@ export type CodexServed = {
 export type CodexDriverDeps = {
   /** codex の場所。呼ばれた時点の値を読む。無ければ null。 */
   bin: () => string | null;
-  /** ログイン済みか（`codex login status`）。偽なら、起動の前に断る（run.agent.codex.loggedOut）。無ければ確かめない。 */
-  loggedIn?: () => Promise<boolean>;
+  /** ログイン済みか（`codex login status`）。偽のときだけ、起動の前に断る（null は分からないので断らない）（run.agent.codex.loggedOut）。無ければ確かめない。 */
+  loggedIn?: () => Promise<boolean | null>;
   /** hangar の置き場（~/.agent-hangar）。app-server の記録と token のファイルを置く。 */
   home: string;
   /** TUI へ持ち込まない変数（launch/env.ts の AGENT_RUN_DROPPED_ENV）。 */
@@ -136,7 +136,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     const bin = deps.bin();
     if (!bin) throw new Error('codex was not found');
     // ログインしていない codex は、起こしてから落ちる。起こす前に分かる文で断る。
-    if (deps.loggedIn && !(await deps.loggedIn())) throw loggedOutError();
+    if (deps.loggedIn && (await deps.loggedIn()) === false) throw loggedOutError();
     // app-server を起こす前に、指定が通るかを確かめる（通らなければ何も起こさない）。
     const perm = codexPermissionOf(spec.mode);
     const config = codexAppServerConfig(spec, perm);

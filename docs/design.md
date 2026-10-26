@@ -1437,7 +1437,7 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 
 #### 設定の面と版の知らせ（C4）
 
-検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。
+検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。`loggedIn` は `codex login status` が 0 で終われば true、0 以外なら false、時間切れで分からないときは null（設定の注記は出さない）。
 設定が切でも答える（有効にする前に、入っているかと版とログインを見せるため）。
 サーバは `LocalCodex.status()` を呼ぶだけで、画面は有効にしている間の起動時と、有効にしたとき、設定の画面に入ったときに取る。
 
@@ -1840,7 +1840,7 @@ RunManager は包みの生死で TUI の終わりを見て、終わったら `re
   cwd は、そのプロセスで最初の resume だけ上書きできる（E0）。app-server は会話ごとに起こしたてなので、ここで渡す。resume は rollout に `thread_settings_applied` を 1 行足す。
 - hangar の外で作られた会話（索引の provider が codex の行）も同じ道で再開する。終わった画面の「再開」（`resumeWith`、`resumeMaterialized`）は、driver が `materialize` を持つのでこの道を通る。
 - 最初の入力の前のスレッド（rollout が無い）は再開できない。app-server の `-32600 no rollout found` と、ID が仮のまま（`pending:`）の行を、どちらも `run.agent.codex.noRollout` で断る（行は消さず、app-server も残さない）。
-- 起こす前に `codex login status`（`LocalCodex`）で確かめ、ログインしていなければ `run.agent.codex.loggedOut`「codex にログインしていません（ターミナルで codex login を実行してください）」で断る（driver の `loggedIn`。app-server は起こさない）。見つからないときは `run.agent.codex.notFound`。版が範囲外でも起動は止めず、知らせの札だけを出す（決定 8）。
+- 起こす前に `codex login status`（`LocalCodex`）で確かめ、ログインしていなければ（0 以外で終わったときだけ。時間切れで分からないときは断らず起動を続ける）`run.agent.codex.loggedOut`「codex にログインしていません（ターミナルで codex login を実行してください）」で断る（driver の `loggedIn`。app-server は起こさない）。見つからないときは `run.agent.codex.notFound`。版が範囲外でも起動は止めず、知らせの札だけを出す（決定 8）。
 - フォーク：app-server に `thread/fork` があり、driver は `materialize` で新しいスレッドを作ってその ID を返し、`plan` は `fork` の `newId` を `resume` でつなぐ。
   ただし `caps.fork` は偽のままにする。`RunManager.fork` は新しい ID を先に決めて同期で起こす作りで、ID を後から受ける driver 向けの入口がまだ無いためである。入口は、行を仮の ID で作ってから `materialize` を待つ形（`startMaterialized` と同じ）を足してから開ける。
 

@@ -81,6 +81,10 @@ describe('LocalCodex', () => {
       expect(l.env.PATH).toContain(path.dirname(process.execPath));
     }
   });
+  it('login status が時間切れなら loggedIn は null（分からない）。版は読める', async () => {
+    const bin = writeFakeCodex(dir, { version: '0.164.2', loginHang: true });
+    expect(await new LocalCodex({ bin: () => bin, timeoutMs: 600 }).status()).toEqual({ found: true, version: '0.164.2', verified: true, loggedIn: null });
+  });
   it('起こせない codex は、拒否せず読めなかった答えにする', async () => {
     const bin = path.join(dir, 'codex');
     fs.writeFileSync(bin, 'not executable');

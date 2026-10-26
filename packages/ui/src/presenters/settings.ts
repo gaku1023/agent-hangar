@@ -108,7 +108,7 @@ function presentCodex(t: Translate, settings: { codexEnabled?: boolean; codexInj
     injection: codexInjectionOf(settings),
     injectionOptions: CODEX_INJECTIONS.map((value) => ({ value, label: t(CODEX_INJECTION_KEY[value]) })),
     intercept: { available: platform !== 'win32', on: codexInterceptOf(settings), note: shell !== null && shell !== 'on' ? t('settings.codex.intercept.needsShell') : null },
-    version: status && kind && text ? { kind, installed: status.version, verified: CODEX_VERIFIED_RANGE, note: text.note ? t(text.note) : null, login: status.found && !status.loggedIn ? t('settings.codex.version.loggedOut') : null } : null,
+    version: status && kind && text ? { kind, installed: status.version, verified: CODEX_VERIFIED_RANGE, note: text.note ? t(text.note) : null, login: status.found && status.loggedIn === false ? t('settings.codex.version.loggedOut') : null } : null,
     badge: text ? { text: t(text.badge), tone: text.tone } : null,
   };
 }

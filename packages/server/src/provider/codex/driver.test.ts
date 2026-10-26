@@ -221,6 +221,8 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     expect(err).toBeInstanceOf(MessageError);
     expect(err.text?.key).toBe('run.agent.codex.loggedOut');
     expect(fs.existsSync(log)).toBe(false);
+    const unknown = make({}, { loggedIn: async () => null });
+    expect(await unknown.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }))).toEqual({ providerSessionId: expect.stringMatching(/^01a/) });
     const ok = make({}, { loggedIn: async () => true });
     const r = await ok.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));
     expect(r).toEqual({ providerSessionId: expect.stringMatching(/^01a/) });
