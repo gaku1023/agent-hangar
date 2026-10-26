@@ -17,7 +17,7 @@ export type SessionMenuStop = { runId: string; working: boolean; aside: boolean;
  * 削除は動いていない（stop が null の）ときだけ出す。動いている間は停止を出し、止めると削除に入れ替わる。
  */
 export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null; stop: SessionMenuStop | 'external' | null; moveBlocked: string | null;
-  /** そのセッションが分割の木にあるときのペイン。あれば先頭に「表示中のペインへ移動」を出す。木に無ければ null か省く。 */
+  /** そのセッションが分割の木にあるときのペイン。あれば分割のまとまりの先頭に「表示中のペインへ移動」を出す。木に無ければ null か省く。 */
   pane?: PaneId | null };
 
 /** 状態の色の点。プロジェクトの状態の点（.st-dot）と同じ 4 色を使う。 */
@@ -69,7 +69,7 @@ const STATES: { key: SessionMenuDot; kbd: string }[] = [{ key: 'active', kbd: 'u
 
 /**
  * メニューの項目を並べる（試作の 1A）。
- * 条件付きの「この PC で再開」、状態の 4 つ、区切り、「プロジェクトを変更…」、「セッション ID をコピー」、区切り、「停止」（動いているとき）か「削除…」（動いていないとき）の順に置く。
+ * 条件付きの「この PC で再開」、状態の 4 つ、区切り、分割の項目（木にあれば「表示中のペインへ移動」、「右に分割して開く」、「下に分割して開く」）、区切り、「プロジェクトを変更…」、「セッション ID をコピー」、区切り、「停止」（動いているとき）か「削除…」（動いていないとき）の順に置く。
  * 動いている間に押せない「削除…」を並べない。サイドバーは動いているものだけを並べるので、そこでは削除がいつも押せないまま出ることになるからである。
  * 状態はいまのものに ✓ を付ける。いまの状態を選び直したときは、Paused なら戻る日のダイアログを開き（日を変えるため）、ほかは何もしない。
  * 停止は確認の要否を Mediator に任せる（作業中やシェルタブがあれば確認を出す）。hangar の外で動いているものは押せない理由を添える。
@@ -78,18 +78,19 @@ const STATES: { key: SessionMenuDot; kbd: string }[] = [{ key: 'active', kbd: 'u
 export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMenuEntry[] {
   const states = statusEntries(m.id, m.status);
   const stop = m.stop;
-  // 分割で開く 2 つ（画面の分割）。木にあるセッションなら、メニューの先頭に「表示中のペインへ移動」を足す。
+  // 分割で開く 2 つ（画面の分割）は、状態の 4 つの後ろに、区切りを置いてまとめる。最初のフォーカスは今までどおり状態に置く。
+  // 木にあるセッションなら、まとまりの先頭に「表示中のペインへ移動」を足す。
   // 開く先は操作中のペイン（target は null）で、すでに木にあるセッションは mediator が新しく開かずそのペインへ移す。
-  // ほかの PC の会話の「この PC で再開」は、その会話の主の操作なので、2 つの分割より先に置く。
-  const head: SessionMenuEntry[] = [
+  // ほかの PC の会話の「この PC で再開」は、その会話の主の操作なので、状態より先（先頭）に置く。
+  const split: SessionMenuEntry[] = [
     ...(m.pane ? [{ key: 'goToPane', label: t('row.menu.goToPane'), icon: 'paneOpen' as const, disabled: null, send: { type: 'pane.focus', pane: m.pane } as const }] : []),
-    ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
     { key: 'splitRight', label: t('row.menu.splitRight'), icon: 'splitRight', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'right' } },
     { key: 'splitDown', label: t('row.menu.splitDown'), icon: 'splitDown', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'down' } },
-  ];
+  ].map((e, i) => (i === 0 ? { ...e, separatorBefore: true } : e));
   return [
-    ...head,
-    ...states.map((e, i) => (i === 0 ? { ...e, separatorBefore: true } : e)),
+    ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
+    ...states,
+    ...split,
     { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: true, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
     { key: 'copyId', label: t('session.action.copyId'), icon: 'copy', disabled: null, send: { type: 'session.copyId', id: m.id } },
     stop
