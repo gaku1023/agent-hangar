@@ -222,7 +222,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       if (editing && mac && e.ctrlKey && !e.metaKey && !e.altKey) return;
       const take = () => e.preventDefault();
       const paneCtx = () => ({
-        panes: panesRef.current, onSession: sessionId !== null, key: e.key,
+        panes: panesRef.current, onSession: sessionId !== null, key: e.key, closableTab: false,
         neighbor: (from: string, dir: 'left' | 'right' | 'up' | 'down') => neighborPane(
           [...document.querySelectorAll<HTMLElement>('[data-pane]')].map((n): PaneRect => { const b = n.getBoundingClientRect(); return { id: n.dataset.pane!, left: b.left, top: b.top, right: b.right, bottom: b.bottom }; }), from, dir),
       });
@@ -245,7 +245,10 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           const target = paneTabOf(el) ?? remembered ?? selectedTabId;
           const t = shortcutTabs.find((x) => x.id === target);
           // Claude のタブは閉じない。止めるのは「停止」の役目である。
-          if (t && t.kind === 'shell') rt.emit({ type: 'tab.close', tabId: t.id });
+          if (t && t.kind === 'shell') { rt.emit({ type: 'tab.close', tabId: t.id }); return; }
+          // 閉じられるタブが無いとき、分割中なら操作中のペインを分割から外す（セッションは止めない）。
+          const a = paneKeyAction(id, paneCtx());
+          if (a && a !== 'none') rt.emit(a);
           return;
         }
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;

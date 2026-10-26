@@ -10,13 +10,18 @@ const DIR: Record<string, PaneDir> = { ArrowLeft: 'left', ArrowRight: 'right', A
  * 画面の分割のキー（keys.ts の pane.*）と、分割中の ⌘J を、出す入力にする。
  * 操作が向かうのは操作中のペイン（panes.focus）。セッション画面の外では、分割のキーは何も出さない。
  * ⌘J（transcript.toggle）は、ペインが 2 つ以上のときは操作中のペインの右パネル（pane.toc）に向ける。1 つのときは今までどおりの transcript.toggle である。
+ * ⌘W（tab.close）は、ペインが 2 つ以上で、閉じられるタブが無い（closableTab が false）ときだけ pane.remove にする。それ以外は null で、呼び出し側がタブを閉じる。
  * 隣のペインは位置で決まる（DOM の矩形）ので、求める関数 neighbor を呼び出し側から受ける。
  * 分割に関係の無いキーは null を返す。出す入力が無い（隣が無いなど）ときは、none を返して打鍵を取らない。
  */
-export function paneKeyAction(id: KeyId, ctx: { panes: PanesState; onSession: boolean; key: string; neighbor: (from: PaneId, dir: PaneDir) => PaneId | null }): UiAction | 'none' | null {
+export function paneKeyAction(id: KeyId, ctx: { panes: PanesState; onSession: boolean; key: string; neighbor: (from: PaneId, dir: PaneDir) => PaneId | null; closableTab: boolean }): UiAction | 'none' | null {
   const { panes } = ctx;
   if (id === 'transcript.toggle') {
     return ctx.onSession && panes.focus && paneLeaves(panes.root).length >= 2 ? { type: 'pane.toc', pane: panes.focus } : null;
+  }
+  // 分割中の ⌘W は、タブが先で最後はペイン。閉じられるタブ（シェル）が無いときだけ、操作中のペインを外す。
+  if (id === 'tab.close') {
+    return ctx.onSession && !ctx.closableTab && panes.focus && paneLeaves(panes.root).length >= 2 ? { type: 'pane.remove', pane: panes.focus } : null;
   }
   switch (id) {
     case 'pane.splitRight': return ctx.onSession ? { type: 'pane.openEmpty', side: 'right' } : 'none';

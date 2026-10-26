@@ -5,7 +5,7 @@ import { paneKeyAction } from './paneKeys.ts';
 const leaf = (id: string, sessionId: string) => ({ kind: 'pane' as const, id, sessionId, toc: false });
 const two = (): PanesState => ({ ...emptyPanes(), root: { kind: 'split', id: 'n1', dir: 'row', ratio: 0.5, a: leaf('p1', 's1'), b: leaf('p2', 's2') }, focus: 'p2' });
 const one = (): PanesState => ({ ...emptyPanes(), root: leaf('p1', 's1'), focus: 'p1' });
-const ctx = (panes: PanesState, over: Partial<Parameters<typeof paneKeyAction>[1]> = {}) => ({ panes, onSession: true, key: '', neighbor: () => null, ...over });
+const ctx = (panes: PanesState, over: Partial<Parameters<typeof paneKeyAction>[1]> = {}) => ({ panes, onSession: true, key: '', neighbor: () => null, closableTab: false, ...over });
 
 describe('分割のキーと ⌘J の向き先（paneKeyAction）', () => {
   it('⌘J は、ペインが 2 つ以上なら操作中のペインの右パネル（pane.toc）へ向ける', () => {
@@ -37,6 +37,17 @@ describe('分割のキーと ⌘J の向き先（paneKeyAction）', () => {
     }
   });
   it('分割に関係の無いキーは null', () => {
-    expect(paneKeyAction('tab.close', ctx(two()))).toBeNull();
+    expect(paneKeyAction('transcript.focus' as never, ctx(two()))).toBeNull();
+  });
+  it('⌘W は、分割中に閉じられるタブが無ければ操作中のペインを外す（pane.remove）', () => {
+    expect(paneKeyAction('tab.close', ctx(two()))).toEqual({ type: 'pane.remove', pane: 'p2' });
+  });
+  it('⌘W は、分割中でも閉じられるタブ（シェル）があれば null を返し、タブを閉じる側に任せる', () => {
+    expect(paneKeyAction('tab.close', ctx(two(), { closableTab: true }))).toBeNull();
+  });
+  it('⌘W は、分割していなければ（ペインが 1 つ）今までどおり null', () => {
+    expect(paneKeyAction('tab.close', ctx(one()))).toBeNull();
+    expect(paneKeyAction('tab.close', ctx(emptyPanes()))).toBeNull();
+    expect(paneKeyAction('tab.close', ctx(two(), { onSession: false }))).toBeNull();
   });
 });

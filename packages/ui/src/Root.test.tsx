@@ -387,6 +387,28 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
   });
 
+  it('分割中の ⌘W は、Claude のタブなら pane.remove、シェルのタブならタブを閉じる。分割していなければ何も出さない', async () => {
+    const { rt, wsHandlers, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: 'w', metaKey: true });
+    expect(emit.mock.calls.some(([a]) => a.type === 'pane.remove' || a.type === 'tab.close')).toBe(false);
+    act(() => rt.emit({ type: 'pane.openEmpty', side: 'right' }));
+    await flush();
+    emit.mockClear();
+    key({ key: 'w', metaKey: true });
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: 'pane.remove' }));
+    act(() => rt.emit({ type: 'tab.select', tabId: 't2' }));
+    await flush();
+    emit.mockClear();
+    key({ key: 'w', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+    expect(emit.mock.calls.some(([a]) => a.type === 'pane.remove')).toBe(false);
+  });
+
   it('ターミナルにフォーカスがあるときは ⌘ を含むものだけを受ける', async () => {
     const { rt } = await mounted();
     const host = document.createElement('div');
