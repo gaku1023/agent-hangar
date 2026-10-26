@@ -72,6 +72,11 @@ const EDGES = {
   y: { paddingTop: 'padding-top', paddingBottom: 'padding-bottom', marginTop: 'margin-top', marginBottom: 'margin-bottom' },
   x: { paddingLeft: 'padding-left', paddingRight: 'padding-right', marginLeft: 'margin-left', marginRight: 'margin-right' },
 } as const;
+/**
+ * 最小の大きさを 0 にした形。伸び縮みの全部の形に入れる。
+ * min-height を持つ箱（TODO の行）は、高さだけを 0 にしても min-height で止まって縮まない。
+ */
+const unfloored = (axis: 'y' | 'x'): Keyframe => ({ [axis === 'y' ? 'minHeight' : 'minWidth']: '0px' });
 /** 余白を全部 0 にした形。 */
 const edgesZero = (axis: 'y' | 'x'): Keyframe => Object.fromEntries(Object.keys(EDGES[axis]).map((k) => [k, '0px']));
 /** 今の余白（計算済みの値）。 */
@@ -127,7 +132,8 @@ export function growIn(el: HTMLElement, axis: 'y' | 'x' = 'y', from?: Keyframe):
     { [p]: '0px', opacity: 0, filter: `blur(${motionValue('--blur-in', el)})`, ...edgesZero(axis) },
     { offset: 0.2, filter: 'none' },
   ];
-  const a = el.animate([...start, { [p]: `${size}px`, opacity: 1, filter: 'none', ...edges }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+  const free = unfloored(axis);
+  const a = el.animate([...start.map((f) => (f.offset === undefined ? { ...f, ...free } : f)), { [p]: `${size}px`, opacity: 1, filter: 'none', ...edges, ...free }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
   const restore = () => unclip(el, gen);
   a.finished.then(restore, restore);
   return a;
@@ -142,10 +148,11 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y', opts: { fade
   const size = sizeOf(el, axis);
   const p = prop(axis);
   const edge = edgesZero(axis);
+  const free = unfloored(axis);
   const gen = clip(el);
   const frames: Keyframe[] = opts.fade === false
-    ? [{ [p]: `${size}px` }, { [p]: '0px', ...edge }]
-    : [{ [p]: `${size}px`, opacity: 1 }, { opacity: 0, offset: 0.6 }, { [p]: '0px', opacity: 0, ...edge }];
+    ? [{ [p]: `${size}px`, ...free }, { [p]: '0px', ...edge, ...free }]
+    : [{ [p]: `${size}px`, opacity: 1, ...free }, { opacity: 0, offset: 0.6 }, { [p]: '0px', opacity: 0, ...edge, ...free }];
   const a = el.animate(frames, { duration: motionMs('--dur-exit', el) + motionMs('--dur-fast', el), easing: motionEase('--ease-in', el), fill: 'forwards' });
   // 終わったら隠したままにする（外されるか、次に伸ばすまで隠れている）。取り消された（出る途中で戻った）ときだけ、元の指定に戻す。
   return a.finished.then(() => undefined, () => unclip(el, gen));
@@ -173,12 +180,32 @@ export function slideAway(el: HTMLElement, dx: number): Promise<boolean> {
   return el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${dx}px)` }], { duration: motionMs('--dur-exit', el), easing: motionEase('--ease-in', el), fill: 'forwards' }).finished.then(() => true, () => false);
 }
 
+/** 滑っている途中の動き。haltSlide が止める。 */
+const slides = new WeakMap<HTMLElement, Animation>();
+
 /** 並びの FLIP。前の位置から今の位置へ滑らせる。 */
 export function slideFrom(el: HTMLElement, before: Pick<DOMRect, 'left' | 'top'>, after: Pick<DOMRect, 'left' | 'top'>): Animation | null {
   const dx = before.left - after.left;
   const dy = before.top - after.top;
   if ((dx === 0 && dy === 0) || !motionOn(el)) return null;
-  return el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+  const a = el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+  slides.set(el, a);
+  return a;
+}
+
+/**
+ * 滑っている途中の動きを止め、止める前に見えていた位置とのずれ（滑りの transform の分）を返す。滑っていなければ 0。
+ * 滑りの途中で描き直すときに使う。止めずに測ると途中の位置を落ち着いた位置と取り違え、次の滑りが逆へ跳ぶ。
+ * 見えていた位置は、前に測った位置にこのずれを足したものになる。
+ */
+export function haltSlide(el: HTMLElement): Pick<DOMRect, 'left' | 'top'> {
+  const a = slides.get(el);
+  if (!a) return { left: 0, top: 0 };
+  slides.delete(el);
+  const seen = el.getBoundingClientRect();
+  a.cancel();
+  const rest = el.getBoundingClientRect();
+  return { left: seen.left - rest.left, top: seen.top - rest.top };
 }
 
 /** 印が替わる瞬間に 1 度だけ膨らむ（StatusDot と同じ形）。 */
