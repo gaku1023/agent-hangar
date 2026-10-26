@@ -131,6 +131,15 @@ describe('splitMotion（動くとき）', () => {
     expect((animate.mock.calls[1]![0] as Keyframe[]).at(-1)).toMatchObject({ height: '0px' });
   });
 
+  it('閉じるペインの要素がまだ文書にある（ほかのペインの描画に使い回された）ときは、動かさず外さない', async () => {
+    const host = div();
+    const pane = host.appendChild(document.createElement('div'));
+    await leavePane(pane, rect);
+    expect(pane.parentElement).toBe(host);
+    expect(pane.getAttribute('style')).toBeNull();
+    expect(animate).not.toHaveBeenCalled();
+  });
+
   it('名前の札は見出しの上に作られ、飛ぶ間は行き先を隠す。止めると元に戻る', () => {
     vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
     const target = div();
