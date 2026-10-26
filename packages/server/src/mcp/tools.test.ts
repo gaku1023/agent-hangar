@@ -15,6 +15,8 @@ import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { rejectSessionState } from '../sessions/states.ts';
 import { AccountStore } from '../config/accounts.ts';
+import { msg } from '../i18n/message.ts';
+import { DeleteError } from '../sessions/trash.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
@@ -415,6 +417,121 @@ describe('MCP tools', () => {
     deps = { ...deps, runs: { start: async (p) => { started.push(p); await new Promise((r) => setTimeout(r, 5)); return { run: { id: 'r2', sessionId: 'sLater', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sLater', tabs: [] }; } } };
     expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater' });
   });
+  describe('会話の寿命（stop_session、resume_session、delete_session）', () => {
+    const killed: string[] = [];
+    const resumed: { id: string; account?: string }[] = [];
+    const trashed: string[] = [];
+    const run = (deviceId: string, id = 'rLive') => ({ id, sessionId: alphaId, deviceId, kind: 'start' as const, tmuxName: 'hangar-x', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
+    let alive: ReturnType<typeof run> | null;
+    let trashError: Error | null;
+    const asAgent = (provider: string) => db.prepare('update sessions set provider = ? where id = ?').run(provider, alphaId);
+    beforeEach(() => {
+      killed.length = 0; resumed.length = 0; trashed.length = 0; alive = null; trashError = null;
+      deps = {
+        ...deps,
+        runs: {
+          ...deps.runs,
+          aliveRun: () => alive,
+          kill: (id) => { killed.push(id); },
+          resumeWith: (id, o) => { resumed.push({ id, ...(o?.account !== undefined ? { account: o.account } : {}) }); return { run: { ...run('d', 'rRes'), sessionId: id, kind: 'resume', tmuxName: 'hangar-rRes' }, sessionId: id, tabs: [] }; },
+        },
+        trash: { deleteSession: async (id) => { if (trashError) throw trashError; trashed.push(id); } },
+      };
+    });
+
+    it('stop_session はこの PC で動く run を止める', () => {
+      alive = run('d');
+      expect(call('stop_session', { session_id: alphaId })).toEqual({ ok: true, session_id: alphaId, run_id: 'rLive' });
+      expect(killed).toEqual(['rLive']);
+    });
+    it('stop_session は動いていない会話、ほかの PC の run、自分自身、知らない会話を断る', () => {
+      expect(() => call('stop_session', { session_id: alphaId })).toThrow(/実行中ではありません/);
+      alive = run('other');
+      expect(() => call('stop_session', { session_id: alphaId })).toThrow(/他の PC/);
+      alive = run('d');
+      expect(() => call('stop_session', { session_id: alphaId }, { sessionId: alphaId })).toThrow(/自分自身/);
+      expect(() => call('stop_session', { session_id: 'nope' })).toThrow(ToolError);
+      expect(() => call('stop_session', {})).toThrow(ToolError);
+      expect(killed).toEqual([]);
+    });
+    it('stop_session はセッション別 URL から、別のセッションを指せる', () => {
+      alive = run('d');
+      call('stop_session', { session_id: alphaId }, { sessionId: 'someoneElse' });
+      expect(killed).toEqual(['rLive']);
+    });
+
+    it.each(['claude-code', 'codex', 'opencode'])('resume_session は %s の会話を resumeWith で再開し、create_session と同じ形で返す', async (agent) => {
+      asAgent(agent);
+      const r = await call('resume_session', { session_id: alphaId });
+      expect(resumed).toEqual([{ id: alphaId }]);
+      expect(r).toEqual({ run_id: 'rRes', session_id: alphaId, tmux_name: 'hangar-rRes', url: `http://127.0.0.1:4177/#/session/${alphaId}` });
+    });
+    it('resume_session は動いている会話を断る', () => {
+      alive = run('d');
+      expect(() => call('resume_session', { session_id: alphaId })).toThrow(/すでに実行中/);
+      alive = run('other');
+      expect(() => call('resume_session', { session_id: alphaId })).toThrow(ToolError);
+      expect(() => call('resume_session', { session_id: 'nope' })).toThrow(ToolError);
+      expect(resumed).toEqual([]);
+    });
+    describe('アカウント', () => {
+      let userHome: string;
+      let store: AccountStore;
+      let uni: { id: string; name: string };
+      beforeEach(() => {
+        userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-user-'));
+        store = new AccountStore({ home, primaryDir: path.join(userHome, '.claude'), homeDir: userHome });
+        uni = store.add({ name: '大学' });
+        store.add({ name: '会社' });
+        deps = { ...deps, accounts: { store, usage: { of: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) } } };
+      });
+      afterEach(() => { fs.rmSync(userHome, { recursive: true, force: true }); });
+      it('Claude Code は名前か id で引いて resumeWith に渡し、名前を返す', async () => {
+        expect(await call('resume_session', { session_id: alphaId, account: '大学' })).toMatchObject({ account: '大学' });
+        await call('resume_session', { session_id: alphaId, account: uni.id });
+        expect(resumed).toEqual([{ id: alphaId, account: uni.id }, { id: alphaId, account: uni.id }]);
+      });
+      it('省けば何も渡さず（最後に使ったアカウント）、名前だけ添える', async () => {
+        db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values ('rOld', ?, 'd', 'start', 'h', ?, null, 1, 2, 'exit', 1, 1, 'd')").run(alphaId, JSON.stringify({ account: uni.id }));
+        const r = await call('resume_session', { session_id: alphaId });
+        expect(resumed).toEqual([{ id: alphaId }]);
+        expect(r).toMatchObject({ account: '大学' });
+      });
+      it('知らないアカウントは使える名前を添えて断る', () => {
+        expect(() => call('resume_session', { session_id: alphaId, account: '個人' })).toThrow(/メイン.*大学.*会社/);
+        expect(resumed).toEqual([]);
+      });
+      it.each(['codex', 'opencode'])('%s にアカウントを渡すと断る。省けば account を返さない', async (agent) => {
+        asAgent(agent);
+        expect(() => call('resume_session', { session_id: alphaId, account: '大学' })).toThrow(ToolError);
+        expect(resumed).toEqual([]);
+        expect(await call('resume_session', { session_id: alphaId })).not.toHaveProperty('account');
+      });
+    });
+
+    it('delete_session は confirmed が true でなければ、題名を添えて断り、消さない', async () => {
+      await expect(Promise.resolve().then(() => call('delete_session', { session_id: alphaId }))).rejects.toThrow(/confirmed/);
+      await expect(Promise.resolve().then(() => call('delete_session', { session_id: alphaId, confirmed: false }))).rejects.toThrow(ToolError);
+      expect(trashed).toEqual([]);
+    });
+    it.each(['claude-code', 'codex', 'opencode'])('delete_session は %s の会話を、承諾つきで消す', async (agent) => {
+      asAgent(agent);
+      expect(await call('delete_session', { session_id: alphaId, confirmed: true })).toEqual({ ok: true, session_id: alphaId });
+      expect(trashed).toEqual([alphaId]);
+    });
+    it('delete_session は自分自身と知らない会話を断り、trash の断り（動いている会話）はそのまま返す', async () => {
+      expect(() => call('delete_session', { session_id: alphaId, confirmed: true }, { sessionId: alphaId })).toThrow(/自分自身/);
+      expect(() => call('delete_session', { session_id: 'nope', confirmed: true })).toThrow(ToolError);
+      trashError = new DeleteError(409, msg('session.delete.running'));
+      await expect(call('delete_session', { session_id: alphaId, confirmed: true })).rejects.toThrow(/実行中のセッションは削除できません/);
+      expect(trashed).toEqual([]);
+    });
+    it('3 つとも、道具の口が無ければ知らない道具として断る', () => {
+      deps = { ...deps, runs: { start: deps.runs.start } };
+      delete (deps as { trash?: unknown }).trash;
+      for (const n of ['stop_session', 'resume_session', 'delete_session']) expect(() => call(n, { session_id: alphaId, confirmed: true })).toThrow(ToolError);
+    });
+  });
   it('set_session_summary は in_session で保存して配信する', () => {
     const r = call('set_session_summary', { title: 'T', one_liner: 'O', body: 'B', state: 'blocked', next_steps: ['n1'] }, { sessionId: alphaId });
     expect(r).toEqual({ ok: true, session_id: alphaId });
@@ -455,7 +572,7 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(14);
+    expect(TOOL_NAMES).toHaveLength(17);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });

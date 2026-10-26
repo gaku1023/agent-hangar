@@ -55,6 +55,9 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('set_session_summary', D(tr('mcp.tool.setSessionSummary')), { session_id: z.string().optional(), title: z.string(), one_liner: z.string(), body: z.string(), state: STATE, next_steps: z.array(z.string()) });
   reg('set_turn_intent', D(tr('mcp.tool.setTurnIntent')), { session_id: z.string().optional(), text: z.string() });
   reg('propose_session_status', D(tr('mcp.tool.proposeSessionStatus')), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe(tr('mcp.sessionStatus.noteParam')), return_on: z.string().optional().describe(tr('mcp.sessionStatus.returnOnParam')), return_time: z.string().optional().describe(tr('mcp.sessionStatus.returnTimeParam')), confirmed: z.boolean().optional().describe(tr('mcp.sessionStatus.confirmedParam')) });
+  reg('stop_session', D(tr('mcp.tool.stopSession')), { session_id: z.string() });
+  reg('resume_session', D(tr('mcp.tool.resumeSession')), { session_id: z.string(), account: z.string().optional().describe(tr('mcp.resumeSession.accountParam')) });
+  reg('delete_session', D(tr('mcp.tool.deleteSession')), { session_id: z.string(), confirmed: z.boolean().optional().describe(tr('mcp.deleteSession.confirmedParam')) });
   reg('get_usage', D(tr('mcp.tool.getUsage')), {});
   reg('open_in_hangar', D(tr('mcp.tool.openInHangar')), { session_id: z.string().optional(), project_id: z.string().optional() });
   // 節は種類ごとに必須が違うので、ここでは全部を任意にし、検査は report/compose.ts に任せる。断りの文で足りない節を名指しできる。
