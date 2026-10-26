@@ -445,6 +445,45 @@ describe('フォルダの中から登録する', () => {
     const again = await send('/api/workspace/register', { items: [{ path: nested, allowNested: true }] });
     expect((await again.json()).projects).toEqual([expect.objectContaining({ name: 'sub', path: nested })]);
   });
+  // hangar project add の結び付け（issue #403）。paths は作成場所の自動の登録と同じ規則で、ほかの PC から届いた同じプロジェクトに結び付ける。
+  it('POST /api/workspace/register の paths は、結び付く候補があれば新しく作らずに結び付ける。worktree と remote の食い違いは作る', async () => {
+    const byRemote = path.join(ws, 'x', 'notes-app');
+    const byName = path.join(ws, 'x', 'docs');
+    const differ = path.join(ws, 'x', 'tools');
+    const main = path.join(ws, 'x', 'site');
+    const tree = path.join(ws, 'x', 'site-wt');
+    for (const d of [byName, tree]) fs.mkdirSync(d, { recursive: true });
+    origin(byRemote, 'git@github.com:me/notes-app.git');
+    origin(differ, 'git@github.com:someone/tools.git');
+    origin(main, 'git@github.com:me/site.git');
+    fs.mkdirSync(path.join(main, '.git', 'worktrees', 'wt'), { recursive: true });
+    fs.writeFileSync(path.join(main, '.git', 'worktrees', 'wt', 'commondir'), '../..\n');
+    fs.writeFileSync(path.join(tree, '.git'), `gitdir: ${path.join(main, '.git', 'worktrees', 'wt')}\n`);
+    elsewhere('far', 'notes', 'github.com/me/notes-app');
+    elsewhere('near', 'docs', null);
+    elsewhere('fork', 'tools', 'github.com/me/tools');
+    elsewhere('web', 'site-wt', 'github.com/me/site');
+    const paths = [byRemote, byName, differ, tree];
+    // 試しも同じ結果を返し、何も書かない。
+    const dry = await (await send('/api/workspace/register', { paths, dryRun: true })).json();
+    expect(dry.results.map((r: { status: string; projectId: string }) => [r.status, r.projectId])).toEqual([['linked', 'far'], ['linked', 'near'], ['added', expect.any(String)], ['added', expect.any(String)]]);
+    expect(rootHere('far')).toBeUndefined();
+    const body = await (await send('/api/workspace/register', { paths })).json();
+    expect(body.results.map((r: { status: string; name: string }) => [r.status, r.name])).toEqual([['linked', 'notes'], ['linked', 'docs'], ['added', 'tools'], ['added', 'site-wt']]);
+    expect(body.linked).toEqual(['far', 'near']);
+    expect(rootHere('far')).toEqual({ path: byRemote, resolved: 1 });
+    expect(rootHere('near')).toEqual({ path: byName, resolved: 1 });
+    expect(rootHere('fork')).toBeUndefined();
+    expect(rootHere('web')).toBeUndefined();
+  });
+  it('POST /api/workspace/register の items は、linkTo が無ければ候補があっても新しく作る（画面で利用者が選んだ行である）', async () => {
+    const dir = path.join(ws, 'x', 'docs');
+    fs.mkdirSync(dir, { recursive: true });
+    elsewhere('near', 'docs', null);
+    const body = await (await send('/api/workspace/register', { items: [{ path: dir }] })).json();
+    expect(body.results).toEqual([expect.objectContaining({ status: 'added', name: 'docs' })]);
+    expect(rootHere('near')).toBeUndefined();
+  });
   it('POST /api/workspace/register の items の形が違えば 400', async () => {
     for (const bad of [{ items: 'x' }, { items: [{}] }, { items: [{ path: 1 }] }, { items: [{ path: '/x', linkTo: 3 }] }, { items: [{ path: '/x', allowNested: 'yes' }] }, { paths: ['/x'], items: [] }]) {
       expect((await send('/api/workspace/register', bad)).status, JSON.stringify(bad)).toBe(400);
