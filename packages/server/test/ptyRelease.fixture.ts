@@ -21,7 +21,10 @@ const KILLED = Number(process.argv[2] ?? 20);
 const SELF_EXITED = Number(process.argv[3] ?? 5);
 const t0 = Date.now();
 const log = (s: string): void => { console.log(`+${String(Date.now() - t0).padStart(6)}ms ${s}`); };
-const timeout = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref(); });
+// unref した timer で待つと、閉じた pty のほかに待つものが無いとき、top-level await を残したままプロセスが終わる（終了コード 13）。
+// CI では、慣らしの pty の conhost.exe が数え直しの 1 秒待ちの間に残っていたとき、これで落ちた。
+// 残った timer は最後の process.exit で捨てるので、ref のままにする。
+const timeout = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 
 // node-pty は conout の Worker を、読み込んだ worker_threads の Worker で作る。作るたびに数え、'exit' を待てるようにする。
 // node-pty は Worker を作る時にモジュールから引くので、読み込んだ後に差し替えても効く。
@@ -102,8 +105,7 @@ for (const s of selfExited) s.p.kill();
 await waitAll(selfExited.map((s) => s.worker?.done ?? Promise.resolve()), 15_000);
 const selfWorkersExited = selfExited.filter((s) => s.worker?.exited).length;
 // 子が自分で終わった pty の出力の socket は、node-pty が終わりから 1 秒待って閉じる。それより後に数える。
-// timeout は unref なので、ほかに待つものが無いこの時点で使うとプロセスが先に終わる。ref のままの timer で待つ。
-await new Promise((r) => { setTimeout(r, 2000); });
+await timeout(2000);
 const handlesAfterSelf = await handles();
 log(`self exited=${selfExited.filter((s) => s.done).length} workers exited=${selfWorkersExited} handles=${handlesAfterSelf}`);
 
