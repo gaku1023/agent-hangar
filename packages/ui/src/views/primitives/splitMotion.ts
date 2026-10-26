@@ -178,7 +178,8 @@ function ghostAt(el: HTMLElement, rect: Rect): void {
 
 /** 閉じるペインが、薄れて縮む。閉じたペインの要素（外れたあと）を、元の位置から動かす。 */
 export function leavePane(el: HTMLElement, rect: Rect): Promise<void> {
-  if (!motionOn(document.documentElement) || typeof el.animate !== 'function') return Promise.resolve();
+  // まだ文書にある要素は、React がほかのペインの描画に使い回している。動かして外すと、生きているペインが消える。
+  if (el.isConnected || !motionOn(document.documentElement) || typeof el.animate !== 'function') return Promise.resolve();
   ghostAt(el, rect);
   const a = el.animate([{ opacity: 1, transform: 'none', filter: 'none' }, { opacity: 0, transform: 'scale(0.97)', filter: enterBlur(el) }], { duration: motionMs('--dur-exit', el) + motionMs('--dur-fast', el), easing: motionEase('--ease-in', el), fill: 'forwards' });
   const gone = () => el.remove();

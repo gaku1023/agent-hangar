@@ -124,9 +124,13 @@ function cornerOf(parent: PaneSplit, node: PaneSplit): { corner: PaneCorner; rat
   return { corner, ratios, edge: corner.children[0]!.side === 'a' ? 'end' : 'start' };
 }
 
+/**
+ * 葉と節は id を key にする。木の形が替わっても、別のペインの要素を使い回さない。
+ * 使い回すと、閉じたペインの要素（useSplitMotion が閉じる前に測ったもの）が残るペインを描いていて、退場の動きが生きているペインごと外してしまう。
+ */
 function NodeView(props: { node: PaneNode; p: PanesProps; parent?: PaneSplit }) {
   const { node, parent } = props;
-  return node.kind === 'pane' ? <PaneCell leaf={node} p={props.p} /> : <SplitView node={node} p={props.p} corner={parent ? cornerOf(parent, node) : undefined} />;
+  return node.kind === 'pane' ? <PaneCell key={node.id} leaf={node} p={props.p} /> : <SplitView key={node.id} node={node} p={props.p} corner={parent ? cornerOf(parent, node) : undefined} />;
 }
 
 /**

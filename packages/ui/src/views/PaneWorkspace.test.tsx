@@ -290,6 +290,28 @@ describe('PaneWorkspace', () => {
     });
   });
 
+  it('左に 1 つ、右に 2 つのとき左を閉じても、残る 2 つは消えず、閉じたペインの要素は残るペインに使い回されない', async () => {
+    // 閉じるペインの退場の動きは、閉じる前に測った要素を body へ移して薄れさせ、外す。
+    // その要素が残るペインの描画に使い回されると、生きているペインまで消える（⌘W で片側が空く不具合）。
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = vi.fn(() => ({ finished: Promise.resolve(), cancel: vi.fn() }));
+    try {
+      const m = await mounted();
+      await m.open('s2');
+      const right = document.querySelector<HTMLElement>('[data-session="s2"]')!.dataset.pane!;
+      act(() => m.rt.emit({ type: 'pane.open', sessionId: 's3', target: right, side: 'down' }));
+      await flush();
+      const left = document.querySelector<HTMLElement>('[data-session="s1"]')!;
+      act(() => m.rt.emit({ type: 'pane.remove', pane: left.dataset.pane! }));
+      await flush();
+      await flush();
+      const shown = Array.from(document.querySelectorAll<HTMLElement>('[data-pane-workspace] [data-pane]')).map((e) => e.dataset.session);
+      expect(shown).toEqual(['s2', 's3']);
+      expect(left.closest('[data-pane-workspace]')).toBeNull();
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    }
+  });
+
   it('最大化中はそのペインだけを出し、見出しの解除のボタンで pane.zoom を出す', async () => {
     const m = await mounted();
     await m.open('s2');
