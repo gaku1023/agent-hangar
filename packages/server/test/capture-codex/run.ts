@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { codexVersionOf } from '../../src/provider/codex/compat/version.ts';
 import { extractSchemaSubset, type SchemaSubset } from '../../src/provider/codex/compat/schemaSubset.ts';
+import { COMPRESSION_FEATURE, parseFeatureList } from '../../src/provider/codex/compat/storage.ts';
 import { shapeOfRollout } from '../../src/provider/codex/compat/rolloutShape.ts';
 import {
-  codexBin, codexHelpText, codexVersionText, dropWorld, generateSchemaBundle, makeCodexWorld, probeAppServer, PROMPT_TOOL, runMockExec, startMockLlm,
+  codexBin, codexFeaturesText, codexHelpText, codexVersionText, dropWorld, generateSchemaBundle, makeCodexWorld, probeAppServer, PROMPT_TOOL, runMockExec, startMockLlm,
 } from '../codexHarness.ts';
 import { FIXTURE_CODEX_COMPAT_DIR } from '../codexCompatFixtures.ts';
 
@@ -45,6 +46,7 @@ export const readmeFor = (version: string, date: string): string => `# codex ${v
 | \`help.txt\` | \`codex --help\` の出力。サブコマンドの一覧（別名も）を、外のターミナルの横取りの一覧と突き合わせる。 |
 | \`app-server-schema.json\` | \`codex app-server generate-json-schema\` の束のうち、hangar が使う要求・通知・承認の要求（\`compat/schemaSubset.ts\` の \`HANGAR_CODEX_METHODS\`）の包みと、参照をたどった定義。説明文は入れない。 |
 | \`app-server-probe.json\` | ログイン無しの app-server に話した答えのキーの名前（initialize、thread/start、thread/started、thread/resume がターンの前は no rollout found になること）。 |
+| \`features.json\` | \`codex features list\` のうち、rollout を zst に切り替える \`local_thread_store_compression\` の段階と既定。既定が true になると、同じ会話が jsonl と zst で名前を変える。 |
 | \`rollout-shape.json\` | 模擬のモデルで \`codex exec\` を 2 本（文で答えるターン、道具を呼ぶターン）走らせてできた rollout の、行の種類ごとの形（キーの道と型）。値は入れない。 |
 
 照合の仕組みは docs/design.md の「Codex の互換の見張り」にある。
@@ -70,6 +72,9 @@ export async function main(argv: string[]): Promise<void> {
     files.set('help.txt', codexHelpText(bin, world.env));
     files.set('app-server-schema.json', subsetText(extractSchemaSubset(generateSchemaBundle(bin, world))));
     files.set('app-server-probe.json', json(await probeAppServer(bin, world)));
+    const compression = parseFeatureList(codexFeaturesText(bin, world))[COMPRESSION_FEATURE];
+    if (!compression) throw new Error(`codex features list に ${COMPRESSION_FEATURE} がありません`);
+    files.set('features.json', json({ [COMPRESSION_FEATURE]: compression }));
     llm = await startMockLlm();
     const turn = await runMockExec(bin, world, llm.port, 'say hi');
     const tool = await runMockExec(bin, world2, llm.port, PROMPT_TOOL);
