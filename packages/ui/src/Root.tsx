@@ -52,6 +52,7 @@ import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
 import { PaneWorkspace } from './views/PaneWorkspace.tsx';
 import { PaneDropOverlay } from './views/PaneDropOverlay.tsx';
+import { frameOf, useSplitMotion } from './views/useSplitMotion.ts';
 import { presentPanes } from './presenters/panes.ts';
 import { paneKeyAction } from './lib/paneKeys.ts';
 import { paneLeaves } from './mediator/panes.ts';
@@ -457,6 +458,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     }
     case 'settings': body = <SettingsScreen {...presentSettings(state, store, now)} />; break;
   }
+
+  // 1 つ ⇄ 分割、並びと最大化の入れ替えの動き。形が替わる描画の前に前の姿を測り、描いたあとに動かす。
+  useSplitMotion(frameOf(state.screen.name === 'session', state.screen.name === 'session' ? state.screen.id : null, state.panes));
 
   // 起動ダイアログはプロジェクトが変わったら作り直す。入力欄が非制御で、defaultValue を作り直しでしか変えられないからである。
   const newSession = presentNewSession(state, store, now);

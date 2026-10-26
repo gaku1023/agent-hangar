@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { PaneDropSide, PaneId } from '@agent-hangar/shared';
+import { motionOn } from './primitives/motionKit.ts';
 
 /**
  * 画面の分割のドラッグ（サイドバーの行と、ペインの見出し）が共有する状態と、ドロップ先の判定。
@@ -71,28 +72,54 @@ export function hitTest(x: number, y: number, source: DragSource, root: ParentNo
 }
 
 export type DragState = { source: DragSource; x: number; y: number; hit: DropHit | null };
+/**
+ * 終わったドラッグの札の行き先（T5 の動き）。落としたなら入る場所（ok）、やめたなら元の行か見出し（to が null なら元の場所で薄れる）。
+ * 動きを減らす設定では作らず、札はすぐ消える。札の動きが終わったら paneDrag.landed() で消す。
+ */
+export type DragEnd = { source: DragSource; x: number; y: number; ok: boolean; to: Box | null };
 
 let state: DragState | null = null;
+let ending: DragEnd | null = null;
 const listeners = new Set<() => void>();
-const publish = (next: DragState | null) => { state = next; for (const l of listeners) l(); };
+const publish = (next: DragState | null, end: DragEnd | null = ending) => { state = next; ending = end; for (const l of listeners) l(); };
+
+/** やめたときに戻る先。サイドバーの行か、ペインの見出し。 */
+function originOf(source: DragSource): Box | null {
+  const sel = source.kind === 'session' ? `.side-live-row[data-id="${CSS.escape(source.sessionId)}"]` : `[data-pane-header="${CSS.escape(source.pane)}"]`;
+  const el = document.querySelector(sel);
+  return el ? boxOf(el) : null;
+}
+
+/** 終わりを記録して、状態を空にする。札の動きがあるときだけ ending を残す。 */
+function end(ok: boolean, hit: DropHit | null): void {
+  const prev = state;
+  if (!prev || !motionOn(document.documentElement)) { publish(null, null); return; }
+  publish(null, { source: prev.source, x: prev.x, y: prev.y, ok, to: ok && hit ? hit.rect : originOf(prev.source) });
+}
 
 export const paneDrag = {
   get: (): DragState | null => state,
+  landing: (): DragEnd | null => ending,
   subscribe: (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; },
-  /** ポインタが動いた。落とし先を測り直して状態を替える。 */
+  /** ポインタが動いた。落とし先を測り直して状態を替える。新しいドラッグが始まったら、前の札の動きは捨てる。 */
   move(source: DragSource, x: number, y: number): DropHit | null {
     const hit = hitTest(x, y, source);
-    publish({ source, x, y, hit });
+    publish({ source, x, y, hit }, null);
     return hit;
   },
-  /** やめる（Esc、取り消し、サイドバーへ戻った）。何も出さない。 */
-  cancel() { if (state) publish(null); },
-  /** 離した。いまの落とし先を返して状態を空にする。落とせないとき（null、blocked）は null。 */
+  /** やめる（Esc、取り消し、サイドバーへ戻った）。札は元の行へ戻る。 */
+  cancel() { if (state) end(false, null); },
+  /** 離した。いまの落とし先を返して状態を空にする。落とせないとき（null、blocked）は null。札は入る場所へ吸い込まれる（落とせないときは戻る）。 */
   finish(): DropHit | null {
     const hit = state?.hit ?? null;
-    publish(null);
-    return hit && !hit.blocked ? hit : null;
+    const ok = !!hit && !hit.blocked;
+    end(ok, hit);
+    return ok ? hit : null;
   },
+  /** 札の動きが終わった。 */
+  landed() { if (ending) publish(state, null); },
 };
 
 export const usePaneDrag = (): DragState | null => useSyncExternalStore(paneDrag.subscribe, paneDrag.get, paneDrag.get);
+
+export const usePaneDragEnd = (): DragEnd | null => useSyncExternalStore(paneDrag.subscribe, paneDrag.landing, paneDrag.landing);

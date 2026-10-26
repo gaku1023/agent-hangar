@@ -7,13 +7,12 @@ import { EmptyPaneHeader, type PaneView } from './PaneHeader.tsx';
 import { PanePicker } from './PanePicker.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
 import { useT } from './primitives/language.tsx';
+import { flashPane } from './primitives/splitMotion.ts';
 
 /** この幅（ペインの内側）より狭いと一言とプロジェクト名と主の操作の文字を消す。 */
 export const PANE_TIGHT_WIDTH = 620;
 /** この幅より狭いと、さらにステータスの札の文字を消し、主の操作と ⓘ を ⋯ の中へ移す。 */
 export const PANE_TINY_WIDTH = 420;
-/** 光らせる長さ。 */
-const FLASH_MS = 700;
 
 /**
  * ペインごとの幅。ResizeObserver で測り、tight（620px 未満）と tiny（420px 未満）を返す。
@@ -45,21 +44,20 @@ function PaneCell(props: { leaf: PaneLeaf; p: PanesProps }) {
   const { tight, tiny } = usePaneWidth(ref);
   const { leaf, p } = props;
   const focused = p.focus === leaf.id;
-  // 光らせる合図（flash.n が変わったとき）。動きは T5 で作り替える。いまは枠を一瞬強調するだけ。
-  const [flashing, setFlashing] = useState(false);
+  // 光らせる合図（flash.n が変わったとき）。枠が一瞬濃くなって薄れる（flashPane）。最初の描画では光らせない。
   const flashN = p.flash && p.flash.pane === leaf.id ? p.flash.n : null;
+  const flashed = useRef<number | null>(flashN);
   useEffect(() => {
-    if (flashN === null) return;
-    setFlashing(true);
-    const timer = setTimeout(() => setFlashing(false), FLASH_MS);
-    return () => clearTimeout(timer);
+    if (flashN === null || flashN === flashed.current) { flashed.current = flashN; return; }
+    flashed.current = flashN;
+    if (ref.current) flashPane(ref.current);
   }, [flashN]);
   const view: PaneView = { id: leaf.id, toc: leaf.toc, tight, tiny, zoomed: p.zoom === leaf.id };
   const screen = p.screens[leaf.id];
   return (
-    <div ref={ref} data-pane={leaf.id} data-session={leaf.sessionId ?? undefined} data-focused={focused ? 'true' : undefined} data-flash={flashing ? 'true' : undefined}
+    <div ref={ref} data-pane={leaf.id} data-session={leaf.sessionId ?? undefined} data-focused={focused ? 'true' : undefined}
       data-toc={leaf.toc ? 'true' : undefined} data-empty={leaf.sessionId === null ? 'true' : undefined}
-      className={['pane', tight ? 'tight' : '', tiny ? 'tiny' : '', flashing ? 'flash' : ''].filter(Boolean).join(' ')}
+      className={['pane', tight ? 'tight' : '', tiny ? 'tiny' : ''].filter(Boolean).join(' ')}
       onPointerDownCapture={() => { if (!focused) emit({ type: 'pane.focus', pane: leaf.id }); }}>
       {screen ? <SessionScreen {...screen} variant="pane" pane={view} /> : <><EmptyPaneHeader pane={view} /><PanePicker pane={leaf.id} rows={p.picker} /></>}
     </div>
