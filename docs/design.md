@@ -7514,7 +7514,7 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
 0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
 `claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
-後の対象 `codex`、`opencode`、`agents-skills`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
+後の対象 `opencode`、`agents-skills`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
 枠は owns が常に false、collect は空で、`placeholder` の印を持つ。印のある対象は束の `targets` と判定の「こちらが扱える対象」に載せない。載せると、まだ書けないのに他の PC の項目を受けてしまうためである。
 `claude-hooks` と `claude-plugins` は `claude` より前に登録する。実装する PR は印を外す。
 TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir、agentsSkillsDir、claudeJsonPath、hangarSettingsPath）と、Codex・opencode がその PC で有効か（codexEnabled、opencodeEnabled）を持つ。有効な入れ物は、service の vcs() の検出の表にも載る。
@@ -7523,6 +7523,28 @@ TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir�
 - 権限（他の PC から届くとき承諾が要る。承諾の仕方が自動なら要らない）：`autoMode`（分類器の許可と拒否の規則）、`skipAutoPermissionPrompt`、`deniedMcpServers`。
 - 区分は Claude Code の文書で確かめた。値の型が合わないものは運ばない（`tui` は `default`・`fullscreen`、`autoUpdatesChannel` は `latest`・`stable`、`deniedMcpServers` はオブジェクトの配列、など）。
 権限（`permissions.allow`、`ask`、`deny`、`defaultMode`）は運ぶが、括弧の中が `//` かドライブ文字か UNC で始まる絶対パスの規則だけ落とす。
+
+**Codex の設定。**
+対象 `codex`（`targets/codex.ts`）は、`$CODEX_HOME`（既定は `~/.codex`。試験と確かめは必ず `CODEX_HOME` を渡す）を扱う。
+入切は設定の `configTargets.codex` と、その PC で Codex が有効か（`codexEnabled`）の両方で、有効でない PC では何も集めず、束の `targets` にも載せない。
+id は 2 種類ある。
+`codex:file:<相対>` は `AGENTS.md`、`AGENTS.override.md`、`rules/*.rules`（`default.rules` を除く）、`skills/**`（`.system` を除く）、`<名前>.config.toml`、`hooks.json`。
+`codex:toml:<鍵の道>` は `config.toml` の鍵 1 つで、道の各段は URL の形に符号化し、段の間は `.` でつなぐ（プラグインの id に点があっても往復する）。値は JSON にして運ぶ。
+`default.rules` は Codex が承認のたびに足す状態なので運ばない。`installation_id`、`tmp/`、Windows 固有の `.sandbox/`、`.sandbox_migration`、`auth.json`、`sessions/` は、運ぶ形の外なので集めない。
+`[mcp_servers.*]`（`codex:mcp:`）は別の PR の持ち分で、ここでは読まない。
+`config.toml` の鍵の仕分けは `targets/codexKeys.ts` の表で、`codex-rs/core/config.schema.json`（確かめた版 0.164.0、トップレベル 103 鍵）から鍵の名前だけを写した。
+運ぶのはモデルと推論、`approval_policy`、`sandbox_mode`、指示、`[tui]`、`[features]`（真偽の旗）、`[memories]`、`[desktop]`、`[agents]`、`[hooks]` のイベント、`[plugins.<id>].enabled` など。
+運ばないのは、この PC の事情（`notify`、`[projects.*]`、`[marketplaces.*]`、`[model_providers.*]`、`sandbox_workspace_write.writable_roots`、`shell_environment_policy`、ログや DB の置き場、接続先、認証の設定）と、Codex が書く状態（`[notice.*]`、`hooks.state`、`tui.model_availability_nux`、`tui.screen_reader_detection_done`、プラグインの `enabled` 以外）。
+絶対パスを値に持つ鍵（`/x`、`~/x`、`C:\x`）は運ばず、理由 `path` で一覧に出す。
+表に無い鍵は運ばず、Claude と同じに `config_unsent` の `unknown-key`（id は `unknown-key:codex:<鍵の道>`）に記録する。値は持たない。
+`<名前>.config.toml` は `config.toml` と同じ仕分けを通し、運べない鍵か知らない鍵が 1 つでもあれば、ファイルごと運ばない。
+承諾が要るのは `rules/`、`skills/`、`hooks.json`、`<名前>.config.toml`、`approval_policy`、`approvals_reviewer`、`sandbox_mode`、`default_permissions`、`sandbox_workspace_write.*`、`[hooks]`、`[plugins.*]` で、消去も承諾に掛ける。承諾の仕方が自動なら要らない。
+受け取る側も同じ物差し（`isCarriedPath`、絶対パスの検査）で見て、仕分けの外の鍵や絶対パスの値が届いても書かない。
+書き戻し（`targets/codexWrite.ts`）は、Claude の適用（`apply.ts`）と同じ流れで、書き込み先が `$CODEX_HOME` になる。
+`config.toml` は S2 の `setToml`・`removeToml` で鍵だけを差し替え、コメント、並び、他の鍵、状態の表を保つ。
+書く前に `<hangar の置き場>/backups/codex-config/<時刻>/` に控えを取り、取れなければ書かない。
+`config.toml` を書いた後は読み直し、書いたとおりでなければ（Codex の常駐が同時に書き換えた）元へ戻して失敗にする。
+指示書が Codex の項目だけのときは、書き終えたら指示書を消す。Claude の項目と混ざった指示書を割り振るのは、適用の口を繋ぐ PR の役目である。
 全部が絶対パスの鍵は、空の配列で相手の規則を消さないよう運ばない。
 受け手が権限の鍵を適用するときは、手元の絶対パスの規則を残す（`hangar config apply` が守る。「適用と世代へ戻す」）。
 シンボリックリンクは辿らず、1 MiB を超えるファイルと、`node_modules`、`.git`、`__pycache__`、`.venv`、`.DS_Store`、同期自身の写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）は拾わない。
