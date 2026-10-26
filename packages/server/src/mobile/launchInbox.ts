@@ -7,6 +7,7 @@ import {
   clampText,
   isEffort,
   isMobileMode,
+  type MobileAgent,
   isModelName,
   LAUNCH_TTL_MS,
   MOBILE_IMAGE_MAX_BYTES,
@@ -56,7 +57,7 @@ export type MobileLaunchInboxDeps = {
   /** この PC に登録したアカウントか。 */
   hasAccount: (id: string) => boolean;
   /** この PC でそのエージェントを起こせるか（opencode なら、設定で有効にしてあり、手元に見つかること）。省けば opencode を起こせない PC。 */
-  hasAgent?: (agent: 'opencode') => boolean;
+  hasAgent?: (agent: MobileAgent) => boolean;
   /** いま依頼を扱ってよいか（boot/sync.ts の canCarryMobile）。偽なら claim せずに残す（Worker の行は pending のまま）。 */
   canProcess: () => boolean;
   now: () => number;

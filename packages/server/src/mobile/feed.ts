@@ -1,4 +1,4 @@
-import { addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
 import type { AgentKind } from '../agent/types.ts';
 import { waitingOf } from '../agent/waiting.ts';
 import type { Account } from '../config/accounts.ts';
@@ -87,11 +87,11 @@ export const FEED_CAPS: MobileCaps = { asks: true, images: true, effort: true };
  * 古い PC は依頼の agent を断らずに Claude を起こしてしまうので、スマホは agents に opencode のある PC にだけ opencode の依頼を出す。
  */
 export function feedCaps(opencodeEnabled: boolean): MobileCaps {
-  return opencodeEnabled ? { ...FEED_CAPS, agents: ['claude-code', 'opencode'] } : FEED_CAPS;
+  return opencodeEnabled ? { ...FEED_CAPS, agents: [...AGENT_KINDS] } : FEED_CAPS;
 }
 
 /** 行に付けるエージェントの印。Claude の行には付けない（欄ごと省く）。 */
-const agentOf = (provider: AgentKind): { agent?: MobileAgent } => (provider === 'opencode' ? { agent: 'opencode' } : {});
+const agentOf = (provider: AgentKind): { agent?: MobileAgent } => (provider === 'claude-code' ? {} : { agent: provider });
 
 /** 使用量に載せるモデルの ID の上限（字数）。 */
 const USAGE_MODEL_MAX = 60;

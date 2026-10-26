@@ -1,5 +1,5 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
-import { isMobileMode, type MobileAgentOptions, type MobileAsk, type MobileAskIn, type MobileModelOption, type MobileReply } from '@agent-hangar/shared/src/mobile.ts';
+import { isMobileMode, type MobileAgent, type MobileAgentOptions, type MobileAsk, type MobileAskIn, type MobileModelOption, type MobileReply } from '@agent-hangar/shared/src/mobile.ts';
 import { isModelName } from '@agent-hangar/shared/src/summaryEngine.ts';
 import { aadAsk, aadReply, MobilePairingError, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { mobileHeaders, originOf, unpairedOf, workerCompatOf, workerTooOld, type UnpairedReason } from './api.ts';
@@ -230,7 +230,7 @@ export type Asker = {
    * `/` の候補。同じ PC、プロジェクト、アカウント、エージェントは画面の間 1 回だけ問い合わせる。
    * agent が opencode なら、アカウントは空で、PC は opencode のコマンドとスキルを返す。
    */
-  commands: (pc: string, projectId: string | null, accountId: string, agent?: 'opencode') => Promise<CommandHit[]>;
+  commands: (pc: string, projectId: string | null, accountId: string, agent?: MobileAgent) => Promise<CommandHit[]>;
   /** `@` の候補。同じ PC、プロジェクト、q は 30 秒覚える。 */
   files: (pc: string, projectId: string, q: string) => Promise<FileHit[]>;
   /** opencode のモードとモデル。同じ PC とプロジェクトは画面の間 1 回だけ問い合わせる。PC がまだ一覧を持っていなければ null。 */

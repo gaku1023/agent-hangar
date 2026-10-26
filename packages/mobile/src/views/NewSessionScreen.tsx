@@ -1,3 +1,4 @@
+import type { AgentKind } from '@agent-hangar/shared/src/agents.ts';
 import { launchJa } from '@agent-hangar/shared/src/i18n/ja/launch.ts';
 import { MOBILE_PROMPT_MAX, type MobileAccount, type MobileAgentOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
@@ -35,7 +36,7 @@ const AUTO_OFF = ['off'];
 const NO_MODELS: MobileModelOption[] = [];
 const NO_MODES: MobileAgentOptions['modes'] = [];
 
-type Agent = 'claude-code' | 'opencode';
+type Agent = AgentKind;
 
 /** モデルの札に添える費用の型（PC のモデルの小窓と同じ語）。 */
 const COST_LABEL: Record<MobileModelOption['cost'], string> = { local: 'ローカル', free: '無料', metered: '従量', plan: '定額' };

@@ -1,5 +1,6 @@
 import type { LiveStatus, WaitKind } from './api.ts';
 import type { ModelCostKind, ModelDataUse } from './modelFacts.ts';
+import type { AgentKind } from './agents.ts';
 import type { OpencodeModeOption } from './opencodeOptions.ts';
 
 /** 文は 300 字で切る（待っている内容、意図、要約の 1 行）。 */
@@ -33,7 +34,7 @@ export type MobileWaiting = { kind: WaitKind; text: string };
  * Claude Code 以外のエージェントの印（opencode の行にだけ付ける）。
  * Claude の行には付けない。古い PC の素と同じ形にし、バイトも節約するためである。古いスマホは読み捨てる。
  */
-export type MobileAgent = 'opencode';
+export type MobileAgent = Exclude<AgentKind, 'claude-code'>;
 
 /**
  * 実行中の opencode の行の使用量（server の session_live_stats から）。
@@ -73,7 +74,7 @@ export type MobileProject = { id: string; name: string; lastUsedAt: number | nul
  * agents は、この PC で起こせるエージェント（0.10.0 で足した）。opencode は、PC の設定で opencode を有効にしているときだけ載せる。
  * 無ければ Claude Code だけの PC である。古い PC は依頼の知らない欄（agent）を断らずに Claude を起こしてしまうので、スマホは agents に opencode のある PC にだけ opencode の依頼を出す。
  */
-export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: ('claude-code' | 'opencode')[] };
+export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: AgentKind[] };
 
 /** 1 台の PC が Worker に預ける受信箱の素。暗号化して置くので、Worker は中身を読めない。 */
 export type MobileFeed = {
@@ -119,7 +120,7 @@ export type MobileLaunchPayload = {
 };
 
 /** 起動の依頼で選べるエージェント。 */
-export type MobileLaunchAgent = 'claude-code' | 'opencode';
+export type MobileLaunchAgent = AgentKind;
 
 /** opencode のモードの ID の形。--agent に渡る値なので、引数に読まれる形と空白を断る。 */
 export const MOBILE_MODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
@@ -138,8 +139,8 @@ export type MobileLaunchAnswer =
  */
 export type MobileAsk =
   | { v: 1; kind: 'files'; projectId: string; q: string }
-  | { v: 1; kind: 'commands'; projectId: string | null; accountId: string; agent?: 'opencode' }
-  | { v: 1; kind: 'agent-options'; agent: 'opencode'; projectId: string | null };
+  | { v: 1; kind: 'commands'; projectId: string | null; accountId: string; agent?: MobileAgent }
+  | { v: 1; kind: 'agent-options'; agent: MobileAgent; projectId: string | null };
 
 /** 答えの opencode のモデルの件数の上限と、名前の字数の上限。 */
 export const MOBILE_AGENT_MODELS_MAX = 100;
