@@ -53,6 +53,8 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.strip.questionLabel': 'Claude asks',
   'session.strip.intentMeta': 'Written by Claude, {time}, {n} tool {n|call|calls} since',
   'session.strip.opencode.intentLabel': 'opencode’s intent · {time}',
+  'session.strip.codex.intentLabel': 'Codex’s intent · {time}',
+  'session.strip.codex.intentMeta': 'Written by Codex, {time}, {n} subsequent tool {n|call|calls}',
   'session.strip.opencode.intentMeta': 'Written by opencode, {time}, {n} subsequent tool {n|call|calls}',
   'session.strip.codex.questionLabel': 'Codex asks',
   'session.strip.opencode.questionLabel': 'opencode asks',
