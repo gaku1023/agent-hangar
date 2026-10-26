@@ -1087,11 +1087,9 @@ export class RunManager {
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
-  fork(sessionId: string): LaunchResult | Promise<LaunchResult> {
+  fork(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertCan(s, 'fork');
-    // ID を後から受ける driver（Codex）は、仮の ID で行を作って materialize を待つ道を通る。Claude と opencode の道は変えない。
-    if (this.agentOf(s).launch.materialize) return this.forkMaterialized(s);
     this.assertResumable(s);
     const account = this.accounts.lastUsed(s.id);
     // リンクの確かめも行を作る前に済ませる。壊れていると、本文の無い行が残る。
@@ -1115,6 +1113,11 @@ export class RunManager {
     return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, env }), params: { projectId: s.project_id ?? undefined }, account });
   }
 
+  /** fork が materialize（ID を後から受ける）の道を通る会話か。http の入口が fork と forkMaterialized を呼び分ける。 */
+  forksMaterialized(sessionId: string): boolean {
+    return !!this.agentOf(this.session(sessionId)).launch.materialize;
+  }
+
   /**
    * ID を後から受ける driver（Codex）で会話を分岐する（docs/design.md「Codex の起動」）。
    * 1. 設定、実行ファイル、作業の場所、画面の口を、行を作る前に確かめる。
@@ -1123,7 +1126,9 @@ export class RunManager {
    * 4. その ID を resume でつなぐ TUI を tmux の中に起こす（kind = 'fork' の run）。
    * 元の会話の行と run は変えない。rollout の無い会話は driver が断る。失敗したら app-server を止め、仮の行と秘密を消して 400 で断る。
    */
-  private async forkMaterialized(s: SessionRow): Promise<LaunchResult> {
+  async forkMaterialized(sessionId: string): Promise<LaunchResult> {
+    const s = this.session(sessionId);
+    this.assertCan(s, 'fork');
     const driver = this.agentOf(s);
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));

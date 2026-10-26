@@ -62,17 +62,11 @@ export const tooLargeResult = (c: Context, limit: number, tr: Translate) => c.js
 
 /** RunError は status 付きで、いまの言語の文にして返し、それ以外は投げ直す。 */
 export function runResult<T>(c: Context, language: GetLanguage, fn: () => T, status: 200 | 201 = 200) {
-  const fail = (e: unknown) => {
+  try {
+    return c.json(fn() as object, status);
+  } catch (e) {
     if (e instanceof RunError) return c.json({ error: errorText(language(), e), ...e.body }, e.status);
     throw e;
-  };
-  try {
-    const v = fn();
-    // fn が Promise を返すとき（fork は Codex で非同期）は、待ってから返し、失敗も同じ扱いにする。
-    if (v instanceof Promise) return v.then((x) => c.json(x as object, status), fail);
-    return c.json(v as object, status);
-  } catch (e) {
-    return fail(e);
   }
 }
 
