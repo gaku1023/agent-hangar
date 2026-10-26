@@ -83,6 +83,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   language: { value: 'ja' },
   focus: null,
   compat: null,
+  codex: { enabled: false, injection: 'minimal', injectionOptions: [{ value: 'minimal', label: '最小限（意図・要約・状態）' }, { value: 'claude', label: 'Claude Code と同じ' }, { value: 'none', label: '追記しない' }], intercept: { available: true, on: false, note: null }, version: null, badge: null },
   opencode: { available: true, enabled: false, injection: 'minimal', injectionOptions: [{ value: 'minimal', label: '最小限（意図・要約・状態）' }, { value: 'claude', label: 'Claude Code と同じ' }, { value: 'none', label: '追記しない' }], claudeNote: null, full: [], version: null, badge: null, intercept: { available: true, on: false, note: null }, permissionPreset: { on: true, byConfig: false, note: null }, localContext: { value: 65_536, options: [{ value: 32_768, label: '32K' }, { value: 65_536, label: '64K（推奨）' }, { value: 131_072, label: '128K' }] } },
   update: updateProps(),
   self: { autoDone: true, autoDoneIdleDays: 7, autoPark: true },
@@ -526,9 +527,9 @@ describe('設定のクラウド同期', () => {
 });
 
 describe('設定の連携', () => {
-  it('互換、opencode、MCP サーバー、ステータスライン、シェル連携の順に並べ、通知と Claude Code に渡す設定とアカウントは置かない', () => {
+  it('互換、opencode、Codex、MCP サーバー、ステータスライン、シェル連携の順に並べ、通知と Claude Code に渡す設定とアカウントは置かない', () => {
     render(ui(at('integrations')));
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認中…|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'opencodeベータ', 'MCP サーバー', 'ステータスライン', 'シェル連携']);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認中…|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'opencodeベータ', 'Codexベータ', 'MCP サーバー', 'ステータスライン', 'シェル連携']);
     expect(screen.queryByRole('switch', { name: '通知を有効にする' })).toBeNull();
     expect(screen.queryByRole('switch', { name: 'Remote Control を付けて起動する' })).toBeNull();
   });
@@ -569,6 +570,11 @@ describe('設定の連携', () => {
     render(ui(at('integrations', { focus: 'compat' })));
     expect(document.getElementById('settings-compat')).toHaveAttribute('data-hit');
     expect(document.body).toHaveFocus();
+  });
+  it('連携の節では、opencode の面のすぐ下に Codex の別の面を置き、切のままでも「有効にする」の行は出す', () => {
+    render(ui(at('integrations')));
+    expect(document.getElementById('settings-opencode')!.nextElementSibling).toBe(document.getElementById('settings-codex'));
+    expect(screen.getByRole('switch', { name: 'Codex を有効にする' })).toHaveAttribute('aria-checked', 'false');
   });
   it('連携の節では、Claude Code との互換性のすぐ下に opencode の面を置く（Windows では出さない）', () => {
     const { unmount } = render(ui(at('integrations')));
