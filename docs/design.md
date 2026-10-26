@@ -7509,14 +7509,41 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 受け手にそのプロジェクトが無いときは保留にし、適用の指示書には入れられない。
 `settings.json` の鍵は `sync/config/settingsSort.ts` が仕分ける。
 好みの鍵（`model`、`effortLevel`、`language`、`outputStyle`、`theme`、`editorMode`、`cleanupPeriodDays`、`attribution`、`autoCompact*`、`autoMemoryEnabled`）は運ぶ。
-実行（`env`、`apiKeyHelper`、`hooks`、`statusLine`、`fileSuggestion`）、認証（`aws*`、`forceLogin*`）、パス（`autoMemoryDirectory`、`plansDirectory`、`permissions.additionalDirectories`）、機械の事情（`sandbox`、`enabledPlugins`、`extraKnownMarketplaces`、`*McpjsonServers`）は運ばず、理由を付けて一覧に出す。
+実行（`env`、`apiKeyHelper`、`hooks`、`statusLine`、`fileSuggestion`）、認証（`aws*`、`forceLogin*`）、パス（`autoMemoryDirectory`、`plansDirectory`、`permissions.additionalDirectories`）、機械の事情（`sandbox`、`*McpjsonServers`）は運ばず、理由を付けて一覧に出す。
+`hooks`、`statusLine`、`enabledPlugins`、`extraKnownMarketplaces` は、今の Claude の対象は運ばない鍵として一覧に出し続けるが、0.12 から別の対象（下の `claude-hooks`、`claude-plugins`）が切り替えて運ぶ。
 知らない鍵（表に無い鍵、型が合わない値）も運ばない。
 知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
 0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
 `claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
-後の対象 `codex`、`opencode`、`agents-skills`、`claude-hooks`、`claude-plugins`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
+後の対象 `codex`、`opencode`、`agents-skills`、`hangar` は、枠だけを先に登録してある（`targets/placeholder.ts`）。
 枠は owns が常に false、collect は空で、`placeholder` の印を持つ。印のある対象は束の `targets` と判定の「こちらが扱える対象」に載せない。載せると、まだ書けないのに他の PC の項目を受けてしまうためである。
-`claude-hooks` と `claude-plugins` は `claude` より前に登録する。実装する PR は印を外す。
+`claude-hooks` と `claude-plugins` は枠を外して本物になった（下の「hooks と statusLine」「plugins」）。`claude` より前に登録する。
+
+**hooks と statusLine**（対象 `claude-hooks`、`targets/claudeHooks.ts`）。
+`settings.json` の `hooks` と `statusLine`、および `command` が指す `~/.claude` の下の台本を、1 つの項目で運ぶ。
+項目は `claude-hooks:hooks`（kind `claude-hooks`）と `claude-hooks:statusline`（kind `claude-statusline`）の 2 つである。
+`settings:hooks` にしないのは、古い版がこの id を運ばない鍵として読み飛ばすためで、別の頭にして別の対象にすれば、古い版の束に無いことが消去に見えない。
+中身は `{ v: 1, value, files: [{ rel, b64, x? }] }` を正規化した JSON で、指紋は鍵とファイルを合わせて取る（台本を直すと項目の指紋が変わる）。
+`command` のパスは、`~`、`$HOME`、`%USERPROFILE%`、ホームの絶対パスのどれも `~/.claude/…` に読み替えて判定する（`targets/hookCommands.ts`）。
+ホームの絶対パスだけは目印 `__HANGAR_HOME__` にして運び、受け手が自分のホームに戻して書く。ほかの形は触らない。
+送り手が運ばないのは、`~/.claude` の外を指す hook（`/usr/local/bin/x`、`~/bin/x`、知らない環境変数の下、`..` で抜けるもの）と、Hangar 自身の包み（`hangar-run`、`~/.agent-hangar` の下、`hangar statusline`）を指すものである。
+受け手の手元にそれらがあれば、書き戻しで残す（権限の絶対パスの規則と同じ考え）。
+受け手が保留するのは、送り手と OS が違う（束の目録の `os`。無いものも）、外を指す、包みを指す、のどれかである。
+前の 2 つは、新しい版どうしでは起きにくいが、別の版から届いたときの備えとして、書き戻し（`planWrite`、`write`）が `ApplyError` で断る。
+台本は `isCarriedHookFile` を通ったものだけを運び、書く。ほかの項目の置き場（skills など）、`settings.json`、認証、状態、`.log` は含めない。
+書くファイルは、届いた `command` が指す台本に限る（束がほかの場所へ書かせようとしたら `bad-content` で断る）。
+実行の印は、送り手の台本に付いていたものだけを posix で付け直す。
+書き戻しは、控えの世代（`backups/claude-config/<時刻>/`）に `settings.json` と台本を控えてから書く。控えを取れなければ書かない。途中で失敗したら戻す。
+承諾は、設定が `each` のあいだ、消去も含めて全部である。
+
+**plugins**（対象 `claude-plugins`、`targets/claudePlugins.ts`）。
+`enabledPlugins` と `extraKnownMarketplaces` を、`settings:enabledPlugins`、`settings:extraKnownMarketplaces`（kind `plugins`）として承諾つきで運ぶ。
+marketplace がこの PC のパス（`directory`、`file`、パスを指す `url`・`repo`）なら、その marketplace と `名前@marketplace` の plugin は運ばない。
+届いた中身にローカルの marketplace があれば受け手は保留し、書き戻しも断る。手元のローカルの marketplace とその plugin は、書き戻しで残す。
+
+**権限の鍵の承諾。**
+`permissions.*` は、他の PC から届いたとき、設定が `each` なら承諾が要る（消去も。`deny` を外すと許可が広がるため）。
+今までは承諾なしで届いていたので、0.12 で初めて届くときに承諾で止まる。リリースノートに書く。
 TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir、agentsSkillsDir、claudeJsonPath、hangarSettingsPath）と、Codex・opencode がその PC で有効か（codexEnabled、opencodeEnabled）を持つ。有効な入れ物は、service の vcs() の検出の表にも載る。
 入切は設定の `configTargets`（対象名から真偽）で、既定は切。入れる画面は後の PR で作る。
 - 好み：`modelSettings`、`promptSuggestionEnabled`、`tui`、`voice`、`voiceEnabled`、`agentPushNotifEnabled`、`inputNeededNotifEnabled`、`skipWorkflowUsageWarning`、`autoUpdatesChannel`。
