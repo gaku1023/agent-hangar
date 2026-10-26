@@ -24,7 +24,7 @@ function decode(lines: string[], width: number): string[] {
 
 describe('エージェントの絵の組', () => {
   it('エージェントの種類ごとに絵がある（Codex は公式のアイコンを縮めたもの）', () => {
-    expect([...AGENT_ICON_KINDS]).toEqual(['claude-code', 'opencode', 'codex']);
+    expect([...AGENT_ICON_KINDS]).toEqual(['claude-code', 'codex', 'opencode']);
     expect(Object.keys(AGENT_ICONS).sort()).toEqual([...AGENT_ICON_KINDS].sort());
     for (const kind of AGENT_ICON_KINDS) {
       for (const tone of ['light', 'dark'] as const) expect(agentIconSvg(kind, tone)).toMatch(/^<svg /);

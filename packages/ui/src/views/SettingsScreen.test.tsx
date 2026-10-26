@@ -527,9 +527,9 @@ describe('設定のクラウド同期', () => {
 });
 
 describe('設定の連携', () => {
-  it('互換、opencode、Codex、MCP サーバー、ステータスライン、シェル連携の順に並べ、通知と Claude Code に渡す設定とアカウントは置かない', () => {
+  it('互換、Codex、opencode、MCP サーバー、ステータスライン、シェル連携の順に並べ、通知と Claude Code に渡す設定とアカウントは置かない', () => {
     render(ui(at('integrations')));
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認中…|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'opencodeベータ', 'Codexベータ', 'MCP サーバー', 'ステータスライン', 'シェル連携']);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認中…|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'Codexベータ', 'opencodeベータ', 'MCP サーバー', 'ステータスライン', 'シェル連携']);
     expect(screen.queryByRole('switch', { name: '通知を有効にする' })).toBeNull();
     expect(screen.queryByRole('switch', { name: 'Remote Control を付けて起動する' })).toBeNull();
   });
@@ -571,15 +571,15 @@ describe('設定の連携', () => {
     expect(document.getElementById('settings-compat')).toHaveAttribute('data-hit');
     expect(document.body).toHaveFocus();
   });
-  it('連携の節では、opencode の面のすぐ下に Codex の別の面を置き、切のままでも「有効にする」の行は出す', () => {
+  it('連携の節では、Codex の面のすぐ下に opencode の別の面を置き、切のままでも「有効にする」の行は出す', () => {
     render(ui(at('integrations')));
-    expect(document.getElementById('settings-opencode')!.nextElementSibling).toBe(document.getElementById('settings-codex'));
+    expect(document.getElementById('settings-codex')!.nextElementSibling).toBe(document.getElementById('settings-opencode'));
     expect(screen.getByRole('switch', { name: 'Codex を有効にする' })).toHaveAttribute('aria-checked', 'false');
   });
-  it('連携の節では、Claude Code との互換性のすぐ下に opencode の面を置く（Windows では出さない）', () => {
+  it('連携の節では、Claude Code との互換性のすぐ下に Codex、その下に opencode の面を置く（Windows では出さない）', () => {
     const { unmount } = render(ui(at('integrations')));
     const compat = document.getElementById('settings-compat')!;
-    expect(compat.nextElementSibling).toBe(document.getElementById('settings-opencode'));
+    expect(compat.nextElementSibling).toBe(document.getElementById('settings-codex'));
     unmount();
     render(ui(at('integrations', { opencode: { ...settingsProps().opencode, available: false } })));
     expect(document.getElementById('settings-opencode')).toBeNull();

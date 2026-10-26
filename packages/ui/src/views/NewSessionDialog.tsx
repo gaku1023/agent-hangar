@@ -180,7 +180,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const oc = props.opencode ?? null;
   const cx = props.codex ?? null;
   // 一覧に並べるエージェントは、設定で有効にしたものだけ（Claude Code は常に）。前回のエージェントが無効になっていたら Claude Code で開く。
-  const offered: AgentValue[] = [DEFAULT_AGENT_KIND, ...(oc ? (['opencode'] as const) : []), ...(cx ? (['codex'] as const) : [])];
+  const offered: AgentValue[] = [DEFAULT_AGENT_KIND, ...(cx ? (['codex'] as const) : []), ...(oc ? (['opencode'] as const) : [])];
   // 開く経路が決めたエージェント（起動後の札の「別のモデルでやり直す」は opencode）。一覧に無ければ前回の値に任せる。
   const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(props.agent && offered.includes(props.agent) ? props.agent : null);
   const remembered = props.prefs[prefKey]?.agent;

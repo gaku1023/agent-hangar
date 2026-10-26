@@ -1529,10 +1529,10 @@ describe('NewSessionDialog のエージェント（Codex、ベータ）', () => 
     expect(names()).toEqual(['エージェント、Claude Code', 'プロジェクト', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
     expect(asked()).toBe(0);
   });
-  it('エージェントの一覧は、Codex に「ベータ」と版の確かめを添える。opencode も有効なら opencode の次に並ぶ', () => {
+  it('エージェントの一覧は、Codex に「ベータ」と版の確かめを添える。opencode も有効なら Codex が先に並ぶ', () => {
     collect({ projectId: 'p1', codex: ready(), opencode: { options: null } });
     fireEvent.click(chip('エージェント、Claude Code'));
-    expect(within(screen.getByRole('listbox', { name: 'エージェント' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Claude Code', 'opencodeベータ', 'Codexベータcodex 0.164.0 · 検証済み']);
+    expect(within(screen.getByRole('listbox', { name: 'エージェント' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Claude Code', 'Codexベータcodex 0.164.0 · 検証済み', 'opencodeベータ']);
   });
   it('エージェントの札と一覧の Codex の行に、Codex の絵（svg）が出る', async () => {
     collect({ projectId: 'p1', codex: ready() });
