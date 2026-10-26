@@ -1,5 +1,6 @@
 import { appendPaths, type PromptCommandDto, type PromptCommandSource, type Translate } from '@agent-hangar/shared';
 import { baseName, splitLast } from '../../lib/paths.ts';
+import { byteBase } from '../../presenters/bytes.ts';
 
 /** 候補を出すきっかけ。start は、きっかけの記号（/ か @）の位置。 */
 export type Trigger = { kind: '/' | '@'; query: string; start: number };
@@ -97,6 +98,7 @@ export function attachmentFromPath(path: string): Attachment {
 
 export const isImageName = (name: string): boolean => /\.(png|jpe?g|gif|webp)$/i.test(name);
 
-export function formatSize(bytes: number): string {
-  return bytes > 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+/** 添付の大きさ。割る単位は byteBase（OS のファイルの画面にそろえる）。 */
+export function formatSize(bytes: number, k: number = byteBase()): string {
+  return bytes > k * k ? `${(bytes / (k * k)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / k))} KB`;
 }

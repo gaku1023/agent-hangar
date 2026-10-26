@@ -21,9 +21,12 @@ const storeOf = (over: Partial<Store> = {}): Store => ({ ...initialStore(), boot
 const withSessions = (list: SessionDto[]) => ({ sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const read = (keys: string[]): State => ({ ...initialState(), noticesRead: keys });
 const en = { language: 'en' } as unknown as SettingsDto;
-/** 空きが足りずに止めたときの行の文（会話 3 件、あと 2.4 GB、残す分 5 GB）。札も同じ題を使う。 */
+/**
+ * 空きが足りずに止めたときの行の文（会話 3 件、取得していない分 2.4 GB、残す分 5 GB、今の空き 6 GB）。札も同じ題を使う。
+ * 説明の数は「あと空ける量」の 1 つだけにする（2.4 + 5 − 6 = 1.4 GB）。
+ */
 const DISK_TITLE_JA = '空き容量が不足しているため、会話 3 件の取得を中断しました';
-const DISK_DETAIL_JA = '取得を終えるには、あと 2.4 GB 必要です。5 GB 以上の空き容量を残すため、中断しました。ディスクの空きを増やすと再開します。';
+const DISK_DETAIL_JA = 'ディスクの空きをあと 1.4 GB 増やすと、残りの会話をすべて取得できます。空きができしだい、自動で再開します。';
 
 describe('presentNotices：事実から行を組む', () => {
   it('どの事実も無ければ行は無く、未読も 0 である', () => {
@@ -125,7 +128,7 @@ describe('presentNotices：事実から行を組む', () => {
   });
 
   it('空きが足りずに取得を止めていれば、黄の行で会話の数と要る大きさを言い、同期の設定へ移る', () => {
-    const GB = 1024 ** 3;
+    const GB = 1e9;
     const diskShort = { sessions: 3, needBytes: 2.4 * GB, freeBytes: 6 * GB, reserveBytes: 5 * GB };
     const rows = presentNotices(initialState(), storeOf({ sync: sync({ diskShort }) }), NOW).rows;
     expect(rows).toHaveLength(1);

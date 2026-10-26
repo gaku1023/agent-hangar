@@ -172,7 +172,8 @@ describe('設定の節の常設の行', () => {
     expect(each).toMatchObject({ awaiting: 1, incoming: { count: 2, from: 'Studio、Mini' } });
     expect(presentConfigSection(storeOf(dto({ incoming: 2, approval: 'auto' }), { inbox }), NOW).awaiting).toBe(0);
   });
-  it('大きさの言い方', () => {
-    expect([sizeLabel(83), sizeLabel(2150), sizeLabel(3 * 1024 * 1024)]).toEqual(['83 B', '2.1 KB', '3.0 MB']);
+  it('大きさの言い方（Windows は 1024、ほかは 1000 で割る）', () => {
+    expect([sizeLabel(83, 'darwin'), sizeLabel(2150, 'darwin'), sizeLabel(3e6, 'darwin')]).toEqual(['83 B', '2.1 KB', '3.0 MB']);
+    expect([sizeLabel(83, 'win32'), sizeLabel(2150, 'win32'), sizeLabel(3 * 1024 * 1024, 'win32')]).toEqual(['83 B', '2.1 KB', '3.0 MB']);
   });
 });

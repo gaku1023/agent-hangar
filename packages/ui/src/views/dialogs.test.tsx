@@ -16,7 +16,7 @@ vi.mock('./primitives/revealWithin.ts', () => ({ revealWithin: vi.fn() }));
 describe('ConfirmDialog', () => {
   it('大きさを並べ、上書きして再開を出す', () => {
     const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 1024, remoteSize: 4096 }} /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 1000, remoteSize: 4000 }} /></ActionRoot>);
     expect(screen.getByText('この PC のトランスクリプト 1.0 KB')).toBeInTheDocument();
     expect(screen.getByText('他の PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '上書きして再開' }));
@@ -25,7 +25,7 @@ describe('ConfirmDialog', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'overlay.close' });
   });
   it('バックアップの置き場を書き、大きいものは MB で出す', () => {
-    render(<ActionRoot onAction={() => {}}><ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 3 * 1024 * 1024, remoteSize: 5 * 1024 * 1024 }} /></ActionRoot>);
+    render(<ActionRoot onAction={() => {}}><ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 3e6, remoteSize: 5e6 }} /></ActionRoot>);
     expect(screen.getByText('この PC のトランスクリプト 3.0 MB')).toBeInTheDocument();
     expect(screen.getByText(/~\/\.agent-hangar\/backups\/transcripts\//)).toBeInTheDocument();
   });

@@ -145,7 +145,7 @@ describe('presentProject の右パネル', () => {
     ]);
   });
   describe('指示とメモリ', () => {
-    const file = (o: Partial<InstructionFileDto>): InstructionFileDto => ({ kind: 'project', name: 'CLAUDE.md', size: 2355, updatedAt: NOW - 2 * DAY, read: true, markdown: '# 見本', truncated: false, ...o });
+    const file = (o: Partial<InstructionFileDto>): InstructionFileDto => ({ kind: 'project', name: 'CLAUDE.md', size: 2300, updatedAt: NOW - 2 * DAY, read: true, markdown: '# 見本', truncated: false, ...o });
     const loaded = (files: InstructionFileDto[], available = true) => ({ instructions: { alpha: { projectId: 'alpha', available, files } } });
     const of = (extra: Partial<Store>, id = 'alpha') => presentProject(initialState(), storeOf([], extra), NOW, id).instructions;
 

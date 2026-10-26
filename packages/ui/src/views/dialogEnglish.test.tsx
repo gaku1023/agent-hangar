@@ -67,7 +67,7 @@ describe('ダイアログ類（英語）', () => {
     expect(screen.getByRole('dialog', { name: 'Remove Work?' })).toBeInTheDocument();
     noJapanese();
     rm.unmount();
-    inEnglish(<ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 1024, remoteSize: 4096 }} />);
+    inEnglish(<ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 1000, remoteSize: 4000 }} />);
     expect(screen.getByRole('dialog', { name: 'Replace transcript?' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Overwrite and resume' })).toBeInTheDocument();
     noJapanese();
@@ -115,7 +115,7 @@ describe('ダイアログ類（英語）', () => {
     noJapanese();
   });
   it('保持期間の見出しと使用量は、期間と大きさを英語で作る', () => {
-    const bar = usageBar({ bytes: 1024 ** 3, freeBytes: 0, dailyBytes: 0 } as never, 2 * 1024 ** 3, 365, en);
+    const bar = usageBar({ bytes: 1e9, freeBytes: 0, dailyBytes: 0 } as never, 2e9, 365, en);
     expect(bar).toMatchObject({ nowLabel: 'Now 1 GB', projLabel: 'About 2 GB after 1 year', freeLabel: 'Free space unknown' });
   });
 
