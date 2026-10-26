@@ -1460,6 +1460,44 @@ Windows は `killGroup` が `taskkill /T /F` で木ごと止める。token の�
 試験は偽の codex（`test/fake-codex.ts`）の app-server のふりだけで行う。
 ふりは WebSocket、token の検査、`initialize`、`thread/start`、`turn/start`、`turn/interrupt`、`thread/resume`、`thread/loaded/list` と、通知（`thread/started`、`thread/status/changed`、`turn/*`）を持ち、SIGTERM で止まる。
 
+### Codex の状態と許可（ベータ）
+
+Codex を足す作業の段 B の 3 つ目（計画の B4）で、`LiveSource` と `AskSource` の Codex 版を入れた。
+`provider/codex/live.ts` の `CodexLive` と、`provider/codex/asks.ts` の写しである。
+`codexEnabled` が切のままなら、誰も `track` しないので何も起きない。
+
+状態は app-server への接続（`CodexRpc`）の通知だけから取る。rollout の task_started だけでは実行中とみなさない（素の TUI を kill すると task_complete が書かれずに残る）。
+hangar の外の会話は `track` されないので、行も状態も持たない（閲覧だけ）。
+会話 1 つにつき app-server が 1 本で、行の pid は app-server の pid、`sessionId` は thread の ID である。
+
+- `thread/status/changed` は購読しなくても全接続へ届く。idle、notLoaded、systemError は休み、active は作業中、`activeFlags` の waitingOnApproval は許可の待ち、waitingOnUserInput は質問の待ちにする。
+- `turn/started`・`turn/completed` と、承認の要求（サーバからの要求）、`serverRequest/resolved` は、スレッドを購読した接続にだけ届く。
+  `thread/start` した接続は購読済みなので `subscribed: true` で載せる。TUI が作ったスレッド（初期プロンプトなし）は、最初の active で `thread/resume {excludeTurns:true}` を送って購読する。
+  入力の前は `no rollout found` で断られるので、短い間隔（100、200、400、800、1500 ミリ秒、最大 20 回）で再試行する。ほかの失敗は再試行しない。最初のターンの冒頭は取りこぼす。
+- 載せたとき（と kick のとき）は `thread/read {includeTurns:false}` で今の status を取る。読んでいる間に新しい通知が来たら、古い答えで潰さない。
+- 許可の待ちの行は、`waitingFor` が permission で、`permission` に要求の中身を載せる。要求の中身が無い間（購読の前）は、旗だけで種類を出す。
+
+許可と質問の写し（`codexPendingOf`）は、`agent/waiting.ts` の語彙にそろえる。
+
+| 要求 | 写し |
+|---|---|
+| `item/commandExecution/requestApproval` | 許可。tool は `Bash`、input は命令、description は reason |
+| `item/fileChange/requestApproval` | 許可。tool は `Edit`、input は grantRoot、description は reason |
+| `item/permissions/requestApproval` | 許可。tool は `Permissions`、input は network、書く場所、読む場所の行（無ければ cwd） |
+| `item/tool/requestUserInput` | 質問。最初の問いの文。AskUserQuestion の hook と同じ形（asked と answered）で流す |
+| `mcpServer/elicitation/request` | 質問。message |
+
+hangar の接続は承認の要求に答えない。答えは TUI で行う（決定 5）。
+要求が TUI で解かれたら、写しからも消す。消える契機は、`serverRequest/resolved`、待ちの旗が消えたこと（取りこぼしても直る。旗が付く前に要求が先に届く順でも新しい要求を消さないよう、旗が「あった状態から無くなった」ときにだけ見る）、`turn/completed`、休みへの status である。問いが消えたら answered を流す。
+
+接続が閉じた（TUI を閉じて app-server を止めた、app-server が落ちた）ら、行ごと外す。「実行中」は残さない。`start()` のあとは、app-server の pid が消えたことも 3 秒おきに見て、同じく外す。
+`isRunning` は、行があり、pid が合い、接続が開いていて、pid が生きているときだけ真である。
+
+driver への差し方は `createCodexLive(options)` が返す `{ live, asks }` である。`live` は `LiveSource` で、`track({ providerSessionId, cwd, pid, rpc, subscribed })` と `untrack` を足してある。`asks` は `AskSource`（subscribe だけ。parseHook は持たない）である。
+起動の面（B3a）が、app-server を起こしてつないだあとに `track` し、止めるときに `untrack` する。
+
+試験は、接続のふり（通知と要求を手で流す）と、偽の codex（`test/fake-codex.ts`。入力の頭の `ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` で要求を送り、TUI の代わりの接続が応答すると resolved を流す。`hang` は終わらない。`thread/read` に答える）の両方で行う。
+
 ### opencode の検出（ベータ）
 
 opencode を足す作業の 1 段目（計画の B1）で、設定のスイッチと、入っている opencode の場所と版の読みだけを入れた。
