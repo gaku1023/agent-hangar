@@ -8,6 +8,8 @@
  * 自動承認も既定に持たない（危ない値を毎回の初期値にしない。PC のダイアログと同じ）。
  */
 
+import { AGENT_DISPLAY_NAME } from '@agent-hangar/shared/src/agents.ts';
+import type { MobileAgent } from '@agent-hangar/shared/src/mobile.ts';
 import { EFFORT_VALUES, MODEL_CHOICES, PERMISSION_MODE_VALUES } from '@agent-hangar/shared/src/launchChoices.ts';
 
 /**
@@ -41,11 +43,11 @@ export type LaunchDefaults = {
   model: string;
   effort: string;
   /** 既定のエージェント。opencode のときだけ持つ。opencode を選べない PC では新しい会話の画面が無視する。 */
-  agent?: 'opencode';
+  agent?: MobileAgent;
 };
 
 /** エージェントの表示名。 */
-export const AGENT_NAMES = { 'claude-code': 'Claude Code', opencode: 'opencode' } as const;
+export const AGENT_NAMES = AGENT_DISPLAY_NAME;
 
 export const EMPTY_DEFAULTS: LaunchDefaults = Object.freeze({ pc: null, account: null, permissionMode: '', model: '', effort: '' });
 

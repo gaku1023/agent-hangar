@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
+import type { MobileAgent } from '@agent-hangar/shared/src/mobile.ts';
 import { AskError, debounce, type AskFailure, type Asker, type CommandHit, type FileHit } from '../ask.ts';
 import type { Attachment, Attachments } from '../images.ts';
 import { exitMs, phaseClass, usePresence } from '../presence.ts';
@@ -92,7 +93,7 @@ type Props = {
   accountId: string | null;
   accountName: string | null;
   /** opencode なら、アカウントなしで opencode のコマンドとスキルを問い合わせる。省けば Claude Code。 */
-  agent?: 'opencode';
+  agent?: MobileAgent;
   attachments: Attachments;
   /** 選んだ PC が `/` と `@` の問い合わせに答えられるか。false なら問い合わせずに、hangar の更新を促す。 */
   canAsk?: boolean;
