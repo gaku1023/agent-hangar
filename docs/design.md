@@ -2036,6 +2036,14 @@ LM Studio の段の前に、会話のモデルがこの PC にあるかを確か
 「別のモデルでやり直す」は札を下げ、その会話のプロジェクト（無ければクイックセッション）で、エージェントを opencode にし、モデルの小窓を開いた新しいセッションのダイアログを開く（`session.new` の overlay の `agent` と `pickModel`）。確認のダイアログが出ているときは差し替えず、札を残す。
 設定の opencode の節の「ローカルモデルのコンテキスト長」（32K、64K（推奨）、128K）は `opencodeLocalContext` を保存する。次の起動から効く。
 
+使っていないモデルは自動で外す（`localModels/idleUnload.ts` の `IdleUnloadWatch`、`server.ts` が組んで 30 秒ごとに見回る）。
+対象は記録（`opencode/local-models.json`）にある instance、つまり hangar がロードしたものだけで、手動でロードされたものは触らない。
+その instance を使う会話（記録の sessions）が 1 つも動いていない（serve が無い。入力待ちで開いている会話は動いているとみなす）状態が、設定の `opencodeIdleUnload`（分。1、3、5（既定）、10、15、30、60、0 は外さない）を過ぎたら、アンロードして記録から消し、`toast`（`launchPrep.idleUnload.done`）で知らせる。
+止まっていた時間は、見張りが初めて気付いた時刻から数える。途中で会話が動き出したら数え直す。
+LM Studio につながらないときは記録を残して次の見回りに回し、すでに外れていた instance は知らせずに記録から外す。
+LM Studio の `/api/v1/models/load` は `ttl` を受け付けると公式の文書に書かれていない（2026-10-27 に確認した引数は model、context_length、eval_batch_size、flash_attention、num_experts、offload_kv_cache_to_gpu、echo_load_config）ので、ロードに保険の TTL は付けない。
+設定の「使っていないモデルのアンロード」は目盛りで止まるスライダー（`StepSlider`）で、離したときに保存する。
+
 #### 接続先の準備
 
 OpenAI 互換サーバー（opencode.json に書いたプロバイダー、`via` が config の行）ごとに、利用者が書くコマンドである（`provider/opencode/providerPrep.ts`）。

@@ -293,6 +293,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeIntercept': 'Launch the opencode command through hangar',
   'settings.label.opencodePermissionPreset': 'Ask before running commands',
   'settings.label.opencodeLocalContext': 'Context length for local models',
+  'settings.label.opencodeIdleUnload': 'Unload idle models',
   'settings.label.opencodeProviderPrep': 'Server preparation',
   'settings.opencode.title': 'opencode',
   'settings.codex.title': 'Codex',

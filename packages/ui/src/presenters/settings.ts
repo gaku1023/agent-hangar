@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf } from '@agent-hangar/shared';
+import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -49,7 +49,17 @@ export type OpencodeSettingsProps = {
   permissionPreset: { on: boolean; byConfig: boolean; note: string | null };
   /** 「ローカルモデルのコンテキスト長」の行。起動前に LM Studio のモデルを載せる長さ（opencodeLocalContext）で、選べる長さは 32K、64K（推奨）、128K。 */
   localContext: { value: number; options: { value: number; label: string }[] };
+  /**
+   * 「使っていないモデルのアンロード」の行。会話がすべて止まってから LM Studio のモデルを外すまでの分（opencodeIdleUnload）で、0 は外さない。
+   * label は今の値として行の右に出す名前（推奨の印つき）、tick は目盛りの下に出す短い名前。
+   */
+  idleUnload: { value: number; stops: { value: number; label: string; tick: string }[] };
 };
+
+function idleUnloadStop(t: Translate, value: number): { value: number; label: string; tick: string } {
+  const tick = value === 0 ? t('launchPrep.idleUnload.never') : value % 60 === 0 ? t('launchPrep.idleUnload.hour', { n: value / 60 }) : t('launchPrep.idleUnload.minutes', { n: value });
+  return { value, tick, label: value === DEFAULT_IDLE_UNLOAD ? t('launchPrep.idleUnload.recommended', { value: tick }) : tick };
+}
 
 const OPENCODE_INJECTION_KEY = { minimal: 'settings.opencode.injection.minimal', claude: 'settings.opencode.injection.claude', none: 'settings.opencode.injection.none' } as const;
 const OPENCODE_VERSION_TEXT = {
@@ -114,7 +124,7 @@ function presentCodex(t: Translate, settings: { codexEnabled?: boolean; codexInj
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows ではコマンドの横取りの行だけを出さない。 */
-function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; opencodeLocalContext?: number; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; opencodeLocalContext?: number; opencodeIdleUnload?: number; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
@@ -132,6 +142,7 @@ function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; op
       ? { on: false, byConfig: true, note: t('settings.opencode.permissionPreset.byConfig') }
       : { on: opencodePermissionPresetOf(settings), byConfig: false, note: null },
     localContext: { value: localContextOf(settings), options: LOCAL_CONTEXT_CHOICES.map((value) => ({ value, label: t(value === DEFAULT_LOCAL_CONTEXT ? 'launchPrep.settings.recommended' : 'launchPrep.settings.option', { n: value / 1024 }) })) },
+    idleUnload: { value: idleUnloadOf(settings), stops: IDLE_UNLOAD_CHOICES.map((value) => idleUnloadStop(t, value)) },
   };
 }
 
