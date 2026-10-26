@@ -177,6 +177,24 @@ describe('リリースノート', () => {
     expect(p.notes[2]).toMatchObject({ before: 'Worker を入れ替えてください。', points: ['足した。'] });
   });
 
+  it('rc を使っていても、その rc が目指す版を使用中として、それまでのノートを並べる', () => {
+    const p = presentUpdateSection(storeOf(withNotes({ kind: 'latest' }, { current: '1.4.2-rc.1' })), NOW);
+    expect(p.notes.map((n) => [n.version, n.tag, n.open])).toEqual([
+      ['1.4.2', '使用中', true],
+      ['1.4.1', null, false],
+      ['1.4.0', null, false],
+    ]);
+  });
+
+  it('rc から正式版が見つかったら、その版は新しいバージョンとして 1 行だけ出す', () => {
+    const p = presentUpdateSection(storeOf(withNotes({ kind: 'available', version: '1.4.2' }, { current: '1.4.2-rc.1', foundNotes: { version: '1.4.2', text: NOTE_150 } })), NOW);
+    expect(p.notes.map((n) => [n.version, n.tag])).toEqual([
+      ['1.4.2', '新しいバージョン'],
+      ['1.4.1', null],
+      ['1.4.0', null],
+    ]);
+  });
+
   it('更新後の札で読みに来たら、その札で見せた版を開いておく', () => {
     const p = presentUpdateSection(storeOf(withNotes({ kind: 'latest' }, { notesOpen: ['1.4.2', '1.4.1'] })), NOW);
     expect(p.notes.filter((n) => n.open).map((n) => n.version)).toEqual(['1.4.2', '1.4.1']);

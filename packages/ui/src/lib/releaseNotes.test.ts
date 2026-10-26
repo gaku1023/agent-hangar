@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { bundledNotes, compareVersions, notesBetween, parseNote } from './releaseNotes.ts';
+import { bundledNotes, compareVersions, notesBetween, parseNote, releaseOf } from './releaseNotes.ts';
 
 const NOTES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../docs/release-notes');
 
@@ -102,6 +102,15 @@ describe('版の並びと範囲', () => {
     expect(compareVersions('0.6.3', '0.7.0')).toBeLessThan(0);
   });
 
+  it('rc の版は、同じ数字の正式版より古く、ひとつ前の版より新しい', () => {
+    expect(compareVersions('0.11.0-rc.1', '0.10.2')).toBeGreaterThan(0);
+    expect(compareVersions('0.11.0-rc.1', '0.11.0')).toBeLessThan(0);
+    expect(compareVersions('0.11.0-rc.2', '0.11.0-rc.1')).toBeGreaterThan(0);
+    expect(compareVersions('0.11.0-rc.10', '0.11.0-rc.9')).toBeGreaterThan(0);
+    expect(releaseOf('0.11.0-rc.1')).toBe('0.11.0');
+    expect(releaseOf('0.10.2')).toBe('0.10.2');
+  });
+
   it('同梱の md を、名前の版で新しい順に並べ、版の形でない名前と空のものは捨てる', () => {
     const notes = bundledNotes({ '../docs/release-notes/0.6.3.md': '# a\n\n- x', '../docs/release-notes/0.10.0.md': '# b\n\n- y', '../x/README.md': 'z', '../docs/release-notes/0.7.0.md': '' });
     expect(notes.map((n) => n.version)).toEqual(['0.10.0', '0.6.3']);
@@ -112,5 +121,13 @@ describe('版の並びと範囲', () => {
     expect(notesBetween(notes, '0.7.0', '0.7.2').map((n) => n.version)).toEqual(['0.7.2', '0.7.1']);
     expect(notesBetween(notes, null, '0.7.2').map((n) => n.version)).toEqual(['0.7.2']);
     expect(notesBetween(notes, '0.7.2', '0.7.2')).toEqual([]);
+  });
+
+  it('rc では、その rc が目指す版のノートまでを返す', () => {
+    const notes = bundledNotes({ 'a/0.7.2.md': FIX, 'a/0.7.1.md': WITH_BEFORE, 'a/0.7.0.md': H3_BEFORE, 'a/0.8.0.md': FIX });
+    expect(notesBetween(notes, null, '0.7.2-rc.1').map((n) => n.version)).toEqual(['0.7.2']);
+    expect(notesBetween(notes, '0.7.0', '0.7.2-rc.1').map((n) => n.version)).toEqual(['0.7.2', '0.7.1']);
+    expect(notesBetween(notes, '0.7.2-rc.1', '0.7.2-rc.2')).toEqual([]);
+    expect(notesBetween(notes, '0.7.2-rc.2', '0.7.2')).toEqual([]);
   });
 });
