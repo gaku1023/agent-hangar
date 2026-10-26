@@ -30,7 +30,7 @@ import type { OpencodeProvidersService } from '../provider/opencode/integration.
  */
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'startOpencodeFromTerminal' | 'resume' | 'resumeWith' | 'fork' | 'forkMaterialized' | 'forksMaterialized' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript' | 'assertCanStart' | 'agentEnabled' | 'cancelPrep' | 'prepareModels'>;
+export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'startOpencodeFromTerminal' | 'startCodexFromTerminal' | 'resume' | 'resumeWith' | 'fork' | 'forkMaterialized' | 'forksMaterialized' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript' | 'assertCanStart' | 'agentEnabled' | 'cancelPrep' | 'prepareModels'>;
 /** git の表示（git/service.ts）のうち HTTP から触る部分だけ。 */
 export type GitApi = Pick<GitService, 'sessions' | 'changes' | 'diff' | 'edits' | 'project'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ShellHookDto } from '@agent-hangar/shared';
-import { ensureShellScript, type ShellOpencodeOptions, shellHookLine, shellHookState, shellInstallCommand, shellWrapOsSupported, shellWrapSupported, zshrcPath } from './shellHook.ts';
+import { ensureShellScript, type ShellCodexOptions, type ShellOpencodeOptions, shellHookLine, shellHookState, shellInstallCommand, shellWrapOsSupported, shellWrapSupported, zshrcPath } from './shellHook.ts';
 import { which } from './tools.ts';
 
 /**
@@ -23,6 +23,8 @@ export type ShellWrapDeps = {
   subcommands: () => readonly string[];
   /** opencode の包み（ベータ）。設定で opencode とコマンドの横取りの両方が入りのときだけ一覧を返し、ほかは null（opencode() を書かない）。渡さなければ書かない。 */
   opencode?: () => ShellOpencodeOptions | null;
+  /** codex の包み（ベータ）。設定で Codex とコマンドの横取りの両方が入りのときだけ一覧を返し、ほかは null（codex() を書かない）。渡さなければ書かない。 */
+  codex?: () => ShellCodexOptions | null;
   bundledHangar: string | null;
   /** 試験が ~/.zshrc の場所を差し替える口。 */
   zshrc?: () => string;
@@ -47,7 +49,7 @@ export function createShellWrap(deps: ShellWrapDeps): { write(): void; installCo
       if (!osSupported) return;
       try {
         const host = deps.host === '0.0.0.0' || deps.host === '::' ? '127.0.0.1' : deps.host;
-        ensureShellScript(deps.home, { url: `http://${host}:${deps.port}`, tokenFile: path.join(deps.home, 'token'), tmuxPath: deps.tmuxPath(), subcommands: deps.subcommands(), opencode: deps.opencode?.() ?? null });
+        ensureShellScript(deps.home, { url: `http://${host}:${deps.port}`, tokenFile: path.join(deps.home, 'token'), tmuxPath: deps.tmuxPath(), subcommands: deps.subcommands(), opencode: deps.opencode?.() ?? null, codex: deps.codex?.() ?? null });
       } catch (e) {
         (deps.errorLog ?? console.error)('[shell] 包み方の本体を書けませんでした', e instanceof Error ? e.message : e);
       }

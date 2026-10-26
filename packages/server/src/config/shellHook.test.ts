@@ -108,7 +108,7 @@ type Hangar = 'ok' | 'refused' | 'down';
  * 包み方の本体を、本物の zsh で疑似端末の上に動かす。
  * 偽の claude、curl、tmux は、呼ばれた引数を 1 行ずつ記録する。curl は受け取った本文も残す。
  */
-function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'none' | 'set'; insideTmux?: 'hangar' | 'default' | 'other'; noWrap?: boolean; subcommands?: string[]; cmd?: 'claude' | 'opencode'; opencode?: boolean; env?: Record<string, string>; mkdirs?: string[] } = {}): { calls: string[]; body: { cwd: string; args: string[]; env: Record<string, string>; agent?: string } | null; stderr: string } {
+function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'none' | 'set'; insideTmux?: 'hangar' | 'default' | 'other'; noWrap?: boolean; subcommands?: string[]; cmd?: 'claude' | 'opencode' | 'codex'; opencode?: boolean; codex?: boolean; env?: Record<string, string>; mkdirs?: string[] } = {}): { calls: string[]; body: { cwd: string; args: string[]; env: Record<string, string>; agent?: string } | null; stderr: string } {
   const home = path.join(dir, 'home');
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -121,6 +121,7 @@ function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'n
   const fake = (name: string, body: string[]) => { const f = path.join(bin, name); fs.writeFileSync(f, ['#!/bin/sh', `echo "${name} $*" >> "${log}"`, ...body, ''].join('\n'), { mode: 0o755 }); return f; };
   fake('claude', []);
   fake('opencode', []);
+  fake('codex', []);
   for (const d of o.mkdirs ?? []) fs.mkdirSync(path.join(dir, d), { recursive: true });
   const reply = o.hangar ?? 'ok';
   fake('curl', [
@@ -129,14 +130,14 @@ function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'n
       reply === 'refused' ? `echo '{"error":"--agent を付けた起動は hangar では開けません"}'; exit 22` : 'echo "curl: (7) Failed to connect" >&2; exit 7',
   ]);
   const tmuxBin = fake('tmux', []);
-  ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile, tmuxPath: o.tmux === 'none' ? null : tmuxBin, subcommands: o.subcommands, opencode: o.opencode === false ? null : {} });
+  ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile, tmuxPath: o.tmux === 'none' ? null : tmuxBin, subcommands: o.subcommands, opencode: o.opencode === false ? null : {}, codex: o.codex ? {} : null });
   const tmpdir = path.join(dir, 'tmux-tmp');
   fs.mkdirSync(path.join(tmpdir, `tmux-${process.getuid!()}`), { recursive: true });
   const sockets = { hangar: 'hangar', default: 'default', other: 'mine' } as const;
   const tmuxEnv = o.insideTmux ? `${tmpdir}/tmux-${process.getuid!()}/${sockets[o.insideTmux]},1,0` : '';
   const inner = `source ${JSON.stringify(shellScriptPath(home))}; cd ${JSON.stringify(dir)}; ${o.cmd ?? 'claude'} ${args}`;
   // 試験を動かす端末の opencode と XDG の置き場の変数は持ち込まない（持ち込むと opencode の包みが素通しになる）。
-  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(OPENCODE|XDG)_/.test(k)));
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(OPENCODE|CODEX|XDG)_/.test(k)));
   const env = { ...base, PATH: `${bin}:/usr/bin:/bin`, HANGAR_NO_WRAP: o.noWrap ? '1' : '', TMUX: tmuxEnv, TMUX_TMPDIR: tmpdir, AGENT_TEST_FROM_SHELL: 'a b', ...o.env };
   // script(1) が疑似端末を用意するので、包み方は端末の上で動いていると見る。
   const r = o.tty === false
@@ -367,5 +368,84 @@ describe('UTF-8 でない ~/.zshrc', () => {
     expect(fs.readFileSync(zshrc, 'utf8')).toBe(`${src}${line}\n`);
     expect(uninstallShellHook(zshrc).changed).toBe(true);
     expect(fs.readFileSync(zshrc, 'utf8')).toBe(src);
+  });
+});
+
+const CX = '01bffff0-0000-7000-8000-00000000e001';
+
+describe.skipIf(!ZSH)('codex の包み（zsh 上）', () => {
+  const cx = (args: string, o: Parameters<typeof runWrapped>[1] = {}) => runWrapped(args, { cmd: 'codex', codex: true, ...o });
+  const wrapped = (r: ReturnType<typeof runWrapped>) => r.calls.map((c) => c.split(' ')[0]);
+  it('codex と横取りを入れていなければ、codex() を書かない', () => {
+    const home = path.join(dir, 'home');
+    ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile: path.join(dir, 'token'), tmuxPath: '/opt/homebrew/bin/tmux', opencode: {} });
+    expect(fs.readFileSync(shellScriptPath(home), 'utf8')).not.toMatch(/function codex|__agent_hangar_codex_env/);
+    expect(cx('', { codex: false }).calls).toEqual(['codex']);
+  });
+  it('書き出した本体は zsh の構文として読め、hangar の答えを待つ上限を長くする', () => {
+    const home = path.join(dir, 'home');
+    ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile: path.join(dir, 'token'), tmuxPath: '/opt/homebrew/bin/tmux', codex: {} });
+    const r = spawnSync(ZSH!, ['-n', shellScriptPath(home)], { encoding: 'utf8' });
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(shellScriptPath(home), 'utf8')).toContain(`extra=',"agent":"codex"'; max=90;`);
+  });
+  it('素通しのサブコマンドの一覧は codex 0.164.0 の --help のとおりで、resume と fork 以外は全部入っている', () => {
+    const home = path.join(dir, 'home');
+    ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile: path.join(dir, 'token'), tmuxPath: '/opt/homebrew/bin/tmux', codex: {} });
+    const body = fs.readFileSync(shellScriptPath(home), 'utf8');
+    const line = body.split('\n').find((l) => l.includes(') command codex "$@"; return ;;'))!;
+    const subs = line.trim().split(')')[0]!.split('|');
+    for (const s of ['agents', 'exec', 'e', 'review', 'login', 'logout', 'mcp', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'fork', 'cloud', 'exec-server', 'features', 'help']) expect(subs, s).toContain(s);
+    expect(subs).not.toContain('resume');
+  });
+  it('対話の起動は agent を codex にして hangar に頼み、返ってきた tmux につなぐ。端末の環境変数は送らない', () => {
+    const r = cx('');
+    expect(wrapped(r)).toEqual(['curl', 'tmux']);
+    expect(r.calls[1]).toBe('tmux -L hangar attach -t =hangar-0123abcd');
+    expect(r.body).toEqual({ cwd: fs.realpathSync(dir), args: [], env: {}, agent: 'codex' });
+  });
+  it('プロンプト、-m、-c、-s、-a は写す。値を取るフラグの値をサブコマンドやプロンプトと取り違えない', () => {
+    const r = cx(`-m gpt-x -c model_reasoning_effort=high -s read-only -a on-request "直して ください"`);
+    expect(wrapped(r)).toEqual(['curl', 'tmux']);
+    expect(r.body!.args).toEqual(['-m', 'gpt-x', '-c', 'model_reasoning_effort=high', '-s', 'read-only', '-a', 'on-request', '直して ください']);
+    expect(cx('-m exec').body!.args).toEqual(['-m', 'exec']);
+    expect(cx('--model=gpt-x --sandbox=read-only').body!.args).toEqual(['--model=gpt-x', '--sandbox=read-only']);
+    expect(cx('-m -s').body!.args).toEqual(['-m', '-s']);
+  });
+  it('サブコマンドはそのまま渡す', () => {
+    for (const a of ['exec hello', 'e hello', 'login', 'logout', 'mcp list', 'app-server', 'debug', 'apply', 'cloud', 'completion zsh', 'help', 'fork', '-m x exec y', 'review']) {
+      expect(cx(a).calls, a).toEqual([`codex ${a}`]);
+    }
+  });
+  it('知らないフラグ、--version、--help、2 つ目のプロンプトは、そのまま渡す', () => {
+    for (const a of ['--version', '-V', '--help', '-h', '--oss', '-C /tmp', '--search', '--no-alt-screen', '-p x', '--dangerously-bypass-approvals-and-sandbox', '-- x', 'a b', '-m', '-c']) {
+      expect(cx(a).calls, a).toEqual([`codex ${a}`]);
+    }
+  });
+  it('resume は ID（UUID）が 1 つのときだけ hangar に頼み、ID なし・--last・名前・ほかの語つきはそのまま渡す', () => {
+    const r = cx(`resume ${CX}`);
+    expect(wrapped(r)).toEqual(['curl', 'tmux']);
+    expect(r.body!.args).toEqual(['resume', CX]);
+    expect(cx(`-m x resume ${CX} -s read-only`).body!.args).toEqual(['-m', 'x', 'resume', CX, '-s', 'read-only']);
+    for (const a of ['resume', 'resume --last', 'resume さっきの', `resume ${CX} もう 1 つ`]) expect(cx(a).calls, a).toEqual([`codex ${a}`]);
+  });
+  it('hangar が断れば、理由を 1 行見せて素の codex を起動する。つながらなければ黙って素の codex', () => {
+    const refused = cx(`resume ${CX}`, { hangar: 'refused' });
+    expect(refused.calls.at(-1)).toBe(`codex resume ${CX}`);
+    expect(refused.stderr).toContain('通常の codex を起動します');
+    const down = cx('-m x', { hangar: 'down' });
+    expect(down.calls.at(-1)).toBe('codex -m x');
+    expect(down.stderr).not.toContain('hangar');
+  });
+  it('端末でないとき、HANGAR_NO_WRAP を立てたとき、tmux が無いときは包まない。CODEX_ で始まる変数が環境にあっても包まない', () => {
+    expect(cx('', { tty: false }).calls).toEqual(['codex']);
+    expect(cx('', { noWrap: true }).calls).toEqual(['codex']);
+    expect(cx('', { tmux: 'none' }).calls).toEqual(['codex']);
+    expect(cx('', { env: { CODEX_HOME: '/x/codex' } }).calls).toEqual(['codex']);
+  });
+  it('入れ子の tmux の扱いは claude と同じ。hangar の tmux の中なら switch-client、ほかの tmux の中なら素の codex', () => {
+    expect(cx('', { insideTmux: 'hangar' }).calls.at(-1)).toBe('tmux -L hangar switch-client -t =hangar-0123abcd');
+    expect(cx('', { insideTmux: 'other' }).calls).toEqual(['codex']);
   });
 });

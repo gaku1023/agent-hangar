@@ -42,7 +42,7 @@ import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type Pan
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { forgetInterruption, interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { isAlive } from '../platform/proc.ts';
-import { splitOpencodeTerminalArgs, splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
+import { splitCodexTerminalArgs, splitOpencodeTerminalArgs, splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
 import { handoverFacts, projectDeviceCount, resumeTarget, type ResumeTarget } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
 import { saveRemoteUrl, watchRemoteUrl } from '../mobile/remoteUrl.ts';
@@ -960,7 +960,7 @@ export class RunManager {
    * 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
    * prep を渡されたら（hangar の画面、スマホ、同期の再開）、起動前の準備（接続先の準備のコマンド）を走らせる。外のターミナルからの再開は渡さない。
    */
-  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
+  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean; model?: string; effort?: string; permissionMode?: string } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
     const driver = this.agentOf(s);
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
@@ -1089,6 +1089,34 @@ export class RunManager {
       try { cwd = fs.realpathSync(dir); } catch { cwd = dir; }
     }
     return { ...(await this.startMaterialized(agent, { ...params, agent }, { cwd })), attached: false };
+  }
+
+  /**
+   * 外のターミナルで打った codex（シェルの包みの codex()、docs/design.md「外のターミナルの codex」）。
+   * 引数は許可リストで読む（splitCodexTerminalArgs）。端末の環境変数は使わない。app-server も TUI も、hangar の画面から起こすときと同じく hangar が組む環境で起こす。
+   * resume <ID> が hangar の codex の会話なら、動いている run にはつなぐだけにし（attached が真）、止まっていれば再開する（resumeMaterialized）。
+   * それ以外は、作業ディレクトリで新しい会話を起こす（startMaterialized。会話の ID は codex が振ったものを記録する）。
+   * 設定の Codex を有効にするかコマンドの横取りが切なら断り、包み方は素の codex を起動する。
+   */
+  async startCodexFromTerminal(req: TerminalRequest): Promise<LaunchResult & { attached: boolean }> {
+    const agent: AgentKind = 'codex';
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
+    if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg(AGENT_ENTRY[agent].interceptLabelKey ?? 'settings.label.codexIntercept') }));
+    const a = splitCodexTerminalArgs(req.args);
+    const params = {
+      ...(a.prompt !== null ? { prompt: a.prompt } : {}),
+      ...(a.model !== null ? { model: a.model } : {}),
+      ...(a.effort !== null ? { effort: a.effort } : {}),
+      ...(a.permission !== null ? { permissionMode: a.permission } : {}),
+    };
+    if (a.resume !== null) {
+      const id = findSession(this.db, a.resume, agent);
+      if (!id) throw new RunError(404, msg('run.terminal.notInHangar'));
+      const alive = aliveRunForSession(this.db, id, this.deps.deviceId, this.now());
+      if (alive) return { run: alive, sessionId: id, tabs: listTabs(this.db, alive.id), attached: true };
+      return { ...(await this.resumeMaterialized(this.session(id), params)), attached: false };
+    }
+    return { ...(await this.startMaterialized(agent, { ...params, agent }, { cwd: req.cwd })), attached: false };
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
