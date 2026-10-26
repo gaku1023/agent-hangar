@@ -1,6 +1,6 @@
-import { isAgentKind, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { isAgentKind, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
-import type { Account, AccountStore } from '../config/accounts.ts';
+import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -21,7 +21,17 @@ export type ToolDeps = {
   port: number;
   live: () => LiveSessionDto[];
   /** agentEnabled はそのエージェントを起こしてよいか（runs/manager.ts）。無ければ Claude Code だけを起こす。 */
-  runs: { start(params: LaunchParams): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean };
+  runs: {
+    start(params: LaunchParams): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean;
+    /** そのセッションの生きた run（どの PC のものでも）。無ければ null。stop_session と resume_session が使う。 */
+    aliveRun?(sessionId: string): RunDto | null;
+    /** UI の停止（DELETE /api/runs/:id）と同じ処理。 */
+    kill?(runId: string): unknown;
+    /** UI の再開（POST /api/sessions/:id/resume）と同じ処理。account は Claude Code の会話のときだけ渡す。 */
+    resumeWith?(sessionId: string, o?: { account?: string }): LaunchResult | Promise<LaunchResult>;
+  };
+  /** 削除（DELETE /api/sessions/:id）と同じ処理。無ければ delete_session は知らない道具として断る。 */
+  trash?: { deleteSession(sessionId: string): Promise<void> };
   usage: () => UsageDto;
   /** アカウントの口。無ければ get_usage は最初のアカウントの値だけを返し、create_session はアカウントを選ばない（runs.start がいまのアカウントで起こす）。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current' | 'get'>; usage: { of(accountId: string): UsageDto } };
@@ -56,6 +66,7 @@ export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
   'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
+  'stop_session', 'resume_session', 'delete_session',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -388,14 +399,81 @@ function launchAccount(deps: ToolDeps, ctx: ToolContext, given: unknown, agent: 
   }
   const store = deps.accounts?.store;
   if (!store) return null;
-  if (name !== undefined) {
-    const all = store.list();
-    const hit = store.get(name) ?? all.find((a) => a.name === name);
-    if (!hit) throw new ToolError(msg('mcp.createSession.accountUnknown', { account: name.slice(0, 40), names: all.map((a) => a.name) }));
-    return hit;
-  }
+  if (name !== undefined) return accountNamed(store, name);
   const inherited = ctx.sessionId ? accountOfSession(deps.db, ctx.sessionId, deps.deviceId) : null;
   return (inherited ? store.get(inherited) : null) ?? store.current();
+}
+
+/** 名前か id でアカウントを引く。知らなければ、使える名前を添えて断る。create_session と resume_session が共有する。 */
+function accountNamed(store: Pick<AccountStore, 'list' | 'get'>, name: string): Account {
+  const all = store.list();
+  const hit = store.get(name) ?? all.find((a) => a.name === name);
+  if (!hit) throw new ToolError(msg('mcp.createSession.accountUnknown', { account: name.slice(0, 40), names: all.map((a) => a.name) }));
+  return hit;
+}
+
+/**
+ * 会話の寿命の 3 つの道具は、セッション別 URL でも別のセッションを指せる（session_id が要る）。
+ * 自分自身を止める・消すことだけを断る。呼び出しの途中で自分が落ちる、または動いたまま消えるため。
+ */
+function targetSession(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, selfMessage?: Message): SessionDto {
+  const id = str(args.session_id);
+  if (!id) throw new ToolError(msg('mcp.args.sessionIdRequired'));
+  const s = requireSession(deps, id);
+  if (selfMessage && ctx.sessionId === id) throw new ToolError(selfMessage);
+  return s;
+}
+
+/** UI の停止と同じ runs.kill を通す。この PC の run だけ止められる。 */
+export function stopSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  if (!deps.runs.aliveRun || !deps.runs.kill) throw new ToolError(msg('mcp.error.unknownTool', { name: 'stop_session' }));
+  const s = targetSession(deps, ctx, args, msg('mcp.stopSession.self'));
+  const run = deps.runs.aliveRun(s.id);
+  if (!run) throw new ToolError(msg('mcp.stopSession.notRunning'));
+  if (run.deviceId !== deps.deviceId) throw new ToolError(msg('mcp.stopSession.otherDevice', { device: deviceBrief(deps, s.id)?.name ?? run.deviceId }));
+  deps.runs.kill(run.id);
+  return { ok: true, session_id: s.id, run_id: run.id };
+}
+
+/**
+ * UI の再開と同じ runs.resumeWith を通す。3 つのエージェントとも、再開の道筋は resumeWith の中で分かれる。
+ * account は Claude Code の会話のときだけ受ける。省けば resumeWith が最後に使ったアカウント（RunAccounts.lastUsed）で再開する。
+ */
+export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  if (!deps.runs.aliveRun || !deps.runs.resumeWith) throw new ToolError(msg('mcp.error.unknownTool', { name: 'resume_session' }));
+  const s = targetSession(deps, ctx, args);
+  if (deps.runs.aliveRun(s.id)) throw new ToolError(msg('mcp.resumeSession.running'));
+  const given = str(args.account);
+  let account: Account | null = null;
+  if (s.provider !== 'claude-code') {
+    if (given !== undefined) throw new ToolError(msg('mcp.createSession.accountClaudeOnly'));
+  } else if (deps.accounts?.store) {
+    const store = deps.accounts.store;
+    if (given !== undefined) account = accountNamed(store, given);
+    else {
+      const last = accountOfSession(deps.db, s.id, deps.deviceId);
+      account = (last ? store.get(last) ?? store.get(PRIMARY_ACCOUNT_ID) : null) ?? store.current();
+    }
+  }
+  return Promise.resolve(deps.runs.resumeWith(s.id, given !== undefined && account ? { account: account.id } : {}))
+    .then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }));
+}
+
+/**
+ * UI の削除と同じ trash.deleteSession を通す。どのセッションも、毎回 confirmed: true（利用者が会話の中で承諾した）でなければ消さない。
+ * 動いている会話の断り（409）は、deleteSession の文をそのまま返す。
+ */
+export function deleteSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  const trash = deps.trash;
+  if (!trash) throw new ToolError(msg('mcp.error.unknownTool', { name: 'delete_session' }));
+  const s = targetSession(deps, ctx, args, msg('mcp.deleteSession.self'));
+  if (args.confirmed !== true) throw new ToolError(msg('mcp.deleteSession.confirm', { title: sessionTitle(s) }));
+  return trash.deleteSession(s.id).then(() => ({ ok: true, session_id: s.id }));
+}
+
+/** 承諾を求めるときに利用者へ見せる題名。名前、AI の題、最初の発言の順に引く。 */
+function sessionTitle(s: SessionDto): string {
+  return (s.name ?? s.summary?.title ?? s.aiTitle ?? s.firstPrompt ?? s.id).replace(/\s+/g, ' ').trim().slice(0, 80);
 }
 
 export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -543,6 +621,9 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);
+    case 'stop_session': return stopSessionTool(deps, ctx, args);
+    case 'resume_session': return resumeSessionTool(deps, ctx, args);
+    case 'delete_session': return deleteSessionTool(deps, ctx, args);
     case 'draft_issue_report': return reportOf(deps, name).draft(args);
     case 'submit_issue_report': return reportOf(deps, name).submit(args);
     default: throw new ToolError(msg('mcp.error.unknownTool', { name }));

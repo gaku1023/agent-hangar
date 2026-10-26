@@ -936,17 +936,17 @@ export class RunManager {
    * stop は、その claude を止め、止まったのを確かめてから再開する。止められなければ 409（run.error.strayNotStopped）で断り、再開しない。
    * ignore は、この判定を飛ばして再開する（2 つの claude が同じ会話を進めることを、利用者が承知している）。
    */
-  async resumeWith(sessionId: string, o: { stray?: ResumeStray; prepKey?: string } = {}): Promise<LaunchResult> {
+  async resumeWith(sessionId: string, o: { stray?: ResumeStray; prepKey?: string; account?: string } = {}): Promise<LaunchResult> {
     const target = this.session(sessionId);
     // hangar からの再開は、新しい起動と同じく接続先の準備を走らせる。進みは prepKey の鍵で配る（無ければ hangar が鍵を作る）。
     if (this.agentOf(target).launch.materialize) return this.resumeMaterialized(target, {}, { key: o.prepKey });
-    if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray });
+    if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray, ...(o.account !== undefined ? { account: o.account } : {}) });
     const s = this.session(sessionId);
     this.assertCan(s, 'resume');
     this.assertResumable(s, 'ignore');
     const pid = this.strayPid(s);
     if (pid !== null && !(await this.procs().terminate(pid, TERMINATE_MS))) throw new RunError(409, msg('run.error.strayNotStopped', { pid }));
-    return this.resume(sessionId, { stray: 'ignore' });
+    return this.resume(sessionId, { stray: 'ignore', ...(o.account !== undefined ? { account: o.account } : {}) });
   }
 
   /**
@@ -1564,6 +1564,11 @@ export class RunManager {
       upsertShared(this.db, 'runs', { ...row, pid: l.pid }, this.deviceId);
       this.emit('runUpdated', getRun(this.db, run.id)!);
     }
+  }
+
+  /** そのセッションの生きた run（どの PC のものでも）。MCP の stop_session と resume_session が、止める・再開する前に引く。 */
+  aliveRun(sessionId: string): RunDto | null {
+    return aliveRunForSession(this.db, sessionId, this.deps.deviceId, this.now());
   }
 
   /** run を止める。タブも閉じ、killed で終わらせる。ほかの PC に引き継ぐために止めたときは taken_over で終わらせる。 */

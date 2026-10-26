@@ -3684,6 +3684,16 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   worktree（claude の `--worktree` に渡す名前）と add_dirs（`--add-dir`）は Claude Code だけのもので、Codex と opencode に付けると `start` が `optionUnsupported` で断る（UI の新規ダイアログは札を出さないので、断られるのは API と MCP だけである）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
   - account（Claude Code のときだけ）：省くと、呼んだセッション（セッション別 URL）がこの PC で最後に使ったアカウントを引き継ぐ。「別セッションを起こして」と頼んだ会話と同じ枠で続けるためで、ヘッダで選んでいるアカウントは最後に画面で選んだものにすぎない。ほかの PC の run は見ない（`RunAccounts.accountFor` と同じ）。共通の URL から呼ばれたとき、この PC で動かしたことが無いとき、そのアカウントが消えたときは、いま選んでいるアカウントにする。明示されたら名前か id で引き、知らないものは使える名前を添えて断る。opencode と Codex に渡されたら断る。結果には使ったアカウントの名前を添える。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
+- `stop_session({ session_id })`：この PC で動いているそのセッションの run を、UI の停止（`DELETE /api/runs/:id`）と同じ `RunManager.kill` で止める。session_id から run を引く口は `ToolDeps.runs.aliveRun` である。
+  動いていない会話と、ほかの PC で動く会話（その PC の名前を添える）、呼んだセッション自身（呼び出しの途中で自分が落ちるため）は、分かる文で断る。聞かずに使ってよい。
+- `resume_session({ session_id, account? })`：止まっている会話を、UI の再開（`POST /api/sessions/:id/resume`）と同じ `RunManager.resumeWith` で再開する。Claude Code、Codex、opencode のどれも通る（道筋は resumeWith の中で分かれる）。
+  すでに動いていれば断る。account は Claude Code の会話のときだけ受け、名前か id で引く（`create_session` と同じ引き方）。知らなければ使える名前を添えて断り、Codex と opencode に渡したら断る。省けば、これまでどおり最後に使ったアカウント（`RunAccounts.lastUsed`）で再開する。
+  結果は `create_session` と同じ形（`run_id`、`session_id`、`tmux_name`、`url`、Claude Code なら `account` の名前）である。聞かずに使ってよい。
+- `delete_session({ session_id, confirmed? })`：UI の削除（`DELETE /api/sessions/:id`）と同じ `SessionTrash.deleteSession` で消す。本文は OS のゴミ箱へ移る。
+  どのセッションも、毎回 `confirmed: true`（利用者が会話の中で承諾した）でなければ消さない。`propose_session_status` の `confirmed` と同じ考え方で、`confirmed` が無いか `true` でなければ、セッションの題名を添え、利用者に見せて承諾を得てから呼び直すよう促す文で断る。
+  動いている会話は `deleteSession` の 409 の文のまま断り、呼んだセッション自身も断る。
+  HTTP の `DELETE /api/sessions/:id` は、利用者の操作なので MCP の秘密では開けないままである。MCP からは、この道具が承諾つきで同じ処理を通す。
+  この 3 つはセッション別 URL でも別のセッションを指せる（`session_id` が要る。他のセッション用の道具のような閉じ込めはしない）。
 - `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。セッション画面の現在の札に出す。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
   `append_memo` のように `notice` で答える形にしなかったのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、こちらは道具が 1 つの仕事しか持たないからである。
