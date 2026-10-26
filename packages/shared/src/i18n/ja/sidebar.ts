@@ -2,7 +2,6 @@ import type { sidebarKeys } from '../keys/sidebar.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const sidebarJa: AreaDictionary<typeof sidebarKeys> = {
-  'sidebar.live.title': '実行中',
   'sidebar.live.label': '実行中のセッション',
   'sidebar.count.waiting': '、入力待ち {n}',
   'sidebar.live.rowTitle': '{name}（{waited}）',
@@ -20,5 +19,4 @@ export const sidebarJa: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.nav.home': 'ホーム',
   'sidebar.nav.projects': 'プロジェクト',
   'sidebar.nav.settings': '設定',
-  'sidebar.live.paneBadge': 'ペイン {n}',
 };

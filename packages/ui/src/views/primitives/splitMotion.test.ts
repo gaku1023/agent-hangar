@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LAYOUT_MOVING_ATTR } from './layoutMotion.ts';
-import { collapseHead, flashPane, flipFrom, flyName, holdLayout, landGhost, leavePane, nameSnap, paneEnter, popBadge, previewIn, retitle, riseParts, settleTop } from './splitMotion.ts';
+import { collapseHead, flashPane, flipFrom, flyName, holdLayout, landGhost, leavePane, nameSnap, paneEnter, previewIn, retitle, riseParts, settleTop } from './splitMotion.ts';
 
 /** jsdom は tokens.css を読まないので、どの要素から読んでもこの値が返るようにする（motionKit.test.ts と同じ）。 */
 let values: Record<string, string> = {};
@@ -36,7 +36,6 @@ describe('splitMotion（動きを減らす設定）', () => {
     expect(flipFrom(el, rect, { ...rect, left: 200 })).toBe(false);
     expect(paneEnter(el)).toBeNull();
     expect(flashPane(el)).toBeNull();
-    expect(popBadge(el)).toBeNull();
     expect(previewIn(el)).toBeNull();
     expect(settleTop(el, 40)).toBeNull();
     expect(retitle(el)).toBeNull();
