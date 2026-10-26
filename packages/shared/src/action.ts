@@ -1,3 +1,4 @@
+import type { AgentKind } from './agents.ts';
 import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
@@ -34,7 +35,7 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
  * mode と autoApprove は opencode だけが読む。mode は opencode のエージェント（build、plan など）、autoApprove は `--auto` で、Claude Code では捨てる。
  * account、effort、permissionMode、worktree、addDirs は Claude Code だけのもので、opencode に付けると断る。
  */
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: 'claude-code' | 'opencode'; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
+export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };

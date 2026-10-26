@@ -1,3 +1,4 @@
+import { AGENT_DISPLAY_NAME, AGENT_KINDS, type AgentKind } from './agents.ts';
 /**
  * エージェントの絵の組。
  * 一覧、サイドバー、ターミナルのタブ、スマホの画面は、どれもここの絵を使う。
@@ -9,8 +10,8 @@
  */
 
 /** 絵を持つエージェント。Codex はまだ絵を決めていないので入れない。 */
-export const AGENT_ICON_KINDS = ['claude-code', 'opencode'] as const;
-export type AgentIconKind = (typeof AGENT_ICON_KINDS)[number];
+export const AGENT_ICON_KINDS = AGENT_KINDS;
+export type AgentIconKind = AgentKind;
 /** light は明るい地（一覧、サイドバー、選んでいないタブ）、dark は暗い地（ターミナルの板につながる、選んだタブ）に置く絵。 */
 export type AgentIconTone = 'light' | 'dark';
 
@@ -24,7 +25,7 @@ export type AgentIconArt = { viewBox: string; width: number; height: number; str
 export const AGENT_ICON_FRAME = { width: 20, height: 14 } as const;
 
 /** 絵の名前。読み上げとツールチップに使う。製品の名前なので訳さない。 */
-export const AGENT_LABEL: Record<AgentIconKind, string> = { 'claude-code': 'Claude Code', opencode: 'opencode' };
+export const AGENT_LABEL: Record<AgentIconKind, string> = AGENT_DISPLAY_NAME;
 
 /**
  * Clawd の升。Claude Code の起動の見出しの文字絵（▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝）を、1 文字 2×2 の升に起こしたもの。
