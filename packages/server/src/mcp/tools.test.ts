@@ -313,6 +313,28 @@ describe('MCP tools', () => {
     expect(started[0]).toEqual({ projectId: 'p1', name: 'n', prompt: 'p', model: undefined, effort: undefined, permissionMode: 'default', scratch: undefined });
     expect(r).toEqual({ run_id: 'r1', session_id: 'sNew', tmux_name: 'hangar-r1', url: 'http://127.0.0.1:4177/#/session/sNew' });
   });
+  it('create_session は agent を省くと Claude Code として起動する', async () => {
+    await call('create_session', { project_id: 'p1', model: 'opus' });
+    expect(started[0]!.agent).toBeUndefined();
+    expect(started[0]!.mode).toBeUndefined();
+  });
+  it('create_session は agent: opencode と mode を start に渡す', async () => {
+    deps = { ...deps, runs: { ...deps.runs, agentEnabled: (k) => k === 'opencode' } };
+    await call('create_session', { project_id: 'p1', agent: 'opencode', mode: 'plan', model: 'lmstudio/gemma' });
+    expect(started[0]).toMatchObject({ projectId: 'p1', agent: 'opencode', mode: 'plan', model: 'lmstudio/gemma' });
+  });
+  it('create_session は知らない agent を断り、起動しない', () => {
+    expect(() => call('create_session', { project_id: 'p1', agent: 'codex' })).toThrow(ToolError);
+    expect(() => call('create_session', { project_id: 'p1', agent: 1 })).toThrow(ToolError);
+    expect(started).toEqual([]);
+  });
+  it('create_session は opencode が無効なら opencode の起動を断る', () => {
+    deps = { ...deps, runs: { ...deps.runs, agentEnabled: () => false } };
+    expect(() => call('create_session', { project_id: 'p1', agent: 'opencode' })).toThrow(ToolError);
+    deps = { ...deps, runs: { start: deps.runs.start } };
+    expect(() => call('create_session', { project_id: 'p1', agent: 'opencode' })).toThrow(ToolError);
+    expect(started).toEqual([]);
+  });
   it('create_session は非同期の start を待ってから答える', async () => {
     deps = { ...deps, runs: { start: async (p) => { started.push(p); await new Promise((r) => setTimeout(r, 5)); return { run: { id: 'r2', sessionId: 'sLater', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sLater', tabs: [] }; } } };
     expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater' });
