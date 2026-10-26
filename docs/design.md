@@ -1419,6 +1419,47 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 - スマホ：`feedCaps` は caps に codex を出さない。F1 で、`codexEnabled` が入りのときだけ出す形にする。
 - 画面：エージェントの札は codex を並べない。絵は無い（`AGENT_ICONS` に行が無く、`agentIconArt` が undefined を返す。C2 で入れる）。
 
+### Codex の app-server の起動と接続（ベータ）
+
+Codex を足す作業の段 B の 2 つ目（計画の B2）で、`codex app-server` を起こしてつなぐ部品だけを入れた。
+起動の面（`AgentLauncher`）は B3 で、状態と許可は B4 で、この部品の上に載せる。
+`codexEnabled` が切のままなら、どこからも呼ばれない。
+
+起動は `provider/codex/appServer.ts` の `startAppServer` が行う。
+空の環境（`codexBaseEnv`）から、セッションごとに 1 本起こす。
+待ち受けは 127.0.0.1 の WebSocket と `--ws-auth capability-token` で、unix ソケットは使わない（Windows でも同じ形で、パスの長さの制限が無い）。
+token は起動ごとに 32 バイトの乱数で、0600 のファイルに書いて `--ws-token-file` で渡す。
+app-server の argv にも環境にも載せない。
+TUI へは `tuiRemote` が返す `--remote <url> --remote-auth-token-env HANGAR_CODEX_TOKEN` と、token の値だけの env を渡す。
+空の環境から起こすので、TUI の env へ token を明示で足さないと消える。
+フォルダの信頼の画面は、app-server の起動時の `-c projects={"<パス>"={trust_level="trusted"}}` で消す（`--remote` の TUI 側の `-c` は効かない）。
+daemon は起きないので、`--no-daemon` は付けない。
+ポートは空きを取って渡し、塞がれていたら取り直す。応答は `/healthz`（token 無しで 200）で確かめる。
+
+接続は `CodexRpc`（JSON-RPC over WebSocket）が持つ。
+`initialize` と `initialized` まで済ませてから返し、`request`、`notify`、型つきの購読（`on('thread/started' | 'thread/status/changed' | 'thread/name/updated' | 'turn/started' | 'turn/completed', …)`）、生の通知の `onAny`、サーバからの要求の `onServerRequest` を持つ。
+薄い口は `threadStart`、`threadResume`、`turnStart`、`turnInterrupt`、`threadLoadedList`。
+hangar の接続は、承認などのサーバからの要求に答える口を持たない（決定 5。TUI が答える。答えなくても TUI の承認は進む）。
+
+初期プロンプトが無いときの ID は、`watchStartedThread` が `thread/started` から拾う。
+`--remote` の TUI がつないだ時点（利用者の入力の前）に、全接続へ届く。
+題名の生成用の ephemeral なスレッドも同じ通知で来るので、`ephemeral:false` だけを採る。
+cwd を渡すと、スレッドの cwd（`environments[0].cwd`、無ければ `cwd`）が同じものだけを採り、複数のセッションを同時に起こしたときの取り違えを避ける。
+通知を取り逃さないよう、TUI を起こす前に作る。
+接続し直したときの補いは `threadLoadedList`。
+入力の前のスレッドは `thread/resume` できない（`-32600 no rollout found`）。購読（`thread/resume` の `excludeTurns:true`）は最初の `thread/status/changed` の active のあとに、短い間隔で再試行して入れる（B4）。
+
+止め方は `stopAppServer` で、呼び手が TUI を先に閉じる前提である。
+app-server のプロセスのまとまりへ SIGTERM を送り、猶予（既定 5 秒）のあと SIGKILL する。
+孫（シェルの子、code mode の host）は SIGTERM で全部消える。interrupt だけでは孫が残るので、「止める」は app-server ごとにする。
+Windows は `killGroup` が `taskkill /T /F` で木ごと止める。token のファイルも消す。
+
+起動は `provider/codex/launch.ts` の `launchCodexAppServer` が、opencode の serve と同じ待ち行列（`LaunchQueue`）で 1 本ずつ並べる。
+1 つの仕事は「起こして、/healthz が 200 を返し、initialize が通る」までで、つなげなければ起こしたものを止めて投げる。
+
+試験は偽の codex（`test/fake-codex.ts`）の app-server のふりだけで行う。
+ふりは WebSocket、token の検査、`initialize`、`thread/start`、`turn/start`、`turn/interrupt`、`thread/resume`、`thread/loaded/list` と、通知（`thread/started`、`thread/status/changed`、`turn/*`）を持ち、SIGTERM で止まる。
+
 ### opencode の検出（ベータ）
 
 opencode を足す作業の 1 段目（計画の B1）で、設定のスイッチと、入っている opencode の場所と版の読みだけを入れた。
