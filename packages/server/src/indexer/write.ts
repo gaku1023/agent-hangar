@@ -2,11 +2,9 @@ import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
-import type { AgentKind, IndexBatch } from '../agent/types.ts';
+import type { Activity, AgentKind, IndexBatch, Limit } from '../agent/types.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts } from '../provider/claude-code/transcript/normalize.ts';
-import type { Activity } from '../provider/claude-code/transcript/activity.ts';
-import type { Limit } from '../provider/claude-code/transcript/limit.ts';
 import { pinnedProjectOf } from '../sessions/move.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { localDay } from '../usage/aggregate.ts';
@@ -66,6 +64,8 @@ type Acc = {
   userTurns: number; input: number; output: number;
   /** 記録ごとの費用の和と、最後の文脈の量（RecordFacts.costUsd、contextTokens）。持たない束では undefined のまま。 */
   cost?: number; contextTokens?: number;
+  /** 記録が持つモデルの文脈の長さ（RecordFacts.contextSize）。contextSizeOf が引けないときの代わりに使う。 */
+  contextSize?: number;
   /** 束にモデルの切り替え（RecordFacts.modelSelected）があった。 */
   modelSelected?: boolean;
   daily: Map<string, { input: number; output: number }>;
@@ -76,7 +76,7 @@ type Acc = {
 export type SessionRow = { id: string; deleted_at: number | null };
 
 /** provider と provider_session_id の組で sessions の行を引く。論理削除された行も返す。 */
-export function sessionRow(db: Db, providerSessionId: string, provider: AgentKind = 'claude-code'): SessionRow | undefined {
+export function sessionRow(db: Db, providerSessionId: string, provider: AgentKind): SessionRow | undefined {
   return stmt(db, 'select id, deleted_at from sessions where provider = ? and provider_session_id = ?').get(provider, providerSessionId) as SessionRow | undefined;
 }
 
@@ -218,6 +218,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       if (f.effort) acc.effort = f.effort;
       if (f.costUsd !== undefined) acc.cost = (acc.cost ?? 0) + f.costUsd;
       if (f.contextTokens !== undefined) acc.contextTokens = f.contextTokens;
+      if (f.contextSize !== undefined) acc.contextSize = f.contextSize;
       if (f.usage) {
         acc.input += f.usage.input; acc.output += f.usage.output;
         const day = localDay(f.ts ?? Date.now());
@@ -225,7 +226,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
       }
     }
-    if (mainLocal && (acc.cost !== undefined || acc.contextTokens !== undefined || acc.modelSelected)) writeLiveStats(db, b.providerSessionId, acc, reset, opts.contextSizeOf);
+    if (mainLocal && (acc.cost !== undefined || acc.contextTokens !== undefined || acc.contextSize !== undefined || acc.modelSelected)) writeLiveStats(db, b.providerSessionId, acc, reset, opts.contextSizeOf);
     if (mainLocal && b.fold) {
       if (writeActivity(db, sessionId, reset, b.fold.activity)) acc.turnEnded = true;
       writeLimit(db, sessionId, reset, b.fold.limit);
@@ -261,7 +262,7 @@ function writeLiveStats(db: Db, providerSessionId: string, acc: Acc, reset: bool
   const prevCost = reset ? undefined : prev?.cost_usd;
   const cost = acc.cost === undefined ? (prevCost ?? null) : (prevCost ?? 0) + acc.cost;
   const model = acc.model ?? prev?.model ?? null;
-  const size = model !== null && contextSizeOf ? contextSizeOf(model) : null;
+  const size = (model !== null && contextSizeOf ? contextSizeOf(model) : null) ?? acc.contextSize ?? null;
   stmt(db, `insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)
     on conflict(provider_session_id) do update set model = coalesce(excluded.model, session_live_stats.model),
       context_used = coalesce(excluded.context_used, session_live_stats.context_used), context_size = coalesce(excluded.context_size, session_live_stats.context_size),

@@ -1,10 +1,8 @@
 import type { TranscriptEvent } from '@agent-hangar/shared';
 
-/**
- * 実行中のセッションが最後に何をしたか。Home の札に出す。
- * toolId は、AskUserQuestion の答え（tool_result）がどの呼び出しへのものかを見分けるために持つ。
- */
-export type Activity = { tool: string; summary: string; toolId: string; question: string | null };
+// Activity は agent/types.ts にある。ここからも引けるようにしておく。
+export type { Activity } from '../../../agent/types.ts';
+import type { Activity } from '../../../agent/types.ts';
 
 /** 札の 1 行に収まらない問いは、ここで切っておく。 */
 const QUESTION_MAX = 300;

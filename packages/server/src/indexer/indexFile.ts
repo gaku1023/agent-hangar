@@ -84,6 +84,7 @@ export function isUnchanged(tf: { size: number; mtime: number; indexer_version: 
  */
 export function indexFile(db: Db, file: TranscriptFile, opts: IndexFileOptions): IndexFileResult {
   const version = opts.indexerVersion ?? INDEXER_VERSION;
+  // 論理パスと実体が違うエージェントは、呼び手が実体の stat を渡す（索引の側が TranscriptFiles.stat で取る）。
   const stat = opts.stat ?? fs.statSync(file.path);
   const tf = stmt(db, 'select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
   const remote = opts.remote === true;
@@ -102,9 +103,9 @@ export function indexFile(db: Db, file: TranscriptFile, opts: IndexFileOptions):
   let written = { sessionId: '', appended: 0, artifactIds: [] as string[] };
   const run = db.transaction(() => {
     written = writeBatch(db, batch, { deviceId: opts.deviceId, remote, cwdFallback: opts.cwdFallback, processStartOf: opts.processStartOf, origin: file.path, sessionId: tf?.session_id ?? known?.id });
-    stmt(db, `insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,?,null)
-      on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, device_id = excluded.device_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
-      .run(file.path, written.sessionId, file.agentId, file.deviceId, stat.size, Math.floor(stat.mtimeMs), batch.nextByte, version);
+    stmt(db, `insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version, last_error, agent) values (?,?,?,?,?,?,?,?,null,?)
+      on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, agent = excluded.agent, device_id = excluded.device_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
+      .run(file.path, written.sessionId, file.agentId, file.deviceId, stat.size, Math.floor(stat.mtimeMs), batch.nextByte, version, opts.reader.agent);
   });
   run();
   return { sessionId: written.sessionId, providerSessionId: file.sessionId, appended: written.appended, changed: true, badLines: batch.badLines, artifactIds: written.artifactIds, skipped: false };
