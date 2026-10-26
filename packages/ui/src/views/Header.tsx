@@ -1,11 +1,12 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import markUrl from '../brand/logo-mark.svg';
 import { useEmit } from '../action/chain.tsx';
 import type { HeaderAccountProps, ShellProps, SyncProps, UsageProps } from '../presenters/shell.ts';
 import { AccountSwitcher } from './AccountSwitcher.tsx';
 import { Bell } from './Bell.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { fadeIn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
@@ -29,8 +30,18 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; ac
   const row = useRef<HTMLDivElement>(null);
   useHeaderFold(row);
   const noUsage = props.usage.fiveHour === null && props.usage.sevenDay === null;
+  // 開いている会話のエージェントが変わったら（Claude と Codex の枠の切り替え、U1）、計器を fadeIn で入れ替える。最初の描画では動かさない。
+  const gaugesEl = useRef<HTMLSpanElement>(null);
+  const agentKey = props.usage.agent?.key ?? null;
+  const seenAgent = useRef(agentKey);
+  useLayoutEffect(() => {
+    if (seenAgent.current === agentKey) return;
+    seenAgent.current = agentKey;
+    if (gaugesEl.current) fadeIn(gaugesEl.current);
+  }, [agentKey]);
   const gauges = (
-    <span className="gauges" data-fold-at={foldAt('gauges')}>
+    <span ref={gaugesEl} className="gauges" data-fold-at={foldAt('gauges')}>
+      {props.usage.agent && <span className="gauge-agent" data-agent={props.usage.agent.key}>{props.usage.agent.label}</span>}
       <UsageGauge label={t('header.gauge.fiveHourLabel')} short={t('header.gauge.fiveHourShort')} percent={props.usage.fiveHour} resets={props.usage.fiveHourResets} updated={props.usage.updatedLabel} limited={props.usage.fiveHourLimit ?? null} />
       <UsageGauge label={t('header.gauge.weeklyLabel')} short={t('header.gauge.weeklyShort')} percent={props.usage.sevenDay} resets={props.usage.sevenDayResets} updated={props.usage.updatedLabel} limited={props.usage.sevenDayLimit ?? null} />
     </span>

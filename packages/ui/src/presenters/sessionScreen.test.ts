@@ -274,6 +274,11 @@ describe('opencode の会話の「いま」の札（計画の C5）', () => {
     expect(present(store(session({ provider: 'opencode', live: 'busy', stats: ocStats }), run())).promptJump).toBe(false);
     expect(present(store(session({ live: 'busy' }), run())).promptJump).toBe(true);
   });
+  it('Codex の会話も、同じ使用量の欄を出す（コスト無しならトークンとモデルだけ。caps.usagePanel）', () => {
+    const cx = { ...stats, model: 'gpt-6-astra', contextPercent: 23, contextTokens: 61_200, costUsd: null, turns: 1 };
+    const p = present(store(session({ provider: 'codex', live: 'busy', stats: cx }), run()));
+    expect(p.strip?.usage).toEqual({ percent: 23, percentLabel: '23%', chips: ['61.2k トークン', 'gpt-6-astra'] });
+  });
   it('Claude の会話には使用量を渡さない（ヘッダの 5 時間・週と見出しの (i) のまま）', () => {
     const p = present(store(session({ live: 'busy', stats: { ...stats, contextTokens: 13_600 } }), run()));
     expect(p.strip?.usage).toBeNull();

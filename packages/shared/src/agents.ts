@@ -46,7 +46,7 @@ export const AGENT_UI_CAPS: Record<AgentKind, AgentUiCaps> = {
   'claude-code': { accounts: true, effort: true, permissionMode: true, worktree: true, addDirs: true, modelText: true, recallLine: true, trustNote: true, digestIntent: true, modes: false, promptJump: true, usagePanel: false, modelList: false, beta: false },
   opencode: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: true, promptJump: false, usagePanel: true, modelList: false, beta: true },
   // Codex の新規ダイアログの札は、モデルの一覧から選ぶ組（modelList）。自由入力のモデル、Claude の effort と権限モード、アカウント、worktree の札は出さない。右欄の面は段 C の続きで足す。
-  codex: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: false, promptJump: false, usagePanel: false, modelList: true, beta: true },
+  codex: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: false, promptJump: false, usagePanel: true, modelList: true, beta: true },
 };
 
 export type AgentUiCap = keyof AgentUiCaps;
