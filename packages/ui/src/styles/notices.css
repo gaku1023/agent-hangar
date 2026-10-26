@@ -29,9 +29,9 @@
 .nrow .n-kind[data-tone='warn'] { color: var(--st-paused); }
 .nrow .n-kind[data-tone='info'] { color: var(--accent); }
 .nrow .p-body { flex: 1; min-width: 0; }
-/* 題と説明は 1 行に切り詰めず、2 行まで読ませる（同期の理由や互換の文は長い）。 */
+/* 題は 2 行まで読ませる。説明は切らずに全部出す。2 行で切ると、空き不足の「空きを増やすと再開します」のような、どうすれば戻るかの案内が消えた（0.10.1-rc.1）。一覧は縦に送れる。 */
 .nrow .p-t { font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.nrow .p-d { font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.nrow .p-d { font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; }
 .nrow .p-acts { display: flex; gap: calc(var(--u) * 1); margin-top: calc(var(--u) * 1.25); }
 .nrow .p-acts .btn-sm { height: 20px; padding: 0 7px; font-size: var(--fs-xs); }
 .nrow .p-when { flex: none; padding-top: 2px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }

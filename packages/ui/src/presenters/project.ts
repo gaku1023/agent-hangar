@@ -7,7 +7,7 @@ import { relativeTime } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
-import { bytesLabel } from './retention.ts';
+import { byteBase, bytesLabel } from './bytes.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 
 /** 候補の TODO の表示。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
@@ -78,10 +78,11 @@ export type InstructionRowProps = { kind: InstructionFileKind; name: string; des
  */
 export type InstructionsProps = { state: 'loading' | 'missing' | 'ready'; rows: InstructionRowProps[]; legacyNote: string | null };
 
-/** ファイルの大きさ。1 KB 未満はバイト、10 KB 未満は小数 1 桁の KB、それより上は bytesLabel に任せる。 */
+/** ファイルの大きさ。1 KB 未満はバイト、10 KB 未満は小数 1 桁の KB、それより上は bytesLabel に任せる。割る単位は bytes.ts の byteBase。 */
 function sizeLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 10 * 1024) return `${Math.round((bytes / 1024) * 10) / 10} KB`;
+  const k = byteBase();
+  if (bytes < k) return `${bytes} B`;
+  if (bytes < 10 * k) return `${Math.round((bytes / k) * 10) / 10} KB`;
   return bytesLabel(bytes);
 }
 

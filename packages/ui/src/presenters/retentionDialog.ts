@@ -3,7 +3,8 @@ import { withTrailingSep } from '../lib/paths.ts';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { translatorOf } from './i18n.ts';
-import { bytesLabel, expiresBy } from './retention.ts';
+import { bytesLabel } from './bytes.ts';
+import { expiresBy } from './retention.ts';
 
 /** 保持期間の言い方。365 の倍数なら年、それ以外は日で言う（`daysLabel` の辞書版）。1 だけは単数で言う。 */
 export function periodLabel(t: Translate, days: number): string {

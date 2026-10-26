@@ -535,7 +535,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
 
   it('本文の 409 で確認のダイアログが出て、Esc で閉じる', async () => {
     const { rt } = await mounted();
-    act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
+    act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1000, remoteSize: 4000 } }));
     await flush();
     expect(screen.getByRole('dialog', { name: 'トランスクリプトを置き換えますか' })).toBeInTheDocument();
     expect(screen.getByText('他の PC のトランスクリプト 4.0 KB')).toBeInTheDocument();

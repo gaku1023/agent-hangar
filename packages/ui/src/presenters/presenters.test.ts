@@ -17,7 +17,7 @@ import { buildItems, presentSession, presentSessionBadges, sessionActions, summa
 import { presentSessionList } from './sessions.ts';
 import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
-import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
+import { daysLabel, transcriptMark } from './retention.ts';
 import { presentRetentionDialog } from './retentionDialog.ts';
 import { presentShell } from './shell.ts';
 import { presentToasts } from './toasts.ts';
@@ -1706,10 +1706,9 @@ describe('セッションのロック（フェーズ 4）', () => {
 
 describe('保持期間の言い方と期限', () => {
   const DAY = 86_400_000;
-  it('日数と大きさの言い方', () => {
+  it('日数の言い方（大きさは bytes.test.ts）', () => {
     expect([30, 90, 365, 3650, 45, 730].map((d) => daysLabel(ja, d))).toEqual(['30 日', '90 日', '1 年', '10 年', '45 日', '2 年']);
     expect([1, 30, 365, 730].map((d) => daysLabel(translator('en'), d))).toEqual(['1 day', '30 days', '1 year', '2 years']);
-    expect([1_610_612_736, 18 * 1024 ** 3, 52_428_800, 2048, 0].map(bytesLabel)).toEqual(['1.5 GB', '18 GB', '50 MB', '2 KB', '0 KB']);
   });
   it('本文の印は 4 通り', () => {
     expect(transcriptMark(session('a', { transcriptMtime: NOW - 10 * DAY }), 30, NOW)).toBe('present');
@@ -1739,8 +1738,8 @@ describe('presentShell のベル', () => {
 
 describe('presentRetentionDialog', () => {
   const DAY = 86_400_000;
-  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
-  const P: RetentionPreviewDto = { days: 365, path: '/Users/me/.claude/settings.json', lines: [{ kind: 'ctx', text: '{' }, { kind: 'add', text: '  "cleanupPeriodDays" : 365,' }], baseSha256: 'abc', backupDir: '/Users/me/.agent-hangar/backups/claude-config', projectedBytes: 365 * 52_428_800 };
+  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1.5e9, dailyBytes: 50e6, freeBytes: 400e9, measuredAt: NOW } };
+  const P: RetentionPreviewDto = { days: 365, path: '/Users/me/.claude/settings.json', lines: [{ kind: 'ctx', text: '{' }, { kind: 'add', text: '  "cleanupPeriodDays" : 365,' }], baseSha256: 'abc', backupDir: '/Users/me/.agent-hangar/backups/claude-config', projectedBytes: 365 * 50e6 };
   const open = (days = 365, from: 'banner' | 'settings' = 'banner') => ({ ...initialState(), overlay: { kind: 'retention' as const, days, from, reloaded: false, writing: false, previewError: null } });
   const st = (over: Partial<Store> = {}): Store => ({ ...initialStore(), retention: R, retentionPreview: P, ...over });
   it('延ばすときの題、説明、見込み、控えを出す', () => {
@@ -1780,7 +1779,7 @@ describe('presentRetentionDialog', () => {
     expect(presentRetentionDialog(s, st({ retentionPreview: null }), NOW)!.previewError).toBe('x');
   });
   it('見込みが空きの半分を超えたら警告にし、下見が届く前は差分を null にする', () => {
-    const big = presentRetentionDialog(open(3650), st({ retentionPreview: { ...P, days: 3650, projectedBytes: 300 * 1024 ** 3 } }), NOW)!;
+    const big = presentRetentionDialog(open(3650), st({ retentionPreview: { ...P, days: 3650, projectedBytes: 300e9 } }), NOW)!;
     expect(big.bar!.warn).toBe(true);
     expect(presentRetentionDialog(open(), st({ retentionPreview: null }), NOW)!.lines).toBeNull();
     expect(presentRetentionDialog(initialState(), st(), NOW)).toBeNull();
@@ -1829,12 +1828,12 @@ describe('presentSession の本文が消えた会話', () => {
 });
 
 describe('presentSettings の会話の保持', () => {
-  const R: RetentionDto = { days: 3650, source: 'user', userValue: 3650, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  const R: RetentionDto = { days: 3650, source: 'user', userValue: 3650, writable: true, unwritableReason: null, usage: { bytes: 1.5e9, dailyBytes: 50e6, freeBytes: 400e9, measuredAt: NOW } };
   it('4 つの選択肢と、今の日数での見込みを出す', () => {
     const p = presentSettings(initialState(), { ...initialStore(), retention: R }, NOW).retention!;
     expect(p.options.map((o) => o.label)).toEqual(['30 日', '90 日', '1 年', '10 年']);
     expect(p.days).toBe(3650);
-    expect(p.bar!.projLabel).toBe('10 年後に約 178 GB');
+    expect(p.bar!.projLabel).toBe('10 年後に約 183 GB');
   });
   it('選択肢に無い値は 5 つめとして順に並べる', () => {
     const p = presentSettings(initialState(), { ...initialStore(), retention: { ...R, days: 45, userValue: 45 } }, NOW).retention!;

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { UiAction } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfirmRequest } from '../mediator/types.ts';
+import { byteBase } from '../presenters/bytes.ts';
 import type { ConfirmDeleteSessionProps, ConfirmProjectProps } from '../presenters/confirm.ts';
 import type { ResumeHereCard, ResumeHereProps, TakeoverProps } from '../presenters/resumeHere.ts';
 import { Dialog } from './primitives/Dialog.tsx';
@@ -9,8 +10,8 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { SLOT, slot } from './primitives/slot.tsx';
 
-/** 本文の大きさ。KB で足りなくなる長さの本文があるので MB まで見る。 */
-const sizeLabel = (n: number): string => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${(n / 1024).toFixed(1)} KB`);
+/** 本文の大きさ。KB で足りなくなる長さの本文があるので MB まで見る。割る単位は byteBase（OS のファイルの画面にそろえる）。 */
+const sizeLabel = (n: number, k = byteBase()): string => (n >= k * k ? `${(n / k / k).toFixed(1)} MB` : `${(n / k).toFixed(1)} KB`);
 /** 置き換えの前にバックアップを置く場所。 */
 const BACKUP_DIR = '~/.agent-hangar/backups/transcripts/';
 

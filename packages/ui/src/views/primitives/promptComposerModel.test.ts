@@ -158,6 +158,7 @@ describe('添付の小さな関数', () => {
   it('formatSize は KB と MB で出す', () => {
     expect(formatSize(1)).toBe('1 KB');
     expect(formatSize(4000)).toBe('4 KB');
-    expect(formatSize(3 * 1024 * 1024)).toBe('3.0 MB');
+    expect(formatSize(3e6)).toBe('3.0 MB');
+    expect(formatSize(3 * 1024 * 1024, 1024)).toBe('3.0 MB');
   });
 });

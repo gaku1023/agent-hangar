@@ -1,6 +1,8 @@
 import type { ConfigApplyOrderEntryIn, ConfigApproval, ConfigBackupGenerationDto, ConfigConflictDto, ConfigExecMark, ConfigHeldReason, ConfigInboxItemDto, ConfigInboxOp, ConfigItemKind, ConfigUnsentItemDto, RetentionPreviewLine, Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
+import { clientPlatform } from '../keys.ts';
+import { byteBase } from './bytes.ts';
 import { absoluteTime, relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 
@@ -27,10 +29,12 @@ const hangarCommand = (store: Store, tail: string): string => {
   return /\sshell install$/.test(base) ? base.replace(/\sshell install$/, ` ${tail}`) : `hangar ${tail}`;
 };
 
-export function sizeLabel(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+/** 項目の大きさ。割る単位は bytes.ts の byteBase（OS のファイルの画面にそろえる）。 */
+export function sizeLabel(n: number, platform: string = clientPlatform()): string {
+  const k = byteBase(platform);
+  if (n < k) return `${n} B`;
+  if (n < k * k) return `${(n / k).toFixed(1)} KB`;
+  return `${(n / k / k).toFixed(1)} MB`;
 }
 
 /** 種類の見出しの鍵。鍵にハイフンは使えないので、claude-md だけ読み替える。 */

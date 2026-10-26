@@ -21,14 +21,6 @@ export function daysLabel(t: Translate, days: number): string {
   return days === 1 ? t('retentionDialog.period.oneDay') : t('retentionDialog.period.days', { n: days });
 }
 
-export function bytesLabel(bytes: number): string {
-  const GB = 1024 ** 3;
-  const MB = 1024 ** 2;
-  if (bytes >= GB) { const v = bytes / GB; return `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10} GB`; }
-  if (bytes >= MB) return `${Math.round(bytes / MB)} MB`;
-  return `${Math.round(bytes / 1024)} KB`;
-}
-
 export const expiresBy = (mtime: number, days: number): number => mtime + days * DAY_MS;
 
 export const isExpiringSoon = (s: SessionDto, days: number, now: number): boolean => s.transcriptMtime !== null && expiresBy(s.transcriptMtime, days) <= now + SOON_DAYS * DAY_MS;
