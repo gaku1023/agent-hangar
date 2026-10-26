@@ -82,11 +82,12 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
   // 木にあるセッションなら、まとまりの先頭に「表示中のペインへ移動」を足す。
   // 開く先は操作中のペイン（target は null）で、すでに木にあるセッションは mediator が新しく開かずそのペインへ移す。
   // ほかの PC の会話の「この PC で再開」は、その会話の主の操作なので、状態より先（先頭）に置く。
-  const split: SessionMenuEntry[] = [
-    ...(m.pane ? [{ key: 'goToPane', label: t('row.menu.goToPane'), icon: 'paneOpen' as const, disabled: null, send: { type: 'pane.focus', pane: m.pane } as const }] : []),
+  const goToPane: SessionMenuEntry[] = m.pane ? [{ key: 'goToPane', label: t('row.menu.goToPane'), icon: 'paneOpen', disabled: null, send: { type: 'pane.focus', pane: m.pane } }] : [];
+  const split = ([
+    ...goToPane,
     { key: 'splitRight', label: t('row.menu.splitRight'), icon: 'splitRight', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'right' } },
     { key: 'splitDown', label: t('row.menu.splitDown'), icon: 'splitDown', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'down' } },
-  ].map((e, i) => (i === 0 ? { ...e, separatorBefore: true } : e));
+  ] satisfies SessionMenuEntry[]).map((e, i): SessionMenuEntry => (i === 0 ? { ...e, separatorBefore: true } : e));
   return [
     ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
     ...states,
