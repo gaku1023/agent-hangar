@@ -21,7 +21,7 @@ export const paneJa: AreaDictionary<typeof paneKeys> = {
   'pane.menu.newDown': '下に空のペインを開く',
   'pane.menu.equalize': 'ペインのサイズを均等にする',
   'pane.menu.closeOthers': 'ほかのペインを外す',
-  'pane.menu.details': '詳しく（ID・モデル・ブランチ）',
+  'pane.menu.details': '詳細（ID、モデル、ブランチ）',
   'pane.drop.left': '左に分割',
   'pane.drop.right': '右に分割',
   'pane.drop.up': '上に分割',
