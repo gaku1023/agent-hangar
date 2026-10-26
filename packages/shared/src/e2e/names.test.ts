@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveEpochKeys, randomEpochKey } from './keys.ts';
-import { configBlobKey, fingerprint, isBlobKey, opencodeBlobKey, rowK, transcriptBlobKey } from './names.ts';
+import { codexBlobKey, configBlobKey, fingerprint, isBlobKey, opencodeBlobKey, rowK, transcriptBlobKey } from './names.ts';
 
 async function keys() {
   return deriveEpochKeys(1, randomEpochKey());
@@ -49,6 +49,19 @@ describe('鍵名（HMAC）', () => {
     expect(await opencodeBlobKey(index, 'pc-a', 'x', ses)).not.toBe(await transcriptBlobKey(index, 'pc-a', 'opencode', 'x', ses));
     expect(await opencodeBlobKey(index, 'pc-a', 'pc-b', ses)).not.toBe(oc);
     await expect(opencodeBlobKey(index, '../x', 'pc-a', ses)).rejects.toThrow();
+  });
+
+  it('codexBlobKey は thread の UUID だけで決まり、Claude と opencode の鍵名と交わらない', async () => {
+    const { index } = await keys();
+    const cx = await codexBlobKey(index, 'pc-a', 'pc-a', UUID);
+    expect(isBlobKey(cx)).toBe(true);
+    expect(cx.startsWith('b/pc-a/')).toBe(true);
+    expect(cx.includes(UUID)).toBe(false);
+    expect(await codexBlobKey(index, 'pc-a', 'pc-a', UUID)).toBe(cx);
+    expect(cx).not.toBe(await transcriptBlobKey(index, 'pc-a', 'pc-a', UUID, null));
+    expect(cx).not.toBe(await opencodeBlobKey(index, 'pc-a', 'pc-a', UUID));
+    expect(await codexBlobKey(index, 'pc-a', 'pc-b', UUID)).not.toBe(cx);
+    await expect(codexBlobKey(index, '../x', 'pc-a', UUID)).rejects.toThrow();
   });
 
   it('configBlobKey は相対パスごとに別で、同じ入力なら同じ', async () => {

@@ -144,6 +144,19 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
     expect(uploads).toEqual(['mine']);
   });
 
+  it('Codex の会話の本文は、エージェントを添えて上げ手へ知らせる（Claude の本文は今までどおり添えない）', () => {
+    const got: { sessionId: string; provider?: string }[] = [];
+    const h = createSessionChangeHandler({ db, deviceId: 'd', hub: publisher, started: () => started, workspaceRoot: () => ws, onLocalTranscript: (f) => { got.push(f); } });
+    const c = ensureSession(db, '0198a7c2-0000-7000-8000-000000000000', outside, 'd', 'codex');
+    const s = ensureSession(db, '11111111-1111-4111-8111-111111111118', outside, 'd');
+    h(changed(c, { uuid: '0198a7c2-0000-7000-8000-000000000000' }));
+    h(changed(s, { uuid: 'claude' }));
+    expect(got).toEqual([
+      { path: '/x.jsonl', sessionId: '0198a7c2-0000-7000-8000-000000000000', agentId: null, provider: 'codex' },
+      { path: '/x.jsonl', sessionId: 'claude', agentId: null },
+    ]);
+  });
+
   it('本文のファイルを持たない会話（opencode、path が null）は上げ手へ知らせず、プロジェクトへの紐づけと伸びの知らせは同じく行う', () => {
     const s = ensureSession(db, 'ses_stored_change', outside, 'd', 'opencode');
     const h = handler();

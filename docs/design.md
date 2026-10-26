@@ -7226,7 +7226,7 @@ R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 75
 同期するものは三つである。
 
 - **hangar のメタデータ**：共有テーブルの全行。PC が 1 行ずつ封じてから D1 の `rows` に置く。
-- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip し、暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。opencode（ベータ）の会話は、`session export` で書き出した JSON を同じ道で上げる（下の「opencode の本文」）。
+- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip し、暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。opencode（ベータ）の会話は、`session export` で書き出した JSON を同じ道で上げる（下の「opencode の本文」）。Codex（ベータ）の会話は、`$CODEX_HOME` の rollout を同じ道で上げる（下の「Codex の本文」）。
 - **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。本文と同じく暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 相対パス)>` で、相対パスは Worker に見えない。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
@@ -7394,12 +7394,12 @@ serve が無ければ `--standalone` で、私用のサーバを一時だけ起�
 鍵名は Claude と分ける。
 Claude の本文の鍵名と台帳の鍵は 1 字も変えない。
 
-| | Claude | opencode |
-| --- | --- | --- |
-| 封じたメタの path | `projects/<フォルダ>/<UUID>.jsonl` | `opencode/<ID>.json` |
-| 台帳の鍵（`ledgerKeyFor`） | `transcripts/<端末>/<UUID>.jsonl.gz` | `opencode/<端末>/<ID>.json.gz` |
-| R2 の鍵名の HMAC の入力 | `t:<元の PC>:<UUID>[:<サブエージェント>]` | `o:<元の PC>:<ID>`（`opencodeBlobKey`） |
-| kind | `transcript` | `transcript` |
+| | Claude | opencode | Codex |
+| --- | --- | --- | --- |
+| 封じたメタの path | `projects/<フォルダ>/<UUID>.jsonl` | `opencode/<ID>.json` | `codex/sessions/YYYY/MM/DD/<名前>.jsonl` か `codex/archived_sessions/<名前>.jsonl` |
+| 台帳の鍵（`ledgerKeyFor`） | `transcripts/<端末>/<UUID>.jsonl.gz` | `opencode/<端末>/<ID>.json.gz` | `codex/<端末>/<UUID>.jsonl.gz` |
+| R2 の鍵名の HMAC の入力 | `t:<元の PC>:<UUID>[:<サブエージェント>]` | `o:<元の PC>:<ID>`（`opencodeBlobKey`） | `x:<元の PC>:<UUID>`（`codexBlobKey`） |
+| kind | `transcript` | `transcript` | `transcript` |
 
 同期の単位はエージェントごとの表 `AGENT_SYNC`（`sync/agentSync.ts`）に持つ。
 行は上げ方（`source`：見張るファイルか、上げる直前に書き出すか）、台帳の鍵と取り出し、R2 の鍵名、専用の path と降ろし先、会話の ID の形、remote/ の写しを上げ直すかである。
@@ -7482,6 +7482,53 @@ opencode の会話を消すと、本文は opencode の記録の置き場に残�
 
 `hangar cloud teardown` の救出（`rescueSealedBodies`）は、ほかの PC の opencode の写しも `remote/<元の PC>/opencode/` に降ろす。
 自分の会話の写しは、原本が opencode の記録の置き場にあり、書き出しも手元にあるので、書き出しがあれば降ろし直さない。
+
+#### Codex の本文
+
+Codex（ベータ）の本文は、`$CODEX_HOME` の rollout（`sessions/YYYY/MM/DD/rollout-<時刻>-<UUID>.jsonl`）である（計画の段 E の E1）。
+単位は rollout 1 ファイルで、会話 1 つにあたる。
+鍵は thread の UUID（`provider_session_id`、名前の末尾）で、台帳の鍵は `codex/<端末>/<UUID>.jsonl.gz`、R2 の鍵名は `codexBlobKey`（`x:<元の PC>:<UUID>`）で求める。
+Claude と同じく、gzip して暗号化し、変化のたびに全体を上げ直し、指紋が前と同じなら PUT しない。
+rollout は追記だけで伸びる（実機の 0.164.0 で、先頭のバイト列が保たれたまま末尾に足されるのを確かめた）。
+
+7 日を過ぎた rollout は、機能 `local_thread_store_compression` を入れると `.jsonl.zst` に圧縮される（0.164.0 の既定は切）。
+上げる側は、実体が `.jsonl.zst` なら展開してから指紋を取り、展開した jsonl を上げる。
+名前が `.jsonl` から `.jsonl.zst` に変わっても、台帳と鍵名は UUID で引くので、同じ会話が 2 つにならない。
+展開した中身が前と同じなら上げない。
+resume すると `.jsonl` に展開されて 1 行足されるので、そのときは上げ直す。
+
+アーカイブの印は、封じたメタの path の置き場で運ぶ。
+`archived_sessions/` の直下にあれば `codex/archived_sessions/<名前>.jsonl`、そうでなければ `codex/sessions/YYYY/MM/DD/<名前>.jsonl` で、名前はいつも `.jsonl` に直す。
+日付のフォルダは名前の日付にそろえる（`codex unarchive` の戻り先がこの形のため）。
+中身が同じでも置き場が変われば上げ直し、同じ鍵名に上書きする。
+これは Codex のアーカイブで、hangar の Archived の状態とは別である。
+
+上げる契機は、Claude と同じく索引が本文の変化を見たとき（`onLocalTranscript`、30 秒の窓と上げ直しの間隔 10 分）と、run の終わりの `flushSession` である。
+resume しただけで rollout に 1 行足されるので、開始の直後にも変化として拾われる。
+ターンの終わりも、本文に行が足されるので同じ道で拾われる。
+`flushSession` は、DB の `sessions.provider` で Codex の会話と見分け、索引の台帳（`transcript_files`）の rollout を待ち行列に無くても上げる。
+取り残しの走査も Codex の台帳の鍵で突き合わせて積み、未送信の数に入れる。
+Claude の走査と数は `sessions.provider` が `claude-code` の行だけを見る。
+
+Codex を有効にしていない PC（設定の `codexEnabled` が切）では、上げも降ろしもしない。
+上げる側の Codex の口（`UploaderDeps.codex`）は、設定が入のときだけ置き場を返す。
+降ろす側は、Codex の行を降ろさずに区切りを先へ進める。
+越えた会話は、次に上がった版から降りる。
+
+降ろす側は、写しを `~/.agent-hangar/remote/<元の PC>/` の下に、封じたメタの path のまま置く（`remote/<元の PC>/codex/sessions/YYYY/MM/DD/<名前>.jsonl` か `remote/<元の PC>/codex/archived_sessions/<名前>.jsonl`）。
+`codex/` の下は、`codexSyncPath` が組む形だけを許す。
+置き場が変わった版を降ろしたら、前の置き場の写しを消し、同じ会話の写しを 1 つだけ残す。
+`$CODEX_HOME` の中の降ろし先は `codexHomePath` が求め、`$CODEX_HOME/sessions/YYYY/MM/DD/<元の名前>.jsonl` か `$CODEX_HOME/archived_sessions/<元の名前>.jsonl` である。
+`$CODEX_HOME` へ書くのは「この PC で再開」と引き継ぎ（計画の E2）で、Codex の DB（`state_5.sqlite` など）と索引には触らない。
+codex は起動のときに置かれた rollout を拾い直す。
+降ろした写しを `$CODEX_HOME` に直接置かないのは、この PC の Codex の索引がそれを手元の会話として読み、この PC の本文として上げ直してしまうからである。
+再開、引き継ぎ、削除（ゴミ箱の 30 日の掃除）は E2 で入れる。
+それまで `AGENT_SYNC.codex.isSessionId` はどの ID も断り、ゴミ箱の掃除は Codex の会話を拾わない。
+
+Codex を知らない版の PC は、Codex の行を受けても壊れない。
+その版の `blobKeyFor` は `projects/` と `opencode/` の形しか知らないので、`codex/` の path から鍵名を求め直せず、`SealedCloudClient` が行を開かずに捨てる（区切りは進む）。
+届いてしまっても、`remoteTranscriptPath` が path を断り、行ごとの失敗として 3 回で飛ばす（opencode の行と同じ守り）。
+Worker は変えない（kind は `transcript` のまま）。
 
 ### 設定の同期の作り直し
 
