@@ -92,6 +92,52 @@ describe('useSplitMotion', () => {
     expect(p1.getAttribute('aria-hidden')).toBeNull();
   });
 
+  describe('閉じるとき（矩形は data-r の [left, top, width, height]）', () => {
+    beforeEach(() => {
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        const [left, top, width, height] = JSON.parse(this.getAttribute('data-r') ?? '[0,0,0,0]') as number[];
+        return { left, top, width, height, right: left! + width!, bottom: top! + height!, x: left, y: top, toJSON: () => ({}) } as DOMRect;
+      });
+    });
+    const calls = () => animate.mock.calls.map((c) => c as unknown as [Keyframe[], KeyframeAnimationOptions]);
+
+    it('分割 → 1 つで、1 つの画面は残ったペインの場所から広がり、閉じるペインはその下で薄れる', () => {
+      const Two = (p: { frame: Frame; split: boolean }) => {
+        useSplitMotion(p.frame);
+        return p.split
+          ? <div data-pane-workspace="true"><div data-pane="p1" data-session="s1" data-r="[0,0,400,600]" /><div data-pane="p2" data-session="s2" data-r="[400,0,400,600]" data-testid="p2" /></div>
+          : <div data-testid="host"><div className="session-screen" data-r="[0,0,800,600]" data-testid="screen" /></div>;
+      };
+      const { rerender, getByTestId } = render(<Two frame={two} split={true} />);
+      const p2 = getByTestId('p2');
+      rerender(<Two frame={frameOf(true, 's1', panes(leaf('p1', 's1')))} split={false} />);
+      const screen = getByTestId('screen');
+      expect(p2.nextElementSibling).toBe(screen);
+      expect(p2.style.zIndex).toBe('');
+      expect(calls().find(([f]) => f[0]?.clipPath)?.[0][0]).toEqual({ transform: 'translate(0px, 0px)', clipPath: 'inset(0px 400px 0px 0px)' });
+      expect(calls().map(([f]) => f)).toContainEqual([{ opacity: 1 }, { opacity: 0 }]);
+    });
+
+    it('分割のまま閉じたら、残るペインは伸ばされず、元の場所から広がる。閉じるペインはその下で薄れる', () => {
+      const three = frameOf(true, 's1', panes(row(leaf('p1', 's1'), { kind: 'split', id: 'n2', dir: 'col', ratio: 0.5, a: leaf('p2', 's2'), b: leaf('p3', 's3') })));
+      const after = frameOf(true, 's2', panes({ kind: 'split', id: 'n2', dir: 'row', ratio: 0.5, a: leaf('p2', 's2'), b: leaf('p3', 's3') }));
+      const Ws = (p: { frame: Frame; closed: boolean }) => {
+        useSplitMotion(p.frame);
+        return p.closed
+          ? <div data-pane-workspace="true"><div key="p2" data-pane="p2" data-session="s2" data-r="[0,0,400,600]" data-testid="p2" /><div key="p3" data-pane="p3" data-session="s3" data-r="[400,0,400,600]" /></div>
+          : <div data-pane-workspace="true"><div key="p1" data-pane="p1" data-session="s1" data-r="[0,0,400,600]" data-testid="p1" /><div key="p2" data-pane="p2" data-session="s2" data-r="[400,0,400,300]" /><div key="p3" data-pane="p3" data-session="s3" data-r="[400,300,400,300]" /></div>;
+      };
+      const { rerender, getByTestId } = render(<Ws frame={three} closed={false} />);
+      const p1 = getByTestId('p1');
+      rerender(<Ws frame={after} closed={true} />);
+      const frames = calls().map(([f]) => f[0]!);
+      expect(frames.some((f) => String(f.transform ?? '').includes('scale'))).toBe(false);
+      expect(frames).toContainEqual({ transform: 'translate(400px, 0px)', clipPath: 'inset(0px 0px 300px 0px)' });
+      expect(frames).toContainEqual({ transform: 'translate(0px, 300px)', clipPath: 'inset(0px 0px 300px 0px)' });
+      expect(p1.nextElementSibling).toBe(getByTestId('p2'));
+    });
+  });
+
   it('動きを減らす設定（--dur が 0）では、測りも動かしもしない', () => {
     values['--dur'] = '0ms';
     const { rerender } = render(<Probe frame={one} split={false} />);

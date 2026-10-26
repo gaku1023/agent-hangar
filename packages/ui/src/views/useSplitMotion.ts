@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { paneLeaves, type PaneNode, type PanesState } from '../mediator/panes.ts';
 import { growIn, motionOn } from './primitives/motionKit.ts';
 import { motionMs } from './primitives/motion.ts';
-import { collapseHead, flipFrom, flyName, holdLayout, leavePane, nameSnap, paneEnter, retitle, riseParts, settleTop, type NameSnap, type Rect } from './primitives/splitMotion.ts';
+import { afterHeavyFrames, collapseHead, flipFrom, flyName, growFrom, holdLayout, leavePane, nameSnap, paneEnter, retitle, riseParts, settleTop, type NameSnap, type Rect } from './primitives/splitMotion.ts';
 
 /**
  * 画面の分割の、構造が替わるときの動き（1 つ ⇄ 分割、並びと最大化の入れ替え）。
@@ -108,14 +108,16 @@ function split(pre: Snap, next: Frame, root: ParentNode): void {
 /** 分割 → 1 つ。 */
 function unsplit(pre: Snap, next: Frame, root: ParentNode): void {
   const screen = root.querySelector<HTMLElement>('.session-screen:not([data-variant])');
-  // 薄れて縮むのは閉じるペインだけ。残るペインは、描き直された大きな見出しへ名前の札だけを飛ばす。
+  // 薄れるのは閉じるペインだけ。残るペインは、描き直された大きな見出しへ名前の札だけを飛ばす。
   // 残るペインは、操作中のセッション（画面の id）ではなく、木に残った葉で決める。
   const survivor = pre.panes.get(next.leafIds[0] ?? '') ?? [...pre.panes.values()].find((p) => p.session === next.single);
-  for (const [, p] of pre.panes) if (p !== survivor) void leavePane(p.el, p.rect);
+  // 閉じるペインは 1 つの画面の下に敷き、画面が残ったペインの場所から広がって覆う。
+  for (const [, p] of pre.panes) if (p !== survivor) void leavePane(p.el, p.rect, screen);
   if (!screen) return;
   const head = screen.querySelector<HTMLElement>('.page-head');
   const h1 = head?.querySelector<HTMLElement>('.page-title') ?? null;
   const anims = [];
+  if (survivor) anims.push(growFrom(screen, survivor.rect, rectOf(screen)));
   if (head) anims.push(growIn(head));
   if (survivor?.title && h1) flyName(survivor.title, h1);
   if (h1) riseParts([...(h1.parentElement?.children ?? [])].filter((c) => c !== h1 && c.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_PRECEDING), { first: 3 });
@@ -139,10 +141,14 @@ function tree(pre: Snap, next: Frame, root: ParentNode): void {
     const was = pre.panes.get(id);
     if (!was) { paneEnter(el, zoomChanged ? { delay: motionMs('--stagger', el) * 4, light: true } : {}); continue; }
     if (was.session !== (el.dataset.session ?? null)) { paneEnter(el); continue; }
-    flipFrom(el, was.rect, rectOf(el));
+    // 大きくなるペインは、中身を伸ばさずに広げる（閉じたあとの残り、最大化）。小さくなるものだけ FLIP で縮める。
+    const now = rectOf(el);
+    if (now.width >= was.rect.width - 1 && now.height >= was.rect.height - 1) growFrom(el, was.rect, now);
+    else flipFrom(el, was.rect, now);
   }
-  // 閉じたペイン。最大化で隠れただけのものは、木にまだあるので外れたとは数えない。
-  for (const [id, p] of pre.panes) if (!next.leafIds.includes(id)) void leavePane(p.el, p.rect);
+  // 閉じたペイン。最大化で隠れただけのものは、木にまだあるので外れたとは数えない。残るペインの下に敷く。
+  const ws = root.querySelector<HTMLElement>('[data-pane-workspace]');
+  for (const [id, p] of pre.panes) if (!next.leafIds.includes(id)) void leavePane(p.el, p.rect, ws?.firstElementChild);
 }
 
 /** 前の姿と今の DOM から動かす。 */
@@ -171,6 +177,7 @@ export function useSplitMotion(frame: Frame): void {
     pending.current = null;
     if (!was || !pre || pre.frame !== was) return;
     const kind = classify(was, frame);
-    if (kind) play(kind, pre, frame);
+    // 替わった直後のこまは、新しいペインの端末を作るので重い。動きはそれが過ぎてから。
+    if (kind) afterHeavyFrames(() => play(kind, pre, frame));
   });
 }

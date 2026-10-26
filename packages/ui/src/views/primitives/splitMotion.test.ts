@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LAYOUT_MOVING_ATTR } from './layoutMotion.ts';
-import { collapseHead, flashPane, flipFrom, flyName, holdLayout, landGhost, leavePane, nameSnap, paneEnter, previewIn, retitle, riseParts, settleTop } from './splitMotion.ts';
+import { afterHeavyFrames, collapseHead, flashPane, flipFrom, flyName, growFrom, holdLayout, landGhost, leavePane, nameSnap, paneEnter, previewIn, retitle, riseParts, settleTop } from './splitMotion.ts';
 
 /** jsdom は tokens.css を読まないので、どの要素から読んでもこの値が返るようにする（motionKit.test.ts と同じ）。 */
 let values: Record<string, string> = {};
@@ -34,6 +34,7 @@ describe('splitMotion（動きを減らす設定）', () => {
     expect(flyName({ text: 'a', rect, font: 15 }, el)).toBeNull();
     expect(riseParts(parts)).toEqual([null, null]);
     expect(flipFrom(el, rect, { ...rect, left: 200 })).toBe(false);
+    expect(growFrom(el, rect, { ...rect, width: 300 })).toBeNull();
     expect(paneEnter(el)).toBeNull();
     expect(flashPane(el)).toBeNull();
     expect(previewIn(el)).toBeNull();
@@ -87,6 +88,19 @@ describe('splitMotion（動くとき）', () => {
     expect(animate.mock.calls[0]![1]).toMatchObject({ duration: 420, easing: 'ease-out' });
   });
 
+  it('広がるときは、中身を伸ばさず、元の左上へ位置だけ戻し、元の大きさに切り抜いてから今の形へ', () => {
+    const el = div();
+    const to = { left: 0, top: 20, width: 300, height: 100 };
+    expect(growFrom(el, to, to)).toBeNull();
+    expect(animate).not.toHaveBeenCalled();
+    expect(growFrom(el, { left: 150, top: 20, width: 150, height: 60 }, to)).not.toBeNull();
+    const frames = animate.mock.calls[0]![0] as Keyframe[];
+    expect(frames[0]).toEqual({ transform: 'translate(150px, 0px)', clipPath: 'inset(0px 150px 40px 0px)' });
+    expect(frames[1]).toEqual({ transform: 'none', clipPath: 'inset(0px 0px 0px 0px)' });
+    expect(frames.some((f) => String(f.transform).includes('scale'))).toBe(false);
+    expect(animate.mock.calls[0]![1]).toMatchObject({ duration: 420, easing: 'ease-out' });
+  });
+
   it('新しいペインはぼかしと縮小から出る。最大化を戻したときは遅れて浅く出る', () => {
     const el = div();
     paneEnter(el);
@@ -124,10 +138,24 @@ describe('splitMotion（動くとき）', () => {
     await leavePane(pane, rect);
     expect(pane.isConnected).toBe(false);
     expect(animate.mock.calls[0]![0]).toEqual([expect.objectContaining({ opacity: 1 }), expect.objectContaining({ opacity: 0 })]);
+    // 薄れるだけ。ぼかしと縮みは、大きな面を毎こま描き直すので使わない。長さは --dur-exit、出だしの速い曲線。
+    expect(animate.mock.calls[0]![0]).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    expect(animate.mock.calls[0]![1]).toMatchObject({ duration: 420, easing: 'ease-out' });
     const head = document.createElement('div');
     await collapseHead(head, rect);
     expect(head.isConnected).toBe(false);
     expect((animate.mock.calls[1]![0] as Keyframe[]).at(-1)).toMatchObject({ height: '0px' });
+  });
+
+  it('残るものの手前に敷くと、閉じるペインは残るものの下に重なる（前へ出さない）', () => {
+    const host = div();
+    const keep = host.appendChild(document.createElement('div'));
+    const pane = document.createElement('div');
+    void leavePane(pane, rect, keep);
+    expect(pane.nextElementSibling).toBe(keep);
+    expect(pane.style.position).toBe('fixed');
+    expect(pane.style.zIndex).toBe('');
+    expect(pane.getAttribute('inert')).toBe('');
   });
 
   it('閉じるペインの要素がまだ文書にある（ほかのペインの描画に使い回された）ときは、動かさず外さない', async () => {
@@ -137,6 +165,59 @@ describe('splitMotion（動くとき）', () => {
     expect(pane.parentElement).toBe(host);
     expect(pane.getAttribute('style')).toBeNull();
     expect(animate).not.toHaveBeenCalled();
+  });
+
+  describe('afterHeavyFrames（描き替えの重いこまが過ぎてから動かす）', () => {
+    type Fake = { pause: ReturnType<typeof vi.fn>; play: ReturnType<typeof vi.fn> };
+    const fake = (): Fake => ({ pause: vi.fn(), play: vi.fn() });
+    let frames: FrameRequestCallback[] = [];
+    let anims: Fake[] = [];
+    const tick = (at: number) => { const f = frames; frames = []; for (const cb of f) cb(at); };
+    beforeEach(() => {
+      frames = [];
+      anims = [];
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { frames.push(cb); return frames.length; });
+      (document as unknown as { getAnimations: () => Fake[] }).getAnimations = () => anims;
+    });
+    afterEach(() => { delete (document as unknown as { getAnimations?: unknown }).getAnimations; });
+
+    it('中で作られた動きだけを止めておき、こまの間隔が戻ったら動かす。前からある動きには触れない', () => {
+      const old = fake();
+      anims.push(old);
+      const made = fake();
+      afterHeavyFrames(() => { anims.push(made); });
+      expect(made.pause).toHaveBeenCalled();
+      expect(old.pause).not.toHaveBeenCalled();
+      tick(0);
+      tick(70);
+      tick(120);
+      expect(made.play).not.toHaveBeenCalled();
+      tick(136);
+      expect(made.play).toHaveBeenCalledTimes(1);
+      expect(old.play).not.toHaveBeenCalled();
+      expect(frames).toHaveLength(0);
+    });
+
+    it('重いこまが続いても、長く待たせない', () => {
+      const made = fake();
+      afterHeavyFrames(() => { anims.push(made); });
+      for (let t = 0; t <= 400 && made.play.mock.calls.length === 0; t += 60) tick(t);
+      expect(made.play).toHaveBeenCalledTimes(1);
+    });
+
+    it('名前の札も、動き出すまで飛ばない', () => {
+      const target = div();
+      afterHeavyFrames(() => { flyName({ text: '名前', rect, font: 15 }, target); });
+      expect(frames).toHaveLength(1);
+    });
+
+    it('動きを減らす設定や getAnimations の無い環境では、そのまま呼ぶだけ', () => {
+      delete (document as unknown as { getAnimations?: unknown }).getAnimations;
+      const run = vi.fn();
+      afterHeavyFrames(run);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(frames).toHaveLength(0);
+    });
   });
 
   it('名前の札は見出しの上に作られ、飛ぶ間は行き先を隠す。止めると元に戻る', () => {
