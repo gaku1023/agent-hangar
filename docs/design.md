@@ -4013,7 +4013,8 @@ ssh（`git@host:owner/repo.git`、`ssh://git@host:22/owner/repo`）と https を
 - `GET /api/workspace/inspect?path=<パス>&name=<名前>`：選んだ 1 つのフォルダの事前の問い合わせ（`inspectFolder`、`FolderInspectDto`）。新しいセッションと新しいプロジェクトのダイアログが使う。
   登録済みか、別のプロジェクトの中か（その場所からの相対パスも）、結び付く候補があるかを返す。`name` を渡すと、弱い一致をフォルダの名前ではなくその名前で見る。
 - `POST /api/projects` の `{ kind: 'dir' }` は `allowNested` と `linkTo` を受ける。入れ子で `allowNested` が無ければ 409 で、本文は `ProjectNestedDto`（`code: 'project_nested'` と包むプロジェクト）である。
-- `POST /api/workspace/register` は、今までの `{ paths }`（どれも新しく作る）のほかに、`{ items: { path, linkTo?, allowNested? }[] }` を受ける。どちらか一方だけで、両方は 400 である。
+- `POST /api/workspace/register` は、`{ paths }` のほかに、`{ items: { path, linkTo?, allowNested? }[] }` を受ける。どちらか一方だけで、両方は 400 である。
+  `{ paths }`（`hangar project add`）は、作成場所の自動登録と同じ規則（強い一致と弱い一致）で結び付く候補を探し、あれば新しく作らずに結び付ける（issue #403）。worktree のフォルダは結び付けない（同じ remote の本体のプロジェクトの場所を取らないため）。`{ items }`（画面）は利用者が行ごとに選んでいるので、`linkTo` の無い行は新しく作る。
   結び付けたものの id を `linked` に返す。入れ子で `allowNested` の無い行、結び付けられない行は `failed` に理由を添えて入る。最後に `assignSessions` を呼ぶ。
 
 登録済みのプロジェクトの下のフォルダから始めるときは、セッションは親のプロジェクトに入れ、Claude Code はそのフォルダで起こす（利用者の答え）。
