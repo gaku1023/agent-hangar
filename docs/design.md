@@ -1694,7 +1694,7 @@ Windows のコマンド行は引用符を含む（空白を含む場所、cmd.ex
 ### Codex の起動（ベータ）
 
 Codex を足す作業の段 B の 3 つ目の前半（計画の B3a）で、新しい会話を API から起こし、止めるところまでを入れた。
-再開とフォークは B3b、状態と許可と質問は B4、トランスクリプトは B5、ダイアログの札は C1 である。
+再開とフォークは B3b、トランスクリプトは B5、ダイアログの札は C1 である。
 `provider/codex/driver.ts` の `createCodexDriver` が Codex の `AgentDriver` で、`boot/agents.ts` が Claude と opencode のとなりに登録する。
 driver が登録されたので、B1 の「知らないエージェント」の断りは外れる。
 代わりに `RunManager` が、設定の `codexEnabled` が切のとき `run.agent.codex.disabled` で断る（`AGENT_ENTRY.codex.enabled`。行も app-server も作らない）。
@@ -1748,10 +1748,15 @@ interrupt だけではシェルの子などの孫が残るので、app-server �
 **hangar を起こし直したとき**：app-server は（macOS と Linux では）プロセスのまとまりを分けて起こすので、hangar を閉じても残る（TUI がつないだまま会話が続く）。
 `provider/codex/registry.ts` が、`<hangar の置き場>/codex/app-servers.json` に、会話ごとの pid、ポート、token のファイルのパス、スレッドの ID を書く（token そのものは書かない）。
 `reattach` はこの記録から app-server を引き継ぐ。pid が死んでいる、token のファイルが無いときは引き継がない。
-接続は止めるときまで開かない。止めるときに token でつなげなかった（pid が別のプロセスに使い回されたかもしれない）引き継ぎ済みのものは、止めずに手放す。
+接続は、スレッドの ID が分かっている会話だけ、引き継ぎの直後に token でつなぎ直し、状態の面に載せる（`subscribed:false`。購読は状態の面が最初の active で行う）。ID が分からない会話は載せない。つなげなければ知らせるだけで、引き継ぎは続ける。止めるときに token でつなげなかった（pid が別のプロセスに使い回されたかもしれない）引き継ぎ済みのものは、止めずに手放す。
 
-状態の面（`live`）、許可と質問（`asks`）、トランスクリプト（`transcript`）は、B4 と B5 が載せるまで空の面を持ち、配る層（`LiveHub`、索引）にはまだ載せない。
-`CodexDriver.served(sessionId)` と `onServe` が、動いている app-server の接続とスレッドの ID を、B4 に渡す口である。
+状態の面（`live`）と許可と質問（`asks`）は、B4 の `createCodexLive` を `createCodexDriver` の deps に差す（`boot/agents.ts`）。`boot/delivery.ts` が `live.add(codex.live)` で実行中の一覧に束ね、`asks.subscribe` を opencode と同じ書き手（`routeAgentAsk`）につなぐ。
+driver が、会話を起こしたあとに `live.track({providerSessionId, cwd, pid, rpc, subscribed})` を呼び、止めたとき（release、起動の失敗）に `untrack` する。
+- 初期プロンプトあり：`thread/start` した接続なので `subscribed:true`。thread/start の直後に載せる。
+- 初期プロンプトなし：`watchStartedThread` で ID を拾ったときに `subscribed:false` で載せる。それまでは行が無い（行の ID は thread の ID なので、仮の `pending:` の ID では載せない）。
+- reattach：接続を持たないので、上のとおりつなぎ直してから載せる。
+トランスクリプト（`transcript`）は B5 が載せるまで空の面を持つ。
+`CodexDriver.served(sessionId)` と `onServe` は、動いている app-server の接続とスレッドの ID の口である。使用量（B7）の `codexUsage.track` はこの口にはつないでいない。
 
 ### opencode の起動
 

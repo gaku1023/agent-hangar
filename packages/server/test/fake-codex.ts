@@ -127,7 +127,7 @@ async function appServer(args) {
         case 'thread/read': {
           const t = threads.get(p.threadId);
           if (!t) return fail(-32600, 'thread not found: ' + p.threadId);
-          return ok({ thread: { ...threadBody(p.threadId, false), status: t.status ?? { type: t.current ? 'active' : 'idle', ...(t.current ? { activeFlags: [] } : {}) } } });
+          return ok({ thread: { ...threadBody(p.threadId, false), turns: t.current ? [{ id: t.current.id, status: 'inProgress' }] : [], status: t.status ?? { type: t.current ? 'active' : 'idle', ...(t.current ? { activeFlags: [] } : {}) } } });
         }
         case 'thread/loaded/list': return ok({ data: [...threads.keys()] });
         case 'thread/resume': {
