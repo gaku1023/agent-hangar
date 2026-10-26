@@ -134,7 +134,8 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     expect(sessions()).toEqual([expect.objectContaining({ id: r.sessionId, provider: 'codex', provider_session_id: id })]);
     expect(opened).toHaveLength(1);
     const cmd = opened[0]!.command;
-    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['--remote', '-m', 'gpt-x', '-s', 'danger-full-access', '-a', 'never', 'resume', id]));
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['--remote', '-m', 'gpt-x', 'resume', id]));
+    expect(cmd).not.toContain('-s');
     // token は argv にも tmux の環境にも載せず、0600 のファイルに置く。
     const secret = secretEnvPath(home, r.run.id);
     expect(fs.readFileSync(secret, 'utf8')).toMatch(new RegExp(`^${TUI_TOKEN_ENV}=.+\n$`));
@@ -218,7 +219,8 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     expect(sessions()).toEqual([expect.objectContaining({ id: r.sessionId, provider: 'codex', provider_session_id: id })]);
     expect(db.prepare('select project_id from sessions where id = ?').get(r.sessionId)).toEqual({ project_id: 'p1' });
     const cmd = opened[0]!.command;
-    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-s', 'danger-full-access', '-a', 'never', 'resume', id]));
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', 'resume', id]));
+    expect(cmd).not.toContain('-a');
     expect(JSON.stringify(opened[0]!.env)).not.toContain('/from-terminal');
     expect(JSON.stringify(opened[0]!.env)).not.toContain('/x/codex');
   });
@@ -230,9 +232,10 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     const r = await rm.startCodexFromTerminal(term(['resume', EXT, '-s', 'read-only']));
     expect(r.attached).toBe(false);
     expect(r.sessionId).toBe(sid);
-    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT });
+    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT, sandbox: 'read-only', approvalPolicy: 'on-request' });
     const cmd = opened[0]!.command;
-    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-s', 'read-only', '-a', 'on-request', 'resume', EXT]));
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['--remote', 'resume', EXT]));
+    expect(cmd).not.toContain('-s');
     const again = await rm.startCodexFromTerminal(term(['resume', EXT]));
     expect(again.attached).toBe(true);
     expect(again.run.id).toBe(r.run.id);

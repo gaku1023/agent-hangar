@@ -7,6 +7,7 @@ import type { InjectionEntry, LaunchPlan, LaunchSpec, SessionMode } from '../../
  * app-server と TUI（`--remote`）は別のプロセスで、設定の効く先が違う（findings 3 節）。
  * - app-server：MCP、追記、推論、権限の既定。TUI の `-c` は app-server に効かないので、会話に効かせたい設定は app-server の起動時に `-c` で渡す。
  * - TUI：モデル、推論、`-s`、`-a`。resume なしの TUI は自分でスレッドを作る（初期プロンプトが無いとき）ので、そのスレッドへ効かせるために TUI の側にも渡す。
+ *   resume でつなぐときは `-s` と `-a` を渡さない。`--remote` の resume は権限の上書きがあると起動を断る（codex 0.164.0）。権限は hangar が thread/start・thread/resume・thread/fork で渡してある。
  * ~/.codex の設定ファイルは書かない（`-c` だけ）。
  */
 
@@ -94,7 +95,7 @@ export function planCodex(bin: string, mode: SessionMode, spec: LaunchSpec, remo
   if (spec.model?.trim()) argv.push('-m', spec.model.trim());
   const effort = codexEffortOf(spec.effort);
   if (effort) argv.push('-c', `model_reasoning_effort=${toml(effort)}`);
-  argv.push('-s', flags.sandbox, '-a', flags.approval);
-  if (!threadId.startsWith(PENDING_PREFIX)) argv.push('resume', threadId);
+  if (threadId.startsWith(PENDING_PREFIX)) argv.push('-s', flags.sandbox, '-a', flags.approval);
+  else argv.push('resume', threadId);
   return { argv, env: {}, secretEnv: { ...remote.env }, unset: [...new Set([...droppedEnv, 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'])] };
 }

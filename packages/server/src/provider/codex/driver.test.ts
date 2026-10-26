@@ -178,7 +178,9 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
 
     const plan = d.launch.plan('/bin/codex', { kind: 'resume', id: EXT }, spec({ mode: 'read-only' }));
     expect(plan.argv.slice(-2)).toEqual(['resume', EXT]);
-    expect(plan.argv).toEqual(expect.arrayContaining(['--remote', '-s', 'read-only', '-a', 'on-request']));
+    expect(plan.argv).toEqual(expect.arrayContaining(['--remote']));
+    expect(plan.argv).not.toContain('-s');
+    expect(plan.argv).not.toContain('-a');
     expect(plan.secretEnv?.[TUI_TOKEN_ENV]).toBeTruthy();
   });
 
