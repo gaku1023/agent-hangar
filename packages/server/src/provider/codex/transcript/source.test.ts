@@ -174,3 +174,26 @@ describe('見張り', () => {
     expect(s.scan({}).seen).toBeNull();
   });
 });
+
+describe('read（枠の知らせ）', () => {
+  it('束の中の最後の meta rate_limits を onRateLimits へ渡す（枠の行が無ければ呼ばない）', () => {
+    put(1, '2026-10-26T09-00-00');
+    const seen: { value: unknown; ts: unknown }[] = [];
+    const s = codexTranscriptSource({ codexHome: () => home, enabled: () => true, onRateLimits: (value, ts) => { seen.push({ value, ts }); } });
+    const file = s.scan({}).index[0]!;
+    s.read(file, 0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.value).toMatchObject({ rate_limits: { limit_id: 'codex', primary: { used_percent: 3 } } });
+    expect(typeof seen[0]!.ts === 'string' || typeof seen[0]!.ts === 'number').toBe(true);
+  });
+  it('切のときは呼ばない', () => {
+    put(1, '2026-10-26T09-00-00');
+    const seen: unknown[] = [];
+    let on = true;
+    const s = codexTranscriptSource({ codexHome: () => home, enabled: () => on, onRateLimits: (v) => { seen.push(v); } });
+    const file = s.scan({}).index[0]!;
+    on = false;
+    s.read(file, 0);
+    expect(seen).toEqual([]);
+  });
+});

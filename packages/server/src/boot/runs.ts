@@ -108,7 +108,7 @@ export type RunsParts = {
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'bindCodexUsage' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
   listening: { host: string; port: number },
   o: { serverDir: string; launcher?: string },
 ): RunsParts {
@@ -208,6 +208,8 @@ export function bootRuns(
       if (s) touchRow(db, 'sessions', s.id);
     },
   });
+  // 起こした Codex の会話の接続から、枠と文脈を読ませる（driver が track と untrack を呼ぶ）。
+  delivery.bindCodexUsage(codexUsage);
   const accounts: AccountsDeps = {
     db, store: accountStore, auth: accountAuth, usage, agentUsage, runs, primaryDir: claudeDir, deviceId: device.id,
     broadcast: (dto) => hub.broadcast({ type: 'accounts.update', accounts: dto }),

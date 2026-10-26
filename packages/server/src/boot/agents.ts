@@ -12,6 +12,7 @@ import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider
 import type { GetLanguage } from '../i18n/language.ts';
 import { LocalCodex } from '../provider/codex/compat/version.ts';
 import { createCodexDriver, type CodexDriver } from '../provider/codex/driver.ts';
+import type { CodexUsage } from '../provider/codex/usage.ts';
 import { createCodexLive } from '../provider/codex/live.ts';
 import { findCodex } from '../config/tools.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
@@ -48,6 +49,11 @@ export type AgentParts = {
    * serve の管理は、前の hangar が残した serve の掃除を待ち受けの後に始めるので、配る層より後で組む。それまでの起動は断る。
    */
   bindOpencodeServes(serves: OpencodeServes): void;
+  /**
+   * Codex の使用量の面（provider/codex/usage.ts）を driver に渡す。使用量は run の部品（boot/runs.ts）が組むので、配る層より後に結ぶ。
+   * それまでに起こした会話は、track されない（起動の最初は、まだ会話が無い）。
+   */
+  bindCodexUsage(usage: CodexUsage): void;
 };
 
 /**
@@ -99,6 +105,7 @@ export function bootAgents(
     }),
   });
   // Codex の状態と許可・質問の面（B4）。起こした会話は driver が track し、止めたら untrack する。足し付けの鎖は opencode と同じものを通す。
+  let codexUsage: CodexUsage | null = null;
   const codexSurface = createCodexLive({ enrich: o.enrich, log: (line) => { console.warn(line); } });
   const codexProbe = new LocalCodex({ bin: () => findCodex() });
   const codex = createCodexDriver({
@@ -111,8 +118,9 @@ export function bootAgents(
     droppedEnv: AGENT_RUN_DROPPED_ENV,
     live: codexSurface.live,
     asks: codexSurface.asks,
+    usage: () => codexUsage,
   });
-  return { agents: agentsOf([claude, opencode, codex]), claude, opencode, codex, bindOpencodeServes: (s) => { serves = s; } };
+  return { agents: agentsOf([claude, opencode, codex]), claude, opencode, codex, bindOpencodeServes: (s) => { serves = s; }, bindCodexUsage: (u) => { codexUsage = u; } };
 }
 
 /**

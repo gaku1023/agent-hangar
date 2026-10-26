@@ -1621,8 +1621,13 @@ Codex を足す作業の段 B の 7 つ目（計画の B7）で、枠と会話�
 `SessionStatsDto.contextPercent` と `contextTokens` は、この表から導く既存の道をそのまま通る。
 
 差し込む口は `createCodexUsage` が返す `{ track, untrack, noteRolloutRateLimits }` で、`RunsParts.codexUsage` に載っている。
-起動の面（B3a）が app-server につないだあとに `track({ providerSessionId, rpc, model })` を呼び、止めるときに `untrack` する。
-rollout の読み手（B5）が `rate_limits` の meta を出したら `noteRolloutRateLimits` に渡す。
+配線は次のとおりである（B7b）。
+driver（`provider/codex/driver.ts`）は、状態の面（live）に載せるのと同じ位置で `track({ providerSessionId, rpc, model })` を呼ぶ。
+新規（初期プロンプトあり）、再開、fork は thread の応答の直後、初期プロンプトなしは TUI がつないで ID を拾ったとき、hangar の再起動後は app-server へつなぎ直せたときである（つなぎ直しは非同期で、つながるまで読まない）。
+止めたとき（release）と起動の失敗で `untrack` する。model は起動の指定か thread の応答の値である。
+使用量の面は run の部品（boot/runs.ts）が組み、driver は配る層（boot/agents.ts）が先に組むので、driver には呼ばれた時点で引く口（`usage`）を渡し、boot/runs.ts が `bindCodexUsage` で結ぶ。
+外の会話の枠は、Codex のトランスクリプトの面（`codexTranscriptSource` の `onRateLimits`）が、読んだ束の最後の meta `rate_limits` を渡し、server.ts が `indexing.bindCodexRateLimits` で `noteRolloutRateLimits` に結ぶ。`codexEnabled` が切の間は呼ばない。
+設定の入り切りが変わったとき（`PATCH /api/settings`）は `AgentUsageTracker.refresh()` を呼ぶ。切なら持っていた値を捨て、どちらでも `accounts.update` を配り直すので、切にした瞬間にヘッダの元から Codex の枠が外れる。
 
 ### opencode の検出（ベータ）
 
