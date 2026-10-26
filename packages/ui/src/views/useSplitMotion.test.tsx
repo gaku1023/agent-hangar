@@ -118,6 +118,26 @@ describe('useSplitMotion', () => {
       expect(calls().map(([f]) => f)).toContainEqual([{ opacity: 1 }, { opacity: 0 }]);
     });
 
+    it('分割 → 1 つで、新しい 1 つの画面の入場（CSS の enter）はすぐ終わらせる。同じセッションなので薄れて出し直さない', () => {
+      const finished: Element[] = [];
+      (Element.prototype as unknown as { getAnimations: unknown }).getAnimations = function (this: Element) {
+        return [...this.querySelectorAll('.screen'), ...(this.matches('.screen') ? [this] : [])].map((target) => ({ animationName: 'enter', effect: { target }, finish: () => finished.push(target) }));
+      };
+      try {
+        const Two = (p: { frame: Frame; split: boolean }) => {
+          useSplitMotion(p.frame);
+          return p.split
+            ? <div data-pane-workspace="true"><div data-pane="p1" data-session="s1" data-r="[0,0,400,600]" /><div data-pane="p2" data-session="s2" data-r="[400,0,400,600]" /></div>
+            : <div><div className="screen session-screen" data-r="[0,0,800,600]" data-testid="screen" /></div>;
+        };
+        const { rerender, getByTestId } = render(<Two frame={two} split={true} />);
+        rerender(<Two frame={frameOf(true, 's1', panes(leaf('p1', 's1')))} split={false} />);
+        expect(finished).toContain(getByTestId('screen'));
+      } finally {
+        delete (Element.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+      }
+    });
+
     it('分割のまま閉じたら、残るペインは伸ばされず、元の場所から広がる。閉じるペインはその下で薄れる', () => {
       const three = frameOf(true, 's1', panes(row(leaf('p1', 's1'), { kind: 'split', id: 'n2', dir: 'col', ratio: 0.5, a: leaf('p2', 's2'), b: leaf('p3', 's3') })));
       const after = frameOf(true, 's2', panes({ kind: 'split', id: 'n2', dir: 'row', ratio: 0.5, a: leaf('p2', 's2'), b: leaf('p3', 's3') }));

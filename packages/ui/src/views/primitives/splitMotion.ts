@@ -38,7 +38,8 @@ export function afterHeavyFrames(run: () => void): void {
   const gate = new Promise<void>((r) => { release = r; });
   held = gate;
   try { run(); } finally { if (held === gate) held = null; }
-  const made = document.getAnimations().filter((a) => !before.has(a));
+  // 中で終わらせた動き（settleEntrance）は数えない。止めて動かし直すと、頭からやり直す。
+  const made = document.getAnimations().filter((a) => !before.has(a) && a.playState === 'running');
   for (const a of made) a.pause();
   let first = -1;
   let last = -1;
@@ -51,6 +52,19 @@ export function afterHeavyFrames(run: () => void): void {
     release();
   };
   requestAnimationFrame(frame);
+}
+
+/**
+ * root の中の画面（.screen）の入場（CSS の enter）を、すぐ終わらせる。
+ * 分割の形が替わると、ペインの中の画面は描き直されて入場をやり直し、不透明度 0 から出る。その間、ペインの白い地が透ける。
+ * 出入りは分割の動きが受け持つので、画面の入場は重ねない。ほかの CSS の動き（端末の縁の明滅など）には触れない。
+ */
+export function settleEntrance(root: Element): void {
+  if (typeof root.getAnimations !== 'function') return;
+  for (const a of root.getAnimations({ subtree: true })) {
+    const target = (a.effect as KeyframeEffect | null)?.target;
+    if ((a as CSSAnimation).animationName === 'enter' && target instanceof Element && target.classList.contains('screen')) a.finish();
+  }
 }
 
 /** いまの姿を NameSnap に写す。 */
@@ -229,9 +243,13 @@ function ghostAt(el: HTMLElement, rect: Rect, below?: Element | null): void {
   el.style.pointerEvents = 'none';
   el.setAttribute('aria-hidden', 'true');
   el.setAttribute('inert', '');
-  if (below?.parentNode) { below.parentNode.insertBefore(el, below); return; }
-  el.style.zIndex = '60';
-  document.body.appendChild(el);
+  if (below?.parentNode) below.parentNode.insertBefore(el, below);
+  else {
+    el.style.zIndex = '60';
+    document.body.appendChild(el);
+  }
+  // 差し戻すと、中の画面の入場が頭からやり直す（不透明度 0 になり、白い地だけが見える）。
+  settleEntrance(el);
 }
 
 /**
