@@ -7,7 +7,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 索引、準備の確かめ、互換、要約器の経路が使う依存。 */
-export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'codexOptions' | 'summary' | 'external'> & LanguageDeps;
+export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'codexStatus' | 'codexOptions' | 'opencodeOptions' | 'summary' | 'external'> & LanguageDeps;
 
 /**
  * この PC の道具立ての経路。
@@ -40,6 +40,8 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
   api.get('/compat', async (c) => c.json(await deps.compat()));
   // opencode の検出（ベータ）。設定の入り切りに関わらず答える（有効にする前に、入っているかと版を見せるため）。
   api.get('/opencode/status', async (c) => c.json(await deps.opencodeStatus()));
+  // Codex の検出（ベータ）。設定の入り切りに関わらず答える（有効にする前に、入っているかと版とログインを見せるため）。
+  api.get('/codex/status', async (c) => c.json(await deps.codexStatus()));
   // 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、省けばホームで聞く。refresh=1 は手元の一覧を使わずに取り直す。
   // serve を起こすことがあるので、設定で有効にしていなければ断る（有効にするまで、どこにも出さない）。
   api.get('/opencode/options', async (c) => {

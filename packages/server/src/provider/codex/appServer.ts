@@ -39,6 +39,15 @@ export function trustedProjectsConfig(dirs: readonly string[]): string {
   return `projects={${dirs.map((d) => `${toml(d)}={trust_level="trusted"}`).join(',')}}`;
 }
 
+/**
+ * cmd.exe 越し（.cmd の shim）に渡す 1 語。`shell: true` は語を空白でつなぐだけなので、" を含む語（TOML の `-c`）は自分で包む。
+ * CRT の規則（" の前の \ は 2 倍、" は \"、末尾の \ は 2 倍）で包み、% は cmd に展開させない。
+ */
+export function winCmdArg(s: string): string {
+  const body = s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1').replace(/%/g, '"^%"');
+  return `"${body}"`;
+}
+
 export type AppServerArgsInput = {
   port: number;
   tokenFile: string;
@@ -367,7 +376,7 @@ async function launchOnce(o: StartAppServerOptions, port: number, token: string,
   const startedAt = Date.now();
   const viaShell = needsShell(o.bin);
   const args = appServerArgs({ port, tokenFile, trustedDirs: [o.directory], config: o.config });
-  const child = spawn(viaShell ? `"${o.bin}"` : o.bin, args, {
+  const child = spawn(viaShell ? `"${o.bin}"` : o.bin, viaShell ? args.map(winCmdArg) : args, {
     cwd: o.directory,
     env: o.env,
     stdio: ['ignore', 'pipe', 'pipe'],

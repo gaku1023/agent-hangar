@@ -46,4 +46,7 @@ export const launchPrepKeys = {
   'launchPrep.error.cancelled': [],
   'launchPrep.error.notRunning': [],
   'launchPrep.error.notFound': [],
+  'launchPrep.error.modelMissing': ['model', 'available'],
+  'launchPrep.error.modelMissingNone': ['model', 'name'],
+  'launchPrep.error.serverDown': ['name', 'url'],
 } as const satisfies MessageSpec;

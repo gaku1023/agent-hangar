@@ -234,6 +234,8 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
   const agentIcons = agentIconsShown({
     opencodeEnabled: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('opencode')),
     hasOpencode: rows.some((r) => r.agent === 'opencode'),
+    codexEnabled: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('codex')),
+    hasCodex: rows.some((r) => r.agent === 'codex'),
   });
   return { waiting, running, returning, doneToday, devices, unreadable, feeds, skewMs, workerCompat: res.workerCompat ?? null, agentIcons };
 }

@@ -5,7 +5,7 @@ import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { FolderInspectState } from './folderInspect.ts';
 import type { LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CodexOptionsDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { CodexStatusDto, EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -102,6 +102,8 @@ export type Store = {
   compat: CompatDto | null;
   // opencode の検出（GET /api/opencode/status、ベータ）。設定の画面に入ったときに取る。未取得と、取れなかったときは null である。
   opencodeStatus: OpencodeStatusDto | null;
+  // Codex の検出（GET /api/codex/status、ベータ）。有効にしている間と設定の画面に入ったときに取る。未取得と、取れなかったときは null である。
+  codexStatus: CodexStatusDto | null;
   /** 新しいセッションで opencode を選んだときのモードとモデル（GET /api/opencode/options）。最後に頼んだ 1 件だけを持つ。頼む前は null。 */
   opencodeOptions: OpencodeOptionsState | null;
   /** 新しいセッションで Codex を選んだときのモデルと推論の段階（GET /api/codex/options）。頼む前は null。 */
@@ -177,7 +179,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, opencodeOptions: null, codexOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
+    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,

@@ -10,6 +10,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { RunError, type RunListener } from '../runs/manager.ts';
+import { AgentUsageTracker } from '../usage/agentUsage.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { accountsRoutes, announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './accounts.ts';
 
@@ -304,5 +305,18 @@ describe('アカウントの HTTP', () => {
     const r = await call('POST', '/accounts', { name: 'univ', dir: '~/.claude-univ' });
     expect(r.status).toBe(201);
     expect(r.json.accounts[1]!.dir).toBe(path.join(userHome, '.claude-univ'));
+  });
+});
+
+describe('agents（Claude 以外のエージェントの枠）', () => {
+  it('枠が無い間は agents を付けない。Claude の枠の形は変わらない', () => {
+    const d = buildAccountsDto({ ...deps, agentUsage: new AgentUsageTracker() });
+    expect('agents' in d).toBe(false);
+    expect(buildAccountsDto(deps)).toEqual(buildAccountsDto({ ...deps, agentUsage: new AgentUsageTracker() }));
+  });
+  it('Codex の枠が届いたら agents.codex に付ける', () => {
+    const t = new AgentUsageTracker({ now: () => 10 });
+    t.set('codex', { fiveHour: { usedPercent: 5, resetsAt: 100 }, sevenDay: null, plan: 'plus' }, 9);
+    expect(buildAccountsDto({ ...deps, agentUsage: t }).agents).toEqual({ codex: { fiveHour: { usedPercent: 5, resetsAt: 100 }, sevenDay: null, updatedAt: 9, plan: 'plus' } });
   });
 });
