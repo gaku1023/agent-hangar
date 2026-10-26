@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, OpencodeOptionsDto, OpencodeStatusDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncDiskShortDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, CodexOptionsDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, OpencodeOptionsDto, OpencodeStatusDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncDiskShortDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -221,6 +221,11 @@ export type AppDeps = {
    * refresh は、手元の一覧が新しくても取り直すこと（モデルの小窓の LM Studio の「再読み込み」）。
    */
   opencodeOptions: (dir: string | null, o?: { refresh?: boolean }) => Promise<OpencodeOptionsDto>;
+  /**
+   * 新しいセッションで Codex を選んだときのモデルと推論の段階（provider/codex/options.ts。`codex debug models`）。
+   * refresh は、手元の一覧が新しくても取り直すこと。取れなければ投げる（手元に前の一覧があればそれを返す）。
+   */
+  codexOptions: (o?: { refresh?: boolean }) => Promise<CodexOptionsDto>;
   /**
    * 設定の「連携 › opencode › プロバイダー」（provider/opencode/integration.ts）。
    * API キーは opencode の integration に渡すだけで、応答にもログにも載せない。試験は opencode を起こさない偽物を渡す。

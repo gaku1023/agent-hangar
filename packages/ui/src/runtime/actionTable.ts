@@ -194,6 +194,12 @@ export const actionTable = {
     apply: (store, data) => (store.opencodeOptions?.dir === i.dir ? { ...store, opencodeOptions: { dir: i.dir, status: 'ready', data } } : store),
     failed: (store) => (store.opencodeOptions?.dir === i.dir ? { ...store, opencodeOptions: { ...store.opencodeOptions, status: 'failed' } } : store),
   }),
+  // 新しいセッションで Codex を選んだときのモデルと推論の段階。読み直しの間と失敗したときは、前の答えを残す。読めなくてもトーストにせず、ダイアログが札の下で言う。
+  'codex.options': (i) => call((api) => api.codexOptions(i.refresh), {
+    before: (store) => ({ ...store, codexOptions: { status: 'loading', data: store.codexOptions?.data ?? null } }),
+    apply: (store, data) => ({ ...store, codexOptions: { status: 'ready', data } }),
+    failed: (store) => ({ ...store, codexOptions: { status: 'failed', data: store.codexOptions?.data ?? null } }),
+  }),
   // 設定の「連携 › opencode › プロバイダー」。読み直しの間と失敗したときは、前の一覧を残す。
   'opencode.providers.load': () => call((api) => api.opencodeProviders(), {
     before: (store) => withProviders(store, (p) => ({ status: p.data ? 'ready' : 'loading', error: null })),

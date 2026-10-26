@@ -74,6 +74,8 @@ export type UiAction =
   // 新しいセッションで opencode（ベータ）を選んだときの、モードとモデルの一覧（GET /api/opencode/options）。dir はその場所（opencode.json の重なりが場所で変わる）で、null はホーム。
   // 答えは Store の opencodeOptions に入る。最後に頼んだ 1 件だけを持つ。refresh は手元の一覧を使わずに取り直す（モデルの小窓の LM Studio の「再読み込み」）。
   | { type: 'opencode.options'; dir: string | null; refresh?: boolean }
+  // 新しいセッションで Codex（ベータ）を選んだときの、モデルと推論の段階の一覧（GET /api/codex/options）。答えは Store の codexOptions に入る。refresh は手元の一覧を使わずに取り直す。
+  | { type: 'codex.options'; refresh?: boolean }
   // 設定の「連携 › opencode › プロバイダー」（ベータ）。どれも答えは Store の opencodeProviders に入る。
   // key は API キーで接続する（変更も同じ）。API キーは opencode の integration に渡すだけで、Store にも残さない。
   // custom は OpenAI 互換のサーバー（opencode.json に書く）、model はモデル ID の追加、login はログインを始め、poll で進みを聞き、code でコードを送り、cancel で取り消す。

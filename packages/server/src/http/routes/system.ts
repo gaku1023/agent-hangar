@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import { opencodeEnabledOf, type MuxRecheckDto } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, type MuxRecheckDto } from '@agent-hangar/shared';
 import { recheckMuxPath } from '../../config/readiness.ts';
 import { statuslineStatus } from '../../provider/claude-code/config/statusline.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
@@ -7,7 +7,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 索引、準備の確かめ、互換、要約器の経路が使う依存。 */
-export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'summary' | 'external'> & LanguageDeps;
+export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'codexOptions' | 'summary' | 'external'> & LanguageDeps;
 
 /**
  * この PC の道具立ての経路。
@@ -48,6 +48,16 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
       return c.json(await deps.opencodeOptions(c.req.query('dir') || null, { refresh: c.req.query('refresh') === '1' }));
     } catch (e) {
       return c.json({ error: tr('system.opencode.optionsFailed', { reason: errorText(language(), e) }) }, 502);
+    }
+  });
+  // 新しいセッションで Codex を選んだときのモデルと推論の段階（codex debug models）。refresh=1 は手元の一覧を使わずに取り直す。
+  // codex を打つので、設定で有効にしていなければ断る。
+  api.get('/codex/options', async (c) => {
+    if (!codexEnabledOf(deps.settings())) return c.json({ error: tr('system.codex.disabled') }, 409);
+    try {
+      return c.json(await deps.codexOptions({ refresh: c.req.query('refresh') === '1' }));
+    } catch (e) {
+      return c.json({ error: tr('system.codex.optionsFailed', { reason: errorText(language(), e) }) }, 502);
     }
   });
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));

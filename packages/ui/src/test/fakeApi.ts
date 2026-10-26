@@ -7,7 +7,7 @@ const EMPTY_OC_PROVIDERS = { connected: [], catalog: [], configPath: '/Users/me/
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'cancelPrep' | 'prepareModels' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'codexOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinCodeCurrent' | 'joinCodeIssue' | 'joinCodeApprove' | 'joinCodeReject' | 'joinCodeClose' | 'recoveryKeyReissue' | 'recoveryKeyConfirm' | 'cloudDevices' | 'mobilePairing' | 'mobilePaired'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
@@ -75,6 +75,7 @@ export function fakeApiExtras(): Extras {
     recheckMux: vi.fn(async () => unused()),
     compat: vi.fn(async () => ({ verifiedVersion: '2.1.292', localVersion: '2.1.292', drifts: [] })),
     opencodeStatus: vi.fn(async () => ({ found: false, version: null, verified: false })),
+    codexOptions: vi.fn(async () => ({ version: '0.164.0', verified: true, models: [], fetchedAt: 0 })),
     opencodeOptions: vi.fn(async () => ({ version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }, { id: 'plan', description: null }], models: [], providers: [], defaultModel: null, pricesAt: null, fetchedAt: 0, stale: false })),
     opencodeProviders: vi.fn(async () => EMPTY_OC_PROVIDERS),
     opencodeProviderKey: vi.fn(async () => EMPTY_OC_PROVIDERS),
