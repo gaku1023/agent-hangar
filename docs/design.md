@@ -7637,7 +7637,7 @@ id は 3 種類。`opencode:file:<相対パス>`、`opencode:json:<鍵の道>`�
 `opencode:mcp:` はこの対象のものではない（MCP の PR が持つ）。
 - ファイル：`AGENTS.md`、`agents/`・`agent/`、`commands/`・`command/`、`skills/`・`skill/`、`plugins/`・`plugin/`、`themes/`。v1 形と v2 形のディレクトリは名前を変えずに運ぶ。`opencode.json(c)`、`cli.json`、`tui.json`、`service.json`、`package.json`、`bun.lock*` は、ファイルとしては運ばない。
 - opencode.json(c) の鍵：運ぶのは `model`、`small_model`、`compaction`、`permission`、`share`、`autoupdate`、`theme`、`instructions`、`agent(s).<名前>.{prompt,description,mode,temperature,top_p,steps,permission}`。1 つの鍵が 1 項目である。
-  運ばないのは `provider(s)`、`skills`、`plugin(s)`、`agent(s).<名前>.model`（理由は `machine`）、絶対パスの `instructions` の要素（理由は `path`。`~/…` と URL と相対は運ぶ）。`$schema` と `mcp` は黙って外す。それ以外の鍵と、型の合わない値は「知らない鍵」で、`config_unsent` の `unknown-key`（id は `unknown-key:opencode:json:…`）に出し、値は持たない。
+  運ばないのは `provider(s)`、`skills`、`plugin(s)`、`agent(s).<名前>.model`（理由は `machine`）、絶対パスの `instructions` の要素（理由は `path`。`~/…` と URL と相対は運ぶ）。`$schema` は黙って外す。`mcp` は MCP の対象（`opencode-mcp`）が運ぶので、ここでは黙って外す。それ以外の鍵と、型の合わない値は「知らない鍵」で、`config_unsent` の `unknown-key`（id は `unknown-key:opencode:json:…`）に出し、値は持たない。
   `instructions` を書くとき、手元の絶対パスの要素は残す（他の PC に運ばれていないので、届いた値で消さない）。
 - 両方あるとき：`opencode.json` と `opencode.jsonc` の両方があれば jsonc を正として読み、書くのも jsonc にする（opencode は両方読んで jsonc を優先し、自分が書くときは json に書くので、画面で「両方あります」と知らせる。`opencodeNotices` と `ConfigNoticeDto`）。
 - `{env:X}`：そのまま運ぶ。受け手の環境に X が無いと opencode は空文字にして黙って壊れるので、項目に添えて知らせる（`opencodeItemNotes`）。
@@ -7655,6 +7655,20 @@ Codex・opencode の有効と横取り、パス、エディタ、端末アプリ
 サーバが `settings.json` を書くので、殻の承諾の窓は通さない。承諾が要るのは `configApproval` の項目だけで、承諾の仕方の設定に依らない（`needsApproval` は値を受け取らないため、`each` へ戻す変更も承諾になる）。
 書き込みは `loadSettings` と `saveSettings` で鍵を差し替える。走っているサーバは設定を自分の入れ物に持つので、サーバの中で適用するときは `setHangarPrefsApplier` で `applySettingsPatch` を通す口を登録する。
 古い版の束には `hangar` が無いので、`hangar:` の項目は消去に見えない。
+
+**MCP サーバー（対象 `claude-mcp`、`codex-mcp`、`opencode-mcp`、`targets/claudeMcp.ts`・`codexMcp.ts`・`opencodeMcp.ts`）。**
+MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio も運び、値は、そのエージェントが自分の設定ファイルに書く形のままにする（エージェント間の訳は 0.13）。
+- 入れ物と id：`~/.claude.json` の `mcpServers.<名前>`（`claude-mcp:<名前>`、kind `claude-mcp`）、`$CODEX_HOME/config.toml` の `[mcp_servers.<名前>]` 表（小表の `env` や `http_headers` ごと。`codex:mcp:<名前>`、kind `codex-mcp`）、opencode.json(c) の `mcp.<名前>`（`opencode:mcp:<名前>`、kind `opencode-mcp`）。名前は URL の形に符号化し、往復しない形、空、`__proto__`、`hangar` は読まない。
+- 別の対象にする理由：古い版は `codex:` や `opencode:` の id を知らない。Codex・opencode の好みの鍵の対象が `mcp_servers`・`mcp` を読み飛ばすのはそのままで、MCP は別の対象が集める。対象名が違えば、古い版の束に無いことが消去に見えない（「消去の条件」）。
+- 入切：`configTargets` の対象名で、既定は切。`codex-mcp` と `opencode-mcp` は、その PC で Codex・opencode が有効なときだけ集める。
+- 運ばないもの：名前が `hangar`、または command が Hangar を指すもの（command の基本名が `hangar`、パスに `agent-hangar` か `Hangar.app` を含む）。Hangar が自分で登録するもので、受け手には受け手の登録がある。形の読めない登録は運ばず、同名の項目が届いても上書きしないよう塞ぐ。`~/.claude.json` のプロジェクトごとの `mcpServers` は読まない。
+- 秘密：既知の形（`secrets.ts` の `findSecret`）を値全体に掛け、さらに `env`・`environment`・`headers`・`http_headers` の、鍵の名前が秘密らしい（token、secret、password、api key、authorization、bearer、credential など）直書きの値、`bearer_token`、`--token=…` 形の引数、URL の問い合わせを見る。`${X}`・`{env:X}`・`$X` の参照と、`bearer_token_env_var`・`env_http_headers`（環境変数の名前を持つ）は止めない。見つけた項目は `withheld`、`config_unsent` の `secret`（理由は `secret:mcp-credential` か既知の形の名前）にし、「それでも送る」（同じ指紋のとき）で送れる。値は一覧に出さない。
+- 受け手の保留：絶対パスの command（Codex は `cwd` も、`~/` は受け手のホームで）が受け手に無ければ保留する（`holdOfMcp`、`holdOfMcpItem`）。相対の command（`npx` など）は PATH で探すので保留しない。書き戻しも、保留・Hangar 自身・形の悪い値を `ApplyError`（`unsafe`、`bad-content`）で断り、何も書かない。opencode の `{env:X}` が受け手の環境に無ければ `opencodeMcpNotes` で知らせる。
+- 承諾：設定が each のあいだ、作る・上書き・消去のどれも承諾が要る（起動するコマンドを足すため）。command のある項目には実行の印（`shell`）を付ける。
+- 書き戻し（`mcpWrite.ts`）：指示書の突き合わせ、控え、差し替えの流れは他の対象と同じ。控えは `backups/claude-mcp-config/`・`codex-mcp-config/`・`opencode-mcp-config/` の `<時刻>/` に取り（秘密が入りうるので 0600）、取れなければ書かない。
+  `~/.claude.json` は Claude Code が頻繁に書くので、読むのも書くのも `mcpServers` の鍵 1 つずつだけにする（`setJsonc`・`removeJsonc`。整形、並び、ほかの鍵はそのまま）。書く直前に読み直し、書いた後にもう一度読んで、自分の鍵が入っていてほかの鍵が書く前のままかを確かめる。合わなければ読み直しからやり直し（3 回まで）、それでも合わなければ控えから戻して失敗にする。
+  Codex は `setToml`・`removeToml` で表ごと差し替える。好みの鍵の対象（`codex:toml:`）と同じ config.toml に書くが、どちらも書く直前に読み直して自分の鍵だけを差し替えるので、互いの鍵を消さない。opencode は jsonc があれば jsonc に体裁を保って、無ければ opencode.json に 2 空白で書く。
+  `write` は指示書のうち自分の対象の項目だけを見て、指示書は消さない（消すのは適用の口）。CLI と殻の適用の口への接続は含まない。
 
 消去の条件は対象ごとに数える。
 - id の持ち主の対象を `owns` で決め、その対象を扱う相手（束の `targets` に入れている相手）の束だけで、holder と「どの束にも無い」を決める。

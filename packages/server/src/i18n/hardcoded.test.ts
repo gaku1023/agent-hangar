@@ -72,6 +72,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/config/edit/tomlParse.ts': { lines: 28, why: INTERNAL },
   'sync/config/inbox.ts': { lines: 1, why: INTERNAL },
   'sync/config/service.ts': { lines: 4, why: LOG },
+  'sync/config/targets/mcpWrite.ts': { lines: 25, why: CLI },
   'sync/config/targets/opencode.ts': { lines: 19, why: CLI },
   'sync/config/targets/claudeHooks.ts': { lines: 6, why: CLI },
   'sync/config/targets/claudePlugins.ts': { lines: 3, why: CLI },

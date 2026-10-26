@@ -4,8 +4,11 @@ import { agentsSkillsTarget } from './agentsSkills.ts';
 import { claudeHooksTarget } from './claudeHooks.ts';
 import { claudeKeys2Target } from './claudeKeys2.ts';
 import { claudePluginsTarget } from './claudePlugins.ts';
+import { claudeMcpTarget } from './claudeMcp.ts';
+import { codexMcpTarget } from './codexMcp.ts';
 import { codexTarget } from './codex.ts';
 import { hangarTarget } from './hangar.ts';
+import { opencodeMcpTarget } from './opencodeMcp.ts';
 import { opencodeTarget } from './opencode.ts';
 import type { ConfigTarget, ParsedId, TargetContext } from './types.ts';
 
@@ -14,7 +17,7 @@ import type { ConfigTarget, ParsedId, TargetContext } from './types.ts';
  * 試験は registerTarget で仮の対象を足し、戻り値で外す。
  */
 // claudeKeys2、claudeHooks、claudePlugins は claude の settings: の一部を分けた対象なので、claude より前に置く。
-const registry: ConfigTarget[] = [claudeKeys2Target, claudeHooksTarget, claudePluginsTarget, claudeTarget, codexTarget, opencodeTarget, agentsSkillsTarget, hangarTarget];
+const registry: ConfigTarget[] = [claudeKeys2Target, claudeHooksTarget, claudePluginsTarget, claudeTarget, codexTarget, opencodeTarget, agentsSkillsTarget, hangarTarget, claudeMcpTarget, codexMcpTarget, opencodeMcpTarget];
 
 export { CLAUDE_TARGET_NAME };
 export type { ConfigTarget, ParsedId, TargetContext };
