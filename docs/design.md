@@ -6843,6 +6843,10 @@ Claude の本文の鍵名と台帳の鍵は 1 字も変えない。
 | R2 の鍵名の HMAC の入力 | `t:<元の PC>:<UUID>[:<サブエージェント>]` | `o:<元の PC>:<ID>`（`opencodeBlobKey`） |
 | kind | `transcript` | `transcript` |
 
+同期の単位はエージェントごとの表 `AGENT_SYNC`（`sync/agentSync.ts`）に持つ。
+行は上げ方（`source`：見張るファイルか、上げる直前に書き出すか）、台帳の鍵と取り出し、R2 の鍵名、専用の path と降ろし先、会話の ID の形、remote/ の写しを上げ直すかである。
+同期の `provider === …` の分岐は、この表を引く形にし、新しいエージェントは行を足す。
+
 kind は Worker が受ける `transcript` のままにし、種類は封じたメタの path で見分ける。
 Worker の変更は要らない。
 HMAC の入力の頭を `o:` にするのは、Claude の入力に provider の文字を足す形（`t:opencode:…`）だと、元の PC の ID が `opencode` の Claude のサブエージェントと入力が重なるからである。

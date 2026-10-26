@@ -4,6 +4,7 @@ import type { Language } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { msg, render } from '../i18n/message.ts';
 import type { AgentKind } from '../agent/types.ts';
+import { isExportAgent } from './agentSync.ts';
 import { ledgerKeyFor } from './ledgerKey.ts';
 import type { RunManager } from '../runs/manager.ts';
 import { sha256Stream } from './crypto.ts';
@@ -88,7 +89,7 @@ export class TakeoverResponder {
     const mine = !!run && run.deviceId === deviceId && run.sessionId === ask.sessionId && run.endedAt === null;
     const row = db.prepare('select provider, provider_session_id p from sessions where id = ?').get(ask.sessionId) as { provider: AgentKind; p: string } | undefined;
     const uuid = row?.p ?? null;
-    const opencode = row?.provider === 'opencode' && this.deps.opencode ? this.deps.opencode : null;
+    const opencode = isExportAgent(row?.provider) && this.deps.opencode ? this.deps.opencode : null;
     let result: TakeoverResult = 'not_running';
     if (mine && opencode && uuid) {
       this.deps.notePane?.(run.tmuxName, render(this.deps.language(), msg('sync.takeover.paneNoteOpencode', { device: this.deps.deviceName(ask.fromDevice) })));
@@ -108,7 +109,7 @@ export class TakeoverResponder {
       if (uuid) await this.deps.flushSession(uuid);
     }
     const version = opencode && uuid
-      ? ((await this.fileVersion(opencode.exportFile(uuid))) ?? this.transcriptVersion('opencode', uuid))
+      ? ((await this.fileVersion(opencode.exportFile(uuid))) ?? this.transcriptVersion(row!.provider, uuid))
       : ((await this.localVersion(ask.sessionId)) ?? (uuid ? this.transcriptVersion(row?.provider ?? 'claude-code', uuid) : null));
     writeAnswer(db, deviceId, {
       askId: ask.id, runId: ask.runId, result, answeredAt: now(),

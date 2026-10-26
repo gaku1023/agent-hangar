@@ -1,8 +1,9 @@
-import { MAX_BLOB_DELETE_KEYS, opencodeBlobKey, TRASH_KEEP_MS, transcriptBlobKey } from '@agent-hangar/shared';
+import { MAX_BLOB_DELETE_KEYS, TRASH_KEEP_MS, transcriptBlobKey } from '@agent-hangar/shared';
+import { AGENT_SYNC, idsOfAnyLedgerKey, isExportAgent } from './agentSync.ts';
 import type { Db } from '../db/open.ts';
 import { trashedLongAgo } from '../sessions/trash.ts';
 import { CloudError, type CloudClient } from './client.ts';
-import { ledgerKeyFor, transcriptLedgerKey } from './ledgerKey.ts';
+import { transcriptLedgerKey } from './ledgerKey.ts';
 import type { RowKeyring } from './sealedClient.ts';
 
 /**
@@ -45,14 +46,15 @@ async function targets(db: Db, ring: RowKeyring, deviceId: string, now: number):
   const exact = db.prepare('select ledger_key ledgerKey, epoch from blob_uploads where ledger_key = ? order by epoch');
   for (const s of trashedLongAgo(db, now - TRASH_KEEP_MS)) {
     // opencode の会話は export の 1 本だけ（サブエージェントの本文は分けない）。鍵名の求め方も Claude と違う。
-    if ((providerOf.get(s.sessionId) as { provider: string } | undefined)?.provider === 'opencode') {
+    const provider = (providerOf.get(s.sessionId) as { provider: string } | undefined)?.provider;
+    if (isExportAgent(provider)) {
       let key: string;
-      try { key = ledgerKeyFor('opencode', deviceId, s.uuid, null); } catch { continue; }
+      try { key = AGENT_SYNC[provider].ledgerKey(deviceId, s.uuid, null); } catch { continue; }
       for (const r of exact.all(key) as { ledgerKey: string; epoch: number }[]) {
         const keys = ring.at(r.epoch);
         if (!keys) continue;
         try {
-          out.push({ blobKey: await opencodeBlobKey(keys.index, deviceId, deviceId, s.uuid), ledgerKey: r.ledgerKey, epoch: r.epoch });
+          out.push({ blobKey: await AGENT_SYNC[provider].blobKey(keys.index, deviceId, deviceId, s.uuid, null), ledgerKey: r.ledgerKey, epoch: r.epoch });
         } catch { /* 形の違う ID は鍵名にならない */ }
       }
       continue;
@@ -94,17 +96,6 @@ export async function sweepTrashBlobs(o: {
  * 台帳の鍵から、本文の鍵名を求めるのに要るセッションの UUID とサブエージェントの ID を取り出す。この PC のものでなければ null。
  * opencode の本文（`opencode/<端末>/<会話>.json.gz`）は opencode の印を付けて返す（鍵名の求め方が違う）。
  */
-function idsOfLedgerKey(deviceId: string, ledgerKey: string): { uuid: string; agentId: string | null; opencode?: true } | null {
-  const oc = /^opencode\/([^/]+)\/([^/]+)\.json\.gz$/.exec(ledgerKey);
-  if (oc) return oc[1] === deviceId ? { uuid: oc[2]!, agentId: null, opencode: true } : null;
-  const head = `transcripts/${deviceId}/`;
-  if (!ledgerKey.startsWith(head)) return null;
-  const rest = ledgerKey.slice(head.length);
-  const agent = /^([^/]+)\/subagents\/agent-([^/]+)\.jsonl\.gz$/.exec(rest);
-  if (agent) return { uuid: agent[1]!, agentId: agent[2]! };
-  const main = /^([^/]+)\.jsonl\.gz$/.exec(rest);
-  return main ? { uuid: main[1]!, agentId: null } : null;
-}
 
 /**
  * 世代を回した後に上げ直した本文の、古い世代の鍵名を消す（sync/rotate.ts の回しの後始末）。
@@ -133,12 +124,10 @@ export async function sweepSupersededBlobs(o: {
   const all: Target[] = [];
   for (const r of rows) {
     const keys = ring.at(r.epoch);
-    const ids = idsOfLedgerKey(o.deviceId, r.ledgerKey);
+    const ids = idsOfAnyLedgerKey(o.deviceId, r.ledgerKey);
     if (!keys || !ids) continue;
     try {
-      const blobKey = ids.opencode
-        ? await opencodeBlobKey(keys.index, o.deviceId, o.deviceId, ids.uuid)
-        : await transcriptBlobKey(keys.index, o.deviceId, o.deviceId, ids.uuid, ids.agentId);
+      const blobKey = await AGENT_SYNC[ids.provider].blobKey(keys.index, o.deviceId, o.deviceId, ids.uuid, ids.agentId);
       all.push({ blobKey, ledgerKey: r.ledgerKey, epoch: r.epoch });
     } catch {
       // 形の違う ID は鍵名にならない。上げる側も同じ検査で断るので、控えにも無いはずである。
