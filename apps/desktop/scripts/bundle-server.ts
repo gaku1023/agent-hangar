@@ -166,6 +166,8 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
       platform: 'node',
       format: 'esm',
       target: 'node22',
+      // jsonc-parser の UMD 版は ./impl/format を動的に require し、束ねられない。ESM 版を先に選ぶ。
+      mainFields: ['module', 'main'],
       outfile: path.join(opts.outDir, out),
       external: EXTERNALS,
       banner: { js: BANNER },
