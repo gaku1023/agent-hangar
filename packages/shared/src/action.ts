@@ -258,6 +258,8 @@ export type UiAction =
   | { type: 'update.notesClose' } | { type: 'update.notesRead' }
   // 未検証の opencode の版の右下の札（C7、試作の N1）。どちらもその版を知らせ終えたことにし（同じ版では二度出さない）、settings は設定の opencode の面へ移る。
   | { type: 'opencode.version.continue'; version: string } | { type: 'opencode.version.settings'; version: string }
+  // 未検証の Codex の版の右下の札（C4）。opencode の札と同じ決まりで、settings は設定の Codex の面へ移る。
+  | { type: 'codex.version.continue'; version: string } | { type: 'codex.version.settings'; version: string }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   // ベルの一覧の行を既読にする。keys は行の鍵（種類、対象、事実の版）で、「すべて既読にする」はいまある鍵を全部送る。

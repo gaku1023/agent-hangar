@@ -1400,8 +1400,7 @@ Codex を足す作業の段 B の 1 つ目（計画の B1）で、設定のス�
 
 設定は opencode と同じ形の 3 つで、`codexEnabled`（有効にするスイッチ、既定は切）、`codexInjection`（システムプロンプトへの追記、`minimal`・`claude`・`none`、既定は `minimal`）、`codexIntercept`（外のターミナルの横取り、既定は切）である。
 読む側の既定は `@agent-hangar/shared` の `codexEnabledOf`、`codexInjectionOf`、`codexInterceptOf` にまとめる。
-設定の応答（`SettingsDto`）には、書かれているときだけ返す（切のままなら応答は今までと同じ形）。
-設定の画面の行は段 C（C4）で足す。
+設定の応答（`SettingsDto`）は、この 3 項目を書かれていなくても既定で常に返す（C4 で、書かれているときだけの形から変えた）。
 入口の表 `AGENT_ENTRY` の codex の行は、`enabled`、`intercept`、`bin`（`findCodex`）、断る文の欄名、シェルの包みと一覧を組み直す欄を持つ。
 
 場所は `config/tools.ts` の `findCodex` が、PATH と既知の置き場から探す。
@@ -1418,6 +1417,26 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 - 同期：`AGENT_SYNC` の codex の行は `source: 'none'` で、上げも降ろしも台帳の鍵も作らない。本物の行は E1 で入れる。
 - スマホ：`feedCaps` は caps に codex を出さない。F1 で、`codexEnabled` が入りのときだけ出す形にする。
 - 画面：エージェントの札は codex を並べない。絵は無い（`AGENT_ICONS` に行が無く、`agentIconArt` が undefined を返す。C2 で入れる）。
+
+#### 設定の面と版の知らせ（C4）
+
+検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。
+設定が切でも答える（有効にする前に、入っているかと版とログインを見せるため）。
+サーバは `LocalCodex.status()` を呼ぶだけで、画面は有効にしている間の起動時と、有効にしたとき、設定の画面に入ったときに取る。
+
+設定の「連携」の節で、opencode の面の下に、同じ形の別の白い面として「Codex」を置く（`views/CodexSection.tsx`）。
+見出しの横にベータの小札、右端に版の札（検証済み、未検証のバージョン、見つかりません、バージョン不明）を出す。
+行は「有効にする」、「バージョン」（インストール済みと検証済みの範囲）、「codex コマンドを hangar 経由で起動」（macOS と Linux だけ）、「システムプロンプトへの追記」（最小限、Claude Code と同じ、追記しない）の 4 つである。
+ログインしていないときだけ、版の行の下に注記を足す（札は変えない）。
+「有効にする」の 1 行だけは、切のままでも出す（入口そのもので、Codex を有効にするまでどこにも出さない決まりの例外）。
+入れたときだけ残りの行が `growIn` で伸び、切ると `collapseOut` で畳む。札は `fadeIn` と `fadeOut` で出入りする。
+横取りと追記の 3 択は、設定を保存するだけである（シェルの包みと追記の中身は別の段）。
+
+範囲の外の版には、opencode の C7 と同じ右下の札を出す。
+決まりも同じで、設定で有効にしていて、検出の答えが範囲の外（`unverified`）のときだけ、同じ版では一度だけ出す。
+版が読めないとき、見つからないときは出さない。設定の連携の節を開いている間も出さない。
+閉じた版は端末の localStorage（`codex.versionSeen`）に持つ。「設定を開く」は `#/settings?at=codex` へ移る。
+opencode と違い、serve を起こしたときに出すイベントはまだ無く、答えを取ったときに判定する。
 
 ### Codex の app-server の起動と接続（ベータ）
 
@@ -1459,6 +1478,44 @@ Windows は `killGroup` が `taskkill /T /F` で木ごと止める。token の�
 
 試験は偽の codex（`test/fake-codex.ts`）の app-server のふりだけで行う。
 ふりは WebSocket、token の検査、`initialize`、`thread/start`、`turn/start`、`turn/interrupt`、`thread/resume`、`thread/loaded/list` と、通知（`thread/started`、`thread/status/changed`、`turn/*`）を持ち、SIGTERM で止まる。
+
+### Codex の状態と許可（ベータ）
+
+Codex を足す作業の段 B の 3 つ目（計画の B4）で、`LiveSource` と `AskSource` の Codex 版を入れた。
+`provider/codex/live.ts` の `CodexLive` と、`provider/codex/asks.ts` の写しである。
+`codexEnabled` が切のままなら、誰も `track` しないので何も起きない。
+
+状態は app-server への接続（`CodexRpc`）の通知だけから取る。rollout の task_started だけでは実行中とみなさない（素の TUI を kill すると task_complete が書かれずに残る）。
+hangar の外の会話は `track` されないので、行も状態も持たない（閲覧だけ）。
+会話 1 つにつき app-server が 1 本で、行の pid は app-server の pid、`sessionId` は thread の ID である。
+
+- `thread/status/changed` は購読しなくても全接続へ届く。idle、notLoaded、systemError は休み、active は作業中、`activeFlags` の waitingOnApproval は許可の待ち、waitingOnUserInput は質問の待ちにする。
+- `turn/started`・`turn/completed` と、承認の要求（サーバからの要求）、`serverRequest/resolved` は、スレッドを購読した接続にだけ届く。
+  `thread/start` した接続は購読済みなので `subscribed: true` で載せる。TUI が作ったスレッド（初期プロンプトなし）は、最初の active で `thread/resume {excludeTurns:true}` を送って購読する。
+  入力の前は `no rollout found` で断られるので、短い間隔（100、200、400、800、1500 ミリ秒、最大 20 回）で再試行する。ほかの失敗は再試行しない。最初のターンの冒頭は取りこぼす。
+- 載せたとき（と kick のとき）は `thread/read {includeTurns:false}` で今の status を取る。読んでいる間に新しい通知が来たら、古い答えで潰さない。
+- 許可の待ちの行は、`waitingFor` が permission で、`permission` に要求の中身を載せる。要求の中身が無い間（購読の前）は、旗だけで種類を出す。
+
+許可と質問の写し（`codexPendingOf`）は、`agent/waiting.ts` の語彙にそろえる。
+
+| 要求 | 写し |
+|---|---|
+| `item/commandExecution/requestApproval` | 許可。tool は `Bash`、input は命令、description は reason |
+| `item/fileChange/requestApproval` | 許可。tool は `Edit`、input は grantRoot、description は reason |
+| `item/permissions/requestApproval` | 許可。tool は `Permissions`、input は network、書く場所、読む場所の行（無ければ cwd） |
+| `item/tool/requestUserInput` | 質問。最初の問いの文。AskUserQuestion の hook と同じ形（asked と answered）で流す |
+| `mcpServer/elicitation/request` | 質問。message |
+
+hangar の接続は承認の要求に答えない。答えは TUI で行う（決定 5）。
+要求が TUI で解かれたら、写しからも消す。消える契機は、`serverRequest/resolved`、待ちの旗が消えたこと（取りこぼしても直る。旗が付く前に要求が先に届く順でも新しい要求を消さないよう、旗が「あった状態から無くなった」ときにだけ見る）、`turn/completed`、休みへの status である。問いが消えたら answered を流す。
+
+接続が閉じた（TUI を閉じて app-server を止めた、app-server が落ちた）ら、行ごと外す。「実行中」は残さない。`start()` のあとは、app-server の pid が消えたことも 3 秒おきに見て、同じく外す。
+`isRunning` は、行があり、pid が合い、接続が開いていて、pid が生きているときだけ真である。
+
+driver への差し方は `createCodexLive(options)` が返す `{ live, asks }` である。`live` は `LiveSource` で、`track({ providerSessionId, cwd, pid, rpc, subscribed })` と `untrack` を足してある。`asks` は `AskSource`（subscribe だけ。parseHook は持たない）である。
+起動の面（B3a）が、app-server を起こしてつないだあとに `track` し、止めるときに `untrack` する。
+
+試験は、接続のふり（通知と要求を手で流す）と、偽の codex（`test/fake-codex.ts`。入力の頭の `ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` で要求を送り、TUI の代わりの接続が応答すると resolved を流す。`hang` は終わらない。`thread/read` に答える）の両方で行う。
 
 ### opencode の検出（ベータ）
 
@@ -1859,13 +1916,16 @@ driver は、`materialize` で会話を作ったら、その会話と serve を�
 絵は `@agent-hangar/shared` の `agentIcons.ts` の 1 か所にまとめ、スマホもここから引く（React を使わない画面は `agentIconSvg` で文字列にする）。
 Claude Code の絵は Clawd（起動の見出しの文字絵を 1 文字 2×2 の升に起こし、縦を 2 倍にしたもの）で、opencode の絵は opencode.ai/brand の公式の SVG の形と色そのままである。
 どちらにも明るい地用と暗い地用がある。
-Codex の絵は置かない（ロゴの使い方に承認が要る）。
+Codex の絵は、ChatGPT.app に同梱の公式のアイコン（白い地に青紫の雲と `>_`）を 14px に縮めて起こし直したもので、勾配は使わず雲は 1 色にした。
+白い地なので暗い地でも読め、明るい地では灰色の細い縁を 1 枚下に敷く。
+OpenAI の商標で承認は得ていない。opencode と Clawd と同じく、指摘されたら `agentIcons.ts` だけを直す。
+ターミナルの上のタブは、Codex の会話なら同じ絵と「Codex」を置く（`AGENT_DISPLAY_NAME`）。
 README の「商標」の節に、非公式であることと、各商標が各社に帰属することを書く。
 
 出すかどうかは、画面の `presenters/agentIcon.ts` の `agentIconsOn` が決める。
-設定の `opencodeEnabled` が切で、opencode の会話が 1 つも無いときは出さない（切のままなら見た目は変わらない）。
-どちらかが真なら、全部の行に出す。
-会話は bootstrap で全部が届くので、会話の表（と実行中の写し）に opencode の行が無ければ、その hangar に opencode の会話は無い。
+設定の `opencodeEnabled` と `codexEnabled` がどちらも切で、Claude 以外のエージェントの会話が 1 つも無いときは出さない（切のままなら見た目は変わらない）。
+どれかが真なら、全部の行に出す。
+会話は bootstrap で全部が届くので、会話の表（と実行中の写し）に Claude 以外の行が無ければ、その hangar にその会話は無い。
 有効にしたあと切にしても、opencode の会話が残っていれば出し続ける。行がどのエージェントのものか分からなくなるからである。
 
 新しいセッションのダイアログのエージェントの札（opencode を有効にしたときだけ出る）も、札と一覧の行の頭に同じ絵を置く。札の絵は Claude Code と opencode で同じ 20×14 の枠に置き、名前の頭をそろえる。
@@ -3274,7 +3334,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   以前は手元に本文が無い会話にも `claude -r <id>` を返しており、それを打った Claude が失敗していた。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
-- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch? })`：tmux で起動して run を返す。
+- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode? })`：tmux で起動して run を返す。agent と mode は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code では捨てる）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
 - `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。セッション画面の現在の札に出す。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
@@ -4116,7 +4176,8 @@ ssh（`git@host:owner/repo.git`、`ssh://git@host:22/owner/repo`）と https を
 - `GET /api/workspace/inspect?path=<パス>&name=<名前>`：選んだ 1 つのフォルダの事前の問い合わせ（`inspectFolder`、`FolderInspectDto`）。新しいセッションと新しいプロジェクトのダイアログが使う。
   登録済みか、別のプロジェクトの中か（その場所からの相対パスも）、結び付く候補があるかを返す。`name` を渡すと、弱い一致をフォルダの名前ではなくその名前で見る。
 - `POST /api/projects` の `{ kind: 'dir' }` は `allowNested` と `linkTo` を受ける。入れ子で `allowNested` が無ければ 409 で、本文は `ProjectNestedDto`（`code: 'project_nested'` と包むプロジェクト）である。
-- `POST /api/workspace/register` は、今までの `{ paths }`（どれも新しく作る）のほかに、`{ items: { path, linkTo?, allowNested? }[] }` を受ける。どちらか一方だけで、両方は 400 である。
+- `POST /api/workspace/register` は、`{ paths }` のほかに、`{ items: { path, linkTo?, allowNested? }[] }` を受ける。どちらか一方だけで、両方は 400 である。
+  `{ paths }`（`hangar project add`）は、作成場所の自動登録と同じ規則（強い一致と弱い一致）で結び付く候補を探し、あれば新しく作らずに結び付ける（issue #403）。worktree のフォルダは結び付けない（同じ remote の本体のプロジェクトの場所を取らないため）。`{ items }`（画面）は利用者が行ごとに選んでいるので、`linkTo` の無い行は新しく作る。
   結び付けたものの id を `linked` に返す。入れ子で `allowNested` の無い行、結び付けられない行は `failed` に理由を添えて入る。最後に `assignSessions` を呼ぶ。
 
 登録済みのプロジェクトの下のフォルダから始めるときは、セッションは親のプロジェクトに入れ、Claude Code はそのフォルダで起こす（利用者の答え）。
@@ -8439,7 +8500,7 @@ ID をまるごと出すと、行の右端が横にはみ出すからである�
 opencode の行は、押しても開かない（`a` ではなく `div`）。
 opencode には Remote Control が無く、`claude.ai/code` を開くと誤誘導になるからである。
 入力待ちの札は、「開く ›」の場所に「PC で答えてください」を出す。
-どれかの PC が `caps.agents` に opencode を載せているか、opencode の行が 1 つでもあれば、全部の行の題名の左に幅 20px の枠でエージェントの絵を置く（shared の `agentIconsShown`）。
+どれかの PC が `caps.agents` に opencode か codex を載せているか、その行が 1 つでもあれば、全部の行の題名の左に幅 20px の枠でエージェントの絵を置く（shared の `agentIconsShown`）。
 入力待ちの札では、題の前の「·」を絵に置き換える。
 絵は shared の `AGENT_ICONS` から React の要素として描く（`packages/mobile/src/views/AgentIcon.tsx`）。
 SVG の文字列を流し込むと innerHTML が要るからである。
