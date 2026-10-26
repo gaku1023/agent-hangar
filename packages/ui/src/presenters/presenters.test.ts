@@ -1229,6 +1229,36 @@ describe('presentShell のアカウント', () => {
   });
 });
 
+describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
+  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture });
+  const at = (screen: State['screen']): State => ({ ...initialState(), screen });
+  const CODEX = { fiveHour: { usedPercent: 12, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 31, resetsAt: SEVEN_RESETS }, updatedAt: 500, plan: 'plus' };
+  const withCodex = (value: typeof CODEX | null): Store => {
+    const store: Store = { ...two(), accounts: { ...accountsFixture, currentId: 'a1', ...(value ? { agents: { codex: value } } : {}) } };
+    store.sessions = { ...store.sessions, c1: session('c1', { provider: 'codex', live: 'busy' }), k1: session('k1', { live: 'busy' }) };
+    return store;
+  };
+  it('Codex の会話では Codex の枠を出し、頭の札は Codex。アカウントの切り替えは、いまのアカウントのまま', () => {
+    const p = presentShell(at({ name: 'session', id: 'c1' }), withCodex(CODEX), NOW);
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 31, agent: { key: 'codex', label: 'Codex' } });
+    expect(p.usage.fiveHourLimit).toBeUndefined();
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.account?.sessionId).toBeNull();
+  });
+  it('Claude の会話とホームでは Claude の枠を出し、Codex の枠があるときだけ頭の札 Claude を添える', () => {
+    const store = withCodex(CODEX);
+    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage).toMatchObject({ fiveHour: 82, sevenDay: 41, agent: { key: 'claude', label: 'Claude' } });
+    expect(presentShell(initialState(), store, NOW).usage).toMatchObject({ agent: { key: 'claude', label: 'Claude' } });
+  });
+  it('Codex の枠が無い（値が未着、切）ときは、Codex の会話でも Claude の枠のまま、札も出さない', () => {
+    const store = withCodex(null);
+    const p = presentShell(at({ name: 'session', id: 'c1' }), store, NOW);
+    expect(p.usage.agent).toBeUndefined();
+    expect(p.usage).toEqual(presentShell(initialState(), store, NOW).usage);
+    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage.agent).toBeUndefined();
+  });
+});
+
 describe('presentProject の右レール', () => {
   it('TODO とメモとアーティファクトを並べ、クイックセッションは印を付ける', () => {
     const store: Store = {
