@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { paneLeaves, type PaneNode, type PanesState } from '../mediator/panes.ts';
 import { growIn, motionOn } from './primitives/motionKit.ts';
 import { motionMs } from './primitives/motion.ts';
-import { afterHeavyFrames, collapseHead, flipFrom, flyName, growFrom, holdLayout, leavePane, nameSnap, paneEnter, retitle, riseParts, settleTop, type NameSnap, type Rect } from './primitives/splitMotion.ts';
+import { afterHeavyFrames, collapseHead, flipFrom, flyName, growFrom, holdLayout, leavePane, nameSnap, paneEnter, retitle, riseParts, settleEntrance, settleTop, type NameSnap, type Rect } from './primitives/splitMotion.ts';
 
 /**
  * 画面の分割の、構造が替わるときの動き（1 つ ⇄ 分割、並びと最大化の入れ替え）。
@@ -153,6 +153,8 @@ function tree(pre: Snap, next: Frame, root: ParentNode): void {
 
 /** 前の姿と今の DOM から動かす。 */
 export function play(kind: Transition, pre: Snap, next: Frame, root: ParentNode = document): void {
+  // 分割の形が替わると、ペインと 1 つの画面の中身は描き直されて入場をやり直す。出入りはここで動かすので、入場は終わらせておく。
+  if (kind !== 'retitle') for (const el of root.querySelectorAll('[data-pane-workspace], .session-screen:not([data-variant])')) settleEntrance(el);
   switch (kind) {
     case 'split': return split(pre, next, root);
     case 'unsplit': return unsplit(pre, next, root);

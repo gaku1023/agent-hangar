@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LAYOUT_MOVING_ATTR } from './layoutMotion.ts';
-import { afterHeavyFrames, collapseHead, flashPane, flipFrom, flyName, growFrom, holdLayout, landGhost, leavePane, nameSnap, paneEnter, previewIn, retitle, riseParts, settleTop } from './splitMotion.ts';
+import { afterHeavyFrames, collapseHead, flashPane, flipFrom, flyName, growFrom, holdLayout, landGhost, leavePane, nameSnap, paneEnter, previewIn, retitle, riseParts, settleEntrance, settleTop } from './splitMotion.ts';
 
 /** jsdom は tokens.css を読まないので、どの要素から読んでもこの値が返るようにする（motionKit.test.ts と同じ）。 */
 let values: Record<string, string> = {};
@@ -147,6 +147,41 @@ describe('splitMotion（動くとき）', () => {
     expect((animate.mock.calls[1]![0] as Keyframe[]).at(-1)).toMatchObject({ height: '0px' });
   });
 
+  describe('画面の入場（CSS の enter）', () => {
+    type Css = { animationName: string; effect: { target: Element }; finish: ReturnType<typeof vi.fn> };
+    const css = (animationName: string, target: Element): Css => ({ animationName, effect: { target }, finish: vi.fn() });
+    const withAnims = (el: Element, list: Css[]) => { (el as unknown as { getAnimations: () => Css[] }).getAnimations = () => list; };
+
+    it('settleEntrance は、中の画面（.screen）の enter だけを終わらせる。ほかの CSS の動きには触れない', () => {
+      const host = div();
+      const screen = host.appendChild(document.createElement('div'));
+      screen.className = 'screen';
+      const other = host.appendChild(document.createElement('div'));
+      const enter = css('enter', screen);
+      const breathe = css('rim-breathe', screen);
+      const notScreen = css('enter', other);
+      withAnims(host, [enter, breathe, notScreen]);
+      settleEntrance(host);
+      expect(enter.finish).toHaveBeenCalled();
+      expect(breathe.finish).not.toHaveBeenCalled();
+      expect(notScreen.finish).not.toHaveBeenCalled();
+    });
+
+    it('閉じるペインを差し戻すと中の画面の enter が頭からやり直すので、すぐ終わらせる（不透明度 0 の白い箱にしない）', () => {
+      const pane = document.createElement('div');
+      const screen = pane.appendChild(document.createElement('div'));
+      screen.className = 'screen';
+      const enter = css('enter', screen);
+      withAnims(pane, [enter]);
+      void leavePane(pane, rect, div());
+      expect(enter.finish).toHaveBeenCalled();
+    });
+
+    it('getAnimations の無い環境でも落ちない', () => {
+      expect(() => settleEntrance(div())).not.toThrow();
+    });
+  });
+
   it('残るものの手前に敷くと、閉じるペインは残るものの下に重なる（前へ出さない）', () => {
     const host = div();
     const keep = host.appendChild(document.createElement('div'));
@@ -168,8 +203,8 @@ describe('splitMotion（動くとき）', () => {
   });
 
   describe('afterHeavyFrames（描き替えの重いこまが過ぎてから動かす）', () => {
-    type Fake = { pause: ReturnType<typeof vi.fn>; play: ReturnType<typeof vi.fn> };
-    const fake = (): Fake => ({ pause: vi.fn(), play: vi.fn() });
+    type Fake = { pause: ReturnType<typeof vi.fn>; play: ReturnType<typeof vi.fn>; playState: string };
+    const fake = (): Fake => ({ pause: vi.fn(), play: vi.fn(), playState: 'running' });
     let frames: FrameRequestCallback[] = [];
     let anims: Fake[] = [];
     const tick = (at: number) => { const f = frames; frames = []; for (const cb of f) cb(at); };
@@ -196,6 +231,14 @@ describe('splitMotion（動くとき）', () => {
       expect(made.play).toHaveBeenCalledTimes(1);
       expect(old.play).not.toHaveBeenCalled();
       expect(frames).toHaveLength(0);
+    });
+
+    it('中で終わらせた動き（画面の入場など）は止めない。止めると、動かすときに頭からやり直す', () => {
+      const done: Fake = { ...fake(), playState: 'finished' };
+      const live = fake();
+      afterHeavyFrames(() => { anims.push(done, live); });
+      expect(done.pause).not.toHaveBeenCalled();
+      expect(live.pause).toHaveBeenCalled();
     });
 
     it('重いこまが続いても、長く待たせない', () => {
