@@ -196,7 +196,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     const EXT = '01bffff0-0000-7000-8000-00000000f001';
     const { rm, codex, opened, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd: '/somewhere/else' }] } });
     const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
-    const r = await rm.fork(sid);
+    const r = await rm.forkMaterialized(sid);
     expect(r.sessionId).not.toBe(sid);
     expect(r.run).toMatchObject({ kind: 'fork', sessionId: r.sessionId });
     expect(rpcs().find((x) => x.method === 'thread/fork')!.params).toMatchObject({ threadId: EXT, cwd });
@@ -215,7 +215,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
   it('フォーク：最初の入力の前の会話（rollout が無い）は断り、新しい行も app-server も残さない', async () => {
     const { rm, codex } = make();
     const sid = ensureSession(db, '01bffff0-0000-7000-8000-00000000dead', cwd, 'd', 'codex');
-    await expect(rm.fork(sid)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('最初の入力が送られていないため') });
+    await expect(rm.forkMaterialized(sid)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('最初の入力が送られていないため') });
     expect(sessions().map((x) => x.id)).toEqual([sid]);
     expect(codex.served(sid)).toBeNull();
   });
