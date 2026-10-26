@@ -16,6 +16,7 @@ import { findCodex } from '../config/tools.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
 import { permissionPresetFor } from '../provider/opencode/permissionPreset.ts';
+import { LocalModelListing } from '../provider/opencode/localModels/available.ts';
 import { ProviderPreps } from '../provider/opencode/providerPrep.ts';
 import { msg, render } from '../i18n/message.ts';
 import { safeErrorText } from '../runs/manager.ts';
@@ -86,6 +87,8 @@ export function bootAgents(
     permissions: (cwd) => permissionPresetFor({ enabled: opencodePermissionPresetOf(home.settings.current), home: home.home, cwd }),
     // 起動前に LM Studio のモデルを整える。長さは設定から、呼ばれた時点の値を読む。
     localModels: { home: home.home, context: () => localContextOf(home.settings.current) },
+    // 起動前に、会話のモデルがこの PC の LM Studio などにあるかを聞く。無いモデルでは起こさない。
+    localListing: new LocalModelListing(),
     // 接続先の準備のコマンド（この PC の設定）。呼ばれた時点の値を読む。
     providerPreps: new ProviderPreps({
       preps: () => providerPrepsOf(home.settings.current.opencodeProviderPrep),

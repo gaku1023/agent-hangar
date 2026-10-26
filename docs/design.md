@@ -1867,6 +1867,16 @@ LM Studio の段（`provider/opencode/localModels/`）は、serve を起こし�
 5. アンロードしてよいのは、hangar がロードしたもの（ホームの `opencode/local-models.json` に、宛先と使った hangar の会話と一緒に記録する）のうち、ほかの実行中の会話（serve がある会話）が使っていないものだけである。手動でロードされたものは、答え（`unload`）が無ければ触らずに聞く（`unload-manual`）。
 6. メモリは、残る instance と新しくロードするものの重みの合計が物理メモリの 8 割を超えるかで見る。会話と agent が別々のモデルを使い、それだけで超えるなら、1 モデルに寄せるかを聞く（`memory`、勧めるのは会話のモデル）。答えが `singleModel` なら、agent と `small_model` をそのモデルに上書きする設定で serve を起こし直す。1 つで収まらないモデルは聞かずにロードしてみる。
 
+LM Studio の段の前に、会話のモデルがこの PC にあるかを確かめる（モデルの有無、`localModels/available.ts`）。opencode.json は PC の間で共有されるので、ほかの PC にだけあるモデルも候補に出る。無いモデルで起こすと、最初の発言で LM Studio が 400（`provider.invalid-request`）を返して会話が止まる。
+
+- 確かめるのは会話のモデル（答えの `singleModel`、指定、設定の `model` の順）だけである。接続先の準備のコマンドの後に聞く（コマンドがサーバーを起こすことがある）。「そのまま開始」（`skip`）でも確かめる。
+- baseURL が 127.0.0.1 か localhost の接続先だけに聞く。先に LM Studio の `/api/v1/models`（埋め込みのモデルは外す）を聞き、404 か形が違えば OpenAI 互換の `{baseURL}/models` を聞く。OpenAI 互換の `/v1/models` を先にしないのは、LM Studio の JIT の読み込みを切ると、載っているモデルしか返さないからである。
+- 無ければ「{model} はこの PC にありません。使えるのは: …」、どちらの口にもつながらなければ「{接続先}（{origin}）に接続できません。…」で起動を 400 で断る（`MessageError`、MCP の `create_session` も同じ文を返す）。一覧の形でない答えは確かめられないので通す。
+- 取れた一覧は 30 秒使い回す。つながらなかった答えは覚えない（LM Studio を起こした直後に送り直せるように）。
+- 外のターミナルからの起動と再開では確かめない（選び直す画面が無く、TUI の `/models` で替えられる）。
+
+新しいセッションのモデルの小窓（`GET /api/opencode/options`）も同じ口で聞き、無いモデルに `missing` を立てる。小窓はその行を選べない灰色の行にし、「未ダウンロード」の札と説明を添える。つながらないときは立てない（起動の口が断る）。小窓の「再読み込み」は LM Studio にも聞き直す。
+
 起動の後に、短く載ったモデルで断られたとき（`session.execution.failed` の文が「コンテキスト長を超えた」もの、`live.ts` の `isContextShortError`）は、`opencode.contextShort` を配って右下の札を出す。
 札の「再ロードして再開」は `POST /api/sessions/:id/local-models` で、動いている会話の serve のまま同じ段を走らせる。利用者が頼んだので、使うモデルが短く載っていれば手動でロードされたものでもロードし直す（ほかのモデルはアンロードしない）。
 外のターミナルからの起動と、終わった会話の再開では、問いに答える画面が無いので準備しない。

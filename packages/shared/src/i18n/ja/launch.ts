@@ -45,6 +45,8 @@ export const launchJa: AreaDictionary<typeof launchKeys> = {
   'launch.model.limited': '期間限定',
   'launch.model.noTools': 'ツール非対応',
   'launch.model.noToolsNote': 'ツール呼び出しに対応していないため、エージェントでは使えません',
+  'launch.model.missing': '未ダウンロード',
+  'launch.model.missingNote': 'この PC にダウンロードされていないため、使えません',
   'launch.model.price.unit': '入力 / 出力 · 100万トークン',
   'launch.model.price.plan': '定額に含む',
   'launch.model.status.lmstudio': '起動中 · 自動で取得',
