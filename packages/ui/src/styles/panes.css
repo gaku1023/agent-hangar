@@ -1,0 +1,80 @@
+/* 画面の分割（別のセッションを並べる）。手本は docs/plans/session-split-proto.html。動きは T5 で足す。 */
+
+/* 本体。セッション画面と同じく、.main-inner の縦の flex の残りの高さを全部受け取る。 */
+.pane-workspace { flex: 1; min-height: 0; min-width: 0; display: flex; position: relative; }
+.pane-node { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.pane-node[data-dir='row'] { flex-direction: row; }
+.pane-node[data-dir='col'] { flex-direction: column; }
+.pane-slot { display: flex; min-width: 0; min-height: 0; flex-basis: 0; }
+/* 境目。掴める帯は 8px で、見える線は乗せたときと掴んだときだけ出す。 */
+.pane-divider { flex: none; position: relative; z-index: 2; }
+.pane-divider:focus { outline: none; }
+.pane-divider[data-dir='row'] { width: 8px; cursor: col-resize; }
+.pane-divider[data-dir='col'] { height: 8px; cursor: row-resize; }
+.pane-divider::after { content: ''; position: absolute; border-radius: 2px; background: transparent; }
+.pane-divider[data-dir='row']::after { left: 3px; width: 2px; top: 20%; bottom: 20%; }
+.pane-divider[data-dir='col']::after { top: 3px; height: 2px; left: 20%; right: 20%; }
+/* 見える線は、乗せると中心から伸びる（手本の .divider::after）。 */
+.pane-divider[data-dir='row']::after { transform: scaleY(0.4); }
+.pane-divider[data-dir='col']::after { transform: scaleX(0.4); }
+.pane-divider::after { transition: background var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
+.pane-divider:hover::after, .pane-divider:focus-visible::after { background: var(--accent-hi); transform: none; }
+
+/* ペイン 1 つ。操作中は青い 2px の枠。 */
+.pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden; border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 1px 0 var(--line-strong); }
+.pane[data-focused='true'] { box-shadow: 0 0 0 2px var(--accent); }
+.pane > .session-screen { flex: 1; min-height: 0; min-width: 0; }
+.pane > .session-screen > .c-body { min-height: 0; }
+.pane .session-screen .pane-below { padding: 0 calc(var(--u) * 3); }
+
+/* ペインの見出し（案 A）。 */
+.pane-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 2.5); border-bottom: 1px solid var(--line); flex: none; min-width: 0; overflow: hidden; cursor: grab; }
+.pane-head-title { flex: 0 1 auto; min-width: 60px; font-size: var(--fs-sm); font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-head-project { flex: none; max-width: 30%; font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-head-oneliner { flex: 1 1 0; min-width: 0; font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-head > .spacer { flex: 1; }
+/* 狭いペインで ⋯ の「詳しく」から開く ⓘ の面の錨。ボタンは見せず、面だけが ⋯ の隣から開く。 */
+.pane-head-anchor { position: relative; width: 0; height: 0; overflow: hidden; }
+.pane-head-ctl { display: flex; align-items: center; gap: var(--u); flex: none; }
+.pane-head-sep { width: 1px; height: 16px; background: var(--line-strong); margin: 0 2px; flex: none; }
+.pane-head .btn, .pane-head .status-pill { height: 24px; font-size: var(--fs-xs); }
+.pane-head .btn-icon { width: 24px; }
+.pane-head .btn-primary { padding: 0 calc(var(--u) * 2); }
+.pane.tight .pane-head .btn-primary { padding: 0; width: 24px; justify-content: center; }
+.pane.tiny .pane-head .status-pill { padding: 0; width: 24px; justify-content: center; }
+.pane.tiny .pane-head .status-pill .status-text { display: none; }
+.pane-head .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+.pane-head-btn[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
+.pane-head[data-empty='true'] { cursor: default; }
+
+/* 空のペイン。 */
+.pane-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2.5); color: var(--ink-2); padding: calc(var(--u) * 4); overflow: auto; }
+.pane-empty-list { list-style: none; margin: 0; padding: calc(var(--u) * 1.5); width: min(320px, 90%); background: var(--surface-2); border-radius: var(--r-lg); display: flex; flex-direction: column; gap: 2px; }
+.pane-empty-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: 28px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r); background: none; font: inherit; color: var(--ink); cursor: pointer; text-align: left; }
+.pane-empty-row:hover { background: var(--surface); }
+.pane-empty-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-empty-hint { font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* サイドバーの行の右端の、ペインの番号の札。 */
+.side-pane-badge { flex: none; min-width: 16px; height: 16px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; }
+
+/* ドラッグの予告の枠とドラッグの札（手本は session-split-proto.html の .preview と .ghost）。枠は 1 つだけで、位置と大きさは style で替える。動きは T5。 */
+.pane-drop-preview { position: fixed; z-index: 70; pointer-events: none; border-radius: var(--r-lg); background: color-mix(in srgb, var(--accent) 12%, transparent); border: 2px solid var(--accent-hi); display: flex; align-items: center; justify-content: center; opacity: 0; }
+.pane-drop-preview { transform: scale(0.96); transition: left var(--dur-swap) var(--ease-out), top var(--dur-swap) var(--ease-out), width var(--dur-swap) var(--ease-out), height var(--dur-swap) var(--ease-out), opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), background var(--dur-swap), border-color var(--dur-swap); }
+.pane-drop-preview[data-on='true'] { opacity: 1; transform: none; }
+.pane-drop-preview span { transition: transform var(--dur-swap) var(--ease-out); }
+.pane-drop-preview span { background: var(--accent); color: #fff; font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--r-pill); box-shadow: var(--glass-drop); }
+.pane-drop-preview[data-replace='true'] { background: color-mix(in srgb, var(--accent) 7%, transparent); border-style: dashed; }
+.pane-drop-preview[data-blocked='true'] { border-color: var(--line-strong); background: rgba(0, 0, 0, 0.03); }
+.pane-drop-preview[data-blocked='true'] span { background: var(--ink-3); }
+.pane-drop-ghost { position: fixed; z-index: 71; pointer-events: none; padding: 4px 10px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.94); box-shadow: var(--glass-drop); font-size: var(--fs-xs); display: flex; gap: 6px; align-items: center; transform: translate(10px, 10px); }
+/* 見出しは掴んで動かす。選択は始めない。 */
+.pane-head { user-select: none; }
+/* サイドバーの行を本体へ引いている間、元の行は薄くして席に残す。 */
+.side-live-list .side-live-row[data-pane-drag] { opacity: 0.45; }
+
+/* ドラッグの札は、出るとき少し縮みから戻る。 */
+.pane-drop-ghost { animation: pane-ghost-in var(--dur-fast) var(--ease-out); }
+@keyframes pane-ghost-in { from { opacity: 0; transform: translate(10px, 10px) scale(0.9); } to { opacity: 1; transform: translate(10px, 10px); } }
+/* 名前の札が見出しの間を飛ぶ間の複製（splitMotion の flyName）。位置と文字の大きさは JS がこまごとに書く。 */
+.pane-fly { position: fixed; z-index: 90; pointer-events: none; font-weight: 600; color: var(--ink); white-space: nowrap; line-height: 1.25; will-change: left, top, font-size; }

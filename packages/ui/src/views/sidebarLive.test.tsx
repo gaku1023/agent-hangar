@@ -814,8 +814,8 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Activeu', 'true'], ['Pausedp', 'false'], ['Doned', 'false'], ['Archiveda', 'false']]);
     const items = screen.getAllByRole('menuitem');
     // 停止の補足の 1 行は出さない。
-    expect(items.map((i) => i.textContent)).toEqual(['プロジェクトを変更…m', 'セッション ID をコピー', '停止']);
-    expect(items[2]).toHaveAttribute('data-danger', 'true');
+    expect(items.map((i) => i.textContent)).toEqual(['右に分割して開く', '下に分割して開く', 'プロジェクトを変更…m', 'セッション ID をコピー', '停止']);
+    expect(items[4]).toHaveAttribute('data-danger', 'true');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
     const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', { runId: 'r9', working: false, aside: false, shellTabs: 2 }) }), row('b')] }));
@@ -850,7 +850,7 @@ describe('行のメニュー（右クリックと .）', () => {
     b.focus();
     fireEvent.keyDown(b, { key: '.' });
     expect(b).toHaveAttribute('data-menu', 'true');
-    const first = screen.getAllByRole('menuitemradio')[0]!;
+    const first = screen.getAllByRole('menuitem')[0]!;
     expect(first).toHaveFocus();
     fireEvent.keyDown(first, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
@@ -899,5 +899,17 @@ describe('サイドバーの「実行中」の見た目', () => {
   });
   it('畳んだ帯では見出しと名前を出さず、点だけを並べる', () => {
     expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-h, [^{]*\.side-live-name, [^{]*\{ display: none; \}/);
+  });
+});
+
+describe('⌥クリックで右に分割して開く（サイドバーの行）', () => {
+  it('⌥ を押しながら行を押すと pane.open（右）を出し、session.open は出さない。ふつうに押すと session.open', () => {
+    const { onAction } = mount(liveProps());
+    fireEvent.click(linkOf('a'), { altKey: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'pane.open', sessionId: 'a', target: null, side: 'right' });
+    expect(onAction).not.toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
+    onAction.mockClear();
+    fireEvent.click(linkOf('a'));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
   });
 });

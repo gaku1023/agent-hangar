@@ -489,7 +489,7 @@ describe('セッションの状態の札と「⋯」', () => {
     fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
     expect(radios()).toEqual(['Active', 'Paused', 'Done', 'Archived']);
     expect(screen.getAllByRole('menuitemradio').map((i) => i.querySelector('kbd')?.textContent)).toEqual(['u', 'p', 'd', 'a']);
-    expect(labels()).toEqual(['プロジェクトを変更…', 'セッション ID をコピー', '削除…']);
+    expect(labels()).toEqual(['右に分割して開く', '下に分割して開く', 'プロジェクトを変更…', 'セッション ID をコピー', '削除…']);
     fireEvent.click(screen.getAllByRole('menuitemradio')[2]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
     expect(opened(onAction)).toEqual([]);
@@ -501,7 +501,7 @@ describe('セッションの状態の札と「⋯」', () => {
     cleanup();
     const onAction = mount([sr('a', { resumeHere: { disabled: null } }), sr('b', { resumeHere: { disabled: 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。' } })]);
     fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
-    expect(labels()).toEqual(['この PC で再開', 'プロジェクトを変更…', 'セッション ID をコピー', '削除…']);
+    expect(labels()).toEqual(['この PC で再開', '右に分割して開く', '下に分割して開く', 'プロジェクトを変更…', 'セッション ID をコピー', '削除…']);
     fireEvent.click(screen.getAllByRole('menuitem')[0]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 'a' });
     expect(opened(onAction)).toEqual([]);
@@ -657,5 +657,18 @@ describe('スマホから起動した新しい行の動き（試作 F1）', () =
   it('最初の描画と一覧の切替（scope）では、スマホからの行も動かさない', () => {
     render(ui([{ ...row('p'), phone }, row('a')]));
     expect(animations).toHaveLength(0);
+  });
+});
+
+describe('⌥クリックで右に分割して開く（一覧の行）', () => {
+  it('⌥ を押しながら行を押すと pane.open（右）を出し、session.open は出さない。ふつうに押すと session.open', () => {
+    const onAction = mount([sr('a')]);
+    const row = document.querySelector<HTMLElement>('[role="row"]')!;
+    fireEvent.click(row, { altKey: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'pane.open', sessionId: 'a', target: null, side: 'right' });
+    expect(opened(onAction)).toEqual([]);
+    onAction.mockClear();
+    fireEvent.click(row);
+    expect(opened(onAction)).toHaveLength(1);
   });
 });

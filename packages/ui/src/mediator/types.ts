@@ -1,5 +1,6 @@
 import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
+import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
@@ -81,7 +82,7 @@ export type Input =
   | { kind: 'store' };
 
 export type Effect =
-  | { kind: 'navigate'; route: Route }
+  | { kind: 'navigate'; route: Route; /** 履歴を積まずに、いまの段を置き換える。分割で操作中のペインを移したとき。 */ replace?: boolean }
   | { kind: 'history.go'; delta: number }
   | { kind: 'api.bootstrap' }
   // fromSeq の 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み（後ろを読み足す）」。
@@ -386,6 +387,8 @@ export type State = {
    * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。
    */
   sidebarOrder: string[];
+  /** 画面の分割（別のセッションを並べる）。木と操作中は localStorage の panes.layout に残す（mediator/panes.ts）。 */
+  panes: PanesState;
   /** サイドバーの「実行中」で畳んだグループ（プロジェクトの id。未分類は空の文字列）。 */
   sidebarFolded: string[];
   /**

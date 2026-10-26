@@ -4,6 +4,7 @@ import type { SessionAction, SessionActionId, SessionProps } from '../presenters
 import { EndedAgentLine, EndedFacts } from './EndedFacts.tsx';
 import { NowCard } from './NowCard.tsx';
 import { PageHeading } from './PageHeading.tsx';
+import { PaneHeader, type PaneView } from './PaneHeader.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { SummaryCard } from './SummaryCard.tsx';
@@ -45,13 +46,18 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
  * 畳むと、同じ右上の場所に、タブの列（終わった後は切り替えの行）の「目次 N」の札が出る。開閉はセッションごとに覚える（sessionView.transcriptOpen）。
  * 窓が狭いとき（useNarrow）は、右の列を持たず、札を押すと札と目次が上に重なって開く（上乗せの頭の行が札の場所を覆う）。
  */
-export function SessionScreen(props: SessionProps) {
+export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: PaneView }) {
+  // variant="pane" は画面の分割の 1 区画。大きな見出しの代わりに PaneHeader を出し、右パネルはペインの toc に従う（PaneWorkspace が渡す）。
+  const pv = props.variant === 'pane' ? props.pane ?? null : null;
   const emit = useEmit();
   const t = useT();
   const reasonId = useId();
+  // 狭いペイン（tiny）で、⋯ の「詳しく」から ⓘ の面を開く合図。増えるたびに ⓘ の面を開いた状態で作り直す。
+  const [infoNonce, setInfoNonce] = useState(0);
   // 目次の開閉。狭い窓では列にせず、札から開く上乗せ（drawer）にする。はじめは閉じている。
   // フックなので、下の早い return より前に置く。
-  const narrow = useNarrow();
+  // ペインの中は窓の幅ではなくペインの toc で開閉する。狭い窓の上乗せ（drawer）は使わない。
+  const narrow = useNarrow() && !pv;
   const [drawer, setDrawer] = useState(false);
   // 見ている間に動いていた会話か。終わった画面の 1 行（E1）は、見ている間に終わったときだけ伸ばして入れ、開いたときにもう終わっていた会話では動かさない。
   const seenAlive = useRef<string | null>(null);
@@ -61,12 +67,14 @@ export function SessionScreen(props: SessionProps) {
   const gitCount = props.git?.chip?.count ?? null;
   const bg = useBackgroundEmit();
   useEffect(() => {
-    bg({ type: 'git.watch', key: 'session', sessionIds: [props.id] });
-    return () => bg({ type: 'git.watch', key: 'session', sessionIds: [] });
-  }, [bg, props.id]);
+    // 分割では複数のセッションを同時に見るので、ペインごとに鍵を分ける（同じ鍵だと後の 1 つが前を上書きする）。
+    const key = pv ? `session:${pv.id}` : 'session';
+    bg({ type: 'git.watch', key, sessionIds: [props.id] });
+    return () => bg({ type: 'git.watch', key, sessionIds: [] });
+  }, [bg, props.id, pv?.id]);
   const hasGit = props.git != null;
   useEffect(() => { if (hasGit) bg({ type: 'git.changes.load', sessionId: props.id }); }, [bg, props.id, gitCount, hasGit]);
-  const tocOpen = narrow ? drawer : props.transcriptOpen;
+  const tocOpen = pv ? pv.toc : narrow ? drawer : props.transcriptOpen;
   // 現在の札は生きた run があるときだけ。札は目次と同じ右の列に入っていて、列ごと畳まれる。
   const hasCard = props.strip !== null && props.run?.alive === true;
   // ⌘J（transcript.toggle）は、狭い窓では上乗せの開閉にする。セッションが替わった描画は切り替えなので、開閉とは見なさない。
@@ -162,23 +170,44 @@ export function SessionScreen(props: SessionProps) {
   const reselectStatus = (status: NonNullable<typeof statusPick>['value']) => { if (status === 'paused') setStatus(status); };
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
   const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
-  const header = (
+  // 見出しの下の押せない理由の行など。大きな見出しの below と同じものを、ペインの見出しの下にも出す。
+  const belowLines = <>{facts}{noRootLine}{takenOverLine}</>;
+  // 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。
+  const primaryButton = (
+    <>
+      <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? primary.title ?? undefined}
+        aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>
+        <Icon name={ACTION_ICON[primary.id]} />{!pv?.tight && <span className="btn-label">{primary.label}</span>}
+      </button>
+      {primary.disabled && <span id={reasonId} className="sr-only">{primary.disabled}</span>}
+    </>
+  );
+  const statusNode = statusPick ? <StatusSelect label={t('session.screen.status')} value={statusPick.value} auto={statusPick.auto} title={statusPick.title} onChange={setStatus} onReselect={reselectStatus} isolate={false} /> : null;
+  const paneHeader = pv ? (
+    <>
+      <PaneHeader pane={pv} title={props.name} project={props.parent?.label ?? null} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} badges={<SessionBadges badges={props.badges} />}
+        oneLiner={props.oneLiner} status={statusNode}
+        primary={pv.tiny ? null : primaryButton}
+        // tiny では主の操作を ⋯ の中の先頭へ移す。ⓘ は細くて入れる所が無いので出さない。
+        // 試作どおり、主の操作の次に「詳細（ID、モデル、ブランチ）」を置き、押すとそのペインの ⓘ と同じ中身を出す。
+        menu={pv.tiny ? [item(primary), { key: 'details', label: t('pane.menu.details'), icon: 'info', onSelect: () => setInfoNonce((n) => n + 1) }, ...props.actions.menu.map(item)] : props.actions.menu.map(item)}
+        info={pv.tiny ? (infoNonce > 0 ? <span className="pane-head-anchor"><InfoPopover key={infoNonce} defaultOpen rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover></span> : null) : <InfoPopover rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover>}
+        sessionId={id} sessionStatus={statusPick && statusPick.value !== 'active' ? statusPick.value : null} />
+      {(facts || noRoot || props.takenOver) && <div className="pane-below">{belowLines}</div>}
+    </>
+  ) : null;
+  const header = paneHeader ?? (
     // 見出しの行。
     // 一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。
     // 名前は見出しにだけ出し、要約の題は出さない（C1）。
     // 名前の横に、他の PC で実行中の札（操作できない理由なので隠さない）。右端の (i) に、毎回は見ない属性を入れる。
     // 操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。
-    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={<>{facts}{noRootLine}{takenOverLine}</>}>
+    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={belowLines}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
       {/* 状態の札（4A）。操作の並びの先頭、主の操作の左に置く。見た目と一言はプロジェクト画面の札と同じ。 */}
-      {statusPick && <StatusSelect label={t('session.screen.status')} value={statusPick.value} auto={statusPick.auto} title={statusPick.title} onChange={setStatus} onReselect={reselectStatus} isolate={false} />}
-      {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
-      <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? primary.title ?? undefined}
-        aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>
-        <Icon name={ACTION_ICON[primary.id]} /><span className="btn-label">{primary.label}</span>
-      </button>
-      {primary.disabled && <span id={reasonId} className="sr-only">{primary.disabled}</span>}
+      {statusNode}
+      {primaryButton}
       <MenuButton label={t('session.screen.moreActions')} items={props.actions.menu.map(item)} />
       <InfoPopover rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover>
     </PageHeading>
@@ -186,7 +215,7 @@ export function SessionScreen(props: SessionProps) {
 
   // 目次の数。見出しと同じ数（props.turnCount）で、届くまでは数を添えない。
   const tocCount = props.turnCount ? `${props.turnCount.n}${props.turnCount.plus ? '+' : ''}` : null;
-  const toggleToc = () => (narrow ? setDrawer((d) => !d) : emit({ type: 'transcript.toggle' }));
+  const toggleToc = () => (pv ? emit({ type: 'pane.toc', pane: pv.id }) : narrow ? setDrawer((d) => !d) : emit({ type: 'transcript.toggle' }));
   // タブの列があるか（生きた run か、終わった run のタブを見ている）。あれば本体の 1 行目に入れ、右の列はその行から始める。
   const withStrip = Boolean(run && props.selectedTab);
   // 閉じている間は、タブの列（終わった後は切り替えの行）の右端に「目次 N」の札を置く。開いている間は、同じ右上の TocToggle を使う。
@@ -222,7 +251,7 @@ export function SessionScreen(props: SessionProps) {
   // 右の欄が無いので、残っている要約を本文の場所に出す（土台の要約も、残った手がかりとして出す）。
   if (props.gone) {
     return (
-      <div className="screen session-screen">
+      <div className="screen session-screen" data-variant={pv ? 'pane' : undefined}>
         {header}
         <div className="session-body" data-gone="true">
           <div className="gone-note" role="note">
@@ -248,14 +277,14 @@ export function SessionScreen(props: SessionProps) {
     // 分割は .c-main の中でさらに 2 列に割る。高さは .c-main から 100% で伝わる。
     const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);
     return (
-      <div className="screen session-screen">
+      <div className="screen session-screen" data-variant={pv ? 'pane' : undefined}>
         {header}
         {/* 右は会話の全文ではなくターンの目次にする。
             全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
             .c-body は縦の flex で窓の残りの高さを全部受け取る（session.css）。
             タブの列は本体の 1 行目に入れ、右の列はその行から下端までを占める。列の頭の畳むボタンと、畳んだ後の「目次 N」が同じ右上に来る。 */}
         <div ref={boxRef} className="c-body" data-strip="true" data-folded={tocOpen ? undefined : 'true'} data-narrow={narrow ? 'true' : undefined} style={bodyStyle}>
-          <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} trailing={tocOpen ? null : opener} />
+          <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} trailing={tocOpen || pv ? null : opener} />
           <div className="c-main">{terminals}</div>
           {toc}
         </div>
@@ -277,7 +306,7 @@ export function SessionScreen(props: SessionProps) {
         : <Listbox label={t('session.screen.subagents')} value={props.agentId ?? ''} options={agentOptions.map((o) => (o.value ? { ...o, label: t('session.toc.subagent', { id: o.value }), icon: 'agent' as const } : o))} onChange={selectAgent} faceClassName="listbox-face listbox-pill" minWidth={260} />)}
       <span className="spacer" /><span className="faint mono">{props.loaded} / {props.total}</span>
       {/* 目次は閉じている間だけ、ここに「目次 N」の札を置く（⌘J でも開閉できる）。 */}
-      {props.hasTranscript && !tocOpen && opener}
+      {props.hasTranscript && !tocOpen && !pv && opener}
     </div>
   );
   // 続けて呼んだツールは 1 行にまとめる（T1）。詳細表示の間は、今までどおり 1 件ずつにする。
@@ -287,7 +316,7 @@ export function SessionScreen(props: SessionProps) {
   // 本文の右に、要約の札と、実行中と同じ目次を置く。変更したファイル、アーティファクト、PR は見出しの下の 1 行にある。
   // 本文の無い会話は右の列を持たないので、要約の札を本文の欄の上に置く。
   return (
-    <div className="screen session-screen">
+    <div className="screen session-screen" data-variant={pv ? 'pane' : undefined}>
       {header}
       <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} data-toc={props.hasTranscript ? undefined : 'none'} style={props.hasTranscript ? bodyStyle : undefined}>
         <div className="c-main">{!props.hasTranscript && summaryCard}<section className="tr-sheet">{toggles}{transcript}{props.endedLine && <EndedAgentLine grow={seenAlive.current === id} line={props.endedLine} />}</section></div>

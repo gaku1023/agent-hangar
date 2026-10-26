@@ -56,6 +56,7 @@ import { toolsJa } from './ja/tools.ts';
 import { transcriptJa } from './ja/transcript.ts';
 import { terminalJa } from './ja/terminal.ts';
 import { pagerJa } from './ja/pager.ts';
+import { paneJa } from './ja/pane.ts';
 import { paletteJa } from './ja/palette.ts';
 import { connJa } from './ja/conn.ts';
 import { toastsJa } from './ja/toasts.ts';
@@ -127,6 +128,7 @@ export const ja: Dictionary = {
   ...transcriptJa,
   ...terminalJa,
   ...pagerJa,
+  ...paneJa,
   ...paletteJa,
   ...connJa,
   ...toastsJa,

@@ -7,6 +7,7 @@ import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
 import { CODEX_VERSION_SEEN_KEY, readCodexVersionSeen } from '../mediator/codexVersion.ts';
 import { OPENCODE_VERSION_SEEN_KEY, readOpencodeVersionSeen } from '../mediator/opencodeVersion.ts';
 import { toSearchParams } from '../mediator/screen.ts';
+import { cleanPaneLayout, PANES_KEY } from '../mediator/panes.ts';
 import { cleanSidebarFolded, cleanSidebarOrder, cleanSidebarWidth, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_WIDTH_KEY } from '../mediator/sidebar.ts';
 import { PROJECT_RAIL_KEY, readProjectRailFolded } from '../mediator/projectRail.ts';
 import { NOTIFY_KEY, notifyKeep } from '../mediator/notify.ts';
@@ -37,7 +38,7 @@ import { keyLabel } from '../keys.ts';
 export type RuntimeDeps = {
   api: ApiClient;
   ws: (handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }) => WsClient;
-  location: { getHash(): string; setHash(h: string): void; onHashChange(cb: () => void): () => void; go(delta: number): void; depth(): number };
+  location: { getHash(): string; setHash(h: string): void; replaceHash?(h: string): void; onHashChange(cb: () => void): () => void; go(delta: number): void; depth(): number };
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
   /** いま何時か。切断の時刻を Mediator へ渡すために要る。テストが差し替えられるように受け口にしてある。 */
@@ -450,6 +451,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'navigate': {
         const h = formatRoute(e.route);
+        if (e.replace && deps.location.replaceHash && deps.location.getHash() !== h) { deps.location.replaceHash(h); dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: e.route } }); return; }
         if (deps.location.getHash() === h) dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: e.route } });
         else { wrote = h; deps.location.setHash(h); }
         return;
@@ -1050,6 +1052,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
         ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
+        panes: { ...cleanPaneLayout(deps.storage.get(PANES_KEY)), zoom: null, flash: null },
         sidebarFolded: cleanSidebarFolded(deps.storage.get(SIDEBAR_FOLDED_KEY)), sidebarWidth: cleanSidebarWidth(deps.storage.get(SIDEBAR_WIDTH_KEY)),
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // プロジェクト画面の右パネルで折りたたんだ節。形の違う値は捨てる。

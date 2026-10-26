@@ -356,3 +356,53 @@ describe('セッション ID のコピーの打鍵', () => {
     expect(labelOf('session.copyId')).toBe('セッション ID をコピー');
   });
 });
+
+describe('画面の分割のキー', () => {
+  const MAC = { mac: true, terminal: false };
+  const MAC_TERM = { mac: true, terminal: true };
+  const OTHER = { mac: false, terminal: false };
+  const OTHER_TERM = { mac: false, terminal: true };
+  it('macOS は ⌘D、⌘⇧D、⌘⇧W、⌘⇧↵、⌘⌥矢印。ターミナルの中でも受ける', () => {
+    for (const ctx of [MAC, MAC_TERM]) {
+      expect(matchKey({ key: 'd', code: 'KeyD', metaKey: true }, ctx)).toBe('pane.splitRight');
+      expect(matchKey({ key: 'D', code: 'KeyD', metaKey: true, shiftKey: true }, ctx)).toBe('pane.splitDown');
+      expect(matchKey({ key: 'W', code: 'KeyW', metaKey: true, shiftKey: true }, ctx)).toBe('pane.remove');
+      expect(matchKey({ key: 'Enter', code: 'Enter', metaKey: true, shiftKey: true }, ctx)).toBe('pane.zoom');
+      for (const k of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) expect(matchKey({ key: k, code: k, metaKey: true, altKey: true }, ctx)).toBe('pane.focusDir');
+    }
+  });
+  it('⌘W（シェルタブ）、⌘←と⌘→（戻る・進む）、⌘\\ は今のまま', () => {
+    expect(matchKey({ key: 'w', code: 'KeyW', metaKey: true }, MAC)).toBe('tab.close');
+    expect(matchKey({ key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true }, MAC)).toBe('nav.back');
+    expect(matchKey({ key: 'ArrowRight', code: 'ArrowRight', metaKey: true }, MAC)).toBe('nav.forward');
+    expect(matchKey({ key: '\\', code: 'Backslash', metaKey: true }, MAC)).toBe('split.toggle');
+    expect(matchKey({ key: 'Enter', code: 'Enter', metaKey: true }, MAC)).toBeNull();
+  });
+  it('macOS の外は Ctrl+Alt+D、Ctrl+Alt+Shift+D、Ctrl+Alt+W、Ctrl+Alt+Enter、Ctrl+Alt+Shift+矢印。ターミナルの中でも受ける', () => {
+    for (const ctx of [OTHER, OTHER_TERM]) {
+      expect(matchKey({ key: 'd', ctrlKey: true, altKey: true }, ctx)).toBe('pane.splitRight');
+      expect(matchKey({ key: 'D', ctrlKey: true, altKey: true, shiftKey: true }, ctx)).toBe('pane.splitDown');
+      expect(matchKey({ key: 'w', ctrlKey: true, altKey: true }, ctx)).toBe('pane.remove');
+      expect(matchKey({ key: 'Enter', ctrlKey: true, altKey: true }, ctx)).toBe('pane.zoom');
+      for (const k of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) expect(matchKey({ key: k, ctrlKey: true, altKey: true, shiftKey: true }, ctx)).toBe('pane.focusDir');
+    }
+  });
+  it('macOS の外で、Ctrl+D（EOF）、Ctrl+Shift+W（シェルタブを閉じる）、Ctrl+Alt+矢印（OS の画面操作）は分割に使わない', () => {
+    expect(matchKey({ key: 'd', ctrlKey: true }, OTHER)).toBeNull();
+    expect(matchKey({ key: 'd', ctrlKey: true }, OTHER_TERM)).toBeNull();
+    expect(matchKey({ key: 'W', code: 'KeyW', ctrlKey: true, shiftKey: true }, OTHER_TERM)).toBe('tab.close');
+    expect(matchKey({ key: 'ArrowLeft', ctrlKey: true, altKey: true }, OTHER)).toBeNull();
+  });
+  it('表の打鍵の書き方は OS ごとに分かれる', () => {
+    const row = (id: string) => KEYMAP.find((b) => b.id === id)!;
+    expect(displayKeys(row('pane.splitRight'), true)).toBe('⌘D');
+    expect(displayKeys(row('pane.splitRight'), false)).toBe('Ctrl+Alt+D');
+    expect(displayKeys(row('pane.splitDown'), false)).toBe('Ctrl+Alt+Shift+D');
+    expect(displayKeys(row('pane.remove'), false)).toBe('Ctrl+Alt+W');
+    expect(displayKeys(row('pane.zoom'), true)).toBe('⌘⇧↵');
+    expect(displayKeys(row('pane.zoom'), false)).toBe('Ctrl+Alt+Enter');
+    expect(displayKeys(row('pane.focusDir'), false)).toBe('Ctrl+Alt+Shift+←↑→↓');
+    expect(displayKeys(row('pane.openRight'), true)).toBe('⌥Click');
+    expect(displayKeys(row('pane.openRight'), false)).toBe('Alt+Click');
+  });
+});

@@ -16,6 +16,7 @@ export type KeyId =
   | 'palette.open' | 'app.reload' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'session.copyAddress' | 'session.copyId' | 'tab.move' | 'turn.move'
+  | 'pane.splitRight' | 'pane.splitDown' | 'pane.remove' | 'pane.focusDir' | 'pane.zoom' | 'pane.openRight'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.state'
   | 'todo.move' | 'todo.toggle' | 'todo.edit' | 'todo.remove' | 'todo.reorder' | 'todo.reject' | 'todo.add' | 'todo.undo';
@@ -51,6 +52,7 @@ export type KeyBinding = { id: KeyId; group: KeyGroup; keys: string; keysOther?:
 export type KeyEventLike = { key: string; code?: string; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean };
 
 const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const ARROWS = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'];
 
 export const KEYMAP: KeyBinding[] = [
   // / も同じパレットを開く。ヘッダーの入口が打つ欄ではなく押す錠剤になったので、欄へ移る打鍵は無い。
@@ -83,6 +85,20 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'session.copyId', group: 'session', keys: '⌘⌥C', keysOther: '⌃⌥⇧C', labelKey: 'shortcuts.key.sessionCopyId', chords: [{ key: 'c', mod: true, alt: true, os: 'mac' }, { key: 'c', ctrlAlt: true, shift: true, os: 'other' }] },
   // 終わったセッションのトランスクリプトが出ているときだけ受ける。ターミナルが出ているときは奪わない（Root.tsx）。
   { id: 'transcript.find', group: 'session', keys: '⌘F', labelKey: 'shortcuts.key.transcriptFind', chords: [{ key: 'f', mod: true, shift: false }] },
+  // 画面の分割（別のセッションを並べる）。macOS は ⌘D と ⌘⇧D（右と下に空のペイン）、⌘⇧W（操作中のペインを外す）、⌘⌥矢印（隣へ）、⌘⇧↩（最大化と解除）で、ターミナルの中でも受ける。
+  // ⌘ の付いた打鍵は xterm も Claude Code も使っていない。⌘W（シェルタブを閉じる）は ⇧ の有無で分かれ、⌘⇧W は表のどの行とも重ならない。
+  // ⌘← と ⌘→（戻る・進む）は ⌥ が付かないので、⌘⌥ の矢印と重ならない（hits が ⌥ の有無で分ける）。
+  // macOS の外は ⌃⌥ の組にそろえる（クイックセッションの Ctrl+Alt+N、宛先の Ctrl+Alt+C と同じ流儀）。
+  // Ctrl+D はターミナルの EOF、Ctrl+Shift+W は表のタブを閉じる（ターミナルの中の層）なので、どちらも取らない。
+  // Ctrl+Alt+矢印は Windows のグラフィックドライバの画面回転と Linux のデスクトップ切替に取られやすいので、矢印だけは ⇧ を足した Ctrl+Alt+Shift+矢印にする。
+  // 分割の打鍵は、ターミナルにフォーカスがある間が使う時間の大半なので、ほかの OS でもターミナルの中で受ける（inTerminal）。xterm は Ctrl+Alt+文字を ESC と制御文字で送るだけで、Claude Code も readline も使っていない。
+  { id: 'pane.splitRight', group: 'session', keys: '⌘D', keysOther: '⌃⌥D', labelKey: 'shortcuts.key.paneSplitRight', chords: [{ key: 'd', mod: true, shift: false, os: 'mac' }, { key: 'd', ctrlAlt: true, shift: false, os: 'other', inTerminal: true }] },
+  { id: 'pane.splitDown', group: 'session', keys: '⌘⇧D', keysOther: '⌃⌥⇧D', labelKey: 'shortcuts.key.paneSplitDown', chords: [{ key: 'd', mod: true, shift: true, os: 'mac' }, { key: 'd', ctrlAlt: true, shift: true, os: 'other', inTerminal: true }] },
+  { id: 'pane.remove', group: 'session', keys: '⌘⇧W', keysOther: '⌃⌥W', labelKey: 'shortcuts.key.paneRemove', chords: [{ key: 'w', mod: true, shift: true, os: 'mac' }, { key: 'w', ctrlAlt: true, shift: false, os: 'other', inTerminal: true }] },
+  { id: 'pane.focusDir', group: 'session', keys: '⌘⌥←↑→↓', keysOther: '⌃⌥⇧←↑→↓', labelKey: 'shortcuts.key.paneFocusDir', chords: [...ARROWS.map((k) => ({ key: k, mod: true, alt: true, os: 'mac' as const })), ...ARROWS.map((k) => ({ key: k, ctrlAlt: true, shift: true, os: 'other' as const, inTerminal: true }))] },
+  { id: 'pane.zoom', group: 'session', keys: '⌘⇧↵', keysOther: '⌃⌥↵', labelKey: 'shortcuts.key.paneZoom', chords: [{ key: 'Enter', mod: true, shift: true, os: 'mac' }, { key: 'Enter', ctrlAlt: true, shift: false, os: 'other', inTerminal: true }] },
+  // ⌥クリック（ほかは Alt+クリック）は打鍵ではなく、行のクリックの修飾である（views/Sidebar.tsx と views/SessionRows.tsx）。
+  { id: 'pane.openRight', group: 'session', keys: '⌥Click', labelKey: 'shortcuts.key.paneOpenRight', chords: [] },
   { id: 'tab.move', group: 'session', keys: '← / →', labelKey: 'shortcuts.key.tabMove', chords: [] },
   { id: 'turn.move', group: 'session', keys: 'j / k / ↑ / ↓', labelKey: 'shortcuts.key.turnMove', chords: [] },
   // 文字の大きさは、macOS の外のターミナルの中では受けない（terminal を書かない）。Ctrl+Shift+- は Claude Code の取り消し（Ctrl+_）だからである。
@@ -132,7 +148,7 @@ function shiftLayer(e: KeyEventLike): KeyId | null {
 }
 
 function hits(c: KeyChord, e: KeyEventLike): boolean {
-  if (c.alt) return e.code === `Key${c.key.toUpperCase()}` && (!!e.metaKey || !!e.ctrlKey) && !!e.altKey && (c.shift === undefined || c.shift === !!e.shiftKey);
+  if (c.alt) return e.code === (c.key.length === 1 ? `Key${c.key.toUpperCase()}` : c.key) && (!!e.metaKey || !!e.ctrlKey) && !!e.altKey && (c.shift === undefined || c.shift === !!e.shiftKey);
   if (c.key.toLowerCase() !== e.key.toLowerCase()) return false;
   if (c.shift !== undefined && c.shift !== !!e.shiftKey) return false;
   // ⌃⌥ の組み合わせは、素のブラウザが ⌘1–⌘9 を渡さないときの逃げ道なので、この 1 通りだけを認める。

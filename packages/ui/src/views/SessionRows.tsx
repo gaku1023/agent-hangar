@@ -11,7 +11,7 @@ import { MenuButton, type MenuAnchor, type MenuCloseHow, type MenuItem } from '.
 import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
-import { pointAnchor, SessionMenuPop, sessionMenuItems, sessionMenuWidth } from './sessionMenu.tsx';
+import { pointAnchor, SessionMenuPop, sessionMenuItems, sessionMenuWidth, usePaneOf } from './sessionMenu.tsx';
 
 /**
  * 右端の動きの語を出すか。入力待ちと、止まっている理由（許可待ち、使用制限の時刻、リセット済み）だけを語にする。
@@ -68,6 +68,8 @@ type RowsSource = { rows: SessionRowProps[]; items?: never } | { items: ListItem
 export type RowVariant = 'recent' | 'project' | 'search';
 
 /** 行を開く UiAction。検索の結果の行は、抜粋の一致へ跳ぶ先を添える。 */
+/** ⌥クリック（ほかは Alt+クリック）は、操作中のペインの右に分割して開く。 */
+export const splitRightAction = (r: Pick<SessionRowProps, 'id'>): UiAction => ({ type: 'pane.open', sessionId: r.id, target: null, side: 'right' });
 const openAction = (r: SessionRowProps) => (r.jump ? { type: 'session.open' as const, id: r.id, seq: r.jump.seq, q: r.jump.q } : { type: 'session.open' as const, id: r.id });
 
 /**
@@ -100,6 +102,7 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
 export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction; /** 並びの替わりを知らせる範囲（VirtualList の scope）。タブ、条件、ページが替わったら替える。 */ scope?: string }) {
   const emit = useEmit();
   const t = useT();
+  const paneOf = usePaneOf();
   const statusColumn = props.statusColumn ?? true;
   const items: ListItem[] = props.items ?? (props.rows ?? []).map((row) => ({ kind: 'row' as const, row }));
   // カーソルと打鍵は行だけを渡り歩き、見出しは飛ばす。
@@ -278,7 +281,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {r.live && liveWord(t, r) !== null && <span className="row-live" data-live={r.reason === 'limit' ? 'limit' : r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{liveWord(t, r)}</span>}
         {r.menu && (
           <span className="row-act row-more" onClick={stopClick}>
-            <MenuButton label={t('row.menu.label', { name: r.name })} items={sessionMenuItems(t, r.menu, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={sessionMenuWidth(r.menu)} onClose={(how) => menuClosed(r.id, how)} />
+            <MenuButton label={t('row.menu.label', { name: r.name })} items={sessionMenuItems(t, { ...r.menu, pane: paneOf(r.id) }, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={sessionMenuWidth(r.menu)} onClose={(how) => menuClosed(r.id, how)} />
           </span>
         )}
         {time(r)}
@@ -333,7 +336,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const cursorRowId = cursor >= 0 ? rows[cursor]!.id : null;
   const rowEl = (r: SessionRowProps) => (
     <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
-      onClick={() => emit(openAction(r))} onFocus={() => setCursorId(r.id)}
+      onClick={(e) => emit(e.altKey ? splitRightAction(r) : openAction(r))} onFocus={() => setCursorId(r.id)}
       onContextMenu={r.menu ? (e) => { e.preventDefault(); setCursorId(r.id); setCtx({ id: r.id, at: pointAnchor(e.clientX, e.clientY) }); } : undefined}>
       {statusColumn ? status(r) : <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />}
       <span className="row-main">

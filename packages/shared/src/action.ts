@@ -12,6 +12,10 @@ export type RunId = string;
 export type TabId = string;
 export type TodoId = string;
 export type ArtifactId = string;
+/** 分割の木の葉（ペイン）と節の id。 */
+export type PaneId = string;
+/** ペインを置く辺。center は置き換え（ドラッグでは入れ替え）。 */
+export type PaneDropSide = 'left' | 'right' | 'up' | 'down' | 'center';
 /** プロジェクト画面の右パネルの節。並びは画面の上からの順である。 */
 export const PROJECT_RAIL_SECTIONS = ['todo', 'instructions', 'artifacts', 'git'] as const;
 export type ProjectRailSection = (typeof PROJECT_RAIL_SECTIONS)[number];
@@ -218,6 +222,14 @@ export type UiAction =
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'sidebar.toggle' }
+  // 画面の分割（別のセッションを並べる）。ペインと分け目は ui の mediator/panes.ts の木。
+  | { type: 'pane.open'; sessionId: SessionId; target: PaneId | null; side: PaneDropSide }
+  | { type: 'pane.openEmpty'; side: 'right' | 'down' }
+  | { type: 'pane.fill'; pane: PaneId; sessionId: SessionId }
+  | { type: 'pane.remove'; pane: PaneId } | { type: 'pane.removeOthers'; pane: PaneId }
+  | { type: 'pane.move'; pane: PaneId; target: PaneId; side: PaneDropSide }
+  | { type: 'pane.resize'; node: PaneId; ratio: number } | { type: 'pane.equalize' }
+  | { type: 'pane.focus'; pane: PaneId } | { type: 'pane.zoom'; pane: PaneId } | { type: 'pane.toc'; pane: PaneId }
   // サイドバーの「動いている」の行を、利用者が掴んで並べ替えたとき。ids は並べ替えた後の、動いているセッション全部の並び。
   | { type: 'sidebar.order'; ids: SessionId[] }
   // サイドバーの「実行中」のグループを開く・畳む。key はプロジェクトの id で、未分類は空の文字列。
