@@ -84,11 +84,12 @@ function loadOrder(home: string) {
 function targetMatches(ref: ItemRef, target: string): boolean {
   if (ref.type === 'file') return target === ref.rel;
   if (ref.type === 'settings') return target === `settings.json#${ref.key}`;
+  if (ref.type !== 'memory') return false; // opencode の項目は Claude の適用では書かない（対象 opencode の write が書く）
   const m = /^projects\/[A-Za-z0-9-]+\/memory\/(.+)$/.exec(target);
   return !!m && isSafeRelPath(target) && m[1] === ref.rel;
 }
 
-const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' ? ref.key : `memory/${ref.rel}`);
+const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' ? ref.key : ref.type === 'memory' ? `memory/${ref.rel}` : '');
 
 function contentFits(key: string, v: unknown): boolean {
   if (key.startsWith('permissions.')) {
