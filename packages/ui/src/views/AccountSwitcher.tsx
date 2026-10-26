@@ -3,8 +3,11 @@ import { createPortal } from 'react-dom';
 import { useEmit } from '../action/chain.tsx';
 import { isPickableAccount, switchLabel, type AccountView } from '../presenters/accounts.ts';
 import type { HeaderAccountProps } from '../presenters/shell.ts';
-import { AccountMeters } from './primitives/AccountMeters.tsx';
+import type { AgentUsageView } from '../presenters/accounts.ts';
+import { AccountMeters, MeterRow } from './primitives/AccountMeters.tsx';
+import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { staggerIn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { place, type Placement } from './primitives/listboxModel.ts';
 import { foldAt } from './headerFold.ts';
@@ -21,12 +24,13 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
  * ヘッダは窓を掴む領域なので、押す部品はボタンにする。
  * 一覧はアカウントごとに 1 枚の札で、選ぶと、ホームなら「いまのアカウント」を、セッション画面ならそのセッションのアカウントを替える。
  * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札と初めてのログインの途中の札は押せない（右上は空で、理由は札の中身が言う）。ログインし直しの途中の札は、いまのログインが生きているので押せる。
+ * Codex の枠が届いていれば、面を Claude Code と Codex の節に分け、Codex の枠も並べる（顔は開いている会話のエージェントの枠だけを出すので、ほかの枠はここで見る）。
  * 開くたびに accounts.load を出し、認証を読み直させる。
  * 面は document.body への portal に描く（ヘッダの重なりに切られないため）。
  * 位置は place() で決め、Esc と外側の押下で閉じる。Esc ではボタンへフォーカスを戻す。
  */
 export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps>; children: ReactNode }) {
-  const { shown, list, sessionId, working } = props.account;
+  const { shown, list, sessionId, working, codex } = props.account;
   const emit = useEmit();
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -49,11 +53,12 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
   }, []);
   useLayoutEffect(() => { if (open) reposition(); }, [open, reposition]);
 
-  // 位置が決まって見えてから、開くたびに一度だけ、shown の札へフォーカスを送る。
+  // 位置が決まって見えてから、開くたびに一度だけ、shown の札へフォーカスを送り、節の見出しと札を上から順に浮かせる。
   const ready = open && pos !== null;
   useLayoutEffect(() => {
-    if (!ready) return;
-    pop.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus();
+    if (!ready || !pop.current) return;
+    pop.current.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus();
+    staggerIn([...pop.current.querySelectorAll<HTMLElement>('.account-sec, .account-card')]);
   }, [ready]);
 
   useEffect(() => {
@@ -93,6 +98,22 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
     cards[(next + cards.length) % cards.length]!.focus();
   };
 
+  const claudeMenu = (
+    <div role="menu" aria-label={t('accountSwitcher.menu.aria')} className="account-cards">
+      {list.map((a) => {
+        const isShown = a.id === shown.id;
+        const disabled = blocked(a);
+        return (
+          <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
+            {/* 押せない札の右上は空にする。理由は札の中身（メールの行）が言う。 */}
+            {!disabled && <span className="account-card-tag" data-kind={isShown ? 'shown' : 'go'}>{isShown ? (sessionId === null ? t('accountSwitcher.tag.current') : t('accountSwitcher.tag.session')) : t('accountSwitcher.tag.switch')}</span>}
+            <AccountMeters account={a} showResets />
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
       <button ref={face} type="button" className="account-switch" aria-label={switchLabel(t, shown)} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popId : undefined}
@@ -105,19 +126,19 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
       {open && createPortal(
         <div ref={pop} id={popId} role="dialog" aria-label={t('accountSwitcher.dialog.aria')} tabIndex={-1} className="menu-pop account-pop" data-up={pos?.up ? 'true' : undefined} onKeyDown={onKey}
           style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden', left: 0, top: 0, width: WIDTH }}>
-          <div role="menu" aria-label={t('accountSwitcher.menu.aria')} className="account-cards">
-            {list.map((a) => {
-              const isShown = a.id === shown.id;
-              const disabled = blocked(a);
-              return (
-                <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
-                  {/* 押せない札の右上は空にする。理由は札の中身（メールの行）が言う。 */}
-                  {!disabled && <span className="account-card-tag" data-kind={isShown ? 'shown' : 'go'}>{isShown ? (sessionId === null ? t('accountSwitcher.tag.current') : t('accountSwitcher.tag.session')) : t('accountSwitcher.tag.switch')}</span>}
-                  <AccountMeters account={a} showResets />
-                </button>
-              );
-            })}
-          </div>
+          {/* Codex の枠が届いていれば、Claude Code と Codex の見出しで節を分ける（試作 usage-pop-proto の B）。届いていなければ、見出しを出さず Claude の札だけにする。 */}
+          {codex ? (
+            <div className="account-cards">
+              <div role="group" aria-labelledby={`${popId}-claude`} className="account-group">
+                <div className="account-sec"><AgentIcon kind="claude-code" decorative /><span id={`${popId}-claude`}>{t('accountSwitcher.section.claude')}</span><span className="account-sec-hint">{t('accountSwitcher.section.claudeHint')}</span></div>
+                {claudeMenu}
+              </div>
+              <div role="group" aria-labelledby={`${popId}-codex`} className="account-group">
+                <div className="account-sec"><AgentIcon kind="codex" decorative /><span id={`${popId}-codex`}>{t('accountSwitcher.section.codex')}</span></div>
+                <CodexCard usage={codex.usage} here={codex.here} />
+              </div>
+            </div>
+          ) : claudeMenu}
           {/* 下の段は、左に「アカウントを追加」、右に「アカウントの設定」。1 件でも 2 件以上でも同じ並びにする（試作の 1A）。
               追加は、設定の画面にある「アカウントを足す」のダイアログを直接開く。 */}
           <div className="account-pop-foot">
@@ -128,5 +149,33 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
         document.body,
       )}
     </>
+  );
+}
+
+/**
+ * 面の Codex の節の札。Codex にはアカウントの切り替えが無いので、押せる札（ボタン）にしない。
+ * 中身は Claude の札（AccountMeters）と同じ格子で、名前の行、最終更新の行、5 時間と週の行。Codex の会話を開いているときだけ、右上に「このセッション」と出す。
+ */
+function CodexCard(props: { usage: AgentUsageView; here: boolean }) {
+  const t = useT();
+  const u = props.usage;
+  const name = t('accountSwitcher.codex.name');
+  return (
+    <div className="account-card" data-info="true" data-here={props.here ? 'true' : undefined}>
+      {props.here && <span className="account-card-tag" data-kind="here">{t('accountSwitcher.tag.codexSession')}</span>}
+      <span className="account-meters">
+        <span className="account-meters-head">
+          <b className="account-meters-name">{name}</b>
+          {u.plan !== null && <span className="account-plan">{u.plan}</span>}
+        </span>
+        <span className="account-mail">{u.updatedLabel === null ? '' : t('accountSwitcher.codex.updated', { time: u.updatedLabel })}</span>
+        {u.fiveHour === null && u.sevenDay === null ? <span className="account-none">{t('account.meters.noValue')}</span> : (
+          <>
+            <MeterRow name={name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={u.fiveHour} showResets />
+            <MeterRow name={name} label={t('account.meters.weekLabel')} short={t('account.meters.weekShort')} gauge={u.sevenDay} showResets />
+          </>
+        )}
+      </span>
+    </div>
   );
 }
