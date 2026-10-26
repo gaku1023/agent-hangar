@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import type { AgentAsk, LaunchSpec } from '../../agent/types.ts';
+import type { AgentAsk, LaunchSpec, MaterializeMode } from '../../agent/types.ts';
 import { writeFakeCodex } from '../../../test/fake-codex.ts';
 import { posixDescribe } from '../../../test/platform.ts';
 import { LaunchQueue } from '../opencode/serve/queue.ts';
@@ -96,9 +96,10 @@ posixDescribe('Codex の driver と状態の面のつなぎ（B3a + B4）', () =
   });
 
   it('再開と fork：開いた会話が実行中として写り、止めたら消える', async () => {
-    for (const kind of ['resume', 'fork'] as const) {
+    const modes: MaterializeMode[] = [{ kind: 'resume', id: 'ext-thread' }, { kind: 'fork', id: 'ext-thread', newId: 'unused' }];
+    for (const mode of modes) {
       const { d } = make();
-      const r = (await d.launch.materialize!({ kind, id: 'ext-thread' }, spec({ prompt: 'work' }))) as { providerSessionId: string };
+      const r = (await d.launch.materialize!(mode, spec({ prompt: 'work' }))) as { providerSessionId: string };
       await until(() => rows(d).some((x) => x.status === 'busy'));
       expect(rows(d)[0]).toMatchObject({ sessionId: r.providerSessionId, agent: 'codex', cwd, pid: d.served('s1')!.pid });
       expect(await d.launch.release({ sessionId: 's1', providerSessionId: r.providerSessionId, cwd }, 'killed')).toBe(true);
