@@ -186,6 +186,43 @@ export function savePanes(prev: State, state: State, effects: Effect[]): Effect[
   return [...effects, { kind: 'storage.save', key: PANES_KEY, value: { root: state.panes.root, focus: state.panes.focus } }];
 }
 
+/**
+ * 端末をつないでおくセッション。
+ * セッション画面にいる間は、木にある全部のペインのセッションである（最大化で隠れたペインも含める）。
+ * セッション画面の外では何もつながない。
+ */
+export function paneSessions(state: State): string[] {
+  if (state.screen.name !== 'session') return [];
+  const ids = paneLeaves(state.panes.root).map((l) => l.sessionId).filter((s): s is string => s !== null);
+  // 木が画面に追いつく前（followScreen の前）でも、開いている画面のセッションは含める。
+  return ids.includes(state.screen.id) ? ids : [...ids, state.screen.id];
+}
+
+/** そのセッションの端末をつないでおくか。 */
+export const paneShows = (state: State, sessionId: string): boolean => paneSessions(state).includes(sessionId);
+
+/**
+ * 並べたペインの端末の接続を、木と画面に合わせる。
+ * 画面（screen.ts）は操作中のセッションだけをつなぎ、離れたセッションを切る。
+ * 並べたペインでは、操作中でないペインも接続を保たないと、データが届かず描画が止まり、寸法が tmux へ届かず右端が欠け、ホイールが tmux へ届かずスクロールできない。
+ * そこで、まだ見えているセッションを切る Effect を落とし、見えなくなったセッションを切り、新しく見えたセッションをつなぐ。
+ * 分割していないときは、画面が出す Effect と同じになるので何も足さない。
+ */
+export function paneTerminals(prev: State, state: State, effects: Effect[]): Effect[] {
+  const before = paneSessions(prev);
+  const after = paneSessions(state);
+  const kept = effects.filter((e) => !(e.kind === 'terminal.disconnectSession' && after.includes(e.sessionId)));
+  const off = new Set(kept.flatMap((e) => (e.kind === 'terminal.disconnectSession' ? [e.sessionId] : [])));
+  const on = new Set(kept.flatMap((e) => (e.kind === 'terminal.connect' ? [e.sessionId] : [])));
+  const extra: Effect[] = [
+    ...before.filter((s) => !after.includes(s) && !off.has(s)).map((s): Effect => ({ kind: 'terminal.disconnectSession', sessionId: s })),
+    ...after.filter((s) => !before.includes(s) && !on.has(s)).map((s): Effect => ({ kind: 'terminal.connect', sessionId: s, tabId: null })),
+    // 新しく見えたペインのセッションは、本文も読み始める（画面が読むのは操作中のセッションだけなので、並びを戻したときに右欄が空になる）。
+    ...after.filter((s) => !before.includes(s) && !effects.some((e) => e.kind === 'api.loadEvents' && e.sessionId === s)).map((s): Effect => ({ kind: 'api.loadEvents', sessionId: s, fromSeq: 0 })),
+  ];
+  return kept.length === effects.length && extra.length === 0 ? effects : [...kept, ...extra];
+}
+
 // ---- 入力 ----
 
 type PaneAction = Extract<UiAction, { type: `pane.${string}` }>;

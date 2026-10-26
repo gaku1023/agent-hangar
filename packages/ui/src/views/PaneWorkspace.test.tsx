@@ -203,6 +203,72 @@ describe('PaneWorkspace', () => {
     expect(m.emit).toHaveBeenCalledWith({ type: 'pane.resize', node, ratio: expect.closeTo(0.5 + 0.02, 5) });
   });
 
+  describe('角（T 字）', () => {
+    const rectOf = (l: number, t: number, w: number, h: number) => () => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON: () => ({}) }) as DOMRect;
+    /** 左に s1、右に s2 と s3 を上下に置き、節の矩形を決める（親は 1000×800、右の子は x が 500 から）。 */
+    async function tee() {
+      const m = await mounted();
+      await m.open('s2');
+      const target = document.querySelector<HTMLElement>('[data-session="s2"]')!.dataset.pane!;
+      act(() => m.rt.emit({ type: 'pane.open', sessionId: 's3', target, side: 'down' }));
+      await flush();
+      const corner = document.querySelector<HTMLElement>('[data-corner]')!;
+      const child = corner.closest<HTMLElement>('[data-node]')!;
+      const parent = child.parentElement!.closest<HTMLElement>('[data-node]')!;
+      parent.getBoundingClientRect = rectOf(0, 0, 1000, 800);
+      child.getBoundingClientRect = rectOf(500, 0, 500, 800);
+      m.emit.mockClear();
+      return { m, corner, parent: parent.dataset.node!, child: child.dataset.node! };
+    }
+    const resizes = (m: { emit: { mock: { calls: unknown[][] } } }) => m.emit.mock.calls.map((c) => c[0] as { type: string; node: string; ratio: number }).filter((a) => a.type === 'pane.resize');
+
+    it('T 字の角に取っ手が 1 つ出る', async () => {
+      const t = await tee();
+      expect(document.querySelectorAll('[data-corner]')).toHaveLength(1);
+      expect(t.corner.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('角をドラッグすると、親の節と子の節の 2 つに pane.resize を出し、離すと端末の寸法合わせが戻る', async () => {
+      const { m, corner, parent, child } = await tee();
+      fireEvent.pointerDown(corner, { clientX: 504, clientY: 400 });
+      expect(document.querySelector(`[data-node="${parent}"]`)!.hasAttribute('data-layout-moving')).toBe(true);
+      expect(corner.dataset.grab).toBe('true');
+      fireEvent.pointerMove(window, { clientX: 300, clientY: 300 });
+      expect(resizes(m)).toEqual([{ type: 'pane.resize', node: parent, ratio: 0.3 }, { type: 'pane.resize', node: child, ratio: 0.375 }]);
+      // 最小の幅 280px を守る。
+      m.emit.mockClear();
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 300 });
+      expect(resizes(m)[0]).toEqual({ type: 'pane.resize', node: parent, ratio: 0.28 });
+      const settled = vi.fn();
+      window.addEventListener('hangar:layout-settled', settled);
+      fireEvent.pointerUp(window);
+      window.removeEventListener('hangar:layout-settled', settled);
+      expect(settled).toHaveBeenCalledTimes(1);
+      expect(document.querySelector(`[data-node="${parent}"]`)!.hasAttribute('data-layout-moving')).toBe(false);
+      m.emit.mockClear();
+      fireEvent.pointerMove(window, { clientX: 700, clientY: 400 });
+      expect(m.emit).not.toHaveBeenCalled();
+    });
+
+    it('⇧ を押している間は、動きの大きい軸の節だけが動く', async () => {
+      const { m, corner, parent, child } = await tee();
+      fireEvent.pointerDown(corner, { clientX: 504, clientY: 400 });
+      fireEvent.pointerMove(window, { clientX: 300, clientY: 380, shiftKey: true });
+      expect(resizes(m)).toEqual([{ type: 'pane.resize', node: parent, ratio: 0.3 }, { type: 'pane.resize', node: child, ratio: 0.5 }]);
+      m.emit.mockClear();
+      fireEvent.pointerMove(window, { clientX: 500, clientY: 200, shiftKey: true });
+      expect(resizes(m)).toEqual([{ type: 'pane.resize', node: parent, ratio: 0.5 }, { type: 'pane.resize', node: child, ratio: 0.35 }]);
+      fireEvent.pointerUp(window);
+    });
+
+    it('ダブルクリックは関わる 2 つの節だけを 0.5 にし、pane.equalize は出さない', async () => {
+      const { m, corner, parent, child } = await tee();
+      fireEvent.doubleClick(corner);
+      expect(resizes(m)).toEqual([{ type: 'pane.resize', node: parent, ratio: 0.5 }, { type: 'pane.resize', node: child, ratio: 0.5 }]);
+      expect(m.emit.mock.calls.some((c) => (c[0] as { type: string }).type === 'pane.equalize')).toBe(false);
+    });
+  });
+
   it('最大化中はそのペインだけを出し、見出しの解除のボタンで pane.zoom を出す', async () => {
     const m = await mounted();
     await m.open('s2');

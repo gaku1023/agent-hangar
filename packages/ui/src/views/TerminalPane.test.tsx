@@ -65,6 +65,33 @@ describe('TerminalPane', () => {
     window.dispatchEvent(new Event(LAYOUT_SETTLED));
     expect(host.fit).toHaveBeenCalledTimes(1);
   });
+  // 画面の分割では、操作中でないペインの端末もペインの幅に合わせる（右端が欠けないように）。
+  it('並べた 2 つのペインは、境目のドラッグや最大化の動きが止まると両方とも合わせ直し、窓の大きさが変わっても両方合わせる', () => {
+    const observers: { cb: () => void; el: Element | null }[] = [];
+    vi.stubGlobal('ResizeObserver', class { o: { cb: () => void; el: Element | null }; constructor(cb: () => void) { this.o = { cb, el: null }; observers.push(this.o); } observe(el: Element) { this.o.el = el; } disconnect() {} });
+    const host = fakeHost();
+    render(
+      <div className="pane-node">
+        <div className="pane" data-pane="p1"><TerminalHostContext.Provider value={host}><TerminalPane tabId="a" hint={null} live={null} /></TerminalHostContext.Provider></div>
+        <div className="pane" data-pane="p2"><TerminalHostContext.Provider value={host}><TerminalPane tabId="b" hint={null} live={null} /></TerminalHostContext.Provider></div>
+      </div>,
+    );
+    const fit = host.fit as ReturnType<typeof vi.fn>;
+    const fitted = () => fit.mock.calls.map((c) => c[0] as string).sort();
+    const node = document.querySelector<HTMLElement>('.pane-node')!;
+    // 境目のドラッグ（PaneDivider は節に印を付ける）の間は合わせない。
+    node.setAttribute(LAYOUT_MOVING_ATTR, '');
+    for (const o of observers) o.cb();
+    expect(host.fit).not.toHaveBeenCalled();
+    node.removeAttribute(LAYOUT_MOVING_ATTR);
+    window.dispatchEvent(new Event(LAYOUT_SETTLED));
+    expect(fitted()).toEqual(['a', 'b']);
+    fit.mockClear();
+    // 窓の大きさの変更や右パネルの開閉は、どちらの枠の大きさも変える。
+    for (const o of observers) o.cb();
+    expect(fitted()).toEqual(['a', 'b']);
+    vi.unstubAllGlobals();
+  });
   it('最初のデータが届くまで、端末の面は data-painted="false" で透明にしておく', () => {
     const host = { ...fakeHost(), painted: () => false };
     render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);

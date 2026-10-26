@@ -23,6 +23,8 @@ const ALLOWED: Record<string, string> = {
   'pane.header.remove': '外す（分割から外す）',
   // 同じ理由（20 章の「分割から外す」「ほかのペインを外す」）で、ショートカット一覧とペインの右クリックの項目。「ほかの」は「ほかのペイン」という語の並びで、他の PC を指す語ではない。
   'shortcuts.key.paneRemove': '外す（分割から外す）',
+  // ⌘W の行も、閉じるタブが無いときは分割から外す（同じ理由）。
+  'shortcuts.key.tabClose': '外す（分割から外す）',
   'pane.menu.closeOthers': '外す、ほかの（ほかのペインを外す）',
 };
 

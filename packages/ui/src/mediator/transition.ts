@@ -29,7 +29,7 @@ import { sessionViewStep } from './sessionView.ts';
 import { settingsStep } from './settings.ts';
 import { SIDEBAR_WIDTH_DEFAULT, sidebarFoldStep, sidebarLiveStep, sidebarOrderStep, sidebarStep, sidebarWidthStep } from './sidebar.ts';
 import { projectRailStep } from './projectRail.ts';
-import { emptyPanes, followScreen, paneStep, prunePanes, savePanes } from './panes.ts';
+import { emptyPanes, followScreen, paneStep, paneTerminals, prunePanes, savePanes } from './panes.ts';
 import { syncStep } from './sync.ts';
 import { todosStep } from './todos.ts';
 import { diskShortStep } from './diskShort.ts';
@@ -129,7 +129,8 @@ function storeChanged(prev: State, store: Store): Step {
 function settled(prev: State, r: Step, store: Store): Step {
   const state = followScreen(prev.screen, settlePhoneLaunches(settleWaiting(r.state), store, r.effects));
   // 分割の木か操作中が変わったら、1 回だけ保存する（mediator/panes.ts）。
-  const effects = savePanes(prev, state, r.effects);
+  // 並べたペインの端末の接続も、木と画面に合わせる（同じ所）。
+  const effects = savePanes(prev, state, paneTerminals(prev, state, r.effects));
   return fetchDirsOnOpen(prev, state === r.state && effects === r.effects ? r : { state, effects });
 }
 

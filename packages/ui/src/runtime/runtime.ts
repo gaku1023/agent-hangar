@@ -7,7 +7,7 @@ import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
 import { CODEX_VERSION_SEEN_KEY, readCodexVersionSeen } from '../mediator/codexVersion.ts';
 import { OPENCODE_VERSION_SEEN_KEY, readOpencodeVersionSeen } from '../mediator/opencodeVersion.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { cleanPaneLayout, PANES_KEY } from '../mediator/panes.ts';
+import { cleanPaneLayout, paneSessions, paneShows, PANES_KEY } from '../mediator/panes.ts';
 import { cleanSidebarFolded, cleanSidebarOrder, cleanSidebarWidth, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_WIDTH_KEY } from '../mediator/sidebar.ts';
 import { PROJECT_RAIL_KEY, readProjectRailFolded } from '../mediator/projectRail.ts';
 import { NOTIFY_KEY, notifyKeep } from '../mediator/notify.ts';
@@ -461,7 +461,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 取り直しは混ぜるので、そのついでに参照されなくなった run を落とす。
           // 見ているセッションの run は、まだ画面が引くので残す。
           // 本文も同じ基準で落とす。
-          const open = state.screen.name === 'session' ? [state.screen.id] : [];
+          // 並べたペインのセッションも、見えているので残す。
+          const open = paneSessions(state);
           // サーバの再起動中に終わった run は、run.ended が届かないまま bootstrap から消える。
           // 取り直す前に生きていたのに今は無い run とタブを拾っておき、混ぜた後で終わったことにする。
           const gone = vanishedOnBootstrap(store, b, (deps.now ?? Date.now)());
@@ -1010,7 +1011,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // opencode を有効にしたら、その場で版を読む（未検証なら右下の札を出す）。
       if (input.event.type === 'settings.changed' && input.event.keys.includes('opencodeEnabled')) loadOpencodeStatus();
       if (input.event.type === 'settings.changed' && input.event.keys.includes('codexEnabled')) loadCodexStatus();
-      if (input.event.type === 'run.ended' && state.screen.name === 'session' && state.screen.id === input.event.run.sessionId) loadFiles(input.event.run.sessionId);
+      if (input.event.type === 'run.ended' && paneShows(state, input.event.run.sessionId)) loadFiles(input.event.run.sessionId);
       // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
       if (state.screen.name === 'home') {
         if (input.event.type === 'transcript.appended') loadLive(input.event.sessionId);

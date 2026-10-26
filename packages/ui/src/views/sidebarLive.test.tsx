@@ -850,8 +850,9 @@ describe('行のメニュー（右クリックと .）', () => {
     b.focus();
     fireEvent.keyDown(b, { key: '.' });
     expect(b).toHaveAttribute('data-menu', 'true');
-    const first = screen.getAllByRole('menuitem')[0]!;
+    const first = screen.getAllByRole('menuitemradio')[0]!;
     expect(first).toHaveFocus();
+    expect(first).toHaveTextContent('Active');
     fireEvent.keyDown(first, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(b).toHaveFocus();

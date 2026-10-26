@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTerminalHost, type TerminalLike } from './terminals.ts';
+import { createTerminalHost, GPU_MAX, type TerminalLike } from './terminals.ts';
 
 class FakeWs {
   static all: FakeWs[] = [];
@@ -121,6 +121,42 @@ describe('createTerminalHost', () => {
     expect(terms[1]!.gpu).toBe(false);
     // WebGL は open で描画先の要素ができてからでないと付けられない。
     expect(terms.some((t) => t.gpuBeforeOpen)).toBe(false);
+  });
+  it('並べたペインの端末は、別の枠に mount しても WebGL を保つ。画面から外れた端末だけ外す', () => {
+    // 見えている端末を DOM の描画へ落とすと、ペインごとに描画が揃わない。
+    const { host, terms } = make();
+    const a = { appendChild: vi.fn() } as unknown as HTMLElement;
+    const b = { appendChild: vi.fn() } as unknown as HTMLElement;
+    host.mount('t1', a);
+    host.mount('t2', b);
+    expect(terms[0]!.gpu).toBe(true);
+    expect(terms[1]!.gpu).toBe(true);
+    host.mount('t1', a);
+    expect(terms[1]!.gpu).toBe(true);
+    // 画面を離れて枠ごと外れた端末は、次の mount で外す。
+    terms[1]!.detachHost();
+    host.mount('t3', { appendChild: vi.fn() } as unknown as HTMLElement);
+    expect(terms[1]!.gpu).toBe(false);
+    expect(terms[0]!.gpu).toBe(true);
+    expect(terms[2]!.gpu).toBe(true);
+  });
+  it('見えている端末が多すぎるときは、新しく mount した順に GPU_MAX 枚までが WebGL を持つ', () => {
+    const { host, terms } = make();
+    for (let i = 0; i < GPU_MAX + 3; i++) host.mount(`t${i}`, { appendChild: vi.fn() } as unknown as HTMLElement);
+    expect(terms.filter((t) => t.gpu)).toHaveLength(GPU_MAX);
+    expect(terms.at(-1)!.gpu).toBe(true);
+    expect(terms[0]!.gpu).toBe(false);
+    expect(GPU_MAX).toBeLessThan(16);
+  });
+  it('文字の拡大縮小は、並べたペインの見えている端末を全部合わせ直す', () => {
+    const { host, terms } = make();
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    host.mount('t2', { appendChild: vi.fn() } as unknown as HTMLElement);
+    const before = terms.map((t) => t.fitted);
+    host.zoom('in');
+    expect(terms.map((t) => t.fitted - before[terms.indexOf(t)]!)).toEqual([1, 1]);
+    host.fit('t1');
+    expect(terms[0]!.fitted - before[0]!).toBe(2);
   });
   it('paste は開いた端末にだけ貼り付けとして渡す', () => {
     // xterm の paste は括弧付き貼り付けで送るので、Claude Code は落とされたパスを画像として受け取れる。

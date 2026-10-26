@@ -20,6 +20,32 @@
 .pane-divider::after { transition: background var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
 .pane-divider:hover::after, .pane-divider:focus-visible::after { background: var(--accent-hi); transform: none; }
 
+/*
+ * 角の取っ手（案 C）。境目の中に置き、親の境目との交点（子の境目の端から 4px 先）に中心を合わせる。
+ * 普段は何も出さず、乗ると丸がふくらむ。つかむと濃くなり、交わる線を端まで伸ばして強める（data-hot）。
+ */
+.pane-divider:has(> .pane-corner) { z-index: 3; }
+.pane-corner { position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; cursor: move; touch-action: none; }
+.pane-divider[data-dir='col'] > .pane-corner { top: 50%; }
+.pane-divider[data-dir='row'] > .pane-corner { left: 50%; margin-left: -14px; }
+.pane-divider[data-dir='col'] > .pane-corner[data-edge='end'] { left: calc(100% + 4px); }
+.pane-divider[data-dir='col'] > .pane-corner[data-edge='start'] { left: -4px; }
+.pane-divider[data-dir='row'] > .pane-corner[data-edge='end'] { top: calc(100% + 4px); }
+.pane-divider[data-dir='row'] > .pane-corner[data-edge='start'] { top: -4px; }
+.pane-corner-dot { position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px; border-radius: 50%; background: #fff; pointer-events: none; opacity: 0; transform: scale(0);
+  box-shadow: 0 0 0 2px var(--accent-hi), var(--glass-drop);
+  transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.pane-corner:hover > .pane-corner-dot { opacity: 1; transform: scale(1.3); }
+.pane-corner[data-grab='true'] > .pane-corner-dot { opacity: 1; transform: scale(1.5); background: var(--accent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent), var(--glass-drop); }
+/* 角に関わる線は、端まで伸ばして出す。つかんでいる間はさらに濃く太い。 */
+.pane-divider[data-hot]::after { background: var(--accent-hi); transform: none; }
+.pane-divider[data-hot][data-dir='row']::after { top: 0; bottom: 0; }
+.pane-divider[data-hot][data-dir='col']::after { left: 0; right: 0; }
+.pane-divider[data-hot='grab']::after { background: var(--accent); }
+.pane-divider[data-hot='grab'][data-dir='row']::after { left: 2px; width: 4px; }
+.pane-divider[data-hot='grab'][data-dir='col']::after { top: 2px; height: 4px; }
+@media (prefers-reduced-motion: reduce) { .pane-corner-dot, .pane-divider::after { transition: none; } }
+
 /* ペイン 1 つ。操作中は青い 2px の枠。 */
 .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden; border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 1px 0 var(--line-strong); }
 .pane[data-focused='true'] { box-shadow: 0 0 0 2px var(--accent); }

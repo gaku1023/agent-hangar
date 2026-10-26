@@ -55,6 +55,13 @@ function clampFontSize(v: unknown): number {
  */
 export const RETRY = { first: 1000, max: 30_000, attempts: 5 } as const;
 
+/**
+ * WebGL の描画を同時に持たせる端末の数の上限。
+ * ブラウザ全体の上限は 16 個で、超えると古い文脈から失われるので、余裕を残す。
+ * 並べたペインの数は現実にはこれを超えない。
+ */
+export const GPU_MAX = 8;
+
 /** 前にあるダイアログが閉じるのを待つ描画の枚数。View Transitions で描き替えが 1 から 2 枚遅れても間に合う数にしてある（focusSoon と同じ）。 */
 const FOCUS_FRAMES = 10;
 
@@ -109,6 +116,8 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
    * mount の前に来た focus。open していない xterm には入力欄がなく、画面を離れて枠ごと外れた xterm の入力欄に当てても効かないので、mount のあとに当て直す。
    */
   let pendingFocus: string | null = null;
+  /** mount した順のタブ（新しいものが後ろ）。WebGL を持たせる端末を選ぶのに使う。 */
+  const gpuOrder: string[] = [];
   const notify = () => { for (const l of listeners) l(); };
   const setStatus = (e: Entry, s: TerminalStatus) => { if (e.status !== s) { e.status = s; notify(); } };
   const ensure = (tabId: string): Entry => {
@@ -223,8 +232,15 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       for (const [id, other] of entries) if (id !== tabId && other.term.element?.parentElement === el) other.term.element.remove();
       if (!e.opened) { e.term.open(el); e.opened = true; }
       else if (e.term.element && e.term.element.parentElement !== el) el.appendChild(e.term.element);
-      // WebGL の描画文脈はブラウザ全体で 16 個までなので、見えている 1 枚だけに持たせる。隠れたタブは DOM の描画に戻す。
-      for (const [id, other] of entries) if (id !== tabId && other.opened) other.term.setGpu(false);
+      // WebGL の描画文脈はブラウザ全体で 16 個までなので、文書に付いている（見えている）端末だけに持たせ、隠れたタブは DOM の描画に戻す。
+      // 並べたペインの端末は操作中でなくても見えているので、外さない。
+      // 見えている端末が多すぎるときは、新しく mount した順に GPU_MAX 枚までにする。
+      const at = gpuOrder.indexOf(tabId);
+      if (at >= 0) gpuOrder.splice(at, 1);
+      gpuOrder.push(tabId);
+      const keep = new Set(gpuOrder.filter((id) => { const o = entries.get(id); return !!o?.opened && !!o.term.element?.isConnected; }).slice(-GPU_MAX));
+      keep.add(tabId);
+      for (const [id, other] of entries) if (id !== tabId && other.opened) other.term.setGpu(keep.has(id));
       e.term.setGpu(true);
       e.term.fit();
       // 描き終えた後の mount なので、前にダイアログやメニューがあれば、それは本当に開いている。当てずに捨てる。
@@ -256,7 +272,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
     dispose() {
       for (const e of entries.values()) { e.want = false; stopRetry(e); e.ws?.close(); for (const s of e.subs) s.dispose(); e.term.dispose(); }
-      entries.clear(); listeners.clear(); pendingFocus = null;
+      entries.clear(); listeners.clear(); pendingFocus = null; gpuOrder.length = 0;
     },
   };
 }

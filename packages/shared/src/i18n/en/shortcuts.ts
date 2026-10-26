@@ -25,7 +25,7 @@ export const shortcutsEn: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.shortcutsOpen': 'Keyboard shortcuts',
   'shortcuts.key.overlayClose': 'Close what is open (or leave the input field)',
   'shortcuts.key.tabSelect': 'Select tab (also {keys})',
-  'shortcuts.key.tabClose': 'Close the shell tab in the focused pane',
+  'shortcuts.key.tabClose': 'Close the shell tab in the active pane (if none, remove the pane from the split)',
   'shortcuts.key.splitToggle': 'Split side by side',
   'shortcuts.key.transcriptToggle': 'Toggle right panel',
   'shortcuts.key.paneSplitRight': 'Open an empty pane to the right',
