@@ -40,6 +40,8 @@ export type OpencodeModelPickerProps = {
   onReload: () => void;
   /** 「プロバイダーを管理…」。小窓は閉じてから呼ぶ。 */
   onManage: () => void;
+  /** 開いた状態で出す。 */
+  defaultOpen?: boolean;
   /** 札に足す data- 属性（エージェントの切り替えの動きが使う data-agent-only）。 */
   faceProps?: Record<`data-${string}`, string>;
 };
@@ -65,7 +67,7 @@ export function OpencodeModelPicker(props: OpencodeModelPickerProps) {
     setClosed(next);
   };
   return (
-    <Popover label={props.label} width={WIDTH} align="start" className="launch-pop mpk-pop"
+    <Popover label={props.label} width={WIDTH} align="start" className="launch-pop mpk-pop" defaultOpen={props.defaultOpen}
       face={(p) => (
         <button type="button" {...p} ref={(el) => { p.ref.current = el; anchor.current = el; }} className="set-chip" data-tone={props.value ? 'default' : 'muted'} {...props.faceProps} {...(props.reset ? { 'data-reset': 'true' } : {})}
           aria-label={props.label} aria-describedby={valueId}>

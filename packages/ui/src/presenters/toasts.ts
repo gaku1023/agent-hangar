@@ -39,7 +39,7 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * phoneLaunches は、スマホからの依頼でこの PC が起こした会話の通知（試作 F1）。受信した順で、その会話の画面を開いている間は出さない。
  * 入力待ちと同じく新しい SHOWN 枚までを並べ、並べきれない数を phoneLaunchMore に置く。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; codexVersion?: CodexVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number; prepProgress?: PrepProgressCardProps | null; contextShorts?: ContextShortCardProps[] };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; codexVersion?: CodexVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number; prepProgress?: PrepProgressCardProps | null; contextShorts?: ContextShortCardProps[]; modelMissings?: ModelMissingCardProps[] };
 
 /**
  * ダイアログを閉じた後に走り続けている起動前の準備の進みの札（試作の「途中で閉じる」）。line は今の段の 1 行、startedAt から経過時間を数える。
@@ -49,6 +49,8 @@ export type PrepProgressCardProps = { key: string; line: string; startedAt: numb
 /**
  * 起動した後にコンテキストが足りなかった会話の札（試作の §3）。fix は整え直しの最中の 1 行（鍵の進みがまだ届かなければ確認中の文、startedAt は null）、done は済んだこと。
  */
+/** model は `provider/model` の形（分からなければ文から取れた名前、それも無ければ空）、name は接続先の表示名（分からなければ provider の ID）、projectId は会話のプロジェクト（無ければ null）。 */
+export type ModelMissingCardProps = { sessionId: string; model: string; name: string; projectId: string | null };
 export type ContextShortCardProps = { sessionId: string; fix: { text: string; startedAt: number | null } | null; done: boolean };
 
 function presentPrepProgress(state: State, store: Store, t: Translate): PrepProgressCardProps | null {
@@ -62,6 +64,18 @@ function presentContextShorts(state: State, store: Store, t: Translate): Context
   return state.contextShorts.map((c) => {
     const prep = c.fix ? store.launchPreps[c.fix.key] : undefined;
     return { sessionId: c.sessionId, fix: c.fix ? { text: prep ? presentLaunchPrep(prep, t, null).line.text : t('launchPrep.step.check'), startedAt: prep?.startedAt ?? null } : null, done: c.done };
+  });
+}
+
+function presentModelMissings(state: State, store: Store): ModelMissingCardProps[] {
+  const providers = store.opencodeOptions?.data?.providers ?? [];
+  return state.modelMissings.map((c) => {
+    const s = store.sessions[c.sessionId];
+    const known = s?.stats.model ?? null;
+    // 会話のモデルが provider/model で分かり、文から取れた名前と合うときだけ使う（合わなければ、文の名前のまま出す）。
+    const ref = known && known.includes('/') && (!c.model || known.endsWith(`/${c.model}`)) ? known : c.model ?? '';
+    const provider = ref.includes('/') ? ref.slice(0, ref.indexOf('/')) : '';
+    return { sessionId: c.sessionId, model: ref, name: providers.find((p) => p.id === provider)?.name || provider || 'opencode', projectId: s?.projectId ?? null };
   });
 }
 
@@ -127,5 +141,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   const arrived = arrivedCount(store, state.arrivedProjects);
   const launches = presentPhoneLaunches(state, store, t);
   const phoneLaunches = launches.slice(-SHOWN);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), codexVersion: presentCodexVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length, prepProgress: presentPrepProgress(state, store, t), contextShorts: presentContextShorts(state, store, t) };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), codexVersion: presentCodexVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length, prepProgress: presentPrepProgress(state, store, t), contextShorts: presentContextShorts(state, store, t), modelMissings: presentModelMissings(state, store) };
 }

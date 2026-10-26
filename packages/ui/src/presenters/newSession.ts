@@ -39,6 +39,10 @@ export type NewSessionProps = {
   worktree?: boolean;
   /** はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき）。無ければ null。 */
   dir?: string | null;
+  /** 開いたときのエージェント（起動後にモデルが無かった札の「別のモデルでやり直す」から opencode で開く）。無ければ前回値に従う。 */
+  agent?: 'opencode';
+  /** opencode のモデルの小窓を開いた状態で出すか（同じ札から開いたとき）。 */
+  pickModel?: boolean;
   /**
    * 選んだフォルダの事前の問い合わせ（0.6.1）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるか。
    * ダイアログは path が選んだフォルダと同じときだけ使う。無ければ null で、今までどおり登録して始める。
@@ -138,6 +142,8 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
     dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
     ...(state.overlay.worktree ? { worktree: true } : {}),
+    ...(state.overlay.agent ? { agent: state.overlay.agent } : {}),
+    ...(state.overlay.pickModel ? { pickModel: true } : {}),
     dir: state.overlay.dir ?? null, inspect: store.folderInspect,
     opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,
     prep: mark && prepDto ? presentLaunchPrep(prepDto, t, mark.model) : null,

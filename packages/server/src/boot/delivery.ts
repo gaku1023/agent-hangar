@@ -73,6 +73,8 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   // opencode は hook を持たないので、許可と問いは流れから受け、hook の受け口と同じ書き手で書く（sessions/agentAsks.ts）。
   // 起動後にモデルの長さが足りずに断られたら、右下の札で知らせる（「整えて再開」）。
   agents.opencode.contextShort((sessionId) => { publisher.broadcast({ type: 'opencode.contextShort', sessionId }); });
+  // 起動後に、この PC に無いモデルで断られたら、右下の札で知らせる（「別のモデルでやり直す」）。
+  agents.opencode.modelMissing((sessionId, model) => { publisher.broadcast({ type: 'opencode.modelMissing', sessionId, model }); });
   // Codex の写し（app-server の通知）。起こした会話だけが載る。許可と問いは opencode と同じ書き手で書く。
   live.add(agents.codex.live);
   agents.codex.asks.subscribe?.((a) => { routeAgentAsk(db, agents.codex.kind, a, permissionAsks, Date.now()); });

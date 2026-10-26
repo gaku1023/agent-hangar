@@ -521,3 +521,21 @@ describe('起動後にコンテキストが足りなかった札', () => {
     expect(document.querySelectorAll('[data-kind="context-short"]')).toHaveLength(2);
   });
 });
+
+describe('起動後にモデルが見つからなかった札', () => {
+  const card = (over: Partial<NonNullable<ToastsProps['modelMissings']>[number]> = {}) => ({ sessionId: 's1', model: 'lmstudio/qwen3.6-35b-a3b', name: 'LM Studio', projectId: 'p1', ...over });
+  it('見出しと本文と、「別のモデルでやり直す」「閉じる」を出す', () => {
+    const { onAction } = mount(props({ modelMissings: [card()] }));
+    const c = document.querySelector<HTMLElement>('[data-kind="model-missing"]')!;
+    expect(within(c).getByText('モデルが見つかりません')).toBeInTheDocument();
+    expect(within(c).getByText('LM Studio に lmstudio/qwen3.6-35b-a3b がないため、会話を開始できませんでした。')).toBeInTheDocument();
+    fireEvent.click(within(c).getByRole('button', { name: '別のモデルでやり直す' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'launchPrep.missing.retry', sessionId: 's1', projectId: 'p1' });
+    fireEvent.click(within(c).getByRole('button', { name: '閉じる' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'launchPrep.missing.dismiss', sessionId: 's1' });
+  });
+  it('会話ごとに 1 枚ずつ出す', () => {
+    mount(props({ modelMissings: [card(), card({ sessionId: 's2' })] }));
+    expect(document.querySelectorAll('[data-kind="model-missing"]')).toHaveLength(2);
+  });
+});

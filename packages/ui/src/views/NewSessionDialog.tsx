@@ -176,7 +176,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const account = props.accounts ? accountChoice(props.accounts, pickedAccount) : null;
   // エージェント。利用者が選んだものだけを覚え、選んでいなければプロジェクトの前回値（無ければ Claude Code）。設定で無効なら、いつも Claude Code。
   const oc = props.opencode ?? null;
-  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(null);
+  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(props.opencode && props.agent ? props.agent : null);
   const remembered = props.prefs[prefKey]?.agent;
   const agent: AgentValue = oc === null ? DEFAULT_AGENT_KIND : pickedAgent ?? (isAgentKind(remembered) ? remembered : DEFAULT_AGENT_KIND);
   const opencode = agent === 'opencode';
@@ -404,7 +404,7 @@ export function NewSessionDialog(props: NewSessionProps) {
           onReload: () => emit({ type: 'opencode.options', dir: ocDir, refresh: true }),
           // 設定の opencode の面へ移る（プロバイダーの面は C6）。書きかけは閉じるときに下書きとして残る。
           onManage: () => { emit({ type: 'opencode.providers.manage' }); },
-          autoApprove, onAutoApprove: setAutoApprove,
+          autoApprove, onAutoApprove: setAutoApprove, pickModel: props.pickModel === true,
         } : undefined}
         lead={projectChip}
         account={props.accounts && account !== null ? { value: account, options: accountOptions(t, props.accounts), onChange: setPickedAccount } : undefined}
