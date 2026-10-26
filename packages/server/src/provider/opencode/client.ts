@@ -285,6 +285,25 @@ export class OpencodeClient {
   }
 
   /**
+   * 設定の層に書いたプロバイダーの baseURL（起動前の準備で、LM Studio の宛先を探すのに使う）。プロバイダーの ID で引く。
+   * 起きたばかりの serve は `/api/provider` をしばらく空で答えるが、`/api/config` は初めから揃っている（2.1.4 で確かめた）。
+   * 2.x の層は `providers.<id>.settings.baseURL`、1.x の書き方は `provider.<id>.options.baseURL`。後の層が前の層を上書きする。
+   */
+  async configuredBaseURLs(directory: string): Promise<Map<string, string>> {
+    const r = await this.request('GET', `/api/config${at(directory)}`);
+    const out = new Map<string, string>();
+    for (const l of Array.isArray(r) ? r : []) {
+      const info = objOf(objOf(l)?.info);
+      if (!info) continue;
+      for (const [id, p] of [...Object.entries(objOf(info.provider) ?? {}), ...Object.entries(objOf(info.providers) ?? {})]) {
+        const url = str(objOf(objOf(p)?.settings)?.baseURL) ?? str(objOf(objOf(p)?.options)?.baseURL);
+        if (url) out.set(id, url);
+      }
+    }
+    return out;
+  }
+
+  /**
    * 設定の層が決めるモデル（起動前の準備で、載せるローカルのモデルを集めるのに使う）。
    * model は既定のモデル、small は small_model（題名づけなどに使う）、agents は agent ごとに書いたモデル。どれも `provider/model` の形である。
    * 層は弱い順に並ぶので、後の層が前の層を上書きする。モデルは `{ providerID, model }` の形と `provider/model` の文字列の両方を読む。

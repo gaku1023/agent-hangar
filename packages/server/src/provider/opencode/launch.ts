@@ -1,7 +1,7 @@
 import type { LaunchPrepChoice } from '@agent-hangar/shared';
 import type { InjectionEntry, LaunchPlan, LaunchSpec, MaterializeMode } from '../../agent/types.ts';
 import type { LaunchPrep } from '../../runs/launchPrep.ts';
-import { OpencodeClient, type OpencodeModelRef } from './client.ts';
+import { OpencodeClient, type OpencodeModelRef, type OpencodeProviderRow } from './client.ts';
 import type { OpencodePermissionRule } from './permissionPreset.ts';
 import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
 import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
@@ -152,7 +152,7 @@ export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDep
   const single = prep.choice.singleModel;
   if (!single) {
     const model = spec.model ?? conf.model ?? undefined;
-    await prepareWith(local, client, { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses: usesOf(conf, model), prep: prep.run, choice: prep.choice });
+    await prepareWith(local, client, { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses: usesOf(conf, model), prep: prep.run, choice: prep.choice, sleep: deps.sleep });
     return { serve, model };
   }
   const agent = Object.fromEntries(conf.agents.filter((a) => a.model !== single).map((a) => [a.id, { model: single }]));
@@ -162,7 +162,7 @@ export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDep
     serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, override), directory: spec.cwd });
   }
   const uses = [{ ref: single, uses: ['$session', ...(conf.small ? ['$small'] : []), ...conf.agents.map((a) => a.id)] }];
-  await prepareWith(local, new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }), { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses, prep: prep.run, choice: prep.choice });
+  await prepareWith(local, new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }), { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses, prep: prep.run, choice: prep.choice, sleep: deps.sleep });
   return { serve, model: single };
 }
 
@@ -187,11 +187,34 @@ function usesOf(conf: { small: string | null; agents: { id: string; model: strin
   return [...byRef].map(([ref, u]) => ({ ref, uses: u }));
 }
 
-async function prepareWith(local: LocalModelsDeps, client: OpencodeClient, o: { hangarSessionId: string; cwd: string; uses: LocalModelUse[]; prep: LaunchPrep; choice: LaunchPrepChoice; reloadShort?: boolean }): Promise<void> {
-  const [providers, models] = await Promise.all([client.providerRows(o.cwd), client.models(o.cwd)]);
+async function prepareWith(local: LocalModelsDeps, client: OpencodeClient, o: { hangarSessionId: string; cwd: string; uses: LocalModelUse[]; prep: LaunchPrep; choice: LaunchPrepChoice; reloadShort?: boolean; sleep?: (ms: number) => Promise<void> }): Promise<void> {
+  const [rows, configured, models] = await Promise.all([client.providerRows(o.cwd), client.configuredBaseURLs(o.cwd), client.models(o.cwd)]);
   o.prep.throwIfCancelled();
+  const providers = await providerURLs(client, o, rows, configured);
   const limits = new Map(models.flatMap((m) => (m.context ? [[`${m.providerID}/${m.id}`, m.context] as const] : [])));
-  await prepareLocalModels(local, { hangarSessionId: o.hangarSessionId, uses: o.uses, providers: providers.map((p) => ({ id: p.id, baseURL: p.baseURL })), limits, choice: o.choice, prep: o.prep, reloadShort: o.reloadShort });
+  await prepareLocalModels(local, { hangarSessionId: o.hangarSessionId, uses: o.uses, providers, limits, choice: o.choice, prep: o.prep, reloadShort: o.reloadShort });
+}
+
+/** 宛先の見えない接続先を聞き直す回数と間隔。行は起きてから数百 ms で出る（2.1.4 で確かめた）。 */
+const PROVIDER_ROW_RETRIES = 10;
+const PROVIDER_ROW_POLL_MS = 200;
+
+/**
+ * 使う接続先の baseURL。`/api/provider` の行の baseURL を先に使い、無ければ設定の層の baseURL を使う。
+ * 起きたばかりの serve は `/api/provider` をしばらく空で答えるので、設定の層を先に頼る（待ちの長さに頼らない）。
+ * 設定に baseURL の無い接続先（opencode に組み込みの宛先）だけは、行が出るまで短く聞き直す。出なければ諦める。
+ */
+async function providerURLs(client: OpencodeClient, o: { cwd: string; uses: LocalModelUse[]; prep: LaunchPrep; sleep?: (ms: number) => Promise<void> }, rows: OpencodeProviderRow[], configured: ReadonlyMap<string, string>): Promise<{ id: string; baseURL: string | null }[]> {
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => { setTimeout(r, ms); }));
+  const ids = [...new Set(o.uses.flatMap((u) => (u.ref.indexOf('/') > 0 ? [u.ref.slice(0, u.ref.indexOf('/'))] : [])))];
+  const unseen = () => ids.filter((id) => !configured.has(id) && !rows.some((r) => r.id === id));
+  for (let i = 0; i < PROVIDER_ROW_RETRIES && unseen().length; i++) {
+    await sleep(PROVIDER_ROW_POLL_MS);
+    o.prep.throwIfCancelled();
+    rows = await client.providerRows(o.cwd);
+  }
+  const byRow = new Map(rows.map((r) => [r.id, r.baseURL]));
+  return [...new Set([...byRow.keys(), ...configured.keys()])].map((id) => ({ id, baseURL: byRow.get(id) ?? configured.get(id) ?? null }));
 }
 
 /** 追記を差し込む。段が無ければ何もしない。失敗は知らせるだけで投げない。 */

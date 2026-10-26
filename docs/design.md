@@ -1640,7 +1640,8 @@ opencode の会話を作る前に、hangar が段を走らせる（`runs/launchP
 LM Studio の段（`provider/opencode/localModels/`）は、serve を起こした後、会話を作る前に走る。
 
 1. 使うモデルを serve の設定の層（`GET /api/config`）から集める。会話のモデル（指定が無ければ設定の `model`）、`small_model`、agent ごとの `model` である。
-2. プロバイダーの baseURL が 127.0.0.1 か localhost のものだけを触る。LAN の LM Studio はほかの人の PC かもしれないので触らない。`/api/v1/models` が 404 かつながらない宛先は、黙って飛ばす。
+2. プロバイダーの baseURL は `/api/provider` の行の `settings.baseURL` を先に使い、無ければ設定の層の `providers.<ID>.settings.baseURL`（1.x の書き方は `provider.<ID>.options.baseURL`）を使う。起きたばかりの serve は `/api/provider` を数百 ms の間、空で答えるが、`/api/config` は初めから揃っているからである。設定に baseURL の無い接続先（opencode に組み込みの宛先）だけは、行が出るまで 200ms おきに 10 回まで聞き直す。
+   baseURL が 127.0.0.1 か localhost のものだけを触る。LAN の LM Studio はほかの人の PC かもしれないので触らない。`/api/v1/models` が 404 かつながらない宛先は、黙って飛ばす。
 3. ロードする長さは、設定の `opencodeLocalContext`（既定 64K）と、opencode の `limit.context` と、LM Studio の `max_context_length` の小さい方である。
 4. 足りる長さで載っていれば何もしない。載っていなければロードし、短く載っていれば、アンロードしてからロードし直す。
 5. アンロードしてよいのは、hangar がロードしたもの（ホームの `opencode/local-models.json` に、宛先と使った hangar の会話と一緒に記録する）のうち、ほかの実行中の会話（serve がある会話）が使っていないものだけである。手動でロードされたものは、答え（`unload`）が無ければ触らずに聞く（`unload-manual`）。
