@@ -1400,8 +1400,7 @@ Codex を足す作業の段 B の 1 つ目（計画の B1）で、設定のス�
 
 設定は opencode と同じ形の 3 つで、`codexEnabled`（有効にするスイッチ、既定は切）、`codexInjection`（システムプロンプトへの追記、`minimal`・`claude`・`none`、既定は `minimal`）、`codexIntercept`（外のターミナルの横取り、既定は切）である。
 読む側の既定は `@agent-hangar/shared` の `codexEnabledOf`、`codexInjectionOf`、`codexInterceptOf` にまとめる。
-設定の応答（`SettingsDto`）には、書かれているときだけ返す（切のままなら応答は今までと同じ形）。
-設定の画面の行は段 C（C4）で足す。
+設定の応答（`SettingsDto`）は、この 3 項目を書かれていなくても既定で常に返す（C4 で、書かれているときだけの形から変えた）。
 入口の表 `AGENT_ENTRY` の codex の行は、`enabled`、`intercept`、`bin`（`findCodex`）、断る文の欄名、シェルの包みと一覧を組み直す欄を持つ。
 
 場所は `config/tools.ts` の `findCodex` が、PATH と既知の置き場から探す。
@@ -1418,6 +1417,26 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 - 同期：`AGENT_SYNC` の codex の行は `source: 'none'` で、上げも降ろしも台帳の鍵も作らない。本物の行は E1 で入れる。
 - スマホ：`feedCaps` は caps に codex を出さない。F1 で、`codexEnabled` が入りのときだけ出す形にする。
 - 画面：エージェントの札は codex を並べない。絵は無い（`AGENT_ICONS` に行が無く、`agentIconArt` が undefined を返す。C2 で入れる）。
+
+#### 設定の面と版の知らせ（C4）
+
+検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。
+設定が切でも答える（有効にする前に、入っているかと版とログインを見せるため）。
+サーバは `LocalCodex.status()` を呼ぶだけで、画面は有効にしている間の起動時と、有効にしたとき、設定の画面に入ったときに取る。
+
+設定の「連携」の節で、opencode の面の下に、同じ形の別の白い面として「Codex」を置く（`views/CodexSection.tsx`）。
+見出しの横にベータの小札、右端に版の札（検証済み、未検証のバージョン、見つかりません、バージョン不明）を出す。
+行は「有効にする」、「バージョン」（インストール済みと検証済みの範囲）、「codex コマンドを hangar 経由で起動」（macOS と Linux だけ）、「システムプロンプトへの追記」（最小限、Claude Code と同じ、追記しない）の 4 つである。
+ログインしていないときだけ、版の行の下に注記を足す（札は変えない）。
+「有効にする」の 1 行だけは、切のままでも出す（入口そのもので、Codex を有効にするまでどこにも出さない決まりの例外）。
+入れたときだけ残りの行が `growIn` で伸び、切ると `collapseOut` で畳む。札は `fadeIn` と `fadeOut` で出入りする。
+横取りと追記の 3 択は、設定を保存するだけである（シェルの包みと追記の中身は別の段）。
+
+範囲の外の版には、opencode の C7 と同じ右下の札を出す。
+決まりも同じで、設定で有効にしていて、検出の答えが範囲の外（`unverified`）のときだけ、同じ版では一度だけ出す。
+版が読めないとき、見つからないときは出さない。設定の連携の節を開いている間も出さない。
+閉じた版は端末の localStorage（`codex.versionSeen`）に持つ。「設定を開く」は `#/settings?at=codex` へ移る。
+opencode と違い、serve を起こしたときに出すイベントはまだ無く、答えを取ったときに判定する。
 
 ### Codex の app-server の起動と接続（ベータ）
 

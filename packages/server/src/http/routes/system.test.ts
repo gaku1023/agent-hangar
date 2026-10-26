@@ -46,6 +46,17 @@ describe('opencode の検出', () => {
   });
 });
 
+describe('Codex の検出', () => {
+  it('GET /api/codex/status は検出の口の答えを {found, version, verified, loggedIn} で返す（設定が切でも答える）', async () => {
+    expect((await json(await get('/api/codex/status'))).body).toEqual({ found: false, version: null, verified: false, loggedIn: false });
+    const found = createApp({ ...deps, codexStatus: async () => ({ found: true, version: '0.164.2', verified: true, loggedIn: true }) });
+    expect(await (await found.request('/api/codex/status', { headers: H })).json()).toEqual({ found: true, version: '0.164.2', verified: true, loggedIn: true });
+  });
+  it('トークンが無ければ断る', async () => {
+    expect((await get('/api/codex/status', {})).status).toBe(401);
+  });
+});
+
 describe('opencode の選択肢', () => {
   const OPTIONS: OpencodeOptionsDto = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode', provider: 'opencode', tools: true, context: 200_000, cost: { input: 0, output: 0 } }], providers: [{ id: 'opencode', name: 'OpenCode', where: 'remote' }], defaultModel: null, pricesAt: null, fetchedAt: 5, stale: false };
   const withOptions = (f: AppDeps['opencodeOptions'], enabled = true) => {

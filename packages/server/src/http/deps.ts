@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, OpencodeOptionsDto, OpencodeStatusDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncDiskShortDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CodexStatusDto, CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, DeviceOut, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, OpencodeOptionsDto, OpencodeStatusDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncDiskShortDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -215,6 +215,8 @@ export type AppDeps = {
    * 試験は子プロセスを起こさない偽物を渡す。
    */
   opencodeStatus: () => Promise<OpencodeStatusDto>;
+  /** Codex の検出（ベータ）。PATH から探し、版とログインの有無を空の環境で読み、確かめた範囲と突き合わせる（provider/codex/compat/version.ts）。 */
+  codexStatus: () => Promise<CodexStatusDto>;
   /**
    * 新しいセッションで opencode を選んだときのモードとモデル（provider/opencode/options.ts）。dir はその場所で、null はホーム。
    * 起きている serve に聞き、無ければ 1 本起こして聞く。取れなければ投げる（手元に前の一覧があれば stale で返す）。
