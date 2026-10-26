@@ -126,7 +126,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
 /** そのエージェントが有効でないと断るときの、設定の欄名の文。 */
-function agentEnabledLabel(agent: AgentKind): Message {
+export function agentEnabledLabel(agent: AgentKind): Message {
   return msg(AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled');
 }
 
@@ -633,6 +633,11 @@ export class RunManager {
     const other = this.db.prepare('select 1 from runs where session_id = ? and id <> ? and deleted_at is null limit 1').get(run.sessionId, run.id);
     if (other) return;
     softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
+  }
+
+  /** そのエージェントを起こしてよいか。Claude Code はいつでも起こせる。MCP の create_session が start の前に断るために読む。 */
+  agentEnabled(kind: AgentKind): boolean {
+    return kind === DEFAULT_AGENT || (this.deps.agentEnabled?.(kind) ?? false);
   }
 
   /**
