@@ -311,7 +311,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       deps.api.compat().then((c) => { if (seq === readinessSeq) setStore({ ...store, compat: c }); }).catch(fail);
     } else setStore({ ...store, readiness: r, compat: null });
   };
-  const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });  const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
+  const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });
+  const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   // 準備が問いで止まったことと、利用者がやめたことは失敗ではない（launch.halted）。進みと問いは launch.prep で届いている。
   const launchFailed = (e: unknown) => {
     if (e instanceof LaunchPrepAskApiError) dispatch({ kind: 'runtime', event: { type: 'launch.halted', why: 'ask', message: e.message } });
