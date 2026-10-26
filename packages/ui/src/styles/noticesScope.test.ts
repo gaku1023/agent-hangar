@@ -20,3 +20,13 @@ describe('notices.css の名前', () => {
     }
   });
 });
+
+// 説明を 2 行で切っていて、空き不足の行の「空きを増やすと再開します」や、設定の同期の「それでも送信」の案内が読めなかった（0.10.1-rc.1）。
+// 説明はアプリが書いた短い文なので、切らずに全部出す。一覧は縦に送れる。
+describe('notices.css の説明', () => {
+  it('行の説明（.p-d）は行数で切らない', () => {
+    const rule = /\.nrow \.p-d\s*\{([^}]*)\}/.exec(strip(fs.readFileSync(new URL('notices.css', dir), 'utf8')))?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).not.toMatch(/line-clamp|overflow:\s*hidden/);
+  });
+});
