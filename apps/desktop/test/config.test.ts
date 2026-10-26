@@ -145,6 +145,17 @@ describe('tauri.conf.json', () => {
     expect(section, '[profile.release] が見つかりません').toBeDefined();
     expect(/^panic = "(.+)"$/m.exec(section!)?.[1] ?? 'unwind').toBe('unwind');
   });
+  // proc-macro と build スクリプトは build-override の設定で作られる。
+  // Xcode の strip は、配備先 13.0（tauri の minimumSystemVersion）の dylib の LINKEDIT を崩し、dyld が「mis-aligned LINKEDIT string pool」で断る。
+  // rustc は proc-macro を読めずに E0463（can't find crate）を出すので、作り直す新しい置き場でだけ build が落ちる。
+  it('release でも proc-macro と build スクリプトは strip しない（Xcode の strip が dylib を壊すため）', () => {
+    const cargo = read('src-tauri/Cargo.toml');
+    const release = cargo.split(/^\[/m).find((s) => s.startsWith('profile.release]'));
+    expect(/^strip = (.+)$/m.exec(release!)?.[1]).toBe('true');
+    const override = cargo.split(/^\[/m).find((s) => s.startsWith('profile.release.build-override]'));
+    expect(override, '[profile.release.build-override] が見つかりません').toBeDefined();
+    expect(/^strip = (.+)$/m.exec(override!)?.[1]).toBe('false');
+  });
   // 自動更新（段 5-4）。目録は GitHub の Release の最新から引き、更新物は minisign の公開鍵で確かめる。
   // 公開鍵は本物の鍵のもので、秘密鍵は CI の secret だけにある。
   it('updater は Release の最新の目録を https で引き、公開鍵で更新物を確かめる', () => {

@@ -80,3 +80,9 @@ strip = true
 # panic は既定の unwind のままにする（abort にしない）。
 # wry は頁へ返す応答を objc2::exception::catch で包み、頁が移った後の返事で出る NSException を受ける。
 # abort だとこの catch が例外を受けられず、殻が「panic in a function that cannot unwind」で落ちる。
+
+# proc-macro と build スクリプトは strip しない（アプリ本体は上の strip = true のまま）。
+# Xcode の strip は、配備先 13.0（tauri の minimumSystemVersion）の dylib の LINKEDIT を崩し、dyld が「mis-aligned LINKEDIT string pool」で断る。
+# rustc は proc-macro を読めずに E0463（can't find crate）を出すので、作り直す新しい置き場でだけ build が落ちる。
+[profile.release.build-override]
+strip = false
