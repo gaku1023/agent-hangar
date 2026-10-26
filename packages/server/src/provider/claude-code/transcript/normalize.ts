@@ -14,21 +14,9 @@ const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
  */
 export const DROPPED_LINE_TYPES: ReadonlySet<string> = new Set(['api-request', 'api-request-blob', 'api-request-shape']);
 
-/**
- * 1 つの記録から読める事実。索引の書き手（indexer/write.ts）が sessions、session_stats、usage_daily に積む。
- * costUsd と contextTokens は、記録ごとに費用と文脈の量を持つエージェント（opencode の返答）だけが付ける。
- * costUsd はその記録の費用（ドル）、contextTokens はその記録を作るときにモデルへ渡した量（入力とキャッシュの和）である。
- * Claude は statusline から受けるので付けない。
- */
-export type RecordFacts = {
-  cwd?: string; ts?: number; model?: string; effort?: string;
-  usage?: { input: number; output: number };
-  costUsd?: number; contextTokens?: number;
-  /** 記録がモデルの切り替えそのもの（opencode の model-switched）。費用や文脈の量が無くても、今の値のモデルを書き換える。 */
-  modelSelected?: boolean;
-  aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string;
-  isUserTurn: boolean;
-};
+// RecordFacts は agent/types.ts にある（どのエージェントの束も同じ形で渡す）。ここからも引けるようにしておく。
+export type { RecordFacts } from '../../../agent/types.ts';
+import type { RecordFacts } from '../../../agent/types.ts';
 
 function parseTs(raw: Rec): number | undefined {
   const t = raw.timestamp;

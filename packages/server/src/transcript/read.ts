@@ -1,4 +1,4 @@
-import type { EventsPageDto } from '@agent-hangar/shared';
+import { isAgentKind, type AgentKind, type EventsPageDto } from '@agent-hangar/shared';
 import { DEFAULT_AGENT } from '../agent/agents.ts';
 import type { ReadOpts, TranscriptSource } from '../agent/types.ts';
 import type { Db } from '../db/open.ts';
@@ -13,8 +13,17 @@ import { readStoredPage } from './stored.ts';
  */
 export type PageReaders = (provider: string) => TranscriptSource['readPage'] | undefined;
 
-/** 既定の読み手。各 driver の transcript.readPage と同じ関数である（Claude は readClaudePage、opencode は readStoredPage）。 */
-export const DEFAULT_PAGE_READERS: PageReaders = (provider) => (provider === 'claude-code' ? readClaudePage : provider === 'opencode' ? readStoredPage : undefined);
+/**
+ * エージェントごとの読み手の表。各 driver の transcript.readPage と同じ関数である（Claude は readClaudePage、opencode は readStoredPage）。
+ * ファイル型のエージェントを足すときは、ここに 1 行足す（読み方の本体は transcript/filePage.ts の readFilePage）。
+ */
+const PAGE_READERS: Partial<Record<AgentKind, TranscriptSource['readPage']>> = {
+  'claude-code': readClaudePage,
+  opencode: readStoredPage,
+};
+
+/** 既定の読み手。知らない provider には undefined を返す。 */
+export const DEFAULT_PAGE_READERS: PageReaders = (provider) => (isAgentKind(provider) ? PAGE_READERS[provider] : undefined);
 
 /**
  * セッションに属するサブエージェントの id を、始まった順に返す。

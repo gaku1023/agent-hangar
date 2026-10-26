@@ -972,7 +972,8 @@ create table transcript_files (
   path text primary key, session_id text not null, agent_id text,
   size integer not null, mtime integer not null, indexed_bytes integer not null,
   indexer_version integer not null, last_error text,
-  device_id text                                   -- その本文がどの端末のものか。null は手元
+  device_id text,                                  -- その本文がどの端末のものか。null は手元
+  agent text not null default 'claude-code'        -- どのエージェントの本文か（版 37）。論理パスを持つ面ごとの片付けと読み手の選び分けに使う
 );
 
 -- 1 イベント 1 行。本文は持たず、ファイル内の位置だけを持つ。
@@ -1156,13 +1157,19 @@ driver は、配る層と一緒に `boot/agents.ts` で組む。
 束を作る側は DB を読み書きしない。
 DB に書くのは hangar の側（`indexer/write.ts` の `writeBatch`）で、本文の索引（`event_index`、`event_fts`）、「いま」（`session_activity`）、使用制限（`session_limits`）、成果物（`artifact_calls`、`artifact_versions`）、日別の使用量（`usage_daily`）、会話の行と統計（`sessions`、`session_stats`）、新しい発言での状態の外し、論理削除した会話と行の無い他端末の写しの見送りを、どのエージェントにも同じ規則で行う。
 束の中の seq は 0 から振り、`writeBatch` がその位置の続きの番号に付け替える。
-本文をファイルに持つ Claude は、どのファイルをいつ読むかを索引が決める。
+本文をファイルに持つエージェント（Claude と、これから足すもの）は、どのファイルをいつ読むかを索引が決める。
+索引は、ファイル型の面を複数受ける（`IndexerServiceOptions.transcripts`。全件の見比べ、見張り、実行中の本文の見張り、本文なしの会話の登録は、全部の面を回して束ねる。1 つの面の失敗は、ほかの面を止めない）。
+面ごとに、見張りの知らせを受ける口を分けるので、名指しされた本文は、出どころの面で読まれる。
+面は、索引に入れるパス（論理パス）と実体が違ってよい（任意の `stat`。圧縮された本文は、論理パスの `.jsonl` のまま、実体の大きさと更新時刻で見比べる）。
+設定で入り切りされる面は `enabled` を持ち、偽のあいだは `scan` と `pick` が空と `seen: null` を返すので、既存の索引は消えない。
+`transcript_files.agent` は、消えた本文の片付け（`forgetVanished`）を面ごとに行うのに使う。
 索引は、見張りが名指ししたファイルと全件の見比べで変わったファイルについて、どこまで読んだか（`transcript_files`、`indexer/indexFile.ts`）を見て、driver の読み出しの口（`TranscriptFiles.read`、Claude は `provider/claude-code/transcript/batch.ts`）に続きを束にさせ、`writeBatch` で書く。
 互換の見張り（`compat/transcript.ts`）は、この読み出しの口が手元の本文の行にだけかける。
 本文を DB に持つエージェントは、作った束を `start` に渡した受け口の `batch` へ押し込み、索引はそれをそのまま `writeBatch` で書く。
 押し込んだ束の出どころの名前（`storedOrigin`）は、日別の使用量の鍵と `event_index.file_path_ref` に入る。
 本文そのものは、`writeBatch` が同じ取引で `agent_events` に 1 行 1 イベントで写す。作り直しの束では、その位置の行を消してから積む。
 読む側は `transcript/stored.ts` の `readStoredPage` で、ページの切り方は Claude の読み手と同じにする。
+ファイル型の読み手は、ページの切り方を `transcript/filePage.ts` の `readFilePage` に共通にし、記録の正規化と、論理パスから本文を開く口だけを面ごとに渡す。
 こうした面は、索引（`IndexerServiceOptions.stored`）が `start` と `stop` を呼ぶだけで、全件の見比べと見張りの周期には入らない。
 書いたら、ファイルの本文と同じく `sessionChanged` を出す。本文のファイルは無いので `path` は null、`deviceId` は手元なので null で、同期の上げ手へは渡さない（プロジェクトへの紐づけ、伸びの知らせ、git の読み直しはファイルと同じに行う）。
 会話の一覧の「本文がある」（`hasTranscript`）と「手元にある」は、`agent_events` の主線の行でも真になる。
@@ -1236,7 +1243,7 @@ Claude の本文を読むとき（`provider/claude-code/transcript/page.ts`）�
 以前は 2 秒ごとに全件を stat し、ファイルごとに SQL を準備して引き、`history.jsonl` を頭から読み直していた。
 数千ファイルの置き場では、何も変わっていなくてもサーバが CPU を使い続け、1 周にファイルの数の 2 倍の prepare とその実行が走っていた（0.6.0 の報告）。
 
-- 周期と待ちは `indexer/service.ts` が、置き場の列挙、選び方、`fs.watch` は Claude の driver のトランスクリプトの面（`provider/claude-code/transcript/source.ts`）が受け持つ。
+- 周期と待ちは `indexer/service.ts` が、置き場の列挙、選び方、`fs.watch` は各 driver のトランスクリプトの面（Claude は `provider/claude-code/transcript/source.ts`）が受け持つ。
 - 起動すると、先に監視を付けてから全走査する。全走査の間に届いた通知は、走査が済んでから索引化する。
 - `~/.claude/projects` と他端末の置き場（`~/.agent-hangar/remote`）は `fs.watch` の recursive で、`~/.claude` そのものは recursive なしで見張る。
 - 通知の名前は `discover.ts` の `classifyProjectsEntry` と `classifyRemoteEntry` で振り分ける。

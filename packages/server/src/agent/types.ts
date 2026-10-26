@@ -1,9 +1,6 @@
-import type { AgentKind, EventsPageDto, LiveSessionDto, PermissionAskDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { AgentKind, EventsPageDto, LimitKind, LiveSessionDto, PermissionAskDto, TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import type { QuestionHook } from '../provider/claude-code/hooks/question.ts';
-import type { Activity } from '../provider/claude-code/transcript/activity.ts';
-import type { Limit } from '../provider/claude-code/transcript/limit.ts';
-import type { RecordFacts } from '../provider/claude-code/transcript/normalize.ts';
 
 // hangar とエージェント（Claude Code、opencode）の境界の型。
 // 境界は 5 つの面（起動、状態、トランスクリプト、許可と質問、システムプロンプトへの追記）を持つ（docs/design.md の「Claude Code に固有の部分」）。
@@ -149,6 +146,38 @@ export interface LiveSource {
 // ---- トランスクリプト ----
 
 /**
+ * 1 つの記録から読める事実。索引の書き手（indexer/write.ts）が sessions、session_stats、usage_daily に積む。
+ * costUsd と contextTokens は、記録ごとに費用と文脈の量を持つエージェント（opencode の返答）だけが付ける。
+ * costUsd はその記録の費用（ドル）、contextTokens はその記録を作るときにモデルへ渡した量（入力とキャッシュの和）である。
+ * Claude は statusline から受けるので付けない。
+ * contextSize は、その記録の時点のモデルの文脈の長さ（トークン）である。rollout のように本文が持つエージェント（Codex）が付ける。
+ * 付けなければ、書く側がモデルから contextSizeOf で引く（opencode）。
+ */
+export type RecordFacts = {
+  cwd?: string; ts?: number; model?: string; effort?: string;
+  usage?: { input: number; output: number };
+  costUsd?: number; contextTokens?: number;
+  /** 記録がモデルの切り替えそのもの（opencode の model-switched）。費用や文脈の量が無くても、今の値のモデルを書き換える。 */
+  modelSelected?: boolean;
+  aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string;
+  contextSize?: number;
+  isUserTurn: boolean;
+};
+
+/**
+ * 実行中のセッションが最後に何をしたか。Home の札に出す。
+ * toolId は、AskUserQuestion の答え（tool_result）がどの呼び出しへのものかを見分けるために持つ。
+ */
+export type Activity = { tool: string; summary: string; toolId: string; question: string | null };
+
+/**
+ * 使用制限で止まっていること。本文の合成の assistant 行から読み、索引が session_limits に残す（畳むのは batch.ts の fold、書くのは indexer/write.ts）。
+ * resetsAt はリセットの時刻（ミリ秒）、hitAt は当たった時刻（行の時刻、ミリ秒）。
+ * auto は、Claude Code が「リセットされたら自動で続ける」と本文に書いたこと。
+ */
+export type Limit = { kind: LimitKind; resetsAt: number; auto: boolean; hitAt: number };
+
+/**
  * 索引に入れる記録の 1 件。本文の 1 行（Claude）か、1 つのメッセージ（opencode）にあたる。
  * events の seq は束の中で 0 から振る。DB に書く側（indexer/write.ts）が、その位置の続きの番号に付け替える。
  */
@@ -252,9 +281,22 @@ export interface TranscriptFiles {
    * seen は列挙した全部のパスで、索引の側は、ここに無く手元からも消えた本文を索引から外す。
    * 置き場そのものが見えないとき（外れたなど）は seen を null にし、全部を消させない。
    */
-  scan(o: { isYielded?: (providerSessionId: string) => boolean }): TranscriptPick & { seen: Set<string> | null };
+  scan(o: { isYielded?: (providerSessionId: string) => boolean; isIndexed?: (path: string) => boolean }): TranscriptPick & { seen: Set<string> | null };
   /** 見張りが名指しした本文を、前の scan で見た同じ位置の写しと合わせて選び直す。stat は file の stat。写しが消えていたら lost を真にする。 */
   pick(file: TranscriptFile, stat: { size: number; mtimeMs: number }, o: { isYielded?: (providerSessionId: string) => boolean }): TranscriptPick & { lost: boolean };
+  /**
+   * 索引に入れるパス（論理パス）の、いまの大きさと更新時刻。無ければ null。
+   * 論理パスと実体（物理パス）が違うエージェント（Codex の .jsonl と、圧縮された .jsonl.zst）が、実体の stat を返すのに持つ。
+   * 持たなければ、索引の側が論理パスをそのまま stat する。
+   */
+  stat?(path: string): { size: number; mtimeMs: number } | null;
+  /**
+   * 設定で入り切りされるエージェントが持つ。偽のとき、start 以外（scan、pick）は空と seen: null を返す約束で、索引の側は既存の索引を消さない。
+   * 持たなければ常に入である。
+   */
+  enabled?(): boolean;
+  /** 設定の切り替えを受ける。見張りを付け外しして、索引の側へ rescan を知らせる。 */
+  setEnabled?(on: boolean): void;
   /** 実行中の会話の手元の本文（主線と、いまあるサブエージェント）。 */
   liveFiles(providerSessionId: string, cwd: string): TranscriptFile[];
   /** 本文の無い会話の覚えを読む。変わっていなければ前と同じものを返す。 */

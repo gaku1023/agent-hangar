@@ -3,7 +3,7 @@ import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
-import type { FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink, TranscriptSource } from '../agent/types.ts';
+import type { AgentKind, FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink, TranscriptSource } from '../agent/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
 import { forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat } from './indexFile.ts';
@@ -31,17 +31,21 @@ export type IndexerServiceOptions = {
   db: Db;
   deviceId: string;
   /**
-   * エージェントのトランスクリプトの面（いまは Claude の provider/claude-code/transcript/source.ts）。
-   * どのファイルが本文か、どれを索引化するか、どこを見張るか、本文をどう読んで束にするかはここが決め、ここの索引はいつ見比べていつ索引化するかを決める。
+   * 本文をファイルに持つエージェントのトランスクリプトの面（Claude の provider/claude-code/transcript/source.ts、Codex など）。
+   * どのファイルが本文か、どれを索引化するか、どこを見張るか、本文をどう読んで束にするかは各面が決め、ここの索引はいつ見比べていつ索引化するかを決める。
    * 束を DB に書くのは indexer/write.ts である。
+   * 全件の見比べ、見張り、実行中の本文の見張り、本文なしの会話の登録は、全部の面を回して束ねる。1 つの面の失敗は、ほかの面を止めない。
    */
-  transcript: FileTranscriptSource;
+  transcripts?: readonly FileTranscriptSource[];
+  /** transcripts に 1 つだけ渡す書き方（Claude だけの構成と、既存の試験）。transcripts と両方あれば、こちらが先頭になる。 */
+  transcript?: FileTranscriptSource;
   /**
    * 本文を DB に持つエージェントのトランスクリプトの面（opencode の provider/opencode/transcript/source.ts）。
    * 束を作って batch で押し込むだけなので、索引は start と stop を呼び、届いた束を書く。全件の見比べと見張りの周期には入らない。
    */
   stored?: readonly TranscriptSource[];
-  isRunning: (providerSessionId: string) => boolean;
+  /** そのセッションがいま実行中か。agent は複数のエージェントの ID が重ならないように渡す（渡さなければ ID だけで見る）。 */
+  isRunning: (providerSessionId: string, agent?: AgentKind) => boolean;
   /** 取りこぼし対策の全件走査の周期。既定は 5 分。 */
   sweepMs?: number;
   /** fs.watch が使えないときの全件走査の周期。既定は 10 秒。 */
@@ -56,11 +60,11 @@ export type IndexerServiceOptions = {
   /** 押し込まれた束（opencode）のモデルのコンテキストの長さを引く口（write.ts の WriteOptions.contextSizeOf）。渡さなければ context_size を書かない。 */
   contextSizeOf?: (model: string) => number | null;
   /**
-   * いま実行中のセッション（Claude Code のセッション ID と cwd）。
-   * 渡すと、その主線とサブエージェントの本文だけは、通知に頼らず liveMs ごとに stat で見る。
+   * いま実行中のセッション（エージェントのセッション ID と cwd と agent）。agent を省くと Claude Code として扱う。
+   * 渡すと、その主線とサブエージェントの本文だけは、通知に頼らず liveMs ごとに stat で見る。見るのは agent が合う面だけである。
    * Windows では、Claude Code が本文を開いたまま書き足すと、監視の通知が遅れうるためである。
    */
-  liveSessions?: () => { sessionId: string; cwd: string }[];
+  liveSessions?: () => { sessionId: string; cwd: string; agent?: AgentKind }[];
   /** 実行中のセッションの本文を見る周期。既定は 2 秒。 */
   liveMs?: number;
   /** 試験が時計を差し替える口。 */
@@ -72,6 +76,8 @@ type ScanPhase = 'indexing' | 'rebuilding';
 /** 索引に記録済みの、ファイルごとの大きさと更新時刻と版。 */
 type KnownRow = { size: number; mtime: number; indexer_version: number };
 type DiscoveredFile = TranscriptFile;
+/** 本文のファイルと、それを受け持つ面。パスは面をまたいで重ならない。 */
+type Item = { file: DiscoveredFile; source: FileTranscriptSource };
 type HistoryEntry = PromptHistoryEntry;
 
 const YIELD_EVERY = 20;
@@ -125,26 +131,48 @@ export class IndexerService {
   private scanEpoch = 0;
   private running = false;
   /** 監視が名指しした、まだ索引化していない本文。 */
-  private pending = new Map<string, DiscoveredFile>();
+  private pending = new Map<string, Item>();
   /** 本文なしのセッションの登録を最後に回したときの history の版。 */
-  private syncedHistory = -1;
+  private syncedHistory = new Map<FileTranscriptSource, number>();
+  /** 本文の無い会話の覚えが変わったかもしれない面（デバウンスの間に集める）。 */
+  private historyDirty = new Set<FileTranscriptSource>();
   private inflight = new Set<Promise<unknown>>();
   /** 失敗を知らせたファイルと、そのときの大きさと更新時刻。同じ失敗を毎周期くり返さないために持つ。 */
   private reportedErrors = new Map<string, string>();
 
-  /** トランスクリプトの面の見張りの知らせを受ける口。 */
-  private readonly sink: TranscriptSink = {
-    batch: (b) => this.onBatch(b),
-    named: (file) => this.onNamed(file),
-    rescan: () => this.requestSweep(),
-    historyChanged: () => this.onHistoryChanged(),
-    error: (where, message) => this.emitError(where, message),
-  };
+  /** ファイル型の面。 */
+  private readonly sources: readonly FileTranscriptSource[];
+  /** 面ごとの、見張りの知らせを受ける口。名指しされた本文を、どの面が読むかを持ち回すために面ごとに分ける。 */
+  private readonly sinks = new Map<FileTranscriptSource, TranscriptSink>();
+  /** 本文を DB に持つ面の見張りの知らせを受ける口。束だけ使う。 */
+  private readonly storedSink: TranscriptSink;
 
-  constructor(private readonly opts: IndexerServiceOptions) {}
+  constructor(private readonly opts: IndexerServiceOptions) {
+    this.sources = [...(opts.transcript ? [opts.transcript] : []), ...(opts.transcripts ?? [])];
+    if (this.sources.length === 0) throw new Error('IndexerService needs at least one file transcript source');
+    this.storedSink = this.makeSink(null);
+    for (const s of this.sources) this.sinks.set(s, this.makeSink(s));
+  }
+
+  private makeSink(source: FileTranscriptSource | null): TranscriptSink {
+    return {
+      batch: (b) => this.onBatch(b),
+      named: (file) => { if (source) this.onNamed(file, source); },
+      rescan: () => this.requestSweep(),
+      historyChanged: () => this.onHistoryChanged(source),
+      error: (where, message) => this.emitError(where, message),
+    };
+  }
 
   private get timers(): Timers { return this.opts.timers ?? REAL_TIMERS; }
-  private get transcript(): FileTranscriptSource { return this.opts.transcript; }
+
+  /** 見張りが全部付いているか。欠けている面が 1 つでもあれば偽で、全件の見比べを短めの周期で回す。 */
+  healthy(): boolean { return this.sources.every((s) => s.healthy()); }
+
+  /** 面の索引に入れるパスの stat。論理パスと実体が違う面は、実体の stat を返す。 */
+  private statOf(source: FileTranscriptSource, filePath: string): { size: number; mtimeMs: number } | null {
+    return source.stat ? source.stat(filePath) : statOrNull(filePath);
+  }
 
   on(listener: IndexerListener): () => void {
     this.listeners.add(listener);
@@ -166,11 +194,25 @@ export class IndexerService {
    * 索引化するファイルを選び、外れたものと消えたものを索引から落とす。
    * 選ぶときに取った stat を返し、呼び手はそれを索引化に回して同じファイルを二度 stat しない。
    */
-  private targets(): { files: DiscoveredFile[]; stats: Map<string, FileStat | null> } {
-    const { index, drop, stats, seen } = this.transcript.scan({ isYielded: this.opts.isYielded });
-    this.forgetDropped(drop);
-    if (seen) this.forgetVanished(seen);
-    return { files: index, stats };
+  private targets(): { files: Item[]; stats: Map<string, FileStat | null> } {
+    const files: Item[] = [];
+    const stats = new Map<string, FileStat | null>();
+    let known: Map<string, KnownRow> | null = null;
+    // 面が索引済みかを問うときだけ、記録を引く（問わない面では DB を余計に引かない）。
+    const isIndexed = (p: string): boolean => (known ??= this.knownFiles()).has(p);
+    for (const source of this.sources) {
+      try {
+        const { index, drop, stats: st, seen } = source.scan({ isYielded: this.opts.isYielded, isIndexed });
+        this.forgetDropped(drop);
+        if (seen) this.forgetVanished(source, seen);
+        for (const f of index) files.push({ file: f, source });
+        for (const [k, v] of st) stats.set(k, v);
+      } catch (e) {
+        // 1 つの面の失敗で、ほかの面の索引化を止めない。
+        this.emitError(source.where.scan, errorMessage(e));
+      }
+    }
+    return { files, stats };
   }
 
   private forgetDropped(drop: DiscoveredFile[]): void {
@@ -189,20 +231,26 @@ export class IndexerService {
    * 索引にはあるのに、手元のファイルがもう無い行を片付ける。
    * Claude Code は保持期間を過ぎた本文を黙って消すので、放っておくと「本文あり」のまま開けない会話が残る。
    * 消すのは DB の行だけで、利用者のファイルには触れない。
-   * 置き場そのものが見えないとき（外れたなど）は、トランスクリプトの面が seen を渡さないので呼ばない。全部を消してしまわないためである。
+   * 置き場そのものが見えないとき（外れたなど、設定が切のときも）は、トランスクリプトの面が seen を渡さないので呼ばない。全部を消してしまわないためである。
    * 他の PC の写し（device_id あり）は持ち主の同期が扱うので、ここでは見ない。
    * 全件を列挙したときだけ呼ぶ。
    */
-  private forgetVanished(seen: Set<string>): void {
-    const rows = stmt(this.opts.db, 'select path, session_id from transcript_files where device_id is null').all() as { path: string; session_id: string }[];
+  private forgetVanished(source: FileTranscriptSource, seen: Set<string>): void {
+    // その面の行だけを見る。ほかの面の seen には無いので、混ぜると他の面の本文を消してしまう。
+    const rows = stmt(this.opts.db, 'select path, session_id from transcript_files where device_id is null and agent = ?').all(source.agent) as { path: string; session_id: string }[];
     const gone = new Set<string>();
     for (const r of rows) {
       if (seen.has(r.path)) continue;
-      try {
-        fs.lstatSync(r.path);
-        continue;
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') continue;
+      if (source.stat) {
+        // 論理パスと実体が違う面は、実体が見えるうちは消えていない。
+        if (source.stat(r.path) !== null) continue;
+      } else {
+        try {
+          fs.lstatSync(r.path);
+          continue;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') continue;
+        }
       }
       try {
         forgetTranscriptFile(this.opts.db, r.path);
@@ -223,15 +271,16 @@ export class IndexerService {
    * stat は呼び手が取った大きさと更新時刻で、known は索引に記録済みの値をまとめて引いたものである。
    * 両方あって変わっていなければ、indexFile を呼ばずに返す（indexFile が何もせずに返す条件と同じ）。
    */
-  private indexOne(file: DiscoveredFile, history: Map<string, HistoryEntry>, stat?: FileStat | null, known?: Map<string, KnownRow>): boolean {
-    const st = stat === undefined ? statOrNull(file.path) : stat;
+  private indexOne(item: Item, history: Map<string, HistoryEntry>, stat?: FileStat | null, known?: Map<string, KnownRow>): boolean {
+    const { file, source } = item;
+    const st = stat === undefined ? this.statOf(source, file.path) : stat;
     const row = known?.get(file.path);
     if (st && row && isUnchanged(row, st)) {
       this.reportedErrors.delete(file.path);
       return false;
     }
     try {
-      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, reader: this.transcript, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null, processStartOf: this.opts.processStartOf, stat: st ?? undefined });
+      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, reader: source, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null, processStartOf: this.opts.processStartOf, stat: st ?? undefined });
       this.reportedErrors.delete(file.path);
       if (r.skipped && r.sessionId !== '' && file.deviceId === null && file.agentId === null) {
         for (const l of this.listeners) l.deletedSeen?.({ sessionId: r.sessionId, path: file.path });
@@ -239,7 +288,7 @@ export class IndexerService {
       if (!r.changed) return false;
       // 土台の要約は共有テーブルなので、本文を持つ端末だけが書く。
       if (file.deviceId === null && (file.agentId === null || r.appended > 0)) {
-        writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(file.sessionId));
+        writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(file.sessionId, source.agent));
       }
       // 索引は手元だけの表（本文の索引と集計）も書く。共有の行が動かなくても SessionDto は変わるので、配り直しを名指しで頼む。
       // 画面へ配るのは events/publisher.ts で、ここでは DTO を組まない。
@@ -254,7 +303,7 @@ export class IndexerService {
         // まだ行が無いか DB 側の失敗なので、通知だけに留める。
       }
       // 読めないファイルは走査のたびに同じ失敗を出し続けるので、大きさか更新時刻が変わるまで黙る。
-      const now = statOrNull(file.path);
+      const now = this.statOf(source, file.path);
       const stamp = now ? `${now.size}:${Math.floor(now.mtimeMs)}` : 'unknown';
       if (this.reportedErrors.get(file.path) !== stamp) {
         this.reportedErrors.set(file.path, stamp);
@@ -272,19 +321,21 @@ export class IndexerService {
     try {
       this.setProgress({ phase: 'scanning', done: 0, total: 0 });
       const { files, stats } = this.targets();
-      const history = this.transcript.history();
+      const histories = this.histories();
       const known = this.knownFiles();
       let changed = 0;
       this.setProgress({ phase, done: 0, total: files.length });
       for (let i = 0; i < files.length; i++) {
-        if (this.indexOne(files[i]!, history.index, stats.get(files[i]!.path), known)) changed++;
+        if (this.indexOne(files[i]!, histories.get(files[i]!.source)!.index, stats.get(files[i]!.file.path), known)) changed++;
         if (i % YIELD_EVERY === YIELD_EVERY - 1) {
           this.setProgress({ phase, done: i + 1, total: files.length });
           await yieldToLoop();
         }
       }
-      this.syncHistoryOnly(history.index);
-      this.syncedHistory = history.version;
+      for (const [source, history] of histories) {
+        this.syncHistoryOnly(history.index, source.agent);
+        this.syncedHistory.set(source, history.version);
+      }
       this.setProgress({ phase: 'idle', done: files.length, total: files.length });
       return { files: files.length, changed };
     } finally {
@@ -301,14 +352,14 @@ export class IndexerService {
    */
   private *sweepSteps(): Generator<void, number> {
     const { files, stats } = this.targets();
-    const history = this.transcript.history();
+    const histories = this.histories();
     const known = this.knownFiles();
     let changed = 0;
     for (let i = 0; i < files.length; i++) {
-      if (this.indexOne(files[i]!, history.index, stats.get(files[i]!.path), known)) changed++;
+      if (this.indexOne(files[i]!, histories.get(files[i]!.source)!.index, stats.get(files[i]!.file.path), known)) changed++;
       if (i % YIELD_EVERY === YIELD_EVERY - 1) yield;
     }
-    this.syncHistoryIfChanged(history);
+    for (const [source, history] of histories) this.syncHistoryIfChanged(source, history);
     return changed;
   }
 
@@ -330,7 +381,9 @@ export class IndexerService {
     this.sweeping = true;
     const epoch = this.scanEpoch;
     try {
-      this.transcript.rewatch();
+      for (const source of this.sources) {
+        try { source.rewatch(); } catch (e) { this.emitError(source.where.scan, errorMessage(e)); }
+      }
       const steps = this.sweepSteps();
       for (let r = steps.next(); !r.done; r = steps.next()) {
         await yieldToLoop();
@@ -340,7 +393,7 @@ export class IndexerService {
         }
       }
     } catch (e) {
-      this.emitError(this.transcript.where.scan, errorMessage(e));
+      this.emitError(this.sources[0]!.where.scan, errorMessage(e));
     } finally {
       this.sweeping = false;
       if (this.running) {
@@ -359,7 +412,14 @@ export class IndexerService {
    * 既に本文があるセッションは触らない。
    * 土台の要約は、行を書き換えたときと要約がまだ無いときだけ書き、走査のたびに changes を増やさない。
    */
-  syncHistoryOnly(history: Map<string, HistoryEntry> = this.transcript.history().index): number {
+  syncHistoryOnly(history?: Map<string, HistoryEntry>, agent?: AgentKind): number {
+    // 渡さなければ全部の面の覚えを回す。history だけ渡したときは先頭の面（Claude）のものとして扱う。
+    if (history === undefined) {
+      let total = 0;
+      for (const source of this.sources) total += this.syncHistoryOnly(source.history().index, source.agent);
+      return total;
+    }
+    const owner = agent ?? this.sources[0]!.agent;
     const db = this.opts.db;
     const hasMain = stmt(db, 'select 1 from transcript_files where session_id = ? and agent_id is null limit 1');
     const hasSummary = stmt(db, 'select 1 from session_summaries where session_id = ? limit 1');
@@ -367,7 +427,7 @@ export class IndexerService {
     const upsertStats = stmt(db, 'insert into session_stats (session_id, turns, last_prompt) values (?, ?, ?) on conflict(session_id) do update set turns = excluded.turns');
     let n = 0;
     for (const [providerSessionId, h] of history) {
-      const sessionId = ensureSession(db, providerSessionId, h.cwd, this.opts.deviceId, this.transcript.agent);
+      const sessionId = ensureSession(db, providerSessionId, h.cwd, this.opts.deviceId, owner);
       if (hasMain.get(sessionId)) continue;
       const cur = getSession.get(sessionId) as Record<string, unknown>;
       // 論理削除したセッション（削除したもの、本文の無いまま片付けたもの）は書き直さない。history.jsonl には消した後も残っている。
@@ -381,21 +441,35 @@ export class IndexerService {
       }
       upsertStats.run(sessionId, h.count, h.firstDisplay);
       if (touched || !hasSummary.get(sessionId)) {
-        writeBaselineIfNeeded(db, sessionId, this.opts.deviceId, this.opts.isRunning(providerSessionId));
+        writeBaselineIfNeeded(db, sessionId, this.opts.deviceId, this.opts.isRunning(providerSessionId, owner));
       }
     }
     return n;
   }
 
   /** history.jsonl が前に登録を回したときから変わっていれば、本文なしのセッションの登録を回す。 */
-  private syncHistoryIfChanged(history: PromptHistory = this.transcript.history()): void {
-    if (history.version === this.syncedHistory) return;
+  private syncHistoryIfChanged(source: FileTranscriptSource, history: PromptHistory = source.history()): void {
+    if (history.version === this.syncedHistory.get(source)) return;
     try {
-      this.syncHistoryOnly(history.index);
-      this.syncedHistory = history.version;
+      this.syncHistoryOnly(history.index, source.agent);
+      this.syncedHistory.set(source, history.version);
     } catch (e) {
-      this.emitError(this.transcript.where.history, errorMessage(e));
+      this.emitError(source.where.history, errorMessage(e));
     }
+  }
+
+  /** 全部の面の、本文の無い会話の覚えを読む。読めなかった面は、失敗を知らせて空として扱う。 */
+  private histories(): Map<FileTranscriptSource, PromptHistory> {
+    const out = new Map<FileTranscriptSource, PromptHistory>();
+    for (const source of this.sources) {
+      try {
+        out.set(source, source.history());
+      } catch (e) {
+        this.emitError(source.where.history, errorMessage(e));
+        out.set(source, { index: new Map(), version: this.syncedHistory.get(source) ?? -1 });
+      }
+    }
+    return out;
   }
 
   /** 名指しされた本文をまとめて索引化する。数が多ければ 20 ファイルごとにイベントループへ譲る。 */
@@ -407,16 +481,21 @@ export class IndexerService {
     try {
       const batch = [...this.pending.values()];
       this.pending.clear();
-      const history = this.transcript.history().index;
+      const histories = new Map<FileTranscriptSource, Map<string, HistoryEntry>>();
+      const historyOf = (source: FileTranscriptSource): Map<string, HistoryEntry> => {
+        let h = histories.get(source);
+        if (!h) histories.set(source, h = source.history().index);
+        return h;
+      };
       for (let i = 0; i < batch.length; i++) {
-        this.indexNamed(batch[i]!, history);
+        this.indexNamed(batch[i]!, historyOf(batch[i]!.source));
         if (i % YIELD_EVERY === YIELD_EVERY - 1) {
           await yieldToLoop();
           if (!this.running) return;
         }
       }
     } catch (e) {
-      this.emitError(this.transcript.where.scan, errorMessage(e));
+      this.emitError(this.sources[0]!.where.scan, errorMessage(e));
     } finally {
       this.flushing = false;
       if (this.running && this.pending.size > 0) this.scheduleFlush();
@@ -428,16 +507,17 @@ export class IndexerService {
    * 同じ位置に他の候補（他端末の写しなど）があれば、全件走査と同じ規則で 1 つを選び、外れたものを索引から落とす。
    * ファイルが消えていたら、片付けは全件走査に任せる。
    */
-  private indexNamed(file: DiscoveredFile, history: Map<string, HistoryEntry>): void {
-    const st = statOrNull(file.path);
+  private indexNamed(item: Item, history: Map<string, HistoryEntry>): void {
+    const { file, source } = item;
+    const st = this.statOf(source, file.path);
     if (!st) {
       this.requestSweep();
       return;
     }
-    const { index, drop, stats, lost } = this.transcript.pick(file, st, { isYielded: this.opts.isYielded });
+    const { index, drop, stats, lost } = source.pick(file, st, { isYielded: this.opts.isYielded });
     if (lost) this.requestSweep();
     this.forgetDropped(drop);
-    for (const f of index) this.indexOne(f, history, stats.get(f.path));
+    for (const f of index) this.indexOne({ file: f, source }, history, stats.get(f.path));
   }
 
   /**
@@ -452,7 +532,7 @@ export class IndexerService {
       const remote = b.remoteDevice !== undefined;
       const r = writeBatch(this.opts.db, b, { deviceId: this.opts.deviceId, processStartOf: this.opts.processStartOf, contextSizeOf: this.opts.contextSizeOf, ...(remote ? { remote: true, origin: `${storedOrigin(b)}@${b.remoteDevice}` } : {}) });
       if (r.skipped) return;
-      if (!remote && (b.agentId === null || r.appended > 0)) writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(b.providerSessionId));
+      if (!remote && (b.agentId === null || r.appended > 0)) writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(b.providerSessionId, b.agent));
       touchRow(this.opts.db, 'sessions', r.sessionId);
       for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: b.providerSessionId, agentId: b.agentId, appended: r.appended, artifactIds: r.artifactIds, deviceId: b.remoteDevice ?? null, path: null });
     } catch (e) {
@@ -461,19 +541,22 @@ export class IndexerService {
   }
 
   /** 監視が名指しした本文を集めて、最初の通知から debounce の後にまとめて索引化する。 */
-  private onNamed(file: DiscoveredFile): void {
+  private onNamed(file: DiscoveredFile, source: FileTranscriptSource): void {
     if (!this.running) return;
-    this.pending.set(file.path, file);
+    this.pending.set(file.path, { file, source });
     this.scheduleFlush();
   }
 
   /** 本文の無い会話の覚えが変わったかもしれない。続けて変わる間は待ち、落ち着いてから登録を回す。 */
-  private onHistoryChanged(): void {
+  private onHistoryChanged(source: FileTranscriptSource | null): void {
     if (!this.running) return;
+    for (const s of source ? [source] : this.sources) this.historyDirty.add(s);
     if (this.historyTimer) this.timers.clearTimeout(this.historyTimer);
     this.historyTimer = this.timers.setTimeout(() => {
       this.historyTimer = null;
-      this.syncHistoryIfChanged();
+      const dirty = [...this.historyDirty];
+      this.historyDirty.clear();
+      for (const s of dirty) this.syncHistoryIfChanged(s);
     }, HISTORY_DEBOUNCE_MS);
   }
 
@@ -509,7 +592,7 @@ export class IndexerService {
   private armSweep(): void {
     if (!this.running) return;
     this.clearSweepTimer();
-    const ms = this.transcript.healthy() ? (this.opts.sweepMs ?? SWEEP_MS) : (this.opts.pollFallbackMs ?? POLL_FALLBACK_MS);
+    const ms = this.healthy() ? (this.opts.sweepMs ?? SWEEP_MS) : (this.opts.pollFallbackMs ?? POLL_FALLBACK_MS);
     this.sweepTimer = this.timers.setTimeout(() => this.fireSweep(), ms);
   }
 
@@ -548,7 +631,7 @@ export class IndexerService {
       try {
         this.checkLive();
       } catch (e) {
-        this.emitError(this.transcript.where.scan, errorMessage(e));
+        this.emitError(this.sources[0]!.where.scan, errorMessage(e));
       }
       this.noteLiveChanged();
     }, this.opts.liveMs ?? LIVE_MS);
@@ -559,17 +642,23 @@ export class IndexerService {
     const live = this.opts.liveSessions?.() ?? [];
     if (this.scanning) return;
     const seen = new Set<string>();
-    let history: Map<string, HistoryEntry> | null = null;
+    const histories = new Map<FileTranscriptSource, Map<string, HistoryEntry>>();
     for (const s of live) {
-      for (const f of this.transcript.liveFiles(s.sessionId, s.cwd)) {
-        const st = statOrNull(f.path);
-        if (!st) continue;
-        seen.add(f.path);
-        const stamp = `${st.size}:${st.mtimeMs}`;
-        if (this.liveStamps.get(f.path) === stamp) continue;
-        this.liveStamps.set(f.path, stamp);
-        history ??= this.transcript.history().index;
-        this.indexNamed(f, history);
+      const agent = s.agent ?? 'claude-code';
+      for (const source of this.sources) {
+        // 自分の agent の会話だけに答える。切になっている面は見ない。
+        if (source.agent !== agent || (source.enabled && !source.enabled())) continue;
+        for (const f of source.liveFiles(s.sessionId, s.cwd)) {
+          const st = this.statOf(source, f.path);
+          if (!st) continue;
+          seen.add(f.path);
+          const stamp = `${st.size}:${st.mtimeMs}`;
+          if (this.liveStamps.get(f.path) === stamp) continue;
+          this.liveStamps.set(f.path, stamp);
+          let history = histories.get(source);
+          if (!history) histories.set(source, history = source.history().index);
+          this.indexNamed({ file: f, source }, history);
+        }
       }
     }
     for (const p of this.liveStamps.keys()) if (!seen.has(p)) this.liveStamps.delete(p);
@@ -587,8 +676,8 @@ export class IndexerService {
    */
   async start(): Promise<void> {
     this.running = true;
-    this.transcript.start(this.sink);
-    for (const t of this.opts.stored ?? []) t.start(this.sink);
+    for (const source of this.sources) source.start(this.sinks.get(source)!);
+    for (const t of this.opts.stored ?? []) t.start(this.storedSink);
     // 前の版が先頭からの索引を消してしまったファイルは、この全走査で先頭から読み直す。
     markTruncatedForReindex(this.opts.db);
     await this.fullScan();
@@ -598,7 +687,7 @@ export class IndexerService {
 
   stop(): void {
     this.running = false;
-    this.transcript.stop();
+    for (const source of this.sources) source.stop();
     for (const t of this.opts.stored ?? []) t.stop();
     if (this.flushTimer) this.timers.clearTimeout(this.flushTimer);
     if (this.historyTimer) this.timers.clearTimeout(this.historyTimer);
