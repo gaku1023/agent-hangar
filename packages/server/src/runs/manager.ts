@@ -635,8 +635,18 @@ export class RunManager {
    */
   async start(params: LaunchParams): Promise<LaunchResult> {
     const agent = this.agentKindOf(params.agent);
-    if (agent === DEFAULT_AGENT) return this.startClaude(params);
-    return this.startMaterialized(agent, params);
+    const r = agent === DEFAULT_AGENT ? await this.startClaude(params) : await this.startMaterialized(agent, params);
+    if (!params.scratch && params.projectId) this.unarchive(params.projectId);
+    return r;
+  }
+
+  /**
+   * Archived のプロジェクトで会話を始めたら Active に戻す（新規ダイアログは Archived を検索で出す）。
+   * 始めた会話のプロジェクトが一覧から隠れたままにならないようにする。フォルダの登録し直し（projects/create.ts）と同じ扱いである。
+   */
+  private unarchive(projectId: string): void {
+    const row = this.db.prepare("select * from projects where id = ? and status = 'archived' and deleted_at is null").get(projectId) as Record<string, unknown> | undefined;
+    if (row) upsertShared(this.db, 'projects', { ...row, status: 'active' }, this.deps.deviceId);
   }
 
   /** 起動の指定の agent を確かめる。省けば Claude Code、知らない値は 400 で断る。 */

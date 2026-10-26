@@ -877,13 +877,15 @@ function storeWithProjectAt(path: string): Store {
   return s;
 }
 describe('presentNewSession', () => {
-  it('オーバーレイが newSession のときだけ、解決済みでアーカイブでないプロジェクトを名前順に出す', () => {
+  it('オーバーレイが newSession のときだけ、解決済みのプロジェクトを名前順に出し、アーカイブはその後ろに名前順で足す', () => {
     const store = storeWith();
     store.projects.gone = { ...project('gone'), resolved: false };
+    store.projects.aged = project('aged', 'archived');
     expect(presentNewSession(initialState(), store, NOW)).toBeNull();
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: 'beta', scratch: false }, launch: { kind: 'failed' as const, message: 'x' } };
     const p = presentNewSession(state, store, NOW)!;
-    expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
+    expect(p.projects.map((x) => [x.id, x.status])).toEqual([['alpha', 'active'], ['beta', 'paused'], ['aged', 'archived'], ['old', 'archived']]);
+    expect(p.recentIds).not.toContain('old');
     expect(p).toMatchObject({ projectId: 'beta', submitting: false, error: 'x' });
     expect(presentNewSession({ ...state, launch: { kind: 'submitting' } }, store, NOW)!.submitting).toBe(true);
   });
@@ -1274,7 +1276,7 @@ describe('presentHome（クイックセッション）', () => {
     const store: Store = { ...storeWith(), projects: { ...storeWith().projects, sc: scratchProject() } };
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
     const p = presentNewSession(state, store, NOW)!;
-    expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
+    expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta', 'old']);
     expect(p.scratch).toBe(false);
     expect(presentNewSession({ ...state, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store, NOW)!.scratch).toBe(true);
   });
