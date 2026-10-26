@@ -188,6 +188,8 @@ export const sessionKeys = {
   'session.transcript.skillLoaded': ['name'],
   'session.screen.trustHint': [],
   'session.ended.opencode': ['action'],
+  'session.ended.codex': ['action'],
+  'session.ended.codex.pending': [],
   'session.screen.loading': [],
   'session.screen.moreActions': [],
   'session.screen.status': [],

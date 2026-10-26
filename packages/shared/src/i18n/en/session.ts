@@ -189,6 +189,8 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.transcript.skillLoaded': 'Loaded skill {name}',
   'session.screen.trustHint': 'Answer the trust prompt in the terminal if it appears',
   'session.ended.opencode': 'opencode has exited. Use "{action}" to resume.',
+  'session.ended.codex': 'Codex has exited. Use "{action}" to resume.',
+  'session.ended.codex.pending': 'This conversation has no first message yet, so it cannot be resumed.',
   'session.screen.loading': 'Loading session',
   'session.screen.moreActions': 'More actions',
   'session.screen.status': 'Session status',

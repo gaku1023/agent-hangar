@@ -10,7 +10,7 @@ import type { CodexLiveTarget } from './live.ts';
 import { launchCodexAppServer } from './launch.ts';
 import { CodexRegistry, codexRegistryPath } from './registry.ts';
 import { CODEX_PERMISSION_FLAGS } from '@agent-hangar/shared';
-import { codexAppServerConfig, codexPermissionOf, HANGAR_MCP_NAME, instructionValue, MCP_TOKEN_ENV, noRolloutError, planCodex, PENDING_PREFIX } from './launcher.ts';
+import { codexAppServerConfig, codexPermissionOf, HANGAR_MCP_NAME, instructionValue, MCP_TOKEN_ENV, loggedOutError, noRolloutError, planCodex, PENDING_PREFIX } from './launcher.ts';
 
 /**
  * Codex の driver の起動の面（計画の B3a、docs/design.md「Codex の起動（ベータ）」）。
@@ -37,6 +37,8 @@ export type CodexServed = {
 export type CodexDriverDeps = {
   /** codex の場所。呼ばれた時点の値を読む。無ければ null。 */
   bin: () => string | null;
+  /** ログイン済みか（`codex login status`）。偽なら、起動の前に断る（run.agent.codex.loggedOut）。無ければ確かめない。 */
+  loggedIn?: () => Promise<boolean>;
   /** hangar の置き場（~/.agent-hangar）。app-server の記録と token のファイルを置く。 */
   home: string;
   /** TUI へ持ち込まない変数（launch/env.ts の AGENT_RUN_DROPPED_ENV）。 */
@@ -133,6 +135,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     if (mode.kind !== 'start' && mode.id.startsWith(PENDING_PREFIX)) throw noRolloutError();
     const bin = deps.bin();
     if (!bin) throw new Error('codex was not found');
+    // ログインしていない codex は、起こしてから落ちる。起こす前に分かる文で断る。
+    if (deps.loggedIn && !(await deps.loggedIn())) throw loggedOutError();
     // app-server を起こす前に、指定が通るかを確かめる（通らなければ何も起こさない）。
     const perm = codexPermissionOf(spec.mode);
     const config = codexAppServerConfig(spec, perm);

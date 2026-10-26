@@ -189,6 +189,8 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.transcript.skillLoaded': 'スキル {name} を読み込みました',
   'session.screen.trustHint': '信頼確認が出たらターミナルで回答',
   'session.ended.opencode': 'opencode を終了しました。続きは「{action}」から開けます。',
+  'session.ended.codex': 'Codex を終了しました。続きは「{action}」から開けます。',
+  'session.ended.codex.pending': 'この会話は、まだ最初の入力が送られていないため、再開できません。',
   'session.screen.loading': 'セッションを読み込み中…',
   'session.screen.moreActions': '他の操作',
   'session.screen.status': 'セッションのステータス',

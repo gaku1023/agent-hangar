@@ -22,6 +22,7 @@ import { projectDisplayName } from './projectName.ts';
 import { statusMark } from './row.ts';
 import { phoneLabelOf } from './phoneLabel.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
+import { AGENT_TEXT, type EndedLine } from './agentText.ts';
 import { bandsOf, presentNowCard, resultsOf, type NowCardProps } from './live.ts';
 import { buildTurns } from './turns.ts';
 import { tocFolds } from './tocFold.ts';
@@ -99,10 +100,11 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /** 終わったセッションの、トランスクリプトの冒頭の 1 枚。run が無いときだけ。 */
   lead: LeadCardProps | null;
   /**
-   * 終わった画面の本文の面の最後に置く 1 行（C7、試作の E1）。opencode の会話で、run が無く、再開できるときだけ 'opencode'。
+   * 終わった画面の本文の面の最後に置く 1 行（C7、試作の E1）。opencode と Codex の会話で、run が無く、再開できるときだけ（鍵は AGENT_TEXT の endedLine）。
+   * Codex の最初の入力の前に終わった会話（provider_session_id が pending:）は、再開を出さず 'codex-pending' の 1 行にする。
    * 1 行は「再開」から続けられることを言うので、再開を押せない会話（ほかの PC の会話、本文が無い）には付けない。Claude の会話にも付けない。
    */
-  endedLine?: 'opencode' | null;
+  endedLine?: EndedLine | null;
   /** 見出しの名前の横の札（ロック、トランスクリプトの在りか）。 */
   badges: BadgeProps[];
   /**
@@ -568,7 +570,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   // Claude Code 以外の会話のエージェントのタブは、そのエージェントの名前と公式ロゴにする。サーバの題も同じ名前だが、写し（live）だけでエージェントが分かる会話もあるので、ここで決める。
   const agentKind = agentOfSession(store, s);
   const otherAgent: NonDefaultAgentKind | null = agentKind !== null && agentKind !== 'claude-code' ? agentKind : null;
-  const opencodeTab = agentKind === 'opencode';
+  // 最初の入力の前に終わった会話。rollout が無く、再開もフォークもできない（サーバも断る）。
+  const pending = s.providerSessionId.startsWith('pending:');
   const tabs: TabItemProps[] = open.map((x) => (x.kind === 'agent' && otherAgent !== null
     ? { id: x.id, title: AGENT_DISPLAY_NAME[otherAgent], kind: x.kind, agent: otherAgent, selected: x.id === selectedTab, closable: false }
     : { id: x.id, title: x.title, kind: x.kind, selected: x.id === selectedTab, closable: x.kind === 'shell' }));
@@ -636,7 +639,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。
     // 手元で続けたいときは「この PC で再開」に回して、本文を降ろしてから新しい run を立てる。
-    canResume: s.hasTranscript && idle && s.lock === null && !s.remoteOnly, canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
+    canResume: s.hasTranscript && !pending && idle && s.lock === null && !s.remoteOnly, canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
     // Ruling 14。heartbeat が途絶えたロック（stale）は行き止まりにせず、「この PC で再開」だけを開ける。
     // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock !== null || s.remoteOnly || s.newerElsewhere === true, newerElsewhere: s.newerElsewhere === true,
@@ -650,6 +653,6 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand,
   };
-  props.endedLine = run === null && opencodeTab && props.canResume ? 'opencode' : null;
+  props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;
   return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
 }

@@ -23,6 +23,9 @@ const DECIDED: Record<string, string> = {
   'system.opencode.providers.modelsUnreachable': 'Failed to load models from /v1/models. Check the URL and API key.',
   'session.strip.opencode.intentMeta': 'Written by opencode, {time}, {n} subsequent tool {n|call|calls}',
   'session.ended.opencode': 'opencode has exited. Use "{action}" to resume.',
+  'session.ended.codex': 'Codex has exited. Use "{action}" to resume.',
+  'session.ended.codex.pending': 'This conversation has no first message yet, so it cannot be resumed.',
+  'run.agent.codex.loggedOut': 'You are not logged in to codex (run codex login in a terminal)',
 };
 
 describe('opencode の文の英語', () => {
