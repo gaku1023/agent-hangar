@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import type { AgentAsk, LaunchSpec } from '../../agent/types.ts';
+import type { AgentAsk, LaunchSpec, MaterializeMode } from '../../agent/types.ts';
 import { writeFakeCodex } from '../../../test/fake-codex.ts';
 import { posixDescribe } from '../../../test/platform.ts';
 import { LaunchQueue } from '../opencode/serve/queue.ts';
@@ -34,7 +34,7 @@ posixDescribe('Codex の driver と状態の面のつなぎ（B3a + B4）', () =
   });
 
   const make = (home = path.join(dir, 'home')) => {
-    const bin = writeFakeCodex(path.join(dir, 'bin'), { turnMs: 30_000 });
+    const bin = writeFakeCodex(path.join(dir, 'bin'), { turnMs: 30_000, knownThreads: [{ id: 'ext-thread', cwd }] });
     const surface = createCodexLive({ log: () => undefined });
     const d = createCodexDriver({
       bin: () => bin, home, droppedEnv: [], graceMs: 500, mcpPollMs: 10, mcpWaitMs: 1000, queue: new LaunchQueue(),
@@ -93,5 +93,17 @@ posixDescribe('Codex の driver と状態の面のつなぎ（B3a + B4）', () =
     expect(rows(b.d)[0]).toMatchObject({ sessionId: r.providerSessionId });
     await b.d.launch.release({ sessionId: 's1', providerSessionId: r.providerSessionId, cwd }, 'killed');
     expect(rows(b.d)).toEqual([]);
+  });
+
+  it('再開と fork：開いた会話が実行中として写り、止めたら消える', async () => {
+    const modes: MaterializeMode[] = [{ kind: 'resume', id: 'ext-thread' }, { kind: 'fork', id: 'ext-thread', newId: 'unused' }];
+    for (const mode of modes) {
+      const { d } = make();
+      const r = (await d.launch.materialize!(mode, spec({ prompt: 'work' }))) as { providerSessionId: string };
+      await until(() => rows(d).some((x) => x.status === 'busy'));
+      expect(rows(d)[0]).toMatchObject({ sessionId: r.providerSessionId, agent: 'codex', cwd, pid: d.served('s1')!.pid });
+      expect(await d.launch.release({ sessionId: 's1', providerSessionId: r.providerSessionId, cwd }, 'killed')).toBe(true);
+      expect(rows(d)).toEqual([]);
+    }
   });
 });

@@ -10,6 +10,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { SECRET_ENV_DIR, secretEnvPath } from '../launch/secretEnv.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { createCodexDriver, type CodexDriver } from '../provider/codex/driver.ts';
 import { TUI_TOKEN_ENV } from '../provider/codex/appServer.ts';
 import { LaunchQueue } from '../provider/opencode/serve/queue.ts';
@@ -54,7 +55,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
 
   const sessions = (): Row[] => db.prepare('select id, provider, provider_session_id, deleted_at from sessions where deleted_at is null').all() as Row[];
 
-  const make = (o: { enabled?: boolean; bin?: string | null; fake?: FakeCodexOptions; injection?: 'minimal' | 'claude' | 'none' } = {}) => {
+  const make = (o: { enabled?: boolean; bin?: string | null; fake?: FakeCodexOptions; injection?: 'minimal' | 'claude' | 'none'; intercept?: boolean } = {}) => {
     const logFile = path.join(home, 'boot.jsonl');
     const rpcLog = path.join(home, 'rpc.jsonl');
     const bin = writeFakeCodex(path.join(home, 'cx'), { logFile, rpcLogFile: rpcLog, ...(o.fake ?? {}) });
@@ -79,6 +80,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
       procs: { ...realProcOps, listJobs: () => [] },
       agents: agentsOf([claude, codex]), claude,
       agentEnabled: (k) => k === 'claude-code' || (k === 'codex' && enabled),
+      terminalIntercept: (k) => k === 'codex' && o.intercept !== false,
       agentBin: (k) => (k === 'codex' ? (o.bin === undefined ? bin : o.bin) : null),
       injection: () => ({ askStatusAtEnd: true, liveHints: true, codex: o.injection ?? 'minimal' }),
     });
@@ -145,6 +147,17 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex', permissionMode: 'full-access' });
   });
 
+  it('新しいセッションのダイアログの既定の送り（agent・model・effort=medium・permissionMode=auto）が、driver と入口をそのまま通る', async () => {
+    const { rm, opened, rpcs } = make();
+    const dialog: LaunchParams = { agent: 'codex', projectId: 'p1', prompt: 'やって', model: 'gpt-x', effort: 'medium', permissionMode: 'auto' };
+    const r = await rm.start(dialog);
+    const start = rpcs().find((x) => x.method === 'thread/start')!;
+    expect(start.params).toMatchObject({ cwd, model: 'gpt-x', approvalPolicy: 'on-request', sandbox: 'workspace-write' });
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-c', 'model_reasoning_effort="medium"']));
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex', model: 'gpt-x', effort: 'medium', permissionMode: 'auto' });
+  });
+
   it('初期プロンプトなし：仮の ID のまま TUI を resume なしで開き、TUI がつないで thread/started が届いたら ID を記録する', async () => {
     const { rm, codex, opened, rpcs } = make();
     const r = await rm.start(params());
@@ -168,6 +181,108 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     await until(() => !isProcessAlive(pid));
     expect(codex.served(r.sessionId)).toBeNull();
     expect(fs.existsSync(secretEnvPath(home, r.run.id))).toBe(false);
+  });
+
+  it('終わった画面の「再開」：hangar の外で作られた会話（索引の provider=codex の行）も、thread/resume で開いて resume <ID> の TUI につなぐ', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000e001';
+    const { rm, codex, opened, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd: '/somewhere/else' }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    const r = await rm.resumeWith(sid, {});
+    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT, cwd });
+    expect(rpcs().map((x) => x.method)).not.toContain('turn/start');
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['--remote', 'resume', EXT]));
+    expect(r.sessionId).toBe(sid);
+    expect(codex.served(sid)?.threadId).toBe(EXT);
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex' });
+  });
+
+  it('最初の入力の前の会話は再開できない。Codex を起動できなかったと、理由つきで断り、app-server を残さない', async () => {
+    const { rm, codex } = make();
+    const sid = ensureSession(db, '01bffff0-0000-7000-8000-00000000dead', cwd, 'd', 'codex');
+    await expect(rm.resumeWith(sid, {})).rejects.toMatchObject({ status: 400, message: 'Codex を起動できませんでした: この会話は、まだ最初の入力が送られていないため、再開できません。新しいセッションを始めてください' });
+    expect(codex.served(sid)).toBeNull();
+  });
+
+  // 外のターミナルの codex（シェルの包みからの起動、段 D1）。端末の環境変数は届いても使わない。
+  const term = (args: string[], at = cwd) => ({ cwd: at, args, env: { CODEX_HOME: '/x/codex', PATH: '/from-terminal' } });
+
+  it('外のターミナルの codex は、作業ディレクトリのプロジェクトで新しい会話を起こし、プロンプト、-m、推論、権限を写す。端末の環境は使わない', async () => {
+    const { rm, opened, rpcs } = make();
+    const r = await rm.startCodexFromTerminal(term(['-m', 'gpt-x', '-c', 'model_reasoning_effort=high', '-s', 'danger-full-access', '-a', 'never', '直して']));
+    expect(r.attached).toBe(false);
+    expect(r.run.kind).toBe('start');
+    const start = rpcs().find((x) => x.method === 'thread/start')!;
+    expect(start.params).toMatchObject({ cwd, model: 'gpt-x', approvalPolicy: 'never', sandbox: 'danger-full-access' });
+    const id = (rpcs().find((x) => x.method === 'turn/start')!.params as { threadId: string }).threadId;
+    expect(sessions()).toEqual([expect.objectContaining({ id: r.sessionId, provider: 'codex', provider_session_id: id })]);
+    expect(db.prepare('select project_id from sessions where id = ?').get(r.sessionId)).toEqual({ project_id: 'p1' });
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-s', 'danger-full-access', '-a', 'never', 'resume', id]));
+    expect(JSON.stringify(opened[0]!.env)).not.toContain('/from-terminal');
+    expect(JSON.stringify(opened[0]!.env)).not.toContain('/x/codex');
+  });
+
+  it('外のターミナルの codex で resume <ID> は、hangar の会話なら thread/resume で再開し、動いていればつなぐだけにする。知らない ID は 404', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000e002';
+    const { rm, opened, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    const r = await rm.startCodexFromTerminal(term(['resume', EXT, '-s', 'read-only']));
+    expect(r.attached).toBe(false);
+    expect(r.sessionId).toBe(sid);
+    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT });
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-s', 'read-only', '-a', 'on-request', 'resume', EXT]));
+    const again = await rm.startCodexFromTerminal(term(['resume', EXT]));
+    expect(again.attached).toBe(true);
+    expect(again.run.id).toBe(r.run.id);
+    expect(opened).toHaveLength(1);
+    await expect(rm.startCodexFromTerminal(term(['resume', '01bffff0-0000-7000-8000-0000000000ff']))).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('写せない引数は 400 で断る（包み方は素の codex に回す）。行は作らない', async () => {
+    const { rm, booted } = make();
+    for (const a of [['--oss'], ['exec', 'x'], ['-s', 'danger-full-access'], ['resume']]) {
+      await expect(rm.startCodexFromTerminal(term(a)), a.join(' ')).rejects.toMatchObject({ status: 400 });
+    }
+    expect(sessions()).toEqual([]);
+    expect(booted()).toBe(false);
+  });
+
+  it('設定の Codex を有効にするか、コマンドの横取りが切なら 400 で断る', async () => {
+    const off = make({ enabled: false });
+    await expect(off.rm.startCodexFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('Codex は有効になっていません') });
+    const noIntercept = make({ intercept: false });
+    await expect(noIntercept.rm.startCodexFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('設定の「') });
+    expect(sessions()).toEqual([]);
+  });
+
+  it('フォーク：仮の ID の新しい行を作り、thread/fork で決まった ID に書き換え、resume <新しい ID> の TUI につなぐ。元の会話は残る', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000f001';
+    const { rm, codex, opened, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd: '/somewhere/else' }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    const r = await rm.forkMaterialized(sid);
+    expect(r.sessionId).not.toBe(sid);
+    expect(r.run).toMatchObject({ kind: 'fork', sessionId: r.sessionId });
+    expect(rpcs().find((x) => x.method === 'thread/fork')!.params).toMatchObject({ threadId: EXT, cwd });
+    const rows = sessions();
+    const forked = rows.find((x) => x.id === r.sessionId)!;
+    expect(forked.provider).toBe('codex');
+    expect(forked.provider_session_id).not.toBe(EXT);
+    expect(forked.provider_session_id.startsWith('pending:')).toBe(false);
+    expect(rows.find((x) => x.id === sid)!.provider_session_id).toBe(EXT);
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['--remote', 'resume', forked.provider_session_id]));
+    expect(codex.served(r.sessionId)?.threadId).toBe(forked.provider_session_id);
+    expect(codex.served(sid)).toBeNull();
+  });
+
+  it('フォーク：最初の入力の前の会話（rollout が無い）は断り、新しい行も app-server も残さない', async () => {
+    const { rm, codex } = make();
+    const sid = ensureSession(db, '01bffff0-0000-7000-8000-00000000dead', cwd, 'd', 'codex');
+    await expect(rm.forkMaterialized(sid)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('最初の入力が送られていないため') });
+    expect(sessions().map((x) => x.id)).toEqual([sid]);
+    expect(codex.served(sid)).toBeNull();
   });
 
   it('画面を開けなかったら、app-server を止め、仮の行と秘密の環境のファイルを残さない', async () => {

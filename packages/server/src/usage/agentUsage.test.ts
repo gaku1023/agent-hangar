@@ -56,4 +56,26 @@ describe('Claude 以外のエージェントの枠', () => {
     t.set('codex', { fiveHour: W(2, 1), sevenDay: null, plan: 'plus' }, 30);
     expect(cb).toHaveBeenCalledTimes(2);
   });
+  it('refresh：切にした瞬間に、持っていた値を捨てて、変わったと知らせる。入れ直しても古い値は戻らない', () => {
+    let on = true;
+    const t = new AgentUsageTracker({ now: () => 1, enabled: () => on });
+    t.set('codex', { fiveHour: W(10, 9000), sevenDay: null, plan: 'plus' }, 100);
+    const cb = vi.fn();
+    t.onChange(cb);
+    on = false;
+    t.refresh();
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(t.all()).toBeUndefined();
+    on = true;
+    expect(t.of('codex')).toBeNull();
+  });
+  it('refresh：入のままなら、値を保ったまま配り直しを頼むだけ', () => {
+    const t = new AgentUsageTracker({ now: () => 1 });
+    t.set('codex', { fiveHour: W(10, 9000), sevenDay: null, plan: null }, 100);
+    const cb = vi.fn();
+    t.onChange(cb);
+    t.refresh();
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(t.of('codex')?.fiveHour).toEqual(W(10, 9000));
+  });
 });

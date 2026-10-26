@@ -45,6 +45,14 @@ export class AgentUsageTracker {
     return true;
   }
 
+  /**
+   * 設定の入り切りが変わったとき。切なら持っていた値を捨て（入れ直したときに古い値を出さない）、どちらでも配り直しを頼む（切になった瞬間にヘッダの元から外す）。
+   */
+  refresh(): void {
+    if (!this.enabled()) this.state.clear();
+    for (const cb of [...this.listeners]) cb();
+  }
+
   of(agent: UsageAgent): AgentUsageDto | null {
     if (!this.enabled()) return null;
     const s = this.state.get(agent);

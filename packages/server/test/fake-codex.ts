@@ -8,7 +8,8 @@ const requireFromHere = createRequire(import.meta.url);
  *
  * app-server のふり（`codex app-server --listen ws://127.0.0.1:<port> --ws-auth capability-token --ws-token-file <file> …`）：
  * - /healthz は token 無しで 200。WebSocket は `Authorization: Bearer <token>` が合わなければ 401。
- * - initialize、thread/start、turn/start、turn/interrupt、thread/resume、thread/loaded/list に答える。
+ * - initialize、thread/start、turn/start、turn/interrupt、thread/resume、thread/fork、thread/loaded/list に答える。
+ *   thread/resume の cwd は、そのプロセスで最初の resume のときだけ会話の cwd を上書きする（E0）。thread/fork は rollout のある新しい会話を作る。
  *   thread/resume は、ターンがまだ無いスレッドには実物と同じ -32600 `no rollout found for thread id …` を返す。
  * - 通知：thread/started（接続の URL の query に `tui=1&cwd=…` を付けた接続が来たとき、ephemeral:false を全接続へ。実物の TUI の接続の真似）、
  *   turn/start で thread/status/changed(active)、turn/started（購読した接続だけ）、少しあとに turn/completed と idle。
@@ -23,6 +24,8 @@ const requireFromHere = createRequire(import.meta.url);
 export type FakeCodexOptions = {
   version?: string;
   loggedIn?: boolean;
+  /** `login status` が終わらない（時間切れの試験用）。 */
+  loginHang?: boolean;
   /** 起動の記録の置き場。 */
   logFile?: string;
   /** app-server が起動時に孫を 1 つ起こし、その pid をこのファイルに書く。 */
@@ -37,6 +40,10 @@ export type FakeCodexOptions = {
   mcpPendingPolls?: number | 'failed';
   /** ターンが終わるまでの時間（ミリ秒、既定 60）。interrupt の試験では長くする。 */
   turnMs?: number;
+  /** app-server が起動時から持つ会話（rollout がある。hangar の外で作られたもの）。resume と fork の試験用。 */
+  knownThreads?: { id: string; cwd: string }[];
+  /** account/rateLimits/read が返す RateLimitSnapshot（rateLimits と rateLimitsByLimitId.codex の両方に入れる）。無ければ method not found のまま。 */
+  rateLimits?: Record<string, unknown>;
 };
 
 export function writeFakeCodex(dir: string, o: FakeCodexOptions = {}): string {
@@ -49,11 +56,12 @@ import { spawn } from 'node:child_process';
 const require = createRequire(${JSON.stringify(requireFromHere.resolve('ws'))});
 const { WebSocketServer } = require('ws');
 const args = process.argv.slice(2);
-const OPTS = ${JSON.stringify({ g: o.grandchildPidFile ?? null, i: !!o.ignoreSigterm, c: !!o.crashOnStart, r: o.rpcLogFile ?? null, m: o.mcpPendingPolls ?? 0, t: o.turnMs ?? 60 })};
+const OPTS = ${JSON.stringify({ g: o.grandchildPidFile ?? null, i: !!o.ignoreSigterm, c: !!o.crashOnStart, r: o.rpcLogFile ?? null, m: o.mcpPendingPolls ?? 0, t: o.turnMs ?? 60, k: o.knownThreads ?? [], l: o.rateLimits ?? null })};
 const rlog = (o) => { if (OPTS.r) fs.appendFileSync(OPTS.r, JSON.stringify(o) + '\\n'); };
 ${o.logFile ? `fs.appendFileSync(${JSON.stringify(o.logFile)}, JSON.stringify({ argv: args, env: process.env }) + '\\n');` : ''}
 if (args[0] === '--version') { process.stdout.write('codex-cli ${version}\\n'); process.exit(0); }
 if (args[0] === 'login' && args[1] === 'status') {
+  ${o.loginHang ? 'await new Promise(() => setTimeout(() => {}, 600000));' : ''}
   if (${o.loggedIn === false ? 'false' : 'true'}) { process.stdout.write('Logged in using ChatGPT\\n'); process.exit(0); }
   process.stderr.write('Not logged in\\n'); process.exit(1);
 }
@@ -69,6 +77,7 @@ async function appServer(args) {
   const token = fs.readFileSync(flag('--ws-token-file'), 'utf8').trim();
   const threads = new Map(); // id -> { cwd, turns, subscribers:Set }
   let seq = 0;
+  for (const k of OPTS.k) threads.set(k.id, { cwd: k.cwd, turns: 1, subscribers: new Set(), loaded: false });
   let turnSeq = 0;
   let polls = 0;
   const uuid = () => '01a00000-0000-7000-8000-' + String(++seq).padStart(12, '0');
@@ -129,13 +138,25 @@ async function appServer(args) {
           if (!t) return fail(-32600, 'thread not found: ' + p.threadId);
           return ok({ thread: { ...threadBody(p.threadId, false), turns: t.current ? [{ id: t.current.id, status: 'inProgress' }] : [], status: t.status ?? { type: t.current ? 'active' : 'idle', ...(t.current ? { activeFlags: [] } : {}) } } });
         }
+        case 'account/rateLimits/read': return OPTS.l ? ok({ rateLimits: OPTS.l, rateLimitsByLimitId: { codex: OPTS.l } }) : fail(-32601, 'method not found: ' + m.method);
         case 'thread/loaded/list': return ok({ data: [...threads.keys()] });
         case 'thread/resume': {
           const t = threads.get(p.threadId);
           if (!t) return fail(-32600, 'no rollout found for thread id ' + p.threadId);
           if (t.turns === 0) return fail(-32600, 'no rollout found for thread id ' + p.threadId);
           t.subscribers.add(ws);
-          return ok({ thread: threadBody(p.threadId, false) });
+          if (!t.loaded && p.cwd) t.cwd = p.cwd;
+          t.loaded = true;
+          return ok({ thread: threadBody(p.threadId, false), cwd: t.cwd });
+        }
+        case 'thread/fork': {
+          const src = threads.get(p.threadId);
+          if (!src || src.turns === 0) return fail(-32600, 'no rollout found for thread id ' + p.threadId);
+          const id = uuid();
+          threads.set(id, { cwd: p.cwd ?? src.cwd, turns: 1, subscribers: new Set([ws]), loaded: true });
+          ok({ thread: threadBody(id, false), cwd: p.cwd ?? src.cwd });
+          setTimeout(() => broadcast('thread/started', { thread: threadBody(id, false) }), 5);
+          return;
         }
         case 'turn/start': {
           const t = threads.get(p.threadId);

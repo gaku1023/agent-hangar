@@ -11,6 +11,7 @@ import { LaunchQueue } from '../opencode/serve/queue.ts';
 import { TUI_TOKEN_ENV } from './appServer.ts';
 import { createCodexDriver, type CodexDriver } from './driver.ts';
 import { MCP_TOKEN_ENV } from './launcher.ts';
+import { MessageError } from '../../i18n/message.ts';
 
 type Rec = { ev: 'rpc'; method: string; params: Record<string, unknown> } | { ev: 'sigterm' };
 type Boot = { argv: string[]; env: Record<string, string> };
@@ -152,11 +153,97 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     expect(fs.existsSync(log)).toBe(false);
   });
 
-  it('再開とフォークはまだ受けない（B3b）。実行ファイルが無ければ断る', async () => {
-    const { d } = make();
-    await expect(d.launch.materialize!({ kind: 'resume', id: 'a' }, spec())).rejects.toThrow(/cannot resume/);
+  const EXT = '01bffff0-0000-7000-8000-00000000e001';
+  const rpcOf = (m: string): Extract<Rec, { ev: 'rpc' }> | undefined => rpcs().find((x): x is Extract<Rec, { ev: 'rpc' }> => x.ev === 'rpc' && x.method === m);
+
+  it('実行ファイルが無ければ断る', async () => {
     const none = createCodexDriver({ bin: () => null, home: path.join(dir, 'home'), droppedEnv: [] });
     await expect(none.launch.materialize!({ kind: 'start' }, spec())).rejects.toThrow(/not found/);
+    await expect(none.launch.materialize!({ kind: 'resume', id: EXT }, spec())).rejects.toThrow(/not found/);
+  });
+
+  it('再開：app-server を起こし、thread/resume（cwd、権限）で開き、MCP がつながるのを待つ。最初の入力は流さない。TUI は resume <ID> でつなぐ', async () => {
+    const { d } = make({ knownThreads: [{ id: EXT, cwd: cwd }], mcpPendingPolls: 1 });
+    const r = await d.launch.materialize!({ kind: 'resume', id: EXT }, spec({ mode: 'read-only' }));
+    expect(r).toEqual({ providerSessionId: EXT });
+    expect(rpcOf('thread/resume')!.params).toMatchObject({ threadId: EXT, cwd, approvalPolicy: 'on-request', sandbox: 'read-only' });
+    const ms = methods();
+    expect(ms).not.toContain('thread/start');
+    expect(ms).not.toContain('turn/start');
+    expect(ms.filter((m) => m === 'mcpServerStatus/list')).toHaveLength(2);
+    expect(d.served('s1')?.threadId).toBe(EXT);
+    const b = boots()[0]!;
+    expect(b.argv).toContain('mcp_servers.hangar.url="http://127.0.0.1:4177/mcp/s/s1"');
+    expect(b.env[MCP_TOKEN_ENV]).toBe('mcp-secret');
+
+    const plan = d.launch.plan('/bin/codex', { kind: 'resume', id: EXT }, spec({ mode: 'read-only' }));
+    expect(plan.argv.slice(-2)).toEqual(['resume', EXT]);
+    expect(plan.argv).toEqual(expect.arrayContaining(['--remote', '-s', 'read-only', '-a', 'on-request']));
+    expect(plan.secretEnv?.[TUI_TOKEN_ENV]).toBeTruthy();
+  });
+
+  it('hangar の外で作られた会話（cwd がこの PC に無い）も、同じ道で再開できる。cwd は thread/resume で上書きする', async () => {
+    const { d } = make({ knownThreads: [{ id: EXT, cwd: '/somewhere/else' }] });
+    await d.launch.materialize!({ kind: 'resume', id: EXT }, spec());
+    expect(rpcOf('thread/resume')!.params).toMatchObject({ threadId: EXT, cwd });
+    expect(d.served('s1')?.cwd).toBe(cwd);
+  });
+
+  it('再開に初期プロンプトが付いたら（外のターミナルの再開）、MCP がつながってから turn/start で流す', async () => {
+    const { d } = make({ knownThreads: [{ id: EXT, cwd }], mcpPendingPolls: 1 });
+    await d.launch.materialize!({ kind: 'resume', id: EXT }, spec({ prompt: '続きを', effort: 'low' }));
+    const ms = methods();
+    expect(ms.indexOf('turn/start')).toBeGreaterThan(ms.lastIndexOf('mcpServerStatus/list'));
+    expect(rpcOf('turn/start')!.params).toMatchObject({ threadId: EXT, effort: 'low', input: [{ type: 'text', text: '続きを' }] });
+  });
+
+  it('最初の入力の前のスレッド（rollout が無い）は再開できない。分かる断りにして、app-server を残さない', async () => {
+    const { d } = make({ knownThreads: [] });
+    const err = (await d.launch.materialize!({ kind: 'resume', id: '01bffff0-0000-7000-8000-00000000dead' }, spec()).then(() => null, (e: unknown) => e)) as MessageError;
+    expect(err).toBeInstanceOf(MessageError);
+    expect(err.text?.key).toBe('run.agent.codex.noRollout');
+    expect(d.served('s1')).toBeNull();
+    const pid = boots().length;
+    expect(pid).toBe(1);
+    expect(methods()).toContain('sigterm');
+  });
+
+  it('仮の ID（まだ最初の入力が無く、ID が分からない会話）の再開は、app-server を起こさずに同じ断りで返す', async () => {
+    const { d } = make();
+    const err = (await d.launch.materialize!({ kind: 'resume', id: 'pending:abc' }, spec()).then(() => null, (e: unknown) => e)) as MessageError;
+    expect(err.text?.key).toBe('run.agent.codex.noRollout');
+    expect(fs.existsSync(log)).toBe(false);
+  });
+
+  it('ログインしていないときは、app-server を起こさずに断る。ログイン済みなら通る', async () => {
+    const out = make({}, { loggedIn: async () => false });
+    const err = (await out.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' })).then(() => null, (e: unknown) => e)) as MessageError;
+    expect(err).toBeInstanceOf(MessageError);
+    expect(err.text?.key).toBe('run.agent.codex.loggedOut');
+    expect(fs.existsSync(log)).toBe(false);
+    const unknown = make({}, { loggedIn: async () => null });
+    expect(await unknown.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }))).toEqual({ providerSessionId: expect.stringMatching(/^01a/) });
+    const ok = make({}, { loggedIn: async () => true });
+    const r = await ok.d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));
+    expect(r).toEqual({ providerSessionId: expect.stringMatching(/^01a/) });
+  });
+
+  it('フォーク：thread/fork（cwd、権限）で新しいスレッドを作り、その ID を返す。plan は新しい ID を resume でつなぐ。元の会話は変えない', async () => {
+    const { d } = make({ knownThreads: [{ id: EXT, cwd }] });
+    const r = (await d.launch.materialize!({ kind: 'fork', id: EXT, newId: 'unused' }, spec({ mode: 'full-access' }))) as { providerSessionId: string };
+    expect(r.providerSessionId).toMatch(/^01a/);
+    expect(r.providerSessionId).not.toBe(EXT);
+    expect(rpcOf('thread/fork')!.params).toMatchObject({ threadId: EXT, cwd, approvalPolicy: 'never', sandbox: 'danger-full-access' });
+    expect(d.served('s1')?.threadId).toBe(r.providerSessionId);
+    const plan = d.launch.plan('/bin/codex', { kind: 'fork', id: EXT, newId: r.providerSessionId }, spec({ mode: 'full-access' }));
+    expect(plan.argv.slice(-2)).toEqual(['resume', r.providerSessionId]);
+  });
+
+  it('rollout の無いスレッドのフォークも、同じ断りで返す', async () => {
+    const { d } = make();
+    const err = (await d.launch.materialize!({ kind: 'fork', id: '01bffff0-0000-7000-8000-00000000dead', newId: 'x' }, spec()).then(() => null, (e: unknown) => e)) as MessageError;
+    expect(err.text?.key).toBe('run.agent.codex.noRollout');
+    expect(d.served('s1')).toBeNull();
   });
 
   it('hangar を起こし直したあと：レジストリから app-server を引き継ぎ（reattach）、止められる。止まったものは引き継げない', async () => {
@@ -178,7 +265,7 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     const { d } = make();
     expect(d.kind).toBe('codex');
     expect(d.launch.servedByHangar).toBe(true);
-    expect(d.caps).toMatchObject({ accounts: false, effort: true, permissionMode: true, fork: false, remoteControl: false, attachExternal: false, promptJump: false });
+    expect(d.caps).toMatchObject({ accounts: false, effort: true, permissionMode: true, fork: true, remoteControl: false, attachExternal: false, promptJump: false });
     expect(d.live.current()).toEqual([]);
     expect(d.instructions.when).toBe('launch');
   });

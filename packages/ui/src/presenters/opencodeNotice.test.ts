@@ -74,3 +74,22 @@ describe('終わった opencode の会話の 1 行（C7、試作の E1）', () =
     expect(presentSession(initialState(), sessionStore(session({ hasTranscript: false })), NOW, 's1').endedLine).toBeNull();
   });
 });
+
+describe('終わった Codex の会話の 1 行（C5）', () => {
+  const codex = (over: Partial<SessionDto> = {}): SessionDto => session({ provider: 'codex', providerSessionId: '01a00000-0000-7000-8000-000000000001', name: 'cx', ...over });
+  it('Codex の終わった会話には codex の 1 行を付ける。hangar の外の会話（状態を持たない）も同じ', () => {
+    expect(presentSession(initialState(), sessionStore(codex()), NOW, 's1').endedLine).toBe('codex');
+    expect(presentSession(initialState(), sessionStore(codex({ state: null })), NOW, 's1').canResume).toBe(true);
+  });
+  it('最初の入力の前に終わった会話（pending:）は、再開を出さず、その旨の 1 行にする', () => {
+    const p = presentSession(initialState(), sessionStore(codex({ providerSessionId: 'pending:abc', hasTranscript: true })), NOW, 's1');
+    expect(p.canResume).toBe(false);
+    expect(p.endedLine).toBe('codex-pending');
+    const noText = presentSession(initialState(), sessionStore(codex({ providerSessionId: 'pending:abc', hasTranscript: false })), NOW, 's1');
+    expect(noText.endedLine).toBe('codex-pending');
+  });
+  it('動いている間は付けない。pending: でも opencode と Claude には付かない', () => {
+    expect(presentSession(initialState(), sessionStore(codex({ live: 'busy' })), NOW, 's1').endedLine).toBeNull();
+    expect(presentSession(initialState(), sessionStore(session({ provider: 'claude-code', providerSessionId: 'pending:x' })), NOW, 's1').endedLine).toBeNull();
+  });
+});

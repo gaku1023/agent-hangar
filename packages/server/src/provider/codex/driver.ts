@@ -7,16 +7,17 @@ import { isProcessAlive, watchExit } from '../opencode/serve/spawn.ts';
 import { CodexRpc, stopAppServer, tuiRemote, watchStartedThread, type AppServerProcess } from './appServer.ts';
 import { codexBaseEnv } from './env.ts';
 import type { CodexLiveTarget } from './live.ts';
+import type { CodexUsage } from './usage.ts';
 import { launchCodexAppServer } from './launch.ts';
 import { CodexRegistry, codexRegistryPath } from './registry.ts';
 import { CODEX_PERMISSION_FLAGS } from '@agent-hangar/shared';
-import { codexAppServerConfig, codexPermissionOf, HANGAR_MCP_NAME, instructionValue, MCP_TOKEN_ENV, planCodex, PENDING_PREFIX } from './launcher.ts';
+import { codexAppServerConfig, codexPermissionOf, HANGAR_MCP_NAME, instructionValue, MCP_TOKEN_ENV, loggedOutError, noRolloutError, planCodex, PENDING_PREFIX } from './launcher.ts';
 
 /**
  * Codex の driver の起動の面（計画の B3a、docs/design.md「Codex の起動（ベータ）」）。
  * hangar の会話 1 つに app-server を 1 本起こし、TUI（tmux の中）を `--remote` でそれにつなぐ。
  * 状態の面と許可・質問の面は B4、トランスクリプトの面は B5 が載せる。それまでは空の面を持つ（deps で差し替える）。
- * 再開とフォークは B3b。
+ * 再開（thread/resume）とフォーク（thread/fork）は同じ組み立てで app-server を起こし、既にある会話を開く（B3b）。
  */
 
 export type CodexServeEvent = { type: 'up' | 'thread' | 'down'; sessionId: string; threadId?: string };
@@ -37,6 +38,8 @@ export type CodexServed = {
 export type CodexDriverDeps = {
   /** codex の場所。呼ばれた時点の値を読む。無ければ null。 */
   bin: () => string | null;
+  /** ログイン済みか（`codex login status`）。偽のときだけ、起動の前に断る（null は分からないので断らない）（run.agent.codex.loggedOut）。無ければ確かめない。 */
+  loggedIn?: () => Promise<boolean | null>;
   /** hangar の置き場（~/.agent-hangar）。app-server の記録と token のファイルを置く。 */
   home: string;
   /** TUI へ持ち込まない変数（launch/env.ts の AGENT_RUN_DROPPED_ENV）。 */
@@ -57,6 +60,11 @@ export type CodexDriverDeps = {
   live?: LiveSource & { track?(t: CodexLiveTarget): void; untrack?(providerSessionId: string): void };
   asks?: AskSource;
   transcript?: TranscriptSource;
+  /**
+   * 使用量の面（createCodexUsage）。呼ばれた時点で引く（配線の順で、driver の方が先に組まれるため）。null を返す間は何もしない。
+   * 起動した会話は、スレッドの ID と接続が揃ったとき（trackLive と同じ位置）に track し、止めたら untrack する。
+   */
+  usage?: () => Pick<CodexUsage, 'track' | 'untrack'> | null | undefined;
 };
 
 export type CodexDriver = AgentDriver & {
@@ -66,7 +74,7 @@ export type CodexDriver = AgentDriver & {
   onServe(cb: (e: CodexServeEvent) => void): () => void;
 };
 
-type Served = CodexServed & { server: AppServerProcess; turnId: string | null; offs: (() => void)[]; cancelWatch: (() => void) | null };
+type Served = CodexServed & { server: AppServerProcess; turnId: string | null; offs: (() => void)[]; cancelWatch: (() => void) | null; /** 起こしたときに指定したモデル（使用量の記録用）。 */ model?: string };
 
 /** 上限までに終わらなければ、待つのをやめて true を返す（interrupt が返らなくても止める）。 */
 function withTimeout(p: Promise<boolean>, ms: number): Promise<boolean> {
@@ -98,9 +106,10 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
   function trackLive(s: Served, subscribed: boolean): void {
     if (!s.rpc || !s.threadId) return;
     deps.live?.track?.({ providerSessionId: s.threadId, cwd: s.cwd, pid: s.pid, rpc: s.rpc, subscribed });
+    deps.usage?.()?.track({ providerSessionId: s.threadId, rpc: s.rpc, model: s.model ?? null });
   }
   function untrackLive(s: Served): void {
-    if (s.threadId) deps.live?.untrack?.(s.threadId);
+    if (s.threadId) { deps.live?.untrack?.(s.threadId); deps.usage?.()?.untrack(s.threadId); }
   }
 
   /** hangar の MCP が connected になるまで待つ。failed でも上限を過ぎても知らせるだけで、起動は続ける。 */
@@ -129,9 +138,12 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
   }
 
   async function materialize(mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; lateSessionId?: Promise<string> }> {
-    if (mode.kind !== 'start') throw new Error(`codex cannot ${mode.kind} a session yet`);
+    // ID の無い会話（最初の入力の前）は、app-server を起こす前に断る。
+    if (mode.kind !== 'start' && mode.id.startsWith(PENDING_PREFIX)) throw noRolloutError();
     const bin = deps.bin();
     if (!bin) throw new Error('codex was not found');
+    // ログインしていない codex は、起こしてから落ちる。起こす前に分かる文で断る。
+    if (deps.loggedIn && (await deps.loggedIn()) === false) throw loggedOutError();
     // app-server を起こす前に、指定が通るかを確かめる（通らなければ何も起こさない）。
     const perm = codexPermissionOf(spec.mode);
     const config = codexAppServerConfig(spec, perm);
@@ -148,13 +160,30 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     });
     const s: Served = {
       sessionId: spec.hangarSessionId, cwd: spec.cwd, pid: handle.server.pid, url: handle.server.url, token: handle.server.token,
-      rpc: handle.rpc, threadId: null, server: handle.server, turnId: null, offs: [], cancelWatch: null,
+      rpc: handle.rpc, threadId: null, server: handle.server, turnId: null, offs: [], cancelWatch: null, ...(spec.model?.trim() ? { model: spec.model.trim() } : {}),
     };
     served.set(s.sessionId, s);
     const record = (): void => { registry.set({ sessionId: s.sessionId, pid: s.pid, port: handle.server.port, tokenFile: handle.server.tokenFile, startedAt: handle.server.startedAt, cwd: s.cwd, ...(s.threadId ? { threadId: s.threadId } : {}) }); };
     record();
     emit({ type: 'up', sessionId: s.sessionId });
     try {
+      if (mode.kind !== 'start') {
+        // 既にある会話を開く。hangar の外で作られたものも同じ道である。cwd は、そのプロセスの最初の resume だけ上書きできる（E0）ので、起こしたてのここで渡す。
+        const open = { cwd: spec.cwd, ...(spec.model?.trim() ? { model: spec.model.trim() } : {}), approvalPolicy: flags.approval, sandbox: flags.sandbox };
+        const th = mode.kind === 'resume'
+          ? await handle.rpc.threadResume({ threadId: mode.id, ...open })
+          : await handle.rpc.request<{ thread: { id: string } }>('thread/fork', { threadId: mode.id, ...open });
+        s.threadId = th.thread.id;
+        const m = (th as { model?: unknown }).model;
+        if (typeof m === 'string' && m) s.model = m;
+        watchTurns(s, handle.rpc);
+        record();
+        trackLive(s, true);
+        emit({ type: 'thread', sessionId: s.sessionId, threadId: s.threadId });
+        await waitForMcp(handle.rpc, s.threadId);
+        if (spec.prompt) await handle.rpc.turnStart({ threadId: s.threadId, input: [{ type: 'text', text: spec.prompt, text_elements: [] }], ...(spec.effort?.trim() ? { effort: spec.effort.trim() } : {}) });
+        return { providerSessionId: s.threadId };
+      }
       if (spec.prompt) {
         // 最初の入力の前のスレッドは TUI から resume できない。hangar が最初の入力を流してから、TUI を resume でつなぐ。
         const th = await handle.rpc.threadStart({
@@ -162,6 +191,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
           ...(instructionValue(spec.instructions) !== null ? { developerInstructions: instructionValue(spec.instructions)! } : {}),
         });
         s.threadId = th.thread.id;
+        const m = (th as { model?: unknown }).model;
+        if (typeof m === 'string' && m) s.model = m;
         watchTurns(s, handle.rpc);
         record();
         trackLive(s, true);
@@ -190,6 +221,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
       untrackLive(s);
       emit({ type: 'down', sessionId: s.sessionId });
       await stopServed(s).catch(() => undefined);
+      // rollout が無いスレッドは、実物が -32600「no rollout found」で返す。分かる断りに直す。
+      if (mode.kind !== 'start' && e instanceof Error && /no rollout found/i.test(e.message)) throw noRolloutError();
       throw e;
     }
   }
@@ -218,7 +251,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     emit({ type: 'up', sessionId: target.sessionId });
     // 引き継いだ app-server は接続を持たないので、状態の面のために、ここでつなぎ直す（失敗しても引き継ぎは続ける）。
     // thread/start した接続ではないので、購読は状態の面が最初の active で行う。ID が分からない会話（TUI がまだつないでいなかった）は載せない。
-    if (deps.live?.track && threadId) {
+    if ((deps.live?.track || deps.usage) && threadId) {
       void CodexRpc.connect({ url, token, requestTimeoutMs: deps.requestTimeoutMs ?? 3000, connectTimeoutMs: 2000 }).then((rpc) => {
         if (served.get(s.sessionId) !== s || s.rpc) { rpc.close(); return; }
         s.rpc = rpc;
@@ -285,8 +318,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
 
   return {
     kind: 'codex',
-    // アカウントは効かせない（決定 9）。推論と権限の 3 段は持つ。フォークと外の会話の引き取りは B3b 以降。
-    caps: { accounts: false, effort: true, permissionMode: true, remoteControl: false, fork: false, attachExternal: false, promptJump: false },
+    // アカウントは効かせない（決定 9）。推論と権限の 3 段は持つ。フォークは driver が thread/fork まで持ち、RunManager.fork の materialize の道（B3c）で受ける。外の会話の引き取りは E 段。
+    caps: { accounts: false, effort: true, permissionMode: true, remoteControl: false, fork: true, attachExternal: false, promptJump: false },
     launch: {
       // TUI は hangar が起こした app-server につなぐ。run の pid は TUI の包みで、RunManager は包みの生死で TUI の終わりを見る。
       servedByHangar: true,

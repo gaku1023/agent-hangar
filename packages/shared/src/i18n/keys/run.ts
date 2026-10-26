@@ -23,6 +23,8 @@ export const runKeys = {
   'run.agent.codex.optionUnsupported': ['option'],
   'run.agent.codex.actionUnsupported': [],
   'run.agent.codex.launchFailed': ['reason'],
+  'run.agent.codex.noRollout': [],
+  'run.agent.codex.loggedOut': [],
   'run.tab.notFound': [],
   'run.tab.shell': [],
   'run.tab.shellFailed': ['reason'],

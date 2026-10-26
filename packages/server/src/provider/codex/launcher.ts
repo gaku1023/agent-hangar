@@ -1,4 +1,5 @@
 import { CODEX_PERMISSION_FLAGS, DEFAULT_CODEX_PERMISSION, isCodexPermission, type CodexPermission } from '@agent-hangar/shared';
+import { MessageError, msg } from '../../i18n/message.ts';
 import type { InjectionEntry, LaunchPlan, LaunchSpec, SessionMode } from '../../agent/types.ts';
 
 /**
@@ -22,6 +23,16 @@ export class CodexLaunchError extends Error {
     super(message);
     this.name = 'CodexLaunchError';
   }
+}
+
+/** 最初の入力の前のスレッド（rollout が無い）は、再開もフォークもできない（findings 3 節）。画面には辞書の文を出す。 */
+export function noRolloutError(): MessageError {
+  return new MessageError(msg('run.agent.codex.noRollout'));
+}
+
+/** ログインしていない codex は起動を断る。画面には辞書の文を出す（利用者が打つ手は codex login）。 */
+export function loggedOutError(): MessageError {
+  return new MessageError(msg('run.agent.codex.loggedOut'));
 }
 
 /** TOML の基本文字列（JSON の文字列の記法で足りる）。 */
@@ -75,13 +86,15 @@ export function codexAppServerConfig(spec: LaunchSpec, perm: CodexPermission): s
  * 起こすものへは CLAUDE 系と HANGAR_* を持ち込まない。アカウントの置き場（CLAUDE_CONFIG_DIR）と CODEX_HOME も効かせない（決定 9）。
  */
 export function planCodex(bin: string, mode: SessionMode, spec: LaunchSpec, remote: { args: string[]; env: Record<string, string> }, droppedEnv: readonly string[]): LaunchPlan {
-  if (mode.kind !== 'start') throw new Error(`codex cannot ${mode.kind} a session yet`);
+  // フォークは、呼び手が materialize（thread/fork）で作ったスレッドの ID を newId に入れて渡す。TUI は新しいスレッドを resume でつなぐ。
+  const threadId = mode.kind === 'fork' ? mode.newId : mode.id;
+  if (mode.kind !== 'start' && threadId.startsWith(PENDING_PREFIX)) throw noRolloutError();
   const flags = CODEX_PERMISSION_FLAGS[codexPermissionOf(spec.mode)];
   const argv = [bin, ...remote.args];
   if (spec.model?.trim()) argv.push('-m', spec.model.trim());
   const effort = codexEffortOf(spec.effort);
   if (effort) argv.push('-c', `model_reasoning_effort=${toml(effort)}`);
   argv.push('-s', flags.sandbox, '-a', flags.approval);
-  if (!mode.id.startsWith(PENDING_PREFIX)) argv.push('resume', mode.id);
+  if (!threadId.startsWith(PENDING_PREFIX)) argv.push('resume', threadId);
   return { argv, env: {}, secretEnv: { ...remote.env }, unset: [...new Set([...droppedEnv, 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'])] };
 }

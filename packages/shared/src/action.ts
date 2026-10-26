@@ -78,6 +78,8 @@ export type UiAction =
   // 新しいセッションで opencode（ベータ）を選んだときの、モードとモデルの一覧（GET /api/opencode/options）。dir はその場所（opencode.json の重なりが場所で変わる）で、null はホーム。
   // 答えは Store の opencodeOptions に入る。最後に頼んだ 1 件だけを持つ。refresh は手元の一覧を使わずに取り直す（モデルの小窓の LM Studio の「再読み込み」）。
   | { type: 'opencode.options'; dir: string | null; refresh?: boolean }
+  // 新しいセッションで Codex（ベータ）を選んだときの、モデルと推論の段階の一覧（GET /api/codex/options）。答えは Store の codexOptions に入る。refresh は手元の一覧を使わずに取り直す。
+  | { type: 'codex.options'; refresh?: boolean }
   // 設定の「連携 › opencode › プロバイダー」（ベータ）。どれも答えは Store の opencodeProviders に入る。
   // key は API キーで接続する（変更も同じ）。API キーは opencode の integration に渡すだけで、Store にも残さない。
   // custom は OpenAI 互換のサーバー（opencode.json に書く）、model はモデル ID の追加、login はログインを始め、poll で進みを聞き、code でコードを送り、cancel で取り消す。
@@ -262,6 +264,8 @@ export type UiAction =
   // short は、起動した後にローカルのモデルのコンテキストが足りなかった右下の札。fix は prepKey を添えて整え直しを頼み、dismiss は札を下げる。
   | { type: 'launchPrep.cancel'; key: string }
   | { type: 'launchPrep.short.fix'; sessionId: string; prepKey: string } | { type: 'launchPrep.short.dismiss'; sessionId: string }
+  // missing は、起動した後にこの PC のサーバーに無いモデルで断られた右下の札。retry はその会話のプロジェクトで、モデルの小窓を開いた新しいセッションのダイアログを開き、dismiss は札を下げる。
+  | { type: 'launchPrep.missing.retry'; sessionId: string; projectId: string | null } | { type: 'launchPrep.missing.dismiss'; sessionId: string }
   // アプリの自動更新（段 5-4）。check は手動の確認、download は取得してインストールの準備、install は再起動して入れる。
   // dismiss は右下の札を閉じ、その版の札を 2 度出さない。notify は新しい版を知らせるか（切ると自動の確認もしない）。
   | { type: 'update.check' } | { type: 'update.download' } | { type: 'update.install' } | { type: 'update.dismiss' }

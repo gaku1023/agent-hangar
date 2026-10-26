@@ -904,6 +904,15 @@ describe('presentNewSession', () => {
     const loaded = { ...on, opencodeOptions: { dir: '/w/alpha', status: 'ready' as const, data: OC_OPTIONS } };
     expect(presentNewSession(state, loaded, NOW)!.opencode).toEqual({ options: loaded.opencodeOptions });
   });
+  it('Codex は設定で有効にしたときだけ渡し、選択肢の読み込みを添える。切なら null（見た目は今のまま）', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    expect(presentNewSession(state, storeWith(), NOW)!.codex).toBeNull();
+    expect(presentNewSession(state, { ...storeWith(), settings: fullSettings({ codexEnabled: false }) }, NOW)!.codex).toBeNull();
+    const on = { ...storeWith(), settings: fullSettings({ codexEnabled: true }) };
+    expect(presentNewSession(state, on, NOW)!.codex).toEqual({ options: null });
+    const loaded = { ...on, codexOptions: { status: 'ready' as const, data: { version: '0.164.0', verified: true, models: [], fetchedAt: 1 } } };
+    expect(presentNewSession(state, loaded, NOW)!.codex).toEqual({ options: loaded.codexOptions });
+  });
   it('ステータスと最後に使った時期を添え、最近は最後に使った順の上位 5 件', () => {
     const store = storeWith();
     for (const [id, ago] of [['p1', 1], ['p2', 5], ['p3', 3], ['p4', 9], ['p5', 2], ['p6', 7], ['p7', null]] as const) {
@@ -1217,6 +1226,36 @@ describe('presentShell のアカウント', () => {
     const p = presentShell(at({ name: 'session', id: 'o2' }), store, NOW);
     expect(p.account?.shown.id).toBe('a1');
     expect(p.account?.sessionId).toBeNull();
+  });
+});
+
+describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
+  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture });
+  const at = (screen: State['screen']): State => ({ ...initialState(), screen });
+  const CODEX = { fiveHour: { usedPercent: 12, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 31, resetsAt: SEVEN_RESETS }, updatedAt: 500, plan: 'plus' };
+  const withCodex = (value: typeof CODEX | null): Store => {
+    const store: Store = { ...two(), accounts: { ...accountsFixture, currentId: 'a1', ...(value ? { agents: { codex: value } } : {}) } };
+    store.sessions = { ...store.sessions, c1: session('c1', { provider: 'codex', live: 'busy' }), k1: session('k1', { live: 'busy' }) };
+    return store;
+  };
+  it('Codex の会話では Codex の枠を出し、頭の札は Codex。アカウントの切り替えは、いまのアカウントのまま', () => {
+    const p = presentShell(at({ name: 'session', id: 'c1' }), withCodex(CODEX), NOW);
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 31, agent: { key: 'codex', label: 'Codex' } });
+    expect(p.usage.fiveHourLimit).toBeUndefined();
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.account?.sessionId).toBeNull();
+  });
+  it('Claude の会話とホームでは Claude の枠を出し、Codex の枠があるときだけ頭の札 Claude を添える', () => {
+    const store = withCodex(CODEX);
+    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage).toMatchObject({ fiveHour: 82, sevenDay: 41, agent: { key: 'claude', label: 'Claude' } });
+    expect(presentShell(initialState(), store, NOW).usage).toMatchObject({ agent: { key: 'claude', label: 'Claude' } });
+  });
+  it('Codex の枠が無い（値が未着、切）ときは、Codex の会話でも Claude の枠のまま、札も出さない', () => {
+    const store = withCodex(null);
+    const p = presentShell(at({ name: 'session', id: 'c1' }), store, NOW);
+    expect(p.usage.agent).toBeUndefined();
+    expect(p.usage).toEqual(presentShell(initialState(), store, NOW).usage);
+    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage.agent).toBeUndefined();
   });
 });
 
@@ -1907,6 +1946,15 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(presentToasts({ ...base, overlay: { kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } } }, store, NOW).blocked).toBe(true);
     expect(presentToasts({ ...base, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store, NOW).blocked).toBe(true);
   });
+  it('起動後にモデルが見つからなかった札は、会話のモデルを provider/model で、接続先を表示名で出す（小窓の一覧がまだ無くても）', () => {
+    const store = storeWith();
+    store.sessions.oc = session('oc', { provider: 'opencode', projectId: 'alpha', stats: { ...session('oc').stats, model: 'lmstudio/qwen3.6-35b-a3b' } });
+    const p = presentToasts({ ...initialState(), modelMissings: [{ sessionId: 'oc', model: 'qwen3.6-35b-a3b' }] }, store, NOW);
+    expect(p.modelMissings).toEqual([{ sessionId: 'oc', model: 'lmstudio/qwen3.6-35b-a3b', name: 'LM Studio', projectId: 'alpha' }]);
+    // 会話のモデルが文の名前と合わなければ、文の名前のまま出す。
+    const other = presentToasts({ ...initialState(), modelMissings: [{ sessionId: 'oc', model: 'gemma' }] }, store, NOW);
+    expect(other.modelMissings![0]).toMatchObject({ model: 'gemma', name: 'opencode' });
+  });
   it('info と error のトーストはそのまま渡す', () => {
     const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
@@ -1915,7 +1963,7 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と未検証の opencode の版の札と参加リクエストの通知とスマホの「元に戻す」以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'codexVersion', 'contextShorts', 'join', 'more', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'codexVersion', 'contextShorts', 'join', 'modelMissings', 'more', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
     expect(p.opencodeVersion).toBeNull();
     expect(p.phoneUndo).toBeNull();
     expect(p.phoneLaunches).toEqual([]);

@@ -1,6 +1,7 @@
 import type { OpencodeModelOption, OpencodeModeOption, OpencodeOptionsDto, OpencodeProviderOption, OpencodeProviderWhere, OpencodeStatusDto } from '@agent-hangar/shared';
 import type { CatalogModel } from './catalog.ts';
 import { OpencodeApiError, OpencodeClient, type OpencodeAgentInfo, type OpencodeModelInfo, type OpencodeProviderInfo, type OpencodeSlashInfo } from './client.ts';
+import type { LocalModelListing } from './localModels/available.ts';
 import type { ServeInfo } from './serve/manager.ts';
 
 /**
@@ -20,8 +21,9 @@ const DESCRIPTION_MAX = 120;
 /**
  * serve から読んだ素の一覧。
  * commands と skills はスマホの `/` の候補（F2）に使う。道の無い版や読めなかったときは空で、省いても空と同じ。
+ * baseURLs はプロバイダーの ID ごとの baseURL（`/api/provider` の行か、設定の層）。この PC のモデルの有無を聞くのに使う。省けば聞かない。
  */
-export type OpencodeOptionsRaw = { agents: OpencodeAgentInfo[]; models: OpencodeModelInfo[]; providers: OpencodeProviderInfo[]; defaultModel: string | null; commands?: OpencodeSlashInfo[]; skills?: OpencodeSlashInfo[] };
+export type OpencodeOptionsRaw = { agents: OpencodeAgentInfo[]; models: OpencodeModelInfo[]; providers: OpencodeProviderInfo[]; defaultModel: string | null; commands?: OpencodeSlashInfo[]; skills?: OpencodeSlashInfo[]; baseURLs?: Record<string, string> };
 
 /** スマホの `/` の候補の 1 行。kind は opencode のスラッシュコマンドか、スキルか。 */
 export type OpencodeSlashCommand = { name: string; description: string; kind: 'command' | 'skill' };
@@ -46,6 +48,8 @@ export type OpencodeOptionsDeps = {
    * 一覧を取るたびに refresh を頼むが、待たない（取れた分は次の一覧から使う）。省けば埋めない。
    */
   catalog?: { refresh(): Promise<boolean>; current(): { fetchedAt: number } | null; lookup(provider: string, model: string): CatalogModel | null };
+  /** この PC のローカルのサーバー（LM Studio など）にあるモデルを聞く口（localModels/available.ts）。無いモデルに missing を立てる。省けば立てない。 */
+  listing?: LocalModelListing;
 };
 
 type Cached = { dto: OpencodeOptionsDto; at: number; commands: OpencodeSlashCommand[] };
@@ -66,7 +70,7 @@ export class OpencodeOptionsService {
     const directory = dir || this.deps.home;
     const hit = this.cache.get(directory);
     if (hit && !o.refresh && this.now() - hit.at < this.freshMs()) return hit.dto;
-    const run = this.chain.then(() => this.fetch(directory));
+    const run = this.chain.then(() => this.fetch(directory, o.refresh === true));
     this.chain = run.catch(() => undefined);
     try {
       return await run;
@@ -122,13 +126,14 @@ export class OpencodeOptionsService {
     return this.deps.catalog?.lookup(model.slice(0, slash), model.slice(slash + 1))?.context ?? null;
   }
 
-  private async fetch(directory: string): Promise<OpencodeOptionsDto> {
+  private async fetch(directory: string, fresh: boolean): Promise<OpencodeOptionsDto> {
     const raw = await this.withServe(directory, (serve) => this.readWithRetry(serve, directory));
     const status = await this.deps.status().catch(() => ({ found: true, version: null, verified: false }));
     const at = this.now();
     const catalog = this.deps.catalog;
     void catalog?.refresh().catch(() => false);
     const options = optionsOf(raw, catalog ? (p, m) => catalog.lookup(p, m) : undefined);
+    if (this.deps.listing) options.models = await markMissing(this.deps.listing, options.models, raw.baseURLs ?? {}, fresh);
     const dto: OpencodeOptionsDto = { version: status.version, verified: status.verified, ...options, pricesAt: catalog?.current()?.fetchedAt ?? null, fetchedAt: at, stale: false };
     const commands: OpencodeSlashCommand[] = [
       ...(raw.commands ?? []).map((c) => ({ ...c, kind: 'command' as const })),
@@ -171,17 +176,37 @@ export class OpencodeOptionsService {
   }
 }
 
+/**
+ * この PC のローカルのサーバーに無いモデルに missing を立てる。opencode.json のモデルは PC の間で共有されるので、ほかの PC にだけあるモデルも一覧に出る。
+ * 聞くのはこの PC の宛先だけで、つながらないか確かめられなければ立てない（起動の口が断る）。
+ */
+async function markMissing(listing: LocalModelListing, models: OpencodeModelOption[], baseURLs: Record<string, string>, fresh: boolean): Promise<OpencodeModelOption[]> {
+  const ids = [...new Set(models.map((m) => m.provider))];
+  const have = new Map(await Promise.all(ids.map(async (id) => {
+    const r = await listing.list(baseURLs[id] ?? null, { fresh });
+    return [id, r.kind === 'listed' ? new Set(r.models) : null] as const;
+  })));
+  return models.map((m) => {
+    const set = have.get(m.provider);
+    return set && !set.has(m.id.slice(m.provider.length + 1)) ? { ...m, missing: true } : m;
+  });
+}
+
 /** serve から一覧を読む。設定を先に読むのは、その場所の読み込みを始めさせるため（2.1.4 は場所ごとの最初の問いに空の一覧を返すことがある）。 */
 export async function readOptions(client: OpencodeClient, directory: string): Promise<OpencodeOptionsRaw> {
   const defaultModel = await client.configuredModel(directory);
-  const [agents, models, providers, commands, skills] = await Promise.all([
+  const [agents, models, providers, commands, skills, rows, configured] = await Promise.all([
     client.agents(directory),
     client.models(directory),
     client.providers(directory),
     slashOrEmpty(client.commands(directory)),
     slashOrEmpty(client.skills(directory)),
+    client.providerRows(directory).catch(() => []),
+    client.configuredBaseURLs(directory).catch(() => new Map<string, string>()),
   ]);
-  return { agents, models, providers, defaultModel, commands, skills };
+  // 行の baseURL を先に使い、無ければ設定の層の baseURL を使う（launch.ts の providerURLs と同じ順）。
+  const baseURLs = Object.fromEntries([...configured, ...rows.flatMap((r) => (r.baseURL ? [[r.id, r.baseURL] as const] : []))]);
+  return { agents, models, providers, defaultModel, commands, skills, baseURLs };
 }
 
 /** スラッシュコマンドとスキルは候補の飾りなので、道の無い版（404）や読めないときは空にして、一覧そのものは取る。 */

@@ -121,6 +121,16 @@ describe('presentModelPicker', () => {
     expect(rows.filter((r) => r.disabled).map((r) => r.id)).toEqual(['lmstudio/laguna-xs']);
   });
 
+  it('この PC に無いモデルは、選べない行にして「未ダウンロード」と説明を添える', () => {
+    const models = MODELS.map((x) => (x.id === 'lmstudio/qwen3.6-35b-a3b' ? { ...x, missing: true } : x));
+    const rows = presentModelPicker(ja, input({ models })).groups.flatMap((g) => g.rows);
+    const off = rows.find((r) => r.id === 'lmstudio/qwen3.6-35b-a3b')!;
+    expect(off.disabled).toBe(true);
+    expect(off.note).toBe('この PC にダウンロードされていないため、使えません');
+    expect(off.tags).toContainEqual({ label: '未ダウンロード', tone: 'muted' });
+    expect(rows.filter((r) => r.disabled).map((r) => r.id).sort()).toEqual(['lmstudio/laguna-xs', 'lmstudio/qwen3.6-35b-a3b']);
+  });
+
   it('LM Studio のまとまりにだけ再読み込みを置く', () => {
     expect(presentModelPicker(ja, input()).groups.filter((g) => g.reload).map((g) => g.key)).toEqual(['lmstudio']);
   });

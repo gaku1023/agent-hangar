@@ -22,7 +22,9 @@ const log = (s: string): void => { console.log(`+${String(Date.now() - t0).padSt
 
 type Slot = { p: pty.IPty; ready: Promise<void>; exited: Promise<void>; done: boolean };
 
-const timeout = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref(); });
+// unref した timer で待つと、閉じた pty のほかに待つものが無いとき、top-level await を残したままプロセスが終わる（終了コード 13）。
+// 残った timer は最後の process.exit で捨てるので、ref のままにする。
+const timeout = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 
 const open = (): Slot => {
   const p = pty.spawn(process.env.ComSpec ?? 'cmd.exe', [], { name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(), env: process.env });

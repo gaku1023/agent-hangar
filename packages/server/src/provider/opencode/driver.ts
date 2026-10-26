@@ -20,7 +20,7 @@ export type OpencodeDriverDeps = {
   droppedEnv: readonly string[];
   enrich?: (live: LiveSessionDto[]) => LiveSessionDto[];
   report?: (what: 'instructions' | 'mcp' | 'stop', e: unknown) => void;
-} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep' | 'providerPreps'> & {
+} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep' | 'providerPreps' | 'localListing'> & {
   /** 起動前にローカルのモデルを整える口（localModels/prepare.ts）。無ければ整えない。動いている会話かどうかは serve の有無で見る。 */
   localModels?: Omit<LocalModelsDeps, 'isRunning'>;
 };
@@ -33,6 +33,8 @@ export type OpencodeDriver = AgentDriver & {
   events: (cb: OpencodeEventListener) => () => void;
   /** モデルの長さが足りずに断られた失敗を、hangar の会話の ID で受ける（live.ts の onContextShort）。起動後の札に使う。 */
   contextShort: (cb: (hangarSessionId: string) => void) => () => void;
+  /** この PC のサーバーに無いモデルで断られた失敗を、hangar の会話の ID と文から取れたモデルの名前（無ければ null）で受ける（live.ts の onModelMissing）。起動後の札に使う。 */
+  modelMissing: (cb: (hangarSessionId: string, model: string | null) => void) => () => void;
 };
 
 /** serve の管理がまだ組まれていない。 */
@@ -74,7 +76,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
       async materialize(mode, spec) {
         const s = serves();
         const localModels = deps.localModels ? { ...deps.localModels, isRunning: (id: string) => s.get(id) !== null } : undefined;
-        const r = await materializeOpencode({ serves: s, report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep, localModels, providerPreps: deps.providerPreps }, mode, spec);
+        const r = await materializeOpencode({ serves: s, report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep, localModels, providerPreps: deps.providerPreps, localListing: deps.localListing }, mode, spec);
         hangarIdOf.set(r.providerSessionId, spec.hangarSessionId);
         live.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
@@ -131,6 +133,10 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
     contextShort: (cb) => live.onContextShort((providerSessionId) => {
       const id = hangarIdOf.get(providerSessionId);
       if (id) cb(id);
+    }),
+    modelMissing: (cb) => live.onModelMissing((providerSessionId, model) => {
+      const id = hangarIdOf.get(providerSessionId);
+      if (id) cb(id, model);
     }),
     // 許可と質問は serve の出来事の流れから流す（subscribe）。hook は使わないので parseHook を持たない（hook の受け口は何も読まずに 204 を返す）。
     asks: opencodeAsks(live),

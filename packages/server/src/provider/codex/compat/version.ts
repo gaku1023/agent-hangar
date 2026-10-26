@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { CODEX_VERIFIED_RANGE, type CodexStatusDto } from '@agent-hangar/shared';
+import { MessageError } from '../../../i18n/message.ts';
 import { captureOutput } from '../../../platform/capture.ts';
 import { needsShell } from '../../../platform/exec.ts';
 import { codexBaseEnv } from '../env.ts';
@@ -42,7 +43,7 @@ export type LocalCodexDeps = {
  * 手元の codex を読む係。版は `--version` を空の環境で 1 回だけ打って読む。
  * 同じファイル（パス、更新時刻、大きさ）なら打ち直さない。同時に聞かれても 1 回にまとめる。
  * 読めなかった答えも覚える。時間切れと起動の失敗だけは覚えず、次に聞かれたら打ち直す。
- * ログインの有無は `codex login status` の終了コード（0 ならログイン済み）で、ログインや logout で変わるので、聞かれるたびに打つ。
+ * ログインの有無は `codex login status` の終了コード（0 ならログイン済み、0 以外は未ログイン、時間切れは null＝分からない）で、ログインや logout で変わるので、聞かれるたびに打つ。
  */
 export class LocalCodex {
   private readonly cache = new Map<string, Promise<string | null>>();
@@ -62,8 +63,9 @@ export class LocalCodex {
     return captureOutput(bin, args, { timeoutMs: this.deps.timeoutMs ?? 5000, env: codexBaseEnv(bin, this.deps.env), stderr: true, shell: needsShell(bin) });
   }
 
-  private loggedIn(bin: string): Promise<boolean> {
-    return this.run(bin, ['login', 'status']).then((r) => r.code === 0, () => false);
+  /** 終了コード 0 ならログイン済み、0 以外なら未ログイン。時間切れは分からない（null）。起こせなかったときは偽（起動はそのあと自分で失敗する）。 */
+  private loggedIn(bin: string): Promise<boolean | null> {
+    return this.run(bin, ['login', 'status']).then((r) => r.code === 0, (e: unknown) => (e instanceof MessageError && e.text?.key === 'platform.capture.timeout' ? null : false));
   }
 
   private version(bin: string, key: string): Promise<string | null> {

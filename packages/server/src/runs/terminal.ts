@@ -1,7 +1,9 @@
 import path from 'node:path';
 import type { AgentKind } from '../agent/types.ts';
+import { CODEX_PERMISSION_FLAGS, CODEX_PERMISSIONS, type CodexPermission } from '@agent-hangar/shared';
 import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
 import { BUILTIN_OPENCODE_SUBCOMMANDS, BUILTIN_OPENCODE_VALUE_FLAGS, OPENCODE_INTERCEPT_FLAGS } from '../provider/opencode/compat/cli.ts';
+import { BUILTIN_CODEX_SUBCOMMANDS, CODEX_INTERCEPT_FLAGS, CODEX_SESSION_ID } from '../provider/codex/compat/cli.ts';
 import { RunError } from './errors.ts';
 import { msg } from '../i18n/message.ts';
 
@@ -34,13 +36,14 @@ export function decodeTerminalRequest(body: unknown): TerminalRequest | null {
 }
 
 /**
- * どのエージェントの起動か。包み方は opencode のときだけ本文に agent を足す。
+ * どのエージェントの起動か。包み方は opencode と codex のときだけ本文に agent を足す。
  * agent の無い本文（claude の包み、古い包み方）は Claude Code にする。知らない値は null（400 で断る）。
  */
 export function terminalAgentOf(body: unknown): AgentKind | null {
   const a = body && typeof body === 'object' ? (body as Record<string, unknown>).agent : undefined;
   if (a === undefined || a === 'claude' || a === 'claude-code') return 'claude-code';
   if (a === 'opencode') return 'opencode';
+  if (a === 'codex') return 'codex';
   return null;
 }
 
@@ -84,6 +87,64 @@ export function splitOpencodeTerminalArgs(args: string[]): OpencodeTerminalArgs 
     out.dir = a;
   }
   if (out.session !== null && !OPENCODE_SESSION_ID.test(out.session)) throw new RunError(404, msg('run.terminal.notInHangar'));
+  return out;
+}
+
+/** 外のターミナルの codex の引数のうち、hangar の起動に写すもの。 */
+export type CodexTerminalArgs = { resume: string | null; prompt: string | null; model: string | null; effort: string | null; permission: CodexPermission | null };
+
+const SANDBOXES = ['read-only', 'workspace-write', 'danger-full-access'];
+const APPROVALS = ['on-request', 'never'];
+
+/**
+ * 外のターミナルの codex の引数を読む。許可リスト方式で、包み方（config/shellHook.ts の codex()）と同じ一覧を使う。
+ * 写せるのは、プロンプト 1 つ、-m と --model、-c model_reasoning_effort=…、-s と -a（権限の 3 段へ）、resume <ID> だけである。
+ * -s と -a は、hangar の 3 段（read-only、auto、full-access）のどれかに当たる組だけを受ける。省いた側は codex の既定（workspace-write と on-request）とみる。
+ * ほかのフラグ、サブコマンド、写せない -c、2 つ目の位置引数、値の無いフラグ、ID の形でない resume は 400 で断り、包み方は素の codex を起動する。
+ * 包み方が先に素通しにしているので、ここに届くのは古い包み方か、包み方を通さない頼みだけである。
+ */
+export function splitCodexTerminalArgs(args: string[]): CodexTerminalArgs {
+  const out: CodexTerminalArgs = { resume: null, prompt: null, model: null, effort: null, permission: null };
+  const refuse = (what: string): never => { throw new RunError(400, msg('run.terminal.flagRefused', { flag: what })); };
+  let sandbox: string | null = null;
+  let approval: string | null = null;
+  const positional: string[] = [];
+  const put = (flag: string, v: string) => {
+    if (flag === '-m' || flag === '--model') out.model = v;
+    else if (flag === '-s' || flag === '--sandbox') { if (!SANDBOXES.includes(v)) refuse(`${flag} ${v}`); sandbox = v; }
+    else if (flag === '-a' || flag === '--ask-for-approval') { if (!APPROVALS.includes(v)) refuse(`${flag} ${v}`); approval = v; }
+    else {
+      // -c は model_reasoning_effort だけを写す。値は TOML なので、引用符で囲まれていれば外す。
+      const m = /^model_reasoning_effort=(.*)$/s.exec(v);
+      if (!m) return refuse(`${flag} ${v.split('=')[0] ?? ''}`);
+      out.effort = m[1]!.replace(/^(["'])(.*)\1$/s, '$2');
+    }
+  };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a.startsWith('-')) {
+      const eq = a.startsWith('--') ? a.indexOf('=') : -1;
+      const flag = eq > 0 ? a.slice(0, eq) : a;
+      if (!CODEX_INTERCEPT_FLAGS.includes(flag)) refuse(flag);
+      const v = eq > 0 ? a.slice(eq + 1) : args[++i];
+      if (v === undefined) refuse(flag);
+      put(flag, v!);
+      continue;
+    }
+    positional.push(a);
+  }
+  if (positional[0] === 'resume') {
+    if (positional.length !== 2 || !CODEX_SESSION_ID.test(positional[1]!)) refuse('resume');
+    out.resume = positional[1]!;
+  } else if (positional.length > 1 || (positional[0] !== undefined && BUILTIN_CODEX_SUBCOMMANDS.includes(positional[0]))) refuse(positional[0]!);
+  else if (positional.length === 1) out.prompt = positional[0]!;
+  if (sandbox !== null || approval !== null) {
+    const s = sandbox ?? 'workspace-write';
+    const ap = approval ?? 'on-request';
+    const hit = CODEX_PERMISSIONS.find((p) => CODEX_PERMISSION_FLAGS[p].sandbox === s && CODEX_PERMISSION_FLAGS[p].approval === ap);
+    if (!hit) refuse('-s/-a');
+    out.permission = hit!;
+  }
   return out;
 }
 

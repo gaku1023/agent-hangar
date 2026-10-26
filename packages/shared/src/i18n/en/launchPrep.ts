@@ -39,6 +39,9 @@ export const launchPrepEn: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.short.fix': 'Reload and Resume',
   'launchPrep.short.close': 'Close',
   'launchPrep.short.done': 'Model reloaded. Send your message again to continue.',
+  'launchPrep.missing.title': 'Model not found',
+  'launchPrep.missing.body': '{model} isn’t in {name}, so the conversation couldn’t start.',
+  'launchPrep.missing.retry': 'Try with another model',
   'launchPrep.settings.hint': 'Hangar reloads LM Studio models with this context length before a session starts. It only unloads models loaded by Hangar.',
   'launchPrep.settings.option': '{n}K',
   'launchPrep.settings.recommended': '{n}K (Recommended)',
@@ -46,4 +49,7 @@ export const launchPrepEn: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.cancelled': 'Preparation cancelled.',
   'launchPrep.error.notRunning': 'This session is not running.',
   'launchPrep.error.notFound': 'No preparation in progress.',
+  'launchPrep.error.modelMissing': '{model} is not on this PC. Available: {available}',
+  'launchPrep.error.modelMissingNone': '{model} is not on this PC. No models found in {name}.',
+  'launchPrep.error.serverDown': 'Can\'t connect to {name} ({url}). Start {name} and try again.',
 };

@@ -108,7 +108,7 @@ export type RunsParts = {
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'bindCodexUsage' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
   listening: { host: string; port: number },
   o: { serverDir: string; launcher?: string },
 ): RunsParts {
@@ -125,7 +125,9 @@ export function bootRuns(
   const bundledHangar = bundledHangarIn(o.serverDir);
   const shell = createShellWrap({ home: home.home, host: listening.host, port: listening.port, tmuxPath: () => settings.current.tmuxPath, subcommands: () => localClaude.subcommands, bundledHangar,
     // opencode の包みは組み込みの一覧で書く（opencode --help はまだ読まない）。知らないサブコマンドはディレクトリでない位置引数として素通しになる。
-    opencode: () => (AGENT_ENTRY.opencode.enabled(settings.current) && AGENT_ENTRY.opencode.intercept(settings.current) ? {} : null) });
+    opencode: () => (AGENT_ENTRY.opencode.enabled(settings.current) && AGENT_ENTRY.opencode.intercept(settings.current) ? {} : null),
+    // codex の包みも組み込みの一覧で書く。知らないサブコマンドは 2 つ目のプロンプトか、hangar が断って素通しになる。
+    codex: () => (AGENT_ENTRY.codex.enabled(settings.current) && AGENT_ENTRY.codex.intercept(settings.current) ? {} : null) });
   // 起動のたびと claude のパスを変えたときに、claude --help と --version を裏で読み直す。
   shell.write();
   void localClaude.refreshSubcommands();
@@ -206,6 +208,8 @@ export function bootRuns(
       if (s) touchRow(db, 'sessions', s.id);
     },
   });
+  // 起こした Codex の会話の接続から、枠と文脈を読ませる（driver が track と untrack を呼ぶ）。
+  delivery.bindCodexUsage(codexUsage);
   const accounts: AccountsDeps = {
     db, store: accountStore, auth: accountAuth, usage, agentUsage, runs, primaryDir: claudeDir, deviceId: device.id,
     broadcast: (dto) => hub.broadcast({ type: 'accounts.update', accounts: dto }),

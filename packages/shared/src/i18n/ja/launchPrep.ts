@@ -39,6 +39,9 @@ export const launchPrepJa: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.short.fix': '再ロードして再開',
   'launchPrep.short.close': '閉じる',
   'launchPrep.short.done': 'モデルを再ロードしました。もう一度メッセージを送信してください。',
+  'launchPrep.missing.title': 'モデルが見つかりません',
+  'launchPrep.missing.body': '{name} に {model} がないため、会話を開始できませんでした。',
+  'launchPrep.missing.retry': '別のモデルでやり直す',
   'launchPrep.settings.hint': '会話の開始時に、LM Studio のモデルを指定したコンテキスト長で再ロードします。自動でアンロードされるのは Hangar がロードしたモデルのみです。',
   'launchPrep.settings.option': '{n}K',
   'launchPrep.settings.recommended': '{n}K（推奨）',
@@ -46,4 +49,7 @@ export const launchPrepJa: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.cancelled': '準備を中止しました。',
   'launchPrep.error.notRunning': 'このセッションは実行中ではありません。',
   'launchPrep.error.notFound': '進行中の準備はありません。',
+  'launchPrep.error.modelMissing': '{model} はこの PC にありません。使えるのは: {available}',
+  'launchPrep.error.modelMissingNone': '{model} はこの PC にありません。{name} にモデルがありません。',
+  'launchPrep.error.serverDown': '{name}（{url}）に接続できません。{name} を起動して再試行してください。',
 };

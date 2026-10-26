@@ -1,7 +1,7 @@
 import { asideOf } from '../lib/aside.ts';
 import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
-import { type AgentIconKind, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
+import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import { paneLeaves } from '../mediator/panes.ts';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, currentAccount, liveSessionIds, shownReason, waitingSessionIds, type Store } from '../store/store.ts';
@@ -24,7 +24,9 @@ export type NavItem = { route: Route; label: string; current: boolean; count: nu
  * fiveHourLimit と sevenDayLimit は、その枠の使用制限でセッションが止まっているときのリセットの時刻の文（試作 stop-reason-proto の H2）。
  * 止まっていなければ持たない。ゲージは砂時計の色にして、% の代わりにこの時刻を出す。
  */
-export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null; fiveHourLimit?: string; sevenDayLimit?: string };
+export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null; fiveHourLimit?: string; sevenDayLimit?: string;
+  /** 頭の札。Codex の枠が届いているときだけ付く（Claude の枠でも Claude と言う）。無ければ札を出さず、見た目は今のまま。 */
+  agent?: { key: 'claude' | 'codex'; label: string } };
 /**
  * ヘッダのアカウントの切り替え。アカウントが 1 件以下なら null で、ヘッダは今までのまま。
  * shown は計器を出すアカウントで、セッション画面ではそのセッションのアカウント、ほかではいまのアカウントである。
@@ -239,6 +241,12 @@ function limitTimes(t: Translate, list: SessionDto[], now: number): Pick<UsagePr
 
 const gaugePercent = (g: AccountGauge | null): number | null => g?.percent ?? null;
 
+/** Codex の枠。リセット済みの窓は 0% に読む（usageAt）。使用制限で止まった会話の時刻は Claude の枠のものなので付けない。 */
+function codexUsage(t: Translate, c: AgentUsageDto, now: number): UsageProps {
+  const u = usageAt(c, now);
+  return { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), agent: { key: 'codex', label: t('header.gauge.agentCodex') } };
+}
+
 /** 使用率がまだ届いていないときの値。 */
 const NO_USAGE: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
 
@@ -255,18 +263,24 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
     const limited = limitedSessions(store, null);
     return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), ...limitTimes(t, limited, now) } };
   }
-  // opencode の会話には Claude のアカウントが無いので、ホームと同じく、いまのアカウントを出す（決まりは design.md の opencode の札の節）。
+  // opencode と Codex の会話には Claude のアカウントが無いので、ホームと同じく、いまのアカウントを出す（決まりは design.md の opencode の札の節）。
   // 会話のアカウントを引くと、対応に無い会話としてメインのアカウントが出て、いまのアカウントと違う使用量になる。
   // 切り替えも会話の付け替えではなく、いまのアカウントの切り替えにするため、sessionId は null にする。
   const screenId = state.screen.name === 'session' ? state.screen.id : null;
   const screenSession = screenId === null ? undefined : store.sessions[screenId];
-  const sessionId = screenSession && agentOfSession(store, screenSession) === 'opencode' ? null : screenId;
+  const screenAgent = screenSession ? agentOfSession(store, screenSession) : null;
+  const sessionId = screenAgent === 'opencode' || screenAgent === 'codex' ? null : screenId;
   const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
   const list = presentAccounts(store, now);
   const shown = list.find((a) => a.id === raw.id) ?? list[0]!;
   const live = sessionId === null ? null : store.sessions[sessionId]?.live ?? null;
   const limited = limitedSessions(store, shown.id);
-  const usage: UsageProps = { fiveHour: gaugePercent(shown.fiveHour), sevenDay: gaugePercent(shown.sevenDay), fiveHourResets: shown.fiveHour?.resets ?? null, sevenDayResets: shown.sevenDay?.resets ?? null, updatedLabel: shown.updatedLabel, ...limitTimes(t, limited, now) };
+  const claudeUsage: UsageProps = { fiveHour: gaugePercent(shown.fiveHour), sevenDay: gaugePercent(shown.sevenDay), fiveHourResets: shown.fiveHour?.resets ?? null, sevenDayResets: shown.sevenDay?.resets ?? null, updatedLabel: shown.updatedLabel, ...limitTimes(t, limited, now) };
+  // Codex の枠が届いているときだけ、開いている会話のエージェントの枠に切り替える（U1）。値が未着か切なら agents ごと無いので、Claude の枠のまま札も出さない。
+  const codex = store.accounts?.agents?.codex;
+  const usage: UsageProps = !codex ? claudeUsage
+    : screenAgent === 'codex' ? codexUsage(t, codex, now)
+    : { ...claudeUsage, agent: { key: 'claude', label: t('header.gauge.agentClaude') } };
   return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting' }, usage };
 }
 

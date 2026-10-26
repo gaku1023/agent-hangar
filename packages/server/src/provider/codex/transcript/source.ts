@@ -37,6 +37,8 @@ export function codexTranscriptSource(o: {
   codexHome: () => string;
   enabled: () => boolean;
   isLive?: (providerSessionId: string) => boolean;
+  /** 読んだ束の中の、最後の meta rate_limits（B5 の `{ rate_limits, … }` とその行の ts）。使用量の面（B7）へ渡す。切のときは呼ばない。 */
+  onRateLimits?: (value: unknown, ts: unknown) => void;
   importLimit?: number;
   watch?: WatchFn;
   now?: () => number;
@@ -120,7 +122,15 @@ export function codexTranscriptSource(o: {
 
   return {
     agent: 'codex',
-    read: (file, from) => readCodexBatch(file, from),
+    read: (file, from) => {
+      const batch = readCodexBatch(file, from);
+      if (o.onRateLimits && o.enabled()) {
+        let last: { value: unknown; ts: unknown } | null = null;
+        for (const r of batch.records) for (const e of r.events) if (e.kind === 'meta' && e.name === 'rate_limits') last = { value: e.value, ts: e.ts };
+        if (last) o.onRateLimits(last.value, last.ts);
+      }
+      return batch;
+    },
     start(s) {
       sink = s;
       ensureWatchers();

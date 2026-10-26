@@ -148,3 +148,34 @@ describe('起動後にコンテキストが足りなかった札', () => {
     expect(at(done, short).state.contextShorts).toEqual([{ sessionId: 's1', fix: null, done: false }]);
   });
 });
+
+describe('起動後にモデルが見つからなかった札', () => {
+  const missing = server({ type: 'opencode.modelMissing', sessionId: 's1', model: 'qwen3.6-35b-a3b' });
+  const at = (s: State, i: Input) => transition(s, initialStore(), i);
+
+  it('届いたら 1 枚出し、同じ会話の札は 1 枚にまとめる', () => {
+    const a = at(initialState(), missing).state;
+    expect(a.modelMissings).toEqual([{ sessionId: 's1', model: 'qwen3.6-35b-a3b' }]);
+    expect(at(a, missing).state.modelMissings).toHaveLength(1);
+    expect(at(a, server({ type: 'opencode.modelMissing', sessionId: 's2', model: null })).state.modelMissings.map((c) => c.sessionId)).toEqual(['s1', 's2']);
+  });
+  it('「閉じる」でその会話の札だけを下げる', () => {
+    const two = at(at(initialState(), missing).state, server({ type: 'opencode.modelMissing', sessionId: 's2', model: null })).state;
+    expect(at(two, action({ type: 'launchPrep.missing.dismiss', sessionId: 's1' })).state.modelMissings.map((c) => c.sessionId)).toEqual(['s2']);
+  });
+  it('「別のモデルでやり直す」は札を下げ、その会話のプロジェクトで opencode のモデルの小窓を開いたダイアログを開く', () => {
+    const a = at(initialState(), missing).state;
+    const r = at(a, action({ type: 'launchPrep.missing.retry', sessionId: 's1', projectId: 'p1' }));
+    expect(r.state.modelMissings).toEqual([]);
+    expect(r.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false, agent: 'opencode', pickModel: true });
+    expect(r.effects).toContainEqual({ kind: 'focus', target: 'newSessionName' });
+  });
+  it('プロジェクトの無い会話はクイックセッションで開く。確認のダイアログが出ていれば、差し替えずに札を残す', () => {
+    const a = at(initialState(), missing).state;
+    expect(at(a, action({ type: 'launchPrep.missing.retry', sessionId: 's1', projectId: null })).state.overlay).toMatchObject({ kind: 'newSession', projectId: null, scratch: true });
+    const busy: State = { ...a, overlay: { kind: 'resolveProject', projectId: 'p9' } };
+    const r = at(busy, action({ type: 'launchPrep.missing.retry', sessionId: 's1', projectId: 'p1' }));
+    expect(r.state.overlay).toEqual(busy.overlay);
+    expect(r.state.modelMissings).toHaveLength(1);
+  });
+});

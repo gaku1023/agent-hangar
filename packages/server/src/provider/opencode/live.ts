@@ -49,6 +49,15 @@ export function isContextShortError(message: string): boolean {
   return /greater than the context length|when context the overflows|context length of only|exceeds the (available )?context( size| length| window)|maximum context length/i.test(message);
 }
 
+/**
+ * 失敗の文が「この PC のサーバーに無いモデルだった」ことを言っているか。あれば、文から取れたモデルの名前（取れなければ null）を返す。
+ * LM Studio が、無いモデルの最初の発言に 400 で返す文（`provider.invalid-request: Invalid model identifier "…"`）を見る。名前は provider を含まない。
+ */
+export function modelMissingOf(message: string): { model: string | null } | null {
+  if (!/provider\.invalid-request/i.test(message) || !/Invalid model identifier/i.test(message)) return null;
+  return { model: /Invalid model identifier "([^"]+)"/i.exec(message)?.[1] ?? null };
+}
+
 type Conn = {
   t: OpencodeLiveTarget;
   client: OpencodeClient;
@@ -77,6 +86,7 @@ export class OpencodeLive implements LiveSource, AskFeed {
   private readonly askListeners = new Set<(a: AgentAsk) => void>();
   private readonly eventListeners = new Set<OpencodeEventListener>();
   private readonly contextShortListeners = new Set<(providerSessionId: string, message: string) => void>();
+  private readonly modelMissingListeners = new Set<(providerSessionId: string, model: string | null) => void>();
   private cur: LiveSessionDto[] = [];
   private key = '[]';
   private started = false;
@@ -154,6 +164,12 @@ export class OpencodeLive implements LiveSource, AskFeed {
   onContextShort(cb: (providerSessionId: string, message: string) => void): () => void {
     this.contextShortListeners.add(cb);
     return () => { this.contextShortListeners.delete(cb); };
+  }
+
+  /** 無いモデルで断られた失敗を受ける口。model は文から取れたモデルの名前（provider を含まない）で、取れなければ null。providerSessionId は onContextShort と同じ。 */
+  onModelMissing(cb: (providerSessionId: string, model: string | null) => void): () => void {
+    this.modelMissingListeners.add(cb);
+    return () => { this.modelMissingListeners.delete(cb); };
   }
 
   /** delayMs 後に、流れを読んでいる serve の全部を取り直す。先に予約した取り直しのほうが早ければ、そちらに任せる。 */
@@ -269,6 +285,8 @@ export class OpencodeLive implements LiveSource, AskFeed {
       const err = ev.data.error;
       const message = typeof err === 'object' && err !== null && typeof (err as { message?: unknown }).message === 'string' ? (err as { message: string }).message : '';
       if (isContextShortError(message)) for (const cb of this.contextShortListeners) cb(c.t.providerSessionId, message);
+      const missing = modelMissingOf(message);
+      if (missing) for (const cb of this.modelMissingListeners) cb(c.t.providerSessionId, missing.model);
     }
   }
 

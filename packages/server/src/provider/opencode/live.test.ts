@@ -3,7 +3,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import type { AgentAsk } from '../../agent/types.ts';
 import { fixtureFrames, fixtureRest, startFakeEventsServe, until, type FakeEventsServe } from '../../../test/fake-opencode-events.ts';
 import { opencodeAsks } from './asks.ts';
-import { isContextShortError, OpencodeLive } from './live.ts';
+import { isContextShortError, modelMissingOf, OpencodeLive } from './live.ts';
 
 // 記録した 2.1.4 の流れの会話（test/fixtures/opencode/2.1.4/README.md）。
 const TURN_ID = 'ses_e8ec38c04ffejXAUxlisHJOU1I';
@@ -233,6 +233,32 @@ describe('OpencodeLive', () => {
     serve.send(failed('The number of tokens to keep from the initial prompt is greater than the context length'));
     await until(() => got.length === 1);
     expect(got).toEqual([[TURN_ID, 'The number of tokens to keep from the initial prompt is greater than the context length']]);
+  });
+});
+
+describe('無いモデルの失敗', () => {
+  const MSG = 'provider.invalid-request: Invalid model identifier "qwen3.6-35b-a3b". Please specify a valid downloaded model (e.g., gemma-4-26b-a4b-it-heretic, qwen3.8-27b-mlx).';
+  it('LM Studio の 400 の文から、無いモデルの名前を取る。取れなくても無いモデルの失敗とは見分ける', () => {
+    expect(modelMissingOf(MSG)).toEqual({ model: 'qwen3.6-35b-a3b' });
+    expect(modelMissingOf('provider.invalid-request: Invalid model identifier. Please specify a valid downloaded model')).toEqual({ model: null });
+    expect(modelMissingOf('provider.invalid-request: messages must be an array')).toBeNull();
+    expect(modelMissingOf('rate limited')).toBeNull();
+  });
+  it('session.execution.failed の無いモデルの失敗を、会話の ID と名前で知らせる。長さの失敗は知らせない', async () => {
+    const { serve, live } = await setup();
+    const got: [string, string | null][] = [];
+    const shorts: string[] = [];
+    live.onModelMissing((id, model) => { got.push([id, model]); });
+    live.onContextShort((id) => { shorts.push(id); });
+    live.track({ providerSessionId: TURN_ID, cwd: CWD, serve });
+    live.start();
+    await until(() => serve.open() === 1 && serve.requests.some((r) => r.startsWith('/api/form')));
+    const failed = (message: string) => `data: ${JSON.stringify({ id: 'evt_x', type: 'session.execution.failed', data: { sessionID: TURN_ID, error: { type: 'provider.invalid-request', message } } })}`;
+    serve.send(failed('greater than the context length'));
+    serve.send(failed(MSG));
+    await until(() => got.length === 1);
+    expect(got).toEqual([[TURN_ID, 'qwen3.6-35b-a3b']]);
+    expect(shorts).toEqual([TURN_ID]);
   });
 });
 

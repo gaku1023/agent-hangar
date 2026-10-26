@@ -1,0 +1,40 @@
+name: codex-compat
+on:
+  # 週に 1 度（月曜 1:00 UTC。claude-compat と opencode-compat の後）と、手動で走らせる。
+  schedule:
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+# 既定の権限に頼らず、読み取りだけを渡す。
+permissions:
+  contents: read
+# 手動と定期が重なっても、どちらも最後まで走らせる。照合は外の版を見るだけで、押し合うものが無い。
+concurrency:
+  group: codex-compat
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    # npm の取得が固まったときの上限。ふつうは数分で終わる。
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # 確かめた範囲（packages/shared/src/codexCompat.ts の CODEX_VERIFIED_RANGE。0.164.x）のうち、いちばん新しい codex を npm から入れる。
+      # 版を持つのはその 1 か所だけで、ここへは書かない（scripts/codex-compat-version.mjs が範囲から npm の指定を作る）。
+      # 範囲を広げるときは、見本を採り直してから範囲を上げる。最新の版に追いかけて上がることはしない。
+      # postinstall が Linux の本体を置く。--version と --help と app-server の schema とログイン無しの話しかけと、模擬のモデルで動かす exec に、認証は要らない。
+      - name: 確かめた範囲の codex を入れる
+        run: |
+          npm install -g @openai/codex@"$(node scripts/codex-compat-version.mjs)"
+          codex --version
+      # 照合の試験は better-sqlite3 も node-pty も読まないので、ネイティブのビルドを飛ばして入れる。
+      - run: npm ci --ignore-scripts
+      # --help のサブコマンド、hangar が使う app-server の要求と通知の形、rollout の形が、見本と違うと落ちる。見本を採り直す合図である（npm run capture-codex-fixtures）。
+      # codex は試しの置き場（HOME と CODEX_HOME を一時ディレクトリへ）と空の環境で動かし、モデルは使わない（OpenAI 互換の Responses の模擬を手元に立てる）。ログインもしない。
+      - name: 見本と突き合わせる
+        run: npx vitest run --project server packages/server/test/codexLive.test.ts
+        env:
+          HANGAR_LIVE_CODEX: '1'

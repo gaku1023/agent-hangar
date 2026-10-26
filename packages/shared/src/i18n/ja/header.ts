@@ -27,6 +27,8 @@ export const headerJa: AreaDictionary<typeof headerKeys> = {
   'header.gauge.weeklyShort': '週',
   'header.gauge.resetsTitle': '、{time} にリセットされます',
   'header.gauge.updatedTitle': '、最終更新 {time}',
+  'header.gauge.agentClaude': 'Claude',
+  'header.gauge.agentCodex': 'Codex',
   'header.gauge.none': '未取得',
   'header.gauge.noneLink': '使用率 未取得',
   'header.gauge.noneTitle': 'ステータスラインを設定すると、5 時間と週の使用率を表示します',

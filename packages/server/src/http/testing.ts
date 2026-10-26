@@ -64,6 +64,8 @@ export function fakeRuns(): RunsApi {
       return { ...launched, run: { ...run, kind: 'resume' } };
     }),
     fork: vi.fn((): LaunchResultDto => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
+    forkMaterialized: vi.fn(async (): Promise<LaunchResultDto> => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
+    forksMaterialized: vi.fn((): boolean => false),
     attach: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     adopt: vi.fn(async (id: string): Promise<LaunchResultDto> => { if (id === 'busy') throw new RunError(409, '作業中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, '起動した Claude が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
@@ -85,6 +87,7 @@ export function fakeRuns(): RunsApi {
     prepareModels: vi.fn(async () => {}),
     startFromTerminal: vi.fn((req: { cwd: string; args: string[] }) => { if (req.args.includes('--session-id')) throw new RunError(400, '--session-id を付けた起動は hangar では開けません'); return { ...launched, attached: false }; }),
     startOpencodeFromTerminal: vi.fn(async () => ({ ...launched, attached: false })),
+    startCodexFromTerminal: vi.fn(async () => ({ ...launched, attached: false })),
   };
 }
 
@@ -256,6 +259,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     findMux: () => null,
     compat: async () => ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] }),
     opencodeStatus: async () => ({ found: false, version: null, verified: false }),
+    codexOptions: async () => ({ version: '0.164.0', verified: true, models: [], fetchedAt: 0 }),
     codexStatus: async () => ({ found: false, version: null, verified: false, loggedIn: false }),
     opencodeOptions: async () => ({ version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }, { id: 'plan', description: null }], models: [], providers: [], defaultModel: null, pricesAt: null, fetchedAt: 0, stale: false }),
     opencodeProviders: fakeOpencodeProviders(),

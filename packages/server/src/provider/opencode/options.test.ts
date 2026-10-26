@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, expect } from 'vitest';
 import { readFakeOpencodeLog, writeFakeOpencode, type FakeOpencodeOptions } from '../../../test/fake-opencode.ts';
 import { posixDescribe, posixIt } from '../../../test/platform.ts';
+import { LocalModelListing } from './localModels/available.ts';
 import { OPTIONS_SERVE_KEY, OpencodeOptionsService, type OpencodeOptionsDeps } from './options.ts';
 import { ServeManager } from './serve/manager.ts';
 import { ServeRegistry } from './serve/registry.ts';
@@ -230,5 +231,54 @@ posixDescribe('OpencodeOptionsService（取り直しの失敗）', () => {
     fail = true;
     now = 120_000;
     expect(await service.get('/w')).toMatchObject({ stale: true, fetchedAt: 0, modes: [{ id: 'build', description: null }] });
+  });
+});
+
+posixDescribe('OpencodeOptionsService（この PC に無いモデル）', () => {
+  const serve = { url: 'http://127.0.0.1:1', password: 'p', pid: 1 };
+  const model = (providerID: string, id: string) => ({ providerID, id, name: id, enabled: true, tools: true, context: null, cost: null });
+  const service = (listing: LocalModelListing) => new OpencodeOptionsService({
+    serves: { any: () => serve, ensure: async () => serve, stop: async () => undefined },
+    status: async () => ({ found: true, version: '2.1.4', verified: true }),
+    home: '/home/me',
+    listing,
+    read: async () => ({
+      agents: [{ id: 'build', mode: 'primary', hidden: false, description: null }],
+      models: [model('lmstudio', 'gemma'), model('lmstudio', 'qwen3.6-35b-a3b'), model('anthropic', 'claude-sonnet-4-5')],
+      providers: [{ id: 'lmstudio', name: 'LM Studio', host: '127.0.0.1' }, { id: 'anthropic', name: 'Anthropic', host: 'api.anthropic.com' }],
+      baseURLs: { lmstudio: 'http://127.0.0.1:1234/v1', anthropic: 'https://api.anthropic.com/v1' },
+      defaultModel: null,
+    }),
+  });
+  const fake = (o: { models?: string[]; down?: boolean }) => {
+    const calls: string[] = [];
+    const listing = new LocalModelListing({
+      fetch: (async (url: string | URL) => {
+        calls.push(String(url));
+        if (o.down) throw new TypeError('fetch failed');
+        return Response.json({ models: (o.models ?? []).map((key) => ({ type: 'llm', key })) });
+      }) as typeof fetch,
+    });
+    return { listing, calls };
+  };
+  const missingOf = (dto: { models: { id: string; missing?: boolean }[] }) => Object.fromEntries(dto.models.map((m) => [m.id, m.missing ?? false]));
+
+  posixIt('この PC の LM Studio に無いモデルに missing を立てる。ほかの接続先は聞かない', async () => {
+    const { listing, calls } = fake({ models: ['gemma'] });
+    expect(missingOf(await service(listing).get('/w'))).toEqual({ 'lmstudio/gemma': false, 'lmstudio/qwen3.6-35b-a3b': true, 'anthropic/claude-sonnet-4-5': false });
+    expect(calls).toEqual(['http://127.0.0.1:1234/api/v1/models']);
+  });
+
+  posixIt('LM Studio につながらなければ、立てない（小窓では確かめられないので、起動の口で断る）', async () => {
+    const { listing } = fake({ down: true });
+    expect(missingOf(await service(listing).get('/w'))).toEqual({ 'lmstudio/gemma': false, 'lmstudio/qwen3.6-35b-a3b': false, 'anthropic/claude-sonnet-4-5': false });
+  });
+
+  posixIt('取り直し（refresh）は LM Studio にも聞き直す', async () => {
+    const { listing, calls } = fake({ models: ['gemma'] });
+    const s = service(listing);
+    await s.get('/w');
+    await s.get('/w', { refresh: true });
+    expect(calls).toHaveLength(2);
   });
 });

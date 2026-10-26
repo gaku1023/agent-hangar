@@ -1144,6 +1144,21 @@ describe('見出しの状態の札（4A）', () => {
   });
 });
 
+describe('終わった Codex の会話の 1 行（C5）', () => {
+  it('Codex：同じ形の 1 行で、「再開」を強めて示す', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} endedLine="codex" /></ActionRoot>);
+    const line = container.querySelector<HTMLElement>('.tr-sheet > .ended-line')!;
+    expect(line).toHaveTextContent('Codex を終了しました。続きは「再開」から開けます。');
+    expect(line.querySelector('em')).toHaveTextContent('再開');
+  });
+  it('最初の入力の前に終わった会話：再開を言わず、できない旨だけ言う', () => {
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} endedLine="codex-pending" /></ActionRoot>);
+    const line = container.querySelector<HTMLElement>('.tr-sheet > .ended-line')!;
+    expect(line).toHaveTextContent('この会話は、まだ最初の入力が送られていないため、再開できません。');
+    expect(line.querySelector('em')).toBeNull();
+  });
+});
+
 describe('終わった opencode の会話の 1 行（C7、試作の E1）', () => {
   const LINE = 'opencode を終了しました。続きは「再開」から開けます。';
   it('opencode の会話だけ、本文の面の最後に区切りと 1 行を置き、「再開」を強めて示す', () => {

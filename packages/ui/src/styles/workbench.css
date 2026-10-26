@@ -2,6 +2,7 @@
 
 /* 使用量ゲージ。幅 48px、高さ 6px の棒で、80% 以上は警告色にする。 */
 .gauges { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+.gauge-agent { font-size: var(--fs-xs); font-weight: 600; color: var(--ink); padding-right: calc(var(--u) * 2); border-right: 1px solid rgba(30, 40, 90, 0.14); white-space: nowrap; }
 .gauge { display: inline-flex; align-items: center; gap: var(--u); }
 /* 値が一度も届いていない間の 1 語。棒は値が来てから出す。 */
 .gauges-none { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }

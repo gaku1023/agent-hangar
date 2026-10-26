@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { UiAction, LaunchParams } from '@agent-hangar/shared';
+import type { CodexOptionsDto, UiAction, LaunchParams } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
 import { presentAccounts, type AccountView } from '../presenters/accounts.ts';
@@ -1488,5 +1488,177 @@ describe('NewSessionDialog の起動前の準備（opencode のローカルの�
       const fail = screen.getByRole('alert');
       expect(animations.filter((a) => a.el === fail).map((a) => a.frames[0])).toEqual([expect.objectContaining({ height: '0px', opacity: 0 })]);
     });
+  });
+});
+
+describe('NewSessionDialog のエージェント（Codex、ベータ）', () => {
+  const eff = (...ids: string[]) => ids.map((id) => ({ id, description: `${id} の説明` }));
+  const OPTIONS: CodexOptionsDto = {
+    version: '0.164.0', verified: true, fetchedAt: 1,
+    models: [
+      { id: 'gpt-full', label: 'GPT Full', description: '何でも向き', efforts: eff('low', 'medium', 'high', 'ultra'), defaultEffort: 'low' },
+      { id: 'gpt-nomedium', label: 'GPT NoMedium', description: '軽い', efforts: eff('low', 'high'), defaultEffort: 'high' },
+    ],
+  };
+  const ready = (data: CodexOptionsDto | null = OPTIONS) => ({ options: { status: 'ready' as const, data } });
+  function collect(over: Partial<NewSessionProps> = {}) {
+    const actions: UiAction[] = [];
+    const ui = (p: Partial<NewSessionProps>) => <ActionRoot onAction={(i) => { actions.push(i); }}><NewSessionDialog {...base} {...p} /></ActionRoot>;
+    const view = render(ui(over));
+    return {
+      actions,
+      params: () => actions.flatMap((i) => (i.type === 'session.new.submit' ? [i.params] : [])),
+      asked: () => actions.filter((i) => i.type === 'codex.options').length,
+      rerender: (p: Partial<NewSessionProps>) => view.rerender(ui({ ...over, ...p })),
+    };
+  }
+  const names = () => within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.getAttribute('title'));
+  const toCodex = async () => {
+    fireEvent.click(chip('エージェント、Claude Code'));
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: /Codex/ })); });
+    await screen.findByRole('button', { name: 'エージェント、Codex' });
+  };
+
+  it('設定で有効にしていなければ、Codex は札の一覧に出ない（opencode だけ有効なら Claude Code と opencode）', () => {
+    collect({ projectId: 'p1', opencode: { options: null } });
+    fireEvent.click(chip('エージェント、Claude Code'));
+    expect(within(screen.getByRole('listbox', { name: 'エージェント' })).getAllByRole('option').map((o) => o.textContent?.replace(/ベータ.*/, ''))).toEqual(['Claude Code', 'opencode']);
+  });
+  it('有効にしても、Codex を選ぶまでは一覧を読まず、札も今のまま', () => {
+    const { asked } = collect({ projectId: 'p1', codex: { options: null } });
+    expect(names()).toEqual(['エージェント、Claude Code', 'プロジェクト', 'モデル、デフォルト', 'effort レベル、デフォルト', '権限モード、デフォルト', 'worktree、なし', '設定を追加']);
+    expect(asked()).toBe(0);
+  });
+  it('エージェントの一覧は、Codex に「ベータ」と版の確かめを添える。opencode も有効なら opencode の次に並ぶ', () => {
+    collect({ projectId: 'p1', codex: ready(), opencode: { options: null } });
+    fireEvent.click(chip('エージェント、Claude Code'));
+    expect(within(screen.getByRole('listbox', { name: 'エージェント' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Claude Code', 'opencodeベータ', 'Codexベータcodex 0.164.0 · 検証済み']);
+  });
+  it('エージェントの札と一覧の Codex の行に、Codex の絵（svg）が出る', async () => {
+    collect({ projectId: 'p1', codex: ready() });
+    fireEvent.click(chip('エージェント、Claude Code'));
+    const row = within(screen.getByRole('listbox', { name: 'エージェント' })).getByRole('option', { name: /Codex/ });
+    expect(row.querySelector('.agent-icon[data-agent="codex"] svg path')).not.toBeNull();
+    await act(async () => { fireEvent.click(row); });
+    expect((await screen.findByRole('button', { name: 'エージェント、Codex' })).querySelector('.agent-icon[data-agent="codex"] svg path')).not.toBeNull();
+  });
+  it('Codex を選ぶと、アカウント・モデル（自由入力）・effort・権限モード・worktree の札と信頼の注記を外し、モデル・推論・権限の 3 枚を出す。一覧を読む', async () => {
+    const { asked } = collect({ projectId: 'p1', codex: ready(), accounts: null });
+    await toCodex();
+    expect(names()).toEqual(['エージェント、Codex', 'プロジェクト', 'モデル、デフォルト', '推論、medium', '権限、自動', '設定を追加']);
+    expect(chip('エージェント、Codex')).toHaveTextContent('ベータ');
+    expect(screen.queryByText(/信頼の確認ダイアログ/)).toBeNull();
+    expect(asked()).toBe(1);
+  });
+  it('アカウントが 2 件以上あっても、Codex ではアカウントの札を出さず、params にも account を載せない', async () => {
+    const accounts = { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0), currentId: 'primary' };
+    const { params } = collect({ projectId: 'p1', codex: ready(), accounts });
+    expect(names().some((n) => n?.startsWith('アカウント'))).toBe(true);
+    await toCodex();
+    expect(names().some((n) => n?.startsWith('アカウント'))).toBe(false);
+    start();
+    expect(params()[0]).not.toHaveProperty('account');
+  });
+  it('モデルはデフォルトと一覧のモデルで、選ぶと札に出て、起動に載る。推論は既定の medium を載せる', async () => {
+    const { params } = collect({ projectId: 'p1', codex: ready() });
+    await toCodex();
+    fireEvent.click(chip('モデル、デフォルト'));
+    expect(within(screen.getByRole('listbox', { name: 'モデル' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['デフォルト', 'GPT Full何でも向き', 'GPT NoMedium軽い']);
+    fireEvent.click(screen.getByRole('option', { name: /GPT Full/ }));
+    expect(chip('モデル、GPT Full')).toBeInTheDocument();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', agent: 'codex', model: 'gpt-full', effort: 'medium', permissionMode: 'auto' }]);
+  });
+  it('モデルを選ばなければ model は載せない', async () => {
+    const { params } = collect({ projectId: 'p1', codex: ready() });
+    await toCodex();
+    start();
+    expect(params()[0]).toEqual({ projectId: 'p1', agent: 'codex', effort: 'medium', permissionMode: 'auto' });
+  });
+  it('推論の一覧は、選んだモデルで選べる段階だけを説明つきで並べる', async () => {
+    collect({ projectId: 'p1', codex: ready() });
+    await toCodex();
+    choose('モデル、デフォルト', /GPT NoMedium/);
+    fireEvent.click(chip(/^推論、/));
+    expect(within(screen.getByRole('listbox', { name: '推論' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['lowlow の説明', 'highhigh の説明']);
+  });
+  it('選んだ推論がモデルを替えて選べなくなったら medium に戻す。medium も無いモデルは、そのモデルの既定の段階にする', async () => {
+    const { params } = collect({ projectId: 'p1', codex: ready() });
+    await toCodex();
+    choose('モデル、デフォルト', /GPT Full/);
+    choose('推論、medium', /ultra/);
+    expect(chip('推論、ultra')).toBeInTheDocument();
+    choose('モデル、GPT Full', /GPT NoMedium/);
+    expect(chip('推論、high')).toBeInTheDocument();
+    choose('モデル、GPT NoMedium', /GPT Full/);
+    expect(chip('推論、high')).toBeInTheDocument();
+    choose('推論、high', /ultra/);
+    choose('モデル、GPT Full', 'デフォルト');
+    expect(chip('推論、ultra')).toBeInTheDocument();
+    start();
+    expect(params()[0]).toMatchObject({ effort: 'ultra' });
+  });
+  it('権限は 1 枚の札で、読み取りのみ・自動・フルアクセスの 3 段を説明つきで並べる。既定は自動', async () => {
+    collect({ projectId: 'p1', codex: ready() });
+    await toCodex();
+    fireEvent.click(chip('権限、自動'));
+    expect(within(screen.getByRole('listbox', { name: '権限' })).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '読み取りのみファイルの変更とコマンドの実行の前に確認', '自動作業ディレクトリ内は確認なし。外へアクセスするときは確認', 'フルアクセス確認なしですべて実行（危険）',
+    ]);
+  });
+  it('権限の 3 段が params.permissionMode に載る', async () => {
+    const { params } = collect({ projectId: 'p1', codex: ready() });
+    await toCodex();
+    choose('権限、自動', /読み取りのみ/);
+    start();
+    expect(params().at(-1)).toMatchObject({ permissionMode: 'read-only' });
+  });
+  it('フルアクセスは札を赤い枠にして、下に注意を出す。選び直すと注意は消える', async () => {
+    const { params } = collect({ projectId: 'p1', codex: ready() });
+    await toCodex();
+    expect(screen.queryByText('確認なしでコマンドを実行します。信頼できるディレクトリでだけ使ってください。')).toBeNull();
+    choose('権限、自動', /フルアクセス/);
+    expect(chip('権限、フルアクセス')).toHaveAttribute('data-tone', 'danger');
+    expect(screen.getByText('確認なしでコマンドを実行します。信頼できるディレクトリでだけ使ってください。')).toBeInTheDocument();
+    start();
+    expect(params().at(-1)).toMatchObject({ permissionMode: 'full-access' });
+    choose('権限、フルアクセス', /^自動/);
+    expect(screen.queryByText('確認なしでコマンドを実行します。信頼できるディレクトリでだけ使ってください。')).toBeNull();
+  });
+  it('前回 Codex で起こしたプロジェクトは、Codex と前回のモデルと推論で開く', () => {
+    const { params, asked } = collect({ projectId: 'p1', codex: ready(), prefs: { p1: { agent: 'codex', codexModel: 'gpt-nomedium', codexEffort: 'low' } } });
+    expect(names()).toEqual(['エージェント、Codex', 'プロジェクト', 'モデル、GPT NoMedium', '推論、low', '権限、自動', '設定を追加']);
+    expect(asked()).toBe(1);
+    start();
+    expect(params()[0]).toEqual({ projectId: 'p1', agent: 'codex', model: 'gpt-nomedium', effort: 'low', permissionMode: 'auto' });
+  });
+  it('前回のモデルが一覧から消えていたらデフォルトに戻し、そのモデルで選べない前回の推論は medium に戻す', () => {
+    collect({ projectId: 'p1', codex: ready(), prefs: { p1: { agent: 'codex', codexModel: 'gone', codexEffort: 'max' } } });
+    expect(names()).toContain('モデル、デフォルト');
+    expect(names()).toContain('推論、medium');
+  });
+  it('一覧が届く前は、前回のモデルと推論をそのまま見せる', () => {
+    collect({ projectId: 'p1', codex: { options: null }, prefs: { p1: { agent: 'codex', codexModel: 'gpt-nomedium', codexEffort: 'low' } } });
+    expect(names()).toContain('モデル、gpt-nomedium');
+    expect(names()).toContain('推論、low');
+  });
+  it('前回 Codex でも、設定で無効にしたら Claude Code で開く。別のプロジェクトの前回値は使わない', () => {
+    collect({ projectId: 'p1', prefs: { p1: { agent: 'codex', codexModel: 'x' } } });
+    expect(names()).not.toContain('エージェント、Codex');
+    expect(names()).toContain('モデル、デフォルト');
+    collect({ projectId: 'p2', codex: ready(), prefs: { p1: { agent: 'codex' } } });
+    expect(screen.getAllByRole('button', { name: 'エージェント、Claude Code' }).length).toBeGreaterThan(0);
+  });
+  it('一覧が届かなければ、札の下で言う', () => {
+    collect({ projectId: 'p1', codex: { options: { status: 'failed', data: null } }, prefs: { p1: { agent: 'codex' } } });
+    expect(screen.getByText('codex から一覧を取得できませんでした。')).toBeInTheDocument();
+  });
+  it('Codex から Claude Code に戻すと、Claude の札と信頼の注記が戻る', async () => {
+    collect({ projectId: 'p1', codex: ready(), prefs: { p1: { agent: 'codex' } } });
+    fireEvent.click(chip('エージェント、Codex'));
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: /Claude Code/ })); });
+    await screen.findByRole('button', { name: 'エージェント、Claude Code' });
+    expect(names()).toContain('effort レベル、デフォルト');
+    expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
   });
 });

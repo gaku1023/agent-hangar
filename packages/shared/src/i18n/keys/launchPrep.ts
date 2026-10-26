@@ -39,6 +39,9 @@ export const launchPrepKeys = {
   'launchPrep.short.fix': [],
   'launchPrep.short.close': [],
   'launchPrep.short.done': [],
+  'launchPrep.missing.title': [],
+  'launchPrep.missing.body': ['name', 'model'],
+  'launchPrep.missing.retry': [],
   'launchPrep.settings.hint': [],
   'launchPrep.settings.option': ['n'],
   'launchPrep.settings.recommended': ['n'],
@@ -46,4 +49,7 @@ export const launchPrepKeys = {
   'launchPrep.error.cancelled': [],
   'launchPrep.error.notRunning': [],
   'launchPrep.error.notFound': [],
+  'launchPrep.error.modelMissing': ['model', 'available'],
+  'launchPrep.error.modelMissingNone': ['model', 'name'],
+  'launchPrep.error.serverDown': ['name', 'url'],
 } as const satisfies MessageSpec;

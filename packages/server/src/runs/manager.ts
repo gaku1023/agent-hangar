@@ -42,7 +42,7 @@ import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type Pan
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { forgetInterruption, interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { isAlive } from '../platform/proc.ts';
-import { splitOpencodeTerminalArgs, splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
+import { splitCodexTerminalArgs, splitOpencodeTerminalArgs, splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
 import { handoverFacts, projectDeviceCount, resumeTarget, type ResumeTarget } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
 import { saveRemoteUrl, watchRemoteUrl } from '../mobile/remoteUrl.ts';
@@ -960,7 +960,7 @@ export class RunManager {
    * 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
    * prep を渡されたら（hangar の画面、スマホ、同期の再開）、起動前の準備（接続先の準備のコマンド）を走らせる。外のターミナルからの再開は渡さない。
    */
-  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
+  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean; model?: string; effort?: string; permissionMode?: string } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
     const driver = this.agentOf(s);
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
@@ -1091,6 +1091,34 @@ export class RunManager {
     return { ...(await this.startMaterialized(agent, { ...params, agent }, { cwd })), attached: false };
   }
 
+  /**
+   * 外のターミナルで打った codex（シェルの包みの codex()、docs/design.md「外のターミナルの codex」）。
+   * 引数は許可リストで読む（splitCodexTerminalArgs）。端末の環境変数は使わない。app-server も TUI も、hangar の画面から起こすときと同じく hangar が組む環境で起こす。
+   * resume <ID> が hangar の codex の会話なら、動いている run にはつなぐだけにし（attached が真）、止まっていれば再開する（resumeMaterialized）。
+   * それ以外は、作業ディレクトリで新しい会話を起こす（startMaterialized。会話の ID は codex が振ったものを記録する）。
+   * 設定の Codex を有効にするかコマンドの横取りが切なら断り、包み方は素の codex を起動する。
+   */
+  async startCodexFromTerminal(req: TerminalRequest): Promise<LaunchResult & { attached: boolean }> {
+    const agent: AgentKind = 'codex';
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
+    if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg(AGENT_ENTRY[agent].interceptLabelKey ?? 'settings.label.codexIntercept') }));
+    const a = splitCodexTerminalArgs(req.args);
+    const params = {
+      ...(a.prompt !== null ? { prompt: a.prompt } : {}),
+      ...(a.model !== null ? { model: a.model } : {}),
+      ...(a.effort !== null ? { effort: a.effort } : {}),
+      ...(a.permission !== null ? { permissionMode: a.permission } : {}),
+    };
+    if (a.resume !== null) {
+      const id = findSession(this.db, a.resume, agent);
+      if (!id) throw new RunError(404, msg('run.terminal.notInHangar'));
+      const alive = aliveRunForSession(this.db, id, this.deps.deviceId, this.now());
+      if (alive) return { run: alive, sessionId: id, tabs: listTabs(this.db, alive.id), attached: true };
+      return { ...(await this.resumeMaterialized(this.session(id), params)), attached: false };
+    }
+    return { ...(await this.startMaterialized(agent, { ...params, agent }, { cwd: req.cwd })), attached: false };
+  }
+
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
   fork(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
@@ -1116,6 +1144,62 @@ export class RunManager {
     const base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, { account });
     const bin = this.claudeBin();
     return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, env }), params: { projectId: s.project_id ?? undefined }, account });
+  }
+
+  /** fork が materialize（ID を後から受ける）の道を通る会話か。http の入口が fork と forkMaterialized を呼び分ける。 */
+  forksMaterialized(sessionId: string): boolean {
+    return !!this.agentOf(this.session(sessionId)).launch.materialize;
+  }
+
+  /**
+   * ID を後から受ける driver（Codex）で会話を分岐する（docs/design.md「Codex の起動」）。
+   * 1. 設定、実行ファイル、作業の場所、画面の口を、行を作る前に確かめる。
+   * 2. 新しい会話の ID はまだ無いので、仮の ID（pending:…）で sessions の行を作る。MCP の秘密は hangar の会話の ID で決まるので先に要る。
+   * 3. driver の materialize（kind = 'fork'。app-server を起こして thread/fork）を待ち、返った ID を行に書く。
+   * 4. その ID を resume でつなぐ TUI を tmux の中に起こす（kind = 'fork' の run）。
+   * 元の会話の行と run は変えない。rollout の無い会話は driver が断る。失敗したら app-server を止め、仮の行と秘密を消して 400 で断る。
+   */
+  async forkMaterialized(sessionId: string): Promise<LaunchResult> {
+    const s = this.session(sessionId);
+    this.assertCan(s, 'fork');
+    const driver = this.agentOf(s);
+    const agent = driver.kind;
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
+    const bin = this.agentBin(agent);
+    const { path: cwd, createsFolder } = this.cwdFor(s);
+    this.precheck(cwd, { agent, create: createsFolder });
+    const newSessionId = newId();
+    const now = this.now();
+    upsertShared(this.db, 'sessions', { id: newSessionId, provider: agent, provider_session_id: `pending:${newId()}`, cwd, home_device: this.deps.deviceId, project_id: s.project_id, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    // 利用者が移した会話なら、新しい会話にも移した印を写す（fork の Claude の道と同じ）。
+    const pin = pinnedProjectOf(this.db, s.id);
+    if (pin !== null) setSessionPlacement(this.db, this.deps.deviceId, newSessionId, pin);
+    const discard = () => {
+      revokeMcpSecret(this.db, newSessionId);
+      softDeleteShared(this.db, 'sessions', newSessionId, this.deps.deviceId);
+    };
+    let providerSessionId: string;
+    let base: Omit<LaunchSpec, 'env'>;
+    try {
+      base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, undefined, agent);
+      const r = await driver.launch.materialize!({ kind: 'fork', id: s.provider_session_id, newId: '' }, { ...base, env: {} });
+      if (!r?.providerSessionId) throw new Error(`agent ${agent} did not return a session id`);
+      providerSessionId = r.providerSessionId;
+      const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
+      upsertShared(this.db, 'sessions', { ...cur, provider_session_id: providerSessionId }, this.deps.deviceId);
+      if (r.lateSessionId) void r.lateSessionId.then((id) => this.recordLateSessionId(newSessionId, r.providerSessionId, id), () => undefined);
+    } catch (e) {
+      await Promise.resolve(driver.launch.release({ sessionId: newSessionId, providerSessionId: '', cwd }, 'killed')).catch(() => false);
+      discard();
+      throw e instanceof RunError ? e : new RunError(400, agentMsg.launchFailed(agent, this.safeError(e)));
+    }
+    try {
+      return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', agent, plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: providerSessionId }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent } });
+    } catch (e) {
+      await Promise.resolve(driver.launch.release({ sessionId: newSessionId, providerSessionId, cwd }, 'killed')).catch(() => false);
+      discard();
+      throw e;
+    }
   }
 
   /** 開いているセッションを、別のアカウントで再開し直す。手順と断る理由は runs/accounts.ts にある。ここは run の寿命の側の手を渡すだけである。 */

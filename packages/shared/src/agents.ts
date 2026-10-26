@@ -22,6 +22,7 @@ export const AGENT_DISPLAY_NAME: Record<AgentKind, string> = { 'claude-code': 'C
  * UI が出し分けに使う能力。server の AgentCaps（driver が持つ能力）とは別で、画面の札と欄の有無だけを持つ。
  * accounts・effort・permissionMode・worktree・addDirs は新規ダイアログの札（LaunchParams の同名の欄）。
  * modelText は自由入力のモデルの札、recallLine は前回の詳細をまとめた行、trustNote はフォルダを信頼する注意、digestIntent は意図を digest から読むか（無ければ依頼の冒頭を出す）。
+ * modelList はエージェントが返すモデルの一覧から選ぶ札の組（モデル、推論、権限の 3 枚。Codex）で、effort と permissionMode は Claude Code の自由な値の札なので、この組には使わない。
  * modes は mode と autoApprove の札、promptJump は目次から左の画面を跳ばせるか、usagePanel は会話の使用量の欄を自前で組むか、beta は設定で有効にしたときだけ選べるか。
  */
 export type AgentUiCaps = {
@@ -37,14 +38,15 @@ export type AgentUiCaps = {
   modes: boolean;
   promptJump: boolean;
   usagePanel: boolean;
+  modelList: boolean;
   beta: boolean;
 };
 
 export const AGENT_UI_CAPS: Record<AgentKind, AgentUiCaps> = {
-  'claude-code': { accounts: true, effort: true, permissionMode: true, worktree: true, addDirs: true, modelText: true, recallLine: true, trustNote: true, digestIntent: true, modes: false, promptJump: true, usagePanel: false, beta: false },
-  opencode: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: true, promptJump: false, usagePanel: true, beta: true },
-  // Codex の面は段 C で作る。それまでは何も出さない能力にそろえる（beta は設定で有効にしたときだけ選べる）。
-  codex: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: false, promptJump: false, usagePanel: false, beta: true },
+  'claude-code': { accounts: true, effort: true, permissionMode: true, worktree: true, addDirs: true, modelText: true, recallLine: true, trustNote: true, digestIntent: true, modes: false, promptJump: true, usagePanel: false, modelList: false, beta: false },
+  opencode: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: true, promptJump: false, usagePanel: true, modelList: false, beta: true },
+  // Codex の新規ダイアログの札は、モデルの一覧から選ぶ組（modelList）。自由入力のモデル、Claude の effort と権限モード、アカウント、worktree の札は出さない。右欄の面は段 C の続きで足す。
+  codex: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: false, promptJump: false, usagePanel: true, modelList: true, beta: true },
 };
 
 export type AgentUiCap = keyof AgentUiCaps;

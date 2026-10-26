@@ -1437,7 +1437,7 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 
 #### 設定の面と版の知らせ（C4）
 
-検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。
+検出の答えは `GET /api/codex/status` で、`{ found, version, verified, loggedIn }`（`CodexStatusDto`）を返す。`loggedIn` は `codex login status` が 0 で終われば true、0 以外なら false、時間切れで分からないときは null（設定の注記は出さない）。
 設定が切でも答える（有効にする前に、入っているかと版とログインを見せるため）。
 サーバは `LocalCodex.status()` を呼ぶだけで、画面は有効にしている間の起動時と、有効にしたとき、設定の画面に入ったときに取る。
 
@@ -1531,8 +1531,63 @@ hangar の接続は承認の要求に答えない。答えは TUI で行う（�
 
 driver への差し方は `createCodexLive(options)` が返す `{ live, asks }` である。`live` は `LiveSource` で、`track({ providerSessionId, cwd, pid, rpc, subscribed })` と `untrack` を足してある。`asks` は `AskSource`（subscribe だけ。parseHook は持たない）である。
 起動の面（B3a）が、app-server を起こしてつないだあとに `track` し、止めるときに `untrack` する。
+再開と fork で開いた会話も、`thread/resume`・`thread/fork` した接続は購読済み（`subscribed: true`）として同じく `track` する。
 
 試験は、接続のふり（通知と要求を手で流す）と、偽の codex（`test/fake-codex.ts`。入力の頭の `ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` で要求を送り、TUI の代わりの接続が応答すると resolved を流す。`hang` は終わらない。`thread/read` に答える）の両方で行う。
+
+### Codex の互換の見張り（ベータ）
+
+Codex は版の変わりが速い（1 か月半のあいだに、daemon の既定化、paginated の既定化、承認の方針の値の削除があった）。
+そこで Claude Code、opencode と同じく、頼っている形を見本に残し、週に 1 度、確かめた範囲の codex と突き合わせる（計画の H1）。
+Codex の見張りは、既存の 5 ジョブとは別の仕事 `.github/workflows/codex-compat.yml` で、月曜 1:00 UTC と手動で走る（claude-compat は 0:00、opencode-compat は 0:30）。
+毎回の PR では走らせない。
+
+#### 版を持つ場所
+
+確かめた範囲は `CODEX_VERIFIED_RANGE`（`0.164.x`）の 1 か所だけに持つ。
+CI が入れる版は、`scripts/codex-compat-version.mjs` がこの範囲から作る（`0.164.x` なら npm の指定は `0.164`、つまり 0.164 のうちいちばん新しい版）。
+ワークフローに版は書かない。
+範囲を広げるときは、新しい版で見本を採り直し、差分を読んでから範囲を上げる。
+Claude と opencode のように最新へ追いかけない。範囲の外は利用者に知らせるだけで起動は止めないので、追いかける側が先に壊れるのを待つほうが、見張りとして意味がある。
+
+#### 見張るもの
+
+見本は `packages/server/test/fixtures/codex-compat/<版>/` にあり、`npm run capture-codex-fixtures` で採る（`packages/server/test/capture-codex/run.ts`、道具は `packages/server/test/codexHarness.ts`）。
+照合は `codexLive.test.ts` で、`HANGAR_LIVE_CODEX=1` のときだけ走る。
+ふだんの `npm test` では `codexCompatFixtures.test.ts`（見本の自己点検）と `codexCompatUnits.test.ts`（比べる道具）だけが走り、codex は起こさない。
+
+1. **app-server の JSON Schema**。`codex app-server generate-json-schema` の束のうち、hangar が使う要求、通知、承認の要求（`compat/schemaSubset.ts` の `HANGAR_CODEX_METHODS`。thread/start、resume、fork、read、turn/start、interrupt、thread/status/changed、thread/started、turn/*、account/rateLimits/*、thread/tokenUsage/updated、承認と質問の要求、mcpServerStatus/list ほか）の包みと、そこから参照をたどった定義だけを控える。
+   説明文（`description`）は版ごとに書き換わるが hangar の読み方は変わらないので控えに入れない。
+   ずれたら、パスつきの差分（`definitions.v2/Turn.properties.x: in the fixture, missing now`）を落ちた文に出す。
+   hangar が使う方法を足したら `HANGAR_CODEX_METHODS` に足して見本を採り直す（足し忘れは `codexCompatFixtures.test.ts` が落ちる）。
+2. **app-server に話した答え**（`app-server-probe.json`）。ログイン無しの app-server を標準入出力で起こし、initialize、thread/start、thread/started、thread/resume、account/rateLimits/read、mcpServerStatus/list の答えのキーの名前を控える。
+   ターンの前は rollout が書かれず、thread/resume が `no rollout found` で断られること（B4 の再購読の再試行が頼る振る舞い）も見る。
+   ログイン無しでは account/rateLimits/read が断られることも控える。本物の使用量の形は、JSON Schema の側（`GetAccountRateLimitsResponse`）で見る。
+3. **rollout の形**（`rollout-shape.json`）。手元に立てた Responses API の模擬（モデルは使わない）で `codex exec` を 2 本走らせる（文で答えるターンと、道具を呼ぶターン）。
+   できた rollout の行を、種類（`type` と `payload.type`）ごとに、キーの道と型の和へ畳んで控える（`compat/rolloutShape.ts`）。値は見ない。
+   読み捨てる `world_state` は見ない。
+   形が同じでも読めなければ意味がないので、同じ rollout を hangar の読み手（`transcript/batch.ts` の `readCodexBatch`）に通し、読めない行が無いことと、返事が出てくることも見る。
+4. **`codex --help`**（`help.txt`）。Commands の名前と別名を読み（`compat/help.ts` の `parseCodexHelp`）、控えと比べる。
+   機種によってあるサブコマンド（`app`。デスクトップアプリを開くもので、Linux の版には無い）は、今の help に無いだけならずれとしない（`PLATFORM_DEPENDENT_COMMANDS`、`helpDrifts`）。見本に無いものが増えたら、これも落とす。
+   外のターミナルの横取り（D1 の `provider/codex/compat/cli.ts` の `BUILTIN_CODEX_SUBCOMMANDS`）が入ったら、同じ一覧を見る。
+   見ているのは `builtinSubcommandDrifts` で、`resume`（ID が 1 つのときだけ hangar の起動へ写す）を除く名前と別名が、一覧と過不足なく同じかである。
+   `cli.ts` が無いあいだは飛ばし、入ると同じ試験が自動で見る。
+
+#### 見張れないもの
+
+- **ログインの要るもの**。本物のモデルを通した応答、`account/rateLimits/updated` と `thread/tokenUsage/updated` の本物の中身、承認の要求が届く順は、JSON Schema の形（包みと型）までしか見ない。実際の値や順序は実機の確かめである。
+- **legacy の rollout**。いまの codex が書くのは paginated（`ordinal` つき）だけなので、legacy の読み方は B5 の試験の写しで守り、この見張りでは見ない。
+- **zstd の圧縮、会話の fork と resume の中身、TUI の見た目**。模擬では作らない。
+- **Windows の codex**。照合は ubuntu で走る。
+- **道具の実行の記録**。`exec_command` の実行は、sandbox の効き方が OS で違う。CI の Linux で形が変わったら、見本を Mac の版から採った差として読み、必要なら道具を呼ぶターンの比べ方を絞る。
+
+#### 見本の採り方
+
+本物の codex を、試しの置き場（`HOME` と `CODEX_HOME` を一時ディレクトリへ）と空の環境（`codexBaseEnv`）で動かす。
+利用者の `~/.codex` は読まず、書かない。終わったら置き場ごと消す。
+ログインはせず、モデルも呼ばない（模擬は 127.0.0.1 だけで答える）ので、使用量は使わず、動かす前に聞かなくてよい。
+模擬は codex と同じプロセスにいるので、codex は同期で待たず非同期で待つ（同期で待つと模擬が答えられず、固まる）。
+採り直したら、差分を読んで、hangar の読み手と `HANGAR_CODEX_METHODS` に響くものが無いかを見てから、`CODEX_VERIFIED_RANGE` を上げる。
 
 ### Codex の使用量（ベータ）
 
@@ -1558,7 +1613,7 @@ Codex を足す作業の段 B の 7 つ目（計画の B7）で、枠と会話�
 配る形は `AccountsDto.agents`（`AgentUsagesDto`）である。
 `{ codex?: AgentUsageDto }` で、`AgentUsageDto` は `UsageDto`（`fiveHour`、`sevenDay`、`updatedAt`）に `plan`（planType の文字、無ければ null）を足したものである。
 値が 1 度も届いていないとき、設定で切のときは、項目ごと付けない。Claude の枠（`AccountDto.usage`）の形と値は変えない。
-枠が変わったとき（窓か plan が変わったとき）は `accounts.update` で配る。ヘッダの切り替え（開いている会話のエージェントの枠を出す）は UI の C3 が、この値を読んで行う。
+枠が変わったとき（窓か plan が変わったとき）は `accounts.update` で配る。ヘッダの切り替え（開いている会話のエージェントの枠を出す）は、UI がこの値を読んで行う（アカウントの切り替えの節）。
 
 会話の値は `thread/tokenUsage/updated` から `session_live_stats` に書く（opencode と同じ欄）。
 `context_used` は最後の呼び出しの `last.inputTokens`（cached を含む量で、B5 が rollout から書く値と同じ）、`context_size` は `modelContextWindow`、`model` は起こした側が渡した値である。
@@ -1566,8 +1621,13 @@ Codex を足す作業の段 B の 7 つ目（計画の B7）で、枠と会話�
 `SessionStatsDto.contextPercent` と `contextTokens` は、この表から導く既存の道をそのまま通る。
 
 差し込む口は `createCodexUsage` が返す `{ track, untrack, noteRolloutRateLimits }` で、`RunsParts.codexUsage` に載っている。
-起動の面（B3a）が app-server につないだあとに `track({ providerSessionId, rpc, model })` を呼び、止めるときに `untrack` する。
-rollout の読み手（B5）が `rate_limits` の meta を出したら `noteRolloutRateLimits` に渡す。
+配線は次のとおりである（B7b）。
+driver（`provider/codex/driver.ts`）は、状態の面（live）に載せるのと同じ位置で `track({ providerSessionId, rpc, model })` を呼ぶ。
+新規（初期プロンプトあり）、再開、fork は thread の応答の直後、初期プロンプトなしは TUI がつないで ID を拾ったとき、hangar の再起動後は app-server へつなぎ直せたときである（つなぎ直しは非同期で、つながるまで読まない）。
+止めたとき（release）と起動の失敗で `untrack` する。model は起動の指定か thread の応答の値である。
+使用量の面は run の部品（boot/runs.ts）が組み、driver は配る層（boot/agents.ts）が先に組むので、driver には呼ばれた時点で引く口（`usage`）を渡し、boot/runs.ts が `bindCodexUsage` で結ぶ。
+外の会話の枠は、Codex のトランスクリプトの面（`codexTranscriptSource` の `onRateLimits`）が、読んだ束の最後の meta `rate_limits` を渡し、server.ts が `indexing.bindCodexRateLimits` で `noteRolloutRateLimits` に結ぶ。`codexEnabled` が切の間は呼ばない。
+設定の入り切りが変わったとき（`PATCH /api/settings`）は `AgentUsageTracker.refresh()` を呼ぶ。切なら持っていた値を捨て、どちらでも `accounts.update` を配り直すので、切にした瞬間にヘッダの元から Codex の枠が外れる。
 
 ### opencode の検出（ベータ）
 
@@ -1746,7 +1806,7 @@ Windows のコマンド行は引用符を含む（空白を含む場所、cmd.ex
 ### Codex の起動（ベータ）
 
 Codex を足す作業の段 B の 3 つ目の前半（計画の B3a）で、新しい会話を API から起こし、止めるところまでを入れた。
-再開とフォークは B3b、トランスクリプトは B5、ダイアログの札は C1 である。
+再開とフォークは B3b（下の「再開とフォーク」）、状態と許可と質問は B4（入り済み）、トランスクリプトは B5、ダイアログの札は C1 である。
 `provider/codex/driver.ts` の `createCodexDriver` が Codex の `AgentDriver` で、`boot/agents.ts` が Claude と opencode のとなりに登録する。
 driver が登録されたので、B1 の「知らないエージェント」の断りは外れる。
 代わりに `RunManager` が、設定の `codexEnabled` が切のとき `run.agent.codex.disabled` で断る（`AGENT_ENTRY.codex.enabled`。行も app-server も作らない）。
@@ -1781,6 +1841,18 @@ RunManager は包みの生死で TUI の終わりを見て、終わったら `re
    拾った ID は app-server の記録にも書く。
    待ちの上限は 60 秒で、尽きたら知らせるだけにする。
 
+**再開とフォーク**（B3b、`materialize` の `kind` が `resume`・`fork`）は、新しい会話と同じ組み立てで app-server を起こし、既にある会話を開く。
+- 再開：`thread/resume`（threadId、cwd、モデル、権限の組）で開き、hangar の MCP がつながるのを待ってから、TUI を `resume <ID>` でつなぐ。最初の入力は流さない（外のターミナルの再開が `--prompt` を付けたときだけ流す）。
+  cwd は、そのプロセスで最初の resume だけ上書きできる（E0）。app-server は会話ごとに起こしたてなので、ここで渡す。resume は rollout に `thread_settings_applied` を 1 行足す。
+- hangar の外で作られた会話（索引の provider が codex の行）も同じ道で再開する。終わった画面の「再開」（`resumeWith`、`resumeMaterialized`）は、driver が `materialize` を持つのでこの道を通る。
+- 最初の入力の前のスレッド（rollout が無い）は再開できない。app-server の `-32600 no rollout found` と、ID が仮のまま（`pending:`）の行を、どちらも `run.agent.codex.noRollout` で断る（行は消さず、app-server も残さない）。
+- 起こす前に `codex login status`（`LocalCodex`）で確かめ、ログインしていなければ（0 以外で終わったときだけ。時間切れで分からないときは断らず起動を続ける）`run.agent.codex.loggedOut`「codex にログインしていません（ターミナルで codex login を実行してください）」で断る（driver の `loggedIn`。app-server は起こさない）。見つからないときは `run.agent.codex.notFound`。版が範囲外でも起動は止めず、知らせの札だけを出す（決定 8）。
+- フォーク：app-server に `thread/fork` があり、driver は `materialize` で新しいスレッドを作ってその ID を返し、`plan` は `fork` の `newId` を `resume` でつなぐ。
+  `caps.fork` は真で、`RunManager.fork`（B3c）は、`materialize` を持つ driver だけ別の道（`forkMaterialized`）を通る。Claude と opencode の道は変えない。
+  新しい会話の ID はまだ無いので、`startMaterialized` と同じく仮の ID（`pending:…`）で新しい行を作り（プロジェクトと移した印は元から写す）、`materialize`（`kind: 'fork'`）を待って ID を書き換え、`plan` の `resume <新しい ID>` でつなぐ。run の種類は `fork` である。
+  元の会話の行と run は変えない。rollout の無い会話は `run.agent.codex.noRollout` で断り、新しい行も app-server も残さない。
+  応答が非同期になるので、`runResult` は Promise を返す関数も待つ（Claude と opencode は同期のまま）。
+
 **plan**（`launcher.ts` の `planCodex`）は TUI の argv と環境を返す。
 `codex --remote ws://127.0.0.1:<port> --remote-auth-token-env HANGAR_CODEX_TOKEN [-m モデル] [-c model_reasoning_effort=…] -s … -a … [resume <ID>]` である。
 token の値は `secretEnv` に置き、argv にも tmux の環境にも載せない（0600 のファイルから包みが読んで消す）。
@@ -1809,6 +1881,36 @@ driver が、会話を起こしたあとに `live.track({providerSessionId, cwd,
 - reattach：接続を持たないので、上のとおりつなぎ直してから載せる。
 トランスクリプト（`transcript`）は B5 が載せるまで空の面を持つ。
 `CodexDriver.served(sessionId)` と `onServe` は、動いている app-server の接続とスレッドの ID の口である。使用量（B7）の `codexUsage.track` はこの口にはつないでいない。
+
+### Codex の新しいセッションのダイアログ（ベータ）
+
+Codex を足す作業の段 C の 1 つ目（計画の C1）で、新しいセッションのダイアログに Codex を選べるようにした。
+設定の `codexEnabled` が切のあいだは、ダイアログは今のままで、エージェントの札も出ない。
+
+**札の列**：エージェントの札の一覧は、設定で有効にしたものだけを並べる（Claude Code は常に。`NewSessionProps.codex` が有効なときだけ渡り、`LaunchAgentChip.offered` が並びを決める）。
+前回のエージェントが無効になっていたら、Claude Code で開く。
+Codex を選ぶと、アカウント、モデルの自由入力、effort、権限モード、worktree、追加ディレクトリの札と信頼の注記を外し、モデル、推論、権限の 3 枚を出す（`LaunchChips` の `CodexChips`）。
+この 3 枚は `AGENT_UI_CAPS` の `modelList`（Codex だけが真）で見分ける。`effort` と `permissionMode` の能力は Claude Code の自由な値の札のもので、Codex では偽のままにしてある（切り替えの動きが、Claude の札と Codex の札を取り違えないため）。
+切り替えの動きは opencode と同じ（`agentSwap.ts`）。
+
+**モデルと推論**：一覧は `GET /api/codex/options`（`provider/codex/options.ts` の `CodexOptionsService`）が、`codex debug models` を空の環境（`codexBaseEnv`）で打って作る。
+app-server の `model/list` は使わない。app-server を起こすのは重く、ログインも要るので、子プロセスを 1 回打つだけで済む `debug models` を選んだ。
+出力は 500KB ほどあるので、`visibility` が `list` のものを `priority` の順に、モデルの ID、表示名、説明、選べる推論の段階、既定の段階だけに縮める。
+60 秒は取り直さず、同時の問いは 1 回にまとめる。取り直しに失敗しても、前の一覧があれば返す。設定で有効にしていなければ 409、取れなければ 502 で、画面は札の下で言う。
+応答には手元の codex の版と、確かめた範囲に入るかを添える（エージェントの一覧の「codex 0.164.0 · 検証済み」）。
+画面の取得は Codex を選んだときに 1 回頼む（`codex.options`、Store の `codexOptions`）。
+
+**推論の戻し**：推論の初めの値は medium。選べる段階はモデルごとの一覧で決まる（モデルがデフォルトのときは、一覧の先頭のモデルの段階を使う）。
+モデルを替えて、いまの推論がそのモデルで選べなくなったら、その場で medium に戻す。medium も無いモデルは、そのモデルの既定の段階にする。
+前回のモデルが一覧から消えていたらデフォルトに戻す（opencode のような知らせは出さない）。一覧が届く前は、前回の値をそのまま見せる。（`presenters/codexLaunch.ts`）
+
+**権限**：札は 1 枚で、読み取りのみ（`read-only`）、自動（`auto`、既定）、フルアクセス（`full-access`）の 3 段。値は `LaunchParams.permissionMode` にそのまま入る（組の中身は `CODEX_PERMISSION_FLAGS`）。
+フルアクセスは札を赤い縁と警告の印にし、下に注意の 1 行を出す（`CodexFullAccessNote`。入りは `growIn`、外れは `collapseOut`）。起動のボタンは赤くしない。
+権限は毎回自動から始め、前回値には残さない。
+
+**前回の選択**：プロジェクトごとの前回値（`LaunchPrefs`）に、エージェントのほか `codexModel` と `codexEffort` を持つ。
+Codex で起こすと、エージェントとモデルと推論を書き換え、Claude の札と opencode のモデルは前のまま残す。Claude Code や opencode で起こしても、Codex のモデルと推論は前のまま残す。
+起動の params は、エージェント、モデル（デフォルトなら載せない）、推論、権限だけを載せる。
 
 ### opencode の起動
 
@@ -1902,6 +2004,16 @@ LM Studio の段（`provider/opencode/localModels/`）は、serve を起こし�
 5. アンロードしてよいのは、hangar がロードしたもの（ホームの `opencode/local-models.json` に、宛先と使った hangar の会話と一緒に記録する）のうち、ほかの実行中の会話（serve がある会話）が使っていないものだけである。手動でロードされたものは、答え（`unload`）が無ければ触らずに聞く（`unload-manual`）。
 6. メモリは、残る instance と新しくロードするものの重みの合計が物理メモリの 8 割を超えるかで見る。会話と agent が別々のモデルを使い、それだけで超えるなら、1 モデルに寄せるかを聞く（`memory`、勧めるのは会話のモデル）。答えが `singleModel` なら、agent と `small_model` をそのモデルに上書きする設定で serve を起こし直す。1 つで収まらないモデルは聞かずにロードしてみる。
 
+LM Studio の段の前に、会話のモデルがこの PC にあるかを確かめる（モデルの有無、`localModels/available.ts`）。opencode.json は PC の間で共有されるので、ほかの PC にだけあるモデルも候補に出る。無いモデルで起こすと、最初の発言で LM Studio が 400（`provider.invalid-request`）を返して会話が止まる。
+
+- 確かめるのは会話のモデル（答えの `singleModel`、指定、設定の `model` の順）だけである。接続先の準備のコマンドの後に聞く（コマンドがサーバーを起こすことがある）。「そのまま開始」（`skip`）でも確かめる。
+- baseURL が 127.0.0.1 か localhost の接続先だけに聞く。先に LM Studio の `/api/v1/models`（埋め込みのモデルは外す）を聞き、404 か形が違えば OpenAI 互換の `{baseURL}/models` を聞く。OpenAI 互換の `/v1/models` を先にしないのは、LM Studio の JIT の読み込みを切ると、載っているモデルしか返さないからである。
+- 無ければ「{model} はこの PC にありません。使えるのは: …」、どちらの口にもつながらなければ「{接続先}（{origin}）に接続できません。…」で起動を 400 で断る（`MessageError`、MCP の `create_session` も同じ文を返す）。一覧の形でない答えは確かめられないので通す。
+- 取れた一覧は 30 秒使い回す。つながらなかった答えは覚えない（LM Studio を起こした直後に送り直せるように）。
+- 外のターミナルからの起動と再開では確かめない（選び直す画面が無く、TUI の `/models` で替えられる）。
+
+新しいセッションのモデルの小窓（`GET /api/opencode/options`）も同じ口で聞き、無いモデルに `missing` を立てる。小窓はその行を選べない灰色の行にし、「未ダウンロード」の札と説明を添える。つながらないときは立てない（起動の口が断る）。小窓の「再読み込み」は LM Studio にも聞き直す。
+
 起動の後に、短く載ったモデルで断られたとき（`session.execution.failed` の文が「コンテキスト長を超えた」もの、`live.ts` の `isContextShortError`）は、`opencode.contextShort` を配って右下の札を出す。
 札の「再ロードして再開」は `POST /api/sessions/:id/local-models` で、動いている会話の serve のまま同じ段を走らせる。利用者が頼んだので、使うモデルが短く載っていれば手動でロードされたものでもロードし直す（ほかのモデルはアンロードしない）。
 外のターミナルからの起動と、終わった会話の再開では、問いに答える画面が無いので準備しない。
@@ -1913,6 +2025,9 @@ LM Studio の段（`provider/opencode/localModels/`）は、serve を起こし�
 手で載せたモデルが求めたモデルと同じものだけなら「再ロード」、別のモデルが載っていれば「アンロードしてロード」を聞く（外す instance は全部送る）。メモリの問いの「{model} のみで開始」は、起動のモデルの provider を使い、起動のモデルが無ければ出さない。
 進みの途中でダイアログを閉じても起動は裏で続き、右下に進みの札と「準備を中止」が出る。済んだら画面を移さず「開始しました」と「開く」の知らせにし、失敗したらエラーのトーストで理由を出す。段の無い準備は、閉じた後でも今までどおり会話の画面へ移る。
 `opencode.contextShort` は右下の札（同じ会話は 1 枚、`State.contextShorts`）になる。「再ロードして再開」は画面が作った鍵で `POST /api/sessions/:id/local-models` を呼び、進みは札の中の 1 行に出す。済んだら「再ロードしました」の知らせに替わる。
+起動の後に、この PC のサーバーに無いモデルで断られたとき（`session.execution.failed` の文が `provider.invalid-request` の `Invalid model identifier`、`live.ts` の `modelMissingOf`）は、`opencode.modelMissing`（文から取れたモデルの名前）を配って右下の札を出す。外のターミナルからの起動と、起動の後にモデルを消したときは、起動前の確かめを通らないためである。
+札は「モデルが見つかりません」と「{接続先} に {provider/model} がないため、会話を開始できませんでした。」で、同じ会話は 1 枚（`State.modelMissings`）。出入りは他の札と同じ `growIn` と `collapseOut`。
+「別のモデルでやり直す」は札を下げ、その会話のプロジェクト（無ければクイックセッション）で、エージェントを opencode にし、モデルの小窓を開いた新しいセッションのダイアログを開く（`session.new` の overlay の `agent` と `pickModel`）。確認のダイアログが出ているときは差し替えず、札を残す。
 設定の opencode の節の「ローカルモデルのコンテキスト長」（32K、64K（推奨）、128K）は `opencodeLocalContext` を保存する。次の起動から効く。
 
 #### 接続先の準備
@@ -2140,6 +2255,7 @@ opencode の行には起動時刻が無いので、印より前に始まった�
 - 意図は「opencode の意図 · 時刻」の見出しで出す。
 - このターンの意図が無ければ、モデルが hangar の MCP を呼ばなかったとみて、そのターンの依頼を出す（決定 6。モデルが MCP を呼ばなくても困らない作り）。最初のターンは見出しを「初期プロンプト」に、2 ターン目からは「プロンプト · 時刻」にする。最初のターンで本文がまだ届いていなければ、会話の最初の依頼（`firstPrompt`）を出す。Claude の設定の `liveHints` は opencode には効かない。
 - 許可待ちは「許可を待っています · shell」の見出しで、命令の全文を出す。問いは「opencode からの質問」の見出しで中身だけを出す。どちらも答えるボタンは置かない（Claude と同じ。答えはターミナルで行う）。
+- Codex の会話も、同じ使用量の欄を札のいちばん下に置く（`AGENT_UI_CAPS.codex.usagePanel`。コストは書かれないので、トークンとモデルの小札だけになる）。Codex の 5 時間・週はヘッダが出す。
 - 札のいちばん下に使用量の欄を置く。「コンテキスト」と割合の行、4px の帯、トークン・コスト・モデルの小札（「13.6k トークン」「$0.00」「lmstudio/qwen3.8-27b」）である。opencode には 5 時間・週の枠が無いので、ヘッダの使用量（Claude の 5 時間・週）は動かさず、ここに置く。ヘッダはホームと同じ、いまのアカウントの使用量のままにする（アカウントの切り替えの節）。
   - トークンは文脈の量（最後の値）で、10 万未満は小数 1 桁の k にする（`contextTokensLabel`）。ターンごとに伸びるのを札の上で読めるようにするためである。
   - 上限が分からない（割合が無い）ときは帯の段を出さず、届いていない値の小札も出さない。何も無ければ欄ごと出さない。
@@ -2181,6 +2297,30 @@ serve も TUI も、hangar の画面から起こすときと同じく hangar が
 下ごしらえを待つので、包み方が答えを待つ上限は 90 秒にする（claude は 10 秒）。待ち切れずに素の opencode を起こすと、hangar の会話と 2 つになるからである。
 tmux の中での入れ子の扱い（hangar の専用のサーバなら `switch-client`、ほかの tmux なら素の opencode）は claude と同じである。
 alias で opencode を包んでいる人がいても読み込みで壊れないよう、関数は `function opencode` の形で書く。
+
+### 外のターミナルの codex
+
+シェルで打った codex も、opencode と同じ仕組みで hangar の tmux の中で起こす（決定 6、計画の D1）。
+macOS と Linux だけで、Windows ではシェルの包みごと作らない。
+設定の「Codex を有効にする」（`codexEnabled`）と「codex コマンドを hangar 経由で起動」（`codexIntercept`）の両方が入りのときだけ、サーバは包みの本体（`claude.zsh`）に `function codex` を書く。
+どちらかの設定を変えたら本体を書き直し、次に開いたターミナルから効く。書き直す前から開いているターミナルの頼みも、サーバが設定を見て断る。
+
+包み方は opencode と同じ許可リスト方式である（`provider/codex/compat/cli.ts` の `CODEX_INTERCEPT_FLAGS` と `BUILTIN_CODEX_SUBCOMMANDS`）。
+写すのは、プロンプト 1 つ、`-m` と `--model`、`-c model_reasoning_effort=…`、`-s` と `-a`（権限の 3 段へ）、`resume <ID>` だけである。
+`-c` はほかの鍵、`-s` と `-a` は 3 段に当たらない組（例えば `-a never` だけ）を写せず、hangar が 400 で断って素の codex になる。省いた側は codex の既定（workspace-write と on-request）とみて 3 段に当てる。
+次は 1 つでもあれば素の codex を起動する。
+- 素通しのサブコマンド。codex 0.164.0 の `--help` の全部（`exec`、`login`、`logout`、`mcp`、`app-server`、`debug`、`apply`、`cloud`、`completion`、`help`、`review` など。別名の `e` と `a` も）である。`fork` も、hangar の入口が別なので素通しにする。`resume` だけは ID が UUID の 1 つのときに限って写し、ID なし、`--last`、名前、ほかの語つきは codex の選ぶ画面や探し方に任せる。
+- 一覧にないフラグ（`--version`、`--help`、`--oss`、`-C`、`--search` など）、2 つ目の位置引数、値の無いフラグ。
+- `CODEX_` で始まる変数が環境にあるとき。hangar は自分の app-server をふだんの置き場で起こし、`CODEX_HOME` は効かせない（決定 9）からである。
+値を取るフラグの次の語は値として読み、サブコマンドやプロンプトと取り違えない。1 回だけ包まずに起動するときは `command codex`、端末でないとき、`HANGAR_NO_WRAP`、tmux が無いときは包まない。
+
+包み方は本文に `"agent":"codex"` を足して `POST /api/runs/terminal` へ送り、端末の環境変数は送らない。
+頼みは非同期の `RunManager.startCodexFromTerminal` が受ける。
+1. 設定の 2 つを確かめ、引数を同じ許可リストで読み直す（`runs/terminal.ts` の `splitCodexTerminalArgs`）。
+2. `resume <ID>` があれば、その ID の codex の会話を引く。動いている run があればつなぐだけにし（`attached` が真）、止まっていれば `resumeMaterialized` で再開する（rollout の無い会話は断る）。一緒に打った `-m`、推論、権限もその再開に写す。hangar が知らない ID は 404 で断り、素の codex になる。
+3. 無ければ、作業ディレクトリで `startMaterialized` を通す。プロンプト、`-m`、推論、権限は `LaunchParams`（`prompt`、`model`、`effort`、`permissionMode`）に写す。プロジェクトは場所の最長一致で紐づけ、無ければ未分類にする。
+app-server も TUI も hangar が組む環境で起こす。下ごしらえを待つので、包み方が答えを待つ上限は opencode と同じ 90 秒である。
+tmux の中での入れ子の扱いは claude と同じである。
 
 `opencode --help` はまだ読まず、包みは組み込みの一覧で書く。
 横取りに使うフラグが help から消えたか、値の取り方が変わったときは、`opencodeSubcommandsFromHelp` がずれ（`flag.removed`、`flag.valueChanged`）として、ほかのずれと同じ契約 `opencode-cli` で返す（「opencode との互換」）。
@@ -2310,6 +2450,11 @@ worktree と追加ディレクトリは opencode の起動が受けない（Clau
 opencode の会話の終わった画面では、本文の面の最後に区切り線と 1 行「opencode を終了しました。続きは「再開」から開けます。」を置く（C7、試作の E1、presenter の `endedLine`、`EndedFacts.tsx` の `EndedAgentLine`）。
 「再開」から続けられることを言うので、run が無く再開を押せる会話にだけ付ける。
 見ている間に終わったときだけ growIn で入れ、開いたときにもう終わっていた会話では動かさない。
+
+Codex の会話も同じ形である（C5）。
+文は「Codex を終了しました。続きは「再開」から開けます。」で、どのエージェントのどの 1 行かは `presenters/agentText.ts` の `AGENT_TEXT`（`endedLine`、`endedPending`）と `ENDED_LINE_KEY` で引く。
+hangar の外の会話（状態を持たない）も、本文があれば同じ 1 行が付き、「再開」から続けられる。
+`provider_session_id` が `pending:` のまま終わった会話（最初の入力の前）は、rollout が無く再開できないので、`canResume` を偽にして再開を出さず、「この会話は、まだ最初の入力が送られていないため、再開できません。」の 1 行（`session.ended.codex.pending`）にする。
 切り替えの動きは M1 である（`views/agentSwap.ts`）。消える札は `--dur-swap`（150ms）で薄れ、残る札は前の位置から滑り（FLIP）、新しい札は `--stagger`（30ms）ずつずれて浮き上がる。ダイアログの高さは `resizeFrom` で変える。
 どちらかのエージェントだけの札と注記は `data-agent-only` を持ち、動きはそれで消えるものと入るものを見分ける。
 値は能力（`AGENT_UI_CAPS`）から `agentOnlyAttr` が作り、そのエージェントの名前を空白で並べる。
@@ -4867,9 +5012,16 @@ hangar はトークンを読まず、渡すのは `CLAUDE_CONFIG_DIR` だけで�
 色の点と名前を、使用量の計器の前に置く。
 計器の値も、そのアカウントの値に替える。
 セッション画面でホームと同じ名前を出すと、いまのアカウントとこのセッションのアカウントが食い違うときに、計器がどちらの値か分からなくなるためである。
-opencode の会話の画面は、ホームと同じく、いまのアカウントを出す。
-opencode の会話には Claude のアカウントが無く、会話のアカウントを引くと、対応に無い会話としてメインのアカウントの使用量が出てしまうためである（rc.1 の実機で、いまのアカウントと違う 0% が出た）。
+opencode と Codex の会話の画面は、ホームと同じく、いまのアカウントを出す。
+opencode と Codex の会話には Claude のアカウントが無く、会話のアカウントを引くと、対応に無い会話としてメインのアカウントの使用量が出てしまうためである（rc.1 の実機で、いまのアカウントと違う 0% が出た）。
 一覧から選んだときも、会話の付け替え（`account.switchSession`）ではなく、いまのアカウントの切り替え（`account.choose`）にする。
+計器の枠は、開いている会話のエージェントのものに切り替える（U1）。
+`AccountsDto.agents.codex`（Codex の枠）が届いているときだけ切り替え、Codex の会話では Codex の 5 時間・週を、それ以外の画面では Claude の枠を出す。
+どちらの枠かは、計器の先頭の札（「Claude」「Codex」）で示す。
+Codex の枠が無いとき（値が未着、設定で切）は、Codex の会話でも Claude の枠のまま、札も出さない。見た目は今のままである。
+Codex の枠の更新時刻、戻る時刻は Codex の値から作り、使用制限で止まった会話の時刻（Claude の枠のもの）は付けない。
+エージェントが替わったときだけ、計器を `fadeIn` で入れ替える（最初の描画では動かさない）。
+スマホには出さない。
 窓が狭いときは、ほかの表示と同じ順で畳み、名前を隠して色の点だけを残す。
 
 アカウントが 1 件のときも、ヘッダは 2 件以上のときと同じ顔（色の点、名前、計器、▾）にし、押すと同じ一覧が開く（2026-10-16 の利用者の決定、試作 account-ime の 1A）。

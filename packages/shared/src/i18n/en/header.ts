@@ -27,6 +27,8 @@ export const headerEn: AreaDictionary<typeof headerKeys> = {
   'header.gauge.weeklyShort': 'Weekly',
   'header.gauge.resetsTitle': ', resets at {time}',
   'header.gauge.updatedTitle': ', last updated {time}',
+  'header.gauge.agentClaude': 'Claude',
+  'header.gauge.agentCodex': 'Codex',
   'header.gauge.none': 'No values yet',
   'header.gauge.noneLink': 'Percent used: not available',
   'header.gauge.noneTitle': 'Add the status line to see the 5-hour and weekly percent used',
