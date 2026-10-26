@@ -324,7 +324,7 @@ describe('MCP tools', () => {
     expect(started[0]).toMatchObject({ projectId: 'p1', agent: 'opencode', mode: 'plan', model: 'lmstudio/gemma' });
   });
   it('create_session は知らない agent を断り、起動しない', () => {
-    expect(() => call('create_session', { project_id: 'p1', agent: 'codex' })).toThrow(ToolError);
+    expect(() => call('create_session', { project_id: 'p1', agent: 'gemini' })).toThrow(ToolError);
     expect(() => call('create_session', { project_id: 'p1', agent: 1 })).toThrow(ToolError);
     expect(started).toEqual([]);
   });

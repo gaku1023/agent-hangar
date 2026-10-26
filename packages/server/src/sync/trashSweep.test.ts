@@ -126,7 +126,7 @@ describe('sweepTrashBlobs', () => {
     trash(OLD, clock - TRASH_KEEP_MS - 1);
     await uploaded(OLD, null, 2);
     db.prepare('insert into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
-      .run('s-other', 'codex', OLD, '/w/alpha', 1, 1, 'dev-a', 'dev-a', 1);
+      .run('s-other', 'gemini', OLD, '/w/alpha', 1, 1, 'dev-a', 'dev-a', 1);
     clock += 2 * BLOB_DELETE_GRACE_MS;
     expect(await sweep()).toEqual({ deleted: 0, refused: 0 });
     expect(deletes()).toEqual([]);

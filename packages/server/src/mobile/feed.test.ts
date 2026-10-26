@@ -8,7 +8,7 @@ import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { addIntent } from '../live/intents.ts';
-import { buildMobileFeed, LAST_USED_SQL, type FeedSources } from './feed.ts';
+import { buildMobileFeed, feedCaps, LAST_USED_SQL, type FeedSources } from './feed.ts';
 import { saveRemoteUrl } from './remoteUrl.ts';
 
 const ME = 'pc-me';
@@ -490,6 +490,8 @@ describe('buildMobileFeed', () => {
       expect(buildMobileFeed(src(db)).caps).toEqual({ asks: true, images: true, effort: true });
       expect(buildMobileFeed(src(db, { opencodeEnabled: false })).caps).toEqual({ asks: true, images: true, effort: true });
       expect(buildMobileFeed(src(db, { opencodeEnabled: true })).caps).toEqual({ asks: true, images: true, effort: true, agents: ['claude-code', 'opencode'] });
+      // codex はスマホの面ができる（F1）まで、caps に出さない。
+      expect(feedCaps(true).agents).not.toContain('codex');
     });
   });
 });

@@ -1393,6 +1393,32 @@ GitHub Actions の `claude-compat`（`.github/workflows/claude-compat.yml`）が
 見本がまだ無いときは、「見本がありません」と書いて落ちる。
 認証は要らない。
 
+### Codex の検出（ベータ）
+
+Codex を足す作業の段 B の 1 つ目（計画の B1）で、設定のスイッチと、入っている codex の場所、版、ログインの有無の読みだけを入れた。
+`AGENT_KINDS` に `codex` が入ったが、Codex はまだ何もできず、画面にも出さない。
+
+設定は opencode と同じ形の 3 つで、`codexEnabled`（有効にするスイッチ、既定は切）、`codexInjection`（システムプロンプトへの追記、`minimal`・`claude`・`none`、既定は `minimal`）、`codexIntercept`（外のターミナルの横取り、既定は切）である。
+読む側の既定は `@agent-hangar/shared` の `codexEnabledOf`、`codexInjectionOf`、`codexInterceptOf` にまとめる。
+設定の応答（`SettingsDto`）には、書かれているときだけ返す（切のままなら応答は今までと同じ形）。
+設定の画面の行は段 C（C4）で足す。
+入口の表 `AGENT_ENTRY` の codex の行は、`enabled`、`intercept`、`bin`（`findCodex`）、断る文の欄名、シェルの包みと一覧を組み直す欄を持つ。
+
+場所は `config/tools.ts` の `findCodex` が、PATH と既知の置き場から探す。
+ChatGPT.app に同梱の codex は使わない。版が利用者の入れたものと別で、確かめた版を持てないためである。
+確かめた版の範囲は `@agent-hangar/shared` の `CODEX_VERIFIED_RANGE`（`0.164.x`）の 1 か所に持つ。
+範囲の外でも起動は止めず、知らせの種を出すだけにする（決定 8）。
+版の読みは `provider/codex/compat/version.ts` の `LocalCodex` が行い、`codex --version` を空の環境で打つ。
+ログインの有無は `codex login status` の終了コード（0 ならログイン済み）で、聞かれるたびに打つ。
+空の環境は `provider/codex/env.ts` の `codexBaseEnv` で、opencode と同じ土台に、codex の置き場と hangar が使っている node の置き場を PATH へ足す（codex の道具が node を要るため）。
+`CODEX_HOME` は渡さず、いつも `~/.codex` で動かす（アカウントの切り替えは効かせない）。
+
+この段で Codex が断る、または何もしないもの。
+- 起動：`RunManager` は driver が無い Codex を、知らないエージェントと同じ文（`run.agent.unknown`）で断る。
+- 同期：`AGENT_SYNC` の codex の行は `source: 'none'` で、上げも降ろしも台帳の鍵も作らない。本物の行は E1 で入れる。
+- スマホ：`feedCaps` は caps に codex を出さない。F1 で、`codexEnabled` が入りのときだけ出す形にする。
+- 画面：エージェントの札は codex を並べない。絵は無い（`AGENT_ICONS` に行が無く、`agentIconArt` が undefined を返す。C2 で入れる）。
+
 ### opencode の検出（ベータ）
 
 opencode を足す作業の 1 段目（計画の B1）で、設定のスイッチと、入っている opencode の場所と版の読みだけを入れた。

@@ -46,7 +46,7 @@ describe('一覧の行のエージェントのアイコン', () => {
   it('種類の無い行（古いサーバ）は Clawd、知らない種類は空の枠', () => {
     const old = session('old') as Partial<SessionDto>;
     delete old.provider;
-    const store = storeWith([old as SessionDto, session('x', { provider: 'codex' as SessionDto['provider'] })], { enabled: true });
+    const store = storeWith([old as SessionDto, session('x', { provider: 'gemini' as SessionDto['provider'] })], { enabled: true });
     expect(Object.fromEntries(listRows(store).map((r) => [r.id, r.agent]))).toEqual({ old: 'claude-code', x: null });
   });
 

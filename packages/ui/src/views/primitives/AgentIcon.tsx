@@ -1,4 +1,4 @@
-import { AGENT_ICONS, AGENT_LABEL, type AgentIconKind, type AgentIconTone } from '@agent-hangar/shared';
+import { agentIconArt, AGENT_LABEL, type AgentIconKind, type AgentIconTone } from '@agent-hangar/shared';
 
 /**
  * エージェントの絵（shared の agentIcons.ts の組）。
@@ -7,8 +7,10 @@ import { AGENT_ICONS, AGENT_LABEL, type AgentIconKind, type AgentIconTone } from
  */
 export function AgentIcon(props: { kind: AgentIconKind; tone?: AgentIconTone; decorative?: boolean }) {
   const tone = props.tone ?? 'light';
-  const art = AGENT_ICONS[props.kind][tone];
+  const art = agentIconArt(props.kind, tone);
   const label = AGENT_LABEL[props.kind];
+  // 絵の無いエージェント（Codex は C2 で入れる）は、読み上げに名前だけを残して絵を置かない。
+  if (!art) return <span className="agent-icon" data-agent={props.kind} data-tone={tone} role={props.decorative ? undefined : 'img'} aria-label={props.decorative ? undefined : label} aria-hidden={props.decorative ? 'true' : undefined} />;
   const svg = (
     <svg viewBox={art.viewBox} width={art.width} height={art.height} aria-hidden="true" focusable="false"
       preserveAspectRatio={art.stretch ? 'none' : undefined} shapeRendering={art.crisp ? 'crispEdges' : undefined}>

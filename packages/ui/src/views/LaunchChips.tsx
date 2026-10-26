@@ -197,6 +197,9 @@ export function LaunchChips(props: {
  * 札は名前を見せず、値だけを出す（アカウントの札と同じ）。一覧の opencode の行には「ベータ」と版の確かめを添える。
  * 札と一覧の行の頭には、エージェントの絵（サイドバーとタブと同じ組）を置く。隣に名前があるので、絵は読み上げない。
  */
+/** 札に並べるエージェント。Codex は面が無いうちは出さない（C1 で、設定で有効なものだけを出す形に替える）。 */
+const OFFERED_AGENTS = AGENT_KINDS.filter((k) => k !== 'codex');
+
 function AgentChip(props: LaunchAgentChip) {
   const t = useT();
   const beta = t('launch.agent.beta');
@@ -205,7 +208,7 @@ function AgentChip(props: LaunchAgentChip) {
     <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} lead={<AgentIcon kind={props.value} decorative />} badge={AGENT_UI_CAPS[props.value].beta ? beta : undefined} showName={false} width={260}>
       {(close) => (
         <PickList label={t('launch.chip.agent')} value={props.value}
-          items={AGENT_KINDS.map((k) => ({
+          items={OFFERED_AGENTS.map((k) => ({
             value: k, label: label(k), lead: <AgentIcon kind={k} decorative />,
             ...(AGENT_UI_CAPS[k].beta ? { badge: beta } : {}),
             ...(k === 'opencode' && props.opencodeNote ? { sub: props.opencodeNote } : {}),

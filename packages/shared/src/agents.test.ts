@@ -9,25 +9,26 @@ type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ?
 const same = <T extends true>(_: T): void => {};
 
 describe('エージェントの一覧', () => {
-  it('値は今の 2 種と同じ並び（先頭が既定）', () => {
-    expect([...AGENT_KINDS]).toEqual(['claude-code', 'opencode']);
+  it('値は今の 3 種と同じ並び（先頭が既定）', () => {
+    expect([...AGENT_KINDS]).toEqual(['claude-code', 'opencode', 'codex']);
     expect([...AGENT_VALUES]).toEqual([...AGENT_KINDS]);
     expect([...AGENT_ICON_KINDS]).toEqual([...AGENT_KINDS]);
-    expect(AGENT_LABEL).toEqual({ 'claude-code': 'Claude Code', opencode: 'opencode' });
-    expect(AGENT_DISPLAY_NAME).toEqual({ 'claude-code': 'Claude Code', opencode: 'opencode' });
+    expect(AGENT_LABEL).toEqual({ 'claude-code': 'Claude Code', opencode: 'opencode', codex: 'Codex' });
+    expect(AGENT_DISPLAY_NAME).toEqual({ 'claude-code': 'Claude Code', opencode: 'opencode', codex: 'Codex' });
   });
   it('導いた型は直書きの union と等しい', () => {
-    same<Equal<AgentKind, 'claude-code' | 'opencode'>>(true);
+    same<Equal<AgentKind, 'claude-code' | 'opencode' | 'codex'>>(true);
     same<Equal<AgentValue, AgentKind>>(true);
     same<Equal<AgentIconKind, AgentKind>>(true);
     same<Equal<SessionDto['provider'], AgentKind>>(true);
     same<Equal<NonNullable<LaunchParams['agent']>, AgentKind>>(true);
-    same<Equal<NonNullable<LiveSessionDto['agent']>, 'opencode'>>(true);
+    same<Equal<NonNullable<LiveSessionDto['agent']>, 'opencode' | 'codex'>>(true);
   });
   it('isAgentKind は一覧の値だけ通す', () => {
     expect(isAgentKind('claude-code')).toBe(true);
     expect(isAgentKind('opencode')).toBe(true);
-    expect(isAgentKind('codex')).toBe(false);
+    expect(isAgentKind('codex')).toBe(true);
+    expect(isAgentKind('gemini')).toBe(false);
     expect(isAgentKind(null)).toBe(false);
   });
   it('能力の表は全種を持つ', () => {

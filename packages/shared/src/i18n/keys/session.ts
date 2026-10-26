@@ -53,6 +53,7 @@ export const sessionKeys = {
   'session.strip.intentMeta': ['time', 'n'],
   'session.strip.opencode.intentLabel': ['time'],
   'session.strip.opencode.intentMeta': ['time', 'n'],
+  'session.strip.codex.questionLabel': [],
   'session.strip.opencode.questionLabel': [],
   'session.strip.initialPrompt': [],
   'session.strip.usage.label': [],

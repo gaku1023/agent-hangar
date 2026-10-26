@@ -24,8 +24,9 @@ function decode(lines: string[], width: number): string[] {
 
 describe('エージェントの絵の組', () => {
   it('絵を持つのは Claude Code と opencode だけで、Codex の絵は置かない', () => {
-    expect([...AGENT_ICON_KINDS]).toEqual(['claude-code', 'opencode']);
+    expect([...AGENT_ICON_KINDS]).toEqual(['claude-code', 'opencode', 'codex']);
     expect(Object.keys(AGENT_ICONS).sort()).toEqual(['claude-code', 'opencode']);
+    expect(agentIconSvg('codex', 'light')).toBe('');
     for (const kind of AGENT_ICON_KINDS) {
       for (const tone of ['light', 'dark'] as const) expect(agentIconSvg(kind, tone).toLowerCase()).not.toMatch(/codex|openai/);
     }
@@ -33,7 +34,7 @@ describe('エージェントの絵の組', () => {
 
   it('どの絵にも、明るい地用と暗い地用があり、枠（約 20px）に収まる', () => {
     expect(AGENT_ICON_FRAME.width).toBe(20);
-    for (const kind of AGENT_ICON_KINDS) {
+    for (const kind of Object.keys(AGENT_ICONS) as (keyof typeof AGENT_ICONS)[]) {
       for (const tone of ['light', 'dark'] as const) {
         const art = AGENT_ICONS[kind][tone];
         expect(art.paths.length).toBeGreaterThan(0);
@@ -72,7 +73,7 @@ describe('エージェントの絵の組', () => {
   });
 
   it('名前はエージェントの名前のまま出す', () => {
-    expect(AGENT_LABEL).toEqual({ 'claude-code': 'Claude Code', opencode: 'opencode' });
+    expect(AGENT_LABEL).toEqual({ 'claude-code': 'Claude Code', opencode: 'opencode', codex: 'Codex' });
   });
 
   it('SVG の文字列は、スマホのように文字列で差し込む場所に使える', () => {

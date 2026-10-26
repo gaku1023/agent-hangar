@@ -36,11 +36,12 @@ export type LedgerKeyIds = { uuid: string; agentId: string | null };
  * 上げ方（source）：
  * - watched-file：エージェントが書き足すファイルを、そのまま見張って上げる（Claude の jsonl。Codex の rollout もこの形の予定）。
  *   写しの path は ~/.claude からの相対で、サブエージェントの本文は別の鍵になる。remote/ の写しは上げ直す。
+ * - none：同期しない（まだ上げも降ろしもしない）。Codex は E1 で本物の行（watched-file）に替えるまでこれで、ledgerKey と blobKey は呼ばれたら投げ、isSessionId はどの ID も断る。
  * - export：本文が DB にあり、上げる直前に書き出したファイルを上げる（opencode）。
  *   写しの path は projects/ の外の専用の形で、書き出しの口（deps）が要る。remote/ の写しは上げ直さない。
  */
 export type AgentSyncUnit = {
-  source: 'watched-file' | 'export';
+  source: 'watched-file' | 'export' | 'none';
   /** 台帳の鍵。使えない ID は throw する。 */
   ledgerKey(deviceId: string, sessionId: string, agentId: string | null): string;
   /** 台帳の鍵から ID を取り出す（この PC のものだけ）。形が違えば null。削除の掃除が使う。 */
@@ -106,6 +107,21 @@ export const AGENT_SYNC: Record<AgentKind, AgentSyncUnit> = {
     remoteDir: 'opencode',
     exportFile: (home, id) => path.join(home, 'opencode', 'export', `${id}.json`),
     isSessionId: isSafeKeyId,
+    relays: false,
+  },
+  // Codex は同期の行を E1 で入れる。それまでは上げも降ろしもしない（台帳の鍵も本文の鍵も作らず、削除の掃除は ID を断る）。
+  codex: {
+    source: 'none',
+    ledgerKey() {
+      throw new Error('codex sync is not available yet');
+    },
+    idsOfLedgerKey: () => null,
+    blobKey: () => Promise.reject(new Error('codex sync is not available yet')),
+    sessionOfPath: () => null,
+    syncPath: null,
+    remoteDir: null,
+    exportFile: null,
+    isSessionId: () => false,
     relays: false,
   },
 };

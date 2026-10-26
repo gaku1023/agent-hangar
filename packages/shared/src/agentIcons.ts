@@ -9,7 +9,10 @@ import { AGENT_DISPLAY_NAME, AGENT_KINDS, type AgentKind } from './agents.ts';
  * Codex（OpenAI）の絵は置かない。ロゴの使い方に承認が要るからである。
  */
 
-/** 絵を持つエージェント。Codex はまだ絵を決めていないので入れない。 */
+/**
+ * 絵の種類は AgentKind と同じ。ただし AGENT_ICONS に絵が無い種類がある（Codex は C2 で入れる）。
+ * 絵の無い種類は agentIconKindOf が null を返し、描く側は枠だけを置く（AGENT_ICONS[kind] が undefined）。
+ */
 export const AGENT_ICON_KINDS = AGENT_KINDS;
 export type AgentIconKind = AgentKind;
 /** light は明るい地（一覧、サイドバー、選んでいないタブ）、dark は暗い地（ターミナルの板につながる、選んだタブ）に置く絵。 */
@@ -59,7 +62,8 @@ const OPENCODE_INNER = 'M180 240H60V120H180V240Z';
 const OPENCODE_OUTER = 'M180 60H60V240H180V60ZM240 300H0V0H240V300Z';
 const opencode = (inner: string, outer: string): AgentIconArt => ({ viewBox: '0 0 240 300', width: 9.6, height: 12, stretch: false, crisp: false, paths: [{ d: OPENCODE_INNER, fill: inner }, { d: OPENCODE_OUTER, fill: outer }] });
 
-export const AGENT_ICONS: Record<AgentIconKind, Record<AgentIconTone, AgentIconArt>> = {
+/** 絵を持つ種類（Codex は C2 で足す）。引くときは、絵の無い種類があるので agentIconArt を使う。 */
+export const AGENT_ICONS: Record<Exclude<AgentIconKind, 'codex'>, Record<AgentIconTone, AgentIconArt>> = {
   // Clawd の橙は暗い地でも読めるので、同じ絵を使う。
   'claude-code': { light: clawd, dark: clawd },
   opencode: { light: opencode('#CFCECD', '#211E1E'), dark: opencode('#4B4646', '#F1ECEC') },
@@ -86,9 +90,15 @@ export function agentIconsShown(o: { opencodeEnabled: boolean; hasOpencode: bool
   return o.opencodeEnabled || o.hasOpencode;
 }
 
+/** 種類と地の明るさから絵を引く。絵の無い種類（Codex）は undefined。 */
+export function agentIconArt(kind: AgentIconKind, tone: AgentIconTone): AgentIconArt | undefined {
+  return (AGENT_ICONS as Partial<Record<AgentIconKind, Record<AgentIconTone, AgentIconArt>>>)[kind]?.[tone];
+}
+
 /** 絵を SVG の文字列にする。React を使わない画面（スマホ）や文字列で差し込む場所に使う。 */
 export function agentIconSvg(kind: AgentIconKind, tone: AgentIconTone): string {
-  const a = AGENT_ICONS[kind][tone];
+  const a = agentIconArt(kind, tone);
+  if (!a) return '';
   const attrs = [`viewBox="${a.viewBox}"`, `width="${a.width}"`, `height="${a.height}"`, ...(a.stretch ? ['preserveAspectRatio="none"'] : []), ...(a.crisp ? ['shape-rendering="crispEdges"'] : []), 'aria-hidden="true"'];
   return `<svg ${attrs.join(' ')} xmlns="http://www.w3.org/2000/svg">${a.paths.map((p) => `<path d="${p.d}" fill="${p.fill}"/>`).join('')}</svg>`;
 }
