@@ -1,4 +1,4 @@
-import { AppWindow, Archive, Bell, ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, Ban, Bot, Brain, CaseSensitive, ChartColumn, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, CirclePause, CircleX, Clock, Ellipsis, FilePlus, Layers, ScrollText, Unplug, Cloud, Code, Columns2, Command, Copy, Download, ExternalLink, FileDiff, FileJson2, FilePenLine, FileText, FileX2, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, GitBranch, GitFork, House, Info, ListChecks, ListFilter, Map as MapIcon, MessageCircleQuestion, Monitor, MessagesSquare, Maximize2, Minimize2, Rows2, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, RotateCcw, RotateCw, Search, Settings, Settings2, ShieldAlert, SlidersHorizontal, SkipForward, Sparkles, Sprout, Square, SquareTerminal, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, Archive, Bell, ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, Ban, Bot, Brain, CaseSensitive, ChartColumn, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, CirclePause, CircleX, Clock, Ellipsis, Equal, FilePlus, Layers, ScrollText, Unplug, Cloud, Code, Columns2, Command, Copy, Download, ExternalLink, FileDiff, FileJson2, FilePenLine, FileText, FileX2, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, GitBranch, GitFork, House, Info, ListChecks, ListFilter, Map as MapIcon, MessageCircleQuestion, Monitor, MessagesSquare, Maximize2, Minimize2, Rows2, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, RotateCcw, RotateCw, Search, Settings, Settings2, ShieldAlert, SlidersHorizontal, SkipForward, Sparkles, Sprout, Square, SquareTerminal, SquareX, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -23,6 +23,8 @@ const ICONS = {
   maximize: Maximize2,
   splitRight: Columns2,
   splitDown: Rows2,
+  equalize: Equal,
+  closeOthers: SquareX,
   agent: Bot,
   shell: Terminal,
   subagent: Workflow,

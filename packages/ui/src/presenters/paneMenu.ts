@@ -20,9 +20,9 @@ export function paneMenuEntries(t: Translate, m: PaneMenuProps): SessionMenuEntr
     { key: 'zoom', label: m.zoomed ? t('pane.header.unzoom') : t('pane.menu.zoom'), icon: m.zoomed ? 'restore' : 'maximize', separatorBefore: m.sessionId !== null, disabled: null, send: { type: 'pane.zoom', pane: m.pane } },
     { key: 'newRight', label: t('pane.menu.newRight'), icon: 'splitRight', disabled: null, send: { type: 'pane.openEmpty', side: 'right' } },
     { key: 'newDown', label: t('pane.menu.newDown'), icon: 'splitDown', disabled: null, send: { type: 'pane.openEmpty', side: 'down' } },
-    { key: 'equalize', label: t('pane.menu.equalize'), disabled: null, send: { type: 'pane.equalize' } },
+    { key: 'equalize', label: t('pane.menu.equalize'), icon: 'equalize', disabled: null, send: { type: 'pane.equalize' } },
     { key: 'unsplit', label: t('pane.header.remove'), icon: 'close', separatorBefore: true, disabled: null, send: { type: 'pane.remove', pane: m.pane } },
-    { key: 'closeOthers', label: t('pane.menu.closeOthers'), disabled: null, send: { type: 'pane.removeOthers', pane: m.pane } },
+    { key: 'closeOthers', label: t('pane.menu.closeOthers'), icon: 'closeOthers', disabled: null, send: { type: 'pane.removeOthers', pane: m.pane } },
   );
   return out;
 }

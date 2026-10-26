@@ -7,6 +7,14 @@ const en = translator('en');
 const base = (over: Partial<PaneMenuProps> = {}): PaneMenuProps => ({ pane: 'p1', sessionId: 's1', status: null, zoomed: false, ...over });
 
 describe('ペインの見出しの右クリック（paneMenuEntries）', () => {
+  it('全項目に絵が付く（行頭がそろう）', () => {
+    for (const sessionId of ['s1', null]) {
+      for (const zoomed of [false, true]) {
+        for (const e of paneMenuEntries(ja, base({ sessionId, zoomed }))) expect(e.icon, e.key).toBeTruthy();
+      }
+    }
+  });
+
   it('ステータス、ID をコピー、最大化、右と下に空のペイン、均等、分割から外す、ほかを外すの順に並べる', () => {
     expect(paneMenuEntries(ja, base()).map((e) => [e.key, e.label])).toEqual([
       ['status', 'ステータス'], ['copyId', 'セッション ID をコピー'], ['zoom', 'ペインを最大化'], ['newRight', '右に空のペインを開く'], ['newDown', '下に空のペインを開く'],

@@ -108,14 +108,10 @@ function split(pre: Snap, next: Frame, root: ParentNode): void {
 /** 分割 → 1 つ。 */
 function unsplit(pre: Snap, next: Frame, root: ParentNode): void {
   const screen = root.querySelector<HTMLElement>('.session-screen:not([data-variant])');
-  // 閉じるペイン（残る 1 つも）は、薄れて縮む。同じ拍で大きな見出しが開く。
-  let survivor: PaneSnap | undefined;
-  for (const [, p] of pre.panes) {
-    if (p.session === next.single) survivor = p;
-    const t = p.el.querySelector<HTMLElement>('.pane-head-title');
-    if (p === survivor && t) t.style.visibility = 'hidden';
-    void leavePane(p.el, p.rect);
-  }
+  // 薄れて縮むのは閉じるペインだけ。残るペインは、描き直された大きな見出しへ名前の札だけを飛ばす。
+  // 残るペインは、操作中のセッション（画面の id）ではなく、木に残った葉で決める。
+  const survivor = pre.panes.get(next.leafIds[0] ?? '') ?? [...pre.panes.values()].find((p) => p.session === next.single);
+  for (const [, p] of pre.panes) if (p !== survivor) void leavePane(p.el, p.rect);
   if (!screen) return;
   const head = screen.querySelector<HTMLElement>('.page-head');
   const h1 = head?.querySelector<HTMLElement>('.page-title') ?? null;

@@ -74,6 +74,24 @@ describe('useSplitMotion', () => {
     expect(named.some(([f]) => f[0]?.height === '0px')).toBe(true);
   });
 
+  it('分割 → 1 つで、見出しへ飛ぶ名前は残ったペインのもの。薄れて縮むのは閉じるペインだけ', () => {
+    // 操作中のセッション（画面の id）は s2 だが、残るのは p1（s1、名前 A）。
+    const Two = (p: { frame: Frame; split: boolean }) => {
+      useSplitMotion(p.frame);
+      return p.split
+        ? <div data-pane-workspace="true"><div data-pane="p1" data-session="s1" data-testid="p1"><div className="pane-head"><span className="pane-head-title">A</span></div></div><div data-pane="p2" data-session="s2" data-testid="p2"><div className="pane-head"><span className="pane-head-title">B</span></div></div></div>
+        : <div className="session-screen"><div className="page-head"><h1 className="page-title">A</h1></div></div>;
+    };
+    const keep = frameOf(true, 's2', panes(leaf('p1', 's1')));
+    const { rerender, getByTestId } = render(<Two frame={two} split={true} />);
+    const p1 = getByTestId('p1');
+    const p2 = getByTestId('p2');
+    rerender(<Two frame={keep} split={false} />);
+    expect(document.body.querySelector('.pane-fly')?.textContent).toBe('A');
+    expect(p2.getAttribute('aria-hidden')).toBe('true');
+    expect(p1.getAttribute('aria-hidden')).toBeNull();
+  });
+
   it('動きを減らす設定（--dur が 0）では、測りも動かしもしない', () => {
     values['--dur'] = '0ms';
     const { rerender } = render(<Probe frame={one} split={false} />);
