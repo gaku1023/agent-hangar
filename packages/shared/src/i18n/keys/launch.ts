@@ -15,6 +15,7 @@ export const launchKeys = {
   'launch.add.label': [],
   'launch.chip.agent': [],
   'launch.agent.claude': [],
+  'launch.agent.codex': [],
   'launch.agent.opencode': [],
   'launch.agent.beta': [],
   'launch.agent.opencodeVerified': ['version'],

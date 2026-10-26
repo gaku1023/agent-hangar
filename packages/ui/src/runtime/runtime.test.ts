@@ -570,7 +570,7 @@ describe('createRuntime', () => {
   });
   it('前回値のエージェントと opencode のモデルを読み戻す。知らないエージェントは捨てる', () => {
     const a = harness();
-    a.store.set('newSession.prefs', { p1: { agent: 'opencode', opencodeModel: 'opencode/glm' }, p2: { agent: 'codex', effort: 'low' }, p3: { opencodeModel: 3 } });
+    a.store.set('newSession.prefs', { p1: { agent: 'opencode', opencodeModel: 'opencode/glm' }, p2: { agent: 'gemini', effort: 'low' }, p3: { opencodeModel: 3 } });
     a.rt.start();
     expect(a.rt.getState().launchPrefs).toEqual({ p1: { agent: 'opencode', opencodeModel: 'opencode/glm' }, p2: { effort: 'low' } });
   });

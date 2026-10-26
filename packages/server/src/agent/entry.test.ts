@@ -24,6 +24,19 @@ describe('AGENT_ENTRY', () => {
     expect(e.interceptLabelKey).toBe('settings.label.opencodeIntercept');
   });
 
+  it('codex follows codexEnabled and codexIntercept, and is off by default', () => {
+    const e = AGENT_ENTRY.codex;
+    expect(e.enabled({})).toBe(false);
+    expect(e.enabled({ opencodeEnabled: true })).toBe(false);
+    expect(e.enabled({ codexEnabled: true })).toBe(true);
+    expect(e.intercept({})).toBe(false);
+    expect(e.intercept({ codexIntercept: true })).toBe(true);
+    expect(e.enabledLabelKey).toBe('settings.label.codexEnabled');
+    expect(e.interceptLabelKey).toBe('settings.label.codexIntercept');
+    expect(agentSettingsKeys('enabled')).toContain('codexEnabled');
+    expect(agentSettingsKeys('shell')).toEqual(expect.arrayContaining(['codexEnabled', 'codexIntercept']));
+  });
+
   it('lists the settings keys that change an agent', () => {
     expect(agentSettingsKeys('enabled')).toContain('opencodeEnabled');
     expect(agentSettingsKeys('shell')).toEqual(expect.arrayContaining(['opencodeEnabled', 'opencodeIntercept']));

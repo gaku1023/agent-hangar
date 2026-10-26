@@ -87,7 +87,8 @@ export const FEED_CAPS: MobileCaps = { asks: true, images: true, effort: true };
  * 古い PC は依頼の agent を断らずに Claude を起こしてしまうので、スマホは agents に opencode のある PC にだけ opencode の依頼を出す。
  */
 export function feedCaps(opencodeEnabled: boolean): MobileCaps {
-  return opencodeEnabled ? { ...FEED_CAPS, agents: [...AGENT_KINDS] } : FEED_CAPS;
+  // codex はスマホの面ができる（F1）まで caps に出さない。F1 で codexEnabled を引数に足し、切なら外す。
+  return opencodeEnabled ? { ...FEED_CAPS, agents: AGENT_KINDS.filter((k) => k !== 'codex') } : FEED_CAPS;
 }
 
 /** 行に付けるエージェントの印。Claude の行には付けない（欄ごと省く）。 */

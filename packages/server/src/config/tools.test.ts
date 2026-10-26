@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Settings } from './paths.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { isWindows, posixIt } from '../../test/platform.ts';
-import { findOpencode, resolveToolPaths, which, whichMux } from './tools.ts';
+import { findCodex, findOpencode, resolveToolPaths, which, whichMux } from './tools.ts';
 
 describe('which', () => {
   it('PATH の順に探し、実行できるものを返す', () => {
@@ -36,6 +36,15 @@ describe('which', () => {
     // ~/.claude/local は古い npm 版の置き場で、Windows の既知の置き場には入れていない。
     if (!isWindows) expect(which('oldtool', env)).toBe(oldtool);
     fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe('findCodex', () => {
+  it('PATH から codex を探す（ChatGPT.app の同梱は探さない）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-codex-path-'));
+    const tool = writeFakeTool(dir, 'codex', { sh: '', cmd: '' });
+    expect(findCodex({ PATH: dir })).toBe(tool);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 

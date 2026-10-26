@@ -451,7 +451,7 @@ describe('MobileLaunchInbox の opencode', () => {
 
   it('知らない agent は bad-payload で起こさない', async () => {
     const { start, inbox, post, answerOf } = setup();
-    await inbox.receive(await post('l1', payload({ agent: 'codex' as never })));
+    await inbox.receive(await post('l1', payload({ agent: 'gemini' as never })));
     await inbox.receive(await post('l2', { ...payload(), agent: 1 }));
     await inbox.receive(await post('l3', { ...payload(), agent: null }));
     expect(start).not.toHaveBeenCalled();

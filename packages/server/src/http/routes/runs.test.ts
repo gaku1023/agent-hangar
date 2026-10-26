@@ -58,7 +58,7 @@ describe('routes', () => {
     expect(await ok.json()).toEqual({ ...launched, attached: false });
     expect(oc).toHaveBeenCalledWith({ cwd: '/w/a', args: ['--auto'], env: {} });
     expect(runs.startFromTerminal).toHaveBeenCalledTimes(1);
-    expect((await post({ cwd: b64('/w/a'), args: '', env: '', agent: 'codex' })).status).toBe(400);
+    expect((await post({ cwd: b64('/w/a'), args: '', env: '', agent: 'gemini' })).status).toBe(400);
   });
   it('起動は非同期の start（opencode の materialize）を待ってから 201 で答え、断りは理由つきの 400 にする', async () => {
     const post = (body: unknown) => app.request('/api/runs', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });

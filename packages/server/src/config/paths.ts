@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { isCodexInjection, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
@@ -123,6 +123,12 @@ export type Settings = {
    * 切のままなら、opencode の入口（新しいセッションの選択肢、外の端末の横取り、スマホ）はどこにも出さない。
    */
   opencodeEnabled?: boolean;
+  /** Codex を有効にするか（ベータ）。opencodeEnabled と同じ読み方で、項目が無いうちは切。切のままなら Codex の入口はどこにも出さない。 */
+  codexEnabled?: boolean;
+  /** hangar が起動する codex のシステムプロンプトへの追記。項目が無いうちは最小限（minimal）として読む。 */
+  codexInjection?: CodexInjection;
+  /** 外のターミナルの codex コマンドを hangar 経由で起動するか（macOS と Linux だけ）。項目が無いうちは切として読む。codexEnabled も入りのときだけ効く。 */
+  codexIntercept?: boolean;
   /** hangar が起動する opencode のシステムプロンプトへの追記。項目が無いうちは最小限（minimal）として読む。 */
   opencodeInjection?: OpencodeInjection;
   /** 外のターミナルの opencode コマンドを hangar 経由で起動するか（シェルの包み、macOS と Linux だけ）。項目が無いうちは切として読む。opencodeEnabled も入りのときだけ効く。 */
@@ -226,6 +232,9 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (typeof s.autoPark !== 'boolean') s.autoPark = true;
   if (typeof s.remoteControl !== 'boolean') s.remoteControl = true;
   // opencode の項目は既定の設定に無いので、手で書き換えた値は捨てて、無い項目（既定）として読ませる。
+  if (s.codexEnabled !== undefined && typeof s.codexEnabled !== 'boolean') delete s.codexEnabled;
+  if (s.codexInjection !== undefined && !isCodexInjection(s.codexInjection)) delete s.codexInjection;
+  if (s.codexIntercept !== undefined && typeof s.codexIntercept !== 'boolean') delete s.codexIntercept;
   if (s.opencodeEnabled !== undefined && typeof s.opencodeEnabled !== 'boolean') delete s.opencodeEnabled;
   if (s.opencodeInjection !== undefined && !isOpencodeInjection(s.opencodeInjection)) delete s.opencodeInjection;
   if (s.opencodeIntercept !== undefined && typeof s.opencodeIntercept !== 'boolean') delete s.opencodeIntercept;

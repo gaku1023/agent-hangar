@@ -52,7 +52,7 @@ describe('新しい会話のデフォルト（localStorage）', () => {
     expect(loadLaunchDefaults()).toEqual({ ...EMPTY_DEFAULTS, agent: 'opencode' });
     saveLaunchDefaults({ ...EMPTY_DEFAULTS });
     expect(JSON.parse(localStorage.getItem(KEY)!)).not.toHaveProperty('agent');
-    localStorage.setItem(KEY, JSON.stringify({ agent: 'codex' }));
+    localStorage.setItem(KEY, JSON.stringify({ agent: 'gemini' }));
     expect(loadLaunchDefaults()).toEqual(EMPTY_DEFAULTS);
     localStorage.setItem(KEY, JSON.stringify({ agent: 'claude-code' }));
     expect(loadLaunchDefaults()).toEqual(EMPTY_DEFAULTS);

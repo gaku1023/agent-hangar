@@ -213,8 +213,8 @@ describe('replyTo（opencode の / の候補）', () => {
   });
 
   it('知らない agent の問い合わせは bad-request', async () => {
-    expect(await replyTo(ocDeps(), { v: 1, kind: 'commands', projectId: null, accountId: '', agent: 'codex' })).toEqual({ error: 'bad-request' });
-    expect(await replyTo(ocDeps(), { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({ error: 'bad-request' });
+    expect(await replyTo(ocDeps(), { v: 1, kind: 'commands', projectId: null, accountId: '', agent: 'gemini' })).toEqual({ error: 'bad-request' });
+    expect(await replyTo(ocDeps(), { v: 1, kind: 'agent-options', agent: 'gemini', projectId: null })).toEqual({ error: 'bad-request' });
   });
 });
 

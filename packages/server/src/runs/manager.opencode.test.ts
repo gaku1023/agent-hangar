@@ -236,9 +236,18 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(opened).toEqual([]);
   });
 
+  posixIt('driver がまだ無い codex は、設定で有効にしても起動を断り、行も serve も作らない', async () => {
+    const { rm, log } = make();
+    const err = (await rm.start(params({ agent: 'codex' })).then(() => null, (e: unknown) => e)) as Error & { status: number };
+    expect(err).toMatchObject({ status: 400 });
+    expect(err.message).toBe('知らないエージェントです: codex');
+    expect(sessions()).toEqual([]);
+    expect(log()).toEqual([]);
+  });
+
   posixIt('知らないエージェントと、opencode に無い指定（アカウント、effort、権限モード、追加ディレクトリ、worktree）は、行を作らずに断る', async () => {
     const { rm, log } = make();
-    await expect(rm.start(params({ agent: 'codex' as never }))).rejects.toMatchObject({ status: 400 });
+    await expect(rm.start(params({ agent: 'gemini' as never }))).rejects.toMatchObject({ status: 400 });
     for (const bad of [{ account: 'primary' }, { effort: 'high' }, { permissionMode: 'plan' }, { addDirs: ['/a'] }, { worktree: 'w' }] satisfies Partial<LaunchParams>[]) {
       await expect(rm.start(params(bad))).rejects.toMatchObject({ status: 400 });
     }

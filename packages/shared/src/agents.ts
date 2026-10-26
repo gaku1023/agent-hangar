@@ -3,7 +3,7 @@
  * 型の直書き（'claude-code' | 'opencode'）を各所に書かず、ここから導く。
  * 並びは札の一覧の順で、先頭が既定である。値は sessions.provider の列に入る値と同じ。
  */
-export const AGENT_KINDS = ['claude-code', 'opencode'] as const;
+export const AGENT_KINDS = ['claude-code', 'opencode', 'codex'] as const;
 export type AgentKind = (typeof AGENT_KINDS)[number];
 
 /** 既定のエージェント（札の先頭）。前回の選択が無いとき、設定で他が無効なときに使う。 */
@@ -16,7 +16,7 @@ export function isAgentKind(v: unknown): v is AgentKind {
 }
 
 /** 製品の名前。読み上げとツールチップ、タブの題に使う。訳さない。 */
-export const AGENT_DISPLAY_NAME: Record<AgentKind, string> = { 'claude-code': 'Claude Code', opencode: 'opencode' };
+export const AGENT_DISPLAY_NAME: Record<AgentKind, string> = { 'claude-code': 'Claude Code', opencode: 'opencode', codex: 'Codex' };
 
 /**
  * UI が出し分けに使う能力。server の AgentCaps（driver が持つ能力）とは別で、画面の札と欄の有無だけを持つ。
@@ -43,6 +43,8 @@ export type AgentUiCaps = {
 export const AGENT_UI_CAPS: Record<AgentKind, AgentUiCaps> = {
   'claude-code': { accounts: true, effort: true, permissionMode: true, worktree: true, addDirs: true, modelText: true, recallLine: true, trustNote: true, digestIntent: true, modes: false, promptJump: true, usagePanel: false, beta: false },
   opencode: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: true, promptJump: false, usagePanel: true, beta: true },
+  // Codex の面は段 C で作る。それまでは何も出さない能力にそろえる（beta は設定で有効にしたときだけ選べる）。
+  codex: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: false, promptJump: false, usagePanel: false, beta: true },
 };
 
 export type AgentUiCap = keyof AgentUiCaps;
