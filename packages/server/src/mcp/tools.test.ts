@@ -572,7 +572,7 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(17);
+    expect(TOOL_NAMES).toHaveLength(19);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
