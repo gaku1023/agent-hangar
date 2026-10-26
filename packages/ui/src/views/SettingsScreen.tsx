@@ -479,10 +479,10 @@ export function SettingsScreen(props: SettingsProps) {
     <>
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />
-      {/* opencode（ベータ、試作の D1）。互換性の下に置く。 */}
-      <OpencodeSection o={props.opencode} providers={props.opencodeProviders} />
-      {/* Codex（ベータ、C4 の案 A）。opencode の面の下に、同じ形の別の面を置く。 */}
+      {/* エージェントの面は、新規ダイアログの一覧と同じ Codex、opencode の順に並べる。Codex（ベータ、C4 の案 A）は互換性の下に置く。 */}
       <CodexSection o={props.codex} />
+      {/* opencode（ベータ、試作の D1）。Codex の面の下に、同じ形の別の面を置く。 */}
+      <OpencodeSection o={props.opencode} providers={props.opencodeProviders} />
       <section>
         <h3 className="h2">{t('settings.integrations.mcp.title')}<InfoTip label={t('settings.integrations.mcp.title')}>{t('settings.integrations.mcp.desc')}</InfoTip><Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
         <IntegrationWrite card={props.integrations.mcp} desktop={props.integrations.desktop} />

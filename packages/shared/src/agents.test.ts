@@ -10,7 +10,7 @@ const same = <T extends true>(_: T): void => {};
 
 describe('エージェントの一覧', () => {
   it('値は今の 3 種と同じ並び（先頭が既定）', () => {
-    expect([...AGENT_KINDS]).toEqual(['claude-code', 'opencode', 'codex']);
+    expect([...AGENT_KINDS]).toEqual(['claude-code', 'codex', 'opencode']);
     expect([...AGENT_VALUES]).toEqual([...AGENT_KINDS]);
     expect([...AGENT_ICON_KINDS]).toEqual([...AGENT_KINDS]);
     expect(AGENT_LABEL).toEqual({ 'claude-code': 'Claude Code', opencode: 'opencode', codex: 'Codex' });

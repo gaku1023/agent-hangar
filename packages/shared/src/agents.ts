@@ -3,7 +3,7 @@
  * 型の直書き（'claude-code' | 'opencode'）を各所に書かず、ここから導く。
  * 並びは札の一覧の順で、先頭が既定である。値は sessions.provider の列に入る値と同じ。
  */
-export const AGENT_KINDS = ['claude-code', 'opencode', 'codex'] as const;
+export const AGENT_KINDS = ['claude-code', 'codex', 'opencode'] as const;
 export type AgentKind = (typeof AGENT_KINDS)[number];
 
 /** 既定のエージェント（札の先頭）。前回の選択が無いとき、設定で他が無効なときに使う。 */
