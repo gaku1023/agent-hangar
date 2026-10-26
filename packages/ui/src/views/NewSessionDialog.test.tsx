@@ -1603,7 +1603,7 @@ describe('NewSessionDialog のエージェント（Codex、ベータ）', () => 
     await toCodex();
     fireEvent.click(chip('権限、自動'));
     expect(within(screen.getByRole('listbox', { name: '権限' })).getAllByRole('option').map((o) => o.textContent)).toEqual([
-      '読み取りのみファイルの変更とコマンドの実行の前に確認', '自動作業ディレクトリの中は確認なし。外へ出るときは確認', 'フルアクセス確認せずに何でも実行（危険）',
+      '読み取りのみファイルの変更とコマンドの実行の前に確認', '自動作業ディレクトリ内は確認なし。外へアクセスするときは確認', 'フルアクセス確認なしですべて実行（危険）',
     ]);
   });
   it('権限の 3 段が params.permissionMode に載る', async () => {

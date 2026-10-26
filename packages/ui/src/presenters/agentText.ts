@@ -16,6 +16,9 @@ export type AgentText = {
   launchLabel: 'launch.agent.claude' | 'launch.agent.opencode' | 'launch.agent.codex';
   /** 「いま」の札の、聞かれていることの見出し。 */
   questionLabel: 'session.strip.questionLabel' | 'session.strip.opencode.questionLabel' | 'session.strip.codex.questionLabel';
+  /** 「いま」の札の、このターンの意図の見出しと、その title（意図を書くのは MCP を呼んだモデル）。 */
+  intentLabel: 'session.strip.opencode.intentLabel' | 'session.strip.codex.intentLabel';
+  intentMeta: 'session.strip.opencode.intentMeta' | 'session.strip.codex.intentMeta';
   /** 終わった画面の本文の最後の 1 行（再開できるとき）。Claude Code は付けない。 */
   endedLine: EndedLine | null;
   /** 最初の入力の前に終わった会話の 1 行（再開を出さない）。無ければ null。 */
@@ -25,7 +28,7 @@ export type AgentText = {
 };
 
 export const AGENT_TEXT: Record<AgentKind, AgentText> = {
-  'claude-code': { launchLabel: 'launch.agent.claude', questionLabel: 'session.strip.questionLabel', endedLine: null, endedPending: null, permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionHeadTool', { tool }) : t('stop.card.permissionHead')) },
-  opencode: { launchLabel: 'launch.agent.opencode', questionLabel: 'session.strip.opencode.questionLabel', endedLine: 'opencode', endedPending: null, permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionWaitingTool', { tool }) : t('stop.card.permissionWaiting')) },
-  codex: { launchLabel: 'launch.agent.codex', questionLabel: 'session.strip.codex.questionLabel', endedLine: 'codex', endedPending: 'codex-pending', permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionWaitingTool', { tool }) : t('stop.card.permissionWaiting')) },
+  'claude-code': { launchLabel: 'launch.agent.claude', questionLabel: 'session.strip.questionLabel', intentLabel: 'session.strip.opencode.intentLabel', intentMeta: 'session.strip.opencode.intentMeta', endedLine: null, endedPending: null, permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionHeadTool', { tool }) : t('stop.card.permissionHead')) },
+  opencode: { launchLabel: 'launch.agent.opencode', questionLabel: 'session.strip.opencode.questionLabel', intentLabel: 'session.strip.opencode.intentLabel', intentMeta: 'session.strip.opencode.intentMeta', endedLine: 'opencode', endedPending: null, permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionWaitingTool', { tool }) : t('stop.card.permissionWaiting')) },
+  codex: { launchLabel: 'launch.agent.codex', questionLabel: 'session.strip.codex.questionLabel', intentLabel: 'session.strip.codex.intentLabel', intentMeta: 'session.strip.codex.intentMeta', endedLine: 'codex', endedPending: 'codex-pending', permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionWaitingTool', { tool }) : t('stop.card.permissionWaiting')) },
 };

@@ -301,7 +301,7 @@ function opencodeIntent(i: CardInput, t: Translate): CardIntent {
   const it = i.digest?.intent;
   if (it?.inThisTurn) {
     const time = i.clock(it.at);
-    return { kind: 'said', text: it.text, label: t('session.strip.opencode.intentLabel', { time }), title: t('session.strip.opencode.intentMeta', { time, n: it.stepsSince }), stale: it.stepsSince > STALE_STEPS };
+    return { kind: 'said', text: it.text, label: t(AGENT_TEXT[i.agent ?? DEFAULT_AGENT_KIND].intentLabel, { time }), title: t(AGENT_TEXT[i.agent ?? DEFAULT_AGENT_KIND].intentMeta, { time, n: it.stepsSince }), stale: it.stepsSince > STALE_STEPS };
   }
   const first = i.firstTurn === true;
   const r = turnRequest(i, t);

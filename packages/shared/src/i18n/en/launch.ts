@@ -24,7 +24,7 @@ export const launchEn: AreaDictionary<typeof launchKeys> = {
   'launch.codexPermission.fullAccessWarn': 'Commands run without asking. Use this only in folders you trust.',
   'launch.codexPermission.fullAccessNote': 'Run anything without asking (dangerous)',
   'launch.codexPermission.fullAccess': 'Full access',
-  'launch.codexPermission.autoNote': 'No prompts inside the working folder; ask before going outside',
+  'launch.codexPermission.autoNote': 'No prompts inside the working directory. Ask before accessing anything outside',
   'launch.codexPermission.auto': 'Auto',
   'launch.codexPermission.readOnlyNote': 'Ask before changing files or running commands',
   'launch.codexPermission.readOnly': 'Read-only',

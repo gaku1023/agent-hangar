@@ -53,6 +53,8 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.strip.questionLabel': 'Claude からの質問',
   'session.strip.intentMeta': 'Claude が記入、{time}、以降のツール呼び出し {n} 回',
   'session.strip.opencode.intentLabel': 'opencode の意図 · {time}',
+  'session.strip.codex.intentLabel': 'Codex の意図 · {time}',
+  'session.strip.codex.intentMeta': 'Codex が記入、{time}、以降のツール呼び出し {n} 回',
   'session.strip.opencode.intentMeta': 'opencode が記入、{time}、以降のツール呼び出し {n} 回',
   'session.strip.codex.questionLabel': 'Codex からの質問',
   'session.strip.opencode.questionLabel': 'opencode からの質問',

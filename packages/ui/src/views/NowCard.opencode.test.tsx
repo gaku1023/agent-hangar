@@ -139,3 +139,17 @@ describe('Claude の会話の札は変わらない', () => {
     expect(card.querySelector('.nc-request-label')).toBeNull();
   });
 });
+
+describe('Codex の会話の意図', () => {
+  const cx = (p: Partial<CardInput> = {}): CardInput => input({ agent: 'codex', firstTurn: true, ...p });
+  it('このターンの意図の見出しは「Codex の意図 · 時刻」（opencode の語にしない）', () => {
+    const { card } = mount(cx({ digest: { sessionId: 's1', turnStartSeq: 0, intent, agents: [] } }));
+    expect(card.querySelector('.nc-intent-label')?.textContent).toBe('Codex の意図 · 03:52');
+    expect(card.querySelector('.nc-intent')?.getAttribute('title')).toBe('Codex が記入、03:52、以降のツール呼び出し 1 回');
+  });
+  it('英語は「Codex’s intent」と「Written by Codex」', () => {
+    const { card } = mount(cx({ digest: { sessionId: 's1', turnStartSeq: 0, intent, agents: [] } }), 'en');
+    expect(card.querySelector('.nc-intent-label')?.textContent).toBe('Codex’s intent · 03:52');
+    expect(card.querySelector('.nc-intent')?.getAttribute('title')).toBe('Written by Codex, 03:52, 1 subsequent tool call');
+  });
+});

@@ -199,7 +199,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
   it('最初の入力の前の会話は再開できない。Codex を起動できなかったと、理由つきで断り、app-server を残さない', async () => {
     const { rm, codex } = make();
     const sid = ensureSession(db, '01bffff0-0000-7000-8000-00000000dead', cwd, 'd', 'codex');
-    await expect(rm.resumeWith(sid, {})).rejects.toMatchObject({ status: 400, message: 'Codex を起動できませんでした: この会話は、まだ最初の入力が送られていないため、再開できません。新しく始めてください' });
+    await expect(rm.resumeWith(sid, {})).rejects.toMatchObject({ status: 400, message: 'Codex を起動できませんでした: この会話は、まだ最初の入力が送られていないため、再開できません。新しいセッションを始めてください' });
     expect(codex.served(sid)).toBeNull();
   });
 
