@@ -1,4 +1,4 @@
-import { DEFAULT_LANGUAGE, DEFAULT_OPENCODE_INJECTION, localDate, localTime, osName, t, translator, type Language, type OpencodeInjection } from '@agent-hangar/shared';
+import { DEFAULT_CODEX_INJECTION, DEFAULT_LANGUAGE, DEFAULT_OPENCODE_INJECTION, localDate, localTime, osName, t, translator, type CodexInjection, type Language, type OpencodeInjection } from '@agent-hangar/shared';
 import type { InjectionEntry } from '../agent/types.ts';
 import type { HandoverFacts } from '../runs/handover.ts';
 
@@ -18,6 +18,8 @@ export type InjectionParts = {
   liveHints: boolean;
   /** opencode に足す量（設定の opencodeInjection）。省けば既定の最小限。Claude には効かない。 */
   opencode?: OpencodeInjection;
+  /** Codex に足す量（設定の codexInjection）。省けば既定の最小限。Claude と opencode には効かない。 */
+  codex?: CodexInjection;
 };
 export const DEFAULT_INJECTION_PARTS: InjectionParts = { askStatusAtEnd: true, liveHints: true };
 
@@ -68,6 +70,21 @@ export function renderOpencodeInjectionEntries(i: InjectionInput, language: Lang
     return entries;
   }
   return renderInjectionEntries(i, language, parts).map((e) => (e.key === 'live' ? { key: 'live', text: t(language, 'launch.injection.opencode.live') } : e));
+}
+
+/**
+ * Codex に足す段（docs/design.md「Codex の起動（ベータ）」）。量は設定の codexInjection で選ぶ。
+ * minimal（既定）は hangar の MCP の使い方の段と、状態の段で、opencode の最小限の段を Codex 向けに書き直したものである。
+ * opencode の文は Code Mode の呼び方（`tools.hangar.…`）を添えているが、Codex は道具の呼び方を自分で決めるので、道具は名前だけで指す。
+ * 既定の量は、段 B の B6 で本物のモデルで比べて決める（それまでは最小限）。
+ * claude は Claude に足すのと同じ段、none は何も足さない。
+ */
+export function renderCodexInjectionEntries(i: InjectionInput, language: Language = DEFAULT_LANGUAGE, parts: InjectionParts = DEFAULT_INJECTION_PARTS, choice: CodexInjection = DEFAULT_CODEX_INJECTION): InjectionEntry[] {
+  if (choice === 'none') return [];
+  if (choice === 'claude') return renderInjectionEntries(i, language, parts);
+  const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.codex.minimal') }];
+  if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.codex.status') });
+  return entries;
 }
 
 /** 段を区切りを足さずにつないだ 1 つの指示。Claude の --append-system-prompt に渡す文と同じである。 */

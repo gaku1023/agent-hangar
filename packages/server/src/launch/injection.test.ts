@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { localDate, localTime, osName, t as tt, translator, type Language } from '@agent-hangar/shared';
 import type { HandoverFacts } from '../runs/handover.ts';
-import { DEFAULT_INJECTION_PARTS, renderInjection, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionInput, type InjectionParts } from './injection.ts';
+import { DEFAULT_INJECTION_PARTS, renderInjection, renderCodexInjectionEntries, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionInput, type InjectionParts } from './injection.ts';
 
 const todo = (n: number | string) => ({ id: `id${n}`, text: `t${n}` });
 
@@ -284,5 +284,34 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
     // 段の入り切りの設定は Claude と同じく効く。
     expect(renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: false }, 'claude').map((e) => e.key)).toEqual(['body', 'multiDevice']);
     expect(renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'claude').find((e) => e.key === 'live')!.text).toMatch(/^At the first step of every turn, before any other tool/);
+  });
+});
+
+describe('renderCodexInjectionEntries（Codex に足す段）', () => {
+  const input: InjectionInput = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 't1', text: '直す' }], deviceCount: 2 };
+
+  it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。道具は名前で指し、opencode の Code Mode の呼び方は使わない', () => {
+    const ja = renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
+    expect(ja.map((e) => e.key)).toEqual(['body', 'status']);
+    for (const name of ['set_turn_intent', 'set_session_summary', 'propose_session_status']) expect(ja[0]!.text).toContain(name);
+    expect(ja[0]!.text).toContain('confirmed: true');
+    expect(ja[1]!.text).toContain('confirmed なし');
+    const en = renderCodexInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
+    expect(en.map((e) => e.key)).toEqual(['body', 'status']);
+    expect(en[0]!.text).toMatch(/first step of every turn, before any other tool/);
+    expect(en[1]!.text).toContain('without confirmed');
+    for (const e of [...ja, ...en]) {
+      expect(e.text).not.toContain('tools.hangar');
+      expect(e.text.endsWith('\n'), e.key).toBe(true);
+    }
+  });
+
+  it('最小限でも、区切りで状態を確認する設定を切れば状態の段は足さない', () => {
+    expect(renderCodexInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: true }, 'minimal').map((e) => e.key)).toEqual(['body']);
+  });
+
+  it('追記しないなら段は無い。Claude Code と同じなら Claude の段をそのまま使う', () => {
+    expect(renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'none')).toEqual([]);
+    expect(renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'claude')).toEqual(renderInjectionEntries(input, 'ja'));
   });
 });

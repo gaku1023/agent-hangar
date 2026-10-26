@@ -11,6 +11,8 @@ export const launchKeys = {
   'launch.injection.opencode.minimal': [],
   'launch.injection.opencode.status': [],
   'launch.injection.opencode.live': [],
+  'launch.injection.codex.minimal': [],
+  'launch.injection.codex.status': [],
   'launch.mcpConfig.badId': [],
   'launch.add.label': [],
   'launch.chip.agent': [],
