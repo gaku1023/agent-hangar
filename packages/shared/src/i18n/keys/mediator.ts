@@ -9,6 +9,8 @@ export const mediatorKeys = {
   'mediator.promote.promoted': [],
   'mediator.projectCreate.created': [],
   'mediator.screen.noWaiting': [],
+  'mediator.pane.alreadyOpen': [],
+  'mediator.pane.lastPane': [],
   'mediator.sessionView.splitNeedsTwoTabs': [],
   'mediator.settings.itermHint': [],
 } as const satisfies MessageSpec;

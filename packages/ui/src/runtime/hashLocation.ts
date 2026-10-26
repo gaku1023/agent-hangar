@@ -12,6 +12,8 @@ export type HashLocation = {
   getHash(): string;
   setHash(h: string): void;
   onHashChange(cb: () => void): () => void;
+  /** 履歴を積まずに、いまの段のハッシュを置き換える。ハッシュの変化の知らせは出ないので、呼ぶ側が自分で追う。 */
+  replaceHash?(h: string): void;
   go(delta: number): void;
   /** アプリの中で何段目か。印の無い段（アプリの外から来た段）は 0。 */
   depth(): number;
@@ -33,6 +35,7 @@ export function createHashLocation(history: HistoryLike, location: LocationLike,
       location.hash = h;
       history.replaceState({ hangarDepth: next }, '');
     },
+    replaceHash: (h) => history.replaceState({ hangarDepth: depth() }, '', h),
     onHashChange,
     go: (delta) => history.go(delta),
   };

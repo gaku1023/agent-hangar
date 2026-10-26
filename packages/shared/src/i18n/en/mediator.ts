@@ -10,6 +10,8 @@ export const mediatorEn: AreaDictionary<typeof mediatorKeys> = {
   'mediator.promote.promoted': 'Promoted to project',
   'mediator.projectCreate.created': 'Project created',
   'mediator.screen.noWaiting': 'No sessions need input',
+  'mediator.pane.alreadyOpen': 'This session is already open',
+  'mediator.pane.lastPane': 'Cannot remove the last pane',
   'mediator.sessionView.splitNeedsTwoTabs': 'Two tabs are needed to split side by side',
   'mediator.settings.itermHint': 'The first time you open in iTerm2, macOS shows an automation permission dialog',
 };

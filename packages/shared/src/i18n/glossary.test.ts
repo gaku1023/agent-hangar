@@ -17,6 +17,8 @@ const ALLOWED: Record<string, string> = {
   'prompt.builtin.codeReview': '探す（誤りを見つける）',
   // Claude に渡す指示の文で、画面には出ない。起動の指示は別の作業が直すため、ここでは外す（2026-10-17）。
   'launch.injection.handover': 'らしい（Claude 向けの指示）',
+  // 分割の「外す」は、アプリの操作（分割から外す）の語で、用語集の 13 章に「分割から外す」の行を足す（docs/plans/session-split.md の T6）。
+  'mediator.pane.lastPane': '外す（分割から外す）',
 };
 
 /** 「本文」が HTTP やモデルの応答の本体（body）を指す鍵。トランスクリプトの意味では使わない。 */

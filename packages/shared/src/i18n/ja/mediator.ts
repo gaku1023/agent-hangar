@@ -10,6 +10,8 @@ export const mediatorJa: AreaDictionary<typeof mediatorKeys> = {
   'mediator.promote.promoted': 'プロジェクトにしました',
   'mediator.projectCreate.created': 'プロジェクトを作成しました',
   'mediator.screen.noWaiting': '入力待ちのセッションはありません',
+  'mediator.pane.alreadyOpen': 'このセッションは既に表示されています',
+  'mediator.pane.lastPane': '最後のペインは外せません',
   'mediator.sessionView.splitNeedsTwoTabs': '横に並べるにはタブが 2 つ必要です',
   'mediator.settings.itermHint': 'iTerm2 で開くとき、初回に macOS の自動化の許可ダイアログが表示されます',
 };

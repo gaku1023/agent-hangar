@@ -18,7 +18,9 @@ function run(inputs: Feed[], start: State = initialState(), initial: Store = ini
   for (const f of inputs) {
     if ('store' in f) store = f.store;
     const r = transition(state, store, 'store' in f ? { kind: 'store' } : f);
-    state = r.state; effects.push(...r.effects);
+    state = r.state;
+    // 分割の木の保存（panes.layout）は panes.test.ts で見る。ここの並びには混ぜない。
+    effects.push(...r.effects.filter((e) => !(e.kind === 'storage.save' && e.key === 'panes.layout')));
   }
   return { state, effects };
 }

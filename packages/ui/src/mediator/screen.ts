@@ -80,7 +80,7 @@ export function searchParams(state: State): SearchQuery {
  * パレットと、読むだけのダイアログ（キーの一覧、昇格の完了）は、画面から離れたら残さない。
  * 確認、未解決のプロジェクト、入力のあるダイアログは、決めるまで閉じない種類なのでここでは触らない。
  */
-function closeTransient(state: State): Overlay {
+export function closeTransient(state: State): Overlay {
   return overlayReplaceable(state.overlay) ? { kind: 'none' } : state.overlay;
 }
 
