@@ -1498,6 +1498,41 @@ driver への差し方は `createCodexLive(options)` が返す `{ live, asks }` 
 
 試験は、接続のふり（通知と要求を手で流す）と、偽の codex（`test/fake-codex.ts`。入力の頭の `ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` で要求を送り、TUI の代わりの接続が応答すると resolved を流す。`hang` は終わらない。`thread/read` に答える）の両方で行う。
 
+### Codex の使用量（ベータ）
+
+Codex を足す作業の段 B の 7 つ目（計画の B7）で、枠と会話の値の取り手を入れた。
+`provider/codex/usage.ts` の `createCodexUsage` と、`usage/agentUsage.ts` の `AgentUsageTracker` である。
+`codexEnabled` が切のままなら、読まず、書かず、配る形にも出ない。
+
+供給源は 2 つある。
+
+- hangar が起こした会話は、app-server への接続から取る。接続したとき `account/rateLimits/read`（ターンは要らない）を 1 回読み、ターン中に届く通知 `account/rateLimits/updated`（疎な更新）で重ねる。
+- hangar の外の会話は、rollout の `event_msg:token_count.rate_limits` から取る。B5 の読み手は、これを meta（name は `rate_limits`、value は `{ rate_limits, model_context_window }`）にして返すので、`noteRolloutRateLimits(value, ts)` に渡す。ts はその行の時刻である。
+
+本物の応答（0.164.0、ChatGPT Plus）の項目は次のとおりである。
+`rateLimits` は `limitId`（`codex`）、`limitName`、`primary`、`secondary`、`credits`、`individualLimit`、`spendControlReached`、`planType`、`rateLimitReachedType` を持つ。
+窓は `usedPercent`、`windowDurationMins`、`resetsAt`（epoch 秒）である。`primary` は 300 分（5 時間）、`secondary` は 10080 分（週）だった。
+応答は `rateLimitsByLimitId`（キーは limit_id）と `ordinaryUsageAllowed`、`rateLimitResetCredits` も持つ。`account/rateLimits/read` の params は null である。
+
+窓は長さで決める（300 分以下が 5 時間、10080 分以上が週）。長さが無ければ primary を 5 時間、secondary を週とみなす。
+`resetsAt` はミリ秒に直す（Claude の枠と同じ）。`limitId` が `codex` でない通知（別の枠）は取らない。
+疎な更新で無い窓は、前の値を保つ。`planType` も同じである。
+観測の時刻がいちばん新しいものを使い、古い観測は新しい値を上書きしない。戻る時刻を過ぎた窓は 0% として返す（`usageAt`）。値はメモリだけに置き、起動のたびに読み直す。
+
+配る形は `AccountsDto.agents`（`AgentUsagesDto`）である。
+`{ codex?: AgentUsageDto }` で、`AgentUsageDto` は `UsageDto`（`fiveHour`、`sevenDay`、`updatedAt`）に `plan`（planType の文字、無ければ null）を足したものである。
+値が 1 度も届いていないとき、設定で切のときは、項目ごと付けない。Claude の枠（`AccountDto.usage`）の形と値は変えない。
+枠が変わったとき（窓か plan が変わったとき）は `accounts.update` で配る。ヘッダの切り替え（開いている会話のエージェントの枠を出す）は UI の C3 が、この値を読んで行う。
+
+会話の値は `thread/tokenUsage/updated` から `session_live_stats` に書く（opencode と同じ欄）。
+`context_used` は最後の呼び出しの `last.inputTokens`（cached を含む量で、B5 が rollout から書く値と同じ）、`context_size` は `modelContextWindow`、`model` は起こした側が渡した値である。
+`effort` と `cost_usd` は書かない。null の項目は前の値を保つ。書いたら、その会話の行を名指しして配り直す。
+`SessionStatsDto.contextPercent` と `contextTokens` は、この表から導く既存の道をそのまま通る。
+
+差し込む口は `createCodexUsage` が返す `{ track, untrack, noteRolloutRateLimits }` で、`RunsParts.codexUsage` に載っている。
+起動の面（B3a）が app-server につないだあとに `track({ providerSessionId, rpc, model })` を呼び、止めるときに `untrack` する。
+rollout の読み手（B5）が `rate_limits` の meta を出したら `noteRolloutRateLimits` に渡す。
+
 ### opencode の検出（ベータ）
 
 opencode を足す作業の 1 段目（計画の B1）で、設定のスイッチと、入っている opencode の場所と版の読みだけを入れた。

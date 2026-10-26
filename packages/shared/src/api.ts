@@ -243,6 +243,14 @@ export type LaunchResultDto = { run: RunDto; sessionId: string; tabs: TabDto[] }
 /** statusline の payload から得た使用率。窓の値が無いときは null で、updatedAt は使用率が届いた時刻。 */
 export type RateWindowDto = { usedPercent: number; resetsAt: number | null };
 export type UsageDto = { fiveHour: RateWindowDto | null; sevenDay: RateWindowDto | null; updatedAt: number | null };
+/**
+ * Claude 以外のエージェントの枠（ChatGPT のプランの 5 時間と週）。形は UsageDto に plan を足したもの。
+ * 窓の長さで決める（5 時間は 300 分、週は 10080 分）。plan は planType の文字（plus、pro など）で、分からなければ null。
+ * 画面の切り替え（開いている会話のエージェントの枠を出す）はこの値を読む。
+ */
+export type AgentUsageDto = UsageDto & { plan: string | null };
+/** エージェントごとの枠。値が 1 度も届いていないエージェントと、設定で切のエージェントは持たない。Claude の枠は AccountDto.usage のまま変えない。 */
+export type AgentUsagesDto = { codex?: AgentUsageDto };
 /** `claude auth status --json` から読んだもの。hangar が認証について知るのはこれだけで、トークンは含まない。 */
 export type AccountAuthDto = { loggedIn: boolean; email: string | null; plan: string | null; orgName: string | null; checkedAt: number };
 /**
@@ -252,7 +260,9 @@ export type AccountAuthDto = { loggedIn: boolean; email: string | null; plan: st
  */
 export type AccountDto = { id: string; name: string; dir: string; color: string; primary: boolean; auth: AccountAuthDto | null; usage: UsageDto; loginRunning: boolean; linkProblem: string | null };
 /** sessions は、最初のアカウント以外で最後に動かしたセッションだけを載せる（セッションの id → アカウントの id）。載っていないものは最初のアカウントである。 */
-export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };
+export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string>;
+  /** Claude 以外のエージェントの枠（AgentUsagesDto）。何も無ければ項目ごと付けない。この項目を知らない古いサーバは送らず、古い画面は読まない。 */
+  agents?: AgentUsagesDto };
 /** 最初のアカウント（既定の置き場）の id。 */
 export const PRIMARY_ACCOUNT_ID = 'primary';
 /**
