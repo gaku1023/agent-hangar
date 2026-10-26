@@ -1174,6 +1174,23 @@ DB に書くのは hangar の側（`indexer/write.ts` の `writeBatch`）で、�
 書いたら、ファイルの本文と同じく `sessionChanged` を出す。本文のファイルは無いので `path` は null、`deviceId` は手元なので null で、同期の上げ手へは渡さない（プロジェクトへの紐づけ、伸びの知らせ、git の読み直しはファイルと同じに行う）。
 会話の一覧の「本文がある」（`hasTranscript`）と「手元にある」は、`agent_events` の主線の行でも真になる。
 
+Codex の面（`provider/codex/transcript/`）は、Claude と同じファイル型で、`$CODEX_HOME`（既定は `~/.codex`）の rollout を本文にする。
+置き場は `sessions/YYYY/MM/DD/rollout-<時刻>-<thread の UUID>.jsonl[.zst]` と、平らな `archived_sessions/` である。
+rollout の名前のものだけを本文として数え、`auth.json`、`config.toml`、sqlite は開かない。
+面は設定の「Codex を有効にする」（`codexEnabled`）の裏にある。切のあいだは `enabled()` が偽で、見張りを付けず、外の会話も取り込まず、`scan` は空と `seen: null` を返す。
+設定が変わると `setEnabled` が見張りを付け外しして、全件の見比べを頼む（`boot/indexing.ts` の `onSettingsChanged`）。切にしても、入った会話は索引に残る。
+正規化（`normalize.ts`）は、1 行で決まる純関数である。読み直し（`readCodexPage`）が、索引のバイト位置の 1 行だけをもう一度通すためである。
+発話の正は `response_item` で、`event_msg` の写しは会話の本文を作らない。トークンの正は、paginated では `token_usage_record`、legacy では `token_count` で、どちらの保存の形かは先頭の `session_meta.history_mode` で決める。
+`input_tokens` は cached を含むので、cached を引いたものを入力として数える。
+利用者の発言ではない user（環境の文脈、指示、中断の印）は `system`（`injected_context`）にして、題名や発言の数に入れない。
+道具の名前は hangar の語彙（`Bash`、`Edit`、`mcp__<server>__<tool>`）にそろえる。
+索引と `event_index` と `usage_daily` に入れるパスは、常に論理パスの `.jsonl` である。実体は `.jsonl` か、7 日を過ぎて圧縮された `.jsonl.zst` で、読むたびに解く（`logical.ts`。両方あれば `.jsonl` を正にする）。
+zstd の展開は純 JS の `fzstd` を `zstd.ts` の 1 か所に閉じ、展開後の大きさに上限を置く。展開したバッファは 2 件までの小さな LRU に置く。
+展開後のバイト列は元の `.jsonl` と一致するので、圧縮されても索引のバイト位置はそのまま使え、続きを読む行は 0 で終わり、作り直しは起きない。
+外の会話は新しい順に、索引に無いものを最大 300 件まで取り込み、索引済みと hangar が起こして動いている会話は上限に数えない。残りは次の全件の見比べで続きが入る。
+会話の `cwd` は、最後の `thread_settings_applied` を優先し、なければ `turn_context` と `session_meta` から読む。プロジェクトへの振り分けは、既存の `assignSessions` が cwd で行う。
+題名は最初の実際の入力から作る（threads の title と `session_index.jsonl` は読まない）。
+
 許可と質問の面（`AskSource`）は、hook の本文を読む口（`parseHook`）と、流してくる口（`subscribe`）のどちらかを持つ。
 Claude は前者で、hook の受け口（`mcp/app.ts` の `/mcp/s/<sessionId>/hook`）は、URL のセッションの `sessions.provider` から driver を引き、その `parseHook` で本文を読む。
 受け口は hook の形を知らず、読んだ問いと許可を書くのは hangar の側（`sessions/questionHook.ts`、`sessions/permissionAsks.ts`）である。
