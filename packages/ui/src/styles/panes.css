@@ -83,9 +83,6 @@
 .pane-empty-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pane-empty-hint { font-size: var(--fs-xs); color: var(--ink-3); }
 
-/* サイドバーの行の右端の、ペインの番号の札。 */
-.side-pane-badge { flex: none; min-width: 16px; height: 16px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; }
-
 /* ドラッグの予告の枠とドラッグの札（手本は session-split-proto.html の .preview と .ghost）。枠は 1 つだけで、位置と大きさは style で替える。動きは T5。 */
 .pane-drop-preview { position: fixed; z-index: 70; pointer-events: none; border-radius: var(--r-lg); background: color-mix(in srgb, var(--accent) 12%, transparent); border: 2px solid var(--accent-hi); display: flex; align-items: center; justify-content: center; opacity: 0; }
 .pane-drop-preview { transform: scale(0.96); transition: left var(--dur-swap) var(--ease-out), top var(--dur-swap) var(--ease-out), width var(--dur-swap) var(--ease-out), height var(--dur-swap) var(--ease-out), opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), background var(--dur-swap), border-color var(--dur-swap); }

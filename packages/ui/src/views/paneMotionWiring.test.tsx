@@ -1,6 +1,5 @@
-import { act, render } from '@testing-library/react';
+import { act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PaneBadge, FreshBadges, useFreshBadges } from './PaneBadge.tsx';
 import { paneDrag } from './paneDrag.ts';
 
 const animate = vi.fn(() => ({ finished: Promise.resolve(), cancel: vi.fn() }));
@@ -12,28 +11,6 @@ beforeEach(() => {
   animate.mockClear();
 });
 afterEach(() => { vi.restoreAllMocks(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; paneDrag.cancel(); paneDrag.landed(); document.body.innerHTML = ''; });
-
-describe('サイドバーの番号の札', () => {
-  const Probe = (p: { ids: string[] }) => {
-    const fresh = useFreshBadges(p.ids);
-    return <FreshBadges.Provider value={fresh}>{p.ids.map((id, i) => <PaneBadge key={id} id={id} n={i + 1} title="" />)}</FreshBadges.Provider>;
-  };
-  it('新しく出たものだけ弾み、最初の描画と、既にあるものは弾まない', () => {
-    on('420ms');
-    const { rerender } = render(<Probe ids={['a']} />);
-    expect(animate).not.toHaveBeenCalled();
-    rerender(<Probe ids={['a', 'b']} />);
-    expect(animate).toHaveBeenCalledTimes(1);
-    rerender(<Probe ids={['a', 'b']} />);
-    expect(animate).toHaveBeenCalledTimes(1);
-  });
-  it('動きを減らす設定では弾まない', () => {
-    on('0ms');
-    const { rerender } = render(<Probe ids={['a']} />);
-    rerender(<Probe ids={['a', 'b']} />);
-    expect(animate).not.toHaveBeenCalled();
-  });
-});
 
 describe('ドラッグの札の終わり', () => {
   const src = { kind: 'session' as const, sessionId: 's1', name: 'x' };

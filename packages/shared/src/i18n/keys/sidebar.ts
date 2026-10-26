@@ -1,7 +1,6 @@
 import type { MessageSpec } from '../messageSpec.ts';
 
 export const sidebarKeys = {
-  'sidebar.live.title': [],
   'sidebar.live.label': [],
   'sidebar.count.waiting': ['n'],
   'sidebar.live.rowTitle': ['name', 'waited'],
@@ -19,5 +18,4 @@ export const sidebarKeys = {
   'sidebar.nav.home': [],
   'sidebar.nav.projects': [],
   'sidebar.nav.settings': [],
-  'sidebar.live.paneBadge': ['n'],
 } as const satisfies MessageSpec;
