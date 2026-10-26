@@ -1534,6 +1534,14 @@ describe('NewSessionDialog のエージェント（Codex、ベータ）', () => 
     fireEvent.click(chip('エージェント、Claude Code'));
     expect(within(screen.getByRole('listbox', { name: 'エージェント' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Claude Code', 'opencodeベータ', 'Codexベータcodex 0.164.0 · 検証済み']);
   });
+  it('エージェントの札と一覧の Codex の行に、Codex の絵（svg）が出る', async () => {
+    collect({ projectId: 'p1', codex: ready() });
+    fireEvent.click(chip('エージェント、Claude Code'));
+    const row = within(screen.getByRole('listbox', { name: 'エージェント' })).getByRole('option', { name: /Codex/ });
+    expect(row.querySelector('.agent-icon[data-agent="codex"] svg path')).not.toBeNull();
+    await act(async () => { fireEvent.click(row); });
+    expect((await screen.findByRole('button', { name: 'エージェント、Codex' })).querySelector('.agent-icon[data-agent="codex"] svg path')).not.toBeNull();
+  });
   it('Codex を選ぶと、アカウント・モデル（自由入力）・effort・権限モード・worktree の札と信頼の注記を外し、モデル・推論・権限の 3 枚を出す。一覧を読む', async () => {
     const { asked } = collect({ projectId: 'p1', codex: ready(), accounts: null });
     await toCodex();
