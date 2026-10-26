@@ -4,7 +4,7 @@ import type { TodoItemProps, TodoSuggestionProps } from '../presenters/project.t
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { collapseOut, fadeIn, growIn, motionOn, riseIn, slideFrom } from './primitives/motionKit.ts';
+import { collapseOut, fadeIn, growIn, haltSlide, motionOn, riseIn, slideFrom } from './primitives/motionKit.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
 
@@ -26,12 +26,14 @@ type Gone = { id: string; text: string; list: 'open' | 'done'; index: number; se
  * 欄の外がスクロールしても動かないよう、窓ではなく欄からの位置で比べる。
  * ドラッグを離したときと、畳んで出した行を外すときは、snapshot で今見えている位置（transform を含む）を前の位置にする。
  * そうしないと、前の描画の位置へいったん戻ってから滑り直す。
- * paused が真の間（ドラッグの間）は測りも動かしもしない。
+ * paused が真の間（ドラッグの間）と、leave で畳んでいる間は測りも動かしもしない。
+ * 滑りの途中で描き直したときは、滑りを止めて（haltSlide）、止める前に見えていた位置から滑らせ直す。
  */
 function useRowMotion(root: RefObject<HTMLElement | null>, paused: RefObject<boolean>) {
   const nodes = useRef(new Map<string, HTMLElement>());
   const prev = useRef<Map<string, Pos> | null>(null);
   const forced = useRef<Map<string, Pos> | null>(null);
+  const leaving = useRef(0);
   const measure = () => {
     const base = root.current?.getBoundingClientRect();
     const m = new Map<string, Pos>();
@@ -44,8 +46,16 @@ function useRowMotion(root: RefObject<HTMLElement | null>, paused: RefObject<boo
   useLayoutEffect(() => {
     // ドラッグの間は測らない。行に付けた transform を「動いた」と読んで滑らせると、その動きがドラッグの transform を上書きする。
     if (paused.current) return;
+    // 畳んでいる間も測らない。畳みで詰まっていく下の行を「動いた」と読んで滑らせると、畳みと滑りが引き合って揺れる。畳み終えたら forced から滑らせる。
+    if (leaving.current > 0) return;
+    // 滑りの途中なら、止めてから測る。前の位置は、前に測った位置に止める前のずれを足した、見えていた位置にする。
+    const shift = new Map<string, Pos>();
+    for (const [k, el] of nodes.current) shift.set(k, haltSlide(el));
     const now = measure();
-    const before = forced.current ?? prev.current;
+    const before = forced.current ?? (prev.current && new Map([...prev.current].map(([k, p]) => {
+      const s = shift.get(k);
+      return [k, s ? { left: p.left + s.left, top: p.top + s.top } : p];
+    })));
     if (before) {
       for (const [k, el] of nodes.current) {
         const b = before.get(k);
@@ -63,9 +73,10 @@ function useRowMotion(root: RefObject<HTMLElement | null>, paused: RefObject<boo
     /** 畳んで出してから then を呼ぶ。動かないとき（reduced motion、要素が無い）はすぐ呼ぶ。 */
     leave: (key: string, then: () => void) => {
       const el = nodes.current.get(key);
-      const done = () => { forced.current = measure(); then(); };
+      const done = () => { leaving.current--; forced.current = measure(); then(); };
       // 動かないときは待たずに呼ぶ。待つと、押した操作が 1 拍遅れて届く。
       if (!el || !motionOn(el)) { then(); return; }
+      leaving.current++;
       collapseOut(el).then(done, done);
     },
   };

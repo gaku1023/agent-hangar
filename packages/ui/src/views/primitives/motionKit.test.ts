@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, fadeIn, fadeOut, staggerIn, growIn, liftIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, staggerIn, growIn, haltSlide, liftIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -179,7 +179,7 @@ describe('motionKit', () => {
     const now = shapeNow(el);
     expect(now).toEqual({ height: '30px', opacity: '0.5', paddingTop: '3px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' });
     growIn(el, 'y', now);
-    expect(calls[0]!.frames[0]).toEqual(now);
+    expect(calls[0]!.frames[0]).toEqual({ ...now, minHeight: '0px' });
     for (const f of calls[0]!.frames) expect(String(f.filter ?? 'none')).toBe('none');
     expect(calls[0]!.frames.at(-1)).toMatchObject({ opacity: 1 });
   });
@@ -196,6 +196,31 @@ describe('motionKit', () => {
     expect(calls[1]!.frames[0]).toMatchObject({ width: '0px', paddingLeft: '0px', paddingRight: '0px', marginLeft: '0px', marginRight: '0px' });
     expect(calls[1]!.frames.at(-1)).toMatchObject({ paddingLeft: '9px', paddingRight: '0px' });
     expect(calls[1]!.frames[0]).not.toHaveProperty('paddingTop');
+  });
+  it('伸び縮みの間は、その向きの最小の大きさを 0 にする（min-height を持つ TODO の行が縮み切るように）', async () => {
+    tokens('100ms');
+    const calls = fakeAnimate();
+    await collapseOut(document.createElement('div'));
+    await collapseOut(document.createElement('div'), 'y', { fade: false });
+    growIn(document.createElement('div'));
+    growIn(document.createElement('div'), 'y', { height: '12px', opacity: '0.5' });
+    for (const c of calls) for (const f of c.frames.filter((x) => x.offset === undefined)) expect(f).toMatchObject({ minHeight: '0px' });
+    await collapseOut(document.createElement('div'), 'x');
+    growIn(document.createElement('div'), 'x');
+    for (const c of calls.slice(4)) for (const f of c.frames.filter((x) => x.offset === undefined)) { expect(f).toMatchObject({ minWidth: '0px' }); expect(f).not.toHaveProperty('minHeight'); }
+  });
+  it('滑りの途中で止めると、止める前に見えていた位置とのずれを返す。滑っていなければずれは 0', () => {
+    tokens('420ms');
+    let moving = true;
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = () => ({ finished: new Promise(() => {}), cancel: () => { moving = false; } });
+    const el = document.createElement('div');
+    el.getBoundingClientRect = () => new DOMRect(0, moving ? 25 : 10, 10, 10);
+    expect(haltSlide(el)).toEqual({ left: 0, top: 0 });
+    slideFrom(el, new DOMRect(0, 30, 10, 10), new DOMRect(0, 10, 10, 10));
+    expect(haltSlide(el)).toEqual({ left: 0, top: 15 });
+    expect(moving).toBe(false);
+    // 止めた滑りは忘れる。
+    expect(haltSlide(el)).toEqual({ left: 0, top: 0 });
   });
   it('横に畳むときは幅を 0 にする', async () => {
     tokens('100ms');
