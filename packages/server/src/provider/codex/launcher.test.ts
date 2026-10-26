@@ -54,9 +54,16 @@ describe('TUI の argv と環境', () => {
     const p = planCodex('/bin/codex', { kind: 'start', id: 'pending:x' }, spec(), remote, ['CLAUDE_X']);
     expect(p.argv).toEqual(['/bin/codex', '--remote', 'ws://127.0.0.1:9', '--remote-auth-token-env', TUI_TOKEN_ENV, '-s', 'workspace-write', '-a', 'on-request']);
   });
-  it('ID が分かっているときは resume <ID> でつなぐ。モデルと推論も渡す', () => {
+  it('ID が分かっているときは resume <ID> でつなぐ。モデルと推論は渡し、-s と -a は渡さない（--remote の resume は権限の上書きを断る）', () => {
     const p = planCodex('/bin/codex', { kind: 'start', id: '01a-b' }, spec({ model: 'gpt-x', effort: 'low', mode: 'read-only' }), remote, []);
-    expect(p.argv).toEqual(['/bin/codex', '--remote', 'ws://127.0.0.1:9', '--remote-auth-token-env', TUI_TOKEN_ENV, '-m', 'gpt-x', '-c', 'model_reasoning_effort="low"', '-s', 'read-only', '-a', 'on-request', 'resume', '01a-b']);
+    expect(p.argv).toEqual(['/bin/codex', '--remote', 'ws://127.0.0.1:9', '--remote-auth-token-env', TUI_TOKEN_ENV, '-m', 'gpt-x', '-c', 'model_reasoning_effort="low"', 'resume', '01a-b']);
+  });
+  it('再開とフォークにも -s と -a を付けない', () => {
+    for (const mode of [{ kind: 'resume', id: 'a' }, { kind: 'fork', id: 'a', newId: 'b' }] as const) {
+      const argv = planCodex('/bin/codex', mode, spec({ mode: 'full-access' }), remote, []).argv;
+      expect(argv).not.toContain('-s');
+      expect(argv).not.toContain('-a');
+    }
   });
   it('フルアクセスは danger-full-access と never', () => {
     const p = planCodex('/bin/codex', { kind: 'start', id: 'pending:x' }, spec({ mode: 'full-access' }), remote, []);

@@ -1821,6 +1821,7 @@ RunManager は包みの生死で TUI の終わりを見て、終わったら `re
 推論（`effort`）と権限（`permissionMode`）は Codex が持つので受ける（`caps.effort` と `caps.permissionMode` が真）。
 権限は 3 段で、`permissionMode` に `read-only`、`auto`（既定）、`full-access` を入れる（`@agent-hangar/shared` の `CODEX_PERMISSION_FLAGS`）。
 読み取りのみは `-s read-only -a on-request`、自動は `-s workspace-write -a on-request`、フルアクセスは `-s danger-full-access -a never` である。
+TUI に `-s` と `-a` を付けるのは、resume なしでつなぐときだけにする。`--remote` の `resume` は権限の上書きがあると起動を断る（codex 0.164.0、「Permission overrides are not supported when resuming a remote task.」）。resume でつなぐスレッドの権限は、hangar が `thread/start`・`thread/resume`・`thread/fork` で渡してある。
 知らない値は、app-server を起こす前に `CodexLaunchError` で断る（`run.agent.codex.launchFailed`）。
 
 **materialize**（`driver.ts`）は、行を仮の ID（`pending:…`）で作ったあとに呼ばれる。
