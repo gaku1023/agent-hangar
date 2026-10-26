@@ -96,7 +96,7 @@ describe('claude-hooks：集める', () => {
     expect(c1.items.map((i) => [i.id, i.kind])).toEqual([[HOOKS_ID, 'claude-hooks'], [STATUSLINE_ID, 'claude-statusline']]);
     const h = payloadOf(byId(c1.items)[HOOKS_ID]!);
     expect(h.value).toEqual(HOOKS);
-    expect(h.files).toEqual([{ rel: 'hooks/fmt.sh', b64: Buffer.from('#!/bin/sh\necho fmt\n').toString('base64'), x: true }]);
+    expect(h.files).toEqual([{ rel: 'hooks/fmt.sh', b64: Buffer.from('#!/bin/sh\necho fmt\n').toString('base64'), ...(process.platform === 'win32' ? {} : { x: true }) }]);
     expect(payloadOf(byId(c1.items)[STATUSLINE_ID]!).files.map((f) => f.rel)).toEqual(['statusline-command.sh']);
     a.put('hooks/fmt.sh', '#!/bin/sh\necho changed\n', 0o755);
     const c2 = collectHooks(a);
@@ -221,8 +221,10 @@ describe('claude-hooks：書き戻し', () => {
     expect(r.files.sort()).toEqual(['hooks/fmt.sh', 'settings.json', 'statusline-command.sh']);
     expect(b.settings()).toMatchObject({ model: 'sonnet', hooks: HOOKS, statusLine: STATUS });
     expect(b.read('hooks/fmt.sh')).toBe('#!/bin/sh\necho fmt\n');
-    expect(fs.statSync(b.abs('hooks/fmt.sh')).mode & 0o111).not.toBe(0);
-    expect(fs.statSync(b.abs('statusline-command.sh')).mode & 0o111).toBe(0);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(b.abs('hooks/fmt.sh')).mode & 0o111).not.toBe(0);
+      expect(fs.statSync(b.abs('statusline-command.sh')).mode & 0o111).toBe(0);
+    }
     expect(listBackups(b.hangar).length).toBe(1);
     expect(r.generation).not.toBeNull();
     expect(byId(collectHooks(b).items)[HOOKS_ID]!.sha256).toBe(byId(sent)[HOOKS_ID]!.sha256);
