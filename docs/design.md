@@ -36,6 +36,9 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
   - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。作り直した実装では、書くのは殻の承諾の窓を経た殻の命令と CLI の `hangar config apply` だけで、サーバは書かない（「設定の同期の作り直し」の節の「適用と世代へ戻す」と、「承諾の窓」の節）。
   - 利用者が確認のダイアログで押した「書き込む」で、`~/.claude/settings.json` の `cleanupPeriodDays` の 1 か所だけを書き換えること。書く前に差分を見せ、`~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ書かない。ほかのキーと書式には触れない（「会話の保持期間」の節）。
   - 利用者がセッションを削除したときに、その本文（`~/.claude/projects/` の下の主線の jsonl と、隣の `<uuid>/` のフォルダ）を OS のゴミ箱へ移すこと。ほかの PC で削除された印を受け取ったときも同じことをする。ゴミ箱へ移せなければ何も変えず、`rm` には倒さない（「セッションの削除」の節）。
+- Codex（ベータ）の `$CODEX_HOME` も同じく読むだけで、書くのは次の 2 つだけである（「同期対象と暗号化」の「Codex の本文」）。Codex の DB と索引には触らない。
+  - 利用者が押した「この PC で再開」で、他端末の rollout を `sessions/` の下に置くこと。手元の rollout が写しの先頭部分のときだけ置き換え、食い違うときは書かない。
+  - 利用者が会話を削除したときに、その rollout を OS のゴミ箱へ移すこと。
 - 初期プロンプトの欄の候補のために、`~/.claude` から次を読む。どれも読むだけで、書かない（「初期プロンプトの欄」の節）。
   - `skills/*/SKILL.md` と `commands/**/*.md`。選んだプロジェクトの `.claude/skills` と `.claude/commands` も同じに読む。
   - `plugins/installed_plugins.json` と、`settings.json` の `enabledPlugins`。有効なプラグインのスキルとコマンドを見つけるためである。
@@ -7507,23 +7510,68 @@ resume すると `.jsonl` に展開されて 1 行足されるので、そのと
 resume しただけで rollout に 1 行足されるので、開始の直後にも変化として拾われる。
 ターンの終わりも、本文に行が足されるので同じ道で拾われる。
 `flushSession` は、DB の `sessions.provider` で Codex の会話と見分け、索引の台帳（`transcript_files`）の rollout を待ち行列に無くても上げる。
+索引がまだ見ていない（開始の直後で、30 秒の窓の中の）会話は、`$CODEX_HOME` を走査して thread の UUID で rollout を探して上げる（引き継ぎの頼みに答える前に、1 度も上がっていない会話を上げるため）。
 取り残しの走査も Codex の台帳の鍵で突き合わせて積み、未送信の数に入れる。
 Claude の走査と数は `sessions.provider` が `claude-code` の行だけを見る。
 
 Codex を有効にしていない PC（設定の `codexEnabled` が切）では、上げも降ろしもしない。
 上げる側の Codex の口（`UploaderDeps.codex`）は、設定が入のときだけ置き場を返す。
-降ろす側は、Codex の行を降ろさずに区切りを先へ進める。
-越えた会話は、次に上がった版から降りる。
+降ろす側は、Codex の行を降ろさずに区切りを先へ進め、越えた行のいちばん小さい連番を `sync_state` の `codexSkippedFrom` に控える。
+有効にしたあとの最初の降ろしで、控えた連番からいまの区切りまでの一覧を引き直し、会話ごとの最新の 1 件だけを降ろす（`RemotePuller.catchUpCodex`）。
+取り直し終えたら控えを消し、2 度目からは頭から読み直さない。
+有効にした直後に、ほかの PC の Codex の会話を「この PC で再開」できるようにするためである（次に上がるのを待つと、動いていない会話はいつまでも降りない）。
+読み直す一覧は控えた連番から先だけで、切のまま越えた行が無ければ読まない。
+取り直しに失敗した行は控えを残して次の回にもう 1 度試し、空きが足りなければ残りを次の回に回す。
 
 降ろす側は、写しを `~/.agent-hangar/remote/<元の PC>/` の下に、封じたメタの path のまま置く（`remote/<元の PC>/codex/sessions/YYYY/MM/DD/<名前>.jsonl` か `remote/<元の PC>/codex/archived_sessions/<名前>.jsonl`）。
 `codex/` の下は、`codexSyncPath` が組む形だけを許す。
 置き場が変わった版を降ろしたら、前の置き場の写しを消し、同じ会話の写しを 1 つだけ残す。
 `$CODEX_HOME` の中の降ろし先は `codexHomePath` が求め、`$CODEX_HOME/sessions/YYYY/MM/DD/<元の名前>.jsonl` か `$CODEX_HOME/archived_sessions/<元の名前>.jsonl` である。
-`$CODEX_HOME` へ書くのは「この PC で再開」と引き継ぎ（計画の E2）で、Codex の DB（`state_5.sqlite` など）と索引には触らない。
+`$CODEX_HOME` へ書くのは「この PC で再開」（`sync/codexResume.ts`）だけで、Codex の DB（`state_5.sqlite` など）と索引には触らない。
 codex は起動のときに置かれた rollout を拾い直す。
 降ろした写しを `$CODEX_HOME` に直接置かないのは、この PC の Codex の索引がそれを手元の会話として読み、この PC の本文として上げ直してしまうからである。
-再開、引き継ぎ、削除（ゴミ箱の 30 日の掃除）は E2 で入れる。
-それまで `AGENT_SYNC.codex.isSessionId` はどの ID も断り、ゴミ箱の掃除は Codex の会話を拾わない。
+`AGENT_SYNC.codex.isSessionId` は thread の UUID の形（小文字の 8-4-4-4-12）だけを受ける。
+
+##### この PC で再開（Codex）
+
+「この PC で再開」は、Codex の会話を `sync/codexResume.ts` の `resumeCodexHere` に振り分ける（`resumeHereFor`）。
+
+1. `RunManager.prepareResumeDir` で、再開と同じ理由（設定が切、この PC で動いている、codex が無い、場所が無い）で断り、ほかの PC のクイックセッションのフォルダを作る。
+2. その thread の書き手の座（writer lock）を握る、この PC の hangar が起こした app-server を止める（`stopCodexWriters`、driver の `release`）。会話の ID で 1 度、続けて thread の ID で探し直す。握られたままだと、resume が `already has an active writer` で断られる（probe-codex-e0）。hangar の外の codex は止めない。
+3. 降ろした写しのうち、台帳（`codex/<PC>/<UUID>.jsonl.gz`）の指紋と合う、ほかの PC の最も新しいものを選ぶ（`pickRemoteCodex`、`sync/copy.ts` の `pickVerifiedRemote`）。
+4. 手元の rollout を探す。写しの名前から求めた置き場（`codexHomePath` の形の sessions/ と archived_sessions/）、索引の行、`$CODEX_HOME` の走査の順で見て、sessions/ の側を先に採る。`.jsonl.zst` なら展開して比べる。
+5. バイトの先頭部分で比べる。rollout は追記だけで伸びるからである。
+   - 同じか、写しが手元の先頭部分（手元の方が進んでいる）なら、書かずに開く。
+   - 手元が写しの先頭部分（ほかの PC が続きを進めた）か、手元に無ければ、写しを置く。何も失わないので承諾は求めず、控えも取らない。
+   - どちらでもない（両方で別の続きを書いた）なら、競合として上書きせず、409（`sync.resume.codexDiverged`）で断る。承諾（`overwrite`）があっても置き換えない。resume しただけで 1 行足されるので、2 台で開くとここに来る。
+6. 置き場は、手元に rollout があればその場所のまま、無ければ `sessions/YYYY/MM/DD/<元の名前>.jsonl` である（アーカイブ済みの写しも sessions/ に置く）。同じ入れ物の一時ファイルから rename で被せ、途中の段のシンボリックリンクは踏まずに断る（`resolveUnder`）。手元の実体が `.jsonl.zst` なら、置いたあとに消す。
+7. 非同期の `resumeWith` で app-server を起こし、`thread/resume` で開く。作業の場所（cwd）は `RunManager.cwdFor` がプロジェクトの対応づけで決め、最初の `thread/resume` に渡す（cwd の上書きは、そのプロセスで最初の resume だけ効く）。
+
+確認の 1 枚の「置き換え」（`ResumeHereReplaceDto`）は Codex では出さない。置き換えは何も失わないときだけ行い、失うときは断るからである。
+
+この PC でアーカイブ済みの会話は、ファイルを sessions/ へ動かしても、codex の DB のアーカイブの印が残って `session … is archived` で断られる（0.164.0 で確かめた。そのあとの `thread/unarchive` も `no archived rollout found` で断る）。
+そこで手元の置き場は動かさず、driver の再開（`resumeUnarchiving`）が `is archived` の断りを受けたら `thread/unarchive` で sessions/ へ戻してから 1 度だけ resume し直す。
+
+##### 引き継ぎ（Codex）
+
+頼む側は Claude と同じで、応答の版が台帳に降りきったかを `codex/<相手>/<UUID>.jsonl.gz` で見る。
+頼まれた側（`TakeoverResponder`）は、Claude と同じ順（端末に 1 行を残し、止めて、2 度上げる）に、止める前の 1 度の `flushSession` を足す。
+開始直後の会話は、1 度も上がっていないことがあるからである。
+端末に残す 1 行は `sync.takeover.paneNoteCodex` である。
+版は止めたあとの rollout（`.jsonl.zst` なら展開した jsonl）の sha256 と大きさで答える。上げる側が台帳に書く形と同じである。
+
+##### 削除とゴミ箱の掃除（Codex）
+
+Codex の会話を消すと、手元の rollout（索引の行の論理パスから引いた実体。`.jsonl.zst` のこともある）を Claude と同じく OS のゴミ箱へ移し、降ろした写し（`remote/<PC>/codex/...`）を消す。
+写しは名前が UUID で終わらないので、台帳の鍵（`codex/<PC>/<UUID>.jsonl.gz`）の path から置き場を組む。
+Codex の DB の行には触らない（codex が次に一覧を作るときに、ファイルの無い行をどう扱うかは確かめていない）。
+ゴミ箱から戻すと、この PC が上げた Codex の台帳の行を忘れ、上げ直してもらう。
+ゴミ箱の 30 日の掃除（`trashedLongAgo`、`sweepTrashBlobs`）は Codex の会話も拾い、この PC が上げた rollout の鍵名を消す。
+
+##### 片付け（teardown、Codex）
+
+`hangar cloud teardown` の救出（`rescueSealedBodies`）は、ほかの PC の Codex の写しを `remote/<元の PC>/codex/` の下に降ろす。
+自分の会話の写しは、原本が `$CODEX_HOME`（`codexHomePath` の置き場。`.jsonl.zst` でもよい）にあれば降ろし直さない。原本が無い自分の会話は、消すと失われるので降ろす。
 
 Codex を知らない版の PC は、Codex の行を受けても壊れない。
 その版の `blobKeyFor` は `projects/` と `opencode/` の形しか知らないので、`codex/` の path から鍵名を求め直せず、`SealedCloudClient` が行を開かずに捨てる（区切りは進む）。

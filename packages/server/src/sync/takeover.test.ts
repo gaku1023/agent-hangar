@@ -411,3 +411,25 @@ describe('opencode の会話の引き継ぎ（頼む側）', () => {
     expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: true });
   });
 });
+
+describe('Codex の会話の引き継ぎ（頼む側）', () => {
+  const THREAD = '0198a7c2-0000-7000-8000-00000000c0de';
+  it('応答の版は Codex の台帳の鍵（codex/<相手>/<UUID>.jsonl.gz）で見比べる', async () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'codex', provider_session_id: THREAD, cwd: '/w/a', home_device: OTHER }, OTHER);
+    addRun('r1', T0 - 1_000);
+    svc.start('s1', { force: false });
+    await flush();
+    answerStopped(onlyAsk().id, { sha: 'v3', size: 30 });
+    // Claude の鍵の形で同じ版があっても、Codex の会話では見ない。
+    db.prepare('insert or replace into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`transcripts/${OTHER}/${THREAD}.jsonl.gz`, 'transcript', 'x', OTHER, 'v3', 30, 1, 1, 1);
+    svc.noteApplied();
+    expect(svc.get('s1')?.stage).toBe('receiving');
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toMatchObject({ ok: false });
+    db.prepare('insert or replace into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`codex/${OTHER}/${THREAD}.jsonl.gz`, 'transcript', `codex/sessions/2026/10/26/rollout-2026-10-26T14-00-00-${THREAD}.jsonl`, OTHER, 'v3', 30, 1, 1, 1);
+    svc.noteApplied();
+    expect(svc.get('s1')?.stage).toBe('ready');
+    expect(resumeHereAllowed(db, SELF, 's1', now())).toEqual({ ok: true });
+  });
+});

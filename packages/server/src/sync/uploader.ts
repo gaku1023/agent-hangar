@@ -16,6 +16,7 @@ import type { Timers } from './engine.ts';
 import { AGENT_SYNC, codexSyncPathOfFile, isExportAgent } from './agentSync.ts';
 import { resolvePhysical } from '../provider/codex/transcript/logical.ts';
 import { decompressZstd } from '../provider/codex/transcript/zstd.ts';
+import { listRolloutFiles } from '../provider/codex/transcript/discover.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
 import { noteBlobUpload, sweepSupersededBlobs } from './trashSweep.ts';
 import type { RowKeyring } from './sealedClient.ts';
@@ -475,7 +476,15 @@ export class TranscriptUploader {
     if (this.codexSource() === null) return [];
     this.codexFilesStmt ??= this.deps.db.prepare(`select t.path path from transcript_files t join sessions s on s.id = t.session_id
       where s.provider = 'codex' and s.provider_session_id = ? and t.device_id is null and t.agent_id is null`);
-    return (this.codexFilesStmt.all(sessionUuid) as { path: string }[]).map((r) => ({ provider: 'codex', path: r.path, sessionId: sessionUuid, agentId: null }));
+    const rows = this.codexFilesStmt.all(sessionUuid) as { path: string }[];
+    if (rows.length > 0) return rows.map((r) => ({ provider: 'codex', path: r.path, sessionId: sessionUuid, agentId: null }));
+    // 索引がまだ見ていない（開始直後、30 秒の窓の中の）会話は、$CODEX_HOME を走査して thread の UUID で探す。
+    // 引き継ぎの頼みに答える前（sync/takeoverResponder.ts）に、1 度も上がっていない会話を上げるためである。Codex の会話の行があるときだけ探す。
+    const known = this.deps.db.prepare("select 1 from sessions where provider = 'codex' and provider_session_id = ? and deleted_at is null").get(sessionUuid) !== undefined;
+    if (!known || !AGENT_SYNC.codex.isSessionId(sessionUuid)) return [];
+    const src = this.codexSource();
+    const f = src ? listRolloutFiles(src.home).files.find((x) => x.sessionId === sessionUuid) : undefined;
+    return f ? [{ provider: 'codex', path: f.path, sessionId: sessionUuid, agentId: null }] : [];
   }
 
   private codexFilesStmt: ReturnType<Db['prepare']> | null = null;

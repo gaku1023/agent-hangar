@@ -28,7 +28,7 @@ export function opencodeSessionOfPath(rel: string): string | null {
 }
 
 /** Codex の thread の UUID（rollout の名前の末尾、session_meta の id）。 */
-const CODEX_THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const CODEX_THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * Codex の本文の写しの相対パス（封じたメタの path）。`projects/` と `opencode/` の外の `codex/` に置く。
@@ -175,7 +175,7 @@ export const AGENT_SYNC: Record<AgentKind, AgentSyncUnit> = {
   // Codex は rollout 1 ファイルを会話 1 つとして、thread の UUID で台帳と鍵名を引く（`codex/<端末>/<UUID>.jsonl.gz`）。
   // 名前が .jsonl から .jsonl.zst に変わっても、アーカイブで置き場が変わっても、台帳と鍵名は 1 つのままである。
   // 降ろした写しは remote/<元の PC>/ の下に、写しの path のまま置く（codex/sessions/... か codex/archived_sessions/...）。
-  // 削除の掃除（ゴミ箱の 30 日）は E2 で入れる。それまで isSessionId はどの ID も断る。
+  // 削除の掃除（ゴミ箱の 30 日）は thread の UUID の形の ID だけを受ける（鍵名を求められない ID を外す）。
   codex: {
     source: 'watched-file',
     ledgerKey(deviceId, sessionId, agentId) {
@@ -194,7 +194,7 @@ export const AGENT_SYNC: Record<AgentKind, AgentSyncUnit> = {
     remoteDir: 'codex',
     remoteFile: (rel) => rel.split('/'),
     exportFile: null,
-    isSessionId: () => false,
+    isSessionId: (id) => CODEX_THREAD_ID.test(id),
     relays: false,
   },
 };

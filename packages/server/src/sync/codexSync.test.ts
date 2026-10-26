@@ -118,6 +118,19 @@ describe('Codex の本文を上げる', () => {
     up.stop();
   });
 
+  it('flushSession は、索引がまだ見ていない（開始直後の）会話も、$CODEX_HOME から thread の UUID で rollout を探して上げる', async () => {
+    db.prepare('insert into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`s-${ID}`, 'codex', ID, '/w/alpha', 1, 1, 'dev-a', 'dev-a', 1);
+    const up = make();
+    await up.flushSession(ID);
+    expect(puts()).toBe(1);
+    expect((await openedCodex()).entry).toMatchObject({ path: SESSIONS_PATH });
+    // Codex の会話でなければ探さない。
+    await up.flushSession('11111111-1111-4111-8111-111111111111');
+    expect(puts()).toBe(1);
+    up.stop();
+  });
+
   it('一度上げた会話は、変化が続いても上げてから 10 分たつまで上げ直さない（Claude と同じ間隔）', async () => {
     const up = make();
     up.noteChanged(target());
@@ -315,6 +328,35 @@ describe('Codex の本文を降ろす', () => {
       expect(ledgerRows()).toEqual([]);
       expect(p.skippedEntries()).toEqual([]);
     }
+    expect(errors).toEqual([]);
+  });
+
+  it('latestRemoteMain は Codex の写しも台帳の鍵（codex/<PC>/<UUID>.jsonl.gz）で引く', async () => {
+    expect(await uploadFromB(logical())).toBe('uploaded');
+    const p = makePuller();
+    await p.pullNow();
+    expect(p.latestRemoteMain(ID)).toEqual({ deviceId: 'dev-b', path: remoteTranscriptPath(remoteHome, 'dev-b', SESSIONS_PATH), size: BODY.length, mtime: expect.any(Number) });
+  });
+
+  it('切の間に越えた Codex の行は、有効にした後の最初の降ろしで、会話ごとの最新を取り直す。取り直すのは 1 度だけ', async () => {
+    // dev-b は Codex を有効にしていて、この PC（dev-a）は切である。
+    const fromB = async () => { codexOn = true; const r = await uploadFromB(logical()); codexOn = false; return r; };
+    expect(await fromB()).toBe('uploaded');
+    const p = makePuller();
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    expect(remoteTree()).toEqual([]);
+    // 切の間に、同じ会話の続きがもう 1 度上がる（取り直すのは新しい方だけ）。
+    fs.appendFileSync(logical(), RESUME_LINE);
+    expect(await fromB()).toBe('uploaded');
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    codexOn = true;
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(remoteTree()).toEqual([`dev-b/${SESSIONS_PATH}`]);
+    expect(fs.readFileSync(remoteTranscriptPath(remoteHome, 'dev-b', SESSIONS_PATH)).toString('utf8').endsWith(RESUME_LINE)).toBe(true);
+    const listed = cloud.calls.filter((c) => c.method === 'listFiles').length;
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    // 2 度目からは、ふだんの区切りから読むだけで、頭から読み直さない。
+    expect(cloud.calls.filter((c) => c.method === 'listFiles').length - listed).toBe(1);
     expect(errors).toEqual([]);
   });
 

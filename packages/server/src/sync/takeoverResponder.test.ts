@@ -9,6 +9,7 @@ import { ensureSession } from '../indexer/write.ts';
 import { FLUSH_AGAIN_MS } from './flushOnRunEnd.ts';
 import { answerOf, cancelAsk, pruneTakeoverRows, writeAsk } from './takeoverRows.ts';
 import { TakeoverResponder } from './takeoverResponder.ts';
+import { CODEX_ONE_TURN, fixtureBytes } from '../../test/codexFixtures.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 const SELF = 'pc-b';
@@ -252,5 +253,81 @@ describe('opencode の会話の引き継ぎ（頼まれた側）', () => {
     await build().scan();
     expect(calls).toEqual(['push']);
     expect(answerOf(db, a.id)).toMatchObject({ result: 'not_running', transcriptSha256: 'sha-oc', transcriptSize: 7 });
+  });
+});
+
+describe('Codex の会話の引き継ぎ（頼まれた側）', () => {
+  const THREAD = '0198a7c2-0000-7000-8000-00000000c0de';
+  let db: Db;
+  let sessionId: string;
+  let calls: string[];
+  let runs: Map<string, RunDto>;
+  let dir: string;
+
+  beforeEach(() => {
+    db = openDb(':memory:');
+    sessionId = ensureSession(db, THREAD, '/w', SELF, 'codex');
+    calls = [];
+    runs = new Map([['r1', { id: 'r1', sessionId, deviceId: SELF, kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 } as RunDto]]);
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cx-takeover-'));
+  });
+  afterEach(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+  const build = (): TakeoverResponder => new TakeoverResponder({
+    db, deviceId: SELF,
+    runs: {
+      getRun: (id) => runs.get(id) ?? null,
+      kill: (id, reason) => { calls.push(`kill:${id}:${reason}`); const r = { ...runs.get(id)!, endedAt: 2, endReason: reason ?? 'killed' } as RunDto; runs.set(id, r); return r; },
+    },
+    flushSession: async (u) => { calls.push(`flush:${u}`); },
+    pushNow: async () => { calls.push('push'); },
+    notePane: (_n, t) => { calls.push(`note:${t}`); },
+    deviceName: (id) => id,
+    language: () => 'ja',
+    sleep: async (ms) => { calls.push(`sleep:${ms}`); },
+    now: () => 5000,
+  });
+  const ask = () => writeAsk(db, 'pc-a', { sessionId, runId: 'r1', targetDevice: SELF, mode: 'ask', now: 1000 });
+
+  it('止める前にも上げる（開始直後でまだ上がっていない会話も、止めたときの版の前に上がっている）。止めたあと 2 度上げる', async () => {
+    ask();
+    expect(await build().scan()).toBe(1);
+    expect(calls).toEqual([
+      'note:[hangar] pc-a に引き継がれたため、この PC の codex を停止しました。',
+      `flush:${THREAD}`,
+      'kill:r1:taken_over',
+      `flush:${THREAD}`,
+      `sleep:${FLUSH_AGAIN_MS}`,
+      `flush:${THREAD}`,
+      'push',
+    ]);
+  });
+
+  it('版は止めたあとの rollout の中身で答える。.jsonl.zst なら展開した jsonl の版（上げる側の台帳と同じ形）', async () => {
+    const body = fixtureBytes(CODEX_ONE_TURN.file);
+    const logical = path.join(dir, `rollout-2026-10-26T14-00-00-${THREAD}.jsonl`);
+    fs.writeFileSync(logical, body);
+    db.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?, ?, null, null, 1, 1, 0, 1)').run(logical, sessionId);
+    const a = ask();
+    await build().scan();
+    const want = { result: 'stopped', transcriptSha256: createHash('sha256').update(body).digest('hex'), transcriptSize: body.length };
+    expect(answerOf(db, a.id)).toMatchObject(want);
+    // 圧縮された実体でも、展開した中身の版で答える。
+    fs.rmSync(logical);
+    fs.writeFileSync(`${logical}.zst`, fixtureBytes(`${CODEX_ONE_TURN.file}.zst`));
+    runs.set('r2', { ...runs.get('r1')!, id: 'r2', endedAt: null } as RunDto);
+    const b = writeAsk(db, 'pc-a', { sessionId, runId: 'r2', targetDevice: SELF, mode: 'ask', now: 2000 });
+    await build().scan();
+    expect(answerOf(db, b.id)).toMatchObject(want);
+  });
+
+  it('動いていなければ止めずに、Codex の台帳の版で not_running と答える', async () => {
+    runs.set('r1', { ...runs.get('r1')!, endedAt: 3, endReason: 'killed' } as RunDto);
+    db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', 'p', ?, 'sha-cx', 9, 0, 1, 0)")
+      .run(`codex/${SELF}/${THREAD}.jsonl.gz`, SELF);
+    const a = ask();
+    await build().scan();
+    expect(calls).toEqual(['push']);
+    expect(answerOf(db, a.id)).toMatchObject({ result: 'not_running', transcriptSha256: 'sha-cx', transcriptSize: 9 });
   });
 });

@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { AgentDriver, AskSource, LaunchSpec, LiveSource, MaterializeMode, TranscriptSource } from '../../agent/types.ts';
 import { LaunchQueue } from '../opencode/serve/queue.ts';
 import { isProcessAlive, watchExit } from '../opencode/serve/spawn.ts';
-import { CodexRpc, stopAppServer, tuiRemote, watchStartedThread, type AppServerProcess } from './appServer.ts';
+import { CodexRpc, stopAppServer, tuiRemote, watchStartedThread, type AppServerProcess, type ThreadResumeParams } from './appServer.ts';
 import { codexBaseEnv } from './env.ts';
 import type { CodexLiveTarget } from './live.ts';
 import type { CodexUsage } from './usage.ts';
@@ -137,6 +137,21 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     await stopAppServer(s.server, { graceMs: deps.graceMs });
   }
 
+  /**
+   * thread/resume。アーカイブ済みの会話（`codex archive` したもの、ほかの PC でアーカイブ済みの写しを置いたもの）は、実物が -32600 `session … is archived` で断る。
+   * そのときは thread/unarchive で sessions/ へ戻してから 1 度だけ resume し直す（「この PC で再開」はアーカイブ済みの会話を戻して開く、計画の E2）。
+   * ファイルを sessions/ へ動かすだけでは、codex の DB のアーカイブの印が残って断られる（0.164.0 で確かめた）。
+   */
+  async function resumeUnarchiving(rpc: CodexRpc, threadId: string, open: Omit<ThreadResumeParams, 'threadId'>): Promise<Awaited<ReturnType<CodexRpc['threadResume']>>> {
+    try {
+      return await rpc.threadResume({ threadId, ...open });
+    } catch (e) {
+      if (!(e instanceof Error && /is archived/i.test(e.message))) throw e;
+      await rpc.request('thread/unarchive', { threadId });
+      return rpc.threadResume({ threadId, ...open });
+    }
+  }
+
   async function materialize(mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; lateSessionId?: Promise<string> }> {
     // ID の無い会話（最初の入力の前）は、app-server を起こす前に断る。
     if (mode.kind !== 'start' && mode.id.startsWith(PENDING_PREFIX)) throw noRolloutError();
@@ -171,7 +186,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
         // 既にある会話を開く。hangar の外で作られたものも同じ道である。cwd は、そのプロセスの最初の resume だけ上書きできる（E0）ので、起こしたてのここで渡す。
         const open = { cwd: spec.cwd, ...(spec.model?.trim() ? { model: spec.model.trim() } : {}), approvalPolicy: flags.approval, sandbox: flags.sandbox };
         const th = mode.kind === 'resume'
-          ? await handle.rpc.threadResume({ threadId: mode.id, ...open })
+          ? await resumeUnarchiving(handle.rpc, mode.id, open)
           : await handle.rpc.request<{ thread: { id: string } }>('thread/fork', { threadId: mode.id, ...open });
         s.threadId = th.thread.id;
         const m = (th as { model?: unknown }).model;
