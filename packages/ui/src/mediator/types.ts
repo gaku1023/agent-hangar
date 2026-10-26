@@ -205,7 +205,7 @@ export type Overlay =
   | { kind: 'shortcuts' }
   // worktree は、worktree の札をオンにして開くこと（同じファイルの編集の警告から開いたとき）。名前はダイアログが付ける。
   // dir は、はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき。0.6.1）。
-  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean; dir?: string }
+  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean; dir?: string; agent?: 'opencode'; pickModel?: true }
   | { kind: 'promote'; sessionId: string }
   | { kind: 'newProject' }
   // 設定の「アカウントを足す…」。入力はダイアログが持ち、送信の進みは accountAdd が持つ。
@@ -256,6 +256,8 @@ export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjec
 export type LaunchPrepMark = { key: string; model: string | null; name: string | null; /** 再開の準備（進みは右下の札に出す）。 */ resume?: true };
 /** 起動した後にコンテキストが足りなかった会話の札。fix は整え直しの最中の鍵、done は済んだこと。 */
 export type ContextShort = { sessionId: string; fix: { key: string } | null; done: boolean };
+/** 起動した後にモデルが見つからなかった会話の札。model は文から取れたモデルの名前（provider を含まない）で、取れなければ null。 */
+export type ModelMissing = { sessionId: string; model: string | null };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
 /** 検索の結果から開いたときの跳び先（J1）。n は開いた回数で、同じ所をもう一度開いても跳び直す合図にする。 */
@@ -317,6 +319,8 @@ export type State = {
   launchPrep: LaunchPrepMark | null;
   /** 起動した後にコンテキストが足りなかった会話の右下の札（opencode.contextShort）。同じ会話は 1 枚で、古いものが先。 */
   contextShorts: ContextShort[];
+  /** 起動した後にモデルが見つからなかった会話の右下の札（opencode.modelMissing）。同じ会話は 1 枚で、古いものが先。 */
+  modelMissings: ModelMissing[];
   /**
    * 新しいセッションのモデルの小窓の「プロバイダーを管理…」で設定へ移ったときの、ダイアログの開き方。
    * 設定の opencode の面に「‹ 新しいセッションに戻る」を出し、押すと同じ開き方で開き直す。設定の外へ移ったら忘れる。持っていなければ null か無し。

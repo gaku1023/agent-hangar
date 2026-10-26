@@ -1,6 +1,7 @@
 import { accountsStep } from './accounts.ts';
 import { arrivedStep } from './arrived.ts';
 import { contextShortStep } from './contextShort.ts';
+import { modelMissingStep } from './modelMissing.ts';
 import { phoneLaunchStep, settlePhoneLaunches } from './phoneLaunch.ts';
 import { configSyncStep } from './configSync.ts';
 import { connectionStep } from './connection.ts';
@@ -39,7 +40,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -66,6 +67,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
   const phoneLaunch = (s: State, i: Input) => phoneLaunchStep(s, store, i);
   const contextShort = (s: State, i: Input) => contextShortStep(s, store, i);
+  const modelMissing = (s: State, i: Input) => modelMissingStep(s, i);
   const update = (s: State, i: Input) => updateStep(s, store, i);
   const opencodeVersion = (s: State, i: Input) => opencodeVersionStep(s, store, i);
   const codexVersion = (s: State, i: Input) => codexVersionStep(s, store, i);
@@ -78,7 +80,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
   const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, todos, workbench]) {
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r, store);
   }

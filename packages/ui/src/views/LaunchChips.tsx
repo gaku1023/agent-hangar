@@ -60,6 +60,8 @@ export type LaunchOpencodeChips = {
   model: string; models: OpencodeModelOption[]; defaultModel: string | null; modelReset: boolean; onModel: (value: string) => void;
   providers: OpencodeProviderOption[]; pricesAt: number | null; fetchedAt: number; reloading: boolean; onReload: () => void; onManage: () => void;
   autoApprove: boolean; onAutoApprove: (value: boolean) => void;
+  /** モデルの小窓を開いた状態で出す（起動後にモデルが無かった札から開いたとき）。 */
+  pickModel?: boolean;
 };
 
 const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).length;
@@ -266,7 +268,7 @@ function OpencodeChips(props: LaunchOpencodeChips) {
       </ChipPopover>
       <OpencodeModelPicker label={modelName} value={props.model} models={props.models} providers={props.providers} defaultModel={props.defaultModel}
         pricesAt={props.pricesAt} fetchedAt={props.fetchedAt} reset={props.modelReset} reloading={props.reloading}
-        onChange={props.onModel} onReload={props.onReload} onManage={props.onManage} faceProps={agentOnlyAttr('modes')} />
+        onChange={props.onModel} onReload={props.onReload} onManage={props.onManage} defaultOpen={props.pickModel} faceProps={agentOnlyAttr('modes')} />
       <ChipPopover name={autoName} value={t(props.autoApprove ? 'launch.autoApprove.on' : 'launch.autoApprove.off')} tone={props.autoApprove ? 'danger' : 'muted'} width={280} agentOnly="modes">
         {(close) => (
           <PickList label={autoName} value={props.autoApprove ? 'on' : 'off'}

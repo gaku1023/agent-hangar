@@ -1916,6 +1916,15 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(presentToasts({ ...base, overlay: { kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } } }, store, NOW).blocked).toBe(true);
     expect(presentToasts({ ...base, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store, NOW).blocked).toBe(true);
   });
+  it('起動後にモデルが見つからなかった札は、会話のモデルを provider/model で、接続先を表示名で出す（小窓の一覧がまだ無くても）', () => {
+    const store = storeWith();
+    store.sessions.oc = session('oc', { provider: 'opencode', projectId: 'alpha', stats: { ...session('oc').stats, model: 'lmstudio/qwen3.6-35b-a3b' } });
+    const p = presentToasts({ ...initialState(), modelMissings: [{ sessionId: 'oc', model: 'qwen3.6-35b-a3b' }] }, store, NOW);
+    expect(p.modelMissings).toEqual([{ sessionId: 'oc', model: 'lmstudio/qwen3.6-35b-a3b', name: 'LM Studio', projectId: 'alpha' }]);
+    // 会話のモデルが文の名前と合わなければ、文の名前のまま出す。
+    const other = presentToasts({ ...initialState(), modelMissings: [{ sessionId: 'oc', model: 'gemma' }] }, store, NOW);
+    expect(other.modelMissings![0]).toMatchObject({ model: 'gemma', name: 'opencode' });
+  });
   it('info と error のトーストはそのまま渡す', () => {
     const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
@@ -1924,7 +1933,7 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と未検証の opencode の版の札と参加リクエストの通知とスマホの「元に戻す」以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'codexVersion', 'contextShorts', 'join', 'more', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'codexVersion', 'contextShorts', 'join', 'modelMissings', 'more', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
     expect(p.opencodeVersion).toBeNull();
     expect(p.phoneUndo).toBeNull();
     expect(p.phoneLaunches).toEqual([]);

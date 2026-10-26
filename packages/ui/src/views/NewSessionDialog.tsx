@@ -181,7 +181,8 @@ export function NewSessionDialog(props: NewSessionProps) {
   const cx = props.codex ?? null;
   // 一覧に並べるエージェントは、設定で有効にしたものだけ（Claude Code は常に）。前回のエージェントが無効になっていたら Claude Code で開く。
   const offered: AgentValue[] = [DEFAULT_AGENT_KIND, ...(oc ? (['opencode'] as const) : []), ...(cx ? (['codex'] as const) : [])];
-  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(null);
+  // 開く経路が決めたエージェント（起動後の札の「別のモデルでやり直す」は opencode）。一覧に無ければ前回の値に任せる。
+  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(props.agent && offered.includes(props.agent) ? props.agent : null);
   const remembered = props.prefs[prefKey]?.agent;
   const chosenAgent = pickedAgent ?? remembered;
   const agent: AgentValue = isAgentKind(chosenAgent) && offered.includes(chosenAgent) ? chosenAgent : DEFAULT_AGENT_KIND;
@@ -439,7 +440,7 @@ export function NewSessionDialog(props: NewSessionProps) {
           onReload: () => emit({ type: 'opencode.options', dir: ocDir, refresh: true }),
           // 設定の opencode の面へ移る（プロバイダーの面は C6）。書きかけは閉じるときに下書きとして残る。
           onManage: () => { emit({ type: 'opencode.providers.manage' }); },
-          autoApprove, onAutoApprove: setAutoApprove,
+          autoApprove, onAutoApprove: setAutoApprove, pickModel: props.pickModel === true,
         } : undefined}
         lead={projectChip}
         account={props.accounts && account !== null ? { value: account, options: accountOptions(t, props.accounts), onChange: setPickedAccount } : undefined}

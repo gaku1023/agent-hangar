@@ -60,6 +60,8 @@ export type ServerEvent =
   | { type: 'opencode.version'; version: string | null; verdict: 'unverified' | 'legacy' | 'unknown' }
   /** opencode の会話が、ローカルのモデルの長さが足りずに断られた（起動後の検出）。右下の札に「整えて再開」を出す。 */
   | { type: 'opencode.contextShort'; sessionId: string }
+  /** opencode の会話が、この PC のサーバーに無いモデルで断られた（起動後の検出）。右下の札に「別のモデルでやり直す」を出す。model は文から取れたモデルの名前（provider を含まない）で、取れなければ null。 */
+  | { type: 'opencode.modelMissing'; sessionId: string; model: string | null }
   /** 起動前の準備の進み（launchPrep.ts）。段が動くたびに、鍵ごとの全体を配る。 */
   | { type: 'launch.prep'; prep: import('./launchPrep.ts').LaunchPrepDto }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */

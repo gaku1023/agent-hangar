@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
-import type { ContextShortCardProps, JoinCardProps, PhoneLaunchCardProps, PrepProgressCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { ContextShortCardProps, JoinCardProps, ModelMissingCardProps, PhoneLaunchCardProps, PrepProgressCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { newPrepKey } from '../lib/prepKey.ts';
 import { PrepLine } from './LaunchPrepBox.tsx';
 import type { UpdateAct, UpdateCardProps, WhatsNewCardProps } from '../presenters/update.ts';
@@ -31,9 +31,9 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'codexVersion'; card: CodexVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps } | { kind: 'prepProgress'; card: PrepProgressCardProps } | { kind: 'contextShort'; card: ContextShortCardProps };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'codexVersion'; card: CodexVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps } | { kind: 'prepProgress'; card: PrepProgressCardProps } | { kind: 'contextShort'; card: ContextShortCardProps } | { kind: 'modelMissing'; card: ModelMissingCardProps };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
-const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind === 'contextShort' ? `contextShort:${c.card.sessionId}` : c.kind);
+const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind === 'contextShort' ? `contextShort:${c.card.sessionId}` : c.kind === 'modelMissing' ? `modelMissing:${c.card.sessionId}` : c.kind);
 
 /** スマホから起動した会話の通常の通知が出ている時間（Bypass permissions の通知は時間では消さない）。読む文が info より長いので、その 2 倍にする。 */
 export const PHONE_LAUNCH_TOAST_MS = INFO_TOAST_MS * 2;
@@ -42,7 +42,7 @@ const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${
 /**
  * 画面右下に積む知らせ。
  * 上から error と info のトースト、更新の札、更新したあとの札、未検証の opencode の版の札、他の PC から届いたプロジェクトの札、参加リクエストの通知、スマホの解除の「元に戻す」、並べきれないスマホからの通知の数、スマホから起動した会話の通知、
- * 閉じた後に走り続ける起動前の準備の進み、起動後にコンテキストが足りなかった札、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 閉じた後に走り続ける起動前の準備の進み、起動後にコンテキストが足りなかった札、起動後にモデルが見つからなかった札、並べきれない入力待ちの数、入力待ちのカードの順に積む。
  * トーストは操作の結果だけである。戻る時刻の札はホームの帯に、通知の誘いは始める前の確認に、保持期間と互換の知らせはヘッダーの注意にある。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
@@ -66,6 +66,7 @@ export function ToastStack(props: ToastsProps) {
     ...(props.phoneLaunches ?? []).map((card) => ({ kind: 'phoneLaunch' as const, card })),
     ...(props.prepProgress ? [{ kind: 'prepProgress' as const, card: props.prepProgress }] : []),
     ...(props.contextShorts ?? []).map((card) => ({ kind: 'contextShort' as const, card })),
+    ...(props.modelMissings ?? []).map((card) => ({ kind: 'modelMissing' as const, card })),
   ];
   const waits: WaitingItem[] = [
     ...(props.more > 0 ? [{ kind: 'more' as const, n: props.more }] : []),
@@ -87,6 +88,7 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'phoneLaunch') return <PhoneLaunchCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
         if (item.kind === 'prepProgress') return <PrepProgressCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'contextShort') return <ContextShortCard key={key} card={item.card} motion={m} />;
+        if (item.kind === 'modelMissing') return <ModelMissingCard key={key} card={item.card} motion={m} />;
         // 並べきれないスマホからの通知の数。押す先は無いので、ボタンにせず文だけの 1 行にする。
         if (item.kind === 'phoneLaunchMore') return <div key={key} className="toast toast-pill" data-kind="phone-launch-more" {...motionAttrs(m)}>{t('phoneLaunch.notice.more', { n: item.n })}</div>;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
@@ -299,6 +301,29 @@ function ContextShortCard(props: { card: ContextShortCardProps; motion: CardMoti
             <button type="button" className="btn btn-sm btn-ghost" onClick={dismiss}>{t('launchPrep.short.close')}</button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 起動した後にモデルが見つからなかった会話の札。同じ会話は 1 枚で、見出し、本文、「別のモデルでやり直す」と「閉じる」を出す。
+ * 「別のモデルでやり直す」は札を下げ、その会話のプロジェクトで、opencode のモデルの小窓を開いた新しいセッションのダイアログを開く。
+ * 画面を移さないので、ダイアログが開いていても押せる（確認が出ているときは、Mediator が差し替えない）。
+ */
+function ModelMissingCard(props: { card: ModelMissingCardProps; motion: CardMotion }) {
+  const emit = useEmit();
+  const t = useT();
+  const c = props.card;
+  return (
+    <div className="toast notice" data-kind="model-missing" role="status" aria-label={t('launchPrep.missing.title')} {...motionAttrs(props.motion)}>
+      <div className="notice-head"><Icon name="alert" /><span className="notice-label">{t('launchPrep.missing.title')}</span></div>
+      <div className="notice-body">
+        <div className="notice-message">{t('launchPrep.missing.body', { name: c.name, model: c.model })}</div>
+        <div className="notice-acts">
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => emit({ type: 'launchPrep.missing.retry', sessionId: c.sessionId, projectId: c.projectId })}>{t('launchPrep.missing.retry')}</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'launchPrep.missing.dismiss', sessionId: c.sessionId })}>{t('launchPrep.short.close')}</button>
+        </div>
       </div>
     </div>
   );

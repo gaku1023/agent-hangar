@@ -252,6 +252,8 @@ export type UiAction =
   // short は、起動した後にローカルのモデルのコンテキストが足りなかった右下の札。fix は prepKey を添えて整え直しを頼み、dismiss は札を下げる。
   | { type: 'launchPrep.cancel'; key: string }
   | { type: 'launchPrep.short.fix'; sessionId: string; prepKey: string } | { type: 'launchPrep.short.dismiss'; sessionId: string }
+  // missing は、起動した後にこの PC のサーバーに無いモデルで断られた右下の札。retry はその会話のプロジェクトで、モデルの小窓を開いた新しいセッションのダイアログを開き、dismiss は札を下げる。
+  | { type: 'launchPrep.missing.retry'; sessionId: string; projectId: string | null } | { type: 'launchPrep.missing.dismiss'; sessionId: string }
   // アプリの自動更新（段 5-4）。check は手動の確認、download は取得してインストールの準備、install は再起動して入れる。
   // dismiss は右下の札を閉じ、その版の札を 2 度出さない。notify は新しい版を知らせるか（切ると自動の確認もしない）。
   | { type: 'update.check' } | { type: 'update.download' } | { type: 'update.install' } | { type: 'update.dismiss' }
