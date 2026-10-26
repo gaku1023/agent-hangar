@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CompatDto, OpencodeOptionsDto } from '@agent-hangar/shared';
+import type { CodexOptionsDto, CompatDto, OpencodeOptionsDto } from '@agent-hangar/shared';
 import { VERIFIED_CLAUDE_VERSION } from '../../provider/claude-code/compat/version.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
@@ -46,6 +46,17 @@ describe('opencode の検出', () => {
   });
 });
 
+describe('Codex の検出', () => {
+  it('GET /api/codex/status は検出の口の答えを {found, version, verified, loggedIn} で返す（設定が切でも答える）', async () => {
+    expect((await json(await get('/api/codex/status'))).body).toEqual({ found: false, version: null, verified: false, loggedIn: false });
+    const found = createApp({ ...deps, codexStatus: async () => ({ found: true, version: '0.164.2', verified: true, loggedIn: true }) });
+    expect(await (await found.request('/api/codex/status', { headers: H })).json()).toEqual({ found: true, version: '0.164.2', verified: true, loggedIn: true });
+  });
+  it('トークンが無ければ断る', async () => {
+    expect((await get('/api/codex/status', {})).status).toBe(401);
+  });
+});
+
 describe('opencode の選択肢', () => {
   const OPTIONS: OpencodeOptionsDto = { version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/glm', label: 'GLM', group: 'OpenCode', provider: 'opencode', tools: true, context: 200_000, cost: { input: 0, output: 0 } }], providers: [{ id: 'opencode', name: 'OpenCode', where: 'remote' }], defaultModel: null, pricesAt: null, fetchedAt: 5, stale: false };
   const withOptions = (f: AppDeps['opencodeOptions'], enabled = true) => {
@@ -82,6 +93,38 @@ describe('opencode の選択肢', () => {
   });
   it('トークンが無ければ断る', async () => {
     expect((await get('/api/opencode/options', {})).status).toBe(401);
+  });
+});
+
+describe('Codex の選択肢', () => {
+  const OPTIONS: CodexOptionsDto = { version: '0.164.0', verified: true, models: [{ id: 'm1', label: 'M1', description: 'd', efforts: [{ id: 'low', description: 'l' }, { id: 'medium', description: 'm' }], defaultEffort: 'medium' }], fetchedAt: 5 };
+  const withOptions = (f: AppDeps['codexOptions'], enabled = true) => {
+    const settings = { ...deps.settings(), codexEnabled: enabled };
+    return createApp({ ...deps, settings: () => settings, codexOptions: f });
+  };
+  it('GET /api/codex/options は選択肢を返し、refresh=1 で取り直すよう頼む', async () => {
+    const asked: boolean[] = [];
+    const a = withOptions(async (o) => { asked.push(o?.refresh ?? false); return OPTIONS; });
+    expect(await json(await a.request('/api/codex/options', { headers: H }))).toEqual({ status: 200, body: OPTIONS });
+    await a.request('/api/codex/options?refresh=1', { headers: H });
+    expect(asked).toEqual([false, true]);
+  });
+  it('設定で有効にしていなければ 409 で断り、codex を打たない', async () => {
+    let asked = 0;
+    const a = withOptions(async () => { asked++; return OPTIONS; }, false);
+    const r = await json(await a.request('/api/codex/options', { headers: H }));
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('Codex が有効になっていません。');
+    expect(asked).toBe(0);
+  });
+  it('取れなければ 502 で、理由を添える', async () => {
+    const a = withOptions(async () => { throw new Error('codex not found'); });
+    const r = await json(await a.request('/api/codex/options', { headers: H }));
+    expect(r.status).toBe(502);
+    expect(r.body.error).toBe('codex から一覧を取得できませんでした: codex not found');
+  });
+  it('トークンが無ければ断る', async () => {
+    expect((await get('/api/codex/options', {})).status).toBe(401);
   });
 });
 

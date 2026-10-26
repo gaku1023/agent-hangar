@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import { opencodeEnabledOf, type MuxRecheckDto } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, type MuxRecheckDto } from '@agent-hangar/shared';
 import { recheckMuxPath } from '../../config/readiness.ts';
 import { statuslineStatus } from '../../provider/claude-code/config/statusline.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
@@ -7,7 +7,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 索引、準備の確かめ、互換、要約器の経路が使う依存。 */
-export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'opencodeOptions' | 'summary' | 'external'> & LanguageDeps;
+export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'opencodeStatus' | 'codexStatus' | 'codexOptions' | 'opencodeOptions' | 'summary' | 'external'> & LanguageDeps;
 
 /**
  * この PC の道具立ての経路。
@@ -40,6 +40,8 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
   api.get('/compat', async (c) => c.json(await deps.compat()));
   // opencode の検出（ベータ）。設定の入り切りに関わらず答える（有効にする前に、入っているかと版を見せるため）。
   api.get('/opencode/status', async (c) => c.json(await deps.opencodeStatus()));
+  // Codex の検出（ベータ）。設定の入り切りに関わらず答える（有効にする前に、入っているかと版とログインを見せるため）。
+  api.get('/codex/status', async (c) => c.json(await deps.codexStatus()));
   // 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、省けばホームで聞く。refresh=1 は手元の一覧を使わずに取り直す。
   // serve を起こすことがあるので、設定で有効にしていなければ断る（有効にするまで、どこにも出さない）。
   api.get('/opencode/options', async (c) => {
@@ -48,6 +50,16 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
       return c.json(await deps.opencodeOptions(c.req.query('dir') || null, { refresh: c.req.query('refresh') === '1' }));
     } catch (e) {
       return c.json({ error: tr('system.opencode.optionsFailed', { reason: errorText(language(), e) }) }, 502);
+    }
+  });
+  // 新しいセッションで Codex を選んだときのモデルと推論の段階（codex debug models）。refresh=1 は手元の一覧を使わずに取り直す。
+  // codex を打つので、設定で有効にしていなければ断る。
+  api.get('/codex/options', async (c) => {
+    if (!codexEnabledOf(deps.settings())) return c.json({ error: tr('system.codex.disabled') }, 409);
+    try {
+      return c.json(await deps.codexOptions({ refresh: c.req.query('refresh') === '1' }));
+    } catch (e) {
+      return c.json({ error: tr('system.codex.optionsFailed', { reason: errorText(language(), e) }) }, 502);
     }
   });
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));

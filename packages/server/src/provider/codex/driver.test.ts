@@ -252,7 +252,7 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     const { d } = make();
     expect(d.kind).toBe('codex');
     expect(d.launch.servedByHangar).toBe(true);
-    expect(d.caps).toMatchObject({ accounts: false, effort: true, permissionMode: true, fork: false, remoteControl: false, attachExternal: false, promptJump: false });
+    expect(d.caps).toMatchObject({ accounts: false, effort: true, permissionMode: true, fork: true, remoteControl: false, attachExternal: false, promptJump: false });
     expect(d.live.current()).toEqual([]);
     expect(d.instructions.when).toBe('launch');
   });

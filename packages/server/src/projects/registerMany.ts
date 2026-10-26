@@ -58,15 +58,16 @@ export function workspaceSyncOutcomes(db: Db, deviceId: string, root: string): F
 /**
  * 行ごとの結果を本文の並びで返す。
  * 同じプロジェクトに 2 行が当たったときは、紐づいた会話の数を先の行にだけ載せる。
+ * autoLink は、linkTo の無い行も結び付く候補を探して結び付ける（registerProjectDir の autoLink。本文が paths のとき）。
  */
-export function registerFolders(deps: RegisterManyDeps, items: FolderRegisterItem[], describe: DescribeError): FolderRegisterOutcomeDto[] {
+export function registerFolders(deps: RegisterManyDeps, items: FolderRegisterItem[], describe: DescribeError, o: { autoLink?: boolean } = {}): FolderRegisterOutcomeDto[] {
   const { db, deviceId } = deps;
   const before = unassignedSessionIds(db);
   const archived = new Set((db.prepare("select id from projects where status = 'archived' and deleted_at is null").all() as { id: string }[]).map((r) => r.id));
   const outcomes: FolderRegisterOutcomeDto[] = [];
   for (const it of items) {
     try {
-      const r = registerProjectDir(deps, { path: it.path, allowNested: it.allowNested === true, linkTo: it.linkTo });
+      const r = registerProjectDir(deps, { path: it.path, allowNested: it.allowNested === true, linkTo: it.linkTo, autoLink: o.autoLink });
       const status = r.linked ? 'linked' : r.created ? 'added' : 'already';
       outcomes.push({ path: it.path, status, projectId: r.projectId, ...(status === 'already' && archived.has(r.projectId) ? { restored: true } : {}) });
     } catch (e) {

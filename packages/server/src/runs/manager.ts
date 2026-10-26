@@ -139,7 +139,7 @@ const agentMsg = {
 };
 
 /** そのエージェントが有効でないと断るときの、設定の欄名の文。 */
-function agentEnabledLabel(agent: AgentKind): Message {
+export function agentEnabledLabel(agent: AgentKind): Message {
   return msg(AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled');
 }
 
@@ -650,6 +650,11 @@ export class RunManager {
     softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
   }
 
+  /** そのエージェントを起こしてよいか。Claude Code はいつでも起こせる。MCP の create_session が start の前に断るために読む。 */
+  agentEnabled(kind: AgentKind): boolean {
+    return kind === DEFAULT_AGENT || (this.deps.agentEnabled?.(kind) ?? false);
+  }
+
   /**
    * 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。
    * agent を省けば Claude Code で起こす。ID を先に決めない driver（opencode）は、下ごしらえ（materialize）を待つので非同期である。
@@ -1139,6 +1144,62 @@ export class RunManager {
     const base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, { account });
     const bin = this.claudeBin();
     return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, env }), params: { projectId: s.project_id ?? undefined }, account });
+  }
+
+  /** fork が materialize（ID を後から受ける）の道を通る会話か。http の入口が fork と forkMaterialized を呼び分ける。 */
+  forksMaterialized(sessionId: string): boolean {
+    return !!this.agentOf(this.session(sessionId)).launch.materialize;
+  }
+
+  /**
+   * ID を後から受ける driver（Codex）で会話を分岐する（docs/design.md「Codex の起動」）。
+   * 1. 設定、実行ファイル、作業の場所、画面の口を、行を作る前に確かめる。
+   * 2. 新しい会話の ID はまだ無いので、仮の ID（pending:…）で sessions の行を作る。MCP の秘密は hangar の会話の ID で決まるので先に要る。
+   * 3. driver の materialize（kind = 'fork'。app-server を起こして thread/fork）を待ち、返った ID を行に書く。
+   * 4. その ID を resume でつなぐ TUI を tmux の中に起こす（kind = 'fork' の run）。
+   * 元の会話の行と run は変えない。rollout の無い会話は driver が断る。失敗したら app-server を止め、仮の行と秘密を消して 400 で断る。
+   */
+  async forkMaterialized(sessionId: string): Promise<LaunchResult> {
+    const s = this.session(sessionId);
+    this.assertCan(s, 'fork');
+    const driver = this.agentOf(s);
+    const agent = driver.kind;
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
+    const bin = this.agentBin(agent);
+    const { path: cwd, createsFolder } = this.cwdFor(s);
+    this.precheck(cwd, { agent, create: createsFolder });
+    const newSessionId = newId();
+    const now = this.now();
+    upsertShared(this.db, 'sessions', { id: newSessionId, provider: agent, provider_session_id: `pending:${newId()}`, cwd, home_device: this.deps.deviceId, project_id: s.project_id, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    // 利用者が移した会話なら、新しい会話にも移した印を写す（fork の Claude の道と同じ）。
+    const pin = pinnedProjectOf(this.db, s.id);
+    if (pin !== null) setSessionPlacement(this.db, this.deps.deviceId, newSessionId, pin);
+    const discard = () => {
+      revokeMcpSecret(this.db, newSessionId);
+      softDeleteShared(this.db, 'sessions', newSessionId, this.deps.deviceId);
+    };
+    let providerSessionId: string;
+    let base: Omit<LaunchSpec, 'env'>;
+    try {
+      base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, undefined, agent);
+      const r = await driver.launch.materialize!({ kind: 'fork', id: s.provider_session_id, newId: '' }, { ...base, env: {} });
+      if (!r?.providerSessionId) throw new Error(`agent ${agent} did not return a session id`);
+      providerSessionId = r.providerSessionId;
+      const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
+      upsertShared(this.db, 'sessions', { ...cur, provider_session_id: providerSessionId }, this.deps.deviceId);
+      if (r.lateSessionId) void r.lateSessionId.then((id) => this.recordLateSessionId(newSessionId, r.providerSessionId, id), () => undefined);
+    } catch (e) {
+      await Promise.resolve(driver.launch.release({ sessionId: newSessionId, providerSessionId: '', cwd }, 'killed')).catch(() => false);
+      discard();
+      throw e instanceof RunError ? e : new RunError(400, agentMsg.launchFailed(agent, this.safeError(e)));
+    }
+    try {
+      return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', agent, plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: providerSessionId }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent } });
+    } catch (e) {
+      await Promise.resolve(driver.launch.release({ sessionId: newSessionId, providerSessionId, cwd }, 'killed')).catch(() => false);
+      discard();
+      throw e;
+    }
   }
 
   /** 開いているセッションを、別のアカウントで再開し直す。手順と断る理由は runs/accounts.ts にある。ここは run の寿命の側の手を渡すだけである。 */

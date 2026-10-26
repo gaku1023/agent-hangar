@@ -286,6 +286,10 @@ describe('opencode の行（F1）', () => {
     expect(enabled.agentIcons).toBe(true);
     const hasRow = await open([feedOf('pc-1', 'Mac', { done: [{ sessionId: 'd-1', projectName: 'p', title: 't', oneLiner: null, doneAt: NOW - MIN, agent: 'opencode' }] })]);
     expect(hasRow.agentIcons).toBe(true);
+    const codexEnabled = await open([feedOf('pc-1', 'Mac', { caps: { asks: true, images: true, effort: true, agents: ['claude-code', 'codex'] } })]);
+    expect(codexEnabled.agentIcons).toBe(true);
+    const codexRow = await open([feedOf('pc-1', 'Mac', { done: [{ sessionId: 'd-2', projectName: 'p', title: 't', oneLiner: null, doneAt: NOW - MIN, agent: 'codex' }] })]);
+    expect(codexRow.agentIcons).toBe(true);
   });
 });
 

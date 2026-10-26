@@ -243,7 +243,7 @@ export type NewSessionDraft = { name: string; prompt: string; attachments: { pat
  * 新しいセッションの、プロジェクトごとの前回値。model、effort、permissionMode、addDirs は Claude Code の札の値である。
  * agent は前回 Claude Code 以外で起こしたときだけその種類を持ち、無ければ Claude Code である。opencodeModel は opencode のモデル（`provider/model`）で、無ければデフォルト。
  */
-export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'> & { agent?: NonDefaultAgentKind; opencodeModel?: string };
+export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'> & { agent?: NonDefaultAgentKind; opencodeModel?: string; codexModel?: string; codexEffort?: string };
 /**
  * createdProjectId は、作ってから起動する送信でプロジェクトができた後の印である。起動だけが失敗しても、押し直しで二重に作らない。
  * halted は、準備が問いで止まったか、利用者がやめたこと。失敗ではないので文を持たず、画面は準備の進み（launchPrep）を読んで問いを出す。
@@ -400,6 +400,8 @@ export type State = {
    * 未検証の opencode の版の札（C7）を閉じた版。同じ版では二度出さない。端末ごとに localStorage に残し、起動時に読み戻す（mediator/opencodeVersion.ts）。
    */
   opencodeVersionSeen: string | null;
+  /** 未検証の Codex の版の札を閉じた版（mediator/codexVersion.ts）。扱いは opencodeVersionSeen と同じ。 */
+  codexVersionSeen: string | null;
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */
   newSessionDraft: NewSessionDraft | null;
   /**

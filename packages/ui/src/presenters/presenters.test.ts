@@ -904,6 +904,15 @@ describe('presentNewSession', () => {
     const loaded = { ...on, opencodeOptions: { dir: '/w/alpha', status: 'ready' as const, data: OC_OPTIONS } };
     expect(presentNewSession(state, loaded, NOW)!.opencode).toEqual({ options: loaded.opencodeOptions });
   });
+  it('Codex は設定で有効にしたときだけ渡し、選択肢の読み込みを添える。切なら null（見た目は今のまま）', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    expect(presentNewSession(state, storeWith(), NOW)!.codex).toBeNull();
+    expect(presentNewSession(state, { ...storeWith(), settings: fullSettings({ codexEnabled: false }) }, NOW)!.codex).toBeNull();
+    const on = { ...storeWith(), settings: fullSettings({ codexEnabled: true }) };
+    expect(presentNewSession(state, on, NOW)!.codex).toEqual({ options: null });
+    const loaded = { ...on, codexOptions: { status: 'ready' as const, data: { version: '0.164.0', verified: true, models: [], fetchedAt: 1 } } };
+    expect(presentNewSession(state, loaded, NOW)!.codex).toEqual({ options: loaded.codexOptions });
+  });
   it('ステータスと最後に使った時期を添え、最近は最後に使った順の上位 5 件', () => {
     const store = storeWith();
     for (const [id, ago] of [['p1', 1], ['p2', 5], ['p3', 3], ['p4', 9], ['p5', 2], ['p6', 7], ['p7', null]] as const) {
@@ -1915,7 +1924,7 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と未検証の opencode の版の札と参加リクエストの通知とスマホの「元に戻す」以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'contextShorts', 'join', 'more', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'codexVersion', 'contextShorts', 'join', 'more', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
     expect(p.opencodeVersion).toBeNull();
     expect(p.phoneUndo).toBeNull();
     expect(p.phoneLaunches).toEqual([]);

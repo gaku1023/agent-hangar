@@ -8,9 +8,12 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { causeOf, errorText, msg, render, translatorOf, type Message } from '../i18n/message.ts';
 import { sessionAccounts } from '../db/queries.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
+import type { AgentUsageTracker } from '../usage/agentUsage.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
 
-export type AccountsDeps = { db: Db; store: AccountStore; auth: AccountAuth; usage: UsageTracker; runs: Pick<RunManager, 'switchAccount'>; primaryDir: string; broadcast: (accounts: AccountsDto) => void;
+export type AccountsDeps = { db: Db; store: AccountStore; auth: AccountAuth; usage: UsageTracker;
+  /** Claude 以外のエージェントの枠。渡せば AccountsDto.agents に載せる（無ければ載せない）。 */
+  agentUsage?: AgentUsageTracker; runs: Pick<RunManager, 'switchAccount'>; primaryDir: string; broadcast: (accounts: AccountsDto) => void;
   /** この PC。渡せば、セッションのアカウントをこの PC の run だけから引く（db/queries.ts の sessionAccounts）。 */
   deviceId?: string;
   /** 起動の前に待つこと（他端末の変更の取り込み）。resume と同じ扱いにするため、app.ts が渡す。 */
@@ -51,12 +54,14 @@ export function buildAccountsDto(deps: AccountsDeps, opts: { checkLinks?: boolea
   const problemText = (p: LinkProblem): string | null => (p !== null && typeof p === 'object' ? render(language, p) : p);
   const sessions: Record<string, string> = {};
   for (const [sid, aid] of Object.entries(sessionAccounts(deps.db, deps.deviceId))) if (known.has(aid)) sessions[sid] = aid;
+  const agents = deps.agentUsage?.all();
   return {
     currentId: deps.store.current().id,
     accounts: list.map((a) => ({
       ...a, primary: a.id === PRIMARY_ACCOUNT_ID, auth: deps.auth.get(a.id), usage: deps.usage.of(a.id), loginRunning: deps.auth.loginRunning(a.id), linkProblem: problemText(memo.get(a.id) ?? null),
     })),
     sessions,
+    ...(agents ? { agents } : {}),
   };
 }
 

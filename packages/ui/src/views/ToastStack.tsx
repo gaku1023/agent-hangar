@@ -5,6 +5,7 @@ import type { ContextShortCardProps, JoinCardProps, PhoneLaunchCardProps, PrepPr
 import { newPrepKey } from '../lib/prepKey.ts';
 import { PrepLine } from './LaunchPrepBox.tsx';
 import type { UpdateAct, UpdateCardProps, WhatsNewCardProps } from '../presenters/update.ts';
+import type { CodexVersionCardProps } from '../presenters/codexNotice.ts';
 import type { OpencodeVersionCardProps } from '../presenters/opencodeNotice.ts';
 import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -30,7 +31,7 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps } | { kind: 'prepProgress'; card: PrepProgressCardProps } | { kind: 'contextShort'; card: ContextShortCardProps };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'codexVersion'; card: CodexVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps } | { kind: 'prepProgress'; card: PrepProgressCardProps } | { kind: 'contextShort'; card: ContextShortCardProps };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
 const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind === 'contextShort' ? `contextShort:${c.card.sessionId}` : c.kind);
 
@@ -57,6 +58,7 @@ export function ToastStack(props: ToastsProps) {
     ...(props.update ? [{ kind: 'update' as const, card: props.update }] : []),
     ...(props.whatsNew ? [{ kind: 'whatsNew' as const, card: props.whatsNew }] : []),
     ...(props.opencodeVersion ? [{ kind: 'opencodeVersion' as const, card: props.opencodeVersion }] : []),
+    ...(props.codexVersion ? [{ kind: 'codexVersion' as const, card: props.codexVersion }] : []),
     ...(props.arrived ? [{ kind: 'arrived' as const, count: props.arrived.count }] : []),
     ...(props.join ? [{ kind: 'join' as const, card: props.join }] : []),
     ...(props.phoneUndo ? [{ kind: 'phoneUndo' as const, name: props.phoneUndo.name }] : []),
@@ -79,6 +81,7 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'update') return <UpdateCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'whatsNew') return <WhatsNewCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'opencodeVersion') return <OpencodeVersionCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
+        if (item.kind === 'codexVersion') return <OpencodeVersionCard key={key} agent="codex" card={item.card} blocked={props.blocked} motion={m} />;
         if (item.kind === 'join') return <JoinCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
         if (item.kind === 'phoneUndo') return <PhoneUndoCard key={key} name={item.name} motion={m} />;
         if (item.kind === 'phoneLaunch') return <PhoneLaunchCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
@@ -356,18 +359,19 @@ function WhatsNewCard(props: { card: WhatsNewCardProps; motion: CardMotion }) {
 }
 
 /**
- * 未検証の opencode の版の札（C7、試作の N1）。更新の札と同じ形と出入りで、見出しは Paused と同じ黄にする。
+ * 未検証の opencode の版の札（C7、試作の N1）。Codex の札（C4）も同じ形で、agent="codex" のとき操作が codex の操作になる。更新の札と同じ形と出入りで、見出しは Paused と同じ黄にする。
  * 見出しに種類と版、その下に題と本文、ボタン（設定を開く）と文字だけの操作（このまま続行）を 1 行に並べる。
  * 時間では消えず、「このまま続行」か閉じるで下げる。その版の札は二度出さない（mediator/opencodeVersion.ts）。
  * 確認や入力のあるダイアログが開いている間（blocked）は、画面を移す「設定を開く」だけを押せなくする。
  */
-function OpencodeVersionCard(props: { card: OpencodeVersionCardProps; blocked: boolean; motion: CardMotion }) {
+function OpencodeVersionCard(props: { card: OpencodeVersionCardProps; blocked: boolean; motion: CardMotion; agent?: 'codex' }) {
   const emit = useEmit();
   const t = useT();
   const c = props.card;
-  const proceed = () => emit({ type: 'opencode.version.continue', version: c.version });
+  const kind = props.agent ?? 'opencode';
+  const proceed = () => emit({ type: `${kind}.version.continue`, version: c.version });
   return (
-    <div className="toast notice" data-kind="opencode-version" role="status" aria-label={c.title} {...motionAttrs(props.motion)}>
+    <div className="toast notice" data-kind={`${kind}-version`} role="status" aria-label={c.title} {...motionAttrs(props.motion)}>
       <div className="notice-head">
         <Icon name="alert" />
         <span className="notice-label">{c.head}</span>
@@ -378,7 +382,7 @@ function OpencodeVersionCard(props: { card: OpencodeVersionCardProps; blocked: b
         <div className="notice-title">{c.title}</div>
         <div className="notice-sub">{c.body}</div>
         <div className="notice-acts">
-          <button type="button" className="btn btn-sm" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'opencode.version.settings', version: c.version })}>{c.settings}</button>
+          <button type="button" className="btn btn-sm" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: `${kind}.version.settings`, version: c.version })}>{c.settings}</button>
           <button type="button" className="btn-link notice-link" onClick={proceed}>{c.proceed}</button>
         </div>
       </div>

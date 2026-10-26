@@ -23,13 +23,22 @@ function decode(lines: string[], width: number): string[] {
 }
 
 describe('エージェントの絵の組', () => {
-  it('絵を持つのは Claude Code と opencode だけで、Codex の絵は置かない', () => {
+  it('エージェントの種類ごとに絵がある（Codex は公式のアイコンを縮めたもの）', () => {
     expect([...AGENT_ICON_KINDS]).toEqual(['claude-code', 'opencode', 'codex']);
-    expect(Object.keys(AGENT_ICONS).sort()).toEqual(['claude-code', 'opencode']);
-    expect(agentIconSvg('codex', 'light')).toBe('');
+    expect(Object.keys(AGENT_ICONS).sort()).toEqual([...AGENT_ICON_KINDS].sort());
     for (const kind of AGENT_ICON_KINDS) {
-      for (const tone of ['light', 'dark'] as const) expect(agentIconSvg(kind, tone).toLowerCase()).not.toMatch(/codex|openai/);
+      for (const tone of ['light', 'dark'] as const) expect(agentIconSvg(kind, tone)).toMatch(/^<svg /);
     }
+  });
+
+  it('Codex の絵は白い地の上の青紫の雲で、明るい地では縁を足し、暗い地では足さない', () => {
+    const light = AGENT_ICONS.codex.light;
+    const dark = AGENT_ICONS.codex.dark;
+    expect(light.viewBox).toBe('0 0 64 64');
+    expect(light.stretch).toBe(false);
+    expect(light.paths.length).toBe(dark.paths.length + 1);
+    expect(light.paths.map((p) => p.fill)).toContain('#6a7cf6');
+    expect(light.paths.map((p) => p.fill)).toContain('#ffffff');
   });
 
   it('どの絵にも、明るい地用と暗い地用があり、枠（約 20px）に収まる', () => {
@@ -90,17 +99,20 @@ describe('行のエージェントの読み方', () => {
     expect(agentIconKindOf(null)).toBe('claude-code');
     expect(agentIconKindOf('claude-code')).toBe('claude-code');
     expect(agentIconKindOf('opencode')).toBe('opencode');
-    expect(agentIconKindOf('codex')).toBeNull();
+    expect(agentIconKindOf('codex')).toBe('codex');
+    expect(agentIconKindOf('gemini')).toBeNull();
   });
 });
 
 describe('アイコンを出すか', () => {
-  it('opencode が切で、opencode の会話が 1 つも無いときは出さない（切のままなら見た目は変わらない）', () => {
+  it('Claude 以外のエージェントが切で、その会話が 1 つも無いときは出さない（切のままなら見た目は変わらない）', () => {
+    expect(agentIconsShown({ opencodeEnabled: false, hasOpencode: false, codexEnabled: false, hasCodex: false })).toBe(false);
     expect(agentIconsShown({ opencodeEnabled: false, hasOpencode: false })).toBe(false);
   });
-  it('opencode を有効にしたか、opencode の会話が 1 つでもあれば、全部の行に出す', () => {
+  it('どれかを有効にしたか、Claude 以外の会話が 1 つでもあれば、全部の行に出す', () => {
     expect(agentIconsShown({ opencodeEnabled: true, hasOpencode: false })).toBe(true);
     expect(agentIconsShown({ opencodeEnabled: false, hasOpencode: true })).toBe(true);
-    expect(agentIconsShown({ opencodeEnabled: true, hasOpencode: true })).toBe(true);
+    expect(agentIconsShown({ opencodeEnabled: false, hasOpencode: false, codexEnabled: true })).toBe(true);
+    expect(agentIconsShown({ opencodeEnabled: false, hasOpencode: false, hasCodex: true })).toBe(true);
   });
 });

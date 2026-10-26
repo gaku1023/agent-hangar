@@ -9,6 +9,7 @@ import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { opencodeConfigPath } from '../provider/opencode/configFile.ts';
 import { OpencodeProvidersService } from '../provider/opencode/integration.ts';
 import { OpencodeExporter } from '../provider/opencode/export.ts';
+import { LocalModelListing } from '../provider/opencode/localModels/available.ts';
 import { OpencodeOptionsService } from '../provider/opencode/options.ts';
 import { OpencodeTransfer } from '../provider/opencode/transfer.ts';
 import { ServeManager, serveSecrets, type OpencodeVersionNoticeSeed, type ServeStarter } from '../provider/opencode/serve/manager.ts';
@@ -101,7 +102,8 @@ export function bootOpencode(
   serves.adopt(adoptable);
   // models.dev の料金の保存。取りに行くのは選択肢を取ったときだけ（1 日 1 回まで）。
   const catalog = new ModelsDevCatalog({ file: catalogPath(p.home), log });
-  const options = new OpencodeOptionsService({ serves, status: () => local.status(), home: os.homedir(), catalog });
+  // 小窓に出すモデルのうち、この PC の LM Studio などに無いものに印を付ける。
+  const options = new OpencodeOptionsService({ serves, status: () => local.status(), home: os.homedir(), catalog, listing: new LocalModelListing() });
   const providers = new OpencodeProvidersService({ serves, home: os.homedir(), configFile: opencodeConfigPath(os.homedir()), catalog, onChange: () => options.forget() });
   // serve は hangar の会話の ID で持つので、opencode の会話の ID から引き直す。DB が無ければ（試験）serve につながず私用のサーバで書き出す。
   const hangarIdOf = p.db?.prepare("select id from sessions where provider = 'opencode' and provider_session_id = ? and deleted_at is null");

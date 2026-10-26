@@ -152,7 +152,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeProviderPrep: {} });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeProviderPrep: {} });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -413,6 +413,9 @@ describe('設定の往復', () => {
         ['autoDoneIdleDays', 14],
         ['autoPark', false],
         ['remoteControl', false],
+        ['codexEnabled', true],
+        ['codexInjection', 'none'],
+        ['codexIntercept', true],
         ['opencodeEnabled', true],
         ['opencodeInjection', 'claude'],
         ['opencodeIntercept', true],
@@ -507,9 +510,9 @@ describe('設定の往復', () => {
     }
     expect((await json(await get('/api/settings'))).body.opencodeEnabled).toBe(true);
   });
-  it('Codex の 3 項目（ベータ）は、書かれるまで応答に出さず、保存でき、形の違う値は断る', async () => {
+  it('Codex の 3 項目（ベータ）は、常に応答に出し（既定は切・最小限・切）、保存でき、形の違う値は断る', async () => {
     const body = (await json(await get('/api/settings'))).body;
-    expect([body.codexEnabled, body.codexInjection, body.codexIntercept]).toEqual([undefined, undefined, undefined]);
+    expect([body.codexEnabled, body.codexInjection, body.codexIntercept]).toEqual([false, 'minimal', false]);
     const r = await (await patch({ codexEnabled: true, codexInjection: 'none', codexIntercept: true })).json();
     expect([r.codexEnabled, r.codexInjection, r.codexIntercept]).toEqual([true, 'none', true]);
     for (const [k, v] of [['codexEnabled', 'true'], ['codexIntercept', 1], ['codexInjection', 'full']] as const) {

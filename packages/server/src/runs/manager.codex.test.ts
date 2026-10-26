@@ -147,6 +147,17 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex', permissionMode: 'full-access' });
   });
 
+  it('新しいセッションのダイアログの既定の送り（agent・model・effort=medium・permissionMode=auto）が、driver と入口をそのまま通る', async () => {
+    const { rm, opened, rpcs } = make();
+    const dialog: LaunchParams = { agent: 'codex', projectId: 'p1', prompt: 'やって', model: 'gpt-x', effort: 'medium', permissionMode: 'auto' };
+    const r = await rm.start(dialog);
+    const start = rpcs().find((x) => x.method === 'thread/start')!;
+    expect(start.params).toMatchObject({ cwd, model: 'gpt-x', approvalPolicy: 'on-request', sandbox: 'workspace-write' });
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-c', 'model_reasoning_effort="medium"']));
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex', model: 'gpt-x', effort: 'medium', permissionMode: 'auto' });
+  });
+
   it('初期プロンプトなし：仮の ID のまま TUI を resume なしで開き、TUI がつないで thread/started が届いたら ID を記録する', async () => {
     const { rm, codex, opened, rpcs } = make();
     const r = await rm.start(params());
@@ -244,6 +255,34 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     const noIntercept = make({ intercept: false });
     await expect(noIntercept.rm.startCodexFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('設定の「') });
     expect(sessions()).toEqual([]);
+  });
+
+  it('フォーク：仮の ID の新しい行を作り、thread/fork で決まった ID に書き換え、resume <新しい ID> の TUI につなぐ。元の会話は残る', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000f001';
+    const { rm, codex, opened, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd: '/somewhere/else' }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    const r = await rm.forkMaterialized(sid);
+    expect(r.sessionId).not.toBe(sid);
+    expect(r.run).toMatchObject({ kind: 'fork', sessionId: r.sessionId });
+    expect(rpcs().find((x) => x.method === 'thread/fork')!.params).toMatchObject({ threadId: EXT, cwd });
+    const rows = sessions();
+    const forked = rows.find((x) => x.id === r.sessionId)!;
+    expect(forked.provider).toBe('codex');
+    expect(forked.provider_session_id).not.toBe(EXT);
+    expect(forked.provider_session_id.startsWith('pending:')).toBe(false);
+    expect(rows.find((x) => x.id === sid)!.provider_session_id).toBe(EXT);
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['--remote', 'resume', forked.provider_session_id]));
+    expect(codex.served(r.sessionId)?.threadId).toBe(forked.provider_session_id);
+    expect(codex.served(sid)).toBeNull();
+  });
+
+  it('フォーク：最初の入力の前の会話（rollout が無い）は断り、新しい行も app-server も残さない', async () => {
+    const { rm, codex } = make();
+    const sid = ensureSession(db, '01bffff0-0000-7000-8000-00000000dead', cwd, 'd', 'codex');
+    await expect(rm.forkMaterialized(sid)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('最初の入力が送られていないため') });
+    expect(sessions().map((x) => x.id)).toEqual([sid]);
+    expect(codex.served(sid)).toBeNull();
   });
 
   it('画面を開けなかったら、app-server を止め、仮の行と秘密の環境のファイルを残さない', async () => {

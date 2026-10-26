@@ -74,6 +74,8 @@ export type UiAction =
   // 新しいセッションで opencode（ベータ）を選んだときの、モードとモデルの一覧（GET /api/opencode/options）。dir はその場所（opencode.json の重なりが場所で変わる）で、null はホーム。
   // 答えは Store の opencodeOptions に入る。最後に頼んだ 1 件だけを持つ。refresh は手元の一覧を使わずに取り直す（モデルの小窓の LM Studio の「再読み込み」）。
   | { type: 'opencode.options'; dir: string | null; refresh?: boolean }
+  // 新しいセッションで Codex（ベータ）を選んだときの、モデルと推論の段階の一覧（GET /api/codex/options）。答えは Store の codexOptions に入る。refresh は手元の一覧を使わずに取り直す。
+  | { type: 'codex.options'; refresh?: boolean }
   // 設定の「連携 › opencode › プロバイダー」（ベータ）。どれも答えは Store の opencodeProviders に入る。
   // key は API キーで接続する（変更も同じ）。API キーは opencode の integration に渡すだけで、Store にも残さない。
   // custom は OpenAI 互換のサーバー（opencode.json に書く）、model はモデル ID の追加、login はログインを始め、poll で進みを聞き、code でコードを送り、cancel で取り消す。
@@ -258,6 +260,8 @@ export type UiAction =
   | { type: 'update.notesClose' } | { type: 'update.notesRead' }
   // 未検証の opencode の版の右下の札（C7、試作の N1）。どちらもその版を知らせ終えたことにし（同じ版では二度出さない）、settings は設定の opencode の面へ移る。
   | { type: 'opencode.version.continue'; version: string } | { type: 'opencode.version.settings'; version: string }
+  // 未検証の Codex の版の右下の札（C4）。opencode の札と同じ決まりで、settings は設定の Codex の面へ移る。
+  | { type: 'codex.version.continue'; version: string } | { type: 'codex.version.settings'; version: string }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   // ベルの一覧の行を既読にする。keys は行の鍵（種類、対象、事実の版）で、「すべて既読にする」はいまある鍵を全部送る。

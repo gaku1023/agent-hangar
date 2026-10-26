@@ -5,7 +5,7 @@ import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { FolderInspectState } from './folderInspect.ts';
 import type { LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { CodexStatusDto, EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -39,6 +39,8 @@ export const EMPTY_CONFIG_DETAIL: ConfigDetail = { outgoing: null, inbox: null, 
  * opencode の選択肢の読み込み。dir は頼んだ場所（null はホーム）。
  * data は最後に読めた答えで、同じ場所を読み直す間と失敗したときも残す（ダイアログの札が空に戻らないように）。
  */
+/** Codex のモデルと推論の段階（GET /api/codex/options）。場所に依らないので dir は持たない。 */
+export type CodexOptionsState = { status: 'loading' | 'ready' | 'failed'; data: CodexOptionsDto | null };
 export type OpencodeOptionsState = { dir: string | null; status: 'loading' | 'ready' | 'failed'; data: OpencodeOptionsDto | null };
 
 /** 設定のプロバイダーの面の操作。key は API キーの接続と変更、model はモデル ID の追加、custom は OpenAI 互換のサーバー、login はログイン。 */
@@ -100,8 +102,12 @@ export type Store = {
   compat: CompatDto | null;
   // opencode の検出（GET /api/opencode/status、ベータ）。設定の画面に入ったときに取る。未取得と、取れなかったときは null である。
   opencodeStatus: OpencodeStatusDto | null;
+  // Codex の検出（GET /api/codex/status、ベータ）。有効にしている間と設定の画面に入ったときに取る。未取得と、取れなかったときは null である。
+  codexStatus: CodexStatusDto | null;
   /** 新しいセッションで opencode を選んだときのモードとモデル（GET /api/opencode/options）。最後に頼んだ 1 件だけを持つ。頼む前は null。 */
   opencodeOptions: OpencodeOptionsState | null;
+  /** 新しいセッションで Codex を選んだときのモデルと推論の段階（GET /api/codex/options）。頼む前は null。 */
+  codexOptions: CodexOptionsState | null;
   /**
    * 起動前の準備の進み（launch.prep、docs/design.md「起動前の準備」）。鍵（起動の要求に添えた prepKey）ごとに全体を持つ。
    * 古いものから LAUNCH_PREPS_KEPT 件まで残し、走っているものは捨てない。段の無い準備は何も届かない。
@@ -173,7 +179,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, opencodeOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
+    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,

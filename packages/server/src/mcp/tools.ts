@@ -1,4 +1,4 @@
-import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { isAgentKind, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -8,7 +8,7 @@ import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg, render, type Message } from '../i18n/message.ts';
-import type { LaunchResult } from '../runs/manager.ts';
+import { agentEnabledLabel, type LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
@@ -20,7 +20,8 @@ export type ToolDeps = {
   deviceId: string;
   port: number;
   live: () => LiveSessionDto[];
-  runs: { start(params: LaunchParams): LaunchResult | Promise<LaunchResult> };
+  /** agentEnabled はそのエージェントを起こしてよいか（runs/manager.ts）。無ければ Claude Code だけを起こす。 */
+  runs: { start(params: LaunchParams): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean };
   usage: () => UsageDto;
   /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
@@ -342,11 +343,19 @@ export function getTranscriptTool(deps: ToolDeps, ctx: ToolContext, args: Record
 }
 
 /** プロジェクトの確かめはその場で投げ、起動（runs.start）は待つ。MCP の層は await してから包む。 */
+/**
+ * agent と mode は UI の起動（POST /api/runs）と同じく runs.start にそのまま渡す。省けば Claude Code で、mode は Claude Code では start が捨てる。
+ * 知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に UI と同じ文で断る。
+ */
 export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const projectId = projectIdOf(deps, ctx, args);
+  const agent = args.agent;
+  if (agent !== undefined && !isAgentKind(agent)) throw new ToolError(msg('run.agent.unknown', { agent: String(agent).slice(0, 40) }));
+  if (agent !== undefined && agent !== 'claude-code' && !(deps.runs.agentEnabled?.(agent) ?? false)) throw new ToolError(msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
   return Promise.resolve(deps.runs.start({
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
+    agent, mode: str(args.mode),
   })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`) }));
 }
 

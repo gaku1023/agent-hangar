@@ -56,6 +56,23 @@ describe('一覧の行のエージェントのアイコン', () => {
   });
 });
 
+describe('Codex の会話があるときの絵の出し分け', () => {
+  it('Codex の会話が 1 つあれば、全部の行に出す。Codex が切で会話が無ければ出さない', () => {
+    const store = storeWith([session('a'), session('c', { provider: 'codex' as SessionDto['provider'] })]);
+    expect(Object.fromEntries(listRows(store).map((r) => [r.id, r.agent]))).toEqual({ a: 'claude-code', c: 'codex' });
+    for (const r of listRows(storeWith([session('a')]))) expect(r).not.toHaveProperty('agent');
+  });
+  it('Codex を有効にしたら、会話が無くても全部の行に出す', () => {
+    const store = storeWith([session('a')]);
+    store.settings = { codexEnabled: true } as SettingsDto;
+    expect(listRows(store).map((r) => r.agent)).toEqual(['claude-code']);
+  });
+  it('実行中の写しが codex なら、会話の行が届く前でも codex にする', () => {
+    const store = storeWith([session('c', { live: 'busy' })], { live: [liveOf('c', { agent: 'codex' })] });
+    expect(listRows(store).map((r) => r.agent)).toEqual(['codex']);
+  });
+});
+
 describe('サイドバーの行のエージェントのアイコン', () => {
   it('切で opencode の会話が無いときは出さない', () => {
     const store = storeWith([session('a', { live: 'busy' })], { live: [liveOf('a')] });
@@ -76,6 +93,12 @@ describe('ターミナルの上のタブ', () => {
       { id: 'r1', title: 'opencode', kind: 'agent', agent: 'opencode', selected: true, closable: false },
       { id: 't1', title: 'シェル t1', kind: 'shell', selected: false, closable: true },
     ]);
+  });
+  it('Codex の会話のエージェントのタブは「Codex」と同じ絵', () => {
+    const store = storeWith([session('c', { live: 'busy', provider: 'codex' as SessionDto['provider'] })]);
+    store.runs = { r1: run('r1', 'c') };
+    store.tabs = { r1: tab('r1', 'r1', 'c', 'agent') };
+    expect(presentSession(initialState(), store, NOW, 'c').tabs).toEqual([{ id: 'r1', title: 'Codex', kind: 'agent', agent: 'codex', selected: true, closable: false }]);
   });
   it('Claude の会話のタブはいまのまま（有効にしていても）', () => {
     const store = storeWith([session('a', { live: 'busy' })], { enabled: true });
