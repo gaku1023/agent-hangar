@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { defaultOpencodeMode, type AgentValue, type LaunchParams, type LaunchPrepChoice, type ProjectPlace } from '@agent-hangar/shared';
+import { AGENT_UI_CAPS, DEFAULT_AGENT_KIND, defaultOpencodeMode, isAgentKind, type AgentValue, type LaunchParams, type LaunchPrepChoice, type ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
 import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
 import { STATUS_LABEL } from '../presenters/format.ts';
-import { AGENT_ONLY_ATTR, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
+import { agentOnlyAttr, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
 import { isComposing } from './ime.ts';
 import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
 import { OpencodeModelResetNote } from './OpencodeModelResetNote.tsx';
@@ -177,8 +177,10 @@ export function NewSessionDialog(props: NewSessionProps) {
   // エージェント。利用者が選んだものだけを覚え、選んでいなければプロジェクトの前回値（無ければ Claude Code）。設定で無効なら、いつも Claude Code。
   const oc = props.opencode ?? null;
   const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(null);
-  const agent: AgentValue = oc === null ? 'claude-code' : pickedAgent ?? (props.prefs[prefKey]?.agent === 'opencode' ? 'opencode' : 'claude-code');
+  const remembered = props.prefs[prefKey]?.agent;
+  const agent: AgentValue = oc === null ? DEFAULT_AGENT_KIND : pickedAgent ?? (isAgentKind(remembered) ? remembered : DEFAULT_AGENT_KIND);
   const opencode = agent === 'opencode';
+  const caps = AGENT_UI_CAPS[agent];
   // opencode の一覧を聞く場所。opencode.json の重なりが場所で変わるので、起こす場所で聞く。新しいフォルダとクイックセッションはホームで聞く。
   const ocDir = dirPath ?? (scratch || newDir ? null : props.projects.find((p) => p.id === choice)?.path ?? null);
   const ocState = oc?.options && oc.options.dir === ocDir ? oc.options : null;
@@ -266,7 +268,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     else if (choice) params.projectId = choice;
     // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
     // opencode にはアカウントを効かせない（サーバも断る）。
-    if (account !== null && !opencode) params.account = account;
+    if (account !== null && caps.accounts) params.account = account;
     if (name.trim()) params.name = name.trim();
     // 添付は、本文の後にパスを足して渡す。起動の API は変えない（promptComposerModel.ts の composePrompt）。
     // 添付の置き場を claude に渡す --add-dir はサーバが足すので、ここでは addDirs に混ぜない。
@@ -274,7 +276,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (text) params.prompt = text;
     // opencode は、エージェント、モード（POST の agent）、モデル（provider/model）、自動承認（--auto）だけを渡す。Claude Code だけの値は載せない（サーバが断る）。
     if (opencode) {
-      params.agent = 'opencode';
+      params.agent = agent;
       if (ocMode) params.mode = ocMode;
       if (ocModel.model) params.model = ocModel.model;
       params.autoApprove = autoApprove;
@@ -337,8 +339,8 @@ export function NewSessionDialog(props: NewSessionProps) {
 
   // 前回値のままなら、札の下に「前回と同じ」と出どころを言い、「既定に戻す」を添える（D1）。
   const prev = props.prefs[prefKey];
-  const sameAsPrev = !opencode && !!prev && hasNonDefault(detail) && sameOptions(detail, optionsOf(prev, defaultModel));
-  const bypass = !opencode && permissionMode === PERMISSION_BYPASS;
+  const sameAsPrev = caps.recallLine && !!prev && hasNonDefault(detail) && sameOptions(detail, optionsOf(prev, defaultModel));
+  const bypass = caps.permissionMode && permissionMode === PERMISSION_BYPASS;
 
   const onChips = (patch: Partial<LaunchChipValues>) => {
     const { name: nextName, ...rest } = patch;
@@ -412,10 +414,10 @@ export function NewSessionDialog(props: NewSessionProps) {
       />
       <OpencodeModelResetNote open={opencode && ocModel.reset && !resetNoteClosed} model={ocRemembered} onClose={() => setResetNoteClosed(true)} />
       {opencode && ocState?.data === null && (ocState.status === 'loading' || ocState.status === 'failed') && (
-        <div className="faint" {...{ [AGENT_ONLY_ATTR]: 'opencode' }}>{t(ocState.status === 'loading' ? 'launch.opencode.loading' : 'launch.opencode.failed')}</div>
+        <div className="faint" {...agentOnlyAttr('modes')}>{t(ocState.status === 'loading' ? 'launch.opencode.loading' : 'launch.opencode.failed')}</div>
       )}
       {sameAsPrev && (
-        <div className="prev-line" {...{ [AGENT_ONLY_ATTR]: 'claude-code' }}>
+        <div className="prev-line" {...agentOnlyAttr('recallLine')}>
           <span className="prev-tag">{t('newSession.prev.tag')}</span>
           <span className="faint">{t('newSession.prev.note', { name: nested?.name ?? chosen?.label ?? '' })}</span>
           <button type="button" className="linkish prev-reset" onClick={resetDetail}><Icon name="reset" />{t('newSession.prev.reset')}</button>
@@ -446,7 +448,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         </div>
       )}
       {dirPath && !enclosing && !link && <div className="faint">{outside ? t('newSession.dir.outside') : t('newSession.dir.unregistered', { path: dirPath })}</div>}
-      {!scratch && !opencode && <div className="faint" {...{ [AGENT_ONLY_ATTR]: 'claude-code' }}>{t('newSession.note.trust')}</div>}
+      {!scratch && caps.trustNote && <div className="faint" {...agentOnlyAttr('trustNote')}>{t('newSession.note.trust')}</div>}
       {errorShown !== null && failure === null && <div className="error" role="alert">{errorShown}</div>}
       <LaunchPrepAsk ask={asking} onChoose={submit} />
       <LaunchPrepFailed reason={failure} title={failure !== null ? prep?.failureTitle ?? null : null} />

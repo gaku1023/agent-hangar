@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AGENT_DISPLAY_NAME, AGENT_KINDS, AGENT_UI_CAPS, isAgentKind, type AgentKind } from './agents.ts';
+import { agentsWithCap, DEFAULT_AGENT_KIND, AGENT_DISPLAY_NAME, AGENT_KINDS, AGENT_UI_CAPS, isAgentKind, type AgentKind } from './agents.ts';
 import { AGENT_ICON_KINDS, AGENT_LABEL, type AgentIconKind } from './agentIcons.ts';
 import { AGENT_VALUES, type AgentValue } from './launchChoices.ts';
 import type { LaunchParams } from './action.ts';
@@ -35,5 +35,15 @@ describe('エージェントの一覧', () => {
     expect(AGENT_UI_CAPS['claude-code'].promptJump).toBe(true);
     expect(AGENT_UI_CAPS.opencode.promptJump).toBe(false);
     expect(AGENT_UI_CAPS.opencode.beta).toBe(true);
+  });
+});
+
+describe('能力から引く', () => {
+  it('既定は先頭で、能力ごとに持つエージェントを一覧の順で返す', () => {
+    expect(DEFAULT_AGENT_KIND).toBe('claude-code');
+    expect(agentsWithCap('effort')).toEqual(['claude-code']);
+    expect(agentsWithCap('modes')).toEqual(['opencode']);
+    expect(agentsWithCap('modelText')).toEqual(['claude-code']);
+    expect(agentsWithCap('digestIntent')).toEqual(['claude-code']);
   });
 });

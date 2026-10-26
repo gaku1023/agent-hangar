@@ -1,19 +1,25 @@
+import { agentsWithCap, type AgentUiCap } from '@agent-hangar/shared';
 import { fadeIn, fadeOut, resizeFrom, slideFrom, staggerIn } from './primitives/motionKit.ts';
 
 /**
  * 新しいセッションのエージェントの切り替えの動き（M1）。
  * 消える札は --dur-swap で薄れ、残る札は前の位置から新しい位置へ滑り（FLIP）、新しい札は --stagger ずつずれて浮き上がる。ダイアログの高さは resizeFrom で変える。
- * どの札がどのエージェントのものかは、要素の data-agent-only（claude-code か opencode）で見分ける。札の列は `.launch-chips` の子である。
+ * どの札がどのエージェントのものかは、要素の data-agent-only（そのエージェントの名前。複数なら空白で区切る）で見分ける。値は agentOnlyAttr が能力（AGENT_UI_CAPS）から作る。札の列は `.launch-chips` の子である。
  * エージェントの札（エージェントの絵を持つ残る札）は、名前の長さで変わる幅を前の幅から横に動かし、新しい絵を --dur-swap で現す。
  * 動かない環境（jsdom、reduced motion）では、薄れを待たずにすぐ入れ替わる。
  */
 
 export const AGENT_ONLY_ATTR = 'data-agent-only';
 
+/** その能力を持つエージェントだけに出す札の印。要素に展開して使う（`{...agentOnlyAttr('effort')}`）。 */
+export function agentOnlyAttr(cap: AgentUiCap): { [AGENT_ONLY_ATTR]: string } {
+  return { [AGENT_ONLY_ATTR]: agentsWithCap(cap).join(' ') };
+}
+
 /** 入れ替える直前の形。残る札の位置、エージェントの札の幅、ダイアログの高さ。 */
 export type AgentSwapSnapshot = { dialog: HTMLElement; height: number; rects: Map<Element, DOMRect>; widths: Map<HTMLElement, number> };
 
-const only = (root: HTMLElement, agent: string): HTMLElement[] => [...root.querySelectorAll<HTMLElement>(`[${AGENT_ONLY_ATTR}="${agent}"]`)];
+const only = (root: HTMLElement, agent: string): HTMLElement[] => [...root.querySelectorAll<HTMLElement>(`[${AGENT_ONLY_ATTR}~="${agent}"]`)];
 
 /** 消える札（from のもの）を薄れさせ、薄れ終えたら、残る札の位置とダイアログの高さを覚えて返す。 */
 export async function leaveAgent(dialog: HTMLElement, from: string): Promise<AgentSwapSnapshot> {

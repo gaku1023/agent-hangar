@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
-import { AGENT_ONLY_ATTR } from './agentSwap.ts';
+import { agentOnlyAttr } from './agentSwap.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
@@ -24,7 +24,7 @@ export function OpencodeModelResetNote(props: { open: boolean; model: string; on
   }, [props.open]);
   if (!note.mounted) return null;
   return (
-    <div ref={note.ref} className="oc-model-note" role={note.leaving ? undefined : 'status'} aria-hidden={note.leaving ? 'true' : undefined} {...{ [AGENT_ONLY_ATTR]: 'opencode' }}>
+    <div ref={note.ref} className="oc-model-note" role={note.leaving ? undefined : 'status'} aria-hidden={note.leaving ? 'true' : undefined} {...agentOnlyAttr('modes')}>
       <Icon name="info" />
       <span>{t('launch.opencode.modelReset', { model: last.current })}</span>
       <button type="button" className="oc-model-note-x" aria-label={t('common.button.close')} onClick={props.onClose}><Icon name="close" /></button>

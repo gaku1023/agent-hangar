@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
-import { EFFORT_VALUES, type AgentValue, type OpencodeModeOption, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
-import { AGENT_ONLY_ATTR } from './agentSwap.ts';
+import { AGENT_KINDS, AGENT_UI_CAPS, EFFORT_VALUES, type AgentUiCap, type AgentValue, type OpencodeModeOption, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
+import { agentOnlyAttr } from './agentSwap.ts';
+import { AGENT_TEXT } from '../presenters/agentText.ts';
 import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { isComposing } from './ime.ts';
 import { OpencodeModelPicker } from './OpencodeModelPicker.tsx';
@@ -44,10 +45,10 @@ export type LaunchOpencodeChips = {
 const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).length;
 
 /** 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。 */
-function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentValue; children: (close: () => void) => ReactNode }) {
+function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentUiCap; children: (close: () => void) => ReactNode }) {
   return (
     <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" defaultOpen={props.defaultOpen}
-      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} lead={props.lead} dot={props.dot} badge={props.badge} {...{ [AGENT_ONLY_ATTR]: props.agentOnly }} {...p} />}>
+      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} lead={props.lead} dot={props.dot} badge={props.badge} {...(props.agentOnly ? agentOnlyAttr(props.agentOnly) : {})} {...p} />}>
       {({ close }) => (
         <>
           <div className="pick-head">{props.name}</div>
@@ -145,7 +146,7 @@ export function LaunchChips(props: {
       {!oc && (
         <>
           {account && (
-            <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260} agentOnly="claude-code">
+            <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260} agentOnly="accounts">
               {(close) => (
                 <PickList label={t('launch.chip.account')} value={account.value}
                   items={account.options.map((o) => ({ value: o.value, label: o.label, disabled: o.disabled, tag: o.tag, lead: o.color ? <span className="st-dot" style={{ color: o.color }} aria-hidden="true" /> : undefined }))}
@@ -153,20 +154,20 @@ export function LaunchChips(props: {
               )}
             </ChipPopover>
           )}
-          <ChipPopover name={t('launch.chip.model')} value={values.model || def} tone={values.model ? 'default' : 'muted'} agentOnly="claude-code">
+          <ChipPopover name={t('launch.chip.model')} value={values.model || def} tone={values.model ? 'default' : 'muted'} agentOnly="modelText">
             {(close) => <ModelEditor value={values.model} onChange={(v) => onChange({ model: v })} close={close} />}
           </ChipPopover>
-          <ChipPopover name={t('launch.chip.effort')} value={values.effort || def} tone={values.effort ? 'default' : 'muted'} agentOnly="claude-code">
+          <ChipPopover name={t('launch.chip.effort')} value={values.effort || def} tone={values.effort ? 'default' : 'muted'} agentOnly="effort">
             {(close) => (
               <PickList label={t('launch.chip.effort')} value={values.effort}
                 items={EFFORT_VALUES.map((e, i) => ({ value: e, label: e || def, lead: e ? <EffortBars level={i} /> : undefined }))}
                 onPick={(v) => { onChange({ effort: v }); close(); }} />
             )}
           </ChipPopover>
-          <ChipPopover name={t('launch.permission.label')} value={permissionLabel(values.permissionMode, t)} tone={bypass ? 'danger' : values.permissionMode === PERMISSION_DEFAULT ? 'muted' : 'default'} icon={bypass ? 'warning' : undefined} agentOnly="claude-code">
+          <ChipPopover name={t('launch.permission.label')} value={permissionLabel(values.permissionMode, t)} tone={bypass ? 'danger' : values.permissionMode === PERMISSION_DEFAULT ? 'muted' : 'default'} icon={bypass ? 'warning' : undefined} agentOnly="permissionMode">
             {(close) => <PermissionList value={values.permissionMode} previous={props.previousPermission} onChange={(v) => { onChange({ permissionMode: v }); close(); }} />}
           </ChipPopover>
-          <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="claude-code">
+          <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="worktree">
             {(close) => <TextEditor name={t('launch.chip.worktree')} placeholder={t('launch.edit.worktreePlaceholder')} value={values.worktree} onChange={(v) => onChange({ worktree: v })} close={close} mono />}
           </ChipPopover>
         </>
@@ -177,7 +178,7 @@ export function LaunchChips(props: {
         </ChipPopover>
       )}
       {!oc && added.has('addDirs') && (
-        <ChipPopover name={names.addDirs} value={dirCount(values.addDirs) ? t('launch.value.dirCount', { n: dirCount(values.addDirs) }) : none} tone={dirCount(values.addDirs) ? 'default' : 'muted'} width={320} defaultOpen={fresh === 'addDirs'} agentOnly="claude-code">
+        <ChipPopover name={names.addDirs} value={dirCount(values.addDirs) ? t('launch.value.dirCount', { n: dirCount(values.addDirs) }) : none} tone={dirCount(values.addDirs) ? 'default' : 'muted'} width={320} defaultOpen={fresh === 'addDirs'} agentOnly="addDirs">
           {() => (
             <>
               <textarea className="input launch-input mono" data-autofocus="true" rows={3} aria-label={names.addDirs} value={values.addDirs} onChange={(e) => onChange({ addDirs: e.target.value })} />
@@ -199,15 +200,16 @@ export function LaunchChips(props: {
 function AgentChip(props: LaunchAgentChip) {
   const t = useT();
   const beta = t('launch.agent.beta');
-  const label = (v: AgentValue) => t(v === 'opencode' ? 'launch.agent.opencode' : 'launch.agent.claude');
+  const label = (v: AgentValue) => t(AGENT_TEXT[v].launchLabel);
   return (
-    <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} lead={<AgentIcon kind={props.value} decorative />} badge={props.value === 'opencode' ? beta : undefined} showName={false} width={260}>
+    <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} lead={<AgentIcon kind={props.value} decorative />} badge={AGENT_UI_CAPS[props.value].beta ? beta : undefined} showName={false} width={260}>
       {(close) => (
         <PickList label={t('launch.chip.agent')} value={props.value}
-          items={[
-            { value: 'claude-code', label: label('claude-code'), lead: <AgentIcon kind="claude-code" decorative /> },
-            { value: 'opencode', label: label('opencode'), lead: <AgentIcon kind="opencode" decorative />, badge: beta, ...(props.opencodeNote ? { sub: props.opencodeNote } : {}) },
-          ]}
+          items={AGENT_KINDS.map((k) => ({
+            value: k, label: label(k), lead: <AgentIcon kind={k} decorative />,
+            ...(AGENT_UI_CAPS[k].beta ? { badge: beta } : {}),
+            ...(k === 'opencode' && props.opencodeNote ? { sub: props.opencodeNote } : {}),
+          }))}
           onPick={(v) => { close(); props.onChange(v as AgentValue); }} />
       )}
     </ChipPopover>
@@ -226,7 +228,7 @@ function OpencodeChips(props: LaunchOpencodeChips) {
   const autoName = t('launch.chip.autoApprove');
   return (
     <>
-      <ChipPopover name={modeName} value={props.mode || def} tone={props.mode ? 'default' : 'muted'} width={300} agentOnly="opencode">
+      <ChipPopover name={modeName} value={props.mode || def} tone={props.mode ? 'default' : 'muted'} width={300} agentOnly="modes">
         {(close) => (
           <PickList label={modeName} value={props.mode}
             items={props.modes.length ? props.modes.map((m) => ({ value: m.id, label: m.id, ...(m.description ? { sub: m.description } : {}) })) : [{ value: '', label: def }]}
@@ -235,8 +237,8 @@ function OpencodeChips(props: LaunchOpencodeChips) {
       </ChipPopover>
       <OpencodeModelPicker label={modelName} value={props.model} models={props.models} providers={props.providers} defaultModel={props.defaultModel}
         pricesAt={props.pricesAt} fetchedAt={props.fetchedAt} reset={props.modelReset} reloading={props.reloading}
-        onChange={props.onModel} onReload={props.onReload} onManage={props.onManage} faceProps={{ [AGENT_ONLY_ATTR]: 'opencode' }} />
-      <ChipPopover name={autoName} value={t(props.autoApprove ? 'launch.autoApprove.on' : 'launch.autoApprove.off')} tone={props.autoApprove ? 'danger' : 'muted'} width={280} agentOnly="opencode">
+        onChange={props.onModel} onReload={props.onReload} onManage={props.onManage} faceProps={agentOnlyAttr('modes')} />
+      <ChipPopover name={autoName} value={t(props.autoApprove ? 'launch.autoApprove.on' : 'launch.autoApprove.off')} tone={props.autoApprove ? 'danger' : 'muted'} width={280} agentOnly="modes">
         {(close) => (
           <PickList label={autoName} value={props.autoApprove ? 'on' : 'off'}
             items={[

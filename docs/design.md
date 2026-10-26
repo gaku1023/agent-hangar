@@ -2059,6 +2059,8 @@ opencode の会話の終わった画面では、本文の面の最後に区切�
 見ている間に終わったときだけ growIn で入れ、開いたときにもう終わっていた会話では動かさない。
 切り替えの動きは M1 である（`views/agentSwap.ts`）。消える札は `--dur-swap`（150ms）で薄れ、残る札は前の位置から滑り（FLIP）、新しい札は `--stagger`（30ms）ずつずれて浮き上がる。ダイアログの高さは `resizeFrom` で変える。
 どちらかのエージェントだけの札と注記は `data-agent-only` を持ち、動きはそれで消えるものと入るものを見分ける。
+値は能力（`AGENT_UI_CAPS`）から `agentOnlyAttr` が作り、そのエージェントの名前を空白で並べる。
+文言の分岐は `presenters/agentText.ts` の表で引く。
 
 モードとモデルの一覧は `GET /api/opencode/options?dir=<場所>` で読む（`provider/opencode/options.ts`）。opencode.json の重なりが場所で変わるので、起こす場所で聞く（新しいフォルダとクイックセッションはホーム）。
 一覧は opencode の serve の API（`/api/agent`、`/api/model`、`/api/provider`、`/api/config`）からしか取れない。起きている serve があればそれに聞き、1 本も無ければ serve の待ち行列で 1 本起こして聞き、聞き終えたら止める。

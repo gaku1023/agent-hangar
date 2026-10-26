@@ -6,6 +6,11 @@
 export const AGENT_KINDS = ['claude-code', 'opencode'] as const;
 export type AgentKind = (typeof AGENT_KINDS)[number];
 
+/** 既定のエージェント（札の先頭）。前回の選択が無いとき、設定で他が無効なときに使う。 */
+export const DEFAULT_AGENT_KIND: AgentKind = AGENT_KINDS[0];
+/** 既定でないエージェント。前回の選択や、実行中の写しや、タブの印で「既定ではない」と言うときの型。 */
+export type NonDefaultAgentKind = Exclude<AgentKind, 'claude-code'>;
+
 export function isAgentKind(v: unknown): v is AgentKind {
   return typeof v === 'string' && (AGENT_KINDS as readonly string[]).includes(v);
 }
@@ -16,6 +21,7 @@ export const AGENT_DISPLAY_NAME: Record<AgentKind, string> = { 'claude-code': 'C
 /**
  * UI が出し分けに使う能力。server の AgentCaps（driver が持つ能力）とは別で、画面の札と欄の有無だけを持つ。
  * accounts・effort・permissionMode・worktree・addDirs は新規ダイアログの札（LaunchParams の同名の欄）。
+ * modelText は自由入力のモデルの札、recallLine は前回の詳細をまとめた行、trustNote はフォルダを信頼する注意、digestIntent は意図を digest から読むか（無ければ依頼の冒頭を出す）。
  * modes は mode と autoApprove の札、promptJump は目次から左の画面を跳ばせるか、usagePanel は会話の使用量の欄を自前で組むか、beta は設定で有効にしたときだけ選べるか。
  */
 export type AgentUiCaps = {
@@ -24,6 +30,10 @@ export type AgentUiCaps = {
   permissionMode: boolean;
   worktree: boolean;
   addDirs: boolean;
+  modelText: boolean;
+  recallLine: boolean;
+  trustNote: boolean;
+  digestIntent: boolean;
   modes: boolean;
   promptJump: boolean;
   usagePanel: boolean;
@@ -31,6 +41,13 @@ export type AgentUiCaps = {
 };
 
 export const AGENT_UI_CAPS: Record<AgentKind, AgentUiCaps> = {
-  'claude-code': { accounts: true, effort: true, permissionMode: true, worktree: true, addDirs: true, modes: false, promptJump: true, usagePanel: false, beta: false },
-  opencode: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modes: true, promptJump: false, usagePanel: true, beta: true },
+  'claude-code': { accounts: true, effort: true, permissionMode: true, worktree: true, addDirs: true, modelText: true, recallLine: true, trustNote: true, digestIntent: true, modes: false, promptJump: true, usagePanel: false, beta: false },
+  opencode: { accounts: false, effort: false, permissionMode: false, worktree: false, addDirs: false, modelText: false, recallLine: false, trustNote: false, digestIntent: false, modes: true, promptJump: false, usagePanel: true, beta: true },
 };
+
+export type AgentUiCap = keyof AgentUiCaps;
+
+/** その能力を持つエージェントの一覧（AGENT_KINDS の順）。画面の札が「どのエージェントのとき出すか」の正本。 */
+export function agentsWithCap(cap: AgentUiCap): AgentKind[] {
+  return AGENT_KINDS.filter((k) => AGENT_UI_CAPS[k][cap]);
+}
