@@ -7,6 +7,7 @@ import { isProcessAlive, watchExit } from '../opencode/serve/spawn.ts';
 import { CodexRpc, stopAppServer, tuiRemote, watchStartedThread, type AppServerProcess } from './appServer.ts';
 import { codexBaseEnv } from './env.ts';
 import type { CodexLiveTarget } from './live.ts';
+import type { CodexUsage } from './usage.ts';
 import { launchCodexAppServer } from './launch.ts';
 import { CodexRegistry, codexRegistryPath } from './registry.ts';
 import { CODEX_PERMISSION_FLAGS } from '@agent-hangar/shared';
@@ -57,6 +58,11 @@ export type CodexDriverDeps = {
   live?: LiveSource & { track?(t: CodexLiveTarget): void; untrack?(providerSessionId: string): void };
   asks?: AskSource;
   transcript?: TranscriptSource;
+  /**
+   * 使用量の面（createCodexUsage）。呼ばれた時点で引く（配線の順で、driver の方が先に組まれるため）。null を返す間は何もしない。
+   * 起動した会話は、スレッドの ID と接続が揃ったとき（trackLive と同じ位置）に track し、止めたら untrack する。
+   */
+  usage?: () => Pick<CodexUsage, 'track' | 'untrack'> | null | undefined;
 };
 
 export type CodexDriver = AgentDriver & {
@@ -66,7 +72,7 @@ export type CodexDriver = AgentDriver & {
   onServe(cb: (e: CodexServeEvent) => void): () => void;
 };
 
-type Served = CodexServed & { server: AppServerProcess; turnId: string | null; offs: (() => void)[]; cancelWatch: (() => void) | null };
+type Served = CodexServed & { server: AppServerProcess; turnId: string | null; offs: (() => void)[]; cancelWatch: (() => void) | null; /** 起こしたときに指定したモデル（使用量の記録用）。 */ model?: string };
 
 /** 上限までに終わらなければ、待つのをやめて true を返す（interrupt が返らなくても止める）。 */
 function withTimeout(p: Promise<boolean>, ms: number): Promise<boolean> {
@@ -98,9 +104,10 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
   function trackLive(s: Served, subscribed: boolean): void {
     if (!s.rpc || !s.threadId) return;
     deps.live?.track?.({ providerSessionId: s.threadId, cwd: s.cwd, pid: s.pid, rpc: s.rpc, subscribed });
+    deps.usage?.()?.track({ providerSessionId: s.threadId, rpc: s.rpc, model: s.model ?? null });
   }
   function untrackLive(s: Served): void {
-    if (s.threadId) deps.live?.untrack?.(s.threadId);
+    if (s.threadId) { deps.live?.untrack?.(s.threadId); deps.usage?.()?.untrack(s.threadId); }
   }
 
   /** hangar の MCP が connected になるまで待つ。failed でも上限を過ぎても知らせるだけで、起動は続ける。 */
@@ -149,7 +156,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     });
     const s: Served = {
       sessionId: spec.hangarSessionId, cwd: spec.cwd, pid: handle.server.pid, url: handle.server.url, token: handle.server.token,
-      rpc: handle.rpc, threadId: null, server: handle.server, turnId: null, offs: [], cancelWatch: null,
+      rpc: handle.rpc, threadId: null, server: handle.server, turnId: null, offs: [], cancelWatch: null, ...(spec.model?.trim() ? { model: spec.model.trim() } : {}),
     };
     served.set(s.sessionId, s);
     const record = (): void => { registry.set({ sessionId: s.sessionId, pid: s.pid, port: handle.server.port, tokenFile: handle.server.tokenFile, startedAt: handle.server.startedAt, cwd: s.cwd, ...(s.threadId ? { threadId: s.threadId } : {}) }); };
@@ -163,6 +170,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
           ? await handle.rpc.threadResume({ threadId: mode.id, ...open })
           : await handle.rpc.request<{ thread: { id: string } }>('thread/fork', { threadId: mode.id, ...open });
         s.threadId = th.thread.id;
+        const m = (th as { model?: unknown }).model;
+        if (typeof m === 'string' && m) s.model = m;
         watchTurns(s, handle.rpc);
         record();
         trackLive(s, true);
@@ -178,6 +187,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
           ...(instructionValue(spec.instructions) !== null ? { developerInstructions: instructionValue(spec.instructions)! } : {}),
         });
         s.threadId = th.thread.id;
+        const m = (th as { model?: unknown }).model;
+        if (typeof m === 'string' && m) s.model = m;
         watchTurns(s, handle.rpc);
         record();
         trackLive(s, true);
@@ -236,7 +247,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     emit({ type: 'up', sessionId: target.sessionId });
     // 引き継いだ app-server は接続を持たないので、状態の面のために、ここでつなぎ直す（失敗しても引き継ぎは続ける）。
     // thread/start した接続ではないので、購読は状態の面が最初の active で行う。ID が分からない会話（TUI がまだつないでいなかった）は載せない。
-    if (deps.live?.track && threadId) {
+    if ((deps.live?.track || deps.usage) && threadId) {
       void CodexRpc.connect({ url, token, requestTimeoutMs: deps.requestTimeoutMs ?? 3000, connectTimeoutMs: 2000 }).then((rpc) => {
         if (served.get(s.sessionId) !== s || s.rpc) { rpc.close(); return; }
         s.rpc = rpc;

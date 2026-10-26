@@ -40,6 +40,8 @@ export type FakeCodexOptions = {
   turnMs?: number;
   /** app-server が起動時から持つ会話（rollout がある。hangar の外で作られたもの）。resume と fork の試験用。 */
   knownThreads?: { id: string; cwd: string }[];
+  /** account/rateLimits/read が返す RateLimitSnapshot（rateLimits と rateLimitsByLimitId.codex の両方に入れる）。無ければ method not found のまま。 */
+  rateLimits?: Record<string, unknown>;
 };
 
 export function writeFakeCodex(dir: string, o: FakeCodexOptions = {}): string {
@@ -52,7 +54,7 @@ import { spawn } from 'node:child_process';
 const require = createRequire(${JSON.stringify(requireFromHere.resolve('ws'))});
 const { WebSocketServer } = require('ws');
 const args = process.argv.slice(2);
-const OPTS = ${JSON.stringify({ g: o.grandchildPidFile ?? null, i: !!o.ignoreSigterm, c: !!o.crashOnStart, r: o.rpcLogFile ?? null, m: o.mcpPendingPolls ?? 0, t: o.turnMs ?? 60, k: o.knownThreads ?? [] })};
+const OPTS = ${JSON.stringify({ g: o.grandchildPidFile ?? null, i: !!o.ignoreSigterm, c: !!o.crashOnStart, r: o.rpcLogFile ?? null, m: o.mcpPendingPolls ?? 0, t: o.turnMs ?? 60, k: o.knownThreads ?? [], l: o.rateLimits ?? null })};
 const rlog = (o) => { if (OPTS.r) fs.appendFileSync(OPTS.r, JSON.stringify(o) + '\\n'); };
 ${o.logFile ? `fs.appendFileSync(${JSON.stringify(o.logFile)}, JSON.stringify({ argv: args, env: process.env }) + '\\n');` : ''}
 if (args[0] === '--version') { process.stdout.write('codex-cli ${version}\\n'); process.exit(0); }
@@ -133,6 +135,7 @@ async function appServer(args) {
           if (!t) return fail(-32600, 'thread not found: ' + p.threadId);
           return ok({ thread: { ...threadBody(p.threadId, false), turns: t.current ? [{ id: t.current.id, status: 'inProgress' }] : [], status: t.status ?? { type: t.current ? 'active' : 'idle', ...(t.current ? { activeFlags: [] } : {}) } } });
         }
+        case 'account/rateLimits/read': return OPTS.l ? ok({ rateLimits: OPTS.l, rateLimitsByLimitId: { codex: OPTS.l } }) : fail(-32601, 'method not found: ' + m.method);
         case 'thread/loaded/list': return ok({ data: [...threads.keys()] });
         case 'thread/resume': {
           const t = threads.get(p.threadId);

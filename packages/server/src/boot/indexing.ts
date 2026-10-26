@@ -40,6 +40,11 @@ export type IndexingParts = {
    * 渡すまでは、opencode の使用量の context_size を書かない。
    */
   bindContextSize(of: (model: string) => number | null): void;
+  /**
+   * Codex の rollout の枠の行（meta rate_limits）を受ける口を渡す。使用量の面は run の部品（boot/runs.ts）が組むので、組んでから渡す。
+   * 渡すまでに読んだ束の枠は、使わない。
+   */
+  bindCodexRateLimits(on: (value: unknown, ts: unknown) => void): void;
   /** 設定の「Codex を有効にする」が変わったとき。Codex の本文の見張りを付け外しして、全件の見比べを頼む。 */
   onSettingsChanged(): void;
 };
@@ -72,7 +77,10 @@ export function bootIndexing(
     enabled: () => codexEnabledOf(settings.current),
     // hangar が起こして動いている会話は、取り込みの上限に数えない。
     isLive: (id) => live.current().some((l) => l.agent === 'codex' && l.sessionId === id),
+    // hangar の外で動いた会話の枠も、使用量の面へ渡す（hangar が起こした会話の分は app-server から届く）。
+    onRateLimits: (value, ts) => { rateLimits?.(value, ts); },
   });
+  let rateLimits: ((value: unknown, ts: unknown) => void) | null = null;
   let codexWasOn = codexEnabledOf(settings.current);
   const indexer = new IndexerService({
     db, deviceId,
@@ -122,6 +130,7 @@ export function bootIndexing(
   return {
     indexer, memos, git,
     bindContextSize(of) { contextSize = of; },
+    bindCodexRateLimits(on) { rateLimits = on; },
     onSettingsChanged() {
       // opencode の入り切りでも呼ばれるので、Codex の値が変わったときだけ見張りを付け替える。
       const on = codexEnabledOf(settings.current);
