@@ -6,7 +6,7 @@ import { openDb, type Db } from '../../../db/open.ts';
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
 import { defaultTargetPaths } from './paths.ts';
 
-const PLACEHOLDERS = ['claude-hooks', 'claude-plugins', 'hangar'];
+const PLACEHOLDERS = ['hangar'];
 let tmp: string;
 let db: Db;
 const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({
@@ -19,11 +19,9 @@ beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-')); fs.mkdir
 afterEach(() => { db.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 describe('枠だけの対象', () => {
-  it('登録されていて、claude-hooks と claude-plugins は claude より前', () => {
+  it('登録されている（claude-hooks と claude-plugins は本物になった。claudeHooksPlugins.test.ts）', () => {
     const names = allTargets().map((t) => t.name);
     for (const n of PLACEHOLDERS) expect(names).toContain(n);
-    expect(names.indexOf('claude-hooks')).toBeLessThan(names.indexOf('claude'));
-    expect(names.indexOf('claude-plugins')).toBeLessThan(names.indexOf('claude'));
   });
   it('どの id も持たず、集めるものも無い。settings: の鍵の持ち主は変わらない', () => {
     for (const t of allTargets().filter((x) => PLACEHOLDERS.includes(x.name))) {
@@ -32,7 +30,6 @@ describe('枠だけの対象', () => {
       expect(t.collect(ctx()).items).toEqual([]);
     }
     expect(targetNameOfId('settings:hooks')).toBe('claude');
-    expect(targetNameOfId('settings:enabledPlugins')).toBe('claude');
   });
   it('全部入にしても、集める項目は変わらず、束の targets にも載らない', () => {
     const all = Object.fromEntries(PLACEHOLDERS.map((n) => [n, true]));

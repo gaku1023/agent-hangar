@@ -167,7 +167,7 @@ export function planApply(o: { home: string }): ApplyPlan {
  * 末尾が通常のファイルでない、のどれかなら ApplyError。まだ無い部分は、あってよい。
  * claudeDir 自体がリンクであることは構わない（会社と大学で入れ物を切り替える使い方がある）。
  */
-function assertSafeTarget(claudeDir: string, rel: string): void {
+export function assertSafeTarget(claudeDir: string, rel: string): void {
   if (!isSafeRelPath(rel)) throw new ApplyError('unsafe', `書き込み先の形が不正です（${rel}）。書きません。`);
   const segs = rel.split('/');
   let cur = claudeDir;
@@ -186,7 +186,7 @@ function assertSafeTarget(claudeDir: string, rel: string): void {
 
 // ---- 世代 ----
 
-type GenerationMeta = {
+export type GenerationMeta = {
   version: 1;
   kind: 'apply' | 'restore';
   createdAt: number;
@@ -211,9 +211,9 @@ function readMeta(dir: string): GenerationMeta | null {
   } catch { return null; }
 }
 
-const fileOf = (root: string, rel: string): string => path.join(root, ...rel.split('/'));
+export const fileOf = (root: string, rel: string): string => path.join(root, ...rel.split('/'));
 
-function writeAtomic(file: string, data: Buffer | string, mode: number): void {
+export function writeAtomic(file: string, data: Buffer | string, mode: number): void {
   const tmp = `${file}.hangar-tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
   try {
     fs.writeFileSync(tmp, data, { mode });
@@ -225,7 +225,7 @@ function writeAtomic(file: string, data: Buffer | string, mode: number): void {
 }
 
 /** 先の元の中身を新しい世代に控える。控えるものが無くても、作った印のために世代は作る。 */
-function takeGeneration(o: { home: string; claudeDir: string; rels: string[]; baseIds: string[]; base: ConfigBase | null; now: number; kind: GenerationMeta['kind'] }): { name: string; dir: string } {
+export function takeGeneration(o: { home: string; claudeDir: string; rels: string[]; baseIds: string[]; base: ConfigBase | null; now: number; kind: GenerationMeta['kind'] }): { name: string; dir: string } {
   const root = configBackupsDir(o.home);
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   let ts = o.now;
@@ -294,7 +294,7 @@ function putBack(claudeDir: string, dir: string, files: string[], meta: Generati
 }
 
 /** 古い世代を消して、新しい 20 個に保つ。時刻の名前でないもの（removed など）は触らない。 */
-function pruneGenerations(home: string): void {
+export function pruneGenerations(home: string): void {
   const root = configBackupsDir(home);
   let names: string[];
   try { names = fs.readdirSync(root).filter((n) => STAMP_RE.test(n)).sort(); } catch { return; }
@@ -303,10 +303,10 @@ function pruneGenerations(home: string): void {
   }
 }
 
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+export const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** 世代へ戻す途中の失敗を、世代から元へ戻す。戻せなければ、世代を残して手で戻す手掛かりを返す。 */
-function rollback(claudeDir: string, gen: { name: string; dir: string }, cause: unknown, what: string): ApplyError {
+export function rollback(claudeDir: string, gen: { name: string; dir: string }, cause: unknown, what: string): ApplyError {
   try {
     putBack(claudeDir, gen.dir, generationFiles(gen.dir), readMeta(gen.dir));
     fs.rmSync(gen.dir, { recursive: true, force: true });
@@ -320,10 +320,10 @@ function rollback(claudeDir: string, gen: { name: string; dir: string }, cause: 
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-type SettingsEdit = { key: string; value: unknown; remove: boolean };
+export type SettingsEdit = { key: string; value: unknown; remove: boolean };
 
 /** settings.json の文字列に、鍵ごとの編集を当てる。並びと字下げと末尾の改行は保つ。 */
-function editSettings(text: string | null, edits: SettingsEdit[]): string {
+export function editSettings(text: string | null, edits: SettingsEdit[]): string {
   const unreadable = (why: string): ApplyError => new ApplyError('settings-unreadable', `settings.json を読めないので、設定の鍵は書きません（${why}）。`);
   let obj: Record<string, unknown> = {};
   if (text !== null) {
@@ -414,7 +414,7 @@ function readBuf(file: string): Buffer | null {
 }
 
 /** 書く先の今の中身の指紋。無いものは null として数える。 */
-function localFingerprint(claudeDir: string, rels: string[]): string {
+export function localFingerprint(claudeDir: string, rels: string[]): string {
   const parts = [...new Set(rels)].sort().map((rel) => {
     const b = readBuf(fileOf(claudeDir, rel));
     return [rel, b === null ? null : crypto.createHash('sha256').update(b).digest('hex')];
@@ -422,7 +422,7 @@ function localFingerprint(claudeDir: string, rels: string[]): string {
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 
-const changedError = () => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
+export const changedError = () => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
 
 /** 1 つの書く先の見せ方。before は今の中身（無ければ null）、after は書いた後の中身（消すなら null）。 */
 function plannedFile(claudeDir: string, rel: string, before: Buffer | null, after: Buffer | string | null): PlannedFile {
