@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { LaunchPrepChoice } from '@agent-hangar/shared';
 import type { LaunchPrep } from '../../../runs/launchPrep.ts';
-import { whereOfHost } from '../options.ts';
+import { deviceOrigin } from './available.ts';
 import { LmStudio, type LmModel } from './lmstudio.ts';
 import { planLocalModels, type OwnedInstance, type PlanAction, type WantedModel } from './plan.ts';
 
@@ -68,17 +68,6 @@ const split = (ref: string): { provider: string; model: string } | null => {
   const i = ref.indexOf('/');
   return i > 0 && i < ref.length - 1 ? { provider: ref.slice(0, i), model: ref.slice(i + 1) } : null;
 };
-
-/** baseURL のうち、この PC のものの origin。ほかは null。 */
-function deviceOrigin(baseURL: string | null): string | null {
-  if (!baseURL) return null;
-  try {
-    const u = new URL(baseURL);
-    return (u.protocol === 'http:' || u.protocol === 'https:') && whereOfHost(u.hostname) === 'device' ? u.origin : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function prepareLocalModels(deps: LocalModelsDeps, input: PrepareInput): Promise<void> {
   if (input.choice.skip) return;

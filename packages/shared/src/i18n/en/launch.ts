@@ -45,6 +45,8 @@ export const launchEn: AreaDictionary<typeof launchKeys> = {
   'launch.model.limited': 'Limited time',
   'launch.model.noTools': 'No tool calls',
   'launch.model.noToolsNote': 'Can\'t be used as an agent because it doesn\'t support tool calls',
+  'launch.model.missing': 'Not downloaded',
+  'launch.model.missingNote': 'Not downloaded on this PC, so it can\'t be used',
   'launch.model.price.unit': 'Input / output · per 1M tokens',
   'launch.model.price.plan': 'Included in plan',
   'launch.model.status.lmstudio': 'Running · detected automatically',

@@ -1,3 +1,4 @@
+import { RunError } from '../runs/errors.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -334,6 +335,11 @@ describe('MCP tools', () => {
     deps = { ...deps, runs: { start: deps.runs.start } };
     expect(() => call('create_session', { project_id: 'p1', agent: 'opencode' })).toThrow(ToolError);
     expect(started).toEqual([]);
+  });
+  it('create_session は、起動の口が断った理由（この PC に無いモデルと、使えるモデル）をそのまま返す', async () => {
+    const why = 'opencode を起動できませんでした: lmstudio/qwen3.6-35b-a3b はこの PC にありません。使えるのは: lmstudio/gemma';
+    deps = { ...deps, runs: { start: async () => { throw new RunError(400, why); }, agentEnabled: () => true } };
+    await expect(call('create_session', { project_id: 'p1', agent: 'opencode', model: 'lmstudio/qwen3.6-35b-a3b' })).rejects.toThrow(why);
   });
   it('create_session は非同期の start を待ってから答える', async () => {
     deps = { ...deps, runs: { start: async (p) => { started.push(p); await new Promise((r) => setTimeout(r, 5)); return { run: { id: 'r2', sessionId: 'sLater', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sLater', tabs: [] }; } } };

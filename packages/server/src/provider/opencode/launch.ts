@@ -4,6 +4,8 @@ import type { LaunchPrep } from '../../runs/launchPrep.ts';
 import { OpencodeClient, type OpencodeModelRef, type OpencodeProviderRow } from './client.ts';
 import type { OpencodePermissionRule } from './permissionPreset.ts';
 import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
+import { msg, MessageError } from '../../i18n/message.ts';
+import type { LocalModelListing } from './localModels/available.ts';
 import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
 import type { ProviderPreps } from './providerPrep.ts';
 
@@ -80,6 +82,8 @@ export type MaterializeDeps = {
   localModels?: LocalModelsDeps;
   /** 起動前に接続先の準備のコマンドを走らせる口（providerPrep.ts）。無ければ走らせない。 */
   providerPreps?: ProviderPreps;
+  /** 起動前に、会話のモデルがこの PC のローカルのサーバーにあるかを聞く口（localModels/available.ts）。無ければ確かめない。 */
+  localListing?: LocalModelListing;
 };
 
 /**
@@ -104,6 +108,9 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
   let providerSessionId: string;
   try {
     if (spec.prep && deps.providerPreps?.any() && !spec.prep.choice.skip) await prepareProviders(deps, deps.providerPreps, serve, spec);
+    // モデルの有無は、接続先の準備（サーバーを起こすコマンド）の後、モデルを載せる前に確かめる。準備を飛ばす答えでも確かめる（無いモデルでは最初の発言で必ず落ちる）。
+    // 外のターミナルからの起動（prep が無い）は確かめない。選び直す画面が無く、TUI の /models で替えられるからである。
+    if (spec.prep && deps.localListing && mode.kind === 'start') await checkSessionModel(deps, deps.localListing, serve, spec);
     // LM Studio の段は新しい会話だけ（問いに答える画面が新しいセッションのダイアログにしか無い）。再開は接続先の準備だけを走らせる。
     if (spec.prep && deps.localModels && !spec.prep.choice.skip && mode.kind === 'start') ({ serve, model } = await prepareModels(deps, deps.localModels, serve, spec));
     if (mode.kind === 'resume') {
@@ -136,6 +143,29 @@ export async function prepareProviders(deps: MaterializeDeps, preps: ProviderPre
   prep.run.throwIfCancelled();
   const names = new Map((await client.providerRows(spec.cwd).catch(() => [])).map((r) => [r.id, r.name]));
   for (const id of ids) await preps.prepare(id, names.get(id) ?? id, spec.hangarSessionId, prep.run);
+}
+
+/**
+ * 起動前に、会話のモデルがこの PC のローカルのサーバー（LM Studio など）にあるかを確かめる（docs/design.md「起動前の準備」の「モデルの有無」）。
+ * opencode.json のモデルは PC の間で共有されるので、ほかの PC にだけあるモデルも候補に出る。無いモデルで起こすと、最初の発言でサーバーが 400 を返して会話が止まる。
+ * 確かめるのは会話のモデル（1 モデルに寄せる答え、指定、設定の既定の順）だけで、この PC でない接続先は聞かない。
+ * 無ければ使えるモデルを添えて、サーバーにつながらなければそう言って、MessageError で断る（起動の口が serve を止めて断る）。
+ */
+export async function checkSessionModel(deps: MaterializeDeps, listing: LocalModelListing, serve: ServeInfo, spec: LaunchSpec): Promise<void> {
+  const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
+  const model = spec.prep?.choice.singleModel ?? spec.model ?? (await client.modelUses(spec.cwd)).model;
+  const slash = model ? model.indexOf('/') : -1;
+  if (!model || slash <= 0) return;
+  const provider = model.slice(0, slash);
+  const [rows, configured] = await Promise.all([client.providerRows(spec.cwd), client.configuredBaseURLs(spec.cwd)]);
+  const urls = await providerURLs(client, { cwd: spec.cwd, uses: [{ ref: model, uses: ['$session'] }], prep: spec.prep?.run, sleep: deps.sleep }, rows, configured);
+  const r = await listing.list(urls.find((p) => p.id === provider)?.baseURL ?? null);
+  spec.prep?.run.throwIfCancelled();
+  const name = rows.find((x) => x.id === provider)?.name || provider;
+  if (r.kind === 'unreachable') throw new MessageError(msg('launchPrep.error.serverDown', { name, url: r.origin }));
+  if (r.kind !== 'listed' || r.models.includes(model.slice(slash + 1))) return;
+  if (!r.models.length) throw new MessageError(msg('launchPrep.error.modelMissingNone', { model, name }));
+  throw new MessageError(msg('launchPrep.error.modelMissing', { model, available: r.models.map((m) => `${provider}/${m}`) }));
 }
 
 /**
@@ -204,13 +234,13 @@ const PROVIDER_ROW_POLL_MS = 200;
  * 起きたばかりの serve は `/api/provider` をしばらく空で答えるので、設定の層を先に頼る（待ちの長さに頼らない）。
  * 設定に baseURL の無い接続先（opencode に組み込みの宛先）だけは、行が出るまで短く聞き直す。出なければ諦める。
  */
-async function providerURLs(client: OpencodeClient, o: { cwd: string; uses: LocalModelUse[]; prep: LaunchPrep; sleep?: (ms: number) => Promise<void> }, rows: OpencodeProviderRow[], configured: ReadonlyMap<string, string>): Promise<{ id: string; baseURL: string | null }[]> {
+async function providerURLs(client: OpencodeClient, o: { cwd: string; uses: LocalModelUse[]; prep?: Pick<LaunchPrep, 'throwIfCancelled'>; sleep?: (ms: number) => Promise<void> }, rows: OpencodeProviderRow[], configured: ReadonlyMap<string, string>): Promise<{ id: string; baseURL: string | null }[]> {
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => { setTimeout(r, ms); }));
   const ids = [...new Set(o.uses.flatMap((u) => (u.ref.indexOf('/') > 0 ? [u.ref.slice(0, u.ref.indexOf('/'))] : [])))];
   const unseen = () => ids.filter((id) => !configured.has(id) && !rows.some((r) => r.id === id));
   for (let i = 0; i < PROVIDER_ROW_RETRIES && unseen().length; i++) {
     await sleep(PROVIDER_ROW_POLL_MS);
-    o.prep.throwIfCancelled();
+    o.prep?.throwIfCancelled();
     rows = await client.providerRows(o.cwd);
   }
   const byRow = new Map(rows.map((r) => [r.id, r.baseURL]));

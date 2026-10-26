@@ -15,7 +15,7 @@ export type ModelTagTone = ModelCostKind | 'ok' | 'muted' | 'warn' | 'outline';
 export type ModelTag = { label: string; tone: ModelTagTone };
 /** 右端の値段。sub は従量のときの単位の行。 */
 export type ModelPrice = { main: string; sub: string | null };
-/** 1 行。disabled は選べない行（ツール呼び出しに対応しない）で、note はその理由。 */
+/** 1 行。disabled は選べない行（ツール呼び出しに対応しない、この PC に無い）で、note はその理由。 */
 export type ModelRow = { id: string; name: string; tags: ModelTag[]; price: ModelPrice; disabled: boolean; note: string | null; selected: boolean };
 /** 1 つのまとまり。key は畳んだ状態を覚える鍵、name は件数つきの名前、kind は見出しの費用の型の札、status は接続の状態、reload は再読み込みを置くか。 */
 export type ModelGroup = { key: string; name: string; kind: ModelTag; status: string; rows: ModelRow[]; reload: boolean };
@@ -119,9 +119,12 @@ export function presentModelPicker(t: Translate, i: ModelPickerInput): ModelPick
       if (m.context !== null) tags.push({ label: contextLabel(m.context), tone: 'muted' });
       if (b.kind === 'free' && fact.limitedFree) tags.push({ label: t('launch.model.limited'), tone: 'outline' });
       if (!m.tools) tags.push({ label: t('launch.model.noTools'), tone: 'warn' });
+      // この PC の LM Studio などに無いモデル（opencode.json はほかの PC と共有なので出てくる）。起こしても最初の発言で落ちるので選ばせない。
+      if (m.missing) tags.push({ label: t('launch.model.missing'), tone: 'muted' });
+      const note = m.missing ? t('launch.model.missingNote') : m.tools ? null : t('launch.model.noToolsNote');
       return {
         id: m.id, name: m.label, tags, price: priceLabel(t, b.kind, m.cost),
-        disabled: !m.tools, note: m.tools ? null : t('launch.model.noToolsNote'), selected: m.id === i.selected,
+        disabled: !m.tools || m.missing === true, note, selected: m.id === i.selected,
       };
     });
     const status = b.provider === 'lmstudio' ? t('launch.model.status.lmstudio')

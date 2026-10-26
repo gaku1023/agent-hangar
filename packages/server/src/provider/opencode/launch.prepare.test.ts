@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LaunchPrepAsked, LaunchPreps } from '../../runs/launchPrep.ts';
-import { prepareModels, type MaterializeDeps } from './launch.ts';
+import { checkSessionModel, prepareModels, type MaterializeDeps } from './launch.ts';
+import { LocalModelListing } from './localModels/available.ts';
 import type { LocalModelsDeps } from './localModels/prepare.ts';
 import type { ServeInfo } from './serve/manager.ts';
 
@@ -111,5 +112,48 @@ describe('prepareModels（起きたばかりの serve）', () => {
     expect(sleeps.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(3000);
     expect(sleeps.length).toBeGreaterThan(0);
     expect(lm.calls).toEqual([]);
+  });
+});
+
+describe('checkSessionModel（この PC にモデルがあるか）', () => {
+  const lmRow = [{ id: 'lmstudio', baseURL: LM }];
+  /** LM Studio の一覧の偽物。models は持っているモデル、down はつながらないこと。 */
+  const listing = (o: { models?: string[]; down?: boolean }) => new LocalModelListing({
+    fetch: (async (url: string | URL) => {
+      if (o.down) throw new TypeError('fetch failed');
+      return new URL(String(url)).pathname === '/api/v1/models' ? Response.json({ models: (o.models ?? []).map((key) => ({ type: 'llm', key })) }) : new Response('?', { status: 404 });
+    }) as typeof fetch,
+  });
+
+  it('指定したモデルが無ければ、使えるモデルを添えて断る', async () => {
+    const { serve } = await serveStarting({ providerRowsAfter: 0, rows: lmRow, configProviders: {} });
+    await expect(checkSessionModel(deps([]), listing({ models: ['gemma', 'qwen3.8-27b-mlx'] }), serve, { ...spec(), model: 'lmstudio/qwen3.6-35b-a3b' }))
+      .rejects.toThrow('lmstudio/qwen3.6-35b-a3b はこの PC にありません。使えるのは: lmstudio/gemma、lmstudio/qwen3.8-27b-mlx');
+  });
+
+  it('指定が無ければ設定の既定のモデル（lmstudio/gemma）を確かめ、あれば通す', async () => {
+    const { serve } = await serveStarting({ providerRowsAfter: 0, rows: lmRow, configProviders: {} });
+    await expect(checkSessionModel(deps([]), listing({ models: ['gemma'] }), serve, spec())).resolves.toBeUndefined();
+    await expect(checkSessionModel(deps([]), listing({ models: ['other'] }), serve, spec())).rejects.toThrow('lmstudio/gemma はこの PC にありません');
+  });
+
+  it('1 モデルに寄せる答えなら、そのモデルを確かめる', async () => {
+    const { serve } = await serveStarting({ providerRowsAfter: 0, rows: lmRow, configProviders: {} });
+    const s = { ...spec(), model: 'lmstudio/gemma', prep: { run: preps.begin(undefined), choice: { singleModel: 'lmstudio/nope' } } };
+    await expect(checkSessionModel(deps([]), listing({ models: ['gemma'] }), serve, s)).rejects.toThrow('lmstudio/nope はこの PC にありません');
+  });
+
+  it('LM Studio につながらなければ、起動していないことを言って断る', async () => {
+    const { serve } = await serveStarting({ providerRowsAfter: 0, rows: lmRow, configProviders: {} });
+    await expect(checkSessionModel(deps([]), listing({ down: true }), serve, { ...spec(), model: 'lmstudio/gemma' }))
+      .rejects.toThrow('lmstudio（http://127.0.0.1:1234）に接続できません。lmstudio を起動して再試行してください。');
+  });
+
+  it('この PC でない接続先（anthropic など）は聞かずに通す', async () => {
+    const { serve } = await serveStarting({ providerRowsAfter: 0, rows: [...lmRow, { id: 'anthropic', baseURL: 'https://api.anthropic.com/v1' }], configProviders: {} });
+    const calls: string[] = [];
+    const l = new LocalModelListing({ fetch: (async (url: string | URL) => { calls.push(String(url)); return new Response('?', { status: 404 }); }) as typeof fetch });
+    await expect(checkSessionModel(deps([]), l, serve, { ...spec(), model: 'anthropic/claude-sonnet-4-5' })).resolves.toBeUndefined();
+    expect(calls).toEqual([]);
   });
 });

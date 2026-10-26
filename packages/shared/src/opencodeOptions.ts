@@ -14,8 +14,9 @@ export type OpencodeModelCost = { input: number; output: number };
  * モデル。id は起動の params.model に入れる `provider/model` の形、label は opencode の表示名、group はプロバイダーの表示名、provider はプロバイダーの ID。
  * tools はツール呼び出しに対応するか（偽ならエージェントでは使えない）。context はコンテキストの長さ（トークン）で、分からなければ null。
  * cost は料金（opencode が返したもの、無ければ models.dev の保存から）で、分からなければ null。
+ * missing は、この PC のローカルのサーバー（LM Studio など）に聞いて、無かったこと。確かめられなかったときと古いサーバーの答えでは省く。
  */
-export type OpencodeModelOption = { id: string; label: string; group: string; provider: string; tools: boolean; context: number | null; cost: OpencodeModelCost | null };
+export type OpencodeModelOption = { id: string; label: string; group: string; provider: string; tools: boolean; context: number | null; cost: OpencodeModelCost | null; missing?: boolean };
 
 /**
  * プロバイダーの宛先。device はこの PC（LM Studio、Ollama、127.0.0.1）、lan は内側の網（私用のアドレス、.local など。自前のサーバー）、remote はそれ以外。

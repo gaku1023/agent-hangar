@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect } from 'vitest';
 import type { LaunchParams, LaunchPrepDto } from '@agent-hangar/shared';
 import { LaunchPreps } from './launchPrep.ts';
 import { ProviderPreps } from '../provider/opencode/providerPrep.ts';
+import { LocalModelListing } from '../provider/opencode/localModels/available.ts';
 import { agentsOf } from '../agent/agents.ts';
 import { claudeDriverFor } from '../boot/agents.ts';
 import { openDb, type Db } from '../db/open.ts';
@@ -77,7 +78,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     return { panes, opened, listed, closed, touched };
   };
 
-  const make = (o: { secrets?: boolean; fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink; claudeBin?: string | null; providerPreps?: ProviderPreps; preps?: LaunchPreps } = {}) => {
+  const make = (o: { secrets?: boolean; fake?: FakeOpencodeOptions; enabled?: boolean; enabledFn?: () => boolean; bin?: string | null; injection?: 'minimal' | 'claude' | 'none'; failOpen?: boolean; pidAlive?: (pid: number) => boolean; startTimeOf?: (pid: number) => string | null; intercept?: boolean; platform?: NodeJS.Platform; screen?: string; compat?: CompatSink; claudeBin?: string | null; providerPreps?: ProviderPreps; preps?: LaunchPreps; localListing?: LocalModelListing } = {}) => {
     const enabled = o.enabledFn ?? (() => o.enabled !== false);
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), o.fake ?? {});
     const registry = new ServeRegistry(path.join(home, 'serves.json'));
@@ -90,7 +91,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
       get: (id: string) => manager.get(id),
       stop: (id: string) => manager.stop(id),
     };
-    const opencode = createOpencodeDriver({ serves: () => watched, droppedEnv: AGENT_RUN_DROPPED_ENV, mcpPollMs: 10, mcpWaitMs: 2000, report: () => {}, ...(o.providerPreps ? { providerPreps: o.providerPreps } : {}) });
+    const opencode = createOpencodeDriver({ serves: () => watched, droppedEnv: AGENT_RUN_DROPPED_ENV, mcpPollMs: 10, mcpWaitMs: 2000, report: () => {}, ...(o.providerPreps ? { providerPreps: o.providerPreps } : {}), ...(o.localListing ? { localListing: o.localListing } : {}) });
     const fakeClaude = writeFakeClaude(home);
     const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => fakeClaude.bin, live: liveSourceOf(), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => realProcOps });
     const { panes, opened, listed, closed, touched } = recordingPanes(logFile, { fail: o.failOpen, screen: o.screen });
@@ -262,6 +263,56 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
     expect(opened).toEqual([]);
     expect(isAlive(ev(log(), 'start')[0]!.pid)).toBe(false);
+  });
+
+  /** この PC の LM Studio の偽物。models は持っているモデル、down はつながらないこと。 */
+  const lmListing = (o: { models?: string[]; down?: boolean }) => new LocalModelListing({
+    fetch: (async (url: string | URL) => {
+      if (o.down) throw new TypeError('fetch failed');
+      return new URL(String(url)).pathname === '/api/v1/models' ? Response.json({ models: (o.models ?? []).map((key) => ({ type: 'llm', key })) }) : new Response('?', { status: 404 });
+    }) as typeof fetch,
+  });
+  const lmFake: FakeOpencodeOptions = { providers: [{ id: 'opencode', name: 'OpenCode' }, { id: 'lmstudio', name: 'LM Studio', baseURL: 'http://127.0.0.1:1234/v1' }] };
+
+  posixIt('この PC の LM Studio に無いモデルは、会話を作る前に、使えるモデルを添えて 400 で断る。行は残さず、serve を止める', async () => {
+    const { rm, log, opened } = make({ fake: lmFake, preps: new LaunchPreps({ broadcast: () => {} }), localListing: lmListing({ models: ['gemma-4-26b-a4b-it-heretic', 'qwen3.8-27b-mlx'] }) });
+    await expect(rm.start(params({ model: 'lmstudio/qwen3.6-35b-a3b' }))).rejects.toMatchObject({
+      status: 400,
+      message: 'opencode を起動できませんでした: lmstudio/qwen3.6-35b-a3b はこの PC にありません。使えるのは: lmstudio/gemma-4-26b-a4b-it-heretic、lmstudio/qwen3.8-27b-mlx',
+    });
+    expect(ev(log(), 'create')).toEqual([]);
+    expect(sessions().filter((s) => s.deleted_at === null)).toEqual([]);
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+    expect(opened).toEqual([]);
+    expect(isAlive(ev(log(), 'start')[0]!.pid)).toBe(false);
+  });
+
+  posixIt('この PC の LM Studio にあるモデルは、これまでどおり起こす', async () => {
+    const { rm, log, opened } = make({ fake: lmFake, preps: new LaunchPreps({ broadcast: () => {} }), localListing: lmListing({ models: ['qwen3.8-27b-mlx'] }) });
+    await rm.start(params({ model: 'lmstudio/qwen3.8-27b-mlx' }));
+    expect(ev(log(), 'create')).toHaveLength(1);
+    expect(opened).toHaveLength(1);
+  });
+
+  posixIt('LM Studio につながらなければ、起動していないことを言って 400 で断る', async () => {
+    const { rm, log } = make({ fake: lmFake, preps: new LaunchPreps({ broadcast: () => {} }), localListing: lmListing({ down: true }) });
+    await expect(rm.start(params({ model: 'lmstudio/qwen3.8-27b-mlx' }))).rejects.toMatchObject({
+      status: 400,
+      message: 'opencode を起動できませんでした: LM Studio（http://127.0.0.1:1234）に接続できません。LM Studio を起動して再試行してください。',
+    });
+    expect(ev(log(), 'create')).toEqual([]);
+  });
+
+  posixIt('準備の無い起動（外のターミナル）は、モデルの有無を確かめずに起こす（TUI の /models で替えられる）', async () => {
+    const { rm, log } = make({ fake: lmFake, localListing: lmListing({ models: ['gemma'] }) });
+    await rm.start(params({ model: 'lmstudio/qwen3.6-35b-a3b' }));
+    expect(ev(log(), 'create')).toHaveLength(1);
+  });
+
+  posixIt('この PC でない接続先のモデルは、LM Studio が止まっていても確かめずに起こす', async () => {
+    const { rm, log } = make({ fake: lmFake, preps: new LaunchPreps({ broadcast: () => {} }), localListing: lmListing({ down: true }) });
+    await rm.start(params({ model: 'opencode/big-pickle' }));
+    expect(ev(log(), 'create')).toHaveLength(1);
   });
 
   posixIt('画面を開けなければ 400 で断り、serve を止めて行を消す', async () => {
