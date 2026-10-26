@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import {
   CONFIG_BUNDLE_MIN_WORKER_COMPAT, configBlobKey, isSafeKeyId,
   type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto,
-  type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type FileMetaIn,
+  type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type ConfigUnsentKind, type FileMetaIn,
 } from '@agent-hangar/shared';
 import { diffLines } from '../../config/jsonTextEdit.ts';
 import { touchRow } from '../../db/notify.ts';
@@ -53,6 +53,8 @@ export type ConfigSyncDeps = {
   /** スイッチが入っているか（一時停止などは含まない）。状態の表示に使う。 */
   switchedOn: () => boolean;
   approval: () => ConfigApproval;
+  /** 対象ごとの入切（設定の configTargets）。省くと、入切のある対象は全部切。 */
+  targetSwitches?: () => Readonly<Record<string, boolean>>;
   now?: () => number;
   /** 取りに行って失敗した理由など、利用者に急ぎで見せないものの出し先。 */
   onError?: (message: string) => void;
@@ -144,7 +146,7 @@ export class ConfigSyncService {
   }
 
   private targetCtx(): TargetContext {
-    return { db: this.deps.db, deviceId: this.deps.deviceId, home: this.deps.home, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent() };
+    return { db: this.deps.db, deviceId: this.deps.deviceId, home: this.deps.home, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent(), switches: this.deps.targetSwitches?.() ?? {} };
   }
 
   /** 手元の項目を集め、送らなかった項目の表を今の姿に合わせる。 */
@@ -401,7 +403,7 @@ export class ConfigSyncService {
     const items: ConfigInboxItemDto[] = this.resolved().map((r) => ({
       id: r.action.id, kind: r.kind, label: r.label, op: r.action.op,
       fromDeviceId: r.action.fromDeviceId, fromDevice: r.fromDevice, size: r.size, marks: r.marks, head: r.head, held: r.held,
-      needsApproval: targetOfId(r.action.id)?.needsApproval({ kind: r.kind, op: r.action.op }, approval) ?? false,
+      needsApproval: targetOfId(r.action.id)?.needsApproval({ id: r.action.id, kind: r.kind, op: r.action.op }, approval) ?? false,
     }));
     return { items, approval };
   }
@@ -427,7 +429,7 @@ export class ConfigSyncService {
   // ---- 送らなかった項目 ----
 
   private unsentRows(): ConfigUnsentItemDto[] {
-    return (this.deps.db.prepare('select id, kind, item_id, label, reason, allowed from config_unsent order by kind, id').all() as { id: string; kind: 'permission-rule' | 'secret'; item_id: string; label: string; reason: string; allowed: number }[])
+    return (this.deps.db.prepare('select id, kind, item_id, label, reason, allowed from config_unsent order by kind, id').all() as { id: string; kind: ConfigUnsentKind; item_id: string; label: string; reason: string; allowed: number }[])
       .map((r) => ({ id: r.id, kind: r.kind, itemId: r.item_id, label: r.label, reason: r.reason, allowed: r.allowed === 1 }));
   }
 
@@ -437,6 +439,8 @@ export class ConfigSyncService {
   async sendUnsent(id: string): Promise<ConfigUnsentDto> {
     const row = this.deps.db.prepare('select id from config_unsent where id = ?').get(id);
     if (!row) throw new ConfigSyncError(404, msg('configSync.error.unsentNotFound', { id }));
+    // 知らない鍵は、送る形が無い（受け取る側も書かない）。「それでも送る」は断る。
+    if (id.startsWith('unknown-key:')) throw new ConfigSyncError(400, msg('configSync.error.unsentUnknownKey'));
     this.deps.db.prepare('update config_unsent set allowed = 1 where id = ?').run(id);
     this.touch();
     await this.send();

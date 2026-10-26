@@ -1,12 +1,14 @@
 import type { Collected, LocalItem } from '../collect.ts';
 import { claudeTarget, CLAUDE_TARGET_NAME } from './claude.ts';
+import { claudeKeys2Target } from './claudeKeys2.ts';
 import type { ConfigTarget, ParsedId, TargetContext } from './types.ts';
 
 /**
  * 対象の登録。後の対象は、ここの配列に足す（順は id の持ち主を決める順で、先に当たった対象が持ち主）。
  * 試験は registerTarget で仮の対象を足し、戻り値で外す。
  */
-const registry: ConfigTarget[] = [claudeTarget];
+// claudeKeys2 は claude の settings: の一部を分けた対象なので、claude より前に置く。
+const registry: ConfigTarget[] = [claudeKeys2Target, claudeTarget];
 
 export { CLAUDE_TARGET_NAME };
 export type { ConfigTarget, ParsedId, TargetContext };

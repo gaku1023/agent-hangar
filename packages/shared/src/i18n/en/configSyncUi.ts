@@ -84,6 +84,7 @@ export const configSyncUiEn: AreaDictionary<typeof configSyncUiKeys> = {
   'configSyncUi.unsent.desc': 'Items with secret-like strings and dropped absolute-path rules',
   'configSyncUi.unsent.secret': 'Secret-like string ({form} form)',
   'configSyncUi.unsent.path': 'Absolute-path rule',
+  'configSyncUi.unsent.unknownKey': "A settings key this version of Hangar doesn't know. It can't be sent",
   'configSyncUi.unsent.allowed': 'Will be sent',
   'configSyncUi.unsent.sendAnyway': 'Send anyway',
   'configSyncUi.unsent.sendAnyway.label': 'Send {name} anyway',

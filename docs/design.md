@@ -936,14 +936,14 @@ create table config_base (
   synced_at integer not null
 );
 
--- 設定の同期が送らなかった項目。絶対パスの権限の規則（label は規則の文字列）と、秘密らしい文字列のある項目（label は項目の名前。見つけた文字列は持たない）。
+-- 設定の同期が送らなかった項目。絶対パスの権限の規則（label は規則の文字列）と、秘密らしい文字列のある項目（label は項目の名前。見つけた文字列は持たない）と、知らない鍵（label は鍵の名前。版 38 で足した）。
 -- allowed は「それでも送る」を押した印で、content_sha256 が変わると効かなくなる。
 create table config_unsent (
   id text primary key,
-  kind text not null check (kind in ('permission-rule','secret')),
+  kind text not null check (kind in ('permission-rule','secret','unknown-key')),
   item_id text not null,
   label text not null,
-  reason text not null,                            -- absolute-path か secret:<見つけた形の名前>
+  reason text not null,                            -- absolute-path か secret:<見つけた形の名前> か unknown-key
   content_sha256 text not null,
   allowed integer not null default 0,
   found_at integer not null
@@ -7510,7 +7510,14 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 `settings.json` の鍵は `sync/config/settingsSort.ts` が仕分ける。
 好みの鍵（`model`、`effortLevel`、`language`、`outputStyle`、`theme`、`editorMode`、`cleanupPeriodDays`、`attribution`、`autoCompact*`、`autoMemoryEnabled`）は運ぶ。
 実行（`env`、`apiKeyHelper`、`hooks`、`statusLine`、`fileSuggestion`）、認証（`aws*`、`forceLogin*`）、パス（`autoMemoryDirectory`、`plansDirectory`、`permissions.additionalDirectories`）、機械の事情（`sandbox`、`enabledPlugins`、`extraKnownMarketplaces`、`*McpjsonServers`）は運ばず、理由を付けて一覧に出す。
-知らない鍵も運ばない。
+知らない鍵（表に無い鍵、型が合わない値）も運ばない。
+知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
+0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
+`claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
+入切は設定の `configTargets`（対象名から真偽）で、既定は切。入れる画面は後の PR で作る。
+- 好み：`modelSettings`、`promptSuggestionEnabled`、`tui`、`voice`、`voiceEnabled`、`agentPushNotifEnabled`、`inputNeededNotifEnabled`、`skipWorkflowUsageWarning`、`autoUpdatesChannel`。
+- 権限（他の PC から届くとき承諾が要る。承諾の仕方が自動なら要らない）：`autoMode`（分類器の許可と拒否の規則）、`skipAutoPermissionPrompt`、`deniedMcpServers`。
+- 区分は Claude Code の文書で確かめた。値の型が合わないものは運ばない（`tui` は `default`・`fullscreen`、`autoUpdatesChannel` は `latest`・`stable`、`deniedMcpServers` はオブジェクトの配列、など）。
 権限（`permissions.allow`、`ask`、`deny`、`defaultMode`）は運ぶが、括弧の中が `//` かドライブ文字か UNC で始まる絶対パスの規則だけ落とす。
 全部が絶対パスの鍵は、空の配列で相手の規則を消さないよう運ばない。
 受け手が権限の鍵を適用するときは、手元の絶対パスの規則を残す（`hangar config apply` が守る。「適用と世代へ戻す」）。

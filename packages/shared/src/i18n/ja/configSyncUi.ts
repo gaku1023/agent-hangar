@@ -84,6 +84,7 @@ export const configSyncUiJa: AreaDictionary<typeof configSyncUiKeys> = {
   'configSyncUi.unsent.desc': 'シークレットと思われる文字列があった項目と、送信しない絶対パスのルールです',
   'configSyncUi.unsent.secret': 'シークレットと思われる文字列（{form} 形式）',
   'configSyncUi.unsent.path': '絶対パスのルール',
+  'configSyncUi.unsent.unknownKey': 'この版の Hangar が知らない設定のキーです。送信できません',
   'configSyncUi.unsent.allowed': '送信します',
   'configSyncUi.unsent.sendAnyway': 'それでも送信',
   'configSyncUi.unsent.sendAnyway.label': '{name} をそれでも送信',
