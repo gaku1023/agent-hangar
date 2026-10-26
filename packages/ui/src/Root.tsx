@@ -53,6 +53,10 @@ import { SessionScreen } from './views/SessionScreen.tsx';
 import { PaneWorkspace } from './views/PaneWorkspace.tsx';
 import { PaneDropOverlay } from './views/PaneDropOverlay.tsx';
 import { presentPanes } from './presenters/panes.ts';
+import { paneKeyAction } from './lib/paneKeys.ts';
+import { paneLeaves } from './mediator/panes.ts';
+import { PaneOfContext } from './views/sessionMenu.tsx';
+import { neighborPane, type PaneRect } from './lib/paneNeighbor.ts';
 import { SettingsScreen } from './views/SettingsScreen.tsx';
 import { ShortcutsDialog } from './views/ShortcutsDialog.tsx';
 import { DiffDialog } from './views/DiffDialog.tsx';
@@ -144,6 +148,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
   // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
   const canSplit = shortcutTabs.length >= 2;
+  // 分割のキーが読む、いまの木。キーの耳は rt だけで組むので、最新の値は ref で渡す。
+  const panesRef = useRef(state.panes);
+  panesRef.current = state.panes;
   // 終わったセッションの本文が画面に出ているか。ターミナルが出ていれば本文は無い（SessionScreen と同じく currentRunOf で決まる）。
   const transcriptShown = !!sessionId && !shortcutRun && store.sessions[sessionId]?.hasTranscript === true;
   // 最後にフォーカスのあったターミナルの枠のタブ。⌘W はこの枠のタブを閉じる。
@@ -213,6 +220,11 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       // ほかの OS の入力欄の Ctrl+K や Ctrl+B には編集の役が無いので、受け取る。
       if (editing && mac && e.ctrlKey && !e.metaKey && !e.altKey) return;
       const take = () => e.preventDefault();
+      const paneCtx = () => ({
+        panes: panesRef.current, onSession: sessionId !== null, key: e.key,
+        neighbor: (from: string, dir: 'left' | 'right' | 'up' | 'down') => neighborPane(
+          [...document.querySelectorAll<HTMLElement>('[data-pane]')].map((n): PaneRect => { const b = n.getBoundingClientRect(); return { id: n.dataset.pane!, left: b.left, top: b.top, right: b.right, bottom: b.bottom }; }), from, dir),
+      });
       switch (id) {
         case 'tab.select': {
           const t = shortcutTabs[Number(e.key) - 1];
@@ -236,7 +248,17 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           return;
         }
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
-        case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
+        // 分割しているときの ⌘J は、操作中のペインの右パネルを開け閉めする。
+        case 'transcript.toggle': { take(); const a = paneKeyAction(id, paneCtx()); rt.emit(a && a !== 'none' ? a : { type: 'transcript.toggle' }); return; }
+        // 画面の分割。操作中のペインが対象で、隣のペインは画面上の位置（DOM の矩形）で決める。
+        case 'pane.splitRight': case 'pane.splitDown': case 'pane.remove': case 'pane.zoom': case 'pane.focusDir': {
+          if (overlayKind !== 'none') return;
+          const a = paneKeyAction(id, paneCtx());
+          if (a === null || a === 'none') return;
+          take();
+          rt.emit(a);
+          return;
+        }
         // セッション画面の宛先の 1 行をコピーする。ダイアログやパレットの裏では写さない。
         case 'session.copyAddress': if (sessionId && overlayKind === 'none') { take(); rt.emit({ type: 'session.copyAddress', id: sessionId }); } return;
         case 'session.copyId': if (sessionId && overlayKind === 'none') { take(); rt.emit({ type: 'session.copyId', id: sessionId }); } return;
@@ -452,6 +474,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const editorMissing = presentEditorMissing(store, translatorOf(store));
   const overlays = (
     <>
+      <PaneDropOverlay />
       {unresolvedId && <ResolveProjectDialog {...presentResolveDialog(store, unresolvedId)} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
       {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now, paletteFound)!} onQuery={setPaletteQuery} />}
@@ -474,11 +497,18 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     </>
   );
 
-      <PaneDropOverlay />
+  // 分割しているあいだ、セッションがどのペインにあるか（右クリックの「表示中のペインへ移動」）。
+  const paneRoot = state.panes.root;
+  const paneOf = useMemo(() => {
+    const leaves = paneLeaves(paneRoot);
+    return (id: string): string | null => (leaves.length >= 2 ? leaves.find((l) => l.sessionId === id)?.id ?? null : null);
+  }, [paneRoot]);
+
   return (
     <ActionRoot onAction={rt.emit} background={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
+          <PaneOfContext.Provider value={paneOf}>
           <PromptAssistContext.Provider value={promptAssist}>
             <LanguageRoot language={storeLanguage(store)}>
               <EditorNameRoot name={editorName(store.settings)}>
@@ -486,6 +516,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
               </EditorNameRoot>
             </LanguageRoot>
           </PromptAssistContext.Provider>
+          </PaneOfContext.Provider>
         </CopiedContext.Provider>
       </TerminalHostContext.Provider>
     </ActionRoot>

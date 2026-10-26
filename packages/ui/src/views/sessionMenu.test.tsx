@@ -35,7 +35,7 @@ describe('一覧の行のメニュー（SessionRows）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'na のメニュー' }));
     const menu = screen.getByRole('menu', { name: 'na のメニュー' });
     expect(within(menu).getAllByRole('menuitemradio').map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true', 'false']);
-    expect([...menu.children].map((el) => (el.getAttribute('role') === 'separator' ? '|' : el.textContent))).toEqual(['Activeu', 'Pausedp', 'Doned', 'Archiveda', '|', 'プロジェクトを変更…m', 'セッション ID をコピー', '|', '削除…']);
+    expect([...menu.children].map((el) => (el.getAttribute('role') === 'separator' ? '|' : el.textContent))).toEqual(['右に分割して開く', '下に分割して開く', '|', 'Activeu', 'Pausedp', 'Doned', 'Archiveda', '|', 'プロジェクトを変更…m', 'セッション ID をコピー', '|', '削除…']);
   });
   it('行を右クリックすると、押した点に同じメニューを出し、ブラウザのメニューは出さない。選ぶと送って閉じ、フォーカスを行へ戻す', () => {
     const onAction = mountRows([row('a'), row('b')]);
@@ -118,7 +118,7 @@ describe('ホームの帯の行のメニュー（BandRowView）', () => {
     const name = screen.getByRole('button', { name: '動く s1' });
     act(() => name.focus());
     fireEvent.keyDown(name, { key: '.' });
-    const first = screen.getAllByRole('menuitemradio')[0]!;
+    const first = screen.getAllByRole('menuitem')[0]!;
     expect(first).toHaveFocus();
     fireEvent.keyDown(first, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();

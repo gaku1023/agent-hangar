@@ -52,6 +52,8 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   const emit = useEmit();
   const t = useT();
   const reasonId = useId();
+  // 狭いペイン（tiny）で、⋯ の「詳しく」から ⓘ の面を開く合図。増えるたびに ⓘ の面を開いた状態で作り直す。
+  const [infoNonce, setInfoNonce] = useState(0);
   // 目次の開閉。狭い窓では列にせず、札から開く上乗せ（drawer）にする。はじめは閉じている。
   // フックなので、下の早い return より前に置く。
   // ペインの中は窓の幅ではなくペインの toc で開閉する。狭い窓の上乗せ（drawer）は使わない。
@@ -187,8 +189,10 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
         oneLiner={props.oneLiner} status={statusNode}
         primary={pv.tiny ? null : primaryButton}
         // tiny では主の操作を ⋯ の中の先頭へ移す。ⓘ は細くて入れる所が無いので出さない。
-        menu={pv.tiny ? [item(primary), ...props.actions.menu.map(item)] : props.actions.menu.map(item)}
-        info={pv.tiny ? null : <InfoPopover rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover>} />
+        // 試作どおり、主の操作の次に「詳しく（ID・モデル・ブランチ）」を置き、押すとそのペインの ⓘ と同じ中身を出す。
+        menu={pv.tiny ? [item(primary), { key: 'details', label: t('pane.menu.details'), icon: 'info', onSelect: () => setInfoNonce((n) => n + 1) }, ...props.actions.menu.map(item)] : props.actions.menu.map(item)}
+        info={pv.tiny ? (infoNonce > 0 ? <span className="pane-head-anchor"><InfoPopover key={infoNonce} defaultOpen rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover></span> : null) : <InfoPopover rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover>}
+        sessionId={id} sessionStatus={statusPick && statusPick.value !== 'active' ? statusPick.value : null} />
       {(facts || noRoot || props.takenOver) && <div className="pane-below">{belowLines}</div>}
     </>
   ) : null;

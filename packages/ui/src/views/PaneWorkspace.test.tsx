@@ -227,3 +227,156 @@ describe('clampPaneRatio', () => {
     expect(clampPaneRatio(0.2, 500)).toBe(0.2);
   });
 });
+
+describe('ペインの見出しの右クリックとキー', () => {
+  const itemTexts = () => screen.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')?.textContent);
+  const pick = (label: string) => fireEvent.click(screen.getAllByRole('menuitem').find((i) => i.querySelector('.menu-item-text > span')?.textContent === label)!);
+
+  it('見出しを右クリックすると、ステータス、ID をコピー、最大化、右と下に空のペイン、均等、分割から外す、ほかを外すの順に出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const h = headers()[0]!;
+    fireEvent.contextMenu(h);
+    expect(itemTexts()).toEqual(['ステータス', 'セッション ID をコピー', 'ペインを最大化', '右に空のペインを開く', '下に空のペインを開く', 'ペインのサイズを均等にする', '分割から外す', 'ほかのペインを外す']);
+  });
+
+  it('各項目が、押したペインの id で入力を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const first = document.querySelector<HTMLElement>('[data-pane]')!.dataset.pane!;
+    const h = headers()[0]!;
+    const cases: [string, unknown][] = [
+      ['セッション ID をコピー', { type: 'session.copyId', id: 's1' }],
+      ['右に空のペインを開く', { type: 'pane.openEmpty', side: 'right' }],
+      ['下に空のペインを開く', { type: 'pane.openEmpty', side: 'down' }],
+      ['ペインのサイズを均等にする', { type: 'pane.equalize' }],
+      ['ペインを最大化', { type: 'pane.zoom', pane: first }],
+    ];
+    for (const [label, action] of cases) {
+      fireEvent.contextMenu(h);
+      m.emit.mockClear();
+      pick(label);
+      expect(m.emit).toHaveBeenCalledWith(action);
+      if (label === 'ペインを最大化') act(() => m.rt.emit({ type: 'pane.zoom', pane: first }));
+    }
+  });
+
+  it('分割から外すとほかを外すは、押したペインの id で入力を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const first = document.querySelector<HTMLElement>('[data-pane]')!.dataset.pane!;
+    fireEvent.contextMenu(headers()[0]!);
+    m.emit.mockClear();
+    pick('ほかのペインを外す');
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.removeOthers', pane: first });
+  });
+
+  it('分割から外すは pane.remove を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const first = document.querySelector<HTMLElement>('[data-pane]')!.dataset.pane!;
+    fireEvent.contextMenu(headers()[0]!);
+    m.emit.mockClear();
+    pick('分割から外す');
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.remove', pane: first });
+  });
+
+  it('ステータスを押すと、同じ場所に状態の 4 つ（いまの状態に ✓）が出て、選ぶと session.state.set を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    fireEvent.contextMenu(headers()[0]!);
+    pick('ステータス');
+    expect(screen.getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Activeu', 'true'], ['Pausedp', 'false'], ['Doned', 'false'], ['Archiveda', 'false']]);
+    m.emit.mockClear();
+    fireEvent.click(screen.getAllByRole('menuitemradio')[2]!);
+    expect(m.emit).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'done' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('空のペインの見出しはステータスと ID のコピーを出さない', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    act(() => m.rt.emit({ type: 'pane.openEmpty', side: 'right' }));
+    await flush();
+    const empty = document.querySelector<HTMLElement>('[data-pane-header][data-empty="true"]')!;
+    fireEvent.contextMenu(empty);
+    expect(itemTexts()).toEqual(['ペインを最大化', '右に空のペインを開く', '下に空のペインを開く', 'ペインのサイズを均等にする', '分割から外す', 'ほかのペインを外す']);
+  });
+
+  it('最大化中は「最大化を解除」になる', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    act(() => m.rt.emit({ type: 'pane.zoom', pane: document.querySelector<HTMLElement>('[data-pane]')!.dataset.pane! }));
+    await flush();
+    fireEvent.contextMenu(headers()[0]!);
+    expect(itemTexts()).toContain('最大化を解除');
+  });
+
+  it('狭いペイン（tiny）の ⋯ に「詳しく」があり、押すとそのペインの ⓘ と同じ中身の面が開く', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const pane = document.querySelector<HTMLElement>('[data-pane]')!;
+    resizePane(pane, 400);
+    const h = headers()[0]!;
+    fireEvent.click(within(h).getByRole('button', { name: '他の操作' }));
+    expect(itemTexts()).toContain('詳しく（ID・モデル・ブランチ）');
+    pick('詳しく（ID・モデル・ブランチ）');
+    const viaMenu = (await screen.findByRole('dialog', { name: '詳細' })).textContent;
+    expect(viaMenu).toContain('詳細');
+    fireEvent.keyDown(screen.getByRole('dialog', { name: '詳細' }), { key: 'Escape' });
+    // 広いときの ⓘ と同じ中身である。
+    resizePane(pane, 800);
+    fireEvent.click(within(headers()[0]!).getByRole('button', { name: '詳細' }));
+    expect(screen.getByRole('dialog', { name: '詳細' }).textContent).toBe(viaMenu);
+  });
+
+  it('⌘J は、ペインが 2 つ以上のときは操作中のペインの右パネル（pane.toc）へ向く。1 つのときは今までの transcript.toggle', async () => {
+    const m = await mounted();
+    m.emit.mockClear();
+    fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(m.emit).toHaveBeenCalledWith({ type: 'transcript.toggle' });
+    await m.open('s2');
+    const focus = document.querySelector<HTMLElement>('[data-pane][data-focused="true"]')!.dataset.pane!;
+    m.emit.mockClear();
+    fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.toc', pane: focus });
+  });
+
+  it('分割のキー（⌘D、⌘⇧D、⌘⇧W、⌘⇧↵）が操作中のペインに向く', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    // 空のペインを開くたびに、新しいペインが操作中になる。そのつど、いまの操作中を読む。
+    const focus = () => document.querySelector<HTMLElement>('[data-pane][data-focused="true"]')!.dataset.pane!;
+    const cases: [KeyboardEventInit, () => unknown][] = [
+      [{ key: 'd', metaKey: true }, () => ({ type: 'pane.openEmpty', side: 'right' })],
+      [{ key: 'D', metaKey: true, shiftKey: true }, () => ({ type: 'pane.openEmpty', side: 'down' })],
+      [{ key: 'Enter', metaKey: true, shiftKey: true }, () => ({ type: 'pane.zoom', pane: focus() })],
+      [{ key: 'W', metaKey: true, shiftKey: true }, () => ({ type: 'pane.remove', pane: focus() })],
+    ];
+    for (const [init, action] of cases) {
+      m.emit.mockClear();
+      const expected = action();
+      fireEvent.keyDown(window, init);
+      expect(m.emit).toHaveBeenCalledWith(expected);
+      await flush();
+    }
+  });
+
+  it('隣へ移る（⌘⌥矢印）は、ペインの矩形から求めた隣へ pane.focus を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const [left, right] = Array.from(document.querySelectorAll<HTMLElement>('[data-pane]'));
+    const rect = (l: number, r: number) => () => ({ left: l, right: r, top: 0, bottom: 600, width: r - l, height: 600, x: l, y: 0, toJSON: () => ({}) }) as DOMRect;
+    left!.getBoundingClientRect = rect(0, 400);
+    right!.getBoundingClientRect = rect(404, 800);
+    // 新しく開いたペインが操作中なので、右にいる。左へ移る。
+    expect(right!.dataset.focused).toBe('true');
+    m.emit.mockClear();
+    fireEvent.keyDown(window, { key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true, altKey: true });
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.focus', pane: left!.dataset.pane });
+    // 左端から左へは隣が無く、何も出さない。
+    m.emit.mockClear();
+    fireEvent.keyDown(window, { key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true, altKey: true });
+    expect(m.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'pane.focus' }));
+  });
+});

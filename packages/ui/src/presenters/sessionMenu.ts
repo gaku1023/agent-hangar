@@ -1,4 +1,4 @@
-import type { SessionDto, SessionStatus, Translate, UiAction } from '@agent-hangar/shared';
+import type { PaneId, SessionDto, SessionStatus, Translate, UiAction } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { aliveRunOf, tabsOf, type Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -16,7 +16,9 @@ export type SessionMenuStop = { runId: string; working: boolean; aside: boolean;
  * moveBlocked は、移動を押せない理由。押せるなら null。
  * 削除は動いていない（stop が null の）ときだけ出す。動いている間は停止を出し、止めると削除に入れ替わる。
  */
-export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null; stop: SessionMenuStop | 'external' | null; moveBlocked: string | null };
+export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null; stop: SessionMenuStop | 'external' | null; moveBlocked: string | null;
+  /** そのセッションが分割の木にあるときのペイン。あれば先頭に「表示中のペインへ移動」を出す。木に無ければ null か省く。 */
+  pane?: PaneId | null };
 
 /** 状態の色の点。プロジェクトの状態の点（.st-dot）と同じ 4 色を使う。 */
 export type SessionMenuDot = 'active' | 'paused' | 'done' | 'archived';
@@ -27,7 +29,9 @@ export type SessionMenuDot = 'active' | 'paused' | 'done' | 'archived';
  * checked を持つ項目は、選べる状態の 1 つで、いまの状態に ✓ を付ける。
  * separatorBefore は、この項目の前に区切りを置くこと。
  */
-export type SessionMenuEntry = { key: string; label: string; send: UiAction | null; disabled: string | null; kbd?: string; icon?: IconName; dot?: SessionMenuDot; checked?: boolean; separatorBefore?: boolean; danger?: boolean; note?: string };
+export type SessionMenuEntry = { key: string; label: string; send: UiAction | null; disabled: string | null; kbd?: string; icon?: IconName; dot?: SessionMenuDot; checked?: boolean; separatorBefore?: boolean; danger?: boolean; note?: string;
+  /** 押すと開くサブメニュー（ペインの右クリックのステータス）。持つ項目は send を持たない。 */
+  sub?: SessionMenuEntry[] };
 
 /**
  * 移せる先。いまの所属のほかの、一覧から消していないプロジェクトである。しまったプロジェクトは数えない。
@@ -72,21 +76,38 @@ const STATES: { key: SessionMenuDot; kbd: string }[] = [{ key: 'active', kbd: 'u
  * 危険色は停止と削除だけにする。停止の補足の 1 行は出さない。
  */
 export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMenuEntry[] {
-  const current: SessionMenuDot = m.status ?? 'active';
-  const states = STATES.map(({ key, kbd }): SessionMenuEntry => {
-    const send: UiAction | null = key === 'paused' ? { type: 'session.pause.open', id: m.id, from: 'menu' }
-      : key === current ? null
-        : { type: 'session.state.set', id: m.id, status: key === 'active' ? null : key };
-    return { key, label: key === 'active' ? ACTIVE_LABEL : STATUS_LABEL[key], dot: key, kbd, checked: key === current, send, disabled: null };
-  });
+  const states = statusEntries(m.id, m.status);
   const stop = m.stop;
-  return [
+  // 分割で開く 2 つ（画面の分割）。木にあるセッションなら、メニューの先頭に「表示中のペインへ移動」を足す。
+  // 開く先は操作中のペイン（target は null）で、すでに木にあるセッションは mediator が新しく開かずそのペインへ移す。
+  // ほかの PC の会話の「この PC で再開」は、その会話の主の操作なので、2 つの分割より先に置く。
+  const head: SessionMenuEntry[] = [
+    ...(m.pane ? [{ key: 'goToPane', label: t('row.menu.goToPane'), icon: 'paneOpen' as const, disabled: null, send: { type: 'pane.focus', pane: m.pane } as const }] : []),
     ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
-    ...states,
+    { key: 'splitRight', label: t('row.menu.splitRight'), icon: 'splitRight', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'right' } },
+    { key: 'splitDown', label: t('row.menu.splitDown'), icon: 'splitDown', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'down' } },
+  ];
+  return [
+    ...head,
+    ...states.map((e, i) => (i === 0 ? { ...e, separatorBefore: true } : e)),
     { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: true, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
     { key: 'copyId', label: t('session.action.copyId'), icon: 'copy', disabled: null, send: { type: 'session.copyId', id: m.id } },
     stop
       ? { key: 'stop', label: t('sidebar.live.stop'), icon: 'stop', danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : { type: 'session.kill', ...stop } }
       : { key: 'delete', label: t('row.menu.delete'), icon: 'trash', danger: true, separatorBefore: true, disabled: null, send: { type: 'session.delete.open', id: m.id } },
   ];
+}
+
+/**
+ * 状態の 4 つ。セッションのメニューとペインの右クリックのサブメニューで同じものを出す。
+ * いまの状態に ✓ を付ける。いまの状態を選び直したときは、Paused なら戻る日のダイアログを開き、ほかは何もしない。
+ */
+export function statusEntries(id: string, status: SessionStatus | null): SessionMenuEntry[] {
+  const current: SessionMenuDot = status ?? 'active';
+  return STATES.map(({ key, kbd }): SessionMenuEntry => {
+    const send: UiAction | null = key === 'paused' ? { type: 'session.pause.open', id, from: 'menu' }
+      : key === current ? null
+        : { type: 'session.state.set', id, status: key === 'active' ? null : key };
+    return { key, label: key === 'active' ? ACTIVE_LABEL : STATUS_LABEL[key], dot: key, kbd, checked: key === current, send, disabled: null };
+  });
 }

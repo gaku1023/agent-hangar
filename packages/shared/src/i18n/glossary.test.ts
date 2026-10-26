@@ -21,6 +21,9 @@ const ALLOWED: Record<string, string> = {
   'mediator.pane.lastPane': '外す（分割から外す）',
   // 同じ理由で、ペインの見出しの ✕ の名前（分割から外す）。
   'pane.header.remove': '外す（分割から外す）',
+  // 同じ理由で、ショートカット一覧とペインの右クリックの項目（分割から外す、ほかのペインを外す）。「ほかの」は「ほかのペイン」という語の並びで、他の PC を指す語ではない。
+  'shortcuts.key.paneRemove': '外す（分割から外す）',
+  'pane.menu.closeOthers': '外す、ほかの（ほかのペインを外す）',
 };
 
 /** 「本文」が HTTP やモデルの応答の本体（body）を指す鍵。トランスクリプトの意味では使わない。 */

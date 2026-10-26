@@ -1,7 +1,7 @@
-import type { Translate } from '@agent-hangar/shared';
-import { useCallback } from 'react';
+import type { PaneId, Translate } from '@agent-hangar/shared';
+import { createContext, useCallback, useContext } from 'react';
 import { useEmit, type Emit } from '../action/chain.tsx';
-import { sessionMenuEntries, type SessionMenuProps } from '../presenters/sessionMenu.ts';
+import { sessionMenuEntries, type SessionMenuEntry, type SessionMenuProps } from '../presenters/sessionMenu.ts';
 import { useT } from './primitives/language.tsx';
 import { MenuPop, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 
@@ -13,7 +13,12 @@ export const sessionMenuWidth = (m: SessionMenuProps): number => (m.resumeHere ?
  * 項目の並びと中身は presenters/sessionMenu.ts の sessionMenuEntries が決め、ここは押したときに送るだけにする。
  */
 export function sessionMenuItems(t: Translate, m: SessionMenuProps, emit: Emit): MenuItem[] {
-  return sessionMenuEntries(t, m).map((e): MenuItem => ({
+  return sessionMenuEntries(t, m).map((e) => menuItemOf(e, emit));
+}
+
+/** 項目 1 つを、MenuButton と MenuPop の項目にする。ペインの右クリックも同じ形で使う。 */
+export function menuItemOf(e: SessionMenuEntry, emit: Emit): MenuItem {
+  return {
     key: e.key,
     label: e.label,
     disabled: e.disabled,
@@ -24,8 +29,16 @@ export function sessionMenuItems(t: Translate, m: SessionMenuProps, emit: Emit):
     ...(e.separatorBefore ? { separatorBefore: true } : {}),
     ...(e.checked !== undefined ? { checked: e.checked } : {}),
     ...(e.dot ? { lead: <span className="st-dot" data-status={e.dot} aria-hidden="true" /> } : {}),
-  }));
+  };
 }
+
+/**
+ * セッションがいま分割の木のどのペインにあるか。木に無ければ null。
+ * 一覧とサイドバーのメニューが、先頭に「表示中のペインへ移動」を出すかどうかを決めるのに使う（Root が木から作る）。
+ * ペインが 2 つ以上のときだけ値を返し、1 つのあいだは常に null にする。
+ */
+export const PaneOfContext = createContext<(sessionId: string) => PaneId | null>(() => null);
+export const usePaneOf = () => useContext(PaneOfContext);
 
 /** 右クリックした点に吊るす矩形（幅 0）。 */
 export const pointAnchor = (x: number, y: number): MenuAnchor => ({ top: y, bottom: y, left: x, width: 0 });
@@ -39,7 +52,8 @@ export const boxAnchor = (el: Element): MenuAnchor => { const b = el.getBounding
 export function SessionMenuPop(props: { menu: SessionMenuProps; at: MenuAnchor; align?: 'start' | 'end'; onClose: (how: MenuCloseHow) => void }) {
   const t = useT();
   const emit = useEmit();
+  const paneOf = usePaneOf();
   const { at } = props;
   const anchor = useCallback(() => at, [at]);
-  return <MenuPop label={t('row.menu.label', { name: props.menu.name })} items={sessionMenuItems(t, props.menu, emit)} anchor={anchor} minWidth={sessionMenuWidth(props.menu)} align={props.align ?? 'start'} onClose={props.onClose} />;
+  return <MenuPop label={t('row.menu.label', { name: props.menu.name })} items={sessionMenuItems(t, { ...props.menu, pane: paneOf(props.menu.id) }, emit)} anchor={anchor} minWidth={sessionMenuWidth(props.menu)} align={props.align ?? 'start'} onClose={props.onClose} />;
 }
