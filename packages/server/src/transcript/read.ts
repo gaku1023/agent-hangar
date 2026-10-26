@@ -4,6 +4,7 @@ import type { ReadOpts, TranscriptSource } from '../agent/types.ts';
 import type { Db } from '../db/open.ts';
 import { stmt } from '../indexer/statements.ts';
 import { readClaudePage } from '../provider/claude-code/transcript/page.ts';
+import { readCodexPage } from '../provider/codex/transcript/page.ts';
 import { readStoredPage } from './stored.ts';
 
 /**
@@ -14,12 +15,13 @@ import { readStoredPage } from './stored.ts';
 export type PageReaders = (provider: string) => TranscriptSource['readPage'] | undefined;
 
 /**
- * エージェントごとの読み手の表。各 driver の transcript.readPage と同じ関数である（Claude は readClaudePage、opencode は readStoredPage）。
+ * エージェントごとの読み手の表。各 driver の transcript.readPage と同じ関数である（Claude は readClaudePage、opencode は readStoredPage、Codex は readCodexPage）。
  * ファイル型のエージェントを足すときは、ここに 1 行足す（読み方の本体は transcript/filePage.ts の readFilePage）。
  */
 const PAGE_READERS: Partial<Record<AgentKind, TranscriptSource['readPage']>> = {
   'claude-code': readClaudePage,
   opencode: readStoredPage,
+  codex: readCodexPage,
 };
 
 /** 既定の読み手。知らない provider には undefined を返す。 */

@@ -11,6 +11,7 @@ import { translatorOf } from './i18n.ts';
 import { presentLaunchPrep } from './launchPrep.ts';
 import { arrivedCount } from './unresolved.ts';
 import { presentUpdateCard, presentWhatsNew, type UpdateCardProps, type WhatsNewCardProps } from './update.ts';
+import { presentCodexVersionCard, type CodexVersionCardProps } from './codexNotice.ts';
 import { presentOpencodeVersionCard, type OpencodeVersionCardProps } from './opencodeNotice.ts';
 
 /**
@@ -38,7 +39,7 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * phoneLaunches は、スマホからの依頼でこの PC が起こした会話の通知（試作 F1）。受信した順で、その会話の画面を開いている間は出さない。
  * 入力待ちと同じく新しい SHOWN 枚までを並べ、並べきれない数を phoneLaunchMore に置く。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number; prepProgress?: PrepProgressCardProps | null; contextShorts?: ContextShortCardProps[] };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; codexVersion?: CodexVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number; prepProgress?: PrepProgressCardProps | null; contextShorts?: ContextShortCardProps[] };
 
 /**
  * ダイアログを閉じた後に走り続けている起動前の準備の進みの札（試作の「途中で閉じる」）。line は今の段の 1 行、startedAt から経過時間を数える。
@@ -126,5 +127,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   const arrived = arrivedCount(store, state.arrivedProjects);
   const launches = presentPhoneLaunches(state, store, t);
   const phoneLaunches = launches.slice(-SHOWN);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length, prepProgress: presentPrepProgress(state, store, t), contextShorts: presentContextShorts(state, store, t) };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), codexVersion: presentCodexVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length, prepProgress: presentPrepProgress(state, store, t), contextShorts: presentContextShorts(state, store, t) };
 }

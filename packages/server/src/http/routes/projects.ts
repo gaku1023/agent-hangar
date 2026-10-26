@@ -178,7 +178,9 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     }
   });
   // 候補からまとめて登録する。1 件ずつ POST /api/projects の dir と同じ規則で登録し、最後に未分類の会話をまとめて紐づけ直す。
-  // 本文は paths（パスの配列。どれも新しく作る）か items（行ごとに結び付け先 linkTo と入れ子の明示 allowNested を持つ）のどちらか一方である。
+  // 本文は paths（パスの配列）か items（行ごとに結び付け先 linkTo と入れ子の明示 allowNested を持つ）のどちらか一方である。
+  // paths（hangar project add）は、作成場所の自動の登録と同じ規則で、ほかの PC から届いた同じプロジェクトがあれば結び付ける（issue #403）。
+  // items（画面）は、利用者が行ごとに結び付けるかを選んでいるので、linkTo の無い行は新しく作る。
   // 登録できなかったものは、断らずに理由を添えて返す（ほかの登録は残す）。プロジェクトと紐づけ直した会話は、書いた行から配る層が配る。
   // 作業フォルダのフォルダの信頼（hangar workspace set --trust）。セットアップのすゝめが利用者の同意を取ってから呼ぶ。
   // 本番はいまの作業フォルダだけを受け、同意を設定（trustedWorkspaceRoot）に残してから、登録したアカウントの .claude.json に書く。
@@ -220,7 +222,8 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
       if (rawItems !== undefined || !Array.isArray(paths) || paths.length > REGISTER_MAX || !paths.every((p): p is string => typeof p === 'string')) return c.json({ error: tr('common.field.required', { field: 'paths' }) }, 400);
       items = paths.map((p) => ({ path: p }));
     }
-    const run = () => registerFolders({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, items, (e) => errorText(language(), e));
+    const autoLink = paths !== undefined;
+    const run = () => registerFolders({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, items, (e) => errorText(language(), e), { autoLink });
     // 試しは、登録と同じ関数を通してから巻き戻す（db/notify.ts の tryWrites）。
     // 行も changes も残らず、画面にも同期にも何も配らない。
     if (dryRun === true) {

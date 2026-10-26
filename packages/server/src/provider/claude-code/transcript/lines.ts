@@ -17,6 +17,15 @@ export function readNewLines(path: string, fromByte: number): { lines: NewLine[]
   const fd = fs.openSync(path, 'r');
   const buf = Buffer.alloc(size - start);
   try { fs.readSync(fd, buf, 0, buf.length, start); } finally { fs.closeSync(fd); }
+  return { ...splitLines(buf, start), reset };
+}
+
+/**
+ * buf（ファイルの start バイト目から後ろ）を、改行で終わった完全な行に分ける。
+ * 改行で終わらない末尾の断片は返さず、nextByte をその先頭に留める。空行は返さない。
+ * 圧縮された本文を展開したバイト列からも同じ規則で読めるよう、ファイルを開く部分と分けてある。
+ */
+export function splitLines(buf: Buffer, start: number): { lines: NewLine[]; nextByte: number } {
   const lines: NewLine[] = [];
   let pos = 0;
   while (pos < buf.length) {
@@ -26,5 +35,5 @@ export function readNewLines(path: string, fromByte: number): { lines: NewLine[]
     if (length > 0) lines.push({ offset: start + pos, length, text: buf.subarray(pos, nl).toString('utf8') });
     pos = nl + 1;
   }
-  return { lines, nextByte: start + pos, reset };
+  return { lines, nextByte: start + pos };
 }

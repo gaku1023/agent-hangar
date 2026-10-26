@@ -11,6 +11,7 @@ import { realProcOpsWith, type ProcOps } from '../provider/claude-code/process/p
 import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { createCodexDriver, type CodexDriver } from '../provider/codex/driver.ts';
+import { createCodexLive } from '../provider/codex/live.ts';
 import { findCodex } from '../config/tools.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
@@ -93,12 +94,16 @@ export function bootAgents(
       report: (providerId, reason) => { console.warn(`[opencode] stop command for ${providerId} failed: ${reason}`); },
     }),
   });
+  // Codex の状態と許可・質問の面（B4）。起こした会話は driver が track し、止めたら untrack する。足し付けの鎖は opencode と同じものを通す。
+  const codexSurface = createCodexLive({ enrich: o.enrich, log: (line) => { console.warn(line); } });
   const codex = createCodexDriver({
     // 場所は起こすたびに探す（PATH）。ChatGPT.app の同梱は使わない。
     bin: () => findCodex(),
     home: home.home,
     // TUI へは CLAUDE 系と hangar の変数を持ち込まない（app-server の環境は provider/codex/env.ts が空から組む）。
     droppedEnv: AGENT_RUN_DROPPED_ENV,
+    live: codexSurface.live,
+    asks: codexSurface.asks,
   });
   return { agents: agentsOf([claude, opencode, codex]), claude, opencode, codex, bindOpencodeServes: (s) => { serves = s; } };
 }
