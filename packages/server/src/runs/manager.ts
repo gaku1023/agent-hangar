@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { prepChoiceOf, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { isAgentKind, prepChoiceOf, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -8,7 +8,7 @@ import { sessionTitleOf, setSessionName } from '../sessions/notes.ts';
 import { pinnedProjectOf } from '../sessions/move.ts';
 import { setSessionPlacement } from '../sessions/states.ts';
 import type { GetLanguage } from '../i18n/language.ts';
-import { errorText, msg, translatorOf } from '../i18n/message.ts';
+import { errorText, msg, translatorOf, type Message } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/write.ts';
 import { DEFAULT_INJECTION_PARTS, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionParts } from '../launch/injection.ts';
 import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
@@ -27,6 +27,7 @@ import { hasTranscriptFile } from '../provider/claude-code/transcript/discover.t
 import type { ClaudeDriver } from '../provider/claude-code/driver.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { DEFAULT_AGENT, type Agents } from '../agent/agents.ts';
+import { AGENT_ENTRY } from '../agent/entry.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
 import type { AgentDriver, AgentKind, InjectionEntry, LaunchPlan, LaunchSpec } from '../agent/types.ts';
 import type { PaneOps } from '../tmux/pane.ts';
@@ -124,6 +125,11 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
+/** そのエージェントが有効でないと断るときの、設定の欄名の文。 */
+function agentEnabledLabel(agent: AgentKind): Message {
+  return msg((AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled') as 'settings.label.opencodeEnabled');
+}
+
 export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
@@ -271,13 +277,13 @@ export class RunManager {
    */
   assertCanStart(sessionId?: string): void {
     const row = sessionId === undefined ? undefined : (this.db.prepare('select provider from sessions where id = ? and deleted_at is null').get(sessionId) as { provider: string } | undefined);
-    const agent: AgentKind = row?.provider === 'opencode' ? 'opencode' : DEFAULT_AGENT;
+    const agent: AgentKind = isAgentKind(row?.provider) ? row.provider : DEFAULT_AGENT;
     if (agent === DEFAULT_AGENT) {
       this.startPanes();
       this.claudeBin();
       return;
     }
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
     this.agentBin(agent);
     this.startPanes();
   }
@@ -386,7 +392,7 @@ export class RunManager {
   prepareResumeDir(sessionId: string): string {
     const s = this.session(sessionId);
     const agent = this.agentOf(s).kind;
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     if (!this.deps.agentBin?.(agent)) throw new RunError(400, msg('run.agent.notFound'));
     const { path: cwd, createsFolder } = this.cwdFor(s);
@@ -652,7 +658,7 @@ export class RunManager {
   /** 起動の指定の agent を確かめる。省けば Claude Code、知らない値は 400 で断る。 */
   private agentKindOf(raw: unknown): AgentKind {
     if (raw === undefined || raw === null || raw === DEFAULT_AGENT) return DEFAULT_AGENT;
-    if (raw === 'opencode') return raw;
+    if (isAgentKind(raw)) return raw;
     throw new RunError(400, msg('run.agent.unknown', { agent: String(raw).slice(0, 40) }));
   }
 
@@ -681,7 +687,7 @@ export class RunManager {
    */
   private async startMaterialized(agent: AgentKind, params: LaunchParams, from?: { cwd: string }): Promise<LaunchResult> {
     const driver = this.agents.of(agent);
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
     if (!driver.launch.materialize) throw new Error(`agent ${agent} cannot launch without choosing a session id`);
     // Claude だけの指定は黙って捨てずに断る（画面の札は出さないので、届くのは API を直に叩いたときだけ）。
     const claudeOnly: [string, boolean][] = [
@@ -915,7 +921,7 @@ export class RunManager {
   private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
     const driver = this.agentOf(s);
     const agent = driver.kind;
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const bin = this.agentBin(agent);
     const { path: cwd, createsFolder } = this.cwdFor(s);
@@ -1023,8 +1029,8 @@ export class RunManager {
    */
   async startOpencodeFromTerminal(req: TerminalRequest): Promise<LaunchResult & { attached: boolean }> {
     const agent: AgentKind = 'opencode';
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: msg('settings.label.opencodeEnabled') }));
-    if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg('settings.label.opencodeIntercept') }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+    if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg(AGENT_ENTRY[agent].interceptLabelKey as 'settings.label.opencodeIntercept') }));
     const a = splitOpencodeTerminalArgs(req.args);
     const params = { ...(a.prompt !== null ? { prompt: a.prompt } : {}), ...(a.autoApprove ? { autoApprove: true } : {}) };
     if (a.session !== null) {

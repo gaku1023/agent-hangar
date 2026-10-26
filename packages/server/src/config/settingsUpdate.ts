@@ -1,5 +1,9 @@
 import type { SettingsDto } from '@agent-hangar/shared';
+import { agentSettingsKeys } from '../agent/entry.ts';
 import { saveSettings, type Settings } from './paths.ts';
+
+const SHELL_KEYS = agentSettingsKeys('shell');
+const ENABLED_KEYS = agentSettingsKeys('enabled');
 
 export type SettingsUpdateDeps = {
   home: string;
@@ -29,10 +33,10 @@ export function applySettingsPatch(deps: SettingsUpdateDeps, patch: Partial<Sett
   saveSettings(deps.home, settings);
   // tmuxPath が変われば、これから起こす run も新しい attach も新しいパスを使う。
   deps.applyTmux(settings);
-  if (patch.tmuxPath !== undefined || patch.opencodeEnabled !== undefined || patch.opencodeIntercept !== undefined) deps.onTmuxPath();
+  if (patch.tmuxPath !== undefined || SHELL_KEYS.some((k) => patch[k] !== undefined)) deps.onTmuxPath();
   if (patch.claudePath !== undefined) deps.onClaudePath(settings);
   if (patch.summaryHourlyCap !== undefined) deps.onSummaryCap();
-  if (patch.opencodeEnabled !== undefined) deps.onOpencodeEnabled?.();
+  if (ENABLED_KEYS.some((k) => patch[k] !== undefined)) deps.onOpencodeEnabled?.();
   deps.publishConfigSync(settings);
   return settings;
 }
