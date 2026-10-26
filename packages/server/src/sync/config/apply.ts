@@ -84,11 +84,12 @@ function loadOrder(home: string) {
 function targetMatches(ref: ItemRef, target: string): boolean {
   if (ref.type === 'file') return target === ref.rel;
   if (ref.type === 'settings') return target === `settings.json#${ref.key}`;
+  if (ref.type !== 'memory') return false; // Codex の項目は targets/codex.ts が書く。ここでは扱わない
   const m = /^projects\/[A-Za-z0-9-]+\/memory\/(.+)$/.exec(target);
   return !!m && isSafeRelPath(target) && m[1] === ref.rel;
 }
 
-const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' ? ref.key : `memory/${ref.rel}`);
+const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' ? ref.key : ref.type === 'memory' ? `memory/${ref.rel}` : ref.type === 'codex-file' ? ref.rel : ref.path.join('.'));
 
 function contentFits(key: string, v: unknown): boolean {
   if (key.startsWith('permissions.')) {
