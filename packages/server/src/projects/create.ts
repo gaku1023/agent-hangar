@@ -7,7 +7,8 @@ import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { isStrictlyUnder, samePath } from '../platform/paths.ts';
 import { hasWorkspaceRoot, insertProject, linkProjectHere, normalizeDir } from './registry.ts';
-import { enclosingProject, type EnclosingProject } from './link.ts';
+import { enclosingProject, linkCandidateFor, placelessProjects, type EnclosingProject } from './link.ts';
+import { gitFolderOf, gitRemoteOf } from '../git/remote.ts';
 import { causeOf, MessageError, msg, type Message } from '../i18n/message.ts';
 
 /** 作れなかった理由。status はそのまま HTTP の状態にする。 */
@@ -137,10 +138,12 @@ export function createProjectDir(deps: CreateDeps, o: { name: string; gitInit: b
  *   分けても、いまある会話は包む方に残る（assignSessions は未分類の会話しか動かさない）。分かれるのはこれからの会話である。
  * - linkTo を渡すと、新しく作らずに、そのプロジェクト（ほかの PC から届いた、この PC に場所の無いもの）のこの PC の場所にする。
  *   書き込みは「場所を再指定」と同じである（registry.ts の linkProjectHere）。名前は変えない。
+ * - autoLink を付けると、linkTo が無くても、作成場所の自動の登録と同じ規則で結び付く候補を探し、あれば結び付ける（hangar project add）。
+ *   worktree は結び付けない。同じ remote の本体のプロジェクトの場所を、worktree に取られないためである。
  */
 export function registerProjectDir(
   deps: { db: Db; deviceId: string; workspaceRoot: string },
-  o: { path: string; name?: string; allowNested?: boolean; linkTo?: string },
+  o: { path: string; name?: string; allowNested?: boolean; linkTo?: string; autoLink?: boolean },
 ): { projectId: string; created: boolean; linked?: true } {
   const name = o.name === undefined ? undefined : o.name.trim();
   if (name === '') throw new ProjectCreateError(400, msg('project.create.nameEmpty'));
@@ -170,8 +173,11 @@ export function registerProjectDir(
   }
   const enclosing = enclosingProject(deps.db, deps.deviceId, dir);
   if (enclosing && o.allowNested !== true) throw new ProjectNestedError(enclosing);
-  if (o.linkTo !== undefined) {
-    const target = deps.db.prepare('select id, name from projects where id = ? and deleted_at is null and is_scratch = 0').get(o.linkTo) as { id: string; name: string } | undefined;
+  const linkTo = o.linkTo ?? (o.autoLink === true && !gitFolderOf(dir).worktree
+    ? linkCandidateFor(placelessProjects(deps.db, deps.deviceId), { name: path.basename(dir), remote: gitRemoteOf(dir) })?.projectId
+    : undefined);
+  if (linkTo !== undefined) {
+    const target = deps.db.prepare('select id, name from projects where id = ? and deleted_at is null and is_scratch = 0').get(linkTo) as { id: string; name: string } | undefined;
     if (!target) throw new ProjectCreateError(404, msg('project.error.notFound'));
     // この PC に場所のあるプロジェクトを結び付けると、その場所を黙って動かしてしまう。動かすのは「場所を再指定」から行う。
     const placed = deps.db.prepare('select 1 from project_roots where project_id = ? and device_id = ? and resolved = 1 and deleted_at is null').get(target.id, deps.deviceId);

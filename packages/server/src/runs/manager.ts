@@ -10,7 +10,7 @@ import { setSessionPlacement } from '../sessions/states.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf, type Message } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/write.ts';
-import { DEFAULT_INJECTION_PARTS, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionParts } from '../launch/injection.ts';
+import { DEFAULT_INJECTION_PARTS, renderCodexInjectionEntries, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionParts } from '../launch/injection.ts';
 import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
 import { pruneMcpConfigs, removeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
@@ -125,8 +125,21 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
+/**
+ * エージェントごとの断りの文。opencode の文は鍵ごと変えず、Codex は別の鍵（run.agent.codex.*）を持つ。
+ * 新しいエージェントを足したら、ここに分岐を足す。
+ */
+const agentMsg = {
+  disabled: (agent: AgentKind): Message => (agent === 'codex' ? msg('run.agent.codex.disabled', { label: agentEnabledLabel(agent) }) : msg('run.agent.disabled', { label: agentEnabledLabel(agent) })),
+  notFound: (agent: AgentKind): Message => msg(agent === 'codex' ? 'run.agent.codex.notFound' : 'run.agent.notFound'),
+  launchFailed: (agent: AgentKind, reason: string | Message): Message => msg(agent === 'codex' ? 'run.agent.codex.launchFailed' : 'run.agent.launchFailed', { reason }),
+  isCmd: (agent: AgentKind, file: string): Message => msg(agent === 'codex' ? 'run.agent.codex.isCmd' : 'run.agent.isCmd', { file }),
+  optionUnsupported: (agent: AgentKind, option: string): Message => msg(agent === 'codex' ? 'run.agent.codex.optionUnsupported' : 'run.agent.optionUnsupported', { option }),
+  actionUnsupported: (agent: AgentKind): Message => msg(agent === 'codex' ? 'run.agent.codex.actionUnsupported' : 'run.agent.actionUnsupported'),
+};
+
 /** そのエージェントが有効でないと断るときの、設定の欄名の文。 */
-function agentEnabledLabel(agent: AgentKind): Message {
+export function agentEnabledLabel(agent: AgentKind): Message {
   return msg(AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled');
 }
 
@@ -283,7 +296,7 @@ export class RunManager {
       this.claudeBin();
       return;
     }
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     this.agentBin(agent);
     this.startPanes();
   }
@@ -309,8 +322,8 @@ export class RunManager {
    */
   private agentBin(agent: AgentKind): string {
     const bin = this.deps.agentBin?.(agent) ?? null;
-    if (!bin) throw new RunError(400, msg('run.agent.notFound'));
-    if (needsShell(bin, this.deps.platform)) throw new RunError(400, msg('run.agent.launchFailed', { reason: msg('run.agent.isCmd', { file: bin }) }));
+    if (!bin) throw new RunError(400, agentMsg.notFound(agent));
+    if (needsShell(bin, this.deps.platform)) throw new RunError(400, agentMsg.launchFailed(agent, agentMsg.isCmd(agent, bin)));
     return bin;
   }
 
@@ -357,6 +370,8 @@ export class RunManager {
     const parts = this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS;
     // opencode に足す量は設定の opencodeInjection で選ぶ（launch/injection.ts の renderOpencodeInjectionEntries）。
     if (agent === 'opencode') return renderOpencodeInjectionEntries(input, this.language(), parts, parts.opencode);
+    // Codex に足す量は設定の codexInjection で選ぶ（launch/injection.ts の renderCodexInjectionEntries）。
+    if (agent === 'codex') return renderCodexInjectionEntries(input, this.language(), parts, parts.codex);
     return renderInjectionEntries(input, this.language(), parts);
   }
 
@@ -392,9 +407,9 @@ export class RunManager {
   prepareResumeDir(sessionId: string): string {
     const s = this.session(sessionId);
     const agent = this.agentOf(s).kind;
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
-    if (!this.deps.agentBin?.(agent)) throw new RunError(400, msg('run.agent.notFound'));
+    if (!this.deps.agentBin?.(agent)) throw new RunError(400, agentMsg.notFound(agent));
     const { path: cwd, createsFolder } = this.cwdFor(s);
     this.precheck(cwd, { agent, create: createsFolder });
     return cwd;
@@ -447,8 +462,8 @@ export class RunManager {
       prompt: s(params.prompt),
       model: s(params.model),
       effort: s(params.effort),
-      // Claude は権限のモード（--permission-mode）、opencode はエージェント（build、plan など）。
-      mode: claude ? s(params.permissionMode) : s(params.mode),
+      // Claude は権限のモード（--permission-mode）、Codex は権限の 3 段（read-only、auto、full-access）、opencode はエージェント（build、plan など）。
+      mode: claude || this.agents.of(agent).caps.permissionMode ? s(params.permissionMode) : s(params.mode),
       ...(claude ? {} : { autoApprove: params.autoApprove === true }),
       worktree: s(params.worktree),
       addDirs: this.addDirs(params),
@@ -490,7 +505,7 @@ export class RunManager {
   private assertCan(s: SessionRow, what: keyof AgentDriver['caps'] | 'resume'): void {
     const d = this.agentOf(s);
     const ok = what === 'resume' ? d.kind === DEFAULT_AGENT : d.caps[what];
-    if (!ok) throw new RunError(400, msg('run.agent.actionUnsupported'));
+    if (!ok) throw new RunError(400, agentMsg.actionUnsupported(d.kind));
   }
 
   /** 起こす前に新しい会話の ID を決める。ID を後で知る driver は、起動を async にするまで受けない。 */
@@ -635,6 +650,11 @@ export class RunManager {
     softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
   }
 
+  /** そのエージェントを起こしてよいか。Claude Code はいつでも起こせる。MCP の create_session が start の前に断るために読む。 */
+  agentEnabled(kind: AgentKind): boolean {
+    return kind === DEFAULT_AGENT || (this.deps.agentEnabled?.(kind) ?? false);
+  }
+
   /**
    * 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。
    * agent を省けば Claude Code で起こす。ID を先に決めない driver（opencode）は、下ごしらえ（materialize）を待つので非同期である。
@@ -700,7 +720,7 @@ export class RunManager {
    */
   private async startMaterialized(agent: AgentKind, params: LaunchParams, from?: { cwd: string }): Promise<LaunchResult> {
     const driver = this.agents.of(agent);
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     if (!driver.launch.materialize) throw new Error(`agent ${agent} cannot launch without choosing a session id`);
     // Claude だけの指定は黙って捨てずに断る（画面の札は出さないので、届くのは API を直に叩いたときだけ）。
     const claudeOnly: [string, boolean][] = [
@@ -711,7 +731,7 @@ export class RunManager {
       ['worktree', !!params.worktree?.trim()],
     ];
     const bad = claudeOnly.find(([, v]) => v);
-    if (bad) throw new RunError(400, msg('run.agent.optionUnsupported', { option: bad[0] }));
+    if (bad) throw new RunError(400, agentMsg.optionUnsupported(agent, bad[0]));
     const bin = this.agentBin(agent);
     if (params.scratch && !from) this.startPanes();
     const target = from ? null : this.startTarget(params);
@@ -738,11 +758,13 @@ export class RunManager {
       providerSessionId = r.providerSessionId;
       const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
       upsertShared(this.db, 'sessions', { ...cur, provider_session_id: providerSessionId }, this.deps.deviceId);
+      // 本当の ID が画面をつないだ後でないと分からない driver は、仮の ID のまま画面を開き、分かったら行に書く。
+      if (r.lateSessionId) void r.lateSessionId.then((id) => this.recordLateSessionId(sessionId, r.providerSessionId, id), () => undefined);
     } catch (e) {
       // driver は会話を作れなかったときに自分で serve を止めている。ここでも念のため止める（ほかの段で落ちたとき）。
       await Promise.resolve(driver.launch.release({ sessionId, providerSessionId: '', cwd }, 'killed')).catch(() => false);
       discard();
-      throw this.prepError(prep, e);
+      throw this.prepError(prep, e, agent);
     }
     try {
       return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...withoutPrep(params), agent, ...(from && projectId ? { projectId } : {}) } });
@@ -753,18 +775,25 @@ export class RunManager {
     }
   }
 
+  /** 後から分かった会話の ID を、仮の ID のままの行に書く（agent/types.ts の materialize の lateSessionId）。行が消えた、または別の ID に変わっていたら書かない。 */
+  private recordLateSessionId(sessionId: string, pendingId: string, id: string): void {
+    const cur = this.db.prepare('select * from sessions where id = ? and deleted_at is null').get(sessionId) as Record<string, unknown> | undefined;
+    if (!cur || cur.provider_session_id !== pendingId) return;
+    upsertShared(this.db, 'sessions', { ...cur, provider_session_id: id }, this.deps.deviceId);
+  }
+
   /**
    * 準備か下ごしらえの失敗を、起動の口の答えにする。
    * 問いは 409（code: prep-ask）で、画面は届いている進み（launch.prep の ask）を読んで問いを出す。やめたときは 400（code: prep-cancelled）。
    * ほかの失敗は、準備の進みにも理由を載せてから 400 にする。
    */
-  private prepError(prep: { fail(reason: string): void } | null, e: unknown): RunError {
+  private prepError(prep: { fail(reason: string): void } | null, e: unknown, agent: AgentKind = 'opencode'): RunError {
     if (e instanceof LaunchPrepAsked) return new RunError(409, msg('launchPrep.error.asked'), { code: LAUNCH_PREP_ASK_CODE });
     if (e instanceof LaunchPrepCancelled) return new RunError(400, msg('launchPrep.error.cancelled'), { code: LAUNCH_PREP_CANCELLED_CODE });
     const reason = this.safeError(e);
     prep?.fail(reason);
     if (e instanceof RunError) return e;
-    return new RunError(400, msg('run.agent.launchFailed', { reason }));
+    return new RunError(400, agentMsg.launchFailed(agent, reason));
   }
 
   /** 走っている起動前の準備をやめる。無ければ偽。 */
@@ -789,7 +818,7 @@ export class RunManager {
       await driver.launch.prepare({ sessionId: s.id, cwd: this.cwdFor(s).path, model }, prep);
       prep.finish();
     } catch (e) {
-      throw this.prepError(prep, e);
+      throw this.prepError(prep, e, driver.kind);
     }
   }
 
@@ -934,7 +963,7 @@ export class RunManager {
   private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
     const driver = this.agentOf(s);
     const agent = driver.kind;
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     if (aliveRunForSession(this.db, s.id, this.deps.deviceId, this.now())) throw new RunError(409, msg('run.error.sessionRunning'));
     const bin = this.agentBin(agent);
     const { path: cwd, createsFolder } = this.cwdFor(s);
@@ -945,7 +974,7 @@ export class RunManager {
       await Promise.resolve(driver.launch.release({ sessionId: s.id, providerSessionId: id, cwd }, 'killed')).catch(() => false);
       revokeMcpSecret(this.db, s.id);
       if (e instanceof RunError) throw e;
-      throw new RunError(400, msg('run.agent.launchFailed', { reason: this.safeError(e) }));
+      throw new RunError(400, agentMsg.launchFailed(agent, this.safeError(e)));
     };
     let base: Omit<LaunchSpec, 'env'>;
     const prep = prepOf ? this.deps.preps?.begin(prepOf.key) ?? null : null;
@@ -954,7 +983,7 @@ export class RunManager {
       await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: {}, ...(prep ? { prep: { run: prep, choice: {} } } : {}) });
       prep?.finish();
     } catch (e) {
-      return fail(this.prepError(prep, e));
+      return fail(this.prepError(prep, e, agent));
     }
     try {
       return this.launch({ sessionId: s.id, cwd, kind: 'resume', agent, plan: (env) => driver.launch.plan(bin, { kind: 'resume', id }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent, ...(extra.autoApprove ? { autoApprove: true } : {}) } });
@@ -1042,7 +1071,7 @@ export class RunManager {
    */
   async startOpencodeFromTerminal(req: TerminalRequest): Promise<LaunchResult & { attached: boolean }> {
     const agent: AgentKind = 'opencode';
-    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+    if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg(AGENT_ENTRY[agent].interceptLabelKey ?? 'settings.label.opencodeIntercept') }));
     const a = splitOpencodeTerminalArgs(req.args);
     const params = { ...(a.prompt !== null ? { prompt: a.prompt } : {}), ...(a.autoApprove ? { autoApprove: true } : {}) };

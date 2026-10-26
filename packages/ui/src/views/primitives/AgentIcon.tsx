@@ -9,7 +9,7 @@ export function AgentIcon(props: { kind: AgentIconKind; tone?: AgentIconTone; de
   const tone = props.tone ?? 'light';
   const art = agentIconArt(props.kind, tone);
   const label = AGENT_LABEL[props.kind];
-  // 絵の無いエージェント（Codex は C2 で入れる）は、読み上げに名前だけを残して絵を置かない。
+  // 絵の無い種類（古いサーバの知らない値）は、読み上げに名前だけを残して絵を置かない。
   if (!art) return <span className="agent-icon" data-agent={props.kind} data-tone={tone} role={props.decorative ? undefined : 'img'} aria-label={props.decorative ? undefined : label} aria-hidden={props.decorative ? 'true' : undefined} />;
   const svg = (
     <svg viewBox={art.viewBox} width={art.width} height={art.height} aria-hidden="true" focusable="false"

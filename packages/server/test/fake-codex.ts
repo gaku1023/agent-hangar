@@ -31,6 +31,12 @@ export type FakeCodexOptions = {
   ignoreSigterm?: boolean;
   /** 起動の直後に落ちる（標準エラーへ書いて 1 で終わる）。 */
   crashOnStart?: boolean;
+  /** 受けた要求（method と params）を 1 行 1 件の JSON で足す置き場。`{ ev: 'rpc', method, params }`、通知を送ったときは `{ ev: 'note', method }`。 */
+  rpcLogFile?: string;
+  /** mcpServerStatus/list が hangar を connected と答えるまでの問い合わせの回数（既定 0）。'failed' なら failed と答える。 */
+  mcpPendingPolls?: number | 'failed';
+  /** ターンが終わるまでの時間（ミリ秒、既定 60）。interrupt の試験では長くする。 */
+  turnMs?: number;
 };
 
 export function writeFakeCodex(dir: string, o: FakeCodexOptions = {}): string {
@@ -43,7 +49,8 @@ import { spawn } from 'node:child_process';
 const require = createRequire(${JSON.stringify(requireFromHere.resolve('ws'))});
 const { WebSocketServer } = require('ws');
 const args = process.argv.slice(2);
-const OPTS = ${JSON.stringify({ g: o.grandchildPidFile ?? null, i: !!o.ignoreSigterm, c: !!o.crashOnStart })};
+const OPTS = ${JSON.stringify({ g: o.grandchildPidFile ?? null, i: !!o.ignoreSigterm, c: !!o.crashOnStart, r: o.rpcLogFile ?? null, m: o.mcpPendingPolls ?? 0, t: o.turnMs ?? 60 })};
+const rlog = (o) => { if (OPTS.r) fs.appendFileSync(OPTS.r, JSON.stringify(o) + '\\n'); };
 ${o.logFile ? `fs.appendFileSync(${JSON.stringify(o.logFile)}, JSON.stringify({ argv: args, env: process.env }) + '\\n');` : ''}
 if (args[0] === '--version') { process.stdout.write('codex-cli ${version}\\n'); process.exit(0); }
 if (args[0] === 'login' && args[1] === 'status') {
@@ -63,6 +70,7 @@ async function appServer(args) {
   const threads = new Map(); // id -> { cwd, turns, subscribers:Set }
   let seq = 0;
   let turnSeq = 0;
+  let polls = 0;
   const uuid = () => '01a00000-0000-7000-8000-' + String(++seq).padStart(12, '0');
   const clients = new Set();
   const waiting = new Map(); // 要求の id -> 解けたときの続き
@@ -100,6 +108,7 @@ async function appServer(args) {
       const ok = (result) => send(ws, { id: m.id, result });
       const fail = (code, message) => send(ws, { id: m.id, error: { code, message } });
       const p = m.params ?? {};
+      rlog({ ev: 'rpc', method: m.method, params: p });
       switch (m.method) {
         case 'initialize': return ok({ userAgent: 'fake-codex/0', codexHome: '/fake', platformFamily: 'unix', platformOs: 'macos' });
         case 'thread/start': {
@@ -109,10 +118,16 @@ async function appServer(args) {
           setTimeout(() => broadcast('thread/started', { thread: threadBody(id, false) }), 5);
           return;
         }
+        case 'mcpServerStatus/list': {
+          const has = args.some((a) => a.startsWith('mcp_servers.hangar.url='));
+          polls++;
+          const status = !has ? null : OPTS.m === 'failed' ? 'failed' : polls > OPTS.m ? 'connected' : 'starting';
+          return ok({ data: has ? [{ name: 'hangar', runtimeStatus: status, authStatus: 'bearerToken', tools: {}, resources: [], resourceTemplates: [] }] : [] });
+        }
         case 'thread/read': {
           const t = threads.get(p.threadId);
           if (!t) return fail(-32600, 'thread not found: ' + p.threadId);
-          return ok({ thread: { ...threadBody(p.threadId, false), status: t.status ?? { type: t.current ? 'active' : 'idle', ...(t.current ? { activeFlags: [] } : {}) } } });
+          return ok({ thread: { ...threadBody(p.threadId, false), turns: t.current ? [{ id: t.current.id, status: 'inProgress' }] : [], status: t.status ?? { type: t.current ? 'active' : 'idle', ...(t.current ? { activeFlags: [] } : {}) } } });
         }
         case 'thread/loaded/list': return ok({ data: [...threads.keys()] });
         case 'thread/resume': {
@@ -170,7 +185,7 @@ async function appServer(args) {
             t.current = null;
             for (const c of t.subscribers) send(c, { method: 'turn/completed', params: { threadId: p.threadId, turn: { ...turn, status: 'completed' } } });
             broadcast('thread/status/changed', { threadId: p.threadId, status: { type: 'idle' } });
-          }, 60);
+          }, OPTS.t);
           return;
         }
         case 'turn/interrupt': {
@@ -193,7 +208,7 @@ async function appServer(args) {
     const gc = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 600000)'], { stdio: 'ignore' });
     fs.writeFileSync(OPTS.g, String(gc.pid));
   }
-  process.on('SIGTERM', () => { if (OPTS.i) return; process.exit(0); });
+  process.on('SIGTERM', () => { rlog({ ev: 'sigterm' }); if (OPTS.i) return; process.exit(0); });
   await new Promise(() => {});
 }
 `;
