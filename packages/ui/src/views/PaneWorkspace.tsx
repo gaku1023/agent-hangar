@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import { findLeaf, type PaneLeaf, type PaneNode, type PaneSplit } from '../mediator/panes.ts';
 import type { PanesProps } from '../presenters/panes.ts';
+import { cornerCarriedBy, cornersAt, type PaneCorner } from '../lib/paneCorners.ts';
 import { PaneDivider } from './PaneDivider.tsx';
 import { EmptyPaneHeader, type PaneView } from './PaneHeader.tsx';
 import { PanePicker } from './PanePicker.tsx';
@@ -65,20 +66,34 @@ function PaneCell(props: { leaf: PaneLeaf; p: PanesProps }) {
 }
 
 /** 木の節 1 つ。子の大きさは flex-grow に比率を入れ、間に境目を置く。 */
-function SplitView(props: { node: PaneSplit; p: PanesProps }) {
+function SplitView(props: { node: PaneSplit; p: PanesProps; corner?: { corner: PaneCorner; ratios: Record<string, number>; edge: 'start' | 'end' } }) {
   const ref = useRef<HTMLDivElement>(null);
   const { node } = props;
   return (
     <div ref={ref} className="pane-node" data-node={node.id} data-dir={node.dir}>
-      <div className="pane-slot" style={{ flexGrow: node.ratio }}><NodeView node={node.a} p={props.p} /></div>
-      <PaneDivider node={node} hostRef={ref} />
-      <div className="pane-slot" style={{ flexGrow: 1 - node.ratio }}><NodeView node={node.b} p={props.p} /></div>
+      <div className="pane-slot" style={{ flexGrow: node.ratio }}><NodeView node={node.a} p={props.p} parent={node} /></div>
+      <PaneDivider node={node} hostRef={ref} corner={props.corner} />
+      <div className="pane-slot" style={{ flexGrow: 1 - node.ratio }}><NodeView node={node.b} p={props.p} parent={node} /></div>
     </div>
   );
 }
 
-function NodeView(props: { node: PaneNode; p: PanesProps }) {
-  return props.node.kind === 'pane' ? <PaneCell leaf={props.node} p={props.p} /> : <SplitView node={props.node} p={props.p} />;
+/** 親の節 parent の子として node を描くとき、その境目に出す角の取っ手（角は木から求める）。 */
+function cornerOf(parent: PaneSplit, node: PaneSplit): { corner: PaneCorner; ratios: Record<string, number>; edge: 'start' | 'end' } | undefined {
+  const corner = cornerCarriedBy(cornersAt(parent), parent.id, node.id);
+  if (!corner) return undefined;
+  const ratios: Record<string, number> = { [parent.id]: parent.ratio };
+  for (const c of corner.children) {
+    const child = c.side === 'a' ? parent.a : parent.b;
+    if (child.kind === 'split') ratios[c.id] = child.ratio;
+  }
+  // 親の境目に近い端は、a 側の子なら子の境目の終わり、b 側なら始め。
+  return { corner, ratios, edge: corner.children[0]!.side === 'a' ? 'end' : 'start' };
+}
+
+function NodeView(props: { node: PaneNode; p: PanesProps; parent?: PaneSplit }) {
+  const { node, parent } = props;
+  return node.kind === 'pane' ? <PaneCell leaf={node} p={props.p} /> : <SplitView node={node} p={props.p} corner={parent ? cornerOf(parent, node) : undefined} />;
 }
 
 /**
