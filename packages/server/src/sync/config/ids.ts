@@ -42,7 +42,9 @@ export const memoryId = (projectId: string, rel: string): string => `memory:${pr
 export type ItemRef =
   | { type: 'file'; rel: string }
   | { type: 'settings'; key: string }
-  | { type: 'memory'; projectId: string; rel: string };
+  | { type: 'memory'; projectId: string; rel: string }
+  /** hangar の好み（`hangar:<鍵>`、hangar の settings.json の鍵 1 つ）。 */
+  | { type: 'hangar'; key: string };
 
 /** id を解く。持ち主の対象に任せる薄い関数。形が悪い、運ばない場所を指す、知らない頭、のどれかなら null。 */
 export function parseItemId(id: string): { kind: ConfigItemKind; ref: ItemRef } | null {

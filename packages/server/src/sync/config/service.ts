@@ -388,6 +388,7 @@ export class ConfigSyncService {
       let held: ConfigHeldReason | null = null;
       if (ref.type === 'file') { label = ref.rel; target = ref.rel; }
       else if (ref.type === 'settings') { label = ref.key; target = `settings.json#${ref.key}`; }
+      else if (ref.type === 'hangar') { label = ref.key; target = `hangar-settings.json#${ref.key}`; }
       else {
         const p = projects.get(ref.projectId);
         label = `${p?.name ?? ref.projectId}/${ref.rel}`;

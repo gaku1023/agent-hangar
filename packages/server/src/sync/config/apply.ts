@@ -84,11 +84,13 @@ function loadOrder(home: string) {
 function targetMatches(ref: ItemRef, target: string): boolean {
   if (ref.type === 'file') return target === ref.rel;
   if (ref.type === 'settings') return target === `settings.json#${ref.key}`;
+  // hangar の好み（targets/hangar.ts）は ~/.claude に書かない。この適用では扱わない。
+  if (ref.type === 'hangar') return false;
   const m = /^projects\/[A-Za-z0-9-]+\/memory\/(.+)$/.exec(target);
   return !!m && isSafeRelPath(target) && m[1] === ref.rel;
 }
 
-const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' ? ref.key : `memory/${ref.rel}`);
+const labelOf = (ref: ItemRef): string => (ref.type === 'file' ? ref.rel : ref.type === 'settings' || ref.type === 'hangar' ? ref.key : `memory/${ref.rel}`);
 
 function contentFits(key: string, v: unknown): boolean {
   if (key.startsWith('permissions.')) {
