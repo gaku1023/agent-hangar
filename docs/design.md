@@ -1637,7 +1637,7 @@ Windows のコマンド行は引用符を含む（空白を含む場所、cmd.ex
 ### Codex の起動（ベータ）
 
 Codex を足す作業の段 B の 3 つ目の前半（計画の B3a）で、新しい会話を API から起こし、止めるところまでを入れた。
-再開とフォークは B3b、状態と許可と質問は B4、トランスクリプトは B5、ダイアログの札は C1 である。
+再開とフォークは B3b（下の「再開とフォーク」）、状態と許可と質問は B4、トランスクリプトは B5、ダイアログの札は C1 である。
 `provider/codex/driver.ts` の `createCodexDriver` が Codex の `AgentDriver` で、`boot/agents.ts` が Claude と opencode のとなりに登録する。
 driver が登録されたので、B1 の「知らないエージェント」の断りは外れる。
 代わりに `RunManager` が、設定の `codexEnabled` が切のとき `run.agent.codex.disabled` で断る（`AGENT_ENTRY.codex.enabled`。行も app-server も作らない）。
@@ -1671,6 +1671,14 @@ RunManager は包みの生死で TUI の終わりを見て、終わったら `re
    `materialize` は `{ providerSessionId: 'pending:…', lateSessionId }` を返し、RunManager は `lateSessionId` が解けたら行の `provider_session_id` を書き換える（`agent/types.ts`。解けなければ仮の ID のまま）。
    拾った ID は app-server の記録にも書く。
    待ちの上限は 60 秒で、尽きたら知らせるだけにする。
+
+**再開とフォーク**（B3b、`materialize` の `kind` が `resume`・`fork`）は、新しい会話と同じ組み立てで app-server を起こし、既にある会話を開く。
+- 再開：`thread/resume`（threadId、cwd、モデル、権限の組）で開き、hangar の MCP がつながるのを待ってから、TUI を `resume <ID>` でつなぐ。最初の入力は流さない（外のターミナルの再開が `--prompt` を付けたときだけ流す）。
+  cwd は、そのプロセスで最初の resume だけ上書きできる（E0）。app-server は会話ごとに起こしたてなので、ここで渡す。resume は rollout に `thread_settings_applied` を 1 行足す。
+- hangar の外で作られた会話（索引の provider が codex の行）も同じ道で再開する。終わった画面の「再開」（`resumeWith`、`resumeMaterialized`）は、driver が `materialize` を持つのでこの道を通る。
+- 最初の入力の前のスレッド（rollout が無い）は再開できない。app-server の `-32600 no rollout found` と、ID が仮のまま（`pending:`）の行を、どちらも `run.agent.codex.noRollout` で断る（行は消さず、app-server も残さない）。
+- フォーク：app-server に `thread/fork` があり、driver は `materialize` で新しいスレッドを作ってその ID を返し、`plan` は `fork` の `newId` を `resume` でつなぐ。
+  ただし `caps.fork` は偽のままにする。`RunManager.fork` は新しい ID を先に決めて同期で起こす作りで、ID を後から受ける driver 向けの入口がまだ無いためである。入口は、行を仮の ID で作ってから `materialize` を待つ形（`startMaterialized` と同じ）を足してから開ける。
 
 **plan**（`launcher.ts` の `planCodex`）は TUI の argv と環境を返す。
 `codex --remote ws://127.0.0.1:<port> --remote-auth-token-env HANGAR_CODEX_TOKEN [-m モデル] [-c model_reasoning_effort=…] -s … -a … [resume <ID>]` である。

@@ -24,6 +24,7 @@ export const runJa: AreaDictionary<typeof runKeys> = {
   'run.agent.codex.optionUnsupported': '{option} は Codex のセッションでは指定できません',
   'run.agent.codex.actionUnsupported': 'この操作は Codex のセッションでは使えません',
   'run.agent.codex.launchFailed': 'Codex を起動できませんでした: {reason}',
+  'run.agent.codex.noRollout': 'この会話は、まだ最初の入力が送られていないため、再開できません。新しく始めてください',
   'run.tab.notFound': 'タブが見つかりません',
   'run.tab.shell': 'シェル',
   'run.tab.shellFailed': 'シェルの起動に失敗しました: {reason}',
