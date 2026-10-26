@@ -189,7 +189,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
         oneLiner={props.oneLiner} status={statusNode}
         primary={pv.tiny ? null : primaryButton}
         // tiny では主の操作を ⋯ の中の先頭へ移す。ⓘ は細くて入れる所が無いので出さない。
-        // 試作どおり、主の操作の次に「詳しく（ID・モデル・ブランチ）」を置き、押すとそのペインの ⓘ と同じ中身を出す。
+        // 試作どおり、主の操作の次に「詳細（ID、モデル、ブランチ）」を置き、押すとそのペインの ⓘ と同じ中身を出す。
         menu={pv.tiny ? [item(primary), { key: 'details', label: t('pane.menu.details'), icon: 'info', onSelect: () => setInfoNonce((n) => n + 1) }, ...props.actions.menu.map(item)] : props.actions.menu.map(item)}
         info={pv.tiny ? (infoNonce > 0 ? <span className="pane-head-anchor"><InfoPopover key={infoNonce} defaultOpen rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover></span> : null) : <InfoPopover rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover>}
         sessionId={id} sessionStatus={statusPick && statusPick.value !== 'active' ? statusPick.value : null} />

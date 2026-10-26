@@ -319,8 +319,8 @@ describe('ペインの見出しの右クリックとキー', () => {
     resizePane(pane, 400);
     const h = headers()[0]!;
     fireEvent.click(within(h).getByRole('button', { name: '他の操作' }));
-    expect(itemTexts()).toContain('詳しく（ID・モデル・ブランチ）');
-    pick('詳しく（ID・モデル・ブランチ）');
+    expect(itemTexts()).toContain('詳細（ID、モデル、ブランチ）');
+    pick('詳細（ID、モデル、ブランチ）');
     const viaMenu = (await screen.findByRole('dialog', { name: '詳細' })).textContent;
     expect(viaMenu).toContain('詳細');
     fireEvent.keyDown(screen.getByRole('dialog', { name: '詳細' }), { key: 'Escape' });
