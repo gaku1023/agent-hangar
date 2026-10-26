@@ -63,6 +63,7 @@ describe('ペインの木：開く', () => {
     expect(ids(r.state)).toEqual(['s1', 's2']);
     expect(focusSession(r.state)).toBe('s1');
     expect(r.state.panes.flash).toEqual({ pane: r.state.panes.focus, n: 1 });
+    expect(r.effects.filter((e) => e.kind === 'toast')).toHaveLength(1);
     expect(saves(r.effects)).toHaveLength(1);
   });
   it('target を指すと、その辺に分けて開く', () => {

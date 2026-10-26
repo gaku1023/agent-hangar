@@ -212,16 +212,17 @@ function flashed(state: State, pane: PaneId): State {
   return withPanes(state, { flash: { pane, n: (state.panes.flash?.n ?? 0) + 1 } });
 }
 
-/** 木にあるセッションを開く。新しく開かず、そのペインを操作中にして光らせる。 */
-function reveal(state: State, leaf: PaneLeaf): Step {
+/** 木にあるセッションを開く。新しく開かず、そのペインを操作中にして光らせ、知らせを出す。 */
+function reveal(state: State, store: Store, leaf: PaneLeaf): Step {
   const next = flashed(focused(state, leaf.id), leaf.id);
-  return { state: next, effects: goSession(next, leaf.sessionId) };
+  const toast: Effect = { kind: 'toast', level: 'info', message: translatorOf(store)('mediator.pane.alreadyOpen') };
+  return { state: next, effects: [...goSession(next, leaf.sessionId), toast] };
 }
 
-function openSession(state: State, sessionId: string, target: PaneId | null, side: PaneDropSide): Step {
+function openSession(state: State, store: Store, sessionId: string, target: PaneId | null, side: PaneDropSide): Step {
   const { root, focus } = state.panes;
   const there = leafOfSession(root, sessionId);
-  if (there) return reveal(state, there);
+  if (there) return reveal(state, store, there);
   if (!root) {
     const leaf: PaneLeaf = { kind: 'pane', id: 'p1', sessionId, toc: false };
     const next = withPanes(state, { root: leaf, focus: leaf.id, zoom: null });
@@ -294,11 +295,11 @@ export function paneStep(state: State, store: Store, input: Input): Step | null 
   // 開く入力は、光らせなかったなら前の光らせるのを下げる（光らせたときは flash が新しい値に替わっている）。
   const settle = (r: Step): Step => (r.state.panes.flash === state.panes.flash && state.panes.flash ? { ...r, state: withPanes(r.state, { flash: null }) } : r);
   switch (i.type) {
-    case 'pane.open': return behind ? mapStep(settle(openSession(quiet, i.sessionId, i.target, i.side)), moving) : { state, effects: [] };
+    case 'pane.open': return behind ? mapStep(settle(openSession(quiet, store, i.sessionId, i.target, i.side)), moving) : { state, effects: [] };
     case 'pane.fill': {
       if (!behind) return { state, effects: [] };
       const there = leafOfSession(root, i.sessionId);
-      if (there) return mapStep(reveal(quiet, there), moving);
+      if (there) return mapStep(reveal(quiet, store, there), moving);
       if (!findLeaf(root, i.pane)) return { state, effects: [] };
       const next = focused(withPanes(quiet, { root: mapNode(root!, i.pane, (n) => ({ ...(n as PaneLeaf), sessionId: i.sessionId })) }), i.pane);
       return mapStep(settle({ state: next, effects: goSession(next, i.sessionId) }), moving);
