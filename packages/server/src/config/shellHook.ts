@@ -151,24 +151,24 @@ ${cases.join('\n')}
 function codexScript(o: ShellCodexOptions): string {
   const subs = (o.subcommands ?? BUILTIN_CODEX_SUBCOMMANDS).filter((x) => SUBCOMMAND_NAME.test(x));
   return `
-# codex の置き場や設定を環境変数で変えているか。CODEX_ で始まる変数が 1 つでも書き出されていれば、変えているとみる。
+# Whether the codex home or config was changed through the environment: any exported CODEX_ variable counts.
 __agent_hangar_codex_env() {
   local k
   for k in \${(k)parameters[(I)CODEX_*]}; do [[ \${parameters[$k]} == *export* ]] && return 0; done
   return 1
 }
 
-# ターミナルで対話として起動した codex を、hangar の tmux の中で起こし、すぐこのターミナルからつなぐ（ベータ）。
-# hangar が写せる引数（プロンプト 1 つ、-m、-c、-s、-a、resume <ID>）だけなら包み、ほかのフラグやサブコマンドが 1 つでもあれば素の codex を起動する。
-# resume は会話の ID の形のときだけ hangar に頼む。hangar の会話でなければ hangar が断るので、素の codex になる。
-# 1 回だけ包まずに起動するときは \`command codex\` です。
+# Start an interactive codex typed in a terminal inside hangar's tmux and attach to it from this terminal (beta).
+# Wrap only arguments hangar can map (one prompt, -m, -c, -s, -a, resume <ID>); any other flag or subcommand runs plain codex.
+# resume goes to hangar only when its argument looks like a session ID; hangar refuses a session it does not own, so plain codex runs.
+# To run codex unwrapped just once, use \`command codex\`.
 function codex {
-  # 端末でないとき、HANGAR_NO_WRAP を立てたとき、tmux が無いとき、置き場を変えたときは包まない。
+  # Do not wrap when not on a terminal, when HANGAR_NO_WRAP is set, when tmux is missing, or when the codex home was changed.
   if [[ ! -t 0 || ! -t 1 || -n "$HANGAR_NO_WRAP" || ! -x "$__agent_hangar_tmux" ]]; then command codex "$@"; return; fi
   if __agent_hangar_codex_env; then command codex "$@"; return; fi
   local a want="" pos=()
   for a in "$@"; do
-    # 値を取るフラグの次の語は値なので、サブコマンドやプロンプトと取り違えない。
+    # The word after a value flag is its value, not a subcommand or a prompt.
     if [[ -n $want ]]; then want=""; continue; fi
     case "$a" in
       ${(subs.length > 0 ? subs : BUILTIN_CODEX_SUBCOMMANDS).join('|')}) command codex "$@"; return ;;
@@ -178,7 +178,7 @@ function codex {
       *) pos+=("$a") ;;
     esac
   done
-  # 値の無い値を取るフラグと、2 つ目の位置引数は、そのまま渡す。resume は会話の ID（UUID）が 1 つのときだけ頼む。
+  # A value flag with no value, or a second positional argument, runs plain codex. resume is sent only with exactly one session ID (UUID).
   if [[ -n $want ]]; then command codex "$@"; return; fi
   if [[ \${pos[1]} == resume ]]; then
     if (( \${#pos} != 2 )) || [[ ! \${pos[2]} =~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ]]; then command codex "$@"; return; fi

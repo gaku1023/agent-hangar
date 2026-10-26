@@ -38,7 +38,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'boot/sync.ts': { lines: 2, why: LOG },
   'boot/takeover.ts': { lines: 1, why: LOG },
   'config/accounts.ts': { lines: 1, why: FIRST_NAME },
-  'config/shellHook.ts': { lines: 8, why: FILE_BODY },
+  'config/shellHook.ts': { lines: 6, why: FILE_BODY },
   'config/shellWrap.ts': { lines: 1, why: LOG },
   'db/backup.ts': { lines: 1, why: LOG },
   'db/migrations.ts': { lines: 1, why: SQL_NOTE },
