@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import type { LaunchParams, LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { recordArtifactPublish } from '../artifacts/extract.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { Publisher } from '../events/publisher.ts';
@@ -24,7 +24,7 @@ let db: Db;
 let alphaId: string;
 const sent: ServerEvent[] = [];
 const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/Users/me/workspace/alpha', pid: 1 }];
-const started: unknown[] = [];
+const started: LaunchParams[] = [];
 let deps: ToolDeps;
 /** 道具は行を書くだけである。画面へのイベントは、配る層が書いた行から組んで sent へ渡す。 */
 let publisher: Publisher;
