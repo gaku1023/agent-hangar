@@ -10,6 +10,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { SECRET_ENV_DIR, secretEnvPath } from '../launch/secretEnv.ts';
+import { ensureSession } from '../indexer/write.ts';
 import { createCodexDriver, type CodexDriver } from '../provider/codex/driver.ts';
 import { TUI_TOKEN_ENV } from '../provider/codex/appServer.ts';
 import { LaunchQueue } from '../provider/opencode/serve/queue.ts';
@@ -168,6 +169,27 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     await until(() => !isProcessAlive(pid));
     expect(codex.served(r.sessionId)).toBeNull();
     expect(fs.existsSync(secretEnvPath(home, r.run.id))).toBe(false);
+  });
+
+  it('終わった画面の「再開」：hangar の外で作られた会話（索引の provider=codex の行）も、thread/resume で開いて resume <ID> の TUI につなぐ', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000e001';
+    const { rm, codex, opened, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd: '/somewhere/else' }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    const r = await rm.resumeWith(sid, {});
+    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT, cwd });
+    expect(rpcs().map((x) => x.method)).not.toContain('turn/start');
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['--remote', 'resume', EXT]));
+    expect(r.sessionId).toBe(sid);
+    expect(codex.served(sid)?.threadId).toBe(EXT);
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex' });
+  });
+
+  it('最初の入力の前の会話は再開できない。Codex を起動できなかったと、理由つきで断り、app-server を残さない', async () => {
+    const { rm, codex } = make();
+    const sid = ensureSession(db, '01bffff0-0000-7000-8000-00000000dead', cwd, 'd', 'codex');
+    await expect(rm.resumeWith(sid, {})).rejects.toMatchObject({ status: 400, message: 'Codex を起動できませんでした: この会話は、まだ最初の入力が送られていないため、再開できません。新しく始めてください' });
+    expect(codex.served(sid)).toBeNull();
   });
 
   it('画面を開けなかったら、app-server を止め、仮の行と秘密の環境のファイルを残さない', async () => {

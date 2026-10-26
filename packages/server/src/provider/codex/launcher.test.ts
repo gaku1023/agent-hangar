@@ -1,3 +1,4 @@
+import { MessageError } from '../../i18n/message.ts';
 import { describe, expect, it } from 'vitest';
 import type { LaunchSpec } from '../../agent/types.ts';
 import { CodexLaunchError, codexAppServerConfig, codexPermissionOf, MCP_TOKEN_ENV, planCodex } from './launcher.ts';
@@ -68,8 +69,9 @@ describe('TUI の argv と環境', () => {
     expect(p.env).toEqual({});
     expect(p.unset).toEqual(expect.arrayContaining(['HANGAR_X', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME']));
   });
-  it('再開とフォークはまだ受けない（B3b）', () => {
-    expect(() => planCodex('/bin/codex', { kind: 'resume', id: 'a' }, spec(), remote, [])).toThrow(/cannot resume/);
-    expect(() => planCodex('/bin/codex', { kind: 'fork', id: 'a', newId: 'b' }, spec(), remote, [])).toThrow(/cannot fork/);
+  it('再開は resume <ID>、フォークは新しい ID を resume でつなぐ。ID の無い（pending:）ものは、分かる断りにする', () => {
+    expect(planCodex('/bin/codex', { kind: 'resume', id: 'a' }, spec(), remote, []).argv.slice(-2)).toEqual(['resume', 'a']);
+    expect(planCodex('/bin/codex', { kind: 'fork', id: 'a', newId: 'b' }, spec(), remote, []).argv.slice(-2)).toEqual(['resume', 'b']);
+    expect(() => planCodex('/bin/codex', { kind: 'resume', id: 'pending:x' }, spec(), remote, [])).toThrow(MessageError);
   });
 });
