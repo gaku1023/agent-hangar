@@ -89,7 +89,7 @@ describe('IdleUnloadWatch', () => {
     expect(x.told).toHaveLength(1);
   });
 
-  it('0 分（無制限）なら外さない', async () => {
+  it('0 分（しない）なら外さない', async () => {
     seed([{ instanceId: 'qwen', sessions: ['h1'] }]);
     const x = watch({ minutes: 0 });
     await x.w.tick();

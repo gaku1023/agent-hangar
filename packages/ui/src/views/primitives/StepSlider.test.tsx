@@ -6,7 +6,7 @@ const stops = [
   { value: 1, label: '1 分', tick: '1 分' },
   { value: 5, label: '5 分（推奨）', tick: '5 分' },
   { value: 60, label: '1 時間', tick: '1 時間' },
-  { value: 0, label: '無制限', tick: '無制限' },
+  { value: 0, label: 'しない', tick: 'しない' },
 ];
 
 describe('StepSlider', () => {
@@ -17,9 +17,9 @@ describe('StepSlider', () => {
     expect(k).toHaveAttribute('aria-valuenow', '1');
   });
 
-  it('目盛りの下に短い名前を並べ、1 時間と無制限の名前も出す', () => {
+  it('目盛りの下に短い名前を並べ、1 時間としないの名前も出す', () => {
     render(<StepSlider label="x" stops={stops} value={1} onChange={() => {}} />);
-    for (const t of ['1 分', '5 分', '1 時間', '無制限']) expect(screen.getByText(t)).toBeInTheDocument();
+    for (const t of ['1 分', '5 分', '1 時間', 'しない']) expect(screen.getByText(t)).toBeInTheDocument();
   });
 
   it('矢印キーでその場に onChange を呼び、端では動かない', () => {

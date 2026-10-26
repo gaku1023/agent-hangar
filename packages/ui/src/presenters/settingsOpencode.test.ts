@@ -118,14 +118,14 @@ describe('設定の opencode の面', () => {
 });
 
 describe('設定の opencode の面の使っていないモデルのアンロード', () => {
-  it('目盛りは 1、3、5（推奨）、10、15、30 分、1 時間、無制限の順。項目が無いか形が違えば 5 分', () => {
+  it('目盛りは 1、3、5（推奨）、10、15、30 分、1 時間、しないの順。項目が無いか形が違えば 5 分', () => {
     const p = present(store({ opencodeEnabled: true })).idleUnload;
     expect(p.value).toBe(5);
     expect(p.stops.map((s) => s.value)).toEqual([1, 3, 5, 10, 15, 30, 60, 0]);
-    expect(p.stops.map((s) => s.tick)).toEqual(['1 分', '3 分', '5 分', '10 分', '15 分', '30 分', '1 時間', '無制限']);
+    expect(p.stops.map((s) => s.tick)).toEqual(['1 分', '3 分', '5 分', '10 分', '15 分', '30 分', '1 時間', 'しない']);
     expect(p.stops.find((s) => s.value === 5)!.label).toBe('5 分（推奨）');
     expect(p.stops.find((s) => s.value === 60)!.label).toBe('1 時間');
-    expect(p.stops.find((s) => s.value === 0)!.label).toBe('無制限');
+    expect(p.stops.find((s) => s.value === 0)!.label).toBe('しない');
     expect(present(store({ opencodeIdleUnload: 0 })).idleUnload.value).toBe(0);
     expect(present(store({ opencodeIdleUnload: 7 })).idleUnload.value).toBe(5);
   });

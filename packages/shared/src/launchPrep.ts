@@ -86,7 +86,7 @@ export const localContextOf = (s: { opencodeLocalContext?: number }): number => 
 
 /** 使っていないローカルのモデルを外すまでの分の既定（設定の opencodeIdleUnload）。 */
 export const DEFAULT_IDLE_UNLOAD = 5;
-/** 設定で選べる分。0 は外さない（無制限）で、スライダーの右端に置く。 */
+/** 設定で選べる分。0 は外さない（しない）で、スライダーの右端に置く。 */
 export const IDLE_UNLOAD_CHOICES = [1, 3, 5, 10, 15, 30, 60, 0] as const;
 export const isIdleUnload = (v: unknown): v is number => typeof v === 'number' && (IDLE_UNLOAD_CHOICES as readonly number[]).includes(v);
 /** 設定の分。項目が無いか形が違えば既定。 */
