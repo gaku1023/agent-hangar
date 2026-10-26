@@ -18,13 +18,13 @@ beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-')); fs.mkdir
 afterEach(() => { db.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 describe('枠だけの対象', () => {
-  it('v0.12.0 の統合のあとは、枠だけの対象は無い（全部本物）。settings: の鍵の持ち主は変わらない', () => {
+  it('v0.12.0 の統合のあとは、枠だけの対象は無い（全部本物）。settings:hooks の持ち主は claude のまま（hooks は claude-hooks:hooks）', () => {
     expect(allTargets().filter((t) => t.placeholder).map((t) => t.name)).toEqual([]);
-    expect(targetNameOfId('settings:hooks')).toBe('claude-hooks');
+    expect(targetNameOfId('settings:hooks')).toBe('claude');
   });
   it('項目を集めると、束の targets は有効な対象だけになる', () => {
     fs.writeFileSync(path.join(tmp, 'claude', 'CLAUDE.md'), 'x');
-    expect(collectAll(ctx()).items.map((i) => i.id)).toContain('CLAUDE.md');
+    expect(collectAll(ctx()).items.map((i) => i.id)).toContain('file:CLAUDE.md');
     expect(enabledTargetNames(ctx())).toContain('claude');
   });
   it('codex と opencode は、その PC で有効でなければ入にしても切', () => {
