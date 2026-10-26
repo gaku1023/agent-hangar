@@ -625,6 +625,15 @@ update session_stats set last_turn_ts = (select max(e.ts) from event_index e
 `;
 
 /**
+ * 本文の索引（transcript_files）に、どのエージェントの本文かを持たせる列（版 37）。
+ * 索引が複数のファイル型のエージェントを受けるので、置き場から消えた本文の片付けや読み手の選び分けが、エージェントごとにできるようにする。
+ * 今ある行はすべて Claude Code の本文である（ファイル型は Claude だけだった）。端末ローカルの表で、同期しない。
+ */
+const V37_TRANSCRIPT_FILES_AGENT_SQL = `
+alter table transcript_files add column agent text not null default 'claude-code';
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -651,4 +660,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 34, sql: V34_ARTIFACT_ALIASES_SQL },
   { version: 35, sql: V35_AGENT_EVENTS_SQL },
   { version: 36, sql: V36_LAST_TURN_TS_SQL },
+  { version: 37, sql: V37_TRANSCRIPT_FILES_AGENT_SQL },
 ];

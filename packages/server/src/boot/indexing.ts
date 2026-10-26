@@ -64,16 +64,17 @@ export function bootIndexing(
   const indexer = new IndexerService({
     db, deviceId,
     contextSizeOf: (model) => contextSize?.(model) ?? null,
-    // 本文の発見と見張りは Claude の driver のトランスクリプトの面が受け持つ。他端末から降ろした本文も、そこが見つける。
-    transcript: delivery.claude.transcript,
+    // ファイル型の本文の発見と見張りは、各 driver のトランスクリプトの面が受け持つ（いまは Claude だけ。Codex は driver ができたらここへ足す）。他端末から降ろした本文も、Claude の面が見つける。
+    transcripts: [delivery.claude.transcript],
     // opencode（ベータ）の本文は serve の API から読んで束で押し込む。hangar が起こした会話だけを読むので、設定が切なら何も読まない。
     // ほかの PC の opencode の会話は、降ろした export の写しから読む（設定に依らず閲覧できる）。
     stored: [delivery.opencode.transcript, remoteOpencode],
-    isRunning: (id) => live.current().some((l) => l.sessionId === id),
+    // 実行中の一覧の agent は Claude のとき省かれている。ID が別のエージェントと重ならないよう、agent も合わせる。
+    isRunning: (id, agent) => live.current().some((l) => l.sessionId === id && (agent === undefined || (l.agent ?? 'claude-code') === agent)),
     // 譲ったセッションは相手が持ち主なので見ない。
     isYielded: (uuid) => sync.syncState.isYielded(uuid),
     // 実行中のセッションの本文は、通知に頼らず 2 秒ごとにも見る。Windows では開いたままの追記で通知が遅れうる。
-    liveSessions: () => live.current().map((l) => ({ sessionId: l.sessionId, cwd: l.cwd })),
+    liveSessions: () => live.current().map((l) => ({ sessionId: l.sessionId, cwd: l.cwd, agent: l.agent ?? 'claude-code' })),
     // 状態を外すのは resume した後の発言だけである。発言を出したプロセスの起動時刻を、登録と runs から引く。
     processStartOf: (q) => processStartOfPrompt(db, deviceId, live.current(), q),
   });

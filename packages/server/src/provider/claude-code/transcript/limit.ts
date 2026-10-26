@@ -1,11 +1,8 @@
 import { limitKindOf, type LimitKind, type TranscriptEvent } from '@agent-hangar/shared';
 
-/**
- * 使用制限で止まっていること。本文の合成の assistant 行から読み、索引が session_limits に残す（畳むのは batch.ts の fold、書くのは indexer/write.ts）。
- * resetsAt はリセットの時刻（ミリ秒）、hitAt は当たった時刻（行の時刻、ミリ秒）。
- * auto は、Claude Code が「リセットされたら自動で続ける」と本文に書いたこと。
- */
-export type Limit = { kind: LimitKind; resetsAt: number; auto: boolean; hitAt: number };
+// Limit は agent/types.ts にある。ここからも引けるようにしておく。
+export type { Limit } from '../../../agent/types.ts';
+import type { Limit } from '../../../agent/types.ts';
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
