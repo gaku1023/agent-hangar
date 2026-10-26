@@ -312,3 +312,23 @@ describe('LaunchChips のエージェント（opencode、ベータ）', () => {
     expect(face().querySelector('.agent-icon')?.getAttribute('data-agent')).toBe('opencode');
   });
 });
+
+describe('LaunchChips の Codex のモデル', () => {
+  const model = (id: string, label: string) => ({ id, label, description: `${label} の説明`, efforts: [], defaultEffort: null });
+  const MODELS = [model('gpt-6.1-sol', 'GPT-6.1-Sol'), model('gpt-6-luna', 'GPT-6-Luna'), model('gpt-5.6-sol', 'GPT-5.6-Sol'), model('gpt-5.6-luna', 'GPT-5.6-Luna')];
+  const mount = (value = '') => render(
+    <LanguageRoot language="ja">
+      <LaunchChips values={BASE} onChange={() => {}}
+        codex={{ model: value, models: MODELS, onModel: () => {}, effort: 'medium', efforts: [], onEffort: () => {}, permission: 'auto', onPermission: () => {} }} />
+    </LanguageRoot>,
+  );
+  it('古い世代を「過去のモデル」に畳み、面は見出しを残して中身を送る', () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: /^モデル、/ }));
+    const pop = screen.getByRole('dialog', { name: 'モデル' });
+    expect(within(pop).getAllByRole('option').map((o) => o.querySelector('.pick-label')?.textContent)).toEqual(['デフォルト', 'GPT-6.1-Sol', 'GPT-6-Luna']);
+    expect(pop.querySelector('.pick-scroll')).toContainElement(within(pop).getByRole('listbox'));
+    fireEvent.click(within(pop).getByRole('button', { name: '過去のモデル' }));
+    expect(within(pop).getByRole('option', { name: /GPT-5\.6-Luna/ })).toBeInTheDocument();
+  });
+});

@@ -34,6 +34,7 @@ export const launchJa: AreaDictionary<typeof launchKeys> = {
   'launch.agent.codexVerified': 'codex {version} · 検証済み',
   'launch.chip.codexPermission': '権限',
   'launch.chip.reasoning': '推論',
+  'launch.codex.olderModels': '過去のモデル',
   'launch.agent.opencodeVerified': 'opencode {version} · 検証済み',
   'launch.agent.opencodeUnverified': 'opencode {version} · 未検証',
   'launch.chip.mode': 'モード',

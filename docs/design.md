@@ -1900,6 +1900,11 @@ app-server の `model/list` は使わない。app-server を起こすのは重�
 応答には手元の codex の版と、確かめた範囲に入るかを添える（エージェントの一覧の「codex 0.164.0 · 検証済み」）。
 画面の取得は Codex を選んだときに 1 回頼む（`codex.options`、Store の `codexOptions`）。
 
+**モデルの一覧の形**：モデルの札の小窓は、上にデフォルトといまの世代を並べ、古い世代を「過去のモデル」に畳んで下に置く（`views/codexModelGroups.ts` の `splitCodexModels`、`PickList` の `more`）。
+`debug models` は世代を返さないので、slug の頭の版（`gpt-6.1-sol` の 6）で分ける。いちばん新しい版より古い gpt を畳む側に入れ、版の読めない名前は上に残す。並びは priority の順のまま。
+はじめは畳み、選んでいるモデルが畳む側にあるときだけ開いておく。開き閉じは FoldBox（growIn、collapseOut）で動く。
+札から開く小窓（`LaunchChips` の `ChipPopover`）は、どれも高さを開く側の空きまでに抑え（`Popover` の `bounded`、`fitHeight`）、見出しを残して中身を送る。一覧が窓の上端からはみ出さないためである。
+
 **推論の戻し**：推論の初めの値は medium。選べる段階はモデルごとの一覧で決まる（モデルがデフォルトのときは、一覧の先頭のモデルの段階を使う）。
 モデルを替えて、いまの推論がそのモデルで選べなくなったら、その場で medium に戻す。medium も無いモデルは、そのモデルの既定の段階にする。
 前回のモデルが一覧から消えていたらデフォルトに戻す（opencode のような知らせは出さない）。一覧が届く前は、前回の値をそのまま見せる。（`presenters/codexLaunch.ts`）

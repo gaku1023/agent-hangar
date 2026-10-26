@@ -270,6 +270,8 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 /* 札から開く小さい面。余白は一覧が持つので、面の余白は詰める。 */
 .launch-pop { padding: calc(var(--u) * 1.5); gap: 0; }
 .pick-head { padding: calc(var(--u) * 1) calc(var(--u) * 2.5) calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+/* 面の高さが空きで抑えられたとき（Popover の bounded）、見出しを残して中身だけを送る。 */
+.pick-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 /* opencode のモデルの小窓（OpencodeModelPicker、試作 model-picker.html の W1・L2・D1）。面は .menu-pop と .launch-pop をそのまま使う。
    行は札だけの簡潔な形で、右端に値段。費用の型の札は状態の色のトークンを借りる（ローカルは上限の青、無料は Done の緑、従量は Paused の茶、定額は候補の紫）。
    開くと面は listbox-in で現れ、行は staggerIn で浮き上がる。まとまりの開き閉じは FoldBox（growIn、collapseOut）で、矢印は --dur で回る。 */
@@ -372,6 +374,8 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .pick-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .pick-text > .pick-label { white-space: nowrap; }
 .pick-sub { font-size: var(--fs-xs); font-weight: 400; line-height: 1.45; color: var(--ink-3); }
+/* 説明を 1 行で省略する一覧（Codex のモデル。行を詰めて多く見せる）。全文は行の title で読める。 */
+.pick-clip .pick-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-li[aria-selected='true'] .pick-sub { color: color-mix(in srgb, var(--accent) 70%, var(--ink-3)); }
 .pick-li[aria-selected='true'] { background: var(--accent-soft); color: var(--accent); }
 .pick-li[aria-selected='true'] > .icon, .pick-li[aria-selected='true'] > .effort-bars { color: var(--accent); }
@@ -382,6 +386,14 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .pick-li[aria-disabled='true'] > :not(.pick-end), .pick-li[aria-disabled='true'] .pick-label { opacity: 0.55; }
 .pick-li > .st-dot { justify-self: center; }
 .pick-sep { height: 1px; margin: 5px calc(var(--u) * 1.5); background: var(--line-strong); }
+/* 一覧の下に畳む行の見出し（PickList の more、Codex の過去のモデル）。行と同じ高さで、矢印は開くと下を向く。開き閉じは FoldBox が動かす。 */
+.pick-more { display: flex; align-items: center; gap: calc(var(--u) * 1.5); width: 100%; height: 30px; margin-top: 2px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: 8px; background: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); text-align: left; cursor: pointer; }
+.pick-more > .icon { width: 12px; height: 12px; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.pick-more[aria-expanded='false'] > .icon { transform: rotate(-90deg); }
+.pick-more:hover { background: rgba(255, 255, 255, 0.92); }
+.pick-list:focus .pick-more[data-active='true'] { box-shadow: inset 0 0 0 1px var(--accent); }
+.pick-more-n { margin-left: auto; font-weight: 400; color: var(--ink-3); }
+.pick-more-group { display: flex; flex-direction: column; gap: 1px; }
 
 /* 作成のダイアログの、未登録のフォルダの一覧。開いたままの Listbox の面と同じ見た目にする。 */
 .new-project-dirs { display: flex; flex-direction: column; max-height: 232px; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 0 0 1px var(--line); }
