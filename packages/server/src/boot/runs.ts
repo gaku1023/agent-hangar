@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { codexInjectionOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -148,8 +148,8 @@ export function bootRuns(
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
     language: home.language,
-    // 足す段の入り切り（設定の askStatusAtEnd と liveHints）と、opencode に足す量（opencodeInjection）。起動のたびに今の設定を読む。
-    injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false, opencode: opencodeInjectionOf(settings.current) }),
+    // 足す段の入り切り（設定の askStatusAtEnd と liveHints）と、opencode と Codex に足す量（opencodeInjection、codexInjection）。起動のたびに今の設定を読む。
+    injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false, opencode: opencodeInjectionOf(settings.current), codex: codexInjectionOf(settings.current) }),
     // opencode（ベータ）は設定で有効にしたときだけ起こす。場所は起こすたびに探す（PATH、~/.opencode/bin、既知の置き場）。
     agentEnabled: (kind) => AGENT_ENTRY[kind].enabled(settings.current),
     // 外のターミナルの opencode（シェルの包み）を受けるか。包みの本体を書き直す前に開いていたターミナルからの頼みも、ここで断る。

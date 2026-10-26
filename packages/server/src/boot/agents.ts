@@ -10,6 +10,8 @@ import { claudeLiveSource, createClaudeDriver, type ClaudeDriver, type ClaudeLiv
 import { realProcOpsWith, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { claudeTranscriptSource, type ClaudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import type { GetLanguage } from '../i18n/language.ts';
+import { createCodexDriver, type CodexDriver } from '../provider/codex/driver.ts';
+import { findCodex } from '../config/tools.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
 import { permissionPresetFor } from '../provider/opencode/permissionPreset.ts';
@@ -34,6 +36,11 @@ export type AgentParts = {
   /** opencode（ベータ）の driver。起こすかどうかは設定（opencodeEnabled）で RunManager が決める。 */
   opencode: OpencodeDriver;
   /**
+   * Codex（ベータ）の driver。起動の面だけを持ち（状態、許可・質問、トランスクリプトの面は空）、起こすかどうかは設定（codexEnabled）で RunManager が決める。
+   * 配る層（LiveHub、索引）にはまだ載せない。載せるのは段 B の後続（B4、B5）である。
+   */
+  codex: CodexDriver;
+  /**
    * opencode の serve の管理（boot/opencode.ts）を driver に渡す。
    * serve の管理は、前の hangar が残した serve の掃除を待ち受けの後に始めるので、配る層より後で組む。それまでの起動は断る。
    */
@@ -41,7 +48,7 @@ export type AgentParts = {
 };
 
 /**
- * エージェントの driver を組む。Claude と opencode（ベータ）である。
+ * エージェントの driver を組む。Claude と、ベータの opencode と Codex である。
  *
  * driver は状態の面（実行中の一覧の写し）を持ち、写しは配る層より前から要る（publisher、索引、同期が読む）。
  * だから run の管理（runs/manager.ts）の中ではなく、配る層を組むときにここで組み、run の管理には出来たものを渡す。
@@ -86,7 +93,14 @@ export function bootAgents(
       report: (providerId, reason) => { console.warn(`[opencode] stop command for ${providerId} failed: ${reason}`); },
     }),
   });
-  return { agents: agentsOf([claude, opencode]), claude, opencode, bindOpencodeServes: (s) => { serves = s; } };
+  const codex = createCodexDriver({
+    // 場所は起こすたびに探す（PATH）。ChatGPT.app の同梱は使わない。
+    bin: () => findCodex(),
+    home: home.home,
+    // TUI へは CLAUDE 系と hangar の変数を持ち込まない（app-server の環境は provider/codex/env.ts が空から組む）。
+    droppedEnv: AGENT_RUN_DROPPED_ENV,
+  });
+  return { agents: agentsOf([claude, opencode, codex]), claude, opencode, codex, bindOpencodeServes: (s) => { serves = s; } };
 }
 
 /**
