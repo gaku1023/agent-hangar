@@ -1841,7 +1841,10 @@ RunManager は包みの生死で TUI の終わりを見て、終わったら `re
 - hangar の外で作られた会話（索引の provider が codex の行）も同じ道で再開する。終わった画面の「再開」（`resumeWith`、`resumeMaterialized`）は、driver が `materialize` を持つのでこの道を通る。
 - 最初の入力の前のスレッド（rollout が無い）は再開できない。app-server の `-32600 no rollout found` と、ID が仮のまま（`pending:`）の行を、どちらも `run.agent.codex.noRollout` で断る（行は消さず、app-server も残さない）。
 - フォーク：app-server に `thread/fork` があり、driver は `materialize` で新しいスレッドを作ってその ID を返し、`plan` は `fork` の `newId` を `resume` でつなぐ。
-  ただし `caps.fork` は偽のままにする。`RunManager.fork` は新しい ID を先に決めて同期で起こす作りで、ID を後から受ける driver 向けの入口がまだ無いためである。入口は、行を仮の ID で作ってから `materialize` を待つ形（`startMaterialized` と同じ）を足してから開ける。
+  `caps.fork` は真で、`RunManager.fork`（B3c）は、`materialize` を持つ driver だけ別の道（`forkMaterialized`）を通る。Claude と opencode の道は変えない。
+  新しい会話の ID はまだ無いので、`startMaterialized` と同じく仮の ID（`pending:…`）で新しい行を作り（プロジェクトと移した印は元から写す）、`materialize`（`kind: 'fork'`）を待って ID を書き換え、`plan` の `resume <新しい ID>` でつなぐ。run の種類は `fork` である。
+  元の会話の行と run は変えない。rollout の無い会話は `run.agent.codex.noRollout` で断り、新しい行も app-server も残さない。
+  応答が非同期になるので、`runResult` は Promise を返す関数も待つ（Claude と opencode は同期のまま）。
 
 **plan**（`launcher.ts` の `planCodex`）は TUI の argv と環境を返す。
 `codex --remote ws://127.0.0.1:<port> --remote-auth-token-env HANGAR_CODEX_TOKEN [-m モデル] [-c model_reasoning_effort=…] -s … -a … [resume <ID>]` である。

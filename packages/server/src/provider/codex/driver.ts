@@ -303,8 +303,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
 
   return {
     kind: 'codex',
-    // アカウントは効かせない（決定 9）。推論と権限の 3 段は持つ。フォークは driver が thread/fork まで持つが、RunManager の入口が ID を先に決める作りなので caps.fork は偽のまま（B3b の申し送り）。外の会話の引き取りは E 段。
-    caps: { accounts: false, effort: true, permissionMode: true, remoteControl: false, fork: false, attachExternal: false, promptJump: false },
+    // アカウントは効かせない（決定 9）。推論と権限の 3 段は持つ。フォークは driver が thread/fork まで持ち、RunManager.fork の materialize の道（B3c）で受ける。外の会話の引き取りは E 段。
+    caps: { accounts: false, effort: true, permissionMode: true, remoteControl: false, fork: true, attachExternal: false, promptJump: false },
     launch: {
       // TUI は hangar が起こした app-server につなぐ。run の pid は TUI の包みで、RunManager は包みの生死で TUI の終わりを見る。
       servedByHangar: true,

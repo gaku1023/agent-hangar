@@ -185,7 +185,7 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     // prepKey は起動前の準備の進みの鍵（opencode の接続先の準備）。形の違うものは捨てる（hangar が鍵を作る）。
     return runResultAsync(c, language, () => deps.runs.resumeWith(c.req.param('id'), { ...(stray ? { stray } : {}), ...(isLaunchPrepKey(prepKey) ? { prepKey } : {}) }), 201);
   });
-  api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); return runResult(c, language, () => deps.runs.fork(c.req.param('id')), 201); });
+  api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); const id = c.req.param('id'); if (deps.runs.forksMaterialized(id)) return runResultAsync(c, language, () => deps.runs.forkMaterialized(id), 201); return runResult(c, language, () => deps.runs.fork(id), 201); });
   // バックグラウンドのサービスが持つセッションに、hangar の tmux からつなぐ。本文はその claude が書くので、他端末の取り込みは待たない。
   api.post('/sessions/:id/attach', (c) => runResult(c, language, () => deps.runs.attach(c.req.param('id')), 201));
   // hangar の外のターミナルで動く claude を止め、バックグラウンドに移してからつなぐ。
