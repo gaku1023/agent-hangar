@@ -255,6 +255,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     findMux: () => null,
     compat: async () => ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] }),
     opencodeStatus: async () => ({ found: false, version: null, verified: false }),
+    codexStatus: async () => ({ found: false, version: null, verified: false, loggedIn: false }),
     opencodeOptions: async () => ({ version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }, { id: 'plan', description: null }], models: [], providers: [], defaultModel: null, pricesAt: null, fetchedAt: 0, stale: false }),
     opencodeProviders: fakeOpencodeProviders(),
     uiDist: null,

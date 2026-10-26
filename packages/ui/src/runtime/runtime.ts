@@ -1,9 +1,10 @@
-import { formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
+import { CODEX_VERSION_SEEN_KEY, readCodexVersionSeen } from '../mediator/codexVersion.ts';
 import { OPENCODE_VERSION_SEEN_KEY, readOpencodeVersionSeen } from '../mediator/opencodeVersion.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { cleanSidebarFolded, cleanSidebarOrder, cleanSidebarWidth, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_WIDTH_KEY } from '../mediator/sidebar.ts';
@@ -283,6 +284,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (!opencodeEnabledOf(store.settings ?? {})) return;
     deps.api.opencodeStatus().then((o) => setStore({ ...store, opencodeStatus: o })).catch(() => undefined);
   };
+  /** Codex（ベータ）の検出。opencode と同じ決まりで、有効にしている間だけ、起動のたびと、有効にしたときに取る。 */
+  const loadCodexStatus = () => {
+    if (!codexEnabledOf(store.settings ?? {})) return;
+    deps.api.codexStatus().then((o) => setStore({ ...store, codexStatus: o })).catch(() => undefined);
+  };
   const loadSetupGuide = () => {
     deps.api.setupGuide().then((g) => setStore({ ...store, setupGuide: g })).catch(() => setStore({ ...store, setupGuide: null }));
   };
@@ -467,6 +473,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           loadReadiness();
           loadSetupGuide();
           loadOpencodeStatus();
+          loadCodexStatus();
         }).catch(fail);
         return;
       case 'api.loadEvents': {
@@ -812,6 +819,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
         // opencode の検出（ベータ）。取れなくても設定の面の版の行が「読み込み中…」のままになるだけなので、知らせは出さない。
         deps.api.opencodeStatus().then((o) => setStore({ ...store, opencodeStatus: o })).catch(() => undefined);
+        deps.api.codexStatus().then((o) => setStore({ ...store, codexStatus: o })).catch(() => undefined);
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
         // アカウントの認証は、この呼び出しで読まれる（節に出るメールとプラン）。
@@ -999,6 +1007,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
       // opencode を有効にしたら、その場で版を読む（未検証なら右下の札を出す）。
       if (input.event.type === 'settings.changed' && input.event.keys.includes('opencodeEnabled')) loadOpencodeStatus();
+      if (input.event.type === 'settings.changed' && input.event.keys.includes('codexEnabled')) loadCodexStatus();
       if (input.event.type === 'run.ended' && state.screen.name === 'session' && state.screen.id === input.event.run.sessionId) loadFiles(input.event.run.sessionId);
       // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
       if (state.screen.name === 'home') {
@@ -1053,6 +1062,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         noticesRead: readNoticesRead(deps.storage.get(NOTICES_READ_KEY)),
         // 未検証の opencode の版の札を閉じた版。同じ版では開き直しても出さない。
         opencodeVersionSeen: readOpencodeVersionSeen(deps.storage.get(OPENCODE_VERSION_SEEN_KEY)),
+        codexVersionSeen: readCodexVersionSeen(deps.storage.get(CODEX_VERSION_SEEN_KEY)),
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };

@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf } from '@agent-hangar/shared';
+import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -66,6 +66,51 @@ export function opencodeVersionKind(s: OpencodeStatusDto): OpencodeVersionKind {
   if (s.version === null) return 'unknown';
   if (s.verified) return 'verified';
   return /^1\./.test(s.version) ? 'legacy' : 'unverified';
+}
+
+/** 設定の「連携 › Codex」の版の区分。見つかった版が範囲の中か外か、読めないか、見つからない。 */
+export type CodexVersionKind = 'verified' | 'unverified' | 'unknown' | 'missing';
+
+/**
+ * 設定の「連携 › Codex」の面（ベータ、C4 の案 A）。opencode の面と同じ形で、別の面に置く。
+ * enabled のときだけ、版・横取り・追記の行を出す（切のままなら「有効にする」の 1 行だけ）。
+ * version.login はログインしていないときだけの注記で、版の行の下に添える。札（badge）はログインでは変えない。
+ * 追記の 3 択と横取りは、保存するだけである（シェルの包みと追記の中身は別の段）。
+ */
+export type CodexSettingsProps = {
+  enabled: boolean; injection: CodexInjection;
+  injectionOptions: { value: CodexInjection; label: string }[];
+  intercept: { available: boolean; on: boolean; note: string | null };
+  version: { kind: CodexVersionKind; installed: string | null; verified: string; note: string | null; login: string | null } | null;
+  badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null;
+};
+
+const CODEX_VERSION_TEXT = {
+  verified: { badge: 'settings.codex.badge.verified', tone: 'ok', note: null },
+  unverified: { badge: 'settings.codex.badge.unverified', tone: 'info', note: 'settings.codex.version.unverifiedNote' },
+  unknown: { badge: 'settings.codex.badge.unknown', tone: 'info', note: 'settings.codex.version.unknownNote' },
+  missing: { badge: 'settings.codex.badge.missing', tone: 'warn', note: 'settings.codex.version.missing' },
+} as const;
+const CODEX_INJECTION_KEY = { minimal: 'settings.codex.injection.minimal', claude: 'settings.codex.injection.claude', none: 'settings.codex.injection.none' } as const;
+
+/** Codex の検出の答えを区分に分ける。 */
+export function codexVersionKind(s: CodexStatusDto): CodexVersionKind {
+  if (!s.found) return 'missing';
+  if (s.version === null) return 'unknown';
+  return s.verified ? 'verified' : 'unverified';
+}
+
+function presentCodex(t: Translate, settings: { codexEnabled?: boolean; codexInjection?: CodexInjection; codexIntercept?: boolean }, status: CodexStatusDto | null, platform: string, shell: ShellHookStateDto | null): CodexSettingsProps {
+  const kind = status ? codexVersionKind(status) : null;
+  const text = kind ? CODEX_VERSION_TEXT[kind] : null;
+  return {
+    enabled: codexEnabledOf(settings),
+    injection: codexInjectionOf(settings),
+    injectionOptions: CODEX_INJECTIONS.map((value) => ({ value, label: t(CODEX_INJECTION_KEY[value]) })),
+    intercept: { available: platform !== 'win32', on: codexInterceptOf(settings), note: shell !== null && shell !== 'on' ? t('settings.codex.intercept.needsShell') : null },
+    version: status && kind && text ? { kind, installed: status.version, verified: CODEX_VERIFIED_RANGE, note: text.note ? t(text.note) : null, login: status.found && !status.loggedIn ? t('settings.codex.version.loggedOut') : null } : null,
+    badge: text ? { text: t(text.badge), tone: text.tone } : null,
+  };
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows ではコマンドの横取りの行だけを出さない。 */
@@ -256,6 +301,8 @@ export type SettingsProps = {
   todo: { must: number; link: number };
   /** Claude Code との互換の節（C2）。準備の確かめが届く前と、compat の無い古いサーバの答えでは null。 */
   compat: CompatProps | null;
+  /** 連携の「Codex」の面（ベータ）。opencode の面の下に置く。 */
+  codex: CodexSettingsProps;
   /** 連携の「opencode」の面（ベータ）。互換の節のすぐ下に置く。 */
   opencode: OpencodeSettingsProps;
   /** 連携の opencode の面の下の「プロバイダー」（ベータ）。opencode を有効にしたときだけ出す。 */
@@ -476,6 +523,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     compat: compatSummary ? presentCompat(t, compatSummary, store.compat, store.version) : null,
     opencode: presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null),
     opencodeProviders: presentOpencodeProviders(state, store),
+    codex: presentCodex(t, s ?? {}, store.codexStatus, platform, store.shellHook?.state ?? null),
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。

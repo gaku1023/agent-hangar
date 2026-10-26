@@ -15,4 +15,10 @@ export const toastsKeys = {
   'toasts.opencodeVersion.body': ['range'],
   'toasts.opencodeVersion.settings': [],
   'toasts.opencodeVersion.continue': [],
+  'toasts.codexVersion.head': [],
+  'toasts.codexVersion.who': ['version'],
+  'toasts.codexVersion.title': ['version'],
+  'toasts.codexVersion.body': ['range'],
+  'toasts.codexVersion.settings': [],
+  'toasts.codexVersion.continue': [],
 } as const satisfies MessageSpec;

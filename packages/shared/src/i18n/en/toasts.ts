@@ -16,4 +16,10 @@ export const toastsEn: AreaDictionary<typeof toastsKeys> = {
   'toasts.opencodeVersion.body': 'Verified: {range}. API changes may cause status and permission checks to display incorrectly.',
   'toasts.opencodeVersion.settings': 'Open Settings',
   'toasts.opencodeVersion.continue': 'Continue anyway',
+  'toasts.codexVersion.head': 'Unverified version',
+  'toasts.codexVersion.who': 'codex {version}',
+  'toasts.codexVersion.title': 'codex {version} is an unverified version',
+  'toasts.codexVersion.body': 'Verified: {range}. app-server changes may cause status and permission checks to display incorrectly.',
+  'toasts.codexVersion.settings': 'Open Settings',
+  'toasts.codexVersion.continue': 'Continue anyway',
 };
