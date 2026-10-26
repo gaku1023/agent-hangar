@@ -7227,7 +7227,7 @@ R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 75
 
 - **hangar のメタデータ**：共有テーブルの全行。PC が 1 行ずつ封じてから D1 の `rows` に置く。
 - **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip し、暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。opencode（ベータ）の会話は、`session export` で書き出した JSON を同じ道で上げる（下の「opencode の本文」）。
-- **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。本文と同じく暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 相対パス)>` で、相対パスは Worker に見えない。
+- **Claude Code のユーザー設定**：`~/.claude` の `CLAUDE.md`、`keybindings.json`、`skills/**`、`commands/**`、`agents/**`、`memory/**`、`settings.json` の運べる鍵、プロジェクトのメモリ（`projects/<slug>/memory/**`）。PC ごとに 1 つの束（tar を gzip したもの）にまとめ、本文と同じ鍵で暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 束のパス)>` で、束のパスは固定の `.hangar/config-bundle.hgr` である。束の索引は共有テーブルの `config_snapshots`（PC ごとに 1 行）が持ち、中身の項目の id と相対パスは Worker に見えない。運ぶ項目と運ばない項目の仕分けは「設定の同期の作り直し」の節にある。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
 スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）は共有テーブルではなく、PC どうしの同期には載らない（「スマホ（試験的）」）。
@@ -7236,15 +7236,21 @@ hangar 自体の設定（ワークスペースルート、ターミナルアプ�
 R2 は部分更新を持たないので、末尾だけを足す道が無いためである。
 同じ中身を二度上げないために、端末ローカルの `file_sync` に前回の指紋（平文の SHA-256）と大きさと更新時刻を残す。
 
-設定の同期で上げないものは、`node_modules` と `.git` と `__pycache__` と `.venv` の各段、シンボリックリンク、1MB を超えるファイル、`.DS_Store`、そして同期自身が作る `*.conflict-*` などの写しである。
+設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
 写しを対象に戻すと、競合のファイルが端末間で無限に増える。
-**削除は同期しない。**
-片方で消したファイルが、もう片方から消えることはない。
-ホームの絶対パスは `$HOME` ではなく `__HANGAR_HOME__` という目印に置き換えて上げ、降ろすときに各端末のホームへ戻す。
-`$HOME` をそのまま使うと、ホームの綴りが違う端末で指紋が揃わない。
-設定の同期は Settings で明示的に有効にしたときだけ動き、初めて取り込むときは下見の一覧を見せて確認を取る。
+`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
+ほかの PC のコマンドが自動で走る道にしないためである。
+ホームの絶対パスの置き換え（`__HANGAR_HOME__`）は行わない。
+絶対パスを含む権限の規則は、落として「送らなかったもの」に出し、利用者が選んだときだけ送る。
+消えたファイルは、手元、相手の束、前回の共通の 3 方向の判定で扱い、どの相手の束にも無くなった項目だけを消えたと見なす（「3 方向の判定」）。
+消した PC から送られるのは束だけで、相手の `~/.claude` を直接消すことはない。
+受け手がファイルを消すのは承諾を経て適用するときだけで、消すファイルの元の中身は世代の控えに残る。
+設定の同期は Settings で明示的に有効にしたときだけ動く。
+受け取った項目は hangar の置き場（`~/.agent-hangar/claude-config/inbox/`）に置くだけで、`~/.claude` に書くのは、見せて承諾を取ったあとの `hangar config apply` と殻の命令だけである（「承諾と適用の指示書」）。
 `~/.claude` を上書きする前には必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
 控えは 20 世代を残し、古いものから消す。
+端末ローカルの `file_sync`（本文の台帳）は設定の束には使わない。
+束は中身の指紋が前回と同じなら上げ直さない。
 
 互換の版 9 から、D1 と R2 に置くものはどれも PC どうしの間で暗号化する（E2E）。
 Worker と Cloudflare は、表名、行 ID、行の中身、ファイルのパス、PC の名前、セッションの題を読めない。
