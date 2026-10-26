@@ -1,7 +1,7 @@
 import type { Translate, UiAction } from '@agent-hangar/shared';
 import { runningSessionIds, type Store } from '../store/store.ts';
 import { cardPhase, phaseVersion, updateBusy, whatsNew, type UpdateFailReason, type UpdatePhase, type UpdateState } from '../store/update.ts';
-import { compareVersions, parseNote, type ReleaseNote } from '../lib/releaseNotes.ts';
+import { compareVersions, parseNote, releaseOf, type ReleaseNote } from '../lib/releaseNotes.ts';
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 
@@ -145,14 +145,18 @@ export function presentWhatsNew(store: Store): WhatsNewCardProps | null {
 function noteRows(t: Translate, u: UpdateState): UpdateNoteRow[] {
   const v = phaseVersion(u.phase);
   const found = v !== null && (u.current === null || compareVersions(v, u.current) > 0) ? foundNote(u, v) : null;
-  const open = new Set(u.notesOpen.length > 0 ? u.notesOpen : u.current !== null ? [u.current] : []);
+  // rc を使っていれば、その rc が目指す版のノートを使用中として扱う。
+  const inUse = u.current !== null ? releaseOf(u.current) : null;
+  const open = new Set(u.notesOpen.length > 0 ? u.notesOpen : inUse !== null ? [inUse] : []);
   const row = (n: ReleaseNote, tag: string | null, isOpen: boolean): UpdateNoteRow => ({
     version: n.version, tag, before: n.before, points: n.points, count: n.points.length > 0 ? t('update.notes.count', { n: n.points.length }) : null, open: isOpen, body: n.body,
   });
   const rows: UpdateNoteRow[] = found ? [row(found, t('update.notes.next'), true)] : [];
   for (const n of u.notes) {
-    if (u.current !== null && compareVersions(n.version, u.current) > 0) continue;
-    rows.push(row(n, n.version === u.current ? t('update.notes.inUse') : null, open.has(n.version)));
+    if (inUse !== null && compareVersions(n.version, inUse) > 0) continue;
+    // rc から正式版を見つけたときは、その版を新しいバージョンの行だけにする。
+    if (found !== null && n.version === found.version) continue;
+    rows.push(row(n, n.version === inUse ? t('update.notes.inUse') : null, open.has(n.version)));
   }
   return rows;
 }

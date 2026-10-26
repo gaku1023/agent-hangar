@@ -9,17 +9,45 @@ import { mdLeaves, parseMarkdown, type Block, type Inline } from '../presenters/
 export type ReleaseNote = { version: string; body: string; before: string | null; points: string[] };
 
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
+/** 動いている版の形。rc などのプレリリース（`0.11.0-rc.1`）も読む。ノートの名前は VERSION の形だけである。 */
+const ANY_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 /** 注意の節の見出し。0.7.0 は「上げる前に」、0.7.1 は「更新の前に（…）」、それより前は「… から上げる人へ（先にお読みください）」と書いた。 */
 const BEFORE_HEADING = /^(更新|上げる)の?前に|先にお読みください|必要がある人へ/;
 /** 見出しが文になっている節（「エディタを選べるようになりました」）は、見出しそのものが要点である。 */
 const SENTENCE_HEADING = /(ます|ました|ません)$/;
 
-/** 版を数として比べる。形の違う版は 0 として扱う。 */
+/**
+ * 版を semver の順序で比べる。プレリリースの付いた版は、付かない同じ数字の版より古い。形の違う版は 0.0.0 として扱う。
+ * 以前は x.y.z の形しか読まず、rc を入れていると 0.0.0 と比べて、設定の履歴から同梱のノートが全部外れていた。
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = VERSION.exec(a)?.slice(1).map(Number) ?? [0, 0, 0];
-  const pb = VERSION.exec(b)?.slice(1).map(Number) ?? [0, 0, 0];
+  const ma = ANY_VERSION.exec(a);
+  const mb = ANY_VERSION.exec(b);
+  const pa = ma?.slice(1, 4).map(Number) ?? [0, 0, 0];
+  const pb = mb?.slice(1, 4).map(Number) ?? [0, 0, 0];
   for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i]! - pb[i]!;
+  const xa = ma?.[4]?.split('.') ?? [];
+  const xb = mb?.[4]?.split('.') ?? [];
+  if (xa.length === 0 || xb.length === 0) return xb.length - xa.length;
+  for (let i = 0; i < Math.max(xa.length, xb.length); i++) {
+    const p = xa[i];
+    const q = xb[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    // 数字だけの識別子は数として比べ、文字を含む識別子より古い。
+    if (pn && qn) return Number(p) - Number(q);
+    if (pn !== qn) return pn ? -1 : 1;
+    return p < q ? -1 : 1;
+  }
   return 0;
+}
+
+/** rc などのプレリリースが目指す正式版（`0.11.0-rc.1` なら `0.11.0`）。rc の中身はその版のノートに書くので、ノートはこの版で引く。 */
+export function releaseOf(version: string): string {
+  return version.replace(/-.*$/, '');
 }
 
 /** 行の中の文字だけを 1 本にする。改行は、日本語どうしの間では詰め、英数字が並ぶ所では空白にする。 */
@@ -91,6 +119,9 @@ export function bundledNotes(files: Record<string, string>): ReleaseNote[] {
  * 前に見た版が無ければ（この仕組みが入って初めて開いた）、いまの版の分だけを返す。
  */
 export function notesBetween(notes: ReleaseNote[], seen: string | null, current: string): ReleaseNote[] {
-  if (seen === null) return notes.filter((n) => n.version === current);
-  return notes.filter((n) => compareVersions(n.version, seen) > 0 && compareVersions(n.version, current) <= 0);
+  // rc はその rc が目指す版として数える。rc で見たノートは、正式版に上げても見せ直さない。
+  const to = releaseOf(current);
+  if (seen === null) return notes.filter((n) => n.version === to);
+  const from = releaseOf(seen);
+  return notes.filter((n) => compareVersions(n.version, from) > 0 && compareVersions(n.version, to) <= 0);
 }
