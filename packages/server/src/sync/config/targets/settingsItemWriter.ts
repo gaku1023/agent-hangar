@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ConfigApplyOrderItemDto, ConfigExecMark, ConfigItemKind } from '@agent-hangar/shared';
-import { ApplyError, assertSafeTarget, changedError, editSettings, errText, fileOf, localFingerprint, pruneGenerations, rollback, takeGeneration, writeAtomic, type ApplyAct, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type SettingsEdit } from '../apply.ts';
+import { ApplyError, assertSafeTarget, changedError, editSettings, errText, fileOf, localFingerprint, pruneGenerations, rollback, takeGeneration, writeAtomic, type ApplyAct, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedOp, type PlanReader, type SettingsEdit, type WritePaths } from '../apply.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import { ConfigBase } from '../base.ts';
 import { parseItemId } from '../ids.ts';
@@ -93,20 +93,17 @@ export function planItems(o: { home: string }, specs: ReadonlyMap<string, ItemSp
 
 type FileOp = { rel: string; exec: boolean; data: Buffer | string };
 
-/** 書く。控えの世代を取れなければ何も書かない。失敗したら元へ戻す。指示書は消さない。 */
-export function writeItems(o: ApplyOptions, specs: ReadonlyMap<string, ItemSpec>): ApplyResult {
-  const now = o.now ? o.now() : Date.now();
-  const { items } = prepare(o.home, specs);
-  const keptMine = items.filter((p) => p.plan.act === 'keep').length;
+/** 項目から、ファイルごとの書き込みを作る。settings.json は read があればそれで読む（先に同じファイルを書く対象の分を含めて見せるため）。 */
+function buildItemOps(o: { claudeDir: string }, items: Prep[], read?: PlanReader): FileOp[] {
   const writes = items.filter((p) => p.plan.act !== 'keep');
-
   const ops: FileOp[] = [];
   for (const p of writes) for (const f of p.files) if (!ops.some((x) => x.rel === f.rel)) ops.push({ rel: f.rel, exec: f.exec, data: f.data });
   for (const op of ops) assertSafeTarget(o.claudeDir, op.rel);
   if (writes.length > 0) {
     assertSafeTarget(o.claudeDir, 'settings.json');
     let text: string | null = null;
-    try { text = fs.readFileSync(fileOf(o.claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
+    if (read) text = read(fileOf(o.claudeDir, 'settings.json'))?.toString('utf8') ?? null;
+    else try { text = fs.readFileSync(fileOf(o.claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
     let cur: Record<string, unknown> = {};
     if (text !== null) {
       let parsed: unknown;
@@ -120,6 +117,21 @@ export function writeItems(o: ApplyOptions, specs: ReadonlyMap<string, ItemSpec>
     });
     ops.push({ rel: 'settings.json', exec: false, data: editSettings(text, edits) });
   }
+  return ops;
+}
+
+/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+export function planItemOps(o: WritePaths, specs: ReadonlyMap<string, ItemSpec>, read?: PlanReader): PlannedOp[] {
+  const { items } = prepare(o.home, specs);
+  return buildItemOps(o, items, read).map((op) => ({ rel: op.rel, path: fileOf(o.claudeDir, op.rel), after: op.data }));
+}
+
+/** 書く。控えの世代を取れなければ何も書かない。失敗したら元へ戻す。指示書は消さない。 */
+export function writeItems(o: ApplyOptions, specs: ReadonlyMap<string, ItemSpec>): ApplyResult {
+  const now = o.now ? o.now() : Date.now();
+  const { items } = prepare(o.home, specs);
+  const keptMine = items.filter((p) => p.plan.act === 'keep').length;
+  const ops = buildItemOps(o, items);
   if (o.expect !== undefined && localFingerprint(o.claudeDir, ops.map((op) => op.rel)) !== o.expect) throw changedError();
 
   const done = (generation: string | null): ApplyResult => ({ generation, keptMine, written: ops.length, removed: 0, files: ops.map((op) => op.rel) });

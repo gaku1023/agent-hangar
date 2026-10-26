@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
   CONFIG_BUNDLE_MIN_WORKER_COMPAT, configBlobKey, isSafeKeyId,
-  type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto, type ConfigVcsDto,
+  type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto, type ConfigNoticeDto, type ConfigVcsDto,
   type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type ConfigUnsentKind, type FileMetaIn,
 } from '@agent-hangar/shared';
 import { diffLines } from '../../config/jsonTextEdit.ts';
@@ -15,16 +16,21 @@ import { msg, MessageError, type Message } from '../../i18n/message.ts';
 import { CloudError, type CloudClient } from '../client.ts';
 import type { RowKeyring } from '../sealedClient.ts';
 import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.ts';
-import { listBackups } from './backups.ts';
+import { listAllBackups } from './applyAll.ts';
 import { ConfigBase } from './base.ts';
 import { bundleTargetsOf, packBundle, unpackBundle, type BundleManifest, type BundleOs, type ManifestItem } from './bundle.ts';
 import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
 import { otherRefLabelTarget, parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
-import { collectAll, enabledTargetNames, targetOfId, type TargetContext } from './targets/index.ts';
+import { collectAll, enabledTargetNames, targetNameOfId, targetOfId, type TargetContext } from './targets/index.ts';
 import { defaultTargetPaths, type TargetPaths } from './targets/paths.ts';
 import { CLAUDE_TARGET_NAME } from './targets/claude.ts';
+import { CLAUDE_HOOKS_NAME, holdOfHooks } from './targets/claudeHooks.ts';
+import { CLAUDE_PLUGINS_NAME, holdOfPlugins } from './targets/claudePlugins.ts';
+import { HANGAR_TARGET_NAME, hangarTarget } from './targets/hangar.ts';
+import { hostOs, type HostOs } from './targets/hookCommands.ts';
+import { opencodeNotices } from './targets/opencode.ts';
 import { detectVcsCached } from './vcs.ts';
 import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
 
@@ -65,6 +71,9 @@ export type ConfigSyncDeps = {
   targetPaths?: Partial<TargetPaths>;
   /** hangar の settings.json のパス。省くと `<home>/settings.json`。 */
   hangarSettingsPath?: string;
+  /** 利用者のホームとこの PC の OS（届いたフックの保留の判定）。試験が差し替える。省くと os.homedir() と process.platform。 */
+  userHome?: string;
+  hostOs?: HostOs;
   now?: () => number;
   /** 取りに行って失敗した理由など、利用者に急ぎで見せないものの出し先。 */
   onError?: (message: string) => void;
@@ -72,7 +81,7 @@ export type ConfigSyncDeps = {
 
 /** 経路が status を付けて返す、利用者に見せる失敗。 */
 export class ConfigSyncError extends MessageError {
-  constructor(readonly status: 400 | 404, text: Message) { super(text); this.name = 'ConfigSyncError'; }
+  constructor(readonly status: 400 | 404 | 500, text: Message) { super(text); this.name = 'ConfigSyncError'; }
 }
 
 const HEAD_CHARS = 400;
@@ -344,7 +353,7 @@ export class ConfigSyncService {
       await this.send();
       const pending = this.workerPending();
       if (pending !== this.lastWorkerPending) { this.lastWorkerPending = pending; this.touch(); }
-      const applyState = `${fs.existsSync(applyOrderPath(this.deps.home))}:${listBackups(this.deps.home).length}`;
+      const applyState = `${fs.existsSync(applyOrderPath(this.deps.home))}:${listAllBackups(this.deps.home).length}`;
       if (this.lastApplyState !== null && applyState !== this.lastApplyState) this.touch();
       this.lastApplyState = applyState;
     } catch (e) {
@@ -398,9 +407,13 @@ export class ConfigSyncService {
       // 手元に同名のものがあるが運べない（リンク、大きすぎる、読めない、件数の上限）。「手元に無い」と見て create にすると、適用で手元を上書きする。
       if (held === null && isBlocked(blocked, action.id)) held = 'local-blocked';
       let head = '';
-      if (remoteItem) {
-        const blob = readInboxBlob(home, action.fromDeviceId, remoteItem.sha256);
-        if (blob && !blob.includes(0)) head = blob.toString('utf8').slice(0, HEAD_CHARS);
+      const blob = remoteItem ? readInboxBlob(home, action.fromDeviceId, remoteItem.sha256) : null;
+      if (blob && !blob.includes(0)) head = blob.toString('utf8').slice(0, HEAD_CHARS);
+      // フックとプラグインは、中身を見て書けないものを保留にする（適用でも断るが、選ばせる前に理由を見せる）。送り手の OS は束の目録の os。
+      if (held === null && blob && snap) {
+        const owner = targetNameOfId(action.id);
+        if (owner === CLAUDE_HOOKS_NAME) held = holdOfHooks(blob, { senderOs: snap.meta.os, os: this.deps.hostOs ?? hostOs(), userHome: this.deps.userHome ?? os.homedir(), id: action.id });
+        else if (owner === CLAUDE_PLUGINS_NAME) held = holdOfPlugins(action.id, blob);
       }
       out.push({
         action, kind: parsed.kind, label, target, held, head,
@@ -487,7 +500,28 @@ export class ConfigSyncService {
     }
     const order = writeApplyOrder(this.deps.home, this.deps.deviceId, items, this.now());
     this.touch();
-    return order;
+    return this.applyHangarPrefs(order);
+  }
+
+  /**
+   * hangar の好み（hangar:）は、サーバが自分の設定として書く（殻の承諾の窓は通さない）。
+   * 走っているサーバは設定を自分の入れ物に持つので、書くのはサーバの中で、setHangarPrefsApplier で登録した口（applySettingsPatch）を通す。
+   * 書けたら指示書から外し、残りを殻と hangar config apply に渡す。書けなければ指示書ごと消して断る（何も適用しない）。
+   */
+  private applyHangarPrefs(order: ConfigApplyOrderDto): ConfigApplyOrderDto {
+    const prefs = order.items.filter((i) => targetNameOfId(i.id) === HANGAR_TARGET_NAME);
+    if (prefs.length === 0) return order;
+    try {
+      hangarTarget.write({ home: this.deps.home, claudeDir: this.deps.claudeDir, db: this.deps.db, now: () => this.now() });
+    } catch (e) {
+      deleteApplyOrder(this.deps.home);
+      this.touch();
+      throw new ConfigSyncError(500, msg('configSync.error.prefsFailed', { message: e instanceof Error ? e.message : String(e) }));
+    }
+    const rest = order.items.filter((i) => targetNameOfId(i.id) !== HANGAR_TARGET_NAME);
+    this.touch();
+    if (rest.length === 0) { deleteApplyOrder(this.deps.home); return { ...order, items: [] }; }
+    return writeApplyOrder(this.deps.home, this.deps.deviceId, rest, this.now());
   }
 
   applyOrder(): ConfigApplyOrderDto | null { return readApplyOrder(this.deps.home); }
@@ -499,7 +533,8 @@ export class ConfigSyncService {
 
   // ---- 控えと状態 ----
 
-  backups(): ConfigBackupsDto { return { generations: listBackups(this.deps.home) }; }
+  /** 全部の対象の控えの世代。Claude 以外の世代は target を持つ。 */
+  backups(): ConfigBackupsDto { return { generations: listAllBackups(this.deps.home) }; }
 
   /** 入れ物ごとの検出（表示だけ）。失敗しても、同期にも dto にも響かせない。後の対象の入れ物はここに足す。 */
   private vcs(): ConfigVcsDto[] {
@@ -516,10 +551,19 @@ export class ConfigSyncService {
     return out;
   }
 
+  /** 入れ物ごとの知らせ（opencode の json と jsonc の併存）。表示だけで、失敗しても dto に響かせない。 */
+  private notices(): ConfigNoticeDto[] {
+    try {
+      const ctx = this.targetCtx();
+      return ctx.opencodeEnabled ? opencodeNotices(ctx.opencodeDir).map((n) => ({ target: 'opencode', code: n.code })) : [];
+    } catch { return []; }
+  }
+
   dto(): ConfigSyncDto {
     const r = this.resolved();
     const order = readApplyOrder(this.deps.home);
     const vcs = this.vcs();
+    const notices = this.notices();
     return {
       enabled: this.deps.switchedOn(),
       approval: this.deps.approval(),
@@ -528,11 +572,12 @@ export class ConfigSyncService {
       conflicts: r.filter((x) => x.action.op === 'conflict').length,
       held: r.filter((x) => x.held).length,
       unsent: this.unsentRows().length,
-      backups: listBackups(this.deps.home).length,
+      backups: listAllBackups(this.deps.home).length,
       applyOrder: order ? { count: order.items.length, createdAt: order.createdAt } : null,
       lastSentAt: this.ownRow()?.updated_at ?? null,
       // 印が無いときは欄ごと省く（古い版の読み手と、既存の形を変えない）。
       ...(vcs.length ? { vcs } : {}),
+      ...(notices.length ? { notices } : {}),
     };
   }
 }

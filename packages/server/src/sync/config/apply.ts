@@ -4,13 +4,16 @@ import path from 'node:path';
 import { isSafeRelPath, type RetentionPreviewLine, type ConfigApplyOrderItemDto, type ConfigExecMark, type ConfigInboxOp, type ConfigItemKind } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { diffLines } from '../../config/jsonTextEdit.ts';
-import { deleteApplyOrder, readApplyOrder } from './applyOrder.ts';
+import { readApplyOrder } from './applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from './backups.ts';
 import { ConfigBase } from './base.ts';
 import { otherRefLabelTarget, parseItemId, type ItemRef } from './ids.ts';
 import { readInbox, readInboxBlob } from './inbox.ts';
 import { applyOrderPath, configBackupsDir } from './paths.ts';
 import { isAbsolutePathRule, valueFits } from './settingsSort.ts';
+import type { HostOs } from './targets/hookCommands.ts';
+import { planApplyAll, planApplyAllFiles, runApplyAll } from './applyAll.ts';
+import { targetNameOfId } from './targets/index.ts';
 
 /**
  * 設定の同期の「適用」と「世代へ戻す」。`~/.claude` に書く唯一の場所である（全体計画の D9）。
@@ -30,7 +33,7 @@ import { isAbsolutePathRule, valueFits } from './settingsSort.ts';
 
 export type ApplyErrorCode =
   | 'no-order' | 'broken-order' | 'stale' | 'unsafe' | 'bad-content' | 'settings-unreadable' | 'write-failed'
-  | 'bad-name' | 'no-generation' | 'changed';
+  | 'bad-name' | 'no-generation' | 'changed' | 'unknown-target';
 
 /** 利用者に見せる失敗。message は日本語の 1 文で、そのまま端末や殻のダイアログに出す。 */
 export class ApplyError extends Error {
@@ -73,7 +76,7 @@ type Prepared = { item: ConfigApplyOrderItemDto; plan: ApplyPlanItem; ref: ItemR
 
 // ---- 指示書と inbox の突き合わせ ----
 
-function loadOrder(home: string) {
+export function loadOrder(home: string) {
   const order = readApplyOrder(home);
   if (order && order.items.length > 0) return order;
   if (order || !fs.existsSync(applyOrderPath(home))) throw new ApplyError('no-order', '適用内容がありません。Hangar の設定で、適用する項目を選んでください。');
@@ -100,6 +103,9 @@ function contentFits(key: string, v: unknown): boolean {
   return valueFits(key, v);
 }
 
+/** apply.ts の書き方（`~/.claude` のファイル、settings の鍵、メモリ）で書く対象。ほかの対象の項目は、ここでは見ない（各対象の write が書く）。 */
+const CLAUDE_WRITERS = new Set(['claude', 'claude-keys2']);
+
 function prepare(home: string): { createdAt: number; items: Prepared[] } {
   const order = loadOrder(home);
   const inbox = readInbox(home);
@@ -107,6 +113,8 @@ function prepare(home: string): { createdAt: number; items: Prepared[] } {
   const seen = new Set<string>();
   const items: Prepared[] = [];
   for (const item of order.items) {
+    // 持ち主の無い id は、対象が Claude だけだった頃と同じに claude として数え、下の parseItemId で断る。
+    if (!CLAUDE_WRITERS.has(targetNameOfId(item.id))) continue;
     const parsed = parseItemId(item.id);
     if (!parsed || seen.has(item.id)) throw new ApplyError('broken-order', '適用内容が壊れています（項目が重なっています）。Hangar の設定で、適用する項目を選び直してください。');
     seen.add(item.id);
@@ -141,8 +149,11 @@ function prepare(home: string): { createdAt: number; items: Prepared[] } {
   return { createdAt: order.createdAt, items };
 }
 
-/** 確認に出す見立て。何も書かない。指示書が適用できる状態でなければ ApplyError。 */
-export function planApply(o: { home: string }): ApplyPlan {
+/** 確認に出す見立て。何も書かない。指示書が適用できる状態でなければ ApplyError。全部の対象の項目を数える（applyAll.ts）。 */
+export function planApply(o: PlanPaths): ApplyPlan { return planApplyAll(o); }
+
+/** Claude の書き方で書く項目だけの見立て（対象 claude と claude-keys2 の planWrite）。 */
+export function planClaude(o: { home: string }): ApplyPlan {
   const { createdAt, items } = prepare(o.home);
   const counts = { create: 0, overwrite: 0, delete: 0, conflictRemote: 0, conflictMine: 0 };
   const byKind: Partial<Record<ConfigItemKind, number>> = {};
@@ -225,8 +236,8 @@ export function writeAtomic(file: string, data: Buffer | string, mode: number): 
 }
 
 /** 先の元の中身を新しい世代に控える。控えるものが無くても、作った印のために世代は作る。 */
-export function takeGeneration(o: { home: string; claudeDir: string; rels: string[]; baseIds: string[]; base: ConfigBase | null; now: number; kind: GenerationMeta['kind'] }): { name: string; dir: string } {
-  const root = configBackupsDir(o.home);
+export function takeGeneration(o: { home: string; claudeDir: string; rels: string[]; baseIds: string[]; base: ConfigBase | null; now: number; kind: GenerationMeta['kind']; backups?: string }): { name: string; dir: string } {
+  const root = o.backups ?? configBackupsDir(o.home);
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   let ts = o.now;
   let name = stampLabel(ts);
@@ -294,8 +305,8 @@ function putBack(claudeDir: string, dir: string, files: string[], meta: Generati
 }
 
 /** 古い世代を消して、新しい 20 個に保つ。時刻の名前でないもの（removed など）は触らない。 */
-export function pruneGenerations(home: string): void {
-  const root = configBackupsDir(home);
+export function pruneGenerations(home: string, backups?: string): void {
+  const root = backups ?? configBackupsDir(home);
   let names: string[];
   try { names = fs.readdirSync(root).filter((n) => STAMP_RE.test(n)).sort(); } catch { return; }
   for (const n of names.slice(0, Math.max(0, names.length - KEEP_GENERATIONS))) {
@@ -304,6 +315,12 @@ export function pruneGenerations(home: string): void {
 }
 
 export const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** 世代の中身を root へ戻し、世代を消す。基準は戻さない（呼び手が戻す）。複数の対象の適用の途中で失敗したとき、先に書いた対象を戻すのに使う。 */
+export function undoGeneration(root: string, dir: string): void {
+  putBack(root, dir, generationFiles(dir), readMeta(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 /** 世代へ戻す途中の失敗を、世代から元へ戻す。戻せなければ、世代を残して手で戻す手掛かりを返す。 */
 export function rollback(claudeDir: string, gen: { name: string; dir: string }, cause: unknown, what: string): ApplyError {
@@ -367,12 +384,38 @@ export type ApplyResult = {
   keptMine: number;
   /** 書いた、または消した先（設定の入れ物からの相対パス）。 */
   files: string[];
+  /** 対象ごとの控えの世代（複数の対象に書いたとき。applyAll.ts）。 */
+  generations?: { target: string; name: string }[];
 };
 
-export type ApplyOptions = {
+/**
+ * 書く先の入れ物。対象ごとの入れ物は、殻と CLI が渡す（省くと既定の場所。試験は必ず一時のディレクトリを渡す）。
+ * 各対象の write と planWrite は、これを受けて自分の入れ物だけを見る。
+ */
+export type WritePaths = {
   home: string;
   claudeDir: string;
+  /** `$CODEX_HOME`、既定 `~/.codex`。 */
+  codexHome?: string;
+  /** opencode の設定の置き場、既定 `~/.config/opencode`。 */
+  opencodeDir?: string;
+  /** 共通の skills の置き場、`~/.agents/skills`。 */
+  agentsSkillsDir?: string;
+  /** Claude の `~/.claude.json`（MCP の対象が書く）。 */
+  claudeJsonPath?: string;
+  /** 利用者のホーム（フックのコマンドの `~` を読み替える）。省くと os.homedir()。 */
+  userHome?: string;
+  /** この PC の OS（届いたフックの送り手の OS と比べる。送り手の OS は inbox の meta.os）。省くと process.platform。 */
+  hostOs?: HostOs;
+};
+
+/** 見立て（planWrite）に渡す口。項目の数え方だけなので、入れ物は無くてもよい。 */
+export type PlanPaths = Partial<WritePaths> & { home: string };
+
+export type ApplyOptions = WritePaths & {
   db: Db;
+  /** 試験が、書いた直後に別のプロセスが書き換えたことにする口（Codex の config.toml の読み直し）。 */
+  afterWrite?: (rel: string) => void;
   now?: () => number;
   /** 試験が書き込みの途中の失敗を起こすための口。ファイルへ触る前に、何番目の操作かを渡す。 */
   onWrite?: (rel: string, index: number) => void;
@@ -381,7 +424,7 @@ export type ApplyOptions = {
 };
 
 /** 指示書の項目から、ファイルごとの書き込みを作る。settings.json の鍵はまとめて 1 つの書き込みにする。書き込み先の安全もここで確かめる。 */
-function buildOps(claudeDir: string, items: Prepared[]): FileOp[] {
+function buildOps(claudeDir: string, items: Prepared[], read?: PlanReader): FileOp[] {
   const ops: FileOp[] = [];
   const settings: SettingsEdit[] = [];
   for (const p of items) {
@@ -393,7 +436,8 @@ function buildOps(claudeDir: string, items: Prepared[]): FileOp[] {
   if (settings.length > 0) {
     assertSafeTarget(claudeDir, 'settings.json');
     let text: string | null = null;
-    try { text = fs.readFileSync(fileOf(claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
+    if (read) text = read(fileOf(claudeDir, 'settings.json'))?.toString('utf8') ?? null;
+    else try { text = fs.readFileSync(fileOf(claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
     ops.push({ rel: 'settings.json', remove: false, data: editSettings(text, settings) });
   }
   return ops;
@@ -401,15 +445,20 @@ function buildOps(claudeDir: string, items: Prepared[]): FileOp[] {
 
 // ---- 承諾の窓に見せる中身と、書く直前の確かめ ----
 
+/** 見立ての中で、前の対象が書くはずの中身を返す読み手（同じファイルを 2 つの対象が書くとき）。無いものは null。 */
+export type PlanReader = (abs: string) => Buffer | null;
+/** 対象ごとの見立ての 1 つの書く先。after は書いた後の中身で、null は消す。volatile は指紋に入れない（サーバが常に書き換えるもの）。 */
+export type PlannedOp = { rel: string; path: string; after: Buffer | string | null; volatile?: true };
+
 /** 承諾の窓に見せる 1 つの書く先。op は、create（無いので作る）、modify（書き換える）、remove（消す）。binary は文字でないので差分を出さないもの。 */
-export type PlannedFile = { rel: string; path: string; op: 'create' | 'modify' | 'remove'; lines: RetentionPreviewLine[]; binary: boolean };
+export type PlannedFile = { rel: string; path: string; op: 'create' | 'modify' | 'remove'; lines: RetentionPreviewLine[]; binary: boolean; /** 書く先の対象（Claude だけのときは省く）。 */ target?: string };
 /** fingerprint は、書く先の今の中身の指紋。書く直前に比べ、違えば書かない（hangar config apply と restore の --expect）。 */
 export type PlannedFiles = { files: PlannedFile[]; fingerprint: string };
 
 /** 差分に出す行の上限。 */
 const MAX_PLAN_LINES = 200;
 
-function readBuf(file: string): Buffer | null {
+export function readBuf(file: string): Buffer | null {
   try { return fs.readFileSync(file); } catch { return null; }
 }
 
@@ -425,7 +474,7 @@ export function localFingerprint(claudeDir: string, rels: string[]): string {
 export const changedError = () => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
 
 /** 1 つの書く先の見せ方。before は今の中身（無ければ null）、after は書いた後の中身（消すなら null）。 */
-function plannedFile(claudeDir: string, rel: string, before: Buffer | null, after: Buffer | string | null): PlannedFile {
+export function plannedFile(claudeDir: string, rel: string, before: Buffer | null, after: Buffer | string | null): PlannedFile {
   const op = after === null ? 'remove' : before === null ? 'create' : 'modify';
   const a = after === null ? null : Buffer.isBuffer(after) ? after : Buffer.from(after);
   const binary = (before?.includes(0) ?? false) || (a?.includes(0) ?? false);
@@ -433,14 +482,13 @@ function plannedFile(claudeDir: string, rel: string, before: Buffer | null, afte
   return { rel, path: fileOf(claudeDir, rel), op, lines, binary };
 }
 
-/** 適用の見立てを、書く先のファイルごとに作る。何も書かない。指示書が適用できる状態でなければ ApplyError。 */
-export function planApplyFiles(o: { home: string; claudeDir: string }): PlannedFiles {
+/** 適用の見立てを、書く先のファイルごとに作る。何も書かない。指示書が適用できる状態でなければ ApplyError。全部の対象の書く先を並べる（applyAll.ts）。 */
+export function planApplyFiles(o: WritePaths): PlannedFiles { return planApplyAllFiles(o); }
+
+/** Claude の書き方で書く項目の書く先（対象 claude の planOps）。 */
+export function planClaudeOps(o: WritePaths, read?: PlanReader): PlannedOp[] {
   const { items } = prepare(o.home);
-  const ops = buildOps(o.claudeDir, items);
-  return {
-    files: ops.map((op) => plannedFile(o.claudeDir, op.rel, readBuf(fileOf(o.claudeDir, op.rel)), op.remove ? null : op.data)),
-    fingerprint: localFingerprint(o.claudeDir, ops.map((op) => op.rel)),
-  };
+  return buildOps(o.claudeDir, items, read).map((op) => ({ rel: op.rel, path: fileOf(o.claudeDir, op.rel), after: op.remove ? null : op.data }));
 }
 
 
@@ -456,8 +504,14 @@ function updateBase(db: Db, items: Prepared[], now: number): void {
   })();
 }
 
-/** 指示書のとおりに `~/.claude` へ書く。失敗したら元へ戻し、指示書は残して ApplyError を投げる。 */
-export function runApply(o: ApplyOptions): ApplyResult {
+/**
+ * 指示書のとおりに書く。項目を持ち主の対象ごとに分けて、各対象の write を呼ぶ（applyAll.ts）。
+ * 失敗したら元へ戻し、指示書は残して ApplyError を投げる。全部書けたら指示書を消す。
+ */
+export function runApply(o: ApplyOptions): ApplyResult { return runApplyAll(o); }
+
+/** 指示書のうち Claude の書き方で書く項目を `~/.claude` へ書く（対象 claude と claude-keys2 の write）。失敗したら元へ戻す。指示書は消さない（呼び手が消す）。 */
+export function writeClaude(o: ApplyOptions): ApplyResult {
   const now = o.now ? o.now() : Date.now();
   const { items } = prepare(o.home);
   const ops = buildOps(o.claudeDir, items);
@@ -471,7 +525,6 @@ export function runApply(o: ApplyOptions): ApplyResult {
 
   if (ops.length === 0) {
     try { updateBase(o.db, items, now); } catch (e) { throw new ApplyError('write-failed', `基準の更新に失敗しました（${errText(e)}）。適用内容は削除していません。`); }
-    deleteApplyOrder(o.home);
     return done(null);
   }
 
@@ -491,7 +544,6 @@ export function runApply(o: ApplyOptions): ApplyResult {
   } catch (e) {
     throw rollback(o.claudeDir, gen, e, '書き込み');
   }
-  deleteApplyOrder(o.home);
   pruneGenerations(o.home);
   return done(gen.name);
 }
@@ -506,26 +558,29 @@ export type RestorePlan = {
   remove: string[];
 };
 
-function openGeneration(home: string, name: string): { dir: string; meta: GenerationMeta | null; files: string[] } {
+/** 世代へ戻す口。claudeDir は戻す先の入れ物（対象ごとに違う）、backups は世代の置き場（省くと Claude の置き場）。 */
+export type RestoreOptions = { home: string; claudeDir: string; name: string; backups?: string };
+
+function openGeneration(home: string, name: string, backups?: string): { dir: string; meta: GenerationMeta | null; files: string[] } {
   if (!STAMP_RE.test(name)) throw new ApplyError('bad-name', `世代の名前が正しくありません（${name}）。hangar config restore で一覧を見てください。`);
-  const dir = path.join(configBackupsDir(home), name);
+  const dir = path.join(backups ?? configBackupsDir(home), name);
   let isDir = false;
   try { isDir = fs.lstatSync(dir).isDirectory(); } catch { /* 無い */ }
   if (!isDir) throw new ApplyError('no-generation', `その世代がありません（${name}）。hangar config restore で一覧を見てください。`);
   return { dir, meta: readMeta(dir), files: generationFiles(dir) };
 }
 
-export function planRestore(o: { home: string; claudeDir: string; name: string }): RestorePlan {
-  const g = openGeneration(o.home, o.name);
+export function planRestore(o: RestoreOptions): RestorePlan {
+  const g = openGeneration(o.home, o.name, o.backups);
   const remove = (g.meta?.created ?? []).filter((rel) => fs.existsSync(fileOf(o.claudeDir, rel)));
   for (const rel of [...g.files, ...remove]) assertSafeTarget(o.claudeDir, rel);
   return { name: o.name, restore: g.files, remove };
 }
 
 /** 世代へ戻す見立てを、書く先のファイルごとに作る。何も書かない。 */
-export function planRestoreFiles(o: { home: string; claudeDir: string; name: string }): PlannedFiles {
+export function planRestoreFiles(o: RestoreOptions): PlannedFiles {
   const plan = planRestore(o);
-  const g = openGeneration(o.home, o.name);
+  const g = openGeneration(o.home, o.name, o.backups);
   const files = [
     ...plan.restore.map((rel) => plannedFile(o.claudeDir, rel, readBuf(fileOf(o.claudeDir, rel)), readBuf(fileOf(g.dir, rel)) ?? Buffer.alloc(0))),
     ...plan.remove.map((rel) => plannedFile(o.claudeDir, rel, readBuf(fileOf(o.claudeDir, rel)), null)),
@@ -543,13 +598,13 @@ export type RestoreResult = {
 };
 
 /** 世代の中身へ戻す。戻す前の状態を、新しい世代として控える。 */
-export function runRestore(o: { home: string; claudeDir: string; name: string; db?: Db; now?: () => number; expect?: string }): RestoreResult {
+export function runRestore(o: RestoreOptions & { db?: Db; now?: () => number; expect?: string }): RestoreResult {
   const now = o.now ? o.now() : Date.now();
   const plan = planRestore(o);
   if (o.expect !== undefined && localFingerprint(o.claudeDir, [...plan.restore, ...plan.remove]) !== o.expect) throw changedError();
-  const g = openGeneration(o.home, o.name);
+  const g = openGeneration(o.home, o.name, o.backups);
   const baseIds = g.meta ? Object.keys(g.meta.base) : [];
-  const safety = takeGeneration({ home: o.home, claudeDir: o.claudeDir, rels: [...plan.restore, ...(g.meta?.created ?? [])], baseIds, base: o.db ? new ConfigBase(o.db) : null, now, kind: 'restore' });
+  const safety = takeGeneration({ home: o.home, claudeDir: o.claudeDir, rels: [...plan.restore, ...(g.meta?.created ?? [])], baseIds, base: o.db ? new ConfigBase(o.db) : null, now, kind: 'restore', backups: o.backups });
   let baseReverted = false;
   try {
     putBack(o.claudeDir, g.dir, g.files, g.meta);
@@ -561,6 +616,6 @@ export function runRestore(o: { home: string; claudeDir: string; name: string; d
   } catch (e) {
     throw rollback(o.claudeDir, safety, e, '戻す操作');
   }
-  pruneGenerations(o.home);
+  pruneGenerations(o.home, o.backups);
   return { restored: plan.restore, removed: plan.remove, safety: safety.name, baseReverted };
 }

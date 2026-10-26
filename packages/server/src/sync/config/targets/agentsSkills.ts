@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isSafeRelPath, type ConfigExecMark } from '@agent-hangar/shared';
-import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult } from '../apply.ts';
+import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedOp, type WritePaths } from '../apply.ts';
+import { AGENTS_SKILLS_STORE } from './stores.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from '../backups.ts';
 import { ConfigBase } from '../base.ts';
@@ -264,8 +265,17 @@ function fingerprint(root: string, rels: string[]): string {
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 
-/** write に渡す口。agentsSkillsDir は S11 が殻と CLI から渡す（ApplyOptions は claudeDir しか持たない）。 */
-export type AgentsSkillsWriteOptions = ApplyOptions & { agentsSkillsDir?: string };
+/** write に渡す口。agentsSkillsDir は殻と CLI が渡す。省くと書かない（既定の場所へ黙って書かない）。 */
+export type AgentsSkillsWriteOptions = ApplyOptions;
+
+/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+export function planAgentsSkillsOps(o: WritePaths): PlannedOp[] {
+  const root = o.agentsSkillsDir;
+  if (!root) throw new ApplyError('unsafe', '共通のスキルの置き場が指定されていません。書きません。');
+  const ops = prepare(o.home).filter((p) => p.act !== 'keep');
+  for (const p of ops) assertSafeTarget(root, p.rel);
+  return ops.map((p) => ({ rel: p.rel, path: fileOf(root, p.rel), after: p.act === 'remove' ? null : p.content! }));
+}
 
 /** 指示書のうち共通のスキルの項目を `~/.agents/skills` へ書く。失敗したら元へ戻して ApplyError。指示書そのものは消さない（ほかの対象の項目が残るため。消すのは S11）。 */
 export function runAgentsSkillsApply(o: AgentsSkillsWriteOptions): ApplyResult {
@@ -325,6 +335,8 @@ export const agentsSkillsTarget: ConfigTarget = {
   collect: (ctx) => collectSkills(ctx.agentsSkillsDir, ctx.allowedUnsent, ctx.maxItems ?? MAX_ITEMS),
   planWrite: (o) => planAgentsSkills(o),
   write: (o) => runAgentsSkillsApply(o),
+  planOps: (o) => planAgentsSkillsOps(o),
+  store: AGENTS_SKILLS_STORE,
   // 読まれて実行される指示なので、消去も含めて全部。承諾の仕方が自動なら要らない。
   needsApproval: (_item, approval) => approval === 'each',
   isMachineBound: () => false,

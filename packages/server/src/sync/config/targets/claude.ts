@@ -1,8 +1,9 @@
 import { collectLocal } from '../collect.ts';
 import { parseClaudeItemId } from '../ids.ts';
 import { CLAUDE_KEYS2_KEYS, CLAUDE_PLUGIN_KEYS, isPermissionKey } from '../settingsSort.ts';
-import { planApply, runApply } from '../apply.ts';
+import { planClaude, planClaudeOps, writeClaude } from '../apply.ts';
 import type { ConfigItemKind } from '@agent-hangar/shared';
+import { CLAUDE_STORE } from './stores.ts';
 import type { ConfigTarget } from './types.ts';
 
 /** Claude Code（`~/.claude`）。今までの処理をそのまま持つ最初の対象。 */
@@ -21,8 +22,10 @@ export const claudeTarget: ConfigTarget = {
   // 設定の同期そのものの入切は、サービスが送受信の前で見る。対象ごとの入切は、後の対象から持つ。
   enabled: () => true,
   collect: (ctx) => collectLocal({ db: ctx.db, deviceId: ctx.deviceId, claudeDir: ctx.claudeDir, allowedUnsent: ctx.allowedUnsent, maxItems: ctx.maxItems }),
-  planWrite: (o) => planApply(o),
-  write: (o) => runApply(o),
+  planWrite: (o) => planClaude(o),
+  write: (o) => writeClaude(o),
+  planOps: (o, read) => planClaudeOps(o, read),
+  store: CLAUDE_STORE,
   // 実行する指示（skills など）は消去を除く。権限の鍵は、消去も承諾に掛ける（deny を外すと許可が広がる。SPEC 4 章）。
   needsApproval: (item, approval) => approval === 'each' && ((item.op !== 'delete' && EXEC_KINDS.has(item.kind)) || isPermissionKey(item.id.startsWith('settings:') ? item.id.slice('settings:'.length) : '')),
   // 今の Claude の項目は、PC に依るものを collect の仕分け（settingsSort）の段で落としている。

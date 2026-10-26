@@ -8,7 +8,8 @@ import { CODEX_CONFIG_FILE, CODEX_FILE_PREFIX, CODEX_TOML_PREFIX, codexFileId, c
 import { findSecret } from '../secrets.ts';
 import { canonicalJson, type DroppedKey } from '../settingsSort.ts';
 import { needsApprovalPath, profileIsClean, sortCodexToml, hasAbsolutePath } from './codexKeys.ts';
-import { planCodex, writeCodex } from './codexWrite.ts';
+import { planCodex, planCodexOps, writeCodex } from './codexWrite.ts';
+import { CODEX_STORE } from './stores.ts';
 import type { ConfigTarget, TargetContext } from './types.ts';
 
 export { planCodexFiles, writeCodex, type CodexApplyOptions } from './codexWrite.ts';
@@ -157,6 +158,8 @@ export const codexTarget: ConfigTarget = {
   collect: collectCodex,
   planWrite: (o) => planCodex(o),
   write: (o) => writeCodex(o),
+  planOps: (o, read) => planCodexOps(o, read),
+  store: CODEX_STORE,
   // 承諾の仕方の設定（each か auto）に従う。権限を広げうる設定は、消去も承諾に掛ける。
   needsApproval: (item, approval) => {
     if (approval !== 'each') return false;

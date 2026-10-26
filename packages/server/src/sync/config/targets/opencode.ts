@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ConfigApplyOrderItemDto, ConfigExecMark, ConfigItemKind, ConfigUnsentKind } from '@agent-hangar/shared';
 import { backupsRoot } from '../../../config/cloud.ts';
-import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult } from '../apply.ts';
+import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedOp, type PlanReader, type WritePaths } from '../apply.ts';
+import { OPENCODE_STORE } from './stores.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import { GENERATION_META, stampLabel } from '../backups.ts';
 import { ConfigBase } from '../base.ts';
@@ -15,7 +16,6 @@ import { findSecret } from '../secrets.ts';
 import { canonicalJson } from '../settingsSort.ts';
 import { ConfigEditError, getJsonc, removeJson, removeJsonc, setJson, setJsonc } from '../edit/index.ts';
 import { getIn } from '../edit/jsonc.ts';
-import { defaultTargetPaths } from './paths.ts';
 import {
   decodePathId, envRefsOf, fileRefRel, fileRefsOf, isAbsolutePathLike, isCarriedCliPath, isCarriedJsonPath, isCarriedRel, isExecRel, isPermissionPath,
   jsonValueFits, OC_CLI_PREFIX, OC_DIRS, OC_FILE_PREFIX, OC_JSON_PREFIX, ocPathId, sortOpencodeCli, sortOpencodeJson,
@@ -208,7 +208,6 @@ function parseOpencodeId(id: string): ParsedId | null {
 // ---- 書く ----
 
 type Prepared = { item: ConfigApplyOrderItemDto; plan: ApplyPlanItem; ref: ItemRef; content: Buffer | null; value: unknown };
-type WriteOpts = { opencodeDir?: string };
 
 const targetOfRef = (ref: ItemRef, id: string): string | null => {
   if (ref.type === 'opencode-file') return ref.rel;
@@ -335,7 +334,7 @@ function editConfig(text: string | null, edits: KeyEdit[], jsonc: boolean, name:
   return cur;
 }
 
-function buildOps(dir: string, items: Prepared[]): FileOp[] {
+function buildOps(dir: string, items: Prepared[], readOver?: PlanReader): FileOp[] {
   const ops: FileOp[] = [];
   const json: KeyEdit[] = [];
   const cli: KeyEdit[] = [];
@@ -349,6 +348,7 @@ function buildOps(dir: string, items: Prepared[]): FileOp[] {
   for (const op of ops) assertSafeTarget(dir, op.rel);
   const read = (name: string): string | null => {
     assertSafeTarget(dir, name);
+    if (readOver) return readOver(path.join(dir, name))?.toString('utf8') ?? null;
     try { return fs.readFileSync(path.join(dir, name), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', `${name} を読めないので、設定の鍵は書きません。`); return null; }
   };
   if (json.length > 0) {
@@ -439,8 +439,8 @@ function updateBase(db: ApplyOptions['db'], items: Prepared[], now: number): voi
  * 指示書のうち opencode の項目を、入れ物へ書く。控えを取れなければ書かない。失敗したら元へ戻す。
  * 指示書そのものは消さない（他の対象の項目が残るので、消すのは呼び出し側）。
  */
-export function writeOpencode(o: ApplyOptions & WriteOpts): ApplyResult {
-  const dir = o.opencodeDir ?? defaultTargetPaths().opencodeDir;
+export function writeOpencode(o: ApplyOptions): ApplyResult {
+  const dir = OPENCODE_STORE.root(o);
   const now = o.now ? o.now() : Date.now();
   const { items } = prepare(o.home);
   const ops = buildOps(dir, items);
@@ -472,6 +472,13 @@ export function writeOpencode(o: ApplyOptions & WriteOpts): ApplyResult {
   return result(gen.name);
 }
 
+/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+export function planOpencodeOps(o: WritePaths, read?: PlanReader): PlannedOp[] {
+  const dir = OPENCODE_STORE.root(o);
+  const { items } = prepare(o.home);
+  return buildOps(dir, items, read).map((op) => ({ rel: op.rel, path: fileOf(dir, op.rel), after: op.remove ? null : op.data }));
+}
+
 // ---- 対象 ----
 
 /** 権限に関わる鍵は、消去も承諾に掛ける（拒否を外して権限を広げうる）。 */
@@ -493,6 +500,8 @@ export const opencodeTarget: ConfigTarget = {
   collect: collectOpencode,
   planWrite: (o: { home: string }) => planOpencodeWrite(o),
   write: (o: ApplyOptions) => writeOpencode(o),
+  planOps: (o, read) => planOpencodeOps(o, read),
+  store: OPENCODE_STORE,
   needsApproval: needsApprovalOf,
   isMachineBound: (item) => {
     const parsed = parseOpencodeId(item.id);

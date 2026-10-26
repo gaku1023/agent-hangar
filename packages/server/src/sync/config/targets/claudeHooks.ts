@@ -9,7 +9,8 @@ import type { Collected, LocalItem, UnsentCandidate } from '../collect.ts';
 import { findSecret } from '../secrets.ts';
 import { canonicalJson } from '../settingsSort.ts';
 import { analyzeCommand, fromPortable, hostOs, isCarriedHookFile, toPortable, type CommandRefs, type HostOs } from './hookCommands.ts';
-import { planItems, readSettingsForCollect, writeItems, type FileWrite, type ItemSpec } from './settingsItemWriter.ts';
+import { planItemOps, planItems, readSettingsForCollect, writeItems, type FileWrite, type ItemSpec } from './settingsItemWriter.ts';
+import { CLAUDE_STORE } from './stores.ts';
 import type { ConfigTarget, TargetContext } from './types.ts';
 
 /**
@@ -217,16 +218,19 @@ function collectHooks(ctx: TargetContext, c: Ctx): Collected {
 
 /** 試験が、ホームと OS を差し替えて対象を作る。 */
 export function createClaudeHooksTarget(o: { userHome?: () => string; os?: HostOs } = {}): ConfigTarget {
-  const ctx = (): Ctx => ({ userHome: (o.userHome ?? os.homedir)(), os: o.os ?? hostOs() });
-  const specs = (): Map<string, ItemSpec> => new Map(Object.entries(KEY_OF).map(([id, key]) => [id, makeSpec(id, key, ctx())]));
+  // 書くときは、殻と CLI が渡す利用者のホームとこの PC の OS（WritePaths）を先に使う。
+  const ctx = (w?: { userHome?: string; hostOs?: HostOs }): Ctx => ({ userHome: w?.userHome ?? (o.userHome ?? os.homedir)(), os: w?.hostOs ?? o.os ?? hostOs() });
+  const specs = (w?: { userHome?: string; hostOs?: HostOs }): Map<string, ItemSpec> => new Map(Object.entries(KEY_OF).map(([id, key]) => [id, makeSpec(id, key, ctx(w))]));
   return {
     name: CLAUDE_HOOKS_NAME,
     owns: (id) => id === HOOKS_ID || id === STATUSLINE_ID,
     parseId: (id) => (id === HOOKS_ID ? { kind: 'claude-hooks', ref: { type: 'settings', key: 'hooks' } } : id === STATUSLINE_ID ? { kind: 'claude-statusline', ref: { type: 'settings', key: 'statusLine' } } : null),
     enabled: (t) => t.switches?.[CLAUDE_HOOKS_NAME] === true,
     collect: (t) => collectHooks(t, ctx()),
-    planWrite: (w) => planItems(w, specs()),
-    write: (w) => writeItems(w, specs()),
+    planWrite: (w) => planItems(w, specs(w)),
+    write: (w) => writeItems(w, specs(w)),
+    planOps: (w, read) => planItemOps(w, specs(w), read),
+    store: CLAUDE_STORE,
     // 実行されるものなので、設定が each のあいだは消去も承諾に掛ける。
     needsApproval: (_item, approval) => approval === 'each',
     isMachineBound: () => false,

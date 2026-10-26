@@ -7653,7 +7653,9 @@ hangar の `settings.json` の鍵のうち、PC をまたいで同じでよい�
 設定にある鍵だけを集め、形の合わない値は塞ぐ（相手の値で上書きしない）。ファイルが壊れていれば `hangar:` を全部塞ぐ。
 Codex・opencode の有効と横取り、パス、エディタ、端末アプリ、秘密（`summaryApiKey`）、要約器の宛先、接続先の準備、対象ごとの入切（`configTargets`）は、PC ごとの選びなので運ばない。
 サーバが `settings.json` を書くので、殻の承諾の窓は通さない。承諾が要るのは `configApproval` の項目だけで、承諾の仕方の設定に依らない（`needsApproval` は値を受け取らないため、`each` へ戻す変更も承諾になる）。
-書き込みは `loadSettings` と `saveSettings` で鍵を差し替える。走っているサーバは設定を自分の入れ物に持つので、サーバの中で適用するときは `setHangarPrefsApplier` で `applySettingsPatch` を通す口を登録する。
+書き込みは `loadSettings` と `saveSettings` で鍵を差し替える。走っているサーバは設定を自分の入れ物に持つので、サーバは起動のとき（`boot/http.ts`）に `setHangarPrefsApplier` で `applySettingsPatch` を通す口を登録する。
+サーバは、`PUT /api/config-sync/apply-order` で指示書を受けたその場で `hangar:` の項目を書き、指示書から外す（残りだけを殻と `hangar config apply` に渡す。好みだけなら指示書は残さず、返す指示書の `items` は空になる）。
+書けなければ指示書ごと消して 500 で断る（何も適用しない）。
 古い版の束には `hangar` が無いので、`hangar:` の項目は消去に見えない。
 
 消去の条件は対象ごとに数える。
@@ -7690,12 +7692,24 @@ skills、commands、agents は実行される指示なので、他の PC から�
   書けなかったときは、承諾の窓が失敗の段で知らせ、窓を閉じたときに `failed` を返す。
   頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
   権限は `capabilities/remote-config-apply.json` の 2 つだけである。頁の側の呼び出しは PR 17 で足した（`runtime/desktop.ts` の `applyConfigSync()`、`restoreConfigSync(name)`。結果は上の `{ status, message, generation }` で、形の違う返事は失敗として扱う）。
+- 指示書は項目の持ち主の対象ごとに分けて書く（0.12、`sync/config/applyAll.ts`）。
+  `targetOfId` で項目を対象に振り分け、同じ書き方を持つ対象（`claude` と `claude-keys2`。`writesWith`）は 1 回だけ呼ぶ。
+  持ち主のいない項目は指示書ごと読めないものとして断り（`broken-order`）、枠だけの対象や書き方（`planOps`）を持たない対象の項目があれば、何も書かずに `unknown-target` で断る。
+  各対象の `write` は自分の項目だけを見て自分の入れ物に書き、指示書は消さない。全部の対象が書き終えてから、呼び手が指示書を消す。
+  書く前に、全部の対象の見立て（`planWrite` と `planOps`）を作り、承諾の窓で見せた指紋を全部の書く先で取り直して比べ、全部の対象の控えの置き場を作れるかを確かめる。どれか 1 つでも合わなければ、どこにも書かない。
+  同じファイルを 2 つの対象が書くとき（`settings.json` を `claude`、`claude-hooks`、`claude-plugins` が書く）、見立ては後の対象が前の対象の書いた後の中身を読んで重ね、窓には 1 つのファイルとして見せる。
+  途中の対象が書けなければ（控えが取れない、Codex の `config.toml` を書いた直後の読み直しで指紋が合わない、など）、その対象は自分を戻し、先に書いた対象もその世代から戻し、基準を適用の前へ戻す（どこか 1 つが書けなければ、全部書かない）。
+  控えを取らない対象（hangar の好み）は最後に書く。
+  入れ物は殻と CLI が渡す（`WritePaths`。`claudeDir`、`codexHome`、`opencodeDir`、`agentsSkillsDir`、`claudeJsonPath`、利用者のホーム、この PC の OS）。CLI は省いた分をこの PC の既定の場所（`targets/paths.ts`）で埋める。
+  見立ての書く先は絶対パスで、対象の名前（`target`）を添える。
 - 適用の順序は、(1) 指示書を読み、inbox と突き合わせて全項目が書けるかを先に確かめる、(2) 書く先の元の中身を世代に控える、(3) 一時ファイルに書いて rename する、(4) `config_base` を 1 つの transaction で更新する、(5) 指示書を消して、世代を新しい 20 個に保つ、である。
   (1) で 1 つでも合わなければ何も書かずに断る。
   束が更新されて指紋が合わない（`stale`）、書き込み先が id から決まる場所と違う、途中がシンボリックリンクか通常でない（`unsafe`）、届いた値が鍵の型に合わない、`settings.json` が JSON のオブジェクトでない、のどれかである。
   指示書は残す。
   (3)、(4) の途中で失敗したら、世代から元へ戻し（作ったファイルとディレクトリも消す）、世代を消し、指示書は残す。
   戻す途中でも失敗したときは世代を残し、`hangar config restore <世代>` で戻す手順を文に入れる。
+- 控えの世代は対象ごとの置き場 `backups/<対象>-config/<yyyyMMdd-HHmmss>/`（`claude-config`、`codex-config`、`opencode-config`、`agents-skills-config`。`targets/stores.ts`）に取る。`claude-hooks` と `claude-plugins` は `~/.claude` に書くので `claude-config` を使う。
+  `hangar config restore` の一覧は全部の置き場の世代を出し（Claude 以外は `target` を添える）、Claude 以外の世代は `--target <対象>` で戻す。設定の画面の世代の数も全部の置き場を数える。
 - 控えの世代 `backups/claude-config/<yyyyMMdd-HHmmss>/` には、書く先の元のファイルを設定の入れ物からの相対パスで置き、直下の `.hangar-apply.json`（世代の数には入れない）に、その時点で無かった先と無かったディレクトリ、`config_base` の前の値を残す。
   旧実装の世代（記録なし）も、ファイルを書き戻すだけで戻せる。
   同じ秒にもう一度取るときは、前の世代を潰さずに次の秒の名前にする。
@@ -7819,6 +7833,13 @@ D1 の書き込みは消した行の数で、旧実装の項目の総数が 1 �
 記録が無いと、相手から同名の項目が届いたときに「手元に無い」と見て `create` と判定し、適用で手元を上書きしてしまう。
 記録に当たる項目は、届いた変更の一覧に `held: 'local-blocked'` で出し、届いた数にも競合にも数えず、適用の指示書にも入れられない。
 塞ぎが解ければ、次の判定から通常に戻る。
+
+**中身を見て書けないもの（0.12）。**
+フックとステータス行（`claude-hooks`）は、送り手と OS が違う（束の目録の `os`。無いときも違うと見る）、`~/.claude` の外を指す、Hangar の包みを指す、のどれかなら `held` を `other-os`、`outside-claude`、`hangar-wrapper` にする（`holdOfHooks`）。
+プラグインの配布元（`claude-plugins`）が送り手の PC のフォルダを指すときは `local-marketplace` にする（`holdOfPlugins`）。
+どちらも適用でも断るが、選ばせる前に理由を見せるため、届いた変更の一覧の段で保留にする（`service.ts` の `resolved`）。
+`command-missing`（MCP の起動するコマンドがこの PC に無い）は MCP の対象のために型だけ用意してある。
+opencode の `opencode.json` と `opencode.jsonc` が両方あるときは、`ConfigSyncDto.notices` に `{ target: 'opencode', code: 'both-json-jsonc' }` を載せる（無ければ欄ごと省く）。
 
 ### 設定ファイルの書き戻しの道具（v0.12）
 

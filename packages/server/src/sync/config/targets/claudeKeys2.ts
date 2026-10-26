@@ -1,6 +1,7 @@
 import { collectLocal } from '../collect.ts';
 import { parseClaudeItemId } from '../ids.ts';
-import { planApply, runApply } from '../apply.ts';
+import { planClaude, planClaudeOps, writeClaude } from '../apply.ts';
+import { CLAUDE_STORE } from './stores.ts';
 import { CLAUDE_KEYS2_APPROVAL, CLAUDE_KEYS2_KEYS } from '../settingsSort.ts';
 import type { ConfigTarget } from './types.ts';
 
@@ -22,8 +23,12 @@ export const claudeKeys2Target: ConfigTarget = {
   parseId: (id) => parseClaudeItemId(id),
   enabled: (ctx) => ctx.switches?.[CLAUDE_KEYS2_NAME] === true,
   collect: (ctx) => collectLocal({ db: ctx.db, deviceId: ctx.deviceId, claudeDir: ctx.claudeDir, allowedUnsent: ctx.allowedUnsent, scope: 'keys2' }),
-  planWrite: (o) => planApply(o),
-  write: (o) => runApply(o),
+  // 書き方は claude と同じ関数で、claude の項目もまとめて書く。適用は writesWith で 1 回だけ呼ぶ。
+  writesWith: 'claude',
+  planWrite: (o) => planClaude(o),
+  write: (o) => writeClaude(o),
+  planOps: (o, read) => planClaudeOps(o, read),
+  store: CLAUDE_STORE,
   // 承諾の仕方の設定（each か auto）に従う。権限を広げうる鍵は、消去（deniedMcpServers を外すなど）も承諾に掛ける。
   needsApproval: (item, approval) => approval === 'each' && (() => { const k = keyOf(item.id); return k !== null && CLAUDE_KEYS2_APPROVAL.has(k); })(),
   isMachineBound: () => false,

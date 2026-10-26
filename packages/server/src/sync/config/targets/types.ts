@@ -1,6 +1,6 @@
 import type { ConfigApproval, ConfigInboxOp, ConfigItemKind } from '@agent-hangar/shared';
 import type { Db } from '../../../db/open.ts';
-import type { ApplyOptions, ApplyPlan, ApplyResult } from '../apply.ts';
+import type { ApplyOptions, ApplyPlan, ApplyResult, PlannedOp, PlanPaths, PlanReader, WritePaths } from '../apply.ts';
 import type { Collected } from '../collect.ts';
 import type { ItemRef } from '../ids.ts';
 
@@ -37,6 +37,19 @@ export type TargetContext = {
   switches?: Readonly<Record<string, boolean>>;
 };
 
+/**
+ * 書き戻しの入れ物と、控えの世代の置き場。
+ * 同じ入れ物に書く対象（claude と claude-hooks など）は、同じ name と backups を持つ。
+ */
+export type TargetStore = {
+  /** 控えを数えるときの名前（hangar config restore --target に渡す名前）。 */
+  name: string;
+  /** 控えの世代の置き場の名前。`<hangar の置き場>/backups/<backups>/<時刻>/`。 */
+  backups: string;
+  /** 書く入れ物。 */
+  root(o: WritePaths): string;
+};
+
 /** id を解いた結果。`ref` は、その対象の項目の指す先。 */
 export type ParsedId = { kind: ConfigItemKind; ref: ItemRef };
 
@@ -58,7 +71,17 @@ export interface ConfigTarget {
   /** 手元の項目を集める。読むだけで、何も書かない。 */
   collect(ctx: TargetContext): Collected;
   /** 書き戻しの見立て。何も書かない。 */
-  planWrite(o: { home: string }): ApplyPlan;
+  planWrite(o: PlanPaths): ApplyPlan;
+  /**
+   * 書く先ごとの、書いた後の中身。何も書かない。承諾の窓に見せる差分と、書く直前の指紋の元になる。
+   * read は、同じファイルを先に書く対象があるときの読み手（そのファイルを読むときは、ディスクでなく read を使う）。
+   * 持たない対象の項目は、適用で断る（見せずに書かないため）。
+   */
+  planOps?(o: WritePaths, read: PlanReader): PlannedOp[];
+  /** write が、別の対象の write と同じ項目をまとめて書くときの、その対象名。適用は同じ write を 1 回だけ呼ぶ。 */
+  readonly writesWith?: string;
+  /** 書き戻しの入れ物と控えの置き場。持たない対象は控えを取らない（hangar の好み）。 */
+  readonly store?: TargetStore;
   /** 指示書のとおりに書く。 */
   write(o: ApplyOptions): ApplyResult;
   /** 他の PC から届いた項目の適用に、承諾が要るか。 */

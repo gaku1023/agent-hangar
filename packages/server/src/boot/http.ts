@@ -1,7 +1,9 @@
 import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
+import type { SettingsDto } from '@agent-hangar/shared';
 import { applySettingsPatch } from '../config/settingsUpdate.ts';
+import { setHangarPrefsApplier } from '../sync/config/targets/hangarApplier.ts';
 import { findCodex, findOpencode, whichMux } from '../config/tools.ts';
 import { listDevices } from '../db/queries.ts';
 import { createApp } from '../http/app.ts';
@@ -104,6 +106,23 @@ export function bootHttp(p: {
   // Codex の検出と選択肢（ベータ）。版は 1 度だけ読んで覚え、ログインの有無は聞かれるたびに読む。codex debug models は空の環境で打つ。
   const codex = new LocalCodex({ bin: () => findCodex() });
   const codexOptions = new CodexOptionsService({ bin: () => findCodex(), status: codex.status });
+  // 設定の書き替えは 1 か所で受ける。設定の同期で届いた hangar の好み（hangar:）も、同じ口でサーバの中の設定に入れる
+  // （ファイルだけ書くと、走っているサーバの入れ物が古いまま、次の書き替えで上書きされる）。
+  const updateSettings = (patch: Partial<SettingsDto>) => applySettingsPatch({
+    home: home.home, box: settings,
+    applyTmux: (s) => { relay.setTmux(runs.applyTmux(s)); },
+    onTmuxPath: runs.writeShellScript,
+    onClaudePath: () => {
+      runs.runs.setClaudeBin(runs.claudeBin());
+      summary.rebuildClaude();
+      void runs.localClaude.refreshSubcommands();
+      void runs.localClaude.refreshVersion();
+    },
+    onSummaryCap: summary.rebuildClaude,
+    publishConfigSync: sync.publishConfigSync,
+    onOpencodeEnabled: () => { p.mobile.settingsChanged(); indexing.onSettingsChanged(); runs.agentUsage.refresh(); },
+  }, patch);
+  setHangarPrefsApplier((_home, patch) => { updateSettings(patch as Partial<SettingsDto>); });
   const app = createApp({
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
@@ -114,20 +133,7 @@ export function bootHttp(p: {
     settings: () => settings.current,
     // 経路と MCP の道具も、起動の管理や要約と同じ言語の関数で文を出す。
     language: home.language,
-    updateSettings: (patch) => applySettingsPatch({
-      home: home.home, box: settings,
-      applyTmux: (s) => { relay.setTmux(runs.applyTmux(s)); },
-      onTmuxPath: runs.writeShellScript,
-      onClaudePath: () => {
-        runs.runs.setClaudeBin(runs.claudeBin());
-        summary.rebuildClaude();
-        void runs.localClaude.refreshSubcommands();
-        void runs.localClaude.refreshVersion();
-      },
-      onSummaryCap: summary.rebuildClaude,
-      publishConfigSync: sync.publishConfigSync,
-      onOpencodeEnabled: () => { p.mobile.settingsChanged(); indexing.onSettingsChanged(); runs.agentUsage.refresh(); },
-    }, patch),
+    updateSettings,
     live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, asksOf: (provider) => delivery.agents.of(provider).asks, osNotices: delivery.osNotices,
     summary: summary.api,
     trash: trash.trash,

@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { ApplyError } from '../apply.ts';
 import type { Collected, LocalItem } from '../collect.ts';
 import { CLAUDE_PLUGIN_KEYS, canonicalJson, valueFits } from '../settingsSort.ts';
-import { planItems, readSettingsForCollect, writeItems, type ItemSpec } from './settingsItemWriter.ts';
+import { planItemOps, planItems, readSettingsForCollect, writeItems, type ItemSpec } from './settingsItemWriter.ts';
+import { CLAUDE_STORE } from './stores.ts';
 import type { ConfigTarget } from './types.ts';
 
 /**
@@ -109,6 +110,8 @@ export function createClaudePluginsTarget(): ConfigTarget {
     collect,
     planWrite: (w) => planItems(w, specs()),
     write: (w) => writeItems(w, specs()),
+    planOps: (w, read) => planItemOps(w, specs(), read),
+    store: CLAUDE_STORE,
     needsApproval: (_item, approval) => approval === 'each',
     isMachineBound: () => false,
   };

@@ -34,16 +34,21 @@ function countFiles(dir: string, top = true): number {
   return n;
 }
 
-/** 新しい世代が先。 */
+/** Claude の世代。新しい世代が先。ほかの対象の世代も合わせるときは applyAll.ts の listAllBackups。 */
 export function listBackups(home: string): ConfigBackupGenerationDto[] {
+  return listBackupsIn(configBackupsDir(home));
+}
+
+/** 1 つの置き場の世代。新しい世代が先。 */
+export function listBackupsIn(root: string): ConfigBackupGenerationDto[] {
   let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(configBackupsDir(home), { withFileTypes: true }); } catch { return []; }
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return []; }
   const out: ConfigBackupGenerationDto[] = [];
   for (const e of entries) {
     const m = STAMP_RE.exec(e.name);
     if (!m || !e.isDirectory()) continue;
     const at = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])).getTime();
-    out.push({ name: e.name, at: Number.isFinite(at) ? at : null, files: countFiles(path.join(configBackupsDir(home), e.name)) });
+    out.push({ name: e.name, at: Number.isFinite(at) ? at : null, files: countFiles(path.join(root, e.name)) });
   }
   return out.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
 }

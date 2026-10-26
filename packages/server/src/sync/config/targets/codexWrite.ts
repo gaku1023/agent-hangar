@@ -6,8 +6,8 @@ import { isSafeRelPath, type ConfigApplyOrderItemDto, type ConfigExecMark, type 
 import { backupsRoot } from '../../../config/cloud.ts';
 import { diffLines } from '../../../config/jsonTextEdit.ts';
 import type { Db } from '../../../db/open.ts';
-import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedFile, type PlannedFiles } from '../apply.ts';
-import { deleteApplyOrder, readApplyOrder } from '../applyOrder.ts';
+import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedFile, type PlannedFiles, type PlannedOp, type PlanReader, type WritePaths } from '../apply.ts';
+import { readApplyOrder } from '../applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from '../backups.ts';
 import { ConfigBase } from '../base.ts';
 import { CODEX_CONFIG_FILE, parseItemId, type ItemRef } from '../ids.ts';
@@ -33,7 +33,8 @@ const KEEP_GENERATIONS = 20;
 const SCRIPT_ONLY = new Set<string>(['rules', 'skills']);
 
 /** codexHome は適用の口が渡す。無ければ CODEX_HOME、その次に `~/.codex`。afterWrite は試験が書いた直後の別のプロセスの書き込みを真似るための口。 */
-export type CodexApplyOptions = ApplyOptions & { codexHome?: string; afterWrite?: (rel: string) => void };
+/** 書く口。入れ物（codexHome）と、書いた直後の割り込みの口（afterWrite）は ApplyOptions が持つ。 */
+export type CodexApplyOptions = ApplyOptions;
 
 const codexHomeOf = (o: { codexHome?: string }): string => o.codexHome ?? defaultTargetPaths(process.env, os.homedir()).codexHome;
 const codexBackupsDir = (home: string): string => path.join(backupsRoot(home), 'codex-config');
@@ -47,7 +48,7 @@ type Prepared = { item: ConfigApplyOrderItemDto; plan: ApplyPlanItem; ref: ItemR
 /** 承諾の窓で「実行や指示」と数える Codex のファイル。 */
 const isInstructionRel = (rel: string): boolean => rel === 'hooks.json' || SCRIPT_ONLY.has(rel.split('/')[0]!) || rel.endsWith('.config.toml');
 
-function prepare(home: string): { createdAt: number; items: Prepared[]; onlyCodex: boolean } {
+function prepare(home: string): { createdAt: number; items: Prepared[] } {
   const order = readApplyOrder(home);
   const mine = order?.items.filter((i) => isCodexId(i.id)) ?? [];
   if (!order || mine.length === 0) {
@@ -93,7 +94,7 @@ function prepare(home: string): { createdAt: number; items: Prepared[]; onlyCode
     const label = ref.type === 'codex-file' ? ref.rel : ref.type === 'codex-toml' ? ref.path.join('.') : item.id;
     items.push({ item, plan: { id: item.id, kind: parsed.kind, op: item.op, take: item.take, label, marks, act }, ref, content, value });
   }
-  return { createdAt: order.createdAt, items, onlyCodex: order.items.length === mine.length };
+  return { createdAt: order.createdAt, items };
 }
 
 /** 確認に出す見立て。何も書かない。 */
@@ -137,7 +138,7 @@ function assertSafeTarget(root: string, rel: string): void {
 
 type FileOp = { rel: string; remove: boolean; data: Buffer | string | null };
 
-function buildOps(codexHome: string, items: Prepared[]): FileOp[] {
+function buildOps(codexHome: string, items: Prepared[], read?: PlanReader): FileOp[] {
   const ops: FileOp[] = [];
   const edits: { path: string[]; value: unknown; remove: boolean }[] = [];
   for (const p of items) {
@@ -149,7 +150,8 @@ function buildOps(codexHome: string, items: Prepared[]): FileOp[] {
   if (edits.length > 0) {
     assertSafeTarget(codexHome, CODEX_CONFIG_FILE);
     let text: string | null = null;
-    try { text = fs.readFileSync(fileOf(codexHome, CODEX_CONFIG_FILE), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'config.toml を読めないので、設定の鍵は書きません。'); }
+    if (read) text = read(fileOf(codexHome, CODEX_CONFIG_FILE))?.toString('utf8') ?? null;
+    else try { text = fs.readFileSync(fileOf(codexHome, CODEX_CONFIG_FILE), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'config.toml を読めないので、設定の鍵は書きません。'); }
     let out = text ?? '';
     for (const e of edits) {
       try { out = e.remove ? removeToml(out, e.path) : setToml(out, e.path, e.value); } catch (err) {
@@ -188,6 +190,13 @@ function plannedFile(root: string, rel: string, before: Buffer | null, after: Bu
   const binary = (before?.includes(0) ?? false) || (a?.includes(0) ?? false);
   const lines = binary ? [] : diffLines(before?.toString('utf8') ?? '', a?.toString('utf8') ?? '').slice(0, 200);
   return { rel, path: fileOf(root, rel), op, lines, binary };
+}
+
+/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+export function planCodexOps(o: WritePaths, read?: PlanReader): PlannedOp[] {
+  const root = codexHomeOf(o);
+  const { items } = prepare(o.home);
+  return buildOps(root, items, read).map((op) => ({ rel: op.rel, path: fileOf(root, op.rel), after: op.remove ? null : op.data }));
 }
 
 /** 適用の見立てを、書く先のファイルごとに作る。何も書かない。 */
@@ -311,7 +320,7 @@ function updateBase(db: Db, items: Prepared[], now: number): void {
 export function writeCodex(o: CodexApplyOptions): ApplyResult {
   const root = codexHomeOf(o);
   const now = o.now ? o.now() : Date.now();
-  const { items, onlyCodex } = prepare(o.home);
+  const { items } = prepare(o.home);
   const ops = buildOps(root, items);
   if (o.expect !== undefined && localFingerprint(root, ops.map((op) => op.rel)) !== o.expect) throw changedError();
   const keptMine = items.filter((p) => p.plan.act === 'keep').length;
@@ -320,11 +329,9 @@ export function writeCodex(o: CodexApplyOptions): ApplyResult {
     written: ops.filter((op) => !op.remove).length, removed: ops.filter((op) => op.remove).length,
     files: ops.map((op) => op.rel),
   });
-  const finish = (): void => { if (onlyCodex) deleteApplyOrder(o.home); };
 
   if (ops.length === 0) {
     try { updateBase(o.db, items, now); } catch (e) { throw new ApplyError('write-failed', `基準の更新に失敗しました（${errText(e)}）。適用内容は削除していません。`); }
-    finish();
     return done(null);
   }
 
@@ -351,7 +358,6 @@ export function writeCodex(o: CodexApplyOptions): ApplyResult {
   } catch (e) {
     throw rollback(root, gen, e, '書き込み');
   }
-  finish();
   pruneGenerations(o.home);
   return done(gen.name);
 }

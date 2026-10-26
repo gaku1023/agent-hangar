@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { isAutoDoneIdleDays, isCodexInjection, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, type ConfigExecMark } from '@agent-hangar/shared';
-import { loadSettings, saveSettings } from '../../../config/paths.ts';
-import { ApplyError, type ApplyPlan, type ApplyPlanItem, type ApplyResult } from '../apply.ts';
+import { loadSettings } from '../../../config/paths.ts';
+import { applyHangarPrefs } from './hangarApplier.ts';
+import { ApplyError, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedOp } from '../apply.ts';
 import { ConfigBase } from '../base.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import type { Collected, LocalItem } from '../collect.ts';
@@ -49,16 +51,7 @@ const keyOf = (id: string): string | null => {
 };
 const sha256 = (b: Buffer): string => crypto.createHash('sha256').update(b).digest('hex');
 
-/**
- * 書き込みの口。既定は settings.json を読んで鍵を差し替えて保存する（loadSettings と saveSettings、サーバと同じ書き方）。
- * 走っているサーバは設定を自分の入れ物（boot の box.current）に持ち、ファイルを読み直さない。
- * ファイルだけ書くと、次の設定の変更が古い入れ物で上書きするので、サーバの中で適用するときは、
- * 起動の側が applySettingsPatch を通す口をここに登録する。
- */
-export type HangarPrefsApplier = (home: string, patch: Record<string, unknown>) => void;
-const fileApplier: HangarPrefsApplier = (home, patch) => saveSettings(home, { ...loadSettings(home), ...patch });
-let applier: HangarPrefsApplier = fileApplier;
-export function setHangarPrefsApplier(fn: HangarPrefsApplier | null): void { applier = fn ?? fileApplier; }
+export { setHangarPrefsApplier, type HangarPrefsApplier } from './hangarApplier.ts';
 
 function collect(settingsPath: string): Collected {
   const out: Collected = { items: [], dropped: [], unsent: [], blocked: { ids: new Set(), prefixes: [] } };
@@ -130,6 +123,13 @@ export const hangarTarget: ConfigTarget = {
     const plan: ApplyPlan = { createdAt: Date.now(), items, counts, byKind: { 'hangar-pref': items.length }, instructions: 0, exec: [] };
     return plan;
   },
+  // 承諾の窓には hangar の settings.json の差分として見せる。サーバが常に書き換えるので、書く直前の指紋には入れない（volatile）。
+  planOps: (o): PlannedOp[] => {
+    const patch: Record<string, unknown> = {};
+    for (const e of prepare(o.home)) if (e.act === 'write') patch[e.key] = e.value;
+    if (Object.keys(patch).length === 0) return [];
+    return [{ rel: 'settings.json', path: path.join(o.home, 'settings.json'), after: JSON.stringify({ ...loadSettings(o.home), ...patch }, null, 2) + '\n', volatile: true }];
+  },
   write: (o): ApplyResult => {
     const entries = prepare(o.home);
     const now = o.now ? o.now() : Date.now();
@@ -137,7 +137,7 @@ export const hangarTarget: ConfigTarget = {
     for (const e of entries) if (e.act === 'write') patch[e.key] = e.value;
     const written = Object.keys(patch).length;
     if (written > 0) {
-      try { applier(o.home, patch); } catch (err) { throw new ApplyError('write-failed', `hangar の設定を書けませんでした（${err instanceof Error ? err.message : String(err)}）。適用内容は削除していません。`); }
+      try { applyHangarPrefs(o.home, patch); } catch (err) { throw new ApplyError('write-failed', `hangar の設定を書けませんでした（${err instanceof Error ? err.message : String(err)}）。適用内容は削除していません。`); }
     }
     const base = new ConfigBase(o.db);
     o.db.transaction(() => {

@@ -364,13 +364,13 @@ describe('書き戻し：config.toml', () => {
     expect(read('config.toml')).toBe('model = "m"\n');
   });
 
-  it('控えを取り、基準を更新し、指示書を消す', () => {
+  it('控えを取り、基準を更新する。指示書は消さない（全部の対象を書き終えてから、呼び出し側の applyAll.ts が消す）', () => {
     deliver([toml(['model'], 'overwrite', 'new')]);
     const r = writeCodex(opts());
     expect(gens()).toEqual([r.generation]);
     expect(fs.readFileSync(path.join(backupsDir(), r.generation!, 'config.toml'), 'utf8')).toBe(ORIG);
     expect(new ConfigBase(db).all().get(codexTomlId(['model']))).toBe(sha('"new"'));
-    expect(readApplyOrder(hangarHome)).toBeNull();
+    expect(readApplyOrder(hangarHome)).not.toBeNull();
   });
 
   it('控えを取れなければ書かない', () => {

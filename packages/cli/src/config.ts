@@ -1,14 +1,14 @@
 import fs from 'node:fs';
 import type { ConfigExecMark, ConfigItemKind } from '@agent-hangar/shared';
 import {
-  ApplyError, dbPath, defaultClaudeDir, hangarHome, listBackups, loadSettings, openDb, planApply, planApplyFiles, planRestore, planRestoreFiles, runApply, runRestore,
-  type ApplyPlan, type ApplyPlanItem, type Db,
+  ApplyError, dbPath, defaultClaudeDir, defaultTargetPaths, hangarHome, listAllBackups, loadSettings, openDb, planApply, planApplyFiles, planRestoreTarget, planRestoreTargetFiles, runApply, runRestoreTarget,
+  type ApplyAllPlan, type ApplyPlan, type ApplyPlanItem, type Db,
 } from '@agent-hangar/server/src/cliEntry.ts';
 import { promptYesNo, type Ask } from './statusline.ts';
 
 /**
  * hangar config apply と hangar config restore。
- * 設定の同期で他の PC から届いた項目を `~/.claude` へ書く、あるいは控えの世代へ戻す。サーバは書かない（全体計画の D9）。
+ * 設定の同期で他の PC から届いた項目を、項目の対象ごとの入れ物（`~/.claude`、`$CODEX_HOME`、opencode の設定、`~/.agents/skills`）へ書く、あるいは控えの世代へ戻す。サーバは書かない（全体計画の D9）。
  * 書く処理の本体は server の sync/config/apply.ts で、ここは確認の出し方と、結果の見せ方だけを持つ。
  * 殻の命令（apps/desktop）も、ネイティブの確認を出したあとで、この命令の --yes --json を走らせる。
  */
@@ -18,6 +18,11 @@ type Common = {
   home?: string;
   /** 書き込む `~/.claude`。省くと、設定の claudeDir。 */
   claudeDir?: string;
+  /** ほかの対象の入れ物と利用者のホーム。省くと、この PC の既定の場所（試験は一時のディレクトリを渡す）。 */
+  codexHome?: string;
+  opencodeDir?: string;
+  agentsSkillsDir?: string;
+  userHome?: string;
   /** 聞かずに進める。 */
   yes?: boolean;
   /** 機械が読む JSON を 1 行だけ標準出力へ出す（殻が使う）。 */
@@ -41,6 +46,8 @@ export type ConfigApplyOpts = Common & {
 export type ConfigRestoreOpts = Common & {
   /** 戻す世代の名前。省くと一覧を出す。 */
   name?: string;
+  /** 世代の対象（claude、codex、opencode、agents-skills）。省くと claude。 */
+  target?: string;
   /** 戻す先と消す先を出すだけで、何も戻さない。 */
   plan?: boolean;
   /** 承諾の窓で見せた書く先の指紋。見せた後に手元が変わっていたら戻さない。殻が使う。 */
@@ -68,6 +75,18 @@ const MAX_LISTED = 40;
 
 const claudeDirOf = (o: Common, home: string): string => o.claudeDir ?? (loadSettings(home).claudeDir || defaultClaudeDir());
 
+/** 書く先の入れ物を全部そろえる（殻と CLI はいつも渡す。省いた場所を対象が勝手に決めないため）。 */
+function pathsOf(o: Common, home: string) {
+  const d = defaultTargetPaths(process.env, o.userHome);
+  return {
+    home, claudeDir: claudeDirOf(o, home), userHome: o.userHome,
+    codexHome: o.codexHome ?? d.codexHome, opencodeDir: o.opencodeDir ?? d.opencodeDir, agentsSkillsDir: o.agentsSkillsDir ?? d.agentsSkillsDir, claudeJsonPath: d.claudeJsonPath,
+  };
+}
+
+const TARGET_LABEL: Record<string, string> = { claude: 'Claude Code', 'claude-keys2': 'Claude Code', 'claude-hooks': 'Claude Code', 'claude-plugins': 'Claude Code', codex: 'Codex', opencode: 'opencode', 'agents-skills': '共通のスキル', hangar: 'Hangar' };
+const targetsText = (names: string[]): string => [...new Set(names.map((n) => TARGET_LABEL[n] ?? n))].join('、');
+
 /** 失敗は 1 行にして、JSON のときは符号もつける。終了コードは 1。 */
 function fail(o: Common, e: unknown, log: (s: string) => void): number {
   if (!(e instanceof ApplyError)) throw e;
@@ -93,8 +112,10 @@ const opWord = (i: ApplyPlanItem): string => {
 };
 
 /** 端末に出す見立て。殻の確認と同じ項目を、件数、種類、実行されるものの順に並べる。 */
-export function formatPlan(p: ApplyPlan): string[] {
-  const lines = ['他の PC から受信した設定を ~/.claude に書き込みます。', `  ${counts(p)}`];
+export function formatPlan(p: ApplyPlan | ApplyAllPlan): string[] {
+  const targets = 'targets' in p ? p.targets : ['claude'];
+  const onlyClaude = targets.every((t) => TARGET_LABEL[t] === 'Claude Code');
+  const lines = [onlyClaude ? '他の PC から受信した設定を ~/.claude に書き込みます。' : `他の PC から受信した設定を書き込みます（対象: ${targetsText(targets)}）。`, `  ${counts(p)}`];
   lines.push(`  種類: ${Object.entries(p.byKind).map(([k, n]) => `${KIND_LABEL[k as ConfigItemKind]} ${n}`).join('、')}`);
   if (p.instructions > 0) lines.push(`Claude が読んで実行する指示（スキル、コマンド、エージェント）を ${p.instructions} 件書き込みます。`);
   if (p.exec.length > 0) {
@@ -119,16 +140,17 @@ function openDbFor(home: string): Db {
 export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
   const log = o.log ?? ((s: string) => console.log(s));
   const home = o.home ?? hangarHome();
+  const paths = pathsOf(o, home);
   let plan: ApplyPlan;
   try {
-    plan = planApply({ home });
+    plan = planApply(paths);
     if (o.order !== undefined && o.order !== plan.createdAt) throw new ApplyError('stale', '確認したあとに、適用内容が変わりました。何も書き込んでいません。適用する項目をもう一度確認してください。');
   } catch (e) { return fail(o, e, log); }
   if (o.plan) {
     // 機械向けには、書く先ごとの差分と指紋も添える（殻の承諾の窓が「何をどこに」と「差分」に出す）。
     if (o.json) {
       let files: ReturnType<typeof planApplyFiles>;
-      try { files = planApplyFiles({ home, claudeDir: claudeDirOf(o, home) }); } catch (e) { return fail(o, e, log); }
+      try { files = planApplyFiles(paths); } catch (e) { return fail(o, e, log); }
       log(JSON.stringify({ ok: true, plan: { ...plan, files: files.files, fingerprint: files.fingerprint } }));
     } else for (const l of formatPlan(plan)) log(l);
     return 0;
@@ -148,11 +170,14 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
   let db: Db | null = null;
   try {
     db = openDbFor(home);
-    const r = runApply({ home, claudeDir: claudeDirOf(o, home), db, now: o.now, expect: o.expect });
+    const r = runApply({ ...paths, db, now: o.now, expect: o.expect });
     if (o.json) log(JSON.stringify({ ok: true, result: r }));
     else {
       log(`適用しました（書き込み ${r.written} 件、削除 ${r.removed} 件、この PC の内容を残す ${r.keptMine} 件）`);
-      if (r.generation) log(`バックアップの世代: ${r.generation}。元に戻すには hangar config restore ${r.generation} を実行してください`);
+      for (const g of r.generations ?? []) {
+        const cmd = g.target === 'claude' ? `hangar config restore ${g.name}` : `hangar config restore --target ${g.target} ${g.name}`;
+        log(`バックアップの世代（${TARGET_LABEL[g.target] ?? g.target}）: ${g.name}。元に戻すには ${cmd} を実行してください`);
+      }
     }
     return 0;
   } catch (e) {
@@ -171,27 +196,27 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
   const log = o.log ?? ((s: string) => console.log(s));
   const home = o.home ?? hangarHome();
   if (!o.name) {
-    const gens = listBackups(home);
+    const gens = listAllBackups(home);
     if (o.json) log(JSON.stringify({ ok: true, generations: gens }));
     else if (gens.length === 0) log('バックアップの世代はありません。');
     else {
       log('バックアップの世代（新しい順）:');
-      for (const g of gens) log(`  ${g.name}  ${g.files} ファイル  ${atLabel(g.at)}`);
-      log('元に戻すには hangar config restore <世代> を実行してください');
+      for (const g of gens) log(`  ${g.name}  ${TARGET_LABEL[g.target ?? 'claude'] ?? g.target}  ${g.files} ファイル  ${atLabel(g.at)}`);
+      log('元に戻すには hangar config restore <世代> を実行してください（Claude Code 以外の世代は --target <対象> も付けます）');
     }
     return 0;
   }
-  const claudeDir = claudeDirOf(o, home);
-  let plan: ReturnType<typeof planRestore>;
-  try { plan = planRestore({ home, claudeDir, name: o.name }); } catch (e) { return fail(o, e, log); }
+  const ro = { ...pathsOf(o, home), name: o.name, target: o.target };
+  let plan: ReturnType<typeof planRestoreTarget>;
+  try { plan = planRestoreTarget(ro); } catch (e) { return fail(o, e, log); }
   const listPlan = (): void => {
     if (plan.restore.length > 0) { log('書き戻すファイル:'); for (const f of plan.restore.slice(0, MAX_LISTED)) log(`  ${f}`); }
     if (plan.remove.length > 0) { log('その時点で無かったため削除するファイル:'); for (const f of plan.remove.slice(0, MAX_LISTED)) log(`  ${f}`); }
   };
   if (o.plan) {
     if (o.json) {
-      let files: ReturnType<typeof planRestoreFiles>;
-      try { files = planRestoreFiles({ home, claudeDir, name: o.name }); } catch (e) { return fail(o, e, log); }
+      let files: ReturnType<typeof planRestoreTargetFiles>;
+      try { files = planRestoreTargetFiles(ro); } catch (e) { return fail(o, e, log); }
       log(JSON.stringify({ ok: true, plan: { ...plan, files: files.files, fingerprint: files.fingerprint } }));
     } else { log(`世代 ${plan.name} の時点に戻すと、次のようになります。`); listPlan(); }
     return 0;
@@ -214,11 +239,12 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
   let db: Db | null = null;
   try {
     if (fs.existsSync(dbPath(home))) db = openDbFor(home);
-    const r = runRestore({ home, claudeDir, name: o.name, db: db ?? undefined, now: o.now, expect: o.expect });
+    const r = runRestoreTarget({ ...ro, db: db ?? undefined, now: o.now, expect: o.expect });
     if (o.json) log(JSON.stringify({ ok: true, result: r }));
     else {
       log(`戻しました（書き戻し ${r.restored.length} 件、削除 ${r.removed.length} 件）`);
-      log(`戻す前の状態は世代 ${r.safety} にバックアップしました。取り消すには hangar config restore ${r.safety} を実行してください`);
+      const again = o.target && o.target !== 'claude' ? `hangar config restore --target ${o.target} ${r.safety}` : `hangar config restore ${r.safety}`;
+      log(`戻す前の状態は世代 ${r.safety} にバックアップしました。取り消すには ${again} を実行してください`);
     }
     return 0;
   } catch (e) {

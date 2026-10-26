@@ -38,6 +38,8 @@ export { normalizeRecoveryTail } from './sync/recoveryTail.ts';
 // 読むのは hangar の置き場の指示書と inbox、書くのは設定の入れ物と、基準の表（DB）だけで、サーバ本体は引かない。
 export { ApplyError, planApply, planApplyFiles, planRestore, planRestoreFiles, runApply, runRestore, type PlannedFile, type PlannedFiles, type ApplyErrorCode, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type RestorePlan, type RestoreResult } from './sync/config/apply.ts';
 export { listBackups } from './sync/config/backups.ts';
+export { listAllBackups, planRestoreTarget, planRestoreTargetFiles, runRestoreTarget, type ApplyAllPlan } from './sync/config/applyAll.ts';
+export { defaultTargetPaths } from './sync/config/targets/paths.ts';
 // 承諾の窓に見せる差分（hangar mcp、shell、statusline の --dry-run）。設定の同期の競合と同じ行の形で作る。
 export { diffLines } from './config/jsonTextEdit.ts';
 export { openDb, type Db } from './db/open.ts';
