@@ -46,4 +46,7 @@ export const launchPrepEn: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.cancelled': 'Preparation cancelled.',
   'launchPrep.error.notRunning': 'This session is not running.',
   'launchPrep.error.notFound': 'No preparation in progress.',
+  'launchPrep.error.modelMissing': '{model} is not on this PC. Available: {available}',
+  'launchPrep.error.modelMissingNone': '{model} is not on this PC. No models found in {name}.',
+  'launchPrep.error.serverDown': 'Can\'t connect to {name} ({url}). Start {name} and try again.',
 };

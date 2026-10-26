@@ -417,6 +417,18 @@ describe('知らせの出る動き（⑨ の b）', () => {
   });
 });
 
+describe('未検証の Codex の版の札（C4）', () => {
+  const cx = { version: '0.170.0', head: '未検証のバージョン', who: 'codex 0.170.0', title: 'codex 0.170.0 は未検証のバージョンです', body: '検証済み：0.164.x。app-server の変更により、状態や権限確認が正しく表示されない可能性があります。', settings: '設定を開く', proceed: 'このまま続行' };
+  it('opencode の札と同じ形で、codex の操作を送る', () => {
+    const { onAction } = mount(props({ codexVersion: cx }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="codex-version"]')!;
+    expect(c.querySelector('.notice-title')).toHaveTextContent('codex 0.170.0 は未検証のバージョンです');
+    fireEvent.click(within(c).getByRole('button', { name: 'このまま続行' }));
+    fireEvent.click(within(c).getByRole('button', { name: '設定を開く' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'codex.version.continue', version: '0.170.0' }], [{ type: 'codex.version.settings', version: '0.170.0' }]]);
+  });
+});
+
 describe('未検証の opencode の版の札（C7、試作の N1）', () => {
   const oc = { version: '2.2.0', head: '未検証のバージョン', who: 'opencode 2.2.0', title: 'opencode 2.2.0 は未検証のバージョンです', body: '検証済み：2.1.x。API の変更により、状態や権限確認が正しく表示されない可能性があります。', settings: '設定を開く', proceed: 'このまま続行' };
   it('見出しに種類と版、その下に題と本文、ボタンと文字だけの操作を並べる', () => {

@@ -6,6 +6,7 @@ import { LaunchQueue } from '../opencode/serve/queue.ts';
 import { isProcessAlive, watchExit } from '../opencode/serve/spawn.ts';
 import { CodexRpc, stopAppServer, tuiRemote, watchStartedThread, type AppServerProcess } from './appServer.ts';
 import { codexBaseEnv } from './env.ts';
+import type { CodexLiveTarget } from './live.ts';
 import { launchCodexAppServer } from './launch.ts';
 import { CodexRegistry, codexRegistryPath } from './registry.ts';
 import { CODEX_PERMISSION_FLAGS } from '@agent-hangar/shared';
@@ -52,8 +53,8 @@ export type CodexDriverDeps = {
   graceMs?: number;
   sleep?: (ms: number) => Promise<void>;
   queue?: LaunchQueue;
-  /** 状態、許可・質問、トランスクリプトの面。B4 と B5 が載せる。無ければ空の面を持つ。 */
-  live?: LiveSource;
+  /** 状態、許可・質問、トランスクリプトの面。live と asks は B4（createCodexLive）、トランスクリプトは B5 が載せる。無ければ空の面を持つ。live が track・untrack を持てば、起動した会話を載せ、止めたら外す。 */
+  live?: LiveSource & { track?(t: CodexLiveTarget): void; untrack?(providerSessionId: string): void };
   asks?: AskSource;
   transcript?: TranscriptSource;
 };
@@ -91,6 +92,15 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
       rpc.on('turn/started', (p) => { if (p.threadId === s.threadId) s.turnId = p.turn.id; }),
       rpc.on('turn/completed', (p) => { if (p.threadId === s.threadId && s.turnId === p.turn.id) s.turnId = null; }),
     );
+  }
+
+  /** 状態の面に会話を載せる（接続とスレッドの ID が揃ってから）。購読済みかは、hangar の接続が thread/start したか（subscribed）で決める。 */
+  function trackLive(s: Served, subscribed: boolean): void {
+    if (!s.rpc || !s.threadId) return;
+    deps.live?.track?.({ providerSessionId: s.threadId, cwd: s.cwd, pid: s.pid, rpc: s.rpc, subscribed });
+  }
+  function untrackLive(s: Served): void {
+    if (s.threadId) deps.live?.untrack?.(s.threadId);
   }
 
   /** hangar の MCP が connected になるまで待つ。failed でも上限を過ぎても知らせるだけで、起動は続ける。 */
@@ -155,6 +165,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
         s.threadId = th.thread.id;
         watchTurns(s, handle.rpc);
         record();
+        trackLive(s, true);
         emit({ type: 'thread', sessionId: s.sessionId, threadId: s.threadId });
         await waitForMcp(handle.rpc, s.threadId);
         if (spec.prompt) await handle.rpc.turnStart({ threadId: s.threadId, input: [{ type: 'text', text: spec.prompt, text_elements: [] }], ...(spec.effort?.trim() ? { effort: spec.effort.trim() } : {}) });
@@ -169,6 +180,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
         s.threadId = th.thread.id;
         watchTurns(s, handle.rpc);
         record();
+        trackLive(s, true);
         emit({ type: 'thread', sessionId: s.sessionId, threadId: s.threadId });
         // MCP がつながる前に最初の入力を流すと、1 歩目の道具の目録に hangar の道具が載らない。
         await waitForMcp(handle.rpc, s.threadId);
@@ -183,7 +195,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
         s.cancelWatch = null;
         s.threadId = t.id;
         watchTurns(s, handle.rpc);
-        if (served.get(s.sessionId) === s) { record(); emit({ type: 'thread', sessionId: s.sessionId, threadId: t.id }); }
+        if (served.get(s.sessionId) === s) { record(); trackLive(s, false); emit({ type: 'thread', sessionId: s.sessionId, threadId: t.id }); }
         return t.id;
       });
       late.catch((e: unknown) => { if (served.get(s.sessionId) === s) report('thread', e); });
@@ -191,6 +203,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     } catch (e) {
       if (served.get(s.sessionId) === s) served.delete(s.sessionId);
       registry.remove(s.sessionId);
+      untrackLive(s);
       emit({ type: 'down', sessionId: s.sessionId });
       await stopServed(s).catch(() => undefined);
       // rollout が無いスレッドは、実物が -32600「no rollout found」で返す。分かる断りに直す。
@@ -218,8 +231,19 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     // 引き継いだプロセスには子の口（ChildProcess）が無い。止める側が使うのは pid と終わりの知らせと token のファイルだけである。
     const server = { pid: rec.pid, port: rec.port, url, token, tokenFile: rec.tokenFile, startedAt: rec.startedAt, child: null, exited: watchExit(rec.pid, 100) } as unknown as AppServerProcess;
     const threadId = rec.threadId ?? (target.providerSessionId.startsWith(PENDING_PREFIX) ? null : target.providerSessionId);
-    served.set(target.sessionId, { sessionId: target.sessionId, cwd: rec.cwd, pid: rec.pid, url, token, rpc: null, threadId, server, turnId: null, offs: [], cancelWatch: null });
+    const s: Served = { sessionId: target.sessionId, cwd: rec.cwd, pid: rec.pid, url, token, rpc: null, threadId, server, turnId: null, offs: [], cancelWatch: null };
+    served.set(target.sessionId, s);
     emit({ type: 'up', sessionId: target.sessionId });
+    // 引き継いだ app-server は接続を持たないので、状態の面のために、ここでつなぎ直す（失敗しても引き継ぎは続ける）。
+    // thread/start した接続ではないので、購読は状態の面が最初の active で行う。ID が分からない会話（TUI がまだつないでいなかった）は載せない。
+    if (deps.live?.track && threadId) {
+      void CodexRpc.connect({ url, token, requestTimeoutMs: deps.requestTimeoutMs ?? 3000, connectTimeoutMs: 2000 }).then((rpc) => {
+        if (served.get(s.sessionId) !== s || s.rpc) { rpc.close(); return; }
+        s.rpc = rpc;
+        watchTurns(s, rpc);
+        trackLive(s, false);
+      }, (e: unknown) => { report('thread', e); });
+    }
     return true;
   }
 
@@ -257,6 +281,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     if (!s) return false;
     served.delete(s.sessionId);
     s.cancelWatch?.();
+    untrackLive(s);
     emit({ type: 'down', sessionId: s.sessionId });
     let ours = true;
     try {

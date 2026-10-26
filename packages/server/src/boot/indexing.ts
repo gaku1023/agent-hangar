@@ -1,3 +1,4 @@
+import { codexEnabledOf } from '@agent-hangar/shared';
 import { IndexerService } from '../indexer/service.ts';
 import { gitPath } from '../git/find.ts';
 import { GitService } from '../git/service.ts';
@@ -10,6 +11,8 @@ import { checkRoots } from '../projects/rootCheck.ts';
 import { ensureScratchProject } from '../projects/scratch.ts';
 import { processStartOfPrompt } from '../sessions/promptProcess.ts';
 import { remoteRoot } from '../config/cloud.ts';
+import { codexTranscriptSource } from '../provider/codex/transcript/source.ts';
+import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { opencodeExportDir } from '../provider/opencode/export.ts';
 import { RemoteOpencodeTranscripts } from '../provider/opencode/transcript/remote.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -37,6 +40,8 @@ export type IndexingParts = {
    * 渡すまでは、opencode の使用量の context_size を書かない。
    */
   bindContextSize(of: (model: string) => number | null): void;
+  /** 設定の「Codex を有効にする」が変わったとき。Codex の本文の見張りを付け外しして、全件の見比べを頼む。 */
+  onSettingsChanged(): void;
 };
 
 /**
@@ -61,11 +66,20 @@ export function bootIndexing(
     marks: { get: (id) => sync.syncState.get(`opencodeView:${id}`), set: (id, v) => { sync.syncState.set(`opencodeView:${id}`, v); } },
     isRunningHere: (id) => live.current().some((l) => l.sessionId === id),
   });
+  // Codex の本文（$CODEX_HOME の sessions）。設定の codexEnabled が切なら、何も取り込まず、見張りも付けない。
+  const codex = codexTranscriptSource({
+    codexHome: () => defaultCodexHome(),
+    enabled: () => codexEnabledOf(settings.current),
+    // hangar が起こして動いている会話は、取り込みの上限に数えない。
+    isLive: (id) => live.current().some((l) => l.agent === 'codex' && l.sessionId === id),
+  });
+  let codexWasOn = codexEnabledOf(settings.current);
   const indexer = new IndexerService({
     db, deviceId,
     contextSizeOf: (model) => contextSize?.(model) ?? null,
-    // ファイル型の本文の発見と見張りは、各 driver のトランスクリプトの面が受け持つ（いまは Claude だけ。Codex は driver ができたらここへ足す）。他端末から降ろした本文も、Claude の面が見つける。
-    transcripts: [delivery.claude.transcript],
+    // ファイル型の本文の発見と見張りは、各 driver のトランスクリプトの面が受け持つ。他端末から降ろした本文は、Claude の面が見つける。
+    // Codex の面は driver（段 B2〜B3）より先に、hangar の外で始まった会話の取り込みのために足す（設定が切なら空）。
+    transcripts: [delivery.claude.transcript, codex],
     // opencode（ベータ）の本文は serve の API から読んで束で押し込む。hangar が起こした会話だけを読むので、設定が切なら何も読まない。
     // ほかの PC の opencode の会話は、降ろした export の写しから読む（設定に依らず閲覧できる）。
     stored: [delivery.opencode.transcript, remoteOpencode],
@@ -108,6 +122,13 @@ export function bootIndexing(
   return {
     indexer, memos, git,
     bindContextSize(of) { contextSize = of; },
+    onSettingsChanged() {
+      // opencode の入り切りでも呼ばれるので、Codex の値が変わったときだけ見張りを付け替える。
+      const on = codexEnabledOf(settings.current);
+      if (on === codexWasOn) return;
+      codexWasOn = on;
+      codex.setEnabled?.(on);
+    },
     async start() {
       await indexer.start();
       // この PC に場所のあるプロジェクトの git の remote の空きを埋める。ほかの PC が同じリポジトリを見分けるのに使う（projects/link.ts）。

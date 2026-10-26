@@ -2,12 +2,13 @@ import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
 import { applySettingsPatch } from '../config/settingsUpdate.ts';
-import { findOpencode, whichMux } from '../config/tools.ts';
+import { findCodex, findOpencode, whichMux } from '../config/tools.ts';
 import { listDevices } from '../db/queries.ts';
 import { createApp } from '../http/app.ts';
 import { promoteSession } from '../projects/promote.ts';
 import type { MobileParts } from './mobile.ts';
 import type { OpencodeParts } from './opencode.ts';
+import { LocalCodex } from '../provider/codex/compat/version.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
 import { PtyRelay } from '../pty/relay.ts';
@@ -99,6 +100,8 @@ export function bootHttp(p: {
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');
   // opencode の検出（ベータ）。版は聞かれたときに 1 度だけ読み、同じファイルなら覚えた版を返す。
   const opencode = new LocalOpencode({ bin: () => findOpencode() });
+  // Codex の検出（ベータ）。版は 1 度だけ読んで覚え、ログインの有無は聞かれるたびに読む。
+  const codex = new LocalCodex({ bin: () => findCodex() });
   const app = createApp({
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
@@ -121,7 +124,7 @@ export function bootHttp(p: {
       },
       onSummaryCap: summary.rebuildClaude,
       publishConfigSync: sync.publishConfigSync,
-      onOpencodeEnabled: () => p.mobile.settingsChanged(),
+      onOpencodeEnabled: () => { p.mobile.settingsChanged(); indexing.onSettingsChanged(); },
     }, patch),
     live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, asksOf: (provider) => delivery.agents.of(provider).asks, osNotices: delivery.osNotices,
     summary: summary.api,
@@ -174,6 +177,7 @@ export function bootHttp(p: {
     compat: runs.compat,
     // 利用者の opencode.json が許可を決めているかも、聞かれるたびに読み直して添える（設定の画面の許可のひな形の行）。
     opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
+    codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,
     overlapRefresh: () => runs.overlaps.tick(),

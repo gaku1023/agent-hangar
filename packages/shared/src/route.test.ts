@@ -77,3 +77,11 @@ describe('settingsSectionOf', () => {
     expect(parseRoute('#/settings?at=editor')).toEqual({ name: 'settings', at: 'editor' });
   });
 });
+
+describe('codex の小さな節', () => {
+  it('Codex の面は連携の節にある（未検証の版の札の「設定を開く」が開く）', () => {
+    expect(settingsSectionOf('codex')).toBe('integrations');
+    expect(parseRoute('#/settings?at=codex')).toEqual({ name: 'settings', at: 'codex' });
+    expect(formatRoute({ name: 'settings', at: 'codex' })).toBe('#/settings?at=codex');
+  });
+});

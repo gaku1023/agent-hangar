@@ -46,4 +46,7 @@ export const launchPrepJa: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.cancelled': '準備を中止しました。',
   'launchPrep.error.notRunning': 'このセッションは実行中ではありません。',
   'launchPrep.error.notFound': '進行中の準備はありません。',
+  'launchPrep.error.modelMissing': '{model} はこの PC にありません。使えるのは: {available}',
+  'launchPrep.error.modelMissingNone': '{model} はこの PC にありません。{name} にモデルがありません。',
+  'launchPrep.error.serverDown': '{name}（{url}）に接続できません。{name} を起動して再試行してください。',
 };

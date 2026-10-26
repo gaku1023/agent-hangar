@@ -7,7 +7,7 @@ import { writeFakeCodex } from '../../../test/fake-codex.ts';
 import { isWindows } from '../../../test/platform.ts';
 import { ServeStartError, isProcessAlive } from '../opencode/serve/spawn.ts';
 import {
-  CodexRpc, CodexRpcError, appServerArgs, startAppServer, stopAppServer, trustedProjectsConfig, tuiRemote, watchStartedThread, TUI_TOKEN_ENV,
+  CodexRpc, CodexRpcError, appServerArgs, startAppServer, stopAppServer, trustedProjectsConfig, winCmdArg, tuiRemote, watchStartedThread, TUI_TOKEN_ENV,
   type AppServerProcess,
 } from './appServer.ts';
 import { codexBaseEnv } from './env.ts';
@@ -31,6 +31,31 @@ describe('app-server の argv と TUI の渡し方', () => {
   });
   it('信頼のフォルダは TOML の文字列として引用符を逃がす', () => {
     expect(trustedProjectsConfig(['/w/a"b', '/w/c'])).toBe('projects={"/w/a\\"b"={trust_level="trusted"},"/w/c"={trust_level="trusted"}}');
+  });
+  it('Windows のパスの \\ も、" を含むパスも、TOML として解くと元のパスに戻る', () => {
+    for (const p of ['C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\hangar-cxw-x', 'C:\\w\\a"b\\', '/w/\u65e5\u672c']) {
+      const c = trustedProjectsConfig([p]);
+      expect(c).toBe(`projects={${JSON.stringify(p)}={trust_level="trusted"}}`);
+      const key = c.slice('projects={'.length, c.indexOf('={trust_level'));
+      expect(JSON.parse(key)).toBe(p);
+    }
+  });
+  it('cmd 経由（Windows の .cmd）の引数は、CRT の規則で逆に解くと元に戻る', () => {
+    const unparse = (s: string): string => {
+      let out = ''; let i = 0; let inq = false;
+      while (i < s.length) {
+        let b = 0;
+        while (s[i] === '\\') { b++; i++; }
+        if (s[i] === '"') { out += '\\'.repeat(Math.floor(b / 2)); if (b % 2) { out += '"'; } else inq = !inq; i++; }
+        else { out += '\\'.repeat(b); if (i < s.length) { out += s[i]; i++; } }
+      }
+      void inq;
+      return out;
+    };
+    for (const a of ['projects={"C:\\\\Users\\\\x"={trust_level="trusted"}}', 'a b', 'x\\', 'q"r', 'developer_instructions="a \\"b\\" c"']) {
+      expect(unparse(winCmdArg(a))).toBe(a);
+    }
+    expect(winCmdArg('100%')).toBe('"100"^%""');
   });
   it('TUI へは env の名前で渡し、値は env にだけある', () => {
     const r = tuiRemote('ws://127.0.0.1:1', 'sekret');

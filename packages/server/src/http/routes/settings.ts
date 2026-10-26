@@ -41,15 +41,8 @@ const SETTING_LABEL = {
  * 設定を画面へ返す形にする。
  * API キーは返さず、保存しているかだけを返す。設定の変更は全部の画面へ配る（settings.changed）ので、秘密を載せない。
  */
-/**
- * Codex の 3 項目は、設定に書かれているときだけ返す（切のままなら、設定の応答は今までと同じ形）。
- * 設定の画面の行は C4 で足す。足すときは常に返す形にし、往復の試験（settings.test.ts）の項目にも足す。
- */
-const codexSettingsDto = (s: Settings): Pick<SettingsDto, 'codexEnabled' | 'codexInjection' | 'codexIntercept'> => ({
-  ...(s.codexEnabled !== undefined ? { codexEnabled: codexEnabledOf(s) } : {}),
-  ...(s.codexInjection !== undefined ? { codexInjection: codexInjectionOf(s) } : {}),
-  ...(s.codexIntercept !== undefined ? { codexIntercept: codexInterceptOf(s) } : {}),
-});
+/** Codex の 3 項目（ベータ）。設定の画面の行があるので、書かれていなくても既定（切、最小限、切）で常に返す。 */
+const codexSettingsDto = (s: Settings): Pick<SettingsDto, 'codexEnabled' | 'codexInjection' | 'codexIntercept'> => ({ codexEnabled: codexEnabledOf(s), codexInjection: codexInjectionOf(s), codexIntercept: codexInterceptOf(s) });
 
 export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep) });
 
