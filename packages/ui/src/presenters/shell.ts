@@ -2,10 +2,9 @@ import { asideOf } from '../lib/aside.ts';
 import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
-import { paneLeaves } from '../mediator/panes.ts';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, currentAccount, liveSessionIds, shownReason, waitingSessionIds, type Store } from '../store/store.ts';
-import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
+import { presentAccounts, presentAgentUsage, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
 import { presentOverlap } from './overlap.ts';
@@ -33,8 +32,9 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiv
  * list は全アカウント（並びと current はいまのアカウントを基準にする）。
  * sessionId は、セッション画面で開いているセッションの id で、ほかでは null。選ぶとそのセッションの切り替えになる。
  * working は、そのセッションが動いていて作業中か。session.kill に添える値（SessionScreen.tsx）と同じ出どころである。
+ * codex は、面の Codex の節に出す枠。値が未着か設定で切なら null（無いのと同じ）で、面は Claude の札だけになる。here は Codex の会話を開いているか。
  */
-export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean } | null;
+export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean; codex?: { usage: AgentUsageView; here: boolean } | null } | null;
 /**
  * 同期の一行は状態を示すだけで、操作は持たない。今すぐ同期、一時停止、PC を追加は設定の同期の群にある。
  * label は状態の語、title は label と件数を並べた全文で、狭いヘッダーで畳んだ部品もここから読める。
@@ -69,9 +69,7 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; a
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
   overlap?: string | null;
   /** 名前の右端のエージェントのアイコン（一覧の行と同じ、agentIcon.ts）。出さないときは持たない。 */
-  agent?: AgentIconKind | null;
-  /** 画面の分割に入っているときの、ペインの番号（木の順で 1 から）。ペインが 2 つ未満、または木に無いときは持たない。 */
-  pane?: number };
+  agent?: AgentIconKind | null };
 /** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
 export type SideLiveGroup = { key: string; name: string; open: boolean; waiting: number; rows: SideLiveRow[] };
 /**
@@ -185,7 +183,6 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const order = [...state.sidebarOrder.filter((id) => on.has(id)), ...live.filter((id) => !known.has(id))];
   const current = state.screen.name === 'session' ? state.screen.id : null;
   const icons = agentIconsOn(store);
-  const paneNo = new Map(paneLeaves(state.panes.root).length >= 2 ? paneLeaves(state.panes.root).flatMap((l, i) => (l.sessionId ? [[l.sessionId, i + 1] as const] : [])) : []);
   const rowOf = (id: string): SideLiveRow => {
     const s = store.sessions[id]!;
     const aside = asideOf(s.live, s.liveAside);
@@ -193,7 +190,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...(paneNo.has(id) ? { pane: paneNo.get(id)! } : {}) };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}) };
   };
   const byKey = new Map<string, string[]>();
   for (const id of order) {
@@ -281,7 +278,9 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const usage: UsageProps = !codex ? claudeUsage
     : screenAgent === 'codex' ? codexUsage(t, codex, now)
     : { ...claudeUsage, agent: { key: 'claude', label: t('header.gauge.agentClaude') } };
-  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting' }, usage };
+  // 面には、開いている会話によらず Codex の枠も並べる（Claude Code と Codex の節、AccountSwitcher.tsx）。
+  const codexCard = codex ? { usage: presentAgentUsage(t, codex, now), here: screenAgent === 'codex' } : null;
+  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting', codex: codexCard }, usage };
 }
 
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */

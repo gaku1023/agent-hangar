@@ -91,20 +91,18 @@ describe('AccountSwitcher の開いた先', () => {
     expect(within(card(/会社/)).getAllByText(`${list[0]!.fiveHour!.resets} にリセット`).length).toBeGreaterThan(0);
     expect(within(card(/大学/)).getByRole('meter', { name: '大学 週の使用率' })).toBeInTheDocument();
   });
-  it('札の右上は、shown が「現在のアカウント」、ほかは「切り替える」', () => {
+  it('Claude の札の右上には一言を出さない。いまの札は aria-checked（青い輪）だけで示す', () => {
     const { face } = mount(home());
     fireEvent.click(face);
-    expect(within(card(/会社/)).getByText('現在のアカウント')).toBeInTheDocument();
-    expect(within(card(/大学/)).getByText('切り替える')).toBeInTheDocument();
+    expect(screen.getByRole('dialog').querySelector('.account-card-tag')).toBeNull();
+    for (const text of ['現在のアカウント', 'このセッションのアカウント', '切り替える']) expect(screen.queryByText(text)).toBeNull();
   });
-  it('セッション画面では shown の札が「このセッションのアカウント」になり、aria-checked もそのセッションのアカウントに付く', () => {
+  it('セッション画面では、aria-checked がそのセッションのアカウントに付き、右上の一言は出さない', () => {
     const { face } = mount(inSession());
     fireEvent.click(face);
     expect(card(/大学/)).toHaveAttribute('aria-checked', 'true');
     expect(card(/会社/)).toHaveAttribute('aria-checked', 'false');
-    expect(within(card(/大学/)).getByText('このセッションのアカウント')).toBeInTheDocument();
-    expect(within(card(/会社/)).getByText('切り替える')).toBeInTheDocument();
-    expect(screen.queryByText('現在のアカウント')).toBeNull();
+    expect(screen.getByRole('dialog').querySelector('.account-card-tag')).toBeNull();
   });
   it('開いたとき、shown の札にフォーカスを置く', () => {
     const { face } = mount(inSession());
@@ -194,7 +192,6 @@ describe('AccountSwitcher で札を押す', () => {
     onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).not.toHaveAttribute('aria-disabled');
-    expect(within(univ).getByText('切り替える')).toBeInTheDocument();
     expect(within(univ).getByText('taro@example.ac.jp')).toBeInTheDocument();
     expect(within(univ).getByText('ブラウザで承認してください…')).toBeInTheDocument();
     fireEvent.click(univ);
@@ -207,7 +204,6 @@ describe('AccountSwitcher で札を押す', () => {
     onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).not.toHaveAttribute('aria-disabled');
-    expect(within(univ).getByText('切り替える')).toBeInTheDocument();
     fireEvent.click(univ);
     expect(onAction.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
   });
@@ -277,7 +273,6 @@ describe('AccountSwitcher でアカウントが 1 つ', () => {
     expect(screen.getAllByRole('menuitemradio')).toHaveLength(1);
     const c = card(/会社/);
     expect(c).toHaveAttribute('aria-checked', 'true');
-    expect(within(c).getByText('現在のアカウント')).toBeInTheDocument();
     expect(c.textContent).toContain('14:00');
     expect(c.textContent).toContain('10/20 9:00');
     expect(screen.getByRole('button', { name: 'アカウントを追加' })).toBeInTheDocument();
@@ -288,5 +283,46 @@ describe('AccountSwitcher でアカウントが 1 つ', () => {
     onAction.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'アカウントを追加' }));
     expect(onAction.mock.calls).toEqual([[{ type: 'account.add.open' }]]);
+  });
+});
+
+describe('AccountSwitcher の Codex の節', () => {
+  const codex = (here: boolean): Account['codex'] => ({ here, usage: { plan: 'Plus', fiveHour: { percent: 23, high: false, resets: '16:20' }, sevenDay: { percent: 37, high: false, resets: '11/01 12:00' }, updatedLabel: '2 分前' } });
+  it('Codex の枠があれば、Claude Code と Codex の見出しで節を分け、Codex の札は押せる札にしない', () => {
+    const { face } = mount(home({ codex: codex(false) }));
+    fireEvent.click(face);
+    const dialog = screen.getByRole('dialog');
+    const claude = within(dialog).getByRole('group', { name: 'Claude Code' });
+    expect(within(claude).getAllByRole('menuitemradio')).toHaveLength(list.length);
+    expect(within(claude).getByText('クリックで切り替え')).toBeInTheDocument();
+    const group = within(dialog).getByRole('group', { name: 'Codex' });
+    expect(within(group).queryByRole('menuitemradio')).toBeNull();
+    expect(within(group).queryByRole('button')).toBeNull();
+    expect(group).toHaveTextContent('ChatGPT');
+    expect(group).toHaveTextContent('Plus');
+    expect(group).toHaveTextContent('最終更新 2 分前');
+    expect(within(group).getByRole('meter', { name: 'ChatGPT 5 時間の使用率' })).toHaveAttribute('aria-valuenow', '23');
+    expect(group).toHaveTextContent('16:20 にリセット');
+    expect(within(group).queryByText('このセッション')).toBeNull();
+  });
+  it('Codex の会話を開いているときだけ、Codex の札に「このセッション」と出す', () => {
+    const { face } = mount(home({ codex: codex(true) }));
+    fireEvent.click(face);
+    const group = screen.getByRole('group', { name: 'Codex' });
+    expect(within(group).getByText('このセッション')).toBeInTheDocument();
+    expect(group.querySelector('.account-card')).toHaveAttribute('data-here', 'true');
+  });
+  it('Claude のアカウントが 1 つなら、見出しに「クリックで切り替え」を添えない', () => {
+    const { face } = mount(home({ list: [list[0]!], codex: codex(false) }));
+    fireEvent.click(face);
+    expect(screen.getByRole('group', { name: 'Claude Code' })).toBeInTheDocument();
+    expect(screen.queryByText('クリックで切り替え')).toBeNull();
+  });
+  it('Codex の枠が無ければ、節の見出しを出さず今の面のまま', () => {
+    const { face } = mount(home({ codex: null }));
+    fireEvent.click(face);
+    expect(screen.queryByRole('group', { name: 'Codex' })).toBeNull();
+    expect(screen.queryByText('Claude Code')).toBeNull();
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(list.length);
   });
 });

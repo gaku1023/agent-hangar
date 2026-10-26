@@ -150,15 +150,13 @@ describe('PaneWorkspace', () => {
     expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0);
   });
 
-  it('サイドバーの行に、ペインが 2 つ以上のときだけ木の順の番号の札が付く', async () => {
+  it('分割しても、サイドバーの行にペインの番号の札を付けない。操作中のペインの行だけに印を付ける', async () => {
     const m = await mounted();
-    expect(document.querySelectorAll('.side-pane-badge')).toHaveLength(0);
     await m.open('s2');
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.side-live-row'));
-    const badge = (id: string) => rows.find((r) => r.dataset.id === id)!.querySelector('.side-pane-badge')?.textContent;
-    expect(badge('s1')).toBe('1');
-    expect(badge('s2')).toBe('2');
-    expect(badge('s3')).toBeUndefined();
+    expect(rows.length).toBeGreaterThan(1);
+    expect(document.querySelector('.side-pane-badge, [data-pane-badge]')).toBeNull();
+    expect(rows.filter((r) => r.getAttribute('aria-current') === 'page').map((r) => r.dataset.id)).toEqual(['s2']);
   });
 
   it('空のペインは動いているセッションの一覧を出し、押すと pane.fill を出す', async () => {

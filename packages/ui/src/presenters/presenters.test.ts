@@ -1257,6 +1257,17 @@ describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
     expect(p.usage).toEqual(presentShell(initialState(), store, NOW).usage);
     expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage.agent).toBeUndefined();
   });
+  it('切り替えの面に Codex の札を渡す。プランは頭を大文字にし、Codex の会話を開いているときだけ here', () => {
+    const store = withCodex({ ...CODEX, fiveHour: { usedPercent: 88, resetsAt: FIVE_RESETS } });
+    const home = presentShell(initialState(), store, NOW).account?.codex;
+    expect(home).toMatchObject({ here: false, usage: { plan: 'Plus', fiveHour: { percent: 88, high: true }, sevenDay: { percent: 31, high: false } } });
+    expect(home?.usage.updatedLabel).not.toBeNull();
+    expect(presentShell(at({ name: 'session', id: 'c1' }), store, NOW).account?.codex?.here).toBe(true);
+    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).account?.codex?.here).toBe(false);
+  });
+  it('Codex の枠が無いときは、面に Codex の札を渡さない', () => {
+    expect(presentShell(initialState(), withCodex(null), NOW).account?.codex).toBeNull();
+  });
 });
 
 describe('presentProject の右レール', () => {

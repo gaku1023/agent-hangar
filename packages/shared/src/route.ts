@@ -10,7 +10,7 @@
 export const SETTINGS_SECTIONS = ['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** 節の中の、1 つの欄（か小さな節）を指す開く先。開いたら、その欄が見える所へ移って目立たせる。 */
-export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor', 'opencode', 'codex'] as const;
+export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor', 'codex', 'opencode'] as const;
 export type SettingsField = (typeof SETTINGS_FIELDS)[number];
 /** 0.9.3 までの節の名前。 */
 const LEGACY_SECTIONS = { tools: 'environment', update: 'about', info: 'about' } as const;

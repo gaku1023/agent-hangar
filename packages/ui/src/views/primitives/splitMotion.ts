@@ -185,12 +185,6 @@ export function flashPane(el: HTMLElement): Animation | null {
     { duration: motionMs('--dur', el) + motionMs('--dur-exit', el), easing: motionEase('--ease-out', el) });
 }
 
-/** サイドバーの番号の札が、新しく出たときだけ弾む。 */
-export function popBadge(el: HTMLElement): Animation | null {
-  if (!motionOn(el)) return null;
-  return el.animate([{ transform: 'scale(0.3)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el), fill: 'backwards' });
-}
-
 /**
  * ドロップの予告の枠の、最初の 1 回。左上から滑らせず、その場で拡大しながら出す。
  * 位置の transition を一瞬だけ切って（次のこまで）から、枠の座標が置かれた場所で縮みから戻す。

@@ -256,9 +256,8 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     expect(link).toHaveTextContent(/^name-a$/);
     expect(container.querySelector('.dot')).toHaveAttribute('data-aside', 'true');
   });
-  it('見出しに件数を出し、行を押すとそのセッションを開く', () => {
+  it('行を押すとそのセッションを開く', () => {
     const { onAction } = mount(liveProps());
-    expect(screen.getByRole('heading', { name: /実行中/ })).toHaveTextContent('3');
     fireEvent.click(screen.getByRole('link', { name: /name-a/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
   });
@@ -268,14 +267,15 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     expect(screen.getByRole('link', { name: /name-c/ })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('aria-current');
   });
-  it('節の名前は「実行中」で、読み上げの名前は「実行中のセッション」にする', () => {
-    mount(liveProps());
+  it('見出し（実行中と件数）は出さず、読み上げの名前は「実行中のセッション」にする。グループの見出しから始める', () => {
+    const { container } = mount(liveProps());
     expect(screen.getByRole('region', { name: '実行中のセッション' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /実行中/ })).toHaveTextContent(/^実行中3$/);
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(container.querySelector('.side-live-h, .side-live-n')).toBeNull();
   });
   it('動いているものが無ければ、節ごと出さない', () => {
     mount(shaped([], []));
-    expect(screen.queryByRole('heading', { name: /実行中/ })).toBeNull();
+    expect(screen.queryByRole('region', { name: '実行中のセッション' })).toBeNull();
   });
   it('「ほか N 件」は出さず、行は全部並べる', () => {
     mount(shaped(Array.from({ length: 20 }, (_, i) => row(`s${i}`))));
@@ -773,11 +773,10 @@ describe('「実行中」のグループ（Sidebar）', () => {
     pointerAt('pointerUp', head('docs'), 250);
     expect(again.onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b', 'd'] });
   });
-  it('行の一覧だけをスクロールの箱に入れ、見出し（実行中）はその外に置く', () => {
+  it('グループの並びをスクロールの箱に入れる', () => {
     const { container } = mount(three());
     const scroller = container.querySelector('.side-live-scroll')!;
     expect(scroller.querySelectorAll('a')).toHaveLength(4);
-    expect(scroller.contains(screen.getByRole('heading', { name: /実行中/ }))).toBe(false);
   });
 });
 
@@ -898,8 +897,11 @@ describe('サイドバーの「実行中」の見た目', () => {
     expect(base).toMatch(/\.side-live-grp\[data-lift='held'\] \{[^}]*box-shadow: var\(--glass-drop\)/);
     expect(base).toMatch(/\.side-live-scroll\[data-sorting='true'\] \.side-live-grp \{[^}]*translate var\(--dur-fast\) var\(--ease-out\)/);
   });
-  it('畳んだ帯では見出しと名前を出さず、点だけを並べる', () => {
-    expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-h, [^{]*\.side-live-name, [^{]*\{ display: none; \}/);
+  it('畳んだ帯では名前を出さず、点だけを並べる', () => {
+    expect(base).toMatch(/\[data-sidebar='collapsed'\] \.side-live-name, [^{]*\{ display: none; \}/);
+  });
+  it('「実行中」の見出しと件数の形は残さない', () => {
+    expect(base).not.toMatch(/\.side-live-[hn]\b/);
   });
 });
 

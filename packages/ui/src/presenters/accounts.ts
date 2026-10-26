@@ -1,4 +1,4 @@
-import { type AccountDto, type RateWindowDto, type Translate, windowAt } from '@agent-hangar/shared';
+import { type AccountDto, type AgentUsageDto, type RateWindowDto, type Translate, windowAt } from '@agent-hangar/shared';
 import { homePath } from '../lib/paths.ts';
 import { accountList, currentAccount, type Store } from '../store/store.ts';
 import { relativeTime, resetsLabel } from './format.ts';
@@ -63,6 +63,17 @@ export function presentAccount(t: Translate, a: AccountDto, currentId: string, n
     note: noteOf(t, a, fiveHour, now),
     linkProblem: a.linkProblem, dir: a.dir, dirLabel: homePath(a.dir, home),
   };
+}
+
+/** Claude 以外のエージェントの枠の札（ヘッダの切り替えの面の Codex の節）。アカウントは持たず、プランと 2 本の棒だけ。 */
+export type AgentUsageView = { plan: string | null; fiveHour: AccountGauge | null; sevenDay: AccountGauge | null; updatedLabel: string | null };
+
+/** planType の小文字の値（plus、pro など）。知らない値は頭だけ大文字にする。 */
+const AGENT_PLANS: Record<string, string> = { plus: 'Plus', pro: 'Pro', team: 'Team', business: 'Business', enterprise: 'Enterprise', edu: 'Edu', free: 'Free', go: 'Go' };
+
+export function presentAgentUsage(t: Translate, u: AgentUsageDto, now: number): AgentUsageView {
+  const plan = u.plan === null || u.plan === '' ? null : AGENT_PLANS[u.plan] ?? u.plan.charAt(0).toUpperCase() + u.plan.slice(1);
+  return { plan, fiveHour: gauge(u.fiveHour, now), sevenDay: gauge(u.sevenDay, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now) };
 }
 
 /**
