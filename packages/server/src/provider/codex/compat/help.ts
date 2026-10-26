@@ -25,6 +25,23 @@ export function parseCodexHelp(text: string): CodexHelp | null {
 export const HELP_ONLY_COMMANDS: readonly string[] = ['resume'];
 
 /**
+ * 機種によってあるサブコマンド。codex の --help は、機種によってこの一覧が欠ける（`app` はデスクトップアプリを開くもので、Linux の版には無い）。
+ * 見本（Mac で採る）にあって今の help に無いだけなら、ずれとしない。見本に無いものが増えたときは、これらも含めて落とす。
+ */
+export const PLATFORM_DEPENDENT_COMMANDS: readonly string[] = ['app'];
+
+/** 今の --help と見本の差。機種によるサブコマンドが今の側で欠けているのは許す。空ならそろっている。 */
+export function helpDrifts(now: CodexHelp, sample: CodexHelp): string[] {
+  const names = (h: CodexHelp) => new Set([...h.commands, ...h.aliases]);
+  const have = names(now);
+  const want = names(sample);
+  return [
+    ...[...have].filter((c) => !want.has(c)).sort().map((c) => `in codex --help but not in the sample: ${c}`),
+    ...[...want].filter((c) => !have.has(c) && !PLATFORM_DEPENDENT_COMMANDS.includes(c)).sort().map((c) => `in the sample but not in codex --help: ${c}`),
+  ];
+}
+
+/**
  * 横取りの組み込みの一覧（D1 の BUILTIN_CODEX_SUBCOMMANDS）と codex の --help のずれ。空ならそろっている。
  * 一覧に無いサブコマンドは、利用者がそれを打つと hangar の起動に化けてしまう。一覧にだけあるものは、消えたサブコマンドである。
  */
@@ -33,6 +50,6 @@ export function builtinSubcommandDrifts(help: CodexHelp, builtin: readonly strin
   const have = new Set(builtin);
   return [
     ...[...want].filter((c) => !have.has(c)).sort().map((c) => `in codex --help but not in the intercept list: ${c}`),
-    ...[...have].filter((c) => !want.has(c)).sort().map((c) => `in the intercept list but not in codex --help: ${c}`),
+    ...[...have].filter((c) => !want.has(c) && !PLATFORM_DEPENDENT_COMMANDS.includes(c)).sort().map((c) => `in the intercept list but not in codex --help: ${c}`),
   ];
 }
