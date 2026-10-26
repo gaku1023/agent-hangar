@@ -1,7 +1,10 @@
-import { AGENT_KINDS, opencodeEnabledOf, opencodeInterceptOf, type AgentKind, type MessageKey, type SettingsDto } from '@agent-hangar/shared';
-import { findOpencode } from '../config/tools.ts';
+import { AGENT_KINDS, codexEnabledOf, codexInterceptOf, opencodeEnabledOf, opencodeInterceptOf, type AgentKind, type SettingsDto } from '@agent-hangar/shared';
+import { findCodex, findOpencode } from '../config/tools.ts';
 
-type EnabledFields = Pick<SettingsDto, 'opencodeEnabled' | 'opencodeIntercept'>;
+type EnabledFields = Pick<SettingsDto, 'opencodeEnabled' | 'opencodeIntercept' | 'codexEnabled' | 'codexIntercept'>;
+/** 断る文に入れる設定の欄名の鍵。欄を足したらここにも足す（msg の型が、鍵を取り違えると落とす）。 */
+export type EnabledLabelKey = 'settings.label.opencodeEnabled' | 'settings.label.codexEnabled';
+export type InterceptLabelKey = 'settings.label.opencodeIntercept' | 'settings.label.codexIntercept';
 
 /**
  * エージェントごとの入口の表。有効か、バイナリの場所、外のターミナルの横取り、断る文の欄名、設定のどの欄が変わったら動く部品を直すか。
@@ -14,8 +17,8 @@ export type AgentEntry = {
   intercept: (s: EnabledFields) => boolean;
   bin: () => string | null;
   /** 有効でないとき、断る文に入れる設定の欄名。Claude Code は常に有効なので無い。 */
-  enabledLabelKey: MessageKey | null;
-  interceptLabelKey: MessageKey | null;
+  enabledLabelKey: EnabledLabelKey | null;
+  interceptLabelKey: InterceptLabelKey | null;
   /** 入り切りが変わると、シェルの包み（tmux のパスと各 agent() の有無）を書き直す設定の欄。 */
   shellKeys: readonly (keyof SettingsDto)[];
   /** 入り切りの欄。変わるとスマホの一覧（受信箱の素）を組み直す。 */
@@ -32,6 +35,16 @@ export const AGENT_ENTRY: Record<AgentKind, AgentEntry> = {
     interceptLabelKey: 'settings.label.opencodeIntercept',
     shellKeys: ['opencodeEnabled', 'opencodeIntercept'],
     enabledKeys: ['opencodeEnabled'],
+  },
+  // Codex（ベータ）。PATH から探す（ChatGPT.app の同梱は使わない）。driver は段 B の後続で足す（それまで起動は断る）。
+  codex: {
+    enabled: codexEnabledOf,
+    intercept: codexInterceptOf,
+    bin: () => findCodex(),
+    enabledLabelKey: 'settings.label.codexEnabled',
+    interceptLabelKey: 'settings.label.codexIntercept',
+    shellKeys: ['codexEnabled', 'codexIntercept'],
+    enabledKeys: ['codexEnabled'],
   },
 };
 

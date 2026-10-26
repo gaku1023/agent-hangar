@@ -36,6 +36,15 @@ export function findOpencode(env: NodeJS.ProcessEnv = process.env): string | nul
   return found === null ? null : resolveNpmExeShim(found);
 }
 
+/**
+ * codex を探す（ベータ）。PATH と既知の置き場だけを見る。ChatGPT.app の同梱の codex は使わない（版が利用者の入れたものと別で、hangar の確かめた版を持てないため）。
+ * 設定には場所を埋めない。見つけた場所は、版を読むたびと起動のたびにこれで引き直す。
+ */
+export function findCodex(env: NodeJS.ProcessEnv = process.env): string | null {
+  const found = which('codex', env);
+  return found === null ? null : resolveNpmExeShim(found);
+}
+
 /** tmux の役を担う道具を探す。Windows では psmux を先に見る。 */
 export function whichMux(whichFn: (cmd: string) => string | null = which): string | null {
   for (const name of MUX_NAMES()) {

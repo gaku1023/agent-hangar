@@ -1,4 +1,4 @@
-import { AGENT_ICONS, AGENT_LABEL, type AgentIconKind } from '@agent-hangar/shared/src/agentIcons.ts';
+import { agentIconArt, AGENT_LABEL, type AgentIconKind } from '@agent-hangar/shared/src/agentIcons.ts';
 import type { ReactNode } from 'react';
 
 /**
@@ -8,8 +8,9 @@ import type { ReactNode } from 'react';
  * kind が null（知らないエージェント）なら、絵の無い枠だけを置いて題名の頭をそろえる（違う会社の絵で取り違えさせない）。
  */
 export function AgentIcon({ kind }: { kind: AgentIconKind | null }): ReactNode {
-  if (!kind) return <span className="agent-icon" aria-hidden="true" />;
-  const art = AGENT_ICONS[kind].light;
+  const art = kind ? agentIconArt(kind, 'light') : undefined;
+  // 知らないエージェントと、絵がまだ無いエージェント（Codex は C2 で入れる）は枠だけを置く。
+  if (!kind || !art) return <span className="agent-icon" aria-hidden="true" />;
   const label = AGENT_LABEL[kind];
   return (
     <span className="agent-icon" data-agent={kind} role="img" aria-label={label} title={label}>

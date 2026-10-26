@@ -16,6 +16,7 @@ export const launchJa: AreaDictionary<typeof launchKeys> = {
   'launch.add.label': '設定を追加',
   'launch.chip.agent': 'エージェント',
   'launch.agent.claude': 'Claude Code',
+  'launch.agent.codex': 'Codex',
   'launch.agent.opencode': 'opencode',
   'launch.agent.beta': 'ベータ',
   'launch.agent.opencodeVerified': 'opencode {version} · 検証済み',

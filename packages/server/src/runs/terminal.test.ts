@@ -56,7 +56,7 @@ describe('terminalAgentOf（どのエージェントの起動か）', () => {
   });
   it('opencode はそのまま、知らない値は null', () => {
     expect(terminalAgentOf({ agent: 'opencode' })).toBe('opencode');
-    expect(terminalAgentOf({ agent: 'codex' })).toBeNull();
+    expect(terminalAgentOf({ agent: 'gemini' })).toBeNull();
     expect(terminalAgentOf({ agent: 1 })).toBeNull();
   });
 });

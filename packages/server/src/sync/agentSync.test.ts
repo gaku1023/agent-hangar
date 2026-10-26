@@ -19,6 +19,17 @@ describe('AGENT_SYNC（エージェントごとの同期の単位）', () => {
     }
   });
 
+  it('codex は同期しない行（E1 で本物の行に替えるまで、上げも降ろしも台帳も作らない）', () => {
+    const u = AGENT_SYNC.codex;
+    expect(u.source).toBe('none');
+    expect(() => u.ledgerKey('d1', 'abc', null)).toThrow();
+    expect(u.idsOfLedgerKey('d1', 'transcripts/d1/abc.jsonl.gz')).toBeNull();
+    expect(u.isSessionId('0198a7c2-0000-7000-8000-000000000000')).toBe(false);
+    expect(u.relays).toBe(false);
+    expect(isExportAgent('codex')).toBe(false);
+    expect(agentOfSyncPath('codex/x.json')).toBeNull();
+  });
+
   it('台帳の鍵は組み立てと取り出しが往復し、持ち主のエージェントが分かる', () => {
     expect(idsOfAnyLedgerKey('d1', AGENT_SYNC['claude-code'].ledgerKey('d1', 'abc', 'sub1'))).toEqual({ uuid: 'abc', agentId: 'sub1', provider: 'claude-code' });
     expect(idsOfAnyLedgerKey('d1', AGENT_SYNC.opencode.ledgerKey('d1', 'ses_a', null))).toEqual({ uuid: 'ses_a', agentId: null, provider: 'opencode' });

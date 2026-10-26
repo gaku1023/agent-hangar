@@ -127,7 +127,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  */
 /** そのエージェントが有効でないと断るときの、設定の欄名の文。 */
 function agentEnabledLabel(agent: AgentKind): Message {
-  return msg((AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled') as 'settings.label.opencodeEnabled');
+  return msg(AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled');
 }
 
 export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps };
@@ -655,10 +655,23 @@ export class RunManager {
     if (row) upsertShared(this.db, 'projects', { ...row, status: 'active' }, this.deps.deviceId);
   }
 
+  private hasDriver(kind: AgentKind): boolean {
+    try {
+      this.agents.of(kind);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** 起動の指定の agent を確かめる。省けば Claude Code、知らない値は 400 で断る。 */
   private agentKindOf(raw: unknown): AgentKind {
     if (raw === undefined || raw === null || raw === DEFAULT_AGENT) return DEFAULT_AGENT;
-    if (isAgentKind(raw)) return raw;
+    // driver がまだ無い Codex は、知らないエージェントと同じに断る（段 B の後続で driver を足すまで）。
+    if (isAgentKind(raw)) {
+      if (!this.hasDriver(raw)) throw new RunError(400, msg('run.agent.unknown', { agent: raw }));
+      return raw;
+    }
     throw new RunError(400, msg('run.agent.unknown', { agent: String(raw).slice(0, 40) }));
   }
 
@@ -1030,7 +1043,7 @@ export class RunManager {
   async startOpencodeFromTerminal(req: TerminalRequest): Promise<LaunchResult & { attached: boolean }> {
     const agent: AgentKind = 'opencode';
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
-    if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg(AGENT_ENTRY[agent].interceptLabelKey as 'settings.label.opencodeIntercept') }));
+    if (!(this.deps.terminalIntercept?.(agent) ?? false)) throw new RunError(400, msg('run.terminal.interceptOff', { label: msg(AGENT_ENTRY[agent].interceptLabelKey ?? 'settings.label.opencodeIntercept') }));
     const a = splitOpencodeTerminalArgs(req.args);
     const params = { ...(a.prompt !== null ? { prompt: a.prompt } : {}), ...(a.autoApprove ? { autoApprove: true } : {}) };
     if (a.session !== null) {

@@ -16,6 +16,7 @@ export const launchEn: AreaDictionary<typeof launchKeys> = {
   'launch.add.label': 'Add a setting',
   'launch.chip.agent': 'Agent',
   'launch.agent.claude': 'Claude Code',
+  'launch.agent.codex': 'Codex',
   'launch.agent.opencode': 'opencode',
   'launch.agent.beta': 'Beta',
   'launch.agent.opencodeVerified': 'opencode {version} · Verified',

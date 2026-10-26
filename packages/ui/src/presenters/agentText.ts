@@ -7,9 +7,9 @@ import type { AgentKind, Translate } from '@agent-hangar/shared';
  */
 export type AgentText = {
   /** 新規ダイアログのエージェントの札と一覧の行の名前。 */
-  launchLabel: 'launch.agent.claude' | 'launch.agent.opencode';
+  launchLabel: 'launch.agent.claude' | 'launch.agent.opencode' | 'launch.agent.codex';
   /** 「いま」の札の、聞かれていることの見出し。 */
-  questionLabel: 'session.strip.questionLabel' | 'session.strip.opencode.questionLabel';
+  questionLabel: 'session.strip.questionLabel' | 'session.strip.opencode.questionLabel' | 'session.strip.codex.questionLabel';
   /** 許可の待ちの見出し。道具の名前が分かれば添える。 */
   permissionHead: (t: Translate, tool: string | null) => string;
 };
@@ -17,4 +17,5 @@ export type AgentText = {
 export const AGENT_TEXT: Record<AgentKind, AgentText> = {
   'claude-code': { launchLabel: 'launch.agent.claude', questionLabel: 'session.strip.questionLabel', permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionHeadTool', { tool }) : t('stop.card.permissionHead')) },
   opencode: { launchLabel: 'launch.agent.opencode', questionLabel: 'session.strip.opencode.questionLabel', permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionWaitingTool', { tool }) : t('stop.card.permissionWaiting')) },
+  codex: { launchLabel: 'launch.agent.codex', questionLabel: 'session.strip.codex.questionLabel', permissionHead: (t, tool) => (tool !== null ? t('stop.card.permissionWaitingTool', { tool }) : t('stop.card.permissionWaiting')) },
 };
