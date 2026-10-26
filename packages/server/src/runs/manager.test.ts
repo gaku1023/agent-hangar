@@ -1693,6 +1693,25 @@ describe('画面の口を偽物に差し替える（tmux 不要）', () => {
     expect(rm.listAlive().runs).toEqual([]);
   });
 
+  it('Archived のプロジェクトで起動したら Active に戻し、Done は触らない', async () => {
+    const statusOf = () => (db.prepare("select status from projects where id = 'p1'").get() as { status: string }).status;
+    const rm = make({ panes: fakePanes().panes });
+    db.prepare("update projects set status = 'archived' where id = 'p1'").run();
+    await rm.start({ projectId: 'p1' });
+    expect(statusOf()).toBe('active');
+    db.prepare("update projects set status = 'done' where id = 'p1'").run();
+    await rm.start({ projectId: 'p1' });
+    expect(statusOf()).toBe('done');
+  });
+
+  it('起動に失敗したら、Archived のプロジェクトは Archived のまま', async () => {
+    const f = fakePanes();
+    const rm = make({ panes: { ...f.panes, open: () => { throw new Error('no room'); } } });
+    db.prepare("update projects set status = 'archived' where id = 'p1'").run();
+    await expect(rm.start({ projectId: 'p1' })).rejects.toThrow();
+    expect((db.prepare("select status from projects where id = 'p1'").get() as { status: string }).status).toBe('archived');
+  });
+
   it('観測できなかった見回りでは何も閉じない', async () => {
     const f = fakePanes();
     const rm = make({ panes: f.panes });

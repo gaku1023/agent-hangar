@@ -3,6 +3,7 @@ import { defaultOpencodeMode, type AgentValue, type LaunchParams, type LaunchPre
 import { useEmit } from '../action/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
 import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
+import { STATUS_LABEL } from '../presenters/format.ts';
 import { AGENT_ONLY_ATTR, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
 import { isComposing } from './ime.ts';
 import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
@@ -309,7 +310,8 @@ export function NewSessionDialog(props: NewSessionProps) {
   const recent = new Set(props.recentIds);
   const options: ListboxOption[] = [
     { value: SCRATCH, label: t('newSession.project.quick'), sub: t('newSession.project.quickSub'), subKind: 'prose', icon: 'scratch' },
-    ...props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status })),
+    // アーカイブは語に一致したときだけ、札付きで出す。presenter が後ろに並べてあるので、検索の結果でもほかのプロジェクトの後に来る。
+    ...props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status, ...(p.status === 'archived' ? { tag: STATUS_LABEL.archived, searchOnly: true } : {}) })),
     ...props.dirs.map((d) => ({ value: DIR + d.path, label: d.name, sub: d.path, icon: 'folder' as const, tag: t('newSession.project.unregistered'), searchOnly: true })),
     ...(extraDir ? [{ value: DIR + extraDir, label: baseName(extraDir), sub: extraDir, icon: 'folder' as const, hidden: true }] : []),
     { value: NEW_DIR, label: newName.trim() || t('newSession.project.newFolderChip'), faceSub: t('newSession.project.newFolderPath', { path: joinPath(root, newName.trim()) }), icon: 'folderPlus', hidden: true },
@@ -330,7 +332,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (word && !taken(word)) setNewName(word);
     choose(NEW_DIR);
   };
-  const groups = [{ title: t('newSession.project.groupQuick'), values: [SCRATCH] }, { title: t('newSession.project.groupRecent'), values: props.recentIds }, { title: t('newSession.project.groupAll'), values: props.projects.filter((p) => !recent.has(p.id)).map((p) => p.id) }];
+  const groups = [{ title: t('newSession.project.groupQuick'), values: [SCRATCH] }, { title: t('newSession.project.groupRecent'), values: props.recentIds }, { title: t('newSession.project.groupAll'), values: props.projects.filter((p) => !recent.has(p.id) && p.status !== 'archived').map((p) => p.id) }];
   const chosen = options.find((o) => o.value === choice);
 
   // 前回値のままなら、札の下に「前回と同じ」と出どころを言い、「既定に戻す」を添える（D1）。

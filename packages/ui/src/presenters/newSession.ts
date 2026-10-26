@@ -120,8 +120,11 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   if (state.overlay.kind !== 'newSession') return null;
   const t = translatorOf(store);
   // クイックセッションの擬似プロジェクトは選ばせない。
-  const live = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved && p.status !== 'archived');
-  const projects = [...live].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(t, p.lastActivityAt, now) }));
+  const resolved = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved);
+  const live = resolved.filter((p) => p.status !== 'archived');
+  // アーカイブは後ろに置き、ダイアログが検索したときだけ出す。
+  const byName = (list: typeof resolved) => [...list].sort((a, b) => a.name.localeCompare(b.name));
+  const projects = [...byName(live), ...byName(resolved.filter((p) => p.status === 'archived'))].map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(t, p.lastActivityAt, now) }));
   // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
   const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
   const taken = new Set(Object.values(store.projects).map((p) => p.path).filter((p): p is string => !!p));

@@ -749,6 +749,21 @@ describe('NewSessionDialog から作って始める', () => {
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/url-short' } });
   });
+  it('アーカイブのプロジェクトは語に一致したときだけ「Archived」の札付きで出て、ほかのプロジェクトの後、未登録のフォルダの前に並ぶ', () => {
+    const { out } = collect({ projects: [...projects, { id: 'p3', name: 'urban', path: '/w/urban', status: 'done', lastActivity: '先月' }, { id: 'p9', name: 'url-old', path: '/w/old/url-old', status: 'archived', lastActivity: '半年前' }] });
+    openList();
+    expect(screen.queryByRole('option', { name: 'url-old' })).toBeNull();
+    typeQuery('ur');
+    expect(screen.getAllByRole('option').map((o) => o.textContent).slice(0, 3)).toEqual([expect.stringContaining('urban'), expect.stringContaining('url-old'), expect.stringContaining('url-short')]);
+    expect(within(screen.getByRole('option', { name: 'url-old' })).getByText('Archived')).toBeInTheDocument();
+    // 2 段目のパスでは当てない（未登録のフォルダと同じ）。
+    typeQuery('/w/old');
+    expect(screen.queryByRole('option', { name: 'url-old' })).toBeNull();
+    typeQuery('url-old');
+    fireEvent.click(screen.getByRole('option', { name: 'url-old' }));
+    start();
+    expect(out.find((i) => i.type === 'session.new.submit')).toMatchObject({ params: { projectId: 'p9' } });
+  });
   it('「他の場所を選ぶ…」は殻の中だけで出て、押すと folder.pick を送る', () => {
     const { out, view } = collect();
     openList();
