@@ -1,0 +1,54 @@
+/* 画面の分割（別のセッションを並べる）。手本は docs/plans/session-split-proto.html。動きは T5 で足す。 */
+
+/* 本体。セッション画面と同じく、.main-inner の縦の flex の残りの高さを全部受け取る。 */
+.pane-workspace { flex: 1; min-height: 0; min-width: 0; display: flex; position: relative; }
+.pane-node { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.pane-node[data-dir='row'] { flex-direction: row; }
+.pane-node[data-dir='col'] { flex-direction: column; }
+.pane-slot { display: flex; min-width: 0; min-height: 0; flex-basis: 0; }
+/* 境目。掴める帯は 8px で、見える線は乗せたときと掴んだときだけ出す。 */
+.pane-divider { flex: none; position: relative; z-index: 2; }
+.pane-divider:focus { outline: none; }
+.pane-divider[data-dir='row'] { width: 8px; cursor: col-resize; }
+.pane-divider[data-dir='col'] { height: 8px; cursor: row-resize; }
+.pane-divider::after { content: ''; position: absolute; border-radius: 2px; background: transparent; transition: background var(--dur-fast) var(--ease-out); }
+.pane-divider[data-dir='row']::after { left: 3px; width: 2px; top: 20%; bottom: 20%; }
+.pane-divider[data-dir='col']::after { top: 3px; height: 2px; left: 20%; right: 20%; }
+.pane-divider:hover::after, .pane-divider:focus-visible::after { background: var(--accent-hi); }
+
+/* ペイン 1 つ。操作中は青い 2px の枠。 */
+.pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden; border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 1px 0 var(--line-strong); }
+.pane[data-focused='true'] { box-shadow: 0 0 0 2px var(--accent); }
+.pane.flash { box-shadow: 0 0 0 3px var(--accent-hi); }
+.pane > .session-screen { flex: 1; min-height: 0; min-width: 0; }
+.pane > .session-screen > .c-body { min-height: 0; }
+.pane .session-screen .pane-below { padding: 0 calc(var(--u) * 3); }
+
+/* ペインの見出し（案 A）。 */
+.pane-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 2.5); border-bottom: 1px solid var(--line); flex: none; min-width: 0; overflow: hidden; cursor: grab; }
+.pane-head-title { flex: 0 1 auto; min-width: 60px; font-size: var(--fs-sm); font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-head-project { flex: none; max-width: 30%; font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-head-oneliner { flex: 1 1 0; min-width: 0; font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-head > .spacer { flex: 1; }
+.pane-head-ctl { display: flex; align-items: center; gap: var(--u); flex: none; }
+.pane-head-sep { width: 1px; height: 16px; background: var(--line-strong); margin: 0 2px; flex: none; }
+.pane-head .btn, .pane-head .status-pill { height: 24px; font-size: var(--fs-xs); }
+.pane-head .btn-icon { width: 24px; }
+.pane-head .btn-primary { padding: 0 calc(var(--u) * 2); }
+.pane.tight .pane-head .btn-primary { padding: 0; width: 24px; justify-content: center; }
+.pane.tiny .pane-head .status-pill { padding: 0; width: 24px; justify-content: center; }
+.pane.tiny .pane-head .status-pill .status-text { display: none; }
+.pane-head .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+.pane-head-btn[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
+.pane-head[data-empty='true'] { cursor: default; }
+
+/* 空のペイン。 */
+.pane-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2.5); color: var(--ink-2); padding: calc(var(--u) * 4); overflow: auto; }
+.pane-empty-list { list-style: none; margin: 0; padding: calc(var(--u) * 1.5); width: min(320px, 90%); background: var(--surface-2); border-radius: var(--r-lg); display: flex; flex-direction: column; gap: 2px; }
+.pane-empty-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: 28px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r); background: none; font: inherit; color: var(--ink); cursor: pointer; text-align: left; }
+.pane-empty-row:hover { background: var(--surface); }
+.pane-empty-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pane-empty-hint { font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* サイドバーの行の右端の、ペインの番号の札。 */
+.side-pane-badge { flex: none; min-width: 16px; height: 16px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; }

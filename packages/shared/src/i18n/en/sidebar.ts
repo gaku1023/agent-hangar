@@ -20,4 +20,5 @@ export const sidebarEn: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.nav.home': 'Home',
   'sidebar.nav.projects': 'Projects',
   'sidebar.nav.settings': 'Settings',
+  'sidebar.live.paneBadge': 'Pane {n}',
 };

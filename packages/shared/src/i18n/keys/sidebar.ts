@@ -19,4 +19,5 @@ export const sidebarKeys = {
   'sidebar.nav.home': [],
   'sidebar.nav.projects': [],
   'sidebar.nav.settings': [],
+  'sidebar.live.paneBadge': ['n'],
 } as const satisfies MessageSpec;

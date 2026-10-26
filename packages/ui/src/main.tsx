@@ -6,6 +6,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/workbench.css';
 import './styles/split.css';
+import './styles/panes.css';
 import './styles/rows.css';
 import './styles/home.css';
 import './styles/session.css';

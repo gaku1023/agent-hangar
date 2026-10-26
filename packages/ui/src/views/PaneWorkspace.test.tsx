@@ -1,0 +1,229 @@
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BootstrapDto, RunDto, ServerEvent, SessionDto } from '@agent-hangar/shared';
+import { Root } from '../Root.tsx';
+import { createRuntime, type RuntimeDeps } from '../runtime/runtime.ts';
+import type { TerminalHost } from '../runtime/terminals.ts';
+import { fakeApiExtras } from '../test/fakeApi.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
+import { clampPaneRatio } from './PaneDivider.tsx';
+
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
+
+const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
+
+const mk = (id: string, name: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: 'p1', name, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), lastTurnAt: null, hasTranscript: true, live: 'idle', summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null });
+const run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
+
+const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+type Observed = { cb: ResizeObserverCallback; el: Element };
+let observed: Observed[] = [];
+let restoreTokens = () => {};
+beforeEach(() => {
+  restoreTokens = fakeMotionTokens();
+  observed = [];
+  vi.stubGlobal('ResizeObserver', class {
+    cb: ResizeObserverCallback;
+    constructor(cb: ResizeObserverCallback) { this.cb = cb; }
+    observe(el: Element) { observed.push({ cb: this.cb, el }); }
+    unobserve() {}
+    disconnect() { observed = observed.filter((o) => o.cb !== this.cb); }
+  });
+});
+afterEach(() => { vi.unstubAllGlobals(); restoreTokens(); });
+
+/** そのペインの幅が変わったことにする。 */
+function resizePane(el: Element, width: number) {
+  act(() => {
+    for (const o of observed.filter((x) => x.el === el)) o.cb([{ target: el, contentRect: { width } } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+  });
+}
+
+async function mounted(ids = ['s1', 's2', 's3']) {
+  const sessions = ids.map((id) => mk(id, `name-${id}`));
+  const b: BootstrapDto = { ...boot, sessions, runs: ids.map((id, i) => run(`r${i}`, id)) };
+  let hash = '#/';
+  const hashListeners = new Set<() => void>();
+  const handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }[] = [];
+  let depth = 0;
+  const deps: RuntimeDeps = {
+    api: { bootstrap: async () => b, events: async () => ({ sessionId: '', events: [], total: 0, nextSeq: null }), subagents: async () => [], search: async () => ({ hits: [], total: 0 }), setProjectStatus: async () => b.projects[0]!, resolveProject: async () => ({}), candidates: async () => [], updateSettings: async (p) => ({ ...b.settings, ...p }), rebuildIndex: async () => {}, ...fakeApiExtras() },
+    ws: (h) => { handlers.push(h); return { connect: () => {}, close: () => {} }; },
+    location: { getHash: () => hash, setHash: (h) => { hash = h; depth += 1; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); }, go: vi.fn(), depth: () => depth },
+    storage: { get: () => undefined, set: () => {}, keys: () => [] },
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    terminals,
+    focus: () => {},
+  };
+  const rt = createRuntime(deps);
+  const emit = vi.spyOn(rt, 'emit');
+  rt.start();
+  render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
+  act(() => handlers[0]!.onOpen());
+  await flush();
+  act(() => deps.location.setHash('#/session/s1'));
+  await flush();
+  const open = async (sessionId: string, side: 'right' | 'down' = 'right') => { act(() => rt.emit({ type: 'pane.open', sessionId, target: null, side })); await flush(); };
+  return { rt, emit, open };
+}
+
+const headers = () => Array.from(document.querySelectorAll<HTMLElement>('[data-pane-header]'));
+
+describe('PaneWorkspace', () => {
+  it('ペインが 1 つのときは今までどおり大きな見出しを出し、ペインの見出しは出さない', async () => {
+    await mounted();
+    expect(document.querySelector('.page-head')).not.toBeNull();
+    expect(headers()).toHaveLength(0);
+    expect(document.querySelector('[data-pane-workspace]')).toBeNull();
+  });
+
+  it('ペインが 2 つ以上のとき、大きな見出しは無く、ペインの数だけ見出しがある', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    expect(document.querySelector('.page-head')).toBeNull();
+    expect(headers()).toHaveLength(2);
+    await m.open('s3', 'down');
+    expect(headers()).toHaveLength(3);
+  });
+
+  it('ペインの見出しにステータスの札、主の操作、⋯、ⓘ、☰、✕ がある', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const h = headers()[0]!;
+    expect(h.querySelector('.status-pill')).not.toBeNull();
+    expect(h.querySelector('.btn-primary')).not.toBeNull();
+    expect(within(h).getByRole('button', { name: '他の操作' })).toBeInTheDocument();
+    expect(within(h).getByRole('button', { name: '詳細' })).toBeInTheDocument();
+    expect(within(h).getByRole('button', { name: '右パネルを開く' })).toBeInTheDocument();
+    expect(within(h).getByRole('button', { name: '分割から外す' })).toBeInTheDocument();
+    expect(h.textContent).toContain('name-s1');
+    expect(h.textContent).toContain('alpha');
+  });
+
+  it('☰ は pane.toc、✕ は pane.remove を出し、ペインを押すと pane.focus を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const leaves = Array.from(document.querySelectorAll<HTMLElement>('[data-pane]'));
+    const first = leaves[0]!.dataset.pane!;
+    // 操作中でないペインを押す。
+    const other = leaves.find((l) => l.dataset.focused !== 'true')!;
+    m.emit.mockClear();
+    fireEvent.pointerDown(other);
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.focus', pane: other.dataset.pane });
+    m.emit.mockClear();
+    fireEvent.click(within(headers()[0]!).getByRole('button', { name: '右パネルを開く' }));
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.toc', pane: first });
+    fireEvent.click(within(headers()[0]!).getByRole('button', { name: '分割から外す' }));
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.remove', pane: first });
+  });
+
+  it('右パネルは既定で閉じ、☰ で開く', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const pane = document.querySelector<HTMLElement>('[data-pane]')!;
+    expect(pane.querySelector('.toc-slot')?.getAttribute('data-collapsed')).toBe('true');
+    fireEvent.click(within(headers()[0]!).getByRole('button', { name: '右パネルを開く' }));
+    await flush();
+    expect(document.querySelector<HTMLElement>('[data-pane]')!.querySelector('.toc-slot')?.getAttribute('data-collapsed')).toBeNull();
+    expect(within(headers()[0]!).getByRole('button', { name: '右パネルを閉じる' })).toBeInTheDocument();
+  });
+
+  it('幅で tight と tiny が付く', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const pane = document.querySelector<HTMLElement>('[data-pane]')!;
+    resizePane(pane, 800);
+    expect(pane.classList.contains('tight')).toBe(false);
+    expect(pane.classList.contains('tiny')).toBe(false);
+    resizePane(pane, 600);
+    expect(pane.classList.contains('tight')).toBe(true);
+    expect(pane.classList.contains('tiny')).toBe(false);
+    resizePane(pane, 400);
+    expect(pane.classList.contains('tight')).toBe(true);
+    expect(pane.classList.contains('tiny')).toBe(true);
+    // tiny では主の操作と ⓘ が見出しから消え、⋯ の中へ入る。
+    const h = headers()[0]!;
+    expect(h.querySelector('.btn-primary')).toBeNull();
+    expect(within(h).queryByRole('button', { name: '詳細' })).toBeNull();
+    fireEvent.click(within(h).getByRole('button', { name: '他の操作' }));
+    expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0);
+  });
+
+  it('サイドバーの行に、ペインが 2 つ以上のときだけ木の順の番号の札が付く', async () => {
+    const m = await mounted();
+    expect(document.querySelectorAll('.side-pane-badge')).toHaveLength(0);
+    await m.open('s2');
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('.side-live-row'));
+    const badge = (id: string) => rows.find((r) => r.dataset.id === id)!.querySelector('.side-pane-badge')?.textContent;
+    expect(badge('s1')).toBe('1');
+    expect(badge('s2')).toBe('2');
+    expect(badge('s3')).toBeUndefined();
+  });
+
+  it('空のペインは動いているセッションの一覧を出し、押すと pane.fill を出す', async () => {
+    const m = await mounted();
+    act(() => m.rt.emit({ type: 'pane.openEmpty', side: 'right' }));
+    await flush();
+    const empty = document.querySelector<HTMLElement>('[data-pane-empty]')!;
+    expect(empty).not.toBeNull();
+    expect(within(empty.closest<HTMLElement>('[data-pane]')!).getByText('空のペイン')).toBeInTheDocument();
+    // 木にある s1 は一覧に出さない。
+    expect(within(empty).queryByText('name-s1')).toBeNull();
+    const pane = empty.closest<HTMLElement>('[data-pane]')!.dataset.pane;
+    m.emit.mockClear();
+    fireEvent.click(within(empty).getByText('name-s2'));
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.fill', pane, sessionId: 's2' });
+  });
+
+  it('境目をドラッグすると pane.resize、ダブルクリックで pane.equalize、矢印キーで pane.resize を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const sep = screen.getByRole('separator', { name: 'ペインの境目' });
+    const host = sep.parentElement as HTMLElement;
+    host.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 500, right: 1000, bottom: 500, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const node = host.dataset.node;
+    m.emit.mockClear();
+    fireEvent.pointerDown(sep, { clientX: 500 });
+    expect(host.hasAttribute('data-layout-moving')).toBe(true);
+    fireEvent.pointerMove(window, { clientX: 300 });
+    expect(m.emit).toHaveBeenLastCalledWith({ type: 'pane.resize', node, ratio: 0.3 });
+    // 最小の幅 280px を守る。
+    fireEvent.pointerMove(window, { clientX: 100 });
+    expect(m.emit).toHaveBeenLastCalledWith({ type: 'pane.resize', node, ratio: 0.28 });
+    fireEvent.pointerUp(window);
+    expect(host.hasAttribute('data-layout-moving')).toBe(false);
+    m.emit.mockClear();
+    fireEvent.pointerMove(window, { clientX: 700 });
+    expect(m.emit).not.toHaveBeenCalled();
+    fireEvent.doubleClick(sep);
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.equalize' });
+    m.emit.mockClear();
+    fireEvent.keyDown(sep, { key: 'ArrowRight' });
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.resize', node, ratio: expect.closeTo(0.5 + 0.02, 5) });
+  });
+
+  it('最大化中はそのペインだけを出し、見出しの解除のボタンで pane.zoom を出す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const pane = document.querySelector<HTMLElement>('[data-pane]')!.dataset.pane!;
+    act(() => m.rt.emit({ type: 'pane.zoom', pane }));
+    await flush();
+    expect(headers()).toHaveLength(1);
+    expect(screen.queryByRole('separator', { name: 'ペインの境目' })).toBeNull();
+    m.emit.mockClear();
+    fireEvent.click(within(headers()[0]!).getByRole('button', { name: '最大化を解除' }));
+    expect(m.emit).toHaveBeenCalledWith({ type: 'pane.zoom', pane });
+  });
+});
+
+describe('clampPaneRatio', () => {
+  it('最小の幅 280px を守る', () => {
+    expect(clampPaneRatio(0.1, 1000)).toBeCloseTo(0.28);
+    expect(clampPaneRatio(0.95, 1000)).toBeCloseTo(0.72);
+    expect(clampPaneRatio(0.5, 1000)).toBe(0.5);
+  });
+  it('2 つ分の幅に満たないときは mediator の範囲（0.1〜0.9）だけで収める', () => {
+    expect(clampPaneRatio(0.2, 500)).toBe(0.2);
+  });
+});

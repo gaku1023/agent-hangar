@@ -50,6 +50,8 @@ import { ProjectsScreen } from './views/ProjectsScreen.tsx';
 import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
 import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
+import { PaneWorkspace } from './views/PaneWorkspace.tsx';
+import { presentPanes } from './presenters/panes.ts';
 import { SettingsScreen } from './views/SettingsScreen.tsx';
 import { ShortcutsDialog } from './views/ShortcutsDialog.tsx';
 import { DiffDialog } from './views/DiffDialog.tsx';
@@ -422,6 +424,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
     case 'session': {
+      // ペインが 2 つ以上なら分割の本体、1 つなら今までどおりの 1 画面。
+      const panes = presentPanes(state, store, now);
+      if (panes) { body = <PaneWorkspace panes={panes} />; break; }
       const p = presentSession(state, store, now, state.screen.id);
       // ターミナルの接続の様子は、枠ごとに TerminalPane が Host から読む（分割で片方だけ切れることがある）。
       body = <SessionScreen {...p} />;

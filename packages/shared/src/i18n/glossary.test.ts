@@ -19,6 +19,8 @@ const ALLOWED: Record<string, string> = {
   'launch.injection.handover': 'らしい（Claude 向けの指示）',
   // 分割の「外す」は、アプリの操作（分割から外す）の語で、用語集の 13 章に「分割から外す」の行を足す（docs/plans/session-split.md の T6）。
   'mediator.pane.lastPane': '外す（分割から外す）',
+  // 同じ理由で、ペインの見出しの ✕ の名前（分割から外す）。
+  'pane.header.remove': '外す（分割から外す）',
 };
 
 /** 「本文」が HTTP やモデルの応答の本体（body）を指す鍵。トランスクリプトの意味では使わない。 */
