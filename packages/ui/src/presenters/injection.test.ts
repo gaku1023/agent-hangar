@@ -45,11 +45,17 @@ describe('足す指示の全文', () => {
 
 describe('opencode に足す指示の全文', () => {
   const on = { askStatusAtEnd: true, liveHints: true };
-  it('最小限は辞書の 1 段だけで、名前は選択肢の名前', () => {
+  it('最小限は辞書の本文と状態の段で、本文の名前は選択肢の名前、状態の段はスイッチの名前', () => {
     const parts = presentOpencodeInjection(ja, on, 'minimal');
-    expect(parts.map((p) => p.label)).toEqual(['最小限（意図と要約）']);
-    expect(parts[0]).toMatchObject({ off: false, mark: null });
+    expect(parts.map((p) => p.label)).toEqual([translate('ja', 'settings.opencode.injection.minimal'), '作業の区切りで Done／Paused を確認する（オン）']);
+    expect(parts.map((p) => p.off)).toEqual([false, false]);
+    expect(parts[0]).toMatchObject({ mark: null });
     expect(textOf(parts[0]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.minimal'));
+    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.status'));
+  });
+  it('最小限でも、切った状態の段は打ち消しで残す', () => {
+    const parts = presentOpencodeInjection(ja, { askStatusAtEnd: false, liveHints: true }, 'minimal');
+    expect(parts[1]).toMatchObject({ label: '作業の区切りで Done／Paused を確認する（オフ・追加しません）', off: true });
   });
   it('Claude Code と同じは Claude の 5 段で、意図の段だけ opencode 向けの文に替える', () => {
     const parts = presentOpencodeInjection(ja, on, 'claude');
@@ -68,7 +74,7 @@ describe('opencode に足す指示の全文', () => {
   });
   it('英語の画面では英語の指示を出す', () => {
     const [p] = presentOpencodeInjection(translator('en'), on, 'minimal');
-    expect(p!.label).toBe('Minimal (intent and summary)');
+    expect(p!.label).toBe(translate('en', 'settings.opencode.injection.minimal'));
     expect(textOf(p!.pieces)).toBe(translate('en', 'launch.injection.opencode.minimal'));
   });
 });

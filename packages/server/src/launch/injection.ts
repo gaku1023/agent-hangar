@@ -51,7 +51,10 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
 
 /**
  * opencode に足す段（docs/design.md「opencode の起動」）。量は設定の opencodeInjection で選ぶ。
- * minimal（既定）は hangar の MCP の使い方だけの 1 段である（決定 6 の (a)）。
+ * minimal（既定）は hangar の MCP の使い方の段と、状態の段である（決定 6 の (a) に状態を足した）。
+ * 本文には、利用者が Done か Paused にしてと言ったら confirmed: true で propose_session_status を呼ぶことを常に書く。
+ * Code Mode の目録は道具の一部しか見せず、propose_session_status が隠れていると、モデルは set_session_summary の state で済ませてしまうためである。
+ * 状態の段（askStatusAtEnd で入り切り）は、区切りで confirmed なしの提案だけを出させる。フォームで聞かせないのは、聞かずに confirmed: true を渡すモデルがあったためである（RESULT.md の (b)）。
  * 文は Claude 向けのものを流用せず、意図を呼ぶ時機を「各ターンの最初の一手で、他のツールより先に」と書き、Code Mode の呼び方（`tools.hangar.…`）を添える。
  * opencode 2.1.4 で 4 つのモデルを試し、ターンの始めの意図がどれも 3/3 になった書き方である（検証の条件 d）。
  * claude は Claude に足すのと同じ段で、意図の段だけ時機を同じ書き方に替える（条件 g）。段の入り切りの設定も Claude と同じく効く。
@@ -59,7 +62,11 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
  */
 export function renderOpencodeInjectionEntries(i: InjectionInput, language: Language = DEFAULT_LANGUAGE, parts: InjectionParts = DEFAULT_INJECTION_PARTS, choice: OpencodeInjection = DEFAULT_OPENCODE_INJECTION): InjectionEntry[] {
   if (choice === 'none') return [];
-  if (choice === 'minimal') return [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
+  if (choice === 'minimal') {
+    const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
+    if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
+    return entries;
+  }
   return renderInjectionEntries(i, language, parts).map((e) => (e.key === 'live' ? { key: 'live', text: t(language, 'launch.injection.opencode.live') } : e));
 }
 

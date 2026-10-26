@@ -1393,7 +1393,7 @@ opencode を足す作業の 1 段目（計画の B1）で、設定のスイッ�
 設定は 3 つある。
 `opencodeEnabled` は opencode を有効にするスイッチで、既定は切である。
 切のままなら、opencode の入口（新しいセッションの選択肢、外の端末の横取り、スマホ）はどこにも出さない。
-`opencodeInjection` は、hangar が起動する opencode のシステムプロンプトへの追記の量で、`minimal`（hangar の MCP の使い方だけ）、`claude`（Claude Code に足すのと同じ段）、`none`（足さない）の 3 つである。
+`opencodeInjection` は、hangar が起動する opencode のシステムプロンプトへの追記の量で、`minimal`（hangar の MCP の使い方と状態の扱い）、`claude`（Claude Code に足すのと同じ段）、`none`（足さない）の 3 つである。
 既定は `minimal` である。
 `opencodeIntercept` は、シェルで打った opencode を hangar のセッションとして起こすか（段 D2、「外のターミナルの opencode」）で、既定は切である。
 どれも `configBundleSync` と同じく既定の設定には足さず、項目が無いうちは既定として読む。
@@ -1435,7 +1435,7 @@ Windows は serve を起こすときと同じ許可リストの鍵を渡す（�
 「Claude Code と同じ」を選んでいる間は、状態の提案を確認せずに確定させるモデルがあることを行に添える。
 追記の行の下には、いま選んでいる量で実際に送る全文を、Claude の「足す指示の全文を見る」と同じ畳み（`views/InjectionFull.tsx`）で置く。
 中身は `presenters/injection.ts` の `presentOpencodeInjection` が、サーバの `renderOpencodeInjectionEntries` と同じ組み方を同じ辞書の鍵で画面の言語に埋めて作る。
-最小限は 1 段で、段の名前は選択肢の名前にする。
+最小限は本文と状態の 2 段で、本文の名前は選択肢の名前、状態の段の名前は Claude と同じスイッチの名前にする。スイッチで切った状態の段は打ち消し線で残す。
 「Claude Code と同じ」は Claude の 5 段で、意図の段の文だけ opencode 向けに替え、Claude のスイッチで切った段は打ち消し線で残す。
 「追記しない」では送る文が無いので、畳みごと出さない。
 コマンドの横取りの行は macOS と Linux だけに出す（Windows ではシェルの包みを作らないため）。
@@ -1609,7 +1609,11 @@ MCP の接続は `GET /api/mcp?location[directory]=<dir>` で見る（`location`
 追記は `PUT /api/experimental/session/{id}/instructions/entries/hangar` で差し込む。
 opencode はこれを system prompt の末尾近くに `<context key="hangar">` の形で入れる。
 段（`InjectionEntry`）はつないで 1 つの鍵で送り、量は設定の `opencodeInjection` で選ぶ（`launch/injection.ts` の `renderOpencodeInjectionEntries`）。
-既定の `minimal` は hangar の MCP の使い方だけで、意図を呼ぶ時機を「各ターンの最初の一手で、他のツールより先に」と書き、Code Mode の呼び方（`tools.hangar.…`）を添える。
+既定の `minimal` は hangar の MCP の使い方で、意図を呼ぶ時機を「各ターンの最初の一手で、他のツールより先に」と書き、Code Mode の呼び方（`tools.hangar.…`）を添える。
+本文には、利用者が Done か Paused にしてと言ったら `propose_session_status` を `confirmed: true` で呼ぶことと、`set_session_summary` の state では状態が変わらないことを常に書く。
+Code Mode の目録は道具の一部しか見せず、`propose_session_status` が隠れていると、モデルは `set_session_summary` の state で済ませてしまうからである（2026-10-26 に DeepSeek V4.1 Flash で起きた）。
+状態の段（`launch.injection.opencode.status`、Claude と同じ `askStatusAtEnd` で入り切り）は、区切りで `confirmed` なしの提案だけを出させる。
+Claude のようにフォームで聞かせないのは、聞かずに `confirmed: true` を渡すモデルがあったためである。
 `claude` は Claude に足すのと同じ段で、意図の段だけ同じ書き方に替える。`none` は何も足さない。
 この API が無い版でも起動は続け、知らせだけ出す。
 

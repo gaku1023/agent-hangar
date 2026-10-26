@@ -52,13 +52,19 @@ export function presentInjection(t: Translate, parts: { askStatusAtEnd: boolean;
 /**
  * 設定の opencode の「システムプロンプトへの追記」の全文の畳みの中身。
  * サーバの renderOpencodeInjectionEntries（launch/injection.ts）と同じ組み方を、同じ辞書の鍵で画面の言語に埋める。
- * 最小限は辞書の 1 段だけで、段の名前は選択肢の名前にする。
+ * 最小限は辞書の本文と状態の段で、本文の名前は選択肢の名前、状態の段の名前はスイッチの名前にする。切った状態の段は打ち消しで残す。
  * Claude Code と同じは presentInjection の 5 段で、意図の段の文だけ opencode 向けの文に替える。スイッチの入り切りも Claude と同じく効く。
  * 追記しないは段が無い（画面は畳みごと出さない）。
  */
 export function presentOpencodeInjection(t: Translate, parts: { askStatusAtEnd: boolean; liveHints: boolean }, choice: OpencodeInjection): InjectionPart[] {
   if (choice === 'none') return [];
-  if (choice === 'minimal') return [{ label: t('settings.opencode.injection.minimal'), off: false, mark: null, pieces: split(t('launch.injection.opencode.minimal')) }];
+  if (choice === 'minimal') {
+    const status = t(parts.askStatusAtEnd ? 'settings.integrations.inject.part.on' : 'settings.integrations.inject.part.off', { name: t('settings.label.askStatusAtEnd') });
+    return [
+      { label: t('settings.opencode.injection.minimal'), off: false, mark: null, pieces: split(t('launch.injection.opencode.minimal')) },
+      { label: status, off: !parts.askStatusAtEnd, mark: null, pieces: split(t('launch.injection.opencode.status')) },
+    ];
+  }
   const claude = presentInjection(t, parts);
   const live = claude.length - 1;
   return claude.map((p, i) => (i === live ? { ...p, pieces: split(t('launch.injection.opencode.live')) } : p));

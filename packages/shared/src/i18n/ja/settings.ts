@@ -310,7 +310,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.opencode.intercept.needsShell': 'この PC にシェル連携をインストールすると使えます。',
   'settings.opencode.permissionPreset.desc': 'git status や ls、cat などの読み取り専用コマンドはそのまま実行し、その他のシェルコマンドは実行前に確認します。ファイルの読み書きなど、他の操作は opencode のデフォルトに従います。',
   'settings.opencode.permissionPreset.byConfig': 'opencode.json の permission 設定が適用されています。',
-  'settings.opencode.injection.minimal': '最小限（意図と要約）',
+  'settings.opencode.injection.minimal': '最小限（意図・要約・状態）',
   'settings.opencode.injection.claude': 'Claude Code と同じ',
   'settings.opencode.injection.none': '追記しない',
   'settings.opencode.injection.claudeNote': 'モデルによっては、状態の提案を確認せずに確定させることがあります。',
