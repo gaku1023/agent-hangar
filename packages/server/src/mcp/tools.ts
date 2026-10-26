@@ -1,8 +1,8 @@
 import { isAgentKind, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
-import type { AccountStore } from '../config/accounts.ts';
+import type { Account, AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
-import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
+import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
@@ -23,8 +23,8 @@ export type ToolDeps = {
   /** agentEnabled はそのエージェントを起こしてよいか（runs/manager.ts）。無ければ Claude Code だけを起こす。 */
   runs: { start(params: LaunchParams): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean };
   usage: () => UsageDto;
-  /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
-  accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
+  /** アカウントの口。無ければ get_usage は最初のアカウントの値だけを返し、create_session はアカウントを選ばない（runs.start がいまのアカウントで起こす）。 */
+  accounts?: { store: Pick<AccountStore, 'list' | 'current' | 'get'>; usage: { of(accountId: string): UsageDto } };
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
@@ -352,11 +352,38 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const agent = args.agent;
   if (agent !== undefined && !isAgentKind(agent)) throw new ToolError(msg('run.agent.unknown', { agent: String(agent).slice(0, 40) }));
   if (agent !== undefined && agent !== 'claude-code' && !(deps.runs.agentEnabled?.(agent) ?? false)) throw new ToolError(msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+  const account = launchAccount(deps, ctx, args.account, agent ?? 'claude-code');
   return Promise.resolve(deps.runs.start({
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
-    agent, mode: str(args.mode),
-  })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`) }));
+    agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
+  })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }));
+}
+
+/**
+ * create_session で起こすアカウント。Claude Code のときだけ選び、ほかのエージェントでは null（アカウントを持たない）。
+ * 明示されたら名前か id で引く。知らないものは、使える名前を添えて断る。黙っていまのアカウントで起こすと、頼まれたのと違う枠を使うためである。
+ * 省けば、呼んだセッションがこの PC で最後に使ったアカウントを引き継ぐ。別セッションを起こしてと頼んだ会話と同じ枠で続けるのが自然なためである。
+ * ヘッダで選んでいるアカウント（store.current）は最後に画面で選んだものにすぎず、呼んだ会話とは関係が無い。
+ * ほかの PC の run は見ない（アカウントの id は PC ごとの設定。RunAccounts.accountFor と同じ）。
+ * 呼んだセッションが分からない（共通の URL）か、この PC で動かしたことが無いか、そのアカウントが消えていれば、いま選んでいるアカウントにする。
+ */
+function launchAccount(deps: ToolDeps, ctx: ToolContext, given: unknown, agent: AgentKind): Account | null {
+  const name = str(given);
+  if (agent !== 'claude-code') {
+    if (name !== undefined) throw new ToolError(msg('mcp.createSession.accountClaudeOnly'));
+    return null;
+  }
+  const store = deps.accounts?.store;
+  if (!store) return null;
+  if (name !== undefined) {
+    const all = store.list();
+    const hit = store.get(name) ?? all.find((a) => a.name === name);
+    if (!hit) throw new ToolError(msg('mcp.createSession.accountUnknown', { account: name.slice(0, 40), names: all.map((a) => a.name) }));
+    return hit;
+  }
+  const inherited = ctx.sessionId ? accountOfSession(deps.db, ctx.sessionId, deps.deviceId) : null;
+  return (inherited ? store.get(inherited) : null) ?? store.current();
 }
 
 export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {

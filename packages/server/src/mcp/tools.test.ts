@@ -336,6 +336,58 @@ describe('MCP tools', () => {
     expect(() => call('create_session', { project_id: 'p1', agent: 'opencode' })).toThrow(ToolError);
     expect(started).toEqual([]);
   });
+  describe('create_session のアカウント', () => {
+    let userHome: string;
+    let store: AccountStore;
+    let uni: { id: string; name: string };
+    beforeEach(() => {
+      userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-user-'));
+      store = new AccountStore({ home, primaryDir: path.join(userHome, '.claude'), homeDir: userHome });
+      uni = store.add({ name: '大学' });
+      store.add({ name: '会社' });
+      deps = { ...deps, accounts: { store, usage: { of: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) } } };
+    });
+    afterEach(() => { fs.rmSync(userHome, { recursive: true, force: true }); });
+    const runOf = (sessionId: string, deviceId: string, account: string) =>
+      db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values (?, ?, ?, 'start', 'h', ?, null, 1, 2, 'exit', 1, 1, ?)")
+        .run(`r-${deviceId}-${account}`, sessionId, deviceId, JSON.stringify({ account }), deviceId);
+
+    it('省くと、呼んだセッションがこの PC で最後に使ったアカウントを引き継ぐ（ヘッダで選んでいるものではなく）', async () => {
+      runOf(alphaId, 'd', uni.id);
+      const r = await call('create_session', { project_id: 'p1' }, { sessionId: alphaId });
+      expect(started[0]!.account).toBe(uni.id);
+      expect(r).toMatchObject({ account: '大学' });
+    });
+    it('ほかの PC の run のアカウントは引かず、いま選んでいるアカウントにする', async () => {
+      runOf(alphaId, 'other', uni.id);
+      await call('create_session', { project_id: 'p1' }, { sessionId: alphaId });
+      expect(started[0]!.account).toBe('primary');
+    });
+    it('共通の URL（呼んだセッションが分からない）では、いま選んでいるアカウントにする', async () => {
+      store.setCurrent(uni.id);
+      const r = await call('create_session', { project_id: 'p1' });
+      expect(started[0]!.account).toBe(uni.id);
+      expect(r).toMatchObject({ account: '大学' });
+    });
+    it('名前か id で明示したら、引き継ぎより優先する', async () => {
+      runOf(alphaId, 'd', uni.id);
+      await call('create_session', { project_id: 'p1', account: '会社' }, { sessionId: alphaId });
+      await call('create_session', { project_id: 'p1', account: 'primary' }, { sessionId: alphaId });
+      expect(started.map((p) => store.get(p.account!)?.name)).toEqual(['会社', 'メイン']);
+    });
+    it('知らないアカウントは、使える名前を添えて断り、起動しない', () => {
+      expect(() => call('create_session', { project_id: 'p1', account: '個人' })).toThrow(/メイン.*大学.*会社/);
+      expect(started).toEqual([]);
+    });
+    it('Claude Code 以外のエージェントにアカウントを渡すと断る。省けば何も渡さない', async () => {
+      deps = { ...deps, runs: { ...deps.runs, agentEnabled: () => true } };
+      expect(() => call('create_session', { project_id: 'p1', agent: 'opencode', account: '大学' })).toThrow(ToolError);
+      runOf(alphaId, 'd', uni.id);
+      const r = await call('create_session', { project_id: 'p1', agent: 'codex' }, { sessionId: alphaId });
+      expect(started[0]!.account).toBeUndefined();
+      expect(r).not.toHaveProperty('account');
+    });
+  });
   it('create_session は、起動の口が断った理由（この PC に無いモデルと、使えるモデル）をそのまま返す', async () => {
     const why = 'opencode を起動できませんでした: lmstudio/qwen3.6-35b-a3b はこの PC にありません。使えるのは: lmstudio/gemma';
     deps = { ...deps, runs: { start: async () => { throw new RunError(400, why); }, agentEnabled: () => true } };
