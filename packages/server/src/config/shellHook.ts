@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BUILTIN_SUBCOMMANDS, SUBCOMMAND_NAME } from '../provider/claude-code/compat/cli.ts';
+import { BUILTIN_CODEX_SUBCOMMANDS, CODEX_INTERCEPT_FLAGS } from '../provider/codex/compat/cli.ts';
 import { BUILTIN_OPENCODE_SUBCOMMANDS, BUILTIN_OPENCODE_VALUE_FLAGS, OPENCODE_INTERCEPT_FLAGS } from '../provider/opencode/compat/cli.ts';
 import { HANGAR_SOCKET } from '../tmux/servers.ts';
 import { readUtf8Text } from './textEncoding.ts';
@@ -43,6 +44,14 @@ export type ShellScriptOptions = {
   subcommands?: readonly string[];
   /** opencode の包み（ベータ、docs/design.md「外のターミナルの opencode」）。渡したときだけ opencode() を書く。設定で opencode とコマンドの横取りの両方を入れたときにサーバが渡す。 */
   opencode?: ShellOpencodeOptions | null;
+  /** codex の包み（ベータ、docs/design.md「外のターミナルの codex」）。渡したときだけ codex() を書く。設定で Codex とコマンドの横取りの両方を入れたときにサーバが渡す。 */
+  codex?: ShellCodexOptions | null;
+};
+
+/** codex の包みに埋め込む一覧。渡さなければ組み込みの一覧（provider/codex/compat/cli.ts）にする。 */
+export type ShellCodexOptions = {
+  /** 包まずにそのまま渡すサブコマンド。 */
+  subcommands?: readonly string[];
 };
 
 /** opencode の包みに埋め込む一覧。どれも渡さなければ組み込みの一覧（provider/opencode/compat/cli.ts）にする。 */
@@ -133,6 +142,53 @@ ${cases.join('\n')}
 }
 
 /**
+ * codex の包みの本体。許可リスト方式である（docs/design.md「外のターミナルの codex」）。
+ * hangar が写せる引数（プロンプト 1 つ、-m、-c、-s、-a、resume <ID>）だけなら包み、ほかのフラグやサブコマンドが 1 つでもあれば素の codex を起動する。
+ * 写せるかの細かい判定（-c の中身、-s と -a の組）は hangar が行い、断られたら素の codex になる。
+ * codex の置き場を環境変数で変えた起動（CODEX_ で始まる変数）も、hangar の管理に入れない。hangar は自分の app-server を、ふだんの置き場で起こすからである。
+ * alias で codex を包んでいる人がいても読み込みで壊れないよう、関数は function の形で書く。
+ */
+function codexScript(o: ShellCodexOptions): string {
+  const subs = (o.subcommands ?? BUILTIN_CODEX_SUBCOMMANDS).filter((x) => SUBCOMMAND_NAME.test(x));
+  return `
+# codex の置き場や設定を環境変数で変えているか。CODEX_ で始まる変数が 1 つでも書き出されていれば、変えているとみる。
+__agent_hangar_codex_env() {
+  local k
+  for k in \${(k)parameters[(I)CODEX_*]}; do [[ \${parameters[$k]} == *export* ]] && return 0; done
+  return 1
+}
+
+# ターミナルで対話として起動した codex を、hangar の tmux の中で起こし、すぐこのターミナルからつなぐ（ベータ）。
+# hangar が写せる引数（プロンプト 1 つ、-m、-c、-s、-a、resume <ID>）だけなら包み、ほかのフラグやサブコマンドが 1 つでもあれば素の codex を起動する。
+# resume は会話の ID の形のときだけ hangar に頼む。hangar の会話でなければ hangar が断るので、素の codex になる。
+# 1 回だけ包まずに起動するときは \`command codex\` です。
+function codex {
+  # 端末でないとき、HANGAR_NO_WRAP を立てたとき、tmux が無いとき、置き場を変えたときは包まない。
+  if [[ ! -t 0 || ! -t 1 || -n "$HANGAR_NO_WRAP" || ! -x "$__agent_hangar_tmux" ]]; then command codex "$@"; return; fi
+  if __agent_hangar_codex_env; then command codex "$@"; return; fi
+  local a want="" pos=()
+  for a in "$@"; do
+    # 値を取るフラグの次の語は値なので、サブコマンドやプロンプトと取り違えない。
+    if [[ -n $want ]]; then want=""; continue; fi
+    case "$a" in
+      ${(subs.length > 0 ? subs : BUILTIN_CODEX_SUBCOMMANDS).join('|')}) command codex "$@"; return ;;
+      ${CODEX_INTERCEPT_FLAGS.join('|')}) want=$a ;;
+      ${CODEX_INTERCEPT_FLAGS.filter((f) => f.startsWith('--')).map((f) => `${f}=*`).join('|')}) ;;
+      -*) command codex "$@"; return ;;
+      *) pos+=("$a") ;;
+    esac
+  done
+  # 値の無い値を取るフラグと、2 つ目の位置引数は、そのまま渡す。resume は会話の ID（UUID）が 1 つのときだけ頼む。
+  if [[ -n $want ]]; then command codex "$@"; return; fi
+  if [[ \${pos[1]} == resume ]]; then
+    if (( \${#pos} != 2 )) || [[ ! \${pos[2]} =~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ]]; then command codex "$@"; return; fi
+  elif (( \${#pos} > 1 )); then command codex "$@"; return; fi
+  __agent_hangar_run codex "$@"
+}
+`;
+}
+
+/**
  * 包み方の本体。
  * ターミナルで対話として起動した claude を、hangar に頼んで hangar の tmux の中で起こし、すぐこのターミナルからつなぐ。
  * hangar の画面から起こした run と同じものになるので、hangar からも同じ tmux を開ける。
@@ -157,9 +213,9 @@ __agent_hangar_b64() { command base64 | command tr -d '\\n'; }
 
 # hangar に起動を頼み、つなぐ tmux のセッション名を出す。頼めなければ 1 で終わる。
 # 作業ディレクトリ（シンボリックリンクを解いたもの。claude が記録するのと同じ）、引数、環境変数は base64 にして送る。引数と環境変数は NUL で区切る（環境変数は env -0 の出力のまま）。
-# 1 つ目の引数はコマンドの名前（claude か opencode）。opencode は本文に agent を足し、環境変数は送らない（hangar が自分の空の環境で起こす）。
+# 1 つ目の引数はコマンドの名前（claude、opencode、codex）。opencode と codex は本文に agent を足し、環境変数は送らない（hangar が自分の空の環境で起こす）。
 # claude の本文は agent を持たない。古いサーバも新しいサーバも Claude Code として読む。
-# opencode は hangar が serve と会話の下ごしらえを済ませてから答えるので、待つ上限を長くする。待ち切れずに素の opencode を起こすと、hangar の会話と 2 つになる。
+# opencode と codex は hangar が serve（app-server）と会話の下ごしらえを済ませてから答えるので、待つ上限を長くする。待ち切れずに素の opencode を起こすと、hangar の会話と 2 つになる。
 # 断られたときは理由を 1 行見せる。つながらないときは黙る。
 __agent_hangar_launch() {
   local agent=$1; shift
@@ -168,7 +224,7 @@ __agent_hangar_launch() {
   tok=$(<$__agent_hangar_token_file)
   cwd=$(print -rn -- "\${PWD:A}" | __agent_hangar_b64)
   args=$( (( $# )) && print -rn -- "\${(pj:\\0:)@}" | __agent_hangar_b64)
-  if [[ $agent == opencode ]]; then extra=',"agent":"opencode"'; max=90; else env=$(command env -0 | __agent_hangar_b64); fi
+  if [[ $agent == opencode ]]; then extra=',"agent":"opencode"'; max=90; elif [[ $agent == codex ]]; then extra=',"agent":"codex"'; max=90; else env=$(command env -0 | __agent_hangar_b64); fi
   out=$(print -rn -- "{\\"cwd\\":\\"$cwd\\",\\"args\\":\\"$args\\",\\"env\\":\\"$env\\"$extra}" | command curl -sS --fail-with-body --max-time $max -H "Authorization: Bearer $tok" -H 'content-type: application/json' --data-binary @- "$__agent_hangar_url/api/runs/terminal" 2>/dev/null)
   if (( $? )); then
     why=\${\${out#*\\"error\\":\\"}%%\\"*}
@@ -180,7 +236,7 @@ __agent_hangar_launch() {
   print -r -- $name
 }
 
-# 包む起動を hangar に頼み、返った tmux につなぐ。頼めなければ素のコマンドを起動する。1 つ目の引数はコマンドの名前（claude か opencode）。
+# 包む起動を hangar に頼み、返った tmux につなぐ。頼めなければ素のコマンドを起動する。1 つ目の引数はコマンドの名前（claude、opencode、codex）。
 # すでに tmux の中なら入れ子にしない。hangar の専用のサーバ（-L hangar）の中なら switch-client で移り、ほかの tmux の中なら素のコマンドにする。
 # 利用者の既定のサーバも「ほかの tmux」である。
 __agent_hangar_run() {
@@ -219,7 +275,7 @@ claude() {
   if [[ -n "$resume" && ! "$resume" =~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ]]; then command claude "$@"; return; fi
   __agent_hangar_run claude "$@"
 }
-${o.opencode ? opencodeScript(o.opencode) : ''}`;
+${o.opencode ? opencodeScript(o.opencode) : ''}${o.codex ? codexScript(o.codex) : ''}`;
 }
 
 /** <home>/shell/claude.zsh を置く。中身が同じなら書かない。 */

@@ -55,7 +55,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
 
   const sessions = (): Row[] => db.prepare('select id, provider, provider_session_id, deleted_at from sessions where deleted_at is null').all() as Row[];
 
-  const make = (o: { enabled?: boolean; bin?: string | null; fake?: FakeCodexOptions; injection?: 'minimal' | 'claude' | 'none' } = {}) => {
+  const make = (o: { enabled?: boolean; bin?: string | null; fake?: FakeCodexOptions; injection?: 'minimal' | 'claude' | 'none'; intercept?: boolean } = {}) => {
     const logFile = path.join(home, 'boot.jsonl');
     const rpcLog = path.join(home, 'rpc.jsonl');
     const bin = writeFakeCodex(path.join(home, 'cx'), { logFile, rpcLogFile: rpcLog, ...(o.fake ?? {}) });
@@ -80,6 +80,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
       procs: { ...realProcOps, listJobs: () => [] },
       agents: agentsOf([claude, codex]), claude,
       agentEnabled: (k) => k === 'claude-code' || (k === 'codex' && enabled),
+      terminalIntercept: (k) => k === 'codex' && o.intercept !== false,
       agentBin: (k) => (k === 'codex' ? (o.bin === undefined ? bin : o.bin) : null),
       injection: () => ({ askStatusAtEnd: true, liveHints: true, codex: o.injection ?? 'minimal' }),
     });
@@ -190,6 +191,59 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     const sid = ensureSession(db, '01bffff0-0000-7000-8000-00000000dead', cwd, 'd', 'codex');
     await expect(rm.resumeWith(sid, {})).rejects.toMatchObject({ status: 400, message: 'Codex を起動できませんでした: この会話は、まだ最初の入力が送られていないため、再開できません。新しく始めてください' });
     expect(codex.served(sid)).toBeNull();
+  });
+
+  // 外のターミナルの codex（シェルの包みからの起動、段 D1）。端末の環境変数は届いても使わない。
+  const term = (args: string[], at = cwd) => ({ cwd: at, args, env: { CODEX_HOME: '/x/codex', PATH: '/from-terminal' } });
+
+  it('外のターミナルの codex は、作業ディレクトリのプロジェクトで新しい会話を起こし、プロンプト、-m、推論、権限を写す。端末の環境は使わない', async () => {
+    const { rm, opened, rpcs } = make();
+    const r = await rm.startCodexFromTerminal(term(['-m', 'gpt-x', '-c', 'model_reasoning_effort=high', '-s', 'danger-full-access', '-a', 'never', '直して']));
+    expect(r.attached).toBe(false);
+    expect(r.run.kind).toBe('start');
+    const start = rpcs().find((x) => x.method === 'thread/start')!;
+    expect(start.params).toMatchObject({ cwd, model: 'gpt-x', approvalPolicy: 'never', sandbox: 'danger-full-access' });
+    const id = (rpcs().find((x) => x.method === 'turn/start')!.params as { threadId: string }).threadId;
+    expect(sessions()).toEqual([expect.objectContaining({ id: r.sessionId, provider: 'codex', provider_session_id: id })]);
+    expect(db.prepare('select project_id from sessions where id = ?').get(r.sessionId)).toEqual({ project_id: 'p1' });
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-s', 'danger-full-access', '-a', 'never', 'resume', id]));
+    expect(JSON.stringify(opened[0]!.env)).not.toContain('/from-terminal');
+    expect(JSON.stringify(opened[0]!.env)).not.toContain('/x/codex');
+  });
+
+  it('外のターミナルの codex で resume <ID> は、hangar の会話なら thread/resume で再開し、動いていればつなぐだけにする。知らない ID は 404', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000e002';
+    const { rm, opened, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    const r = await rm.startCodexFromTerminal(term(['resume', EXT, '-s', 'read-only']));
+    expect(r.attached).toBe(false);
+    expect(r.sessionId).toBe(sid);
+    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT });
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-s', 'read-only', '-a', 'on-request', 'resume', EXT]));
+    const again = await rm.startCodexFromTerminal(term(['resume', EXT]));
+    expect(again.attached).toBe(true);
+    expect(again.run.id).toBe(r.run.id);
+    expect(opened).toHaveLength(1);
+    await expect(rm.startCodexFromTerminal(term(['resume', '01bffff0-0000-7000-8000-0000000000ff']))).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('写せない引数は 400 で断る（包み方は素の codex に回す）。行は作らない', async () => {
+    const { rm, booted } = make();
+    for (const a of [['--oss'], ['exec', 'x'], ['-s', 'danger-full-access'], ['resume']]) {
+      await expect(rm.startCodexFromTerminal(term(a)), a.join(' ')).rejects.toMatchObject({ status: 400 });
+    }
+    expect(sessions()).toEqual([]);
+    expect(booted()).toBe(false);
+  });
+
+  it('設定の Codex を有効にするか、コマンドの横取りが切なら 400 で断る', async () => {
+    const off = make({ enabled: false });
+    await expect(off.rm.startCodexFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('Codex は有効になっていません') });
+    const noIntercept = make({ intercept: false });
+    await expect(noIntercept.rm.startCodexFromTerminal(term([]))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('設定の「') });
+    expect(sessions()).toEqual([]);
   });
 
   it('画面を開けなかったら、app-server を止め、仮の行と秘密の環境のファイルを残さない', async () => {

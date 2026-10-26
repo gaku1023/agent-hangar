@@ -120,7 +120,7 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     return runResultAsync(c, language, async () => { await deps.runs.prepareModels(c.req.param('id'), typeof key === 'string' ? key : undefined); return { ok: true }; });
   });
   // ターミナルの包み方（~/.agent-hangar/shell/claude.zsh）からの起動。断ったら、包み方は素の claude（opencode）を起動する。
-  // 本文の agent が opencode なら opencode の口へ渡す。agent の無い本文（claude の包み、古い包み方）は Claude Code にする。
+  // 本文の agent が opencode か codex ならその口へ渡す。agent の無い本文（claude の包み、古い包み方）は Claude Code にする。
   api.post('/runs/terminal', async (c) => {
     const b = await readJson(c, BODY_LIMITS.terminal);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.terminal, tr);
@@ -128,8 +128,9 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     const agent = terminalAgentOf(b.value);
     if (!req || !agent) return c.json({ error: tr('http.request.badShape') }, 400);
     await beforeLaunch();
-    // opencode は serve と会話の下ごしらえ（materialize）を待つので、非同期の口で受ける。
+    // opencode と codex は serve（app-server）と会話の下ごしらえ（materialize）を待つので、非同期の口で受ける。
     if (agent === 'opencode') return runResultAsync(c, language, () => deps.runs.startOpencodeFromTerminal(req), 201);
+    if (agent === 'codex') return runResultAsync(c, language, () => deps.runs.startCodexFromTerminal(req), 201);
     return runResult(c, language, () => deps.runs.startFromTerminal(req), 201);
   });
   api.delete('/runs/:id', (c) => runResult(c, language, () => deps.runs.kill(c.req.param('id'))));

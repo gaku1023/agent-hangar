@@ -60,6 +60,22 @@ describe('routes', () => {
     expect(runs.startFromTerminal).toHaveBeenCalledTimes(1);
     expect((await post({ cwd: b64('/w/a'), args: '', env: '', agent: 'gemini' })).status).toBe(400);
   });
+  it('ターミナルからの起動は、agent が codex なら codex の口へ渡し、claude と opencode の口には渡さない', async () => {
+    const post = (body: unknown) => app.request('/api/runs/terminal', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const b64 = (x: string) => Buffer.from(x).toString('base64');
+    const cx = runs.startCodexFromTerminal as unknown as ReturnType<typeof vi.fn>;
+    cx.mockImplementationOnce(async () => { await new Promise((r) => setTimeout(r, 5)); return { ...launched, attached: false }; });
+    const ok = await post({ cwd: b64('/w/a'), args: b64(['-m', 'x'].join('\0')), env: '', agent: 'codex' });
+    expect(ok.status).toBe(201);
+    expect(await ok.json()).toEqual({ ...launched, attached: false });
+    expect(cx).toHaveBeenCalledWith({ cwd: '/w/a', args: ['-m', 'x'], env: {} });
+    expect(runs.startFromTerminal).not.toHaveBeenCalled();
+    expect(runs.startOpencodeFromTerminal).not.toHaveBeenCalled();
+    cx.mockImplementationOnce(async () => { throw new RunError(400, 'Codex は有効になっていません'); });
+    const refused = await post({ cwd: b64('/w/a'), args: '', env: '', agent: 'codex' });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toBe('Codex は有効になっていません');
+  });
   it('起動は非同期の start（opencode の materialize）を待ってから 201 で答え、断りは理由つきの 400 にする', async () => {
     const post = (body: unknown) => app.request('/api/runs', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const start = runs.start as unknown as ReturnType<typeof vi.fn>;

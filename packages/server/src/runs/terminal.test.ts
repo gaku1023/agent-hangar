@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
 import { errorText } from '../i18n/message.ts';
 import { RunError } from './errors.ts';
-import { decodeTerminalRequest, splitOpencodeTerminalArgs, splitTerminalArgs, terminalAgentOf, terminalEnv } from './terminal.ts';
+import { decodeTerminalRequest, splitCodexTerminalArgs, splitOpencodeTerminalArgs, splitTerminalArgs, terminalAgentOf, terminalEnv } from './terminal.ts';
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 const UUID = '480a20da-0b1b-4e20-b8f5-2b5c82124ecb';
@@ -85,6 +85,51 @@ describe('splitOpencodeTerminalArgs（許可リスト方式）', () => {
   });
   it('会話の ID の形でない -s は、hangar の会話ではないので 404 で断る', () => {
     expect(() => splitOpencodeTerminalArgs(['-s', 'さっきの'])).toThrow(expect.objectContaining({ status: 404 }));
+  });
+});
+
+describe('terminalAgentOf（codex）', () => {
+  it('codex はそのまま読む', () => {
+    expect(terminalAgentOf({ agent: 'codex' })).toBe('codex');
+  });
+});
+
+describe('splitCodexTerminalArgs（許可リスト方式）', () => {
+  const none = { resume: null, prompt: null, model: null, effort: null, permission: null };
+  it('引数が無ければ、何も写さない', () => {
+    expect(splitCodexTerminalArgs([])).toEqual(none);
+  });
+  it('プロンプト、-m、-c model_reasoning_effort を写す。値を取るフラグの値をプロンプトと取り違えない', () => {
+    expect(splitCodexTerminalArgs(['-m', 'gpt-x', '--model', 'gpt-y', '直して ください'])).toEqual({ ...none, model: 'gpt-y', prompt: '直して ください' });
+    expect(splitCodexTerminalArgs(['--model=gpt-x'])).toEqual({ ...none, model: 'gpt-x' });
+    expect(splitCodexTerminalArgs(['-c', 'model_reasoning_effort=high'])).toEqual({ ...none, effort: 'high' });
+    expect(splitCodexTerminalArgs(['-c', 'model_reasoning_effort="low"', 'x'])).toEqual({ ...none, effort: 'low', prompt: 'x' });
+    expect(splitCodexTerminalArgs(['--config=model_reasoning_effort=medium'])).toEqual({ ...none, effort: 'medium' });
+    expect(splitCodexTerminalArgs(['-m', 'resume'])).toEqual({ ...none, model: 'resume' });
+  });
+  it('-s と -a は権限の 3 段へ写す。3 段に当たらない組は断る', () => {
+    const perm = (a: string[]) => splitCodexTerminalArgs(a).permission;
+    expect(perm(['-s', 'read-only'])).toBe('read-only');
+    expect(perm(['-s', 'read-only', '-a', 'on-request'])).toBe('read-only');
+    expect(perm(['-s', 'workspace-write'])).toBe('auto');
+    expect(perm(['--sandbox=workspace-write', '--ask-for-approval', 'on-request'])).toBe('auto');
+    expect(perm(['-a', 'on-request'])).toBe('auto');
+    expect(perm(['-s', 'danger-full-access', '-a', 'never'])).toBe('full-access');
+    for (const a of [['-s', 'danger-full-access'], ['-a', 'never'], ['-s', 'read-only', '-a', 'never'], ['-s', 'workspace-write', '-a', 'never'], ['-s', 'nonsense'], ['-a', 'untrusted']]) {
+      expect(() => splitCodexTerminalArgs(a), a.join(' ')).toThrow(expect.objectContaining({ status: 400 }));
+    }
+  });
+  it('resume <ID> は再開として写し、ID の形でない resume は断る', () => {
+    expect(splitCodexTerminalArgs(['resume', UUID])).toEqual({ ...none, resume: UUID });
+    expect(splitCodexTerminalArgs(['-m', 'x', 'resume', UUID, '-s', 'read-only'])).toEqual({ ...none, resume: UUID, model: 'x', permission: 'read-only' });
+    for (const a of [['resume'], ['resume', '--last'], ['resume', 'さっきの'], ['resume', UUID, 'もう 1 つ']]) {
+      expect(() => splitCodexTerminalArgs(a), a.join(' ')).toThrow(expect.objectContaining({ status: 400 }));
+    }
+  });
+  it('知らないフラグ、素通しのサブコマンド、写せない -c、2 つ目のプロンプト、値の無いフラグは断る。包み方は素の codex に回す', () => {
+    for (const a of [['--oss'], ['-C', '/x'], ['--search'], ['-p', 'x'], ['--dangerously-bypass-approvals-and-sandbox'], ['--'], ['-V'], ['-c', 'model="o3"'], ['-c', 'x'], ['exec', 'x'], ['login'], ['mcp', 'list'], ['fork', UUID], ['a', 'b'], ['-m'], ['--model']]) {
+      expect(() => splitCodexTerminalArgs(a), a.join(' ')).toThrow(expect.objectContaining({ status: 400 }));
+    }
   });
 });
 

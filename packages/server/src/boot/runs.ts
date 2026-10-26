@@ -118,7 +118,9 @@ export function bootRuns(
   const bundledHangar = bundledHangarIn(o.serverDir);
   const shell = createShellWrap({ home: home.home, host: listening.host, port: listening.port, tmuxPath: () => settings.current.tmuxPath, subcommands: () => localClaude.subcommands, bundledHangar,
     // opencode の包みは組み込みの一覧で書く（opencode --help はまだ読まない）。知らないサブコマンドはディレクトリでない位置引数として素通しになる。
-    opencode: () => (AGENT_ENTRY.opencode.enabled(settings.current) && AGENT_ENTRY.opencode.intercept(settings.current) ? {} : null) });
+    opencode: () => (AGENT_ENTRY.opencode.enabled(settings.current) && AGENT_ENTRY.opencode.intercept(settings.current) ? {} : null),
+    // codex の包みも組み込みの一覧で書く。知らないサブコマンドは 2 つ目のプロンプトか、hangar が断って素通しになる。
+    codex: () => (AGENT_ENTRY.codex.enabled(settings.current) && AGENT_ENTRY.codex.intercept(settings.current) ? {} : null) });
   // 起動のたびと claude のパスを変えたときに、claude --help と --version を裏で読み直す。
   shell.write();
   void localClaude.refreshSubcommands();

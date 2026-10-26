@@ -2073,6 +2073,30 @@ serve も TUI も、hangar の画面から起こすときと同じく hangar が
 tmux の中での入れ子の扱い（hangar の専用のサーバなら `switch-client`、ほかの tmux なら素の opencode）は claude と同じである。
 alias で opencode を包んでいる人がいても読み込みで壊れないよう、関数は `function opencode` の形で書く。
 
+### 外のターミナルの codex
+
+シェルで打った codex も、opencode と同じ仕組みで hangar の tmux の中で起こす（決定 6、計画の D1）。
+macOS と Linux だけで、Windows ではシェルの包みごと作らない。
+設定の「Codex を有効にする」（`codexEnabled`）と「codex コマンドを hangar 経由で起動」（`codexIntercept`）の両方が入りのときだけ、サーバは包みの本体（`claude.zsh`）に `function codex` を書く。
+どちらかの設定を変えたら本体を書き直し、次に開いたターミナルから効く。書き直す前から開いているターミナルの頼みも、サーバが設定を見て断る。
+
+包み方は opencode と同じ許可リスト方式である（`provider/codex/compat/cli.ts` の `CODEX_INTERCEPT_FLAGS` と `BUILTIN_CODEX_SUBCOMMANDS`）。
+写すのは、プロンプト 1 つ、`-m` と `--model`、`-c model_reasoning_effort=…`、`-s` と `-a`（権限の 3 段へ）、`resume <ID>` だけである。
+`-c` はほかの鍵、`-s` と `-a` は 3 段に当たらない組（例えば `-a never` だけ）を写せず、hangar が 400 で断って素の codex になる。省いた側は codex の既定（workspace-write と on-request）とみて 3 段に当てる。
+次は 1 つでもあれば素の codex を起動する。
+- 素通しのサブコマンド。codex 0.164.0 の `--help` の全部（`exec`、`login`、`logout`、`mcp`、`app-server`、`debug`、`apply`、`cloud`、`completion`、`help`、`review` など。別名の `e` と `a` も）である。`fork` も、hangar の入口が別なので素通しにする。`resume` だけは ID が UUID の 1 つのときに限って写し、ID なし、`--last`、名前、ほかの語つきは codex の選ぶ画面や探し方に任せる。
+- 一覧にないフラグ（`--version`、`--help`、`--oss`、`-C`、`--search` など）、2 つ目の位置引数、値の無いフラグ。
+- `CODEX_` で始まる変数が環境にあるとき。hangar は自分の app-server をふだんの置き場で起こし、`CODEX_HOME` は効かせない（決定 9）からである。
+値を取るフラグの次の語は値として読み、サブコマンドやプロンプトと取り違えない。1 回だけ包まずに起動するときは `command codex`、端末でないとき、`HANGAR_NO_WRAP`、tmux が無いときは包まない。
+
+包み方は本文に `"agent":"codex"` を足して `POST /api/runs/terminal` へ送り、端末の環境変数は送らない。
+頼みは非同期の `RunManager.startCodexFromTerminal` が受ける。
+1. 設定の 2 つを確かめ、引数を同じ許可リストで読み直す（`runs/terminal.ts` の `splitCodexTerminalArgs`）。
+2. `resume <ID>` があれば、その ID の codex の会話を引く。動いている run があればつなぐだけにし（`attached` が真）、止まっていれば `resumeMaterialized` で再開する（rollout の無い会話は断る）。一緒に打った `-m`、推論、権限もその再開に写す。hangar が知らない ID は 404 で断り、素の codex になる。
+3. 無ければ、作業ディレクトリで `startMaterialized` を通す。プロンプト、`-m`、推論、権限は `LaunchParams`（`prompt`、`model`、`effort`、`permissionMode`）に写す。プロジェクトは場所の最長一致で紐づけ、無ければ未分類にする。
+app-server も TUI も hangar が組む環境で起こす。下ごしらえを待つので、包み方が答えを待つ上限は opencode と同じ 90 秒である。
+tmux の中での入れ子の扱いは claude と同じである。
+
 `opencode --help` はまだ読まず、包みは組み込みの一覧で書く。
 横取りに使うフラグが help から消えたか、値の取り方が変わったときは、`opencodeSubcommandsFromHelp` がずれ（`flag.removed`、`flag.valueChanged`）として、ほかのずれと同じ契約 `opencode-cli` で返す（「opencode との互換」）。
 Claude の `cli` の契約には混ぜない（Claude の見直しが誤って読むため）。
