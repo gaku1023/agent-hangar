@@ -1,3 +1,4 @@
+import type { AgentKind } from './agents.ts';
 import type { CompatSummaryDto } from './claudeCompat.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
@@ -37,7 +38,7 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
  * agent は Claude Code 以外のエージェントの行にだけ付く（opencode は serve の出来事の流れから組む。server の provider/opencode/live.ts）。Claude の行には付けないので、無ければ Claude Code である。
  * opencode の行の pid は serve の pid である。
  */
-export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; address?: string; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number; waitingFor?: WaitKind; permission?: PermissionAskDto; agent?: 'opencode' };
+export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; address?: string; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number; waitingFor?: WaitKind; permission?: PermissionAskDto; agent?: Exclude<AgentKind, 'claude-code'> };
 /**
  * 入力待ちが何を待っているか（登録の waitingFor を shared の waitKindOf で読み替えたもの）。
  * permission はツールの許可（Bash の確認など）、question は入力（MCP の入力など）、other はダイアログや知らない値である。
@@ -115,7 +116,7 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * lastTurnAt は最後の入力・返答の時刻（手元の統計）で、終わった会話の見出しの「終了」に使う。統計の無い会話は null。
  * provider は会話を動かすエージェントで、一覧とサイドバーのアイコンを決める（agentIcons.ts）。古いサーバは opencode を知らないので、読む側は agentIconKindOf で読む。
  */
-export type SessionDto = { id: string; provider: 'claude-code' | 'opencode'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; lastTurnAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
+export type SessionDto = { id: string; provider: AgentKind; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; lastTurnAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
   /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
   interrupted: SessionInterruptDto | null;
   /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */

@@ -1,4 +1,4 @@
-import { limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
+import { type AgentKind, limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
 import { baseName } from '../lib/paths.ts';
 import { contextTokensLabel, costLabel, durationLabel, percentLabel } from './format.ts';
 import type { ArtifactCardProps } from './project.ts';
@@ -133,7 +133,7 @@ export type CardInput = LiveInput & {
   /** 設定の「ターンの意図と操作の短い説明を送る」。切なら、意図の代わりに依頼の冒頭を出す。省けば入り。Claude にだけ効く。 */
   liveHints?: boolean;
   /** 会話のエージェント。見出しの語（意図、質問、許可）と、使用量の欄の有無が変わる。省けば Claude。 */
-  agent?: 'claude-code' | 'opencode';
+  agent?: AgentKind;
   /** opencode の使用量の素（SessionStatsDto の contextPercent、contextTokens、costUsd、model）。Claude では使わない。 */
   usage?: { contextPercent: number | null; contextTokens: number | null; costUsd: number | null; model: string | null } | null;
   /** 会話の最初の依頼（SessionDto.firstPrompt）。opencode で本文がまだ届かない最初のターンに、意図の代わりに出す。 */

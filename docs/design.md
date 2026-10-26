@@ -1121,6 +1121,7 @@ Claude の本文は今までどおり jsonl をバイト位置で読み直し、
 Claude Code の形式や振る舞いを直接知っている部分は、`packages/server/src/provider/claude-code/` に集めてある（段 2 の PR 12）。
 `sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
 `AgentKind` の値は `sessions.provider` に入る値と同じにし、`agent/agents.ts` がその値から driver を引く。
+種類の一覧と表示名、UI が出し分けに使う能力は `packages/shared/src/agents.ts`（`AGENT_KINDS`、`AGENT_DISPLAY_NAME`、`AGENT_UI_CAPS`）が正本で、各所の型はそこから導く。
 
 5 つの面はどれも境界を通っている。
 `RunManager` は、新しい会話の ID（`newSessionId`）、起動の引数と外す環境変数（`plan` が返す `LaunchPlan`）、止めるときの後始末（`release`）を driver から受け取る。

@@ -1,3 +1,4 @@
+import { AGENT_KINDS, type AgentKind } from './agents.ts';
 /**
  * 新しい会話を起こすときに選べる値。PC の新規セッションのダイアログとスマホの画面が同じ値を使う。
  * 空は「既定」で、起動の params に含めず Claude Code の設定に従わせる。
@@ -20,8 +21,8 @@ export function isEffort(v: unknown): v is EffortValue {
  * 起こすエージェント（新しいセッションの「エージェント」の札）。並びは札の一覧の順で、先頭が既定である。
  * opencode（ベータ）は設定で有効にしたときだけ選べる。
  */
-export const AGENT_VALUES = ['claude-code', 'opencode'] as const;
-export type AgentValue = (typeof AGENT_VALUES)[number];
+export const AGENT_VALUES = AGENT_KINDS;
+export type AgentValue = AgentKind;
 
 export function isAgentValue(v: unknown): v is AgentValue {
   return typeof v === 'string' && (AGENT_VALUES as readonly string[]).includes(v);

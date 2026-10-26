@@ -1,4 +1,4 @@
-import type { EventsPageDto, LiveSessionDto, PermissionAskDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { AgentKind, EventsPageDto, LiveSessionDto, PermissionAskDto, TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import type { QuestionHook } from '../provider/claude-code/hooks/question.ts';
 import type { Activity } from '../provider/claude-code/transcript/activity.ts';
@@ -10,7 +10,7 @@ import type { RecordFacts } from '../provider/claude-code/transcript/normalize.t
 // 面の中で、エージェントによって持つものと持たないものがある口は、任意にしてある（AgentLauncher.newSessionId、AskSource.parseHook など）。
 
 /** エージェントの種類。値は sessions.provider の列に入る値と同じにする（D8）。 */
-export type AgentKind = 'claude-code' | 'opencode';
+export type { AgentKind };
 
 export interface AgentDriver {
   readonly kind: AgentKind;
