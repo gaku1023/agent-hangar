@@ -7665,6 +7665,18 @@ skills、commands、agents は実行される指示なので、他の PC から�
 | `GET /api/config-sync/backups` | 控えの世代（`backups/claude-config/` の `yyyyMMdd-HHmmss`）。戻す操作は殻の命令 `restore_config_sync` と `hangar config restore` |
 | `GET`、`PUT`、`DELETE /api/config-sync/apply-order` | 適用の指示書 |
 
+**git・dotfiles の検出（`sync/config/vcs.ts`）。**
+入れ物ごとに、管理している道具を見つけて `ConfigSyncDto.vcs`（`{ target, tools }` の並び、道具は `git`、`chezmoi`、`yadm`、`stow`）に載せる。
+印が無い入れ物は載せず、どの入れ物にも無ければ欄ごと省く（古い版の読み手と既存の形を変えない）。
+検出は表示のためだけで、同期は止めない。画面への出し方は設定の画面の作業（U1）で決める。
+`detectVcs(dir, home)` は入れ物のパスを受けるので、後の対象の入れ物も同じ関数で見る。
+見方は次のとおり。
+- git：入れ物か、ホームまでの親に `.git`（ファイルでもよい）がある。ホームより上は辿らない。ホームの外の入れ物は、その入れ物だけ見る。入れ物がリンクならリンク先も見る。
+- chezmoi：`~/.local/share/chezmoi`（と旧来の `~/.chezmoi`）の中に、入れ物の相対パスの写しがある（`dot_`、`private_`、`exact_` などの接頭辞を外して照らす）。
+- yadm：`~/.local/share/yadm/repo.git/index` に、入れ物の相対パスが載っている（索引は経路を平文で持つので、プロセスは起こさない）。
+- stow：入れ物か中の項目が相対のシンボリックリンクで、行き先が `<置き場>/<パッケージ>/<入れ物の相対パス>` の形をしている（stow は印を残さないので形で見る）。絶対パスのリンクは印にしない。
+重くならない手当てとして、親はホームまでで止め、深さと読む数に上限を置き、プロセスを起こさず、結果は 60 秒覚える（`detectVcsCached`）。何があっても投げず、読めなければ空を返す。
+
 **互換の版。**
 `config_snapshots` は共有テーブルの一覧に足したので、配備済みの Worker は、この表の行を含む push を 400 で丸ごと断る。
 そのまま行を書くと、他の表の同期まで止まる。

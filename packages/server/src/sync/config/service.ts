@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import {
   CONFIG_BUNDLE_MIN_WORKER_COMPAT, configBlobKey, isSafeKeyId,
-  type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto,
+  type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto, type ConfigVcsDto,
   type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type FileMetaIn,
 } from '@agent-hangar/shared';
 import { diffLines } from '../../config/jsonTextEdit.ts';
@@ -22,6 +22,8 @@ import { parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
 import { collectAll, enabledTargetNames, targetOfId, type TargetContext } from './targets/index.ts';
+import { CLAUDE_TARGET_NAME } from './targets/claude.ts';
+import { detectVcsCached } from './vcs.ts';
 import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
 
 /**
@@ -481,9 +483,20 @@ export class ConfigSyncService {
 
   backups(): ConfigBackupsDto { return { generations: listBackups(this.deps.home) }; }
 
+  /** 入れ物ごとの検出（表示だけ）。失敗しても、同期にも dto にも響かせない。後の対象の入れ物はここに足す。 */
+  private vcs(): ConfigVcsDto[] {
+    const out: ConfigVcsDto[] = [];
+    for (const c of [{ target: CLAUDE_TARGET_NAME, dir: this.deps.claudeDir }]) {
+      const tools = detectVcsCached(c.dir, this.deps.home, this.now());
+      if (tools.length) out.push({ target: c.target, tools });
+    }
+    return out;
+  }
+
   dto(): ConfigSyncDto {
     const r = this.resolved();
     const order = readApplyOrder(this.deps.home);
+    const vcs = this.vcs();
     return {
       enabled: this.deps.switchedOn(),
       approval: this.deps.approval(),
@@ -495,6 +508,8 @@ export class ConfigSyncService {
       backups: listBackups(this.deps.home).length,
       applyOrder: order ? { count: order.items.length, createdAt: order.createdAt } : null,
       lastSentAt: this.ownRow()?.updated_at ?? null,
+      // 印が無いときは欄ごと省く（古い版の読み手と、既存の形を変えない）。
+      ...(vcs.length ? { vcs } : {}),
     };
   }
 }
