@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import { findLeaf, type PaneLeaf, type PaneNode, type PaneSplit } from '../mediator/panes.ts';
 import type { PanesProps } from '../presenters/panes.ts';
 import { cornerCarriedBy, cornersAt, type PaneCorner } from '../lib/paneCorners.ts';
-import { PaneDivider } from './PaneDivider.tsx';
+import { DRAGGING_ATTR, PaneDivider } from './PaneDivider.tsx';
 import { EmptyPaneHeader, type PaneView } from './PaneHeader.tsx';
 import { PanePicker } from './PanePicker.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
+import { beginLayoutMotion, endLayoutMotion } from './primitives/layoutMotion.ts';
 import { useT } from './primitives/language.tsx';
+import { motionMs } from './primitives/motion.ts';
 import { flashPane } from './primitives/splitMotion.ts';
 
 /** この幅（ペインの内側）より狭いと一言とプロジェクト名と主の操作の文字を消す。 */
@@ -65,10 +67,41 @@ function PaneCell(props: { leaf: PaneLeaf; p: PanesProps }) {
   );
 }
 
+/**
+ * 掴まずに比が変わったとき（ダブルクリックで均等、キー、分割の増減）は、.pane-slot の flex-grow の transition で動く（panes.css）。
+ * 動いている間は端末が毎フレーム寸法を合わせて tmux を描き直させないよう、節に beginLayoutMotion を付け、動きの終わり（transitionend、取りこぼしに備えて --dur の少し後）に 1 度だけ戻す。
+ * 掴んでいる間（data-dragging）は transition が切れているので、何もしない。
+ */
+function useRatioMotion(ref: RefObject<HTMLDivElement | null>, ratio: number) {
+  const last = useRef(ratio);
+  useEffect(() => {
+    const el = ref.current;
+    const prev = last.current;
+    last.current = ratio;
+    if (!el || prev === ratio || el.hasAttribute(DRAGGING_ATTR)) return;
+    const dur = motionMs('--dur', el);
+    if (!dur) return;
+    beginLayoutMotion(el);
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      el.removeEventListener('transitionend', onEnd);
+      endLayoutMotion(el);
+    };
+    const onEnd = (e: Event) => { if ((e as TransitionEvent).propertyName === 'flex-grow' && (e.target as HTMLElement).parentElement === el) finish(); };
+    const timer = setTimeout(finish, dur + 100);
+    el.addEventListener('transitionend', onEnd);
+    return finish;
+  }, [ref, ratio]);
+}
+
 /** 木の節 1 つ。子の大きさは flex-grow に比率を入れ、間に境目を置く。 */
 function SplitView(props: { node: PaneSplit; p: PanesProps; corner?: { corner: PaneCorner; ratios: Record<string, number>; edge: 'start' | 'end' } }) {
   const ref = useRef<HTMLDivElement>(null);
   const { node } = props;
+  useRatioMotion(ref, node.ratio);
   return (
     <div ref={ref} className="pane-node" data-node={node.id} data-dir={node.dir}>
       <div className="pane-slot" style={{ flexGrow: node.ratio }}><NodeView node={node.a} p={props.p} parent={node} /></div>

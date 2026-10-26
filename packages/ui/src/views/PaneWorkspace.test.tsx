@@ -186,6 +186,8 @@ describe('PaneWorkspace', () => {
     m.emit.mockClear();
     fireEvent.pointerDown(sep, { clientX: 500 });
     expect(host.hasAttribute('data-layout-moving')).toBe(true);
+    // 掴んでいる間は、比の動き（transition）を切る印が立つ。
+    expect(host.dataset.dragging).toBe('true');
     fireEvent.pointerMove(window, { clientX: 300 });
     expect(m.emit).toHaveBeenLastCalledWith({ type: 'pane.resize', node, ratio: 0.3 });
     // 最小の幅 280px を守る。
@@ -193,6 +195,7 @@ describe('PaneWorkspace', () => {
     expect(m.emit).toHaveBeenLastCalledWith({ type: 'pane.resize', node, ratio: 0.28 });
     fireEvent.pointerUp(window);
     expect(host.hasAttribute('data-layout-moving')).toBe(false);
+    expect(host.hasAttribute('data-dragging')).toBe(false);
     m.emit.mockClear();
     fireEvent.pointerMove(window, { clientX: 700 });
     expect(m.emit).not.toHaveBeenCalled();
@@ -201,6 +204,21 @@ describe('PaneWorkspace', () => {
     m.emit.mockClear();
     fireEvent.keyDown(sep, { key: 'ArrowRight' });
     expect(m.emit).toHaveBeenCalledWith({ type: 'pane.resize', node, ratio: expect.closeTo(0.5 + 0.02, 5) });
+  });
+
+  it('掴まずに比が変わったとき（ダブルクリックやキー）は、動きの間だけ端末の寸法合わせを止め、動きの終わりに戻す', async () => {
+    const m = await mounted();
+    await m.open('s2');
+    const host = screen.getByRole('separator', { name: 'ペインの境目' }).parentElement as HTMLElement;
+    const node = host.dataset.node!;
+    document.documentElement.style.setProperty('--dur', '200ms');
+    try {
+      act(() => m.rt.emit({ type: 'pane.resize', node, ratio: 0.3 }));
+      await flush();
+      expect(host.hasAttribute('data-layout-moving')).toBe(true);
+      fireEvent.transitionEnd(host.querySelector('.pane-slot')!, { propertyName: 'flex-grow' });
+      expect(host.hasAttribute('data-layout-moving')).toBe(false);
+    } finally { document.documentElement.style.removeProperty('--dur'); }
   });
 
   describe('角（T 字）', () => {
@@ -233,6 +251,8 @@ describe('PaneWorkspace', () => {
       fireEvent.pointerDown(corner, { clientX: 504, clientY: 400 });
       expect(document.querySelector(`[data-node="${parent}"]`)!.hasAttribute('data-layout-moving')).toBe(true);
       expect(corner.dataset.grab).toBe('true');
+      // 交わる節のすべてで、比の動きを切る。
+      for (const id of [parent, child]) expect(document.querySelector(`[data-node="${id}"]`)!.getAttribute('data-dragging')).toBe('true');
       fireEvent.pointerMove(window, { clientX: 300, clientY: 300 });
       expect(resizes(m)).toEqual([{ type: 'pane.resize', node: parent, ratio: 0.3 }, { type: 'pane.resize', node: child, ratio: 0.375 }]);
       // 最小の幅 280px を守る。
@@ -245,6 +265,7 @@ describe('PaneWorkspace', () => {
       window.removeEventListener('hangar:layout-settled', settled);
       expect(settled).toHaveBeenCalledTimes(1);
       expect(document.querySelector(`[data-node="${parent}"]`)!.hasAttribute('data-layout-moving')).toBe(false);
+      for (const id of [parent, child]) expect(document.querySelector(`[data-node="${id}"]`)!.hasAttribute('data-dragging')).toBe(false);
       m.emit.mockClear();
       fireEvent.pointerMove(window, { clientX: 700, clientY: 400 });
       expect(m.emit).not.toHaveBeenCalled();
