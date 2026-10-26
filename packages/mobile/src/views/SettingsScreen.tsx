@@ -232,7 +232,7 @@ export function SettingsScreen({ open, pairing, view, onClose, onRescan, onLeft 
   const defaultsSummary =
     [
       defaults.pc ? choices.pcName(defaults.pc) : '',
-      defaults.agent === 'opencode' ? AGENT_NAMES.opencode : '',
+      defaults.agent ? AGENT_NAMES[defaults.agent] : '',
       defaults.account ? choices.accountName(defaults.account) : '',
       defaults.permissionMode ? permissionName(defaults.permissionMode) : '',
       defaults.model,
@@ -491,8 +491,10 @@ type DefaultChoices = {
   accountsOf: (pc: string | null) => { id: string; name: string }[];
   pcName: (id: string) => string;
   accountName: (id: string) => string;
-  /** opencode を有効にした PC（caps.agents に opencode のある PC）があるか。無ければエージェントの行を出さない。 */
+  /** opencode を有効にした PC（caps.agents に opencode のある PC）があるか。 */
   opencode: boolean;
+  /** Codex を有効にした PC（caps.agents に codex のある PC）があるか。どちらも無ければエージェントの行を出さない。 */
+  codex: boolean;
 };
 
 /**
@@ -513,6 +515,7 @@ function useDefaultChoices(view: InboxView | null): DefaultChoices {
       pcName: (id) => names.get(id) ?? id,
       accountName: (id) => all.get(id)?.name ?? id,
       opencode: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('opencode')),
+      codex: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('codex')),
     };
   }, [view]);
 }
@@ -522,8 +525,8 @@ type Opt = { value: string; label: string };
 const NOT_SET = '指定なし';
 
 /**
- * 新しい会話のデフォルトのページ。5 行（opencode を有効にした PC があれば、エージェントを足して 6 行）のどれかを押すと、その下に選択肢が開く（開くのは 1 つだけ）。
- * エージェントの行は、既定が opencode なら、opencode の PC が今無くても出す（Claude Code に戻せるように）。
+ * 新しい会話のデフォルトのページ。5 行（opencode か Codex を有効にした PC があれば、エージェントを足して 6 行）のどれかを押すと、その下に選択肢が開く（開くのは 1 つだけ）。
+ * エージェントの行は、既定が opencode か Codex なら、その PC が今無くても出す（Claude Code に戻せるように）。
  */
 function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults; choices: DefaultChoices; onPick: <K extends DefKey>(k: K, v: LaunchDefaults[K]) => void }): ReactNode {
   const [opened, setOpened] = useState<DefKey | null>(null);
@@ -535,7 +538,7 @@ function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults;
       value: defaults.pc ? choices.pcName(defaults.pc) : NOT_SET,
       options: [{ value: '', label: NOT_SET }, ...choices.pcs.map((p) => ({ value: p.id, label: p.name }))],
     },
-    ...(choices.opencode || defaults.agent === 'opencode'
+    ...(choices.opencode || choices.codex || defaults.agent
       ? [
           {
             k: 'agent' as const,
@@ -543,7 +546,9 @@ function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults;
             value: AGENT_NAMES[defaults.agent ?? 'claude-code'],
             options: [
               { value: '', label: AGENT_NAMES['claude-code'] },
-              { value: 'opencode', label: AGENT_NAMES.opencode },
+              // 並びは PC の新しい会話と同じ（Claude Code、Codex、opencode）。既定になっているエージェントは、その PC が今無くても出す（Claude Code に戻せるように）。
+              ...(choices.codex || defaults.agent === 'codex' ? [{ value: 'codex', label: AGENT_NAMES.codex }] : []),
+              ...(choices.opencode || defaults.agent === 'opencode' ? [{ value: 'opencode', label: AGENT_NAMES.opencode }] : []),
             ],
           },
         ]
@@ -561,7 +566,7 @@ function DefaultsBody({ defaults, choices, onPick }: { defaults: LaunchDefaults;
   const pick = (k: DefKey, v: string): void => {
     setSwapped(k);
     if (k === 'pc' || k === 'account') onPick(k, v || null);
-    else if (k === 'agent') onPick('agent', v === 'opencode' ? 'opencode' : undefined);
+    else if (k === 'agent') onPick('agent', v === 'opencode' || v === 'codex' ? v : undefined);
     else onPick(k, v);
   };
   const current = (k: DefKey): string => defaults[k] ?? '';

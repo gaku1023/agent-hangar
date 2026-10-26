@@ -58,6 +58,12 @@ describe('新しい会話のデフォルト（localStorage）', () => {
     expect(loadLaunchDefaults()).toEqual(EMPTY_DEFAULTS);
   });
 
+  it('エージェントは Codex も持てる', () => {
+    saveLaunchDefaults({ ...EMPTY_DEFAULTS, agent: 'codex' });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toMatchObject({ agent: 'codex' });
+    expect(loadLaunchDefaults()).toEqual({ ...EMPTY_DEFAULTS, agent: 'codex' });
+  });
+
   it('権限モードの表示名は PC の新しいセッションのダイアログと同じ', () => {
     expect(PERMISSION_NAMES['']).toBe('デフォルト');
     expect(PERMISSION_NAMES.bypassPermissions).toBe('Bypass permissions');

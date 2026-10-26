@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { aadAsk, aadReply, MOBILE_AGENT_LABEL_MAX, MOBILE_AGENT_MODELS_MAX, MOBILE_REPLY_MAX_BYTES, open, seal, type MobileAsk, type MobileReply, type OpencodeOptionsDto } from '@agent-hangar/shared';
+import { aadAsk, aadReply, MOBILE_AGENT_LABEL_MAX, MOBILE_AGENT_MODELS_MAX, MOBILE_CODEX_EFFORTS_MAX, MOBILE_CODEX_MODELS_MAX, MOBILE_REPLY_MAX_BYTES, open, seal, type CodexOptionsDto, type MobileAsk, type MobileReply, type OpencodeOptionsDto } from '@agent-hangar/shared';
 import { testKey } from '../../test/cloudConfig.ts';
 import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
 import { answerAsk, ASK_COMMANDS_MAX, ASK_DESCRIPTION_MAX, ASK_RECENT_FILES, ASK_SEARCH_FILES, replyTo, type AskDeps } from './asks.ts';
@@ -281,5 +281,67 @@ describe('既定の読み取り（本物のフォルダ）', () => {
     const d: AskDeps = { phoneKeys: fixedPhoneKeys(), deviceId: 'pc-a', projectPath: () => root, accountDir: () => null };
     expect(await replyTo(d, { v: 1, kind: 'files', projectId: 'p1', q: '' })).toEqual({ files: [{ path: 'one.ts', changed: false }] });
     expect(await replyTo(d, { v: 1, kind: 'files', projectId: 'p1', q: 'one' })).toEqual({ files: [{ path: 'one.ts', changed: false }] });
+  });
+});
+
+/** PC が手元に持った Codex の選択肢（CodexOptionsDto）。 */
+const cxDto = (over: Partial<CodexOptionsDto> = {}): CodexOptionsDto => ({
+  version: '0.164.0',
+  verified: true,
+  models: [
+    { id: 'gpt-5.5', label: 'GPT-5.5', description: '長い説明', efforts: [{ id: 'low', description: 'a' }, { id: 'medium', description: 'b' }, { id: 'high', description: 'c' }], defaultEffort: 'medium' },
+    { id: 'gpt-5.5-mini', label: 'GPT-5.5 mini', description: '', efforts: [], defaultEffort: null },
+    { id: '-bad slug', label: 'Bad', description: '', efforts: [], defaultEffort: null },
+  ],
+  fetchedAt: Date.now(),
+  ...over,
+});
+
+function cxDeps(o: { ready?: boolean; dto?: CodexOptionsDto | null } = {}) {
+  const options = vi.fn(() => (o.dto === undefined ? cxDto() : o.dto));
+  return deps({ codex: { ready: () => o.ready ?? true, options } });
+}
+
+describe('replyTo（Codex の agent-options）', () => {
+  it('手元に持った Codex の選択肢を、説明を落としてスマホの形に縮める。起動の依頼で通らない slug は載せない', async () => {
+    const d = cxDeps();
+    expect(await replyTo(d, { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({
+      codexOptions: {
+        version: '0.164.0',
+        verified: true,
+        models: [
+          { id: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium' },
+          { id: 'gpt-5.5-mini', label: 'GPT-5.5 mini', efforts: [], defaultEffort: null },
+        ],
+        stale: false,
+        fetchedAt: expect.any(Number),
+      },
+    });
+    expect(d.codex!.options).toHaveBeenCalled();
+  });
+
+  it('プロジェクトの有無を問わない（場所に依らない一覧）。手元に無いプロジェクトだけが project-missing', async () => {
+    expect(await replyTo(cxDeps(), { v: 1, kind: 'agent-options', agent: 'codex', projectId: 'p1' })).toHaveProperty('codexOptions');
+    expect(await replyTo(cxDeps(), { v: 1, kind: 'agent-options', agent: 'codex', projectId: 'p-none' })).toEqual({ error: 'project-missing' });
+  });
+
+  it('30 分以上前に取った一覧は stale。名前と件数の上限で切る', async () => {
+    const old = (await replyTo(cxDeps({ dto: cxDto({ fetchedAt: Date.now() - 31 * 60_000 }) }), { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })) as { codexOptions: { stale: boolean } };
+    expect(old.codexOptions.stale).toBe(true);
+    const many = cxDto({ models: Array.from({ length: 60 }, (_, i) => ({ id: `m${i}`, label: 'あ'.repeat(200), description: '', efforts: Array.from({ length: 12 }, (_, j) => ({ id: `e${j}`, description: '' })), defaultEffort: null })) });
+    const r = (await replyTo(cxDeps({ dto: many }), { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })) as { codexOptions: { models: { label: string; efforts: string[] }[] } };
+    expect(r.codexOptions.models).toHaveLength(MOBILE_CODEX_MODELS_MAX);
+    expect([...r.codexOptions.models[0]!.label]).toHaveLength(MOBILE_AGENT_LABEL_MAX);
+    expect(r.codexOptions.models[0]!.efforts).toHaveLength(MOBILE_CODEX_EFFORTS_MAX);
+  });
+
+  it('PC がまだ一覧を持っていなければ null。Codex を使えない PC（無効、見つからない、口が無い）は agent-missing', async () => {
+    expect(await replyTo(cxDeps({ dto: null }), { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({ codexOptions: null });
+    expect(await replyTo(cxDeps({ ready: false }), { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({ error: 'agent-missing' });
+    expect(await replyTo(deps(), { v: 1, kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({ error: 'agent-missing' });
+  });
+
+  it('Codex には / の候補が無い。commands の agent が codex なら bad-request', async () => {
+    expect(await replyTo(cxDeps(), { v: 1, kind: 'commands', projectId: null, accountId: '', agent: 'codex' })).toEqual({ error: 'bad-request' });
   });
 });
