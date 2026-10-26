@@ -3670,6 +3670,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションの再開コマンド（`resume_command`）は、この PC の素の `claude -r` で開ける会話にだけ返す（2026-10-21、#313）。
+  再開コマンドはエージェントで変わる。Claude Code は `claude -r <id>`、Codex は `codex resume <id>`、opencode は `opencode -s <id>` で、後ろ 2 つは外のターミナルの包み方（`codex()`、`opencode()`）が hangar の起動に写す形と同じである。会話の ID がまだ決まっていない行（`pending:…`）は `null` にする。
   他の PC が実行中のロックを持つ会話と、トランスクリプトが他の PC にしか無い会話（`SessionDto.remoteOnly`）では `null` にし、代わりに `resume_hint` で案内の文を返す。
   文は、`open_in_hangar` でセッションを開き「この PC で再開」をクリックするようユーザーに案内するよう Claude に求める（`mcp.resumeHint.*`）。
   条件は、画面が素の再開を閉じて「この PC で再開」に回す条件（`presenters/session.ts` の `sessionActions`）と同じ事実で、server の `SessionDto` の `lock` と `remoteOnly` から読む（`mcp/tools.ts` の `resumeOf`）。
@@ -3678,7 +3679,9 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   以前は手元に本文が無い会話にも `claude -r <id>` を返しており、それを打った Claude が失敗していた。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
-- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, account? })`：tmux で起動して run を返す。agent と mode は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code では捨てる）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
+- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
+  Codex の権限（read-only、auto、full-access。省くと auto）は `permission_mode` で渡し、model はモデル名、effort は推論の段階である。
+  worktree（claude の `--worktree` に渡す名前）と add_dirs（`--add-dir`）は Claude Code だけのもので、Codex と opencode に付けると `start` が `optionUnsupported` で断る（UI の新規ダイアログは札を出さないので、断られるのは API と MCP だけである）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
   - account（Claude Code のときだけ）：省くと、呼んだセッション（セッション別 URL）がこの PC で最後に使ったアカウントを引き継ぐ。「別セッションを起こして」と頼んだ会話と同じ枠で続けるためで、ヘッダで選んでいるアカウントは最後に画面で選んだものにすぎない。ほかの PC の run は見ない（`RunAccounts.accountFor` と同じ）。共通の URL から呼ばれたとき、この PC で動かしたことが無いとき、そのアカウントが消えたときは、いま選んでいるアカウントにする。明示されたら名前か id で引き、知らないものは使える名前を添えて断る。opencode と Codex に渡されたら断る。結果には使ったアカウントの名前を添える。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
 - `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。セッション画面の現在の札に出す。

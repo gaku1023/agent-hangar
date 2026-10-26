@@ -324,6 +324,24 @@ describe('MCP tools', () => {
     await call('create_session', { project_id: 'p1', agent: 'opencode', mode: 'plan', model: 'lmstudio/gemma' });
     expect(started[0]).toMatchObject({ projectId: 'p1', agent: 'opencode', mode: 'plan', model: 'lmstudio/gemma' });
   });
+  it('create_session は worktree と add_dirs を start の worktree と addDirs にそのまま渡す', async () => {
+    await call('create_session', { project_id: 'p1', worktree: 'fix-login', add_dirs: ['/tmp/a', '/tmp/b'] });
+    expect(started[0]).toMatchObject({ worktree: 'fix-login', addDirs: ['/tmp/a', '/tmp/b'] });
+  });
+  it('create_session は agent: codex を start に渡し、permission_mode を権限の段として使う', async () => {
+    deps = { ...deps, runs: { ...deps.runs, agentEnabled: (k) => k === 'codex' } };
+    await call('create_session', { project_id: 'p1', agent: 'codex', model: 'gpt-x', permission_mode: 'read-only' });
+    expect(started[0]).toMatchObject({ agent: 'codex', model: 'gpt-x', permissionMode: 'read-only' });
+  });
+  it('opencode と Codex の会話は、素の端末で打てるそれぞれの再開コマンドを返す', () => {
+    db.prepare("update sessions set provider = 'codex', provider_session_id = ? where id = ?").run('019a0000-0000-7000-8000-000000000001', alphaId);
+    const brief = () => (call('list_sessions') as unknown as Record<string, unknown>[]).find((s) => s.id === alphaId)!;
+    expect(brief()).toMatchObject({ resume_command: 'codex resume 019a0000-0000-7000-8000-000000000001', resume_hint: null });
+    db.prepare("update sessions set provider = 'opencode', provider_session_id = 'ses_abc' where id = ?").run(alphaId);
+    expect(brief()).toMatchObject({ resume_command: 'opencode -s ses_abc', resume_hint: null });
+    db.prepare("update sessions set provider_session_id = 'pending:x' where id = ?").run(alphaId);
+    expect(brief().resume_command).toBeNull();
+  });
   it('create_session は知らない agent を断り、起動しない', () => {
     expect(() => call('create_session', { project_id: 'p1', agent: 'gemini' })).toThrow(ToolError);
     expect(() => call('create_session', { project_id: 'p1', agent: 1 })).toThrow(ToolError);

@@ -131,10 +131,19 @@ function deviceBrief(deps: ToolDeps, sessionId: string): { name: string | null; 
  * 画面が素の再開を閉じて「この PC で再開」に回す条件（ui の sessionActions）と同じ事実を、server の SessionDto から読む。
  * ロックを先に見るのも画面と同じで、ロックがあれば本文の在りかに関わらず、他の PC を停止しない限り再開できない。
  */
+function resumeCommandOf(s: SessionDto): string | null {
+  // 会話の ID がまだ決まっていない起動中の行（pending:…）は、どのエージェントでも再開できない。
+  if (s.providerSessionId.startsWith('pending:')) return null;
+  // Codex と opencode は、hangar の包み方（外のターミナルの codex と opencode）が受ける形と同じ。素の端末でも打てる。
+  if (s.provider === 'codex') return `codex resume ${s.providerSessionId}`;
+  if (s.provider === 'opencode') return `opencode -s ${s.providerSessionId}`;
+  return `claude -r ${s.providerSessionId}`;
+}
+
 function resumeOf(deps: ToolDeps, s: SessionDto): { resume_command: string | null; resume_hint: string | null } {
   const hint = s.lock ? msg(s.lock.stale ? 'mcp.resumeHint.stale' : 'mcp.resumeHint.running', { device: s.lock.deviceName })
     : s.remoteOnly ? msg('mcp.resumeHint.remote') : null;
-  if (!hint) return { resume_command: `claude -r ${s.providerSessionId}`, resume_hint: null };
+  if (!hint) return { resume_command: resumeCommandOf(s), resume_hint: null };
   return { resume_command: null, resume_hint: render((deps.language ?? defaultLanguage)(), hint) };
 }
 
@@ -345,6 +354,8 @@ export function getTranscriptTool(deps: ToolDeps, ctx: ToolContext, args: Record
 /** プロジェクトの確かめはその場で投げ、起動（runs.start）は待つ。MCP の層は await してから包む。 */
 /**
  * agent と mode は UI の起動（POST /api/runs）と同じく runs.start にそのまま渡す。省けば Claude Code で、mode は Claude Code では start が捨てる。
+ * worktree と add_dirs も start にそのまま渡す。意味は UI の新規ダイアログと同じ（worktree は claude の --worktree に渡す名前、add_dirs は --add-dir の追加ディレクトリ）。
+ * Claude Code だけのもので、Codex と opencode に付けると start が UI と同じ文で断る（黙って捨てない）。
  * 知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に UI と同じ文で断る。
  */
 export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -357,6 +368,7 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
     agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
+    worktree: str(args.worktree), addDirs: strs(args.add_dirs),
   })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }));
 }
 
