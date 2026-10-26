@@ -13,6 +13,9 @@ const requireFromHere = createRequire(import.meta.url);
  * - 通知：thread/started（接続の URL の query に `tui=1&cwd=…` を付けた接続が来たとき、ephemeral:false を全接続へ。実物の TUI の接続の真似）、
  *   turn/start で thread/status/changed(active)、turn/started（購読した接続だけ）、少しあとに turn/completed と idle。
  *   最初のターンのあと ephemeral:true の thread/started を 1 つ（題名の生成の真似）。
+ * - 入力の文の頭で振る舞いを変える（B4）。`ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` は、承認や質問の要求を購読した接続へ送り、
+ *   status を waitingOnApproval か waitingOnUserInput にして待つ（実物の TUI の代わりに、どれかの接続が id つきの応答を返すと、serverRequest/resolved を全接続へ流し、status を戻して完了する）。
+ *   `hang` は完了しない。`thread/read` は status を返す。`__resolve` を呼ぶ代わりに、接続は応答（{id, result}）を返すだけでよい。
  * - SIGTERM で止まる。`fakeGrandchild` の指定があれば、孫（長く眠る子）を 1 つ起こす（止め方の試験用）。
  * `--version` は `codex-cli <version>` を出して 0 で終わる。`login status` は loggedIn なら 0、でなければ 1（実物と同じく標準エラーへ文を出す）。
  * 起動のたびに、argv と環境変数のキーを logFile に 1 行 1 件の JSON で足す（環境の漏れを試験で見る）。
@@ -62,6 +65,8 @@ async function appServer(args) {
   let turnSeq = 0;
   const uuid = () => '01a00000-0000-7000-8000-' + String(++seq).padStart(12, '0');
   const clients = new Set();
+  const waiting = new Map(); // 要求の id -> 解けたときの続き
+  let reqSeq = 100;
   const send = (ws, o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
   const broadcast = (m, p) => { for (const c of clients) send(c, { method: m, params: p }); };
   const threadBody = (id, eph) => { const t = threads.get(id); return { id, sessionId: id, ephemeral: eph, cwd: t?.cwd ?? null, path: null, environments: eph ? [] : [{ cwd: t?.cwd ?? null }] }; };
@@ -85,6 +90,12 @@ async function appServer(args) {
     }
     ws.on('message', (data) => {
       const m = JSON.parse(data.toString());
+      if (m.id !== undefined && m.method === undefined) {
+        // サーバからの要求への応答（実物では TUI が返す）。
+        const w = waiting.get(m.id);
+        if (w) { waiting.delete(m.id); w(); }
+        return;
+      }
       if (m.id === undefined) return;
       const ok = (result) => send(ws, { id: m.id, result });
       const fail = (code, message) => send(ws, { id: m.id, error: { code, message } });
@@ -97,6 +108,11 @@ async function appServer(args) {
           ok({ thread: threadBody(id, false), cwd: p.cwd ?? null, model: p.model ?? 'fake-model', approvalPolicy: p.approvalPolicy ?? 'on-request', sandbox: p.sandbox ?? 'workspace-write' });
           setTimeout(() => broadcast('thread/started', { thread: threadBody(id, false) }), 5);
           return;
+        }
+        case 'thread/read': {
+          const t = threads.get(p.threadId);
+          if (!t) return fail(-32600, 'thread not found: ' + p.threadId);
+          return ok({ thread: { ...threadBody(p.threadId, false), status: t.status ?? { type: t.current ? 'active' : 'idle', ...(t.current ? { activeFlags: [] } : {}) } } });
         }
         case 'thread/loaded/list': return ok({ data: [...threads.keys()] });
         case 'thread/resume': {
@@ -113,11 +129,43 @@ async function appServer(args) {
           t.turns++;
           t.subscribers.add(ws);
           t.current = turn;
+          t.status = undefined;
           ok({ turn });
           const first = t.turns === 1;
           broadcast('thread/status/changed', { threadId: p.threadId, status: { type: 'active', activeFlags: [] } });
           for (const c of t.subscribers) send(c, { method: 'turn/started', params: { threadId: p.threadId, turn } });
           if (first) { const eid = uuid(); threads.set(eid, { cwd: null, turns: 0, subscribers: new Set() }); setTimeout(() => broadcast('thread/started', { thread: threadBody(eid, true) }), 10); }
+          const text = String(p.input?.[0]?.text ?? '');
+          const kind = text.startsWith('ask:') ? text.slice(4) : null;
+          const setStatus = (status) => { t.status = status; broadcast('thread/status/changed', { threadId: p.threadId, status }); };
+          const finish = () => {
+            t.current = null;
+            t.status = { type: 'idle' };
+            for (const c of t.subscribers) send(c, { method: 'turn/completed', params: { threadId: p.threadId, turn: { ...turn, status: 'completed' } } });
+            broadcast('thread/status/changed', { threadId: p.threadId, status: { type: 'idle' } });
+          };
+          if (text === 'hang') return;
+          if (kind) {
+            setTimeout(() => {
+              const id = ++reqSeq;
+              const common = { threadId: p.threadId, turnId: turn.id, itemId: 'item-' + id, startedAtMs: 1 };
+              const reqs = {
+                command: ['item/commandExecution/requestApproval', { ...common, command: 'rm -rf build', cwd: t.cwd, reason: 'needs write' }, 'waitingOnApproval'],
+                file: ['item/fileChange/requestApproval', { ...common, grantRoot: '/w/out', reason: 'write outside' }, 'waitingOnApproval'],
+                perm: ['item/permissions/requestApproval', { ...common, cwd: t.cwd, reason: 'network please', permissions: { network: { enabled: true }, fileSystem: { write: ['/w/out'] } } }, 'waitingOnApproval'],
+                input: ['item/tool/requestUserInput', { ...common, isBlocking: true, questions: [{ id: 'q1', header: 'Pick', question: 'Which one?', options: [{ label: 'a', description: 'A' }] }] }, 'waitingOnUserInput'],
+                mcp: ['mcpServer/elicitation/request', { threadId: p.threadId, turnId: turn.id, serverName: 'srv', mode: 'form', message: 'Need a value', requestedSchema: {} }, 'waitingOnUserInput'],
+              }[kind];
+              setStatus({ type: 'active', activeFlags: [reqs[2]] });
+              for (const c of t.subscribers) send(c, { id, method: reqs[0], params: reqs[1] });
+              waiting.set(id, () => {
+                broadcast('serverRequest/resolved', { threadId: p.threadId, requestId: id });
+                setStatus({ type: 'active', activeFlags: [] });
+                setTimeout(finish, 30);
+              });
+            }, 10);
+            return;
+          }
           t.timer = setTimeout(() => {
             t.current = null;
             for (const c of t.subscribers) send(c, { method: 'turn/completed', params: { threadId: p.threadId, turn: { ...turn, status: 'completed' } } });
