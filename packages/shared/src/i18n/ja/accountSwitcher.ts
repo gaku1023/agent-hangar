@@ -12,4 +12,10 @@ export const accountSwitcherJa: AreaDictionary<typeof accountSwitcherKeys> = {
   'accountSwitcher.tag.switch': '切り替える',
   'accountSwitcher.footer.add': 'アカウントを追加',
   'accountSwitcher.footer.settings': 'アカウントの設定',
+  'accountSwitcher.section.claude': 'Claude Code',
+  'accountSwitcher.section.claudeHint': 'クリックで切り替え',
+  'accountSwitcher.section.codex': 'Codex',
+  'accountSwitcher.codex.name': 'ChatGPT',
+  'accountSwitcher.codex.updated': '最終更新 {time}',
+  'accountSwitcher.tag.codexSession': 'このセッション',
 };

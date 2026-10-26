@@ -27,8 +27,8 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
       {again && <span className="account-approve">{approveText(t)}</span>}
       {noValue ? <span className="account-none">{t('account.meters.noValue')}</span> : (
         <>
-          <Row name={a.name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={a.fiveHour} showResets={props.showResets} />
-          <Row name={a.name} label={t('account.meters.weekLabel')} short={t('account.meters.weekShort')} gauge={a.sevenDay} showResets={props.showResets} />
+          <MeterRow name={a.name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={a.fiveHour} showResets={props.showResets} />
+          <MeterRow name={a.name} label={t('account.meters.weekLabel')} short={t('account.meters.weekShort')} gauge={a.sevenDay} showResets={props.showResets} />
         </>
       )}
       {a.note !== null && <span className="account-note" data-tone={a.note.tone}>{a.note.text}</span>}
@@ -36,7 +36,8 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
   );
 }
 
-function Row(props: { name: string; label: string; short: string; gauge: AccountGauge | null; showResets: boolean }) {
+/** 札の中の 1 本の行（見出し、棒、%、戻る時刻）。切り替えの面の Codex の札（AccountSwitcher.tsx）も使う。 */
+export function MeterRow(props: { name: string; label: string; short: string; gauge: AccountGauge | null; showResets: boolean }) {
   const t = useT();
   const g = props.gauge;
   const pct = g === null ? 0 : Math.max(0, Math.min(100, g.percent));

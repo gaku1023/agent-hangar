@@ -11,4 +11,10 @@ export const accountSwitcherKeys = {
   'accountSwitcher.tag.switch': [],
   'accountSwitcher.footer.add': [],
   'accountSwitcher.footer.settings': [],
+  'accountSwitcher.section.claude': [],
+  'accountSwitcher.section.claudeHint': [],
+  'accountSwitcher.section.codex': [],
+  'accountSwitcher.codex.name': [],
+  'accountSwitcher.codex.updated': ['time'],
+  'accountSwitcher.tag.codexSession': [],
 } as const satisfies MessageSpec;

@@ -403,6 +403,16 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .account-card-tag { position: absolute; top: 9px; right: 11px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
 .account-card-tag[data-kind='shown'] { font-weight: 700; color: var(--accent); }
 .account-card .account-meters-head { padding-right: 96px; }
+/* Codex の枠が届いているときの節（Claude Code と Codex）。見出しはエージェントの絵と名前で、Claude Code の右に「クリックで切り替え」を小さく添える。 */
+.account-group { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.account-sec { display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 2px calc(var(--u) * 1) 0; color: var(--ink-2); font-size: var(--fs-xs); font-weight: 700; }
+.account-sec-hint { margin-left: auto; color: var(--ink-3); font-weight: 500; }
+.account-group + .account-group { padding-top: calc(var(--u) * 2); border-top: 1px solid var(--line-strong); }
+/* Codex の札は押せない。押せる札の青い縁を出さず、Codex の会話を開いているときだけ濃い灰の輪で「このセッション」を示す（青い輪は選べる札の「いま」に取っておく）。 */
+.account-card[data-info='true'] { cursor: default; }
+.account-card[data-info='true']:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.account-card[data-here='true'], .account-card[data-here='true']:hover { box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.account-card-tag[data-kind='here'] { font-weight: 700; color: var(--ink-2); }
 
 /* 札の中身（views/primitives/AccountMeters.tsx）。切り替えの開いた先と、新規セッションのダイアログの札で使い回す。
    5 時間と週の行は、札の中身の 4 列の格子（名前、棒、%、戻る時刻）を subgrid で受け継ぎ、2 本の行の列をそろえる。

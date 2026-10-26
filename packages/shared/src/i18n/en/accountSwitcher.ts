@@ -12,4 +12,10 @@ export const accountSwitcherEn: AreaDictionary<typeof accountSwitcherKeys> = {
   'accountSwitcher.tag.switch': 'Switch',
   'accountSwitcher.footer.add': 'Add account',
   'accountSwitcher.footer.settings': 'Account settings',
+  'accountSwitcher.section.claude': 'Claude Code',
+  'accountSwitcher.section.claudeHint': 'Click to switch',
+  'accountSwitcher.section.codex': 'Codex',
+  'accountSwitcher.codex.name': 'ChatGPT',
+  'accountSwitcher.codex.updated': 'Updated {time}',
+  'accountSwitcher.tag.codexSession': 'This session',
 };

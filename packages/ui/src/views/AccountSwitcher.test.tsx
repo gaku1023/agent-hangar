@@ -290,3 +290,38 @@ describe('AccountSwitcher でアカウントが 1 つ', () => {
     expect(onAction.mock.calls).toEqual([[{ type: 'account.add.open' }]]);
   });
 });
+
+describe('AccountSwitcher の Codex の節', () => {
+  const codex = (here: boolean): Account['codex'] => ({ here, usage: { plan: 'Plus', fiveHour: { percent: 23, high: false, resets: '16:20' }, sevenDay: { percent: 37, high: false, resets: '11/01 12:00' }, updatedLabel: '2 分前' } });
+  it('Codex の枠があれば、Claude Code と Codex の見出しで節を分け、Codex の札は押せる札にしない', () => {
+    const { face } = mount(home({ codex: codex(false) }));
+    fireEvent.click(face);
+    const dialog = screen.getByRole('dialog');
+    const claude = within(dialog).getByRole('group', { name: 'Claude Code' });
+    expect(within(claude).getAllByRole('menuitemradio')).toHaveLength(list.length);
+    expect(within(claude).getByText('クリックで切り替え')).toBeInTheDocument();
+    const group = within(dialog).getByRole('group', { name: 'Codex' });
+    expect(within(group).queryByRole('menuitemradio')).toBeNull();
+    expect(within(group).queryByRole('button')).toBeNull();
+    expect(group).toHaveTextContent('ChatGPT');
+    expect(group).toHaveTextContent('Plus');
+    expect(group).toHaveTextContent('最終更新 2 分前');
+    expect(within(group).getByRole('meter', { name: 'ChatGPT 5 時間の使用率' })).toHaveAttribute('aria-valuenow', '23');
+    expect(group).toHaveTextContent('16:20 にリセット');
+    expect(within(group).queryByText('このセッション')).toBeNull();
+  });
+  it('Codex の会話を開いているときだけ、Codex の札に「このセッション」と出す', () => {
+    const { face } = mount(home({ codex: codex(true) }));
+    fireEvent.click(face);
+    const group = screen.getByRole('group', { name: 'Codex' });
+    expect(within(group).getByText('このセッション')).toBeInTheDocument();
+    expect(group.querySelector('.account-card')).toHaveAttribute('data-here', 'true');
+  });
+  it('Codex の枠が無ければ、節の見出しを出さず今の面のまま', () => {
+    const { face } = mount(home({ codex: null }));
+    fireEvent.click(face);
+    expect(screen.queryByRole('group', { name: 'Codex' })).toBeNull();
+    expect(screen.queryByText('Claude Code')).toBeNull();
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(list.length);
+  });
+});

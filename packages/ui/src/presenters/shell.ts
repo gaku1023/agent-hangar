@@ -5,7 +5,7 @@ import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type Liv
 import { paneLeaves } from '../mediator/panes.ts';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, currentAccount, liveSessionIds, shownReason, waitingSessionIds, type Store } from '../store/store.ts';
-import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
+import { presentAccounts, presentAgentUsage, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
 import { presentOverlap } from './overlap.ts';
@@ -33,8 +33,9 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiv
  * list は全アカウント（並びと current はいまのアカウントを基準にする）。
  * sessionId は、セッション画面で開いているセッションの id で、ほかでは null。選ぶとそのセッションの切り替えになる。
  * working は、そのセッションが動いていて作業中か。session.kill に添える値（SessionScreen.tsx）と同じ出どころである。
+ * codex は、面の Codex の節に出す枠。値が未着か設定で切なら null（無いのと同じ）で、面は Claude の札だけになる。here は Codex の会話を開いているか。
  */
-export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean } | null;
+export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean; codex?: { usage: AgentUsageView; here: boolean } | null } | null;
 /**
  * 同期の一行は状態を示すだけで、操作は持たない。今すぐ同期、一時停止、PC を追加は設定の同期の群にある。
  * label は状態の語、title は label と件数を並べた全文で、狭いヘッダーで畳んだ部品もここから読める。
@@ -281,7 +282,9 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const usage: UsageProps = !codex ? claudeUsage
     : screenAgent === 'codex' ? codexUsage(t, codex, now)
     : { ...claudeUsage, agent: { key: 'claude', label: t('header.gauge.agentClaude') } };
-  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting' }, usage };
+  // 面には、開いている会話によらず Codex の枠も並べる（Claude Code と Codex の節、AccountSwitcher.tsx）。
+  const codexCard = codex ? { usage: presentAgentUsage(t, codex, now), here: screenAgent === 'codex' } : null;
+  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting', codex: codexCard }, usage };
 }
 
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */
