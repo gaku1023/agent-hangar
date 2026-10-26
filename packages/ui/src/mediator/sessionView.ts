@@ -2,6 +2,7 @@ import { translatorOf } from '../presenters/i18n.ts';
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 import { currentRunOf, tabsOf, type Store } from '../store/store.ts';
 import { tocFolds } from '../presenters/tocFold.ts';
+import { paneShows } from './panes.ts';
 
 export function defaultSessionView(): SessionViewState {
   return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, jump: null, tocPeek: false };
@@ -125,7 +126,8 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
       case 'run.started': {
         // 再開などで run が替わったら、前の run の跳び先は忘れる。
         const fresh = forgetJump(state, ev.run.sessionId, (runId) => runId !== ev.run.id);
-        if (currentSession(fresh) !== ev.run.sessionId) return { state: fresh, effects: [] };
+        // 並べたペインのセッションなら、操作中でなくてもつなぐ（panes.ts の paneShows）。
+        if (!paneShows(fresh, ev.run.sessionId)) return { state: fresh, effects: [] };
         const r = patch(fresh, ev.run.sessionId, { selectedTab: null });
         return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: ev.run.sessionId, tabId: ev.run.id }] };
       }
@@ -142,8 +144,8 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
           const p = closedTabPatch(cur, t.id);
           if (!p) return { state, effects: [off] };
           const r = patch(state, t.sessionId, p);
-          // 繋ぎ直すのは、いま見ているセッションの左のタブが閉じたときだけ。
-          const back: Effect[] = cur.selectedTab === t.id && currentSession(state) === t.sessionId ? [{ kind: 'terminal.connect', sessionId: t.sessionId, tabId: null }] : [];
+          // 繋ぎ直すのは、いま見ている（並べたペインを含む）セッションの左のタブが閉じたときだけ。
+          const back: Effect[] = cur.selectedTab === t.id && paneShows(state, t.sessionId) ? [{ kind: 'terminal.connect', sessionId: t.sessionId, tabId: null }] : [];
           return { state: r.state, effects: [...r.effects, off, ...back] };
         }
         if (currentSession(state) !== t.sessionId || t.kind !== 'shell') return { state, effects: [] };
