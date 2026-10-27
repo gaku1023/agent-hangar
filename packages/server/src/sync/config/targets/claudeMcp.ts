@@ -6,6 +6,7 @@ import { createMcpTarget, readConfigFile, type McpApplyOptions, type McpTargetSp
 import type { McpEdit, McpFlavor } from './mcpWrite.ts';
 import { planMcpFilesWith, planMcpWith, writeMcpWith } from './mcpTarget.ts';
 import { defaultTargetPaths } from './paths.ts';
+import { CLAUDE_MCP_STORE } from './stores.ts';
 
 /**
  * Claude の MCP サーバー（`~/.claude.json` の `mcpServers.<名前>`）。id は `claude-mcp:<名前>`。
@@ -37,6 +38,7 @@ const jsonPathOf = (o: { claudeJsonPath?: string }): string => o.claudeJsonPath 
 
 export const claudeMcpSpec: McpTargetSpec = {
   flavor,
+  store: CLAUDE_MCP_STORE,
   available: () => true,
   read: (ctx) => {
     const f = readConfigFile(ctx.claudeJsonPath);

@@ -405,6 +405,8 @@ export type WritePaths = {
   claudeJsonPath?: string;
   /** 利用者のホーム（フックのコマンドの `~` を読み替える）。省くと os.homedir()。 */
   userHome?: string;
+  /** ファイルがあるかの判定の差し替え口（MCP の起動コマンドの保留）。省くとこの PC の fs。 */
+  exists?: (p: string) => boolean;
   /** この PC の OS（届いたフックの送り手の OS と比べる。送り手の OS は inbox の meta.os）。省くと process.platform。 */
   hostOs?: HostOs;
 };

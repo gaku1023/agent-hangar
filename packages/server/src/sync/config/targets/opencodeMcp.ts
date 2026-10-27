@@ -6,6 +6,7 @@ import { OPENCODE_MCP_PREFIX, opencodeMcpEnvRefs } from './mcpCommon.ts';
 import { createMcpTarget, planMcpFilesWith, planMcpWith, readConfigFile, writeMcpWith, type McpApplyOptions, type McpTargetSpec } from './mcpTarget.ts';
 import type { McpEdit, McpFlavor } from './mcpWrite.ts';
 import { defaultTargetPaths } from './paths.ts';
+import { OPENCODE_MCP_STORE } from './stores.ts';
 
 /**
  * opencode の MCP サーバー（opencode.json(c) の `mcp.<名前>`）。id は `opencode:mcp:<名前>`。
@@ -48,6 +49,7 @@ const dirOf = (o: { opencodeDir?: string }): string => o.opencodeDir ?? defaultT
 
 export const opencodeMcpSpec: McpTargetSpec = {
   flavor,
+  store: OPENCODE_MCP_STORE,
   available: (ctx) => ctx.opencodeEnabled,
   read: (ctx) => {
     const name = configFileName(ctx.opencodeDir);

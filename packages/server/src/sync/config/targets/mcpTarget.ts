@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import type { ApplyOptions } from '../apply.ts';
+import type { ApplyOptions, PlanReader, WritePaths } from '../apply.ts';
 import type { Collected, LocalItem, UnsentCandidate } from '../collect.ts';
 import { canonicalJson } from '../settingsSort.ts';
 import { commandOf, holdOfMcp, isHangarEntry, mcpIdOf, mcpSecret, mcpValueFits, parseMcpName, type McpHold, type McpHoldEnv } from './mcpCommon.ts';
-import { planMcp, planMcpFiles, writeMcp, type McpFlavor } from './mcpWrite.ts';
-import type { ConfigTarget, TargetContext } from './types.ts';
+import { planMcp, planMcpFiles, planMcpOps, writeMcp, type McpFlavor } from './mcpWrite.ts';
+import type { ConfigTarget, TargetContext, TargetStore } from './types.ts';
 
 /**
  * MCP の対象（claude-mcp、codex-mcp、opencode-mcp）に共通の、集め方と対象の組み立て。
@@ -21,6 +21,8 @@ export type McpRead = { servers: Record<string, unknown>; mtime: number } | 'abs
 
 export type McpTargetSpec = {
   flavor: McpFlavor;
+  /** 書き戻しの入れ物と控えの置き場（stores.ts）。 */
+  store: TargetStore;
   /** 入れ物から、MCP の表（名前→値）を読む。 */
   read(ctx: TargetContext): McpRead;
   /** この PC で、この対象を扱えるか（Codex・opencode が有効か）。入切の前に見る。 */
@@ -29,9 +31,9 @@ export type McpTargetSpec = {
   locate(o: McpPaths): { root: string; rel: string };
 };
 
-/** 書き戻しに渡す入れ物のパスと、保留の判定の差し替え口。無ければこの PC の既定。 */
-export type McpPaths = { claudeJsonPath?: string; codexHome?: string; opencodeDir?: string; exists?: (p: string) => boolean; userHome?: string };
-export type McpApplyOptions = ApplyOptions & McpPaths;
+/** 書き戻しに渡す入れ物のパスと、保留の判定の差し替え口（WritePaths のうち MCP が使う分）。無ければこの PC の既定。 */
+export type McpPaths = Pick<WritePaths, 'claudeJsonPath' | 'codexHome' | 'opencodeDir' | 'exists' | 'userHome'>;
+export type McpApplyOptions = ApplyOptions;
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -99,6 +101,10 @@ export function planMcpFilesWith(spec: McpTargetSpec, o: { home: string } & McpP
   return planMcpFiles(spec.flavor, o, { ...spec.locate(o), exists: o.exists, home: o.userHome });
 }
 
+export function planMcpOpsWith(spec: McpTargetSpec, o: { home: string } & McpPaths, read: PlanReader): ReturnType<typeof planMcpOps> {
+  return planMcpOps(spec.flavor, o, { ...spec.locate(o), exists: o.exists, home: o.userHome }, read);
+}
+
 export function createMcpTarget(spec: McpTargetSpec): ConfigTarget {
   const f = spec.flavor;
   return {
@@ -113,6 +119,8 @@ export function createMcpTarget(spec: McpTargetSpec): ConfigTarget {
     collect: (ctx) => collectMcp(spec, ctx),
     planWrite: (o) => planMcpWith(spec, o),
     write: (o) => writeMcpWith(spec, o),
+    planOps: (o, read) => planMcpOpsWith(spec, o, read),
+    store: spec.store,
     needsApproval: (_item, approval) => approval === 'each',
     isMachineBound: () => false,
   };

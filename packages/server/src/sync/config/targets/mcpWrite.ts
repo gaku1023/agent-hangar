@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { ConfigApplyOrderItemDto, ConfigExecMark, ConfigInboxOp, ConfigItemKind } from '@agent-hangar/shared';
 import { backupsRoot } from '../../../config/cloud.ts';
 import { diffLines } from '../../../config/jsonTextEdit.ts';
-import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedFiles } from '../apply.ts';
+import { ApplyError, type ApplyOptions, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedFiles, type PlannedOp, type PlanReader } from '../apply.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from '../backups.ts';
 import { ConfigBase } from '../base.ts';
@@ -166,6 +166,16 @@ export function planMcpFiles(f: McpFlavor, o: { home: string }, env: McpWriteEnv
   const after = editText(f, before, rel, items);
   const op = before === null ? 'create' : 'modify';
   return { files: [{ rel, path: file, op, lines: diffLines(before ?? '', after).slice(0, 200), binary: false }], fingerprint: fingerprint(env.root, rel) };
+}
+
+/** 適用の口（applyAll）の見立て。書く先の中身は read で読む（同じファイルを先に書く対象の結果を重ねるため）。何も書かない。 */
+export function planMcpOps(f: McpFlavor, o: { home: string }, env: McpWriteEnv, read: PlanReader): PlannedOp[] {
+  const { items } = prepare(f, o.home, env);
+  if (!items.some((p) => p.plan.act !== 'keep')) return [];
+  assertSafeFile(env.root, env.rel);
+  const file = fileOf(env.root, env.rel);
+  const cur = read(file);
+  return [{ rel: env.rel, path: file, after: editText(f, cur === null ? null : cur.toString('utf8'), env.rel, items) }];
 }
 
 function fingerprint(root: string, rel: string): string {

@@ -1,4 +1,5 @@
 import os from 'node:os';
+import path from 'node:path';
 import type { WritePaths } from '../apply.ts';
 import { defaultTargetPaths } from './paths.ts';
 import type { TargetStore } from './types.ts';
@@ -15,3 +16,7 @@ export const CLAUDE_STORE: TargetStore = { name: 'claude', backups: 'claude-conf
 export const CODEX_STORE: TargetStore = { name: 'codex', backups: 'codex-config', root: (o) => o.codexHome ?? defaults(o).codexHome };
 export const OPENCODE_STORE: TargetStore = { name: 'opencode', backups: 'opencode-config', root: (o) => o.opencodeDir ?? defaults(o).opencodeDir };
 export const AGENTS_SKILLS_STORE: TargetStore = { name: 'agents-skills', backups: 'agents-skills-config', root: (o) => o.agentsSkillsDir ?? defaults(o).agentsSkillsDir };
+// MCP の対象は、好みの鍵の対象と同じファイルに書くが、控えの世代は別の置き場に取る（古い版の世代の数え方を変えないため）。
+export const CLAUDE_MCP_STORE: TargetStore = { name: 'claude-mcp', backups: 'claude-mcp-config', root: (o) => path.dirname(o.claudeJsonPath ?? defaults(o).claudeJsonPath) };
+export const CODEX_MCP_STORE: TargetStore = { name: 'codex-mcp', backups: 'codex-mcp-config', root: (o) => o.codexHome ?? defaults(o).codexHome };
+export const OPENCODE_MCP_STORE: TargetStore = { name: 'opencode-mcp', backups: 'opencode-mcp-config', root: (o) => o.opencodeDir ?? defaults(o).opencodeDir };

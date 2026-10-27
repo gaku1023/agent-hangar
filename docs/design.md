@@ -7670,7 +7670,10 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 - 書き戻し（`mcpWrite.ts`）：指示書の突き合わせ、控え、差し替えの流れは他の対象と同じ。控えは `backups/claude-mcp-config/`・`codex-mcp-config/`・`opencode-mcp-config/` の `<時刻>/` に取り（秘密が入りうるので 0600）、取れなければ書かない。
   `~/.claude.json` は Claude Code が頻繁に書くので、読むのも書くのも `mcpServers` の鍵 1 つずつだけにする（`setJsonc`・`removeJsonc`。整形、並び、ほかの鍵はそのまま）。書く直前に読み直し、書いた後にもう一度読んで、自分の鍵が入っていてほかの鍵が書く前のままかを確かめる。合わなければ読み直しからやり直し（3 回まで）、それでも合わなければ控えから戻して失敗にする。
   Codex は `setToml`・`removeToml` で表ごと差し替える。好みの鍵の対象（`codex:toml:`）と同じ config.toml に書くが、どちらも書く直前に読み直して自分の鍵だけを差し替えるので、互いの鍵を消さない。opencode は jsonc があれば jsonc に体裁を保って、無ければ opencode.json に 2 空白で書く。
-  `write` は指示書のうち自分の対象の項目だけを見て、指示書は消さない（消すのは適用の口）。CLI と殻の適用の口への接続は含まない。
+  `write` は指示書のうち自分の対象の項目だけを見て、指示書は消さない（消すのは適用の口）。
+  3 対象とも適用の口（`applyAll.ts`）に `planOps` と `store` を持つ。`planOps` は書く先の中身を `read` で読み、同じファイルを先に書く対象（`config.toml` は `codex`、opencode.json(c) は `opencode`）の書いた後の中身の上に自分の鍵を重ねる。`~/.claude.json` を書くのは `claude-mcp` だけである。
+  控えの置き場は `claude-mcp-config`（`~/.claude.json` の入れ物の下に戻す）、`codex-mcp-config`、`opencode-mcp-config`。好みの鍵の対象の置き場（`codex-config`、`opencode-config`）とは別にして、古い版の世代の数え方を変えない。`hangar config restore --target claude-mcp|codex-mcp|opencode-mcp` で戻せる。
+  受け手の保留（`command-missing`）は、service の `resolved()` が `held` に載せる（`holdOfMcpItem`）。保留の項目は選ばせず、適用でも断る。
 
 消去の条件は対象ごとに数える。
 - id の持ち主の対象を `owns` で決め、その対象を扱う相手（束の `targets` に入れている相手）の束だけで、holder と「どの束にも無い」を決める。
@@ -7722,7 +7725,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
   指示書は残す。
   (3)、(4) の途中で失敗したら、世代から元へ戻し（作ったファイルとディレクトリも消す）、世代を消し、指示書は残す。
   戻す途中でも失敗したときは世代を残し、`hangar config restore <世代>` で戻す手順を文に入れる。
-- 控えの世代は対象ごとの置き場 `backups/<対象>-config/<yyyyMMdd-HHmmss>/`（`claude-config`、`codex-config`、`opencode-config`、`agents-skills-config`。`targets/stores.ts`）に取る。`claude-hooks` と `claude-plugins` は `~/.claude` に書くので `claude-config` を使う。
+- 控えの世代は対象ごとの置き場 `backups/<対象>-config/<yyyyMMdd-HHmmss>/`（`claude-config`、`codex-config`、`opencode-config`、`agents-skills-config`、MCP の `claude-mcp-config`、`codex-mcp-config`、`opencode-mcp-config`。`targets/stores.ts`）に取る。`claude-hooks` と `claude-plugins` は `~/.claude` に書くので `claude-config` を使う。
   `hangar config restore` の一覧は全部の置き場の世代を出し（Claude 以外は `target` を添える）、Claude 以外の世代は `--target <対象>` で戻す。設定の画面の世代の数も全部の置き場を数える。
 - 控えの世代 `backups/claude-config/<yyyyMMdd-HHmmss>/` には、書く先の元のファイルを設定の入れ物からの相対パスで置き、直下の `.hangar-apply.json`（世代の数には入れない）に、その時点で無かった先と無かったディレクトリ、`config_base` の前の値を残す。
   旧実装の世代（記録なし）も、ファイルを書き戻すだけで戻せる。

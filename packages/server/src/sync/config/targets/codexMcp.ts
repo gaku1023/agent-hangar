@@ -5,6 +5,7 @@ import { CODEX_MCP_PREFIX } from './mcpCommon.ts';
 import { createMcpTarget, planMcpFilesWith, planMcpWith, readConfigFile, writeMcpWith, type McpApplyOptions, type McpTargetSpec } from './mcpTarget.ts';
 import type { McpEdit, McpFlavor } from './mcpWrite.ts';
 import { defaultTargetPaths } from './paths.ts';
+import { CODEX_MCP_STORE } from './stores.ts';
 
 /**
  * Codex の MCP サーバー（`$CODEX_HOME/config.toml` の `[mcp_servers.<名前>]` 表）。id は `codex:mcp:<名前>`。
@@ -35,6 +36,7 @@ const homeOf = (o: { codexHome?: string }): string => o.codexHome ?? defaultTarg
 
 export const codexMcpSpec: McpTargetSpec = {
   flavor,
+  store: CODEX_MCP_STORE,
   // その PC で Codex が有効なときだけ。
   available: (ctx) => ctx.codexEnabled,
   read: (ctx) => {

@@ -28,7 +28,7 @@ let pcs: Pc[];
 let clock: number;
 let shared: FakeCloudClient;
 
-function pc(id: string, name: string): Pc {
+function pc(id: string, name: string, extra: Partial<ConstructorParameters<typeof ConfigSyncService>[0]> = {}): Pc {
   const dir = path.join(tmp, id);
   const claudeDir = path.join(dir, 'claude');
   const home = path.join(dir, 'home');
@@ -42,7 +42,7 @@ function pc(id: string, name: string): Pc {
   const on = { enabled: true, approval: 'each' as 'each' | 'auto' };
   const service = new ConfigSyncService({
     db, deviceId: id, deviceName: name, claudeDir, home, cloud, keyring: cloud.keyring,
-    enabled: () => on.enabled, switchedOn: () => on.enabled, approval: () => on.approval, now: () => clock,
+    enabled: () => on.enabled, switchedOn: () => on.enabled, approval: () => on.approval, now: () => clock, ...extra,
   });
   const p: Pc = {
     id, name, db, claudeDir, home, cloud, service, on,
@@ -412,6 +412,20 @@ describe('3 方向の判定と受け取りの一覧', () => {
     await sync(a, b);
     expect(ids(b)).toEqual(['create:settings:model', 'create:settings:permissions.allow']);
     expect(b.service.inbox().items[1]!.head).toBe('["Bash(ls)"]');
+  });
+
+  it('MCP サーバーの絶対パスの起動コマンドがこの PC に無ければ command-missing で保留する', async () => {
+    const mcpPc = (id: string, name: string): Pc => {
+      const jsonPath = path.join(tmp, id, 'claude.json');
+      return Object.assign(pc(id, name, { targetSwitches: () => ({ 'claude-mcp': true }), targetPaths: { claudeJsonPath: jsonPath } }), { jsonPath });
+    };
+    const a = mcpPc('dev-a', 'mac'); const b = mcpPc('dev-b', 'mini');
+    fs.writeFileSync(a.jsonPath, JSON.stringify({ mcpServers: { gone: { type: 'stdio', command: '/nowhere/bin/gone', args: [] }, fine: { type: 'stdio', command: 'npx', args: [] } } }));
+    fs.writeFileSync(b.jsonPath, '{}');
+    await sync(a, b);
+    const by = Object.fromEntries(b.service.inbox().items.map((i) => [i.label, i.held]));
+    expect(by).toEqual({ gone: 'command-missing', fine: null });
+    expect(b.service.dto()).toMatchObject({ incoming: 1, held: 1 });
   });
 
   describe('プロジェクトのメモリ', () => {
