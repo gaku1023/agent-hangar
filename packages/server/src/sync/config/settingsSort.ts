@@ -6,6 +6,7 @@ import type { ConfigDropReason } from '@agent-hangar/shared';
  * 知らない鍵は運ばず、unknown として記録する。
  *
  * 項目の単位は鍵である（権限だけは `permissions.allow` のように 1 段下の鍵）。
+ * 新しい鍵（CLAUDE_KEYS2_KEYS）は scope で分ける。claude の範囲（既定）は新しい鍵を見ず、keys2 の範囲は新しい鍵だけを見る。
  * 受け取る側も isCarriedSettingsKey で同じ物差しを使い、仕分けの外の鍵が届いても書かない。
  */
 
@@ -15,6 +16,21 @@ const CARRIED_PREFIX = 'autoCompact';
 /** 権限の下の、運ぶ鍵。 */
 const PERMISSION_LISTS = ['allow', 'ask', 'deny'] as const;
 const PERMISSION_CARRIED = new Set<string>([...PERMISSION_LISTS, 'defaultMode']);
+
+/**
+ * 新しい鍵（0.12、設計書 5 章）。古い版の PC は運ばないので、古い版が運ぶ鍵とは別の対象（claude-keys2）に持たせる。
+ * 区分は Claude Code の文書（settings の鍵の一覧）で確かめた。いずれも実行もパスも持たない。
+ * - 好み：modelSettings、promptSuggestionEnabled、tui、voice、voiceEnabled、agentPushNotifEnabled、inputNeededNotifEnabled、skipWorkflowUsageWarning、autoUpdatesChannel
+ * - 権限（承諾）：autoMode（分類器の許可と拒否の規則。User or managed の鍵で、許可を広げうる）、skipAutoPermissionPrompt、deniedMcpServers
+ */
+export const CLAUDE_KEYS2_KEYS: ReadonlySet<string> = new Set([
+  'autoMode', 'modelSettings', 'promptSuggestionEnabled', 'tui', 'voice', 'voiceEnabled', 'agentPushNotifEnabled', 'inputNeededNotifEnabled',
+  'skipAutoPermissionPrompt', 'skipWorkflowUsageWarning', 'autoUpdatesChannel', 'deniedMcpServers',
+]);
+/** 新しい鍵のうち、他の PC から届いたとき承諾が要るもの。 */
+export const CLAUDE_KEYS2_APPROVAL: ReadonlySet<string> = new Set(['autoMode', 'skipAutoPermissionPrompt', 'deniedMcpServers']);
+const KEYS2_BOOLEAN = new Set(['promptSuggestionEnabled', 'voiceEnabled', 'agentPushNotifEnabled', 'inputNeededNotifEnabled', 'skipAutoPermissionPrompt', 'skipWorkflowUsageWarning']);
+const KEYS2_OBJECT = new Set(['autoMode', 'modelSettings', 'voice']);
 
 /** 運ばない鍵の理由。実行は他の PC からの実行経路になり、パスと機械の事情は他の PC で意味を持たない。 */
 const DROPPED: { match: (k: string) => boolean; reason: ConfigDropReason }[] = [
@@ -26,7 +42,7 @@ const DROPPED: { match: (k: string) => boolean; reason: ConfigDropReason }[] = [
 
 /** 受け取る側が使う、運んでよい鍵か。`permissions` そのものは、下の鍵に分けて運ぶので含めない。 */
 export function isCarriedSettingsKey(key: string): boolean {
-  if (CARRIED_KEYS.has(key)) return true;
+  if (CARRIED_KEYS.has(key) || CLAUDE_KEYS2_KEYS.has(key)) return true;
   if (key.startsWith(CARRIED_PREFIX) && /^[A-Za-z0-9]+$/.test(key)) return true;
   if (key.startsWith('permissions.')) return PERMISSION_CARRIED.has(key.slice('permissions.'.length));
   return false;
@@ -64,6 +80,11 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 
 /** 値の型が、その鍵で想定しているものか。想定外は運ばない（相手の設定を壊さない）。 */
 export function valueFits(key: string, v: unknown): boolean {
+  if (KEYS2_BOOLEAN.has(key)) return typeof v === 'boolean';
+  if (KEYS2_OBJECT.has(key)) return isObject(v);
+  if (key === 'tui') return v === 'default' || v === 'fullscreen';
+  if (key === 'autoUpdatesChannel') return v === 'latest' || v === 'stable';
+  if (key === 'deniedMcpServers') return Array.isArray(v) && v.every(isObject);
   if (key === 'attribution') return isObject(v);
   if (key === 'cleanupPeriodDays') return typeof v === 'number' && Number.isFinite(v);
   if (key === 'autoMemoryEnabled' || key.startsWith(CARRIED_PREFIX)) return typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string';
@@ -74,10 +95,13 @@ export function valueFits(key: string, v: unknown): boolean {
  * settings.json を読んだ値（JSON.parse の結果）を、運ぶ鍵と運ばない鍵に分ける。
  * allowedRules は、利用者が「それでも送る」を押した絶対パスの規則。残す。
  */
-export function sortSettings(json: unknown, o: { allowedRules?: ReadonlySet<string> } = {}): SettingsSort {
+export function sortSettings(json: unknown, o: { allowedRules?: ReadonlySet<string>; scope?: 'claude' | 'keys2' } = {}): SettingsSort {
   const out: SettingsSort = { items: [], dropped: [], droppedRules: [] };
   if (!isObject(json)) return out;
+  const keys2 = o.scope === 'keys2';
   for (const [key, value] of Object.entries(json)) {
+    // 新しい鍵は、範囲が違えば見ない（claude の範囲では黙って外し、keys2 の範囲ではそれだけを見る）。
+    if (CLAUDE_KEYS2_KEYS.has(key) !== keys2) continue;
     if (key === 'permissions') { sortPermissions(value, out, o.allowedRules ?? new Set()); continue; }
     const drop = DROPPED.find((d) => d.match(key));
     if (drop) { out.dropped.push({ key, reason: drop.reason }); continue; }

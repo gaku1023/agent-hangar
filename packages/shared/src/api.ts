@@ -626,7 +626,9 @@ export type ShellHookDto = {
  * Claude Code の設定の同期（docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md）の形。
  */
 /** 運ぶ項目の種類。settings は settings.json の鍵 1 つが 1 項目で、memory はプロジェクトのメモリと ~/.claude/memory の下のファイル。 */
-export type ConfigItemKind = 'claude-md' | 'settings' | 'keybindings' | 'skills' | 'commands' | 'agents' | 'memory';
+export type ConfigItemKind = 'claude-md' | 'settings' | 'keybindings' | 'skills' | 'commands' | 'agents' | 'memory'
+  // 後の対象が使う種類（v0.12.0）。古い版は知らない id と一緒にこの種類も読み飛ばす。
+  | 'claude-mcp' | 'claude-hooks' | 'claude-statusline' | 'plugins' | 'codex-file' | 'codex-config' | 'codex-mcp' | 'opencode-file' | 'opencode-config' | 'opencode-cli' | 'opencode-mcp' | 'agents-skills' | 'hangar-pref';
 /** 実行の印。hooks はフロントマターの hooks、shell は本文のコマンド実行（`!`）、script は skills の下の本文でないファイル。 */
 export type ConfigExecMark = 'hooks' | 'shell' | 'script';
 /** 他の PC から届いた skills、commands、agents の承諾の仕方。each は項目ごとに毎回、auto は自動。 */
@@ -659,7 +661,7 @@ export type ConfigInboxItemDto = {
 export type ConfigInboxDto = { items: ConfigInboxItemDto[]; approval: ConfigApproval };
 export type ConfigConflictSideDto = { deviceName: string; at: number | null; size: number };
 export type ConfigConflictDto = { id: string; kind: ConfigItemKind; label: string; marks: ConfigExecMark[]; local: ConfigConflictSideDto | null; remote: ConfigConflictSideDto | null; /** 手元から相手への差分。 */ diff: RetentionPreviewLine[] };
-export type ConfigUnsentKind = 'permission-rule' | 'secret';
+export type ConfigUnsentKind = 'permission-rule' | 'secret' | 'unknown-key';
 export type ConfigUnsentItemDto = { id: string; kind: ConfigUnsentKind; itemId: string; label: string; reason: string; allowed: boolean };
 export type ConfigUnsentDto = { items: ConfigUnsentItemDto[] };
 export type ConfigBackupGenerationDto = { name: string; at: number | null; files: number };

@@ -342,6 +342,7 @@ export function bootSync(
           enabled: () => settings.current.configBundleSync === true && !isPaused(),
           switchedOn: () => settings.current.configBundleSync === true,
           approval: () => (settings.current.configApproval === 'auto' ? 'auto' : 'each'),
+          targetSwitches: () => settings.current.configTargets ?? {},
           onError: (m) => console.error('[config-sync]', m),
         })
       : null;

@@ -368,7 +368,7 @@ export type ApplyResult = {
   files: string[];
 };
 
-type ApplyOptions = {
+export type ApplyOptions = {
   home: string;
   claudeDir: string;
   db: Db;

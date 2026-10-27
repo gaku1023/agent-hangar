@@ -320,6 +320,33 @@ describe('SettingsScreen の既定のエージェント', () => {
   });
 });
 
+describe('SettingsScreen の既定のエージェント（Codex）', () => {
+  const withBoth = (): MobileFeed[] => {
+    const fs = twoPcs();
+    fs[1] = { ...fs[1]!, caps: { asks: true, images: true, effort: true, agents: ['claude-code', 'codex', 'opencode'] } };
+    return fs;
+  };
+
+  it('codex のある PC があれば、Claude Code、Codex、opencode の並びで選べて、Codex を保存できる', async () => {
+    await setup({ view: await viewOf(withBoth()) });
+    openPage(/^新しい会話のデフォルト/);
+    fireEvent.click(screen.getByRole('button', { name: /^エージェント/ }));
+    const agents = screen.getByRole('radiogroup', { name: 'エージェント' });
+    expect(within(agents).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Claude Code', 'Codex', 'opencode']);
+    fireEvent.click(within(agents).getByRole('radio', { name: 'Codex' }));
+    expect(loadLaunchDefaults().agent).toBe('codex');
+    expect(screen.getByRole('button', { name: /^エージェント/ })).toHaveTextContent('Codex');
+  });
+
+  it('既定が Codex なら、Codex のある PC が今無くても行を出す（戻せるように）。opencode は出さない', async () => {
+    saveLaunchDefaults({ pc: null, account: null, permissionMode: '', model: '', effort: '', agent: 'codex' });
+    await setup();
+    openPage(/^新しい会話のデフォルト/);
+    fireEvent.click(screen.getByRole('button', { name: /^エージェント/ }));
+    expect(within(screen.getByRole('radiogroup', { name: 'エージェント' })).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Claude Code', 'Codex']);
+  });
+});
+
 describe('SettingsScreen の接続', () => {
   it('接続先、接続した日、接続し直す期限を出す', async () => {
     const joinedAt = new Date(2026, 9, 18, 12, 0).getTime();

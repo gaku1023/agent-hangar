@@ -2,7 +2,7 @@ import { muxServersOf, type MuxServers } from './servers.ts';
 import type { Tmux } from './tmux.ts';
 
 /** 名前で送るキー。文字として送れないものだけを挙げる。 */
-export type PaneKey = 'ctrl+o';
+export type PaneKey = 'ctrl+o' | 'enter';
 
 /**
  * run とシェルタブが動く画面（ペイン）に触る口。
@@ -33,6 +33,11 @@ export interface PaneOps {
   captureUnwrapped?(name: string): { text: string; width: number | null };
   /** 文字をそのまま打ち込む。キーの名前としては読ませない。 */
   sendText(name: string, text: string): void;
+  /**
+   * 文字列を 1 回の貼り付けとして届ける。複数行でも 1 つの入力になり、途中の改行で確定されない。
+   * 確定はしない（確定は sendKey の enter）。届けられなかったら投げる。
+   */
+  pasteText?(name: string, text: string): void;
   /** 名前の付いたキーを 1 つ送る。 */
   sendKey(name: string, key: PaneKey): void;
   /**
@@ -43,7 +48,7 @@ export interface PaneOps {
 }
 
 /** tmux と psmux のキーの名前。 */
-const MUX_KEYS: Record<PaneKey, string> = { 'ctrl+o': 'C-o' };
+const MUX_KEYS: Record<PaneKey, string> = { 'ctrl+o': 'C-o', enter: 'Enter' };
 
 /**
  * tmux と psmux に共通の口。画面 1 つを、切り離したセッション 1 つにする。
@@ -65,6 +70,7 @@ function muxPaneOps(mux: MuxServers): Omit<PaneOps, 'prepareForOutsideTerminals'
     captureUnwrapped: (name) => at(name).captureUnwrapped(name),
     // -l を付けて 1 文字として送る。{ や q をキー名として読ませない。
     sendText: (name, text) => at(name).sendKeys(name, '-l', text),
+    pasteText: (name, text) => at(name).pasteText(name, text),
     sendKey: (name, key) => at(name).sendKeys(name, MUX_KEYS[key]),
   };
 }

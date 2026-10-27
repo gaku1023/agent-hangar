@@ -7,6 +7,7 @@ export const configSyncJa: AreaDictionary<typeof configSyncKeys> = {
   'configSync.error.badTake': '「{id}」は競合していないため、この PC の内容を採用できません',
   'configSync.error.duplicate': '「{id}」が重複しています',
   'configSync.error.emptyOrder': '適用する項目が選択されていません',
+  'configSync.error.unsentUnknownKey': '知らないキーは送れません',
   'configSync.error.unsentNotFound': '未送信の項目「{id}」が見つかりません',
   'configSync.error.badBody': 'リクエストの形式が正しくありません',
 };

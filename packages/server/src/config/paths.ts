@@ -67,6 +67,11 @@ export type Settings = {
    */
   configBundleSync?: boolean;
   /**
+   * 設定の同期の、対象ごとの入切（対象名→真偽）。無い対象は切。新しい対象（claude-keys2 など）はここが入でないと集めない。
+   * 入れる画面は U1 で作る。それまでは settings.json を直接書く。
+   */
+  configTargets?: Record<string, boolean>;
+  /**
    * hangar が起動する claude に足す指示（launch/injection.ts）のうち、区切りで Done か Paused を聞く段を足すか。既定は入り。
    * 切ると問いの段を足さず、状態は事後の要約の提案と自動の Done だけで付く。
    * `loadSettings` が埋めるが、試験や古い呼び手が組んだ設定には無いことがあるので、読む側は false のときだけ切りとして読む。

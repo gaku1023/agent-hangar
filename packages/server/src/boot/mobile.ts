@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
@@ -12,7 +12,8 @@ import { buildMobileFeed } from '../mobile/feed.ts';
 import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
-import { findOpencode } from '../config/tools.ts';
+import { findCodex, findOpencode } from '../config/tools.ts';
+import type { CodexOptionsService } from '../provider/codex/options.ts';
 import type { OpencodeOptionsService } from '../provider/opencode/options.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { BellTarget, CloudClient } from '../sync/client.ts';
@@ -92,7 +93,7 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
  */
 export function bootMobile(p: {
   /** home は hangar の home（置き場 drops の親）。 */
-  home: { db: Db; device: { id: string; name: string }; home: string; settings?: { readonly current: Pick<Settings, 'opencodeEnabled'> } };
+  home: { db: Db; device: { id: string; name: string }; home: string; settings?: { readonly current: Pick<Settings, 'opencodeEnabled' | 'codexEnabled'> } };
   /** hub は画面への配り口。スマホから起こした会話の右下の通知（phone.launch、試作 F1）を配る。無ければ配らない。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
@@ -109,6 +110,13 @@ export function bootMobile(p: {
   opencode?: { options: Pick<OpencodeOptionsService, 'last' | 'lastCommands'> };
   /** opencode の置き場を探す口。既定は config/tools.ts の findOpencode。試験が差し替える。 */
   findOpencode?: () => string | null;
+  /**
+   * Codex（ベータ）の選択肢。スマホの問い合わせ（モデルと推論の段階）に、手元に持った一覧（取りに行かない。無ければ裏で取り始める）で答える。
+   * 省けば、スマホの Codex の問い合わせと起動の依頼を断る（agent-missing）。
+   */
+  codex?: { options: Pick<CodexOptionsService, 'last'> };
+  /** Codex の置き場を探す口。既定は config/tools.ts の findCodex。試験が差し替える。 */
+  findCodex?: () => string | null;
 }): MobileParts {
   const { db } = p.home;
   const deviceId = p.home.device.id;
@@ -119,6 +127,8 @@ export function bootMobile(p: {
   const opencodeAsk = p.opencode
     ? { ready: opencodeOn, options: (dir: string | null) => p.opencode!.options.last(dir), commands: (dir: string | null) => p.opencode!.options.lastCommands(dir) }
     : undefined;
+  /** スマホから Codex を起こせるか。設定で有効にしてあり、手元に見つかること（RunManager の入口と同じ確かめ）。 */
+  const codexOn = (): boolean => !!p.codex && !!p.home.settings && codexEnabledOf(p.home.settings.current) && (p.findCodex ?? findCodex)() !== null;
   let cur: { pub: MobileFeedPublisher; inbox: MobileLaunchInbox; bell: MobileBell; link: Link } | null = null;
   /** 今購読している engine と、その解除。 */
   let sub: { engine: Pick<SyncEngine, 'on'>; off: () => void } | null = null;
@@ -149,6 +159,8 @@ export function bootMobile(p: {
     usageOf: (id) => accounts.usage.of(id),
     now: Date.now(),
     opencodeEnabled: p.home.settings ? opencodeEnabledOf(p.home.settings.current) : false,
+    // 見つからない Codex は caps に載せない（スマホに選ばせて agent-missing で断るより、段ごと出さない）。
+    codexEnabled: codexOn(),
   });
 
   /** 今の engine を購読する。組み直されていたら前の購読を外す。 */
@@ -182,7 +194,7 @@ export function bootMobile(p: {
       },
       hasProjectHere: (projectId) => !!placeHere.get(projectId, deviceId),
       hasAccount: (id) => accounts.store.list().some((a) => a.id === id),
-      hasAgent: (agent) => agent === 'opencode' && opencodeOn() && (p.findOpencode ?? findOpencode)() !== null,
+      hasAgent: (agent) => (agent === 'opencode' && opencodeOn() && (p.findOpencode ?? findOpencode)() !== null) || (agent === 'codex' && codexOn()),
       canProcess: () => p.sync.canCarryMobile(),
       now: Date.now,
       onStarted: (e) => { void announceLaunch(e).catch((err: unknown) => console.error('[mobile] could not announce the started session', err instanceof Error ? err.constructor.name : typeof err)); },
@@ -204,6 +216,7 @@ export function bootMobile(p: {
         projectPath: (projectId) => (rootHere.get(projectId, deviceId) as { path: string } | undefined)?.path ?? null,
         accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
         ...(opencodeAsk ? { opencode: opencodeAsk } : {}),
+        ...(p.codex ? { codex: { ready: codexOn, options: () => p.codex!.options.last() } } : {}),
       }, id, sealed, epoch),
       timers,
       ...(p.bellConnect ? { connect: p.bellConnect } : {}),
