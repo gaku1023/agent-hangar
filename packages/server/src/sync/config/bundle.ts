@@ -94,7 +94,32 @@ export function readTar(tar: Buffer, o: { maxEntries?: number; maxEntryBytes?: n
 }
 
 export type ManifestItem = { id: string; kind: ConfigItemKind; sha256: string; size: number; marks: ConfigExecMark[] };
-export type BundleManifest = { version: 1; deviceId: string; createdAt: number; items: ManifestItem[] };
+/** 送り手の OS。 */
+export type BundleOs = 'darwin' | 'win32' | 'linux';
+const OS_VALUES: readonly BundleOs[] = ['darwin', 'win32', 'linux'];
+const TARGET_NAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
+const MAX_TARGETS = 64;
+
+/**
+ * 目録。`targets` は、その束で実際に集めた対象（入切が切の対象は入れない）、`os` は送り手の OS。
+ * どちらも任意で、`version` は 1 のまま。古い版は知らない欄を捨てるので、受けても壊れない。
+ */
+export type BundleManifest = { version: 1; deviceId: string; createdAt: number; items: ManifestItem[]; targets?: string[]; os?: BundleOs };
+
+/** 欄の無い目録（古い版の束）は、Claude だけを扱う相手と読む。 */
+export const bundleTargetsOf = (m: Pick<BundleManifest, 'targets'>): string[] => m.targets ?? ['claude'];
+
+/** 目録の targets を検査する。形が悪ければ undefined（古い版の束として読む）。 */
+function readTargets(v: unknown): string[] | undefined {
+  if (!Array.isArray(v) || v.length > MAX_TARGETS) return undefined;
+  const out: string[] = [];
+  for (const t of v) {
+    if (typeof t !== 'string' || !TARGET_NAME_RE.test(t)) return undefined;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+const readOs = (v: unknown): BundleOs | undefined => ((OS_VALUES as readonly unknown[]).includes(v) ? (v as BundleOs) : undefined);
 
 const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 
@@ -155,5 +180,8 @@ export function unpackBundle(tar: Buffer, o: { maxBlobBytes?: number; maxEntries
     if (!parsedId || parsedId.kind !== it.kind) { skipped++; continue; }
     items.push({ id: it.id, kind: parsedId.kind, sha256: it.sha256, size: it.size, marks: it.marks ?? [] });
   }
-  return { manifest: { version: 1, deviceId: m.deviceId, createdAt: m.createdAt, items }, blobs, skipped };
+  // 壊れた targets と os は、束ごとは断らずにその欄だけ捨てる（古い版の束として読む。対象を扱う相手と見なさないので、安全な側に倒れる）。
+  const targets = readTargets(m.targets);
+  const os = readOs(m.os);
+  return { manifest: { version: 1, deviceId: m.deviceId, createdAt: m.createdAt, items, ...(targets ? { targets } : {}), ...(os ? { os } : {}) }, blobs, skipped };
 }

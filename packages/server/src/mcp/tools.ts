@@ -1,8 +1,8 @@
-import { isAgentKind, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { isAgentKind, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
-import type { AccountStore } from '../config/accounts.ts';
+import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
-import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
+import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
@@ -14,6 +14,7 @@ import { getSessionState, proposeSessionState, setSessionState, StateInputError,
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
+import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 
 export type ToolDeps = {
   db: Db;
@@ -21,10 +22,24 @@ export type ToolDeps = {
   port: number;
   live: () => LiveSessionDto[];
   /** agentEnabled はそのエージェントを起こしてよいか（runs/manager.ts）。無ければ Claude Code だけを起こす。 */
-  runs: { start(params: LaunchParams): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean };
+  runs: {
+    start(params: LaunchParams): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean;
+    /** そのセッションの生きた run（どの PC のものでも）。無ければ null。stop_session と resume_session が使う。 */
+    aliveRun?(sessionId: string): RunDto | null;
+    /** UI の停止（DELETE /api/runs/:id）と同じ処理。 */
+    kill?(runId: string): unknown;
+    /** UI の再開（POST /api/sessions/:id/resume）と同じ処理。account は Claude Code の会話のときだけ渡す。 */
+    resumeWith?(sessionId: string, o?: { account?: string }): LaunchResult | Promise<LaunchResult>;
+    /** tmux の名前の画面にいま見えている文字。画面が無ければ null。無ければ read_session_screen は断る。 */
+    readScreen?(tmuxName: string): string | null;
+    /** tmux の名前の画面へ、text を 1 つの入力として貼り、submit なら Enter で確定する。届けられなければ投げる。無ければ send_to_session は断る。 */
+    sendInput?(tmuxName: string, text: string, submit: boolean): Promise<void>;
+  };
+  /** 削除（DELETE /api/sessions/:id）と同じ処理。無ければ delete_session は知らない道具として断る。 */
+  trash?: { deleteSession(sessionId: string): Promise<void> };
   usage: () => UsageDto;
-  /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
-  accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
+  /** アカウントの口。無ければ get_usage は最初のアカウントの値だけを返し、create_session はアカウントを選ばない（runs.start がいまのアカウントで起こす）。 */
+  accounts?: { store: Pick<AccountStore, 'list' | 'current' | 'get'>; usage: { of(accountId: string): UsageDto } };
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
@@ -56,6 +71,8 @@ export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
   'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
+  'stop_session', 'resume_session', 'delete_session',
+  'send_to_session', 'read_session_screen',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -131,10 +148,19 @@ function deviceBrief(deps: ToolDeps, sessionId: string): { name: string | null; 
  * 画面が素の再開を閉じて「この PC で再開」に回す条件（ui の sessionActions）と同じ事実を、server の SessionDto から読む。
  * ロックを先に見るのも画面と同じで、ロックがあれば本文の在りかに関わらず、他の PC を停止しない限り再開できない。
  */
+function resumeCommandOf(s: SessionDto): string | null {
+  // 会話の ID がまだ決まっていない起動中の行（pending:…）は、どのエージェントでも再開できない。
+  if (s.providerSessionId.startsWith('pending:')) return null;
+  // Codex と opencode は、hangar の包み方（外のターミナルの codex と opencode）が受ける形と同じ。素の端末でも打てる。
+  if (s.provider === 'codex') return `codex resume ${s.providerSessionId}`;
+  if (s.provider === 'opencode') return `opencode -s ${s.providerSessionId}`;
+  return `claude -r ${s.providerSessionId}`;
+}
+
 function resumeOf(deps: ToolDeps, s: SessionDto): { resume_command: string | null; resume_hint: string | null } {
   const hint = s.lock ? msg(s.lock.stale ? 'mcp.resumeHint.stale' : 'mcp.resumeHint.running', { device: s.lock.deviceName })
     : s.remoteOnly ? msg('mcp.resumeHint.remote') : null;
-  if (!hint) return { resume_command: `claude -r ${s.providerSessionId}`, resume_hint: null };
+  if (!hint) return { resume_command: resumeCommandOf(s), resume_hint: null };
   return { resume_command: null, resume_hint: render((deps.language ?? defaultLanguage)(), hint) };
 }
 
@@ -345,6 +371,8 @@ export function getTranscriptTool(deps: ToolDeps, ctx: ToolContext, args: Record
 /** プロジェクトの確かめはその場で投げ、起動（runs.start）は待つ。MCP の層は await してから包む。 */
 /**
  * agent と mode は UI の起動（POST /api/runs）と同じく runs.start にそのまま渡す。省けば Claude Code で、mode は Claude Code では start が捨てる。
+ * worktree と add_dirs も start にそのまま渡す。意味は UI の新規ダイアログと同じ（worktree は claude の --worktree に渡す名前、add_dirs は --add-dir の追加ディレクトリ）。
+ * Claude Code だけのもので、Codex と opencode に付けると start が UI と同じ文で断る（黙って捨てない）。
  * 知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に UI と同じ文で断る。
  */
 export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -352,11 +380,106 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const agent = args.agent;
   if (agent !== undefined && !isAgentKind(agent)) throw new ToolError(msg('run.agent.unknown', { agent: String(agent).slice(0, 40) }));
   if (agent !== undefined && agent !== 'claude-code' && !(deps.runs.agentEnabled?.(agent) ?? false)) throw new ToolError(msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+  const account = launchAccount(deps, ctx, args.account, agent ?? 'claude-code');
   return Promise.resolve(deps.runs.start({
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
-    agent, mode: str(args.mode),
-  })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`) }));
+    agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
+    worktree: str(args.worktree), addDirs: strs(args.add_dirs),
+  })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }));
+}
+
+/**
+ * create_session で起こすアカウント。Claude Code のときだけ選び、ほかのエージェントでは null（アカウントを持たない）。
+ * 明示されたら名前か id で引く。知らないものは、使える名前を添えて断る。黙っていまのアカウントで起こすと、頼まれたのと違う枠を使うためである。
+ * 省けば、呼んだセッションがこの PC で最後に使ったアカウントを引き継ぐ。別セッションを起こしてと頼んだ会話と同じ枠で続けるのが自然なためである。
+ * ヘッダで選んでいるアカウント（store.current）は最後に画面で選んだものにすぎず、呼んだ会話とは関係が無い。
+ * ほかの PC の run は見ない（アカウントの id は PC ごとの設定。RunAccounts.accountFor と同じ）。
+ * 呼んだセッションが分からない（共通の URL）か、この PC で動かしたことが無いか、そのアカウントが消えていれば、いま選んでいるアカウントにする。
+ */
+function launchAccount(deps: ToolDeps, ctx: ToolContext, given: unknown, agent: AgentKind): Account | null {
+  const name = str(given);
+  if (agent !== 'claude-code') {
+    if (name !== undefined) throw new ToolError(msg('mcp.createSession.accountClaudeOnly'));
+    return null;
+  }
+  const store = deps.accounts?.store;
+  if (!store) return null;
+  if (name !== undefined) return accountNamed(store, name);
+  const inherited = ctx.sessionId ? accountOfSession(deps.db, ctx.sessionId, deps.deviceId) : null;
+  return (inherited ? store.get(inherited) : null) ?? store.current();
+}
+
+/** 名前か id でアカウントを引く。知らなければ、使える名前を添えて断る。create_session と resume_session が共有する。 */
+function accountNamed(store: Pick<AccountStore, 'list' | 'get'>, name: string): Account {
+  const all = store.list();
+  const hit = store.get(name) ?? all.find((a) => a.name === name);
+  if (!hit) throw new ToolError(msg('mcp.createSession.accountUnknown', { account: name.slice(0, 40), names: all.map((a) => a.name) }));
+  return hit;
+}
+
+/**
+ * 会話の寿命の 3 つの道具は、セッション別 URL でも別のセッションを指せる（session_id が要る）。
+ * 自分自身を止める・消すことだけを断る。呼び出しの途中で自分が落ちる、または動いたまま消えるため。
+ */
+function targetSession(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, selfMessage?: Message): SessionDto {
+  const id = str(args.session_id);
+  if (!id) throw new ToolError(msg('mcp.args.sessionIdRequired'));
+  const s = requireSession(deps, id);
+  if (selfMessage && ctx.sessionId === id) throw new ToolError(selfMessage);
+  return s;
+}
+
+/** UI の停止と同じ runs.kill を通す。この PC の run だけ止められる。 */
+export function stopSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  if (!deps.runs.aliveRun || !deps.runs.kill) throw new ToolError(msg('mcp.error.unknownTool', { name: 'stop_session' }));
+  const s = targetSession(deps, ctx, args, msg('mcp.stopSession.self'));
+  const run = deps.runs.aliveRun(s.id);
+  if (!run) throw new ToolError(msg('mcp.stopSession.notRunning'));
+  if (run.deviceId !== deps.deviceId) throw new ToolError(msg('mcp.stopSession.otherDevice', { device: deviceBrief(deps, s.id)?.name ?? run.deviceId }));
+  deps.runs.kill(run.id);
+  return { ok: true, session_id: s.id, run_id: run.id };
+}
+
+/**
+ * UI の再開と同じ runs.resumeWith を通す。3 つのエージェントとも、再開の道筋は resumeWith の中で分かれる。
+ * account は Claude Code の会話のときだけ受ける。省けば resumeWith が最後に使ったアカウント（RunAccounts.lastUsed）で再開する。
+ */
+export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  if (!deps.runs.aliveRun || !deps.runs.resumeWith) throw new ToolError(msg('mcp.error.unknownTool', { name: 'resume_session' }));
+  const s = targetSession(deps, ctx, args);
+  if (deps.runs.aliveRun(s.id)) throw new ToolError(msg('mcp.resumeSession.running'));
+  const given = str(args.account);
+  let account: Account | null = null;
+  if (s.provider !== 'claude-code') {
+    if (given !== undefined) throw new ToolError(msg('mcp.createSession.accountClaudeOnly'));
+  } else if (deps.accounts?.store) {
+    const store = deps.accounts.store;
+    if (given !== undefined) account = accountNamed(store, given);
+    else {
+      const last = accountOfSession(deps.db, s.id, deps.deviceId);
+      account = (last ? store.get(last) ?? store.get(PRIMARY_ACCOUNT_ID) : null) ?? store.current();
+    }
+  }
+  return Promise.resolve(deps.runs.resumeWith(s.id, given !== undefined && account ? { account: account.id } : {}))
+    .then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }));
+}
+
+/**
+ * UI の削除と同じ trash.deleteSession を通す。どのセッションも、毎回 confirmed: true（利用者が会話の中で承諾した）でなければ消さない。
+ * 動いている会話の断り（409）は、deleteSession の文をそのまま返す。
+ */
+export function deleteSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  const trash = deps.trash;
+  if (!trash) throw new ToolError(msg('mcp.error.unknownTool', { name: 'delete_session' }));
+  const s = targetSession(deps, ctx, args, msg('mcp.deleteSession.self'));
+  if (args.confirmed !== true) throw new ToolError(msg('mcp.deleteSession.confirm', { title: sessionTitle(s) }));
+  return trash.deleteSession(s.id).then(() => ({ ok: true, session_id: s.id }));
+}
+
+/** 承諾を求めるときに利用者へ見せる題名。名前、AI の題、最初の発言の順に引く。 */
+function sessionTitle(s: SessionDto): string {
+  return (s.name ?? s.summary?.title ?? s.aiTitle ?? s.firstPrompt ?? s.id).replace(/\s+/g, ' ').trim().slice(0, 80);
 }
 
 export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -504,8 +627,13 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);
+    case 'stop_session': return stopSessionTool(deps, ctx, args);
+    case 'resume_session': return resumeSessionTool(deps, ctx, args);
+    case 'delete_session': return deleteSessionTool(deps, ctx, args);
     case 'draft_issue_report': return reportOf(deps, name).draft(args);
     case 'submit_issue_report': return reportOf(deps, name).submit(args);
+    case 'send_to_session': return sendToSessionTool(deps, ctx, args);
+    case 'read_session_screen': return readSessionScreenTool(deps, ctx, args);
     default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }

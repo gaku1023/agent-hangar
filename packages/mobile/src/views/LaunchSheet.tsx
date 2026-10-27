@@ -101,8 +101,8 @@ export function LaunchSheet({ spec, state, view, open, onClose, onRetry, onRecon
   const row = sessionId ? findRow(view, sessionId) : null;
   const url = row?.rcUrl && isRemoteControlUrl(row.rcUrl) ? row.rcUrl : null;
   const hasUrl = url !== null;
-  // opencode には Remote Control が無いので、開くボタンを出さず、URL も待たない（一覧の opencode の行がリンクでないのと同じ）。
-  const opencode = spec.payload.agent === 'opencode';
+  // opencode と Codex には Remote Control が無いので、開くボタンを出さず、URL も待たない（一覧のその行がリンクでないのと同じ）。
+  const opencode = spec.payload.agent === 'opencode' || spec.payload.agent === 'codex';
 
   // 始まったあと、URL が来るまで受信箱を読み直してもらう。
   const want = useRef(onWantRefresh);

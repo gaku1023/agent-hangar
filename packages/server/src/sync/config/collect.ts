@@ -6,7 +6,7 @@ import type { Db } from '../../db/open.ts';
 import { MAX_ITEM_BYTES } from './bundle.ts';
 import { fileId, kindOfRel, memoryId, settingsId, slugOfPath } from './ids.ts';
 import { findSecret } from './secrets.ts';
-import { canonicalJson, sortSettings, type DroppedKey } from './settingsSort.ts';
+import { canonicalJson, CLAUDE_KEYS2_KEYS, sortSettings, type DroppedKey } from './settingsSort.ts';
 
 /**
  * 手元の ~/.claude から、運ぶ項目を集める（設定の同期の設計書の 3 章）。
@@ -112,8 +112,9 @@ function walk(dir: string, onLink: (abs: string) => void, out: string[] = []): s
 
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 
-export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; allowedUnsent: ReadonlyMap<string, string>; /** 項目の数の上限。試験が小さくするために使う。 */ maxItems?: number }): Collected {
+export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; allowedUnsent: ReadonlyMap<string, string>; /** 項目の数の上限。試験が小さくするために使う。 */ maxItems?: number; /** 'keys2' は settings.json の新しい鍵だけを集める（対象 claude-keys2）。 */ scope?: 'claude' | 'keys2' }): Collected {
   const { claudeDir } = o;
+  const keys2 = o.scope === 'keys2';
   const maxItems = o.maxItems ?? MAX_ITEMS;
   const blocked: Blocked = { ids: new Set(), prefixes: [] };
   /** 設定の入れ物の中のパス（ファイルかディレクトリか分からない）を塞ぐ。 */
@@ -150,8 +151,8 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   };
 
   const relOf = (abs: string): string => toPosix(path.relative(claudeDir, abs));
-  for (const rel of ['CLAUDE.md', 'keybindings.json']) addFile(rel, path.join(claudeDir, rel));
-  for (const top of ['skills', 'commands', 'agents', 'memory']) {
+  if (!keys2) for (const rel of ['CLAUDE.md', 'keybindings.json']) addFile(rel, path.join(claudeDir, rel));
+  for (const top of keys2 ? [] : ['skills', 'commands', 'agents', 'memory']) {
     // 入れ物の途中がリンクなら、その先は読まない。ただし、そこに同名の項目が届いて上書きされないよう、塞ぎに入れる。
     let st: fs.Stats;
     try { st = fs.lstatSync(path.join(claudeDir, top)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockRel(top); continue; }
@@ -164,7 +165,7 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   const roots = o.db.prepare(`select r.project_id id, r.path path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.deleted_at is null and p.deleted_at is null order by r.project_id`).all(o.deviceId) as { id: string; path: string }[];
   for (const r of roots) { const s = slugOfPath(r.path); if (!slugs.has(s)) slugs.set(s, r.id); }
-  for (const [slug, projectId] of slugs) {
+  for (const [slug, projectId] of keys2 ? [] : slugs) {
     const memDir = path.join(claudeDir, 'projects', slug, 'memory');
     const blockProject = (): void => { blocked.prefixes.push(memoryId(projectId, '')); };
     let st: fs.Stats;
@@ -188,20 +189,23 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   const settingsRead = readRegular(path.join(claudeDir, 'settings.json'));
   const rawSettings = typeof settingsRead === 'object' ? settingsRead : null;
   // リンク、大きすぎる、読めない、JSON でない、オブジェクトでない settings.json には、相手の鍵を書き込めない。
-  if (settingsRead === 'blocked') blocked.prefixes.push('settings:');
+  const blockSettings = (): void => { if (keys2) for (const k of CLAUDE_KEYS2_KEYS) blocked.ids.add(settingsId(k)); else blocked.prefixes.push('settings:'); };
+  if (settingsRead === 'blocked') blockSettings();
   if (rawSettings) {
     try { json = JSON.parse(rawSettings.content.toString('utf8')); } catch { json = null; }
-    if (json === null || typeof json !== 'object' || Array.isArray(json)) { json = null; blocked.prefixes.push('settings:'); }
+    if (json === null || typeof json !== 'object' || Array.isArray(json)) { json = null; blockSettings(); }
   }
   const allowedRules = new Set<string>();
   const allowedRuleIds = new Map<string, string>();
   const ruleId = (list: string, rule: string): string => `rule:${list}:${sha256(rule).slice(0, 16)}`;
   for (const [uid, hash] of o.allowedUnsent) if (uid.startsWith('rule:')) allowedRuleIds.set(uid, hash);
-  const sorted = sortSettings(json, { allowedRules: new Set() });
+  const sorted = sortSettings(json, { allowedRules: new Set(), scope: o.scope });
   // 「それでも送る」が効いている規則は、仕分けを通し直して残す。
   for (const d of sorted.droppedRules) if (allowedRuleIds.get(ruleId(d.list, d.rule)) === sha256(d.rule)) allowedRules.add(d.rule);
-  const final = allowedRules.size > 0 ? sortSettings(json, { allowedRules }) : sorted;
+  const final = allowedRules.size > 0 ? sortSettings(json, { allowedRules, scope: o.scope }) : sorted;
   dropped.push(...final.dropped);
+  // 知らない鍵は送れない。理由だけを「送らなかった項目」に出す（値は載せない。秘密の走査にも掛けない）。
+  for (const d of final.dropped) if (d.reason === 'unknown') unsent.push({ id: `unknown-key:${d.key}`, kind: 'unknown-key', itemId: settingsId(d.key), label: d.key, reason: 'unknown-key', contentSha256: sha256(d.key), allowed: false });
   for (const s of final.items) add(settingsId(s.key), 'settings', s.key, `settings.json#${s.key}`, Buffer.from(canonicalJson(s.value)), [], rawSettings?.mtime ?? null);
   for (const d of sorted.droppedRules) {
     const allowed = allowedRules.has(d.rule);

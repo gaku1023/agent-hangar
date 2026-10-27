@@ -88,6 +88,8 @@ export function bootHttp(p: {
   opencode: Pick<OpencodeParts, 'options' | 'providers' | 'exporter' | 'transfer' | 'serves'>;
   /** スマホの受信箱の素。opencode の入り切りで組み直させる。 */
   mobile: Pick<MobileParts, 'settingsChanged'>;
+  /** Codex の検出と選択肢。スマホの問い合わせと同じ一覧を使う（server.ts で 1 つ作る）。 */
+  codex: { local: LocalCodex; options: CodexOptionsService };
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
@@ -104,8 +106,7 @@ export function bootHttp(p: {
   // opencode の検出（ベータ）。版は聞かれたときに 1 度だけ読み、同じファイルなら覚えた版を返す。
   const opencode = new LocalOpencode({ bin: () => findOpencode() });
   // Codex の検出と選択肢（ベータ）。版は 1 度だけ読んで覚え、ログインの有無は聞かれるたびに読む。codex debug models は空の環境で打つ。
-  const codex = new LocalCodex({ bin: () => findCodex() });
-  const codexOptions = new CodexOptionsService({ bin: () => findCodex(), status: codex.status });
+  const { local: codex, options: codexOptions } = p.codex;
   const app = createApp({
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },

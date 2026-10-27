@@ -1,5 +1,6 @@
 import { isSafeKeyId, isSafeRelPath, type ConfigItemKind } from '@agent-hangar/shared';
 import { isCarriedSettingsKey } from './settingsSort.ts';
+import { parseTargetItemId } from './targets/index.ts';
 
 /**
  * 設定の同期の項目の id。端末をまたいで同じ項目を指す名前で、束の目録にも基準の表にも載る。
@@ -43,8 +44,13 @@ export type ItemRef =
   | { type: 'settings'; key: string }
   | { type: 'memory'; projectId: string; rel: string };
 
-/** id を解く。形が悪い、運ばない場所を指す、のどれかなら null。 */
+/** id を解く。持ち主の対象に任せる薄い関数。形が悪い、運ばない場所を指す、知らない頭、のどれかなら null。 */
 export function parseItemId(id: string): { kind: ConfigItemKind; ref: ItemRef } | null {
+  return parseTargetItemId(id);
+}
+
+/** Claude（`file:`、`settings:`、`memory:`）の id を解く。対象 claude の parseId。 */
+export function parseClaudeItemId(id: string): { kind: ConfigItemKind; ref: ItemRef } | null {
   if (id.startsWith('file:')) {
     const rel = id.slice('file:'.length);
     const kind = kindOfRel(rel);

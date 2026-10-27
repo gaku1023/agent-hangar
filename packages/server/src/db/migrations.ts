@@ -634,6 +634,26 @@ alter table transcript_files add column agent text not null default 'claude-code
 `;
 
 /**
+ * 版 38。config_unsent の kind に 'unknown-key'（知らない鍵）を足す。
+ * 表は端末ローカルの「送らなかった項目」。check 制約を替えるので作り直し、中身（「それでも送る」の印を含む）は写す。
+ */
+const V38_CONFIG_UNSENT_UNKNOWN_KEY_SQL = `
+create table config_unsent_new (
+  id text primary key,
+  kind text not null check (kind in ('permission-rule','secret','unknown-key')),
+  item_id text not null,
+  label text not null,
+  reason text not null,
+  content_sha256 text not null,
+  allowed integer not null default 0,
+  found_at integer not null
+);
+insert into config_unsent_new select id, kind, item_id, label, reason, content_sha256, allowed, found_at from config_unsent;
+drop table config_unsent;
+alter table config_unsent_new rename to config_unsent;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -661,4 +681,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 35, sql: V35_AGENT_EVENTS_SQL },
   { version: 36, sql: V36_LAST_TURN_TS_SQL },
   { version: 37, sql: V37_TRANSCRIPT_FILES_AGENT_SQL },
+  { version: 38, sql: V38_CONFIG_UNSENT_UNKNOWN_KEY_SQL },
 ];

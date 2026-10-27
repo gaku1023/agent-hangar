@@ -7,12 +7,16 @@ import {
   MOBILE_AGENT_LABEL_MAX,
   MOBILE_AGENT_MODELS_MAX,
   MOBILE_AGENT_MODES_MAX,
+  MOBILE_CODEX_EFFORTS_MAX,
+  MOBILE_CODEX_MODELS_MAX,
   MOBILE_REPLY_MAX_BYTES,
   modelCostKind,
   modelDataUse,
   open,
   seal,
+  type CodexOptionsDto,
   type MobileAgentOptions,
+  type MobileCodexOptions,
   type MobileModelOption,
   type MobileReply,
   type OpencodeOptionsDto,
@@ -58,6 +62,15 @@ export type AskDeps = {
     ready(): boolean;
     options(dir: string | null): OpencodeOptionsDto | null;
     commands(dir: string | null): { name: string; description: string; kind: 'skill' | 'command' }[] | null;
+  };
+  /**
+   * Codex の口（0.12.0 で足した）。省けば Codex を使えない PC として答える。
+   * ready は設定で有効にしてあり、手元に見つかること。options は手元に持った一覧で、取りに行かない（持っていなければ null。裏で取り直しを始めてよい）。
+   * Codex の一覧は場所に依らない（codex debug models）。
+   */
+  codex?: {
+    ready(): boolean;
+    options(): CodexOptionsDto | null;
   };
 };
 
@@ -152,6 +165,31 @@ export function mobileAgentOptions(dto: OpencodeOptionsDto): MobileAgentOptions 
   };
 }
 
+/** Codex の一覧を古いとみなす間（PC の hangar が最後に取ってから）。 */
+const CODEX_STALE_MS = 30 * 60_000;
+
+/**
+ * PC の Codex の選択肢（CodexOptionsDto）をスマホの形に縮める。説明の文は落とす。
+ * モデルは、起動の依頼で PC が受ける形（isModelName）のものだけを残し、推論の段階は小文字の英数字と _ - の語だけを、codex の並びのまま残す。
+ */
+export function mobileCodexOptions(dto: CodexOptionsDto, now = Date.now()): MobileCodexOptions {
+  const models: MobileCodexOptions['models'] = [];
+  for (const m of dto.models) {
+    if (models.length >= MOBILE_CODEX_MODELS_MAX) break;
+    if (!isModelName(m.id)) continue;
+    const efforts = m.efforts.map((e) => e.id).filter((e) => /^[a-z0-9][a-z0-9_-]{0,23}$/.test(e)).slice(0, MOBILE_CODEX_EFFORTS_MAX);
+    models.push({ id: m.id, label: clip(m.label, MOBILE_AGENT_LABEL_MAX), efforts, defaultEffort: m.defaultEffort !== null && efforts.includes(m.defaultEffort) ? m.defaultEffort : null });
+  }
+  return { version: dto.version, verified: dto.verified, models, stale: now - dto.fetchedAt > CODEX_STALE_MS, fetchedAt: dto.fetchedAt };
+}
+
+function codexOptionsReply(d: AskDeps, projectId: string | null): MobileReply {
+  if (!d.codex?.ready()) return { error: 'agent-missing' };
+  if (projectId !== null && d.projectPath(projectId) === null) return { error: 'project-missing' };
+  const dto = d.codex.options();
+  return { codexOptions: dto ? mobileCodexOptions(dto) : null };
+}
+
 function agentOptionsReply(d: AskDeps, projectId: string | null): MobileReply {
   if (!d.opencode?.ready()) return { error: 'agent-missing' };
   const dir = opencodeDir(d, projectId);
@@ -170,7 +208,7 @@ function opencodeCommandsReply(d: AskDeps, projectId: string | null): MobileRepl
 
 /**
  * 開けた問い合わせ（MobileAsk）に答える。形が違えば bad-request。
- * opencode の問い合わせ（agent-options と、agent が opencode の commands）は、PC が手元に持った一覧で答え、取りに行かない。opencode を使えない PC は agent-missing。
+ * opencode と Codex の問い合わせ（agent-options と、agent が opencode の commands）は、PC が手元に持った一覧で答え、取りに行かない。そのエージェントを使えない PC は agent-missing。Codex に commands は無い（bad-request）。
  * 手元に無いプロジェクトは project-missing、手元に無いアカウントは account-missing。投げない。
  */
 export async function replyTo(d: AskDeps, ask: unknown): Promise<MobileReply> {
@@ -183,6 +221,7 @@ export async function replyTo(d: AskDeps, ask: unknown): Promise<MobileReply> {
     return { error: 'bad-request' };
   }
   if (ask.kind === 'agent-options' && projectOk && ask.agent === 'opencode') return agentOptionsReply(d, ask.projectId as string | null);
+  if (ask.kind === 'agent-options' && projectOk && ask.agent === 'codex') return codexOptionsReply(d, ask.projectId as string | null);
   return { error: 'bad-request' };
 }
 
@@ -208,6 +247,11 @@ function fitReply(reply: MobileReply, budget: number): MobileReply {
     const commands = [...reply.commands];
     while (commands.length > 0 && size({ commands }) > budget) commands.pop();
     return { commands };
+  }
+  if ('codexOptions' in reply && reply.codexOptions) {
+    const models = [...reply.codexOptions.models];
+    while (models.length > 0 && size({ codexOptions: { ...reply.codexOptions, models } }) > budget) models.pop();
+    return { codexOptions: { ...reply.codexOptions, models } };
   }
   if ('agentOptions' in reply && reply.agentOptions) {
     const models = [...reply.agentOptions.models];

@@ -51,14 +51,14 @@ export type LaunchRun = {
 
 type Failed = Extract<RunState, { kind: 'failed' }>;
 
-function answerFailure(pc: string, a: MobileLaunchAnswer | undefined): Failed {
+function answerFailure(pc: string, a: MobileLaunchAnswer | undefined, agent?: MobileLaunchPayload['agent']): Failed {
   const pcFail = (message: string, more: Partial<Failed> = {}): Failed => ({ kind: 'failed', at: 'pc', message, ...more });
   if (!a || a.ok) return pcFail(`${pc} で会話を開始できませんでした。`);
   switch (a.reason) {
     case 'project-missing':
       return pcFail('その PC にプロジェクトのディレクトリがありません。別の PC を選ぶか、PC の hangar でディレクトリを追加してください。');
     case 'agent-missing':
-      return pcFail('opencode が見つかりません（PC の PATH を確認してください）。');
+      return pcFail(`${agent === 'codex' ? 'codex' : 'opencode'} が見つかりません（PC の PATH を確認してください）。`);
     case 'account-missing':
       return pcFail('その PC に選んだアカウントがありません。アカウントを選び直してください。');
     case 'images-missing':
@@ -169,7 +169,7 @@ export function startLaunch(
         else if (s === 'unanswered') emit({ kind: 'unanswered' });
         else if (s === 'unpaired') emit({ kind: 'unpaired', reason: why ?? 'unknown' });
         else if (s === 'expired') emit({ kind: 'failed', at: 'pc', message: `${spec.pcName} から応答がありません。${spec.pcName} で hangar が実行中か確認して、もう一度送信してください。` });
-        else emit(answerFailure(spec.pcName, a));
+        else emit(answerFailure(spec.pcName, a, spec.payload.agent));
       },
     });
   };

@@ -126,6 +126,33 @@ export async function runMockExec(bin: string, w: CodexWorld, port: number, prom
   return { path: p, lines, stdout: r.stdout };
 }
 
+/** `codex features list` の出力。CODEX_HOME が無いと断られるので、試しの置き場で打つ。 */
+export const codexFeaturesText = (bin: string, w: CodexWorld): string => captureOutputSync(bin, ['features', 'list'], { env: w.env, cwd: w.cwd, timeoutMs: CLI_TIMEOUT_MS }).stdout;
+
+/** 置き場の下の rollout を、zst も含めて全部数える（圧縮に切り替わったかを見る）。 */
+export function rolloutNamesOf(codexHome: string): string[] {
+  const found: string[] = [];
+  const walk = (d: string) => {
+    for (const e of fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }) : []) {
+      if (e.isDirectory()) walk(path.join(d, e.name));
+      else if (/^rollout-.*\.jsonl(\.zst)?$/.test(e.name)) found.push(e.name);
+    }
+  };
+  walk(path.join(codexHome, 'sessions'));
+  return found.sort();
+}
+
+/** 模擬のモデルで、既にある会話を `codex exec resume` で 1 回進める。会話の ID は先頭の session_meta から取る。モデルもログインも使わない。 */
+export async function runMockResume(bin: string, w: CodexWorld, port: number, rolloutPath: string, prompt: string): Promise<void> {
+  const first = JSON.parse(fs.readFileSync(rolloutPath, 'utf8').split('\n')[0]!) as { payload?: { id?: unknown } };
+  const id = first.payload?.id;
+  if (typeof id !== 'string') throw new Error('rollout の先頭に会話の ID がありません');
+  const r = await captureOutput(bin, ['exec', '--skip-git-repo-check', ...mockProviderArgs(port), '-m', 'mock-model', 'resume', id, prompt], {
+    env: w.env, cwd: w.cwd, timeoutMs: CLI_TIMEOUT_MS * 2, stderr: true, stdin: '',
+  });
+  if (r.code !== 0) throw new Error(`codex exec resume が ${r.code} で終わりました：${r.stderr.slice(0, 400)}`);
+}
+
 /** app-server を標準入出力（JSON の行）で 1 本起こして話す。ログイン無し。 */
 export class StdioRpc {
   private nextId = 1;
